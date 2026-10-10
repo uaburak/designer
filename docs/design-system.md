@@ -792,6 +792,8 @@ export type ExitReason = "enter" | "escape" | "tab" | "shift-tab" | "blur";
     variant?: "filled" | "ghost";
     onExit?: (r: ExitReason) => void;
     onFocusChange?: (focused: boolean) => void;   // canvas highlights what a padding/gap field edits
+    displayText?: string;                         // shown in place of the number, focused too ("19, 22"), not as Mixed
+    onScrubBy?: (delta: number, info: ChangeInfo) => void; // a Mixed / list field's scrub: whole steps from each value
   }
   ```
 - **Typing**: accepts a number or arithmetic, `+ − × ÷ * / ( )`, with `,` as a decimal point. Parsing is `evaluate()`, ported from `figma/ui.tsx` with its test; it is a hand parser and never `eval`. A typed unit suffix is ignored (`50%` → 50). The result is clamped and rounded to `precision`. Invalid input reverts. Enter, Tab or blur commits (`final: true`, source `"type"`).
@@ -799,11 +801,12 @@ export type ExitReason = "enter" | "escape" | "tab" | "shift-tab" | "blur";
 - **Scrubbing** (pointer on the prefix):
   - cursor `ew-resize`, forced globally while dragging (`html[data-cursor="ew-resize"]`);
   - uses `setPointerCapture`;
-  - **1 unit per 1px** of horizontal movement (×10 with Shift, ×0.1 with Alt when `precision > 0`);
+  - **whole steps, one per 4 CSS px** at 1x (round 16: live Figma's X label dragged 90 px moved 22 — live/behaviour/fields.md §14; 1 px a step read as far too fast to the owner); ×10 with Shift (re-based where ⇧ goes down or up); the speed bands (2x / 1x / 1/2 / 1/4 by how far above / below the start); a fractional value lands on the step grid at the first step the way the drag goes (61.05 → 62 / 61), never a fraction after (`util/scrub.ts`);
+  - a **Mixed** field (or a list such as a padding pair's "19, 22") scrubs too when it has `onScrubBy`: the delta from the start, each layer moving from its own value (`scrubFrom`);
+  - each step plays a **haptic tick** on the Mac's trackpad (`util/haptics.ts` → `haptics:tick`, docs/desktop.md §10.2 "Haptics");
   - emits `final: false` per frame, then `final: true` on release;
   - Esc calls `onCancel`;
   - a press without movement (< 2px) just focuses the field;
-  - G: verify the rate (Open questions). The current 4px-per-unit code is replaced.
 - **Units**: with `unit`, the input is as wide as its digits and the unit hugs it (`100%`, `0°`); clicking the remaining area focuses the input (K).
 - **States**: as TextInput. Disabled shows 0.4 opacity and no scrub cursor.
 - **Tags**: K (behaviour), G (scrub rate and modifiers).
@@ -1453,7 +1456,7 @@ engine/src/overlay/ChromePalette.generated.h   # GENERATED (path per engine cont
 
 1. **No light-theme measurements.** Every M value is dark. The light values of the app tokens (tab bar #e6e6e6/#d9d9d9/#cfcfcf/#dcdcdc, rail separator, ruler tick #b3b3b3) are K/G. The owner should supply the same screenshot set in light. Fix any differences in `tokens.ts` only.
 2. **Light text-secondary**: D gives #00000080 and F gives #00000099. D is kept; check against a light screenshot.
-3. **Scrub rate** in NumericInput: 1 unit per px, Shift ×10, Alt ×0.1 (G; the old code used 4px per unit). Verify by dragging "W" 100px in Figma.
+3. **Scrub rate** in NumericInput: resolved in round 16 — a whole step per 4 px (live: 90 px → 22), Shift ×10 (§4.5).
 4. **Layer-row pitch**: 24 is inferred from the measured 24px highlight. If Figma's pitch is larger (rows with gaps), change `--ds-size-layer-row` and the VirtualList row height together.
 5. **Canvas default colour in dark**: the measurement says the canvas is "#232323". Is that the owner's page colour, or Figma's default page shown in dark? `canvasDefault` is #1e1e1e (K) until checked.
 6. **Weights**: is the Share button label 450 or 500 (F uses 500)? Is the menu text 12px (K) or 11px?

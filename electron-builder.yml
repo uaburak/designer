@@ -7,6 +7,10 @@ files:
   - out/**
   - package.json
 asar: true
+# The trackpad's haptics addon (src/main/haptics.ts, docs/desktop.md §10.2 "Haptics"): loaded from Resources
+extraResources:
+  - from: native/haptics/haptics.node
+    to: haptics.node
 mac:
   category: public.app-category.graphics-design
   target:

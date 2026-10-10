@@ -314,6 +314,8 @@ export interface IpcSend {
   "shell:open-external": { url: string };
   /** A tool call's answer from the view that ran it */
   "agents:tool-result": ToolCallResult;
+  /** A step of a scrub: the trackpad's haptic tick (macOS; main throttles it to one a frame — src/main/haptics.ts) */
+  "haptics:tick": void;
 }
 
 export interface IpcEvents {
@@ -399,4 +401,5 @@ export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {
   "file:reveal-data-folder": ["home", "editor"],
   "shell:open-external": ["home", "editor"],
   "agents:tool-result": ["editor"],
+  "haptics:tick": ["tabbar", "home", "editor"],
 };

@@ -97,6 +97,8 @@
   .buttonGroup > .groupButton:disabled { background: var(--figma-color-bg-secondary); }
   /* Gap and, for a wrap, the gap between rows: two fields stacked next to the 56-high alignment box */
   .gapStack { display: flex; flex-direction: column; gap: var(--ds-space-2); }
+  /* A padding field's hover / ⌘-click / focus listener, no box of its own (the field stays its cell's child) */
+  .contents { display: contents; }
   .alignRow { align-items: start; }
   .alignRow > [class] > .gapStack, .alignRow .matrix { align-self: start; }
   /* Corner smoothing: the slider with Figma's iOS mark at 60%, then the field */

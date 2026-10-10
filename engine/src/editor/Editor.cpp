@@ -742,6 +742,7 @@ Overlay Editor::overlay() const {
     o.layoutBars = layoutBars_;
     o.spacingAreas = spacingAreas_;
   }
+  if (gesture_ == Gesture::None && panelSpacing_) panelSpacingAreas(o.spacingAreas);
   if (o.handles && gesture_ != Gesture::Move) {
     Guid line;
     Vec2 a, b;

@@ -49,6 +49,8 @@ interface DesktopCommon {
   onThemeChanged(cb: (t: ThemeState) => void): Unsubscribe;
   onWindowState(cb: (s: WindowState) => void): Unsubscribe;
   onFullScreen(cb: (fullScreen: boolean) => void): Unsubscribe;
+  /** The trackpad's haptic tick (a scrub's step; macOS, throttled by main — docs/desktop.md §10.2 "Haptics") */
+  haptics: { tick(): void };
   menu: {
     /** A native menu at a point of this view: the picked item's id, or null when dismissed */
     popup(template: NativeMenuItem[], at: { x: number; y: number }): Promise<string | null>;

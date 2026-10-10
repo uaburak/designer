@@ -733,6 +733,12 @@ ENG_EXPORT void engine_set_hover(Handle h, Ptr ptr, uint32_t len) {
   if (e && parse(ptr, len, v)) e->editor.setHover(readRefs(v));
 }
 
+// Round 16: the Design panel's padding / gap field under the pointer hatches what it edits (Editor::SPACING_* bits).
+ENG_EXPORT void engine_set_spacing_highlight(Handle h, uint32_t mask) {
+  Call call;
+  if (Engine* e = engineOf(h)) e->editor.setSpacingHighlight(mask);
+}
+
 ENG_EXPORT uint32_t engine_tick(Handle h, double timeMs) {
   Call call;
   Engine* e = engineOf(h);

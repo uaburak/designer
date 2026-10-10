@@ -10,7 +10,7 @@
  * steps each layer by the delta (onStep) and takes "Mixed+10" per layer (onExpression).
  */
 import { useState } from "react";
-import { BLEND_LABEL, BLEND_MODES, Icon, IconButton, MenuButton, MIXED, NumericInput, PanelSection, Popover, PropertyGrid, PropertyRow, Select, SegmentedControl, ToggleIconButton, cx, type ChangeInfo, type Mixed, type NumericInputProps } from "@/ds";
+import { BLEND_LABEL, BLEND_MODES, Icon, IconButton, MenuButton, MIXED, NumericInput, PanelSection, Popover, PropertyGrid, PropertyRow, Select, SegmentedControl, ToggleIconButton, cx, scrubFrom, type ChangeInfo, type Mixed, type NumericInputProps } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { BindButton } from "./Component";
 import type { CommandName } from "@/engine/abi";
@@ -44,6 +44,22 @@ export function editEach(ed: EditorController, label: string, info: ChangeInfo, 
 export const stepInfo: ChangeInfo = { final: true, source: "step" };
 
 /**
+ * A Mixed field's scrub (round 16): each layer's value(s) as the scrub found them, so every step writes start + delta
+ * (the open transaction already holds the last step's values). One scrub at a time; dropped on release or Esc.
+ */
+let scrubStart: Map<string, unknown> | null = null;
+export function scrubEach<T>(ed: EditorController, label: string, info: ChangeInfo, refs: readonly Guid[], read: (n: PanelNode) => T, write: (n: PanelNode, start: T) => Fields | null) {
+  if (!scrubStart) scrubStart = new Map((ed.engine.readNodes(refs) as PanelNode[]).map((n) => [n.guid, read(ed.withRealType(n as never) as PanelNode)]));
+  const start = scrubStart;
+  if (info.final) scrubStart = null;
+  editEach(ed, label, info, refs, (n) => write(n, start.has(n.guid) ? (start.get(n.guid) as T) : read(n)));
+}
+export const cancelScrub = (ed: EditorController) => {
+  scrubStart = null;
+  ed.cancelEdit();
+};
+
+/**
  * A number field's handlers over several layers: a value for all, ↑ ↓ on Mixed adding the delta to each, "Mixed+10"
  * applied to each, a scrub cancelled with Esc, Esc giving the keyboard back to the canvas.
  */
@@ -54,12 +70,14 @@ export function perLayer(
   get: (n: PanelNode) => number,
   set: (n: PanelNode, v: number) => Fields | null,
   clamp: (v: number) => number = (v) => v
-): Pick<NumericInputProps, "onChange" | "onStep" | "onExpression" | "onCancel" | "onExit"> {
+): Pick<NumericInputProps, "onChange" | "onStep" | "onExpression" | "onScrubBy" | "onCancel" | "onExit"> {
   return {
     onChange: (v, info) => editEach(ed, label, info, refs, (n) => set(n, v)),
     onStep: (d) => editEach(ed, label, stepInfo, refs, (n) => set(n, clamp(get(n) + d))),
     onExpression: (each, info) => editEach(ed, label, info, refs, (n) => set(n, clamp(each(get(n))))),
-    onCancel: () => ed.cancelEdit(),
+    // A Mixed field scrubbed: each layer from its own value, in whole steps.
+    onScrubBy: (d, info) => scrubEach(ed, label, info, refs, get, (n, v0) => set(n, clamp(scrubFrom(v0, d)))),
+    onCancel: () => cancelScrub(ed),
     onExit: exitToCanvas(ed),
   };
 }

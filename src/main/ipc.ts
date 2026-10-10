@@ -5,6 +5,7 @@ import type { McpClientId } from "../shared/agents/types";
 import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from "../shared/agents/attachments";
 import * as agents from "./agents/host";
 import { exportAssets } from "./files";
+import { hapticTick } from "./haptics";
 import { fontIndex, readFont } from "./fonts";
 import { googlePreview } from "./googleFonts";
 import { isAppUrl } from "./protocol";
@@ -135,6 +136,8 @@ export function registerIpc() {
     const pageIds = Array.isArray(p.options?.pageIds) ? p.options.pageIds.map((x) => str(x, 64)).filter((x): x is string => x !== null).slice(0, 1000) : "all";
     return ctl.tabs.exportPreview(p.fileKey, p.snapshot, { pageIds, inspect: p.options?.inspect !== false, export: p.options?.export !== false });
   });
+  // ── Haptics (a scrub's steps; throttled, macOS only) ──
+  onSend("haptics:tick", () => void hapticTick());
   onSend("file:reveal-data-folder", () => void shell.openPath(workspaceDir()));
 
   // ── A file tab ──

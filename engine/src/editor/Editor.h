@@ -307,6 +307,11 @@ class Editor : private LayoutHost, public TextLayouts {
   Status setTool(Tool t);
   Tool tool() const { return tool_; }
   void setHover(const std::vector<Guid>& ids);  // Layers row hover → canvas outline
+  // Round 16: the Design panel's padding / gap field under the pointer (or focused) hatches what it edits on the
+  // selected auto-layout frame — bits SPACING_* (1 left, 2 top, 4 right, 8 bottom, 16 every gap), 0 none.
+  enum : uint32_t { SPACING_LEFT = 1, SPACING_TOP = 2, SPACING_RIGHT = 4, SPACING_BOTTOM = 8, SPACING_GAPS = 16 };
+  void setSpacingHighlight(uint32_t mask);
+  uint32_t spacingHighlight() const { return panelSpacing_; }
   bool tick(double timeMs);                     // true: draw a frame
   // Round 15: ms until a timed piece of chrome changes (the `</>` button's tooltip), −1: none.
   int32_t chromeDelay() const;
@@ -1739,6 +1744,9 @@ class Editor : private LayoutHost, public TextLayouts {
   // edits — the pair (⌥) or all four (⌥⇧).
   int layoutBandHover_ = -1;
   std::vector<Overlay::SpacingArea> spacingAreas_;
+  // Round 16: what the panel's padding / gap field under the pointer edits (SPACING_* bits), hatched as a hover would.
+  uint32_t panelSpacing_ = 0;
+  void panelSpacingAreas(std::vector<Overlay::SpacingArea>& out) const;
   int altBand_ = -1;
   uint32_t altBandMods_ = 0;
   // The `</>` button under the pointer and since when (the tick's clock; −1: not yet ticked) — its tooltip after the

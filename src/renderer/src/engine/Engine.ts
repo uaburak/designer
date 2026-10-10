@@ -977,6 +977,14 @@ export class Engine {
     this.after(this.x.setHover(this.h, encodeRefs(refs)));
   }
 
+  /**
+   * Hatches on the canvas what a Design panel padding / gap field edits on the selected auto-layout frame, as the
+   * pointer over it would (round 16): `SPACING_HIGHLIGHT` bits, 0 for none.
+   */
+  setSpacingHighlight(mask: number): void {
+    this.after(this.x.setSpacingHighlight(this.h, mask >>> 0));
+  }
+
   contextLost(): void {
     this.after(this.x.glContextLost(this.h));
   }

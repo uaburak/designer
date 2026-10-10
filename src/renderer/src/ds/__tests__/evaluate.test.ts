@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { clampRound, commitTyped, evaluate, evaluateWith, formatNumber, parseExpression, stripUnit } from "../util/evaluate";
-import { scrubRate, scrubValue, stepValue } from "../util/scrub";
+import { scrubFrom, scrubRate, scrubSteps, scrubValue, stepValue, SCRUB_PX_PER_STEP } from "../util/scrub";
 
 describe("a numeric field's arithmetic (ported from figma/ui.tsx)", () => {
   it("reads numbers and decimal commas", () => {
@@ -65,13 +65,37 @@ describe("stepping and scrubbing (contract §4.5)", () => {
     expect(stepValue(0, -1, { min: 0 })).toBe(0);
     expect(stepValue(1, 1, { step: 0.5, bigStep: 5, shift: true })).toBe(6);
   });
-  it("scrubs 1 unit per px, ×10 with Shift, at the pointer's speed (2x, 1x, 1/2, 1/4)", () => {
-    expect(scrubValue(100, 30)).toBe(130);
-    expect(scrubValue(100, -30, { shift: true })).toBe(-200);
-    expect(scrubValue(100, 30, { rate: 2 })).toBe(160);
-    expect(scrubValue(100, 30, { rate: 0.25 })).toBe(107.5);
-    expect(scrubValue(100, 30, { rate: 0.25, precision: 0 })).toBe(107);
-    expect(scrubValue(0, 500, { max: 100 })).toBe(100);
+  it("scrubs a whole step per 4 px (live: 90 px → 22), ×10 with Shift, at the pointer's speed (2x, 1x, 1/2, 1/4)", () => {
+    expect(SCRUB_PX_PER_STEP).toBe(4);
+    expect(scrubValue(-3, 90)).toBe(19);
+    expect(scrubValue(100, 3)).toBe(100);
+    expect(scrubValue(100, 4)).toBe(101);
+    expect(scrubValue(100, 30)).toBe(107);
+    expect(scrubValue(100, -30)).toBe(93);
+    expect(scrubValue(100, -30, { shift: true })).toBe(30);
+    expect(scrubValue(100, 30, { rate: 2 })).toBe(115);
+    expect(scrubValue(100, 30, { rate: 0.5 })).toBe(103);
+    expect(scrubValue(100, 32, { rate: 0.25 })).toBe(102);
+    expect(scrubValue(0, 2000, { max: 100 })).toBe(100);
+    expect(scrubSteps(-7)).toBe(-1);
+  });
+  it("never leaves a fraction: a value off the step grid lands on it at the first step, the way the drag goes", () => {
+    expect(scrubValue(61.05, 4)).toBe(62);
+    expect(scrubValue(61.05, 8)).toBe(63);
+    expect(scrubValue(61.05, -4)).toBe(61);
+    expect(scrubValue(61.05, -8)).toBe(60);
+    expect(scrubValue(61.05, 2)).toBe(61.05);
+    expect(scrubValue(61.05, 4, { shift: true })).toBe(71);
+    expect(scrubValue(-2.5, 4)).toBe(-2);
+    expect(scrubValue(0.37, 4, { step: 0.1, precision: 2 })).toBe(0.4);
+    expect(scrubValue(0.4, 4, { step: 0.1, precision: 2 })).toBe(0.5);
+  });
+  it("a Mixed scrub moves each value by whole steps from its own, a fraction landing on a whole number first", () => {
+    expect(scrubFrom(19, 5)).toBe(24);
+    expect(scrubFrom(61.05, 1)).toBe(62);
+    expect(scrubFrom(61.05, -1)).toBe(61);
+    expect(scrubFrom(61.05, 0)).toBe(61.05);
+    expect(scrubFrom(10, 0.5)).toBe(10.5);
   });
   it("picks the speed from how far above or below the start the pointer is", () => {
     expect([scrubRate(-200), scrubRate(-60), scrubRate(0), scrubRate(59), scrubRate(60), scrubRate(179), scrubRate(180)]).toEqual([2, 2, 1, 1, 0.5, 0.5, 0.25]);

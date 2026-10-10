@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type HTMLAttributes, type PointerEvent as 
 import { cx } from "../util/cx";
 import { commitTyped, formatNumber } from "../util/evaluate";
 import { scrubRate, scrubValue, stepValue, SCRUB_THRESHOLD } from "../util/scrub";
+import { hapticTick } from "../util/haptics";
 import { exitKey, selectAllOnClick } from "../util/selectAll";
 import { useReturnFocus } from "../util/returnFocus";
 import { isMixed, type ChangeInfo, type ExitReason, type Mixed } from "../types";
@@ -34,6 +35,12 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
    * (already clamped and rounded) to every layer's own value
    */
   onExpression?: (each: (x: number) => number, info: ChangeInfo) => void;
+  /**
+   * A scrub while the value is Mixed (or a list: "19, 22"): `delta` whole steps from where the scrub started, the
+   * editor adding it to each value as it was then (`final: false` each step, one `final: true`); without it a Mixed
+   * field doesn't scrub
+   */
+  onScrubBy?: (delta: number, info: ChangeInfo) => void;
   /** Words the field takes besides numbers (a gap's "Auto", a line height's "Auto"): typed in any case */
   keywords?: readonly string[];
   onKeyword?: (word: string) => void;
@@ -68,6 +75,11 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
    * typing one commits as usual
    */
   valueLabel?: string;
+  /**
+   * The field's text in place of the number, focused or not (a padding pair whose sides differ: "19, 22"; the one
+   * padding field: "18, 22, 17, 19"): drawn as a value, not as Mixed; typing replaces it as usual (`onText` reads lists)
+   */
+  displayText?: string;
   /** Shown after the number, right-aligned, while not focused (W / H: "Hug", "Fill") */
   modeLabel?: string;
   /**
@@ -82,11 +94,13 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
  * parentheses; "Mixed+100" on a Mixed field applies to each layer), a typed unit ignored, clamped and rounded.
  * Enter commits and gives focus back (to the canvas: `ReturnFocusProvider`); Tab or leaving commits; Esc puts the
  * typed text back and keeps the field focused with its text selected, a second Esc leaves like Enter
- * (live/behaviour/fields.md). ↑ ↓ step (⇧ big step). Dragging the prefix — or the field while ⌥ is held — scrubs: 1 unit a
- * px (⇧ ×10), faster toward the top of the screen and slower toward the bottom (2x, 1x, 1/2, 1/4): `final:
- * false` each frame, one `final: true` on release, Esc cancels; a press without movement focuses the field.
+ * (live/behaviour/fields.md). ↑ ↓ step (⇧ big step). Dragging the prefix — or the field while ⌥ is held — scrubs in
+ * whole steps, one per 4 px (⇧ ×10; a fractional value lands on a whole number at the first step: util/scrub.ts),
+ * faster toward the top of the screen and slower toward the bottom (2x, 1x, 1/2, 1/4), a haptic tick on each step
+ * (util/haptics.ts): `final: false` each step, one `final: true` on release, Esc cancels; a press without movement
+ * focuses the field.
  */
-export function NumericInput({ label, prefix, prefixTone, value, onChange, onCancel, onClear, onStep, onExpression, keywords, onKeyword, onText, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, scrubHandle, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, valueLabel, modeLabel, boxLabel, className, ...rest }: NumericInputProps) {
+export function NumericInput({ label, prefix, prefixTone, value, onChange, onCancel, onClear, onStep, onExpression, onScrubBy, keywords, onKeyword, onText, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, scrubHandle, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, valueLabel, displayText, modeLabel, boxLabel, className, ...rest }: NumericInputProps) {
   const mixed = isMixed(value);
   const current = mixed ? null : value;
   const base = current ?? 0;
@@ -98,14 +112,16 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
   const exitBy = useRef<ExitReason>("blur");
   const input = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ x: number; y: number; start: number; last: number; moved: boolean; rate: number; id: number; el: HTMLElement } | null>(null);
+  const drag = useRef<{ x: number; y: number; start: number; last: number; moved: boolean; rate: number; shift: boolean; relative: boolean; id: number; el: HTMLElement } | null>(null);
   const [focused, setFocused] = useState(false);
   const returnFocus = useReturnFocus();
   // Figma writes the unit in the field's text ("100%", "0°"); a bare field (the colour row's opacity) puts it after the number.
   const unitInside = !!unit && !bare;
-  const shown = valueLabel !== undefined && !focused && !scrubbing ? valueLabel : mixed ? STRINGS.mixed : current === null ? "" : formatNumber(current, precision) + (unitInside ? unit : "");
+  const shown = displayText !== undefined ? displayText : valueLabel !== undefined && !focused && !scrubbing ? valueLabel : mixed ? STRINGS.mixed : current === null ? "" : formatNumber(current, precision) + (unitInside ? unit : "");
   const unitAfter = !!unit && !unitInside;
   const text = draft ?? shown;
+  // "Mixed" in the field (secondary, and "Mixed+100" typed after it) — not a list shown in its place.
+  const mixedShown = mixed && draft === null && displayText === undefined;
 
   const finish = (raw?: string) => {
     if (!typing.current) return;
@@ -127,7 +143,8 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
   const startScrub = (e: ReactPointerEvent<HTMLElement>) => startScrubOn(e.currentTarget, e);
   const startScrubOn = (el: HTMLElement, e: ScrubPointer) => {
     capture(el, e.pointerId);
-    drag.current = { x: e.clientX, y: e.clientY, start: base, last: base, moved: false, rate: 1, id: e.pointerId, el };
+    // A Mixed value (or a list) scrubs by a delta from 0, each layer's own value moving by it (`onScrubBy`).
+    drag.current = { x: e.clientX, y: e.clientY, start: mixed ? 0 : base, last: mixed ? 0 : base, moved: false, rate: 1, shift: e.shiftKey, relative: mixed, id: e.pointerId, el };
   };
   const moveScrub = (e: ScrubPointer) => {
     const d = drag.current;
@@ -141,18 +158,24 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
       onFocusChange?.(true);
     }
     const rate = scrubRate(e.clientY - d.y);
-    if (rate !== d.rate) {
-      // A speed change keeps the value reached and goes on from there at the new rate.
+    if (rate !== d.rate || e.shiftKey !== d.shift) {
+      // A speed change (or ⇧ pressed / let go) keeps the value reached and goes on from there at the new rate.
+      if (rate !== d.rate) {
+        setSpeed(rate);
+        document.documentElement.setAttribute("data-scrub-speed", String(rate));
+      }
       d.rate = rate;
+      d.shift = e.shiftKey;
       d.start = d.last;
       d.x = e.clientX;
-      setSpeed(rate);
-      document.documentElement.setAttribute("data-scrub-speed", String(rate));
     }
-    const next = scrubValue(d.start, e.clientX - d.x, { step, bigStep, shift: e.shiftKey, min, max, precision, rate });
+    const next = scrubValue(d.start, e.clientX - d.x, { step, bigStep, shift: e.shiftKey, min: d.relative ? -Infinity : min, max: d.relative ? Infinity : max, precision, rate });
     if (next !== d.last) {
       d.last = next;
-      onChange(next, { final: false, source: "scrub" });
+      // Each step a tick on the trackpad, as Figma's (main throttles it; nothing off macOS).
+      hapticTick();
+      if (d.relative) onScrubBy?.(next, { final: false, source: "scrub" });
+      else onChange(next, { final: false, source: "scrub" });
     }
   };
   const endScrub = (cancel: boolean) => {
@@ -170,6 +193,7 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
       return;
     }
     if (cancel) onCancel?.();
+    else if (d.relative) onScrubBy?.(d.last, { final: true, source: "scrub" });
     else onChange(d.last, { final: true, source: "scrub" });
   };
 
@@ -185,7 +209,7 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
     return () => window.removeEventListener("keydown", esc, true);
   });
 
-  const canScrub = scrub && !disabled && !mixed;
+  const canScrub = scrub && !disabled && (!mixed || !!onScrubBy);
   // A label elsewhere scrubs too: native listeners on it, calling this render's handlers.
   const handle = useRef({ startScrubOn, moveScrub, endScrub, canScrub });
   useEffect(() => {
@@ -244,7 +268,7 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
       data-disabled={disabled || undefined}
       data-scrubbing={scrubbing || undefined}
       data-alt-scrub={(altHover && canScrub) || undefined}
-      data-mixed={(mixed && draft === null) || undefined}
+      data-mixed={mixedShown || undefined}
       className={cx(styles.field, variant === "ghost" && styles.ghost, bare && styles.bare, className)}
       role={boxLabel ? "group" : undefined}
       aria-label={boxLabel ? label : undefined}
@@ -344,11 +368,11 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
             returnFocus?.();
           }
         }}
-        className={cx(styles.input, styles.tabular, modeLabel && styles.hug, unitAfter && styles.opacityInput, prefix === undefined && !unitAfter && styles.padStart, mixed && draft === null && styles.mixedText)}
+        className={cx(styles.input, styles.tabular, modeLabel && styles.hug, unitAfter && styles.opacityInput, prefix === undefined && !unitAfter && styles.padStart, mixedShown && styles.mixedText)}
       />
       {unitAfter && (
         <>
-          {text !== "" && !(mixed && draft === null) && <span className={styles.unit}>{unit}</span>}
+          {text !== "" && !mixedShown && <span className={styles.unit}>{unit}</span>}
           <span
             className={styles.filler}
             onPointerDown={(e) => {

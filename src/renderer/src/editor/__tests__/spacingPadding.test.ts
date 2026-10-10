@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ordered, respace, spacingAxes, spacingOf, type SpacingItem } from "../model/spacing";
-import { paddingFields, paddingFromText, paddingOf, parsePaddingList, parsePaddingShorthand } from "../model/padding";
+import { ALL_SIDES, paddingDisplay, paddingFields, paddingFromText, paddingHighlight, paddingOf, parsePaddingList, parsePaddingShorthand } from "../model/padding";
 
 const item = (id: string, x: number, y: number, w: number, h: number): SpacingItem => ({ id, box: { x, y, w, h } });
 
@@ -66,6 +66,34 @@ describe("Padding (model/padding.ts)", () => {
     expect(paddingFromText("8 16 4", all)).toEqual({ top: 8, right: 16, bottom: 4, left: 16 });
     expect(paddingFromText("1 2 3 4", all)).toEqual({ top: 1, right: 2, bottom: 3, left: 4 });
     expect(parsePaddingShorthand("1 2 3 4 5")).toBeNull();
+  });
+
+  it('comma-separated with spaces, as Figma shows them ("12, 18"): a pair, the one field\'s 2, 3 or 4 values', () => {
+    expect(paddingFromText("12, 18", ["left", "right"])).toEqual({ left: 12, right: 18 });
+    expect(paddingFromText("12, 18", ["top", "bottom"])).toEqual({ top: 12, bottom: 18 });
+    expect(paddingFromText("12, 18", ALL_SIDES)).toEqual({ top: 12, right: 18, bottom: 12, left: 18 });
+    expect(paddingFromText("12, 18, 4", ALL_SIDES)).toEqual({ top: 12, right: 18, bottom: 4, left: 18 });
+    expect(paddingFromText("18, 22, 17, 19", ALL_SIDES)).toEqual({ top: 18, right: 22, bottom: 17, left: 19 });
+    expect(paddingFromText("12", ALL_SIDES)).toBeNull(); // one number: the field's own value (every side)
+  });
+
+  it("what a field shows: one number, the sides' list when they differ (53 / 55.png), Mixed when the layers differ", () => {
+    const p = { top: 18, right: 22, bottom: 17, left: 19 };
+    expect(paddingDisplay([p], ["left", "right"])).toEqual({ text: "19, 22" });
+    expect(paddingDisplay([p], ["top", "bottom"])).toEqual({ text: "18, 17" });
+    expect(paddingDisplay([p], ALL_SIDES)).toEqual({ text: "18, 22, 17, 19" });
+    expect(paddingDisplay([p], ["left"])).toEqual({ value: 19 });
+    expect(paddingDisplay([p, p], ["left", "right"])).toEqual({ text: "19, 22" });
+    expect(paddingDisplay([{ top: 8, right: 8, bottom: 8, left: 8 }], ALL_SIDES)).toEqual({ value: 8 });
+    expect(paddingDisplay([p, { ...p, right: 23 }], ["left", "right"])).toEqual({ mixed: true });
+    expect(paddingDisplay([p, { ...p, right: 23 }], ["top", "bottom"])).toEqual({ text: "18, 17" });
+    expect(paddingDisplay([{ ...p, left: 1.5 }], ["left", "right"])).toEqual({ text: "1.5, 22" });
+  });
+
+  it("the canvas highlight's bits for a field's sides", () => {
+    expect(paddingHighlight(["left", "right"])).toBe(5);
+    expect(paddingHighlight(["top", "bottom"])).toBe(10);
+    expect(paddingHighlight(ALL_SIDES)).toBe(15);
   });
 
   it("takes expressions, clamps at 0 and rounds to 2 decimals", () => {

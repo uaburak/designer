@@ -51,18 +51,19 @@ describe("NumericInput", () => {
     expect(input.value).toBe("10");
   });
 
-  it("scrubs the prefix: 1 per px (⇧ ×10), previews, then one final change", () => {
+  it("scrubs the prefix: a whole step per 4 px (⇧ ×10 from where ⇧ went down), previews, then one final change", () => {
     const { onChange, prefix } = setup();
     pointer(prefix, "pointerdown", { clientX: 100 });
     pointer(prefix, "pointermove", { clientX: 101 }); // under the 2px threshold: nothing yet
-    pointer(prefix, "pointermove", { clientX: 130 });
-    pointer(prefix, "pointermove", { clientX: 105, shiftKey: true });
+    pointer(prefix, "pointermove", { clientX: 130 }); // 30 px: 7 steps
+    pointer(prefix, "pointermove", { clientX: 105, shiftKey: true }); // ⇧ down: goes on from 17
+    pointer(prefix, "pointermove", { clientX: 125, shiftKey: true }); // 20 px: 5 big steps
     expect(document.documentElement.getAttribute("data-cursor")).toBe("ew-resize");
-    pointer(prefix, "pointerup", { clientX: 105 });
+    pointer(prefix, "pointerup", { clientX: 125 });
     expect(onChange.calls).toEqual([
-      [40, { final: false, source: "scrub" }],
-      [60, { final: false, source: "scrub" }],
-      [60, { final: true, source: "scrub" }],
+      [17, { final: false, source: "scrub" }],
+      [67, { final: false, source: "scrub" }],
+      [67, { final: true, source: "scrub" }],
     ]);
     expect(document.documentElement.hasAttribute("data-cursor")).toBe(false);
   });
@@ -161,8 +162,8 @@ describe("NumericInput", () => {
     pointer(label, "pointermove", { clientX: 110 });
     pointer(label, "pointerup", { clientX: 110 });
     expect(onChange.calls).toEqual([
-      [14, { final: false, source: "scrub" }],
-      [14, { final: true, source: "scrub" }],
+      [6, { final: false, source: "scrub" }],
+      [6, { final: true, source: "scrub" }],
     ]);
     pointer(label, "pointerdown", { clientX: 100 });
     pointer(label, "pointerup", { clientX: 100 });
@@ -185,22 +186,74 @@ describe("NumericInput", () => {
   it("scrubs faster toward the top and slower toward the bottom (2x, 1x, 1/2, 1/4)", () => {
     const { onChange, prefix } = setup({ value: 0 });
     pointer(prefix, "pointerdown", { clientX: 100, clientY: 300 });
-    pointer(prefix, "pointermove", { clientX: 110, clientY: 300 }); // 1x: 10
+    pointer(prefix, "pointermove", { clientX: 110, clientY: 300 }); // 1x: 10 px, 2 steps
     pointer(prefix, "pointermove", { clientX: 110, clientY: 200 }); // up: 2x from here
-    pointer(prefix, "pointermove", { clientX: 120, clientY: 200 }); // +20
+    pointer(prefix, "pointermove", { clientX: 120, clientY: 200 }); // 10 px at 2x: +5
     pointer(prefix, "pointermove", { clientX: 120, clientY: 600 }); // far down: 1/4
-    pointer(prefix, "pointermove", { clientX: 160, clientY: 600 }); // +10
+    pointer(prefix, "pointermove", { clientX: 160, clientY: 600 }); // 40 px at 1/4: +2
     expect(document.documentElement.getAttribute("data-scrub-speed")).toBe("0.25");
     pointer(prefix, "pointerup", { clientX: 160, clientY: 600 });
-    expect(onChange.calls.at(-1)).toEqual([40, { final: true, source: "scrub" }]);
+    expect(onChange.calls.at(-1)).toEqual([9, { final: true, source: "scrub" }]);
   });
 
   it("scrubs the field itself while ⌥ is held", () => {
     const { onChange, input } = setup({ value: 0 });
     pointer(input, "pointerdown", { clientX: 100, altKey: true });
-    pointer(input, "pointermove", { clientX: 105, altKey: true });
-    pointer(input, "pointerup", { clientX: 105 });
-    expect(onChange.calls.at(-1)).toEqual([5, { final: true, source: "scrub" }]);
+    pointer(input, "pointermove", { clientX: 108, altKey: true });
+    pointer(input, "pointerup", { clientX: 108 });
+    expect(onChange.calls.at(-1)).toEqual([2, { final: true, source: "scrub" }]);
     expect(document.activeElement).not.toBe(input);
+  });
+
+  it("scrubs a fractional value in whole steps: the first lands on a whole number the way the drag goes", () => {
+    const { onChange, prefix } = setup({ value: 61.05 });
+    pointer(prefix, "pointerdown", { clientX: 100 });
+    pointer(prefix, "pointermove", { clientX: 104 });
+    pointer(prefix, "pointermove", { clientX: 108 });
+    pointer(prefix, "pointermove", { clientX: 96 });
+    pointer(prefix, "pointerup", { clientX: 96 });
+    expect(onChange.calls.map(([v]) => v)).toEqual([62, 63, 61, 61]);
+    expect(onChange.calls.every(([v]) => Number.isInteger(v))).toBe(true);
+  });
+
+  it("a Mixed field scrubs by a delta (onScrubBy), and doesn't without it", () => {
+    const onScrubBy = spy<[number, ChangeInfo]>();
+    const { onChange, prefix } = setup({ value: MIXED, onScrubBy });
+    pointer(prefix, "pointerdown", { clientX: 100 });
+    pointer(prefix, "pointermove", { clientX: 112 });
+    pointer(prefix, "pointermove", { clientX: 92 });
+    pointer(prefix, "pointerup", { clientX: 92 });
+    expect(onScrubBy.calls).toEqual([
+      [3, { final: false, source: "scrub" }],
+      [-2, { final: false, source: "scrub" }],
+      [-2, { final: true, source: "scrub" }],
+    ]);
+    expect(onChange.calls).toHaveLength(0);
+    m?.unmount();
+    const plain = setup({ value: MIXED });
+    pointer(plain.prefix, "pointerdown", { clientX: 100 });
+    pointer(plain.prefix, "pointermove", { clientX: 140 });
+    pointer(plain.prefix, "pointerup", { clientX: 140 });
+    expect(plain.onChange.calls).toHaveLength(0);
+  });
+
+  it("plays a haptic tick on each step of a scrub, none for pixels between steps or at a limit", () => {
+    const ticks = spy<[]>();
+    (window as unknown as { designer?: unknown }).designer = { haptics: { tick: () => ticks() } };
+    try {
+      const { onChange, prefix } = setup({ value: 98, max: 100 });
+      pointer(prefix, "pointerdown", { clientX: 100 });
+      pointer(prefix, "pointermove", { clientX: 103 }); // past the threshold, not a step yet
+      expect(ticks.calls).toHaveLength(0);
+      pointer(prefix, "pointermove", { clientX: 104 }); // 99
+      pointer(prefix, "pointermove", { clientX: 106 }); // still 99
+      pointer(prefix, "pointermove", { clientX: 108 }); // 100
+      pointer(prefix, "pointermove", { clientX: 140 }); // clamped at 100: no step
+      pointer(prefix, "pointerup", { clientX: 140 });
+      expect(onChange.calls.filter(([, i]) => !i.final).map(([v]) => v)).toEqual([99, 100]);
+      expect(ticks.calls).toHaveLength(2);
+    } finally {
+      delete (window as unknown as { designer?: unknown }).designer;
+    }
   });
 });

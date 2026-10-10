@@ -344,4 +344,55 @@ void Editor::requestInlineEdit(int bar, int pair, Vec2 at) {
   events_.inlineEdits.push_back(e);
 }
 
+// Round 16 — the Design panel's padding / gap field under the pointer (or focused) hatches what it edits on the
+// canvas, as the pointer over that padding or gap would: the horizontal field the left and right paddings, the vertical
+// one the top and bottom, the one field over all four every side, the gap field every gap (owner's request with live
+// Figma, 2026-10-10). Only a selected auto-layout frame (not a grid's gaps, not a wrapping flow's); sides of 0 none.
+void Editor::setSpacingHighlight(uint32_t mask) {
+  mask &= SPACING_LEFT | SPACING_TOP | SPACING_RIGHT | SPACING_BOTTOM | SPACING_GAPS;
+  if (mask == panelSpacing_) return;
+  panelSpacing_ = mask;
+  needsRender_ = true;
+}
+
+void Editor::panelSpacingAreas(std::vector<Overlay::SpacingArea>& out) const {
+  if (selection_.size() != 1 || viewer_) return;
+  Guid id = selection_[0];
+  const Node* n = doc_.get(id);
+  if (!n || !n->props.isAutoLayout()) return;
+  const NodeProps& p = n->props;
+  Mat2x3 W = doc_.worldTransform(id);
+  if (std::fabs(W.m00 * W.m11 - W.m01 * W.m10) < 1e-12) return;
+  bool grid = p.stack().stackMode == StackMode::GRID;
+  double w = p.size.x, h = p.size.y;
+  double pad[4];
+  Layout::padding(p, pad);
+  auto push = [&](const Rect& r, bool gap) {
+    if (r.w <= 0 || r.h <= 0) return;
+    // Already hatched by the pointer: once.
+    Overlay::SpacingArea a;
+    quadOf(W, r, a.quad);
+    a.gap = gap;
+    for (const Overlay::SpacingArea& o : out)
+      if (!o.outline && o.quad[0] == a.quad[0] && o.quad[2] == a.quad[2]) return;
+    out.push_back(a);
+  };
+  const Rect sides[4] = {{0, 0, pad[0], h}, {0, 0, w, pad[1]}, {w - pad[2], 0, pad[2], h}, {0, h - pad[3], w, pad[3]}};
+  for (int k = 0; k < 4; k++)
+    if (panelSpacing_ & (1u << k)) push(sides[k], false);
+  if (!(panelSpacing_ & SPACING_GAPS) || grid || p.stack().stackWrap == StackWrap::WRAP) return;
+  int P = p.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1;
+  std::vector<Rect> boxes;
+  for (Guid c : Layout(*const_cast<Editor*>(this)).flowChildren(id)) {
+    const NodeProps& cp = doc_.get(c)->props;
+    boxes.push_back(layoutBox(cp.transform, cp.size));
+  }
+  for (size_t i = 1; i < boxes.size(); i++) {
+    const Rect& a = boxes[i - 1];
+    const Rect& b = boxes[i];
+    if (P == 0) push({std::min(a.right(), b.x), pad[1], std::fabs(b.x - a.right()), h - pad[1] - pad[3]}, true);
+    else push({pad[0], std::min(a.bottom(), b.y), w - pad[0] - pad[2], std::fabs(b.y - a.bottom())}, true);
+  }
+}
+
 }  // namespace eng

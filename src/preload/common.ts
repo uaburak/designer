@@ -64,6 +64,7 @@ export function common<R extends Role>(role: R) {
     onThemeChanged: (cb: (t: ThemeState) => void) => on("theme:changed", cb),
     onWindowState: (cb: (s: IpcEvents["window:state"]) => void) => on("window:state", cb),
     onFullScreen: (cb: (fullScreen: boolean) => void) => on("window:state", (s) => cb(s.fullScreen)),
+    haptics: { tick: () => send("haptics:tick") },
     menu: {
       popup: (template: NativeMenuItem[], at: { x: number; y: number }) => invoke("menu:popup", { template: plainMenu(template), x: Number(at?.x) || 0, y: Number(at?.y) || 0 }),
     },

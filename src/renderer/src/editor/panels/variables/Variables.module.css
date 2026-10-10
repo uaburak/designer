@@ -68,25 +68,28 @@
      the text colour — neutral; the purple pill belongs to component properties ---- */
   .bindWrap { position: relative; display: flex; flex: 1 1 auto; min-width: 0; }
   .bindWrap > :first-child { flex: 1 1 auto; min-width: 0; }
-  /* The "Apply variable" button inside an unbound field's right end, on hover */
+  /* The "Apply variable" button inside an unbound field's right end, on hover or while the field has focus — inside
+     the field's 1 px ring, which stays whole round it (live Figma, the owner's 56.png: the focused field's blue ring
+     runs past the icon; round 16 — the button used to cover the ring's right end) */
   .applyButton {
     position: absolute;
-    top: 0;
-    right: 0;
+    top: 1px;
+    right: 1px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: var(--ds-size-control);
-    height: var(--ds-size-control);
+    width: calc(var(--ds-size-control) - 2px);
+    height: calc(var(--ds-size-control) - 2px);
+    overflow: hidden;
     padding: 0;
     border: 0;
-    border-radius: var(--ds-radius-medium);
+    border-radius: calc(var(--ds-radius-medium) - 1px);
     background: var(--figma-color-bg-secondary);
     color: var(--figma-color-icon-secondary);
     opacity: 0;
     outline: none;
   }
-  .bindWrap:hover .applyButton, .applyButton:focus-visible, .applyButton[aria-expanded="true"] { opacity: 1; }
+  .bindWrap:hover .applyButton, .bindWrap:focus-within .applyButton, .applyButton:focus-visible, .applyButton[aria-expanded="true"] { opacity: 1; }
   .applyButton:hover { color: var(--figma-color-icon); }
   .applyButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
 

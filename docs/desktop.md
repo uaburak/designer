@@ -629,6 +629,12 @@ The layout is kept only once the user picks one in the Layout tab (`layoutPicked
 |---|---|---|---|
 | `shell:open-external` | send | H, E, C | `{ url }`. Only `https:`, `http:` and `mailto:` are allowed; anything else is dropped. |
 
+**Haptics** (round 16): Figma's desktop app taps the MacBook's Force Touch trackpad on each step of a number field's scrub; Electron has no API for it, so main loads a tiny Node-API addon, `native/haptics/haptics.node` (source `haptics.mm`: `[[NSHapticFeedbackManager defaultPerformer] performFeedbackPattern:NSHapticFeedbackPatternAlignment performanceTime:NSHapticFeedbackPerformanceTimeNow]` on the main thread). Node-API only, so one build serves every Electron / Node version; it is built universal (arm64 + x86_64, macOS 11+) by `node native/haptics/build.mjs` (Xcode command line tools + Node's headers) and **committed** — nothing builds at install. Packaged, electron-builder copies it to `Resources/haptics.node` (`extraResources`); in development main loads it from `native/haptics/`. Loaded lazily with `process.dlopen`; a failure is logged once and haptics stay off.
+
+| Channel | Kind | Roles | Payload |
+|---|---|---|---|
+| `haptics:tick` | send | All | `void`. The page sends one per scrub step (ds `NumericInput` → `ds/util/haptics.ts` → `window.designer.haptics.tick()`); main (`src/main/haptics.ts`) plays at most one tick per 16.7 ms (60 a second, `createHapticThrottle`), nothing off macOS. macOS itself plays it only while a finger is on the trackpad. |
+
 **Store port**
 
 | Channel | Kind | Roles | Payload |

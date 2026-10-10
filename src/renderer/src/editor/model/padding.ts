@@ -1,13 +1,14 @@
 /**
  * Auto layout padding (help.figma.com 31289464393751): a frame's four sides are kiwi's stackHorizontalPadding
  * (left), stackVerticalPadding (top), stackPaddingRight and stackPaddingBottom. The panel shows horizontal and
- * vertical (Mixed when a pair differs), "Individual padding" shows the four. Several numbers typed into a field
+ * vertical ("19, 22" when a pair differs: `paddingDisplay`), "Individual padding" shows the four, ⌘-click on any of
+ * them one field over all four ("18, 22, 17, 19": top, right, bottom, left). Several numbers typed into a field
  * (live/behaviour/fields.md): the horizontal field takes the first two as left / right ("1,2,3,4" → left 1, right
  * 2, top and bottom kept), the vertical field as top / bottom; the one field over all four sides reads CSS
  * shorthand ("8 16" vertical / horizontal, "8 16 4" top / horizontal / bottom, "1 2 3 4" top / right / bottom /
  * left).
  */
-import { evaluate } from "@/ds/util/evaluate";
+import { evaluate, formatNumber } from "@/ds/util/evaluate";
 
 export interface Padding {
   top: number;
@@ -58,6 +59,30 @@ export function parsePaddingShorthand(raw: string): Padding | null {
   if (!n || n.length > 4) return null;
   const [top, right = top, bottom = top, left = right] = n;
   return { top, right, bottom, left };
+}
+
+/** The one padding field's sides, in its text's order: CSS's top, right, bottom, left (live 53 / 55.png). */
+export const ALL_SIDES = ["top", "right", "bottom", "left"] as const satisfies readonly (keyof Padding)[];
+
+/**
+ * What a padding field over `sides` shows for the layers' paddings `pads` (round 16, live Figma 53–55.png): one
+ * number when every side it covers is the same on every layer; the sides' values apart by ", " when they differ but
+ * every layer has the same ones (horizontal "19, 22" = left, right; vertical "18, 17" = top, bottom; the one field
+ * "18, 22, 17, 19" = top, right, bottom, left); Mixed when the layers differ.
+ */
+export function paddingDisplay(pads: readonly Padding[], sides: readonly (keyof Padding)[]): { value: number } | { text: string } | { mixed: true } {
+  if (!pads.length || !sides.length) return { mixed: true };
+  const same = (a: number, b: number) => Math.abs(a - b) <= 0.005;
+  const first = sides.map((s) => pads[0][s]);
+  if (!pads.every((p) => sides.every((s, i) => same(p[s], first[i])))) return { mixed: true };
+  if (first.every((v) => same(v, first[0]))) return { value: first[0] };
+  return { text: first.map((v) => formatNumber(v)).join(", ") };
+}
+
+/** The padding sides' highlight bits on the canvas (engine `SPACING_HIGHLIGHT`: left 1, top 2, right 4, bottom 8). */
+export function paddingHighlight(sides: readonly (keyof Padding)[]): number {
+  const bit = { left: 1, top: 2, right: 4, bottom: 8 } as const;
+  return sides.reduce((m, s) => m | bit[s], 0);
 }
 
 /**

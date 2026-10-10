@@ -356,4 +356,7 @@ export const Status = {
 /** NODES_CHANGED field groups (§10.4). */
 export const FieldGroup = { GEOMETRY: 1, LAYOUT: 2, PAINT: 4, TEXT: 8, NAME: 16, VISIBILITY: 32, COMPONENT: 64, BINDINGS: 128 } as const;
 
+/** `Engine.setSpacingHighlight` (round 16): what a Design panel padding / gap field edits, hatched on the canvas. */
+export const SPACING_HIGHLIGHT = { LEFT: 1, TOP: 2, RIGHT: 4, BOTTOM: 8, GAPS: 16 } as const;
+
 export const ABI_VERSION = 1;

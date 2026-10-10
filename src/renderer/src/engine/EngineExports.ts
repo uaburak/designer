@@ -134,6 +134,7 @@ export class EngineExports {
   blur = (h: number): void => void this.fn("blur")(h);
   setTool = (h: number, tool: number): number => this.fn("set_tool")(h, tool);
   setHover = (h: number, refs: Uint8Array): void => this.withBytes([refs], (p) => void this.fn("set_hover")(h, p[0], p[1]));
+  setSpacingHighlight = (h: number, mask: number): void => void this.fn("set_spacing_highlight")(h, mask);
   tick = (h: number, timeMs: number): number => this.fn("tick")(h, timeMs) >>> 0;
   render = (h: number): void => void this.fn("render")(h);
   nextFrameDelay = (h: number): number => this.fn("next_frame_delay")(h);

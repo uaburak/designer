@@ -13,8 +13,9 @@
  * - Padding (horizontal / vertical, "Individual padding" for the four sides, CSS shorthand in any of them);
  * - Clip content.
  */
-import { useState } from "react";
-import { AlignmentMatrix, Checkbox, Icon, IconButton, MenuButton, MIXED, NumericInput, PanelSection, Popover, PropertyGrid, PropertyRow, SegmentedControl, Select, ToggleIconButton, cx, isMixed, tooltipProps, type Alignment } from "@/ds";
+import { useEffect, useRef, useState } from "react";
+import { AlignmentMatrix, Checkbox, Icon, IconButton, MenuButton, MIXED, NumericInput, PanelSection, Popover, PropertyGrid, PropertyRow, SegmentedControl, Select, ToggleIconButton, cx, isMixed, scrubFrom, tooltipProps, type Alignment, type IconName, type NumericInputProps } from "@/ds";
+import { SPACING_HIGHLIGHT } from "@/engine/abi";
 import { useEditor } from "../../controller";
 import { command, runEditorCommand, shortcutOf } from "../../commands";
 import { useUI } from "../../hooks";
@@ -22,13 +23,13 @@ import { isAutoLayout, isSpaceBetween, sizingOf, SPACE_BETWEEN } from "../../mod
 import { roundPanel } from "../../model/geometry";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
 import { gridDefaults, isGrid, type GridNode } from "../../model/grid";
-import { paddingFields, paddingFromText, paddingOf, type Padding } from "../../model/padding";
+import { ALL_SIDES, paddingDisplay, paddingFields, paddingFromText, paddingHighlight, paddingOf, type Padding } from "../../model/padding";
 import { spacingAxes, spacingOf } from "../../model/spacing";
 import { GridDimensionsRow, GridSpanRow } from "./Grid";
 import { VariableField } from "./Variables";
 import { LimitRow, SIZING_LIST_DY, SizeField, sizeLabels, sizeLocked, useLimitAxes } from "./Sizing";
 import { canResizeToFit, resizeToFit, spacingItems, writeSpacing } from "./layoutActions";
-import { editEach, exitToCanvas, perLayer, stepInfo } from "./Sections";
+import { cancelScrub, editEach, exitToCanvas, perLayer, scrubEach, stepInfo } from "./Sections";
 import { fields, isFrameNode, isGroupNode, isInstanceSublayer, isTextNode, typeOf, useParents, useSupports, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
@@ -301,11 +302,12 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
   );
   const rowGapHandlers = perLayer(ed, "Gap between rows", refs, (n) => n.stackCounterSpacing ?? n.stackSpacing ?? 0, (_, v) => fields({ stackCounterSpacing: v, stackCounterAlignContent: "AUTO" }), (v) => Math.max(0, v));
   const autoMode = (n: PanelNode) => (isAutoGap(n.stackPrimaryAlignItems) ? n.stackPrimaryAlignItems : SPACE_BETWEEN);
+  const highlight = useSpacingHighlight();
   if (flow === "GRID")
     return (
       <>
         <GridDimensionsRow nodes={nodes} action={<AutoLayoutSettingsButton nodes={nodes} />} />
-        <PaddingRows nodes={nodes} />
+        <PaddingRows nodes={nodes} highlight={highlight} />
       </>
     );
   const gapLabel = (what: string) => `${horizontal ? "Horizontal" : "Vertical"} gap between ${what}`;
@@ -353,6 +355,7 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
                 </MenuButton>
               }
               {...gapHandlers}
+              {...highlight(SPACING_HIGHLIGHT.GAPS)}
             />
           </VariableField>
           {wrap && (
@@ -366,12 +369,13 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
                 keywords={["Auto"]}
                 onKeyword={() => ed.setProps(refs, fields({ stackCounterAlignContent: "SPACE_BETWEEN" }), "Gap between rows")}
                 {...rowGapHandlers}
+                {...highlight(SPACING_HIGHLIGHT.GAPS)}
               />
             </VariableField>
           )}
         </div>
       </PropertyRow>
-      <PaddingRows nodes={nodes} />
+      <PaddingRows nodes={nodes} highlight={highlight} />
     </>
   );
 }
@@ -382,74 +386,180 @@ const SIDES = [
   ["right", "24.al.padding-right", "Right padding", "STACK_PADDING_RIGHT"],
   ["bottom", "24.al.padding-bottom", "Bottom padding", "STACK_PADDING_BOTTOM"],
 ] as const;
+const ALL_BINDS = ["STACK_PADDING_TOP", "STACK_PADDING_RIGHT", "STACK_PADDING_BOTTOM", "STACK_PADDING_LEFT"] as const;
+
+/** A padding / gap field's hover props: what it edits hatched on the canvas (`useSpacingHighlight`). */
+type Highlight = (mask: number) => { onPointerEnter: () => void; onPointerLeave: () => void; onFocusChange: (on: boolean) => void };
 
 /**
- * Padding: horizontal and vertical (each Mixed when its two sides differ), or — "Individual padding" — the four
- * sides; ⌘-click on "Individual padding" for one field over all four (uniform). Several numbers typed: model/padding.ts.
+ * Round 16 (the owner's request with live Figma): a padding or gap field under the pointer — or focused, or being
+ * scrubbed — hatches on the canvas what it edits (the engine's `setSpacingHighlight`, drawn as the pointer's hover over
+ * that padding or gap). One per section, so the gap field and the padding fields share it.
  */
-function PaddingRows({ nodes }: { nodes: PanelNode[] }) {
+function useSpacingHighlight(): Highlight {
+  const ed = useEditor();
+  const state = useRef({ hover: 0, focus: 0 });
+  const sync = () => {
+    if (!ed.engine.destroyed) ed.engine.setSpacingHighlight(state.current.hover || state.current.focus);
+  };
+  useEffect(
+    () => () => {
+      state.current = { hover: 0, focus: 0 };
+      if (!ed.engine.destroyed) ed.engine.setSpacingHighlight(0);
+    },
+    [ed]
+  );
+  return (mask) => ({
+    onPointerEnter: () => {
+      state.current.hover = mask;
+      sync();
+    },
+    onPointerLeave: () => {
+      if (state.current.hover === mask) state.current.hover = 0;
+      sync();
+    },
+    onFocusChange: (on) => {
+      if (on) state.current.focus = mask;
+      else if (state.current.focus === mask) state.current.focus = 0;
+      sync();
+    },
+  });
+}
+
+/**
+ * A padding field's handlers over `sides` of every layer: a number sets them all; ↑ ↓, "Mixed+10" and the like move
+ * each side of each layer from its own value (a pair reading "19, 22" steps to "20, 23"); never below 0.
+ */
+function paddingHandlers(ed: ReturnType<typeof useEditor>, refs: readonly string[], sides: readonly (keyof Padding)[]): Pick<NumericInputProps, "onChange" | "onStep" | "onExpression" | "onScrubBy" | "onCancel" | "onExit"> {
+  const write = (p: Padding, f: (v: number) => number) => fields(paddingFields(Object.fromEntries(sides.map((s) => [s, Math.max(0, f(p[s]))]))));
+  const each = (f: (v: number) => number) => (n: PanelNode) => write(paddingOf(n), f);
+  return {
+    onChange: (v, info) => editEach(ed, "Padding", info, refs, each(() => v)),
+    onStep: (d) => editEach(ed, "Padding", stepInfo, refs, each((v) => v + d)),
+    onExpression: (f, info) => editEach(ed, "Padding", info, refs, each(f)),
+    // "19, 22" scrubbed: each side from its own value (20, 23 …).
+    onScrubBy: (d, info) => scrubEach(ed, "Padding", info, refs, paddingOf, (_, p0) => write(p0, (v) => scrubFrom(v, d))),
+    onCancel: () => cancelScrub(ed),
+    onExit: exitToCanvas(ed),
+  };
+}
+
+/**
+ * Padding (live Figma, the owner's 53–55.png): horizontal and vertical — a pair whose sides differ reads "19, 22"
+ * (left, right) / "18, 17" (top, bottom) —, or with "Individual padding" the four sides. ⌘-click on any padding field
+ * (or on "Individual padding") makes them one field over all four, "18, 22, 17, 19" (top, right, bottom, left) when
+ * they differ, focused with its text selected; it goes back when the keys leave it. Typed: one number sets every side
+ * the field covers; "12, 18" in a pair sets its two sides (left, right / top, bottom), in the one field CSS's shorthand
+ * (vertical, horizontal; three: top, horizontal, bottom; four: top, right, bottom, left) — model/padding.ts.
+ */
+function PaddingRows({ nodes, highlight }: { nodes: PanelNode[]; highlight: Highlight }) {
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const pads = nodes.map((n) => paddingOf(n));
-  const [mode, setMode] = useState<"default" | "individual" | "uniform">("default");
-  const differ = pads.some((p) => p.left !== p.right || p.top !== p.bottom);
-  const shown = mode === "default" && differ ? "individual" : mode;
-  const shorthand = (sides: (keyof Padding)[]) => (raw: string) => {
+  const [individual, setIndividual] = useState(false);
+  const [merged, setMerged] = useState(false);
+  const [mergedPicker, setMergedPicker] = useState<HTMLElement | null>(null);
+  const focusMerged = useRef(false);
+  const mergedWrap = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!merged || !focusMerged.current) return;
+    focusMerged.current = false;
+    mergedWrap.current?.querySelector("input")?.focus();
+  }, [merged]);
+  const merge = () => {
+    focusMerged.current = true;
+    setMerged(true);
+  };
+  const shorthand = (sides: readonly (keyof Padding)[]) => (raw: string) => {
     const p = paddingFromText(raw, sides);
     if (!p) return false;
     ed.setProps(refs, fields(paddingFields(p)), "Padding");
     return true;
   };
-  const sideValue = (side: keyof Padding) => fieldValue(mixedNumber(pads.map((p) => p[side])));
-  const pairValue = (a: keyof Padding, b: keyof Padding) => fieldValue(mixedNumber(pads.flatMap((p) => [p[a], p[b]])));
-  const handlers = (label: string, sides: (keyof Padding)[]) =>
-    perLayer(
-      ed,
-      label,
-      refs,
-      (n) => paddingOf(n)[sides[0]],
-      (_, v) => fields(paddingFields(Object.fromEntries(sides.map((s) => [s, Math.max(0, v)])))),
-      (v) => Math.max(0, v)
-    );
   const toggle = (
     <ToggleIconButton
       icon="24.al.padding-sides"
       label="Individual padding"
       tone="secondary"
-      pressed={shown !== "default"}
+      pressed={individual && !merged}
       onPressedChange={() => undefined}
       onClick={(e) => {
         e.preventDefault();
-        if (e.metaKey || e.ctrlKey) setMode(shown === "uniform" ? "default" : "uniform");
-        else setMode(shown === "individual" ? "default" : "individual");
+        if (e.metaKey || e.ctrlKey) return merged ? setMerged(false) : merge();
+        setMerged(false);
+        setIndividual(!individual);
       }}
     />
   );
-  const field = (label: string, prefix: (typeof SIDES)[number][1] | "24.al.padding-horizontal" | "24.al.padding-vertical", value: ReturnType<typeof sideValue>, sides: (keyof Padding)[], bind: Parameters<typeof VariableField>[0]["fields"]) => (
-    <VariableField nodes={nodes} fields={bind} prefix={prefix}>
-      <NumericInput label={label} prefix={prefix} value={value} min={0} onText={shorthand(sides)} {...handlers("Padding", sides)} />
-    </VariableField>
-  );
-  if (shown === "uniform")
+  const field = (label: string, prefix: IconName, sides: readonly (keyof Padding)[], bind: Parameters<typeof VariableField>[0]["fields"], one = false) => {
+    const shown = paddingDisplay(pads, sides);
+    const hover = highlight(paddingHighlight(sides));
     return (
-      <PropertyRow labels={["Padding", undefined]} action={toggle}>
-        {field("Padding", "24.al.padding-sides" as never, fieldValue(mixedNumber(pads.flatMap((p) => [p.left, p.top, p.right, p.bottom]))), ["left", "top", "right", "bottom"], ["STACK_PADDING_LEFT", "STACK_PADDING_TOP", "STACK_PADDING_RIGHT", "STACK_PADDING_BOTTOM"])}
-        <span />
+      <span
+        key={label}
+        ref={one ? mergedWrap : undefined}
+        className={styles.contents}
+        data-padding-field={sides.join(",")}
+        onPointerEnter={hover.onPointerEnter}
+        onPointerLeave={hover.onPointerLeave}
+        // ⌘-click on any padding field: the one field over all four.
+        onPointerDownCapture={(e) => {
+          if (one || !e.metaKey || e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          highlight(paddingHighlight(ALL_SIDES)).onPointerEnter();
+          merge();
+        }}
+        // The one field goes back to the fields it came from when the keys leave it (not for its variable picker).
+        onBlur={one ? (e) => !mergedPicker && !e.currentTarget.contains(e.relatedTarget as Node | null) && setMerged(false) : undefined}
+      >
+        <VariableField
+          nodes={nodes}
+          fields={bind}
+          prefix={prefix}
+          {...(one
+            ? {
+                open: mergedPicker,
+                onOpenChange: (a: HTMLElement | null) => {
+                  setMergedPicker(a);
+                  if (!a && !mergedWrap.current?.contains(document.activeElement)) setMerged(false);
+                },
+              }
+            : {})}
+        >
+          <NumericInput
+            label={label}
+            prefix={prefix}
+            value={"value" in shown ? shown.value : MIXED}
+            displayText={"text" in shown ? shown.text : undefined}
+            min={0}
+            onText={shorthand(sides)}
+            onFocusChange={hover.onFocusChange}
+            {...paddingHandlers(ed, refs, sides)}
+          />
+        </VariableField>
+      </span>
+    );
+  };
+  if (merged)
+    return (
+      <PropertyRow labels={["Padding", undefined]} span={2} action={toggle}>
+        {field("Padding", "24.al.padding-sides", ALL_SIDES, ALL_BINDS, true)}
       </PropertyRow>
     );
-  if (shown === "individual")
+  if (individual)
     return (
       <>
         <PropertyRow labels={["Padding", undefined]} action={toggle}>
-          {SIDES.slice(0, 2).map(([side, icon, label, bind]) => field(label, icon, sideValue(side), [side], [bind]))}
+          {SIDES.slice(0, 2).map(([side, icon, label, bind]) => field(label, icon, [side], [bind]))}
         </PropertyRow>
-        <PropertyRow>{SIDES.slice(2).map(([side, icon, label, bind]) => field(label, icon, sideValue(side), [side], [bind]))}</PropertyRow>
+        <PropertyRow>{SIDES.slice(2).map(([side, icon, label, bind]) => field(label, icon, [side], [bind]))}</PropertyRow>
       </>
     );
   return (
     <PropertyRow labels={["Padding", undefined]} action={toggle}>
-      {field("Horizontal padding", "24.al.padding-horizontal", pairValue("left", "right"), ["left", "right"], ["STACK_PADDING_LEFT", "STACK_PADDING_RIGHT"])}
-      {field("Vertical padding", "24.al.padding-vertical", pairValue("top", "bottom"), ["top", "bottom"], ["STACK_PADDING_TOP", "STACK_PADDING_BOTTOM"])}
+      {field("Horizontal padding", "24.al.padding-horizontal", ["left", "right"], ["STACK_PADDING_LEFT", "STACK_PADDING_RIGHT"])}
+      {field("Vertical padding", "24.al.padding-vertical", ["top", "bottom"], ["STACK_PADDING_TOP", "STACK_PADDING_BOTTOM"])}
     </PropertyRow>
   );
 }
