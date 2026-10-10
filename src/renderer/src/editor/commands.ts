@@ -43,23 +43,33 @@ import {
   type LayoutFlow,
 } from "./objectCommands";
 import { viewRect } from "./canvas/viewInsets";
+import type { KeyCombo } from "@shared/shortcuts";
 
-export interface KeyCombo {
-  /** KeyboardEvent.code */
-  code: string;
-  /** ⌘ on a Mac, Ctrl elsewhere */
-  mod?: boolean;
-  shift?: boolean;
-  alt?: boolean;
-  /** ⌃ (a Mac's Control) */
-  ctrl?: boolean;
+/**
+ * The keyboard layout picked in the Keyboard shortcuts panel (shortcuts/layouts.ts): a pressed key's place → the U.S.
+ * key the bindings name (null: no shortcut on it), and the legend a binding's key has on it. Null: Generic.
+ */
+export interface KeyLayout {
+  toBinding(code: string): string | null;
+  label(code: string): string | null;
 }
+let keyLayout: KeyLayout | null = null;
+
+/** Shortcuts follow this layout from now on (null: Generic, the U.S. places). */
+export function setKeyLayout(layout: KeyLayout | null): void {
+  keyLayout = layout;
+}
+
+export type { KeyCombo };
 
 export interface EditorCommand {
   id: string;
   /** Figma's wording */
   label: string;
-  /** The first is shown in menus and tooltips */
+  /**
+   * The first is shown in menus and tooltips. The user's own keys replace these (the Keyboard shortcuts panel:
+   * shortcuts/keymap.ts applyBindings keeps the defaults and writes the bindings in force here).
+   */
   keys?: KeyCombo[];
   /** The browser's default action does it (⌘C / ⌘X / ⌘V fire the DOM clipboard events); `prepare` runs first */
   native?: boolean;
@@ -94,7 +104,7 @@ const KEY_LABEL: Record<string, string> = {
 
 /** A combo as Figma writes it ("⇧⌘H", "⌥⌘G", "⌃⇧?"). */
 export function comboText(c: KeyCombo): string {
-  let key = KEY_LABEL[c.code] ?? c.code.replace(/^Key|^Digit/, "");
+  let key = keyLayout?.label(c.code)?.toUpperCase() ?? KEY_LABEL[c.code] ?? c.code.replace(/^Key|^Digit/, "");
   // Live: "⌃⇧?" (Keyboard shortcuts) but "⇧/" (Remove stroke).
   if (c.code === "Slash" && c.shift && c.ctrl) key = "?";
   const parts = [...(c.ctrl ? ["ctrl"] : []), ...(c.alt ? ["alt"] : []), ...(c.shift ? ["shift"] : []), ...(c.mod ? ["mod"] : []), key];
@@ -416,13 +426,19 @@ export const COMMANDS: EditorCommand[] = [
   ui("view.toggle-ui", "Show/Hide UI", [k("Backslash", { mod: true })], (ed) => ed.ui.set((s) => ({ uiHidden: !s.uiHidden })), (ed) => !ed.ui.get().uiHidden),
   // ⇧⌘\ (the live View menu; help "Navigate the left sidebar": collapses the navigation bar and both sidebars).
   ui("view.minimize-ui", "Minimize UI", [k("Backslash", { mod: true, shift: true })], (ed) => ed.ui.set((s) => ({ uiMinimized: !s.uiMinimized, uiHidden: false })), (ed) => ed.ui.get().uiMinimized),
-  // View › Additional labels (on by default): the navigation bar's tab names and the Design panel's property labels.
+  // View › Additional labels: the navigation bar's tab names and the Design panel's property labels, together. Its check
+  // is the rail's labels (off by default: an icon-only rail, panels/Rail.tsx showsRailLabels), so one click from the
+  // default turns both on, the next both off.
   ui(
     "view.additional-labels",
     "Additional labels",
     undefined,
-    (ed) => ed.ui.set((s) => ({ railLabels: !s.propertyLabels, propertyLabels: !s.propertyLabels })),
-    (ed) => ed.ui.get().propertyLabels
+    (ed) =>
+      ed.ui.set((s) => {
+        const on = s.railLabels !== true;
+        return { railLabels: on, propertyLabels: on };
+      }),
+    (ed) => ed.ui.get().railLabels === true
   ),
   // Round 10: the navigation bar's tabs fold into the left panel's header (unverified look).
   ui("view.minimize-left-nav", "Minimize left navigation bar", undefined, (ed) => ed.ui.set((s) => ({ navMinimized: !s.navMinimized, uiHidden: false, uiMinimized: false })), (ed) => !!ed.ui.get().navMinimized),
@@ -478,6 +494,16 @@ export const COMMANDS: EditorCommand[] = [
   ui("view.tools", "Tools", undefined, (ed) => ed.ui.set({ railTab: "tools", uiHidden: false, uiMinimized: false }), (ed) => ed.ui.get().railTab === "tools"),
   ui("view.design-panel", "Open design panel", [k("Digit8", { alt: true })], (ed) => ed.ui.set({ rightTab: "design", uiHidden: false, uiMinimized: false })),
   ui("view.prototype-panel", "Open prototype panel", [k("Digit9", { alt: true })], (ed) => ed.ui.set({ rightTab: "prototype", uiHidden: false, uiMinimized: false })),
+  // ⌥3 (live's Keyboard shortcuts panel, View and Components: "Team library"): the Libraries modal. Its own command — the
+  // live Figma menu's "Libraries…" shows no key.
+  ui("view.team-library", "Team library", [k("Digit3", { alt: true })], (ed) => ed.ui.set({ librariesDialog: { tab: "libraries" }, uiHidden: false })),
+  // ⇧I (live's Keyboard shortcuts panel, Essential: "Search for and insert components without losing your flow"): the
+  // Assets tab with its search field focused.
+  ui("view.component-search", "Component search", [k("KeyI", { shift: true })], (ed) => {
+    ed.ui.set({ railTab: "assets", uiHidden: false, uiMinimized: false });
+    const focus = () => document.querySelector<HTMLInputElement>("[data-panel='left'] [data-assets-search] input, [data-panel='left'] input[type='search']")?.focus();
+    requestAnimationFrame(() => requestAnimationFrame(focus));
+  }),
 
   // ---- Object ----
   engine("object.group", "Group selection", "GROUP", [k("KeyG", { mod: true })]),
@@ -516,6 +542,8 @@ export const COMMANDS: EditorCommand[] = [
   { id: "object.swap-fill-stroke", label: "Swap fill and stroke", keys: [k("KeyX", { shift: true })], run: (ed) => swapFillAndStroke(ed), enabled: hasSelection },
   engine("object.add-auto-layout", "Add auto layout", "ADD_AUTO_LAYOUT", [k("KeyA", { shift: true })]),
   engine("object.remove-auto-layout", "Remove auto layout", "REMOVE_AUTO_LAYOUT", [k("KeyA", { shift: true, alt: true })]),
+  // Live's Keyboard shortcuts panel (Arrange): "Suggest auto layout ⌃⇧A" — Figma's suggestions aren't built.
+  later("object.suggest-auto-layout", "Suggest auto layout", [k("KeyA", { ctrl: true, shift: true })]),
   // Components (E6: the structural ones are the engine's; R4-components.md for the wording and keys)
   pending("object.create-component", "Create component", COMPONENT_COMMAND.create, [k("KeyK", { mod: true, alt: true })]),
   pending("object.create-multiple-components", "Create multiple components", COMPONENT_COMMAND.create, undefined, {
@@ -678,6 +706,8 @@ export const COMMANDS: EditorCommand[] = [
   { id: "text.spell-check", label: "Spell check", run: (ed) => setSpellCheck(ed, !spellCheckOn()), enabled: () => !!spellChecker(), checked: () => !!spellChecker() && spellCheckOn() },
   textCommand("text.align-center", "Text align center", [k("KeyT", { mod: true, alt: true })], (ed, refs) => ed.setProps(refs, fields({ textAlignHorizontal: "CENTER" }), "Text alignment")),
   textCommand("text.align-right", "Text align right", [k("KeyR", { mod: true, alt: true })], (ed, refs) => ed.setProps(refs, fields({ textAlignHorizontal: "RIGHT" }), "Text alignment")),
+  // Live's Keyboard shortcuts panel (Text): "Text align justified ⌥⌘J".
+  textCommand("text.align-justified", "Text align justified", [k("KeyJ", { mod: true, alt: true })], (ed, refs) => ed.setProps(refs, fields({ textAlignHorizontal: "JUSTIFIED" }), "Text alignment")),
 
   // ---- File, help ----
   {
@@ -721,7 +751,8 @@ export const COMMANDS: EditorCommand[] = [
     })
   ),
   later("prefs.color-profile", "Color profile…"),
-  later("prefs.keyboard-layout", "Keyboard layout…"),
+  // help.figma.com "Select a keyboard layout": the Keyboard shortcuts panel's Layout tab.
+  ui("prefs.keyboard-layout", "Keyboard layout…", undefined, (ed) => ed.ui.set({ shortcutsOpen: true, shortcutsTab: "layout" })),
   later("prefs.accessibility", "Accessibility settings…"),
   later("prefs.permissions", "Permissions and helpers…"),
   ui("prefs.nudge-amount", "Nudge amount…", undefined, (ed) => ed.ui.set({ nudgeDialog: true, uiHidden: false })),
@@ -851,10 +882,17 @@ export function runEditorCommand(ed: EditorController, id: string): boolean {
 }
 
 /** The command a key press means (null: none). */
-export function commandForKey(e: KeyboardEvent): EditorCommand | null {
-  for (const c of COMMANDS) if (c.keys?.some((combo) => matchesCombo(combo, e))) return c;
+export function commandForKey(e: Pick<KeyboardEvent, "code" | "shiftKey" | "altKey" | "ctrlKey" | "metaKey">): EditorCommand | null {
+  // A layout picked in the Keyboard shortcuts panel: the key that types the binding's character.
+  const code = keyLayout ? keyLayout.toBinding(e.code) : e.code;
+  if (code === null) return null;
+  const press = { code, shiftKey: e.shiftKey, altKey: e.altKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey };
+  for (const c of COMMANDS) if (c.keys?.some((combo) => matchesCombo(combo, press))) return c;
   return null;
 }
+
+/** A pressed key as the bindings name it (the picked layout's key → the U.S. one), or null: no shortcut is on it. */
+export const bindingCode = (code: string): string | null => (keyLayout ? keyLayout.toBinding(code) : code);
 
 /** The shortcut shown next to a command. */
 export const shortcutOf = (c: EditorCommand): string | undefined => (c.keys?.length ? comboText(c.keys[0]) : undefined);

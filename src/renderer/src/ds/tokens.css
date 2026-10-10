@@ -42,6 +42,14 @@
     --ds-size-traffic-room-fullscreen: 8px;
     --ds-size-toolbar: 48px;
     --ds-size-toolbar-bottom: 12px;
+    --ds-size-shortcuts-panel: 240px;
+    --ds-size-shortcuts-tabs: 38px;
+    --ds-size-shortcuts-column: 300px;
+    --ds-size-shortcuts-gap: 48px;
+    --ds-size-shortcuts-row: 37px;
+    --ds-size-shortcuts-cap: 26px;
+    --ds-size-keyboard-key: 26px;
+    --ds-size-keyboard-key-height: 25px;
     --ds-size-tool: 32px;
     --ds-size-ruler: 20px;
     --ds-size-popover: 240px;

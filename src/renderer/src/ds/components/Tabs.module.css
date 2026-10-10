@@ -22,5 +22,19 @@
   .tab:hover, .tab[data-hover] { color: var(--figma-color-text); }
   .tab[aria-selected="true"] { background: var(--figma-color-bg-secondary); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
   .tab:focus-visible, .tab[data-focus-visible] { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .tab.lit, .tab.lit:hover { color: var(--figma-color-text-brand); }
+  /* card (live Keyboard shortcuts panel): the row's full height, no gap, 13px; the chosen tab a card over the row's line */
+  .card { gap: 0; align-self: stretch; align-items: stretch; }
+  .card .tab {
+    height: auto; margin-bottom: -1px; padding: 0 var(--ds-space-4); border: solid transparent; border-width: 0 1px 1px; border-radius: 0;
+    font: var(--ds-font-body-large); letter-spacing: var(--ds-tracking-body-large);
+  }
+  .card .tab[aria-selected="true"] {
+    border-color: var(--figma-color-bg-secondary); border-bottom-color: var(--ds-tabs-card-bg, var(--figma-color-bg)); background: var(--ds-tabs-card-bg, var(--figma-color-bg));
+    font: var(--ds-font-body-large); letter-spacing: var(--ds-tracking-body-large);
+  }
+  .card .tab[aria-selected="true"].lit { color: var(--figma-color-text-brand); }
+  .card .labelBold { font-weight: inherit; }
+  .card .tab:focus-visible, .card .tab[data-focus-visible] { outline-offset: -2px; }
   .badge { min-width: 16px; height: 16px; padding: 0 var(--ds-space-1); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); line-height: 16px; }
 }

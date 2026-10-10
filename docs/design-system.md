@@ -1001,6 +1001,7 @@ Port `components/admin/ContextMenu.tsx` (MenuPanel, `tidy`, `keys`) into `ds/com
   - Active: `body-medium-strong`, text primary, bg `--figma-color-bg-secondary`.
   - Inactive: text-secondary; hover → text primary.
 - **Keyboard**: `role="tablist"`; ←/→ move and activate; Home/End.
+- **`variant: "card"`** (the Keyboard shortcuts panel, M — docs/research/shortcuts-panel/): the row's full height, `body-large`, padding 0 16, no gap; the chosen tab a card (1px `--figma-color-bg-secondary` sides) open into the content (`--ds-tabs-card-bg`). A tab's `lit`: its label in `--figma-color-text-brand`.
 - **Tags**: K.
 
 ### 4.15 PanelSection
@@ -1281,6 +1282,7 @@ Port `components/ScrollArea.tsx`.
 
 - **Divider**: `{ orientation?: "horizontal" | "vertical"; inset?: number }`, 1px `--figma-color-border`.
 - **Kbd**: an inline shortcut, `body-medium` text-secondary, tabular-nums, formatted by `keys()`.
+- **KeyCap** (the Keyboard shortcuts panel, M): one key as a cap — 26 high (`--ds-size-shortcuts-cap`), at least 26 wide, padding 0 6, 1px border and text in `--figma-color-text-secondary`, radius 2, `body-large`; `lit` (a shortcut used) filled with `--figma-color-text-brand`, the glyph `--ds-color-menu-bg`; `recording` a selected-blue ring; `size="small"` the Layout tab's keyboard keys (26 × 25). Icons (🌐) at 16.
 - **CodeBlock** (Dev-Mode-like inspect in the viewer and editor): `code` font, bg-secondary, radius 5, padding 8, and a copy IconButton at the top-right that shows "Copied" via Toast.
 - **VirtualList**: `{ count: number; rowHeight: number; overscan?: number; renderRow: (index: number) => ReactNode; scrollToIndex?: number; axis?: "y" | "both"; onScroll? }`, built on ScrollArea (`axis: "both"`: rows wider than the list, their width set by the list's CSS, scroll sideways).
 - **Icon**: `{ name: IconName; className? }` renders an inline SVG with box = the name's prefix (16 or 24), `aria-hidden`.

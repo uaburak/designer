@@ -1,0 +1,123 @@
+@layer app {
+  /*
+   * Live (the owner's screenshots, 1512 wide): 240 high along the window's bottom, #1e1e1e (Figma's menus' colour, dark
+   * in both themes — the subtree is data-theme="dark"), a line on top; three 300 columns 48 apart, centred.
+   */
+  .panel {
+    --grid: calc(3 * var(--ds-size-shortcuts-column) + 2 * var(--ds-size-shortcuts-gap));
+    --ds-tabs-card-bg: var(--ds-color-menu-bg);
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: var(--ds-z-panel);
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    height: var(--ds-size-shortcuts-panel);
+    border-top: 1px solid var(--figma-color-border);
+    background: var(--ds-color-menu-bg);
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-large);
+    letter-spacing: var(--ds-tracking-body-large);
+    user-select: none;
+  }
+
+  /* The tab row: its tabs start 36 left of the columns, Layout ends with them; ✕ 6 from the window's right edge. */
+  .tabRow {
+    position: relative;
+    display: flex;
+    flex: none;
+    box-sizing: border-box;
+    height: var(--ds-size-shortcuts-tabs);
+    border-bottom: 1px solid var(--figma-color-bg-secondary);
+  }
+  .tabs {
+    width: calc(var(--grid) + var(--ds-space-8) + var(--ds-space-1));
+    max-width: 100%;
+    margin-left: max(0px, calc((100% - var(--grid)) / 2 - var(--ds-space-8) - var(--ds-space-1)));
+  }
+  .tabs > [role="tab"]:last-child { margin-left: auto; }
+  .actions {
+    position: absolute;
+    top: 0;
+    right: var(--ds-space-1-5);
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+  }
+
+  .body { flex: 1 1 auto; min-height: 0; padding-top: var(--ds-space-2); overflow: auto; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, var(--ds-size-shortcuts-column)));
+    column-gap: var(--ds-size-shortcuts-gap);
+    justify-content: center;
+    padding: 0 var(--ds-space-4);
+  }
+  .column { display: flex; flex-direction: column; min-width: 0; }
+
+  /* A row: rows 37 apart, the label (secondary; lit: brand blue), the caps at the column's right. */
+  .row { display: flex; align-items: center; gap: var(--ds-space-1); min-width: 0; height: var(--ds-size-shortcuts-row); }
+  .icon { flex: none; color: var(--figma-color-icon-secondary); }
+  .label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  [data-lit] > .label, [data-lit] > .icon, [data-lit] .essentialName { color: var(--figma-color-text-brand); }
+  .heading, .hint { display: flex; align-items: center; height: var(--ds-size-shortcuts-row); white-space: nowrap; }
+  .heading { color: var(--figma-color-text); }
+  .hint { color: var(--figma-color-text-tertiary); }
+
+  .caps { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); }
+  .and { padding: 0 var(--ds-space-1); }
+  .none { color: var(--figma-color-text-tertiary); }
+  .capsButton {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-small);
+    background: none;
+    color: inherit;
+    font: inherit;
+    outline: none;
+    cursor: default;
+  }
+  .capsButton:hover > [data-ds="KeyCap"]:not([data-lit]) { color: var(--figma-color-text); border-color: var(--figma-color-text); }
+  .capsButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .reset { flex: none; }
+
+  /* Essential: the heading, then three numbered ones (a 24 circle, the name and its keys, two lines about it). */
+  .essential { padding-top: var(--ds-space-3); }
+  .essentialTitle { width: var(--grid); max-width: calc(100% - 2 * var(--ds-space-4)); margin: 0 auto; color: var(--figma-color-text); line-height: var(--ds-space-4); }
+  .essential .grid { margin-top: var(--ds-space-5); }
+  .essentialItem { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+  .essentialItem > .row { align-self: stretch; height: var(--ds-size-shortcuts-cap); margin-top: var(--ds-space-5); }
+  .essentialName { flex: 1 1 auto; min-width: 0; }
+  .number {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    border: 1px solid var(--figma-color-text);
+    border-radius: var(--ds-radius-full);
+    color: var(--figma-color-text);
+  }
+  .description { max-width: 72%; margin: 0; line-height: var(--ds-space-4); }
+
+  /* Layout: "Keyboard layout:" and its list on the left, "Learn more" under; the keyboard at the columns' right. */
+  .layout { display: flex; justify-content: space-between; gap: var(--ds-space-6); width: var(--grid); max-width: calc(100% - 2 * var(--ds-space-4)); margin: 0 auto; padding-top: var(--ds-space-3); }
+  .layoutSide { display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; }
+  .layoutField { display: flex; align-items: center; gap: var(--ds-space-2); }
+  .layoutLabel { white-space: nowrap; }
+  .learnMore { margin-bottom: var(--ds-space-1); }
+  .keyboard { display: flex; flex: none; flex-direction: column; gap: var(--ds-space-2); }
+  .keyboardRow { display: flex; gap: var(--ds-space-1-5); }
+
+  .conflict { display: flex; flex-direction: column; gap: var(--ds-space-3); padding: var(--ds-space-4); color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .conflict p { margin: 0; }
+  .conflictActions { display: flex; justify-content: flex-end; gap: var(--ds-space-2); }
+}

@@ -288,7 +288,7 @@ export function Assets() {
         }
       />
       <div className={styles.toolbar}>
-        <SearchField className={styles.search} value={query} onChange={setQuery} placeholder={open ? "Search in this library" : "Search all libraries"} label={open ? "Search in this library" : "Search all libraries"} />
+        <SearchField data-assets-search="" className={styles.search} value={query} onChange={setQuery} placeholder={open ? "Search in this library" : "Search all libraries"} label={open ? "Search in this library" : "Search all libraries"} />
         <div ref={settingsButton} style={{ display: "contents" }}>
           <IconButton
             icon="24.adjust.small"

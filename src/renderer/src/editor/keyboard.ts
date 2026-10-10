@@ -16,6 +16,8 @@ import type { VectorTool } from "./vectorEdit";
 import { pref } from "./preferences";
 
 const VECTOR_KEYS: Record<string, VectorTool> = { KeyV: "MOVE", KeyQ: "LASSO", KeyP: "PEN", KeyB: "PAINT_BUCKET" };
+/** With ⇧ (live's Keyboard shortcuts panel, Shape: "While editing a shape… Paint ⇧B"). */
+const VECTOR_SHIFT_KEYS: Record<string, VectorTool> = { KeyB: "PAINT_BUCKET" };
 
 /** A text field, a contenteditable (`plaintext-only` too), or something inside one. */
 export function isEditable(target: EventTarget | null): boolean {
@@ -65,8 +67,8 @@ export function attachKeyboard(ed: EditorController, canvas: HTMLCanvasElement):
       }
     }
     // Vector edit mode: the tool letters pick the vector-edit tools (V Move, Q Lasso, P Pen, B Paint bucket).
-    if (ed.vector.state.get().active && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-      const tool = VECTOR_KEYS[e.code];
+    if (ed.vector.state.get().active && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const tool = (e.shiftKey ? VECTOR_SHIFT_KEYS : VECTOR_KEYS)[e.code];
       if (tool) {
         e.preventDefault();
         ed.vector.setTool(tool);

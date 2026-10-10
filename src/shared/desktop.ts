@@ -31,6 +31,7 @@ import type {
   WindowState,
 } from "./ipc";
 import type { AgentsApi } from "./agents/types";
+import type { ShortcutSettings } from "./shortcuts";
 import type { TabReport } from "./tabs";
 
 export type Unsubscribe = () => void;
@@ -177,6 +178,12 @@ export interface EditorApi extends DesktopCommon {
   };
   /** Agents and the MCP server (src/main/agents; docs/research/figma/R12-agents-mcp.md) */
   agents: AgentsApi;
+  /** The user's keyboard shortcuts, kept by main (settings.json): the Keyboard shortcuts panel's (src/shared/shortcuts.ts) */
+  shortcuts: {
+    get(): Promise<ShortcutSettings>;
+    set(patch: Partial<ShortcutSettings>): Promise<ShortcutSettings>;
+    onChanged(cb: (s: ShortcutSettings) => void): Unsubscribe;
+  };
 }
 
 export type DesktopApi = TabBarApi | HomeApi | EditorApi;

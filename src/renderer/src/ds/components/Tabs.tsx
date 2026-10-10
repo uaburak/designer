@@ -4,7 +4,7 @@ import { rovingTarget } from "../util/rovingFocus";
 import styles from "./Tabs.module.css";
 
 /** `width`: the tab's width as live Figma measured it (px) where the label alone comes out a pixel or two other. */
-export type TabItem = { value: string; label: string; badge?: number; width?: number };
+export type TabItem = { value: string; label: string; badge?: number; width?: number; /** Its label in the brand colour (the Keyboard shortcuts panel: every shortcut of the tab used) */ lit?: boolean };
 
 export interface TabsProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChange"> {
   label: string;
@@ -13,13 +13,18 @@ export interface TabsProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChang
   onChange: (v: string) => void;
   /** id prefix: tab `${idBase}-tab-${value}` controls `${idBase}-panel-${value}` */
   idBase?: string;
+  /**
+   * card: the Keyboard shortcuts panel's tabs (live) — 13px labels 16 in from each side, side by side; the chosen one
+   * a card (a line each side) open into the content under the row (`--ds-tabs-card-bg` is the content's colour)
+   */
+  variant?: "default" | "card";
 }
 
 /** Figma's panel tabs (contract §4.14): 24px, the chosen one strong on bg-secondary; ← → Home End move and activate. */
-export function Tabs({ label, value, tabs, onChange, idBase, className, ...rest }: TabsProps) {
+export function Tabs({ label, value, tabs, onChange, idBase, variant = "default", className, ...rest }: TabsProps) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   return (
-    <div role="tablist" aria-label={label} data-ds="Tabs" className={cx(styles.list, className)} {...rest}>
+    <div role="tablist" aria-label={label} data-ds="Tabs" className={cx(styles.list, variant === "card" && styles.card, className)} {...rest}>
       {tabs.map((t, i) => (
         <button
           key={t.value}
@@ -32,7 +37,7 @@ export function Tabs({ label, value, tabs, onChange, idBase, className, ...rest 
           aria-controls={idBase ? `${idBase}-panel-${t.value}` : undefined}
           aria-selected={t.value === value}
           tabIndex={t.value === value ? 0 : -1}
-          className={styles.tab}
+          className={cx(styles.tab, t.lit && styles.lit)}
           style={t.width !== undefined ? { width: t.width, flex: "none" } : undefined}
           onClick={() => onChange(t.value)}
           onKeyDown={(e) => {

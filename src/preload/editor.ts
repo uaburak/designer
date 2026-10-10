@@ -2,6 +2,7 @@ import { contextBridge, webFrame } from "electron";
 import type { EditorApi } from "../shared/desktop";
 import type { FlushReason, TabAttach } from "../shared/ipc";
 import type { AgentsApi, McpClientId, ToolCallResult } from "../shared/agents/types";
+import type { ShortcutSettings } from "../shared/shortcuts";
 import { common, files, forwardStorePort, invoke, nav, on, openExternal, send, viewMenu } from "./common";
 
 /**
@@ -92,6 +93,12 @@ const api: EditorApi = {
   },
   // Text › Spell check: the view's own spell checker (webPreferences.spellcheck, src/main/views.ts), at most 2000 words a call.
   agents: agentsApi(),
+  // Plain data both ways: main checks it again (src/shared/shortcuts.ts sanitizeShortcutSettings).
+  shortcuts: {
+    get: () => invoke("shortcuts:get"),
+    set: (patch) => invoke("shortcuts:set", JSON.parse(JSON.stringify(patch ?? {})) as Partial<ShortcutSettings>),
+    onChanged: (cb) => on("shortcuts:changed", cb),
+  },
   spelling: {
     misspelled: (words) => (Array.isArray(words) ? words.slice(0, 2000) : []).map((w) => typeof w === "string" && w.length < 64 && webFrame.isWordMisspelled(w)),
   },

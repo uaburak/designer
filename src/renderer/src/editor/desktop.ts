@@ -13,6 +13,7 @@ import type { EditorController } from "./controller";
 import { COMMAND_BY_ID, COMMANDS, isEnabled, runEditorCommand } from "./commands";
 import { isEditable } from "./keyboard";
 import { attachAgents } from "./agents/service";
+import { shortcutPrefs } from "./shortcuts/prefs";
 
 /** The editor view's preload API, or null (a browser, or another role). */
 export function editorBridge(): EditorApi | null {
@@ -98,7 +99,8 @@ export function attachDesktop(ed: EditorController): () => void {
         if (action === "native") return void document.execCommand(TEXT_FIELD_COMMANDS[id]);
         if (action === "drop") return;
       }
-      runEditorCommand(ed, id);
+      // A shortcut the menu bar ran (a key the page left to it): used, as the keyboard layer's are (shortcuts/usage.ts).
+      if (runEditorCommand(ed, id) && c.source === "accelerator") shortcutPrefs.markUsed(id);
     })
   );
 

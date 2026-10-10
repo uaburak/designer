@@ -180,4 +180,18 @@ describe("Navigation bar: icons only by default (owner, round 14)", () => {
     expect(showsRailLabels({ railLabels: false })).toBe(false);
     expect(showsRailLabels({ railLabels: true })).toBe(true);
   });
+
+  it("View › Additional labels: unchecked by default; one click turns the rail's and the Design panel's labels on, the next both off", () => {
+    let ui: { railLabels?: boolean; propertyLabels: boolean } = { propertyLabels: true };
+    const ed = { ui: { get: () => ui, set: (p: object | ((s: typeof ui) => object)) => (ui = { ...ui, ...(typeof p === "function" ? p(ui) : p) }) } } as never;
+    const c = command("view.additional-labels");
+    expect(c.checked!(ed)).toBe(false);
+    c.run(ed);
+    expect(ui).toEqual({ railLabels: true, propertyLabels: true });
+    expect(c.checked!(ed)).toBe(true);
+    expect(showsRailLabels(ui)).toBe(true);
+    c.run(ed);
+    expect(ui).toEqual({ railLabels: false, propertyLabels: false });
+    expect(c.checked!(ed)).toBe(false);
+  });
 });

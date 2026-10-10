@@ -1,5 +1,7 @@
 import { app, Menu, nativeTheme, webContents, type KeyboardEvent, type MenuItemConstructorOptions } from "electron";
 import { command, MENU_LAYOUT, registersAccelerator, runsFromMenuBar, type CommandId, type MenuEntry } from "../shared/commands";
+import { acceleratorFor, type KeyCombo } from "../shared/shortcuts";
+import { readSettings } from "./session";
 import type { WindowController } from "./window";
 
 /**
@@ -15,26 +17,29 @@ import type { WindowController } from "./window";
  * and the shell's; the view in front gets the rest as `menu:command`.
  * Copy, Cut and Paste stay roles: the DOM clipboard events fire in the
  * focused view. Which items are enabled and checked follows the view in
- * front (`menu:state`, TabManager.applyMenu); the menu is never rebuilt.
+ * front (`menu:state`, TabManager.applyMenu). The menu is rebuilt only when
+ * the user changes a shortcut (the Keyboard shortcuts panel's `bindings`, in
+ * settings.json — src/shared/shortcuts.ts): its accelerators are theirs.
  */
-export function appMenu(current: () => WindowController | null, dev: boolean): Menu {
+export function appMenu(current: () => WindowController | null, dev: boolean, bindings: Record<string, KeyCombo[]> = {}): Menu {
   const mac = process.platform === "darwin";
 
   const item = (id: CommandId, extra: Partial<MenuItemConstructorOptions> = {}): MenuItemConstructorOptions => {
     const spec = command(id);
+    const accelerator = acceleratorFor(id, spec.accelerator, bindings);
     return {
       id,
       label: spec.label,
-      accelerator: spec.accelerator,
+      accelerator,
       // Keys without ⌘ or ⌃ are the page's own (a registered ⇧R would eat the R typed into a field): shown only.
-      registerAccelerator: registersAccelerator(spec.accelerator),
+      registerAccelerator: registersAccelerator(accelerator),
       type: spec.kind === "checkbox" ? "checkbox" : spec.kind === "radio" ? "radio" : "normal",
       // Disabled until the view in front says otherwise (TabManager.applyMenu runs once the window is up).
       enabled: spec.scope === "app" || spec.scope === "shell",
       ...extra,
       click: (_item, _win, event: KeyboardEvent) => {
         // A plain key (N, [, ⇧V…) a page left unhandled is typing in a text field, never this command (runsFromMenuBar).
-        if (!runsFromMenuBar(extra.accelerator ?? spec.accelerator, !!event.triggeredByAccelerator)) return;
+        if (!runsFromMenuBar(extra.accelerator ?? accelerator, !!event.triggeredByAccelerator)) return;
         const ctl = current();
         ctl?.tabs.command(id, event.triggeredByAccelerator ? "accelerator" : "menu", webContents.getFocusedWebContents());
         // A checkbox flips itself on click: the view's report decides.
@@ -76,4 +81,19 @@ export function appMenu(current: () => WindowController | null, dev: boolean): M
     }),
   ];
   return Menu.buildFromTemplate(template);
+}
+
+let built: { current: () => WindowController | null; dev: boolean } | null = null;
+
+/** The menu bar set at launch, with the user's shortcuts. */
+export function installAppMenu(current: () => WindowController | null, dev: boolean): void {
+  built = { current, dev };
+  Menu.setApplicationMenu(appMenu(current, dev, readSettings().shortcuts?.bindings));
+}
+
+/** The user changed a shortcut: the menu bar again with its accelerators, then the window in front's enabled / checked items. */
+export function refreshAppMenu(): void {
+  if (!built) return;
+  Menu.setApplicationMenu(appMenu(built.current, built.dev, readSettings().shortcuts?.bindings));
+  built.current()?.tabs.applyMenu();
 }

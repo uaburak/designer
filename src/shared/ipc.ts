@@ -10,6 +10,7 @@
 import type { AgentSettings, AuthState, ConnectResult, McpClientId, McpClientInfo, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnEvent, TurnRequest, UsageInfo } from "./agents/types";
 import type { AttachResult } from "./agents/attachments";
 import type { CommandId, MenuStatePatch } from "./commands";
+import type { ShortcutSettings } from "./shortcuts";
 import type { TabKind, TabReport, TabStatus } from "./tabs";
 
 /** What a view is (each its own WebContentsView, renderer process and preload). */
@@ -245,6 +246,10 @@ export interface IpcInvoke {
   "file:export-preview": { args: [ExportPreviewRequest]; result: { path: string; bytes: number } | { cancelled: true } };
   /** The theme preference set: main keeps it, tells every view (`theme:changed`) and answers what it resolves to */
   "theme:set": { args: [ThemePreference]; result: ThemeState };
+  /** The user's keyboard shortcuts (settings.json; src/shared/shortcuts.ts) */
+  "shortcuts:get": { args: []; result: ShortcutSettings };
+  /** Bindings, shortcuts used or the layout changed (only the fields given): main keeps them, rebuilds the menu bar's accelerators, tells every editor */
+  "shortcuts:set": { args: [Partial<ShortcutSettings>]; result: ShortcutSettings };
   /** A native menu at a point of the view (`at` in the view's CSS pixels): the picked item's id, or null */
   "menu:popup": { args: [{ template: NativeMenuItem[]; x: number; y: number }]; result: string | null };
   /** The system's and the user's fonts (scanned once, cached in userData/cache/fonts-v1.json) */
@@ -327,6 +332,8 @@ export interface IpcEvents {
   "store:port": { generation: number };
   /** The theme changed (a choice, or the system's appearance while the preference is "system") */
   "theme:changed": ThemeState;
+  /** The keyboard shortcuts changed (in this or another editor) */
+  "shortcuts:changed": ShortcutSettings;
   /** Fonts were installed or removed (or the Google Fonts catalog changed): read `fonts:list` again */
   "fonts:changed": { version: number };
   /** A chat turn's stream */
@@ -349,6 +356,8 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "file:export-assets": ["editor"],
   "file:export-preview": ["editor"],
   "theme:set": ["tabbar", "home", "editor"],
+  "shortcuts:get": ["editor"],
+  "shortcuts:set": ["editor"],
   "menu:popup": ["tabbar", "home", "editor"],
   "fonts:list": ["editor"],
   "fonts:read": ["editor"],

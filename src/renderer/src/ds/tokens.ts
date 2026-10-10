@@ -302,6 +302,17 @@ export const size = {
   "traffic-room-fullscreen": 8,
   toolbar: 48,
   "toolbar-bottom": 12,
+  // The Keyboard shortcuts panel along the editor's bottom (the owner's screenshots of live Figma, 1512-wide window):
+  // 240 high (its top line 1), a 38 tab row (its line under it 1), three 300 columns 48 apart centred, rows 37 apart, 26 caps; the Layout tab's keyboard
+  // keys 26 × 25, 32 apart across, 33 down.
+  "shortcuts-panel": 240,
+  "shortcuts-tabs": 38,
+  "shortcuts-column": 300,
+  "shortcuts-gap": 48,
+  "shortcuts-row": 37,
+  "shortcuts-cap": 26,
+  "keyboard-key": 26,
+  "keyboard-key-height": 25,
   tool: 32,
   ruler: 20,
   popover: 240, // K

@@ -49,6 +49,20 @@ export function Kbd({ children }: { children: ReactNode }) {
   return <kbd data-ds="Kbd" className={styles.kbd}>{children}</kbd>;
 }
 
+/**
+ * One key of a shortcut, drawn as a key cap (live Figma's Keyboard shortcuts panel): 26 high, at least 26 wide, a
+ * 1px border in the secondary text colour; `lit` (a shortcut the user has used) fills it with the brand text colour.
+ * `recording`: waiting for keys (a brand border). `size="small"`: the Layout tab's keyboard (26 × 25).
+ */
+export function KeyCap({ children, icon, lit, recording, size = "default", className, ...rest }: { children?: ReactNode; icon?: IconName; lit?: boolean; recording?: boolean; size?: "default" | "small" } & HTMLAttributes<HTMLElement>) {
+  return (
+    <kbd data-ds="KeyCap" data-lit={lit ? "" : undefined} className={cx(styles.cap, size === "small" && styles.capSmall, lit && styles.capLit, recording && styles.capRecording, className)} {...rest}>
+      {icon && <Icon name={icon} size={16} />}
+      {children}
+    </kbd>
+  );
+}
+
 /** Code to inspect and copy (contract §4.34). */
 export function CodeBlock({ code, label = "Copy" }: { code: string; label?: string }) {
   return (

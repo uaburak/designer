@@ -54,6 +54,12 @@
     pointer-events: none;
   }
   :where(.view > *) { pointer-events: auto; }
+  /*
+   * The Keyboard shortcuts panel (live): docked along the window's bottom, 240 high; the panels end over it, the bottom
+   * toolbar sits 12 over it, the visible part of the canvas (`.view`) ends there — the canvas itself keeps its size.
+   */
+  .editor:has([data-shortcuts-panel]) { --ds-toolbar-lift: var(--ds-size-shortcuts-panel); }
+  .editor:has([data-shortcuts-panel]) > .chrome { bottom: var(--ds-size-shortcuts-panel); }
   .canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
   /* The "?" circle: centred with the toolbar (20 from the bottom), 24 from the window's right edge, over the right panel */
   .help { position: absolute; right: var(--ds-space-6); bottom: var(--ds-space-5); z-index: var(--ds-z-floating); display: flex; }

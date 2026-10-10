@@ -52,6 +52,16 @@
   .horizontal { height: 1px; }
   .vertical { width: 1px; align-self: stretch; }
 
+  .cap {
+    display: inline-flex; flex: none; align-items: center; justify-content: center; gap: var(--ds-space-1);
+    box-sizing: border-box; min-width: var(--ds-size-shortcuts-cap); height: var(--ds-size-shortcuts-cap); padding: 0 var(--ds-space-1-5);
+    border: 1px solid var(--figma-color-text-secondary); border-radius: var(--ds-radius-small);
+    color: var(--figma-color-text-secondary); font: var(--ds-font-body-large); letter-spacing: var(--ds-tracking-body-large); line-height: 1;
+    white-space: nowrap;
+  }
+  .capSmall { min-width: var(--ds-size-keyboard-key); height: var(--ds-size-keyboard-key-height); padding: 0; }
+  .capLit { border-color: var(--figma-color-text-brand); background: var(--figma-color-text-brand); color: var(--ds-color-menu-bg); }
+  .capRecording { border-color: var(--figma-color-border-selected); color: var(--figma-color-text); box-shadow: 0 0 0 1px var(--figma-color-border-selected); }
   .kbd { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); font-variant-numeric: tabular-nums; }
 
   .code { position: relative; margin: 0; padding: var(--ds-space-2); padding-right: var(--ds-space-8); overflow: auto; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); color: var(--figma-color-text); font: var(--ds-font-code); letter-spacing: var(--ds-tracking-code); white-space: pre; user-select: text; }

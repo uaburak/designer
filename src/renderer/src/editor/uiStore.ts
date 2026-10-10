@@ -101,8 +101,10 @@ export interface UIState extends PreferenceFlags {
   railLabels?: boolean;
   /** "Rename layers" (⌘R on several layers): the layers, in the panel's order */
   renameLayers?: Guid[] | null;
-  /** The shortcuts help (⌃⇧?) */
+  /** The Keyboard shortcuts panel along the editor's bottom (⌃⇧?, Help ▸ Keyboard shortcuts) */
   shortcutsOpen: boolean;
+  /** Its tab (default Essential) */
+  shortcutsTab?: string;
   /** The Actions palette (⌘K, the toolbar's Actions, the Figma menu's "Actions…") */
   actionsOpen?: boolean;
   /** Figma's "Additional labels" (View menu, on by default since 2026; was "Property labels" in the zoom menu) */

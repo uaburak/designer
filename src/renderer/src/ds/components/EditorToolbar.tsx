@@ -108,6 +108,8 @@ export interface EditorToolbarProps {
   /** Absolutely placed, 12px over its container's bottom; `offset` centres it on the window rather than the canvas */
   floating?: boolean;
   offset?: number;
+  /** Shortcuts the user changed (the tool's, or "actions"): shown instead of Figma's; null: the tool has none now */
+  shortcuts?: Partial<Record<ToolId | "actions", string | null>>;
 }
 
 /**
@@ -117,7 +119,8 @@ export interface EditorToolbarProps {
  * (the current tool ticked) above the toolbar. ← → move within the mode
  * switch. The keys themselves are the editor's (see `toolForKey`).
  */
-export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActive, mode, onMode, disabledModes = [], disabledTools = [], floating, offset }: EditorToolbarProps) {
+export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActive, mode, onMode, disabledModes = [], disabledTools = [], floating, offset, shortcuts }: EditorToolbarProps) {
+  const shortcutOf = (id: ToolId | "actions", own: string | undefined) => (shortcuts && id in shortcuts ? (shortcuts[id] ?? undefined) : own);
   const modeRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const current = groupOf(tool);
   return (
@@ -129,7 +132,7 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
             key={g.id}
             icon={shown.icon}
             label={shown.label}
-            shortcut={shown.shortcut}
+            shortcut={shortcutOf(shown.id, shown.shortcut)}
             active={g.id === current}
             onSelect={() => onTool(shown.id)}
             disabled={disabledTools.includes(shown.id)}
@@ -137,12 +140,12 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
             menuLabel={g.label}
             menuWidth={g.menuWidth}
             // Live (toolbar/*-tools-menu.txt): the slot's own tool is the lit row, whichever tool is active
-            menu={g.tools.map((id) => ({ id, label: TOOLS[id].label, shortcut: TOOLS[id].shortcut, icon: TOOLS[id].icon, checked: id === shown.id, radio: true, disabled: disabledTools.includes(id) }))}
+            menu={g.tools.map((id) => ({ id, label: TOOLS[id].label, shortcut: shortcutOf(id, TOOLS[id].shortcut), icon: TOOLS[id].icon, checked: id === shown.id, radio: true, disabled: disabledTools.includes(id) }))}
             onMenuSelect={(id) => !disabledTools.includes(id as ToolId) && onTool(id as ToolId)}
           />
         );
       })}
-      <ToolButton icon="24.actions" label="Actions" shortcut={keys(["mod", "k"])} active={Boolean(actionsActive)} onSelect={() => onActions?.()} />
+      <ToolButton icon="24.actions" label="Actions" shortcut={shortcutOf("actions", keys(["mod", "k"]))} active={Boolean(actionsActive)} onSelect={() => onActions?.()} />
       <ToolbarDivider />
       <div role="radiogroup" aria-label="Mode" className={styles.modes} data-ds="ModeSwitch">
         {EDITOR_MODES.map((m, i) => {

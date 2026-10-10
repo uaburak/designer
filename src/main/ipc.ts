@@ -9,6 +9,7 @@ import { fontIndex, readFont } from "./fonts";
 import { googlePreview } from "./googleFonts";
 import { isAppUrl } from "./protocol";
 import { workspaceDir } from "./storeHost";
+import { setShortcutSettings, shortcutSettings } from "./shortcuts";
 import { setThemePreference, themeState } from "./theme";
 import { settleFlush } from "./tabs";
 import { viewOf, type ViewInfo } from "./views";
@@ -164,6 +165,9 @@ export function registerIpc() {
     if (preference !== "system" && preference !== "light" && preference !== "dark") throw new Error("theme:set: system, light or dark");
     return setThemePreference(preference);
   });
+  // ── The Keyboard shortcuts panel's bindings, shortcuts used, layout (settings.json) ──
+  onInvoke("shortcuts:get", () => shortcutSettings());
+  onInvoke("shortcuts:set", (_c, patch) => setShortcutSettings(patch));
 
   // ── A native menu for a view (a menu that wouldn't fit inside it) ──
   onInvoke("menu:popup", ({ ctl, sender }, p) => popupMenu(ctl, sender, p));

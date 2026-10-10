@@ -1,4 +1,4 @@
-import { app, Menu, nativeImage, powerMonitor, session } from "electron";
+import { app, nativeImage, powerMonitor, session } from "electron";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { isCommandId } from "../shared/commands";
@@ -6,7 +6,7 @@ import { startAgents, stopAgents } from "./agents/host";
 import { askStoreGone, asked, testAnswers } from "./dialogs";
 import { startFontWatch, warmFontIndex } from "./fonts";
 import { registerIpc } from "./ipc";
-import { appMenu } from "./menu";
+import { installAppMenu } from "./menu";
 import { DEV_URL, handleScheme, isAppUrl, registerScheme } from "./protocol";
 import { flushStore, retryStoreHost, startStoreHost, storeClient, storeDebug } from "./storeHost";
 import { initTheme } from "./theme";
@@ -64,7 +64,7 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionCheckHandler((_wc, permission, origin) => allowed(permission, origin));
     session.defaultSession.setDevicePermissionHandler(() => false);
 
-    Menu.setApplicationMenu(appMenu(current, Boolean(DEV_URL)));
+    installAppMenu(current, Boolean(DEV_URL));
     // The store first: Home and the file tabs get their ports as their pages load.
     startStoreHost(() => {
       void askStoreGone().then((answer) => (answer === "quit" ? app.quit() : retryStoreHost()));

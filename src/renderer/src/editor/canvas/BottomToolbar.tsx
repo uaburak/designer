@@ -14,7 +14,9 @@ import { ContextMenu, EditorToolbar, groupOf, IconButton, showToast, Toolbar, To
 import type { ToolName } from "@/engine/abi";
 import { useTool } from "@/engine/hooks";
 import { useEditor } from "../controller";
-import { runEditorCommand } from "../commands";
+import { COMMAND_BY_ID, comboText, runEditorCommand } from "../commands";
+import { isCustom } from "../shortcuts/keymap";
+import { useShortcutSettings } from "../shortcuts/prefs";
 import { useUI } from "../hooks";
 import { useStoreSlice } from "../uiStore";
 import { setMode } from "../devmode/devMode";
@@ -73,6 +75,18 @@ export function BottomToolbar() {
   if (groups[groupOf(tool)] !== tool) setGroups({ ...groups, [groupOf(tool)]: tool });
   const dev = useUI((s) => s.mode === "dev");
   const draw = useUI((s) => s.mode === "draw");
+  // The tools' keys the user changed (the Keyboard shortcuts panel); the others keep the toolbar's own wording.
+  const bindings = useShortcutSettings().bindings;
+  const shortcuts = useMemo(() => {
+    const out: Partial<Record<ToolId | "actions", string | null>> = {};
+    for (const t of [...(Object.keys(ENGINE_TOOL) as ToolId[]), "actions" as const]) {
+      const id = t === "actions" ? "tool.actions" : `tool.${t}`;
+      if (!isCustom(id, bindings)) continue;
+      const first = COMMAND_BY_ID.get(id)?.keys?.[0];
+      out[t] = first ? comboText(first) : null;
+    }
+    return out;
+  }, [bindings]);
   const disabledTools = useMemo(() => (Object.keys(ENGINE_TOOL) as ToolId[]).filter((t) => !isAvailable(ed, t) || (dev && !DEV_TOOLS.has(t))), [ed, dev]);
   const pick = (t: ToolId) => {
     if (t === "image") {
@@ -104,6 +118,7 @@ export function BottomToolbar() {
         else showToast({ message: "Motion comes later" });
       }}
       disabledModes={["motion"]}
+      shortcuts={shortcuts}
       />
     </>
   );

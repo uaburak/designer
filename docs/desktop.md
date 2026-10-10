@@ -439,7 +439,7 @@ export interface MenuStatePatch {
 ```
 
 - Views send `menu:state` with only the keys that changed, at most once per animation frame (≤ 30/s).
-- Main merges the patch into that view's `TabRuntime.menuState`. If the view is active, main mutates the existing items (`Menu.getApplicationMenu().getMenuItemById(id).enabled = …`). It never rebuilds the menu.
+- Main merges the patch into that view's `TabRuntime.menuState`. If the view is active, main mutates the existing items (`Menu.getApplicationMenu().getMenuItemById(id).enabled = …`). It rebuilds the menu only when the user changes a shortcut (`shortcuts:set`, §10.2: the accelerators are the user's), then applies the view's state again.
 - On activation, the whole stored state of the new active view is applied.
 - **Defaults**:
   - Every `editor` command is disabled until the active editor reports.
@@ -609,7 +609,17 @@ export interface Settings {
 
 Each view gets the theme synchronously at boot through `--designer-theme` (§3). There is no `localStorage` theme and no cross-document sync in the desktop app. The menu's `DesignerV2 › Theme ›` radio items call the same path in main. The engine gets its overlay colours from the editor host (`design-system.md` §2.4).
 
-**Keyboard shortcuts help**: `Help › Keyboard Shortcuts` (⌃⇧?) is `menu:command {id: "help.keyboard-shortcuts"}` to the active editor, which draws Figma's bottom shortcuts panel from `COMMANDS`. It is disabled on Home.
+**Keyboard shortcuts help**: `Help › Keyboard Shortcuts` (⌃⇧?) is `menu:command {id: "help.shortcuts"}` to the active editor, which draws Figma's bottom Keyboard shortcuts panel (`src/renderer/src/editor/shortcuts/`, docs/research/shortcuts-panel/). It is disabled on Home.
+
+**Keyboard shortcuts (the user's)**: what the panel changes and tracks — the commands whose keys the user changed, the shortcuts used, the keyboard layout (`ShortcutSettings`, `src/shared/shortcuts.ts`) — is main's, in `settings.json` (`Settings.shortcuts`), one set for every window and tab:
+
+| Channel | Kind | Roles | Payload → result |
+|---|---|---|---|
+| `shortcuts:get` | invoke | E | `void → ShortcutSettings` |
+| `shortcuts:set` | invoke | E | `Partial<ShortcutSettings> → ShortcutSettings` (only the fields given; checked with `sanitizeShortcutSettings`). Main writes `settings.json`; when the bindings changed it rebuilds the menu bar with them (`acceleratorFor`: the user's first key, none when cleared) and applies the active view's menu state again; then `shortcuts:changed` to every editor. |
+| `shortcuts:changed` | event | E | `ShortcutSettings` |
+
+A custom key follows the same rules as Figma's (§8.3): one without ⌘ or ⌃ is shown on the menu bar, never registered and never run from it (`runsFromMenuBar`); the editor's keyboard layer runs it, and never while a text field has the focus. In a browser the editor keeps them in `localStorage` (`designer.shortcuts`).
 
 **External links**
 

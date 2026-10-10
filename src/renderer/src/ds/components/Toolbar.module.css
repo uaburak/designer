@@ -10,10 +10,11 @@
     color: var(--figma-color-icon);
     box-shadow: var(--ds-elevation-100);
   }
-  .floating { position: absolute; left: calc(50% + var(--ds-toolbar-offset, 0px)); bottom: var(--ds-size-toolbar-bottom); z-index: var(--ds-z-floating); transform: translateX(-50%); }
+  /* `--ds-toolbar-lift`: what docks under it (the Keyboard shortcuts panel: the toolbar 12 over it, live) */
+  .floating { position: absolute; left: calc(50% + var(--ds-toolbar-offset, 0px)); bottom: calc(var(--ds-size-toolbar-bottom) + var(--ds-toolbar-lift, 0px)); z-index: var(--ds-z-floating); transform: translateX(-50%); }
   /* Live (toolbar/vector-edit-toolbar.txt): 40 high, 8 over the bottom toolbar, 529 wide like it */
   .secondary { height: calc(var(--ds-size-toolbar) - var(--ds-space-2)); }
-  .floating.secondary { bottom: calc(var(--ds-size-toolbar-bottom) + var(--ds-size-toolbar) + var(--ds-space-2)); }
+  .floating.secondary { bottom: calc(var(--ds-size-toolbar-bottom) + var(--ds-toolbar-lift, 0px) + var(--ds-size-toolbar) + var(--ds-space-2)); }
   /* A labelled tool: 24 high, the glyph, the name (11 / 400), 8 after it; live "More": 8, the name, a 16 chevron, 4 */
   .textTool {
     display: flex; flex: none; align-items: center; height: var(--ds-size-control); padding: 0 var(--ds-space-2) 0 0; border: 0;

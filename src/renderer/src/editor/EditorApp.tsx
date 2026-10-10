@@ -50,7 +50,9 @@ import { GridTrackEditor } from "./panels/design/Grid";
 import { ImagePlacer, attachImageDrop } from "./canvas/ImagePlacer";
 import { attachViewInsets, insetsOf } from "./canvas/viewInsets";
 import { ReturnToInstance } from "./canvas/ReturnToInstance";
-import { ShortcutsDialog } from "./ShortcutsDialog";
+import { ShortcutsPanel } from "./shortcuts/ShortcutsPanel";
+import { attachUsageTracking } from "./shortcuts/usage";
+import { shortcutPrefs } from "./shortcuts/prefs";
 import { VersionDialogs } from "./VersionDialogs";
 import { LocalVariables } from "./panels/variables/LocalVariables";
 import { RenameLayersDialog } from "./panels/RenameLayers";
@@ -240,6 +242,9 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       if (meta) cleanups.push(meta);
       cleanups.push(ed.images.attach());
       if (canvas.parentElement) cleanups.push(attachImageDrop(ed, canvas.parentElement));
+      // The user's shortcuts (bindings, layout, the ones used) before the first key; usage watched from now on.
+      shortcutPrefs.start();
+      cleanups.push(attachUsageTracking(ed, canvas));
       cleanups.push(attachKeyboard(ed, canvas));
       cleanups.push(attachClipboard(ed));
       cleanups.push(attachCanvasMenu(ed, canvas));
@@ -410,14 +415,16 @@ function CanvasOverlays() {
 function Overlays() {
   const hidden = useUI((s) => s.uiHidden);
   const variables = useUI((s) => s.variablesOpen);
+  const shortcuts = useUI((s) => s.shortcutsOpen);
   return (
     <>
       {/* Centred on the window by CSS alone: a panel resized, folded or hidden never moves or re-renders it. */}
       {!hidden && <BottomToolbar />}
       {variables && <LocalVariables />}
-      {!hidden && !variables && <Help />}
+      {!hidden && !variables && !shortcuts && <Help />}
       <CanvasMenu />
-      <ShortcutsDialog />
+      {/* Docked along the bottom: the panels end over it and the toolbar sits over it (EditorApp.module.css); the canvas keeps its size. */}
+      <ShortcutsPanel />
       <ActionsPanel />
       <VersionDialogs />
       <LibrariesDialog />

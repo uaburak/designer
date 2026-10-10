@@ -3,11 +3,12 @@ import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, wr
 import { dirname, join } from "node:path";
 import type { ThemePreference } from "../shared/ipc";
 import type { ClosedTab, TabRecord } from "../shared/tabs";
+import { sanitizeShortcutSettings, type ShortcutSettings } from "../shared/shortcuts";
 
 /**
  * What the app keeps in userData between launches (docs/desktop.md §4.4):
  * `session.json` — each window's place and its tabs — and `settings.json` —
- * the theme. Written atomically (a temp file, fsync, rename), debounced
+ * the theme and the keyboard shortcuts (bindings changed, shortcuts used, layout). Written atomically (a temp file, fsync, rename), debounced
  * while running and at once on quit. The old `window.json` (place and
  * theme) is read once if there is no session yet.
  */
@@ -36,6 +37,8 @@ export interface SessionFile {
 
 export interface Settings {
   theme: ThemePreference;
+  /** The Keyboard shortcuts panel's (src/shared/shortcuts.ts); absent until the user changes or uses one */
+  shortcuts?: ShortcutSettings;
 }
 
 const file = (name: string) => join(app.getPath("userData"), name);
@@ -109,7 +112,7 @@ const isTheme = (t: unknown): t is ThemePreference => t === "system" || t === "l
 
 export function readSettings(): Settings {
   const saved = readJson("settings.json") as Partial<Settings> | null;
-  if (saved && isTheme(saved.theme)) return { theme: saved.theme };
+  if (saved && isTheme(saved.theme)) return { theme: saved.theme, ...(saved.shortcuts ? { shortcuts: sanitizeShortcutSettings(saved.shortcuts) } : {}) };
   const old = readJson("window.json") as { theme?: unknown } | null;
   return { theme: isTheme(old?.theme) ? old.theme : "system" };
 }
