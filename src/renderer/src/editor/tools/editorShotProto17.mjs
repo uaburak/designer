@@ -6,7 +6,7 @@
 // 2. A click on a connection's line (not its label) selects it: its hotspot selected, Interaction details open, the
 //    line and its "While hovering" label in the selection colour; a click on the label does the same.
 // 3. A drag on the line to empty canvas removes the connection; ⌘Z brings it back.
-/* global window, document */
+/* global window, document, getComputedStyle */
 import path from "node:path";
 import process from "node:process";
 
@@ -151,4 +151,104 @@ export async function proto17Section(page, theme, { open, settle, check, outDir 
   await settle(page);
   list = await read("27:11");
   check(`Proto17 ${theme}: …⌘Z brings it back`, list.length === 1, JSON.stringify(list).slice(0, 120));
+
+  // ---- 4. Change to between variants: lavender (live 2026-10-10: #d6b6fb), the component purple when selected. --------
+  await page.evaluate(() => window.__designerEditor.engine.setSelection([]));
+  await settle(page);
+  const LAVENDER = (r, g, b) => Math.abs(r - 0xd6) < 14 && Math.abs(g - 0xb6) < 14 && Math.abs(b - 0xfb) < 14;
+  const [mx, my] = S(200, 80); // between State=Default's right side and State=Hover's left
+  const lav = await pixels({ x: Math.round(mx - 6), y: Math.round(my - 3), width: 12, height: 6 }, LAVENDER);
+  check(`Proto17 ${theme}: a Change to connection between variants is lavender`, lav >= 8, `${lav} px`);
+  const blueOnIt = await pixels({ x: Math.round(mx - 6), y: Math.round(my - 3), width: 12, height: 6 }, (r, g, b) => Math.abs(r - 0xa8) < 14 && Math.abs(g - 0xd6) < 14 && Math.abs(b - 0xfb) < 14);
+  check(`Proto17 ${theme}: …not the quiet blue`, blueOnIt === 0, `${blueOnIt} px`);
+
+  // ---- 5. The panel's rows as live: "Click ↻ Hover" (a variant's values), newest first, 184 × 26 in a 32 row. ---------
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["27:2"]));
+  await settle(page);
+  const rowInfo = async () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll("[data-panel='right'] [data-interaction]")].map((row) => {
+        const b = row.querySelector("button");
+        const r = row.getBoundingClientRect();
+        const br = b.getBoundingClientRect();
+        return { text: [...b.querySelectorAll("span")].map((s) => s.textContent), icons: b.querySelectorAll("svg").length, row: [r.height], button: [br.left - r.left, br.width, br.height], radius: getComputedStyle(b).borderRadius };
+      })
+    );
+  let rows = await rowInfo();
+  check(
+    `Proto17 ${theme}: a Change to's row reads "Click ↻ Hover" (trigger short name, glyph, the variant's value)`,
+    rows.length === 1 && rows[0].text.join("|") === "Click|Hover" && rows[0].icons === 1,
+    JSON.stringify(rows)
+  );
+  check(`Proto17 ${theme}: …the row 32 high, its button 16 in, 184 × 26, radius 5`, rows[0] && rows[0].row[0] === 32 && rows[0].button.join(",") === "16,184,26" && rows[0].radius === "5px", JSON.stringify(rows[0]));
+  // Two interactions: the newest on top (live).
+  await page.evaluate(() => {
+    const ed = window.__designerEditor;
+    const list = ed.engine.readNode("27:11").prototypeInteractions;
+    const drag = { event: { interactionType: "DRAG" }, actions: [{ connectionType: "BACK" }] };
+    ed.setProps(["27:11"], { prototypeInteractions: [...list, drag] }, "Add interaction");
+    ed.engine.setSelection(["27:11"]);
+  });
+  await settle(page);
+  rows = await rowInfo();
+  check(`Proto17 ${theme}: rows newest first — "Drag → Back", then "Hover → Details"`, rows.map((r) => r.text.join(" ")).join(" / ") === "Drag Back / Hover Details", JSON.stringify(rows.map((r) => r.text)));
+  await shot("proto17-rows");
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+z" : "Control+z");
+  await page.evaluate(() => window.__designerEditor.engine.setSelection([]));
+  await settle(page);
+
+  // ---- 6. Interaction details from the line: 242 wide, the notch at the press, 30 under it; the menus as live. ---------
+  await page.mouse.click(px, py);
+  await settle(page);
+  const geo = await page.evaluate(() => {
+    const d = document.querySelector("[role=dialog][data-arrow]");
+    if (!d) return null;
+    const r = d.getBoundingClientRect();
+    const title = d.querySelector("h2").getBoundingClientRect();
+    return { left: r.left, top: r.top, width: r.width, arrowX: parseFloat(getComputedStyle(d).getPropertyValue("--popover-arrow-x")), off: d.hasAttribute("data-arrow-off"), title: title.left - r.left };
+  });
+  check(
+    `Proto17 ${theme}: details from the line: 242 wide, the notch at the press, the popover 30 under it, the title 24 in`,
+    geo && geo.width === 242 && !geo.off && Math.abs(geo.left + geo.arrowX - px) <= 1 && Math.abs(geo.top - (py + 30)) <= 1 && geo.title === 24,
+    JSON.stringify({ ...geo, px, py })
+  );
+  const labels = await dialog.locator("span").evaluateAll((els) => els.filter((e) => e.children.length === 0).map((e) => e.textContent));
+  check(`Proto17 ${theme}: …labelled rows Trigger, Action, Destination, Animation; a collapsed State`, ["Trigger", "Action", "Destination", "Animation", "State"].every((l) => labels.includes(l)), labels.join("|"));
+  await shot("proto17-details");
+  const menu = async (name) => {
+    await dialog.getByRole("combobox", { name, exact: true }).click();
+    await settle(page);
+    const items = await page.evaluate(() =>
+      [...document.querySelectorAll("[role=listbox] > *")].map((o) => (o.getAttribute("role") === "separator" ? "-" : `${o.textContent}${o.getAttribute("aria-disabled") === "true" ? "(off)" : ""}${o.querySelectorAll("svg").length ? "" : "(no glyph)"}`))
+    );
+    await shot(`proto17-menu-${name.toLowerCase()}`);
+    await page.keyboard.press("Escape");
+    await settle(page);
+    return items.join("|");
+  };
+  const triggers = await menu("Trigger");
+  check(
+    `Proto17 ${theme}: the Trigger list as live (84.png): None | On click … Key/Gamepad | Mouse … | After delay, each with its glyph`,
+    triggers === "None|-|On click|On drag|While hovering|While pressing|Key/Gamepad|-|Mouse enter|Mouse leave|Mouse down|Mouse up|-|After delay",
+    triggers
+  );
+  const actions = await menu("Action");
+  check(
+    `Proto17 ${theme}: the Action list as live (83.png): Change to off for a non-variant; Play/Pause animation, Set playhead off`,
+    actions ===
+      "None|-|Navigate to|Change to(off)|Back|Scroll to|Open link|-|Set variable|Set variable mode|Conditional|-|Open overlay|Swap overlay|Close overlay|-|Play/Pause animation(off)|Set playhead(off)",
+    actions
+  );
+
+  // ---- 7. Delete / Backspace with the connection selected removes it (not the layer); ⌘Z restores. -------------------
+  await page.locator("#engine-canvas").focus().catch(() => {});
+  await page.keyboard.press("Backspace");
+  await settle(page);
+  list = await read("27:11");
+  const stillThere = await page.evaluate(() => !!window.__designerEditor.engine.readNode("27:11"));
+  check(`Proto17 ${theme}: Backspace with a connection selected removes it, the layer stays, the details close`, list.length === 0 && stillThere && (await dialog.count()) === 0, JSON.stringify(list).slice(0, 120));
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+z" : "Control+z");
+  await settle(page);
+  list = await read("27:11");
+  check(`Proto17 ${theme}: …⌘Z brings the connection back`, list.length === 1, JSON.stringify(list).slice(0, 120));
 }

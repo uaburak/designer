@@ -132,7 +132,9 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
     case CommandId::SELECT_NEXT_SIBLING: selectRelative(2); return OK;
     case CommandId::SELECT_PREV_SIBLING: selectRelative(3); return OK;
     case CommandId::SELECT_INVERSE: selectInverse(); return OK;
-    case CommandId::DELETE: deleteSelection(); return OK;
+    case CommandId::DELETE:
+      if (!deletePrototypeSelection()) deleteSelection();
+      return OK;
     case CommandId::NUDGE: nudge(args.dx, args.dy, false); return OK;
     case CommandId::BRING_FORWARD: reorder(1); return OK;
     case CommandId::SEND_BACKWARD: reorder(-1); return OK;

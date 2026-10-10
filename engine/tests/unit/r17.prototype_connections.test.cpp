@@ -26,12 +26,14 @@ std::string connection(Guid dest, proto::Trigger trigger, proto::Navigation nav 
   return proto::encodeInteractions({i});
 }
 
-Editor makeEditor(bool hoverLink = false, bool buttonLink = false) {
+Editor makeEditor(bool hoverLink = false, bool buttonLink = false, bool variantLink = false) {
   auto nodes = baseChanges();
   NodeChange set = make(SET, NodeType::FRAME, kPage, "!", {100, 100, 400, 200}, "Button");
   set.props.comp().isStateGroup = true;
   nodes.push_back(set);
-  nodes.push_back(make(V1, NodeType::SYMBOL, SET, "!", {20, 20, 150, 100}, "State=Default"));
+  NodeChange v1 = make(V1, NodeType::SYMBOL, SET, "!", {20, 20, 150, 100}, "State=Default");
+  if (variantLink) v1.props.extra["prototypeInteractions"] = connection(V2, proto::Trigger::ON_HOVER, proto::Navigation::SWAP_STATE);
+  nodes.push_back(v1);
   nodes.push_back(make(V2, NodeType::SYMBOL, SET, "\"", {230, 20, 150, 100}, "State=Hover"));
   NodeChange btn = make(BTN, NodeType::ROUNDED_RECTANGLE, V1, "!", {10, 10, 60, 30}, "Bg");
   if (buttonLink) btn.props.extra["prototypeInteractions"] = connection(G, proto::Trigger::ON_CLICK);
@@ -305,4 +307,50 @@ TEST_CASE("r17 connections: a hotspot's next new connection takes the first trig
   CHECK(list[1].trigger == proto::Trigger::DRAG);
   CHECK(list[2].trigger == proto::Trigger::ON_HOVER);
   CHECK(list[1].actions[0].dest == K);
+}
+
+TEST_CASE("r17 connections: a Change to between variants is drawn as one (lavender), the others not") {
+  // V1 → V2, Change to (live 2026-10-10: lavender line, ring and chip; the component purple when selected).
+  Editor e = makeEditor(true, false, true);
+  Overlay o = e.overlay();
+  const PrototypeLink* change = linkFrom(o, {120, 120, 150, 100});
+  const PrototypeLink* hover = linkFrom(o, {720, 120, 100, 40});
+  REQUIRE(change);
+  REQUIRE(hover);
+  CHECK(change->changeTo);
+  CHECK(change->label == "While hovering");
+  CHECK(!change->highlighted);
+  CHECK(!hover->changeTo);
+  REQUIRE(e.setSelection({V1}) == OK);
+  e.setPrototypeSelection(V1, 0);
+  Overlay o2 = e.overlay();
+  change = linkFrom(o2, {120, 120, 150, 100});
+  REQUIRE(change);
+  CHECK(change->changeTo);
+  CHECK(change->highlighted);
+  e.setPrototypeSelection(kNoGuid, -1);
+}
+
+TEST_CASE("r17 connections: Delete with a connection selected removes its interaction, not the layer; undo") {
+  Editor e = makeEditor(true);
+  NoodleCurve n = prototypeNoodle({720, 120, 100, 40}, {1200, 100, 300, 300}, false, {});
+  click(e, noodlePoint(n, 0.25));
+  REQUIRE(e.prototypeSelectionNode() == H);
+  e.takeEvents();
+  e.command(CommandId::DELETE);
+  REQUIRE(e.document().get(H));
+  CHECK(of(e, H).empty());
+  CHECK(e.selection() == std::vector<Guid>{H});
+  CHECK(e.prototypeSelectionNode() == kNoGuid);
+  auto ev = e.takeEvents();
+  REQUIRE(ev.prototypeSelected.size() == 1);
+  CHECK(ev.prototypeSelected[0].node == H);
+  CHECK(ev.prototypeSelected[0].index == -1);  // the details close
+  e.command(CommandId::UNDO);
+  REQUIRE(of(e, H).size() == 1);
+  CHECK(of(e, H)[0].actions[0].dest == G);
+  // No connection selected now: Delete removes the selected layer as ever.
+  REQUIRE(e.setSelection({H}) == OK);
+  e.command(CommandId::DELETE);
+  CHECK(e.selection().empty());
 }

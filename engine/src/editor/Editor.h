@@ -583,6 +583,9 @@ class Editor : private LayoutHost, public TextLayouts {
   void setPrototypeSelection(Guid node, int index);
   Guid prototypeSelectionNode() const { return proto_.selNode; }
   int prototypeSelectionIndex() const { return proto_.selIndex; }
+  // Round 17: Delete / Backspace with a connection selected (its details open) removes its interaction — one undo
+  // step — not the hotspot (Commands.cpp DELETE). False when no connection is selected.
+  bool deletePrototypeSelection();
   // Viewer mode (developer previews, Dev Mode): read-only — the selection without resize / rotate handles, clicks
   // select and drags never move anything, no context menu, no text / vector / paint editing, only the Move and Hand
   // tools; edits through the API are refused (E_READONLY, Api.cpp).
@@ -1478,6 +1481,7 @@ class Editor : private LayoutHost, public TextLayouts {
     std::vector<size_t> action;  // the action's path (conditional branches: action, branch, action…)
     Guid dest = kNoGuid;
     bool media = false;          // a video action (UPDATE_MEDIA_RUNTIME): its end goes onto videos
+    bool changeTo = false;       // a Change to (SWAP_STATE): drawn lavender (round 17)
   };
   struct ProtoSession {
     bool on = false;

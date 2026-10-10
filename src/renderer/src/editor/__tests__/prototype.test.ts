@@ -68,13 +68,13 @@ describe("prototype model", () => {
 
   it("writes interaction rows as Figma does", () => {
     const names = (id: string) => ({ "2:10": "Details", "2:20": "Menu" })[id] ?? null;
-    expect(interactionSummary(newInteraction(guidJson("1:1"), "2:10"), names)).toEqual({ trigger: "On click", action: "Details" });
-    expect(interactionSummary(newInteraction(guidJson("1:1")), names)).toEqual({ trigger: "On click", action: "None" });
+    expect(interactionSummary(newInteraction(guidJson("1:1"), "2:10"), names)).toEqual({ trigger: "Click", action: "Details", kind: "NAVIGATE" });
+    expect(interactionSummary(newInteraction(guidJson("1:1")), names)).toEqual({ trigger: "Click", action: "None", kind: "NAVIGATE" });
     const overlay = { ...newInteraction(guidJson("1:1"), "2:20"), actions: [actionOfKind("OVERLAY", newInteraction(guidJson("1:1"), "2:20").actions![0])] };
-    expect(interactionSummary(overlay, names).action).toBe("Open Menu");
+    expect(interactionSummary(overlay, names)).toMatchObject({ action: "Menu", kind: "OVERLAY" });
     const delay = withTrigger(newInteraction(guidJson("1:1"), "2:10"), "AFTER_TIMEOUT");
     expect(delay.event).toMatchObject({ interactionType: "AFTER_TIMEOUT", transitionTimeout: 0.8 });
-    expect(interactionSummary(delay, names).trigger).toBe("After 800ms");
+    expect(interactionSummary(delay, names).trigger).toBe("Delay");
     expect(withTrigger(delay, "ON_HOVER").event?.transitionTimeout).toBeUndefined();
   });
 

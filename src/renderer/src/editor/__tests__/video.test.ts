@@ -110,7 +110,7 @@ describe("video triggers and actions", () => {
     const hit = withTrigger({ event: { interactionType: "ON_CLICK" }, actions: [{ connectionType: "UPDATE_MEDIA_RUNTIME", mediaAction: "SKIP_FORWARD", mediaSkipByAmount: 10 }] }, "ON_MEDIA_HIT");
     expect(hit.event?.mediaHitTime).toBe(0);
     hit.event!.mediaHitTime = 12;
-    expect(interactionSummary(hit, () => null)).toEqual({ trigger: "When video hits 0:12", action: "Jump forward 10s" });
+    expect(interactionSummary(hit, () => null)).toEqual({ trigger: "Video hits 0:12", action: "Jump forward 10s", kind: "VIDEO_JUMP" });
     expect(withTrigger(hit, "ON_CLICK").event?.mediaHitTime).toBeUndefined();
   });
 });

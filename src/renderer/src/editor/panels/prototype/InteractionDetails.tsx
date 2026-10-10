@@ -9,24 +9,23 @@
  * "Play/pause video", "Mute/unmute video", "Set to specific time" and "Jump forward/backward in time" (their video and
  * choice), and a Navigate to a frame with a video has "Reset video state". Scroll to has its X / Y offset.
  */
-import { useMemo, useRef } from "react";
-import { Button, Checkbox, ColorInput, IconButton, NumericInput, Popover, SegmentedControl, Select, TextInput, type ChangeInfo } from "@/ds";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+import { Button, Checkbox, ColorInput, Icon, IconButton, NumericInput, Popover, SegmentedControl, Select, TextInput, type ChangeInfo } from "@/ds";
 import type { Guid, NodeChange } from "@/engine/codec";
 import { useCurrentPage } from "@/engine/hooks";
 import { useEditor, type EditorController } from "../../controller";
 import { useNodes } from "../../hooks";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import {
-  ACTIONS,
+  ACTION_ICON,
   ANIMATIONS,
   DIRECTIONS,
   EASINGS,
   OVERLAY_POSITIONS,
   MEDIA_CHOICES,
-  TRIGGERS,
-  VIDEO_ACTIONS,
-  VIDEO_TRIGGERS,
+  TRIGGER_ICON,
   actionKind,
+  actionMenu,
   formatMediaTime,
   isVideoAction,
   parseMediaTime,
@@ -43,6 +42,7 @@ import {
   liveInteractions,
   takesDestination,
   transitionOf,
+  triggerMenu,
   withTrigger,
   type ActionKind,
   type Animation,
@@ -91,6 +91,7 @@ export function InteractionDetails({
   anchor,
   onClose,
   placement,
+  gap,
 }: {
   node: Guid;
   index: number;
@@ -98,6 +99,8 @@ export function InteractionDetails({
   onClose: () => void;
   /** `bottom`: under a connection's label on the canvas (live 62–63.png); else beside the panel. */
   placement?: "bottom";
+  /** `bottom`: how far under the anchor (live: 30 under a pressed point on the line, 11 under a label chip). */
+  gap?: number;
 }) {
   const ed = useEditor();
   const [n] = useNodes([node]) as (ProtoNode | null)[];
@@ -118,14 +121,20 @@ export function InteractionDetails({
     next[k] = a;
     write({ ...interaction, actions: next }, label, info);
   };
-  // Round 17 (live 62–63.png): titled "Interaction", "+" (Add action) beside the close button.
+  // Round 17 (live 62–63.png): titled "Interaction", "+" (Add action) beside the close button. Live 2026-10-10 (the
+  // owner's 85.png; draggable_modal / prototype_interaction_edit_modal measured): 242 wide, the title 24 in; labelled
+  // rows (label 16 in, the field at 89, 137 wide, rows 32) in groups 8 + a line + 8 apart — Trigger | Action and its
+  // destination | Animation | "State" (collapsed); opened from the canvas, a notch on top pointing at the press.
   return (
     <Popover
       anchor={anchor}
       placement={placement}
+      arrow={placement === "bottom"}
+      gap={gap}
       title="Interaction"
+      titleInset={24}
       onClose={onClose}
-      width={280}
+      width={242}
       headerActions={
         <IconButton icon="24.plus.small" label="Add action" tooltip={false} onClick={() => write({ ...interaction, actions: [...actions, actionOfKind("NONE")] }, "Add action")} />
       }
@@ -142,6 +151,22 @@ export function InteractionDetails({
             onRemove={actions.length > 1 ? () => write({ ...interaction, actions: actions.filter((_, j) => j !== k) }, "Remove action") : undefined}
           />
         ))}
+        {actions.length === 0 && (
+          <>
+            <div className={styles.divider} />
+            <Labelled label="Action">
+              <Select
+                label="Action"
+                variant="outlined"
+                className={styles.iconField}
+                prefix={ACTION_ICON.NONE}
+                value="NONE"
+                options={actionMenu({ changeTo: variantsFor(ed, node).length > 0, conditional: true, video: false })}
+                onChange={(v) => write({ ...interaction, actions: [actionOfKind(v as ActionKind)] }, "Edit action")}
+              />
+            </Labelled>
+          </>
+        )}
       </div>
     </Popover>
   );
@@ -153,35 +178,34 @@ function TriggerRow({ interaction, video, onChange }: { interaction: PrototypeIn
   const videoTrigger = t === "ON_MEDIA_HIT" || t === "ON_MEDIA_END";
   return (
     <>
-      <div className={styles.row}>
+      <Labelled label="Trigger">
         <Select
           label="Trigger"
-          className={styles.grow}
+          variant="outlined"
+          className={styles.iconField}
+          prefix={TRIGGER_ICON[t]}
           value={t === "MOUSE_IN" ? "MOUSE_ENTER" : t === "MOUSE_OUT" ? "MOUSE_LEAVE" : t}
-          options={video || videoTrigger ? [...TRIGGERS, "-" as const, ...VIDEO_TRIGGERS] : TRIGGERS}
+          options={triggerMenu(video || videoTrigger)}
           onChange={(v) => onChange(withTrigger(interaction, v as InteractionType), "Edit trigger")}
         />
-      </div>
+      </Labelled>
       {t === "ON_MEDIA_HIT" && (
-        <div className={styles.labelled}>
-          <span className={styles.label}>Time</span>
+        <Labelled label="Time">
           <TextInput
             label="Time"
-            className={styles.grow}
+            variant="outlined"
             value={formatMediaTime(interaction.event?.mediaHitTime)}
             onCommit={(text) => {
               const s = parseMediaTime(text);
               if (s !== null) onChange({ ...interaction, event: { ...interaction.event, mediaHitTime: s } }, "Edit trigger");
             }}
           />
-        </div>
+        </Labelled>
       )}
       {t === "AFTER_TIMEOUT" && (
-        <div className={styles.labelled}>
-          <span className={styles.label}>Delay</span>
+        <Labelled label="Delay">
           <NumericInput
             label="Delay"
-            className={styles.grow}
             value={Math.round((interaction.event?.transitionTimeout ?? 0.8) * 1000)}
             unit="ms"
             min={1}
@@ -189,10 +213,10 @@ function TriggerRow({ interaction, video, onChange }: { interaction: PrototypeIn
             precision={0}
             onChange={(v, info) => onChange({ ...interaction, event: { ...interaction.event, transitionTimeout: v / 1000 } }, "Edit delay", info)}
           />
-        </div>
+        </Labelled>
       )}
       {t === "ON_KEY_DOWN" && (
-        <div className={styles.row}>
+        <Labelled label="Key">
           <button
             ref={recorder}
             type="button"
@@ -208,7 +232,7 @@ function TriggerRow({ interaction, video, onChange }: { interaction: PrototypeIn
           >
             {keyTriggerLabel(interaction.event?.keyTrigger?.keyCodes) || "Type a key"}
           </button>
-        </div>
+        </Labelled>
       )}
     </>
   );
@@ -285,24 +309,34 @@ function ActionEditor({
   const dest = guidOf(action.transitionNodeID);
   // The video actions: "available for any interaction that ends on a video" — offered where the frame has one.
   const videos = useMemo(() => (ed.engine.destroyed ? [] : videoLayersOf(ed, source)), [ed, source]);
-  const actionOptions = [
-    { value: "NONE", label: "None" },
-    "-" as const,
-    ...ACTIONS.filter((a) => depth === 0 || a === "-" || a.value !== "CONDITIONAL"),
-    ...(videos.length || isVideoAction(kind) ? ["-" as const, ...VIDEO_ACTIONS] : []),
-  ];
+  // Live (83.png): Change to only for a variant (or a layer in one) — listed, disabled, elsewhere.
+  const changeTo = kind === "CHANGE_TO" || (!ed.engine.destroyed && variantsFor(ed, source).length > 0);
+  const actionOptions = actionMenu({ changeTo, conditional: depth === 0, video: videos.length > 0 || isVideoAction(kind) });
   const destHasVideo = kind === "NAVIGATE" && !!dest && frameHasVideo(ed, dest);
   return (
     <div className={styles.actionBlock} data-action={kind}>
-      <div className={styles.row}>
-        <Select label="Action" className={styles.grow} value={kind} options={actionOptions} onChange={(v) => onChange(actionOfKind(v as ActionKind, action), "Edit action")} />
-        {onRemove && <IconButton icon="24.minus.small" label="Remove action" tone="secondary" onClick={onRemove} />}
-      </div>
+      <div className={styles.divider} />
+      <Labelled label="Action" action={onRemove && <IconButton icon="24.minus.small" label="Remove action" tone="secondary" onClick={onRemove} />}>
+        <Select
+          label="Action"
+          variant="outlined"
+          className={styles.iconField}
+          prefix={ACTION_ICON[kind]}
+          value={kind}
+          options={actionOptions}
+          onChange={(v) => {
+            if (v === "ANIMATION_PLAY" || v === "ANIMATION_PLAYHEAD") return;
+            onChange(actionOfKind(v as ActionKind, action), "Edit action");
+          }}
+        />
+      </Labelled>
       {takesDestination(kind) && (
-        <div className={styles.row}>
+        // Live: "Destination"; Change to's is "State" (the variant).
+        <Labelled label={kind === "CHANGE_TO" ? "State" : "Destination"}>
           <Select
             label="Destination"
-            className={styles.grow}
+            variant="outlined"
+            className={styles.field}
             value={dest ?? "NONE"}
             options={[{ value: "NONE", label: "None" }, ...(dests.length ? ["-" as const] : []), ...dests]}
             onChange={(v) => {
@@ -312,14 +346,15 @@ function ActionEditor({
               onChange(next, "Edit destination");
             }}
           />
-        </div>
+        </Labelled>
       )}
       {isVideoAction(kind) && (
         <>
-          <div className={styles.row}>
+          <Labelled label="Video">
             <Select
               label="Video"
-              className={styles.grow}
+              variant="outlined"
+              className={styles.field}
               value={dest ?? "NONE"}
               options={[{ value: "NONE", label: "Choose video" }, ...(dests.length ? ["-" as const] : []), ...dests]}
               onChange={(v) => {
@@ -329,11 +364,12 @@ function ActionEditor({
                 onChange(next, "Edit destination");
               }}
             />
-          </div>
+          </Labelled>
           {MEDIA_CHOICES[kind] && (
             <div className={styles.row}>
               <Select
                 label={kind === "VIDEO_JUMP" ? "Direction" : "Video action"}
+                variant="outlined"
                 className={styles.grow}
                 value={action.mediaAction ?? "PLAY"}
                 options={MEDIA_CHOICES[kind]!}
@@ -370,8 +406,8 @@ function ActionEditor({
       )}
       {kind === "SCROLL_TO" && (
         // Scroll to's offset (extraScrollOffset): how far past the destination's top-left the frame scrolls.
-        <div className={styles.labelled}>
-          <span className={styles.label}>Offset</span>
+        <div className={styles.offsets}>
+          <span className={styles.fieldLabel}>Offset</span>
           <NumericInput
             label="X offset"
             prefix="X"
@@ -405,27 +441,53 @@ function ActionEditor({
       {kind === "SET_VARIABLE_MODE" && <SetVariableMode action={action} onChange={onChange} />}
       {kind === "CONDITIONAL" && <Conditional source={source} action={action} depth={depth} onChange={onChange} />}
       {animates(kind) && <AnimationEditor action={action} kind={kind} onChange={onChange} />}
-      {kind === "NAVIGATE" && (
-        <div className={styles.group}>
-          <div className={styles.groupTitle}>State management</div>
+      {(kind === "NAVIGATE" || kind === "CHANGE_TO") && (
+        // Live 2026-10-10: a collapsed "State" (chevron, then the title 16 in, 32 high) holding Reset scroll position
+        // (Navigate to and Change to alike). Reset component state shows while it is on (live shows it no more); Reset
+        // video state for a destination with a video.
+        <StateSection>
           <div className={styles.checkRow}>
             <Checkbox label="Reset scroll position" checked={!!action.transitionResetScrollPosition} onChange={(c) => onChange({ ...action, transitionResetScrollPosition: c }, "Edit interaction")} />
           </div>
-          <div className={styles.checkRow}>
-            <Checkbox
-              label="Reset component state"
-              checked={!!action.transitionResetInteractiveComponents}
-              onChange={(c) => onChange({ ...action, transitionResetInteractiveComponents: c }, "Edit interaction")}
-            />
-          </div>
+          {action.transitionResetInteractiveComponents && (
+            <div className={styles.checkRow}>
+              <Checkbox label="Reset component state" checked onChange={(c) => onChange({ ...action, transitionResetInteractiveComponents: c }, "Edit interaction")} />
+            </div>
+          )}
           {(destHasVideo || action.transitionResetVideoPosition) && (
             <div className={styles.checkRow}>
               <Checkbox label="Reset video state" checked={!!action.transitionResetVideoPosition} onChange={(c) => onChange({ ...action, transitionResetVideoPosition: c }, "Edit interaction")} />
             </div>
           )}
-        </div>
+        </StateSection>
       )}
     </div>
+  );
+}
+
+/** A labelled row (live ui3LabelOneInput: the label 16 in, 65 wide at 70 %, the field 8 after it; 32 high). */
+function Labelled({ label, children, action }: { label: string; children: ReactNode; action?: ReactNode }) {
+  return (
+    <div className={action ? styles.fieldRowAction : styles.fieldRow}>
+      <span className={styles.fieldLabel}>{label}</span>
+      {children}
+      {action}
+    </div>
+  );
+}
+
+/** Interaction details' last group: "State", collapsed until its row is clicked (live: remembered while open). */
+function StateSection({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <div className={styles.divider} />
+      <button type="button" className={styles.disclosure} aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <Icon name={open ? "16.chevron.down" : "16.chevron.right"} />
+        <span>State</span>
+      </button>
+      {open && children}
+    </>
   );
 }
 
@@ -448,11 +510,11 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
     onChange({ ...action, easingFunction: next }, "Edit easing", info);
   };
   return (
-    <div className={styles.group}>
-      <div className={styles.groupTitle}>Animation</div>
-      <div className={styles.row}>
-        <Select label="Animation" className={styles.grow} value={shown} options={options.map(label)} onChange={(v) => setAnimation(v as Animation)} />
-      </div>
+    <>
+      <div className={styles.divider} />
+      <Labelled label="Animation">
+        <Select label="Animation" variant="outlined" className={styles.field} value={shown} options={options.map(label)} onChange={(v) => setAnimation(v as Animation)} />
+      </Labelled>
       {isDirectional(animation) && (
         <>
           <div className={styles.row}>
@@ -474,6 +536,7 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
           <div className={styles.row}>
             <Select
               label="Curve"
+              variant="outlined"
               className={styles.grow}
               value={easing === "SPRING" ? "GENTLE_SPRING" : easing === "EASE_IN" ? "IN_CUBIC" : easing}
               options={EASINGS}
@@ -515,7 +578,7 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
           )}
         </>
       )}
-    </div>
+    </>
   );
 }
 

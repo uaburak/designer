@@ -82,6 +82,8 @@ struct PrototypeLink {
   // Round 17 (the owner's live 61–63.png): its trigger on a chip at the curve's middle — every trigger but On click
   // ("While hovering", "On drag", "Mouse enter"…); light blue with dark text, solid blue with white when highlighted.
   std::string label;
+  // Round 17 (live 2026-10-10): a Change to (between variants) — lavender quiet, the component purple when selected.
+  bool changeTo = false;
 };
 // A connection nub (round 16, live Figma 64–67.png): one on each selected hotspot, at the middle of its side nearest
 // the pointer; hovered it is larger with a "+" (a press drags a new connection from there); while dragging, the plain

@@ -28,4 +28,15 @@
   .title { flex: 1 1 auto; min-width: 0; overflow: hidden; font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; user-select: none; }
   .headerContent { display: flex; flex: 1 1 auto; align-items: center; min-width: 0; margin-left: calc(var(--ds-space-2) * -1); }
   .body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  /*
+   * The notch (live draggable_modal--arrowTop): a 10 px border-coloured triangle under a 9 px one in the popover's
+   * colour, its base 1 below the top edge (over the rim), the tip 9 above it at --popover-arrow-x; the popover isn't clipped then (its body scrolls).
+   */
+  .withArrow { overflow: visible; }
+  .withArrow .body { border-radius: 0 0 var(--ds-radius-large) var(--ds-radius-large); }
+  .arrow { position: absolute; top: 0; left: var(--popover-arrow-x, 50%); width: 0; height: 0; pointer-events: none; }
+  .arrow::before, .arrow::after { content: ""; position: absolute; width: 0; height: 0; border-style: solid; border-color: transparent; }
+  .arrow::before { left: -10px; top: -9px; border-width: 0 10px 10px; border-bottom-color: var(--figma-color-border); }
+  .arrow::after { left: -9px; top: -8px; border-width: 0 9px 9px; border-bottom-color: var(--figma-color-bg); }
+  [data-arrow-off] > .arrow { display: none; }
 }

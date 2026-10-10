@@ -53,7 +53,7 @@ describe("the Prototype tab", () => {
     act(() => void engine.setSelection(["2:4"]));
     const rows = () => [...view.host.querySelectorAll("[data-interaction]")];
     expect(rows()).toHaveLength(1);
-    expect(rows()[0].textContent).toContain("On click");
+    expect(rows()[0].textContent).toBe("ClickDetails"); // live: "Click → Details" (the arrow a glyph)
     expect(rows()[0].textContent).toContain("Details");
     expect(section(view.host, "Scroll behavior")?.textContent).toContain("Position");
     click(rows()[0].querySelector('button[aria-label="Remove interaction"]'));
