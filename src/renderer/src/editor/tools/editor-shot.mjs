@@ -1333,7 +1333,7 @@ async function prototypeSection(page, theme) {
   // A hotspot: its interaction row; the details.
   await select("2:4");
   const row = panel.locator("[data-interaction]").first();
-  check("an interaction row reads On click · Details", (await row.getByText("On click").count()) === 1 && (await row.getByText("Details").count()) === 1);
+  check("an interaction row reads Click → Details (live 2026-10-10)", (await row.getByText("Click", { exact: true }).count()) === 1 && (await row.getByText("Details").count()) === 1);
   check("Scroll behavior: Position for a layer in a frame", (await panel.getByRole("region", { name: "Scroll behavior" }).getByText("Position").count()) === 1);
   await shot(page, `91-prototype-hotspot-${theme}`);
   await row.getByRole("button").first().click();

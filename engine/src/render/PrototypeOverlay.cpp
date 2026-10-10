@@ -167,6 +167,12 @@ void Renderer::drawPrototypeOverlay(const Document& /*doc*/, Guid /*page*/, cons
   Mat2x3 view = camera.matrix();
   const Color white{1, 1, 1, 1};
   const Color& blue = style.selection;
+  // A connection's colour: the selection's (a Change to's: the component purple) when highlighted, else its quiet one
+  // (light blue; a Change to's lavender — live 2026-10-10).
+  auto inkOf = [&](bool highlighted, bool changeTo) -> const Color& {
+    if (changeTo) return highlighted ? style.component : style.noodleChangeTo;
+    return highlighted ? blue : style.noodleQuiet;
+  };
   auto toScreen = [&](const Rect& r) { return transformedBounds(view * Mat2x3::translate(r.x, r.y), r.w, r.h); };
   auto segment = [&](Vec2 a, Vec2 b, double width, const Color& c, double alpha) {
     Vec2 d = b - a;
@@ -191,13 +197,17 @@ void Renderer::drawPrototypeOverlay(const Document& /*doc*/, Guid /*page*/, cons
   // Noodles: the quieter ones (opaque light blue, live 61–67.png) first.
   const double kNoodleWidth = style.noodleWidth;
   const double dpr = viewport_.scaleX() > 0 ? viewport_.scaleX() : 1;
-  std::vector<std::pair<Vec2, bool>> starts;
+  struct Start {
+    Vec2 at;
+    bool hi, changeTo;
+  };
+  std::vector<Start> starts;
   std::vector<std::pair<Vec2, const PrototypeLink*>> chips;
   for (int pass = 0; pass < 2; pass++)
     for (const PrototypeLink& l : po.links) {
       if (l.highlighted != (pass == 1)) continue;
       const double alpha = 1;
-      const Color& ink = l.highlighted ? blue : style.noodleQuiet;
+      const Color& ink = inkOf(l.highlighted, l.changeTo);
       Rect src = toScreen(l.source);
       Rect dst = l.toPoint ? Rect{} : toScreen(l.dest);
       NoodleCurve n = prototypeNoodle(src, dst, l.toPoint, view.apply(l.point), l.startSide);
@@ -219,14 +229,14 @@ void Renderer::drawPrototypeOverlay(const Document& /*doc*/, Guid /*page*/, cons
         Vec2 a = n.b - Vec2{n.dir.x * kArrow * (1 - t0), n.dir.y * kArrow * (1 - t0)};
         segment(a - Vec2{nrm.x * halfW, nrm.y * halfW}, a + Vec2{nrm.x * halfW, nrm.y * halfW}, kArrow / rows + 0.5, ink, alpha);
       }
-      starts.push_back({n.a, l.highlighted});
+      starts.push_back({n.a, l.highlighted, l.changeTo});
       if (!l.label.empty() && !l.toPoint) chips.push_back({noodlePoint(n, 0.5), &l});
     }
   // The start dots over every curve (live 67.png: a white disc in a 2 px ring of the noodle's colour), the
   // selection's last.
   for (int pass = 0; pass < 2; pass++)
-    for (const auto& [at, hi] : starts)
-      if (hi == (pass == 1)) dot(at, style.noodleDot / 2, white, 1, hi ? blue : style.noodleQuiet, style.nubRing);
+    for (const Start& st : starts)
+      if (st.hi == (pass == 1)) dot(st.at, style.noodleDot / 2, white, 1, inkOf(st.hi, st.changeTo), style.nubRing);
 
   // The trigger labels (round 17, live 61–63.png): a chip on each labelled curve's middle, the selected one's last.
   for (int pass = 0; pass < 2; pass++)
@@ -237,8 +247,8 @@ void Renderer::drawPrototypeOverlay(const Document& /*doc*/, Guid /*page*/, cons
       Rect box = noodleLabelBox(at, textW, style.noodleLabelHeight, style.noodleLabelPadding);
       box.x = std::round(box.x * dpr) / dpr;
       box.y = std::round(box.y * dpr) / dpr;
-      const Color& fill = l->highlighted ? blue : style.noodleQuiet;
-      const Color& ink = l->highlighted ? white : style.noodleLabelText;
+      const Color& fill = inkOf(l->highlighted, l->changeTo);
+      const Color& ink = l->highlighted ? white : l->changeTo ? style.noodleChangeToText : style.noodleLabelText;
       double r = style.noodleLabelRadius;
       emit(makeShape(Mat2x3::translate(box.x, box.y), {box.w, box.h}, ShapeKind::Rect, {r, r, r, r}, fill, 1, fill, 0, 0, 0), Pass::Shape);
       if (L && !L->lines.empty()) {

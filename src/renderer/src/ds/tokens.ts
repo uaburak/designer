@@ -479,6 +479,8 @@ export const CHROME_COLORS = [
   "canvasScrollbarFillHover",
   "canvasScrollbarRim",
   "prototypeLabelText",
+  "prototypeNoodleChangeTo",
+  "prototypeChangeToLabelText",
 ] as const;
 
 export type ChromeColorName = (typeof CHROME_COLORS)[number];
@@ -538,6 +540,11 @@ export const canvasChrome: Record<ChromeColorName, Pair> = {
   // quiet chip — dark text (#081825 sampled) on prototypeNoodleQuiet; the selected connection's chip is the selection
   // colour with white text.
   prototypeLabelText: ["#081825", "#081825"],
+  // Round 17 (live Figma 2026-10-10, a Change to between two variants): its line, start ring, arrow and chip in a
+  // lavender (sampled #d5b9fa against the blue chip's #b0d6fb for #a8d6fb — Figma's #d6b6fb), the chip's text dark
+  // purple (#1d0736 sampled); selected, the component purple with white.
+  prototypeNoodleChangeTo: ["#d6b6fb", "#d6b6fb"],
+  prototypeChangeToLabelText: ["#1d0736", "#1d0736"],
 };
 
 /** Chrome metrics in CSS px at any zoom (§1.4). */

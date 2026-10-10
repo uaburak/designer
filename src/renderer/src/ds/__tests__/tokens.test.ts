@@ -105,6 +105,8 @@ describe("the canvas chrome palette (engine ABI)", () => {
       "canvasTooltipFill", "canvasTooltipText", "readyForDev",
       // Round 16: a connection that isn't the selection's, the canvas scrollbars.
       "prototypeNoodleQuiet", "canvasScrollbarFill", "canvasScrollbarFillHover", "canvasScrollbarRim", "prototypeLabelText",
+      // Round 17: a Change to connection's lavender and its chip's text.
+      "prototypeNoodleChangeTo", "prototypeChangeToLabelText",
     ]);
   });
 
@@ -148,13 +150,13 @@ describe("generated artefacts", () => {
     expect(boot).toContain('tabbar: ["#e6e6e6","#3b3b3b"]');
     expect(boot).toContain('localStorage.getItem("designer-theme")');
     const header = renderChromeHeader();
-    expect(header).toContain("PrototypeLabelText = 42, Count");
+    expect(header).toContain("PrototypeChangeToLabelText = 44, Count");
     expect(header.match(/\/\/ selection/g)).toHaveLength(2);
   });
 
   it("every var(--…) a DS stylesheet reads exists (or is set inline by its component)", () => {
     const defined = new Set([...Object.keys(staticVariables()), ...Object.keys(themeVariables("light"))]);
-    const inline = new Set(["--depth", "--tail-rest", "--tail-hover", "--layer-clip-right", "--layer-tail", "--layer-cut", "--ds-toolbar-offset", "--ds-toolbar-lift", "--ds-tabs-card-bg", "--tone", "--field-ring", "--ds-row-columns", "--menu-inset"]);
+    const inline = new Set(["--depth", "--tail-rest", "--tail-hover", "--layer-clip-right", "--layer-tail", "--layer-cut", "--ds-toolbar-offset", "--ds-toolbar-lift", "--ds-tabs-card-bg", "--tone", "--field-ring", "--ds-row-columns", "--menu-inset", "--popover-arrow-x"]);
     const files = (readdirSync(ds, { recursive: true }) as string[]).filter((f) => f.endsWith(".css") && f !== "tokens.css");
     expect(files.length).toBeGreaterThan(20);
     for (const f of files) {

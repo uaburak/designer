@@ -69,48 +69,83 @@
   .flowName:hover { background: var(--figma-color-bg-hover); }
   .flowName:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
 
-  /* An interaction: its trigger's glyph, the trigger, what it does; − at the right */
+  /*
+   * An interaction row as live (2026-10-10, prototype_interaction_list): 32 high, 16 in; a 184 × 26 outlined button
+   * (radius 5) on a 24-column grid — the short trigger in columns 2–9, the action's 24 glyph in column 10, where it
+   * goes in 14–23 —, the hovered button filled; "−" 8 after it while the row is hovered; the open interaction's row
+   * filled edge to edge.
+   */
   .interaction {
     display: flex;
     align-items: center;
-    gap: var(--ds-space-1);
-    min-height: var(--ds-size-row);
-    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
+    gap: var(--ds-space-2);
+    height: var(--ds-size-row);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left);
   }
+  .interactionOpen { background: var(--figma-color-bg-tertiary); }
   .interactionButton {
-    display: flex;
+    display: grid;
     flex: 1 1 auto;
+    grid-template-columns: repeat(9, minmax(0, 1fr)) 24px repeat(14, minmax(0, 1fr));
     align-items: center;
-    gap: var(--ds-space-1);
     min-width: 0;
-    height: var(--ds-size-control);
-    padding: 0 var(--ds-space-1) 0 0;
-    border: 1px solid transparent;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--figma-color-border);
     border-radius: var(--ds-radius-medium);
-    background: var(--figma-color-bg-secondary);
+    background: transparent;
     color: var(--figma-color-text);
     font: inherit;
     text-align: left;
     outline: none;
   }
-  .interactionButton svg { flex: none; color: var(--figma-color-icon-secondary); }
-  .interactionButton:hover { border-color: var(--figma-color-border); }
-  .interactionOpen .interactionButton { border-color: var(--figma-color-border-selected); }
+  .interactionButton:hover { background: var(--figma-color-bg-hover); }
   .interactionButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
-  .trigger { flex: none; white-space: nowrap; }
-  .action {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    color: var(--figma-color-text-secondary);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    text-align: right;
-  }
+  .trigger, .target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .trigger { grid-column: 2 / 10; }
+  .actionIcon { grid-column: 10 / 11; color: var(--figma-color-icon); }
+  .target { grid-column: 14 / 24; }
+  .remove { visibility: hidden; }
+  .interaction:hover .remove, .remove:focus-visible { visibility: visible; }
 
-  /* Interaction details */
-  .details { padding: var(--ds-space-1) 0 var(--ds-space-2); }
-  .actionBlock { border-top: 1px solid var(--figma-color-border); padding-top: var(--ds-space-1); margin-top: var(--ds-space-1); }
+  /*
+   * Interaction details (live 2026-10-10, 242 wide): 8 above the first row and under the last; groups split by a 1 px
+   * line with 8 either side; a labelled row 32 high — the label 16 in at 70 % (65 : 137 with 8 between), the field
+   * outlined (1 px border colour, radius 5), its text 9 in, a glyph field's 24 glyph 9 in and its text after it.
+   */
+  .details { padding: var(--ds-space-2) 0; }
+  .actionBlock { display: contents; }
+  .divider { height: 1px; margin: var(--ds-space-2) 0; background: var(--figma-color-border); }
+  .fieldRow, .fieldRowAction, .offsets {
+    display: grid;
+    grid-template-columns: minmax(0, 64.7fr) minmax(0, 137.3fr);
+    column-gap: var(--ds-space-2);
+    align-items: center;
+    height: var(--ds-size-row);
+    padding: 0 var(--ds-space-4);
+  }
+  .fieldRowAction { grid-template-columns: minmax(0, 64.7fr) minmax(0, 105.3fr) 24px; padding-right: var(--ds-space-2); }
+  .offsets { grid-template-columns: minmax(0, 64.7fr) minmax(0, 64.65fr) minmax(0, 64.65fr); }
+  .fieldLabel { overflow: hidden; color: var(--figma-color-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
+  .field > button { padding-left: 9px; }
+  .iconField > button { padding-left: 9px; }
+  .disclosure {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: var(--ds-size-row);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+    text-align: left;
+    outline: none;
+  }
+  .disclosure svg { color: var(--figma-color-icon-secondary); }
+  .disclosure:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -2px; }
+  .details .checkRow { padding: 0 var(--ds-space-4); }
   .group { padding-top: var(--ds-space-1); }
   .groupTitle {
     padding: var(--ds-space-1) var(--ds-size-panel-pad-right) var(--ds-space-1) var(--ds-size-panel-pad-left);

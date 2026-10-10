@@ -106,6 +106,10 @@ struct OverlayStyle {
   // Round 17: a connection's trigger label (61–63.png): Inter 11 on a chip 30 high, 12 either side, corners 3; dark
   // text on the quiet colour, white on the selection colour when it is the selected connection's.
   Color noodleLabelText = Color::hex(0x081825);
+  // Round 17 (live 2026-10-10): a Change to between variants in lavender, its chip's text dark purple; selected, the
+  // component purple with white.
+  Color noodleChangeTo = Color::hex(0xD6B6FB);
+  Color noodleChangeToText = Color::hex(0x1D0736);
   double noodleLabelHeight = 30, noodleLabelPadding = 12, noodleLabelRadius = 3;
   Color scrollbarFill{0, 0, 0, 0.3f}, scrollbarFillHover{0, 0, 0, 0.4f}, scrollbarRim{1, 1, 1, 0.31f};
 
@@ -160,6 +164,8 @@ struct OverlayStyle {
     s.statusReady = chrome(t, C::ReadyForDev);
     s.noodleQuiet = chrome(t, C::PrototypeNoodleQuiet);
     s.noodleLabelText = chrome(t, C::PrototypeLabelText);
+    s.noodleChangeTo = chrome(t, C::PrototypeNoodleChangeTo);
+    s.noodleChangeToText = chrome(t, C::PrototypeChangeToLabelText);
     s.scrollbarFill = chrome(t, C::CanvasScrollbarFill);
     s.scrollbarFillHover = chrome(t, C::CanvasScrollbarFillHover);
     s.scrollbarRim = chrome(t, C::CanvasScrollbarRim);

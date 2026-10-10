@@ -8,7 +8,7 @@
  * - a video (a layer with a video fill): Video (help.figma.com 8878274530455 "Video properties": "Check the box to
  *   autoplay video", "Click the Loop icon to loop video", "Click the Sound icon to turn the video's default sound
  *   setting on or off") — the schema's videoPlayback.
- * An interaction row ("On click · Details") opens Interaction details (InteractionDetails.tsx). Everything is stored in
+ * An interaction row ("Click → Details", newest first) opens Interaction details (InteractionDetails.tsx). Everything is stored in
  * the schema's prototype fields (prototypeInteractions, prototypeStartingPoint, prototypeDevice,
  * prototypeBackgroundColor, scrollDirection, scrollBehavior), so it round-trips with .fig files.
  */
@@ -21,6 +21,7 @@ import { useEditor, type EditorController } from "../../controller";
 import { useDocumentVersion, useNodes, GEOMETRY_GROUPS } from "../../hooks";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import {
+  ACTION_ICON,
   DEVICE_MODELS,
   DEVICE_PRESETS,
   OVERFLOWS,
@@ -99,7 +100,7 @@ export function PrototypePanel() {
   const { nodes } = useSelectedNodes();
   const ed = useEditor();
   // The interaction whose details are open (a connection just made opens its own).
-  const [open, setOpen] = useState<{ node: Guid; index: number; anchor: DOMRect | HTMLElement | null; placement?: "bottom" } | null>(null);
+  const [open, setOpen] = useState<{ node: Guid; index: number; anchor: DOMRect | HTMLElement | null; placement?: "bottom"; gap?: number } | null>(null);
   useEffect(() => {
     const offConnected = ed.engine.on("PROTOTYPE_CONNECTED", (e) => {
       const node = e.refs[0];
@@ -118,7 +119,7 @@ export function PrototypePanel() {
       const canvas = document.getElementById("engine-canvas");
       const r = canvas?.getBoundingClientRect();
       const anchor = r ? new DOMRect(r.left + e.label.x, r.top + e.label.y, e.label.width, e.label.height) : null;
-      setOpen({ node: e.node, index: e.index, anchor, placement: "bottom" });
+      setOpen({ node: e.node, index: e.index, anchor, placement: "bottom", gap: e.label.height > 0 ? 11 : 30 });
     });
     return () => {
       offConnected();
@@ -141,7 +142,7 @@ export function PrototypePanel() {
   return (
     <>
       {nodes.length === 0 ? <NothingSelected /> : <Selected nodes={nodes as ProtoNode[]} onOpen={(node, index, anchor) => setOpen({ node, index, anchor })} openIndex={open} />}
-      {open && <InteractionDetails node={open.node} index={open.index} anchor={open.anchor} placement={open.placement} onClose={() => setOpen(null)} />}
+      {open && <InteractionDetails node={open.node} index={open.index} anchor={open.anchor} placement={open.placement} gap={open.gap} onClose={() => setOpen(null)} />}
     </>
   );
 }
@@ -347,44 +348,34 @@ function InteractionsSection({
     <PanelSection title="Interactions" empty={list.length === 0 && !mixed} actions={<IconButton icon="24.plus.small" label="Add interaction" tone="secondary" onClick={add} />}>
       {mixed && <div className={styles.note}>Click + to replace mixed interactions</div>}
       {one &&
-        list.map((i, index) => {
-          const s = interactionSummary(i, nameOf);
-          const isOpen = openIndex?.node === one.guid && openIndex.index === index;
-          return (
-            <div key={index} className={cx(styles.interaction, isOpen && styles.interactionOpen)} data-interaction={index}>
-              <button type="button" className={styles.interactionButton} onClick={(e) => onOpen(one.guid, index, e.currentTarget)}>
-                <Icon name={triggerIcon(i)} />
-                <span className={styles.trigger}>{s.trigger}</span>
-                <span className={styles.action}>{s.action}</span>
-              </button>
-              <IconButton
-                icon="24.minus.small"
-                label="Remove interaction"
-                tone="secondary"
-                onClick={() => write(one, list.filter((_, k) => k !== index), "Remove interaction")}
-              />
-            </div>
-          );
-        })}
+        // Live (2026-10-10): the newest interaction on top; each row "Hover → 1" — the short trigger, the first
+        // action's glyph, where it goes — in a 184 × 26 outlined button; "−" while the row is hovered; the open one's
+        // row filled.
+        list
+          .map((i, index) => ({ i, index }))
+          .reverse()
+          .map(({ i, index }) => {
+            const s = interactionSummary(i, nameOf);
+            const isOpen = openIndex?.node === one.guid && openIndex.index === index;
+            return (
+              <div key={index} className={cx(styles.interaction, isOpen && styles.interactionOpen)} data-interaction={index}>
+                <button type="button" className={styles.interactionButton} aria-haspopup="dialog" aria-expanded={isOpen} onClick={(e) => onOpen(one.guid, index, e.currentTarget)}>
+                  <span className={styles.trigger}>{s.trigger}</span>
+                  <Icon name={ACTION_ICON[s.kind]} className={styles.actionIcon} />
+                  <span className={styles.target}>{s.action}</span>
+                </button>
+                <IconButton
+                  icon="24.minus.small"
+                  label="Remove interaction"
+                  tone="secondary"
+                  className={styles.remove}
+                  onClick={() => write(one, list.filter((_, k) => k !== index), "Remove interaction")}
+                />
+              </div>
+            );
+          })}
     </PanelSection>
   );
-}
-
-function triggerIcon(i: PrototypeInteraction) {
-  switch (i.event?.interactionType) {
-    case "ON_HOVER":
-    case "MOUSE_ENTER":
-    case "MOUSE_LEAVE":
-    case "MOUSE_IN":
-    case "MOUSE_OUT":
-      return "24.interaction.hover.small" as const;
-    case "DRAG":
-      return "24.interaction.drag.small" as const;
-    case "AFTER_TIMEOUT":
-      return "24.recent" as const;
-    default:
-      return "24.interaction.click.small" as const;
-  }
 }
 
 /** Prototype › Video: what the video does when its frame is shown (Autoplay, Loop, the sound). */

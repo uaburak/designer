@@ -5,6 +5,7 @@
  * (an animation and a direction) and the schema's single TransitionType.
  */
 import type { Color, Guid } from "@/engine/codec";
+import type { IconName } from "@/ds";
 
 export interface GuidJson {
   sessionID: number;
@@ -221,6 +222,91 @@ export const VIDEO_ACTIONS: { value: ActionKind; label: string }[] = [
   { value: "VIDEO_SET_TIME", label: "Set to specific time" },
   { value: "VIDEO_JUMP", label: "Jump forward/backward in time" },
 ];
+
+/**
+ * Each trigger's and action's glyph (24, Figma's own, read from live Figma's Trigger / Action lists and interaction
+ * rows on 2026-10-10; the owner's 83–84.png). The video ones are unverified (live had no video).
+ */
+export const TRIGGER_ICON: Record<InteractionType, IconName> = {
+  NONE: "24.proto.none",
+  ON_CLICK: "24.proto.click",
+  DRAG: "24.proto.drag",
+  ON_HOVER: "24.proto.hover",
+  ON_PRESS: "24.proto.press",
+  ON_KEY_DOWN: "24.proto.key",
+  MOUSE_ENTER: "24.proto.mouse.enter",
+  MOUSE_IN: "24.proto.mouse.enter",
+  MOUSE_LEAVE: "24.proto.mouse.leave",
+  MOUSE_OUT: "24.proto.mouse.leave",
+  MOUSE_DOWN: "24.proto.mouse.down",
+  MOUSE_UP: "24.proto.mouse.up",
+  AFTER_TIMEOUT: "24.proto.delay",
+  ON_MEDIA_HIT: "24.proto.animation.play",
+  ON_MEDIA_END: "24.proto.animation.play",
+};
+export const ACTION_ICON: Record<ActionKind, IconName> = {
+  NONE: "24.proto.none",
+  NAVIGATE: "24.proto.navigate",
+  CHANGE_TO: "24.proto.change.to",
+  BACK: "24.proto.back",
+  SCROLL_TO: "24.proto.scroll.to",
+  URL: "24.proto.link",
+  SET_VARIABLE: "24.proto.set.variable",
+  SET_VARIABLE_MODE: "24.proto.set.variable.mode",
+  CONDITIONAL: "24.proto.conditional",
+  OVERLAY: "24.proto.overlay.open",
+  SWAP: "24.proto.overlay.swap",
+  CLOSE: "24.proto.overlay.close",
+  VIDEO_PLAY: "24.proto.animation.play",
+  VIDEO_SOUND: "24.proto.animation.play",
+  VIDEO_SET_TIME: "24.proto.playhead",
+  VIDEO_JUMP: "24.proto.playhead",
+};
+
+type MenuEntry = { value: string; label: string; icon: IconName; disabled?: boolean } | "-";
+
+/**
+ * Interaction details' Trigger list as live (84.png; live 2026-10-10: 166 wide, rows 24, groups 15 apart): None |
+ * On click, On drag, While hovering, While pressing, Key/Gamepad | Mouse enter, Mouse leave, Mouse down, Mouse up |
+ * After delay — each with its glyph; on a video the video triggers after (unverified).
+ */
+export function triggerMenu(video: boolean): MenuEntry[] {
+  const t = (v: InteractionType): MenuEntry => ({ value: v, label: triggerLabel(v), icon: TRIGGER_ICON[v] });
+  return [
+    { value: "NONE", label: "None", icon: TRIGGER_ICON.NONE },
+    "-",
+    t("ON_CLICK"), t("DRAG"), t("ON_HOVER"), t("ON_PRESS"), t("ON_KEY_DOWN"),
+    "-",
+    t("MOUSE_ENTER"), t("MOUSE_LEAVE"), t("MOUSE_DOWN"), t("MOUSE_UP"),
+    "-",
+    t("AFTER_TIMEOUT"),
+    ...(video ? ["-" as const, t("ON_MEDIA_HIT"), t("ON_MEDIA_END")] : []),
+  ];
+}
+
+/**
+ * The Action list as live (83.png; live 2026-10-10): None | Navigate to, Change to (disabled unless the hotspot is a
+ * variant or in one), Back, Scroll to, Open link | Set variable, Set variable mode, Conditional | Open overlay, Swap
+ * overlay, Close overlay | Play/Pause animation, Set playhead. The last two (Figma's object animations — the schema's
+ * dropped OBJECT_ANIMATION) aren't built: listed, disabled. Conditional isn't offered inside a Conditional; the video
+ * actions (where the frame has a video) after the overlays — their place unverified.
+ */
+export function actionMenu({ changeTo, conditional, video }: { changeTo: boolean; conditional: boolean; video: boolean }): MenuEntry[] {
+  const a = (v: ActionKind, disabled = false): MenuEntry => ({ value: v, label: actionLabel(v), icon: ACTION_ICON[v], ...(disabled ? { disabled } : {}) });
+  return [
+    a("NONE"),
+    "-",
+    a("NAVIGATE"), a("CHANGE_TO", !changeTo), a("BACK"), a("SCROLL_TO"), a("URL"),
+    "-",
+    a("SET_VARIABLE"), a("SET_VARIABLE_MODE"), ...(conditional ? [a("CONDITIONAL")] : []),
+    "-",
+    a("OVERLAY"), a("SWAP"), a("CLOSE"),
+    ...(video ? ["-" as const, ...VIDEO_ACTIONS.map((v) => a(v.value))] : []),
+    "-",
+    { value: "ANIMATION_PLAY", label: "Play/Pause animation", icon: "24.proto.animation.play", disabled: true },
+    { value: "ANIMATION_PLAYHEAD", label: "Set playhead", icon: "24.proto.playhead", disabled: true },
+  ];
+}
 
 /** Each video action's choices, in Figma's words. */
 export const MEDIA_CHOICES: Partial<Record<ActionKind, { value: MediaAction; label: string }[]>> = {
@@ -522,29 +608,56 @@ export function withTrigger(i: PrototypeInteraction, t: InteractionType): Protot
   return { ...i, event };
 }
 
-/** The row text of an interaction: its trigger, and what its first action does (with the destination's name). */
-export function interactionSummary(i: PrototypeInteraction, nameOf: (id: Guid) => string | null): { trigger: string; action: string } {
-  let trigger = triggerLabel(i.event?.interactionType);
-  if (i.event?.interactionType === "ON_KEY_DOWN") {
-    const key = keyTriggerLabel(i.event.keyTrigger?.keyCodes);
-    if (key) trigger = `Key ${key}`;
+/**
+ * The short trigger names of the Prototype panel's interaction rows (live Figma 2026-10-10, prototype_interaction_list:
+ * "Click", "Drag", "Hover", "Press", "Key (A)", "Delay", "Mouse enter"…; the video triggers' are unverified).
+ */
+export function triggerShortLabel(i: PrototypeInteraction): string {
+  const t = i.event?.interactionType ?? "ON_CLICK";
+  switch (t) {
+    case "ON_CLICK": return "Click";
+    case "DRAG": return "Drag";
+    case "ON_HOVER": return "Hover";
+    case "ON_PRESS": return "Press";
+    case "ON_KEY_DOWN": {
+      const key = keyTriggerLabel(i.event?.keyTrigger?.keyCodes);
+      return key ? `Key (${key})` : "Key";
+    }
+    case "AFTER_TIMEOUT": return "Delay";
+    case "NONE": return "None";
+    case "ON_MEDIA_HIT": return `Video hits ${formatMediaTime(i.event?.mediaHitTime)}`;
+    case "ON_MEDIA_END": return "Video ends";
+    default: return triggerLabel(t);
   }
-  if (i.event?.interactionType === "AFTER_TIMEOUT") trigger = `After ${Math.round((i.event.transitionTimeout ?? 0.8) * 1000)}ms`;
-  if (i.event?.interactionType === "ON_MEDIA_HIT") trigger = `When video hits ${formatMediaTime(i.event.mediaHitTime)}`;
+}
+
+/** A variant's name as its property values ("State=Hover, Size=Large" → "Hover, Large"), as live's rows show it. */
+export function variantValues(name: string): string {
+  const parts = name.split(",").map((p) => p.trim());
+  if (!parts.length || !parts.every((p) => p.includes("="))) return name;
+  return parts.map((p) => p.slice(p.indexOf("=") + 1).trim()).join(", ");
+}
+
+/**
+ * An interaction row as live Figma's (2026-10-10): the short trigger, the first action's glyph (`kind`), and where it
+ * goes — the destination's name (a variant's values for Change to), "None" without one, "Back", "Close overlay", the
+ * link without its scheme; later actions aren't shown.
+ */
+export function interactionSummary(i: PrototypeInteraction, nameOf: (id: Guid) => string | null): { trigger: string; action: string; kind: ActionKind } {
+  const trigger = triggerShortLabel(i);
   const a = i.actions?.[0];
   const k = actionKind(a);
   let action = actionLabel(k);
   if (a && takesDestination(k)) {
     const dest = guidOf(a.transitionNodeID);
-    action = dest ? (nameOf(dest) ?? "None") : "None";
-    if (k === "OVERLAY") action = dest ? `Open ${nameOf(dest) ?? "overlay"}` : "Open overlay";
+    const name = dest ? nameOf(dest) : null;
+    action = name === null ? "None" : k === "CHANGE_TO" ? variantValues(name) : name;
   } else if (k === "URL") {
-    action = a?.connectionURL || "Open link";
+    action = (a?.connectionURL ?? "").replace(/^[a-z][a-z0-9+.-]*:\/\//i, "") || "None";
   } else if (a && isVideoAction(k)) {
     action = mediaChoiceLabel(a);
   }
-  if ((i.actions?.length ?? 0) > 1) action += ` +${(i.actions?.length ?? 1) - 1}`;
-  return { trigger, action };
+  return { trigger, action, kind: k };
 }
 
 // ── Device ───────────────────────────────────────────────────────────────────

@@ -99,7 +99,7 @@ const std::vector<Editor::ProtoLink>& Editor::protoLinks() {
             path.push_back(k);
             const proto::Action& a = acts[k];
             if (a.connection == proto::Connection::INTERNAL_NODE && a.dest != kNoGuid && doc_.has(a.dest))
-              proto_.links.push_back({id, list[i].id, i, path, a.dest, false});
+              proto_.links.push_back({id, list[i].id, i, path, a.dest, false, a.navigation == proto::Navigation::SWAP_STATE});
             if (a.connection == proto::Connection::UPDATE_MEDIA_RUNTIME && a.dest != kNoGuid && doc_.has(a.dest))
               proto_.links.push_back({id, list[i].id, i, path, a.dest, true});
             for (size_t b = 0; b < a.branches.size(); b++) {
@@ -471,6 +471,33 @@ json::Value stringJson(const char* s) {
 }
 }  // namespace
 
+bool Editor::deletePrototypeSelection() {
+  if (!proto_.on || viewer_ || proto_.selNode == kNoGuid || proto_.selIndex < 0) return false;
+  if (selection_.size() != 1 || selection_[0] != proto_.selNode) return false;
+  const Node* n = doc_.get(proto_.selNode);
+  if (!n || isLibraryCopy(proto_.selNode)) return false;
+  json::Value list = interactionsJson(n->props);
+  size_t index = rawIndex(list, kNoGuid, static_cast<size_t>(proto_.selIndex));
+  if (index >= list.array.size()) return false;
+  Guid node = proto_.selNode;
+  list.array.erase(list.array.begin() + static_cast<long>(index));
+  begin(TxnKind::USER, "Remove interaction");
+  NodeChange c = NodeChange::changed(node);
+  c.mask = F_EXTRA;
+  c.props.extra["prototypeInteractions"] = list.array.empty() ? std::string() : proto::encodeField("prototypeInteractions", list);
+  write(c);
+  commit();
+  // Nothing open now (index −1): the details close; the hotspot stays selected.
+  proto_.selNode = kNoGuid;
+  proto_.selIndex = -1;
+  proto_.selClicked = false;
+  PrototypeSelected e;
+  e.node = node;
+  events_.prototypeSelected.push_back(e);
+  needsRender_ = true;
+  return true;
+}
+
 void Editor::protoSelectLink(const ProtoLink& l, const Rect* label) {
   setSelection({l.source});
   proto_.selNode = l.source;
@@ -723,6 +750,7 @@ void Editor::protoOverlay(Overlay& o) const {
     // one being dragged are in the selection colour; the others, a selected hotspot's too, are light.
     pl.highlighted = protoSelected(l) || retargeting || moving || (proto_.drag == ProtoSession::Drag::Line && same);
     pl.label = protoLabel(l);
+    pl.changeTo = l.changeTo;
     if (moving) {
       // Its start follows the pointer, onto the layer it would move to.
       pl.label.clear();
@@ -768,6 +796,7 @@ void Editor::protoOverlay(Overlay& o) const {
             pl.source = doc_.worldBounds(id);
             pl.dest = doc_.worldBounds(d);
             pl.highlighted = false;  // quiet, as every connection not selected (round 17)
+            pl.changeTo = nav == proto::Navigation::SWAP_STATE;
             po.links.push_back(pl);
           }
         }

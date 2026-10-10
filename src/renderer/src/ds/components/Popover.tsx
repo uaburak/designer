@@ -49,6 +49,16 @@ export interface PopoverProps {
    * (the reason — room kept for the list of text styles — is unverified).
    */
   reserveHeight?: number;
+  /**
+   * `bottom` only: an arrow notch on the top edge pointing up at the anchor's middle (live Figma's Interaction details
+   * opened from a connection on the canvas, 2026-10-10: draggable_modal--arrowTop — a 9 px triangle, 18 wide, in a 1 px
+   * border-coloured rim). The popover is centred on that point, `gap` below the anchor (default 8), kept on screen; the
+   * notch follows the point.
+   */
+  arrow?: boolean;
+  gap?: number;
+  /** The title's inset from the left (default 16; live Interaction details: 24). */
+  titleInset?: number;
 }
 
 /**
@@ -57,7 +67,7 @@ export interface PopoverProps {
  * with the anchor row. Esc or a press outside closes it; focus goes to its
  * first field (not trapped: the canvas stays clickable).
  */
-export function Popover({ anchor, placement = "left-of-panel", title, header, headerActions, onClose, draggable, width = size.popover, static: isStatic, children, label, offsetX = 0, offsetY = 0, reserveHeight = 0 }: PopoverProps) {
+export function Popover({ anchor, placement = "left-of-panel", title, header, headerActions, onClose, draggable, width = size.popover, static: isStatic, children, label, offsetX = 0, offsetY = 0, reserveHeight = 0, arrow = false, gap = 8, titleInset }: PopoverProps) {
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const dragged = useRef(false);
@@ -86,16 +96,23 @@ export function Popover({ anchor, placement = "left-of-panel", title, header, he
     } else if (placement === "left") {
       x = Math.max(EDGE, r.left - el.offsetWidth);
       y = Math.max(EDGE, Math.min(r.top + offsetY, view.height - BOTTOM - el.offsetHeight));
+    } else if (arrow && placement === "bottom") {
+      const cx = (r.left + r.right) / 2;
+      x = Math.round(Math.max(EDGE, Math.min(cx - el.offsetWidth / 2, view.width - EDGE - el.offsetWidth)));
+      y = Math.round(Math.max(EDGE, Math.min(r.bottom + gap, view.height - BOTTOM - el.offsetHeight)));
+      // Without the room under the anchor it moves up over it: no notch then.
+      el.toggleAttribute("data-arrow-off", y < r.bottom + gap - 0.5);
+      el.style.setProperty("--popover-arrow-x", `${Math.round(Math.max(16, Math.min(cx - x, el.offsetWidth - 16)))}px`);
     } else {
       const side = placement === "bottom-start" ? "bottom" : placement;
-      const p = place(r, { width: el.offsetWidth, height: el.offsetHeight }, view, side, placement === "bottom-start" ? "start" : "center", 8);
+      const p = place(r, { width: el.offsetWidth, height: el.offsetHeight }, view, side, placement === "bottom-start" ? "start" : "center", gap);
       x = p.x;
       y = p.y;
     }
     el.style.left = `${x}px`;
     el.style.top = `${y}px`;
     el.style.visibility = "visible";
-  }, [anchor, placement, isStatic, offsetX, offsetY, reserveHeight]);
+  }, [anchor, placement, isStatic, offsetX, offsetY, reserveHeight, arrow, gap]);
   // Live Figma: content that grows (another paint type, a tab) moves the popover up to stay on screen; shrinking
   // content leaves it where it is.
   useLayoutEffect(() => {
@@ -120,7 +137,8 @@ export function Popover({ anchor, placement = "left-of-panel", title, header, he
       aria-label={title ? undefined : label}
       tabIndex={-1}
       data-ds="Popover"
-      className={cx(styles.popover, isStatic && styles.static)}
+      data-arrow={arrow || undefined}
+      className={cx(styles.popover, isStatic && styles.static, arrow && styles.withArrow)}
       style={{ width, ...(isStatic ? null : { left: 0, top: 0, visibility: "hidden" as const }) }}
       onKeyDown={(e) => {
         if (e.key === "Escape") {
@@ -132,6 +150,7 @@ export function Popover({ anchor, placement = "left-of-panel", title, header, he
       {(title || header) && (
         <div
           className={cx(styles.header, canDrag && styles.draggable)}
+          style={titleInset !== undefined ? { paddingLeft: titleInset } : undefined}
           onPointerDown={(e) => {
             const el = panel.current;
             // (A press in an overlay the header opened — a Select's list — bubbles here through the portal: not a drag.)
@@ -156,6 +175,7 @@ export function Popover({ anchor, placement = "left-of-panel", title, header, he
           <IconButton icon="24.close.small" label={STRINGS.close} tooltip={false} onClick={onClose} />
         </div>
       )}
+      {arrow && <div className={styles.arrow} aria-hidden="true" />}
       <div className={styles.body}>{children}</div>
     </div>
   );
