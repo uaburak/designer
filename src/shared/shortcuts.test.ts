@@ -3,7 +3,7 @@ import { acceleratorFor, comboToAccelerator, DEFAULT_SHORTCUT_SETTINGS, KEYBOARD
 import { registersAccelerator, runsFromMenuBar } from "./commands";
 
 describe("the user's keyboard shortcuts (settings.json)", () => {
-  it("lists Figma's keyboard layouts, Generic first (the default)", () => {
+  it("lists Figma's keyboard layouts and our Turkish ones, Generic first (the default), the rest alphabetical", () => {
     expect(KEYBOARD_LAYOUTS.map((l) => l.label)).toEqual([
       "Generic",
       "Chinese",
@@ -19,6 +19,8 @@ describe("the user's keyboard shortcuts (settings.json)", () => {
       "Spanish",
       "Spanish (Latin America)",
       "Swedish",
+      "Turkish F",
+      "Turkish Q (Mac)",
       "U.K. (Mac)",
       "U.K. (PC)",
       "U.S. Dvorak",
@@ -39,6 +41,11 @@ describe("the user's keyboard shortcuts (settings.json)", () => {
     expect(s.used).toEqual(["view.rulers", "pan"]);
     expect(s.layout).toBe("generic");
     expect(sanitizeShortcutSettings({ layout: "de" }).layout).toBe("de");
+    // Picked: said so, or a layout other than Generic kept before `layoutPicked` existed.
+    expect(s.layoutPicked).toBe(false);
+    expect(sanitizeShortcutSettings({ layout: "de" }).layoutPicked).toBe(true);
+    expect(sanitizeShortcutSettings({ layout: "generic", layoutPicked: true }).layoutPicked).toBe(true);
+    expect(sanitizeShortcutSettings({ layout: "tr-q-mac" }).layout).toBe("tr-q-mac");
   });
 
   it("writes a combo as the menu bar's accelerator", () => {

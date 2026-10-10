@@ -3,14 +3,16 @@
  * (settings.json, `window.designer.shortcuts` — one set for every window and tab, the menu bar's accelerators
  * included); in a browser, localStorage. A change is applied at once here (the registry's keys, the layout) and sent
  * on; one from another tab comes back as `shortcuts:changed`. Shortcuts used are marked as they happen and written
- * at most every half second.
+ * at most every half second. Until the user picks a layout, the system's is in force when it is one of the Layout
+ * tab's (`navigator.keyboard.getLayoutMap()`, read at start and whenever the window comes to the front again — the
+ * input source may have changed): preselected there, never written.
  */
 import { useSyncExternalStore } from "react";
-import { DEFAULT_SHORTCUT_SETTINGS, sanitizeShortcutSettings, type ShortcutSettings } from "@shared/shortcuts";
+import { DEFAULT_SHORTCUT_SETTINGS, sanitizeShortcutSettings, type KeyboardLayoutId, type ShortcutSettings } from "@shared/shortcuts";
 import type { EditorApi } from "@shared/desktop";
 import { setKeyLayout } from "../commands";
 import { applyBindings } from "./keymap";
-import { layoutMap } from "./layouts";
+import { detectLayout, layoutMap } from "./layouts";
 
 const STORAGE_KEY = "designer.shortcuts";
 
@@ -24,8 +26,30 @@ function bridge(): Bridge | null {
 /** Layouts whose shortcuts are the U.S. places (no remapping, the registry's own key names). */
 const IDENTITY = new Set(["generic", "us", "zh", "ko", "ja"]);
 
+/** The Keyboard API's part we read (Chromium; not in TypeScript's DOM types). */
+interface KeyboardApi {
+  getLayoutMap?: () => Promise<{ forEach(cb: (value: string, key: string) => void): void }>;
+}
+
+/** The system's layout, if it is one of the Layout tab's (null: unknown, or a U.S. keyboard). */
+async function systemLayout(): Promise<KeyboardLayoutId | null> {
+  const kb = (globalThis.navigator as (Navigator & { keyboard?: KeyboardApi }) | undefined)?.keyboard;
+  if (!kb?.getLayoutMap) return null;
+  try {
+    const map = new Map<string, string>();
+    (await kb.getLayoutMap()).forEach((value, key) => map.set(key, value));
+    return detectLayout(map);
+  } catch {
+    return null;
+  }
+}
+
 class ShortcutPrefs {
+  /** What is kept (main's settings.json, localStorage) */
+  private kept: ShortcutSettings = DEFAULT_SHORTCUT_SETTINGS;
+  /** What is in force: the kept settings, with the system's layout while the user hasn't picked one */
   private state: ShortcutSettings = DEFAULT_SHORTCUT_SETTINGS;
+  private detected: KeyboardLayoutId | null = null;
   private listeners = new Set<() => void>();
   private usedTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingUsed = false;
@@ -38,10 +62,12 @@ class ShortcutPrefs {
     return () => this.listeners.delete(cb);
   };
 
-  /** Reads the kept settings (once per page; again after `reset`). */
+  /** Reads the kept settings and the system's layout (once per page; again after `reset`). */
   start(): void {
     if (this.started) return;
     this.started = true;
+    void this.detect();
+    if (typeof window !== "undefined") window.addEventListener("focus", this.onFocus);
     const b = bridge();
     if (b) {
       void b.get().then((s) => this.replace(s), () => {});
@@ -60,43 +86,58 @@ class ShortcutPrefs {
   replace(raw: unknown): void {
     const next = sanitizeShortcutSettings(raw);
     // Shortcuts used here and not yet written stay used.
-    if (this.pendingUsed) next.used = [...new Set([...next.used, ...this.state.used])];
-    this.state = next;
+    if (this.pendingUsed) next.used = [...new Set([...next.used, ...this.kept.used])];
+    this.kept = next;
     this.apply();
   }
 
-  /** Bindings or the layout changed by the user: in force now, then kept. */
+  /** Bindings or the layout changed by the user (a layout given is picked): in force now, then kept. */
   update(patch: Partial<Pick<ShortcutSettings, "bindings" | "layout">>): void {
-    this.state = { ...this.state, ...patch };
+    const full: Partial<ShortcutSettings> = "layout" in patch ? { ...patch, layoutPicked: true } : patch;
+    this.kept = { ...this.kept, ...full };
     this.apply();
-    this.write(patch);
+    this.write(full);
   }
+
+  /** Reads the system's layout again: in force while the user hasn't picked one. */
+  async detect(): Promise<void> {
+    const id = await systemLayout();
+    if (id === this.detected) return;
+    this.detected = id;
+    if (!this.kept.layoutPicked) this.apply();
+  }
+
+  private onFocus = (): void => void this.detect();
 
   /** A shortcut used (a row's usage id): lit in the panel from now on. */
   markUsed(id: string): void {
-    if (this.state.used.includes(id)) return;
-    this.state = { ...this.state, used: [...this.state.used, id] };
+    if (this.kept.used.includes(id)) return;
+    this.kept = { ...this.kept, used: [...this.kept.used, id] };
+    this.state = { ...this.state, used: this.kept.used };
     this.emit();
     this.pendingUsed = true;
     if (this.usedTimer) return;
     this.usedTimer = setTimeout(() => {
       this.usedTimer = null;
       this.pendingUsed = false;
-      this.write({ used: this.state.used });
+      this.write({ used: this.kept.used });
     }, 500);
   }
 
-  /** Tests: back to Figma's keys, nothing used, Generic. */
+  /** Tests: back to Figma's keys, nothing used, Generic, no system layout. */
   reset(): void {
     if (this.usedTimer) clearTimeout(this.usedTimer);
     this.usedTimer = null;
     this.pendingUsed = false;
     this.started = false;
-    this.state = DEFAULT_SHORTCUT_SETTINGS;
+    this.detected = null;
+    if (typeof window !== "undefined") window.removeEventListener("focus", this.onFocus);
+    this.kept = DEFAULT_SHORTCUT_SETTINGS;
     this.apply();
   }
 
   private apply(): void {
+    this.state = this.kept.layoutPicked || !this.detected ? this.kept : { ...this.kept, layout: this.detected };
     applyBindings(this.state.bindings);
     setKeyLayout(IDENTITY.has(this.state.layout) ? null : layoutMap(this.state.layout));
     this.emit();
@@ -113,7 +154,7 @@ class ShortcutPrefs {
       return;
     }
     try {
-      if (typeof localStorage !== "undefined") localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+      if (typeof localStorage !== "undefined") localStorage.setItem(STORAGE_KEY, JSON.stringify(this.kept));
     } catch {
       // Private mode or a full store: the change holds for this session.
     }

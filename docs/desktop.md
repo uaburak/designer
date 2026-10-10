@@ -621,6 +621,8 @@ Each view gets the theme synchronously at boot through `--designer-theme` (§3).
 
 A custom key follows the same rules as Figma's (§8.3): one without ⌘ or ⌃ is shown on the menu bar, never registered and never run from it (`runsFromMenuBar`); the editor's keyboard layer runs it, and never while a text field has the focus. In a browser the editor keeps them in `localStorage` (`designer.shortcuts`).
 
+The layout is kept only once the user picks one in the Layout tab (`layoutPicked`; a non-Generic layout from an older file counts as picked). Until then each editor reads the system's layout itself (`navigator.keyboard.getLayoutMap()` at start and when its window comes to the front, matched against the Layout tab's by `detectLayout`) and follows it when it is one of them — never written, nothing for main to do.
+
 **External links**
 
 | Channel | Kind | Roles | Payload |

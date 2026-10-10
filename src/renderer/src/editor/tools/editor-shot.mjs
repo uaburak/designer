@@ -110,6 +110,15 @@ browser.newContext = async (options) => {
   context.on("console", (m) => {
     if (gpuError.test(m.text())) gpuProblems.push(m.text());
   });
+  // The system's keyboard is a U.S. one whatever this Mac's input source is (the editor follows a detected layout —
+  // shortcuts/prefs.ts — and the sections press U.S. keys); a section sets `window.__systemKeyboard` (code → the
+  // character typed) to be another.
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, "keyboard", {
+      configurable: true,
+      value: { getLayoutMap: async () => new Map(Object.entries(window.__systemKeyboard ?? {})) },
+    });
+  });
   return context;
 };
 const gfxQuery = gfx === "webgpu" ? "&gfx=webgpu" : "";

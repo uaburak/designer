@@ -33,6 +33,9 @@ export const KEYBOARD_LAYOUTS = [
   { id: "es", label: "Spanish" },
   { id: "es-419", label: "Spanish (Latin America)" },
   { id: "sv", label: "Swedish" },
+  // Ours: a Turkish MacBook's (macOS "Turkish Q") and Turkish F.
+  { id: "tr-f", label: "Turkish F" },
+  { id: "tr-q-mac", label: "Turkish Q (Mac)" },
   { id: "en-gb-mac", label: "U.K. (Mac)" },
   { id: "en-gb-pc", label: "U.K. (PC)" },
   { id: "dvorak", label: "U.S. Dvorak" },
@@ -47,9 +50,14 @@ export interface ShortcutSettings {
   /** The shortcuts used at least once (the panel's row ids), lit in the panel */
   used: string[];
   layout: KeyboardLayoutId;
+  /**
+   * The user picked `layout` in the Layout tab. Until they do, the editor follows the system's layout when it is one
+   * of these (detected, never written) and `layout` is Generic.
+   */
+  layoutPicked: boolean;
 }
 
-export const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = { bindings: {}, used: [], layout: "generic" };
+export const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = { bindings: {}, used: [], layout: "generic", layoutPicked: false };
 
 const CODE = /^(Key[A-Z]|Digit\d|Numpad\w{1,10}|F\d{1,2}|Arrow(Up|Down|Left|Right)|Backquote|Minus|Equal|BracketLeft|BracketRight|Backslash|Semicolon|Quote|Comma|Period|Slash|Backspace|Delete|Enter|Escape|Tab|Space|PageUp|PageDown|Home|End|IntlBackslash)$/;
 
@@ -75,7 +83,9 @@ export function sanitizeShortcutSettings(v: unknown): ShortcutSettings {
       bindings[id] = list.slice(0, 8).map(plainCombo).filter((c): c is KeyCombo => c !== null);
     }
   const used = Array.isArray(raw.used) ? [...new Set(raw.used.filter((u): u is string => typeof u === "string" && u.length <= 100))].slice(0, 2000) : [];
-  return { bindings, used, layout: isKeyboardLayout(raw.layout) ? raw.layout : "generic" };
+  const layout = isKeyboardLayout(raw.layout) ? raw.layout : "generic";
+  // A layout other than Generic kept before `layoutPicked` existed was picked.
+  return { bindings, used, layout, layoutPicked: raw.layoutPicked === true || layout !== "generic" };
 }
 
 export const sameCombo = (a: KeyCombo, b: KeyCombo) => a.code === b.code && !!a.mod === !!b.mod && !!a.shift === !!b.shift && !!a.alt === !!b.alt && !!a.ctrl === !!b.ctrl;

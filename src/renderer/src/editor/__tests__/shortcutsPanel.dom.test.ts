@@ -10,7 +10,9 @@ vi.hoisted(() => Object.defineProperty(globalThis.navigator, "platform", { value
 import { COMMAND_BY_ID, commandForKey, comboText, type KeyCombo } from "../commands";
 import { comboCaps, fixedCaps, rowCaps, type Cap } from "../shortcuts/caps";
 import { applyBindings, comboOfPress, conflictsOf, defaultKeys, isCustom, keysOf, withBinding, withoutBinding } from "../shortcuts/keymap";
-import { drawnKeyboard, layoutMap, legends } from "../shortcuts/layouts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { characters, detectLayout, drawnKeyboard, layoutMap, legends } from "../shortcuts/layouts";
 import { allRows, ESSENTIALS, SHORTCUT_TABS, tabUsageIds, usageIds } from "../shortcuts/panelData";
 import { shortcutPrefs } from "../shortcuts/prefs";
 import { canvasKeyUsage, opacityUsage } from "../shortcuts/usage";
@@ -336,9 +338,10 @@ describe("keyboard layouts", () => {
     expect(m.toBinding("BracketLeft")).toBe("BracketLeft");
     expect(m.label("KeyZ")).toBe("Z");
     expect(m.label("BracketLeft")).toBe("Ü");
-    // The minus is at the U.S. slash; ß's place has no shortcut.
+    // The minus is at the U.S. slash; / (on ⇧7 here) took ß's place, the first key left without a shortcut.
     expect(m.toBinding("Slash")).toBe("Minus");
-    expect(m.toBinding("Minus")).toBeNull();
+    expect(m.toBinding("Minus")).toBe("Slash");
+    expect(m.label("Slash")).toBe("ß");
     expect(legends("de").get("KeyY")).toBe("Z");
   });
 
@@ -355,6 +358,148 @@ describe("keyboard layouts", () => {
       expect(layoutMap(id).label("KeyQ")).toBe("Q");
     }
     expect(drawnKeyboard("ko")[1][1].legend).toBe("ㅂ");
+  });
+
+  // macOS's own characters (docs/research/shortcuts-panel/keylayouts.swift on a Turkish MacBook): code → [alone, ⇧, ⌘].
+  const macos = JSON.parse(readFileSync(join(process.cwd(), "docs/research/shortcuts-panel/keylayouts-tr.json"), "utf8")) as Record<string, Record<string, [string, string, string]>>;
+  const TURKISH = { "tr-q-mac": "com.apple.keylayout.Turkish-QWERTY-PC", "tr-f": "com.apple.keylayout.Turkish-Standard" } as const;
+  /** A keyboard map as navigator.keyboard.getLayoutMap() gives it: code → the character the key types. */
+  const systemMap = (source: string) => new Map(Object.entries(macos[source]).map(([code, [alone]]) => [code, alone]));
+
+  it("the Turkish layouts are macOS's: every key's legend is what ⇧ types for a letter, else what it types alone", () => {
+    expect(macos.iso).toBe(true);
+    for (const [id, source] of Object.entries(TURKISH)) {
+      const own = legends(id as keyof typeof TURKISH);
+      const keys = macos[source];
+      expect([...own.keys()].sort(), id).toEqual(Object.keys(keys).sort());
+      for (const [code, [alone, shifted]] of Object.entries(keys)) expect(own.get(code), `${id} ${code}`).toBe(alone.toLocaleUpperCase("tr") === shifted && alone !== shifted ? shifted : alone);
+      // ⌘ types what the key types alone (macOS matches ⌘ shortcuts by it).
+      for (const [code, [alone, , cmd]] of Object.entries(keys)) expect(cmd, `${id} ${code}`).toBe(alone);
+    }
+  });
+
+  it("Turkish Q (Mac): ç ş ğ ü ö ı i in a Turkish MacBook's places, < right of the left ⇧, \" left of 1", () => {
+    const own = legends("tr-q-mac");
+    const typed = characters("tr-q-mac");
+    expect(Object.fromEntries(["BracketLeft", "BracketRight", "Semicolon", "Quote", "Comma", "Period", "KeyI", "Backslash", "Slash", "IntlBackslash", "Backquote", "Minus", "Equal"].map((c) => [c, own.get(c)]))).toEqual({
+      BracketLeft: "Ğ",
+      BracketRight: "Ü",
+      Semicolon: "Ş",
+      Quote: "İ",
+      Comma: "Ö",
+      Period: "Ç",
+      KeyI: "I",
+      Backslash: ",",
+      Slash: ".",
+      IntlBackslash: "<",
+      Backquote: '"',
+      Minus: "*",
+      Equal: "-",
+    });
+    expect(typed.get("KeyI")).toBe("ı");
+    expect(typed.get("Quote")).toBe("i");
+    expect(typed.get("Period")).toBe("ç");
+  });
+
+  it("Turkish Q (Mac): shortcuts follow the characters — ⌘I is İ's key (types i, as on macOS), ⌘- the key that types -, every U.S. key keeps one", () => {
+    const m = layoutMap("tr-q-mac");
+    expect(m.toPhysical("KeyZ")).toBe("KeyZ");
+    expect(m.label("KeyZ")).toBe("Z");
+    expect(m.toPhysical("KeyI")).toBe("Quote");
+    expect(m.toBinding("Quote")).toBe("KeyI");
+    expect(m.label("KeyI")).toBe("İ");
+    expect(m.toPhysical("Minus")).toBe("Equal");
+    expect(m.toPhysical("Comma")).toBe("Backslash");
+    expect(m.toPhysical("Period")).toBe("Slash");
+    expect(m.label("Comma")).toBe(",");
+    // Ğ and Ü keep [ and ]'s shortcuts; Ş keeps ;'s.
+    expect(m.toBinding("BracketLeft")).toBe("BracketLeft");
+    expect(m.label("BracketLeft")).toBe("Ğ");
+    expect(m.toBinding("Semicolon")).toBe("Semicolon");
+    // =, \, ' and / have no key of their own here: the keys left without a shortcut (*, ı, Ö, Ç), in order.
+    expect(["Equal", "Backslash", "Quote", "Slash"].map((c) => m.toPhysical(c))).toEqual(["Minus", "KeyI", "Comma", "Period"]);
+    expect(m.label("Slash")).toBe("Ç");
+    // One key per U.S. key, and back.
+    const physical = [...legends("us").keys()].map((c) => m.toPhysical(c));
+    expect(new Set(physical).size).toBe(physical.length);
+    for (const code of legends("us").keys()) expect(m.toBinding(m.toPhysical(code))).toBe(code);
+    expect(m.toBinding("IntlBackslash")).toBe("IntlBackslash");
+  });
+
+  it("Turkish F: ⌘Z is the key labelled Z (the U.S. N), ⌘I İ's (the U.S. S)", () => {
+    const m = layoutMap("tr-f");
+    expect(m.toPhysical("KeyZ")).toBe("KeyN");
+    expect(m.toPhysical("KeyI")).toBe("KeyS");
+    expect(m.toPhysical("KeyF")).toBe("KeyQ");
+    expect(m.toBinding("BracketLeft")).toBe("KeyQ");
+    expect(m.label("KeyQ")).toBe("Q");
+    expect(legends("tr-f").get("KeyR")).toBe("I");
+    expect(legends("tr-f").get("KeyE")).toBe("Ğ");
+    const physical = [...legends("us").keys()].map((c) => m.toPhysical(c));
+    expect(new Set(physical).size).toBe(physical.length);
+  });
+
+  it("the Turkish keyboards are drawn ISO: a tall Return over two rows, \\'s key left of it, < right of the left ⇧", () => {
+    const rows = drawnKeyboard("tr-q-mac");
+    expect(rows.map((r) => r.map((k) => k.legend).join(" "))).toEqual([
+      '" 1 2 3 4 5 6 7 8 9 0 * - ⌫',
+      "⇥ Q W E R T Y U I O P Ğ Ü ↩",
+      "⇪ A S D F G H J K L Ş İ , ",
+      "⇧ < Z X C V B N M Ö Ç . ⇧",
+      "⌃ ⌥ ⌘  ⌘ ⌥",
+    ]);
+    // The character rows as wide as live's U.S. keyboard's, the Return's two parts right-aligned.
+    for (const r of rows.slice(0, 4)) expect(r.reduce((s, k) => s + k.width, 0) + (r.length - 1) * 6, r[0].code).toBe(471);
+    const enter = rows[1].at(-1)!;
+    expect(enter.tall).toEqual({ part: "top", lower: rows[2].at(-1)!.width });
+    expect(rows[2].at(-1)!.tall).toEqual({ part: "below" });
+    expect(rows[2].at(-2)!.code).toBe("Backslash");
+    expect(rows[3][1].code).toBe("IntlBackslash");
+    expect(drawnKeyboard("tr-f")[1].map((k) => k.legend).join(" ")).toBe("⇥ F G Ğ I O D R N H P Q W ↩");
+    expect(drawnKeyboard("generic")[3].some((k) => k.code === "IntlBackslash")).toBe(false);
+  });
+
+  it("the system's layout is detected from its keyboard map: Turkish Q and F, German; a U.S. one is Generic", () => {
+    expect(detectLayout(systemMap(TURKISH["tr-q-mac"]))).toBe("tr-q-mac");
+    expect(detectLayout(systemMap(TURKISH["tr-f"]))).toBe("tr-f");
+    // Electron's own map on the owner's Turkish MacBook (getLayoutMap(), 2026-10-10): the ISO key left of 1 and the one
+    // by ⇧ the other way round, and two more names for them.
+    const electron = systemMap(TURKISH["tr-q-mac"]);
+    electron.set("Backquote", "<").set("IntlBackslash", '"').set("IntlYen", '"').set("IntlRo", "<");
+    expect(detectLayout(electron)).toBe("tr-q-mac");
+    // A U.S. layout on an ISO keyboard (§ left of 1) is Generic, not U.K. (Mac).
+    expect(detectLayout(new Map([...legends("us")].map(([c, l]) => [c, c === "Backquote" ? "§" : l.toLowerCase()])))).toBeNull();
+    const us = new Map([...legends("us")].map(([c, l]) => [c, l.toLowerCase()]));
+    expect(detectLayout(us)).toBeNull();
+    expect(detectLayout(new Map([...legends("de")].map(([c, l]) => [c, l.toLowerCase()])))).toBe("de");
+    expect(detectLayout(new Map())).toBeNull();
+  });
+
+  it("until the user picks one, the system's layout is in force (preselected, not written); a pick wins", async () => {
+    const map = systemMap(TURKISH["tr-q-mac"]);
+    const keyboard = { getLayoutMap: async () => map };
+    Object.defineProperty(globalThis.navigator, "keyboard", { value: keyboard, configurable: true });
+    try {
+      localStorage.removeItem("designer.shortcuts");
+      shortcutPrefs.start();
+      await shortcutPrefs.detect();
+      expect(shortcutPrefs.get().layout).toBe("tr-q-mac");
+      expect(shortcutPrefs.get().layoutPicked).toBe(false);
+      // ⌘ and İ's key: Italic; ⌘ and the U.S. Z key: Undo.
+      expect(commandForKey({ code: "Quote", metaKey: true, shiftKey: false, altKey: false, ctrlKey: false })?.id).toBe("text.italic");
+      expect(commandForKey({ code: "KeyZ", metaKey: true, shiftKey: false, altKey: false, ctrlKey: false })?.id).toBe("edit.undo");
+      expect(comboText({ code: "KeyI", mod: true })).toMatch(/İ$/);
+      // Kept as Generic, not picked: a binding written keeps no layout.
+      shortcutPrefs.update({ bindings: {} });
+      expect(JSON.parse(localStorage.getItem("designer.shortcuts")!)).toMatchObject({ layout: "generic", layoutPicked: false });
+      shortcutPrefs.update({ layout: "generic" });
+      await shortcutPrefs.detect();
+      expect(shortcutPrefs.get().layout).toBe("generic");
+      expect(JSON.parse(localStorage.getItem("designer.shortcuts")!)).toMatchObject({ layout: "generic", layoutPicked: true });
+    } finally {
+      delete (globalThis.navigator as { keyboard?: unknown }).keyboard;
+      localStorage.removeItem("designer.shortcuts");
+    }
   });
 
   it("a layout picked moves the shortcuts: on German QWERTZ the U.S. Y key undoes", () => {

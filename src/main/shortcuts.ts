@@ -18,6 +18,7 @@ export function setShortcutSettings(patch: unknown): ShortcutSettings {
     bindings: "bindings" in p ? p.bindings : before.bindings,
     used: "used" in p ? p.used : before.used,
     layout: "layout" in p ? p.layout : before.layout,
+    layoutPicked: "layoutPicked" in p ? p.layoutPicked : before.layoutPicked,
   });
   writeSettings({ ...readSettings(), shortcuts: next });
   if (JSON.stringify(next.bindings) !== JSON.stringify(before.bindings)) refreshAppMenu();

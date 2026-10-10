@@ -23,6 +23,14 @@ Measured from the live screenshots (pixel scans), as built (`src/renderer/src/ed
 - Layout: "Keyboard layout:" + a 179-wide select (Chinese … U.S. QWERTY, then ✓ Generic), "Learn more" at the bottom;
   the keyboard at the columns' right — keys 26 × 25, 32 apart across, 33 down; ⌫ / ⇥ 55, ⇪ 67, ↩ 45, ⇧ 80 / 63, space 308.
 
+Ours beyond live's list: **Turkish F** and **Turkish Q (Mac)** (the owner's Turkish MacBook), drawn as an ISO
+keyboard (`ours-layout-tr-dark.png`: ⇥ 42, a tall ↩ 39 over 31, ⇪ 50, the left ⇧ 50 and < beside it; the rows stay
+471). Their characters are macOS's own, not from memory: `keylayouts.swift` runs UCKeyTranslate on the "Turkish Q"
+(`com.apple.keylayout.Turkish-QWERTY-PC`) and "Turkish F" (`com.apple.keylayout.Turkish-Standard`) input sources with
+this Mac's keyboard type (92, ISO) → `keylayouts-tr.json` (each key alone, with ⇧, with ⌘; British as a check — § left
+of 1, ` right of ⇧, as a U.K. MacBook prints them). ⌘ types what the key types alone, so on macOS ⌘I is the key that
+types i (İ's), and ours follows. ("Turkish Q – Legacy" and "Turkish F – Legacy" are left out.)
+
 Unverified: the panel in Figma's light theme (ours stays dark, as Figma's menus); Figma's own per-layout remaps (ours
 follow the characters — `layouts.ts`); what counts as "used" for the Cursor rows (ours: the pointer's modifiers on the
 canvas, `usage.ts`).

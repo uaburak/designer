@@ -116,6 +116,10 @@
   .learnMore { margin-bottom: var(--ds-space-1); }
   .keyboard { display: flex; flex: none; flex-direction: column; gap: var(--ds-space-2); }
   .keyboardRow { display: flex; gap: var(--ds-space-1-5); }
+  /* An ISO keyboard's tall Return: the cap's own border hidden, its L outlined over this row and the next. */
+  .tallKey { position: relative; border-color: transparent; }
+  .tallKeyShape { position: absolute; top: -1px; left: -1px; overflow: visible; fill: none; stroke: currentColor; stroke-width: 1px; pointer-events: none; }
+  .keyRoom { flex: none; }
 
   .conflict { display: flex; flex-direction: column; gap: var(--ds-space-3); padding: var(--ds-space-4); color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
   .conflict p { margin: 0; }

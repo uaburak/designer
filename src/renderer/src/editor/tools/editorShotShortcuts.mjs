@@ -10,9 +10,17 @@
 //    command has asks first (Rulers ← ⇧G: "already used for Layout guides", Replace); Esc cancels, ⌫ clears; Reset to
 //    default and Reset all bring Figma's keys back.
 // 5. Layout: German QWERTZ relabels the drawn keyboard (Z where the U.S. Y is).
-/* global window, document */
+// 6. Turkish Q (Mac): a Turkish MacBook's ISO keyboard with macOS's characters; Italic is ⌘ İ, ⌘ and the key that
+//    types - zooms out.
+// 7. Nothing picked: the system's layout (Turkish F here, editor-shot's stand-in for getLayoutMap) is preselected.
+/* global window, document, localStorage, URL */
+import { readFileSync } from "node:fs";
 
 const RED = { r: 1, g: 0, b: 0, a: 1 };
+
+// macOS's characters (docs/research/shortcuts-panel/keylayouts.swift): code → what the key types alone.
+const MACOS = JSON.parse(readFileSync(new URL("../../../../../docs/research/shortcuts-panel/keylayouts-tr.json", import.meta.url), "utf8"));
+const systemKeyboard = (source) => Object.fromEntries(Object.entries(MACOS[source]).map(([code, [alone]]) => [code, alone]));
 
 function frames() {
   const at = (x, y) => ({ m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y });
@@ -161,6 +169,58 @@ export async function shortcutsSection(page, theme, { open, settle, shot, check 
   await settle(page);
   check(`Shortcuts (${theme}): German QWERTZ relabels the keyboard (Z at the U.S. Y, Ü at [)`, (await panel.locator('[data-keyboard="de"] [data-key="KeyY"]').innerText()) === "Z" && (await panel.locator('[data-keyboard="de"] [data-key="BracketLeft"]').innerText()) === "Ü");
   await shot(page, `406-shortcuts-layout-de-${theme}`);
+
+  // 6. Turkish Q (Mac): a Turkish MacBook's ISO keyboard (macOS's characters), and the shortcuts follow them.
+  await panel.getByRole("combobox", { name: "Keyboard layout" }).click();
+  await page.getByRole("option", { name: "Turkish Q (Mac)" }).click();
+  await settle(page);
+  const tr = '[data-keyboard="tr-q-mac"]';
+  const caps = await panel.locator(`${tr} [data-key]`).evaluateAll((els) => Object.fromEntries(els.map((e) => [e.dataset.key, e.innerText.trim()])));
+  const want = { BracketLeft: "Ğ", BracketRight: "Ü", Semicolon: "Ş", Quote: "İ", KeyI: "I", Comma: "Ö", Period: "Ç", Backslash: ",", IntlBackslash: "<", Backquote: '"', Minus: "*", Equal: "-" };
+  check(`Shortcuts (${theme}): Turkish Q (Mac) draws ğ ü ş i ı ö ç in a Turkish MacBook's places, < right of ⇧, " left of 1`, Object.entries(want).every(([k, v]) => caps[k] === v), JSON.stringify(caps));
+  const ret = await box(page, `${tr} [data-key="Enter"] svg`);
+  const backslash = await box(page, `${tr} [data-key="Backslash"]`);
+  const shiftLeft = await box(page, `${tr} [data-key="ShiftLeft"]`);
+  const intl = await box(page, `${tr} [data-key="IntlBackslash"]`);
+  check(
+    `Shortcuts (${theme}): …an ISO keyboard: the Return over two rows (\\'s key left of its lower part), a key between ⇧ and Z`,
+    ret && backslash && ret.h > 2 * backslash.h && ret.bottom === backslash.bottom && ret.x + ret.w > backslash.x + backslash.w && intl.x > shiftLeft.x + shiftLeft.w && (await panel.locator(`${tr} [data-ds="KeyCap"]`).count()) === 60,
+    JSON.stringify({ ret, backslash })
+  );
+  await shot(page, `407-shortcuts-layout-tr-${theme}`);
+  await panel.getByRole("tab", { name: "Text", exact: true }).click();
+  await settle(page);
+  const boldItalic = await panel.locator('[data-shortcut-caps="text.bold"]').locator("xpath=../..").innerText();
+  check(`Shortcuts (${theme}): …Bold and Italic are ⌘ B and İ there (İ's key types i, as on macOS)`, /⌘\s*B\s*and\s*İ/.test(boldItalic), JSON.stringify(boldItalic));
+  // ⌘ and the key that types - (the U.S. =) zooms out.
+  const zoom = () => page.evaluate(() => window.__designerEditor.engine.getCamera().zoom);
+  const zoomBefore = await zoom();
+  await page.locator("#engine-canvas").focus();
+  await page.keyboard.press("Meta+Equal");
+  await settle(page);
+  check(`Shortcuts (${theme}): …⌘ and the key labelled - zooms out`, (await zoom()) < zoomBefore, `${zoomBefore} → ${await zoom()}`);
+  await page.keyboard.press("Meta+Minus");
+  await settle(page);
+  await panel.getByRole("tab", { name: "Layout", exact: true }).click();
+  await panel.getByRole("combobox", { name: "Keyboard layout" }).click();
+  await page.getByRole("option", { name: "Generic" }).click();
+  await settle(page);
+
+  // 7. Nothing picked: the system's layout (here Turkish F) is preselected and in force.
+  await page.addInitScript((map) => {
+    window.__systemKeyboard = map;
+  }, systemKeyboard("com.apple.keylayout.Turkish-Standard"));
+  await page.evaluate(() => localStorage.removeItem("designer.shortcuts"));
+  await open(page, "&doc=empty");
+  // (The U.S. / key isn't ⌃⇧?'s on Turkish F: the "?" opens it.)
+  await page.locator('[data-ds="HelpButton"]').click();
+  await settle(page);
+  await panel.getByRole("tab", { name: "Layout", exact: true }).click();
+  await settle(page);
+  check(
+    `Shortcuts (${theme}): nothing picked — the system's Turkish F is preselected and drawn`,
+    (await panel.locator('[data-keyboard="tr-f"]').count()) === 1 && /Turkish F/.test(await panel.getByRole("combobox", { name: "Keyboard layout" }).innerText())
+  );
   await panel.getByRole("combobox", { name: "Keyboard layout" }).click();
   await page.getByRole("option", { name: "Generic" }).click();
   await settle(page);

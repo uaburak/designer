@@ -12,7 +12,7 @@
  * and the tooltips (keymap.ts, prefs.ts; main rebuilds the menu bar).
  */
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { Button, Icon, IconButton, KeyCap, Popover, Select, Tabs } from "@/ds";
+import { Button, Icon, IconButton, KeyCap, Popover, Select, Tabs, radius, size, space } from "@/ds";
 import { KEYBOARD_LAYOUTS, type KeyCombo, type KeyboardLayoutId } from "@shared/shortcuts";
 import { useEditor } from "../controller";
 import { useUI } from "../hooks";
@@ -299,6 +299,31 @@ function Panel() {
   );
 }
 
+/**
+ * An ISO keyboard's tall Return outlined: its upper part `top` wide, its lower part (the next row's) `lower` wide, the
+ * right edges aligned — a key's border and corners (the cap itself draws none).
+ */
+function TallKeyShape({ top, lower }: { top: number; lower: number }) {
+  const h = size["keyboard-key-height"];
+  const total = 2 * h + space["2"];
+  const r = radius.small;
+  const e = 0.5; // the 1px stroke on the pixel grid
+  const l = top - lower + e;
+  const d = [
+    `M ${e + r} ${e}`,
+    `H ${top - e - r} Q ${top - e} ${e} ${top - e} ${e + r}`,
+    `V ${total - e - r} Q ${top - e} ${total - e} ${top - e - r} ${total - e}`,
+    `H ${l + r} Q ${l} ${total - e} ${l} ${total - e - r}`,
+    `V ${h - e} H ${e + r} Q ${e} ${h - e} ${e} ${h - e - r}`,
+    `V ${e + r} Q ${e} ${e} ${e + r} ${e} Z`,
+  ].join(" ");
+  return (
+    <svg className={styles.tallKeyShape} width={top} height={total} viewBox={`0 0 ${top} ${total}`} aria-hidden>
+      <path d={d} />
+    </svg>
+  );
+}
+
 /** The Layout tab: "Keyboard layout:" and the keyboard drawn with the layout's legends. */
 function LayoutTab({ layout }: { layout: KeyboardLayoutId }) {
   const shown = layout;
@@ -322,11 +347,20 @@ function LayoutTab({ layout }: { layout: KeyboardLayoutId }) {
       <div className={styles.keyboard} role="img" aria-label={`${KEYBOARD_LAYOUTS.find((l) => l.id === shown)?.label} keyboard`} data-keyboard={shown}>
         {drawnKeyboard(shown).map((row, r) => (
           <div key={r} className={styles.keyboardRow}>
-            {row.map((k) => (
-              <KeyCap key={k.code} size="small" style={{ width: k.width }} data-key={k.code}>
-                {k.legend}
-              </KeyCap>
-            ))}
+            {row.map((k) =>
+              k.tall?.part === "below" ? (
+                <span key={k.code} className={styles.keyRoom} style={{ width: k.width }} />
+              ) : k.tall ? (
+                <KeyCap key={k.code} size="small" className={styles.tallKey} style={{ width: k.width }} data-key={k.code}>
+                  <TallKeyShape top={k.width} lower={k.tall.lower} />
+                  {k.legend}
+                </KeyCap>
+              ) : (
+                <KeyCap key={k.code} size="small" style={{ width: k.width }} data-key={k.code}>
+                  {k.legend}
+                </KeyCap>
+              )
+            )}
           </div>
         ))}
       </div>
