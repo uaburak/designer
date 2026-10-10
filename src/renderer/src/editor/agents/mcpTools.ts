@@ -22,6 +22,9 @@ import { base64Bytes, isImageArg, MAX_IMAGE_BYTES, sniffImage, type ImageArg } f
 import { mediaPaint } from "../model/paints";
 import type { ImportedImage } from "../images";
 import { landInBox, type Box } from "./imagePlaceholder";
+import { addInteractionTool, getPrototypeTool, prototypeContext, prototypeField, prototypeOf, removeFlowTool, removeInteractionTool, setFlowTool, setPrototypeSettingsTool, updateInteractionTool } from "./prototypeTools";
+import { describeSchema } from "@shared/agents/schemaDescribe";
+import { reactionsFromDoc } from "./prototypeSpec";
 
 export interface ToolEnv {
   ed: EditorController;
@@ -33,7 +36,8 @@ const MAX_NODES = 600;
 
 type Tree = { node: NodeChange; children: Tree[] };
 
-export class ToolError extends Error {}
+import { ToolError } from "./toolError";
+export { ToolError };
 
 /** The refs a call is about: `nodeId` / `nodeIds`, else the selection. */
 function targets(env: ToolEnv, args: Spec, fallbackToPage = false): Guid[] {
@@ -101,6 +105,10 @@ function toXml(t: Tree, indent = ""): string {
   const attrs = [`id="${n.guid}"`, `name="${xmlEsc(n.name ?? "")}"`];
   if (n.type !== "CANVAS") attrs.push(`x="${Math.round(tr.m02)}"`, `y="${Math.round(tr.m12)}"`, `width="${Math.round(n.size?.x ?? 0)}"`, `height="${Math.round(n.size?.y ?? 0)}"`);
   if (n.visible === false) attrs.push(`hidden="true"`);
+  const live = ((n as { prototypeInteractions?: { isDeleted?: boolean }[] }).prototypeInteractions ?? []).filter((i) => !i.isDeleted).length;
+  if (live) attrs.push(`interactions="${live}"`);
+  const flow = (n as { prototypeStartingPoint?: { name?: string } }).prototypeStartingPoint;
+  if (flow) attrs.push(`flow="${xmlEsc(flow.name ?? "")}"`);
   if (!t.children.length) return `${indent}<${tag} ${attrs.join(" ")} />`;
   return `${indent}<${tag} ${attrs.join(" ")}>\n${t.children.map((c) => toXml(c, indent + "  ")).join("\n")}\n${indent}</${tag}>`;
 }
@@ -134,8 +142,19 @@ function getMetadata(env: ToolEnv, args: Spec): ToolResult {
     const page = currentPage(env);
     refs = page ? [page] : [];
   }
-  const { roots, truncated } = trees(env, refs, depth, ["name", "type", "size", "transform", "visible"]);
-  return textResult((listPages ? `<pages>\n${pages}\n</pages>\n` : "") + roots.map((t) => toXml(t)).join("\n") + (truncated ? `\n<!-- deeper layers left out: call get_metadata on a child id -->` : ""));
+  const { roots, truncated } = trees(env, refs, depth, ["name", "type", "size", "transform", "visible", "prototypeInteractions", "prototypeStartingPoint"]);
+  // The prototype of what is listed: the page's flows, and each listed layer's interactions (get_prototype's shape).
+  const interactions: Record<string, unknown>[] = [];
+  const walk = (t: Tree) => {
+    const reactions = reactionsFromDoc((t.node as { prototypeInteractions?: never }).prototypeInteractions);
+    if (reactions.length) interactions.push({ nodeId: t.node.guid, name: t.node.name ?? "", reactions });
+    t.children.forEach(walk);
+  };
+  roots.forEach(walk);
+  const page = refs.length ? pageOf(env, refs[0]) : null;
+  const flows = page ? (prototypeOf(env, page).flows as unknown[]) : [];
+  const proto = flows.length || interactions.length ? `\n<prototype>${JSON.stringify({ flows, interactions })}</prototype>` : "";
+  return textResult((listPages ? `<pages>\n${pages}\n</pages>\n` : "") + roots.map((t) => toXml(t)).join("\n") + (truncated ? `\n<!-- deeper layers left out: call get_metadata on a child id -->` : "") + proto);
 }
 
 function variableNames(env: ToolEnv): Map<string, string> {
@@ -189,6 +208,7 @@ function getDesignContext(env: ToolEnv, args: Spec): ToolResult {
       if (id && styles.has(id)) used[slot] = styles.get(id)!;
     }
     if (Object.keys(used).length) d.styles = used;
+    Object.assign(d, prototypeContext(t.node));
     if (t.node.type === "INSTANCE") {
       const info = env.ed.engine.componentInfo(t.node.guid) as { mainName?: string; main?: { name?: string } } | null;
       const main = info?.main?.name ?? info?.mainName;
@@ -593,10 +613,22 @@ function setPropertiesTool(env: ToolEnv, args: Spec): ToolResult {
   const nc = MODEL.def("NodeChange");
   const errors: string[] = [];
   const fields: Record<string, unknown> = {};
+  const overlayWrites: { frame: Guid; fields: Record<string, unknown> }[] = [];
   for (const [k, v] of Object.entries(props)) {
+    if (k === "flowStartingPoints" || k === "flowStartingPoint") {
+      errors.push(`${k}: flows are written with set_flow_starting_point {nodeId, name} / remove_flow_starting_point (or set_properties prototypeStartingPoint {name, description} on a top-level frame)`);
+      continue;
+    }
+    if (k === "reactions" || k === "prototypeInteractions") {
+      const r = prototypeField(env, "prototypeInteractions", v, refs, errors);
+      if (r.value !== undefined) fields.prototypeInteractions = r.value;
+      overlayWrites.push(...r.overlays);
+      continue;
+    }
     const f = nc.byName.get(k);
     if (!f || ["guid", "phase", "parentIndex", "type"].includes(k)) {
-      errors.push(`${k}: not a settable document field${propForField(k) ? "" : ""}`);
+      const prop = propForField(k);
+      errors.push(`${k}: not a settable document field${prop && prop !== k ? ` (update_nodes calls it ${prop})` : ""} — describe_schema {field} gives a field's shape`);
       continue;
     }
     // Paints, effects and guides take the tools' shape (hex colours …) or the document's.
@@ -606,7 +638,7 @@ function setPropertiesTool(env: ToolEnv, args: Spec): ToolResult {
     } else if (k === "effects") {
       const e = parseEffects(v, k, errors);
       if (e) fields[k] = e;
-    } else if (f.type && MODEL.defs.get(f.type)?.kind !== "ENUM" && !["bool", "string", "float", "int", "uint", "byte"].includes(f.type) && v && typeof v === "object") fields[k] = v;
+    } else if (v === null) fields[k] = null;
     else {
       const r = fromTool(f.type!, f.isArray, v, k, errors);
       if (r !== undefined) fields[k] = r;
@@ -617,6 +649,7 @@ function setPropertiesTool(env: ToolEnv, args: Spec): ToolResult {
     for (const id of refs) {
       const before = read(env, id)!;
       const status = Object.keys(fields).length ? env.ed.engine.setProps([id], fields as never) : 0;
+      if (status === 0) for (const o of overlayWrites) env.ed.engine.setProps([o.frame], o.fields as never);
       const after = read(env, id)!;
       const notApplied = Object.keys(fields)
         .filter((k) => !sameValue(JSON.parse(JSON.stringify((fields as Record<string, unknown>)[k])), (after as unknown as Record<string, unknown>)[k], true) && !sameValue(toolOf(k, (fields as Record<string, unknown>)[k]), toolOf(k, (after as unknown as Record<string, unknown>)[k]), true))
@@ -1118,6 +1151,24 @@ export async function runTool(env: ToolEnv, name: string, args: Spec): Promise<T
         return responsiveTool(env, args);
       case "set_selection":
         return setSelectionTool(env, args);
+      case "get_prototype":
+        return getPrototypeTool(env, args);
+      case "add_interaction":
+        return addInteractionTool(env, args);
+      case "update_interaction":
+        return updateInteractionTool(env, args);
+      case "remove_interaction":
+        return removeInteractionTool(env, args);
+      case "set_flow_starting_point":
+        return setFlowTool(env, args);
+      case "remove_flow_starting_point":
+        return removeFlowTool(env, args);
+      case "set_prototype_settings":
+        return setPrototypeSettingsTool(env, args);
+      case "describe_schema": {
+        const r = describeSchema(String(args.field ?? args.name ?? ""));
+        return r.ok ? textResult(r.value) : textResult(r.error, true);
+      }
     }
     return textResult(`Unknown tool ${name}`, true);
   } catch (err) {

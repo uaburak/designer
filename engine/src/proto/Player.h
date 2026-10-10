@@ -288,6 +288,8 @@ class Player {
   void clearMedia();
   bool evaluate(const json::Value& data, Guid source, Editor::Resolved& out) const;
   void remember(Guid id, FieldMask mask);
+  /** The document fields the runtime changed, back as they were before presenting (restart, stop). */
+  void restoreOriginals();
   void startAnim(Anim&& a);
   void finishAnim();
   void armTimers(Guid root);

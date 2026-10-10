@@ -11,6 +11,7 @@
  */
 
 import { layerPropsSchema } from "./layerProps";
+import { actionSchema, deviceSchema, triggerSchema } from "./prototypeSchema";
 
 export interface ToolDef {
   name: string;
@@ -155,7 +156,7 @@ export const TOOLS: ToolDef[] = [
     name: "set_properties",
     title: "Set document fields",
     description:
-      "Sets any document field on layers, by its schema/document.kiwi name and shape (stackSpacing, stackChildPrimaryGrow, fillPaints, strokePaints, effects, layoutGrids, textCase, gridRows, arcData, …) straight through the engine — for anything update_nodes doesn't name. Colours may be \"#RRGGBBAA\"; paints and effects take the same shapes as update_nodes (GLASS, NOISE, TEXTURE, progressive blurs, gradients, patterns). Read back: notApplied lists what the engine kept differently.",
+      "Sets any document field on layers, by its schema/document.kiwi name and shape (stackSpacing, stackChildPrimaryGrow, fillPaints, strokePaints, effects, layoutGrids, textCase, gridRows, arcData, …) straight through the engine — for anything update_nodes doesn't name. Colours may be \"#RRGGBBAA\"; paints and effects take the same shapes as update_nodes (GLASS, NOISE, TEXTURE, progressive blurs, gradients, patterns). Prototype interactions: prototypeInteractions takes a list of Reactions (add_interaction's shape) and replaces the layer's; prefer add_interaction / update_interaction. describe_schema gives any field's shape. Read back: notApplied lists what the engine kept differently.",
     inputSchema: { type: "object", properties: { nodeIds: ids, nodeId: { type: "string" }, properties: { type: "object", description: "{field: value} in the document's names" } }, required: ["properties"] },
     write: true,
   },
@@ -250,6 +251,74 @@ export const TOOLS: ToolDef[] = [
     description: "Creates a layout guide style from layoutGrids or from a frame (fromNodeId).",
     inputSchema: { type: "object", properties: { name: { type: "string" }, layoutGrids: layerProps.layoutGrids, fromNodeId: { type: "string" }, description: { type: "string" }, applyTo: ids }, required: ["name"] },
     write: true,
+  },
+  {
+    name: "get_prototype",
+    title: "Get prototype",
+    description:
+      "A page's prototype (default: the current page): its flows (starting points: name, frame), device and background, every layer's interactions as Reactions (Plugin API shape: {index, id, trigger, actions}) and the layers' prototype settings (overflowDirection, scrollBehavior, overlay position / background / close on click outside).",
+    inputSchema: { type: "object", properties: { pageId: { type: "string", description: "Page id or name" } } },
+    write: false,
+  },
+  {
+    name: "add_interaction",
+    title: "Add interaction",
+    description:
+      'Adds an interaction (a Reaction, Figma\'s Plugin API shape) to a layer: {nodeId, trigger, actions}. E.g. a splash: {nodeId: splash, trigger: {type: "AFTER_TIMEOUT", timeout: 2}, actions: [{type: "NAVIGATE", destinationId: home, transition: {type: "DISSOLVE", duration: 0.3, easing: "EASE_OUT"}}]}; a language toggle: {trigger: {type: "ON_CLICK"}, actions: [{type: "SET_VARIABLE_MODE", variableCollectionId: "Content", variableModeId: "EN"}]}; an overlay: {type: "OPEN_OVERLAY", destinationId, overlay: {position: "BOTTOM_CENTER", background: "#00000066", closeOnClickOutside: true}}. Validated (errors name the field and what it takes); one undo step. Returns the layer\'s interactions. describe_schema Reaction / Action / Trigger / Transition for the full shapes.',
+    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, nodeIds: ids, trigger: triggerSchema, actions: { type: "array", items: actionSchema }, action: actionSchema }, required: ["trigger"] },
+    write: true,
+  },
+  {
+    name: "update_interaction",
+    title: "Update interaction",
+    description: "Changes one interaction of a layer, by `index` (as get_prototype lists them) or `interactionId`: a new trigger and / or actions (the whole list), same shapes as add_interaction.",
+    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, index: { type: "number" }, interactionId: { type: "string" }, trigger: triggerSchema, actions: { type: "array", items: actionSchema } }, required: ["nodeId"] },
+    write: true,
+  },
+  {
+    name: "remove_interaction",
+    title: "Remove interaction",
+    description: "Removes interactions from a layer: by `index`, `interactionId`, or all: true.",
+    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, nodeIds: ids, index: { type: "number" }, interactionId: { type: "string" }, all: { type: "boolean" } } },
+    write: true,
+  },
+  {
+    name: "set_flow_starting_point",
+    title: "Add / rename flow starting point",
+    description: 'Makes a top-level frame a flow\'s starting point ("Flow 1" if no name; renames an existing one), with an optional description. Presentation starts there.',
+    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, name: { type: "string" }, description: { type: "string" } }, required: ["nodeId"] },
+    write: true,
+  },
+  {
+    name: "remove_flow_starting_point",
+    title: "Remove flow starting point",
+    description: "Removes a frame's flow starting point.",
+    inputSchema: { type: "object", properties: { nodeId: { type: "string" } }, required: ["nodeId"] },
+    write: true,
+  },
+  {
+    name: "set_prototype_settings",
+    title: "Set prototype settings",
+    description:
+      'The page\'s prototype settings — device (the Prototype tab\'s Device) and backgroundColor — and per layer settings in `nodes`: [{nodeId, overflowDirection: NONE | HORIZONTAL | VERTICAL | BOTH (a frame\'s scrolling), scrollBehavior: SCROLLS | FIXED | STICKY_SCROLLS (a child\'s position when its frame scrolls), overlayPositionType: CENTER | TOP_LEFT | TOP_CENTER | TOP_RIGHT | BOTTOM_LEFT | BOTTOM_CENTER | BOTTOM_RIGHT | MANUAL, overlayBackground: {type: "SOLID_COLOR", color: "#00000066"} | {type: "NONE"}, overlayBackgroundInteraction: NONE | CLOSE_ON_CLICK_OUTSIDE (a frame used as an overlay)}]. null resets a setting. One undo step.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        pageId: { type: "string" },
+        device: deviceSchema,
+        backgroundColor: { type: ["string", "null"], description: '"#RRGGBB" (the presentation background); null: the default' },
+        nodes: { type: "array", items: { type: "object", properties: { nodeId: { type: "string" }, overflowDirection: { type: ["string", "null"] }, scrollBehavior: { type: ["string", "null"] }, overlayPositionType: { type: ["string", "null"] }, overlayBackground: {}, overlayBackgroundInteraction: { type: ["string", "null"] } }, required: ["nodeId"] } },
+      },
+    },
+    write: true,
+  },
+  {
+    name: "describe_schema",
+    title: "Describe schema",
+    description:
+      "The JSON shape any tool takes for a name: a layer property (fills, effects, layoutMode), a document field (stackSpacing, prototypeInteractions, arcData), a schema type (Paint, Effect, PrototypeAction, VariableData) or \"Type.field\", an enum's values (EasingType), or the prototype shapes Reaction, Trigger, Action, Transition, Easing, VariableData, device, flowStartingPoints.",
+    inputSchema: { type: "object", properties: { field: { type: "string" } }, required: ["field"] },
+    write: false,
   },
   {
     name: "list_commands",

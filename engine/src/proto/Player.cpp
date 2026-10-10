@@ -272,6 +272,9 @@ bool Player::start(Guid page, Guid start) {
 }
 
 void Player::stop() {
+  // The file is as it was before presenting: Set variable / Set variable mode / Change to are the prototype's runtime
+  // state, never the document's (Figma's prototypes don't edit the file).
+  restoreOriginals();
   restoreResponsive();
   dropGhosts();
   instanceAnims_.clear();
@@ -293,15 +296,18 @@ void Player::changed() {
 
 void Player::restart() {
   if (page_ == kNoGuid) return;
-  // Runtime writes back as they were.
-  if (!originals_.empty()) {
-    std::vector<NodeChange> back;
-    for (auto& [id, c] : originals_)
-      if (doc().has(id)) back.push_back(c);
-    originals_.clear();
-    ed_.applyChanges(back, APPLY_REMOTE);
-  }
+  restoreOriginals();
   start(page_, flow_ != kNoGuid ? flow_ : startFrame_);
+}
+
+void Player::restoreOriginals() {
+  // Runtime writes back as they were.
+  if (originals_.empty()) return;
+  std::vector<NodeChange> back;
+  for (auto& [id, c] : originals_)
+    if (doc().has(id)) back.push_back(c);
+  originals_.clear();
+  ed_.applyChanges(back, APPLY_REMOTE);
 }
 
 std::vector<Guid> Player::sequence() const {

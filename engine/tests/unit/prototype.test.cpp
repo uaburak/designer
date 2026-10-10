@@ -831,6 +831,10 @@ TEST_CASE("prototype.player: Set variable writes the value of the mode the hotsp
   CHECK(r.f == doctest::Approx(42));
   REQUIRE(f.ed.resolveVariableInMode(var, light, r));
   CHECK(r.f == doctest::Approx(1));  // the other mode keeps its value
+  // Stopping puts the file back as it was (the runtime's writes aren't the document's).
+  f.player.stop();
+  REQUIRE(f.ed.resolveVariableInMode(var, dark, r));
+  CHECK(r.f == doctest::Approx(1));
 }
 
 TEST_CASE("prototype.editor: viewer mode is read-only; a selected instance shows its inherited connections") {

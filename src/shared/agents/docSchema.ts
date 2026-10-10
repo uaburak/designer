@@ -120,13 +120,15 @@ const ENUM_NAMES: Record<string, Record<string, string>> = {
 };
 
 const isBinding = (f: FieldDef) => f.name.endsWith("Var") || f.type === "VariableData" || f.type === "ColorStopVar";
+/** Where a VariableData is a value, not a binding: prototype actions (Set variable, Conditional) and expressions. */
+const VALUE_DATA_DEFS: ReadonlySet<string> = new Set(["PrototypeAction", "ConditionalActions", "Expression", "VariableMapValue", "VariableFontStyle"]);
 
 /** The definition's fields as the tools have them. */
 export function toolFields(def: string): { name: string; field: FieldDef; readOnly: boolean }[] {
   const d = MODEL.def(def);
   const r = RULES[def] ?? {};
   return d.fields
-    .filter((f) => !isBinding(f) && !(r.exclude ?? []).includes(f.name) && !MODEL.isBlobField(def, f.name))
+    .filter((f) => (!isBinding(f) || (f.type === "VariableData" && VALUE_DATA_DEFS.has(def))) && !(r.exclude ?? []).includes(f.name) && !MODEL.isBlobField(def, f.name))
     .map((f) => ({ name: r.rename?.[f.name] ?? f.name, field: f, readOnly: (r.readOnly ?? []).includes(f.name) }));
 }
 
