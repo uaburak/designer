@@ -9,7 +9,8 @@ Contract for roadmap Phase 6 (owner's decision 2026-10-10: Cloudflare instead of
 | HTTP API, sign-in, sharing | Worker `designer` → `https://designer.burak-kc-sp.workers.dev` | `server/src/index.ts`, `server/src/api.ts`, `server/src/auth.ts` |
 | One room per file (sequencer, journal, snapshot, presence) | Durable Object `FileRoom`, SQLite storage, WebSocket hibernation | `server/src/fileRoom.ts` around the pure `src/shared/multiplayer/room.ts` |
 | Accounts, files, members, sign-in codes | D1 `designer` | `server/schema.sql`, `server/src/db.ts` |
-| Images / large blobs, preview pages (later) | R2 `designer` | `StorageDriver` (docs/data.md §12) |
+| Images of shared files | the room's SQLite (`blobs`, 1 MB chunks) — no R2 | `server/src/fileRoom.ts` |
+| Developer previews (package + viewer page at `/p/<id>`) | Durable Object `PreviewObject` per preview (SQLite, 1 MB chunks), D1 `previews` (migration 0007), Workers Static Assets (`out/viewer`) | `server/src/previews.ts`, `server/src/previewObject.ts`, `src/store/preview/previews.ts`, `src/viewer/remote.ts` (§9) |
 | Wire format | — | `src/shared/multiplayer/protocol.ts` |
 
 Free plan limits that matter: 100k Worker requests a day (a WebSocket message counts 1/20 of a request), Durable Objects on SQLite storage, D1 5 GB, R2 10 GB. One person and a few friends stay far below them.
@@ -108,3 +109,25 @@ The Worker resolves the caller's role before forwarding to the Durable Object (h
 
 - Cloudflare: account (done), `workers.dev` subdomain `burak-kc-sp` (done), `npx wrangler login` in `server/` when asked; R2 enabled before step 6.
 - Google Cloud Console: a project, OAuth consent screen (External, testing, the owner and friends as test users), an OAuth client of type **Web application** with redirect URIs `https://designer.burak-kc-sp.workers.dev/auth/callback` and `http://localhost:8787/auth/callback`; its client id and secret go in with `npx wrangler secret put GOOGLE_CLIENT_SECRET` (and the id as `GOOGLE_CLIENT_ID`). Nothing goes in the repo.
+
+## 9. Previews (2026-10-11)
+
+Developer previews (docs/data.md §13) are published to the Worker instead of Firebase. The desktop store packages the preview (manifest.json, doc.kiwi, images) as before and uploads it with the session main handed it (`multiplayer.setSession`, captured as `LocalStore.session`); logged out, the Share dialog's Developer preview says "Log in to publish" (Export as HTML… still works).
+
+| Route | Who | Does |
+|---|---|---|
+| `GET /p/:id` | anyone | the viewer page (static asset `index.html`; the viewer reads the id from its path) |
+| `GET /previews/:id/manifest.json` · `doc.kiwi` · `images/:sha1` | anyone | the live package (404 none, 410 expired; `access-control-allow-origin: *`) |
+| `GET /previews` | signed in | the caller's live previews |
+| `POST /previews/:id/images/missing {sha1s}` | owner | `{missing}` |
+| `PUT /previews/:id/images/:sha1` | owner | an image (≤ 40 MB, bytes checked against the SHA-1) |
+| `PUT /previews/:id/doc` | owner | doc.kiwi (≤ 64 MB), staged until the manifest |
+| `PUT /previews/:id/manifest {manifest, fileKey?}` | owner | goes live: staged doc swapped in, images not listed dropped, expiry alarm set → `{id, url, expiresAt}` |
+| `DELETE /previews/:id` | owner | unpublish: the object's storage and the D1 row |
+
+- The id is the store's 22-character base62 `previewId` (unguessable); the first write claims it for the caller in D1 `previews` (owner, file key, name, times, expiry), at most 100 per person; someone else's id answers 404.
+- Storage: one `PreviewObject` Durable Object per preview (`PreviewBox` in previews.ts is its logic over SQLite, tested on node:sqlite), rows `files(name, idx, bytes)` of 1 MB (`doc`, `doc:next`, `img:<sha1>`) and the manifest in `meta`. No R2.
+- Expiry (7 / 30 days or never, as before): reads answer 410, the list leaves it out, the object's alarm deletes its storage at `expiresAt`; the store drops its record and the D1 row (`DELETE`) when it next gets a session.
+- Viewer: `wrangler.jsonc` `assets` = `../out/viewer` (binding `ASSETS`, `run_worker_first: true`, so every API route stays the Worker's; `html_handling` / `not_found_handling` none). `src/viewer/source.ts` reads `/previews/<id>/…` on its own origin (`?p=<id>&server=<origin>` for a dev viewer elsewhere) through `remote.ts loadRemote`, a small general loader (a fig-kiwi document or a bare kiwi Message, a manifest URL or one made from the message with `manifestFromMessage`, optional request headers) meant also for `/embed/<fileKey>` reading a shared file's room snapshot.
+- Tests: `server/src/previews.test.ts` (7: publish and public read, republish in place with the staged doc, refusals, someone else's id, unpublish, expiry and alarm, the per-person cap); `src/store/preview/previews.test.ts` (the store against the real handler); `npm run viewer:check` serves the Worker's layout. Smoke against `wrangler dev` (real workerd, local D1, Durable Object, static assets): a synthetic package published, read back, the viewer at `/p/<id>` rendering it with its image, unpublished.
+- Deploy (the main session): `npm run build:viewer` (out/viewer must exist before `wrangler dev` / deploy), `npm --prefix server run db:migrate` (0007), `npm --prefix server run deploy` (Durable Object migration `v2` creates `PreviewObject`).

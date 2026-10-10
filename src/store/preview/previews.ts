@@ -1,12 +1,13 @@
 /**
- * Developer previews in the store (docs/data.md §13): the package made from the editor's derived snapshot, written as
- * one self-contained HTML file (main's Save dialog picked the path; `previews.exportHtml` is main-only) or published
- * to Firebase Storage `previews/{previewId}/…` behind the same adapter seam as sync (`StorageDriver`: the SDK while
- * sync runs, `MemoryStorage` in tests). Publishing is off until `firebase/config.json` exists and sync is on.
+ * Developer previews in the store (docs/data.md §13, docs/multiplayer.md §9): the package made from the editor's
+ * derived snapshot, written as one self-contained HTML file (main's Save dialog picked the path; `previews.exportHtml`
+ * is main-only) or published to the multiplayer server (`/previews/<id>/…`, opened at `<server>/p/<id>`) with the
+ * session main handed the store (`multiplayer.setSession`). Publishing needs that session: logged out, "Log in to
+ * publish".
  */
 import { promises as fsp } from "node:fs";
 import { join } from "node:path";
-import { PREVIEW_DOC_NAME, PREVIEW_MANIFEST_NAME, previewImageName, type PreviewPackage } from "../../shared/preview/format";
+import type { PreviewPackage } from "../../shared/preview/format";
 import { inlinePreviewHtml } from "../../shared/preview/html";
 import { buildPreviewPackage } from "../../shared/preview/package";
 import { StoreError } from "../../shared/store/protocol";
@@ -16,11 +17,15 @@ import { writeFileAtomically } from "../export/fig";
 import { nodeCodecs } from "../kiwi/codecs";
 import { readJsonOrNull, writeJsonAtomic } from "../local/fsutil";
 import { newPreviewId } from "../local/ids";
-import { storagePaths } from "../sync/paths";
-import type { StorageDriver } from "../sync/drivers";
-import type { SyncConfig } from "../sync/config";
 
 export const PREVIEWS_FILE = "previews.json";
+export const LOG_IN_TO_PUBLISH = "Log in to publish";
+
+/** The signed-in session with the server (docs/multiplayer.md §2) */
+export interface PreviewSession {
+  server: string;
+  token: string;
+}
 
 /** What the previews need of the store (LocalStore, or a test double). */
 export interface PreviewHost {
@@ -29,10 +34,9 @@ export interface PreviewHost {
   now(): number;
   fileName(fileKey: FileKey): string;
   readBlob(sha1: string): Promise<Uint8Array>;
-  /** firebase/config.json (null: not configured) */
-  sync: SyncConfig | null;
-  /** Firebase Storage while sync runs (startSync sets it), else null */
-  storage(): StorageDriver | null;
+  /** The session main handed over, null while logged out */
+  session(): PreviewSession | null;
+  fetch: typeof fetch;
   /** The viewer's built page (out/viewer/index.html) */
   viewerTemplate: string | null;
   /** Serializes writes of previews.json */
@@ -66,42 +70,50 @@ async function packageFor(host: PreviewHost, fileKey: FileKey, snapshot: Uint8Ar
   }
 }
 
-/** The link a published preview has: the config's viewer origin, else the project's default Hosting site. */
-export function previewUrl(sync: SyncConfig, previewId: string): string {
-  const origin = sync.viewer?.origin ?? `https://${sync.firebase.projectId}.web.app`;
-  return `${origin}/p/${previewId}`;
+/** One call to the server with the session; its refusals as StoreErrors in the Share dialog's words. */
+async function request(host: PreviewHost, session: PreviewSession, method: string, path: string, body?: Uint8Array | object): Promise<Response> {
+  const headers: Record<string, string> = { authorization: `Bearer ${session.token}` };
+  let payload: RequestInit["body"];
+  if (body instanceof Uint8Array) {
+    payload = body as unknown as RequestInit["body"];
+    headers["content-type"] = "application/octet-stream";
+  } else if (body !== undefined) {
+    payload = JSON.stringify(body);
+    headers["content-type"] = "application/json";
+  }
+  let res: Response;
+  try {
+    res = await host.fetch(new URL(path, session.server).toString(), { method, headers, body: payload });
+  } catch {
+    throw new StoreError("offline", "Couldn't reach the server. Check your connection and try again.");
+  }
+  if (res.ok) return res;
+  const text = await res.text().catch(() => "");
+  let message = text;
+  try {
+    message = (JSON.parse(text) as { error?: string }).error ?? text;
+  } catch {
+    // plain text
+  }
+  if (res.status === 401) throw new StoreError("forbidden", "Your session expired. Log in again.");
+  if (res.status === 404) throw new StoreError("not-found", message || "No such preview");
+  throw new StoreError("invalid", message || `The server said ${res.status}`);
 }
-
-const NO_CACHE = "no-cache";
-const IMMUTABLE = "public, max-age=31536000, immutable";
 
 /**
- * Uploads a package (§13 step 3): doc.kiwi, the images not there yet, then manifest.json **last** with custom
- * metadata `revoked: "false"` — a reader never sees a manifest whose files are missing. Images an earlier version
- * used and this one doesn't are deleted after the manifest switched.
+ * Uploads a package to the server (docs/multiplayer.md §9): the images it doesn't have yet, doc.kiwi (staged), then
+ * the manifest, which makes it live — a reader never sees a manifest whose files are missing. Returns the link.
  */
-export async function uploadPreview(storage: StorageDriver, pkg: PreviewPackage, previousImages: readonly string[] = []): Promise<void> {
-  const id = pkg.manifest.previewId;
-  const path = (name: string) => storagePaths.preview(id, name);
-  await storage.put(path(PREVIEW_DOC_NAME), pkg.doc, { contentType: "application/octet-stream", cacheControl: NO_CACHE });
-  const had = new Set(previousImages);
-  for (const [sha1, bytes] of pkg.images) {
-    if (had.has(sha1) && (await storage.exists(path(previewImageName(sha1))))) continue;
-    await storage.put(path(previewImageName(sha1)), bytes, { contentType: "application/octet-stream", cacheControl: IMMUTABLE });
+export async function uploadPreview(host: PreviewHost, session: PreviewSession, pkg: PreviewPackage, fileKey: FileKey): Promise<string> {
+  const base = `/previews/${pkg.manifest.previewId}`;
+  const { missing } = (await (await request(host, session, "POST", `${base}/images/missing`, { sha1s: [...pkg.images.keys()] })).json()) as { missing: string[] };
+  for (const sha1 of missing) {
+    const bytes = pkg.images.get(sha1);
+    if (bytes) await request(host, session, "PUT", `${base}/images/${sha1}`, bytes);
   }
-  const manifest = new TextEncoder().encode(JSON.stringify(pkg.manifest));
-  await storage.put(path(PREVIEW_MANIFEST_NAME), manifest, { contentType: "application/json", cacheControl: NO_CACHE, custom: { revoked: "false" } });
-  for (const sha1 of had) if (!pkg.images.has(sha1)) await storage.delete(path(previewImageName(sha1))).catch(() => {});
-}
-
-/** Stop sharing (§13 step 4): the manifest marked `revoked: "true"` first (the rules refuse it from then on), then the folder deleted. */
-export async function revokePreview(storage: StorageDriver, previewId: string, images: readonly string[]): Promise<void> {
-  const path = (name: string) => storagePaths.preview(previewId, name);
-  const manifest = await storage.get(path(PREVIEW_MANIFEST_NAME)).catch(() => null);
-  if (manifest) await storage.put(path(PREVIEW_MANIFEST_NAME), manifest, { contentType: "application/json", cacheControl: NO_CACHE, custom: { revoked: "true" } });
-  for (const sha1 of images) await storage.delete(path(previewImageName(sha1))).catch(() => {});
-  await storage.delete(path(PREVIEW_DOC_NAME)).catch(() => {});
-  await storage.delete(path(PREVIEW_MANIFEST_NAME)).catch(() => {});
+  await request(host, session, "PUT", `${base}/doc`, pkg.doc);
+  const { url } = (await (await request(host, session, "PUT", `${base}/manifest`, { manifest: pkg.manifest, fileKey })).json()) as { url: string };
+  return url;
 }
 
 export interface ExportHtmlResult {
@@ -118,17 +130,22 @@ export function previewService(host: PreviewHost): PreviewService & {
   const file = join(host.root, PREVIEWS_FILE);
   const read = async () => (await readJsonOrNull<PreviewRecord[]>(file)) ?? [];
   const write = (records: PreviewRecord[]) => writeJsonAtomic(host.tmpDir, file, records);
-  const publishing = () => {
-    if (!host.sync) throw new StoreError("offline", "Sharing previews needs Firebase sync, which isn't set up");
-    const storage = host.storage();
-    if (!storage) throw new StoreError("offline", "Turn on sync to publish previews");
-    return { sync: host.sync, storage };
+  const signedIn = () => {
+    const session = host.session();
+    if (!session) throw new StoreError("offline", LOG_IN_TO_PUBLISH);
+    return session;
+  };
+  const unpublish = async (session: PreviewSession, previewId: string) => {
+    try {
+      await request(host, session, "DELETE", `/previews/${encodeURIComponent(previewId)}`);
+    } catch (e) {
+      // Already gone from the server (expired and deleted, or unpublished elsewhere): forgotten here too.
+      if (!(e instanceof StoreError && e.code === "not-found")) throw e;
+    }
   };
   return {
     async status() {
-      if (!host.sync) return { publish: false, reason: "Sharing previews needs Firebase sync, which isn't set up" };
-      if (!host.storage()) return { publish: false, reason: "Turn on sync to publish previews" };
-      return { publish: true, reason: null };
+      return host.session() ? { publish: true, reason: null } : { publish: false, reason: LOG_IN_TO_PUBLISH };
     },
 
     async list(fileKey) {
@@ -140,18 +157,14 @@ export function previewService(host: PreviewHost): PreviewService & {
       if (!isFileKey(fileKey)) throw new StoreError("invalid", "Not a file key");
       const snapshot = checkSnapshot(input?.snapshot);
       const options = validPreviewOptions(input?.options);
-      const { sync, storage } = publishing();
+      const session = signedIn();
       host.fileName(fileKey); // the file exists
       return host.run(async () => {
         const records = await read();
         const previous = records.find((r) => r.fileKey === fileKey) ?? null;
         const previewId = previous?.previewId ?? newPreviewId();
         const pkg = await packageFor(host, fileKey, snapshot, options, previewId);
-        try {
-          await uploadPreview(storage, pkg, previous?.blobRefs ?? []);
-        } catch (e) {
-          throw new StoreError("offline", `The preview couldn't be uploaded: ${(e as Error).message}`);
-        }
+        const url = await uploadPreview(host, session, pkg, fileKey);
         const now = pkg.manifest.publishedAt;
         const record: PreviewRecord = {
           previewId,
@@ -161,7 +174,7 @@ export function previewService(host: PreviewHost): PreviewService & {
           expiresAt: pkg.manifest.expiresAt,
           options,
           blobRefs: pkg.manifest.images,
-          url: previewUrl(sync, previewId),
+          url,
         };
         await write([...records.filter((r) => r.previewId !== previewId), record]);
         return record;
@@ -169,24 +182,23 @@ export function previewService(host: PreviewHost): PreviewService & {
     },
 
     async stop(previewId) {
-      const { storage } = publishing();
+      const session = signedIn();
       return host.run(async () => {
         const records = await read();
-        const record = records.find((r) => r.previewId === previewId);
-        if (!record) throw new StoreError("not-found", "No such preview");
-        await revokePreview(storage, previewId, record.blobRefs);
+        if (!records.some((r) => r.previewId === previewId)) throw new StoreError("not-found", "No such preview");
+        await unpublish(session, previewId);
         await write(records.filter((r) => r.previewId !== previewId));
       });
     },
 
     /**
-     * Expired previews (their `expiresAt` passed) are revoked and deleted from Storage, then forgotten — at the
-     * store's start while sync is on (docs/data.md §13: "swept by the store at its next start while sync is on").
-     * The viewer already refuses them; this takes them off Storage. Returns the swept ids.
+     * Expired previews (their `expiresAt` passed) are deleted from the server and forgotten — run when main hands the
+     * store a session. The server already refuses them and deletes their files at expiry (its alarm); this drops its
+     * row and the local record. Logged out or offline, the next session tries again. Returns the swept ids.
      */
     async sweepExpired() {
-      const storage = host.storage();
-      if (!host.sync || !storage) return [];
+      const session = host.session();
+      if (!session) return [];
       return host.run(async () => {
         const records = await read();
         const now = host.now();
@@ -195,10 +207,10 @@ export function previewService(host: PreviewHost): PreviewService & {
         const swept: string[] = [];
         for (const r of expired) {
           try {
-            await revokePreview(storage, r.previewId, r.blobRefs);
+            await unpublish(session, r.previewId);
             swept.push(r.previewId);
           } catch {
-            // offline: the next start tries again
+            // offline: the next session tries again
           }
         }
         await write(records.filter((r) => !swept.includes(r.previewId)));

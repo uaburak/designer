@@ -5,6 +5,7 @@ import { handle, type Env as ApiEnv, type Rooms } from "./api";
 import { Db } from "./db";
 
 export { FileRoom } from "./fileRoom";
+export { PreviewObject } from "./previewObject";
 
 interface Env extends ApiEnv {
   DB: D1Database;

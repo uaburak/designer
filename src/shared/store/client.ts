@@ -88,7 +88,6 @@ export class StoreClient implements StoreApi {
   private readonly subs = new Map<FileKey, FileSub>();
   private readonly workspaceEvents = new Listeners<WorkspaceEvent>();
   private readonly libraryEvents = new Listeners<LibraryEvent>();
-  private readonly syncEvents = new Listeners<unknown>();
   private readonly multiplayerEvents = new Listeners<MultiplayerEvent>();
   private readonly connected = new Listeners<{ generation: number }>();
   /** Calls wait for this: the hello and the resync of a new port */
@@ -194,7 +193,6 @@ export class StoreClient implements StoreApi {
         if (msg.topic === "workspace") this.workspaceEvents.emit(msg.d as WorkspaceEvent);
         else if (msg.topic === "library") this.libraryEvents.emit(msg.d as LibraryEvent);
         else if (msg.topic === "file.changes") this.deliver(msg.d as FileChange);
-        else if (msg.topic === "sync") this.syncEvents.emit(msg.d);
         else if (msg.topic === "multiplayer") this.multiplayerEvents.emit(msg.d as MultiplayerEvent);
         return;
     }
@@ -425,9 +423,4 @@ export class StoreClient implements StoreApi {
     presence: (fileKey, data) => this.call("multiplayer.presence", [fileKey, data]),
     watch: (listener) => this.multiplayerEvents.add(listener),
   };
-
-  /** `sync` events (Replicator status), once sync exists. */
-  onSync(listener: (e: unknown) => void): Unsubscribe {
-    return this.syncEvents.add(listener);
-  }
 }

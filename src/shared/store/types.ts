@@ -19,7 +19,7 @@ export interface Workspace {
   createdAt: number;
   /** Enabled automatically in every new file (Figma's team default libraries) */
   defaultLibraries: FileKey[];
-  /** Set when Firebase sync is first turned on */
+  /** Unused (was set by the removed Firebase sync); kept, older workspaces carry it */
   ownerUid: string | null;
   _clk: Clock;
 }

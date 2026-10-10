@@ -61,8 +61,8 @@ function base62(n: number): string {
   return out;
 }
 
-/** Previews cannot be published without Firebase (docs/data.md §13); a browser has no desktop to export them either. */
-const NOT_SET_UP = "Sharing previews needs Firebase sync, which isn't set up";
+/** Previews are packaged and published by the desktop store (docs/multiplayer.md §9); a browser has no desktop to export them either. */
+const NOT_SET_UP = "Publishing previews needs the desktop app";
 
 export const newFileKey = () => base62(22);
 export const newFolderId = () => base62(16);
@@ -880,7 +880,7 @@ export class MemoryStore {
         throw new StoreError("offline", NOT_SET_UP);
       },
       stop: async () => {
-        throw new StoreError("offline", "Sharing previews needs Firebase sync, which isn't set up");
+        throw new StoreError("offline", NOT_SET_UP);
       },
       exportHtml: async () => {
         throw new StoreError("forbidden", "Exporting a preview needs the desktop app");
@@ -895,7 +895,6 @@ export class MemoryStore {
         deviceOrdinal: this.deviceOrdinal,
         generation: 1,
         openFiles: [...this.runtime.entries()].filter(([, r]) => r.sessions.size).map(([fileKey, r]) => ({ fileKey, sessions: r.sessions.size, headSeq: this.headSeq(this.fileData(fileKey)) })),
-        sync: { configured: false, enabled: false },
       }),
       collectGarbage: async () => ({ live: 0, deleted: 0, kept: this.storage.keys(`${KV_PREFIX}blob.`).length }),
     };

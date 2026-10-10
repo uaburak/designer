@@ -1,18 +1,19 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { handle, type Deps } from "../../../server/src/api";
+import { Db } from "../../../server/src/db";
+import type { PreviewEnv } from "../../../server/src/previews";
+import { memoryPreviews, type MemoryPreviewObject } from "../../../server/src/testing/memoryPreviews";
+import { sqliteD1 } from "../../../server/src/testing/sqliteD1";
 import { decodeCanvas } from "../../shared/fig/container";
 import { PREVIEW_DATA_PLACEHOLDER, readInlinePreview } from "../../shared/preview/html";
 import { buildPreviewPackage, keepPages, previewPagesOf } from "../../shared/preview/package";
 import { codec, newDocumentNodes, type Message, type NodeChange } from "../../shared/schema/codec";
 import { fromHex } from "../../shared/schema/visit";
-import { StoreError } from "../../shared/store/protocol";
 import { nodeCodecs } from "../kiwi/codecs";
 import { openTestStore, tempDir, type TestStore } from "../testing/harness";
-import { MemoryStorage, type FirebaseDrivers, MemoryFirestore } from "../sync/drivers";
-import { startSync } from "../sync/replicator";
 import { previewsOf } from "../localStore";
-import { previewUrl, revokePreview, uploadPreview } from "./previews";
 
 const PAGE = { sessionID: 0, localID: 1 };
 const PAGE2 = { sessionID: 0, localID: 3 };
@@ -102,42 +103,30 @@ describe("the preview package (docs/data.md §13)", () => {
   });
 });
 
-describe("Firebase Storage publishing, on the in-memory fake", () => {
-  it("uploads the manifest last, reuses images, and revokes then deletes on Stop sharing", async () => {
-    const order: string[] = [];
-    const storage = new MemoryStorage();
-    const put = storage.put.bind(storage);
-    const meta = new Map<string, Record<string, string> | undefined>();
-    storage.put = async (path: string, bytes: Uint8Array, m?: { custom?: Record<string, string> }) => {
-      order.push(path);
-      meta.set(path, m?.custom);
-      return put(path, bytes);
-    };
-    const sha1 = "b".repeat(40);
-    const pkg = await buildPreviewPackage(
-      { snapshot: codec.encodeMessage(synthetic(sha1)), fileName: "F", previewId: "r".repeat(22), now: 5, options: { pageIds: "all", inspect: true, export: true, expiresInDays: null }, readImage: async () => PNG },
-      nodeCodecs,
-    );
-    await uploadPreview(storage, pkg);
-    const base = `previews/${"r".repeat(22)}`;
-    expect(order).toEqual([`${base}/doc.kiwi`, `${base}/images/${sha1}`, `${base}/manifest.json`]);
-    expect(meta.get(`${base}/manifest.json`)).toEqual({ revoked: "false" });
-    order.length = 0;
-    await uploadPreview(storage, pkg, [sha1]);
-    expect(order).toEqual([`${base}/doc.kiwi`, `${base}/manifest.json`]);
-    await revokePreview(storage, "r".repeat(22), [sha1]);
-    expect(meta.get(`${base}/manifest.json`)).toEqual({ revoked: "true" });
-    expect([...storage.objects.keys()]).toEqual([]);
-  });
+// --- the server: the Worker's handler on node:sqlite, previews' objects in process ---
 
-  it("links to the configured viewer origin, else the project's Hosting site", () => {
-    const firebase = { apiKey: "k", authDomain: "x", projectId: "proj", storageBucket: "b", appId: "a" };
-    expect(previewUrl({ firebase }, "abc")).toBe("https://proj.web.app/p/abc");
-    expect(previewUrl({ firebase, viewer: { origin: "https://view.example.com" } }, "abc")).toBe("https://view.example.com/p/abc");
-  });
+const SERVER = "https://designer.test";
+let serverNow = Date.UTC(2026, 9, 11);
+let server: Deps;
+let objects: Map<string, MemoryPreviewObject>;
+const serverFetch: typeof fetch = async (input, init) => handle(new Request(String(input), init), server);
+
+beforeEach(() => {
+  const d1 = sqliteD1();
+  const previews = memoryPreviews(() => serverNow);
+  objects = previews.objects;
+  const env: Deps["env"] & PreviewEnv = { SESSION_SECRET: "s".repeat(40), DEV_AUTH: "1", DB: d1, PREVIEWS: previews.binding };
+  server = { db: new Db(d1), env, rooms: { fetch: async () => Response.json({ ok: true }) }, fetch: async () => new Response(null, { status: 500 }), now: () => serverNow };
 });
 
-describe("previews in the store", () => {
+async function devSession(email: string) {
+  const res = await serverFetch(`${SERVER}/auth/dev`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) });
+  return { server: SERVER, token: ((await res.json()) as { token: string }).token };
+}
+
+const get = (path: string) => serverFetch(`${SERVER}${path}`);
+
+describe("previews in the store, published to the server (docs/multiplayer.md §9)", () => {
   const stores: TestStore[] = [];
   afterEach(async () => {
     for (const t of stores.splice(0)) {
@@ -146,16 +135,13 @@ describe("previews in the store", () => {
     }
   });
 
-  async function storeWith(opts: { config?: boolean } = {}) {
+  async function storeWith() {
     const dir = tempDir();
-    if (opts.config) {
-      mkdirSync(join(dir, "firebase"), { recursive: true });
-      writeFileSync(join(dir, "firebase", "config.json"), JSON.stringify({ firebase: { apiKey: "k", authDomain: "x", projectId: "proj", storageBucket: "b", appId: "1" } }));
-    }
     const template = join(dir, "viewer.html");
     writeFileSync(template, TEMPLATE);
-    const t = await openTestStore({ dir, viewerTemplate: template });
+    const t = await openTestStore({ dir, viewerTemplate: template, fetch: serverFetch });
     stores.push(t);
+    serverNow = t.clock.now();
     const file = await t.api.workspace.createFile({ name: "Landing page", folderId: null });
     const { sha1 } = await t.api.blobs.put(PNG);
     return { t, fileKey: file.fileKey, sha1, snapshot: codec.encodeMessage(synthetic(sha1)) };
@@ -176,53 +162,70 @@ describe("previews in the store", () => {
     expect(roleMayCall("editor", "previews.publish")).toBe(true);
   });
 
-  it("refuses to publish until Firebase is configured and sync is on; then publishes, updates in place and stops", async () => {
-    const plain = await storeWith();
-    expect(await plain.t.api.previews.status()).toEqual({ publish: false, reason: "Sharing previews needs Firebase sync, which isn't set up" });
-    await expect(plain.t.api.previews.publish(plain.fileKey, { snapshot: plain.snapshot, options: { pageIds: "all", inspect: true, export: true, expiresInDays: null } })).rejects.toMatchObject({ code: "offline" });
-
-    const { t, fileKey, snapshot, sha1 } = await storeWith({ config: true });
+  it("says Log in to publish until main hands over a session; then publishes, updates in place and unpublishes", async () => {
+    const { t, fileKey, snapshot, sha1 } = await storeWith();
     const options = { pageIds: "all" as const, inspect: true, export: true, expiresInDays: 30 as const };
-    await expect(t.api.previews.publish(fileKey, { snapshot, options })).rejects.toBeInstanceOf(StoreError);
-    const drivers: FirebaseDrivers = { firestore: new MemoryFirestore(), storage: new MemoryStorage(), signIn: async () => ({ uid: "owner" }) };
-    const r = await startSync(t.store, { enabled: true, uid: "owner", drivers, intervalMs: 60_000 });
+    expect(await t.api.previews.status()).toEqual({ publish: false, reason: "Log in to publish" });
+    await expect(t.api.previews.publish(fileKey, { snapshot, options })).rejects.toMatchObject({ code: "offline", message: "Log in to publish" });
+
+    await t.api.multiplayer.setSession(await devSession("owner@x.co"));
     expect(await t.api.previews.status()).toEqual({ publish: true, reason: null });
     const first = await t.api.previews.publish(fileKey, { snapshot, options });
-    expect(first.url).toBe(`https://proj.web.app/p/${first.previewId}`);
+    expect(first.url).toBe(`${SERVER}/p/${first.previewId}`);
     expect(first.blobRefs).toEqual([sha1]);
-    const storage = drivers.storage as MemoryStorage;
-    expect(storage.objects.has(`previews/${first.previewId}/manifest.json`)).toBe(true);
-    const manifest = JSON.parse(new TextDecoder().decode(storage.objects.get(`previews/${first.previewId}/manifest.json`)!));
-    expect(manifest.fileName).toBe("Landing page");
+    expect(first.expiresAt).toBe(t.clock.now() + 30 * 86400000);
+    // Anyone reads it by id: what the viewer at /p/<id> fetches.
+    const manifest = (await (await get(`/previews/${first.previewId}/manifest.json`)).json()) as { fileName: string; images: string[] };
+    expect(manifest).toMatchObject({ fileName: "Landing page", images: [sha1] });
+    expect(new Uint8Array(await (await get(`/previews/${first.previewId}/images/${sha1}`)).arrayBuffer())).toEqual(PNG);
+    const doc = decodeCanvas(new Uint8Array(await (await get(`/previews/${first.previewId}/doc.kiwi`)).arrayBuffer()), nodeCodecs);
+    expect(doc.message).toEqual(snapshot);
+
     t.clock.advance(1000);
     const second = await t.api.previews.publish(fileKey, { snapshot, options });
     expect(second.previewId).toBe(first.previewId);
+    expect(second.url).toBe(first.url);
     expect(second.updatedAt).toBeGreaterThan(first.updatedAt);
     expect(await t.api.previews.list(fileKey)).toHaveLength(1);
     // The blob GC keeps the published images.
     expect((await t.api.store.collectGarbage()).live).toBeGreaterThan(0);
+
     await t.api.previews.stop(first.previewId);
     expect(await t.api.previews.list()).toEqual([]);
-    expect([...storage.objects.keys()].filter((k) => k.startsWith("previews/"))).toEqual([]);
-    await r!.stop();
+    expect((await get(`/previews/${first.previewId}/manifest.json`)).status).toBe(404);
+    await expect(t.api.previews.stop(first.previewId)).rejects.toMatchObject({ code: "not-found" });
   });
 
-  it("sweeps expired previews off Storage when sync starts", async () => {
-    const { t, fileKey, snapshot } = await storeWith({ config: true });
-    const drivers: FirebaseDrivers = { firestore: new MemoryFirestore(), storage: new MemoryStorage(), signIn: async () => ({ uid: "owner" }) };
-    let r = await startSync(t.store, { enabled: true, uid: "owner", drivers, intervalMs: 60_000 });
+  it("forgets a preview the server no longer has on Unpublish, and refuses one owned by someone else", async () => {
+    const { t, fileKey, snapshot } = await storeWith();
+    const options = { pageIds: "all" as const, inspect: true, export: true, expiresInDays: null };
+    await t.api.multiplayer.setSession(await devSession("owner@x.co"));
+    const r = await t.api.previews.publish(fileKey, { snapshot, options });
+    // Another account on this installation can't overwrite it.
+    await t.api.multiplayer.setSession(await devSession("other@x.co"));
+    await expect(t.api.previews.publish(fileKey, { snapshot, options })).rejects.toMatchObject({ code: "not-found" });
+    expect((await get(`/previews/${r.previewId}/manifest.json`)).status).toBe(200);
+    // Gone from the server (deleted elsewhere): Unpublish just forgets it.
+    await objects.get(r.previewId)!.box.fetch(new Request("https://preview/box", { method: "DELETE" }));
+    await t.api.previews.stop(r.previewId);
+    expect(await t.api.previews.list()).toEqual([]);
+  });
+
+  it("sweeps expired previews off the server when a session arrives", async () => {
+    const { t, fileKey, snapshot } = await storeWith();
+    const session = await devSession("owner@x.co");
+    await t.api.multiplayer.setSession(session);
     const lasting = await t.api.previews.publish(fileKey, { snapshot, options: { pageIds: "all", inspect: true, export: true, expiresInDays: null } });
     const other = await t.api.workspace.createFile({ name: "Other", folderId: null });
     const brief = await t.api.previews.publish(other.fileKey, { snapshot, options: { pageIds: "all", inspect: true, export: true, expiresInDays: 7 } });
-    await r!.stop();
-    const storage = drivers.storage as MemoryStorage;
-    // Nothing to sweep yet.
-    expect(await previewsOf(t.store).sweepExpired()).toEqual([]);
+    await t.api.multiplayer.setSession(null);
+    expect(await previewsOf(t.store).sweepExpired()).toEqual([]); // logged out: nothing
     t.clock.advance(8 * 86400000);
-    r = await startSync(t.store, { enabled: true, uid: "owner", drivers, intervalMs: 60_000 });
+    serverNow = t.clock.now();
+    expect((await get(`/previews/${brief.previewId}/manifest.json`)).status).toBe(410);
+    await t.api.multiplayer.setSession(session);
     await vi.waitFor(async () => expect((await t.api.previews.list()).map((p) => p.previewId)).toEqual([lasting.previewId]));
-    expect([...storage.objects.keys()].some((k) => k.startsWith(`previews/${brief.previewId}/`))).toBe(false);
-    expect(storage.objects.has(`previews/${lasting.previewId}/manifest.json`)).toBe(true);
-    await r!.stop();
+    expect((await get(`/previews/${brief.previewId}/manifest.json`)).status).toBe(404);
+    expect((await get(`/previews/${lasting.previewId}/manifest.json`)).status).toBe(200);
   });
 });

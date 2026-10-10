@@ -30,7 +30,7 @@ export const CROSS_ORIGIN_ISOLATED = process.env.DESIGNER_CROSS_ORIGIN_ISOLATED 
  * Wasm ('wasm-unsafe-eval': WebAssembly.compile, nothing else evaluated),
  * the workspace's pictures (this origin), data: and blob: URLs it makes
  * itself, inline styles (React's). No network origins: the store, the only
- * part that may talk to Firebase, is a utility process.
+ * part that talks to the multiplayer server, is a utility process.
  */
 const CSP = [
   "default-src 'self'",

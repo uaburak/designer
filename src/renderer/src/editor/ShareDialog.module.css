@@ -167,4 +167,6 @@
   /* Developer preview */
   .field2 { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: var(--ds-space-2); }
   .actions { display: flex; justify-content: flex-end; gap: var(--ds-space-2); }
+  .previewLink { display: flex; align-items: center; gap: var(--ds-space-2); min-width: 0; }
+  .previewUrl { flex: 1; min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); text-overflow: ellipsis; white-space: nowrap; user-select: text; }
 }

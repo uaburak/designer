@@ -36,7 +36,7 @@ describe("the store port protocol (docs/data.md §8.3)", () => {
     await expect(editor.files.exportLocalCopy("x", "/tmp/x.fig")).rejects.toMatchObject({ code: "forbidden" });
     await expect(editor.store.info()).rejects.toMatchObject({ code: "forbidden" });
     const info = await main.store.info();
-    expect(info).toMatchObject({ deviceOrdinal: 1, generation: 1, sync: { configured: false, enabled: false } });
+    expect(info).toMatchObject({ deviceOrdinal: 1, generation: 1 });
   });
 
   it("sends workspace events to every port and file changes only to subscribers", async () => {

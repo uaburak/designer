@@ -218,19 +218,24 @@ describe("the exported preview HTML (headless Chromium)", () => {
     }
   }, 170_000);
 
-  it("reads a published preview's files over HTTP (the Firebase Storage layout), and refuses an expired one", async () => {
+  it("opens a published preview at /p/<id> from the server's /previews/<id>/ files, a folder by ?src=, and refuses an expired one", async () => {
     const { snapshot, image } = await syntheticPreview();
-    const build = (expiresInDays: 7 | null, now: number) =>
+    const build = (expiresInDays: 7 | null, now: number, previewId: string) =>
       buildPreviewPackage(
-        { snapshot, fileName: "Published", previewId: "h".repeat(22), now, options: { pageIds: ["0:3"], inspect: false, export: false, expiresInDays }, readImage: async (s) => (s === image.sha1 ? image.bytes : null) },
+        { snapshot, fileName: "Published", previewId, now, options: { pageIds: ["0:3"], inspect: false, export: false, expiresInDays }, readImage: async (s) => (s === image.sha1 ? image.bytes : null) },
         { deflateRaw: (d) => new Uint8Array(deflateRawSync(d)) },
       );
-    const live = await build(null, Date.now());
-    const expired = await build(7, Date.now() - 8 * 86400000);
+    const id = "h".repeat(22);
+    const live = await build(null, Date.now(), id);
+    const expired = await build(7, Date.now() - 8 * 86400000, "e".repeat(22));
+    // The Worker's layout (server/src/previews.ts): the viewer page at /p/<id>, the package under /previews/<id>/.
+    const viewerHtml = readFileSync(template, "utf8");
     const files = new Map<string, Uint8Array | string>([
-      ["/index.html", readFileSync(template, "utf8")],
-      ["/live/manifest.json", JSON.stringify(live.manifest)],
-      ["/live/doc.kiwi", live.doc],
+      [`/p/${id}`, viewerHtml],
+      ["/index.html", viewerHtml],
+      [`/previews/${id}/manifest.json`, JSON.stringify(live.manifest)],
+      [`/previews/${id}/doc.kiwi`, live.doc],
+      ...[...live.images].map(([sha1, bytes]) => [`/previews/${id}/images/${sha1}`, bytes] as [string, Uint8Array]),
       ["/expired/manifest.json", JSON.stringify(expired.manifest)],
       ["/expired/doc.kiwi", expired.doc],
     ]);
@@ -241,7 +246,7 @@ describe("the exported preview HTML (headless Chromium)", () => {
         res.writeHead(404).end();
         return;
       }
-      res.writeHead(200, { "Content-Type": path.endsWith(".html") ? "text/html" : path.endsWith(".json") ? "application/json" : "application/octet-stream" }).end(body);
+      res.writeHead(200, { "Content-Type": typeof body === "string" && body.startsWith("<!") ? "text/html" : path.endsWith(".json") ? "application/json" : "application/octet-stream" }).end(body);
     });
     await new Promise<void>((r) => server.listen(5234, "127.0.0.1", r));
     const browser = await chromium.launch({ executablePath: chromiumPath(), args: launchArgs });
@@ -250,7 +255,7 @@ describe("the exported preview HTML (headless Chromium)", () => {
       page.setDefaultTimeout(15_000);
       const errors: string[] = [];
       page.on("pageerror", (e) => errors.push(e.message));
-      await page.goto("http://127.0.0.1:5234/index.html?src=/live/");
+      await page.goto(`http://127.0.0.1:5234/p/${id}`);
       await page.waitForSelector("[data-viewer][data-ready]", { timeout: 30_000 }).catch(async (e) => {
         throw new Error(`${(e as Error).message}\npage: ${await page.locator("body").innerText()}\nerrors: ${errors.join("\n")}`);
       });

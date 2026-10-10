@@ -13,7 +13,7 @@ Scope: everything above the document:
 - libraries;
 - blobs;
 - import and export;
-- the repository pattern and the later Firebase mapping;
+- the repository pattern (sync and accounts: `docs/multiplayer.md`, §12);
 - developer previews;
 - the legacy import and what is deleted.
 
@@ -34,8 +34,8 @@ What a node, a property, a variable or a component *is* belongs to the document 
 | Versions | An autosave checkpoint every 30 min of editing, named versions (⌥⌘S), and library publishes. Each is a full snapshot, hard-linked. Restoring is non-destructive: a diff applied as one undoable edit. |
 | Libraries | Publishing snapshots each non-hidden component, set, style and variable under a stable 40-hex `key` and a content `versionHash`, into a workspace registry stored per asset version. Consumers keep **in-document read-only copies** (Figma's internal-only canvas), so they work offline and without the library. Updates are pulled through Review. "Move to this file" records redirects. Drafts cannot publish, as in Figma. |
 | Repositories | `WorkspaceRepository`, `FileRepository`, `BlobStore`, `LibraryRegistry`. `LocalAdapter` is always authoritative. `FirestoreAdapter` is added later behind a `Replicator` that pushes and pulls with per-property LWW using hybrid logical clocks. `PreviewAdapter` serves the web viewer. |
-| Firebase | Off until the owner adds a config file to `userData/firebase/config.json`. Nothing goes in the repo. The Firebase SDK runs only in the store process. Paths: `workspaces/{wid}/…`, `files/{fileKey}/nodes/{guid}` with one field per property, versions, and Storage `blobs/{sha1}`. |
-| Previews | A read-only snapshot with derived text and geometry, plus images, uploaded under an unguessable 128-bit id. Viewed in a web viewer (the same Wasm renderer) with Dev-Mode-like Inspect. Fallback without Firebase: one self-contained HTML file. |
+| Server | Replaced Firebase (2026-10-10): accounts, shared files and previews on Cloudflare, `docs/multiplayer.md` (§12). Only the store process talks to it. |
+| Previews | A read-only snapshot with derived text and geometry, plus images, uploaded under an unguessable 128-bit id. Viewed in a web viewer (the same Wasm renderer) with Dev-Mode-like Inspect. Published to the Cloudflare Worker (`docs/multiplayer.md` §9) or exported as one self-contained HTML file. |
 
 ---
 
@@ -127,7 +127,7 @@ The renderer works with `FileListItem = FileMeta & { starred: boolean; lastViewe
 The default is **`<userData>/Workspace`**. The reasons:
 - It matches Figma: files are not user-visible documents. Getting a file out is an explicit action (Save Local Copy).
 - The single-writer and journal invariants hold only on a local disk the app controls. iCloud Drive, Dropbox, OneDrive and Google Drive replay partial writes, create "conflicted copies" and evict files, which breaks append-only journals and rename-based atomic writes.
-- Time Machine already backs up `~/Library/Application Support`. Firebase sync (§12) and Save Local Copy are the other backups.
+- Time Machine already backs up `~/Library/Application Support`. Save Local Copy is the other backup (a shared file also lives in its room, `docs/multiplayer.md`).
 - Dev and test runs are isolated for free (`DesignerV2-Dev`, `DESIGNER_USER_DATA`; `docs/desktop.md` §12.1).
 
 `Settings › Workspace location…` can move the workspace to another **local** folder. It refuses paths under `~/Library/Mobile Documents`, `~/Library/CloudStorage`, `~/Dropbox`, `~/OneDrive` or `~/Google Drive`, and network volumes (`statfs` type `smbfs`, `afpfs`, `nfs`, `webdav`).
@@ -572,7 +572,7 @@ export type LibraryEvent =
   | { type: "status"; libraryFileKey: FileKey; status: LibraryRecord["status"] };
 export interface PublishPreview { created: LibraryAsset[]; modified: LibraryAsset[]; removed: LibraryAsset[]; moved: Redirect[]; unchanged: string[] }
 
-// Not one of the four repositories: a store service that exists only once Firebase is configured (§13).
+// Not one of the four repositories: a store service; publishing needs the signed-in session (§13, docs/multiplayer.md §9).
 export interface PreviewService {
   list(fileKey?: FileKey): Promise<PreviewRecord[]>;
   publish(fileKey: FileKey, input: { snapshot: Uint8Array; blobRefs: string[]; options: PreviewOptions }): Promise<PreviewRecord>;  // create or update in place
@@ -843,141 +843,13 @@ This is a pipeline outside the app, so it needs no store internals:
 
 ---
 
-## 12. Firebase (later; off until configured)
+## 12. Sync and accounts — see docs/multiplayer.md
 
-### 12.1 Turning it on
-
-- **Config** lives in `userData/firebase/config.json`, written by Settings › Sync › "Connect Firebase project…" (paste JSON) or dropped there by hand:
-
-  ```json
-  {
-    "firebase": { "apiKey": "…", "authDomain": "…", "projectId": "…", "storageBucket": "…", "messagingSenderId": "…", "appId": "…" },
-    "oauth":    { "clientId": "….apps.googleusercontent.com", "clientSecret": "…" },
-    "viewer":   { "origin": "https://<project>.web.app" }
-  }
-  ```
-
-- **The repo holds no config.** It holds `firebase/firestore.rules`, `firebase/storage.rules`, `firebase/firebase.json` (Hosting for the viewer) and `firebase/.firebaserc.example`. `.gitignore` adds `firebase/.firebaserc` and `firebase/*.local.json`.
-- `src/shared/firebaseConfig.ts` (the old project) is deleted in Phase 1.
-- **Enabling**: Settings › Sync › Turn on → Google sign-in (§12.3) → then one of:
-  - **"Upload this workspace"** on the first device. It creates `workspaces/{wid}` with `ownerUid`, pushes everything (with progress) and keeps `deviceOrdinal` 1.
-  - **"Download a workspace"** on a new device with an empty local workspace. It lists `workspaces` where `ownerUid == uid`, allocates a `deviceOrdinal` from `workspaces/{wid}/devices` in a transaction, then pulls everything.
-
-  Two existing workspaces are never merged.
-- **Turning it off** stops the Replicator. Local data is untouched.
-
-### 12.2 Where it runs
-
-- The Firebase JS SDK (`firebase/app`, `firebase/auth`, `firebase/firestore` and `firebase/storage`, modular, Node builds) runs **in the store process** with `inMemoryPersistence` and the memory cache.
-- No renderer imports Firebase, and the renderer CSP stays `connect-src 'self'`.
-- The local workspace is the offline cache, so Firestore's own persistence is not needed.
-
-### 12.3 Sign-in
-
-This is the old loopback design, now owned by sync:
-1. Main runs Google OAuth for installed apps: PKCE, a loopback redirect on `127.0.0.1:<random port>`, the system browser, a `state` checked in constant time and a 10-minute timeout. Scopes are `openid email profile`, and it uses the config's Desktop client.
-2. Main stores the **Google refresh token** encrypted with `safeStorage` in `userData/firebase/session.bin`.
-3. At each start with sync on, main exchanges the refresh token for a fresh Google ID token and hands it to the store.
-4. The store calls `signInWithCredential(auth, GoogleAuthProvider.credential(idToken))`. Firebase refreshes its own token in memory from then on.
-5. `Settings › Sync › Sign out` deletes `session.bin`.
-
-### 12.4 Paths
-
-| Firestore document | Content | Local source |
-|---|---|---|
-| `workspaces/{wid}` | `Workspace` | `workspace.json` |
-| `workspaces/{wid}/folders/{folderId}` | `Folder` | `folders/<id>.json` |
-| `workspaces/{wid}/files/{fileKey}` | `FileMeta` | `files/<key>/meta.json` |
-| `workspaces/{wid}/prefs/{uid}` | `Prefs` | `prefs.json` |
-| `workspaces/{wid}/libraries/{libraryFileKey}` | `LibraryRecord` | `libraries/<key>/library.json` |
-| `workspaces/{wid}/libraries/{libraryFileKey}/versions/{n}` | `{version, publishedAt, description, changes, assetCount}`; the full manifest is in Storage | `libraries/<key>/versions/<n>.json` |
-| `workspaces/{wid}/devices/{ordinal}` | `{name, createdAt, lastSeenAt}` plus a counter doc `workspaces/{wid}/devices/_counter` | `userData/device.json` |
-| `files/{fileKey}` | `{wid, ownerUid, documentFormatVersion, schemaSha1, createdAt}` | `store.json` (subset) |
-| `files/{fileKey}/nodes/{guid}` | **one document per node, one field per top-level NodeChange property**, plus `_clk`, `_t`, `_del`, `_dev` | merged snapshot plus journal |
-| `files/{fileKey}/versions/{versionId}` | `VersionRecord` minus `blobRefs` | `versions/index.json` |
-
-| Storage object | Content |
-|---|---|
-| `blobs/{sha1}` | image bytes and spilled large values (immutable; `Cache-Control: immutable`) |
-| `thumbnails/{fileKey}.png` | thumbnail; custom metadata `version` |
-| `versions/{fileKey}/{versionId}.kiwi` | version snapshot |
-| `libraries/{libraryFileKey}/versions/{n}.json` | full `LibraryVersion` manifest |
-| `libraries/{libraryFileKey}/assets/{key}/{versionHash}.kiwi` | asset payload |
-| `schemas/{sha1}.kiwi` | binary schemas |
-| `previews/{previewId}/…` | §13 |
-
-**No journal in Firestore.** The local journal *is* the outbox. Node documents are the merged state, and incremental pulls query `_t`. A remote journal would duplicate the node documents and double the writes.
-
-**Node document encoding** (`src/store/sync/fieldCodec.ts`):
-
-| kiwi | Firestore |
-|---|---|
-| `bool` | boolean |
-| `byte`, `int`, `uint`, `float` | number; `int64`/`uint64` become a decimal string |
-| `string` | string |
-| enum | the value's name (string) |
-| struct or message | map with schema field names (never prefixed `_`) |
-| `T[]` | array (kiwi has no arrays of arrays) |
-| `byte[]`, blob-index fields (`*Blob`) | `{"$b": Bytes}` if ≤ 256 KB, else `{"$blob": sha1}` with the bytes in Storage `blobs/{sha1}` |
-| `GUID` | string `"s:l"` |
-
-- **Derived caches never reach Firestore.** These are fields flagged `DERIVED_CACHE` in `engine/tools/schemagen/fieldmeta.ts` (`engine.md` §2.3): `fillGeometry`, `strokeGeometry`, `derivedTextData`, `derivedSymbolData` and the layout parts of `textData`. The engine never writes them to documents, and import drops them, so they appear only in viewer snapshots (§13). The field codec rejects them as a safety net.
-- A node document whose encoding exceeds 900 KB spills its largest fields to `{"$blob"}`. A value nested deeper than 20 levels spills too.
-
-Sync metadata on each node document:
-- `_clk`: map from field name to HLC;
-- `_t`: `serverTimestamp()` of the last write;
-- `_del`: HLC of deletion, a tombstone kept 30 days;
-- `_dev`: device ordinal of the last writer.
-
-Records (workspace, folders, files, prefs, libraries) carry their `_clk` map from §2.
-
-### 12.5 Per-property LWW
-
-**Push** (Replicator, per file, at most every 2 s while there are new frames, which keeps under Firestore's 1 write/s per document):
-1. Take the frames with `seq > sync.pushedSeq`. Coalesce them to the last value and HLC per `(guid, field)`; a REMOVED becomes a tombstone with its HLC.
-2. Upload the blobs they reference that are missing remotely, before any document that references them.
-3. For each chunk of ≤ 100 node documents, run `runTransaction`: read them, then for each field write it only if the local HLC is newer than the remote `_clk[field]`.
-   - Skip a field when the remote `_del` is newer than its local HLC.
-   - A local tombstone wins over every field older than it.
-   - Write `_t: serverTimestamp()`.
-4. Advance `pushedSeq`.
-
-Records use the same rule against their `_clk`.
-
-**Pull**:
-- While a file has a session, run `onSnapshot(query(nodes, where("_t", ">", pullCursor), orderBy("_t")))`. Also on open, and on startup for files viewed in the last 7 days.
-- For each changed document, keep the fields whose remote HLC is newer than the local per-field clock in `clocks.bin`. That file is maintained by the store for synced files and holds, per `(guid, field)`, the HLC of the latest write it knows about.
-- The kept fields become a journal frame with `kind: "remote"`. It is broadcast to the open editor as `file.changes`, and the engine applies it with `engine_apply_changes(…, APPLY_REMOTE)`: **no undo entry**, no `DOCUMENT_CHANGED` (Figma's rule: you undo only your own changes).
-- Workspace collections are listened to continuously.
-
-**Offline**: the app is fully functional. The Replicator retries with exponential backoff from 2 s to 5 min. A tab reports `unsynced: true` once its outbox has been non-empty for over 60 s (shown as Figma's unsynced icon on the tab).
-
-**Limits respected**: documents ≤ 1 MiB; ≤ 100 operations per transaction (Firestore allows 500); field names are schema names; depth ≤ 20.
-
-### 12.6 Security rules (sketch; `OWNER_UID` filled in by the owner at deploy)
-
-```
-// firebase/firestore.rules
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{db}/documents {
-    function isOwner() { return request.auth != null && request.auth.uid == 'OWNER_UID'; }
-    match /{path=**} { allow read, write: if isOwner(); }
-  }
-}
-// firebase/storage.rules
-rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    function isOwner() { return request.auth != null && request.auth.uid == 'OWNER_UID'; }
-    match /{path=**} { allow read, write: if isOwner(); }
-    match /previews/{previewId}/{rest=**} { allow get: if resource.metadata.revoked != 'true'; }   // get, never list
-  }
-}
-```
-
----
+The Firebase adapter planned here (Firestore per-property sync, Storage, Firebase sign-in) was replaced by the owner's
+decision of 2026-10-10: accounts, sharing, multiplayer and developer previews run on Cloudflare (a Worker, a Durable
+Object per shared file and per preview, D1), contract in `docs/multiplayer.md`. Its code (`src/store/sync/`, the
+`firebase/` project files) was removed on 2026-10-11. The workspace on disk stays the local source of truth; a shared
+file's room is reached behind the same repositories (`src/store/multiplayer/`).
 
 ## 13. Developer preview sharing (design)
 
@@ -992,13 +864,13 @@ Goal: developer friends open a link and see the designs exactly as rendered, wit
 
    Then **Publish preview**, and **Copy link** once it exists. Later the modal shows **Update preview** and **Stop sharing**.
 2. The editor calls `engine_encode_document(ENCODE_BAKE_TEXT)` (`engine.md` §10.8). Later it adds `ENCODE_PAGES(list)` for chosen pages; until then, every page is included. The snapshot holds the internal canvas (components, styles, variables) and, on each TEXT node, `derivedTextData` with **glyph outlines as blobs**. The viewer therefore renders exact text without the owner's font files, so no fonts are redistributed. The viewer runs the same `engine.wasm` in `VIEWER` or `INSPECT` mode.
-3. `previews.publish(fileKey, {snapshot, blobRefs, options})` (store `PreviewService`, §8.1; needs sync configured):
+3. `previews.publish(fileKey, {snapshot, blobRefs, options})` (store `PreviewService`, §8.1; needs the signed-in session — *as built 2026-10-11 it publishes to the Cloudflare Worker, docs/multiplayer.md §9; the Storage paths below were the Firebase design*):
    - It reuses the file's existing `previewId`, or makes a new 22-char one.
    - It uploads `previews/{id}/doc.kiwi` (the container with a deflate-raw data chunk) and `previews/{id}/images/{sha1}` for the referenced blobs.
    - It uploads `previews/{id}/manifest.json` **last**, with custom metadata `revoked: "false"`.
    - It records `PreviewRecord {previewId, fileKey, createdAt, updatedAt, expiresAt, options, blobRefs, url}` in `previews.json`.
 
-   The link is `https://<viewer.origin>/p/{previewId}`.
+   The link is `<server>/p/{previewId}` (the Worker serves the viewer there).
 
    ```json
    { "format": 1, "previewId": "…", "fileName": "…", "publishedAt": 0, "expiresAt": null,
@@ -1006,9 +878,9 @@ Goal: developer friends open a link and see the designs exactly as rendered, wit
      "images": ["<sha1>"], "options": { "inspect": true, "export": true } }
    ```
 
-4. **Stop sharing**: set `revoked: "true"` on the manifest, then delete the folder. An expired preview (`expiresAt` passed) is refused by the viewer and swept by the store at its next start while sync is on.
+4. **Unpublish**: `DELETE /previews/<id>` on the server. An expired preview (`expiresAt` passed) is refused by the server (410) and the viewer, its files deleted by its Durable Object's alarm, and its record swept by the store when it next gets a session.
 
-**Viewer** (`src/viewer/`, built by `vite.viewer.config.ts` into `out/viewer`, deployed by the owner with `firebase deploy --only hosting`):
+**Viewer** (`src/viewer/`, built by `vite.viewer.config.ts` into `out/viewer`, deployed as the Worker's static assets — docs/multiplayer.md §9):
 - The same `engine.wasm` in **viewer mode** (no editing APIs), plus a small React shell.
 - It has the page list, a read-only layers list, pan and zoom, Present (the prototype player) and **Inspect**. Inspect shows:
   - size, position and rotation;
@@ -1019,10 +891,10 @@ Goal: developer friends open a link and see the designs exactly as rendered, wit
   - a CSS snippet;
   - Alt-hover distance measurement;
   - export of the selection as PNG or SVG, rendered client-side.
-- Data comes from `PreviewAdapter`: `https://firebasestorage.googleapis.com/v0/b/<bucket>/o/previews%2F<id>%2F<name>?alt=media`.
-- The viewer is single-threaded, so Hosting needs no COOP/COEP. `firebase.json` still sets them, for parity.
+- Data comes from the same origin: `/previews/<id>/manifest.json`, `doc.kiwi`, `images/<sha1>` (`src/viewer/remote.ts loadRemote`).
+- The viewer is single-threaded, so it needs no COOP/COEP.
 
-**Fallback until Firebase is configured**: Share › **"Export preview as HTML…"** writes one self-contained HTML file through `file:export-preview` (§13.1). It contains the viewer JS, the engine Wasm, the snapshot and the images, all inlined as base64. The Wasm is instantiated from bytes, so the file works from `file://` in Chrome, Safari or Firefox (WebGL 2 required). Its size is about 1.37 × (wasm + document + images). Friends receive it like any attachment.
+**Without an account**: Share › **"Export preview as HTML…"** writes one self-contained HTML file through `file:export-preview` (§13.1). It contains the viewer JS, the engine Wasm, the snapshot and the images, all inlined as base64. The Wasm is instantiated from bytes, so the file works from `file://` in Chrome, Safari or Firefox (WebGL 2 required). Its size is about 1.37 × (wasm + document + images). Friends receive it like any attachment.
 
 ### 13.1 As built (2026-10-08, branch `dev-previews`)
 
@@ -1041,24 +913,23 @@ Goal: developer friends open a link and see the designs exactly as rendered, wit
 - `html.ts inlinePreviewHtml` turns the viewer's page plus a package into one HTML file. The package goes in `<script id="designer-preview-data" type="application/json">` as `{manifest, doc: base64, images: {sha1: base64}}`, and `<` is escaped. The title becomes "‹file› – Developer preview". `readInlinePreview` reads it back.
 
 **Store** (`src/store/preview/previews.ts`, wired in `LocalStore` as `previewsOf`):
-- `previews.status()` answers `{publish, reason}`: "Sharing previews needs Firebase sync, which isn't set up" or "Turn on sync to publish previews".
+- `previews.status()` answers `{publish, reason}`: "Log in to publish" while main has handed the store no session (2026-10-11; before, Firebase's reasons).
 - `previews.list(fileKey?)` lists the published previews.
 - `previews.publish(fileKey, {snapshot, options})`:
-  - uploads through the sync seam's `StorageDriver`, which `startSync` sets as `store.previewStorage`: `doc.kiwi`, then the missing images, then `manifest.json` **last** with `revoked: "false"`;
+  - uploads to the server with the session (`LocalStore.session`, captured from `multiplayer.setSession`): the images it lacks (`POST /previews/<id>/images/missing`, then `PUT …/images/<sha1>`), `doc.kiwi` (staged), then the manifest **last**, which makes it live and drops images the new version no longer uses (docs/multiplayer.md §9);
   - reuses the file's `previewId`, so the link stays the same;
-  - deletes images the new version no longer uses;
   - records `PreviewRecord` in `previews.json`. Blob GC keeps the published images.
-- `previews.stop(previewId)` rewrites the manifest with `revoked: "true"`, deletes the folder, then drops the record.
+- `previews.stop(previewId)` (Unpublish) deletes it on the server (already gone: fine), then drops the record.
 - `previews.exportHtml(fileKey, {snapshot, options}, path)` is **main-only**: it is in `MAIN_ONLY`, because it takes a path. It reads the viewer's built page (`viewerTemplate`, by default `out/viewer/index.html` next to `out/main`), inlines the package and writes the file atomically.
 - The browser dev store answers `status` with publish off and refuses `exportHtml`.
-- The link is `<viewer.origin>/p/<previewId>`, or `https://<projectId>.web.app/p/<id>` when the config has no viewer origin.
+- The link is the server's answer, `<server>/p/<previewId>`.
 
 **Main and IPC.** `file:export-preview` (editor role; `{fileKey, snapshot, options}`) shows `showSaveDialog` with "Export preview as HTML" and `‹name›.html`. Main then calls `store.previews.exportHtml`. It is exposed as `designer.files.exportPreview`.
 
 **Editor** (`ShareDialog.tsx`):
 - It opens from the right panel's **Share** button and from File ▸ **Share preview…** (`file.share-preview`, which is in the menu bar too).
 - The dialog is titled "Share “‹file›”". It has a note, **Pages** (All pages / Only “‹page›”), **Inspect**, **Allow exporting assets** and **Link expires** (Never / In 7 days / In 30 days).
-- **Publish preview** copies the link once published. After that the dialog shows the link with **Copy link**, **Update preview** and **Stop sharing**.
+- **Publish preview** copies the link once published. After that the dialog shows the link with **Copy link**, **Update preview** and **Unpublish**.
 - **Export as HTML…** appears in the desktop app.
 - While publishing is off, a banner gives the store's reason.
 
@@ -1067,8 +938,8 @@ Goal: developer friends open a link and see the designs exactly as rendered, wit
 - the engine's Wasm is a base64 `<script id="designer-engine-wasm">` block, instantiated from bytes with `loadEngine({wasmBinary})`;
 - `<!--designer:preview-data-->` marks where the store puts a package.
 
-The same page is the Firebase Hosting site, so the export is just this page with a data block. How it works:
-- **Source** (`source.ts`): the inline block (an exported file); `/p/<id>` or `?p=<id>` read from Storage at `https://firebasestorage.googleapis.com/v0/b/<bucket>/o/previews%2F<id>%2F<name>?alt=media`; or `?src=<folder>` (dev). The bucket comes from `?bucket=` or a deployed `/preview-config.json` (`firebase/preview-config.json`, copied by the build and git-ignored). Expired previews and documents from a newer format are refused with a message.
+The same page is the Worker's static asset for `/p/<id>`, so the export is just this page with a data block. How it works:
+- **Source** (`source.ts`): the inline block (an exported file); `/p/<id>` (or `?p=<id>`, with `&server=<origin>` for another server) read from `/previews/<id>/…`; or `?src=<folder>` (dev). The HTTP cases go through `remote.ts loadRemote`, a general loader (a fig-kiwi document or a bare kiwi Message, a manifest URL or one made from the message) meant also for a shared file's room snapshot. Expired previews (410 or `expiresAt`) and documents from a newer format are refused with a message.
 - **Engine**: the same `engine.wasm`, loaded with `loadKiwi(message, {page})` and `setImageSource` from the package.
 - **Fonts** (`fonts.ts`): only the bundled upright Inter is shipped, for the canvas's labels and upright-Inter texts. Every other face, Inter's italics included, is reported missing on purpose, so those texts draw from the stored outlines and none of the owner's font files are redistributed. The italic file isn't even bundled.
 - **Read-only input** (`ViewerCanvas.ts`): the engine sees hovers, clicks (a press and release in place: Figma's selection rules, ⌘ deep select, ⇧ adds) and the wheel, never a drag.
@@ -1082,25 +953,15 @@ The same page is the Firebase Hosting site, so the export is just this page with
   - **Inspect**, one layer: its name and type; Component or Instance (main component, variant and properties); Layout (box model with padding, size, left and top in the parent, Hug / Fill, rotation, radius, opacity, auto layout and gap); Code (CSS grouped Layout / Style / Typography, each with Copy, or a SwiftUI or Compose snippet); Colors (fill and stroke with hex, the variable's name with its collection and mode, or the style's name); Typography (text style, font, weight, size, line height with %, letter spacing, content); Effects; Annotations, Assets and Export (when allowed; see "Round 5" below). Every value copies on click.
 - **Snippets** (`inspect/css.ts`, `inspect/native.ts`, `inspect/model.ts`, pure and tested) follow Figma's output as far as it is documented: `var(--Name, fallback)`, a variable's Web code syntax honoured, `#FFF` shortening, the `line-height … /* 125% */` comment, the text style as a comment, blur halved for CSS, `url(<path-to-image>) lightgray 50% / cover no-repeat`.
 
-**Firebase project files** (`firebase/`):
-- `firebase.json`: Hosting serves `../out/viewer`, rewrites `/p/**` to the page, and sets COOP/COEP and noindex.
-- `storage.rules` and `firestore.rules`, as in §12.6, with `OWNER_UID` to fill in.
-- `.firebaserc.example` and `preview-config.example.json`.
-
-To deploy, once the owner has a project:
-1. Copy the config to `userData/firebase/config.json` (§12.1).
-2. Write `firebase/preview-config.json` with the bucket.
-3. Run `npm run build:viewer`.
-4. Run `firebase deploy --only hosting,storage` from `firebase/`.
-5. Allow GET from the Hosting origin in the bucket's CORS (`gsutil cors set`), because the viewer fetches Storage cross-origin.
+**Hosting** (2026-10-11): the Worker serves the viewer and the files (docs/multiplayer.md §9); the `firebase/` project files were removed.
 
 **Checks:**
-- `src/store/preview/previews.test.ts` (8 tests): pages and frames, `keepPages`, the container and manifest, the HTML block round trip with escaping, upload order, image reuse, revoke and delete on the in-memory `MemoryStorage`, the link, `exportHtml` writing a file from blobs, the role rule, and publish refused until configured and sync is on, then publish, update in place and stop.
+- `src/store/preview/previews.test.ts` (8 tests): pages and frames, `keepPages`, the container and manifest, the HTML block round trip with escaping, `exportHtml` writing a file from blobs, the role rule; against the real Worker handler (node:sqlite D1, `PreviewBox` objects in process): "Log in to publish" until a session, publish, read back by anyone, update in place, Unpublish, someone else's preview refused, the sweep of expired ones.
 - `src/viewer/inspect/inspect.test.ts` (12 tests): numbers, colours, variable names, sizing, typography, gradient angle, CSS for an auto-layout frame, text, variables and flex items, SwiftUI, Compose, measurements.
 - `src/viewer/testing/preview.wasm.test.ts`: a synthetic file made by the real engine (variable-bound fill, text style, image, Inter Italic caption, component and instance, two pages) gives a derived snapshot with outlines. Its package and HTML round trip load into a fresh engine with the stored layout, and the panels' reads (variable with collection and mode, style name, parent layout, page boxes, layer order) come back right.
 - `npm run viewer:check` (`vitest.viewer.config.ts`, headless Chromium, about 15 s) has two cases:
   - it builds the viewer, exports the synthetic file to an HTML file and opens it from `file://`; it checks that it renders, then selects from Layers, inspects CSS / SwiftUI / Compose, the variable and the text style, draws the italic caption from its outlines, measures on hover and switches pages;
-  - it serves a package's files over HTTP (the Storage layout) with only one page and Inspect off, and checks that an expired preview is refused.
+  - it serves the page at `/p/<id>` and the package under `/previews/<id>/` (the Worker's layout) with only one page and Inspect off, and checks that an expired preview (`?src=`) is refused.
   Screenshots go to `$TMPDIR/designer-viewer-check/`.
 
 **Round 5 (2026-10-08, branch `r5-prototype-viewer`; R9-dev-mode.md):**
@@ -1111,7 +972,7 @@ To deploy, once the owner has a project:
 - **Code / List** toggle (remembered) and the **units** in the language menu's Settings: CSS px / rem, iOS pt / px, Android dp / sp / px, and "Set unit scale…" (root font size; scale factor) — `inspect/units.ts`.
 - **Statuses**: designs marked "Ready for dev" / "Completed" (`sectionStatusInfo`, set in the editor's canvas menu) are listed under "Ready for development" in the left panel and badged in Inspect.
 - **Annotations** stored in the file (`annotations`: the note's HTML as text, the pinned properties with the layer's values) show on the canvas as a green dot with the note, and in Inspect.
-- **Expired previews** are revoked and deleted from Storage when sync starts (`previews.sweepExpired`, from `startSync`).
+- **Expired previews** are swept (`previews.sweepExpired`; since 2026-10-11 when the store gets a session, deleting them on the server).
 - Checks: `inspect/devMode.test.ts` (statuses, annotations, asset detection, List rows, units), `preview.wasm.test.ts` (the status, annotation and icon through the snapshot; viewer mode), `previews.test.ts` (the sweep), `npm run viewer:check` (status, annotation, rem, List, Compose, the icon in Assets, an SVG export downloaded and read, Present).
 
 **Round 6 (2026-10-08, branch `r6-annotations-devmode`; R9-dev-mode.md "Round 6"):**
@@ -1122,7 +983,7 @@ To deploy, once the owner has a project:
 
 **Not done:**
 - Annotation and measurement tools in the viewer (it is read-only; the editor's Dev Mode has them) (the viewer shows what a .fig brings); Figma's "Automatically detect icons" switch and its exact heuristic (ours: ≤ 128 px, vectors only); the exact unit conversion of native snippets.
-- Publishing has not been tried against a real Firebase project, since there is no config yet. The desktop export path (editor → `file:export-preview` → the store) is checked by types and the store tests, not by driving the built app: the Save dialog is native. Reading `out/viewer/index.html` from inside `app.asar` in a packaged build is untried.
+- Publishing is checked against `wrangler dev` (2026-10-11), not yet against the deployed Worker. The desktop export path (editor → `file:export-preview` → the store) is checked by types and the store tests, not by driving the built app: the Save dialog is native. Reading `out/viewer/index.html` from inside `app.asar` in a packaged build is untried.
 - The exact SwiftUI / Compose output and the redline colours are unverified against Figma (R9).
 
 ---
