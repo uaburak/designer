@@ -203,8 +203,16 @@ struct Overlay {
   Guid measureTarget = kNoGuid;
   std::vector<SpacingMark> measures;
   std::vector<GuideLine> measureGuides;
-  // A layer dragged inside its own auto-layout flow: drawn after (above) its siblings (round 15, live Figma).
-  Guid lifted = kNoGuid;
+  // Layers dragged inside their own auto-layout flow: drawn after (above) their siblings (round 15, live Figma).
+  std::vector<Guid> lifted;
+  // Layers dragged into an auto-layout flow from elsewhere, or ⌥-copies over one (round 15, round 2: the owner's
+  // second recording, docs/research/figma/live/behaviour/autolayout-drag.md): not drawn where they are but over
+  // everything, unclipped, at `ghostOpacity` — and that frame (`dropFrame`) outlined `hoverWidth`, its flow's layers
+  // 1 px in the selection colour at `dropChildAlpha`.
+  std::vector<Guid> ghosts;
+  double ghostOpacity = 0.3;
+  Guid dropFrame = kNoGuid;
+  double dropChildAlpha = 0.37;
   // Auto layout: where a dragged layer will go, and the padding / gap bands under the pointer.
   bool hasInsertion = false;
   GuideLine insertion;
@@ -725,7 +733,11 @@ class Renderer {
   // document (render/RenderTree.h).
   std::unordered_map<Guid, RenderTree, GuidHash> trees_;
   const RenderTree* tree_ = nullptr;  // this frame's
-  Guid lifted_ = kNoGuid;             // this frame's Overlay::lifted (drawn after its siblings)
+  std::vector<Guid> lifted_;          // this frame's Overlay::lifted (drawn after their siblings)
+  std::vector<Guid> ghosts_;          // this frame's Overlay::ghosts (drawn over everything, not in place)
+  double ghostOpacity_ = 0.3;
+  std::vector<Guid> cachedGhosts_;    // the ghosts the content cache was drawn without
+  void drawGhosts(const Document& doc);
   uint32_t treeFonts_ = 0;           // the font generation the trees' text bounds are from
   Mat2x3 view_;                       // this frame's world → CSS px
   gfx::IRect region_;                 // the part being recorded (device px)

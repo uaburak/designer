@@ -13,15 +13,16 @@ double mid(const Rect& r, int axis) { return (lo(r, axis) + hi(r, axis)) / 2; }
 // The edge rule between the neighbours [first, last) the slot at `index` has on its line (a row of a wrapping flow,
 // or the whole flow).
 size_t edgeStep(const std::vector<Rect>& others, size_t first, size_t last, size_t index, const Rect& dragged, int axis,
-                int dir) {
-  bool forward = index < last && index >= first && hi(dragged, axis) > mid(others[index], axis);
+                int dir, size_t span = 0) {
+  const size_t next = index + span;  // the block's next neighbour (others inside it are passed already)
+  bool forward = next < last && index >= first && hi(dragged, axis) > mid(others[next], axis);
   bool back = index > first && index <= last && lo(dragged, axis) < mid(others[index - 1], axis);
   if (forward && back) {
-    if (dir > 0) return index + 1;
+    if (dir > 0) return next + 1;
     if (dir < 0) return index - 1;
     return index;
   }
-  if (forward) return index + 1;
+  if (forward) return next + 1;
   if (back) return index - 1;
   return index;
 }
@@ -32,7 +33,8 @@ size_t step(const Flow& flow, size_t index, const Rect& dragged, int dir) {
   const std::vector<Rect>& others = flow.others;
   const size_t n = others.size();
   index = std::min(index, n);
-  if (!flow.wrap || flow.axis != 0) return edgeStep(others, 0, n, index, dragged, flow.axis, dir);
+  const size_t span = std::min(flow.span, n - index);
+  if (!flow.wrap || flow.axis != 0) return edgeStep(others, 0, n, index, dragged, flow.axis, dir, span);
 
   // Rows: a box that starts at or left of the one before it began a new row.
   struct Band {
@@ -64,7 +66,7 @@ size_t step(const Flow& flow, size_t index, const Rect& dragged, int dir) {
   while (row + 1 < bands.size() && y > (bands[row].bottom + bands[row + 1].top) / 2) row++;
   if (row == slotBand) {
     const Band& b = bands[row];
-    return edgeStep(others, b.first, b.last, index, dragged, 0, dir);
+    return edgeStep(others, b.first, b.last, index, dragged, 0, dir, std::min(span, b.last > index ? b.last - index : 0));
   }
   // Another row: before the first of its layers whose centre is past the dragged layer's.
   const Band& b = bands[row];

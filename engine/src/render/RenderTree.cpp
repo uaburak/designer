@@ -87,7 +87,16 @@ void RenderTree::rebound(const Document& doc, std::vector<Guid>& ids) {
   // Deepest first: a node's index is always past its ancestors' (pre-order), so descending index order does it.
   std::sort(at.begin(), at.end(), std::greater<uint32_t>());
   at.erase(std::unique(at.begin(), at.end()), at.end());
-  for (uint32_t i : at) bound(doc, i);
+  // An ancestor whose bounds change (a frame that hugs what it lost or gained): its pixels there change too — where it
+  // was as well as where it is (its own size change comes later in the sync, after these bounds are already new).
+  for (uint32_t i : at) {
+    Rect before = nodes_[i].visual;
+    bound(doc, i);
+    if (!(before == nodes_[i].visual)) {
+      damage(before);
+      damage(nodes_[i].visual);
+    }
+  }
 }
 
 void RenderTree::build(const Document& doc) {

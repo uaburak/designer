@@ -1657,6 +1657,9 @@ void Editor::setDuplicating(bool on) {
     changeSelection(std::move(ids));
     duplicating_ = false;
   }
+  // The originals' frame lays out again (a slide in progress ends where layout puts it).
+  slides_.clear();
+  if (!flowDrag_.ids.empty() && doc_.has(flowDrag_.frame)) layoutDirty_.insert(flowDrag_.frame);
   dropParent_ = snapParent_ = kNoGuid;
   changeCursor(duplicating_ ? CursorKind::MOVE_DUPLICATE : CursorKind::DEFAULT);
 }
@@ -1678,9 +1681,11 @@ void Editor::dragMove(Vec2 world, uint32_t mods) {
   // Round 15: the dragged layer's frame's children as shown now (sliding ones part-way), to slide from wherever the
   // writes below have layout put them.
   std::unordered_map<Guid, Mat2x3, GuidHash> shown;
-  if (flowDrag_.id != kNoGuid)
+  if (flowDragLive()) {
+    const GuidSet ids(flowDrag_.ids.begin(), flowDrag_.ids.end());
     for (Guid c : doc_.children(flowDrag_.frame))
-      if (c != flowDrag_.id) shown[c] = doc_.get(c)->props.transform;
+      if (!ids.count(c)) shown[c] = doc_.get(c)->props.transform;
+  }
 
   // Into the frame under the pointer, out of the one it left.
   Guid drop = keepParent ? kNoGuid : dropTargetAt(world, forceNest);
@@ -1695,9 +1700,21 @@ void Editor::dragMove(Vec2 world, uint32_t mods) {
     c.props.parentIndex = {want, want == t.parent ? t.position : placeAt(want, doc_.children(want).size(), t.id)};
     write(c);
   }
+  // Round 2 (live Figma): out of its auto-layout frame — the pointer left it — the others close up at once (no
+  // slide; the frame hugs them at once) and the frame is elsewhere from then on: back in, the line shows where it
+  // will go, as for any layer from elsewhere.
+  if (!flowDrag_.ids.empty() && !flowDrag_.left && !duplicating_)
+    for (Guid id : flowDrag_.ids)
+      if (doc_.has(id) && doc_.parentOf(id) != flowDrag_.frame) {
+        flowDrag_.left = true;
+        slides_.clear();
+        shown.clear();
+        layoutDirty_.insert(flowDrag_.frame);
+        break;
+      }
   // In its own frame it keeps its slot; anywhere else (and a copy anywhere) it takes no space until dropped.
   for (const Target& t : targets_) {
-    bool home = !duplicating_ && doc_.parentOf(t.id) == t.parent;
+    bool home = !duplicating_ && doc_.parentOf(t.id) == t.parent && !flowDrag_.left;
     if (home) excluded_.erase(t.id), pinned_.insert(t.id);
     else pinned_.erase(t.id), excluded_.insert(t.id);
   }
@@ -1748,7 +1765,7 @@ void Editor::dragMove(Vec2 world, uint32_t mods) {
   } else {
     hasInsertion_ = false;
   }
-  if (flowDrag_.id != kNoGuid) slideFrom(shown);
+  if (flowDragLive()) slideFrom(shown);
   needsRender_ = true;
 }
 
@@ -1757,52 +1774,92 @@ void Editor::dragMove(Vec2 world, uint32_t mods) {
 void Editor::startFlowDrag() {
   flowDrag_ = {};
   slides_.clear();
-  if (targets_.size() != 1) return;
-  const Target& t = targets_[0];
-  const Node* n = doc_.get(t.id);
-  const Node* p = doc_.get(t.parent);
-  if (!n || !p || !n->props.inFlow() || !p->props.isAutoLayout() || p->props.stack().stackMode == StackMode::GRID) return;
-  std::vector<Guid> flow = Layout(*this).flowChildren(t.parent);
-  auto at = std::find(flow.begin(), flow.end(), t.id);
-  if (at == flow.end()) return;
-  flowDrag_.id = t.id;
-  flowDrag_.frame = t.parent;
-  flowDrag_.last = at + 1 == flow.end();
-  Rect b = layoutBox(n->props.transform, n->props.size);
+  if (targets_.empty()) return;
+  // Every layer moved is in the one auto-layout flow (not a grid): they move in it as one block (round 2: the owner —
+  // several layers as one, by the same rule).
+  const Guid frame = targets_[0].parent;
+  const Node* p = doc_.get(frame);
+  if (!p || !p->props.isAutoLayout() || p->props.stack().stackMode == StackMode::GRID) return;
+  std::vector<Guid> flow = Layout(*this).flowChildren(frame);
+  GuidSet ids;
+  for (const Target& t : targets_) {
+    const Node* n = doc_.get(t.id);
+    if (t.parent != frame || !n || !n->props.inFlow() || std::find(flow.begin(), flow.end(), t.id) == flow.end()) return;
+    ids.insert(t.id);
+  }
+  for (Guid c : flow)
+    if (ids.count(c)) flowDrag_.ids.push_back(c);
+  flowDrag_.frame = frame;
+  flowDrag_.last = ids.count(flow.back()) != 0;
+  Rect b = flowDragBox();
   flowDrag_.along = p->props.stack().stackMode == StackMode::HORIZONTAL ? b.x : b.y;
 }
 
 bool Editor::flowDragLive() const {
-  return flowDrag_.id != kNoGuid && !duplicating_ && doc_.has(flowDrag_.id) && doc_.parentOf(flowDrag_.id) == flowDrag_.frame;
+  if (flowDrag_.ids.empty() || duplicating_ || flowDrag_.left) return false;
+  for (Guid id : flowDrag_.ids)
+    if (!doc_.has(id) || doc_.parentOf(id) != flowDrag_.frame) return false;
+  return true;
+}
+
+Rect Editor::flowDragBox() const {
+  Rect u;
+  bool any = false;
+  for (Guid id : flowDrag_.ids) {
+    const Node* n = doc_.get(id);
+    if (!n) continue;
+    Rect b = layoutBox(n->props.transform, n->props.size);
+    u = any ? u.united(b) : b;
+    any = true;
+  }
+  return u;
 }
 
 void Editor::reorderFlow() {
-  const Guid id = flowDrag_.id, frame = flowDrag_.frame;
+  const Guid frame = flowDrag_.frame;
   const Node* fn = doc_.get(frame);
-  const Node* dn = doc_.get(id);
-  if (!fn || !dn) return;
+  if (!fn || flowDrag_.ids.empty()) return;
+  const GuidSet dragged(flowDrag_.ids.begin(), flowDrag_.ids.end());
   reorder::Flow f;
   f.axis = fn->props.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1;
   f.wrap = f.axis == 0 && fn->props.stack().stackWrap == StackWrap::WRAP;
-  const Rect dragged = layoutBox(dn->props.transform, dn->props.size);
-  const double along = f.axis == 0 ? dragged.x : dragged.y;
+  const Rect u = flowDragBox();
+  const double along = f.axis == 0 ? u.x : u.y;
   const int dir = along > flowDrag_.along + 1e-9 ? 1 : along < flowDrag_.along - 1e-9 ? -1 : 0;
   flowDrag_.along = along;
+  // The block as its slot will hold it — its layers one after another, the frame's gap between them — from its
+  // leading edge (the last one's far side moving on, the first one's near side moving back): a selection with others
+  // between them is longer than its slot, and would swap back and forth.
+  Rect box = u;
+  if (flowDrag_.ids.size() > 1) {
+    double packed = std::max(0.0, fn->props.stack().stackSpacing) * static_cast<double>(flowDrag_.ids.size() - 1);
+    for (Guid id : flowDrag_.ids) {
+      const NodeProps& np = doc_.get(id)->props;
+      Rect b = layoutBox(np.transform, np.size);
+      packed += f.axis == 0 ? b.w : b.h;
+    }
+    double& lo = f.axis == 0 ? box.x : box.y;
+    double& len = f.axis == 0 ? box.w : box.h;
+    if (packed < len) {
+      if (dir > 0) lo += len - packed;
+      len = packed;
+    }
+  }
   // Figma's last child loses its chrome on the first move, before any swap (the recording, 35.06 s and 37.96 s).
   if (flowDrag_.last) flowDrag_.chromeHidden = true;
   bool placed = false;  // the siblings are at their targets in the document (a swap placed them)
   for (size_t guard = 0; guard <= doc_.children(frame).size(); guard++) {
     Layout L(*this);
     std::vector<Guid> flow = L.flowChildren(frame), others;
-    size_t index = 0;
-    bool seen = false;
+    // index: the others before the first dragged layer; span: the others between the first and the last.
+    size_t index = 0, seen = 0, beforeLast = 0;
     f.others.clear();
     for (Guid c : flow) {
-      if (c == id) {
-        seen = true;
+      if (dragged.count(c)) {
+        if (++seen == 1) index = others.size();
+        beforeLast = others.size();
         continue;
       }
-      if (!seen) index++;
       const NodeProps& cp = doc_.get(c)->props;
       Mat2x3 t = cp.transform;
       if (!placed)
@@ -1810,29 +1867,34 @@ void Editor::reorderFlow() {
       others.push_back(c);
       f.others.push_back(layoutBox(t, cp.size));
     }
-    if (!seen) return;
+    if (seen != dragged.size()) return;
+    f.span = beforeLast - index;
     if (f.wrap) {
-      f.slot = dragged;
+      f.slot = box;
       for (const Layout::Placement& pl : L.place(frame, fn->props.size))
-        if (pl.id == id) f.slot = {pl.position.x, pl.position.y, dragged.w, dragged.h};
+        if (pl.id == flowDrag_.ids[0]) f.slot = {pl.position.x, pl.position.y, box.w, box.h};
     }
-    size_t j = reorder::step(f, index, dragged, dir);
+    size_t j = reorder::step(f, index, box, dir);
     if (j == index) break;
-    // Into the flow at j: before the j-th of the others, else after the last (counted among all the frame's
-    // children: hidden and absolute ones keep their places).
-    std::vector<Guid> kids = doc_.children(frame);
-    kids.erase(std::remove(kids.begin(), kids.end(), id), kids.end());
+    // Into the flow at j, together in their order: before the j-th of the others, else after the last (counted among
+    // all the frame's children: hidden and absolute ones keep their places).
+    std::vector<Guid> kids;
+    for (Guid c : doc_.children(frame))
+      if (!dragged.count(c)) kids.push_back(c);
     size_t at = kids.size();
     if (j < others.size()) at = static_cast<size_t>(std::find(kids.begin(), kids.end(), others[j]) - kids.begin());
     else if (!others.empty()) at = static_cast<size_t>(std::find(kids.begin(), kids.end(), others.back()) - kids.begin()) + 1;
     const bool wasDirty = layoutDirty_.count(frame) != 0;
-    NodeChange c = NodeChange::changed(id);
-    c.mask = F_PARENT_INDEX;
-    c.props.parentIndex = {frame, placeAt(frame, at, id)};
-    write(c);
+    std::vector<std::string> keys = placeManyAt(frame, at, flowDrag_.ids.size(), dragged);
+    for (size_t k = 0; k < flowDrag_.ids.size() && k < keys.size(); k++) {
+      NodeChange c = NodeChange::changed(flowDrag_.ids[k]);
+      c.mask = F_PARENT_INDEX;
+      c.props.parentIndex = {frame, keys[k]};
+      write(c);
+    }
     // Only this frame's flow moves (its size, and so everything around it, stays): placed here, not laid out whole.
     if (!wasDirty) layoutDirty_.erase(frame);
-    if (!placeFlow(frame, id)) {
+    if (!placeFlow(frame, dragged)) {
       layoutDirty_.insert(frame);
       flushLayout();
     }
@@ -1841,18 +1903,18 @@ void Editor::reorderFlow() {
   }
 }
 
-bool Editor::placeFlow(Guid frame, Guid dragged) {
+bool Editor::placeFlow(Guid frame, const GuidSet& dragged) {
   // The siblings' places with the dragged layer's slot where the document has it now: positions only — a reorder
   // keeps every size (false when one would change: the caller lays the frame out instead).
   Layout L(*this);
   std::vector<Layout::Placement> placements = L.place(frame, doc_.get(frame)->props.size);
   for (const Layout::Placement& pl : placements) {
-    if (pl.id == dragged || placedByGesture(pl.id)) continue;
+    if (dragged.count(pl.id) || placedByGesture(pl.id)) continue;
     const NodeProps& cp = doc_.get(pl.id)->props;
     if (std::fabs(pl.size.x - cp.size.x) > 1e-6 || std::fabs(pl.size.y - cp.size.y) > 1e-6) return false;
   }
   for (const Layout::Placement& pl : placements) {
-    if (pl.id == dragged || placedByGesture(pl.id)) continue;
+    if (dragged.count(pl.id) || placedByGesture(pl.id)) continue;
     const NodeProps& cp = doc_.get(pl.id)->props;
     Mat2x3 linear = cp.transform;
     linear.m02 = linear.m12 = 0;
@@ -2022,7 +2084,7 @@ void Editor::updateInsertion(Guid frame, Vec2 world) {
 void Editor::finishMove() {
   // Round 15: dropped in its own flow it is already in its place in the document; layout puts it (and any sibling
   // still sliding) there at once (Figma's drop is instant).
-  if (flowDrag_.id != kNoGuid) layoutDirty_.insert(flowDrag_.frame);
+  if (!flowDrag_.ids.empty() && doc_.has(flowDrag_.frame)) layoutDirty_.insert(flowDrag_.frame);
   slides_.clear();
   GuidSet moving;
   for (const Target& t : targets_) moving.insert(t.id);
@@ -2078,6 +2140,18 @@ void Editor::finishMove() {
     }
   }
   gridDrop_ = false;
+  // Round 2 (live Figma): a layer taken out of auto layout keeps its size, fixed — its Fill / stretch goes (dragged
+  // back in later it is "54 × 27", not "54 Fill × 27").
+  for (const Target& t : targets_) {
+    const Node* n = doc_.get(t.id);
+    const Node* p = n ? doc_.get(n->props.parentIndex.guid) : nullptr;
+    if (!n || (p && p->props.isAutoLayout())) continue;
+    NodeChange c = NodeChange::changed(t.id);
+    if (n->props.stackChildPrimaryGrow > 0) c.mask |= F_STACK_CHILD_GROW, c.props.stackChildPrimaryGrow = 0;
+    if (n->props.stackChildAlignSelf == StackCounterAlign::STRETCH)
+      c.mask |= F_STACK_CHILD_ALIGN_SELF, c.props.stackChildAlignSelf = StackCounterAlign::AUTO;
+    if (c.mask) write(c);
+  }
   // Back into the flow: their auto-layout parents lay out again.
   for (const Target& t : targets_) {
     const Node* p = doc_.get(doc_.parentOf(t.id));

@@ -19,10 +19,14 @@ struct Flow {
   int axis = 0;       // the flow's axis: 0 horizontal, 1 vertical
   bool wrap = false;  // rows (Figma wraps horizontal flows only)
   Rect slot;          // wrap: where layout puts the dragged layer's slot (which row it is on)
+  // Several layers dragged together (round 15, round 2): the others still between them (a selection that isn't one
+  // run yet: 0 once it is). They are inside the block — its next neighbour is others[index + span].
+  size_t span = 0;
 };
 
 // The dragged layer's slot (0 … others.size(), the number of others before it) one step on from `index`, or `index`
-// when it stays. `dragged`: its box now (following the pointer). `dir`: its last motion along the flow (−1, 0, +1) —
+// when it stays. `dragged`: its box now (following the pointer); several layers: their boxes' union, `index` the
+// number of others before the first of them (a step on puts them together, in their order, at the new index). `dir`: its last motion along the flow (−1, 0, +1) —
 // what decides when it is past both neighbours' centres at once (a layer larger than both). In a wrapping flow its
 // centre picks the row; another row's slot is where its centre falls among that row's centres (a jump of several);
 // in its own row the edge rule holds against that row's neighbours.

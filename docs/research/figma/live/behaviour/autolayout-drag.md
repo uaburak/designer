@@ -90,5 +90,66 @@ neighbour's centre with its leading edge (`layout/Reorder.h`), the frame lays ou
 siblings' moves are drawn as 120 ms ease-out slides (their transforms written along the way, the end state laid out
 exactly), the dragged layer draws above its siblings, the chrome follows finding 7, the drop places it at once; one
 undo step. Unverified (not in the recording): wrapping frames (the row under the dragged layer's centre, then the
-same edge rule in that row), a drag out of the frame (the siblings slide shut), a drag in from elsewhere and ⌥
-copies (the insertion line, no space until the drop), several layers (as before), Esc (everything back at once).
+same edge rule in that row), a drag out of the frame, a drag in from elsewhere and ⌥ copies, several layers, Esc —
+the first three seen in round 2 (below), which changed the drag out (no slides).
+
+## Round 2 — out, in, ⌥-copies (2026-10-10)
+
+Source: the owner's second recording of live Figma (desktop app), 58.9 s, 2140 × 1682 px (a Retina screen: 2 video
+px per CSS px), ≈ 55 fps, read the same way (AVFoundation, zero tolerance: contact sheets every 200 ms, every recorded
+frame around each event, pixels probed along rows and columns). The file: **Frame 4883**, a vertical auto-layout
+frame, Hug, clipping its content, zoomed in (≈ 3.7 CSS px per design px), holding two, then three, then four `54 × 27`
+rectangles (grey `D9D9D9`, one filled `E30613` at 30 s, one `F5F5F5`); a red "Button" instance below it on the page.
+The cursor tells an ⌥-drag (the duplicate arrow) from a move. Key frames: `img/autolayout-drag-r2-*.png` (half size,
+the canvas only).
+
+Timeline: 2.0–8.5 s ⌥-copy of the first layer — inside its frame, out to the right, back; 9–13.4 s ⌥-copy again, out
+left and back, dropped between the two (three layers now); 15.5–16.2 s ⌥-copy of the first out to the left, dropped on
+the page; 17.2–19.8 s that copy dragged in from the page, dropped at the end; 20.9–22.0 s the third dragged out, dropped
+on the page; 22.6–23.0 s dragged back in, dropped in the middle; 24.1–25.0 s dragged out again; 29–31 s the first one's
+fill set to red; 34.0–34.4 s red dragged out to the left; 35.5–36.0 s dragged back in from the page; 37.0–40.5 s an
+⌥-copy of red dropped at the end (four layers). Not in the recording: several layers at once, Esc, a wrapping frame,
+⇧ / ⌘ / Space during a drag, a drag from one auto-layout frame straight into another.
+
+### Findings
+
+11. **⌥-drag copies: the original stays in its place, the copy is a ghost.** Over an auto-layout frame (its own
+    included) the copy is drawn at **30 % opacity** (probed: `E30613` over `F5F5F5` → `239,174,175`, over white
+    `247,180,184`, over `D9D9D9` `220,155,159`: α ≈ 0.30 in every channel) over everything, **not clipped** by the frame
+    (`r2-01`, `r2-06`), the frame's other layers don't move (no slot opens, the Hug frame keeps its size), and a
+    **2 px insertion line** in the selection blue marks where it will go — across the frame's content box, half-way
+    between the two layers around it (above the first when it goes first). Its chrome (outline, handles, size label)
+    is gone. Off the frame, on the page, the copy is **opaque** with the smart guides and their distance pills (red),
+    still without its chrome (`r2-02`); back over the frame it is a ghost again. Dropped: in at the line at once, the
+    frame grows, the copy selected (13.4 s, 40.5 s).
+12. **Over a target auto-layout frame**: the frame is outlined **2 px** in the selection blue (probed: 4 device px) and
+    each layer of its flow **1 px**, faint (`r2-03`, `r2-06`). The line is the only indicator of the place.
+13. **A layer dragged in from the page** (a move, not a copy: 17.2 s, 22.6 s, 35.5 s) is the same ghost: 30 %, over
+    everything, the line, the frame and its layers outlined, nothing moving until the drop (`r2-03`, `r2-06`); the drop
+    is instant (19.8 s, 23.0 s, 36.0 s).
+14. **Dragged out of its own frame**: while the pointer is inside the frame the layer is still its child — it keeps
+    its slot (the gap stays), it is **clipped by the frame** where it pokes out, and its chrome stays (34.0–34.27 s,
+    `r2-04`: outline and `54 Fill × 27` drawn past the frame's edge, the red only inside it). **The frame the pointer
+    is over decides**: the first frame with the pointer off the frame (34.29 s, 24.50 s, 21.02 s) the layer is the
+    page's — drawn whole and opaque over it, without chrome — and **the others close up at once and the Hug frame
+    shrinks at once**: no slide (34.27 → 34.29 s, one recorded frame, `r2-05`; the 21.0 s and 24.5 s frames show
+    Figma's canvas re-rendering, then the closed state).
+15. **Out of auto layout it keeps its size, fixed**: on the page the panel shows `W 54` (no Fill), and dragged back in
+    it is `54 × 27`, not `54 Fill × 27` (`r2-07`, 36.1 s; 19.8 s).
+16. **No hold delay, no animation on the drop** for any of these; the frame shows its hover outline after a drop while
+    the pointer is over it (as round 1).
+
+Live Figma in the built-in browser could not be used this round: the tab was signed out (a view-only file with
+"Sign up to comment, edit…"), so nothing could be dragged there. Several layers at once, Esc, wrapping frames and the
+modifiers stay unverified; their behaviour below is inferred.
+
+### As built (round 15, round 2: `r15-autolayout-drag-2`)
+
+See docs/engine.md §8.6. Verified on the recording: findings 11–16 (the 30 % ghost drawn over everything and
+unclipped — `Overlay::ghosts`, `Renderer::drawGhosts`; the frame 2 px and its flow's layers 1 px at 37 % — `dropFrame`;
+the 2 px line; no chrome while out or a ghost; out of the frame the others close up and the frame hugs at once, no
+slides; Fill / stretch dropped when it lands outside auto layout). Inferred: a layer that left its frame and comes back
+in the same drag is a layer from elsewhere (the line, no slot); several layers of one flow move as one block by the
+owner's rule ("the same logic as one"): one slot, in their order, the block's leading edge against the neighbours'
+centres (a selection with others between it comes together at its first swap); Esc puts everything back (copies gone);
+⇧ keeps the axis, Space keeps the parent, ⌘ nests (as any move).

@@ -850,6 +850,21 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   for (const GuideLine& g : overlay.measureGuides) dashed(g.a, g.b, style.measure);
   for (const SpacingMark& m : overlay.measures) distance(m, style.measure);
 
+  // A layer dragged into an auto-layout frame from elsewhere (round 15, round 2: the owner's recording of live Figma,
+  // autolayout-drag.md): the frame outlined as hovered (2 px), each layer of its flow 1 px in the selection colour,
+  // faint; then the line where it will join the flow.
+  if (overlay.dropFrame != kNoGuid && doc.has(overlay.dropFrame)) {
+    const Node* fn = doc.get(overlay.dropFrame);
+    const Color& c = colorOf(overlay.dropFrame);
+    for (Guid k : doc.children(overlay.dropFrame)) {
+      const Node* kn = doc.get(k);
+      if (!kn || !kn->props.visible || !kn->props.inFlow() || std::find(overlay.ghosts.begin(), overlay.ghosts.end(), k) != overlay.ghosts.end()) continue;
+      Rect lb = doc.localBounds(k);
+      ScreenBox b = screenBox(view * doc.worldTransform(k) * Mat2x3::translate(lb.x, lb.y), {lb.w, lb.h}, dpr);
+      emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, c, 0, c, overlay.dropChildAlpha, 1, 0), Pass::Shape);
+    }
+    outline(view * doc.worldTransform(overlay.dropFrame), fn->props.size, ShapeKind::Rect, kSquare, style.hoverWidth, c);
+  }
   // Where a dragged layer will join an auto-layout flow.
   if (overlay.hasInsertion) line(overlay.insertion.a, overlay.insertion.b, style.insertionWidth, blue);
 

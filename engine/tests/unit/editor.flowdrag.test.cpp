@@ -147,7 +147,7 @@ TEST_CASE("auto-layout drag: swaps at the neighbours' centres, siblings slide 12
   CHECK(world(e, VK[0]) == Rect{14, 45, 100, 40});
   CHECK(world(e, VK[1]).y == 70);
   Overlay o = e.overlay();
-  CHECK(o.lifted == VK[0]);
+  CHECK(o.lifted == std::vector<Guid>{VK[0]});
   CHECK(o.selection == std::vector<Guid>{VK[0]});
   CHECK(o.handles);
   CHECK(o.sizeBadge);
@@ -171,7 +171,7 @@ TEST_CASE("auto-layout drag: swaps at the neighbours' centres, siblings slide 12
   o = e.overlay();
   CHECK(o.selection.empty());
   CHECK(!o.sizeBadge);
-  CHECK(o.lifted == VK[0]);
+  CHECK(o.lifted == std::vector<Guid>{VK[0]});
   CHECK(world(e, HID) == Rect{5, 5, 30, 30});
   CHECK(world(e, ABS) == Rect{300, 300, 20, 20});
   CHECK(world(e, V) == Rect{0, 0, 120, 240});
@@ -195,7 +195,7 @@ TEST_CASE("auto-layout drag: swaps at the neighbours' centres, siblings slide 12
   CHECK(world(e, ABS) == Rect{300, 300, 20, 20});
   o = e.overlay();
   CHECK(o.selection == std::vector<Guid>{VK[0]});
-  CHECK(o.lifted == kNoGuid);
+  CHECK(o.lifted.empty());
   // One undo step brings everything back.
   e.command(CommandId::UNDO);
   CHECK(e.document().children(V) == before);
@@ -253,8 +253,13 @@ TEST_CASE("auto-layout drag: a wrapping flow — the row under the layer's centr
   CHECK(world(e, VK[0]) == Rect{70, 70, 50, 50});
 }
 
-TEST_CASE("auto-layout drag: moving lays nothing out until a swap; dragged out, the others slide shut") {
+TEST_CASE("auto-layout drag: moving lays nothing out until a swap; dragged out, the others close up at once") {
   Editor e = flowScene();
+  // Its width fills the frame ("100 Fill × 40").
+  NodeChange fill;
+  fill.mask = F_STACK_CHILD_ALIGN_SELF;
+  fill.props.stackChildAlignSelf = StackCounterAlign::STRETCH;
+  e.setProps({VK[0]}, fill, 0);
   e.setSelection({VK[0]});
   down(e, 60, 30);
   steps(e, {60, 30}, {62, 32});
@@ -264,16 +269,179 @@ TEST_CASE("auto-layout drag: moving lays nothing out until a swap; dragged out, 
   move(e, 63, 33);
   CHECK(e.document().version() == v + 1);
   CHECK(world(e, VK[1]).y == 70);
-  // Out onto the page, right of the frame: the others slide up, the frame hugs them on the drop.
+  // Out onto the page, right of the frame (round 2, live Figma): the others close up and the frame hugs them at
+  // once — no slide —, the layer is the page's, without its chrome.
   steps(e, {63, 33}, {400, 33});
   CHECK(e.document().parentOf(VK[0]) == kPage);
-  e.tick(10);
-  e.tick(400);
   CHECK(world(e, VK[1]).y == 10);
   CHECK(world(e, VK[3]).y == 130);
+  CHECK(world(e, V).h == 180);
+  e.rendered();
+  CHECK(!e.needsFrame());
+  Overlay o = e.overlay();
+  CHECK(o.selection.empty());
+  CHECK(!o.sizeBadge);
+  CHECK(o.lifted.empty());
+  CHECK(o.ghosts.empty());
+  CHECK(!o.hasInsertion);
   up(e, 400, 33);
   CHECK(world(e, V).h == 180);
   CHECK(world(e, VK[0]).x == 350);
+  // Out of auto layout it keeps its size, fixed: no Fill to take back in.
+  CHECK(e.document().get(VK[0])->props.stackChildAlignSelf != StackCounterAlign::STRETCH);
+  CHECK(e.overlay().selection == std::vector<Guid>{VK[0]});
+  e.command(CommandId::UNDO);
+  CHECK(flowOrder(e) == kStart);
+  CHECK(e.document().get(VK[0])->props.stackChildAlignSelf == StackCounterAlign::STRETCH);
+}
+
+TEST_CASE("auto-layout drag: out and back in — the line and a 30 % ghost, no space taken until the drop") {
+  Editor e = flowScene();
+  e.setSelection({VK[0]});
+  down(e, 60, 30);
+  steps(e, {60, 30}, {400, 30});
+  REQUIRE(e.document().parentOf(VK[0]) == kPage);
+  // Back over the frame between k2 (centre 90) and k3 (150): the frame is elsewhere now — the others stay where they
+  // are, the line shows where it goes, the layer a ghost over everything, the frame and its layers outlined.
+  steps(e, {400, 30}, {60, 100});
+  CHECK(e.document().parentOf(VK[0]) == V);
+  CHECK(world(e, VK[1]).y == 10);
+  CHECK(world(e, VK[2]).y == 70);
+  CHECK(world(e, VK[3]).y == 130);
+  CHECK(world(e, V).h == 180);
+  Overlay o = e.overlay();
+  CHECK(o.hasInsertion);
+  CHECK(o.insertion.a.y == 120);  // half-way between k2's bottom (110) and k3's top (130)
+  CHECK(o.ghosts == std::vector<Guid>{VK[0]});
+  CHECK(o.ghostOpacity == doctest::Approx(0.3));
+  CHECK(o.dropFrame == V);
+  CHECK(o.selection.empty());
+  CHECK(o.lifted.empty());
+  // Dropped: in at the line at once, the frame hugs it, selected.
+  up(e, 60, 100);
+  CHECK(flowOrder(e) == std::vector<Guid>{VK[1], VK[2], VK[0], VK[3]});
+  CHECK(world(e, VK[0]) == Rect{10, 130, 100, 40});
+  CHECK(world(e, V).h == 240);
+  o = e.overlay();
+  CHECK(o.ghosts.empty());
+  CHECK(o.dropFrame == kNoGuid);
+  CHECK(o.selection == std::vector<Guid>{VK[0]});
+}
+
+TEST_CASE("auto-layout drag: a layer from the page — ghost, line, the others still; dropped in at the line") {
+  Editor e = flowScene();
+  const Guid R{1, 90};
+  NodeChange r = make(R, NodeType::ROUNDED_RECTANGLE, kPage, "z", {300, 300, 80, 30}, "outside");
+  e.applyChanges({r}, APPLY_REMOTE);
+  e.setSelection({R});
+  down(e, 340, 315);
+  steps(e, {340, 315}, {60, 160});
+  CHECK(e.document().parentOf(R) == V);
+  for (int i = 0; i < 4; i++) CHECK(world(e, VK[i]).y == 10 + 60 * i);
+  Overlay o = e.overlay();
+  CHECK(o.ghosts == std::vector<Guid>{R});
+  CHECK(o.dropFrame == V);
+  CHECK(o.hasInsertion);
+  CHECK(o.insertion.a.y == 180);  // between k2 (centre 150) and k3 (210)
+  up(e, 60, 160);
+  std::vector<Guid> kids;
+  for (Guid c : e.document().children(V))
+    if (c != HID && c != ABS) kids.push_back(c);
+  CHECK(kids == std::vector<Guid>{VK[0], VK[1], VK[2], R, VK[3]});
+  CHECK(world(e, R) == Rect{10, 190, 80, 30});
+  CHECK(world(e, VK[3]).y == 240);
+}
+
+TEST_CASE("auto-layout drag: ⌥ copies — the original stays, the copy a ghost at the line; Esc takes it back") {
+  Editor e = flowScene();
+  const auto before = e.document().children(V);
+  e.setSelection({VK[0]});
+  down(e, 60, 30);
+  for (int i = 1; i <= 8; i++) e.pointer(PointerEvent::MOVE, 60, 30 + 110 * i / 8.0, 0, 1, MOD_ALT);
+  REQUIRE(e.selection().size() == 1);
+  const Guid copy = e.selection()[0];
+  CHECK(copy != VK[0]);
+  // The original and the others stay put (no slot travels); the copy is a ghost, the line between k1 and k2.
+  CHECK(world(e, VK[0]).y == 10);
+  for (int i = 1; i < 4; i++) CHECK(world(e, VK[i]).y == 10 + 60 * i);
+  Overlay o = e.overlay();
+  CHECK(o.ghosts == std::vector<Guid>{copy});
+  CHECK(o.dropFrame == V);
+  CHECK(o.hasInsertion);
+  CHECK(o.insertion.a.y == 120);
+  CHECK(o.lifted.empty());
+  // Esc: no copy, nothing moved.
+  e.key(KeyEvent::DOWN, KeyCode::Escape, 0, 0, false);
+  CHECK(!e.document().has(copy));
+  CHECK(e.document().children(V) == before);
+  // Again, dropped: the copy joins at the line, the frame grows.
+  e.setSelection({VK[0]});
+  down(e, 60, 30);
+  for (int i = 1; i <= 8; i++) e.pointer(PointerEvent::MOVE, 60, 30 + 110 * i / 8.0, 0, 1, MOD_ALT);
+  const Guid copy2 = e.selection()[0];
+  e.pointer(PointerEvent::UP, 60, 140, 0, 0, MOD_ALT);
+  std::vector<Guid> kids;
+  for (Guid c : e.document().children(V))
+    if (c != HID && c != ABS) kids.push_back(c);
+  CHECK(kids == std::vector<Guid>{VK[0], VK[1], copy2, VK[2], VK[3]});
+  CHECK(world(e, copy2).y == 130);
+  CHECK(world(e, V).h == 300);
+}
+
+TEST_CASE("auto-layout drag: several layers move as one block — together, in their order, by the block's edge") {
+  Editor e = flowScene();
+  e.setSelection({VK[0], VK[1]});
+  e.tick(1000);
+  down(e, 60, 30);
+  // The block (10…110) moves down: its bottom (110 + 35) short of k2's centre (150) — nothing swaps, the chrome
+  // stays, both drawn above the others.
+  steps(e, {60, 30}, {60, 65});
+  CHECK(flowOrder(e) == kStart);
+  Overlay o = e.overlay();
+  CHECK(o.lifted == std::vector<Guid>{VK[0], VK[1]});
+  CHECK(o.selection.size() == 2);
+  // Past it: k2 takes the block's place, sliding up; the block keeps its order.
+  move(e, 60, 75);
+  CHECK(flowOrder(e) == std::vector<Guid>{VK[2], VK[0], VK[1], VK[3]});
+  CHECK(e.overlay().selection.empty());
+  e.tick(1100);
+  e.tick(1300);
+  CHECK(world(e, VK[2]).y == 10);
+  CHECK(world(e, VK[3]).y == 190);
+  up(e, 60, 75);
+  CHECK(world(e, VK[0]).y == 70);
+  CHECK(world(e, VK[1]).y == 130);
+  CHECK(world(e, V) == Rect{0, 0, 120, 240});
+  e.command(CommandId::UNDO);
+  CHECK(flowOrder(e) == kStart);
+}
+
+TEST_CASE("auto-layout drag: a selection with others between comes together at its first swap") {
+  Editor e = flowScene();
+  e.setSelection({VK[1], VK[3]});
+  down(e, 60, 90);
+  // The block spans k1…k3 (70…230) with k2 inside: up, its top edge past k0's centre (30) — both go before k0,
+  // together, k2 after them.
+  steps(e, {60, 90}, {60, 60});
+  CHECK(flowOrder(e) == kStart);
+  steps(e, {60, 60}, {60, 45});
+  CHECK(flowOrder(e) == std::vector<Guid>{VK[1], VK[3], VK[0], VK[2]});
+  up(e, 60, 45);
+  CHECK(world(e, VK[1]).y == 10);
+  CHECK(world(e, VK[3]).y == 70);
+  CHECK(world(e, VK[0]).y == 130);
+  CHECK(world(e, VK[2]).y == 190);
+}
+
+TEST_CASE("reorder rule: a block with others inside it — its next neighbour is the first after it") {
+  reorder::Flow f;
+  f.axis = 1;
+  // Others a (10), b (130, inside the block), c (250); the block from 70 to 210.
+  f.others = {{10, 10, 100, 40}, {10, 130, 100, 40}, {10, 250, 100, 40}};
+  f.span = 1;
+  CHECK(reorder::step(f, 1, {10, 70, 100, 140}, 1) == 1);   // bottom 210 < c's centre 270
+  CHECK(reorder::step(f, 1, {10, 131, 100, 140}, 1) == 3);  // 271: past c — after it
+  CHECK(reorder::step(f, 1, {10, 29, 100, 140}, -1) == 0);  // top past a's centre (30)
 }
 
 }  // namespace

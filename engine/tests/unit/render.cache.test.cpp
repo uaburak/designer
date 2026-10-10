@@ -253,6 +253,35 @@ TEST_CASE("render tree: a relocation's damage is where the subtree was and where
   CHECK(damage.rects.back().x == doctest::Approx(530));   // where it is
 }
 
+TEST_CASE("render tree: a frame that shrinks as a layer leaves it damages where it was") {
+  // Round 15 (auto-layout drag, round 2): a layer dragged out of a hugging frame, the frame laid out smaller in the
+  // same step — the frame's bounds are new by the time its own change is seen, so the move itself damages where it was.
+  Document d;
+  base(d);
+  d.apply(make({1, 1}, NodeType::FRAME, kPage, "A", {0, 0, 100, 200}));
+  d.apply(make({1, 2}, NodeType::ROUNDED_RECTANGLE, {1, 1}, "A", {10, 10, 80, 80}));
+  d.apply(make({1, 3}, NodeType::ROUNDED_RECTANGLE, {1, 1}, "B", {10, 110, 80, 80}));
+  RenderTree t;
+  t.sync(d, kPage);
+  t.takeDamage();
+  NodeChange out = NodeChange::changed({1, 3});
+  out.mask = F_PARENT_INDEX | F_TRANSFORM;
+  out.props.parentIndex = {kPage, "B"};
+  out.props.transform = Mat2x3::translate(400, 0);
+  d.apply(out);
+  NodeChange shrink = NodeChange::changed({1, 1});
+  shrink.mask = F_SIZE;
+  shrink.props.size = {100, 100};
+  d.apply(shrink);
+  t.sync(d, kPage);
+  CHECK(t.consistent(d));
+  auto damage = t.takeDamage();
+  CHECK_FALSE(damage.all);
+  bool old = false;
+  for (const Rect& r : damage.rects) old |= r.y <= 100 && r.bottom() >= 200 && r.x <= 0 && r.right() >= 100;
+  CHECK(old);  // the frame's lower half, where it no longer is
+}
+
 TEST_CASE("renderer: off-screen subtrees are culled whole, sub-pixel ones skipped, tiny text greeked") {
   loadInter();
   auto nodes = baseChanges();

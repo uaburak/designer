@@ -197,7 +197,7 @@ TEST_CASE("move: auto layout — reorder by drag with the insertion indicator; d
   CHECK(world(e, AL).w == 190);
   Overlay o = e.overlay();
   CHECK(!o.hasInsertion);
-  CHECK(o.lifted == kids[0]);
+  CHECK(o.lifted == std::vector<Guid>{kids[0]});
   CHECK(o.guides.empty());
   up(e, 165, 35);
   CHECK(e.document().children(AL) == std::vector<Guid>{kids[1], kids[2], kids[0]});

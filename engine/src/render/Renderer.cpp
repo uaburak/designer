@@ -1127,11 +1127,17 @@ void Renderer::endLayer(int saved) {
 
 void Renderer::drawChildren(const Document& doc, uint32_t first, uint32_t end, const Mat2x3& m, double alpha) {
   const std::vector<RenderNode>& nodes = tree_->nodes();
-  // A layer dragged inside its auto-layout flow draws above its siblings (round 15): after them.
-  uint32_t lifted = UINT32_MAX;
+  // Layers dragged inside their auto-layout flow draw above their siblings (round 15): after them. Ghosts (layers
+  // dragged into a flow from elsewhere) aren't drawn here: drawGhosts puts them over everything.
+  std::vector<uint32_t> liftedAt;
+  auto has = [](const std::vector<Guid>& v, Guid id) { return !v.empty() && std::find(v.begin(), v.end(), id) != v.end(); };
+  auto drawLifted = [&]() {
+    for (uint32_t k : liftedAt) drawNode(doc, k, m, alpha);
+  };
   for (uint32_t i = first; i < end; i = nodes[i].end) {
-    if (lifted_ != kNoGuid && nodes[i].id == lifted_ && lifted == UINT32_MAX && !propsAt(i).mask) {
-      lifted = i;
+    if (has(ghosts_, nodes[i].id)) continue;
+    if (has(lifted_, nodes[i].id) && !propsAt(i).mask) {
+      liftedAt.push_back(i);
       continue;
     }
     const NodeProps& p = propsAt(i);
@@ -1141,7 +1147,7 @@ void Renderer::drawChildren(const Document& doc, uint32_t first, uint32_t end, c
       gfx::IRect r = deviceRect(screenBounds(i), 2);
       uint32_t next = nodes[i].end;
       if (r.w <= 0 || r.h <= 0 || next >= end) {
-        if (lifted != UINT32_MAX) drawNode(doc, lifted, m, alpha);
+        drawLifted();
         return;
       }
       int saved = beginLayer(r);
@@ -1174,12 +1180,30 @@ void Renderer::drawChildren(const Document& doc, uint32_t first, uint32_t end, c
       c.opacity = static_cast<float>(alpha);
       c.rect = r;
       layers_[static_cast<size_t>(current_)].cmds.push_back(c);
-      if (lifted != UINT32_MAX) drawNode(doc, lifted, m, alpha);
+      drawLifted();
       return;
     }
     drawNode(doc, i, m, alpha);
   }
-  if (lifted != UINT32_MAX) drawNode(doc, lifted, m, alpha);
+  drawLifted();
+}
+
+void Renderer::drawGhosts(const Document& doc) {
+  // Round 15, round 2 (live Figma): a layer dragged into an auto-layout flow from elsewhere follows the pointer over
+  // everything — its new frame doesn't clip it — at 30 % (one layer, composited: its parts don't show through each
+  // other).
+  for (Guid g : ghosts_) {
+    int i = tree_->indexOf(g);
+    if (i < 0 || !doc.has(g)) continue;
+    gfx::IRect r = deviceRect(screenBounds(static_cast<uint32_t>(i)), 2);
+    if (r.w <= 0 || r.h <= 0) continue;
+    int saved = beginLayer(r);
+    int C = current_;
+    drawNode(doc, static_cast<uint32_t>(i), view_ * doc.worldTransform(doc.parentOf(g)), 1);
+    endLayer(saved);
+    stats_.layers++;
+    compositeLayer(C, -1, 0, static_cast<float>(ghostOpacity_), BlendMode::NORMAL, Color{}, {}, false, r);
+  }
 }
 
 void Renderer::drawContent(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m, double alpha, bool analytic,
@@ -2128,6 +2152,9 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   doc_ = &doc;
   lifted_ = overlay.lifted;
   recordHits_ = target == 0 && only == kNoGuid && !exporting_;
+  // Ghosts only on the canvas itself (not in thumbnails or exports: there the layers are where they are).
+  ghosts_ = recordHits_ ? overlay.ghosts : std::vector<Guid>{};
+  ghostOpacity_ = overlay.ghostOpacity;
   viewport_ = viewport;
   stats_ = {};
   curves_.beginFrame();
@@ -2215,6 +2242,7 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
       drawChildren(doc, 0, static_cast<uint32_t>(tree.size()), view_, 1);
       current_ = 0;
       scissorEnabled_ = false;
+      drawGhosts(doc);
       drawOverlay(doc, page, camera, overlay, adapted);
     }
     finishRecording(target, clearColor, false);
@@ -2306,6 +2334,13 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
   const double sx = viewport_.scaleX(), sy = viewport_.scaleY();
   const double now = nowMs();
   RenderTree::Damage damage = trees_[page].takeDamage();
+  // Layers that became ghosts (or stopped being ones) since the cache was drawn: their pixels there change.
+  if (ghosts_ != cachedGhosts_) {
+    for (const std::vector<Guid>* v : {&ghosts_, &cachedGhosts_})
+      for (Guid g : *v)
+        if (int i = tree_->indexOf(g); i >= 0) damage.rects.push_back(tree_->nodes()[static_cast<size_t>(i)].visual);
+    cachedGhosts_ = ghosts_;
+  }
   ContentCache& c = cache_;
   if (c.target && (c.w != W || c.h != H)) dropCache();
   if (!c.target) {
@@ -2322,6 +2357,7 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
       drawChildren(doc, 0, static_cast<uint32_t>(tree_->size()), view_, 1);
       current_ = 0;
       scissorEnabled_ = false;
+      drawGhosts(doc);
       drawOverlay(doc, page, camera, overlay, style);
       finishRecording(0, clearColor, false);
       return;
@@ -2453,6 +2489,9 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
             static_cast<int>(std::ceil(qy1) - std::floor(qy0))};
   if (b.rect.w > 0 && b.rect.h > 0) layers_[0].cmds.push_back(b);
   if (tiled) composeTiles(camera, level, false);
+  current_ = 0;
+  scissorEnabled_ = false;
+  drawGhosts(doc);
   drawOverlay(doc, page, camera, overlay, style);
   finishRecording(0, clearColor, false);
   if (stale || tiled) stats_.stale = 1;

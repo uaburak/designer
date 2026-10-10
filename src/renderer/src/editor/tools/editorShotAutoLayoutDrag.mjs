@@ -6,7 +6,12 @@
 // 2. Its bottom edge past the next one's centre: that one slides up into its place — sampled every frame, seen part-way
 //    and then at rest (≈ 120 ms) — the frame keeps its size, the order changes in the document as it goes.
 // 3. Dropped: in its slot at once, the others at their places; ⌘Z once puts everything back.
-/* global window, requestAnimationFrame, performance */
+// Round 2 (the owner's second recording):
+// 4. Dragged out of the frame: the others close up and the frame hugs them at once (no slide).
+// 5. Back over the frame in the same drag: a 30 % ghost over everything and the insertion line; nothing moves until
+//    the drop, which puts it at the line.
+// 6. Two layers selected and dragged: they move as one block, in their order.
+/* global window, requestAnimationFrame, performance, createImageBitmap, Blob, atob, OffscreenCanvas */
 
 const GREEN = { r: 0.15, g: 0.98, b: 0, a: 1 }, BLUE = { r: 0, g: 0.29, b: 1, a: 1 }, RED = { r: 1, g: 0, b: 0, a: 1 }, GREY = { r: 0.85, g: 0.85, b: 0.85, a: 1 };
 const KIDS = ["7:2", "7:3", "7:4", "7:5"];
@@ -25,6 +30,18 @@ function frame() {
 }
 
 const ys = (page) => page.evaluate((ids) => ids.map((id) => window.__designerEditor.engine.readNode(id).transform.m12), KIDS);
+const parentOf = (page, id) => page.evaluate((id) => window.__designerEditor.engine.readNode(id).parentIndex.guid, id);
+// One canvas pixel (CSS px, device scale 1) as [r, g, b].
+async function pixelAt(page, x, y) {
+  const png = await page.screenshot({ clip: { x: Math.round(x), y: Math.round(y), width: 1, height: 1 } });
+  return page.evaluate(async (b64) => {
+    const bmp = await createImageBitmap(new Blob([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], { type: "image/png" }));
+    const c = new OffscreenCanvas(1, 1);
+    const g = c.getContext("2d");
+    g.drawImage(bmp, 0, 0);
+    return Array.from(g.getImageData(0, 0, 1, 1).data.slice(0, 3));
+  }, png.toString("base64"));
+}
 const order = (page) => page.evaluate(() => (window.__designerEditor.engine.readNode("7:1", { childIds: true }).childIds ?? []).join(","));
 
 export async function autoLayoutDragSection(page, theme, { open, settle, shot, check }) {
@@ -91,4 +108,50 @@ export async function autoLayoutDragSection(page, theme, { open, settle, shot, c
   await settle(page);
   now = await ys(page);
   check(`Auto-layout drag (${theme}): one undo step puts the order and the places back`, (await order(page)) === startOrder && now.join(",") === start.join(","), `${await order(page)} ${now.join(",")}`);
+
+  // 4. Out of the frame, to its right: the others close up and the frame hugs them at once.
+  const [qx, qy] = await toScreen(130, 62);
+  await page.mouse.move(qx, qy);
+  await page.mouse.down();
+  const [ox, oy] = await toScreen(560, 62);
+  await page.mouse.move(ox, oy, { steps: 8 });
+  await settle(page);
+  now = await ys(page);
+  const outSize = await page.evaluate(() => window.__designerEditor.engine.readNode("7:1").size);
+  check(`Auto-layout drag (${theme}): dragged out, the others close up and the frame hugs them at once`, (await parentOf(page, "7:2")) === "0:1" && now.slice(1).join(",") === "40,104,168" && outSize.y === 252, `${await parentOf(page, "7:2")} ${now.join(",")} ${JSON.stringify(outSize)}`);
+  await shot(page, `423-aldrag-out-${theme}`);
+
+  // 5. Back over the frame between blue (centre 62) and red (126): a ghost and the line, nothing moves.
+  const [bx, by] = await toScreen(130, 100);
+  await page.mouse.move(bx, by, { steps: 8 });
+  await settle(page);
+  now = await ys(page);
+  // The ghost (green at 30 % over the white frame) between blue's bottom (84) and the line (93…95).
+  const [gx, gy] = await toScreen(60, 89);
+  const ghost = await pixelAt(page, gx, gy);
+  check(`Auto-layout drag (${theme}): back over the frame — the others stay, the layer a 30 % ghost`, (await parentOf(page, "7:2")) === "7:1" && now.slice(1).join(",") === "40,104,168" && ghost[1] > 235 && ghost[0] > 160 && ghost[0] < 220 && ghost[2] > 150 && ghost[2] < 215, `${now.join(",")} ghost ${ghost.join(",")}`);
+  const [lx, ly] = await toScreen(60, 94);
+  const lineAt = await pixelAt(page, lx, ly);
+  check(`Auto-layout drag (${theme}): the insertion line between blue and red`, lineAt[2] > 200 && lineAt[0] < 80, lineAt.join(","));
+  await shot(page, `424-aldrag-back-in-ghost-${theme}`);
+  await page.mouse.up();
+  await settle(page);
+  now = await ys(page);
+  check(`Auto-layout drag (${theme}): dropped at the line`, (await order(page)) === "7:3,7:2,7:4,7:5" && now.join(",") === "104,40,168,232", `${await order(page)} ${now.join(",")}`);
+  await shot(page, `425-aldrag-dropped-at-line-${theme}`);
+
+  // 6. Blue and green (the first two now) selected, dragged down past red's centre (200) by the block's bottom edge.
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["7:3", "7:2"]));
+  await settle(page);
+  const [mx, my] = await toScreen(130, 62);
+  await page.mouse.move(mx, my);
+  await page.mouse.down();
+  await page.mouse.move(mx, my + 60, { steps: 6 });  // the block's bottom 148 + 60 = 208 > 190 (red's centre)
+  await settle(page);
+  check(`Auto-layout drag (${theme}): two layers move as one block, in their order`, (await order(page)) === "7:4,7:3,7:2,7:5", await order(page));
+  await shot(page, `426-aldrag-two-layers-${theme}`);
+  await page.mouse.up();
+  await settle(page);
+  now = await ys(page);
+  check(`Auto-layout drag (${theme}): the block dropped in its place`, now.join(",") === "168,104,40,232", now.join(","));
 }

@@ -694,12 +694,28 @@ Overlay Editor::overlay() const {
   // siblings; its outline, handles and size label (and its frame's dashes) stay until the first swap, then go until
   // the drop.
   if (gesture_ == Gesture::Move && flowDragLive()) {
-    o.lifted = flowDrag_.id;
+    o.lifted = flowDrag_.ids;
     if (flowDrag_.chromeHidden) {
       o.selection.clear();
       o.sizeBadge = false;
     } else {
       o.handles = !viewer_;
+    }
+  } else if (gesture_ == Gesture::Move && !flowDrag_.ids.empty()) {
+    // Round 2 (the owner's second recording): out of its frame, or ⌥-copied, a layer from an auto-layout flow moves
+    // without its chrome.
+    o.selection.clear();
+    o.sizeBadge = false;
+  }
+  // Round 2: dragged into an auto-layout flow from elsewhere (or an ⌥-copy over one): a 30 % ghost over everything,
+  // the frame outlined and its layers faintly, the insertion line; no chrome.
+  if (gesture_ == Gesture::Move && hasInsertion_ && dropParent_ != kNoGuid) {
+    for (const Target& t : targets_)
+      if (doc_.has(t.id) && doc_.parentOf(t.id) == dropParent_) o.ghosts.push_back(t.id);
+    if (!o.ghosts.empty()) {
+      o.dropFrame = dropParent_;
+      o.selection.clear();
+      o.sizeBadge = false;
     }
   }
   o.hasMarquee = gesture_ == Gesture::Marquee || (gesture_ == Gesture::ZoomArea && (lastScreen_ - downScreen_).length() >= 3) ||

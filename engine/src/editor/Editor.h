@@ -1641,12 +1641,17 @@ class Editor : private LayoutHost, public TextLayouts {
   // dragged inside its own horizontal, vertical or wrapping auto-layout flow is reordered in the document as its
   // leading edge passes a neighbour's centre (layout/Reorder.h); its slot travels with it, the siblings slide to their
   // new places, it draws above them, and its chrome goes at the first swap (the last child's at the first move).
+  // Round 2 (the owner's second recording): several selected layers of one flow move as one block — together, in
+  // their order, from the first swap; dragged out of the frame (the pointer leaves it) they are the page's or another
+  // frame's, the others close up at once, and from then on the frame is "elsewhere" (a drag back in shows the
+  // insertion line, as a layer from anywhere else).
   struct FlowDrag {
-    Guid id = kNoGuid;          // the dragged layer
-    Guid frame = kNoGuid;       // its auto-layout frame
-    bool last = false;          // the last of the flow when the drag began
+    std::vector<Guid> ids;      // the dragged layers, in flow order
+    Guid frame = kNoGuid;       // their auto-layout frame
+    bool last = false;          // the block held the last of the flow when the drag began
     bool chromeHidden = false;  // outline, handles, size label and the frame's dashes gone until the drop
-    double along = 0;           // its box's leading coordinate along the flow at the last move (the direction of travel)
+    bool left = false;          // dragged out of the frame (for the rest of the gesture)
+    double along = 0;           // the block's leading coordinate along the flow at the last move (the direction of travel)
   } flowDrag_;
   struct Slide {
     Mat2x3 from, to, shown;  // where it slides from and to, and where the slide last put it
@@ -1655,9 +1660,10 @@ class Editor : private LayoutHost, public TextLayouts {
   std::unordered_map<Guid, Slide, GuidHash> slides_;  // siblings sliding to their new places
   static constexpr double kSlideMs = 120;             // CSS ease-out over 120 ms (fitted on the recording)
   void startFlowDrag();
-  bool flowDragLive() const;  // the layer is in its own flow now (not dragged out, not an ⌥ copy)
+  bool flowDragLive() const;  // the layers are in their own flow now (not dragged out, not ⌥ copies)
+  Rect flowDragBox() const;   // the dragged layers' layout boxes' union, in the frame's space
   void reorderFlow();
-  bool placeFlow(Guid frame, Guid dragged);
+  bool placeFlow(Guid frame, const std::unordered_set<Guid, GuidHash>& dragged);
   void slideFrom(const std::unordered_map<Guid, Mat2x3, GuidHash>& shown);
   void applySlides(double now);
   void writeQuiet(Guid id, const Mat2x3& transform);
