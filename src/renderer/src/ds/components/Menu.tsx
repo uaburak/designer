@@ -508,7 +508,8 @@ export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", 
 }
 
 export interface MenuButtonProps {
-  entries: MenuEntry[];
+  /** The menu's rows, or a function giving them, called only while the menu is open (rows costly to build) */
+  entries: MenuEntry[] | (() => MenuEntry[]);
   onSelect: (id: string) => void;
   /** The trigger's content */
   children: ReactNode;
@@ -590,7 +591,7 @@ export function MenuButton({ entries, onSelect, children, label, placement = "bo
       >
         {children}
       </button>
-      {at && <ContextMenu at={at} above={placement === "top"} keepTop flush={flush} over={at.over} flipX={at.flipX} flipY={at.flipY} extend={extend} dropdown={named} label={named || flush ? label : undefined} className={menuClassName} width={menuWidth} entries={entries} onSelect={onSelect} onClose={close} ignore={button} />}
+      {at && <ContextMenu at={at} above={placement === "top"} keepTop flush={flush} over={at.over} flipX={at.flipX} flipY={at.flipY} extend={extend} dropdown={named} label={named || flush ? label : undefined} className={menuClassName} width={menuWidth} entries={typeof entries === "function" ? entries() : entries} onSelect={onSelect} onClose={close} ignore={button} />}
     </>
   );
 }

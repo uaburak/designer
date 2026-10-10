@@ -511,11 +511,16 @@ export function moreActionsMenu(ed: EditorController, nodes: readonly PanelNode[
 
 function MoreActions({ nodes, omit }: { nodes: PanelNode[]; omit: string[] }) {
   const ed = useEditor();
-  const entries = moreActionsMenu(ed, nodes, omit);
+  // Built when the menu opens: each item asks its command whether it can run (over the whole selection), which a
+  // selection of hundreds of layers would otherwise pay on every panel render.
+  const entries = (): MenuEntry[] => {
+    const list = moreActionsMenu(ed, nodes, omit);
+    return list.length ? list : [{ id: "none", label: "No actions", disabled: true }];
+  };
   return (
     <MenuButton
       label="More actions"
-      entries={entries.length ? entries : [{ id: "none", label: "No actions", disabled: true }]}
+      entries={entries}
       className={styles.iconMenu}
       align="end"
       gap={PANEL_MENU_GAP}

@@ -40,7 +40,8 @@ const hasSubtreeRead = (engine: Engine): boolean => "READ_SUBTREE" in abi && eng
 export function readInsideGroups(engine: Engine, refs: readonly Guid[], max = SELECTION_COLORS_MAX_NODES): NodeChange[][] | null {
   const byId = new Map<Guid, NodeChange>();
   if (hasSubtreeRead(engine)) {
-    const rows = (engine.readNodes as (r: readonly Guid[], o: object) => NodeChange[])(refs, { childIds: true, fields: COLOR_FIELDS, subtree: true, visibleOnly: true });
+    // One row past `max` says "too many" without reading (and decoding) the rest of a huge selection.
+    const rows = (engine.readNodes as (r: readonly Guid[], o: object) => NodeChange[])(refs, { childIds: true, fields: COLOR_FIELDS, subtree: true, visibleOnly: true, limit: max + 1 });
     if (rows.length > max) return null;
     for (const n of rows) byId.set(n.guid, n);
   } else {

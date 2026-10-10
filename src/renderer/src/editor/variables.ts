@@ -995,7 +995,8 @@ export function setExplicitMode(ed: EditorController, refs: readonly Guid[], c: 
 export function modesAt(ed: EditorController, ref: Guid): Map<Guid, { mode: Guid; explicit: boolean; inherited: Guid }> {
   const read = engineHasVariables(ed) ? engineMethod<(ref: Guid) => { collectionId: Guid; explicitModeId: Guid | null; resolvedModeId: Guid }[]>(ed.engine, "variableModes") : null;
   if (read) {
-    const n = ed.engine.readNode(ref);
+    // Only where it sits (a full read writes every field: hundreds of selected layers re-read the panel at once).
+    const n = ed.engine.readNode(ref, { fields: ["parentIndex"] });
     const parent = n && n.type !== "CANVAS" ? n.parentIndex?.guid : undefined;
     const up = parent ? new Map(read(parent).map((m) => [m.collectionId, m.resolvedModeId])) : null;
     const out = new Map<Guid, { mode: Guid; explicit: boolean; inherited: Guid }>();

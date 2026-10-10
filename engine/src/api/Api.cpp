@@ -1084,6 +1084,10 @@ ENG_EXPORT int32_t engine_read_nodes(Handle h, Ptr ptr, uint32_t len, uint32_t f
         mask |= m ? m : (codec::fieldIdOf("NodeChange", f.string) ? static_cast<FieldMask>(F_EXTRA) : 0);
       }
   }
+  // {"limit": n}: at most n rows (a reader that gives up past a size — Selection colors — asks for one more than it
+  // takes, so a huge subtree costs n rows, not all of them).
+  size_t limit = SIZE_MAX;
+  if (const json::Value* l = v.isArray() ? nullptr : v.get("limit"); l && l->isNumber() && l->number >= 0) limit = static_cast<size_t>(l->number);
   std::vector<Guid> refs = readRefs(v);
   for (Guid id : refs) ed.derivePageOf(id, (flags & READ_SUBTREE) != 0);
   json::Writer w;
@@ -1092,7 +1096,7 @@ ENG_EXPORT int32_t engine_read_nodes(Handle h, Ptr ptr, uint32_t len, uint32_t f
   w.key("nodeChanges").beginArray();
   std::unordered_set<Guid, GuidHash> written;
   auto one = [&](Guid id, const Node& n) {
-    if (!written.insert(id).second) return;
+    if (written.size() >= limit || !written.insert(id).second) return;
     if (flags & INCLUDE_CHILD_IDS) {
       // writeNode closes the object; build it by hand to add childIds.
       json::Writer single;
@@ -1109,6 +1113,7 @@ ENG_EXPORT int32_t engine_read_nodes(Handle h, Ptr ptr, uint32_t len, uint32_t f
   };
   std::vector<Guid> stack;
   for (Guid id : refs) {
+    if (written.size() >= limit) break;
     const Node* n = doc.get(id);
     if (!n) continue;
     one(id, *n);
@@ -1118,7 +1123,7 @@ ENG_EXPORT int32_t engine_read_nodes(Handle h, Ptr ptr, uint32_t len, uint32_t f
     stack.clear();
     const std::vector<Guid>& kids = doc.children(id);
     for (size_t i = kids.size(); i-- > 0;) stack.push_back(kids[i]);
-    while (!stack.empty()) {
+    while (!stack.empty() && written.size() < limit) {
       Guid c = stack.back();
       stack.pop_back();
       const Node* cn = doc.get(c);

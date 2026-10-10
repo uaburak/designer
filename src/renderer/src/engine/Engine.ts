@@ -1002,11 +1002,15 @@ export class Engine {
    * each ref with its descendants, pre-order, children back to front (paint order), each node once; `visibleOnly`
    * (with `subtree`) leaves hidden layers and what is under them out — the refs themselves are always written.
    * Selection colors: `readNodes(selection, {fields: ["fillPaints", "strokePaints", "visible"], subtree: true,
-   * visibleOnly: true})` is one read of just the paints under the selection.
+   * visibleOnly: true})` is one read of just the paints under the selection. `limit`: at most that many rows (a
+   * reader that gives up past a size asks for one more than it takes).
    */
-  readNodes(refs: readonly Guid[], options: { childIds?: boolean; fields?: readonly string[]; subtree?: boolean; visibleOnly?: boolean } = {}): NodeChange[] {
+  readNodes(refs: readonly Guid[], options: { childIds?: boolean; fields?: readonly string[]; subtree?: boolean; visibleOnly?: boolean; limit?: number } = {}): NodeChange[] {
     const flags = (options.childIds ? INCLUDE_CHILD_IDS : 0) | (options.subtree ? READ_SUBTREE : 0) | (options.visibleOnly ? READ_VISIBLE_ONLY : 0);
-    const payload = options.fields ? encodeText(JSON.stringify({ refs, fields: options.fields })) : encodeRefs(refs);
+    const payload =
+      options.fields || options.limit !== undefined
+        ? encodeText(JSON.stringify({ refs, ...(options.fields ? { fields: options.fields } : {}), ...(options.limit !== undefined ? { limit: options.limit } : {}) }))
+        : encodeRefs(refs);
     this.x.readNodes(this.h, payload, flags);
     return this.after(decodeMessage(this.x.result()).nodeChanges);
   }

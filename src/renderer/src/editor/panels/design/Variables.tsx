@@ -202,9 +202,20 @@ export function ModeRows({ refs }: { refs: readonly Guid[] }) {
   const a = useLocalAssets();
   const version = useDocumentVersion(~GEOMETRY_GROUPS);
   const key = refs.join(",");
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- re-read when the document (version) or the selection (key) changed
-  const per = useMemo(() => refs.map((r) => modesAt(ed, r)), [ed, key, version, a]);
-  if (!refs.length) return null;
+  // A row shows only for a collection every selected layer sets explicitly: none without collections, and the read
+  // stops at the first layer that sets none (a large selection doesn't ask the engine about each of its layers).
+  const per = useMemo(() => {
+    if (!a.collections.length) return null;
+    const out: ReturnType<typeof modesAt>[] = [];
+    for (const r of refs) {
+      const m = modesAt(ed, r);
+      if (![...m.values()].some((x) => x.explicit)) return null;
+      out.push(m);
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-read when the document (version) or the selection (key) changed
+  }, [ed, key, version, a]);
+  if (!refs.length || !per) return null;
   const rows = a.collections.filter((c) => per.every((m) => m.get(c.id)?.explicit));
   if (!rows.length) return null;
   return (
