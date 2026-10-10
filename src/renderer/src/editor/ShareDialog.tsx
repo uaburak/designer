@@ -747,13 +747,13 @@ function PreviewView() {
       } else if (kind === "stop" && record) {
         await access.stop(record.previewId);
         setRecord(null);
-        showToast({ message: "Stopped sharing the preview" });
+        showToast({ message: "Preview unpublished" });
       } else if (kind === "export" && access.exportHtml) {
         const r = await access.exportHtml(options());
         if (!("cancelled" in r)) showToast({ message: `Preview exported (${(r.bytes / 1_000_000).toFixed(1)} MB)` });
       }
     } catch (e) {
-      showToast({ message: `Couldn't ${kind === "export" ? "export" : kind === "stop" ? "stop sharing" : "publish"} the preview: ${message(e)}` });
+      showToast({ message: `Couldn't ${kind === "export" ? "export" : kind === "stop" ? "unpublish" : "publish"} the preview: ${message(e)}` });
     } finally {
       setBusy(null);
     }
@@ -783,9 +783,14 @@ function PreviewView() {
       </div>
       {!status ? <Spinner size={16} /> : !record && !canPublish ? <p className={styles.caption}>{`${status.reason ?? "Publishing links isn't available"}. ${access.exportHtml ? "Export the preview as an HTML file to send it instead." : "Exporting it as an HTML file needs the desktop app."}`}</p> : null}
       {record && (
-        <button type="button" className={styles.link} onClick={() => copy(record.url)}>
-          {record.url}
-        </button>
+        <div className={styles.previewLink}>
+          <span className={styles.previewUrl} title={record.url} data-share="preview-url">
+            {record.url}
+          </span>
+          <button type="button" className={styles.link} onClick={() => copy(record.url)} data-share="copy-preview-link">
+            Copy link
+          </button>
+        </div>
       )}
       <div className={styles.actions}>
         {access.exportHtml && (
@@ -794,8 +799,8 @@ function PreviewView() {
           </Button>
         )}
         {record && (
-          <Button variant="destructive-secondary" loading={busy === "stop"} disabled={!!busy || !canPublish} onClick={() => void run("stop")}>
-            Stop sharing
+          <Button variant="destructive-secondary" loading={busy === "stop"} disabled={!!busy || !canPublish} onClick={() => void run("stop")} data-share="unpublish">
+            Unpublish
           </Button>
         )}
         <Button variant="primary" loading={busy === "publish"} disabled={!!busy || !canPublish} onClick={() => void run("publish")} data-share="publish">

@@ -1,7 +1,7 @@
 /**
  * The repository interfaces (docs/data.md §8.1). `LocalAdapter` (store process) implements them against the disk;
- * `StoreClient` (renderers, main) implements them as RPC proxies over the store port; `FirestoreAdapter` (store
- * process, later, behind sync) against Firestore and Storage. The UI only ever talks to the local one.
+ * `StoreClient` (renderers, main) implements them as RPC proxies over the store port. The UI only ever talks to the
+ * local one; shared files reach the multiplayer server behind it (docs/multiplayer.md).
  */
 import type {
   AppendAck,
@@ -177,12 +177,12 @@ export interface LibraryRegistry {
 
 /**
  * Not one of the four repositories: developer previews (§13). `snapshot` is the editor's derived kiwi Message
- * (`encodeDocumentKiwi({derived: true})`); the store finds its pages, frames and images itself. `publish` / `stop` need
- * Firebase (configured and sync on; else `offline`); `exportHtml` writes one self-contained HTML file and is main-only
- * (main's Save dialog picks the path).
+ * (`encodeDocumentKiwi({derived: true})`); the store finds its pages, frames and images itself. `publish` / `stop` go
+ * to the multiplayer server and need the signed-in session (else `offline`, "Log in to publish"; docs/multiplayer.md
+ * §9); `exportHtml` writes one self-contained HTML file and is main-only (main's Save dialog picks the path).
  */
 export interface PreviewService {
-  /** Whether links can be published now: Firebase configured and sync on (else `reason`, in the Share dialog's words) */
+  /** Whether links can be published now: logged in (else `reason`, in the Share dialog's words) */
   status(): Promise<{ publish: boolean; reason: string | null }>;
   list(fileKey?: FileKey): Promise<PreviewRecord[]>;
   /** Create or update in place (the file keeps its previewId and link) */
@@ -208,7 +208,6 @@ export interface StoreInfo {
   deviceOrdinal: number;
   generation: number;
   openFiles: { fileKey: FileKey; sessions: number; headSeq: number }[];
-  sync: { configured: boolean; enabled: boolean };
 }
 
 /** Everything one port can reach. */

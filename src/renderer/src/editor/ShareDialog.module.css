@@ -184,4 +184,6 @@
   .embed { width: 100%; height: 112px; padding: var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); resize: none; }
   .embed:focus { border-color: var(--figma-color-border-selected); outline: none; }
   .embedPage { font-weight: 800; color: var(--figma-color-text); }
+  .previewLink { display: flex; align-items: center; gap: var(--ds-space-2); min-width: 0; }
+  .previewUrl { flex: 1; min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); text-overflow: ellipsis; white-space: nowrap; user-select: text; }
 }

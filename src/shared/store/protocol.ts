@@ -6,7 +6,7 @@
 export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer";
 export type StoreMethod = `${Repository}.${string}`;
 export type PortRole = "main" | "home" | "editor";
-export type EventTopic = "workspace" | "file.changes" | "library" | "sync" | "multiplayer";
+export type EventTopic = "workspace" | "file.changes" | "library" | "multiplayer";
 
 export type RpcRequest = { t: "req"; id: number; m: StoreMethod; a: unknown[] };
 export type RpcResponse = { t: "res"; id: number; ok: true; v: unknown } | { t: "res"; id: number; ok: false; e: { code: StoreErrorCode; message: string; detail?: unknown } };

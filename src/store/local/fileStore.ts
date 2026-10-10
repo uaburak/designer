@@ -56,6 +56,7 @@ export interface FileStoreState {
   thumbnail: { seq: number | null };
   /** Images referenced by the head snapshot ∪ journal (exact at each compaction, a superset in between) */
   blobRefs: string[];
+  /** Unused since Firebase sync was removed (kept: older store.json files carry it) */
   sync: { pushedSeq: number; pullCursor: string | null } | null;
 }
 
@@ -768,21 +769,6 @@ export class FileStore {
       this.scheduleSync(a);
       this.changes.emit({ fileKey, seq, sessionID: 0, kind: "remote", message });
       return { seq, hlc };
-    });
-  }
-
-  /** store.json's `sync` (pushedSeq, pullCursor). */
-  async syncState(fileKey: FileKey): Promise<FileStoreState["sync"]> {
-    const a = this.actor(fileKey);
-    return a.queue.run(async () => (await this.loaded(a)).state.sync);
-  }
-
-  async setSyncState(fileKey: FileKey, sync: NonNullable<FileStoreState["sync"]>): Promise<void> {
-    const a = this.actor(fileKey);
-    await a.queue.run(async () => {
-      const h = await this.loaded(a);
-      h.state.sync = sync;
-      await this.saveState(a, h);
     });
   }
 

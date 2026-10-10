@@ -1,7 +1,7 @@
 /**
  * The store's composition root: the workspace on disk (docs/data.md §3), its records, files, blobs and libraries,
  * and `LocalAdapter`, the four repositories over them (§8). `LocalAdapter` is always authoritative: the UI reads
- * and writes only through it (over RPC), and sync, when it exists, replicates behind it.
+ * and writes only through it (over RPC); shared files reach their rooms behind it (multiplayer/service.ts).
  */
 import { randomInt } from "node:crypto";
 import { closeSync, openSync, promises as fsp, writeSync } from "node:fs";
@@ -39,16 +39,14 @@ import { LocalLibraries } from "./local/libraries";
 import { SchemaRegistry, currentMessage, readSnapshotFile } from "./local/snapshot";
 import { versionDateLabel } from "./local/versions";
 import { LocalWorkspace, newMeta, workspaceDirs, type Log, type WorkspaceDirs } from "./local/workspace";
-import { loadSyncConfig, type SyncConfig } from "./sync/config";
-import type { StorageDriver } from "./sync/drivers";
-import { previewService } from "./preview/previews";
+import { previewService, type PreviewSession } from "./preview/previews";
 import { SerialQueue } from "./local/queue";
 import { multiplayerApi } from "./multiplayer/api";
 import { MultiplayerService } from "./multiplayer/service";
 
 export interface LocalStoreOptions {
   workspaceDir: string;
-  /** userData: device.json (the device ordinal) and firebase/config.json live here */
+  /** userData: device.json (the device ordinal) lives here */
   userDataDir?: string;
   deviceOrdinal?: number;
   clock?: Clock;
@@ -63,6 +61,8 @@ export interface LocalStoreOptions {
   seedFigs?: string[];
   /** The preview viewer's built page (out/viewer/index.html), for "Export preview as HTML…" (docs/data.md §13) */
   viewerTemplate?: string | null;
+  /** How the store reaches the multiplayer server (shared files, previews); the global fetch by default (tests: the Worker's handler) */
+  fetch?: typeof fetch;
 }
 
 const defaultLog: Log = (level, message, detail) => {
@@ -110,10 +110,8 @@ export class LocalStore {
   readonly fileChanges: Emitter<FileChange>;
   private gcTimer: unknown = null;
   private closed = false;
-  /** Set while Firebase sync runs (sync/replicator.ts `startSync`) */
-  replicator: { stop(): Promise<void> } | null = null;
-  /** Firebase Storage while sync runs (`startSync`): where previews are published (docs/data.md §13) */
-  previewStorage: StorageDriver | null = null;
+  /** The session main handed over (`multiplayer.setSession`): previews publish with it (docs/multiplayer.md §9) */
+  session: PreviewSession | null = null;
   /** The viewer's built page, for previews exported as HTML */
   viewerTemplate: string | null = null;
   /** Serializes previews.json */
@@ -132,12 +130,12 @@ export class LocalStore {
     readonly clock: Clock,
     readonly log: Log,
     readonly generation: number,
-    readonly sync: SyncConfig | null,
     private readonly compactor: Compactor,
     readonly timers: Timers,
-    /** Stamps journal frames and records; sync moves it past remote stamps it sees */
+    /** Stamps journal frames and records */
     readonly hlc: HlcClock,
     private readonly userDataDir: string | null = null,
+    readonly fetch: typeof globalThis.fetch = (...a: Parameters<typeof globalThis.fetch>) => globalThis.fetch(...a),
   ) {
     this.workspaceEvents = ws.events;
     this.libraryEvents = libraries.events;
@@ -169,7 +167,7 @@ export class LocalStore {
         putBlob: async (bytes) => void (await blobs.put(bytes)),
         headSnapshot: async (fileKey) => codec.encodeMessage(currentMessage(await readSnapshotFile((await files.compactedHead(fileKey)).path))),
       },
-      { fetch: (...a) => fetch(...a), WebSocket: globalThis.WebSocket as never, random: () => randomInt(0, 2 ** 32) / 2 ** 32 },
+      { fetch: this.fetch, WebSocket: globalThis.WebSocket as never, random: () => randomInt(0, 2 ** 32) / 2 ** 32 },
     );
   }
 
@@ -242,8 +240,7 @@ export class LocalStore {
       const libraries = new LocalLibraries({ dirs, workspace: ws, files, blobs, hlc, clock, log });
       await libraries.load();
       ws.sizeOf = (k) => files.cachedSize(k);
-      const sync = opts.userDataDir ? await loadSyncConfig(opts.userDataDir, log) : null;
-      const store = new LocalStore(dirs, ws, files, blobs, libraries, deviceOrdinal, clock, log, opts.generation ?? 1, sync, compactor, timers, hlc, opts.userDataDir ?? null);
+      const store = new LocalStore(dirs, ws, files, blobs, libraries, deviceOrdinal, clock, log, opts.generation ?? 1, compactor, timers, hlc, opts.userDataDir ?? null, opts.fetch);
       store.viewerTemplate = opts.viewerTemplate ?? null;
       // Background start-up work: sizes for the file list, version thinning, the first GC.
       void Promise.all([...ws.files.keys()].map((k) => files.sizeOf(k).catch(() => 0))).catch(() => {});
@@ -504,7 +501,6 @@ export class LocalStore {
     this.closed = true;
     if (this.gcTimer) this.timers.clearTimeout(this.gcTimer);
     this.multiplayer.close();
-    await this.replicator?.stop().catch((e) => this.log("warn", "stopping sync failed", e));
     await this.files.shutdown();
     await this.ws.queue.idle();
     await this.libraries.queue.idle();
@@ -611,11 +607,20 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
       deviceOrdinal: s.deviceOrdinal,
       generation: s.generation,
       openFiles: s.files.openFiles(),
-      sync: { configured: !!s.sync, enabled: !!s.replicator },
     }),
     collectGarbage: () => s.collectGarbage(),
   };
-  return { workspace, files, blobs, libraries, previews, store, multiplayer: multiplayerApi(s.multiplayer) };
+  const mp = multiplayerApi(s.multiplayer);
+  const multiplayer: typeof mp = {
+    ...mp,
+    // Previews publish with the same session (docs/multiplayer.md §9); a new one also sweeps the expired ones.
+    setSession: (session) => {
+      s.session = session && typeof session.server === "string" && typeof session.token === "string" ? { server: session.server, token: session.token } : null;
+      if (s.session) void previews.sweepExpired().catch((e) => s.log("warn", "sweeping expired previews failed", e));
+      return mp.setSession(session);
+    },
+  };
+  return { workspace, files, blobs, libraries, previews, store, multiplayer };
 }
 
 /** `previews.*` (docs/data.md §13) over this store, plus main's `exportHtml` and the start's `sweepExpired`. */
@@ -626,8 +631,8 @@ export function previewsOf(s: LocalStore): ReturnType<typeof previewService> {
     now: () => s.clock.now(),
     fileName: (fileKey) => s.ws.getMeta(fileKey).name,
     readBlob: (sha1) => s.blobs.get(sha1),
-    sync: s.sync,
-    storage: () => s.previewStorage,
+    session: () => s.session,
+    fetch: s.fetch,
     viewerTemplate: s.viewerTemplate,
     run: (fn) => s.previewQueue.run(fn),
   });

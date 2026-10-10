@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
@@ -8,14 +8,13 @@ import { rendererConfig } from "./vite.shared";
  * The developer preview viewer (src/viewer, docs/data.md §13) as ONE self-contained page, out/viewer/index.html: its
  * JS and CSS inlined, fonts and images as data URLs, the engine's Wasm as a base64 block the viewer instantiates
  * from bytes — so the store can add a preview's data to it and the result opens from file:// (Export preview as
- * HTML…), and the same page serves Firebase Hosting (`/p/<id>`).
+ * HTML…), and the same page is the Worker's static asset for `/p/<id>` (server/wrangler.jsonc `assets`, docs/multiplayer.md §9).
  *
  *   npm run build:viewer      build it (npm run build does too)
  *   npm run viewer            dev server (http://localhost:5231/?src=<folder with a preview's files>)
  */
 const outDir = fileURLToPath(new URL("./out/viewer", import.meta.url));
 const bootJs = fileURLToPath(new URL("./src/renderer/public/boot.js", import.meta.url));
-const previewConfig = fileURLToPath(new URL("./firebase/preview-config.json", import.meta.url));
 
 /** The theme's boot script inline (the page has no other files). */
 function inlineBoot(): Plugin {
@@ -73,8 +72,6 @@ function singleFile(): Plugin {
         if (/<link rel="(stylesheet|modulepreload)"|<script[^>]+src=/.test(html)) throw new Error("viewer build: a file was left outside the page");
         writeFileSync(htmlPath, html);
         rmSync(assets, { recursive: true, force: true });
-        // Firebase Hosting: where previews are stored (the owner's firebase/preview-config.json, never committed).
-        if (existsSync(previewConfig)) copyFileSync(previewConfig, join(outDir, "preview-config.json"));
       },
     },
   };
@@ -98,7 +95,7 @@ export default defineConfig(({ mode }) => {
       modulePreload: false,
       rollupOptions: { output: { inlineDynamicImports: true } },
     },
-    // A single-threaded page: no cross-origin isolation needed (Firebase Hosting sets the headers anyway).
+    // A single-threaded page: no cross-origin isolation needed.
     server: { port: 5231, strictPort: true },
   };
 });

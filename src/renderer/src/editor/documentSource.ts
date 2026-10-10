@@ -73,8 +73,8 @@ export interface DocumentSource {
 }
 
 /**
- * The store's `previews.*` for one file (docs/data.md §13): whether links can be published (Firebase configured and
- * sync on), the file's published preview, publishing the editor's derived snapshot (create or update in place) and
+ * The store's `previews.*` for one file (docs/data.md §13): whether links can be published (logged in to the
+ * multiplayer server), the file's published preview, publishing the editor's derived snapshot (create or update in place) and
  * Stop sharing. Exporting as HTML goes through main (its Save dialog), not here.
  */
 export interface PreviewAccess {

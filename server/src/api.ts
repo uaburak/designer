@@ -5,6 +5,7 @@
 import type { Role } from "../../src/shared/multiplayer/protocol";
 import { normalizeEmail, type Db, type User } from "./db";
 import { authorizeUrl, exchangeCode, GoogleError } from "./google";
+import { isPreviewPath, previews } from "./previews";
 import { checkPassword, hashPassword, randomToken, sha256b64url, signToken, verifyToken } from "./tokens";
 
 export interface Env {
@@ -104,6 +105,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (path === "/auth/dev" && m === "POST") return devSignIn(req, deps);
   const link = /^\/f\/([A-Za-z0-9_-]{6,64})$/.exec(path);
   if (link && m === "GET") return linkPage(link[1], url.searchParams);
+  if (isPreviewPath(path)) return previews(req, url, deps, () => authenticate(req, url, deps, false));
 
   const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
   const isSocket = parts[0] === "files" && parts[2] === "ws" && parts.length === 3;

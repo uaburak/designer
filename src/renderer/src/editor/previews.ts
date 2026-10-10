@@ -3,7 +3,7 @@
  * document with its derived data (`encodeDocumentKiwi({derived: true})`: every instance's sublayer layout and every
  * text's glyph outlines, docs/schema.md §4.1 "preview snapshot"), after deriving every page it includes and letting
  * their fonts arrive, so the viewer draws each text exactly as here without the fonts. The store (the only writer)
- * packages it with the file's images: `previews.publish` (Firebase) or main's `file:export-preview` (an HTML file).
+ * packages it with the file's images: `previews.publish` (the multiplayer server) or main's `file:export-preview` (an HTML file).
  */
 import { fonts } from "@/engine/fonts";
 import type { Engine } from "@/engine/Engine";
@@ -32,7 +32,7 @@ export async function previewSnapshot(engine: Engine, pageIds: string[] | "all")
   return engine.encodeDocumentKiwi({ derived: true });
 }
 
-/** What the Share dialog can do here: publish (the store says whether Firebase is on), export (the desktop app). */
+/** What the Share dialog can do here: publish (the store says whether the user is logged in), export (the desktop app). */
 export interface ShareAccess {
   status(): Promise<{ publish: boolean; reason: string | null }>;
   current(): Promise<PreviewRecord | null>;

@@ -7,8 +7,20 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "workers_dev": true,
-  "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "FileRoom" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FileRoom"] }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOMS", "class_name": "FileRoom" },
+      // One per developer preview (docs/multiplayer.md §9)
+      { "name": "PREVIEWS", "class_name": "PreviewObject" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["FileRoom"] },
+    { "tag": "v2", "new_sqlite_classes": ["PreviewObject"] }
+  ],
+  // The developer preview viewer (npm run build:viewer → out/viewer/index.html), served by the Worker at /p/<id>
+  // (server/src/previews.ts). The Worker runs first for every request, so the API keeps its routes.
+  "assets": { "directory": "../out/viewer", "binding": "ASSETS", "run_worker_first": true, "html_handling": "none", "not_found_handling": "none" },
   "d1_databases": [{ "binding": "DB", "database_name": "designer", "database_id": "98f2c9e2-7272-4ab0-b1ec-ee6e27b66edd", "migrations_dir": "migrations" }],
   "vars": {
     "GOOGLE_CLIENT_ID": "511486232492-8fr5pqjmcfadd334nrl6abljrran7vhl.apps.googleusercontent.com",
