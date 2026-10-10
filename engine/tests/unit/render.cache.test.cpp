@@ -355,6 +355,77 @@ TEST_CASE("content cache: a frame with nothing new composites; an edit draws its
   }
 }
 
+TEST_CASE("content cache: an image arriving draws again where its layers are; on a slow page arrivals come in batches") {
+  Document d;
+  base(d);
+  grid(d, 40);
+  ImageRegistry::get().clear();
+  // Two of the rectangles filled with images (one each), far apart.
+  const ImageHash A = ImageHash::fromHex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), B = ImageHash::fromHex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+  for (auto [id, hash] : {std::pair{Guid{2, 2}, A}, std::pair{Guid{2, 25}, B}}) {
+    Paint ip;
+    ip.type = PaintType::IMAGE;
+    ip.image = hash;
+    NodeChange c = NodeChange::changed(id);
+    c.mask = F_FILLS;
+    c.props.fillPaints = {ip};
+    d.apply(c);
+  }
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  r.setContentCache(true);
+  double now = 1000;
+  r.setClock([&] { return now; });
+  Overlay o;
+  o.frameTitles = false;
+  RenderStats s = r.render(d, kPage, Camera{}, kView, o, kDark);
+  CHECK(s.cachedRegions == 1);
+  size_t full = contentInstances(dev);
+  CHECK(ImageRegistry::get().takeRequests().size() == 2);
+  // A arrives: only around its rectangle (frame 2's) is drawn again, not the page.
+  ImageRegistry::get().addRgba(A, 2, 2, std::make_shared<std::vector<uint8_t>>(16, 255));
+  now += 16;
+  s = r.render(d, kPage, Camera{}, kView, o, kDark);
+  CHECK(s.cachedRegions == 1);
+  CHECK(contentInstances(dev) < full / 4);
+  for (size_t i = 0; i < dev.draws.size(); i++) {
+    const auto& c = dev.draws[i];
+    if (c.pipeline.shader != gfx::ShaderId::Shape || c.call.instanceCount == 0) continue;
+    for (auto& q : dev.instancesOf<DrawInstance>(i))
+      if (q.clip[0] > -1e8f) CHECK(q.clip[2] - q.clip[0] < 200);  // frame 2's rectangle: x 260–360 at dpr 2
+  }
+  // Nothing new: composited.
+  now += 16;
+  s = r.render(d, kPage, Camera{}, kView, o, kDark);
+  CHECK(s.cachedRegions == 0);
+  // B fails (Figma's grey placeholder): its rectangle, again not the page.
+  ImageRegistry::get().fail(B);
+  now += 16;
+  s = r.render(d, kPage, Camera{}, kView, o, kDark);
+  CHECK(s.cachedRegions == 1);
+  CHECK(contentInstances(dev) < full / 4);
+
+  // A slow page (every clock read 10 ms later: a full raster takes 20 ms or more) where images keep arriving after a
+  // whole redraw they caused: they wait for the next batch, kImageBatchMs after it.
+  Renderer slow(dev);
+  slow.setContentCache(true);
+  slow.setClock([&] { return now += 10; });
+  ImageRegistry::get().clear();
+  slow.render(d, kPage, Camera{}, kView, o, kDark);
+  ImageRegistry::get().clear();  // what changed can't be told: everything drawn again, at once
+  s = slow.render(d, kPage, Camera{}, kView, o, kDark);
+  CHECK(s.cachedRegions == 1);
+  ImageRegistry::get().addRgba(A, 2, 2, std::make_shared<std::vector<uint8_t>>(16, 255));
+  s = slow.render(d, kPage, Camera{}, kView, o, kDark);
+  CHECK(s.cachedRegions == 0);  // moments later: waits (a frame is asked for)
+  CHECK(slow.wantsFrameAt() > 0);
+  now += Renderer::kImageBatchMs;
+  s = slow.render(d, kPage, Camera{}, kView, o, kDark);
+  CHECK(s.cachedRegions == 1);  // A's rectangle
+  CHECK(contentInstances(dev) < full / 4);
+  ImageRegistry::get().clear();
+}
+
 TEST_CASE("content cache: a pan by whole device pixels shifts the cache and draws the strips that came in") {
   Document d;
   base(d);

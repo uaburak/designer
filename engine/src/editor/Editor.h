@@ -1758,6 +1758,8 @@ class Editor : private LayoutHost, public TextLayouts {
     uint32_t generation = 0;
   };
   std::unordered_map<Guid, CachedText, GuidHash> textCache_;
+  // `layout`, made with `o` at font generation `generation`, as `id`'s cached layout (textLayout, measureText).
+  void keepTextLayout(Guid id, CachedText& c, std::unique_ptr<text::TextLayout> layout, const text::LayoutOptions& o, uint32_t generation);
   struct MeasuredText {
     double width = 0;
     uint32_t generation = 0;

@@ -39,23 +39,25 @@ const text::TextLayout* Editor::textLayout(Guid id) {
   text::LayoutOptions o = text::optionsFor(n->props);
   uint32_t generation = text::FontRegistry::get().generation();
   CachedText& c = textCache_[id];
-  if (!(c.layout && c.width == o.width && c.height == o.height && c.generation == generation)) {
-    c.layout = text::layoutText(n->props, o);
-    c.width = o.width;
-    c.height = o.height;
-    c.generation = generation;
-    // Its fonts arrived and they are the ones the stored layout was made with: the stored data has done its work.
-    if (!c.layout->pendingFont && !c.layout->missingFont && !storedText_.empty()) {
-      auto st = storedText_.find(id);
-      if (st != storedText_.end() && text::sameFonts(*st->second, *c.layout)) {
-        storedText_.erase(st);
-        storedLayouts_.erase(id);
-      }
-    }
-  }
+  if (!(c.layout && c.width == o.width && c.height == o.height && c.generation == generation)) keepTextLayout(id, c, text::layoutText(n->props, o), o, generation);
   if ((c.layout->pendingFont || c.layout->missingFont) && !storedText_.empty())
     if (const text::TextLayout* stored = storedLayout(id, n->props, *c.layout)) return stored;
   return c.layout.get();
+}
+
+void Editor::keepTextLayout(Guid id, CachedText& c, std::unique_ptr<text::TextLayout> layout, const text::LayoutOptions& o, uint32_t generation) {
+  c.layout = std::move(layout);
+  c.width = o.width;
+  c.height = o.height;
+  c.generation = generation;
+  // Its fonts arrived and they are the ones the stored layout was made with: the stored data has done its work.
+  if (!c.layout->pendingFont && !c.layout->missingFont && !storedText_.empty()) {
+    auto st = storedText_.find(id);
+    if (st != storedText_.end() && text::sameFonts(*st->second, *c.layout)) {
+      storedText_.erase(st);
+      storedLayouts_.erase(id);
+    }
+  }
 }
 
 const text::TextLayout* Editor::storedLayout(Guid id, const NodeProps& p, const text::TextLayout& real) {
@@ -106,8 +108,14 @@ bool Editor::measureText(Guid id, double width, Vec2& size) {
   entries.push_back(m);
   // A font still loading: measured again when it arrives. A missing one: the stored size stands (Figma).
   if (L->pendingFont) unmeasured_.insert(id);
+  // Measured in the box it is drawn in (an Auto width text, a fixed width one at its width): the layout is the one
+  // drawing will ask for — kept, so a page's texts are shaped once at load, not once to measure and again to draw.
+  if (text::LayoutOptions own = text::optionsFor(n->props); own.width == width && own.height < 0) {
+    CachedText& c = textCache_[id];
+    if (!(c.layout && c.width == own.width && c.height == own.height && c.generation == generation)) keepTextLayout(id, c, std::move(L), own, generation);
+  }
   if (!m.ok) return false;
-  size = L->size;
+  size = m.size;
   return true;
 }
 

@@ -362,3 +362,31 @@ TEST_CASE("text: a typed width makes auto width auto height; a typed height make
   CHECK(props(e, T).text().textAutoResize == TextAutoResize::NONE);
   CHECK(props(e, T).size.y == 100);
 }
+
+TEST_CASE("text layouts: a measure in the drawn box is the drawn layout; a move or a resize keeps it, an edit doesn't") {
+  // Auto layout measures the text (Layout::natural → measureText) and drawing asks for its layout (textLayout): one
+  // shaping for both, and none again when the text is only moved (a drag's frames) or its box is written back.
+  const Guid A{1, 3}, ROW{1, 4};
+  NodeChange row = make(ROW, NodeType::FRAME, kPage, "#", {0, 300, 200, 40}, "Row");
+  row.props.stack().stackMode = StackMode::HORIZONTAL;
+  row.props.stack().stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  NodeChange a = textNode(A, ROW, "Hello", {0, 0, 10, 10});
+  Editor e = makeEditor({row, a});
+  Vec2 size = props(e, A).size;  // laid out at load (the row hugs it: measured)
+  const text::TextLayout* measured = e.textLayout(A);
+  REQUIRE(measured);
+  CHECK(measured->size.x == doctest::Approx(size.x));
+  NodeChange moved = NodeChange::changed(A);
+  moved.mask = F_TRANSFORM | F_SIZE;
+  moved.props.transform = Mat2x3::translate(40, 0);
+  moved.props.size = size;
+  e.applyChanges({moved}, APPLY_USER);
+  CHECK(e.textLayout(A) == measured);
+  NodeChange edit = NodeChange::changed(A);
+  edit.mask = F_TEXT_DATA;
+  edit.props.text().textData.characters = "Hello there";
+  e.applyChanges({edit}, APPLY_USER);
+  const text::TextLayout* again = e.textLayout(A);
+  REQUIRE(again);
+  CHECK(again->size.x > size.x);
+}

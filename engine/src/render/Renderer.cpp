@@ -279,6 +279,18 @@ int Renderer::rampRow(const std::vector<ColorStop>& stops0) {
   return row;
 }
 
+void Renderer::noteImageUser(const ImageHash& hash) {
+  if (!hash.present || imageUsersLost_) return;
+  if (drawing_ == kNoGuid || imageUserCount_ >= 200000) {
+    // Drawn for no layer of the page, or too many to keep: unknown from now until everything is drawn again.
+    imageUsersLost_ = true;
+    imageUsers_.clear();
+    imageUserCount_ = 0;
+    return;
+  }
+  if (imageUsers_[hash].insert(drawing_).second) imageUserCount_++;
+}
+
 bool Renderer::setPaint(DrawInstance& q, DrawState& state, const Paint& paint, const Mat2x3& localToNode, Vec2 nodeSize, double alpha) {
   // PATTERN and shader fills go through layers (drawPattern, drawShaderPaint); such a stroke isn't drawn.
   if (!paint.visible || paint.type == PaintType::OTHER || paint.type == PaintType::PATTERN || paint.type == PaintType::CUSTOM) return false;
@@ -319,6 +331,7 @@ bool Renderer::setPaint(DrawInstance& q, DrawState& state, const Paint& paint, c
     double local = std::fabs(localToNode.m00 * localToNode.m11 - localToNode.m01 * localToNode.m10);
     double devicePx = std::max(nodeSize.x, nodeSize.y) * std::sqrt(det / std::max(local, 1e-12)) * viewport_.scaleX();
     ImageHints hints = imageHints(paint);
+    noteImageUser(paint.image);
     ImageCache::Texture t = images_.texture(paint.image, &failed, devicePx, &hints, &placeholder);
     if (!t.id) {
       // Loading (or missing), and no ThumbHash: Figma's grey.
@@ -1318,6 +1331,13 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
   const NodeProps& p = propsAt(i);
   if (p.opacity <= 0 || alpha <= 0) return;
   stats_.nodes++;
+  // The layer whose paints are set from here (its children set their own): images drawn are noted as its.
+  struct Drawing {
+    Guid& slot;
+    Guid prev;
+    ~Drawing() { slot = prev; }
+  } drawing{drawing_, drawing_};
+  drawing_ = id;
   // Culling (docs/engine.md §6.8): the whole subtree goes when what it can cover is off screen…
   Rect vb = screenBounds(i);
   Rect padded{vb.x - 2, vb.y - 2, vb.w + 4, vb.h + 4};
@@ -2136,6 +2156,7 @@ double Renderer::nowMs() const {
 
 double Renderer::wantsFrameAt() const {
   if (cache_.settleAt) return cache_.settleAt;
+  if (cache_.imagesWaitAt) return cache_.imagesWaitAt;
   return tiles_.prefetchAt;
 }
 
@@ -2363,7 +2384,35 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
       return;
     }
   }
-  uint32_t fonts = text::FontRegistry::get().generation(), images = ImageRegistry::get().generation();
+  const uint32_t fonts = text::FontRegistry::get().generation(), arrived = ImageRegistry::get().generation();
+  uint32_t images = arrived;
+  // Images that arrived (or failed) since the cache was drawn: drawn again where the layers that drew them are — not
+  // the whole page, nor every tile — when that is known. On a slow page that drew everything for images moments ago,
+  // they wait kImageBatchMs and come in together (a file opening with many images: a few redraws, not one each).
+  bool imagesWait = false, imagesNow = false;
+  if (c.valid && c.page == page && c.images != arrived && !damage.all) {
+    if (c.fullMs > kZoomRasterBudgetMs && now - c.imagesAt < kImageBatchMs) {
+      imagesWait = true;
+      images = c.images;
+      c.imagesWaitAt = c.imagesAt + kImageBatchMs;
+    } else {
+      imagesNow = true;
+      uint32_t since = c.images;
+      bool tilesToo = tiles_.page == page && tiles_.images != arrived;
+      if (tilesToo) since = std::min(since, tiles_.images);
+      std::vector<ImageHash> changed;
+      if (!imageUsersLost_ && ImageRegistry::get().changedSince(since, changed)) {
+        std::unordered_set<int> seen;
+        for (const ImageHash& h : changed)
+          if (auto it = imageUsers_.find(h); it != imageUsers_.end())
+            for (Guid g : it->second)
+              if (int i = tree_->indexOf(g); i >= 0 && seen.insert(i).second) damage.rects.push_back(tree_->nodes()[static_cast<size_t>(i)].visual);
+        c.images = arrived;
+        if (tilesToo) tiles_.images = arrived;
+      }
+    }
+  }
+  if (!imagesWait) c.imagesWaitAt = 0;
   bool same = c.valid && c.page == page && c.fonts == fonts && c.images == images && c.sx == sx && c.sy == sy &&
               c.clear.r == clear.r && c.clear.g == clear.g && c.clear.b == clear.b && !damage.all;
   if (camera.zoom != c.lastZoom) {
@@ -2385,8 +2434,10 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
   bool stale = slowZoom && covers;
   bool tiled = slowZoom && !covers;
   // Tiles follow the document: whatever changed is drawn again when shown; a new page, fonts, images: start over.
+  bool tilesDropped = false;
   if (tiles_.page != page || tiles_.fonts != fonts || tiles_.images != images || tiles_.sx != sx || tiles_.sy != sy ||
       !(tiles_.clear == clear) || damage.all) {
+    tilesDropped = true;
     dropTiles();
     tiles_.page = page;
     tiles_.fonts = fonts;
@@ -2445,6 +2496,14 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
   }
   // Changes while a zoom goes on are not drawn into the cache: the settle frame draws everything.
   if ((stale || tiled) && !damage.rects.empty()) c.pendingFull = true;
+  bool drawsWhole = false;
+  for (const gfx::IRect& r : regions) drawsWhole |= r.x == 0 && r.y == 0 && r.w == W && r.h == H;
+  // Everything drawn again, the tiles gone: the record of which layers drew which image starts over complete.
+  if (imageUsersLost_ && drawsWhole && tilesDropped && !tiled) {
+    imageUsersLost_ = false;
+    imageUsers_.clear();
+    imageUserCount_ = 0;
+  }
   bool drewFull = false;
   for (const gfx::IRect& r : regions) {
     double t0 = now;
@@ -2470,6 +2529,7 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
     c.sy = sy;
     c.clear = clear;
     c.pendingFull = false;
+    if (imagesNow) c.imagesAt = now;
   }
   // The canvas: the cache (scaled while a zoom settles), then the overlays. Zooming out on tiles: the coarser levels'
   // tiles under the cache (it is sharper where it lands), the zoom's own level over it.

@@ -79,10 +79,17 @@ class ImageRegistry {
   std::vector<Request> takeRequests();
   // Bumps whenever an image arrives or fails (engines draw again).
   uint32_t generation() const { return generation_; }
+  // The images that arrived or failed after generation `since` (into `out`); false when that can't be told any more
+  // (cleared, or too long ago): then anything may have changed.
+  bool changedSince(uint32_t since, std::vector<ImageHash>& out) const;
   void clear();
 
  private:
+  void changed(const ImageHash& hash);
   std::unordered_map<ImageHash, Source, ImageHashKey> sources_;
+  // changes_[k] is what generation logBase_ + k + 1 brought.
+  std::vector<ImageHash> changes_;
+  uint32_t logBase_ = 0;
   std::unordered_map<ImageHash, uint32_t, ImageHashKey> asked_;  // the largest maxDevicePx asked for
   std::vector<Request> requests_;
   uint32_t generation_ = 0;

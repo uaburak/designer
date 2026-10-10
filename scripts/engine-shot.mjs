@@ -281,6 +281,17 @@ async function e4Checks(files) {
   await page.waitForTimeout(200);
   await engine(() => window.__designerEngine.imagesSettled());
   await settle();
+  // The sheet's numbers from a frame that draws it whole: an image arriving now draws only where it is (perf r16),
+  // so the last frame may be a part of it. A zoom step and back draws everything.
+  const cam = await engine(() => {
+    const e = window.__designerEngine;
+    const c = e.getCamera();
+    e.setCamera({ x: c.x, y: c.y, zoom: c.zoom * 1.001 });
+    return c;
+  });
+  await settle();
+  await engine((c) => window.__designerEngine.setCamera(c), cam);
+  await settle();
   const s2 = await engine(() => window.__designerEngine.stats());
   check("the E4/E5 sheet draws", s2.paths > 20 && s2.layers >= 6, `${s2.paths} paths, ${s2.layers} layers, ${s2.drawCalls} draw calls`);
   files.push(await shot("31-e4-sheet"));

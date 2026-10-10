@@ -285,8 +285,11 @@ const UPLOADS_PER_FRAME = 2;
 /** A tier (≤ 512 px) costs a quarter of a full image's slot: eight tiers a frame. */
 const TIER_COST = 0.25;
 
-/** The write-back's paints per idle slice. */
-export const WRITE_BACK_PAINTS_PER_SLICE = 50;
+/**
+ * The write-back's paints per idle slice. Each slice is a system change whose paints, spread over the page, draw the
+ * page again: 50 a slice was ~20 whole redraws after opening a page of a few hundred such paints (perf r16).
+ */
+export const WRITE_BACK_PAINTS_PER_SLICE = 250;
 
 /** A node ref that is a document node ("s:l"), not an instance sublayer's derived ref ("I…;…"). */
 const isDocumentRef = (guid: string) => /^\d+:\d+$/.test(guid);
@@ -742,7 +745,7 @@ export class ImageService {
 
   /**
    * Writes the computed fields onto the page's paints that lack them: one "system" change (journaled, not an undo
-   * step), at most 50 paints a slice, never while a user step is open. "busy": try again later; "more": another
+   * step), at most WRITE_BACK_PAINTS_PER_SLICE paints a slice, never while a user step is open. "busy": try again later; "more": another
    * slice is due; "done": nothing left.
    */
   private flushWriteBacks(): "done" | "busy" | "more" {

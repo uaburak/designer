@@ -207,7 +207,7 @@ void ImageRegistry::addBitmap(const ImageHash& hash, uint32_t bitmapId, uint32_t
   s.width = width;
   s.height = height;
   sources_[hash] = s;
-  generation_++;
+  changed(hash);
 }
 
 void ImageRegistry::addRgba(const ImageHash& hash, uint32_t width, uint32_t height, Bytes premultiplied) {
@@ -218,7 +218,7 @@ void ImageRegistry::addRgba(const ImageHash& hash, uint32_t width, uint32_t heig
   s.width = width;
   s.height = height;
   sources_[hash] = s;
-  generation_++;
+  changed(hash);
 }
 
 void ImageRegistry::addLiveFrame(const ImageHash& hash, uint32_t bitmapId, uint32_t width, uint32_t height, Bytes rgba) {
@@ -239,7 +239,7 @@ void ImageRegistry::fail(const ImageHash& hash) {
   Source s;
   s.failed = true;
   sources_[hash] = s;
-  generation_++;
+  changed(hash);
 }
 
 void ImageRegistry::forget(const ImageHash& hash) {
@@ -258,6 +258,24 @@ void ImageRegistry::clear() {
   asked_.clear();
   requests_.clear();
   generation_++;
+  changes_.clear();
+  logBase_ = generation_;
+}
+
+void ImageRegistry::changed(const ImageHash& hash) {
+  generation_++;
+  // Kept for a while: a renderer that drew a few generations ago draws again just where those images are.
+  if (changes_.size() >= 4096) {
+    changes_.erase(changes_.begin(), changes_.begin() + 2048);
+    logBase_ += 2048;
+  }
+  changes_.push_back(hash);
+}
+
+bool ImageRegistry::changedSince(uint32_t since, std::vector<ImageHash>& out) const {
+  if (since < logBase_ || since > generation_) return false;
+  for (size_t k = since - logBase_; k < changes_.size(); k++) out.push_back(changes_[k]);
+  return true;
 }
 
 ImageCache::~ImageCache() {

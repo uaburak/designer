@@ -24,6 +24,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "editor/Snapping.h"
@@ -440,6 +441,8 @@ class Renderer {
   // the last zoom change the page is drawn sharp again.
   static constexpr double kZoomRasterBudgetMs = 6;
   static constexpr double kZoomSettleMs = 120;
+  // On such a slow page, images arriving within this long of the last whole redraw they caused wait for the next one.
+  static constexpr double kImageBatchMs = 200;
   // Tiles (docs/engine.md §6.9, Figma's RTTileRasterizer / RTCompositeTileCache): the page in 256² device-px tiles at
   // power-of-two zoom levels, kept in atlas targets (64 tiles each) within a budget, least recently shown first out.
   // A continuous zoom on a slow page that the scaled content cache can't cover (zooming out) composites them — the
@@ -756,7 +759,18 @@ class Renderer {
     Color clear;
     double fullMs = 0;                    // how long its last full raster took
     double lastZoom = 0, zoomChangedAt = 0, settleAt = 0;
+    // Images arriving on a slow page: when they last made it draw everything, and when the ones that came since are
+    // drawn (kImageBatchMs later: a file opening with many images draws them a few at a time, not each alone).
+    double imagesAt = 0, imagesWaitAt = 0;
   } cache_;
+  // Which layers drew which image (setPaint, while drawNode draws them): an image arriving or failing redraws only
+  // where those layers are, not the whole page. `imageUsersLost_`: some draw wasn't recorded (no layer, or the record
+  // grew past its cap) — the next image change draws everything, and the record starts again.
+  Guid drawing_ = kNoGuid;
+  std::unordered_map<ImageHash, std::unordered_set<Guid, GuidHash>, ImageHashKey> imageUsers_;
+  size_t imageUserCount_ = 0;
+  bool imageUsersLost_ = false;
+  void noteImageUser(const ImageHash& hash);
   struct TileEntry {
     TileCoord coord;
     uint32_t slot = 0;  // atlas × 64 + index

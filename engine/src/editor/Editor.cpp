@@ -154,8 +154,17 @@ void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
   markInstanceDirty(c);
   noteBindings(c, typeBefore);
   FieldMask mask = c.phase == Phase::CHANGED ? c.mask : F_ALL;
-  if (typeBefore == NodeType::TEXT || c.phase != Phase::CHANGED) textCache_.erase(c.guid);
-  else if (mask & (kTextLayoutFields | F_SIZE | F_FILLS | F_TYPE | F_EXTRA)) textCache_.erase(c.guid);
+  // A text's layout stays through a move, a resize (the cache compares its box), a rename… — layout writing the size
+  // it measured, a drag, a reorder no longer shape the text again; anything else on a text starts it over.
+  constexpr FieldMask kTextLayoutInert = F_NAME | F_VISIBLE | F_LOCKED | F_OPACITY | F_TRANSFORM | F_SIZE | F_PARENT_INDEX |
+                                         F_H_CONSTRAINT | F_V_CONSTRAINT | F_STACK_CHILD_GROW | F_STACK_CHILD_ALIGN_SELF |
+                                         F_STACK_POSITIONING | F_BLEND_MODE | F_EFFECTS;
+  if (c.phase != Phase::CHANGED) textCache_.erase(c.guid);
+  else if (typeBefore == NodeType::TEXT) {
+    if (mask & ~kTextLayoutInert) textCache_.erase(c.guid);
+  } else if (mask & (kTextLayoutFields | F_SIZE | F_FILLS | F_TYPE | F_EXTRA)) {
+    textCache_.erase(c.guid);
+  }
   if (c.phase != Phase::CHANGED || (mask & (kTextLayoutFields | F_FILLS | F_TYPE | F_EXTRA))) measured_.erase(c.guid);
   if (text_.node == c.guid) events_.textEdit = true;
   // Round 12: the edited vector's stroke (dashes, width points) decides Variable width; the panels show its points.
