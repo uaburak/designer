@@ -103,6 +103,10 @@ struct OverlayStyle {
   double nubSize = 12;      // a selected hotspot's nub, as the start dot in the selection colour…
   double nubHoverSize = 16; // …hovered: 16 across (64–66.png: 32 px at 2×) with an 8 × 2 "+" in it
   double nubRing = 2;
+  // Round 17: a connection's trigger label (61–63.png): Inter 11 on a chip 30 high, 12 either side, corners 3; dark
+  // text on the quiet colour, white on the selection colour when it is the selected connection's.
+  Color noodleLabelText = Color::hex(0x081825);
+  double noodleLabelHeight = 30, noodleLabelPadding = 12, noodleLabelRadius = 3;
   Color scrollbarFill{0, 0, 0, 0.3f}, scrollbarFillHover{0, 0, 0, 0.4f}, scrollbarRim{1, 1, 1, 0.31f};
 
   static Color chrome(Theme t, ds::ChromeColor c) {
@@ -155,6 +159,7 @@ struct OverlayStyle {
     s.tooltipText = chrome(t, C::CanvasTooltipText);
     s.statusReady = chrome(t, C::ReadyForDev);
     s.noodleQuiet = chrome(t, C::PrototypeNoodleQuiet);
+    s.noodleLabelText = chrome(t, C::PrototypeLabelText);
     s.scrollbarFill = chrome(t, C::CanvasScrollbarFill);
     s.scrollbarFillHover = chrome(t, C::CanvasScrollbarFillHover);
     s.scrollbarRim = chrome(t, C::CanvasScrollbarRim);

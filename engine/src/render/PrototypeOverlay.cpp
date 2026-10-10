@@ -13,7 +13,7 @@ namespace eng {
 
 namespace {
 const CornerRadii kSquare{0, 0, 0, 0};
-constexpr double kArrow = 8;
+constexpr double kArrow = kNoodleArrow;
 constexpr double kMinReach = 20;  // a control point's least distance from its end (boxes level with each other)
 }  // namespace
 
@@ -100,6 +100,34 @@ NoodleCurve prototypeNoodle(const Rect& source, const Rect& dest, bool toPoint, 
   return n;
 }
 
+Vec2 noodlePoint(const NoodleCurve& n, double t) {
+  Vec2 end = n.b - Vec2{n.dir.x * kArrow * 0.8, n.dir.y * kArrow * 0.8};
+  double u = 1 - t;
+  return {u * u * u * n.a.x + 3 * u * u * t * n.c1.x + 3 * u * t * t * n.c2.x + t * t * t * end.x,
+          u * u * u * n.a.y + 3 * u * u * t * n.c1.y + 3 * u * t * t * n.c2.y + t * t * t * end.y};
+}
+
+double noodleDistance(const NoodleCurve& n, Vec2 p) {
+  double best = (p - n.a).length();
+  Vec2 prev = n.a;
+  const int steps = 48;
+  for (int i = 1; i <= steps; i++) {
+    Vec2 q = noodlePoint(n, static_cast<double>(i) / steps);
+    Vec2 d = q - prev;
+    double len2 = d.x * d.x + d.y * d.y;
+    double t = len2 > 0 ? std::clamp(((p.x - prev.x) * d.x + (p.y - prev.y) * d.y) / len2, 0.0, 1.0) : 0;
+    best = std::min(best, (p - Vec2{prev.x + d.x * t, prev.y + d.y * t}).length());
+    prev = q;
+  }
+  // The arrowhead counts as the line.
+  return std::min(best, (p - n.b).length());
+}
+
+Rect noodleLabelBox(Vec2 centre, double textWidth, double height, double padding) {
+  double w = std::round(textWidth + 2 * padding);
+  return {std::round(centre.x - w / 2), std::round(centre.y - height / 2), w, height};
+}
+
 void Renderer::drawPrototypeLabels(const Document& doc, const Camera& camera, const Overlay& overlay, const OverlayStyle& style) {
   const PrototypeOverlay& po = overlay.prototype;
   po.labelWidths.clear();
@@ -164,6 +192,7 @@ void Renderer::drawPrototypeOverlay(const Document& /*doc*/, Guid /*page*/, cons
   const double kNoodleWidth = style.noodleWidth;
   const double dpr = viewport_.scaleX() > 0 ? viewport_.scaleX() : 1;
   std::vector<std::pair<Vec2, bool>> starts;
+  std::vector<std::pair<Vec2, const PrototypeLink*>> chips;
   for (int pass = 0; pass < 2; pass++)
     for (const PrototypeLink& l : po.links) {
       if (l.highlighted != (pass == 1)) continue;
@@ -173,16 +202,10 @@ void Renderer::drawPrototypeOverlay(const Document& /*doc*/, Guid /*page*/, cons
       Rect dst = l.toPoint ? Rect{} : toScreen(l.dest);
       NoodleCurve n = prototypeNoodle(src, dst, l.toPoint, view.apply(l.point), l.startSide);
       // The arrow's tip at b; the curve stops at its base.
-      Vec2 base = n.b - Vec2{n.dir.x * kArrow * 0.8, n.dir.y * kArrow * 0.8};
       Vec2 prev = n.a;
       const int steps = 32;
       for (int i = 1; i <= steps; i++) {
-        double t = static_cast<double>(i) / steps;
-        double u = 1 - t;
-        Vec2 c2 = n.c2;
-        Vec2 end = base;
-        Vec2 p{u * u * u * n.a.x + 3 * u * u * t * n.c1.x + 3 * u * t * t * c2.x + t * t * t * end.x,
-               u * u * u * n.a.y + 3 * u * u * t * n.c1.y + 3 * u * t * t * c2.y + t * t * t * end.y};
+        Vec2 p = noodlePoint(n, static_cast<double>(i) / steps);
         segment(prev, p, kNoodleWidth, ink, alpha);
         if (i > 1) dot(prev, kNoodleWidth / 2, ink, alpha, ink, 0);
         prev = p;
@@ -197,12 +220,32 @@ void Renderer::drawPrototypeOverlay(const Document& /*doc*/, Guid /*page*/, cons
         segment(a - Vec2{nrm.x * halfW, nrm.y * halfW}, a + Vec2{nrm.x * halfW, nrm.y * halfW}, kArrow / rows + 0.5, ink, alpha);
       }
       starts.push_back({n.a, l.highlighted});
+      if (!l.label.empty() && !l.toPoint) chips.push_back({noodlePoint(n, 0.5), &l});
     }
   // The start dots over every curve (live 67.png: a white disc in a 2 px ring of the noodle's colour), the
   // selection's last.
   for (int pass = 0; pass < 2; pass++)
     for (const auto& [at, hi] : starts)
       if (hi == (pass == 1)) dot(at, style.noodleDot / 2, white, 1, hi ? blue : style.noodleQuiet, style.nubRing);
+
+  // The trigger labels (round 17, live 61–63.png): a chip on each labelled curve's middle, the selected one's last.
+  for (int pass = 0; pass < 2; pass++)
+    for (const auto& [at, l] : chips) {
+      if (l->highlighted != (pass == 1)) continue;
+      const text::TextLayout* L = label(l->label, "Regular", style.titleSize, -1);
+      double textW = L && !L->lines.empty() ? L->lines[0].width : 6.2 * static_cast<double>(l->label.size());
+      Rect box = noodleLabelBox(at, textW, style.noodleLabelHeight, style.noodleLabelPadding);
+      box.x = std::round(box.x * dpr) / dpr;
+      box.y = std::round(box.y * dpr) / dpr;
+      const Color& fill = l->highlighted ? blue : style.noodleQuiet;
+      const Color& ink = l->highlighted ? white : style.noodleLabelText;
+      double r = style.noodleLabelRadius;
+      emit(makeShape(Mat2x3::translate(box.x, box.y), {box.w, box.h}, ShapeKind::Rect, {r, r, r, r}, fill, 1, fill, 0, 0, 0), Pass::Shape);
+      if (L && !L->lines.empty()) {
+        double baseline = std::round((box.y + box.h / 2 + style.titleSize * 0.36) * dpr) / dpr;
+        drawGlyphs(*L, Mat2x3::translate(box.x + style.noodleLabelPadding, baseline - L->lines[0].baseline), ink, 1);
+      }
+    }
 
   // The selected hotspots' nubs, each at the middle of its side nearest the pointer (live 64–66.png); the hovered one
   // larger with a "+" in it.

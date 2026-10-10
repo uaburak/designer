@@ -85,7 +85,20 @@ const DIRECTION_ICON: Record<Direction, "24.arrow.left" | "24.arrow.right" | "16
   DOWN: "16.arrow.down",
 };
 
-export function InteractionDetails({ node, index, anchor, onClose }: { node: Guid; index: number; anchor: DOMRect | HTMLElement | null; onClose: () => void }) {
+export function InteractionDetails({
+  node,
+  index,
+  anchor,
+  onClose,
+  placement,
+}: {
+  node: Guid;
+  index: number;
+  anchor: DOMRect | HTMLElement | null;
+  onClose: () => void;
+  /** `bottom`: under a connection's label on the canvas (live 62–63.png); else beside the panel. */
+  placement?: "bottom";
+}) {
   const ed = useEditor();
   const [n] = useNodes([node]) as (ProtoNode | null)[];
   const list = liveInteractions(n?.prototypeInteractions);
@@ -105,8 +118,18 @@ export function InteractionDetails({ node, index, anchor, onClose }: { node: Gui
     next[k] = a;
     write({ ...interaction, actions: next }, label, info);
   };
+  // Round 17 (live 62–63.png): titled "Interaction", "+" (Add action) beside the close button.
   return (
-    <Popover anchor={anchor} title="Interaction details" onClose={onClose} width={280}>
+    <Popover
+      anchor={anchor}
+      placement={placement}
+      title="Interaction"
+      onClose={onClose}
+      width={280}
+      headerActions={
+        <IconButton icon="24.plus.small" label="Add action" tooltip={false} onClick={() => write({ ...interaction, actions: [...actions, actionOfKind("NONE")] }, "Add action")} />
+      }
+    >
       <div className={styles.details} data-interaction-details>
         <TriggerRow interaction={interaction} video={hasVideoFill(n as never)} onChange={write} />
         {actions.map((a, k) => (
@@ -119,11 +142,6 @@ export function InteractionDetails({ node, index, anchor, onClose }: { node: Gui
             onRemove={actions.length > 1 ? () => write({ ...interaction, actions: actions.filter((_, j) => j !== k) }, "Remove action") : undefined}
           />
         ))}
-        <div className={styles.row}>
-          <Button variant="ghost" icon="24.plus.small" onClick={() => write({ ...interaction, actions: [...actions, actionOfKind("NONE")] }, "Add action")}>
-            Add action
-          </Button>
-        </div>
       </div>
     </Popover>
   );

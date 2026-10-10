@@ -377,6 +377,14 @@ void writeEvents(json::Writer& w, Engine& e) {
     else w.string(pc.interaction.toString());
     w.endObject();
   }
+  for (auto& ps : ev.prototypeSelected) {
+    w.beginObject().key("type").string("PROTOTYPE_CONNECTION_SELECTED").key("node");
+    if (ps.node == kNoGuid) w.null();
+    else w.string(ps.node.toString());
+    w.key("index").number(ps.index);
+    w.key("label").beginObject().key("x").number(ps.x).key("y").number(ps.y).key("width").number(ps.w).key("height").number(ps.h).endObject();
+    w.endObject();
+  }
   if (ev.navigation) {
     w.beginObject().key("type").string("INSTANCE_NAVIGATION").key("main");
     if (ed.navigationMain() == kNoGuid) w.null();
@@ -2824,6 +2832,13 @@ ENG_EXPORT void engine_set_prototype_mode(Handle h, uint32_t on) {
   Call call;
   Engine* e = engineOf(h);
   if (e) e->editor.setPrototypeMode(on != 0);
+}
+
+// Round 17: the connection open in Interaction details — node (sess, local), the interaction's index among its live
+// ones; index −1 for none. Drawn in the selection colour, the others quiet.
+ENG_EXPORT void engine_set_prototype_selection(Handle h, uint32_t sess, uint32_t local, int32_t index) {
+  Call call;
+  if (Engine* e = engineOf(h)) e->editor.setPrototypeSelection(index < 0 ? kNoGuid : Guid{sess, local}, index);
 }
 
 // Starts the presentation view on page (pageSess, pageLocal) at node (nodeSess, nodeLocal) — a top-level frame or a

@@ -47,6 +47,7 @@
 //   EDITOR_ONLY=inputs16 node …                                    (round 16: padding fields "19, 22", ⌘-click one field, hover hatches the canvas, Apply variable inside the ring, whole-step scrub)
 //   EDITOR_ONLY=canvasnav16 node …                                 (round 16: canvas scrollbars shown / fading / hovered / dragged; a Layers glyph glides the camera; prototype nubs on the nearest side, "+", a drag connects)
 //   EDITOR_ONLY=panel17 node …                                     (round 17: no row labels by default, W / H fields Fixed / Hug / Fill hovered or not against the owner's 74–77.png, Tab field to field, ⌥↓)
+//   EDITOR_ONLY=proto17 node …                                     (round 17: a variant's nub onto another variant — Change to, the variant outlined; a click on a connection's line or label opens its details; a drag on the line off to empty canvas removes it, ⌘Z restores)
 //   EDITOR_ONLY=feedback17 node …                                  (round 17: a frame's name blue while hovered, a component's purple; a canvas radius drag's haptic ticks, one per whole step)
 //   EDITOR_ONLY=aldrag node …                                      (round 15: a layer dragged inside its auto-layout frame — swaps at the centres, siblings slide, drop, one undo)
 //   EDITOR_PART=1 node … / EDITOR_PART=2 node …                     (the full run in two parts: the sections, then the main walk-through in both themes)
@@ -72,6 +73,7 @@ import { inputs16Section } from "./editorShotInputs.mjs";
 import { panel17Section } from "./editorShotPanel17.mjs";
 import { canvasNavSection } from "./editorShotCanvasNav.mjs";
 import { feedback17Section } from "./editorShotFeedback17.mjs";
+import { proto17Section } from "./editorShotProto17.mjs";
 import { inputSection } from "./editorShotInput.mjs";
 import { layersSection } from "./editorShotLayers.mjs";
 import { shortcutsSection } from "./editorShotShortcuts.mjs";
@@ -1334,7 +1336,7 @@ async function prototypeSection(page, theme) {
   await shot(page, `91-prototype-hotspot-${theme}`);
   await row.getByRole("button").first().click();
   await settle(page);
-  const details = page.getByRole("dialog", { name: "Interaction details" });
+  const details = page.getByRole("dialog", { name: "Interaction", exact: true });
   check("Interaction details: the trigger, the action, its destination, Smart animate", (await details.count()) === 1 && (await details.getByText("Smart animate").count()) >= 1 && (await details.getByText("Navigate to").count()) >= 1);
   await shot(page, `92-interaction-details-${theme}`);
   // Animation → Move in: MOVE_FROM_RIGHT (Figma's ← default), then undo.
@@ -1358,7 +1360,7 @@ async function prototypeSection(page, theme) {
   await settle(page);
   const after = await interactions("2:5");
   check("dragging the + handle to Details adds On click → Navigate to Details", after.length === 2 && after[1].actions[0].navigationType === "NAVIGATE" && after[1].actions[0].transitionNodeID?.localID === 10, JSON.stringify(after[1] ?? null));
-  check("the new connection's details open", (await page.getByRole("dialog", { name: "Interaction details" }).count()) === 1);
+  check("the new connection's details open", (await page.getByRole("dialog", { name: "Interaction", exact: true }).count()) === 1);
   await shot(page, `95-noodle-connected-${theme}`);
   await page.keyboard.press("Escape");
   await page.evaluate(() => window.__designerEditor.focusCanvas());
@@ -1544,13 +1546,13 @@ async function prototypeSection(page, theme) {
   await select("2:4");
   await panel.locator("[data-interaction]").first().getByRole("button").first().click();
   await settle(page);
-  const expr = page.getByRole("dialog", { name: "Interaction details" }).locator("[data-expression] input");
+  const expr = page.getByRole("dialog", { name: "Interaction", exact: true }).locator("[data-expression] input");
   check("the If field shows the stored expression as text", (await expr.inputValue()) === "1 + 1 == 2", await expr.inputValue());
   await expr.click();
   await expr.fill("1 + ");
   await expr.press("Enter");
   await settle(page);
-  check("an unfinished expression is refused, outlined in red with its reason", (await page.getByRole("dialog", { name: "Interaction details" }).getByRole("alert").textContent()) === "The expression isn't finished");
+  check("an unfinished expression is refused, outlined in red with its reason", (await page.getByRole("dialog", { name: "Interaction", exact: true }).getByRole("alert").textContent()) === "The expression isn't finished");
   await shot(page, `109-conditional-expression-${theme}`);
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
@@ -1646,7 +1648,7 @@ async function videoChecks(page, theme, panel, select) {
   await select("2:4");
   await panel.locator("[data-interaction]").first().getByRole("button").first().click();
   await settle(page);
-  const details = page.getByRole("dialog", { name: "Interaction details" });
+  const details = page.getByRole("dialog", { name: "Interaction", exact: true });
   check("Interaction details: Play/pause video › Pause video on Clip", (await details.getByText("Play/pause video").count()) >= 1 && (await details.getByText("Pause video").count()) >= 1 && (await details.getByText("Clip").count()) >= 1);
   await shot(page, `144-video-action-details-${theme}`);
   await page.keyboard.press("Escape");
@@ -4890,6 +4892,18 @@ try {
       });
       page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
       await feedback17Section(page, theme, { open, settle, check, outDir, docsDir: null });
+      await context.close();
+    }
+  }
+  if (only === "proto17" || (!only && part !== "2")) {
+    for (const theme of ["dark", "light"]) {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: theme });
+      const page = await context.newPage();
+      page.on("console", (m) => {
+        if (m.type() === "error") problems.push(`${theme} console: ${m.text()}`);
+      });
+      page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
+      await proto17Section(page, theme, { open, settle, check, outDir });
       await context.close();
     }
   }

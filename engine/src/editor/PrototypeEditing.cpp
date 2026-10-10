@@ -13,6 +13,7 @@
 
 #include "base/FractionalIndex.h"
 #include "editor/Editor.h"
+#include "hit/HitTest.h"
 #include "proto/Prototype.h"
 #include "scene/CodecKiwi.h"
 
@@ -22,6 +23,7 @@ namespace {
 
 constexpr double kHandleHit = 8;  // CSS px around a handle / a noodle's end
 constexpr double kNoodleDrag = 3;
+constexpr double kLineHit = 4;  // CSS px either side of a connection's line (round 17)
 
 json::Value interactionsJson(const NodeProps& p) {
   json::Value v;
@@ -147,14 +149,11 @@ bool Editor::protoHandleAt(Vec2 s, std::vector<Guid>* nodes, Guid* hit, NoodleSi
 }
 
 bool Editor::protoEndAt(Vec2 s, ProtoLink& out) {
-  const Mat2x3 view = camera_.matrix();
-  auto screen = [&](const Rect& r) { return transformedBounds(view * Mat2x3::translate(r.x, r.y), r.w, r.h); };
   for (const ProtoLink& l : protoLinks()) {
-    bool sel = false;
+    bool sel = protoSelected(l);
     for (Guid g : selection_) sel |= g == l.source || doc_.isAncestor(g, l.source);
     if (!sel) continue;
-    NoodleCurve n = prototypeNoodle(screen(doc_.worldBounds(l.source)), screen(doc_.worldBounds(l.dest)), false, {});
-    if ((n.b - s).length() <= kHandleHit) {
+    if ((protoCurve(l).b - s).length() <= kHandleHit) {
       out = l;
       return true;
     }
@@ -162,30 +161,184 @@ bool Editor::protoEndAt(Vec2 s, ProtoLink& out) {
   return false;
 }
 
-Guid Editor::protoTargetAt(Vec2 world, const std::vector<Guid>& sources, bool videos, bool frames) const {
-  const auto& kids = doc_.children(page_);
-  for (auto it = kids.rbegin(); it != kids.rend(); ++it) {
-    const Node* n = doc_.get(*it);
-    if (!n || !n->props.visible || !n->props.isFrameLike() || n->props.type == NodeType::SECTION) continue;
-    if (!doc_.worldBounds(*it).contains(world)) continue;
-    if (videos) {
-      // The topmost video layer under the point, inside this frame.
-      Guid found = kNoGuid;
-      std::function<void(Guid)> walk = [&](Guid id) {
-        const Node* x = doc_.get(id);
-        if (!x || !x->props.visible || found != kNoGuid) return;
-        const auto& ch = doc_.children(id);
-        for (auto c = ch.rbegin(); c != ch.rend() && found == kNoGuid; ++c) walk(*c);
-        if (found == kNoGuid && proto::videoFill(x->props) >= 0 && doc_.worldBounds(id).contains(world)) found = id;
-      };
-      walk(*it);
-      bool self = false;
-      for (Guid s : sources) self |= s == found;
-      if (found != kNoGuid && !self) return found;
+bool Editor::protoStartAt(Vec2 s, ProtoLink& out) {
+  for (const ProtoLink& l : protoLinks())
+    if (proto_.selClicked && protoSelected(l) && (protoCurve(l).a - s).length() <= kHandleHit) {
+      out = l;
+      return true;
     }
-    if (!frames) return kNoGuid;
-    for (Guid s : sources)
-      if (s == *it) return kNoGuid;  // not onto itself
+  return false;
+}
+
+NoodleCurve Editor::protoCurve(const ProtoLink& l) const {
+  const Mat2x3 view = camera_.matrix();
+  auto screen = [&](const Rect& r) { return transformedBounds(view * Mat2x3::translate(r.x, r.y), r.w, r.h); };
+  return prototypeNoodle(screen(doc_.worldBounds(l.source)), screen(doc_.worldBounds(l.dest)), false, {});
+}
+
+std::string Editor::protoLabel(const ProtoLink& l) const {
+  const Node* n = doc_.get(l.source);
+  if (!n) return {};
+  auto list = proto::interactions(n->props);
+  if (l.index >= list.size()) return {};
+  // The panel's trigger names (model/prototype.ts TRIGGERS); On click has no label on the canvas (61.png).
+  switch (list[l.index].trigger) {
+    case proto::Trigger::ON_CLICK: return {};
+    case proto::Trigger::DRAG: return "On drag";
+    case proto::Trigger::ON_HOVER: return "While hovering";
+    case proto::Trigger::ON_PRESS: return "While pressing";
+    case proto::Trigger::ON_KEY_DOWN: return "Key/Gamepad";
+    case proto::Trigger::MOUSE_IN:
+    case proto::Trigger::MOUSE_ENTER: return "Mouse enter";
+    case proto::Trigger::MOUSE_OUT:
+    case proto::Trigger::MOUSE_LEAVE: return "Mouse leave";
+    case proto::Trigger::MOUSE_DOWN: return "Mouse down";
+    case proto::Trigger::MOUSE_UP: return "Mouse up";
+    case proto::Trigger::AFTER_TIMEOUT: return "After delay";
+    case proto::Trigger::ON_MEDIA_HIT: return "When video hits";
+    case proto::Trigger::ON_MEDIA_END: return "When video ends";
+    default: return {};
+  }
+}
+
+bool Editor::protoSelected(const ProtoLink& l) const {
+  if (proto_.selNode == kNoGuid || l.source != proto_.selNode || proto_.selIndex != static_cast<int>(l.index)) return false;
+  return std::find(selection_.begin(), selection_.end(), l.source) != selection_.end();
+}
+
+void Editor::setPrototypeSelection(Guid node, int index) {
+  if (index < 0) node = kNoGuid;
+  if (node == kNoGuid) index = -1;
+  if (proto_.selNode == node && proto_.selIndex == index) return;
+  proto_.selNode = node;
+  proto_.selIndex = index;
+  proto_.selClicked = false;
+  needsRender_ = true;
+}
+
+bool Editor::protoLineAt(Vec2 s, ProtoLink& out, Rect* label) {
+  const OverlayStyle style = OverlayStyle::of(theme_);
+  const auto& links = protoLinks();
+  // The labels first (drawn over the lines), the selected connection's before the others; then the nearest line.
+  for (int pass = 0; pass < 2; pass++)
+    for (auto it = links.rbegin(); it != links.rend(); ++it) {
+      if (protoSelected(*it) != (pass == 0)) continue;
+      std::string text = protoLabel(*it);
+      if (text.empty()) continue;
+      Rect box = noodleLabelBox(noodlePoint(protoCurve(*it), 0.5), labelWidth(text, false), style.noodleLabelHeight, style.noodleLabelPadding);
+      if (box.contains(s)) {
+        out = *it;
+        if (label) *label = box;
+        return true;
+      }
+    }
+  double best = kLineHit;
+  bool found = false;
+  for (auto it = links.rbegin(); it != links.rend(); ++it) {
+    double d = noodleDistance(protoCurve(*it), s);
+    if (d < best || (!found && d <= best)) {
+      best = d;
+      out = *it;
+      found = true;
+    }
+  }
+  // On the line: the details open under the press (live Figma 2026-10-10: the popover's arrow at the clicked point).
+  if (found && label) *label = Rect{s.x, s.y, 0, 0};
+  return found;
+}
+
+namespace {
+// The page's top-level frames (and those in sections) — where Navigate to goes.
+Guid topFrameIn(const Document& doc, Guid parent, Vec2 world) {
+  const auto& kids = doc.children(parent);
+  for (auto it = kids.rbegin(); it != kids.rend(); ++it) {
+    const Node* n = doc.get(*it);
+    if (!n || !n->props.visible || !doc.worldBounds(*it).contains(world)) continue;
+    if (n->props.type == NodeType::SECTION) return topFrameIn(doc, *it, world);  // in a section, or its own area
+    if (n->props.isFrameLike() || n->props.isComponentSet()) return *it;
+  }
+  return kNoGuid;
+}
+}  // namespace
+
+Guid Editor::protoTargetAt(Vec2 world, const std::vector<Guid>& sources, bool videos, bool frames, proto::Navigation* nav) const {
+  if (nav) *nav = proto::Navigation::NAVIGATE;
+  Guid top = topFrameIn(doc_, page_, world);
+  if (top == kNoGuid) return kNoGuid;
+  if (videos) {
+    // The topmost video layer under the point, inside this frame.
+    Guid found = kNoGuid;
+    std::function<void(Guid)> walk = [&](Guid id) {
+      const Node* x = doc_.get(id);
+      if (!x || !x->props.visible || found != kNoGuid) return;
+      const auto& ch = doc_.children(id);
+      for (auto c = ch.rbegin(); c != ch.rend() && found == kNoGuid; ++c) walk(*c);
+      if (found == kNoGuid && proto::videoFill(x->props) >= 0 && doc_.worldBounds(id).contains(world)) found = id;
+    };
+    walk(top);
+    bool self = false;
+    for (Guid s : sources) self |= s == found;
+    if (found != kNoGuid && !self) return found;
+  }
+  if (!frames) return kNoGuid;
+  // Round 17 — interactive components (help "Create interactive components": "drag it to the destination variant";
+  // "You can only create interactive components using variants from the same component set"): from a variant, or a
+  // layer in one, the hovered variant of the same set is the destination (Change to), never the set itself; its own
+  // variant or the set's background: nothing.
+  for (Guid s : sources) {
+    Guid variant = kNoGuid, set = kNoGuid;
+    for (Guid a = s; a != kNoGuid && a != page_; a = doc_.parentOf(a)) {
+      const Node* pn = doc_.get(doc_.parentOf(a));
+      if (pn && pn->props.isComponentSet()) {
+        variant = a;
+        set = doc_.parentOf(a);
+        break;
+      }
+    }
+    if (set == kNoGuid || !doc_.worldBounds(set).contains(world)) continue;
+    const auto& kids = doc_.children(set);
+    for (auto it = kids.rbegin(); it != kids.rend(); ++it) {
+      const Node* v = doc_.get(*it);
+      if (!v || !v->props.visible || !doc_.worldBounds(*it).contains(world)) continue;
+      if (*it == variant || v->props.type != NodeType::SYMBOL) return kNoGuid;
+      if (nav) *nav = proto::Navigation::SWAP_STATE;
+      return *it;
+    }
+    return kNoGuid;
+  }
+  // A layer in the hotspot's own top-level frame (R8 §4: Scroll to — "drag a noodle for any object"): the innermost
+  // under the point that isn't the hotspot, one of its layers or one holding it.
+  auto topOf = [&](Guid id) {
+    while (doc_.parentOf(id) != kNoGuid && doc_.parentOf(id) != page_) {
+      const Node* p = doc_.get(doc_.parentOf(id));
+      if (p && p->props.type == NodeType::SECTION) break;
+      id = doc_.parentOf(id);
+    }
+    return id;
+  };
+  bool inside = false;
+  for (Guid s : sources) inside |= s != top && topOf(s) == top;
+  if (inside) {
+    std::vector<Guid> path = hitPath(doc_, page_, world, pixel());
+    if (std::find(path.begin(), path.end(), top) != path.end())
+      for (auto it = path.rbegin(); it != path.rend() && *it != top; ++it) {
+        bool related = false;
+        for (Guid s : sources) related |= *it == s || doc_.isAncestor(*it, s) || doc_.isAncestor(s, *it);
+        if (related) continue;
+        if (nav) *nav = proto::Navigation::SCROLL_TO;
+        return *it;
+      }
+  }
+  for (Guid s : sources)
+    if (s == top) return kNoGuid;  // not onto itself
+  return top;
+}
+
+Guid Editor::protoSourceAt(Vec2 world, Guid dest) const {
+  std::vector<Guid> path = hitPath(doc_, page_, world, pixel());
+  for (auto it = path.rbegin(); it != path.rend(); ++it) {
+    const Node* n = doc_.get(*it);
+    if (!n || *it == dest || n->props.type == NodeType::SECTION || isLibraryCopy(*it)) continue;
     return *it;
   }
   return kNoGuid;
@@ -194,7 +347,14 @@ Guid Editor::protoTargetAt(Vec2 world, const std::vector<Guid>& sources, bool vi
 uint32_t Editor::protoPointerDown(Vec2 s, uint32_t /*mods*/) {
   std::vector<Guid> sources;
   ProtoLink link;
-  if (protoEndAt(s, link)) {
+  Rect label;
+  if (viewer_) return 0;
+  if (protoStartAt(s, link)) {
+    // Round 17: the selected connection's start dot — dragged to another layer, the interaction moves there.
+    proto_.drag = ProtoSession::Drag::MoveStart;
+    proto_.link = link;
+    proto_.sources = {link.source};
+  } else if (protoEndAt(s, link)) {
     proto_.drag = ProtoSession::Drag::Retarget;
     proto_.link = link;
     proto_.sources = {link.source};
@@ -204,11 +364,24 @@ uint32_t Editor::protoPointerDown(Vec2 s, uint32_t /*mods*/) {
     // Each new connection leaves from the side its nub is on (the side nearest the press).
     proto_.sourceSides.clear();
     for (Guid src : sources) proto_.sourceSides.push_back(nearestSide(doc_.worldBounds(src), camera_.toWorld(s)));
+  } else if (protoLineAt(s, link, &label)) {
+    // Round 17: on a connection's line or label — a click selects it (Interaction details), a drag moves its end.
+    proto_.drag = ProtoSession::Drag::Line;
+    proto_.link = link;
+    proto_.sources = {link.source};
+    proto_.labelAt = {label.x, label.y};
+    proto_.labelW = label.w;
+    proto_.labelH = label.h;
   } else {
     return 0;
   }
   proto_.point = camera_.toWorld(s);
-  proto_.target = proto_.drag == ProtoSession::Drag::Retarget ? link.dest : kNoGuid;
+  switch (proto_.drag) {
+    case ProtoSession::Drag::Retarget: proto_.target = link.dest; break;
+    case ProtoSession::Drag::MoveStart: proto_.target = link.source; break;
+    default: proto_.target = kNoGuid;
+  }
+  proto_.targetNav = proto::Navigation::NAVIGATE;
   gesture_ = Gesture::Noodle;
   changeCursor(CursorKind::DEFAULT);
   needsRender_ = true;
@@ -217,9 +390,19 @@ uint32_t Editor::protoPointerDown(Vec2 s, uint32_t /*mods*/) {
 
 void Editor::protoPointerMove(Vec2 s) {
   proto_.point = camera_.toWorld(s);
+  bool moved = (s - downScreen_).length() >= kNoodleDrag;
+  if (proto_.drag == ProtoSession::Drag::Line) {
+    if (!moved) return;
+    proto_.drag = ProtoSession::Drag::Retarget;  // a drag on the line moves its end
+  }
+  if (proto_.drag == ProtoSession::Drag::MoveStart) {
+    if (moved) proto_.target = protoSourceAt(proto_.point, proto_.link.dest);
+    needsRender_ = true;
+    return;
+  }
   bool media = proto_.drag == ProtoSession::Drag::Retarget && proto_.link.media;
-  if ((s - downScreen_).length() >= kNoodleDrag || proto_.drag == ProtoSession::Drag::New)
-    proto_.target = protoTargetAt(proto_.point, proto_.sources, proto_.drag == ProtoSession::Drag::New || media, !media);
+  if (moved || proto_.drag == ProtoSession::Drag::New)
+    proto_.target = protoTargetAt(proto_.point, proto_.sources, proto_.drag == ProtoSession::Drag::New || media, !media, &proto_.targetNav);
   needsRender_ = true;
 }
 
@@ -250,41 +433,142 @@ void Editor::protoHover(Vec2 s) {
   if (on || end) changeCursor(CursorKind::DEFAULT);
 }
 
+namespace {
+bool deleted(const json::Value& v) {
+  const json::Value* d = v.get("isDeleted");
+  return d && d->kind == json::Value::Kind::Bool && d->boolean;
+}
+
+// The interaction's place in the field's JSON: by its id, else its index among the live (not deleted) ones.
+size_t rawIndex(const json::Value& list, Guid id, size_t live) {
+  if (id != kNoGuid)
+    for (size_t i = 0; i < list.array.size(); i++) {
+      const json::Value* v = list.array[i].get("id");
+      if (!v) continue;
+      Guid g{static_cast<uint32_t>(v->get("sessionID") ? v->get("sessionID")->numberOr(0) : 0),
+             static_cast<uint32_t>(v->get("localID") ? v->get("localID")->numberOr(0) : 0)};
+      if (g == id) return i;
+    }
+  size_t k = 0;
+  for (size_t i = 0; i < list.array.size(); i++) {
+    if (deleted(list.array[i])) continue;
+    if (k++ == live) return i;
+  }
+  return list.array.size();
+}
+
+size_t liveCount(const json::Value& list) {
+  size_t k = 0;
+  for (const json::Value& v : list.array) k += deleted(v) ? 0 : 1;
+  return k;
+}
+
+json::Value stringJson(const char* s) {
+  json::Value v;
+  v.kind = json::Value::Kind::String;
+  v.string = s;
+  return v;
+}
+}  // namespace
+
+void Editor::protoSelectLink(const ProtoLink& l, const Rect* label) {
+  setSelection({l.source});
+  proto_.selNode = l.source;
+  proto_.selIndex = static_cast<int>(l.index);
+  proto_.selClicked = true;
+  PrototypeSelected e;
+  e.node = l.source;
+  e.index = static_cast<int>(l.index);
+  Rect box;
+  if (label) {
+    box = *label;
+  } else {
+    const OverlayStyle style = OverlayStyle::of(theme_);
+    Vec2 mid = noodlePoint(protoCurve(l), 0.5);
+    std::string text = protoLabel(l);
+    box = text.empty() ? Rect{mid.x, mid.y, 0, 0} : noodleLabelBox(mid, labelWidth(text, false), style.noodleLabelHeight, style.noodleLabelPadding);
+  }
+  e.x = box.x, e.y = box.y, e.w = box.w, e.h = box.h;
+  events_.prototypeSelected.push_back(e);
+  needsRender_ = true;
+}
+
 void Editor::protoPointerUp(Vec2 s) {
   proto_.point = camera_.toWorld(s);
-  bool media = proto_.drag == ProtoSession::Drag::Retarget && proto_.link.media;
-  Guid target = protoTargetAt(proto_.point, proto_.sources, proto_.drag == ProtoSession::Drag::New || media, !media);
   bool moved = (s - downScreen_).length() >= kNoodleDrag;
   ProtoSession::Drag drag = proto_.drag;
+  bool media = drag == ProtoSession::Drag::Retarget && proto_.link.media;
+  proto::Navigation nav = proto::Navigation::NAVIGATE;
+  Guid target = drag == ProtoSession::Drag::MoveStart ? protoSourceAt(proto_.point, proto_.link.dest)
+                                                      : protoTargetAt(proto_.point, proto_.sources, drag == ProtoSession::Drag::New || media, !media, &nav);
   proto_.drag = ProtoSession::Drag::None;
   proto_.target = kNoGuid;
   needsRender_ = true;
-  if (drag == ProtoSession::Drag::Retarget) {
+  if (drag == ProtoSession::Drag::Line) {
+    // A click on the line or its label: the connection is selected — its hotspot too — and its details open.
+    Rect box{proto_.labelAt.x, proto_.labelAt.y, proto_.labelW, proto_.labelH};
+    protoSelectLink(proto_.link, &box);
+    return;
+  }
+  if (drag == ProtoSession::Drag::Retarget || drag == ProtoSession::Drag::MoveStart) {
     if (!moved) return;
     const Node* n = doc_.get(proto_.link.source);
     if (!n) return;
     json::Value list = interactionsJson(n->props);
-    // The interaction by its id (else its index), then the action by its path.
-    size_t index = proto_.link.index;
-    for (size_t i = 0; i < list.array.size(); i++) {
-      json::Value* id = member(list.array[i], "id");
-      if (id && proto_.link.interaction != kNoGuid) {
-        Guid g{static_cast<uint32_t>(id->get("sessionID") ? id->get("sessionID")->numberOr(0) : 0),
-               static_cast<uint32_t>(id->get("localID") ? id->get("localID")->numberOr(0) : 0)};
-        if (g == proto_.link.interaction) index = i;
-      }
-    }
+    size_t index = rawIndex(list, proto_.link.interaction, proto_.link.index);
     if (index >= list.array.size()) return;
+    bool wasSelected = protoSelected(proto_.link);
     json::Value& interaction = list.array[index];
+    if (drag == ProtoSession::Drag::MoveStart && target != kNoGuid) {
+      // The start onto another layer: the interaction moves there (all of it).
+      if (target == proto_.link.source) return;
+      const Node* tn = doc_.get(target);
+      if (!tn || isLibraryCopy(proto_.link.source)) return;
+      json::Value moving = interaction;
+      list.array.erase(list.array.begin() + static_cast<long>(index));
+      json::Value into = interactionsJson(tn->props);
+      size_t live = liveCount(into);
+      into.array.push_back(std::move(moving));
+      begin(TxnKind::USER, "Edit interaction");
+      NodeChange c = NodeChange::changed(proto_.link.source);
+      c.mask = F_EXTRA;
+      c.props.extra["prototypeInteractions"] = list.array.empty() ? std::string() : proto::encodeField("prototypeInteractions", list);
+      write(c);
+      NodeChange t = NodeChange::changed(target);
+      t.mask = F_EXTRA;
+      t.props.extra["prototypeInteractions"] = proto::encodeField("prototypeInteractions", into);
+      write(t);
+      commit();
+      if (wasSelected) {
+        ProtoLink now = proto_.link;
+        now.source = target;
+        now.index = live;
+        protoSelectLink(now, nullptr);
+      }
+      return;
+    }
     if (target != kNoGuid) {
       if (target == proto_.link.dest) return;
       json::Value* a = actionAt(interaction, proto_.link.action);
       if (!a) return;
       if (json::Value* d = member(*a, "transitionNodeID")) *d = guidJson(target);
       else a->object.emplace_back("transitionNodeID", guidJson(target));
+      // Onto another variant: Change to; a layer in its own frame: Scroll to; a frame: Navigate to (an overlay or a
+      // swap stays one).
+      if (!media) {
+        json::Value* type = member(*a, "navigationType");
+        std::string was = type && type->kind == json::Value::Kind::String ? type->string : "NAVIGATE";
+        bool keep = nav == proto::Navigation::NAVIGATE && (was == "OVERLAY" || was == "SWAP");
+        const char* name = nav == proto::Navigation::SWAP_STATE ? "SWAP_STATE" : nav == proto::Navigation::SCROLL_TO ? "SCROLL_TO" : "NAVIGATE";
+        if (!keep) {
+          if (type) *type = stringJson(name);
+          else a->object.emplace_back("navigationType", stringJson(name));
+        }
+      }
       begin(TxnKind::USER, "Edit interaction");
     } else {
-      // Dropped on empty canvas: the connection goes (its interaction too, when it was its only action).
+      // Dropped on empty canvas (help: "To delete a connection, click and drag on either end"): the connection goes
+      // (its interaction too, when it was its only action).
       json::Value* actions = member(interaction, "actions");
       if (proto_.link.action.size() == 1 && actions && actions->isArray() && proto_.link.action[0] < actions->array.size()) {
         actions->array.erase(actions->array.begin() + static_cast<long>(proto_.link.action[0]));
@@ -295,6 +579,13 @@ void Editor::protoPointerUp(Vec2 s) {
                         a->object.end());
       }
       begin(TxnKind::USER, "Remove interaction");
+      if (wasSelected) {
+        proto_.selNode = kNoGuid;
+        proto_.selIndex = -1;
+        PrototypeSelected e;
+        e.node = proto_.link.source;  // index −1: nothing open
+        events_.prototypeSelected.push_back(e);
+      }
     }
     NodeChange c = NodeChange::changed(proto_.link.source);
     c.mask = F_EXTRA;
@@ -312,6 +603,23 @@ void Editor::protoPointerUp(Vec2 s) {
     json::Value list = interactionsJson(n->props);
     Guid id = newGuid();
     proto::Interaction ix = proto::newConnection(id, target);
+    ix.actions[0].navigation = nav;  // Change to between variants, Scroll to inside its frame (round 17)
+    // The trigger: the first the hotspot doesn't use yet (round 17, live Figma 2026-10-10: a layer's connections
+    // made one after another came out On click, On drag, While hovering; the order past that is unverified).
+    {
+      const proto::Trigger order[] = {proto::Trigger::ON_CLICK,    proto::Trigger::DRAG,        proto::Trigger::ON_HOVER,
+                                      proto::Trigger::ON_PRESS,    proto::Trigger::MOUSE_ENTER, proto::Trigger::MOUSE_LEAVE,
+                                      proto::Trigger::MOUSE_DOWN,  proto::Trigger::MOUSE_UP};
+      auto existing = proto::interactions(n->props);
+      for (proto::Trigger t : order) {
+        bool used = false;
+        for (const proto::Interaction& x : existing) used |= x.trigger == t;
+        if (!used) {
+          ix.trigger = t;
+          break;
+        }
+      }
+    }
     if (const Node* tn = doc_.get(target); tn && proto::videoFill(tn->props) >= 0 && doc_.parentOf(target) != page_) {
       // Onto a video: On click → Play/pause video › Play video (unverified: the action Figma picks first).
       proto::Action& a = ix.actions[0];
@@ -326,8 +634,9 @@ void Editor::protoPointerUp(Vec2 s) {
     made.nodes.push_back(src);
     made.interaction = id;
   }
-  // A flow starting point for the frame the connection leaves, when no flow reaches it yet (R8 §6).
-  if (!made.nodes.empty()) {
+  // A flow starting point for the frame the connection leaves, when no flow reaches it yet (R8 §6) — not for Change
+  // to or Scroll to, which stay inside their set / frame.
+  if (!made.nodes.empty() && nav == proto::Navigation::NAVIGATE) {
     Guid top = made.nodes[0];
     while (doc_.parentOf(top) != kNoGuid && doc_.parentOf(top) != page_) top = doc_.parentOf(top);
     const Node* tn = doc_.get(top);
@@ -387,7 +696,15 @@ void Editor::protoPointerUp(Vec2 s) {
     }
   }
   commit();
-  if (!made.nodes.empty()) events_.prototypeConnected.push_back(std::move(made));
+  if (!made.nodes.empty()) {
+    // The new connection is the selected one (its details open, PrototypePanel).
+    if (const Node* n = doc_.get(made.nodes[0])) {
+      proto_.selNode = made.nodes[0];
+      proto_.selIndex = static_cast<int>(proto::interactions(n->props).size()) - 1;
+      proto_.selClicked = false;
+    }
+    events_.prototypeConnected.push_back(std::move(made));
+  }
 }
 
 void Editor::protoOverlay(Overlay& o) const {
@@ -395,17 +712,24 @@ void Editor::protoOverlay(Overlay& o) const {
   PrototypeOverlay& po = o.prototype;
   po.on = true;
   for (const ProtoLink& l : self->protoLinks()) {
-    bool retargeting = proto_.drag == ProtoSession::Drag::Retarget && l.source == proto_.link.source &&
-                       l.interaction == proto_.link.interaction && l.action == proto_.link.action;
+    bool same = l.source == proto_.link.source && l.interaction == proto_.link.interaction && l.index == proto_.link.index &&
+                l.action == proto_.link.action;
+    bool retargeting = proto_.drag == ProtoSession::Drag::Retarget && same;
+    bool moving = proto_.drag == ProtoSession::Drag::MoveStart && same;
     PrototypeLink pl;
     pl.source = doc_.worldBounds(l.source);
     pl.dest = doc_.worldBounds(l.dest);
-    // The selection's connections in the selection colour, the others light (round 16, live 61.png: with nothing
-    // selected every connection is light).
-    bool sel = false;
-    for (Guid g : selection_) sel |= g == l.source || doc_.isAncestor(g, l.source);
-    pl.highlighted = sel;
+    // Round 17 (the owner's live 61–65.png): only the selected connection — the one open in Interaction details — and
+    // one being dragged are in the selection colour; the others, a selected hotspot's too, are light.
+    pl.highlighted = protoSelected(l) || retargeting || moving || (proto_.drag == ProtoSession::Drag::Line && same);
+    pl.label = protoLabel(l);
+    if (moving) {
+      // Its start follows the pointer, onto the layer it would move to.
+      pl.label.clear();
+      pl.source = proto_.target != kNoGuid ? doc_.worldBounds(proto_.target) : Rect{proto_.point.x, proto_.point.y, 0, 0};
+    }
     if (retargeting) {
+      pl.label.clear();
       // Its start stays on the side it leaves from while its end is dragged.
       pl.startSide = static_cast<int>(prototypeNoodle(pl.source, pl.dest, false, {}).start);
       if (proto_.target != kNoGuid) pl.dest = doc_.worldBounds(proto_.target);
@@ -443,7 +767,7 @@ void Editor::protoOverlay(Overlay& o) const {
             PrototypeLink pl;
             pl.source = doc_.worldBounds(id);
             pl.dest = doc_.worldBounds(d);
-            pl.highlighted = true;
+            pl.highlighted = false;  // quiet, as every connection not selected (round 17)
             po.links.push_back(pl);
           }
         }

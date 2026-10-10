@@ -628,6 +628,15 @@ export class Engine {
   }
 
   /**
+   * The connection open in Interaction details (round 17): its hotspot and the interaction's index among the live
+   * ones, or null — drawn in the selection colour, every other connection quiet (live Figma 61–65.png).
+   */
+  setPrototypeSelection(open: { node: Guid; index: number } | null): void {
+    const [s, l] = open ? this.ids(open.node) : [0, 0];
+    this.after(this.x.setPrototypeSelection(this.h, s, l, open ? open.index : -1));
+  }
+
+  /**
    * Viewer mode (developer previews, Dev Mode): read-only — no resize handles, clicks select and drags move nothing,
    * no context menu or text / vector editing; edits (setProps, user changes, editing commands) return E_READONLY.
    */

@@ -29,6 +29,7 @@
 #include "geometry/VariableWidth.h"
 #include "geometry/VectorNetwork.h"
 #include "layout/Layout.h"
+#include "proto/Prototype.h"
 #include "render/Camera.h"
 #include "render/Renderer.h"
 #include "scene/ChangeSet.h"
@@ -386,6 +387,14 @@ class Editor : private LayoutHost, public TextLayouts {
     std::vector<Guid> nodes;
     Guid interaction = kNoGuid;
   };
+  // A connection clicked on the canvas (its line or its label; PROTOTYPE_CONNECTION_SELECTED, round 17): its hotspot,
+  // the interaction's index among the hotspot's live ones, and where its label sits (screen, CSS px — the Interaction
+  // details popover opens under it, live 62–63.png).
+  struct PrototypeSelected {
+    Guid node = kNoGuid;
+    int index = -1;
+    double x = 0, y = 0, w = 0, h = 0;
+  };
   // The grid tracks selected on the canvas (GRID_TRACKS); `edit`: a pill's chevron was clicked (or Enter) — TS opens
   // the label's field and the sizing list at `label` (screen, CSS px; round 12, live grid/row-track-menu.txt).
   struct GridTracksEvent {
@@ -446,6 +455,7 @@ class Editor : private LayoutHost, public TextLayouts {
     std::vector<Guid> structureParents;
     bool structureAll = false;
     std::vector<PrototypeConnected> prototypeConnected;  // PROTOTYPE_CONNECTED
+    std::vector<PrototypeSelected> prototypeSelected;    // PROTOTYPE_CONNECTION_SELECTED
     std::vector<GridTracksEvent> gridTracks;             // GRID_TRACKS: the grid tracks selected on the canvas
     std::vector<RenameRequest> renames;                  // REQUEST_RENAME: a double-click on a frame's title
     // HAPTIC (round 17): the trackpad's tick — a canvas drag changed its value by a whole step (a padding, gap, corner
@@ -457,7 +467,7 @@ class Editor : private LayoutHost, public TextLayouts {
          navigation = false;
     bool any() const {
       return !colorPicks.empty() || !inlineEdits.empty() || !annotationOpens.empty() || !measurementEdits.empty() || !statusClicks.empty() || measurementSelection ||
-             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !gridTracks.empty() || !renames.empty() || haptics != 0 || !nodes.empty() || !components.empty() || !collections.empty() ||
+             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !prototypeSelected.empty() || !gridTracks.empty() || !renames.empty() || haptics != 0 || !nodes.empty() || !components.empty() || !collections.empty() ||
              !variables.empty() || !styles.empty() || selection || camera || tool || cursor || hover || undo || structure || pages ||
              currentPage || textEdit || vectorEdit || paintEdit || navigation;
     }
@@ -567,6 +577,12 @@ class Editor : private LayoutHost, public TextLayouts {
   // frame adds an On click → Navigate to interaction (Figma's defaults), dragging a noodle's end retargets or removes it.
   void setPrototypeMode(bool on);
   bool prototypeMode() const { return proto_.on; }
+  // Round 17: the connection whose Interaction details are open (the panel's; a click on a connection's line or label
+  // sets it too) — drawn in the selection colour, its label chip solid; the others quiet (the owner's live 61–65.png).
+  // `index`: the interaction among the node's live ones; −1 / kNoGuid for none.
+  void setPrototypeSelection(Guid node, int index);
+  Guid prototypeSelectionNode() const { return proto_.selNode; }
+  int prototypeSelectionIndex() const { return proto_.selIndex; }
   // Viewer mode (developer previews, Dev Mode): read-only — the selection without resize / rotate handles, clicks
   // select and drags never move anything, no context menu, no text / vector / paint editing, only the Move and Hand
   // tools; edits through the API are refused (E_READONLY, Api.cpp).
@@ -1465,11 +1481,22 @@ class Editor : private LayoutHost, public TextLayouts {
   };
   struct ProtoSession {
     bool on = false;
-    enum class Drag : uint8_t { None, New, Retarget } drag = Drag::None;
+    // Line (round 17): pressed on a connection's line or label — a click selects it, a drag moves its end (Retarget).
+    // MoveStart: its start dragged to another layer (the selected connection's start dot).
+    enum class Drag : uint8_t { None, New, Retarget, Line, MoveStart } drag = Drag::None;
     std::vector<Guid> sources;  // New: the hotspots (the selection)
-    ProtoLink link;             // Retarget: the connection whose end moves
+    ProtoLink link;             // Retarget / Line / MoveStart: the connection
     Vec2 point;                 // world: where the dragged end is
-    Guid target = kNoGuid;      // the frame it would connect to
+    Guid target = kNoGuid;      // the frame (variant, layer) it would connect to
+    proto::Navigation targetNav = proto::Navigation::NAVIGATE;  // what connecting there makes (Change to, Scroll to)
+    Vec2 labelAt;               // Line: the pressed connection's label centre (screen)
+    double labelW = 0, labelH = 0;
+    // The connection open in Interaction details (setPrototypeSelection).
+    Guid selNode = kNoGuid;
+    int selIndex = -1;
+    // Selected by a click on its line or label (not just opened in the panel, nor just made): its start dot drags
+    // the start; otherwise a press there is the hotspot's nub (a further new connection, as live).
+    bool selClicked = false;
     bool handleHovered = false;
     // Round 16: the pointer (screen; the nubs sit on the sides nearest it), the hotspot whose nub it is on, and the
     // sides a new connection leaves from (one per source).
@@ -1560,9 +1587,25 @@ class Editor : private LayoutHost, public TextLayouts {
   // Round 16: the nub under `s` (on the hotspot's side nearest it): its hotspot and side.
   bool protoHandleAt(Vec2 s, std::vector<Guid>* nodes = nullptr, Guid* hit = nullptr, NoodleSide* side = nullptr) const;
   bool protoEndAt(Vec2 s, ProtoLink& out);
+  // Round 17: the selected connection's start dot under `s`.
+  bool protoStartAt(Vec2 s, ProtoLink& out);
+  // Round 17: a connection whose line (within a few px) or label chip is under `s`, topmost first; `label` gets its
+  // label's box (screen; the curve's middle when it has none).
+  bool protoLineAt(Vec2 s, ProtoLink& out, Rect* label = nullptr);
+  // A connection's curve on screen (CSS px) and its label ("" for On click: Figma labels only the other triggers).
+  NoodleCurve protoCurve(const ProtoLink& l) const;
+  std::string protoLabel(const ProtoLink& l) const;
+  bool protoSelected(const ProtoLink& l) const;
   // Where a noodle lands: a video layer (`videos`: help "Use videos in prototypes" — "Create a connection from your
-  // starting object to the video"), else a top-level frame.
-  Guid protoTargetAt(Vec2 world, const std::vector<Guid>& sources, bool videos = false, bool frames = true) const;
+  // starting object to the video"), else — round 17 — another variant of the hotspot's own component set (Change to:
+  // help "Create interactive components"), a layer in the hotspot's own top-level frame (Scroll to), or a top-level
+  // frame (one in a section too). `nav` gets what connecting there makes.
+  Guid protoTargetAt(Vec2 world, const std::vector<Guid>& sources, bool videos = false, bool frames = true,
+                     proto::Navigation* nav = nullptr) const;
+  // Round 17: the layer a dragged start lands on (the innermost under the point; not the destination).
+  Guid protoSourceAt(Vec2 world, Guid dest) const;
+  // Selects a connection: its hotspot, the highlight, PROTOTYPE_CONNECTION_SELECTED with its label's box.
+  void protoSelectLink(const ProtoLink& l, const Rect* label);
   uint32_t protoPointerDown(Vec2 s, uint32_t mods);
   void protoPointerMove(Vec2 s);
   void protoPointerUp(Vec2 s);

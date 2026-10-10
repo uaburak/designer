@@ -104,7 +104,7 @@ describe("the canvas chrome palette (engine ABI)", () => {
       // Round 15: the canvas tooltip (the `</>` button's) and a ready design's green.
       "canvasTooltipFill", "canvasTooltipText", "readyForDev",
       // Round 16: a connection that isn't the selection's, the canvas scrollbars.
-      "prototypeNoodleQuiet", "canvasScrollbarFill", "canvasScrollbarFillHover", "canvasScrollbarRim",
+      "prototypeNoodleQuiet", "canvasScrollbarFill", "canvasScrollbarFillHover", "canvasScrollbarRim", "prototypeLabelText",
     ]);
   });
 
@@ -148,7 +148,7 @@ describe("generated artefacts", () => {
     expect(boot).toContain('tabbar: ["#e6e6e6","#3b3b3b"]');
     expect(boot).toContain('localStorage.getItem("designer-theme")');
     const header = renderChromeHeader();
-    expect(header).toContain("CanvasScrollbarRim = 41, Count");
+    expect(header).toContain("PrototypeLabelText = 42, Count");
     expect(header.match(/\/\/ selection/g)).toHaveLength(2);
   });
 

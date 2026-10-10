@@ -478,6 +478,7 @@ export const CHROME_COLORS = [
   "canvasScrollbarFill",
   "canvasScrollbarFillHover",
   "canvasScrollbarRim",
+  "prototypeLabelText",
 ] as const;
 
 export type ChromeColorName = (typeof CHROME_COLORS)[number];
@@ -533,6 +534,10 @@ export const canvasChrome: Record<ChromeColorName, Pair> = {
   canvasScrollbarFill: ["#0000004d", "#0000004d"],
   canvasScrollbarFillHover: ["#00000066", "#00000066"],
   canvasScrollbarRim: ["#ffffff4f", "#ffffff4f"],
+  // Round 17 (the owner's live Figma 61–63.png): a connection's trigger label ("While hovering", "On drag"…) on a
+  // quiet chip — dark text (#081825 sampled) on prototypeNoodleQuiet; the selected connection's chip is the selection
+  // colour with white text.
+  prototypeLabelText: ["#081825", "#081825"],
 };
 
 /** Chrome metrics in CSS px at any zoom (§1.4). */

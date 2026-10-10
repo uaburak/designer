@@ -891,6 +891,9 @@ export type EngineEvent =
   | { type: "STYLES_CHANGED"; styles: Guid[] }
   /** Prototype mode: a "+" handle was dragged to a frame — the hotspots that got the new interaction, and its id. */
   | { type: "PROTOTYPE_CONNECTED"; refs: Guid[]; interaction: Guid | null }
+  /** Round 17: a connection's line or label clicked on the canvas (index −1: the open one was removed). `label`: its
+   * label chip's box (the curve's middle, zero-sized, when it has none), CSS px in the canvas. */
+  | { type: "PROTOTYPE_CONNECTION_SELECTED"; node: Guid | null; index: number; label: { x: number; y: number; width: number; height: number } }
   /**
    * Grid tracks selected on the canvas (round 6): the grid, the axis, the selected tracks' indices (empty: none);
    * `edit`: a pill's chevron was clicked (or Enter) — the label's field and the sizing list open at the label (x, y,

@@ -99,18 +99,39 @@ export function PrototypePanel() {
   const { nodes } = useSelectedNodes();
   const ed = useEditor();
   // The interaction whose details are open (a connection just made opens its own).
-  const [open, setOpen] = useState<{ node: Guid; index: number; anchor: DOMRect | HTMLElement | null } | null>(null);
-  useEffect(
-    () =>
-      ed.engine.on("PROTOTYPE_CONNECTED", (e) => {
-        const node = e.refs[0];
-        if (!node) return;
-        const list = liveInteractions((ed.engine.readNode(node, { fields: ["prototypeInteractions"] }) as ProtoNode | null)?.prototypeInteractions);
-        const panel = document.querySelector<HTMLElement>("[data-panel='right'] [aria-label='Interactions']");
-        setOpen({ node, index: Math.max(0, list.length - 1), anchor: panel });
-      }),
-    [ed]
-  );
+  const [open, setOpen] = useState<{ node: Guid; index: number; anchor: DOMRect | HTMLElement | null; placement?: "bottom" } | null>(null);
+  useEffect(() => {
+    const offConnected = ed.engine.on("PROTOTYPE_CONNECTED", (e) => {
+      const node = e.refs[0];
+      if (!node) return;
+      const list = liveInteractions((ed.engine.readNode(node, { fields: ["prototypeInteractions"] }) as ProtoNode | null)?.prototypeInteractions);
+      const panel = document.querySelector<HTMLElement>("[data-panel='right'] [aria-label='Interactions']");
+      setOpen({ node, index: Math.max(0, list.length - 1), anchor: panel });
+    });
+    // Round 17: a connection's line or label clicked on the canvas opens its details under the label (62–63.png);
+    // index −1: the open one was removed (dragged off).
+    const offSelected = ed.engine.on("PROTOTYPE_CONNECTION_SELECTED", (e) => {
+      if (!e.node || e.index < 0) {
+        setOpen((o) => (o && (!e.node || o.node === e.node) ? null : o));
+        return;
+      }
+      const canvas = document.getElementById("engine-canvas");
+      const r = canvas?.getBoundingClientRect();
+      const anchor = r ? new DOMRect(r.left + e.label.x, r.top + e.label.y, e.label.width, e.label.height) : null;
+      setOpen({ node: e.node, index: e.index, anchor, placement: "bottom" });
+    });
+    return () => {
+      offConnected();
+      offSelected();
+    };
+  }, [ed]);
+  // The open interaction's connection is the canvas's selected one (drawn in the selection colour).
+  const openNode = open?.node ?? null;
+  const openIndex = open?.index ?? -1;
+  useEffect(() => {
+    ed.engine.setPrototypeSelection(openNode ? { node: openNode, index: openIndex } : null);
+  }, [ed, openNode, openIndex]);
+  useEffect(() => () => ed.engine.setPrototypeSelection(null), [ed]);
   const key = nodes.map((n) => n.guid).join(",");
   const [openKey, setOpenKey] = useState(key);
   if (openKey !== key) {
@@ -120,7 +141,7 @@ export function PrototypePanel() {
   return (
     <>
       {nodes.length === 0 ? <NothingSelected /> : <Selected nodes={nodes as ProtoNode[]} onOpen={(node, index, anchor) => setOpen({ node, index, anchor })} openIndex={open} />}
-      {open && <InteractionDetails node={open.node} index={open.index} anchor={open.anchor} onClose={() => setOpen(null)} />}
+      {open && <InteractionDetails node={open.node} index={open.index} anchor={open.anchor} placement={open.placement} onClose={() => setOpen(null)} />}
     </>
   );
 }

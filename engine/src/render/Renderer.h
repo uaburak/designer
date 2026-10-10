@@ -77,8 +77,11 @@ struct PrototypeLink {
   Rect dest;              // world: the destination (when `toPoint` is false)
   bool toPoint = false;   // dragged: the noodle ends at `point`
   Vec2 point;             // world
-  bool highlighted = true;  // the selection's (others are drawn quieter)
+  bool highlighted = true;  // the selected connection's / one being dragged (others are drawn quieter)
   int startSide = -1;     // a NoodleSide the noodle leaves from (one dragged from a nub); −1: Figma's rule
+  // Round 17 (the owner's live 61–63.png): its trigger on a chip at the curve's middle — every trigger but On click
+  // ("While hovering", "On drag", "Mouse enter"…); light blue with dark text, solid blue with white when highlighted.
+  std::string label;
 };
 // A connection nub (round 16, live Figma 64–67.png): one on each selected hotspot, at the middle of its side nearest
 // the pointer; hovered it is larger with a "+" (a press drags a new connection from there); while dragging, the plain
@@ -119,6 +122,15 @@ struct NoodleCurve {
   NoodleSide start = NoodleSide::RIGHT, end = NoodleSide::LEFT;
 };
 NoodleCurve prototypeNoodle(const Rect& source, const Rect& dest, bool toPoint, Vec2 point, int startSide = -1);
+// The arrowhead's length (CSS px): the drawn curve stops at its base, 0.8 of it before `b`.
+constexpr double kNoodleArrow = 8;
+// The point at `t` ∈ [0, 1] along the curve as drawn (from `a` to the arrow's base); its middle holds the label.
+Vec2 noodlePoint(const NoodleCurve& n, double t);
+// The distance from `p` to the drawn curve (CSS px; round 17: a press within a few px of it selects the connection).
+double noodleDistance(const NoodleCurve& n, Vec2 p);
+// The label chip's box centred on `centre` for a label `textWidth` wide (round 17, 61–62.png at 2000 / 1512: 30 high,
+// 12 either side of the text).
+Rect noodleLabelBox(Vec2 centre, double textWidth, double height, double padding);
 
 // Canvas scrollbars (round 16, render/Scrollbars.cpp; live Figma, the owner's 58 / 59 / 61–63.png): thin overlay bars
 // along the right and bottom of the visible canvas. On an axis the scrollable extent is the page's content bounds
