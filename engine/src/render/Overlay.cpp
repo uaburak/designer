@@ -219,6 +219,78 @@ void Renderer::drawAddVariant(Guid set, double x, double y, const Color& color, 
   if (recordHits_) hits_.addVariant = {set, {x, y, size, size}};
 }
 
+void Renderer::drawPresenceCursors(const Camera& camera, const Overlay& overlay, const OverlayStyle& style) {
+  if (overlay.presence.empty()) return;
+  const double dpr = viewport_.scaleX();
+  auto snap = [&](double v) { return std::round(v * dpr) / dpr; };
+  // The arrow pointer, its tip at (0, 0), 17.2 px tall (CSS px, whatever the zoom): the classic arrow with its tail.
+  static const Vec2 kArrow[] = {{0, 0}, {0, 15.2}, {3.9, 11.6}, {6.5, 17.2}, {8.9, 16.1}, {6.3, 10.6}, {11.3, 10.6}};
+  const size_t n = sizeof kArrow / sizeof kArrow[0];
+  // The rim: the arrow grown by `presenceRim` along each edge (mitred), filled white under the coloured arrow.
+  auto grown = [&](double d) {
+    double area = 0;
+    for (size_t i = 0; i < n; i++) area += kArrow[i].x * kArrow[(i + 1) % n].y - kArrow[(i + 1) % n].x * kArrow[i].y;
+    const double out = area > 0 ? -1 : 1;  // y down: a positive area runs clockwise on screen
+    std::vector<Vec2> pts(n);
+    for (size_t i = 0; i < n; i++) {
+      Vec2 a = kArrow[(i + n - 1) % n], b = kArrow[i], c = kArrow[(i + 1) % n];
+      auto normal = [&](Vec2 p, Vec2 q) {
+        Vec2 e = q - p;
+        double l = e.length();
+        return l > 1e-9 ? Vec2{e.y / l * out, -e.x / l * out} : Vec2{0, 0};
+      };
+      Vec2 n0 = normal(a, b), n1 = normal(b, c);
+      double k = 1 + n0.x * n1.x + n0.y * n1.y;
+      Vec2 m = k > 0.25 ? Vec2{(n0.x + n1.x) / k, (n0.y + n1.y) / k} : Vec2{(n0.x + n1.x) * 2, (n0.y + n1.y) * 2};
+      pts[i] = b + m * d;
+    }
+    return pts;
+  };
+  auto pathOf = [](const Vec2* pts, size_t count) {
+    geom::Path p;
+    p.moveTo(pts[0]);
+    for (size_t i = 1; i < count; i++) p.lineTo(pts[i]);
+    p.close();
+    return p;
+  };
+  const geom::Path arrow = pathOf(kArrow, n);
+  const std::vector<Vec2> rimPts = grown(style.presenceRim);
+  const geom::Path rim = pathOf(rimPts.data(), rimPts.size());
+  const CurveEntry* arrowEntry = curves_.path(arrow.hash() * 31 + 0x7072657365ull, [&](std::vector<float>& out) { geom::toQuads(arrow, 0.05, out); });
+  const CurveEntry* rimEntry = curves_.path(rim.hash() * 31 + 0x72696dull, [&](std::vector<float>& out) { geom::toQuads(rim, 0.05, out); });
+  const Color white{1, 1, 1, 1};
+  for (const PresencePeer& peer : overlay.presence) {
+    if (!peer.hasCursor) continue;
+    Vec2 tip = camera.toScreen(peer.cursor);
+    // Off the canvas (with room for the chip): nothing to draw.
+    if (tip.x < screen_.x - 400 || tip.y < screen_.y - 60 || tip.x > screen_.right() + 20 || tip.y > screen_.bottom() + 20) continue;
+    tip = {snap(tip.x), snap(tip.y)};
+    const Color ink{peer.color.r, peer.color.g, peer.color.b, 1};
+    const Mat2x3 at = Mat2x3::translate(tip.x, tip.y);
+    emitPath(rimEntry, at, false, Paint::solid(white, 1), {1, 1}, 1);
+    emitPath(arrowEntry, at, false, Paint::solid(ink, 1), {1, 1}, 1);
+    if (peer.name.empty()) continue;
+    // The name chip: white text, near-black on a light colour (WCAG relative luminance).
+    auto lin = [](double c) { return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4); };
+    double luminance = 0.2126 * lin(ink.r) + 0.7152 * lin(ink.g) + 0.0722 * lin(ink.b);
+    const bool light = luminance > style.presenceLightAbove;
+    const Color text = light ? Color{0, 0, 0, 1} : white;
+    const double textAlpha = light ? 0.9 : 1;
+    const double maxWidth = 240;  // a long name ends in "…"
+    const text::TextLayout* L = label(peer.name, "Medium", style.presenceLabelSize, -1, 1, style.presenceLabelWeight);
+    double tw = L ? L->size.x : 6.8 * static_cast<double>(peer.name.size());
+    if (tw > maxWidth) {
+      L = label(peer.name, "Medium", style.presenceLabelSize, maxWidth, 1, style.presenceLabelWeight);
+      tw = maxWidth;
+    }
+    double th = L && !L->lines.empty() ? L->lines[0].height : style.presenceLabelSize * 1.2;
+    double cw = std::round(tw + 2 * style.presenceChipPadX), ch = std::round(th + 2 * style.presenceChipPadY), r = style.presenceChipRadius;
+    double cx = snap(tip.x + style.presenceChipX), cy = snap(tip.y + style.presenceChipY);
+    emit(makeShape(Mat2x3::translate(cx, cy), {cw, ch}, ShapeKind::Rect, {r, r, r, r}, ink, 1, ink, 0, 0, 0), Pass::Shape);
+    if (L && !L->lines.empty()) drawGlyphs(*L, Mat2x3::translate(snap(cx + (cw - tw) / 2), snap(cy + (ch - th) / 2)), text, textAlpha);
+  }
+}
+
 void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera, const Overlay& overlay, const OverlayStyle& style) {
   const double dpr = viewport_.scaleX();  // snap to the canvas's real pixels
   if (recordHits_) hits_ = CanvasHits{};
@@ -278,9 +350,11 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       }
     }
   };
-  auto nodeOutline = [&](Guid id, double weight, bool ownShape) {
+  // `ink`: the outline's colour (none: the selection's, purple in a component; round 18: a peer's own colour).
+  auto nodeOutline = [&](Guid id, double weight, bool ownShape, const Color* ink = nullptr) {
     const Node* n = doc.get(id);
     if (!n) return;
+    const Color& color = ink ? *ink : colorOf(id);
     // Frames, components, instances and sections: their box, square whatever their corners (live Figma, the owner's
     // 79.png: a frame with a big radius hovered outlines its whole box, the rounded fill inside); shapes: their own
     // outline (80.png was ours, wrongly rounded on a frame).
@@ -290,9 +364,9 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       // Vectors, stars, booleans…, inverted or smoothed corners: their own outline.
       if (const NodeGeometry* g = doc.geometry(id)) {
         Mat2x3 m = view * doc.worldTransform(id);
-        if (!g->stroke.path.empty()) pathOutline(g->stroke.path, m, weight, colorOf(id));
+        if (!g->stroke.path.empty()) pathOutline(g->stroke.path, m, weight, color);
         else
-          for (auto& f : g->fills) pathOutline(f.path, m, weight, colorOf(id));
+          for (auto& f : g->fills) pathOutline(f.path, m, weight, color);
         return;
       }
     }
@@ -300,7 +374,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     Mat2x3 m = view * doc.worldTransform(id) * Mat2x3::translate(lb.x, lb.y);
     ShapeKind kind = ownShape && n->props.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;
     bool rounded = ownShape && n->props.isRectLike();
-    outline(m, {lb.w, lb.h}, kind, rounded ? geom::clampRadii(n->props.size, n->props.cornerRadii) : kSquare, weight, colorOf(id));
+    outline(m, {lb.w, lb.h}, kind, rounded ? geom::clampRadii(n->props.size, n->props.cornerRadii) : kSquare, weight, color);
   };
 
   // The pixel grid (View › Pixel grid): a line on every whole canvas unit from 300 % zoom (faint at 300 %, full from
@@ -590,6 +664,13 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     if (g.rect.w <= 0 || g.rect.h <= 0) continue;
     ScreenBox b = screenBox(view * g.world * Mat2x3::translate(g.rect.x, g.rect.y), {g.rect.w, g.rect.h}, dpr);
     emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, style.spacing, 0, style.spacing, 1, 1, 0), Pass::Shape);
+  }
+
+  // Round 18: other people's selections — each selected layer's own outline (the hover's rules: frames their box, shapes
+  // their outline, turned layers turned) in the peer's colour, 1.5 px whatever the zoom, under the local selection.
+  for (const PresencePeer& peer : overlay.presence) {
+    const Color ink{peer.color.r, peer.color.g, peer.color.b, 1};
+    for (Guid id : peer.selection) nodeOutline(id, style.presenceSelectionWidth, true, &ink);
   }
 
   // Selection: each layer's box, the selection's box, its handles and size badge.
@@ -974,6 +1055,8 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   drawScrollbars(overlay.scrollbars, style);
   // The `</>` button's tooltip over all of it.
   drawDevTooltip(style);
+  // Round 18: other people's cursors and names, over everything.
+  drawPresenceCursors(camera, overlay, style);
 }
 
 }  // namespace eng

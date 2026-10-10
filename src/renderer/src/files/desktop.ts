@@ -23,7 +23,7 @@ interface HomeBridge {
     import?: (folderId: string | null, paths?: string[]) => Promise<ImportResult>;
     saveLocalCopy?: (fileKey: string) => Promise<{ path: string } | { cancelled: true }>;
   };
-  home?: { onReveal?: (cb: (r: { fileKey: string }) => void) => () => void };
+  home?: { onReveal?: (cb: (r: { fileKey: string }) => void) => () => void; onOpenShared?: (cb: (r: { key: string }) => void) => () => void };
   menu?: { onCommand?: (cb: (c: { id: string }) => void) => () => void; setState?: (patch: { enabled?: Record<string, boolean>; checked?: Record<string, boolean> }) => void };
 }
 
@@ -115,6 +115,20 @@ export function setMenuState(enabled: Record<string, boolean>): void {
 }
 
 /** "Show in file browser" / an editor's "Back to files": main asks Home to show a file. */
+/** A shared file's link opened from the system (desktop), or `?shared=<key>` on the page (browser). */
+export function onOpenShared(cb: (key: string) => void): () => void {
+  if (typeof location !== "undefined") {
+    const url = new URL(location.href);
+    const key = url.searchParams.get("shared");
+    if (key) {
+      url.searchParams.delete("shared");
+      history.replaceState(history.state, "", url.toString());
+      queueMicrotask(() => cb(key));
+    }
+  }
+  return bridge()?.home?.onOpenShared?.((r) => cb(String(r.key))) ?? (() => {});
+}
+
 export function onReveal(cb: (fileKey: FileKey) => void): () => void {
   return bridge()?.home?.onReveal?.((r) => cb(String(r.fileKey))) ?? (() => {});
 }

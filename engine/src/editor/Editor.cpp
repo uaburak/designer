@@ -879,6 +879,15 @@ Overlay Editor::overlay() const {
   if (proto_.on) protoOverlay(o);
   scrollbarOverlay(o);  // round 16
   devOverlay(o);
+  // Round 18: other people — their selected layers that exist on this page (others ignored), their cursors.
+  o.presence.reserve(presence_.size());
+  for (const PresencePeer& peer : presence_) {
+    PresencePeer p = peer;
+    p.selection.clear();
+    for (Guid id : peer.selection)
+      if (doc_.has(id) && doc_.pageOf(id) == page_ && id != page_) p.selection.push_back(id);
+    if (p.hasCursor || !p.selection.empty()) o.presence.push_back(std::move(p));
+  }
   if (gesture_ == Gesture::Pencil && pencilPoints_.size() > 1)
     for (size_t i = 1; i < pencilPoints_.size(); i++)
       o.curves.push_back({pencilPoints_[i - 1], pencilPoints_[i - 1], pencilPoints_[i], pencilPoints_[i], 1, true});
@@ -1321,6 +1330,25 @@ Status Editor::setSelection(const std::vector<Guid>& ids) {
   if (!live.empty() && doc_.pageOf(live[0]) != page_) setCurrentPage(doc_.pageOf(live[0]));
   changeSelection(std::move(live));
   return OK;
+}
+
+void Editor::setPresence(std::vector<PresencePeer> peers) {
+  if (peers.empty() && presence_.empty()) return;
+  presence_ = std::move(peers);
+  needsRender_ = true;
+}
+
+void Editor::centerOn(Vec2 world, double zoom) {
+  stopCameraAnimation();
+  zooming_ = false;
+  double z = Camera::clampZoom(std::isfinite(zoom) && zoom > 0 ? zoom : camera_.zoom);
+  Vec2 c = visibleCentre();
+  changeCamera({c.x - world.x * z, c.y - world.y * z, z});
+}
+
+Camera Editor::viewCenter() const {
+  Vec2 w = camera_.toWorld(visibleCentre());
+  return {w.x, w.y, camera_.zoom};
 }
 
 void Editor::setHover(const std::vector<Guid>& ids) {

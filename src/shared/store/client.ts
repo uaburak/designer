@@ -414,6 +414,8 @@ export class StoreClient implements StoreApi {
     listRemote: () => this.call("multiplayer.listRemote", []),
     openShared: (key) => this.call("multiplayer.openShared", [key]),
     members: (fileKey) => this.call("multiplayer.members", [fileKey]),
+    fileInfo: (fileKey) => this.call("multiplayer.fileInfo", [fileKey]),
+    setLinkAccess: (fileKey, access) => this.call("multiplayer.setLinkAccess", [fileKey, access]),
     invite: (fileKey, email, role) => this.call("multiplayer.invite", [fileKey, email, role]),
     removeMember: (fileKey, email) => this.call("multiplayer.removeMember", [fileKey, email]),
     presence: (fileKey, data) => this.call("multiplayer.presence", [fileKey, data]),

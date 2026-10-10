@@ -1,5 +1,16 @@
 # Engine: build, run, test, API (milestones E0 + E1 + E2 + E3 + E4 + E5, E6 components, E6 variables + styles, E6 libraries; Figma parity rounds 3–4; import fidelity; E7 export; E8 prototyping; E9 WebGPU; round 5 layout + GRID; the text round; round 6 video, slots and grid, Dev Mode; round 7 and 8 render; round 9 canvas chrome; round 10 canvas chrome; round 10 commands; round 11 canvas chrome; round 12 canvas grid; round 12 vector edit More menu tools)
 
+
+## Round 18 — presence: other people's cursors and selections, camera helpers (2026-10-11)
+
+Status: **done**. Multiplayer (`docs/multiplayer.md`) gets its canvas side: the engine draws the other people in the room as editor chrome (docs/engine.md §9.6).
+
+- **API**: `engine_set_presence(h, json)` (TS `Engine.setPresence(peers: PresencePeer[])`, `PresencePeer {id, name, color, cursor, selection}`), `engine_screen_to_world`, `engine_center_on`, `engine_view_center` (TS `screenToWorld(x, y)`, `centerOn(x, y, zoom)`, `viewCenter()`); `exports.txt`, `EngineExports.ts` and `USED_EXPORTS` list them.
+- **Engine**: `PresencePeer` / `Overlay::presence` (render/Renderer.h), `Editor::setPresence` / `presence()` / `centerOn` / `viewCenter` / `screenToWorld`; `Editor::overlay()` keeps only selected layers on the page shown. Overlay.cpp: peers' selections through `nodeOutline` in their colour (1.5 px) before the local selection; `Renderer::drawPresenceCursors` last (arrow path with a white rim through the curve cache, name chip, white or near-black text by luminance). Metrics in `OverlayStyle::presence*` (unverified against live captures).
+- Never in exports, thumbnails, `render_region`, the content cache or presentation: only `engine_render`'s editor overlay has it.
+
+**Checks**: `npm run engine:test` 599 / 599 (`tests/unit/r18.presence.test.cpp`, 6 cases: store / replace / clear, unknown GUIDs ignored, no document change or undo; outlines 1.5 px at 100 % and 400 %, a turned layer, under the local selection; cursors after all local chrome, chip at (+12, +18), never hovered; absent from an `Overlay none` render; screenToWorld / centerOn / viewCenter round trips with insets and zoom clamping; the C ABI); `SHOT_ONLY=r18 npm run engine:shot` 5 ok on WebGL2 and on WebGPU (`88-r18-presence.png`); release wasm rebuilt; `npm run typecheck` green.
+
 ## Round 12 — Vector edit More menu tools: Shape builder (M), Variable width (shift+W), Width profile, Flatten on a component (2026-10-09, branch `r12-vector-draw`)
 
 Status: **done** (checks below). The engine's part of the group (editor side and what is verified against live: `docs/editor.md` "Round 12 — Vector edit More menu tools"; schema: `docs/schema.md` §5.9). What live has no capture of follows help.figma.com and the plugin API, **unverified**.

@@ -15,9 +15,18 @@ export function multiplayerApi(m: MultiplayerService): MultiplayerRepository {
     listRemote: () => m.listRemote(),
     openShared: (key) => m.openShared(String(key)),
     members: (fileKey) => m.members(fileKey),
+    fileInfo: (fileKey) => m.fileInfo(fileKey),
+    setLinkAccess: (fileKey, access) => m.setLinkAccess(fileKey, access === "viewer" || access === "editor" ? access : "none"),
     invite: (fileKey, email, role) => m.invite(fileKey, String(email), role === "viewer" ? "viewer" : "editor"),
     removeMember: (fileKey, email) => m.removeMember(fileKey, String(email)),
     presence: (fileKey, data) => m.presence(fileKey, data),
-    watch: (listener) => m.onFileState((fileKey, state) => listener({ fileKey, state })),
+    watch: (listener) => {
+      const a = m.onFileState((fileKey, state) => listener({ fileKey, state }));
+      const b = m.onReplaced((from, to) => void m.fileState(from).then((state) => listener({ fileKey: from, state, replacedBy: to })));
+      return () => {
+        a();
+        b();
+      };
+    },
   };
 }

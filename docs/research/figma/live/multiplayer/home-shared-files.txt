@@ -1,0 +1,15 @@
+Live Figma 2026-10-11 [viewport 1440x900, dark]: Home › Recents › "Shared files" tab (URL …/recents-and-sharing/shared-with-you). Container = the main column right of the sidebar (x relative to it). Recommended-resources banner rows dropped.
+Tabs row (y 410): three tab buttons, 24 high, radius 5px — selected bg #383838 text #ffffff 11px/550, others bg #2c2c2c text rgba(255,255,255,0.698):
+32,410 104x24 button "Recently viewed"
+140,410 79x24 button "Shared files" (SELECTED)
+223,410 94x24 button "Shared folders"
+Filters at the right of the same row (each 24 high, bg #2c2c2c, r=5px, 11px/450 #ffffff, a chevron):
+659,410 113x24 "All organizations"
+780,410 87x24 "Shared with"   875,410 66x24 "Anyone"     (a label + value pair: "Shared with ▾ Anyone ▾")
+949,410 64x24 "All files"
+1021,410 88x24 "Date shared"
+1117,410 48x24 segmented View mode: Show as grid (on) | Show as list
+Cards (grid, 356x260, gap 32 x, 32 y; border 1px #444444 r=13px; thumbnail 354x199; footer 354x59 bg #2c2c2c with a top border):
+34,456 card [Untitled, Design file]: 16x16 file glyph at (17,22) of the footer; name 11px/550 #ffffff at (45,14); second line 11px/450 rgba(255,255,255,0.698) "From Aras" — the sharer, "From <name>"
+422,456 card [zuzotify] "From Aras"; 809,456 card [Travel App Prototype - Design, Prototype file] "From Kh. Khalid Hosen"
+Sidebar (for reference): "Recents" (no separate "Shared with me" item) — shared files live in Recents' second tab.

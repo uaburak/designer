@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import { Avatar, Banner, Button, Select, TextInput, showToast } from "@/ds";
 import { getStoreClient } from "@/store";
-import type { FileMember, FileShareState } from "@shared/multiplayer/types";
+import type { FileMember, FileShareState, LinkAccess, SharedFileInfo } from "@shared/multiplayer/types";
 import { useAccount } from "../files/account";
 import type { EditorController } from "./controller";
 import styles from "./ShareDialog.module.css";
@@ -14,6 +14,12 @@ import styles from "./ShareDialog.module.css";
 const ROLES = [
   { value: "editor", label: "can edit" },
   { value: "viewer", label: "can view" },
+];
+
+const LINK = [
+  { value: "none", label: "Only people invited" },
+  { value: "viewer", label: "Anyone with the link can view" },
+  { value: "editor", label: "Anyone with the link can edit" },
 ];
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -38,6 +44,7 @@ export function SharePeople({ ed }: { ed: EditorController }) {
   const [emails, setEmails] = useState("");
   const [role, setRole] = useState<"editor" | "viewer">("editor");
   const [busy, setBusy] = useState(false);
+  const [info, setInfo] = useState<SharedFileInfo | null>(null);
   const fileKey = source?.fileKey ?? null;
   const signedIn = !!account.state?.user;
 
@@ -48,7 +55,10 @@ export function SharePeople({ ed }: { ed: EditorController }) {
       const s = await store.multiplayer.fileState(fileKey);
       if (!live) return;
       setState(s);
-      if (s.shared && signedIn) setMembers(await store.multiplayer.members(fileKey).catch(() => []));
+      if (s.shared && signedIn) {
+        setMembers(await store.multiplayer.members(fileKey).catch(() => []));
+        if (live) setInfo(await store.multiplayer.fileInfo(fileKey).catch(() => null));
+      }
     };
     void load().catch(() => {});
     const off = store.multiplayer.watch((e) => e.fileKey === fileKey && setState(e.state));
@@ -80,6 +90,7 @@ export function SharePeople({ ed }: { ed: EditorController }) {
       let m = members;
       for (const email of list) m = await store.multiplayer.invite(fileKey, email, role);
       setMembers(m);
+      setInfo(await store.multiplayer.fileInfo(fileKey).catch(() => null));
       setEmails("");
       showToast({ message: list.length === 1 ? `Invited ${list[0]}` : `Invited ${list.length} people` });
     } catch (e) {
@@ -95,6 +106,22 @@ export function SharePeople({ ed }: { ed: EditorController }) {
     } catch (e) {
       showToast({ kind: "error", message: message(e) });
     }
+  };
+
+  const setLink = async (access: LinkAccess) => {
+    try {
+      setInfo(await store.multiplayer.setLinkAccess(fileKey, access));
+    } catch (e) {
+      showToast({ kind: "error", message: message(e) });
+    }
+  };
+
+  const copyLink = () => {
+    if (!info) return;
+    void navigator.clipboard?.writeText(info.link).then(
+      () => showToast({ message: info.linkAccess === "none" ? "Link copied. Only people invited can open it." : "Link copied" }),
+      () => showToast({ kind: "error", message: "Couldn't copy the link" }),
+    );
   };
 
   if (!account.available) return null;
@@ -150,6 +177,14 @@ export function SharePeople({ ed }: { ed: EditorController }) {
               );
             })}
           </ul>
+          {info && (
+            <div className={styles.invite} data-share-link={info.linkAccess}>
+              {state.role === "owner" ? <Select label="Link access" value={info.linkAccess} options={LINK} onChange={(v) => void setLink(v as LinkAccess)} /> : <span className={styles.role}>{LINK.find((l) => l.value === info.linkAccess)?.label}</span>}
+              <Button variant="secondary" onClick={copyLink} data-share="copy-link">
+                Copy link
+              </Button>
+            </div>
+          )}
           <p className={styles.note} data-share-connection={state.connection}>
             {state.connection === "live" ? (here.length ? `Live · ${here.length + 1} people in this file` : "Live · changes are shared as you make them") : state.connection === "connecting" ? "Connecting…" : "Offline · your changes are kept and sent when you’re back online"}
           </p>

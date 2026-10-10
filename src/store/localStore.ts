@@ -164,6 +164,10 @@ export class LocalStore {
             else delete s.links[fileKey];
           }),
         log,
+        hasBlobs: (sha1s) => blobs.has(sha1s),
+        getBlob: (sha1) => blobs.get(sha1),
+        putBlob: async (bytes) => void (await blobs.put(bytes)),
+        headSnapshot: async (fileKey) => codec.encodeMessage(currentMessage(await readSnapshotFile((await files.compactedHead(fileKey)).path))),
       },
       { fetch: (...a) => fetch(...a), WebSocket: globalThis.WebSocket as never, random: () => randomInt(0, 2 ** 32) / 2 ** 32 },
     );

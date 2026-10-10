@@ -112,6 +112,16 @@ struct OverlayStyle {
   Color noodleChangeToText = Color::hex(0x1D0736);
   double noodleLabelHeight = 30, noodleLabelPadding = 12, noodleLabelRadius = 3;
   Color scrollbarFill{0, 0, 0, 0.3f}, scrollbarFillHover{0, 0, 0, 0.4f}, scrollbarRim{1, 1, 1, 0.31f};
+  // Round 18, multiplayer presence (Figma's multiplayer cursor; unverified against live captures): a peer's selected
+  // layers outlined 1.5 px in their colour; their cursor an arrow ~17 px tall filled with it in a 1 px white rim, and a
+  // name chip (Inter 12 semibold, 6 / 3 px padding, corners 4) whose top left is `presenceChipX` / `presenceChipY`
+  // from the arrow's tip — white text, near-black on a light colour (relative luminance > 0.6).
+  double presenceSelectionWidth = 1.5;
+  double presenceRim = 1;
+  double presenceChipX = 12, presenceChipY = 18;
+  double presenceChipPadX = 6, presenceChipPadY = 3, presenceChipRadius = 4;
+  double presenceLabelSize = 12, presenceLabelWeight = 600;
+  double presenceLightAbove = 0.6;
 
   static Color chrome(Theme t, ds::ChromeColor c) {
     const float* v = (t == Theme::Dark ? ds::kChromeDark : ds::kChromeLight)[static_cast<size_t>(c)];

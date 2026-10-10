@@ -1081,6 +1081,16 @@ The owner runs several agent chats at once and keeps working on the same canvas:
 - Native tests: `r17.actors.test.cpp` (7 cases). Wasm: `agents.wasm.test.ts` (two chats and the user at once; a write waiting for a scrub; set_selection at the turn's end).
 - Limits: an actor's undo of a frame it created removes the frame with whatever someone else put inside it since; yields are per field, not per value inside a field (two writers of one `fillPaints` list: the last one's whole list wins); `APPLY_REMOTE` doesn't yield yet (the prototype player writes through it) — Phase 6 makes a remote session an actor.
 
+### 9.6 Presence: other people on the canvas (round 18, multiplayer)
+
+Multiplayer's data side is `docs/multiplayer.md`; the engine only **draws** the other people in the room, as editor chrome — never in the document, the journal, undo, exports, thumbnails, `render_region`, the content cache's tiles or presentation (only `engine_render`'s editor overlay carries them: `Overlay::presence`, filled by `Editor::overlay()`; every other render passes an empty `Overlay`).
+
+- **`engine_set_presence(h, json)`** → status. A JSON array (or `{"peers": […]}`) of `{"id", "name", "color": "#rrggbb", "cursor": {"x","y"} | null, "selection": ["s:l", …]}`, page coordinates on the page shown; replaces the whole set (`[]` clears) and asks for a frame. Malformed GUIDs are skipped; selected GUIDs not in the document or not on the current page are ignored at draw time (they may arrive later). TS: `Engine.setPresence(peers: PresencePeer[])` (the TS side filters peers to the current page).
+- **Selections**: each selected layer outlined in the peer's colour, `presenceSelectionWidth` 1.5 CSS px whatever the zoom, along the hover outline's rules (`nodeOutline`: frames / components / instances / sections their square box, shapes their own outline, turned layers turned); no handles, no badge; drawn just before the local selection's chrome (so under it).
+- **Cursors**: Figma's arrow pointer (tip at the point, 17.2 CSS px tall) filled with the peer's colour over a 1 px white rim (the arrow grown, mitred), and a name chip whose top left is (+12, +18) from the tip — corners 4, padding 6 / 3, Inter 12 at weight 600, white text, or black at 0.9 when the colour's WCAG relative luminance is above 0.6 (`OverlayStyle::presence*`). Drawn last in the overlay (over the selection chrome, the scrollbars and the canvas tooltip), never hit-tested; names longer than 240 px end in "…".
+- **Camera helpers**: `engine_screen_to_world(h, x, y)` → `{"x","y"}` (canvas CSS px → page, the camera now); `engine_center_on(h, x, y, zoom)` — the camera putting page point (x, y) at the centre of the visible part (`Viewport::visible`, the insets) at `zoom` (clamped; unsnapped, so it round-trips; `CAMERA_CHANGED`); `engine_view_center(h)` → `{"x","y","zoom"}`, the page point at the visible centre. TS: `screenToWorld(x, y)`, `centerOn(x, y, zoom)`, `viewCenter()` — follow a peer's view, or broadcast your own.
+- Tests: native `r18.presence.test.cpp`; `SHOT_ONLY=r18 npm run engine:shot` (two cursors, two selections, cleared).
+
 ### 9.4 Coalescing rules (one undo step each)
 - A gesture, from the pointer-down threshold to pointer-up.
 - A panel scrub: `txn_begin` … `txn_commit`.

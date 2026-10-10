@@ -6,6 +6,7 @@ import { startAgents, stopAgents } from "./agents/host";
 import { askStoreGone, asked, testAnswers } from "./dialogs";
 import { startFontWatch, warmFontIndex } from "./fonts";
 import { checkSession, initAccount } from "./account";
+import { keyFromLink } from "../shared/multiplayer/types";
 import { registerIpc } from "./ipc";
 import { installAppMenu } from "./menu";
 import { DEV_URL, handleScheme, isAppUrl, registerScheme } from "./protocol";
@@ -41,10 +42,37 @@ function windowOrNew() {
   return ctl;
 }
 
+/** designer://open?key=… — a shared file's link (the server's /f/<key> page hands it over; docs/multiplayer.md §3). */
+let pendingLink: string | null = null;
+function openLink(url: string) {
+  if (!url.startsWith("designer:")) return;
+  const key = keyFromLink(url);
+  if (!key) return;
+  if (!app.isReady()) return void (pendingLink = key);
+  const ctl = windowOrNew();
+  // A new window's Home is still loading: the tab manager waits for it.
+  setTimeout(() => ctl.tabs.openSharedLink(key), 0);
+}
+const linkIn = (argv: string[]) => argv.find((a) => a.startsWith("designer:"));
+if (process.defaultApp && process.argv[1]) app.setAsDefaultProtocolClient("designer", process.execPath, [join(process.cwd(), process.argv[1])]);
+else app.setAsDefaultProtocolClient("designer");
+app.on("open-url", (e, url) => {
+  e.preventDefault();
+  openLink(url);
+});
+{
+  const first = linkIn(process.argv);
+  if (first) pendingLink = keyFromLink(first);
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", () => void windowOrNew());
+  app.on("second-instance", (_e, argv) => {
+    const link = linkIn(argv);
+    if (link) openLink(link);
+    else void windowOrNew();
+  });
 
   app.whenReady().then(() => {
     app.setAboutPanelOptions({ applicationName: "DesignerV2", applicationVersion: app.getVersion(), copyright: "Burak Koç" });
@@ -72,7 +100,9 @@ if (!app.requestSingleInstanceLock()) {
     startStoreHost(() => {
       void askStoreGone().then((answer) => (answer === "quit" ? app.quit() : retryStoreHost()));
     });
-    openWindow();
+    const first = openWindow();
+    // A shared file's link the app was started with.
+    if (pendingLink) first.tabs.openSharedLink(pendingLink);
     // The agents' MCP server (127.0.0.1, a token): MCP clients and the Agents tab reach the open files through it.
     void startAgents().catch((err) => console.warn("[agents] the MCP server didn't start:", err));
     // The font index (a cached JSON after the first launch) is ready before the first file's editor asks for it.

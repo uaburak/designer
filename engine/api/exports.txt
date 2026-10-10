@@ -23,6 +23,10 @@ _engine_set_viewport
 _engine_set_viewport_insets
 _engine_set_camera
 _engine_get_camera
+_engine_screen_to_world
+_engine_center_on
+_engine_view_center
+_engine_set_presence
 _engine_set_theme
 _engine_pointer
 _engine_wheel

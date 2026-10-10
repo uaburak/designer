@@ -127,7 +127,9 @@ export class Db {
   async roleOf(key: string, userId: string): Promise<Role | null> {
     const r = await this.d1
       .prepare(
-        `SELECT CASE WHEN f.owner_id = ?2 THEN 'owner' ELSE m.role END AS role
+        `SELECT CASE WHEN f.owner_id = ?2 THEN 'owner'
+                     WHEN m.role = 'editor' OR f.link_access = 'editor' THEN 'editor'
+                     WHEN m.role = 'viewer' OR f.link_access = 'viewer' THEN 'viewer' END AS role
          FROM files f LEFT JOIN members m ON m.file_key = f.key AND m.user_id = ?2
          WHERE f.key = ?1`,
       )
@@ -147,6 +149,16 @@ export class Db {
       .bind(userId)
       .all<{ key: string; name: string; owner_id: string; created_at: number; updated_at: number; role: Role }>();
     return results.map((r) => ({ key: r.key, name: r.name, ownerId: r.owner_id, role: r.role, createdAt: r.created_at, updatedAt: r.updated_at }));
+  }
+
+  /** A file's name and its link setting */
+  async file(key: string): Promise<{ key: string; name: string; ownerId: string; linkAccess: "none" | "viewer" | "editor" } | null> {
+    const r = await this.d1.prepare(`SELECT key, name, owner_id, link_access FROM files WHERE key = ?1`).bind(key).first<{ key: string; name: string; owner_id: string; link_access: "none" | "viewer" | "editor" }>();
+    return r ? { key: r.key, name: r.name, ownerId: r.owner_id, linkAccess: r.link_access } : null;
+  }
+
+  async setLinkAccess(key: string, access: "none" | "viewer" | "editor", now: number): Promise<void> {
+    await this.d1.prepare(`UPDATE files SET link_access = ?2, updated_at = ?3 WHERE key = ?1`).bind(key, access, now).run();
   }
 
   async renameFile(key: string, name: string, now: number): Promise<void> {

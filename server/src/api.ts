@@ -102,6 +102,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (path === "/auth/callback" && m === "GET") return callback(url, deps);
   if (path === "/auth/token" && m === "POST") return token(req, deps);
   if (path === "/auth/dev" && m === "POST") return devSignIn(req, deps);
+  const link = /^\/f\/([A-Za-z0-9_-]{6,64})$/.exec(path);
+  if (link && m === "GET") return linkPage(link[1]);
 
   const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
   const isSocket = parts[0] === "files" && parts[2] === "ws" && parts.length === 3;
@@ -144,9 +146,23 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   };
 
   if (parts.length === 2) {
+    if (m === "GET") {
+      const f = await deps.db.file(key);
+      return json({ key, name: f?.name ?? "Untitled", role, linkAccess: f?.linkAccess ?? "none", link: `${url.origin}/f/${key}` });
+    }
     if (m === "PATCH") {
-      atLeast("editor");
-      await deps.db.renameFile(key, cleanName((await readJson<{ name?: string }>(req)).name), deps.now());
+      const body = await readJson<{ name?: string; linkAccess?: string }>(req);
+      if (body.linkAccess !== undefined) {
+        atLeast("owner");
+        if (body.linkAccess !== "none" && body.linkAccess !== "viewer" && body.linkAccess !== "editor") throw new HttpError(400, "linkAccess is none, viewer or editor");
+        await deps.db.setLinkAccess(key, body.linkAccess, deps.now());
+        // Someone in by the link alone loses it with "none": their sockets reconnect and are refused.
+        if (body.linkAccess !== "editor") await deps.rooms.fetch(key, "/room/revoke-link", { method: "POST" });
+      }
+      if (body.name !== undefined) {
+        atLeast("editor");
+        await deps.db.renameFile(key, cleanName(body.name), deps.now());
+      }
       return json({ ok: true });
     }
     if (m === "DELETE") {
@@ -193,6 +209,23 @@ async function route(req: Request, deps: Deps): Promise<Response> {
         const body = await req.arrayBuffer();
         if (body.byteLength > MAX_SNAPSHOT_BYTES) throw new HttpError(413, "snapshot too large");
         return deps.rooms.fetch(key, `/room/snapshot?seq=${seq}`, { method: "PUT", body, identity });
+      }
+      break;
+    }
+    case "blobs": {
+      // Images a shared file uses, by SHA-1, kept by its room (docs/multiplayer.md §4).
+      if (parts.length === 4 && parts[3] === "missing" && m === "POST") {
+        const { sha1s } = await readJson<{ sha1s?: unknown }>(req);
+        if (!Array.isArray(sha1s) || sha1s.length > 1000 || !sha1s.every((s) => typeof s === "string" && /^[0-9a-f]{40}$/.test(s))) throw new HttpError(400, "sha1s");
+        return deps.rooms.fetch(key, "/room/blobs/missing", { method: "POST", body: JSON.stringify({ sha1s }), identity });
+      }
+      if (parts.length !== 4 || !/^[0-9a-f]{40}$/.test(parts[3])) break;
+      if (m === "GET") return deps.rooms.fetch(key, `/room/blobs/${parts[3]}`, { method: "GET", identity });
+      if (m === "PUT") {
+        atLeast("editor");
+        const body = await req.arrayBuffer();
+        if (body.byteLength > 40 * 1024 * 1024) throw new HttpError(413, "image too large");
+        return deps.rooms.fetch(key, `/room/blobs/${parts[3]}`, { method: "PUT", body, identity });
       }
       break;
     }
@@ -320,6 +353,19 @@ async function devSignIn(req: Request, deps: Deps): Promise<Response> {
   if (!body.email) throw new HttpError(400, "email");
   const user = await deps.db.upsertUser({ sub: `dev:${normalizeEmail(body.email)}`, email: body.email, name: body.name ?? null }, deps.now());
   return issueSession(user, deps);
+}
+
+/** A file's link opened in a browser: a page that hands it to the desktop app (designer://open?key=…). */
+function linkPage(key: string): Response {
+  const app = `designer://open?key=${encodeURIComponent(key)}`;
+  const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Open in DesignerV2</title>
+<body style="font:14px -apple-system,system-ui;margin:0;display:grid;place-items:center;min-height:100vh;background:#f5f5f5;color:#1e1e1e">
+<div style="text-align:center;max-width:360px;padding:24px"><h1 style="font-size:18px;font-weight:600;margin:0 0 8px">Open this file in DesignerV2</h1>
+<p style="margin:0 0 20px;color:#666">You need the desktop app and to be logged in with an account that has access.</p>
+<a href="${app}" style="display:inline-block;padding:8px 16px;border-radius:6px;background:#0d99ff;color:#fff;text-decoration:none;font-weight:500">Open in the app</a>
+<p style="margin:20px 0 0;color:#888;font-size:12px">Or in DesignerV2: Home › Shared with me › paste this link.</p></div>
+<script>location.href=${JSON.stringify(app)}</script>`;
+  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
 function page(status: number, text: string): Response {

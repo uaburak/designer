@@ -8,10 +8,11 @@ import { Breadcrumb, Button, ContextMenu, EmptyState, Icon, IconButton, MenuButt
 import { keys } from "@/ds/util/keys";
 import type { FileKey, FileListItem, Folder, FolderId, Prefs } from "@shared/store/types";
 import { accountMenu, useAccount } from "./account";
+import { getStoreClient } from "@/store";
 import { SharedFilesDialog } from "./SharedFiles";
 import * as act from "./actions";
 import { ConfirmDialog, MoveDialog, NewFolderDialog } from "./dialogs";
-import { importWithShell, newDesignFile, onReveal, onShellCommand, openFile, pickFigFiles, saveLocalCopy, setMenuState, type OpenDeps } from "./desktop";
+import { importWithShell, newDesignFile, onOpenShared, onReveal, onShellCommand, openFile, pickFigFiles, saveLocalCopy, setMenuState, type OpenDeps } from "./desktop";
 import { ItemsView } from "./ItemsView";
 import { allFoldersMenu, blankMenu, itemMenu, trashMenu } from "./menus";
 import {
@@ -457,6 +458,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   const keyRef = useRef(handleKey);
   const commandRef = useRef<(id: string) => void>(() => {});
   const revealRef = useRef<(fileKey: FileKey) => void>(() => {});
+  const openSharedRef = useRef<(key: string) => void>(() => {});
   useLayoutEffect(() => {
     keyRef.current = handleKey;
     commandRef.current = (id) => {
@@ -484,16 +486,25 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
       }
     };
     revealRef.current = (fileKey) => void reveal(fileKey);
+    openSharedRef.current = (key) =>
+      void getStoreClient()
+        .multiplayer.openShared(key)
+        .then(
+          ({ fileKey }) => openFile(fileKey, {}, deps),
+          (e: unknown) => toast({ kind: "error", message: `Couldn’t open the shared file: ${e instanceof Error ? e.message : String(e)}` }),
+        );
   });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => keyRef.current(e);
     document.addEventListener("keydown", onKey);
     const off = onShellCommand((id) => commandRef.current(id));
     const offReveal = onReveal((k) => revealRef.current(k));
+    const offShared = onOpenShared((key) => openSharedRef.current(key));
     return () => {
       document.removeEventListener("keydown", onKey);
       off();
       offReveal();
+      offShared();
     };
   }, []);
 

@@ -248,6 +248,17 @@ struct CanvasHits {
   } addVariant;
 };
 
+// Round 18: another person in the file (docs/engine.md §9.6 presence): their room session, name, multiplayer colour,
+// cursor (page coordinates, on the page shown) and selection. Chrome only: never in the document or undo.
+struct PresencePeer {
+  uint32_t id = 0;
+  std::string name;
+  Color color;
+  bool hasCursor = false;
+  Vec2 cursor;
+  std::vector<Guid> selection;
+};
+
 // What the editor wants drawn over the scene.
 struct Overlay {
   std::vector<Guid> hover;  // outlined (the canvas hover, or rows hovered in Layers)
@@ -421,6 +432,10 @@ struct Overlay {
   ScrollbarOverlay scrollbars;  // round 16: the canvas scrollbars
   // Dev Mode: annotations, measurements, statuses, focus view.
   DevOverlay dev;
+  // Round 18: other people in the file (multiplayer presence, Editor::setPresence) — their selections outlined in their
+  // colour under the local selection's chrome, their cursors with name chips over everything. Only the editor's
+  // overlay carries them: exports, thumbnails, the content cache and presentation never draw an Overlay's presence.
+  std::vector<PresencePeer> presence;
 };
 
 // Where the renderer gets TEXT nodes' layouts (the editor caches them).
@@ -718,6 +733,8 @@ class Renderer {
   void drawDevTooltip(const OverlayStyle& style);
   // Round 16: the canvas scrollbars (render/Scrollbars.cpp), over everything but the tooltip.
   void drawScrollbars(const ScrollbarOverlay& bars, const OverlayStyle& style);
+  // Round 18: other people's cursors with their name chips (Overlay.cpp), over everything else in the overlay.
+  void drawPresenceCursors(const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
   bool devTooltip_ = false;  // drawDevIcon's tooltip, drawn at the overlay's end over the button's screen box
   Rect devTooltipUnder_;
   // Round 15: auto layout's padding and gap handles, the hatched / outlined area and the value badge

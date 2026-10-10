@@ -9,8 +9,9 @@
  * been (to recognise its own frames in a catch-up after a reconnect).
  */
 import { encodeChangesUp, decodeChangesDown, type PeerInfo, type Role, type ServerControl } from "../../shared/multiplayer/protocol";
-import type { FileMember, FileShareState, MultiplayerSession, MultiplayerStatus, RemoteFile } from "../../shared/multiplayer/types";
+import type { FileMember, FileShareState, LinkAccess, MultiplayerSession, MultiplayerStatus, RemoteFile, SharedFileInfo } from "../../shared/multiplayer/types";
 import { decodeMessage } from "../../shared/schema/codec";
+import { messageImageHashes } from "../../shared/schema/patch";
 import { StoreError } from "../../shared/store/protocol";
 import type { FileChange, Unsubscribe } from "../../shared/store/repositories";
 import type { FileKey, FileMeta } from "../../shared/store/types";
@@ -33,6 +34,12 @@ export interface MultiplayerHost {
   saveInstallationId(id: string): Promise<void>;
   saveLink(fileKey: FileKey, link: unknown): Promise<void>;
   log(level: "debug" | "info" | "warn" | "error", message: string, detail?: unknown): void;
+  /** Images (and other blobs frames refer to by SHA-1): which the store has, their bytes, new ones */
+  hasBlobs(sha1s: string[]): Promise<boolean[]>;
+  getBlob(sha1: string): Promise<Uint8Array>;
+  putBlob(bytes: Uint8Array): Promise<void>;
+  /** The file's document at its journal head — snapshot and frames merged — as a kiwi Message (for the room's compaction) */
+  headSnapshot(fileKey: FileKey): Promise<Uint8Array>;
 }
 
 interface WebSocketLike {
@@ -52,6 +59,8 @@ export interface MultiplayerDeps {
   random(): number;
   /** Milliseconds before reconnect attempt n (1, 2, …) */
   backoff?(attempt: number): number;
+  /** Frames past the room's snapshot before a client compacts (default COMPACT_EVERY) */
+  compactEvery?: number;
 }
 
 interface LinkRecord {
@@ -74,6 +83,16 @@ export interface SessionOptions {
 
 const CLOSE_UNSHARED = 4001;
 const CLOSE_ACCESS = 4003;
+/** A client uploads a new snapshot when the room holds this many frames past the last one (the room keeps a tail) */
+export const COMPACT_EVERY = 1000;
+
+const imagesOf = (message: Uint8Array): string[] => {
+  try {
+    return [...messageImageHashes(decodeMessage(message))];
+  } catch {
+    return [];
+  }
+};
 
 export class MultiplayerService {
   private session: MultiplayerSession | null = null;
@@ -134,6 +153,7 @@ export class MultiplayerService {
     this.needOrdinal();
     const key = roomKeyFor(fileKey, this.deps.random);
     await this.api("POST", "/files", { key, name: meta.name });
+    await this.uploadBlobs(key, imagesOf(input.snapshot));
     await this.api("PUT", `/files/${key}/snapshot?seq=0`, input.snapshot);
     st.links[fileKey] = { key, since: 0, acked: input.headSeq, sessions: [], role: "owner" };
     await this.persist(fileKey);
@@ -155,23 +175,104 @@ export class MultiplayerService {
     const had = Object.entries(st.links).find(([, l]) => l.key === key);
     if (had && this.host.getMeta(had[0])) return { fileKey: had[0] };
     this.needOrdinal();
-    const list = await this.listRemote();
-    const remote = list.find((f) => f.key === key);
-    if (!remote) throw new StoreError("not-found", "This file isn't shared with you");
+    // By invite or by the link: the server answers with the caller's role (404 when neither).
+    const remote = await this.api<SharedFileInfo>("GET", `/files/${key}`).catch((e: unknown) => {
+      throw e instanceof StoreError && e.code === "not-found" ? new StoreError("not-found", "This file isn't shared with you, or the link is off") : e;
+    });
+    const fileKey = await this.copyFromRoom(key, remote.name, remote.role);
+    return { fileKey };
+  }
+
+  /** A local copy made from the room's snapshot (and its images), linked at the snapshot's seq. */
+  private async copyFromRoom(key: string, name: string, role: Role): Promise<FileKey> {
+    const st = await this.loadState();
     const res = await this.raw("GET", `/files/${key}/snapshot`);
     const seq = Number(res.headers.get("x-seq") ?? "0");
     const snapshot = new Uint8Array(await res.arrayBuffer());
-    const meta = await this.host.createSharedFile({ name: remote.name, snapshot });
+    await this.downloadBlobs(key, imagesOf(snapshot));
+    const meta = await this.host.createSharedFile({ name, snapshot });
     const head = Math.max(0, ...(await this.host.backlog(meta.fileKey, 0)).map((c) => c.seq));
-    st.links[meta.fileKey] = { key, since: seq, acked: head, sessions: [], role: remote.role };
+    st.links[meta.fileKey] = { key, since: seq, acked: head, sessions: [], role };
     await this.persist(meta.fileKey);
     this.startLink(meta.fileKey);
-    return { fileKey: meta.fileKey };
+    return meta.fileKey;
+  }
+
+  /** @internal This copy fell behind what the room still holds (away too long): a fresh copy replaces it as the
+   *  linked one; the old copy stays, unlinked, so nothing in it is lost. */
+  async recover(fileKey: FileKey): Promise<void> {
+    const rec = this.state?.links[fileKey];
+    if (!rec) return;
+    const name = this.host.getMeta(fileKey)?.name ?? "Untitled";
+    this.live.get(fileKey)?.stop();
+    this.live.delete(fileKey);
+    delete this.state!.links[fileKey];
+    await this.persist(fileKey);
+    try {
+      const fresh = await this.copyFromRoom(rec.key, name, rec.role);
+      for (const l of this.replaced) l(fileKey, fresh);
+    } catch (e) {
+      this.host.log("error", `multiplayer: couldn't get a fresh copy of ${name}`, e);
+    }
+    this.emitState(fileKey);
+  }
+
+  private replaced = new Set<(from: FileKey, to: FileKey) => void>();
+  /** A linked copy was replaced by a fresh one (recover) */
+  onReplaced(listener: (from: FileKey, to: FileKey) => void): Unsubscribe {
+    this.replaced.add(listener);
+    return () => this.replaced.delete(listener);
+  }
+
+  /** @internal Images the room doesn't have yet, uploaded from the store (those the store has). */
+  async uploadBlobs(key: string, sha1s: string[]): Promise<void> {
+    if (!sha1s.length) return;
+    const { missing } = await this.api<{ missing: string[] }>("POST", `/files/${key}/blobs/missing`, { sha1s });
+    if (!missing.length) return;
+    const have = await this.host.hasBlobs(missing);
+    for (let i = 0; i < missing.length; i++) if (have[i]) await this.raw("PUT", `/files/${key}/blobs/${missing[i]}`, await this.host.getBlob(missing[i]));
+  }
+
+  /** @internal Images the store doesn't have yet, downloaded from the room before the frame that uses them lands. */
+  async downloadBlobs(key: string, sha1s: string[]): Promise<void> {
+    if (!sha1s.length) return;
+    const have = await this.host.hasBlobs(sha1s);
+    for (let i = 0; i < sha1s.length; i++) {
+      if (have[i]) continue;
+      try {
+        const res = await this.raw("GET", `/files/${key}/blobs/${sha1s[i]}`);
+        await this.host.putBlob(new Uint8Array(await res.arrayBuffer()));
+      } catch (e) {
+        // An image the uploader never had: the layer shows its placeholder, as with a missing image anywhere.
+        this.host.log("warn", `multiplayer: image ${sha1s[i]} isn't in the room`, e);
+      }
+    }
+  }
+
+  /** @internal The room's history compacted at `seq` from this copy's head. */
+  async uploadSnapshot(fileKey: FileKey, key: string, seq: number): Promise<boolean> {
+    const snapshot = await this.host.headSnapshot(fileKey);
+    try {
+      await this.api("PUT", `/files/${key}/snapshot?seq=${seq}`, snapshot);
+      return true;
+    } catch (e) {
+      this.host.log("warn", "multiplayer: the room didn't take the snapshot", e);
+      return false;
+    }
   }
 
   async members(fileKey: FileKey): Promise<FileMember[]> {
     const { members } = await this.api<{ members: FileMember[] }>("GET", `/files/${await this.keyOf(fileKey)}/members`);
     return members;
+  }
+
+  async fileInfo(fileKey: FileKey): Promise<SharedFileInfo> {
+    return this.api<SharedFileInfo>("GET", `/files/${await this.keyOf(fileKey)}`);
+  }
+
+  async setLinkAccess(fileKey: FileKey, access: LinkAccess): Promise<SharedFileInfo> {
+    await this.api("PATCH", `/files/${await this.keyOf(fileKey)}`, { linkAccess: access });
+    return this.fileInfo(fileKey);
   }
 
   async invite(fileKey: FileKey, email: string, role: "editor" | "viewer"): Promise<FileMember[]> {
@@ -331,6 +432,11 @@ class Link {
   private pending = new Map<number, Touched>();
   /** Received frames are handled one at a time, in order */
   private chain: Promise<void> = Promise.resolve();
+  /** Sent frames go one at a time, in journal order, each after the images it uses are in the room */
+  private sending: Promise<void> = Promise.resolve();
+  /** The room's latest snapshot seq (welcome), and whether this client is uploading a new one */
+  private snapshotSeq = 0;
+  private compacting = false;
 
   constructor(
     private svc: MultiplayerService,
@@ -362,7 +468,39 @@ class Link {
 
   private send(c: FileChange): void {
     this.pending.set(c.seq, touchedBy(decodeMessage(c.message)));
-    this.ws?.send(encodeChangesUp(c.seq, c.message));
+    const ws = this.ws;
+    const key = this.svc.record(this.fileKey)?.key;
+    const images = imagesOf(c.message);
+    this.sending = this.sending
+      .then(async () => {
+        if (images.length && key) await this.svc.uploadBlobs(key, images);
+        if (this.ws === ws) ws?.send(encodeChangesUp(c.seq, c.message));
+      })
+      .catch((e) => {
+        // Not sent: it goes again from the backlog after the next reconnect.
+        this.svc.host_.log("warn", `multiplayer ${this.fileKey}: a frame wasn't sent`, e);
+        ws?.close(4000, "send failed");
+      });
+  }
+
+  /** The room holds many frames past its snapshot: one client (the owner, else the present editor with the lowest
+   *  session) uploads a new one from its copy, when its copy is exactly the room's state (nothing pending). */
+  private maybeCompact(rec: LinkRecord): void {
+    if (this.compacting || rec.role === "viewer" || this.pending.size || rec.since - this.snapshotSeq < (this.svc.deps_.compactEvery ?? COMPACT_EVERY)) return;
+    const writers = [...this.peers.values()].filter((p) => p.role !== "viewer");
+    const ownerHere = writers.some((p) => p.role === "owner");
+    if (rec.role !== "owner" && (ownerHere || writers.some((p) => p.sessionID < this.session))) return;
+    this.compacting = true;
+    const seq = rec.since;
+    this.chain = this.chain.then(async () => {
+      try {
+        const local = await this.svc.host_.backlog(this.fileKey, rec.acked);
+        if (local.some((c) => c.kind !== "remote") || rec.since !== seq || this.pending.size) return;
+        if (await this.svc.uploadSnapshot(this.fileKey, rec.key, seq)) this.snapshotSeq = seq;
+      } finally {
+        this.compacting = false;
+      }
+    });
   }
 
   private pendingTouched(): Touched {
@@ -398,6 +536,17 @@ class Link {
     };
     ws.onmessage = (e) => {
       const data = e.data;
+      // The room's refusals come right before it closes the socket: acted on now, before the close can schedule a retry.
+      if (typeof data === "string" && data.includes('"t":"error"')) {
+        const msg = JSON.parse(data) as Extract<ServerControl, { t: "error" }>;
+        this.svc.host_.log("warn", `multiplayer ${this.fileKey}: ${msg.code} — ${msg.message}`);
+        if (msg.code === "too-old") {
+          // This copy is older than what the room still holds: a fresh copy takes its place.
+          this.stopped = true;
+          void this.svc.recover(this.fileKey);
+        }
+        return;
+      }
       this.chain = this.chain.then(() => this.receive(ws, data)).catch((err) => this.svc.host_.log("error", `multiplayer ${this.fileKey}: a frame failed`, err));
     };
     ws.onclose = (e) => {
@@ -432,6 +581,7 @@ class Link {
           rec.role = msg.role;
           if (!rec.sessions.includes(msg.sessionID)) rec.sessions = [...rec.sessions.slice(-63), msg.sessionID];
           this.peers = new Map(msg.peers.map((p) => [p.sessionID, p]));
+          this.snapshotSeq = msg.snapshotSeq ?? 0;
           await this.svc.persist(this.fileKey);
           return;
         case "ready": {
@@ -454,11 +604,6 @@ class Link {
           if (p) p.presence = msg.data;
           return this.svc.emitState(this.fileKey);
         }
-        case "error":
-          this.svc.host_.log("warn", `multiplayer ${this.fileKey}: ${msg.code} — ${msg.message}`);
-          // A file whose history the room compacted past this copy: it needs a fresh copy (not automatic yet).
-          if (msg.code === "too-old") this.stopped = true;
-          return;
       }
       return;
     }
@@ -470,10 +615,14 @@ class Link {
       rec.acked = Math.max(rec.acked, frame.batch);
     } else {
       const message = withoutPending(frame.message, this.pendingTouched());
-      if (message) await this.svc.host_.appendRemote(this.fileKey, message);
+      if (message) {
+        await this.svc.downloadBlobs(rec.key, imagesOf(message));
+        await this.svc.host_.appendRemote(this.fileKey, message);
+      }
     }
     rec.since = frame.seq;
     await this.svc.persist(this.fileKey);
+    if (this.ready) this.maybeCompact(rec);
   }
 }
 

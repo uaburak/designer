@@ -27,8 +27,10 @@ export interface RoomStorage {
   nextSessionID(): number;
   /** The seq of the last accepted frame (the snapshot's when no frame is kept after it; 0 for a new file) */
   lastSeq(): number;
-  /** The first seq still held as a frame; frames before it are in the snapshot */
+  /** The first seq still held as a frame (a tail of frames before the snapshot is kept for returning clients) */
   firstSeq(): number;
+  /** The seq of the latest snapshot (0 for a new file) */
+  snapshotSeq(): number;
   append(frame: ChangesDown): void;
   /** Frames with seq > `since`, in order */
   readAfter(since: number): Iterable<ChangesDown>;
@@ -143,7 +145,7 @@ export class Room {
     this.onState(conn, m);
     const peers: PeerInfo[] = [];
     for (const [c, o] of this.members) if (c !== conn && o.sessionID) peers.push(peerOf(o));
-    this.send(conn, { t: "welcome", sessionID: m.sessionID, role: m.role, seq: this.storage.lastSeq(), peers });
+    this.send(conn, { t: "welcome", sessionID: m.sessionID, role: m.role, seq: this.storage.lastSeq(), peers, snapshotSeq: this.storage.snapshotSeq() });
     for (const f of this.storage.readAfter(since)) conn.send(encodeChangesDown(f));
     this.send(conn, { t: "ready", seq: this.storage.lastSeq() });
     this.broadcast({ t: "peer-joined", peer: { sessionID: m.sessionID, userId: m.userId, name: m.name, role: m.role } }, conn);
@@ -173,8 +175,10 @@ function peerOf(m: MemberState): PeerInfo {
 export class MemoryRoomStorage implements RoomStorage {
   frames: ChangesDown[] = [];
   private session = 0;
-  /** The snapshot's seq (frames ≤ it are gone) */
+  /** The snapshot's seq */
   base = 0;
+  /** Frames before `base` kept for clients coming back (0 in tests: compaction drops everything up to the snapshot) */
+  constructor(private keep = 0) {}
   nextSessionID(): number {
     return ++this.session;
   }
@@ -182,7 +186,10 @@ export class MemoryRoomStorage implements RoomStorage {
     return this.frames.length ? this.frames[this.frames.length - 1].seq : this.base;
   }
   firstSeq(): number {
-    return this.base + 1;
+    return this.frames.length ? Math.min(this.frames[0].seq, this.base + 1) : this.base + 1;
+  }
+  snapshotSeq(): number {
+    return this.base;
   }
   append(f: ChangesDown): void {
     this.frames.push({ ...f, message: f.message.slice() });
@@ -193,6 +200,6 @@ export class MemoryRoomStorage implements RoomStorage {
   /** A snapshot at `seq` replaced the frames up to it */
   compact(seq: number): void {
     this.base = seq;
-    this.frames = this.frames.filter((f) => f.seq > seq);
+    this.frames = this.frames.filter((f) => f.seq > seq - this.keep);
   }
 }

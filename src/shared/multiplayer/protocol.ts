@@ -26,7 +26,7 @@ export type ClientControl =
 
 export type ServerControl =
   /** The session this connection is. `sessionID` is unique for the file: use it in new nodes' GUIDs. `seq`: the last accepted frame. */
-  | { t: "welcome"; sessionID: number; role: Role; seq: number; peers: PeerInfo[] }
+  | { t: "welcome"; sessionID: number; role: Role; seq: number; peers: PeerInfo[]; snapshotSeq: number }
   /** The catch-up after `since` is complete (the frames before it were sent as binary frames). */
   | { t: "ready"; seq: number }
   | { t: "peer-joined"; peer: PeerInfo }

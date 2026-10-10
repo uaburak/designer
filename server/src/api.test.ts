@@ -249,6 +249,46 @@ describe("files and sharing", () => {
     expect((await call("GET", `/me?token=${owner.token}`)).status).toBe(401);
   });
 
+  it("routes a file's images to its room: viewers read, editors write, names are SHA-1s", async () => {
+    const owner = await devSignIn("o@x.co");
+    await call("POST", "/files", { token: owner.token, body: { key: "file_img001" } });
+    await call("PUT", "/files/file_img001/members", { token: owner.token, body: { email: "v@x.co", role: "viewer" } });
+    const viewer = await devSignIn("v@x.co");
+    const sha = "a".repeat(40);
+    expect((await call("PUT", `/files/file_img001/blobs/${sha}`, { token: viewer.token, body: new Uint8Array([1]) })).status).toBe(403);
+    expect((await call("PUT", `/files/file_img001/blobs/${sha}`, { token: owner.token, body: new Uint8Array([1]) })).status).toBe(200);
+    expect(roomCalls.at(-1)).toMatchObject({ path: `/room/blobs/${sha}`, method: "PUT" });
+    expect((await call("GET", `/files/file_img001/blobs/${sha}`, { token: viewer.token })).status).toBe(200);
+    expect((await call("GET", "/files/file_img001/blobs/not-a-sha", { token: viewer.token })).status).toBe(404);
+    expect((await call("POST", "/files/file_img001/blobs/missing", { token: viewer.token, body: { sha1s: [sha] } })).status).toBe(200);
+    expect(roomCalls.at(-1)).toMatchObject({ path: "/room/blobs/missing" });
+    expect((await call("POST", "/files/file_img001/blobs/missing", { token: viewer.token, body: { sha1s: ["x"] } })).status).toBe(400);
+  });
+
+  it("lets anyone signed in with the link in, with the link's role, until the owner turns it off", async () => {
+    const owner = await devSignIn("o@x.co");
+    await call("POST", "/files", { token: owner.token, body: { key: "file_link01", name: "Linked" } });
+    const guest = await devSignIn("guest@x.co");
+    expect((await call("GET", "/files/file_link01", { token: guest.token })).status).toBe(404);
+    const editor = await devSignIn("e@x.co");
+    await call("PUT", "/files/file_link01/members", { token: owner.token, body: { email: "e@x.co", role: "editor" } });
+    expect((await call("PATCH", "/files/file_link01", { token: editor.token, body: { linkAccess: "viewer" } })).status).toBe(403);
+    expect((await call("PATCH", "/files/file_link01", { token: owner.token, body: { linkAccess: "viewer" } })).status).toBe(200);
+    expect(roomCalls.at(-1)).toMatchObject({ path: "/room/revoke-link" });
+    const info = (await (await call("GET", "/files/file_link01", { token: guest.token })).json()) as Record<string, unknown>;
+    expect(info).toMatchObject({ name: "Linked", role: "viewer", linkAccess: "viewer", link: `${ORIGIN}/f/file_link01` });
+    expect((await call("PUT", "/files/file_link01/snapshot?seq=0", { token: guest.token, body: new Uint8Array([1]) })).status).toBe(403);
+    await call("PATCH", "/files/file_link01", { token: owner.token, body: { linkAccess: "editor" } });
+    expect(((await (await call("GET", "/files/file_link01", { token: guest.token })).json()) as { role: string }).role).toBe("editor");
+    await call("PATCH", "/files/file_link01", { token: owner.token, body: { linkAccess: "none" } });
+    expect((await call("GET", "/files/file_link01", { token: guest.token })).status).toBe(404);
+    expect((await call("PATCH", "/files/file_link01", { token: owner.token, body: { linkAccess: "all" } })).status).toBe(400);
+    // The link page hands the key to the desktop app.
+    const page = await call("GET", "/f/file_link01");
+    expect(page.headers.get("content-type")).toContain("text/html");
+    expect(await page.text()).toContain("designer://open?key=file_link01");
+  });
+
   it("validates input", async () => {
     const owner = await devSignIn("o@x.co");
     expect((await call("POST", "/files", { token: owner.token, body: { key: "../x" } })).status).toBe(400);

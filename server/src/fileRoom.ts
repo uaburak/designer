@@ -8,8 +8,12 @@ import { DurableObject } from "cloudflare:workers";
 import type { ChangesDown, Role } from "../../src/shared/multiplayer/protocol";
 import { Room, type MemberState, type RoomStorage } from "../../src/shared/multiplayer/room";
 
-/** SQLite values hold 2 MB; snapshots are stored in 1 MB rows. */
+/** SQLite values hold 2 MB; snapshots and images are stored in 1 MB rows. */
 const CHUNK = 1024 * 1024;
+/** Frames kept before a snapshot, so a client away for a while still catches up from its own seq */
+const KEEP_FRAMES = 5000;
+/** An image (or another blob a frame refers to by SHA-1) is at most this large */
+export const MAX_BLOB_BYTES = 40 * 1024 * 1024;
 /** Close codes the client reads: 4001 the file stopped being shared, 4003 access changed, 4009 a snapshot replaced history. */
 export const CLOSE_UNSHARED = 4001;
 export const CLOSE_ACCESS = 4003;
@@ -24,7 +28,8 @@ export class FileRoom extends DurableObject {
     this.sql = ctx.storage.sql;
     this.sql.exec(`CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS frames (seq INTEGER PRIMARY KEY, session INTEGER NOT NULL, batch INTEGER NOT NULL, message BLOB NOT NULL);
-      CREATE TABLE IF NOT EXISTS snapshot (idx INTEGER PRIMARY KEY, bytes BLOB NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS snapshot (idx INTEGER PRIMARY KEY, bytes BLOB NOT NULL);
+      CREATE TABLE IF NOT EXISTS blobs (sha1 TEXT NOT NULL, idx INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY (sha1, idx));`);
     this.store = new SqlRoomStorage(this.sql);
     this.room = new Room(this.store, (ws, state) => (ws as WebSocket).serializeAttachment(state));
     for (const ws of ctx.getWebSockets()) {
@@ -73,6 +78,19 @@ export class FileRoom extends DurableObject {
         });
         return Response.json({ ok: true, seq, lastSeq: this.store.lastSeq() });
       }
+      case "POST /room/blobs/missing": {
+        const { sha1s } = (await req.json()) as { sha1s: string[] };
+        const missing = sha1s.filter((s) => /^[0-9a-f]{40}$/.test(s) && !this.sql.exec(`SELECT 1 FROM blobs WHERE sha1 = ? AND idx = 0`, s).toArray().length);
+        return Response.json({ missing });
+      }
+      case "POST /room/revoke-link": {
+        // Everyone not owner / member reconnects: those in only by the link are refused or come back as viewers.
+        for (const ws of this.ctx.getWebSockets()) {
+          const s = ws.deserializeAttachment() as MemberState | null;
+          if (s && s.role !== "owner") this.room.closeUser(s.userId, CLOSE_ACCESS, "access changed");
+        }
+        return Response.json({ ok: true });
+      }
       case "POST /room/revoke": {
         const { userId } = (await req.json()) as { userId: string };
         this.room.closeUser(userId, CLOSE_ACCESS, "access changed");
@@ -83,6 +101,30 @@ export class FileRoom extends DurableObject {
         await this.ctx.storage.deleteAll();
         return Response.json({ ok: true });
       }
+    }
+    const blob = /^\/room\/blobs\/([0-9a-f]{40})$/.exec(url.pathname);
+    if (blob && req.method === "GET") {
+      const rows = [...this.sql.exec<{ bytes: ArrayBuffer }>(`SELECT bytes FROM blobs WHERE sha1 = ? ORDER BY idx`, blob[1])];
+      if (!rows.length) return new Response("no such blob", { status: 404 });
+      const out = new Uint8Array(rows.reduce((n, r) => n + r.bytes.byteLength, 0));
+      let at = 0;
+      for (const r of rows) {
+        out.set(new Uint8Array(r.bytes), at);
+        at += r.bytes.byteLength;
+      }
+      return new Response(out, { headers: { "content-type": "application/octet-stream", "cache-control": "private, max-age=31536000, immutable" } });
+    }
+    if (blob && req.method === "PUT") {
+      const bytes = new Uint8Array(await req.arrayBuffer());
+      if (bytes.length > MAX_BLOB_BYTES) return new Response("too large", { status: 413 });
+      // Content-addressed: the bytes must be what the name says (nobody can swap an image under a hash).
+      const sum = [...new Uint8Array(await crypto.subtle.digest("SHA-1", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
+      if (sum !== blob[1]) return new Response("the bytes don't match their SHA-1", { status: 400 });
+      this.ctx.storage.transactionSync(() => {
+        this.sql.exec(`DELETE FROM blobs WHERE sha1 = ?`, blob[1]);
+        for (let i = 0, idx = 0; i < bytes.length || idx === 0; i += CHUNK, idx++) this.sql.exec(`INSERT INTO blobs (sha1, idx, bytes) VALUES (?, ?, ?)`, blob[1], idx, bytes.slice(i, i + CHUNK).buffer);
+      });
+      return Response.json({ ok: true });
     }
     return new Response("not found", { status: 404 });
   }
@@ -135,7 +177,13 @@ class SqlRoomStorage implements RoomStorage {
   }
 
   firstSeq(): number {
-    return Math.max(this.meta("base"), 0) + 1;
+    const r = this.sql.exec<{ s: number | null }>(`SELECT MIN(seq) AS s FROM frames`).toArray()[0];
+    const base = Math.max(this.meta("base"), 0);
+    return r?.s != null ? Math.min(r.s, base + 1) : base + 1;
+  }
+
+  snapshotSeq(): number {
+    return Math.max(this.meta("snapshotSeq"), 0);
   }
 
   append(f: ChangesDown): void {
@@ -152,7 +200,7 @@ class SqlRoomStorage implements RoomStorage {
   /** The snapshot at `seq` replaces the frames up to it. */
   compact(seq: number): void {
     const last = this.lastSeq();
-    this.sql.exec(`DELETE FROM frames WHERE seq <= ?`, seq);
+    this.sql.exec(`DELETE FROM frames WHERE seq <= ?`, seq - KEEP_FRAMES);
     this.setMeta("base", seq);
     this.last = Math.max(last, seq);
   }

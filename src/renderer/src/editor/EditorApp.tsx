@@ -63,6 +63,7 @@ import { LinkEditor } from "./canvas/LinkEditor";
 import { PresentationView } from "@/present/PresentationView";
 import { editorPresentationSource } from "./present";
 import { ShareDialog } from "./ShareDialog";
+import { Multiplayer } from "./multiplayer/Multiplayer";
 import { InlinePreview } from "./InlinePreview";
 import { attachDevMode } from "./devmode/devMode";
 import { DevLeftPanel, DevMeasurements, DevRightPanel } from "./devmode/DevPanels";
@@ -334,6 +335,7 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
           {ed ? <LeftSide /> : <LeftPlaceholder />}
           <div ref={visibleRef} className={styles.view} data-canvas-view="">
             {ed && <CanvasOverlays />}
+            {ed && <Multiplayer />}
           </div>
           {ed ? <RightSide /> : <div className={styles.right} style={{ width: "var(--ds-size-panel)" }} />}
         </div>

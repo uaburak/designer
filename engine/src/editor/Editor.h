@@ -247,6 +247,12 @@ class Editor : private LayoutHost, public TextLayouts {
   void setViewportInsets(double left, double top, double right, double bottom);
   const Camera& camera() const { return camera_; }
   void setCamera(const Camera& c);
+  // Round 18: canvas CSS px → page coordinates under the camera now; the camera putting page point `world` at the
+  // centre of the visible part (Viewport::visible) at `zoom` (clamped; CAMERA_CHANGED like any camera move); the page
+  // point at the visible part's centre and the zoom (docs/engine.md §9.6).
+  Vec2 screenToWorld(Vec2 screen) const { return camera_.toWorld(screen); }
+  void centerOn(Vec2 world, double zoom);
+  Camera viewCenter() const;
   void setTheme(Theme t);
   Theme theme() const { return theme_; }
 
@@ -309,6 +315,11 @@ class Editor : private LayoutHost, public TextLayouts {
   Status setTool(Tool t);
   Tool tool() const { return tool_; }
   void setHover(const std::vector<Guid>& ids);  // Layers row hover → canvas outline
+  // Round 18: other people in the file (multiplayer presence) — replaces the whole set ([] clears) and asks for a frame.
+  // Chrome only: drawn in the editor's overlay (selections under the local chrome, cursors over it), never hit-tested,
+  // never in the document, undo, exports, thumbnails or the content cache. Selected GUIDs not on the page are skipped.
+  void setPresence(std::vector<PresencePeer> peers);
+  const std::vector<PresencePeer>& presence() const { return presence_; }
   // Round 16: the Design panel's padding / gap field under the pointer (or focused) hatches what it edits on the
   // selected auto-layout frame — bits SPACING_* (1 left, 2 top, 4 right, 8 bottom, 16 every gap), 0 none.
   enum : uint32_t { SPACING_LEFT = 1, SPACING_TOP = 2, SPACING_RIGHT = 4, SPACING_BOTTOM = 8, SPACING_GAPS = 16 };
@@ -1755,6 +1766,7 @@ class Editor : private LayoutHost, public TextLayouts {
   double cursorAngle_ = 0;
   Guid hover_ = kNoGuid;
   std::vector<Guid> layersHover_;
+  std::vector<PresencePeer> presence_;  // round 18: other people's cursors and selections
   bool spaceHeld_ = false;
   bool needsRender_ = true;
   uint32_t viewOptions_ = kViewOptionsDefault;

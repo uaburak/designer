@@ -20,6 +20,7 @@ const api: HomeApi = {
   home: {
     onState: (cb) => on("home:state", cb),
     onReveal: (cb) => on("home:reveal", cb),
+    onOpenShared: (cb) => on("home:open-shared", cb),
   },
   menu: viewMenu(base.menu),
   openExternal,

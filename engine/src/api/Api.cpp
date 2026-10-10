@@ -12,6 +12,7 @@
 // any engine has events queued, updated at the end of every call.
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
@@ -678,6 +679,83 @@ ENG_EXPORT int32_t engine_get_camera(Handle h) {
   json::Writer w;
   w.beginObject().key("x").number(c.x).key("y").number(c.y).key("zoom").number(c.zoom).endObject();
   return setResult(w.take());
+}
+
+// Round 18 (docs/engine.md §9.6): canvas CSS px → page coordinates under the camera now: {"x","y"}.
+ENG_EXPORT int32_t engine_screen_to_world(Handle h, double x, double y) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Vec2 w = e->editor.screenToWorld({x, y});
+  json::Writer out;
+  out.beginObject().key("x").number(w.x).key("y").number(w.y).endObject();
+  return setResult(out.take());
+}
+
+// The camera putting page point (x, y) at the centre of the visible part of the canvas, at `zoom` (CAMERA_CHANGED).
+ENG_EXPORT void engine_center_on(Handle h, double x, double y, double zoom) {
+  Call call;
+  if (Engine* e = engineOf(h)) e->editor.centerOn({x, y}, zoom);
+}
+
+// {"x","y","zoom"}: the page point at the centre of the visible part, and the zoom.
+ENG_EXPORT int32_t engine_view_center(Handle h) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Camera c = e->editor.viewCenter();
+  json::Writer out;
+  out.beginObject().key("x").number(c.x).key("y").number(c.y).key("zoom").number(c.zoom).endObject();
+  return setResult(out.take());
+}
+
+// Other people in the file (multiplayer presence), replacing the whole set: a JSON array (or {"peers": […]}) of
+// {"id", "name", "color": "#rrggbb", "cursor": {"x","y"} | null, "selection": ["s:l", …]} — page coordinates on the
+// page shown. Malformed peers and GUIDs are skipped; [] clears.
+ENG_EXPORT int32_t engine_set_presence(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Value v;
+  if (!parse(ptr, len, v)) return E_DECODE;
+  const json::Value* list = v.isArray() ? &v : v.get("peers");
+  if (!list || !list->isArray()) {
+    setError("presence: expected an array of peers");
+    return E_DECODE;
+  }
+  auto hexColor = [](const std::string& s, Color& out) {
+    std::string d = !s.empty() && s[0] == '#' ? s.substr(1) : s;
+    if (d.size() == 3) d = {d[0], d[0], d[1], d[1], d[2], d[2]};
+    if (d.size() != 6) return false;
+    uint32_t rgb = 0;
+    for (char c : d) {
+      int n = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+      if (n < 0) return false;
+      rgb = rgb << 4 | static_cast<uint32_t>(n);
+    }
+    out = Color::hex(rgb);
+    return true;
+  };
+  std::vector<PresencePeer> peers;
+  for (const json::Value& p : list->array) {
+    if (!p.isObject()) continue;
+    PresencePeer peer;
+    if (auto* id = p.get("id"); id && id->isNumber()) peer.id = static_cast<uint32_t>(id->number);
+    if (auto* name = p.get("name"); name && name->isString()) peer.name = name->string;
+    peer.color = Color::hex(0x0D99FF);
+    if (auto* color = p.get("color"); color && color->isString()) hexColor(color->string, peer.color);
+    if (auto* cur = p.get("cursor"); cur && cur->isObject()) {
+      const json::Value *x = cur->get("x"), *y = cur->get("y");
+      if (x && y && x->isNumber() && y->isNumber() && std::isfinite(x->number) && std::isfinite(y->number)) {
+        peer.hasCursor = true;
+        peer.cursor = {x->number, y->number};
+      }
+    }
+    if (auto* sel = p.get("selection")) peer.selection = readRefs(*sel);
+    peers.push_back(std::move(peer));
+  }
+  e->editor.setPresence(std::move(peers));
+  return OK;
 }
 
 // 0 light, 1 dark.

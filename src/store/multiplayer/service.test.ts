@@ -20,12 +20,12 @@ const SERVER = "https://mp.test";
 // --- the server: the Worker's handler, rooms in process ---
 
 let server: Deps;
-const rooms = new Map<string, { room: Room; storage: MemoryRoomStorage; snapshot: { seq: number; bytes: Uint8Array } | null }>();
+const rooms = new Map<string, { room: Room; storage: MemoryRoomStorage; snapshot: { seq: number; bytes: Uint8Array } | null; blobs: Map<string, Uint8Array> }>();
 const roomOf = (key: string) => {
   let r = rooms.get(key);
   if (!r) {
     const storage = new MemoryRoomStorage();
-    rooms.set(key, (r = { room: new Room(storage), storage, snapshot: null }));
+    rooms.set(key, (r = { room: new Room(storage), storage, snapshot: null, blobs: new Map() }));
   }
   return r;
 };
@@ -39,6 +39,13 @@ const fakeRooms: Rooms = {
       return Response.json({ ok: true });
     }
     if (path === "/room/snapshot") return r.snapshot ? new Response(r.snapshot.bytes, { headers: { "x-seq": String(r.snapshot.seq) } }) : new Response("none", { status: 404 });
+    if (path === "/room/blobs/missing") return Response.json({ missing: (JSON.parse(String(init.body)).sha1s as string[]).filter((s) => !r.blobs.has(s)) });
+    const blob = /^\/room\/blobs\/([0-9a-f]{40})$/.exec(path);
+    if (blob && init.method === "PUT") {
+      r.blobs.set(blob[1], new Uint8Array(init.body as ArrayBuffer));
+      return Response.json({ ok: true });
+    }
+    if (blob) return r.blobs.has(blob[1]) ? new Response(r.blobs.get(blob[1])!.slice()) : new Response("none", { status: 404 });
     if (path === "/room/revoke") {
       r.room.closeUser(JSON.parse(String(init.body)).userId, 4003, "access changed");
       return Response.json({ ok: true });
@@ -155,6 +162,20 @@ class FakeStore implements MultiplayerHost {
     else delete this.saved.links[fileKey];
   }
   log() {}
+  blobs = new Map<string, Uint8Array>();
+  async hasBlobs(sha1s: string[]) {
+    return sha1s.map((s) => this.blobs.has(s));
+  }
+  async getBlob(sha1: string) {
+    return this.blobs.get(sha1)!;
+  }
+  async putBlob(bytes: Uint8Array) {
+    const hex = [...new Uint8Array(await crypto.subtle.digest("SHA-1", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    this.blobs.set(hex, bytes.slice());
+  }
+  async headSnapshot(fileKey: FileKey) {
+    return msg(Object.entries(this.doc(fileKey)).map(([k, v]) => node(Number(k.split(":")[1]), v, Number(k.split(":")[0]))));
+  }
   /** The document as the editor would hold it: snapshot, then every frame applied in journal order */
   doc(fileKey: FileKey): Record<string, Record<string, unknown>> {
     const f = this.files.get(fileKey)!;
@@ -187,9 +208,9 @@ async function signIn(email: string) {
   return ((await r.json()) as { token: string }).token;
 }
 
-async function installation(email: string) {
+async function installation(email: string, compactEvery?: number) {
   const store = new FakeStore();
-  const svc = new MultiplayerService(store, { fetch: serverFetch, WebSocket: FakeSocket as any, random: Math.random, backoff: () => 5 });
+  const svc = new MultiplayerService(store, { fetch: serverFetch, WebSocket: FakeSocket as any, random: Math.random, backoff: () => 5, compactEvery });
   await svc.setSession({ server: SERVER, token: await signIn(email) });
   return { store, svc };
 }
@@ -295,6 +316,84 @@ describe("MultiplayerService", () => {
     expect(v.store.doc(fv)["0:0"].name).toBe("Owner");
     expect(a.store.doc(fa)["0:0"].name).toBe("Owner");
     expect((await v.svc.fileState(fv)).role).toBe("viewer");
+  });
+
+  it("carries the images a frame uses: uploaded before it, downloaded before it lands", async () => {
+    const { a, b, fa, fb } = await sharedPair();
+    const png = new TextEncoder().encode("not really a png, but bytes all the same");
+    await a.store.putBlob(png);
+    const sha1 = [...a.store.blobs.keys()][0];
+    const hash = Uint8Array.from(sha1.match(/../g)!.map((h) => parseInt(h, 16)));
+    a.store.edit(fa, [node(9, { phase: "CREATED", name: "Photo", fillPaints: [{ type: "IMAGE", image: { hash } }] } as any, 2 * 2 ** 20 + 1)]);
+    await settle();
+    expect(b.store.blobs.get(sha1)).toEqual(png);
+    expect(b.store.doc(fb)[`${2 * 2 ** 20 + 1}:9`].name).toBe("Photo");
+  });
+
+  it("compacts the room's history from a copy that is exactly the room's state", async () => {
+    const a = await installation("a@x.co", 3);
+    const b = await installation("b@x.co", 3);
+    services.push(a.svc, b.svc);
+    const fa = a.store.addFile("Busy", [node(0, { name: "Document" }), node(1, { name: "P" })]);
+    await a.svc.share(fa, { snapshot: a.store.files.get(fa)!.snapshot, headSeq: 0 });
+    await a.svc.invite(fa, "b@x.co", "editor");
+    const { fileKey: fb } = await b.svc.openShared((await b.svc.listRemote())[0].key);
+    await settle();
+    for (let i = 0; i < 5; i++) {
+      b.store.edit(fb, [node(1, { name: `P${i}` })]);
+      await settle();
+    }
+    const room = [...rooms.values()][0];
+    expect(room.snapshot!.seq).toBeGreaterThanOrEqual(3);
+    // The snapshot is the document at that seq: a newcomer from it sees the latest name.
+    const c = await installation("c@x.co");
+    services.push(c.svc);
+    await a.svc.invite(fa, "c@x.co", "viewer");
+    const { fileKey: fc } = await c.svc.openShared((await c.svc.listRemote())[0].key);
+    await settle();
+    expect(c.store.doc(fc)["0:1"].name).toBe("P4");
+  });
+
+  it("replaces a copy left behind the room's history with a fresh one, keeping the old copy", async () => {
+    const { a, b, fa, fb } = await sharedPair();
+    b.svc.close();
+    for (const s of [...sockets]) if (s.readyState === 1) s.close();
+    for (let i = 0; i < 4; i++) a.store.edit(fa, [node(1, { name: `While away ${i}` })]);
+    await settle();
+    const room = [...rooms.values()][0];
+    room.storage.compact(room.storage.lastSeq()); // the room compacted past B's copy (keep = 0 here)
+    room.snapshot = { seq: room.storage.lastSeq(), bytes: await a.store.headSnapshot(fa) };
+    const b2 = new MultiplayerService(b.store, { fetch: serverFetch, WebSocket: FakeSocket as any, random: Math.random, backoff: () => 5 });
+    services.push(b2);
+    const replaced: [string, string][] = [];
+    b2.onReplaced((from, to) => replaced.push([from, to]));
+    await b2.setSession({ server: SERVER, token: await signIn("b@x.co") });
+    await settle();
+    expect(replaced.length).toBe(1);
+    expect(replaced[0][0]).toBe(fb);
+    expect(b.store.doc(replaced[0][1])["0:1"].name).toBe("While away 3");
+    expect((await b2.fileState(fb)).shared).toBe(false);
+    expect((await b2.fileState(replaced[0][1])).shared).toBe(true);
+  });
+
+  it("opens a file by its link when the owner turned link access on", async () => {
+    const a = await installation("a@x.co");
+    const g = await installation("guest@x.co");
+    services.push(a.svc, g.svc);
+    const fa = a.store.addFile("Open house", [node(0, { name: "Document" })]);
+    await a.svc.share(fa, { snapshot: a.store.files.get(fa)!.snapshot, headSeq: 0 });
+    const info = await a.svc.setLinkAccess(fa, "editor");
+    expect(info.link).toMatch(/\/f\//);
+    const { keyFromLink } = await import("../../shared/multiplayer/types");
+    const { fileKey: fg } = await g.svc.openShared(keyFromLink(info.link)!);
+    await settle();
+    g.store.edit(fg, [node(0, { name: "Guest was here" })]);
+    await settle();
+    expect(a.store.doc(fa)["0:0"].name).toBe("Guest was here");
+    await a.svc.setLinkAccess(fa, "none");
+    const late = await installation("late@x.co");
+    services.push(late.svc);
+    await expect(late.svc.openShared(info.key)).rejects.toMatchObject({ code: "not-found" });
   });
 
   it("lists members and invites, and refuses to share while signed out", async () => {

@@ -157,7 +157,21 @@ export interface EngineOptions {
  * detaching, no instance root overrides; "remote" / "load" = neither emitted nor undoable. "user" and "system" never
  * write into library copies (docs/schema.md §8.2).
  */
-export type ApplyKind = "user" | "system" | "restore" | "remote" | "load";
+/** Round 18: another person in the file, as `Engine.setPresence` draws them (docs/engine.md §9.6). */
+export interface PresencePeer {
+  /** The peer's room sessionID, stable while they're connected. */
+  id: number;
+  /** Shown on the cursor's name chip, e.g. "Alice". */
+  name: string;
+  /** "#rrggbb", the peer's multiplayer colour. */
+  color: string;
+  /** Page (world) coordinates on the page currently shown; null: no cursor. */
+  cursor: { x: number; y: number } | null;
+  /** Node GUIDs "sessionID:localID" the peer has selected on the page currently shown. */
+  selection: string[];
+}
+
+export type ApplyKind ="user" | "system" | "restore" | "remote" | "load";
 
 /** Where image bytes come from (the file's image store): the image file for a SHA-1 hash, or null. */
 export type ImageSource = (hash: string) => Promise<Uint8Array | null>;
@@ -946,6 +960,34 @@ export class Engine {
   getCamera(): Camera {
     this.x.getCamera(this.h);
     return this.after(decodeCamera(this.x.result()));
+  }
+
+  /** Round 18: canvas CSS px → page coordinates under the camera now. */
+  screenToWorld(x: number, y: number): { x: number; y: number } {
+    return this.json(this.x.screenToWorld(this.h, x, y), { x: 0, y: 0 });
+  }
+
+  /**
+   * The camera putting page point (x, y) at the centre of the visible part of the canvas (what the panels leave,
+   * `setViewportInsets`), at `zoom`; emits CAMERA_CHANGED like other camera moves.
+   */
+  centerOn(x: number, y: number, zoom: number): void {
+    this.after(this.x.centerOn(this.h, x, y, zoom));
+  }
+
+  /** The page point at the centre of the visible part of the canvas, and the zoom. */
+  viewCenter(): { x: number; y: number; zoom: number } {
+    return this.json(this.x.viewCenter(this.h), { x: 0, y: 0, zoom: 1 });
+  }
+
+  /**
+   * Other people in the file (multiplayer presence), replacing the whole set ([] clears): their selections outlined in
+   * their colour, their cursors with name chips — editor chrome only (never in exports, thumbnails or presentation).
+   * Unknown GUIDs in `selection` are ignored.
+   */
+  setPresence(peers: readonly PresencePeer[]): void {
+    const payload = peers.map((p) => ({ id: p.id, name: p.name, color: p.color, cursor: p.cursor, selection: p.selection }));
+    this.after(this.x.setPresence(this.h, encodeText(JSON.stringify(payload))));
   }
 
   setTheme(theme: "LIGHT" | "DARK"): void {

@@ -19,7 +19,7 @@ export interface ServableStore {
   readonly libraryEvents: { on(listener: (e: LibraryEvent) => void): Unsubscribe };
   readonly fileChanges: { on(listener: (c: FileChange) => void): Unsubscribe };
   /** Shared files' connection and people (docs/multiplayer.md §5) */
-  readonly multiplayer?: { onFileState(listener: (fileKey: FileKey, state: FileShareState) => void): Unsubscribe };
+  readonly multiplayer?: { onFileState(listener: (fileKey: FileKey, state: FileShareState) => void): Unsubscribe; onReplaced(listener: (from: FileKey, to: FileKey) => void): Unsubscribe };
   readonly files: {
     /** Frames after `fromSeq` for a subscriber catching up */
     backlog(fileKey: FileKey, fromSeq: number): Promise<FileChange[]>;
@@ -113,7 +113,11 @@ export class StoreServer {
     this.offs.push(store.workspaceEvents.on((d) => this.broadcast({ t: "evt", topic: "workspace", d })));
     this.offs.push(store.libraryEvents.on((d) => this.broadcast({ t: "evt", topic: "library", d })));
     this.offs.push(store.fileChanges.on((c) => this.connections.forEach((conn) => conn.fileChange(c))));
-    if (store.multiplayer) this.offs.push(store.multiplayer.onFileState((fileKey, state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state } })));
+    if (store.multiplayer) {
+      const mp = store.multiplayer;
+      this.offs.push(mp.onFileState((fileKey, state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state } })));
+      this.offs.push(mp.onReplaced((from, to) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey: from, state: { shared: false, key: null, role: null, connection: "offline", peers: [] }, replacedBy: to } })));
+    }
   }
 
   get size(): number {

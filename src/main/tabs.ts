@@ -383,6 +383,14 @@ export class TabManager {
     else this.dispatch({ type: "activate", id });
   }
 
+  /** A shared file's link opened from the system: Home in front, which opens it (docs/multiplayer.md §3). */
+  openSharedLink(key: string) {
+    this.activate(HOME);
+    const send = () => emit(this.home.webContents, "home:open-shared", { key });
+    if (this.home.webContents.isLoading()) this.home.webContents.once("did-finish-load", () => setTimeout(send, 300));
+    else send();
+  }
+
   /** Home in front; it shows the file when one is given. */
   goHome(revealFileKey?: string) {
     this.activate(HOME);

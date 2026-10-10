@@ -6,6 +6,7 @@
 //   SHOT_ONLY=e4 npm run engine:shot    only the vector / paint / image / effect checks
 //   SHOT_ONLY=r7 npm run engine:shot    only round 7's effects and paints (progressive blurs, noise, texture, glass)
 //   SHOT_ONLY=r17 npm run engine:shot   only round 17's backdrop effects panned away and back (= a fresh draw)
+//   SHOT_ONLY=r18 npm run engine:shot   only round 18's multiplayer presence (two cursors, a peer's selection)
 //   SHOT_ONLY=r8 npm run engine:shot    only round 8's canvas views (ruler guides, slices, pixel preview)
 //   SHOT_ONLY=r11 npm run engine:shot   only round 11's shader fills and effects (every preset, drawn)
 //   SHOT_ONLY=r12 npm run engine:shot   only round 12's variable-width strokes and the Shape builder's region
@@ -1441,6 +1442,49 @@ async function r17Checks(files) {
     `${d.count} px differ (max ${d.max}${d.box ? `, in ${d.box}` : ""})`);
 }
 
+// Round 18: other people in the file (Engine.setPresence) — two cursors with name chips (a dark colour: white text; a
+// light one: dark text) and a peer's selection outlined in their colour; cleared, none of it is left.
+async function r18Checks(files) {
+  const solid = (r, g, b) => ({ type: "SOLID", color: { r, g, b, a: 1 }, opacity: 1, visible: true });
+  const T = (x, y) => ({ transform: { m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y } });
+  const nodes = [
+    { guid: "58:1", phase: "CREATED", type: "FRAME", name: "Round 18 presence", parentIndex: { guid: "0:1", position: "~~~~~~~~~z" },
+      size: { x: 640, y: 360 }, ...T(0, 6000), fillPaints: [solid(1, 1, 1)] },
+    { guid: "58:2", phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Card", parentIndex: { guid: "58:1", position: "!" },
+      size: { x: 220, y: 140 }, ...T(60, 60), cornerRadius: 16, fillPaints: [solid(0.85, 0.88, 0.95)] },
+    { guid: "58:3", phase: "CREATED", type: "ELLIPSE", name: "Dot", parentIndex: { guid: "58:1", position: "\"" },
+      size: { x: 120, y: 120 }, ...T(380, 80), fillPaints: [solid(0.95, 0.75, 0.3)] },
+  ];
+  await engine((message) => {
+    const e = window.__designerEngine;
+    e.applyChanges(message, "user");
+    e.setSelection([]);
+    e.setCamera({ x: 100, y: 100 - 6000, zoom: 1 });
+  }, { type: "NODE_CHANGES", sessionID: 0, nodeChanges: nodes });
+  await page.mouse.move(2, 2);
+  const alice = { id: 11, name: "Alice", color: "#9747ff", cursor: { x: 200, y: 6230 }, selection: ["58:2"] };
+  const bob = { id: 12, name: "Bob", color: "#ffcd29", cursor: { x: 470, y: 6240 }, selection: ["58:3", "99:99"] };
+  await engine((peers) => window.__designerEngine.setPresence(peers), [alice, bob]);
+  await settle();
+  await settle();
+  files.push(await shot("88-r18-presence"));
+  // Page (x, y) → screen: the camera above (origin at 100, 100 − 6000).
+  const at = (p, dx, dy) => [100 + p.x + dx, 100 - 6000 + p.y + dy];
+  const [aArrow, aChip, bArrow, bChip, aOutline, bOutline] = await pixelsAt([
+    at(alice.cursor, 3, 8), at(alice.cursor, 14, 22), at(bob.cursor, 3, 8), at(bob.cursor, 14, 22),
+    [100 + 60 + 110, 100 + 60], [100 + 380 + 60, 100 + 80],
+  ]);
+  const purple = [0x97, 0x47, 0xff, 255], yellow = [0xff, 0xcd, 0x29, 255];
+  check("presence: Alice's cursor arrow and name chip in her colour", near(aArrow, purple) && near(aChip, purple), `${aArrow} / ${aChip}`);
+  check("presence: Bob's cursor arrow and name chip in his colour", near(bArrow, yellow) && near(bChip, yellow), `${bArrow} / ${bChip}`);
+  check("presence: each peer's selection outlined in their colour", near(aOutline, purple, 60) && near(bOutline, yellow, 60), `${aOutline} / ${bOutline}`);
+  await engine(() => window.__designerEngine.setPresence([]));
+  await settle();
+  await settle();
+  const [cleared] = await pixelsAt([at(alice.cursor, 3, 8)]);
+  check("presence: cleared, the cursor is gone", !near(cleared, purple), `${cleared}`);
+}
+
 // A GPU validation error (WebGPU: an invalid command buffer drops the whole frame), a feedback loop (WebGL), or a
 // draw the engine's own check caught (gfx::samplesAttachment) fails the run, whatever the screenshots look like.
 const gpuError = /WebGPU error|GPUDevice|GPUValidationError|Invalid CommandBuffer|is invalid due to a previous error|sampled the texture it renders into|feedback loop|GL_INVALID/i;
@@ -1455,12 +1499,13 @@ try {
   await settle();
   const backend = await engine(() => window.__designerEngine.gfx);
   check(`the canvas draws with ${gfx === "webgpu" ? "WebGPU" : "WebGL2"}`, backend === (gfx === "webgpu" ? "webgpu" : "webgl2"), backend);
-  if (only === "e4" || only === "r7" || only === "r17" || only === "r8" || only === "r11" || only === "r12" || only === "e6" || only === "vars" || only === "export" || only === "e8") {
+  if (only === "e4" || only === "r7" || only === "r17" || only === "r18" || only === "r8" || only === "r11" || only === "r12" || only === "e6" || only === "vars" || only === "export" || only === "e8") {
     const files = [];
     if (only === "e4") await e4Checks(files);
     else if (only === "r12") await r12Checks(files);
     else if (only === "r7") await r7Checks(files);
     else if (only === "r17") await r17Checks(files);
+    else if (only === "r18") await r18Checks(files);
     else if (only === "r11") await r11Checks(files);
     else if (only === "r8") await r8Checks(files);
     else if (only === "e6") await e6Checks(files);
@@ -1642,6 +1687,7 @@ try {
   await e4Checks(files);
   await r7Checks(files);
   await r17Checks(files);
+  await r18Checks(files);
   await r11Checks(files);
   await r12Checks(files);
   await r8Checks(files);

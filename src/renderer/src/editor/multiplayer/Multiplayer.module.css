@@ -1,0 +1,54 @@
+@layer app {
+  /* Observation mode: the canvas framed in the followed person's colour, their name at the top (Figma). */
+  .follow {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    border: 2px solid var(--peer);
+    pointer-events: none;
+  }
+  .followLabel {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    padding: 2px var(--ds-space-1) 4px var(--ds-space-2);
+    border-radius: 0 0 var(--ds-radius-medium) var(--ds-radius-medium);
+    background: var(--peer);
+    color: var(--figma-color-text-onbrand);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+    white-space: nowrap;
+    transform: translateX(-50%);
+    pointer-events: auto;
+  }
+  .followStop {
+    padding: 0 var(--ds-space-1);
+    border: 0;
+    border-radius: var(--ds-radius-small);
+    background: color-mix(in srgb, var(--figma-color-text-onbrand) 22%, transparent);
+    color: inherit;
+    font: inherit;
+    cursor: default;
+  }
+  .followStop:hover { background: color-mix(in srgb, var(--figma-color-text-onbrand) 34%, transparent); }
+
+  /* The header's people */
+  .peers { display: flex; flex: none; align-items: center; margin-right: var(--ds-space-1); }
+  .peer {
+    display: flex;
+    margin-left: -4px;
+    padding: 0;
+    border: 2px solid var(--peer);
+    border-radius: 50%;
+    background: var(--figma-color-bg);
+    cursor: default;
+  }
+  .peer:first-child { margin-left: 0; }
+  .peer[data-following] { box-shadow: 0 0 0 2px var(--figma-color-bg), 0 0 0 4px var(--peer); }
+  .peer:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .more { margin-left: var(--ds-space-1); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .offline { flex: none; color: var(--figma-color-text-warning); }
+}

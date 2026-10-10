@@ -296,6 +296,19 @@ export class MemoryStore {
           else kv.remove(K.link(fileKey));
         },
         log: (level, message, detail) => this.log(level, message, detail),
+        hasBlobs: async (sha1s) => sha1s.map((s) => this.blob(s) !== null),
+        getBlob: async (sha1) => {
+          const b = this.blob(sha1);
+          if (!b) throw new StoreError("not-found", `no blob ${sha1}`);
+          return b.bytes;
+        },
+        putBlob: async (bytes) => void (await this.putBlob(bytes)),
+        headSnapshot: async (fileKey) => {
+          const d = this.fileData(fileKey);
+          this.compact(d);
+          this.saveData(fileKey, d);
+          return d.snapshot;
+        },
       },
       {
         fetch: (...a) => fetch(...a),
