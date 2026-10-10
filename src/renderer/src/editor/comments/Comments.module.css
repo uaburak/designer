@@ -1,0 +1,274 @@
+/* Comments, measured in live Figma (docs/research/figma/live/multiplayer/comments.md). */
+@layer app {
+  .grow { flex: 1; }
+
+  /* --- pins (canvas coordinates, over the canvas, under the panels) --- */
+  .pins { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+  .pin,
+  .draftPin {
+    position: absolute;
+    display: block;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    /* its point is the bottom-left corner, on the thread's place */
+    border-radius: 16px 16px 16px 0;
+    background: var(--figma-color-bg);
+    box-shadow: var(--ds-elevation-200);
+    pointer-events: auto;
+    cursor: default;
+  }
+  .draftPin { background: var(--figma-color-bg-brand); pointer-events: none; }
+  .pin[data-open] { background: var(--figma-color-bg-brand); }
+  .pin[data-unread] { box-shadow: var(--ds-elevation-200), 0 0 0 2px var(--figma-color-border-brand-strong); }
+  .pin[data-resolved] { opacity: 0.5; }
+  .pin:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .pinAvatar { position: absolute; left: 4px; top: 4px; display: flex; border-radius: 50%; }
+  .pin[data-hover] { z-index: 1; width: auto; height: auto; }
+
+  /* Hover: the pin grows into a preview card from the same bottom-left point (240 wide) */
+  .preview {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    display: flex;
+    gap: var(--ds-space-2);
+    width: 240px;
+    padding: 12px;
+    border-radius: 16px 16px 16px 0;
+    background: var(--figma-color-bg);
+    box-shadow: var(--ds-elevation-200);
+    text-align: left;
+  }
+  .previewMain { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+  .previewHead { display: flex; gap: var(--ds-space-1); align-items: baseline; }
+  .previewName { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
+  .previewTime { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .previewText {
+    display: -webkit-box;
+    overflow: hidden;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow-wrap: anywhere;
+  }
+  .previewReplies { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+
+  /* --- the new comment's composer (296 wide, 48 right of the pin) --- */
+  .newComment {
+    position: fixed;
+    z-index: var(--ds-z-floating);
+    border-radius: 13px;
+    background: var(--figma-color-bg);
+    box-shadow: var(--ds-elevation-200);
+  }
+  .newComment:focus-within { box-shadow: var(--ds-elevation-200), inset 0 0 0 1px var(--figma-color-border-selected); }
+
+  .composer { position: relative; display: flex; flex-direction: column; width: 100%; }
+  .composerRow { display: flex; align-items: flex-start; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-4); }
+  .composerField {
+    flex: 1;
+    min-height: 24px;
+    padding: 3px 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-large);
+    resize: none;
+    overflow-wrap: anywhere;
+  }
+  .composerField::placeholder { color: var(--figma-color-text-disabled); }
+  .composerTools { display: flex; align-items: center; gap: 0; padding: 0 var(--ds-space-2) var(--ds-space-2); }
+  .composer-reply { border-radius: 13px; background: var(--figma-color-bg-secondary); }
+  .composer-edit { border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); margin-top: var(--ds-space-1); }
+  .composer-edit .composerRow { padding-left: var(--ds-space-2); }
+
+  .toolButton,
+  .send {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: none;
+    color: var(--figma-color-icon);
+    font: var(--ds-font-body-large);
+  }
+  .toolButton:hover:not(:disabled) { background: var(--figma-color-bg-hover); }
+  .toolButton:disabled { color: var(--figma-color-icon-disabled); }
+  /* [Send]: a 24 circle, grey while empty, blue with text */
+  .send { border-radius: 50%; background: var(--figma-color-bg-brand); color: var(--figma-color-icon-onbrand); }
+  .send:disabled { background: var(--figma-color-bg-disabled); color: var(--figma-color-icon-ondisabled); }
+  .textButton,
+  .saveButton {
+    height: 24px;
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    font: var(--ds-font-body-medium);
+  }
+  .textButton { background: none; color: var(--figma-color-text); }
+  .textButton:hover { background: var(--figma-color-bg-hover); }
+  .saveButton { margin-left: var(--ds-space-1); background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand); }
+  .saveButton:disabled { background: var(--figma-color-bg-disabled); color: var(--figma-color-text-ondisabled); }
+
+  /* "@": the people who can be mentioned */
+  .mentions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 2;
+    width: 100%;
+    margin-top: var(--ds-space-1);
+    padding: var(--ds-space-2) 0;
+    border-radius: var(--ds-radius-large);
+    background: var(--ds-color-menu-bg);
+    box-shadow: var(--ds-elevation-menu);
+  }
+  .mention { display: flex; gap: var(--ds-space-2); align-items: center; width: 100%; height: 24px; padding: 0 var(--ds-space-4); border: 0; background: none; color: var(--ds-color-menu-text); font: var(--ds-font-body-medium); text-align: left; }
+  .mention[data-active] { background: var(--ds-color-menu-highlight); }
+  .mentionName { flex: none; }
+  .mentionEmail { overflow: hidden; color: inherit; opacity: 0.7; text-overflow: ellipsis; white-space: nowrap; }
+  .mentionText { color: var(--figma-color-text-brand); }
+
+  /* --- the thread's card (360 wide) --- */
+  .thread {
+    position: fixed;
+    z-index: var(--ds-z-floating);
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 16px);
+    border-radius: 13px;
+    background: var(--figma-color-bg);
+    box-shadow: var(--ds-elevation-500-modal-window);
+  }
+  .threadHeader { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); height: 42px; padding: 0 var(--ds-space-2) 0 var(--ds-space-4); border-bottom: 1px solid var(--figma-color-border); }
+  .threadTitle { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
+  .threadBody { display: flex; flex-direction: column; gap: var(--ds-space-6); min-height: 0; padding: var(--ds-space-3) var(--ds-space-2) 0 var(--ds-space-4); overflow-y: auto; }
+  .iconButton {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: none;
+    color: var(--figma-color-icon);
+  }
+  .iconButton:hover,
+  .iconButton[data-open] { background: var(--figma-color-bg-hover); }
+  .iconButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .resolveGlyph[data-done] { color: var(--figma-color-icon-secondary); }
+
+  .comment { display: flex; gap: var(--ds-space-2); }
+  .commentMain { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+  .commentHead { display: flex; align-items: center; gap: var(--ds-space-2); height: 24px; }
+  .commentName { color: var(--figma-color-text); font: var(--ds-font-body-large-strong); }
+  .commentTime { color: var(--figma-color-text-disabled); font: var(--ds-font-body-large); }
+  .commentTextRow { display: flex; align-items: flex-start; gap: var(--ds-space-2); }
+  .commentText { flex: 1; margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-large); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .edited { color: var(--figma-color-text-secondary); }
+
+  .reactions { display: flex; flex-wrap: wrap; gap: var(--ds-space-1); margin-top: var(--ds-space-2); }
+  .reaction,
+  .reactionAdd {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--ds-space-1);
+    height: 32px;
+    min-width: 32px;
+    padding: 0 var(--ds-space-2);
+    border: 1px solid var(--figma-color-border);
+    border-radius: 6px;
+    background: none;
+    color: var(--figma-color-text);
+  }
+  .reactionAdd { padding: 0; border-color: transparent; color: var(--figma-color-icon); }
+  .reaction:hover,
+  .reactionAdd:hover { background: var(--figma-color-bg-hover); }
+  .reaction[data-on] { border-color: var(--figma-color-border-selected); background: var(--figma-color-bg-selected); }
+  .reactionEmoji { font-size: 18px; line-height: 1; }
+  .reactionCount { font: var(--ds-font-body-medium-strong); }
+
+  .replyRow { display: flex; flex: none; align-items: flex-start; gap: var(--ds-space-2); padding: var(--ds-space-6) var(--ds-space-4) var(--ds-space-4); }
+  .replyRow > [data-ds="Avatar"] { margin-top: var(--ds-space-2); }
+  .confirmText { margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium); }
+
+  /* --- the emoji picker (≈ 330 wide) --- */
+  .emojiPicker {
+    position: fixed;
+    z-index: var(--ds-z-menu);
+    display: flex;
+    flex-direction: column;
+    width: 330px;
+    height: 320px;
+    border-radius: 13px;
+    background: var(--figma-color-bg);
+    box-shadow: var(--ds-elevation-500-modal-window);
+  }
+  .emojiTabs { display: flex; justify-content: space-between; padding: var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); }
+  .emojiTab { width: 32px; height: 28px; padding: 0; border: 0; border-radius: var(--ds-radius-medium); background: none; font-size: 16px; }
+  .emojiTab:hover { background: var(--figma-color-bg-hover); }
+  .emojiSearch { margin: var(--ds-space-2); height: 28px; padding: 0 var(--ds-space-2); border: 0; border-radius: var(--ds-radius-medium); outline: none; background: var(--figma-color-bg-secondary); color: var(--figma-color-text); font: var(--ds-font-body-medium); }
+  .emojiSearch:focus { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+  .emojiBody { flex: 1; padding: 0 var(--ds-space-2) var(--ds-space-2); overflow-y: auto; }
+  .emojiHeading { margin: var(--ds-space-2) var(--ds-space-1) var(--ds-space-1); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium-strong); }
+  .emojiGrid { display: grid; grid-template-columns: repeat(9, 1fr); }
+  .emoji { height: 34px; padding: 0; border: 0; border-radius: var(--ds-radius-medium); background: none; font-size: 22px; line-height: 1; }
+  .emoji:hover { background: var(--figma-color-bg-hover); }
+  .emojiNone { margin: var(--ds-space-4); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+
+  /* --- the Comments panel (240 wide) --- */
+  .panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .panelHeader { display: flex; flex: none; align-items: center; gap: var(--ds-space-2); height: 41px; padding: 0 var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); }
+  .search { width: 160px; flex: none; }
+  .headerButton { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--ds-radius-medium); background: none; color: var(--figma-color-icon); }
+  .headerButton:hover,
+  .headerButton[data-open] { background: var(--figma-color-bg-hover); }
+  .headerButton[data-open] .headerGlyph,
+  .headerGlyph[data-on] { color: var(--figma-color-icon-brand); }
+  .headerButton:has(.headerGlyph[data-on]),
+  .headerButton[data-open]:has(.headerGlyph) { background: var(--figma-color-bg-brand-tertiary); }
+  .headerGlyph { display: flex; }
+  .panelError { margin: var(--ds-space-2) var(--ds-space-4) 0; color: var(--figma-color-text-danger); font: var(--ds-font-body-medium); }
+
+  .empty { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-4); }
+  .emptyIcon { display: flex; color: var(--figma-color-icon-secondary); }
+  .emptyText { margin: 0 0 0 28px; color: var(--figma-color-text); font: var(--ds-font-body-medium); font-weight: 400; }
+
+  .list { flex: 1; min-height: 0; padding: var(--ds-space-2) 0; overflow-y: auto; }
+  .row { display: block; padding: 0 var(--ds-space-2) var(--ds-space-2); outline: none; cursor: default; }
+  .rowBox { display: flex; flex-direction: column; padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-3) var(--ds-space-4); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); }
+  .row:hover .rowBox { background: var(--figma-color-bg-hover); }
+  .row[data-selected] .rowBox { background: var(--figma-color-bg-brand-tertiary); }
+  .row:focus-visible .rowBox { box-shadow: inset 0 0 0 var(--ds-focus-width) var(--ds-focus-color); }
+  .rowTop { position: relative; display: flex; align-items: center; gap: var(--ds-space-1); height: 24px; }
+  .unreadDot { position: absolute; left: -12px; width: 6px; height: 6px; border-radius: 50%; background: var(--figma-color-bg-brand); }
+  .rowMeta { margin-top: 6px; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .rowWho { margin-top: 0; font: var(--ds-font-body-medium); }
+  .rowName { color: var(--figma-color-text); }
+  .rowTime { color: var(--figma-color-text-secondary); }
+  .rowText {
+    display: -webkit-box;
+    margin: 0;
+    overflow: hidden;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    font-weight: 400;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow-wrap: anywhere;
+  }
+  .rowReplies { margin-top: var(--ds-space-1); color: var(--figma-color-text-brand); font: var(--ds-font-body-medium); font-weight: 400; }
+}

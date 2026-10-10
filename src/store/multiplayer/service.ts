@@ -448,6 +448,34 @@ export class MultiplayerService {
     throw new StoreError("invalid", message || `The server said ${res.status}`);
   }
 
+  // --- for the store's comments (src/store/comments/service.ts, docs/multiplayer.md §10) ---
+
+  /** The room key of a shared file; null when it isn't shared */
+  async roomKey(fileKey: FileKey): Promise<string | null> {
+    return (await this.loadState()).links[fileKey]?.key ?? null;
+  }
+
+  get signedIn(): boolean {
+    return this.session !== null;
+  }
+
+  /** A JSON call to the server with the session */
+  call<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+    return this.api<T>(method, path, body);
+  }
+
+  private roomComments = new Set<(fileKey: FileKey) => void>();
+  /** A file's room said its comments changed */
+  onComments(listener: (fileKey: FileKey) => void): Unsubscribe {
+    this.roomComments.add(listener);
+    return () => this.roomComments.delete(listener);
+  }
+
+  /** @internal */
+  commentsChanged(fileKey: FileKey): void {
+    for (const l of this.roomComments) l(fileKey);
+  }
+
   private async api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
     const res = await this.raw(method, path, body);
     return (await res.json()) as T;
@@ -639,6 +667,8 @@ class Link {
         case "notice":
           await this.svc.notice(this.fileKey, { kind: msg.kind, name: msg.name });
           return;
+        case "comments":
+          return this.svc.commentsChanged(this.fileKey);
         case "presence": {
           const p = this.peers.get(msg.sessionID);
           if (p) p.presence = msg.data;

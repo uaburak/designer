@@ -28,6 +28,7 @@ import type {
 } from "./repositories";
 import type { AppendAck, ChangeBatch, FileKey } from "./types";
 import type { MultiplayerEvent, MultiplayerRepository } from "../multiplayer/types";
+import type { CommentsEvent, CommentsRepository } from "../comments";
 
 interface Pending {
   m: StoreMethod;
@@ -90,6 +91,7 @@ export class StoreClient implements StoreApi {
   private readonly libraryEvents = new Listeners<LibraryEvent>();
   private readonly syncEvents = new Listeners<unknown>();
   private readonly multiplayerEvents = new Listeners<MultiplayerEvent>();
+  private readonly commentsEvents = new Listeners<CommentsEvent>();
   private readonly connected = new Listeners<{ generation: number }>();
   /** Calls wait for this: the hello and the resync of a new port */
   private gate!: Promise<void>;
@@ -196,6 +198,7 @@ export class StoreClient implements StoreApi {
         else if (msg.topic === "file.changes") this.deliver(msg.d as FileChange);
         else if (msg.topic === "sync") this.syncEvents.emit(msg.d);
         else if (msg.topic === "multiplayer") this.multiplayerEvents.emit(msg.d as MultiplayerEvent);
+        else if (msg.topic === "comments") this.commentsEvents.emit(msg.d as CommentsEvent);
         return;
     }
   }
@@ -404,6 +407,19 @@ export class StoreClient implements StoreApi {
     flushAll: () => this.call("store.flushAll", []),
     info: () => this.call<StoreInfo>("store.info", []),
     collectGarbage: () => this.call("store.collectGarbage", []),
+  };
+
+  readonly comments: CommentsRepository = {
+    list: (fileKey) => this.call("comments.list", [fileKey]),
+    add: (fileKey, input) => this.call("comments.add", [fileKey, input]),
+    edit: (fileKey, id, message, mentions) => this.call("comments.edit", [fileKey, id, message, mentions]),
+    remove: (fileKey, id) => this.call("comments.remove", [fileKey, id]),
+    setResolved: (fileKey, id, resolved) => this.call("comments.setResolved", [fileKey, id, resolved]),
+    setRead: (fileKey, ids, read) => this.call("comments.setRead", [fileKey, ids, read]),
+    react: (fileKey, id, emoji, on) => this.call("comments.react", [fileKey, id, emoji, on]),
+    move: (fileKey, id, anchor) => this.call("comments.move", [fileKey, id, anchor]),
+    mentionable: (fileKey) => this.call("comments.mentionable", [fileKey]),
+    watch: (listener) => this.commentsEvents.add(listener),
   };
 
   readonly multiplayer: MultiplayerRepository = {

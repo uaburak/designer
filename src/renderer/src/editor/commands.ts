@@ -334,7 +334,7 @@ export const COMMANDS: EditorCommand[] = [
   tool("tool.pen", "Pen", "PEN", [k("KeyP")]),
   tool("tool.pencil", "Pencil", "PENCIL", [k("KeyP", { shift: true })]),
   tool("tool.text", "Text", "TEXT", [k("KeyT")]),
-  // Comment: inert until multiplayer (the engine takes no clicks; a toast says so).
+  // Comment: the engine takes no clicks; the comments layer puts down a new comment (editor/comments, docs/multiplayer.md §10).
   tool("tool.comment", "Comment", "COMMENT", [k("KeyC")]),
   // Dev Mode's tools, in Design too (live toolbar: "Annotation Y", "Measurement ⇧M"; help.figma.com also ⇧T).
   tool("tool.annotation", "Annotation", "ANNOTATION", [k("KeyY"), k("KeyT", { shift: true })]),
@@ -451,7 +451,7 @@ export const COMMANDS: EditorCommand[] = [
   ui("view.pixel-grid", "Pixel grid", [k("Quote", { shift: true })], (ed) => setViewOption(ed, { pixelGrid: !pixelGridOn(ed) }), (ed) => pixelGridOn(ed)),
   ui("view.layout-guides", "Layout guides", [k("KeyG", { shift: true })], (ed) => setViewOption(ed, { layoutGuides: ed.ui.get().layoutGuides === false }), (ed) => ed.ui.get().layoutGuides !== false),
   ui("view.show-slices", "Show slices", undefined, (ed) => setViewOption(ed, { showSlices: ed.ui.get().showSlices === false }), (ed) => ed.ui.get().showSlices !== false),
-  // Round 10, View › Comments ⇧C (on by default): comment pins shown (none until multiplayer, roadmap Phase 6).
+  // Round 10, View › Comments ⇧C (on by default): comment pins shown on the canvas (editor/comments).
   ui("view.comments", "Comments", [k("KeyC", { shift: true })], (ed) => ed.ui.set((s) => ({ comments: s.comments === false })), (ed) => ed.ui.get().comments !== false),
   ui("view.outlines", "Show outlines", [k("KeyO", { mod: true, shift: true })], (ed) => setViewOption(ed, { outlines: !ed.ui.get().outlines }), (ed) => !!ed.ui.get().outlines),
   // Live: View › Pixel preview ⇧⌘P; ⌃P toggles it ("Pixel preview enabled (1x)" / "Pixel preview disabled").

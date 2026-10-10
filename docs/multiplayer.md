@@ -95,7 +95,7 @@ The Worker resolves the caller's role before forwarding to the Durable Object (h
    - "can view": the banner "You can only view and comment on this file." · Ask to edit · ✕ (527 × 40, 8 above the toolbar); Ask to edit → editors get a toast with Review and a red dot on Share, the requester "You can now edit this file" on approval (migration 0004 `access_requests`, room notices).
    - Cursor chat (Figma: "/"; on a Turkish Q keyboard the r14 layout rule puts it on Ç): live to the others in your colour with your name, 52 characters, gone 5 s after typing stops; the engine draws both bubbles (`setLocalChat`, presence `chat`). View › Multiplayer cursors (⌥⌘\) hides others' cursors and chat.
    - Home › Recents: "Recently viewed | Shared files" tabs (no "Shared with me" item), cards "From <name>", Open link… for pasted links.
-   - Not built: transfer ownership, "Ask to spotlight", password links, Dev Mode / embed links, comments (Figma's Comments tab for viewers), audio.
+   - Not built: transfer ownership, "Ask to spotlight", password links, Dev Mode / embed links, audio. (Comments: §10.)
 
 ## 7. Deployed (2026-10-10)
 
@@ -108,3 +108,26 @@ The Worker resolves the caller's role before forwarding to the Durable Object (h
 
 - Cloudflare: account (done), `workers.dev` subdomain `burak-kc-sp` (done), `npx wrangler login` in `server/` when asked; R2 enabled before step 6.
 - Google Cloud Console: a project, OAuth consent screen (External, testing, the owner and friends as test users), an OAuth client of type **Web application** with redirect URIs `https://designer.burak-kc-sp.workers.dev/auth/callback` and `http://localhost:8787/auth/callback`; its client id and secret go in with `npx wrangler secret put GOOGLE_CLIENT_SECRET` (and the id as `GOOGLE_CLIENT_ID`). Nothing goes in the repo.
+
+## 10. Comments (2026-10-11)
+
+Figma Design's comments (research `docs/research/figma/R14-comments.md`; live capture `docs/research/figma/live/multiplayer/comments.md`, which wins where they differ). Types and the pure helpers in `src/shared/comments.ts` (Figma's REST `Comment` shape: a thread = its first comment + replies one level deep, `order_id` → `number`, `client_meta` → `CommentAnchor`, reactions, resolve, per-person read marks).
+
+- **Where they live.** A shared file (one with a room link) keeps them on the server: D1 migration `server/migrations/0006_comments.sql` (`comments` — the first comment holds the thread's place, number and resolve state; `comment_reactions`; `comment_reads`), routes in `server/src/comments.ts` (dispatched by one line in `api.ts`):
+
+  | Route | Who |
+  |---|---|
+  | `GET /files/:key/comments` | everyone with access — the threads as the caller sees them (`unread` from their read marks), `me`, `canResolveAny` |
+  | `POST /files/:key/comments {id?, threadId?, message, mentions?, anchor?}` | everyone with access, "can view" too (a new thread needs `anchor`) |
+  | `PATCH /files/:key/comments/:id {message?, mentions?, resolved?, anchor?}` | message: the author; resolve / reopen and moving the pin: the thread's author or an editor |
+  | `DELETE /files/:key/comments/:id` | the author (the first comment deletes the thread) |
+  | `PUT /files/:key/comments/:id/reactions {emoji}`, `DELETE …?emoji=` | everyone with access, one per emoji per person |
+  | `POST /files/:key/comments/read {threadIds, read}` | the caller's own marks ("Mark as unread" sets 0) |
+
+  Every route answers with the whole list. After a change the Worker posts `/room/comments {threadId, by}` to the file's room (`fileRoom.ts`), which sends `{t: "comments"}` to every socket that said hello; clients read the list again. Unsharing deletes the file's comments (cascade).
+- **Local files** keep them in the store: `files/<key>/comments.json` (LocalStore; removed with the file) or `designer.devStore.v1.comments.<key>` (the browser's MemoryStore), authored as "You" (shown with the signed-in name when there is one). A local file's comments stay local when it is shared later (not uploaded — open).
+- **The store**: `src/store/comments/service.ts` (`CommentsService`, both stores; the `comments` repository in `StoreApi`, methods `list / add / edit / remove / setResolved / setRead / react / move / mentionable / watch`, event topic `comments`). It asks the server for a shared file through `MultiplayerService` (`roomKey`, `call`, `onComments` — the room's notice; a link coming back live re-reads), keeps the last list for offline (shown with its error).
+- **The editor** (`src/renderer/src/editor/comments/`): `commentsController.ts` (per editor: the list, the draft, the open thread, search / sort / filters kept per machine), `CommentsLayer.tsx` (pins as DOM over the canvas in canvas coordinates — `cam.x + x·zoom` —, re-placed on camera and document changes; the Comment tool's click → a new-comment pin and the composer 48 to its right; hover preview; click opens; drag moves), `Thread.tsx` (the 360-wide card, menus, reactions, edit, the delete dialog), `Composer.tsx` (Enter posts, ⇧Enter new line, "@" lists people with access — members of the shared file —, emoji), `EmojiPicker.tsx`, `CommentsPanel.tsx` (the right panel in comment mode; the viewer's "Comments | Properties" tabs). Pins show while View › Comments (⇧C) is on, and always in comment mode; resolved threads only with "Show resolved comments" (dimmed).
+- **Anchors**: a click over a top-level frame / component / instance / group / section stores that layer and the offset from its top-left (Figma attaches comments to the top-level frame), so the pin moves with it; otherwise a page point. A layer gone → the stored page point.
+- **Engine**: one change — viewer mode accepts the Comment tool (`Editor::setTool`; a click with it changes nothing), so "can view" people comment as in Figma.
+- **Not built**: images in comments ("Upload up to 5 images and GIFs" left out), comment notifications (the Settings menu's choice is kept per machine but nothing is sent — no notification inbox / email), pin clusters, markdown formatting, "Copy link" opening a comment from the link (the link is copied, opening it doesn't focus the thread yet), keyboard stepping between threads, the 100-comments-an-hour limit.

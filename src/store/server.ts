@@ -25,6 +25,8 @@ export interface ServableStore {
     onNotice(listener: (fileKey: FileKey, notice: MultiplayerNotice) => void): Unsubscribe;
     fileState(fileKey: FileKey): Promise<FileShareState>;
   };
+  /** Comments changed (docs/multiplayer.md §10) */
+  readonly comments?: { onChange(listener: (fileKey: FileKey) => void): Unsubscribe };
   readonly files: {
     /** Frames after `fromSeq` for a subscriber catching up */
     backlog(fileKey: FileKey, fromSeq: number): Promise<FileChange[]>;
@@ -124,6 +126,7 @@ export class StoreServer {
       this.offs.push(mp.onReplaced((from, to) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey: from, state: { shared: false, key: null, role: null, connection: "offline", peers: [], requests: 0 }, replacedBy: to } })));
       this.offs.push(mp.onNotice((fileKey, notice) => void mp.fileState(fileKey).then((state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state, notice } }))));
     }
+    if (store.comments) this.offs.push(store.comments.onChange((fileKey) => this.broadcast({ t: "evt", topic: "comments", d: { fileKey } })));
   }
 
   get size(): number {

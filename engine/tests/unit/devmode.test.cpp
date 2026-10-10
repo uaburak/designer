@@ -202,6 +202,10 @@ TEST_CASE("devmode: the Annotation tool's click opens a new note on the layer") 
   // Viewer mode refuses the tool unless Dev Mode's edits are on.
   f.ed.setViewerMode(true);
   CHECK(f.ed.setTool(Tool::ANNOTATION) == E_READONLY);
+  // …but takes the Comment tool ("can view" people comment; a click there changes nothing in the document).
+  CHECK(f.ed.setTool(Tool::COMMENT) == OK);
+  f.click(150, 80);
+  CHECK(f.ed.selection() == std::vector<Guid>{A});
   f.ed.setDevEdits(true);
   CHECK(f.ed.setTool(Tool::ANNOTATION) == OK);
 }

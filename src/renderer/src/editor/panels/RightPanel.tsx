@@ -9,7 +9,9 @@ import { useEditor } from "../controller";
 import { runEditorCommand } from "../commands";
 import { useUI } from "../hooks";
 import { commandItem } from "../menus";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { useTool } from "@/engine/hooks";
+import { CommentsPanel } from "../comments/CommentsPanel";
 import { DesignPanel } from "./design/DesignPanel";
 import { PrototypePanel } from "./prototype/PrototypePanel";
 import { designPanelTab } from "./design/tabOrder";
@@ -24,6 +26,9 @@ export function RightPanel({ floating }: { floating?: boolean } = {}) {
   const ed = useEditor();
   const width = useUI((s) => s.rightWidth);
   const tab = useUI((s) => s.rightTab);
+  const viewer = usePresence(ed).role === "viewer";
+  const commenting = useTool(ed.store) === "COMMENT";
+  const [viewerTab, setViewerTab] = useState<"comments" | "properties">("comments");
   // The Prototype tab shows the connections on the canvas (prototype mode).
   useEffect(() => {
     if (!ed.engine.destroyed && typeof ed.engine.setPrototypeMode === "function") ed.engine.setPrototypeMode(tab === "prototype");
@@ -31,23 +36,52 @@ export function RightPanel({ floating }: { floating?: boolean } = {}) {
   return (
     <aside className={floating ? `${styles.right} ${styles.rightFloating}` : styles.right} style={{ width }} aria-label="Properties panel" data-panel="right" data-floating={floating || undefined}>
       <RightHeader />
-      <div className={styles.rightTabs}>
-        <Tabs
-          label="Properties"
-          idBase="editor-right"
-          value={tab}
-          tabs={[
-            // Live (left/rail-assets.txt): 53 × 24 at 1208 and 69 × 24 at 1265
-            { value: "design", label: "Design", width: 53 },
-            { value: "prototype", label: "Prototype", width: 69 },
-          ]}
-          onChange={(v) => ed.ui.set({ rightTab: v as "design" | "prototype" })}
-        />
-        <ZoomMenu />
-      </div>
-      <div className={styles.rightBody} role="tabpanel" id={`editor-right-panel-${tab}`} aria-labelledby={`editor-right-tab-${tab}`} onKeyDownCapture={tab === "design" ? designPanelTab : undefined}>
-        {tab === "design" ? <DesignPanel /> : <PrototypePanel />}
-      </div>
+      {viewer ? (
+        // "can view" (live multiplayer README): Comments | Properties instead of Design | Prototype
+        <>
+          <div className={styles.rightTabs}>
+            <Tabs
+              label="Properties"
+              idBase="editor-right"
+              value={viewerTab}
+              tabs={[
+                { value: "comments", label: "Comments", width: 74 },
+                { value: "properties", label: "Properties", width: 72 },
+              ]}
+              onChange={(v) => setViewerTab(v as "comments" | "properties")}
+            />
+            <ZoomMenu />
+          </div>
+          <div className={styles.rightBody} role="tabpanel" id={`editor-right-panel-${viewerTab}`} aria-labelledby={`editor-right-tab-${viewerTab}`}>
+            {viewerTab === "comments" ? <CommentsPanel /> : <DesignPanel />}
+          </div>
+        </>
+      ) : commenting ? (
+        // Comment mode (C): the panel lists the file's comments (R14)
+        <div className={styles.rightBody}>
+          <CommentsPanel />
+        </div>
+      ) : (
+        <>
+          <div className={styles.rightTabs}>
+            <Tabs
+              label="Properties"
+              idBase="editor-right"
+              value={tab}
+              tabs={[
+                // Live (left/rail-assets.txt): 53 × 24 at 1208 and 69 × 24 at 1265
+                { value: "design", label: "Design", width: 53 },
+                { value: "prototype", label: "Prototype", width: 69 },
+              ]}
+              onChange={(v) => ed.ui.set({ rightTab: v as "design" | "prototype" })}
+            />
+            <ZoomMenu />
+          </div>
+          <div className={styles.rightBody} role="tabpanel" id={`editor-right-panel-${tab}`} aria-labelledby={`editor-right-tab-${tab}`} onKeyDownCapture={tab === "design" ? designPanelTab : undefined}>
+            {tab === "design" ? <DesignPanel /> : <PrototypePanel />}
+          </div>
+        </>
+      )}
       {!floating && <ResizeHandle side="left" value={width} onChange={(px) => ed.ui.set({ rightWidth: px })} />}
     </aside>
   );
