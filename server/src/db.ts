@@ -28,6 +28,10 @@ export interface SharedFile {
   key: string;
   name: string;
   ownerId: string;
+  /** "From <name>" on Home's Shared files cards: who shared it with the caller (the owner) */
+  ownerName: string | null;
+  /** When it was shared with the caller (their membership), or created for the owner */
+  sharedAt: number;
   role: Role;
   createdAt: number;
   updatedAt: number;
@@ -141,20 +145,52 @@ export class Db {
   async files(userId: string): Promise<SharedFile[]> {
     const { results } = await this.d1
       .prepare(
-        `SELECT f.key, f.name, f.owner_id, f.created_at, f.updated_at, CASE WHEN f.owner_id = ?1 THEN 'owner' ELSE m.role END AS role
-         FROM files f LEFT JOIN members m ON m.file_key = f.key AND m.user_id = ?1
+        `SELECT f.key, f.name, f.owner_id, f.created_at, f.updated_at, CASE WHEN f.owner_id = ?1 THEN 'owner' ELSE m.role END AS role,
+                u.name AS owner_name, u.email AS owner_email, COALESCE(m.created_at, f.created_at) AS shared_at
+         FROM files f LEFT JOIN members m ON m.file_key = f.key AND m.user_id = ?1 LEFT JOIN users u ON u.id = f.owner_id
          WHERE f.owner_id = ?1 OR m.user_id = ?1
-         ORDER BY f.updated_at DESC`,
+         ORDER BY shared_at DESC`,
       )
       .bind(userId)
-      .all<{ key: string; name: string; owner_id: string; created_at: number; updated_at: number; role: Role }>();
-    return results.map((r) => ({ key: r.key, name: r.name, ownerId: r.owner_id, role: r.role, createdAt: r.created_at, updatedAt: r.updated_at }));
+      .all<{ key: string; name: string; owner_id: string; created_at: number; updated_at: number; role: Role; owner_name: string | null; owner_email: string | null; shared_at: number }>();
+    return results.map((r) => ({ key: r.key, name: r.name, ownerId: r.owner_id, ownerName: r.owner_name || r.owner_email, sharedAt: r.shared_at, role: r.role, createdAt: r.created_at, updatedAt: r.updated_at }));
   }
 
   /** A file's name and its link setting */
-  async file(key: string): Promise<{ key: string; name: string; ownerId: string; linkAccess: "none" | "viewer" | "editor" } | null> {
-    const r = await this.d1.prepare(`SELECT key, name, owner_id, link_access FROM files WHERE key = ?1`).bind(key).first<{ key: string; name: string; owner_id: string; link_access: "none" | "viewer" | "editor" }>();
-    return r ? { key: r.key, name: r.name, ownerId: r.owner_id, linkAccess: r.link_access } : null;
+  async file(key: string): Promise<{ key: string; name: string; ownerId: string; linkAccess: "none" | "viewer" | "editor"; viewersCanCopy: boolean } | null> {
+    const r = await this.d1
+      .prepare(`SELECT key, name, owner_id, link_access, viewers_can_copy FROM files WHERE key = ?1`)
+      .bind(key)
+      .first<{ key: string; name: string; owner_id: string; link_access: "none" | "viewer" | "editor"; viewers_can_copy: number }>();
+    return r ? { key: r.key, name: r.name, ownerId: r.owner_id, linkAccess: r.link_access, viewersCanCopy: r.viewers_can_copy !== 0 } : null;
+  }
+
+  async setViewersCanCopy(key: string, on: boolean, now: number): Promise<void> {
+    await this.d1.prepare(`UPDATE files SET viewers_can_copy = ?2, updated_at = ?3 WHERE key = ?1`).bind(key, on ? 1 : 0, now).run();
+  }
+
+  /** "Ask to edit": one request per person per file */
+  async addRequest(key: string, userId: string, now: number): Promise<void> {
+    await this.d1.prepare(`INSERT INTO access_requests (file_key, user_id, created_at) VALUES (?1, ?2, ?3) ON CONFLICT DO NOTHING`).bind(key, userId, now).run();
+  }
+
+  async requests(key: string): Promise<{ userId: string; email: string; name: string | null; createdAt: number }[]> {
+    const { results } = await this.d1
+      .prepare(`SELECT r.user_id, u.email, u.name, r.created_at FROM access_requests r JOIN users u ON u.id = r.user_id WHERE r.file_key = ?1 ORDER BY r.created_at`)
+      .bind(key)
+      .all<{ user_id: string; email: string; name: string | null; created_at: number }>();
+    return results.map((r) => ({ userId: r.user_id, email: r.email, name: r.name, createdAt: r.created_at }));
+  }
+
+  /** The request, removed as it is answered; null when there was none */
+  async takeRequest(key: string, userId: string): Promise<{ email: string } | null> {
+    const r = await this.d1
+      .prepare(`SELECT u.email FROM access_requests r JOIN users u ON u.id = r.user_id WHERE r.file_key = ?1 AND r.user_id = ?2`)
+      .bind(key, userId)
+      .first<{ email: string }>();
+    if (!r) return null;
+    await this.d1.prepare(`DELETE FROM access_requests WHERE file_key = ?1 AND user_id = ?2`).bind(key, userId).run();
+    return r;
   }
 
   async setLinkAccess(key: string, access: "none" | "viewer" | "editor", now: number): Promise<void> {
@@ -166,6 +202,7 @@ export class Db {
   }
 
   async deleteFile(key: string): Promise<void> {
+    await this.d1.prepare(`DELETE FROM access_requests WHERE file_key = ?1`).bind(key).run();
     await this.d1.prepare(`DELETE FROM members WHERE file_key = ?1`).bind(key).run();
     await this.d1.prepare(`DELETE FROM files WHERE key = ?1`).bind(key).run();
   }

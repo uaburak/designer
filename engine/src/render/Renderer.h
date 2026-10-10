@@ -257,6 +257,16 @@ struct PresencePeer {
   bool hasCursor = false;
   Vec2 cursor;
   std::vector<Guid> selection;
+  // Cursor chat ("/"): the bubble instead of the name chip; an empty `chat` is open with nothing typed yet.
+  bool hasChat = false;
+  std::string chat;
+};
+
+// The local user's own cursor chat: their bubble at `at` (page coordinates; by their real pointer, no arrow).
+struct LocalChat {
+  bool on = false;
+  std::string text;
+  Vec2 at;
 };
 
 // What the editor wants drawn over the scene.
@@ -436,6 +446,7 @@ struct Overlay {
   // colour under the local selection's chrome, their cursors with name chips over everything. Only the editor's
   // overlay carries them: exports, thumbnails, the content cache and presentation never draw an Overlay's presence.
   std::vector<PresencePeer> presence;
+  LocalChat localChat;
 };
 
 // Where the renderer gets TEXT nodes' layouts (the editor caches them).

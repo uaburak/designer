@@ -9,7 +9,7 @@
  * been (to recognise its own frames in a catch-up after a reconnect).
  */
 import { encodeChangesUp, decodeChangesDown, type PeerInfo, type Role, type ServerControl } from "../../shared/multiplayer/protocol";
-import type { FileMember, FileShareState, LinkAccess, MultiplayerSession, MultiplayerStatus, RemoteFile, SharedFileInfo } from "../../shared/multiplayer/types";
+import type { AccessRequest, FileMember, FileShareState, LinkAccess, MultiplayerNotice, MultiplayerSession, MultiplayerStatus, RemoteFile, SharedFileInfo } from "../../shared/multiplayer/types";
 import { decodeMessage } from "../../shared/schema/codec";
 import { messageImageHashes } from "../../shared/schema/patch";
 import { StoreError } from "../../shared/store/protocol";
@@ -141,7 +141,7 @@ export class MultiplayerService {
     const st = await this.loadState();
     const rec = st.links[fileKey];
     const link = this.live.get(fileKey);
-    return { shared: !!rec, key: rec?.key ?? null, role: rec?.role ?? null, connection: link?.connection ?? "offline", peers: link ? [...link.peers.values()] : [] };
+    return { shared: !!rec, key: rec?.key ?? null, role: rec?.role ?? null, connection: link?.connection ?? "offline", peers: link ? [...link.peers.values()] : [], requests: this.requestCounts.get(fileKey) ?? 0 };
   }
 
   /** Share › Invite on a file not shared yet: registers it on the server with the editor's snapshot of it at `headSeq`. */
@@ -165,7 +165,7 @@ export class MultiplayerService {
   async listRemote(): Promise<RemoteFile[]> {
     const st = await this.loadState();
     const byKey = new Map(Object.entries(st.links).map(([fileKey, l]) => [l.key, fileKey]));
-    const { files } = await this.api<{ files: { key: string; name: string; role: Role; ownerId: string; updatedAt: number }[] }>("GET", "/files");
+    const { files } = await this.api<{ files: { key: string; name: string; role: Role; ownerId: string; ownerName: string | null; sharedAt: number; updatedAt: number }[] }>("GET", "/files");
     return files.map((f) => ({ ...f, fileKey: byKey.get(f.key) ?? null }));
   }
 
@@ -264,6 +264,42 @@ export class MultiplayerService {
   async members(fileKey: FileKey): Promise<FileMember[]> {
     const { members } = await this.api<{ members: FileMember[] }>("GET", `/files/${await this.keyOf(fileKey)}/members`);
     return members;
+  }
+
+  private requestCounts = new Map<FileKey, number>();
+  private notices = new Set<(fileKey: FileKey, notice: MultiplayerNotice) => void>();
+  onNotice(listener: (fileKey: FileKey, notice: MultiplayerNotice) => void): Unsubscribe {
+    this.notices.add(listener);
+    return () => this.notices.delete(listener);
+  }
+
+  /** @internal A notice from the room: requests are counted for editors, answers reach the person who asked. */
+  async notice(fileKey: FileKey, n: MultiplayerNotice): Promise<void> {
+    if (n.kind === "access-request") await this.requests(fileKey).catch(() => []);
+    for (const l of this.notices) l(fileKey, n);
+  }
+
+  async requestEdit(fileKey: FileKey): Promise<void> {
+    await this.api("POST", `/files/${await this.keyOf(fileKey)}/requests`);
+  }
+
+  async requests(fileKey: FileKey): Promise<AccessRequest[]> {
+    const { requests } = await this.api<{ requests: AccessRequest[] }>("GET", `/files/${await this.keyOf(fileKey)}/requests`);
+    if (this.requestCounts.get(fileKey) !== requests.length) {
+      this.requestCounts.set(fileKey, requests.length);
+      this.emitState(fileKey);
+    }
+    return requests;
+  }
+
+  async answerRequest(fileKey: FileKey, userId: string, approve: boolean): Promise<AccessRequest[]> {
+    await this.api("POST", `/files/${await this.keyOf(fileKey)}/requests/${encodeURIComponent(userId)}`, { approve });
+    return this.requests(fileKey);
+  }
+
+  async setViewersCanCopy(fileKey: FileKey, on: boolean): Promise<SharedFileInfo> {
+    await this.api("PATCH", `/files/${await this.keyOf(fileKey)}`, { viewersCanCopy: on });
+    return this.fileInfo(fileKey);
   }
 
   async fileInfo(fileKey: FileKey): Promise<SharedFileInfo> {
@@ -586,6 +622,7 @@ class Link {
           return;
         case "ready": {
           this.ready = true;
+          if (rec.role !== "viewer") void this.svc.requests(this.fileKey).catch(() => {});
           this.attempt = 0;
           this.connection = "live";
           // What the room hasn't acknowledged goes (again) now, in journal order.
@@ -599,6 +636,9 @@ class Link {
         case "peer-left":
           this.peers.delete(msg.sessionID);
           return this.svc.emitState(this.fileKey);
+        case "notice":
+          await this.svc.notice(this.fileKey, { kind: msg.kind, name: msg.name });
+          return;
         case "presence": {
           const p = this.peers.get(msg.sessionID);
           if (p) p.presence = msg.data;

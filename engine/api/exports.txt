@@ -27,6 +27,7 @@ _engine_screen_to_world
 _engine_center_on
 _engine_view_center
 _engine_set_presence
+_engine_set_local_chat
 _engine_set_theme
 _engine_pointer
 _engine_wheel

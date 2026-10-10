@@ -128,6 +128,15 @@ export class Room {
     }
   }
 
+  /** A notice from the Worker: access requests go to editors, answers to the person who asked. */
+  notice(n: { kind: "access-request" | "access-granted" | "access-denied"; userId: string; name?: string }): void {
+    const text = JSON.stringify({ t: "notice", ...n });
+    for (const [c, m] of this.members) {
+      if (!m.sessionID) continue;
+      if (n.kind === "access-request" ? m.role !== "viewer" : m.userId === n.userId) c.send(text);
+    }
+  }
+
   /** Close a user's sockets (removed, or their role changed: they reconnect with the new one). */
   closeUser(userId: string, code: number, reason: string): void {
     for (const [c, m] of [...this.members]) {

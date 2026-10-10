@@ -752,9 +752,39 @@ ENG_EXPORT int32_t engine_set_presence(Handle h, Ptr ptr, uint32_t len) {
       }
     }
     if (auto* sel = p.get("selection")) peer.selection = readRefs(*sel);
+    if (auto* chat = p.get("chat"); chat && chat->isString()) {
+      peer.hasChat = true;
+      peer.chat = chat->string;
+    }
     peers.push_back(std::move(peer));
   }
   e->editor.setPresence(std::move(peers));
+  return OK;
+}
+
+// The local user's cursor chat: {"text": string | null, "at": {"x","y"} | null} — page coordinates by their pointer;
+// a null text or point closes it, "" is open with nothing typed.
+ENG_EXPORT int32_t engine_set_local_chat(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Value v;
+  if (!parse(ptr, len, v)) return E_DECODE;
+  if (!v.isObject()) {
+    setError("local chat: expected {text, at}");
+    return E_DECODE;
+  }
+  LocalChat chat;
+  const json::Value *text = v.get("text"), *at = v.get("at");
+  if (text && text->isString() && at && at->isObject()) {
+    const json::Value *x = at->get("x"), *y = at->get("y");
+    if (x && y && x->isNumber() && y->isNumber() && std::isfinite(x->number) && std::isfinite(y->number)) {
+      chat.on = true;
+      chat.text = text->string;
+      chat.at = {x->number, y->number};
+    }
+  }
+  e->editor.setLocalChat(chat);
   return OK;
 }
 

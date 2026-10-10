@@ -16,7 +16,8 @@ import type { EditorController } from "../controller";
 
 /** What the engine offers for presence (docs/engine.md "Presence"); absent on an engine built before it */
 interface PresenceEngine {
-  setPresence?(peers: { id: number; name: string; color: string; cursor: { x: number; y: number } | null; selection: string[] }[]): void;
+  setPresence?(peers: { id: number; name: string; color: string; cursor: { x: number; y: number } | null; selection: string[]; chat?: string | null }[]): void;
+  setLocalChat?(text: string | null, at: { x: number; y: number } | null): void;
   screenToWorld?(x: number, y: number): { x: number; y: number };
   centerOn?(x: number, y: number, zoom: number): void;
   viewCenter?(): { x: number; y: number; zoom: number };
@@ -42,13 +43,19 @@ export interface PresenceState {
   spotlighting: boolean;
   /** This copy was replaced by a fresh one (it fell behind the room's history) */
   replacedBy: string | null;
+  /** "Ask to edit" requests waiting (editors): a badge on Share */
+  requests: number;
+  /** Someone started spotlighting: followed in a few seconds unless "Not now" (R13 §1) */
+  spotlightOffer: number | null;
 }
 
 const SEND_EVERY_MS = 100;
+/** A spotlight is followed after this long unless declined (Figma: "a few seconds"; unverified) */
+const SPOTLIGHT_WAIT_MS = 3000;
 /** Share of the way a drawn cursor moves towards its target each frame (≈ 60 fps): smooth at 10 updates a second */
 const EASE = 0.3;
 
-const EMPTY: PresenceState = { shared: false, role: null, connection: "offline", peers: [], following: null, spotlighting: false, replacedBy: null };
+const EMPTY: PresenceState = { shared: false, role: null, connection: "offline", peers: [], following: null, spotlighting: false, replacedBy: null, requests: 0, spotlightOffer: null };
 
 export class Presence {
   state: PresenceState = EMPTY;
@@ -64,6 +71,9 @@ export class Presence {
   /** A spotlight this editor stopped following stays declined until it ends */
   private declined = new Set<number>();
   private stopped = false;
+  private offerTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Cursor chat: the text (null = closed) and the canvas point the local bubble follows (CSS px in the canvas) */
+  private chat: string | null = null;
 
   constructor(
     private ed: EditorController,
@@ -75,6 +85,10 @@ export class Presence {
   }
 
   start(): void {
+    // A start after a stop (React runs effects twice in development) starts afresh.
+    this.stopped = false;
+    this.lastEngineKey = "";
+    this.lastSent = "";
     const mp = getStoreClient().multiplayer;
     void mp.fileState(this.fileKey).then((s) => this.apply(s), () => {});
     this.offs.push(
@@ -137,8 +151,18 @@ export class Presence {
 
   follow(id: number): void {
     this.declined.delete(id);
-    this.set({ following: id });
+    this.set({ following: id, spotlightOffer: null });
     this.followNow();
+  }
+
+  /** "Not now" on a spotlight: this one isn't followed (until it ends and starts again). */
+  declineSpotlight(): void {
+    const id = this.state.spotlightOffer;
+    if (id === null) return;
+    this.declined.add(id);
+    if (this.offerTimer) clearTimeout(this.offerTimer);
+    this.offerTimer = null;
+    this.set({ spotlightOffer: null });
   }
 
   stopFollowing(): void {
@@ -147,6 +171,13 @@ export class Presence {
     const p = this.state.peers.find((x) => x.id === id);
     if (p?.presence?.spotlight) this.declined.add(id);
     this.set({ following: null });
+  }
+
+  /** Cursor chat (R13 §1): the bubble's text while open (null closes it), sent to the others live. */
+  setChat(text: string | null): void {
+    this.chat = text === null ? null : text.slice(0, 52);
+    this.lastSent = "";
+    this.schedule();
   }
 
   spotlight(on: boolean): void {
@@ -167,9 +198,18 @@ export class Presence {
     // Someone spotlighting: follow them (unless this editor stopped following that spotlight, or is spotlighting itself).
     for (const id of this.declined) if (!peers.find((p) => p.id === id)?.presence?.spotlight) this.declined.delete(id);
     const spot = peers.find((p) => p.presence?.spotlight && !this.declined.has(p.id));
-    if (spot && !this.state.spotlighting && following === null) following = spot.id;
+    let offer = this.state.spotlightOffer;
+    if (offer !== null && !peers.some((p) => p.id === offer && p.presence?.spotlight)) offer = null;
+    if (spot && !this.state.spotlighting && following === null && offer === null) {
+      offer = spot.id;
+      if (this.offerTimer) clearTimeout(this.offerTimer);
+      this.offerTimer = setTimeout(() => {
+        this.offerTimer = null;
+        if (this.state.spotlightOffer === spot.id) this.follow(spot.id);
+      }, SPOTLIGHT_WAIT_MS);
+    }
     const wasShared = this.state.shared;
-    this.set({ shared: s.shared, role: s.role, connection: s.connection, peers, following });
+    this.set({ shared: s.shared, role: s.role, connection: s.connection, peers, following, requests: s.requests ?? 0, spotlightOffer: following !== null ? null : offer });
     if (s.shared && !wasShared) this.schedule();
     if (following !== null) this.followNow();
   }
@@ -193,6 +233,7 @@ export class Presence {
       selection: this.ed.store.selection.refs.slice(0, 200),
       view: view ? { x: round(view.x), y: round(view.y), zoom: round(view.zoom * 1000) / 1000 } : null,
       ...(this.state.spotlighting ? { spotlight: true } : {}),
+      ...(this.chat !== null ? { chat: this.chat } : {}),
     };
   }
 
@@ -215,6 +256,8 @@ export class Presence {
     const setPresence = this.engine.setPresence;
     if (!setPresence || this.ed.engine.destroyed) return;
     const page = this.ed.store.page;
+    // View › Multiplayer cursors (⌥⌘\) off: others' cursors and chat hidden, their selections still shown (R13 §1).
+    const cursors = this.ed.ui.get().multiplayerCursors !== false;
     const out: Parameters<NonNullable<PresenceEngine["setPresence"]>>[0] = [];
     const seen = new Set<number>();
     for (const p of this.state.peers) {
@@ -229,7 +272,7 @@ export class Presence {
         this.drawn.set(p.id, next);
         cursor = next;
       } else this.drawn.delete(p.id);
-      out.push({ id: p.id, name: p.name, color: p.color, cursor, selection: pres.selection });
+      out.push({ id: p.id, name: p.name, color: p.color, cursor: cursors ? cursor : null, selection: pres.selection, chat: cursors && cursor && typeof pres.chat === "string" ? pres.chat : null });
     }
     for (const id of [...this.drawn.keys()]) if (!seen.has(id)) this.drawn.delete(id);
     const key = JSON.stringify(out);

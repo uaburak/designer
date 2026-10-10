@@ -83,6 +83,10 @@ export class FileRoom extends DurableObject {
         const missing = sha1s.filter((s) => /^[0-9a-f]{40}$/.test(s) && !this.sql.exec(`SELECT 1 FROM blobs WHERE sha1 = ? AND idx = 0`, s).toArray().length);
         return Response.json({ missing });
       }
+      case "POST /room/notice": {
+        this.room.notice((await req.json()) as Parameters<Room["notice"]>[0]);
+        return Response.json({ ok: true });
+      }
       case "POST /room/revoke-link": {
         // Everyone not owner / member reconnects: those in only by the link are refused or come back as viewers.
         for (const ws of this.ctx.getWebSockets()) {

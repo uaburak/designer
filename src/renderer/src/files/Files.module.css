@@ -117,6 +117,23 @@
     margin: var(--ds-space-4) var(--ds-space-8) var(--ds-space-4);
   }
   .grow { flex: 1 1 auto; }
+  /* Recents' tabs (live: 24 high, radius 5, selected bg #383838 / text, others bg #2c2c2c / secondary text, 11/550) */
+  .tabs { display: flex; gap: var(--ds-space-1); }
+  .tab {
+    height: 24px;
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+    cursor: default;
+  }
+  .tab[aria-selected="true"] { background: var(--figma-color-bg-secondary); color: var(--figma-color-text); }
+  .tab:hover { color: var(--figma-color-text); }
+  .sharedGrid { display: grid; grid-template-columns: repeat(auto-fill, var(--ds-size-card-width)); gap: var(--ds-size-card-gap); align-content: start; padding: 0 var(--ds-space-8) var(--ds-space-8); overflow-y: auto; }
+  .sharedListView { display: grid; grid-template-columns: repeat(auto-fill, var(--ds-size-card-width)); gap: var(--ds-size-card-gap); align-content: start; padding: 0 var(--ds-space-8) var(--ds-space-8); overflow-y: auto; }
   .sortLabel { display: inline-flex; align-items: center; gap: var(--ds-space-half); }
 
   .content { position: relative; flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 var(--ds-space-8) var(--ds-space-12); outline: none; user-select: none; }

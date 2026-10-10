@@ -32,6 +32,8 @@ export type ServerControl =
   | { t: "peer-joined"; peer: PeerInfo }
   | { t: "peer-left"; sessionID: number }
   | { t: "presence"; sessionID: number; data: unknown }
+  /** Something about the file for its people: an "Ask to edit" request (to editors), its answer (to the requester) */
+  | { t: "notice"; kind: "access-request" | "access-granted" | "access-denied"; userId: string; name?: string }
   | { t: "error"; code: "unauthorized" | "forbidden" | "bad-frame" | "too-large" | "too-old"; message: string };
 
 /** Figma's file roles: owner, "can edit", "can view" */

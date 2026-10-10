@@ -320,6 +320,10 @@ class Editor : private LayoutHost, public TextLayouts {
   // never in the document, undo, exports, thumbnails or the content cache. Selected GUIDs not on the page are skipped.
   void setPresence(std::vector<PresencePeer> peers);
   const std::vector<PresencePeer>& presence() const { return presence_; }
+  // The local user's own cursor chat ("/"): their bubble by their pointer at page point `at`, in the selection blue,
+  // no arrow or name (`on` false: none; empty text: the placeholder).
+  void setLocalChat(const LocalChat& chat);
+  const LocalChat& localChat() const { return localChat_; }
   // Round 16: the Design panel's padding / gap field under the pointer (or focused) hatches what it edits on the
   // selected auto-layout frame — bits SPACING_* (1 left, 2 top, 4 right, 8 bottom, 16 every gap), 0 none.
   enum : uint32_t { SPACING_LEFT = 1, SPACING_TOP = 2, SPACING_RIGHT = 4, SPACING_BOTTOM = 8, SPACING_GAPS = 16 };
@@ -1766,6 +1770,7 @@ class Editor : private LayoutHost, public TextLayouts {
   double cursorAngle_ = 0;
   Guid hover_ = kNoGuid;
   std::vector<Guid> layersHover_;
+  LocalChat localChat_;  // round 18: the local user's cursor chat bubble
   std::vector<PresencePeer> presence_;  // round 18: other people's cursors and selections
   bool spaceHeld_ = false;
   bool needsRender_ = true;

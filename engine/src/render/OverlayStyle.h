@@ -122,6 +122,14 @@ struct OverlayStyle {
   double presenceChipPadX = 6, presenceChipPadY = 3, presenceChipRadius = 4;
   double presenceLabelSize = 12, presenceLabelWeight = 600;
   double presenceLightAbove = 0.6;
+  // Cursor chat (R13-multiplayer-sharing.md §1; metrics unverified): the bubble where the name chip goes, padding 8 / 6,
+  // corners 12 but 4 by the arrow's tip, the name at 0.8 over the message (wrapped at 200 px, 3 lines), a 2 px gap; an
+  // empty chat shows the placeholder at 0.6. The local user's own bubble is the selection blue.
+  double presenceChatPadX = 8, presenceChatPadY = 6, presenceChatRadius = 12, presenceChatTipRadius = 4;
+  double presenceChatWidth = 200, presenceChatLines = 3, presenceChatGap = 2;
+  double presenceChatNameAlpha = 0.8, presenceChatPlaceholderAlpha = 0.6;
+  std::string presenceChatPlaceholder = "Say something";
+  Color presenceLocalChat = Color::hex(0x0D99FF);
 
   static Color chrome(Theme t, ds::ChromeColor c) {
     const float* v = (t == Theme::Dark ? ds::kChromeDark : ds::kChromeLight)[static_cast<size_t>(c)];

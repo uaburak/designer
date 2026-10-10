@@ -220,7 +220,7 @@ void Renderer::drawAddVariant(Guid set, double x, double y, const Color& color, 
 }
 
 void Renderer::drawPresenceCursors(const Camera& camera, const Overlay& overlay, const OverlayStyle& style) {
-  if (overlay.presence.empty()) return;
+  if (overlay.presence.empty() && !overlay.localChat.on) return;
   const double dpr = viewport_.scaleX();
   auto snap = [&](double v) { return std::round(v * dpr) / dpr; };
   // The arrow pointer, its tip at (0, 0), 17.2 px tall (CSS px, whatever the zoom): the classic arrow with its tail.
@@ -259,6 +259,52 @@ void Renderer::drawPresenceCursors(const Camera& camera, const Overlay& overlay,
   const CurveEntry* arrowEntry = curves_.path(arrow.hash() * 31 + 0x7072657365ull, [&](std::vector<float>& out) { geom::toQuads(arrow, 0.05, out); });
   const CurveEntry* rimEntry = curves_.path(rim.hash() * 31 + 0x72696dull, [&](std::vector<float>& out) { geom::toQuads(rim, 0.05, out); });
   const Color white{1, 1, 1, 1};
+  // Text on a peer's colour: white, near-black at 0.9 on a light colour (WCAG relative luminance).
+  struct Ink {
+    Color color;
+    double alpha;
+  };
+  auto inkOn = [&](const Color& c) -> Ink {
+    auto lin = [](double v) { return v <= 0.04045 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4); };
+    double luminance = 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+    return luminance > style.presenceLightAbove ? Ink{Color{0, 0, 0, 1}, 0.9} : Ink{white, 1};
+  };
+  // Cursor chat (Figma's "/"): a bubble where the name chip goes — the name (semibold, 0.8) over the message (regular,
+  // wrapped at `presenceChatWidth`, at most `presenceChatLines` lines, "…" past them); "" shows "Say something" at 0.6.
+  // Its corner by the arrow's tip squarer than the others.
+  auto chatBubble = [&](Vec2 tip, const Color& fill, const std::string* name, const std::string& chat) {
+    const Color ink{fill.r, fill.g, fill.b, 1};
+    const Ink t = inkOn(ink);
+    const double size = style.presenceLabelSize, maxW = style.presenceChatWidth;
+    const text::TextLayout* N = nullptr;
+    double nw = 0, nh = 0;
+    if (name && !name->empty()) {
+      N = label(*name, "Medium", size, -1, 1, style.presenceLabelWeight);
+      nw = N ? N->size.x : 6.8 * static_cast<double>(name->size());
+      if (nw > maxW) {
+        N = label(*name, "Medium", size, maxW, 1, style.presenceLabelWeight);
+        nw = maxW;
+      }
+      nh = N && !N->lines.empty() ? N->size.y : size * 1.2;
+    }
+    const bool placeholder = chat.empty();
+    const std::string& message = placeholder ? style.presenceChatPlaceholder : chat;
+    const text::TextLayout* M = label(message, "Regular", size);
+    double mw = M ? M->size.x : 6.2 * static_cast<double>(message.size());
+    if (mw > maxW) {
+      M = label(message, "Regular", size, maxW, static_cast<int>(style.presenceChatLines));
+      mw = maxW;
+    }
+    double mh = M && !M->lines.empty() ? M->size.y : size * 1.2;
+    const double padX = style.presenceChatPadX, padY = style.presenceChatPadY, gap = N ? style.presenceChatGap : 0;
+    double bw = std::round(std::max(nw, mw) + 2 * padX), bh = std::round(nh + gap + mh + 2 * padY);
+    double bx = snap(tip.x + style.presenceChipX), by = snap(tip.y + style.presenceChipY);
+    const double r = style.presenceChatRadius, rt = style.presenceChatTipRadius;
+    emit(makeShape(Mat2x3::translate(bx, by), {bw, bh}, ShapeKind::Rect, {rt, r, r, r}, ink, 1, ink, 0, 0, 0), Pass::Shape);
+    if (N && !N->lines.empty()) drawGlyphs(*N, Mat2x3::translate(snap(bx + padX), snap(by + padY)), t.color, t.alpha * style.presenceChatNameAlpha);
+    if (M && !M->lines.empty())
+      drawGlyphs(*M, Mat2x3::translate(snap(bx + padX), snap(by + padY + nh + gap)), t.color, t.alpha * (placeholder ? style.presenceChatPlaceholderAlpha : 1));
+  };
   for (const PresencePeer& peer : overlay.presence) {
     if (!peer.hasCursor) continue;
     Vec2 tip = camera.toScreen(peer.cursor);
@@ -269,13 +315,13 @@ void Renderer::drawPresenceCursors(const Camera& camera, const Overlay& overlay,
     const Mat2x3 at = Mat2x3::translate(tip.x, tip.y);
     emitPath(rimEntry, at, false, Paint::solid(white, 1), {1, 1}, 1);
     emitPath(arrowEntry, at, false, Paint::solid(ink, 1), {1, 1}, 1);
+    if (peer.hasChat) {
+      chatBubble(tip, ink, &peer.name, peer.chat);
+      continue;
+    }
     if (peer.name.empty()) continue;
     // The name chip: white text, near-black on a light colour (WCAG relative luminance).
-    auto lin = [](double c) { return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4); };
-    double luminance = 0.2126 * lin(ink.r) + 0.7152 * lin(ink.g) + 0.0722 * lin(ink.b);
-    const bool light = luminance > style.presenceLightAbove;
-    const Color text = light ? Color{0, 0, 0, 1} : white;
-    const double textAlpha = light ? 0.9 : 1;
+    const Ink t = inkOn(ink);
     const double maxWidth = 240;  // a long name ends in "…"
     const text::TextLayout* L = label(peer.name, "Medium", style.presenceLabelSize, -1, 1, style.presenceLabelWeight);
     double tw = L ? L->size.x : 6.8 * static_cast<double>(peer.name.size());
@@ -287,7 +333,12 @@ void Renderer::drawPresenceCursors(const Camera& camera, const Overlay& overlay,
     double cw = std::round(tw + 2 * style.presenceChipPadX), ch = std::round(th + 2 * style.presenceChipPadY), r = style.presenceChipRadius;
     double cx = snap(tip.x + style.presenceChipX), cy = snap(tip.y + style.presenceChipY);
     emit(makeShape(Mat2x3::translate(cx, cy), {cw, ch}, ShapeKind::Rect, {r, r, r, r}, ink, 1, ink, 0, 0, 0), Pass::Shape);
-    if (L && !L->lines.empty()) drawGlyphs(*L, Mat2x3::translate(snap(cx + (cw - tw) / 2), snap(cy + (ch - th) / 2)), text, textAlpha);
+    if (L && !L->lines.empty()) drawGlyphs(*L, Mat2x3::translate(snap(cx + (cw - tw) / 2), snap(cy + (ch - th) / 2)), t.color, t.alpha);
+  }
+  // The local user's own cursor chat: the bubble by their real pointer (no arrow, no name), in the selection blue.
+  if (overlay.localChat.on) {
+    Vec2 tip = camera.toScreen(overlay.localChat.at);
+    chatBubble({snap(tip.x), snap(tip.y)}, style.presenceLocalChat, nullptr, overlay.localChat.text);
   }
 }
 

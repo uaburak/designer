@@ -1483,6 +1483,35 @@ async function r18Checks(files) {
   await settle();
   const [cleared] = await pixelsAt([at(alice.cursor, 3, 8)]);
   check("presence: cleared, the cursor is gone", !near(cleared, purple), `${cleared}`);
+
+  // Cursor chat: Alice typing (her bubble instead of the chip), Bob's open and empty ("Say something"), and the local
+  // user's own bubble in the selection blue by their pointer (no arrow).
+  const mine = { x: 120, y: 6290 };
+  await engine(
+    ({ peers, mine }) => {
+      const e = window.__designerEngine;
+      e.setPresence(peers);
+      e.setLocalChat("On my way", mine);
+    },
+    { peers: [{ ...alice, chat: "Looks great — can we try the darker card?" }, { ...bob, chat: "" }], mine }
+  );
+  await settle();
+  await settle();
+  files.push(await shot("88-r18-cursor-chat"));
+  // Each bubble's padding just inside its left edge, under its first line (a name chip would end above it).
+  const [aBubble, bBubble, myBubble, myArrow] = await pixelsAt([
+    at(alice.cursor, 14, 38), at(bob.cursor, 14, 38), at(mine, 14, 24), at(mine, 3, 8),
+  ]);
+  const blue = [0x0d, 0x99, 0xff, 255];
+  check("cursor chat: Alice's bubble (name over message) in her colour", near(aBubble, purple), `${aBubble}`);
+  check("cursor chat: Bob's empty bubble in his colour", near(bBubble, yellow), `${bBubble}`);
+  check("cursor chat: the local bubble in the selection blue, no arrow", near(myBubble, blue) && !near(myArrow, blue), `${myBubble} / ${myArrow}`);
+  await engine(() => {
+    const e = window.__designerEngine;
+    e.setPresence([]);
+    e.setLocalChat(null, null);
+  });
+  await settle();
 }
 
 // A GPU validation error (WebGPU: an invalid command buffer drops the whole frame), a feedback loop (WebGL), or a

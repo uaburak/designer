@@ -880,6 +880,7 @@ Overlay Editor::overlay() const {
   scrollbarOverlay(o);  // round 16
   devOverlay(o);
   // Round 18: other people — their selected layers that exist on this page (others ignored), their cursors.
+  o.localChat = localChat_;
   o.presence.reserve(presence_.size());
   for (const PresencePeer& peer : presence_) {
     PresencePeer p = peer;
@@ -1335,6 +1336,12 @@ Status Editor::setSelection(const std::vector<Guid>& ids) {
 void Editor::setPresence(std::vector<PresencePeer> peers) {
   if (peers.empty() && presence_.empty()) return;
   presence_ = std::move(peers);
+  needsRender_ = true;
+}
+
+void Editor::setLocalChat(const LocalChat& chat) {
+  if (!chat.on && !localChat_.on) return;
+  localChat_ = chat;
   needsRender_ = true;
 }
 

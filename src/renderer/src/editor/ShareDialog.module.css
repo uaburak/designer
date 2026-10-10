@@ -1,20 +1,170 @@
+/* Figma UI3's share modal, measured live (docs/research/figma/live/multiplayer/README.md "Share dialog"). */
 @layer app {
-  .body { display: flex; flex-direction: column; gap: var(--ds-space-3); }
-  .note { margin: 0; color: var(--figma-color-text-secondary); }
-  .field { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: var(--ds-space-2); }
-  .label { color: var(--figma-color-text-secondary); }
-  .row { display: flex; align-items: center; gap: var(--ds-space-2); min-width: 0; }
-  .row > :first-child { flex: 1 1 auto; min-width: 0; }
-  /* People (docs/multiplayer.md §3) */
-  .section { display: flex; flex-direction: column; gap: var(--ds-space-2); padding-bottom: var(--ds-space-3); border-bottom: 1px solid var(--figma-color-border); }
-  .invite { display: flex; align-items: center; gap: var(--ds-space-2); min-width: 0; }
-  .invite > :first-child { flex: 1 1 auto; min-width: 0; }
-  .heading { font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
-  .people { display: flex; flex-direction: column; gap: var(--ds-space-1); margin: 0; padding: 0; list-style: none; }
-  .person { display: flex; align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-row); }
-  .who { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; overflow: hidden; }
-  .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .email { color: var(--figma-color-text-secondary); }
+  .layer {
+    position: fixed;
+    inset: 0;
+    z-index: var(--ds-z-scrim);
+  }
+  /* Two cards, 480 wide, 8 apart, at the top centre (live: y 86–90 in an 863-high window) */
+  .modal {
+    position: absolute;
+    top: 86px;
+    left: 50%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--ds-space-2);
+    width: 480px;
+    max-height: calc(100% - 120px);
+    outline: none;
+    transform: translateX(-50%);
+  }
+  .card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-radius: 13px;
+    background: var(--figma-color-bg);
+    box-shadow: var(--ds-elevation-500-modal-window);
+    overflow: hidden;
+  }
+  .head {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: 40px;
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-4);
+    box-shadow: inset 0 -1px 0 var(--figma-color-border);
+  }
+  .head > [data-ds="IconButton"]:first-child { margin-left: calc(-1 * var(--ds-space-2)); }
+  .title { font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); color: var(--figma-color-text); }
+  .grow { flex: 1 1 auto; }
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--figma-color-text-brand);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    overflow-wrap: anywhere;
+    cursor: default;
+  }
+  .link:hover { text-decoration: underline; }
+  .head > .link { margin-right: 2px; } /* live: 10 between "Copy link" and ✕ */
+  .body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ds-space-3);
+    min-height: 0;
+    padding: var(--ds-space-4);
+    overflow-y: auto;
+  }
+  .note, .caption { margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .note { padding: var(--ds-space-4); }
+  .body .note { padding: 0; }
+  .indent { margin-top: calc(-1 * var(--ds-space-2)); padding-left: var(--ds-space-6); }
+  .caption strong { font-weight: 500; }
+  .heading { margin-top: var(--ds-space-1); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .section { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .divider { width: 100%; height: 1px; margin: var(--ds-space-1) 0; border: 0; background: var(--figma-color-border); }
+
+  /* The invite bar: field 34 high (flex), Invite 53×32, 8 apart */
+  .inviteBar { display: flex; align-items: flex-start; gap: var(--ds-space-2); }
+  .field {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    min-height: 34px;
+    padding: 4px;
+    border: 1px solid transparent;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+  }
+  .field:focus-within { border-color: var(--figma-color-border-selected); }
+  .input {
+    flex: 1 1 120px;
+    min-width: 80px;
+    height: 24px;
+    padding: 0 var(--ds-space-1);
+    border: 0;
+    outline: none;
+    background: none;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .input::placeholder { color: var(--figma-color-text-secondary); }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    padding-left: var(--ds-space-2);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg);
+    box-shadow: inset 0 0 0 1px var(--figma-color-border);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .chip button { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; background: none; color: var(--figma-color-icon-secondary); cursor: default; }
+  .chip button:hover { color: var(--figma-color-icon); }
+  /* live: 81×24, bg #2c2c2c, 1px #444444, radius 5 */
+  .roleSelect { flex: none; margin-left: auto; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); box-shadow: inset 0 0 0 1px var(--figma-color-border); }
+  .invite { flex: none; min-width: 53px; height: 32px; font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+
+  /* Who has access: rows 24 high, 36 apart, the avatar at 12 from the card's edge */
+  .people { display: flex; flex-direction: column; gap: var(--ds-space-3); margin: 0 0 0 calc(-1 * var(--ds-space-1)); padding: 0; list-style: none; }
+  .person { display: flex; align-items: center; gap: var(--ds-space-2); min-height: 24px; color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .personButton {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--ds-space-2);
+    min-height: 24px;
+    margin: -2px 0;
+    padding: 2px 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: none;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-align: left;
+    cursor: default;
+  }
+  .personButton:hover .role, .personButton:hover .chevron { color: var(--figma-color-text); }
+  .glyph { display: flex; flex: none; align-items: center; justify-content: center; width: 24px; height: 24px; color: var(--figma-color-icon); }
+  .who { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .name { color: var(--figma-color-text); }
+  .secondary { color: var(--figma-color-text-secondary); }
   .online { color: var(--figma-color-text-success); }
-  .role { color: var(--figma-color-text-secondary); }
+  .role { flex: none; color: var(--figma-color-text); }
+  .chevron { flex: none; color: var(--figma-color-icon-secondary); }
+
+  /* Card 2: rows 464×36 inside an 8 inset */
+  .rows { padding: var(--ds-space-2); }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: 36px;
+    padding: 0 5px; /* live: the label at 45 from the card's edge */
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: none;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    cursor: default;
+  }
+  .row:hover { background: var(--figma-color-bg-hover); }
+
+  /* Developer preview */
+  .field2 { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: var(--ds-space-2); }
+  .actions { display: flex; justify-content: flex-end; gap: var(--ds-space-2); }
 }

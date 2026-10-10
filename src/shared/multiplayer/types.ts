@@ -22,6 +22,10 @@ export interface RemoteFile {
   name: string;
   role: Role;
   ownerId: string;
+  /** "From <name>" */
+  ownerName: string | null;
+  /** When it was shared with the user */
+  sharedAt: number;
   updatedAt: number;
   /** The local file linked to it, if this installation has one */
   fileKey: FileKey | null;
@@ -43,13 +47,25 @@ export interface FileShareState {
   role: Role | null;
   connection: "offline" | "connecting" | "live";
   peers: PeerInfo[];
+  /** "Ask to edit" requests waiting (editors only; the Share button's badge) */
+  requests: number;
 }
+
+export interface AccessRequest {
+  userId: string;
+  email: string;
+  name: string | null;
+  createdAt: number;
+}
+
+export type MultiplayerNotice = { kind: "access-request" | "access-granted" | "access-denied"; name?: string };
 
 export interface MultiplayerEvent {
   fileKey: FileKey;
   state: FileShareState;
   /** This copy fell behind the room's history and a fresh copy replaced it as the linked one (the old one stays) */
   replacedBy?: FileKey;
+  notice?: MultiplayerNotice;
 }
 
 /** What a person in a file shares with the others (docs/multiplayer.md §6), at most ~10 times a second */
@@ -62,6 +78,8 @@ export interface PresenceData {
   view: { x: number; y: number; zoom: number } | null;
   /** "Spotlight me": everyone in the file follows them */
   spotlight?: boolean;
+  /** Cursor chat: what they are typing ("" = the bubble is open, nothing typed yet); absent = no bubble */
+  chat?: string;
 }
 
 export type LinkAccess = "none" | "viewer" | "editor";
@@ -72,6 +90,8 @@ export interface SharedFileInfo {
   name: string;
   role: Role;
   linkAccess: LinkAccess;
+  /** "Viewers can copy, save, and export from this file" */
+  viewersCanCopy: boolean;
   link: string;
 }
 
@@ -96,6 +116,11 @@ export interface MultiplayerRepository {
   fileInfo(fileKey: FileKey): Promise<SharedFileInfo>;
   /** "Anyone with the link" (owner only) */
   setLinkAccess(fileKey: FileKey, access: LinkAccess): Promise<SharedFileInfo>;
+  setViewersCanCopy(fileKey: FileKey, on: boolean): Promise<SharedFileInfo>;
+  /** "Ask to edit" (a viewer) */
+  requestEdit(fileKey: FileKey): Promise<void>;
+  requests(fileKey: FileKey): Promise<AccessRequest[]>;
+  answerRequest(fileKey: FileKey, userId: string, approve: boolean): Promise<AccessRequest[]>;
   invite(fileKey: FileKey, email: string, role: "editor" | "viewer"): Promise<FileMember[]>;
   removeMember(fileKey: FileKey, email: string): Promise<FileMember[]>;
   /** Cursor, selection, page … for the file's other people (not stored) */

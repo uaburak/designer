@@ -289,6 +289,29 @@ describe("files and sharing", () => {
     expect(await page.text()).toContain("designer://open?key=file_link01");
   });
 
+  it("Ask to edit: a viewer asks, editors are told and approve or deny, the viewer becomes an editor", async () => {
+    const owner = await devSignIn("o@x.co");
+    await call("POST", "/files", { token: owner.token, body: { key: "file_ask001", name: "Asked" } });
+    await call("PATCH", "/files/file_ask001", { token: owner.token, body: { linkAccess: "viewer" } });
+    const v = await devSignIn("v@x.co");
+    expect((await call("POST", "/files/file_ask001/requests", { token: owner.token })).status).toBe(400);
+    expect((await call("POST", "/files/file_ask001/requests", { token: v.token })).status).toBe(200);
+    expect(roomCalls.at(-1)).toMatchObject({ path: "/room/notice" });
+    expect((await call("GET", "/files/file_ask001/requests", { token: v.token })).status).toBe(403);
+    const list = (await (await call("GET", "/files/file_ask001/requests", { token: owner.token })).json()) as { requests: { userId: string; email: string }[] };
+    expect(list.requests.map((r) => r.email)).toEqual(["v@x.co"]);
+    expect((await call("POST", `/files/file_ask001/requests/${v.user.id}`, { token: owner.token, body: { approve: true } })).status).toBe(200);
+    expect(((await (await call("GET", "/files/file_ask001", { token: v.token })).json()) as { role: string }).role).toBe("editor");
+    expect((await call("POST", `/files/file_ask001/requests/${v.user.id}`, { token: owner.token, body: { approve: true } })).status).toBe(404);
+    // Viewers can copy … (editors set it)
+    expect(((await (await call("GET", "/files/file_ask001", { token: owner.token })).json()) as { viewersCanCopy: boolean }).viewersCanCopy).toBe(true);
+    await call("PATCH", "/files/file_ask001", { token: owner.token, body: { viewersCanCopy: false } });
+    expect(((await (await call("GET", "/files/file_ask001", { token: owner.token })).json()) as { viewersCanCopy: boolean }).viewersCanCopy).toBe(false);
+    // Shared files carry who shared them.
+    const files = (await (await call("GET", "/files", { token: v.token })).json()) as { files: { ownerName: string }[] };
+    expect(files.files[0].ownerName).toBe("o");
+  });
+
   it("validates input", async () => {
     const owner = await devSignIn("o@x.co");
     expect((await call("POST", "/files", { token: owner.token, body: { key: "../x" } })).status).toBe(400);

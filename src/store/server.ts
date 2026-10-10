@@ -6,7 +6,7 @@
 import { isKnownMethod, roleMayCall, serializeError, StoreError, type PortRole, type RpcMessage, type RpcRequest, type RpcTransport } from "../shared/store/protocol";
 import type { FileChange, LibraryEvent, OpenedFile, StoreApi, Unsubscribe, WorkspaceEvent } from "../shared/store/repositories";
 import type { FileKey } from "../shared/store/types";
-import type { FileShareState } from "../shared/multiplayer/types";
+import type { FileShareState, MultiplayerNotice } from "../shared/multiplayer/types";
 
 /**
  * What the server needs from a store: `LocalStore` (the utility process), or the browser's in-memory dev store
@@ -19,7 +19,12 @@ export interface ServableStore {
   readonly libraryEvents: { on(listener: (e: LibraryEvent) => void): Unsubscribe };
   readonly fileChanges: { on(listener: (c: FileChange) => void): Unsubscribe };
   /** Shared files' connection and people (docs/multiplayer.md §5) */
-  readonly multiplayer?: { onFileState(listener: (fileKey: FileKey, state: FileShareState) => void): Unsubscribe; onReplaced(listener: (from: FileKey, to: FileKey) => void): Unsubscribe };
+  readonly multiplayer?: {
+    onFileState(listener: (fileKey: FileKey, state: FileShareState) => void): Unsubscribe;
+    onReplaced(listener: (from: FileKey, to: FileKey) => void): Unsubscribe;
+    onNotice(listener: (fileKey: FileKey, notice: MultiplayerNotice) => void): Unsubscribe;
+    fileState(fileKey: FileKey): Promise<FileShareState>;
+  };
   readonly files: {
     /** Frames after `fromSeq` for a subscriber catching up */
     backlog(fileKey: FileKey, fromSeq: number): Promise<FileChange[]>;
@@ -116,7 +121,8 @@ export class StoreServer {
     if (store.multiplayer) {
       const mp = store.multiplayer;
       this.offs.push(mp.onFileState((fileKey, state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state } })));
-      this.offs.push(mp.onReplaced((from, to) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey: from, state: { shared: false, key: null, role: null, connection: "offline", peers: [] }, replacedBy: to } })));
+      this.offs.push(mp.onReplaced((from, to) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey: from, state: { shared: false, key: null, role: null, connection: "offline", peers: [], requests: 0 }, replacedBy: to } })));
+      this.offs.push(mp.onNotice((fileKey, notice) => void mp.fileState(fileKey).then((state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state, notice } }))));
     }
   }
 

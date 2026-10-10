@@ -169,6 +169,8 @@ export interface PresencePeer {
   cursor: { x: number; y: number } | null;
   /** Node GUIDs "sessionID:localID" the peer has selected on the page currently shown. */
   selection: string[];
+  /** Cursor chat ("/"): a string draws the chat bubble instead of the name chip ("": open, nothing typed yet). */
+  chat?: string | null;
 }
 
 export type ApplyKind ="user" | "system" | "restore" | "remote" | "load";
@@ -986,8 +988,16 @@ export class Engine {
    * Unknown GUIDs in `selection` are ignored.
    */
   setPresence(peers: readonly PresencePeer[]): void {
-    const payload = peers.map((p) => ({ id: p.id, name: p.name, color: p.color, cursor: p.cursor, selection: p.selection }));
+    const payload = peers.map((p) => ({ id: p.id, name: p.name, color: p.color, cursor: p.cursor, selection: p.selection, chat: p.chat ?? null }));
     this.after(this.x.setPresence(this.h, encodeText(JSON.stringify(payload))));
+  }
+
+  /**
+   * The local user's own cursor chat: their bubble at page point `at` (by their real pointer; no arrow, no name) in the
+   * selection blue — "" shows the placeholder; a null text or point closes it.
+   */
+  setLocalChat(text: string | null, at: { x: number; y: number } | null): void {
+    this.after(this.x.setLocalChat(this.h, encodeText(JSON.stringify({ text, at }))));
   }
 
   setTheme(theme: "LIGHT" | "DARK"): void {

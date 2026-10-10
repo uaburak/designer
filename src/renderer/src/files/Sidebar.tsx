@@ -19,8 +19,6 @@ export interface SidebarProps {
   ownerName: string;
   /** The account row's menu (Log in / Log out — docs/multiplayer.md §2); absent: the row is a plain label */
   onAccountMenu?: (e: React.MouseEvent) => void;
-  /** Shared with me (docs/multiplayer.md §3), shown while signed in */
-  onSharedFiles?: () => void;
   teamName: string;
   location: Location;
   search: string;
@@ -110,7 +108,7 @@ function FolderTree({ parent, depth, props }: { parent: FolderId | null; depth: 
 }
 
 export function Sidebar(props: SidebarProps) {
-  const { ownerName, onAccountMenu, onSharedFiles, teamName, location, search, onSearch, onSearchExit, go, starredFolders, starredFiles, starredOpen, onStarredOpen, onOpenFile, onFolderMenu, onFileMenu, onAllFoldersMenu, onTrashMenu, dnd } = props;
+  const { ownerName, onAccountMenu, teamName, location, search, onSearch, onSearchExit, go, starredFolders, starredFiles, starredOpen, onStarredOpen, onOpenFile, onFolderMenu, onFileMenu, onAllFoldersMenu, onTrashMenu, dnd } = props;
   const is = (kind: Location["kind"]) => location.kind === kind;
   return (
     <nav className={styles.sidebar} aria-label="File browser">
@@ -131,7 +129,6 @@ export function Sidebar(props: SidebarProps) {
       </div>
       <div className={styles.navGroup}>
         <SidebarItem icon="24.recent" label="Recents" selected={is("recents")} onClick={() => go({ kind: "recents" })} />
-        {onSharedFiles && <SidebarItem icon="24.person" label="Shared with me" onClick={onSharedFiles} />}
       </div>
       <SidebarDivider />
       <div className={styles.team}>

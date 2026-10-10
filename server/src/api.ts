@@ -148,10 +148,14 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (parts.length === 2) {
     if (m === "GET") {
       const f = await deps.db.file(key);
-      return json({ key, name: f?.name ?? "Untitled", role, linkAccess: f?.linkAccess ?? "none", link: `${url.origin}/f/${key}` });
+      return json({ key, name: f?.name ?? "Untitled", role, linkAccess: f?.linkAccess ?? "none", viewersCanCopy: f?.viewersCanCopy ?? true, link: `${url.origin}/f/${key}` });
     }
     if (m === "PATCH") {
-      const body = await readJson<{ name?: string; linkAccess?: string }>(req);
+      const body = await readJson<{ name?: string; linkAccess?: string; viewersCanCopy?: unknown }>(req);
+      if (body.viewersCanCopy !== undefined) {
+        atLeast("editor");
+        await deps.db.setViewersCanCopy(key, body.viewersCanCopy === true, deps.now());
+      }
       if (body.linkAccess !== undefined) {
         atLeast("owner");
         if (body.linkAccess !== "none" && body.linkAccess !== "viewer" && body.linkAccess !== "editor") throw new HttpError(400, "linkAccess is none, viewer or editor");
@@ -209,6 +213,34 @@ async function route(req: Request, deps: Deps): Promise<Response> {
         const body = await req.arrayBuffer();
         if (body.byteLength > MAX_SNAPSHOT_BYTES) throw new HttpError(413, "snapshot too large");
         return deps.rooms.fetch(key, `/room/snapshot?seq=${seq}`, { method: "PUT", body, identity });
+      }
+      break;
+    }
+    case "requests": {
+      // "Ask to edit": a viewer asks; editors see the requests (live, through the room) and approve or deny.
+      if (parts.length === 3 && m === "POST") {
+        if (role !== "viewer") throw new HttpError(400, "you can already edit");
+        await deps.db.addRequest(key, user.id, deps.now());
+        await deps.rooms.fetch(key, "/room/notice", { method: "POST", body: JSON.stringify({ kind: "access-request", userId: user.id, name: user.name ?? user.email }) });
+        return json({ ok: true });
+      }
+      if (parts.length === 3 && m === "GET") {
+        atLeast("editor");
+        return json({ requests: await deps.db.requests(key) });
+      }
+      if (parts.length === 4 && m === "POST") {
+        atLeast("editor");
+        const { approve } = await readJson<{ approve?: unknown }>(req);
+        const r = await deps.db.takeRequest(key, parts[3]);
+        if (!r) throw new HttpError(404, "no such request");
+        // The answer reaches them first, on the socket they have now…
+        await deps.rooms.fetch(key, "/room/notice", { method: "POST", body: JSON.stringify({ kind: approve === true ? "access-granted" : "access-denied", userId: parts[3] }) });
+        if (approve === true) {
+          await deps.db.putMember(key, r.email, "editor", user.id, deps.now());
+          // …which then reconnects as an editor.
+          await deps.rooms.fetch(key, "/room/revoke", { method: "POST", body: JSON.stringify({ userId: parts[3] }) });
+        }
+        return json({ ok: true });
       }
       break;
     }

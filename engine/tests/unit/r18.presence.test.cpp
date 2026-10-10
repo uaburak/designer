@@ -282,3 +282,109 @@ TEST_CASE("r18 presence and camera through the C ABI") {
   CHECK(engine_set_presence(h, reinterpret_cast<Ptr>(none.data()), static_cast<uint32_t>(none.size())) == 0);
   engine_destroy(h);
 }
+
+namespace {
+
+// The cursor chat bubbles: shapes in `c` whose corners are the bubble's (squarer by the arrow's tip).
+std::vector<DrawInstance> bubbles(const std::vector<DrawInstance>& all, const Color& c, const OverlayStyle& st) {
+  std::vector<DrawInstance> out;
+  for (const DrawInstance& q : all)
+    if (inColor(q, c) && std::fabs(q.box[0] - st.presenceChatTipRadius) < 1e-6 && std::fabs(q.box[1] - st.presenceChatRadius) < 1e-6 &&
+        std::fabs(q.box[2] - st.presenceChatRadius) < 1e-6 && std::fabs(q.box[3] - st.presenceChatRadius) < 1e-6)
+      out.push_back(q);
+  return out;
+}
+size_t chips(const std::vector<DrawInstance>& all, const Color& c, const OverlayStyle& st) {
+  return static_cast<size_t>(std::count_if(all.begin(), all.end(), [&](const DrawInstance& q) {
+    return inColor(q, c) && std::fabs(q.box[0] - st.presenceChipRadius) < 1e-6 && std::fabs(q.box[1] - st.presenceChipRadius) < 1e-6;
+  }));
+}
+
+}  // namespace
+
+TEST_CASE("r18 cursor chat: a peer's bubble replaces the name chip, at the chip's place; empty shows the placeholder") {
+  Scene s;
+  PresencePeer a = peer(7, "Alice", kAlice, true, {350, 40}, {});
+  a.hasChat = true;
+  a.chat = "hello there";
+  PresencePeer b = peer(8, "Bob", kBob, true, {10, 10}, {});
+  b.hasChat = true;  // open, nothing typed
+  PresencePeer c = peer(9, "Carol", Color::hex(0x14AE5C), true, {600, 300}, {});
+  s.e.setPresence({a, b, c});
+  auto all = s.draw();
+  auto ab = bubbles(all, kAlice, s.style);
+  REQUIRE(ab.size() == 1);
+  CHECK(ab[0].origin[0] == doctest::Approx(450 + s.style.presenceChipX));
+  CHECK(ab[0].origin[1] == doctest::Approx(140 + s.style.presenceChipY));
+  CHECK(ab[0].origin[3] > s.style.presenceLabelSize * 2);  // two lines: the name over the message
+  CHECK(chips(all, kAlice, s.style) == 0);
+  CHECK(bubbles(all, kBob, s.style).size() == 1);
+  CHECK(chips(all, kBob, s.style) == 0);
+  // Carol isn't chatting: her name chip.
+  CHECK(chips(all, Color::hex(0x14AE5C), s.style) == 1);
+  CHECK(bubbles(all, Color::hex(0x14AE5C), s.style).empty());
+  // A long message wraps at the bubble's width, three lines at most.
+  a.chat = std::string(52, 'w') + " and more words to wrap across the lines of the bubble";
+  s.e.setPresence({a});
+  all = s.draw();
+  ab = bubbles(all, kAlice, s.style);
+  REQUIRE(ab.size() == 1);
+  CHECK(ab[0].origin[2] <= s.style.presenceChatWidth + 2 * s.style.presenceChatPadX + 1);
+  CHECK(ab[0].origin[3] <= 2 * s.style.presenceChatPadY + s.style.presenceChatGap + (1 + s.style.presenceChatLines) * s.style.presenceLabelSize * 1.5);
+  // Closed: the chip again.
+  a.hasChat = false;
+  s.e.setPresence({a});
+  all = s.draw();
+  CHECK(bubbles(all, kAlice, s.style).empty());
+  CHECK(chips(all, kAlice, s.style) == 1);
+}
+
+TEST_CASE("r18 cursor chat: the local user's own bubble — selection blue, by their pointer, no arrow, no name") {
+  Scene s;
+  const Color blue = s.style.presenceLocalChat;
+  LocalChat chat;
+  chat.on = true;
+  chat.text = "";
+  chat.at = {200, 100};
+  s.e.setLocalChat(chat);
+  CHECK(s.e.needsFrame());
+  auto all = s.draw();
+  auto mine = bubbles(all, blue, s.style);
+  REQUIRE(mine.size() == 1);
+  CHECK(mine[0].origin[0] == doctest::Approx(300 + s.style.presenceChipX));
+  CHECK(mine[0].origin[1] == doctest::Approx(200 + s.style.presenceChipY));
+  // No name line: one line high. No arrow: the bubble is the only instance in the colour (no selection on the page).
+  CHECK(mine[0].origin[3] < s.style.presenceLabelSize * 2 + 2 * s.style.presenceChatPadY);
+  CHECK(countColor(all, blue) == 1);
+  chat.text = "typing";
+  s.e.setLocalChat(chat);
+  CHECK(bubbles(s.draw(), blue, s.style).size() == 1);
+  s.e.setLocalChat({});
+  CHECK(bubbles(s.draw(), blue, s.style).empty());
+  // Never in an export render.
+  s.e.setLocalChat(chat);
+  s.device.draws.clear();
+  Overlay none;
+  none.frameTitles = false;
+  s.r.render(s.e.document(), s.e.page(), s.e.camera(), s.e.viewport(), none, s.style);
+  CHECK(countColor(s.collect(), blue) == 0);
+}
+
+extern "C" int32_t engine_set_local_chat(Handle h, Ptr ptr, uint32_t len);
+
+TEST_CASE("r18 cursor chat through the C ABI") {
+  Handle h = engine_create(nullptr, 0, 0);
+  REQUIRE(h != 0);
+  std::string doc = codec::writeMessage(0, nodes());
+  REQUIRE(engine_load(h, reinterpret_cast<Ptr>(doc.data()), static_cast<uint32_t>(doc.size())) == 0);
+  auto send = [&](std::string json, bool presence) {
+    return presence ? engine_set_presence(h, reinterpret_cast<Ptr>(json.data()), static_cast<uint32_t>(json.size()))
+                    : engine_set_local_chat(h, reinterpret_cast<Ptr>(json.data()), static_cast<uint32_t>(json.size()));
+  };
+  CHECK(send(R"([{"id":7,"name":"Alice","color":"#f24822","cursor":{"x":1,"y":2},"selection":[],"chat":"hi"}])", true) == 0);
+  CHECK(send(R"([{"id":7,"name":"Alice","color":"#f24822","cursor":{"x":1,"y":2},"selection":[],"chat":null}])", true) == 0);
+  CHECK(send(R"({"text":"hey","at":{"x":10,"y":20}})", false) == 0);
+  CHECK(send(R"({"text":null,"at":null})", false) == 0);
+  CHECK(send("[1]", false) != 0);
+  engine_destroy(h);
+}

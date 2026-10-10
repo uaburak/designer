@@ -9,7 +9,7 @@ import { keys } from "@/ds/util/keys";
 import type { FileKey, FileListItem, Folder, FolderId, Prefs } from "@shared/store/types";
 import { accountMenu, useAccount } from "./account";
 import { getStoreClient } from "@/store";
-import { SharedFilesDialog } from "./SharedFiles";
+import { OpenLinkDialog, SharedFilesView } from "./SharedFiles";
 import * as act from "./actions";
 import { ConfirmDialog, MoveDialog, NewFolderDialog } from "./dialogs";
 import { importWithShell, newDesignFile, onOpenShared, onReveal, onShellCommand, openFile, pickFigFiles, saveLocalCopy, setMenuState, type OpenDeps } from "./desktop";
@@ -329,7 +329,9 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   // --- the account (docs/multiplayer.md §2) ---
 
   const account = useAccount();
-  const [sharedOpen, setSharedOpen] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+  // Recents' tabs (live Figma): "Recently viewed" | "Shared files" (signed in)
+  const [recentsTab, setRecentsTab] = useState<"viewed" | "shared">("viewed");
   const accountName = account.state?.user ? account.state.user.name || account.state.user.email : null;
   const onAccountMenu = (e: React.MouseEvent) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -525,6 +527,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   // --- what shows ---
 
   const title = locationTitle(location, data.folders);
+  const showShared = location.kind === "recents" && recentsTab === "shared" && !!account.state?.user;
   const workspaceName = data.workspace?.teamName ?? "";
   const trashEmpty = location.kind === "trash" && current && items.length === 0;
   const folderGone = location.kind === "folder" && data.ready && (!folders.get(location.folderId) || folders.hidden(location.folderId));
@@ -571,7 +574,6 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
       <Sidebar
         ownerName={accountName ?? ownerOf(workspaceName)}
         onAccountMenu={account.available ? onAccountMenu : undefined}
-        onSharedFiles={account.state?.user ? () => setSharedOpen(true) : undefined}
         teamName={workspaceName}
         location={location}
         search={search}
@@ -647,11 +649,30 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           </div>
         </header>
         <div className={styles.filters}>
+          {location.kind === "recents" && account.state?.user && (
+            <div className={styles.tabs} role="tablist" aria-label="Recents">
+              {(
+                [
+                  ["viewed", "Recently viewed"],
+                  ["shared", "Shared files"],
+                ] as const
+              ).map(([id, label]) => (
+                <button key={id} type="button" role="tab" aria-selected={recentsTab === id} className={styles.tab} onClick={() => setRecentsTab(id)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           <span className={styles.grow} />
-          {location.kind !== "folders" && (
+          {showShared && (
+            <Button variant="secondary" onClick={() => setLinkOpen(true)}>
+              Open link…
+            </Button>
+          )}
+          {location.kind !== "folders" && !showShared && (
             <Select label="Files shown" variant="ghost" width="hug" value={filter} options={(["all", "design"] as FileFilter[]).map((f) => ({ value: f, label: FILTER_LABEL[f] }))} onChange={(v) => setFilter(v as FileFilter)} />
           )}
-          {location.kind !== "trash" && (
+          {location.kind !== "trash" && !showShared && (
             <MenuButton
               label="Sort"
               entries={sortEntries}
@@ -678,7 +699,9 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
             ]}
           />
         </div>
-        {!data.ready || (!current && !data.error) ? (
+        {showShared ? (
+          <SharedFilesView layout={browse.layout} onOpen={(fileKey, name) => void openFile(fileKey, { title: name }, deps)} onError={(message) => toast({ kind: "error", message })} />
+        ) : !data.ready || (!current && !data.error) ? (
           <div className={styles.center} aria-busy>
             <Spinner size={24} />
           </div>
@@ -731,7 +754,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           />
         )}
       </main>
-      {sharedOpen && <SharedFilesDialog onClose={() => setSharedOpen(false)} onOpen={(fileKey, name) => void openFile(fileKey, { title: name }, deps)} onError={(message) => toast({ kind: "error", message })} />}
+      {linkOpen && <OpenLinkDialog onClose={() => setLinkOpen(false)} onOpen={(fileKey, name) => void openFile(fileKey, name ? { title: name } : {}, deps)} onError={(message) => toast({ kind: "error", message })} />}
       {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} />}
       {dialog?.kind === "new-folder" && (
         <NewFolderDialog

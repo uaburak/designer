@@ -15,8 +15,8 @@ import { PrototypePanel } from "./prototype/PrototypePanel";
 import { designPanelTab } from "./design/tabOrder";
 import { present } from "../present";
 import { useAccount } from "../../files/account";
-import { ConnectionDot, PeerAvatars } from "../multiplayer/Multiplayer";
-import { presenceOf, usePresence } from "../multiplayer/presence";
+import { ConnectionDot, Facepile, useFacepile } from "../multiplayer/Multiplayer";
+import { usePresence } from "../multiplayer/presence";
 import styles from "./Panels.module.css";
 
 /** `floating`: Minimize UI with a selection — the panel over the canvas, a card at the right (help "Navigate the left sidebar"). */
@@ -57,13 +57,10 @@ export function RightHeader({ compact }: { compact?: boolean }) {
   const ed = useEditor();
   const me = useAccount().state?.user;
   const presence = usePresence(ed);
-  // In a shared file with people in it: Spotlight me (Figma: everyone follows you until you stop).
-  const spotlight: MenuEntry[] = presence.shared && presence.peers.length ? [{ id: "mp.spotlight", label: presence.spotlighting ? "Stop spotlight" : "Spotlight me" }, "-"] : [];
-  const account: MenuEntry[] = [...spotlight, { header: "Theme" }, commandItem(ed, "theme.light"), commandItem(ed, "theme.dark"), commandItem(ed, "theme.system"), "-", commandItem(ed, "help.shortcuts"), commandItem(ed, "file.back-to-files")];
-  const onAccount = (id: string) => {
-    if (id === "mp.spotlight") presenceOf(ed)?.spotlight(!presence.spotlighting);
-    else runEditorCommand(ed, id);
-  };
+  // With other people in the file the facepile takes the account avatar's place (live Figma: your avatar is Multiplayer tools).
+  const facepile = useFacepile();
+  const account: MenuEntry[] = [{ header: "Theme" }, commandItem(ed, "theme.light"), commandItem(ed, "theme.dark"), commandItem(ed, "theme.system"), "-", commandItem(ed, "help.shortcuts"), commandItem(ed, "file.back-to-files")];
+  const onAccount = (id: string) => runEditorCommand(ed, id);
   const presentEntries: MenuEntry[] = [
     commandItem(ed, "view.present"),
     commandItem(ed, "view.present-here"),
@@ -72,20 +69,23 @@ export function RightHeader({ compact }: { compact?: boolean }) {
   ];
   return (
     <div className={compact ? undefined : styles.rightHeader} style={compact ? { display: "contents" } : undefined}>
-      <MenuButton label="Account" entries={account} onSelect={onAccount} className={styles.account}>
-        <Avatar name={me?.name || me?.email || "Burak Koç"} size={28} />
-        <span className={styles.accountMore}><Icon name="16.chevron.down" /></span>
-      </MenuButton>
+      {facepile ? (
+        <Facepile />
+      ) : (
+        <MenuButton label="Account" entries={account} onSelect={onAccount} className={styles.account}>
+          <Avatar name={me?.name || me?.email || "Burak Koç"} size={28} />
+          <span className={styles.accountMore}><Icon name="16.chevron.down" /></span>
+        </MenuButton>
+      )}
       <span className={styles.grow} />
       <ConnectionDot />
-      <PeerAvatars />
       <span className={styles.present}>
         <IconButton icon="24.play" label="Present" shortcut="⌥⌘↩" size="large" onClick={() => present(ed)} />
         <MenuButton label="Present options" entries={presentEntries} onSelect={(id) => runEditorCommand(ed, id)} className={`${styles.chip} ${styles.presentChevron}`}>
           <Icon name="16.chevron.down" />
         </MenuButton>
       </span>
-      <Button variant="primary" size="large" className={styles.share} onClick={() => runEditorCommand(ed, "file.share-preview")}>
+      <Button variant="primary" size="large" className={styles.share} onClick={() => runEditorCommand(ed, "file.share-preview")} data-requests={presence.requests || undefined}>
         Share
       </Button>
     </div>

@@ -129,6 +129,8 @@ export class EngineExports {
   viewCenter = (h: number): number => this.fn("view_center")(h);
   /** `peers`: JSON [{id, name, color, cursor, selection}]. */
   setPresence = (h: number, peers: Uint8Array): number => this.withBytes([peers], (p) => this.fn("set_presence")(h, p[0], p[1]));
+  /** `chat`: JSON {text: string | null, at: {x, y} | null}. */
+  setLocalChat = (h: number, chat: Uint8Array): number => this.withBytes([chat], (p) => this.fn("set_local_chat")(h, p[0], p[1]));
   setTheme = (h: number, theme: number): void => void this.fn("set_theme")(h, theme);
   pointer = (h: number, type: number, x: number, y: number, button: number, buttons: number, mods: number,
              pressure: number, clickCount: number, pointerType: number, timeMs: number): number =>
@@ -345,7 +347,7 @@ export const USED_EXPORTS = [
   "abi_version", "alloc", "free", "result_ptr", "result_len", "events_flag_ptr", "last_error",
   "create", "destroy", "load", "load_at", "apply_changes", "encode_document", "set_wire_format", "wire_format", "attachment", "derived_data_version",
   "set_current_page", "pages",
-  "set_viewport", "set_viewport_insets", "set_camera", "get_camera", "screen_to_world", "center_on", "view_center", "set_presence", "set_theme", "pointer", "wheel", "key", "modifiers", "blur",
+  "set_viewport", "set_viewport_insets", "set_camera", "get_camera", "screen_to_world", "center_on", "view_center", "set_presence", "set_local_chat", "set_theme", "pointer", "wheel", "key", "modifiers", "blur",
   "set_tool", "set_hover", "tick", "render", "next_frame_delay", "needs_frame", "gl_context_lost", "gl_context_restored", "gfx_switch",
   "get_selection", "set_selection", "read_nodes", "layer_tree", "layer_changes", "layer_outline", "hit_test",
   "set_props", "txn_begin", "txn_commit", "txn_cancel", "actor_begin", "actor_end", "actor_undo", "actor_info", "actor_forget", "idle", "command", "command_state",

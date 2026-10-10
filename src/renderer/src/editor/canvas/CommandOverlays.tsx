@@ -5,6 +5,7 @@
  * vector path") and Offset vector (Amount, Join, ✓, "Offset a vector path"). Their looks are unverified (no live
  * capture); they use the DS's own parts.
  */
+import { presenceOf } from "../multiplayer/presence";
 import { useEffect, useRef, useState } from "react";
 import { Button, Dialog, IconButton, NumericInput, RadioGroup, SegmentedControl, showToast, TextInput } from "@/ds";
 import { useEditor } from "../controller";
@@ -132,49 +133,69 @@ function BranchDialog() {
 }
 
 /** Cursor chat (/): a bubble by the pointer; Enter sends (it stays a moment), Esc closes. */
+/** Cursor chat ("/", R13 §1): a bubble at the pointer showing what you type, live for the others (52 characters), gone
+ *  5 s after you stop typing; Esc, a click or leaving the field closes it. The engine draws the bubbles (setLocalChat; the
+ *  others' through presence). */
 function CursorChat({ at }: { at: { x: number; y: number } }) {
   const ed = useEditor();
+  const engine = ed.engine as unknown as { setLocalChat?(text: string | null, at: { x: number; y: number } | null): void; screenToWorld?(x: number, y: number): { x: number; y: number } };
   const [text, setText] = useState("");
-  const [sent, setSent] = useState<string | null>(null);
-  const [pos, setPos] = useState(at);
+  const pos = useRef(at);
+  const [shown, setShown] = useState(at);
   const input = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    input.current?.focus();
-    const move = (e: PointerEvent) => setPos({ x: e.clientX, y: e.clientY });
-    window.addEventListener("pointermove", move, { passive: true });
-    return () => window.removeEventListener("pointermove", move);
-  }, []);
-  useEffect(() => {
-    if (sent === null) return;
-    const t = window.setTimeout(() => ed.ui.set({ cursorChat: null }), 4000);
-    return () => window.clearTimeout(t);
-  }, [sent, ed]);
   const close = () => {
     ed.ui.set({ cursorChat: null });
     ed.focusCanvas();
   };
+  const draw = (t: string | null) => {
+    if (ed.engine.destroyed || !engine.setLocalChat || !engine.screenToWorld) return;
+    const r = ed.canvas?.getBoundingClientRect();
+    const world = r ? engine.screenToWorld(pos.current.x - r.left, pos.current.y - r.top) : null;
+    engine.setLocalChat(t, t === null ? null : world);
+  };
+  useEffect(() => {
+    input.current?.focus();
+    draw("");
+    presenceOf(ed)?.setChat("");
+    const move = (e: PointerEvent) => {
+      pos.current = { x: e.clientX, y: e.clientY };
+      setShown(pos.current);
+      draw(input.current?.value ?? "");
+    };
+    window.addEventListener("pointermove", move, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", move);
+      draw(null);
+      presenceOf(ed)?.setChat(null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- opened once per chat
+  }, [ed]);
+  // Gone 5 s after the last keystroke (R13 §1); the first wait is longer so an empty bubble doesn't vanish at once.
+  useEffect(() => {
+    const t = window.setTimeout(() => ed.ui.set({ cursorChat: null }), text ? 5000 : 8000);
+    return () => window.clearTimeout(t);
+  }, [text, ed]);
   return (
-    <div className={styles.chat} style={{ left: pos.x + 12, top: pos.y + 12 }} data-cursor-chat="">
-      {sent !== null ? (
-        <span className={styles.chatText}>{sent}</span>
-      ) : (
-        <input
-          ref={input}
-          className={styles.chatInput}
-          aria-label="Cursor chat"
-          placeholder="Say something"
-          value={text}
-          maxLength={50}
-          onChange={(e) => setText(e.target.value)}
-          onBlur={() => sent === null && close()}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (e.key === "Escape") close();
-            else if (e.key === "Enter" && text.trim()) setSent(text.trim());
-          }}
-        />
-      )}
-    </div>
+    <input
+      ref={input}
+      className={engine.setLocalChat ? styles.chatHidden : styles.chatInput}
+      style={{ left: shown.x + 12, top: shown.y + 18 }}
+      aria-label="Cursor chat"
+      placeholder="Say something"
+      value={text}
+      maxLength={52}
+      data-cursor-chat=""
+      onChange={(e) => {
+        setText(e.target.value);
+        draw(e.target.value);
+        presenceOf(ed)?.setChat(e.target.value);
+      }}
+      onBlur={close}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Escape" || e.key === "Enter") close();
+      }}
+    />
   );
 }
 

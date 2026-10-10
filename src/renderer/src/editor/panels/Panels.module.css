@@ -199,6 +199,9 @@
   }
   /* Share: live 55 × 32 (held: the label alone comes out a fraction wider and would move the Present group off its pixel) */
   .share { flex: none; width: 55px; }
+  /* An "Ask to edit" request waiting (R13 §2: a red badge on Share) */
+  .share[data-requests] { position: relative; overflow: visible; }
+  .share[data-requests]::after { position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border: 2px solid var(--figma-color-bg); border-radius: 50%; background: var(--figma-color-bg-danger); content: ""; }
   .present { display: flex; align-items: center; gap: 1px; }
   .presentChevron { width: 16px; padding: 0; justify-content: center; border-radius: 0 var(--ds-radius-medium) var(--ds-radius-medium) 0; }
   /* Live: a 49 × 32 group, Present 32 × 32 (radius 5 / 0 / 0 / 5) and its chevron 16 × 32 (0 / 5 / 5 / 0) 1 apart */
