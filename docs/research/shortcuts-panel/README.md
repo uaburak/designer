@@ -31,6 +31,13 @@ this Mac's keyboard type (92, ISO) → `keylayouts-tr.json` (each key alone, wit
 of 1, ` right of ⇧, as a U.K. MacBook prints them). ⌘ types what the key types alone, so on macOS ⌘I is the key that
 types i (İ's), and ours follows. ("Turkish Q – Legacy" and "Turkish F – Legacy" are left out.)
 
+The reference for what is drawn is the owner's photo of his M3 MacBook Pro's Turkish Q keyboard
+(`owner-macbook-turkish-q.webp`). Cross-checked key by key against macOS's map: they agree — é over " left of 1; ! ' ^#
++ % & / ( ) = over the digits; ? over *, _ over -; Q … P Ğ Ü; A … L Ş İ and ; over , (left of the tall Return); > over
+< right of the narrow left ⇧; Z … M Ö Ç and : over .; the Return's upper part wider than its lower one. Each drawn
+cap shows what the key types alone (the bottom legend; a letter's capital), as live Figma's drawing does — so ",", "."
+and "*" rather than their ⇧ characters.
+
 Unverified: the panel in Figma's light theme (ours stays dark, as Figma's menus); Figma's own per-layout remaps (ours
 follow the characters — `layouts.ts`); what counts as "used" for the Cursor rows (ours: the pointer's modifiers on the
 canvas, `usage.ts`).
