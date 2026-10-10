@@ -847,6 +847,13 @@ uint32_t Editor::pointer(PointerEvent type, double x, double y, int button, uint
     }
     case PointerEvent::CANCEL: cancelGesture(); return P_HANDLED;
     case PointerEvent::LEAVE:
+      // Off the canvas: the selection's hover handles (radius, gap, shape rings) go with the pointer, as in Figma.
+      if (gesture_ == Gesture::None) {
+        lastScreen_ = {-1e9, -1e9};
+        if (pointerInSelection_ || radiusHover_ >= 0 || gapHover_ >= 0 || reorderHover_ >= 0 || shapeHover_ >= 0) needsRender_ = true;
+        pointerInSelection_ = false;
+        radiusHover_ = gapHover_ = reorderHover_ = shapeHover_ = -1;
+      }
       if (gesture_ == Gesture::None && hover_ != kNoGuid) {
         hover_ = kNoGuid;
         events_.hover = true;

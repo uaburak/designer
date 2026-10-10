@@ -12,7 +12,7 @@ import type { EngineStore } from "@/engine/EngineStore";
 import { size } from "@/ds/tokens";
 import type { ChangeInfo } from "@/ds/types";
 import type { DocumentSource } from "./documentSource";
-import { changesOf, engineCall, keepsField } from "./engineCompat";
+import { changesOf, engineCall, probeKeeps } from "./engineCompat";
 import { ImageService } from "./images";
 import { VectorEditor } from "./vectorEdit";
 import { ComponentIndex, deriveInstanceRows, type DerivedRow } from "./components";
@@ -144,7 +144,7 @@ export class EditorController {
     this.variables = new VariableIndex(this);
     this.libraries = new LibraryIndex(this);
     // Whether the engine keeps fields it doesn't model yet is probed now, before any edit opens a transaction.
-    keepsField(engine, "effects");
+    probeKeeps(engine);
     const bump = () => this.invalidateTree();
     this.cleanups.push(
       engine.on("STRUCTURE_CHANGED", (e) => {
