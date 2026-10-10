@@ -268,7 +268,8 @@ export class AgentsService {
   // ---- Navigation ----
 
   setView(view: AgentsView) {
-    this.set({ view, settingsItem: null });
+    // The list's composer starts a new chat: none is the current one there.
+    this.set({ view, settingsItem: null, ...(view === "list" ? { current: null } : {}) });
     if (view === "settings") void this.refreshSetup();
   }
 
@@ -287,6 +288,13 @@ export class AgentsService {
 
   deleteChat(id: string) {
     this.set({ chats: this.state.chats.filter((c) => c.id !== id), current: this.state.current === id ? null : this.state.current });
+    this.save();
+  }
+
+  /** Every chat of this file (not a running one's turn: those are stopped first). */
+  deleteAllChats() {
+    for (const id of Object.keys(this.state.running)) this.stop(id);
+    this.set({ chats: [], current: null, view: "chat" });
     this.save();
   }
 
@@ -444,7 +452,7 @@ export class AgentsService {
       const id = this.draftId ?? uid();
       this.draftId = null;
       chat = { id, title: (text || files.map((f) => f.name).join(", ")).slice(0, 60), updatedAt: Date.now(), providerId: provider?.id ?? null, model: provider ? this.modelOf(provider) : undefined, effort: provider ? this.effortOf(provider) : undefined, messages: [] };
-      this.set({ chats: [chat, ...this.state.chats], current: chat.id });
+      this.set({ chats: [chat, ...this.state.chats], current: chat.id, view: "chat" });
     }
     const chatId = chat.id;
     if (this.state.running[chatId]) return;

@@ -742,4 +742,76 @@ async function composerSection(page, theme, { settle, shot, check, menus }) {
   await page.getByRole("option", { name: "qwen2.5-coder-14b" }).click();
   await settle(page);
   check("Composer: an agent without efforts hides the effort menu; one without limits leaves the ring empty", (await menus()).effort === null && (await ring.getAttribute("data-usage")) === "none");
+  await chatsListSection(page, theme, { settle, shot, check });
+}
+
+/**
+ * The chats list's top bar and composer (r17-agents-list, the owner's 81 / 82.png): "Search chats" with its filter and
+ * "•••" buttons, the composer sticky at the bottom with the list fading under it, and a message sent from it starting a
+ * new chat that opens.
+ */
+async function chatsListSection(page, theme, { settle, shot, check }) {
+  await page.getByRole("button", { name: "Back" }).first().click();
+  await settle(page);
+  const list = page.locator("[data-chats]");
+  await list.waitFor({ timeout: 3000 });
+  const rows = () => page.locator("[data-chat]").count();
+  const total = await rows();
+  const geo = await page.evaluate(() => {
+    const r = (s) => document.querySelector(s)?.getBoundingClientRect();
+    const search = r("[data-chats-bar] input"), foot = r("[data-chats-foot]"), comp = r("[data-chats-foot] [data-composer]"), panel = r("[data-chats]"), scroll = r("[data-chats-list]");
+    const fade = getComputedStyle(document.querySelector("[data-chats-foot]"), "::before");
+    return { search: search && search.width, comp: comp && comp.bottom, panel: panel && panel.bottom, foot: foot && foot.top, scrollBottom: scroll && scroll.bottom, fade: fade.backgroundImage, fadePos: fade.position };
+  });
+  check("Chats list: the search, filter and ••• on top; the composer at the bottom of the panel under the list", geo.search > 100 && (await page.getByRole("button", { name: "Filter chats" }).count()) === 1 && (await page.getByRole("button", { name: "More" }).count()) === 1 && Math.abs(geo.comp - geo.panel) <= 12 && geo.scrollBottom <= geo.foot + 1, JSON.stringify(geo));
+  check("Chats list: a gradient fades the list into the panel above the composer", geo.fade.includes("linear-gradient") && geo.fadePos === "absolute", geo.fade);
+  await shot(page, `411-agents-chats-list-${theme}`);
+  await closeUp(page, "[data-chats]", `chats-list-${theme}`, 0);
+
+  // Search: by title and message text; no match says so; clearing lists all.
+  const search = page.getByRole("searchbox", { name: "Search chats" });
+  await search.fill("zzzz-nothing");
+  await settle(page);
+  check("Chats list: a query with no match shows 'No chats found'", (await rows()) === 0 && (await page.locator("[data-no-chats]").count()) === 1);
+  await search.fill("a");
+  await settle(page);
+  check("Chats list: searching keeps the chats that match and marks the matches", (await rows()) >= 1 && (await page.locator("[data-chats-list] mark").count()) >= 1);
+  await search.fill("");
+  await settle(page);
+  check("Chats list: clearing the search lists every chat", (await rows()) === total);
+
+  // The filter menu: agents and sort.
+  await page.getByRole("button", { name: "Filter chats" }).click();
+  const entries = (await page.locator('[role="menu"] [role^="menuitem"]').allTextContents()).map((t) => t.trim());
+  check("Chats list: the filter menu offers All agents, the chats' agents, Recent and Oldest", entries.includes("All agents") && entries.includes("Recent") && entries.includes("Oldest") && entries.length >= 4, JSON.stringify(entries));
+  await closeUp(page, '[role="menu"]', `chats-filter-menu-${theme}`, 8);
+  await page.getByText("Oldest", { exact: true }).click();
+  await settle(page);
+  const oldestFirst = await page.locator("[data-chat]").evaluateAll((els) => els.map((e) => e.getAttribute("data-chat")));
+  await page.getByRole("button", { name: "Filter chats" }).click();
+  await page.getByText("Recent", { exact: true }).click();
+  await settle(page);
+  const recentFirst = await page.locator("[data-chat]").evaluateAll((els) => els.map((e) => e.getAttribute("data-chat")));
+  check("Chats list: Oldest reverses the order of Recent", total < 2 || JSON.stringify(oldestFirst) === JSON.stringify([...recentFirst].reverse()), JSON.stringify({ oldestFirst, recentFirst }));
+
+  // "•••": New chat, Agent settings, Delete all chats… (asks first).
+  await page.getByRole("button", { name: "More" }).click();
+  const more = (await page.locator('[role="menu"] [role^="menuitem"]').allTextContents()).map((t) => t.trim());
+  check("Chats list: the ••• menu has New chat, Agent settings and Delete all chats…", JSON.stringify(more) === JSON.stringify(["New chat", "Agent settings", "Delete all chats…"]), JSON.stringify(more));
+  await closeUp(page, '[role="menu"]', `chats-more-menu-${theme}`, 8);
+  await page.getByText("Delete all chats…", { exact: true }).click();
+  check("Chats list: Delete all chats… asks first", (await page.getByRole("dialog", { name: "Delete all chats?" }).count()) === 1);
+  await page.getByRole("button", { name: "Cancel" }).click();
+  check("Chats list: Cancel leaves every chat", (await rows()) === total);
+
+  // Sending from the list starts a new chat and opens it.
+  const input = page.locator("[data-chats-foot] [data-agents-input]");
+  await input.fill("A new chat from the list");
+  await input.press("Enter");
+  await page.waitForTimeout(400);
+  const opened = await page.evaluate(() => ({ chat: !!document.querySelector('[data-agents][data-view="chat"]'), user: [...document.querySelectorAll('[data-message="user"]')].map((e) => e.textContent) }));
+  check("Chats list: a message sent from the list opens a new chat holding it", opened.chat && opened.user.length === 1 && opened.user[0].includes("A new chat from the list"), JSON.stringify(opened));
+  await page.getByRole("button", { name: "Back" }).first().click();
+  await settle(page);
+  check("Chats list: the new chat is in the list", (await rows()) === total + 1 && ((await page.locator("[data-chat]").first().textContent()) ?? "").includes("A new chat from the list"));
 }

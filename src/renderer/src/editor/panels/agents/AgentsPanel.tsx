@@ -5,7 +5,8 @@
  * Stop while it runs, the agent and model under the message box), and Agent settings (AgentSettings.tsx).
  */
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
-import { Button, EmptyState, Icon, IconButton, Portal, Select, Spinner, cx, place, timeAgo, tooltipProps, useDismiss, type IconName } from "@/ds";
+import { NO_FILTER, filterChats, matchSnippet, splitMatches, type ChatFilter, type ChatSort } from "../../agents/chatList";
+import { Button, Dialog, EmptyState, Icon, IconButton, MenuButton, Portal, SearchField, Select, Spinner, cx, place, timeAgo, tooltipProps, useDismiss, type IconName } from "@/ds";
 import { readableError } from "@shared/agents/errors";
 import { MAX_ATTACHMENTS, isImageMime, type Attachment, type AttachResult } from "@shared/agents/attachments";
 import type { ProviderInfo } from "@shared/agents/types";
@@ -66,26 +67,108 @@ export function AgentsPanel() {
 
 // ---- The chats ------------------------------------------------------------------------------------------------------
 
+/**
+ * The chats: a top bar (search by title and message text, the filter menu, "•••"), the list, and — sticky at the
+ * bottom, the list fading into the panel under it — the composer: a message sent here starts a new chat and opens it.
+ */
 function ChatList({ service, chats }: { service: AgentsService; chats: Chat[] }) {
-  const sorted = [...chats].sort((a, b) => b.updatedAt - a.updatedAt);
+  const state = service.get();
+  const [filter, setFilter] = useState<ChatFilter>(NO_FILTER);
+  const [confirmAll, setConfirmAll] = useState(false);
+  const shown = useMemo(() => filterChats(chats, filter), [chats, filter]);
+  const agents = useMemo(() => {
+    const ids = [...new Set(chats.map((c) => c.providerId).filter((x): x is string => !!x))];
+    return ids.map((id) => ({ id, label: state.providers.find((p) => p.id === id)?.label ?? id }));
+  }, [chats, state.providers]);
+  const searching = !!filter.query.trim();
   return (
-    <div className={styles.scroll} role="list" aria-label="Chats">
-      {sorted.map((c) => {
-        const last = [...c.messages].reverse().find((m) => m.role === "assistant");
-        const preview = last ? partsText(last).slice(0, 120) || last.error || "" : "";
-        return (
-          <div key={c.id} role="listitem" className={styles.chatRow} data-chat={c.id}>
-            <button type="button" className={styles.chatOpen} onClick={() => service.openChat(c.id)}>
-              <span className={styles.chatTitle}>{c.title}</span>
-              <span className={styles.chatPreview}>{preview}</span>
-              <span className={styles.chatTime}>{timeAgo(c.updatedAt)}</span>
-            </button>
-            <IconButton icon="24.trash.outline" label="Delete chat" tone="secondary" className={styles.chatDelete} onClick={() => service.deleteChat(c.id)} />
-          </div>
-        );
-      })}
+    <div className={styles.chats} data-chats="">
+      <div className={styles.listBar} data-chats-bar="">
+        <SearchField className={styles.listSearch} value={filter.query} onChange={(query) => setFilter({ ...filter, query })} placeholder="Search chats" label="Search chats" data-chats-search="" />
+        <MenuButton
+          label="Filter chats"
+          tooltip
+          className={cx(styles.barButton, (filter.agent || filter.sort !== "recent") && styles.barButtonOn)}
+          align="end"
+          entries={[
+            { header: "Agent" },
+            { id: "agent:", label: "All agents", checked: !filter.agent },
+            ...agents.map((a) => ({ id: `agent:${a.id}`, label: a.label, checked: filter.agent === a.id })),
+            "-",
+            { header: "Sort by" },
+            { id: "sort:recent", label: "Recent", checked: filter.sort === "recent" },
+            { id: "sort:oldest", label: "Oldest", checked: filter.sort === "oldest" },
+          ]}
+          onSelect={(id) => (id.startsWith("agent:") ? setFilter({ ...filter, agent: id.slice(6) || null }) : setFilter({ ...filter, sort: id.slice(5) as ChatSort }))}
+        >
+          <Icon name="24.filter" />
+        </MenuButton>
+        <MenuButton
+          label="More"
+          tooltip
+          className={styles.barButton}
+          align="end"
+          entries={[{ id: "new", label: "New chat" }, { id: "settings", label: "Agent settings" }, "-", { id: "delete-all", label: "Delete all chats…" }]}
+          onSelect={(id) => (id === "new" ? service.newChat() : id === "settings" ? service.setView("settings") : setConfirmAll(true))}
+        >
+          <Icon name="24.more" />
+        </MenuButton>
+      </div>
+      <div className={styles.scroll} role="list" aria-label="Chats" data-chats-list="">
+        {shown.map((c) => {
+          const last = [...c.messages].reverse().find((m) => m.role === "assistant");
+          const found = searching && splitMatches(c.title, filter.query).length < 2 ? matchSnippet(c, filter.query) : null;
+          const preview = found ?? (last ? partsText(last).slice(0, 120) || last.error || "" : "");
+          return (
+            <div key={c.id} role="listitem" className={styles.chatRow} data-chat={c.id}>
+              <button type="button" className={styles.chatOpen} onClick={() => service.openChat(c.id)}>
+                <span className={styles.chatTitle}><Highlighted text={c.title} query={filter.query} /></span>
+                <span className={styles.chatPreview}><Highlighted text={preview} query={filter.query} /></span>
+                <span className={styles.chatTime}>{timeAgo(c.updatedAt)}</span>
+              </button>
+              <IconButton icon="24.trash.outline" label="Delete chat" tone="secondary" className={styles.chatDelete} onClick={() => service.deleteChat(c.id)} />
+            </div>
+          );
+        })}
+        {!shown.length && <p className={styles.noChats} data-no-chats="">No chats found</p>}
+      </div>
+      <div className={styles.listFoot} data-chats-foot="">
+        <Composer service={service} chat={null} running={false} />
+      </div>
+      <Dialog
+        title="Delete all chats?"
+        open={confirmAll}
+        onClose={() => setConfirmAll(false)}
+        footer={
+          <>
+            <Button variant="secondary" size="large" onClick={() => setConfirmAll(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="large"
+              onClick={() => {
+                setConfirmAll(false);
+                service.deleteAllChats();
+              }}
+              data-delete-all=""
+            >
+              Delete all
+            </Button>
+          </>
+        }
+      >
+        <p className={styles.confirmText}>{chats.length === 1 ? "The chat in this file will be deleted. This can’t be undone." : `The ${chats.length} chats in this file will be deleted. This can’t be undone.`}</p>
+      </Dialog>
     </div>
   );
+}
+
+/** `text` with the query's matches marked. */
+function Highlighted({ text, query }: { text: string; query: string }) {
+  const parts = splitMatches(text, query);
+  if (parts.length < 2) return <>{text}</>;
+  return <>{parts.map((t, i) => (i % 2 ? <mark key={i} className={styles.match}>{t}</mark> : t))}</>;
 }
 
 const partsText = (m: ChatMessage) => (m.parts ?? []).filter((p): p is Extract<MessagePart, { kind: "text" }> => p.kind === "text").map((p) => p.text).join("");

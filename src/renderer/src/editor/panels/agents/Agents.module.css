@@ -9,6 +9,22 @@
   .chatBar { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); height: var(--ds-size-section-header); padding: 0 var(--ds-space-3) 0 var(--ds-space-2); }
   .chatBarTitle { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
 
+  /* The chats: the top bar (search, filter, "•••"), the list, the composer sticky under it with the list fading out above */
+  .chats { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+  .listBar { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-1) var(--ds-space-3); }
+  .listSearch { flex: 1 1 auto; min-width: 0; }
+  .barButton { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); padding: 0; border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-icon); outline: none; cursor: default; }
+  .barButton:hover { background: var(--ds-color-bg-transparent-hover); }
+  .barButton[data-open] { background: var(--ds-color-bg-transparent-pressed); }
+  .barButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .barButtonOn { color: var(--figma-color-icon-brand); }
+  .chats .scroll { padding-bottom: var(--ds-space-4); }
+  .noChats { margin: 0; padding: var(--ds-space-6) var(--ds-space-4); color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); text-align: center; }
+  .match { border-radius: var(--ds-radius-small); background: var(--figma-color-bg-selected); color: inherit; }
+  .confirmText { margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium); }
+  .listFoot { position: relative; flex: none; padding-top: var(--ds-space-1); background: var(--figma-color-bg); }
+  .listFoot::before { position: absolute; right: 0; bottom: 100%; left: 0; height: var(--ds-space-6); background: linear-gradient(to bottom, transparent, var(--figma-color-bg)); content: ""; pointer-events: none; }
+
   /* The chats, by recency */
   .chatRow { position: relative; display: flex; align-items: flex-start; margin: 0 var(--ds-space-2); border-radius: var(--ds-radius-medium); }
   .chatRow:first-child { margin-top: var(--ds-space-2); }
