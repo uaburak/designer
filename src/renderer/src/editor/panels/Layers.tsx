@@ -10,8 +10,8 @@
  * all but the selection's branch, a drag reorders and reparents (Engine.moveNodes; the list scrolls near its
  * edges), and a canvas selection opens its ancestors and scrolls into view.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
-import { IconButton, LayerRow, PanelSection, VirtualList, showToast, type IconName } from "@/ds";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { IconButton, LayerRow, PanelSection, VirtualList, layerListWidth, onFontsLoaded, showToast, type IconName } from "@/ds";
 import { useHover, useSelection } from "@/engine/hooks";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../controller";
@@ -45,6 +45,8 @@ const NAME_LEFT = 52;
 const INSET = 8;
 /** A selection revealed in the list scrolls it sideways when less of its name than this would show. */
 const NAME_MIN = 96;
+/** How many open rows' names one engine read brings for the list's width (the rest in later idle reads). */
+const NAMES_PER_READ = 2000;
 /** How near the list's top or bottom edge a drag scrolls it, and how far per frame. */
 const EDGE = 24;
 const EDGE_STEP = 8;
@@ -163,6 +165,11 @@ export function collapseLayers(ed: EditorController, tree: LayerTree = ed.getTre
 /** The list's scrolling element (the VirtualList's viewport). */
 const viewport = () => document.querySelector<HTMLElement>('[data-layer-list] [data-ds="VirtualList"]')?.parentElement ?? null;
 
+/** How much of the rows lies past the list's visible right edge: the names fade there (LayerRow's `--layer-clip-right`). */
+function syncClip(v: HTMLElement | null): void {
+  if (v) v.style.setProperty("--layer-clip-right", `${Math.max(0, v.scrollWidth - v.clientWidth - v.scrollLeft)}px`);
+}
+
 /** A lock / eye drag: the value the first row got, the rows done, the open undo step. */
 type CellDrag = { kind: "lock" | "visible"; value: boolean; done: Set<Guid> };
 
@@ -196,9 +203,36 @@ export function Layers() {
     return out;
   }, [rows, tree]);
   const anyExpanded = rows.some((r) => r.expanded);
-  // The rows are as wide as the list plus the deepest row's indent (live: 263 wide in a 240 panel with one level
-  // open), so every row's name has a top-level row's room and a deep tree scrolls sideways.
-  const deepest = rows.reduce((d, r) => Math.max(d, r.depth), 0);
+  // The rows are as wide as the widest open row's full extent — its indent, glyph, whole name and the lock and eye
+  // after it (Figma, the owner's capture 39.png) — or the list, whichever is wider: no sideways scroll while every
+  // row fits. Every open row counts, not only the ones drawn: their names come without their details (one engine
+  // read, the rest of a huge tree in idle reads), each measured once (textWidth's cache).
+  const [fonts, setFonts] = useState(0);
+  useEffect(() => onFontsLoaded(() => setFonts((n) => n + 1)), []);
+  const [namesRead, setNamesRead] = useState(0);
+  const width = useMemo(() => {
+    const names = tree.details.names(
+      rows.map((r) => r.id),
+      NAMES_PER_READ
+    );
+    return { px: layerListWidth(rows.map((r, i) => ({ depth: r.depth, name: names[i] }))), pending: names.includes(null) };
+    // fonts / namesRead: measured again once the UI font is in, read on while names are missing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, tree, fonts, namesRead]);
+  useEffect(() => {
+    if (!width.pending) return;
+    const t = window.setTimeout(() => setNamesRead((n) => n + 1), 0);
+    return () => window.clearTimeout(t);
+  }, [width]);
+  // The names' fade at the visible edge follows the rows' width, the list's and its sideways scroll.
+  useLayoutEffect(() => syncClip(viewport()), [width.px]);
+  useLayoutEffect(() => {
+    const v = viewport();
+    if (!v) return;
+    const ro = new ResizeObserver(() => syncClip(v));
+    ro.observe(v);
+    return () => ro.disconnect();
+  }, []);
 
   // A selection made on the canvas opens its ancestors (Figma reveals it) and scrolls to it.
   useEffect(() => {
@@ -208,16 +242,29 @@ export function Layers() {
   }, [ed, tree, selection]);
   const firstSelected = rows.findIndex((r) => selected.has(r.id));
   const firstSelectedDepth = firstSelected >= 0 ? rows[firstSelected].depth : -1;
-  // …and sideways, when the list doesn't show enough of its name: scrolled by the row's indent it reads as a top-level row.
+  // …and sideways, when the list doesn't show enough of its name: scrolled by the row's indent it reads as a top-level
+  // row. Not a selection made in the list (a row clicked in a list scrolled to read a long name stays where it is).
+  const fromList = useRef<readonly Guid[] | null>(null);
+  const reveal = useRef(false);
+  useEffect(() => {
+    const mine = fromList.current;
+    fromList.current = null;
+    reveal.current = !(mine && mine.length === selection.length && selection.every((id) => mine.includes(id)));
+  }, [selection]);
   useEffect(() => {
     const v = viewport();
-    if (!v || firstSelectedDepth < 0) return;
+    if (!v || firstSelectedDepth < 0 || !reveal.current) return;
+    reveal.current = false;
     const want = firstSelectedDepth * INDENT;
     const room = v.scrollLeft + v.clientWidth - INSET - (NAME_LEFT + want);
     if (v.scrollLeft > want || room < NAME_MIN) v.scrollLeft = want;
-  }, [firstSelected, firstSelectedDepth]);
+  }, [firstSelected, firstSelectedDepth, selection]);
 
-  const select = (refs: Guid[]) => ed.engine.setSelection(selectable(ed, refs));
+  const select = (refs: Guid[]) => {
+    const next = selectable(ed, refs);
+    fromList.current = next;
+    ed.engine.setSelection(next);
+  };
 
   /** Near the list's top or bottom edge a drag scrolls it (one step per pointer move). */
   const autoScroll = (y: number) => {
@@ -371,7 +418,6 @@ export function Layers() {
         aria-label="Layers"
         aria-multiselectable
         data-layer-list=""
-        style={{ ["--layers-depth" as string]: deepest }}
         onPointerLeave={() => {
           if (!press.current) ed.engine.setHover([]);
         }}
@@ -380,8 +426,9 @@ export function Layers() {
           count={rows.length}
           rowHeight={ROW}
           axis="both"
-          // How far the list is scrolled sideways, for the names' fade at its visible edge (CSS only: no render).
-          onScroll={(e) => e.currentTarget.style.setProperty("--layers-scroll-x", `${e.currentTarget.scrollLeft}px`)}
+          contentWidth={width.px}
+          // Scrolled sideways, the names fade at the new visible edge (CSS only: no render).
+          onScroll={(e) => syncClip(e.currentTarget)}
           scrollToIndex={firstSelected >= 0 ? firstSelected : undefined}
           label="Layers"
           renderRow={(i) => {

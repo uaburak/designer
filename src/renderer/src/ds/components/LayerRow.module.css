@@ -58,8 +58,8 @@
   /*
    * A layer's name runs to the highlight's right edge and fades out there (Figma: no ellipsis), as a mask so it
    * fades into any highlight (hover, selected, component). The cells showing take their room first (a lock or a
-   * closed eye kept on; every cell while hovered), and a list scrolled sideways cuts at its visible right edge
-   * (--layer-clip-right, set by the list). The mask's colours are alpha only.
+   * closed eye kept on; every cell while hovered), and a list wider than its view cuts at its visible right edge
+   * (--layer-clip-right, set by the list on the rows or an ancestor: how much of the row lies past that edge). The mask's colours are alpha only.
    */
   .row .name {
     --layer-tail: calc(var(--tail-rest, 0) * var(--ds-size-control));

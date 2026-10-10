@@ -5,8 +5,10 @@
   .padLarge { padding-bottom: var(--ds-space-4); }
   /* An empty section (no fills / strokes / effects / exports) is its 40 header and the line: 41 (live dumps) */
   .empty.padDefault, .empty.padLarge { padding-bottom: 0; }
+  /* Never shrinks: in a section that is a flex column (Layers), a list overflowing it squeezed the header 40 → 24 (the jump when the list started to scroll) */
   .header {
     display: flex;
+    flex: none;
     align-items: center;
     gap: 0;
     height: var(--ds-size-section-header);

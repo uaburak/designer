@@ -351,7 +351,7 @@ export class EditorController {
     } else {
       const outline = changes ? null : layerOutlineOf(this.engine, page);
       if (outline) {
-        tree = treeFromOutline(page, outline.nodes.map(this.withRealOutlineType), new RowDetailsStore(detailsReader(this.engine, this.withRealType)));
+        tree = treeFromOutline(page, outline.nodes.map(this.withRealOutlineType), new RowDetailsStore(detailsReader(this.engine, this.withRealType), namesReader(this.engine)));
         this.treeVersion = outline.version;
       } else {
         const read = changes ? { version: changes.version, nodes: changes.nodes } : layerTreeOf(this.engine, page);
@@ -527,6 +527,12 @@ export function detailsReader(engine: Engine, resolve: (n: NodeChange) => NodeCh
   return (ids) => (engine.destroyed || !ids.length ? [] : engine.readNodes(ids, { fields: DETAIL_FIELDS }).map(resolve));
 }
 
+const NAME_FIELDS: readonly string[] = ["name"];
+/** The Layers list's width read: the rows' names alone, in one call (`RowDetailsStore.names`). */
+export function namesReader(engine: Engine): RowReader {
+  return (ids) => (engine.destroyed || !ids.length ? [] : engine.readNodes(ids, { fields: NAME_FIELDS }));
+}
+
 /** Do a delta row's children match the tree's (the delta changed nothing structural about it)? */
 function sameChildren(tree: LayerTree, row: NodeChange): boolean {
   const node = tree.nodes.get(row.guid);
@@ -594,7 +600,7 @@ export function treeFromRows(engine: Engine, page: Guid, rows: readonly NodeChan
     n.childIds = kids;
     for (const r of rows) derived.push({ ...(r.node as NodeChange), parentIndex: { guid: r.parent, position: "" }, childIds: r.children, derived: true } as NodeChange);
   }
-  const tree = treeFromNodes(page, derived.length ? [...nodes, ...derived] : nodes, new RowDetailsStore(detailsReader(engine, resolve)), false);
+  const tree = treeFromNodes(page, derived.length ? [...nodes, ...derived] : nodes, new RowDetailsStore(detailsReader(engine, resolve), namesReader(engine)), false);
   if (derived.length) tree.derivedSublayers = true;
   return tree;
 }

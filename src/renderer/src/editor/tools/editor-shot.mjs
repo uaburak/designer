@@ -38,7 +38,7 @@
 //   EDITOR_ONLY=overlays11 node …                                  (round 11 at 1440 × 900, only on its own: the component set's "3 Variants" pill, "+" and gap boxes, no instance title, the text's baseline underline, smart selection dots)
 //   EDITOR_ONLY=agents node …                                      (the Agents tab and the MCP section with a stand-in agent: "Make the mobile version of this", Undo / Apply, Agent settings)
 //   EDITOR_ONLY=input node …                                       (keys typed into fields never reach the canvas; a panel resize never blanks or stretches it, frame by frame)
-//   EDITOR_ONLY=layers14 node …                                    (round 14, Layers polish: names fade at the dynamic cut, rows 32 in every state, a deep tree scrolls sideways, icon-only rail)
+//   EDITOR_ONLY=layers14 node …                                    (round 14, Layers polish: names fade at the dynamic cut, rows 32 in every state, the list as wide as its widest row, nothing moves when it overflows, icon-only rail)
 //   EDITOR_ONLY=shortcuts node …                                   (the Keyboard shortcuts panel: open / close, every tab, shortcuts used, the user's own keys, layouts)
 //   EDITOR_PART=1 node … / EDITOR_PART=2 node …                     (the full run in two parts: the sections, then the main walk-through in both themes)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)

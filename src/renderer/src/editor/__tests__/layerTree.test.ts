@@ -125,6 +125,33 @@ describe("two passes (Figma's Layers panel)", () => {
     expect(read.mock.calls[2][0]).toEqual(["1:7"]);
   });
 
+  it("the list's width: every open row's name, read alone (no details built), in reads of `limit` rows, cached until the row changes", () => {
+    const { outline, read, rows: byId } = bigPage(500);
+    const readNames = vi.fn((ids: readonly Guid[]) => ids.map((id) => ({ guid: id, name: byId.get(id)!.name }) as NodeChange));
+    const tree = treeFromOutline("0:1", outline, new RowDetailsStore(read, readNames));
+    const ids = visibleRows(tree, new Set()).map((r) => r.id);
+    // A drawn window's details are in hand: their names cost no read.
+    tree.details.prefetch(ids.slice(0, 48));
+    const first = tree.details.names(ids, 400);
+    expect(readNames).toHaveBeenCalledTimes(1);
+    expect(readNames.mock.calls[0][0]).toHaveLength(400); // 452 missing, 400 per read
+    expect(first.filter((n) => n === null)).toHaveLength(52);
+    expect(first[0]).toBe("Layer 500");
+    const second = tree.details.names(ids, 400);
+    expect(readNames).toHaveBeenCalledTimes(2);
+    expect(readNames.mock.calls[1][0]).toHaveLength(52);
+    expect(second.every((n) => typeof n === "string")).toBe(true);
+    expect(tree.details.size).toBe(0); // no details built for them
+    expect(read).toHaveBeenCalledTimes(1); // the drawn window's read only
+    tree.details.names(ids);
+    expect(readNames).toHaveBeenCalledTimes(2); // cached
+    // A renamed row is read again.
+    byId.set("1:7", { ...byId.get("1:7")!, name: "Renamed" });
+    tree.details.invalidate("1:7");
+    expect(tree.details.names(["1:7", "1:8"])).toEqual(["Renamed", "Layer 8"]);
+    expect(readNames.mock.calls[2][0]).toEqual(["1:7"]);
+  });
+
   it("the window around a row: 24 above, 48 below, clipped to the list", () => {
     const rows = Array.from({ length: 100 }, (_, i) => ({ id: `r${i}`, depth: 0, expandable: false, expanded: false }));
     expect(detailsWindow(rows, 0)).toHaveLength(48);

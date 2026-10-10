@@ -94,19 +94,57 @@ export class RowDetailsStore {
   private readonly rows = new Map<Guid, NodeChange>();
   /** The details computed so far (the rows shown) */
   private readonly known = new Map<Guid, RowDetails>();
+  /** Names read for the rows' widths alone (`names`), of rows whose details aren't built */
+  private readonly nameOnly = new Map<Guid, string>();
   private readonly read: RowReader | null;
+  private readonly readNames: RowReader | null;
   /** Engine reads made, and the rows they asked for (tests, the perf bench) */
   reads = 0;
   rowsRead = 0;
+  /** Name-only reads (`names`), and the rows they asked for */
+  nameReads = 0;
 
-  constructor(read: RowReader | null = null) {
+  /** `readNames`: a cheaper read of the name alone, for `names` (the details read otherwise) */
+  constructor(read: RowReader | null = null, readNames: RowReader | null = null) {
     this.read = read;
+    this.readNames = readNames ?? read;
   }
 
   /** A row pass 1 or a delta brought: its details come from it when first asked (what it had before is dropped). */
   keep(row: NodeChange): void {
     this.rows.set(row.guid, row);
     this.known.delete(row.guid);
+    this.nameOnly.delete(row.guid);
+  }
+
+  /**
+   * The names of `ids` without building their details (the Layers list's scroll width is its widest row's, every
+   * open row's — not only the ones drawn): from the details or rows in hand, else name-only engine reads, at most
+   * `limit` rows read per call (one engine call); a name not read yet is null. Cached until the row changes.
+   */
+  names(ids: readonly Guid[], limit = Infinity): (string | null)[] {
+    const out: (string | null)[] = new Array(ids.length);
+    const missing: number[] = [];
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i];
+      const name = this.known.get(id)?.name ?? this.rows.get(id)?.name ?? this.nameOnly.get(id);
+      if (name !== undefined) out[i] = name;
+      else {
+        out[i] = null;
+        if (missing.length < limit) missing.push(i);
+      }
+    }
+    if (missing.length && this.readNames) {
+      this.nameReads++;
+      const read = new Map<Guid, string>();
+      for (const row of this.readNames(missing.map((i) => ids[i]))) read.set(row.guid, row.name ?? "");
+      for (const i of missing) {
+        const name = read.get(ids[i]) ?? "";
+        this.nameOnly.set(ids[i], name);
+        out[i] = name;
+      }
+    } else if (missing.length) for (const i of missing) out[i] = "";
+    return out;
   }
 
   /** Are the row's details in hand (computed, or its row kept) — no engine read needed? */
@@ -156,6 +194,7 @@ export class RowDetailsStore {
   invalidate(id: Guid): void {
     this.rows.delete(id);
     this.known.delete(id);
+    this.nameOnly.delete(id);
   }
 
   /** The row left the document. */

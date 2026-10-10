@@ -6,7 +6,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createElement as h } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { LayerRow, tailCells } from "../components/LayerRow";
+import { LAYER_NAME_END, LayerRow, layerListWidth, layerRowExtent, tailCells } from "../components/LayerRow";
+import { VirtualList } from "../components/VirtualList";
+import { textWidth } from "../util/textWidth";
 import { Rail, RailItem } from "../components/Rail";
 import { $, mount, type Mounted } from "./dom";
 
@@ -50,6 +52,52 @@ describe("LayerRow: the name's room", () => {
     expect(name).toContain("var(--layer-clip-right, 0px)");
     expect(s).toMatch(/\.row:hover \.name, \.row\[data-hover\] \.name \{ --layer-tail: calc\(var\(--tail-hover/);
     expect(s).toMatch(/\.row \.tail \{ position: sticky; right: var\(--ds-size-row-inset\);[^}]*width: 0;/);
+  });
+});
+
+describe("Layers: the list scrolls sideways only as far as its widest row (Figma, the owner's capture 39.png)", () => {
+  it("a row's full extent: inset, 4, the indent, chevron, glyph + 8, the whole name, the gap, lock and eye, inset", () => {
+    expect(LAYER_NAME_END).toBe(24);
+    // A top-level name starts 52 in (live); its 100 px, 24 to the lock, the two 24 cells, 8 to the list's edge.
+    expect(layerRowExtent(0, 100)).toBe(52 + 100 + 24 + 48 + 8);
+    expect(layerRowExtent(3, 100)).toBe(layerRowExtent(0, 100) + 3 * 24);
+    expect(layerRowExtent(0, "Frame 1")).toBe(layerRowExtent(0, textWidth("Frame 1")));
+  });
+
+  it("every name fits: narrower than the panel, so the list (never narrower than its view) doesn't scroll sideways", () => {
+    const rows = [{ depth: 0, name: "Frame 1" }, { depth: 1, name: "Rectangle" }, { depth: 2, name: "Text" }];
+    expect(layerListWidth(rows)).toBeLessThan(240);
+    expect(layerListWidth([])).toBe(0);
+  });
+
+  it("one long name: the list is as wide as that row's full extent, icons included — scrolled to the end it shows whole", () => {
+    const long = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaassdddddddddddddddddddddddddddddddd end";
+    const w = layerListWidth([{ depth: 0, name: "Short" }, { depth: 1, name: long }, { depth: 0, name: "Frame" }]);
+    expect(w).toBe(Math.ceil(layerRowExtent(1, long)));
+    expect(w).toBe(Math.ceil(8 + 4 + 24 + 16 + 16 + 8 + textWidth(long) + 24 + 48 + 8));
+    // Names not read yet don't count (they do once read).
+    expect(layerListWidth([{ depth: 0, name: "Short" }, { depth: 0, name: null }])).toBe(Math.ceil(layerRowExtent(0, "Short")));
+  });
+
+  it("deep nesting: a short name eleven levels in is as wide as its indent makes it; one level open with short names fits", () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({ depth: i, name: `Frame ${20 - i}` }));
+    expect(layerListWidth(rows)).toBe(Math.ceil(layerRowExtent(11, "Frame 9")));
+    expect(layerListWidth(rows.slice(0, 2))).toBeLessThan(240);
+  });
+
+  it("the VirtualList's rows take that width, never narrower than the list", () => {
+    m = mount(VirtualList, { count: 3, rowHeight: 32, axis: "both", contentWidth: 300, renderRow: (i: number) => h("div", null, String(i)) });
+    const list = () => $('[data-ds="VirtualList"]').style;
+    expect([list().width, list().minWidth]).toEqual(["300px", "100%"]);
+    m.rerender(VirtualList, { count: 3, rowHeight: 32, axis: "y", renderRow: (i: number) => h("div", null, String(i)) });
+    expect([list().width, list().minWidth]).toEqual(["", ""]);
+  });
+
+  it("the vertical scrollbar overlays the rows: the viewport hides the native one (no gutter), the thumb's track is absolute", () => {
+    const s = css("ScrollArea.module.css");
+    expect(s).toMatch(/\.viewport \{[^}]*scrollbar-width: none;/);
+    expect(s).toContain(".viewport::-webkit-scrollbar { display: none; }");
+    expect(s).toContain(".track { position: absolute;");
   });
 });
 

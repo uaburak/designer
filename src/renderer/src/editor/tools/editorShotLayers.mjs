@@ -5,16 +5,21 @@
 // 2. Every row is 32 with its name on the same line in every state (collapsed, expanded, hovered, selected, inside a
 //    selected layer — the start, middle and end of the selection's block): expanding a selected layer no longer
 //    moves its row's content 2 down (the block used to be made of the rows' margins).
-// 3. A deep tree scrolls sideways (live: rows 263 wide in the 240 panel with one level open — the list's width plus
-//    the deepest row's indent): the highlight spans the rows, lock and eye stay at the visible right edge, every
+// 3. A deep tree scrolls sideways: the highlight spans the rows, lock and eye stay at the visible right edge, every
 //    name shows when scrolled, and a selection revealed in the list scrolls it so its name shows.
 // 4. The navigation bar's tabs are icons only (tooltips name them), View › Additional labels being off by default.
+// 5. (The owner's second report, with Figma's list scrolled to its end: docs/research/layers-polish/39.png.) The list
+//    is as wide as its widest row's full extent — indent, glyph, whole name, then lock and eye: no sideways scroll
+//    while every name fits; one long name makes it scroll exactly so far that, at the end, the name shows whole with
+//    the lock and eye after it. The vertical scrollbar overlays the rows: when the list starts to overflow, no row,
+//    name or fade moves.
 //
 // Crops of the left side go to the run's folder (docs/research/layers-polish/ for the committed ones).
 /* global window, document, atob, Blob, createImageBitmap, OffscreenCanvas, getComputedStyle */
 import path from "node:path";
 
 const LONG = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaassdddddddddddddddddddddddddddddddd end";
+const MANY = 40;
 /** Frame 20 … Frame 9: twelve levels, each inside the one before. */
 const DEEP = Array.from({ length: 12 }, (_, i) => ({ guid: `9:${20 + i}`, name: `Frame ${20 - i}`, depth: i }));
 
@@ -29,6 +34,9 @@ function nodes() {
     frame("9:4", "0:1", "$", "Short", 600, 0, 100),
   ];
   DEEP.forEach((d, i) => out.push(frame(d.guid, i === 0 ? "0:1" : DEEP[i - 1].guid, i === 0 ? "%" : "!", d.name, i === 0 ? 0 : 4, i === 0 ? 300 : 4, 600 - i * 10)));
+  // "Many": forty children — opened, the list overflows (the vertical scrollbar appears).
+  out.push(frame("9:50", "0:1", "&", "Many", 800, 300, 400));
+  for (let i = 0; i < MANY; i++) out.push(frame(`9:${100 + i}`, "9:50", String.fromCharCode(33 + i), `Child ${i + 1}`, (i % 8) * 48, Math.floor(i / 8) * 48, 40));
   return out;
 }
 
@@ -72,6 +80,32 @@ const rowBoxes = (page, id) =>
     const name = row.querySelector("[data-layer-name]");
     return { row: r(row), box: r(row.firstElementChild), name: r(name), lock: r(row.querySelector('[data-cell="lock"]')), eye: r(row.querySelector('[data-cell="visible"]')) };
   }, id);
+
+/** The list's viewport: scroll, sizes, visible edges (page px), the fade's cut it sets. */
+const listOf = (page) =>
+  page.evaluate(() => {
+    const v = document.querySelector('[data-layer-list] [data-ds="VirtualList"]').parentElement;
+    const vb = v.getBoundingClientRect();
+    return { scrollLeft: v.scrollLeft, scrollWidth: v.scrollWidth, clientWidth: v.clientWidth, scrollHeight: v.scrollHeight, clientHeight: v.clientHeight, left: vb.left, right: vb.left + v.clientWidth, clip: v.style.getPropertyValue("--layer-clip-right") };
+  });
+
+/**
+ * Each drawn row's full extent in the list's content (px from its left): where its name starts, the name's text width
+ * (a DOM Range over the text, not the span), then 24 to the lock, lock and eye, 8 — Figma's rule (39.png).
+ */
+const extents = (page) =>
+  page.evaluate(() => {
+    const list = document.querySelector('[data-layer-list] [data-ds="VirtualList"]');
+    const left = list.getBoundingClientRect().left;
+    return [...list.querySelectorAll('[data-ds="LayerRow"]')].map((row) => {
+      const name = row.querySelector("[data-layer-name]");
+      const range = document.createRange();
+      range.selectNodeContents(name);
+      const text = range.getBoundingClientRect().width;
+      const start = name.getBoundingClientRect().left - left;
+      return { id: row.dataset.id, start, text, extent: start + text + 24 + 48 + 8 };
+    });
+  });
 
 /** Where the name's ink stops on a row (the text band of its highlight, from the name's left to `to`). */
 async function nameInk(page, id, to) {
@@ -122,11 +156,11 @@ export async function layersSection(page, theme, { open, settle, check, outDir }
 
   // ---- 1. The name's fade, at the highlight's edge or before the cells showing. -------------------------------------
   {
-    const flat = await page.evaluate(() => document.querySelectorAll('[data-layer-list] [data-scrollbar="x"]').length);
-    check(`Layers14 scroll: nothing open (every row top-level), the list doesn't scroll sideways`, flat === 0, String(flat));
-    const plain = await nameInk(page, "9:1", (await rowBoxes(page, "9:1")).box.right);
-    const fadeEnd = plain.b.box.right;
-    check(`Layers14 fade: a long name runs to the highlight's right edge and fades there (ink ends within 12 + 4 of it; no fixed cut, no …)`, plain.ink !== null && plain.ink <= fadeEnd && plain.ink >= fadeEnd - 16, `ink ${plain.ink} edge ${fadeEnd}`);
+    // The long names make the list wider than the panel: at rest a name fades at the list's visible right edge.
+    const l = await listOf(page);
+    const edge = (b) => Math.min(b.box.right, l.right - 8);
+    const plain = await nameInk(page, "9:1", edge(await rowBoxes(page, "9:1")));
+    check(`Layers14 fade: a long name runs to the visible right edge (the highlight's, 8 in) and fades there (ink ends within 12 + 4 of it; no fixed cut, no …)`, plain.ink !== null && plain.ink <= edge(plain.b) && plain.ink >= edge(plain.b) - 16, `ink ${plain.ink} edge ${edge(plain.b)}`);
     const text = await page.evaluate(() => getComputedStyle(document.querySelector('[data-id="9:1"] [data-layer-name]')).textOverflow);
     check(`Layers14 fade: no ellipsis (text-overflow clip, a mask fades it)`, text === "clip", text);
 
@@ -145,8 +179,8 @@ export async function layersSection(page, theme, { open, settle, check, outDir }
     await page.evaluate(() => window.__designerEditor.engine.setSelection(["9:1"]));
     await away();
     await settle(page);
-    const sel = await nameInk(page, "9:1", (await rowBoxes(page, "9:1")).box.right);
-    check(`Layers14 fade: selected, the name fades into the blue the same way`, sel.ink !== null && sel.ink <= sel.b.box.right && sel.ink >= sel.b.box.right - 16, `ink ${sel.ink} edge ${sel.b.box.right}`);
+    const sel = await nameInk(page, "9:1", edge(await rowBoxes(page, "9:1")));
+    check(`Layers14 fade: selected, the name fades into the blue the same way`, sel.ink !== null && sel.ink <= edge(sel.b) && sel.ink >= edge(sel.b) - 16, `ink ${sel.ink} edge ${edge(sel.b)}`);
     await crop("layers14-fade");
   }
 
@@ -198,14 +232,10 @@ export async function layersSection(page, theme, { open, settle, check, outDir }
     await page.evaluate((ids) => window.__designerEditor.ui.set({ expanded: new Set(ids) }), DEEP.map((d) => d.guid));
     await page.evaluate(() => window.__designerEditor.engine.setSelection(["9:20"]));
     await settle(page);
-    const list = () =>
-      page.evaluate(() => {
-        const v = document.querySelector('[data-layer-list] [data-ds="VirtualList"]').parentElement;
-        const vb = v.getBoundingClientRect();
-        return { scrollLeft: v.scrollLeft, scrollWidth: v.scrollWidth, clientWidth: v.clientWidth, left: vb.left, right: vb.left + v.clientWidth };
-      });
+    const list = () => listOf(page);
     const l0 = await list();
-    check(`Layers14 scroll: eleven levels open, the rows are the list's width plus 11 × 24 and it scrolls sideways`, l0.scrollWidth === l0.clientWidth + 11 * 24, JSON.stringify(l0));
+    const widest = Math.ceil(Math.max(...(await extents(page)).map((e) => e.extent)));
+    check(`Layers14 scroll: eleven levels open, the rows are as wide as the widest row's full extent (name + lock and eye) and the list scrolls sideways`, Math.abs(l0.scrollWidth - widest) <= 1 && l0.scrollWidth > l0.clientWidth, `${JSON.stringify(l0)} widest ${widest}`);
     const deepRow = await rowBoxes(page, "9:31");
     check(`Layers14 scroll: the highlight spans the rows' width (8 in from either end of the scrolled content)`, Math.round(deepRow.box.width) === l0.scrollWidth - 16, `${deepRow.box.width} vs ${l0.scrollWidth}`);
     await crop("layers14-deep-scrolled-0");
@@ -250,8 +280,8 @@ export async function layersSection(page, theme, { open, settle, check, outDir }
     await scrollTo(10000);
     const l1 = await list();
     check(
-      `Layers14 scroll: scrolled sideways by its indent, every level's name shows whole (Frame 20 … Frame 9: ≥ 30 px of ink from its start; at 0 "Frame 9" is out of view; the end is 11 × 24)`,
-      l1.scrollLeft === 11 * 24 && shown.every(([, w]) => w >= 30) && deepAt0 < 30,
+      `Layers14 scroll: scrolled sideways by its indent, every level's name shows whole (Frame 20 … Frame 9: ≥ 30 px of ink from its start; at 0 "Frame 9" is out of view; the end is the rows' width less the list's)`,
+      l1.scrollLeft === l1.scrollWidth - l1.clientWidth && shown.every(([, w]) => w >= 30) && deepAt0 < 30,
       `end ${l1.scrollLeft} at0 ${deepAt0} ${JSON.stringify(shown)}`
     );
     await page.locator('[data-ds="LayerRow"][data-id="9:31"]').hover({ position: { x: 300, y: 16 } });
@@ -273,5 +303,117 @@ export async function layersSection(page, theme, { open, settle, check, outDir }
     const ink = await inkRight(page, { x: Math.round(Math.max(b.name.left, l2.left)), y: Math.round(b.box.top) + 2, width: Math.round(l2.right - 8 - Math.max(b.name.left, l2.left)), height: Math.round(b.box.height) - 4 });
     check(`Layers14 scroll: selecting the deepest layer scrolls the list sideways to its name ("Frame 9" shows)`, l2.scrollLeft === 11 * 24 && ink !== null && ink - b.name.left >= 30, `scrollLeft ${l2.scrollLeft} ink ${ink} name ${b.name.left}`);
     await crop("layers14-deep-revealed");
+  }
+
+  // ---- 5. The list's width is its content's (Figma, 39.png); the vertical scrollbar moves nothing. ------------------
+  {
+    const LONGS = ["9:1", "9:2", "9:3"];
+    const rename = (ids, name) => page.evaluate(({ ids, name }) => window.__designerEditor.engine.setProps(ids, { name }), { ids, name });
+    const scrollTo = async (x) => {
+      await page.evaluate((x) => {
+        document.querySelector('[data-layer-list] [data-ds="VirtualList"]').parentElement.scrollLeft = x;
+      }, x);
+      await settle(page);
+    };
+    const xBar = () => page.evaluate(() => document.querySelectorAll('[data-layer-list] [data-scrollbar="x"]').length);
+    await page.evaluate(() => {
+      window.__designerEditor.engine.setSelection([]);
+      window.__designerEditor.ui.set({ expanded: new Set() });
+    });
+    await rename(LONGS, "Frame with a name");
+    await scrollTo(0);
+    await away();
+    await settle(page);
+    // (a) Every name fits: no sideways scroll — top-level rows, and with two levels open.
+    const fit0 = await listOf(page);
+    await page.evaluate(() => window.__designerEditor.ui.set({ expanded: new Set(["9:20", "9:21"]) }));
+    await settle(page);
+    const fit2 = await listOf(page);
+    const bars = await xBar();
+    check(`Layers14 width: every name fits — the list doesn't scroll sideways (top-level rows, and two levels open; no sideways scrollbar)`, fit0.scrollWidth === fit0.clientWidth && fit2.scrollWidth === fit2.clientWidth && bars === 0, `${JSON.stringify(fit0)} ${JSON.stringify(fit2)} bars ${bars}`);
+    await crop("layers14-width-fits");
+
+    // (b) One long name: the list scrolls exactly to that row's full extent; at the end its whole name shows, then lock and eye.
+    await page.evaluate(() => window.__designerEditor.ui.set({ expanded: new Set() }));
+    await rename(["9:1"], LONG);
+    await settle(page);
+    await settle(page);
+    const l = await listOf(page);
+    const ext = await extents(page);
+    const long = ext.find((e) => e.id === "9:1");
+    const widest = Math.ceil(Math.max(...ext.map((e) => e.extent)));
+    check(`Layers14 width: one long name — the list is as wide as that row (its indent, glyph, whole name, 24, lock and eye, 8): ${Math.round(long.extent)}`, Math.abs(l.scrollWidth - Math.ceil(long.extent)) <= 1 && widest === Math.ceil(long.extent), `scrollWidth ${l.scrollWidth} extent ${long.extent} widest ${widest}`);
+    // At rest (not scrolled), the name fades at the visible edge, the cut 8 in.
+    const rest = await nameInk(page, "9:1", l.right - 8);
+    check(`Layers14 width: not scrolled, the long name fades at the list's visible edge`, rest.ink !== null && rest.ink <= l.right - 8 && rest.ink >= l.right - 8 - 16 && parseFloat(l.clip) === l.scrollWidth - l.clientWidth, `ink ${rest.ink} edge ${l.right - 8} clip ${l.clip}`);
+    await scrollTo(100000);
+    const end = await listOf(page);
+    await page.locator('[data-ds="LayerRow"][data-id="9:1"]').hover({ position: { x: Math.round(end.scrollLeft + 100), y: 16 } });
+    await settle(page);
+    const hb = await rowBoxes(page, "9:1");
+    const whole = { ink: await inkRight(page, { x: Math.round(end.left), y: Math.round(hb.box.top) + 2, width: Math.round(hb.lock.left - end.left), height: Math.round(hb.box.height) - 4 }) };
+    const textEnd = hb.name.left + long.text;
+    check(
+      `Layers14 width: scrolled to the end and hovered, the whole name shows (its ink ends at its text's end), then the lock and eye, not over it (≥ 12 between) — as in Figma's 39.png`,
+      end.scrollLeft === end.scrollWidth - end.clientWidth && whole.ink !== null && Math.abs(whole.ink - textEnd) <= 2 && whole.ink <= hb.lock.left - 12 && Math.round(hb.eye.right) === Math.round(end.right - 8) && Math.round(hb.lock.right) === Math.round(hb.eye.left) && parseFloat(end.clip) === 0,
+      `ink ${whole.ink} text end ${textEnd} lock ${hb.lock.left} eye ${hb.eye.right} edge ${end.right} clip ${end.clip}`
+    );
+    const hl = await page.evaluate(() => {
+      const row = document.querySelector('[data-ds="LayerRow"][data-id="9:1"]');
+      const list = document.querySelector('[data-layer-list] [data-ds="VirtualList"]');
+      const b = row.firstElementChild.getBoundingClientRect();
+      const c = list.getBoundingClientRect();
+      return { left: b.left - c.left, right: c.right - b.right, width: c.width };
+    });
+    check(`Layers14 width: the highlight spans the whole scroll width (8 in from either end)`, Math.round(hl.left) === 8 && Math.round(hl.right) === 8 && Math.round(hl.width) === end.scrollWidth, JSON.stringify(hl));
+    // Clicked there (selected, as in 39.png), the list stays scrolled: only a selection made elsewhere scrolls it to a name.
+    await page.mouse.down();
+    await page.mouse.up();
+    await settle(page);
+    await settle(page);
+    const clicked = await listOf(page);
+    const sel = await page.evaluate(() => document.querySelector('[data-ds="LayerRow"][data-id="9:1"]').getAttribute("aria-selected"));
+    check(`Layers14 width: a row clicked in the list scrolled to its end is selected and the list stays where it is`, sel === "true" && clicked.scrollLeft === end.scrollLeft, `selected ${sel} scrollLeft ${end.scrollLeft} → ${clicked.scrollLeft}`);
+    await crop("layers14-long-scrolled-end");
+    await away();
+    await page.evaluate(() => window.__designerEditor.engine.setSelection([]));
+    await scrollTo(0);
+
+    // (c) The vertical scrollbar: opening "Many" (named long for this, so its name fades at the list's edge) overflows
+    //     the list; its row, name, eye and fade don't move sideways, the list keeps its width.
+    await rename(["9:50"], LONG);
+    await settle(page);
+    const snap = async () => {
+      const lst = await listOf(page);
+      const r = await rowBoxes(page, "9:50");
+      const ink = await nameInk(page, "9:50", lst.right - 8);
+      // The Layers header: a list overflowing its section once squeezed it 40 → 24 (the owner's "jump").
+      const header = await page.evaluate(() => Math.round(document.querySelector("[data-layer-list]").previousElementSibling.getBoundingClientRect().height));
+      return { header, clientWidth: lst.clientWidth, scrollWidth: lst.scrollWidth, clip: lst.clip, overflow: lst.scrollHeight > lst.clientHeight, row: [r.row.top, r.row.left, r.row.width, r.box.left, r.box.width], name: [r.name.left, r.name.width], eye: [r.eye.left, r.eye.right], fade: ink.ink };
+    };
+    const before = await snap();
+    await page.evaluate(() => window.__designerEditor.ui.set({ expanded: new Set(["9:50"]) }));
+    await settle(page);
+    await page.locator('[data-layer-list]').hover({ position: { x: 120, y: 200 } });
+    await settle(page);
+    await away();
+    await settle(page);
+    const after = await snap();
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    check(
+      `Layers14 width: opening "Many" overflows the list (the vertical scrollbar appears) and nothing moves — the Layers header (40), the list's width, the row's, highlight's and name's boxes, the eye, the fade`,
+      before.header === 40 && after.header === 40 && !before.overflow && after.overflow && before.clientWidth === after.clientWidth && before.scrollWidth === after.scrollWidth && before.clip === after.clip && same(before.row, after.row) && same(before.name, after.name) && same(before.eye, after.eye) && before.fade === after.fade,
+      `${JSON.stringify(before)} → ${JSON.stringify(after)}`
+    );
+    await page.evaluate(() => window.__designerEditor.ui.set({ expanded: new Set() }));
+    await settle(page);
+    const back = await snap();
+    check(`Layers14 width: closing it again (the scrollbar goes) moves nothing either`, !back.overflow && back.header === 40 && same(before.row, back.row) && same(before.name, back.name) && same(before.eye, back.eye) && before.fade === back.fade && before.clientWidth === back.clientWidth, `${JSON.stringify(back)}`);
+    await page.evaluate(() => window.__designerEditor.ui.set({ expanded: new Set(["9:50"]) }));
+    await page.locator('[data-layer-list]').hover({ position: { x: 120, y: 200 } });
+    await crop("layers14-vscroll");
+    await away();
+    await rename(LONGS.slice(1), LONG);
+    await rename(["9:50"], "Many");
   }
 }

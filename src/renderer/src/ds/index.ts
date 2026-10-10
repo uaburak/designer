@@ -16,6 +16,7 @@ export { scrubValue, scrubRate, stepValue, SCRUB_THRESHOLD, SCRUB_SPEEDS } from 
 export { normalizeHex, parseHexInput, contrastRatio, hexDigits, withOpacity, rgbToHsv, hsvToRgb, rgbToHsl, hslToRgb, rgbToHex, hexToRgba, rgbaToCss, parseCssColor, mixRgba, sameRgba, type RGBA, type HSV, type HSL } from "./util/color";
 export * from "./util/paint";
 export { timeAgo, formatEdited } from "./util/time";
+export { textWidth, clearTextWidths, onFontsLoaded } from "./util/textWidth";
 export { keys, IS_MAC } from "./util/keys";
 export { typeahead, createTypeahead } from "./util/typeahead";
 export { selectAllOnClick } from "./util/selectAll";

@@ -4,6 +4,8 @@ import { Icon, type IconName } from "../icons/Icon";
 import { tooltipProps } from "../overlay/TooltipManager";
 import type { ExitReason } from "../types";
 import { STRINGS } from "../strings";
+import { size, space } from "../tokens";
+import { textWidth } from "../util/textWidth";
 import { TextInput } from "./TextInput";
 import styles from "./LayerRow.module.css";
 
@@ -95,14 +97,40 @@ export function tailCells({ locked, hidden, lock, visible }: { locked?: boolean;
 }
 
 /**
+ * Between a layer name's end and the lock when the list is scrolled to its end (the owner's capture of Figma,
+ * docs/research/layers-polish/39.png: 26.5 there, our measure of the name rounds differently — one cell's room).
+ */
+export const LAYER_NAME_END = size.control;
+
+/**
+ * A layer row's full extent (Figma: the Layers list scrolls sideways only when a row doesn't fit; scrolled to the
+ * end, its whole name shows, then the lock and the eye): the inset, 4, depth × 24, the chevron, the glyph + 8, the
+ * name, `LAYER_NAME_END`, the two cells and the inset. `name` is its width or its text (measured in the row's type).
+ */
+export function layerRowExtent(depth: number, name: number | string): number {
+  const nameWidth = typeof name === "number" ? name : textWidth(name, "body-medium-regular");
+  return size["row-inset"] + space["1"] + depth * size["layer-indent"] + 16 + 16 + space["2"] + nameWidth + LAYER_NAME_END + 2 * size.control + size["row-inset"];
+}
+
+/**
+ * The width a list of layer rows scrolls to: its widest row's extent (rounded up), 0 when it has none — the list
+ * never narrower than its view (the rows fill it; it doesn't scroll sideways while every row fits).
+ */
+export function layerListWidth(rows: readonly { depth: number; name: string | null }[]): number {
+  let w = 0;
+  for (const r of rows) if (r.name !== null) w = Math.max(w, layerRowExtent(r.depth, r.name));
+  return Math.ceil(w);
+}
+
+/**
  * A layer in the tree (contract §4.17, measured on Figma live): pitch 32; a 24 highlight (radius 5) inset 8 across
  * and 4 down — a run of highlighted rows fills the pitch between them (the highlight is drawn under the content, so a
  * row's content never moves: every row is 32 with its content on the same line) —; inside it 4, depth × 24, the
  * chevron (16), the type glyph (16) + 8, the name, then lock and eye (24 each, flush right; on hover — kept while
  * on). The name takes the room to the highlight's right edge and fades out there (a mask, over any highlight); the
- * cells showing (hovered, or a lock / closed eye kept on) move the fade left by their width. The cells stick to the
- * list's visible right edge when the list scrolls sideways; a list that does sets `--layer-clip-right` on its rows
- * (how much of the row lies past its visible right edge) so the fade sits at that edge too. The glyph is secondary
+ * cells showing (hovered, or a lock / closed eye kept on) move the fade left by their width. A list whose rows are
+ * wider than it (`layerListWidth`: the widest row's full extent) scrolls sideways; the cells stick to its visible
+ * right edge and it sets `--layer-clip-right` (how much of the row lies past that edge) so the fade sits there too. The glyph is secondary
  * unless the row is selected or a top-level frame; components and instances in purple; hidden layers faded. Enter
  * belongs to the list (select the children), not the row.
  */
