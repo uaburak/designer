@@ -45,6 +45,8 @@ export const AUTOSAVE_MS = 30 * 60_000;
 export const AUTOSAVE_QUIET_MS = 2000;
 /** … or at the latest this long after it fell due */
 export const AUTOSAVE_MAX_WAIT_MS = 60_000;
+/** FILE_UPDATE (docs/multiplayer.md §16.10): 30 minutes after the last edit of a burst */
+export const FILE_UPDATE_QUIET_MS = 30 * 60_000;
 
 /** docs/data.md §6 kinds and §15.2's branch kinds */
 export const VERSION_KINDS = ["autosave", "named", "restore", "publish", "import", "branch", "update", "merge"] as const;
@@ -650,23 +652,43 @@ export class RoomBox {
   /**
    * After the room accepted frames: an autosave is due once 30 minutes passed since the last version (the first edit
    * starts the clock); it is taken when the room has been quiet 2 s, 60 s after it fell due at the latest.
+   * `fileUpdate` (the file has a FILE_UPDATE webhook, §16.10): `webhookDue` moves to this edit + 30 minutes
+   * (`webhookDirtyAt` keeps the burst's first edit). One alarm: the earliest due time wins.
    */
-  edited(): void {
+  edited(fileUpdate = false): void {
     const st = this.storage;
     const now = this.host.now();
     st.setMeta("editedSince", 1);
     if (st.meta("lastVersionAt") < 0) st.setMeta("lastVersionAt", now);
+    if (fileUpdate) {
+      if (st.meta("webhookDirtyAt") < 0) st.setMeta("webhookDirtyAt", now);
+      st.setMeta("webhookDue", now + FILE_UPDATE_QUIET_MS);
+    }
     const at = autosaveAlarm({ lastVersionAt: st.meta("lastVersionAt"), dueSince: st.meta("dueSince") }, now);
-    if (at === null) return;
-    if (st.meta("dueSince") < 0) st.setMeta("dueSince", now);
-    this.host.setAlarm(at);
+    if (at !== null && st.meta("dueSince") < 0) st.setMeta("dueSince", now);
+    const due = st.meta("webhookDue");
+    const next = [at, due >= 0 ? due : null].filter((x): x is number => x !== null);
+    if (next.length) this.host.setAlarm(Math.min(...next));
   }
 
-  /** The object's alarm */
-  alarm(): void {
+  /**
+   * The object's alarm: the autosave when it fell due, and whether FILE_UPDATE is due now (the host emits it). A
+   * webhook alarm still ahead is set again.
+   */
+  alarm(): { fileUpdate: boolean } {
     const st = this.storage;
-    if (st.meta("editedSince") !== 1 || st.meta("snapshotSeq") < 0 || st.lastSeq() <= st.meta("lastVersionSeq")) return;
-    this.host.transaction(() => void this.take({ kind: "autosave" }));
+    const now = this.host.now();
+    if (st.meta("dueSince") >= 0 && st.meta("editedSince") === 1 && st.meta("snapshotSeq") >= 0 && st.lastSeq() > st.meta("lastVersionSeq")) {
+      this.host.transaction(() => void this.take({ kind: "autosave" }));
+    }
+    const due = st.meta("webhookDue");
+    if (due >= 0 && due <= now) {
+      st.clearMeta("webhookDue");
+      st.clearMeta("webhookDirtyAt");
+      return { fileUpdate: true };
+    }
+    if (due >= 0) this.host.setAlarm(due);
+    return { fileUpdate: false };
   }
 
   // --- Bytes ---------------------------------------------------------------------------------------------------------

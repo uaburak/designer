@@ -70,6 +70,8 @@ const publicUser = (u: User) => ({ id: u.id, email: u.email, name: u.name, pictu
 const FILE_KEY = /^[A-Za-z0-9_-]{6,64}$/;
 
 export async function handle(req: Request, deps: Deps): Promise<Response> {
+  // Figma's REST API (docs/multiplayer.md §16): its own auth, CORS for any origin, Figma's error shapes.
+  if (/^\/v[12](\/|$)/.test(new URL(req.url).pathname)) return (await import("./rest")).restRoute(req, deps, (r) => authenticate(r, new URL(r.url), deps, false));
   const origin = req.headers.get("origin");
   const allowed = origin !== null && webOrigins(deps).includes(origin);
   if (req.method === "OPTIONS") {
@@ -148,6 +150,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (parts[0] === "files" && parts[2] === "libraries") return (await import("./libraries/routes")).fileLibrariesRoute(orgCtx());
   if (parts[0] === "files" && parts[2] === "library-usage") return (await import("./analytics/ingest")).fileUsageRoute(orgCtx());
   if (parts[0] === "orgs" && parts[2] === "admin" && (parts[3] === "identity" || parts[3] === "domains")) return (await import("./auth/identityRoutes")).identityRoute(orgCtx());
+  if (parts[0] === "orgs" && parts[2] === "admin" && parts[3] === "plan-tokens") return (await import("./rest/planTokens")).planTokensRoute(orgCtx());
   if (parts[0] === "orgs") return (await import("./org/orgs")).orgsRoute(orgCtx());
   if (parts[0] === "teams") return (await import("./org/teams")).teamsRoute(orgCtx());
   if (parts[0] === "projects") return (await import("./org/projects")).projectsRoute(orgCtx());
@@ -278,10 +281,12 @@ async function route(req: Request, deps: Deps): Promise<Response> {
         // In an org, "Delete forever" — from the trash only (§14.12).
         if (!a!.trashed) throw new HttpError(409, "move the file to the trash first");
         await (await import("./libraries/db")).libraryFileStatus(deps, key, "delete");
+        await fileDeleted(deps, f, user);
         await (await import("./org/projects")).deleteFileForever(orgCtx(), key);
         await log("fig_file_permanent_delete");
         return json({ ok: true });
       }
+      await fileDeleted(deps, f, user);
       await deps.rooms.fetch(key, "/room", { method: "DELETE" });
       await deps.db.deleteFile(key);
       return json({ ok: true });
@@ -473,6 +478,10 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       await log(body.action, { ...details, client_reported: true });
       return new Response(null, { status: 204 });
     }
+    case "thumbnail":
+    case "rest-jobs":
+      // The thumbnail the store uploads with snapshots; a REST render job's parts from the client it went to (§16.6).
+      return (await import("./rest/uploads")).uploadRoute(req, deps, f, a, identity, parts);
     case "ws": {
       if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new HttpError(426, "expected a WebSocket");
       // The file's org logs the view; the viewer's home org (captured, another org) its external twin (§15.9).
@@ -483,6 +492,12 @@ async function route(req: Request, deps: Deps): Promise<Response> {
     }
   }
   throw new HttpError(404, "not found");
+}
+
+/** FILE_DELETE (docs/multiplayer.md §16.9): before the rows go, to the webhooks that reach the file */
+async function fileDeleted(deps: Deps, f: FileRow, user: User): Promise<void> {
+  const { emitWebhook, waitOf } = await import("./webhooks/emit");
+  await emitWebhook(deps, { event_type: "FILE_DELETE", file_key: f.key, file_name: f.name, triggered_by: { id: user.id, handle: user.name || user.email, img_url: null } }, { fileKey: f.key, orgId: f.org_id, teamId: f.team_id, projectId: f.project_id }, waitOf(deps));
 }
 
 /** Home's Shared files (§3): what the caller owns or was invited to, with its org place; trashed org files left out. */

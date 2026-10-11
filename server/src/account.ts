@@ -127,7 +127,7 @@ export async function accountRoute(req: Request, deps: Deps, caller: Caller, par
         if (!TOKEN_EXPIRATIONS.some((e) => e.days === body?.expiresInDays)) return fail(400, "expiresInDays is 1, 7, 30 or 90");
         const scopes = Array.isArray(body?.scopes) ? [...new Set(body.scopes)] : [];
         if (!scopes.length || !scopes.every(isTokenScope)) return fail(400, "choose at least one scope");
-        const n = await d1.prepare(`SELECT COUNT(*) AS n FROM access_tokens WHERE user_id = ?1`).bind(user.id).first<{ n: number }>();
+        const n = await d1.prepare(`SELECT COUNT(*) AS n FROM access_tokens WHERE user_id = ?1 AND kind = 'personal'`).bind(user.id).first<{ n: number }>();
         if ((n?.n ?? 0) >= MAX_TOKENS) return fail(400, `at most ${MAX_TOKENS} tokens`);
         const id = `t_${randomToken(9)}`;
         const token = `${TOKEN_PREFIX}${randomToken(32)}`;
@@ -141,7 +141,7 @@ export async function accountRoute(req: Request, deps: Deps, caller: Caller, par
         return json({ token, info }, 201);
       }
       if (parts.length === 3 && m === "DELETE") {
-        const gone = await d1.prepare(`DELETE FROM access_tokens WHERE id = ?1 AND user_id = ?2 RETURNING id`).bind(parts[2], user.id).first();
+        const gone = await d1.prepare(`DELETE FROM access_tokens WHERE id = ?1 AND user_id = ?2 AND kind = 'personal' RETURNING id`).bind(parts[2], user.id).first();
         if (gone) await logForUserOrgs(deps, user, "personal_access_token_delete", req, { token_id: parts[2] });
         return json({ ok: true });
       }
@@ -162,15 +162,30 @@ async function sessionIdle(deps: Deps, sid: string | null, userId: string): Prom
   return r ? { id: r.id, auth: r.auth_method, activeAt: r.active_at ?? r.last_seen_at, idleLimitMs: r.idle_limit_ms } : null;
 }
 
-/** A `dsgn_…` Bearer: its user and scopes, or null (unknown, expired). "Last used" moves on, at most once a minute. */
+/** A `dsgn_…` Bearer: its user and scopes, or null (unknown, expired, or a plan access token). "Last used" moves on, at
+ *  most once a minute. */
 export async function personalToken(deps: Deps, raw: string): Promise<{ userId: string; scopes: TokenScope[] } | null> {
+  const t = await accessToken(deps, raw);
+  return t && t.kind === "personal" ? { userId: t.userId, scopes: t.scopes } : null;
+}
+
+/** Plan access tokens' prefix (docs/multiplayer.md §16.3; ours) */
+export const PLAN_TOKEN_PREFIX = `${TOKEN_PREFIX}plan_`;
+
+/**
+ * Any access token (§13 personal, §16.3 plan): its id, user (a plan token's: the admin who made it), kind, org and
+ * scopes; null when unknown or expired. "Last used" moves on, at most once a minute.
+ */
+export async function accessToken(deps: Deps, raw: string): Promise<{ id: string; userId: string; kind: "personal" | "plan"; orgId: string | null; scopes: TokenScope[] } | null> {
   if (!raw.startsWith(TOKEN_PREFIX)) return null;
   const now = deps.now();
   const r = await deps.db.d1
-    .prepare(`SELECT id, user_id, scopes, expires_at, last_used_at FROM access_tokens WHERE token_hash = ?1`)
+    .prepare(`SELECT id, user_id, scopes, expires_at, last_used_at, kind, org_id FROM access_tokens WHERE token_hash = ?1`)
     .bind(await sha256b64url(raw))
-    .first<{ id: string; user_id: string; scopes: string; expires_at: number | null; last_used_at: number | null }>();
+    .first<{ id: string; user_id: string; scopes: string; expires_at: number | null; last_used_at: number | null; kind: "personal" | "plan"; org_id: string | null }>();
   if (!r || (r.expires_at !== null && r.expires_at <= now)) return null;
+  // A plan token is the org's: it stops with the org (ON DELETE CASCADE) and never acts outside it.
+  if (r.kind === "plan" && !r.org_id) return null;
   if (r.last_used_at === null || r.last_used_at < now - 60_000) await deps.db.d1.prepare(`UPDATE access_tokens SET last_used_at = ?2 WHERE id = ?1`).bind(r.id, now).run();
   let scopes: TokenScope[] = [];
   try {
@@ -178,7 +193,7 @@ export async function personalToken(deps: Deps, raw: string): Promise<{ userId: 
   } catch {
     // none
   }
-  return { userId: r.user_id, scopes };
+  return { id: r.id, userId: r.user_id, kind: r.kind === "plan" ? "plan" : "personal", orgId: r.org_id, scopes };
 }
 
 /**
@@ -198,7 +213,7 @@ export function patAllows(scopes: readonly TokenScope[], method: string, parts: 
 
 async function listTokens(deps: Deps, userId: string): Promise<AccessTokenInfo[]> {
   const { results } = await deps.db.d1
-    .prepare(`SELECT id, description, scopes, created_at, expires_at, last_used_at FROM access_tokens WHERE user_id = ?1 ORDER BY created_at DESC`)
+    .prepare(`SELECT id, description, scopes, created_at, expires_at, last_used_at FROM access_tokens WHERE user_id = ?1 AND kind = 'personal' ORDER BY created_at DESC`)
     .bind(userId)
     .all<{ id: string; description: string; scopes: string; created_at: number; expires_at: number | null; last_used_at: number | null }>();
   return results.map((r) => ({ id: r.id, description: r.description, scopes: safeParse<unknown[]>(r.scopes, []).filter(isTokenScope), kind: "personal", orgId: null, createdAt: r.created_at, expiresAt: r.expires_at, lastUsedAt: r.last_used_at }));

@@ -28,8 +28,9 @@
     { "tag": "v3", "new_sqlite_classes": ["Inbox"] },
     { "tag": "v4", "new_sqlite_classes": ["LibraryObject", "FontObject"] }
   ],
-  // The daily library analytics roll-up and retention sweeps at 03:17 UTC (docs/data.md §17.5; one of the free plan's five)
-  "triggers": { "crons": ["17 3 * * *"] },
+  // The daily library analytics roll-up and retention sweeps at 03:17 UTC (docs/data.md §17.5), and webhook retries every
+  // five minutes (docs/multiplayer.md §16.9) — two of the free plan's five
+  "triggers": { "crons": ["17 3 * * *", "*/5 * * * *"] },
   // The developer preview viewer (npm run build:viewer → out/viewer/index.html), served by the Worker at /p/<id>
   // (server/src/previews.ts). The Worker runs first for every request, so the API keeps its routes.
   "assets": { "directory": "../out/viewer", "binding": "ASSETS", "run_worker_first": true, "html_handling": "none", "not_found_handling": "none" },

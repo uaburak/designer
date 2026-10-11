@@ -13,6 +13,9 @@
  * - Signals go to one session only (by its sessionID), never stored.
  * - The org's room policy (cursor chat, audio — docs/multiplayer.md §15.9) arrives with each socket's identity (the
  *   Worker's `x-policy`) and goes out in `welcome.policy`; a change (`setPolicy`) is broadcast as `{t: "policy"}`.
+ * - REST render jobs (docs/multiplayer.md §16.6): `hello {render: true}` marks a socket that can answer them
+ *   (`helper: true` too: the desktop app's hidden render helper, asked last); `renderers()` lists them in the order
+ *   jobs try them; `rest-job-done` / `rest-job-failed` go to the host's `onRest`.
  */
 import {
   decodeChangesUp,
@@ -26,6 +29,7 @@ import {
   type ServerControl,
 } from "./protocol";
 import type { RoomPolicy } from "../org/identity";
+import type { RestJob, RestJobPart } from "../rest/types";
 
 export interface RoomStorage {
   /** Next sessionID for this file (1, 2, 3 …), persisted */
@@ -59,6 +63,24 @@ export interface MemberState extends Identity {
   /** 0 until the member said hello */
   sessionID: number;
   presence?: unknown;
+  /** `hello.render`: can answer REST render jobs (§16.6) */
+  render?: boolean;
+  /** `hello.helper`: the desktop app's hidden render helper (asked after editors and viewers) */
+  helper?: boolean;
+  /** When the member last sent a change (or said hello): the editor idle longest is asked first */
+  activeAt?: number;
+}
+
+/** A REST job's answer from a member (§16.6) */
+export type RestAnswer = { t: "rest-job-done"; id: string; parts: RestJobPart[] } | { t: "rest-job-failed"; id: string; err: string };
+
+export interface RoomOptions {
+  /** Milliseconds (render order); default Date.now */
+  now?(): number;
+  /** A member answered a REST job */
+  onRest?(conn: Connection, member: MemberState, answer: RestAnswer): void;
+  /** A member that can render said hello (a job waiting for one may go on) */
+  onRenderer?(conn: Connection, member: MemberState): void;
 }
 
 export class Room {
@@ -68,7 +90,34 @@ export class Room {
     private storage: RoomStorage,
     /** Called when a member's state changes (the host persists it with the socket) */
     private onState: (conn: Connection, state: MemberState) => void = () => {},
+    private opts: RoomOptions = {},
   ) {}
+
+  private now(): number {
+    return this.opts.now ? this.opts.now() : Date.now();
+  }
+
+  /**
+   * Members that can answer REST jobs, in the order jobs try them (§16.6): editors (idle longest first), then viewers,
+   * then render helpers. `canEdit`: only those whose role edits (POST variables).
+   */
+  renderers(opts: { canEdit?: boolean } = {}): Connection[] {
+    const tier = (m: MemberState) => (m.helper ? 2 : m.role === "viewer" ? 1 : 0);
+    return [...this.members]
+      .filter(([, m]) => m.sessionID && m.render && (!opts.canEdit || m.role !== "viewer"))
+      .sort(([, a], [, b]) => tier(a) - tier(b) || (a.activeAt ?? 0) - (b.activeAt ?? 0))
+      .map(([c]) => c);
+  }
+
+  /** The member behind a connection */
+  member(conn: Connection): MemberState | undefined {
+    return this.members.get(conn);
+  }
+
+  /** A REST job to one member */
+  sendJob(conn: Connection, id: string, job: RestJob): void {
+    this.send(conn, { t: "rest-job", id, job });
+  }
 
   /** Members that said hello */
   get size(): number {
@@ -100,8 +149,12 @@ export class Room {
       } catch {
         return this.fail(conn, "bad-frame", "not JSON");
       }
-      if (msg.t === "hello") return this.hello(conn, m, msg.since);
+      if (msg.t === "hello") return this.hello(conn, m, msg.since, msg.render === true, (msg as { helper?: unknown }).helper === true);
       if (!m.sessionID) return this.fail(conn, "unauthorized", "hello first");
+      if (msg.t === "rest-job-done" || msg.t === "rest-job-failed") {
+        if (typeof msg.id === "string") this.opts.onRest?.(conn, m, msg);
+        return;
+      }
       if (msg.t === "presence") {
         m.presence = msg.data;
         this.onState(conn, m);
@@ -120,6 +173,7 @@ export class Room {
     if (!up) return this.fail(conn, "bad-frame", "unknown binary frame");
     const frame: ChangesDown = { seq: this.storage.lastSeq() + 1, sessionID: m.sessionID, batch: up.batch, message: up.message };
     this.storage.append(frame);
+    m.activeAt = this.now();
     const out = encodeChangesDown(frame);
     for (const [c, other] of this.members) if (other.sessionID) c.send(out);
   }
@@ -166,11 +220,14 @@ export class Room {
     }
   }
 
-  private hello(conn: Connection, m: MemberState, since: number): void {
+  private hello(conn: Connection, m: MemberState, since: number, render = false, helper = false): void {
     if (m.sessionID) return;
     if (!Number.isInteger(since) || since < 0) return this.fail(conn, "bad-frame", "bad since");
     if (since < this.storage.firstSeq() - 1 || since > this.storage.lastSeq()) return this.fail(conn, "too-old", "load the file's snapshot first");
     m.sessionID = this.storage.nextSessionID();
+    m.activeAt = this.now();
+    if (render) m.render = true;
+    if (render && helper) m.helper = true;
     this.onState(conn, m);
     const peers: PeerInfo[] = [];
     for (const [c, o] of this.members) if (c !== conn && o.sessionID) peers.push(peerOf(o));
@@ -178,6 +235,7 @@ export class Room {
     for (const f of this.storage.readAfter(since)) conn.send(encodeChangesDown(f));
     this.send(conn, { t: "ready", seq: this.storage.lastSeq() });
     this.broadcast({ t: "peer-joined", peer: { sessionID: m.sessionID, userId: m.userId, name: m.name, role: m.role } }, conn);
+    if (m.render) this.opts.onRenderer?.(conn, m);
   }
 
   private broadcast(msg: ServerControl, except?: Connection): void {

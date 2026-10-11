@@ -235,6 +235,8 @@ export async function fileBranchesRoute(ctx: Ctx, f: FileRow, a: AccessGranted |
         identity,
         body: JSON.stringify({ kind: b.kind, title: b.title, description: b.description, seq: b.seq, restoredFrom: b.restoredFrom, libraryVersion: b.libraryVersion }),
       });
+      // FILE_VERSION_UPDATE for a named version (docs/multiplayer.md §16.9)
+      await (await import("./webhooks/events")).versionNamed(deps, key, user, res.version as Parameters<typeof import("./webhooks/events").versionNamed>[3]);
       return json(res, 201);
     }
     throw new HttpError(405, "method not allowed");
@@ -247,7 +249,11 @@ export async function fileBranchesRoute(ctx: Ctx, f: FileRow, a: AccessGranted |
     if (m === "PATCH") {
       if (!canEdit) throw new HttpError(403, "you can only view this file");
       const b = await body<{ title?: unknown; description?: unknown }>(ctx.req);
-      return json(await roomJson(deps, key, `/room/versions/${id}`, { method: "PATCH", identity, body: JSON.stringify({ title: b.title, description: b.description }) }));
+      const before = await roomJson<{ version: { kind: string } }>(deps, key, `/room/versions/${id}`, { method: "GET", identity });
+      const res = await roomJson<{ version: Parameters<typeof import("./webhooks/events").versionNamed>[3] }>(deps, key, `/room/versions/${id}`, { method: "PATCH", identity, body: JSON.stringify({ title: b.title, description: b.description }) });
+      // An autosave given a name becomes a named version: FILE_VERSION_UPDATE (§16.9)
+      if (before.version?.kind === "autosave") await (await import("./webhooks/events")).versionNamed(deps, key, user, res.version);
+      return json(res);
     }
   } else if (sub === "snapshot" || sub === "frames") {
     if (m === "GET") return passThrough(deps, key, `/room/versions/${id}/${sub}`, { method: "GET", identity });

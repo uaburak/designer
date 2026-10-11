@@ -7,6 +7,11 @@
  * Moving to another region (docs/multiplayer.md §15.10): `POST /room/freeze {moving: true}` closes every socket with
  * 4012 (`CLOSE_MOVING`: clients reconnect after a moment, reaching the copy once the Worker flipped the file's
  * jurisdiction) and refuses new ones with 503 `{code: "moving"}` until the object is deleted.
+ *
+ * REST (docs/multiplayer.md §16.6, §16.10): render jobs, their parts and the thumbnail are `RestJobs`' (rest/roomJobs.ts);
+ * `{t: "rest-wanted"}` goes to inboxes through `INBOXES`; FILE_UPDATE is emitted from the alarm with the object's own
+ * D1 (`emitWebhook`), only when the file has a webhook that could want it (asked at wake, kept 5 minutes). The file's
+ * key is the object's name (`ctx.id.name`, set by `idFromName`), else the one the Worker's REST calls carry (`?fileKey=`).
  */
 import { DurableObject } from "cloudflare:workers";
 import { CLOSE_MOVING, type Role } from "../../src/shared/multiplayer/protocol";
@@ -14,15 +19,29 @@ import { Room, type MemberState } from "../../src/shared/multiplayer/room";
 import type { SqlLike } from "./previews";
 import { RoomBox } from "./roomBox";
 import { parseRoomPolicy } from "./policy/roomPolicy";
+import { RestJobs } from "./rest/roomJobs";
+import { Db } from "./db";
 
 export { MAX_BLOB_BYTES } from "./roomBox";
 /** Close codes the client reads: 4001 the file stopped being shared, 4003 access changed, 4009 a snapshot replaced history. */
 export const CLOSE_UNSHARED = 4001;
 export const CLOSE_ACCESS = 4003;
 
+interface RoomEnv {
+  DB?: D1Database;
+  INBOXES?: DurableObjectNamespace;
+  SESSION_SECRET?: string;
+}
+
+/** How long the room trusts its answer to "does this file have a webhook?" (§16.10) */
+const HOOKS_TTL_MS = 5 * 60_000;
+
 export class FileRoom extends DurableObject {
   private box: RoomBox;
   private room: Room;
+  private rest: RestJobs;
+  private hooks: { at: number; has: boolean } | null = null;
+  private fileKey: string | null;
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
@@ -41,7 +60,25 @@ export class FileRoom extends DurableObject {
           return s?.userId === userId && s.sessionID === sessionID;
         }),
     });
-    this.room = new Room(this.box.storage, (ws, state) => (ws as WebSocket).serializeAttachment(state));
+    this.fileKey = ctx.id.name ?? null;
+    this.room = new Room(this.box.storage, (ws, state) => (ws as WebSocket).serializeAttachment(state), {
+      onRest: (conn, member, answer) => this.rest.answer(conn, member, answer),
+      onRenderer: () => this.rest.renderer(),
+    });
+    this.rest = new RestJobs({
+      sql: ctx.storage.sql as unknown as SqlLike,
+      transaction: (fn) => ctx.storage.transactionSync(fn),
+      now: () => Date.now(),
+      room: this.room,
+      lastSeq: () => this.box.storage.lastSeq(),
+      hasVersion: (id) => this.box.versions().some((v) => v.id === id),
+      wanted: async (userIds) => {
+        const ns = (env as RoomEnv).INBOXES;
+        if (!ns || !this.fileKey) return;
+        const body = JSON.stringify({ t: "rest-wanted", fileKey: this.fileKey });
+        await Promise.all(userIds.map((u) => ns.get(ns.idFromName(u)).fetch(new Request("https://inbox/inbox/notify", { method: "POST", body })).catch(() => undefined)));
+      },
+    });
     for (const ws of ctx.getWebSockets()) {
       const state = ws.deserializeAttachment() as MemberState | null;
       if (state) this.room.restore(ws, state);
@@ -52,6 +89,12 @@ export class FileRoom extends DurableObject {
     const url = new URL(req.url);
     const policy = parseRoomPolicy(req.headers.get("x-policy"));
     const identity = { userId: req.headers.get("x-user-id") ?? "", name: req.headers.get("x-user-name") || undefined, role: (req.headers.get("x-role") ?? "viewer") as Role, ...(policy ? { policy } : {}) };
+    if (url.pathname.startsWith("/room/rest") || url.pathname === "/room/thumbnail") {
+      // The Worker names the file on its REST calls (?fileKey=): the object's name when the runtime doesn't give it.
+      const key = url.searchParams.get("fileKey");
+      if (!this.fileKey && key) this.fileKey = key;
+      return (await this.rest.fetch(req)) ?? new Response("not found", { status: 404 });
+    }
     switch (`${req.method} ${url.pathname}`) {
       case "GET /room/ws": {
         if (!identity.userId) return new Response("no identity", { status: 400 });
@@ -110,6 +153,7 @@ export class FileRoom extends DurableObject {
         this.room.closeAll(CLOSE_UNSHARED, "file no longer shared");
         await this.ctx.storage.deleteAll();
         this.box.reset();
+        this.rest.reset();
         return Response.json({ ok: true });
       }
     }
@@ -129,12 +173,30 @@ export class FileRoom extends DurableObject {
     }
     const before = this.box.storage.lastSeq();
     this.room.receive(ws, typeof message === "string" ? message : new Uint8Array(message));
-    if (this.box.storage.lastSeq() > before) this.box.edited();
+    if (this.box.storage.lastSeq() > before) this.box.edited(this.wantsFileUpdate());
   }
 
-  /** Autosave (docs/data.md §6: 30 minutes of edits) */
-  alarm(): void {
-    this.box.alarm();
+  /** Does the file have a webhook FILE_UPDATE could reach? Unknown → yes (the alarm asks D1 again). */
+  private wantsFileUpdate(): boolean {
+    const now = Date.now();
+    if (!this.hooks || now - this.hooks.at > HOOKS_TTL_MS) {
+      const db = (this.env as RoomEnv).DB;
+      if (db && this.fileKey) {
+        const at = now;
+        void import("./webhooks/emit").then(({ fileHasWebhooks }) => fileHasWebhooks(new Db(db), this.fileKey!)).then((has) => void (this.hooks = { at, has }), () => undefined);
+      }
+      return this.hooks?.has ?? true;
+    }
+    return this.hooks.has;
+  }
+
+  /** Autosave (docs/data.md §6: 30 minutes of edits) and FILE_UPDATE (§16.10: 30 minutes after a burst of edits) */
+  async alarm(): Promise<void> {
+    const { fileUpdate } = this.box.alarm();
+    const db = (this.env as RoomEnv).DB;
+    if (!fileUpdate || !db || !this.fileKey) return;
+    const { emitFileUpdate } = await import("./webhooks/emit");
+    await emitFileUpdate(new Db(db), this.env as never, this.fileKey, (p) => this.ctx.waitUntil(p));
   }
 
   webSocketClose(ws: WebSocket, code: number, reason: string): void {
