@@ -146,6 +146,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (parts[0] === "teams") return (await import("./org/teams")).teamsRoute(orgCtx());
   if (parts[0] === "projects") return (await import("./org/projects")).projectsRoute(orgCtx());
   if (parts[0] === "groups") return (await import("./org/groups")).groupsRoute(orgCtx());
+  if (parts[0] === "branches") return (await import("./branches")).branchesRoute(orgCtx());
   if (parts[0] !== "files") throw new HttpError(404, "not found");
   if (parts.length === 1) {
     if (m === "GET") return json({ files: await sharedFiles(deps, user.id) });
@@ -219,6 +220,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
         trashedAt: f.trashed_at,
         access: a ? fileAccessOf(a) : null,
         org: a ? await fileOrg(acc, f) : null,
+        branch: (await acc.branch(key)) ? await (await import("./branches")).branchInfo(deps, key) : null,
       });
     }
     if (m === "PATCH") {
@@ -257,6 +259,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
     }
     if (m === "DELETE") {
       need(a?.canManage, "only the owner can");
+      // A main file deleted for good takes its branches (docs/data.md §15.7).
+      if (!inOrg || a!.trashed) await (await import("./branches")).deleteBranchesOf(deps, key);
       if (inOrg) {
         // In an org, "Delete forever" — from the trash only (§14.12).
         if (!a!.trashed) throw new HttpError(409, "move the file to the trash first");
@@ -271,6 +275,10 @@ async function route(req: Request, deps: Deps): Promise<Response> {
     throw new HttpError(405, "method not allowed");
   }
 
+  // Branches and version history (docs/data.md §15.7); inviting to a branch writes main's grant too.
+  if (parts[2] === "branches" || parts[2] === "versions") return (await import("./branches")).fileBranchesRoute(orgCtx(), f, a);
+  const branchRow = parts[2] === "members" && m !== "GET" ? await acc.branch(key) : null;
+  if (branchRow) return (await import("./branches")).branchMembers(orgCtx(), branchRow);
   switch (parts[2]) {
     case "unlock": {
       if (parts.length !== 3 || m !== "POST") break;
@@ -466,11 +474,15 @@ async function route(req: Request, deps: Deps): Promise<Response> {
 async function sharedFiles(deps: Deps, userId: string) {
   const files = await deps.db.files(userId);
   const { results } = await deps.db.d1
-    .prepare(`SELECT f.key, f.org_id, f.team_id, f.project_id, f.editor_type, f.trashed_at FROM files f LEFT JOIN members m ON m.file_key = f.key AND m.user_id = ?1 WHERE f.owner_id = ?1 OR m.user_id = ?1`)
+    .prepare(
+      `SELECT f.key, f.org_id, f.team_id, f.project_id, f.editor_type, f.trashed_at, EXISTS (SELECT 1 FROM branches b WHERE b.key = f.key) AS is_branch
+       FROM files f LEFT JOIN members m ON m.file_key = f.key AND m.user_id = ?1 WHERE f.owner_id = ?1 OR m.user_id = ?1`,
+    )
     .bind(userId)
-    .all<{ key: string; org_id: string | null; team_id: string | null; project_id: string | null; editor_type: string; trashed_at: number | null }>();
+    .all<{ key: string; org_id: string | null; team_id: string | null; project_id: string | null; editor_type: string; trashed_at: number | null; is_branch: number }>();
   const place = new Map(results.map((r) => [r.key, r]));
-  return files.filter((x) => place.get(x.key)?.trashed_at == null).map((x) => {
+  // Branches are listed under their main file (docs/data.md §15.7).
+  return files.filter((x) => place.get(x.key)?.trashed_at == null && !place.get(x.key)?.is_branch).map((x) => {
     const p = place.get(x.key);
     return { ...x, orgId: p?.org_id ?? null, teamId: p?.team_id ?? null, projectId: p?.project_id ?? null, editorType: p?.editor_type ?? "design" };
   });
