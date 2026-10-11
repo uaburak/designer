@@ -74,6 +74,10 @@ export async function callText(server: LibraryServer, method: string, path: stri
 }
 
 export const isOffline = (e: unknown): boolean => e instanceof StoreError && e.code === "offline";
+/** Thumbnails downloaded at once when a manifest arrives */
+const THUMBNAIL_FETCHES = 4;
+/** How long a "not a library" answer stands (OrgLibraries.unpublished) */
+export const NOT_PUBLISHED_TTL_MS = 30_000;
 const isNotFound = (e: unknown): boolean => e instanceof StoreError && e.code === "not-found";
 
 /** A path segment: room keys, asset keys, sha1s, org / team ids */
@@ -193,6 +197,12 @@ export class OrgLibraries {
   private offs: Unsubscribe[] = [];
   /** Manifests read this session, by library then version (dependency closures, offline diffs) */
   private manifests = new Map<string, Map<number, LibraryVersion>>();
+  /**
+   * Keys the server said aren't libraries (404), until when: an org file that never published asks for its own record
+   * at every refresh (each new component, style or variable), which went to the server each time. A publish from here
+   * or an Inbox notice for the key forgets it at once.
+   */
+  private unpublished = new Map<string, number>();
 
   constructor(
     private readonly host: OrgLibrariesHost,
@@ -225,6 +235,7 @@ export class OrgLibraries {
   /** `{t: "library", libraryKey, version | status}` (§16.7) */
   notice(n: LibraryNotice): void {
     if (typeof n.libraryKey !== "string" || isLocalLibraryKey(n.libraryKey)) return;
+    this.unpublished.delete(n.libraryKey);
     if (typeof n.version === "number") this.emit({ type: "published", libraryFileKey: n.libraryKey, version: n.version });
     else if (n.status) this.emit({ type: "status", libraryFileKey: n.libraryKey, status: n.status });
   }
@@ -298,12 +309,16 @@ export class OrgLibraries {
 
   async getRecord(key: LibraryKey): Promise<OrgLibraryRecord | null> {
     seg(key, "library key");
+    if ((this.unpublished.get(key) ?? 0) > Date.now()) return null;
     try {
       const { library } = await this.call<{ library: OrgLibraryRecord }>("GET", `/libraries/${key}`);
       this.keep(CACHE.record(key), library);
       return library;
     } catch (e) {
-      if (isNotFound(e)) return null;
+      if (isNotFound(e)) {
+        this.unpublished.set(key, Date.now() + NOT_PUBLISHED_TTL_MS);
+        return null;
+      }
       if (!isOffline(e)) throw e;
       return this.cached<OrgLibraryRecord>(CACHE.record(key));
     }
@@ -319,6 +334,7 @@ export class OrgLibraries {
     try {
       const v = await this.call<LibraryVersion>("GET", `/libraries/${key}/versions/${version ?? "latest"}`);
       this.keep(CACHE.version(key, v.version), v);
+      await this.fetchThumbnails(key, v);
       return this.remember(v);
     } catch (e) {
       if (!isOffline(e) || version !== undefined) throw e;
@@ -406,6 +422,28 @@ export class OrgLibraries {
     return null;
   }
 
+  /**
+   * The manifest's thumbnails into the local blob store (the Assets panel and the Libraries modal show them by SHA-1
+   * through the store's blob URLs, which only read local blobs): the ones not here yet, a few at a time. A thumbnail the
+   * library can't give shows the asset's glyph instead.
+   */
+  private async fetchThumbnails(key: LibraryKey, v: LibraryVersion): Promise<void> {
+    const list = [...new Set((v?.assets ?? []).map((a) => a?.thumbnail?.sha1).filter((h): h is string => typeof h === "string" && isSha1(h)))];
+    if (!list.length) return;
+    const have = await this.host.blobs.has(list).catch(() => list.map(() => false));
+    const missing = list.filter((_, i) => !have[i]);
+    const next = async (): Promise<void> => {
+      for (let sha1 = missing.shift(); sha1; sha1 = missing.shift()) {
+        try {
+          await this.host.blobs.put(await callBytes(this.server, "GET", `/libraries/${key}/blobs/${sha1}`), { mime: "image/png" });
+        } catch (e) {
+          this.host.log("warn", `libraries: thumbnail ${sha1} of ${key}`, e);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(THUMBNAIL_FETCHES, missing.length) }, next));
+  }
+
   /** Images the payloads use, into the local blob store before the payloads are returned (§16.3) */
   private async fetchImages(key: LibraryKey, payloads: AssetPayload[]): Promise<void> {
     const want = new Set<string>();
@@ -443,6 +481,7 @@ export class OrgLibraries {
   }
 
   async publish(req: PublishRequest): Promise<LibraryVersion> {
+    this.unpublished.delete(req.libraryFileKey);
     const key = seg(req?.libraryFileKey, "library key");
     const copy = this.host.copyOf(key);
     if (!copy) throw new StoreError("not-found", "This file isn't open here");

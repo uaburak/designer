@@ -43,7 +43,8 @@ export interface World {
   d1: D1Like;
   now: { t: number };
   inbox: { userId: string; msg: Any }[];
-  rooms: { key: string; path: string; body: Any }[];
+  /** Every room call (`policy`: the x-policy of a socket upgrade, §15.9) */
+  rooms: { key: string; path: string; body: Any; method?: string; policy?: Any }[];
   libs: ReturnType<typeof memoryLibraries>;
   fonts: ReturnType<typeof memoryFonts>;
   call(method: string, path: string, token?: string, body?: unknown, headers?: Record<string, string>): Promise<{ status: number; body: Any; headers: Headers; bytes: Uint8Array }>;
@@ -65,7 +66,7 @@ export async function world(): Promise<World> {
     env: { SESSION_SECRET: "s".repeat(40), DEV_AUTH: "1", LIBRARIES: libs.binding, FONTS: fonts.binding } as Deps["env"],
     rooms: {
       async fetch(key, path, init) {
-        rooms.push({ key, path, body: typeof init.body === "string" ? JSON.parse(init.body) : null });
+        rooms.push({ key, path, body: typeof init.body === "string" ? JSON.parse(init.body) : null, method: init.method, policy: init.policy });
         return Response.json({ ok: true, version: { id: "v" } });
       },
     },

@@ -3,10 +3,11 @@
  * A plain `Request → Response` function over injected dependencies, so Node's tests drive it without Cloudflare.
  */
 import type { Role } from "../../src/shared/multiplayer/protocol";
+import type { FilePolicy, RoomPolicy } from "../../src/shared/org/identity";
 import { deviceFromUserAgent } from "../../src/shared/account";
 import { patAllows, personalToken, requestPlace, touchOrgActivity, type Caller } from "./account";
 import { normalizeEmail, type Db, type User } from "./db";
-import type { ActivityAction } from "../../src/shared/org/types";
+import type { ActivityAction, EditorType } from "../../src/shared/org/types";
 import { fileEntity, logActivity, logFileView, logForUserOrgs } from "./activity";
 import { seatNeeded } from "../../src/shared/org/access";
 import { Access, claimInvites, fileAccessOf, type FileRow } from "./org/db";
@@ -28,9 +29,10 @@ export interface Env {
   WEB_ORIGINS?: string;
 }
 
-/** A file's room (the FileRoom Durable Object); `path` is one of `/room/…`. */
+/** A file's room (the FileRoom Durable Object, in the file's jurisdiction — docs/multiplayer.md §15.10); `path` is one
+ *  of `/room/…`. `policy`: the org's room policy, sent as `x-policy` with a socket upgrade (§15.9). */
 export interface Rooms {
-  fetch(fileKey: string, path: string, init: RequestInit & { identity?: { userId: string; name: string | null; role: Role } }, original?: Request): Promise<Response>;
+  fetch(fileKey: string, path: string, init: RequestInit & { identity?: { userId: string; name: string | null; role: Role }; policy?: RoomPolicy }, original?: Request): Promise<Response>;
 }
 
 /** Each person's inbox (the Inbox Durable Object, docs/multiplayer.md §12): live notifications to their open apps. */
@@ -164,6 +166,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       }
       const key = body.key ?? "";
       if (!FILE_KEY.test(key)) throw new HttpError(400, "bad file key");
+      // A member whose org restricts external content creates files there only (§15.6, §15.9).
+      (await import("./policy/external")).requireInside(await new Access(deps, user).home(), null, "create files");
       const name = cleanName(body.name);
       if (!(await deps.db.createFile(key, user.id, name, deps.now()))) throw new HttpError(409, "file key taken");
       return json({ key, name, role: "owner" }, 201);
@@ -203,6 +207,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   const writer = !!a && (a.role === "owner" || a.role === "editor" || a.canManage);
   const log = (action: ActivityAction, details: Record<string, unknown> = {}, name = f.name) =>
     inOrg ? logActivity(deps, { orgId: f.org_id!, action, actor: user, entity: fileEntity({ ...f, name }), teamId: f.team_id, details, req }) : Promise.resolve();
+  // The file's sharing policy (docs/multiplayer.md §15.6; null outside orgs)
+  const policy = await acc.policy(f);
 
   if (parts.length === 2) {
     if (m === "GET") {
@@ -226,10 +232,13 @@ async function route(req: Request, deps: Deps): Promise<Response> {
         access: a ? fileAccessOf(a) : null,
         org: a ? await fileOrg(acc, f) : null,
         branch: (await acc.branch(key)) ? await (await import("./branches")).branchInfo(deps, key) : null,
+        policy,
       });
     }
     if (m === "PATCH") {
       const body = await readJson<{ name?: string; linkAccess?: string; viewersCanCopy?: unknown; linkPassword?: unknown; access?: unknown; orgLinkAccess?: unknown; protoLinkAccess?: unknown; linkExpiresAt?: unknown }>(req);
+      // The org's sharing policy refuses the whole patch before anything is written (§15.6).
+      (await import("./policy/sharing")).checkFilePatch(policy, f, body, deps.now());
       if (body.linkPassword !== undefined) {
         // help.figma.com: anyone who can edit sets, changes or removes it; changing it makes link-only people enter it again.
         need(canChange, "you can only view this file");
@@ -253,7 +262,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       }
       if (body.orgLinkAccess !== undefined || body.access !== undefined || body.protoLinkAccess !== undefined || body.linkExpiresAt !== undefined) {
         need(a?.canManage, "only the owner and admins can");
-        await patchOrgFileSettings(deps, acc, f, body, log);
+        await patchOrgFileSettings(deps, acc, f, body, log, policy);
       }
       if (body.name !== undefined) {
         need(canChange, "you can only view this file");
@@ -467,11 +476,11 @@ async function route(req: Request, deps: Deps): Promise<Response> {
     }
     case "ws": {
       if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new HttpError(426, "expected a WebSocket");
-      if (inOrg && a) {
-        const membership = await acc.membership(f.org_id!);
-        await logFileView(deps, { ...f, org_id: f.org_id! }, user, { guest: membership?.role !== "admin" && membership?.role !== "member", prototype: url.searchParams.get("m") === "proto", req });
-      }
-      return deps.rooms.fetch(key, "/room/ws", { method: "GET", identity }, req);
+      // The file's org logs the view; the viewer's home org (captured, another org) its external twin (§15.9).
+      if (inOrg && a) await logFileView(deps, { ...f, org_id: f.org_id! }, user, { prototype: url.searchParams.get("m") === "proto", req, home: await acc.home() });
+      // The org's room policy rides with the upgrade (x-policy → welcome.policy); absent outside orgs.
+      const roomPolicy = (await import("./policy/roomPolicy")).roomPolicyOf(policy);
+      return deps.rooms.fetch(key, "/room/ws", { method: "GET", identity, ...(roomPolicy ? { policy: roomPolicy } : {}) }, req);
     }
   }
   throw new HttpError(404, "not found");
@@ -505,7 +514,7 @@ async function fileOrg(acc: Access, f: FileRow) {
 }
 
 /** PATCH /files/:key's org fields: Inherited / Limited, the org link, prototype link, link expiry (§14.12). */
-async function patchOrgFileSettings(deps: Deps, acc: Access, f: FileRow, body: { access?: unknown; orgLinkAccess?: unknown; protoLinkAccess?: unknown; linkExpiresAt?: unknown }, log: (action: ActivityAction, details?: Record<string, unknown>) => Promise<void>): Promise<void> {
+async function patchOrgFileSettings(deps: Deps, acc: Access, f: FileRow, body: { access?: unknown; orgLinkAccess?: unknown; protoLinkAccess?: unknown; linkExpiresAt?: unknown; linkAccess?: unknown }, log: (action: ActivityAction, details?: Record<string, unknown>) => Promise<void>, policy: FilePolicy | null): Promise<void> {
   const d1 = deps.db.d1;
   const now = deps.now();
   let lowered = false;
@@ -532,8 +541,8 @@ async function patchOrgFileSettings(deps: Deps, acc: Access, f: FileRow, body: {
   if (body.linkExpiresAt !== undefined) {
     const at = body.linkExpiresAt;
     if (at !== null && (typeof at !== "number" || !Number.isFinite(at) || at <= now)) throw new HttpError(400, "linkExpiresAt is a future time (ms) or null");
-    const max = f.org_id ? (await acc.settings(f.org_id)).linkExpiryMaxHours : null;
-    if (max !== null && (at === null || (at as number) > now + max * 3_600_000)) throw new HttpError(400, `links in this organization expire within ${max} hours`);
+    // The maximum is the file's policy's (its workspace's override, else the org's — §15.6), while its public link is on.
+    if ((body.linkAccess ?? f.link_access) !== "none") (await import("./policy/sharing")).checkExpiry(policy, at as number | null, now);
     await d1.prepare(`UPDATE files SET link_expires_at = ?2, updated_at = ?3 WHERE key = ?1`).bind(f.key, at, now).run();
     await log("fig_file_link_expiration_change", { from: f.link_expires_at, to: at });
     lowered = true;
@@ -622,9 +631,12 @@ function sessionOnly(c: Caller): User {
  */
 async function embedRoute(key: string, part: string | undefined, url: URL, deps: Deps): Promise<Response> {
   const f = await deps.db.file(key);
-  const expiry = f ? await deps.db.d1.prepare(`SELECT link_expires_at FROM files WHERE key = ?1`).bind(key).first<{ link_expires_at: number | null }>() : null;
-  const expired = expiry?.link_expires_at != null && deps.now() >= expiry.link_expires_at;
-  if (!f || f.linkAccess === "none" || f.passwordProtected || expired) {
+  const row = f ? await deps.db.d1.prepare(`SELECT link_expires_at, org_id, team_id, editor_type FROM files WHERE key = ?1`).bind(key).first<{ link_expires_at: number | null; org_id: string | null; team_id: string | null; editor_type: EditorType }>() : null;
+  const expired = row?.link_expires_at != null && deps.now() >= row.link_expires_at;
+  // An org's policy with public links off refuses embeds too (§15.6); passwords required means no embed without one,
+  // and a file with a password is never embedded.
+  const policy = row ? await (await import("./policy/sharing")).policyOfFile(deps.db.d1, row) : null;
+  if (!f || f.linkAccess === "none" || f.passwordProtected || expired || (policy && (!policy.publicLinks || policy.passwordRequired))) {
     if (!part) return page(404, "This file isn't available to embed. Its owner can share it with anyone who has the link, without a password.");
     throw new HttpError(404, "not available");
   }

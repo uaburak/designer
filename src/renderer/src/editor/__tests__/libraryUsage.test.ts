@@ -3,7 +3,9 @@
 // content), swaps (not variant switches), detaches; style and variable inserts and detaches; only `edit` batches; the
 // 2 s debounce.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LibraryUsageRecorder, noteLibraryUsage, type UsageCopy, type UsageCount, type UsageWorld } from "../libraryUsage";
+import { withImages } from "../sourceImages";
+import type { EditorController } from "../controller";
+import { attachLibraryUsage, LibraryUsageRecorder, noteLibraryUsage, type UsageCopy, type UsageCount, type UsageWorld } from "../libraryUsage";
 
 const LIB = "libf_A";
 const g = (localID: number) => ({ sessionID: 7, localID });
@@ -107,5 +109,25 @@ describe("library usage events (docs/data.md §17.3)", () => {
     expect(sink).toHaveBeenCalledWith([{ library: LIB, asset: "button", type: "component", action: "insert", count: 2 }]);
     // Without an attached recorder the hook does nothing
     expect(() => noteLibraryUsage({}, "edit", [inst(92, 100)])).not.toThrow();
+  });
+
+  it("the editor's source is the store's own object, so the store's batches reach the editor's recorder", () => {
+    vi.useFakeTimers();
+    // The store's document source (it calls noteLibraryUsage(this, …)) and what EditorRoute gives the editor
+    const record = vi.fn(async () => {});
+    const raw = { fileKey: "F1", libraries: { fileKey: "F1", analytics: { reports: () => true, record } } };
+    const source = withImages(raw, () => ({ put: async () => "", get: async () => null }));
+    expect(source).toBe(raw);
+    const engine = {
+      destroyed: false,
+      libraryUsage: () => [{ id: "7:100", key: "button", kind: "COMPONENT", libraryKey: LIB }],
+      readNodes: () => [],
+      onSelectionChanged: () => () => {},
+    };
+    const stop = attachLibraryUsage({ source, engine } as unknown as EditorController, () => 1);
+    noteLibraryUsage(raw, "edit", [inst(90, 100)]);
+    vi.advanceTimersByTime(2000);
+    expect(record).toHaveBeenCalledWith([expect.objectContaining({ fileKey: "F1", libraryKey: LIB, assetKey: "button", action: "insert", count: 1 })]);
+    stop();
   });
 });

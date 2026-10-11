@@ -28,7 +28,8 @@ import { useEditor, type EditorController } from "../../controller";
 import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
 import { RESET_PREFIX, runMenuItem } from "../../menus";
 import { statusOfTargets, statusTargets } from "../../devStatus";
-import { useTopics } from "../../hooks";
+import { useLibraries, useTopics } from "../../hooks";
+import { libraryOfMain } from "../../libraries";
 import {
   instanceChanges,
   addInstanceToSlot,
@@ -191,6 +192,10 @@ export function InstanceHeader({ instance }: { instance: CNode }) {
   const version = useDocVersion();
   const topics = useTopics(ed.store, ["selection", "undo"]);
   const main = mainOf(ed, instance);
+  // A library's component: its library's name under the instance, as Figma shows it ("From this file" for local mains)
+  const libs = useLibraries();
+  const library = main ? libraryOfMain(ed, main.guid) : null;
+  const from = library ? (libs.names.get(library) ?? libs.available.find((e) => e.fileKey === library)?.name ?? "Library") : "From this file";
   const [picker, togglePicker, closePicker] = usePopoverToggle<HTMLElement>();
   const goTo = command("object.go-to-main-component");
   // The ⋯ menu's entries change with the document and the selection, not with every re-render of the panel (a drag
@@ -244,7 +249,7 @@ export function InstanceHeader({ instance }: { instance: CNode }) {
         </div>
       </div>
       <button type="button" className={styles.fromRow} aria-label={goTo.label} {...tooltipProps(goTo.label)} disabled={!isEnabled(ed, goTo)} onClick={() => runEditorCommand(ed, goTo.id)}>
-        {main ? "From this file" : "Missing component"}
+        <span className={styles.fromText}>{main ? from : "Missing component"}</span>
       </button>
       <InstanceProperties instance={instance} />
       {picker && <ComponentPicker anchor={picker} title="Swap instance" current={main?.guid ?? null} onPick={(a) => swapTo(ed, [instance.guid], a, main)} onClose={closePicker} />}

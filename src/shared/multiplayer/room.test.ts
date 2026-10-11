@@ -159,4 +159,25 @@ describe("Room", () => {
     room.receive(b, encodeChangesUp(1, new Uint8Array(MAX_FRAME_BYTES)));
     expect(b.last).toMatchObject({ t: "error", code: "too-large" });
   });
+
+  it("carries the org's room policy: welcome.policy from the socket's identity, a change broadcast to everyone (§15.9)", () => {
+    const room = new Room(new MemoryRoomStorage());
+    const states: MemberState[] = [];
+    const r2 = new Room(new MemoryRoomStorage(), (_c, s) => states.push({ ...s }));
+    const plain = join(room);
+    expect(plain.welcome.policy).toBeUndefined();
+    const a = new Client();
+    r2.connect(a, { userId: "a", role: "editor", policy: { cursorChat: false, audio: true } });
+    r2.receive(a, JSON.stringify({ t: "hello", since: 0 }));
+    expect(a.welcome.policy).toEqual({ cursorChat: false, audio: true });
+    const waiting = new Client();
+    r2.connect(waiting, { userId: "w", role: "viewer", policy: { cursorChat: false, audio: true } });
+    r2.setPolicy({ cursorChat: true, audio: false });
+    expect(a.last).toEqual({ t: "policy", policy: { cursorChat: true, audio: false } });
+    // a socket that hasn't said hello isn't told, but its welcome has the new policy (kept across hibernation)
+    expect(waiting.controls).toEqual([]);
+    r2.receive(waiting, JSON.stringify({ t: "hello", since: 0 }));
+    expect(waiting.welcome.policy).toEqual({ cursorChat: true, audio: false });
+    expect(states.at(-1)?.policy).toEqual({ cursorChat: true, audio: false });
+  });
 });

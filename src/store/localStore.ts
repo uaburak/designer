@@ -754,7 +754,11 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     },
     createFile: (input) => s.createFile(input),
     duplicateFile: (fileKey) => s.duplicateFile(fileKey),
-    renameFile: (fileKey, name) => q(() => ws.renameFile(fileKey, name)),
+    renameFile: async (fileKey, name) => {
+      const meta = await q(() => ws.renameFile(fileKey, name));
+      await s.multiplayer.renameRemote(fileKey, meta.name);
+      return meta;
+    },
     moveFiles: (keys, folderId) => q(() => ws.moveFiles(keys ?? [], folderId ?? null)),
     trash: (items) => s.trash(items),
     restore: (items) => s.restore(items),

@@ -166,7 +166,8 @@ export function pinApproved(list: readonly LibraryEntry[]): LibraryEntry[] {
  * the whole organization under its name (the headings are ours: Figma's UI3 modal wasn't captured). Approved first.
  */
 export function otherSections(others: readonly LibraryEntry[], orgName: string | null): { title: string; entries: LibraryEntry[] }[] {
-  if (!others.some((e) => e.org)) return [{ title: "Libraries in this workspace", entries: [...others] }];
+  // An org file (its org known) keeps its org heading even when every library is added (no entry left to tell).
+  if (orgName === null && !others.some((e) => e.org)) return [{ title: "Libraries in this workspace", entries: [...others] }];
   const teams = new Map<string, LibraryEntry[]>();
   const org: LibraryEntry[] = [];
   for (const e of others) {
@@ -180,8 +181,8 @@ export function otherSections(others: readonly LibraryEntry[], orgName: string |
 }
 
 /** An approved library's check mark and its tooltip ("Approved by ‹org› admin", the help's screenshot) */
-function ApprovedMark({ entry, orgName }: { entry: LibraryEntry; orgName: string | null }) {
-  const approved = entry.org?.approved;
+export function ApprovedMark({ entry, orgName }: { entry: LibraryEntry | undefined; orgName: string | null }) {
+  const approved = entry?.org?.approved;
   if (!approved) return null;
   // The workspace's wording is ours (unverified): Figma's article shows only the organization's.
   const text = approved === "org" ? `Approved by ${orgName ?? "organization"} admin` : "Approved by workspace admin";
