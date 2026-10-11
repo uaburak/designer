@@ -127,6 +127,15 @@ export class FileRoom extends DurableObject {
         this.room.closeUser(userId, CLOSE_ACCESS, "access changed");
         return Response.json({ ok: true });
       }
+      case "POST /room/reauth": {
+        // Access may have gone down (docs/multiplayer.md §14.9): those users (everyone, when absent) reconnect and the
+        // Worker resolves their role again. A room with nobody in it wakes, finds no one and sleeps.
+        const body = (await req.json().catch(() => ({}))) as { userIds?: unknown };
+        const ids = Array.isArray(body.userIds) ? body.userIds.filter((u): u is string => typeof u === "string") : null;
+        if (ids) for (const id of ids) this.room.closeUser(id, CLOSE_ACCESS, "access changed");
+        else this.room.closeAll(CLOSE_ACCESS, "access changed");
+        return Response.json({ ok: true });
+      }
       case "DELETE /room": {
         this.room.closeAll(CLOSE_UNSHARED, "file no longer shared");
         await this.ctx.storage.deleteAll();
