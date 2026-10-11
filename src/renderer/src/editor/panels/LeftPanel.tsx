@@ -9,6 +9,8 @@ import { useEditor } from "../controller";
 import { command, runEditorCommand, shortcutOf } from "../commands";
 import { useUI } from "../hooks";
 import { commandItem } from "../menus";
+import { BranchTitle } from "../branching/Branching";
+import { branchMenuEntries } from "../branching/commands";
 import { Pages } from "./Pages";
 import { Layers } from "./Layers";
 import { Assets } from "./Assets";
@@ -122,7 +124,8 @@ function FileHeader() {
   const name = useUI((s) => s.fileName);
   const renaming = useUI((s) => s.renaming?.kind === "file");
   // The Edit file menu (help "Navigate the left sidebar": rename, version history, color profile, move).
-  const entries = [
+  // Built when the menu opens (the branch rows follow the file's branch state).
+  const entries = () => [
     commandItem(ed, "file.rename"),
     commandItem(ed, "file.duplicate"),
     commandItem(ed, "file.move"),
@@ -131,6 +134,7 @@ function FileHeader() {
     commandItem(ed, "file.version-history"),
     "-" as const,
     commandItem(ed, "file.publish-library"),
+    ...branchMenuEntries(ed, commandItem),
     "-" as const,
     commandItem(ed, "file.color-profile"),
   ];
@@ -141,7 +145,7 @@ function FileHeader() {
           <RenameFile name={name} />
         ) : (
           <MenuButton label="Edit file" entries={entries} onSelect={(id) => runEditorCommand(ed, id)} className={styles.fileButton}>
-            <span>{name}</span>
+            <BranchTitle name={name} />
             <Icon name="16.chevron.down" />
           </MenuButton>
         )}

@@ -1,0 +1,127 @@
+/* Branching (docs/editor.md "Branching"): the full-window review / update modals take Compare changes' frame
+   (devmode/DevMode.module.css), the Branches modal is a DS Dialog. */
+@layer app {
+  .grow { flex: 1 1 auto; min-width: 0; }
+  .hint { display: block; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .hiddenCanvas { position: fixed; left: -10000px; top: 0; width: 8px; height: 8px; }
+
+  /* The left sidebar's "‹file› / ‹branch›" */
+  .titleRow { display: inline-flex; align-items: center; gap: var(--ds-space-1); min-width: 0; }
+  .mainName { overflow: hidden; color: var(--figma-color-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
+  .slash { flex: none; color: var(--figma-color-text-tertiary); }
+  .branchName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* The main-changed notice: bottom right, over the canvas */
+  .notice {
+    position: fixed;
+    right: var(--ds-space-4);
+    bottom: var(--ds-space-4);
+    z-index: var(--ds-z-toast);
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-4);
+    border-radius: var(--ds-radius-medium-large);
+    background: var(--figma-color-bg);
+    box-shadow: var(--ds-elevation-400-menu-panel);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+  }
+
+  /* The full-window modals */
+  .scrim { position: fixed; inset: 0; z-index: var(--ds-z-scrim); display: flex; padding: var(--ds-space-8); background: var(--ds-color-scrim); }
+  .trap { display: flex; flex: 1 1 auto; min-width: 0; outline: none; }
+  .window {
+    position: relative;
+    z-index: var(--ds-z-dialog);
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+    border-radius: var(--ds-radius-large);
+    background: var(--figma-color-bg);
+    box-shadow: var(--ds-elevation-500-modal-window);
+    color: var(--figma-color-text);
+  }
+  .header { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-4); border-bottom: 1px solid var(--figma-color-border); }
+  .title { overflow: hidden; font: var(--ds-font-body-large-strong); text-overflow: ellipsis; white-space: nowrap; }
+  .footer { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-3) var(--ds-space-4); border-top: 1px solid var(--figma-color-border); }
+  .loading { display: grid; flex: 1 1 auto; place-items: center; }
+  .body { display: grid; flex: 1 1 auto; grid-template-columns: var(--ds-size-panel) minmax(0, 1fr); min-height: 0; }
+  .sidebar { display: flex; flex-direction: column; gap: var(--ds-space-2); min-height: 0; padding: var(--ds-space-3); overflow: hidden; border-right: 1px solid var(--figma-color-border); }
+  .sidebarHead { display: flex; align-items: center; gap: var(--ds-space-2); }
+  .menuTrigger { display: inline-flex; align-items: center; gap: var(--ds-space-half); padding: var(--ds-space-1) var(--ds-space-2); border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); }
+  .menuTrigger:hover, .menuTrigger[data-open] { background: var(--figma-color-bg-hover); }
+  .scroll { flex: 1 1 auto; min-height: 0; }
+  .main { display: flex; flex-direction: column; gap: var(--ds-space-2); min-width: 0; min-height: 0; padding: var(--ds-space-3); }
+  .section { display: flex; flex-direction: column; gap: var(--ds-space-1); padding-bottom: var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); }
+  .sectionTitle { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); padding: var(--ds-space-1) 0; }
+  .description { margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium); white-space: pre-wrap; }
+  .person { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-1) 0; }
+  .people { max-height: var(--ds-size-panel); }
+  .rowName { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* The change list */
+  .changes { display: flex; flex-direction: column; gap: var(--ds-space-2); }
+  .group { display: flex; flex-direction: column; }
+  .groupName { padding: var(--ds-space-1) var(--ds-space-2); color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
+  .row {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: var(--ds-space-2);
+    padding: var(--ds-space-1) var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    text-align: left;
+  }
+  .row:hover { background: var(--figma-color-bg-hover); }
+  .row[aria-current] { background: var(--figma-color-bg-selected); }
+  .tag { flex: none; color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
+  .tag[data-tag="Added"] { color: var(--figma-color-text-success); }
+  .tag[data-tag="Removed"] { color: var(--figma-color-text-danger); }
+  .tag[data-tag="Edited"] { color: var(--figma-color-text-warning); }
+
+  /* A chunk compared */
+  .compareArea { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--ds-space-2); min-height: 0; }
+  .compareBar { display: flex; align-items: center; gap: var(--ds-space-2); }
+  .slider { width: var(--ds-size-popover); max-width: 40%; }
+  .fit { padding: var(--ds-space-1) var(--ds-space-2); border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); text-transform: uppercase; }
+  .fit:hover { background: var(--figma-color-bg-hover); }
+  .sideBySide { display: grid; flex: 1 1 auto; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; gap: var(--ds-space-2); min-height: 0; }
+  .figure {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ds-space-1);
+    min-height: 0;
+    margin: 0;
+    padding: var(--ds-space-2);
+    border-radius: var(--ds-radius-medium);
+    background: var(--ds-color-canvas-default);
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium);
+  }
+  .figureBody { display: grid; flex: 1 1 auto; place-items: center; min-height: 0; overflow: hidden; }
+  .figure img, .overlay img { min-height: 0; max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: center; }
+  .overlay { position: relative; display: grid; flex: 1 1 auto; place-items: center; min-height: 0; overflow: hidden; background: var(--ds-color-canvas-default); border-radius: var(--ds-radius-medium); }
+  .overlay img { position: absolute; }
+  .picks { display: flex; align-items: center; gap: var(--ds-space-2); }
+
+  /* Request review / Merge branch / Finish your review */
+  .form { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--ds-space-3); width: 100%; max-width: var(--ds-size-dialog-medium); min-height: 0; margin: 0 auto; padding: var(--ds-space-6) var(--ds-space-4); }
+  .formActions { display: flex; justify-content: flex-end; gap: var(--ds-space-2); }
+  .dialogBody { display: flex; flex-direction: column; gap: var(--ds-space-3); }
+
+  /* The Branches modal */
+  .branches { display: flex; flex-direction: column; gap: var(--ds-space-2); min-height: var(--ds-size-dialog-small); }
+  .branchList { max-height: var(--ds-size-dialog-medium); }
+  .branchRow { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-2); border-radius: var(--ds-radius-medium); }
+  .branchRow:hover { background: var(--figma-color-bg-hover); }
+  .branchRow[aria-current] .rowName { font: var(--ds-font-body-medium-strong); }
+  .open { visibility: hidden; }
+  .branchRow:hover .open, .branchRow:focus-within .open { visibility: visible; }
+}

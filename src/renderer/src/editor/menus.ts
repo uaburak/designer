@@ -11,6 +11,7 @@ import type { EditorController } from "./controller";
 import { COMMAND_BY_ID, command, isEnabled, runEditorCommand, shortcutOf } from "./commands";
 import { instanceChanges, resetChanges, selectedInstance, selectionNodes } from "./components";
 import { isComponent, isComponentSet, isInstance } from "./model/components";
+import { branchMenuIds } from "./branching/commands";
 
 /** A frame-like layer: a frame, component, set, instance or section (not a group). */
 const isFrameLike = (n: { type?: string; resizeToFit?: boolean }) => ["FRAME", "SYMBOL", "INSTANCE", "SECTION"].includes(String(n.type)) && !n.resizeToFit;
@@ -166,7 +167,11 @@ export const MAIN_MENU: Spec[] = [
       "file.export",
       "file.export-frames-to-pdf",
       "-",
-      "file.create-branch",
+      // Branching (branching/commands.ts): Create branch… on main; Update from main… / Review and merge changes… on a
+      // branch; See all branches once the store has branches.
+      ...["file.create-branch", "file.update-from-main", "file.review-and-merge", "file.see-all-branches"].map(
+        (id) => (ed: EditorController) => (branchMenuIds(ed).includes(id) ? commandItem(ed, id) : null)
+      ),
     ],
   },
   {
@@ -643,6 +648,7 @@ export function actionItems(ed: EditorController): ActionItem[] {
     else if ("id" in s) add(s.id, "File", s.label);
     else walk(s.items, s.label);
   }
+  for (const id of branchMenuIds(ed)) add(id, "File");
   add("view.dev-mode", "View", "Switch to Dev Mode");
   for (const id of TOOL_ACTIONS) add(id, "Tools");
   return out;
