@@ -49,6 +49,8 @@ export interface OrgMainProps {
   nav: { canBack: boolean; canForward: boolean; back: () => void; forward: () => void };
   /** Opens a local copy in its tab (FileBrowser's openFile) */
   openFile: (fileKey: FileKey, title: string, newTab?: boolean) => void;
+  /** A main file's branch count was clicked: its dropdown (branches.tsx; docs/data.md §15.9) */
+  onBranches?: (e: React.MouseEvent<HTMLElement>, f: O.OrgFile) => void;
   toast: (o: ToastOptions) => void;
   now: number;
 }
@@ -70,7 +72,7 @@ type Menu = { at: { x: number; y: number }; entries: MenuEntry[]; run: (id: stri
 const pageKey = (loc: Location) => JSON.stringify(loc);
 
 export function OrgMain(props: OrgMainProps) {
-  const { org, orgId, info, location, page, reload, go, nav, openFile, toast, now } = props;
+  const { org, orgId, info, location, page, reload, go, nav, openFile, onBranches, toast, now } = props;
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -199,6 +201,7 @@ export function OrgMain(props: OrgMainProps) {
           id={`file:${f.key}`}
           title={f.name}
           subtitle={orgFileSubtitle(f, now)}
+          branches={f.branchCount && f.trashedAt === null && onBranches ? { count: f.branchCount, onMenu: (e) => onBranches(e, f) } : undefined}
           selected={selected === `file:${f.key}`}
           onSelect={() => setSelected(`file:${f.key}`)}
           onOpen={() => (f.trashedAt === null ? void openOrgFile(f) : toast({ message: "Restore this file to open it" }))}

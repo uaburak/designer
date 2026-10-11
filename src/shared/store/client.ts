@@ -15,6 +15,7 @@ import type {
   FileChange,
   FileQuery,
   FileRepository,
+  FontsEvent,
   LibraryEvent,
   LibraryRegistry,
   OpenedFile,
@@ -32,6 +33,7 @@ import type { CommentsEvent, CommentsRepository } from "../comments";
 import type { NotificationsEvent, NotificationsRepository } from "../notifications";
 import type { AdminRepository, OrgEvent, OrgsRepository, ProjectsRepository, TeamsRepository } from "../org/repositories";
 import type { BranchEvent, BranchesRepository } from "../merge/branches";
+import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "../libraries/orgTypes";
 
 interface Pending {
   m: StoreMethod;
@@ -97,6 +99,7 @@ export class StoreClient implements StoreApi {
   private readonly notificationsEvents = new Listeners<NotificationsEvent>();
   private readonly orgEvents = new Listeners<OrgEvent>();
   private readonly branchEvents = new Listeners<BranchEvent>();
+  private readonly fontsEvents = new Listeners<FontsEvent>();
   private readonly connected = new Listeners<{ generation: number }>();
   /** Calls wait for this: the hello and the resync of a new port */
   private gate!: Promise<void>;
@@ -206,6 +209,7 @@ export class StoreClient implements StoreApi {
         else if (msg.topic === "notifications") this.notificationsEvents.emit(msg.d as NotificationsEvent);
         else if (msg.topic === "org") this.orgEvents.emit(msg.d as OrgEvent);
         else if (msg.topic === "branches") this.branchEvents.emit(msg.d as BranchEvent);
+        else if (msg.topic === "fonts") this.fontsEvents.emit(msg.d as FontsEvent);
         return;
     }
   }
@@ -565,4 +569,27 @@ export class StoreClient implements StoreApi {
     answerReview: (branchFileKey, input) => this.call("branches.answerReview", [branchFileKey, input]),
     watch: (listener) => this.branchEvents.add(listener),
   };
+
+  readonly orgLibraries: OrgLibrariesRepository = {
+    list: (orgId, query) => this.call("orgLibraries.list", [orgId, query]),
+    get: (orgId, key) => this.call("orgLibraries.get", [orgId, key]),
+    updateSettings: (orgId, key, input) => this.call("orgLibraries.updateSettings", [orgId, key, input]),
+    setScope: (key, scope) => this.call("orgLibraries.setScope", [key, scope]),
+    teamLibraries: (teamId) => this.call("orgLibraries.teamLibraries", [teamId]),
+  };
+
+  readonly analytics: LibraryAnalyticsRepository = {
+    record: (events) => this.call("analytics.record", [events]),
+    orgOverview: (orgId, query) => this.call("analytics.orgOverview", [orgId, query]),
+    overview: (key) => this.call("analytics.overview", [key]),
+    actions: (key, query) => this.call("analytics.actions", [key, query]),
+    usage: (key, assetKey) => this.call("analytics.usage", [key, assetKey]),
+    modes: (key, collectionKey) => this.call("analytics.modes", [key, collectionKey]),
+    csv: (key, query) => this.call("analytics.csv", [key, query]),
+  };
+
+  /** Topic `fonts` (docs/desktop.md §14.3): main refreshes its shared fonts on it */
+  watchFonts(listener: (e: FontsEvent) => void): Unsubscribe {
+    return this.fontsEvents.add(listener);
+  }
 }

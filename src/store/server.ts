@@ -4,7 +4,7 @@
  * subscriptions. Events go to every port, except `file.changes`, which goes only to ports that subscribed.
  */
 import { isKnownMethod, roleMayCall, serializeError, StoreError, type PortRole, type RpcMessage, type RpcRequest, type RpcTransport } from "../shared/store/protocol";
-import type { FileChange, LibraryEvent, OpenedFile, StoreApi, Unsubscribe, WorkspaceEvent } from "../shared/store/repositories";
+import type { FileChange, FontsEvent, LibraryEvent, OpenedFile, StoreApi, Unsubscribe, WorkspaceEvent } from "../shared/store/repositories";
 import type { FileKey } from "../shared/store/types";
 import type { FileShareState, MultiplayerNotice } from "../shared/multiplayer/types";
 import type { NotificationsEvent } from "../shared/notifications";
@@ -37,6 +37,8 @@ export interface ServableStore {
   readonly org?: { onEvent(listener: (e: OrgEvent) => void): Unsubscribe };
   /** Branches' changes (docs/data.md §15.6), topic `branches` */
   readonly branches?: { onEvent(listener: (e: BranchEvent) => void): Unsubscribe };
+  /** Shared fonts changed (docs/desktop.md §14.3), topic `fonts` */
+  readonly fonts?: { onEvent(listener: (e: FontsEvent) => void): Unsubscribe };
   readonly files: {
     /** Frames after `fromSeq` for a subscriber catching up */
     backlog(fileKey: FileKey, fromSeq: number): Promise<FileChange[]>;
@@ -141,6 +143,7 @@ export class StoreServer {
     if (store.notifications) this.offs.push(store.notifications.onChange((d) => this.broadcast({ t: "evt", topic: "notifications", d })));
     if (store.org) this.offs.push(store.org.onEvent((d) => this.broadcast({ t: "evt", topic: "org", d })));
     if (store.branches) this.offs.push(store.branches.onEvent((d) => this.broadcast({ t: "evt", topic: "branches", d })));
+    if (store.fonts) this.offs.push(store.fonts.onEvent((d) => this.broadcast({ t: "evt", topic: "fonts", d })));
   }
 
   get size(): number {

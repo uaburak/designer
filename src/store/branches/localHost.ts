@@ -99,6 +99,8 @@ export function localBranchHost(d: LocalBranchDeps): BranchHost {
           linkedCopies: () => mp.linkedCopies(),
           headSeq: (key) => d.files.headSeqOf(key),
           signedIn: () => mp.signedIn,
+          uploadBlobs: (key, sha1s) => mp.uploadBlobs(key, sha1s),
+          callBytes: (method, path) => mp.callBytes(method, path),
         })
       : null,
   };

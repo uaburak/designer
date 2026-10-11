@@ -335,6 +335,8 @@ export class BranchService {
       for (const r of rows) {
         const local = r.branchFileKey ? this.records.get(r.branchFileKey) : undefined;
         if (local) this.records.set(r.branchFileKey, { ...local, ...r, base: { ...r.base, mainVersionId: local.base.mainVersionId } });
+        // A branch someone else made, opened here from Home (its room's local copy): taken in as a branch.
+        else if (r.branchFileKey && this.host.getMeta(r.branchFileKey) && remote.canAdopt) await this.adopt(r).catch((e) => this.host.log("warn", `branch ${r.branchFileKey}: couldn't be taken in`, e));
       }
       return rows;
     }
@@ -346,6 +348,19 @@ export class BranchService {
       return r.createdBy.id === me;
     });
     return out.sort((a, b) => b.createdAt - a.createdAt).map((r) => structuredClone(r));
+  }
+
+  /**
+   * A shared branch whose local copy was made from its room (opened from Home: `multiplayer.openShared` of the branch's
+   * key) rather than by "Create branch" here: its base comes from the room, its record and `FileMeta.branch` are
+   * written, and from then on it is a branch like one made here.
+   */
+  private adopt(r: BranchRecord): Promise<void> {
+    return this.serial(r.branchFileKey, async () => {
+      if (this.records.has(r.branchFileKey) || !r.branchKey) return;
+      await this.host.writeBase(r.branchFileKey, await this.host.remote!.base(r.branchKey));
+      await this.save(structuredClone(r));
+    });
   }
 
   async get(branchFileKey: FileKey): Promise<BranchRecord | null> {

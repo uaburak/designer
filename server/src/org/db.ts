@@ -393,8 +393,10 @@ export async function subtree(d1: D1Like, projectId: string): Promise<ProjectRow
 
 export const fileAccessOf = (a: AccessGranted): FileAccess => ({ role: a.role, canEdit: a.canEdit, canComment: a.canComment, canExport: a.canExport, canDevMode: a.canDevMode, canShare: a.canShare, canManage: a.canManage, capped: a.capped, via: a.via });
 
-export function toOrgFile(f: FileRow & { owner_name?: string | null; owner_email?: string | null }, a: AccessGranted): OrgFile {
+export function toOrgFile(f: FileRow & { owner_name?: string | null; owner_email?: string | null; branch_count?: number | null }, a: AccessGranted): OrgFile {
   return {
+    // Active branches (docs/data.md §15.7; Home's tile): only when there are some
+    ...(f.branch_count ? { branchCount: Number(f.branch_count) } : {}),
     key: f.key,
     name: f.name,
     editorType: f.editor_type,
@@ -416,9 +418,12 @@ export function toOrgFile(f: FileRow & { owner_name?: string | null; owner_email
 export async function accessibleFiles(acc: Access, where: string, args: unknown[], opts: { trashed?: boolean } = {}): Promise<OrgFile[]> {
   const { results } = await acc.d1
     // Branches are listed under their main file (docs/data.md §15.7), not as files of their own.
-    .prepare(`SELECT ${FILE_COLS}, u.name AS owner_name, u.email AS owner_email FROM files f LEFT JOIN users u ON u.id = f.owner_id WHERE (${where}) AND NOT EXISTS (SELECT 1 FROM branches b WHERE b.key = f.key) ORDER BY f.updated_at DESC`)
+    // Home's file tiles show how many active branches a main file has (round 2d, help.figma.com "View and manage branches").
+    .prepare(
+      `SELECT ${FILE_COLS}, u.name AS owner_name, u.email AS owner_email, (SELECT COUNT(*) FROM branches bc WHERE bc.main_key = f.key AND bc.status = 'active') AS branch_count FROM files f LEFT JOIN users u ON u.id = f.owner_id WHERE (${where}) AND NOT EXISTS (SELECT 1 FROM branches b WHERE b.key = f.key) ORDER BY f.updated_at DESC`,
+    )
     .bind(...args)
-    .all<FileRow & { owner_name: string | null; owner_email: string | null }>();
+    .all<FileRow & { owner_name: string | null; owner_email: string | null; branch_count: number }>();
   const out: OrgFile[] = [];
   for (const f of results) {
     const a = await acc.file(f);

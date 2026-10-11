@@ -8,6 +8,7 @@ import { getStoreClient, mergedDocument, messageToKiwi, storeMode, thumbnailUrl 
 import { encodeMessage } from "@shared/schema/codec";
 import type { AdminRepository, FileRepository, OrgsRepository, ProjectsRepository, TeamsRepository, WorkspaceRepository } from "@shared/store/repositories";
 import type { FileKey, FileListItem, FileMeta, FolderId } from "@shared/store/types";
+import type { BranchesRepository } from "@shared/merge/branches";
 
 /** The org spaces (StoreApi.orgs / teams / projects / admin) and the two calls Home adds around them. */
 export interface OrgBackend {
@@ -31,6 +32,8 @@ export interface FilesBackend {
   importFigBytes?: (file: File, folderId: FolderId | null) => Promise<FileMeta>;
   /** Absent: no organizations (Home shows the local space only) */
   org?: OrgBackend;
+  /** Branches (docs/data.md §15): the tiles' counts, their dropdown and the Branches modal; absent: none shown */
+  branches?: BranchesRepository;
 }
 
 /** The store's snapshot with its journal applied, as one kiwi Message (the editor hands the same to `multiplayer.share`). */
@@ -57,6 +60,7 @@ export function filesBackend(): Promise<FilesBackend> {
       openShared: (key) => client.multiplayer.openShared(key),
       snapshotOf: (fileKey) => localSnapshot(client.files, fileKey),
     },
+    branches: client.branches,
   };
   return Promise.resolve(shared);
 }
