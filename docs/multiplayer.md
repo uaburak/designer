@@ -14,6 +14,7 @@ Contract for roadmap Phase 6 (owner's decision 2026-10-10: Cloudflare instead of
 | Notifications (the bell; live to each person's apps) | D1 `notifications`, `notification_prefs` (migration 0008), Durable Object `Inbox` per user (hibernated WebSockets) | `server/src/notifications.ts`, `server/src/inbox.ts`, `src/store/notifications/service.ts` (§12) |
 | Organizations: workspaces, teams, folders, seats, groups, Admin, activity log (contract, Phase 7) | D1 (migration 0010), no new Durable Object | `server/src/org/`, `server/src/activity.ts`, `src/shared/org/`, `src/store/org/` (§14) |
 | Org libraries, library analytics, shared fonts (contract, Phase 7 round 3) | D1 (migration 0012), Durable Objects `LibraryObject` per library and `FontObject` per org (SQLite, 1 MB chunks; wrangler tag v4), a daily Cron Trigger for the analytics roll-up | `server/src/libraries/`, `server/src/analytics/`, `server/src/fonts/`, `src/store/libraries/` (docs/data.md §16–§17, docs/desktop.md §14.3) |
+| Identity and security: SAML SSO, SCIM, domains, policies, idle timeout, EU data region (contract, Phase 7 round 4) | D1 (migration 0013), Durable Objects in Cloudflare's `eu` jurisdiction for EU orgs' rooms and libraries | `server/src/auth/`, `server/src/policy/`, `src/shared/org/identity.ts` (§15) |
 | Wire format | — | `src/shared/multiplayer/protocol.ts` |
 
 Free plan limits that matter: 100k Worker requests a day (a WebSocket message counts 1/20 of a request), Durable Objects on SQLite storage, D1 5 GB, R2 10 GB. One person and a few friends stay far below them.
@@ -890,7 +891,7 @@ Files other people own and shared with the caller stay outside the org: they are
   - A room with no sockets wakes, finds nobody and sleeps.
 - **Raising** access needs nothing: the next request resolves the new role.
 - **Comments, previews and notifications** check with `resolveAccess` too. "Only people who can open the file are told" (§12) now uses it.
-- **Policies for the room** (round 4: cursor chat, audio, open sessions): `welcome` gains `policy: {cursorChat: boolean, audio: boolean}` from the org's settings, delivered on (re)connect.
+- **Policies for the room** (round 4: cursor chat, audio, open sessions): `welcome` gains `policy: {cursorChat: boolean, audio: boolean}` from the org's settings, delivered on (re)connect. Contract: §15.9 (also the `{t: "policy"}` message for changes while open).
 
 ### 14.10 Activity log
 
@@ -956,7 +957,7 @@ Later rounds add their groups with Figma's names: domains, SSO and SCIM in round
   - The Inbox also carries `{t: "org", …}` notices for the store's cache (§14.6).
 - **Sessions and tokens (§13).** Already per user and not per org; they stay that way.
   - `org_members.last_active_at` moves on with the session's own 5-minute touch, for each org of the user. One extra UPDATE when the session row is touched.
-  - Round 4's idle timeout is per org (the shortest wins across the user's orgs, R18 A-6) and reads `sessions.last_seen_at`. It needs the app to report activity: a throttled `POST /me/sessions/active` once a minute while the user is active.
+  - Round 4's idle timeout is per org (the shortest wins across the user's orgs, R18 A-6). It reads `sessions.active_at` (new in 0013: user activity only, not `last_seen_at`, which background requests move) — §15.8. It needs the app to report activity: a throttled `POST /me/sessions/active` once a minute while the user is active.
   - Admins see a person's sessions only through the activity log (`user_sign_in`). Figma documents no admin session list (R18 Part 6).
   - **Personal access tokens** read org files only where `resolveAccess` gives the person view access. Org-level "plan access tokens" (`plan_access_token_*`) are round 5.
 
@@ -1210,3 +1211,714 @@ Deviations and choices, explicit:
 - **Account deletion (§14.7)**: refused (409) while the person is an org's only admin and others remain; otherwise removed from every org, their files outside orgs unshared as before, their org files kept; when org rows still name them, the `users` row stays as a tombstone ("Deleted user", no email, no Google account) for the foreign keys.
 - **Sessions**: `org_members.last_active_at` moves on every authenticated session request (≤ every 5 min, one UPDATE); `POST /me/sessions/active` (the app's once-a-minute report) touches the session and Last active; sign-in claims pending org / team / folder invites for the email.
 - Not built: round 4's policies beyond storage (public links off, passwords required, external restriction — `externalRestricted` is always false), the room's `welcome.policy`, thumbnails (`thumbnailUrl` null), `fig_file_duplicate` (no server route duplicates), team / folder join for guests.
+
+## 15. Identity and security (contract, Phase 7 round 4; written 2026-10-11)
+
+**Status: contract, not built.** Figma's Enterprise identity and security, on the server of §1–§14: SAML single sign-on per organization, the org's login method, JIT and SCIM provisioning, domains and domain capture, guest, sharing and external-content policies, the idle session timeout, the room switches (cursor chat, audio, open sessions) and data storage localization (EU). The research is `docs/research/figma/R18-enterprise.md` A-5, A-6; the SAML library choice is `server/spikes/saml/README.md` (round 1e). The plan: `docs/roadmap.md` Phase 7 "Round 4". The desktop side (sign-in, the idle prompt, MSI, deployment keys) is `docs/desktop.md` §12.5 and §18.
+
+Facts about Figma below were read on help.figma.com, developers.figma.com and Cloudflare's docs on 2026-10-11:
+- **[F-auth]** Authentication method — https://help.figma.com/hc/en-us/articles/360052497994
+- **[F-saml]** Guide to SAML SSO — https://help.figma.com/hc/en-us/articles/360040532333
+- **[F-okta]** SAML with Okta (start URL, IdP-initiated) — https://help.figma.com/hc/en-us/articles/360040532353
+- **[F-adfs]** SAML with AD FS (SP Entity ID, SP ACS URL, the three IdP values) — https://help.figma.com/hc/en-us/articles/360048269533
+- **[F-login]** Log in with SSO ("Use single sign-on") — https://help.figma.com/hc/en-us/articles/360040047614 (read through a search summary, not opened)
+- **[F-scim]** SCIM provisioning — https://help.figma.com/hc/en-us/articles/360048514653 ; seats via SCIM — https://help.figma.com/hc/en-us/articles/360048787534
+- **[F-scim-api]** SCIM API — https://developers.figma.com/docs/rest-api/scim/ , endpoints https://developers.figma.com/docs/rest-api/scim-endpoints/ , schemas https://developers.figma.com/docs/rest-api/scim-supported-schemas/
+- **[F-domain]** Domains and domain capture — https://help.figma.com/hc/en-us/articles/360045953273
+- **[F-guestctl]** Guest access controls — https://help.figma.com/hc/en-us/articles/4410793238167
+- **[F-share]** Public sharing settings — https://help.figma.com/hc/en-us/articles/5726756336791
+- **[F-external]** External content controls — https://help.figma.com/hc/en-us/articles/12080587805719
+- **[F-idle]** Idle session timeout — https://help.figma.com/hc/en-us/articles/14376092335127
+- **[F-chat]** Disable cursor chat — https://help.figma.com/hc/en-us/articles/14564080039447 ; **[F-audio]** Audio — https://help.figma.com/hc/en-us/articles/4420953557399
+- **[F-region]** Data storage localization — https://help.figma.com/hc/en-us/articles/15643274574871
+- **[F-log]** Activity log action types — https://developers.figma.com/docs/rest-api/activity-logs-action-types/ ; entity types — https://developers.figma.com/docs/rest-api/activity-logs-entity-types/
+- **[CF-do]** Durable Objects data location — https://developers.cloudflare.com/durable-objects/reference/data-location/ ; **[CF-d1]** D1 data location — https://developers.cloudflare.com/d1/configuration/data-location/
+
+**(ours)** marks a choice Figma doesn't document or where we differ on purpose; **(unverified)** a Figma fact we could not open.
+
+### 15.1 What Figma does (the facts this section implements)
+
+- **Login method** [F-auth]: Admin › Settings › Login and provisioning › **Authentication**, one of "Members may log in with any method, including email and password (default)", "Members must log in with a Google account", "Members must log in with SAML SSO". It applies to **members** only: "Guests can always log in with Google SSO or email and password". To change the SAML configuration admins first go back to any method "to avoid lockouts". A change takes effect at each member's **next login**. (Newer articles place the same rows under Settings › **Access › Authentication**; the section name is the one Figma shows today — check live before building the label.)
+- **SAML** [F-saml, F-okta, F-adfs]: SAML 2.0; Figma gives the **SP Entity ID** `https://www.figma.com/saml/<Tenant ID>` and **SP ACS URL** `…/<Tenant ID>/consume`; admins give the **IdP Entity Id**, the **IdP SSO Target URL** and the **Signing Certificate**, or (Okta, Entra) the IdP metadata URL; NameID format Email; attributes used: username or NameID, `givenName`, `familyName`, `displayName`, `title` ("Other attributes are ignored"). Both **SP-initiated** (Figma's login page › "Use single sign-on" › work email › Log in; or `https://www.figma.com/saml/<Tenant ID>/start`) and **IdP-initiated** (an Okta tile) are supported. **JIT** creates and updates people from the assertion's attributes at each login. "Email aliases do not work with SAML SSO." On an **unverified** domain Figma emails a 6-digit code at the first SSO login on each device; verifying the domain removes it.
+- **SCIM** [F-scim, F-scim-api]: `https://www.figma.com/scim/v2/<Tenant ID>`, `Authorization: Bearer <token>`; the token is made in Settings › SCIM provisioning › **Generate API token** and shown once; SCIM requires SAML; it manages members, never guests. Endpoints: `GET /ServiceProviderConfig`, `GET /` (tenant check), `GET|POST /Users`, `PUT|PATCH|DELETE /Users/:figmaUserId`, the same for `/Groups`. Filters: Users by `userName` or `externalId`, Groups by `displayName` or `externalId`, `eq` only; `startIndex` / `count`. Schemas: core User (`userName` = the email, ≤ 100, changing it changes the account's email; `name.givenName`, `name.familyName`, `displayName` ≤ 100, `title`, `active` — false removes the person from the org, `externalId` ≤ 255 stored not used, `roles` = `[{type: "seatType", value: "Full" | "Dev" | "Collab" | "View"}]` on Enterprise), the enterprise extension (`employeeNumber`, `costCenter`, `organization`, `division`, `department`, `manager.value`, `manager.displayName`), Figma's extension `urn:ietf:params:scim:schemas:extension:figma:enterprise:2.0:User` with `figmaAdmin: boolean`. Groups: `displayName` ≤ 255, `members [{value, display}]`, `externalId`; a group whose `displayName` equals (case-sensitive) a **workspace** or **billing group** name links to it — its members join it, removed members leave it; groups also become **user groups** [F-scim]. `DELETE /Users/:id` "permanently deletes the user from Figma". Seats set by SCIM bypass seat approval.
+- **Domains** [F-domain]: Admin › Settings › Login and provisioning › **Manage domains** › **+ Domain**; a new domain is **Unverified**; verification is a TXT record with Figma's snippet (format unpublished); each subdomain separately. Unverified domains still make invitees **members**. **Domain capture** (toggle on the Manage domains banner; every domain must be verified first): existing accounts on the domains join at once as members with a **View** seat and an email; new sign-ups join automatically; a domain used by another org can't be added once capture is on; turning capture off goes through Support. **Remove** a domain: its members become guests; an admin can't remove their own domain.
+- **Guest membership** [F-guestctl] (Settings › Access › Guest access): "External users can join the organization without restrictions" (default; a confirmation with Cancel / Share before inviting an outside email), "External users can only join the organization with admin approval" (the inviter is told; the guest may "Ask to be added"; requests go to the workspace admin, or an org admin outside workspaces; only the first invite needs approval), "No external users can join your organization" (the inviter is told guest access is disabled; the invite isn't sent). Already enforced since round 1a (§14.15); round 4 adds the wording and workspace admins as approvers.
+- **Public sharing** [F-share] (Settings › Content › Sharing and publishing › **Public sharing**): **Public link sharing** off makes every org file private (members and invited people keep access; inviting still works); **Require passwords** removes "Anyone with the link" without a password; **Password protection options › Autogenerated passwords only** (four random words); **Require design file links to expire** with a maximum of **1 hour to 31 days** (links turn private after it; this also turns public links off in FigJam); **Custom settings for workspaces** (override passwords / expiry / public links for files in that workspace's teams; drafts and unassigned teams use the org's); **FigJam open sessions** org-wide only.
+- **Access to external content** [F-external] (Settings › Content › Content access; needs domain capture; allowed by default): restricted members can't create files or folders outside the org, edit their own outside files, edit or comment on files shared from outside, or accept outside invites; open sessions, public and password-protected files open view-only; their drafts elsewhere become view-only; drafts inside the org are untouched.
+- **Idle session timeout** [F-idle] (Settings › Access › Authentication › Idle session timeout › **Custom timeout**): default **21 days** of inactivity, custom **12 hours to 14 days**; members only, not guests; logs out on every platform; a prompt to stay logged in when less than **one minute** remains; across orgs the **shortest** wins; a new value **resets** everyone's inactivity; each timeout logout and each change is logged (a background timeout when the person next opens Figma).
+- **Communication** [F-chat]: Settings › Communication › **Cursor chat** toggle (Enterprise): off, nobody starts a cursor chat in Design or FigJam files. **Audio** [F-audio]: Settings › Other › **Audio** toggle (Organization and Enterprise): off, members and guests can't use audio in the org's files.
+- **Data storage localization** [F-region] (Settings › Data, read-only; changed by Figma Support): file content **at rest** — shapes, text, stickies, frames, components, images, video — in the chosen region (EU among others); **not** localized: comments, file names, fonts, thumbnails, plugins, Dev Mode code, AI chats, metadata, activity and security logs, search indexes, the file edits journal, user profiles, publicly published files. New edits may sit in the US up to 30 days before moving.
+
+### 15.2 Decisions (ours, where Figma is silent or we differ)
+
+1. **Library**: `@node-saml/node-saml` 5.1.0 exactly, `@xmldom/xmldom` ≥ 0.8.15, `xml-crypto` ≥ 6.3.3, under `nodejs_compat`, wrapped by our SP layer with the spike's extra checks (§15.3.4). The spike's 29 cases move into `server/src/auth/saml/saml.test.ts` and stay the gate for every bump.
+2. **Figma's URL shapes**: SP entity id `<origin>/saml/<tenantId>` (that URL also serves the SP metadata), ACS `<origin>/saml/<tenantId>/consume`, start `<origin>/saml/<tenantId>/start`. The spike's `/metadata`, `/login`, `/acs` are renamed. **Tenant ids** are 18 random decimal digits, Figma's shape.
+3. **IdP-initiated sign-in is accepted by bouncing**: an unsolicited Response (no `InResponseTo`) is verified like any other (signature, issuer, audience, recipient, time, replay) but **never** turned into a session — the desktop app has no loopback waiting and a code without a PKCE challenge could be stolen through the URL scheme. The ACS answers a page "Continue to DesignerV2" whose button opens `designerv2://sign-in?tenant=<id>` (desktop) or `/auth/login?return=<web origin>&tenant=<id>` (web), which starts a normal SP-initiated flow; the IdP session is fresh, so the person sees no second login. `validateInResponseTo` stays `always` for the session path. Figma lands IdP-initiated logins directly; the visible difference is one click.
+4. **SAML only for verified domains**: we can't send Figma's 6-digit email code (the server sends no email), so an assertion is accepted only when its email's domain is a **verified** domain of that org. Otherwise the ACS refuses ("‹email› isn't on a verified domain of ‹org›", code `sso_domain`). Unverified domains still make invitees members (Figma's rule). This also makes SSO routing by email domain unambiguous.
+5. **One account per email, linked across methods**: `users.google_sub` stays `NOT NULL UNIQUE`; an account made by SAML JIT or SCIM gets the placeholder `none:<userId>`. A Google sign-in whose `sub` is unknown claims the most recently seen `none:` account with the same verified email (Google proved the email). A SAML sign-in matches by email. Two `google_sub` accounts with one email (two Google identities) are matched to the most recently seen one.
+6. **Login method is checked at sign-in only**, as Figma ("at their next login"): sessions issued before a change keep working until they end. A Google sign-in by a **member** of an org that requires SAML doesn't get a code: the browser goes on to that org's SAML start with the same app state (so the app's loopback still completes). A SAML sign-in into an org that requires Google is refused (`google_required`). Guests are never checked. A person who is a member of two orgs with different requirements: the org they joined first decides (rare: a domain belongs to one org).
+7. **No lockout**: `authMethod: "saml"` is refused (409 `invalid`, "Test SAML SSO first") until the org's IdP configuration has a successful sign-in (`idp_configs.tested_at`), and the IdP configuration can't be deleted while it is required. There is **no** admin bypass (Figma documents none); the owner's last resort is a D1 update by hand (§15.13).
+8. **SCIM tokens**: one live token per org; **Generate API token** revokes the previous one (Figma shows one, unverified whether it revokes). `DELETE /Users/:id` removes the person from the org and drops the SCIM link but **never deletes the account** (Figma deletes the user; ours may be in other orgs and files).
+9. **A verified domain belongs to one org**, capture or not (Figma: only once capture is on) — needed for routing (decision 4).
+10. **Domain verification** record: TXT `designerv2-domain-verification=<token>` (Figma's format is unpublished), at the domain itself, checked over DNS-over-HTTPS from the Worker. Turning capture **off** is allowed to admins (Figma: Support; the owner is the support).
+11. **Idle activity** is user input in the app (pointer, keys, wheel), reported at most once a minute — not background requests (sockets, polls), which would keep a forgotten session alive. Orgs that set nothing still give their members Figma's default **21 days**; people in no org keep the session token's 30 days.
+12. **Room switches** (cursor chat, audio) are enforced by the clients: the room relays presence and signals without reading them (§4, §11). The room carries the policy (`welcome.policy`, `policy` messages) so a change reaches open files at once.
+13. **Data storage localization is self-serve** for org admins (Figma: Support) and moves existing files with a resumable job (§15.10). Only the **EU** region (Cloudflare's `eu` jurisdiction) is offered; D1 stays where it is (EEUR location hint, no jurisdiction — it can't be added to an existing database [CF-d1]), which matches what Figma doesn't localize (names, comments, metadata, logs).
+14. **Desktop deployment keys** use Figma's names; the macOS domain is our appId `net.burakkoc.designer` (electron-builder.yml) and the Windows key `HKLM\SOFTWARE\DesignerV2` (docs/desktop.md §12.5).
+
+### 15.3 SAML: the service provider per org
+
+#### 15.3.1 Configuration (`idp_configs`, one per org)
+
+| Field | From | Notes |
+|---|---|---|
+| `tenant_id` | made when the config is first saved | 18 digits, unique; never changes |
+| `provider` | the admin's choice | `okta` · `entra` · `onelogin` · `google` · `custom` (labels: Okta, Microsoft Entra ID, OneLogin, Google Workspace, Other) — only the help text and the defaults differ |
+| `idp_entity_id`, `sso_url`, `certificates` | the metadata (URL fetched by the Worker over HTTPS, ≤ 256 KiB, no DOCTYPE; or the XML pasted) or the three values by hand | `sso_url`: the `SingleSignOnService` with the HTTP-Redirect binding; `certificates`: every `KeyDescriptor` with `use="signing"` or no `use`, ≤ 2 (rotation), PEM; each parsed (`crypto.X509Certificate` under `nodejs_compat`) and refused if not RSA ≥ 2048 or already expired |
+| `signing` | default `assertion` | `assertion`: the assertion must be signed (Okta, Entra default). `assertion_or_response`: a signed Response envelope is enough (AD FS / Entra set to "Sign SAML response") — XSW cases of the spike then are the defence |
+| `metadata_url` | optional | kept to re-fetch on **Refresh metadata** (no automatic refresh) |
+| `tested_at` | the first successful sign-in through it | needed before `authMethod: "saml"` (decision 7) |
+
+#### 15.3.2 SP metadata — `GET /saml/:tenantId`
+
+`application/samlmetadata+xml`: `EntityDescriptor entityID="<origin>/saml/<tenantId>"`, `SPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol" AuthnRequestsSigned="false" WantAssertionsSigned="true|false (signing)"`, `NameIDFormat urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress`, `AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="<origin>/saml/<tenantId>/consume" index="0" isDefault="true"`. No signing or encryption key of ours (AuthnRequests are unsigned; encrypted assertions are not accepted in round 4 — spike risk 6). `<origin>` is the Worker's public origin (`https://designer.burak-kc-sp.workers.dev`), from `url.origin`.
+
+#### 15.3.3 AuthnRequest — `GET /saml/:tenantId/start?st=<state token>`
+
+- `st` is the signed `oauthState` of §2 (`{p | r, s, c, exp}`), made by `/auth/login` (§15.4). Without `st` (someone typed Figma's start URL into a browser): a page "Log in to DesignerV2 from the app" with a button `designerv2://sign-in?tenant=<id>` and, when `WEB_ORIGINS` is set, a link to the web app.
+- Insert `saml_requests(id, org_id, state, expires_at = now + 10 min)` — `id` = `_` + 32 hex (the AuthnRequest's `ID`), `state` = the decoded `st` payload as JSON. In the same batch: `DELETE FROM saml_requests WHERE expires_at < now` (no cron needed).
+- Redirect (302) to `sso_url` with the HTTP-Redirect binding: `SAMLRequest` = base64(deflate(AuthnRequest)), **`RelayState` = the request id** (SAML caps RelayState at 80 bytes; the signed state is longer). AuthnRequest: `ID`, `Version="2.0"`, `IssueInstant`, `Destination=sso_url`, `AssertionConsumerServiceURL=<ACS>`, `ProtocolBinding=HTTP-POST`, `Issuer=<SP entity id>`, `NameIDPolicy Format=emailAddress AllowCreate="true"`. Unsigned (node-saml `generateAuthorizeRequestAsync` with no private key).
+
+#### 15.3.4 The ACS — `POST /saml/:tenantId/consume`
+
+In this order; any failure answers a 403 page "Single sign-on didn't work. Try again from DesignerV2." (the reason only in the log line and, for the app, as `error=sso_failed` on the loopback when the request id is known):
+1. Body ≤ 256 KiB, `application/x-www-form-urlencoded`, a `SAMLResponse`; its base64-decoded XML contains no `<!DOCTYPE` — before any parsing.
+2. The tenant's config; node-saml `validatePostResponseAsync` with `idpCert` = the config's certificates, `idpIssuer`, `audience` = SP entity id, `wantAssertionsSigned` = (`signing == "assertion"`), `wantAuthnResponseSigned: false`, `validateInResponseTo: "always"` (or `"never"` on the bounce path, step 4), `acceptedClockSkewMs: 60_000`, `maxAssertionAgeMs: 300_000`, our `CacheProvider` (below), never the in-memory one.
+3. **Our checks on the verified XML only** (`profile.getAssertionXml()`), as the spike: the assertion's `Issuer` is `idp_entity_id`; exactly one bearer `SubjectConfirmation` whose `Recipient` is our ACS; the Response's `Destination`, when present, is our ACS; **algorithms**: the verified `SignatureMethod` is one of `rsa-sha256`, `rsa-sha384`, `rsa-sha512` (`http://www.w3.org/2001/04/xmldsig-more#…`) and every `DigestMethod` one of `xmlenc#sha256`, `xmldsig-more#sha384`, `xmlenc#sha512` — **SHA-1 is refused** (`rsa-sha1`, `xmldsig#sha1`), for the assertion's and the Response's signature alike; an `EncryptedAssertion` is refused.
+4. **InResponseTo**: present (inside the signed `SubjectConfirmationData`) → `DELETE FROM saml_requests WHERE id = ?1 AND org_id = ?2 AND expires_at > ?now RETURNING state` — **atomic consume**: the second of two concurrent posts finds nothing and fails. Absent → **unsolicited** (IdP-initiated): after steps 1–3 (with `validateInResponseTo: "never"`), answer the bounce page of decision 3 and stop — no session, no account change.
+5. **Replay**: `INSERT INTO saml_assertions (id, org_id, expires_at) VALUES (<assertion ID>, ?, <SubjectConfirmationData NotOnOrAfter, else Conditions NotOnOrAfter, else now + 5 min>)` — a primary-key conflict is a replay (refused). Expired rows are deleted in the same batch. node-saml's `CacheProvider` is backed by `saml_requests` (`saveAsync` no-op — we insert at start —, `getAsync` = a SELECT of the unexpired row, `removeAsync` no-op — step 4 consumes); the atomic DELETE is the real check.
+6. **Email**: the NameID when its Format is `emailAddress` or `unspecified` and it parses as an email (§15.12 `normalizeEmail`); else the first of the attributes `email`, `emailaddress`, `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress`, `username`; else refused. Its domain must be a **verified** domain of this org (decision 4; `sso_domain`).
+7. **Person** (one D1 batch where possible):
+   - The account: `users` by email (most recent `last_seen_at`), else a new one (`google_sub = 'none:' || id`). Name from `displayName`, else `givenName familyName` (unless `name_locked`); `title` into `org_members.idp_attributes.title`.
+   - A **SCIM-deactivated** person (`scim_users.active = 0` in this org) is refused ("Your account was deactivated by your organization").
+   - Not in the org → **JIT**: `org_members` row `role 'member'`, seat `settings.defaultSeat`, `provisioned_by 'jit'`; logs `org_user_create` with `details.jit: true`; then the org's workspace default teams (§14.1). A guest → becomes a member (their email is on a verified domain); logs `org_user_permission_change`.
+   - `settings.authMethod == "google"` → refused (`google_required`).
+8. **Session**: the request's `state` decides where the code goes, exactly as `/auth/callback` (§2 step 3): a sign-in code (2 minutes, bound to the challenge) stored with `auth_codes`, plus `auth_codes.auth = 'saml'` and `org_id`, so `/auth/token` makes a session with `sessions.auth_method = 'saml'`, `sessions.auth_org_id`. Redirect to `http://127.0.0.1:<p>/callback?code&state` or the web page's `auth_code`. `idp_configs.tested_at` is set if null. `user_sign_in` is logged with `details: {method: "saml"}` (§15.11).
+
+#### 15.3.5 What can't be verified without a real IdP
+
+The spike's suite signs Responses with a test IdP in Node (`test/idp.ts`). Not covered until the owner creates accounts: Okta (free developer org, developer.okta.com), Microsoft Entra ID (a free Entra tenant or the Microsoft 365 developer program), Google Workspace (paid) — their metadata, attribute names, which element they sign, Entra's `assertion_or_response` path, AD FS's SHA-1 default (we refuse it: an AD FS admin must pick SHA-256). Each needs the Worker reachable from the internet (a deploy, or `wrangler dev --remote`/a tunnel) because the IdP posts to our ACS.
+
+### 15.4 Signing in: routing by email domain, the login page, the desktop loopback
+
+- **`GET /auth/login`** (§2 step 1, same parameters: `port` | `return`, `state`, `challenge`) now answers **Figma's login page** (HTML, the Worker's own, `server/src/auth/pages.ts`) instead of redirecting at once: "Log in to DesignerV2", **Continue with Google**, a divider, **Use single sign-on**. The page carries the signed state (`st`, made here exactly as `login()` makes it today). Optional parameters:
+  - `method=google` → straight to Google (today's behaviour; the web app's "Continue with Google" button and tests use it).
+  - `tenant=<id>` → straight to `/saml/<id>/start?st=…` (the bounce of decision 3, the desktop's `designerv2://sign-in?tenant=`).
+- **Use single sign-on** shows an **Email** field and **Log in** (Figma's [F-login]; the page's exact other words are ours, unverified). It posts the form `POST /auth/sso` (`application/x-www-form-urlencoded`: `email`, `st`). The Worker takes the email's domain (§15.12 `emailDomain`), finds the **verified** `org_domains` row and that org's `idp_configs`; found → 302 `/saml/<tenantId>/start?st=…`; not found → the page again with "Single sign-on isn't set up for this email." The email never travels in a URL.
+- **`POST /auth/sso` with `application/json`** `{email}` → `200 {tenantId, orgName}` or `404 {error, code: "sso_not_found"}` — for the web app and tests.
+- **Google** (`/auth/callback`, §2 step 3), after Google's checks, in this order:
+  1. the account: by `google_sub`; else claim a `none:` account with that verified email (decision 5); else a new one;
+  2. pending invites (`claimInvites`, as today);
+  3. **domain capture** (§15.7): the email's domain verified with capture on in an org → added as a member if not in it;
+  4. **login method**: if the account is a **member** (role admin or member) of an org whose `authMethod` is `saml` and which has an IdP config → no code; insert a `saml_requests` row with this flow's app state and redirect to that org's AuthnRequest (§15.3.3 without `st`); the loopback receives the code from the ACS instead;
+  5. otherwise the code, with `auth_codes.auth = 'google'`.
+- **The desktop app** keeps §2's loopback and PKCE unchanged: it opens `/auth/login?port&state&challenge` and receives `code` on `http://127.0.0.1:<port>/callback` whichever method the person chose in the browser; `/auth/token` is unchanged. New for main (docs/desktop.md §18): the `designerv2://sign-in?tenant=<id>` deep link starts a sign-in with `&tenant=<id>`; errors `sso_failed`, `sso_domain`, `google_required` arriving as `error=` on the loopback are shown with their messages (§15.12 `SIGN_IN_ERROR_TEXT`).
+- **`POST /auth/dev`** (local only) is unaffected by every policy and makes `auth_method 'dev'` sessions.
+
+### 15.5 SCIM 2.0 — `/scim/v2/:tenantId/…`
+
+**Auth**: `Authorization: Bearer <token>`; the token is `dsgn_scim_` + 32 random bytes base64url; only its SHA-256 is stored (`scim_tokens`); its org must own `:tenantId`; a revoked token or a wrong tenant → 401. Every answer is `application/scim+json`. Errors are RFC 7644's: `{"schemas": ["urn:ietf:params:scim:api:messages:2.0:Error"], "status": "<code as string>", "scimType"?: "uniqueness" | "invalidFilter" | "invalidValue" | "invalidPath" | "mutability" | "noTarget", "detail": "<text>"}`. `last_used_at` moves at most once a minute.
+
+| Route | Answer |
+|---|---|
+| `GET /scim/v2/:tenantId` | 200 `{}` (Figma's tenant check; 400 for an unknown tenant without a token) |
+| `GET …/ServiceProviderConfig` | `patch {supported: true}`, `bulk {supported: false, maxOperations: 0, maxPayloadSize: 0}`, `filter {supported: true, maxResults: 200}`, `changePassword`, `sort`, `etag` `{supported: false}`, `authenticationSchemes [{type: "oauthbearertoken", name: "OAuth Bearer Token", primary: true}]` |
+| `GET …/Schemas`, `GET …/ResourceTypes` | the three User schemas and the Group schema; resource types User (`/Users`, extensions enterprise + figma) and Group (`/Groups`) — RFC 7643 §6–§7 shapes |
+| `GET …/Users?filter=&startIndex=&count=` | ListResponse; filter `userName eq "…"` or `externalId eq "…"` only (else 400 `invalidFilter`); `count` ≤ 200 (Figma allows 3,000; our D1 pages are small), `startIndex` 1-based |
+| `GET …/Users/:id` | the User |
+| `POST …/Users` | 201 the User (below); an existing SCIM link for that `userName` in this org → 409 `uniqueness` |
+| `PUT …/Users/:id` | replaces every attribute it carries; absent optional ones are cleared |
+| `PATCH …/Users/:id` | PatchOp (below) |
+| `DELETE …/Users/:id` | 204: removed from the org (§14.7), SCIM link deleted; the account stays (decision 8) |
+| `GET/POST …/Groups`, `GET/PUT/PATCH/DELETE …/Groups/:id` | as Users; filter `displayName eq` / `externalId eq` |
+
+**User resource** (`id` = our `users.id`, Figma's `figmaUserId`):
+
+```json
+{
+  "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User", "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User", "urn:ietf:params:scim:schemas:extension:figma:enterprise:2.0:User"],
+  "id": "u_…", "externalId": "00u1…", "userName": "eve@acme.com",
+  "name": { "givenName": "Eve", "familyName": "Adams" }, "displayName": "Eve Adams", "title": "Design Manager",
+  "emails": [{ "value": "eve@acme.com", "primary": true, "type": "work" }],
+  "active": true,
+  "roles": [{ "type": "seatType", "value": "Full", "primary": true }],
+  "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User": { "employeeNumber": "…", "costCenter": "…", "organization": "…", "division": "…", "department": "…", "manager": { "value": "…", "displayName": "…" } },
+  "urn:ietf:params:scim:schemas:extension:figma:enterprise:2.0:User": { "figmaAdmin": false },
+  "meta": { "resourceType": "User", "created": "<ISO>", "lastModified": "<ISO>", "location": "<origin>/scim/v2/<tenant>/Users/u_…" }
+}
+```
+
+- **Create**: `userName` is the email (normalized; ≤ 100). The account by email, else a new one (`none:` placeholder). Any domain is accepted (the IdP is the admin's), but only verified domains can then use SAML (decision 4) — others sign in with Google when the method allows. The membership: `role` = `figmaAdmin ? 'admin' : 'member'` (an existing admin stays admin unless `figmaAdmin: false` is sent), seat = the `seatType` role (`Full` → `full` …) else `settings.defaultSeat`, `provisioned_by 'scim'`, `idp_attributes` = title, `externalId` and the enterprise attributes. A seat set here bypasses seat approval [F-scim]. Logs `idp_user_create` (entity `idp_user`, §15.11). `active: false` on create → the link only, no membership.
+- **Changes**: `userName` changes the account's email (Figma) — refused with 409 `uniqueness` when another account has that email; the person's Google sign-in then claims by `sub` as before. `active` false → removed from the org (§14.7: grants, groups, sockets, drafts to Unassigned), the link kept with `active = 0` (`idp_user_deactivate`); true → back as member with the link's seat (`idp_user_activate`). A seat change logs `idp_user_update` and `org_user_account_type_change`; `figmaAdmin` logs `org_user_permission_change`. Guests are never touched: a SCIM user who is a guest becomes a member.
+- **PatchOp** (`urn:ietf:params:scim:api:messages:2.0:PatchOp`, `Operations[]`): `op` `add` | `replace` | `remove`, case-insensitive (Entra sends `Replace`); `value` strings `"True"`/`"False"` accepted for booleans (Entra). Paths: `active`, `userName`, `displayName`, `title`, `externalId`, `name.givenName`, `name.familyName`, `roles` (whole list), `roles[type eq "seatType"].value`, `emails[type eq "work"].value` (= userName), `urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:<attr>` (and `:manager.value`, `:manager.displayName`), `urn:ietf:params:scim:schemas:extension:figma:enterprise:2.0:User:figmaAdmin`; no `path` → `value` is an object of those attributes (Okta's and Entra's form). Anything else → 400 `invalidPath`. Groups: `displayName` replace; `members` add (`value: [{value}]`), remove with `path: members[value eq "u_…"]` or `members` + value list, replace (whole list).
+- **Groups** (`scim_groups`, members in `scim_group_members`; Figma [F-scim-api]): on create and on every `displayName` change the group links, in order, to the org's **workspace** with exactly that name, else its **billing group** with that name, else a **user group** (§14.1) created with `external: true` (`user_groups.external_id` = the SCIM group id; `created_by` = the token's creator) — Figma: SCIM groups serve "workspaces, billing groups, and user groups" [F-scim]. Members then get: the workspace (`org_members.workspace_id`, and its default teams), the billing group (`billing_group_id`), or the user group's membership. A removed member loses it only if it still is that value. Unlinking (rename, delete) clears it the same way. Logs: `idp_group_create`, `idp_group_rename`, `idp_group_delete`, `idp_group_connection_add` / `_remove` (workspace or billing group). A user group made by SCIM can't be edited in Admin (its membership is the IdP's; `UserGroup.external` true, §14.13).
+- **Not supported**: `/Bulk`, `/Me`, sorting, ETags, `attributes=` / `excludedAttributes=` (ignored), filters other than `eq` on the listed attributes, groups of groups.
+
+### 15.6 Policies: `OrgSettings` and where each is enforced
+
+`OrgSettings` gains six fields (§15.12, committed verbatim); the round-1 ones keep their names. `PATCH /orgs/:org/admin/settings` validates and logs each (§15.11).
+
+| Field | Values (default) | Figma's row | Enforced in |
+|---|---|---|---|
+| `authMethod` | `"any"` · `"google"` · `"saml"` (`"any"`) | Authentication | sign-in only (§15.4, §15.3.4 step 7); `saml` needs `tested_at` (409); clients: nothing |
+| `idleSessionTimeoutHours` | `null` (= 504, Figma's 21 days) or 12…336 | Idle session timeout › Custom timeout | `authenticate` (§15.8); a change resets the org's people's `active_at`; main's prompt (desktop.md §18) |
+| `domainCapture` | `false` | Manage domains › Domain capture | needs ≥ 1 domain, all verified (409 `domain_unverified`); turning on captures existing accounts (§15.7); sign-in captures new ones |
+| `externalContent` | `"allowed"` · `"restricted"` (`"allowed"`) | Content access › Access to external content | needs `domainCapture` (409); `resolveAccess` cap `external` (§15.9); `POST /files` without `orgId`, `POST /orgs`, `POST /orgs/:other/drafts`, `POST /teams/:t/join` and invite claiming outside the home org → 403 `external_restricted`; clients: Home hides "+ Create" in other spaces, the editor shows the view-only banner "Your organization only allows you to view this file" (ours, unverified wording) |
+| `passwordMode` | `"any"` · `"autogenerated"` (`"any"`) | Password protection options › Autogenerated passwords only | `PATCH /files/:key {linkPassword}` refuses one that isn't `isGeneratedPassword` (400 `password_policy`); ShareDialog hides the field and keeps **Generate** |
+| `openSessions` | `true` | FigJam open sessions | stored; enforced when FigJam's open sessions exist (round 9) |
+| `publicLinks` (round 1) | `true` | Public link sharing | `filePolicy` (§15.12): off → `PATCH {linkAccess ≠ none}` and `{protoLinkAccess ≠ none}` 403 `public_links_off`; `resolveAccess` step 4 ignores `link_access` / `proto_link_access` of org files; `/embed/<key>` refuses; `org_link_access` keeps working; the Share dialog shows only "Anyone at ‹org›" and invited people |
+| `passwordRequired` (round 1) | `false` | Require passwords | `PATCH {linkAccess ≠ none}` on a file with no password → 400 `password_policy`; removing the password of a file with a public link → 400; `resolveAccess` step 4 treats a public link **without** a password as off |
+| `linkExpiryMaxHours` (round 1) | `null` or **1…744** (31 days; round 1 allowed a year — narrowed) | Require design file links to expire | `PATCH {linkAccess ≠ none}` needs `linkExpiresAt` ≤ now + max (400 `link_expiry_policy`); turning it on or lowering it sets `link_expires_at = min(link_expires_at, now + max)` on every org file with a public link (one UPDATE); FigJam files: public links off (`filePolicy`) |
+| `guestMembership` (round 1) | as built (§14.15) | Guest membership | as built; plus workspace admins answer guest requests for resources in their workspaces [F-guestctl]; members' invites of emails on **any** of the org's domains (verified or not) make **members**, not guests [F-domain] |
+| `cursorChat` (round 1) | `true` | Communication › Cursor chat | `welcome.policy` / `policy` message (§15.9); the editor: `/` doesn't open cursor chat, chat bubbles of others aren't drawn |
+| `audio` (round 1) | `true` | Other › Audio | same; the editor hides Start conversation and leaves an ongoing one |
+
+**Per-workspace sharing** [F-share]: `workspaces.settings` (§14.5, until now `{}`) holds `WorkspaceSharingSettings` `{publicLinks?, passwordRequired?, linkExpiryMaxHours?}` — each present key overrides the org's for files in teams of that workspace (drafts and teams outside workspaces use the org's). `PATCH admin/workspaces/:id {sharing: WorkspaceSharingSettings | null}`; `OrgWorkspace.sharing`. Logs `workspace_public_link_setting_change`. The effective policy of a file is `filePolicy(settings, workspaceSharing, editorType)` (§15.12), computed by the Worker and returned by `GET /files/:key` as `policy` (null outside orgs).
+
+**Existing links when a policy tightens** (Figma doesn't say, ours): public links off or passwords required → nothing is rewritten (the files' own settings come back if the policy is relaxed); `resolveAccess` and `/embed` read the policy. Expiry → `link_expires_at` is clamped (above). In every case the Worker reauths the org's rooms for link-only people (`POST /room/revoke-link` to each org file with a public link).
+
+### 15.7 Domains and capture
+
+- **Rows**: `org_domains(org_id, domain, token, created_at, created_by, verified_at)`; a **verified** domain is unique across orgs (decision 9: partial unique index).
+- **Add**: `POST /orgs/:org/admin/domains {domain}` → `normalizeDomain` (§15.12: lower case, no scheme / path / port / trailing dot, a valid hostname with a dot, ≤ 253) else 400; verified elsewhere → 409 `domain_taken`; `{domain: OrgDomain}` with `txtRecord` = `designerv2-domain-verification=<token>` (token 32 hex). Logs `org_domain_add`.
+- **Verify**: `POST admin/domains/:domain/verify` → `fetch("https://cloudflare-dns.com/dns-query?name=<domain>&type=TXT", {headers: {accept: "application/dns-json"}})`; `Status == 0`; the TXT `Answer` records (`type == 16`), each `data` un-quoted with its quoted strings joined (`"a" "b"` → `ab`), compared exactly with the record. Found → `verified_at = now`, logs `org_domain_verify`; not found → 409 `domain_unverified` `{found: string[]}` (the TXT values seen, so the dialog can show them). DNS propagation is the admin's wait; there is no background re-check. DoH failure → 503.
+- **Remove**: `DELETE admin/domains/:domain` → refused for the domain of the caller's own email (409); members whose email is on it (and on no other domain of the org) become **guests** (`org_members.role`, reauth); logs `org_domain_remove`. Capture stays on only while ≥ 1 verified domain remains (else turned off and `org_domain_capture_change` logged).
+- **Capture on** (`PATCH admin/settings {domainCapture: true}`): every account whose email is on a verified domain and who isn't in the org is added as a **member, View seat** [F-domain] (`org_members`, `invited_by` null, `details.domain_capture: true` on `org_user_create`) and gets a notification `org_domain_captured` (§12; wording ours: "You were added to ‹org›"); guests on those domains become members. From then on `/auth/callback` and the ACS capture at sign-in. Off: nothing is undone.
+- **"Manage domain"** list [F-domain]: `GET admin/domains/:domain/accounts` → `{people: PersonRef[]}` — accounts with emails on the domain that aren't members (role `guest` or not in the org).
+- **Member or guest at invite** (4b, in the invite paths of §14.12): an email on any domain of the org (verified or not) → member; otherwise the guest policy (§14.15). Org admins' invites stay members (the owner's decision).
+
+### 15.8 Sessions and the idle timeout
+
+- **Columns** (0013): `sessions.auth_method` (`google` · `saml` · `dev`; older rows `google`), `sessions.auth_org_id` (SAML's org), `sessions.active_at` (the last **user activity**; older rows = `last_seen_at`), `sessions.idle_limit_ms` (null = no limit).
+- **The limit** of a person: `idleLimitMs` (§15.12) = the smallest `idleSessionTimeoutHours ?? 504` over the orgs where they are **admin or member** (not guest), × 3,600,000; none → null. Computed into `sessions.idle_limit_ms` with one UPDATE … (subquery over `org_members` × `orgs.settings`): at session creation, in the 5-minute touch of `authenticate` (so membership changes reach it within 5 minutes), and for the org's people when the setting changes.
+- **Activity**: `POST /me/sessions/active` (exists, §14.15) also sets `active_at = now` and answers `{activeAt, idleLimitMs}`. The desktop app calls it at most once a minute while the person uses the app (input events in any view, docs/desktop.md §18), the web app on its own input; nothing else moves `active_at`.
+- **Check**: in `authenticate`, before anything else, the touch returns `active_at, idle_limit_ms`; if `idle_limit_ms != null and now − active_at > idle_limit_ms` → the row is deleted, `user_idle_session_timeout` is logged in each of the person's member orgs (`details: {logged_on: "request"}` — a background timeout, logged when next seen, as Figma), and 401 `{code: "idle_timeout"}`. Sockets: the Worker checks on upgrade; open sockets are not polled — the app's own timer (below) closes them by signing out.
+- **The app's timer**: `GET /me` adds `session: {id, auth, activeAt, idleLimitMs} | null`. Main schedules the prompt at `activeAt + idleLimitMs − 60 s` (desktop.md §18): "Stay logged in" calls `/me/sessions/active`; no answer by the deadline → main sends `DELETE /me/sessions/current?reason=idle` (204; deletes the row, logs `user_idle_session_timeout` with `details: {logged_on: "client"}` — "Timeouts from an open browser or desktop app are logged immediately" [F-idle]) and signs out locally.
+- **A change of the setting** (`idle_timeout_setting_change`): `UPDATE sessions SET active_at = now, idle_limit_ms = <recomputed> WHERE user_id IN (the org's admins and members)` — Figma's reset; the store learns it from the `{t: "org", what: "org"}` notice and asks `GET /me` again (main does, docs/desktop.md §18).
+- **Unchanged**: Sign out per session and Sign out everywhere (§13); personal access tokens are not sessions and have no idle limit (Figma's PATs aren't subject to it either, unverified).
+
+### 15.9 Where the policies reach rooms and `resolveAccess`
+
+- **`AccessRows`** (§14.4) gains, filled by `loadAccessRows`: `homeOrgId: string | null` (the org whose **verified** domain matches the user's email and which has `domainCapture` on, with the user a member or admin there), `externalRestricted` = that org's `externalContent == "restricted"` (no longer always false), and `policy: FilePolicy | null` (the file's org, §15.6).
+- **`resolveAccess` changes** (in `src/shared/org/access.ts`; new cases 23–30 in `access.test.ts`):
+  - step 4 (public link) applies only if `policy == null or (policy.publicLinks and (not policy.passwordRequired or file.passwordProtected))`; `proto_link_access` the same;
+  - step 5's external cap also applies to **files outside any org** (`orgId == null`): `legacy(r)` is capped the same way when `externalRestricted` (Figma: drafts in Starter or Professional teams become view-only);
+  - the external cap applies when `file.orgId != homeOrgId` (was: "the user's home org", now defined).
+  - Cases: 23 public links off, outsider by link → none; 24 same, member by org link → viewer; 25 password required, link without password → none for link-only, unchanged for invited; 26 restricted member, legacy file shared "can edit" → viewer, no comments; 27 restricted member, their own legacy file → viewer (`capped: external`); 28 restricted member, file in the home org → unchanged; 29 restricted, file in another org by public password link with pass → viewer; 30 not captured (capture off) → no cap.
+- **Room policy**: the Worker adds `x-policy: {"cursorChat":bool,"audio":bool}` (from `filePolicy`; absent outside orgs = both true) to the socket upgrade it forwards; the room puts it in `welcome.policy`. On a change of `cursorChat` or `audio` the Worker posts `POST /room/policy {cursorChat, audio}` to every room of the org's files (inline, as reauth), and the room broadcasts `{t: "policy", policy}` (protocol §15.12). Clients apply it at once.
+- **Close code** `4012` (`CLOSE_MOVING`): the room is moving to another region (§15.10); clients reconnect after 2 s, like 4003.
+- **Activity "external" events** [F-log]: Figma logs `fig_file_view_external`, `fig_file_view_prototype_external`, `org_user_create_external`, `team_member_add_external` … in the **home** org of a captured member who views or joins **another** org's content ("Only logged for Enterprise organizations with Domain Capture enabled"). Round 1a logs `fig_file_view_external` in the *file's* org when a guest views — a misreading; round 4 (4b) changes it: the file's org logs `fig_file_view` (guest or not), and the viewer's home org (when captured and different) logs `fig_file_view_external` / `fig_file_view_prototype_external` with the file's entity.
+
+### 15.10 Data storage localization (EU)
+
+- **What moves** (Cloudflare `eu` jurisdiction [CF-do]): each org file's **room** (`FileRoom`: snapshot, frames, images, versions, branch base chunks — Figma's localized "file content"), branch rooms (they are org files), and each org library's **`LibraryObject`** (components and images). **What stays**: D1 (names, comments, members, activity log, sessions, analytics — Figma doesn't localize these either [F-region]), `FontObject` (fonts aren't localized), `PreviewObject` (developer previews are published publicly), `Inbox` (per person). Cloudflare can't relocate an object [CF-do]: moving is copying.
+- **Rows**: `orgs.data_region` `'default' | 'eu'` (`OrgInfo.dataRegion`); `files.jurisdiction` and `libraries.jurisdiction` `NULL | 'eu'`.
+- **Addressing**: `index.ts` `Rooms.fetch(fileKey, …)` keeps its signature; it reads `SELECT jurisdiction FROM files WHERE key = ?1` (one D1 read per room call, **no cache** — a stale cache would wake an empty object in the old namespace) and uses `env.ROOMS.jurisdiction("eu").idFromName(key)` for `'eu'`, else `env.ROOMS.idFromName(key)`. `libraries/db.ts objectFetch` the same with `libraries.jurisdiction`. New files: `POST /files` / drafts / folder files in an org with `data_region = 'eu'` insert `jurisdiction = 'eu'` before the first snapshot upload.
+- **Routes** (org admins; ours — Figma: read-only, via Support):
+  - `GET /orgs/:org/admin/data-region` → `DataRegionStatus {region, files: {total, moved}, libraries: {total, moved}, moving: string | null}`.
+  - `PUT admin/data-region {region: "default" | "eu"}` → `DataRegionStatus`; sets `orgs.data_region` (new files follow at once); logs `data_storage_localization_change` (ours: Figma lists no action).
+  - `POST admin/data-region/move` → moves **one** file (or library) whose jurisdiction differs from the org's region and answers `DataRegionStatus` with `moving: null`; the Admin page calls it in a loop with a progress bar ("Moving files… 12 of 40"). One per call keeps each request within the free plan's subrequest and CPU limits.
+- **Moving a room** (`server/src/policy/region.ts`): (1) `POST /room/freeze` on the old object — closes sockets with `4012` and refuses sockets and writes with 503 `{code: "moving"}` until deleted; (2) `GET /room/dump?after=<cursor>` pages (≤ 4 MB JSON each: `{rows: {table, row}[], cursor | null}`, every table of the room's SQLite in rowid order, blobs base64) → `POST /room/load` on the new object, until `cursor` is null; (3) `UPDATE files SET jurisdiction = ?`; (4) `DELETE /room` on the old object. A failure before (3) unfreezes (`POST /room/unfreeze`) and deletes the partial copy. Libraries the same over `LibraryObject` (`/object/freeze`, `/object/dump`, `/object/load`). Edits during the move are refused, so clients retry after reconnecting; the window is seconds for our files.
+- **Unknown until deployed**: whether the Workers **free plan** allows jurisdiction-restricted Durable Objects ([CF-do] doesn't say). Round 4 checks on the first deploy; if refused, the Admin page shows the region as unavailable and nothing else changes.
+
+### 15.11 Activity log (round 4's actions)
+
+All Figma's names [F-log] unless marked ours. Entity `idp_user` = `{id: <users.id>, user_name, org_saml_id: <tenantId>, external_id}` (Figma's fields; `ActivityEntityType` already lists it).
+
+| Group | Actions | Written by |
+|---|---|---|
+| SSO | `google_sso_auth_change`, `saml_sso_auth_change` (authMethod from / to), `idp_config_create`, `idp_config_update`, `idp_config_delete` | admin settings, SAML config routes |
+| Authentications | `scim_token_generate`, `scim_token_revoke` | SCIM token routes |
+| SCIM users (entity `idp_user`) | `idp_user_create`, `idp_user_update` (seat — Figma: "paid status"), `idp_user_activate`, `idp_user_deactivate`, `idp_user_delete` | SCIM |
+| SCIM groups | `idp_group_create`, `idp_group_rename`, `idp_group_delete`, `idp_group_connection_add`, `idp_group_connection_remove` | SCIM |
+| Domain management | `org_domain_add`, `org_domain_verify`, `org_domain_remove`, `org_domain_capture_change` | domain routes, settings |
+| Users | `user_sign_in` (`details.method`: `google` · `saml` · `dev` — ours), `user_idle_session_timeout`, `user_sign_out` | sign-in, §15.8 |
+| Settings | `idle_timeout_setting_change`, `cursor_chat_setting_change`, `open_sessions_setting_change`, `external_collaboration_controls_setting_change`, `autogen_password_controls_setting_change`, `public_link_setting_change` (publicLinks, passwordRequired, linkExpiryMaxHours — the last two inferred), `workspace_public_link_setting_change`, `org_guest_invite_setting_change` (exists) | `PATCH admin/settings`, workspaces |
+| Ours (Figma lists none) | `audio_setting_change`, `data_storage_localization_change`, `fig_file_region_move` (a file or library moved; entity `file`) | settings, data region |
+| External (corrected, §15.9) | `fig_file_view_external`, `fig_file_view_prototype_external`, `org_user_create_external`, `org_user_delete_external`, `team_member_add_external`, `team_member_remove_external` — in the **home** org | room upgrade, invites |
+
+Not written (not built): `mfa_required_setting_change`, `org_domain_idp_mapping_change` (Governance+ multiple IdPs, round 14), `plan_access_token_*` (round 5), `sites_*`, `open_sessions_start` / `_end` (round 9).
+
+### 15.12 Shared types (committed verbatim before round 4)
+
+The main session commits these before the agents start; the agents compile against them. If a type has to change, the contract changes first.
+
+**`src/shared/org/identity.ts`** (new):
+
+```ts
+/**
+ * Identity and security (docs/multiplayer.md §15, Phase 7 round 4): SAML SSO, SCIM, domains, sharing policies, the
+ * idle session timeout, data storage localization. Shared by the Worker, the store, main and the views; pure, no I/O.
+ */
+import type { EditorType, OrgRole, OrgSettings, PersonRef } from "./types";
+
+// ---- sign-in -------------------------------------------------------------------------------------------------------
+
+/** Admin › Settings › Authentication [F-auth]: "Members may log in with any method…" (default) / "…with a Google account" / "…with SAML SSO" */
+export type AuthMethod = "any" | "google" | "saml";
+/** How a session was signed in (sessions.auth_method) */
+export type SessionAuth = "google" | "saml" | "dev";
+/** `error=` values the loopback (or the web page's `auth_error`) can receive, besides Google's own */
+export type SignInError = "access_denied" | "google_failed" | "sso_failed" | "sso_domain" | "google_required";
+export const SIGN_IN_ERROR_TEXT: Record<SignInError, string> = {
+  access_denied: "Sign-in was cancelled.",
+  google_failed: "Google sign-in didn't work. Try again.",
+  sso_failed: "Single sign-on didn't work. Try again, or ask your organization's admin.",
+  sso_domain: "Your email isn't on a verified domain of this organization. Ask your organization's admin.",
+  google_required: "Your organization requires you to log in with a Google account.",
+};
+/** `POST /auth/sso {email}` (JSON) */
+export interface SsoLookup { tenantId: string; orgName: string }
+/** `GET /me`'s `session` (null for a personal access token) */
+export interface SessionIdle { id: string; auth: SessionAuth; activeAt: number; idleLimitMs: number | null }
+
+// ---- SAML ----------------------------------------------------------------------------------------------------------
+
+export type IdpProvider = "okta" | "entra" | "onelogin" | "google" | "custom";
+export const IDP_PROVIDER_LABEL: Record<IdpProvider, string> = { okta: "Okta", entra: "Microsoft Entra ID", onelogin: "OneLogin", google: "Google Workspace", custom: "Other" };
+export interface IdpCertificateInfo { sha256: string; subject: string; notAfter: number }
+export interface IdpConfig {
+  tenantId: string;
+  provider: IdpProvider;
+  idpEntityId: string;
+  ssoUrl: string;
+  /** The PEMs stay on the server */
+  certificates: IdpCertificateInfo[];
+  metadataUrl: string | null;
+  signing: "assertion" | "assertion_or_response";
+  /** Figma's "SP Entity ID" (also the SP metadata), "SP ACS URL", the start URL */
+  spEntityId: string;
+  spAcsUrl: string;
+  startUrl: string;
+  /** The first successful sign-in through this configuration; "Members must log in with SAML SSO" needs it */
+  testedAt: number | null;
+  updatedAt: number;
+}
+/** `PUT admin/identity/saml`: the metadata (a URL or the XML) or the three values by hand [F-adfs] */
+export interface IdpConfigInput {
+  provider: IdpProvider;
+  metadataUrl?: string;
+  metadataXml?: string;
+  idpEntityId?: string;
+  ssoUrl?: string;
+  /** PEM, or base64 DER as IdPs show it */
+  certificate?: string;
+  signing?: IdpConfig["signing"];
+}
+
+// ---- SCIM ----------------------------------------------------------------------------------------------------------
+
+export const SCIM_USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User";
+export const SCIM_ENTERPRISE_SCHEMA = "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User";
+/** Figma's own extension [F-scim-api] (its one attribute: figmaAdmin) */
+export const SCIM_FIGMA_SCHEMA = "urn:ietf:params:scim:schemas:extension:figma:enterprise:2.0:User";
+export const SCIM_GROUP_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:Group";
+export const SCIM_SEAT_VALUE = { full: "Full", dev: "Dev", collab: "Collab", view: "View" } as const;
+export interface ScimTokenInfo { id: string; createdAt: number; createdBy: PersonRef | null; lastUsedAt: number | null }
+/** `POST admin/identity/scim-token`: the token is shown once */
+export interface ScimTokenCreated { token: string; info: ScimTokenInfo }
+/** What SAML / SCIM told us about a member (Admin › People's metadata columns) */
+export interface IdpAttributes {
+  provisionedBy: "scim" | "jit" | null;
+  /** SCIM's `active`; null when not SCIM-managed */
+  scimActive: boolean | null;
+  externalId?: string;
+  title?: string;
+  employeeNumber?: string;
+  costCenter?: string;
+  organization?: string;
+  division?: string;
+  department?: string;
+  managerValue?: string;
+  managerDisplayName?: string;
+}
+
+// ---- domains -------------------------------------------------------------------------------------------------------
+
+export const DOMAIN_TXT_PREFIX = "designerv2-domain-verification=";
+export interface OrgDomain { domain: string; verified: boolean; verifiedAt: number | null; txtRecord: string; createdAt: number }
+/** `GET admin/identity`: Admin › Settings › Login and provisioning in one read */
+export interface IdentityOverview {
+  authMethod: AuthMethod;
+  idp: IdpConfig | null;
+  scim: { baseUrl: string; token: ScimTokenInfo | null } | null;
+  domains: OrgDomain[];
+  domainCapture: boolean;
+}
+
+/** The part of an email after its last "@", lower case; null when there is none */
+export function emailDomain(email: string): string | null {
+  const at = email.lastIndexOf("@");
+  const d = at < 0 ? "" : email.slice(at + 1).trim().toLowerCase();
+  return d && !d.includes("@") ? d : null;
+}
+
+/** A domain as an admin typed it → "acme.com", or null (scheme, path, port, "www." are not stripped silently: only a
+ *  scheme and a trailing dot or slash are). Hostname rules: labels 1–63 of [a-z0-9-], not starting or ending with "-",
+ *  at least two labels, ≤ 253 characters. */
+export function normalizeDomain(input: string): string | null {
+  const d = input.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/+$/, "").replace(/\.$/, "");
+  if (d.length === 0 || d.length > 253 || /[/:?#@\s]/.test(d)) return null;
+  const labels = d.split(".");
+  if (labels.length < 2) return null;
+  for (const l of labels) if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(l)) return null;
+  return d;
+}
+
+// ---- sharing policies ----------------------------------------------------------------------------------------------
+
+/** Admin › Public sharing › Custom settings for workspaces [F-share]: each present key overrides the org's */
+export interface WorkspaceSharingSettings { publicLinks?: boolean; passwordRequired?: boolean; linkExpiryMaxHours?: number | null }
+/** A file's effective policy (`GET /files/:key` → `policy`; null outside orgs) */
+export interface FilePolicy {
+  publicLinks: boolean;
+  passwordRequired: boolean;
+  passwordMode: "any" | "autogenerated";
+  linkExpiryMaxHours: number | null;
+  cursorChat: boolean;
+  audio: boolean;
+  openSessions: boolean;
+}
+export const LINK_EXPIRY_MAX_HOURS = 744; // Figma: 1 hour to 31 days
+
+export function filePolicy(s: OrgSettings, ws: WorkspaceSharingSettings | null, editorType: EditorType): FilePolicy {
+  const linkExpiryMaxHours = ws && ws.linkExpiryMaxHours !== undefined ? ws.linkExpiryMaxHours : s.linkExpiryMaxHours;
+  const publicLinks = (ws?.publicLinks ?? s.publicLinks) && !(editorType === "figjam" && linkExpiryMaxHours !== null);
+  return {
+    publicLinks,
+    passwordRequired: ws?.passwordRequired ?? s.passwordRequired,
+    passwordMode: s.passwordMode,
+    linkExpiryMaxHours,
+    cursorChat: s.cursorChat,
+    audio: s.audio,
+    openSessions: s.openSessions,
+  };
+}
+
+/** The room's part of the policy (`welcome.policy`, `{t: "policy"}`) */
+export interface RoomPolicy { cursorChat: boolean; audio: boolean }
+
+/** Four random words, Figma's "Autogenerated passwords" (the Share dialog's Generate; moved here from ShareDialog.tsx) */
+export const PASSWORD_WORDS: readonly string[] = "amber anchor apple arrow autumn bamboo beacon berry bloom breeze canyon cedar cloud comet coral cotton crystal dawn delta desert echo ember falcon fern forest frost galaxy garden glacier harbor hazel horizon island ivory jade jasmine juniper lagoon lemon lily lotus maple meadow meteor mint moss nebula oasis ocean olive orbit orchid pebble pepper pine planet plum prairie quartz rain raven reef river robin saffron sage sand shadow silver sky spruce star stone storm summer sunset thunder tide timber topaz tulip valley velvet violet willow winter".split(" ");
+export function generateLinkPassword(): string {
+  const r = crypto.getRandomValues(new Uint32Array(4));
+  return [...r].map((n) => PASSWORD_WORDS[n % PASSWORD_WORDS.length]).join("-");
+}
+export function isGeneratedPassword(p: string): boolean {
+  const words = p.split("-");
+  return words.length === 4 && words.every((w) => PASSWORD_WORDS.includes(w));
+}
+
+// ---- idle session timeout ------------------------------------------------------------------------------------------
+
+export const IDLE_DEFAULT_HOURS = 504; // 21 days [F-idle]
+export const IDLE_MIN_HOURS = 12;
+export const IDLE_MAX_HOURS = 336; // 14 days
+/** The idle limit of a person: the shortest over the orgs where they are a member or admin (guests: none); null: no org */
+export function idleLimitMs(orgs: { role: OrgRole; settings: Pick<OrgSettings, "idleSessionTimeoutHours"> }[]): number | null {
+  let hours: number | null = null;
+  for (const o of orgs) {
+    if (o.role === "guest") continue;
+    const h = o.settings.idleSessionTimeoutHours ?? IDLE_DEFAULT_HOURS;
+    hours = hours === null ? h : Math.min(hours, h);
+  }
+  return hours === null ? null : hours * 3_600_000;
+}
+/** The prompt shows this long before the logout [F-idle] */
+export const IDLE_WARNING_MS = 60_000;
+
+// ---- data storage localization -------------------------------------------------------------------------------------
+
+export type DataRegion = "default" | "eu";
+export const DATA_REGION_LABEL: Record<DataRegion, string> = { default: "Default", eu: "European Union" };
+export interface DataRegionStatus {
+  region: DataRegion;
+  files: { total: number; moved: number };
+  libraries: { total: number; moved: number };
+  /** The file or library key being moved by this call, or null */
+  moving: string | null;
+  /** False when Cloudflare refused a jurisdiction-restricted object (§15.10) */
+  available: boolean;
+}
+
+// ---- errors and the activity log -----------------------------------------------------------------------------------
+
+/** New `code`s of §14.12's error bodies */
+export type IdentityErrorCode =
+  | "sso_not_found" | "idle_timeout" | "external_restricted" | "domain_unverified" | "domain_taken"
+  | "password_policy" | "link_expiry_policy" | "public_links_off" | "moving";
+
+/** Round 4's activity actions (§15.11): Figma's names, then ours */
+export type IdentityActivityAction =
+  | "google_sso_auth_change" | "saml_sso_auth_change" | "idp_config_create" | "idp_config_update" | "idp_config_delete"
+  | "scim_token_generate" | "scim_token_revoke"
+  | "idp_user_create" | "idp_user_update" | "idp_user_activate" | "idp_user_deactivate" | "idp_user_delete"
+  | "idp_group_create" | "idp_group_rename" | "idp_group_delete" | "idp_group_connection_add" | "idp_group_connection_remove"
+  | "org_domain_add" | "org_domain_verify" | "org_domain_remove" | "org_domain_capture_change"
+  | "user_idle_session_timeout" | "idle_timeout_setting_change" | "cursor_chat_setting_change" | "open_sessions_setting_change"
+  | "external_collaboration_controls_setting_change" | "autogen_password_controls_setting_change" | "workspace_public_link_setting_change"
+  | "fig_file_view_prototype_external"
+  // ours
+  | "audio_setting_change" | "data_storage_localization_change" | "fig_file_region_move";
+```
+
+**`src/shared/org/types.ts`** — additions, each in a marked block:
+
+```ts
+// in `interface OrgSettings`, after `audio: boolean;`:
+  // ---- Phase 7 round 4: identity and security (docs/multiplayer.md §15.6) ----
+  /** Authentication: any method (default), a Google account, SAML SSO — checked at sign-in, members only */
+  authMethod: "any" | "google" | "saml";
+  /** Idle session timeout in hours, 12…336; null: Figma's default 21 days */
+  idleSessionTimeoutHours: number | null;
+  /** Domain capture: needs every domain verified */
+  domainCapture: boolean;
+  /** Access to external content: "restricted" needs domainCapture */
+  externalContent: "allowed" | "restricted";
+  /** Password protection options: "autogenerated" = Autogenerated passwords only */
+  passwordMode: "any" | "autogenerated";
+  /** FigJam open sessions (enforced with FigJam, round 9) */
+  openSessions: boolean;
+
+// DEFAULT_ORG_SETTINGS gains:
+  authMethod: "any", idleSessionTimeoutHours: null, domainCapture: false, externalContent: "allowed", passwordMode: "any", openSessions: true,
+
+// in `interface OrgInfo`, after `settings: OrgSettings;`:
+  /** Data storage localization (§15.10); optional so round 1–3 code compiles, always sent from round 4 */
+  dataRegion?: DataRegion;
+
+// `interface OrgWorkspace` gains `sharing?: WorkspaceSharingSettings | null;` (always sent from round 4)
+// `interface WorkspacePatch` gains `sharing?: WorkspaceSharingSettings | null;`
+// `interface AdminPerson` gains `idp?: IdpAttributes | null;` (always sent from round 4)
+// (New fields of existing interfaces are optional so the commit compiles before the agents; an object literal of
+// OrgSettings that stops compiling is completed from DEFAULT_ORG_SETTINGS by the main session in the same commit.)
+// `interface FileAccess` `capped` stays "seat" | "external" | null (unchanged)
+// `type ActivityAction` gains `| IdentityActivityAction` as its last member
+// the import at the top: `import type { DataRegion, IdentityActivityAction, IdpAttributes, WorkspaceSharingSettings } from "./identity";`
+```
+
+**`src/shared/multiplayer/protocol.ts`** — additions:
+
+```ts
+// `welcome` gains an optional field (absent outside orgs = everything allowed):
+  | { t: "welcome"; sessionID: number; role: Role; seq: number; peers: PeerInfo[]; snapshotSeq: number; policy?: RoomPolicy }
+// a new ServerControl member:
+  /** The org changed cursor chat or audio (docs/multiplayer.md §15.9) */
+  | { t: "policy"; policy: RoomPolicy }
+// and, with the import `import type { RoomPolicy } from "../org/identity";`:
+/** The room is moving to another region (§15.10): reconnect after a moment */
+export const CLOSE_MOVING = 4012;
+```
+
+**`src/shared/org/repositories.ts`** — a new repository (the store's `identity`, 4c; Admin's, 4d):
+
+```ts
+import type * as I from "./identity";
+
+/** Admin › Settings › Login and provisioning, domains, data storage localization (docs/multiplayer.md §15; org admins) */
+export interface IdentityRepository {
+  overview(orgId: string): Promise<I.IdentityOverview>;
+  saveIdp(orgId: string, input: I.IdpConfigInput): Promise<I.IdpConfig>;
+  refreshIdpMetadata(orgId: string): Promise<I.IdpConfig>;
+  deleteIdp(orgId: string): Promise<void>;
+  generateScimToken(orgId: string): Promise<I.ScimTokenCreated>;
+  revokeScimToken(orgId: string): Promise<void>;
+  addDomain(orgId: string, domain: string): Promise<I.OrgDomain>;
+  /** Throws a StoreError with code "domain_unverified" and `found` (the TXT values seen) when the record isn't there */
+  verifyDomain(orgId: string, domain: string): Promise<I.OrgDomain>;
+  removeDomain(orgId: string, domain: string): Promise<void>;
+  domainAccounts(orgId: string, domain: string): Promise<O.PersonRef[]>;
+  dataRegion(orgId: string): Promise<I.DataRegionStatus>;
+  setDataRegion(orgId: string, region: I.DataRegion): Promise<I.DataRegionStatus>;
+  /** Moves one file or library; call until `files.moved == files.total` and `libraries.moved == libraries.total` */
+  moveNext(orgId: string): Promise<I.DataRegionStatus>;
+}
+// StoreApi (src/shared/store/repositories.ts) gains `identity: IdentityRepository;` with a notImplemented stub in both
+// stores, committed with these types (as rounds 1 and 3 did).
+```
+
+### 15.13 Routes (round 4)
+
+Conventions of §14.12 (JSON, `{error, code}`); SCIM's are §15.5's.
+
+**Sign-in** (no session):
+
+| Route | Request | Answer |
+|---|---|---|
+| `GET /auth/login` | `port`·`return`, `state`, `challenge`, `method=google`?, `tenant`? | the login page; or 302 to Google / to `/saml/:tenantId/start?st=` |
+| `POST /auth/sso` | form `{email, st}` · JSON `{email}` | 302 to the start · `SsoLookup` / 404 `sso_not_found` |
+| `GET /saml/:tenantId` | — | SP metadata XML |
+| `GET /saml/:tenantId/start` | `st`? | 302 to the IdP (AuthnRequest) · the "log in from the app" page |
+| `POST /saml/:tenantId/consume` | form `{SAMLResponse, RelayState}` | 302 to the loopback / web page with `code` or `error` · the bounce page (unsolicited) · 403 page |
+
+**The account** (session):
+
+| Route | Answer |
+|---|---|
+| `GET /me` | adds `session: SessionIdle \| null` |
+| `POST /me/sessions/active` | `{activeAt, idleLimitMs}` (was 204) |
+| `DELETE /me/sessions/current?reason=idle` | 204; logs the idle timeout (`reason` absent: a plain Log out, `user_sign_out`) |
+
+**Admin** (`/orgs/:org/admin/…`, org admins only — workspace and billing-group admins get 403 `not_admin`):
+
+| Route | Request → Answer |
+|---|---|
+| `GET admin/identity` | → `IdentityOverview` |
+| `PUT admin/identity/saml` | `IdpConfigInput` → `{idp: IdpConfig}` (400 naming the bad field: unreachable metadata, no signing certificate, an RSA key < 2048, no HTTP-Redirect SSO service) |
+| `POST admin/identity/saml/refresh` | → `{idp}` (re-fetches `metadataUrl`) |
+| `DELETE admin/identity/saml` | → 204 (409 while `authMethod` is `saml`; also revokes the SCIM token) |
+| `POST admin/identity/scim-token` | → `ScimTokenCreated` (409 without an IdP config: "Set up SAML SSO first") |
+| `DELETE admin/identity/scim-token` | → 204 |
+| `POST admin/domains` | `{domain}` → `{domain: OrgDomain}` |
+| `POST admin/domains/:domain/verify` | → `{domain}` · 409 `domain_unverified {found}` · 409 `domain_taken` |
+| `DELETE admin/domains/:domain` | → 204 |
+| `GET admin/domains/:domain/accounts` | → `{people: PersonRef[]}` |
+| `GET admin/data-region` · `PUT admin/data-region {region}` · `POST admin/data-region/move` | → `DataRegionStatus` |
+| `PATCH admin/settings` (§14.12) | the new keys of §15.6 |
+| `PATCH admin/workspaces/:id` (§14.12) | `{sharing}` |
+| `GET admin/people` (§14.12) | each `AdminPerson` with `idp` |
+
+**Files** (§14.12): `GET /files/:key` adds `policy: FilePolicy | null`; `PATCH /files/:key` refuses with `public_links_off`, `password_policy`, `link_expiry_policy` as §15.6; `POST /files` refuses with `external_restricted` (§15.9).
+
+**Last-resort recovery** (the owner, if an IdP breaks while SAML is required): `npx wrangler d1 execute designer --remote --command "UPDATE orgs SET settings = json_set(settings, '$.authMethod', 'any') WHERE id = '<org>'"`.
+
+### 15.14 D1: migration `server/migrations/0013_identity.sql`
+
+The latest migration is `0012_libraries.sql`. Agent 4a copies this text verbatim.
+
+```sql
+-- Identity and security (docs/multiplayer.md §15): SAML SSO per org, SCIM, domains, sessions' auth method and idle
+-- timeout, data storage localization. Times are ms since the epoch.
+
+-- One SAML configuration per org (§15.3.1). certificates: JSON array of PEM strings (≤ 2).
+CREATE TABLE idp_configs (
+  org_id        TEXT PRIMARY KEY REFERENCES orgs (id) ON DELETE CASCADE,
+  tenant_id     TEXT NOT NULL UNIQUE,
+  provider      TEXT NOT NULL CHECK (provider IN ('okta', 'entra', 'onelogin', 'google', 'custom')),
+  idp_entity_id TEXT NOT NULL,
+  sso_url       TEXT NOT NULL,
+  certificates  TEXT NOT NULL,
+  metadata_url  TEXT,
+  signing       TEXT NOT NULL DEFAULT 'assertion' CHECK (signing IN ('assertion', 'assertion_or_response')),
+  tested_at     INTEGER,
+  created_by    TEXT REFERENCES users (id) ON DELETE SET NULL,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+
+-- AuthnRequests waiting for their Response (§15.3.3): consumed once with DELETE … RETURNING. state: the app's
+-- {p | r, s, c} (the signed oauthState's payload) as JSON.
+CREATE TABLE saml_requests (
+  id         TEXT PRIMARY KEY,
+  org_id     TEXT NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,
+  state      TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX saml_requests_expiry ON saml_requests (expires_at);
+
+-- Accepted assertion IDs until their NotOnOrAfter: a second INSERT of one is a replay (§15.3.4 step 5).
+CREATE TABLE saml_assertions (
+  id         TEXT PRIMARY KEY,
+  org_id     TEXT NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX saml_assertions_expiry ON saml_assertions (expires_at);
+
+-- The sign-in code knows how it was earned, so /auth/token makes the right session.
+ALTER TABLE auth_codes ADD COLUMN auth TEXT NOT NULL DEFAULT 'google' CHECK (auth IN ('google', 'saml', 'dev'));
+ALTER TABLE auth_codes ADD COLUMN org_id TEXT;
+
+-- One live SCIM token per org (§15.5): only its SHA-256.
+CREATE TABLE scim_tokens (
+  id           TEXT PRIMARY KEY,
+  org_id       TEXT NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,
+  token_hash   TEXT NOT NULL UNIQUE,
+  created_by   TEXT REFERENCES users (id) ON DELETE SET NULL,
+  created_at   INTEGER NOT NULL,
+  last_used_at INTEGER,
+  revoked_at   INTEGER
+);
+CREATE INDEX scim_tokens_org ON scim_tokens (org_id, revoked_at);
+
+-- People the IdP manages in an org (SCIM's Users). active 0: deactivated (removed from the org, the link kept).
+CREATE TABLE scim_users (
+  org_id      TEXT NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,
+  user_id     TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  user_name   TEXT NOT NULL,
+  external_id TEXT,
+  active      INTEGER NOT NULL DEFAULT 1,
+  -- the seat SCIM last set ('full' | 'dev' | 'collab' | 'view'), restored on reactivation
+  seat        TEXT CHECK (seat IN ('full', 'dev', 'collab', 'view')),
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  PRIMARY KEY (org_id, user_id)
+);
+CREATE UNIQUE INDEX scim_users_name ON scim_users (org_id, user_name);
+CREATE UNIQUE INDEX scim_users_external ON scim_users (org_id, external_id) WHERE external_id IS NOT NULL;
+
+-- SCIM's Groups and what each is linked to by its name (§15.5).
+CREATE TABLE scim_groups (
+  id           TEXT PRIMARY KEY,
+  org_id       TEXT NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,
+  display_name TEXT NOT NULL,
+  external_id  TEXT,
+  target_type  TEXT NOT NULL CHECK (target_type IN ('workspace', 'billing_group', 'user_group')),
+  target_id    TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+CREATE INDEX scim_groups_org ON scim_groups (org_id, display_name);
+CREATE UNIQUE INDEX scim_groups_external ON scim_groups (org_id, external_id) WHERE external_id IS NOT NULL;
+
+CREATE TABLE scim_group_members (
+  group_id TEXT NOT NULL REFERENCES scim_groups (id) ON DELETE CASCADE,
+  user_id  TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  PRIMARY KEY (group_id, user_id)
+);
+CREATE INDEX scim_group_members_user ON scim_group_members (user_id);
+
+-- What SAML JIT and SCIM told us about a member (IdpAttributes JSON) and who provisioned them.
+ALTER TABLE org_members ADD COLUMN idp_attributes TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE org_members ADD COLUMN provisioned_by TEXT CHECK (provisioned_by IN ('scim', 'jit'));
+
+-- An org's email domains (§15.7). A verified domain belongs to one org.
+CREATE TABLE org_domains (
+  org_id      TEXT NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,
+  domain      TEXT NOT NULL,
+  token       TEXT NOT NULL,
+  created_by  TEXT REFERENCES users (id) ON DELETE SET NULL,
+  created_at  INTEGER NOT NULL,
+  verified_at INTEGER,
+  PRIMARY KEY (org_id, domain)
+);
+CREATE UNIQUE INDEX org_domains_verified ON org_domains (domain) WHERE verified_at IS NOT NULL;
+CREATE INDEX org_domains_domain ON org_domains (domain);
+
+-- Sessions: how they were signed in, the last user activity and the idle limit (§15.8).
+ALTER TABLE sessions ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'google' CHECK (auth_method IN ('google', 'saml', 'dev'));
+ALTER TABLE sessions ADD COLUMN auth_org_id TEXT;
+ALTER TABLE sessions ADD COLUMN active_at INTEGER;
+ALTER TABLE sessions ADD COLUMN idle_limit_ms INTEGER;
+UPDATE sessions SET active_at = last_seen_at;
+
+-- Data storage localization (§15.10): the org's region; the jurisdiction each room or library object lives in.
+ALTER TABLE orgs ADD COLUMN data_region TEXT NOT NULL DEFAULT 'default' CHECK (data_region IN ('default', 'eu'));
+ALTER TABLE files ADD COLUMN jurisdiction TEXT CHECK (jurisdiction IN ('eu'));
+ALTER TABLE libraries ADD COLUMN jurisdiction TEXT CHECK (jurisdiction IN ('eu'));
+```
+
+Notes: `users` is unchanged (decision 5's `none:` placeholder lives in `google_sub`). `user_groups.external_id` (0010) holds the SCIM group id of a group made by SCIM. No new Durable Object class; `wrangler.jsonc` gains `"compatibility_flags": ["nodejs_compat"]` (node-saml).
+
+### 15.15 Not decided here (owner)
+
+See `docs/roadmap.md` Phase 7 "Round 4" — open questions for the owner (IdP-initiated bounce, SAML only on verified domains, the login page, which IdP and domain to test with, self-serve data region).
