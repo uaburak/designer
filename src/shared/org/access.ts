@@ -157,6 +157,7 @@ function legacy(r: AccessRows): AccessResult {
     canShare: role !== "viewer" && !external,
     canManage: role === "owner",
     capped: external ? "external" : null,
+    prototypeOnly: false,
     via,
   };
 }
@@ -283,6 +284,7 @@ function org(r: AccessRows): AccessResult {
     canShare: (role === "owner" || role === "editor") && capped !== "external",
     canManage,
     capped,
+    prototypeOnly: false,
     via,
   };
 }

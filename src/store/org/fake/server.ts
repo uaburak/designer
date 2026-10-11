@@ -271,7 +271,7 @@ export class FakeOrgServer {
     const team = f.teamId ? this.teams.get(f.teamId) : undefined;
     const t = team?.members.get(user.id);
     const role = f.ownerId === user.id ? "owner" : t?.role === "editor" ? "editor" : "viewer";
-    const access: FileAccess = { role, canEdit: role !== "viewer", canComment: true, canExport: true, canDevMode: false, canShare: role !== "viewer", canManage: role === "owner", capped: null, via: f.projectId ? ["team"] : ["file"] };
+    const access: FileAccess = { role, canEdit: role !== "viewer", canComment: true, canExport: true, canDevMode: false, canShare: role !== "viewer", canManage: role === "owner", capped: null, prototypeOnly: false, via: f.projectId ? ["team"] : ["file"] };
     return {
       key: f.key,
       name: f.name,

@@ -130,7 +130,7 @@ export function makeSeed(now = Date.now(), orgId = "org1"): Seed {
 
   const file = (key: string, name: string, ownerId: string, ownerName: string, editorType: EditorType, trashed = false): OrgFile => ({
     key, name, editorType, ownerId, ownerName, orgId, teamId: null, projectId: null, updatedAt: ago(200), createdAt: now - 300 * DAY, trashedAt: trashed ? now - 30 * DAY : null, thumbnailUrl: null,
-    access: { role: "editor", canEdit: true, canComment: true, canExport: true, canDevMode: true, canShare: true, canManage: true, capped: null, via: ["org-admin"] }, fileKey: null,
+    access: { role: "editor", canEdit: true, canComment: true, canExport: true, canDevMode: true, canShare: true, canManage: true, capped: null, prototypeOnly: false, via: ["org-admin"] }, fileKey: null,
   });
   const unassigned: UnassignedDrafts[] = [
     { owner: { id: "x1", email: "oguz.yalcin@studio.co", name: "Oğuz Yalçın", removedAt: now - 14 * DAY }, files: [file("ud1", "Checkout explorations", "x1", "Oğuz Yalçın", "design"), file("ud2", "Sprint retro board", "x1", "Oğuz Yalçın", "figjam"), file("ud3", "Pricing page v2", "x1", "Oğuz Yalçın", "design"), file("ud4", "Old icon sketches", "x1", "Oğuz Yalçın", "design", true)] },

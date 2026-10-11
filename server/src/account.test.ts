@@ -141,7 +141,7 @@ describe("personal access tokens", () => {
     expect((await call("POST", "/devices", { token: pat, body: { installationId: "a".repeat(20) } })).status).toBe(403);
     // Listed without the token, with its last use.
     const list = await call<{ tokens: AccessTokenInfo[] }>("GET", "/me/tokens", { token: me.token });
-    expect(list.body.tokens).toEqual([{ id: made.body.info.id, description: "CI", scopes: ["file_metadata:read", "file_comments:read"], createdAt: now, expiresAt: now + 30 * 86_400_000, lastUsedAt: now }]);
+    expect(list.body.tokens).toEqual([{ id: made.body.info.id, description: "CI", scopes: ["file_metadata:read", "file_comments:read"], kind: "personal", orgId: null, createdAt: now, expiresAt: now + 30 * 86_400_000, lastUsedAt: now }]);
     expect(JSON.stringify(list.body)).not.toContain(pat);
     // Expired, then revoked.
     now += 31 * 86_400_000;

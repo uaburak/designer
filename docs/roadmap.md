@@ -119,7 +119,7 @@ The owner wants every feature of Figma's Enterprise plan. R18 lists them all: th
 - **Notifications** (`docs/multiplayer.md` §12: migration 0008, `Inbox`, the bell). Old item 5d is reduced to email.
 - **Sessions and personal access tokens** (§13: migration 0009 — a row per sign-in, `sid` in tokens, last active, Sign out per session, scoped tokens). They come off round 1's server list and round 4's client list.
 
-Migrations continue from **0010** (round 1) and **0011** (round 2); round 3 used **0012**, round 4 **0013** (`multiplayer.md` §15.14), round 5 **0014** (§16.12).
+Migrations continue from **0010** (round 1) and **0011** (round 2); round 3 used **0012**, round 4 **0013** (`multiplayer.md` §15.14) and **0014** (4e, idle sessions), round 5 **0015** (§16.12).
 
 ### Open questions for the owner (Phase 7)
 **Answered by the owner, 2026-10-11:** (1) friends are **members** — an admin adds anyone as a member by hand, and "Import shared files" (§14.8) imports the people the owner shared with as members, not guests; (2) the default seat stays Figma's **View** (with "Ask to upgrade"); (3) org admins **edit everything implicitly** (keep §14.2 rule 4); (4) not asked — default: keep per-file sharing outside orgs (Figma keeps sharing drafts); (5) open; (6) **several orgs** — the org switcher in the account menu, "Create organization" as many times as wanted, the name asked at creation.
@@ -220,7 +220,7 @@ Open questions for the owner (round 4):
   - tokens and scopes §16.3, rate limits §16.4;
   - client render jobs §16.6, every endpoint §16.7, POST variables §16.8;
   - Webhooks V2 §16.9, event sources §16.10, activity §16.11;
-  - migration `0014_extensibility.sql` §16.12, shared types §16.13, layout and tests §16.14.
+  - migration `0015_extensibility.sql` §16.12, shared types §16.13, layout and tests §16.14.
 - **`docs/plugins.md`** (new): plugins and widgets — the QuickJS sandbox and the developer VM, the opaque-origin UI iframe, main's pieces, the manifest, the `figma.*` subset, the chrome, Dev Mode plugins, plugin data in the schema, private plugins and approval, widgets (later).
 - `docs/editor.md` **"Dev Mode — round 5"**:
   - D-1 Code Connect: mappings, templates in the plugin VM, our CLI, Code Connect UI, MCP;
@@ -258,7 +258,7 @@ Open questions for the owner (round 4):
   - `interface Sandbox { call(fn: string, ...args: unknown[]): Promise<unknown>; dispose(): void }`.
 
   Until 5d fills it, the stub throws "Plugins aren't built yet". 5f's Code Connect templates use it.
-- **`server/migrations/0014_extensibility.sql`** (§16.12, verbatim). No agent edits `server/migrations/` this round.
+- **`server/migrations/0015_extensibility.sql`** (§16.12, verbatim). No agent edits `server/migrations/` this round.
 - `npm run check` green.
 
 | Agent | Owns | Delivers |
@@ -285,7 +285,7 @@ Open questions for the owner (round 4):
 
 `api.ts` is shared by 5a and 5c (different lines); `EditorApp.tsx` gets one line each from 5b and 5d; `src/main/index.ts` one line each from 5b and 5e.
 
-**Deploy**: `npm --prefix server run db:migrate` (0014), then `npm --prefix server run deploy`. The new cron `*/5 * * * *` makes two of the free plan's five. There is no new Durable Object and no migration tag.
+**Deploy**: `npm --prefix server run db:migrate` (0015), then `npm --prefix server run deploy`. The new cron `*/5 * * * *` makes two of the free plan's five. There is no new Durable Object and no migration tag.
 
 **Built already, not redone**: notifications (§12; old item 5d is now only round 5's five kinds, in 5c) and personal access tokens (§13; 5a adds scopes and plan tokens).
 

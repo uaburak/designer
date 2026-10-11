@@ -3,6 +3,8 @@
  * token (safeStorage) and never hands it to a view; views see this state only.
  */
 
+import type { RestScope } from "./rest/types";
+
 export interface AccountUser {
   id: string;
   email: string;
@@ -111,7 +113,23 @@ export const TOKEN_SCOPES = [
   { id: "file_metadata:read", group: "Files", label: "Read metadata of files, such as names and who can access them." },
   { id: "file_comments:read", group: "Comments", label: "Read the comments of files." },
   { id: "file_comments:write", group: "Comments", label: "Post and delete comments and comment reactions in files." },
-] as const;
+  { id: "file_versions:read", group: "Files", label: "Read the version history of files." },
+  { id: "file_dev_resources:read", group: "Dev resources", label: "Read dev resources in files." },
+  { id: "file_dev_resources:write", group: "Dev resources", label: "Write to dev resources in files." },
+  { id: "file_variables:read", group: "Variables", label: "Read variables in files." },
+  { id: "file_variables:write", group: "Variables", label: "Write to variables in files." },
+  { id: "file_code_connect:write", group: "Code Connect", label: "Publish and unpublish Code Connect." },
+  { id: "library_assets:read", group: "Libraries", label: "Read data of individual published components and styles." },
+  { id: "library_content:read", group: "Libraries", label: "Read published components and styles of files." },
+  { id: "team_library_content:read", group: "Libraries", label: "Read published components and styles of teams." },
+  { id: "library_analytics:read", group: "Libraries", label: "Read library analytics." },
+  { id: "folders:read", group: "Folders", label: "List folders and the files in them." },
+  { id: "folder_metadata:read", group: "Folders", label: "Read metadata of folders." },
+  { id: "webhooks:read", group: "Webhooks", label: "Read webhooks and their requests." },
+  { id: "webhooks:write", group: "Webhooks", label: "Create and manage webhooks." },
+  { id: "org:activity_log_read", group: "Organization", label: "Read your organization's activity logs." },
+  { id: "org:ai_metering_usage_read", group: "Organization", label: "Read your organization's AI usage." },
+] as const satisfies readonly { id: RestScope; group: string; label: string }[];
 export type TokenScope = (typeof TOKEN_SCOPES)[number]["id"];
 export const isTokenScope = (s: unknown): s is TokenScope => TOKEN_SCOPES.some((t) => t.id === s);
 
@@ -131,6 +149,9 @@ export interface AccessTokenInfo {
   id: string;
   description: string;
   scopes: TokenScope[];
+  /** "plan": a plan access token of an org (docs/multiplayer.md §16.3) */
+  kind: "personal" | "plan";
+  orgId: string | null;
   createdAt: number;
   expiresAt: number | null;
   lastUsedAt: number | null;

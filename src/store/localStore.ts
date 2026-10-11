@@ -60,6 +60,8 @@ import { LibraryRouter } from "./libraries/router";
 import { orgLibrariesRepository } from "./libraries/orgLibraries";
 import { AnalyticsQueue, analyticsRepository } from "./libraries/analyticsQueue";
 import { identityRepository } from "./org/identity";
+import { notImplementedPlugins } from "./plugins/stub";
+import { notImplementedDevMode } from "./devmode/stub";
 import { UsageReporter } from "./libraries/usage";
 
 export interface LocalStoreOptions {
@@ -859,6 +861,8 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     orgLibraries: orgLibrariesRepository(s.libraryServer),
     analytics: analyticsRepository(s.analytics, s.libraryServer),
     identity: identityRepository(s.multiplayer, (orgId) => void s.org.notice({ t: "org", what: "org", orgId })),
+    plugins: notImplementedPlugins(),
+    devMode: notImplementedDevMode(),
   };
 }
 

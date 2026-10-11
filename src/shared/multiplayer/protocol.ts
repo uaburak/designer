@@ -8,6 +8,7 @@
  * Control messages are JSON text frames; document changes are binary frames (the kiwi Message needs no re-encoding).
  */
 import type { RoomPolicy } from "../org/identity";
+import type { RestJob, RestJobPart } from "../rest/types";
 
 /** Binary frame: client → server. `[u8 1][u32 batch][kiwi Message]` */
 export const FRAME_CHANGES_UP = 1;
@@ -21,11 +22,14 @@ export const CHANGES_DOWN_HEADER = 13;
 export type ClientControl =
   /** First message. `since`: the last seq this client holds (its snapshot's seq, or the last frame it applied). Who
    *  the client is comes from the Worker (the session token on the socket's URL), not from here. */
-  | { t: "hello"; since: number }
+  | { t: "hello"; since: number; /** This client can answer REST render jobs (docs/multiplayer.md §16.6): an editor view with the file's engine loaded */ render?: boolean }
   /** Ephemeral (never stored): cursor, selection, viewport … opaque to the server. */
   | { t: "presence"; data: unknown }
   /** Ephemeral, to one session of the file (never stored): "Ask to spotlight", audio's WebRTC offers / answers / ICE. */
-  | { t: "signal"; to: number; data: unknown };
+  | { t: "signal"; to: number; data: unknown }
+  /** A REST render job's parts are uploaded (`PUT /files/:key/rest-jobs/:id/parts/:name`, docs/multiplayer.md §16.6) */
+  | { t: "rest-job-done"; id: string; parts: RestJobPart[] }
+  | { t: "rest-job-failed"; id: string; err: string };
 
 /** The largest signal the room relays (a WebRTC offer with its candidates fits easily) */
 export const MAX_SIGNAL_BYTES = 32_000;
@@ -45,7 +49,12 @@ export type ServerControl =
   | { t: "comments"; threadId: string; by: string }
   /** The org changed cursor chat or audio (docs/multiplayer.md §15.9) */
   | { t: "policy"; policy: RoomPolicy }
+  /** A REST render job for this client (docs/multiplayer.md §16.6): run it, upload the parts, answer rest-job-done / -failed */
+  | { t: "rest-job"; id: string; job: RestJob }
   | { t: "error"; code: "unauthorized" | "forbidden" | "bad-frame" | "too-large" | "too-old"; message: string };
+
+/** On a person's inbox socket, never stored (docs/multiplayer.md §16.6): a room of theirs has no client that can render */
+export type RestInboxMessage = { t: "rest-wanted"; fileKey: string };
 
 /** The room is moving to another region (§15.10): reconnect after a moment */
 export const CLOSE_MOVING = 4012;

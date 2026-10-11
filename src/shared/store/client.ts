@@ -33,6 +33,8 @@ import type { CommentsEvent, CommentsRepository } from "../comments";
 import type { NotificationsEvent, NotificationsRepository } from "../notifications";
 import type { AdminRepository, IdentityRepository, OrgEvent, OrgsRepository, ProjectsRepository, TeamsRepository } from "../org/repositories";
 import type { BranchEvent, BranchesRepository } from "../merge/branches";
+import type { PluginsRepository } from "../plugins/types";
+import type { DevModeRepository } from "../devmode/types";
 import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "../libraries/orgTypes";
 
 interface Pending {
@@ -590,6 +592,38 @@ export class StoreClient implements StoreApi {
     usage: (key, assetKey) => this.call("analytics.usage", [key, assetKey]),
     modes: (key, collectionKey) => this.call("analytics.modes", [key, collectionKey]),
     csv: (key, query) => this.call("analytics.csv", [key, query]),
+  };
+
+  readonly plugins: PluginsRepository = {
+    local: () => this.call("plugins.local", []),
+    setSaved: (ref, saved) => this.call("plugins.setSaved", [ref, saved]),
+    ranRecently: (ref) => this.call("plugins.ranRecently", [ref]),
+    listPrivate: (orgId) => this.call("plugins.listPrivate", [orgId]),
+    bundle: (pluginId, version) => this.call("plugins.bundle", [pluginId, version]),
+    publish: (orgId, bundle, meta) => this.call("plugins.publish", [orgId, bundle, meta]),
+    removePrivate: (pluginId) => this.call("plugins.removePrivate", [pluginId]),
+    allowed: (fileKey, ref) => this.call("plugins.allowed", [fileKey, ref]),
+    request: (orgId, input) => this.call("plugins.request", [orgId, input]),
+    admin: (orgId, kind) => this.call("plugins.admin", [orgId, kind]),
+    approve: (orgId, input) => this.call("plugins.approve", [orgId, input]),
+    unapprove: (orgId, pluginId, workspaceId) => this.call("plugins.unapprove", [orgId, pluginId, workspaceId]),
+    answer: (orgId, requestId, input) => this.call("plugins.answer", [orgId, requestId, input]),
+  };
+
+  readonly devMode: DevModeRepository = {
+    devResources: (fileKey, nodeIds) => this.call("devMode.devResources", [fileKey, nodeIds]),
+    addDevResource: (fileKey, input) => this.call("devMode.addDevResource", [fileKey, input]),
+    editDevResource: (fileKey, id, patch) => this.call("devMode.editDevResource", [fileKey, id, patch]),
+    removeDevResource: (fileKey, id) => this.call("devMode.removeDevResource", [fileKey, id]),
+    codeConnect: (fileKey) => this.call("devMode.codeConnect", [fileKey]),
+    setCodeConnect: (fileKey, mapping) => this.call("devMode.setCodeConnect", [fileKey, mapping]),
+    removeCodeConnect: (fileKey, nodeId, label) => this.call("devMode.removeCodeConnect", [fileKey, nodeId, label]),
+    reportStatus: (fileKey, report) => this.call("devMode.reportStatus", [fileKey, report]),
+    viewed: (fileKey) => this.call("devMode.viewed", [fileKey]),
+    setStatusNotifications: (fileKey, notify) => this.call("devMode.setStatusNotifications", [fileKey, notify]),
+    prototypeMembers: (fileKey) => this.call("devMode.prototypeMembers", [fileKey]),
+    invitePrototype: (fileKey, email) => this.call("devMode.invitePrototype", [fileKey, email]),
+    removePrototype: (fileKey, email) => this.call("devMode.removePrototype", [fileKey, email]),
   };
 
   readonly identity: IdentityRepository = {

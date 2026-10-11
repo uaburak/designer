@@ -196,7 +196,7 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
         // The fake keeps no drafts per person: each removed member leaves one, as most would
         if (p.role !== "guest" && !p.pending) {
           const at = Date.now();
-          const draft: O.OrgFile = { key: `d${++seq}`, name: "Untitled", editorType: "design", ownerId: p.id, ownerName: p.name, orgId: s.orgId, teamId: null, projectId: null, updatedAt: at - 86_400_000, createdAt: at - 30 * 86_400_000, trashedAt: null, thumbnailUrl: null, access: { role: "editor", canEdit: true, canComment: true, canExport: true, canDevMode: true, canShare: true, canManage: true, capped: null, via: ["org-admin"] }, fileKey: null };
+          const draft: O.OrgFile = { key: `d${++seq}`, name: "Untitled", editorType: "design", ownerId: p.id, ownerName: p.name, orgId: s.orgId, teamId: null, projectId: null, updatedAt: at - 86_400_000, createdAt: at - 30 * 86_400_000, trashedAt: null, thumbnailUrl: null, access: { role: "editor", canEdit: true, canComment: true, canExport: true, canDevMode: true, canShare: true, canManage: true, capped: null, prototypeOnly: false, via: ["org-admin"] }, fileKey: null };
           s.unassigned.unshift({ owner: { id: p.id, email: p.email, name: p.name, removedAt: at }, files: [draft] });
         }
       }

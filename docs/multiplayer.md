@@ -15,7 +15,7 @@ Contract for roadmap Phase 6 (owner's decision 2026-10-10: Cloudflare instead of
 | Organizations: workspaces, teams, folders, seats, groups, Admin, activity log (contract, Phase 7) | D1 (migration 0010), no new Durable Object | `server/src/org/`, `server/src/activity.ts`, `src/shared/org/`, `src/store/org/` (§14) |
 | Org libraries, library analytics, shared fonts (contract, Phase 7 round 3) | D1 (migration 0012), Durable Objects `LibraryObject` per library and `FontObject` per org (SQLite, 1 MB chunks; wrangler tag v4), a daily Cron Trigger for the analytics roll-up | `server/src/libraries/`, `server/src/analytics/`, `server/src/fonts/`, `src/store/libraries/` (docs/data.md §16–§17, docs/desktop.md §14.3) |
 | Identity and security: SAML SSO, SCIM, domains, policies, idle timeout, EU data region (contract, Phase 7 round 4) | D1 (migration 0013), Durable Objects in Cloudflare's `eu` jurisdiction for EU orgs' rooms and libraries | `server/src/auth/`, `server/src/policy/`, `src/shared/org/identity.ts` (§15) |
-| REST API, webhooks, private plugins, Dev Mode's server side (contract, Phase 7 round 5) | D1 (migration 0014), a second Cron Trigger (webhook retries), render jobs answered by connected clients (no new Durable Object) | `server/src/rest/`, `server/src/webhooks/`, `server/src/devmode/`, `server/src/plugins/`, `src/shared/rest/` (§16, docs/plugins.md, docs/editor.md "Dev Mode — round 5") |
+| REST API, webhooks, private plugins, Dev Mode's server side (contract, Phase 7 round 5) | D1 (migration 0015), a second Cron Trigger (webhook retries), render jobs answered by connected clients (no new Durable Object) | `server/src/rest/`, `server/src/webhooks/`, `server/src/devmode/`, `server/src/plugins/`, `src/shared/rest/` (§16, docs/plugins.md, docs/editor.md "Dev Mode — round 5") |
 | Wire format | — | `src/shared/multiplayer/protocol.ts` |
 
 Free plan limits that matter: 100k Worker requests a day (a WebSocket message counts 1/20 of a request), Durable Objects on SQLite storage, D1 5 GB, R2 10 GB. One person and a few friends stay far below them.
@@ -2280,7 +2280,7 @@ Every route needs a token (PAT or session) unless the table says otherwise. "vie
 | `GET /v2/folders/:id/meta` | `folder_metadata:read` · T3 | `{id, name, thumbnail_url, file_count, updated_at, created_at}` |
 | `GET /v1/teams/:team/projects` · `GET /v1/projects/:id/files?branch_data` · `GET /v1/projects/:id/meta` | deprecated twins | `{name, projects: {id, name}[]}` · `{name, files: […]}` · as `/v2/folders/:id/meta` |
 
-**Libraries** (`rest/libraries.ts`). Data: D1 `libraries` and `library_assets` (migration 0012), plus 0014's `node_id`, `created_at`, `updated_at`, `created_by`.
+**Libraries** (`rest/libraries.ts`). Data: D1 `libraries` and `library_assets` (migration 0012), plus 0015's `node_id`, `created_at`, `updated_at`, `created_by`.
 
 | Route | Scope · tier | Answer |
 |---|---|---|
@@ -2341,7 +2341,7 @@ The local answer's fields:
 | Route | Scope · tier · who | Answer |
 |---|---|---|
 | `GET /v1/activity_logs?events&start_time&end_time&limit&order&cursor&org_id` | `org:activity_log_read` · T3 · a plan token, or an org admin's PAT (`org_id` is required if they admin several orgs) | `{status: 200, error: false, i18n: null, meta: {activity_logs: ActivityLog[], cursor, next_page}}`: §14.10's rows. `limit` ≤ 1000 (default 1000); `order` defaults to asc; `start_time` defaults to a year ago |
-| `GET /v1/ai_usage/daily?start_date&end_date&user_email&limit&cursor` | `org:ai_metering_usage_read` · T3 · plan tokens only (403 otherwise, as Figma) | `{rows, next_cursor, has_next_page}` from `ai_usage_daily` (0014); row fields below |
+| `GET /v1/ai_usage/daily?start_date&end_date&user_email&limit&cursor` | `org:ai_metering_usage_read` · T3 · plan tokens only (403 otherwise, as Figma) | `{rows, next_cursor, has_next_page}` from `ai_usage_daily` (0015); row fields below |
 
 The AI usage rows have `{plan_id, user_id, user_email, day, editor_type, seat_credits_sum, plan_credits_sum, workspace_id, workspace_name, team_id, team_name, license_group_id, license_group_name, metering_period_start, metering_period_end}`. The table is **filled by round 6** (the agents' usage meter) and is empty until then.
 
@@ -2456,7 +2456,7 @@ Figma's model [R-hook], stored in the D1 tables `webhooks` and `webhook_requests
 
 **DEV_MODE_STATUS_UPDATE**: 5c's `devmode/status.ts`.
 
-**Library items**: `library_assets` gains `node_id`, `created_at`, `updated_at` and `created_by` (0014). `POST /libraries/:key/versions` writes them from the manifest's `guid` (data.md §9.1). Rows from earlier publishes stay null until the next publish, so REST answers `node_id: null` for them.
+**Library items**: `library_assets` gains `node_id`, `created_at`, `updated_at` and `created_by` (0015). `POST /libraries/:key/versions` writes them from the manifest's `guid` (data.md §9.1). Rows from earlier publishes stay null until the next publish, so REST answers `node_id: null` for them.
 
 ### 16.11 Activity log (round 5's actions)
 
@@ -2472,9 +2472,9 @@ Figma's model [R-hook], stored in the D1 tables `webhooks` and `webhook_requests
 
 The entity types `plugin` / `widget` (§14.10) carry `{id, name}`.
 
-### 16.12 D1: migration `server/migrations/0014_extensibility.sql`
+### 16.12 D1: migration `server/migrations/0015_extensibility.sql`
 
-The latest migration is `0013_identity.sql`. The main session commits this text verbatim before the round, as round 4 did. No agent edits `server/migrations/` in round 5.
+The latest migration is `0014_idle_sessions.sql` (round 4e). The main session commits this text verbatim before the round, as round 4 did. No agent edits `server/migrations/` in round 5.
 
 ```sql
 -- Extensibility and Dev Mode (docs/multiplayer.md §16, docs/plugins.md, docs/editor.md "Dev Mode — round 5"): the REST
@@ -2783,7 +2783,7 @@ export interface CodeConnectDoc {
 - **`server/src/devmode/rest.ts`**, a stub:
   - `export async function devModeRestRoute(req: Request, url: URL, deps: Deps, caller: Caller, parts: string[]): Promise<Response | null> { return null; }`
   - 5a's `restRoute` calls it for `/v1/dev_resources…`, `/v1/files/:key/dev_resources…`, `/v1/code_connect` and `/v1/files/:key/code_connect` (after the scope, tier and rate checks); 5c fills it.
-- `server/migrations/0014_extensibility.sql` (§16.12).
+- `server/migrations/0015_extensibility.sql` (§16.12).
 - `npm run check` green with the stubs.
 
 ### 16.14 Server layout (round 5a) and tests

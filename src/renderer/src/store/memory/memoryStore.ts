@@ -61,6 +61,8 @@ import { LibraryRouter } from "../../../../store/libraries/router";
 import { orgLibrariesRepository } from "../../../../store/libraries/orgLibraries";
 import { AnalyticsQueue, analyticsRepository } from "../../../../store/libraries/analyticsQueue";
 import { identityRepository } from "../../../../store/org/identity";
+import { notImplementedPlugins } from "../../../../store/plugins/stub";
+import { notImplementedDevMode } from "../../../../store/devmode/stub";
 import { UsageReporter } from "../../../../store/libraries/usage";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1220,6 +1222,8 @@ export class MemoryStore {
       orgLibraries: orgLibrariesRepository(this.libraryServer),
       analytics: analyticsRepository(this.analytics, this.libraryServer),
       identity: identityRepository(this.multiplayer, (orgId) => void this.org.notice({ t: "org", what: "org", orgId })),
+      plugins: notImplementedPlugins(),
+      devMode: notImplementedDevMode(),
     };
   }
 }

@@ -12,6 +12,7 @@ import type { AttachResult } from "./agents/attachments";
 import type { AccountMethod, AccountResponse, AccountState, SignInResult } from "./account";
 import type { CommandId, MenuStatePatch } from "./commands";
 import type { SharedFontFace, SharedFontsChannels } from "./fonts/sharedTypes";
+import type { PluginBundle, PluginManifest } from "./plugins/types";
 import type { ShortcutSettings } from "./shortcuts";
 import type { TabKind, TabReport, TabStatus } from "./tabs";
 
@@ -346,7 +347,47 @@ export interface IpcInvoke extends SharedFontsChannels {
   "account:request": { args: [{ method: AccountMethod; path: string; body?: unknown }]; result: AccountResponse };
   /** The idle prompt's "Stay logged in" (docs/desktop.md §18.2) */
   "account:stay-signed-in": { args: []; result: AccountState };
+  // ── Plugins (docs/plugins.md §3.3; main's side is src/main/plugins, round 5e) ──
+  /** Development plugins of this installation (userData/plugins/development.json) */
+  "plugins:list-development": { args: []; result: DevelopmentPlugin[] };
+  /** "Import new plugin from manifest…": main's file dialog, the manifest read and validated */
+  "plugins:import-manifest": { args: []; result: { plugin: DevelopmentPlugin; manifest: PluginManifest } | { cancelled: true } };
+  "plugins:remove-development": { args: [{ id: string }]; result: DevelopmentPlugin[] };
+  /** A development plugin's manifest, code and UI, read by main from its folder (paths inside it only) */
+  "plugins:read": { args: [{ id: string }]; result: PluginBundle };
+  /** Registers a run's UI document on the `plugin:` scheme; answers the iframe's URL */
+  "plugins:open-ui": { args: [{ runId: string; html: string; allowedDomains: string[]; dev: boolean }]; result: { url: string } };
+  "plugins:close-ui": { args: [{ runId: string }]; result: void };
+  /** `fetch` from a plugin's code, checked against its manifest's networkAccess */
+  "plugins:fetch": { args: [{ runId: string; url: string; init?: PluginFetchInit }]; result: PluginFetchResponse };
+  /** `figma.clientStorage` (5 MB per plugin) */
+  "plugins:storage": { args: [PluginStorageCall]; result: unknown };
+  /** "Open console": the view's devtools (development plugins only) */
+  "plugins:open-console": { args: []; result: void };
+  // ── Dev Mode (docs/editor.md D-3) ──
+  /** A dev resource link's page title (`https:` only, 5 s, ≤ 512 kB read); null when there is none */
+  "devmode:link-title": { args: [{ url: string }]; result: { title: string | null } };
 }
+
+/** A development plugin imported from its manifest (docs/plugins.md §3.3) */
+export interface DevelopmentPlugin {
+  path: string;
+  id: string;
+  name: string;
+  addedAt: number;
+}
+export interface PluginFetchInit {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string | Uint8Array;
+}
+export interface PluginFetchResponse {
+  status: number;
+  statusText: string;
+  headers: Record<string, string>;
+  body: Uint8Array;
+}
+export type PluginStorageCall = { op: "get" | "set" | "delete" | "keys"; pluginId: string; key?: string; value?: unknown };
 
 export interface IpcSend {
   "shell:ready": void;
@@ -404,6 +445,8 @@ export interface IpcEvents {
   "account:changed": AccountState;
   /** The idle timeout's prompt, to "home" and "editor" views (docs/desktop.md §18.2) */
   "account:idle": IdleNotice;
+  /** A development plugin's files changed (Hot reload plugin, docs/plugins.md §3.3) */
+  "plugins:changed": { id: string };
 }
 
 /** The idle timeout's prompt (docs/desktop.md §18.2) */
@@ -464,6 +507,16 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "account:sign-out": ["home", "editor"],
   "account:request": ["home", "editor"],
   "account:stay-signed-in": ["home", "editor"],
+  "plugins:list-development": ["editor"],
+  "plugins:import-manifest": ["editor"],
+  "plugins:remove-development": ["editor"],
+  "plugins:read": ["editor"],
+  "plugins:open-ui": ["editor"],
+  "plugins:close-ui": ["editor"],
+  "plugins:fetch": ["editor"],
+  "plugins:storage": ["editor"],
+  "plugins:open-console": ["editor"],
+  "devmode:link-title": ["editor"],
 };
 
 export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {

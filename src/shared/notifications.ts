@@ -24,7 +24,14 @@ export type NotificationKind =
   /** Your request to edit was denied */
   | "request-denied"
   /** A file's owner made you its owner */
-  | "ownership";
+  | "ownership"
+  /** Round 5 (docs/editor.md D-4): a design you follow in Dev Mode was marked ready for dev / completed / changed */
+  | "dev_ready"
+  | "dev_completed"
+  | "dev_changed"
+  /** Round 5 (docs/plugins.md §10.3): someone asked to approve a plugin or widget (admins), and its answer (the requester) */
+  | "plugin_request"
+  | "plugin_request_answer";
 
 export interface NotificationActor {
   id: string;
@@ -170,6 +177,17 @@ export function notificationAction(n: Pick<NotificationItem, "kind" | "count" | 
       return "Denied your request to edit";
     case "ownership":
       return "Made you the owner";
+    // Round 5's kinds: placeholders until 5c / 5h word their rows (docs/editor.md D-4, docs/plugins.md §10.3)
+    case "dev_ready":
+      return "Marked as ready for dev";
+    case "dev_completed":
+      return "Marked as completed";
+    case "dev_changed":
+      return "Changed a design ready for dev";
+    case "plugin_request":
+      return "Requested a plugin";
+    case "plugin_request_answer":
+      return "Answered your plugin request";
   }
 }
 

@@ -152,6 +152,18 @@ export function registerIpc() {
   // The idle prompt's Stay logged in (docs/desktop.md §18.2)
   onInvoke("account:stay-signed-in", () => account.staySignedIn());
   onInvoke("account:request", (_c, r) => account.accountRequest({ method: r?.method, path: str(r?.path, 200) ?? "", body: r?.body }));
+  // ── Plugins and Dev Mode links: stubs until round 5e (docs/plugins.md §3.3, docs/editor.md D-3) ──
+  const notBuilt = (): never => { throw new Error("Plugins aren't built yet"); };
+  onInvoke("plugins:list-development", () => []);
+  onInvoke("plugins:import-manifest", notBuilt);
+  onInvoke("plugins:remove-development", () => []);
+  onInvoke("plugins:read", notBuilt);
+  onInvoke("plugins:open-ui", notBuilt);
+  onInvoke("plugins:close-ui", () => undefined);
+  onInvoke("plugins:fetch", notBuilt);
+  onInvoke("plugins:storage", notBuilt);
+  onInvoke("plugins:open-console", () => undefined);
+  onInvoke("devmode:link-title", () => ({ title: null }));
   // ── Haptics (a scrub's steps; throttled, macOS only) ──
   onSend("haptics:tick", () => void hapticTick());
   onSend("file:reveal-data-folder", () => void shell.openPath(workspaceDir()));

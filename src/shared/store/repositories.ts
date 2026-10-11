@@ -36,6 +36,8 @@ import type { CommentsRepository } from "../comments";
 import type { NotificationsRepository } from "../notifications";
 import type { AdminRepository, IdentityRepository, OrgsRepository, ProjectsRepository, TeamsRepository } from "../org/repositories";
 import type { BranchesRepository } from "../merge/branches";
+import type { PluginsRepository } from "../plugins/types";
+import type { DevModeRepository } from "../devmode/types";
 import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "../libraries/orgTypes";
 
 // Branches' repository and events (docs/data.md §15.6) live in src/shared/merge/branches.ts; re-exported here.
@@ -256,4 +258,8 @@ export interface StoreApi {
   analytics: LibraryAnalyticsRepository;
   /** Admin › Settings › Login and provisioning, domains, data storage localization (docs/multiplayer.md §15; round 4c) */
   identity: IdentityRepository;
+  /** Saved / recent plugins, private plugins and approvals (docs/plugins.md §10.4; round 5g) */
+  plugins: PluginsRepository;
+  /** Dev resources, Code Connect, status reports, prototype members (docs/editor.md D-8; round 5g) */
+  devMode: DevModeRepository;
 }

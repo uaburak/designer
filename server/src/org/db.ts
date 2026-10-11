@@ -409,7 +409,7 @@ export async function subtree(d1: D1Like, projectId: string): Promise<ProjectRow
   return results;
 }
 
-export const fileAccessOf = (a: AccessGranted): FileAccess => ({ role: a.role, canEdit: a.canEdit, canComment: a.canComment, canExport: a.canExport, canDevMode: a.canDevMode, canShare: a.canShare, canManage: a.canManage, capped: a.capped, via: a.via });
+export const fileAccessOf = (a: AccessGranted): FileAccess => ({ role: a.role, canEdit: a.canEdit, canComment: a.canComment, canExport: a.canExport, canDevMode: a.canDevMode, canShare: a.canShare, canManage: a.canManage, capped: a.capped, prototypeOnly: a.prototypeOnly, via: a.via });
 
 export function toOrgFile(f: FileRow & { owner_name?: string | null; owner_email?: string | null; branch_count?: number | null }, a: AccessGranted): OrgFile {
   return {

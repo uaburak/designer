@@ -10,7 +10,7 @@
 - network access;
 - what the store, main and the server hold.
 
-Widgets are decided in §11. Research: R18 E-2. The plan: `docs/roadmap.md` "Round 5". The REST API and the D1 tables are in `docs/multiplayer.md` §16 (migration 0014).
+Widgets are decided in §11. Research: R18 E-2. The plan: `docs/roadmap.md` "Round 5". The REST API and the D1 tables are in `docs/multiplayer.md` §16 (migration 0015).
 
 Facts were read on 2026-10-11. DEV = `https://developers.figma.com/docs`, HELP = `https://help.figma.com/hc/en-us/articles`.
 

@@ -153,6 +153,8 @@ export interface OpenIntent {
   mode?: "dev" | "proto";
   /** A comment thread to open (a notification about it: docs/multiplayer.md §12; the link's `#comment-<id>`) */
   commentId?: string;
+  /** Open in Dev Mode on the ready-for-dev view (a Dev Mode notification: docs/editor.md D-4; ours) */
+  devMode?: "ready";
 }
 
 /** A link's `node-id` and `m`, as Figma writes them; null fields are left out. */

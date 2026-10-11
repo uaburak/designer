@@ -13,7 +13,7 @@
 - the VS Code extension (decided: skipped, D-7).
 
 It builds on round 6's Dev Mode (statuses, focus view, annotations, Compare changes; "Status (2026-10-08, round 6 — Dev Mode…)" below). Related contracts:
-- the server's routes: `docs/multiplayer.md` §16, with the tables in migration 0014;
+- the server's routes: `docs/multiplayer.md` §16, with the tables in migration 0015;
 - the plugin VM that runs Code Connect templates and codegen plugins: `docs/plugins.md`.
 
 Facts were read on 2026-10-11:
@@ -69,7 +69,7 @@ Facts were read on 2026-10-11:
   - **Local components**: the file itself.
   - **Library copies**: `sharedSymbolReference.fileKey` / `sourceLibraryKey` + `symbolID`. Copies keep the library's GUIDs (data.md §9.4), so this is the node id in the library file.
   - **A variant** looks up its own node first, then its component set's.
-- **Shared and org library files**: D1 `code_connect` (0014), routes in `docs/multiplayer.md` §16.7 (`/v1/code_connect`, implemented by 5c in `server/src/devmode/codeConnect.ts`).
+- **Shared and org library files**: D1 `code_connect` (0015), routes in `docs/multiplayer.md` §16.7 (`/v1/code_connect`, implemented by 5c in `server/src/devmode/codeConnect.ts`).
 - **Private routes for the app**:
   - `GET /files/:key/code-connect` → `{mappings: CodeConnectMapping[]}`;
   - `PUT /files/:key/code-connect` `{nodeId, label, …}` and `DELETE /files/:key/code-connect/:nodeId?label=` — UI mappings only;
@@ -143,7 +143,7 @@ Facts were read on 2026-10-11:
 
 **Ours:**
 - **Storage**:
-  - Shared files: D1 `dev_resources` (0014).
+  - Shared files: D1 `dev_resources` (0015).
   - Local files: `files/<key>/dev-resources.json` (desktop store) or `designer.devStore.v1.devResources.<key>` (browser), with the same shape (`DevResourceRecord`, below).
 - **Private routes** (5c, `server/src/devmode/devResources.ts`):
   - `GET /files/:key/dev-resources?nodeIds=`;

@@ -3,11 +3,11 @@
  * are structured clones (Uint8Arrays are copied once, no JSON). The store sends `hello` first on every new port.
  */
 
-export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer" | "comments" | "notifications" | "orgs" | "teams" | "projects" | "admin" | "branches" | "orgLibraries" | "analytics" | "identity";
+export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer" | "comments" | "notifications" | "orgs" | "teams" | "projects" | "admin" | "branches" | "orgLibraries" | "analytics" | "identity" | "plugins" | "devMode";
 export type StoreMethod = `${Repository}.${string}`;
 export type PortRole = "main" | "home" | "editor";
 /** `org`: OrgEvent (docs/multiplayer.md §14.6); `branches`: BranchEvent (docs/data.md §15.6); `fonts`: FontsEvent (docs/desktop.md §14.3); `session`: SessionEnded (docs/multiplayer.md §15.8) */
-export type EventTopic = "workspace" | "file.changes" | "library" | "multiplayer" | "comments" | "notifications" | "org" | "branches" | "fonts" | "session";
+export type EventTopic = "workspace" | "file.changes" | "library" | "multiplayer" | "comments" | "notifications" | "org" | "branches" | "fonts" | "session" | "plugins" | "devmode";
 
 export type RpcRequest = { t: "req"; id: number; m: StoreMethod; a: unknown[] };
 export type RpcResponse = { t: "res"; id: number; ok: true; v: unknown } | { t: "res"; id: number; ok: false; e: { code: StoreErrorCode; message: string; detail?: unknown } };
@@ -163,6 +163,10 @@ export const STORE_METHODS = {
   analytics: ["record", "orgOverview", "overview", "actions", "usage", "modes", "csv"],
   // Identity and security (docs/multiplayer.md §15, round 4)
   identity: ["overview", "saveIdp", "refreshIdpMetadata", "deleteIdp", "generateScimToken", "revokeScimToken", "addDomain", "verifyDomain", "removeDomain", "domainAccounts", "dataRegion", "setDataRegion", "moveNext"],
+  // Plugins (docs/plugins.md §10.4, round 5g); `plugins` is also an event topic
+  plugins: ["local", "setSaved", "ranRecently", "listPrivate", "bundle", "publish", "removePrivate", "allowed", "request", "admin", "approve", "unapprove", "answer"],
+  // Dev Mode (docs/editor.md D-8, round 5g); `devmode` is also an event topic
+  devMode: ["devResources", "addDevResource", "editDevResource", "removeDevResource", "codeConnect", "setCodeConnect", "removeCodeConnect", "reportStatus", "viewed", "setStatusNotifications", "prototypeMembers", "invitePrototype", "removePrototype"],
 } as const satisfies Record<Repository, readonly string[]>;
 
 /** Methods that take filesystem paths stay in main, behind native dialogs, so a renderer can never name a path. */

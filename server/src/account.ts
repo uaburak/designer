@@ -136,7 +136,7 @@ export async function accountRoute(req: Request, deps: Deps, caller: Caller, par
           .prepare(`INSERT INTO access_tokens (id, user_id, description, token_hash, scopes, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`)
           .bind(id, user.id, description, await sha256b64url(token), JSON.stringify(scopes), now, expiresAt)
           .run();
-        const info: AccessTokenInfo = { id, description, scopes: scopes as TokenScope[], createdAt: now, expiresAt, lastUsedAt: null };
+        const info: AccessTokenInfo = { id, description, scopes: scopes as TokenScope[], kind: "personal", orgId: null, createdAt: now, expiresAt, lastUsedAt: null };
         await logForUserOrgs(deps, user, "personal_access_token_create", req, { token_id: id, description, scopes });
         return json({ token, info }, 201);
       }
@@ -201,7 +201,7 @@ async function listTokens(deps: Deps, userId: string): Promise<AccessTokenInfo[]
     .prepare(`SELECT id, description, scopes, created_at, expires_at, last_used_at FROM access_tokens WHERE user_id = ?1 ORDER BY created_at DESC`)
     .bind(userId)
     .all<{ id: string; description: string; scopes: string; created_at: number; expires_at: number | null; last_used_at: number | null }>();
-  return results.map((r) => ({ id: r.id, description: r.description, scopes: safeParse<unknown[]>(r.scopes, []).filter(isTokenScope), createdAt: r.created_at, expiresAt: r.expires_at, lastUsedAt: r.last_used_at }));
+  return results.map((r) => ({ id: r.id, description: r.description, scopes: safeParse<unknown[]>(r.scopes, []).filter(isTokenScope), kind: "personal", orgId: null, createdAt: r.created_at, expiresAt: r.expires_at, lastUsedAt: r.last_used_at }));
 }
 
 async function profile(deps: Deps, userId: string): Promise<AccountProfile> {
