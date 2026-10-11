@@ -38,6 +38,7 @@ import { HlcClock, newFileKey, newFolderId, systemClock, type Clock } from "./lo
 import { LocalLibraries } from "./local/libraries";
 import { SchemaRegistry, currentMessage, readSnapshotFile } from "./local/snapshot";
 import { versionDateLabel } from "./local/versions";
+import { RoomVersions, withRoomVersions } from "./local/versionsRoom";
 import { LocalWorkspace, newMeta, workspaceDirs, type Log, type WorkspaceDirs } from "./local/workspace";
 import { previewService, type PreviewSession } from "./preview/previews";
 import { SerialQueue } from "./local/queue";
@@ -219,7 +220,31 @@ export class LocalStore {
       this.notifications,
     );
     this.branches = new BranchService(localBranchHost({ dirs, ws, files, libraries, multiplayer: this.multiplayer, clock, log, timers }));
+    const mp = this.multiplayer;
+    this.roomVersions = new RoomVersions({
+      // Signed out, a shared file's history is its local copy's checkpoints.
+      roomKey: async (fileKey) => (mp.signedIn ? mp.roomKey(fileKey) : null),
+      call: (method, path, body) => mp.call(method, path, body),
+      callBytes: (method, path) => mp.callBytes(method, path),
+      syncState: (fileKey) => mp.syncState(fileKey),
+      flushedHead: async (fileKey) => (await files.flush(fileKey), files.headSeqOf(fileKey)),
+      headTable: async (fileKey) => (await files.headTable(fileKey)).table,
+      downloadBlobs: (key, sha1s) => mp.downloadBlobs(key, sha1s),
+      getMeta: (fileKey) => ws.getMeta(fileKey),
+      addFile: async (input) => {
+        const key = newFileKey();
+        await files.createFile(key, input.snapshot, input.images, 0);
+        const meta = newMeta(key, input.name, null, clock.now());
+        meta.enabledLibraries = [...input.enabledLibraries];
+        return ws.queue.run(() => ws.addFile(meta));
+      },
+      now: () => clock.now(),
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    });
   }
+
+  /** Shared files' version history: their rooms' (docs/data.md §15.7.1) */
+  readonly roomVersions: RoomVersions;
 
   /** The org spaces (docs/multiplayer.md §14.6): the server's orgs, teams, folders and their files, cached per org */
   readonly org: OrgService;
@@ -703,7 +728,8 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
   };
   return {
     workspace,
-    files,
+    // A shared file's version history is its room's (docs/data.md §15.7.1).
+    files: withRoomVersions(files, s.roomVersions),
     blobs,
     libraries,
     previews,

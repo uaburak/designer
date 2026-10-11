@@ -6,7 +6,8 @@
 import { CollectionView, FileCard, FileKindIcon, FolderCard, folderColor, Icon, InlineEdit, ListHeader, ListRow, type ListColumn, type ListSort } from "@/ds";
 import { timeAgo } from "@/ds/util/time";
 import type { FileListItem, FolderId } from "@shared/store/types";
-import { dateColumn, fileSubtitle, folderSubtitle, type FolderIndex, type Item, type Layout, type Location, type SortKey, type SortOrder } from "./model";
+import { branchCountLabel, branchTileSubtitle, branchTileTitle } from "./branchesModel";
+import { dateColumn, folderSubtitle, type FolderIndex, type Item, type Layout, type Location, type SortKey, type SortOrder } from "./model";
 import { FolderGlyph } from "./parts";
 import styles from "./Files.module.css";
 
@@ -42,12 +43,20 @@ export interface ItemsViewProps {
   folderDrop: (id: FolderId) => Partial<Pick<React.HTMLAttributes<HTMLElement>, "onDragOver" | "onDragLeave" | "onDrop">>;
   /** An org file's team (Recents and Starred show both spaces, the card saying its team — docs/multiplayer.md §14.6) */
   placeOf?: (f: FileListItem) => string | null;
+  /** A main file's active branches (its tile's count and dropdown; docs/data.md §15.9) */
+  branchCounts?: Readonly<Record<string, number>>;
+  onBranches?: (e: React.MouseEvent<HTMLElement>, f: FileListItem) => void;
+  /** A branch tile's main file name ("‹file› / ‹branch›") */
+  mainNames?: Readonly<Record<string, string>>;
 }
 
 const ITEM = "[data-collection-item]";
 
 export function ItemsView(props: ItemsViewProps) {
-  const { items, layout, location, sort, order, folders, selected, renaming, now, previews, starredFolders, thumbnailUrl, onItemClick, onOpen, onItemMenu, onBlankMenu, onNavigate, onSelectAll, onClearSelection, onDelete, onMarquee, onRename, onStar, onSortColumn, onDragItems, dropOn, folderDrop, placeOf } = props;
+  const { items, layout, location, sort, order, folders, selected, renaming, now, previews, starredFolders, thumbnailUrl, onItemClick, onOpen, onItemMenu, onBlankMenu, onNavigate, onSelectAll, onClearSelection, onDelete, onMarquee, onRename, onStar, onSortColumn, onDragItems, dropOn, folderDrop, placeOf, branchCounts = {}, onBranches, mainNames = {} } = props;
+  const branchesOf = (f: FileListItem) => (!f.branch && f.trashedAt === null && onBranches ? (branchCounts[f.fileKey] ?? 0) : 0);
+  // A branch reads "‹file› / ‹branch›"; renaming edits its own name.
+  const titleOf = (item: Item, f: FileListItem) => (renaming === item.id ? f.name : branchTileTitle(f, f.branch ? mainNames[f.branch.mainFileKey] : null));
   const orgPlace = (f: FileListItem) => (f.space ? (placeOf?.(f) ?? null) : null);
   const inTrash = location.kind === "trash";
   const drag = (item: Item) => (inTrash || renaming === item.id ? {} : { draggable: true, onDragStart: (e: React.DragEvent) => onDragItems(e, item) });
@@ -117,16 +126,31 @@ export function ItemsView(props: ItemsViewProps) {
       );
     }
     const f = item.file;
+    const nBranches = branchesOf(f);
+    const subtitle = branchTileSubtitle(f, now);
     if (layout === "list") {
       const t = inTrash ? f.trashedAt : date.value(f);
-      return <ListRow key={item.id} id={item.id} columns={columns} cells={{ name: nameCell(item, f.name, <span className={styles.kindCell}><FileKindIcon /></span>, f.starred), date: t ? timeAgo(t, now) : "—", place: orgPlace(f) ?? place(f.folderId) }} {...events} {...drag(item)} />;
+      const name = (
+        <span className={styles.rowName}>
+          {nameCell(item, titleOf(item, f), <span className={styles.kindCell}>{f.branch ? <Icon name="16.branch" /> : <FileKindIcon />}</span>, f.starred)}
+          {nBranches > 0 && (
+            <button type="button" className={styles.rowBranches} data-branches-button="" aria-haspopup="menu" onClick={(e) => onBranches?.(e, f)} onDoubleClick={(e) => e.stopPropagation()}>
+              <Icon name="16.branch" />
+              {branchCountLabel(nBranches)}
+            </button>
+          )}
+        </span>
+      );
+      return <ListRow key={item.id} id={item.id} columns={columns} cells={{ name, date: t ? timeAgo(t, now) : "—", place: orgPlace(f) ?? place(f.folderId) }} {...events} {...drag(item)} />;
     }
     return (
       <div key={item.id} className={styles.dragWrap} {...drag(item)}>
         <FileCard
           id={item.id}
-          title={f.name}
-          subtitle={orgPlace(f) ? `${fileSubtitle(f, now)} · ${orgPlace(f)}` : fileSubtitle(f, now)}
+          title={titleOf(item, f)}
+          subtitle={orgPlace(f) ? `${subtitle} · ${orgPlace(f)}` : subtitle}
+          branch={!!f.branch}
+          branches={nBranches > 0 ? { count: nBranches, onMenu: (e) => onBranches?.(e, f) } : undefined}
           thumbnail={thumbnailUrl(f) ?? undefined}
           starred={f.starred}
           renaming={renaming === item.id}

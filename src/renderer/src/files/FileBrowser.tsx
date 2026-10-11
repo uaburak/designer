@@ -16,6 +16,8 @@ import * as act from "./actions";
 import { ConfirmDialog, MoveDialog, NewFolderDialog } from "./dialogs";
 import { importWithShell, newDesignFile, onOpenShared, onReveal, onShellCommand, openFile, pickFigFiles, saveLocalCopy, setMenuState, type OpenDeps } from "./desktop";
 import { ItemsView } from "./ItemsView";
+import { useBranchCounts, useBranchSwitcher, useMainNames } from "./branches";
+import { branchCountTargets } from "./branchesModel";
 import { allFoldersMenu, blankMenu, itemMenu, trashMenu } from "./menus";
 import {
   EMPTY_SELECTION,
@@ -139,6 +141,18 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   const known = useMemo(() => [...data.files, ...data.starredFiles], [data.files, data.starredFiles]);
   const ctx: act.ActionContext = useMemo(() => ({ repo, folders, known, toast }), [repo, folders, known, toast]);
   const deps: OpenDeps = useMemo(() => ({ workspace: repo, ...openDeps }), [repo, openDeps]);
+
+  // --- branches (docs/data.md §15.9): each main file's count, its dropdown, the Branches modal ---
+
+  const countTargets = useMemo(() => (current ? branchCountTargets(items.flatMap((i) => (i.kind === "file" ? [i.file] : []))) : []), [current, items]);
+  const branchCounts = useBranchCounts(backend.branches, countTargets);
+  const branchSwitcher = useBranchSwitcher({
+    branches: backend.branches,
+    openFile: (fileKey, title, newTab) => void openFile(fileKey, { title, newTab }, deps).catch((e) => toast({ kind: "error", message: act.errorText(e) })),
+    openShared: backend.org?.openShared,
+    toast,
+  });
+  const mainNames = useMainNames(repo, known);
 
   // --- navigation ---
 
@@ -754,6 +768,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           go={go}
           nav={{ canBack: nav.index > 0, canForward: nav.index < nav.stack.length - 1, back, forward }}
           openFile={openTitled}
+          onBranches={backend.branches ? (e, f) => branchSwitcher.open(e, { name: f.name, fileKey: f.fileKey, key: f.key, canCreate: f.access.canExport || f.access.canEdit }) : undefined}
           toast={toast}
           now={Math.max(tick, orgView.page.loadedAt)}
         />
@@ -916,10 +931,14 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
             dropOn={dropOn}
             folderDrop={folderDrop}
             placeOf={placeOf}
+            branchCounts={branchCounts}
+            onBranches={backend.branches ? (e, f) => branchSwitcher.open(e, { name: f.name, fileKey: f.fileKey }) : undefined}
+            mainNames={mainNames}
           />
         )}
       </main>
       )}
+      {branchSwitcher.element}
       {linkOpen && <OpenLinkDialog onClose={() => setLinkOpen(false)} onOpen={(fileKey, name, intent) => void openFile(fileKey, { ...(name ? { title: name } : {}), intent }, deps)} onError={(message) => toast({ kind: "error", message })} />}
       {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} />}
       {dialog?.kind === "new-folder" && (

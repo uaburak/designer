@@ -8,6 +8,8 @@
  * change.
  */
 import type { BranchRecord, BranchReview, BranchStatus } from "../../shared/merge/branches";
+import { decodeMessage } from "../../shared/schema/codec";
+import { messageImageHashes } from "../../shared/schema/patch";
 import { isStoreError, StoreError } from "../../shared/store/protocol";
 import type { FileKey, VersionRecord } from "../../shared/store/types";
 
@@ -56,6 +58,23 @@ export interface RemoteDeps {
   /** The local journal's head of a file */
   headSeq(fileKey: FileKey): Promise<number>;
   signedIn(): boolean;
+  /**
+   * Uploads the images (SHA-1s) a room doesn't have yet from the store's blobs (`MultiplayerService.uploadBlobs`, as a
+   * link does before each of its frames). A merge / update batch is sent by the Worker, not by a link: its images go
+   * up first through this. Absent: nothing is uploaded.
+   */
+  uploadBlobs?(roomKey: string, sha1s: string[]): Promise<void>;
+  /** A call answering bytes (a branch's base); absent: branches made elsewhere aren't taken in */
+  callBytes?(method: string, path: string): Promise<{ bytes: Uint8Array; headers: Headers }>;
+}
+
+/** The images a batch uses (none when it isn't a kiwi Message) */
+export function batchImages(batch: Uint8Array): string[] {
+  try {
+    return [...messageImageHashes(decodeMessage(batch))];
+  } catch {
+    return [];
+  }
 }
 
 const seg = (s: string) => encodeURIComponent(s);
@@ -143,6 +162,8 @@ export class RemoteBranches {
    * `branchSeq` — one call; the base moves in the same step.
    */
   async update(r: BranchRecord, input: { mainSeq: number; branchSeq: number; base: Uint8Array; batch: Uint8Array }): Promise<{ record: BranchRecord; seq: number; versionId: string }> {
+    // The batch's images reach the branch room before the frame that uses them (as a link's frames do).
+    await this.uploadImages(r.branchKey!, input.batch);
     await this.d.call("PUT", `/branches/${seg(r.branchKey!)}/base?seq=${input.mainSeq}`, input.base);
     const res = await staleAware(this.d.call<{ branch: BranchRow; seq: number; versionId: string }>("POST", `/branches/${seg(r.branchKey!)}/update`, encodeEnvelope({ mainSeq: input.mainSeq, branchSeq: input.branchSeq }, input.batch)));
     return { record: recordOf(res.branch, r.branchFileKey, r.mainFileKey), seq: res.seq, versionId: res.versionId };
@@ -150,9 +171,27 @@ export class RemoteBranches {
 
   /** Merge: the branch frozen at `branchSeq`, main's pre-merge autosave, the batch as main's next frame and the versions — one call. */
   async merge(r: BranchRecord, input: { mainSeq: number; branchSeq: number; title?: string; description?: string; batch: Uint8Array }): Promise<{ record: BranchRecord; mainSeq: number; versionId: string; preVersionId: string; branchVersionId: string }> {
+    // The branch's images reach main's room before the merge frame that uses them.
+    await this.uploadImages(r.mainKey!, input.batch);
     const meta = { mainSeq: input.mainSeq, branchSeq: input.branchSeq, ...(input.title ? { title: input.title } : {}), ...(input.description ? { description: input.description } : {}) };
     const res = await staleAware(this.d.call<{ branch: BranchRow; mainSeq: number; versionId: string; preVersionId: string; branchVersionId: string }>("POST", `/branches/${seg(r.branchKey!)}/merge`, encodeEnvelope(meta, input.batch)));
     return { record: recordOf(res.branch, r.branchFileKey, r.mainFileKey), mainSeq: res.mainSeq, versionId: res.versionId, preVersionId: res.preVersionId, branchVersionId: res.branchVersionId };
+  }
+
+  /** Whether branches made elsewhere can be taken in (their base read from the room) */
+  get canAdopt(): boolean {
+    return !!this.d.callBytes;
+  }
+
+  /** A shared branch's base (`GET /branches/:key/base`): the snapshot Message the merge starts from */
+  async base(branchKey: string): Promise<Uint8Array> {
+    if (!this.d.callBytes) throw new StoreError("invalid", "This store can't read a branch's base");
+    return (await this.d.callBytes("GET", `/branches/${seg(branchKey)}/base`)).bytes;
+  }
+
+  private async uploadImages(roomKey: string, batch: Uint8Array): Promise<void> {
+    const images = batchImages(batch);
+    if (images.length && this.d.uploadBlobs) await this.d.uploadBlobs(roomKey, images);
   }
 
   /** A room version as a VersionRecord (what `merge` answers with) */

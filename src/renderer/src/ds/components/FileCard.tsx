@@ -21,6 +21,13 @@ export interface FileCardProps {
   onRename?: (name: string | null) => void;
   onStar?: (starred: boolean) => void;
   forceHover?: boolean;
+  /**
+   * A main file with branches (help.figma.com "View and manage branches"): the branch icon at the tile's top left and
+   * the number of branches under the name, a dropdown to switch to one of them.
+   */
+  branches?: { count: number; onMenu: (e: React.MouseEvent<HTMLElement>) => void };
+  /** A branch's own tile (Recents, Starred): the branch icon at its top left */
+  branch?: boolean;
 }
 
 function CardRename({ value, onDone }: { value: string; onDone: (name: string | null) => void }) {
@@ -43,7 +50,8 @@ export function FileKindIcon({ size = 16 }: { size?: 16 | 20 | 24 }) {
  * then — 12px on — the title (11/550) over when it was edited (11, secondary;
  * `formatEdited`). Enter opens, Space selects.
  */
-export function FileCard({ id, title, subtitle, thumbnail, starred, selected, renaming, onOpen, onSelect, onContextMenu, onRename, onStar, forceHover }: FileCardProps) {
+export function FileCard({ id, title, subtitle, thumbnail, starred, selected, renaming, onOpen, onSelect, onContextMenu, onRename, onStar, forceHover, branches, branch }: FileCardProps) {
+  const hasBranches = !!branches && branches.count > 0;
   return (
     <div
       role="option"
@@ -71,6 +79,11 @@ export function FileCard({ id, title, subtitle, thumbnail, starred, selected, re
     >
       <div className={styles.thumb}>
         {thumbnail && <img src={thumbnail} alt="" draggable={false} />}
+        {(hasBranches || branch) && (
+          <span className={styles.branchIcon} data-branch-icon="" aria-hidden>
+            <Icon name="16.branch" />
+          </span>
+        )}
         {onStar && (
           <span className={styles.star} data-on={starred || undefined}>
             <IconButton icon={starred ? "24.star" : "24.star.outline"} label={starred ? "Unstar" : "Star"} tooltip={false} onClick={(e) => { e.stopPropagation(); onStar(!starred); }} />
@@ -81,7 +94,24 @@ export function FileCard({ id, title, subtitle, thumbnail, starred, selected, re
         <FileKindIcon />
         <span className={styles.meta}>
           {renaming ? <CardRename value={title} onDone={(n) => onRename?.(n)} /> : <span className={styles.title}>{title}</span>}
-          <span className={styles.subtitle}>{subtitle}</span>
+          {hasBranches ? (
+            <button
+              type="button"
+              className={styles.branches}
+              data-branches-button=""
+              aria-haspopup="menu"
+              onClick={(e) => {
+                e.stopPropagation();
+                branches!.onMenu(e);
+              }}
+              onDoubleClick={(e) => e.stopPropagation()}
+            >
+              {branches!.count === 1 ? "1 branch" : `${branches!.count} branches`}
+              <Icon name="16.chevron.down" />
+            </button>
+          ) : (
+            <span className={styles.subtitle}>{subtitle}</span>
+          )}
         </span>
       </div>
     </div>
