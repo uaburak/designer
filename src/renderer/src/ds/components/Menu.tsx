@@ -325,6 +325,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
               {hasChecks && <span className={styles.check}>{entry.checked && <Icon name="16.check" />}</span>}
               {hasIcons && <span className={styles.icon}>{entry.icon && !entry.inlineIcon && <MenuIcon name={entry.icon} />}</span>}
               {entry.inlineIcon && entry.icon && <span className={cx(styles.icon, styles.inlineIcon)}><MenuIcon name={entry.icon} /></span>}
+              {entry.swatch && <span className={styles.swatch} style={{ background: entry.swatch }} aria-hidden />}
               <span className={styles.label}>{entry.label}</span>
               {entry.trailingIcon && <span className={styles.icon}><MenuIcon name={entry.trailingIcon} /></span>}
               {entry.hint && <span className={styles.hint}>{hintParts(entry.hint)}</span>}

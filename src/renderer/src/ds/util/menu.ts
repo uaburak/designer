@@ -13,6 +13,8 @@ export type MenuItem = {
   /** A tag at the row's right end (live context-layer-row.txt: "Rename layers" with an "AI" link, 20 × 18 at 164) */
   badge?: string;
   icon?: IconName;
+  /** A filled dot before the label in this colour — a token, e.g. `var(--figma-color-bg-success)` (the frame status menu) */
+  swatch?: string;
   /** A glyph after the label (a locked layer's padlock in "Select layer ▸") */
   trailingIcon?: IconName;
   /** The check column appears when any item defines it */

@@ -69,6 +69,7 @@ import { ShareDialog } from "./ShareDialog";
 import { SharePrototypeDialog } from "./SharePrototypeDialog";
 import { Multiplayer } from "./multiplayer/Multiplayer";
 import { CommentsLayer } from "./comments/CommentsLayer";
+import { FrameStatusChips } from "./canvas/FrameStatusChips";
 import { InlinePreview } from "./InlinePreview";
 import { attachDevMode } from "./devmode/devMode";
 import { DevLeftPanel, DevMeasurements, DevRightPanel } from "./devmode/DevPanels";
@@ -399,7 +400,7 @@ function RightSide() {
   return docked ? <RightPanel /> : null;
 }
 
-/** On the canvas, in its own coordinates (under the panels): agents' image placeholders, Dev Mode's measurements, placing images. */
+/** On the canvas, in its own coordinates (under the panels): agents' image placeholders, Dev Mode's measurements, frame statuses (ours), placing images. */
 function CanvasLayers() {
   const hidden = useUI((s) => s.uiHidden);
   const dev = useUI((s) => s.mode === "dev");
@@ -408,6 +409,7 @@ function CanvasLayers() {
     <>
       <AgentImagePlaceholders />
       {dev && <DevMeasurements />}
+      <FrameStatusChips />
       <ImagePlacer />
       <CommentsLayer />
     </>

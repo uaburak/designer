@@ -527,3 +527,8 @@ Acceptance (verified with `scripts/drive.mjs` on the built demo app): launch →
   - Checks: `npm run check` (220 files, 1842+ tests), `npm --prefix server run typecheck`.
 
 - 2026-10-12 — **Phase 7 round 6 contract (docs only)**: `docs/ai.md` (Figma AI facts with citations; one-shot actions on the owner's providers as one undo step; local ONNX image tools; Vectorize tracer in the engine; visual / text search; Skills, connectors; the usage ledger as credits feeding `/v1/ai_usage/daily`); roadmap Round 6 table rewritten (6a, 6b, 6d–6g; 6c Weave set aside). Written under a usage limit: see TODO markers in docs/ai.md §8.
+
+- 2026-10-12 — **Frame status (ours, not Figma's)**: a workflow status on top-level frames / sections (Done, R to Merge, Ready to Dev, To be done, Process, Revised, Cancelled; "No status"), stored in `pluginData` under the reserved `designer.workflow` (no schema / engine change), one undo step "Set status". Chips over the canvas (`editor/canvas/FrameStatusChips.tsx`, Design and Dev Mode), the Design panel header's chip menu, the ds `MenuItem.swatch` dot; plugins can't use the reserved ID. See docs/editor.md "Frame status (ours)".
+  - **Verify**: `npm run dev:demo`, select a top-level frame → "Set status" chip at its top right → pick a status; ⌘Z restores; switch to Dev Mode (⇧D) and change it there.
+  - **Open**: Dev Mode writes it by lifting the engine's viewer mode for the call — add `pluginData` to `engine_set_props`' Dev Mode list at the next engine build; not in Dev Mode's Inspect header; no Ready for dev filter by status.
+  - Test: `editor/__tests__/frameStatus.wasm.test.ts`.

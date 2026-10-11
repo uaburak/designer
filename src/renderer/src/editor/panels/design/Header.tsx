@@ -27,6 +27,7 @@ import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands
 import { commandItem, runMenuItem } from "../../menus";
 import { useTopics } from "../../hooks";
 import { statusOfTargets, statusTargets } from "../../devStatus";
+import { FrameStatusButton } from "../../canvas/FrameStatusChips";
 import { bindVariable } from "../../variables";
 import { OpenVariablesButton, VariablePicker } from "../variables/VariablePicker";
 import { BIND_TYPE } from "../../model/variables";
@@ -293,6 +294,7 @@ export function TypeHeader({ nodes }: { nodes: PanelNode[] }) {
         <span className={styles.typeLabel}>{title}</span>
       )}
       <div className={styles.headerActions}>
+        {presets && <FrameStatusButton />}
         <HeaderActions nodes={nodes} kind={kind} />
       </div>
     </div>

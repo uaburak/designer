@@ -531,7 +531,7 @@ export function descendants(ctx: ApiContext, id: Guid, criteria: Obj | null): un
     const types = Array.isArray(criteria.types) ? (criteria.types as string[]) : null;
     if (types) list = list.filter((n) => types.includes(apiType(n as never)));
     const pd = Array.isArray(criteria.pluginData?.valueOf()) ? null : (criteria.pluginData as { keys?: string[] } | undefined);
-    if (pd) list = list.filter((n) => (n.pluginData ?? []).some((e) => e.pluginID === ctx.pluginId && e.value && (!pd.keys || pd.keys.includes(e.key ?? ""))));
+    if (pd) list = list.filter((n) => (n.pluginData ?? []).some((e) => e.pluginID === ctx.pluginId && ctx.pluginId !== RESERVED_PLUGIN_ID && e.value && (!pd.keys || pd.keys.includes(e.key ?? ""))));
     const spd = criteria.sharedPluginData as { namespace?: string; keys?: string[] } | undefined;
     if (spd?.namespace) list = list.filter((n) => (n.pluginData ?? []).some((e) => e.pluginID === `shared:${spd.namespace}` && e.value && (!spd.keys || spd.keys.includes(e.key ?? ""))));
   }
@@ -567,10 +567,17 @@ export function rescale(ctx: ApiContext, id: Guid, scale: unknown): void {
 // ---- Plugin data (docs/plugins.md §8) ---------------------------------------------------------------------------------
 
 const KEY_LIMIT = 100 * 1024;
+/** Ours (editor/frameStatus.ts: frame statuses): never a plugin's to read or write, whatever its manifest id. */
+const RESERVED_PLUGIN_ID = "designer.workflow";
+const ownerOf = (ctx: ApiContext, namespace: string | null): string => {
+  const owner = namespace === null ? ctx.pluginId : `shared:${namespace}`;
+  if (owner === RESERVED_PLUGIN_ID) throw new ApiError("This plugin ID is reserved");
+  return owner;
+};
 
 export function getPluginData(ctx: ApiContext, id: Guid, namespace: string | null, key: string): string {
   const n = mustNode(ctx, id);
-  const owner = namespace === null ? ctx.pluginId : `shared:${namespace}`;
+  const owner = ownerOf(ctx, namespace);
   return (n.pluginData ?? []).find((e) => e.pluginID === owner && e.key === key)?.value ?? "";
 }
 
@@ -578,7 +585,7 @@ export function setPluginData(ctx: ApiContext, id: Guid, namespace: string | nul
   if (namespace !== null && !/^[\w.]{3,}$/.test(namespace)) throw new ApiError("Namespace must be at least 3 alphanumeric characters (letters, numbers, underscores or periods)");
   if (key.length + value.length > KEY_LIMIT) throw new ApiError("Plugin data is limited to 100 kB per entry");
   const n = mustNode(ctx, id);
-  const owner = namespace === null ? ctx.pluginId : `shared:${namespace}`;
+  const owner = ownerOf(ctx, namespace);
   const rest = (n.pluginData ?? []).filter((e) => !(e.pluginID === owner && e.key === key));
   const next = value === "" ? rest : [...rest, { pluginID: owner, key, value }];
   if (next.length === (n.pluginData ?? []).length && value === "" ) return;
@@ -587,7 +594,7 @@ export function setPluginData(ctx: ApiContext, id: Guid, namespace: string | nul
 
 export function pluginDataKeys(ctx: ApiContext, id: Guid, namespace: string | null): string[] {
   const n = mustNode(ctx, id);
-  const owner = namespace === null ? ctx.pluginId : `shared:${namespace}`;
+  const owner = ownerOf(ctx, namespace);
   return (n.pluginData ?? []).filter((e) => e.pluginID === owner && e.value).map((e) => e.key ?? "");
 }
 
