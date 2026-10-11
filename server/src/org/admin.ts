@@ -4,7 +4,7 @@
  */
 import type { AddPeopleInput, AdminDashboard, AdminPerson, AdminTeam, BillingGroup, GuestRequest, OrgRole, OrgSettings, OrgWorkspace, Seat, UnassignedDrafts, UpdatePeopleInput, WorkspacePatch } from "../../../src/shared/org/types";
 import { ACTIVITY_CSV_HEADER, activityCsvRows, activityPage, fileEntity, logActivity, projectEntity, teamEntity, userEntity, workspaceEntity, type Entity } from "../activity";
-import { normalizeEmail, type User } from "../db";
+import { normalizeEmail } from "../db";
 import { notifyOrg, orgNotice, settleOrg } from "../notifications";
 import { FILE_COLS, personRef, settingsOf, toOrgFile, type FileRow, type MemberRow, type TeamRow } from "./db";
 import { body, cleanName, csv, EMAIL, HttpError, json, nextCursor, noContent, paging, placeholders, randomId, type Ctx } from "./http";
@@ -224,8 +224,8 @@ async function people(ctx: Ctx, orgId: string, scope: Scope): Promise<Response> 
   if (q.get("format") === "csv") {
     await logActivity(ctx.deps, { orgId, action: "roster_exported", actor: ctx.user, entity: await orgEntityOf(ctx, orgId), details: { count: results.length }, req: ctx.req });
     return csv(
-      ["name", "email", "role", "seat", "workspace_id", "billing_group_id", "teams", "last_active", "joined", "pending"],
-      results.map((r) => [r.name ?? "", r.email, r.role, r.seat, r.workspace_id ?? "", r.billing_group_id ?? "", r.teams, r.last_active_at ? new Date(r.last_active_at).toISOString() : "", new Date(r.created_at).toISOString(), !r.user_id]),
+      ["email", "name", "role", "seat", "workspace_id", "billing_group_id", "teams", "last_active", "joined", "pending"],
+      results.map((r) => [r.email, r.name ?? "", r.role, r.seat, r.workspace_id ?? "", r.billing_group_id ?? "", r.teams, r.last_active_at ? new Date(r.last_active_at).toISOString() : "", new Date(r.created_at).toISOString(), !r.user_id]),
     );
   }
   const { offset, limit } = paging(ctx.url);
@@ -298,7 +298,7 @@ async function updatePeople(ctx: Ctx, orgId: string, scope: Scope, input: Update
       await d1.prepare(`UPDATE org_members SET billing_group_id = ?3 WHERE org_id = ?1 AND email = ?2`).bind(orgId, r.email, input.billingGroupId).run();
       await logActivity(deps, { orgId, action: "license_group_membership_change", actor: user, entity, details: { from: r.billing_group_id, to: input.billingGroupId }, req: ctx.req });
     }
-    if (r.user_id) await orgNotice(deps, [r.user_id], { type: "orgs.changed" });
+    if (r.user_id) await orgNotice(deps, [r.user_id], { what: "orgs" });
   }
   return peopleByIds(ctx, orgId, ids);
 }
@@ -493,8 +493,8 @@ async function workspaces(ctx: Ctx, orgId: string, scope: Scope, rest: string[])
     if (!scope.org) throw new HttpError(403, "only organization admins create workspaces", "not_admin");
     const b = await body<{ name?: unknown; adminIds?: unknown; hidden?: unknown }>(ctx.req);
     const name = cleanName(b.name, "name", 100);
-    const adminIds = strings(b.adminIds);
-    if (!adminIds.length) throw new HttpError(400, "a workspace needs at least one admin");
+    // At least one workspace admin [F-ws]: the creating org admin when none is named.
+    const adminIds = strings(b.adminIds).length ? strings(b.adminIds) : [user.id];
     await requireOrgUsers(ctx, orgId, adminIds);
     const id = randomId();
     await d1.prepare(`INSERT INTO workspaces (id, org_id, name, hidden, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5)`).bind(id, orgId, name, b.hidden === true ? 1 : 0, now).run();
@@ -557,7 +557,7 @@ async function workspaces(ctx: Ctx, orgId: string, scope: Scope, rest: string[])
     await log("workspace_delete");
     // Its teams and people are unassigned (ON DELETE SET NULL): workspace audiences and admins lapse.
     await reauth(deps, await orgFileKeys(d1, orgId));
-    await orgNotice(deps, await orgUserIds(d1, orgId), { type: "org.updated", orgId });
+    await orgNotice(deps, await orgUserIds(d1, orgId), { what: "org", orgId });
     return noContent();
   }
   throw new HttpError(405, "method not allowed");
@@ -580,7 +580,7 @@ async function setWorkspaceAdmins(ctx: Ctx, orgId: string, w: { id: string; name
     await logActivity(ctx.deps, { orgId, action: "workspace_admins_remove", actor: ctx.user, entity: workspaceEntity(w), details: { user_ids: remove }, req: ctx.req });
     await reauth(ctx.deps, await orgFileKeys(d1, orgId), remove);
   }
-  await orgNotice(ctx.deps, [...add, ...remove], { type: "orgs.changed" });
+  await orgNotice(ctx.deps, [...add, ...remove], { what: "orgs" });
 }
 
 async function moveTeamToWorkspace(ctx: Ctx, orgId: string, teamId: string, to: string | null, from?: string): Promise<void> {
@@ -707,7 +707,7 @@ async function patchSettings(ctx: Ctx, orgId: string, patch: Partial<OrgSettings
     if (JSON.stringify(before[k]) !== JSON.stringify(next[k])) await logActivity(deps, { orgId, action: actions[k]!, actor: user, entity: { type: "org", id: orgId, name: org.name }, details: { setting: k, from: before[k], to: next[k] }, req: ctx.req });
   }
   acc.reset();
-  await orgNotice(deps, await orgUserIds(acc.d1, orgId), { type: "org.updated", orgId });
+  await orgNotice(deps, await orgUserIds(acc.d1, orgId), { what: "org", orgId });
   return next;
 }
 
@@ -791,4 +791,3 @@ async function moveDrafts(ctx: Ctx, orgId: string, b: Record<string, unknown>): 
   await reauth(deps, files.map((f) => f.key));
 }
 
-export type { User };

@@ -26,7 +26,9 @@ export async function projectSummaries(acc: Access, rows: ProjectRow[]): Promise
       .prepare(`SELECT (SELECT COUNT(*) FROM files WHERE project_id = ?1 AND trashed_at IS NULL) AS files, (SELECT COUNT(*) FROM projects WHERE parent_id = ?1 AND trashed_at IS NULL) AS folders`)
       .bind(p.id)
       .first<{ files: number; folders: number }>();
-    out.push({ id: p.id, teamId: p.team_id, parentId: p.parent_id, name: p.name, access: p.access, fileCount: c?.files ?? 0, folderCount: c?.folders ?? 0, updatedAt: p.updated_at, trashedAt: p.trashed_at, me: a.role });
+    const team = await acc.team(p.team_id);
+    // `orgId` beyond §14.13's ProjectSummary (the store asked: a folder names its org)
+    out.push(Object.assign({ id: p.id, teamId: p.team_id, parentId: p.parent_id, name: p.name, access: p.access, fileCount: c?.files ?? 0, folderCount: c?.folders ?? 0, updatedAt: p.updated_at, trashedAt: p.trashed_at, me: a.role } satisfies ProjectSummary, { orgId: team?.org_id ?? null }));
   }
   return out;
 }
@@ -72,7 +74,7 @@ export async function projectsOfTeamRoute(ctx: Ctx, team: TeamRow): Promise<Resp
       .bind(id, team.id, parentId, depth, name, user.id, access, now)
       .run();
     await logActivity(deps, { orgId: team.org_id, action: "project_create", actor: user, entity: projectEntity({ id, name }), teamId: team.id, details: { parent_id: parentId, access }, req: ctx.req });
-    await orgNotice(deps, [user.id], { type: "projects.changed", teamId: team.id, parentId });
+    await orgNotice(deps, [user.id], { what: "projects", orgId: team.org_id, teamId: team.id, parentId });
     acc.reset();
     return json({ project: await projectInfo(acc, (await acc.project(id))!) }, 201);
   }
@@ -98,7 +100,7 @@ export async function projectsRoute(ctx: Ctx): Promise<Response> {
   const notTrashed = () => {
     if (a.trashed) throw new HttpError(409, "this folder is in the trash");
   };
-  const tell = () => orgNotice(deps, [user.id], { type: "projects.changed", teamId: team.id, parentId: p.parent_id });
+  const tell = () => orgNotice(deps, [user.id], { what: "projects", orgId: team.org_id, teamId: team.id, parentId: p.parent_id });
 
   if (parts.length === 2) {
     if (m === "GET") return json({ project: await projectInfo(acc, p) });
@@ -165,7 +167,7 @@ export async function projectsRoute(ctx: Ctx): Promise<Response> {
       await reauth(deps, await subtreeFileKeys(acc.d1, p.id));
       acc.reset();
       await tell();
-      await orgNotice(deps, [user.id], { type: "projects.changed", teamId: toTeam.id, parentId: parent?.id ?? null });
+      await orgNotice(deps, [user.id], { what: "projects", orgId: team.org_id, teamId: toTeam.id, parentId: parent?.id ?? null });
       return json({ project: await projectInfo(acc, (await acc.project(p.id))!) });
     }
     case "trash": {
@@ -232,7 +234,7 @@ export async function projectsRoute(ctx: Ctx): Promise<Response> {
 
 /** "Delete forever": the files under the folder (their rooms, comments, grants), then the folders. */
 async function deleteForever(ctx: Ctx, p: ProjectRow): Promise<void> {
-  const { acc, deps } = ctx;
+  const { acc } = ctx;
   const sub = await subtree(acc.d1, p.id);
   for (const s of [...sub].reverse()) {
     const { results } = await acc.d1.prepare(`SELECT key FROM files WHERE project_id = ?1`).bind(s.id).all<{ key: string }>();
@@ -240,7 +242,6 @@ async function deleteForever(ctx: Ctx, p: ProjectRow): Promise<void> {
     await acc.d1.prepare(`DELETE FROM group_grants WHERE resource_type = 'project' AND resource_id = ?1`).bind(s.id).run();
   }
   await acc.d1.prepare(`DELETE FROM projects WHERE id = ?1`).bind(p.id).run();
-  void deps;
 }
 
 /** A file deleted for good: its room, comments and rows (members, requests, notifications, group grants). */
@@ -307,7 +308,7 @@ async function putProjectMember(ctx: Ctx, team: TeamRow, p: ProjectRow, email: u
   await log("project_member_add", { email: e, user_id: invited.userId, role, guest: invited.kind === "guest" });
   if (invited.userId) {
     await notifyOrg(deps, { userId: invited.userId, kind: "project_invite", actorId: user.id, orgId: team.org_id, teamId: team.id, name: p.name, role });
-    await orgNotice(deps, [invited.userId], { type: "projects.changed", teamId: team.id, parentId: p.parent_id });
+    await orgNotice(deps, [invited.userId], { what: "projects", orgId: team.org_id, teamId: team.id, parentId: p.parent_id });
   }
   acc.reset();
   return null;

@@ -121,7 +121,7 @@ async function changeMembers(ctx: Ctx, g: GroupRow, add: string[], remove: strin
   }
   if (removed.length) await reauth(deps, await orgFileKeys(acc.d1, g.org_id), removed);
   await acc.d1.prepare(`UPDATE user_groups SET updated_at = ?2 WHERE id = ?1`).bind(g.id, now).run();
-  await orgNotice(deps, [...add, ...removed], { type: "org.updated", orgId: g.org_id });
+  await orgNotice(deps, [...add, ...removed], { what: "org", orgId: g.org_id });
   acc.reset();
 }
 

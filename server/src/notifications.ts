@@ -31,14 +31,18 @@ export type OrgNotificationKind = "team_invite" | "project_invite" | "team_join_
 /** Kinds answered with Approve / Deny: the Requests tab and the pending count (the org's are answered on their own routes) */
 const REQUEST_KINDS = `('edit-request', 'team_join_request', 'seat_request', 'guest_request')`;
 
-/** What the store's org cache hears through the inbox (§14.6, §14.11): an OrgEvent of src/shared/org/repositories.ts. */
-export type OrgNotice =
-  | { type: "orgs.changed" }
-  | { type: "org.updated"; orgId: string }
-  | { type: "teams.changed"; orgId: string }
-  | { type: "team.updated"; teamId: string }
-  | { type: "projects.changed"; teamId: string; parentId: string | null }
-  | { type: "files.changed"; orgId: string; projectId: string | null };
+/**
+ * What the store's org cache hears through the inbox (§14.6, §14.11; src/store/notifications/service.ts OrgNotice):
+ * `{t: "org", what, orgId?, teamId?, parentId?, projectId?}`, `what` naming an OrgEvent of
+ * src/shared/org/repositories.ts without its ".changed" / ".updated".
+ */
+export interface OrgNotice {
+  what: "orgs" | "org" | "teams" | "team" | "projects" | "files";
+  orgId?: string;
+  teamId?: string;
+  parentId?: string | null;
+  projectId?: string | null;
+}
 
 /** Like events fold into one unread row for this long (Figma batches comment notifications every 30 minutes). */
 export const GROUP_MS = 30 * 60_000;

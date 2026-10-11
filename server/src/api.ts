@@ -9,6 +9,7 @@ import { normalizeEmail, type Db, type User } from "./db";
 import { authorizeUrl, exchangeCode, GoogleError } from "./google";
 import type { ActivityAction } from "../../src/shared/org/types";
 import { fileEntity, logActivity, logFileView, logForUserOrgs } from "./activity";
+import { seatNeeded } from "../../src/shared/org/access";
 import { Access, claimInvites, fileAccessOf, type FileRow } from "./org/db";
 import { errorBody, HttpError, type Ctx } from "./org/http";
 import { reauth } from "./org/reauth";
@@ -186,10 +187,9 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   const role: Role = a ? a.roomRole : "viewer";
   const identity = { userId: user.id, name: user.name, role };
   const inOrg = f.org_id !== null;
-  const seatOf = inOrg ? ((await acc.membership(f.org_id!))?.seat ?? null) : null;
   const need = (ok: boolean | undefined, message: string) => {
     if (!ok) {
-      if (a?.capped === "seat" && (a.role === "owner" || a.role === "editor") && /edit|view/.test(message)) throw new HttpError(403, "your seat can't edit this file", "seat_required", { seat: seatOf });
+      if (a?.capped === "seat" && (a.role === "owner" || a.role === "editor") && /edit|view/.test(message)) throw new HttpError(403, "your seat can't edit this file", "seat_required", { seat: seatNeeded(f.editor_type) });
       throw new HttpError(403, message);
     }
   };
@@ -364,7 +364,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
     case "requests": {
       // "Ask to edit": a viewer asks; editors see the requests (live, through the room) and approve or deny.
       if (parts.length === 3 && m === "POST") {
-        if (a?.capped === "seat") throw new HttpError(403, "ask an admin to upgrade your seat", "seat_required");
+        if (a?.capped === "seat") throw new HttpError(403, "ask an admin to upgrade your seat", "seat_required", { seat: seatNeeded(f.editor_type) });
         if (a?.role !== "viewer") throw new HttpError(400, "you can already edit");
         await deps.db.addRequest(key, user.id, deps.now());
         await deps.rooms.fetch(key, "/room/notice", { method: "POST", body: JSON.stringify({ kind: "access-request", userId: user.id, name: user.name ?? user.email }) });
@@ -482,7 +482,7 @@ async function fileOrg(acc: Access, f: FileRow) {
   const org = await acc.org(f.org_id);
   const team = f.team_id ? await acc.team(f.team_id) : null;
   const chain = f.project_id ? await acc.chain(f.project_id) : [];
-  return { id: f.org_id, name: org?.name ?? "", teamId: f.team_id, teamName: team?.name ?? null, projectId: f.project_id, path: chain.map((p) => ({ id: p.id, name: p.name })).reverse() };
+  return { id: f.org_id, orgId: f.org_id, name: org?.name ?? "", teamId: f.team_id, teamName: team?.name ?? null, projectId: f.project_id, path: chain.map((p) => ({ id: p.id, name: p.name })).reverse() };
 }
 
 /** PATCH /files/:key's org fields: Inherited / Limited, the org link, prototype link, link expiry (§14.12). */

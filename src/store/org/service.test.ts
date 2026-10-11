@@ -21,7 +21,7 @@ import { defaultPrefs, newMeta, WorkspaceModel } from "../../shared/store/worksp
 import { MultiplayerService, type MultiplayerHost } from "../multiplayer/service";
 import { NotificationsService, type OrgNotice } from "../notifications/service";
 import { openTestStore, settle, type TestStore } from "../testing/harness";
-import { FakeOrgServer } from "./fake/server";
+import { RealOrgServer } from "./fake/real";
 import { OrgService, type OrgCache, type OrgHost } from "./service";
 
 const SERVER = "https://org.test";
@@ -146,7 +146,7 @@ afterEach(() => {
   }
 });
 
-async function installation(srv: FakeOrgServer, token: string | null, host = new Host()) {
+async function installation(srv: RealOrgServer, token: string | null, host = new Host()) {
   const mp = new MultiplayerService(host, { fetch: srv.fetch, WebSocket: NoSocket as never, random: Math.random });
   const notices = new Notices();
   const org = new OrgService(mp, host, notices);
@@ -159,8 +159,8 @@ async function installation(srv: FakeOrgServer, token: string | null, host = new
 
 /** An org with a team, a folder and a file in it, made by its first admin */
 async function acme() {
-  const srv = new FakeOrgServer();
-  const alice = srv.addUser("alice@example.com", "Alice");
+  const srv = new RealOrgServer();
+  const alice = await srv.addUser("alice@example.com", "Alice");
   const a = await installation(srv, alice.token);
   const org = await a.org.orgs.create({ name: "Acme" });
   const team = await a.org.teams.create(org.id, { name: "Design" });
@@ -203,7 +203,7 @@ describe("org spaces", () => {
     expect(file).toMatchObject({ name: "Home page", orgId: org.id, teamId: team.id, projectId: folder.id, fileKey, editorType: "design" });
     expect(a.host.getMeta(fileKey)?.space).toEqual({ orgId: org.id, key: file.key, teamId: team.id, projectId: folder.id });
     expect(await a.mp.roomKey(fileKey)).toBe(file.key);
-    expect(srv.files.get(file.key)?.snapshot?.seq).toBe(0);
+    expect((await srv.file(file.key))?.snapshot?.seq).toBe(0);
     expect(srv.log).toContain(`POST /projects/${folder.id}/files`);
     expect((await a.org.projects.files(folder.id)).map((f) => [f.key, f.fileKey])).toEqual([[file.key, fileKey]]);
     // The local space's lists leave it out; Recents and Starred show both spaces
@@ -228,7 +228,7 @@ describe("org spaces", () => {
     const moved = await a.org.projects.moveLocalFile(local.fileKey, folder.id, { snapshot: await a.host.headSnapshot(local.fileKey), headSeq: 0 });
     expect(moved).toMatchObject({ name: "Brand", orgId: org.id, teamId: team.id, projectId: folder.id, fileKey: local.fileKey });
     expect(a.host.getMeta(local.fileKey)?.space).toEqual({ orgId: org.id, key: moved.key, teamId: team.id, projectId: folder.id });
-    expect(srv.files.get(moved.key)).toMatchObject({ orgId: org.id, projectId: folder.id });
+    expect(await srv.file(moved.key)).toMatchObject({ orgId: org.id, projectId: folder.id });
     expect(a.host.ws.listFiles({ in: "drafts" })).toEqual([]);
     expect(a.events).toContainEqual({ type: "files.changed", orgId: org.id, projectId: folder.id });
     await expect(a.org.projects.moveLocalFile(local.fileKey, folder.id, { snapshot: new Uint8Array(), headSeq: 0 })).rejects.toMatchObject({ code: "invalid" });
@@ -248,7 +248,7 @@ describe("org spaces", () => {
   it("a member opens an org file: the copy knows its place from GET /files/:key", async () => {
     const { srv, a, org, team, folder } = await acme();
     const { file } = await a.org.projects.createFile(folder.id, { name: "Spec" });
-    const bobUser = srv.addUser("bob@example.com", "Bob");
+    const bobUser = await srv.addUser("bob@example.com", "Bob");
     await a.org.teams.invite(team.id, { email: "bob@example.com", role: "editor" });
     const b = await installation(srv, bobUser.token);
     expect((await b.org.orgs.list()).map((o) => [o.name, o.role, o.seat])).toEqual([["Acme", "member", "view"]]);
@@ -258,12 +258,12 @@ describe("org spaces", () => {
     expect(b.host.getMeta(fileKey)?.space).toEqual({ orgId: org.id, key: file.key, teamId: team.id, projectId: folder.id });
     expect(b.host.ws.listFiles({ in: "drafts" })).toEqual([]);
     expect((await b.org.projects.files(folder.id)).map((f) => f.fileKey)).toEqual([fileKey]);
-    // The file moves on the server: the next listing puts the copy where it is now
-    srv.files.get(file.key)!.projectId = null;
-    srv.files.get(file.key)!.teamId = null;
+    // The file moves on the server (into another folder: an owner's draft would be out of Bob's reach, §14.4): the next listing puts the copy where it is now
+    const other = await a.org.projects.create(team.id, { name: "Archive" });
+    await srv.exec(`UPDATE files SET project_id = ?2 WHERE key = ?1`, file.key, other.id);
     b.host.t += 10_000;
     await b.org.orgs.search(org.id, "spec");
-    expect(b.host.getMeta(fileKey)?.space).toMatchObject({ teamId: null, projectId: null });
+    expect(b.host.getMeta(fileKey)?.space).toMatchObject({ teamId: team.id, projectId: other.id });
   });
 
   it("answers from the cache offline (cache.stale), refuses writes, and leaves no copy of a file it couldn't create", async () => {
@@ -293,7 +293,7 @@ describe("org spaces", () => {
     expect(a.host.ws.files.size).toBe(before);
     // Back online: the reads refresh and say what changed
     srv.online = true;
-    srv.teams.get(team.id)!.name = "Design system";
+    await srv.exec(`UPDATE teams SET name = ?2 WHERE id = ?1`, team.id, "Design system");
     a.host.t += 10_000;
     expect((await again.org.teams.list(org.id))[0].name).toBe("Design");
     await again.org.idle();
@@ -304,7 +304,7 @@ describe("org spaces", () => {
   it("keeps each account's caches apart, and empty signed out", async () => {
     const { srv, a } = await acme();
     await a.org.idle();
-    const carol = srv.addUser("carol@example.com");
+    const carol = await srv.addUser("carol@example.com");
     const c = await installation(srv, null, a.host);
     expect(await c.org.orgs.list()).toEqual([]);
     await c.mp.setSession({ server: SERVER, token: carol.token });
@@ -318,7 +318,7 @@ describe("org spaces", () => {
   it("refreshes what an Inbox notice names, then tells", async () => {
     const { srv, a, org, team } = await acme();
     expect((await a.org.teams.list(org.id))[0].name).toBe("Design");
-    srv.teams.get(team.id)!.name = "Product";
+    await srv.exec(`UPDATE teams SET name = ?2 WHERE id = ?1`, team.id, "Product");
     a.events.length = 0;
     a.notices.send({ orgId: org.id, what: "teams" });
     await settle();
@@ -341,7 +341,7 @@ describe("org spaces", () => {
     const { srv, a, org, team, folder } = await acme();
     const dup = await a.org.teams.create(org.id, { name: "Design" }).catch((e: unknown) => e);
     expect(dup).toMatchObject({ code: "conflict", detail: { code: "conflict" } });
-    const bobUser = srv.addUser("bob@example.com");
+    const bobUser = await srv.addUser("bob@example.com");
     await a.org.teams.invite(team.id, { email: "bob@example.com", role: "editor" });
     await a.org.admin.updateSettings(org.id, { teamCreation: "admins", seatApproval: { full: "auto", dev: "manual", collab: "manual" } });
     const b = await installation(srv, bobUser.token);
@@ -368,7 +368,7 @@ describe("org spaces", () => {
     expect(page.items.map((p) => [p.email, p.seat])).toEqual([["dan@example.com", "view"]]);
     await a.org.admin.updatePeople(org.id, { userIds: [page.items[0].id], seat: "dev" });
     expect((await a.org.admin.people(org.id)).items.find((p) => p.id === page.items[0].id)?.seat).toBe("dev");
-    expect(await a.org.admin.exportCsv(org.id, "people")).toContain("dan@example.com,dan,member,dev");
+    expect(await a.org.admin.exportCsv(org.id, "people")).toContain("dan@example.com,,member,dev");
     expect((await a.org.admin.activity(org.id, { events: ["team_create"] })).activity_logs.map((l) => l.entity.name)).toEqual(["Design"]);
     expect(await a.org.admin.settings(org.id)).toMatchObject({ defaultSeat: "view", teamCreation: "anyone" });
     // Workspaces and billing groups are addressed by their own id: the store finds their org
@@ -439,8 +439,8 @@ describe("LocalStore's org spaces", () => {
 
   it("keeps Workspace/spaces/<orgId>.json, makes org copies on disk, and serves the repositories", async () => {
     vi.stubGlobal("WebSocket", NoSocket);
-    const srv = new FakeOrgServer();
-    const alice = srv.addUser("alice@example.com");
+    const srv = new RealOrgServer();
+    const alice = await srv.addUser("alice@example.com");
     t = await openTestStore({ fetch: srv.fetch });
     await t.api.multiplayer.setSession({ server: SERVER, token: alice.token });
     const org = await t.api.orgs.create({ name: "Acme" });
@@ -449,7 +449,7 @@ describe("LocalStore's org spaces", () => {
     const { fileKey, file } = await t.api.projects.createFile(folder.id, { name: "Spec" });
     expect((await t.api.workspace.getFile(fileKey)).space).toEqual({ orgId: org.id, key: file.key, teamId: team.id, projectId: folder.id });
     expect((await t.api.workspace.listFiles({ in: "drafts" })).map((f) => f.fileKey)).not.toContain(fileKey);
-    expect(srv.files.get(file.key)?.snapshot?.bytes.length).toBeGreaterThan(0);
+    expect((await srv.file(file.key))?.snapshot?.bytes.length).toBeGreaterThan(0);
     await t.api.teams.list(org.id);
     await t.store.org.idle();
     await t.idle();
@@ -469,8 +469,8 @@ describe("LocalStore's org spaces", () => {
 
   it("serves orgs / teams / projects / admin over the port, with the `org` event topic", async () => {
     vi.stubGlobal("WebSocket", NoSocket);
-    const srv = new FakeOrgServer();
-    const alice = srv.addUser("alice@example.com");
+    const srv = new RealOrgServer();
+    const alice = await srv.addUser("alice@example.com");
     t = await openTestStore({ fetch: srv.fetch });
     const server = new StoreServer(t.store, { generation: 1 });
     const { port1, port2 } = new MessageChannel();

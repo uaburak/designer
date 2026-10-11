@@ -14,13 +14,13 @@
  * And what the other routes share: adding people (with workspaces' default teams), inviting an email into the org's
  * content (members, guests, guest requests), removing someone (§14.7), creating an org file.
  */
-import { seatCanEdit } from "../../../src/shared/org/access";
+import { seatCanEdit, seatNeeded } from "../../../src/shared/org/access";
 import type { EditorType, GrantRole, OrgInfo, OrgRole, OrgSummary, PersonRef, Seat, SeatRequest } from "../../../src/shared/org/types";
-import { fileEntity, logActivity, orgEntity, userEntity } from "../activity";
+import { fileEntity, logActivity, userEntity } from "../activity";
 import type { Deps } from "../api";
 import { normalizeEmail, type D1Like, type User } from "../db";
-import { notifyOrg, orgNotice, settleOrg } from "../notifications";
-import { accessibleFiles, FILE_COLS, personIn, personRef, toOrgFile, userByEmail, type Access, type FileRow, type MemberRow } from "./db";
+import { notifyOrg, orgNotice } from "../notifications";
+import { accessibleFiles, FILE_COLS, personRef, toOrgFile, userByEmail, type Access, type FileRow, type MemberRow } from "./db";
 import { body, cleanName, EMAIL, HttpError, json, noContent, randomId, type Ctx } from "./http";
 import { createOrg } from "./migrate";
 import { orgFileKeys, reauth } from "./reauth";
@@ -237,7 +237,7 @@ export async function setSeat(deps: Deps, orgId: string, userId: string, seat: S
     if (seat === "full") await logActivity(deps, { orgId, action: "org_user_account_type_change_to_full", actor: by, entity: userEntity(person), details: { from: before.seat }, req });
   }
   if (SEATS.indexOf(seat) > SEATS.indexOf(before.seat)) await reauth(deps, await orgFileKeys(d1, orgId), [userId]);
-  await orgNotice(deps, [userId], { type: "orgs.changed" });
+  await orgNotice(deps, [userId], { what: "orgs" });
   return true;
 }
 
@@ -259,7 +259,7 @@ export async function addPerson(deps: Deps, orgId: string, email: string, role: 
   const entity = userEntity(u ?? { id: e, email: e, name: null });
   await logActivity(deps, { orgId, action: !u ? "org_invite_create" : role === "guest" ? "org_user_create_external" : "org_user_create", actor: opts.by, entity, details: { role, seat, ...(opts.details ?? {}) }, req: opts.req });
   if (opts.workspaceId && role !== "guest") await joinDefaultTeams(deps, opts.workspaceId, e, u?.id ?? null, opts.by);
-  if (u) await orgNotice(deps, [u.id], { type: "orgs.changed" });
+  if (u) await orgNotice(deps, [u.id], { what: "orgs" });
   return { userId: u?.id ?? null, created: true };
 }
 
@@ -289,8 +289,14 @@ export async function inviteEmail(ctx: Ctx, orgId: string, email: string, resour
   if (row) return { kind: row.role === "guest" ? "guest" : "member", userId: row.user_id, email: e };
   const settings = await acc.settings(orgId);
   const me = await acc.membership(orgId);
+  // An org admin inviting someone adds them as a member (the owner's decision, 2026-10-11: friends are members;
+  // admins add anyone as a member by hand). Everyone else's outside invites make guests (§14.1).
+  if (me?.role === "admin") {
+    const added = await addPerson(deps, orgId, e, "member", settings.defaultSeat, { by: user, req: ctx.req, details: { via: resource.type } });
+    return { kind: "member", userId: added.userId, email: e };
+  }
   if (settings.guestMembership === "block") throw new HttpError(403, "people outside the organization can't be invited", "guest_blocked");
-  if (settings.guestMembership === "approval" && me?.role !== "admin") {
+  if (settings.guestMembership === "approval") {
     const id = randomId();
     await d1
       .prepare(`INSERT INTO guest_requests (id, org_id, email, invited_by, resource_type, resource_id, role, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`)
@@ -326,7 +332,7 @@ export async function removeFromOrg(deps: Deps, orgId: string, userId: string, b
   await d1.prepare(`DELETE FROM org_members WHERE org_id = ?1 AND user_id = ?2`).bind(orgId, userId).run();
   await logActivity(deps, { orgId, action: row.role === "guest" ? "org_user_delete_external" : "org_user_delete", actor: by, entity: userEntity({ id: userId, email: row.email, name: row.name }), req });
   await reauth(deps, await orgFileKeys(d1, orgId), [userId]);
-  await orgNotice(deps, [userId], { type: "orgs.changed" });
+  await orgNotice(deps, [userId], { what: "orgs" });
   return true;
 }
 
@@ -353,7 +359,7 @@ export async function createOrgFile(ctx: Ctx, input: { key: unknown; name: unkno
     if (a.trashed || (a.role !== "owner" && a.role !== "editor")) throw new HttpError(403, "only people who can edit this folder can add files");
     teamId = team.id;
   }
-  if (!seatCanEdit(me.seat, editorType)) throw new HttpError(403, `your ${me.seat} seat can't create this kind of file`, "seat_required", { seat: me.seat });
+  if (!seatCanEdit(me.seat, editorType)) throw new HttpError(403, `your ${me.seat} seat can't create this kind of file`, "seat_required", { seat: seatNeeded(editorType), current: me.seat });
   const now = deps.now();
   const had = await acc.fileRow(key);
   let action: "fig_file_create" | "fig_file_move" = "fig_file_create";
@@ -372,10 +378,9 @@ export async function createOrgFile(ctx: Ctx, input: { key: unknown; name: unkno
   const f = (await d1.prepare(`SELECT ${FILE_COLS}, u.name AS owner_name, u.email AS owner_email FROM files f LEFT JOIN users u ON u.id = f.owner_id WHERE f.key = ?1`).bind(key).first<FileRow & { owner_name: string | null; owner_email: string | null }>())!;
   await logActivity(deps, { orgId: input.orgId, action, actor: user, entity: fileEntity(f), teamId, details: action === "fig_file_move" ? { from: null, to: input.projectId } : {}, req: ctx.req });
   if (action === "fig_file_move") await reauth(deps, [key]);
-  await orgNotice(deps, [user.id], { type: "files.changed", orgId: input.orgId, projectId: input.projectId });
+  await orgNotice(deps, [user.id], { what: "files", orgId: input.orgId, projectId: input.projectId });
   const a = await acc.file(f);
   if (!a.ok) throw new HttpError(500, "the new file can't be opened");
   return toOrgFile(f, a);
 }
 
-export { orgEntity, personIn };

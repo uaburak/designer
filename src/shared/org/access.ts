@@ -84,6 +84,9 @@ export function seatCanEdit(seat: Seat, t: EditorType): boolean {
   return true; // figjam, slides, buzz: Dev and Collab edit
 }
 
+/** The least seat that edits this kind of file (`seat_required`'s `seat`) */
+export const seatNeeded = (t: EditorType): Seat => (t === "design" || t === "sites" || t === "make" ? "full" : "collab");
+
 /** The highest role among the user's own rows and those of their groups. */
 export function grantOf(gs: readonly Grant[], user: { id: string; email: string } | null, groups: readonly string[]): { role: GrantRole | null; admin: boolean } {
   let role: Level | null = null;

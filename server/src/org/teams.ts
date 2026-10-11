@@ -28,6 +28,7 @@ export async function orgTeamsRoute(ctx: Ctx, orgId: string): Promise<Response> 
     if ((await acc.settings(orgId)).teamCreation === "admins" && me.role !== "admin") throw new HttpError(403, "only admins can create teams in this organization", "admins_only");
     const b = await body<{ name?: unknown; workspaceId?: unknown }>(ctx.req);
     const name = cleanName(b.name, "name", 100);
+    await uniqueTeamName(ctx, orgId, name, null);
     let workspaceId: string | null = null;
     if (typeof b.workspaceId === "string") {
       const w = await acc.d1.prepare(`SELECT id FROM workspaces WHERE id = ?1 AND org_id = ?2`).bind(b.workspaceId, orgId).first();
@@ -39,11 +40,17 @@ export async function orgTeamsRoute(ctx: Ctx, orgId: string): Promise<Response> 
     await acc.d1.prepare(`INSERT INTO teams (id, org_id, workspace_id, name, owner_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)`).bind(id, orgId, workspaceId, name, user.id, now).run();
     await acc.d1.prepare(`INSERT INTO team_members (team_id, email, user_id, role, admin, created_at) VALUES (?1, ?2, ?3, 'editor', 1, ?4)`).bind(id, user.email, user.id, now).run();
     await logActivity(deps, { orgId, action: "team_create", actor: user, entity: teamEntity({ id, name }), teamId: id, req: ctx.req });
-    await orgNotice(deps, [user.id], { type: "teams.changed", orgId });
+    await orgNotice(deps, [user.id], { what: "teams", orgId });
     acc.reset();
     return json({ team: await teamInfo(ctx, (await acc.team(id))!) }, 201);
   }
   throw new HttpError(405, "method not allowed");
+}
+
+/** Team names are unique in an org, ignoring case (409 "name taken", §14.12) */
+async function uniqueTeamName(ctx: Ctx, orgId: string, name: string, except: string | null): Promise<void> {
+  const taken = await ctx.acc.d1.prepare(`SELECT 1 AS x FROM teams WHERE org_id = ?1 AND lower(name) = lower(?2) AND deleted_at IS NULL AND id IS NOT ?3`).bind(orgId, name, except).first();
+  if (taken) throw new HttpError(409, "a team with this name exists");
 }
 
 export async function listTeams(ctx: Ctx, orgId: string, me: MemberRow, filter: "mine" | "browse"): Promise<TeamSummary[]> {
@@ -63,7 +70,7 @@ async function teamSummary(ctx: Ctx, t: TeamRow): Promise<TeamSummary> {
     .prepare(`SELECT (SELECT COUNT(*) FROM team_members WHERE team_id = ?1) AS members, (SELECT COUNT(*) FROM projects WHERE team_id = ?1 AND parent_id IS NULL AND trashed_at IS NULL) AS projects`)
     .bind(t.id)
     .first<{ members: number; projects: number }>();
-  return {
+  const summary: TeamSummary = {
     id: t.id,
     name: t.name,
     icon: t.icon,
@@ -75,6 +82,8 @@ async function teamSummary(ctx: Ctx, t: TeamRow): Promise<TeamSummary> {
     memberCount: c?.members ?? 0,
     projectCount: c?.projects ?? 0,
   };
+  // `orgId` beyond §14.13's TeamSummary (the store asked: a team names its org)
+  return Object.assign(summary, { orgId: t.org_id });
 }
 
 export async function teamInfo(ctx: Ctx, t: TeamRow): Promise<TeamInfo> {
@@ -101,7 +110,7 @@ export async function teamsRoute(ctx: Ctx): Promise<Response> {
   const orgId = team.org_id;
   const now = deps.now();
   const log = (action: Parameters<typeof logActivity>[1]["action"], details: Record<string, unknown> = {}, name = team.name) => logActivity(deps, { orgId, action, actor: user, entity: teamEntity({ id: team.id, name }), teamId: team.id, details, req: ctx.req });
-  const tell = async () => orgNotice(deps, await teamUserIds(ctx, team), { type: "team.updated", teamId: team.id });
+  const tell = async () => orgNotice(deps, await teamUserIds(ctx, team), { what: "team", orgId: team.org_id, teamId: team.id });
   const needAdmin = () => {
     if (!rights.admin) throw new HttpError(403, "only the team's admins can do that");
   };
@@ -119,6 +128,7 @@ export async function teamsRoute(ctx: Ctx): Promise<Response> {
       if (b.name !== undefined) {
         const name = cleanName(b.name, "name", 100);
         if (name !== team.name) {
+          await uniqueTeamName(ctx, orgId, name, team.id);
           await acc.d1.prepare(`UPDATE teams SET name = ?2, updated_at = ?3 WHERE id = ?1`).bind(team.id, name, now).run();
           await log("team_rename", { old_name: team.name }, name);
         }
@@ -170,7 +180,7 @@ export async function teamsRoute(ctx: Ctx): Promise<Response> {
       await log("team_delete");
       await reauth(deps, await teamFileKeys(acc.d1, team.id));
       await tell();
-      await orgNotice(deps, await teamUserIds(ctx, team), { type: "teams.changed", orgId });
+      await orgNotice(deps, await teamUserIds(ctx, team), { what: "teams", orgId });
       return noContent();
     }
     throw new HttpError(405, "method not allowed");
@@ -183,7 +193,7 @@ export async function teamsRoute(ctx: Ctx): Promise<Response> {
       await acc.d1.prepare(`UPDATE teams SET deleted_at = NULL, deleted_by = NULL, updated_at = ?2 WHERE id = ?1`).bind(team.id, now).run();
       await log("team_restore");
       acc.reset();
-      await orgNotice(deps, await teamUserIds(ctx, team), { type: "teams.changed", orgId });
+      await orgNotice(deps, await teamUserIds(ctx, team), { what: "teams", orgId });
       return json({ team: await teamInfo(ctx, (await acc.team(team.id))!) });
     }
     case "transfer": {
@@ -262,7 +272,7 @@ export async function teamsRoute(ctx: Ctx): Promise<Response> {
           await log("team_member_add", { user_id: parts[3], email: u.email, role: "editor", request: true });
         }
         await settleOrg(deps, "team_join_request", orgId, parts[3], approve === true ? "approved" : "denied", team.id);
-        await orgNotice(deps, [parts[3]], { type: "teams.changed", orgId });
+        await orgNotice(deps, [parts[3]], { what: "teams", orgId });
         return json({ requests: await joinRequests(ctx, team) });
       }
       break;
@@ -370,7 +380,7 @@ async function putTeamMember(ctx: Ctx, t: TeamRow, email: unknown, groupId: unkn
   await log(invited.kind === "guest" ? "team_member_add_external" : "team_member_add", { email: e, user_id: invited.userId, role, admin });
   if (invited.userId) {
     await notifyOrg(deps, { userId: invited.userId, kind: "team_invite", actorId: user.id, orgId: t.org_id, teamId: t.id, name: t.name, role });
-    await orgNotice(deps, [invited.userId], { type: "teams.changed", orgId: t.org_id });
+    await orgNotice(deps, [invited.userId], { what: "teams", orgId: t.org_id });
   }
   acc.reset();
   return null;
@@ -408,7 +418,7 @@ async function removeTeamMember(ctx: Ctx, t: TeamRow, p: { kind: "u" | "e" | "g"
   await log(row.org_role === "guest" ? "team_member_remove_external" : "team_member_remove", { email: row.email, user_id: row.user_id });
   if (row.user_id) {
     await reauth(deps, await teamFileKeys(acc.d1, t.id), [row.user_id]);
-    await orgNotice(deps, [row.user_id], { type: "teams.changed", orgId: t.org_id });
+    await orgNotice(deps, [row.user_id], { what: "teams", orgId: t.org_id });
   }
   acc.reset();
 }
