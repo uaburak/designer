@@ -17,6 +17,7 @@ import type {
   FileChange,
   FileQuery,
   FileRepository,
+  FontsEvent,
   LibraryEvent,
   LibraryRegistry,
   OpenedFile,
@@ -48,6 +49,16 @@ import { NotificationsService, notificationsApi } from "./notifications/service"
 import { OrgService } from "./org/service";
 import { BranchService } from "./branches/service";
 import { localBranchHost } from "./branches/localHost";
+import { dirname } from "node:path";
+import { decodeCanvas, encodeCanvas } from "../shared/fig/container";
+import { DOCUMENT_FORMAT_VERSION, SCHEMA_BINARY } from "../shared/schema/document.generated";
+import { nodeCodecs, own } from "./kiwi/codecs";
+import { decodeWithSchema, isCurrentSchema } from "./kiwi/schemas";
+import { libraryServerOf, OrgLibraries, type LibraryCacheStore, type LibraryServer } from "./libraries/org";
+import { LibraryRouter } from "./libraries/router";
+import { orgLibrariesRepository } from "./libraries/orgLibraries";
+import { AnalyticsQueue, analyticsRepository } from "./libraries/analyticsQueue";
+import { UsageReporter } from "./libraries/usage";
 
 export interface LocalStoreOptions {
   workspaceDir: string;
@@ -147,7 +158,9 @@ export class LocalStore {
     readonly fetch: typeof globalThis.fetch = (...a: Parameters<typeof globalThis.fetch>) => globalThis.fetch(...a),
   ) {
     this.workspaceEvents = ws.events;
-    this.libraryEvents = libraries.events;
+    // Local libraries' events and org libraries' (from the Inbox, src/store/libraries/org.ts) on one topic
+    this.libraryEvents = new Emitter<LibraryEvent>();
+    libraries.events.on((e) => this.libraryEvents.emit(e));
     this.fileChanges = files.changes;
     // eslint-disable-next-line @typescript-eslint/no-this-alias -- the host's getter reads the live ordinal
     const self = this;
@@ -219,7 +232,94 @@ export class LocalStore {
       this.notifications,
     );
     this.branches = new BranchService(localBranchHost({ dirs, ws, files, libraries, multiplayer: this.multiplayer, clock, log, timers }));
+
+    // Libraries in organizations and their analytics (docs/data.md §16, §17): caches under Workspace/spaces/
+    const spaces = join(dirs.root, "spaces");
+    const cachePath = (name: string) => join(spaces, ...name.split("/"));
+    const cache: LibraryCacheStore = {
+      readJson: (name) => readJsonOrNull(cachePath(name)),
+      writeJson: (name, value) =>
+        this.spacesQueue.run(async () => {
+          await ensureDir(dirname(cachePath(name)));
+          await writeJsonAtomic(dirs.tmp, cachePath(name), value);
+        }),
+      readBytes: async (name) => fsp.readFile(cachePath(name)).then((b) => new Uint8Array(b), () => null),
+      writeBytes: async (name, bytes) => {
+        await ensureDir(dirname(cachePath(name)));
+        await atomicWrite(dirs.tmp, cachePath(name), bytes);
+      },
+    };
+    this.libraryServer = libraryServerOf(this.multiplayer);
+    const patchFile = (fileKey: FileKey, patch: Partial<FileMeta>) => ws.queue.run(() => ws.patchFile(fileKey, patch));
+    const copyOf = (roomKey: string) => [...ws.files.values()].find((m) => m.space?.key === roomKey) ?? null;
+    this.orgLibraries = new OrgLibraries(
+      {
+        server: this.libraryServer,
+        cache,
+        getMeta: (fileKey) => ws.files.get(fileKey) ?? null,
+        copyOf,
+        patchFile,
+        blobs,
+        pngSize,
+        // deflate-raw, not zstd: the browser's dev store reads what the desktop publishes (DecompressionStream)
+        encodePayload: (message) => encodeCanvas({ schema: SCHEMA_BINARY, message, version: DOCUMENT_FORMAT_VERSION, compression: "deflate-raw" }, nodeCodecs),
+        decodePayload: async (bytes) => {
+          const c = decodeCanvas(bytes, nodeCodecs);
+          return isCurrentSchema(c.schema) ? own(c.message) : codec.encodeMessage(decodeWithSchema(c.schema, c.message).message);
+        },
+        log,
+      },
+      this.notifications,
+    );
+    this.orgLibraries.watch((e) => this.libraryEvents.emit(e));
+    this.libraryRouter = new LibraryRouter(
+      {
+        listAvailable: async (forFileKey) => libraries.listAvailable(forFileKey),
+        getRecord: async (lib) => libraries.getRecord(lib),
+        getVersion: (lib, version) => libraries.getVersion(lib, version),
+        previewPublish: (lib, assets) => libraries.previewPublish(lib, assets ?? []),
+        publish: (req) => libraries.publish(req),
+        unpublish: (lib) => libraries.unpublish(lib),
+        setEnabled: (fileKey, lib, enabled) => libraries.setEnabled(fileKey, lib, !!enabled),
+        getPayloads: (lib, wants, opts) => libraries.getPayloads(lib, wants ?? [], { withDependencies: !!opts?.withDependencies }),
+        diff: (lib, have) => libraries.diff(lib, have ?? []),
+        watch: (listener) => libraries.events.on(listener),
+      },
+      this.orgLibraries,
+      { getMeta: (fileKey) => ws.files.get(fileKey) ?? null, copyOf, patchFile, moved: libraries, log },
+    );
+    const json = (name: string) => ({ load: () => readJsonOrNull(join(spaces, name)), save: (v: unknown) => this.spacesQueue.run(async () => (await ensureDir(spaces), await writeJsonAtomic(dirs.tmp, join(spaces, name), v))) });
+    const queueFile = json("analytics-queue.json");
+    this.analytics = new AnalyticsQueue({ server: this.libraryServer, getMeta: (fileKey) => ws.files.get(fileKey) ?? null, load: queueFile.load, save: queueFile.save, now: () => clock.now(), timers, log });
+    this.analytics.start();
+    this.notifications.onReconnect(() => void this.analytics.flush());
+    const usageFile = json("analytics-usage.json");
+    this.usage = new UsageReporter({
+      server: this.libraryServer,
+      getMeta: (fileKey) => ws.files.get(fileKey) ?? null,
+      readDocument: async (fileKey) => {
+        const { table, seq } = await files.headTable(fileKey);
+        return { nodes: table.toMessage().nodeChanges ?? [], headSeq: seq };
+      },
+      load: usageFile.load,
+      save: usageFile.save,
+      now: () => clock.now(),
+      timers,
+      log,
+    });
+    files.changes.on((c) => this.usage.touched(c.fileKey));
   }
+
+  /** The server as the libraries reach it */
+  readonly libraryServer: LibraryServer;
+  /** Org libraries (docs/data.md §16.3), behind the router with the local ones */
+  readonly orgLibraries: OrgLibraries;
+  readonly libraryRouter: LibraryRouter;
+  /** Library analytics' queue (§17.5) and instance snapshots (§17.4) */
+  readonly analytics: AnalyticsQueue;
+  readonly usage: UsageReporter;
+  /** Shared fonts changed (docs/desktop.md §14.3): the Inbox's `{t: "fonts"}` on topic `fonts` */
+  readonly fonts = { onEvent: (listener: (e: FontsEvent) => void): Unsubscribe => this.notifications.onFonts((n) => listener({ orgId: n.orgId, version: n.version })) };
 
   /** The org spaces (docs/multiplayer.md §14.6): the server's orgs, teams, folders and their files, cached per org */
   readonly org: OrgService;
@@ -574,6 +674,9 @@ export class LocalStore {
     this.closed = true;
     if (this.gcTimer) this.timers.clearTimeout(this.gcTimer);
     this.comments.close();
+    this.usage.close();
+    await this.analytics.close().catch((e) => this.log("warn", "analytics: the quit's send failed", e));
+    this.orgLibraries.close();
     this.org.close();
     this.branches.close();
     this.notifications.close();
@@ -642,7 +745,11 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     reattach: (fileKey, sessionID, last) => s.files.reattach(fileKey, sessionID, last ?? 0, owner),
     append: (fileKey, batch) => s.files.append(fileKey, batch, owner),
     flush: (fileKey) => s.files.flush(fileKey),
-    close: (fileKey, sessionID) => s.files.close(fileKey, sessionID),
+    close: async (fileKey, sessionID) => {
+      await s.files.close(fileKey, sessionID);
+      // An org file's instance snapshot (docs/data.md §17.4) when it closes
+      s.usage.closedFile(fileKey);
+    },
     subscribe: (fileKey, fromSeq, listener) => subscribeLocal(s, fileKey, fromSeq, listener),
     saveThumbnail: (fileKey, png, size) => s.files.saveThumbnail(fileKey, png, size ?? { width: 0, height: 0 }),
     setUiState: (fileKey, patch) => s.files.setUiState(fileKey, patch ?? {}),
@@ -663,19 +770,21 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     get: (sha1) => s.blobs.get(sha1),
     url: (sha1) => `app://designer/_blob/${sha1}`,
   };
+  // Routed by key: local libraries (§9) and org libraries (§16.3)
+  const r = s.libraryRouter;
   const libraries: LibraryRegistry = {
-    listAvailable: async (forFileKey) => s.libraries.listAvailable(forFileKey),
-    getRecord: async (lib) => s.libraries.getRecord(lib),
-    getVersion: (lib, version) => s.libraries.getVersion(lib, version),
-    previewPublish: (lib, assets) => s.libraries.previewPublish(lib, assets ?? []),
+    listAvailable: (forFileKey) => r.listAvailable(forFileKey),
+    getRecord: (lib) => r.getRecord(lib),
+    getVersion: (lib, version) => r.getVersion(lib, version),
+    previewPublish: (lib, assets) => r.previewPublish(lib, assets ?? []),
     publish: async (req) => {
       s.branches.checkCanPublish(req?.libraryFileKey);
-      return s.libraries.publish(req);
+      return r.publish(req);
     },
-    unpublish: (lib) => s.libraries.unpublish(lib),
-    setEnabled: (fileKey, lib, enabled) => s.libraries.setEnabled(fileKey, lib, !!enabled),
-    getPayloads: (lib, wants, opts) => s.libraries.getPayloads(lib, wants ?? [], { withDependencies: !!opts?.withDependencies }),
-    diff: (lib, have) => s.libraries.diff(lib, have ?? []),
+    unpublish: (lib) => r.unpublish(lib),
+    setEnabled: (fileKey, lib, enabled) => r.setEnabled(fileKey, lib, !!enabled),
+    getPayloads: (lib, wants, opts) => r.getPayloads(lib, wants ?? [], { withDependencies: !!opts?.withDependencies }),
+    diff: (lib, have) => r.diff(lib, have ?? []),
     watch: (listener) => s.libraryEvents.on(listener),
   };
   const previews = previewsOf(s);
@@ -716,6 +825,8 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     projects: s.org.projects,
     admin: s.org.admin,
     branches: s.branches.repository(),
+    orgLibraries: orgLibrariesRepository(s.libraryServer),
+    analytics: analyticsRepository(s.analytics, s.libraryServer),
   };
 }
 

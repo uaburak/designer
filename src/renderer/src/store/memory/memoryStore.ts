@@ -50,6 +50,16 @@ import { OrgService } from "../../../../store/org/service";
 import { BranchService, libraryVersionOf } from "../../../../store/branches/service";
 import { RemoteBranches } from "../../../../store/branches/remote";
 import type { BranchRecord } from "../../../../shared/merge/branches";
+import { readCanvasChunks, encodeCanvas } from "../../../../shared/fig/container";
+import { deflateRawStored, inflateRawStored, isZstd } from "../../../../shared/fig/compression";
+import { decodeAnySchema } from "../../../../shared/fig/importFig";
+import { DOCUMENT_FORMAT_VERSION } from "../../../../shared/schema/document.generated";
+import type { FontsEvent } from "../../../../shared/store/repositories";
+import { libraryServerOf, OrgLibraries, type LibraryCacheStore, type LibraryServer } from "../../../../store/libraries/org";
+import { LibraryRouter } from "../../../../store/libraries/router";
+import { orgLibrariesRepository } from "../../../../store/libraries/orgLibraries";
+import { AnalyticsQueue, analyticsRepository } from "../../../../store/libraries/analyticsQueue";
+import { UsageReporter } from "../../../../store/libraries/usage";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Ids and clocks (docs/data.md §1)
@@ -440,7 +450,90 @@ export class MemoryStore {
       }),
     });
     void store;
+
+    // Libraries in organizations and their analytics (docs/data.md §16, §17): the same registry, queue and snapshots
+    // as the desktop store; lists cached in the storage, manifests and payloads in memory.
+    const memo = new Map<string, unknown>();
+    const listKey = (name: string) => (name.startsWith("library-lists/") ? `${KV_PREFIX}libs.${name.slice(14, -5)}` : null);
+    const cache: LibraryCacheStore = {
+      readJson: async <T>(name: string) => {
+        const k = listKey(name);
+        return (k ? json(k) : (memo.get(name) ?? null)) as T | null;
+      },
+      writeJson: async (name, value) => {
+        const k = listKey(name);
+        if (k) kv.set(k, JSON.stringify(value));
+        else memo.set(name, structuredClone(value));
+      },
+      readBytes: async (name) => (memo.get(name) as Uint8Array | undefined) ?? null,
+      writeBytes: async (name, bytes) => void memo.set(name, bytes.slice()),
+    };
+    this.libraryServer = libraryServerOf(mp);
+    const getMeta = (fileKey: FileKey) => this.ws.files.get(fileKey) ?? null;
+    const copyOf = (roomKey: string) => [...this.ws.files.values()].find((m) => m.space?.key === roomKey) ?? null;
+    const patchFile = (fileKey: FileKey, patch: Partial<FileMeta>) => this.ws.queue.run(() => this.ws.patchFile(fileKey, patch));
+    this.orgLibraries = new OrgLibraries(
+      {
+        server: this.libraryServer,
+        cache,
+        getMeta,
+        copyOf,
+        patchFile,
+        blobs: {
+          has: async (sha1s) => sha1s.map((s) => !!this.blob(s)),
+          get: async (sha1) => {
+            const b = this.blob(sha1);
+            if (!b) throw new StoreError("not-found", `no blob ${sha1}`);
+            return b.bytes;
+          },
+          put: (bytes, hint) => this.putBlob(bytes, hint),
+        },
+        pngSize,
+        encodePayload: (message) => encodeCanvas({ schema: SCHEMA_BINARY, message, version: DOCUMENT_FORMAT_VERSION, compression: "deflate-raw" }, { deflateRaw: deflateRawStored, inflateRaw: inflateRawStored }),
+        decodePayload: async (bytes) => {
+          const c = readCanvasChunks(bytes);
+          if (c.chunks.length < 2) throw new StoreError("corrupt", "A library payload is not a snapshot container");
+          const inflate = async (chunk: Uint8Array) => (isZstd(chunk) ? (this.opts.zstdDecompress ? this.opts.zstdDecompress(chunk) : Promise.reject(new StoreError("unsupported-format", "This library payload needs a zstd decoder"))) : inflateRaw(chunk));
+          const [schema, message] = [await inflate(c.chunks[0]), await inflate(c.chunks[1])];
+          return sameBytes(schema, SCHEMA_BINARY) ? message : encodeMessage(decodeAnySchema(schema, message).message);
+        },
+        log: (level, message, detail) => this.log(level, message, detail),
+      },
+      this.notifications,
+    );
+    this.orgLibraries.watch((e) => this.libraries.events.emit(e));
+    this.libraryRouter = new LibraryRouter(this.libraries.registry(), this.orgLibraries, { getMeta, copyOf, patchFile, moved: this.libraries, log: (level, message, detail) => this.log(level, message, detail) });
+    const timers = { setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms), clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>) };
+    const kvJson = (key: string) => ({ load: async () => json(key), save: async (v: unknown) => void kv.set(key, JSON.stringify(v)) });
+    const queueKv = kvJson(`${KV_PREFIX}analytics`);
+    this.analytics = new AnalyticsQueue({ server: this.libraryServer, getMeta, load: queueKv.load, save: queueKv.save, now: () => this.clock.now(), timers, log: (level, message, detail) => this.log(level, message, detail) });
+    this.analytics.start();
+    this.notifications.onReconnect(() => void this.analytics.flush());
+    const usageKv = kvJson(`${KV_PREFIX}analytics.usage`);
+    this.usage = new UsageReporter({
+      server: this.libraryServer,
+      getMeta,
+      readDocument: async (fileKey) => {
+        const d = this.fileData(fileKey);
+        return { nodes: this.headTable(d).toMessage().nodeChanges ?? [], headSeq: this.headSeq(d) };
+      },
+      load: usageKv.load,
+      save: usageKv.save,
+      now: () => this.clock.now(),
+      timers,
+      log: (level, message, detail) => this.log(level, message, detail),
+    });
+    this.fileChanges.on((c) => this.usage.touched(c.fileKey));
   }
+
+  /** Org libraries (docs/data.md §16.3), behind the router with the local ones; analytics (§17) */
+  readonly libraryServer: LibraryServer;
+  readonly orgLibraries: OrgLibraries;
+  readonly libraryRouter: LibraryRouter;
+  readonly analytics: AnalyticsQueue;
+  readonly usage: UsageReporter;
+  /** Shared fonts changed (docs/desktop.md §14.3), topic `fonts` */
+  readonly fonts = { onEvent: (listener: (e: FontsEvent) => void) => this.notifications.onFonts((n) => listener({ orgId: n.orgId, version: n.version })) };
 
   /** A frame the store writes itself (kind "remote": another person's change from the file's room). */
   appendRemote(fileKey: FileKey, message: Uint8Array): AppendAck {
@@ -513,6 +606,9 @@ export class MemoryStore {
   dispose(): void {
     this.offWatch?.();
     this.comments.close();
+    this.usage.close();
+    void this.analytics.close();
+    this.orgLibraries.close();
     this.org.close();
     this.branches.close();
     this.notifications.close();
@@ -996,7 +1092,10 @@ export class MemoryStore {
       reattach: async (fileKey, sessionID) => this.reattach(fileKey, sessionID, owner),
       append: async (fileKey, batch) => this.append(fileKey, batch, owner),
       flush: async (fileKey) => void this.ws.getMeta(fileKey),
-      close: async (fileKey, sessionID) => this.close(fileKey, sessionID),
+      close: async (fileKey, sessionID) => {
+        this.close(fileKey, sessionID);
+        this.usage.closedFile(fileKey);
+      },
       subscribe: (fileKey, fromSeq, listener) => {
         let last = fromSeq;
         const deliver = (c: FileChange) => {
@@ -1034,13 +1133,23 @@ export class MemoryStore {
       },
       url: (sha1) => `app://designer/_blob/${sha1}`,
     };
+    // Routed by key: local libraries (§9) and org libraries (§16.3); events: the local emitter carries both
     const registry: LibraryRegistry = this.libraries.registry();
+    const r = this.libraryRouter;
     const libraries: LibraryRegistry = {
-      ...registry,
+      listAvailable: (forFileKey) => r.listAvailable(forFileKey),
+      getRecord: (lib) => r.getRecord(lib),
+      getVersion: (lib, version) => r.getVersion(lib, version),
+      previewPublish: (lib, assets) => r.previewPublish(lib, assets ?? []),
       publish: async (req) => {
         this.branches.checkCanPublish(req?.libraryFileKey);
-        return registry.publish(req);
+        return r.publish(req);
       },
+      unpublish: (lib) => r.unpublish(lib),
+      setEnabled: (fileKey, lib, enabled) => r.setEnabled(fileKey, lib, !!enabled),
+      getPayloads: (lib, wants, opts) => r.getPayloads(lib, wants ?? [], { withDependencies: !!opts?.withDependencies }),
+      diff: (lib, have) => r.diff(lib, have ?? []),
+      watch: (listener) => registry.watch(listener),
     };
     const previews: PreviewService = {
       status: async () => ({ publish: false, reason: NOT_SET_UP }),
@@ -1082,6 +1191,10 @@ export class MemoryStore {
       projects: this.org.projects,
       admin: this.org.admin,
       branches: this.branches.repository(),
+      orgLibraries: orgLibrariesRepository(this.libraryServer),
+      analytics: analyticsRepository(this.analytics, this.libraryServer),
     };
   }
 }
+
+const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
