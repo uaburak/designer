@@ -17,7 +17,16 @@ import { useViewer } from "./context";
 import { detectAssets, type AnnotationView, type Asset } from "./inspect/devMode";
 import { typeLabel } from "./inspect/model";
 import { UNITS, type Language, type Unit, type UnitSettings } from "./inspect/units";
+import type { CodegenLanguage } from "./context";
 import styles from "./Viewer.module.css";
+
+/** Codegen plugins' languages in the language menu (docs/plugins.md §7), after the built-in ones. */
+export interface PluginLanguages {
+  list: CodegenLanguage[];
+  current: CodegenLanguage | null;
+  onPick(l: CodegenLanguage | null): void;
+}
+export const pluginLanguageId = (l: CodegenLanguage) => `${l.pluginId}:${l.value}`;
 
 export const LANGUAGES: { value: Language; label: string }[] = [
   { value: "css", label: "CSS" },
@@ -41,17 +50,20 @@ export function download(files: readonly { name: string; bytes: Uint8Array }[], 
 // ---- Code settings -------------------------------------------------------------------------------------------------
 
 /** The language dropdown: the languages, then (under Settings) the units of the chosen one and "Set unit scale…". */
-export function CodeSettings({ language, units, onLanguage, onUnits }: { language: Language; units: UnitSettings; onLanguage: (l: Language) => void; onUnits: (u: UnitSettings) => void }) {
+export function CodeSettings({ language, units, onLanguage, onUnits, plugins }: { language: Language; units: UnitSettings; onLanguage: (l: Language) => void; onUnits: (u: UnitSettings) => void; plugins?: PluginLanguages }) {
   const [scaleOpen, setScaleOpen] = useState(false);
   const unit = units.unit[language];
+  const chosen = plugins?.current ?? null;
+  const pluginEntries: MenuEntry[] = plugins?.list.length ? ["-", { header: "Plugins" }, ...plugins.list.map((l) => ({ id: `plugin:${pluginLanguageId(l)}`, label: plugins.list.filter((x) => x.label === l.label).length > 1 ? `${l.label} (${l.pluginName})` : l.label, checked: !!chosen && pluginLanguageId(chosen) === pluginLanguageId(l) }))] : [];
   const entries: MenuEntry[] = [
-    ...LANGUAGES.map((l) => ({ id: `lang:${l.value}`, label: l.label, checked: l.value === language })),
+    ...LANGUAGES.map((l) => ({ id: `lang:${l.value}`, label: l.label, checked: !chosen && l.value === language })),
+    ...pluginEntries,
     "-",
     { header: "Settings" },
     ...UNITS[language].map((u) => ({ id: `unit:${u.value}`, label: u.label, checked: u.value === unit })),
     { id: "scale", label: "Set unit scale…" },
   ];
-  const label = `${LANGUAGES.find((l) => l.value === language)?.label ?? "CSS"}`;
+  const label = chosen ? chosen.label : `${LANGUAGES.find((l) => l.value === language)?.label ?? "CSS"}`;
   return (
     <>
       <MenuButton
@@ -59,13 +71,17 @@ export function CodeSettings({ language, units, onLanguage, onUnits }: { languag
         entries={entries}
         className={styles.codeSettings}
         onSelect={(id) => {
-          if (id.startsWith("lang:")) onLanguage(id.slice(5) as Language);
+          if (id.startsWith("plugin:")) plugins?.onPick(plugins.list.find((l) => pluginLanguageId(l) === id.slice(7)) ?? null);
+          else if (id.startsWith("lang:")) {
+            plugins?.onPick(null);
+            onLanguage(id.slice(5) as Language);
+          }
           else if (id.startsWith("unit:")) onUnits({ ...units, unit: { ...units.unit, [language]: id.slice(5) as Unit } });
           else if (id === "scale") setScaleOpen(true);
         }}
       >
         <span>{label}</span>
-        <span className={styles.codeUnit}>{unit}</span>
+        {!chosen && <span className={styles.codeUnit}>{unit}</span>}
         <Icon name="16.chevron.down" />
       </MenuButton>
       {scaleOpen && <UnitScaleDialog language={language} units={units} onUnits={onUnits} onClose={() => setScaleOpen(false)} />}

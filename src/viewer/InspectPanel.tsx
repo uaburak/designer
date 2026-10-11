@@ -10,17 +10,19 @@
  *
  * Every value is copied with a click.
  */
-import { useMemo, useState, type ReactNode } from "react";
-import { Button, CodeBlock, Dialog, EmptyState, Icon, IconButton, PanelSection, ScrollArea, SegmentedControl, Swatch, showToast } from "@/ds";
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Button, CodeBlock, Dialog, EmptyState, Icon, IconButton, MenuButton, PanelSection, ScrollArea, SegmentedControl, Swatch, showToast } from "@/ds";
 import { useCurrentPage, useSelection } from "@/engine/hooks";
 import type { Effect, Guid, NodeChange, Paint } from "@/engine/codec";
 import { cssLines, cssSnippet } from "./inspect/css";
 import { cornersOf, cssColor, hexOf, isAutoLayout, num, paddingOf, rotationOf, sizingOf, typeLabel, typographyOf, visibleEffects, visiblePaints } from "./inspect/model";
 import { compose, swiftUI } from "./inspect/native";
-import { useViewer } from "./context";
+import { useViewer, type CodegenHost, type CodegenLanguage } from "./context";
 import { layerIcon } from "./LeftPanel";
 import type { VariableUse } from "./viewerDoc";
-import { AnnotationsSection, AssetsSection, CodeSettings, ExportSection } from "./DevSections";
+import { AnnotationsSection, AssetsSection, CodeSettings, ExportSection, type PluginLanguages } from "./DevSections";
+import { CodeConnectSection } from "./inspect/CodeConnectSection";
+import { DevResourcesSection } from "./inspect/DevResources";
 import { editedAgo, listRows, STATUS_LABEL } from "./inspect/devMode";
 import { composeInUnit, cssInUnit, storedUnits, storeUnits, swiftUIInUnit, type Language, type UnitSettings } from "./inspect/units";
 import styles from "./Viewer.module.css";
@@ -61,10 +63,29 @@ interface CodeChoice {
   units: UnitSettings;
   onLanguage: (l: Language) => void;
   onUnits: (u: UnitSettings) => void;
+  /** Codegen plugins' languages (the editor's Dev Mode) */
+  plugins?: PluginLanguages;
+}
+
+const NO_LANGUAGES: CodegenLanguage[] = [];
+const NO_SUBSCRIBE = () => () => {};
+
+/** The codegen plugins' languages and the one chosen (none: the built-in code). */
+function usePluginLanguages(codegen: CodegenHost | undefined): PluginLanguages | undefined {
+  const list = useSyncExternalStore(codegen ? codegen.subscribe : NO_SUBSCRIBE, () => (codegen ? codegen.languages() : NO_LANGUAGES));
+  const [current, setCurrent] = useState<CodegenLanguage | null>(null);
+  const live = current && list.some((l) => l.pluginId === current.pluginId && l.value === current.value) ? current : null;
+  useEffect(() => {
+    codegen?.select(live);
+  }, [codegen, live]);
+  useEffect(() => () => codegen?.select(null), [codegen]);
+  if (!codegen) return undefined;
+  return { list, current: live, onPick: setCurrent };
 }
 
 export function InspectPanel({ onPresent }: { onPresent?: () => void }) {
-  const { store, preview } = useViewer();
+  const { store, preview, host } = useViewer();
+  const plugins = usePluginLanguages(host?.dev?.codegen);
   const selection = useSelection(store);
   const [language, setLanguage] = useState<Language>(storedLanguage);
   const [units, setUnits] = useState<UnitSettings>(storedUnits);
@@ -94,11 +115,11 @@ export function InspectPanel({ onPresent }: { onPresent?: () => void }) {
         {!inspect ? (
           <EmptyState icon="24.info" title="Inspect is off" body="The person who shared this preview turned off Inspect." />
         ) : selection.refs.length === 0 ? (
-          <NothingSelected code={{ language, units, onLanguage: choose, onUnits }} />
+          <NothingSelected code={{ language, units, onLanguage: choose, onUnits, plugins }} />
         ) : selection.refs.length > 1 ? (
           <div className={styles.multi}>{selection.refs.length} layers selected</div>
         ) : (
-          <LayerInspect key={selection.refs[0]} id={selection.refs[0]} code={{ language, units, onLanguage: choose, onUnits }} />
+          <LayerInspect key={selection.refs[0]} id={selection.refs[0]} code={{ language, units, onLanguage: choose, onUnits, plugins }} />
         )}
       </ScrollArea>
     </aside>
@@ -106,7 +127,7 @@ export function InspectPanel({ onPresent }: { onPresent?: () => void }) {
 }
 
 function LanguageSelect({ code }: { code: CodeChoice }) {
-  return <CodeSettings language={code.language} units={code.units} onLanguage={code.onLanguage} onUnits={code.onUnits} />;
+  return <CodeSettings language={code.language} units={code.units} onLanguage={code.onLanguage} onUnits={code.onUnits} plugins={code.plugins} />;
 }
 
 // ---- Nothing selected ------------------------------------------------------------------------------------------
@@ -232,6 +253,15 @@ function LayerInspect({ id, code }: { id: Guid; code: CodeChoice }) {
   const page = engine.getSelection().pageId;
   const status = useMemo(() => doc.statuses(page).find((s) => s.id === id)?.status ?? null, [doc, page, id]);
   const notes = useMemo(() => doc.annotations(page).find((a) => a.id === id)?.notes ?? [], [doc, page, id]);
+  const info = useMemo(() => {
+    try {
+      return engine.componentInfo(id);
+    } catch {
+      return null;
+    }
+  }, [engine, id]);
+  const [addingLink, setAddingLink] = useState(false);
+  const dev = host?.dev;
   if (!input) return <EmptyState icon="24.info" title="This layer can't be inspected" />;
   const n = input.node;
   const tree = doc.tree(engine.getSelection().pageId);
@@ -254,6 +284,11 @@ function LayerInspect({ id, code }: { id: Guid; code: CodeChoice }) {
               {STATUS_LABEL[status]}
             </span>
           ))}
+        {dev?.canEdit && dev.addDevResource && (
+          <MenuButton label="Layer options" entries={[{ id: "add-link", label: "Add a dev resource link" }]} onSelect={(a) => a === "add-link" && setAddingLink(true)}>
+            <Icon name="24.more" />
+          </MenuButton>
+        )}
       </div>
       {editedAgo((n as { editInfo?: { lastEditedAt?: number } }).editInfo?.lastEditedAt) && (
         <div className={styles.edited} data-edited="">
@@ -269,6 +304,8 @@ function LayerInspect({ id, code }: { id: Guid; code: CodeChoice }) {
       )}
       <AnnotationsSection notes={notes} />
       <ComponentSection id={id} />
+      <CodeConnectSection id={id} info={info} />
+      <DevResourcesSection id={id} adding={addingLink} onAdding={setAddingLink} />
       <LayoutSection node={n} sizing={sizingOf(input)} parentBox={doc.parentOf(id) ? doc.pageBox(doc.parentOf(id)!) : null} box={doc.pageBox(id)} />
       <CodeSection input={input} code={code} />
       <ColorsSection node={n} variables={input.variables} styles={input.styles ?? {}} />
@@ -413,6 +450,19 @@ function CodeSection({ input, code }: { input: NonNullable<ReturnType<ReturnType
       <LanguageSelect code={code} />
     </span>
   );
+  if (code.plugins?.current)
+    return (
+      <PanelSection
+        title="Code"
+        actions={
+          <span className={styles.codeActions}>
+            <LanguageSelect code={code} />
+          </span>
+        }
+      >
+        <CodegenBlocks id={input.node.guid} lang={code.plugins.current} />
+      </PanelSection>
+    );
   return (
     <PanelSection title="Code" actions={toggle}>
       {view === "code" ? (
@@ -522,5 +572,43 @@ function EffectsSection({ effects, styleName }: { effects: Effect[]; styleName?:
         return <Value key={i} label={EFFECT_NAMES[e.type] ?? e.type} value={text} copyText={text} />;
       })}
     </PanelSection>
+  );
+}
+
+/** A codegen plugin's answer for the layer: its titled code blocks, or Figma's error block (docs/plugins.md §7). */
+function CodegenBlocks({ id, lang }: { id: Guid; lang: CodegenLanguage }) {
+  const { host } = useViewer();
+  const codegen = host?.dev?.codegen;
+  const [out, setOut] = useState<{ key: string; blocks: { title: string; code: string; language: string }[]; error: string | null } | null>(null);
+  const key = `${id}|${lang.pluginId}|${lang.value}`;
+  useEffect(() => {
+    if (!codegen) return;
+    let live = true;
+    codegen.generate(lang, id).then(
+      (r) => live && setOut({ key, ...r }),
+      (e: unknown) => live && setOut({ key, blocks: [], error: e instanceof Error ? e.message : String(e) })
+    );
+    return () => {
+      live = false;
+    };
+  }, [codegen, lang, id, key]);
+  if (!out || out.key !== key) return <div className={styles.hint}>Generating code…</div>;
+  if (out.error)
+    return (
+      <div className={styles.connectError} data-codegen-error="">
+        <div className={styles.connectErrorName}>{lang.pluginName}</div>
+        <div>{out.error}</div>
+      </div>
+    );
+  if (!out.blocks.length) return <div className={styles.hint}>No code for this layer.</div>;
+  return (
+    <div className={styles.code} data-codegen={lang.value}>
+      {out.blocks.map((b, i) => (
+        <div key={i} className={styles.codeGroup}>
+          <div className={styles.codeTitle}>{b.title}</div>
+          <CodeBlock code={b.code} label="Copy" />
+        </div>
+      ))}
+    </div>
   );
 }

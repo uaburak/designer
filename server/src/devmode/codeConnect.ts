@@ -214,6 +214,12 @@ function fileResolver(deps: Deps, user: User) {
   };
 }
 
+/** The fields Figma's CLI sends where ours differ (`url` → `figmaNode`; imports / nestable in `templateData`) */
+interface FigmaDocFields {
+  figmaNode?: unknown;
+  templateData?: { imports?: unknown; nestable?: unknown; props?: unknown; isParserless?: unknown } | null;
+}
+
 /** POST /v1/code_connect {docs} → {published, errors}: each doc on its own; CLI mappings replace UI ones of the label. */
 export async function publishDocs(req: Request, deps: Deps, user: User, input: unknown): Promise<{ published: { nodeId: string; fileKey: string; label: string; url: string }[]; errors: { url: string; label: string; error: string }[] }> {
   const docs = (input as { docs?: unknown } | null)?.docs;
@@ -223,8 +229,10 @@ export async function publishDocs(req: Request, deps: Deps, user: User, input: u
   const published: { nodeId: string; fileKey: string; label: string; url: string }[] = [];
   const errors: { url: string; label: string; error: string }[] = [];
   const logged = new Map<string, { f: FileRow; nodes: string[] }>();
-  for (const raw of docs as Partial<CodeConnectDoc>[]) {
-    const link = typeof raw?.url === "string" ? raw.url : "";
+  for (const raw of docs as (Partial<CodeConnectDoc> & FigmaDocFields)[]) {
+    // Figma's own CLI (`npx figma connect publish --api-url <server>/v1`): `figmaNode` for the link, imports and
+    // nestable under `templateData` (the shape from memory of @figma/code-connect, not read from its source)
+    const link = typeof raw?.url === "string" ? raw.url : typeof raw?.figmaNode === "string" ? raw.figmaNode : "";
     const label = typeof raw?.label === "string" ? raw.label.trim().slice(0, 50) : "";
     const fail = (error: string) => errors.push({ url: link, label, error });
     if (!label) {
@@ -254,7 +262,7 @@ export async function publishDocs(req: Request, deps: Deps, user: User, input: u
     }
     let imports: string[];
     try {
-      imports = cleanImports(raw.imports);
+      imports = cleanImports(raw.imports ?? raw.templateData?.imports);
     } catch {
       fail("imports is a list of strings");
       continue;
@@ -269,7 +277,7 @@ export async function publishDocs(req: Request, deps: Deps, user: User, input: u
       component: line(raw.component, 200) || null,
       template,
       imports,
-      nestable: raw.nestable !== false,
+      nestable: (raw.nestable ?? raw.templateData?.nestable) !== false,
       instructions: typeof raw.instructions === "string" ? raw.instructions.slice(0, 5000) : "",
     });
     published.push({ nodeId: at.nodeId, fileKey: at.fileKey, label, url: nodeLink(origin, at.fileKey, at.nodeId) });
@@ -285,9 +293,27 @@ export async function publishDocs(req: Request, deps: Deps, user: User, input: u
  * DELETE /v1/code_connect {label, nodes?: {fileKey, nodeId}[]} → {removed}: the CLI mappings of that label on those
  * nodes, or — without `nodes` — every CLI mapping of that label the caller published last (Figma's `unpublish
  * --label` without `--node`; ours: limited to the caller's own, since there is no project to scope it by).
+ * Figma's own CLI sends `{nodes_to_delete: [{figmaNode, label}]}` (from memory of @figma/code-connect, not read from
+ * its source): grouped by label, each group removed as `{label, nodes: [{url}]}`.
  */
 export async function unpublishDocs(req: Request, deps: Deps, user: User, input: unknown): Promise<{ removed: { fileKey: string; nodeId: string; label: string }[]; errors: { fileKey: string; nodeId: string; error: string }[] }> {
-  const b = (input ?? {}) as { label?: unknown; nodes?: unknown };
+  const b = (input ?? {}) as { label?: unknown; nodes?: unknown; nodes_to_delete?: unknown };
+  if (b.nodes_to_delete !== undefined && b.nodes_to_delete !== null) {
+    if (!Array.isArray(b.nodes_to_delete) || b.nodes_to_delete.length > 5000) throw new HttpError(400, "nodes_to_delete is a list of {figmaNode, label}");
+    const groups = new Map<string, { url: string }[]>();
+    for (const n of b.nodes_to_delete as { figmaNode?: unknown; label?: unknown }[]) {
+      const l = typeof n?.label === "string" ? n.label.trim() : typeof b.label === "string" ? b.label.trim() : "";
+      if (!l) throw new HttpError(400, "label is required");
+      groups.set(l, [...(groups.get(l) ?? []), { url: typeof n.figmaNode === "string" ? n.figmaNode : "" }]);
+    }
+    const all: Awaited<ReturnType<typeof unpublishDocs>> = { removed: [], errors: [] };
+    for (const [label, nodes] of groups) {
+      const r = await unpublishDocs(req, deps, user, { label, nodes });
+      all.removed.push(...r.removed);
+      all.errors.push(...r.errors);
+    }
+    return all;
+  }
   const label = typeof b.label === "string" ? b.label.trim() : "";
   if (!label) throw new HttpError(400, "label is required");
   let targets: { fileKey: string; nodeId: string }[];

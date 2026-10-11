@@ -31,7 +31,8 @@
     "engine:test": "node engine/tools/build.mjs native-test --test",
     "engine:watch": "node engine/tools/watch.mjs",
     "engine:dev": "node scripts/engine-dev.mjs",
-    "engine:shot": "node scripts/engine-shot.mjs"
+    "engine:shot": "node scripts/engine-shot.mjs",
+    "code-connect": "node tools/code-connect/bin.mjs"
   },
   "engines": {
     "node": ">=22.12"
