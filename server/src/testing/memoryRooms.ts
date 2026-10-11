@@ -118,7 +118,7 @@ export function memoryRooms(now: () => number): MemoryRooms {
         get(key).room.setPolicy(p);
         return Response.json({ ok: true });
       }
-      const res = await get(key).box.fetch(new Request(url, { method: init.method, headers, body: init.body as BodyInit | undefined }));
+      const res = await get(key).box.fetch(new Request(url, { method: init.method, headers, body: init.body as RequestInit["body"] }));
       return res ?? new Response("not found", { status: 404 });
     },
   };

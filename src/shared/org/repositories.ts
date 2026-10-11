@@ -132,12 +132,12 @@ export interface IdentityRepository {
   generateScimToken(orgId: string): Promise<I.ScimTokenCreated>;
   revokeScimToken(orgId: string): Promise<void>;
   addDomain(orgId: string, domain: string): Promise<I.OrgDomain>;
-  /** Throws a StoreError with code "domain_unverified" and `found` (the TXT values seen) when the record isn't there */
+  /** The record not there: a StoreError "conflict" with `detail: {code: "domain_unverified", found}` (the TXT values seen); another org's: `detail.code` "domain_taken" */
   verifyDomain(orgId: string, domain: string): Promise<I.OrgDomain>;
   removeDomain(orgId: string, domain: string): Promise<void>;
   domainAccounts(orgId: string, domain: string): Promise<O.PersonRef[]>;
   dataRegion(orgId: string): Promise<I.DataRegionStatus>;
   setDataRegion(orgId: string, region: I.DataRegion): Promise<I.DataRegionStatus>;
-  /** Moves one file or library; call until `files.moved == files.total` and `libraries.moved == libraries.total` */
+  /** Moves one file or library (`moving`: the key this call moved); call until `moving` is null (docs/multiplayer.md §15.16) */
   moveNext(orgId: string): Promise<I.DataRegionStatus>;
 }

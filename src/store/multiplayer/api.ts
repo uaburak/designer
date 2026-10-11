@@ -34,13 +34,16 @@ export function multiplayerApi(m: MultiplayerService): MultiplayerRepository {
       const b = m.onReplaced((from, to) => void m.fileState(from).then((state) => listener({ fileKey: from, state, replacedBy: to })));
       const c = m.onNotice((fileKey, notice) => void m.fileState(fileKey).then((state) => listener({ fileKey, state, notice })));
       const d = m.onSignal((fileKey, from, data) => void m.fileState(fileKey).then((state) => listener({ fileKey, state, signal: { from, data } })));
+      const e = m.onPolicy((fileKey, policy) => void m.fileState(fileKey).then((state) => listener({ fileKey, state, policy })));
       return () => {
         a();
         b();
         c();
         d();
+        e();
       };
     },
+    watchSession: (listener) => m.onSessionEnded(listener),
   };
 }
 

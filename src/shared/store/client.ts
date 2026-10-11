@@ -28,7 +28,7 @@ import type {
   WorkspaceRepository,
 } from "./repositories";
 import type { AppendAck, ChangeBatch, FileKey } from "./types";
-import type { MultiplayerEvent, MultiplayerRepository } from "../multiplayer/types";
+import type { MultiplayerEvent, MultiplayerRepository, SessionEnded } from "../multiplayer/types";
 import type { CommentsEvent, CommentsRepository } from "../comments";
 import type { NotificationsEvent, NotificationsRepository } from "../notifications";
 import type { AdminRepository, IdentityRepository, OrgEvent, OrgsRepository, ProjectsRepository, TeamsRepository } from "../org/repositories";
@@ -95,6 +95,7 @@ export class StoreClient implements StoreApi {
   private readonly workspaceEvents = new Listeners<WorkspaceEvent>();
   private readonly libraryEvents = new Listeners<LibraryEvent>();
   private readonly multiplayerEvents = new Listeners<MultiplayerEvent>();
+  private readonly sessionEvents = new Listeners<SessionEnded>();
   private readonly commentsEvents = new Listeners<CommentsEvent>();
   private readonly notificationsEvents = new Listeners<NotificationsEvent>();
   private readonly orgEvents = new Listeners<OrgEvent>();
@@ -210,6 +211,7 @@ export class StoreClient implements StoreApi {
         else if (msg.topic === "org") this.orgEvents.emit(msg.d as OrgEvent);
         else if (msg.topic === "branches") this.branchEvents.emit(msg.d as BranchEvent);
         else if (msg.topic === "fonts") this.fontsEvents.emit(msg.d as FontsEvent);
+        else if (msg.topic === "session") this.sessionEvents.emit(msg.d as SessionEnded);
         return;
     }
   }
@@ -465,6 +467,7 @@ export class StoreClient implements StoreApi {
     removeMember: (fileKey, email) => this.call("multiplayer.removeMember", [fileKey, email]),
     presence: (fileKey, data) => this.call("multiplayer.presence", [fileKey, data]),
     watch: (listener) => this.multiplayerEvents.add(listener),
+    watchSession: (listener) => this.sessionEvents.add(listener),
   };
 
   readonly orgs: OrgsRepository = {
