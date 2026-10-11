@@ -1289,11 +1289,13 @@ ENG_EXPORT int32_t engine_set_props(Handle h, Ptr refsPtr, uint32_t refsLen, Ptr
   json::Value refs, change;
   if (!parse(refsPtr, refsLen, refs) || !parse(changePtr, changeLen, change)) return E_DECODE;
   if (e->editor.viewerMode()) {
-    // Viewer mode: read-only — but the editor's Dev Mode writes annotations, measurements, categories and statuses.
+    // Viewer mode: read-only — but the editor's Dev Mode writes annotations, measurements, categories and statuses
+    // (Figma's sectionStatusInfo and, with it, the owner's workflow status in pluginData: docs/editor.md "Frame status").
     bool dev = e->editor.devEdits() && change.isObject();
     if (dev)
       for (auto& [k, v] : change.object)
-        dev &= k == "guid" || k == "annotations" || k == "measurements" || k == "annotationCategories" || k == "sectionStatusInfo";
+        dev &= k == "guid" || k == "annotations" || k == "measurements" || k == "annotationCategories" || k == "sectionStatusInfo" ||
+               k == "pluginData";
     if (!dev) return E_READONLY;
   }
   if (change.isObject() && !change.get("guid")) {

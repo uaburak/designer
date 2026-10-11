@@ -107,6 +107,10 @@
   .readyThumb img { max-width: 100%; max-height: 100%; }
   .readyName { overflow: hidden; font: var(--ds-font-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
   .readyMeta { display: flex; align-items: center; gap: var(--ds-space-2); color: var(--figma-color-text-secondary); }
+  /* A card's status (ours, docs/editor.md "Frame status (ours)"): its dot and label */
+  .readyStatus { display: inline-flex; flex: none; align-items: center; gap: var(--ds-space-1); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
+  .readyStatus[data-status="cancelled"] { color: var(--figma-color-text-disabled); }
+  .statusDot { flex: none; width: var(--ds-space-2); height: var(--ds-space-2); border-radius: var(--ds-radius-full); }
 
   /* Code Connect UI and the playground (round 5) */
   .connectBody { display: grid; grid-template-columns: 280px minmax(0, 1fr); flex: 1 1 auto; min-height: 0; }

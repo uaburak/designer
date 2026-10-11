@@ -9,6 +9,7 @@ import type { Guid, NodeChange, NodeFields } from "@/engine/codec";
 import { getStoreClient } from "@/store";
 import type { DevModeRepository, DevStatusReport } from "@shared/devmode/types";
 import type { EditorController } from "./controller";
+import { frameStatusForDev, withStatus, type DevStatusValue, type FrameStatus, type PluginDataEntry } from "./workflowStatus";
 
 type StatusNode = NodeChange & { sectionStatusInfo?: { status?: string } };
 
@@ -52,9 +53,18 @@ export function setDevStatus(ed: EditorController, status: "BUILD" | "COMPLETED"
 /**
  * Sets (or removes) the status of these designs — one undo step. A status set again ("Done with changes", with an
  * optional `description`: the reason) restarts its clock, which clears "Changed" (the design's editInfo is older now).
+ *
+ * The owner's workflow status (workflowStatus.ts) is written in the same step: `opts.workflow` when the status menu
+ * chose one of his (`status` is then its Figma counterpart, or null), else the one Figma's status stands for (Ready for
+ * dev → Ready to Dev, Completed → Done, none → none).
  */
-export function setDevStatusOf(ed: EditorController, ids: readonly Guid[], status: "BUILD" | "COMPLETED" | null, opts: { description?: string; label?: string } = {}): void {
-  if (!ids.length) return;
+export function setDevStatusOf(
+  ed: EditorController,
+  ids: readonly Guid[],
+  status: DevStatusValue | null,
+  opts: { description?: string; label?: string; workflow?: FrameStatus | null } = {},
+): void {
+  if (!ids.length || ed.engine.destroyed) return;
   const before = statusOfTargets(ed, ids);
   const info = status
     ? {
@@ -64,8 +74,21 @@ export function setDevStatusOf(ed: EditorController, ids: readonly Guid[], statu
         ...(before && before !== "mixed" ? { prevStatus: before } : {}),
       }
     : null;
-  const label = opts.label ?? (status === "BUILD" ? "Mark as ready for dev" : status === "COMPLETED" ? "Mark as completed" : "Remove status");
-  ed.setProps(ids, { sectionStatusInfo: info } as unknown as NodeFields, label);
+  const workflow = opts.workflow !== undefined ? opts.workflow : frameStatusForDev(status);
+  const label =
+    opts.label ?? (opts.workflow !== undefined ? "Set status" : status === "BUILD" ? "Mark as ready for dev" : status === "COMPLETED" ? "Mark as completed" : "Remove status");
+  const rows = ed.engine.readNodes(ids, { fields: ["pluginData", "sectionStatusInfo"] }) as (StatusNode & { pluginData?: PluginDataEntry[] })[];
+  // Figma's field is written when it changes: set, or cleared where there was one (and kept as it is when ours moves
+  // between two statuses Figma has no word for). Writing the same status again restarts its clock.
+  const hadDev = (r: StatusNode | undefined) => !!r?.sectionStatusInfo?.status && r.sectionStatusInfo.status !== "NONE";
+  ed.batch(label, () => {
+    rows.forEach((r, i) => {
+      const change: Record<string, unknown> = { pluginData: withStatus(r?.pluginData, workflow) };
+      if (status || hadDev(r)) change.sectionStatusInfo = info;
+      ed.engine.setProps([ids[i]], change as unknown as NodeFields);
+    });
+  });
+  if (!status && !before) return;
   reportDevStatus(ed, ids, status, label === "Done with changes" ? "changed_done" : status === "BUILD" ? "ready" : status === "COMPLETED" ? "completed" : "removed", opts.description);
   // A design marked ready is compared with the file as it was then (Compare changes): a version saved now
   // (unverified: whether Figma saves one, or keeps its own snapshot).

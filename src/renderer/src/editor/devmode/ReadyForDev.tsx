@@ -1,18 +1,21 @@
 /**
  * The Ready for dev view (docs/editor.md D-4; help.figma.com 23918228264855), over the canvas in Dev Mode: "Ready for
- * dev" with the count, filters All / Ready / Completed, sort Recent activity / Pages / Name (A-Z), and a card per
- * design — its thumbnail (the engine's, cached by the design's last edit), name, page, status and "Edited … ago". A
- * card opens the design in focus view. Opened from the left panel's "Ready for dev" row or a Dev Mode notification
+ * dev" with the count, the filter All or one of the owner's statuses (docs/editor.md "Frame status (ours)"), sort
+ * Recent activity / Pages / Name (A-Z), and a card per design — its thumbnail (the engine's, cached by the design's
+ * last edit), name, page, status (its dot and label) and "Edited … ago". A card opens the design in focus view.
+ * Opened from the left panel's "Ready for dev" row or a Dev Mode notification
  * (`OpenIntent.devMode = "ready"`).
  */
 import { useEffect, useMemo, useState } from "react";
-import { IconButton, ScrollArea, SegmentedControl, Select } from "@/ds";
+import { IconButton, ScrollArea, Select } from "@/ds";
+import type { Guid, NodeChange } from "@/engine/codec";
 import { ViewerDoc } from "../../../../viewer/viewerDoc";
-import { editedAgo, STATUS_LABEL } from "../../../../viewer/inspect/devMode";
+import { editedAgo, type DevStatus } from "../../../../viewer/inspect/devMode";
 import { useEditor, type EditorController } from "../controller";
 import { useUI } from "../hooks";
+import { FRAME_STATUS_COLOR, frameStatusLabel, statusIn, type FrameStatus, type PluginDataEntry } from "../workflowStatus";
 import { openFocus } from "./devMode";
-import { FILTERS, SORTS, filterReady, readyItems, sortReady, type ReadyItem } from "./readyFeed";
+import { FILTERS, SORTS, filterReady, readyItemLabel, readyItems, sortReady, type ReadyItem } from "./readyFeed";
 import { setRound5, useRound5, type Round5State } from "./round5";
 import styles from "./DevMode.module.css";
 
@@ -38,6 +41,32 @@ function thumbnail(ed: EditorController, item: ReadyItem): string | null {
   return url;
 }
 
+const FRAMEISH = new Set(["FRAME", "SECTION", "SYMBOL", "INSTANCE"]);
+type StatusRow = NodeChange & { pluginData?: PluginDataEntry[]; sectionStatusInfo?: { status?: string } | null; childIds?: Guid[]; resizeToFit?: boolean };
+
+/**
+ * A page's designs with a status (the owner's, docs/editor.md "Frame status (ours)"): top-level frames, sections,
+ * components and instances and those directly in sections, with Figma's own status (the viewer's, for "Changed").
+ */
+export function editorStatuses(ed: EditorController, doc: ViewerDoc, page: Guid): { id: Guid; name: string; status: DevStatus | null; workflow: FrameStatus }[] {
+  const dev = new Map(doc.statuses(page).map((s) => [s.id, s.status]));
+  const out: { id: Guid; name: string; status: DevStatus | null; workflow: FrameStatus }[] = [];
+  const walk = (ids: readonly Guid[], inSection: boolean) => {
+    const rows = ed.engine.readNodes(ids, { fields: ["type", "name", "pluginData", "sectionStatusInfo", "resizeToFit"], childIds: true }) as StatusRow[];
+    for (const raw of rows) {
+      if (!raw) continue;
+      const n = ed.withRealType(raw) as StatusRow;
+      if (!FRAMEISH.has(n.type ?? "")) continue;
+      const workflow = statusIn(n.pluginData, n.sectionStatusInfo?.status);
+      if (workflow) out.push({ id: n.guid, name: n.name ?? "", status: dev.get(n.guid) ?? null, workflow });
+      if (n.type === "SECTION" && !inSection && n.childIds?.length) walk(n.childIds, true);
+    }
+  };
+  const top = ed.engine.readNode(page, { childIds: true })?.childIds ?? [];
+  if (top.length) walk(top, false);
+  return out;
+}
+
 /** The view's items, read again after each committed change. */
 export function useReadyItems(ed: EditorController): ReadyItem[] {
   const [version, setVersion] = useState(0);
@@ -48,7 +77,7 @@ export function useReadyItems(ed: EditorController): ReadyItem[] {
     const doc = new ViewerDoc(ed.engine);
     return readyItems({
       pages: () => ed.engine.pages(),
-      statuses: (page) => doc.statuses(page),
+      statuses: (page) => editorStatuses(ed, doc, page),
       times: (ids) =>
         (ed.engine.readNodes(ids, { fields: ["sectionStatusInfo", "editInfo"] }) as { sectionStatusInfo?: { lastUpdateUnixTimestamp?: number }; editInfo?: { lastEditedAt?: number } }[]).map((n) => ({
           editedAt: n?.editInfo?.lastEditedAt ?? 0,
@@ -97,14 +126,14 @@ function ReadyView({ ed, filter, sort }: { ed: EditorController; filter: Round5S
           {all.length}
         </span>
         <span className={styles.grow} />
-        <SegmentedControl label="Filter" value={filter} options={FILTERS} onChange={(v) => setRound5(ed, { readyFilter: v as Round5State["readyFilter"] })} />
+        <Select label="Filter" value={filter} options={FILTERS} onChange={(v) => setRound5(ed, { readyFilter: v as Round5State["readyFilter"] })} variant="ghost" width="hug" />
         <Select label="Sort" value={sort} options={SORTS} onChange={(v) => setRound5(ed, { readySort: v as Round5State["readySort"] })} variant="ghost" width="hug" />
         <IconButton icon="24.close.small" label="Close" onClick={close} />
       </header>
       <ScrollArea>
         {shown.length === 0 ? (
           <div className={styles.readyHeader}>
-            <span className={styles.hint}>{filter === "completed" ? "No designs are marked as completed." : "No designs are marked ready for dev."}</span>
+            <span className={styles.hint}>{filter === "all" ? "No designs have a status." : `No designs are marked “${frameStatusLabel(filter)}”.`}</span>
           </div>
         ) : (
           <div className={styles.readyGrid}>
@@ -127,12 +156,13 @@ function ReadyCard({ ed, item, onOpen }: { ed: EditorController; item: ReadyItem
   }, [ed, item]);
   const ago = editedAgo(item.editedAt || item.statusAt);
   return (
-    <button type="button" className={styles.readyCard} onClick={onOpen} data-ready-card={item.status}>
+    <button type="button" className={styles.readyCard} onClick={onOpen} data-ready-card={item.workflow}>
       <span className={styles.readyThumb}>{src && <img src={src} alt="" />}</span>
       <span className={styles.readyName}>{item.name}</span>
       <span className={styles.readyMeta}>
-        <span className={styles.focusStatus} data-status={item.status}>
-          {STATUS_LABEL[item.status]}
+        <span className={styles.readyStatus} data-status={item.workflow}>
+          <span className={styles.statusDot} style={{ background: FRAME_STATUS_COLOR[item.workflow] }} aria-hidden />
+          {readyItemLabel(item)}
         </span>
         <span>{item.pageName}</span>
       </span>

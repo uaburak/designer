@@ -17,8 +17,10 @@ import { pluginsOf, type PluginEntry } from "../plugins/service";
 import type { CodeConnectMapping, DevModeRepository } from "@shared/devmode/types";
 import type { CodegenHost, CodegenLanguage, DevData } from "../../../../viewer/context";
 import type { EditorController } from "../controller";
+import type { FrameStatus } from "../workflowStatus";
 
-export type ReadyFilter = "all" | "ready" | "completed";
+/** The Ready for dev view's filter: All, or one of the owner's statuses (docs/editor.md "Frame status (ours)"). */
+export type ReadyFilter = "all" | FrameStatus;
 export type ReadySort = "recent" | "pages" | "name";
 
 export interface Round5State {

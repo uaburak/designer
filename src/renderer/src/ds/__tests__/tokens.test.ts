@@ -93,7 +93,7 @@ describe("themes", () => {
 });
 
 describe("the canvas chrome palette (engine ABI)", () => {
-  it("keeps its 42 colours in their frozen order (append only)", () => {
+  it("keeps its 48 colours in their frozen order (append only)", () => {
     expect(CHROME_COLORS).toEqual([
       "selection", "handleFill", "handleStroke", "hover", "component", "sizeBadgeFill", "sizeBadgeText", "frameTitleOnLight", "frameTitleOnDark",
       "measure", "measureText", "snapGuide", "spacingGuide", "layoutGapFill", "layoutGapStroke", "marqueeFill", "marqueeStroke", "rulerBg",
@@ -107,6 +107,8 @@ describe("the canvas chrome palette (engine ABI)", () => {
       "prototypeNoodleQuiet", "canvasScrollbarFill", "canvasScrollbarFillHover", "canvasScrollbarRim", "prototypeLabelText",
       // Round 17: a Change to connection's lavender and its chip's text.
       "prototypeNoodleChangeTo", "prototypeChangeToLabelText",
+      // Frame status (ours): the owner's statuses' chips in the frame title.
+      "statusDone", "statusRToMerge", "statusToBeDone", "statusProcess", "statusRevised", "statusCancelled",
     ]);
   });
 
@@ -150,7 +152,7 @@ describe("generated artefacts", () => {
     expect(boot).toContain('tabbar: ["#e6e6e6","#3b3b3b"]');
     expect(boot).toContain('localStorage.getItem("designer-theme")');
     const header = renderChromeHeader();
-    expect(header).toContain("PrototypeChangeToLabelText = 44, Count");
+    expect(header).toContain("StatusCancelled = 50, Count");
     expect(header.match(/\/\/ selection/g)).toHaveLength(2);
   });
 

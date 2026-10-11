@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <ctime>
+#include <functional>
 
 #include "editor/Editor.h"
 #include "hit/HitTest.h"
@@ -23,7 +24,7 @@ constexpr double kEdgeSnap = 12;
 constexpr double kDragThreshold = 3;  // CSS px before a press becomes a drag (tools/Gestures.cpp)  // CSS px: how near an edge the measurement tool picks it
 
 bool devField(const std::string& k) {
-  return k == "annotations" || k == "measurements" || k == "annotationCategories" || k == "sectionStatusInfo" || k == "editInfo";
+  return k == "annotations" || k == "measurements" || k == "annotationCategories" || k == "sectionStatusInfo" || k == "editInfo" || k == "pluginData";
 }
 
 json::Value extraJson(const NodeProps& p, const char* field) {
@@ -115,6 +116,31 @@ int Editor::devStatus(Guid id) const {
   return st->string == "COMPLETED" ? 2 : 1;
 }
 
+int Editor::workflowStatus(Guid id) const {
+  static constexpr const char* kIds[] = {"", "done", "r-to-merge", "ready-to-dev", "to-be-done", "process", "revised", "cancelled"};
+  const Node* n = doc_.get(id);
+  if (!n) return 0;
+  if (n->props.extra.find("pluginData") != n->props.extra.end()) {
+    json::Value entries = extraJson(n->props, "pluginData");
+    for (const json::Value& e : entries.isArray() ? entries.array : std::vector<json::Value>{}) {
+      const json::Value* plugin = e.isObject() ? e.get("pluginID") : nullptr;
+      const json::Value* key = e.isObject() ? e.get("key") : nullptr;
+      const json::Value* value = e.isObject() ? e.get("value") : nullptr;
+      if (!plugin || !key || !value || !plugin->isString() || !key->isString() || !value->isString()) continue;
+      if (plugin->string != "designer.workflow" || key->string != "status") continue;
+      for (int i = 1; i <= kWorkflowCount; i++)
+        if (value->string == kIds[i]) return i;
+      return 0;
+    }
+  }
+  // A file with only Figma's status (an imported .fig): Ready for dev is Ready to Dev, Completed is Done.
+  if (n->props.extra.find("sectionStatusInfo") == n->props.extra.end()) return 0;
+  json::Value info = extraJson(n->props, "sectionStatusInfo");
+  const json::Value* st = info.isObject() ? info.get("status") : nullptr;
+  if (!st || !st->isString()) return 0;
+  return st->string == "BUILD" ? kWorkflowReadyToDev : st->string == "COMPLETED" ? kWorkflowDone : 0;
+}
+
 std::vector<annot::Measurement> Editor::measurements(Guid page) const {
   const Node* p = doc_.get(page == kNoGuid ? page_ : page);
   return p ? annot::measurementsOf(p->props) : std::vector<annot::Measurement>{};
@@ -190,22 +216,39 @@ void Editor::devOverlay(Overlay& o) const {
     return kNoGuid;
   };
 
-  // Statuses after the designs' names; on a selected frame or component without one, the `</>` at its top right that
-  // marks it ready for dev (live Figma, canvas-autolayout-selected-hover-gap / canvas-grid-frame-selected).
-  for (Guid c : doc_.children(page_)) {
-    const Node* n = doc_.get(c);
-    if (!n || !n->props.visible || !n->props.isFrameLike() || n->props.type == NodeType::SECTION) continue;
-    if (dev_.focus != kNoGuid && c != dev_.focus) continue;
-    int st = devStatus(c);
-    if (st) {
-      // Design mode (round 15, the owner's recording at 20–22 s): ready for dev is the green `</>` button at the top
-      // right, not a chip after the name (Dev Mode keeps the chip).
-      DevStatusMark::Kind ready = viewer_ ? DevStatusMark::Kind::Ready : DevStatusMark::Kind::ReadyIcon;
-      d.statuses.push_back({c, st == 1 ? ready : st == 2 ? DevStatusMark::Kind::Completed : DevStatusMark::Kind::Changed});
-    } else if (canEditDev() && n->props.type != NodeType::INSTANCE && selected(c)) {
-      d.statuses.push_back({c, DevStatusMark::Kind::MarkButton});
+  // Statuses in the designs' titles (docs/editor.md "Frame status (ours)": the owner's statuses replace Ready for
+  // dev's indicator) — top-level frames, sections and the frames directly in them. Design mode: the chip where Ready
+  // for dev's `</>` button is, at the top right (round 15, the owner's recording at 20–22 s); Dev Mode and sections:
+  // after the name. A Ready to Dev design edited since it was marked: Figma's "Changed" after its name. On a selected
+  // frame or component without one, the `</>` at its top right, which opens the status menu (live Figma,
+  // canvas-autolayout-selected-hover-gap / canvas-grid-frame-selected).
+  std::function<void(Guid, int)> walk = [&](Guid parent, int depth) {
+    for (Guid c : doc_.children(parent)) {
+      const Node* n = doc_.get(c);
+      if (!n || !n->props.visible || !n->props.isFrameLike()) continue;
+      const bool section = n->props.type == NodeType::SECTION;
+      if (dev_.focus == kNoGuid || c == dev_.focus) {
+        int wf = workflowStatus(c);
+        DevStatusMark mark;
+        mark.frame = c;
+        if (wf == kWorkflowReadyToDev && devStatus(c) == 3) {
+          mark.kind = DevStatusMark::Kind::Changed;
+          mark.workflow = static_cast<uint8_t>(wf);
+          mark.trailing = true;
+          d.statuses.push_back(mark);
+        } else if (wf) {
+          mark.workflow = static_cast<uint8_t>(wf);
+          mark.trailing = viewer_ || section;
+          d.statuses.push_back(mark);
+        } else if (canEditDev() && n->props.type != NodeType::INSTANCE && selected(c)) {
+          mark.kind = DevStatusMark::Kind::MarkButton;
+          d.statuses.push_back(mark);
+        }
+      }
+      if (section && depth == 0) walk(c, depth + 1);
     }
-  }
+  };
+  walk(page_, 0);
 
   // Saved measurements.
   for (annot::Measurement m : measurements()) {
@@ -333,12 +376,12 @@ bool Editor::edgeAt(Vec2 s, int axis, Guid& node, annot::Side& side) const {
 }
 
 void Editor::devIconHoverAt(Vec2 s) {
-  // The `</>` button (or a ready design's green one) under the pointer: filled while hovered; its tooltip after the
+  // The `</>` button under the pointer: filled while hovered; its tooltip after the
   // tooltip delay (tick). Its hit boxes are where the last frame drew them.
   Guid over = kNoGuid;
   if (gesture_ == Gesture::None && !spaceHeld_)
     for (const CanvasHits::Status& h : hits_.statuses)
-      if ((h.kind == DevStatusMark::Kind::MarkButton || h.kind == DevStatusMark::Kind::ReadyIcon) && h.contains(s)) over = h.frame;
+      if (h.kind == DevStatusMark::Kind::MarkButton && h.contains(s)) over = h.frame;
   if (over == devIconHover_) return;
   devIconHover_ = over;
   devIconSince_ = -1;

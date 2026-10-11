@@ -671,6 +671,10 @@ class Editor : private LayoutHost, public TextLayouts {
   const CanvasHits& canvasHits() const { return hits_; }
   // A design's Dev Mode status as the canvas shows it: 0 none, 1 Ready for dev, 2 Completed, 3 Changed.
   int devStatus(Guid id) const;
+  // The owner's workflow status (ours, docs/editor.md "Frame status (ours)"): 0 none, else 1–7 in his order (Done,
+  // R to Merge, Ready to Dev, To be done, Process, Revised, Cancelled; kWorkflowLabels). From pluginData
+  // `designer.workflow` / `status`; without that entry, Figma's sectionStatusInfo (BUILD: Ready to Dev, COMPLETED: Done).
+  int workflowStatus(Guid id) const;
   // The page's saved measurements; the selected one.
   std::vector<annot::Measurement> measurements(Guid page = kNoGuid) const;
   Guid selectedMeasurement() const { return dev_.selectedMeasurement; }

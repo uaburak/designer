@@ -540,6 +540,12 @@ export const CHROME_COLORS = [
   "prototypeLabelText",
   "prototypeNoodleChangeTo",
   "prototypeChangeToLabelText",
+  "statusDone",
+  "statusRToMerge",
+  "statusToBeDone",
+  "statusProcess",
+  "statusRevised",
+  "statusCancelled",
 ] as const;
 
 export type ChromeColorName = (typeof CHROME_COLORS)[number];
@@ -604,6 +610,15 @@ export const canvasChrome: Record<ChromeColorName, Pair> = {
   // purple (#1d0736 sampled); selected, the component purple with white.
   prototypeNoodleChangeTo: ["#d6b6fb", "#d6b6fb"],
   prototypeChangeToLabelText: ["#1d0736", "#1d0736"],
+  // Frame status (ours, docs/editor.md "Frame status (ours)", 2026-10-12): the owner's statuses' chips in the frame
+  // title, the colours of their dots in the chrome (Ready to Dev is readyForDev): Done bg-brand, R to Merge
+  // folder-teal, To be done folder-orange, Process bg-danger, Revised bg-component, Cancelled bg-disabled.
+  statusDone: ["#0d99ff", "#0c8ce9"],
+  statusRToMerge: ["#0fa8a8", "#119a9a"],
+  statusToBeDone: ["#ffa629", "#f0941d"],
+  statusProcess: ["#f24822", "#e03e1a"],
+  statusRevised: ["#9747ff", "#8a38f5"],
+  statusCancelled: ["#d9d9d9", "#757575"],
 };
 
 /** Chrome metrics in CSS px at any zoom (§1.4). */

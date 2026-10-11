@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
-// Frame status (ours, docs/editor.md "Frame status (ours)") on the real engine: the canvas chip's menu sets a status,
-// stored in the frame's pluginData under "designer.workflow"; one undo step restores; the chip shows it; a layer inside
-// a frame can't have one; plugins can't use the reserved plugin ID.
+// Frame status (ours, docs/editor.md "Frame status (ours)") on the real engine: the status in a frame's title opens the
+// status menu (the engine's DEV_STATUS → `statusMenu`, as a click on it does; the click itself is the engine's native
+// test), which writes the owner's status in pluginData and Figma's sectionStatusInfo with it (Ready to Dev ↔ BUILD,
+// Done ↔ COMPLETED, others none) in one undo step; a file with only Figma's field reads as his; Dev Mode writes it
+// without leaving viewer mode; plugins can't use the reserved plugin ID.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { act, createElement } from "react";
@@ -10,16 +12,18 @@ import { Engine } from "@/engine/Engine";
 import { EngineStore } from "@/engine/EngineStore";
 import { loadEngine } from "@/engine/loadEngine";
 import { SAMPLE_DOCUMENT } from "@/engine/sampleDocument";
+import type { NodeFields } from "@/engine/codec";
 import { $, $$, click, mount, type Mounted } from "../../ds/__tests__/dom";
 import { EditorContext, EditorController } from "../controller";
 import { memoryDocumentSource } from "../documentSource";
-import { FrameStatusChips } from "../canvas/FrameStatusChips";
+import { StatusMenu } from "../devmode/DevOverlays";
 import { canHaveStatus, frameStatusOf, setFrameStatus, WORKFLOW_PLUGIN_ID } from "../frameStatus";
 import { getPluginData } from "../plugins/api/nodes";
 
 const wasm = join(process.cwd(), "src/renderer/src/engine/wasm/engine.wasm");
 const FRAME = "1:1";
 const INNER = "1:7";
+const STATUSES = ["Done", "R to Merge", "Ready to Dev", "To be done", "Process", "Revised", "Cancelled", "No status"];
 
 beforeAll(async () => {
   globalThis.fetch = async () => new Response(null, { status: 404 });
@@ -40,60 +44,86 @@ async function setup() {
   engine.load(await source.load());
   engine.setViewport(1280, 800, 1, 1280, 800);
   const ed = new EditorController(engine, new EngineStore(engine), source);
-  m = mount(() => createElement(EditorContext.Provider, { value: ed }, createElement(FrameStatusChips)), {});
-  return { ed, engine, host: m.host };
+  m = mount(() => createElement(EditorContext.Provider, { value: ed }, createElement(StatusMenu)), {});
+  return { ed, engine };
 }
 
-const chip = (host: HTMLElement) => $(`[data-frame-id="${FRAME}"]`, host);
-const pluginData = (engine: Engine) => (engine.readNode(FRAME, { fields: ["pluginData"] }) as { pluginData?: { pluginID?: string; key?: string; value?: string }[] } | null)?.pluginData ?? [];
+type Read = { pluginData?: { pluginID?: string; key?: string; value?: string }[]; sectionStatusInfo?: { status?: string } | null };
+const read = (engine: Engine) => engine.readNode(FRAME, { fields: ["pluginData", "sectionStatusInfo"] }) as Read;
+const ours = (engine: Engine) => read(engine).pluginData?.find((e) => e.pluginID === WORKFLOW_PLUGIN_ID)?.value ?? null;
+const figma = (engine: Engine) => read(engine).sectionStatusInfo?.status ?? null;
+const openMenu = (ed: EditorController) => act(() => ed.ui.set({ statusMenu: { ref: FRAME, x: 100, y: 100, width: 40, height: 16 } }));
+const rows = () => $$('[role="menuitemcheckbox"]');
+const row = (label: string) => rows().find((r) => r.textContent === label)!;
 
 describe("Frame status (ours)", () => {
-  it("sets a status from the chip's menu, stores it in pluginData, undoes in one step", async () => {
-    const { ed, engine, host } = await setup();
+  it("the title's menu sets a status in pluginData and Figma's sectionStatusInfo with it, one undo step", async () => {
+    const { ed, engine } = await setup();
     expect(canHaveStatus(ed, FRAME)).toBe(true);
     expect(canHaveStatus(ed, INNER)).toBe(false);
-    expect(chip(host)).toBeNull();
-    act(() => void engine.setSelection([FRAME]));
-    expect(chip(host)?.textContent).toBe("Set status");
 
-    act(() => click(chip(host)));
-    const rows = $$('[role="menuitemcheckbox"]');
-    expect(rows.map((r) => r.textContent)).toEqual(["Done", "R to Merge", "Ready to Dev", "To be done", "Process", "Revised", "Cancelled", "No status"]);
-    expect(rows.at(-1)?.getAttribute("aria-checked")).toBe("true");
-    act(() => click(rows[2]));
-
-    expect(pluginData(engine)).toContainEqual(expect.objectContaining({ pluginID: WORKFLOW_PLUGIN_ID, key: "status", value: "ready-to-dev" }));
+    openMenu(ed);
+    expect(rows().map((r) => r.textContent)).toEqual(STATUSES);
+    expect(row("No status").getAttribute("aria-checked")).toBe("true");
+    act(() => click(row("Ready to Dev")));
+    expect(ed.ui.get().statusMenu).toBeNull();
+    expect(ours(engine)).toBe("ready-to-dev");
+    expect(figma(engine)).toBe("BUILD");
     expect(frameStatusOf(ed, FRAME)).toBe("ready-to-dev");
-    expect(chip(host)?.textContent).toBe("Ready to Dev");
-    expect(chip(host)?.dataset.frameStatus).toBe("ready-to-dev");
+    expect(engine.devInfo().statuses.find((s) => s.ref === FRAME)?.status).toBe("READY");
 
-    // The menu checks the current one.
-    act(() => click(chip(host)));
+    // Ready to Dev in Design mode: Figma's own actions first, then the statuses with the current one checked.
+    openMenu(ed);
+    expect($('[role="menuitem"]')?.textContent).toBe("Open in Dev Mode");
     expect($('[role="menuitemcheckbox"][aria-checked="true"]')?.textContent).toBe("Ready to Dev");
-    act(() => click($$('[role="menuitemcheckbox"]')[0]));
-    expect(frameStatusOf(ed, FRAME)).toBe("done");
+    act(() => click(row("Process")));
+    expect(ours(engine)).toBe("process");
+    expect(figma(engine)).toBeNull();
+    expect(engine.devInfo().statuses.find((s) => s.ref === FRAME)).toBeUndefined();
 
+    // One step back restores both fields; another clears both.
     act(() => void engine.command("UNDO"));
-    expect(frameStatusOf(ed, FRAME)).toBe("ready-to-dev");
-    expect(chip(host)?.textContent).toBe("Ready to Dev");
+    expect(ours(engine)).toBe("ready-to-dev");
+    expect(figma(engine)).toBe("BUILD");
     act(() => void engine.command("UNDO"));
-    expect(frameStatusOf(ed, FRAME)).toBeNull();
+    expect(ours(engine)).toBeNull();
+    expect(figma(engine)).toBeNull();
 
-    // Deselected without a status: no chip; with one it stays.
-    act(() => setFrameStatus(ed, [FRAME], "cancelled"));
-    act(() => void engine.setSelection([]));
-    expect(chip(host)?.textContent).toBe("Cancelled");
-    act(() => setFrameStatus(ed, [FRAME], null));
-    expect(chip(host)).toBeNull();
+    // Done is Figma's Completed; "No status" clears both.
+    openMenu(ed);
+    act(() => click(row("Done")));
+    expect([ours(engine), figma(engine)]).toEqual(["done", "COMPLETED"]);
+    openMenu(ed);
+    act(() => click(row("No status")));
+    expect([ours(engine), figma(engine)]).toEqual([null, null]);
     engine.destroy();
   });
 
-  it("works in Dev Mode (the engine's viewer mode) and leaves it read-only after", async () => {
+  it("reads Figma's own status when there is no pluginData (an imported file); pluginData wins", async () => {
+    const { ed, engine } = await setup();
+    ed.setProps([FRAME], { sectionStatusInfo: { status: "COMPLETED", lastUpdateUnixTimestamp: 1 } } as unknown as NodeFields, "Import");
+    expect(frameStatusOf(ed, FRAME)).toBe("done");
+    ed.setProps([FRAME], { sectionStatusInfo: { status: "BUILD", lastUpdateUnixTimestamp: 1 } } as unknown as NodeFields, "Import");
+    expect(frameStatusOf(ed, FRAME)).toBe("ready-to-dev");
+    openMenu(ed);
+    expect($('[role="menuitemcheckbox"][aria-checked="true"]')?.textContent).toBe("Ready to Dev");
+    act(() => click(row("Revised")));
+    expect(frameStatusOf(ed, FRAME)).toBe("revised");
+    expect(figma(engine)).toBeNull();
+    engine.destroy();
+  });
+
+  it("works in Dev Mode (the engine's viewer mode lets Dev Mode write pluginData) and stays read-only", async () => {
     const { ed, engine } = await setup();
     ed.ui.set({ mode: "dev" });
     engine.setViewerMode(true, { devEdits: true });
-    setFrameStatus(ed, [FRAME], "revised");
-    expect(frameStatusOf(ed, FRAME)).toBe("revised");
+    setFrameStatus(ed, [FRAME], "ready-to-dev");
+    expect([ours(engine), figma(engine)]).toEqual(["ready-to-dev", "BUILD"]);
+    // Dev Mode's menu: focus view and Compare changes, then the statuses.
+    openMenu(ed);
+    expect($$('[role="menuitem"]').map((r) => r.textContent)).toEqual(["Show in focus view", "Compare changes"]);
+    act(() => click(row("Cancelled")));
+    expect([ours(engine), figma(engine)]).toEqual(["cancelled", null]);
     expect(ed.setProps([FRAME], { name: "Renamed" }, "Rename")).not.toBe(0);
     engine.destroy();
   });

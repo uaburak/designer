@@ -94,7 +94,10 @@ struct OverlayStyle {
   double tooltipHeight = 24, tooltipPadding = 8, tooltipRadius = 4, tooltipArrow = 5;
   double hatchWash = 0.06, hatchInk = 0.25, hatchPeriod = 6.5, hatchWidth = 1;
   Color statusChanged = Color::hex(0xFFCD29);  // --figma-color-bg-warning
-  Color statusCompleted = Color::hex(0x8C8C8C);
+  // Frame status (ours): the owner's statuses' chips, by Editor::workflowStatus's number (1–7; 3 Ready to Dev is
+  // statusReady). Cancelled's chip is muted: its label in the title's grey.
+  Color workflow[8] = {Color::hex(0x8C8C8C), Color::hex(0x0D99FF), Color::hex(0x0FA8A8), Color::hex(0x14AE5C),
+                       Color::hex(0xFFA629), Color::hex(0xF24822), Color::hex(0x9747FF), Color::hex(0xD9D9D9)};
   // Round 16 (the owner's live Figma 58–67.png): a connection not the selection's, its start dot and the nubs; the
   // canvas scrollbars (straight alpha: fill, hovered fill, rim).
   Color noodleQuiet = Color::hex(0xA8D6FB);
@@ -180,6 +183,13 @@ struct OverlayStyle {
     s.tooltipFill = chrome(t, C::CanvasTooltipFill);
     s.tooltipText = chrome(t, C::CanvasTooltipText);
     s.statusReady = chrome(t, C::ReadyForDev);
+    s.workflow[1] = chrome(t, C::StatusDone);
+    s.workflow[2] = chrome(t, C::StatusRToMerge);
+    s.workflow[3] = s.statusReady;
+    s.workflow[4] = chrome(t, C::StatusToBeDone);
+    s.workflow[5] = chrome(t, C::StatusProcess);
+    s.workflow[6] = chrome(t, C::StatusRevised);
+    s.workflow[7] = chrome(t, C::StatusCancelled);
     s.noodleQuiet = chrome(t, C::PrototypeNoodleQuiet);
     s.noodleLabelText = chrome(t, C::PrototypeLabelText);
     s.noodleChangeTo = chrome(t, C::PrototypeNoodleChangeTo);

@@ -11,6 +11,8 @@ import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../controller";
 import { useDocumentVersion, useUI } from "../hooks";
 import { setDevStatusOf } from "../devStatus";
+import { canSetStatus, frameStatusLabel, frameStatusOf } from "../frameStatus";
+import { frameStatusMenu, isStatusRow, pickFrameStatus } from "../panels/design/FrameStatusButton";
 import { CATEGORY_COLORS, CATEGORY_COLOR_LABEL, CATEGORY_HEX, type Category, type CategoryColor } from "./annotations";
 import { closeFocus, modeOf, openFocus, readCategories, setMode, writeCategories } from "./devMode";
 import styles from "./DevMode.module.css";
@@ -110,29 +112,32 @@ export function statusOf(ed: EditorController, ref: Guid): "READY" | "COMPLETED"
   return ed.engine.devInfo().statuses.find((s) => s.ref === ref)?.status ?? null;
 }
 
+/**
+ * The status menu, opened from the status in a design's title or its `</>` (docs/editor.md "Frame status (ours)": the
+ * owner's statuses replace Ready for dev's own menu). A design marked Ready to Dev: first Figma's own actions — Design
+ * mode "Open in Dev Mode", "Copy link" (the owner's recording at 21 s); Dev Mode "Show in focus view", "Compare
+ * changes" (Done too) — then the statuses with their dots, the current one checked, and "No status". "Changed" (a Ready
+ * to Dev design edited since): Figma's reason and "Done with changes".
+ */
 export function StatusMenu() {
   const ed = useEditor();
   const at = useUI((s) => s.statusMenu);
   if (!at) return null;
-  const status = statusOf(ed, at.ref);
+  const dev = statusOf(ed, at.ref);
+  const current = frameStatusOf(ed, at.ref);
   const close = () => ed.ui.set({ statusMenu: null });
-  if (status === "CHANGED") return <DoneWithChanges at={at} onClose={close} />;
-  // Design mode, a ready design's green `</>` button (live Figma, the owner's recording at 21 s): Open in Dev Mode,
-  // Copy link (no links before multiplayer: off), Remove status.
-  const design = modeOf(ed) !== "dev" && status === "READY";
-  const entries: MenuEntry[] = design
-    ? [{ id: "dev", label: "Open in Dev Mode" }, { id: "link", label: "Copy link", disabled: true }, "-", { id: "remove", label: "Remove status" }]
-    : [
-        { id: "focus", label: "Show in focus view" },
-        { id: "compare", label: "Compare changes" },
-        "-",
-        ...(status === "COMPLETED" ? [{ id: "ready", label: "Mark as ready for dev" }] : [{ id: "completed", label: "Mark as completed" }]),
-        { id: "remove", label: "Remove status" },
-      ];
+  if (dev === "CHANGED" && current === "ready-to-dev") return <DoneWithChanges at={at} onClose={close} />;
+  const inDev = modeOf(ed) === "dev";
+  const figma: MenuEntry[] =
+    !inDev && current === "ready-to-dev"
+      ? [{ id: "dev", label: "Open in Dev Mode" }, { id: "link", label: "Copy link", disabled: true }, "-"]
+      : inDev && dev
+        ? [{ id: "focus", label: "Show in focus view" }, { id: "compare", label: "Compare changes" }, "-"]
+        : [];
   return (
     <ContextMenu
       at={{ x: at.x, y: at.y + at.height + 4 }}
-      entries={entries}
+      entries={[...figma, ...frameStatusMenu(current, { disabled: !canSetStatus(ed) })]}
       label="Status"
       onClose={close}
       onSelect={(id) => {
@@ -142,9 +147,7 @@ export function StatusMenu() {
           ed.engine.setSelection([at.ref]);
         } else if (id === "focus") openFocus(ed, at.ref);
         else if (id === "compare") ed.ui.set({ compare: { ref: at.ref } });
-        else if (id === "completed") setDevStatusOf(ed, [at.ref], "COMPLETED");
-        else if (id === "ready") setDevStatusOf(ed, [at.ref], "BUILD");
-        else if (id === "remove") setDevStatusOf(ed, [at.ref], null);
+        else if (isStatusRow(id)) pickFrameStatus(ed, [at.ref], id);
       }}
     />
   );
@@ -194,6 +197,7 @@ export function FocusBar() {
   const name = useMemo(() => (focus ? (ed.engine.readNode(focus, { fields: ["name"] })?.name ?? "") : ""), [ed, focus]);
   if (!focus) return null;
   const status = statusOf(ed, focus);
+  const workflow = frameStatusOf(ed, focus);
   return (
     <div className={styles.focusBar} data-focus-bar="">
       <Button variant="secondary" onClick={() => closeFocus(ed)}>
@@ -210,7 +214,7 @@ export function FocusBar() {
             ed.ui.set({ statusMenu: { ref: focus, x: r.left, y: r.top, width: r.width, height: r.height } });
           }}
         >
-          {status === "READY" ? "Ready for dev" : status === "COMPLETED" ? "Completed" : "Changed"}
+          {status === "CHANGED" && workflow === "ready-to-dev" ? "Changed" : workflow ? frameStatusLabel(workflow) : status === "COMPLETED" ? "Completed" : "Ready for dev"}
         </button>
       )}
       <span className={styles.grow} />

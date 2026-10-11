@@ -69,7 +69,6 @@ import { ShareDialog } from "./ShareDialog";
 import { SharePrototypeDialog } from "./SharePrototypeDialog";
 import { Multiplayer } from "./multiplayer/Multiplayer";
 import { CommentsLayer } from "./comments/CommentsLayer";
-import { FrameStatusChips } from "./canvas/FrameStatusChips";
 import { InlinePreview } from "./InlinePreview";
 import { attachDevMode } from "./devmode/devMode";
 import { DevLeftPanel, DevMeasurements, DevRightPanel } from "./devmode/DevPanels";
@@ -409,7 +408,6 @@ function CanvasLayers() {
     <>
       <AgentImagePlaceholders />
       {dev && <DevMeasurements />}
-      <FrameStatusChips />
       <ImagePlacer />
       <CommentsLayer />
     </>

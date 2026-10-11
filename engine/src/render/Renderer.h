@@ -194,11 +194,19 @@ struct MeasurementMark {
 inline constexpr double kDevIconWidth = 12, kDevIconGap = 8, kDevButton = 16, kDevButtonRadius = 4;
 struct DevStatusMark {
   Guid frame = kNoGuid;
-  // ReadyIcon (round 15, Design mode): a design ready for dev shows a green `</>` button at its top right instead of
-  // the chip after its name (live Figma, the owner's recording: a click on `</>` turns it green; hovered, "•••"; a
-  // click opens the status menu).
-  enum class Kind : uint8_t { MarkButton, Ready, Completed, Changed, ReadyIcon } kind = Kind::Ready;
+  // The design's status in its title (docs/editor.md "Frame status (ours)", 2026-10-12): the owner's workflow statuses
+  // replace Ready for dev's own indicator. Workflow: a chip in the status's colour with its label (`workflow`, 1–7 in
+  // the owner's order, Editor::workflowStatus); Changed: Figma's "Changed" for a Ready to Dev design edited since it
+  // was marked; MarkButton: the `</>` at a selected design's top right without a status (a click opens the menu).
+  enum class Kind : uint8_t { MarkButton, Workflow, Changed } kind = Kind::Workflow;
+  uint8_t workflow = 0;
+  // After the name (Dev Mode, a section's pill, Changed) rather than at the design's top right (Design mode, where
+  // Ready for dev's `</>` button is).
+  bool trailing = false;
 };
+// The owner's statuses' labels, by Editor::workflowStatus's number (0: none).
+inline constexpr const char* kWorkflowLabels[] = {"", "Done", "R to Merge", "Ready to Dev", "To be done", "Process", "Revised", "Cancelled"};
+inline constexpr int kWorkflowDone = 1, kWorkflowReadyToDev = 3, kWorkflowCancelled = 7, kWorkflowCount = 7;
 struct DevOverlay {
   bool annotations = true;  // View › Annotations (labels, dots and measurements)
   bool dots = false;        // Dev Mode: annotations as dots, the open one as its label
@@ -211,7 +219,7 @@ struct DevOverlay {
   std::vector<DevStatusMark> statuses;
   Guid focus = kNoGuid;  // focus view: only this layer is drawn
   // Round 15: the `</>` button under the pointer (filled: blue, or green "•••" when ready), and whether its tooltip
-  // ("Mark as ready for dev", after the tooltip delay) shows.
+  // ("Set status", after the tooltip delay) shows.
   Guid iconHover = kNoGuid;
   bool tooltip = false;
 };
@@ -231,7 +239,7 @@ struct CanvasHits {
   struct Status {
     Guid frame = kNoGuid;
     Rect rect;  // screen (a turned frame's button: its bounds)
-    DevStatusMark::Kind kind = DevStatusMark::Kind::Ready;
+    DevStatusMark::Kind kind = DevStatusMark::Kind::Workflow;
     // A turned frame's button (round 15): `box` in label-local px, `toLocal` from screen to it.
     bool turned = false;
     Rect box;
@@ -734,9 +742,10 @@ class Renderer {
   void drawPrototypeOverlay(const Document& doc, Guid page, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
   void drawPrototypeLabels(const Document& doc, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
   // Dev Mode (render/AnnotationOverlay.cpp): saved measurements, annotation labels with their leader lines (or dots),
-  // the measurement tool's edges and draft; a frame title's status chip (`x`: where it starts, `baseline`).
+  // the measurement tool's edges and draft; a frame title's status chip (`x`: its left — its right with `alignRight` —,
+  // `centerY`; `compact`: the `</>` button's 16 px height and corners): returns its width.
   void drawDevOverlay(const Document& doc, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
-  void drawStatusChip(const DevStatusMark& mark, double x, double baseline, const OverlayStyle& style);
+  double drawStatusChip(const DevStatusMark& mark, double x, double centerY, bool alignRight, bool compact, const OverlayStyle& style);
   // The `</>` at a selected design's top right (Overlay.cpp): its right edge at `right`, by the title's baseline.
   // The `</>` button at a frame's top right: `right` / `baseline` in label-local px (`place` → screen; FrameTitles.h).
   void drawDevIcon(Guid frame, DevStatusMark::Kind kind, double right, double baseline, const Color& color, const Mat2x3& place, bool upright,

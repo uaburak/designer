@@ -1,0 +1,23 @@
+@layer app {
+  /* The Design panel header's status button (ours: editor/frameStatus.ts, docs/editor.md "Frame status (ours)"): a
+     filled dot in the status's colour (FRAME_STATUS_COLOR, tokens) before its label. */
+  .headerButton { display: inline-flex; align-items: center; padding: 0; border: 0; background: none; }
+  .face {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: var(--ds-size-icon-16);
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-1);
+    border-radius: var(--ds-radius-full);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-small);
+    white-space: nowrap;
+  }
+  .dot { flex: none; width: var(--ds-space-2); height: var(--ds-space-2); border-radius: var(--ds-radius-full); }
+  /* No status: an outlined dot, secondary text */
+  .face[data-frame-status="none"] { color: var(--figma-color-text-secondary); }
+  .face[data-frame-status="none"] .dot { outline: 1px dashed var(--figma-color-border-strong); outline-offset: -1px; }
+  /* Cancelled: muted, like disabled */
+  .face[data-frame-status="cancelled"] { color: var(--figma-color-text-disabled); }
+}

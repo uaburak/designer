@@ -7,7 +7,6 @@
  */
 import type { Guid, NodeFields } from "@/engine/codec";
 import type { EditorController } from "../controller";
-import { setDevStatusOf, statusOfTargets } from "../devStatus";
 import { categoriesOf, encodeCategories, encodeNotes, notesOf, type AnnotationData, type CategoriesJson, type Category, type Note } from "./annotations";
 
 /** Design, Dev Mode, or Draw (round 10, View › Switch to Draw: the Design editor with the Pencil to hand — Figma Draw's own brushes and panels aren't built). */
@@ -57,15 +56,9 @@ export function attachDevMode(ed: EditorController): () => void {
       ed.ui.set({ annotationEditor: { ref: e.ref, index: e.index, ...toViewport(ed, e) } });
     }),
     ed.engine.on("MEASUREMENT_EDIT", (e) => ed.ui.set({ measurementEditor: { id: e.id, text: e.text, ...toViewport(ed, e) } })),
-    ed.engine.on("DEV_STATUS", (e) => {
-      if (e.action === "mark") {
-        // The `</>` at a selected design's top right toggles Ready for dev (live Figma's canvas icon, the header's
-        // "Toggle ready for dev status").
-        setDevStatusOf(ed, [e.ref], statusOfTargets(ed, [e.ref]) === "BUILD" ? null : "BUILD");
-        return;
-      }
-      ed.ui.set({ statusMenu: { ref: e.ref, ...toViewport(ed, e) } });
-    }),
+    // The status in a design's title, or the `</>` at a selected design's top right ("mark"): the status menu — the
+    // owner's statuses replace Ready for dev's own (docs/editor.md "Frame status (ours)").
+    ed.engine.on("DEV_STATUS", (e) => ed.ui.set({ statusMenu: { ref: e.ref, ...toViewport(ed, e) } })),
   ];
   return () => offs.forEach((off) => off());
 }

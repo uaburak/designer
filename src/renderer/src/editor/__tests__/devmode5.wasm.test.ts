@@ -89,8 +89,8 @@ describe("Ready for dev and status reports", () => {
     const doc = new ViewerDoc(engine);
     const items = readyItems({ pages: () => engine.pages(), statuses: (p) => doc.statuses(p), times: (ids) => ids.map(() => ({ editedAt: 0, statusAt: 0 })) });
     expect(items.length).toBeGreaterThanOrEqual(2);
-    expect(filterReady(items, "completed").map((i) => i.id)).toEqual([tops[1]]);
-    expect(filterReady(items, "ready").map((i) => i.id)).toContain(tops[0]);
+    expect(filterReady(items, "done").map((i) => i.id)).toEqual([tops[1]]);
+    expect(filterReady(items, "ready-to-dev").map((i) => i.id)).toContain(tops[0]);
     const byName = sortReady(items, "name").map((i) => i.name);
     expect(byName).toEqual([...byName].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true })));
   });

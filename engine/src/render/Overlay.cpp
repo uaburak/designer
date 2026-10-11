@@ -84,23 +84,23 @@ void Renderer::drawDevIcon(Guid frame, DevStatusMark::Kind kind, double right, d
   // Live Figma's `</>` (canvas-autolayout-selected-hover-gap, 2026-10-08): 12 × 10 CSS px, its right edge on the
   // frame's, from 8 px above the name's baseline to 1.5 px below it; 1 px strokes with round ends. Round 15 (the owner's
   // 47.png and recording): it is a button — hovered, a 16 × 16 rounded square of the selection colour behind a white
-  // glyph, and after the tooltip delay "Mark as ready for dev" under it; a design ready for dev shows it green (white
-  // glyph; hovered "•••"). A turned frame's lies along its top edge at the right end, turned with it (`place`).
+  // glyph, and after the tooltip delay its tooltip under it — "Set status": since 2026-10-12 it opens the owner's
+  // status menu (docs/editor.md "Frame status (ours)"), and a design with a status shows its chip here instead. A
+  // turned frame's lies along its top edge at the right end, turned with it (`place`).
   const double dpr = viewport_.scaleX();
   auto snap = [&](double v) { return upright ? std::round(v * dpr) / dpr : v; };
   double x0 = snap(right - kDevIconWidth), y0 = snap(baseline - 8);
   const bool hovered = dev.iconHover == frame;
-  const bool ready = kind == DevStatusMark::Kind::ReadyIcon;
   // The button's box: centred on the glyph (12 × 9.6), 16 square.
   Rect box{x0 + kDevIconWidth / 2 - kDevButton / 2, y0 + 4.8 - kDevButton / 2, kDevButton, kDevButton};
   box.x = snap(box.x), box.y = snap(box.y);
-  if (hovered || ready) {
-    const Color& fill = ready ? style.statusReady : style.selection;
+  if (hovered) {
     const double r = kDevButtonRadius;
-    emit(makeShape(place * Mat2x3::translate(box.x, box.y), {box.w, box.h}, ShapeKind::Rect, {r, r, r, r}, fill, 1, fill, 0, 0, 0), Pass::Shape);
+    emit(makeShape(place * Mat2x3::translate(box.x, box.y), {box.w, box.h}, ShapeKind::Rect, {r, r, r, r}, style.selection, 1, style.selection, 0, 0, 0),
+         Pass::Shape);
   }
-  const Color ink = hovered || ready ? Color{1, 1, 1, 1} : Color{color.r, color.g, color.b, 1};
-  const double alpha = hovered || ready ? 1.0 : color.a;
+  const Color ink = hovered ? Color{1, 1, 1, 1} : Color{color.r, color.g, color.b, 1};
+  const double alpha = hovered ? 1.0 : color.a;
   const double w = 1;
   auto segment = [&](Vec2 a, Vec2 b) {
     a = {x0 + a.x, y0 + a.y}, b = {x0 + b.x, y0 + b.y};
@@ -113,19 +113,11 @@ void Renderer::drawDevIcon(Guid frame, DevStatusMark::Kind kind, double right, d
     for (Vec2 p : {a, b})
       emit(makeShape(place * Mat2x3::translate(p.x - w / 2, p.y - w / 2), {w, w}, ShapeKind::Ellipse, kSquare, ink, alpha, ink, 0, 0, 0), Pass::Shape);
   };
-  if (ready && hovered) {
-    // "•••": three white dots across the middle (live Figma, the owner's recording at 22.0 s).
-    const double d = 2.2;
-    Vec2 c{box.x + box.w / 2, box.y + box.h / 2};
-    for (double dx : {-4.0, 0.0, 4.0})
-      emit(makeShape(place * Mat2x3::translate(c.x + dx - d / 2, c.y - d / 2), {d, d}, ShapeKind::Ellipse, kSquare, ink, 1, ink, 0, 0, 0), Pass::Shape);
-  } else {
-    segment({3, 1.7}, {0.5, 4.2});
-    segment({0.5, 4.2}, {3, 6.7});
-    segment({7.3, 0}, {4.7, 9.6});
-    segment({9, 1.7}, {11.5, 4.2});
-    segment({11.5, 4.2}, {9, 6.7});
-  }
+  segment({3, 1.7}, {0.5, 4.2});
+  segment({0.5, 4.2}, {3, 6.7});
+  segment({7.3, 0}, {4.7, 9.6});
+  segment({9, 1.7}, {11.5, 4.2});
+  segment({11.5, 4.2}, {9, 6.7});
   Rect screenBox = upright ? box : transformedBounds(place * Mat2x3::translate(box.x, box.y), box.w, box.h);
   // A click on it takes it: its 16 × 16 box (a turned one's, turned).
   if (recordHits_) {
@@ -153,7 +145,7 @@ void Renderer::drawDevTooltip(const OverlayStyle& style) {
   if (!devTooltip_) return;
   devTooltip_ = false;
   const double dpr = viewport_.scaleX();
-  static const std::string text = "Mark as ready for dev";
+  static const std::string text = "Set status";
   const text::TextLayout* L = label(text, "Regular", style.labelSize);
   double tw = L ? L->size.x : 6.2 * static_cast<double>(text.size());
   double bw = std::round(tw + 2 * style.tooltipPadding), bh = style.tooltipHeight, r = style.tooltipRadius, a = style.tooltipArrow;
@@ -561,6 +553,14 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
           double ty = std::round((h.y + (h.h - L->lines[0].height) / 2) * dpr) / dpr;
           drawGlyphs(*L, Mat2x3::translate(std::round(t.text.x * dpr) / dpr, ty), Color{ink.r, ink.g, ink.b, 1}, ink.a);
         }
+        // Its status (ours, docs/editor.md "Frame status (ours)") after the pill: the chip, or the `</>` while selected.
+        for (const DevStatusMark& mark : overlay.dev.statuses) {
+          if (mark.frame != t.id) continue;
+          if (mark.kind == DevStatusMark::Kind::MarkButton)
+            drawDevIcon(t.id, mark.kind, h.right() + 6 + kDevIconWidth, h.y + h.h / 2 + 3.2, grey, Mat2x3{}, true, overlay.dev, style);
+          else
+            drawStatusChip(mark, h.right() + 6, h.y + h.h / 2, false, false, style);
+        }
         continue;
       }
       // Components' and instances' names in the component purple, after Figma's icon; a selected or hovered frame's
@@ -571,31 +571,41 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       // coordinates, snapped to device pixels only when upright.
       auto snap = [&](double v) { return t.upright ? std::round(v * dpr) / dpr : v; };
       double baseline = snap(t.baseline);
-      // A selected design without a status: live Figma's `</>` at its top right (a click marks it ready for dev), in
-      // the title's colour; a design ready for dev (Design mode): the green button there. The name stops short of it.
-      // Round 15 (the owner's recording, 26–33 s): a turned frame's too, along its top edge at the right end.
+      // A selected design without a status: live Figma's `</>` at its top right (a click opens the status menu), in the
+      // title's colour; a design with a status (Design mode): its chip there instead (docs/editor.md "Frame status
+      // (ours)": the owner's statuses replace Ready for dev's green button). The name stops short of either. Round 15
+      // (the owner's recording, 26–33 s): a turned frame's too, at the right end of its top edge (the chip unturned).
       bool devIcon = false;
-      DevStatusMark::Kind iconKind = DevStatusMark::Kind::MarkButton;
+      const DevStatusMark* corner = nullptr;
       for (const DevStatusMark& mark : overlay.dev.statuses)
-        if (mark.frame == t.id && (mark.kind == DevStatusMark::Kind::MarkButton || mark.kind == DevStatusMark::Kind::ReadyIcon)) {
-          devIcon = true;
-          iconKind = mark.kind;
-        }
+        if (mark.frame == t.id && mark.kind == DevStatusMark::Kind::MarkButton) devIcon = true;
+        else if (mark.frame == t.id && !mark.trailing) corner = &mark;
       devIcon &= t.frame.w >= 3 * kDevIconWidth;
-      if (devIcon && overlay.hideTitle != t.id) drawDevIcon(t.id, iconKind, t.frame.right(), baseline, ink, t.place, t.upright, overlay.dev, style);
+      if (devIcon && overlay.hideTitle != t.id)
+        drawDevIcon(t.id, DevStatusMark::Kind::MarkButton, t.frame.right(), baseline, ink, t.place, t.upright, overlay.dev, style);
+      double cornerRoom = 0;
+      if (corner && overlay.hideTitle != t.id) {
+        const text::TextLayout* C = label(kWorkflowLabels[std::clamp<int>(corner->workflow, 0, kWorkflowCount)], "Medium", style.labelSize);
+        double cw = std::round((C ? C->size.x : 40) + 2 * 6);
+        if (t.frame.w >= cw + 2 * kDevIconWidth) {
+          // Centred where the `</>` button's box is (8 px above the baseline to 1.6 below, its centre 3.2 above).
+          Vec2 at = t.place.apply({t.frame.right(), baseline - 3.2});
+          cornerRoom = drawStatusChip(*corner, at.x, at.y, true, true, style) + kDevIconGap;
+        }
+      }
       if (overlay.hideTitle == t.id) continue;  // a grid's track selected: its name gives way (live Figma)
       if (t.icon != TitleIcon::None) drawTitleIcon(t.icon, t.iconBox, ink, t.place);
       double x = snap(t.text.x + overlay.prototype.labelWidth(t.id));
-      double room = t.frame.right() - x - (devIcon ? kDevIconWidth + kDevIconGap : 0);
+      double room = t.frame.right() - x - (devIcon ? kDevIconWidth + kDevIconGap : 0) - cornerRoom;
       if (room < 1) continue;
       const text::TextLayout* L = label(n->props.name, "Regular", style.titleSize, room);
       if (!L || L->lines.empty()) continue;
       drawGlyphs(*L, t.place * Mat2x3::translate(x, baseline - L->lines[0].baseline), Color{ink.r, ink.g, ink.b, 1}, ink.a);
-      // Dev Mode: the design's status after its name (a turned frame's chip at its place, unturned).
+      // Dev Mode (and "Changed"): the design's status after its name (a turned frame's chip at its place, unturned).
       for (const DevStatusMark& mark : overlay.dev.statuses)
-        if (mark.frame == t.id && mark.kind != DevStatusMark::Kind::MarkButton && mark.kind != DevStatusMark::Kind::ReadyIcon) {
-          Vec2 at = t.place.apply({x + L->size.x + 6, baseline});
-          drawStatusChip(mark, at.x, at.y, style);
+        if (mark.frame == t.id && mark.kind != DevStatusMark::Kind::MarkButton && mark.trailing) {
+          Vec2 at = t.place.apply({x + L->size.x + 6, baseline - 3.5});
+          drawStatusChip(mark, at.x, at.y, false, false, style);
         }
     }
   }

@@ -311,7 +311,9 @@ TEST_CASE("devmode: statuses on titles; editInfo stamped on edits makes a ready 
   CHECK(f.ed.devStatus(A) == 1);
   f.frame();
   REQUIRE(f.r.canvasHits().statuses.size() == 1);
-  CHECK(f.r.canvasHits().statuses[0].kind == DevStatusMark::Kind::ReadyIcon);  // Design mode: the green `</>` button (round 15)
+  // Design mode: the owner's "Ready to Dev" chip where Ready for dev's green `</>` button was (Frame status (ours)).
+  CHECK(f.r.canvasHits().statuses[0].kind == DevStatusMark::Kind::Workflow);
+  CHECK(f.ed.workflowStatus(A) == kWorkflowReadyToDev);
   // An edit inside A a little later: A (and the page) get editInfo; A shows Changed.
   f.now = 2060;
   NodeChange c = NodeChange::changed(CHILD);
@@ -363,6 +365,90 @@ TEST_CASE("devmode: statuses on titles; editInfo stamped on edits makes a ready 
   d.props.name = "Renamed";
   REQUIRE(f.ed.setProps({B}, d, 0) == OK);
   CHECK(f.extraJson(B, "editInfo").isNull());
+}
+
+TEST_CASE("devmode: the owner's statuses (pluginData) in the title replace Ready for dev's; sections and their frames") {
+  const Guid S{1, 20}, IN{1, 21};
+  auto nodes = designs();
+  nodes.push_back(make(S, NodeType::SECTION, kPage, "c", {0, 300, 500, 300}, "Section"));
+  nodes.push_back(make(IN, NodeType::FRAME, S, "a", {40, 60, 300, 200}, "Inside"));
+  Fixture f(nodes);
+  f.ed.setEditTracking(true);
+  auto status = [](const char* id) { return std::string(R"([{"pluginID":"designer.workflow","key":"status","value":")") + id + R"("}])"; };
+  auto marksOf = [&](Guid id) {
+    std::vector<DevStatusMark> out;
+    for (const DevStatusMark& m : f.ed.overlay().dev.statuses)
+      if (m.frame == id) out.push_back(m);
+    return out;
+  };
+  auto hitOf = [&](Guid id) -> const CanvasHits::Status* {
+    for (const auto& h : f.r.canvasHits().statuses)
+      if (h.frame == id) return &h;
+    return nullptr;
+  };
+
+  // pluginData decides; a writing of it is no edit (no editInfo, so no "Changed").
+  f.setExtra(A, "pluginData", status("process"));
+  CHECK(f.extraJson(A, "editInfo").isNull());
+  CHECK(f.ed.workflowStatus(A) == 5);
+  f.setExtra(B, "pluginData", R"([{"pluginID":"other","key":"status","value":"done"}])");
+  CHECK(f.ed.workflowStatus(B) == 0);
+  // Without our entry, Figma's sectionStatusInfo: Ready for dev is Ready to Dev, Completed is Done.
+  f.setExtra(B, "sectionStatusInfo", R"({"status":"COMPLETED","lastUpdateUnixTimestamp":1000})");
+  CHECK(f.ed.workflowStatus(B) == kWorkflowDone);
+  // Ours wins over Figma's.
+  f.setExtra(B, "pluginData", status("revised"));
+  CHECK(f.ed.workflowStatus(B) == 6);
+  f.setExtra(IN, "pluginData", status("cancelled"));
+  f.setExtra(S, "pluginData", status("to-be-done"));
+
+  // Design mode: frames' chips at their top right; a section's (and Dev Mode's) after the name.
+  f.frame();
+  REQUIRE(marksOf(A).size() == 1);
+  CHECK(marksOf(A)[0].kind == DevStatusMark::Kind::Workflow);
+  CHECK(!marksOf(A)[0].trailing);
+  CHECK(marksOf(IN).size() == 1);
+  CHECK(marksOf(IN)[0].workflow == kWorkflowCancelled);
+  REQUIRE(marksOf(S).size() == 1);
+  CHECK(marksOf(S)[0].trailing);
+  const CanvasHits::Status* chip = hitOf(A);
+  REQUIRE(chip);
+  CHECK(chip->rect.right() == doctest::Approx(200).epsilon(0.01));  // right-aligned on the frame's right edge
+  CHECK(chip->rect.h == doctest::Approx(kDevButton));
+  CHECK(chip->rect.bottom() <= 0);  // above the frame
+  REQUIRE(hitOf(IN));
+  REQUIRE(hitOf(S));
+  // A click on a chip asks for the menu.
+  f.ed.takeEvents();
+  f.click(chip->rect.x + 4, chip->rect.y + 4);
+  auto ev = f.ed.takeEvents();
+  REQUIRE(ev.statusClicks.size() == 1);
+  CHECK(ev.statusClicks[0].frame == A);
+  CHECK(ev.statusClicks[0].action == "menu");
+
+  // A Ready to Dev design edited after it was marked: Figma's "Changed"; another status edited stays itself.
+  f.now = 2000;
+  f.setExtra(A, "pluginData", status("ready-to-dev"));
+  f.setExtra(A, "sectionStatusInfo", R"({"status":"BUILD","lastUpdateUnixTimestamp":2000})");
+  f.now = 2060;
+  NodeChange c = NodeChange::changed(CHILD);
+  c.mask = F_SIZE;
+  c.props.size = {80, 40};
+  REQUIRE(f.ed.setProps({CHILD}, c, 0) == OK);
+  CHECK(f.ed.devStatus(A) == 3);
+  f.frame();
+  REQUIRE(marksOf(A).size() == 1);
+  CHECK(marksOf(A)[0].kind == DevStatusMark::Kind::Changed);
+  f.setExtra(A, "pluginData", status("process"));
+  f.frame();
+  CHECK(marksOf(A)[0].kind == DevStatusMark::Kind::Workflow);
+
+  // Dev Mode (viewer mode with Dev Mode's edits): chips after the names.
+  f.ed.setViewerMode(true);
+  f.ed.setDevEdits(true);
+  f.frame();
+  CHECK(marksOf(A)[0].trailing);
+  CHECK(marksOf(IN)[0].trailing);
 }
 
 TEST_CASE("devmode: editInfo on an instance is its own field, not an override") {

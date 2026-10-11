@@ -28,28 +28,25 @@ struct Placed {
 
 }  // namespace
 
-void Renderer::drawStatusChip(const DevStatusMark& mark, double x, double baseline, const OverlayStyle& style) {
+double Renderer::drawStatusChip(const DevStatusMark& mark, double x, double centerY, bool alignRight, bool compact, const OverlayStyle& style) {
+  // Ready for dev's chip, for each of the owner's statuses (docs/editor.md "Frame status (ours)"): the status's colour
+  // filled, its label in Inter Medium white, 6 px either side — Dev Mode's chip after the name (17 high, round ends),
+  // or in Design mode where the `</>` button is (`compact`: its 16 px height and 4 px corners). Changed: Figma's
+  // yellow with dark text; Cancelled muted (disabled grey, the title's grey label).
   const double dpr = viewport_.scaleX();
-  const char* text = mark.kind == DevStatusMark::Kind::Ready       ? "Ready for dev"
-                     : mark.kind == DevStatusMark::Kind::Completed ? "Completed"
-                     : mark.kind == DevStatusMark::Kind::Changed   ? "Changed"
-                                                                   : "Mark as ready for dev";
+  const bool changed = mark.kind == DevStatusMark::Kind::Changed;
+  const int wf = std::clamp<int>(mark.workflow, 0, kWorkflowCount);
+  const char* text = changed ? "Changed" : wf ? kWorkflowLabels[wf] : "Set status";
   const text::TextLayout* L = label(text, "Medium", style.labelSize);
   double tw = L ? L->size.x : 6.2 * std::char_traits<char>::length(text);
-  double h = style.badgeHeight, w = std::round(tw + 2 * 6), r = h / 2;
-  double bx = std::round(x * dpr) / dpr, by = std::round((baseline - 12) * dpr) / dpr;
-  Color fill = mark.kind == DevStatusMark::Kind::Ready       ? style.statusReady
-               : mark.kind == DevStatusMark::Kind::Completed ? style.statusCompleted
-               : mark.kind == DevStatusMark::Kind::Changed   ? style.statusChanged
-                                                             : style.title;
-  bool button = mark.kind == DevStatusMark::Kind::MarkButton;
-  emit(makeShape(Mat2x3::translate(bx, by), {w, h}, ShapeKind::Rect, {r, r, r, r}, fill, button ? 0.0 : 1.0, fill, button ? 0.45 : 0.0,
-                 button ? 1 : 0, 0),
-       Pass::Shape);
+  double h = compact ? kDevButton : style.badgeHeight, w = std::round(tw + 2 * 6), r = compact ? kDevButtonRadius : h / 2;
+  double bx = std::round((alignRight ? x - w : x) * dpr) / dpr, by = std::round((centerY - h / 2) * dpr) / dpr;
+  const bool muted = !changed && wf == kWorkflowCancelled;
+  Color fill = changed ? style.statusChanged : style.workflow[wf];
+  emit(makeShape(Mat2x3::translate(bx, by), {w, h}, ShapeKind::Rect, {r, r, r, r}, fill, 1.0, fill, 0.0, 0, 0), Pass::Shape);
   if (L && !L->lines.empty())
     drawGlyphs(*L, Mat2x3::translate(bx + (w - tw) / 2, std::round((by + (h - L->lines[0].height) / 2) * dpr) / dpr),
-               button ? style.title : mark.kind == DevStatusMark::Kind::Changed ? Color{0, 0, 0, 0.9f} : Color{1, 1, 1, 1},
-               button ? std::max(0.6, style.titleAlpha) : 1);
+               muted ? style.title : changed ? Color{0, 0, 0, 0.9f} : Color{1, 1, 1, 1}, muted ? std::max(0.6, style.titleAlpha) : 1);
   if (recordHits_) {
     CanvasHits::Status hit;
     hit.frame = mark.frame;
@@ -57,6 +54,7 @@ void Renderer::drawStatusChip(const DevStatusMark& mark, double x, double baseli
     hit.kind = mark.kind;
     hits_.statuses.push_back(hit);
   }
+  return w;
 }
 
 void Renderer::drawDevOverlay(const Document& doc, const Camera& camera, const Overlay& overlay, const OverlayStyle& style) {
