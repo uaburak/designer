@@ -63,7 +63,7 @@ async function signInWithGoogle(claims: Partial<typeof google> = {}) {
   Object.assign(google, claims);
   const verifier = "v".repeat(50);
   const challenge = await sha256b64url(verifier);
-  const login = await call("GET", `/auth/login?port=50123&state=${"a".repeat(20)}&challenge=${challenge}`);
+  const login = await call("GET", `/auth/login?method=google&port=50123&state=${"a".repeat(20)}&challenge=${challenge}`);
   expect(login.status).toBe(302);
   const toGoogle = new URL(login.headers.get("location")!);
   expect(toGoogle.origin + toGoogle.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth");
@@ -96,7 +96,7 @@ describe("sign-in", () => {
 
   it("refuses a reused code, a wrong verifier and an expired code", async () => {
     const verifier = "w".repeat(50);
-    const login = await call("GET", `/auth/login?port=50123&state=${"b".repeat(20)}&challenge=${await sha256b64url(verifier)}`);
+    const login = await call("GET", `/auth/login?method=google&port=50123&state=${"b".repeat(20)}&challenge=${await sha256b64url(verifier)}`);
     const state = new URL(login.headers.get("location")!).searchParams.get("state")!;
     const code = async () => new URL((await call("GET", `/auth/callback?code=good&state=${encodeURIComponent(state)}`)).headers.get("location")!).searchParams.get("code");
     const c1 = await code();
@@ -108,7 +108,7 @@ describe("sign-in", () => {
   });
 
   it("sends Google's refusals and failures back to the loopback as errors", async () => {
-    const login = await call("GET", `/auth/login?port=50123&state=${"c".repeat(20)}&challenge=${"C".repeat(43)}`);
+    const login = await call("GET", `/auth/login?method=google&port=50123&state=${"c".repeat(20)}&challenge=${"C".repeat(43)}`);
     const state = encodeURIComponent(new URL(login.headers.get("location")!).searchParams.get("state")!);
     const denied = new URL((await call("GET", `/auth/callback?error=access_denied&state=${state}`)).headers.get("location")!);
     expect(denied.searchParams.get("error")).toBe("access_denied");
@@ -167,7 +167,7 @@ describe("the web app", () => {
   it("signs in by coming back to its own page with auth_ parameters", async () => {
     const verifier = "q".repeat(50);
     const page = `${WEB}/?files&state=keep`;
-    const login = await call("GET", `/auth/login?return=${encodeURIComponent(page)}&state=${"w".repeat(20)}&challenge=${await sha256b64url(verifier)}`);
+    const login = await call("GET", `/auth/login?method=google&return=${encodeURIComponent(page)}&state=${"w".repeat(20)}&challenge=${await sha256b64url(verifier)}`);
     expect(login.status).toBe(302);
     const state = new URL(login.headers.get("location")!).searchParams.get("state")!;
     const back = new URL((await call("GET", `/auth/callback?code=good&state=${encodeURIComponent(state)}`)).headers.get("location")!);

@@ -169,7 +169,7 @@ export async function groupsRoute(ctx: ScimCtx, url: URL, rest: string[]): Promi
       const where = f ? (f.attr === "displayName" ? `AND display_name = ?2` : `AND external_id = ?2`) : "";
       const args = f ? [orgId, f.value] : [orgId];
       const total = (await d1.prepare(`SELECT COUNT(*) AS n FROM scim_groups WHERE org_id = ?1 ${where}`).bind(...args).first<{ n: number }>())?.n ?? 0;
-      const { results } = await d1.prepare(`SELECT * FROM scim_groups WHERE org_id = ?1 ${where} ORDER BY created_at, id LIMIT ${count} OFFSET ${offset}`).bind(...args).all<GroupRow>();
+      const { results } = await d1.prepare(`SELECT * FROM scim_groups WHERE org_id = ?1 ${where} ORDER BY created_at, rowid LIMIT ${count} OFFSET ${offset}`).bind(...args).all<GroupRow>();
       const resources = [];
       for (const g of results) resources.push(await resource(ctx, g));
       return scimJson(listResponse(resources, total, startIndex));

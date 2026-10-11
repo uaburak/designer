@@ -404,7 +404,7 @@ export async function usersRoute(ctx: ScimCtx, url: URL, rest: string[]): Promis
     const where = f ? (f.attr === "userName" ? `AND user_name = ?2` : `AND external_id = ?2`) : "";
     const args = f ? [orgId, f.attr === "userName" ? normalizeEmail(f.value) : f.value] : [orgId];
     const total = (await d1.prepare(`SELECT COUNT(*) AS n FROM scim_users WHERE org_id = ?1 ${where}`).bind(...args).first<{ n: number }>())?.n ?? 0;
-    const { results } = await d1.prepare(`SELECT * FROM scim_users WHERE org_id = ?1 ${where} ORDER BY created_at, user_id LIMIT ${count} OFFSET ${offset}`).bind(...args).all<LinkRow>();
+    const { results } = await d1.prepare(`SELECT * FROM scim_users WHERE org_id = ?1 ${where} ORDER BY created_at, rowid LIMIT ${count} OFFSET ${offset}`).bind(...args).all<LinkRow>();
     const resources = [];
     for (const l of results) resources.push(resource(ctx, l, await stateOf(ctx, l)));
     return scimJson(listResponse(resources, total, startIndex));

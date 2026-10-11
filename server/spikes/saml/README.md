@@ -1,5 +1,9 @@
 # Spike: a SAML ACS in a Cloudflare Worker (Phase 7 round 1e)
 
+**Moved (round 4a, 2026-10-11):** the SP is `server/src/auth/saml/`; these 29 cases (plus SHA-1, encryption, the
+unsolicited bounce and concurrent posts) run on the real routes in `server/src/auth/saml/saml.test.ts`, with the test IdP
+in `server/src/testing/samlIdp.ts`. This folder stays as the evidence of the library choice.
+
 Not deployed, not wired into `server/src` or the app. Round 4a (`server/src/auth/`) builds the real one from this.
 
 ## Recommendation

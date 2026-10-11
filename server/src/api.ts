@@ -3,7 +3,7 @@
  * A plain `Request → Response` function over injected dependencies, so Node's tests drive it without Cloudflare.
  */
 import type { Role } from "../../src/shared/multiplayer/protocol";
-import type { FilePolicy, RoomPolicy } from "../../src/shared/org/identity";
+import type { FilePolicy, RoomPolicy, SessionAuth } from "../../src/shared/org/identity";
 import { deviceFromUserAgent } from "../../src/shared/account";
 import { patAllows, personalToken, requestPlace, touchOrgActivity, type Caller } from "./account";
 import { normalizeEmail, type Db, type User } from "./db";
@@ -16,7 +16,6 @@ import { reauth } from "./org/reauth";
 import { notificationsRoute, notifyEditRequest, notifyInvite, notifyOwnership, notifyRequestAnswered } from "./notifications";
 import { isPreviewPath, previews, viewerPage } from "./previews";
 import { checkPassword, hashPassword, sha256b64url, signToken, verifyToken } from "./tokens";
-import type { SessionAuth } from "../../src/shared/org/identity";
 
 export interface Env {
   GOOGLE_CLIENT_ID?: string;

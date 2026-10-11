@@ -31,9 +31,9 @@ const appFetch: typeof fetch = (input, init) => {
   return url.startsWith(SERVER) ? handle(new Request(url, init), server) : fetch(input, init);
 };
 
-/** The system browser: follows the server's redirects, plays Google, lands on the app's loopback. */
+/** The system browser: the login page's "Continue with Google" (method=google), plays Google, lands on the app's loopback. */
 async function browser(url: string) {
-  const login = await handle(new Request(url), server);
+  const login = await handle(new Request(`${url}&method=google`), server);
   const toGoogle = new URL(login.headers.get("location")!);
   const cb = new URL(`${SERVER}/auth/callback`);
   cb.searchParams.set("state", toGoogle.searchParams.get("state")!);

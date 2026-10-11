@@ -6,9 +6,7 @@
  */
 import { inflateRawSync } from "node:zlib";
 import { handle, type Deps } from "../api";
-import { onIdentitySettingsChanged, validateIdentitySettings } from "../auth/settingsHooks";
 import { Db, type D1Like } from "../db";
-import { settingsOf } from "../org/db";
 import { b64url, sha256b64url } from "../tokens";
 import type { OrgSettings } from "../../../src/shared/org/types";
 import { sqliteD1 } from "./sqliteD1";
@@ -50,7 +48,7 @@ export interface IdentityWorld {
   addIdp(orgId?: string, o?: { signing?: "assertion" | "assertion_or_response"; certs?: string[]; tested?: boolean }): Promise<string>;
   /** A verified domain of the org, written straight into D1 */
   verifiedDomain(domain: string, orgId?: string): Promise<void>;
-  /** PATCH admin/settings as round 4b will do it: the hooks around the write */
+  /** PATCH admin/settings (round 4b's route, calling the identity hooks); throws {status, code, message} when refused */
   settings(patch: Partial<OrgSettings>, orgId?: string): Promise<void>;
   /** The desktop app's sign-in start: /auth/login?port&state&challenge (+ extra) */
   login(extra?: string): Promise<{ res: Answer; verifier: string; state: string }>;
@@ -154,13 +152,8 @@ export async function identityWorld(): Promise<IdentityWorld> {
   };
   const verifiedDomain = async (domain: string, org = orgId) => run(`INSERT INTO org_domains (org_id, domain, token, created_at, verified_at) VALUES (?1, ?2, 'tok', ?3, ?3)`, org, domain, now.t);
   const settings: IdentityWorld["settings"] = async (patch, org = orgId) => {
-    await validateIdentitySettings(deps, org, patch);
-    const row = await d1.prepare(`SELECT settings FROM orgs WHERE id = ?1`).bind(org).first<{ settings: string }>();
-    const before = settingsOf(row);
-    const next = { ...before, ...patch };
-    await run(`UPDATE orgs SET settings = ?2 WHERE id = ?1`, org, JSON.stringify(next));
-    const actor = (await deps.db.user(admin.id))!;
-    await onIdentitySettingsChanged(deps, org, before, next, actor, new Request(ORIGIN));
+    const r = await call("PATCH", `/orgs/${org}/admin/settings`, { token: admin.token, body: patch });
+    if (r.status !== 200) throw Object.assign(new Error(r.body?.error ?? r.text), { status: r.status, code: r.body?.code });
   };
   const login: IdentityWorld["login"] = async (extra = "") => {
     const verifier = b64url(crypto.getRandomValues(new Uint8Array(40)));
