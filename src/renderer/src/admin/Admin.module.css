@@ -205,4 +205,15 @@
   .date:focus { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -1px; }
   .note { color: var(--figma-color-text-secondary); }
   .loadMore { display: flex; justify-content: center; padding: var(--ds-space-4) 0; }
+
+  /* --- Resources: libraries (the approved check mark after the name) and fonts --- */
+  .intro { margin: 0 0 var(--ds-space-4); }
+  .libName { display: flex; align-items: center; gap: var(--ds-space-1); min-width: 0; }
+  .libNameText { overflow: hidden; text-overflow: ellipsis; }
+  .approved { display: inline-flex; flex: none; color: var(--figma-color-icon-brand); vertical-align: middle; }
+  .approvedWorkspace { display: inline-flex; flex: none; color: var(--figma-color-icon-secondary); vertical-align: middle; }
+  .libHeader { display: flex; align-items: flex-start; gap: var(--ds-space-2); }
+  .typeRow { min-height: 40px; padding: var(--ds-space-1) 0; }
+  .modes { display: flex; flex-direction: column; gap: var(--ds-space-2); margin-top: var(--ds-space-2); }
+
 }

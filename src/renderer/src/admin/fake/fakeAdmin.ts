@@ -8,6 +8,8 @@ import type { AdminRepository, OrgsRepository } from "@shared/org/repositories";
 import type * as O from "@shared/org/types";
 import { ACTION_LABEL, SEAT_LABEL, formatUtc, productOf, teamAccess, toCsv, userType } from "../labels";
 import { makeSeed, type Seed } from "./seed";
+import { fakeOrgLibraries, fakeSharedFonts, seedResources, type FakeSharedFonts, type ResourcesState } from "./fakeResources";
+import type { OrgLibrariesRepository } from "@shared/libraries/orgTypes";
 
 export type { AdminTeamsApi } from "../context";
 import type { AdminTeamsApi } from "../context";
@@ -15,8 +17,14 @@ export interface FakeAdminStore {
   admin: AdminRepository;
   orgs: OrgsRepository;
   teams: AdminTeamsApi;
+  /** Admin › Resources › Libraries (docs/data.md §16.10 "Managing") */
+  orgLibraries: OrgLibrariesRepository;
+  /** Admin › Resources › Fonts: the preload's shared-fonts API (docs/desktop.md §14.3) — pass as AdminApp's `fonts` */
+  fonts: FakeSharedFonts;
   /** The seed's state (tests read it) */
   state: Seed;
+  /** Libraries, their settings rows and the org's fonts (tests read them) */
+  resources: ResourcesState;
   /** The caller (the acting admin) */
   me: string;
 }
@@ -478,5 +486,8 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
     },
   };
 
-  return { admin, orgs, teams, state: s, me };
+  const resources = seedResources(s, now);
+  const orgLibraries = fakeOrgLibraries(s, resources, me, log, wait, () => Date.now());
+  const fonts = fakeSharedFonts(s, resources, me, wait, () => Date.now());
+  return { admin, orgs, teams, orgLibraries, fonts, state: s, resources, me };
 }
