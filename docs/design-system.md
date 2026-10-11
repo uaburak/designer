@@ -1340,6 +1340,20 @@ Figma's Settings (`src/renderer/src/settings/`; help.figma.com 1500006061462; me
 - **Agents tab**: `panels/agents/AgentSettings.tsx` itself with `embedded` (the modal's insets and headings) on a host of its own (`editor/agents/setup.ts` `AgentSetupService` — the Agents tab's `AgentsService` implements the same `AgentSetupHost`).
 - **Verified**: side by side with 5–9.png in the browser (`npm run web` on `wrangler dev`) and in the built app (`scripts/drive.mjs`): header, tabs, close, photo, every heading / value / link / line of Account and Security within 1 px of the screenshots; the content is 8 narrower where the system shows a classic scrollbar.
 
+### 4.37 Admin (2026-10-11, Phase 7 round 1d)
+
+Figma's Admin location (`src/renderer/src/admin/`; research `docs/research/figma/R19-admin.md`, help.figma.com only — no live capture yet). `AdminApp({ orgId, store: { admin, orgs?, teams? }, onExportCsv?, onBack?, initial?, now? })` over `AdminRepository` (docs/multiplayer.md §14.6); Home renders it for admins; `?admin` (`admin/AdminRoute.tsx`) runs it on `createFakeAdminStore()` (`admin/fake/`: ~42 people, 3 workspaces one hidden, 2 billing groups, 13 teams two hidden two deleted, seat / guest requests, 4 user groups, 2 removed people's drafts, 320 activity rows; every write logs Figma's action).
+
+- **Layout** (`Admin.module.css`, `@layer app`): a `home-sidebar`-wide left column — the org's name with "Admin", "Back to files" when `onBack`, then `SidebarItem`s **Dashboard, People, Content, Activity, Billing, Settings** —; the page: a `home-topbar`-high header with the title (`heading-medium`), a row of ds `Tabs` for the sub-pages (People | User groups; Teams | Workspaces | Unassigned drafts; Overview | Billing groups), the body scrolling with 24 / 32 insets.
+- **Tables** (`parts.tsx Table`): a sticky `list-header`-high header of secondary labels (sortable ones are buttons with the 16 arrow), 48-high rows on a 1 px line, hover `bg-hover`, checked `bg-selected`; the checkbox column (header: select all, mixed when partial); a person cell = 24 avatar + name over the secondary email; the row's "…" (`24.more`) shows on hover. Toolbars above: a 240 `SearchField`, `Select`s, **Filter** (a `MenuButton` with submenus), counts, **Get CSV**, the primary action at the right; active filters as chips with ✕ and Clear all.
+- **People**: seat count buttons (Full / Dev / Collab / View; each a filter, `aria-pressed`), Seat type cell → Change seat modal, Workspace and Billing group cells are dropdowns; the **bulk bar** floats at the bottom (sticky, `elevation-200`, radius large): "n selected", Copy emails, Add to user group, Change seat, Change role, Change workspace, Change billing group, Remove users, ✕.
+- **Dialogs** (ds `Dialog`): a choice (`ChoiceDialog`: `RadioGroup` + the chosen option's description, Save), confirm (destructive for removals and permanent deletes), a name, pick several (`PickDialog`: search + checkbox rows, a minimum), Add people, New workspace (name, Workspace admin, Make it hidden), Create billing group, Seat approval settings (a `Select` per paid seat), a user group (members, Rename, Add people, Delete group).
+- **Dashboard**: stat tiles (radius large, 1 px border, `heading-large` value over a secondary label), then Seat requests (Deny / Approve) and Guest requests (Dismiss / Add), each with View all.
+- **Activity**: Member, Date (Last 24 hours … Last year, Custom with two date fields), Events (Figma's groups as headers), Team; columns Date (UTC), Team member, Event, Product, Team, IP address; 100 rows, Load more; Get CSV takes the date range only.
+- **Settings**: groups (Access, Team management, Billing, Sharing and publishing, Other) of rows — name and description at the left, the value and **Change** at the right (56 min high, a line under); round 4's rows disabled.
+- **CSV**: `AdminRepository.exportCsv` → `onExportCsv(fileName, csv)` (main's Save dialog in the app), else a browser download.
+- **Not verified against live Figma**: everything's pixel metrics and the labels R19 marks unverified.
+
 ## 5. File layout, Gallery, visual verification
 
 ### 5.1 Files
