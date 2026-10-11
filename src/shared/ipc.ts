@@ -9,6 +9,7 @@
  */
 import type { AgentSettings, AuthState, ConnectResult, McpClientId, McpClientInfo, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnEvent, TurnRequest, UsageInfo } from "./agents/types";
 import type { AttachResult } from "./agents/attachments";
+import type { AiImageRequest, AiModelId, AiModelInfo, AiModelState, AiRunEventMsg, AiRunRequest, AiSettings, Connector, ConnectorConsent, ConnectorToolPolicy } from "./ai/types";
 import type { AccountMethod, AccountResponse, AccountState, SignInResult } from "./account";
 import type { CommandId, MenuStatePatch } from "./commands";
 import type { SharedFontFace, SharedFontsChannels } from "./fonts/sharedTypes";
@@ -374,6 +375,27 @@ export interface IpcInvoke extends SharedFontsChannels {
   // ── Dev Mode (docs/editor.md D-3) ──
   /** A dev resource link's page title (`https:` only, 5 s, ≤ 512 kB read, no local hosts); null when there is none */
   "devmode:link-title": { args: [{ url: string }]; result: { title: string | null } };
+  // ── AI (docs/ai.md §8; main's side is src/main/ai, round 6f / 6b) ──
+  /** The AI settings (route choices, allowance, flags); image keys only as set / not set */
+  "ai:settings": { args: []; result: AiSettings };
+  "ai:set-settings": { args: [Partial<Omit<AiSettings, "imageKeys">>]; result: AiSettings };
+  /** An image API's key, kept in the keychain (null removes it) */
+  "ai:set-image-key": { args: [{ provider: "openai" | "gemini"; key: string | null }]; result: AiSettings };
+  /** A one-shot text run: its events come as `ai:event` with this runId */
+  "ai:run": { args: [AiRunRequest]; result: void };
+  /** An image run (Make, Edit, Expand, Erase): events as `ai:event` */
+  "ai:image": { args: [AiImageRequest]; result: void };
+  "ai:cancel": { args: [{ runId: string }]; result: void };
+  /** The local models and what is on disk; downloads need the confirmation the Settings / tool shows with the size */
+  "ai:models": { args: []; result: { info: AiModelInfo[]; state: AiModelState[] } };
+  "ai:model-download": { args: [{ id: AiModelId }]; result: AiModelState };
+  "ai:model-remove": { args: [{ id: AiModelId }]; result: AiModelState };
+  // ── Connectors (docs/ai.md §2.11) ──
+  "agents:connectors": { args: []; result: Connector[] };
+  "agents:add-connector": { args: [{ name: string; transport: { kind: "http"; url: string; key?: string } | { kind: "stdio"; command: string; args: string[] } }]; result: Connector[] };
+  "agents:update-connector": { args: [{ id: string; enabled?: boolean; policies?: Record<string, ConnectorToolPolicy> }]; result: Connector[] };
+  "agents:remove-connector": { args: [{ id: string }]; result: Connector[] };
+  "agents:test-connector": { args: [{ id: string }]; result: Connector };
 }
 
 /** A development plugin imported from its manifest (docs/plugins.md §3.3) */
@@ -416,6 +438,8 @@ export interface IpcSend {
   "shell:open-external": { url: string };
   /** A tool call's answer from the view that ran it */
   "agents:tool-result": ToolCallResult;
+  /** The answer to a connector's consent card (`agents:consent`) */
+  "agents:consent-answer": { reqId: number; allow: boolean; remember?: boolean };
   /** A step of a scrub: the trackpad's haptic tick (macOS; main throttles it to one a frame — src/main/haptics.ts) */
   "haptics:tick": void;
 }
@@ -454,6 +478,12 @@ export interface IpcEvents {
   "account:idle": IdleNotice;
   /** A development plugin's files changed (Hot reload plugin, docs/plugins.md §3.3) */
   "plugins:changed": { id: string };
+  /** An AI run's stream (answers `ai:run` / `ai:image`) */
+  "ai:event": AiRunEventMsg;
+  /** A local model's download progress or state */
+  "ai:model-state": AiModelState;
+  /** A connector wants to run a tool: show the consent card (answer `agents:consent-answer`) */
+  "agents:consent": ConnectorConsent;
 }
 
 /** The idle timeout's prompt (docs/desktop.md §18.2) */
@@ -527,6 +557,20 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "plugins:storage": ["editor"],
   "plugins:open-console": ["editor"],
   "devmode:link-title": ["editor"],
+  "ai:settings": ["home", "editor"],
+  "ai:set-settings": ["home", "editor"],
+  "ai:set-image-key": ["home", "editor"],
+  "ai:run": ["editor"],
+  "ai:image": ["editor"],
+  "ai:cancel": ["editor"],
+  "ai:models": ["home", "editor"],
+  "ai:model-download": ["home", "editor"],
+  "ai:model-remove": ["home", "editor"],
+  "agents:connectors": ["home", "editor"],
+  "agents:add-connector": ["home", "editor"],
+  "agents:update-connector": ["home", "editor"],
+  "agents:remove-connector": ["home", "editor"],
+  "agents:test-connector": ["home", "editor"],
 };
 
 export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {
@@ -544,5 +588,6 @@ export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {
   "file:reveal-data-folder": ["home", "editor"],
   "shell:open-external": ["home", "editor"],
   "agents:tool-result": ["editor"],
+  "agents:consent-answer": ["editor"],
   "haptics:tick": ["tabbar", "home", "editor"],
 };

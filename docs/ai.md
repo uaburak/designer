@@ -367,7 +367,10 @@ export interface AiRepository {
   - `src/renderer/src/editor/search/index.ts` exports `openVisualSearch(opts?: { selection?: boolean; image?: Uint8Array })`, for 6a's button;
   - `src/renderer/src/editor/imageTools/worker.ts` exports `runModel(id: AiModelId, input: unknown): Promise<unknown>`, which throws "Local models aren't built yet".
 
-**TODO (main session, before the agents)**: check that the IPC payload shapes match `ipc.ts`'s conventions, and check the `aimodel:` scheme registration and the CSP lines against `src/main/protocol.ts`.
+**Checked against `ipc.ts` and `protocol.ts` (main session, 2026-10-12), as committed:**
+- IPC: the list above holds with these fits to the existing conventions. `agents:consent-answer` is a one-way send (`IpcSend`, `["editor"]`), like `agents:tool-result`, not an invoke. `ai:run` and `ai:image` answer `void` (their events carry the `runId`). `ai:set-settings` takes `Partial<Omit<AiSettings, "imageKeys">>`; `ai:set-image-key` takes `{ provider: "openai" | "gemini"; key: string | null }`. `ai:models` answers `{ info, state }`. Events (`ai:event`, `ai:model-state`, `agents:consent`) have no role list in `IpcEvents`, like the others. Main-side stubs are in `src/main/ipc.ts`; 6f / 6b replace them.
+- The `aimodel:` scheme (6b) follows the `plugin:` pattern: a `src/main/ai/protocol.ts` exporting `AIMODEL_SCHEME_PRIVILEGES` (`standard`, `secure`, `supportFetchAPI`, `corsEnabled`) that joins the array in `registerScheme()` in `src/main/protocol.ts` (one call registers all schemes), and a handler beside `handleScheme`. The app's CSP needs `aimodel:` added to `connect-src` (the worker fetches the model files and runs onnxruntime's Wasm; `script-src` already has `'wasm-unsafe-eval'`, `worker-src` already has `'self' blob:`). Nothing else changes in the CSP.
+- The two stubs are in place; `src/store/ai/stub.ts` holds `notImplementedAi()` and `notImplementedSearch()`.
 
 ## 9. Ownership, merge order — see `docs/roadmap.md` "Round 6"
 

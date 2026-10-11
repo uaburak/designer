@@ -62,6 +62,7 @@ import { AnalyticsQueue, analyticsRepository } from "./libraries/analyticsQueue"
 import { identityRepository } from "./org/identity";
 import { PluginsService } from "./plugins/service";
 import { DevModeService, type LocalDevRecord } from "./devmode/service";
+import { notImplementedAi, notImplementedSearch } from "./ai/stub";
 import { UsageReporter } from "./libraries/usage";
 
 export interface LocalStoreOptions {
@@ -909,6 +910,8 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     identity: identityRepository(s.multiplayer, (orgId) => s.org.notice({ t: "org", what: "org", orgId })),
     plugins: s.plugins.repository(),
     devMode: s.devMode.repository(),
+    ai: notImplementedAi(),
+    search: notImplementedSearch(),
   };
 }
 

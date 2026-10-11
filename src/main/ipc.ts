@@ -1,4 +1,5 @@
 import { app, dialog, ipcMain, Menu, shell, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type WebContents } from "electron";
+import { DEFAULT_AI_SETTINGS } from "../shared/ai/types";
 import { INVOKE_ROLES, SEND_ROLES, type IpcInvoke, type IpcSend, type NativeMenuItem, type Role } from "../shared/ipc";
 import { isFileKey } from "../shared/tabs";
 import type { McpClientId } from "../shared/agents/types";
@@ -169,6 +170,23 @@ export function registerIpc() {
   onInvoke("plugins:storage", (_c, call) => plugins.clientStorage().call(call));
   // Open console: the view's own devtools (the host offers it for development plugins).
   onInvoke("plugins:open-console", ({ sender }) => sender.openDevTools({ mode: "detach" }));
+  // ── AI and connectors: stubs until round 6f / 6b (docs/ai.md §8) ──
+  const aiNotBuilt = (): never => { throw new Error("AI isn't built yet"); };
+  onInvoke("ai:settings", () => ({ ...DEFAULT_AI_SETTINGS }));
+  onInvoke("ai:set-settings", () => ({ ...DEFAULT_AI_SETTINGS }));
+  onInvoke("ai:set-image-key", () => ({ ...DEFAULT_AI_SETTINGS }));
+  onInvoke("ai:run", aiNotBuilt);
+  onInvoke("ai:image", aiNotBuilt);
+  onInvoke("ai:cancel", () => undefined);
+  onInvoke("ai:models", () => ({ info: [], state: [] }));
+  onInvoke("ai:model-download", aiNotBuilt);
+  onInvoke("ai:model-remove", aiNotBuilt);
+  onInvoke("agents:connectors", () => []);
+  onInvoke("agents:add-connector", aiNotBuilt);
+  onInvoke("agents:update-connector", aiNotBuilt);
+  onInvoke("agents:remove-connector", () => []);
+  onInvoke("agents:test-connector", aiNotBuilt);
+  onSend("agents:consent-answer", () => undefined);
   onInvoke("devmode:link-title", (_c, p) => linkTitle(p?.url));
   // ── Haptics (a scrub's steps; throttled, macOS only) ──
   onSend("haptics:tick", () => void hapticTick());

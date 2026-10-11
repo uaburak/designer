@@ -63,6 +63,7 @@ import { AnalyticsQueue, analyticsRepository } from "../../../../store/libraries
 import { identityRepository } from "../../../../store/org/identity";
 import { PluginsService } from "../../../../store/plugins/service";
 import { DevModeService, type LocalDevRecord } from "../../../../store/devmode/service";
+import { notImplementedAi, notImplementedSearch } from "../../../../store/ai/stub";
 import { UsageReporter } from "../../../../store/libraries/usage";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1290,6 +1291,8 @@ export class MemoryStore {
       identity: identityRepository(this.multiplayer, (orgId) => this.org.notice({ t: "org", what: "org", orgId })),
       plugins: this.plugins.repository(),
       devMode: this.devMode.repository(),
+      ai: notImplementedAi(),
+      search: notImplementedSearch(),
     };
   }
 }

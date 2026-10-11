@@ -84,6 +84,12 @@ export interface TurnRequest {
   effort?: string;
   /** Files attached to this message, copied into the chat's folder (agents:attach) */
   attachments?: TurnAttachment[];
+  /** A Skill the user ran with `/` (docs/ai.md §2.10): its instructions open the turn */
+  skill?: { name: string; instructions: string };
+  /** The enabled Skills, by name and description, for `get_skill` (docs/ai.md §2.10) */
+  skills?: { name: string; description: string }[];
+  /** The connectors (ids) this turn may use (docs/ai.md §2.11) */
+  connectors?: string[];
 }
 
 /** One of a plan's limits ("Current session", 5 % used, resets at …). */

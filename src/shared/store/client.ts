@@ -35,6 +35,7 @@ import type { AdminRepository, IdentityRepository, OrgEvent, OrgsRepository, Pro
 import type { BranchEvent, BranchesRepository } from "../merge/branches";
 import type { PluginsEvent, PluginsRepository } from "../plugins/types";
 import type { DevModeEvent, DevModeRepository } from "../devmode/types";
+import type { AiRepository, SearchRepository } from "../ai/types";
 import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "../libraries/orgTypes";
 
 interface Pending {
@@ -635,6 +636,25 @@ export class StoreClient implements StoreApi {
     invitePrototype: (fileKey, email) => this.call("devMode.invitePrototype", [fileKey, email]),
     removePrototype: (fileKey, email) => this.call("devMode.removePrototype", [fileKey, email]),
     watch: (listener) => this.devModeEvents.add(listener),
+  };
+
+  readonly ai: AiRepository = {
+    record: (e) => this.call("ai.record", [e]),
+    balance: (allowance, now) => this.call("ai.balance", [allowance, now]),
+    history: (q) => this.call("ai.history", [q]),
+    skills: () => this.call("ai.skills", []),
+    saveSkill: (s) => this.call("ai.saveSkill", [s]),
+    removeSkill: (id) => this.call("ai.removeSkill", [id]),
+  };
+
+  readonly search: SearchRepository = {
+    upsert: (entries) => this.call("search.upsert", [entries]),
+    remove: (fileKey, nodeIds) => this.call("search.remove", [fileKey, nodeIds]),
+    versions: (fileKey) => this.call("search.versions", [fileKey]),
+    query: (q) => this.call("search.query", [q]),
+    thumb: (fileKey, nodeId) => this.call("search.thumb", [fileKey, nodeId]),
+    stats: () => this.call("search.stats", []),
+    clear: () => this.call("search.clear", []),
   };
 
   readonly identity: IdentityRepository = {

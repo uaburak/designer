@@ -3,7 +3,7 @@
  * are structured clones (Uint8Arrays are copied once, no JSON). The store sends `hello` first on every new port.
  */
 
-export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer" | "comments" | "notifications" | "orgs" | "teams" | "projects" | "admin" | "branches" | "orgLibraries" | "analytics" | "identity" | "plugins" | "devMode";
+export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer" | "comments" | "notifications" | "orgs" | "teams" | "projects" | "admin" | "branches" | "orgLibraries" | "analytics" | "identity" | "plugins" | "devMode" | "ai" | "search";
 export type StoreMethod = `${Repository}.${string}`;
 export type PortRole = "main" | "home" | "editor";
 /** `org`: OrgEvent (docs/multiplayer.md §14.6); `branches`: BranchEvent (docs/data.md §15.6); `fonts`: FontsEvent (docs/desktop.md §14.3); `session`: SessionEnded (docs/multiplayer.md §15.8); `plugins`: PluginsEvent (docs/plugins.md §10); `devmode`: DevModeEvent (docs/editor.md D-8) */
@@ -169,6 +169,9 @@ export const STORE_METHODS = {
   // Plugins (docs/plugins.md §10.4, round 5g); `plugins` is also an event topic
   plugins: ["local", "setSaved", "ranRecently", "listPrivate", "bundle", "publish", "removePrivate", "allowed", "request", "admin", "approve", "unapprove", "answer"],
   // Dev Mode (docs/editor.md D-8, round 5g); `devmode` is also an event topic
+  // AI ledger and Skills (docs/ai.md §8, round 6g) and the search index (round 6d)
+  ai: ["record", "balance", "history", "skills", "saveSkill", "removeSkill"],
+  search: ["upsert", "remove", "versions", "query", "thumb", "stats", "clear"],
   devMode: ["devResources", "addDevResource", "editDevResource", "removeDevResource", "codeConnect", "setCodeConnect", "removeCodeConnect", "reportStatus", "viewed", "setStatusNotifications", "prototypeMembers", "invitePrototype", "removePrototype"],
 } as const satisfies Record<Repository, readonly string[]>;
 

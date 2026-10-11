@@ -53,6 +53,11 @@ export interface OrgSettings {
   widgetApproval: "all" | "approved";
   /** Members may request widgets */
   widgetRequests: boolean;
+  // ---- Phase 7 round 6: AI (docs/ai.md §2.12) ----
+  /** AI features on for the organization */
+  aiEnabled: boolean;
+  /** Monthly AI credits per member; null = no limit set */
+  aiCreditLimit: number | null;
 }
 export const DEFAULT_ORG_SETTINGS: OrgSettings = {
   teamCreation: "anyone", groupCreation: "anyone", guestMembership: "allow", defaultSeat: "view",
@@ -60,6 +65,7 @@ export const DEFAULT_ORG_SETTINGS: OrgSettings = {
   publicLinks: true, linkExpiryMaxHours: null, passwordRequired: false, cursorChat: true, audio: true,
   authMethod: "any", idleSessionTimeoutHours: null, domainCapture: false, externalContent: "allowed", passwordMode: "any", openSessions: true,
   pluginApproval: "all", pluginRequests: true, widgetApproval: "all", widgetRequests: true,
+  aiEnabled: true, aiCreditLimit: null,
 };
 
 export interface OrgSummary { id: string; name: string; role: OrgRole; seat: Seat; workspaceId: string | null }

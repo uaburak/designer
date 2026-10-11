@@ -38,6 +38,7 @@ import type { AdminRepository, IdentityRepository, OrgsRepository, ProjectsRepos
 import type { BranchesRepository } from "../merge/branches";
 import type { PluginsRepository } from "../plugins/types";
 import type { DevModeRepository } from "../devmode/types";
+import type { AiRepository, SearchRepository } from "../ai/types";
 import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "../libraries/orgTypes";
 
 // Branches' repository and events (docs/data.md §15.6) live in src/shared/merge/branches.ts; re-exported here.
@@ -262,4 +263,8 @@ export interface StoreApi {
   plugins: PluginsRepository;
   /** Dev resources, Code Connect, status reports, prototype members (docs/editor.md D-8; round 5g) */
   devMode: DevModeRepository;
+  /** The AI usage ledger and Skills (docs/ai.md §8; round 6g) */
+  ai: AiRepository;
+  /** The visual / text search index of components and frames (docs/ai.md §6; round 6d) */
+  search: SearchRepository;
 }
