@@ -2,13 +2,14 @@
  * The account's own settings (docs/multiplayer.md §13; Figma's Settings modal): the profile, sessions, personal access
  * tokens and Delete account. Every route is the caller's own; a personal access token can't reach any of them.
  *
- *   GET    /me                      the user (as signed in)
+ *   GET    /me                      the user (as signed in) and `session`: SessionIdle | null (§15.8)
  *   DELETE /me {confirm: email}     Delete account: owned files unshared, memberships, comments, previews, sessions, tokens
  *   GET    /me/profile              AccountProfile
  *   PATCH  /me/profile              ProfilePatch → AccountProfile (name, photo, role, Community profile, prefs)
  *   GET    /me/sessions             {sessions: SessionInfo[]}, the caller's marked `current`
  *   DELETE /me/sessions/:id         "Sign out": that session's token stops working
- *   POST   /me/sessions/active      the app reports activity (throttled, once a minute): the session and "Last active"
+ *   POST   /me/sessions/active      the app reports activity (once a minute): active_at, "Last active" → {activeAt, idleLimitMs}
+ *   DELETE /me/sessions/current     Log out of this session (?reason=idle: the idle timeout, logged)
  *   GET    /me/tokens               {tokens: AccessTokenInfo[]}
  *   POST   /me/tokens               {description, expiresInDays, scopes} → {token (shown once), info}
  *   DELETE /me/tokens/:id           "Revoke access"
@@ -16,6 +17,7 @@
  * Personal access tokens (`dsgn_…`) are Bearer tokens for the API's reads (`patAllows`): kept as their SHA-256 only.
  */
 import { HANDLE_RE, MAX_BIO, MAX_PICTURE_CHARS, ROLES, TOKEN_EXPIRATIONS, TOKEN_PREFIX, isTokenScope, type AccessTokenInfo, type AccountPrefs, type AccountProfile, type CommunityProfile, type SessionInfo, type TokenScope } from "../../src/shared/account";
+import type { SessionAuth, SessionIdle } from "../../src/shared/org/identity";
 import { logForUserOrgs } from "./activity";
 import type { Deps } from "./api";
 import type { User } from "./db";
@@ -45,7 +47,7 @@ export async function accountRoute(req: Request, deps: Deps, caller: Caller, par
   }
 
   if (parts.length === 1) {
-    if (m === "GET") return json({ id: user.id, email: user.email, name: user.name, picture: user.picture });
+    if (m === "GET") return json({ id: user.id, email: user.email, name: user.name, picture: user.picture, session: await sessionIdle(deps, sid, user.id) });
     if (m === "DELETE") {
       const body = await readJson<{ confirm?: unknown }>(req);
       if (typeof body?.confirm !== "string" || body.confirm.trim().toLowerCase() !== user.email) return fail(400, "type your email to confirm");
@@ -82,10 +84,20 @@ export async function accountRoute(req: Request, deps: Deps, caller: Caller, par
         return json({ sessions });
       }
       if (parts.length === 3 && parts[2] === "active" && m === "POST") {
-        // Round 4's idle timeout reads sessions.last_seen_at (docs/multiplayer.md §14.11).
-        if (sid) await d1.prepare(`UPDATE sessions SET last_seen_at = ?3 WHERE id = ?1 AND user_id = ?2`).bind(sid, user.id, now).run();
+        // The person used the app (at most once a minute): the only thing that moves active_at (§15.8).
+        const r = sid
+          ? await d1.prepare(`UPDATE sessions SET last_seen_at = ?3, active_at = ?3 WHERE id = ?1 AND user_id = ?2 RETURNING active_at, idle_limit_ms`).bind(sid, user.id, now).first<{ active_at: number; idle_limit_ms: number | null }>()
+          : null;
         await touchOrgActivity(deps, user.id, true);
-        return json({ ok: true });
+        return json({ activeAt: r?.active_at ?? now, idleLimitMs: r?.idle_limit_ms ?? null });
+      }
+      if (parts.length === 3 && parts[2] === "current" && m === "DELETE") {
+        // Log out of this session; `?reason=idle`: the app's idle timer ran out (logged at once, [F-idle]).
+        const gone = sid ? await d1.prepare(`DELETE FROM sessions WHERE id = ?1 AND user_id = ?2 RETURNING id`).bind(sid, user.id).first() : null;
+        const idle = new URL(req.url).searchParams.get("reason") === "idle";
+        if (idle) await (await import("./auth/idle")).logIdleTimeout(deps, user, req, "client");
+        else if (gone) await logForUserOrgs(deps, user, "user_sign_out", req, { session_id: sid });
+        return new Response(null, { status: 204 });
       }
       if (parts.length === 3 && m === "DELETE") {
         if (parts[2] === sid) return fail(400, "log out to end this session");
@@ -126,6 +138,17 @@ export async function accountRoute(req: Request, deps: Deps, caller: Caller, par
     }
   }
   return fail(404, "not found");
+}
+
+/** `GET /me`'s `session` (§15.8): how this session signed in, its last activity and idle limit; null for a PAT or an
+ *  older token without a session row */
+async function sessionIdle(deps: Deps, sid: string | null, userId: string): Promise<SessionIdle | null> {
+  if (!sid) return null;
+  const r = await deps.db.d1
+    .prepare(`SELECT id, auth_method, active_at, last_seen_at, idle_limit_ms FROM sessions WHERE id = ?1 AND user_id = ?2`)
+    .bind(sid, userId)
+    .first<{ id: string; auth_method: SessionAuth; active_at: number | null; last_seen_at: number; idle_limit_ms: number | null }>();
+  return r ? { id: r.id, auth: r.auth_method, activeAt: r.active_at ?? r.last_seen_at, idleLimitMs: r.idle_limit_ms } : null;
 }
 
 /** A `dsgn_…` Bearer: its user and scopes, or null (unknown, expired). "Last used" moves on, at most once a minute. */

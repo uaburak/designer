@@ -6,7 +6,6 @@ import type { Role } from "../../src/shared/multiplayer/protocol";
 import { deviceFromUserAgent } from "../../src/shared/account";
 import { patAllows, personalToken, requestPlace, touchOrgActivity, type Caller } from "./account";
 import { normalizeEmail, type Db, type User } from "./db";
-import { authorizeUrl, exchangeCode, GoogleError } from "./google";
 import type { ActivityAction } from "../../src/shared/org/types";
 import { fileEntity, logActivity, logFileView, logForUserOrgs } from "./activity";
 import { seatNeeded } from "../../src/shared/org/access";
@@ -15,7 +14,8 @@ import { errorBody, HttpError, type Ctx } from "./org/http";
 import { reauth } from "./org/reauth";
 import { notificationsRoute, notifyEditRequest, notifyInvite, notifyOwnership, notifyRequestAnswered } from "./notifications";
 import { isPreviewPath, previews, viewerPage } from "./previews";
-import { checkPassword, hashPassword, randomToken, sha256b64url, signToken, verifyToken } from "./tokens";
+import { checkPassword, hashPassword, sha256b64url, signToken, verifyToken } from "./tokens";
+import type { SessionAuth } from "../../src/shared/org/identity";
 
 export interface Env {
   GOOGLE_CLIENT_ID?: string;
@@ -54,8 +54,6 @@ export interface Deps {
 }
 
 export const SESSION_DAYS = 30;
-const STATE_SECONDS = 600;
-const CODE_MS = 120_000;
 const MAX_SNAPSHOT_BYTES = 90 * 1024 * 1024;
 
 interface SessionPayload {
@@ -63,16 +61,6 @@ interface SessionPayload {
   tv: number;
   /** The session's row (Settings › Security › Sessions); absent in tokens issued before migration 0009 */
   sid?: string;
-  exp: number;
-}
-
-interface StatePayload {
-  /** The desktop app's loopback port (0 for the web app), the app's own state, its PKCE challenge */
-  p: number;
-  /** The web app's page to come back to (instead of a loopback) */
-  r?: string;
-  s: string;
-  c: string;
   exp: number;
 }
 
@@ -113,9 +101,13 @@ async function route(req: Request, deps: Deps): Promise<Response> {
 
   if (path === "/") return json({ name: "designer", ok: true });
   if (path === "/auth/login" && m === "GET") return login(url, deps);
-  if (path === "/auth/callback" && m === "GET") return callback(url, deps);
+  if (path === "/auth/callback" && m === "GET") return callback(url, deps, req);
   if (path === "/auth/token" && m === "POST") return token(req, deps);
   if (path === "/auth/dev" && m === "POST") return devSignIn(req, deps);
+  // Identity (docs/multiplayer.md §15): SSO routing, the SAML SP of each org, SCIM — no session.
+  if (path === "/auth/sso" && m === "POST") return (await import("./auth/sso")).ssoRoute(req, url, deps);
+  if (path.startsWith("/saml/")) return (await import("./auth/saml/routes")).samlRoute(req, url, deps, path.split("/").filter(Boolean).map(decodeURIComponent));
+  if (path === "/scim" || path.startsWith("/scim/")) return (await import("./auth/scim/routes")).scimRoute(req, url, deps, path.split("/").filter(Boolean).map(decodeURIComponent));
   const link = /^\/f\/([A-Za-z0-9_-]{6,64})$/.exec(path);
   if (link && m === "GET") return linkPage(link[1], url.searchParams);
   if (isPreviewPath(path)) return previews(req, url, deps, async () => sessionOnly(await authenticate(req, url, deps, false)));
@@ -154,6 +146,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (parts[0] === "fonts") return (await import("./fonts/routes")).fontFileRoute(orgCtx());
   if (parts[0] === "files" && parts[2] === "libraries") return (await import("./libraries/routes")).fileLibrariesRoute(orgCtx());
   if (parts[0] === "files" && parts[2] === "library-usage") return (await import("./analytics/ingest")).fileUsageRoute(orgCtx());
+  if (parts[0] === "orgs" && parts[2] === "admin" && (parts[3] === "identity" || parts[3] === "domains")) return (await import("./auth/identityRoutes")).identityRoute(orgCtx());
   if (parts[0] === "orgs") return (await import("./org/orgs")).orgsRoute(orgCtx());
   if (parts[0] === "teams") return (await import("./org/teams")).teamsRoute(orgCtx());
   if (parts[0] === "projects") return (await import("./org/projects")).projectsRoute(orgCtx());
@@ -605,7 +598,12 @@ async function authenticate(req: Request, url: URL, deps: Deps, allowQuery: bool
   const p = await verifyToken<SessionPayload>(raw, secret(deps), seconds(deps));
   const user = p && (await deps.db.user(p.uid));
   if (!p || !user || user.tokenVersion !== p.tv) throw new HttpError(401, "session expired");
-  if (p.sid && !(await deps.db.touchSession(p.sid, user.id, deps.now()))) throw new HttpError(401, "session expired");
+  if (p.sid) {
+    const s = await deps.db.touchSession(p.sid, user.id, deps.now());
+    if (!s) throw new HttpError(401, "session expired");
+    // The idle session timeout (§15.8): an idle session is deleted, logged and refused with `idle_timeout`.
+    await (await import("./auth/idle")).enforceIdle(deps, s, user, req);
+  }
   // Admin › People "Last active" (§14.11): moved on with the session, at most every 5 minutes.
   await touchOrgActivity(deps, user.id);
   return { user, sid: p.sid ?? null, scopes: null };
@@ -657,75 +655,36 @@ async function validPass(req: Request, url: URL, deps: Deps, key: string, userId
   return !!p && p.k === key && p.u === userId && p.v === version;
 }
 
-/** A new session: its row (what and where it signed in from) and a token naming it. */
-async function issueSession(user: User, deps: Deps, req: Request): Promise<Response> {
+/**
+ * A new session: its row (what and where it signed in from, how — Google, SAML through an org, dev — and its idle
+ * limit, §15.8) and a token naming it.
+ */
+async function issueSession(user: User, deps: Deps, req: Request, auth: { method: SessionAuth; orgId: string | null } = { method: "google", orgId: null }): Promise<Response> {
   const exp = seconds(deps) + SESSION_DAYS * 86400;
   // Invites to orgs, teams and folders waiting for this email become this user's (§14.5, as 0001's members).
   await claimInvites(deps.db.d1, user);
-  await logForUserOrgs(deps, user, "user_sign_in", req);
-  const sid = await deps.db.createSession(user.id, { ...deviceFromUserAgent(req.headers.get("user-agent")), ...requestPlace(req) }, deps.now());
+  await logForUserOrgs(deps, user, "user_sign_in", req, { method: auth.method, ...(auth.orgId ? { org_id: auth.orgId } : {}) });
+  const sid = await deps.db.createSession(user.id, { ...deviceFromUserAgent(req.headers.get("user-agent")), ...requestPlace(req) }, deps.now(), auth);
   const token = await signToken({ uid: user.id, tv: user.tokenVersion, sid, exp }, secret(deps));
   return json({ token, expiresAt: exp * 1000, user: publicUser(user) });
 }
 
-function googleConfig(url: URL, deps: Deps) {
-  const { GOOGLE_CLIENT_ID: clientId, GOOGLE_CLIENT_SECRET: clientSecret } = deps.env;
-  if (!clientId || !clientSecret) throw new HttpError(503, "Google sign-in is not configured");
-  return { clientId, clientSecret, redirectUri: `${url.origin}/auth/callback` };
-}
-
-/** Step 2: the app's browser arrives here with its loopback port (or, the web app, its page), state and PKCE challenge. */
+/**
+ * Step 2: the app's browser arrives here with its loopback port (or, the web app, its page), state and PKCE challenge
+ * — Figma's login page (Continue with Google · Use single sign-on), or straight on with `method=google` / `tenant`
+ * (docs/multiplayer.md §15.4; auth/sso.ts).
+ */
 async function login(url: URL, deps: Deps): Promise<Response> {
-  const ret = url.searchParams.get("return");
-  const p = ret === null ? Number(url.searchParams.get("port")) : 0;
-  const s = url.searchParams.get("state") ?? "";
-  const c = url.searchParams.get("challenge") ?? "";
-  if (ret !== null) {
-    let back: URL | null = null;
-    try {
-      back = new URL(ret);
-    } catch {
-      // refused below
-    }
-    if (!back || !webOrigins(deps).includes(back.origin)) throw new HttpError(400, "return page not allowed");
-  } else if (!Number.isInteger(p) || p < 1024 || p > 65535) throw new HttpError(400, "bad port");
-  if (!/^[A-Za-z0-9_-]{16,128}$/.test(s)) throw new HttpError(400, "bad state");
-  if (!/^[A-Za-z0-9_-]{43}$/.test(c)) throw new HttpError(400, "bad challenge");
-  const cfg = googleConfig(url, deps);
-  const state = await signToken({ p, s, c, ...(ret !== null ? { r: ret } : {}), exp: seconds(deps) + STATE_SECONDS } satisfies StatePayload, secret(deps));
-  return Response.redirect(authorizeUrl(cfg, state), 302);
+  return (await import("./auth/sso")).loginRoute(url, deps);
 }
 
-/** Step 3: Google sends the browser back; the app's loopback gets a one-time code. */
-async function callback(url: URL, deps: Deps): Promise<Response> {
-  const st = await verifyToken<StatePayload>(url.searchParams.get("state") ?? "", secret(deps), seconds(deps));
-  if (!st) return page(400, "This sign-in link has expired. Start again from the app.");
-  // The web app reads auth_* parameters (its own page may use state / code / error for something else).
-  const web = typeof st.r === "string";
-  const back = web ? new URL(st.r!) : new URL(`http://127.0.0.1:${st.p}/callback`);
-  const param = (k: string) => (web ? `auth_${k}` : k);
-  back.searchParams.set(param("state"), st.s);
-  const code = url.searchParams.get("code");
-  if (!code) {
-    back.searchParams.set(param("error"), url.searchParams.get("error") ?? "access_denied");
-    return Response.redirect(back.toString(), 302);
-  }
-  let profile;
-  try {
-    profile = await exchangeCode(code, googleConfig(url, deps), deps.fetch, seconds(deps));
-  } catch (e) {
-    if (!(e instanceof GoogleError)) throw e;
-    back.searchParams.set(param("error"), "google_failed");
-    return Response.redirect(back.toString(), 302);
-  }
-  const user = await deps.db.upsertUser(profile, deps.now());
-  const appCode = randomToken();
-  await deps.db.putAuthCode(await sha256b64url(appCode), user.id, st.c, deps.now() + CODE_MS);
-  back.searchParams.set(param("code"), appCode);
-  return Response.redirect(back.toString(), 302);
+/** Step 3: Google sends the browser back; the app's loopback gets a one-time code — or, for a member of an org that
+ *  requires SAML, the browser goes on to its IdP with the same app state (§15.4; auth/sso.ts). */
+async function callback(url: URL, deps: Deps, req: Request): Promise<Response> {
+  return (await import("./auth/sso")).googleCallback(url, deps, req);
 }
 
-/** Step 4: the app trades the code and its PKCE verifier for a session token. */
+/** Step 4: the app trades the code and its PKCE verifier for a session token (made the way the code was earned). */
 async function token(req: Request, deps: Deps): Promise<Response> {
   const body = await readJson<{ code?: string; verifier?: string }>(req);
   if (typeof body.code !== "string" || typeof body.verifier !== "string") throw new HttpError(400, "code and verifier");
@@ -733,16 +692,16 @@ async function token(req: Request, deps: Deps): Promise<Response> {
   if (!row || row.challenge !== (await sha256b64url(body.verifier))) throw new HttpError(400, "invalid or expired code");
   const user = await deps.db.user(row.userId);
   if (!user) throw new HttpError(400, "invalid or expired code");
-  return issueSession(user, deps, req);
+  return issueSession(user, deps, req, { method: row.auth, orgId: row.orgId });
 }
 
-/** Local development only (DEV_AUTH=1 in server/.dev.vars): a session for any email, no Google. */
+/** Local development only (DEV_AUTH=1 in server/.dev.vars): a session for any email, no Google; no policy applies. */
 async function devSignIn(req: Request, deps: Deps): Promise<Response> {
   if (deps.env.DEV_AUTH !== "1") throw new HttpError(404, "not found");
   const body = await readJson<{ email?: string; name?: string }>(req);
   if (!body.email) throw new HttpError(400, "email");
   const user = await deps.db.upsertUser({ sub: `dev:${normalizeEmail(body.email)}`, email: body.email, name: body.name ?? null }, deps.now());
-  return issueSession(user, deps, req);
+  return issueSession(user, deps, req, { method: "dev", orgId: null });
 }
 
 /** A file's link opened in a browser: a page that hands it to the desktop app (designer://open?key=…), with the frame

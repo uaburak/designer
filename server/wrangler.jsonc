@@ -6,6 +6,8 @@
   "account_id": "dd8b9e757657d35f82adff075509b048",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
+  // @node-saml/node-saml (SAML SSO, docs/multiplayer.md §15.3): Buffer, zlib, crypto.X509Certificate
+  "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "durable_objects": {
     "bindings": [

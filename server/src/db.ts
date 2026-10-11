@@ -1,8 +1,10 @@
 /**
- * The D1 queries (docs/multiplayer.md §3; tables in migrations/0001_init.sql). Written against the narrow `D1Like`
- * that both Cloudflare's D1 and the tests' node:sqlite stand-in satisfy. Times are milliseconds.
+ * The D1 queries (docs/multiplayer.md §3, §15.8; tables in migrations/0001_init.sql). Written against the narrow
+ * `D1Like` that both Cloudflare's D1 and the tests' node:sqlite stand-in satisfy. Times are milliseconds.
  */
 import type { Role } from "../../src/shared/multiplayer/protocol";
+import type { SessionAuth } from "../../src/shared/org/identity";
+import { idleLimitSql, type SessionTouch } from "./auth/idle";
 import { randomToken } from "./tokens";
 
 export interface D1Stmt {
@@ -72,42 +74,62 @@ export const normalizeEmail = (email: string): string => email.trim().toLowerCas
 export class Db {
   constructor(readonly d1: D1Like) {}
 
-  /** Sign-in: the user for this Google account, created or refreshed; invites waiting for its email become theirs. */
+  /**
+   * Sign-in: the user for this Google account, created or refreshed; invites waiting for its email become theirs. An
+   * unknown `sub` first claims the most recently seen account made by SAML JIT or SCIM (`google_sub = 'none:…'`) with
+   * the same verified email (docs/multiplayer.md §15.2 decision 5).
+   */
   async upsertUser(p: { sub: string; email: string; name?: string | null; picture?: string | null }, now: number): Promise<User> {
     const email = normalizeEmail(p.email);
-    const row = await this.d1
-      .prepare(
-        `INSERT INTO users (id, google_sub, email, name, picture, created_at, last_seen_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
-         ON CONFLICT (google_sub) DO UPDATE SET email = ?3, name = CASE WHEN name_locked = 1 THEN name ELSE ?4 END, picture = CASE WHEN picture_locked = 1 THEN picture ELSE ?5 END, last_seen_at = ?6
-         RETURNING id, email, name, picture, token_version`,
-      )
-      .bind(`u_${randomToken(12)}`, p.sub, email, p.name ?? null, p.picture ?? null, now)
-      .first<UserRow>();
+    const refresh = `email = ?2, name = CASE WHEN name_locked = 1 THEN name ELSE ?3 END, picture = CASE WHEN picture_locked = 1 THEN picture ELSE ?4 END, last_seen_at = ?5`;
+    const cols = `id, email, name, picture, token_version`;
+    const args = [p.sub, email, p.name ?? null, p.picture ?? null, now];
+    let row = await this.d1.prepare(`UPDATE users SET ${refresh} WHERE google_sub = ?1 RETURNING ${cols}`).bind(...args).first<UserRow>();
+    if (!row)
+      row = await this.d1
+        .prepare(`UPDATE users SET google_sub = ?1, ${refresh} WHERE id = (SELECT id FROM users WHERE email = ?2 AND google_sub LIKE 'none:%' ORDER BY last_seen_at DESC LIMIT 1) RETURNING ${cols}`)
+        .bind(...args)
+        .first<UserRow>();
+    if (!row)
+      row = await this.d1
+        .prepare(`INSERT INTO users (id, google_sub, email, name, picture, created_at, last_seen_at) VALUES (?6, ?1, ?2, ?3, ?4, ?5, ?5) ON CONFLICT (google_sub) DO UPDATE SET ${refresh} RETURNING ${cols}`)
+        .bind(...args, `u_${randomToken(12)}`)
+        .first<UserRow>();
     if (!row) throw new Error("upsertUser: no row");
     await this.d1.prepare(`UPDATE members SET user_id = ?1 WHERE email = ?2 AND user_id IS NULL`).bind(row.id, email).run();
     return toUser(row);
   }
 
-  /** Sign-in: one session row (Settings › Security › Sessions); its id goes into the session token as `sid`. */
-  async createSession(userId: string, d: SessionDevice, now: number): Promise<string> {
+  /**
+   * Sign-in: one session row (Settings › Security › Sessions); its id goes into the session token as `sid`. How it was
+   * signed in, its activity and its idle limit (§15.8) start with it.
+   */
+  async createSession(userId: string, d: SessionDevice, now: number, auth: { method: SessionAuth; orgId?: string | null } = { method: "google" }): Promise<string> {
     const id = `s_${randomToken(12)}`;
     await this.d1
-      .prepare(`INSERT INTO sessions (id, user_id, kind, os, browser, ip, city, country, created_at, last_seen_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)`)
-      .bind(id, userId, d.kind, d.os, d.browser, d.ip, d.city, d.country, now)
+      .prepare(
+        `INSERT INTO sessions (id, user_id, kind, os, browser, ip, city, country, created_at, last_seen_at, auth_method, auth_org_id, active_at, idle_limit_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, ?10, ?11, ?9, ${idleLimitSql("?2")})`,
+      )
+      .bind(id, userId, d.kind, d.os, d.browser, d.ip, d.city, d.country, now, auth.method, auth.orgId ?? null)
       .run();
     return id;
   }
 
   /**
-   * A request with a session token: true while its row is there (not signed out), and "Last accessed" moved on — at
-   * most once every 5 minutes, so most requests write nothing.
+   * A request with a session token: its row while it is there (not signed out), "Last accessed" moved on — at most once
+   * every 5 minutes, so most requests write nothing — and with it the idle limit recomputed (membership changes reach
+   * it within 5 minutes). `active_at` is not moved here (§15.8: background requests don't count).
    */
-  async touchSession(id: string, userId: string, now: number): Promise<boolean> {
-    const r = await this.d1
-      .prepare(`UPDATE sessions SET last_seen_at = CASE WHEN last_seen_at < ?3 - 300000 THEN ?3 ELSE last_seen_at END WHERE id = ?1 AND user_id = ?2 RETURNING id`)
+  async touchSession(id: string, userId: string, now: number): Promise<SessionTouch | null> {
+    return this.d1
+      .prepare(
+        `UPDATE sessions SET last_seen_at = CASE WHEN last_seen_at < ?3 - 300000 THEN ?3 ELSE last_seen_at END,
+           idle_limit_ms = CASE WHEN last_seen_at < ?3 - 300000 THEN ${idleLimitSql("?2")} ELSE idle_limit_ms END
+         WHERE id = ?1 AND user_id = ?2 RETURNING id, auth_method, active_at, last_seen_at, idle_limit_ms`,
+      )
       .bind(id, userId, now)
-      .first<{ id: string }>();
-    return r !== null;
+      .first<SessionTouch>();
   }
 
   async user(id: string): Promise<User | null> {
@@ -137,18 +159,19 @@ export class Db {
     return r?.ordinal ?? null;
   }
 
-  async putAuthCode(codeHash: string, userId: string, challenge: string, expiresAt: number): Promise<void> {
-    await this.d1.prepare(`INSERT INTO auth_codes (code_hash, user_id, challenge, expires_at) VALUES (?1, ?2, ?3, ?4)`).bind(codeHash, userId, challenge, expiresAt).run();
+  /** A sign-in code (hashed), bound to the app's PKCE challenge; `auth` / `orgId`: how it was earned (SAML: the org) */
+  async putAuthCode(codeHash: string, userId: string, challenge: string, expiresAt: number, auth: SessionAuth = "google", orgId: string | null = null): Promise<void> {
+    await this.d1.prepare(`INSERT INTO auth_codes (code_hash, user_id, challenge, expires_at, auth, org_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`).bind(codeHash, userId, challenge, expiresAt, auth, orgId).run();
   }
 
   /** The code's row, deleted as it is read (single use); expired codes are swept on the way. */
-  async takeAuthCode(codeHash: string, now: number): Promise<{ userId: string; challenge: string } | null> {
+  async takeAuthCode(codeHash: string, now: number): Promise<{ userId: string; challenge: string; auth: SessionAuth; orgId: string | null } | null> {
     await this.d1.prepare(`DELETE FROM auth_codes WHERE expires_at <= ?1`).bind(now).run();
     const r = await this.d1
-      .prepare(`DELETE FROM auth_codes WHERE code_hash = ?1 RETURNING user_id, challenge, expires_at`)
+      .prepare(`DELETE FROM auth_codes WHERE code_hash = ?1 RETURNING user_id, challenge, expires_at, auth, org_id`)
       .bind(codeHash)
-      .first<{ user_id: string; challenge: string; expires_at: number }>();
-    return r && r.expires_at > now ? { userId: r.user_id, challenge: r.challenge } : null;
+      .first<{ user_id: string; challenge: string; expires_at: number; auth: SessionAuth; org_id: string | null }>();
+    return r && r.expires_at > now ? { userId: r.user_id, challenge: r.challenge, auth: r.auth, orgId: r.org_id } : null;
   }
 
   /** Registers a file as shared; false when the key is already someone else's. Re-sharing one's own file is a no-op. */
