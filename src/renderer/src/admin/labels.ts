@@ -168,40 +168,42 @@ export const ACTION_LABEL: Record<ActivityAction, string> = {
   workspace_library_approve: "Approved library for workspace",
   workspace_library_unapprove: "Unapproved library for workspace",
   workspace_library_setting_change: "Changed workspace library settings",
-  // Round 5 (docs/multiplayer.md §16.11): plugins, widgets, the REST API and Dev Mode (ours; 5h may reword)
-  private_plugin_publish: "Published private plugin",
-  private_plugin_update: "Updated private plugin",
-  private_plugin_delete: "Deleted private plugin",
-  private_widget_publish: "Published private widget",
-  private_widget_update: "Updated private widget",
-  private_widget_delete: "Deleted private widget",
-  plugin_approvelist_enable: "Turned on plugin approval",
-  plugin_approvelist_disable: "Turned off plugin approval",
-  plugin_approvelist_add: "Approved plugin",
-  plugin_approvelist_add_workspace: "Approved plugin for workspace",
-  plugin_approvelist_remove: "Removed plugin from approved",
-  plugin_approvelist_remove_workspace: "Removed plugin from workspace's approved",
-  plugin_approvelist_request_org: "Requested plugin",
-  plugin_approvelist_request_approve_org: "Approved plugin request",
-  plugin_approvelist_request_reject_org: "Declined plugin request",
-  plugin_approvelist_request_approve_workspace: "Approved plugin request for workspace",
-  plugin_approvelist_request_reject_workspace: "Declined plugin request for workspace",
-  widgets_enabled: "Turned on widget approval",
-  widgets_disable: "Turned off widget approval",
-  widget_approvelist_add: "Approved widget",
-  widget_approvelist_add_workspace: "Approved widget for workspace",
-  widget_approvelist_remove: "Removed widget from approved",
-  widget_approvelist_remove_workspace: "Removed widget from workspace's approved",
-  widget_approvelist_request_org: "Requested widget",
-  widget_approvelist_request_approve_org: "Approved widget request",
-  widget_approvelist_request_reject_org: "Declined widget request",
-  widget_approvelist_request_approve_workspace: "Approved widget request for workspace",
-  widget_approvelist_request_reject_workspace: "Declined widget request for workspace",
-  plan_access_token_create: "Created plan access token",
-  plan_access_token_delete: "Revoked plan access token",
-  webhook_create: "Created webhook",
-  webhook_update: "Updated webhook",
-  webhook_delete: "Deleted webhook",
+  // Round 5 (docs/multiplayer.md §16.11): Figma's description of each action (developers.figma.com
+  // activity-logs-action-types, read 2026-10-11) said as the column's past-tense phrase; the entity line under it names
+  // the plugin. The Dev Mode and variables actions below aren't Figma's (ours).
+  private_plugin_publish: "Published a plugin privately to the organization",
+  private_plugin_update: "Updated a plugin published privately to the organization",
+  private_plugin_delete: "Deleted a plugin published privately to the organization",
+  private_widget_publish: "Published a widget privately to the organization",
+  private_widget_update: "Updated a widget published privately to the organization",
+  private_widget_delete: "Deleted a widget published privately to the organization",
+  plugin_approvelist_enable: "Turned on the setting that allows only plugins on the approved plugin list",
+  plugin_approvelist_disable: "Turned off the setting that allows only plugins on the approved plugin list",
+  plugin_approvelist_add: "Added a plugin to the approved plugin list",
+  plugin_approvelist_add_workspace: "Added a plugin to the approved plugin list for a workspace",
+  plugin_approvelist_remove: "Removed a plugin from the approved plugin list",
+  plugin_approvelist_remove_workspace: "Removed a plugin from the approved plugin list for a workspace",
+  plugin_approvelist_request_org: "Requested a plugin for the approved plugin list",
+  plugin_approvelist_request_approve_org: "Approved a plugin request for the organization",
+  plugin_approvelist_request_reject_org: "Rejected a plugin request for the organization",
+  plugin_approvelist_request_approve_workspace: "Approved a plugin request for a workspace",
+  plugin_approvelist_request_reject_workspace: "Rejected a plugin request for a workspace",
+  widgets_enabled: "Turned on the setting that allows only widgets on the approved widget list",
+  widgets_disable: "Turned off the setting that allows only widgets on the approved widget list",
+  widget_approvelist_add: "Added a widget to the approved widget list",
+  widget_approvelist_add_workspace: "Added a widget to the approved widget list for a workspace",
+  widget_approvelist_remove: "Removed a widget from the approved widget list",
+  widget_approvelist_remove_workspace: "Removed a widget from the approved widget list for a workspace",
+  widget_approvelist_request_org: "Requested a widget for the approved widget list",
+  widget_approvelist_request_approve_org: "Approved a widget request for the organization",
+  widget_approvelist_request_reject_org: "Rejected a widget request for the organization",
+  widget_approvelist_request_approve_workspace: "Approved a widget request for a workspace",
+  widget_approvelist_request_reject_workspace: "Rejected a widget request for a workspace",
+  plan_access_token_create: "Created a new plan access token",
+  plan_access_token_delete: "Revoked a plan access token",
+  webhook_create: "Created a webhook for a resource",
+  webhook_update: "Updated a webhook for a resource",
+  webhook_delete: "Deleted a webhook for a resource",
   file_variables_update: "Changed variables through the REST API",
   dev_resource_create: "Added dev resource",
   dev_resource_delete: "Removed dev resource",
@@ -280,6 +282,16 @@ export function eventText(row: Pick<ActivityLog, "action">): string {
       return to === "any" ? "Let members log in with any method" : to === "google" ? "Required members to log in with a Google account" : to === "saml" ? "Required members to log in with SAML SSO" : ACTION_LABEL[type];
     case "external_collaboration_controls_setting_change": return to === "restricted" ? "Restricted access to external content" : to === "allowed" ? "Allowed access to external content" : ACTION_LABEL[type];
     case "autogen_password_controls_setting_change": return to === "autogenerated" ? "Allowed only autogenerated passwords on files" : to === "any" ? "Allowed any password on files" : ACTION_LABEL[type];
+    // Settings › Extensions: a change of the request switch alone is logged under its kind's approval action (§10.3a)
+    case "plugin_approvelist_enable":
+    case "plugin_approvelist_disable":
+    case "widgets_enabled":
+    case "widgets_disable": {
+      const setting = (details as { setting?: unknown }).setting;
+      const many = type.startsWith("plugin") ? "plugins" : "widgets";
+      if (setting === "pluginRequests" || setting === "widgetRequests") return to ? `Allowed members to request ${many}` : `Stopped members from requesting ${many}`;
+      return ACTION_LABEL[type];
+    }
     case "data_storage_localization_change": {
       const label = (details as { to_label?: unknown }).to_label;
       return typeof label === "string" ? `Changed data storage localization to ${label}` : ACTION_LABEL[type];

@@ -222,8 +222,8 @@ describe("ready for dev (D-4)", () => {
       ["dev_changed", 1],
     ]);
     expect(devStatusText(a[2].text)).toEqual({ design: "Cart", reason: "New totals" });
-    expect(notificationAction({ kind: "dev_ready", count: 2, state: null, role: null, text: "Cart" })).toBe("2 designs marked ready for dev");
-    expect(notificationAction({ kind: "dev_changed", count: 1, state: null, role: null, text: a[2].text })).toBe("Updated Cart after a change: New totals");
+    expect(notificationAction({ kind: "dev_ready", count: 2, state: null, role: null, text: "Cart" })).toBe("Marked 2 designs as ready for dev");
+    expect(notificationAction({ kind: "dev_changed", count: 1, state: null, role: null, text: a[2].text })).toBe("Marked Cart as ready for dev after changes: New totals");
     expect(await devRows(bob.id)).toEqual([]); // the actor
     expect(await devRows(wade.id)).toEqual([]); // "Nothing"
     // An hour on, a new row

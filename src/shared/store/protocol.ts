@@ -102,7 +102,7 @@ export const STORE_METHODS = {
   libraries: ["listAvailable", "getRecord", "getVersion", "previewPublish", "publish", "unpublish", "setEnabled", "getPayloads", "diff"],
   previews: ["status", "list", "publish", "stop", "exportHtml"],
   store: ["shutdown", "flushAll", "info", "collectGarbage"],
-  multiplayer: ["setSession", "status", "fileState", "share", "listRemote", "openShared", "members", "fileInfo", "setLinkAccess", "updateLink", "setViewersCanCopy", "requestEdit", "requests", "answerRequest", "invite", "removeMember", "presence", "takeOpenIntent", "unlockFile", "setLinkPassword", "transferOwnership", "signal"],
+  multiplayer: ["setSession", "status", "fileState", "share", "listRemote", "openShared", "members", "fileInfo", "setLinkAccess", "updateLink", "setViewersCanCopy", "requestEdit", "requests", "answerRequest", "invite", "removeMember", "presence", "takeOpenIntent", "unlockFile", "setLinkPassword", "transferOwnership", "signal", "restRender", "restAnswer"],
   comments: ["list", "add", "edit", "remove", "setResolved", "setRead", "react", "move", "mentionable"],
   notifications: ["list", "markRead", "prefs", "setPrefs", "answer"],
   // The org spaces (docs/multiplayer.md §14.6); `watch` is the `org` event topic
@@ -155,6 +155,9 @@ export const STORE_METHODS = {
     "moveUnassigned",
     "deleteUnassigned",
     "exportCsv",
+    "planTokens",
+    "createPlanToken",
+    "revokePlanToken",
   ],
   // Branches (docs/data.md §15.6); `watch` is the `branches` event topic
   branches: ["create", "list", "get", "rename", "archive", "restore", "mainStatus", "preview", "openSide", "applyUpdate", "merge", "requestReview", "answerReview"],
@@ -245,6 +248,7 @@ export const RETRY_SAFE = new Set<string>([
   "admin.settings",
   "admin.unassignedDrafts",
   "admin.exportCsv",
+  "admin.planTokens",
   "branches.list",
   "branches.get",
   "branches.mainStatus",

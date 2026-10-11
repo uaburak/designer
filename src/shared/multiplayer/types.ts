@@ -4,6 +4,7 @@
  */
 import type { FilePolicy, RoomPolicy } from "../org/identity";
 import type { FileKey } from "../store/types";
+import type { RestJob } from "../rest/types";
 import type { PeerInfo, Role } from "./protocol";
 
 export interface MultiplayerSession {
@@ -78,7 +79,26 @@ export interface MultiplayerEvent {
   signal?: { from: number; data: unknown };
   /** The room's policy changed while the file is open (`{t: "policy"}`, docs/multiplayer.md §15.9); also `state.policy` */
   policy?: RoomPolicy;
+  /** A REST render job (docs/multiplayer.md §16.6) for the renderer `to` (`restRender`'s answer): run it, `restAnswer` */
+  restJob?: RestJobRequest;
+  /** The room has no client that can render (`{t: "rest-wanted"}` on the inbox): main's render helper may open the file */
+  restWanted?: true;
 }
+
+/** A REST render job as the store hands it to the editor that renders the file (docs/multiplayer.md §16.6) */
+export interface RestJobRequest {
+  id: string;
+  job: RestJob;
+  /** The renderer it is for (`restRender`'s token) */
+  to: string;
+  /** The room seq this copy holds (Figma's `version` of the answer), the file's name and when it last changed (ms) */
+  seq: number;
+  name: string;
+  lastModified: number;
+}
+
+/** A render job's result: its parts (docs/multiplayer.md §16.16), or why it failed (`"404 …"` answers that status) */
+export type RestJobAnswer = { parts: { name: string; bytes: Uint8Array; contentType: string }[] } | { err: string };
 
 /**
  * The server ended the session (docs/multiplayer.md §15.8, docs/desktop.md §18.2): a 401 on one of the store's calls,
@@ -129,10 +149,13 @@ export interface SharedFileInfo {
   orgLinkAccess?: LinkAccess;
   /** When the links stop working (Require design file links to expire); null: never */
   linkExpiresAt?: number | null;
+  /** Prototype-only access (docs/editor.md D-6): "Anyone with the link" to the prototype, and org members with it */
+  protoLinkAccess?: "none" | "viewer";
+  protoOrgLinkAccess?: "none" | "viewer";
   /** The file's org, team and folder (null outside orgs) */
   org?: { id: string; name: string; teamId: string | null; teamName: string | null } | null;
   /** The caller's access in an org (`capped: "external"`: their own org restricts external content — view only) */
-  access?: { canShare: boolean; canManage: boolean; capped: "seat" | "external" | null } | null;
+  access?: { canShare: boolean; canManage: boolean; capped: "seat" | "external" | null; /** Only a prototype grant reaches the file (docs/editor.md D-6) */ prototypeOnly?: boolean; canExport?: boolean } | null;
 }
 
 /** One PATCH of a file's link settings (Share settings' Save): the org's policy checks them together (§15.16) */
@@ -144,6 +167,9 @@ export interface LinkSettingsPatch {
   /** null: never */
   linkExpiresAt?: number | null;
   viewersCanCopy?: boolean;
+  /** Share prototype (docs/editor.md D-6): the prototype's links */
+  protoLinkAccess?: "none" | "viewer";
+  protoOrgLinkAccess?: "none" | "viewer";
 }
 
 /** Where a link lands in its file: a frame or page (Figma's `node-id=1-2`) and a mode (`m=dev` Dev Mode, `m=proto` the
@@ -166,6 +192,8 @@ export function intentFromLink(text: string): OpenIntent {
   if (mode) out.mode = mode[1] as "dev" | "proto";
   const comment = /[?&#]comment[-=]([A-Za-z0-9_-]{6,64})/.exec(text);
   if (comment) out.commentId = comment[1];
+  // A Dev Mode status notification's link (docs/editor.md D-4): `dev=ready` opens the ready-for-dev view
+  if (/[?&]dev=ready\b/.test(text)) out.devMode = "ready";
   return out;
 }
 
@@ -223,6 +251,14 @@ export interface MultiplayerRepository {
   /** Cursor, selection, page … for the file's other people (not stored) */
   presence(fileKey: FileKey, data: unknown): Promise<void>;
   watch(listener: (e: MultiplayerEvent) => void): () => void;
+  /**
+   * An editor with this file's engine loaded can answer REST render jobs (docs/multiplayer.md §16.6): the file's room
+   * hears `hello {render: true}` (`helper`: the hidden render helper, `helper: true` too). Returns the renderer's token
+   * (jobs come as `MultiplayerEvent.restJob` with `to` = it); `restRender(fileKey, false, …, token)` ends it.
+   */
+  restRender(fileKey: FileKey, on: boolean, opts?: { helper?: boolean }, token?: string): Promise<string | null>;
+  /** A job's parts uploaded (`PUT /files/:key/rest-jobs/:id/parts/:name`), then `rest-job-done`; or `rest-job-failed` */
+  restAnswer(fileKey: FileKey, id: string, answer: RestJobAnswer): Promise<void>;
   /** The server ended the session (event topic `session`): main and the web page sign out on `idle_timeout` */
   watchSession(listener: (e: SessionEnded) => void): () => void;
 }

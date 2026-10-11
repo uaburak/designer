@@ -185,6 +185,57 @@ Sources: [F-auth] 360052497994, [F-okta] 360040532353, [F-adfs] 360048269533, [F
   People's **SCIM data** menu of columns (Provisioned by, Title, Department, Division, Organization, Cost center,
   Employee number, Manager, External ID).
 
+## 11. Extensions, plugin approval and plan access tokens (read 2026-10-11/12, for round 5h)
+
+Sources: [F-approve] help.figma.com 4404228724759 (Approve plugins and widgets in an organization), [F-request]
+17882120337815 (Request approval to use a widget or plugin), [F-pat] 8085703771159 (Manage personal access tokens),
+[F-stat] 26781702258583 (Dev Mode statuses and notifications), [D-scopes] developers.figma.com/docs/rest-api/scopes,
+[D-plan] developers.figma.com/docs/rest-api/plan-access-tokens, [F-log] activity-logs-action-types.
+
+- **Settings › Extensions** [F-approve]: "Plugin approval" and "Widget approval"; the option "Only admin-approved
+  plugins." / "Only admin-approved widgets." (with the period); the checkbox "Allow members to request plugins" /
+  "Allow members to request widgets". Private plugins and widgets of the organization don't need approval.
+  **Ours (unverified)**: the other option's label "Allow all plugins" (plugins.md §10.2), the rows' descriptions and
+  the value text ("All plugins" / "Only admin-approved plugins" · "Members can request plugins").
+- **Resources › Plugins / Widgets** [F-approve]: **Add plugin** / **Add widget** (top right) with a Community link
+  pasted, **Add**; an approved item has **Remove** (Organization) or **Edit approvals** with a toggle per workspace
+  (Enterprise); a **Usage** tab (Enterprise; not built). Workspace approval keeps an item out of drafts. Updates
+  don't need re-approval.
+- **Requests** [F-approve], [F-request]: every org admin is told in Figma and by email; the review shows **Overview**
+  (summary, security information, licensing — "Data security info available" badge) and **Request history**; **Try
+  it out** makes a draft in a team outside the organization; **Decline** (an optional reason) and **Approve**. The
+  requester is told when approved, and in Figma and by email when declined, and may ask again. Requesting: Actions ›
+  "Plugins & widgets" › **Request approval**, a reason, **Request** — everyone except guests.
+  **Ours (unverified)**: the list filters "Approved" / "Requests (n)" / "From ‹org›" (the private plugins), the Add
+  dialog's "Plugin ID" + "Name" (no Community), "Approve for: Everyone at ‹org› / Specific workspaces", the review's
+  rows (Works in, Network access with its reasoning, Permissions, Capabilities), "Reason (optional)".
+- **Personal access tokens** [F-pat]: Settings › Security › "Personal access tokens" › **Generate new token**, a
+  name, scopes, an expiration; "The token only displays immediately after being generated."; **Revoke access**.
+  [D-scopes] lists the scopes **without groups**, each with a sentence ("Read the contents of files, such as nodes and
+  the editor type.", "Read metadata of files.", "Write variables and collections in files.", "Read your design system
+  analytics.", "Read organization activity logs." …) and notes ("Enterprise plan only", "Must be an organization
+  admin."); ours take those sentences (`src/shared/account.ts` `TOKEN_SCOPES`), keep our groups (unverified), add
+  Figma's "Must be an organization admin." to `org:activity_log_read`, and hide `org:ai_metering_usage_read` (plan
+  tokens only — Figma's AI usage API takes nothing else).
+- **Plan access tokens** [D-plan]: made by org admins on the developer hub (figma.com/developers/tokens), a table of
+  the plan's tokens; **Generate REST API token** → "Describe your token" (name, description, expiration) → "Choose
+  scopes" → "Choose resources" (All / Only selected) → **Create**; "This is the only time your token secret is
+  displayed."; at most a year; **Edit token**, **Refresh token**, **Revoke token**. Not usable with
+  `file_code_connect:write`, `file_variables:write`, `file_comments:write`, `/v1/me` or oEmbed.
+  **Ours**: in Admin › Settings › Plan access tokens (multiplayer.md §16.3), one dialog (name, expiration 7 days–1
+  year, the five plan scopes), no resource allowlist, no edit or refresh.
+- **Activity** [F-log]: the plugin, widget, plan token and webhook actions' descriptions ("A plugin was added to the
+  approved plugin list.", "An admin turned on a setting where only plugins on the approved plugin list can be used…",
+  "An admin revoked a plan access token." …) are the Event column's past-tense phrases (`admin/labels.ts`). Figma's
+  own names are `plan_access_token_revoke` / `_refresh` / `_scopes_change`; ours log `plan_access_token_delete`.
+- **Dev Mode notifications** [F-stat]: "Status changes" / "Nothing" (Dev Mode's comment-mode Settings); Full and Dev
+  seats who opened the file in Dev Mode are told when a design is first marked Ready for dev (Organization /
+  Enterprise: also Completed, and updates after "Done with changes", whose reason is included); batched within an
+  hour; the email's "Inspect in Dev Mode" link opens the file's ready-for-dev view. The bell's own sentences aren't
+  published: ours say the buttons in the past tense ("Marked ‹design› as ready for dev", "Marked 3 designs as
+  completed", "Marked ‹design› as ready for dev after changes: ‹reason›"; plugins: "Requested approval for ‹plugin›",
+  "Approved / Declined your request for ‹plugin›").
+
 ## 8. Open
 
 - Live screenshots of an Organization trial would settle: the sidebar vs tabs question, every button's label (Add

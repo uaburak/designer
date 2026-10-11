@@ -30,6 +30,11 @@ const WORKSPACE: RadioOption[] = [
   { value: "all", label: "All activity on my workspace" },
   { value: "none", label: "None" },
 ];
+/** Dev Mode's status notifications (docs/editor.md D-4; help.figma.com 26781702258583: "Status changes" / "Nothing") */
+const DEV_MODE: RadioOption[] = [
+  { value: "status", label: "Status changes" },
+  { value: "none", label: "Nothing" },
+];
 const USER_GROUPS: RadioOption[] = [
   { value: "all", label: "Shared resources and when added to user groups" },
   { value: "shared", label: "Only shared resources" },
@@ -72,6 +77,9 @@ export function NotificationsTab(): JSX.Element {
         <Checkbox className={styles.check} label="Send notifications to my computer" checked={prefs.desktop.enabled} onChange={(on) => desktop({ enabled: on })} />
         <Group title="File comments" disabled={!prefs.desktop.enabled} first>
           <RadioGroup className={styles.radios} label="File comments" options={COMMENTS} value={prefs.desktop.comments} disabled={!prefs.desktop.enabled} onChange={(v) => desktop({ comments: v as NotificationPrefs["desktop"]["comments"] })} />
+        </Group>
+        <Group title="Dev Mode" disabled={!prefs.desktop.enabled}>
+          <RadioGroup className={styles.radios} label="Dev Mode" options={DEV_MODE} value={prefs.devMode} disabled={!prefs.desktop.enabled} onChange={(v) => change({ ...prefs, devMode: v === "none" ? "none" : "status" })} />
         </Group>
       </section>
 

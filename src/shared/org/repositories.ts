@@ -6,6 +6,7 @@ import type * as O from "./types";
 import type * as I from "./identity";
 import type { FileKey } from "../store/types";
 import type { Unsubscribe } from "../store/emitter";
+import type { AccessTokenInfo, TokenScope } from "../account";
 
 export type SpaceId = "local" | `org:${string}`;
 
@@ -121,6 +122,11 @@ export interface AdminRepository {
   deleteUnassigned(orgId: string, fileKeys: string[]): Promise<void>;
   /** CSV text of People, Teams or Activity with the same query (the view saves it through main's Save dialog) */
   exportCsv(orgId: string, what: "people" | "teams" | "activity", query?: unknown): Promise<string>;
+  /** Admin › Settings › Plan access tokens (docs/multiplayer.md §16.3; org admins): the org's tokens, newest first */
+  planTokens(orgId: string): Promise<AccessTokenInfo[]>;
+  /** A new plan access token; `token` is shown once */
+  createPlanToken(orgId: string, input: { description: string; expiresInDays: number; scopes: TokenScope[] }): Promise<{ token: string; info: AccessTokenInfo }>;
+  revokePlanToken(orgId: string, tokenId: string): Promise<void>;
 }
 
 /** Admin › Settings › Login and provisioning, domains, data storage localization (docs/multiplayer.md §15; org admins) */

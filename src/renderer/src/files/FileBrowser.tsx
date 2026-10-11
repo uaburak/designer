@@ -14,6 +14,7 @@ import { useSessionNotices } from "./session";
 import { openSettings } from "../settings/bridge";
 import { OpenLinkDialog, openSharedFile, SharedFilesView } from "./SharedFiles";
 import { NotificationsBell } from "../notifications/NotificationsBell";
+import { notificationIntent } from "../notifications/intent";
 import * as act from "./actions";
 import { ConfirmDialog, MoveDialog, NewFolderDialog } from "./dialogs";
 import { importWithShell, newDesignFile, onOpenShared, onReveal, onShellCommand, openFile, pickFigFiles, saveLocalCopy, setMenuState, type OpenDeps } from "./desktop";
@@ -713,7 +714,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
       <>
         <AdminApp
           orgId={orgId}
-          store={{ admin: backend.org.admin, orgs: backend.org.orgs, teams: backend.org.teams, orgLibraries: backend.org.orgLibraries, identity: backend.org.identity }}
+          store={{ admin: backend.org.admin, orgs: backend.org.orgs, teams: backend.org.teams, orgLibraries: backend.org.orgLibraries, identity: backend.org.identity, plugins: backend.org.plugins }}
           fonts={backend.org.fonts}
           workspace={adminWorkspace ?? undefined}
           onTestSso={testSso}
@@ -752,7 +753,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           account.state?.user ? (
             <NotificationsBell
               userId={account.state.user.id}
-              onOpen={(n) => n.fileKey && openSharedRef.current(n.fileKey, n.threadId && n.kind !== "invite" ? { commentId: n.threadId } : {})}
+              onOpen={(n) => n.fileKey && openSharedRef.current(n.fileKey, notificationIntent(n))}
               onOpenSettings={() => openSettings("notifications")}
             />
           ) : undefined

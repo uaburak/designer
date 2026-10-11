@@ -8,7 +8,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { Button, ContextMenu, Icon, IconButton, Portal, useDismiss, useFocusScope, type MenuEntry } from "@/ds";
 import { getStoreClient } from "@/store";
 import { PEER_COLORS } from "@shared/multiplayer/colors";
-import { isCommentKind, notificationAction, notificationDate, type NotificationFilter, type NotificationItem, type NotificationPage } from "@shared/notifications";
+import { isCommentKind, isDevStatusKind, notificationAction, notificationDate, type NotificationFilter, type NotificationItem, type NotificationPage } from "@shared/notifications";
 import styles from "./Notifications.module.css";
 
 /** Live (2.png): the panel's left edge 62 left of the bell's, 2 under it */
@@ -187,7 +187,9 @@ export function NotificationsPopover({ anchor, onClose, onOpen, onOpenSettings }
 
 function Row({ n, now, busy, onOpen, onAnswer }: { n: NotificationItem; now: number; busy: boolean; onOpen: () => void; onAnswer: (approve: boolean) => void }) {
   const request = n.kind === "edit-request";
-  const badge = isCommentKind(n.kind) ? (n.kind === "reaction" ? (n.count === 1 && n.emoji ? <span className={styles.emoji}>{n.emoji}</span> : <Icon name="16.emoji" />) : <Icon name="24.comment" size={16} />) : null;
+  const dev = isDevStatusKind(n.kind);
+  const plugin = n.kind === "plugin_request" || n.kind === "plugin_request_answer";
+  const badge = isCommentKind(n.kind) ? (n.kind === "reaction" ? (n.count === 1 && n.emoji ? <span className={styles.emoji}>{n.emoji}</span> : <Icon name="16.emoji" />) : <Icon name="24.comment" size={16} />) : dev ? <Icon name="24.dev-brackets" size={16} /> : plugin ? <Icon name="24.plugin" size={16} /> : null;
   return (
     <div
       role="listitem"
@@ -212,7 +214,16 @@ function Row({ n, now, busy, onOpen, onAnswer }: { n: NotificationItem; now: num
         <span className={styles.action}>
           {notificationAction(n)} · {n.fileName || "Untitled"}
         </span>
-        {n.text && n.count === 1 && <span className={styles.text}>{n.text}</span>}
+        {n.text && n.count === 1 && !dev && !plugin && <span className={styles.text}>{n.text}</span>}
+        {/* Figma's status emails link "Inspect in Dev Mode" to the file's ready-for-dev view (help.figma.com 26781702258583) */}
+        {dev && n.fileKey && (
+          <span className={styles.actions}>
+            <Button variant="secondary" onClick={onOpen} data-notification="inspect">
+              Inspect in Dev Mode
+            </Button>
+          </span>
+        )}
+        {n.kind === "plugin_request" && n.state && <span className={styles.answered} data-notification="plugin-request">{n.state === "pending" ? "Review it in Admin › Resources" : n.state === "approved" ? "Approved" : "Declined"}</span>}
         {request &&
           (n.state === "pending" ? (
             <span className={styles.actions}>

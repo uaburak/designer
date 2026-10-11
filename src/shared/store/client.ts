@@ -473,6 +473,8 @@ export class StoreClient implements StoreApi {
     invite: (fileKey, email, role) => this.call("multiplayer.invite", [fileKey, email, role]),
     removeMember: (fileKey, email) => this.call("multiplayer.removeMember", [fileKey, email]),
     presence: (fileKey, data) => this.call("multiplayer.presence", [fileKey, data]),
+    restRender: (fileKey, on, opts, token) => this.call("multiplayer.restRender", [fileKey, on, opts, token]),
+    restAnswer: (fileKey, id, answer) => this.call("multiplayer.restAnswer", [fileKey, id, answer]),
     watch: (listener) => this.multiplayerEvents.add(listener),
     watchSession: (listener) => this.sessionEvents.add(listener),
   };
@@ -561,6 +563,9 @@ export class StoreClient implements StoreApi {
     moveUnassigned: (orgId, input) => this.call("admin.moveUnassigned", [orgId, input]),
     deleteUnassigned: (orgId, fileKeys) => this.call("admin.deleteUnassigned", [orgId, fileKeys]),
     exportCsv: (orgId, what, query) => this.call("admin.exportCsv", [orgId, what, query]),
+    planTokens: (orgId) => this.call("admin.planTokens", [orgId]),
+    createPlanToken: (orgId, input) => this.call("admin.createPlanToken", [orgId, input]),
+    revokePlanToken: (orgId, tokenId) => this.call("admin.revokePlanToken", [orgId, tokenId]),
   };
 
   readonly branches: BranchesRepository = {

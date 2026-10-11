@@ -3,7 +3,7 @@
  * the engine's player (engine/src/proto/Player) on an engine of its own — the same Wasm renderer as the canvas —, over
  * the page's prototype background, its videos played by the browser (presentationVideos.ts). The toolbar: left, the
  * sidebar toggle (the left sidebar lists the page's flows with their descriptions) and comments (shown, disabled:
- * there is no multiplayer); the file and the flow; right, Share, the options menu (Enable Figma shortcuts, Show hints
+ * there is no multiplayer); the file and the flow; right, Share prototype, the options menu (Enable Figma shortcuts, Show hints
  * on click, Show sidebar, Hide UI, Keyboard shortcuts, then the scale options — "Recommended" and "Other" without a
  * device, Responsive / Fixed size with one) and full screen. Below: ← → (previous / next frame), the device's scaling
  * menu (with a device: Fit device on screen, Zoom device to fill screen, Show device at 100%, Show device frame) and
@@ -59,8 +59,8 @@ export interface PresentationViewProps {
   onClose?: () => void;
   /** The engine is up and presenting (scripts, tests) */
   onReady?: (engine: Engine) => void;
-  /** Share (the toolbar's): default, the presentation's link copied */
-  onShare?: () => void;
+  /** Share prototype (the toolbar's; docs/editor.md D-6): with the screen shown; default, the presentation's link copied */
+  onShare?: (screen: Guid | null) => void;
 }
 
 /** The scale options in Figma's menu order, without a device and with one. */
@@ -399,7 +399,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     canvasRef.current?.focus({ preventScroll: true });
   };
   const share = () => {
-    if (onShare) return onShare();
+    if (onShare) return onShare(state?.screen ?? null);
     const url = new URL(window.location.href);
     if (state?.screen) url.searchParams.set("node", state.screen);
     void navigator.clipboard?.writeText(url.toString()).then(
@@ -494,7 +494,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
           <span className={styles.screen}>{state?.screenName ?? ""}</span>
           <span className={styles.grow} />
           <Button variant="primary" onClick={share}>
-            Share
+            Share prototype
           </Button>
           {optionsButton}
           <IconButton icon="24.expand" label="Full screen" shortcut="F" onClick={toggleFullscreen} />
