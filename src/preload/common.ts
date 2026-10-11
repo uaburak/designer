@@ -71,10 +71,13 @@ export function common<R extends Role>(role: R) {
     haptics: { tick: () => send("haptics:tick") },
     account: {
       get: () => invoke("account:get"),
-      signIn: () => invoke("account:sign-in"),
+      signIn: (opts?: { tenant?: string }) => invoke("account:sign-in", ...(opts && typeof opts.tenant === "string" ? [{ tenant: String(opts.tenant) }] : [])),
       cancelSignIn: () => invoke("account:cancel-sign-in"),
       signOut: () => invoke("account:sign-out"),
       onChanged: (cb: (s: IpcEvents["account:changed"]) => void) => on("account:changed", cb),
+      // The idle timeout's prompt (docs/desktop.md §18.2)
+      staySignedIn: () => invoke("account:stay-signed-in"),
+      onIdle: (cb: (n: IpcEvents["account:idle"]) => void) => on("account:idle", cb),
       request: (r: { method: AccountMethod; path: string; body?: unknown }) => invoke("account:request", { method: r?.method, path: String(r?.path ?? ""), body: r?.body === undefined ? undefined : (JSON.parse(JSON.stringify(r.body)) as unknown) }),
     },
     menu: {

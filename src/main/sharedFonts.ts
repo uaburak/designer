@@ -31,6 +31,7 @@ import type {
   SharedFontScope,
 } from "../shared/fonts/sharedTypes";
 import type { FontFaceInfo } from "../shared/ipc";
+import { mainFetch } from "./net";
 
 // ---- Seams (the app's account and fetch; tests put a fake server here) ------------------------
 
@@ -45,7 +46,7 @@ type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 type ParseFile = (path: string, source: FontFaceInfo["source"]) => Promise<FontFaceInfo[]>;
 
 let root = "";
-let fetcher: Fetch = (url, init) => fetch(url, init);
+let fetcher: Fetch = (url, init) => mainFetch(url, init);
 let currentSession: () => SharedFontsSession | null = () => null;
 let parse: ParseFile | null = null;
 

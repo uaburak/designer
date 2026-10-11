@@ -198,8 +198,8 @@ export async function googleCallback(url: URL, deps: Deps, req: Request): Promis
   return backWithCode(deps, st, user.id, "google", null);
 }
 
-/** `designerv2://sign-in?tenant=` from the bounce page, or the web app's own login with the tenant */
+/** `designer://sign-in?tenant=` from the bounce page, or the web app's own login with the tenant */
 export function bounceTargets(deps: Deps, tenantId: string): { app: string; web: string | null } {
   const web = webOrigins(deps)[0];
-  return { app: `designerv2://sign-in?tenant=${tenantId}`, web: web ? `${web}/?sso=${tenantId}` : null };
+  return { app: `designer://sign-in?tenant=${tenantId}`, web: web ? `${web}/?sso=${tenantId}` : null };
 }

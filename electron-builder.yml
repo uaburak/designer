@@ -32,3 +32,19 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   artifactName: ${productName}-Setup-${version}.${ext}
+# The MSI (docs/desktop.md §12.5; Figma's Enterprise installer): `npm run dist:msi` — `--win msi` picks it, so it isn't in
+# win.target (there `npm run dist:win` would build it too, and on a Mac electron-builder fetches Wine for WiX).
+# WiX runs on Windows: build it there (or a windows-latest runner), not on the Mac.
+msi:
+  # Figma: "The MSI will install Figma in Program Files for all users of a machine"
+  perMachine: true
+  oneClick: true
+  runAfterFinish: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  # Made once and never changed: Windows Installer upgrades in place by it
+  upgradeCode: "0902E200-F98C-411C-8DD9-8793D7F6D960"
+  artifactName: ${productName}-${version}-x64.${ext}
+# Adds HKLM\SOFTWARE\DesignerV2\InstalledByMsi = 1 to the MSI's project (a future updater leaves MSI installs alone);
+# the deployment keys themselves are the admin's (GPO / Intune), never the installer's
+msiProjectCreated: ./build/msi/installedByMsi.mjs

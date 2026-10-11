@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { WorkspaceEvent } from "../shared/store/repositories";
 import type { StoreClient } from "../shared/store/client";
 import { startStore, type StoreHandle } from "../store/host";
+import { desktopPolicy, storeProxyEnv } from "./policy";
 
 /**
  * The store (docs/desktop.md §1, §9; docs/data.md §7): the utility process
@@ -45,6 +46,14 @@ function seedFigs(): string[] | undefined {
     .map((f) => join(dir, f));
 }
 
+let proxyWarned = false;
+function proxyEnv(): Record<string, string> {
+  const { env, warning } = storeProxyEnv(desktopPolicy());
+  if (warning && !proxyWarned) console.warn(warning);
+  proxyWarned = true;
+  return env;
+}
+
 function spawn() {
   generation += 1;
   const handle = startStore({
@@ -53,6 +62,8 @@ function spawn() {
     workspaceDir: workspaceDir(),
     generation,
     seedFigs: seedFigs(),
+    // ProxyUrl (docs/desktop.md §12.5): Node's own proxy support for the store's fetch and sockets
+    env: proxyEnv(),
   });
   store = handle;
   handle.ready.then(
