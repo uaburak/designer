@@ -3,10 +3,10 @@
  * folder tree, nested and coloured), Trash | Starred. Drafts and folders take dropped files.
  */
 import { useState, type ReactNode } from "react";
-import { Avatar, FileKindIcon, Icon, SearchField, SidebarDivider, SidebarHeader, SidebarItem } from "@/ds";
+import { Avatar, Badge, FileKindIcon, Icon, SearchField, SidebarDivider, SidebarHeader, SidebarItem } from "@/ds";
 import type { FileKey, FileListItem, Folder, FolderId } from "@shared/store/types";
 import type { FolderIndex, Location } from "./model";
-import { FolderGlyph } from "./parts";
+import { FolderGlyph, TeamIcon } from "./parts";
 import styles from "./Files.module.css";
 
 export interface DropApi {
@@ -42,6 +42,12 @@ export interface SidebarProps {
   onAllFoldersMenu: (e: React.MouseEvent) => void;
   onTrashMenu: (e: React.MouseEvent) => void;
   dnd: DropApi;
+  /** The space row's chevron (1.png "Anex Softw… ⌄"): the space switcher; absent, a plain label */
+  onSpaceMenu?: (e: React.MouseEvent) => void;
+  /** The plan badge at the space row's right (1.png "Professional") */
+  spaceBadge?: string;
+  /** An organization's entries (OrgSidebar), in place of the local Drafts / All folders / Trash */
+  spaceSection?: ReactNode;
 }
 
 /** A sidebar entry that takes dropped files/folders. */
@@ -112,7 +118,7 @@ function FolderTree({ parent, depth, props }: { parent: FolderId | null; depth: 
 }
 
 export function Sidebar(props: SidebarProps) {
-  const { ownerName, ownerPicture, onAccountMenu, accountAccessory, teamName, location, search, onSearch, onSearchExit, go, starredFolders, starredFiles, starredOpen, onStarredOpen, onOpenFile, onFolderMenu, onFileMenu, onAllFoldersMenu, onTrashMenu, dnd } = props;
+  const { ownerName, ownerPicture, onAccountMenu, accountAccessory, teamName, location, search, onSearch, onSearchExit, go, starredFolders, starredFiles, starredOpen, onStarredOpen, onOpenFile, onFolderMenu, onFileMenu, onAllFoldersMenu, onTrashMenu, dnd, onSpaceMenu, spaceBadge, spaceSection } = props;
   const is = (kind: Location["kind"]) => location.kind === kind;
   return (
     <nav className={styles.sidebar} aria-label="File browser">
@@ -139,9 +145,25 @@ export function Sidebar(props: SidebarProps) {
       </div>
       <SidebarDivider />
       <div className={styles.team}>
-        <Avatar name={teamName} size={16} />
-        <span className={styles.teamName}>{teamName}</span>
+        {onSpaceMenu ? (
+          <button type="button" className={styles.spaceButton} aria-haspopup="menu" aria-label={`${teamName}, switch space`} onClick={onSpaceMenu}>
+            <TeamIcon name={teamName} />
+            <span className={styles.teamName}>{teamName}</span>
+            <Icon name="16.chevron.down" />
+          </button>
+        ) : (
+          <>
+            <Avatar name={teamName} size={16} />
+            <span className={styles.teamName}>{teamName}</span>
+          </>
+        )}
+        {spaceBadge && (
+          <Badge tone="brand" className={styles.planBadge}>
+            {spaceBadge}
+          </Badge>
+        )}
       </div>
+      {spaceSection ?? (
       <div className={styles.navGroup}>
         <DropTarget dest={null} dnd={dnd}>
           {(over) => <SidebarItem icon="24.file" label="Drafts" selected={is("drafts")} dropTarget={over} onClick={() => go({ kind: "drafts" })} />}
@@ -152,6 +174,7 @@ export function Sidebar(props: SidebarProps) {
         </div>
         <SidebarItem icon="24.trash.outline" label="Trash" selected={is("trash")} onClick={() => go({ kind: "trash" })} onContextMenu={onTrashMenu} />
       </div>
+      )}
       <SidebarDivider />
       <SidebarHeader title="Starred" open={starredOpen} onOpenChange={onStarredOpen} />
       {starredOpen && (

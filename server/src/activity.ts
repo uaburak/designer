@@ -89,7 +89,9 @@ export interface FileEntitySource {
 }
 
 export const fileEntity = (f: FileEntitySource): Entity => ({ type: "file", id: f.key, name: f.name, key: f.key, editor_type: f.editor_type ?? "design", link_access: f.link_access ?? "none", proto_link_access: f.proto_link_access ?? "none" });
-export const teamEntity = (t: { id: string; name: string }): Entity => ({ type: "team", id: t.id, name: t.name });
+/** A main file and its branches (Figma's `file_repo {id, name, main_file_key}`): branch events are the repo's (data.md §15) */
+export const repoEntity = (main: { key: string; name: string }): Entity => ({ type: "file_repo", id: main.key, name: main.name, main_file_key: main.key });
+export const teamEntity =(t: { id: string; name: string }): Entity => ({ type: "team", id: t.id, name: t.name });
 export const projectEntity = (p: { id: string; name: string }): Entity => ({ type: "project", id: p.id, name: p.name });
 export const orgEntity = (o: { id: string; name: string }): Entity => ({ type: "org", id: o.id, name: o.name });
 export const workspaceEntity = (w: { id: string; name: string }): Entity => ({ type: "workspace", id: w.id, name: w.name });

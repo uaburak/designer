@@ -1013,7 +1013,7 @@ The same page is the Worker's static asset for `/p/<id>`, so the export is just 
 
 ## 15. Branches (contract, Phase 7 round 2; written 2026-10-11)
 
-**Status: contract, not built.** It covers:
+**Status: contract; the server side (round 2c) is built — §15.7.1.** It covers:
 - Figma's branching and merging: a branch is a separate copy of a main file, kept up to date from main and merged back;
 - the three-way merge over our own change format;
 - where branches live for local and for shared (room) files.
@@ -1454,6 +1454,45 @@ CREATE TABLE branch_reviewers (
   The store's `FileRepository.listVersions` etc. read them for shared files. Kinds are the same as §6 plus §15.2's.
 - **The merge frame is computed by the client**: the room never decodes kiwi (§4 of docs/multiplayer.md). The room checks only that the sender can edit main.
 - **Comments**: a branch room's comments are the branch file's; Figma doesn't merge them.
+
+#### 15.7.1 As built — round 2c, the server (2026-10-11)
+
+Files: `server/migrations/0011_branches.sql` (the text above, verbatim), `server/src/branches.ts` (routes), `server/src/branchAccess.ts` (who someone is to a branch), `server/src/roomBox.ts` (the room's storage, out of `fileRoom.ts`), `server/src/fileRoom.ts` (sockets + alarm only), tests `server/src/branches.test.ts` (5) over `server/src/testing/memoryRooms.ts` (the real `RoomBox` + `Room` per key on node:sqlite). No wrangler Durable Object migration: the new room tables are created on start and `alarm()` needs none.
+
+**Routes and payloads** (for the store's client; `branches.ts` header has the full list):
+
+| Route | Who | Request → Response |
+|---|---|---|
+| `POST /files/:main/branches` | can view main + `canExport` (viewers can copy), Full seat in an org | `{branchKey, name, baseSeq}` → 201 `{branch, sessionBase, mainVersionId}`; then `PUT /files/:branchKey/snapshot?seq=0` (the room makes "Branch created" from it, `versionId` in the answer) and `PUT /branches/:branchKey/base?seq=<baseSeq>` |
+| `GET /files/:main/branches?tab=active\|archived\|yours` | can view main | `{branches}`; 400 on a branch |
+| `GET /files/:key/versions` · `POST` | view · edit | `{versions}` newest first · `{kind: autosave\|named\|restore\|publish\|import, title?, description?, seq?, restoredFrom?, libraryVersion?}` → 201 `{version}` (restore = the client sends its restore frame, then posts `kind: "restore", restoredFrom`); `branch` / `update` / `merge` only by the branch routes (400); `publish` on a branch → 400 `branch_cannot_publish` |
+| `GET /files/:key/versions/:id` · `PATCH` | view · edit | `{version}` · `{title?, description?}` → `{version}` (an autosave given a title becomes `named`) |
+| `GET /files/:key/versions/:id/snapshot` · `…/frames` | view | the snapshot the version starts from (`x-seq` = the version's seq, `x-snapshot-seq`) · the frames after it up to `x-seq`, as `GET /room/frames` (`[u32 length][changes-down frame]…`) — the document at the version = snapshot + frames |
+| `PUT /files/:key/versions/:id/snapshot` | edit | the client's snapshot of the document at the version's seq → `{version}` (its frames are then dropped; history nobody needs is collected) |
+| `GET /branches/:key` · `PATCH` · `DELETE` | view · edit main or creator · same | `{branch}` · `{name?, status?: "archived"\|"active"}` → `{branch}` (merged → active: 400) · 204, an archived / merged branch only (409 when active) |
+| `GET /branches/:key/main` · `POST …/seen` | view | `{changed, mainHeadSeq, baseSeq, mainSeenSeq}` (`changed` = main's head > base) · `{mainSeq}` → `{branch}` (`main_seen_seq` only grows) |
+| `GET /branches/:key/base` · `PUT …/base?seq=` | view · edit the branch | bytes (`x-seq`) · the first PUT is the base; later ones are **staged** until the update that absorbs them |
+| `POST /branches/:key/update` | edit the branch | envelope `{mainSeq, branchSeq, sessionID?, batch?}` + batch → `{branch, seq, versionId}` |
+| `POST /branches/:key/merge` | edit main | envelope `{mainSeq, branchSeq, title?, description?, sessionID?, batch?}` + batch → `{branch, mainSeq, versionId, preVersionId, branchVersionId}` |
+| `GET /branches/:key/reviews` · `POST` | view the branch | `{reviews}` newest first · `{reviewerIds, description}` → 201 `{review}` (reviewers must be able to open the branch, else 400) |
+| `POST /branches/:key/reviews/:id/verdict` | a reviewer of that review | `{verdict: "approved"\|"changes-suggested", comment?}` → `{review}` |
+
+- `branch` is `BranchRecord` with the room's fields: `{branchKey, mainKey, name, status, createdBy: {id, name}, createdAt, baseSeq, mainSeenSeq, sessionBase, archivedAt, archivedBy, mergedAt, mergedBy, mergeVersionId, review}`; the store maps `mainKey` / `branchKey` to its file keys and `base.mainSeq` = `baseSeq` (`mainVersionId` is in the create answer only). `review` is the latest `{id, state, requestedBy, description, createdAt, updatedAt, reviewers: [{userId, name, verdict, comment, at}]}`.
+- `version`: `{id, kind, title, description, createdAt, seq, snapshotSeq, sizeBytes, restoredFrom, libraryVersion, user: {id, name}}` (`user.id` null for the room's own autosaves). Ids are `VersionId`s (16 base62).
+- **The envelope** (`roomBox.ts encodeEnvelope`): `[u32 BE JSON length][JSON, UTF-8][kiwi Message]` — the merge core's batch as a `changes-up` frame would carry it; an empty batch is allowed (only the version is made). `sessionID` / `batch`: the sender's session in the target room when its store is connected there — the frame then comes back as its own (an acknowledgement); otherwise the frame has session 0 and every client, the sender's too, applies it as remote.
+- **`GET /files/:key`** adds `branch: {mainKey, mainName, name, status} | null`.
+- Errors: `{error, code}` as §14.15; new codes **`stale`** (409: a head moved since the preview — `mainHeadSeq` or `lastSeq` in the body) and **`branch_cannot_publish`**; `seat_required` (`seat: "full"`) for branching on a lesser seat.
+
+**Choices and deviations:**
+- **Merge and update go through the Worker** (`POST /branches/:key/merge|update`) instead of a socket frame followed by `…/merged` / `…/updated` (the table above): the target room appends the batch with the next seq, stores it and sends it to every member like any frame (`POST /room/apply`), but only if its head is still the `expectSeq` the merge read — the check and the append are one step of the Durable Object, so `stale` is exact. Merge: the branch room is **frozen** at `branchSeq` first (`/room/freeze`, `stale` if it moved; frames sent to it afterwards are refused and the socket closed 4003), then main takes the pre-merge **autosave**, the frame and the **`merge`** version (title = the given title or the branch's name; description as given) in one transaction; a stale main thaws the branch. Then the branch gets its `merge` version, `status: merged` (+ `archived_at`), `merge_version`, its people are reauthorized (read-only), and the creator and reviewers are told (`branch_merged`). Update: main's head must equal `mainSeq` (checked, not locked: a later main edit is simply after the new base), the base staged at `mainSeq` (409 `base_missing` otherwise) becomes the base in the same transaction as the frame, then the branch's `update` version; D1 `base_seq` and `main_seen_seq` move.
+- **Access** (`branchAccess.ts`, used by `Access.file` in `org/db.ts`): a branch resolves through main's rows; its **creator edits it** (a viewer of main who may copy works in their own branch; Figma lets them branch) but shares / manages only as main allows; `archived` / `merged` → `canEdit` false, room role `viewer`. A branch's `files` row is owned by its creator, in main's org / team / folder, and is left out of every listing (`accessibleFiles`, `GET /files`) — 2d shows branches under main. Link passwords: a branch's own row has none, so someone in main by a password-protected link alone can't open its branches (unbuilt: passes for main checked on branches).
+- **Inviting to a branch** (`PUT /files/:branch/members`): written on main (raised to the new role if lower) and on the branch, `branch_member_add` / `_permission_change`; in an org only for people already in the org or on main (others through main's Share: guest rules). `DELETE` removes the branch's row only (`branch_member_remove`); access stays main's.
+- **Session blocks**: `POST /room/session-block` on main (counter += 65536, the old value returned as `sessionBase`), `POST /room/init-branch {sessionBase}` on the new branch room (refused once it holds a document). A branch running out of its block is not handled (65,536 sessions).
+- **Room versions** (`roomBox.ts`): a version = a snapshot at `snapshot_seq` + the frames up to `seq` (the room never encodes kiwi). Snapshots and frames are kept once in `history_snapshots` / `history_frames` and shared by the versions that need them; `PUT …/versions/:id/snapshot` lets the client compact one. Autosave: the first edit starts a 30-minute clock (any version restarts it); an edit past it sets the object's alarm 2 s out (pushed back by later edits, at most 60 s after it fell due); the alarm takes an `autosave` if frames came since the last version. Unlimited history: nothing is thinned (the store's §6 retention is local only). "On name / publish" are the client's `POST …/versions` (`named`, `publish`); "on merge" is the merge route's.
+- **Notifications** (server-side kinds, as `OrgNotificationKind`): `branch_review_request` (each reviewer; `text` the description, `state` pending → the verdict when answered), `branch_review` (the asker; `state` = `approved` | `changes-suggested`, `text` the comment), `branch_merged` (creator and reviewers, not the merger) — `src/shared/notifications.ts` doesn't list them yet.
+- **Activity** (org files only): `branch_create`, `branch_archive`, `branch_unarchive`, `branch_delete`, `branch_member_add` / `_permission_change` / `_remove`, `repo_merge_to_source` (merge), `repo_merge_from_source` (update), entity `file_repo {id: main key, name: main's name, main_file_key}`, details `{branch_key, branch_name, …}`.
+- **Deleting**: `DELETE /branches/:key` (archived / merged) deletes the branch's room and rows; deleting a main file for good deletes its branches first.
+- Not built: review state `closed` is never set (a merge leaves the last verdict); "Request another review" reuses the open review (verdicts reset, reviewers replaced); folder file counts (`fileCount`) and the room reauth lists still count branch rows; moving main to another folder leaves its branches' rows where they were (access is main's anyway); no thinning or size cap of room history; `fig_file_view` is logged for branch sockets as for files.
 
 ### 15.8 Test corpus (round 2a: `src/shared/merge/*.test.ts`, `src/store/branches/*.test.ts`)
 

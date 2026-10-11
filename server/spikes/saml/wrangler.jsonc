@@ -1,0 +1,8 @@
+// Round 1e spike — local only (wrangler dev / dry-run bundle). Never deploy: no account_id on purpose.
+{
+  "name": "designer-spike-saml",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false
+}
