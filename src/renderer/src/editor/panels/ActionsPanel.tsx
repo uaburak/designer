@@ -16,6 +16,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icon, IconButton, MenuButton, Portal, Tabs, TOOLS, useDismiss, type IconName, type MenuEntry, type ToolId } from "@/ds";
 import type { PluginParameter, PluginRef } from "@shared/plugins/types";
 import { pluginsOf, usePlugins, type PluginService } from "../plugins/service";
+import { pluginDesktop } from "../plugins/desktop";
 import { pluginRows, suggestionsOf, type PluginRow, type Suggestion } from "../plugins/actions";
 import type { PluginRun } from "../plugins/host";
 import { takeRequestedTab } from "./actionsTab";
@@ -323,7 +324,7 @@ function Actions() {
               {prompt.error ? ` — ${prompt.error}` : prompt.loading ? ` — ${prompt.loading}` : ""}
             </div>
           )}
-          {!prompt && tab === "plugins" && !rows.length && <p className={styles.empty}>{query ? "No plugins match" : plugins ? "No plugins yet. Import one from Plugins › Development" : "Plugins aren’t available here"}</p>}
+          {!prompt && tab === "plugins" && !rows.length && <p className={styles.empty}>{query ? "No plugins match" : plugins ? "No plugins yet. Import one from its manifest below" : "Plugins aren’t available here"}</p>}
           {tab === "assets" && !rows.length && <p className={styles.empty}>{query ? "No components match" : "No components in this file"}</p>}
           {tab === "all" && query.trim() !== "" && !rows.length && <p className={styles.empty}>No results for “{query.trim()}”</p>}
           {tab === "all" && query.trim() === "" && !rows.length && (
@@ -363,6 +364,15 @@ function Actions() {
             </div>
           ))}
         </div>
+        {/* A development plugin from its manifest.json (Plugins › Development › Import new plugin from manifest…), at the tab's foot */}
+        {!prompt && tab === "plugins" && plugins && pluginDesktop() && (
+          <button type="button" className={styles.footer} onClick={() => void plugins.importManifest()}>
+            <span className={styles.glyph}>
+              <Icon name="24.plus" />
+            </span>
+            <span className={styles.label}>Import new plugin from manifest…</span>
+          </button>
+        )}
       </div>
     </Portal>
   );

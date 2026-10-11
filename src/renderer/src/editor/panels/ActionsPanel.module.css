@@ -63,6 +63,14 @@
 .label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shortcut { flex: none; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
 .empty { margin: var(--ds-space-4); color: var(--figma-color-text-secondary); }
+/* Plugins tab's foot: Import new plugin from manifest… — a row's look, under a line */
+.footer {
+  display: flex; flex: none; align-items: center; gap: var(--ds-space-1); width: 100%; height: var(--ds-size-control-large); padding: 0 var(--ds-space-2);
+  border: 0; border-top: 1px solid var(--figma-color-border); background: transparent; color: var(--figma-color-text);
+  font: var(--ds-font-body-large-regular); letter-spacing: var(--ds-tracking-body-large-regular); text-align: left; cursor: default;
+}
+.footer:hover { background: var(--figma-color-bg-hover); }
+.footer:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
 /* Live: "Results will update as you type." / "11 results available." for assistive tech */
 .srOnly { position: absolute; top: 0; left: -1px; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; font: var(--ds-font-body-large-regular); }
 /* A plugin row's ⋯ (Save, Open console, Remove), at the row's end */
