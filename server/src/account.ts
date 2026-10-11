@@ -7,6 +7,7 @@
  *   GET    /me/profile              AccountProfile
  *   PATCH  /me/profile              ProfilePatch → AccountProfile (name, photo, role, Community profile, prefs)
  *   GET    /me/sessions             {sessions: SessionInfo[]}, the caller's marked `current`
+ *   DELETE /me/sessions              "Sign out everywhere": every session token stops working, this one too
  *   DELETE /me/sessions/:id         "Sign out": that session's token stops working
  *   POST   /me/sessions/active      the app reports activity (once a minute): active_at, "Last active" → {activeAt, idleLimitMs}
  *   DELETE /me/sessions/current     Log out of this session (?reason=idle: the idle timeout, logged)
@@ -83,6 +84,12 @@ export async function accountRoute(req: Request, deps: Deps, caller: Caller, par
         sessions.sort((a, b) => Number(b.current) - Number(a.current));
         return json({ sessions });
       }
+      if (parts.length === 2 && m === "DELETE") {
+        // Settings › Security › Sign out everywhere (as POST /auth/signout-everywhere, reachable as an account path)
+        await deps.db.bumpTokenVersion(user.id);
+        await logForUserOrgs(deps, user, "user_sign_out", req, { everywhere: true });
+        return json({ ok: true });
+      }
       if (parts.length === 3 && parts[2] === "active" && m === "POST") {
         // The person used the app (at most once a minute): the only thing that moves active_at (§15.8).
         const r = sid
@@ -95,7 +102,11 @@ export async function accountRoute(req: Request, deps: Deps, caller: Caller, par
         // Log out of this session; `?reason=idle`: the app's idle timer ran out (logged at once, [F-idle]).
         const gone = sid ? await d1.prepare(`DELETE FROM sessions WHERE id = ?1 AND user_id = ?2 RETURNING id`).bind(sid, user.id).first() : null;
         const idle = new URL(req.url).searchParams.get("reason") === "idle";
-        if (idle) await (await import("./auth/idle")).logIdleTimeout(deps, user, req, "client");
+        if (idle) {
+          const { logIdleTimeout, rememberIdleEnded } = await import("./auth/idle");
+          if (gone && sid) await rememberIdleEnded(deps, sid, user.id);
+          await logIdleTimeout(deps, user, req, "client");
+        }
         else if (gone) await logForUserOrgs(deps, user, "user_sign_out", req, { session_id: sid });
         return new Response(null, { status: 204 });
       }

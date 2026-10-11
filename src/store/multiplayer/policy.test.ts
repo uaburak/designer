@@ -251,14 +251,14 @@ describe("the org's policies in an open file (§15.9)", () => {
 });
 
 describe("the idle session timeout (§15.8)", () => {
-  it("idle past the limit with only a socket open: the upgrade's refusal ends the session (seen as expired)", async () => {
+  it("idle past the limit with only a socket open: the upgrade's refusal ends the session (seen as idle_timeout)", async () => {
     const { fileKey } = await shared();
     await w.run(`UPDATE sessions SET active_at = 1, idle_limit_ms = 1000`);
-    // The socket drops; its upgrade is refused with 401 idle_timeout, which a WebSocket never shows — and the server
-    // deleted the session there, so the store's next call (why was it refused?) gets a plain 401: `expired`.
+    // The socket drops; its upgrade is refused with 401 idle_timeout, which a WebSocket never shows — the server deleted
+    // the session there but remembers why (idle_ended_sessions), so the store's next call hears idle_timeout too.
     [...sockets][0].close(1006, "gone");
     for (let i = 0; i < 100 && !ended.length; i++) await flush();
-    expect(ended).toEqual([{ reason: "expired" }]);
+    expect(ended).toEqual([{ reason: "idle_timeout" }]);
     expect((await mp.status()).signedIn).toBe(false);
     expect((await mp.fileState(fileKey)).connection).toBe("offline");
     expect(sockets.size).toBe(0);

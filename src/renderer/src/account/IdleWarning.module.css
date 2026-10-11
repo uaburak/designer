@@ -1,0 +1,6 @@
+.text {
+  margin: 0;
+  color: var(--figma-color-text);
+  font: var(--ds-font-body-medium);
+  letter-spacing: var(--ds-tracking-body-medium);
+}

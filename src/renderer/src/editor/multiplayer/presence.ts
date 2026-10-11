@@ -12,6 +12,7 @@ import { getStoreClient } from "@/store";
 import { peerColor } from "@shared/multiplayer/colors";
 import type { PeerInfo, Role } from "@shared/multiplayer/protocol";
 import type { FileShareState, PresenceData } from "@shared/multiplayer/types";
+import type { RoomPolicy } from "@shared/org/identity";
 import type { EditorController } from "../controller";
 import { AudioCall, type AudioState } from "./audio";
 
@@ -56,6 +57,8 @@ export interface PresenceState {
   locked: boolean;
   /** The file's audio conversation as this editor takes part in it */
   audio: AudioState;
+  /** The org's room switches (Admin › Cursor chat, Audio — docs/multiplayer.md §15.9), live; null: everything allowed */
+  policy: RoomPolicy | null;
 }
 
 const SEND_EVERY_MS = 100;
@@ -65,7 +68,7 @@ const SPOTLIGHT_WAIT_MS = 3000;
 const EASE = 0.3;
 
 const NO_AUDIO: AudioState = { inCall: false, muted: false, noMic: false, speaking: [] };
-const EMPTY: PresenceState = { shared: false, role: null, connection: "offline", peers: [], following: null, spotlighting: false, replacedBy: null, requests: 0, spotlightOffer: null, me: 0, askedBy: null, locked: false, audio: NO_AUDIO };
+const EMPTY: PresenceState = { shared: false, role: null, connection: "offline", peers: [], following: null, spotlighting: false, replacedBy: null, requests: 0, spotlightOffer: null, me: 0, askedBy: null, locked: false, audio: NO_AUDIO, policy: null };
 /** A request to spotlight shows this long (Figma's bell stays until answered; ours goes after a while) */
 const ASK_SHOWS_MS = 30_000;
 
@@ -197,8 +200,24 @@ export class Presence {
     this.set({ following: null });
   }
 
+  /** Cursor chat is allowed in this file (the org's Cursor chat setting, §15.6) */
+  get chatAllowed(): boolean {
+    return this.state.policy?.cursorChat !== false;
+  }
+
+  /** Audio is allowed in this file (the org's Audio setting, §15.6) */
+  get audioAllowed(): boolean {
+    return this.state.policy?.audio !== false;
+  }
+
+  /** Audio's Start / Join conversation — not when the org turned audio off */
+  joinAudio(): Promise<void> {
+    return this.audioAllowed ? this.audio.join() : Promise.resolve();
+  }
+
   /** Cursor chat (R13 §1): the bubble's text while open (null closes it), sent to the others live. */
   setChat(text: string | null): void {
+    if (text !== null && !this.chatAllowed) return;
     this.chat = text === null ? null : text.slice(0, 52);
     this.lastSent = "";
     this.schedule();
@@ -223,7 +242,7 @@ export class Presence {
       if (this.askTimer) clearTimeout(this.askTimer);
       this.askTimer = setTimeout(() => this.dismissAsk(), ASK_SHOWS_MS);
       this.set({ askedBy: from });
-    } else if (kind === "rtc") void this.audio.signal(from, data);
+    } else if (kind === "rtc" && (this.audioAllowed || this.state.audio.inCall)) void this.audio.signal(from, data);
   }
 
   /** The people in the audio conversation (presence), to the call's connections. */
@@ -266,7 +285,12 @@ export class Presence {
     }
     const wasShared = this.state.shared;
     const askedBy = this.state.askedBy !== null && peers.some((p) => p.id === this.state.askedBy) ? this.state.askedBy : null;
-    this.set({ shared: s.shared, role: s.role, connection: s.connection, peers, following, requests: s.requests ?? 0, spotlightOffer: following !== null ? null : offer, me: s.me ?? 0, locked: s.locked === true, askedBy });
+    const policy = s.policy ?? null;
+    const samePolicy = policy?.cursorChat === this.state.policy?.cursorChat && policy?.audio === this.state.policy?.audio;
+    this.set({ shared: s.shared, role: s.role, connection: s.connection, peers, following, requests: s.requests ?? 0, spotlightOffer: following !== null ? null : offer, me: s.me ?? 0, locked: s.locked === true, askedBy, ...(samePolicy ? {} : { policy }) });
+    // The org turned a switch off while the file is open (§15.9): an open chat closes, an ongoing call is left.
+    if (policy?.cursorChat === false && this.chat !== null) this.setChat(null);
+    if (policy?.audio === false && this.state.audio.inCall) this.audio.leave();
     if (s.shared && !wasShared) this.schedule();
     if (following !== null) this.followNow();
     this.syncAudio();
@@ -291,7 +315,7 @@ export class Presence {
       selection: this.ed.store.selection.refs.slice(0, 200),
       view: view ? { x: round(view.x), y: round(view.y), zoom: round(view.zoom * 1000) / 1000 } : null,
       ...(this.state.spotlighting ? { spotlight: true } : {}),
-      ...(this.chat !== null ? { chat: this.chat } : {}),
+      ...(this.chat !== null && this.chatAllowed ? { chat: this.chat } : {}),
       ...(this.state.audio.inCall ? { audio: { muted: this.state.audio.muted } } : {}),
     };
   }
@@ -331,7 +355,8 @@ export class Presence {
         this.drawn.set(p.id, next);
         cursor = next;
       } else this.drawn.delete(p.id);
-      out.push({ id: p.id, name: p.name, color: p.color, cursor: cursors ? cursor : null, selection: pres.selection, chat: cursors && cursor && typeof pres.chat === "string" ? pres.chat : null });
+      // Cursor chat off for the org: others' bubbles aren't drawn either (§15.6).
+      out.push({ id: p.id, name: p.name, color: p.color, cursor: cursors ? cursor : null, selection: pres.selection, chat: cursors && cursor && this.chatAllowed && typeof pres.chat === "string" ? pres.chat : null });
     }
     for (const id of [...this.drawn.keys()]) if (!seen.has(id)) this.drawn.delete(id);
     const key = JSON.stringify(out);

@@ -328,7 +328,14 @@ describe("the idle session timeout (§15.8)", () => {
     const out = await w.call("GET", "/files", { token: bob.token });
     expect(out.status).toBe(401);
     expect(out.body.code).toBe("idle_timeout");
-    expect((await w.call("GET", "/files", { token: bob.token })).body.code).toBe("unauthorized"); // the row is gone
+    // the row is gone, the reason remembered: later calls say idle_timeout too (a socket upgrade may have been first)
+    const later = await w.call("GET", "/files", { token: bob.token });
+    expect([later.status, later.body.code]).toEqual([401, "idle_timeout"]);
+    expect((await actions()).filter((a) => a.action === "user_idle_session_timeout")).toHaveLength(1);
+    // a plain sign-out of another session isn't one
+    const other = await w.dev("bob@acme.test");
+    expect((await w.call("DELETE", "/me/sessions/current", { token: other.token })).status).toBe(204);
+    expect((await w.call("GET", "/files", { token: other.token })).body.code).toBe("unauthorized");
     expect((await actions()).find((a) => a.action === "user_idle_session_timeout")?.details).toEqual({ logged_on: "request" });
   });
 

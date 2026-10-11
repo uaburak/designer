@@ -8,7 +8,8 @@
  * open Google's own pages for them ("Managed by Google", as Figma shows for SSO accounts).
  */
 import { useEffect, useState } from "react";
-import { Icon, showToast } from "@/ds";
+import { Button, Dialog, Icon, showToast } from "@/ds";
+import { accountBridge } from "../files/account";
 import { timeAgo, type AccessTokenInfo, type SessionInfo } from "@shared/account";
 import type { McpClientInfo } from "@shared/agents/types";
 import { Divider, Link, Section } from "./AccountTab";
@@ -68,6 +69,21 @@ function Sessions() {
     void load();
   }, []);
   const now = useNow();
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  /** Every session token stops working (the server's token version, §13), this one too: then signed out here */
+  const everywhere = async () => {
+    setBusy(true);
+    try {
+      await accountCall("DELETE", "/me/sessions");
+      setConfirm(false);
+      await accountBridge()?.signOut();
+    } catch (e) {
+      showToast({ kind: "error", message: errorText(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <Section heading="Sessions" data-settings-section="sessions">
       <p className={styles.text}>All of your active sessions are listed below. End any sessions you don't recognize or trust.</p>
@@ -141,6 +157,31 @@ function Sessions() {
             ))}
           </tbody>
         </table>
+      )}
+      {sessions && (
+        <button type="button" className={`${styles.link} ${styles.signOut} ${styles.everywhere}`} onClick={() => setConfirm(true)} data-sign-out-everywhere="">
+          Sign out everywhere
+        </button>
+      )}
+      {confirm && (
+        <Dialog
+          title="Sign out everywhere?"
+          size="small"
+          open
+          onClose={() => setConfirm(false)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setConfirm(false)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" loading={busy} onClick={() => void everywhere()} data-confirm-sign-out-everywhere="">
+                Sign out everywhere
+              </Button>
+            </>
+          }
+        >
+          <p className={styles.text}>You’ll be signed out of every session on every device, including this one.</p>
+        </Dialog>
       )}
     </Section>
   );

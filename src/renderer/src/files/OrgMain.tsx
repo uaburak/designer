@@ -56,6 +56,9 @@ export interface OrgMainProps {
   onBranches?: (e: React.MouseEvent<HTMLElement>, f: O.OrgFile) => void;
   toast: (o: ToastOptions) => void;
   now: number;
+  /** The person's home org restricts external content and this org isn't it (docs/multiplayer.md §15.6, [F-external]):
+   *  nothing is created here — no Design, New folder or Create team */
+  noCreate?: boolean;
 }
 
 type Dialog =
@@ -80,7 +83,7 @@ type Menu = { at: { x: number; y: number }; entries: MenuEntry[]; run: (id: stri
 const pageKey = (loc: Location) => JSON.stringify(loc);
 
 export function OrgMain(props: OrgMainProps) {
-  const { org, orgId, info, location, page, reload, go, nav, openFile, onBranches, toast, now } = props;
+  const { org, orgId, info, location, page, reload, go, nav, openFile, onBranches, toast, now, noCreate = false } = props;
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -261,7 +264,7 @@ export function OrgMain(props: OrgMainProps) {
   switch (data.kind) {
     case "drafts":
       title = { items: [{ id: "drafts", label: "Drafts" }] };
-      actions = (
+      actions = noCreate ? null : (
         <Button variant="tinted" size="large" icon="24.design" tooltip="New design file" onClick={() => void newDesignFile(null)}>
           Design
         </Button>
@@ -269,13 +272,13 @@ export function OrgMain(props: OrgMainProps) {
       body = (
         <>
           {seatBanner}
-          {data.files.length ? grid([], data.files, "Files") : <EmptyState size="page" icon="24.file" title="No files in drafts" body={`Design files you create in ${orgName} show up here until you move them into a folder.`} action={{ label: "New design file", onClick: () => void newDesignFile(null) }} />}
+          {data.files.length ? grid([], data.files, "Files") : <EmptyState size="page" icon="24.file" title="No files in drafts" body={`Design files you create in ${orgName} show up here until you move them into a folder.`} action={noCreate ? undefined : { label: "New design file", onClick: () => void newDesignFile(null) }} />}
         </>
       );
       break;
     case "teams": {
       title = { items: [{ id: "teams", label: "All teams" }] };
-      const canCreate = isAdmin || info?.settings.teamCreation !== "admins";
+      const canCreate = !noCreate && (isAdmin || info?.settings.teamCreation !== "admins");
       actions = (
         <>
           {hasAnalytics && (
@@ -345,7 +348,7 @@ export function OrgMain(props: OrgMainProps) {
       const canAdmin = canAdminTeam(t, info);
       title = { items: [{ id: "teams", label: "All teams" }, { id: t.id, label: t.name }], onNavigate: (id) => id === "teams" && go({ kind: "teams" }) };
       actions =
-        tab === "main" && canEdit && !t.deletedAt ? (
+        tab === "main" && canEdit && !t.deletedAt && !noCreate ? (
           <Button variant="tinted" size="large" icon="24.plus.small" onClick={() => setDialog({ kind: "new-folder", teamId: t.id, parentId: null })}>
             New folder
           </Button>
@@ -411,7 +414,7 @@ export function OrgMain(props: OrgMainProps) {
         onNavigate: (id) => go(id.startsWith("team:") ? { kind: "team", teamId: id.slice(5) } : { kind: "project", projectId: id }),
       };
       actions =
-        tab === "main" && canEdit ? (
+        tab === "main" && canEdit && !noCreate ? (
           <>
             {p.depth < 10 && (
               <Button variant="tinted" size="large" icon="24.plus.small" onClick={() => setDialog({ kind: "new-folder", teamId: p.teamId, parentId: p.id })}>
@@ -432,7 +435,7 @@ export function OrgMain(props: OrgMainProps) {
             data.folders.length || data.files.length ? (
               grid(data.folders, data.files, "Files")
             ) : (
-              <EmptyState size="page" icon="24.folder" title="This folder is empty" body="Create a design file here, or move files in." action={canEdit ? { label: "New design file", onClick: () => void newDesignFile(p.id) } : undefined} />
+              <EmptyState size="page" icon="24.folder" title="This folder is empty" body="Create a design file here, or move files in." action={canEdit && !noCreate ? { label: "New design file", onClick: () => void newDesignFile(p.id) } : undefined} />
             )
           ) : (
             <FolderMembers project={p} parentName={parentName} members={data.members} canEdit={canEdit} write={write} org={org} />

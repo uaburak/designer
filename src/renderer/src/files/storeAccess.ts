@@ -11,6 +11,8 @@ import type { FileKey, FileListItem, FileMeta, FolderId } from "@shared/store/ty
 import type { BranchesRepository } from "@shared/merge/branches";
 import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "@shared/libraries/orgTypes";
 import type { SharedFontsApi } from "@shared/desktop";
+import type { IdentityRepository } from "@shared/org/repositories";
+import type { SessionEnded } from "@shared/multiplayer/types";
 
 /** The org spaces (StoreApi.orgs / teams / projects / admin) and the two calls Home adds around them. */
 export interface OrgBackend {
@@ -28,6 +30,8 @@ export interface OrgBackend {
   analytics?: LibraryAnalyticsRepository;
   /** Team fonts through main (docs/desktop.md §14.3; Home's preload `designer.fonts`); absent in a browser */
   fonts?: SharedFontsApi;
+  /** Admin › Settings › Login and provisioning, Data storage localization (docs/multiplayer.md §15.18); absent: unavailable */
+  identity?: IdentityRepository;
 }
 
 export interface FilesBackend {
@@ -42,6 +46,8 @@ export interface FilesBackend {
   org?: OrgBackend;
   /** Branches (docs/data.md §15): the tiles' counts, their dropdown and the Branches modal; absent: none shown */
   branches?: BranchesRepository;
+  /** The server ended the session (`multiplayer.watchSession`, docs/multiplayer.md §15.18): Home signs out and says why */
+  watchSession?: (listener: (e: SessionEnded) => void) => () => void;
 }
 
 /** The store's snapshot with its journal applied, as one kiwi Message (the editor hands the same to `multiplayer.share`). */
@@ -77,8 +83,10 @@ export function filesBackend(): Promise<FilesBackend> {
       orgLibraries: client.orgLibraries,
       analytics: client.analytics,
       fonts: sharedFontsBridge(),
+      identity: client.identity,
     },
     branches: client.branches,
+    watchSession: (listener) => client.multiplayer.watchSession(listener),
   };
   return Promise.resolve(shared);
 }

@@ -49,6 +49,7 @@ import { BRANCH_COMMANDS } from "./branching/commands";
 import { isBranch } from "./branching/state";
 import { accountBridge, accountSignedIn } from "../files/account";
 import { canShowLibraryAnalytics, openLibraryAnalytics } from "./analytics/EditorAnalytics";
+import { presenceOf } from "./multiplayer/presence";
 
 /**
  * The keyboard layout picked in the Keyboard shortcuts panel (shortcuts/layouts.ts): a pressed key's place → the U.S.
@@ -296,6 +297,7 @@ export function setViewOption(
 
 /** Cursor chat (/): the bubble opens where the pointer last was over the canvas (else the canvas's middle). */
 function openCursorChat(ed: EditorController): void {
+  if (presenceOf(ed)?.chatAllowed === false) return; // the org turned Cursor chat off (docs/multiplayer.md §15.6)
   const r = ed.canvas?.getBoundingClientRect();
   const p = lastPointer.get(ed) ?? (r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : { x: 0, y: 0 });
   ed.ui.set({ cursorChat: { x: p.x, y: p.y } });
