@@ -508,7 +508,8 @@ export class BranchService {
     }
     const metaKey = side === "branch" || (side === "merged" && p.direction === "update") ? r.branchFileKey : r.mainFileKey;
     const meta = this.host.getMeta(metaKey) ?? this.mainMeta(r.branchFileKey);
-    return viewOf(meta, encodeMessage(table.toMessage({ keepDerived: true })), seq, table.derivedDataVersion);
+    // Without derived data: the Compare view loads it with `mergedDocument` (snapshot + journal, derived dropped).
+    return viewOf(meta, encodeMessage(table.toMessage()), seq, 0);
   }
 
   /** The preview's merge again, with the final resolutions, after checking that neither head moved. */
