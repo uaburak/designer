@@ -19,6 +19,7 @@ import type { Guid } from "@/engine/codec";
 import { asksForImage, requestedAspect } from "./activity";
 import { FADE_MS, ImagePlaceholders, placeholderArgs, placeholderTarget, reshapeTarget, targetAspect, type PlaceholderEnv } from "./imagePlaceholder";
 import { AgentTurns, EngineBusy, type TurnRecord } from "./turns";
+import type { AgentSetupHost } from "./setup";
 
 /**
  * An image the agent makes: being made, made (about to be placed), on the canvas, or not placed (an error, Stop) — or
@@ -134,7 +135,7 @@ const TOOL_LABEL: Record<string, string> = {
 };
 export const toolLabel = (name: string) => TOOL_LABEL[name] ?? name.replace(/_/g, " ");
 
-export class AgentsService {
+export class AgentsService implements AgentSetupHost {
   readonly api: AgentsApi | null;
   readonly turns: AgentTurns;
   /** Images being made, shown where they will land on the canvas (canvas/AgentImagePlaceholders.tsx) */
@@ -338,6 +339,11 @@ export class AgentsService {
   /** Agent settings: one item's page, or the list (null). */
   openSetting(item: string | null) {
     this.set({ view: "settings", settingsItem: item });
+  }
+
+  /** Agent settings' Back from the list: the chats (or a new one). */
+  leaveSettings() {
+    this.setView(this.state.chats.length ? "list" : "chat");
   }
 
   newChat() {
@@ -698,8 +704,7 @@ export function mergeUsage(had: UsageInfo | null | undefined, next: UsageInfo): 
   return { ...next, windows: [...next.windows, ...(had?.windows ?? []).filter((w) => !fresh.has(key(w)))] };
 }
 
-const MODEL_LABEL: Record<string, string> = { default: "Default", auto: "Auto" };
-export const modelLabel = (m: string, p?: Pick<ProviderInfo, "modelLabels">) => p?.modelLabels?.[m] ?? MODEL_LABEL[m] ?? m;
+export { modelLabel } from "./setup";
 
 /** A message with one more event of its turn. */
 export function applyEvent(m: ChatMessage, e: ChatEvent): Partial<ChatMessage> {

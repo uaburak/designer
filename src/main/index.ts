@@ -5,6 +5,7 @@ import { isCommandId } from "../shared/commands";
 import { startAgents, stopAgents } from "./agents/host";
 import { askStoreGone, asked, testAnswers } from "./dialogs";
 import { startFontWatch, warmFontIndex } from "./fonts";
+import { initUploadedFonts } from "./uploadedFonts";
 import { checkSession, initAccount } from "./account";
 import { initNotifications } from "./notifications";
 import { keyFromLink } from "../shared/multiplayer/types";
@@ -117,6 +118,8 @@ if (!app.requestSingleInstanceLock()) {
     if (pendingLink && pendingKey) first.tabs.openSharedLink(pendingKey, pendingLink);
     // The agents' MCP server (127.0.0.1, a token): MCP clients and the Agents tab reach the open files through it.
     void startAgents().catch((err) => console.warn("[agents] the MCP server didn't start:", err));
+    // Settings › Your uploaded fonts: their folder is scanned with the user's fonts (and watched).
+    initUploadedFonts();
     // The font index (a cached JSON after the first launch) is ready before the first file's editor asks for it.
     setTimeout(warmFontIndex, 1500);
     // Fonts installed or removed while the app runs reach every editor (as Figma's font helper's do).

@@ -9,7 +9,7 @@
  */
 import type { AgentSettings, AuthState, ConnectResult, McpClientId, McpClientInfo, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnEvent, TurnRequest, UsageInfo } from "./agents/types";
 import type { AttachResult } from "./agents/attachments";
-import type { AccountState, SignInResult } from "./account";
+import type { AccountMethod, AccountResponse, AccountState, SignInResult } from "./account";
 import type { CommandId, MenuStatePatch } from "./commands";
 import type { ShortcutSettings } from "./shortcuts";
 import type { TabKind, TabReport, TabStatus } from "./tabs";
@@ -35,6 +35,8 @@ export interface InitInfo {
 export interface ThemeState {
   preference: ThemePreference;
   resolved: "light" | "dark";
+  /** Settings › Account › "Enhance contrast" (docs/design-system.md §2.5): the high-contrast tokens on every view */
+  contrast: boolean;
 }
 
 /** A native menu's item, as a view asks for it (`menu:popup`): plain data, built into an Electron menu by main. */
@@ -183,6 +185,18 @@ export interface FontFaceInfo {
   variable?: boolean;
 }
 
+/** Settings › Account › "Your uploaded fonts" (docs/desktop.md §14.2): a face of a font file the user uploaded. */
+export interface UploadedFont {
+  /** The face's id in the font index (`fonts:read` gives its bytes) */
+  id: string;
+  family: string;
+  style: string;
+  weight: number;
+  italic: boolean;
+  /** The file it is in (one file may hold several faces: a TTC) */
+  file: string;
+}
+
 /** One style of a Google Fonts family (docs/desktop.md §14.1): its id is what `fonts:read` downloads. */
 export interface GoogleFontStyle {
   /** Google's name: "Regular", "SemiBold Italic" … (the variable font's named instance) */
@@ -256,6 +270,8 @@ export interface IpcInvoke {
   "file:export-preview": { args: [ExportPreviewRequest]; result: { path: string; bytes: number } | { cancelled: true } };
   /** The theme preference set: main keeps it, tells every view (`theme:changed`) and answers what it resolves to */
   "theme:set": { args: [ThemePreference]; result: ThemeState };
+  /** "Enhance contrast" on or off: main keeps it (settings.json) and tells every view (`theme:changed`) */
+  "theme:set-contrast": { args: [boolean]; result: ThemeState };
   /** The user's keyboard shortcuts (settings.json; src/shared/shortcuts.ts) */
   "shortcuts:get": { args: []; result: ShortcutSettings };
   /** Bindings, shortcuts used or the layout changed (only the fields given): main keeps them, rebuilds the menu bar's accelerators, tells every editor */
@@ -268,6 +284,12 @@ export interface IpcInvoke {
   "fonts:read": { args: [{ id: string }]; result: Uint8Array };
   /** A Google family's Regular subset to `text` (its name), for the font picker's row in its own face */
   "fonts:preview": { args: [{ family: string; text: string }]; result: Uint8Array };
+  /** "Your uploaded fonts": the faces of the font files the user uploaded (userData/fonts/uploaded) */
+  "fonts:uploaded": { args: []; result: UploadedFont[] };
+  /** "Upload font": main's Open dialog (TTF, OTF, TTC, OTC); the files are checked, copied and every file's font picker gets them */
+  "fonts:upload": { args: []; result: { fonts: UploadedFont[]; failed: string[] } | { cancelled: true } };
+  /** The trash button: the uploaded file holding that face is removed (with its other faces) */
+  "fonts:remove-uploaded": { args: [{ id: string }]; result: UploadedFont[] };
   /** Paste: the pasteboard's vector artwork (Illustrator's SVG, any SVG, Illustrator's PDF as SVG), read by main (§13) */
   "clipboard:read-vector": { args: []; result: VectorClipboard | null };
   // ── Agents (src/main/agents; docs/research/figma/R12-agents-mcp.md) ──
@@ -312,6 +334,8 @@ export interface IpcInvoke {
   "account:sign-in": { args: []; result: SignInResult };
   "account:cancel-sign-in": { args: []; result: AccountState };
   "account:sign-out": { args: []; result: AccountState };
+  /** Settings: the caller's own account on the server (`/me…` only — shared/account.ts ACCOUNT_PATH); main adds the session */
+  "account:request": { args: [{ method: AccountMethod; path: string; body?: unknown }]; result: AccountResponse };
 }
 
 export interface IpcSend {
@@ -382,38 +406,44 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "file:export-assets": ["editor"],
   "file:export-preview": ["editor"],
   "theme:set": ["tabbar", "home", "editor"],
+  "theme:set-contrast": ["home", "editor"],
   "shortcuts:get": ["editor"],
   "shortcuts:set": ["editor"],
   "menu:popup": ["tabbar", "home", "editor"],
   "fonts:list": ["editor"],
-  "fonts:read": ["editor"],
+  "fonts:read": ["home", "editor"],
+  "fonts:uploaded": ["home", "editor"],
+  "fonts:upload": ["home", "editor"],
+  "fonts:remove-uploaded": ["home", "editor"],
   "fonts:preview": ["editor"],
   "clipboard:read-vector": ["editor"],
-  "agents:providers": ["editor"],
-  "agents:settings": ["editor"],
-  "agents:set-settings": ["editor"],
-  "agents:add-server": ["editor"],
-  "agents:remove-server": ["editor"],
-  "agents:test": ["editor"],
-  "agents:auth": ["editor"],
-  "agents:sign-in": ["editor"],
-  "agents:sign-out": ["editor"],
-  "agents:install": ["editor"],
+  // Settings › Agents in Home too: the setup channels (not turns or tools)
+  "agents:providers": ["home", "editor"],
+  "agents:settings": ["home", "editor"],
+  "agents:set-settings": ["home", "editor"],
+  "agents:add-server": ["home", "editor"],
+  "agents:remove-server": ["home", "editor"],
+  "agents:test": ["home", "editor"],
+  "agents:auth": ["home", "editor"],
+  "agents:sign-in": ["home", "editor"],
+  "agents:sign-out": ["home", "editor"],
+  "agents:install": ["home", "editor"],
   "agents:turn": ["editor"],
   "agents:stop": ["editor"],
   "agents:attach": ["editor"],
   "agents:pick-attachments": ["editor"],
   "agents:attach-clipboard": ["editor"],
   "agents:usage": ["editor"],
-  "agents:mcp": ["editor"],
-  "agents:clients": ["editor"],
-  "agents:connect": ["editor"],
-  "agents:disconnect": ["editor"],
-  "agents:client-config": ["editor"],
+  "agents:mcp": ["home", "editor"],
+  "agents:clients": ["home", "editor"],
+  "agents:connect": ["home", "editor"],
+  "agents:disconnect": ["home", "editor"],
+  "agents:client-config": ["home", "editor"],
   "account:get": ["tabbar", "home", "editor"],
   "account:sign-in": ["home", "editor"],
   "account:cancel-sign-in": ["home", "editor"],
   "account:sign-out": ["home", "editor"],
+  "account:request": ["home", "editor"],
 };
 
 export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {

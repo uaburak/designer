@@ -5,7 +5,7 @@
  * by the page's tabs, and goes to the page's own dev store — whose rooms a tab joins only for the file it edits (Home
  * tabs none: several tabs share one storage, and one file's frames must be written by one tab).
  */
-import { DEFAULT_SERVER, type AccountState, type AccountUser, type SignInResult } from "@shared/account";
+import { ACCOUNT_PATH, DEFAULT_SERVER, type AccountMethod, type AccountResponse, type AccountState, type AccountUser, type SignInResult } from "@shared/account";
 import type { MemoryStore } from "./memory/memoryStore";
 
 interface WebSession {
@@ -66,6 +66,29 @@ export const webAccount = {
   onChanged: (cb: (s: AccountState) => void) => {
     listeners.add(cb);
     return () => void listeners.delete(cb);
+  },
+  /** Settings: the caller's own account (`/me…`), as main does it on the desktop (src/main/account accountRequest). */
+  request: async (r: { method: AccountMethod; path: string; body?: unknown }): Promise<AccountResponse> => {
+    if (!ACCOUNT_PATH.test(r.path)) throw new Error("not an account path");
+    const s = readSession();
+    if (!s) return { status: 401, body: { error: "Log in first" } };
+    let res: Response;
+    try {
+      res = await fetch(new URL(r.path, s.server), { method: r.method, headers: { authorization: `Bearer ${s.token}`, ...(r.body !== undefined ? { "content-type": "application/json" } : {}) }, body: r.body === undefined ? undefined : JSON.stringify(r.body) });
+    } catch {
+      return { status: 0, body: { error: "You're offline" } };
+    }
+    const body = (await res.json().catch(() => null)) as unknown;
+    const drop = res.status === 401 || (res.ok && r.method === "DELETE" && r.path === "/me");
+    if (drop) {
+      localStorage.removeItem(SESSION_KEY);
+      changed();
+    } else if (res.ok && r.method === "PATCH" && r.path === "/me/profile" && body && typeof body === "object") {
+      const p = body as AccountUser;
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ ...s, user: { id: p.id, email: p.email, name: p.name, picture: p.picture } } satisfies WebSession));
+      changed();
+    }
+    return { status: res.status, body };
   },
 };
 

@@ -898,6 +898,16 @@ export interface FontIndex { version: number; faces: FontFaceInfo[] }   // paths
 - **Precedence** (Figma's): an installed family wins over the same family served by Figma; Figma's Inter wins over Google's.
 - **Inter** is Figma's own: rsms/inter 3.19 `Inter Variable/Inter.ttf` (the digest Figma stores for Inter text), bundled as `src/renderer/src/engine/fonts/Inter-3.19.ttf` (one file, 18 named instances), not `public/fonts/InterVariable.ttf`.
 
+### 14.2 Your uploaded fonts (2026-10-11)
+
+Settings › Account › "Your uploaded fonts" — "Upload fonts for your personal use. These fonts will be available across the files you view or edit." (the owner's 6–7.png). `src/main/uploadedFonts.ts`, test `uploadedFonts.test.ts`.
+
+- **Where**: `userData/fonts/uploaded/` (created at launch, `initUploadedFonts`), scanned as the user's own fonts (`fonts.ts setUploadedFontsDir` adds it to the font folders with source `user`) and watched like them: a file added or removed reaches every editor's font picker through the index's rescan and `fonts:changed`, as an installed font does.
+- **Upload font** (`fonts:upload`, Home and editors): main's Open dialog (TTF, OTF, TTC, OTC); each file is parsed (no face: refused, reported by name), at most 50 MB, copied in as `<family>-<sha1 8>.<ext>` (the same file twice is one file). Figma accepts TTF and OTF; we take collections too, as the index does.
+- **The list** (`fonts:uploaded`): every face of every uploaded file (a variable font's named instances each), family then weight — `UploadedFont {id, family, style, weight, italic, file}`, no paths. The row's "Rag 123" is drawn in the face itself: the view reads its bytes (`fonts:read`, now Home's too — `registerFaces` lets `readFont` find a just-uploaded face before the rescan) into a `FontFace` (weight range 1–1000, so a variable font's instance is its weight).
+- **The trash button** (`fonts:remove-uploaded {id}`): the file holding that face goes, with its other faces (a collection, a variable font's instances).
+- **Not built**: Figma keeps uploaded fonts with the account (they follow you to other computers); ours stay on this computer.
+
 ---
 
 ## 15. Opening files from outside, deep links

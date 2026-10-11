@@ -70,7 +70,7 @@ describe("Home's account", () => {
     await setup();
     expect(accountButton()).not.toBeNull();
     press(accountButton()!);
-    expect(menuLabels()).toEqual(["Log in with Google…"]);
+    expect(menuLabels()).toEqual(["Log in with Google…", "Settings"]);
   });
 
   it("logs in from the account menu and shows the account, then logs out", async () => {
@@ -78,7 +78,7 @@ describe("Home's account", () => {
     await setup();
     expect(accountButton()!.textContent).toContain("Burak");
     press(accountButton()!);
-    expect(menuLabels()).toEqual(["Log in with Google…"]);
+    expect(menuLabels()).toEqual(["Log in with Google…", "Settings"]);
     press(menuItem("Log in with Google…"));
     await settle();
     expect(fake.calls).toEqual(["signIn"]);

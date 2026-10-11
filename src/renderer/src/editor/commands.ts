@@ -44,6 +44,8 @@ import {
 } from "./objectCommands";
 import { viewRect } from "./canvas/viewInsets";
 import type { KeyCombo } from "@shared/shortcuts";
+import { openSettings } from "../settings/bridge";
+import { accountBridge, accountSignedIn } from "../files/account";
 
 /**
  * The keyboard layout picked in the Keyboard shortcuts panel (shortcuts/layouts.ts): a pressed key's place → the U.S.
@@ -819,8 +821,9 @@ export const COMMANDS: EditorCommand[] = [
   link("help.release-notes", "Release notes", "https://www.figma.com/release-notes/"),
   later("help.font-settings", "Open font settings"),
   link("help.legal", "Legal summary", "https://www.figma.com/legal/"),
-  later("help.account", "Account settings"),
-  later("help.log-out", "Log out"),
+  // The Settings modal (src/renderer/src/settings) over the editor; Log out of the account (docs/multiplayer.md §2).
+  { id: "help.account", label: "Account settings", run: () => openSettings("account") },
+  { id: "help.log-out", label: "Log out", run: () => void accountBridge()?.signOut(), enabled: () => accountSignedIn() },
   // Prototyping (R8 §9): Present opens the presentation view in a new tab; "in this tab" over the editor.
   ui("view.present", "Present", [k("Enter", { mod: true, alt: true })], (ed) => present(ed)),
   ui("view.present-here", "Present in this tab", undefined, (ed) => present(ed, { here: true })),

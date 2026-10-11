@@ -160,6 +160,15 @@ async function box(env: PreviewEnv, id: string, path: string, init: RequestInit)
   return ns.get(ns.idFromName(id) as never).fetch(new Request(`https://preview${path}`, init));
 }
 
+/** Delete account (docs/multiplayer.md §12): every preview of the person unpublished — storage and rows. */
+export async function deletePreviewsOf(deps: Deps, userId: string): Promise<void> {
+  const env = deps.env as PreviewEnv;
+  const db = env.DB ?? deps.db.d1;
+  const { results } = await db.prepare(`SELECT id FROM previews WHERE owner_id = ?`).bind(userId).all<{ id: string }>();
+  for (const { id } of results) if (env.PREVIEWS) await box(env, id, "/box", { method: "DELETE" });
+  await db.prepare(`DELETE FROM previews WHERE owner_id = ?`).bind(userId).run();
+}
+
 /** The viewer page for `/p/<id>`: the built viewer reads the id from its own path. */
 export async function viewerPage(url: URL, env: PreviewEnv): Promise<Response> {
   if (!env.ASSETS) throw new PreviewHttpError(503, "the preview viewer isn't deployed on this server");

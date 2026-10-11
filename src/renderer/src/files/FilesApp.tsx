@@ -5,6 +5,7 @@
 import "@/ds/global.css";
 import { useEffect, useState } from "react";
 import { Spinner, ToastHost, TooltipManager, useThemeRoot } from "@/ds";
+import { SettingsHost } from "../settings/SettingsModal";
 import { FileBrowser } from "./FileBrowser";
 import { filesBackend, type FilesBackend } from "./storeAccess";
 import styles from "./Files.module.css";
@@ -38,6 +39,7 @@ export default function FilesApp() {
           </div>
         </div>
       )}
+      <SettingsHost />
       <TooltipManager />
       <ToastHost />
     </>

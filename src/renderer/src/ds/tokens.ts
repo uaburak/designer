@@ -267,6 +267,43 @@ export const appColor = {
 
 export type AppColorName = keyof typeof appColor;
 
+/**
+ * Settings › Account › "Enhance contrast" (§2.5): "When enabled, contrast between text and controls and their
+ * backgrounds will be increased." On `[data-contrast="more"]` these replace their tokens in both themes: secondary,
+ * tertiary and disabled text and icons get more opaque, borders and separators darker (light) or lighter (dark).
+ * Figma publishes no values for its enhanced contrast (R17-settings.md): these are ours (G), each at least 4.5:1 for
+ * text on `bg` (secondary) and 3:1 for borders and tertiary text against `bg`.
+ */
+export const figmaColorContrast = {
+  "text-secondary": ["#000000c2", "#ffffffdb"],
+  "text-tertiary": ["#00000094", "#ffffffad"],
+  "text-disabled": ["#00000073", "#ffffff8c"],
+  "text-secondary-hover": ["#000000", "#ffffff"],
+  "icon-secondary": ["#000000c2", "#ffffffdb"],
+  "icon-tertiary": ["#00000094", "#ffffffad"],
+  "icon-disabled": ["#00000073", "#ffffff8c"],
+  "text-onselected-secondary": ["#000000c2", "#ffffffdb"],
+  "icon-onselected-secondary": ["#000000c2", "#ffffffdb"],
+  "border": ["#949494", "#7a7a7a"],
+  "border-disabled": ["#c2c2c2", "#5c5c5c"],
+  "border-strong": ["#000000", "#ffffff"],
+  "border-selected": ["#007be5", "#7cc4f8"],
+  "text-brand": ["#0060b3", "#9dd3fa"],
+  "text-danger": ["#b02a0f", "#fdbdb4"],
+} as const satisfies Partial<Record<FigmaColorName, Pair>>;
+
+export const appColorContrast = {
+  "tabbar-text": ["#000000c2", "#ffffffdb"],
+  "tabbar-line": ["#949494", "#7a7a7a"],
+  "tabbar-separator": ["#949494", "#7a7a7a"],
+  "rail-separator": ["#949494", "#7a7a7a"],
+  "menu-text-secondary": ["#ffffffdb", "#ffffffdb"],
+  "menu-text-disabled": ["#ffffff8c", "#ffffff8c"],
+  "menu-separator": ["#6b6b6b", "#6b6b6b"],
+  "border-translucent": ["#00000066", "#ffffff66"],
+  "border-translucent-strong": ["#00000099", "#ffffff99"],
+} as const satisfies Partial<Record<AppColorName, Pair>>;
+
 /** Alpha behind chits and swatches (`--ds-checkerboard`, a `background` value; G). */
 export const checkerboard = "repeating-conic-gradient(#e6e6e6 0% 25%, #ffffff 0% 50%) 0 0 / 8px 8px";
 
@@ -343,6 +380,15 @@ export const size = {
   checkbox: 16,
   "switch-width": 28, // K
   "switch-height": 16, // K
+  "switch-width-large": 32, // M: the Settings modal's toggles are 32 × 16
+  // The Settings modal (5–9.png ÷ 2): 650 wide, a 40 header, 48 in at the sides, the Account tab's content 200 in past a
+  // 120 photo; at most 730 high.
+  "settings-modal": 650,
+  "settings-modal-height": 730,
+  "settings-header": 40,
+  "settings-pad": 48,
+  "settings-content": 200,
+  "settings-photo": 120,
   chit: 14, // K
   "swatch-round": 16,
   "styles-row": 30,
@@ -392,6 +438,16 @@ export const text = {
   "body-large-regular": { size: 13, line: 22, weight: 400, tracking: "-0.0325px" },
   "heading-medium": { size: 15, line: 25, weight: 550, tracking: "-0.13px" },
   "heading-large": { size: 24, line: 32, weight: 550, tracking: "-0.47px" },
+  /**
+   * The Settings modal (the owner's screenshots of live Figma, 5–9.png, widths matched in Inter): a section's heading
+   * ("Name", "Theme", "Sessions") 14px, "Your spaces" 15px, the sessions table and the uploaded fonts' rows 12px, "Closed
+   * captions" 13px, an uploaded font's "Rag 123" sample 16px in its own face. Body lines are body-medium (11 / 16).
+   */
+  "settings-heading": { size: 14, line: 24, weight: 450, tracking: "0px" },
+  "settings-title": { size: 15, line: 24, weight: 450, tracking: "0px" },
+  "settings-cell": { size: 12, line: 16, weight: 450, tracking: "0px" },
+  "settings-caption": { size: 13, line: 20, weight: 400, tracking: "0px" },
+  "settings-sample": { size: 16, line: 20, weight: 400, tracking: "0px" },
   code: { size: 11, line: 16, weight: 400, tracking: "0px", mono: true },
 } as const satisfies Record<string, TextStyle>;
 
@@ -622,6 +678,15 @@ export function themeVariables(theme: ThemeName): Record<string, string> {
   for (const [k, v] of Object.entries(elevation)) out[`--ds-elevation-${k}`] = v[i];
   // Declared with the themed colours: a var() is resolved where it is declared, so a re-themed subtree needs its own.
   out["--ds-focus-color"] = focus.color;
+  return out;
+}
+
+/** Enhance contrast's replacements for a theme (§2.5). */
+export function contrastVariables(theme: ThemeName): Record<string, string> {
+  const i = theme === "light" ? 0 : 1;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(figmaColorContrast)) out[`--figma-color-${k}`] = v[i];
+  for (const [k, v] of Object.entries(appColorContrast)) out[`--ds-color-${k}`] = v[i];
   return out;
 }
 

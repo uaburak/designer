@@ -1,0 +1,181 @@
+/*
+ * Figma's Settings modal (docs/design-system.md "Settings modal"; measured on the owner's screenshots of live Figma,
+ * 5–9.png ÷ 2): 650 wide, a 40 header with the tabs as 24-high pills 8 in and the close button 8 from the right, a
+ * scrolling body 48 in at the sides, 40 from the top. A section: its heading (14 / 24), 12, its value and its link
+ * (11 / 16, 12 apart), 24 to the next; groups split by a line with 24 above and below. The Account tab's content
+ * starts 200 in, beside the 120 photo.
+ */
+@layer app {
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: var(--ds-z-scrim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--ds-space-8);
+    background: var(--ds-color-scrim);
+  }
+  .modal {
+    position: relative;
+    z-index: var(--ds-z-dialog);
+    display: flex;
+    flex-direction: column;
+    width: var(--ds-size-settings-modal);
+    max-width: 100%;
+    height: var(--ds-size-settings-modal-height);
+    max-height: calc(100vh - 64px);
+    overflow: hidden;
+    border-radius: var(--ds-radius-large);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    box-shadow: var(--ds-elevation-500-modal-window);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    outline: none;
+  }
+  .header {
+    display: flex;
+    flex: none;
+    align-items: center;
+    height: var(--ds-size-settings-header);
+    padding: 0 var(--ds-space-2);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .tabs { display: flex; flex: 1 1 auto; align-items: center; gap: var(--ds-space-1-5); min-width: 0; }
+  .tab {
+    display: inline-flex;
+    align-items: center;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    white-space: nowrap;
+    outline: none;
+    cursor: default;
+  }
+  .tab:hover { color: var(--figma-color-text); }
+  .tab[aria-selected="true"] { background: var(--figma-color-bg-secondary); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .tab:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .page { padding: 40px var(--ds-size-settings-pad) var(--ds-space-12); }
+
+  /* The Account tab: the photo in its column, the sections past it */
+  .accountPage { display: grid; grid-template-columns: calc(var(--ds-size-settings-content) - var(--ds-size-settings-pad)) minmax(0, 1fr); padding: 40px var(--ds-size-settings-pad) var(--ds-space-12); }
+  .photoColumn { display: flex; flex-direction: column; align-items: flex-start; }
+  .photo { display: flex; flex-direction: column; align-items: center; gap: 12px; width: var(--ds-size-settings-photo); }
+  .photoImage { width: var(--ds-size-settings-photo); height: var(--ds-size-settings-photo); border-radius: var(--ds-radius-full); object-fit: cover; }
+  .photoInitials { display: flex; align-items: center; justify-content: center; width: var(--ds-size-settings-photo); height: var(--ds-size-settings-photo); border-radius: var(--ds-radius-full); background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand); font: var(--ds-font-heading-large); }
+  .photoEdit { padding: 0; border: 0; background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); outline: none; cursor: default; }
+  .photoEdit:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .content { display: flex; flex-direction: column; min-width: 0; }
+
+  .section { display: flex; flex-direction: column; align-items: flex-start; }
+  .section + .section { margin-top: var(--ds-space-6); }
+  .heading { margin: 0 0 12px; color: var(--figma-color-text); font: var(--ds-font-settings-heading); letter-spacing: var(--ds-tracking-settings-heading); }
+  .title { margin: 0 0 var(--ds-space-6); color: var(--figma-color-text); font: var(--ds-font-settings-title); letter-spacing: var(--ds-tracking-settings-title); }
+  .value { margin: 0; color: var(--figma-color-text); overflow-wrap: anywhere; }
+  .value + .link, .value + .value, .text + .link, .link + .link { margin-top: 12px; }
+  .text { margin: 0; color: var(--figma-color-text); }
+  .muted { color: var(--figma-color-text-secondary); }
+  .divider { align-self: stretch; height: 1px; margin: var(--ds-space-6) 0; border: 0; background: var(--figma-color-border); }
+  .divider + .section { margin-top: 0; }
+  .link {
+    display: inline;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text-brand);
+    font: inherit;
+    letter-spacing: inherit;
+    text-align: left;
+    outline: none;
+    cursor: pointer;
+  }
+  .link:hover { text-decoration: underline; }
+  .text + .link.tight { margin-top: var(--ds-space-1); }
+  .link:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .link:disabled { color: var(--figma-color-text-disabled); text-decoration: none; cursor: default; }
+  .danger { color: var(--figma-color-text-danger); }
+  .stack { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+  .strong { font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+
+  /* Your spaces */
+  .space { display: flex; gap: var(--ds-space-4); }
+  .spaceAvatar { display: flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control-large); height: var(--ds-size-control-large); border-radius: var(--ds-radius-full); background: var(--figma-color-bg-success); color: var(--figma-color-text-onsuccess); font: var(--ds-font-settings-heading); }
+  .spaceLines { display: flex; flex-direction: column; }
+  .spaceSeat { margin-top: var(--ds-space-1); }
+  .spaceNote { margin-top: var(--ds-space-6); }
+
+  /* Theme: the select, then the switch rows */
+  .switchRow { display: flex; align-items: flex-start; gap: var(--ds-space-2); margin-top: 20px; }
+  .switchText { display: flex; flex-direction: column; gap: var(--ds-space-1); min-width: 0; }
+  .themeSelect { width: 128px; }
+  .feature { display: flex; align-items: center; gap: var(--ds-space-2); margin-top: 4px; color: var(--figma-color-text-secondary); font: var(--ds-font-settings-caption); letter-spacing: var(--ds-tracking-settings-caption); }
+  .beta { display: inline-flex; align-items: center; height: var(--ds-space-4); padding: 0 var(--ds-space-1); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .featureSwitch { margin-top: 17px; margin-bottom: var(--ds-space-4); }
+
+  /* Your uploaded fonts */
+  .fontsButton { margin-top: 12px; }
+  .fonts { align-self: stretch; margin-top: var(--ds-space-4); }
+  .fontRow { display: flex; align-items: center; gap: var(--ds-space-4); padding: 9px 0 12px; border-top: 1px solid var(--figma-color-border); }
+  .fontNames { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; font: var(--ds-font-settings-cell); letter-spacing: var(--ds-tracking-settings-cell); }
+  .fontStyle { color: var(--figma-color-text-secondary); }
+  .fontSample { flex: none; max-width: 200px; overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-settings-sample); letter-spacing: var(--ds-tracking-settings-sample); text-overflow: ellipsis; white-space: nowrap; }
+  .fontsEmpty { margin: 0; padding-top: var(--ds-space-3); border-top: 1px solid var(--figma-color-border); color: var(--figma-color-text-secondary); }
+
+  /* Sessions */
+  .sessions { align-self: stretch; margin-top: 32px; border-collapse: collapse; table-layout: fixed; font: var(--ds-font-settings-cell); letter-spacing: var(--ds-tracking-settings-cell); }
+  .sessions th { padding: 0 0 31px; color: var(--figma-color-text-secondary); font: inherit; text-align: left; }
+  .sessions td { height: 32px; padding: 0 var(--ds-space-2) 28px 0; overflow: hidden; vertical-align: top; }
+  .sessions tr:last-child td { padding-bottom: 0; }
+  .sessions td:last-child { padding-right: 0; }
+  .colLocation { width: 210px; }
+  .colOs { width: 114px; }
+  .colLast { width: 170px; }
+  .where { display: flex; align-items: center; gap: var(--ds-space-2); height: 32px; }
+  .whereIcon { display: inline-flex; flex: none; color: var(--figma-color-icon); }
+  .lines { display: flex; flex-direction: column; min-width: 0; }
+  .lines > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .manage { display: flex; align-items: center; height: 32px; }
+  .current { color: var(--figma-color-text-tertiary); }
+  .signOut { white-space: nowrap; color: var(--figma-color-text-danger); font: var(--ds-font-settings-cell); letter-spacing: var(--ds-tracking-settings-cell); }
+  .note { margin: 12px 0 0; color: var(--figma-color-text-secondary); }
+
+  /* Personal access tokens, connected apps */
+  .tokens { display: flex; align-self: stretch; flex-direction: column; margin-top: 12px; }
+  .tokenRow, .appRow { display: flex; align-items: center; gap: var(--ds-space-3); min-height: 40px; }
+  .tokenName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .apps { display: flex; align-self: stretch; flex-direction: column; margin-top: var(--ds-space-2); }
+  .appIcon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; color: var(--figma-color-icon); }
+  .appName { flex: none; font: var(--ds-font-settings-cell); letter-spacing: var(--ds-tracking-settings-cell); }
+  .appUrl { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--figma-color-text-tertiary); font: var(--ds-font-settings-cell); text-overflow: ellipsis; white-space: nowrap; }
+  .appWhen { flex: none; font: var(--ds-font-settings-cell); letter-spacing: var(--ds-tracking-settings-cell); }
+  .appRevoke { flex: none; font: var(--ds-font-settings-cell); letter-spacing: var(--ds-tracking-settings-cell); }
+
+  /* Signed out / no server */
+  .signedOut { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+
+  /* Dialogs' bodies */
+  .form { display: flex; flex-direction: column; gap: var(--ds-space-3); }
+  .formRow { display: flex; flex-direction: column; gap: var(--ds-space-1); }
+  .formLabel { color: var(--figma-color-text-secondary); }
+  .scopes { display: flex; flex-direction: column; gap: var(--ds-space-2); }
+  .scopeGroup { margin: var(--ds-space-1) 0 0; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .scopeHint { margin: 0 0 0 var(--ds-space-6); color: var(--figma-color-text-secondary); }
+  .tokenValue { padding: var(--ds-space-2); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); font: var(--ds-font-code); overflow-wrap: anywhere; user-select: text; }
+  .libraries { display: flex; flex-direction: column; }
+  .libraryRow { display: flex; align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-row); }
+  .libraryName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Community */
+  .profileFields { display: flex; align-self: stretch; flex-direction: column; gap: var(--ds-space-3); }
+  .handle { font: var(--ds-font-settings-heading); }
+
+  /* Agents (the Agents tab's settings, embedded) */
+  .agents { display: flex; flex-direction: column; min-height: 100%; }
+}

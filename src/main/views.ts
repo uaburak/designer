@@ -1,3 +1,4 @@
+import { themeArg } from "./theme";
 import { app, Menu, nativeTheme, shell, WebContentsView, type MenuItemConstructorOptions, type WebContents } from "electron";
 import { join } from "node:path";
 import type { Role } from "../shared/ipc";
@@ -61,7 +62,7 @@ export function createView(role: Role, windowId: string, tabId: string | null, q
       ...(role === "editor" ? { autoplayPolicy: "no-user-gesture-required" as const } : {}),
       v8CacheOptions: "bypassHeatCheck",
       // The theme before the first paint (boot.js reads it from the preload): preference and what it resolves to.
-      additionalArguments: [`--designer-role=${role}`, `--designer-version=${app.getVersion()}`, `--designer-theme=${nativeTheme.themeSource}:${nativeTheme.shouldUseDarkColors ? "dark" : "light"}`],
+      additionalArguments: [`--designer-role=${role}`, `--designer-version=${app.getVersion()}`, `--designer-theme=${themeArg()}`],
     },
   });
   view.setBackgroundColor(backgroundOf(role));

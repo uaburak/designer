@@ -176,6 +176,8 @@ export interface McpClientInfo {
   configPath: string;
   /** Our server is in it already */
   connected: boolean;
+  /** When (the config file's last change), for Settings › Security › Connected apps' "Connected N days ago" */
+  connectedAt?: number;
 }
 
 export interface ConnectResult {
@@ -224,3 +226,6 @@ export interface AgentsApi {
   disconnect(client: McpClientId): Promise<ConnectResult>;
   clientConfig(client: McpClientId): Promise<{ path: string; text: string; stdio: string }>;
 }
+
+/** The setup half of AgentsApi (no turns, no tools): what Settings › Agents uses — Home has it too. */
+export type AgentSetupApi = Pick<AgentsApi, "providers" | "settings" | "setSettings" | "addServer" | "removeServer" | "test" | "auth" | "signIn" | "signOut" | "install" | "mcp" | "onMcpState" | "clients" | "connect" | "disconnect" | "clientConfig">;

@@ -3,6 +3,8 @@
  * A plain `Request → Response` function over injected dependencies, so Node's tests drive it without Cloudflare.
  */
 import type { Role } from "../../src/shared/multiplayer/protocol";
+import { deviceFromUserAgent } from "../../src/shared/account";
+import { patAllows, personalToken, requestPlace, type Caller } from "./account";
 import { normalizeEmail, type Db, type User } from "./db";
 import { authorizeUrl, exchangeCode, GoogleError } from "./google";
 import { notificationsRoute, notifyEditRequest, notifyInvite, notifyOwnership, notifyRequestAnswered } from "./notifications";
@@ -51,6 +53,8 @@ const MAX_SNAPSHOT_BYTES = 90 * 1024 * 1024;
 interface SessionPayload {
   uid: string;
   tv: number;
+  /** The session's row (Settings › Security › Sessions); absent in tokens issued before migration 0009 */
+  sid?: string;
   exp: number;
 }
 
@@ -115,15 +119,17 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (path === "/auth/dev" && m === "POST") return devSignIn(req, deps);
   const link = /^\/f\/([A-Za-z0-9_-]{6,64})$/.exec(path);
   if (link && m === "GET") return linkPage(link[1], url.searchParams);
-  if (isPreviewPath(path)) return previews(req, url, deps, () => authenticate(req, url, deps, false));
+  if (isPreviewPath(path)) return previews(req, url, deps, async () => sessionOnly(await authenticate(req, url, deps, false)));
   const embed = /^\/embed\/([A-Za-z0-9_-]{6,64})(?:\/(snapshot|frames|images\/[0-9a-f]{40}))?$/.exec(path);
   if (embed && m === "GET") return embedRoute(embed[1], embed[2], url, deps);
 
   const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
   const isSocket = (parts[0] === "files" && parts[2] === "ws" && parts.length === 3) || (parts[0] === "notifications" && parts[1] === "ws" && parts.length === 2);
-  const user = await authenticate(req, url, deps, isSocket);
-
-  if (path === "/me" && m === "GET") return json(publicUser(user));
+  const caller = await authenticate(req, url, deps, isSocket);
+  const user = caller.user;
+  if (parts[0] === "me") return (await import("./account")).accountRoute(req, deps, caller, parts);
+  // A personal access token reads files and comments, nothing else (account.ts patAllows).
+  if (caller.scopes && !patAllows(caller.scopes, m, parts)) throw new HttpError(403, "a personal access token can't do that");
   if (path === "/devices" && m === "POST") {
     const { installationId } = await readJson<{ installationId?: string }>(req);
     if (typeof installationId !== "string" || !/^[A-Za-z0-9_-]{16,64}$/.test(installationId)) throw new HttpError(400, "bad installation id");
@@ -354,14 +360,31 @@ function secret(deps: Deps): string {
 
 const seconds = (deps: Deps) => Math.floor(deps.now() / 1000);
 
-async function authenticate(req: Request, url: URL, deps: Deps, allowQuery: boolean): Promise<User> {
+/**
+ * The caller: a session token (`v1.…`, its session row still there — "Sign out" on a row deletes it) or a personal
+ * access token (`dsgn_…`, docs/multiplayer.md §13) with its scopes.
+ */
+async function authenticate(req: Request, url: URL, deps: Deps, allowQuery: boolean): Promise<Caller> {
   const header = req.headers.get("authorization");
   const raw = header?.startsWith("Bearer ") ? header.slice(7) : allowQuery ? url.searchParams.get("token") : null;
   if (!raw) throw new HttpError(401, "sign in first");
+  const pat = await personalToken(deps, raw);
+  if (pat) {
+    const user = await deps.db.user(pat.userId);
+    if (!user) throw new HttpError(401, "token expired");
+    return { user, sid: null, scopes: pat.scopes };
+  }
   const p = await verifyToken<SessionPayload>(raw, secret(deps), seconds(deps));
   const user = p && (await deps.db.user(p.uid));
   if (!p || !user || user.tokenVersion !== p.tv) throw new HttpError(401, "session expired");
-  return user;
+  if (p.sid && !(await deps.db.touchSession(p.sid, user.id, deps.now()))) throw new HttpError(401, "session expired");
+  return { user, sid: p.sid ?? null, scopes: null };
+}
+
+/** Routes for a person, not a token (previews). */
+function sessionOnly(c: Caller): User {
+  if (c.scopes) throw new HttpError(403, "a personal access token can't do that");
+  return c.user;
 }
 
 /**
@@ -402,9 +425,11 @@ async function validPass(req: Request, url: URL, deps: Deps, key: string, userId
   return !!p && p.k === key && p.u === userId && p.v === version;
 }
 
-async function issueSession(user: User, deps: Deps): Promise<Response> {
+/** A new session: its row (what and where it signed in from) and a token naming it. */
+async function issueSession(user: User, deps: Deps, req: Request): Promise<Response> {
   const exp = seconds(deps) + SESSION_DAYS * 86400;
-  const token = await signToken({ uid: user.id, tv: user.tokenVersion, exp }, secret(deps));
+  const sid = await deps.db.createSession(user.id, { ...deviceFromUserAgent(req.headers.get("user-agent")), ...requestPlace(req) }, deps.now());
+  const token = await signToken({ uid: user.id, tv: user.tokenVersion, sid, exp }, secret(deps));
   return json({ token, expiresAt: exp * 1000, user: publicUser(user) });
 }
 
@@ -473,7 +498,7 @@ async function token(req: Request, deps: Deps): Promise<Response> {
   if (!row || row.challenge !== (await sha256b64url(body.verifier))) throw new HttpError(400, "invalid or expired code");
   const user = await deps.db.user(row.userId);
   if (!user) throw new HttpError(400, "invalid or expired code");
-  return issueSession(user, deps);
+  return issueSession(user, deps, req);
 }
 
 /** Local development only (DEV_AUTH=1 in server/.dev.vars): a session for any email, no Google. */
@@ -482,7 +507,7 @@ async function devSignIn(req: Request, deps: Deps): Promise<Response> {
   const body = await readJson<{ email?: string; name?: string }>(req);
   if (!body.email) throw new HttpError(400, "email");
   const user = await deps.db.upsertUser({ sub: `dev:${normalizeEmail(body.email)}`, email: body.email, name: body.name ?? null }, deps.now());
-  return issueSession(user, deps);
+  return issueSession(user, deps, req);
 }
 
 /** A file's link opened in a browser: a page that hands it to the desktop app (designer://open?key=…), with the frame

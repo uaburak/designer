@@ -13,7 +13,8 @@ import { googlePreview } from "./googleFonts";
 import { isAppUrl } from "./protocol";
 import { workspaceDir } from "./storeHost";
 import { setShortcutSettings, shortcutSettings } from "./shortcuts";
-import { setThemePreference, themeState } from "./theme";
+import { setContrast, setThemePreference, themeState } from "./theme";
+import { removeUploadedFont, uploadFonts, uploadedFonts } from "./uploadedFonts";
 import { settleFlush } from "./tabs";
 import { viewOf, type ViewInfo } from "./views";
 import { controllers, type WindowController } from "./window";
@@ -146,6 +147,7 @@ export function registerIpc() {
   onInvoke("account:sign-in", () => account.signIn());
   onInvoke("account:cancel-sign-in", () => account.cancelSignIn());
   onInvoke("account:sign-out", () => account.signOut());
+  onInvoke("account:request", (_c, r) => account.accountRequest({ method: r?.method, path: str(r?.path, 200) ?? "", body: r?.body }));
   // ── Haptics (a scrub's steps; throttled, macOS only) ──
   onSend("haptics:tick", () => void hapticTick());
   onSend("file:reveal-data-folder", () => void shell.openPath(workspaceDir()));
@@ -177,6 +179,15 @@ export function registerIpc() {
   onInvoke("theme:set", (_c, preference) => {
     if (preference !== "system" && preference !== "light" && preference !== "dark") throw new Error("theme:set: system, light or dark");
     return setThemePreference(preference);
+  });
+  onInvoke("theme:set-contrast", (_c, on) => setContrast(on === true));
+  // ── Settings › Account › Your uploaded fonts ──
+  onInvoke("fonts:uploaded", () => uploadedFonts());
+  onInvoke("fonts:upload", ({ ctl }) => uploadFonts(ctl.win));
+  onInvoke("fonts:remove-uploaded", (_c, p) => {
+    const id = str(p?.id, 64);
+    if (!id) throw new Error("fonts:remove-uploaded: no id");
+    return removeUploadedFont(id);
   });
   // ── The Keyboard shortcuts panel's bindings, shortcuts used, layout (settings.json) ──
   onInvoke("shortcuts:get", () => shortcutSettings());

@@ -1,7 +1,7 @@
 import { app, clipboard, dialog, nativeImage, safeStorage, shell, webContents, type WebContents } from "electron";
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import type { ToolResult } from "../../shared/agents/tools";
@@ -149,7 +149,8 @@ function activeFileKey(): string | null {
 
 function broadcast(state: McpState) {
   for (const [id, info] of allViews()) {
-    if (info.role !== "editor") continue;
+    // Home too: its Settings › Agents shows the server's connections.
+    if (info.role !== "editor" && info.role !== "home") continue;
     const wc = webContents.fromId(id);
     if (wc && !wc.isDestroyed()) wc.send("agents:mcp-state", state);
   }
@@ -717,7 +718,16 @@ export async function install(providerId: string): Promise<{ ok: boolean; opened
 
 export const mcp = (): McpState => mcpState();
 
-export const clients = () => listClients(clientEnv(), server?.url ?? null);
+/** The MCP clients; a connected one with when (its config file's last change — Settings › Security › Connected apps). */
+export const clients = () =>
+  listClients(clientEnv(), server?.url ?? null).map((c) => {
+    if (!c.connected) return c;
+    try {
+      return { ...c, connectedAt: statSync(c.configPath).mtimeMs };
+    } catch {
+      return c;
+    }
+  });
 
 function stdioSnippet(): string {
   return JSON.stringify({ [MCP_SERVER_NAME]: { command: process.execPath, args: [file("designer-mcp.cjs")], env: { ELECTRON_RUN_AS_NODE: "1" } } }, null, 2);

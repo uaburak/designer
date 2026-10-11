@@ -16,6 +16,6 @@ describe("theme preference", () => {
     expect(resolveTheme("dark", false)).toBe("dark");
   });
   it("falls back to system / light without a window", () => {
-    expect(currentTheme()).toEqual({ preference: "system", resolved: "light" });
+    expect(currentTheme()).toEqual({ preference: "system", resolved: "light", contrast: false });
   });
 });

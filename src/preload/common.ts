@@ -1,6 +1,8 @@
 import { ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
 import type { IpcEvents, IpcInvoke, IpcSend, MenuStatePatch, NativeMenuItem, OpenWorkspaceFile, Role, ThemePreference, ThemeState } from "../shared/ipc";
 import type { FilesApi, NavApi, ViewMenuApi } from "../shared/desktop";
+import type { AccountMethod } from "../shared/account";
+import type { AgentSetupApi, McpClientId } from "../shared/agents/types";
 
 /**
  * What every role's preload shares (each preload is bundled on its own —
@@ -29,12 +31,13 @@ export function send<C extends keyof IpcSend>(channel: C, ...payload: IpcSend[C]
 /** Handed over by main's additionalArguments: a sandboxed preload has no app module. */
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? "";
 
-/** `--designer-theme=<preference>:<resolved>` */
+/** `--designer-theme=<preference>:<resolved>[:contrast]` */
 function bootTheme(): ThemeState {
-  const [preference, resolved] = arg("designer-theme").split(":");
+  const [preference, resolved, contrast] = arg("designer-theme").split(":");
   return {
     preference: preference === "light" || preference === "dark" ? preference : "system",
     resolved: resolved === "dark" ? "dark" : "light",
+    contrast: contrast === "contrast",
   };
 }
 
@@ -61,6 +64,7 @@ export function common<R extends Role>(role: R) {
     ready: () => send("shell:ready"),
     theme: bootTheme(),
     setTheme: (preference: ThemePreference) => invoke("theme:set", preference),
+    setContrast: (on: boolean) => invoke("theme:set-contrast", on === true),
     onThemeChanged: (cb: (t: ThemeState) => void) => on("theme:changed", cb),
     onWindowState: (cb: (s: IpcEvents["window:state"]) => void) => on("window:state", cb),
     onFullScreen: (cb: (fullScreen: boolean) => void) => on("window:state", (s) => cb(s.fullScreen)),
@@ -71,6 +75,7 @@ export function common<R extends Role>(role: R) {
       cancelSignIn: () => invoke("account:cancel-sign-in"),
       signOut: () => invoke("account:sign-out"),
       onChanged: (cb: (s: IpcEvents["account:changed"]) => void) => on("account:changed", cb),
+      request: (r: { method: AccountMethod; path: string; body?: unknown }) => invoke("account:request", { method: r?.method, path: String(r?.path ?? ""), body: r?.body === undefined ? undefined : (JSON.parse(JSON.stringify(r.body)) as unknown) }),
     },
     menu: {
       popup: (template: NativeMenuItem[], at: { x: number; y: number }) => invoke("menu:popup", { template: plainMenu(template), x: Number(at?.x) || 0, y: Number(at?.y) || 0 }),
@@ -79,6 +84,35 @@ export function common<R extends Role>(role: R) {
 }
 
 export const openExternal = (url: string) => send("shell:open-external", { url: String(url) });
+
+/** Settings › Account › Your uploaded fonts (Home and editors). */
+export const uploadedFonts = {
+  uploaded: () => invoke("fonts:uploaded"),
+  upload: () => invoke("fonts:upload"),
+  removeUploaded: (id: string) => invoke("fonts:remove-uploaded", { id: String(id) }),
+};
+
+/** Agents' setup (Settings › Agents, the Agents tab's settings): plain data both ways. */
+export function agentSetupApi(): AgentSetupApi {
+  return {
+    providers: () => invoke("agents:providers"),
+    settings: () => invoke("agents:settings"),
+    setSettings: (patch) => invoke("agents:set-settings", { providerId: patch?.providerId === null ? null : patch?.providerId === undefined ? undefined : String(patch.providerId), models: patch?.models }),
+    addServer: (s) => invoke("agents:add-server", { label: String(s?.label ?? ""), baseUrl: String(s?.baseUrl ?? ""), apiKey: s?.apiKey === undefined ? undefined : String(s.apiKey) }),
+    removeServer: (id) => invoke("agents:remove-server", { id: String(id) }),
+    test: (providerId) => invoke("agents:test", { providerId: String(providerId) }),
+    auth: (providerId) => invoke("agents:auth", { providerId: String(providerId) }),
+    signIn: (providerId) => invoke("agents:sign-in", { providerId: String(providerId) }),
+    signOut: (providerId) => invoke("agents:sign-out", { providerId: String(providerId) }),
+    install: (providerId) => invoke("agents:install", { providerId: String(providerId) }),
+    mcp: () => invoke("agents:mcp"),
+    onMcpState: (cb) => on("agents:mcp-state", cb),
+    clients: () => invoke("agents:clients"),
+    connect: (client: McpClientId) => invoke("agents:connect", { client }),
+    disconnect: (client: McpClientId) => invoke("agents:disconnect", { client }),
+    clientConfig: (client: McpClientId) => invoke("agents:client-config", { client }),
+  };
+}
 
 
 // ── Home and editors ──────────────────────────────────────────────────────────

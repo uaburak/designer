@@ -1,9 +1,9 @@
 import { contextBridge, webFrame } from "electron";
 import type { EditorApi } from "../shared/desktop";
 import type { FlushReason, TabAttach } from "../shared/ipc";
-import type { AgentsApi, McpClientId, ToolCallResult } from "../shared/agents/types";
+import type { AgentsApi, ToolCallResult } from "../shared/agents/types";
 import type { ShortcutSettings } from "../shared/shortcuts";
-import { common, files, forwardStorePort, invoke, nav, on, openExternal, send, viewMenu } from "./common";
+import { agentSetupApi, common, files, forwardStorePort, invoke, nav, on, openExternal, send, uploadedFonts, viewMenu } from "./common";
 
 /**
  * A file tab's view (`?editor&file=<fileKey>`), or the spare editor (`?editor`
@@ -90,6 +90,7 @@ const api: EditorApi = {
     read: (id) => invoke("fonts:read", { id: String(id) }),
     preview: (family, text) => invoke("fonts:preview", { family: String(family), text: String(text) }),
     onChanged: (cb) => on("fonts:changed", () => cb()),
+    ...uploadedFonts,
   },
   // Text › Spell check: the view's own spell checker (webPreferences.spellcheck, src/main/views.ts), at most 2000 words a call.
   agents: agentsApi(),
@@ -112,16 +113,7 @@ contextBridge.exposeInMainWorld("designer", api);
 // Agents: plain data both ways (the page's objects are copied by the IPC's structured clone).
 function agentsApi(): AgentsApi {
   return {
-  providers: () => invoke("agents:providers"),
-  settings: () => invoke("agents:settings"),
-  setSettings: (patch) => invoke("agents:set-settings", { providerId: patch?.providerId === null ? null : patch?.providerId === undefined ? undefined : String(patch.providerId), models: patch?.models }),
-  addServer: (s) => invoke("agents:add-server", { label: String(s?.label ?? ""), baseUrl: String(s?.baseUrl ?? ""), apiKey: s?.apiKey === undefined ? undefined : String(s.apiKey) }),
-  removeServer: (id) => invoke("agents:remove-server", { id: String(id) }),
-  test: (providerId) => invoke("agents:test", { providerId: String(providerId) }),
-  auth: (providerId) => invoke("agents:auth", { providerId: String(providerId) }),
-  signIn: (providerId) => invoke("agents:sign-in", { providerId: String(providerId) }),
-  signOut: (providerId) => invoke("agents:sign-out", { providerId: String(providerId) }),
-  install: (providerId) => invoke("agents:install", { providerId: String(providerId) }),
+  ...agentSetupApi(),
   turn: (request) => invoke("agents:turn", request),
   stop: (turnId) => invoke("agents:stop", { turnId: String(turnId) }),
   attach: (chatId, files) => invoke("agents:attach", { chatId: String(chatId), files: (Array.isArray(files) ? files : []).filter((f) => f?.bytes instanceof Uint8Array).map((f) => ({ name: String(f.name ?? ""), bytes: f.bytes })) }),
@@ -135,11 +127,5 @@ function agentsApi(): AgentsApi {
         .catch((err: unknown): Omit<ToolCallResult, "reqId"> => ({ content: [{ type: "text", text: err instanceof Error ? err.message : String(err) }], isError: true }))
         .then((r) => send("agents:tool-result", { reqId: call.reqId, content: r.content, isError: r.isError, touched: r.touched }));
     }),
-  mcp: () => invoke("agents:mcp"),
-  onMcpState: (cb) => on("agents:mcp-state", cb),
-  clients: () => invoke("agents:clients"),
-  connect: (client: McpClientId) => invoke("agents:connect", { client }),
-  disconnect: (client: McpClientId) => invoke("agents:disconnect", { client }),
-  clientConfig: (client: McpClientId) => invoke("agents:client-config", { client }),
   };
 }

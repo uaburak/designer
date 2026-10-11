@@ -42,8 +42,19 @@ let indexing: Promise<FontIndex> | null = null;
 const paths = new Map<string, string>(); // face id → file path
 const collectionIndices = new Map<string, number>(); // face id → its index in a collection (0 for a single-face file)
 
-/** Where fonts live on this platform: [directory, source]. */
+/** Settings › Account › Your uploaded fonts (uploadedFonts.ts): userData/fonts/uploaded, scanned as the user's own. */
+let uploadedDir: string | null = null;
+export function setUploadedFontsDir(dir: string): void {
+  uploadedDir = dir;
+}
+
+/** Where fonts live on this platform: [directory, source] — and the uploaded fonts' folder. */
 function fontDirs(): [string, FontFaceInfo["source"]][] {
+  const uploaded: [string, FontFaceInfo["source"]][] = uploadedDir ? [[uploadedDir, "user"]] : [];
+  return [...platformFontDirs(), ...uploaded];
+}
+
+function platformFontDirs(): [string, FontFaceInfo["source"]][] {
   const home = homedir();
   if (process.platform === "darwin")
     return [
@@ -270,6 +281,14 @@ async function scanLocal(): Promise<FontFaceInfo[]> {
   }
   faces.sort((a, b) => a.family.localeCompare(b.family) || a.weight - b.weight || Number(a.italic) - Number(b.italic));
   return faces;
+}
+
+/** A file's faces known to `readFont` before the next rescan (an upload's sample in Settings). */
+export function registerFaces(path: string, faces: readonly FontFaceInfo[]): void {
+  for (const f of faces) {
+    paths.set(f.id, path);
+    collectionIndices.set(f.id, f.collectionIndex);
+  }
 }
 
 /** Builds the index ahead of the first view's `fonts:list` (the cached JSON makes it a few ms; a first scan more). */

@@ -7,7 +7,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Button, Icon, IconButton, Select, Spinner, TextInput, cx, showToast, type IconName } from "@/ds";
 import type { AuthState, McpClientInfo, ProviderInfo } from "@shared/agents/types";
-import { modelLabel, type AgentsService } from "../../agents/service";
+import { modelLabel, type AgentSetupHost } from "../../agents/setup";
 import styles from "./Agents.module.css";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : String(err));
@@ -48,23 +48,27 @@ const ABOUT: Record<string, { text: string; page?: string }> = {
 
 const KIND_ICON = (p: ProviderInfo): IconName => (isCustom(p) ? "24.globe" : isServer(p) ? "24.agents" : "24.dev-brackets");
 
-export function AgentSettings({ service }: { service: AgentsService }) {
+/**
+ * The list or an item's page, for either host (agents/setup.ts): the Agents tab's gear, Settings › Agents (`embedded`:
+ * the modal's own look — no bar on the list, the modal's spacing).
+ */
+export function AgentSettings({ service, embedded }: { service: AgentSetupHost; embedded?: boolean }) {
   const state = service.get();
   useEffect(() => {
     void service.refreshSetup();
   }, [service]);
   const item = state.settingsItem;
   return (
-    <div className={styles.settings} data-agent-settings="" data-settings-page={item ?? "list"}>
+    <div className={cx(styles.settings, embedded && styles.embedded)} data-agent-settings="" data-settings-page={item ?? "list"}>
       {item ? <SettingsPage service={service} item={item} /> : <SettingsList service={service} />}
     </div>
   );
 }
 
-function Bar({ title, onBack, action }: { title: string; onBack: () => void; action?: ReactNode }) {
+function Bar({ title, onBack, action }: { title: string; onBack?: () => void; action?: ReactNode }) {
   return (
     <div className={styles.chatBar}>
-      <IconButton icon="24.arrow.left" label="Back" tone="secondary" onClick={onBack} />
+      {onBack && <IconButton icon="24.arrow.left" label="Back" tone="secondary" onClick={onBack} />}
       <span className={styles.chatBarTitle}>{title}</span>
       {action}
     </div>
@@ -102,7 +106,7 @@ function Row({ icon, label, status, on, dim, onClick, statusProps, ...data }: Ro
   );
 }
 
-function SettingsList({ service }: { service: AgentsService }) {
+function SettingsList({ service }: { service: AgentSetupHost }) {
   const state = service.get();
   const local = state.providers.filter((p) => !isCustom(p));
   const custom = state.providers.filter(isCustom);
@@ -111,7 +115,7 @@ function SettingsList({ service }: { service: AgentsService }) {
     <>
       <Bar
         title="Agent settings"
-        onBack={() => service.setView(state.chats.length ? "list" : "chat")}
+        onBack={service.leaveSettings && (() => service.leaveSettings!())}
         action={state.providersLoading ? <span className={styles.barSpinner}><Spinner size={16} /></span> : <IconButton icon="24.reset.instance.small" label="Look again" tone="secondary" onClick={() => void service.refreshProviders()} />}
       />
       <div className={styles.scroll}>
@@ -157,7 +161,7 @@ function SettingsList({ service }: { service: AgentsService }) {
 
 // ---- An item's page -------------------------------------------------------------------------------------------------
 
-function SettingsPage({ service, item }: { service: AgentsService; item: string }) {
+function SettingsPage({ service, item }: { service: AgentSetupHost; item: string }) {
   const state = service.get();
   const back = () => {
     service.openSetting(null);
@@ -223,7 +227,7 @@ function About({ text, page, label }: { text?: string; page?: string; label: str
 }
 
 /** One agent: its state and account, Install / Sign in / Sign out, its model, Test connection; Gemini's images and key. */
-function ProviderPage({ p, service }: { p: ProviderInfo; service: AgentsService }) {
+function ProviderPage({ p, service }: { p: ProviderInfo; service: AgentSetupHost }) {
   const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   // What Sign in / Sign out / the polling said, until the providers' next report (p.auth) replaces it.
@@ -354,7 +358,7 @@ function ProviderPage({ p, service }: { p: ProviderInfo; service: AgentsService 
   );
 }
 
-function AddServer({ service }: { service: AgentsService }) {
+function AddServer({ service }: { service: AgentSetupHost }) {
   const [label, setLabel] = useState("");
   const [url, setUrl] = useState("");
   const [key, setKey] = useState("");
@@ -389,7 +393,7 @@ function AddServer({ service }: { service: AgentsService }) {
 }
 
 /** The MCP server this app runs: its address and who is connected. */
-function McpPage({ service }: { service: AgentsService }) {
+function McpPage({ service }: { service: AgentSetupHost }) {
   const { mcp } = service.get();
   const n = mcp.connections.length;
   return (
@@ -407,7 +411,7 @@ function McpPage({ service }: { service: AgentsService }) {
 }
 
 /** An MCP client: Connect (writes its config file) / Disconnect, and its config to copy. */
-function ClientPage({ c, service }: { c: McpClientInfo; service: AgentsService }) {
+function ClientPage({ c, service }: { c: McpClientInfo; service: AgentSetupHost }) {
   const copy = async () => {
     const cfg = await service.api!.clientConfig(c.id);
     await navigator.clipboard.writeText(cfg.text);

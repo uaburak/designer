@@ -24,6 +24,16 @@ export interface User {
   tokenVersion: number;
 }
 
+/** Where a session signed in from (docs/multiplayer.md §13): the desktop app or a browser, its OS, its IP's place. */
+export interface SessionDevice {
+  kind: "app" | "login";
+  os: string | null;
+  browser: string | null;
+  ip: string | null;
+  city: string | null;
+  country: string | null;
+}
+
 export interface SharedFile {
   key: string;
   name: string;
@@ -68,7 +78,7 @@ export class Db {
     const row = await this.d1
       .prepare(
         `INSERT INTO users (id, google_sub, email, name, picture, created_at, last_seen_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
-         ON CONFLICT (google_sub) DO UPDATE SET email = ?3, name = ?4, picture = ?5, last_seen_at = ?6
+         ON CONFLICT (google_sub) DO UPDATE SET email = ?3, name = CASE WHEN name_locked = 1 THEN name ELSE ?4 END, picture = CASE WHEN picture_locked = 1 THEN picture ELSE ?5 END, last_seen_at = ?6
          RETURNING id, email, name, picture, token_version`,
       )
       .bind(`u_${randomToken(12)}`, p.sub, email, p.name ?? null, p.picture ?? null, now)
@@ -76,6 +86,28 @@ export class Db {
     if (!row) throw new Error("upsertUser: no row");
     await this.d1.prepare(`UPDATE members SET user_id = ?1 WHERE email = ?2 AND user_id IS NULL`).bind(row.id, email).run();
     return toUser(row);
+  }
+
+  /** Sign-in: one session row (Settings › Security › Sessions); its id goes into the session token as `sid`. */
+  async createSession(userId: string, d: SessionDevice, now: number): Promise<string> {
+    const id = `s_${randomToken(12)}`;
+    await this.d1
+      .prepare(`INSERT INTO sessions (id, user_id, kind, os, browser, ip, city, country, created_at, last_seen_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)`)
+      .bind(id, userId, d.kind, d.os, d.browser, d.ip, d.city, d.country, now)
+      .run();
+    return id;
+  }
+
+  /**
+   * A request with a session token: true while its row is there (not signed out), and "Last accessed" moved on — at
+   * most once every 5 minutes, so most requests write nothing.
+   */
+  async touchSession(id: string, userId: string, now: number): Promise<boolean> {
+    const r = await this.d1
+      .prepare(`UPDATE sessions SET last_seen_at = CASE WHEN last_seen_at < ?3 - 300000 THEN ?3 ELSE last_seen_at END WHERE id = ?1 AND user_id = ?2 RETURNING id`)
+      .bind(id, userId, now)
+      .first<{ id: string }>();
+    return r !== null;
   }
 
   async user(id: string): Promise<User | null> {
@@ -86,6 +118,7 @@ export class Db {
   /** Sign out everywhere: every session token issued before stops working. */
   async bumpTokenVersion(id: string): Promise<void> {
     await this.d1.prepare(`UPDATE users SET token_version = token_version + 1 WHERE id = ?1`).bind(id).run();
+    await this.d1.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(id).run();
   }
 
   /** The installation's device ordinal (2…4095), allocated once; null when every ordinal is taken. */

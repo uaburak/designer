@@ -17,6 +17,8 @@ export interface DropApi {
 
 export interface SidebarProps {
   ownerName: string;
+  /** The account's photo (a data: URL — main fetches Google's), else initials */
+  ownerPicture?: string;
   /** The account row's menu (Log in / Log out — docs/multiplayer.md §2); absent: the row is a plain label */
   onAccountMenu?: (e: React.MouseEvent) => void;
   /** At the account row's right: the notifications bell (docs/multiplayer.md §12; live 1.png) */
@@ -110,14 +112,14 @@ function FolderTree({ parent, depth, props }: { parent: FolderId | null; depth: 
 }
 
 export function Sidebar(props: SidebarProps) {
-  const { ownerName, onAccountMenu, accountAccessory, teamName, location, search, onSearch, onSearchExit, go, starredFolders, starredFiles, starredOpen, onStarredOpen, onOpenFile, onFolderMenu, onFileMenu, onAllFoldersMenu, onTrashMenu, dnd } = props;
+  const { ownerName, ownerPicture, onAccountMenu, accountAccessory, teamName, location, search, onSearch, onSearchExit, go, starredFolders, starredFiles, starredOpen, onStarredOpen, onOpenFile, onFolderMenu, onFileMenu, onAllFoldersMenu, onTrashMenu, dnd } = props;
   const is = (kind: Location["kind"]) => location.kind === kind;
   return (
     <nav className={styles.sidebar} aria-label="File browser">
       <div className={styles.accountRow}>
         {onAccountMenu ? (
           <button type="button" className={styles.account} aria-haspopup="menu" aria-label={`${ownerName}, account`} onClick={onAccountMenu}>
-            <Avatar name={ownerName} />
+            <Avatar name={ownerName} src={ownerPicture} />
             <span className={styles.accountName}>{ownerName}</span>
             <Icon name="16.chevron.down" />
           </button>

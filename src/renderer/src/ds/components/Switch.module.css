@@ -28,6 +28,8 @@
   }
   .track[aria-checked="true"], .track[aria-checked="true"]:hover { border-color: var(--figma-color-bg-brand); background: var(--figma-color-bg-brand); }
   .track[aria-checked="true"] .knob { left: 10px; border-color: var(--ds-color-switch-knob); }
+  .large { width: var(--ds-size-switch-width-large); }
+  .large[aria-checked="true"] .knob { left: 14px; }
   .track:focus-visible, .track[data-focus-visible] { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
   .track:disabled { opacity: 0.4; }
   .track:disabled:hover { background: var(--figma-color-bg-tertiary); }

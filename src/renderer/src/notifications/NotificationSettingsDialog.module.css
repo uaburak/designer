@@ -1,4 +1,0 @@
-@layer app {
-  /* The tab brings its own margins (48 from the modal's left, as live) */
-  .body { margin: calc(var(--ds-space-4) * -1); }
-}

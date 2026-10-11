@@ -17,15 +17,18 @@ import type { ThemeName, ThemePreference } from "./tokens";
  * context/ThemeContext.tsx follows until it is replaced.
  */
 export type { ThemeName, ThemePreference } from "./tokens";
-export type ThemeState = { preference: ThemePreference; resolved: ThemeName };
+export type ThemeState = { preference: ThemePreference; resolved: ThemeName; contrast: boolean };
 
 export const THEME_STORAGE_KEY = "designer-theme";
+/** Enhance contrast without a preload (a browser): "more" (§2.5) */
+export const CONTRAST_STORAGE_KEY = "designer-contrast";
 export const THEME_EVENT = "designer-theme-change";
 
 /** The slice of `window.designer` (src/shared/desktop.ts) the theme uses. */
 type DesignerTheme = {
   theme?: ThemeState;
   setTheme?: (p: ThemePreference) => Promise<ThemeState>;
+  setContrast?: (on: boolean) => Promise<ThemeState>;
   onThemeChanged?: (cb: (t: ThemeState) => void) => () => void;
 };
 const designer = (): DesignerTheme | undefined => (typeof window === "undefined" ? undefined : (window as unknown as { designer?: DesignerTheme }).designer);
@@ -49,11 +52,19 @@ function storedPreference(): ThemePreference {
   }
 }
 
+function storedContrast(): boolean {
+  try {
+    return localStorage.getItem(CONTRAST_STORAGE_KEY) === "more";
+  } catch {
+    return false;
+  }
+}
+
 export function currentTheme(): ThemeState {
   const desk = desktopState ?? designer()?.theme;
-  if (desk && (desk.resolved === "light" || desk.resolved === "dark")) return { preference: parsePreference(desk.preference), resolved: desk.resolved };
+  if (desk && (desk.resolved === "light" || desk.resolved === "dark")) return { preference: parsePreference(desk.preference), resolved: desk.resolved, contrast: desk.contrast === true };
   const preference = storedPreference();
-  return { preference, resolved: resolveTheme(preference, systemDark()) };
+  return { preference, resolved: resolveTheme(preference, systemDark()), contrast: storedContrast() };
 }
 
 const announce = () => window.dispatchEvent(new Event(THEME_EVENT));
@@ -76,11 +87,35 @@ export function setThemePreference(next: ThemePreference): void {
   announce();
 }
 
+/** Settings › Account › Enhance contrast: main is told (every view follows), the page's copy kept, listeners told. */
+export function setContrast(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(CONTRAST_STORAGE_KEY, "more");
+    else localStorage.removeItem(CONTRAST_STORAGE_KEY);
+  } catch {
+    /* this page only */
+  }
+  const d = designer();
+  if (d?.setContrast) {
+    void d.setContrast(on).then((state) => {
+      desktopState = state;
+      announce();
+    });
+  } else if (desktopState) desktopState = { ...desktopState, contrast: on };
+  announce();
+}
+
+/** Enhance contrast on <html> (or `el`): `data-contrast="more"` switches the tokens (tokens.css). */
+export function applyContrast(on: boolean, el: HTMLElement = document.documentElement): void {
+  if (on) el.setAttribute("data-contrast", "more");
+  else el.removeAttribute("data-contrast");
+}
+
 /** Called whenever the preference or the resolved theme may have changed. */
 export function onThemeChange(cb: (t: ThemeState) => void): () => void {
   const fire = () => cb(currentTheme());
   const media = window.matchMedia("(prefers-color-scheme: dark)");
-  const onStorage = (e: StorageEvent) => (e.key === THEME_STORAGE_KEY || e.key === null) && fire();
+  const onStorage = (e: StorageEvent) => (e.key === THEME_STORAGE_KEY || e.key === CONTRAST_STORAGE_KEY || e.key === null) && fire();
   window.addEventListener(THEME_EVENT, fire);
   window.addEventListener("storage", onStorage);
   media.addEventListener("change", fire);
@@ -113,20 +148,21 @@ export function applyTheme(resolved: ThemeName, el: HTMLElement = document.docum
 
 const snapshot = () => {
   const t = currentTheme();
-  return `${t.preference}:${t.resolved}`;
+  return `${t.preference}:${t.resolved}:${t.contrast ? "more" : ""}`;
 };
 const subscribe = (cb: () => void) => onThemeChange(cb);
 
 /** The preference and resolved theme (useSyncExternalStore). */
 export function useTheme(): ThemeState {
-  const s = useSyncExternalStore(subscribe, snapshot, () => "system:light");
-  const [preference, resolved] = s.split(":") as [ThemePreference, ThemeName];
-  return { preference, resolved };
+  const s = useSyncExternalStore(subscribe, snapshot, () => "system:light:");
+  const [preference, resolved, contrast] = s.split(":") as [ThemePreference, ThemeName, string];
+  return { preference, resolved, contrast: contrast === "more" };
 }
 
 /** useTheme, and keeps <html data-theme> in step (a root without ThemeProvider: the Gallery). */
 export function useThemeRoot(): ThemeState {
   const t = useTheme();
   useEffect(() => applyTheme(t.resolved), [t.resolved]);
+  useEffect(() => applyContrast(t.contrast), [t.contrast]);
   return t;
 }

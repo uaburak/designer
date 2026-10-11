@@ -30,6 +30,8 @@ export interface SignInOptions {
   fetch?: typeof fetch;
   timeoutMs?: number;
   signal?: AbortSignal;
+  /** Sent with the code exchange: the server names the session by it (Settings › Security › Sessions — "App") */
+  userAgent?: string;
 }
 
 const b64url = (b: Buffer) => b.toString("base64url");
@@ -72,7 +74,7 @@ export async function signInWithBrowser(opts: SignInOptions): Promise<Session> {
     await opts.openBrowser(login.toString());
     const r = await answered;
     if ("error" in r) throw r.error;
-    const res = await doFetch(new URL("/auth/token", opts.server), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: r.code, verifier }) });
+    const res = await doFetch(new URL("/auth/token", opts.server), { method: "POST", headers: { "content-type": "application/json", ...(opts.userAgent ? { "user-agent": opts.userAgent } : {}) }, body: JSON.stringify({ code: r.code, verifier }) });
     if (!res.ok) throw new SignInError("failed", `token exchange ${res.status}`);
     const body = (await res.json()) as { token: string; expiresAt: number; user: AccountUser };
     return { server: opts.server, token: body.token, expiresAt: body.expiresAt, user: body.user };

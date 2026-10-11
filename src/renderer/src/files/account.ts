@@ -3,7 +3,7 @@
  * and opens Figma's account menu — Log in / Log out. Main does the sign-in in the system browser; Home only asks.
  */
 import { useEffect, useState } from "react";
-import type { AccountState, SignInResult } from "@shared/account";
+import type { AccountMethod, AccountResponse, AccountState, SignInResult } from "@shared/account";
 import type { MenuEntry } from "@/ds";
 import { storeMode } from "../store";
 import { webAccount } from "../store/webAccount";
@@ -15,24 +15,43 @@ interface AccountBridge {
   cancelSignIn(): Promise<AccountState>;
   signOut(): Promise<AccountState>;
   onChanged(cb: (s: AccountState) => void): () => void;
+  /** Settings: the caller's own account on the server (`/me…`) */
+  request(r: { method: AccountMethod; path: string; body?: unknown }): Promise<AccountResponse>;
 }
 
 /** The desktop app's preload, or the page's own sign-in in a plain browser (docs/multiplayer.md §2). */
-const bridge = (): AccountBridge | null => {
+export const accountBridge = (): AccountBridge | null => {
   if (typeof window === "undefined") return null;
   const desktop = (window as unknown as { designer?: { account?: AccountBridge } }).designer?.account;
   if (desktop) return desktop;
   return storeMode() === "dev" && typeof crypto !== "undefined" && !!crypto.subtle ? webAccount : null;
 };
 
-export type AccountMenuId = "log-in" | "cancel-log-in" | "log-out";
+/** The account as last heard, for code outside React (the editor's Log out command's enabled state). */
+let last: AccountState | null = null;
+let watching = false;
+export function accountSignedIn(): boolean {
+  const b = accountBridge();
+  if (b && !watching) {
+    watching = true;
+    void b.get().then((s) => (last = s), () => {});
+    b.onChanged((s) => (last = s));
+  }
+  return !!last?.user;
+}
 
-/** Figma's account menu: the email over Log out when signed in; Log in otherwise (a waiting sign-in can be cancelled). */
+export type AccountMenuId = "log-in" | "cancel-log-in" | "log-out" | "settings";
+
+/**
+ * Figma's account menu: the email, "Settings" (help.figma.com 1500006061462 — the Settings modal), Log out; signed
+ * out, Log in (a waiting sign-in can be cancelled) and Settings (the machine's own: theme, fonts, agents).
+ */
 export function accountMenu(state: AccountState | null): MenuEntry[] {
-  if (!state) return [];
-  if (state.user) return [{ header: state.user.email }, { id: "log-out", label: "Log out" }];
-  if (state.signingIn) return [{ id: "waiting", label: "Waiting for the browser…", disabled: true }, { id: "cancel-log-in", label: "Cancel" }];
-  return [{ id: "log-in", label: "Log in with Google…" }];
+  const settings: MenuEntry = { id: "settings", label: "Settings" };
+  if (!state) return [settings];
+  if (state.user) return [{ header: state.user.email }, settings, "-", { id: "log-out", label: "Log out" }];
+  if (state.signingIn) return [{ id: "waiting", label: "Waiting for the browser…", disabled: true }, { id: "cancel-log-in", label: "Cancel" }, "-", settings];
+  return [{ id: "log-in", label: "Log in with Google…" }, "-", settings];
 }
 
 /** Sign-in failures worth a toast (a cancel isn't one). */
@@ -44,7 +63,7 @@ export function signInFailure(r: SignInResult): string | null {
 export function useAccount() {
   const [state, setState] = useState<AccountState | null>(null);
   useEffect(() => {
-    const b = bridge();
+    const b = accountBridge();
     if (!b) return;
     let live = true;
     void b.get().then((s) => live && setState(s));
@@ -56,10 +75,10 @@ export function useAccount() {
   }, []);
   return {
     state,
-    available: bridge() !== null,
+    available: accountBridge() !== null,
     /** Runs a menu choice; resolves to a failure message for a toast, if any */
     async run(id: string): Promise<string | null> {
-      const b = bridge();
+      const b = accountBridge();
       if (!b) return null;
       if (id === "log-in") return signInFailure(await b.signIn());
       if (id === "cancel-log-in") await b.cancelSignIn();

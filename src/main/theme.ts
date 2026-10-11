@@ -15,14 +15,19 @@ import { controllers } from "./window";
  * (app/HomeApp.tsx), and a change made there comes here through `theme:set`.
  */
 
-export const themeState = (): ThemeState => ({ preference: nativeTheme.themeSource, resolved: nativeTheme.shouldUseDarkColors ? "dark" : "light" });
+let contrast = false;
+
+export const themeState = (): ThemeState => ({ preference: nativeTheme.themeSource, resolved: nativeTheme.shouldUseDarkColors ? "dark" : "light", contrast });
+
+/** `--designer-theme=<preference>:<resolved>[:contrast]` for a new view's preload (boot.js reads it before the first paint). */
+export const themeArg = (): string => `${nativeTheme.themeSource}:${nativeTheme.shouldUseDarkColors ? "dark" : "light"}${contrast ? ":contrast" : ""}`;
 
 let lastSent = "";
 
 /** Every view told, the views' colours and the menu's radio set — once per actual change. */
 export function themeChanged() {
   const state = themeState();
-  const key = `${state.preference}:${state.resolved}`;
+  const key = `${state.preference}:${state.resolved}:${state.contrast}`;
   if (key === lastSent) return;
   lastSent = key;
   for (const contents of webContents.getAllWebContents()) if (viewOf(contents) && !contents.isDestroyed()) contents.send("theme:changed", state);
@@ -38,9 +43,20 @@ export function setThemePreference(preference: ThemePreference): ThemeState {
   return themeState();
 }
 
+/** Settings › Account › Enhance contrast: kept in settings.json, every view told (docs/design-system.md §2.5). */
+export function setContrast(on: boolean): ThemeState {
+  contrast = on;
+  const { contrast: _old, ...rest } = readSettings();
+  writeSettings(on ? { ...rest, contrast: true } : rest);
+  themeChanged();
+  return themeState();
+}
+
 /** At launch: the kept preference, and the system's changes followed. */
 export function initTheme() {
-  nativeTheme.themeSource = readSettings().theme;
-  lastSent = `${themeState().preference}:${themeState().resolved}`;
+  const s = readSettings();
+  nativeTheme.themeSource = s.theme;
+  contrast = s.contrast === true;
+  lastSent = `${themeState().preference}:${themeState().resolved}:${contrast}`;
   nativeTheme.on("updated", themeChanged);
 }

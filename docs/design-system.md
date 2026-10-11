@@ -596,6 +596,13 @@ export function chromePalette(theme: ThemeName): Float32Array;               // 
 4. Chrome text (badges, frame titles, rulers) uses Inter. The engine loads the same Inter variable font file the chrome uses. Font loading belongs to the engine/fonts contract; the weights are 450 and the sizes are in 1.4.
 5. The page colour is document data. `canvasDefault` is used only for a page whose background is the default.
 
+### 2.5 Enhance contrast (2026-10-11)
+
+Settings › Account › Theme › **Enhance contrast** — "When enabled, contrast between text and controls and their backgrounds will be increased" (the owner's 6.png; Figma's own option is "Enhanced contrast", R17-settings.md). Figma publishes no values for it, so ours are tagged G in `tokens.ts`:
+
+- **Tokens**: `figmaColorContrast` and `appColorContrast` (both [light, dark]) replace their tokens — secondary / tertiary / disabled text and icons more opaque (text-secondary .5 → .76 light, .7 → .86 dark; tertiary .3 → .58 / .4 → .68), `border` #e6e6e6 → #949494 / #444 → #7a7a7a, the tab bar's and rail's lines, the menus' secondary text and separators, translucent borders, `text-brand` / `text-danger` a step deeper. `contrastVariables(theme)`; `renderTokensCss` writes them under `[data-contrast="more"][data-theme=…]` and `[data-contrast="more"] [data-theme=…]` (the root's theme and any re-themed subtree, e.g. a portal). `npm run tokens`.
+- **Preference**: main's (`settings.json` `contrast`, `src/main/theme.ts setContrast`), part of `ThemeState` (`contrast: boolean`) — the boot argument is `--designer-theme=<preference>:<resolved>[:contrast]`, `theme:set-contrast` (invoke, Home and editors) sets it and every view hears `theme:changed`. `boot.js` puts `data-contrast="more"` on `<html>` before the first paint; `ds/theme.ts` `setContrast(on)` / `applyContrast` and `useThemeRoot` keep it in step (a browser keeps it in localStorage `designer-contrast`). The canvas chrome palette is unchanged.
+
 ---
 
 ## 3. Styling approach
@@ -1322,6 +1329,16 @@ Port `components/ScrollArea.tsx`.
 Site-only modules (PageEntrance, ScrollReveal, TextScrollingEffect, Footer, CodeHighlight, Zoomable\*, demos, JsonEditor, CV) are not the DS's to port. They disappear with the site code.
 
 ---
+
+### 4.36 Settings modal (2026-10-11)
+
+Figma's Settings (`src/renderer/src/settings/`; help.figma.com 1500006061462; measured on the owner's 3–9.png ÷ 2 with the ink of each string matched in Inter — `docs/research/figma/R17-settings.md`). Opened from Home's account menu (**Settings**, `files/account.ts accountMenu`; the bell's gear opens it at Notifications) and the editor's main menu (Help and account › **Account settings**, `help.account`); `openSettings(tab)` / `SettingsHost` (mounted in `FilesApp` and `EditorApp`), state in `settings/bridge.ts`.
+
+- **Frame**: 650 × 730 (≤ 100vh − 64), radius large, modal elevation, centred on the scrim. Header 40 with its 1 px line: the tabs as 24-high pills 8 in from the left, 6 apart, `body-medium` (selected: `body-medium-strong` on `bg-secondary`); the ✕ (24.close.small) 8 from the right. Tabs: **Account | Community | Notifications | Security | Agents** (Agents is ours, after Security). ← / → move between tabs, Esc closes.
+- **Body**: scrolls; 40 from the header, 48 in at the sides. A section: its heading (`settings-heading` 14 / 24), 12, its value and its link (`body-medium` 11 / 16, 12 apart; links `text-brand`, Delete account `text-danger`), 24 to the next; groups split by a 1 px `border` line with 24 above and below. Account's content starts 200 in, beside the 120 photo (Edit 12 under it). "Your spaces" is `settings-title` (15 / 24) with the 32 team avatar, 16 to its lines. Theme: a 128-wide outlined Select, 20, then the 32 × 16 switch (`Switch size="large"`, token `switch-width-large`) with its label and its description 8 to its right. Closed captions 13 px (`settings-caption`) with a 16-high Beta pill. Uploaded fonts: the 24 Upload font button, then rows 53 high (a line on top, 9 in, family over style at 12 / 16, "Rag 123" at 16 px in the face itself, the 24 trash button at the right). Security's sessions table: 12 px (`settings-cell`), columns 210 / 114 / 170 / the rest, header 31 over the rows, rows 32 + 28; the 24 device glyph (24.device.desktop / 24.device.mobile) 8 before "City, Country" over "App · ip" / "Login · ip"; "Current" in `text-tertiary`, "Sign out" in `text-danger`.
+- **Dialogs** (ds Dialog): Change name, Change email (Managed by Google), Change role, Change language, View history, Delete account (type the email), Generate new token (name, expiration, scopes → the token shown once), the drafts' Libraries.
+- **Agents tab**: `panels/agents/AgentSettings.tsx` itself with `embedded` (the modal's insets and headings) on a host of its own (`editor/agents/setup.ts` `AgentSetupService` — the Agents tab's `AgentsService` implements the same `AgentSetupHost`).
+- **Verified**: side by side with 5–9.png in the browser (`npm run web` on `wrangler dev`) and in the built app (`scripts/drive.mjs`): header, tabs, close, photo, every heading / value / link / line of Account and Security within 1 px of the screenshots; the content is 8 narrower where the system shows a classic scrollbar.
 
 ## 5. File layout, Gallery, visual verification
 

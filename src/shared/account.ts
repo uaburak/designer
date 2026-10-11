@@ -22,3 +22,151 @@ export type SignInResult = { ok: true; state: AccountState } | { ok: false; erro
 
 /** The production server; `DESIGNER_SERVER` overrides it (e.g. http://localhost:8787 for `npm --prefix server run dev`). */
 export const DEFAULT_SERVER = "https://designer.burak-kc-sp.workers.dev";
+
+// ── Settings (docs/multiplayer.md §13; docs/research/figma/R17-settings.md) ──────────────────────────────────────────
+
+/** Figma's work roles (Settings › Account › Role; the onboarding's "What kind of work do you do?"). */
+export const ROLES = ["Design", "Development", "Product management", "User research", "Marketing", "Data analytics", "Education", "Student", "Other"] as const;
+
+/** Figma's languages (Settings › Account › Change language). Only English is built; the others are listed, disabled. */
+export const LANGUAGES: readonly { id: string; label: string; available: boolean }[] = [
+  { id: "en", label: "English", available: true },
+  { id: "es-es", label: "Español (España)", available: false },
+  { id: "es-la", label: "Español (Latinoamérica)", available: false },
+  { id: "fr", label: "Français", available: false },
+  { id: "de", label: "Deutsch", available: false },
+  { id: "ja", label: "日本語", available: false },
+  { id: "ko", label: "한국어", available: false },
+  { id: "pt-br", label: "Português (Brasil)", available: false },
+];
+
+/** Settings kept with the account (Figma keeps them per account, not per machine). */
+export interface AccountPrefs {
+  /** "Language" (only "en" is built) */
+  language?: string;
+  /** New features › Closed captions: "Enable closed captioning when using audio inside your files." */
+  closedCaptions?: boolean;
+  /** View history: false = "Off" — opening a file isn't recorded for others to see */
+  viewHistory?: boolean;
+}
+
+/** Settings › Community: the Community profile (help.figma.com 360038510833, 4404108672663). */
+export interface CommunityProfile {
+  /** "@handle": 1–15 letters, digits or _ ; unique */
+  handle?: string;
+  bio?: string;
+  location?: string;
+  website?: string;
+  x?: string;
+  instagram?: string;
+}
+
+export const HANDLE_RE = /^[A-Za-z0-9_]{1,15}$/;
+export const MAX_BIO = 160;
+
+/** `GET /me/profile`: the account as Settings shows it. */
+export interface AccountProfile extends AccountUser {
+  role: string | null;
+  community: CommunityProfile;
+  prefs: AccountPrefs;
+  /** Signed in with Google: email and password are Google's ("Managed by Google") */
+  provider: "google" | "dev";
+}
+
+/** `PATCH /me/profile` */
+export interface ProfilePatch {
+  name?: string;
+  /** A data:image/(png|jpeg|webp);base64 URL ≤ 300 kB, or null to go back to Google's photo */
+  picture?: string | null;
+  role?: string | null;
+  community?: CommunityProfile;
+  prefs?: AccountPrefs;
+}
+
+export const MAX_PICTURE_CHARS = 300_000;
+
+/** A row of Settings › Security › Sessions (`GET /me/sessions`). */
+export interface SessionInfo {
+  id: string;
+  /** "app": the desktop app — "App · ip"; "login": a browser — "Login · ip" */
+  kind: "app" | "login";
+  os: string | null;
+  browser: string | null;
+  ip: string | null;
+  city: string | null;
+  country: string | null;
+  createdAt: number;
+  lastSeenAt: number;
+  /** The session making the request: "Current" instead of "Sign out" */
+  current: boolean;
+}
+
+/**
+ * Personal access tokens' scopes: Figma's REST scope names (developers.figma.com/docs/rest-api/scopes), the ones our
+ * API serves. A token only reads (and writes comments); never the account, sharing or the rooms' sockets.
+ */
+export const TOKEN_SCOPES = [
+  { id: "current_user:read", group: "Users", label: "Read your name, email, and profile image." },
+  { id: "file_content:read", group: "Files", label: "Read the contents of files, such as nodes and images." },
+  { id: "file_metadata:read", group: "Files", label: "Read metadata of files, such as names and who can access them." },
+  { id: "file_comments:read", group: "Comments", label: "Read the comments of files." },
+  { id: "file_comments:write", group: "Comments", label: "Post and delete comments and comment reactions in files." },
+] as const;
+export type TokenScope = (typeof TOKEN_SCOPES)[number]["id"];
+export const isTokenScope = (s: unknown): s is TokenScope => TOKEN_SCOPES.some((t) => t.id === s);
+
+/** Expiration choices (Figma removed non-expiring tokens in 2025; 90 days at most). */
+export const TOKEN_EXPIRATIONS = [
+  { days: 1, label: "1 day" },
+  { days: 7, label: "7 days" },
+  { days: 30, label: "30 days" },
+  { days: 90, label: "90 days" },
+] as const;
+
+/** Our tokens' prefix (Figma's are "figd_") */
+export const TOKEN_PREFIX = "dsgn_";
+
+/** A personal access token as listed (`GET /me/tokens`); the token itself is shown once, at `POST /me/tokens`. */
+export interface AccessTokenInfo {
+  id: string;
+  description: string;
+  scopes: TokenScope[];
+  createdAt: number;
+  expiresAt: number | null;
+  lastUsedAt: number | null;
+}
+
+/** What a view may ask the server through main (`account:request`): the caller's own account, nothing else. */
+export const ACCOUNT_PATH = /^\/me(\/(profile|sessions|tokens)(\/[A-Za-z0-9_-]{1,64})?)?$/;
+export type AccountMethod = "GET" | "POST" | "PATCH" | "DELETE";
+
+export interface AccountResponse<T = unknown> {
+  status: number;
+  body: T;
+}
+
+/** Figma's "Last accessed" / "Created …" / "Connected …" wording: "Just now", "16 hours ago", "2 months ago". */
+export function timeAgo(then: number, now: number): string {
+  const s = Math.max(0, Math.round((now - then) / 1000));
+  if (s < 60) return "Just now";
+  const unit = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"} ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return unit(m, "minute");
+  const h = Math.floor(m / 60);
+  if (h < 24) return unit(h, "hour");
+  const d = Math.floor(h / 24);
+  if (d < 30) return unit(d, "day");
+  const mo = Math.floor(d / 30);
+  if (mo < 12) return unit(mo, "month");
+  return unit(Math.floor(d / 365), "year");
+}
+
+/** Parses a User-Agent for Sessions' "OS & Browser" (the desktop app sends `DesignerV2-Desktop/<version> (<os>)`). */
+export function deviceFromUserAgent(ua: string | null): { kind: "app" | "login"; os: string | null; browser: string | null } {
+  const s = ua ?? "";
+  const app = /DesignerV2-Desktop\/[\w.-]+(?: \(([^)]*)\))?/.exec(s);
+  if (app) return { kind: "app", os: app[1] || null, browser: "DesignerV2 Desktop" };
+  const os = /iPhone/.test(s) ? "iOS (iPhone)" : /iPad/.test(s) ? "iOS (iPad)" : /Android/.test(s) ? "Android" : /CrOS/.test(s) ? "ChromeOS" : /Mac OS X|Macintosh/.test(s) ? "macOS" : /Windows/.test(s) ? "Windows" : /Linux/.test(s) ? "Linux" : null;
+  const browser = /Edg(e|A|iOS)?\//.test(s) ? "Edge" : /OPR\//.test(s) ? "Opera" : /Firefox\/|FxiOS/.test(s) ? "Firefox" : /Chrome\/|CriOS/.test(s) ? "Chrome" : /Safari\//.test(s) ? "Safari" : null;
+  return { kind: "login", os, browser };
+}

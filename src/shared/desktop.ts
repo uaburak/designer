@@ -28,11 +28,12 @@ import type {
   TabsSnapshot,
   ThemePreference,
   ThemeState,
+  UploadedFont,
   VectorClipboard,
   WindowState,
 } from "./ipc";
-import type { AccountState, SignInResult } from "./account";
-import type { AgentsApi } from "./agents/types";
+import type { AccountMethod, AccountResponse, AccountState, SignInResult } from "./account";
+import type { AgentSetupApi, AgentsApi } from "./agents/types";
 import type { ShortcutSettings } from "./shortcuts";
 import type { TabReport } from "./tabs";
 
@@ -48,6 +49,8 @@ interface DesktopCommon {
   /** The theme when the view was made (`--designer-theme`), for boot.js before the first paint; onThemeChanged after */
   theme: ThemeState;
   setTheme(preference: ThemePreference): Promise<ThemeState>;
+  /** Settings › Account › Enhance contrast (Home and editors) */
+  setContrast(on: boolean): Promise<ThemeState>;
   onThemeChanged(cb: (t: ThemeState) => void): Unsubscribe;
   onWindowState(cb: (s: WindowState) => void): Unsubscribe;
   onFullScreen(cb: (fullScreen: boolean) => void): Unsubscribe;
@@ -60,6 +63,8 @@ interface DesktopCommon {
     cancelSignIn(): Promise<AccountState>;
     signOut(): Promise<AccountState>;
     onChanged(cb: (s: AccountState) => void): Unsubscribe;
+    /** Settings: the caller's own account on the server (`/me…`), main adding the session (Home and editors) */
+    request(r: { method: AccountMethod; path: string; body?: unknown }): Promise<AccountResponse>;
   };
   menu: {
     /** A native menu at a point of this view: the picked item's id, or null when dismissed */
@@ -143,6 +148,18 @@ export interface HomeApi extends DesktopCommon {
   };
   menu: ViewMenuApi;
   openExternal(url: string): void;
+  /** Settings › Account › Your uploaded fonts: the faces, a face's bytes (its sample), upload, remove */
+  fonts: { read(id: string): Promise<Uint8Array> } & UploadedFontsApi;
+  /** Settings › Agents: the agents' setup (no turns) */
+  agents: AgentSetupApi;
+}
+
+/** "Your uploaded fonts" (docs/desktop.md §14.2) */
+export interface UploadedFontsApi {
+  uploaded(): Promise<UploadedFont[]>;
+  /** Main's Open dialog; the files checked and copied into userData/fonts/uploaded */
+  upload(): Promise<{ fonts: UploadedFont[]; failed: string[] } | { cancelled: true }>;
+  removeUploaded(id: string): Promise<UploadedFont[]>;
 }
 
 export interface EditorApi extends DesktopCommon {
@@ -184,7 +201,7 @@ export interface EditorApi extends DesktopCommon {
     preview(family: string, text: string): Promise<Uint8Array>;
     /** Fonts were installed or removed, or the Google catalog changed */
     onChanged(cb: () => void): () => void;
-  };
+  } & UploadedFontsApi;
   /**
    * Text › Spell check (round 10; src/renderer/src/editor/spellcheck.ts): the view's spell checker (Chromium's, the
    * system's dictionaries) — which of `words` it doesn't know. In the preload, no IPC.

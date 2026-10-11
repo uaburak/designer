@@ -79,6 +79,13 @@
     --ds-size-checkbox: 16px;
     --ds-size-switch-width: 28px;
     --ds-size-switch-height: 16px;
+    --ds-size-switch-width-large: 32px;
+    --ds-size-settings-modal: 650px;
+    --ds-size-settings-modal-height: 730px;
+    --ds-size-settings-header: 40px;
+    --ds-size-settings-pad: 48px;
+    --ds-size-settings-content: 200px;
+    --ds-size-settings-photo: 120px;
     --ds-size-chit: 14px;
     --ds-size-swatch-round: 16px;
     --ds-size-styles-row: 30px;
@@ -133,6 +140,21 @@
     --ds-font-heading-large: 550 24px/32px "Inter Symbols", "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
     --ds-tracking-heading-large: -0.47px;
     --ds-weight-heading-large: 550;
+    --ds-font-settings-heading: 450 14px/24px "Inter Symbols", "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
+    --ds-tracking-settings-heading: 0px;
+    --ds-weight-settings-heading: 450;
+    --ds-font-settings-title: 450 15px/24px "Inter Symbols", "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
+    --ds-tracking-settings-title: 0px;
+    --ds-weight-settings-title: 450;
+    --ds-font-settings-cell: 450 12px/16px "Inter Symbols", "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
+    --ds-tracking-settings-cell: 0px;
+    --ds-weight-settings-cell: 450;
+    --ds-font-settings-caption: 400 13px/20px "Inter Symbols", "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
+    --ds-tracking-settings-caption: 0px;
+    --ds-weight-settings-caption: 400;
+    --ds-font-settings-sample: 400 16px/20px "Inter Symbols", "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
+    --ds-tracking-settings-sample: 0px;
+    --ds-weight-settings-sample: 400;
     --ds-font-code: 400 11px/16px ui-monospace, "SF Mono", Menlo, monospace;
     --ds-tracking-code: 0px;
     --ds-weight-code: 400;
@@ -628,5 +650,59 @@
     --ds-elevation-500-modal-window: 0 10px 24px #00000073, 0 3px 5px #00000059, inset 0 0.75px 0 #ffffff1a;
     --ds-elevation-menu: 0 0 0.5px #0000004d, 0 5px 17px #00000040, 0 2px 7px #00000026;
     --ds-focus-color: var(--figma-color-border-selected);
+  }
+  [data-contrast="more"][data-theme="light"],
+  [data-contrast="more"] [data-theme="light"] {
+    --figma-color-text-secondary: #000000c2;
+    --figma-color-text-tertiary: #00000094;
+    --figma-color-text-disabled: #00000073;
+    --figma-color-text-secondary-hover: #000000;
+    --figma-color-icon-secondary: #000000c2;
+    --figma-color-icon-tertiary: #00000094;
+    --figma-color-icon-disabled: #00000073;
+    --figma-color-text-onselected-secondary: #000000c2;
+    --figma-color-icon-onselected-secondary: #000000c2;
+    --figma-color-border: #949494;
+    --figma-color-border-disabled: #c2c2c2;
+    --figma-color-border-strong: #000000;
+    --figma-color-border-selected: #007be5;
+    --figma-color-text-brand: #0060b3;
+    --figma-color-text-danger: #b02a0f;
+    --ds-color-tabbar-text: #000000c2;
+    --ds-color-tabbar-line: #949494;
+    --ds-color-tabbar-separator: #949494;
+    --ds-color-rail-separator: #949494;
+    --ds-color-menu-text-secondary: #ffffffdb;
+    --ds-color-menu-text-disabled: #ffffff8c;
+    --ds-color-menu-separator: #6b6b6b;
+    --ds-color-border-translucent: #00000066;
+    --ds-color-border-translucent-strong: #00000099;
+  }
+  [data-contrast="more"][data-theme="dark"],
+  [data-contrast="more"] [data-theme="dark"] {
+    --figma-color-text-secondary: #ffffffdb;
+    --figma-color-text-tertiary: #ffffffad;
+    --figma-color-text-disabled: #ffffff8c;
+    --figma-color-text-secondary-hover: #ffffff;
+    --figma-color-icon-secondary: #ffffffdb;
+    --figma-color-icon-tertiary: #ffffffad;
+    --figma-color-icon-disabled: #ffffff8c;
+    --figma-color-text-onselected-secondary: #ffffffdb;
+    --figma-color-icon-onselected-secondary: #ffffffdb;
+    --figma-color-border: #7a7a7a;
+    --figma-color-border-disabled: #5c5c5c;
+    --figma-color-border-strong: #ffffff;
+    --figma-color-border-selected: #7cc4f8;
+    --figma-color-text-brand: #9dd3fa;
+    --figma-color-text-danger: #fdbdb4;
+    --ds-color-tabbar-text: #ffffffdb;
+    --ds-color-tabbar-line: #7a7a7a;
+    --ds-color-tabbar-separator: #7a7a7a;
+    --ds-color-rail-separator: #7a7a7a;
+    --ds-color-menu-text-secondary: #ffffffdb;
+    --ds-color-menu-text-disabled: #ffffff8c;
+    --ds-color-menu-separator: #6b6b6b;
+    --ds-color-border-translucent: #ffffff66;
+    --ds-color-border-translucent-strong: #ffffff99;
   }
 }

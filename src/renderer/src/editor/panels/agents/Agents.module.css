@@ -209,6 +209,16 @@
 
   /* Agent settings: the list (groups of 32 px rows: icon, name, state, chevron) and an item's page */
   .settings { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+  /* Settings › Agents: the modal's look — 48 in at the sides, its headings, the modal's body scrolls (not the list) */
+  .embedded { padding: var(--ds-space-4) var(--ds-size-settings-pad) var(--ds-space-12); }
+  .embedded .scroll { overflow: visible; }
+  .embedded .chatBar { padding: 0; }
+  .embedded .chatBar > :first-child:not(button) { margin-left: 0; }
+  .embedded .chatBarTitle { font: var(--ds-font-settings-heading); letter-spacing: var(--ds-tracking-settings-heading); }
+  .embedded .group { padding: var(--ds-space-3) 0; }
+  .embedded .groupTitle { padding: 0; font: var(--ds-font-settings-heading); letter-spacing: var(--ds-tracking-settings-heading); }
+  .embedded .row { margin: 0 calc(-1 * var(--ds-space-1)); }
+  .embedded .block, .embedded .footnote { padding-right: 0; padding-left: 0; }
   .barSpinner { display: inline-flex; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); }
   .group { padding: var(--ds-space-1) 0 var(--ds-space-2); border-top: 1px solid var(--figma-color-border); }
   .group:first-child { border-top: 0; }

@@ -39,6 +39,8 @@ export interface Settings {
   theme: ThemePreference;
   /** The Keyboard shortcuts panel's (src/shared/shortcuts.ts); absent until the user changes or uses one */
   shortcuts?: ShortcutSettings;
+  /** Settings › Account › Enhance contrast */
+  contrast?: boolean;
 }
 
 const file = (name: string) => join(app.getPath("userData"), name);
@@ -112,7 +114,7 @@ const isTheme = (t: unknown): t is ThemePreference => t === "system" || t === "l
 
 export function readSettings(): Settings {
   const saved = readJson("settings.json") as Partial<Settings> | null;
-  if (saved && isTheme(saved.theme)) return { theme: saved.theme, ...(saved.shortcuts ? { shortcuts: sanitizeShortcutSettings(saved.shortcuts) } : {}) };
+  if (saved && isTheme(saved.theme)) return { theme: saved.theme, ...(saved.shortcuts ? { shortcuts: sanitizeShortcutSettings(saved.shortcuts) } : {}), ...(saved.contrast === true ? { contrast: true } : {}) };
   const old = readJson("window.json") as { theme?: unknown } | null;
   return { theme: isTheme(old?.theme) ? old.theme : "system" };
 }

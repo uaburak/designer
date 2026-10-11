@@ -119,8 +119,10 @@ describe("round 10: the stubs live has enabled (live menus/main-*.txt)", () => {
 
   it("the intended exclusions stay disabled", async () => {
     const { ed } = await editor();
-    for (const id of ["file.open-in-desktop", "canvas.send-to-make", "canvas.find-similar", "canvas.add-motion", "plugins.manage", "widgets.manage", "widgets.select-all", "prefs.color-profile", "prefs.accessibility", "prefs.permissions", "help.font-settings", "help.account", "help.log-out", "canvas.rename-layers-ai"])
+    for (const id of ["file.open-in-desktop", "canvas.send-to-make", "canvas.find-similar", "canvas.add-motion", "plugins.manage", "widgets.manage", "widgets.select-all", "prefs.color-profile", "prefs.accessibility", "prefs.permissions", "help.font-settings", "help.log-out", "canvas.rename-layers-ai"])
       expect(enabled(ed, id), id).toBe(false);
+    // Account settings opens the Settings modal (src/renderer/src/settings); Log out waits for a signed-in account.
+    expect(enabled(ed, "help.account")).toBe(true);
   });
 });
 
