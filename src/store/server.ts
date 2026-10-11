@@ -8,6 +8,7 @@ import type { FileChange, LibraryEvent, OpenedFile, StoreApi, Unsubscribe, Works
 import type { FileKey } from "../shared/store/types";
 import type { FileShareState, MultiplayerNotice } from "../shared/multiplayer/types";
 import type { NotificationsEvent } from "../shared/notifications";
+import type { OrgEvent } from "../shared/org/repositories";
 
 /**
  * What the server needs from a store: `LocalStore` (the utility process), or the browser's in-memory dev store
@@ -31,6 +32,8 @@ export interface ServableStore {
   readonly comments?: { onChange(listener: (fileKey: FileKey) => void): Unsubscribe };
   /** The bell's counts and new notifications (docs/multiplayer.md §12) */
   readonly notifications?: { onChange(listener: (e: NotificationsEvent) => void): Unsubscribe };
+  /** The org spaces' changes (docs/multiplayer.md §14.6), topic `org` */
+  readonly org?: { onEvent(listener: (e: OrgEvent) => void): Unsubscribe };
   readonly files: {
     /** Frames after `fromSeq` for a subscriber catching up */
     backlog(fileKey: FileKey, fromSeq: number): Promise<FileChange[]>;
@@ -133,6 +136,7 @@ export class StoreServer {
     }
     if (store.comments) this.offs.push(store.comments.onChange((fileKey) => this.broadcast({ t: "evt", topic: "comments", d: { fileKey } })));
     if (store.notifications) this.offs.push(store.notifications.onChange((d) => this.broadcast({ t: "evt", topic: "notifications", d })));
+    if (store.org) this.offs.push(store.org.onEvent((d) => this.broadcast({ t: "evt", topic: "org", d })));
   }
 
   get size(): number {

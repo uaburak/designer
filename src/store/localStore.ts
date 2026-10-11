@@ -26,7 +26,7 @@ import type {
   WorkspaceEvent,
   WorkspaceRepository,
 } from "../shared/store/repositories";
-import { isFileKey, type FileKey, type FileMeta, type FolderId, type PreviewRecord, type VersionRecord } from "../shared/store/types";
+import { isFileKey, type FileKey, type FileMeta, type FileSpace, type FolderId, type PreviewRecord, type VersionRecord } from "../shared/store/types";
 import { inlineCompactor, type Compactor } from "./compactor";
 import { writeLocalCopy } from "./export/fig";
 import { prepareFigImport } from "./import/fig";
@@ -45,6 +45,7 @@ import { multiplayerApi } from "./multiplayer/api";
 import { MultiplayerService } from "./multiplayer/service";
 import { CommentsService, commentsApi } from "./comments/service";
 import { NotificationsService, notificationsApi } from "./notifications/service";
+import { OrgService } from "./org/service";
 
 export interface LocalStoreOptions {
   workspaceDir: string;
@@ -154,6 +155,7 @@ export class LocalStore {
         backlog: (fileKey, fromSeq) => files.backlog(fileKey, fromSeq),
         appendRemote: (fileKey, message) => files.appendRemote(fileKey, message),
         createSharedFile: (input) => this.createSharedFile(input),
+        setFileSpace: async (fileKey, space) => void (await ws.queue.run(() => ws.setFileSpace(fileKey, space))),
         getMeta: (fileKey) => (ws.files.has(fileKey) ? ws.getMeta(fileKey) : null),
         get deviceOrdinal() {
           return self.deviceOrdinal;
@@ -189,6 +191,45 @@ export class LocalStore {
       this.multiplayer,
     );
     this.notifications = new NotificationsService(this.multiplayer, { WebSocket: globalThis.WebSocket as never });
+    const spacePath = (orgId: string) => {
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(orgId)) throw new StoreError("invalid", `bad org id ${orgId}`);
+      return join(dirs.root, "spaces", `${orgId}.json`);
+    };
+    this.org = new OrgService(
+      this.multiplayer,
+      {
+        loadCache: (orgId) => readJsonOrNull(spacePath(orgId)),
+        saveCache: (orgId, cache) =>
+          this.spacesQueue.run(async () => {
+            if (!cache) return void (await fsp.rm(spacePath(orgId), { force: true }));
+            await ensureDir(join(dirs.root, "spaces"));
+            await writeJsonAtomic(dirs.tmp, spacePath(orgId), cache);
+          }),
+        cachedOrgIds: async () => (await fsp.readdir(join(dirs.root, "spaces")).catch(() => [] as string[])).filter((n) => /^[A-Za-z0-9_-]{1,64}\.json$/.test(n)).map((n) => n.slice(0, -5)),
+        createOrgFile: (input) => this.createOrgFile(input),
+        deleteLocalFile: (fileKey) => this.deleteItems({ files: [fileKey], folders: [] }),
+        setFileSpace: async (fileKey, space) => void (await ws.queue.run(() => ws.setFileSpace(fileKey, space))),
+        getMeta: (fileKey) => (ws.files.has(fileKey) ? ws.getMeta(fileKey) : null),
+        headSnapshot: async (fileKey) => codec.encodeMessage(currentMessage(await readSnapshotFile((await files.compactedHead(fileKey)).path))),
+        log,
+        now: () => clock.now(),
+      },
+      this.notifications,
+    );
+  }
+
+  /** The org spaces (docs/multiplayer.md §14.6): the server's orgs, teams, folders and their files, cached per org */
+  readonly org: OrgService;
+  private readonly spacesQueue = new SerialQueue();
+
+  /** A new org file's local copy (docs/multiplayer.md §14.6): an empty document, its `space` set from the start. */
+  async createOrgFile(input: { name: string; space: FileSpace }): Promise<FileMeta> {
+    this.guard();
+    const fileKey = newFileKey();
+    await this.files.createFile(fileKey, codec.encodeMessage(newDocumentMessage()), []);
+    const meta = newMeta(fileKey, input.name.trim() || "Untitled", null, this.clock.now());
+    meta.space = { ...input.space };
+    return this.ws.queue.run(() => this.ws.addFile(meta));
   }
 
   private readonly commentsQueue = new SerialQueue();
@@ -213,7 +254,7 @@ export class LocalStore {
   }
 
   /** A file shared with the user: the room's snapshot as it is — no GUID remapping, so its nodes keep the room's ids. */
-  async createSharedFile(input: { name: string; snapshot: Uint8Array }): Promise<FileMeta> {
+  async createSharedFile(input: { name: string; snapshot: Uint8Array; space?: FileSpace | null }): Promise<FileMeta> {
     this.guard();
     let table: NodeTable;
     try {
@@ -225,6 +266,7 @@ export class LocalStore {
     const key = newFileKey();
     await this.files.createFile(key, input.snapshot, [...table.imageHashes()].sort(), table.derivedDataVersion);
     const meta = newMeta(key, input.name.trim() || "Untitled", null, this.clock.now());
+    if (input.space) meta.space = { ...input.space };
     return this.ws.queue.run(() => this.ws.addFile(meta));
   }
 
@@ -522,6 +564,7 @@ export class LocalStore {
     this.closed = true;
     if (this.gcTimer) this.timers.clearTimeout(this.gcTimer);
     this.comments.close();
+    this.org.close();
     this.notifications.close();
     this.multiplayer.close();
     await this.files.shutdown();
@@ -643,7 +686,21 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
       return mp.setSession(session);
     },
   };
-  return { workspace, files, blobs, libraries, previews, store, multiplayer, comments: commentsApi(s.comments), notifications: notificationsApi(s.notifications) };
+  return {
+    workspace,
+    files,
+    blobs,
+    libraries,
+    previews,
+    store,
+    multiplayer,
+    comments: commentsApi(s.comments),
+    notifications: notificationsApi(s.notifications),
+    orgs: s.org.orgs,
+    teams: s.org.teams,
+    projects: s.org.projects,
+    admin: s.org.admin,
+  };
 }
 
 /** `previews.*` (docs/data.md §13) over this store, plus main's `exportHtml` and the start's `sweepExpired`. */

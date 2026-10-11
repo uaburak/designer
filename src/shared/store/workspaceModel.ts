@@ -5,6 +5,7 @@
  * on `queue`, one at a time; every listing and search runs against the index.
  */
 import type { FileQuery, WorkspaceEvent } from "./repositories";
+import type { SpaceId } from "../org/repositories";
 import { Emitter } from "./emitter";
 import { StoreError } from "./protocol";
 import { SerialQueue } from "./queue";
@@ -16,6 +17,7 @@ import {
   type FileKey,
   type FileListItem,
   type FileMeta,
+  type FileSpace,
   type Folder,
   type FolderColor,
   type FolderId,
@@ -23,6 +25,11 @@ import {
   type Prefs,
   type Workspace,
 } from "./types";
+
+/** "local" or "org:<id>" (docs/multiplayer.md §14.6) */
+export function isSpaceId(s: unknown): s is SpaceId {
+  return s === "local" || (typeof s === "string" && /^org:[A-Za-z0-9_-]{1,64}$/.test(s));
+}
 
 /** Case- and diacritic-insensitive form used by search. */
 export function searchKey(s: string): string {
@@ -154,9 +161,16 @@ export class WorkspaceModel {
     return [...this.folders.values()].map((f) => ({ ...f }));
   }
 
+  /** Org files' local copies (docs/multiplayer.md §14.6) stay out of the local space's own listings. */
+  isOrgCopy(m: FileMeta): boolean {
+    return !!m.space;
+  }
+
   listFiles(q: FileQuery): FileListItem[] {
     const live = (m: FileMeta) => !this.isFileTrashed(m);
     const byModified = (a: FileMeta, b: FileMeta) => b.updatedAt - a.updatedAt;
+    // Recents and Starred show both spaces; Drafts, folders, Trash and search are the local space's alone.
+    const local = [...this.files.values()].filter((m) => !this.isOrgCopy(m));
     switch (q.in) {
       case "recents": {
         const out: FileListItem[] = [];
@@ -167,20 +181,20 @@ export class WorkspaceModel {
         return out;
       }
       case "drafts":
-        return [...this.files.values()].filter((m) => m.folderId === null && live(m)).sort(byModified).map((m) => this.item(m));
+        return local.filter((m) => m.folderId === null && live(m)).sort(byModified).map((m) => this.item(m));
       case "folder": {
         this.getFolder(q.folderId);
         if (this.isFolderTrashed(q.folderId)) return [];
-        return [...this.files.values()].filter((m) => m.folderId === q.folderId && m.trashedAt === null).sort(byModified).map((m) => this.item(m));
+        return local.filter((m) => m.folderId === q.folderId && m.trashedAt === null).sort(byModified).map((m) => this.item(m));
       }
       case "starred":
         return this.prefs.starred.files.map((k) => this.files.get(k)).filter((m): m is FileMeta => !!m && live(m)).map((m) => this.item(m));
       case "trash":
-        return [...this.files.values()].filter((m) => m.trashedAt !== null).sort((a, b) => (b.trashedAt ?? 0) - (a.trashedAt ?? 0)).map((m) => this.item(m));
+        return local.filter((m) => m.trashedAt !== null).sort((a, b) => (b.trashedAt ?? 0) - (a.trashedAt ?? 0)).map((m) => this.item(m));
       case "search": {
         const needle = searchKey(q.text.trim());
         if (!needle) return [];
-        return [...this.files.values()].filter((m) => live(m) && searchKey(m.name).includes(needle)).sort(byModified).map((m) => this.item(m));
+        return local.filter((m) => live(m) && searchKey(m.name).includes(needle)).sort(byModified).map((m) => this.item(m));
       }
     }
   }
@@ -237,9 +251,19 @@ export class WorkspaceModel {
   async setBrowsePrefs(patch: Partial<Prefs["browse"]>): Promise<Prefs> {
     if (patch.layout !== undefined && !["grid", "list"].includes(patch.layout)) throw new StoreError("invalid", `bad layout ${patch.layout}`);
     if (patch.sort !== undefined && !["last-viewed", "last-modified", "alphabetical", "date-created"].includes(patch.sort)) throw new StoreError("invalid", `bad sort ${patch.sort}`);
+    if (patch.space !== undefined && !isSpaceId(patch.space)) throw new StoreError("invalid", `bad space ${String(patch.space)}`);
     return this.changePrefs(["browse"], (p) => {
-      p.browse = { ...p.browse, ...(patch.layout ? { layout: patch.layout } : {}), ...(patch.sort ? { sort: patch.sort } : {}) };
+      p.browse = { ...p.browse, ...(patch.layout ? { layout: patch.layout } : {}), ...(patch.sort ? { sort: patch.sort } : {}), ...(patch.space ? { space: patch.space } : {}) };
     });
+  }
+
+  /** An org copy's place (docs/multiplayer.md §14.6), or null: it becomes a local file again. */
+  async setFileSpace(fileKey: FileKey, space: FileSpace | null): Promise<FileMeta> {
+    const m = this.getMeta(fileKey);
+    const same = (m.space ?? null) === null ? space === null : !!space && m.space!.orgId === space.orgId && m.space!.key === space.key && m.space!.teamId === space.teamId && m.space!.projectId === space.projectId;
+    if (same) return { ...m };
+    // An org file has no local folder: a copy moved into an org leaves its local folder (it lists in the org's).
+    return this.patchFile(fileKey, space ? { space: { ...space }, folderId: null } : { space: null });
   }
 
   private checkName(name: unknown, what: string): string {
@@ -333,7 +357,7 @@ export class WorkspaceModel {
 
   async moveFiles(fileKeys: FileKey[], folderId: FolderId | null): Promise<void> {
     if (folderId !== null) this.checkParent(folderId);
-    for (const k of fileKeys) this.getMeta(k);
+    for (const k of fileKeys) if (this.isOrgCopy(this.getMeta(k))) throw new StoreError("invalid", "An organization's file moves within its organization");
     for (const k of fileKeys) {
       if (this.getMeta(k).folderId === folderId) continue;
       await this.patchFile(k, { folderId }, { silent: true });

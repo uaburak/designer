@@ -10,7 +10,7 @@ import "@/ds/global.css";
  * - `?files` (and no query): Home, the file browser on the store
  * - `?editor&file=<fileKey>`: a file's editor (`?editor` alone: a sample, in a browser)
  * - `?present&file=<fileKey>[&page=…][&node=…]`: the presentation view (a prototype tab)
- * - `?gallery`: the design system's gallery; `?engine`: the engine's playground
+ * - `?gallery`: the design system's gallery; `?engine`: the engine's playground; `?admin`: the Admin app on its fake
  * In a browser (`npm run web`) the same routes run without Electron.
  */
 const params = new URLSearchParams(location.search);
@@ -19,6 +19,7 @@ const page = (): ComponentType => {
   if (params.has("tabbar")) return lazy(() => import("@/app/TabBarApp"));
   if (params.has("gallery")) return lazy(() => import("@/ds/Gallery"));
   if (params.has("engine")) return lazy(() => import("@/engine/Playground"));
+  if (params.has("admin")) return lazy(() => import("@/admin/AdminRoute"));
   if (params.has("present")) return lazy(() => import("@/present/PresentRoute"));
   if (params.has("editor")) return lazy(() => import("@/editor/EditorRoute"));
   return lazy(() => import("@/files/FilesApp"));

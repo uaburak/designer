@@ -3,10 +3,11 @@
  * are structured clones (Uint8Arrays are copied once, no JSON). The store sends `hello` first on every new port.
  */
 
-export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer" | "comments" | "notifications";
+export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer" | "comments" | "notifications" | "orgs" | "teams" | "projects" | "admin";
 export type StoreMethod = `${Repository}.${string}`;
 export type PortRole = "main" | "home" | "editor";
-export type EventTopic = "workspace" | "file.changes" | "library" | "multiplayer" | "comments" | "notifications";
+/** `org`: OrgEvent (docs/multiplayer.md §14.6) */
+export type EventTopic = "workspace" | "file.changes" | "library" | "multiplayer" | "comments" | "notifications" | "org";
 
 export type RpcRequest = { t: "req"; id: number; m: StoreMethod; a: unknown[] };
 export type RpcResponse = { t: "res"; id: number; ok: true; v: unknown } | { t: "res"; id: number; ok: false; e: { code: StoreErrorCode; message: string; detail?: unknown } };
@@ -28,6 +29,8 @@ export type StoreErrorCode =
   | "invalid"
   | "forbidden"
   | "offline"
+  /** A name taken or a stale write (the server's 409; docs/multiplayer.md §14.6) */
+  | "conflict"
   | "shutting-down";
 
 export class StoreError extends Error {
@@ -98,6 +101,57 @@ export const STORE_METHODS = {
   multiplayer: ["setSession", "status", "fileState", "share", "listRemote", "openShared", "members", "fileInfo", "setLinkAccess", "setViewersCanCopy", "requestEdit", "requests", "answerRequest", "invite", "removeMember", "presence", "takeOpenIntent", "unlockFile", "setLinkPassword", "transferOwnership", "signal"],
   comments: ["list", "add", "edit", "remove", "setResolved", "setRead", "react", "move", "mentionable"],
   notifications: ["list", "markRead", "prefs", "setPrefs", "answer"],
+  // The org spaces (docs/multiplayer.md §14.6); `watch` is the `org` event topic
+  orgs: ["list", "get", "create", "people", "drafts", "createDraft", "search", "requestSeat", "groups", "createGroup", "updateGroup", "setGroupMembers", "deleteGroup", "leave"],
+  teams: ["list", "get", "create", "update", "remove", "restore", "transfer", "members", "invite", "setMember", "removeMember", "join", "leave", "requests", "answerRequest"],
+  projects: [
+    "list",
+    "get",
+    "create",
+    "update",
+    "move",
+    "trash",
+    "restore",
+    "deleteForever",
+    "members",
+    "invite",
+    "setMember",
+    "removeMember",
+    "files",
+    "createFile",
+    "moveFiles",
+    "moveLocalFile",
+    "trashFiles",
+    "restoreFiles",
+    "trashed",
+  ],
+  admin: [
+    "dashboard",
+    "people",
+    "addPeople",
+    "updatePeople",
+    "removePeople",
+    "seatRequests",
+    "answerSeatRequest",
+    "guestRequests",
+    "answerGuestRequest",
+    "teams",
+    "workspaces",
+    "createWorkspace",
+    "updateWorkspace",
+    "deleteWorkspace",
+    "billingGroups",
+    "createBillingGroup",
+    "updateBillingGroup",
+    "deleteBillingGroup",
+    "activity",
+    "settings",
+    "updateSettings",
+    "unassignedDrafts",
+    "moveUnassigned",
+    "deleteUnassigned",
+    "exportCsv",
+  ],
 } as const satisfies Record<Repository, readonly string[]>;
 
 /** Methods that take filesystem paths stay in main, behind native dialogs, so a renderer can never name a path. */
@@ -150,6 +204,32 @@ export const RETRY_SAFE = new Set<string>([
   "comments.mentionable",
   "notifications.list",
   "notifications.prefs",
+  "orgs.list",
+  "orgs.get",
+  "orgs.people",
+  "orgs.drafts",
+  "orgs.search",
+  "orgs.groups",
+  "teams.list",
+  "teams.get",
+  "teams.members",
+  "teams.requests",
+  "projects.list",
+  "projects.get",
+  "projects.members",
+  "projects.files",
+  "projects.trashed",
+  "admin.dashboard",
+  "admin.people",
+  "admin.seatRequests",
+  "admin.guestRequests",
+  "admin.teams",
+  "admin.workspaces",
+  "admin.billingGroups",
+  "admin.activity",
+  "admin.settings",
+  "admin.unassignedDrafts",
+  "admin.exportCsv",
 ]);
 
 /**

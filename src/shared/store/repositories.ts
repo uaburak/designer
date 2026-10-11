@@ -34,6 +34,10 @@ import type {
 import type { MultiplayerRepository } from "../multiplayer/types";
 import type { CommentsRepository } from "../comments";
 import type { NotificationsRepository } from "../notifications";
+import type { AdminRepository, OrgsRepository, ProjectsRepository, TeamsRepository } from "../org/repositories";
+
+// The org spaces' repositories (docs/multiplayer.md §14.6) live in src/shared/org/repositories.ts; re-exported here.
+export type { AdminRepository, OrgEvent, OrgsRepository, ProjectsRepository, SpaceId, TeamsRepository } from "../org/repositories";
 
 export type Unsubscribe = () => void;
 
@@ -226,4 +230,11 @@ export interface StoreApi {
   libraries: LibraryRegistry;
   previews: PreviewService;
   store: StoreAdmin;
+  /** Organizations (docs/multiplayer.md §14.6): the server's, with a per-org cache for offline reads; events on `org` */
+  orgs: OrgsRepository;
+  teams: TeamsRepository;
+  /** Folders (Figma's renamed projects) and the files in them */
+  projects: ProjectsRepository;
+  /** The Admin location's calls (org, workspace and billing group admins) */
+  admin: AdminRepository;
 }

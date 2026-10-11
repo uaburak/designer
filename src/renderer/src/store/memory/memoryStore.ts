@@ -27,6 +27,7 @@ import {
   type ChangeBatch,
   type FileKey,
   type FileMeta,
+  type FileSpace,
   type FileUiState,
   type Folder,
   type FolderId,
@@ -45,6 +46,7 @@ import { multiplayerApi } from "../../../../store/multiplayer/api";
 import { MultiplayerService } from "../../../../store/multiplayer/service";
 import { CommentsService, commentsApi } from "../../../../store/comments/service";
 import { NotificationsService, notificationsApi } from "../../../../store/notifications/service";
+import { OrgService } from "../../../../store/org/service";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Ids and clocks (docs/data.md §1)
@@ -176,6 +178,8 @@ const K = {
   link: (key: FileKey) => `${KV_PREFIX}multiplayer.link.${key}`,
   /** A local file's comments (docs/multiplayer.md §10) */
   comments: (key: FileKey) => `${KV_PREFIX}comments.${key}`,
+  /** An org's cache (docs/multiplayer.md §14.6) */
+  space: (orgId: string) => `${KV_PREFIX}space.${orgId}`,
 };
 
 export interface MemoryStoreOptions {
@@ -214,6 +218,8 @@ export class MemoryStore {
   readonly comments: CommentsService;
   /** The bell (docs/multiplayer.md §12): the person's inbox socket while the page's session is on */
   readonly notifications: NotificationsService;
+  /** The org spaces (docs/multiplayer.md §14.6) over the same server client */
+  readonly org: OrgService;
   readonly clock: { now(): number };
   private readonly hlc: HlcClock;
   private readonly data = new Map<FileKey, FileData>();
@@ -282,7 +288,8 @@ export class MemoryStore {
         fileChanges: this.fileChanges,
         backlog: async (fileKey, fromSeq) => this.backlog(fileKey, fromSeq),
         appendRemote: async (fileKey, message) => this.appendRemote(fileKey, message),
-        createSharedFile: (input) => this.addFile({ name: input.name.trim() || "Untitled", folderId: null, snapshot: input.snapshot }),
+        createSharedFile: (input) => this.addFile({ name: input.name.trim() || "Untitled", folderId: null, snapshot: input.snapshot, space: input.space ?? null }),
+        setFileSpace: async (fileKey, space) => void (await this.ws.queue.run(() => this.ws.setFileSpace(fileKey, space))),
         getMeta: (fileKey) => (this.ws.files.has(fileKey) ? this.ws.getMeta(fileKey) : null),
         get deviceOrdinal() {
           return store.deviceOrdinal;
@@ -340,6 +347,31 @@ export class MemoryStore {
       this.multiplayer,
     );
     this.notifications = new NotificationsService(this.multiplayer, { WebSocket: globalThis.WebSocket as never });
+    // The org spaces (docs/multiplayer.md §14.6), each org's cache under designer.devStore.v1.space.<orgId>
+    this.org = new OrgService(
+      this.multiplayer,
+      {
+        loadCache: async (orgId) => json(K.space(orgId)),
+        saveCache: async (orgId, cache) => {
+          if (!cache) return kv.remove(K.space(orgId));
+          if (!kv.set(K.space(orgId), JSON.stringify(cache))) this.log("warn", `the browser's storage is full; ${orgId}'s cache wasn't kept`);
+        },
+        cachedOrgIds: async () => kv.keys(K.space("")).map((k) => k.slice(K.space("").length)),
+        createOrgFile: (input) => this.addFile({ name: input.name.trim() || "Untitled", folderId: null, snapshot: encodeMessage(newDocumentMessage()), space: input.space }),
+        deleteLocalFile: (fileKey) => this.deleteItems({ files: [fileKey], folders: [] }),
+        setFileSpace: async (fileKey, space) => void (await this.ws.queue.run(() => this.ws.setFileSpace(fileKey, space))),
+        getMeta: (fileKey) => (this.ws.files.has(fileKey) ? this.ws.getMeta(fileKey) : null),
+        headSnapshot: async (fileKey) => {
+          const d = this.fileData(fileKey);
+          this.compact(d);
+          this.saveData(fileKey, d);
+          return d.snapshot;
+        },
+        log: (level, message, detail) => this.log(level, message, detail),
+        now: () => this.clock.now(),
+      },
+      this.notifications,
+    );
     // eslint-disable-next-line @typescript-eslint/no-this-alias -- the host's getter reads the live ordinal
     const store = this;
   }
@@ -398,6 +430,7 @@ export class MemoryStore {
   dispose(): void {
     this.offWatch?.();
     this.comments.close();
+    this.org.close();
     this.notifications.close();
     this.multiplayer.close();
     for (const rt of this.runtime.values()) if (rt.updatedAtTimer) clearTimeout(rt.updatedAtTimer);
@@ -508,6 +541,8 @@ export class MemoryStore {
     thumbnail?: FileData["thumbnail"];
     thumbSize?: { width: number; height: number };
     importedFrom?: FileMeta["importedFrom"];
+    /** An org file's copy (docs/multiplayer.md §14.6) */
+    space?: FileSpace | null;
   }): Promise<FileMeta> {
     const key = newFileKey();
     const table = NodeTable.fromMessage(decodeMessage(input.snapshot));
@@ -526,6 +561,7 @@ export class MemoryStore {
     const meta = newMeta(key, input.name, input.folderId, this.clock.now());
     if (input.thumbnail) meta.thumbnail = { version: 1, ...(input.thumbSize ?? { width: 0, height: 0 }) };
     if (input.importedFrom) meta.importedFrom = input.importedFrom;
+    if (input.space) meta.space = { ...input.space };
     return this.ws.queue.run(() => this.ws.addFile(meta));
   }
 
@@ -924,6 +960,20 @@ export class MemoryStore {
       }),
       collectGarbage: async () => ({ live: 0, deleted: 0, kept: this.storage.keys(`${KV_PREFIX}blob.`).length }),
     };
-    return { workspace, files, blobs, libraries, previews, store, multiplayer: multiplayerApi(this.multiplayer), comments: commentsApi(this.comments), notifications: notificationsApi(this.notifications) };
+    return {
+      workspace,
+      files,
+      blobs,
+      libraries,
+      previews,
+      store,
+      multiplayer: multiplayerApi(this.multiplayer),
+      comments: commentsApi(this.comments),
+      notifications: notificationsApi(this.notifications),
+      orgs: this.org.orgs,
+      teams: this.org.teams,
+      projects: this.org.projects,
+      admin: this.org.admin,
+    };
   }
 }
