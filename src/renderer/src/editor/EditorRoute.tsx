@@ -27,6 +27,9 @@ import type { EditorController } from "./controller";
 import type { ImageStore } from "./images";
 import { withImages } from "./sourceImages";
 import { CAPTURE_DOCUMENT, CAPTURE_UI_STATE, COMPONENTS_DOCUMENT, EMPTY_DOCUMENT, PAINTS_DOCUMENT, PROTOTYPE_DOCUMENT, REFERENCE_DOCUMENT, TEXT_DOCUMENT, TYPES_DOCUMENT, VARIABLES_DOCUMENT } from "./fixtures";
+import { PresentationView } from "@/present/PresentationView";
+import { storePresentationSource } from "@/present/PresentRoute";
+import { SharePrototypeDialog } from "./SharePrototypeDialog";
 import styles from "./EditorApp.module.css";
 
 /**
@@ -135,6 +138,44 @@ function useStoreSource(fileKey: string | null, tabId: string | undefined): { so
   return state;
 }
 
+/**
+ * Whether only a prototype grant reaches this file (docs/editor.md D-6: `FileAccess.prototypeOnly`): null until known.
+ * Local files, owners and editors are known at once from the link's state; a viewer's shared file asks the server once
+ * (offline or refused: the editor opens as before, read-only by its role).
+ */
+export function usePrototypeOnly(fileKey: string | null): boolean | null {
+  const [state, setState] = useState<{ key: string | null; only: boolean | null }>({ key: null, only: null });
+  useEffect(() => {
+    if (!fileKey) return;
+    let live = true;
+    const store = getStoreClient();
+    void (async () => {
+      const st = await store.multiplayer.fileState(fileKey).catch(() => null);
+      if (!st?.shared || st.role !== "viewer") return false;
+      const info = await store.multiplayer.fileInfo(fileKey).catch(() => null);
+      return info?.access?.prototypeOnly === true;
+    })().then((only) => live && setState({ key: fileKey, only }));
+    return () => {
+      live = false;
+    };
+  }, [fileKey]);
+  if (!fileKey) return false;
+  return state.key === fileKey ? state.only : null;
+}
+
+/** A prototype-only file: the presentation view alone (no Close into the design), with Share prototype */
+function PrototypeOnly({ fileKey }: { fileKey: string }) {
+  const source = useMemo(() => storePresentationSource(fileKey), [fileKey]);
+  const [sharing, setSharing] = useState<{ node: string | null } | null>(null);
+  useEffect(() => mark("ready"), []);
+  return (
+    <>
+      <PresentationView source={source} onShare={(screen) => setSharing({ node: screen })} />
+      {sharing && <SharePrototypeDialog fileKey={fileKey} nodeId={sharing.node} onClose={() => setSharing(null)} />}
+    </>
+  );
+}
+
 // ── The spare editor ──────────────────────────────────────────────────────────
 
 interface Adoption {
@@ -210,7 +251,9 @@ export default function EditorRoute() {
   useEffect(() => {
     if (urlFile) mark("attached");
   }, [urlFile]);
-  const stored = useStoreSource(fileKey, tabId);
+  // Prototype-only access (docs/editor.md D-6): such a file opens straight into the presentation view, never the editor
+  const prototypeOnly = usePrototypeOnly(fileKey);
+  const stored = useStoreSource(prototypeOnly === false ? fileKey : null, tabId);
   const memory = useMemo(() => (fileKey || spare ? null : memorySource(doc)), [fileKey, spare, doc]);
   const source = memory ?? stored.source;
   const onReady = useCallback(
@@ -224,6 +267,7 @@ export default function EditorRoute() {
     },
     [params]
   );
+  if (fileKey && prototypeOnly) return <PrototypeOnly fileKey={fileKey} />;
   if (!source) {
     return <div className={styles.status}>{stored.error ? <span className={styles.error}>The file could not be opened: {stored.error}</span> : null}</div>;
   }

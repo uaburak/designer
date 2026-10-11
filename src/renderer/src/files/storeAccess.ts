@@ -12,6 +12,7 @@ import type { BranchesRepository } from "@shared/merge/branches";
 import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "@shared/libraries/orgTypes";
 import type { SharedFontsApi } from "@shared/desktop";
 import type { IdentityRepository } from "@shared/org/repositories";
+import type { PluginsRepository } from "@shared/plugins/types";
 import type { SessionEnded } from "@shared/multiplayer/types";
 
 /** The org spaces (StoreApi.orgs / teams / projects / admin) and the two calls Home adds around them. */
@@ -32,6 +33,8 @@ export interface OrgBackend {
   fonts?: SharedFontsApi;
   /** Admin › Settings › Login and provisioning, Data storage localization (docs/multiplayer.md §15.18); absent: unavailable */
   identity?: IdentityRepository;
+  /** Admin › Settings › Extensions and Resources › Plugins / Widgets (docs/plugins.md §10); absent: unavailable */
+  plugins?: PluginsRepository;
 }
 
 export interface FilesBackend {
@@ -84,6 +87,7 @@ export function filesBackend(): Promise<FilesBackend> {
       analytics: client.analytics,
       fonts: sharedFontsBridge(),
       identity: client.identity,
+      plugins: client.plugins,
     },
     branches: client.branches,
     watchSession: (listener) => client.multiplayer.watchSession(listener),

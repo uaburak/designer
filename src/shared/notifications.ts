@@ -202,17 +202,20 @@ export function notificationAction(n: Pick<NotificationItem, "kind" | "count" | 
       return "Denied your request to edit";
     case "ownership":
       return "Made you the owner";
-    // Round 5's kinds (docs/editor.md D-4, docs/plugins.md §10.3; our wording, Figma's bell wording is unverified)
+    // Round 5's kinds (docs/editor.md D-4, docs/plugins.md §10.3). Figma's own bell text isn't published: these say
+    // Figma's actions in the past tense — its buttons "Mark as ready for dev", "Mark as completed", "Done with changes"
+    // (help.figma.com 26781702258583) and "Request approval" / Approve / Decline (4404228724759, 17882120337815).
     case "dev_ready":
     case "dev_completed":
     case "dev_changed": {
       const { design, reason } = devStatusText(n.text ?? null);
-      if (n.kind === "dev_ready") return many ? `${n.count} designs marked ready for dev` : design ? `Marked ${design} ready for dev` : "Marked a design ready for dev";
-      if (n.kind === "dev_completed") return many ? `${n.count} designs marked as completed` : design ? `Marked ${design} as completed` : "Marked a design as completed";
-      return many ? `${n.count} designs updated after a change` : `Updated ${design || "a design"} after a change${reason ? `: ${reason}` : ""}`;
+      const what = design || "a design";
+      if (n.kind === "dev_ready") return many ? `Marked ${n.count} designs as ready for dev` : `Marked ${what} as ready for dev`;
+      if (n.kind === "dev_completed") return many ? `Marked ${n.count} designs as completed` : `Marked ${what} as completed`;
+      return many ? `Marked ${n.count} designs as ready for dev after changes` : `Marked ${what} as ready for dev after changes${reason ? `: ${reason}` : ""}`;
     }
     case "plugin_request":
-      return n.text ? `Requested ${n.text}` : "Requested a plugin";
+      return `Requested approval for ${n.text || "a plugin"}`;
     case "plugin_request_answer":
       return n.state === "denied" ? `Declined your request for ${n.text || "a plugin"}` : `Approved your request for ${n.text || "a plugin"}`;
   }

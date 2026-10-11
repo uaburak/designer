@@ -149,10 +149,13 @@ export interface SharedFileInfo {
   orgLinkAccess?: LinkAccess;
   /** When the links stop working (Require design file links to expire); null: never */
   linkExpiresAt?: number | null;
+  /** Prototype-only access (docs/editor.md D-6): "Anyone with the link" to the prototype, and org members with it */
+  protoLinkAccess?: "none" | "viewer";
+  protoOrgLinkAccess?: "none" | "viewer";
   /** The file's org, team and folder (null outside orgs) */
   org?: { id: string; name: string; teamId: string | null; teamName: string | null } | null;
   /** The caller's access in an org (`capped: "external"`: their own org restricts external content — view only) */
-  access?: { canShare: boolean; canManage: boolean; capped: "seat" | "external" | null } | null;
+  access?: { canShare: boolean; canManage: boolean; capped: "seat" | "external" | null; /** Only a prototype grant reaches the file (docs/editor.md D-6) */ prototypeOnly?: boolean; canExport?: boolean } | null;
 }
 
 /** One PATCH of a file's link settings (Share settings' Save): the org's policy checks them together (§15.16) */
@@ -164,6 +167,9 @@ export interface LinkSettingsPatch {
   /** null: never */
   linkExpiresAt?: number | null;
   viewersCanCopy?: boolean;
+  /** Share prototype (docs/editor.md D-6): the prototype's links */
+  protoLinkAccess?: "none" | "viewer";
+  protoOrgLinkAccess?: "none" | "viewer";
 }
 
 /** Where a link lands in its file: a frame or page (Figma's `node-id=1-2`) and a mode (`m=dev` Dev Mode, `m=proto` the
@@ -186,6 +192,8 @@ export function intentFromLink(text: string): OpenIntent {
   if (mode) out.mode = mode[1] as "dev" | "proto";
   const comment = /[?&#]comment[-=]([A-Za-z0-9_-]{6,64})/.exec(text);
   if (comment) out.commentId = comment[1];
+  // A Dev Mode status notification's link (docs/editor.md D-4): `dev=ready` opens the ready-for-dev view
+  if (/[?&]dev=ready\b/.test(text)) out.devMode = "ready";
   return out;
 }
 

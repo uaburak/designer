@@ -72,9 +72,9 @@ describe("round 5's kinds (docs/editor.md D-4, docs/plugins.md §10.3)", () => {
 
   it("rows, desktop text and the link into Dev Mode's ready-for-dev view", () => {
     const n = item({ kind: "dev_changed", text: "Checkout\nNew totals", fileName: "Shop" });
-    expect(notificationAction(n)).toBe("Updated Checkout after a change: New totals");
-    expect(desktopText(n).body).toBe("Updated Checkout after a change: New totals · Shop");
-    expect(notificationAction(item({ kind: "dev_completed", count: 3, text: "X" }))).toBe("3 designs marked as completed");
+    expect(notificationAction(n)).toBe("Marked Checkout as ready for dev after changes: New totals");
+    expect(desktopText(n).body).toBe("Marked Checkout as ready for dev after changes: New totals · Shop");
+    expect(notificationAction(item({ kind: "dev_completed", count: 3, text: "X" }))).toBe("Marked 3 designs as completed");
     expect(notificationAction(item({ kind: "plugin_request_answer", state: "denied", text: "Unsplash" }))).toBe("Declined your request for Unsplash");
     expect(notificationLink(item({ kind: "dev_ready", fileKey: "file_abc123" }))).toBe("designer://open?key=file_abc123&m=dev&dev=ready");
   });

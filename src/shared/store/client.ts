@@ -563,6 +563,9 @@ export class StoreClient implements StoreApi {
     moveUnassigned: (orgId, input) => this.call("admin.moveUnassigned", [orgId, input]),
     deleteUnassigned: (orgId, fileKeys) => this.call("admin.deleteUnassigned", [orgId, fileKeys]),
     exportCsv: (orgId, what, query) => this.call("admin.exportCsv", [orgId, what, query]),
+    planTokens: (orgId) => this.call("admin.planTokens", [orgId]),
+    createPlanToken: (orgId, input) => this.call("admin.createPlanToken", [orgId, input]),
+    revokePlanToken: (orgId, tokenId) => this.call("admin.revokePlanToken", [orgId, tokenId]),
   };
 
   readonly branches: BranchesRepository = {

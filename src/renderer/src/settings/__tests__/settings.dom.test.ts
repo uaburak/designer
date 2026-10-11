@@ -52,6 +52,10 @@ function fakeDesigner() {
         sessions = sessions.filter((s) => `/me/sessions/${s.id}` !== r.path);
         return { status: 200, body: { ok: true } };
       }
+      if (r.path === "/me/tokens" && r.method === "POST") {
+        const b = r.body as { description: string; scopes: string[] };
+        return { status: 201, body: { token: "dsgn_x", info: { id: "t1", description: b.description, scopes: b.scopes, kind: "personal", orgId: null, createdAt: 0, expiresAt: null, lastUsedAt: null } } };
+      }
       if (r.path === "/me/tokens") return { status: 200, body: { tokens: [] } };
       return { status: 404, body: { error: "not found" } };
     },
@@ -137,6 +141,40 @@ describe("Settings", () => {
     expect(fake.requests).toContainEqual({ method: "DELETE", path: "/me/sessions/s2", body: undefined });
     expect($$("[data-session]")).toHaveLength(1);
     expect($("[data-connected-app='cursor']")?.textContent).toContain("Connected 3 days ago");
+  });
+
+  it("Security › Generate new token: round 5's scopes by group with Figma's descriptions, plan-only scopes hidden", async () => {
+    const fake = await open("security");
+    await click($("[data-new-token-link]")!);
+    await settle();
+    const dialog = $$("[role='dialog']").at(-1)!;
+    const scopes = $$("input[type='checkbox']", dialog).map((i) => i.closest("label")?.textContent?.trim());
+    for (const s of ["file_dev_resources:write", "file_variables:write", "file_code_connect:write", "webhooks:write", "org:activity_log_read", "folders:read"]) expect(scopes).toContain(s);
+    // Read only with a plan access token (Admin › Settings › Plan access tokens)
+    expect(scopes).not.toContain("org:ai_metering_usage_read");
+    expect($$("h4", dialog).map((h) => h.textContent)).toEqual(["Users", "Files", "Comments", "Dev resources", "Variables", "Code Connect", "Libraries", "Folders", "Webhooks", "Organization"]);
+    expect(dialog.textContent).toContain("Read the contents of files, such as nodes and the editor type.");
+    expect(dialog.textContent).toContain("Read organization activity logs. Must be an organization admin.");
+    act(() => {
+      const input = $("input[aria-label='Token name']", dialog) as HTMLInputElement;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "CI");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click($$("label", dialog).find((l) => l.textContent?.trim() === "webhooks:read")!.querySelector("input")!);
+    await click($("[data-generate-token]", dialog)!);
+    await settle();
+    expect(fake.requests).toContainEqual({ method: "POST", path: "/me/tokens", body: { description: "CI", expiresInDays: 30, scopes: ["file_content:read", "webhooks:read"] } });
+  });
+
+  it("Notifications › Dev Mode: Status changes / Nothing, under the desktop notifications", async () => {
+    await open("notifications");
+    await settle();
+    const group = $$("[role='radiogroup']").find((g) => g.getAttribute("aria-label") === "Dev Mode")!;
+    expect($$("label", group).map((l) => l.textContent?.trim())).toEqual(["Status changes", "Nothing"]);
+    expect($("[role='radio'][aria-checked='true']", group)?.closest("label")?.textContent?.trim()).toBe("Status changes");
+    await click($$("label", group)[1].querySelector("[role='radio']")!);
+    await settle();
+    expect($("[role='radio'][aria-checked='true']", group)?.closest("label")?.textContent?.trim()).toBe("Nothing");
   });
 
   it("Agents: the Agents tab's settings list, with the modal's host", async () => {

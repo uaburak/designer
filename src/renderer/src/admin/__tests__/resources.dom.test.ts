@@ -143,7 +143,7 @@ describe("Admin › Resources › Libraries", () => {
   it("a workspace admin: Admin › ‹workspace› › Libraries — can't unapprove an org approval, approves for the workspace", async () => {
     const fake = createFakeAdminStore({ now: NOW, me: "u13" });
     await open(fake, { workspace: { id: "ws-eng", name: "Engineering" } });
-    expect($$('nav [data-ds="SidebarItem"]').map((b) => b.textContent)).toEqual(["Libraries"]);
+    expect($$('nav [data-ds="SidebarItem"]').map((b) => b.textContent)).toEqual(["Libraries", "Plugins"]);
     expect($("nav").textContent).toContain("Engineering");
     expect(rows("Libraries").map((r) => r.getAttribute("data-row")).sort()).toEqual(["lib_brand1", "lib_core01", "lib_dataviz", "lib_icons1", "lib_webui1"]);
     click(row("Libraries", "Core Design System"));

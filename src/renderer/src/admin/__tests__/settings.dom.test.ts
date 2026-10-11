@@ -52,7 +52,7 @@ const actions = (fake: FakeAdminStore) => fake.state.activity.map((r) => r.actio
 describe("Admin › Settings (round 4)", () => {
   it("shows Figma's sections, every row live but the installer's Download", async () => {
     await open();
-    expect($$("[data-settings-group]").map((g) => g.getAttribute("data-settings-group"))).toEqual(["Login and provisioning", "Access", "Team management", "Content", "Communication", "Data", "Billing", "Other"]);
+    expect($$("[data-settings-group]").map((g) => g.getAttribute("data-settings-group"))).toEqual(["Login and provisioning", "Access", "Team management", "Content", "Communication", "Data", "Billing", "Extensions", "Plan access tokens", "Other"]);
     const disabled = $$("[data-setting]").filter((r) => $$("button", r).some((b) => (b as HTMLButtonElement).disabled)).map((r) => r.getAttribute("data-setting"));
     // SCIM waits for SAML (Figma: SCIM requires SAML); Access to external content waits for domain capture
     expect(disabled.sort()).toEqual(["externalContent", "installer", "scim"]);

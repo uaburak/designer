@@ -5,9 +5,10 @@
  * shows in the prototype. Nothing is ever written from here.
  */
 import "@/ds/global.css";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ToastHost, TooltipManager, useThemeRoot } from "@/ds";
 import { getStoreClient } from "@/store";
+import { SharePrototypeDialog } from "@/editor/SharePrototypeDialog";
 import { PresentationView, type PresentationSource } from "./PresentationView";
 
 const params = new URLSearchParams(location.search);
@@ -45,9 +46,12 @@ export default function PresentRoute() {
   useThemeRoot();
   const fileKey = params.get("file");
   const source = useMemo(() => (fileKey ? storePresentationSource(fileKey) : null), [fileKey]);
+  // Share prototype (docs/editor.md D-6): the prototype's share modal, at the screen shown
+  const [sharing, setSharing] = useState<{ node: string | null } | null>(null);
   return (
     <>
-      {source ? <PresentationView source={source} page={params.get("page")} node={params.get("node")} /> : <p>No file to present.</p>}
+      {source ? <PresentationView source={source} page={params.get("page")} node={params.get("node")} onShare={(screen) => setSharing({ node: screen })} /> : <p>No file to present.</p>}
+      {sharing && fileKey && <SharePrototypeDialog fileKey={fileKey} nodeId={sharing.node} onClose={() => setSharing(null)} />}
       <TooltipManager />
       <ToastHost />
     </>
