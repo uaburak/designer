@@ -107,6 +107,25 @@ const api: EditorApi = {
   spelling: {
     misspelled: (words) => (Array.isArray(words) ? words.slice(0, 2000) : []).map((w) => typeof w === "string" && w.length < 64 && webFrame.isWordMisspelled(w)),
   },
+  // Plugins (src/main/plugins): plain data both ways, checked again in main.
+  plugins: {
+    listDevelopment: () => invoke("plugins:list-development"),
+    importManifest: () => invoke("plugins:import-manifest"),
+    removeDevelopment: (id) => invoke("plugins:remove-development", { id: String(id) }),
+    read: (id) => invoke("plugins:read", { id: String(id) }),
+    newPlugin: (input) => invoke("plugins:new-plugin", { name: String(input?.name ?? ""), template: input?.template }),
+    beginRun: (input) => invoke("plugins:begin-run", input),
+    endRun: (runId) => invoke("plugins:end-run", { runId: String(runId) }),
+    openUi: (input) => invoke("plugins:open-ui", input),
+    closeUi: (runId) => invoke("plugins:close-ui", { runId: String(runId) }),
+    fetch: (input) => invoke("plugins:fetch", input),
+    storage: (call) => invoke("plugins:storage", call),
+    openConsole: () => invoke("plugins:open-console"),
+    onChanged: (cb) => on("plugins:changed", cb),
+  },
+  devMode: {
+    linkTitle: (url) => invoke("devmode:link-title", { url: String(url) }).then((r) => r.title),
+  },
 };
 
 contextBridge.exposeInMainWorld("designer", api);

@@ -355,17 +355,24 @@ export interface IpcInvoke extends SharedFontsChannels {
   "plugins:remove-development": { args: [{ id: string }]; result: DevelopmentPlugin[] };
   /** A development plugin's manifest, code and UI, read by main from its folder (paths inside it only) */
   "plugins:read": { args: [{ id: string }]; result: PluginBundle };
-  /** Registers a run's UI document on the `plugin:` scheme; answers the iframe's URL */
-  "plugins:open-ui": { args: [{ runId: string; html: string; allowedDomains: string[]; dev: boolean }]; result: { url: string } };
+  /** "New plugin…": the template's files written into a new folder main's Save dialog names, then imported */
+  "plugins:new-plugin": { args: [{ name: string; template: "default" | "run-once" | "custom-ui" | "inspect" | "codegen" }]; result: { plugin: DevelopmentPlugin; manifest: PluginManifest; editorType: "figma" | "dev" } | { cancelled: true } };
+  /** A run starts: its network rules (the manifest's `allowedDomains`; `devAllowedDomains` count when `dev`, a development
+   *  plugin). `runId`: lower-case letters, digits, hyphens (≤ 63; it is the host of `plugin://<runId>/`). The view that
+   *  registers a run owns it; a reload or close of the view ends its runs. */
+  "plugins:begin-run": { args: [{ runId: string; allowedDomains: string[]; devAllowedDomains?: string[]; dev: boolean }]; result: void };
+  "plugins:end-run": { args: [{ runId: string }]; result: void };
+  /** Registers a run's UI document on the `plugin:` scheme (and the run, when `begin-run` wasn't called); answers the iframe's URL */
+  "plugins:open-ui": { args: [{ runId: string; html: string; allowedDomains: string[]; devAllowedDomains?: string[]; dev: boolean }]; result: { url: string } };
   "plugins:close-ui": { args: [{ runId: string }]; result: void };
-  /** `fetch` from a plugin's code, checked against its manifest's networkAccess */
+  /** `fetch` from a plugin's code, checked against its run's networkAccess (begin-run / open-ui), redirects included */
   "plugins:fetch": { args: [{ runId: string; url: string; init?: PluginFetchInit }]; result: PluginFetchResponse };
   /** `figma.clientStorage` (5 MB per plugin) */
   "plugins:storage": { args: [PluginStorageCall]; result: unknown };
   /** "Open console": the view's devtools (development plugins only) */
   "plugins:open-console": { args: []; result: void };
   // ── Dev Mode (docs/editor.md D-3) ──
-  /** A dev resource link's page title (`https:` only, 5 s, ≤ 512 kB read); null when there is none */
+  /** A dev resource link's page title (`https:` only, 5 s, ≤ 512 kB read, no local hosts); null when there is none */
   "devmode:link-title": { args: [{ url: string }]; result: { title: string | null } };
 }
 
@@ -511,6 +518,9 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "plugins:import-manifest": ["editor"],
   "plugins:remove-development": ["editor"],
   "plugins:read": ["editor"],
+  "plugins:new-plugin": ["editor"],
+  "plugins:begin-run": ["editor"],
+  "plugins:end-run": ["editor"],
   "plugins:open-ui": ["editor"],
   "plugins:close-ui": ["editor"],
   "plugins:fetch": ["editor"],

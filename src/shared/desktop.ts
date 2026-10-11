@@ -243,6 +243,33 @@ export interface EditorApi extends DesktopCommon {
     set(patch: Partial<ShortcutSettings>): Promise<ShortcutSettings>;
     onChanged(cb: (s: ShortcutSettings) => void): Unsubscribe;
   };
+  /** Main's side of plugins (docs/plugins.md §3.3, src/main/plugins): the `plugins:*` channels, one call each */
+  plugins: PluginsDesktopApi;
+  /** Dev Mode (docs/editor.md D-3): a dev resource link's page title, or null */
+  devMode: {
+    linkTitle(url: string): Promise<string | null>;
+  };
+}
+
+type Args<C extends keyof IpcInvoke> = IpcInvoke[C]["args"][0];
+type Result<C extends keyof IpcInvoke> = Promise<IpcInvoke[C]["result"]>;
+
+/** `window.designer.plugins` in an editor view (docs/plugins.md §3.3 "As built — main") */
+export interface PluginsDesktopApi {
+  listDevelopment(): Result<"plugins:list-development">;
+  importManifest(): Result<"plugins:import-manifest">;
+  removeDevelopment(id: string): Result<"plugins:remove-development">;
+  read(id: string): Result<"plugins:read">;
+  newPlugin(input: Args<"plugins:new-plugin">): Result<"plugins:new-plugin">;
+  beginRun(input: Args<"plugins:begin-run">): Result<"plugins:begin-run">;
+  endRun(runId: string): Result<"plugins:end-run">;
+  openUi(input: Args<"plugins:open-ui">): Result<"plugins:open-ui">;
+  closeUi(runId: string): Result<"plugins:close-ui">;
+  fetch(input: Args<"plugins:fetch">): Result<"plugins:fetch">;
+  storage(call: Args<"plugins:storage">): Result<"plugins:storage">;
+  openConsole(): Result<"plugins:open-console">;
+  /** A development plugin's files changed (Hot reload plugin) */
+  onChanged(cb: (e: { id: string }) => void): Unsubscribe;
 }
 
 export type DesktopApi = TabBarApi | HomeApi | EditorApi;

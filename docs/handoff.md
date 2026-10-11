@@ -424,3 +424,31 @@ Acceptance (verified with `scripts/drive.mjs` on the built demo app): launch →
     - Other people's dev-resource changes aren't heard (no room broadcast).
     - Plugin icons, `PATCH /plugins/:id` and sweeping the bundle cache aren't built.
     - `allowed` reads org settings from the org cache, which a settings change refreshes through the Inbox's `{t: "org"}`.
+- 2026-10-11 — **Phase 7 round 5e, plugins in main** (branch `worktree-agent-a80cb44f954b9e7d1`). The as-built record is `docs/plugins.md` §3.4.
+  - **`src/main/plugins/`**:
+    - development plugins imported from a manifest, listed and removed (`userData/plugins/development.json`), and read with realpath checks (≤ 20 MB a file; `build` never run);
+    - hot reload (`fs.watch`, 300 ms, `plugins:changed`);
+    - the `plugin:` scheme serving a run's `ui.html` with its own CSP from `allowedDomains`, COEP `credentialless` and CORP `cross-origin`;
+    - frame navigation limited to the view's runs' UIs and allowed `https:` URLs;
+    - `fetch` checked per hop through `mainFetch` (no cookies, 30 s, 20 MB);
+    - `clientStorage` with Figma's 5 MB rule;
+    - the five New plugin… templates written to a folder from main's Save dialog;
+    - Open console.
+  - **`src/main/devmodeLinks.ts`**: `devmode:link-title` (https only, no local hosts, 5 s, 512 kB).
+  - **API changes for 5d**: new channels `plugins:begin-run`, `plugins:end-run` and `plugins:new-plugin`; `open-ui` gains `devAllowedDomains?`; run ids are lower case (`[a-z0-9-]`). `window.designer.plugins` (`PluginsDesktopApi`) and `window.designer.devMode.linkTitle` are in the editor preload.
+  - **Shared-file edits**:
+    - `src/shared/ipc.ts` (the channels above);
+    - `src/shared/desktop.ts` (`EditorApi.plugins` / `devMode`);
+    - `src/preload/editor.ts`;
+    - `src/main/protocol.ts` (`frame-src plugin:`, the scheme registered in the same call);
+    - `src/main/index.ts` (one line);
+    - `src/main/views.ts` (one line, `guardPluginFrames`);
+    - `src/main/ipc.ts`;
+    - `docs/desktop.md` §12.2 (the CSP line).
+  - **Verified**:
+    - `npm run check` (205 files, 1732 tests; new: `plugins.test.ts` 24, `devmodeLinks.test.ts` 4);
+    - the built app via `scripts/drive.mjs`: a plugin UI loaded through `plugin:` in the cross-origin-isolated editor with a null origin, no storage, no parent access and its CSP blocking `fetch`; main's `fetch` refused outside the manifest; `clientStorage` round-tripped.
+  - **Open**:
+    - main's `parseManifest` / network rules duplicate 5d's `src/shared/plugins/` (not on main yet): one side should import the other at merge;
+    - the developer VM's `worker.js` can't live on `plugin:` (a Worker must be same-origin): 5d's to place;
+    - link titles don't catch a DNS name that resolves to a local address.

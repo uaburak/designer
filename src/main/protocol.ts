@@ -2,6 +2,7 @@ import { net, protocol } from "electron";
 import { open } from "node:fs/promises";
 import { join, normalize, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+import { PLUGIN_SCHEME_PRIVILEGES } from "./plugins/protocol";
 import { workspaceDir } from "./storeHost";
 
 /**
@@ -40,16 +41,17 @@ const CSP = [
   "media-src 'self' data: blob:",
   "font-src 'self' data: blob:",
   "connect-src 'self' data: blob:",
-  "frame-src 'none'",
+  // Plugin UIs only (docs/plugins.md §3.2): each run's document on the plugin: scheme, in a sandboxed iframe.
+  "frame-src plugin:",
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'none'",
 ].join("; ");
 
-/** Before `ready`. */
+/** Before `ready`. One call registers every scheme (a second call would replace the first): the app's and plugins'. */
 export function registerScheme() {
-  protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } }]);
+  protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } }, PLUGIN_SCHEME_PRIVILEGES]);
 }
 
 const TYPES: Record<string, string> = { ".wasm": "application/wasm", ".js": "text/javascript", ".mjs": "text/javascript" };

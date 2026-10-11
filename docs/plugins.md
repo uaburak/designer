@@ -1,6 +1,6 @@
 # Plugins and widgets (contract, Phase 7 round 5; written 2026-10-11)
 
-**Status: contract, not built.** This document covers Figma's plugins in DesignerV2:
+**Status: contract; main's side (5e) built — §3.4; the server (5c) §10.3a; the store (5g) §10.3b.** This document covers Figma's plugins in DesignerV2:
 - the sandbox for a plugin's code and its UI;
 - the `figma.*` API we implement first;
 - development plugins from a `manifest.json`;
@@ -238,6 +238,105 @@ editor view (renderer, main thread)
   - `plugins:open-ui`, `plugins:close-ui`, `plugins:fetch`, `plugins:storage`
   - `plugins:changed` (event), `plugins:open-console`
   - "Open console" = the view's devtools, development plugins only.
+
+### 3.4 As built — main (5e, 2026-10-11, branch `worktree-agent-a80cb44f954b9e7d1`)
+
+**Where**: `src/main/plugins/` — `manifest.ts` (main's `parseManifest`), `network.ts` (the `allowedDomains` rules and the CSP), `manifests.ts` (development plugins), `watch.ts`, `runs.ts`, `protocol.ts`, `fetch.ts`, `storage.ts`, `templates/`, `index.ts` (the wiring); `src/main/devmodeLinks.ts`. Tests: `src/main/plugins/plugins.test.ts` (24), `src/main/devmodeLinks.test.ts` (4).
+
+**Changes to §3.3's channels** (`src/shared/ipc.ts`; `window.designer.plugins` / `window.designer.devMode` in `src/shared/desktop.ts` `PluginsDesktopApi`, one method per channel):
+- **New `plugins:begin-run {runId, allowedDomains, devAllowedDomains?, dev}`** and **`plugins:end-run {runId}`**. A run without a UI still fetches, so main needs its network rules before any `showUI`. `open-ui` also registers the run when `begin-run` wasn't called.
+- **`plugins:open-ui`** gains `devAllowedDomains?` (counted when `dev`).
+- **New `plugins:new-plugin {name, template}`** → `{plugin, manifest, editorType} | {cancelled}`. `template` is `default`, `run-once`, `custom-ui`, `inspect` or `codegen`.
+- **Run ids** are the host of `plugin://<runId>/`, and a standard scheme lower-cases hosts. So an id is `[a-z0-9][a-z0-9-]{0,62}`; a UUID fits.
+- **Ownership**: the view that registers a run owns it. Another view's `fetch` / `open-ui` / `close-ui` with that id is refused. A view's reload or close ends its runs.
+
+**Manifests** (`manifest.ts`, `manifests.ts`):
+- §4's fields, each checked and copied. Anything else is dropped.
+- Refused: widget manifests ("Widgets aren't supported in DesignerV2 yet"); `main` / `ui` paths that are absolute or contain `..`; domains that aren't Figma's forms (an entry is a CSP source, so `;` `,` spaces and quotes are never accepted); `"none"` beside other entries; `codegen` without `codegenLanguages`.
+- `*` and localhost without `reasoning` give a console warning.
+- **The development list**: `userData/plugins/development.json` `{path, id, name, addedAt}[]`, written temp + rename.
+  - The id is the manifest's `id`, else `dev:<sha1(path)>`.
+  - Re-importing the same path or id replaces the entry and keeps its `addedAt`.
+  - Import checks that the files are readable.
+- **`read`**:
+  - Re-reads the manifest. Each file is resolved with `realpath` and must stay inside the folder's `realpath` (a symlink out is refused). Each file ≤ 20 MB.
+  - `ui` → `{"": html}`, or the map's keys.
+  - The listed id is kept even if the manifest's id changed since the import.
+- `build` is kept and never run.
+- **Duplicate rules**: 5d's `src/shared/plugins/manifest.ts` / `network.ts` didn't exist yet, so main has its own pure copies. When 5d merges, one side should import the other.
+
+**Network rules** (`network.ts`):
+- A scheme-less entry means `https` + `wss` (the CSP rule on an https page, which Figma's iframes are).
+- `*.x` covers subdomains, not `x` itself. A port defaults to the scheme's.
+- A path ending in `/` is a prefix; any other path is exact (the query is ignored).
+- `*` → `https:` + `wss:`. `none` → nothing, so `["none"]` gives `connect-src 'none'`.
+- `devAllowedDomains` is added only when `dev`.
+- **CSP sources** are written with their scheme, because the document's own scheme is `plugin:` and a scheme-less source would match only `plugin:` URLs.
+
+**The `plugin:` scheme** (`protocol.ts`):
+- **Registration**: in the same `registerSchemesAsPrivileged` call as `app` (`src/main/protocol.ts`; a second call would replace the first), with `standard`, `secure`, `supportFetchAPI` and `corsEnabled`. `index.ts` has one line: `handlePluginScheme()` after `handleScheme()`.
+- **What it serves**: only `GET` / `HEAD` of `/ui.html` of a run whose UI is open. Headers: §3.2's CSP, COEP `credentialless`, CORP `cross-origin`, `nosniff`, `no-referrer`, `no-store`.
+- **The editor's CSP**: `frame-src plugin:`.
+- **Frame navigation**: `views.ts`'s `harden` calls `guardPluginFrames`. A subframe may load:
+  - `plugin://<one of the view's runs>/ui.html`;
+  - `https:` URLs one of the view's runs allows;
+  - `about:blank` / `about:srcdoc`.
+  Anything else is cancelled. `window.open` already goes to the browser.
+- **The developer VM's `worker.js`** (§3.3) isn't served. A dedicated Worker must be same-origin with the page that creates it, so `plugin:` can't host the editor's worker. 5d builds it from the app's own files or a blob.
+
+**`fetch`** (`fetch.ts`):
+- `net.fetch` / Node `fetch` through `mainFetch`, with `credentials: "omit"`.
+- Redirects are followed by hand (`redirect: "manual"`, ≤ 20), and every hop is checked against the run's rules. A refused hop throws §3.3's text with that hop's URL.
+- 303, and 301 / 302 after a POST, become a GET without a body. `Authorization` is dropped when a redirect goes to another origin.
+- Forbidden request headers are dropped (`cookie`, `host`, `origin`, `referer`, `sec-*`, `proxy-*` …). `set-cookie` never comes back.
+- 30 s for the whole request, ≤ 20 MB each way.
+
+**`clientStorage`** (`storage.ts`):
+- `userData/plugins/storage/<pluginId>.json`. An id that isn't `[A-Za-z0-9_-]{1,100}` (such as `dev:…`) is stored as `h-<sha1>.json`.
+- **Size**: key length + the value's JSON length, and a `Uint8Array` by its byte length (nested inside objects too). A write past 5 MB throws "clientStorage is full: a plugin may store at most 5 MB" (wording ours).
+- `Uint8Array`s are kept as `{"$bytes": base64}`. A literal `$bytes` key is escaped.
+- `undefined` can't be stored; `get` of a missing key answers `undefined`.
+- Calls are serial per plugin. Writes are temp + rename, and an empty store deletes its file.
+
+**Hot reload** (`watch.ts`):
+- `fs.watch(folder, {recursive})` per listed development plugin, filtered to `manifest.json`, `main` and the `ui` files.
+- Debounced 300 ms, then `plugins:changed {id}` goes to every editor view. The watches follow the list (list, import, remove).
+- The "Hot reload plugin" check item is the editor's: its host ignores the event when the item is off.
+
+**New plugin…** (`templates/`, `index.ts newPlugin`):
+- Five templates: `default` (5 rectangles, closes), `run-once` (a closing message), `custom-ui` (a count field, `postMessage` both ways), `inspect` (Dev Mode, selection details) and `codegen` (Dev Mode, CSS).
+- Each manifest has a random 19-digit `id`, `api` "1.0.0", `editorType`, `documentAccess: "dynamic-page"` and `networkAccess: {allowedDomains: ["none"]}`.
+- The code is ours, in the shape of Figma's samples.
+- Main's Save dialog names a new folder (one that exists must be empty, apart from `.DS_Store`). The files are written with `wx`, and the plugin is imported.
+
+**Open console**: `sender.openDevTools({mode: "detach"})`.
+
+**`devmode:link-title`** (`devmodeLinks.ts`, editor.md D-3):
+- `https:` only, also at every redirect (≤ 5).
+- Hosts that are this computer or the local network are refused by their written form: localhost, `*.local`, loopback, private, link-local, CGNAT, ULA, v4-mapped. A DNS name that resolves to one of them isn't caught.
+- No cookies, 5 s.
+- Only `text/html` / `xhtml` with a 2xx status. At most 512 kB is read, stopping at `</title>`.
+- The charset comes from the header or a `<meta>`. Entities are decoded, space is collapsed, and the title is cut at 300 characters.
+- Anything else answers `null`.
+
+**Verified**:
+- `npm run check`: 205 files, 1732 tests.
+- The built app driven with `scripts/drive.mjs`. In a new file's editor, `designer.plugins.openUi` + an `<iframe sandbox="allow-scripts">` loaded `plugin://e2e-run-1/ui.html` inside the cross-origin-isolated editor. Inside the frame:
+  - `origin` was `"null"`;
+  - `localStorage` threw;
+  - `parent.document` was refused;
+  - the frame's `fetch('https://example.com/')` was blocked by `connect-src 'none'`.
+- In the same run:
+  - `plugins:fetch` to the same URL answered the refusal text;
+  - a run id the view doesn't own was refused;
+  - a `clientStorage` set / get round-tripped `{n, Uint8Array}`;
+  - `devMode.linkTitle("http://127.0.0.1/")` answered `null`.
+
+**Not built**:
+- `worker.js` (see above).
+- The dev server's CSP: there is none to change (`vite.shared.ts` sets no CSP).
+- A positive `fetch` and a plugin UI loading a COEP-less outside picture weren't run against the live network.
+- The import dialog and Save dialog flows were only exercised through unit tests of what they call.
 
 ## 4. The manifest (`src/shared/plugins/manifest.ts`)
 

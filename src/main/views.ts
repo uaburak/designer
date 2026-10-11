@@ -3,6 +3,7 @@ import { app, Menu, nativeTheme, shell, WebContentsView, type MenuItemConstructo
 import { join } from "node:path";
 import type { Role } from "../shared/ipc";
 import { VIEW_BACKGROUND } from "../shared/layout";
+import { guardPluginFrames } from "./plugins/protocol";
 import { DEV_URL, isAppUrl, pageUrl } from "./protocol";
 import { connectStoreView } from "./storeHost";
 
@@ -91,6 +92,8 @@ function harden(contents: WebContents) {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
   });
   contents.on("will-attach-webview", (e) => e.preventDefault());
+  // Subframes are plugin UIs only, going where their run's manifest allows (docs/plugins.md §3.2).
+  guardPluginFrames(contents);
 
   // Text fields get the system's menu (spelling, cut, copy, paste); the editor's own right click is the editor's.
   contents.on("context-menu", (_e, params) => {
