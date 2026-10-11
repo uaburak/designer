@@ -302,13 +302,40 @@ Open questions for the owner (round 4):
 2. **Prototype-only viewers receive the whole file's data** (the player runs on it). They see only the prototype in the app, but the data is on their machine, as for "can view". Isolating it would need server decoding (question 1). Default: accept, as Figma's player also loads the file (unverified).
 3. **The render helper opens your files in the background** when an API call arrives and nobody has the file open. The default is on for files you own; you can turn it off in Settings › Account. Should it be on by default?
 
-### Round 6 — AI
+### Round 6 — AI — **contract written 2026-10-12** (`docs/ai.md`)
+
+**Contract:** `docs/ai.md` covers Figma's verified facts (§1), the decisions (§2), the actions (§3), the image tools (§4), Vectorize (§5), search (§6), usage and settings (§7), the shared types (§8) and the open questions (§10). Weave tools (old 6c) are **set aside** (owner, 2026-10-11).
+
+**Before the agents** (main session, one commit):
+- `src/shared/ai/types.ts` verbatim (§8), and the `TurnRequest` / `OrgSettings` additions.
+- `ai` / `search` on `StoreApi`, with stubs in both stores.
+- The `ai:*` and connector IPC channels, as stubs in main.
+- The `editor/search/index.ts` and `editor/imageTools/worker.ts` stubs.
+- `npm run check` green.
+- No migration this round: `ai_usage_daily` came with 0015.
+
 | Agent | Owns | Delivers |
 |---|---|---|
-| 6a actions | `src/renderer/src/editor/agents/`, `editor/panels/agents/` | one-shot AI actions in the Actions panel (Rename layers, Rewrite / translate / shorten, Replace content, Add interactions, First Draft with bundled UI kits), Skills, connectors passed to the providers, the usage ledger shown as credits |
-| 6b images | `src/main/agents/` (image providers), `engine/src/` (vectorize only) | image edit / remove background (a local model where possible) / boost / expand / isolate / erase; Vectorize image (a tracer in the engine) |
-| 6c Weave tools | `src/renderer/src/editor/weave/` (new) | Tools › Weave: built-in tools as small graphs run by our providers, the settings modal, runs |
-| 6d search | `src/store/search/` (new), `editor/panels/Assets.tsx` | visual search over thumbnails (embeddings), text tools |
+| 6a actions | `src/renderer/src/editor/ai/` (new), `src/shared/ai/prompts.ts`, `schemas.ts`, `kits/` (new), `editor/panels/ActionsPanel.tsx` (+css, `actionsTab.ts`), `editor/panels/prototype/` (the Add interactions button + banner), `editor/menus.ts` / `editor/commands.ts` (Rename layers AI, AI balance entry), `editor/agents/turns.ts` (`writeAction` only), `editor/EditorApp.tsx` (one line) | §3: Rename layers, Rewrite this… / Shorten / Translate to…, Replace content (+ the duplicate banner), Add interactions with Preview / Keep it, First Draft with the four kits, themes and Make changes. Each one is one undo step, with cancel and errors. Tests: schemas, the builder, rename eligibility, apply on the wasm engine with fake runs |
+| 6b images | `src/main/ai/images/` (OpenAI, Gemini, Antigravity image clients), `src/main/ai/models.ts` + `protocol.ts` (downloads, `aimodel:`), `src/main/protocol.ts` / `src/main/index.ts` (one line each), `src/renderer/src/editor/imageTools/` (the worker, the toolbar, Select area, Expand, the Vectorize UI, Make an image card), `editor/canvas/BottomToolbar.tsx` (one line), the fill picker's Make an image (one component in `panels/design/`), `package.json` + lock (`@huggingface/transformers`, `onnxruntime-web`, exact) | §2.4–2.6, §4. Tests: mask and composite maths, tiling, model checksums, fake HTTP for the APIs |
+| ~~6c Weave tools~~ | — | set aside |
+| 6d search | `src/store/search/` (new), `src/renderer/src/editor/search/` (fills the stub: indexer, query, view), `editor/panels/Assets.tsx` (Similar) | §6. Tests: the index format, cosine ranking with exact-first, incremental versions, deleted files |
+| 6e engine Vectorize | `engine/src/trace/` (new), `engine/src/api/TraceApi.inc` + one line in `Api.cpp`, `engine/api/exports.txt`, `src/renderer/src/engine/EngineExports.ts` / `Engine.ts`, `engine/tests/unit/trace.test.cpp`, **the release wasm** (the round's only engine build) | §5. Tests as listed there |
+| 6f AI host | `src/main/ai/run.ts` + `settings.ts`, `src/main/agents/providers/*` (`oneShot` plans), `src/main/agents/connectors.ts` (new) + `mcpServer.ts` (proxy) + `host.ts` (skills / connectors in turns), `src/shared/agents/tools.ts` (`get_skill`), `src/main/ipc.ts` (the ai / connector channels), `src/renderer/src/editor/panels/agents/` (the + menu, Skills, `/` commands, connectors, the consent card, the credits hover) | §2.1–2.3, §2.10–2.11. Tests: structured output and repair, cancel, the proxy and consent policies, skill parsing |
+| 6g ledger and chrome | `src/store/ai/` (new: ledger, skills, daily reports), `src/shared/store/protocol.ts` + store wiring (`localStore.ts`, `server.ts`, `renderer/src/store/memory/`), `server/src/ai/` (new: `POST /me/ai-usage`) + `server/src/api.ts` (that dispatch line only) + `server/src/org/` (the two settings keys), `src/renderer/src/settings/` (Settings › AI), `src/renderer/src/admin/` (Settings › AI, the Dashboard's AI usage), the AI balance modal (`editor/ai/AiBalance.tsx` is 6a's folder: 6g ships it as `src/renderer/src/settings/AiBalance.tsx`) | §2.9, §2.12, §7. Tests: credits, balance and month reset, upserts are idempotent, `/v1/ai_usage/daily` returns the rows |
+
+**Merge order**:
+1. The main session's commit.
+2. **6e**.
+3. **6f**.
+4. **6g**.
+5. **6b**.
+6. **6a**: swaps its fake runner for 6f's.
+7. **6d**: uses 6b's worker.
+
+**Deploy**: `npm --prefix server run deploy` (no migration).
+
+**Open questions**: `docs/ai.md` §10.
 
 ### Round 7 — Draw complete, and editor types (P-0)
 | Agent | Owns | Delivers |
@@ -323,7 +350,7 @@ Open questions for the owner (round 4):
 - **Export** (`editor/exportCore.ts`, `src/shared/exportFiles.ts`): MP4 / WebM through WebCodecs, GIF, animated SVG.
 - **Dev Mode** (`editor/devmode/`): the Motion tab.
 
-**Owner, 2026-10-11: not now** — FigJam, Slides, Buzz, Sites + Make and Weave (rounds 9–13) and round 6c's Weave tools are set aside; Draw (7) and Motion (8) stay. The schema numbers stay reserved (docs/schema.md §15).
+**Owner, 2026-10-11: not now** — FigJam, Slides, Buzz, Sites + Make and Weave (rounds 9–13) and round 6c's Weave tools are set aside (round 6's contract: docs/ai.md); Draw (7) and Motion (8) stay. The schema numbers stay reserved (docs/schema.md §15).
 
 ### Rounds 9–13 — the other products (each split into engine / chrome / server, as above)
 - **9 FigJam**:
