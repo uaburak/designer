@@ -13,14 +13,21 @@
       // One per developer preview (docs/multiplayer.md §9)
       { "name": "PREVIEWS", "class_name": "PreviewObject" },
       // One per person: live notifications to their open apps (docs/multiplayer.md §12)
-      { "name": "INBOXES", "class_name": "Inbox" }
+      { "name": "INBOXES", "class_name": "Inbox" },
+      // One per org library: its manifests, payloads and images (docs/data.md §16.2)
+      { "name": "LIBRARIES", "class_name": "LibraryObject" },
+      // One per organization: its shared fonts' files (docs/desktop.md §14.3)
+      { "name": "FONTS", "class_name": "FontObject" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["FileRoom"] },
     { "tag": "v2", "new_sqlite_classes": ["PreviewObject"] },
-    { "tag": "v3", "new_sqlite_classes": ["Inbox"] }
+    { "tag": "v3", "new_sqlite_classes": ["Inbox"] },
+    { "tag": "v4", "new_sqlite_classes": ["LibraryObject", "FontObject"] }
   ],
+  // The daily library analytics roll-up and retention sweeps at 03:17 UTC (docs/data.md §17.5; one of the free plan's five)
+  "triggers": { "crons": ["17 3 * * *"] },
   // The developer preview viewer (npm run build:viewer → out/viewer/index.html), served by the Worker at /p/<id>
   // (server/src/previews.ts). The Worker runs first for every request, so the API keeps its routes.
   "assets": { "directory": "../out/viewer", "binding": "ASSETS", "run_worker_first": true, "html_handling": "none", "not_found_handling": "none" },

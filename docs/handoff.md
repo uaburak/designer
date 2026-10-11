@@ -268,3 +268,23 @@ Acceptance (verified with `scripts/drive.mjs` on the built demo app): launch →
     - sidebar rename of a branch through `branches.rename`;
     - a screenshot pass against live Figma (every look here is from help.figma.com text, not measured).
 - 2026-10-11 — **Phase 7 round 3 contracts** (docs only): `docs/data.md` **§16** libraries in organizations (an org library is keyed by its file's room key; D1 metadata + one `LibraryObject` Durable Object per library for manifests, payloads and images; scope team / org = the file's "Anyone at ‹org›" link; approved / enabled by default per org, workspace and team and per editor type, default modes per workspace and team; subscriptions per file on the server; update notices through the Inbox; extended collections at org scale, the mode cap → soft 1,000, chains ≤ 16; local libraries unchanged, a local library moved into an org forwards its updates; routes; migration `0012_libraries.sql` incl. analytics and fonts; `src/shared/libraries/orgTypes.ts`) and **§17** library analytics (editor-derived insert / detach events, per-file instance snapshots by the store, client pre-aggregation and batching, one-statement `json_each` ingestion, a daily Cron roll-up, Figma's REST field names, "File not visible", no personal data); `docs/desktop.md` **§14.3** shared fonts (`FontObject` per org, `/me/fonts`, Skip / Replace, licence header, main's fourth font source cached like Google fonts, "Used at ‹organization›", `src/shared/fonts/sharedTypes.ts`); `docs/roadmap.md` round 3 re-cut into 3a–3f with merge order 3a → 3b → 3d → 3c → 3e → 3f and two owner questions. **Next**: commit the two type files and the `StoreApi` stubs, then launch round 3.
+- 2026-10-11 — **Phase 7 round 3a, libraries / analytics / shared fonts on the server** (contracts `docs/data.md`
+  §16–§17, `docs/desktop.md` §14.3; as built: data.md §16.14, §17.8, desktop.md §14.3 "As built").
+  - **Pending deploy**: migration **`0012_libraries.sql`** (`npm --prefix server run db:migrate`) and the Durable
+    Object migration tag **`v4`** (`LibraryObject`, `FontObject`) with the cron `17 3 * * *` — both by
+    `wrangler deploy` after the migration. Not deployed, not pushed.
+  - **Code**: `server/src/libraries/` (routes, D1, access rules, notices, `LibraryBox` + `LibraryObject`),
+    `server/src/analytics/` (ingest, daily roll-up, views), `server/src/fonts/` (routes, `FontBox` + `FontObject`),
+    `index.ts` (exports, `scheduled()` → `rollup`), `wrangler.jsonc`, `api.ts` (dispatch lines, `libraryFileStatus`
+    on trash / restore / delete, `syncLibraryScope` on `orgLinkAccess`, optional `Deps.waitUntil`), `activity.ts`
+    (retention moved to the cron), `notifications.ts` (`library_default_override`, `inboxMessage`, `OrgNotice`
+    `"libraries"`), `testing/memoryLibraries.ts`, `testing/orgWorld.ts`.
+  - **Shared-file edits outside the row**: `server/src/org/http.ts` (ErrorCode `draft_cannot_publish`),
+    `server/src/org/projects.ts` (`deleteFileForever` calls `libraryFileStatus`, so folder / team deletions mark
+    their libraries deleted).
+  - **Frozen types missing**: `ActivityAction` lacks `org_library_unapprove`, `org_library_setting_change`,
+    `workspace_library_approve` / `_unapprove` / `_setting_change` (logged with a cast); `NotificationKind` lacks
+    `library_default_override` (server-side, as the other org kinds).
+  - **Tests**: 21 new server cases (libraries 12, analytics 5, fonts 4); `npm run check` and the server typecheck green.
+  - **Next**: 3b's store tests against this handler; a library in a trashed *folder* still lists (only file-level
+    trash is tracked); the analytics rate limit is per Worker isolate.

@@ -1062,6 +1062,12 @@ export const isSharedFaceId = (id: string): boolean => id.startsWith("s:");
 
 `src/shared/ipc.ts` gains (3d): `FontIndex.shared?: SharedFontFace[]`; `FontFaceInfo.source` unchanged (shared faces aren't `FontFaceInfo`s); the four channels, allowed for `["home", "editor"]`.
 
+**As built — round 3a, the server (2026-10-11)**:
+- `server/src/fonts/routes.ts` (every route above), `fontBox.ts` (the object's logic: table `fonts (sha1, idx, bytes)`; `PUT /font` checks the magic and **computes** the SHA-1 and format, so the Worker's 10 ms never hashes 50 MB; `GET` / `DELETE /font/:sha1`; `/delete`), `fontObject.ts` (the Durable Object, binding `FONTS`, tag v4). Rows: `shared_fonts` of migration 0012.
+- Upload: `x-font-faces` is base64 of the JSON list, `x-font-file-name` may be URI-encoded; a `.ttc` / `.otc` / `.woff` / `.woff2` name or a collection's magic → 400. Faces are deduplicated per (family, style) within a file; family names compare case-insensitively (conflicts, Skip / Replace, delete by family). Replace uploads the new bytes first, then deletes the family's rows and their bytes when no row of the org still uses them. The answer is 201 `FontUploadAnswer`; nothing left after Skip → 200 `{uploaded: [], replaced: []}`. ≤ 200 faces per org counts org and team fonts together.
+- Who: uploads / removals of team fonts by the team's admins, its owner and org admins (not its workspace admins); `GET /orgs/:org/fonts?team=` for the team's members and admins. `/me/fonts` and `/fonts/:sha1`: org fonts for members and admins (guests not: the owner's default), team fonts for the team's members (own rows, groups invited to the team, its owner; guests in the team included). `version` = the first 16 hex of the SHA-1 of the sorted face ids. Notices `{t: "fonts", orgId, version}` go to the org's members (org fonts) or the team's members (team fonts), `version` being the scope's.
+- Tests: `fonts/fonts.test.ts` 4 cases (licence header, admins only, members vs guests vs other orgs, the file's bytes and headers, Skip / Replace and the bytes dropped, collections and web fonts refused, delete by id and by family, team fonts and guests in the team, notices).
+
 ---
 
 ## 15. Opening files from outside, deep links

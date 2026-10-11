@@ -49,6 +49,8 @@ export interface Deps {
   fetch: typeof fetch;
   /** Milliseconds */
   now(): number;
+  /** Work after the answer (the Worker's `ctx.waitUntil`); absent in tests, where it runs inline */
+  waitUntil?(p: Promise<unknown>): void;
 }
 
 export const SESSION_DAYS = 30;
@@ -124,7 +126,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   const isSocket = (parts[0] === "files" && parts[2] === "ws" && parts.length === 3) || (parts[0] === "notifications" && parts[1] === "ws" && parts.length === 2);
   const caller = await authenticate(req, url, deps, isSocket);
   const user = caller.user;
-  if (parts[0] === "me") return (await import("./account")).accountRoute(req, deps, caller, parts);
+  if (parts[0] === "me" && parts[1] !== "fonts") return (await import("./account")).accountRoute(req, deps, caller, parts);
   // A personal access token reads files and comments, nothing else (account.ts patAllows).
   if (caller.scopes && !patAllows(caller.scopes, m, parts)) throw new HttpError(403, "a personal access token can't do that");
   if (path === "/devices" && m === "POST") {
@@ -142,6 +144,16 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (parts[0] === "notifications") return notificationsRoute(req, deps, user, parts, (key, requesterId, approve) => answerEditRequest(deps, key, user, requesterId, approve));
   // Organizations (docs/multiplayer.md §14.12): one dispatch line each.
   const orgCtx = (): Ctx => ({ req, url, deps, user, parts, m, acc: new Access(deps, user) });
+  // Libraries in organizations, library analytics, shared fonts (docs/data.md §16–§17, docs/desktop.md §14.3).
+  if (parts[0] === "me") return (await import("./fonts/routes")).meFontsRoute(orgCtx());
+  if (parts[0] === "orgs" && parts[2] === "libraries") return (await import("./libraries/routes")).orgLibrariesRoute(orgCtx());
+  if (parts[0] === "orgs" && parts[2] === "fonts") return (await import("./fonts/routes")).orgFontsRoute(orgCtx());
+  if (parts[0] === "teams" && parts[2] === "libraries") return (await import("./libraries/routes")).teamLibrariesRoute(orgCtx());
+  if (parts[0] === "libraries") return (await import("./libraries/routes")).librariesRoute(orgCtx());
+  if (parts[0] === "analytics") return (await import("./analytics/ingest")).analyticsRoute(orgCtx());
+  if (parts[0] === "fonts") return (await import("./fonts/routes")).fontFileRoute(orgCtx());
+  if (parts[0] === "files" && parts[2] === "libraries") return (await import("./libraries/routes")).fileLibrariesRoute(orgCtx());
+  if (parts[0] === "files" && parts[2] === "library-usage") return (await import("./analytics/ingest")).fileUsageRoute(orgCtx());
   if (parts[0] === "orgs") return (await import("./org/orgs")).orgsRoute(orgCtx());
   if (parts[0] === "teams") return (await import("./org/teams")).teamsRoute(orgCtx());
   if (parts[0] === "projects") return (await import("./org/projects")).projectsRoute(orgCtx());
@@ -264,6 +276,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       if (inOrg) {
         // In an org, "Delete forever" — from the trash only (§14.12).
         if (!a!.trashed) throw new HttpError(409, "move the file to the trash first");
+        await (await import("./libraries/db")).libraryFileStatus(deps, key, "delete");
         await (await import("./org/projects")).deleteFileForever(orgCtx(), key);
         await log("fig_file_permanent_delete");
         return json({ ok: true });
@@ -444,6 +457,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       if (trash === (f.trashed_at !== null)) throw new HttpError(409, trash ? "the file is already in the trash" : "the file isn't in the trash");
       await deps.db.d1.prepare(`UPDATE files SET trashed_at = ?2, trashed_by = ?3, updated_at = ?4 WHERE key = ?1`).bind(key, trash ? deps.now() : null, trash ? user.id : null, deps.now()).run();
       await log(trash ? "fig_file_trash" : "fig_file_restore");
+      await (await import("./libraries/db")).libraryFileStatus(deps, key, trash ? "trash" : "restore");
       await reauth(deps, [key]);
       return json({ ok: true });
     }
@@ -513,6 +527,8 @@ async function patchOrgFileSettings(deps: Deps, acc: Access, f: FileRow, body: {
     if (body.orgLinkAccess !== "none" && body.orgLinkAccess !== "viewer" && body.orgLinkAccess !== "editor") throw new HttpError(400, "orgLinkAccess is none, viewer or editor");
     await d1.prepare(`UPDATE files SET org_link_access = ?2, updated_at = ?3 WHERE key = ?1`).bind(f.key, body.orgLinkAccess, now).run();
     await log("fig_file_link_access_change", { link: "org", from: f.org_link_access, to: body.orgLinkAccess });
+    // A published library's scope is its org link (docs/data.md §16.2).
+    await (await import("./libraries/db")).syncLibraryScope(deps, f.key, body.orgLinkAccess);
     if (body.orgLinkAccess !== "editor") lowered = true;
   }
   if (body.protoLinkAccess !== undefined) {

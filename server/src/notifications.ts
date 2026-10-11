@@ -26,7 +26,7 @@ import { randomToken } from "./tokens";
  * with no file (`file_key` null, `file_name` the team's or folder's name), `org_id` / `team_id` set. Kept here, outside
  * `src/shared/notifications.ts`'s `NotificationKind`, until the client renders them (round 1b/1c).
  */
-export type OrgNotificationKind = "team_invite" | "project_invite" | "team_join_request" | "seat_request" | "seat_request_approved" | "seat_request_denied" | "guest_request";
+export type OrgNotificationKind = "team_invite" | "project_invite" | "team_join_request" | "seat_request" | "seat_request_approved" | "seat_request_denied" | "guest_request" | "library_default_override";
 
 /**
  * Branches' kinds (docs/data.md §15.5, docs/multiplayer.md §14.11; wording to be read from Figma's bell when the UI is
@@ -45,7 +45,8 @@ const REQUEST_KINDS = `('edit-request', 'team_join_request', 'seat_request', 'gu
  * src/shared/org/repositories.ts without its ".changed" / ".updated".
  */
 export interface OrgNotice {
-  what: "orgs" | "org" | "teams" | "team" | "projects" | "files";
+  /** "libraries": an org library's settings or scope changed (docs/data.md §16.7) */
+  what: "orgs" | "org" | "teams" | "team" | "projects" | "files" | "libraries";
   orgId?: string;
   teamId?: string;
   parentId?: string | null;
@@ -472,6 +473,30 @@ export async function orgNotice(deps: Deps, userIds: Iterable<string>, notice: O
       console.error("notifications: org notice failed", e);
     }
   }
+}
+
+/**
+ * Any inbox message to these people's open apps — the libraries' `{t: "library", libraryKey, version | status}` and
+ * the shared fonts' `{t: "fonts", orgId, version}` (docs/data.md §16.7, docs/desktop.md §14.3). Never fails the action.
+ */
+export async function inboxMessage(deps: Deps, userIds: Iterable<string>, message: unknown): Promise<void> {
+  if (!deps.inboxes) return;
+  for (const id of new Set(userIds)) {
+    try {
+      await deps.inboxes.notify(id, message);
+    } catch (e) {
+      console.error("notifications: inbox message failed", e);
+    }
+  }
+}
+
+/**
+ * "‹person› turned off ‹library› for ‹team›" (docs/data.md §16.5; wording unverified): a workspace or team turned off a
+ * default of a library approved above it. Stored with no file: the library's name in `file_name` (§16.11 notes), the
+ * workspace's or team's name in `text`.
+ */
+export async function notifyLibraryOverride(deps: Deps, n: { userIds: string[]; actorId: string; orgId: string; teamId: string | null; libraryName: string; scopeName: string }): Promise<void> {
+  for (const userId of new Set(n.userIds)) await notifyOrg(deps, { userId, kind: "library_default_override", actorId: n.actorId, orgId: n.orgId, teamId: n.teamId, name: n.libraryName, text: n.scopeName });
 }
 
 async function readJson(req: Request): Promise<Record<string, unknown> | null> {

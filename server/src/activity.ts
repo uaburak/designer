@@ -5,8 +5,8 @@
  * and, in round 5, the REST `/v1/activity_logs`.
  *
  * As built: written inline (Deps has no execution context, so no `ctx.waitUntil`); a failure is logged and swallowed,
- * never failing the action. Retention (one year) is swept when an org's log is read, not by a Cron Trigger (index.ts
- * and wrangler.jsonc are not this round's).
+ * never failing the action. Retention (one year) is swept by the daily Cron Trigger (index.ts `scheduled()`,
+ * analytics/rollup.ts, docs/data.md §17.5) — no longer when an org's log is read; reads leave older events out.
  */
 import { deviceFromUserAgent } from "../../src/shared/account";
 import type { ActivityAction, ActivityEntityType, ActivityLog, ActivityPage, ActivityQuery } from "../../src/shared/org/types";
@@ -138,7 +138,7 @@ const toLog = (r: Row): ActivityLog => {
 /** Figma's query: events, email, team, start_time / end_time (Unix seconds; start defaults to a year ago), order, cursor. */
 export async function activityPage(deps: Deps, orgId: string, q: ActivityQuery): Promise<ActivityPage> {
   const d1 = deps.db.d1;
-  await d1.prepare(`DELETE FROM activity_log WHERE org_id = ?1 AND at < ?2`).bind(orgId, deps.now() - RETENTION_MS).run();
+  // Retention is the daily cron's (analytics/rollup.ts); events older than a year are left out until it runs.
   const where = [`org_id = ?1`];
   const args: unknown[] = [orgId];
   const arg = (v: unknown) => {
