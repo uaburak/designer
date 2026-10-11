@@ -33,8 +33,8 @@ import type { CommentsEvent, CommentsRepository } from "../comments";
 import type { NotificationsEvent, NotificationsRepository } from "../notifications";
 import type { AdminRepository, IdentityRepository, OrgEvent, OrgsRepository, ProjectsRepository, TeamsRepository } from "../org/repositories";
 import type { BranchEvent, BranchesRepository } from "../merge/branches";
-import type { PluginsRepository } from "../plugins/types";
-import type { DevModeRepository } from "../devmode/types";
+import type { PluginsEvent, PluginsRepository } from "../plugins/types";
+import type { DevModeEvent, DevModeRepository } from "../devmode/types";
 import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "../libraries/orgTypes";
 
 interface Pending {
@@ -103,6 +103,8 @@ export class StoreClient implements StoreApi {
   private readonly orgEvents = new Listeners<OrgEvent>();
   private readonly branchEvents = new Listeners<BranchEvent>();
   private readonly fontsEvents = new Listeners<FontsEvent>();
+  private readonly pluginsEvents = new Listeners<PluginsEvent>();
+  private readonly devModeEvents = new Listeners<DevModeEvent>();
   private readonly connected = new Listeners<{ generation: number }>();
   /** Calls wait for this: the hello and the resync of a new port */
   private gate!: Promise<void>;
@@ -214,6 +216,8 @@ export class StoreClient implements StoreApi {
         else if (msg.topic === "branches") this.branchEvents.emit(msg.d as BranchEvent);
         else if (msg.topic === "fonts") this.fontsEvents.emit(msg.d as FontsEvent);
         else if (msg.topic === "session") this.sessionEvents.emit(msg.d as SessionEnded);
+        else if (msg.topic === "plugins") this.pluginsEvents.emit(msg.d as PluginsEvent);
+        else if (msg.topic === "devmode") this.devModeEvents.emit(msg.d as DevModeEvent);
         return;
     }
   }
@@ -608,6 +612,7 @@ export class StoreClient implements StoreApi {
     approve: (orgId, input) => this.call("plugins.approve", [orgId, input]),
     unapprove: (orgId, pluginId, workspaceId) => this.call("plugins.unapprove", [orgId, pluginId, workspaceId]),
     answer: (orgId, requestId, input) => this.call("plugins.answer", [orgId, requestId, input]),
+    watch: (listener) => this.pluginsEvents.add(listener),
   };
 
   readonly devMode: DevModeRepository = {
@@ -624,6 +629,7 @@ export class StoreClient implements StoreApi {
     prototypeMembers: (fileKey) => this.call("devMode.prototypeMembers", [fileKey]),
     invitePrototype: (fileKey, email) => this.call("devMode.invitePrototype", [fileKey, email]),
     removePrototype: (fileKey, email) => this.call("devMode.removePrototype", [fileKey, email]),
+    watch: (listener) => this.devModeEvents.add(listener),
   };
 
   readonly identity: IdentityRepository = {

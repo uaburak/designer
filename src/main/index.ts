@@ -13,6 +13,7 @@ import { allowedServer, describePolicy, loadPolicy, proxied, proxySwitches } fro
 import { initNotifications } from "./notifications";
 import { keyFromLink } from "../shared/multiplayer/types";
 import { registerIpc } from "./ipc";
+import { handlePluginScheme } from "./plugins/protocol";
 import { installAppMenu } from "./menu";
 import { DEV_URL, handleScheme, isAppUrl, registerScheme } from "./protocol";
 import { flushStore, retryStoreHost, startStoreHost, storeClient, storeDebug } from "./storeHost";
@@ -104,6 +105,7 @@ if (!app.requestSingleInstanceLock()) {
     app.setAboutPanelOptions({ applicationName: "DesignerV2", applicationVersion: app.getVersion(), copyright: "Burak Koç" });
     initTheme();
     handleScheme();
+    handlePluginScheme();
     registerIpc();
     // A kept session the server no longer accepts is dropped (in the background; offline keeps it).
     void checkSession();

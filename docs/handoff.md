@@ -371,3 +371,84 @@ Acceptance (verified with `scripts/drive.mjs` on the built demo app): launch →
   - **Tests**: `account/__tests__/idleWarning.dom.test.ts` (2), `files/__tests__/session.dom.test.ts` (1), `store/__tests__/webAccount.dom.test.ts` (3), `files/__tests__/account.test.ts` (+1 SSO texts), `server/src/auth/identity.test.ts` (idle case now expects `idle_timeout` after the row is gone), `server/src/account.test.ts` (+DELETE /me/sessions), `src/store/multiplayer/policy.test.ts` (the socket-upgrade case now `idle_timeout`).
   - **Shared-file edits outside the row**: `src/shared/multiplayer/types.ts` (`SharedFileInfo` fields, `LinkSettingsPatch`, `updateLink`), `src/shared/store/protocol.ts` + `client.ts`, `src/store/multiplayer/api.ts` + `service.ts` (`updateLink`), `src/shared/idleTimer.ts` + `src/main/account/idle.ts` (moved, re-exported), `src/renderer/src/editor/commands.ts` (one guard line + import), `settings/Settings.module.css` (one class), `server/src/api.ts` (`authenticate`: the tombstone check), `server/src/account.ts`, `server/migrations/0014_idle_sessions.sql`.
   - **Not built / open**: wording is ours wherever Figma documents only behaviour (prompt, notices, toasts); "outside the org" is decided client-side without the org's domains (admins never asked; same-domain emails count as inside); Admin › workspace Settings for workspace admins (only Libraries exists).
+- 2026-10-11 — **Phase 7 round 5c, server Dev Mode and plugins** (branch `worktree-agent-a0361bbba40d714b8`). The as-built records are `docs/editor.md` "As built — the server (round 5c)", `docs/multiplayer.md` §16.7 "As built (5c)" and `docs/plugins.md` §10.3a.
+  - **Dev Mode** (`server/src/devmode/`):
+    - dev resources: private routes plus the `/v1` twins, ≤ 10 per node, a URL once per node, Full / Dev seats;
+    - Code Connect: storage, the UI mapping routes, `/v1/code_connect` publish and unpublish, `GET /v1/files/:key/code_connect`; mappings readable by the library's users;
+    - the dev-status report with `DEV_MODE_STATUS_UPDATE`, Dev Mode viewers, the per-file switch;
+    - the five notification kinds, Dev Mode statuses folded within the hour, `NotificationPrefs.devMode` for the desktop push;
+    - prototype-only access: `resolveAccess`'s prototype level, `prototype_members`, `protoOrgLinkAccess`, `prototypeOpen` gating the file routes;
+    - `devModeRestRoute` filled for 5a.
+  - **Plugins** (`server/src/plugins/`): private plugins published in three steps (SHA-1-checked parts in 1 MiB chunks, versions), approvals for the org and for workspaces, requests and their answers with Figma's activity actions, and `patchSettings` for the four plugin keys.
+  - **Tests**: `devmode.test.ts` 9, `plugins.test.ts` 5, `access.test.ts` +6, `src/shared/notifications.test.ts` +2. `npm run check` (1667 tests) and `npm --prefix server run typecheck` are green. Not deployed, not pushed.
+  - **Shared-file edits**:
+    - `src/shared/org/access.ts`: optional `AccessRows` fields;
+    - `src/shared/notifications.ts`: `devMode` pref, `isDevStatusKind`, `devStatusText`, `DEV_STATUS_FOLD_MS`; `notificationAction` takes `text`;
+    - `server/src/api.ts`: two dispatch lines, the prototype guard, and `protoOrgLinkAccess` in GET / PATCH;
+    - `server/src/org/db.ts`: `FILE_COLS` + `proto_org_link_access`, `prototypeMember`, listings skip prototype-only;
+    - `server/src/org/admin.ts`: `patchSettings`;
+    - `server/src/notifications.ts`.
+  - **Open**:
+    - The room has no broadcast route, so the `{t: "dev-resources"}` post isn't sent.
+    - The Worker sends `x-role: viewer` for prototype-only (room.ts treats any other role as a writer).
+    - Prototype invitations don't go through the org's guest policy.
+    - 5a must run `devModeRestRoute` after its scope checks. `parts` may keep the leading `v1`.
+- 2026-10-11 — **Phase 7 round 5a, REST server** (branch `worktree-agent-a9d19bc00f589c4e0`; `docs/multiplayer.md` §16.16 "As built").
+  - **Built**:
+    - Every `/v1` and `/v2` route of §16.7 in `server/src/rest/`: auth by `X-Figma-Token` or Bearer, scopes, tiers, rate limits in D1 with Figma's headers, Figma's error shapes, CORS `*`, signed blob URLs.
+    - Plan access tokens (`/orgs/:org/admin/plan-tokens`).
+    - Render jobs on the room (`RestJobs`): editor › viewer › helper, 20 s each, a cache by room state, `rest-wanted` through inboxes, the 503; the thumbnail and part uploads. `REST_SERVER_RENDER` stays off (not built).
+    - Webhooks V2 (`server/src/webhooks/`): the routes, PING, the HMAC header, retries on a five-minute cron, the 7-day log; FILE_COMMENT, FILE_VERSION_UPDATE, LIBRARY_PUBLISH (with `library_assets.node_id` and dates), FILE_DELETE, and FILE_UPDATE from the room's alarm.
+    - 5c's requests: `POST /room/broadcast` (`dev-resources`, `code-connect`, hooked in `devmode/`) and the room refusing writes from any role but owner and editor. The first two "Open" items of 5c's entry above are closed.
+  - **For 5b**: the job protocol and the parts are in §16.16. The `file` / `nodes` part is the JSON **without its opening `{`** and without `role`, `thumbnailUrl`, `branches` and `mainFileKey`. The hidden helper says `hello {render: true, helper: true}`. A failure may start with a status (`"404 …"`).
+  - **For 5g / 5h**: plan tokens are `AccessTokenInfo` with `kind: "plan"`, from `GET /orgs/:org/admin/plan-tokens`. `POST` takes `{description, expiresInDays: 1–365, scopes ⊆ PLAN_TOKEN_SCOPES}` and answers `{token, info}`, once.
+  - **Deploy (pending, the owner)**: migration **0015** (`npm --prefix server run db:migrate`); the new cron `*/5 * * * *` in `wrangler.jsonc` (a deploy picks it up). No new Durable Object class, wrangler migration tag or secret (signed URLs derive from `SESSION_SECRET`).
+  - **Verified**: `npm run check` (200 files, 1691 tests; new: `rest/rest.test.ts` 17, `webhooks/webhooks.test.ts` 7) and `npm --prefix server run typecheck`. Not run against `wrangler dev` (no client renders before 5b); `encodeBody: "manual"` and the two-member gzip are untested on workerd.
+  - **Shared-file edits outside the row**: `server/src/devmode/devResources.ts` and `codeConnect.ts` (one `roomBroadcast` line per write, at 5c's request), `server/src/roomBroadcast.ts` (new).
+  - **Open**: a delivery row has no claim while it is sent (the cron and `waitUntil` could send one twice in the same minute); `protocol.ts` doesn't type `hello.helper` or the broadcast messages.
+- 2026-10-11 — **Phase 7 round 5g, the store's plugins and Dev Mode repositories** (branch `worktree-agent-a3ed1d1a7df356ff6`). The as-built records are `docs/plugins.md` §10.3b and `docs/editor.md` "As built — the store (round 5g)".
+  - **`src/store/plugins/service.ts`** (`PluginsService`):
+    - saved / recents in `Workspace/plugins.json` (browser: `designer.devStore.v1.plugins`), recents ≤ 10;
+    - private plugins listed and cached per org; bundles downloaded once per version under `spaces/plugins/<id>/<version>/`;
+    - publish in three steps (only changed parts sent; the folder's plugin id remembered);
+    - `allowed` from the org cache's settings and the approved list (30 s, offline cache, team → workspace);
+    - requests and the admin calls; the Inbox's `{t: "plugins"}` → topic `plugins`.
+  - **`src/store/devmode/service.ts`** (`DevModeService`):
+    - a shared file's records on the server, a local file's in `files/<key>/dev-resources.json` / `code-connect.json` (browser: `designer.devStore.v1.devResources.<key>` / `.codeConnect.<key>`), with the server's rules;
+    - branches map to main (main's room key when shared); statuses, viewers and prototype members go to the file's own room;
+    - topic `devmode`.
+  - **API change for 5d / 5e / 5f / 5h**: `plugins.watch(listener)` and `devMode.watch(listener)` (client-side listeners on the two topics, as `orgs.watch`); the types `PluginsEvent` and `DevModeEvent`. Otherwise the repositories are the verbatim D-8 / §10.4 ones.
+  - **Shared-file edits**: `src/shared/plugins/types.ts`, `src/shared/devmode/types.ts` (the two `watch`es), `src/shared/store/client.ts` (topics), `src/shared/store/protocol.ts` (a comment), `src/store/server.ts` (broadcasts), `src/store/notifications/service.ts` (`onPlugins`), `src/store/localStore.ts`, `src/renderer/src/store/memory/memoryStore.ts`; the two stubs are deleted.
+  - **Tests**: `src/store/plugins/plugins.test.ts` 6 and `src/store/devmode/devmode.test.ts` 5, against 5c's real handler; `src/renderer/src/store/memory/devmodePlugins.test.ts` 2 (MemoryStore). `server/src/testing/orgWorld.ts`: one cast (`BodyInit` → `RequestInit["body"]`) so the root typecheck takes it.
+  - **Open**:
+    - Other people's dev-resource changes aren't heard (no room broadcast).
+    - Plugin icons, `PATCH /plugins/:id` and sweeping the bundle cache aren't built.
+    - `allowed` reads org settings from the org cache, which a settings change refreshes through the Inbox's `{t: "org"}`.
+- 2026-10-11 — **Phase 7 round 5e, plugins in main** (branch `worktree-agent-a80cb44f954b9e7d1`). The as-built record is `docs/plugins.md` §3.4.
+  - **`src/main/plugins/`**:
+    - development plugins imported from a manifest, listed and removed (`userData/plugins/development.json`), and read with realpath checks (≤ 20 MB a file; `build` never run);
+    - hot reload (`fs.watch`, 300 ms, `plugins:changed`);
+    - the `plugin:` scheme serving a run's `ui.html` with its own CSP from `allowedDomains`, COEP `credentialless` and CORP `cross-origin`;
+    - frame navigation limited to the view's runs' UIs and allowed `https:` URLs;
+    - `fetch` checked per hop through `mainFetch` (no cookies, 30 s, 20 MB);
+    - `clientStorage` with Figma's 5 MB rule;
+    - the five New plugin… templates written to a folder from main's Save dialog;
+    - Open console.
+  - **`src/main/devmodeLinks.ts`**: `devmode:link-title` (https only, no local hosts, 5 s, 512 kB).
+  - **API changes for 5d**: new channels `plugins:begin-run`, `plugins:end-run` and `plugins:new-plugin`; `open-ui` gains `devAllowedDomains?`; run ids are lower case (`[a-z0-9-]`). `window.designer.plugins` (`PluginsDesktopApi`) and `window.designer.devMode.linkTitle` are in the editor preload.
+  - **Shared-file edits**:
+    - `src/shared/ipc.ts` (the channels above);
+    - `src/shared/desktop.ts` (`EditorApi.plugins` / `devMode`);
+    - `src/preload/editor.ts`;
+    - `src/main/protocol.ts` (`frame-src plugin:`, the scheme registered in the same call);
+    - `src/main/index.ts` (one line);
+    - `src/main/views.ts` (one line, `guardPluginFrames`);
+    - `src/main/ipc.ts`;
+    - `docs/desktop.md` §12.2 (the CSP line).
+  - **Verified**:
+    - `npm run check` (205 files, 1732 tests; new: `plugins.test.ts` 24, `devmodeLinks.test.ts` 4);
+    - the built app via `scripts/drive.mjs`: a plugin UI loaded through `plugin:` in the cross-origin-isolated editor with a null origin, no storage, no parent access and its CSP blocking `fetch`; main's `fetch` refused outside the manifest; `clientStorage` round-tripped.
+  - **Open**:
+    - main's `parseManifest` / network rules duplicate 5d's `src/shared/plugins/` (not on main yet): one side should import the other at merge;
+    - the developer VM's `worker.js` can't live on `plugin:` (a Worker must be same-origin): 5d's to place;
+    - link titles don't catch a DNS name that resolves to a local address.

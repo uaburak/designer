@@ -1,6 +1,6 @@
 # Plugins and widgets (contract, Phase 7 round 5; written 2026-10-11)
 
-**Status: contract, not built.** This document covers Figma's plugins in DesignerV2:
+**Status: contract; main's side (5e) built — §3.4; the server (5c) §10.3a; the store (5g) §10.3b.** This document covers Figma's plugins in DesignerV2:
 - the sandbox for a plugin's code and its UI;
 - the `figma.*` API we implement first;
 - development plugins from a `manifest.json`;
@@ -238,6 +238,105 @@ editor view (renderer, main thread)
   - `plugins:open-ui`, `plugins:close-ui`, `plugins:fetch`, `plugins:storage`
   - `plugins:changed` (event), `plugins:open-console`
   - "Open console" = the view's devtools, development plugins only.
+
+### 3.4 As built — main (5e, 2026-10-11, branch `worktree-agent-a80cb44f954b9e7d1`)
+
+**Where**: `src/main/plugins/` — `manifest.ts` (main's `parseManifest`), `network.ts` (the `allowedDomains` rules and the CSP), `manifests.ts` (development plugins), `watch.ts`, `runs.ts`, `protocol.ts`, `fetch.ts`, `storage.ts`, `templates/`, `index.ts` (the wiring); `src/main/devmodeLinks.ts`. Tests: `src/main/plugins/plugins.test.ts` (24), `src/main/devmodeLinks.test.ts` (4).
+
+**Changes to §3.3's channels** (`src/shared/ipc.ts`; `window.designer.plugins` / `window.designer.devMode` in `src/shared/desktop.ts` `PluginsDesktopApi`, one method per channel):
+- **New `plugins:begin-run {runId, allowedDomains, devAllowedDomains?, dev}`** and **`plugins:end-run {runId}`**. A run without a UI still fetches, so main needs its network rules before any `showUI`. `open-ui` also registers the run when `begin-run` wasn't called.
+- **`plugins:open-ui`** gains `devAllowedDomains?` (counted when `dev`).
+- **New `plugins:new-plugin {name, template}`** → `{plugin, manifest, editorType} | {cancelled}`. `template` is `default`, `run-once`, `custom-ui`, `inspect` or `codegen`.
+- **Run ids** are the host of `plugin://<runId>/`, and a standard scheme lower-cases hosts. So an id is `[a-z0-9][a-z0-9-]{0,62}`; a UUID fits.
+- **Ownership**: the view that registers a run owns it. Another view's `fetch` / `open-ui` / `close-ui` with that id is refused. A view's reload or close ends its runs.
+
+**Manifests** (`manifest.ts`, `manifests.ts`):
+- §4's fields, each checked and copied. Anything else is dropped.
+- Refused: widget manifests ("Widgets aren't supported in DesignerV2 yet"); `main` / `ui` paths that are absolute or contain `..`; domains that aren't Figma's forms (an entry is a CSP source, so `;` `,` spaces and quotes are never accepted); `"none"` beside other entries; `codegen` without `codegenLanguages`.
+- `*` and localhost without `reasoning` give a console warning.
+- **The development list**: `userData/plugins/development.json` `{path, id, name, addedAt}[]`, written temp + rename.
+  - The id is the manifest's `id`, else `dev:<sha1(path)>`.
+  - Re-importing the same path or id replaces the entry and keeps its `addedAt`.
+  - Import checks that the files are readable.
+- **`read`**:
+  - Re-reads the manifest. Each file is resolved with `realpath` and must stay inside the folder's `realpath` (a symlink out is refused). Each file ≤ 20 MB.
+  - `ui` → `{"": html}`, or the map's keys.
+  - The listed id is kept even if the manifest's id changed since the import.
+- `build` is kept and never run.
+- **Duplicate rules**: 5d's `src/shared/plugins/manifest.ts` / `network.ts` didn't exist yet, so main has its own pure copies. When 5d merges, one side should import the other.
+
+**Network rules** (`network.ts`):
+- A scheme-less entry means `https` + `wss` (the CSP rule on an https page, which Figma's iframes are).
+- `*.x` covers subdomains, not `x` itself. A port defaults to the scheme's.
+- A path ending in `/` is a prefix; any other path is exact (the query is ignored).
+- `*` → `https:` + `wss:`. `none` → nothing, so `["none"]` gives `connect-src 'none'`.
+- `devAllowedDomains` is added only when `dev`.
+- **CSP sources** are written with their scheme, because the document's own scheme is `plugin:` and a scheme-less source would match only `plugin:` URLs.
+
+**The `plugin:` scheme** (`protocol.ts`):
+- **Registration**: in the same `registerSchemesAsPrivileged` call as `app` (`src/main/protocol.ts`; a second call would replace the first), with `standard`, `secure`, `supportFetchAPI` and `corsEnabled`. `index.ts` has one line: `handlePluginScheme()` after `handleScheme()`.
+- **What it serves**: only `GET` / `HEAD` of `/ui.html` of a run whose UI is open. Headers: §3.2's CSP, COEP `credentialless`, CORP `cross-origin`, `nosniff`, `no-referrer`, `no-store`.
+- **The editor's CSP**: `frame-src plugin:`.
+- **Frame navigation**: `views.ts`'s `harden` calls `guardPluginFrames`. A subframe may load:
+  - `plugin://<one of the view's runs>/ui.html`;
+  - `https:` URLs one of the view's runs allows;
+  - `about:blank` / `about:srcdoc`.
+  Anything else is cancelled. `window.open` already goes to the browser.
+- **The developer VM's `worker.js`** (§3.3) isn't served. A dedicated Worker must be same-origin with the page that creates it, so `plugin:` can't host the editor's worker. 5d builds it from the app's own files or a blob.
+
+**`fetch`** (`fetch.ts`):
+- `net.fetch` / Node `fetch` through `mainFetch`, with `credentials: "omit"`.
+- Redirects are followed by hand (`redirect: "manual"`, ≤ 20), and every hop is checked against the run's rules. A refused hop throws §3.3's text with that hop's URL.
+- 303, and 301 / 302 after a POST, become a GET without a body. `Authorization` is dropped when a redirect goes to another origin.
+- Forbidden request headers are dropped (`cookie`, `host`, `origin`, `referer`, `sec-*`, `proxy-*` …). `set-cookie` never comes back.
+- 30 s for the whole request, ≤ 20 MB each way.
+
+**`clientStorage`** (`storage.ts`):
+- `userData/plugins/storage/<pluginId>.json`. An id that isn't `[A-Za-z0-9_-]{1,100}` (such as `dev:…`) is stored as `h-<sha1>.json`.
+- **Size**: key length + the value's JSON length, and a `Uint8Array` by its byte length (nested inside objects too). A write past 5 MB throws "clientStorage is full: a plugin may store at most 5 MB" (wording ours).
+- `Uint8Array`s are kept as `{"$bytes": base64}`. A literal `$bytes` key is escaped.
+- `undefined` can't be stored; `get` of a missing key answers `undefined`.
+- Calls are serial per plugin. Writes are temp + rename, and an empty store deletes its file.
+
+**Hot reload** (`watch.ts`):
+- `fs.watch(folder, {recursive})` per listed development plugin, filtered to `manifest.json`, `main` and the `ui` files.
+- Debounced 300 ms, then `plugins:changed {id}` goes to every editor view. The watches follow the list (list, import, remove).
+- The "Hot reload plugin" check item is the editor's: its host ignores the event when the item is off.
+
+**New plugin…** (`templates/`, `index.ts newPlugin`):
+- Five templates: `default` (5 rectangles, closes), `run-once` (a closing message), `custom-ui` (a count field, `postMessage` both ways), `inspect` (Dev Mode, selection details) and `codegen` (Dev Mode, CSS).
+- Each manifest has a random 19-digit `id`, `api` "1.0.0", `editorType`, `documentAccess: "dynamic-page"` and `networkAccess: {allowedDomains: ["none"]}`.
+- The code is ours, in the shape of Figma's samples.
+- Main's Save dialog names a new folder (one that exists must be empty, apart from `.DS_Store`). The files are written with `wx`, and the plugin is imported.
+
+**Open console**: `sender.openDevTools({mode: "detach"})`.
+
+**`devmode:link-title`** (`devmodeLinks.ts`, editor.md D-3):
+- `https:` only, also at every redirect (≤ 5).
+- Hosts that are this computer or the local network are refused by their written form: localhost, `*.local`, loopback, private, link-local, CGNAT, ULA, v4-mapped. A DNS name that resolves to one of them isn't caught.
+- No cookies, 5 s.
+- Only `text/html` / `xhtml` with a 2xx status. At most 512 kB is read, stopping at `</title>`.
+- The charset comes from the header or a `<meta>`. Entities are decoded, space is collapsed, and the title is cut at 300 characters.
+- Anything else answers `null`.
+
+**Verified**:
+- `npm run check`: 205 files, 1732 tests.
+- The built app driven with `scripts/drive.mjs`. In a new file's editor, `designer.plugins.openUi` + an `<iframe sandbox="allow-scripts">` loaded `plugin://e2e-run-1/ui.html` inside the cross-origin-isolated editor. Inside the frame:
+  - `origin` was `"null"`;
+  - `localStorage` threw;
+  - `parent.document` was refused;
+  - the frame's `fetch('https://example.com/')` was blocked by `connect-src 'none'`.
+- In the same run:
+  - `plugins:fetch` to the same URL answered the refusal text;
+  - a run id the view doesn't own was refused;
+  - a `clientStorage` set / get round-tripped `{n, Uint8Array}`;
+  - `devMode.linkTitle("http://127.0.0.1/")` answered `null`.
+
+**Not built**:
+- `worker.js` (see above).
+- The dev server's CSP: there is none to change (`vite.shared.ts` sets no CSP).
+- A positive `fetch` and a plugin UI loading a COEP-less outside picture weren't run against the live network.
+- The import dialog and Save dialog flows were only exercised through unit tests of what they call.
 
 ## 4. The manifest (`src/shared/plugins/manifest.ts`)
 
@@ -526,6 +625,110 @@ The first publish assigns the id: a 19-digit decimal string, like Figma's. The d
   - Logged as `plugin_approvelist_request_approve_org` / `_reject_org` / `_approve_workspace` / `_reject_workspace`.
   - The requester gets `plugin_request_answer` ("Your request for ‹plugin› was approved | declined").
   - A declined requester may ask again.
+
+### 10.3a As built — the server (5c, 2026-10-11, branch `worktree-agent-a0361bbba40d714b8`)
+
+**Where**: `server/src/plugins/` (`private.ts`, `approvals.ts`, `routes.ts`), dispatched from one `api.ts` line. Tests: `server/src/plugins/plugins.test.ts`.
+
+**Publishing (§10.1), three steps:**
+1. `POST /orgs/:org/plugins {manifest, parts, name?, description?, pluginId?}` answers `{plugin, version, missing}`.
+   - **A new plugin** gets its 19-digit id right away, in a `version = 0` row. Lists and `GET /plugins/:id` hide that row until the first commit.
+   - **`pluginId`** names a plugin to update. Only its publisher or an org admin may.
+   - **The pending manifest and part list** are stored as the version's `.meta` chunk, so the commit needs no body.
+   - **Parts whose SHA-1 is unchanged** from the current version are copied over on the server and aren't listed in `missing`.
+   - **Refused**: widgets ("Widgets aren't supported in DesignerV2 yet"), a manifest without `name` / `main` / `api` or over 64 kB, and part lists without `code`. Part names are `code`, `ui` or `ui:<key>`, at most 50 parts.
+2. `PUT /plugins/:id/parts/:version/:name` uploads one part.
+   - It is checked against its declared SHA-1 and size, ≤ 10 MB.
+   - It is stored in 1 MiB chunks.
+   - A version other than current + 1 answers 409 `stale`.
+3. `POST /plugins/:id/versions/:version/commit` answers `{plugin}`.
+   - Every part must match. Otherwise it answers 409 with `missing`.
+   - It is atomic on the version (another publish that finished first → 409 `stale`).
+   - It keeps the current and the previous version's chunks.
+   - Logged as `private_plugin_publish` on version 1, `private_plugin_update` after.
+
+**The other routes:**
+- `GET /plugins/:id/parts/:version/:name` serves the current or the previous version, `private, max-age=31536000, immutable`.
+- `PATCH /plugins/:id` → `{plugin}`, logged as `private_plugin_update`.
+- `DELETE /plugins/:id` → 204. It soft-deletes the row, drops the chunks and logs `private_plugin_delete`.
+- Guests get 403 everywhere; people outside the org get 404.
+- Each change sends `{t: "plugins", orgId}` to the org's inboxes (for the store's `plugins` topic).
+
+**Members' routes** (these two are ours, needed by 5g's `allowed` and "Request approval"):
+- `GET /orgs/:org/plugins/approved?kind=` → `{approved}`.
+- `GET /orgs/:org/plugins/requests` → `{requests}` (the caller's own).
+
+**Requests (§10.3)**:
+- `POST /orgs/:org/plugins/requests` → 201 `{request}`.
+- Refused with 403 `forbidden` when the kind's requests are off, and for guests.
+- Refused with 409 for a second pending request, or when the plugin is already approved for the org (or for the `workspaceId` asked about — a workspace approval doesn't cover drafts).
+- Org admins, plus the workspace's admins when `workspaceId` is given, get `plugin_request`: `text` = the plugin's name, `fileName` = the org's name, `state: "pending"`. It counts in the Requests tab's pending number.
+
+**Admins (§10.2)**:
+- `GET /orgs/:org/admin/plugins?kind=` (default `plugin`) → `{approved, requests, private}`. Workspace admins see only their workspaces' requests.
+- `POST …/approvals` → 204. Approving for the org needs an org admin; workspace scopes need an admin of each. Approving also answers the pending requests it covers.
+- `DELETE …/approvals/:pluginId?workspace=&kind=` → 204 / 404.
+- `POST …/requests/:id {approve, reason?, workspaceIds?}` → `{request}`. A request already answered → 409.
+
+**Answering**:
+- The requester gets `plugin_request_answer` with `state` approved | denied. The admins' rows take the same state.
+- A declined request keeps `declineReason`, and the person may ask again.
+- Actions are `plugin_approvelist_*` / `widget_approvelist_*` as §16.11. A decline is `_reject_workspace` when the answering admin is a workspace admin, `_reject_org` otherwise.
+
+**Settings** (`server/src/org/admin.ts` `patchSettings`):
+- The four keys are validated.
+- `pluginApproval` → `plugin_approvelist_enable` (approved) / `_disable` (all).
+- `widgetApproval` → `widgets_enabled` (approved) / `widgets_disable` (all). This pairing is our reading of Figma's names.
+- A change to `pluginRequests` / `widgetRequests` is logged under its kind's approval action, with the key in `details` (Figma has no action for it).
+
+### 10.3b As built — the store (5g, 2026-10-11, branch `worktree-agent-a3ed1d1a7df356ff6`)
+
+**Where**: `src/store/plugins/service.ts` (`PluginsService`, no Node or DOM imports), wired in `LocalStore` and `MemoryStore`. Tests: `src/store/plugins/plugins.test.ts`, against 5c's real handler (the org of `server/src/testing/orgWorld.ts`).
+
+**Change to §10.4**: `PluginsRepository.watch(listener)` and `PluginsEvent` (`{what: "local"}` | `{what: "org", orgId}`). Like `orgs.watch`, it is the client's listener on topic `plugins`, not an RPC.
+
+**Saved and recents:**
+- Kept in `Workspace/plugins.json` (desktop) and `designer.devStore.v1.plugins` (browser).
+- The shape is `{v: 1, saved, recents, published}`. `published` maps `orgId + development path` to the published id.
+- A ref is checked and copied (`cleanRef`). One plugin is the same `source.type` and id (plus path or org); a private plugin's versions count as one.
+- Recents: newest first, at most `MAX_RECENTS` = 10. Running a private plugin moves a saved ref to that version.
+- Each change says `{what: "local"}`.
+
+**Private plugins:**
+- `listPrivate(orgId)` calls `GET /orgs/:org/plugins` (both kinds). The answer is cached in `spaces/plugins/orgs/<orgId>.json`, keyed by the signed-in person. Offline, the cache answers; with nothing cached the call fails with `offline`.
+- `bundle(id, version)`:
+  - The parts come from the manifest's `ui`: `code`, then `ui` or `ui:<key>`.
+  - Each part is read from `spaces/plugins/<id>/<version>/<part>` (`ui:k` is stored as `ui-k`), else downloaded and kept.
+  - The manifest is kept beside the parts, so a cached version opens offline.
+  - Without a cache, `GET /plugins/:id` must name that version as current; otherwise the call fails with `conflict` `{current}`.
+  - The browser keeps bundles in memory and org lists in `designer.devStore.v1.plugins.org.<orgId>`.
+- `publish(orgId, bundle, {name, description, developmentPath})`:
+  1. Checks the parts first: a single `""` ui file can't sit beside named ones; keys are `[A-Za-z0-9_.-]{1,64}`; a part is at most 10 MB.
+  2. Hashes the parts with SHA-1 (`crypto.subtle`).
+  3. `POST /orgs/:org/plugins`, with `pluginId` when this folder published before. If that plugin is gone (404), it publishes again as a new one.
+  4. `PUT`s only the parts in `missing`, then commits.
+  5. Writes the new version's bundle into the cache.
+  6. Says `{what: "org"}`.
+
+  An update sends only the changed parts, because the server copies the unchanged ones.
+- `removePrivate(id)`: `GET` (for the org), then `DELETE`. It also drops the plugin from saved, recents and `published`.
+
+**`allowed(fileKey, ref)`:**
+1. A private plugin, for an org guest → `{ok: false, reason: "guest"}`, wherever it runs.
+2. The file's org comes from `FileMeta.space`. Without one → ok.
+3. The org's settings and role come from the org cache (`OrgService.orgs.get`; a settings change reaches it with the Inbox's `{t: "org"}`). `pluginApproval` / `widgetApproval` "all" → ok.
+4. Exempt → ok: the org's own private plugins, and development plugins (§10.2).
+5. Otherwise the members' `GET /orgs/:org/plugins/approved?kind=`:
+   - kept 30 s (`APPROVED_TTL_MS`), and dropped by `{t: "plugins", orgId}` and by every change made here;
+   - cached for offline use, together with each team's workspace;
+   - an org row, or a workspace row for the file's team's workspace, allows it. Drafts have no workspace.
+6. Refused → `canRequest` = the kind's requests setting is on, the person isn't a guest, and they have no pending request for it (`GET /orgs/:org/plugins/requests`).
+
+**Requests and admin calls**: `request`, `admin`, `approve`, `unapprove` and `answer` are thin over §10.3a's routes. Each change says `{what: "org", orgId}`. `unapprove` sends `kind=widget` only when the cached lists know the id only as a widget.
+
+**Events**: `NotificationsService.onPlugins` hands on the Inbox's `{t: "plugins", orgId}`; the service turns it into `{what: "org", orgId}`. `StoreServer` broadcasts topic `plugins`; `StoreClient` hands it to `plugins.watch`.
+
+**Not built**: plugin icons (§10.1's optional PNG; neither the server nor the store carries them), `PATCH /plugins/:id` (no repository method), and a size limit for the bundle cache (it is never swept).
 
 ### 10.4 Types (`src/shared/plugins/types.ts`, committed verbatim before the round)
 

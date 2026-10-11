@@ -243,3 +243,48 @@ describe("resolveAccess, around the cases", () => {
     expect([seatCanEdit("dev", "design"), seatCanEdit("dev", "figjam"), seatCanEdit("collab", "slides"), seatCanEdit("collab", "sites"), seatCanEdit("view", "figjam")]).toEqual([false, true, true, false, false]);
   });
 });
+
+describe("resolveAccess: the prototype level (docs/editor.md D-6, round 5)", () => {
+  const proto = { canEdit: false, canDevMode: false, canShare: false, canManage: false, prototypeOnly: true, roomRole: "viewer", role: "viewer" };
+
+  it("an invitation from Share prototype: prototype-only, no link or password needed", () => {
+    const r = ok(resolveAccess(rows({ prototypeMember: true, membership: null }, { passwordProtected: true })));
+    expect(r).toMatchObject({ ...proto, via: ["file"], canComment: true });
+  });
+
+  it("anything above wins: a viewer of the file stays a full viewer", () => {
+    const r = ok(resolveAccess(rows({ prototypeMember: true, fileGrants: [user("viewer")] })));
+    expect(r).toMatchObject({ role: "viewer", prototypeOnly: false, canDevMode: true });
+  });
+
+  it("the prototype link for anyone: by the link in orgs, the policy, expiry and password apply", () => {
+    const f = { protoLinkAccess: "viewer" as const };
+    expect(resolveAccess(rows({ membership: null }, f)).ok).toBe(false); // not by the link
+    expect(ok(resolveAccess(rows({ membership: null, viaLink: true }, f)))).toMatchObject({ ...proto, via: ["link"] });
+    expect(resolveAccess(rows({ membership: null, viaLink: true, policy: { publicLinks: false } as FilePolicy }, f)).ok).toBe(false);
+    expect(resolveAccess(rows({ membership: null, viaLink: true }, { ...f, linkExpiresAt: NOW - 1 }))).toEqual({ ok: false, reason: "gone", role: null });
+    expect(resolveAccess(rows({ membership: null, viaLink: true }, { ...f, passwordProtected: true }))).toMatchObject({ ok: false, reason: "password_required" });
+    expect(ok(resolveAccess(rows({ membership: null, viaLink: true, passOk: true }, { ...f, passwordProtected: true }))).prototypeOnly).toBe(true);
+    expect(resolveAccess(rows({ membership: null, viaLink: true, user: null }, f)).ok).toBe(false);
+  });
+
+  it("legacy files: the prototype link works without naming it, as the file link", () => {
+    const r = ok(resolveAccess(rows({ membership: null, folders: [], team: null }, { orgId: null, teamId: null, projectId: null, protoLinkAccess: "viewer" })));
+    expect(r).toMatchObject({ ...proto, via: ["link"] });
+  });
+
+  it("the org's prototype link: members by the link, not guests", () => {
+    const f = { protoOrgLinkAccess: "viewer" as const };
+    expect(ok(resolveAccess(rows({ viaLink: true }, f)))).toMatchObject({ ...proto, via: ["audience"] });
+    expect(resolveAccess(rows({ viaLink: false }, f)).ok).toBe(false);
+    expect(resolveAccess(rows({ viaLink: true, membership: { role: "guest", seat: "view", workspaceId: null } }, f)).ok).toBe(false);
+    expect(resolveAccess(rows({ viaLink: true, membership: null }, f)).ok).toBe(false);
+  });
+
+  it("a trashed file or a deleted team: no prototype either; export follows viewers_can_copy; the external cap", () => {
+    expect(resolveAccess(rows({ prototypeMember: true }, { trashedAt: NOW })).ok).toBe(false);
+    expect(resolveAccess(rows({ prototypeMember: true, team: { ...rows().team!, deletedAt: NOW } })).ok).toBe(false);
+    expect(ok(resolveAccess(rows({ prototypeMember: true }, { viewersCanCopy: false }))).canExport).toBe(false);
+    expect(ok(resolveAccess(rows({ prototypeMember: true, externalRestricted: true, homeOrgId: "o2" })))).toMatchObject({ capped: "external", canComment: false });
+  });
+});

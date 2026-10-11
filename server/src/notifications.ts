@@ -15,7 +15,7 @@
  * to edit to the owner and everyone who can edit; its answer to the person who asked. In-app notifications can't be
  * turned off (Figma); the person's preferences decide which also reach their computer. Email is stored, never sent.
  */
-import { cleanPrefs, DEFAULT_NOTIFICATION_PREFS, wantsDesktop, type InboxMessage, type NotificationItem, type NotificationKind, type NotificationPage, type NotificationPrefs } from "../../src/shared/notifications";
+import { cleanPrefs, DEFAULT_NOTIFICATION_PREFS, DEV_STATUS_FOLD_MS, isDevStatusKind, wantsDesktop, type InboxMessage, type NotificationItem, type NotificationKind, type NotificationPage, type NotificationPrefs } from "../../src/shared/notifications";
 import type { Deps } from "./api";
 import type { User } from "./db";
 import { canOpen } from "./org/db";
@@ -37,7 +37,7 @@ export type OrgNotificationKind = "team_invite" | "project_invite" | "team_join_
 export type BranchNotificationKind = "branch_review_request" | "branch_review" | "branch_merged";
 
 /** Kinds answered with Approve / Deny: the Requests tab and the pending count (the org's are answered on their own routes) */
-const REQUEST_KINDS = `('edit-request', 'team_join_request', 'seat_request', 'guest_request')`;
+const REQUEST_KINDS = `('edit-request', 'team_join_request', 'seat_request', 'guest_request', 'plugin_request')`;
 
 /**
  * What the store's org cache hears through the inbox (§14.6, §14.11; src/store/notifications/service.ts OrgNotice):
@@ -266,8 +266,11 @@ async function deliver(deps: Deps, n: NewNotification): Promise<void> {
   const fileName = place?.name ?? n.place?.name ?? "";
   const orgId = place?.org_id ?? n.place?.orgId ?? null;
   const teamId = place?.team_id ?? n.place?.teamId ?? null;
-  // Comments and replies fold into "N comments", reactions into "N reactions"; a mention keeps its own row.
-  const family = n.kind === "comment" || n.kind === "reply" ? `'comment', 'reply'` : n.kind === "reaction" ? `'reaction'` : null;
+  // Comments and replies fold into "N comments", reactions into "N reactions"; a mention keeps its own row. Dev Mode
+  // statuses fold by kind within an hour (round 5, docs/editor.md D-4: "3 designs marked ready for dev").
+  const dev = isDevStatusKind(n.kind);
+  const family = n.kind === "comment" || n.kind === "reply" ? `'comment', 'reply'` : n.kind === "reaction" ? `'reaction'` : dev ? `'${n.kind}'` : null;
+  const foldMs = dev ? DEV_STATUS_FOLD_MS : GROUP_MS;
   let id: string | null = null;
   if (family) {
     const g = await d1
@@ -275,7 +278,7 @@ async function deliver(deps: Deps, n: NewNotification): Promise<void> {
         `SELECT id FROM notifications WHERE user_id = ?1 AND file_key = ?2 AND actor_id = ?3 AND read_at IS NULL AND kind IN (${family}) AND updated_at >= ?4
          ORDER BY updated_at DESC LIMIT 1`,
       )
-      .bind(n.userId, n.fileKey, n.actorId, now - GROUP_MS)
+      .bind(n.userId, n.fileKey, n.actorId, now - foldMs)
       .first<{ id: string }>();
     if (g) {
       id = g.id;
@@ -427,6 +430,41 @@ export async function notifyBranchMerged(deps: Deps, m: { key: string; by: User;
     for (const userId of await withAccess(deps, m.key, m.userIds)) {
       if (userId !== m.by.id) await deliver(deps, { userId, kind: "branch_merged" as NotificationKind, fileKey: m.key, actorId: m.by.id });
     }
+  });
+}
+
+/**
+ * A Dev Mode status change (round 5, docs/editor.md D-4; devmode/status.ts picks who): each person told once, folded
+ * with their unread rows of the same kind from the same person on the same file within the hour. `text` is the
+ * design's name (and, for "changed", a line break and the reason — `devStatusText`).
+ */
+export async function notifyDevStatus(deps: Deps, d: { key: string; by: User; kind: "dev_ready" | "dev_completed" | "dev_changed"; design: string; reason?: string; userIds: string[] }): Promise<void> {
+  await safely("a Dev Mode status", async () => {
+    const design = d.design.replace(/\s+/g, " ").trim().slice(0, 200);
+    const text = d.kind === "dev_changed" && d.reason ? `${design}\n${d.reason.trim().slice(0, 500)}` : design;
+    for (const userId of new Set(d.userIds)) if (userId !== d.by.id) await deliver(deps, { userId, kind: d.kind, fileKey: d.key, actorId: d.by.id, text });
+  });
+}
+
+/** "Request approval" for a plugin or widget (round 5, docs/plugins.md §10.3): every admin given, a pending row each. */
+export async function notifyPluginRequest(deps: Deps, r: { orgId: string; orgName: string; by: User; adminIds: string[]; pluginName: string }): Promise<void> {
+  await safely("a plugin request", async () => {
+    for (const userId of new Set(r.adminIds)) {
+      if (userId !== r.by.id) await deliver(deps, { userId, kind: "plugin_request", fileKey: null, actorId: r.by.id, text: r.pluginName, state: "pending", place: { orgId: r.orgId, teamId: null, name: r.orgName } });
+    }
+  });
+}
+
+/** A plugin request answered: the admins' rows show how (by org, requester and plugin name), the requester is told. */
+export async function notifyPluginAnswer(deps: Deps, a: { orgId: string; orgName: string; by: User; requesterId: string; pluginName: string; approve: boolean }): Promise<void> {
+  await safely("a plugin answer", async () => {
+    const state = a.approve ? "approved" : "denied";
+    const { results } = await deps.db.d1
+      .prepare(`UPDATE notifications SET state = ?4 WHERE kind = 'plugin_request' AND org_id = ?1 AND actor_id = ?2 AND text = ?3 AND state = 'pending' RETURNING user_id`)
+      .bind(a.orgId, a.requesterId, a.pluginName, state)
+      .all<{ user_id: string }>();
+    for (const u of new Set(results.map((x) => x.user_id))) await push(deps, u);
+    if (a.requesterId !== a.by.id) await deliver(deps, { userId: a.requesterId, kind: "plugin_request_answer", fileKey: null, actorId: a.by.id, text: a.pluginName, state, place: { orgId: a.orgId, teamId: null, name: a.orgName } });
   });
 }
 

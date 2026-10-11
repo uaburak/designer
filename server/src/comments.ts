@@ -152,6 +152,7 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
       await markRead(thread.id, now);
       await changed(thread.id);
       await notifyComment(deps, { key, by: user, commentId: id, threadId: thread.id, reply: true, message, mentions });
+      await (await import("./webhooks/events")).commentPosted(deps, key, user, id);
       return list();
     }
     const anchor = cleanAnchor(body.anchor);
@@ -167,6 +168,7 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
     await markRead(id, now);
     await changed(id);
     await notifyComment(deps, { key, by: user, commentId: id, threadId: id, reply: false, message, mentions });
+    await (await import("./webhooks/events")).commentPosted(deps, key, user, id);
     return list();
   }
 

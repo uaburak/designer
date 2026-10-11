@@ -6,6 +6,9 @@ import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from "../shared/agents/attachme
 import * as account from "./account";
 import * as agents from "./agents/host";
 import { readVectorClipboard } from "./clipboard";
+import { linkTitle } from "./devmodeLinks";
+import * as plugins from "./plugins";
+import { pluginRuns } from "./plugins/runs";
 import { exportAssets } from "./files";
 import { hapticTick } from "./haptics";
 import { fontIndex, readFont } from "./fonts";
@@ -152,18 +155,21 @@ export function registerIpc() {
   // The idle prompt's Stay logged in (docs/desktop.md §18.2)
   onInvoke("account:stay-signed-in", () => account.staySignedIn());
   onInvoke("account:request", (_c, r) => account.accountRequest({ method: r?.method, path: str(r?.path, 200) ?? "", body: r?.body }));
-  // ── Plugins and Dev Mode links: stubs until round 5e (docs/plugins.md §3.3, docs/editor.md D-3) ──
-  const notBuilt = (): never => { throw new Error("Plugins aren't built yet"); };
-  onInvoke("plugins:list-development", () => []);
-  onInvoke("plugins:import-manifest", notBuilt);
-  onInvoke("plugins:remove-development", () => []);
-  onInvoke("plugins:read", notBuilt);
-  onInvoke("plugins:open-ui", notBuilt);
-  onInvoke("plugins:close-ui", () => undefined);
-  onInvoke("plugins:fetch", notBuilt);
-  onInvoke("plugins:storage", notBuilt);
-  onInvoke("plugins:open-console", () => undefined);
-  onInvoke("devmode:link-title", () => ({ title: null }));
+  // ── Plugins (docs/plugins.md §3.3: src/main/plugins) and Dev Mode links (docs/editor.md D-3) ──
+  onInvoke("plugins:list-development", () => plugins.listDevelopment());
+  onInvoke("plugins:import-manifest", ({ ctl }) => plugins.importManifest(ctl.win));
+  onInvoke("plugins:remove-development", (_c, p) => plugins.removeDevelopment(str(p?.id, 200) ?? ""));
+  onInvoke("plugins:read", (_c, p) => plugins.readDevelopment(str(p?.id, 200) ?? ""));
+  onInvoke("plugins:new-plugin", ({ ctl }, p) => plugins.newPlugin(ctl.win, { name: p?.name, template: p?.template }));
+  onInvoke("plugins:begin-run", ({ sender }, p) => void pluginRuns.begin(sender.id, { runId: p?.runId, allowedDomains: p?.allowedDomains, devAllowedDomains: p?.devAllowedDomains, dev: p?.dev }));
+  onInvoke("plugins:end-run", ({ sender }, p) => pluginRuns.end(sender.id, p?.runId));
+  onInvoke("plugins:open-ui", ({ sender }, p) => pluginRuns.openUi(sender.id, { runId: p?.runId, html: p?.html, allowedDomains: p?.allowedDomains, devAllowedDomains: p?.devAllowedDomains, dev: p?.dev }));
+  onInvoke("plugins:close-ui", ({ sender }, p) => pluginRuns.closeUi(sender.id, p?.runId));
+  onInvoke("plugins:fetch", ({ sender }, p) => plugins.fetchForRun(sender.id, p));
+  onInvoke("plugins:storage", (_c, call) => plugins.clientStorage().call(call));
+  // Open console: the view's own devtools (the host offers it for development plugins).
+  onInvoke("plugins:open-console", ({ sender }) => sender.openDevTools({ mode: "detach" }));
+  onInvoke("devmode:link-title", (_c, p) => linkTitle(p?.url));
   // ── Haptics (a scrub's steps; throttled, macOS only) ──
   onSend("haptics:tick", () => void hapticTick());
   onSend("file:reveal-data-folder", () => void shell.openPath(workspaceDir()));

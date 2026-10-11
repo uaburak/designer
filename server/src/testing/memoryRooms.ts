@@ -10,6 +10,9 @@ import type { Rooms } from "../api";
 import type { ObjectNamespace } from "../libraries/db";
 import { parseRoomPolicy } from "../policy/roomPolicy";
 import { RoomBox } from "../roomBox";
+import { RestJobs } from "../rest/roomJobs";
+import { BROADCAST_KINDS } from "../roomBroadcast";
+import type { RestJob } from "../../../src/shared/rest/types";
 import { sqliteStorage } from "./memoryPreviews";
 
 export interface MemoryMember extends Connection {
@@ -23,23 +26,40 @@ export interface MemoryMember extends Connection {
 export interface MemoryRoom {
   box: RoomBox;
   room: Room;
+  /** REST render jobs, parts and the thumbnail (docs/multiplayer.md §16.6) */
+  rest: RestJobs;
   members: MemoryMember[];
   alarm: number | null;
+}
+
+/** A member that renders (§16.6): `onJob` answers the jobs the room sends it */
+export interface JoinOptions {
+  render?: boolean;
+  helper?: boolean;
+  onJob?(id: string, job: RestJob, member: MemoryMember): void;
 }
 
 export interface MemoryRooms {
   rooms: Rooms;
   get(key: string): MemoryRoom;
-  join(key: string, userId: string, role?: Role, policy?: RoomPolicy): MemoryMember;
+  join(key: string, userId: string, role?: Role, policy?: RoomPolicy, opts?: JoinOptions): MemoryMember;
   send(key: string, member: MemoryMember, message: Uint8Array, batch?: number): void;
+  /** A member's text message to the room (rest-job-done, …) */
+  say(key: string, member: MemoryMember, msg: unknown): void;
   /** Every call made, as the org tests record them */
   calls: { key: string; path: string; method: string }[];
+  /** `{t: "rest-wanted"}` fan-outs asked by rooms (the inboxes they would reach) */
+  wanted: { key: string; userIds: string[] }[];
+  /** Called when a room asks for render helpers (a test may join one) */
+  onWanted?: (key: string, userIds: string[]) => void;
 }
 
 export function memoryRooms(now: () => number): MemoryRooms {
   const all = new Map<string, MemoryRoom>();
   const calls: MemoryRooms["calls"] = [];
-  const make = (): MemoryRoom => {
+  const wanted: MemoryRooms["wanted"] = [];
+  const out = {} as MemoryRooms;
+  const make = (key: string): MemoryRoom => {
     const storage = sqliteStorage();
     const made: MemoryRoom = { members: [], alarm: null } as unknown as MemoryRoom;
     made.box = new RoomBox({
@@ -52,15 +72,31 @@ export function memoryRooms(now: () => number): MemoryRooms {
       },
       hasSession: (userId, sessionID) => made.members.some((m) => m.userId === userId && m.sessionID === sessionID && m.closed === null),
     });
-    made.room = new Room(made.box.storage);
+    made.room = new Room(made.box.storage, () => {}, {
+      now,
+      onRest: (conn, member, answer) => made.rest.answer(conn, member, answer),
+      onRenderer: () => made.rest.renderer(),
+    });
+    made.rest = new RestJobs({
+      sql: storage.sql,
+      transaction: storage.transaction,
+      now,
+      room: made.room,
+      lastSeq: () => made.box.storage.lastSeq(),
+      hasVersion: (id) => made.box.versions().some((v) => v.id === id),
+      wanted: async (userIds) => {
+        wanted.push({ key, userIds });
+        out.onWanted?.(key, userIds);
+      },
+    });
     return made;
   };
   const get = (key: string): MemoryRoom => {
     let r = all.get(key);
-    if (!r) all.set(key, (r = make()));
+    if (!r) all.set(key, (r = make(key)));
     return r;
   };
-  const join = (key: string, userId: string, role: Role = "editor", policy?: RoomPolicy): MemoryMember => {
+  const join = (key: string, userId: string, role: Role = "editor", policy?: RoomPolicy, opts: JoinOptions = {}): MemoryMember => {
     const r = get(key);
     const m: MemoryMember = {
       userId,
@@ -70,9 +106,10 @@ export function memoryRooms(now: () => number): MemoryRooms {
       closed: null,
       send(data) {
         if (typeof data === "string") {
-          const msg = JSON.parse(data) as { t: string; sessionID?: number };
+          const msg = JSON.parse(data) as { t: string; sessionID?: number; id?: string; job?: RestJob };
           if (msg.t === "welcome") m.sessionID = msg.sessionID!;
           m.texts.push(msg);
+          if (msg.t === "rest-job" && opts.onJob) opts.onJob(msg.id!, msg.job!, m);
         } else {
           const f = decodeChangesDown(data);
           if (f) m.frames.push(f);
@@ -84,9 +121,10 @@ export function memoryRooms(now: () => number): MemoryRooms {
     };
     r.members.push(m);
     r.room.connect(m, { userId, role, ...(policy ? { policy } : {}) });
-    r.room.receive(m, JSON.stringify({ t: "hello", since: r.box.storage.lastSeq() }));
+    r.room.receive(m, JSON.stringify({ t: "hello", since: r.box.storage.lastSeq(), ...(opts.render ? { render: true } : {}), ...(opts.helper ? { helper: true } : {}) }));
     return m;
   };
+  const say = (key: string, member: MemoryMember, msg: unknown) => get(key).room.receive(member, JSON.stringify(msg));
   const send = (key: string, member: MemoryMember, message: Uint8Array, batch = 1) => {
     const r = get(key);
     const before = r.box.storage.lastSeq();
@@ -103,6 +141,16 @@ export function memoryRooms(now: () => number): MemoryRooms {
         headers.set("x-role", init.identity.role);
       }
       const url = new URL(`https://room${path}`);
+      if (url.pathname.startsWith("/room/rest") || url.pathname === "/room/thumbnail") {
+        const res = await get(key).rest.fetch(new Request(url, { method: init.method, headers, body: init.body as RequestInit["body"] }));
+        return res ?? new Response("not found", { status: 404 });
+      }
+      if (url.pathname === "/room/broadcast") {
+        const msg = JSON.parse(String(init.body)) as { t: string };
+        if (!(BROADCAST_KINDS as readonly string[]).includes(msg.t)) return new Response("bad notice", { status: 400 });
+        get(key).room.broadcastNotice(msg);
+        return Response.json({ ok: true });
+      }
       if (url.pathname === "/room" && init.method === "DELETE") {
         all.delete(key);
         return Response.json({ ok: true });
@@ -122,7 +170,8 @@ export function memoryRooms(now: () => number): MemoryRooms {
       return res ?? new Response("not found", { status: 404 });
     },
   };
-  return { rooms, get, join, send, calls };
+  Object.assign(out, { rooms, get, join, send, say, calls, wanted });
+  return out;
 }
 
 // ---- a FileRoom namespace with jurisdictions (docs/multiplayer.md §15.10) -------------------------------------------

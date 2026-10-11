@@ -776,10 +776,10 @@ font-src 'self' data: blob:;
 media-src 'self' blob:;
 connect-src 'self' blob: data:;
 worker-src 'self' blob:;
-frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'
+frame-src plugin:; object-src 'none'; base-uri 'none'; form-action 'none'
 ```
 
-`'wasm-unsafe-eval'` is required: `shell.md` §2 showed that `script-src 'self'` alone blocks `WebAssembly.compile` in Electron 44. There are no `https:` or `wss:` sources any more.
+`frame-src plugin:` (round 5e): plugin UIs only, each run's document on the `plugin:` scheme in a sandboxed iframe (docs/plugins.md §3.2, §3.4). `'wasm-unsafe-eval'` is required: `shell.md` §2 showed that `script-src 'self'` alone blocks `WebAssembly.compile` in Electron 44. There are no `https:` or `wss:` sources any more.
 
 ### 12.3 Cross-origin isolation (decided: on)
 

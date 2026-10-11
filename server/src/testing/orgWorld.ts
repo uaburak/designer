@@ -87,7 +87,7 @@ export async function world(): Promise<World> {
       new Request(ORIGIN + path, {
         method,
         headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(body !== undefined && !raw ? { "content-type": "application/json" } : {}), ...headers },
-        body: body === undefined ? undefined : raw ? (body as BodyInit) : JSON.stringify(body),
+        body: body === undefined ? undefined : raw ? (body as unknown as RequestInit["body"]) : JSON.stringify(body),
       }),
       deps,
     );

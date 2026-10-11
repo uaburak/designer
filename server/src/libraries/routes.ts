@@ -301,6 +301,7 @@ async function publish(ctx: Ctx, key: string): Promise<Response> {
     .run();
   const changes = { created: input.changes.created.length, modified: input.changes.modified.length, removed: input.changes.removed.length, moved: input.changes.moved.length };
   await d1.prepare(`INSERT OR IGNORE INTO library_versions (library_key, version, description, changes, published_at, published_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`).bind(key, n, input.description, JSON.stringify(changes), now, user.id).run();
+  const before = await assetNames(ctx, key);
   await writeAssets(ctx, key, n, input);
   const redirects = movesOf(input.moves, key, n, now);
   for (const part of chunks(redirects)) {
@@ -320,6 +321,10 @@ async function publish(ctx: Ctx, key: string): Promise<Response> {
     console.error("libraries: no publish checkpoint", key, e);
   }
   await libraryPublishedNotice(deps, key, n);
+  // LIBRARY_PUBLISH, one event per asset type that changed (docs/multiplayer.md §16.9)
+  const named = new Map(input.assets.filter((x) => !x.dependencyOnly).map((x) => [x.key, { key: x.key, kind: x.kind, name: x.name }]));
+  const pick = (keys: unknown[], from: Map<string, { key: string; kind: string; name: string }>) => keys.filter((k): k is string => typeof k === "string" && from.has(k)).map((k) => from.get(k)!);
+  await (await import("../webhooks/events")).libraryPublished(deps, key, user, input.description, { created: pick(input.changes.created, named), modified: pick(input.changes.modified, named), deleted: pick(input.changes.removed, before) });
 
   const lib = (await libraryRow(d1, key))!;
   const reach = await reachOf(acc, lib.org_id);
@@ -327,7 +332,14 @@ async function publish(ctx: Ctx, key: string): Promise<Response> {
   return json({ version, library: (await records(ctx, [{ lib, via: await canUseLibrary(acc, lib, reach) }], c))[0] }, 201);
 }
 
-/** library_assets: upserts what is new or changed (fewer rows written), marks what left the manifest (§16.11). */
+/** The library's assets as they were (names of what a publish removes) */
+async function assetNames(ctx: Ctx, key: string): Promise<Map<string, { key: string; kind: string; name: string }>> {
+  const { results } = await ctx.acc.d1.prepare(`SELECT key, kind, name FROM library_assets WHERE library_key = ?1 AND dependency_only = 0`).bind(key).all<{ key: string; kind: string; name: string }>();
+  return new Map(results.map((r) => [r.key, r]));
+}
+
+/** library_assets: upserts what is new or changed (fewer rows written), marks what left the manifest (§16.11); the REST
+ *  API's node id (the manifest's guid) and dates (docs/multiplayer.md §16.10, 0015). */
 async function writeAssets(ctx: Ctx, key: string, n: number, input: PublishInput): Promise<void> {
   const d1 = ctx.acc.d1;
   const { results: had } = await d1.prepare(`SELECT key, version_hash, removed_in FROM library_assets WHERE library_key = ?1`).bind(key).all<{ key: string; version_hash: string; removed_in: number | null }>();
@@ -351,19 +363,24 @@ async function writeAssets(ctx: Ctx, key: string, n: number, input: PublishInput
       hash: a.versionHash,
       dep: a.dependencyOnly ? 1 : 0,
       thumb: a.thumbnail?.sha1 ?? null,
+      guid: typeof a.guid === "string" && a.guid ? a.guid : null,
     }));
+  const at = ctx.deps.now();
   for (const part of chunks(rows)) {
     await d1
       .prepare(
-        `INSERT INTO library_assets (library_key, key, kind, name, description, style_type, resolved_type, component_set_key, collection_key, modes, version_hash, dependency_only, thumbnail_sha1, removed_in)
+        `INSERT INTO library_assets (library_key, key, kind, name, description, style_type, resolved_type, component_set_key, collection_key, modes, version_hash, dependency_only, thumbnail_sha1, removed_in,
+           node_id, created_at, updated_at, created_by)
          SELECT ?1, e.value ->> 'key', e.value ->> 'kind', e.value ->> 'name', e.value ->> 'description', e.value ->> 'style', e.value ->> 'resolved', e.value ->> 'set',
-                e.value ->> 'collection', e.value ->> 'modes', e.value ->> 'hash', e.value ->> 'dep', e.value ->> 'thumb', NULL
+                e.value ->> 'collection', e.value ->> 'modes', e.value ->> 'hash', e.value ->> 'dep', e.value ->> 'thumb', NULL, e.value ->> 'guid', ?3, ?3, ?4
          FROM json_each(?2) e WHERE true
          ON CONFLICT (library_key, key) DO UPDATE SET kind = excluded.kind, name = excluded.name, description = excluded.description, style_type = excluded.style_type,
            resolved_type = excluded.resolved_type, component_set_key = excluded.component_set_key, collection_key = excluded.collection_key, modes = excluded.modes,
-           version_hash = excluded.version_hash, dependency_only = excluded.dependency_only, thumbnail_sha1 = excluded.thumbnail_sha1, removed_in = NULL`,
+           version_hash = excluded.version_hash, dependency_only = excluded.dependency_only, thumbnail_sha1 = excluded.thumbnail_sha1, removed_in = NULL,
+           node_id = COALESCE(excluded.node_id, library_assets.node_id), updated_at = excluded.updated_at,
+           created_at = COALESCE(library_assets.created_at, excluded.created_at), created_by = COALESCE(library_assets.created_by, excluded.created_by)`,
       )
-      .bind(key, JSON.stringify(part))
+      .bind(key, JSON.stringify(part), at, ctx.user.id)
       .run();
   }
   const now = new Set(input.assets.map((a) => a.key));
