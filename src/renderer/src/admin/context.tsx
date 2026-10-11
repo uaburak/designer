@@ -6,7 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import { showToast } from "@/ds";
 import type { SharedFontsApi } from "@shared/desktop";
 import type { OrgLibrariesRepository } from "@shared/libraries/orgTypes";
-import type { AdminRepository, OrgsRepository, TeamsRepository } from "@shared/org/repositories";
+import type { AdminRepository, IdentityRepository, OrgsRepository, TeamsRepository } from "@shared/org/repositories";
 
 export type AdminTeamsApi = Pick<TeamsRepository, "restore" | "remove" | "update">;
 export interface AdminStore {
@@ -17,6 +17,8 @@ export interface AdminStore {
   teams?: AdminTeamsApi;
   /** Admin › Resources › Libraries and a workspace's Libraries (docs/data.md §16.10); absent: those say they're unavailable */
   orgLibraries?: OrgLibrariesRepository;
+  /** Admin › Settings › Login and provisioning and Data storage localization (docs/multiplayer.md §15.13); absent: those rows say they're unavailable */
+  identity?: IdentityRepository;
 }
 
 /** The workspace a workspace admin (not an org admin) manages: Admin › ‹workspace› › Libraries */
@@ -39,6 +41,8 @@ export interface AdminCtx {
   fonts?: SharedFontsApi;
   /** Set when the viewer administers only this workspace */
   workspace?: AdminWorkspaceScope;
+  /** SAML SSO › Test: a sign-in through the org's IdP (`designer.account.signIn({tenant})`); absent: Test is disabled */
+  onTestSso?: (tenantId: string) => Promise<unknown>;
 }
 
 export const AdminContext = createContext<AdminCtx | null>(null);
@@ -60,7 +64,7 @@ export function downloadCsv(fileName: string, csv: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function useAdminState(orgId: string, store: AdminStore, onExportCsv: ((fileName: string, csv: string) => void) | undefined, now: () => number, fonts?: SharedFontsApi, workspace?: AdminWorkspaceScope): AdminCtx {
+export function useAdminState(orgId: string, store: AdminStore, onExportCsv: ((fileName: string, csv: string) => void) | undefined, now: () => number, fonts?: SharedFontsApi, workspace?: AdminWorkspaceScope, onTestSso?: (tenantId: string) => Promise<unknown>): AdminCtx {
   const [version, setVersion] = useState(0);
   const changed = useCallback(() => setVersion((v) => v + 1), []);
   const run = useCallback(async <T,>(write: () => Promise<T>, done?: string) => {
@@ -80,7 +84,7 @@ export function useAdminState(orgId: string, store: AdminStore, onExportCsv: ((f
     const stamp = new Date(now()).toISOString().slice(0, 10);
     (onExportCsv ?? downloadCsv)(`${FILE_NAMES[what]}-${stamp}.csv`, csv);
   }, [orgId, store, run, onExportCsv, now]);
-  return { orgId, store, version, changed, run, exportCsv, now, fonts, workspace };
+  return { orgId, store, version, changed, run, exportCsv, now, fonts, workspace, onTestSso };
 }
 
 /** Loads with `load` whenever `deps` or the Admin's version change; keeps the last value while reloading. */

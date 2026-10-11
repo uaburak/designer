@@ -23,6 +23,19 @@ const LAST_ACTIVE_LABEL: Record<LastActive, string> = { "3": "More than 3 months
 const TYPE_LABEL: Record<UserTypeFilter, string> = { admin: "Admin", member: "Member", guest: "Guest", pending: "Pending" };
 const MONTH = 30 * 86_400_000;
 
+/** The SCIM / JIT attributes a column can show (`AdminPerson.idp`, docs/multiplayer.md §15.5; the column names are ours) */
+const IDP_COLUMNS: { id: string; label: string; get: (p: AdminPerson) => string }[] = [
+  { id: "provisionedBy", label: "Provisioned by", get: (p) => (p.idp?.provisionedBy === "scim" ? "SCIM" : p.idp?.provisionedBy === "jit" ? "SAML (JIT)" : "") },
+  { id: "title", label: "Title", get: (p) => p.idp?.title ?? "" },
+  { id: "department", label: "Department", get: (p) => p.idp?.department ?? "" },
+  { id: "division", label: "Division", get: (p) => p.idp?.division ?? "" },
+  { id: "organization", label: "Organization", get: (p) => p.idp?.organization ?? "" },
+  { id: "costCenter", label: "Cost center", get: (p) => p.idp?.costCenter ?? "" },
+  { id: "employeeNumber", label: "Employee number", get: (p) => p.idp?.employeeNumber ?? "" },
+  { id: "manager", label: "Manager", get: (p) => p.idp?.managerDisplayName ?? p.idp?.managerValue ?? "" },
+  { id: "externalId", label: "External ID", get: (p) => p.idp?.externalId ?? "" },
+];
+
 export function PeopleTab() {
   const { orgId, store, run, exportCsv, now } = useAdmin();
   const [text, setText] = useState("");
@@ -45,6 +58,8 @@ export function PeopleTab() {
   const { data: settings } = useLoad(() => store.admin.settings(orgId), [orgId]);
   const rows = useMemo(() => (page?.items ?? []).filter((p) => (filters.type === "pending" ? p.pending : true)), [page, filters.type]);
   const all = everyone?.items ?? [];
+  const hasIdp = all.some((p) => p.idp);
+  const [idpColumns, setIdpColumns] = useState<string[]>(["provisionedBy"]);
   const seatCounts = SEATS.map((s) => [s, all.filter((p) => p.seat === s && !p.pending).length] as const);
   const wsName = (id: string | null) => (id ? workspaces?.find((w) => w.id === id)?.name ?? "" : "Unassigned");
   const bgName = (id: string | null) => (id ? billing?.find((b) => b.id === id)?.name ?? "" : "Unassigned");
@@ -134,6 +149,11 @@ export function PeopleTab() {
       ),
     },
     { id: "active", label: "Last active", width: 120, compare: byNumber((p) => p.lastActiveAt), render: (p) => <span className={styles.muted} title={`Joined ${formatDate(p.joinedAt)}`}>{p.pending ? "Invited" : formatAgo(p.lastActiveAt, now())}</span> },
+    // SCIM / JIT metadata (Figma: "you can sort members based on your SCIM member data", 4420842863255) — the chosen ones
+    ...IDP_COLUMNS.filter((c) => hasIdp && idpColumns.includes(c.id)).map((c): Column<AdminPerson> => ({
+      id: `idp:${c.id}`, label: c.label, width: "minmax(100px, 1fr)", compare: byText((p) => c.get(p)),
+      render: (p) => <span className={styles.muted}>{c.get(p)}</span>,
+    })),
     { id: "menu", label: "", width: 32, align: "end", render: (p) => <RowMenu label={`Actions for ${p.name ?? p.email}`} entries={rowMenu(p)} onSelect={(id) => onRowMenu(p, id)} /> },
   ];
 
@@ -158,6 +178,16 @@ export function PeopleTab() {
           <Icon name="24.filter" />
           <span>Filter</span>
         </MenuButton>
+        {hasIdp && (
+          <MenuButton
+            label="SCIM data" tooltip={false}
+            entries={() => IDP_COLUMNS.map((c) => ({ id: c.id, label: c.label, checked: idpColumns.includes(c.id) }))}
+            onSelect={(id) => setIdpColumns((cols) => (cols.includes(id) ? cols.filter((x) => x !== id) : [...cols, id]))}
+          >
+            <span>SCIM data</span>
+            <Icon name="16.chevron.down" />
+          </MenuButton>
+        )}
         <span className={styles.spacer} />
         <span className={styles.muted}>{rows.length === all.length ? `${all.length} people` : `${rows.length} of ${all.length} people`}</span>
         <Button variant="secondary" onClick={() => exportCsv("people", query)}>Get CSV</Button>
