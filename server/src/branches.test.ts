@@ -276,6 +276,8 @@ describe("branches (docs/data.md §15.7)", () => {
     // The branch sits with main (same folder) but isn't listed as a file
     expect(await deps.db.d1.prepare(`SELECT project_id FROM files WHERE key = 'brch_web001'`).first()).toEqual({ project_id: folder.id });
     expect((await call("GET", `/projects/${folder.id}/files`, alice.token)).body.files.map((f: Any) => f.key)).toEqual(["file_web001"]);
+    // Home's tile counts main's active branches (round 2d)
+    expect((await call("GET", `/projects/${folder.id}/files`, alice.token)).body.files[0].branchCount).toBe(1);
     // Inviting Carol (an org member) to the branch writes main's grant too
     const carol = await signIn("carol@x.co");
     await call("POST", `/orgs/${org.id}/admin/people`, alice.token, { emails: ["carol@x.co"], role: "member" });

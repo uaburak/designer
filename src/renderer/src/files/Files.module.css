@@ -292,4 +292,17 @@
 
   /* "This file is password protected" (LinkPassword.tsx) */
   .passwordError { margin: var(--ds-space-2) 0 0; color: var(--figma-color-text-danger); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+
+  /* Branches (branches.tsx): the list view's count, the Branches modal */
+  .rowBranches { display: inline-flex; flex: none; align-items: center; gap: var(--ds-space-1); margin: 0; padding: 0 var(--ds-space-1); border: 0; border-radius: var(--ds-radius-small); background: none; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); white-space: nowrap; }
+  .rowBranches:hover { background: var(--figma-color-bg-hover); color: var(--figma-color-text); }
+  .branchDialog { display: flex; flex-direction: column; gap: var(--ds-space-2); min-height: var(--ds-size-dialog-small); }
+  .branchList { max-height: var(--ds-size-dialog-medium); }
+  .branchRow { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-2); border-radius: var(--ds-radius-medium); }
+  .branchRow:hover { background: var(--figma-color-bg-hover); }
+  .branchText { flex: 1 1 auto; min-width: 0; }
+  .branchName { display: block; overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
+  .branchHint { display: block; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .branchOpen { visibility: hidden; }
+  .branchRow:hover .branchOpen, .branchRow:focus-within .branchOpen { visibility: visible; }
 }

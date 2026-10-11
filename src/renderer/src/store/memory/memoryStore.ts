@@ -49,6 +49,7 @@ import { NotificationsService, notificationsApi } from "../../../../store/notifi
 import { OrgService } from "../../../../store/org/service";
 import { BranchService, libraryVersionOf } from "../../../../store/branches/service";
 import { RemoteBranches } from "../../../../store/branches/remote";
+import { RoomVersions, withRoomVersions } from "../../../../store/local/versionsRoom";
 import type { BranchRecord } from "../../../../shared/merge/branches";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -230,6 +231,8 @@ export class MemoryStore {
   readonly org: OrgService;
   /** Branches (docs/data.md §15) with the desktop store's rules */
   readonly branches: BranchService;
+  /** Shared files' version history: their rooms' (docs/data.md §15.7.1) */
+  readonly roomVersions: RoomVersions;
   readonly clock: { now(): number };
   private readonly hlc: HlcClock;
   private readonly data = new Map<FileKey, FileData>();
@@ -437,7 +440,23 @@ export class MemoryStore {
         linkedCopies: () => mp.linkedCopies(),
         headSeq: async (fileKey) => this.headSeq(this.fileData(fileKey)),
         signedIn: () => mp.signedIn,
+        uploadBlobs: (key, sha1s) => mp.uploadBlobs(key, sha1s),
+        callBytes: (method, path) => mp.callBytes(method, path),
       }),
+    });
+    this.roomVersions = new RoomVersions({
+      // Signed out, a shared file's history is its local copy's checkpoints.
+      roomKey: async (fileKey) => (mp.signedIn ? mp.roomKey(fileKey) : null),
+      call: (method, path, body) => mp.call(method, path, body),
+      callBytes: (method, path) => mp.callBytes(method, path),
+      syncState: (fileKey) => mp.syncState(fileKey),
+      flushedHead: async (fileKey) => this.headSeq(this.fileData(fileKey)),
+      headTable: async (fileKey) => this.headTable(this.fileData(fileKey)),
+      downloadBlobs: (key, sha1s) => mp.downloadBlobs(key, sha1s),
+      getMeta: (fileKey) => this.ws.getMeta(fileKey),
+      addFile: (input) => this.addFile({ name: input.name, folderId: null, snapshot: input.snapshot, enabledLibraries: input.enabledLibraries }),
+      now: () => this.clock.now(),
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     });
     void store;
   }
@@ -1069,7 +1088,8 @@ export class MemoryStore {
     };
     return {
       workspace,
-      files,
+      // A shared file's version history is its room's (docs/data.md §15.7.1).
+      files: withRoomVersions(files, this.roomVersions),
       blobs,
       libraries,
       previews,

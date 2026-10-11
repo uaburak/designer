@@ -613,6 +613,12 @@ export class MultiplayerService {
     throw await httpError(res);
   }
 
+  /** A call answering bytes (a room version's snapshot and frames, docs/data.md §15.7.1): the body and its headers */
+  async callBytes(method: string, path: string, body?: unknown): Promise<{ bytes: Uint8Array; headers: Headers }> {
+    const res = await this.raw(method, path, body);
+    return { bytes: new Uint8Array(await res.arrayBuffer()), headers: res.headers };
+  }
+
   /** A call answering text (the Admin's CSV exports) */
   async callText(method: string, path: string, body?: unknown): Promise<string> {
     return (await this.raw(method, path, body)).text();
