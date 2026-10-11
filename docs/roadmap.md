@@ -295,6 +295,8 @@ Open questions for the owner (round 4):
 - A Community plugin's source run unchanged: the owner picks two or three plugins he uses and downloads their code.
 - The Workers Paid plan path (`REST_SERVER_RENDER`).
 
+**Answered by the owner, 2026-10-11:** stay on the free Workers plan (client render-and-cache; server SVG / PDF stays behind `REST_SERVER_RENDER`, off); the render helper is on for files you own (a switch in Settings › Account); prototype-only viewers downloading the file's data is accepted.
+
 **Open questions for the owner (round 5):**
 1. **Workers Paid plan ($5/month)?** Server-rendered SVG / PDF needs it: no client online would be needed for those. Default: no, client render-and-cache only.
 2. **Prototype-only viewers receive the whole file's data** (the player runs on it). They see only the prototype in the app, but the data is on their machine, as for "can view". Isolating it would need server decoding (question 1). Default: accept, as Figma's player also loads the file (unverified).
