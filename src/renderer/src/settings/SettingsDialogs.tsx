@@ -180,6 +180,16 @@ export function DeleteAccountDialog({ email, onClose, onDeleted }: { email: stri
   );
 }
 
+/**
+ * The scopes a personal access token may hold, in `TOKEN_SCOPES`' groups (Figma's scopes page lists them without groups;
+ * the groups are ours). Plan-only scopes are hidden: `org:ai_metering_usage_read` is read only with a plan access token
+ * (docs/multiplayer.md §16.3, Figma's AI usage API), made in Admin › Settings › Plan access tokens.
+ */
+export const PLAN_ONLY_SCOPES: ReadonlySet<TokenScope> = new Set<TokenScope>(["org:ai_metering_usage_read"]);
+export const PERSONAL_TOKEN_SCOPES = TOKEN_SCOPES.filter((s) => !PLAN_ONLY_SCOPES.has(s.id));
+/** Figma's note on the org scopes: "Must be an organization admin." */
+const ADMIN_ONLY_SCOPES: ReadonlySet<TokenScope> = new Set<TokenScope>(["org:activity_log_read"]);
+
 /** "Generate new token": a name, an expiration, scopes → the token, shown once. */
 export function GenerateTokenDialog({ onClose, onMade }: { onClose: () => void; onMade: (info: AccessTokenInfo) => void }) {
   const [name, setName] = useState("");
@@ -205,11 +215,11 @@ export function GenerateTokenDialog({ onClose, onMade }: { onClose: () => void; 
         <div className={styles.form}>
           <p className={styles.text}>Copy this token now. The token only displays immediately after being generated — if you leave, generate a new one.</p>
           <div className={styles.tokenValue} data-new-token="">{token}</div>
-          <p className={`${styles.text} ${styles.muted}`}>Use it as a Bearer token: Authorization: Bearer &lt;token&gt;.</p>
+          <p className={`${styles.text} ${styles.muted}`}>Send it in the X-Figma-Token header (or as a Bearer token).</p>
         </div>
       </Dialog>
     );
-  const groups = [...new Set(TOKEN_SCOPES.map((s) => s.group))];
+  const groups = [...new Set(PERSONAL_TOKEN_SCOPES.map((s) => s.group))];
   return (
     <Dialog
       title="Generate new token"
@@ -256,10 +266,10 @@ export function GenerateTokenDialog({ onClose, onMade }: { onClose: () => void; 
           {groups.map((g) => (
             <div key={g} className={styles.scopes}>
               <h4 className={styles.scopeGroup}>{g}</h4>
-              {TOKEN_SCOPES.filter((s) => s.group === g).map((s) => (
+              {PERSONAL_TOKEN_SCOPES.filter((s) => s.group === g).map((s) => (
                 <div key={s.id}>
                   <Checkbox label={s.id} checked={scopes.has(s.id)} onChange={(on) => toggle(s.id, on === true)} />
-                  <p className={styles.scopeHint}>{s.label}</p>
+                  <p className={styles.scopeHint}>{ADMIN_ONLY_SCOPES.has(s.id) ? `${s.label} Must be an organization admin.` : s.label}</p>
                 </div>
               ))}
             </div>

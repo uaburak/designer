@@ -35,6 +35,7 @@ import { useEditor, type EditorController } from "./controller";
 import { linkNode } from "./multiplayer/links";
 import { useUI } from "./hooks";
 import { shareAccess, type SharePreviewOptions } from "./previews";
+import { SharePrototypeDialog } from "./SharePrototypeDialog";
 import styles from "./ShareDialog.module.css";
 
 export function ShareDialog() {
@@ -95,6 +96,9 @@ function Share() {
   const [devCopied, markDevCopied] = useCopied();
   const [protoCopied, markProtoCopied] = useCopied();
   const [more, setMore] = useState(false);
+  // Share prototype (docs/editor.md D-6): the prototype's own modal, in place of this one
+  const [protoShare, setProtoShare] = useState(false);
+  if (protoShare && people.fileKey) return <SharePrototypeDialog fileKey={people.fileKey} nodeId={linkNode(ed)} onClose={close} />;
   return (
     <Portal>
       <div className={styles.layer} onPointerDown={(e) => e.target === e.currentTarget && close()} data-share-dialog="">
@@ -149,6 +153,13 @@ function Share() {
                           <span className={styles.grow}>Copy prototype link</span>
                           {protoCopied && <span className={styles.rowNote}>Link copied!</span>}
                         </button>
+                        {people.state?.shared && (
+                          <button type="button" className={styles.row} onClick={() => setProtoShare(true)} data-share="share-prototype">
+                            <Icon name="24.play" />
+                            <span className={styles.grow}>Share prototype</span>
+                            <Icon name="16.chevron.right" className={styles.chevron} />
+                          </button>
+                        )}
                         <button type="button" className={styles.row} onClick={() => setView("embed")} data-share="embed">
                           <Icon name="24.text.code-block" />
                           <span className={styles.grow}>Get embed code</span>

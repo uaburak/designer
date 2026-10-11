@@ -240,6 +240,12 @@ R18 §1.4's "Improved handoff" row is the ready-for-dev feed, focus view, status
   - Org policy applies: public links off → no "Anyone" (§15.6).
   - Logged as `fig_file_proto_link_access_change`.
 
+**As built — the client (5h, 2026-10-12):**
+- `editor/SharePrototypeDialog.tsx` (standalone: a `fileKey` and the store) — the audience is one `multiplayer.updateLink` with `protoLinkAccess` / `protoOrgLinkAccess` (added to `LinkSettingsPatch` and `SharedFileInfo`; the store's `cleanLinkPatch` passes them); members through `devMode.prototypeMembers` / `invitePrototype` / `removePrototype`; the link `linkWith(info.link, {mode: "proto", nodeId})`. Opened from the presentation view's **Share prototype** (`PresentationView.onShare(screen)`; `PresentRoute` mounts it) and Share › More › **Share prototype** (shared files).
+- `EditorRoute.usePrototypeOnly(fileKey)`: local files, owners and editors are known from `multiplayer.fileState` at once; a viewer's shared file asks `fileInfo` once and reads `access.prototypeOnly`. While unknown nothing opens; prototype-only → `PresentationView` on `storePresentationSource` (read-only, no Close), with Share prototype; otherwise the editor opens as before. Offline → the editor (the server refuses the design's routes anyway).
+- **Not built**: the presentation view over the editor ("Present in this tab", `EditorApp.tsx`) keeps the default Share (copy link); password and expiry stay in the file's Share settings.
+- **D-4's notifications**: the bell's rows (`notifications/NotificationsPopover.tsx`; wording in R19 §11), **Inspect in Dev Mode**; a row and the desktop link both give `OpenIntent {mode: "dev", devMode: "ready"}` (`notifications/intent.ts`, `intentFromLink` reads `dev=ready`, the store's `cleanIntent` keeps it). Applying `devMode: "ready"` in the editor (the ready-for-dev view) is 5f's `editor/multiplayer/links.ts applyIntent`.
+
 ### D-7 Figma for VS Code — skipped
 
 **What Figma does** [VSC]: Figma's extension (paid plans, Full / Dev seat, signs in with Figma) offers:

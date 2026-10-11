@@ -15,24 +15,30 @@ import { Dashboard, GuestRequestsPage, SeatRequestsPage } from "./Dashboard";
 import { PeopleTab, UserGroupsTab } from "./People";
 import { FontsTab, LibrariesTab } from "./Resources";
 import { SettingsTab } from "./Settings";
+import { PluginsTab } from "./Plugins";
+import type { PluginRequest } from "@shared/plugins/types";
 import { AdminContext, useAdmin, useAdminState, useLoad, type AdminStore, type AdminWorkspaceScope } from "./context";
 import type { SharedFontsApi } from "@shared/desktop";
 import { styles } from "./parts";
 
 
-export type AdminSection = "dashboard" | "people" | "content" | "resources" | "activity" | "billing" | "settings" | "libraries";
+export type AdminSection = "dashboard" | "people" | "content" | "resources" | "activity" | "billing" | "settings" | "libraries" | "plugins";
 
 const SECTIONS: { id: AdminSection; label: string; icon: IconName; tabs?: { value: string; label: string }[] }[] = [
   { id: "dashboard", label: "Dashboard", icon: "24.grid" },
   { id: "people", label: "People", icon: "24.person", tabs: [{ value: "people", label: "People" }, { value: "groups", label: "User groups" }] },
   { id: "content", label: "Content", icon: "24.folder", tabs: [{ value: "teams", label: "Teams" }, { value: "workspaces", label: "Workspaces" }, { value: "unassigned", label: "Unassigned drafts" }] },
-  { id: "resources", label: "Resources", icon: "24.library", tabs: [{ value: "libraries", label: "Libraries" }, { value: "fonts", label: "Fonts" }] },
+  { id: "resources", label: "Resources", icon: "24.library", tabs: [{ value: "libraries", label: "Libraries" }, { value: "fonts", label: "Fonts" }, { value: "plugins", label: "Plugins" }, { value: "widgets", label: "Widgets" }] },
   { id: "activity", label: "Activity", icon: "24.recent" },
   { id: "billing", label: "Billing", icon: "24.list-view", tabs: [{ value: "overview", label: "Overview" }, { value: "groups", label: "Billing groups" }] },
   { id: "settings", label: "Settings", icon: "24.settings.small" },
 ];
 /** A workspace admin's Admin › ‹workspace› (Figma: "select the workspace, open the Libraries tab") */
-const WORKSPACE_SECTIONS: typeof SECTIONS = [{ id: "libraries", label: "Libraries", icon: "24.library" }];
+const WORKSPACE_SECTIONS: typeof SECTIONS = [
+  { id: "libraries", label: "Libraries", icon: "24.library" },
+  // Enterprise: a workspace admin approves plugins and widgets for the workspace (docs/plugins.md §10.2)
+  { id: "plugins", label: "Plugins", icon: "24.plugin", tabs: [{ value: "plugins", label: "Plugins" }, { value: "widgets", label: "Widgets" }] },
+];
 
 export interface AdminAppProps {
   orgId: string;
@@ -51,10 +57,12 @@ export interface AdminAppProps {
   workspace?: AdminWorkspaceScope;
   /** Settings › SAML SSO › Test: Home passes `(tenant) => designer.account.signIn({ tenant })` (docs/desktop.md §18); absent: Test is disabled */
   onTestSso?: (tenantId: string) => Promise<unknown>;
+  /** Resources › Plugins › a request's "Try it out" (a new local draft outside the org with the plugin); absent: disabled */
+  onTryPlugin?: (request: PluginRequest) => Promise<unknown>;
 }
 
-export function AdminApp({ orgId, store, onExportCsv, onBack, initial, now = Date.now, fonts, workspace, onTestSso }: AdminAppProps) {
-  const ctx = useAdminState(orgId, store, onExportCsv, now, fonts, workspace, onTestSso);
+export function AdminApp({ orgId, store, onExportCsv, onBack, initial, now = Date.now, fonts, workspace, onTestSso, onTryPlugin }: AdminAppProps) {
+  const ctx = useAdminState(orgId, store, onExportCsv, now, fonts, workspace, onTestSso, onTryPlugin);
   return (
     <AdminContext.Provider value={ctx}>
       <AdminLayout onBack={onBack} initial={initial} />
@@ -110,7 +118,9 @@ function AdminLayout({ onBack, initial }: { onBack?: () => void; initial?: Admin
           {section === "content" && tab === "unassigned" && <UnassignedDraftsTab />}
           {section === "resources" && tab === "libraries" && <LibrariesTab />}
           {section === "resources" && tab === "fonts" && <FontsTab />}
+          {section === "resources" && (tab === "plugins" || tab === "widgets") && <PluginsTab key={tab} kind={tab === "widgets" ? "widget" : "plugin"} />}
           {section === "libraries" && workspace && <LibrariesTab workspaceId={workspace.id} />}
+          {section === "plugins" && workspace && <PluginsTab key={tab} kind={tab === "widgets" ? "widget" : "plugin"} workspaceId={workspace.id} />}
           {section === "activity" && <ActivityTab />}
           {section === "billing" && tab === "overview" && <BillingOverview />}
           {section === "billing" && tab === "groups" && <BillingGroupsTab />}

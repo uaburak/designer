@@ -15,6 +15,7 @@ import { AUTH_METHOD_SHORT, GUEST_MEMBERSHIP_LABEL, SEATS, SEAT_APPROVAL_LABEL, 
 import { ChoiceDialog, styles } from "./parts";
 import { AuthenticationDialog, DomainsDialog, IdleTimeoutDialog, SamlDialog, ScimDialog } from "./SettingsLogin";
 import { DataRegionDialog, PublicSharingDialog, sharingSummary } from "./SettingsContent";
+import { ApprovalDialog, PlanTokens, approvalSummary } from "./SettingsExtensions";
 
 type Editing =
   | "authentication" | "saml" | "scim" | "idle" | "domains"
@@ -22,6 +23,7 @@ type Editing =
   | "publicSharing" | "passwordMode" | "externalContent"
   | "dataRegion"
   | "defaultSeat" | "seatApproval"
+  | "pluginApproval" | "widgetApproval"
   | null;
 
 /** Enterprise installer › Download (docs/desktop.md §12.5): there is no hosted build */
@@ -125,6 +127,21 @@ export function SettingsTab() {
         <Row id="defaultSeat" label="Default seat" description="The seat new people get when they join." value={SEAT_LABEL[s.defaultSeat]} onChange={() => setEditing("defaultSeat")} />
       </Group>
 
+      <Group title="Extensions">
+        <Row
+          id="pluginApproval" label="Plugin approval" description="Choose which plugins members can use in the organization's files."
+          value={<span className={styles.whoText}>{approvalSummary(s, "plugin").map((t) => <span key={t}>{t}</span>)}</span>} onChange={() => setEditing("pluginApproval")}
+        />
+        <Row
+          id="widgetApproval" label="Widget approval" description="Choose which widgets members can use in the organization's files."
+          value={<span className={styles.whoText}>{approvalSummary(s, "widget").map((t) => <span key={t}>{t}</span>)}</span>} onChange={() => setEditing("widgetApproval")}
+        />
+      </Group>
+
+      <Group title="Plan access tokens">
+        <PlanTokens />
+      </Group>
+
       <Group title="Other">
         <Row
           id="audio" label="Audio" description="Let members and guests talk in the organization's files."
@@ -192,6 +209,9 @@ export function SettingsTab() {
         <ChoiceDialog title="Default seat" label="Default seat" choices={SEATS.map((v) => ({ value: v, label: SEAT_LABEL[v], description: SEAT_DESCRIPTION[v] }))} value={s.defaultSeat} onSave={(v) => save({ defaultSeat: v as Seat })} onClose={close} />
       )}
       {editing === "seatApproval" && <SeatApprovalDialog onClose={close} />}
+      {(editing === "pluginApproval" || editing === "widgetApproval") && (
+        <ApprovalDialog kind={editing === "widgetApproval" ? "widget" : "plugin"} settings={s} onSave={(patch) => void save(patch)} onClose={close} />
+      )}
     </>
   );
 }

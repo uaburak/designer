@@ -16,6 +16,7 @@
  * No Node or DOM imports: the desktop store (LocalStore) and the browser's dev store (MemoryStore) both run it.
  */
 import type * as O from "../../shared/org/types";
+import type { AccessTokenInfo } from "../../shared/account";
 import type { AdminRepository, OrgEvent, OrgsRepository, ProjectsRepository, TeamsRepository } from "../../shared/org/repositories";
 import { StoreError } from "../../shared/store/protocol";
 import type { Unsubscribe } from "../../shared/store/repositories";
@@ -1176,6 +1177,16 @@ export class OrgService {
                 : null;
         if (!path) throw new StoreError("invalid", `can't export ${String(what)}`);
         return this.mp.callText("GET", path);
+      },
+      // Plan access tokens (docs/multiplayer.md §16.3; server/src/rest/planTokens.ts)
+      planTokens: async (orgId) => pick<AccessTokenInfo[]>(await this.call("GET", `${base(orgId)}/plan-tokens`), "tokens"),
+      createPlanToken: async (orgId, input) => {
+        const i = (input ?? {}) as { description?: unknown; expiresInDays?: unknown; scopes?: unknown };
+        const body = { description: typeof i.description === "string" ? i.description : "", expiresInDays: Number(i.expiresInDays), scopes: Array.isArray(i.scopes) ? i.scopes.map(String) : [] };
+        return this.call<{ token: string; info: AccessTokenInfo }>("POST", `${base(orgId)}/plan-tokens`, body);
+      },
+      revokePlanToken: async (orgId, tokenId) => {
+        await this.call("DELETE", `${base(orgId)}/plan-tokens/${seg(tokenId, "token")}`);
       },
     };
   }

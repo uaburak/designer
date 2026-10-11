@@ -730,6 +730,13 @@ The first publish assigns the id: a 19-digit decimal string, like Figma's. The d
 
 **Not built**: plugin icons (§10.1's optional PNG; neither the server nor the store carries them), `PATCH /plugins/:id` (no repository method), and a size limit for the bundle cache (it is never swept).
 
+### 10.3c As built — Admin (5h, 2026-10-12)
+
+- **Settings › Extensions** (`admin/Settings.tsx`, `admin/SettingsExtensions.tsx`): Plugin approval / Widget approval rows; their dialog saves `{pluginApproval, pluginRequests}` (widgets the same) in one `updateSettings`.
+- **Resources › Plugins / Widgets** (`admin/Plugins.tsx`) over `store.plugins` (`AdminStore.plugins`, Home passes `client.plugins`): Approved (grouped by plugin; Add plugin by ID and name; Remove, or Edit approvals per workspace with `approve` / `unapprove`), Requests (the review; `answer` with `reason` or `workspaceIds`), From ‹org› (private plugins; `removePrivate`). A workspace admin's Admin has the same under its own **Plugins** item, scoped to the workspace.
+- **Try it out** is `AdminApp`'s `onTryPlugin(request)`; Home doesn't pass it yet (a local draft outside the org with the plugin needs 5d's host), so the button is disabled there.
+- The fake (`admin/fake/fakePlugins.ts`) keeps §10.3a's rules. Wording: research R19 §11.
+
 ### 10.4 Types (`src/shared/plugins/types.ts`, committed verbatim before the round)
 
 ```ts

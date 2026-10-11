@@ -4,5 +4,5 @@
  * repositories land (`?admin`).
  */
 export { AdminApp, type AdminAppProps, type AdminSection } from "./AdminApp";
-export type { AdminStore, AdminTeamsApi, AdminWorkspaceScope } from "./context";
+export type { AdminPluginsApi, AdminStore, AdminTeamsApi, AdminWorkspaceScope } from "./context";
 export { createFakeAdminStore, type FakeAdminStore } from "./fake/fakeAdmin";

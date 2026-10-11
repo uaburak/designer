@@ -111,7 +111,7 @@ describe("approval (§10.2) and requests (§10.3)", () => {
     expect((await req(gus.token)).status).toBe(403); // guests
     const n = await w.rows(`SELECT user_id, kind, text, state, file_name FROM notifications WHERE kind = 'plugin_request'`);
     expect(n).toEqual([{ user_id: alice.id, kind: "plugin_request", text: "Unsplash", state: "pending", file_name: "Acme" }]);
-    expect(notificationAction({ kind: "plugin_request", count: 1, state: "pending", role: null, text: "Unsplash" })).toBe("Requested Unsplash");
+    expect(notificationAction({ kind: "plugin_request", count: 1, state: "pending", role: null, text: "Unsplash" })).toBe("Requested approval for Unsplash");
 
     // A request scoped to W1 also reaches its workspace admin (wade), who sees only W1's requests
     const r2 = await req(fay.token, { workspaceId: W1 });

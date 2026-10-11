@@ -60,13 +60,16 @@ function cleanLinkPatch(p: unknown): LinkSettingsPatch {
   if (v.linkPassword !== undefined) out.linkPassword = typeof v.linkPassword === "string" && v.linkPassword ? v.linkPassword : null;
   if (v.linkExpiresAt !== undefined) out.linkExpiresAt = typeof v.linkExpiresAt === "number" && Number.isFinite(v.linkExpiresAt) ? v.linkExpiresAt : null;
   if (v.viewersCanCopy !== undefined) out.viewersCanCopy = v.viewersCanCopy === true;
+  if (v.protoLinkAccess !== undefined) out.protoLinkAccess = v.protoLinkAccess === "viewer" ? "viewer" : "none";
+  if (v.protoOrgLinkAccess !== undefined) out.protoOrgLinkAccess = v.protoOrgLinkAccess === "viewer" ? "viewer" : "none";
   return out;
 }
 
 const cleanIntent = (i: unknown): OpenIntent | undefined => {
   if (!i || typeof i !== "object") return undefined;
-  const { nodeId, mode, commentId } = i as OpenIntent;
+  const { nodeId, mode, commentId, devMode } = i as OpenIntent;
   return {
+    ...(devMode === "ready" ? { devMode } : {}),
     ...(typeof nodeId === "string" && /^[0-9]+:[0-9]+$/.test(nodeId) ? { nodeId } : {}),
     ...(mode === "dev" || mode === "proto" ? { mode } : {}),
     ...(typeof commentId === "string" && /^[A-Za-z0-9_-]{6,64}$/.test(commentId) ? { commentId } : {}),

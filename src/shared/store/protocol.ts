@@ -155,6 +155,9 @@ export const STORE_METHODS = {
     "moveUnassigned",
     "deleteUnassigned",
     "exportCsv",
+    "planTokens",
+    "createPlanToken",
+    "revokePlanToken",
   ],
   // Branches (docs/data.md §15.6); `watch` is the `branches` event topic
   branches: ["create", "list", "get", "rename", "archive", "restore", "mainStatus", "preview", "openSide", "applyUpdate", "merge", "requestReview", "answerReview"],
@@ -245,6 +248,7 @@ export const RETRY_SAFE = new Set<string>([
   "admin.settings",
   "admin.unassignedDrafts",
   "admin.exportCsv",
+  "admin.planTokens",
   "branches.list",
   "branches.get",
   "branches.mainStatus",

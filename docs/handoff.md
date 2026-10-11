@@ -452,3 +452,26 @@ Acceptance (verified with `scripts/drive.mjs` on the built demo app): launch →
     - main's `parseManifest` / network rules duplicate 5d's `src/shared/plugins/` (not on main yet): one side should import the other at merge;
     - the developer VM's `worker.js` can't live on `plugin:` (a Worker must be same-origin): 5d's to place;
     - link titles don't catch a DNS name that resolves to a local address.
+- 2026-10-12 — **Phase 7 round 5h, the chrome** (branch `worktree-agent-ad380010279c57be0`). As-built notes: `docs/plugins.md` §10.3c, `docs/editor.md` D-6 "As built — the client (5h)", `docs/design-system.md` §4.37 "Round 5h"; wording in research R19 §11 (help.figma.com 4404228724759, 17882120337815, 8085703771159, 26781702258583; developers.figma.com scopes, plan-access-tokens, activity-logs-action-types).
+  - **Admin** (`src/renderer/src/admin/`):
+    - Settings › **Extensions** (Plugin approval / Widget approval, "Only admin-approved plugins.", "Allow members to request plugins") and Settings › **Plan access tokens** (list, Generate new token with the five plan scopes and the secret shown once, Revoke token);
+    - Resources › **Plugins | Widgets** (`Plugins.tsx`): Approved grouped by plugin, Add plugin (ID + name), Remove / Edit approvals per workspace; Requests with the review (Overview, Request history, Try it out, Decline with a reason, Approve for the org or workspaces); From ‹org› (private plugins, Remove). A workspace admin gets the same under **Plugins**, scoped to the workspace;
+    - Activity: the round 5 actions as Figma's descriptions in the past tense; a request switch alone reads "Allowed members to request plugins" / "Stopped members from requesting plugins";
+    - the fake (`fake/fakePlugins.ts`) keeps 5c's rules; `AdminStore.plugins`, `AdminApp.onTryPlugin`.
+  - **Settings modal**: Generate new token takes Figma's scope sentences, hides `org:ai_metering_usage_read` (plan tokens only), says "Must be an organization admin." on `org:activity_log_read`, and names the `X-Figma-Token` header; Notifications › **Dev Mode** ("Status changes" / "Nothing").
+  - **Bell**: the five kinds' rows ("Marked ‹design› as ready for dev", "Marked 3 designs as completed", "… as ready for dev after changes: ‹reason›", "Requested approval for ‹plugin›", "Approved / Declined your request for ‹plugin›") with badges and **Inspect in Dev Mode**; rows and `designer://open…&dev=ready` links give `OpenIntent {mode: "dev", devMode: "ready"}`.
+  - **Prototype-only (D-6)**: `editor/SharePrototypeDialog.tsx` (audience, invites, Advanced), the presentation view's **Share prototype**, Share › More › Share prototype; `EditorRoute` opens a prototype-only file straight into the presentation view (`usePrototypeOnly`).
+  - **Shared-file edits outside the row**:
+    - `src/shared/org/repositories.ts`, `src/shared/store/protocol.ts`, `src/shared/store/client.ts`, `src/store/org/service.ts`: `AdminRepository.planTokens` / `createPlanToken` / `revokePlanToken` (5a's routes had no client);
+    - `src/shared/account.ts`: `TOKEN_SCOPES` labels → Figma's sentences;
+    - `src/shared/notifications.ts`: `notificationAction`'s round 5 wording (+ the expectations in `src/shared/notifications.test.ts`, `server/src/devmode/devmode.test.ts`, `server/src/plugins/plugins.test.ts`);
+    - `src/shared/multiplayer/types.ts`: `SharedFileInfo.protoLinkAccess` / `protoOrgLinkAccess` / `access.prototypeOnly`, `LinkSettingsPatch`'s two prototype keys, `intentFromLink` reads `dev=ready`; `src/store/multiplayer/api.ts`: `cleanLinkPatch` and `cleanIntent` pass them;
+    - `src/renderer/src/files/storeAccess.ts` (`OrgBackend.plugins`) and `FileBrowser.tsx` (`plugins` to AdminApp; the bell's `notificationIntent`);
+    - `src/renderer/src/present/PresentRoute.tsx` and `PresentationView.tsx` (`onShare(screen)`, the label).
+  - **Verified**: `npm run check` (209 files, 1749 tests; new: `admin/__tests__/plugins.dom.test.ts` 8, `editor/__tests__/sharePrototype.dom.test.ts` 4, `notifications/__tests__/rows.dom.test.ts` 2, `store/org/planTokens.test.ts` 1 against 5a's real handler, settings +2) and `npm --prefix server run typecheck`. Not screenshotted in the app.
+  - **Open**:
+    - Home doesn't pass `onTryPlugin` (a local draft outside the org with the plugin needs 5d's host): Try it out is disabled there;
+    - applying `OpenIntent.devMode` in the editor (the ready-for-dev view) is 5f's (`editor/multiplayer/links.ts`);
+    - "Present in this tab" (`EditorApp.tsx`'s presentation over the editor) keeps the old Share (copy link);
+    - a pending `plugin_request` row in the bell says "Review it in Admin › Resources" but doesn't navigate there;
+    - plan tokens have no edit / refresh / resource allowlist (Figma's developer hub has them); the Usage tab (Enterprise) isn't built.

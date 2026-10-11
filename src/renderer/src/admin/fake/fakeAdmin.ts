@@ -11,6 +11,7 @@ import { makeSeed, type Seed } from "./seed";
 import { fakeOrgLibraries, fakeSharedFonts, seedResources, type FakeSharedFonts, type ResourcesState } from "./fakeResources";
 import type { OrgLibrariesRepository } from "@shared/libraries/orgTypes";
 import { fakeIdentity, seedIdentity, type IdentityState } from "./fakeIdentity";
+import { fakePlanTokens, fakePlugins, seedPlugins, type AdminPluginsApi, type PluginsState } from "./fakePlugins";
 
 export type { AdminTeamsApi } from "../context";
 import type { AdminTeamsApi } from "../context";
@@ -32,6 +33,10 @@ export interface FakeAdminStore {
   identityState: IdentityState;
   /** The fake's SAML Test: a successful sign-in through the IdP config — pass as AdminApp's `onTestSso` */
   testSso: (tenantId: string) => Promise<void>;
+  /** Admin › Resources › Plugins / Widgets (docs/plugins.md §10): the admin side of `store.plugins` */
+  plugins: AdminPluginsApi;
+  /** Approvals, requests, private plugins and plan tokens (tests read them) */
+  pluginsState: PluginsState;
   /** The caller (the acting admin) */
   me: string;
 }
@@ -127,7 +132,9 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
   const wsName = (id: string | null) => (id ? s.workspaces.find((w) => w.id === id)?.name ?? "" : "Unassigned");
   const bgName = (id: string | null) => (id ? s.billingGroups.find((b) => b.id === id)?.name ?? "" : "Unassigned");
 
+  const pluginsState = seedPlugins(s, now);
   const admin: AdminRepository = {
+    ...fakePlanTokens(s, pluginsState, log, wait, () => Date.now()),
     async dashboard() {
       const active = s.people.filter((p) => !p.pending);
       const seats = { full: 0, dev: 0, collab: 0, view: 0 } as Record<O.Seat, number>;
@@ -366,6 +373,11 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
         ["passwordMode", "autogen_password_controls_setting_change"], ["openSessions", "open_sessions_setting_change"],
       ];
       for (const [k, action] of actions) if (changed(k)) log(action, org, one(k));
+      // Settings › Extensions (docs/plugins.md §10.3a): the approval action of each kind; the request switch rides with it
+      for (const [approval, requests, on, off] of [["pluginApproval", "pluginRequests", "plugin_approvelist_enable", "plugin_approvelist_disable"], ["widgetApproval", "widgetRequests", "widgets_enabled", "widgets_disable"]] as const) {
+        const keys = ([approval, requests] as const).filter(changed);
+        if (keys.length) log(next[approval] === "approved" ? on : off, org, keys.length === 1 ? one(keys[0]) : { settings: keys, from: Object.fromEntries(keys.map((k) => [k, before[k]])), to: Object.fromEntries(keys.map((k) => [k, next[k]])) });
+      }
       const sharing = (["publicLinks", "passwordRequired", "linkExpiryMaxHours"] as const).filter(changed);
       if (sharing.length === 1) log("public_link_setting_change", org, one(sharing[0]));
       else if (sharing.length) log("public_link_setting_change", org, { settings: sharing, from: Object.fromEntries(sharing.map((k) => [k, before[k]])), to: Object.fromEntries(sharing.map((k) => [k, next[k]])) });
@@ -519,5 +531,6 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
     await new Promise((r) => setTimeout(r, options.latency ?? 0));
     ident.completeTest();
   };
-  return { admin, orgs, teams, orgLibraries, fonts, identity: ident.identity, identityState: ident.state, testSso, state: s, resources, me };
+  const plugins = fakePlugins(s, pluginsState, log, wait, me, () => Date.now());
+  return { admin, orgs, teams, orgLibraries, fonts, identity: ident.identity, identityState: ident.state, testSso, state: s, resources, plugins, pluginsState, me };
 }
