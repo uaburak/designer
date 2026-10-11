@@ -1,5 +1,5 @@
 /** The `multiplayer` repository (docs/multiplayer.md §5) over a store's service — LocalStore and the browser's dev store. */
-import type { MultiplayerRepository, OpenIntent } from "../../shared/multiplayer/types";
+import type { LinkAccess, LinkSettingsPatch, MultiplayerRepository, OpenIntent } from "../../shared/multiplayer/types";
 import { StoreError } from "../../shared/store/protocol";
 import type { MultiplayerService } from "./service";
 
@@ -26,6 +26,7 @@ export function multiplayerApi(m: MultiplayerService): MultiplayerRepository {
     requests: (fileKey) => m.requests(fileKey),
     answerRequest: (fileKey, userId, approve) => m.answerRequest(fileKey, String(userId), approve === true),
     setLinkAccess: (fileKey, access) => m.setLinkAccess(fileKey, access === "viewer" || access === "editor" ? access : "none"),
+    updateLink: (fileKey, patch) => m.updateLink(fileKey, cleanLinkPatch(patch)),
     invite: (fileKey, email, role) => m.invite(fileKey, String(email), role === "viewer" ? "viewer" : "editor"),
     removeMember: (fileKey, email) => m.removeMember(fileKey, String(email)),
     presence: (fileKey, data) => m.presence(fileKey, data),
@@ -45,6 +46,21 @@ export function multiplayerApi(m: MultiplayerService): MultiplayerRepository {
     },
     watchSession: (listener) => m.onSessionEnded(listener),
   };
+}
+
+const linkAccess = (v: unknown): LinkAccess => (v === "viewer" || v === "editor" ? v : "none");
+
+/** Only `LinkSettingsPatch`'s keys, each of its type (the server checks the values against the org's policy) */
+function cleanLinkPatch(p: unknown): LinkSettingsPatch {
+  if (!p || typeof p !== "object") throw new StoreError("invalid", "updateLink needs the settings to change");
+  const v = p as Record<string, unknown>;
+  const out: LinkSettingsPatch = {};
+  if (v.linkAccess !== undefined) out.linkAccess = linkAccess(v.linkAccess);
+  if (v.orgLinkAccess !== undefined) out.orgLinkAccess = linkAccess(v.orgLinkAccess);
+  if (v.linkPassword !== undefined) out.linkPassword = typeof v.linkPassword === "string" && v.linkPassword ? v.linkPassword : null;
+  if (v.linkExpiresAt !== undefined) out.linkExpiresAt = typeof v.linkExpiresAt === "number" && Number.isFinite(v.linkExpiresAt) ? v.linkExpiresAt : null;
+  if (v.viewersCanCopy !== undefined) out.viewersCanCopy = v.viewersCanCopy === true;
+  return out;
 }
 
 const cleanIntent = (i: unknown): OpenIntent | undefined => {

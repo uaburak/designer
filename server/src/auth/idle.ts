@@ -27,12 +27,34 @@ export interface SessionTouch {
 /** True when the session has been idle past its limit */
 export const idleExpired = (s: Pick<SessionTouch, "active_at" | "last_seen_at" | "idle_limit_ms">, now: number) => s.idle_limit_ms !== null && now - (s.active_at ?? s.last_seen_at) > s.idle_limit_ms;
 
+const idleError = () => new HttpError(401, "you were logged out after a period of inactivity", "idle_timeout");
+/** How long an idle-ended session is remembered: a session token's lifetime (30 days) */
+const ENDED_KEPT_MS = 30 * 24 * 3_600_000;
+
 /** `authenticate`'s check: an idle session is deleted, logged in each member org, and refused with `idle_timeout` */
 export async function enforceIdle(deps: Deps, s: SessionTouch, user: User, req: Request): Promise<void> {
   if (!idleExpired(s, deps.now())) return;
   await deps.db.d1.prepare(`DELETE FROM sessions WHERE id = ?1`).bind(s.id).run();
+  await rememberIdleEnded(deps, s.id, user.id);
   await logIdleTimeout(deps, user, req, "request");
-  throw new HttpError(401, "you were logged out after a period of inactivity", "idle_timeout");
+  throw idleError();
+}
+
+/**
+ * A session ended by the idle timeout is remembered (migration 0014): the first request to find it idle may be a socket
+ * upgrade, whose 401 no client reads — later calls with its token then answer `401 idle_timeout` too, so the app says
+ * why it signed out (docs/multiplayer.md §15.18's caveat). Old rows go as new ones come.
+ */
+export async function rememberIdleEnded(deps: Deps, sid: string, userId: string): Promise<void> {
+  const now = deps.now();
+  await deps.db.d1.prepare(`INSERT OR REPLACE INTO idle_ended_sessions (id, user_id, ended_at) VALUES (?1, ?2, ?3)`).bind(sid, userId, now).run();
+  await deps.db.d1.prepare(`DELETE FROM idle_ended_sessions WHERE ended_at < ?1`).bind(now - ENDED_KEPT_MS).run();
+}
+
+/** `authenticate`, for a token whose session row is gone: `idle_timeout` when the idle timeout ended it, else nothing */
+export async function refuseIfIdleEnded(deps: Deps, sid: string, userId: string): Promise<void> {
+  const row = await deps.db.d1.prepare(`SELECT 1 AS x FROM idle_ended_sessions WHERE id = ?1 AND user_id = ?2`).bind(sid, userId).first();
+  if (row) throw idleError();
 }
 
 /** `user_idle_session_timeout` in each org where the person is a member or admin (guests have no limit) */

@@ -58,6 +58,7 @@ export function Multiplayer() {
   useNotices();
   useLinkLanding();
   useLinkPassword(state.locked);
+  usePolicy(state);
 
   const followed = state.peers.find((p) => p.id === state.following);
   const offer = state.peers.find((p) => p.id === state.spotlightOffer);
@@ -72,6 +73,31 @@ export function Multiplayer() {
     </>
   );
 }
+
+/**
+ * The org's room switches, live (docs/multiplayer.md §15.6, §15.9 — Admin › Communication › Cursor chat, Other › Audio):
+ * cursor chat off closes an open bubble ("/" doesn't open one: commands.ts asks `chatAllowed`); audio off leaves an
+ * ongoing call (presence.ts) and says so, and the headphones go from Multiplayer tools.
+ */
+function usePolicy(state: ReturnType<typeof usePresence>) {
+  const ed = useEditor();
+  const chatOff = state.policy?.cursorChat === false;
+  const audioOff = state.policy?.audio === false;
+  useEffect(() => {
+    if (chatOff && ed.ui.get().cursorChat) ed.ui.set({ cursorChat: null });
+  }, [ed, chatOff]);
+  // In the call as of the last commit (the call is left in the same update that turns audio off)
+  const wasInCall = useRef(false);
+  useEffect(() => {
+    if (audioOff && wasInCall.current) showToast({ message: AUDIO_OFF_TEXT });
+  }, [audioOff]);
+  useEffect(() => {
+    wasInCall.current = state.audio.inCall;
+  }, [state.audio.inCall]);
+}
+
+/** Said when the org turns audio off during a call (ours: Figma's words aren't documented) */
+export const AUDIO_OFF_TEXT = "Your organization turned off audio. You left the conversation.";
 
 /** The link that opened this file: its frame or page, then Dev Mode or the prototype (once, when the editor is up). */
 function useLinkLanding() {
@@ -184,12 +210,39 @@ function SpotlightOffer({ peer }: { peer: Peer }) {
   );
 }
 
+/** The view-only banner for a file outside the person's home org when it restricts external content (docs/multiplayer.md
+ *  §15.6 — ours, Figma's words unverified) */
+export const EXTERNAL_VIEW_ONLY_TEXT = "Your organization only allows you to view this file.";
+
 function ViewerBanner() {
   const ed = useEditor();
   const [closed, setClosed] = useState(false);
   const [asked, setAsked] = useState(false);
-  if (closed) return null;
   const fileKey = (ed.source as unknown as { fileKey?: string }).fileKey;
+  // Capped by the person's own org (Access to external content restricted, §15.6): view only, no asking to edit.
+  const [external, setExternal] = useState(false);
+  useEffect(() => {
+    if (!fileKey) return;
+    let live = true;
+    void getStoreClient()
+      .multiplayer.fileInfo(fileKey)
+      .then(
+        (i) => live && setExternal(i.access?.capped === "external"),
+        () => {},
+      );
+    return () => {
+      live = false;
+    };
+  }, [fileKey]);
+  if (closed) return null;
+  if (external)
+    return (
+      <div className={styles.viewer} role="status" data-viewer-banner="external">
+        <Icon name="24.info" className={styles.viewerIcon} />
+        <span className={styles.viewerText}>{EXTERNAL_VIEW_ONLY_TEXT}</span>
+        <IconButton icon="24.close.small" label="Close" tooltip={false} onClick={() => setClosed(true)} />
+      </div>
+    );
   return (
     <div className={styles.viewer} role="status" data-viewer-banner="">
       <Icon name="24.info" className={styles.viewerIcon} />
@@ -330,21 +383,24 @@ export function Facepile() {
               >
                 {state.spotlighting ? "Stop spotlight" : "Spotlight me"}
               </Button>
-              <button
-                type="button"
-                className={styles.headphones}
-                data-on={state.audio.inCall || undefined}
-                aria-label={state.audio.inCall ? "Leave conversation" : state.peers.some((x) => x.presence?.audio) ? "Join conversation" : "Start conversation"}
-                {...tooltipProps(state.audio.inCall ? "Leave conversation" : state.peers.some((x) => x.presence?.audio) ? "Join conversation" : "Start conversation")}
-                onClick={() => {
-                  if (state.audio.inCall) p?.audio.leave();
-                  else void p?.audio.join();
-                  setOpen(false);
-                }}
-                data-audio="start"
-              >
-                <Icon name="24.headphones" />
-              </button>
+              {/* Audio off for the org (Admin › Other › Audio): no conversation to start or join */}
+              {(state.policy?.audio !== false || state.audio.inCall) && (
+                <button
+                  type="button"
+                  className={styles.headphones}
+                  data-on={state.audio.inCall || undefined}
+                  aria-label={state.audio.inCall ? "Leave conversation" : state.peers.some((x) => x.presence?.audio) ? "Join conversation" : "Start conversation"}
+                  {...tooltipProps(state.audio.inCall ? "Leave conversation" : state.peers.some((x) => x.presence?.audio) ? "Join conversation" : "Start conversation")}
+                  onClick={() => {
+                    if (state.audio.inCall) p?.audio.leave();
+                    else void p?.joinAudio();
+                    setOpen(false);
+                  }}
+                  data-audio="start"
+                >
+                  <Icon name="24.headphones" />
+                </button>
+              )}
             </div>
             <div className={styles.toolsDivider} />
             {state.peers.map((peer) => (

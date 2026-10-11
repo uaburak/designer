@@ -4,17 +4,24 @@
  */
 import { useEffect, useState } from "react";
 import type { AccountMethod, AccountResponse, AccountState, SignInResult } from "@shared/account";
+import type { IdleNotice } from "@shared/ipc";
+import { SIGN_IN_ERROR_TEXT } from "@shared/org/identity";
 import type { MenuEntry } from "@/ds";
 import { storeMode } from "../store";
 import { webAccount } from "../store/webAccount";
 
 /** The part of the preload API used here (absent in a plain browser: no account there). */
-interface AccountBridge {
+export interface AccountBridge {
   get(): Promise<AccountState>;
-  signIn(): Promise<SignInResult>;
+  /** `tenant`: an org's SAML SSO, straight to its IdP (docs/desktop.md §18.1) */
+  signIn(opts?: { tenant?: string }): Promise<SignInResult>;
   cancelSignIn(): Promise<AccountState>;
   signOut(): Promise<AccountState>;
   onChanged(cb: (s: AccountState) => void): () => void;
+  /** The idle prompt's Stay logged in (docs/desktop.md §18.2); absent on an older preload */
+  staySignedIn?(): Promise<AccountState>;
+  /** The idle timeout's notices; absent on an older preload */
+  onIdle?(cb: (n: IdleNotice) => void): () => void;
   /** Settings: the caller's own account on the server (`/me…`) */
   request(r: { method: AccountMethod; path: string; body?: unknown }): Promise<AccountResponse>;
 }
@@ -54,9 +61,12 @@ export function accountMenu(state: AccountState | null): MenuEntry[] {
   return [{ id: "log-in", label: "Log in with Google…" }, "-", settings];
 }
 
-/** Sign-in failures worth a toast (a cancel isn't one). */
+const SSO_TEXTS = new Set<string>(Object.values(SIGN_IN_ERROR_TEXT));
+
+/** Sign-in failures worth a toast (a cancel isn't one); single sign-on's own refusals say why (docs/desktop.md §18.1). */
 export function signInFailure(r: SignInResult): string | null {
   if (r.ok || r.error === "cancelled") return null;
+  if (r.error === "failed" && r.message && SSO_TEXTS.has(r.message)) return r.message;
   return r.error === "timeout" ? "Log in timed out. Try again." : "Couldn’t log in. Try again.";
 }
 

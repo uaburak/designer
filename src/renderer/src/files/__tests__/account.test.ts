@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SIGN_IN_ERROR_TEXT } from "@shared/org/identity";
 import { accountMenu, signInFailure } from "../account";
 
 const state = { server: "https://s", signingIn: false, user: null };
@@ -17,5 +18,10 @@ describe("account menu", () => {
     expect(signInFailure({ ok: false, error: "timeout", state })).toMatch(/timed out/);
     expect(signInFailure({ ok: false, error: "failed", state })).toMatch(/Couldn’t log in/);
     expect(signInFailure({ ok: true, state })).toBeNull();
+  });
+
+  it("says why single sign-on refused (docs/desktop.md §18.1), not a raw code", () => {
+    for (const code of ["sso_failed", "sso_domain", "google_required"] as const) expect(signInFailure({ ok: false, error: "failed", message: SIGN_IN_ERROR_TEXT[code], state })).toBe(SIGN_IN_ERROR_TEXT[code]);
+    expect(signInFailure({ ok: false, error: "failed", message: "token exchange 500", state })).toMatch(/Couldn’t log in/);
   });
 });

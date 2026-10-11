@@ -85,6 +85,11 @@ describe("sessions", () => {
     expect((await call("GET", "/me", { token: app.token })).status).toBe(401);
     const fresh = await signIn("me@x.co");
     expect((await call<{ sessions: SessionInfo[] }>("GET", "/me/sessions", { token: fresh.token })).body.sessions).toHaveLength(1);
+    // Settings › Security's Sign out everywhere, as an account path (DELETE /me/sessions)
+    const second = await signIn("me@x.co");
+    expect((await call("DELETE", "/me/sessions", { token: fresh.token })).status).toBe(200);
+    expect((await call("GET", "/me", { token: fresh.token })).status).toBe(401);
+    expect((await call("GET", "/me", { token: second.token })).status).toBe(401);
   });
 });
 

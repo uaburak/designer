@@ -10,7 +10,7 @@
  */
 import type { RoomPolicy } from "../../shared/org/identity";
 import { CLOSE_MOVING, encodeChangesUp, decodeChangesDown, type PeerInfo, type Role, type ServerControl } from "../../shared/multiplayer/protocol";
-import type { AccessRequest, FileMember, FileShareState, LinkAccess, MultiplayerNotice, MultiplayerSession, MultiplayerStatus, OpenIntent, RemoteFile, SessionEnded, SharedFileInfo } from "../../shared/multiplayer/types";
+import type { AccessRequest, FileMember, FileShareState, LinkAccess, LinkSettingsPatch, MultiplayerNotice, MultiplayerSession, MultiplayerStatus, OpenIntent, RemoteFile, SessionEnded, SharedFileInfo } from "../../shared/multiplayer/types";
 import { decodeMessage } from "../../shared/schema/codec";
 import { messageImageHashes } from "../../shared/schema/patch";
 import { StoreError } from "../../shared/store/protocol";
@@ -544,6 +544,12 @@ export class MultiplayerService {
 
   async setLinkAccess(fileKey: FileKey, access: LinkAccess): Promise<SharedFileInfo> {
     await this.api("PATCH", `/files/${await this.keyOf(fileKey)}`, { linkAccess: access });
+    return this.fileInfo(fileKey);
+  }
+
+  /** Share settings' Save: one PATCH, checked whole against the org's policy (docs/multiplayer.md §15.16) */
+  async updateLink(fileKey: FileKey, patch: LinkSettingsPatch): Promise<SharedFileInfo> {
+    if (Object.keys(patch).length) await this.api("PATCH", `/files/${await this.keyOf(fileKey)}`, patch);
     return this.fileInfo(fileKey);
   }
 

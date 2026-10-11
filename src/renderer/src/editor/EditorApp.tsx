@@ -13,6 +13,7 @@
 import "@/ds/global.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SettingsHost } from "../settings/SettingsModal";
+import { IdleWarning } from "../account/IdleWarning";
 import { currentTheme, HelpButton, ReturnFocusProvider, Spinner, ToastHost, TooltipManager, useThemeRoot, type ThemeName } from "@/ds";
 import { Status } from "@/engine/abi";
 import { CanvasController } from "@/engine/CanvasController";
@@ -347,6 +348,7 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
         {ed && <Overlays />}
       </div>
       <SettingsHost />
+      <IdleWarning />
       <TooltipManager />
       <ToastHost />
       </ReturnFocusProvider>

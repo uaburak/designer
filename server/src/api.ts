@@ -608,7 +608,11 @@ async function authenticate(req: Request, url: URL, deps: Deps, allowQuery: bool
   if (!p || !user || user.tokenVersion !== p.tv) throw new HttpError(401, "session expired");
   if (p.sid) {
     const s = await deps.db.touchSession(p.sid, user.id, deps.now());
-    if (!s) throw new HttpError(401, "session expired");
+    if (!s) {
+      // Ended by the idle timeout (perhaps on a socket upgrade, whose 401 no client reads): say so (§15.8).
+      await (await import("./auth/idle")).refuseIfIdleEnded(deps, p.sid, user.id);
+      throw new HttpError(401, "session expired");
+    }
     // The idle session timeout (§15.8): an idle session is deleted, logged and refused with `idle_timeout`.
     await (await import("./auth/idle")).enforceIdle(deps, s, user, req);
   }

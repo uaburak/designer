@@ -8,7 +8,9 @@ import { Breadcrumb, Button, ContextMenu, EmptyState, Icon, IconButton, MenuButt
 import { keys } from "@/ds/util/keys";
 import type { FileKey, FileListItem, Folder, FolderId, Prefs } from "@shared/store/types";
 import type { OpenIntent } from "@shared/multiplayer/types";
-import { accountMenu, useAccount } from "./account";
+import { accountBridge, accountMenu, useAccount } from "./account";
+import { EXTERNAL_RESTRICTED_TEXT, useAdminWorkspace, useHomeOrg } from "./orgPolicy";
+import { useSessionNotices } from "./session";
 import { openSettings } from "../settings/bridge";
 import { OpenLinkDialog, openSharedFile, SharedFilesView } from "./SharedFiles";
 import { NotificationsBell } from "../notifications/NotificationsBell";
@@ -187,6 +189,12 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   const orgId = backend.org ? orgIdOf(space) : null;
   const orgView = useOrgData(backend.org, orgId, location, !!orgId);
   const orgShell = orgView.shell;
+  // Access to external content (§15.6): a restricted member creates nothing outside their home org.
+  const homeOrg = useHomeOrg(backend.org, orgShell.orgs);
+  const outsideHome = homeOrg !== null && orgId !== homeOrg;
+  // Admin for a workspace admin who isn't an org admin; Settings › SAML SSO › Test through the account (§15.17).
+  const adminWorkspace = useAdminWorkspace(backend.org, orgId, orgShell.info);
+  const testSso = useCallback((tenant: string) => accountBridge()?.signIn({ tenant }) ?? Promise.resolve(null), []);
   // Opened in an org's space on a local-only place (Home's default Recents / Drafts): its own Drafts instead.
   const [placed, setPlaced] = useState(false);
   if (!placed && data.prefs) {
@@ -270,6 +278,10 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   };
 
   const newFile = async () => {
+    if (outsideHome) {
+      toast({ kind: "error", message: EXTERNAL_RESTRICTED_TEXT });
+      return;
+    }
     try {
       await newDesignFile(newFileFolder(location), repo, deps);
     } catch (e) {
@@ -440,6 +452,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   // --- the account (docs/multiplayer.md §2) ---
 
   const account = useAccount();
+  useSessionNotices(backend, toast);
   const [linkOpen, setLinkOpen] = useState(false);
   // Recents' tabs (live Figma): "Recently viewed" | "Shared files" (signed in)
   const [recentsTab, setRecentsTab] = useState<"viewed" | "shared">("viewed");
@@ -698,7 +711,14 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   if (orgId && location.kind === "admin" && backend.org) {
     return (
       <>
-        <AdminApp orgId={orgId} store={{ admin: backend.org.admin, orgs: backend.org.orgs, teams: backend.org.teams, orgLibraries: backend.org.orgLibraries }} fonts={backend.org.fonts} onBack={() => (nav.index > 0 ? back() : go({ kind: "org-drafts" }))} />
+        <AdminApp
+          orgId={orgId}
+          store={{ admin: backend.org.admin, orgs: backend.org.orgs, teams: backend.org.teams, orgLibraries: backend.org.orgLibraries, identity: backend.org.identity }}
+          fonts={backend.org.fonts}
+          workspace={adminWorkspace ?? undefined}
+          onTestSso={testSso}
+          onBack={() => (nav.index > 0 ? back() : go({ kind: "org-drafts" }))}
+        />
         {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} />}
       </>
     );
@@ -771,6 +791,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           onBranches={backend.branches ? (e, f) => branchSwitcher.open(e, { name: f.name, fileKey: f.fileKey, key: f.key, canCreate: f.access.canExport || f.access.canEdit }) : undefined}
           toast={toast}
           now={Math.max(tick, orgView.page.loadedAt)}
+          noCreate={outsideHome}
         />
       ) : (
       <main
@@ -805,12 +826,12 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
             />
           </div>
           <div className={styles.create}>
-            {canCreateFolders(location) && !folderGone && (
+            {canCreateFolders(location) && !folderGone && !outsideHome && (
               <Button variant="tinted" size="large" icon="24.plus.small" onClick={() => setDialog({ kind: "new-folder", parentId: newFolderParent(location) })}>
                 New folder
               </Button>
             )}
-            {canCreateFiles(location) && !folderGone && (
+            {canCreateFiles(location) && !folderGone && !outsideHome && (
               <>
                 <Button variant="tinted" size="large" icon="24.design" tooltip="New design file" shortcut={keys(["mod", "n"])} onClick={() => void newFile()}>
                   Design

@@ -125,6 +125,25 @@ export interface SharedFileInfo {
   link: string;
   /** The org's sharing policy for this file (docs/multiplayer.md §15.6, §15.16); null outside orgs */
   policy?: FilePolicy | null;
+  /** Org files (§14.12): "Anyone at ‹org›" with the link */
+  orgLinkAccess?: LinkAccess;
+  /** When the links stop working (Require design file links to expire); null: never */
+  linkExpiresAt?: number | null;
+  /** The file's org, team and folder (null outside orgs) */
+  org?: { id: string; name: string; teamId: string | null; teamName: string | null } | null;
+  /** The caller's access in an org (`capped: "external"`: their own org restricts external content — view only) */
+  access?: { canShare: boolean; canManage: boolean; capped: "seat" | "external" | null } | null;
+}
+
+/** One PATCH of a file's link settings (Share settings' Save): the org's policy checks them together (§15.16) */
+export interface LinkSettingsPatch {
+  linkAccess?: LinkAccess;
+  orgLinkAccess?: LinkAccess;
+  /** null: no password */
+  linkPassword?: string | null;
+  /** null: never */
+  linkExpiresAt?: number | null;
+  viewersCanCopy?: boolean;
 }
 
 /** Where a link lands in its file: a frame or page (Figma's `node-id=1-2`) and a mode (`m=dev` Dev Mode, `m=proto` the
@@ -189,6 +208,9 @@ export interface MultiplayerRepository {
   fileInfo(fileKey: FileKey): Promise<SharedFileInfo>;
   /** "Anyone with the link" (owner only) */
   setLinkAccess(fileKey: FileKey, access: LinkAccess): Promise<SharedFileInfo>;
+  /** Share settings' Save as one PATCH — the link, the org link, the password, the expiry, viewers can copy — so the
+   *  org's policy (a password or an expiry required with a public link) is met in one request */
+  updateLink(fileKey: FileKey, patch: LinkSettingsPatch): Promise<SharedFileInfo>;
   setViewersCanCopy(fileKey: FileKey, on: boolean): Promise<SharedFileInfo>;
   /** "Ask to edit" (a viewer) */
   requestEdit(fileKey: FileKey): Promise<void>;

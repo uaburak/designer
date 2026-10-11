@@ -145,6 +145,7 @@
   .current { color: var(--figma-color-text-tertiary); }
   .signOut { white-space: nowrap; color: var(--figma-color-text-danger); font: var(--ds-font-settings-cell); letter-spacing: var(--ds-tracking-settings-cell); }
   .note { margin: 12px 0 0; color: var(--figma-color-text-secondary); }
+  .everywhere { align-self: flex-start; margin-top: 12px; }
 
   /* Personal access tokens, connected apps */
   .tokens { display: flex; align-self: stretch; flex-direction: column; margin-top: 12px; }
