@@ -2,6 +2,317 @@
 
 `src/renderer/src/editor/` is the new file editor: Figma's UI3 chrome (rail, left panel with Pages and Layers, rulers, the engine canvas, the right Design panel, the bottom toolbar, menus) built from the design system (`src/renderer/src/ds/`) around the C++/Wasm engine (`src/renderer/src/engine/`). Contracts it follows: `docs/engine.md` §10 (binding), `docs/design-system.md` + `docs/design-system-usage.md` (look), `docs/schema.md` (field names), `docs/desktop.md` §13 (clipboard), `docs/research/figma/R7-editor.md` (behaviour), `docs/research/visual-diff.md` (measured metrics).
 
+## Dev Mode — round 5 (contract, Phase 7 round 5; written 2026-10-11)
+
+**Status: contract, not built.** This section covers the Dev Mode gaps R18 lists:
+- Code Connect, with its CLI and its snippets in Inspect;
+- the component playground;
+- dev resources;
+- the ready-for-dev feed and its notifications;
+- prototype-only links;
+- the VS Code extension (decided: skipped, D-7).
+
+It builds on round 6's Dev Mode (statuses, focus view, annotations, Compare changes; "Status (2026-10-08, round 6 — Dev Mode…)" below). Related contracts:
+- the server's routes: `docs/multiplayer.md` §16, with the tables in migration 0014;
+- the plugin VM that runs Code Connect templates and codegen plugins: `docs/plugins.md`.
+
+Facts were read on 2026-10-11:
+
+| Tag | Source |
+|---|---|
+| **[CC]** | https://developers.figma.com/docs/code-connect/ — the overview plus `/cli-reference/`, `/api/config-file/`, `/quickstart-guide/`, `/template-files/`, `/template-api/`, `/batch-files/`, `/react/` |
+| **[CC-UI]** | `/code-connect-ui-setup/`, `/code-connect-ui-github/` |
+| **[MCP]** | https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/ |
+| **[INSP]** | https://help.figma.com/hc/en-us/articles/15023124644247 |
+| **[DR]** | https://help.figma.com/hc/en-us/articles/15023231995927, plus the REST dev resources pages |
+| **[STAT]** | https://help.figma.com/hc/en-us/articles/26781702258583 |
+| **[RDV]** | https://help.figma.com/hc/en-us/articles/23918228264855 |
+| **[PROTO]** | https://help.figma.com/hc/en-us/articles/360040531773 |
+| **[VSC]** | https://help.figma.com/hc/en-us/articles/15023121296151 |
+
+(unverified) marks what those pages don't state; there the choice is ours.
+
+### D-1 Code Connect
+
+**What Figma does:**
+- **Plans and seats**: Organization / Enterprise; a Dev or Full seat.
+- **CLI mappings** [CC]:
+  - Made with `npx figma connect` (`@figma/code-connect`; commands `publish`, `unpublish`, `parse`, `create`, `preview`, `migrate`; flags `-t/--token`, `-a/--api-url`, `--dry-run`, `-l/--label`, `--force` …).
+  - Auth: a PAT ("Code Connect: Write", "File content: Read"), passed with `-t` or `FIGMA_ACCESS_TOKEN`.
+  - Config: `figma.config.json` → `codeConnect: {include, exclude, parser, label, language, documentUrlSubstitutions, defaultBranch, apiUrl, interactiveSetupFigmaFileUrl}`.
+- **Template files** (`*.figma.ts` / `*.figma.js`):
+  - Figma's maintained format; the framework parsers are being deprecated, and `migrate` converts their files to templates.
+  - A header comment `// url=<node link>` (required), plus optional `// source=` and `// component=`.
+  - The code: `import figma from 'figma'`, then `const instance = figma.selectedInstance`.
+  - Getters: `getString` · `getBoolean(name, map?)` · `getEnum(name, map)` · `getInstanceSwap` · `getSlot` · `getPropertyValue`.
+  - Finders: `findText` · `findInstance` · `findConnectedInstance(s)` · `findLayers`.
+  - `executeTemplate()` → `{example, metadata}`; also `hasCodeConnect()` and `codeConnectId()`.
+  - The default export is `{example: figma.code\`…\`, imports, id, metadata: {nestable, props}}`.
+  - Helpers: `figma.helpers.react` / `.swift` / `.kotlin`.
+  - Errors: `PROPERTY_NOT_FOUND`, `CHILD_LAYER_NOT_FOUND`, `PROPERTY_TYPE_MISMATCH`, `TEMPLATE_EXECUTION_ERROR`.
+- **Batch files**: `x.figma.batch.ts` + `x.figma.batch.json` `{templateFile, components: [{url, …}]}`, read through `figma.batch`.
+- **Labels**: a mapping's `label` is its language tab in Inspect.
+- **Publish**: uploads the files; the endpoint is unpublished.
+- **Code Connect UI** [CC-UI]:
+  - Opened from the library file › Dev Mode › the file-name menu › Library › **Connect components to code**, or Inspect › **Connect components** for a frame's unmapped components.
+  - Each mapping is a path, plus an optional component name and per-mapping "instructions for MCP".
+  - GitHub autocomplete is optional.
+  - UI mappings show only the file and component, with an AI-generated snippet preview. Real snippets need the CLI.
+  - CLI and UI mappings coexist; CLI ones are edited only in the CLI.
+- **MCP** [MCP]: `get_code_connect_map` → `{nodeId: {componentName, source, snippet, snippetImports, snippetNestedFunctions, version: "UI" | "CLI", label}}`.
+
+**Ours.**
+
+**Where mappings live:**
+- Mappings are keyed by **(library file key, node id of the main component or component set, label)**, as Figma's URL-based ones.
+- An instance finds its main as follows:
+  - **Local components**: the file itself.
+  - **Library copies**: `sharedSymbolReference.fileKey` / `sourceLibraryKey` + `symbolID`. Copies keep the library's GUIDs (data.md §9.4), so this is the node id in the library file.
+  - **A variant** looks up its own node first, then its component set's.
+- **Shared and org library files**: D1 `code_connect` (0014), routes in `docs/multiplayer.md` §16.7 (`/v1/code_connect`, implemented by 5c in `server/src/devmode/codeConnect.ts`).
+- **Private routes for the app**:
+  - `GET /files/:key/code-connect` → `{mappings: CodeConnectMapping[]}`;
+  - `PUT /files/:key/code-connect` `{nodeId, label, …}` and `DELETE /files/:key/code-connect/:nodeId?label=` — UI mappings only;
+  - edit access to the library file, and a Full or Dev seat in orgs.
+- **Local files and local libraries**: the store's `files/<key>/code-connect.json` (desktop) or `designer.devStore.v1.codeConnect.<key>` (browser). These take UI mappings only; the CLI talks to the server.
+
+**The CLI** (`tools/code-connect/`, a small Node package with bin `designer-connect`; run as `node tools/code-connect/bin.mjs` or `npm run code-connect --`):
+- **Commands**: `publish`, `unpublish --label [--node <link>]`, `parse [--outFile]`, `create <node link> [--outDir]`, with Figma's flags `-t`, `-a/--api-url`, `-c/--config`, `-r/--dir`, `-f/--file`, `--dry-run`, `-l/--label`.
+- **Token**: `-t`, `DESIGNER_ACCESS_TOKEN` or `FIGMA_ACCESS_TOKEN`.
+- **API URL**: `--api-url`, `codeConnect.apiUrl`, or `DESIGNER_SERVER`. The default is the deployed server.
+- **Input**:
+  - **Template files and batch files only.** For the parser formats (`figma.connect(Component, url, {props, example})`), the person runs Figma's own `npx figma connect migrate`, which converts them locally to templates; then ours publishes them.
+  - TypeScript is stripped with `esbuild`'s `transform` (an exact-pinned dependency of the tool, not of the app) to plain JS. The header comments are kept.
+- **Publishing**: `POST /v1/code_connect` with `CodeConnectDoc`s (`src/shared/rest/types.ts`).
+  - `documentUrlSubstitutions` is applied first.
+  - Links are `<server>/f/<key>?node-id=1-2` (our Copy link) or Figma-style `…/design/<key>/<name>?node-id=1-2`; both are parsed.
+  - The answer lists each published node with its link, as Figma's CLI prints.
+- **Stretch: Figma's own CLI.** Making `npx figma connect publish --api-url <server>/v1` work against `/v1/code_connect` is optional. 5f reads the request the published `@figma/code-connect` sends (its source in `node_modules`, read-only, `--dry-run --verbose`) and, if it is a plain JSON POST, accepts that shape too. Report what was found either way.
+
+**Snippets in Inspect** (`src/viewer/inspect/codeConnect.ts` + `DevSections.tsx`, run in the editor's Dev Mode and in the viewer):
+- **When**: for a selected instance (or main component) with mappings, Inspect › Code shows one tab per `label` (Figma's language selector) above the generated code. The built-in code (CSS / iOS / Android) stays under its own entries.
+- **Running a CLI mapping**: the `template` runs in the **plugin VM** (`docs/plugins.md` §2 decision 11; a QuickJS run per evaluation, 1 s limit).
+  - The VM exposes Figma's template API over the instance: `figma.selectedInstance` with the getters and finders above, `figma.code`, `figma.helpers.react`, `figma.batch` (for batch templates), and `executeTemplate()` for nested connected instances.
+  - The result: `{example, imports, metadata}`.
+  - Nested instances with their own mappings are inlined (`nestable: true`) or shown as a pill that selects them (`nestable: false`), as Figma's.
+  - Imports are hoisted and deduplicated.
+  - Errors show Figma's error names in a quiet block, with the template's source link.
+- **UI mappings**: Figma shows an AI preview; we have no AI here. Ours shows the deterministic snippet `import { ‹component› } from "‹source›"` plus `<‹component› ‹prop›={…} />` from the instance's component properties (booleans, variants as strings, text, instance swaps by their mapped names), labelled "Generated from properties".
+- **Links**: "‹component› · ‹source›" opens `source` in the browser when it is a URL.
+
+**Code Connect UI** (`editor/devmode/codeConnect/`, 5f):
+- **Opening it**: in a library file in Dev Mode, the file-name menu › **Library ▸ Connect components to code**, or Inspect › **Connect components** (for the selection's unmapped components).
+- **The dialog**: a list of the file's published components and sets — name, thumbnail, mappings.
+  - "+" adds a mapping: label (React, SwiftUI, Compose, Vue, HTML … or typed), path, component name, "Instructions for MCP".
+  - A CLI mapping is listed read-only, with "Edit in code".
+- **GitHub autocomplete: not built** (needs a GitHub app; ours — listed in Not built).
+
+**MCP**: the agents' server gains `get_code_connect_map`, Figma's shape (`src/shared/agents/tools.ts` + `editor/agents/mcpTools.ts`, this tool only).
+- `get_design_context` includes the mapped snippet when there is one (Figma's: "with Code Connect snippets").
+- The mapping's `instructions` go into both.
+
+### D-2 Component playground
+
+**What Figma does** [INSP]:
+- A component or instance in Dev Mode › Inspect shows **"Explore component behavior"**, which opens the playground.
+- In it you can try properties and variable modes "without changing the design".
+- Whether the code updates live with Code Connect is unverified.
+
+**Ours** (`editor/devmode/Playground.tsx`, 5f):
+- **Opening it**: "Explore component behavior" under the component info opens a modal with the preview on the left and the controls on the right.
+- **The preview's engine**:
+  - A second engine on a hidden canvas, as Compare changes uses (`devmode/CompareChanges.tsx`).
+  - It loads a **scratch document** made from the component's subtree: the main component or set and what it depends on, through the same payload path the libraries use (`getPayloads` for library components, or a NODE_CHANGES copy of the local subtree).
+  - It holds one instance of it.
+  - It never touches the file, its journal or undo.
+- **Controls**: Figma's component property controls (the instance panel's own: variant dropdowns, boolean toggles, text fields, instance-swap pickers, slots read-only) and the variable modes of the collections it uses.
+- **Each change** is a `setProps` on the scratch instance. The preview is the exporter's PNG at 2×, fit to its box.
+- **Code**: the Code Connect snippet (D-1) of the scratch instance updates with the controls; without a mapping, the generated CSS / iOS / Android does.
+- **Reset**: "Reset" goes back to the instance's own values (opened on an instance) or to the defaults (on a main component).
+
+### D-3 Dev resources
+
+**What Figma does** [DR]:
+- **Who**: a Full or Dev seat on a paid plan.
+- **Adding**: select a layer in Dev Mode, then Inspect › Layer options › **Add a dev resource link**; paste a URL and press Enter.
+- **Removing**: ⋯ › **Delete link**.
+- **Where links show**: a link on a component shows on all its instances; one on an instance only there. Examples: GitHub, Jira, Storybook.
+- **Limits**: at most 10 per node; a URL once per node. Dev resources aren't published, they're live at once.
+- **Plugin API**: `getDevResourcesAsync`, `addDevResourceAsync`, `editDevResourceAsync`, `deleteDevResourceAsync`.
+- **REST**: `docs/multiplayer.md` §16.7.
+
+**Ours:**
+- **Storage**:
+  - Shared files: D1 `dev_resources` (0014).
+  - Local files: `files/<key>/dev-resources.json` (desktop store) or `designer.devStore.v1.devResources.<key>` (browser), with the same shape (`DevResourceRecord`, below).
+- **Private routes** (5c, `server/src/devmode/devResources.ts`):
+  - `GET /files/:key/dev-resources?nodeIds=`;
+  - `POST /files/:key/dev-resources {nodeId, name, url}`;
+  - `PATCH /files/:key/dev-resources/:id {name?, url?}`;
+  - `DELETE /files/:key/dev-resources/:id`.
+- **Who may change them**: edit access, and in orgs a Full or Dev seat (`seatCanDevMode`). Viewers read.
+- **Changes** are logged as `dev_resource_create` / `dev_resource_delete` (ours), and post `{t: "dev-resources", nodeId}` to the room, so open copies re-read.
+- **The editor and viewer** (`src/viewer/inspect/DevResources.tsx`, 5f):
+  - Inspect's **Dev resources** section lists the node's links, then its main component's links (for an instance). Main components in libraries read the library file's links: `GET /files/:libraryKey/dev-resources?nodeIds=<symbolID>` (view access to the library file, else none shown).
+  - Each row: the site's glyph (GitHub, Jira, Storybook, Linear, Figma — by host, else a link glyph), the name, ⋯ (Edit, Delete link). Clicking opens the browser.
+  - **Layer options › Add a dev resource link** opens a field: paste, then Enter.
+- **Link names**: main fetches the page's `<title>` (`devmode:link-title {url}` → `{title}`, `net.fetch`, 5 s, ≤ 512 kB read, `https:` only). The name falls back to the URL's host + path. The browser build uses the URL.
+- **Errors**: "You can add up to 10 links to a layer." and "This link has already been added." (our wording; Figma's unverified).
+
+### D-4 Ready for dev: the feed and notifications
+
+**What Figma does** [STAT], [RDV]:
+- **Statuses**: "Ready for dev" (paid plans), "Completed" (Organization / Enterprise), and an automatic **Changed**. Editing them needs a Full or Dev seat.
+- **The Ready for dev view**: "Ready for dev" in the left sidebar with a count, shown only when something is marked.
+  - Filters All / Ready / Completed; sort Recent activity / Pages / Name (A-Z).
+  - Cards open focus view.
+- **Notifications**:
+  - **Who**: Full or Dev seats who have **viewed the file in Dev Mode** are told when a design is marked Ready for dev, the first time or again after removal.
+  - On Organization / Enterprise they are also told when a Ready or Completed design is updated after a change ("Done with changes"), and when one is marked Completed.
+  - **Grouping**: several changes within an hour are grouped by type.
+  - **Settings**: Dev Mode's comment-mode Settings has "Status changes" / "Nothing".
+  - A Changed design's reason ("Done with changes") goes into version history and the notification.
+
+**Ours:**
+- **The view** (`editor/devmode/ReadyForDev.tsx`, 5f) finishes round 6's left-panel list:
+  - Figma's cards (the design's thumbnail from the exporter, cached by `editInfo.lastEditedAt`; name, page, status chip, "Edited … ago"), a count.
+  - Filters **All / Ready / Completed**; sort **Recent activity / Pages / Name (A-Z)**.
+  - A card opens focus view.
+  - Read from the document (`sectionStatusInfo` + `editInfo`; engine reads, no server).
+- **The report**: when the editor commits a status change (Mark as ready for dev, Mark as completed, Remove status, Done with changes), it posts `POST /files/:key/dev-status {nodeId, nodeName, status: "READY_FOR_DEV" | "COMPLETED" | "NONE", changeMessage?, kind: "ready" | "completed" | "changed_done" | "removed"}` (5c, `server/src/devmode/status.ts`) for shared files.
+  - The server checks edit access and the seat.
+  - It raises `DEV_MODE_STATUS_UPDATE` (§16.9, `related_links` = the node's dev resources).
+  - It notifies (below).
+  - Local files report nothing (one person).
+- **Viewers**: entering Dev Mode on a shared file posts `POST /files/:key/dev-status/viewed` (at most once an hour per file), which upserts `dev_mode_viewers` — only for people with a Full or Dev seat in orgs, everyone outside orgs.
+- **Notification kinds** (`NotificationKind`, docs/multiplayer.md §16.13):
+  - `dev_ready` — "‹name› marked ‹design› ready for dev";
+  - `dev_completed` — "‹name› marked ‹design› as completed";
+  - `dev_changed` — "‹name› updated ‹design› after a change: ‹reason›".
+
+  The wording is ours; Figma's bell wording is unverified.
+- **Who is told**:
+  - `dev_mode_viewers` of the file with `notify = 1` who can still open it (`resolveAccess`), not the actor.
+  - `dev_completed` and `dev_changed` only for org files (Figma: Organization / Enterprise).
+- **Folding**: one person's rows of one kind on one file fold within **one hour** ("3 designs marked ready for dev · ‹file›", as comments fold in §12).
+- **Desktop notifications**: `wantsDesktop` gains a "Dev Mode" preference — Settings › Notifications › Dev Mode: "Status changes" / "Nothing", default "Status changes", stored in `notification_prefs`.
+- **A click** opens the file in Dev Mode on the ready-for-dev view (`OpenIntent.devMode = "ready"`, ours, in `editor/multiplayer/links.ts`).
+- **Per-file setting**: Dev Mode's comment panel › Settings gains Figma's "Status changes" / "Nothing" for this file: `PUT /files/:key/dev-status/notify {notify}` → `dev_mode_viewers.notify`.
+
+### D-5 Improved handoff
+
+R18 §1.4's "Improved handoff" row is the ready-for-dev feed, focus view, statuses and their notifications. Round 6 built the statuses and focus view, and D-4 adds the rest, so this row needs nothing more.
+
+### D-6 Prototype-only access
+
+**What Figma does** [PROTO]:
+- **Where**: prototypes are in Design files; prototype-only links are on paid plans.
+- **How**: Present › **Share prototype** opens the share modal for the prototype. Its audience options:
+  - "Anyone";
+  - ‹organization›;
+  - ‹workspace› (Enterprise);
+  - "Only invited people".
+- **Settings**: view / edit, and Advanced: "Allow viewers to copy, share, and export", a password, link expiry (Enterprise).
+- **What viewers see**: the prototype in presentation view, **not the design file**.
+- **Dev Mode for prototype viewers**: not stated, but implied absent (Dev Mode needs a Full / Dev seat).
+
+**Ours:**
+- **Access level**: `resolveAccess` (`src/shared/org/access.ts`, 5c) gains a level below viewer, **`prototype`**, granted by any of:
+  - `files.proto_link_access = 'viewer'` (Anyone with the prototype link);
+  - `proto_org_link_access = 'viewer'` (org members);
+  - a `prototype_members` row (invited from Share prototype).
+- **What the level opens**: `FileAccess` gains `prototypeOnly: boolean` (true when only these grant access).
+- **The room**: the Worker sends `x-role: prototype`; the room treats it as a viewer (no writes).
+- **The app**:
+  - The file opens **straight into the presentation view** (`present.ts`), with no way into the design: no Close presentation → editor, no Dev Mode, no layers, no Inspect.
+  - Comments work in the presentation view (Figma's prototype viewers can comment — unverified; ours: yes).
+  - Export, copy and Save local copy follow `viewers_can_copy`.
+  - Desktop: the editor view with `prototypeOnly` mounts only `InlinePreview` / the player; the browser build does the same.
+- **The data**: the whole document reaches the client, as for viewers. Figma's prototype viewer also loads the file (unverified). Isolating a prototype's frames on the server would need a server decode (the 10 ms CPU limit) — **not done**; the owner's open question 2 (roadmap).
+- **The modal** (`editor/SharePrototypeDialog.tsx`, 5h; "Share prototype" in the presentation view's toolbar and in Share's More › "Copy prototype link"):
+  - Figma's layout: invite field (emails → `PUT /files/:key/prototype-members {email}`), Who has access, link settings.
+  - Link audience: "Anyone with the link" → `protoLinkAccess`; "Anyone at ‹org›" → `protoOrgLinkAccess`; "Only invited people".
+  - Advanced: the file's `viewers_can_copy`, password and expiry (the same file settings: Figma's modal shows the file's).
+  - The link is `<server>/f/<key>?m=proto&node-id=…`.
+- **Routes** (5c):
+  - `GET /files/:key/prototype-members`, `PUT /files/:key/prototype-members {email}`, `DELETE /files/:key/prototype-members/:email`;
+  - `PATCH /files/:key {protoLinkAccess?, protoOrgLinkAccess?}`.
+  - Org policy applies: public links off → no "Anyone" (§15.6).
+  - Logged as `fig_file_proto_link_access_change`.
+
+### D-7 Figma for VS Code — skipped
+
+**What Figma does** [VSC]: Figma's extension (paid plans, Full / Dev seat, signs in with Figma) offers:
+- files grouped by section, status and page;
+- Dev Mode's Code, Component and Assets tabs, and dev resources;
+- comments with notifications;
+- running plugins;
+- code completions from the selected layer.
+
+**Decision: not in round 5, and not planned.**
+- It is a second client of everything Dev Mode already shows: the viewer, the REST API, the MCP server.
+- The owner's dev friends use the developer preview viewer (`/p/<id>`), the REST API and the MCP server, which every editor including VS Code reaches (Agents › Connect to VS Code).
+- A minimal extension — a webview loading `src/viewer` against `/v1` with a PAT — stays possible later in `tools/vscode/` with no contract change.
+
+### D-8 Shared types (`src/shared/devmode/types.ts`, committed verbatim before the round)
+
+```ts
+/** Dev Mode's round 5 records (docs/editor.md "Dev Mode — round 5"). Wire names camelCase; REST shapes are in src/shared/rest/types.ts. */
+export interface CodeConnectMapping {
+  /** The library file (room key, or the local file key for local mappings) and the main component / set node in it */
+  fileKey: string; nodeId: string;
+  label: string; language: string;
+  origin: "cli" | "ui";
+  source: string | null; component: string | null;
+  /** The template's JavaScript (CLI); null for UI mappings */
+  template: string | null;
+  imports: string[]; nestable: boolean; instructions: string;
+  updatedBy: string | null; updatedAt: number;
+}
+export interface CodeConnectSnippet { label: string; language: string; code: string; imports: string[]; origin: "cli" | "ui" | "generated"; error: { type: "PROPERTY_NOT_FOUND" | "CHILD_LAYER_NOT_FOUND" | "PROPERTY_TYPE_MISMATCH" | "TEMPLATE_EXECUTION_ERROR"; message: string } | null; source: string | null; component: string | null }
+
+export interface DevResourceRecord { id: string; fileKey: string; nodeId: string; name: string; url: string; createdBy: string | null; createdAt: number; updatedAt: number }
+export const DEV_RESOURCE_LIMIT = 10;
+
+export type DevStatus = "READY_FOR_DEV" | "COMPLETED" | "NONE";
+export interface DevStatusReport { nodeId: string; nodeName: string; status: DevStatus; kind: "ready" | "completed" | "changed_done" | "removed"; changeMessage?: string }
+
+/** The store's devMode repository (both stores; events on topic "devmode": {fileKey, what: "resources" | "codeConnect"}) */
+export interface DevModeRepository {
+  devResources(fileKey: string, nodeIds?: string[]): Promise<DevResourceRecord[]>;
+  addDevResource(fileKey: string, input: { nodeId: string; name: string; url: string }): Promise<DevResourceRecord>;
+  editDevResource(fileKey: string, id: string, patch: { name?: string; url?: string }): Promise<DevResourceRecord>;
+  removeDevResource(fileKey: string, id: string): Promise<void>;
+  codeConnect(fileKey: string): Promise<CodeConnectMapping[]>;
+  setCodeConnect(fileKey: string, mapping: Omit<CodeConnectMapping, "fileKey" | "origin" | "template" | "updatedBy" | "updatedAt">): Promise<CodeConnectMapping>;
+  removeCodeConnect(fileKey: string, nodeId: string, label: string): Promise<void>;
+  /** Shared files only; local files resolve at once */
+  reportStatus(fileKey: string, report: DevStatusReport): Promise<void>;
+  viewed(fileKey: string): Promise<void>;
+  setStatusNotifications(fileKey: string, notify: boolean): Promise<void>;
+  /** Prototype-only members (D-6) */
+  prototypeMembers(fileKey: string): Promise<{ email: string; userId: string | null; name: string | null }[]>;
+  invitePrototype(fileKey: string, email: string): Promise<void>;
+  removePrototype(fileKey: string, email: string): Promise<void>;
+}
+```
+
+Also in that commit:
+- `devMode: DevModeRepository` on `StoreApi`, with `notImplemented` stubs.
+- `FileAccess.prototypeOnly: boolean` in `src/shared/org/types.ts`.
+- `OpenIntent.devMode?: "ready"`.
+- The IPC channel `devmode:link-title` in `src/shared/ipc.ts`.
+
+### Not built in round 5 (Dev Mode)
+
+- Code Connect's GitHub autocomplete and its AI snippet previews;
+- `preview` and `migrate` in our CLI (Figma's own `migrate` covers the latter);
+- the VS Code extension;
+- Slack / Teams for status notifications;
+- email;
+- link previews (unfurls) for dev resources;
+- "Copy link to focus view" (round 6's leftover; 5f may add it with the feed).
+
 ## Org libraries and library analytics (2026-10-11, Phase 7 round 3c, branch `worktree-agent-a7d6c03532fc7ba3e`)
 
 Contracts: docs/data.md §16 (libraries in organizations) and §17 (library analytics); research `docs/research/figma/R22-library-analytics.md`.

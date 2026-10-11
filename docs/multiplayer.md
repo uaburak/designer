@@ -15,6 +15,7 @@ Contract for roadmap Phase 6 (owner's decision 2026-10-10: Cloudflare instead of
 | Organizations: workspaces, teams, folders, seats, groups, Admin, activity log (contract, Phase 7) | D1 (migration 0010), no new Durable Object | `server/src/org/`, `server/src/activity.ts`, `src/shared/org/`, `src/store/org/` (§14) |
 | Org libraries, library analytics, shared fonts (contract, Phase 7 round 3) | D1 (migration 0012), Durable Objects `LibraryObject` per library and `FontObject` per org (SQLite, 1 MB chunks; wrangler tag v4), a daily Cron Trigger for the analytics roll-up | `server/src/libraries/`, `server/src/analytics/`, `server/src/fonts/`, `src/store/libraries/` (docs/data.md §16–§17, docs/desktop.md §14.3) |
 | Identity and security: SAML SSO, SCIM, domains, policies, idle timeout, EU data region (contract, Phase 7 round 4) | D1 (migration 0013), Durable Objects in Cloudflare's `eu` jurisdiction for EU orgs' rooms and libraries | `server/src/auth/`, `server/src/policy/`, `src/shared/org/identity.ts` (§15) |
+| REST API, webhooks, private plugins, Dev Mode's server side (contract, Phase 7 round 5) | D1 (migration 0014), a second Cron Trigger (webhook retries), render jobs answered by connected clients (no new Durable Object) | `server/src/rest/`, `server/src/webhooks/`, `server/src/devmode/`, `server/src/plugins/`, `src/shared/rest/` (§16, docs/plugins.md, docs/editor.md "Dev Mode — round 5") |
 | Wire format | — | `src/shared/multiplayer/protocol.ts` |
 
 Free plan limits that matter: 100k Worker requests a day (a WebSocket message counts 1/20 of a request), Durable Objects on SQLite storage, D1 5 GB, R2 10 GB. One person and a few friends stay far below them.
@@ -1963,3 +1964,857 @@ Tests (node:sqlite; a test IdP signing in Node with throwaway openssl keys, `ser
 ### 15.15 Not decided here (owner)
 
 See `docs/roadmap.md` Phase 7 "Round 4" — open questions for the owner (IdP-initiated bounce, SAML only on verified domains, the login page, which IdP and domain to test with, self-serve data region).
+
+## 16. REST API and webhooks (contract, Phase 7 round 5; written 2026-10-11)
+
+**Status: contract, not built.** This section covers Figma's public REST API (`/v1/…`, `/v2/…`) and Webhooks V2 on our Worker. The callers are the owner's and dev friends' scripts, CI, the Code Connect CLI (docs/editor.md "Dev Mode — round 5"), and anything written against Figma's API with its host swapped. Research: R18 E-1, `server/spikes/rest-images.md`. The plan: `docs/roadmap.md` "Round 5".
+
+Facts below were read on developers.figma.com on 2026-10-11 (paths under `https://developers.figma.com/docs/rest-api/`):
+- **[R-auth]** `/authentication/`, `/personal-access-tokens/`, `/oauth-apps/`, `/scopes/`
+- **[R-rate]** `/rate-limits/`, `/errors/`
+- **[R-file]** `/file-endpoints/`, `/version-history-endpoints/`, `/comments-endpoints/`, `/users-endpoints/`
+- **[R-team]** `/projects-endpoints/` (deprecated), `/folders-endpoints/`
+- **[R-lib]** `/component-endpoints/`, `/library-analytics-endpoints/`
+- **[R-var]** `/variables-endpoints/`
+- **[R-dev]** `/dev-resources-endpoints/`, `/dev-resources-types/`
+- **[R-org]** `/activity-logs-endpoints/`, `/ai-usage-endpoints/`, `/discovery-endpoints/`
+- **[R-hook]** `/webhooks/`, `/webhooks-endpoints/`, `/webhooks-events/`, `/webhooks-security/`, `/webhooks-types/`
+
+**(unverified)** marks what those pages don't state. Where something is marked unverified, the choice made there is ours and the text says so.
+
+### 16.1 What Figma does (the facts this section implements)
+
+**Host and auth** [R-auth]. Figma's host is `https://api.figma.com`. There are three kinds of token:
+- **Personal access tokens.**
+  - Sent in the header `X-Figma-Token`.
+  - Made in Settings › Security, with scopes and an expiry.
+  - Revoked at once; "last used" is shown.
+- **OAuth apps.**
+  - Sent as `Authorization: Bearer`.
+  - Authorize at `www.figma.com/oauth` with `client_id`, `redirect_uri`, `scope`, `state`, `response_type=code`, and optional PKCE S256.
+  - `POST /v1/oauth/token` with Basic client auth; the code is valid for 30 s. `POST /v1/oauth/refresh` refreshes.
+  - Access tokens last 90 days.
+  - Required for Activity Logs and Discovery.
+- **Plan access tokens.**
+  - For Organization and Enterprise plans, made by admins for the plan.
+  - Optionally restricted; expire within a year.
+  - The only tokens the AI usage API accepts.
+
+Scopes never widen file, folder or org permissions.
+
+**Scopes** [R-auth]:
+- `current_user:read`, `file_content:read`, `file_metadata:read`
+- `file_comments:read|write`, `file_dev_resources:read|write`, `file_variables:read|write`, `file_versions:read`
+- `library_analytics:read`, `library_assets:read`, `library_content:read`, `team_library_content:read`
+- `folders:read`, `folder_metadata:read`
+- `webhooks:read|write`, `selections:read`
+- `org:activity_log_read`, `org:ai_metering_usage_read`, `org:developer_log_read`, `org:discovery_read`
+- Deprecated, still honoured for old tokens: `files:read`, `projects:read`, `project_metadata:read`.
+
+**Rate limits** [R-rate] are per user (for an OAuth token, the token's user), per minute, by **tier** and seat.
+
+| Tier | Endpoints | Full / Dev seats (Organization plan) | View / Collab seats |
+|---|---|---|---|
+| 1 | file, nodes, images | 20 a minute | "up to 20 a **month**" |
+| 2 | comments, dev resources, image fills, folders / projects, variables GET, versions, webhooks | 100 a minute | 5 a minute |
+| 3 | activity logs, components and styles, file and folder metadata, library analytics, users, POST variables | 150 a minute | 10 a minute |
+
+Enterprise's numbers are not on the page. A 429 carries `Retry-After` (seconds), `X-Figma-Plan-Tier`, `X-Figma-Rate-Limit-Type` (`low` | `high`) and `X-Figma-Upgrade-Link`.
+
+**Bodies**:
+- File endpoints answer `{err, …}`; `GET /v1/images` answers `{err, images, status?}`.
+- Library and variable endpoints answer `{status, error, meta}`.
+- Activity logs answer `{status, error: false, i18n: null, meta}`.
+- The errors page lists codes only (400, 403, 404, 429, 500), with no body. Which shape errors take is unverified; in practice Figma's own API answers `{status, err}` on the file routes.
+
+**Endpoints**: listed with their shapes in §16.7, each from its page.
+
+**Webhooks V2** [R-hook]: §16.9.
+
+### 16.2 Decisions
+
+| # | Topic | Decision |
+|---|---|---|
+| 1 | Host | The same Worker: `<server>/v1/…` and `<server>/v2/…` (today `https://designer.burak-kc-sp.workers.dev`). Figma's paths and field names exactly, so a Figma client works with its base URL swapped (the Code Connect CLI's `--api-url`, most SDKs' `baseUrl`). |
+| 2 | Tokens | See the list after this table. |
+| 3 | Scopes | Figma's names (§16.3). A PAT may hold `org:activity_log_read` only when an org admin made it; this is checked per request against the org asked for. |
+| 4 | Rate limits | Figma's tiers. Full or Dev seats, and people outside orgs, get the **Organization Full / Dev** numbers (20 / 100 / 150 a minute). View and Collab seats get Figma's `low` numbers, except Tier 1 is **20 a day** (ours: "a month" would make the API useless to friends with View seats); Tier 2 is 5 and Tier 3 is 10 a minute. A **daily cap of 5,000 REST calls per person** (ours) keeps the API from eating the free plan's 100,000 Worker requests a day. Counted in D1 (`rest_rate`, one upsert per call; the free plan's 100,000 row writes a day allow it). |
+| 5 | Errors | `/v1/files/…` and `/v1/images/…` answer `{status, err}`. Every other route answers `{status, error: true, message}`, with `i18n: null` where Figma shows it. Never the private API's `{error, code}`. |
+| 6 | Document reads and renders | **Client render-and-cache by default** (the spike's option (b)). See the paragraph after this table. |
+| 7 | Server render | **Behind a flag** (`REST_SERVER_RENDER=1`, which needs the Workers Paid plan). SVG and PDF come from a server build of the engine (`-sENVIRONMENT=web,worker`, `NullDevice`, the spike's measurements) in the file's Durable Object, for pages of ≤ 15,000 nodes; larger pages fall back to the client. **Specified, not built in round 5**: it needs an engine server build and the paid plan. `RenderBackend` (§16.6) is the seam. PNG / JPG never render on the server: the spike's option (c), a CPU rasterizer, is rejected. |
+| 8 | What needs no client | Answered from D1 or the room's tables: metadata, image fills (our image hash *is* Figma's `imageRef`, the SHA-1 the room stores), comments, versions, components / styles / published variables (D1), dev resources, library analytics, activity logs, AI usage, folders / teams, webhooks. |
+| 9 | Files outside orgs | Served when they are shared files with a room. Team and folder routes, and team / project webhooks, need orgs. Local-only files are not on the server: 404. |
+| 10 | Image URLs | Figma returns expiring S3 links. Ours are `<server>/v1/blobs/:fileKey/:sha1.<ext>?exp=<unix s>&sig=<HMAC>`, which need no auth header, like S3's. Renders expire after **30 days**, image fills after **14 days** (Figma's numbers). |
+| 11 | Webhook security | Figma's **passcode**, echoed in every payload. **Plus** (ours, harmless to Figma's receivers) `X-Designer-Signature: t=<unix s>,v1=<hex HMAC-SHA256(passcode, t + "." + body)>`, so a receiver can check the body too. |
+| 12 | Webhook timing | Retries after 5 min, 30 min and 3 h (Figma's), run by a second Cron Trigger `*/5 * * * *` (the free plan allows five; round 3 uses one). `FILE_UPDATE` fires 30 minutes after the last edit, from the room's alarm (§16.10). |
+| 13 | Ready-for-dev status | Figma has no REST route for it, only the plugin API's `devStatus` and the webhook. The editor reports each status change it commits (`POST /files/:key/dev-status`, docs/editor.md "Dev Mode — round 5" D-4). That one report feeds notifications and `DEV_MODE_STATUS_UPDATE`. |
+| 14 | Not built | OAuth apps; `selections:read`; Discovery and Developer logs (Governance+, round 14); payments (no Community); avatar URLs in `/v1/files/:key/meta`'s `creator` (our avatars are data: URLs, so `img_url` is sent as `null`). |
+
+**Decision 2, tokens.**
+- **Personal access tokens** (§13, `dsgn_…`) are accepted in Figma's header `X-Figma-Token` and, as today, as `Authorization: Bearer`.
+- **Plan access tokens** (`dsgn_plan_…`):
+  - Made by org admins in Admin › Settings › **Plan access tokens** (location ours; Figma's page doesn't name it).
+  - Scoped to one org.
+  - May hold only `org:*`, `library_analytics:read`, and `webhooks:*` with `plan_api_id`.
+  - Act as the org, with admin reach, for those routes only — never a file's content.
+- **OAuth apps: not in round 5.**
+  - Every caller here is the owner or a friend running their own script or CLI, and PATs serve them.
+  - OAuth needs app registration, a consent page and client secrets, for no current caller.
+  - `/v1/oauth/*` answers 404.
+  - Where Figma *requires* OAuth (Activity Logs), we accept a plan access token, or an org admin's PAT with the scope (ours).
+
+**Decision 6, document reads and renders.** The Worker can't decode a room's kiwi within the free plan's 10 ms of CPU. So `GET /v1/files/:key`, `/nodes`, `/v1/images/:key`, `variables/local` and `POST …/variables` are **jobs** that the room hands to a connected client of the file:
+1. an editor first,
+2. then a viewer,
+3. then the desktop app's **render helper** (§16.6).
+
+Results are cached by `(file, room seq | version, job, params)`, so each state renders once.
+
+### 16.3 Tokens and scopes
+
+`src/shared/account.ts` `TOKEN_SCOPES` grows to the rows below. The labels are ours; Figma's dialog wording is unverified.
+
+| Scope | Group | Opens |
+|---|---|---|
+| `current_user:read` | Users | `GET /v1/me` |
+| `file_content:read` | Files | `GET /v1/files/:key`, `/nodes`, `GET /v1/images/:key`, `/v1/files/:key/images` |
+| `file_metadata:read` | Files | `GET /v1/files/:key/meta` |
+| `file_versions:read` | Files | `GET /v1/files/:key/versions` |
+| `file_comments:read` · `:write` | Comments | comments and reactions |
+| `file_dev_resources:read` · `:write` | Dev resources | §16.7 dev resources |
+| `file_variables:read` · `:write` | Variables | `GET …/variables/local\|published` · `POST …/variables` |
+| `file_code_connect:write` | Code Connect | `POST` / `DELETE /v1/code_connect` (the id is ours: Figma's CLI asks for "Code Connect: Write" but its scope id is unpublished) |
+| `library_assets:read` | Libraries | `GET /v1/components/:key`, `/component_sets/:key`, `/styles/:key` |
+| `library_content:read` | Libraries | `GET /v1/files/:key/components\|component_sets\|styles` |
+| `team_library_content:read` | Libraries | `GET /v1/teams/:id/components\|component_sets\|styles` |
+| `library_analytics:read` | Libraries | `/v1/analytics/libraries/…` |
+| `folders:read` (`projects:read` accepted) | Folders | `/v2/teams/:id/folders`, `/v2/folders/:id/folders\|files`, `/v1/teams/:id/projects`, `/v1/projects/:id/files` |
+| `folder_metadata:read` (`project_metadata:read` accepted) | Folders | `/v2/folders/:id/meta`, `/v1/projects/:id/meta` |
+| `webhooks:read` · `:write` | Webhooks | `/v2/webhooks…` |
+| `org:activity_log_read` | Organization | `GET /v1/activity_logs` (org admins' PATs, plan tokens) |
+| `org:ai_metering_usage_read` | Organization | `GET /v1/ai_usage/daily` (plan tokens only, as Figma) |
+
+- **Private routes** keep `patAllows` (§13) unchanged.
+- **`/v1` and `/v2`** check scopes per route in `server/src/rest/scopes.ts`: one table of route → scope(s) → tier.
+- **Plan access tokens**:
+  - Stored as `access_tokens.kind = 'plan'` with `org_id` set.
+  - `user_id` is the admin who made it, kept when they leave: the token belongs to the org.
+  - Routes (org admins only): `GET / POST /orgs/:org/admin/plan-tokens` and `DELETE /orgs/:org/admin/plan-tokens/:id`. The token is shown once; expiry is 1–365 days.
+  - Logged as `plan_access_token_create` / `plan_access_token_delete` (ours).
+  - `plan_api_id` is `organization-<orgId>` (Figma's form).
+- Every `/v1` call moves the token's "Last used" (§13), at most once a minute.
+
+### 16.4 Rate limits
+
+**Counting.** `server/src/rest/rate.ts` `charge(deps, caller, tier)` runs one statement per bucket:
+
+```sql
+INSERT INTO rest_rate (subject, bucket, window, count) VALUES (?, ?, ?, 1)
+ON CONFLICT DO UPDATE SET count = count + 1 RETURNING count
+```
+
+- `subject` is the user id, or `org:<id>` for a plan token.
+- The **minute** bucket is `t1`, `t2` or `t3`, with window = `floor(now / 60000)`.
+- The **day** bucket is `day`, with window = the UTC day.
+- For `low` seats, Tier 1 also counts in `t1day`.
+
+**Over the limit** → 429 with body `{status: 429, err: "Rate limit exceeded"}` and these headers:
+- `Retry-After`: the seconds until the window ends.
+- `X-Figma-Plan-Tier`: `enterprise` for orgs, `starter` outside them.
+- `X-Figma-Rate-Limit-Type`: `high` or `low`, from the caller's best seat in the file's org; `high` outside orgs.
+- No upgrade link.
+
+**Housekeeping and edge cases:**
+- The cron (`17 3 * * *`) deletes `rest_rate` rows older than two days.
+- A render job counts once, when it is asked for. An answer served from the cache still counts as a call.
+
+### 16.5 Conventions
+
+- **Names and ids**:
+  - Paths and query names are Figma's.
+  - File keys are our room keys.
+  - Node ids are `"1:2"` (our GUIDs as `sessionID:localID`, as Figma's).
+  - Team, folder and org ids are our D1 ids (strings).
+  - Webhook ids are numbers (Figma's).
+- **Times**: ISO 8601 UTC strings where Figma uses them (`lastModified`, `created_at`, `updated_at`); Unix seconds in activity logs.
+- **Writes**: a `GET` only reads D1 or the room. Nothing in `/v1` writes the document except `POST /v1/files/:key/variables`, and that goes through a client (§16.8).
+- **CORS**: `/v1` and `/v2` answer any origin (`access-control-allow-origin: *`, no credentials), so a plugin UI or a docs page can call them with a token. Figma's API does the same.
+- **Activity**:
+  - Reads of org files log `fig_file_view` with `details.client_name = "REST API"`, at most once per token per file per hour (ours: whether Figma logs API reads is unverified).
+  - Writes log as their private-API twins.
+
+### 16.6 Render jobs: client render-and-cache
+
+```
+caller ─GET /v1/images/K?ids=…&format=png─▶ Worker ── checks token, scope, rate, resolveAccess (view) ──▶ FileRoom K
+FileRoom: cache hit (job key) → links;  miss → pick a client ─{t:"rest-job", id, job}─▶ client (editor › viewer › helper)
+client: runs the job on its engine ─PUT /files/K/rest-jobs/:id/parts/:name─▶ Worker ─▶ FileRoom (blob store, 1 MB chunks)
+FileRoom answers the waiting Worker (≤ 25 s) → the caller gets {err: null, images: {id: url}}
+```
+
+**Job kinds** (`RestJob` in `src/shared/rest/types.ts`):
+
+| Kind | Serves | Params |
+|---|---|---|
+| `file` | `GET /v1/files/:key` | `ids`, `depth`, `geometry`, `plugin_data`, `branch_data` |
+| `nodes` | `GET /v1/files/:key/nodes` | as `file`, `ids` required |
+| `images` | `GET /v1/images/:key` | `ids`, `scale`, `format`, the `svg_*` flags, `contents_only`, `use_absolute_bounds` |
+| `variables_local` | `GET …/variables/local` | — |
+| `variables_post` | `POST …/variables` | the request body (§16.8) |
+
+Each kind may carry `version`, a room version id (data.md §15.7.1). The client then loads that version in a scratch engine (as Compare changes does) instead of the open document.
+
+**Caching:**
+- The **job key** is the SHA-1 of `{kind, params sorted, seq | version}`, where `seq` is the room's head when the job is asked for.
+- `variables_post` is never cached.
+- Results live in the room's `blobs` as `rest:<jobKey>[:<part>]`.
+- They are dropped by an LRU once a room holds more than 64 MB of them (ours), and when older than 30 days.
+
+**Who answers.** The room keeps a role and a `canRender` flag per socket; `canRender` means the client said `hello {render: true}` (an editor view with the file's engine loaded). The order of preference:
+1. the `editor` socket that has been idle longest;
+2. a `viewer`;
+3. a **render helper** socket.
+
+`variables_post` needs an editor, or a helper whose person can edit. If no one can answer, the Worker answers `503 {status: 503, err: "No client available to render this file. Open the file in DesignerV2 and try again."}`; for images that is `{err, images: {id: null}}`.
+
+**The render helper** (desktop, `src/main/restHelper.ts`):
+- Its setting is Settings › Account › "Answer API requests for my files while DesignerV2 is open" (ours). It is on by default for files the person owns, off for others.
+- When a room has no client that can render, it posts `{t: "rest-wanted", fileKey}` to the inboxes of the file's owner and editors. §12's `Inbox` carries it live; it is never stored.
+- Main, in an app with the setting on, opens a **hidden editor view** on the file. It has no tab, uses the spare-editor mechanism of docs/desktop.md §3.1, and is discarded after 5 minutes without jobs.
+- That view joins the room with `render: true`.
+- The first call waits for that start, within the 25 s total.
+
+**Timeouts.** The room gives each client 20 s, then tries the next one. The Worker gives up at 25 s with the 503 above.
+
+**Bytes:**
+- The client gzips JSON results; `content-encoding: gzip` is passed through to a caller that accepts it.
+- Images are sent as exported by E7's exporter: PNG / JPG / SVG / PDF, `scale` 0.01–4, with Figma's 32-megapixel cap (larger renders are scaled down).
+
+**`RenderBackend`** (`server/src/rest/render.ts`) is `{ canRender(job): boolean; run(job): Promise<RestJobResult> }`, with two implementations:
+- `ClientBackend` (round 5).
+- `ServerBackend` (§16.2 decision 7): `images` with `svg` / `pdf`, plus `file` / `nodes`, when `REST_SERVER_RENDER=1` and the page has ≤ 15,000 nodes. Not built.
+
+When the server backend is enabled, the room tries it first.
+
+**Room protocol** (`src/shared/multiplayer/protocol.ts`, committed before the round):
+- `hello.render?: boolean`.
+- Server → client: `{t: "rest-job", id: string, job: RestJob}`.
+- The client uploads each part with `PUT /files/:key/rest-jobs/:id/parts/:name` (bytes ≤ 64 MB each, SHA-1 checked).
+- Client → server, after the uploads: `{t: "rest-job-done", id, parts: {name, sha1, size, contentType}[]}`, or `{t: "rest-job-failed", id, err}`.
+- Inbox: `{t: "rest-wanted", fileKey}`.
+
+**What the client computes** (`src/renderer/src/editor/rest/`, round 5b):
+- **`fileJson.ts`**: the engine's document → Figma's REST JSON.
+  - Node types: `DOCUMENT`, `CANVAS`, `FRAME`, `GROUP`, `SECTION`, `COMPONENT`, `COMPONENT_SET`, `INSTANCE`, `RECTANGLE`, `ELLIPSE`, `LINE`, `REGULAR_POLYGON`, `STAR`, `VECTOR`, `BOOLEAN_OPERATION`, `TEXT`, `SLICE`, `TABLE`… as built.
+  - Node fields:
+    - `absoluteBoundingBox` / `absoluteRenderBounds`, from the engine's derived boxes;
+    - `fills` / `strokes` / `effects`, in Figma's Paint / Effect JSON (`nodeSpec.ts describePaints` is the start);
+    - `characters` + `style` + `characterStyleOverrides` + `styleOverrideTable`;
+    - `layoutMode` and the auto-layout fields, `constraints`;
+    - `componentProperties`, `boundVariables`, `styles` (`{fill: styleKey}`);
+    - `fillGeometry` / `strokeGeometry` with `geometry=paths` (SVG path strings from the engine's outlines);
+    - `pluginData` / `sharedPluginData` (docs/plugins.md §8) with `plugin_data`.
+  - Top level: `{name, role, lastModified, editorType: "figma", thumbnailUrl, version, document, components, componentSets, schemaVersion: 0, styles, mainFileKey?, branches?}`.
+  - **Test corpus**: where available, the owner's sample files' JSON compared field by field with Figma's own `GET /v1/files` output for the same `.fig` (`docs/research/figma/samples/`). Differences are listed in the as-built section.
+- **`images.ts`**: `engine_export` per id with the settings; `null` for an id that doesn't exist or exports nothing.
+- **`variablesJson.ts`**: local variables in `GET …/variables/local`'s shape (§16.7), extended collections' fields included.
+- **`variablesPost.ts`**: §16.8.
+
+### 16.7 Endpoints
+
+Every route needs a token (PAT or session) unless the table says otherwise. "view" and "edit" mean `resolveAccess` on the file. `T1`–`T3` are the rate-limit tiers.
+
+**Files** (`server/src/rest/files.ts`):
+
+| Route | Scope · tier · access | Answer |
+|---|---|---|
+| `GET /v1/files/:key?version&ids&depth&geometry=paths&plugin_data&branch_data` | `file_content:read` · T1 · view | job `file` → `{name, role, lastModified, editorType, thumbnailUrl, version, document, components, componentSets, schemaVersion, styles, mainFileKey?, branches?}`. `role` is `owner` \| `editor` \| `viewer`. With `branch_data=true`, `branches` is `{key, name, thumbnail_url, last_modified, link_access}[]` from D1 |
+| `GET /v1/files/:key/nodes?ids&version&depth&geometry&plugin_data` | as above | job `nodes` → `{name, role, lastModified, editorType, thumbnailUrl, err, nodes: {id: {document, components, componentSets, schemaVersion, styles} \| null}}` |
+| `GET /v1/images/:key?ids&scale&format&svg_outline_text&svg_include_id&svg_include_node_id&svg_simplify_stroke&contents_only&use_absolute_bounds&version` | as above | job `images` → `{err: null, images: {id: url \| null}, status?}`. Defaults are Figma's: `scale` 1, `format` png, `svg_outline_text` true, `svg_simplify_stroke` true, `contents_only` true |
+| `GET /v1/files/:key/images` | `file_content:read` · T2 · view | no job: every `IMAGE` paint's hash in the room's `blobs` index → `{error: false, status: 200, meta: {images: {imageRef: url}}}`. The `meta` wrapper follows what Figma's API answers in practice; the page shows `images` alone (unverified) |
+| `GET /v1/files/:key/meta` | `file_metadata:read` · T3 · view | D1 → `{file: {name, folder_name, last_touched_at, creator: {id, handle, img_url}, last_touched_by, thumbnail_url, editorType, version, role, link_access, url}}`. `url` is `<server>/f/<key>`. `link_access` is mapped from ours to Figma's `view` \| `edit` \| `org_view` \| `org_edit` \| `inherit` |
+| `GET /v1/files/:key/versions?page_size&before&after` | `file_versions:read` · T2 · view | the room versions (data.md §15.7.1) → `{versions: {id, created_at, label, description, user: {id, handle, img_url}, thumbnail_url}[], pagination: {prev_page, next_page}}`. Ids are our version ids. `page_size` ≤ 50, default 30 (Figma's numbers unverified) |
+| `GET /v1/files/:key/thumbnail` (ours, the target of `thumbnailUrl`) | signed URL | the PNG the store uploads with each snapshot (`PUT /files/:key/thumbnail`, editors only, ≤ 2 MB; round 5b) |
+
+**Comments** (`rest/comments.ts`, over `server/src/comments.ts`'s functions). Figma's REST `Comment` is already our shape (`src/shared/comments.ts`).
+
+| Route | Scope · tier | Answer |
+|---|---|---|
+| `GET /v1/files/:key/comments?as_md` | `file_comments:read` · T2 | `{comments: Comment[]}` (Figma's fields: `id, file_key, parent_id, user, created_at, resolved_at, message, client_meta, order_id, reactions`) |
+| `POST /v1/files/:key/comments` | `file_comments:write` · T2 | `{message, comment_id?, client_meta?}` → the Comment. `client_meta` is a Vector `{x, y}`, FrameOffset `{node_id, node_offset}`, Region or FrameOffsetRegion, mapped to `CommentAnchor` |
+| `DELETE /v1/files/:key/comments/:id` | write · T2 | `{status: 200, error: false}`; the author only |
+| `GET /v1/files/:key/comments/:id/reactions?cursor` · `POST {emoji}` · `DELETE ?emoji=` | read · write · T2 | `{reactions, pagination}` · `{status: 200, error: false}`. Emoji are Figma's `:shortcode:`; `src/shared/comments.ts` maps them |
+
+**People and folders** (`rest/teams.ts`):
+
+| Route | Scope · tier | Answer |
+|---|---|---|
+| `GET /v1/me` | `current_user:read` · T3 | `{id, email, handle, img_url}` |
+| `GET /v2/teams/:team/folders` | `folders:read` · T2 | `{folders: {id, name, parent_folder_id: null}[]}`: the top-level folders the caller can see |
+| `GET /v2/folders/:id/folders` · `/v2/folders/:id/files?branch_data` | `folders:read` · T2 | `{folders: […]}` · `{files: {key, name, thumbnail_url, last_modified, branches?}[]}`. Figma's page shows no list shapes (unverified); ours mirror v1's |
+| `GET /v2/folders/:id/meta` | `folder_metadata:read` · T3 | `{id, name, thumbnail_url, file_count, updated_at, created_at}` |
+| `GET /v1/teams/:team/projects` · `GET /v1/projects/:id/files?branch_data` · `GET /v1/projects/:id/meta` | deprecated twins | `{name, projects: {id, name}[]}` · `{name, files: […]}` · as `/v2/folders/:id/meta` |
+
+**Libraries** (`rest/libraries.ts`). Data: D1 `libraries` and `library_assets` (migration 0012), plus 0014's `node_id`, `created_at`, `updated_at`, `created_by`.
+
+| Route | Scope · tier | Answer |
+|---|---|---|
+| `GET /v1/teams/:team/components\|component_sets\|styles?page_size&after&before` | `team_library_content:read` · T3 | `{status: 200, error: false, meta: {components\|component_sets\|styles: Item[], cursor: {before, after}}}`. `page_size` defaults to 30, max 1000. Lists the team's published libraries: scope team, plus org libraries published from the team's files |
+| `GET /v1/files/:key/components\|component_sets\|styles` | `library_content:read` · T3 | the same for the file's library, without a cursor; 404 for a branch key |
+| `GET /v1/components/:key` · `/v1/component_sets/:key` · `/v1/styles/:key` | `library_assets:read` · T3 | `{status, error, meta: Item}` |
+
+- **`Item`** is `{key, file_key, node_id, thumbnail_url, name, description, updated_at, created_at, user: {id, handle, img_url}, containing_frame?: {name, nodeId, pageId, pageName, containingStateGroup?}}`. Styles add `{style_type: FILL | TEXT | EFFECT | GRID, sort_position}`.
+- **Access**: `canUseLibrary` (data.md §16.4).
+- **Local libraries** (the store's) are not on the server, so they are not listed.
+
+**Variables** (`rest/variables.ts`). Figma restricts these to Enterprise full members; we serve anyone with the file access below.
+
+| Route | Scope · tier · access | Answer |
+|---|---|---|
+| `GET /v1/files/:key/variables/local` | `file_variables:read` · T2 · view, plus a Full seat in orgs | job `variables_local` → `{status, error, meta: {variables: {id: Variable}, variableCollections: {id: Collection}}}` (fields below) |
+| `GET /v1/files/:key/variables/published` | as above, no job | D1 `library_assets` (VARIABLE, VARIABLE_COLLECTION) → `{status, error, meta: {variables: {id: {id, subscribed_id, name, key, variableCollectionId, resolvedType, updatedAt}}, variableCollections: {id: {id, subscribed_id, name, key, updatedAt}}}}`. `id` is the GUID in the library file; `subscribed_id` is the asset key (ours) |
+| `POST /v1/files/:key/variables` | `file_variables:write` · T3 · edit, plus a Full seat | job `variables_post` (§16.8) → `{status: 200, error: false, meta: {tempIdToRealId}}` |
+
+The local answer's fields:
+- **Variable**: `{id, name, key, variableCollectionId, resolvedType, valuesByMode, remote, description, hiddenFromPublishing, scopes, codeSyntax}`.
+- **Collection**: `{id, name, key, modes: {modeId, name, parentModeId?}[], defaultModeId, remote, hiddenFromPublishing, variableIds}`, plus the extension fields `isExtension, parentVariableCollectionId, rootVariableCollectionId, inheritedVariableIds, localVariableIds, variableOverrides`, and `deletedButReferenced`.
+
+**Dev resources** (`rest/devResources.ts`, over 5c's `server/src/devmode/`). Figma's shapes; main file keys only.
+
+| Route | Scope · tier · access | Answer |
+|---|---|---|
+| `GET /v1/files/:key/dev_resources?node_ids` | `file_dev_resources:read` · T2 · view | `{dev_resources: {id, name, url, file_key, node_id}[]}` |
+| `POST /v1/dev_resources` | `:write` · T2 · edit per file, plus a Full / Dev seat in orgs | `{dev_resources: {name, url, file_key, node_id}[]}` → `{links_created: DevResource[], errors: {file_key, node_id, error}[]}`. Answers 200 with per-item errors: more than 10 per node, a URL already on the node, a branch key, no access |
+| `PUT /v1/dev_resources` | `:write` · T2 | `{dev_resources: {id, name?, url?}[]}` → `{links_updated: string[], errors: {id, error}[]}` |
+| `DELETE /v1/files/:key/dev_resources/:id` | `:write` · T2 | 200 with an empty body; 404 when missing |
+
+**Code Connect** (ours: the endpoint Figma's CLI calls is unpublished; docs/editor.md D-1). Scope `file_code_connect:write`, T3, edit access to the library file.
+
+| Route | Body → answer |
+|---|---|
+| `POST /v1/code_connect` | `{docs: CodeConnectDoc[]}` → `{published: {nodeId, fileKey, label, url}[], errors}` |
+| `DELETE /v1/code_connect` | `{label, nodes?: {fileKey, nodeId}[]}` → `{removed}` |
+| `GET /v1/files/:key/code_connect?label` | → `{docs}`; needs `file_content:read`, T3 |
+
+5c implements these in `server/src/devmode/codeConnect.ts`, dispatched from `/v1`.
+
+**Library analytics** (`rest/analytics.ts`). It reuses `server/src/analytics/query.ts` with Figma's names (data.md §17.6).
+
+| Route | Params | Rows |
+|---|---|---|
+| `GET /v1/analytics/libraries/:key/component/actions` | `group_by=component\|team` (required), `start_date`, `end_date` (YYYY-MM-DD, rounded to Sunday weeks), `cursor` | `{week, insertions, detachments}` plus either `component_key, component_name, component_set_key, component_set_name` or `team_name, workspace_name` |
+| `…/component/usages` | `group_by=component\|file`, `cursor` | `{usages, files_using, teams_using}` plus the component's fields, or `{usages, team_name, workspace_name, file_name}` ("File not visible") |
+| `…/style/actions` · `…/style/usages` · `…/variable/actions` · `…/variable/usages` | as Figma's: `style\|team`, `style\|file`, `variable\|team`, `variable\|file` | style: `style_key, style_name, style_type`; variable: `variable_key, variable_name, variable_type, collection_key, collection_name` |
+
+- **Answer**: `{rows, next_page: boolean, cursor}`.
+- **Scope**: `library_analytics:read`, T3.
+- **Callers**: as data.md §17.6, org members who can view the library's file. A plan token may read any library of its org.
+- **Rows**: only weeks with data, newest first, a year at most.
+
+**Organization** (`rest/org.ts`):
+
+| Route | Scope · tier · who | Answer |
+|---|---|---|
+| `GET /v1/activity_logs?events&start_time&end_time&limit&order&cursor&org_id` | `org:activity_log_read` · T3 · a plan token, or an org admin's PAT (`org_id` is required if they admin several orgs) | `{status: 200, error: false, i18n: null, meta: {activity_logs: ActivityLog[], cursor, next_page}}`: §14.10's rows. `limit` ≤ 1000 (default 1000); `order` defaults to asc; `start_time` defaults to a year ago |
+| `GET /v1/ai_usage/daily?start_date&end_date&user_email&limit&cursor` | `org:ai_metering_usage_read` · T3 · plan tokens only (403 otherwise, as Figma) | `{rows, next_cursor, has_next_page}` from `ai_usage_daily` (0014); row fields below |
+
+The AI usage rows have `{plan_id, user_id, user_email, day, editor_type, seat_credits_sum, plan_credits_sum, workspace_id, workspace_name, team_id, team_name, license_group_id, license_group_name, metering_period_start, metering_period_end}`. The table is **filled by round 6** (the agents' usage meter) and is empty until then.
+
+**Webhooks**: §16.9.
+
+### 16.8 `POST /v1/files/:key/variables`
+
+**Figma's request** [R-var] is `{variableCollections?, variableModes?, variables?, variableModeValues?}`.
+- **Order and atomicity**:
+  - Applied in that order, and in array order within each.
+  - `action` is `CREATE`, `UPDATE` or `DELETE`.
+  - Temporary ids on CREATE can be referenced later in the same body.
+  - All or nothing.
+- **Limits**:
+  - The body is at most 4 MB (413 over it).
+  - 40 modes per collection. Ours stays at our own cap of 1,000 (data.md §16.8).
+  - 5,000 variables per collection.
+- **Rules**:
+  - Names are unique per collection and may not contain `.{}`.
+  - `resolvedType` is fixed at creation.
+  - Remote collections are read-only.
+  - No alias cycles.
+- **Extended collections**:
+  - They take `initialModeIdToParentModeIdMapping`.
+  - No new variables or modes.
+  - A `null` value removes an override in an extended mode.
+
+**How we apply it:**
+1. **The Worker** validates the body's **shape** (`src/shared/rest/variablesPost.ts validateShape`, pure; 400 with Figma's messages) and hands it to an editor client as job `variables_post`.
+2. **The client** (`editor/rest/variablesPost.ts`, 5b) validates the body against the document with `validateAgainst`.
+3. **The client applies it** as **one engine actor write**:
+   - `engine_actor_begin {actor: <rest actor>, label: "REST API: Update variables", undoTo: 0}`;
+   - through the editor's variable model (`editor/variables.ts`);
+   - one step in the user history of the client that carried it (docs/engine.md §9.5);
+   - nothing changes that person's selection or page.
+4. **The answer** is `{tempIdToRealId}`.
+
+**After the write:**
+- Its frames reach the room as that client's edits.
+- The activity log names the **token's** person: `file_variables_update` (ours; Figma's action name is unverified).
+- On failure the answer is 400 `{status: 400, error: true, message}`, and nothing is applied.
+- A `GET …/variables/local` right after a POST sees the change, because the job key's `seq` moved.
+
+### 16.9 Webhooks V2
+
+Figma's model [R-hook], stored in the D1 tables `webhooks` and `webhook_requests` (§16.12).
+
+| Route | Scope · tier · who | Body → answer |
+|---|---|---|
+| `POST /v2/webhooks` | `webhooks:write` · T2 · team context: team admins; project (folder): editors of the folder; file: "can edit" | `{event_type, context: "team" \| "project" \| "file", context_id, endpoint (≤ 2048), passcode (≤ 100), status?: "ACTIVE" \| "PAUSED", description? (≤ 150)}` → `WebhookV2`; sends `PING` at once |
+| `GET /v2/webhooks?context&context_id` · `?plan_api_id&cursor` | `webhooks:read` · T2 | `{webhooks: WebhookV2[], pagination: {next_page?, prev_page?}}`. With `plan_api_id` = `organization-<id>`: every webhook of the org, for org admins and plan tokens |
+| `GET /v2/webhooks/:id` | read · T2 · its creator, admins of its context | `WebhookV2` (`passcode: ""`) |
+| `PUT /v2/webhooks/:id` | write · T2 | `{event_type?, endpoint?, passcode?, status?, description?}` (`""` clears the description) → `WebhookV2` |
+| `DELETE /v2/webhooks/:id` | write · T2 | → the deleted `WebhookV2` |
+| `GET /v2/webhooks/:id/requests` | read · T2 | `{requests: {webhook_id, request_info: {endpoint, payload, sent_at}, response_info: {status, received_at} \| null, error_msg: string \| null}[]}`: the last 7 days |
+
+**`WebhookV2`** is `{id: number, event_type, context: "PROJECT" | "TEAM" | "FILE", context_id, team_id ("" for file / project contexts), plan_api_id, status: "ACTIVE" | "PAUSED", client_id: null, passcode, endpoint, description: string | null}`.
+
+**Limits:**
+- Figma's: 20 per team, 5 per folder, 3 per file; 600 file webhooks per org (Enterprise).
+- Outside orgs (ours): file context only, 3 per file, 20 per person.
+
+**Delivery reach:**
+- A team webhook fires for files in the team's folders that are open to the team (`access = inherited`), not in Limited folders (Figma's).
+- A folder webhook fires for its files and for its subfolders' files (subfolders: ours, unverified).
+- A file webhook fires for that file and its branches (branches: ours, unverified).
+
+**Events and payloads.** Every payload has `{event_type, passcode, timestamp (ISO 8601 UTC), webhook_id}`, plus:
+
+| Event | Extra fields | Raised by |
+|---|---|---|
+| `PING` | — | `POST /v2/webhooks` |
+| `FILE_UPDATE` | `file_key, file_name` | the room's alarm, 30 min after the last edit of a burst (§16.10) |
+| `FILE_VERSION_UPDATE` | `file_key, file_name, created_at, version_id, label, description, triggered_by: User` | a **named** version: `POST /files/:key/versions` with `kind: named`, or a `PATCH` naming an autosave (data.md §15.7.1) |
+| `FILE_DELETE` | `file_key, file_name, triggered_by` | `DELETE /files/:key`: for org files the permanent delete; outside orgs, stop sharing. Trashing doesn't fire it (unverified) |
+| `LIBRARY_PUBLISH` | `file_key, file_name, description, created_components, modified_components, deleted_components, created_styles, …_styles, created_variables, …_variables` (`LibraryItemData {key, name}[]`), `triggered_by` | `POST /libraries/:key/versions` (data.md §16.10). **One event per asset type** that changed, split above 200 items each (Figma says "hundreds"; 200 is ours) |
+| `FILE_COMMENT` | `file_key, file_name, comment: CommentFragment[] ({text} \| {mention: userId}), comment_id, mentions: User[], order_id (top-level only), parent_id, created_at, resolved_at, triggered_by` | `POST /files/:key/comments` and `/v1/…/comments` |
+| `DEV_MODE_STATUS_UPDATE` | `file_key, node_id, status: "NONE" \| "READY_FOR_DEV" \| "COMPLETED", change_message, related_links: DevResource[], triggered_by` | `POST /files/:key/dev-status` (docs/editor.md D-4) |
+
+`User` is `{id, handle, img_url: null}`.
+
+**Sending** (`server/src/webhooks/deliver.ts`). `emitWebhook(deps, event, ctx: {fileKey, orgId, teamId, projectId})` is the stub committed before the round (§16.13). It:
+1. selects the matching ACTIVE webhooks: the file's, then its folder chain's, then its team's;
+2. writes one `webhook_requests` row for each (`attempt 0`, `next_at = now`);
+3. sends them in `ctx.waitUntil`:
+   - `POST endpoint`;
+   - headers `content-type: application/json`, `user-agent: DesignerV2-Webhooks/1`, and `X-Designer-Signature` (§16.2 decision 11);
+   - 10 s timeout.
+
+**Retries:**
+- **Only 200 counts as success** (Figma's rule).
+- A failure sets `next_at` to +5 min, +30 min and +3 h for attempts 1–3; after that it gives up.
+- The `*/5` cron sends what is due, at most 50 per run; the rest wait for the next run.
+- Webhooks with constant errors are not paused (Figma says it "currently" doesn't pause them).
+- `GET …/requests` reads the rows. The cron deletes rows older than 7 days.
+
+**Endpoint rules**: `https://` only. `http://localhost…` is refused in production (a Worker can't reach it anyway). Private IP literals are refused.
+
+**Activity** (org webhooks): `webhook_create`, `webhook_update`, `webhook_delete` (ours; Figma doesn't publish the names in its "Webhooks" event group).
+
+### 16.10 Where events come from (the server pieces outside `rest/`)
+
+**FILE_UPDATE** comes from the room:
+- `RoomBox` keeps `webhook_dirty_at`, the first unreported edit. Each edit moves `webhook_due` to last edit + 30 min.
+- The object's alarm fires it. The alarm is already used by autosave (data.md §15.7.1); there is one alarm, and the earliest due time wins.
+- The alarm reports the event in one of two ways (5a chooses; both have D1):
+  - `POST <worker>/internal/webhooks {event: "FILE_UPDATE", fileKey}` through `env`, to the Worker's handler. The handler is guarded by a header only the object sets: `x-internal: <HMAC(SESSION_SECRET, body)>`.
+  - Or `emitWebhook` called directly with the object's own `env.DB`.
+- Only when the file has a matching webhook. The room asks D1 once at wake (`SELECT 1 FROM webhooks …` for its file, folder and team) and caches the answer for 5 minutes.
+
+**FILE_VERSION_UPDATE, LIBRARY_PUBLISH, FILE_COMMENT, FILE_DELETE**: one `emitWebhook` call after the write succeeds — in `branches.ts` / the versions routes, `libraries/routes.ts`, `comments.ts` and `api.ts` respectively.
+
+**DEV_MODE_STATUS_UPDATE**: 5c's `devmode/status.ts`.
+
+**Library items**: `library_assets` gains `node_id`, `created_at`, `updated_at` and `created_by` (0014). `POST /libraries/:key/versions` writes them from the manifest's `guid` (data.md §9.1). Rows from earlier publishes stay null until the next publish, so REST answers `node_id: null` for them.
+
+### 16.11 Activity log (round 5's actions)
+
+**Figma's names** [F-log action types], where they exist:
+
+| Group | Actions |
+|---|---|
+| Private plugins and widgets | `private_plugin_publish`, `private_plugin_update`, `private_plugin_delete`, `private_widget_publish`, `private_widget_update`, `private_widget_delete` |
+| Plugin approvals | `plugin_approvelist_enable`, `plugin_approvelist_disable`, `plugin_approvelist_add`, `plugin_approvelist_add_workspace`, `plugin_approvelist_remove`, `plugin_approvelist_remove_workspace`, `plugin_approvelist_request_org`, `plugin_approvelist_request_approve_org`, `plugin_approvelist_request_reject_org`, `plugin_approvelist_request_approve_workspace`, `plugin_approvelist_request_reject_workspace` |
+| Widget approvals | `widgets_enabled`, `widgets_disable`, `widget_approvelist_add`, `widget_approvelist_add_workspace`, `widget_approvelist_remove`, `widget_approvelist_remove_workspace`, `widget_approvelist_request_org`, `widget_approvelist_request_approve_org`, `widget_approvelist_request_reject_org`, `widget_approvelist_request_approve_workspace`, `widget_approvelist_request_reject_workspace` |
+
+**Ours** (Figma's are unpublished): `plan_access_token_create`, `plan_access_token_delete`, `webhook_create`, `webhook_update`, `webhook_delete`, `file_variables_update`, `dev_resource_create`, `dev_resource_delete`, `code_connect_publish`, `code_connect_unpublish`.
+
+The entity types `plugin` / `widget` (§14.10) carry `{id, name}`.
+
+### 16.12 D1: migration `server/migrations/0014_extensibility.sql`
+
+The latest migration is `0013_identity.sql`. The main session commits this text verbatim before the round, as round 4 did. No agent edits `server/migrations/` in round 5.
+
+```sql
+-- Extensibility and Dev Mode (docs/multiplayer.md §16, docs/plugins.md, docs/editor.md "Dev Mode — round 5"): the REST
+-- API's plan tokens and rate counters, webhooks, dev resources, Code Connect, Dev Mode viewers, prototype-only
+-- members, private plugins and approvals, the AI usage table round 6 fills. Times are ms since the epoch.
+
+-- Plan access tokens (§16.3) are access_tokens rows of kind 'plan' for one org; user_id = the admin who made it.
+ALTER TABLE access_tokens ADD COLUMN kind TEXT NOT NULL DEFAULT 'personal' CHECK (kind IN ('personal', 'plan'));
+ALTER TABLE access_tokens ADD COLUMN org_id TEXT REFERENCES orgs (id) ON DELETE CASCADE;
+CREATE INDEX access_tokens_org ON access_tokens (org_id) WHERE org_id IS NOT NULL;
+
+-- REST rate counters (§16.4): subject = user id or 'org:<id>'; bucket t1 | t2 | t3 | t1day | day; window = minute
+-- number or UTC day number.
+CREATE TABLE rest_rate (
+  subject TEXT NOT NULL,
+  bucket  TEXT NOT NULL,
+  window  INTEGER NOT NULL,
+  count   INTEGER NOT NULL,
+  PRIMARY KEY (subject, bucket, window)
+);
+
+-- Webhooks V2 (§16.9). Ids are numbers, as Figma's. context_id: team, folder (project) or file key.
+CREATE TABLE webhooks (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_type  TEXT NOT NULL CHECK (event_type IN ('FILE_UPDATE', 'FILE_VERSION_UPDATE', 'FILE_DELETE', 'LIBRARY_PUBLISH', 'FILE_COMMENT', 'DEV_MODE_STATUS_UPDATE')),
+  context     TEXT NOT NULL CHECK (context IN ('team', 'project', 'file')),
+  context_id  TEXT NOT NULL,
+  org_id      TEXT REFERENCES orgs (id) ON DELETE CASCADE,
+  team_id     TEXT,
+  endpoint    TEXT NOT NULL,
+  passcode    TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'PAUSED')),
+  description TEXT,
+  created_by  TEXT REFERENCES users (id) ON DELETE SET NULL,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE INDEX webhooks_context ON webhooks (context, context_id, event_type);
+CREATE INDEX webhooks_org ON webhooks (org_id);
+
+-- One row per delivery (the log of GET /v2/webhooks/:id/requests and the retry queue). next_at null: done.
+CREATE TABLE webhook_requests (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  webhook_id  INTEGER NOT NULL REFERENCES webhooks (id) ON DELETE CASCADE,
+  endpoint    TEXT NOT NULL,
+  payload     TEXT NOT NULL,
+  sent_at     INTEGER,
+  attempt     INTEGER NOT NULL DEFAULT 0,
+  status      INTEGER,
+  received_at INTEGER,
+  error_msg   TEXT,
+  next_at     INTEGER,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX webhook_requests_due ON webhook_requests (next_at) WHERE next_at IS NOT NULL;
+CREATE INDEX webhook_requests_hook ON webhook_requests (webhook_id, created_at);
+
+-- Dev resources (docs/editor.md D-3): links on a node of a shared file; ≤ 10 per node, a URL once per node.
+CREATE TABLE dev_resources (
+  id         TEXT PRIMARY KEY,
+  file_key   TEXT NOT NULL REFERENCES files (key) ON DELETE CASCADE,
+  node_id    TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  url        TEXT NOT NULL,
+  created_by TEXT REFERENCES users (id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE (file_key, node_id, url)
+);
+CREATE INDEX dev_resources_node ON dev_resources (file_key, node_id);
+
+-- Code Connect (docs/editor.md D-1): one mapping per (library file, main component or set node, label). template:
+-- the template file's JavaScript (CLI), null for a Code Connect UI mapping (source + component only).
+CREATE TABLE code_connect (
+  file_key     TEXT NOT NULL REFERENCES files (key) ON DELETE CASCADE,
+  node_id      TEXT NOT NULL,
+  label        TEXT NOT NULL,
+  language     TEXT NOT NULL,
+  origin       TEXT NOT NULL CHECK (origin IN ('cli', 'ui')),
+  source       TEXT,
+  component    TEXT,
+  template     TEXT,
+  imports      TEXT NOT NULL DEFAULT '[]',
+  nestable     INTEGER NOT NULL DEFAULT 1,
+  instructions TEXT NOT NULL DEFAULT '',
+  updated_by   TEXT REFERENCES users (id) ON DELETE SET NULL,
+  updated_at   INTEGER NOT NULL,
+  PRIMARY KEY (file_key, node_id, label)
+);
+
+-- Who viewed a file in Dev Mode (notified of status changes, docs/editor.md D-4) and their choice: 1 "Status
+-- changes", 0 "Nothing".
+CREATE TABLE dev_mode_viewers (
+  file_key  TEXT NOT NULL REFERENCES files (key) ON DELETE CASCADE,
+  user_id   TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  viewed_at INTEGER NOT NULL,
+  notify    INTEGER NOT NULL DEFAULT 1 CHECK (notify IN (0, 1)),
+  PRIMARY KEY (file_key, user_id)
+);
+CREATE INDEX dev_mode_viewers_user ON dev_mode_viewers (user_id);
+
+-- Prototype-only access (docs/editor.md D-6): people invited from "Share prototype", and the org audience of the
+-- prototype link (files.proto_link_access, 0010, stays "Anyone").
+CREATE TABLE prototype_members (
+  file_key   TEXT NOT NULL REFERENCES files (key) ON DELETE CASCADE,
+  email      TEXT NOT NULL,
+  user_id    TEXT REFERENCES users (id) ON DELETE CASCADE,
+  invited_by TEXT REFERENCES users (id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (file_key, email)
+);
+CREATE INDEX prototype_members_user ON prototype_members (user_id);
+ALTER TABLE files ADD COLUMN proto_org_link_access TEXT NOT NULL DEFAULT 'none' CHECK (proto_org_link_access IN ('none', 'viewer'));
+
+-- Library items for the REST API (§16.7, §16.10): the asset's node in the library file and its dates.
+ALTER TABLE library_assets ADD COLUMN node_id TEXT;
+ALTER TABLE library_assets ADD COLUMN created_at INTEGER;
+ALTER TABLE library_assets ADD COLUMN updated_at INTEGER;
+ALTER TABLE library_assets ADD COLUMN created_by TEXT;
+
+-- Private plugins and widgets of an org (docs/plugins.md §10). id: a 19-digit decimal string, as Figma's plugin ids.
+CREATE TABLE plugins (
+  id           TEXT PRIMARY KEY,
+  org_id       TEXT NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,
+  kind         TEXT NOT NULL CHECK (kind IN ('plugin', 'widget')),
+  name         TEXT NOT NULL,
+  description  TEXT NOT NULL DEFAULT '',
+  -- the manifest as published (docs/plugins.md §4), with id set to this row's id
+  manifest     TEXT NOT NULL,
+  version      INTEGER NOT NULL,
+  -- {sha1, size} per part: code, ui[:key]
+  parts        TEXT NOT NULL,
+  published_by TEXT REFERENCES users (id) ON DELETE SET NULL,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL,
+  deleted_at   INTEGER
+);
+CREATE INDEX plugins_org ON plugins (org_id, kind) WHERE deleted_at IS NULL;
+
+-- Plugin code and UI in ≤ 1 MB chunks (no Durable Object: a few MB per plugin).
+CREATE TABLE plugin_chunks (
+  plugin_id TEXT NOT NULL REFERENCES plugins (id) ON DELETE CASCADE,
+  version   INTEGER NOT NULL,
+  part      TEXT NOT NULL,
+  idx       INTEGER NOT NULL,
+  bytes     BLOB NOT NULL,
+  PRIMARY KEY (plugin_id, version, part, idx)
+);
+
+-- Admin-approved plugins and widgets (docs/plugins.md §10.2). plugin_id: any manifest id (not only private ones).
+CREATE TABLE plugin_approvals (
+  org_id     TEXT NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,
+  plugin_id  TEXT NOT NULL,
+  kind       TEXT NOT NULL CHECK (kind IN ('plugin', 'widget')),
+  name       TEXT NOT NULL,
+  scope_type TEXT NOT NULL CHECK (scope_type IN ('org', 'workspace')),
+  scope_id   TEXT NOT NULL,
+  added_by   TEXT REFERENCES users (id) ON DELETE SET NULL,
+  added_at   INTEGER NOT NULL,
+  PRIMARY KEY (org_id, plugin_id, scope_type, scope_id)
+);
+
+CREATE TABLE plugin_requests (
+  id             TEXT PRIMARY KEY,
+  org_id         TEXT NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,
+  plugin_id      TEXT NOT NULL,
+  kind           TEXT NOT NULL CHECK (kind IN ('plugin', 'widget')),
+  name           TEXT NOT NULL,
+  -- the manifest the requester has (development / imported plugins), so admins see what it asks for
+  manifest       TEXT NOT NULL DEFAULT '{}',
+  requested_by   TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  workspace_id   TEXT,
+  reason         TEXT NOT NULL DEFAULT '',
+  state          TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'approved', 'declined')),
+  decline_reason TEXT NOT NULL DEFAULT '',
+  created_at     INTEGER NOT NULL,
+  answered_at    INTEGER,
+  answered_by    TEXT REFERENCES users (id) ON DELETE SET NULL
+);
+CREATE INDEX plugin_requests_org ON plugin_requests (org_id, state);
+
+-- AI usage per person and day (§16.7 GET /v1/ai_usage/daily), filled by round 6's usage meter.
+CREATE TABLE ai_usage_daily (
+  org_id           TEXT NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,
+  user_id          TEXT NOT NULL,
+  day              TEXT NOT NULL,
+  editor_type      TEXT NOT NULL,
+  seat_credits     REAL NOT NULL DEFAULT 0,
+  plan_credits     REAL NOT NULL DEFAULT 0,
+  workspace_id     TEXT,
+  team_id          TEXT,
+  billing_group_id TEXT,
+  PRIMARY KEY (org_id, user_id, day, editor_type)
+);
+```
+
+Notes:
+- No new Durable Object class, so no wrangler migration tag.
+- `wrangler.jsonc` `triggers.crons` gains `"*/5 * * * *"` (webhook retries). `scheduled()` tells the two crons apart by `event.cron`.
+- The plugin org settings (`pluginApproval` …) live in the `orgs.settings` JSON (§16.13).
+- `REST_SERVER_RENDER` is a var, left unset.
+
+### 16.13 Shared types (committed verbatim before round 5)
+
+**`src/shared/rest/types.ts`** (new):
+
+```ts
+/** Figma's REST API on our Worker (docs/multiplayer.md §16). Wire shapes are Figma's; field names snake_case where Figma's are. */
+export type RestTier = 1 | 2 | 3;
+export type RestScope =
+  | "current_user:read" | "file_content:read" | "file_metadata:read" | "file_versions:read"
+  | "file_comments:read" | "file_comments:write" | "file_dev_resources:read" | "file_dev_resources:write"
+  | "file_variables:read" | "file_variables:write" | "file_code_connect:write"
+  | "library_assets:read" | "library_content:read" | "team_library_content:read" | "library_analytics:read"
+  | "folders:read" | "folder_metadata:read" | "projects:read" | "project_metadata:read"
+  | "webhooks:read" | "webhooks:write" | "org:activity_log_read" | "org:ai_metering_usage_read";
+/** Scopes a plan access token may hold (§16.3) */
+export const PLAN_TOKEN_SCOPES: readonly RestScope[] = ["org:activity_log_read", "org:ai_metering_usage_read", "library_analytics:read", "webhooks:read", "webhooks:write"];
+/** Per-minute limits by tier (§16.2 decision 4): Figma's Organization numbers; low seats' Tier 1 is per day (ours) */
+export const RATE_LIMITS = { high: { 1: 20, 2: 100, 3: 150 }, low: { 1: 20, 2: 5, 3: 10 }, lowTier1PerDay: true, dailyCap: 5000 } as const;
+
+// ---- render jobs (§16.6) ----
+export interface ImagesParams { ids: string[]; scale: number; format: "jpg" | "png" | "svg" | "pdf"; svg_outline_text: boolean; svg_include_id: boolean; svg_include_node_id: boolean; svg_simplify_stroke: boolean; contents_only: boolean; use_absolute_bounds: boolean }
+export interface FileParams { ids?: string[]; depth?: number; geometry?: "paths"; plugin_data?: string[]; branch_data?: boolean }
+export type RestJob =
+  | { kind: "file"; params: FileParams; version?: string }
+  | { kind: "nodes"; params: FileParams & { ids: string[] }; version?: string }
+  | { kind: "images"; params: ImagesParams; version?: string }
+  | { kind: "variables_local"; version?: string }
+  | { kind: "variables_post"; body: VariablesPostBody; actorUserId: string };
+export interface RestJobPart { name: string; sha1: string; size: number; contentType: string }
+/** images: one part per id (name = the node id), absent = null; file / nodes / variables_*: one part "json" (gzip) */
+export type RestJobResult = { ok: true; parts: RestJobPart[] } | { ok: false; status: number; err: string };
+
+// ---- variables (§16.7, §16.8) ----
+export type VariableAction = "CREATE" | "UPDATE" | "DELETE";
+export type RestResolvedType = "BOOLEAN" | "FLOAT" | "STRING" | "COLOR";
+export interface RestColor { r: number; g: number; b: number; a: number }
+export interface RestVariableAlias { type: "VARIABLE_ALIAS"; id: string }
+export type RestVariableValue = boolean | number | string | RestColor | RestVariableAlias | null;
+export interface VariablesPostBody {
+  variableCollections?: { action: VariableAction; id: string; name?: string; initialModeId?: string; parentVariableCollectionId?: string; initialModeIdToParentModeIdMapping?: Record<string, string>; hiddenFromPublishing?: boolean }[];
+  variableModes?: { action: VariableAction; id: string; name?: string; variableCollectionId: string }[];
+  variables?: { action: VariableAction; id: string; name?: string; variableCollectionId?: string; resolvedType?: RestResolvedType; description?: string; hiddenFromPublishing?: boolean; scopes?: string[]; codeSyntax?: { WEB?: string; ANDROID?: string; iOS?: string } }[];
+  variableModeValues?: { variableId: string; modeId: string; value: RestVariableValue }[];
+}
+
+// ---- dev resources (§16.7) ----
+export interface DevResource { id: string; name: string; url: string; file_key: string; node_id: string }
+export interface DevResourceCreate { name: string; url: string; file_key: string; node_id: string }
+export interface DevResourceUpdate { id: string; name?: string; url?: string }
+export const DEV_RESOURCES_PER_NODE = 10;
+
+// ---- webhooks (§16.9) ----
+export type WebhookEventType = "PING" | "FILE_UPDATE" | "FILE_VERSION_UPDATE" | "FILE_DELETE" | "LIBRARY_PUBLISH" | "FILE_COMMENT" | "DEV_MODE_STATUS_UPDATE";
+export type WebhookContext = "team" | "project" | "file";
+export interface WebhookV2 { id: number; event_type: Exclude<WebhookEventType, "PING">; context: "TEAM" | "PROJECT" | "FILE"; context_id: string; team_id: string; plan_api_id: string; status: "ACTIVE" | "PAUSED"; client_id: null; passcode: string; endpoint: string; description: string | null }
+export interface RestUser { id: string; handle: string; img_url: string | null }
+export interface LibraryItemData { key: string; name: string }
+export type CommentFragment = { text: string } | { mention: string };
+export type WebhookEvent =
+  | { event_type: "PING" }
+  | { event_type: "FILE_UPDATE"; file_key: string; file_name: string }
+  | { event_type: "FILE_DELETE"; file_key: string; file_name: string; triggered_by: RestUser }
+  | { event_type: "FILE_VERSION_UPDATE"; file_key: string; file_name: string; created_at: string; version_id: string; label: string; description: string; triggered_by: RestUser }
+  | { event_type: "LIBRARY_PUBLISH"; file_key: string; file_name: string; description: string; created_components: LibraryItemData[]; modified_components: LibraryItemData[]; deleted_components: LibraryItemData[]; created_styles: LibraryItemData[]; modified_styles: LibraryItemData[]; deleted_styles: LibraryItemData[]; created_variables: LibraryItemData[]; modified_variables: LibraryItemData[]; deleted_variables: LibraryItemData[]; triggered_by: RestUser }
+  | { event_type: "FILE_COMMENT"; file_key: string; file_name: string; comment: CommentFragment[]; comment_id: string; mentions: RestUser[]; order_id: string | null; parent_id: string | null; created_at: string; resolved_at: string | null; triggered_by: RestUser }
+  | { event_type: "DEV_MODE_STATUS_UPDATE"; file_key: string; node_id: string; status: "NONE" | "READY_FOR_DEV" | "COMPLETED"; change_message: string; related_links: DevResource[]; triggered_by: RestUser };
+/** What is sent: the event plus Figma's common fields */
+export type WebhookPayload = WebhookEvent & { passcode: string; timestamp: string; webhook_id: string };
+export const WEBHOOK_RETRY_MINUTES = [5, 30, 180] as const;
+export const WEBHOOK_LIMITS = { team: 20, project: 5, file: 3, orgFileWebhooks: 600, personOutsideOrgs: 20 } as const;
+
+// ---- Code Connect (docs/editor.md D-1) ----
+export interface CodeConnectDoc {
+  /** The node link the template's `// url=` names: <server>/f/<key>?node-id=1-2 or a Figma-style /design/<key>/…?node-id= */
+  url: string;
+  label: string; language: string;
+  source?: string; component?: string;
+  /** The template file's JavaScript after the CLI strips TypeScript; null: a UI mapping */
+  template: string | null;
+  imports?: string[]; nestable?: boolean; instructions?: string;
+}
+```
+
+**Other additions** (the same commit):
+- `src/shared/account.ts`:
+  - `TOKEN_SCOPES` gains §16.3's rows (ids = `RestScope`; groups and labels as the table).
+  - `AccessTokenInfo` gains `kind: "personal" | "plan"` and `orgId: string | null`.
+- `src/shared/org/types.ts`:
+  - `ActivityAction` gains §16.11's names (docs/plugins.md §10's are among them).
+  - `OrgSettings` gains the four keys below. The defaults go into `DEFAULT_ORG_SETTINGS`.
+
+    | Key | Type | Default |
+    |---|---|---|
+    | `pluginApproval` | `"all" \| "approved"` | `"all"` |
+    | `pluginRequests` | `boolean` | `true` |
+    | `widgetApproval` | `"all" \| "approved"` | `"all"` |
+    | `widgetRequests` | `boolean` | `true` |
+- `src/shared/notifications.ts`: `NotificationKind` gains `"dev_ready" | "dev_completed" | "dev_changed" | "plugin_request" | "plugin_request_answer"` (docs/editor.md D-4, docs/plugins.md §10.3).
+- `src/shared/multiplayer/protocol.ts`: §16.6's messages.
+- **`server/src/webhooks/emit.ts`**, a stub:
+  - `export type WebhookEventInput = Exclude<WebhookEvent, { event_type: "PING" }>;`
+  - `export async function emitWebhook(deps: Deps, event: WebhookEventInput, ctx: {fileKey: string; orgId: string | null; teamId: string | null; projectId: string | null}, waitUntil: (p: Promise<unknown>) => void): Promise<void> {}`
+  - 5a fills it; 5c calls it.
+- **`server/src/devmode/rest.ts`**, a stub:
+  - `export async function devModeRestRoute(req: Request, url: URL, deps: Deps, caller: Caller, parts: string[]): Promise<Response | null> { return null; }`
+  - 5a's `restRoute` calls it for `/v1/dev_resources…`, `/v1/files/:key/dev_resources…`, `/v1/code_connect` and `/v1/files/:key/code_connect` (after the scope, tier and rate checks); 5c fills it.
+- `server/migrations/0014_extensibility.sql` (§16.12).
+- `npm run check` green with the stubs.
+
+### 16.14 Server layout (round 5a) and tests
+
+**`server/src/rest/`** (new):
+- `index.ts`: `restRoute(req, url, deps, ctx)`. Auth by `X-Figma-Token` or Bearer, CORS, the scope + tier table, rate, error shapes.
+- `scopes.ts`, `rate.ts`.
+- `signedUrl.ts`: sign / verify, `/v1/blobs/…`.
+- `jobs.ts`: asks the room and waits.
+- `render.ts`: `RenderBackend`.
+- One file per route group: `files.ts`, `comments.ts`, `teams.ts`, `libraries.ts`, `variables.ts`, `devResources.ts` (only the scope, tier and rate checks, then 5c's `devModeRestRoute`), `analytics.ts`, `org.ts`, `planTokens.ts`.
+
+**`server/src/webhooks/`** (new):
+- `routes.ts`: `/v2/webhooks…`.
+- `emit.ts`: fills the stub.
+- `deliver.ts`: send, sign, retry, and the cron's sweep.
+
+**`server/src/api.ts`** gets dispatch lines only:
+- `/v1/*` and `/v2/*` before `authenticate` (they authenticate themselves);
+- `/orgs/:org/admin/plan-tokens…`;
+- `PUT /files/:key/thumbnail`;
+- `PUT /files/:key/rest-jobs/:id/parts/:name`;
+- `emitWebhook` calls in the file delete path.
+
+**Other files**:
+- `server/src/fileRoom.ts`, `server/src/roomBox.ts`, `src/shared/multiplayer/room.ts`:
+  - rest jobs: pick a client, forward, time out, cache in `blobs`;
+  - `hello.render`;
+  - the FILE_UPDATE alarm;
+  - the thumbnail blob;
+  - the `/room/rest-wanted` fan-out through `INBOXES`.
+- `server/src/comments.ts`, `server/src/branches.ts` (versions), `server/src/libraries/routes.ts`: one `emitWebhook` call each. Libraries also fill `library_assets.node_id` and the dates.
+- `server/src/index.ts`: `scheduled` for `*/5`.
+- `server/wrangler.jsonc`: the cron.
+- `server/src/testing/`: a fake render client for rooms.
+
+**Tests** (node:sqlite):
+- **Routes**: every route's auth, scope and shapes, against Figma's examples.
+- **Rate limits**: minute, day, low seats, headers.
+- **Signed URLs**: expiry, tampering.
+- **Render jobs**, with fake clients:
+  - editor before viewer before helper;
+  - a timeout falling to the next client;
+  - nobody → 503;
+  - a cache hit on the same seq, a miss after an edit;
+  - versions.
+- **Variables POST**: shape errors (Figma's messages) and the client's answer.
+- **Webhooks**:
+  - limits, and who may create them;
+  - PING, and each event's payload;
+  - reach through folders and teams, Limited folders excluded;
+  - 200-only success, the three retries on the cron's clock;
+  - the 7-day log, signatures.
+- **Plan tokens**: created and shown once, org routes only, revoked.
+- **Activity actions**.
+
+### 16.15 Not decided here (owner)
+
+See `docs/roadmap.md` "Round 5" — open questions.
