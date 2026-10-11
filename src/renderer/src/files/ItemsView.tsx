@@ -40,12 +40,15 @@ export interface ItemsViewProps {
   onDragItems: (e: React.DragEvent, item: Item) => void;
   dropOn: FolderId | null;
   folderDrop: (id: FolderId) => Partial<Pick<React.HTMLAttributes<HTMLElement>, "onDragOver" | "onDragLeave" | "onDrop">>;
+  /** An org file's team (Recents and Starred show both spaces, the card saying its team — docs/multiplayer.md §14.6) */
+  placeOf?: (f: FileListItem) => string | null;
 }
 
 const ITEM = "[data-collection-item]";
 
 export function ItemsView(props: ItemsViewProps) {
-  const { items, layout, location, sort, order, folders, selected, renaming, now, previews, starredFolders, thumbnailUrl, onItemClick, onOpen, onItemMenu, onBlankMenu, onNavigate, onSelectAll, onClearSelection, onDelete, onMarquee, onRename, onStar, onSortColumn, onDragItems, dropOn, folderDrop } = props;
+  const { items, layout, location, sort, order, folders, selected, renaming, now, previews, starredFolders, thumbnailUrl, onItemClick, onOpen, onItemMenu, onBlankMenu, onNavigate, onSelectAll, onClearSelection, onDelete, onMarquee, onRename, onStar, onSortColumn, onDragItems, dropOn, folderDrop, placeOf } = props;
+  const orgPlace = (f: FileListItem) => (f.space ? (placeOf?.(f) ?? null) : null);
   const inTrash = location.kind === "trash";
   const drag = (item: Item) => (inTrash || renaming === item.id ? {} : { draggable: true, onDragStart: (e: React.DragEvent) => onDragItems(e, item) });
   const place = (folderId: FolderId | null) => (folderId === null ? "Drafts" : (folders.get(folderId)?.name ?? ""));
@@ -116,14 +119,14 @@ export function ItemsView(props: ItemsViewProps) {
     const f = item.file;
     if (layout === "list") {
       const t = inTrash ? f.trashedAt : date.value(f);
-      return <ListRow key={item.id} id={item.id} columns={columns} cells={{ name: nameCell(item, f.name, <span className={styles.kindCell}><FileKindIcon /></span>, f.starred), date: t ? timeAgo(t, now) : "—", place: place(f.folderId) }} {...events} {...drag(item)} />;
+      return <ListRow key={item.id} id={item.id} columns={columns} cells={{ name: nameCell(item, f.name, <span className={styles.kindCell}><FileKindIcon /></span>, f.starred), date: t ? timeAgo(t, now) : "—", place: orgPlace(f) ?? place(f.folderId) }} {...events} {...drag(item)} />;
     }
     return (
       <div key={item.id} className={styles.dragWrap} {...drag(item)}>
         <FileCard
           id={item.id}
           title={f.name}
-          subtitle={fileSubtitle(f, now)}
+          subtitle={orgPlace(f) ? `${fileSubtitle(f, now)} · ${orgPlace(f)}` : fileSubtitle(f, now)}
           thumbnail={thumbnailUrl(f) ?? undefined}
           starred={f.starred}
           renaming={renaming === item.id}
