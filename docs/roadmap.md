@@ -193,6 +193,8 @@ Contracts: `docs/multiplayer.md` **§15** (the facts read on help.figma.com §15
 
 Merge order: (the main session's commit) → **4a** → **4b** (both touch `api.ts` in different functions; 4b rebases onto 4a) → **4c** (switch its tests from the fake to the real handler) → **4f** → **4e** → **4d**. Deploy: `npm --prefix server run db:migrate` (0013), then `npm --prefix server run deploy` (`nodejs_compat`; no new Durable Object class, no migration tag). Engine untouched; `schema/document.kiwi` untouched.
 
+**Owner, 2026-10-11 (answers):** no real IdP for now (agents test with the test IdP in Node; Okta / Entra later, after the deploy); domain verification and capture wait for the app's final name and domain (faked DNS answers until then); the data region is changed by org admins themselves (Admin › Settings › Data storage localization), not read-only as in Figma. Open questions 1–3 of §15 take their defaults (the "Continue to DesignerV2" bounce, SAML for verified domains only, the login page).
+
 **Can't be fully verified without accounts the owner creates** (the agents test with a test IdP in Node, faked DNS answers and faked namespaces):
 - **SAML with a real IdP**: an Okta developer org (free, developer.okta.com), a Microsoft Entra tenant (free tier or the Microsoft 365 developer program), Google Workspace (paid). Each posts to our ACS, so the Worker must be deployed (or reachable through `wrangler dev --remote` / a tunnel). Their attribute names, which element they sign (Entra's "Sign SAML response" → `assertion_or_response`), AD FS's SHA-1 default (refused by us).
 - **SCIM from a real IdP**: Okta's SCIM app wizard or Entra's provisioning ("Provision on demand") against the deployed `/scim/v2/<tenant>` — Entra's PATCH dialect is the risk.
