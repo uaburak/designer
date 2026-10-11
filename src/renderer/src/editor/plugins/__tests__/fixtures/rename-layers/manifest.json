@@ -1,0 +1,27 @@
+{
+  "name": "Rename layers",
+  "id": "fixture-rename-layers",
+  "api": "1.0.0",
+  "main": "code.js",
+  "editorType": [
+    "figma"
+  ],
+  "networkAccess": {
+    "allowedDomains": [
+      "none"
+    ]
+  },
+  "menu": [
+    {
+      "name": "Number them",
+      "command": "number"
+    },
+    {
+      "separator": true
+    },
+    {
+      "name": "Upper case",
+      "command": "upper"
+    }
+  ]
+}

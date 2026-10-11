@@ -1,0 +1,15 @@
+{
+  "name": "Rectangles",
+  "id": "fixture-rectangles",
+  "api": "1.0.0",
+  "main": "code.js",
+  "editorType": [
+    "figma"
+  ],
+  "networkAccess": {
+    "allowedDomains": [
+      "none"
+    ]
+  },
+  "documentAccess": "dynamic-page"
+}

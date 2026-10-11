@@ -1,0 +1,15 @@
+{
+  "name": "Selection colors",
+  "id": "fixture-selection-colors",
+  "api": "1.0.0",
+  "main": "code.js",
+  "editorType": [
+    "figma",
+    "dev"
+  ],
+  "networkAccess": {
+    "allowedDomains": [
+      "none"
+    ]
+  }
+}

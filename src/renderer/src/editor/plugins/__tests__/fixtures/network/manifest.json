@@ -1,0 +1,15 @@
+{
+  "name": "Network",
+  "id": "fixture-network",
+  "api": "1.0.0",
+  "main": "code.js",
+  "editorType": [
+    "figma"
+  ],
+  "networkAccess": {
+    "allowedDomains": [
+      "https://api.example.com/v1/"
+    ],
+    "reasoning": "fixture"
+  }
+}

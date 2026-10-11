@@ -1,0 +1,25 @@
+{
+  "name": "Parameters",
+  "id": "fixture-parameters",
+  "api": "1.0.0",
+  "main": "code.js",
+  "editorType": [
+    "figma"
+  ],
+  "networkAccess": {
+    "allowedDomains": [
+      "none"
+    ]
+  },
+  "parameters": [
+    {
+      "name": "Shape",
+      "key": "shape"
+    },
+    {
+      "name": "Count",
+      "key": "count",
+      "allowFreeform": true
+    }
+  ]
+}

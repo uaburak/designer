@@ -23,6 +23,11 @@ export default defineConfig([
     rules: reactHooks.configs.recommended.rules,
   },
   {
+    // The plugin host's VM-side scripts and the sample plugins (docs/plugins.md §5): Figma's plugin globals.
+    files: ["src/renderer/src/editor/plugins/**/*.js"],
+    languageOptions: { sourceType: "script", globals: { figma: "readonly", __html__: "readonly", __uiFiles__: "readonly", fetch: "readonly", console: "readonly", setTimeout: "readonly" } },
+  },
+  {
     files: ["src/renderer/public/**/*.js"],
     languageOptions: { globals: globals.browser, sourceType: "script" },
   },

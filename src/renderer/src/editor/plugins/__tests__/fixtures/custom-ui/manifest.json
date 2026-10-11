@@ -1,0 +1,16 @@
+{
+  "name": "Custom UI",
+  "id": "fixture-custom-ui",
+  "api": "1.0.0",
+  "main": "code.js",
+  "editorType": [
+    "figma"
+  ],
+  "networkAccess": {
+    "allowedDomains": [
+      "none"
+    ]
+  },
+  "ui": "ui.html",
+  "documentAccess": "dynamic-page"
+}

@@ -390,3 +390,24 @@ TEST_CASE("text layouts: a measure in the drawn box is the drawn layout; a move 
   REQUIRE(again);
   CHECK(again->size.x > size.x);
 }
+
+TEST_CASE("text: a plugin's setRange* writes run fields to a range of a text that isn't being edited") {
+  Editor e = makeEditor({textNode(T, kPage, "Hello world", {10, 10, 0, 0})});
+  e.setStyleRange(6, 11);
+  NodeChange c = NodeChange::changed(T);
+  c.mask = F_FONT_SIZE;
+  c.props.text().fontSize = 24;
+  REQUIRE(e.setProps({T}, c, 0) == OK);
+  e.setStyleRange(UINT32_MAX, UINT32_MAX);
+  const TextData& t = props(e, T).text().textData;
+  REQUIRE(t.styleOverrideTable.size() == 1);
+  CHECK(t.styleOverrideTable[0].fontSize == 24);
+  CHECK(t.characterStyleIDs[5] == 0);
+  CHECK(t.characterStyleIDs[6] != 0);
+  CHECK(props(e, T).text().fontSize == 12);
+  // Cleared: the whole layer again.
+  c.props.text().fontSize = 16;
+  REQUIRE(e.setProps({T}, c, 0) == OK);
+  CHECK(props(e, T).text().textData.styleOverrideTable.empty());
+  CHECK(props(e, T).text().fontSize == 16);
+}

@@ -1,0 +1,23 @@
+{
+  "name": "CSS codegen",
+  "id": "fixture-codegen-css",
+  "api": "1.0.0",
+  "main": "code.js",
+  "editorType": [
+    "dev"
+  ],
+  "networkAccess": {
+    "allowedDomains": [
+      "none"
+    ]
+  },
+  "capabilities": [
+    "codegen"
+  ],
+  "codegenLanguages": [
+    {
+      "label": "Plain CSS",
+      "value": "css"
+    }
+  ]
+}

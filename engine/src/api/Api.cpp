@@ -1316,6 +1316,21 @@ ENG_EXPORT int32_t engine_txn_begin(Handle h, Ptr ptr, uint32_t len) {
   return e ? e->editor.txnBegin(std::string(bytes(ptr, len))) : E_HANDLE;
 }
 
+// A plugin's setRange* (docs/plugins.md §5): run fields of the next set_props go to UTF-16 [from, to) of a text that
+// isn't being edited; from = to = 0xFFFFFFFF clears it.
+ENG_EXPORT void engine_set_style_range(Handle h, uint32_t from, uint32_t to) {
+  Call call;
+  if (Engine* e = engineOf(h)) e->editor.setStyleRange(from, to);
+}
+
+// A plugin run's slice (docs/plugins.md §3.1): `join` = 1 folds it into the run's last step (Editor::txnBeginRun).
+ENG_EXPORT int32_t engine_txn_begin_run(Handle h, Ptr ptr, uint32_t len, uint32_t join) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (e && e->editor.viewerMode() && !e->editor.devEdits()) return E_READONLY;
+  return e ? e->editor.txnBeginRun(std::string(bytes(ptr, len)), join != 0) : E_HANDLE;
+}
+
 ENG_EXPORT int32_t engine_txn_commit(Handle h) {
   Call call;
   Engine* e = engineOf(h);

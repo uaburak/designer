@@ -1198,6 +1198,23 @@ export class Engine {
     return this.after(this.x.txnBegin(this.h, encodeText(label)));
   }
 
+  /**
+   * A plugin run's slice (docs/plugins.md §3.1): a transaction like txnBegin's whose step the next slice can `join`
+   * (while nothing else entered the user's history since), so a run is one undo step. Status.BUSY while a gesture or
+   * another transaction is open.
+   */
+  txnBeginRun(label: string, join: boolean): number {
+    return this.after(this.x.txnBeginRun(this.h, encodeText(label), join));
+  }
+
+  /**
+   * A plugin's setRange* (docs/plugins.md §5): the text run fields `setProps` writes go to UTF-16 [from, to) of a
+   * text that isn't being edited, until `null` clears it.
+   */
+  setStyleRange(range: { from: number; to: number } | null): void {
+    this.x.setStyleRange(this.h, range ? range.from : 0xffffffff, range ? range.to : 0xffffffff);
+  }
+
   txnCommit(): number {
     return this.after(this.x.txnCommit(this.h));
   }

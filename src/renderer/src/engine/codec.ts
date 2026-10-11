@@ -413,6 +413,10 @@ export interface NodeFields {
   libraryMoveInfo?: { oldKey: string; pasteFileKey: string };
   /** Kiwi field ids reset to absent (updates only). */
   clearedFields?: number[];
+  /** Plugins' data on the node (docs/plugins.md §8): `shared:<namespace>` entries are setSharedPluginData's. */
+  pluginData?: { pluginID?: string; key?: string; value?: string }[];
+  /** Relaunch buttons (setRelaunchData), one per plugin command. */
+  pluginRelaunchData?: { pluginID?: string; command?: string; message?: string; isDeleted?: boolean }[];
 }
 
 // ---- Variables (docs/schema.md §6) ----

@@ -363,6 +363,11 @@ class Editor : private LayoutHost, public TextLayouts {
   Status setProps(const std::vector<Guid>& ids, const NodeChange& props, uint32_t flags);
   // Panel scrubs: everything between begin and commit is one undo step and one message.
   Status txnBegin(const std::string& label);
+  // A plugin run's slice (docs/plugins.md §3.1): a USER transaction like txnBegin's that marks the step it makes;
+  // `join` folds it into the user's last step when that is still the step the last run slice made (nothing committed
+  // or undone in the user's history since) — a run's writes are one undo step however many slices made them, and
+  // figma.commitUndo() starts the next slice with join = false.
+  Status txnBeginRun(const std::string& label, bool join);
   Status txnCommit();
   void txnCancel();
   Status command(CommandId id, double dx = 0, double dy = 0);
@@ -536,6 +541,12 @@ class Editor : private LayoutHost, public TextLayouts {
   Status textCompositionEnd(std::string_view utf8);
   // The selected text (UTF-8), for copy.
   std::string textSelection() const;
+  // A plugin's setRange* (docs/plugins.md §5): run fields written by setProps go to UTF-16 [from, to) of a text that
+  // isn't being edited, until cleared (from = to = UINT32_MAX).
+  void setStyleRange(uint32_t from, uint32_t to) {
+    styleFrom_ = from;
+    styleTo_ = to;
+  }
   // UTF-16 [start, end) of the text selection (start ≤ end).
   uint32_t textSelStart() const { return std::min(text_.anchor, text_.focus); }
   uint32_t textSelEnd() const { return std::max(text_.anchor, text_.focus); }
@@ -1751,6 +1762,7 @@ class Editor : private LayoutHost, public TextLayouts {
   void createTextAt(Vec2 world, double width);
   Status applyTextStyle(Guid id, const NodeChange& props);
   void textToggleStyle(KeyCode code, uint32_t mods);
+  uint32_t styleFrom_ = UINT32_MAX, styleTo_ = UINT32_MAX;  // setStyleRange
 
   Document doc_;
   UndoStack undo_;
@@ -1787,7 +1799,11 @@ class Editor : private LayoutHost, public TextLayouts {
     TxnKind kind = TxnKind::USER;
     std::string label;
     ChangeSet changes;
+    bool run = false;   // txnBeginRun: the step is marked for the next run slice
+    bool join = false;  // txnBeginRun(join): folds into the marked step
   } txn_;
+  // The user's undo count right after the last run slice committed (SIZE_MAX: none, or something else since).
+  size_t runMark_ = SIZE_MAX;
   std::vector<Guid> lastNudged_;
   // ⌘D: each copy the last duplicate made → its original (the next ⌘D repeats the offset the copy was moved by).
   std::unordered_map<Guid, Guid, GuidHash> duplicatedFrom_;

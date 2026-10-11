@@ -1,0 +1,25 @@
+{
+  "name": "Relaunch",
+  "id": "fixture-relaunch",
+  "api": "1.0.0",
+  "main": "code.js",
+  "editorType": [
+    "figma"
+  ],
+  "networkAccess": {
+    "allowedDomains": [
+      "none"
+    ]
+  },
+  "relaunchButtons": [
+    {
+      "command": "edit",
+      "name": "Edit shape"
+    },
+    {
+      "command": "open",
+      "name": "Open",
+      "multipleSelection": true
+    }
+  ]
+}

@@ -198,3 +198,55 @@ TEST_CASE("txn: long keys rebalance the siblings inside the same transaction") {
   e.command(CommandId::UNDO);
   CHECK(e.document().get({5, 3})->props.parentIndex.position == std::string(24, '~'));
 }
+
+TEST_CASE("txn: a plugin run's slices are one undo step; commitUndo, another edit or an undo split it") {
+  Editor e = makeEditor();
+  auto opacity = [&](Guid id, double v) {
+    NodeChange c;
+    c.mask = F_OPACITY;
+    c.props.opacity = v;
+    REQUIRE(e.setProps({id}, c, 0) == OK);
+  };
+  REQUIRE(e.txnBeginRun("Plugin", false) == OK);
+  opacity(R1, 0.5);
+  REQUIRE(e.txnCommit() == OK);
+  REQUIRE(e.txnBeginRun("Plugin", true) == OK);
+  opacity(R2, 0.4);
+  REQUIRE(e.txnCommit() == OK);
+  CHECK(e.undoStack().undoCount() == 1);  // two slices, one step
+  CHECK(e.undoStack().undoLabel() == "Plugin");
+  // commitUndo: the next slice doesn't join.
+  REQUIRE(e.txnBeginRun("Plugin", false) == OK);
+  opacity(R1, 0.3);
+  REQUIRE(e.txnCommit() == OK);
+  CHECK(e.undoStack().undoCount() == 2);
+  // The user's own edit in between: the run's next slice starts a new step.
+  REQUIRE(e.txnBegin("Name") == OK);
+  NodeChange n;
+  n.mask = F_NAME;
+  n.props.name = "Mine";
+  e.setProps({R2}, n, 0);
+  REQUIRE(e.txnCommit() == OK);
+  REQUIRE(e.txnBeginRun("Plugin", true) == OK);
+  opacity(R2, 0.2);
+  REQUIRE(e.txnCommit() == OK);
+  CHECK(e.undoStack().undoCount() == 4);
+  // An undo in between too.
+  e.command(CommandId::UNDO);
+  REQUIRE(e.txnBeginRun("Plugin", true) == OK);
+  opacity(R2, 0.1);
+  REQUIRE(e.txnCommit() == OK);
+  CHECK(e.undoStack().undoCount() == 4);
+  // Undoing the joined step takes back both slices.
+  e.command(CommandId::UNDO);
+  e.command(CommandId::UNDO);
+  e.command(CommandId::UNDO);
+  CHECK(e.document().get(R1)->props.opacity == doctest::Approx(0.5));
+  e.command(CommandId::UNDO);
+  CHECK(e.document().get(R1)->props.opacity == 1);
+  CHECK(e.document().get(R2)->props.opacity == 1);
+  // A slice waits while a transaction is open.
+  REQUIRE(e.txnBegin("Scrub") == OK);
+  CHECK(e.txnBeginRun("Plugin", true) == E_BUSY);
+  e.txnCancel();
+}

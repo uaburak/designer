@@ -1595,6 +1595,19 @@ message SymbolLink {               // component documentation link
   string displayText = 3;
 }
 
+message PluginData {               // a plugin's data on a node (setPluginData; shared data: pluginID "shared:<namespace>", ours)
+  string pluginID = 1;
+  string value = 2;
+  string key = 3;
+}
+
+message PluginRelaunchData {       // a relaunch button on a node (setRelaunchData; Figma's customToolId = 5 left out)
+  string pluginID = 1;
+  string message = 2;
+  string command = 3;
+  bool isDeleted = 4;
+}
+
 message LibraryMoveInfo {          // set on a pasted copy of a published asset ("Move to this file")
   string oldKey = 1;
   string pasteFileKey = 2;
@@ -1879,6 +1892,10 @@ message NodeChange {
   SectionStatusInfo sectionStatusInfo = 355;      // @nooverride Dev Mode status of a SECTION/FRAME
   EditInfo editInfo = 331;                        // @nooverride last edit of the node or its subtree (Dev Mode's "Changed")
 
+  // --- plugins (docs/plugins.md §8) ---
+  PluginData[] pluginData = 204;                  // every plugin's entries, one list (last writer wins per node)
+  PluginRelaunchData[] pluginRelaunchData = 219;  // relaunch buttons (Design panel header)
+
   // --- auto layout ---
   StackMode stackMode = 105;                      // @nooverride
   float stackSpacing = 107;                       // @bind(STACK_SPACING) gap between items
@@ -2054,9 +2071,9 @@ message NodeChange {
   byte _r175 = 175 [deprecated]; byte _r176 = 176 [deprecated]; byte _r177 = 177 [deprecated]; byte _r178 = 178 [deprecated]; byte _r179 = 179 [deprecated]; byte _r180 = 180 [deprecated];
   byte _r181 = 181 [deprecated]; byte _r182 = 182 [deprecated]; byte _r183 = 183 [deprecated]; byte _r185 = 185 [deprecated]; byte _r187 = 187 [deprecated]; byte _r188 = 188 [deprecated];
   byte _r189 = 189 [deprecated]; byte _r190 = 190 [deprecated]; byte _r191 = 191 [deprecated]; byte _r192 = 192 [deprecated]; byte _r193 = 193 [deprecated]; byte _r194 = 194 [deprecated];
-  byte _r197 = 197 [deprecated]; byte _r204 = 204 [deprecated]; byte _r207 = 207 [deprecated];
+  byte _r197 = 197 [deprecated]; byte _r207 = 207 [deprecated];
   byte _r208 = 208 [deprecated]; byte _r211 = 211 [deprecated]; byte _r212 = 212 [deprecated]; byte _r214 = 214 [deprecated]; byte _r216 = 216 [deprecated]; byte _r217 = 217 [deprecated];
-  byte _r219 = 219 [deprecated]; byte _r220 = 220 [deprecated]; byte _r222 = 222 [deprecated]; byte _r224 = 224 [deprecated]; byte _r227 = 227 [deprecated]; byte _r228 = 228 [deprecated];
+  byte _r220 = 220 [deprecated]; byte _r222 = 222 [deprecated]; byte _r224 = 224 [deprecated]; byte _r227 = 227 [deprecated]; byte _r228 = 228 [deprecated];
   byte _r239 = 239 [deprecated]; byte _r240 = 240 [deprecated]; byte _r241 = 241 [deprecated]; byte _r242 = 242 [deprecated]; byte _r243 = 243 [deprecated]; byte _r244 = 244 [deprecated];
   byte _r245 = 245 [deprecated]; byte _r246 = 246 [deprecated]; byte _r247 = 247 [deprecated]; byte _r248 = 248 [deprecated]; byte _r250 = 250 [deprecated]; byte _r251 = 251 [deprecated];
   byte _r252 = 252 [deprecated]; byte _r253 = 253 [deprecated]; byte _r254 = 254 [deprecated]; byte _r255 = 255 [deprecated]; byte _r257 = 257 [deprecated]; byte _r258 = 258 [deprecated];

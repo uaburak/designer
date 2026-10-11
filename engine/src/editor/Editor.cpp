@@ -85,6 +85,8 @@ void Editor::begin(TxnKind kind, const std::string& label) {
   txn_.depth = 1;
   txn_.kind = kind;
   txn_.label = label;
+  txn_.run = false;
+  txn_.join = false;
   txn_.changes.clear();
   layoutDirty_.clear();
   groupsTouched_.clear();
@@ -439,7 +441,18 @@ void Editor::commit(bool mergeWithLast) {
     if (!changes.empty()) events_.documents.push_back({txn_.kind, txn_.label, std::move(changes), actor_});
   }
   if (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE) {
-    recording().commit(selection_, mergeWithLast);
+    // A plugin run's later slice joins the run's step while nothing else entered the user's history since (the
+    // count moves with every other step; the label guards the history's cap, where it stops moving).
+    UndoStack& stack = recording();
+    bool userStack = undoTo_ == 0;
+    size_t before = stack.undoCount();
+    bool join = txn_.run && txn_.join && userStack && runMark_ != SIZE_MAX && runMark_ == before && !stack.canRedo() && stack.undoLabel() == txn_.label;
+    stack.commit(selection_, mergeWithLast || join);
+    if (userStack && txn_.run) {
+      bool made = stack.undoCount() != before || join;
+      if (made) runMark_ = stack.undoCount();
+      else if (!txn_.join) runMark_ = SIZE_MAX;  // a run's first slice that wrote nothing: nothing to join yet
+    }
     events_.undo = true;
   }
   if (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE || txn_.kind == TxnKind::UNDO || txn_.kind == TxnKind::REDO) yieldOthers();
@@ -1455,6 +1468,15 @@ Status Editor::txnBegin(const std::string& label) {
   return OK;
 }
 
+Status Editor::txnBeginRun(const std::string& label, bool join) {
+  if (busy()) return E_BUSY;
+  if (txn_.open) return E_BUSY;  // a panel scrub or an actor's step is open: the run waits
+  begin(TxnKind::USER, label);
+  txn_.run = true;
+  txn_.join = join;
+  return OK;
+}
+
 Status Editor::txnCommit() {
   if (!txn_.open) return E_INVALID;
   commit();
@@ -1467,6 +1489,7 @@ bool Editor::undoStep(bool redo) {
   if (busy() || txn_.open || scope_.on) return false;
   undo_.dropEmpty(redo);  // steps whose every change others overwrote since
   if (redo ? !undo_.canRedo() : !undo_.canUndo()) return false;
+  runMark_ = SIZE_MAX;  // a plugin run's next slice starts a new step
   begin(redo ? TxnKind::REDO : TxnKind::UNDO, redo ? undo_.redoLabel() : undo_.undoLabel());
   std::vector<Guid> sel = selection_;
   auto applied = redo ? undo_.redo(doc_, sel, &txn_.changes) : undo_.undo(doc_, sel, &txn_.changes);

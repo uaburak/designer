@@ -665,7 +665,12 @@ Status Editor::applyTextStyle(Guid id, const NodeChange& change) {
   TextData t = (mask & F_TEXT_DATA) ? change.props.text().textData : p.text().textData;
   uint32_t len = text::length16(t);
   uint32_t from = textSelStart(), to = textSelEnd();
-  bool ranged = text_.node == id && from < to && !(from == 0 && to >= len);
+  bool forced = styleFrom_ != UINT32_MAX && text_.node != id;
+  if (forced) {
+    to = std::min(styleTo_, len);
+    from = std::min(styleFrom_, to);
+  }
+  bool ranged = (forced || text_.node == id) && from < to && !(from == 0 && to >= len);
   // Run fields kept as data (links, variable axes, OpenType switches, decoration details): to the range, or to the
   // node and out of every run.
   std::map<std::string, std::string> runExtras;
