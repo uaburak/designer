@@ -28,6 +28,9 @@ utilityProcess: the store — the only writer of the workspace (src/store) ⇄ v
 - **One change format.** A change is a Kiwi `NODE_CHANGES` message carrying only the touched fields. The engine emits it, the store appends it to the file's journal, undo is its inverse, the clipboard carries it, and a shared file's room receives the same messages, per property last writer wins (`docs/multiplayer.md`).
 - **The store** keeps the workspace in `~/Library/Application Support/DesignerV2/Workspace`: Drafts and folders, files (snapshot + journal + versions + thumbnail), Trash, Recents, Starred, the library registry and content-addressed blobs. Any file in a folder can publish a library; consuming files keep read-only copies and accept updates through Review.
 - **Accounts, sharing, multiplayer and preview hosting** run on Cloudflare (`server/`, `docs/multiplayer.md`), reached by the store behind the same repositories. Previews for developers: a read-only snapshot shown by a web build of the same renderer.
+- **Extensibility** (contract, Phase 7 round 5):
+  - Figma's REST API and Webhooks V2 on the same Worker (`docs/multiplayer.md` §16). Document reads and renders are answered by connected clients and cached.
+  - Plugins run Figma's way: a JavaScript VM compiled to WebAssembly on the editor's main thread, with the UI in an opaque-origin iframe (`docs/plugins.md`).
 
 ## History
 

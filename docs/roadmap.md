@@ -119,7 +119,7 @@ The owner wants every feature of Figma's Enterprise plan. R18 lists them all: th
 - **Notifications** (`docs/multiplayer.md` §12: migration 0008, `Inbox`, the bell). Old item 5d is reduced to email.
 - **Sessions and personal access tokens** (§13: migration 0009 — a row per sign-in, `sid` in tokens, last active, Sign out per session, scoped tokens). They come off round 1's server list and round 4's client list.
 
-Migrations continue from **0010** (round 1) and **0011** (round 2); round 3 used **0012**, round 4 **0013** (`multiplayer.md` §15.14).
+Migrations continue from **0010** (round 1) and **0011** (round 2); round 3 used **0012**, round 4 **0013** (`multiplayer.md` §15.14), round 5 **0014** (§16.12).
 
 ### Open questions for the owner (Phase 7)
 **Answered by the owner, 2026-10-11:** (1) friends are **members** — an admin adds anyone as a member by hand, and "Import shared files" (§14.8) imports the people the owner shared with as members, not guests; (2) the default seat stays Figma's **View** (with "Ask to upgrade"); (3) org admins **edit everything implicitly** (keep §14.2 rule 4); (4) not asked — default: keep per-file sharing outside orgs (Figma keeps sharing drafts); (5) open; (6) **several orgs** — the org switcher in the account menu, "Create organization" as many times as wanted, the name asked at creation.
@@ -212,13 +212,93 @@ Open questions for the owner (round 4):
 4. **Which IdP and which domain** to test with (above). Without them round 4 ships tested only against the test IdP.
 5. **Data storage localization** is self-serve here (Figma: Support), and moving files freezes each one for seconds. Default: admins change it in Admin › Settings › Data.
 
-### Round 5 — extensibility and Dev Mode
+### Round 5 — extensibility and Dev Mode — **contract written 2026-10-11**
+
+**Contracts:**
+- `docs/multiplayer.md` **§16**, REST API and webhooks:
+  - facts §16.1, decisions §16.2;
+  - tokens and scopes §16.3, rate limits §16.4;
+  - client render jobs §16.6, every endpoint §16.7, POST variables §16.8;
+  - Webhooks V2 §16.9, event sources §16.10, activity §16.11;
+  - migration `0014_extensibility.sql` §16.12, shared types §16.13, layout and tests §16.14.
+- **`docs/plugins.md`** (new): plugins and widgets — the QuickJS sandbox and the developer VM, the opaque-origin UI iframe, main's pieces, the manifest, the `figma.*` subset, the chrome, Dev Mode plugins, plugin data in the schema, private plugins and approval, widgets (later).
+- `docs/editor.md` **"Dev Mode — round 5"**:
+  - D-1 Code Connect: mappings, templates in the plugin VM, our CLI, Code Connect UI, MCP;
+  - D-2 the component playground;
+  - D-3 dev resources;
+  - D-4 the ready-for-dev feed and notifications;
+  - D-6 prototype-only access;
+  - D-7 VS Code, skipped;
+  - D-8 types.
+
+**Decided (Figma's way where Figma documents one):**
+- **Documents and renders**: the REST API reads and renders documents through connected clients — an editor, then a viewer, then the desktop app's hidden "render helper" — and caches by room state.
+  - Server-side SVG / PDF stays behind `REST_SERVER_RENDER` (the Workers Paid plan), specified but not built.
+  - There is no CPU rasterizer.
+- **Tokens**: personal access tokens with Figma's scopes and `X-Figma-Token`, and plan access tokens for org routes. **No OAuth apps** this round.
+- **Webhooks**: Figma's passcode, plus an HMAC signature header; retries on a `*/5` cron.
+- **Plugins**: run in QuickJS compiled to Wasm on the editor's main thread (Figma's own approach). "Use developer VM" is a Worker with a synchronous bridge.
+- **Widgets**: later.
+- **VS Code extension**: skipped.
+
+**Before the agents** (main session, one commit):
+- `src/shared/rest/types.ts` (§16.13), `src/shared/plugins/types.ts` (plugins.md §10.4) and `src/shared/devmode/types.ts` (editor.md D-8), verbatim.
+- The additions listed in §16.13:
+  - `TOKEN_SCOPES` / `AccessTokenInfo`;
+  - `ActivityAction`;
+  - `OrgSettings` + defaults;
+  - `NotificationKind`;
+  - the room protocol messages.
+- `FileAccess.prototypeOnly`, `OpenIntent.devMode`.
+- `plugins` and `devMode` on `StoreApi`, with `notImplemented` stubs in both stores.
+- IPC channels and roles in `src/shared/ipc.ts`: `plugins:*` (plugins.md §3.3) and `devmode:link-title`, registered as stubs in `src/main/ipc.ts`.
+- Server stubs `server/src/webhooks/emit.ts` (`emitWebhook`) and `server/src/devmode/rest.ts` (`devModeRestRoute`).
+- A client stub `src/renderer/src/editor/plugins/index.ts`, exporting:
+  - `createSandbox(opts: {kind: "plugin" | "template"; code: string; api: Record<string, unknown>; memoryMb?: number; timeoutMs?: number}): Promise<Sandbox>`;
+  - `interface Sandbox { call(fn: string, ...args: unknown[]): Promise<unknown>; dispose(): void }`.
+
+  Until 5d fills it, the stub throws "Plugins aren't built yet". 5f's Code Connect templates use it.
+- **`server/migrations/0014_extensibility.sql`** (§16.12, verbatim). No agent edits `server/migrations/` this round.
+- `npm run check` green.
+
 | Agent | Owns | Delivers |
 |---|---|---|
-| 5a REST API | `server/src/rest/` | personal access tokens are built (`multiplayer.md` §13): add OAuth apps and org "plan access tokens", then `/v1/files`, teams / projects (`/v1/teams/:id/projects`, `/v1/projects/:id/files`), nodes, images (per round 1's decision), comments, versions, variables (local / published, POST), dev resources, library analytics, activity logs, AI usage; webhooks with signatures and retries |
-| 5b plugin host | `src/renderer/src/editor/plugins/` (new), `src/shared/plugins/` (new), `editor/panels/ActionsPanel.tsx` | a sandboxed realm + iframe UI, a documented `figma.*` subset, development plugins from a manifest, private org plugins (registry via 5a's tables), admin-approved lists |
-| 5c Dev Mode | `src/renderer/src/editor/devmode/`, `src/viewer/inspect/` | Code Connect (mappings, snippets with props, Code Connect UI, a `scripts/code-connect.mjs` CLI), dev resources, component playground, ready-for-dev feed, prototype-only links |
-| 5d notifications | `server/src/notifications.ts` | **Built 2026-10-11** (`multiplayer.md` §12: the bell, the Inbox, comments / mentions / reactions / invites / requests); org kinds come with round 1 and branch reviews with round 2. What is left: ready-for-dev and library-update kinds (with 5c and round 3), optional email |
+| 5a REST server | `server/src/rest/` (new), `server/src/webhooks/` (new; fills `emit.ts`), `server/src/api.ts` — **only** the dispatch lines for `/v1/*`, `/v2/*`, `/orgs/:org/admin/plan-tokens…`, `PUT /files/:key/thumbnail`, `PUT /files/:key/rest-jobs/:id/parts/:name`, and `emitWebhook` in the file delete path; `server/src/account.ts` (token kinds), `server/src/fileRoom.ts`, `server/src/roomBox.ts`, `src/shared/multiplayer/room.ts` (render jobs, `hello.render`, the FILE_UPDATE alarm, the thumbnail, `rest-wanted`), `server/src/comments.ts` / `server/src/branches.ts` / `server/src/libraries/routes.ts` (one `emitWebhook` each; `library_assets.node_id` and dates), `server/src/index.ts`, `server/wrangler.jsonc` (the `*/5` cron), `server/src/testing/`, `src/shared/rest/variablesPost.ts` (`validateShape`) | §16.2–§16.14 on the server: auth with `X-Figma-Token`, scopes, tiers and rate limits with Figma's headers, signed blob URLs, every `/v1` and `/v2` route of §16.7 (dev resources and Code Connect through 5c's `devModeRestRoute`), render jobs with the client order and the 503, plan access tokens, Webhooks V2 with the payloads, retries and log. Tests as §16.14 |
+| 5b REST clients | `src/renderer/src/editor/rest/` (new: `fileJson.ts`, `images.ts`, `variablesJson.ts`, `variablesPost.ts`, the job runner), `src/renderer/src/editor/EditorApp.tsx` (one line: the job runner), `src/store/multiplayer/` (`hello.render`, the job relay to the editor and part uploads, the thumbnail upload with snapshots), `src/main/restHelper.ts` (new), `src/main/index.ts` (one line), `src/renderer/src/settings/AccountTab.tsx` (the render helper switch) | §16.6's client side: Figma's REST JSON from the engine (compared with Figma's own output for the sample files where available), exports per id, local variables JSON, POST variables as one actor write, the hidden render helper (spare view, 5-minute discard). Tests: JSON shapes per node type, `geometry=paths`, `depth`, `ids`, versions, variables POST (tempIds, extended collections, the all-or-nothing rule); the helper with a fake inbox |
+| 5c server Dev Mode and plugins | `server/src/devmode/` (new: `devResources.ts`, `codeConnect.ts`, `status.ts`, `prototype.ts`, `rest.ts`), `server/src/plugins/` (new: private plugins, chunks, approvals, requests), `server/src/notifications.ts` + `src/shared/notifications.ts` (the five new kinds, the hour folding, the Dev Mode preference), `server/src/org/` (`patchSettings` for the four plugin keys and their log actions; `Access` for the prototype level), `src/shared/org/access.ts` + `access.test.ts` (the `prototype` level, new cases), `server/src/api.ts` — **only** the dispatch lines for `/files/:key/dev-resources…`, `/files/:key/code-connect…`, `/files/:key/dev-status…`, `/files/:key/prototype-members…`, `/plugins…`, `/orgs/:org/plugins…`, `/orgs/:org/admin/plugins…`, and `protoOrgLinkAccess` in `PATCH /files/:key` | editor.md D-1 (storage, `/v1/code_connect`, the private routes), D-3, D-4 (report, viewers, notifications, `DEV_MODE_STATUS_UPDATE`), D-6 (prototype members, the access level, the room role); plugins.md §10. Tests on node:sqlite: limits and duplicates, component links on instances, seats, notifications folded and who gets them, approval and request flows with workspaces, guests refused, chunks and SHA-1, prototype-only access cases |
+| 5d plugin host | `src/renderer/src/editor/plugins/` (fills `index.ts`), `src/shared/plugins/` (`manifest.ts`, `network.ts`), `editor/panels/ActionsPanel.tsx`, `editor/panels/LeftPanel.tsx` (the Tools tab's content only), `editor/menus.ts` / `editor/commands.ts` (Plugins, Development, the canvas Plugins ▸), `editor/EditorApp.tsx` (one line: the host), the Design panel header's relaunch buttons (one component in `editor/panels/design/`), `schema/document.kiwi` + `docs/schema.md` (§8), the engine's generated output and **the release wasm** (the round's only engine build), `package.json` + lock (`quickjs-emscripten-core`, `@jitl/quickjs-wasmfile-release-asyncify`, dev `@figma/plugin-typings`, exact) | plugins.md §2–§8: QuickJS runs with limits and Stop, the developer VM, the UI window and messaging, the §5 API on the editor (one undo step per run, `commitUndo`, `documentchange`, dynamic-page rules), the manifest, development plugins with hot reload, Actions › Plugins & widgets with parameters, the Tools tab, saved / recents, approval checks through `store.plugins.allowed`, plugin data. Tests: the §5 fixture plugins on the wasm engine (`plugins.wasm.test.ts`), the sandbox's escapes refused, manifest parsing, network rules |
+| 5e plugin desktop | `src/main/plugins/` (new: `manifests.ts`, `watch.ts`, `protocol.ts`, `fetch.ts`, `storage.ts`, `templates/`), `src/main/devmodeLinks.ts` (new: `devmode:link-title`), `src/main/protocol.ts` (the editor CSP's `frame-src plugin:`), `src/main/index.ts` (scheme registration, one line), `src/main/ipc.ts` (the plugin and devmode channels), `src/preload/` (only if channels need listing), `vite.shared.ts` (the dev CSP's `frame-src`) | plugins.md §3.2–§3.3: the `plugin:` scheme with the per-run CSP and COEP `credentialless`, frame navigation rules, development manifests (import, list, remove, read with path checks; `build` never run), hot reload, `fetch` with the allowlist, `clientStorage` with 5 MB, New plugin… templates written to a chosen folder, Open console. Tests: path escapes, CSP strings from domains, fetch allowed / refused, storage size rule, watch debounce |
+| 5f Dev Mode | `src/renderer/src/editor/devmode/` (Code Connect UI, Playground, ReadyForDev, the Plugins panel host), `editor/devStatus.ts` (the status report call), `src/viewer/` (Inspect: Code Connect snippets, dev resources, codegen languages; `DevSections.tsx`, `inspect/`), `tools/code-connect/` (new CLI), `src/shared/agents/tools.ts` + `editor/agents/mcpTools.ts` (`get_code_connect_map` only, and the snippet in `get_design_context`) | editor.md D-1 (snippets via `createSandbox` with Figma's template API, UI mappings, the CLI, MCP), D-2, D-3's UI, D-4's feed and viewed report, plugins.md §7 (codegen and inspect plugins in Dev Mode). Tests: templates on a fake sandbox (then the real one after 5d merges), nested and pill snippets, errors; the CLI against 5c's handler (publish / unpublish / parse / create, substitutions); the playground never writes the file; editor-shot `EDITOR_ONLY=devmode5` |
+| 5g store | `src/store/devmode/` (new), `src/store/plugins/` (new), `src/shared/store/protocol.ts` (the methods), `src/store/localStore.ts` + `src/store/server.ts` + `src/renderer/src/store/memory/` (wiring) | `DevModeRepository` (server for shared files, `files/<key>/dev-resources.json` / `code-connect.json` for local ones, events `devmode`), `PluginsRepository` (saved / recents, private plugins cached under `Workspace/spaces/plugins/`, publish in three steps, `allowed` from the org cache, requests, admin calls). Tested against a contract fake, then against 5c's handler once merged |
+| 5h chrome | `src/renderer/src/admin/` (Settings › Extensions; Settings › Plan access tokens; Resources › Plugins / Widgets with Approved, Requests, the review modal, Add plugin, Edit approvals), `src/renderer/src/settings/SecurityTab.tsx` (the new scopes in Generate new token) + `NotificationsTab.tsx` (Dev Mode), `src/renderer/src/notifications/` (rows for the five kinds), `src/renderer/src/editor/ShareDialog.tsx` (+ css) and `editor/SharePrototypeDialog.tsx` (new), `editor/EditorRoute.tsx` (prototype-only opens the presentation view only), the presentation view's "Share prototype" button | plugins.md §10's admin side; §16.3's token scopes and plan tokens; editor.md D-4's settings and rows, D-6's modal and gate. Tests: DOM tests on the fake stores; screenshots against Figma's captures where they exist |
+
+**Merge order**:
+1. The main session's commit.
+2. **5a**.
+3. **5c**: rebases onto 5a's `api.ts` lines and fills `devModeRestRoute`.
+4. **5g**: switches its tests from the fake to the real handler.
+5. **5e**.
+6. **5d**: schema + release wasm.
+7. **5b**.
+8. **5f**: swaps the fake sandbox for 5d's.
+9. **5h**.
+
+`api.ts` is shared by 5a and 5c (different lines); `EditorApp.tsx` gets one line each from 5b and 5d; `src/main/index.ts` one line each from 5b and 5e.
+
+**Deploy**: `npm --prefix server run db:migrate` (0014), then `npm --prefix server run deploy`. The new cron `*/5 * * * *` makes two of the free plan's five. There is no new Durable Object and no migration tag.
+
+**Built already, not redone**: notifications (§12; old item 5d is now only round 5's five kinds, in 5c) and personal access tokens (§13; 5a adds scopes and plan tokens).
+
+**Can't be fully verified here**:
+- Figma's own `@figma/code-connect` CLI against our `/v1/code_connect` (5f reports what its request looks like).
+- REST JSON parity with Figma for files the owner has in both apps: a `GET /v1/files` from Figma with the owner's own token.
+- A Community plugin's source run unchanged: the owner picks two or three plugins he uses and downloads their code.
+- The Workers Paid plan path (`REST_SERVER_RENDER`).
+
+**Open questions for the owner (round 5):**
+1. **Workers Paid plan ($5/month)?** Server-rendered SVG / PDF needs it: no client online would be needed for those. Default: no, client render-and-cache only.
+2. **Prototype-only viewers receive the whole file's data** (the player runs on it). They see only the prototype in the app, but the data is on their machine, as for "can view". Isolating it would need server decoding (question 1). Default: accept, as Figma's player also loads the file (unverified).
+3. **The render helper opens your files in the background** when an API call arrives and nobody has the file open. The default is on for files you own; you can turn it off in Settings › Account. Should it be on by default?
 
 ### Round 6 — AI
 | Agent | Owns | Delivers |
