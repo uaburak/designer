@@ -18,7 +18,31 @@
 import { cleanPrefs, DEFAULT_NOTIFICATION_PREFS, wantsDesktop, type InboxMessage, type NotificationItem, type NotificationKind, type NotificationPage, type NotificationPrefs } from "../../src/shared/notifications";
 import type { Deps } from "./api";
 import type { User } from "./db";
+import { canOpen } from "./org/db";
 import { randomToken } from "./tokens";
+
+/**
+ * Organizations' kinds (docs/multiplayer.md §14.11; wording to be read from Figma's bell when the UI is built): stored
+ * with no file (`file_key` null, `file_name` the team's or folder's name), `org_id` / `team_id` set. Kept here, outside
+ * `src/shared/notifications.ts`'s `NotificationKind`, until the client renders them (round 1b/1c).
+ */
+export type OrgNotificationKind = "team_invite" | "project_invite" | "team_join_request" | "seat_request" | "seat_request_approved" | "seat_request_denied" | "guest_request";
+
+/** Kinds answered with Approve / Deny: the Requests tab and the pending count (the org's are answered on their own routes) */
+const REQUEST_KINDS = `('edit-request', 'team_join_request', 'seat_request', 'guest_request')`;
+
+/**
+ * What the store's org cache hears through the inbox (§14.6, §14.11; src/store/notifications/service.ts OrgNotice):
+ * `{t: "org", what, orgId?, teamId?, parentId?, projectId?}`, `what` naming an OrgEvent of
+ * src/shared/org/repositories.ts without its ".changed" / ".updated".
+ */
+export interface OrgNotice {
+  what: "orgs" | "org" | "teams" | "team" | "projects" | "files";
+  orgId?: string;
+  teamId?: string;
+  parentId?: string | null;
+  projectId?: string | null;
+}
 
 /** Like events fold into one unread row for this long (Figma batches comment notifications every 30 minutes). */
 export const GROUP_MS = 30 * 60_000;
@@ -84,7 +108,7 @@ export async function notificationsRoute(
   if (parts.length === 1 && m === "GET") {
     const filter = url.searchParams.get("filter");
     const limit = Math.max(1, Math.min(PAGE, Number(url.searchParams.get("limit")) || PAGE));
-    return json(await page(deps, user.id, { filter: filter === "requests" || filter === "unread" ? filter : "all", fileKey: url.searchParams.get("file"), before: url.searchParams.get("before"), limit }));
+    return json(await page(deps, user.id, { filter: filter === "requests" || filter === "unread" ? filter : "all", fileKey: url.searchParams.get("file"), orgId: url.searchParams.get("org"), teamId: url.searchParams.get("team"), before: url.searchParams.get("before"), limit }));
   }
   if (parts.length === 2 && parts[1] === "ws" && m === "GET") {
     if (!deps.inboxes) return fail(503, "live notifications aren't available here");
@@ -121,23 +145,35 @@ export async function notificationsRoute(
     const body = await readJson(req);
     const n = await deps.db.d1.prepare(`SELECT kind, file_key, actor_id, state FROM notifications WHERE id = ?1 AND user_id = ?2`).bind(parts[1], user.id).first<{ kind: string; file_key: string | null; actor_id: string; state: string | null }>();
     if (!n || n.kind !== "edit-request" || !n.file_key) return fail(404, "no such request");
-    const role = await deps.db.roleOf(n.file_key, user.id);
-    if (role !== "owner" && role !== "editor") return fail(403, "only people who can edit the file can answer");
+    const access = await canOpen(deps, n.file_key, user.id);
+    if (access?.role !== "owner" && access?.role !== "editor") return fail(403, "only people who can edit the file can answer");
     // Already answered (by someone else): nothing to do, the row shows how.
     if (n.state === "pending" && !(await answer(n.file_key, n.actor_id, body?.approve === true))) await settle(deps, n.file_key, n.actor_id, "denied");
-    return json(await page(deps, user.id, { filter: url.searchParams.get("filter") === "requests" ? "requests" : "all", fileKey: null, before: null, limit: PAGE }));
+    return json(await page(deps, user.id, { filter: url.searchParams.get("filter") === "requests" ? "requests" : "all", fileKey: null, orgId: null, teamId: null, before: null, limit: PAGE }));
   }
   return fail(404, "not found");
 }
 
-async function page(deps: Deps, userId: string, q: { filter: "all" | "requests" | "unread"; fileKey: string | null; before: string | null; limit: number }): Promise<NotificationPage> {
+async function page(deps: Deps, userId: string, q: { filter: "all" | "requests" | "unread"; fileKey: string | null; orgId: string | null; teamId: string | null; before: string | null; limit: number }): Promise<NotificationPage> {
   const where = [`n.user_id = ?1`];
   const args: unknown[] = [userId];
-  if (q.filter === "requests") where.push(`n.kind = 'edit-request'`);
+  if (q.filter === "requests") where.push(`n.kind IN ${REQUEST_KINDS}`);
   if (q.filter === "unread") where.push(`n.read_at IS NULL`);
   if (q.fileKey) {
     args.push(q.fileKey);
     where.push(`n.file_key = ?${args.length}`);
+  }
+  // The bell's "All notifications ⌄": one organization (or "none": outside any), one team (§14.11).
+  if (q.orgId) {
+    if (q.orgId === "none") where.push(`n.org_id IS NULL`);
+    else {
+      args.push(q.orgId);
+      where.push(`n.org_id = ?${args.length}`);
+    }
+  }
+  if (q.teamId) {
+    args.push(q.teamId);
+    where.push(`n.team_id = ?${args.length}`);
   }
   const cursor = /^(\d+)_(.+)$/.exec(q.before ?? "");
   if (cursor) {
@@ -164,7 +200,7 @@ async function page(deps: Deps, userId: string, q: { filter: "all" | "requests" 
 
 async function countsOf(deps: Deps, userId: string): Promise<{ unread: number; pending: number }> {
   const r = await deps.db.d1
-    .prepare(`SELECT SUM(read_at IS NULL) AS unread, SUM(kind = 'edit-request' AND state = 'pending') AS pending FROM notifications WHERE user_id = ?1`)
+    .prepare(`SELECT SUM(read_at IS NULL) AS unread, SUM(kind IN ${REQUEST_KINDS} AND state = 'pending') AS pending FROM notifications WHERE user_id = ?1`)
     .bind(userId)
     .first<{ unread: number | null; pending: number | null }>();
   return { unread: r?.unread ?? 0, pending: r?.pending ?? 0 };
@@ -200,7 +236,7 @@ async function push(deps: Deps, userId: string, item?: NotificationItem): Promis
 interface NewNotification {
   userId: string;
   kind: NotificationKind;
-  fileKey: string;
+  fileKey: string | null;
   actorId: string;
   threadId?: string | null;
   commentId?: string | null;
@@ -208,13 +244,18 @@ interface NewNotification {
   emoji?: string | null;
   role?: string | null;
   state?: string | null;
+  /** Org kinds: the org, team and the name shown (no file) */
+  place?: { orgId: string; teamId: string | null; name: string };
 }
 
 /** Stores one (folding it into a recent unread one of the same kind of event from the same person on the same file). */
 async function deliver(deps: Deps, n: NewNotification): Promise<void> {
   const d1 = deps.db.d1;
   const now = deps.now();
-  const fileName = (await deps.db.file(n.fileKey))?.name ?? "";
+  const place = n.fileKey ? await d1.prepare(`SELECT name, org_id, team_id FROM files WHERE key = ?1`).bind(n.fileKey).first<{ name: string; org_id: string | null; team_id: string | null }>() : null;
+  const fileName = place?.name ?? n.place?.name ?? "";
+  const orgId = place?.org_id ?? n.place?.orgId ?? null;
+  const teamId = place?.team_id ?? n.place?.teamId ?? null;
   // Comments and replies fold into "N comments", reactions into "N reactions"; a mention keeps its own row.
   const family = n.kind === "comment" || n.kind === "reply" ? `'comment', 'reply'` : n.kind === "reaction" ? `'reaction'` : null;
   let id: string | null = null;
@@ -238,10 +279,10 @@ async function deliver(deps: Deps, n: NewNotification): Promise<void> {
     id = `n_${randomToken(12)}`;
     await d1
       .prepare(
-        `INSERT INTO notifications (id, user_id, kind, file_key, file_name, actor_id, thread_id, comment_id, text, emoji, role, state, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)`,
+        `INSERT INTO notifications (id, user_id, kind, file_key, file_name, actor_id, thread_id, comment_id, text, emoji, role, state, created_at, updated_at, org_id, team_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13, ?14, ?15)`,
       )
-      .bind(id, n.userId, n.kind, n.fileKey, fileName, n.actorId, n.threadId ?? null, n.commentId ?? null, n.text ?? null, n.emoji ?? null, n.role ?? null, n.state ?? null, now)
+      .bind(id, n.userId, n.kind, n.fileKey, fileName, n.actorId, n.threadId ?? null, n.commentId ?? null, n.text ?? null, n.emoji ?? null, n.role ?? null, n.state ?? null, now, orgId, teamId)
       .run();
   }
   const row = await d1.prepare(`${SELECT} WHERE n.id = ?1`).bind(id).first<Row>();
@@ -257,10 +298,10 @@ async function safely(what: string, fn: () => Promise<void>): Promise<void> {
   }
 }
 
-/** People who can open the file now (owner, members, or — for those named — anyone with the link) */
+/** People who can open the file now (resolveAccess, §14.9: owner, members, teams, folders, groups, audience, the link) */
 async function withAccess(deps: Deps, key: string, ids: Iterable<string>): Promise<string[]> {
   const out: string[] = [];
-  for (const id of new Set(ids)) if (await deps.db.roleOf(key, id)) out.push(id);
+  for (const id of new Set(ids)) if (await canOpen(deps, key, id)) out.push(id);
   return out;
 }
 
@@ -352,16 +393,49 @@ export async function notifyOwnership(deps: Deps, o: { key: string; by: User; to
   await safely("ownership", () => deliver(deps, { userId: o.toId, kind: "ownership", fileKey: o.key, actorId: o.by.id }));
 }
 
-/** @mentions are user ids, or emails of people invited without an account yet (who have no inbox). */
+/** @mentions are user ids, emails of people invited without an account yet (who have no inbox), or `g:<groupId>` — a
+ *  user group, each member told per their own preferences (§14.11; withAccess keeps those who can open the file). */
 async function resolveMentions(deps: Deps, mentions: string[]): Promise<string[]> {
   const out: string[] = [];
   for (const m of mentions) {
-    if (m.includes("@")) {
+    if (m.startsWith("g:")) {
+      const { results } = await deps.db.d1.prepare(`SELECT user_id FROM user_group_members WHERE group_id = ?1`).bind(m.slice(2)).all<{ user_id: string }>();
+      out.push(...results.map((r) => r.user_id));
+    } else if (m.includes("@")) {
       const u = await deps.db.d1.prepare(`SELECT id FROM users WHERE email = ?1 ORDER BY created_at LIMIT 1`).bind(m.trim().toLowerCase()).first<{ id: string }>();
       if (u) out.push(u.id);
     } else out.push(m);
   }
   return out;
+}
+
+/** An organization's notification (§14.11): no file, the team's or folder's name, `org_id` / `team_id` set. */
+export async function notifyOrg(deps: Deps, n: { userId: string; kind: OrgNotificationKind; actorId: string; orgId: string; teamId?: string | null; name: string; text?: string | null; role?: string | null; state?: string | null }): Promise<void> {
+  if (n.userId === n.actorId) return;
+  await safely(n.kind, () => deliver(deps, { userId: n.userId, kind: n.kind as NotificationKind, fileKey: null, actorId: n.actorId, text: n.text, role: n.role, state: n.state, place: { orgId: n.orgId, teamId: n.teamId ?? null, name: n.name } }));
+}
+
+/** A pending org request answered: the rows of everyone who got it show how (by kind, org, team and the asker). */
+export async function settleOrg(deps: Deps, kind: OrgNotificationKind, orgId: string, actorId: string, state: "approved" | "denied", teamId?: string | null): Promise<void> {
+  await safely("an org answer", async () => {
+    const { results } = await deps.db.d1
+      .prepare(`UPDATE notifications SET state = ?4 WHERE kind = ?1 AND org_id = ?2 AND actor_id = ?3 AND state = 'pending' AND (?5 IS NULL OR team_id = ?5) RETURNING user_id`)
+      .bind(kind, orgId, actorId, state, teamId ?? null)
+      .all<{ user_id: string }>();
+    for (const u of new Set(results.map((r) => r.user_id))) await push(deps, u);
+  });
+}
+
+/** `{t: "org", …}` to these people's open apps: their org cache refreshes (§14.6). Never fails the action. */
+export async function orgNotice(deps: Deps, userIds: Iterable<string>, notice: OrgNotice): Promise<void> {
+  if (!deps.inboxes) return;
+  for (const id of new Set(userIds)) {
+    try {
+      await deps.inboxes.notify(id, { t: "org", ...notice });
+    } catch (e) {
+      console.error("notifications: org notice failed", e);
+    }
+  }
 }
 
 async function readJson(req: Request): Promise<Record<string, unknown> | null> {

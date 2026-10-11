@@ -8,6 +8,7 @@
  *   PATCH  /me/profile              ProfilePatch → AccountProfile (name, photo, role, Community profile, prefs)
  *   GET    /me/sessions             {sessions: SessionInfo[]}, the caller's marked `current`
  *   DELETE /me/sessions/:id         "Sign out": that session's token stops working
+ *   POST   /me/sessions/active      the app reports activity (throttled, once a minute): the session and "Last active"
  *   GET    /me/tokens               {tokens: AccessTokenInfo[]}
  *   POST   /me/tokens               {description, expiresInDays, scopes} → {token (shown once), info}
  *   DELETE /me/tokens/:id           "Revoke access"
@@ -15,6 +16,7 @@
  * Personal access tokens (`dsgn_…`) are Bearer tokens for the API's reads (`patAllows`): kept as their SHA-256 only.
  */
 import { HANDLE_RE, MAX_BIO, MAX_PICTURE_CHARS, ROLES, TOKEN_EXPIRATIONS, TOKEN_PREFIX, isTokenScope, type AccessTokenInfo, type AccountPrefs, type AccountProfile, type CommunityProfile, type SessionInfo, type TokenScope } from "../../src/shared/account";
+import { logForUserOrgs } from "./activity";
 import type { Deps } from "./api";
 import type { User } from "./db";
 import { deletePreviewsOf } from "./previews";
@@ -47,6 +49,8 @@ export async function accountRoute(req: Request, deps: Deps, caller: Caller, par
     if (m === "DELETE") {
       const body = await readJson<{ confirm?: unknown }>(req);
       if (typeof body?.confirm !== "string" || body.confirm.trim().toLowerCase() !== user.email) return fail(400, "type your email to confirm");
+      const blocked = await soleAdminOf(deps, user.id);
+      if (blocked) return json({ error: `make someone else an admin of ${blocked} first`, code: "conflict" }, 409);
       await deleteAccount(deps, user);
       return json({ ok: true });
     }
@@ -77,9 +81,16 @@ export async function accountRoute(req: Request, deps: Deps, caller: Caller, par
         sessions.sort((a, b) => Number(b.current) - Number(a.current));
         return json({ sessions });
       }
+      if (parts.length === 3 && parts[2] === "active" && m === "POST") {
+        // Round 4's idle timeout reads sessions.last_seen_at (docs/multiplayer.md §14.11).
+        if (sid) await d1.prepare(`UPDATE sessions SET last_seen_at = ?3 WHERE id = ?1 AND user_id = ?2`).bind(sid, user.id, now).run();
+        await touchOrgActivity(deps, user.id, true);
+        return json({ ok: true });
+      }
       if (parts.length === 3 && m === "DELETE") {
         if (parts[2] === sid) return fail(400, "log out to end this session");
-        await d1.prepare(`DELETE FROM sessions WHERE id = ?1 AND user_id = ?2`).bind(parts[2], user.id).run();
+        const gone = await d1.prepare(`DELETE FROM sessions WHERE id = ?1 AND user_id = ?2 RETURNING id`).bind(parts[2], user.id).first();
+        if (gone) await logForUserOrgs(deps, user, "user_sign_out", req, { session_id: parts[2] });
         return json({ ok: true });
       }
       break;
@@ -103,10 +114,12 @@ export async function accountRoute(req: Request, deps: Deps, caller: Caller, par
           .bind(id, user.id, description, await sha256b64url(token), JSON.stringify(scopes), now, expiresAt)
           .run();
         const info: AccessTokenInfo = { id, description, scopes: scopes as TokenScope[], createdAt: now, expiresAt, lastUsedAt: null };
+        await logForUserOrgs(deps, user, "personal_access_token_create", req, { token_id: id, description, scopes });
         return json({ token, info }, 201);
       }
       if (parts.length === 3 && m === "DELETE") {
-        await d1.prepare(`DELETE FROM access_tokens WHERE id = ?1 AND user_id = ?2`).bind(parts[2], user.id).run();
+        const gone = await d1.prepare(`DELETE FROM access_tokens WHERE id = ?1 AND user_id = ?2 RETURNING id`).bind(parts[2], user.id).first();
+        if (gone) await logForUserOrgs(deps, user, "personal_access_token_delete", req, { token_id: parts[2] });
         return json({ ok: true });
       }
       break;
@@ -230,7 +243,13 @@ async function patchProfile(deps: Deps, userId: string, body: Record<string, unk
  */
 async function deleteAccount(deps: Deps, user: User): Promise<void> {
   const d1 = deps.db.d1;
-  const { results: owned } = await d1.prepare(`SELECT key FROM files WHERE owner_id = ?1`).bind(user.id).all<{ key: string }>();
+  // Organizations first (docs/multiplayer.md §14.7): removed from each the way Admin removes someone; their drafts and
+  // files there stay — the org owns them (Unassigned drafts).
+  const { removeFromOrg } = await import("./org/orgs");
+  const { results: orgs } = await d1.prepare(`SELECT org_id FROM org_members WHERE user_id = ?1`).bind(user.id).all<{ org_id: string }>();
+  for (const { org_id } of orgs) await removeFromOrg(deps, org_id, user.id, user, null);
+  await d1.prepare(`DELETE FROM org_members WHERE email = ?1 AND user_id IS NULL`).bind(user.email).run();
+  const { results: owned } = await d1.prepare(`SELECT key FROM files WHERE owner_id = ?1 AND org_id IS NULL`).bind(user.id).all<{ key: string }>();
   for (const { key } of owned) {
     await deps.rooms.fetch(key, "/room", { method: "DELETE" });
     await d1.prepare(`DELETE FROM comments WHERE file_key = ?1`).bind(key).run();
@@ -252,7 +271,57 @@ async function deleteAccount(deps: Deps, user: User): Promise<void> {
   await deletePreviewsOf(deps, user.id);
   await d1.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(user.id).run();
   await d1.prepare(`DELETE FROM access_tokens WHERE user_id = ?1`).bind(user.id).run();
+  if (await keptByOrgs(deps, user.id)) {
+    // Org content still names them (drafts, teams, folders, groups, invites): the row stays as a tombstone — no email,
+    // no Google account, no sign-in; their name reads "Deleted user".
+    await d1
+      .prepare(`UPDATE users SET google_sub = ?2, email = ?3, name = 'Deleted user', picture = NULL, token_version = token_version + 1, name_locked = 1, picture_locked = 1 WHERE id = ?1`)
+      .bind(user.id, `deleted:${user.id}`, `deleted+${user.id}@invalid`)
+      .run();
+    return;
+  }
   await d1.prepare(`DELETE FROM users WHERE id = ?1`).bind(user.id).run();
+}
+
+/** An org where they are the only admin and others remain: the account can't go before someone else is admin. */
+async function soleAdminOf(deps: Deps, userId: string): Promise<string | null> {
+  const r = await deps.db.d1
+    .prepare(
+      `SELECT o.name FROM org_members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ?1 AND m.role = 'admin'
+       AND NOT EXISTS (SELECT 1 FROM org_members x WHERE x.org_id = m.org_id AND x.role = 'admin' AND x.user_id <> ?1 AND x.user_id IS NOT NULL)
+       AND EXISTS (SELECT 1 FROM org_members y WHERE y.org_id = m.org_id AND (y.user_id IS NULL OR y.user_id <> ?1)) LIMIT 1`,
+    )
+    .bind(userId)
+    .first<{ name: string }>();
+  return r?.name ?? null;
+}
+
+/** Does anything of an org still refer to this user (so the row can't be deleted under its foreign keys)? */
+async function keptByOrgs(deps: Deps, userId: string): Promise<boolean> {
+  const r = await deps.db.d1
+    .prepare(
+      `SELECT (EXISTS (SELECT 1 FROM files WHERE owner_id = ?1 OR trashed_by = ?1) OR EXISTS (SELECT 1 FROM orgs WHERE created_by = ?1)
+         OR EXISTS (SELECT 1 FROM teams WHERE owner_id = ?1 OR deleted_by = ?1) OR EXISTS (SELECT 1 FROM projects WHERE owner_id = ?1 OR trashed_by = ?1)
+         OR EXISTS (SELECT 1 FROM user_groups WHERE created_by = ?1) OR EXISTS (SELECT 1 FROM org_members WHERE invited_by = ?1)
+         OR EXISTS (SELECT 1 FROM team_members WHERE invited_by = ?1) OR EXISTS (SELECT 1 FROM project_members WHERE invited_by = ?1)
+         OR EXISTS (SELECT 1 FROM user_group_members WHERE added_by = ?1) OR EXISTS (SELECT 1 FROM group_grants WHERE granted_by = ?1)
+         OR EXISTS (SELECT 1 FROM seat_requests WHERE answered_by = ?1) OR EXISTS (SELECT 1 FROM guest_requests WHERE invited_by = ?1 OR answered_by = ?1)) AS kept`,
+    )
+    .bind(userId)
+    .first<{ kept: number }>();
+  return (r?.kept ?? 0) === 1;
+}
+
+/**
+ * Admin › People "Last active" (docs/multiplayer.md §14.11): every org of the user, moved on at most every 5 minutes
+ * (`force`: the app's activity report, itself once a minute).
+ */
+export async function touchOrgActivity(deps: Deps, userId: string, force = false): Promise<void> {
+  const now = deps.now();
+  await deps.db.d1
+    .prepare(`UPDATE org_members SET last_active_at = ?2 WHERE user_id = ?1 AND (last_active_at IS NULL OR last_active_at < ?3)`)
+    .bind(userId, now, force ? now - 60_000 : now - 300_000)
+    .run();
 }
 
 function safeParse<T>(text: string, fallback: T): T {

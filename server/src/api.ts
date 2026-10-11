@@ -4,9 +4,15 @@
  */
 import type { Role } from "../../src/shared/multiplayer/protocol";
 import { deviceFromUserAgent } from "../../src/shared/account";
-import { patAllows, personalToken, requestPlace, type Caller } from "./account";
+import { patAllows, personalToken, requestPlace, touchOrgActivity, type Caller } from "./account";
 import { normalizeEmail, type Db, type User } from "./db";
 import { authorizeUrl, exchangeCode, GoogleError } from "./google";
+import type { ActivityAction } from "../../src/shared/org/types";
+import { fileEntity, logActivity, logFileView, logForUserOrgs } from "./activity";
+import { seatNeeded } from "../../src/shared/org/access";
+import { Access, claimInvites, fileAccessOf, type FileRow } from "./org/db";
+import { errorBody, HttpError, type Ctx } from "./org/http";
+import { reauth } from "./org/reauth";
 import { notificationsRoute, notifyEditRequest, notifyInvite, notifyOwnership, notifyRequestAnswered } from "./notifications";
 import { isPreviewPath, previews, viewerPage } from "./previews";
 import { checkPassword, hashPassword, randomToken, sha256b64url, signToken, verifyToken } from "./tokens";
@@ -68,15 +74,6 @@ interface StatePayload {
   exp: number;
 }
 
-class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
 const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8" } });
 const publicUser = (u: User) => ({ id: u.id, email: u.email, name: u.name, picture: u.picture });
 const FILE_KEY = /^[A-Za-z0-9_-]{6,64}$/;
@@ -92,10 +89,10 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   try {
     res = await route(req, deps);
   } catch (e) {
-    if (e instanceof HttpError) res = json({ error: e.message }, e.status);
+    if (e instanceof HttpError) res = json(errorBody(e), e.status);
     else {
       console.error(e);
-      res = json({ error: "internal error" }, 500);
+      res = json({ error: "internal error", code: "internal" }, 500);
     }
   }
   if (!allowed || res.status === 101 || (res as { webSocket?: unknown }).webSocket) return res;
@@ -143,11 +140,22 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   }
 
   if (parts[0] === "notifications") return notificationsRoute(req, deps, user, parts, (key, requesterId, approve) => answerEditRequest(deps, key, user, requesterId, approve));
+  // Organizations (docs/multiplayer.md §14.12): one dispatch line each.
+  const orgCtx = (): Ctx => ({ req, url, deps, user, parts, m, acc: new Access(deps, user) });
+  if (parts[0] === "orgs") return (await import("./org/orgs")).orgsRoute(orgCtx());
+  if (parts[0] === "teams") return (await import("./org/teams")).teamsRoute(orgCtx());
+  if (parts[0] === "projects") return (await import("./org/projects")).projectsRoute(orgCtx());
+  if (parts[0] === "groups") return (await import("./org/groups")).groupsRoute(orgCtx());
   if (parts[0] !== "files") throw new HttpError(404, "not found");
   if (parts.length === 1) {
-    if (m === "GET") return json({ files: await deps.db.files(user.id) });
+    if (m === "GET") return json({ files: await sharedFiles(deps, user.id) });
     if (m === "POST") {
-      const body = await readJson<{ key?: string; name?: string }>(req);
+      const body = await readJson<{ key?: string; name?: string; orgId?: unknown; projectId?: unknown; editorType?: unknown }>(req);
+      // In an org: a file in a folder (projectId) or the caller's draft (no projectId) — §14.12 "Files".
+      if (typeof body.orgId === "string") {
+        const file = await (await import("./org/orgs")).createOrgFile(orgCtx(), { key: body.key, name: body.name, orgId: body.orgId, projectId: typeof body.projectId === "string" ? body.projectId : null, editorType: body.editorType });
+        return json({ key: file.key, name: file.name, role: "owner", file }, 201);
+      }
       const key = body.key ?? "";
       if (!FILE_KEY.test(key)) throw new HttpError(400, "bad file key");
       const name = cleanName(body.name);
@@ -159,52 +167,103 @@ async function route(req: Request, deps: Deps): Promise<Response> {
 
   const key = parts[1];
   if (!FILE_KEY.test(key)) throw new HttpError(400, "bad file key");
-  const access = await deps.db.access(key, user.id);
-  if (!access) throw new HttpError(404, "no such file"); // also when it exists but isn't shared with the caller
-  const role = access.role;
+  // Who the caller is to this file (resolveAccess, §14.4). Naming the file by its key is opening it by its link: the
+  // key is what the link carries (ours — `viaLink` is true on every /files/:key route, false in listings).
+  const acc = new Access(deps, user);
+  const f = await acc.fileRow(key);
+  if (!f) throw new HttpError(404, "no such file");
+  const passOk = f.link_password !== null && (await validPass(req, url, deps, key, user.id, f.link_password_version));
+  const access = await acc.file(f, { viaLink: true, passOk });
   // "Password required": someone in by the link alone shows a pass for the current password (POST …/unlock) — invited
   // people never need it. The file's name and the unlock route are open to them so the app can ask.
-  const needsPassword = !access.invited && access.password !== null && !(await validPass(req, url, deps, key, user.id, access.passwordVersion));
   const open = (parts.length === 2 && m === "GET") || (parts.length === 3 && parts[2] === "unlock" && m === "POST");
-  if (needsPassword && !open) throw new HttpError(403, "password required");
+  if (!access.ok) {
+    if (access.reason === "gone") throw new HttpError(410, "this link has expired", "gone");
+    if (access.reason === "none") throw new HttpError(404, "no such file"); // also when it exists but isn't shared with the caller
+    if (!open) throw new HttpError(403, "password required", "password_required");
+  }
+  const needsPassword = !access.ok;
+  const a = access.ok ? access : null;
+  const role: Role = a ? a.roomRole : "viewer";
   const identity = { userId: user.id, name: user.name, role };
-  const atLeast = (r: Role) => {
-    if (rank[role] < rank[r]) throw new HttpError(403, r === "owner" ? "only the owner can" : "you can only view this file");
+  const inOrg = f.org_id !== null;
+  const need = (ok: boolean | undefined, message: string) => {
+    if (!ok) {
+      if (a?.capped === "seat" && (a.role === "owner" || a.role === "editor") && /edit|view/.test(message)) throw new HttpError(403, "your seat can't edit this file", "seat_required", { seat: seatNeeded(f.editor_type) });
+      throw new HttpError(403, message);
+    }
   };
+  const canChange = !!a && !a.trashed && (a.canEdit || a.canManage);
+  const writer = !!a && (a.role === "owner" || a.role === "editor" || a.canManage);
+  const log = (action: ActivityAction, details: Record<string, unknown> = {}, name = f.name) =>
+    inOrg ? logActivity(deps, { orgId: f.org_id!, action, actor: user, entity: fileEntity({ ...f, name }), teamId: f.team_id, details, req }) : Promise.resolve();
 
   if (parts.length === 2) {
     if (m === "GET") {
-      const f = await deps.db.file(key);
-      return json({ key, name: f?.name ?? "Untitled", role, linkAccess: f?.linkAccess ?? "none", viewersCanCopy: f?.viewersCanCopy ?? true, passwordProtected: f?.passwordProtected ?? false, needsPassword, link: `${url.origin}/f/${key}` });
+      const linkExpired = f.link_expires_at !== null && deps.now() >= f.link_expires_at;
+      return json({
+        key,
+        name: f.name,
+        role: a ? role : access.ok ? role : (access.role ?? "viewer"),
+        linkAccess: linkExpired ? "none" : f.link_access,
+        viewersCanCopy: f.viewers_can_copy !== 0,
+        passwordProtected: f.link_password !== null,
+        needsPassword,
+        link: `${url.origin}/f/${key}`,
+        editorType: f.editor_type,
+        accessMode: f.access,
+        orgLinkAccess: f.org_link_access,
+        protoLinkAccess: f.proto_link_access,
+        linkExpiresAt: f.link_expires_at,
+        linkExpired,
+        trashedAt: f.trashed_at,
+        access: a ? fileAccessOf(a) : null,
+        org: a ? await fileOrg(acc, f) : null,
+      });
     }
     if (m === "PATCH") {
-      const body = await readJson<{ name?: string; linkAccess?: string; viewersCanCopy?: unknown; linkPassword?: unknown }>(req);
+      const body = await readJson<{ name?: string; linkAccess?: string; viewersCanCopy?: unknown; linkPassword?: unknown; access?: unknown; orgLinkAccess?: unknown; protoLinkAccess?: unknown; linkExpiresAt?: unknown }>(req);
       if (body.linkPassword !== undefined) {
         // help.figma.com: anyone who can edit sets, changes or removes it; changing it makes link-only people enter it again.
-        atLeast("editor");
+        need(canChange, "you can only view this file");
         if (body.linkPassword !== null && (typeof body.linkPassword !== "string" || body.linkPassword.length < 1 || body.linkPassword.length > 128)) throw new HttpError(400, "linkPassword is 1–128 characters, or null");
         await deps.db.setLinkPassword(key, body.linkPassword === null ? null : await hashPassword(body.linkPassword), deps.now());
         await deps.rooms.fetch(key, "/room/revoke-link", { method: "POST" });
+        await log(body.linkPassword === null ? "fig_file_unset_password" : "fig_file_set_password");
       }
       if (body.viewersCanCopy !== undefined) {
-        atLeast("editor");
+        need(canChange, "you can only view this file");
         await deps.db.setViewersCanCopy(key, body.viewersCanCopy === true, deps.now());
+        await log("fig_file_viewer_access_change", { viewers_can_copy: body.viewersCanCopy === true });
       }
       if (body.linkAccess !== undefined) {
-        atLeast("owner");
+        need(a?.canManage, "only the owner can");
         if (body.linkAccess !== "none" && body.linkAccess !== "viewer" && body.linkAccess !== "editor") throw new HttpError(400, "linkAccess is none, viewer or editor");
         await deps.db.setLinkAccess(key, body.linkAccess, deps.now());
         // Someone in by the link alone loses it with "none": their sockets reconnect and are refused.
         if (body.linkAccess !== "editor") await deps.rooms.fetch(key, "/room/revoke-link", { method: "POST" });
+        await log("fig_file_link_access_change", { link: "public", from: f.link_access, to: body.linkAccess });
+      }
+      if (body.orgLinkAccess !== undefined || body.access !== undefined || body.protoLinkAccess !== undefined || body.linkExpiresAt !== undefined) {
+        need(a?.canManage, "only the owner and admins can");
+        await patchOrgFileSettings(deps, acc, f, body, log);
       }
       if (body.name !== undefined) {
-        atLeast("editor");
+        need(canChange, "you can only view this file");
         await deps.db.renameFile(key, cleanName(body.name), deps.now());
+        await log("fig_file_rename", { old_name: f.name }, cleanName(body.name));
       }
       return json({ ok: true });
     }
     if (m === "DELETE") {
-      atLeast("owner");
+      need(a?.canManage, "only the owner can");
+      if (inOrg) {
+        // In an org, "Delete forever" — from the trash only (§14.12).
+        if (!a!.trashed) throw new HttpError(409, "move the file to the trash first");
+        await (await import("./org/projects")).deleteFileForever(orgCtx(), key);
+        await log("fig_file_permanent_delete");
+        return json({ ok: true });
+      }
       await deps.rooms.fetch(key, "/room", { method: "DELETE" });
       await deps.db.deleteFile(key);
       return json({ ok: true });
@@ -216,52 +275,82 @@ async function route(req: Request, deps: Deps): Promise<Response> {
     case "unlock": {
       if (parts.length !== 3 || m !== "POST") break;
       const { password } = await readJson<{ password?: unknown }>(req);
-      if (!access.password) return json({ pass: null });
-      if (typeof password !== "string" || !(await checkPassword(password, access.password))) throw new HttpError(403, "wrong password");
-      const pass = await signToken({ k: key, u: user.id, v: access.passwordVersion, exp: seconds(deps) + SESSION_DAYS * 86400 }, secret(deps));
+      if (!f.link_password) return json({ pass: null });
+      if (typeof password !== "string" || !(await checkPassword(password, f.link_password))) throw new HttpError(403, "wrong password");
+      const pass = await signToken({ k: key, u: user.id, v: f.link_password_version, exp: seconds(deps) + SESSION_DAYS * 86400 }, secret(deps));
       return json({ pass });
     }
     case "transfer": {
       // "Transfer ownership" (help.figma.com 360038512093): owner only, to someone already invited; can't be undone.
       if (parts.length !== 3 || m !== "POST") break;
-      atLeast("owner");
+      need(a?.role === "owner", "only the owner can");
       const { email } = await readJson<{ email?: unknown }>(req);
       if (typeof email !== "string") throw new HttpError(400, "email");
       const done = await deps.db.transferOwnership(key, email, user.id, deps.now());
       if (!done) throw new HttpError(400, "only someone invited who has logged in can own the file");
       for (const userId of [done.toId, user.id]) await deps.rooms.fetch(key, "/room/revoke", { method: "POST", body: JSON.stringify({ userId }) });
       await notifyOwnership(deps, { key, by: user, toId: done.toId });
+      await log("fig_file_member_permission_change", { email: normalizeEmail(email), user_id: done.toId, role: "owner", previous_owner: user.id });
       return json({ ok: true });
     }
     case "members": {
-      if (parts.length === 3 && m === "GET") return json({ members: await deps.db.members(key) });
+      if (parts.length === 3 && m === "GET") return json({ members: await deps.db.members(key), groups: inOrg ? await (await import("./org/teams")).groupMembers(orgCtx(), "file", key) : [] });
+      // Outside orgs the owner invites (§3); in an org, owners and editors of the file and admins (§14.2).
+      const canInvite = inOrg ? !!a && !a.trashed && (a.canShare || a.canManage) : a?.canManage;
       if (parts.length === 3 && m === "PUT") {
-        atLeast("owner");
-        const body = await readJson<{ email?: string; role?: string }>(req);
+        need(canInvite, inOrg ? "only people who can edit the file can share it" : "only the owner can");
+        const body = await readJson<{ email?: string; groupId?: unknown; role?: string }>(req);
+        if (body.role !== "editor" && body.role !== "viewer") throw new HttpError(400, "role is editor or viewer");
+        if (inOrg && typeof body.groupId === "string") {
+          const { grantGroup } = await import("./org/teams");
+          const g = await grantGroup(orgCtx(), f.org_id!, "file", key, body.groupId, body.role);
+          await log(g.was ? "fig_file_member_permission_change" : "fig_file_member_add", { group_id: body.groupId, group_name: g.name, role: body.role, from: g.was });
+          if (g.was === "editor" && body.role === "viewer") await reauth(deps, [key]);
+          return json({ ok: true });
+        }
         const email = normalizeEmail(body.email ?? "");
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpError(400, "bad email");
-        if (body.role !== "editor" && body.role !== "viewer") throw new HttpError(400, "role is editor or viewer");
-        if (email === user.email) throw new HttpError(400, "you own this file");
-        const invited = !(await deps.db.members(key)).some((x) => x.email === email);
+        const ownerEmail = (await deps.db.user(f.owner_id))?.email;
+        if (email === ownerEmail) throw new HttpError(400, email === user.email ? "you own this file" : "they own this file");
+        const before = (await deps.db.members(key)).find((x) => x.email === email);
+        if (inOrg && !before) {
+          const outcome = await (await import("./org/orgs")).inviteEmail(orgCtx(), f.org_id!, email, { type: "file", id: key, name: f.name }, body.role);
+          if (outcome.kind === "requested") return json({ ok: true, requested: true, requestId: outcome.requestId }, 202);
+        }
         const memberId = await deps.db.putMember(key, email, body.role, user.id, deps.now());
         // A changed role takes effect on the member's open sockets: they reconnect with it.
         if (memberId) await deps.rooms.fetch(key, "/room/revoke", { method: "POST", body: JSON.stringify({ userId: memberId }) });
-        if (memberId && invited) await notifyInvite(deps, { key, by: user, userId: memberId, role: body.role });
+        if (memberId && !before) await notifyInvite(deps, { key, by: user, userId: memberId, role: body.role });
+        await log(before ? "fig_file_member_permission_change" : "fig_file_member_add", { email, user_id: memberId, role: body.role, from: before?.role ?? null });
         return json({ ok: true });
       }
       if (parts.length === 4 && m === "DELETE") {
-        atLeast("owner");
+        need(canInvite, inOrg ? "only people who can edit the file can share it" : "only the owner can");
+        if (inOrg && parts[3].startsWith("g:")) {
+          const r = await deps.db.d1.prepare(`DELETE FROM group_grants WHERE group_id = ?1 AND resource_type = 'file' AND resource_id = ?2 RETURNING group_id`).bind(parts[3].slice(2), key).first();
+          if (r) {
+            await log("fig_file_member_remove", { group_id: parts[3].slice(2) });
+            await reauth(deps, [key]);
+          }
+          return json({ ok: true });
+        }
         const memberId = await deps.db.removeMember(key, parts[3]);
         if (memberId) await deps.rooms.fetch(key, "/room/revoke", { method: "POST", body: JSON.stringify({ userId: memberId }) });
+        await log("fig_file_member_remove", { email: normalizeEmail(parts[3]), user_id: memberId });
         return json({ ok: true });
       }
       break;
     }
     case "snapshot": {
       if (parts.length !== 3) break;
-      if (m === "GET") return deps.rooms.fetch(key, "/room/snapshot", { method: "GET", identity });
+      if (m === "GET") {
+        // "Viewers can copy, save, and export" off (§14.12, R18 A-8): viewing still needs the snapshot; Save local copy
+        // and Duplicate ask with ?purpose=export and are refused.
+        if (url.searchParams.get("purpose") === "export" && !a?.canExport) throw new HttpError(403, "the owner turned off copying and exporting for viewers");
+        return deps.rooms.fetch(key, "/room/snapshot", { method: "GET", identity });
+      }
       if (m === "PUT") {
-        atLeast("editor");
+        need(a?.canEdit, "you can only view this file");
         const seq = Number(url.searchParams.get("seq"));
         if (!Number.isInteger(seq) || seq < 0) throw new HttpError(400, "bad seq");
         const length = Number(req.headers.get("content-length") ?? "0");
@@ -275,18 +364,19 @@ async function route(req: Request, deps: Deps): Promise<Response> {
     case "requests": {
       // "Ask to edit": a viewer asks; editors see the requests (live, through the room) and approve or deny.
       if (parts.length === 3 && m === "POST") {
-        if (role !== "viewer") throw new HttpError(400, "you can already edit");
+        if (a?.capped === "seat") throw new HttpError(403, "ask an admin to upgrade your seat", "seat_required", { seat: seatNeeded(f.editor_type) });
+        if (a?.role !== "viewer") throw new HttpError(400, "you can already edit");
         await deps.db.addRequest(key, user.id, deps.now());
         await deps.rooms.fetch(key, "/room/notice", { method: "POST", body: JSON.stringify({ kind: "access-request", userId: user.id, name: user.name ?? user.email }) });
         await notifyEditRequest(deps, { key, by: user });
         return json({ ok: true });
       }
       if (parts.length === 3 && m === "GET") {
-        atLeast("editor");
+        need(writer, "you can only view this file");
         return json({ requests: await deps.db.requests(key) });
       }
       if (parts.length === 4 && m === "POST") {
-        atLeast("editor");
+        need(writer, "you can only view this file");
         const { approve } = await readJson<{ approve?: unknown }>(req);
         if (!(await answerEditRequest(deps, key, user, parts[3], approve === true))) throw new HttpError(404, "no such request");
         return json({ ok: true });
@@ -303,23 +393,133 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       if (parts.length !== 4 || !/^[0-9a-f]{40}$/.test(parts[3])) break;
       if (m === "GET") return deps.rooms.fetch(key, `/room/blobs/${parts[3]}`, { method: "GET", identity });
       if (m === "PUT") {
-        atLeast("editor");
+        need(a?.canEdit, "you can only view this file");
         const body = await req.arrayBuffer();
         if (body.byteLength > 40 * 1024 * 1024) throw new HttpError(413, "image too large");
         return deps.rooms.fetch(key, `/room/blobs/${parts[3]}`, { method: "PUT", body, identity });
       }
       break;
     }
-    case "comments": return (await import("./comments")).commentsRoute(req, deps, { key, role, user, parts });
+    case "comments": {
+      // External content controls stop comments too (§14.4, round 4); a trashed file is read-only.
+      if (m !== "GET" && !a?.canComment) throw new HttpError(403, "you can't comment on this file");
+      return (await import("./comments")).commentsRoute(req, deps, { key, role, user, parts });
+    }
+    case "move": {
+      // Within the org: into a folder the caller can edit, or (projectId null) into the owner's drafts (§14.12).
+      if (parts.length !== 3 || m !== "POST") break;
+      if (!inOrg) throw new HttpError(400, "only files in an organization move between folders");
+      need(writer && !a?.trashed, "only people who can edit the file can move it");
+      const { projectId } = await readJson<{ projectId?: unknown }>(req);
+      let teamId: string | null = null;
+      if (projectId === null) {
+        if (f.owner_id !== user.id) throw new HttpError(403, "only the owner can move a file to their drafts");
+      } else if (typeof projectId === "string") {
+        const p = await acc.project(projectId);
+        const t = p ? await acc.team(p.team_id) : null;
+        if (!p || !t || t.org_id !== f.org_id || t.deleted_at !== null) throw new HttpError(400, "no such folder");
+        const to = await acc.container(t.id, p.id);
+        if (!to.ok || to.trashed || (to.role !== "owner" && to.role !== "editor" && !to.canManage)) throw new HttpError(403, "you can't add files to that folder");
+        teamId = t.id;
+      } else throw new HttpError(400, "projectId is a folder id or null");
+      await deps.db.d1.prepare(`UPDATE files SET project_id = ?2, team_id = ?3, updated_at = ?4 WHERE key = ?1`).bind(key, projectId, teamId, deps.now()).run();
+      await logActivity(deps, { orgId: f.org_id!, action: "fig_file_move", actor: user, entity: fileEntity(f), teamId: teamId ?? f.team_id, details: { from: f.project_id, to: projectId }, req });
+      await reauth(deps, [key]);
+      return json({ ok: true });
+    }
+    case "trash":
+    case "restore": {
+      if (parts.length !== 3 || m !== "POST") break;
+      if (!inOrg) throw new HttpError(400, "only files in an organization go to the trash; stop sharing instead");
+      need(writer, "only people who can edit the file can do that");
+      const trash = parts[2] === "trash";
+      if (trash === (f.trashed_at !== null)) throw new HttpError(409, trash ? "the file is already in the trash" : "the file isn't in the trash");
+      await deps.db.d1.prepare(`UPDATE files SET trashed_at = ?2, trashed_by = ?3, updated_at = ?4 WHERE key = ?1`).bind(key, trash ? deps.now() : null, trash ? user.id : null, deps.now()).run();
+      await log(trash ? "fig_file_trash" : "fig_file_restore");
+      await reauth(deps, [key]);
+      return json({ ok: true });
+    }
+    case "activity": {
+      // Events only the client sees (§14.10): a local export, Save local copy, Present.
+      if (parts.length !== 3 || m !== "POST") break;
+      const body = await readJson<{ action?: unknown; details?: unknown }>(req);
+      if (body.action !== "fig_file_export" && body.action !== "fig_file_save_as" && body.action !== "fig_file_view_prototype") throw new HttpError(400, "action is fig_file_export, fig_file_save_as or fig_file_view_prototype");
+      if ((body.action === "fig_file_export" || body.action === "fig_file_save_as") && !a?.canExport) throw new HttpError(403, "the owner turned off copying and exporting for viewers");
+      const details = body.details && typeof body.details === "object" && !Array.isArray(body.details) ? (body.details as Record<string, unknown>) : {};
+      if (JSON.stringify(details).length > 2000) throw new HttpError(400, "details too large");
+      await log(body.action, { ...details, client_reported: true });
+      return new Response(null, { status: 204 });
+    }
     case "ws": {
       if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new HttpError(426, "expected a WebSocket");
+      if (inOrg && a) {
+        const membership = await acc.membership(f.org_id!);
+        await logFileView(deps, { ...f, org_id: f.org_id! }, user, { guest: membership?.role !== "admin" && membership?.role !== "member", prototype: url.searchParams.get("m") === "proto", req });
+      }
       return deps.rooms.fetch(key, "/room/ws", { method: "GET", identity }, req);
     }
   }
   throw new HttpError(404, "not found");
 }
 
-const rank: Record<Role, number> = { viewer: 0, editor: 1, owner: 2 };
+/** Home's Shared files (§3): what the caller owns or was invited to, with its org place; trashed org files left out. */
+async function sharedFiles(deps: Deps, userId: string) {
+  const files = await deps.db.files(userId);
+  const { results } = await deps.db.d1
+    .prepare(`SELECT f.key, f.org_id, f.team_id, f.project_id, f.editor_type, f.trashed_at FROM files f LEFT JOIN members m ON m.file_key = f.key AND m.user_id = ?1 WHERE f.owner_id = ?1 OR m.user_id = ?1`)
+    .bind(userId)
+    .all<{ key: string; org_id: string | null; team_id: string | null; project_id: string | null; editor_type: string; trashed_at: number | null }>();
+  const place = new Map(results.map((r) => [r.key, r]));
+  return files.filter((x) => place.get(x.key)?.trashed_at == null).map((x) => {
+    const p = place.get(x.key);
+    return { ...x, orgId: p?.org_id ?? null, teamId: p?.team_id ?? null, projectId: p?.project_id ?? null, editorType: p?.editor_type ?? "design" };
+  });
+}
+
+/** `org` of GET /files/:key: the org, team and folder path, or null outside any org. */
+async function fileOrg(acc: Access, f: FileRow) {
+  if (!f.org_id) return null;
+  const org = await acc.org(f.org_id);
+  const team = f.team_id ? await acc.team(f.team_id) : null;
+  const chain = f.project_id ? await acc.chain(f.project_id) : [];
+  return { id: f.org_id, orgId: f.org_id, name: org?.name ?? "", teamId: f.team_id, teamName: team?.name ?? null, projectId: f.project_id, path: chain.map((p) => ({ id: p.id, name: p.name })).reverse() };
+}
+
+/** PATCH /files/:key's org fields: Inherited / Limited, the org link, prototype link, link expiry (§14.12). */
+async function patchOrgFileSettings(deps: Deps, acc: Access, f: FileRow, body: { access?: unknown; orgLinkAccess?: unknown; protoLinkAccess?: unknown; linkExpiresAt?: unknown }, log: (action: ActivityAction, details?: Record<string, unknown>) => Promise<void>): Promise<void> {
+  const d1 = deps.db.d1;
+  const now = deps.now();
+  let lowered = false;
+  if (body.access !== undefined) {
+    if (!f.org_id) throw new HttpError(400, "access applies to files in an organization");
+    if (body.access !== "inherited" && body.access !== "limited") throw new HttpError(400, "access is inherited or limited");
+    await d1.prepare(`UPDATE files SET access = ?2, updated_at = ?3 WHERE key = ?1`).bind(f.key, body.access, now).run();
+    if (body.access === "limited") lowered = true;
+  }
+  if (body.orgLinkAccess !== undefined) {
+    if (!f.org_id) throw new HttpError(400, "orgLinkAccess applies to files in an organization");
+    if (body.orgLinkAccess !== "none" && body.orgLinkAccess !== "viewer" && body.orgLinkAccess !== "editor") throw new HttpError(400, "orgLinkAccess is none, viewer or editor");
+    await d1.prepare(`UPDATE files SET org_link_access = ?2, updated_at = ?3 WHERE key = ?1`).bind(f.key, body.orgLinkAccess, now).run();
+    await log("fig_file_link_access_change", { link: "org", from: f.org_link_access, to: body.orgLinkAccess });
+    if (body.orgLinkAccess !== "editor") lowered = true;
+  }
+  if (body.protoLinkAccess !== undefined) {
+    if (body.protoLinkAccess !== "none" && body.protoLinkAccess !== "viewer") throw new HttpError(400, "protoLinkAccess is none or viewer");
+    await d1.prepare(`UPDATE files SET proto_link_access = ?2, updated_at = ?3 WHERE key = ?1`).bind(f.key, body.protoLinkAccess, now).run();
+    await log("fig_file_proto_link_access_change", { from: f.proto_link_access, to: body.protoLinkAccess });
+  }
+  if (body.linkExpiresAt !== undefined) {
+    const at = body.linkExpiresAt;
+    if (at !== null && (typeof at !== "number" || !Number.isFinite(at) || at <= now)) throw new HttpError(400, "linkExpiresAt is a future time (ms) or null");
+    const max = f.org_id ? (await acc.settings(f.org_id)).linkExpiryMaxHours : null;
+    if (max !== null && (at === null || (at as number) > now + max * 3_600_000)) throw new HttpError(400, `links in this organization expire within ${max} hours`);
+    await d1.prepare(`UPDATE files SET link_expires_at = ?2, updated_at = ?3 WHERE key = ?1`).bind(f.key, at, now).run();
+    await log("fig_file_link_expiration_change", { from: f.link_expires_at, to: at });
+    lowered = true;
+  }
+  if (lowered) await reauth(deps, [f.key]);
+}
+
 
 /** "Ask to edit" answered by `by` (an editor or the owner — the caller checks): false when there was no such request.
  *  From the Share dialog and from the notifications' Requests tab. */
@@ -378,6 +578,8 @@ async function authenticate(req: Request, url: URL, deps: Deps, allowQuery: bool
   const user = p && (await deps.db.user(p.uid));
   if (!p || !user || user.tokenVersion !== p.tv) throw new HttpError(401, "session expired");
   if (p.sid && !(await deps.db.touchSession(p.sid, user.id, deps.now()))) throw new HttpError(401, "session expired");
+  // Admin › People "Last active" (§14.11): moved on with the session, at most every 5 minutes.
+  await touchOrgActivity(deps, user.id);
   return { user, sid: p.sid ?? null, scopes: null };
 }
 
@@ -394,7 +596,9 @@ function sessionOnly(c: Caller): User {
  */
 async function embedRoute(key: string, part: string | undefined, url: URL, deps: Deps): Promise<Response> {
   const f = await deps.db.file(key);
-  if (!f || f.linkAccess === "none" || f.passwordProtected) {
+  const expiry = f ? await deps.db.d1.prepare(`SELECT link_expires_at FROM files WHERE key = ?1`).bind(key).first<{ link_expires_at: number | null }>() : null;
+  const expired = expiry?.link_expires_at != null && deps.now() >= expiry.link_expires_at;
+  if (!f || f.linkAccess === "none" || f.passwordProtected || expired) {
     if (!part) return page(404, "This file isn't available to embed. Its owner can share it with anyone who has the link, without a password.");
     throw new HttpError(404, "not available");
   }
@@ -428,6 +632,9 @@ async function validPass(req: Request, url: URL, deps: Deps, key: string, userId
 /** A new session: its row (what and where it signed in from) and a token naming it. */
 async function issueSession(user: User, deps: Deps, req: Request): Promise<Response> {
   const exp = seconds(deps) + SESSION_DAYS * 86400;
+  // Invites to orgs, teams and folders waiting for this email become this user's (§14.5, as 0001's members).
+  await claimInvites(deps.db.d1, user);
+  await logForUserOrgs(deps, user, "user_sign_in", req);
   const sid = await deps.db.createSession(user.id, { ...deviceFromUserAgent(req.headers.get("user-agent")), ...requestPlace(req) }, deps.now());
   const token = await signToken({ uid: user.id, tv: user.tokenVersion, sid, exp }, secret(deps));
   return json({ token, expiresAt: exp * 1000, user: publicUser(user) });
