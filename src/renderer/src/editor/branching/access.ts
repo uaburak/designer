@@ -1,7 +1,5 @@
 /**
- * How the branching UI reaches the store (docs/data.md §15.6). Round 2a adds `branches: BranchesRepository` to StoreApi;
- * until it lands, `getBranches(store)` reads it when present and the UI stays on the plain copy of round 10
- * (objectCommands.ts `createBranch`) when absent. The merger replaces `getBranches(store)` with `store.branches`.
+ * How the branching UI reaches the store (docs/data.md §15.6): `StoreApi.branches` (round 2a), over the store port.
  *
  * `BranchingBackend` is the repository plus what the UI needs around it: file names, people who can review, who the
  * viewer is, opening a file and a branch's link. Tests set their own (`setBranchingBackend`, `fake/`).
@@ -35,9 +33,9 @@ export interface BranchingBackend {
   link(branch: BranchRecord): Promise<string | null>;
 }
 
-/** The store's branches repository, when the store has one (round 2a). */
-export function getBranches(store: Partial<Pick<StoreApi, "workspace">> | null | undefined): BranchesRepository | null {
-  return (store as { branches?: BranchesRepository } | null | undefined)?.branches ?? null;
+/** The store's branches repository (StoreApi.branches, round 2a); null without a store. */
+export function getBranches(store: Pick<StoreApi, "branches"> | null | undefined): BranchesRepository | null {
+  return store?.branches ?? null;
 }
 
 const backends = new WeakMap<EditorController, BranchingBackend | null>();

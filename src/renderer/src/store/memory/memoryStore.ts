@@ -47,6 +47,9 @@ import { MultiplayerService } from "../../../../store/multiplayer/service";
 import { CommentsService, commentsApi } from "../../../../store/comments/service";
 import { NotificationsService, notificationsApi } from "../../../../store/notifications/service";
 import { OrgService } from "../../../../store/org/service";
+import { BranchService, libraryVersionOf } from "../../../../store/branches/service";
+import { RemoteBranches } from "../../../../store/branches/remote";
+import type { BranchRecord } from "../../../../shared/merge/branches";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Ids and clocks (docs/data.md §1)
@@ -148,6 +151,8 @@ export interface FileData {
   frames: Frame[];
   nextLocal: number;
   lastBatchSeq: Record<string, number>;
+  /** A branch's GUID block ends here (docs/data.md §15.2): at it, the next block comes from its main file */
+  blockEnd?: number;
   versions: { record: VersionRecord; snapshot: Uint8Array }[];
   /** PNG from the editor; the seeded demo files carry an SVG */
   thumbnail: { bytes: Uint8Array; mime: string } | null;
@@ -180,6 +185,9 @@ const K = {
   comments: (key: FileKey) => `${KV_PREFIX}comments.${key}`,
   /** An org's cache (docs/multiplayer.md §14.6) */
   space: (orgId: string) => `${KV_PREFIX}space.${orgId}`,
+  /** A branch's record and base (docs/data.md §15.2) */
+  branch: (key: FileKey) => `${KV_PREFIX}branch.${key}`,
+  branchBase: (key: FileKey) => `${KV_PREFIX}branchBase.${key}`,
 };
 
 export interface MemoryStoreOptions {
@@ -220,6 +228,8 @@ export class MemoryStore {
   readonly notifications: NotificationsService;
   /** The org spaces (docs/multiplayer.md §14.6) over the same server client */
   readonly org: OrgService;
+  /** Branches (docs/data.md §15) with the desktop store's rules */
+  readonly branches: BranchService;
   readonly clock: { now(): number };
   private readonly hlc: HlcClock;
   private readonly data = new Map<FileKey, FileData>();
@@ -374,19 +384,92 @@ export class MemoryStore {
     );
     // eslint-disable-next-line @typescript-eslint/no-this-alias -- the host's getter reads the live ordinal
     const store = this;
+    const mp = this.multiplayer;
+    this.branches = new BranchService({
+      now: () => this.clock.now(),
+      log: (level, message, detail) => this.log(level, message, detail),
+      getMeta: (fileKey) => (this.ws.files.has(fileKey) ? this.ws.getMeta(fileKey) : null),
+      metas: () => [...this.ws.files.values()],
+      patchMeta: (fileKey, patch) => this.ws.queue.run(() => this.ws.patchFile(fileKey, patch)),
+      flush: async (fileKey) => void this.ws.getMeta(fileKey),
+      headTable: async (fileKey) => {
+        const d = this.fileData(fileKey);
+        return { table: this.headTable(d), seq: this.headSeq(d) };
+      },
+      headSeq: async (fileKey) => this.headSeq(this.fileData(fileKey)),
+      addVersion: async (fileKey, input) => this.addVersion(fileKey, { ...input, restoredFrom: null }),
+      appendSystem: async (fileKey, message, opts) => this.appendSystem(fileKey, message, opts).seq,
+      reserveSessionBlock: async (fileKey, size) => this.reserveSessionBlock(fileKey, size),
+      createBranchFile: async (input) => {
+        const v = this.version(input.fromFileKey, input.versionId);
+        const meta = await this.addFile({ name: input.name, folderId: input.folderId, snapshot: v.snapshot, nextLocal: input.sessions.start, branch: input.branch, enabledLibraries: input.enabledLibraries });
+        const d = this.fileData(meta.fileKey);
+        d.blockEnd = input.sessions.end;
+        this.saveData(meta.fileKey, d);
+        return meta;
+      },
+      loadRecord: async (fileKey) => json(K.branch(fileKey)) as BranchRecord | null,
+      saveRecord: async (record) => {
+        if (!kv.set(K.branch(record.branchFileKey), JSON.stringify(record))) this.log("warn", "the browser's storage is full; a branch record wasn't kept");
+      },
+      writeBaseFromVersion: async (branchFileKey, mainFileKey, versionId) => {
+        kv.set(K.branchBase(branchFileKey), stringifyWithBytes({ snapshot: this.version(mainFileKey, versionId).snapshot }));
+      },
+      writeBase: async (branchFileKey, snapshot) => {
+        kv.set(K.branchBase(branchFileKey), stringifyWithBytes({ snapshot }));
+      },
+      readBase: async (branchFileKey) => {
+        const raw = kv.get(K.branchBase(branchFileKey));
+        if (raw === null) throw new StoreError("corrupt", "This branch's base is missing");
+        return NodeTable.fromMessage(decodeMessage(parseWithBytes<{ snapshot: Uint8Array }>(raw).snapshot));
+      },
+      libraryVersionOf: (lib, assetKey, hash) => libraryVersionOf(this.libraries.registry(), lib, assetKey, hash),
+      fileChanges: this.fileChanges,
+      workspaceEvents: this.ws.events,
+      user: () => ({ id: mp.userId, name: null }),
+      setTimeout: (fn, ms) => setTimeout(fn, ms),
+      clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+      remote: new RemoteBranches({
+        call: (method, path, body) => mp.call(method, path, body),
+        syncState: (fileKey) => mp.syncState(fileKey),
+        shareTo: (fileKey, input, register, key) => mp.shareTo(fileKey, input, register, key),
+        newRoomKey: (base) => mp.newRoomKey(base),
+        linkedCopies: () => mp.linkedCopies(),
+        headSeq: async (fileKey) => this.headSeq(this.fileData(fileKey)),
+        signedIn: () => mp.signedIn,
+      }),
+    });
+    void store;
   }
 
   /** A frame the store writes itself (kind "remote": another person's change from the file's room). */
   appendRemote(fileKey: FileKey, message: Uint8Array): AppendAck {
+    return this.appendSystem(fileKey, message, { kind: "remote" });
+  }
+
+  /** A store batch without a session: "remote", "merge" or "update" (docs/data.md §15.5); `expectSeq`: else `stale`. */
+  appendSystem(fileKey: FileKey, message: Uint8Array, opts: { kind: "remote" | "merge" | "update"; label?: string; expectSeq?: number; blobRefsAdded?: string[] }): AppendAck {
     const d = this.fileData(fileKey);
     decodeMessage(message);
+    if (opts.expectSeq !== undefined && this.headSeq(d) !== opts.expectSeq) throw new StoreError("stale", "The file changed meanwhile");
     const seq = this.headSeq(d) + 1;
     const hlc = this.hlc.now();
-    d.frames.push({ seq, sessionID: 0, batchSeq: 0, kind: "remote", label: "", hlc, wallClock: this.clock.now(), message });
+    d.frames.push({ seq, sessionID: 0, batchSeq: 0, kind: opts.kind, label: opts.label ?? "", hlc, wallClock: this.clock.now(), message });
+    for (const r of (opts.blobRefsAdded ?? []).filter(isSha1)) if (!d.blobRefs.includes(r)) d.blobRefs.push(r);
     if (d.frames.length > COMPACT_FRAMES) this.compact(d);
     this.saveData(fileKey, d);
-    this.fileChanges.emit({ fileKey, seq, sessionID: 0, kind: "remote", message });
+    this.fileChanges.emit({ fileKey, seq, sessionID: 0, kind: opts.kind, message });
     return { seq, hlc };
+  }
+
+  /** Reserves `size` session numbers of a file for a branch's GUID block (docs/data.md §15.2); the first one. */
+  reserveSessionBlock(fileKey: FileKey, size: number): number {
+    const d = this.fileData(fileKey);
+    const start = d.nextLocal;
+    if (start + size >= RESERVED_SESSION_LIMIT) throw new StoreError("io", "This file has run out of session ids");
+    d.nextLocal = start + size;
+    this.saveData(fileKey, d);
+    return start;
   }
 
   static async open(opts: MemoryStoreOptions = {}): Promise<MemoryStore> {
@@ -431,6 +514,7 @@ export class MemoryStore {
     this.offWatch?.();
     this.comments.close();
     this.org.close();
+    this.branches.close();
     this.notifications.close();
     this.multiplayer.close();
     for (const rt of this.runtime.values()) if (rt.updatedAtTimer) clearTimeout(rt.updatedAtTimer);
@@ -543,6 +627,9 @@ export class MemoryStore {
     importedFrom?: FileMeta["importedFrom"];
     /** An org file's copy (docs/multiplayer.md §14.6) */
     space?: FileSpace | null;
+    /** A branch's file (docs/data.md §15.2) */
+    branch?: FileMeta["branch"];
+    enabledLibraries?: FileKey[];
   }): Promise<FileMeta> {
     const key = newFileKey();
     const table = NodeTable.fromMessage(decodeMessage(input.snapshot));
@@ -562,6 +649,8 @@ export class MemoryStore {
     if (input.thumbnail) meta.thumbnail = { version: 1, ...(input.thumbSize ?? { width: 0, height: 0 }) };
     if (input.importedFrom) meta.importedFrom = input.importedFrom;
     if (input.space) meta.space = { ...input.space };
+    if (input.branch) meta.branch = { ...input.branch };
+    if (input.enabledLibraries) meta.enabledLibraries = [...input.enabledLibraries];
     return this.ws.queue.run(() => this.ws.addFile(meta));
   }
 
@@ -616,6 +705,9 @@ export class MemoryStore {
 
   private async deleteItems(doomed: { files: FileKey[]; folders: FolderId[] }): Promise<void> {
     for (const k of doomed.files) {
+      this.branches.forget(k);
+      this.storage.remove(K.branch(k));
+      this.storage.remove(K.branchBase(k));
       if (this.storage.get(`${KV_PREFIX}lib.${k}`) !== null) this.libraries.forget(k);
       this.data.delete(k);
       this.runtime.delete(k);
@@ -657,7 +749,14 @@ export class MemoryStore {
       const rt = this.rt(fileKey);
       const live = [...rt.sessions.values()][0];
       if (live) throw new StoreError("already-open", "This file is already open for editing", { tabId: live.tabId ?? null });
-      const n = d.nextLocal;
+      let n = d.nextLocal;
+      if (d.blockEnd && n >= d.blockEnd) {
+        // A branch at the end of its GUID block: the next block comes from its main file.
+        const main = meta.branch?.mainFileKey;
+        if (!main || !this.ws.files.has(main)) throw new StoreError("io", "This branch has run out of session ids");
+        n = this.reserveSessionBlock(main, 4096);
+        d.blockEnd = n + 4096;
+      }
       if (n >= RESERVED_SESSION_LIMIT) throw new StoreError("io", "This file has run out of session ids");
       sessionID = sessionIdFor(this.deviceOrdinal, n);
       d.nextLocal = n + 1;
@@ -781,7 +880,7 @@ export class MemoryStore {
     return this.addVersion(fileKey, { kind, title, description, restoredFrom: kind === "restore" ? input.restoredFrom! : null });
   }
 
-  private version(fileKey: FileKey, id: VersionId): { record: VersionRecord; snapshot: Uint8Array } {
+  version(fileKey: FileKey, id: VersionId): { record: VersionRecord; snapshot: Uint8Array } {
     const v = this.fileData(fileKey).versions.find((x) => x.record.id === id);
     if (!v) throw new StoreError("not-found", `no version ${id}`);
     return v;
@@ -892,7 +991,8 @@ export class MemoryStore {
       watch: (listener) => ws.events.on(listener),
     };
     const files: FileRepository = {
-      open: async (fileKey, opts) => this.open(fileKey, opts ?? { mode: "view" }, owner),
+      // An archived or merged branch opens read-only (docs/data.md §15.5).
+      open: async (fileKey, opts) => this.open(fileKey, { ...(opts ?? {}), mode: this.branches.openMode(fileKey, opts?.mode === "edit" ? "edit" : "view") }, owner),
       reattach: async (fileKey, sessionID) => this.reattach(fileKey, sessionID, owner),
       append: async (fileKey, batch) => this.append(fileKey, batch, owner),
       flush: async (fileKey) => void this.ws.getMeta(fileKey),
@@ -934,7 +1034,14 @@ export class MemoryStore {
       },
       url: (sha1) => `app://designer/_blob/${sha1}`,
     };
-    const libraries: LibraryRegistry = this.libraries.registry();
+    const registry: LibraryRegistry = this.libraries.registry();
+    const libraries: LibraryRegistry = {
+      ...registry,
+      publish: async (req) => {
+        this.branches.checkCanPublish(req?.libraryFileKey);
+        return registry.publish(req);
+      },
+    };
     const previews: PreviewService = {
       status: async () => ({ publish: false, reason: NOT_SET_UP }),
       list: async () => [],
@@ -974,6 +1081,7 @@ export class MemoryStore {
       teams: this.org.teams,
       projects: this.org.projects,
       admin: this.org.admin,
+      branches: this.branches.repository(),
     };
   }
 }

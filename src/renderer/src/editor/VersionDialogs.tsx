@@ -68,7 +68,7 @@ function SaveVersion() {
 }
 
 const when = (t: number) => new Date(t).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-const KIND_TITLE: Record<VersionInfo["kind"], string> = { autosave: "Autosave", named: "Version", restore: "Restored version", publish: "Library published", import: "Imported" };
+const KIND_TITLE: Record<VersionInfo["kind"], string> = { autosave: "Autosave", named: "Version", restore: "Restored version", publish: "Library published", import: "Imported", branch: "Branch created", update: "Updated from main", merge: "Branch merged" };
 
 function History() {
   const ed = useEditor();

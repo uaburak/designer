@@ -31,6 +31,7 @@ import type { MultiplayerEvent, MultiplayerRepository } from "../multiplayer/typ
 import type { CommentsEvent, CommentsRepository } from "../comments";
 import type { NotificationsEvent, NotificationsRepository } from "../notifications";
 import type { AdminRepository, OrgEvent, OrgsRepository, ProjectsRepository, TeamsRepository } from "../org/repositories";
+import type { BranchEvent, BranchesRepository } from "../merge/branches";
 
 interface Pending {
   m: StoreMethod;
@@ -95,6 +96,7 @@ export class StoreClient implements StoreApi {
   private readonly commentsEvents = new Listeners<CommentsEvent>();
   private readonly notificationsEvents = new Listeners<NotificationsEvent>();
   private readonly orgEvents = new Listeners<OrgEvent>();
+  private readonly branchEvents = new Listeners<BranchEvent>();
   private readonly connected = new Listeners<{ generation: number }>();
   /** Calls wait for this: the hello and the resync of a new port */
   private gate!: Promise<void>;
@@ -203,6 +205,7 @@ export class StoreClient implements StoreApi {
         else if (msg.topic === "comments") this.commentsEvents.emit(msg.d as CommentsEvent);
         else if (msg.topic === "notifications") this.notificationsEvents.emit(msg.d as NotificationsEvent);
         else if (msg.topic === "org") this.orgEvents.emit(msg.d as OrgEvent);
+        else if (msg.topic === "branches") this.branchEvents.emit(msg.d as BranchEvent);
         return;
     }
   }
@@ -544,5 +547,22 @@ export class StoreClient implements StoreApi {
     moveUnassigned: (orgId, input) => this.call("admin.moveUnassigned", [orgId, input]),
     deleteUnassigned: (orgId, fileKeys) => this.call("admin.deleteUnassigned", [orgId, fileKeys]),
     exportCsv: (orgId, what, query) => this.call("admin.exportCsv", [orgId, what, query]),
+  };
+
+  readonly branches: BranchesRepository = {
+    create: (mainFileKey, name) => this.call("branches.create", [mainFileKey, name]),
+    list: (mainFileKey, tab) => this.call("branches.list", [mainFileKey, tab]),
+    get: (branchFileKey) => this.call("branches.get", [branchFileKey]),
+    rename: (branchFileKey, name) => this.call("branches.rename", [branchFileKey, name]),
+    archive: (branchFileKey) => this.call("branches.archive", [branchFileKey]),
+    restore: (branchFileKey) => this.call("branches.restore", [branchFileKey]),
+    mainStatus: (branchFileKey) => this.call("branches.mainStatus", [branchFileKey]),
+    preview: (branchFileKey, direction, resolutions) => this.call("branches.preview", [branchFileKey, direction, resolutions]),
+    openSide: (previewId, side) => this.call("branches.openSide", [previewId, side]),
+    applyUpdate: (branchFileKey, input) => this.call("branches.applyUpdate", [branchFileKey, input]),
+    merge: (branchFileKey, input) => this.call("branches.merge", [branchFileKey, input]),
+    requestReview: (branchFileKey, input) => this.call("branches.requestReview", [branchFileKey, input]),
+    answerReview: (branchFileKey, input) => this.call("branches.answerReview", [branchFileKey, input]),
+    watch: (listener) => this.branchEvents.add(listener),
   };
 }

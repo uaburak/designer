@@ -35,6 +35,10 @@ import type { MultiplayerRepository } from "../multiplayer/types";
 import type { CommentsRepository } from "../comments";
 import type { NotificationsRepository } from "../notifications";
 import type { AdminRepository, OrgsRepository, ProjectsRepository, TeamsRepository } from "../org/repositories";
+import type { BranchesRepository } from "../merge/branches";
+
+// Branches' repository and events (docs/data.md §15.6) live in src/shared/merge/branches.ts; re-exported here.
+export type { BranchEvent, BranchesRepository, MergePreview } from "../merge/branches";
 
 // The org spaces' repositories (docs/multiplayer.md §14.6) live in src/shared/org/repositories.ts; re-exported here.
 export type { AdminRepository, OrgEvent, OrgsRepository, ProjectsRepository, SpaceId, TeamsRepository } from "../org/repositories";
@@ -237,4 +241,6 @@ export interface StoreApi {
   projects: ProjectsRepository;
   /** The Admin location's calls (org, workspace and billing group admins) */
   admin: AdminRepository;
+  /** Branches of a file (docs/data.md §15): local ones in the store, shared ones through the server; events on `branches` */
+  branches: BranchesRepository;
 }

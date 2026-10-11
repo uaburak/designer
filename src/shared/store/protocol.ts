@@ -3,11 +3,11 @@
  * are structured clones (Uint8Arrays are copied once, no JSON). The store sends `hello` first on every new port.
  */
 
-export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer" | "comments" | "notifications" | "orgs" | "teams" | "projects" | "admin";
+export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer" | "comments" | "notifications" | "orgs" | "teams" | "projects" | "admin" | "branches";
 export type StoreMethod = `${Repository}.${string}`;
 export type PortRole = "main" | "home" | "editor";
-/** `org`: OrgEvent (docs/multiplayer.md §14.6) */
-export type EventTopic = "workspace" | "file.changes" | "library" | "multiplayer" | "comments" | "notifications" | "org";
+/** `org`: OrgEvent (docs/multiplayer.md §14.6); `branches`: BranchEvent (docs/data.md §15.6) */
+export type EventTopic = "workspace" | "file.changes" | "library" | "multiplayer" | "comments" | "notifications" | "org" | "branches";
 
 export type RpcRequest = { t: "req"; id: number; m: StoreMethod; a: unknown[] };
 export type RpcResponse = { t: "res"; id: number; ok: true; v: unknown } | { t: "res"; id: number; ok: false; e: { code: StoreErrorCode; message: string; detail?: unknown } };
@@ -31,6 +31,10 @@ export type StoreErrorCode =
   | "offline"
   /** A name taken or a stale write (the server's 409; docs/multiplayer.md §14.6) */
   | "conflict"
+  /** A head moved since a merge preview (docs/data.md §15.6): preview again */
+  | "stale"
+  /** Libraries publish from main only (docs/data.md §15.5) */
+  | "branch-cannot-publish"
   | "shutting-down";
 
 export class StoreError extends Error {
@@ -152,6 +156,8 @@ export const STORE_METHODS = {
     "deleteUnassigned",
     "exportCsv",
   ],
+  // Branches (docs/data.md §15.6); `watch` is the `branches` event topic
+  branches: ["create", "list", "get", "rename", "archive", "restore", "mainStatus", "preview", "openSide", "applyUpdate", "merge", "requestReview", "answerReview"],
 } as const satisfies Record<Repository, readonly string[]>;
 
 /** Methods that take filesystem paths stay in main, behind native dialogs, so a renderer can never name a path. */
@@ -230,6 +236,9 @@ export const RETRY_SAFE = new Set<string>([
   "admin.settings",
   "admin.unassignedDrafts",
   "admin.exportCsv",
+  "branches.list",
+  "branches.get",
+  "branches.mainStatus",
 ]);
 
 /**

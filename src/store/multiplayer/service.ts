@@ -218,6 +218,17 @@ export class MultiplayerService {
     }
   }
 
+  /**
+   * A shared file's sync position (branching, docs/data.md §15.7): its room key, the room seq the copy holds, the last
+   * local seq the room acknowledged, the connection and the frames not acknowledged yet. Null when it isn't shared.
+   */
+  async syncState(fileKey: FileKey): Promise<{ key: string; since: number; acked: number; connection: FileShareState["connection"]; pending: number } | null> {
+    const rec = (await this.loadState()).links[fileKey];
+    if (!rec) return null;
+    const link = this.live.get(fileKey);
+    return { key: rec.key, since: rec.since, acked: rec.acked, connection: link?.connection ?? "offline", pending: link?.pendingCount ?? 0 };
+  }
+
   /** Files on the server the user owns or was invited to. */
   async listRemote(): Promise<RemoteFile[]> {
     const st = await this.loadState();
@@ -705,6 +716,10 @@ class Link {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private session = 0;
   private ready = false;
+  /** Local frames sent and not acknowledged (branching waits for a merge's frame: docs/data.md §15.7) */
+  get pendingCount(): number {
+    return this.pending.size;
+  }
   /** This client's session in the room (0 until welcome) */
   get sessionID(): number {
     return this.ready ? this.session : 0;

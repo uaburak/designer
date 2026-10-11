@@ -50,8 +50,11 @@ export interface FileStoreState {
   formatVersion: 1;
   documentFormatVersion: number;
   head: Generation & { previous: Generation | null };
-  /** sessionID = (deviceOrdinal << 20) | nextLocal++ on every edit-mode open; lastBatchSeq pruned to 64 sessions */
-  sessions: { nextLocal: number; lastBatchSeq: Record<string, number> };
+  /**
+   * sessionID = (deviceOrdinal << 20) | nextLocal++ on every edit-mode open; lastBatchSeq pruned to 64 sessions.
+   * `blockEnd`: a branch's GUID block ends here (docs/data.md §15.2): at it, the next block comes from its main file.
+   */
+  sessions: { nextLocal: number; lastBatchSeq: Record<string, number>; blockEnd?: number };
   checkpoint: { lastAt: number | null; editedSince: boolean };
   thumbnail: { seq: number | null };
   /** Images referenced by the head snapshot ∪ journal (exact at each compaction, a superset in between) */
@@ -155,6 +158,8 @@ export interface FileStoreDeps {
   compactor: Compactor;
   log: Log;
   timers?: Timers;
+  /** A branch ran out of its GUID block: the next one, reserved on its main file (docs/data.md §15.2) */
+  nextSessionBlock?: (fileKey: FileKey) => Promise<{ start: number; end: number } | null>;
 }
 
 export class FileStore {
@@ -216,13 +221,34 @@ export class FileStore {
     await writeJsonAtomic(this.d.dirs.tmp, join(dir, "store.json"), newState(name, refs.sort(), derivedDataVersion ?? decoded?.derivedDataVersion ?? 0));
   }
 
-  /** A new file from an existing snapshot file (duplicate, duplicate version): linked or copied as its seq-0 snapshot. */
-  async createFileFromSnapshot(fileKey: FileKey, snapshotPath: string, blobRefs: string[], derivedDataVersion = 0): Promise<void> {
+  /**
+   * A new file from an existing snapshot file (duplicate, duplicate version, a branch): linked or copied as its seq-0
+   * snapshot. `sessions`: where its session counter starts (a branch's GUID block, docs/data.md §15.2).
+   */
+  async createFileFromSnapshot(fileKey: FileKey, snapshotPath: string, blobRefs: string[], derivedDataVersion = 0, sessions?: { nextLocal: number; blockEnd?: number }): Promise<void> {
     const dir = join(this.d.dirs.files, fileKey);
     await ensureDir(join(dir, "versions"));
     const name = snapshotName(0);
     await linkOrCopy(snapshotPath, join(dir, name));
-    await writeJsonAtomic(this.d.dirs.tmp, join(dir, "store.json"), newState(name, [...blobRefs].sort(), derivedDataVersion));
+    const state = newState(name, [...blobRefs].sort(), derivedDataVersion);
+    if (sessions) state.sessions = { ...state.sessions, nextLocal: sessions.nextLocal, ...(sessions.blockEnd ? { blockEnd: sessions.blockEnd } : {}) };
+    await writeJsonAtomic(this.d.dirs.tmp, join(dir, "store.json"), state);
+  }
+
+  /**
+   * Reserves `size` session numbers of a file for a branch (docs/data.md §15.2): the file's counter jumps past them and
+   * the block's first number is returned. Persisted before it answers.
+   */
+  async reserveSessionBlock(fileKey: FileKey, size: number): Promise<number> {
+    const a = this.actor(fileKey);
+    return a.queue.run(async () => {
+      const h = await this.loaded(a);
+      const start = h.state.sessions.nextLocal;
+      if (start + size >= RESERVED_SESSION_LIMIT) throw new StoreError("io", "This file has run out of session ids");
+      h.state.sessions.nextLocal = start + size;
+      await this.saveState(a, h);
+      return start;
+    });
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -491,7 +517,15 @@ export class FileStore {
       if (opts.mode === "edit") {
         const live = [...a.sessions.values()][0];
         if (live) throw new StoreError("already-open", "This file is already open for editing", { tabId: live.tabId ?? null });
-        const n = h.state.sessions.nextLocal;
+        let n = h.state.sessions.nextLocal;
+        const end = h.state.sessions.blockEnd;
+        if (end && n >= end) {
+          // A branch at the end of its GUID block: the next block comes from its main file.
+          const next = await this.d.nextSessionBlock?.(fileKey);
+          if (!next) throw new StoreError("io", "This branch has run out of session ids");
+          h.state.sessions.nextLocal = n = next.start;
+          h.state.sessions.blockEnd = next.end;
+        }
         if (n >= RESERVED_SESSION_LIMIT) throw new StoreError("io", "This file has run out of session ids");
         sessionID = sessionIdFor(this.d.deviceOrdinal, n);
         h.state.sessions.nextLocal = n + 1;
@@ -748,28 +782,58 @@ export class FileStore {
   }
 
   /**
-   * A frame the store writes itself (kind "remote": pulled from Firestore). No session: it is broadcast to the open
-   * editor as `file.changes`, which applies it with APPLY_REMOTE (no undo entry).
+   * A frame the store writes itself (kind "remote": another person's change from the file's room). No session: it is
+   * broadcast to the open editor as `file.changes`, which applies it with APPLY_REMOTE (no undo entry).
    */
   async appendRemote(fileKey: FileKey, message: Uint8Array): Promise<AppendAck> {
+    return this.appendSystem(fileKey, message, { kind: "remote" });
+  }
+
+  /**
+   * A batch the store writes itself, without a session: "remote" (a room's frame), "merge" (main ← a branch) or
+   * "update" (a branch ← main; docs/data.md §15.5). Open editors get it as remote changes. `expectSeq`: refused with
+   * `stale` unless the head is still there (a merge computed against it). A merge or update is an edit for the autosave
+   * checkpoint and the shared file's link (it is sent to the room); a remote frame is neither.
+   */
+  async appendSystem(fileKey: FileKey, message: Uint8Array, opts: { kind: "remote" | "merge" | "update"; label?: string; expectSeq?: number; blobRefsAdded?: string[] }): Promise<AppendAck> {
     if (this.closing) throw new StoreError("shutting-down", "The store is shutting down");
+    if (message.length > MAX_BATCH_BYTES) throw new StoreError("too-large", "This change is too large to save");
     const a = this.actor(fileKey);
     return a.queue.run(async () => {
       const h = await this.loaded(a);
+      if (opts.expectSeq !== undefined && h.lastSeq !== opts.expectSeq) throw new StoreError("stale", "The file changed meanwhile");
       const seq = h.lastSeq + 1;
       const hlc = this.d.hlc.now();
       if (!h.writer) await this.openSegment(a, h, seq);
-      const frame = encodeFrame({ seq, sessionID: 0, batchSeq: 0, wallClock: this.d.clock.now(), hlc, kind: "remote", label: "" }, message, nodeCodecs.deflateRaw);
+      const frame = encodeFrame({ seq, sessionID: 0, batchSeq: 0, wallClock: this.d.clock.now(), hlc, kind: opts.kind, label: opts.label ?? "" }, message, nodeCodecs.deflateRaw);
       const offset = h.writer!.size;
       h.writer!.append(frame);
       h.frames.push({ seq, segment: segmentName(h.writer!.header.baseSeq), offset, size: frame.length });
       h.lastSeq = seq;
       h.journalBytes += frame.length;
       h.journalFrames++;
+      if (a.sizeBytes !== null) a.sizeBytes += frame.length;
+      const refs = (opts.blobRefsAdded ?? []).filter(isSha1);
+      if (refs.some((r) => !h.state.blobRefs.includes(r) && !h.pendingRefs.has(r))) {
+        for (const r of refs) h.pendingRefs.add(r);
+        h.stateDirty = true;
+      }
+      if (opts.kind !== "remote" && !h.state.checkpoint.editedSince) {
+        h.state.checkpoint.editedSince = true;
+        h.state.checkpoint.lastAt ??= this.d.clock.now();
+        h.stateDirty = true;
+      }
       this.scheduleSync(a);
-      this.changes.emit({ fileKey, seq, sessionID: 0, kind: "remote", message });
+      this.changes.emit({ fileKey, seq, sessionID: 0, kind: opts.kind, message });
+      if (opts.kind !== "remote") this.bumpUpdatedAt(a);
       return { seq, hlc };
     });
+  }
+
+  /** The head's seq (loading the file when it isn't yet). */
+  async headSeqOf(fileKey: FileKey): Promise<number> {
+    const a = this.actor(fileKey);
+    return a.queue.run(async () => (await this.loaded(a)).lastSeq);
   }
 
   // -------------------------------------------------------------------------------------------------------------------
