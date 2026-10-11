@@ -222,7 +222,7 @@ export class PluginRun {
     const access = this.spec.manifest.networkAccess;
     await this.env.desktop?.beginRun({ runId: this.runId, allowedDomains: access?.allowedDomains ?? ["none"], ...(access?.devAllowedDomains ? { devAllowedDomains: access.devAllowedDomains } : {}), dev: this.spec.development }).catch((e: unknown) => this.log("warn", [`plugins:begin-run failed: ${e instanceof Error ? e.message : String(e)}`]));
     this.env.ui.stoppers.set(this.runId, () => this.stop());
-    if (!this.spec.awaitParameters) this.env.ui.setRunning(this.runId, this.spec.name, true);
+    if (!this.spec.awaitParameters && !this.headless()) this.env.ui.setRunning(this.runId, this.spec.name, true);
     await this.waitIdle();
     try {
       await this.vm.evaluate(this.spec.code, this.spec.manifest.main || "code.js");
@@ -302,6 +302,8 @@ export class PluginRun {
       width: Math.max(70, Math.round(Number(opts.width) || 300)),
       height: Math.max(0, Math.round(Number(opts.height) || 200)),
       position: position ? canvasToView(this.env.ed, position) : null,
+      // Dev Mode's inspect plugins show their UI in the Plugins panel (docs/plugins.md §7)
+      ...(this.spec.mode === "inspect" ? { docked: true } : {}),
     });
     this.env.ui.handlers.set(this.runId, {
       message: (data, origin) => void this.enter("__uiMessage", encodeValue({ message: data, props: { origin } })),
@@ -351,7 +353,12 @@ export class PluginRun {
   private updateRunning(): void {
     const w = this.env.ui.window(this.runId);
     // Figma: the "Running ‹name›" toast while a run is open and its UI is hidden or absent.
-    this.env.ui.setRunning(this.runId, this.spec.name, this.running && !this.spec.awaitParameters && (!w || !w.visible));
+    this.env.ui.setRunning(this.runId, this.spec.name, this.running && !this.spec.awaitParameters && !this.headless() && (!w || !w.visible));
+  }
+
+  /** Codegen runs headless and inspect runs live in Dev Mode's Plugins panel: no "Running" toast (docs/plugins.md §7). */
+  private headless(): boolean {
+    return this.spec.mode === "codegen" || this.spec.mode === "inspect";
   }
 
   private async drop(data: unknown, at: { x: number; y: number }): Promise<void> {

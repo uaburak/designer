@@ -494,3 +494,25 @@ Acceptance (verified with `scripts/drive.mjs` on the built demo app): launch →
     - "Present in this tab" (`EditorApp.tsx`'s presentation over the editor) keeps the old Share (copy link);
     - a pending `plugin_request` row in the bell says "Review it in Admin › Resources" but doesn't navigate there;
     - plan tokens have no edit / refresh / resource allowlist (Figma's developer hub has them); the Usage tab (Enterprise) isn't built.
+- 2026-10-12 — **Phase 7 round 5f, Dev Mode** (branch `worktree-agent-a880351498c2615ac`, on main with 5d and 5h). The as-built record is `docs/editor.md` "As built — Dev Mode in the editor, the viewer and the CLI (round 5f)"; plugins.md §7 points there.
+  - **Built**:
+    - Code Connect snippets in Inspect (editor and viewer): CLI templates run per snippet in `createSandbox` with Figma's template API (`src/viewer/inspect/codeConnectRuntime.js`), nested instances inline or as pills, imports hoisted, Figma's error names; UI mappings "Generated from properties"; one tab per label;
+    - dev resources in Inspect (Layer options › Add a dev resource link, ⋯ Edit / Delete link, the main component's links, `designer.devMode.linkTitle`);
+    - the Code Connect UI ("Connect components to code" from Dev Mode's file name menu › Library, or Inspect › Connect components);
+    - the playground ("Explore component behavior": a scratch engine with a pasted copy, property and mode controls, PNG preview, snippet / CSS, Reset; the file never touched);
+    - the Ready for dev view (count, All / Ready / Completed, Recent activity / Pages / Name (A-Z), cards → focus view) and `OpenIntent.devMode = "ready"` in `applyIntent`;
+    - status reports (`devStatus.ts reportDevStatus`: ready / completed / removed / changed_done) and the hourly "viewed in Dev Mode";
+    - Dev Mode's Plugins tab (docked inspect UIs) and codegen languages in Inspect › Code (`PluginRun.generate`);
+    - `get_code_connect_map` and the snippet in `get_design_context`;
+    - room broadcasts `{t: "dev-resources" | "code-connect"}` → `MultiplayerService.onDevMode` → `DevModeService.roomChanged` → topic `devmode`;
+    - developer previews carry the file's dev resources and mappings (`manifest.devMode`), read-only in the viewer;
+    - "Present in this tab" opens 5h's Share prototype dialog;
+    - `tools/code-connect/` (`npm run code-connect --`: publish / unpublish / parse / create, figma.config.json, templates and batch files, esbuild 0.25.12) and the server accepting Figma's CLI request shape (`figmaNode`, `templateData`, `nodes_to_delete` — from memory, unverified against `@figma/code-connect`).
+  - **Shared-file edits**:
+    - `src/shared/multiplayer/protocol.ts` (two `ServerControl` kinds), `src/shared/preview/format.ts` (`PreviewManifest.devMode`, `PreviewDevData`), `src/shared/preview/package.ts`, `src/shared/agents/tools.ts` (the tool);
+    - `src/store/multiplayer/service.ts` (`onDevMode` / `devModeChanged`, the link's two cases), `src/store/devmode/service.ts` (`roomChanged`), `src/store/localStore.ts` + `src/renderer/src/store/memory/memoryStore.ts` (one wiring line each; LocalStore's `devData` for previews), `src/store/preview/previews.ts` (`PreviewHost.devData`);
+    - 5d's `editor/plugins/host.ts` (`docked` for inspect runs, `headless()`), `plugins/ui/PluginLayer.tsx` (`PluginFrame` split out, docked windows skipped), `plugins/ui/store.ts` (`docked`);
+    - `editor/EditorApp.tsx` (attachRound5, three overlays, Presenting's Share prototype), `editor/commands.ts` (`dev.connect-components`), `editor/multiplayer/links.ts`, `editor/devStatus.ts`, `editor/agents/mcpTools.ts`;
+    - `server/src/devmode/codeConnect.ts` (+ test), root `package.json` (script), `vitest.config.ts` (`tools/**/*.test.ts`), `eslint.config.mjs` (the runtime script, `tools/**/*.mjs`).
+  - **Verified**: `npm run check` (220 files, 1839 tests; new: codeConnect.wasm 9, devmode5.wasm 4, connect 8, devmode server +1, policy +1); in a browser on a store file (`vite --config vite.web.config.ts`): Dev Mode Inspect's dev resources add / delete, Code Connect UI → live snippet, the playground with the file untouched, the Ready for dev view → focus view, the Plugins tab, the file name menu. Not verified: a shared file against `wrangler dev` (two clients), real codegen / inspect plugins (desktop app), a preview with `devMode` in the viewer; no editor-shot section.
+  - **Open**: codegen preferences; libraries' records in previews; a consumer file doesn't hear a library's Code Connect changes; the worktree's `node_modules` is an APFS clone of the main checkout's (a symlink made Vite refuse QuickJS's `.wasm?url` outside the root).

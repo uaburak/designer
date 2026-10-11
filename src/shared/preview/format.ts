@@ -7,6 +7,8 @@
  *   images/{sha1}   the image files the document's paints use
  */
 
+import type { CodeConnectMapping, DevResourceRecord } from "../devmode/types";
+
 export const PREVIEW_FORMAT = 1 as const;
 export const PREVIEW_DOC_NAME = "doc.kiwi";
 export const PREVIEW_MANIFEST_NAME = "manifest.json";
@@ -40,6 +42,15 @@ export interface PreviewManifest {
   /** SHA-1s of the images in `images/` */
   images: string[];
   options: { inspect: boolean; export: boolean };
+  /** Dev Mode's records when the preview was made, with Inspect on (docs/editor.md D-1, D-3): read-only in the viewer */
+  devMode?: PreviewDevData;
+}
+
+/** The file's dev resources and Code Connect mappings (its own, and its libraries' that its instances use) */
+export interface PreviewDevData {
+  fileKey: string;
+  devResources: DevResourceRecord[];
+  codeConnect: CodeConnectMapping[];
 }
 
 /** The whole preview in memory. */

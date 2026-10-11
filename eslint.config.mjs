@@ -28,6 +28,11 @@ export default defineConfig([
     languageOptions: { sourceType: "script", globals: { figma: "readonly", __html__: "readonly", __uiFiles__: "readonly", fetch: "readonly", console: "readonly", setTimeout: "readonly" } },
   },
   {
+    // Code Connect's template API, evaluated in the plugin VM (docs/editor.md D-1).
+    files: ["src/viewer/inspect/*.js"],
+    languageOptions: { sourceType: "script" },
+  },
+  {
     files: ["src/renderer/public/**/*.js"],
     languageOptions: { globals: globals.browser, sourceType: "script" },
   },
@@ -42,7 +47,7 @@ export default defineConfig([
     rules: { "@typescript-eslint/no-require-imports": "off" },
   },
   {
-    files: ["src/main/**/*.ts", "src/preload/**/*.ts", "*.ts", "*.mjs"],
+    files: ["src/main/**/*.ts", "src/preload/**/*.ts", "*.ts", "*.mjs", "tools/**/*.mjs"],
     languageOptions: { globals: globals.node },
   },
   {

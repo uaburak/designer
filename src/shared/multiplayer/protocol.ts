@@ -49,6 +49,9 @@ export type ServerControl =
   | { t: "comments"; threadId: string; by: string }
   /** The org changed cursor chat or audio (docs/multiplayer.md §15.9) */
   | { t: "policy"; policy: RoomPolicy }
+  /** The file's dev resources (docs/editor.md D-3) or Code Connect mappings (D-1) changed: read them again (never stored) */
+  | { t: "dev-resources"; nodeId?: string }
+  | { t: "code-connect" }
   /** A REST render job for this client (docs/multiplayer.md §16.6): run it, upload the parts, answer rest-job-done / -failed */
   | { t: "rest-job"; id: string; job: RestJob }
   | { t: "error"; code: "unauthorized" | "forbidden" | "bad-frame" | "too-large" | "too-old"; message: string };

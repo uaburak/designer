@@ -154,6 +154,33 @@ describe("Code Connect (D-1)", () => {
     expect((await w.call("GET", `/files/${LIB}/code-connect`, bob.token)).body.mappings).toEqual([]);
   });
 
+  it("accepts Figma's own CLI shapes: figmaNode + templateData on publish, nodes_to_delete on unpublish", async () => {
+    const { bob } = w.people;
+    const pub = await rest("POST", "/v1/code_connect", bob, {
+      docs: [
+        { figmaNode: `https://www.figma.com/design/${LIB}/DS?node-id=1-2`, component: "Button", source: "src/Button.tsx", label: "React", language: "typescript", template: "const figma = require('figma')\nexport default { example: figma.code`<Button />` }", templateData: { imports: ['import { Button } from "./Button"'], nestable: false, isParserless: true } },
+        { figmaNode: `${ORIGIN}/f/${LIB}?node-id=1-3`, label: "SwiftUI", template: "x", templateData: {} },
+      ],
+    });
+    expect(pub!.body.errors).toEqual([]);
+    const got = (await w.call("GET", `/files/${LIB}/code-connect`, bob.token)).body.mappings;
+    expect(got[0]).toMatchObject({ nodeId: "1:2", label: "React", language: "typescript", component: "Button", imports: ['import { Button } from "./Button"'], nestable: false, origin: "cli" });
+    expect(got[1]).toMatchObject({ nodeId: "1:3", label: "SwiftUI", nestable: true, imports: [] });
+    const del = await rest("DELETE", "/v1/code_connect", bob, {
+      nodes_to_delete: [
+        { figmaNode: `https://www.figma.com/design/${LIB}/DS?node-id=1-2`, label: "React" },
+        { figmaNode: `${ORIGIN}/f/${LIB}?node-id=1-3`, label: "SwiftUI" },
+        { figmaNode: "nope", label: "React" },
+      ],
+    });
+    expect(del!.body.removed).toEqual([
+      { fileKey: LIB, nodeId: "1:2", label: "React" },
+      { fileKey: LIB, nodeId: "1:3", label: "SwiftUI" },
+    ]);
+    expect(del!.body.errors).toHaveLength(1);
+    expect((await w.call("GET", `/files/${LIB}/code-connect`, bob.token)).body.mappings).toEqual([]);
+  });
+
   it("a published org library's users read its mappings without opening the file", async () => {
     const { bob, carol } = w.people;
     await rest("POST", "/v1/code_connect", bob, { docs: [{ url: `${ORIGIN}/f/${LIB}?node-id=1-2`, label: "React", template: "t" }] });

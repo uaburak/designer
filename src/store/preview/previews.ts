@@ -7,7 +7,7 @@
  */
 import { promises as fsp } from "node:fs";
 import { join } from "node:path";
-import type { PreviewPackage } from "../../shared/preview/format";
+import type { PreviewDevData, PreviewPackage } from "../../shared/preview/format";
 import { inlinePreviewHtml } from "../../shared/preview/html";
 import { buildPreviewPackage } from "../../shared/preview/package";
 import { StoreError } from "../../shared/store/protocol";
@@ -41,6 +41,8 @@ export interface PreviewHost {
   viewerTemplate: string | null;
   /** Serializes writes of previews.json */
   run<T>(fn: () => Promise<T>): Promise<T>;
+  /** The file's dev resources and Code Connect mappings for the viewer's Inspect (docs/editor.md D-1, D-3) */
+  devData?(fileKey: FileKey): Promise<PreviewDevData | null>;
 }
 
 export function validPreviewOptions(o: Partial<PreviewOptions> | undefined): PreviewOptions {
@@ -60,9 +62,10 @@ function checkSnapshot(snapshot: unknown): Uint8Array {
 }
 
 async function packageFor(host: PreviewHost, fileKey: FileKey, snapshot: Uint8Array, options: PreviewOptions, previewId: string): Promise<PreviewPackage> {
+  const devMode = options.inspect && host.devData ? await host.devData(fileKey).catch(() => null) : null;
   try {
     return await buildPreviewPackage(
-      { snapshot, fileName: host.fileName(fileKey), previewId, now: host.now(), options, readImage: (sha1) => host.readBlob(sha1).catch(() => null) },
+      { snapshot, fileName: host.fileName(fileKey), previewId, now: host.now(), options, readImage: (sha1) => host.readBlob(sha1).catch(() => null), devMode },
       nodeCodecs,
     );
   } catch (e) {

@@ -367,6 +367,8 @@ export class LocalStore {
       writeLocal: (fileKey, what, value) => writeJsonAtomic(dirs.tmp, devPath(fileKey, what), value),
       now: () => clock.now(),
     });
+    // Other people's dev resources / Code Connect changes, said by the file's room: open copies read them again.
+    this.multiplayer.onDevMode((fileKey, what) => void this.multiplayer.roomKey(fileKey).then((room) => this.devMode.roomChanged(fileKey, room, what), () => this.devMode.roomChanged(fileKey, null, what)));
   }
 
   /** Saved / recents, private plugins and approvals (docs/plugins.md §10); events on topic `plugins` */
@@ -922,6 +924,10 @@ export function previewsOf(s: LocalStore): ReturnType<typeof previewService> {
     fetch: s.fetch,
     viewerTemplate: s.viewerTemplate,
     run: (fn) => s.previewQueue.run(fn),
+    devData: async (fileKey) => {
+      const [devResources, codeConnect] = await Promise.all([s.devMode.repository().devResources(fileKey).catch(() => []), s.devMode.repository().codeConnect(fileKey).catch(() => [])]);
+      return devResources.length || codeConnect.length ? { fileKey, devResources, codeConnect } : null;
+    },
   });
 }
 

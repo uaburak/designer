@@ -60,6 +60,85 @@
   .focusStatus[data-status="CHANGED"] { background: var(--figma-color-bg-warning); color: var(--figma-color-text-onwarning); }
   .focusStatus[data-status="COMPLETED"] { background: var(--figma-color-bg-secondary); color: var(--figma-color-text); }
 
+  /* Dev Mode's Plugins panel (round 5) */
+  .devPlugins { display: flex; flex-direction: column; padding: var(--ds-space-2) 0; }
+  .pluginRow { display: flex; align-items: center; padding: 0 var(--ds-space-2); }
+  .pluginRun {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    height: var(--ds-size-row);
+    padding: 0 var(--ds-space-2) 0 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: none;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    text-align: left;
+  }
+  .pluginRun:hover:not(:disabled) { background: var(--figma-color-bg-hover); }
+  .pluginRun:disabled { color: var(--figma-color-text-secondary); }
+  .dockedPlugin { display: flex; flex-direction: column; border-bottom: 1px solid var(--figma-color-border); }
+  .dockedHeader { display: flex; align-items: center; padding: 0 var(--ds-space-2) 0 var(--ds-space-4); font: var(--ds-font-body-medium-strong); }
+  .dockedBody { display: flex; }
+  .dockedFrame { flex: 1 1 auto; width: 100%; height: 100%; border: 0; background: var(--figma-color-bg); }
+
+  /* Ready for dev (round 5) */
+  .ready { position: absolute; inset: 0; z-index: var(--ds-z-panel); display: flex; flex-direction: column; background: var(--ds-color-canvas-default); }
+  .readyHeader { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-3) var(--ds-space-4); }
+  .readyTitle { font: var(--ds-font-heading-medium); }
+  .readyGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--ds-space-4); padding: 0 var(--ds-space-4) var(--ds-space-6); align-content: start; }
+  .readyCard {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ds-space-1);
+    padding: var(--ds-space-2);
+    border: 1px solid var(--figma-color-border);
+    border-radius: var(--ds-radius-large);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    text-align: left;
+  }
+  .readyCard:hover { border-color: var(--figma-color-border-selected); }
+  .readyThumb { display: flex; align-items: center; justify-content: center; height: 140px; overflow: hidden; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); }
+  .readyThumb img { max-width: 100%; max-height: 100%; }
+  .readyName { overflow: hidden; font: var(--ds-font-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
+  .readyMeta { display: flex; align-items: center; gap: var(--ds-space-2); color: var(--figma-color-text-secondary); }
+
+  /* Code Connect UI and the playground (round 5) */
+  .connectBody { display: grid; grid-template-columns: 280px minmax(0, 1fr); flex: 1 1 auto; min-height: 0; }
+  .connectList { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; border-right: 1px solid var(--figma-color-border); padding: var(--ds-space-2); }
+  .connectRow {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    width: 100%;
+    padding: var(--ds-space-1) var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: none;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    text-align: left;
+  }
+  .connectRow:hover { background: var(--figma-color-bg-hover); }
+  .connectRow[aria-current="true"] { background: var(--figma-color-bg-selected); }
+  .connectThumb { display: flex; flex: none; align-items: center; justify-content: center; width: 32px; height: 32px; overflow: hidden; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); }
+  .connectThumb img { max-width: 100%; max-height: 100%; }
+  .connectDetail { display: flex; flex-direction: column; gap: var(--ds-space-3); min-height: 0; overflow-y: auto; padding: var(--ds-space-3) var(--ds-space-4); }
+  .connectMapping { display: flex; flex-direction: column; gap: var(--ds-space-1); padding: var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); }
+  .connectMappingHead { display: flex; align-items: center; gap: var(--ds-space-2); font: var(--ds-font-body-medium-strong); }
+  .connectForm { display: grid; grid-template-columns: 140px minmax(0, 1fr); align-items: center; gap: var(--ds-space-2); }
+  .playground { display: grid; grid-template-columns: minmax(0, 1fr) 300px; flex: 1 1 auto; min-height: 0; }
+  .playgroundPreview { display: flex; align-items: center; justify-content: center; min-height: 0; padding: var(--ds-space-4); background: var(--ds-color-canvas-default); }
+  .playgroundPreview img { max-width: 100%; max-height: 100%; }
+  .playgroundControls { display: flex; flex-direction: column; gap: var(--ds-space-2); min-height: 0; overflow-y: auto; padding: var(--ds-space-3); border-left: 1px solid var(--figma-color-border); }
+  .playgroundRow { display: grid; grid-template-columns: 110px minmax(0, 1fr); align-items: center; gap: var(--ds-space-2); }
+  .playgroundCode { margin: 0; padding: var(--ds-space-2); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); font: var(--ds-font-code); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+
   /* Compare changes */
   .hiddenCanvas { position: fixed; left: -10000px; top: 0; width: 8px; height: 8px; }
   .compareScrim { position: fixed; inset: 0; z-index: var(--ds-z-scrim); display: flex; padding: var(--ds-space-8); background: var(--ds-color-scrim); }

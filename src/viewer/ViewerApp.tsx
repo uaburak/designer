@@ -20,6 +20,7 @@ import { Measurements } from "./Measurements";
 import { PresentationView, type PresentationSource } from "@/present/PresentationView";
 import type { Guid } from "@/engine/codec";
 import { ViewerContext, type ViewerState } from "./context";
+import { previewDevData } from "./inspect/previewDev";
 import styles from "./Viewer.module.css";
 
 const engineTheme = (t: "light" | "dark") => (t === "light" ? "LIGHT" : "DARK");
@@ -147,7 +148,8 @@ export function ViewerApp() {
 }
 
 function makeState(engine: Engine, doc: ViewerDoc, preview: LoadedPreview): ViewerState {
-  return { engine, store: new EngineStore(engine), doc, preview };
+  const dev = previewDevData(preview.manifest.devMode);
+  return { engine, store: new EngineStore(engine), doc, preview, ...(dev ? { host: { subtitle: "Developer preview", dev } } : {}) };
 }
 
 export default ViewerApp;

@@ -56,6 +56,19 @@
     white-space: nowrap;
   }
   .fileSub { color: var(--figma-color-text-secondary); }
+  .fileMenu {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    margin-left: calc(-1 * var(--ds-space-1));
+    padding: 0 var(--ds-space-1);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: none;
+    color: var(--figma-color-text);
+  }
+  .fileMenu:hover, .fileMenu[data-open] { background: var(--figma-color-bg-hover); }
   .pages { flex: none; }
   .pageList { max-height: 30vh; overflow-y: auto; padding-bottom: var(--ds-space-2); }
   .layers { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
@@ -86,6 +99,16 @@
     font: var(--ds-font-body-medium-strong);
     letter-spacing: var(--ds-tracking-body-medium-strong);
   }
+  button.rightTab, .rightTabOff { border: 0; color: var(--figma-color-text); }
+  .rightTabOff {
+    padding: var(--ds-space-1) var(--ds-space-2);
+    border-radius: var(--ds-radius-medium);
+    background: none;
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+  .rightTabOff:hover { color: var(--figma-color-text); }
   .rightBody { flex: 1 1 auto; min-height: 0; }
   .multi { padding: var(--ds-space-4); color: var(--figma-color-text-secondary); }
   .layerHeader {
@@ -321,5 +344,78 @@
   .statusLabel { color: var(--figma-color-text-success); white-space: nowrap; }
   .statusLabel[data-status="CHANGED"] { color: var(--figma-color-text-warning); }
   .statusLabel[data-status="COMPLETED"] { color: var(--figma-color-text-secondary); }
+
+  /* ---- Dev resources (D-3) ---- */
+  .resourceRow { display: flex; align-items: center; min-height: var(--ds-size-row); padding: 0 var(--ds-space-2) 0 var(--ds-space-2); }
+  .resourceLink {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    height: var(--ds-size-row);
+    padding: 0 var(--ds-space-2) 0 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+  }
+  .resourceLink:hover { background: var(--figma-color-bg-hover); }
+  .resourceGlyph {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-icon-24);
+    height: var(--ds-size-icon-24);
+    color: var(--figma-color-icon-secondary);
+    font: var(--ds-font-body-small);
+  }
+  .resourceFrom { flex: none; color: var(--figma-color-text-tertiary); }
+  .resourceField { padding: 0 var(--ds-space-4) var(--ds-space-2); }
+  .resourceEditor { display: flex; flex-direction: column; gap: var(--ds-space-1); padding: var(--ds-space-1) var(--ds-space-4) var(--ds-space-2); }
+
+  /* ---- Code Connect (D-1) ---- */
+  .connectTabs { padding: 0 var(--ds-space-2); }
+  .connectSource {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    padding: var(--ds-space-1) var(--ds-space-4);
+    color: var(--figma-color-text-secondary);
+  }
+  .connectSource a { overflow: hidden; color: var(--figma-color-text-brand); text-overflow: ellipsis; white-space: nowrap; }
+  .connectCode {
+    margin: 0 var(--ds-space-4) var(--ds-space-2);
+    padding: var(--ds-space-2);
+    overflow-x: auto;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    font: var(--ds-font-code);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+  }
+  .connectPill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 var(--ds-space-1);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-component-tertiary);
+    color: var(--figma-color-text-component);
+    font: inherit;
+  }
+  .connectError {
+    margin: 0 var(--ds-space-4) var(--ds-space-2);
+    padding: var(--ds-space-2);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text-secondary);
+  }
+  .connectErrorName { color: var(--figma-color-text-danger); font: var(--ds-font-body-medium-strong); }
+  .connectActions { display: flex; gap: var(--ds-space-2); padding: 0 var(--ds-space-4) var(--ds-space-2); }
 
 }

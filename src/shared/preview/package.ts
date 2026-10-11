@@ -10,7 +10,7 @@ import { codec, DOCUMENT_FORMAT_VERSION, SCHEMA_BINARY, type Message, type NodeC
 import { compareKeys } from "../schema/fractionalIndex";
 import { compareGuids, guidKey } from "../schema/guid";
 import { messageImageHashes } from "../schema/patch";
-import { expiryOf, PREVIEW_DOC_NAME, PREVIEW_FORMAT, type PreviewManifest, type PreviewPackage, type PreviewPage } from "./format";
+import { expiryOf, PREVIEW_DOC_NAME, PREVIEW_FORMAT, type PreviewManifest, type PreviewDevData, type PreviewPackage, type PreviewPage } from "./format";
 
 export interface PreviewPackageOptions {
   /** Page ids ("s:l") to include, or every page */
@@ -29,6 +29,8 @@ export interface BuildPreviewInput {
   options: PreviewPackageOptions;
   /** An image file by SHA-1 (null: not in the blob store; its paints draw Figma's grey placeholder) */
   readImage(sha1: string): Promise<Uint8Array | null>;
+  /** Dev Mode's records (kept only with Inspect on) */
+  devMode?: PreviewDevData | null;
 }
 
 interface Tree {
@@ -118,6 +120,7 @@ export async function buildPreviewPackage(input: BuildPreviewInput, codecs: Pick
     derivedDataVersion: message.derivedDataVersion ?? 0,
     images: [...images.keys()],
     options: { inspect: input.options.inspect, export: input.options.export },
+    ...(input.options.inspect && input.devMode ? { devMode: input.devMode } : {}),
   };
   const doc = encodeCanvas({ schema: SCHEMA_BINARY, message: bytes, version: DOCUMENT_FORMAT_VERSION, compression: "deflate-raw" }, { deflateRaw: codecs.deflateRaw, inflateRaw: () => new Uint8Array() });
   return { manifest, doc, images };

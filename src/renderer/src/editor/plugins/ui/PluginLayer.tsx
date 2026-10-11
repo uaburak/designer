@@ -35,11 +35,9 @@ function savePosition(pluginId: string, at: { x: number; y: number }): void {
   }
 }
 
-function PluginWindow({ w, ui }: { w: PluginWindowState; ui: PluginUiStore }) {
+/** A run's iframe and its messaging: in a floating window, or docked in Dev Mode's Plugins panel. */
+export function PluginFrame({ w, ui, className }: { w: PluginWindowState; ui: PluginUiStore; className?: string }) {
   const frame = useRef<HTMLIFrameElement>(null);
-  const [dragging, setDragging] = useState(false);
-  const at = w.position ?? savedPosition(w.pluginId) ?? { x: Math.max(8, window.innerWidth - w.width - 256), y: 56 };
-
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       const win = frame.current?.contentWindow;
@@ -64,6 +62,23 @@ function PluginWindow({ w, ui }: { w: PluginWindowState; ui: PluginUiStore }) {
     ui.frames.set(w.runId, { post: (m) => win.postMessage(m, "*") });
     ui.handlers.get(w.runId)?.loaded();
   };
+  if (!w.src) return null;
+  return (
+    <iframe
+      ref={frame}
+      title={w.title}
+      className={className ?? styles.frame}
+      sandbox={PLUGIN_IFRAME_SANDBOX}
+      allow="clipboard-write"
+      {...("url" in w.src ? { src: w.src.url } : { srcDoc: w.src.srcdoc })}
+      onLoad={onLoad}
+    />
+  );
+}
+
+function PluginWindow({ w, ui }: { w: PluginWindowState; ui: PluginUiStore }) {
+  const [dragging, setDragging] = useState(false);
+  const at = w.position ?? savedPosition(w.pluginId) ?? { x: Math.max(8, window.innerWidth - w.width - 256), y: 56 };
 
   const startDrag = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest("button")) return;
@@ -94,27 +109,19 @@ function PluginWindow({ w, ui }: { w: PluginWindowState; ui: PluginUiStore }) {
         <span className={styles.title}>{w.title}</span>
         <IconButton icon="24.close.small" label="Close" onClick={() => ui.handlers.get(w.runId)?.close()} />
       </div>
-      {w.src && (
-        <iframe
-          ref={frame}
-          title={w.title}
-          className={styles.frame}
-          sandbox={PLUGIN_IFRAME_SANDBOX}
-          allow="clipboard-write"
-          {...("url" in w.src ? { src: w.src.url } : { srcDoc: w.src.srcdoc })}
-          onLoad={onLoad}
-        />
-      )}
+      <PluginFrame w={w} ui={ui} />
     </div>
   );
 }
 
 function Windows({ ui }: { ui: PluginUiStore }) {
   const snap = usePluginUi(ui);
-  if (!snap.windows.length && !snap.running.length) return null;
+  // Docked windows (Dev Mode's inspect plugins) are drawn by the Plugins panel.
+  const floating = snap.windows.filter((w) => !w.docked);
+  if (!floating.length && !snap.running.length) return null;
   return (
     <Portal>
-      {snap.windows.map((w) => (
+      {floating.map((w) => (
         <PluginWindow key={w.runId} w={w} ui={ui} />
       ))}
       {snap.running.length > 0 && (

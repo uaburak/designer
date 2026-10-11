@@ -1,0 +1,13 @@
+{
+  "name": "designer-connect",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Code Connect's CLI for DesignerV2's server (docs/editor.md D-1), shaped as Figma's `npx figma connect`",
+  "type": "module",
+  "bin": {
+    "designer-connect": "./bin.mjs"
+  },
+  "dependencies": {
+    "esbuild": "0.25.12"
+  }
+}

@@ -17,6 +17,13 @@ import type { LoadedPreview } from "../../../../viewer/source";
 import { useEditor, type EditorController } from "../controller";
 import { useUI } from "../hooks";
 import { openFocus } from "./devMode";
+import { editorDevData, setRound5, useRound5 } from "./round5";
+import { DevPluginsPanel } from "./PluginsPanel";
+import { commandItem } from "../menus";
+import { runEditorCommand } from "../commands";
+
+/** Dev Mode's right sidebar: Inspect, and Plugins (docs/plugins.md §7). */
+const PLUGINS_TAB = { label: "Plugins", render: () => <DevPluginsPanel /> };
 
 /** The viewer's "preview" of the open file: its name and pages, Inspect and export on, images from the file. */
 function previewOf(ed: EditorController, fileName: string): LoadedPreview {
@@ -49,10 +56,16 @@ function previewOf(ed: EditorController, fileName: string): LoadedPreview {
   };
 }
 
+const selectCanEdit = (s: { canEdit: boolean }) => s.canEdit;
+
 /** The viewer's context on the editor's engine; a new document reader after every committed change (debounced). */
 function DevContext({ children }: { children: ReactNode }) {
   const ed = useEditor();
   const fileName = useUI((s) => s.fileName);
+  const canEdit = useRound5(ed, selectCanEdit);
+  // Made again when the file's access is known (editorDevData reads it).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const dev = useMemo(() => editorDevData(ed), [ed, canEdit]);
   const [version, setVersion] = useState(0);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -80,11 +93,18 @@ function DevContext({ children }: { children: ReactNode }) {
         onCompare: (id) => ed.ui.set({ compare: { ref: id } }),
         onFocus: (id) => openFocus(ed, id),
         onStatus: (id, r) => ed.ui.set({ statusMenu: { ref: id, x: r.left, y: r.top, width: r.width, height: r.height } }),
+        onReadyView: () => setRound5(ed, { ready: true }),
+        // Dev Mode's file name menu (docs/editor.md D-1: Library ▸ Connect components to code)
+        fileMenu: {
+          entries: () => [commandItem(ed, "file.save-version"), commandItem(ed, "file.version-history"), "-", { id: "library", label: "Library", items: [commandItem(ed, "dev.connect-components"), commandItem(ed, "file.library-analytics")] }],
+          onSelect: (id) => runEditorCommand(ed, id),
+        },
+        ...(dev ? { dev } : {}),
       },
     }),
     // A new reader (and preview) per document version.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ed, fileName, version]
+    [ed, fileName, version, dev]
   );
   return <ViewerContext.Provider value={state}>{children}</ViewerContext.Provider>;
 }
@@ -100,7 +120,7 @@ export function DevLeftPanel() {
 export function DevRightPanel() {
   return (
     <DevContext>
-      <InspectPanel />
+      <InspectPanel extraTab={PLUGINS_TAB} />
     </DevContext>
   );
 }

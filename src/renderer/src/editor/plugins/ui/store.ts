@@ -17,6 +17,8 @@ export interface PluginWindowState {
   height: number;
   /** Top-left in the editor view (CSS px); null: the default place */
   position: { x: number; y: number } | null;
+  /** Shown in Dev Mode's Plugins panel, not floating (an inspect plugin, docs/plugins.md §7) */
+  docked?: boolean;
 }
 
 export interface RunningState {

@@ -9,6 +9,7 @@ import type { OpenIntent } from "@shared/multiplayer/types";
 import type { EditorController } from "../controller";
 import { commentsOf } from "../comments/commentsController";
 import { setMode } from "../devmode/devMode";
+import { setRound5 } from "../devmode/round5";
 import { present, presentStart } from "../present";
 
 /** The node a link names: the selection's top-level frame, else the current page. */
@@ -39,7 +40,9 @@ export function applyIntent(ed: EditorController, intent: OpenIntent): void {
       ed.engine.command("ZOOM_TO_SELECTION");
     }
   }
-  if (intent.mode === "dev") setMode(ed, "dev");
+  if (intent.mode === "dev" || intent.devMode === "ready") setMode(ed, "dev");
+  // A Dev Mode notification (docs/editor.md D-4): the Ready for dev view.
+  if (intent.devMode === "ready") setRound5(ed, { ready: true });
   else if (intent.mode === "proto") present(ed, node && node !== page ? { node } : {});
   const thread = intent.commentId;
   const comments = thread ? commentsOf(ed) : null;
