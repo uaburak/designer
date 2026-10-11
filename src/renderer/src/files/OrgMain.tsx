@@ -630,7 +630,7 @@ export function OrgMain(props: OrgMainProps) {
       )}
       {dialog?.kind === "org-libraries" && hasAnalytics && <OrgLibrariesDialog org={org} orgId={orgId} onClose={() => setDialog(null)} onOpenLibrary={(lib) => setDialog({ kind: "library-analytics", ...lib })} />}
       {dialog?.kind === "library-analytics" && hasAnalytics && (
-        <LibraryAnalytics store={{ analytics: org.analytics!, orgLibraries: org.orgLibraries! }} libraryKey={dialog.key} name={dialog.name} onClose={() => setDialog(null)} />
+        <LibraryAnalytics store={{ analytics: org.analytics!, orgLibraries: org.orgLibraries! }} libraryKey={dialog.key} name={dialog.name} orgId={orgId} onClose={() => setDialog(null)} />
       )}
       {dialog?.kind === "team-settings" && (
         <TeamSettingsDialog
