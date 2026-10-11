@@ -33,6 +33,7 @@ What a node, a property, a variable or a component *is* belongs to the document 
 | Durability | An edit batch is acknowledged after `write()`, fsynced at most 1 s later, and fsynced immediately on flush (tab close, quit, hide). Crash recovery is snapshot plus journal replay, with torn-tail truncation and the previous snapshot generation as fallback. |
 | Versions | An autosave checkpoint every 30 min of editing, named versions (⌥⌘S), and library publishes. Each is a full snapshot, hard-linked. Restoring is non-destructive: a diff applied as one undoable edit. |
 | Libraries | Publishing snapshots each non-hidden component, set, style and variable under a stable 40-hex `key` and a content `versionHash`, into a workspace registry stored per asset version. Consumers keep **in-document read-only copies** (Figma's internal-only canvas), so they work offline and without the library. Updates are pulled through Review. "Move to this file" records redirects. Drafts cannot publish, as in Figma. |
+| Branches (contract, Phase 7) | A branch is a copy of a main file with the same GUIDs and asset keys plus its own base snapshot. Updates from main and merges are a three-way merge per (GUID, field) over NODE_CHANGES, grouped like Figma's `DiffChunk`. A merge is one journaled batch plus a version of `kind: "merge"` (§15). |
 | Repositories | `WorkspaceRepository`, `FileRepository`, `BlobStore`, `LibraryRegistry`. `LocalAdapter` is always authoritative. `FirestoreAdapter` is added later behind a `Replicator` that pushes and pulls with per-property LWW using hybrid logical clocks. `PreviewAdapter` serves the web viewer. |
 | Server | Replaced Firebase (2026-10-10): accounts, shared files and previews on Cloudflare, `docs/multiplayer.md` (§12). Only the store process talks to it. |
 | Previews | A read-only snapshot with derived text and geometry, plus images, uploaded under an unguessable 128-bit id. Viewed in a web viewer (the same Wasm renderer) with Dev-Mode-like Inspect. Published to the Cloudflare Worker (`docs/multiplayer.md` §9) or exported as one self-contained HTML file. |
@@ -1007,6 +1008,490 @@ The same page is the Worker's static asset for `/p/<id>`, so the export is just 
 **Phase 2** lands when the Wasm engine renders and edits files and the panels are ported. The DOM editor goes: `figma/NodeView.tsx`, `css.ts`, `vectorSvg.ts`, `inline.ts`, `exportNode.ts`, `dom.ts`, `picking.ts`, `PageView.tsx`, `Canvas.tsx`, `session.ts`, `figma/model.ts` (after its types are copied to `scripts/legacy/model.ts`), `components/admin/useUndo.ts`, and the remaining site-only renderer components (`ZoomableIframe`, `ScrollReveal`, `CodeHighlight` if unused). Until then, `src/renderer/src/figma/**` stays in the tree as porting reference but is **not imported by any entry**, so it does not ship.
 
 **Phase 3** (optional): delete `scripts/legacy/` once the owner confirms the imported projects.
+
+---
+
+## 15. Branches (contract, Phase 7 round 2; written 2026-10-11)
+
+**Status: contract, not built.** It covers:
+- Figma's branching and merging: a branch is a separate copy of a main file, kept up to date from main and merged back;
+- the three-way merge over our own change format;
+- where branches live for local and for shared (room) files.
+
+Research: `docs/research/figma/R18-enterprise.md` D-1. The plan: `docs/roadmap.md` Phase 7 round 2. Figma's facts, read 2026-10-11:
+- **[B-guide]** Guide to branching — https://help.figma.com/hc/en-us/articles/360063144053
+- **[B-merge]** Merge branch into main file — https://help.figma.com/hc/en-us/articles/5691189138839
+- **[B-update]** Get updates from main files — https://help.figma.com/hc/en-us/articles/5665728006423
+- **[B-review]** Request a branch review — https://help.figma.com/hc/en-us/articles/5691414603543 ; Review branch changes — https://help.figma.com/hc/en-us/articles/5693123873687
+- **[B-share]** Share a branch — https://help.figma.com/hc/en-us/articles/5665697002263
+- Figma's schema (`docs/research/figma/figma-schema-106.kiwi`):
+  - `DiffPayload {nodeChanges, blobs, diffChunks, diffBasis, basisParentNodeChanges, parentNodeChanges, diffType}`
+  - `DiffChunk {nodeChanges (indices), phase, displayNode, canvasId, canvasName, canvasIsInternal, chunksAffectingThisChunk, basisParentHierarchy, parentHierarchy, basisParentHierarchyGuids, parentHierarchyGuids}`
+  - `DiffType {BRANCHING, NODE_CHANGES_ONLY}`
+  - `MessageType.DIFF = 13`
+  - `Message.pasteBranchSourceFileKey = 26`
+  
+  That is: Figma computes branch diffs as NodeChanges grouped into chunks, one per displayed layer. We use the same shape.
+- The activity log's `file_repo {id, name, main_file_key}` entity: a main file and its branches form a **repo** (docs/multiplayer.md §14.10).
+
+### 15.1 What Figma does (the behaviour to match)
+
+**Who.** Branching is on Organization and Enterprise and needs a **Full seat**. You need view or edit access to the main file [B-guide]. Viewers can branch only when "viewers can copy" is on; otherwise they don't see the option. There is no limit on the number of branches.
+
+**Create.** The file-name menu has "Create branch…", which asks for a name. The branch is an exact copy of main at that moment. The left sidebar shows "‹file› / ‹branch›" [B-guide].
+
+**Access** [B-share]:
+- Anyone with access to main can open its branches.
+- Inviting someone to a branch also gives them main.
+- Branch links carry `/branch/<key>`.
+
+**Version history.**
+- Checkpoints are labelled **"Branch created"**, **"Updated from main"** and **"Branch merged"**.
+- An extra checkpoint is made before a merge [B-guide].
+- Comments are the branch's own: main's don't appear, and the branch's don't merge.
+- Publishing a library is only possible from main.
+
+**Updates from main** [B-update]:
+- A notice says main has changed. You take **all** updates or none: they can't be picked.
+- Conflicts can be resolved then, or left for the merge.
+- Conflicts are listed in a left sidebar; selecting one shows **main on the left, the branch on the right**. You pick one per conflict, and a badge shows the pick. **Resolve all** offers "Pick main file" / "Pick branch".
+- "Apply changes" applies them. You can undo by restoring an earlier version.
+
+**Review** [B-review]:
+- "Review and merge changes…" opens **Branch review**, with the changes ("side by side" by default, or overlay with an opacity slider).
+- **Request review** takes reviewers (suggested: people who can edit main) and a description. The branch shows **In review**.
+- A reviewer answers with **Add your review** › **Approve** or **Suggest changes**, which shows the badge **Changes suggested**. The author then uses **Request another review**.
+- **Approved** does not merge by itself.
+
+**Merge** [B-merge]:
+- Anyone who can edit main merges; others must request a review.
+- Everything merges or nothing does.
+- The name and description go into main's version history.
+- The branch is archived. A memory-limit banner blocks merging.
+
+**View branches**: tabs **Active**, **Archived** (merged and archived) and **Yours**. People who can edit main can open, copy link, merge, archive, rename and restore branches there.
+
+**Unverified:**
+- whether branches of branches exist (we refuse them);
+- whether a merged branch can be restored (we refuse it: R18's reading);
+- what "Pick main" does to the branch's *other*, non-conflicting edits on the same layer (we keep them: §15.4 rule 6);
+- the exact wording of the update notice.
+
+### 15.2 Records
+
+```ts
+// src/shared/store/types.ts (additions, round 2a)
+export type BranchStatus = "active" | "archived" | "merged";
+export interface BranchRecord {
+  /** The branch's own file (a local file, or a room for a shared main) */
+  branchFileKey: FileKey;
+  mainFileKey: FileKey;
+  /** Room keys when main is shared (the branch is then shared too); null for local files */
+  mainKey: string | null;
+  branchKey: string | null;
+  name: string;
+  createdBy: { id: string | null; name: string | null };   // null id: the local user
+  createdAt: number;
+  status: BranchStatus;
+  /** The merge base: main as it was at "Create branch" or the last "Update from main" */
+  base: { mainSeq: number; mainVersionId: VersionId | null; at: number };
+  /** main's head seq when the branch last looked (the "main has changed" notice compares it) */
+  mainSeenSeq: number;
+  archivedAt: number | null;
+  mergedAt: number | null;
+  mergedBy: string | null;
+  /** The main's version "Branch merged" made by the merge */
+  mergeVersionId: VersionId | null;
+  review: BranchReview | null;
+}
+export interface BranchReview {
+  id: string;
+  state: "in-review" | "approved" | "changes-suggested" | "closed";
+  requestedBy: string | null;
+  description: string;
+  createdAt: number;
+  reviewers: { userId: string; name: string | null; verdict: "pending" | "approved" | "changes-suggested"; comment: string; at: number | null }[];
+}
+
+// FileMeta gains (round 2a; local listings show a file with `branch` only under its main):
+//   branch: { mainFileKey: FileKey; name: string; status: BranchStatus } | null
+// VersionRecord.kind gains "branch" ("Branch created"), "update" ("Updated from main"), "merge" ("Branch merged");
+//   all three are kept forever (§6 retention). The pre-merge checkpoint is an ordinary "autosave".
+// BatchKind gains "merge" (main ← branch) and "update" (branch ← main): journaled, never undoable, applied to open
+//   editors as remote changes (APPLY_REMOTE); undoing a merge = restoring the version before it (Figma).
+```
+
+**The branch point and the base.**
+- At "Create branch" the store first makes a **"branch" version on main** (a full snapshot, §6).
+- The branch keeps **its own copy of the base snapshot**: `files/<branch>/branch/base.kiwi` (hard link of main's version file, as §6) and `branch.json` (the `BranchRecord`).
+- "Update from main" replaces both with main's head at that moment. The base is always the main state the branch last absorbed, so a conflict resolved once never comes back.
+- For a shared main, the branch room stores the base as its own chunks (`base`, §15.7).
+
+**The copy keeps identity** (unlike Duplicate, §6):
+- The branch is made from main's head snapshot with **the same GUIDs, the same asset keys and the same library bookkeeping**: no `withNewAssetIdentity`.
+- Its pages, variables, styles and components are the same nodes.
+- Only the branch's `FileMeta` (name "‹branch›", `branch`) and its store state are new.
+
+**GUID ranges** (two files with the same GUIDs must never mint the same new ones):
+- **Local:** sessionIDs are `(deviceOrdinal << 20) | n`, with `n` counted per file (§1). At creation, main's `sessions.nextLocal` jumps by **4096** and the branch's starts at main's old value: the branch owns `[old, old + 4096)`. A branch that runs out asks main for the next block (same store, same rule).
+- **Rooms:** the main room's session counter jumps by **65536** and the branch room's starts at the old value (`POST /files/:key/branches` returns it, §15.7).
+
+### 15.3 The diff
+
+`src/shared/merge/diff.ts` generalizes `files.restoreDiff` (`diffTables` in `src/shared/schema/patch.ts`, `restoreDiff` in `src/shared/store/assetIdentity.ts`): `diff(a, b)` is the per-node, per-field difference that turns table `a` into table `b`.
+
+- **Equality** is on decoded values. `@blob` fields compare by the **bytes** (SHA-1) of their blobs, never by index: two tables number blobs differently. Images compare by hash.
+- **Absence** follows `docs/schema.md` §3.4: a field absent on one side and holding the value absence means on the other is **no change** (as `restoreDiff`).
+- **`@derived` fields are never compared** and never written.
+- **Keyed fields** are lists with stable item keys. They are diffed **per item**, so that two sides editing different items of one property don't collide:
+
+  | Field | Item key |
+  |---|---|
+  | `symbolData.symbolOverrides` | the entry's `guidPath` (its overrideKeys), then per field inside the entry |
+  | `componentPropAssignments` | `defID` |
+  | `componentPropDefs` | `id` |
+  | `parameterConsumptionMap.entries` | `variableField` |
+  | `variableDataValues.entries` | `modeID` |
+  | `variableSetModes` | `id` |
+  | `prototypeInteractions` | `id` |
+  | `librarySubscriptions` (DOCUMENT) | `libraryKey` |
+
+  Everything else (`fillPaints`, `textData`, `effects`, `vectorData`, …) is **one value**, as the per-property rule of `docs/schema.md` §4.2 says.
+- **Output**: a `TableDiff` (§15.6). Each node is created, removed, or updated with its changed fields and keyed items; each field records its value on both sides.
+
+### 15.4 Three-way merge
+
+Inputs:
+- **B** — the base: main at the branch point or last update;
+- **O** — ours: the head of the side receiving nothing yet;
+- **T** — theirs: the head of the side being written.
+
+| Direction | O | T | Written to |
+|---|---|---|---|
+| merge | branch | main | main |
+| update | main | branch | branch |
+
+`dO = diff(B, O)` and `dT = diff(B, T)`. For every GUID changed on either side:
+
+1. **Only one side changed it**: take that change.
+2. **Both updated the same field or keyed item**:
+   - equal values → no conflict (convergent);
+   - different values → **conflict** `field` (or `keyed`, naming the item).
+3. **Different fields or items of one node** → no conflict; both apply. A keyed field's merged value is rebuilt from B's items with both sides' item changes.
+4. **Removed on one side, changed on the other** → **conflict** `delete-edit`. "Changed" includes: any field of the node; a node created under it; a node moved into it; a reference to it set on the other side (`symbolData.symbolID`, `styleIdFor*`, a variable alias, `transitionNodeID`, a `PROP_REF`). Removed on both → removed, no conflict.
+5. **`parentIndex`** is one field, judged specially:
+   - Different **parents** on the two sides → conflict `move`.
+   - The same parent with different positions → **no conflict**: the side being merged in wins (the branch on merge, main on update). Order-only collisions are noise.
+   - If the two moves together would make a node its own ancestor → conflict `cycle` on both nodes.
+6. **Resolving** a conflict picks **main** or **branch** for that conflict's (GUID, field / item) pairs only. The non-conflicting changes of both sides in the same layer still apply (unverified against Figma, §15.1). A resolved `delete-edit`:
+   - "keep the deletion" removes the node and its subtree, including what the other side created in it;
+   - "keep the edit" brings the node back (its full state from the side that kept it, and its removed ancestors as they were in B).
+7. **Position collisions**: siblings from the two sides that land on the same `parentIndex.position` under one parent get the incoming node re-keyed (`keyBetween` its neighbours, `docs/schema.md` §10). The merge batch carries the new position.
+8. **Library copies** (nodes with `sourceLibraryKey` on the internal canvas, `docs/schema.md` §8.2):
+   - The side with the higher library `version` wins the whole copy subtree, with no conflict. Equal versions with different contents is a `field` conflict, which shouldn't happen.
+   - Enabled libraries (`librarySubscriptions`) merge per `libraryKey`.
+9. **Local assets** (`key`, `publishedVersion`, `libraryMoveInfo`): never conflict. On merge, main's bookkeeping is kept (publishing happens only from main).
+10. **Type conversions** (REMOVED + CREATED of the same GUID on one side, §4.2.2) count as one change of the whole node. Against an edit on the other side they are a `field` conflict on the node, resolved whole.
+11. **Validity**: the merged table is checked by the engine's rules (`docs/schema.md` §4.6) before anything is written. A variable gaining a mode on one side and a new variable on the other is valid (a missing mode value falls back to the default). A violation that no rule above explains aborts with `invalid` and the offending GUIDs: a bug to fix, never written.
+
+**Result**: the merged table **M**, and the batch `diffTables(T, M)` cleaned like `restoreDiff` (absence rules, bookkeeping). With no conflicts, merging into an unchanged side gives exactly the other side: if `T == B` then `M == O`. A test checks this.
+
+**Grouping — Figma's DiffChunk** (what Review and Resolve conflicts list). Every changed node goes to one chunk, keyed by its **display node**:
+
+| Node | Display node |
+|---|---|
+| On a page | its top-level layer (the ancestor whose parent is a CANVAS) |
+| A page itself (name, order, background) | the page |
+| A variable, a mode or an extension override | its collection (VARIABLE_SET) |
+| A style | the style |
+| A component or variant (when on the internal canvas) | the component or its set |
+| A library copy | the library copy's root |
+| DOCUMENT | the document |
+
+- A chunk's `phase` is CREATED, REMOVED or updated (absent) by its display node's own fate.
+- `canvasId` / `canvasName` / `canvasIsInternal` name its page.
+- `parentHierarchyGuids` is the path to it.
+- A node moved between two display nodes belongs to the **destination's** chunk, and the source chunk lists it in `chunksAffectingThisChunk`. Removed nodes group by their display node in B.
+- Conflicts are listed per chunk, which is the conflict item of Resolve conflicts. "Pick main" / "Pick branch" on a chunk resolves all its conflicts; **Resolve all** resolves every chunk.
+
+### 15.5 The flows
+
+**Create branch** (`branches.create(mainFileKey, name)`):
+1. Flush main.
+2. Make version `kind: "branch"` on main.
+3. Copy main's head snapshot into a new file. It has `FileMeta.branch` set, the same folder as main and the name "‹branch›". Its own first version is `kind: "branch"` ("Branch created").
+4. Write `base.kiwi` and `branch.json`.
+5. Reserve the GUID block.
+
+Refused for:
+- a branch of a branch (`invalid`);
+- a viewer of a shared main without "viewers can copy" (`forbidden`);
+- in an org, a seat other than Full (`forbidden`, `seat_required`).
+
+**The notice**: the branch compares main's head seq with `mainSeenSeq`. Main changed since the base → the editor's banner offers to review updates (wording to read from Figma before building; §15.1).
+
+**Update from main** (`previewUpdate` → `applyUpdate`):
+1. Merge with direction `update`.
+2. Conflicts are shown (main left, branch right) and must all be picked before Apply.
+3. Apply appends the batch to the branch as `kind: "update"`, then makes version `"update"` ("Updated from main") on the branch.
+4. The base becomes main's head (the T used) and `mainSeenSeq` moves.
+
+Undo: restore an earlier branch version.
+
+**Review**:
+- `requestReview` takes reviewers and a description. The state becomes `in-review`, and the reviewers are notified: a notification of kind `branch_review_request`, in-app (§12 of docs/multiplayer.md; email not built).
+- A reviewer answers `approved` or `changes-suggested` with a comment. The review's state is the latest verdict, and the author is notified.
+- `Request another review` reopens the review with the verdicts reset to pending.
+- Branch comments live on the branch file as any file's (§10 of docs/multiplayer.md) and never merge.
+
+**Merge** (`previewMerge` → `merge`):
+1. Flush both sides. For a shared main, its link must be **live and caught up**, with nothing pending, else `offline`.
+2. Merge with direction `merge` and all conflicts resolved (none left in `unresolved`, else `invalid`).
+3. If either head moved since the preview → `stale` (the UI previews again).
+4. Make the pre-merge checkpoint: an autosave version on main.
+5. Append the batch to main as **one batch `kind: "merge"`**. For a shared main this is one room frame, sent by the merging person's store; every other client receives it as remote changes.
+6. Make main's version **`kind: "merge"`**, titled by the merger's name field (default "‹branch›"), with their description ("Branch merged" when untitled).
+7. The branch gets version "merge", `status: "merged"`, `mergedAt` / `mergedBy` / `mergeVersionId`, and is archived.
+
+Undo: restore main's pre-merge version (Figma).
+
+**Archive / restore**:
+- `archive` sets `status: "archived"`: hidden from Active, read-only. People who can edit main may do it, and so may the branch's creator (theirs, in the Yours tab).
+- `restore` sets an archived (not merged) branch back to `active`. A merged branch can't be restored (`invalid`); Duplicate it instead.
+- Deleting a branch is Delete forever of an archived branch's file (`branch_delete`).
+
+**Elsewhere**:
+- Publishing a library from a branch is refused (`draft-cannot-publish`'s sibling `branch-cannot-publish`, new StoreErrorCode).
+- Copying from a branch sets `Message.pasteBranchSourceFileKey` (docs/schema.md §15) so a paste into main can tell (round 2b decides the use).
+
+### 15.6 Types: `src/shared/merge/` and the `branches` repository
+
+```ts
+// src/shared/merge/types.ts
+import type { GUID, Message } from "../schema/document.generated";
+import type { NodeTable } from "../schema/patch";
+
+export const ABSENT: unique symbol = Symbol("absent");
+export type Value = unknown | typeof ABSENT;
+
+export interface FieldChange { field: string; before: Value; after: Value }
+export interface ItemChange { field: string; itemKey: string; before: Value; after: Value } // keyed fields (§15.3)
+export interface NodeDelta {
+  key: string;                       // "s:l"
+  guid: GUID;
+  phase: "created" | "removed" | "updated";
+  fields: FieldChange[];             // updated: changed whole fields; created: every field
+  items: ItemChange[];               // updated: changed items of keyed fields
+}
+export interface TableDiff { deltas: Map<string, NodeDelta> }
+
+export type Side = "main" | "branch";
+export type ConflictKind = "field" | "keyed" | "delete-edit" | "move" | "cycle";
+export interface Conflict {
+  id: string;                        // "<guid>|<field>[|<itemKey>]" — stable across previews
+  kind: ConflictKind;
+  guid: string;
+  field: string | null;
+  itemKey: string | null;
+  base: Value; main: Value; branch: Value;
+  /** For delete-edit: which side removed it */
+  removedOn: Side | null;
+  chunk: number;
+}
+/** Figma's DiffChunk (figma-schema-106.kiwi), with GUIDs as "s:l" strings and our conflicts */
+export interface DiffChunk {
+  index: number;
+  displayNode: string;
+  displayName: string;
+  displayType: string;               // NodeType name
+  phase: "CREATED" | "REMOVED" | null;
+  canvasId: string;
+  canvasName: string;
+  canvasIsInternal: boolean;
+  /** Indices into MergeResult.batch.nodeChanges */
+  nodeChanges: number[];
+  chunksAffectingThisChunk: number[];
+  parentHierarchyGuids: string[];
+  /** Which sides changed something in it */
+  changedOn: Side[];
+  conflicts: string[];
+}
+export type Resolutions = Record<string /* Conflict.id, or "chunk:<index>", or "*" */, Side>;
+export interface MergeInput {
+  base: NodeTable;
+  main: NodeTable;
+  branch: NodeTable;
+  direction: "merge" | "update";
+  resolutions?: Resolutions;
+}
+export interface MergeResult {
+  direction: "merge" | "update";
+  /** NODE_CHANGES to apply to the target head (main on merge, the branch on update); empty when nothing changes */
+  batch: Message;
+  chunks: DiffChunk[];
+  conflicts: Conflict[];
+  /** Conflict ids still without a side; non-empty → the batch must not be written */
+  unresolved: string[];
+  stats: { created: number; removed: number; updated: number; reKeyed: number };
+}
+
+// src/shared/merge/index.ts
+export declare function diff(a: NodeTable, b: NodeTable): TableDiff;
+export declare function merge3(input: MergeInput): MergeResult;
+/** The chunk a node belongs to in a table (§15.4 grouping) */
+export declare function displayNodeOf(table: NodeTable, guidKey: string): string;
+```
+
+```ts
+// src/shared/store/repositories.ts (additions, round 2a) — StoreApi gains `branches: BranchesRepository`, topic "branches"
+export type BranchEvent =
+  | { type: "branch.updated"; branch: BranchRecord }
+  | { type: "branch.main-changed"; branchFileKey: FileKey; mainHeadSeq: number }
+  | { type: "branch.merged"; branch: BranchRecord };
+
+export interface MergePreview {
+  previewId: string;                 // valid ~10 minutes, one per branch and direction
+  direction: "merge" | "update";
+  mainHeadSeq: number;
+  branchHeadSeq: number;
+  chunks: DiffChunk[];
+  conflicts: Conflict[];
+  unresolved: string[];
+  stats: MergeResult["stats"];
+}
+
+export interface BranchesRepository {
+  create(mainFileKey: FileKey, name: string): Promise<BranchRecord>;
+  /** "Active" | "Archived" (archived + merged) | "Yours" (created by the user, any status) */
+  list(mainFileKey: FileKey, tab: "active" | "archived" | "yours"): Promise<BranchRecord[]>;
+  get(branchFileKey: FileKey): Promise<BranchRecord | null>;
+  rename(branchFileKey: FileKey, name: string): Promise<BranchRecord>;
+  archive(branchFileKey: FileKey): Promise<BranchRecord>;
+  restore(branchFileKey: FileKey): Promise<BranchRecord>;
+  /** Main's head vs the base: whether to show the notice */
+  mainStatus(branchFileKey: FileKey): Promise<{ changed: boolean; mainHeadSeq: number; baseSeq: number }>;
+  preview(branchFileKey: FileKey, direction: "merge" | "update", resolutions?: Resolutions): Promise<MergePreview>;
+  /** A side of a preview opened read-only for Compare changes' views (side by side / overlay): base, main, branch or
+   *  the merged result */
+  openSide(previewId: string, side: "base" | "main" | "branch" | "merged"): Promise<OpenedFile>;
+  applyUpdate(branchFileKey: FileKey, input: { previewId: string; resolutions: Resolutions }): Promise<BranchRecord>;
+  merge(branchFileKey: FileKey, input: { previewId: string; resolutions: Resolutions; title?: string; description?: string }): Promise<{ branch: BranchRecord; version: VersionRecord }>;
+  requestReview(branchFileKey: FileKey, input: { reviewerIds: string[]; description: string }): Promise<BranchReview>;
+  answerReview(branchFileKey: FileKey, input: { verdict: "approved" | "changes-suggested"; comment?: string }): Promise<BranchReview>;
+  watch(listener: (e: BranchEvent) => void): Unsubscribe;
+}
+```
+
+- **Errors**: `stale` (new StoreErrorCode: a head moved since the preview), `invalid` (unresolved conflicts, branch of a branch, restoring a merged branch), `forbidden` (seat, viewers can't copy, can't edit main to merge), `offline`, `branch-cannot-publish`.
+- **Where the code goes** (round 2a):
+  - `src/shared/merge/`: `diff.ts`, `merge3.ts`, `chunks.ts`, `types.ts`, `index.ts`; pure, no Node or DOM.
+  - `src/store/branches/`: the service over `FileStore` and `MultiplayerService`, the previews cache, `branch.json` / `base.kiwi`, GUID blocks.
+- **Memory**: one merge holds three `NodeTable`s. The owner's 32k-layer file is about 3 × its table, which is fine in the store process; never in a view.
+
+### 15.7 Shared files (rooms) and the server
+
+A branch of a shared main is itself shared: its own `FileRoom` and its own D1 `files` row (same org, team and folder as main). The room's role check goes through main: §15.1's "anyone with access to main can open its branches" is `resolveAccess(main)`. A grant on the branch also writes a grant on main (Figma: inviting to a branch gives main) and logs `branch_member_add`. Migration **`server/migrations/0011_branches.sql`** (round 2c, the text below):
+
+```sql
+-- Branches (docs/data.md §15): a branch is a file whose repo's main file is main_key.
+CREATE TABLE branches (
+  key             TEXT PRIMARY KEY REFERENCES files (key) ON DELETE CASCADE,
+  main_key        TEXT NOT NULL REFERENCES files (key) ON DELETE CASCADE,
+  name            TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived', 'merged')),
+  created_by      TEXT NOT NULL REFERENCES users (id),
+  created_at      INTEGER NOT NULL,
+  -- the main room's seq the branch's base is (moves on "Update from main")
+  base_seq        INTEGER NOT NULL,
+  main_seen_seq   INTEGER NOT NULL,
+  -- first session id of the branch room's block (§15.2)
+  session_base    INTEGER NOT NULL,
+  archived_at     INTEGER,
+  archived_by     TEXT REFERENCES users (id),
+  merged_at       INTEGER,
+  merged_by       TEXT REFERENCES users (id),
+  merge_version   TEXT
+);
+CREATE INDEX branches_main ON branches (main_key, status);
+
+CREATE TABLE branch_reviews (
+  id           TEXT PRIMARY KEY,
+  branch_key   TEXT NOT NULL REFERENCES branches (key) ON DELETE CASCADE,
+  requested_by TEXT NOT NULL REFERENCES users (id),
+  description  TEXT NOT NULL DEFAULT '',
+  state        TEXT NOT NULL DEFAULT 'in-review' CHECK (state IN ('in-review', 'approved', 'changes-suggested', 'closed')),
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+CREATE INDEX branch_reviews_branch ON branch_reviews (branch_key, created_at);
+
+CREATE TABLE branch_reviewers (
+  review_id TEXT NOT NULL REFERENCES branch_reviews (id) ON DELETE CASCADE,
+  user_id   TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  verdict   TEXT NOT NULL DEFAULT 'pending' CHECK (verdict IN ('pending', 'approved', 'changes-suggested')),
+  comment   TEXT NOT NULL DEFAULT '',
+  at        INTEGER,
+  PRIMARY KEY (review_id, user_id)
+);
+```
+
+| Route | Who | Request → Response |
+|---|---|---|
+| `POST /files/:key/branches` | can view main (+ copy allowed), Full seat in an org | `{branchKey, name, baseSeq}` → `{branch: BranchRow, sessionBase}`; then the client uploads the branch snapshot (`PUT /files/:branchKey/snapshot?seq=0`) and the base (`PUT /files/:branchKey/base?seq=<baseSeq>`, chunks like snapshots) |
+| `GET /files/:key/branches?tab=active\|archived\|yours` | can view main | `{branches: BranchRow[]}` |
+| `PATCH /branches/:key` | can edit main, or the creator | `{name?, status?: "archived" \| "active"}` → `{branch}` |
+| `GET /branches/:key/base` · `PUT …/base?seq=` | can view / can edit the branch | the base snapshot (Update from main replaces it) |
+| `POST /branches/:key/updated` | can edit the branch | `{baseSeq, mainSeenSeq}` → `{branch}` (after the update's frame is acknowledged) |
+| `POST /branches/:key/merged` | can edit main | `{mainSeq, versionId}` → `{branch}` (after the merge frame is acknowledged; logs `repo_merge_to_source`, notifies the creator and reviewers) |
+| `POST /branches/:key/reviews` | can view the branch | `{reviewerIds, description}` → `{review}` |
+| `POST /branches/:key/reviews/:id/verdict` | a reviewer | `{verdict, comment?}` → `{review}` |
+
+- **Room versions** (round 2c; Figma's history for shared files):
+  - The room writes a version snapshot every 30 minutes of edits, and on name, publish and merge.
+  - Kept in the room's storage as chunks with a `versions` table there.
+  - `GET /files/:key/versions`, `POST /files/:key/versions {kind, title?, description?, seq}`.
+
+  The store's `FileRepository.listVersions` etc. read them for shared files. Kinds are the same as §6 plus §15.2's.
+- **The merge frame is computed by the client**: the room never decodes kiwi (§4 of docs/multiplayer.md). The room checks only that the sender can edit main.
+- **Comments**: a branch room's comments are the branch file's; Figma doesn't merge them.
+
+### 15.8 Test corpus (round 2a: `src/shared/merge/*.test.ts`, `src/store/branches/*.test.ts`)
+
+Each case builds B, then O and T by applying change Messages, runs `merge3` in both directions and checks the batch, the chunks and the conflicts:
+
+1. Nothing changed (B = O = T) → empty batch, no chunks.
+2. Only one side changed → the batch equals that side's diff; with `T == B`, the merged result equals O.
+3. Different nodes on each side → clean.
+4. Different fields of one node → clean, both kept.
+5. Same field, same value → clean, no write.
+6. Same field, different values → one `field` conflict. Pick main / pick branch / "chunk:i" / "*" each give the expected M.
+7. `textData` edited on both sides → `field` conflict (no character merge).
+8. Main edits a child, the branch deletes its top-level frame → `delete-edit` on the frame's chunk. Both resolutions, including bringing back removed ancestors.
+9. Created on one side under a node removed on the other → `delete-edit`.
+10. Removed on both sides → clean.
+11. Moved to different parents → `move` conflict. The same parent with different positions → incoming position, no conflict. Swapping A into B and B into A → `cycle`.
+12. Siblings inserted at the same position → re-keyed, order deterministic.
+13. Instance overrides: different guidPaths on one instance → clean, one merged `symbolData`. The same guidPath and field → `keyed` conflict.
+14. `componentPropAssignments`, `componentPropDefs`, `parameterConsumptionMap`, `prototypeInteractions` per key.
+15. Variables:
+    - values in different modes → clean; the same mode → `keyed`;
+    - a mode added on one side and a variable added on the other → valid M;
+    - a collection removed vs a variable edited → `delete-edit`;
+    - an extended collection's override vs the parent's value.
+16. Styles: one style edited on both sides; a style removed on main while the branch applies it (`styleIdFor*`) → `delete-edit`.
+17. Components: a main component edited on both sides; a variant added on one side while the set is renamed on the other → clean.
+18. Library copies: main at library version 5, the branch at 4 → 5's subtree, no conflict. Enabled libraries merged per key.
+19. Local asset bookkeeping is kept from main; a branch can't publish.
+20. Pages: added on both sides, reordered, renamed vs deleted.
+21. Images: a branch-only image travels with the batch (`blobRefsAdded`); blob fields compare by bytes across tables.
+22. Type conversion on one side vs an edit on the other.
+23. `clearedFields` and `@default` values: a field cleared on one side vs set to its default on the other → convergent.
+24. `@derived` never in the batch.
+25. Update then merge: a conflict resolved during the update doesn't reappear at the merge.
+26. A stale preview → `stale`.
+27. GUID blocks: new nodes on main and on the branch after the split never collide (store test).
+28. Shared main (store against the real handler and room on node:sqlite): create, edit both, update, merge as one frame received by a third client, versions on both.
+29. **The owner's 32k-layer file**: a branch with 500 edits across 50 frames merges in under 2 s in the store process, its memory bounded by three tables (a bench, not in `npm run check`).
 
 ---
 

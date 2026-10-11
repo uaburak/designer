@@ -80,41 +80,73 @@ The owner wants every feature of Figma's Enterprise plan. R18 lists them all: th
 
 **Biggest risks, in the order they are tackled:**
 1. The content model moving to the server (round 1).
-2. Branching's three-way merge (round 2).
+2. Branching's three-way merge (round 2; `data.md` §15).
 3. SAML in a Worker (spiked in round 1, built in round 4).
 4. Server-side renders for the REST images endpoint (decided in round 1's spike).
 5. The new editor types (rounds 9–13).
 
-### Round 0 — contracts (main session, docs only)
-- `docs/multiplayer.md` §12 "Organizations":
-  - The hierarchy: orgs → workspaces → teams → projects → files, with members and guests.
-  - Seats (Full / Dev / Collab / View) work as caps on permissions.
-  - Permission resolution: file ∪ project ∪ team ∪ org admin, capped by seat and by external-content rules.
-  - Two **spaces** behind the store's repositories: `local`, as today, and `org:<id>`, backed by rooms.
-  - Migration of today's shared files into a default team.
-  - Admin API routes and payloads, and the activity-log event names.
-- `docs/data.md` "Branches":
-  - Branch metadata and the branch point.
-  - The three-way diff over NODE_CHANGES. A conflict is the same GUID+field changed on both sides, or a delete on one side and an edit on the other; conflicts are grouped by top-level layer.
-  - A merge is one batch plus a version of `kind: "merge"`.
-- `docs/schema.md`: the plan for bringing back each product's part of Figma's schema (EditorType / `pageType 397`, node types 17–58). Numbers are reserved now; the round that needs a field adds it.
+### Round 0 — contracts (main session, docs only) — **written 2026-10-11**
+- `docs/multiplayer.md` **§14 "Organizations"** (§12 and §13 are notifications and settings), covering:
+  - the hierarchy (orgs → workspaces → teams → folders, Figma's renamed projects → files) with members, guests and user groups;
+  - roles at every level (Figma's names);
+  - seats as caps;
+  - `resolveAccess` as an algorithm with 22 cases;
+  - migration `0010_orgs.sql` in full;
+  - the store's two spaces and the `orgs` / `teams` / `projects` / `admin` repositories;
+  - moving today's shared files into a team ("Create organization" › Import shared files);
+  - every route with its shapes and error codes;
+  - the activity log (Figma's ActivityLog shape and action names);
+  - how rooms check roles (`/room/reauth`);
+  - how notifications and sessions attach to orgs;
+  - `src/shared/org/types.ts`.
+- `docs/data.md` **§15 "Branches"**, covering:
+  - the branch record, the base snapshot and GUID blocks;
+  - the per-(GUID, field) diff with keyed fields;
+  - the three-way merge rules (delete vs edit, moves, cycles, positions, overrides, variables, library copies);
+  - Figma's `DiffChunk` grouping;
+  - the flows (create, update from main, review, merge = one `merge` batch + a `merge` version, archive / restore);
+  - `src/shared/merge/` and the `branches` repository;
+  - shared branches (rooms, `0011_branches.sql`);
+  - the test corpus.
+- `docs/schema.md` **§15**: each product's Figma node types and fields with their numbers, by round. The numbers come from `docs/research/figma/figma-schema-106.kiwi`, Figma's version-106 schema dumped with field numbers.
+- **Before round 1 starts**, the main session commits the contract's TypeScript verbatim:
+  - `src/shared/org/types.ts` (§14.13 + §14.10's `ActivityLog`);
+  - the repository interfaces of §14.6 in `src/shared/store/repositories.ts`, with a `notImplemented` stub in both stores.
+  
+  The parallel agents then compile against the same types. Round 2 does the same with `src/shared/merge/types.ts` and §15.6's `BranchesRepository`.
+
+**Already built, not redone** (2026-10-11):
+- **Notifications** (`docs/multiplayer.md` §12: migration 0008, `Inbox`, the bell). Old item 5d is reduced to email.
+- **Sessions and personal access tokens** (§13: migration 0009 — a row per sign-in, `sid` in tokens, last active, Sign out per session, scoped tokens). They come off round 1's server list and round 4's client list.
+
+Migrations continue from **0010** (round 1) and **0011** (round 2).
+
+### Open questions for the owner (Phase 7)
+1. **Friends: members or guests?** By Figma's rule, people outside the org's email domains are guests, and the owner has no domain. §14.8 imports them as guests, and admins can add anyone as a member by hand (ours). Members see every Visible team and use shared fonts and org libraries; guests see only what they're invited to.
+2. **Default seat.** Figma's default for new people is View (§14.3), with "Ask to upgrade". Should the owner's org default to Full, so friends can edit Design files at once?
+3. **Admins edit everything implicitly** (§14.2 rule 4, unverified at Figma). Keep, or make org admins only *manage* permissions?
+4. **Files outside any org.** Keep today's per-file sharing for people who never join an org (§14.1), or move every shared file into orgs and retire the legacy path once everyone has one?
+5. **"Pick main" during conflict resolution** keeps the branch's other changes on the same layer (docs/data.md §15.4 rule 6). Figma's exact behaviour is unverified; worth one test in live Figma with the owner's Organization trial, if any.
+6. **Org name, and one org or several.** "Create organization" makes as many as asked; the owner's own name for it is needed at the first run.
 
 ### Round 1 — the organization (risk 1)
 | Agent | Owns | Delivers |
 |---|---|---|
-| 1a server org | `server/src/org/`, `server/src/activity.ts`, `server/migrations/0008+`, `server/src/api.ts` (dispatch lines only) | orgs / workspaces / teams / projects / members / user groups / seats in D1; role resolution used by every route and the room; activity log written by every mutating route; `sessions` table (session ids in tokens, last active); link expiry; `viewers_can_copy` enforced on snapshot / export routes; tests on node:sqlite |
-| 1b store spaces | `src/store/` (new `org/`), `src/shared/store/`, `src/shared/multiplayer/` | `teams` / `projects` / `org` repositories; org spaces room-backed with an offline cache; moving a local file into a team project; tested against a contract fake, then against 1a's handler once merged |
-| 1c Home | `src/renderer/src/files/` | org switcher, Teams and their projects in the sidebar, team pages (Projects / Members), project pages, create team / project, private projects, move across spaces, transfer team / project |
-| 1d Admin app | `src/renderer/src/admin/` (new) | the Admin location: Dashboard, People (filters, bulk actions, CSV), Teams, Workspaces, Billing groups, Activity (filters, CSV), Settings skeleton — against the contract with a fake API |
+| 1a server org | `server/src/org/` (new: `db.ts`, `orgs.ts`, `teams.ts`, `projects.ts`, `groups.ts`, `admin.ts`, `reauth.ts`, `migrate.ts`), `server/src/activity.ts` (new), `server/migrations/0010_orgs.sql` (the text of `multiplayer.md` §14.5, verbatim), `src/shared/org/access.ts` (new; `resolveAccess` + its 22 cases), `server/src/api.ts` (dispatch lines; the files routes call `resolveAccess`; `POST /files` with `orgId` / `projectId`; trash / move / activity routes), `server/src/fileRoom.ts` (`/room/reauth` only), `server/src/notifications.ts` (§14.11's org kinds, `org_id` / `team_id` on rows, `{t: "org"}` inbox notices), `server/src/account.ts` (account deletion vs org drafts, §14.7; `last_active_at`) | §14.4–§14.12 on the server: orgs, workspaces, teams, folders, members, user groups, seats and seat requests, guest requests (stored), billing groups; the activity log written by every mutating route; "Create organization" with Import shared files (§14.8); link expiry; `viewers_can_copy` enforced (§14.12). Tests on node:sqlite: every route, the access cases, migration of shared files, reauth. *Sessions are not in this round: migration 0009 has them.* |
+| 1b store spaces | `src/store/org/` (new), `src/shared/store/` (`repositories.ts`, `types.ts` — `FileMeta.space`, `Prefs.browse.space` —, `protocol.ts`, `client.ts`), `src/store/localStore.ts` (wiring), `src/store/multiplayer/` (share with a destination), `src/store/notifications/service.ts` (forwarding `{t: "org"}` notices only), `src/renderer/src/store/memory/` (the browser's MemoryStore wiring) | §14.6: the `orgs`, `teams`, `projects`, `admin` repositories over the server, the per-org cache (offline reads), org files as linked room copies, creating files in folders and drafts, moving a local file into a folder, topic `org`. Tested against a contract fake, then against 1a's handler once merged (as `service.test.ts` does) |
+| 1c Home | `src/renderer/src/files/` | The org switcher (account menu; `Prefs.browse.space`); in an org: sidebar Drafts, Teams with their folders (nested, as Figma's file browser), team pages (Folders / Members, audience and visibility, join / request, leave, transfer, delete / restore), folder pages (Inherited / Limited, members, create file / folder), Move to… across spaces and within the org, the team's trash, user groups in the right sidebar of All teams, "Ask to upgrade", the seat-capped banner wording; the **Admin** entry for admins rendering `AdminApp` from `src/renderer/src/admin/index.ts` (the one import from 1d's folder) |
+| 1d Admin app | `src/renderer/src/admin/` (new; `index.ts` exports `AdminApp({orgId, store})`; its fake `AdminRepository` in `admin/fake/`) | The Admin location against §14.6's `AdminRepository`: Dashboard; People (filters, bulk role / seat / workspace / billing group, remove, CSV) and User groups; seat and guest requests; Teams (incl. hidden and deleted, restore); Workspaces (admins, default teams, members, hidden); Billing groups; Activity (filters by event, person, team, dates; CSV; Figma's columns); Content › Unassigned drafts; Settings (team creation, group creation, guest membership, default seat, seat approval — the round-4 settings shown disabled) |
 | 1e spikes | `server/spikes/` (new, not deployed) | (1) SAML ACS in a Worker: a vetted XML-signature library under `nodejs_compat`, checked against a real IdP (an Okta developer org or a local Keycloak), with signature-wrapping attacks tested; (2) the REST images decision — thumbnails, client render-and-cache, or a CPU raster path in the engine — as a written recommendation |
+
+Round 1's main session, before the agents: commit `src/shared/org/types.ts` and the repository interfaces (Round 0's last item). After them: merge 1a first, then 1b (switching its tests from the fake to 1a's handler), then 1c and 1d. Deploy: `db:migrate` (0010), then deploy; there is no new Durable Object.
 
 ### Round 2 — branching and server version history (risk 2)
 | Agent | Owns | Delivers |
 |---|---|---|
-| 2a merge core | `src/shared/merge/` (new), `src/store/branches/` (new) | `diff(a, b)` generalizing `files.restoreDiff`, three-way merge with conflicts, Update from main, merge batch + version; a corpus of merge tests (reparenting, overrides, variables, library copies, the 32k-layer file) |
-| 2b editor UI | `src/renderer/src/editor/branching/` (new), `editor/commands.ts` / `menus.ts` (branch items only) | Create branch, branch banner, View branches (Active / Archived), Request review, Review and merge changes (per-layer list with Compare changes' views), Resolve conflicts (main or branch per item) |
-| 2c server | `server/src/branches.ts`, `server/src/fileRoom.ts`, `server/migrations/` | branch rooms linked to main, review requests and reviewers, version snapshots in the room every 30 min of edits and on name / publish / merge (unlimited history for shared files) |
-| 2d Home | `src/renderer/src/files/` | branch icon on cards, branches under their main file, version history for room files |
+| 2a merge core | `src/shared/merge/` (new), `src/store/branches/` (new), `src/shared/store/` (`BranchRecord`, `FileMeta.branch`, `VersionRecord.kind` + `BatchKind` additions, `BranchesRepository`, `stale` / `branch-cannot-publish` codes), `src/store/local/fileStore.ts` / `versions.ts` (the new kinds, GUID blocks, retention), `src/store/localStore.ts` + `src/renderer/src/store/memory/` (wiring) | `data.md` §15.2–§15.6: `diff` generalizing `restoreDiff`, `merge3` with conflicts and `DiffChunk`s, create / update from main / merge / archive / restore for local files, and for shared ones through 2c's routes; the corpus of §15.8 |
+| 2b editor UI | `src/renderer/src/editor/branching/` (new), `editor/commands.ts` / `menus.ts` (branch items only) | Create branch…, the "‹file› / ‹branch›" title and the main-changed notice, View branches (Active / Archived / Yours), Request review / Add your review (Approve / Suggest changes, the In review, Changes suggested and Approved badges), Review and merge changes (per-chunk list, Compare changes' side by side / overlay through `branches.openSide`), Resolve conflicts (main left, branch right, a pick per chunk, Resolve all), Update from main with Apply changes; branch publishing disabled |
+| 2c server | `server/src/branches.ts` (new), `server/src/fileRoom.ts` (base chunks, room versions, the session block), `server/migrations/0011_branches.sql` (the text of `data.md` §15.7), `server/src/api.ts` (dispatch line), `server/src/notifications.ts` (branch review kinds) | §15.7: branch rooms linked to main, access through main, reviews and reviewers, `/branches/…` routes; room version snapshots every 30 min of edits and on name / publish / merge (unlimited history for shared files); the activity log's branch events |
+| 2d Home | `src/renderer/src/files/` | the branch icon on cards, branches under their main file (local and org spaces), version history for room files |
 
 ### Round 3 — design systems at org scale (the owner's screenshot rows)
 | Agent | Owns | Delivers |
@@ -130,16 +162,16 @@ The owner wants every feature of Figma's Enterprise plan. R18 lists them all: th
 |---|---|---|
 | 4a server identity | `server/src/auth/` (SAML, SCIM, domains), `server/migrations/`, `server/wrangler.jsonc` | SAML SP per org (from the round 1 spike), "Any method / Google required / SAML required", JIT; SCIM 2.0 Users / Groups / seats; domain verification over DNS-over-HTTPS and domain capture; guest membership Allow / Approval / Block; external content controls; password required; idle session timeout; org switches (cursor chat, audio, public links, open sessions); EU jurisdiction for an org's Durable Objects |
 | 4b Admin settings | `src/renderer/src/admin/` | Settings: Login and provisioning, Guest access, Sharing and publishing (with per-workspace overrides), Team management, Extensions, AI, Data storage localization |
-| 4c clients | `src/main/account/`, `src/renderer/src/editor/ShareDialog.tsx`, `editor/multiplayer/`, `src/renderer/src/files/account.ts` | SAML sign-in through the loopback, the idle prompt ("stay logged in" in the last minute), Sessions list + Sign out everywhere, link expiry picker, export / copy restrictions enforced in the editor, cursor chat / audio hidden by policy |
+| 4c clients | `src/main/account/`, `src/renderer/src/editor/ShareDialog.tsx`, `editor/multiplayer/`, `src/renderer/src/files/account.ts` | SAML sign-in through the loopback, the idle prompt ("stay logged in" in the last minute; activity reported once a minute, `multiplayer.md` §14.11), Sign out everywhere in Settings › Security (the Sessions list is built, §13), link expiry picker, export / copy restrictions enforced in the editor, cursor chat / audio hidden by policy |
 | 4d desktop | `electron-builder.yml`, `src/main/index.ts` (policy reading) | MSI target, deployment keys (`DisableUpdater`, `AllowedOriginHosts`, `ProxyUrl`) |
 
 ### Round 5 — extensibility and Dev Mode
 | Agent | Owns | Delivers |
 |---|---|---|
-| 5a REST API | `server/src/rest/` | tokens with scopes, `/v1/files`, nodes, images (per round 1's decision), comments, versions, variables (local / published, POST), dev resources, library analytics, activity logs, AI usage; webhooks with signatures and retries |
+| 5a REST API | `server/src/rest/` | personal access tokens are built (`multiplayer.md` §13): add OAuth apps and org "plan access tokens", then `/v1/files`, teams / projects (`/v1/teams/:id/projects`, `/v1/projects/:id/files`), nodes, images (per round 1's decision), comments, versions, variables (local / published, POST), dev resources, library analytics, activity logs, AI usage; webhooks with signatures and retries |
 | 5b plugin host | `src/renderer/src/editor/plugins/` (new), `src/shared/plugins/` (new), `editor/panels/ActionsPanel.tsx` | a sandboxed realm + iframe UI, a documented `figma.*` subset, development plugins from a manifest, private org plugins (registry via 5a's tables), admin-approved lists |
 | 5c Dev Mode | `src/renderer/src/editor/devmode/`, `src/viewer/inspect/` | Code Connect (mappings, snippets with props, Code Connect UI, a `scripts/code-connect.mjs` CLI), dev resources, component playground, ready-for-dev feed, prototype-only links |
-| 5d notifications | `server/src/notifications.ts`, `src/renderer/src/files/` (bell), `src/store/notifications/` (new) | the inbox (comments, mentions, ready for dev, library updates, review requests), the room's notice, optional email |
+| 5d notifications | `server/src/notifications.ts` | **Built 2026-10-11** (`multiplayer.md` §12: the bell, the Inbox, comments / mentions / reactions / invites / requests); org kinds come with round 1 and branch reviews with round 2. What is left: ready-for-dev and library-update kinds (with 5c and round 3), optional email |
 
 ### Round 6 — AI
 | Agent | Owns | Delivers |

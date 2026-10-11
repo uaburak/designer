@@ -604,7 +604,7 @@ The codec and sync rules are owned by `docs/data.md` §12.4–12.5. The schema g
 
 ## 13. What was dropped from Figma's schema
 
-Dropped fields keep their numbers reserved (§1.2); dropped enum values are listed in comments next to their enum.
+Dropped fields keep their numbers reserved (§1.2); dropped enum values are listed in comments next to their enum. Which round brings which of them back (Phase 7): §15.
 
 | Category | Examples |
 |---|---|
@@ -636,6 +636,76 @@ These documents were written in parallel against an assumed schema. Where they d
 | `backgroundColor` | in the Frame facet | CANVAS only; frame backgrounds are `fillPaints` |
 | CREATED for a live GUID | merged over the existing node (data.md §5.5) | full replace (§4.2.2); never emitted by the engine |
 | Root overrides | `size` overridable "on the instance root only" | root overrides in the empty-path entry; root fields are materialized copies (§5.2) |
+
+---
+
+## 15. Bringing back Figma's product schema (plan, Phase 7; written 2026-10-11)
+
+Phase 7 (docs/roadmap.md) builds Figma's other products. Each one starts by bringing its part of Figma's schema back into `schema/document.kiwi`. **Nothing is added now.** This section fixes which Figma numbers belong to which round. The round that needs a field adds it then, by the rules of §1.2:
+- replace the placeholder with Figma's exact declaration;
+- bring its messages and enums complete, with Figma's numbers;
+- add no `@ours` field where Figma has one.
+
+**Source of numbers**:
+- `docs/research/figma/figma-schema-106.kiwi` — Figma's schema embedded in `samples/sections.fig` (document version 106, 637 definitions, `NodeChange` up to 610), dumped with field numbers on 2026-10-11.
+- `figma-schema.kiwi` (up to 530) agrees with it on every shared field (§1.1).
+
+**Already reserved.** Every `NodeChange` number up to 999 is a placeholder today (`_r1 … _r999`, §1.2), and so are the dropped numbers of `Message` and the other kept messages. No number below can collide with ours: our own `NodeChange` fields are 1000–1002, `Message` 100.
+
+**What is not yet reserved**:
+- **Enum values** (kiwi enums need no placeholders, but our enums omit Figma's dropped values):
+  - `NodeType` 17–24, 26, 27, 29, 30, 32–34, 36–45, 47–64 (Figma's 59–64 are new since version 106: `CODE_EMBED`, `BINARY_FILE`, `SPEC_BLOCK`, `TOOL_INSTANCE`, `CUSTOM_EFFECT_INSTANCE`, `NATIVE_CODE_LAYER_INSTANCE`);
+  - `MessageType` other than 1;
+  - all of `EditorType`.
+- **Whole messages and enums** we dropped.
+
+They come back with the field that uses them. The comment in `NodeType` lists the dropped values and must gain 59–64 when the first of them is added.
+
+**Rule for every round below.** Before adding a field:
+1. Check that its number is still a placeholder (`_rN`) in `NodeChange` (or the message concerned).
+2. Check that no `@ours` field uses its name.
+3. Copy the declaration and every type it reaches from `figma-schema-106.kiwi`, transitively, with all enum values.
+4. Run `npm run engine:gen` and `npm run check`.
+5. Run the import check (`fig-fidelity`): a `.fig` / `.jam` / `.deck` of that product must keep the new fields through import → export.
+
+At most one agent per round edits the schema (docs/roadmap.md Phase 7).
+
+### 15.1 By product (`NodeChange` field numbers unless said)
+
+| Round | Product | Node types (`NodeType`) | Fields and types |
+|---|---|---|---|
+| 2 (branching) | Branches | — | `Message.pasteBranchSourceFileKey = 26`; `MessageType.DIFF = 13`; messages `DiffPayload`, `DiffChunk`, enum `DiffType` (BRANCHING 0, NODE_CHANGES_ONLY 1) — only if round 2 stores review diffs as kiwi (docs/data.md §15.6 keeps them as TS objects; adopting the messages is 2a's call) |
+| 5c (Dev Mode) | Ready for dev, dev resources | — | `sectionStatus = 352` (`SectionStatus` NONE / BUILD / COMPLETED, `SectionStatusInfo`), `handoffStatusMap = 361` (`HandoffStatusMap`), `developerRelatedLinks = 354` (`DeveloperRelatedLink`); **first check how round 6 stores statuses** — if it used an `@ours` encoding, migrate to these; `codeExamples = 525` (`CodeExample`, Code Connect — verify meaning before use) |
+| 5b (plugins) | Plugins, widgets | WIDGET 21 | `pluginData = 204`, `pluginRelaunchData = 219`, `widgetMetadata = 262`, `widgetEvents = 263`, `widgetPropertyMenuItems = 265`, `widgetSyncedState = 273`, `widgetSyncCursor = 274`, `widgetDerivedSubtreeCursor = 275`, `widgetCachedAncestor = 276`, `renderedSyncedState = 277`, `widgetInputBehavior = 285`, `widgetTooltip = 286`, `widgetHoverStyle = 291`, `isWidgetStickable = 293`, `shouldHideCursorsOnWidgetHover = 360`, `widgetInputTextNodeType = 401` (+ `MultiplayerMap`, `PluginData`, `PluginRelaunchData`, `Widget*`) |
+| 6 (AI) | Figma agent, First Draft | — | `aiEditedNodeChangeFieldNumbers = 405`, `firstDraftData = 407`, `aiEditScopeLabel = 408`, `firstDraftKitElementData = 418`, `aiCanvasPrompt = 494`, `aiChatThread = 496` — only if an AI feature needs to store state in the document (our agents keep chats outside it; default: not adopted) |
+| 7 (P-0, editor types) | Every product | — | `EditorType` (DESIGN 0, WHITEBOARD 1, SLIDES 2, DEV_HANDOFF 3, SITES 4, COOPER 5, ILLUSTRATION 6, FIGMAKE 7, FIGSPEC 8) and **`pageType = 397`** (a CANVAS's editor type); `Message.pasteEditorType = 27`. `FileMeta.editorType` and D1 `files.editor_type` map: design ↔ DESIGN, figjam ↔ WHITEBOARD, slides ↔ SLIDES, buzz ↔ COOPER, sites ↔ SITES, make ↔ FIGMAKE (docs/multiplayer.md §14.13) |
+| 7a (Draw) | Draw | TEXT_PATH 41, TRANSFORM 48, CUSTOM_EFFECT_INSTANCE 63 (verify: our shaders are paints/effects, §5.8) | `textPathStart = 432` (`TextPathStart`), `transformModifiers = 455` (`TransformModifier`…), `multiEditGlueId = 462`, `strokeCapSize = 497`, `pathTrim = 542` (`OptionalVector`), `strokeOffset = 554`, `offsetFillMaskGeometry = 564` (@derived), `customEffects = 569`, `strokeData = 571` (`StrokeData`, `Stroke` — dynamic strokes), `rotationOrigin = 424`, `vectorOperationVersion = 425`; Paint `PATTERN = 8` is already kept |
+| 8 (Motion) | Motion | KEYFRAME 56, KEYFRAME_TRACK 57, ANIMATION_PRESET_INSTANCE 58 | `interpolationType = 505`, `timelinePosition = 506`, `keyframeValue = 507` (`KeyframeValueData`), `bezierHandles = 508`, `keyframeOperation = 509`, `timelinePositionType = 510`, `clipId = 511`, `timelineDuration = 512`, `timelineOffset = 513`, `playbackStyle = 514`, `animationPresets = 521`, `motionTransform = 523` (`TRSSTransform2D`), `easingData = 535`, `timelineDisabled = 543`, `useLegacySmartAnimate = 544`, `isClip = 545`, `timelineDefinitions = 552`, `timelineAssignments = 553`, `timingDisplayUnit = 566`, `transform3d = 570`, `scene3d = 572` (3D: verify status first), `styleAnimations = 580`, `styleIdsForAnimation = 582`, `backingAnimationPresetId = 583`, `keyframeValueRef = 586`, `transformOrigin = 587`, `trackLoopMode = 591`, `linkMotionScaleAspectRatio = 597`, `motionPathBezierHandles = 598`, `interpolationColorSpace = 599`, `interpolationHueMethod = 600`, `timelineKeyframeSnappingFps = 601`, `quantizeTimelinePlayback = 602`, `audioFills = 603`, `audioTracks = 605`, `textElementDelayBehaviour = 610`; `objectAnimations = 426` is shared with Slides; the `@later` easing values already kept become live |
+| 9 (FigJam) | FigJam | STICKY 17, SHAPE_WITH_TEXT 18, CONNECTOR 19, CODE_BLOCK 20, STAMP 22, MEDIA 23, HIGHLIGHT 24, SECTION_OVERLAY 26, WASHI_TAPE 27, TABLE 29, TABLE_CELL 30 | `textListData = 239` (check: lists in Design text may already need it), `shapeWithTextType = 241`, `connectorStart = 242`, `connectorEnd = 243`, `connectorLineStyle = 244`, `connectorStartCap = 245`, `connectorEndCap = 246`, `shapeUserHeight = 247`, `connectorControlPoints = 253`, `connectorTextMidpoint = 255`, `codeBlockLanguage = 259`, `embedData = 270`, `richMediaData = 272`, `linkPreviewData = 278`, `shapeTruncates = 282`, `borderTopHidden … borderRightHidden = 287–290`, `stampData = 301`, `tableRowPositions = 308`, `tableColumnPositions = 309`, `tableRowHeights = 310`, `tableColumnWidths = 311`, `agendaPositionMap = 327`, `agendaMetadataMap = 328`, `mention = 340`, `layoutRoot = 362`, `diagramParentId = 363`, `layoutPosition = 364`, `diagramLayoutRuleType = 366`, `diagramParentIndex = 367`, `diagramLayoutPaused = 368`, `sectionPresetInfo = 370`, `connectorType = 373`, `emojiImageSet = 391`, `platformShapeDefinition = 409` (advanced shapes), `codeBlockTheme = 433`, `connectorBezierControlPoints = 479`, `connectorVersion = 533`, `tableMergedCells = 538` |
+| 10 (Slides) | Slides | SLIDE 32, ASSISTED_LAYOUT 33, INTERACTIVE_SLIDE_ELEMENT 34, MODULE 36, SLIDE_GRID 37, SLIDE_ROW 38, EMBEDDED_PROTOTYPE 52 | `slideActiveThemeLibKey = 356`, `interactiveSlideConfigData = 371`, `interactiveSlideParticipantData = 372`, `themeID = 379`, `slideThemeData = 381`, `moduleType = 382`, `slideSpeakerNotes = 389`, `slideThemeMap = 390`, `slideThumbnailHash = 392`, `slideTemplateFileKey = 393`, `flappType = 402` (`FlappType` POLL / EMBED / FACEPILE / ALIGNMENT / YOUTUBE: live interactions), `areSlidesManuallyIndented = 403`, `isSkippedSlide = 410`, `objectAnimations = 426`, `slideNumber = 443`, `slideNumberSeparator = 456`, `isEmbeddedPrototype = 486`, `presentationOutlines = 573`; `Message.interactiveSlideElementChange = 32`, `Message.objectAnimations = 43`, `MessageType.INTERACTIVE_SLIDE_CHANGE = 18` (room traffic — the room passes it through) |
+| 11 (Buzz) | Buzz | — | `cooperRevertData = 421`, `cooperTemplateData = 461` (template locks: find the "editable in Buzz" field inside `CooperTemplateData` before inventing one, R18), `lockMode = 434` (`LockMode` NONE / ALL / BACKGROUND_ONLY — verify it's Buzz's), `buzzApprovalRequests = 528`, `buzzApprovalNodeStatusInfo = 529`; `Message.buzzApprovalChange = 44`, `MessageType.BUZZ_APPROVAL_CHANGE = 24` |
+| 12 (Sites) | Sites | RESPONSIVE_SET 39, CMS_RICH_TEXT 49, REPEATER 50, RESPONSIVE_NODE_SET 54, WEBPAGE 55 | `accessibleHTMLTag = 302`, `ariaRole = 303`, `accessibleLabel = 304`, `childReadingDirection = 346`, `readingIndex = 347`, `ariaAttributes = 357`, `isResponsiveSet = 387`, `defaultResponsiveSetId = 398`, `responsiveSetSettings = 400`, `behaviors = 404`, `responsiveTextStyleVariants = 417`, `cmsSelector = 419`, `cmsConsumptionMap = 420`, `primaryResponsiveNodeId = 457`, `isPrimaryBreakpoint = 458`, `cmsRichTextStyleMap = 460`, `isDecorativeImage = 490`, `derivedBreakpointData = 500` (@derived), `breakpointMinWidth = 501`, `isBreakpointInFocus = 522`, `repeaterSymbolId = 539`, `repeaterCmsOverrideData = 540`, `repeaterOverrideData = 541`, `pageStatus = 548` (verify), `repeaterSymbolOverrideData = 549` |
+| 12 (Make, code layers) | Make, code | CODE_COMPONENT 40, CODE_INSTANCE 42, CODE_LIBRARY 43, CODE_FILE 44, CODE_LAYER 45, JSX 51, REACT_FIBER 53, CODE_EMBED 59, BINARY_FILE 60, NATIVE_CODE_LAYER_INSTANCE 64 | `sourceCode = 414`, `belongsToCodeLibraryId = 427`, `exportedFromCodeFileId = 428`, `backingCodeComponentId = 429`, `codeExportName = 430`, `codeSnapshotState = 431`, `collaborativeSourceCode = 444`, `chatMessages = 451`, `codeSnapshot = 459`, `isCodeBehavior = 465`, `importedCodeFiles = 467`, `codeFileCanvasNodeId = 468`, `autoForkCode = 469`, `hasBeenManuallyRenamed = 470`, `codeCreatedFromDesign = 471`, `codeFilePath = 472`, `imageImports = 473`, `codeBehaviorData = 478`, `codeSnapshotInvalidatedAt = 480`, `codeCreatedFromDesignNodeId = 481`, `codeChatMessagesKey = 484`, `chatCompressionState = 485`, `isMainCodeComponent = 487`, `jsxProps = 489`, `jsxData = 491`, `derivedJsxData = 492`, `stableKey = 493`, `isEntrypointCodeFile = 498`, `backingNodeId = 499`, `componentOrStateGroupKey = 502`, `componentOrStateGroupVersion = 503`, `sourceCodeLibraryKey = 504`, `sourceCodeLibraryKeys = 515`, `codeObjectType = 516`, `makeLibraryComponentId = 518`, `codeLibraryFormat = 519`, `shouldHidePreviewForMakeKitCreation = 520`, `usedMakeLibraries = 524`, `isCodePreviewPlayingOnCanvas = 527`, `codePreviewSettings = 531`, `codeEmbedInfo = 532`, `sourceCodeCollaborativeTextVersion = 534`, `mimeType = 536`, `blobRef = 537`, `isEmbedCodeLayer = 546`, `codeComponentDescription = 547`, `isMakeKit = 551`, `sourceControlConfig = 557`, `codeSourceInfo = 558`, `placeholder = 565`, `placeholderClientLifecycleId = 584`, `placeholderInvalidateAt = 585`, `codeSnapshotLayers = 589`, `makeContentState = 595` — the contract step of round 12 decides which ones the in-view bundler needs; the rest stay reserved |
+| 13 (Weave) | Weave tools | TOOL_INSTANCE 62 | `tools = 568` (`Tools`, `ToolData`), `customToolArtifactRef = 588`, `weaveConnection = 592`, `weaveLayerConnections = 593`, `weaveLayerId = 596` — Weave's own canvas is ours (`editorType "weave"` is not in Figma's EditorType, R18 Part 4) and is not a kiwi document unless round 13 decides so |
+| — (not planned) | FigSpec, internal | SPEC_BLOCK 61; `EditorType.FIGSPEC = 8` | `specBlockType = 559`, `specBlockContent = 560`, `specCodeBlockLanguage = 561`, `specBlockTableAlignment = 562`, `specBlockIndentLevel = 563`, `specImageHash = 575`, `specWidth = 576`, `specHeight = 577`, `specBlockTableRowHeights = 578`, `specBlockTableColumnWidths = 579`, `specEmbedUrl = 590`, `specCanvasScrollEnabled = 604` — a product not in the pricing table (unverified what it is); reserved, never adopted without the owner |
+
+**Never adopted** (stay placeholders):
+- the multiplayer tags `guidTag … resizeToFitTag` (53–118);
+- legacy duplicates (§13);
+- `internalEnumForTest = 251`, `internalDataForTest = 257`, `isSnakeGameBoard = 344`, `ojansSuperSecretNodeField = 345`, `sevMoonlitLilyData = 348`;
+- `editScopeInfo = 365`, `overrideLevel = 321`, `userFacingVersion = 399`, `migrationStatus = 329`;
+- `derivedImmutableFrameData = 254` / `derivedImmutableFrameDataVersion = 338`, `useAbsoluteBounds = 258`, `sortedMovingChildIndices = 406`, `disableJitDst = 567`, `partialPasteAnnotation = 581`.
+
+Each is either Figma's server and multiplayer bookkeeping or a test field; our rooms carry their own (docs/multiplayer.md §4).
+
+**Design fields still dropped** that a Design round may want, in no round yet:
+- `textListData = 239` (needed by FigJam too);
+- `exportBackgroundDisabled = 119`, `exportTextAsSVGText = 175`;
+- `stackChildMarginTop … Left = 606–609`;
+- `hasHadRTLText = 292`, `colorProfile = 341`, `nestedInstanceResizeEnabled = 394`, `fallbackGlyphs = 550`, `isStrokePaintDerived = 530`;
+- `variableTokenName = 350`, `backingVariableSetId = 377`, `backingVariableId = 378`, `isCollectionExtendable = 385`, `rootVariableKey = 386`, `inheritedVariableIds = 517`.
+
+The variables group needs a check against round 5's extended collections, which used `VARIABLE_OVERRIDE` and kept fields. Adopt any of these with the round that needs it, by the same rule.
 
 ---
 
