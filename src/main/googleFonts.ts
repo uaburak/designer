@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { GoogleFontFamily, GoogleFontStyle } from "../shared/ipc";
+import { mainFetch } from "./net";
 
 /**
  * Google Fonts, as Figma serves them (docs/desktop.md §14.1, docs/research/figma/R11-fonts.md): every family of the
@@ -32,7 +33,7 @@ const TIMEOUT_MS = 30_000;
 
 type Fetch = (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; text(): Promise<string>; arrayBuffer(): Promise<ArrayBuffer> }>;
 
-let fetcher: Fetch = (url, init) => fetch(url, init);
+let fetcher: Fetch = (url, init) => mainFetch(url, init);
 let root = "";
 
 /** Where the catalog and the files are kept (main sets `userData` at start; tests a temporary folder). */

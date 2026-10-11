@@ -145,11 +145,12 @@ export function registerIpc() {
   });
   // ── The account (docs/multiplayer.md §2) ──
   onInvoke("account:get", () => account.accountState());
-  onInvoke("account:sign-in", () => account.signIn());
+  // A tenant (Admin's Test SAML SSO): 18 digits, else refused by signIn (docs/desktop.md §18.1)
+  onInvoke("account:sign-in", (_c, opts) => account.signIn(opts && typeof opts === "object" && typeof opts.tenant === "string" ? { tenant: opts.tenant.slice(0, 32) } : undefined));
   onInvoke("account:cancel-sign-in", () => account.cancelSignIn());
   onInvoke("account:sign-out", () => account.signOut());
-  // Round 4f replaces this stub with the idle timer's (docs/desktop.md §18.2)
-  onInvoke("account:stay-signed-in", () => account.accountState());
+  // The idle prompt's Stay logged in (docs/desktop.md §18.2)
+  onInvoke("account:stay-signed-in", () => account.staySignedIn());
   onInvoke("account:request", (_c, r) => account.accountRequest({ method: r?.method, path: str(r?.path, 200) ?? "", body: r?.body }));
   // ── Haptics (a scrub's steps; throttled, macOS only) ──
   onSend("haptics:tick", () => void hapticTick());

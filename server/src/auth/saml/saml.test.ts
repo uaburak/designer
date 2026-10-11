@@ -138,7 +138,7 @@ describe("the spike's 29 cases, on the real routes", () => {
     const res = await post(await signedFor(signAssertion, { inResponseTo: null }));
     expect(res.status).toBe(200);
     expect(res.text).toContain("Continue to DesignerV2");
-    expect(res.text).toContain(`designerv2://sign-in?tenant=${tenant}`);
+    expect(res.text).toContain(`designer://sign-in?tenant=${tenant}`);
     expect(signedIn(res)).toBe(false);
     expect(await w.rows(`SELECT id FROM users WHERE email = 'eve@acme.test'`)).toHaveLength(0);
   });

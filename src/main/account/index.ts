@@ -3,14 +3,19 @@
  * kept with safeStorage in userData/account/session.json (mode 0600), every view told on `account:changed`. The token
  * never reaches a view; the store gets it from here when shared files arrive (docs/multiplayer.md §5).
  */
-import { app, safeStorage, shell, webContents } from "electron";
+import { app, BaseWindow, Notification, powerMonitor, safeStorage, shell, webContents, type WebContents } from "electron";
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ACCOUNT_PATH, DEFAULT_SERVER, type AccountMethod, type AccountResponse, type AccountState, type AccountUser, type SignInResult } from "../../shared/account";
+import type { IdleNotice } from "../../shared/ipc";
+import type { SessionIdle } from "../../shared/org/identity";
+import { mainFetch } from "../net";
+import { allowedServer, desktopPolicy } from "../policy";
 import { onStoreReady, storeClient } from "../storeHost";
 import type { StoreClient } from "../../shared/store/client";
 import { viewOf } from "../views";
-import { signInWithBrowser, SignInError, type Session } from "./signIn";
+import { IdleTimer, type IdleState } from "./idle";
+import { signInWithBrowser, SignInError, TENANT_ID, type Session } from "./signIn";
 
 interface StoredSession {
   server: string;
@@ -20,7 +25,9 @@ interface StoredSession {
   user: AccountUser;
 }
 
-export const serverUrl = (): string => (process.env.DESIGNER_SERVER || DEFAULT_SERVER).replace(/\/+$/, "");
+/** DESIGNER_SERVER (development) unless the deployment keys' AllowedOriginHosts leave it out (docs/desktop.md §12.5) */
+export const serverUrl = (): string =>
+  desktopPolicy().allowedOriginHosts.length ? allowedServer(process.env.DESIGNER_SERVER, desktopPolicy()).server : (process.env.DESIGNER_SERVER || DEFAULT_SERVER).replace(/\/+$/, "");
 
 const dir = () => join(app.getPath("userData"), "account");
 const file = () => join(dir(), "session.json");
@@ -83,7 +90,7 @@ function viewPicture(picture: string | null): string | null {
   pictures.set(picture, null);
   void (async () => {
     try {
-      const res = await fetch(picture, { signal: AbortSignal.timeout(10_000) });
+      const res = await mainFetch(picture, { signal: AbortSignal.timeout(10_000) });
       const type = res.headers.get("content-type") ?? "";
       if (!res.ok || !/^image\/(png|jpeg|webp|gif)/.test(type)) return;
       const bytes = Buffer.from(await res.arrayBuffer());
@@ -108,7 +115,7 @@ export async function accountRequest(r: { method: AccountMethod; path: string; b
   if (!token || !session) return { status: 401, body: { error: "Log in first" } };
   let res: Response;
   try {
-    res = await fetch(`${session.server}${r.path}`, {
+    res = await mainFetch(`${session.server}${r.path}`, {
       method: r.method,
       headers: { authorization: `Bearer ${token}`, "user-agent": desktopUserAgent(), ...(r.body !== undefined ? { "content-type": "application/json" } : {}) },
       body: r.body === undefined ? undefined : JSON.stringify(r.body),
@@ -118,7 +125,7 @@ export async function accountRequest(r: { method: AccountMethod; path: string; b
     return { status: 0, body: { error: "You're offline" } };
   }
   const body = (await res.json().catch(() => null)) as unknown;
-  if (res.status === 401) setSession(null);
+  if (res.status === 401) dropSession(body);
   else if (res.ok && r.method === "DELETE" && r.path === "/me") setSession(null);
   else if (res.ok && r.path === "/me/profile" && r.method === "PATCH" && session && body && typeof body === "object") {
     const p = body as AccountUser;
@@ -150,6 +157,7 @@ export function onSessionChanged(listener: () => void): () => void {
 function setSession(s: Session | null): void {
   const changed = (s?.token ?? null) !== (session?.token ?? null);
   session = s;
+  if (!s) idle.stop();
   save(s);
   broadcast();
   if (changed) for (const l of [...sessionListeners]) l();
@@ -168,16 +176,22 @@ export function initAccount(): void {
   onStoreReady(pushSession);
 }
 
-/** Opens the browser and waits for it; a second call replaces a sign-in still waiting. */
-export async function signIn(): Promise<SignInResult> {
+/** Opens the browser and waits for it; a second call replaces a sign-in still waiting. `tenant`: an org's SAML
+ *  (Admin's Test, the `designer://sign-in?tenant=` link) — the server goes straight to its IdP. */
+export async function signIn(opts?: { tenant?: string }): Promise<SignInResult> {
+  const tenant = typeof opts?.tenant === "string" ? opts.tenant : undefined;
+  if (tenant !== undefined && !TENANT_ID.test(tenant)) return { ok: false, error: "failed", message: "Not an organization's single sign-on.", state: accountState() };
   pending?.abort();
   const ac = new AbortController();
   pending = ac;
   broadcast();
   try {
-    const s = await signInWithBrowser({ server: serverUrl(), signal: ac.signal, openBrowser: (url) => shell.openExternal(url), userAgent: desktopUserAgent() });
+    const s = await signInWithBrowser({ server: serverUrl(), signal: ac.signal, openBrowser: (url) => shell.openExternal(url), userAgent: desktopUserAgent(), fetch: mainFetch, tenant });
     if (pending === ac) pending = null;
     setSession(s);
+    // The new session's idle limit (GET /me's session).
+    idle.start(null);
+    void fetchMe().then((me) => me && idle.start(me.session));
     app.focus({ steal: true });
     return { ok: true, state: accountState() };
   } catch (e) {
@@ -204,14 +218,117 @@ export function signOut(): AccountState {
 export async function checkSession(): Promise<void> {
   const token = sessionToken();
   if (!token || !session) return;
+  // Signed in (maybe offline): activity counts from now; the limit comes with /me.
+  idle.start(null);
+  const me = await fetchMe();
+  if (me) idle.start(me.session);
+}
+
+/** `GET /me`: the user (a change reaches the views) and the session's idle data; undefined offline or signed out. */
+async function fetchMe(): Promise<{ user: AccountUser; session: IdleState | null } | undefined> {
+  const res = await api("GET", "/me", 10_000);
+  if (!res || !res.ok) return undefined;
+  const body = (await res.json().catch(() => null)) as (AccountUser & { session?: SessionIdle | null }) | null;
+  if (!body || typeof body !== "object") return undefined;
+  const user: AccountUser = { id: body.id, email: body.email, name: body.name, picture: body.picture };
+  if (session && JSON.stringify(user) !== JSON.stringify(session.user)) setSession({ ...session, user });
+  const s = body.session;
+  return { user, session: s && typeof s.activeAt === "number" ? { activeAt: s.activeAt, idleLimitMs: typeof s.idleLimitMs === "number" ? s.idleLimitMs : null } : null };
+}
+
+/** Main's own request to the server with the session; a refused session is dropped (an idle one with the toast).
+ *  null when signed out or not answered. */
+async function api(method: "GET" | "POST" | "DELETE", path: string, timeoutMs: number): Promise<Response | null> {
+  const token = sessionToken();
+  if (!token || !session) return null;
   try {
-    const res = await fetch(`${session.server}/me`, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) });
-    if (res.status === 401) return setSession(null);
-    if (res.ok) {
-      const user = (await res.json()) as AccountUser;
-      if (session && JSON.stringify(user) !== JSON.stringify(session.user)) setSession({ ...session, user });
-    }
+    const res = await mainFetch(`${session.server}${path}`, { method, headers: { authorization: `Bearer ${token}`, "user-agent": desktopUserAgent() }, signal: AbortSignal.timeout(timeoutMs) });
+    if (res.status === 401 && session?.token === token) dropSession(await res.clone().json().catch(() => null));
+    return res;
   } catch {
-    // offline
+    return null;
   }
 }
+
+/** A 401: the session is gone; `idle_timeout` (the computer slept past the deadline) also says why (docs/desktop.md §18.2). */
+function dropSession(body: unknown): void {
+  const idleOut = !!body && typeof body === "object" && (body as { code?: unknown }).code === "idle_timeout";
+  setSession(null);
+  if (idleOut) notifyIdle({ state: "logged-out" });
+}
+
+// ---- the idle timeout (docs/desktop.md §18.2) ----------------------------------------------------------------------
+
+const idle = new IdleTimer({
+  now: () => Date.now(),
+  setTimer: (fn, ms) => setTimeout(fn, ms),
+  clearTimer: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
+  postActive: async () => {
+    const res = await api("POST", "/me/sessions/active", 15_000);
+    if (!res?.ok) return null;
+    const b = (await res.json().catch(() => null)) as { activeAt?: unknown; idleLimitMs?: unknown } | null;
+    return b && typeof b.activeAt === "number" ? { activeAt: b.activeAt, idleLimitMs: typeof b.idleLimitMs === "number" ? b.idleLimitMs : null } : null;
+  },
+  fetchSession: async () => (await fetchMe())?.session,
+  endSession: async () => {
+    await api("DELETE", "/me/sessions/current?reason=idle", 5_000);
+  },
+  signOut: () => void signOut(),
+  notify: (n) => notifyIdle(n),
+});
+
+/** What counts as someone using the app (Electron's input-event types; a key press arrives as rawKeyDown) */
+const ACTIVITY = new Set(["mouseDown", "rawKeyDown", "keyDown", "mouseWheel", "gestureScrollBegin"]);
+const shownNotices = new Set<Notification>();
+
+/** Stay logged in (the prompt's button): activity posted, the prompt cleared everywhere */
+export async function staySignedIn(): Promise<AccountState> {
+  await idle.stay();
+  return accountState();
+}
+
+const viewContents = (v: unknown): WebContents | null => (v && typeof v === "object" && "webContents" in v ? (v as { webContents: WebContents }).webContents : null);
+
+/** The warning goes to the view in front of the focused window (else the first window), with a system notification
+ *  and a Dock bounce when the app isn't in front; cleared and logged-out go to every Home and editor. */
+function notifyIdle(n: IdleNotice): void {
+  const views = webContents.getAllWebContents().filter((c) => !c.isDestroyed() && (viewOf(c)?.role === "home" || viewOf(c)?.role === "editor"));
+  if (n.state !== "warning") {
+    for (const c of views) c.send("account:idle", n);
+    return;
+  }
+  const focused = BaseWindow.getFocusedWindow();
+  const win = focused ?? BaseWindow.getAllWindows()[0];
+  const visible = win ? win.contentView.children.filter((v) => v.getVisible()).map(viewContents) : [];
+  const target = views.find((c) => visible.includes(c)) ?? views[0];
+  target?.send("account:idle", n);
+  if (focused) return;
+  if (Notification.isSupported()) {
+    const note = new Notification({ title: "You'll be logged out soon", body: "For your security, you'll be logged out because you've been inactive." });
+    shownNotices.add(note);
+    note.on("close", () => shownNotices.delete(note));
+    note.on("click", () => {
+      shownNotices.delete(note);
+      if (win && !win.isDestroyed()) {
+        if (win.isMinimized()) win.restore();
+        win.focus();
+      }
+      app.focus({ steal: true });
+    });
+    note.show();
+  }
+  if (process.platform === "darwin") app.dock?.bounce("critical");
+}
+
+/** Input in any view counts as activity (no preload involved); the computer waking re-checks the timer. */
+export function initIdle(): void {
+  app.on("web-contents-created", (_e, wc) => {
+    wc.on("input-event", (_ev, input) => {
+      if (ACTIVITY.has(input.type)) idle.input();
+    });
+  });
+  powerMonitor.on("resume", () => idle.resume());
+}
+
+/** Under test (DESIGNER_TEST): the timer's state */
+export const idleDebug = () => idle.debug();

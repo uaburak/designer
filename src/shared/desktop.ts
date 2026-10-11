@@ -14,6 +14,7 @@ import type {
   ExportPreviewRequest,
   FlushReason,
   FontIndex,
+  IdleNotice,
   HomeState,
   ImportResult,
   InitInfo,
@@ -61,10 +62,15 @@ interface DesktopCommon {
   /** The account on the multiplayer server (docs/multiplayer.md §2); sign-in/out only from Home and editors */
   account: {
     get(): Promise<AccountState>;
-    signIn(): Promise<SignInResult>;
+    /** `tenant`: an org's SAML SSO (18 digits) — straight to its IdP (docs/desktop.md §18.1) */
+    signIn(opts?: { tenant?: string }): Promise<SignInResult>;
     cancelSignIn(): Promise<AccountState>;
     signOut(): Promise<AccountState>;
     onChanged(cb: (s: AccountState) => void): Unsubscribe;
+    /** The idle prompt's Stay logged in: activity posted, the prompt cleared in every view (docs/desktop.md §18.2) */
+    staySignedIn(): Promise<AccountState>;
+    /** The idle timeout: "warning" (to the view in front; logoutAt in ms), "cleared", "logged-out" (every Home / editor) */
+    onIdle(cb: (n: IdleNotice) => void): Unsubscribe;
     /** Settings: the caller's own account on the server (`/me…`), main adding the session (Home and editors) */
     request(r: { method: AccountMethod; path: string; body?: unknown }): Promise<AccountResponse>;
   };

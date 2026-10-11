@@ -6,7 +6,10 @@ import { startAgents, stopAgents } from "./agents/host";
 import { askStoreGone, asked, testAnswers } from "./dialogs";
 import { startFontWatch, warmFontIndex } from "./fonts";
 import { initUploadedFonts } from "./uploadedFonts";
-import { checkSession, initAccount } from "./account";
+import { checkSession, initAccount, initIdle, serverUrl, signIn } from "./account";
+import { signInTenant } from "./account/signIn";
+import { setMainFetchProxied } from "./net";
+import { allowedServer, describePolicy, loadPolicy, proxied, proxySwitches } from "./policy";
 import { initNotifications } from "./notifications";
 import { keyFromLink } from "../shared/multiplayer/types";
 import { registerIpc } from "./ipc";
@@ -30,6 +33,17 @@ if (DEV_URL) process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true";
 registerScheme();
 app.enableSandbox();
 
+// The deployment keys (docs/desktop.md §12.5), before ready: ProxyUrl has to be a switch by then — it reaches every
+// view and Electron's net, and main's own requests move to net.fetch; the store gets it through its environment.
+{
+  const policy = loadPolicy();
+  for (const [name, value] of proxySwitches(policy)) app.commandLine.appendSwitch(name, value);
+  setMainFetchProxied(proxied(policy));
+  if (process.env.DESIGNER_LOG === "debug") console.log(describePolicy(policy));
+  const { ignored } = allowedServer(process.env.DESIGNER_SERVER, policy);
+  if (ignored) console.warn(`[policy] DESIGNER_SERVER ${ignored} isn't in AllowedOriginHosts: using ${serverUrl()}`);
+}
+
 // A run of its own (scripts/drive.mjs): its workspace, its windows — not the everyday app's.
 if (process.env.DESIGNER_USER_DATA) app.setPath("userData", process.env.DESIGNER_USER_DATA);
 
@@ -47,8 +61,16 @@ function windowOrNew() {
 /** designer://open?key=…[&node-id=…&m=dev] — a shared file's link (the server's /f/<key> page hands it over, with the
  *  frame and mode it names; docs/multiplayer.md §3). */
 let pendingLink: string | null = null;
+/** designer://sign-in?tenant=… (docs/desktop.md §18.1): a sign-in through that org's SSO */
+let pendingTenant: string | null = null;
 function openLink(url: string) {
   if (!url.startsWith("designer:")) return;
+  const tenant = signInTenant(url);
+  if (tenant) {
+    if (!app.isReady()) return void (pendingTenant = tenant);
+    void windowOrNew();
+    return void signIn({ tenant });
+  }
   const key = keyFromLink(url);
   if (!key) return;
   if (!app.isReady()) return void (pendingLink = url);
@@ -66,6 +88,7 @@ app.on("open-url", (e, url) => {
 {
   const first = linkIn(process.argv);
   if (first && keyFromLink(first)) pendingLink = first;
+  else if (first) pendingTenant = signInTenant(first);
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -85,6 +108,8 @@ if (!app.requestSingleInstanceLock()) {
     // A kept session the server no longer accepts is dropped (in the background; offline keeps it).
     void checkSession();
     initAccount();
+    // The idle timeout: input in any view is activity (docs/desktop.md §18.2).
+    initIdle();
     // What reaches the bell while the app isn't in front shows on the computer; a click opens it (docs/multiplayer.md §12).
     initNotifications((_key, link) => openLink(link));
 
@@ -116,6 +141,8 @@ if (!app.requestSingleInstanceLock()) {
     // A shared file's link the app was started with.
     const pendingKey = pendingLink && keyFromLink(pendingLink);
     if (pendingLink && pendingKey) first.tabs.openSharedLink(pendingKey, pendingLink);
+    // Started by designer://sign-in?tenant=…
+    if (pendingTenant) void signIn({ tenant: pendingTenant });
     // The agents' MCP server (127.0.0.1, a token): MCP clients and the Agents tab reach the open files through it.
     void startAgents().catch((err) => console.warn("[agents] the MCP server didn't start:", err));
     // Settings › Your uploaded fonts: their folder is scanned with the user's fonts (and watched).
