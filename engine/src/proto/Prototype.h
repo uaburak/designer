@@ -66,6 +66,7 @@ struct Action {
   Guid dest = kNoGuid;
   Transition transition = Transition::INSTANT;
   double duration = 0.3;  // seconds
+  json::Value durationVar;  // transitionDurationVar: the duration bound to a number variable (the player resolves it)
   Easing easing = Easing::OUT_CUBIC;
   std::vector<double> easingFunction;  // CUSTOM_CUBIC: x1 y1 x2 y2; CUSTOM_SPRING: mass stiffness damping
   bool smartAnimate = false;           // "Animate matching layers" (MAGIC_MOVE / SMART_ANIMATE imply it)
@@ -92,6 +93,7 @@ struct Interaction {
   Guid id = kNoGuid;
   Trigger trigger = Trigger::ON_CLICK;
   double timeout = 0.8;  // AFTER_TIMEOUT, seconds (the event's transitionTimeout)
+  json::Value timeoutVar;  // transitionTimeoutVar: the delay bound to a number variable (the player resolves it)
   std::vector<int> keyCodes;  // ON_KEY_DOWN
   double mediaHitTime = 0;    // ON_MEDIA_HIT: the video's time, seconds
   std::vector<Action> actions;

@@ -1,11 +1,45 @@
 #include "editor/Editor.h"
 
+#include "schema/SchemaTable.h"
 #include "text/TextEdit.h"
 
 #include <algorithm>
 #include <cmath>
 
 namespace eng {
+
+namespace {
+
+// Figma keeps a colour as it was picked in another space (Paint.authoredColor 44 / authoredStops 45,
+// Effect.authoredColor 56: HSL, OKLCH…) next to the colour that draws. A colour edited here makes it stale: it goes.
+constexpr uint32_t kPaintAuthoredColor = 44, kPaintAuthoredStops = 45, kEffectAuthoredColor = 56;
+
+void dropStalePaints(std::vector<Paint>& now, const std::vector<Paint>& was) {
+  static const schema::Def* def = schema::SchemaTable::get().def("Paint");
+  if (!def) return;
+  for (size_t i = 0; i < now.size(); i++) {
+    Paint& p = now[i];
+    if (p.extra.empty() || p.type == PaintType::OTHER) continue;
+    const Paint* w = i < was.size() && was[i].type == p.type ? &was[i] : nullptr;
+    if (!w || !(w->color == p.color)) schema::eraseField(*def, p.extra, kPaintAuthoredColor);
+    if (!w || !(w->stops == p.stops)) schema::eraseField(*def, p.extra, kPaintAuthoredStops);
+  }
+}
+
+void dropStaleAuthoredColors(const NodeProps& before, NodeChange& c) {
+  if (c.mask & F_FILLS) dropStalePaints(c.props.fillPaints, before.fillPaints);
+  if (c.mask & F_STROKES) dropStalePaints(c.props.strokePaints, before.strokePaints);
+  if (c.mask & F_EFFECTS) {
+    static const schema::Def* def = schema::SchemaTable::get().def("Effect");
+    for (size_t i = 0; def && i < c.props.effects.size(); i++) {
+      Effect& e = c.props.effects[i];
+      if (e.extra.empty()) continue;
+      if (i >= before.effects.size() || !(before.effects[i].color == e.color)) schema::eraseField(*def, e.extra, kEffectAuthoredColor);
+    }
+  }
+}
+
+}  // namespace
 
 const char* toolName(Tool t) {
   static constexpr const char* kNames[] = {"MOVE", "SCALE", "HAND", "FRAME", "SECTION", "SLICE", "RECTANGLE", "LINE", "ARROW",
@@ -1359,6 +1393,20 @@ Status Editor::setProps(const std::vector<Guid>& ids, const NodeChange& props, u
       else if (w && before.text().textAutoResize == TextAutoResize::WIDTH_AND_HEIGHT) c.props.text().textAutoResize = TextAutoResize::HEIGHT;
       if (h || (w && before.text().textAutoResize == TextAutoResize::WIDTH_AND_HEIGHT)) c.mask |= F_TEXT_AUTO_RESIZE;
     }
+    if (c.mask & F_PROPORTIONS_CONSTRAINED) {
+      // "Lock aspect ratio" on records the layer's width : height as Figma's targetAspectRatio (what auto layout and
+      // constraints keep, docs/engine.md §4); off clears it.
+      bool has = Layout::aspectRatio(before) > 0 || before.extra.count("targetAspectRatio");
+      if (c.props.proportionsConstrained && !has && before.size.x > 0 && before.size.y > 0 &&
+          !(before.type == NodeType::TEXT && before.text().textAutoResize != TextAutoResize::NONE)) {
+        c.props.extra["targetAspectRatio"] = Layout::aspectRatioBytes(before.size);
+        c.mask |= F_EXTRA;
+      } else if (!c.props.proportionsConstrained && has) {
+        c.props.extra["targetAspectRatio"] = std::string();
+        c.mask |= F_EXTRA;
+      }
+    }
+    dropStaleAuthoredColors(before, c);
     if (c.mask) write(c);
   }
   flushLayout();  // live, also inside a panel scrub

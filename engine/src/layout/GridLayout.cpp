@@ -562,4 +562,36 @@ std::string Layout::gridGapBytes(bool column, double gap) {
   return std::string(reinterpret_cast<const char*>(bb.data()), bb.size());
 }
 
+// targetAspectRatio = 423: OptionalVector {Vector value = 1} (Vector: a struct of two floats).
+constexpr uint32_t kTargetAspectRatio = 423;
+
+double Layout::aspectRatio(const NodeProps& p) {
+  if (p.extra.empty()) return 0;
+  if (p.type == NodeType::TEXT && p.text().textAutoResize != TextAutoResize::NONE) return 0;
+  std::string_view bytes = field(p, "targetAspectRatio", kTargetAspectRatio);
+  if (bytes.empty()) return 0;
+  kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size());
+  float x = 0, y = 0;
+  bool has = false;
+  for (;;) {
+    uint32_t f = 0;
+    if (!bb.readVarUint(f)) return 0;
+    if (!f) break;
+    if (f != 1 || !bb.readVarFloat(x) || !bb.readVarFloat(y)) return 0;
+    has = true;
+  }
+  if (!has || !std::isfinite(x) || !std::isfinite(y) || !(x > 0) || !(y > 0)) return 0;
+  return static_cast<double>(x) / static_cast<double>(y);
+}
+
+std::string Layout::aspectRatioBytes(Vec2 ratio) {
+  kiwi::ByteBuffer bb;
+  bb.writeVarUint(kTargetAspectRatio);
+  bb.writeVarUint(1);
+  bb.writeVarFloat(static_cast<float>(ratio.x));
+  bb.writeVarFloat(static_cast<float>(ratio.y));
+  bb.writeVarUint(0);
+  return std::string(reinterpret_cast<const char*>(bb.data()), bb.size());
+}
+
 }  // namespace eng

@@ -3,6 +3,7 @@
  * derived data. Synthetic structures shaped as Figma's 2026 files write them (no real file's content).
  */
 import { describe, expect, it } from "vitest";
+import { codec } from "../schema/document.generated";
 import { MODEL } from "../schema/model";
 import { convertFigMessage, FIGMA_DERIVED_DATA_VERSION } from "./convert";
 
@@ -116,5 +117,69 @@ describe("convertFigMessage: Figma's derived data (keepDerived)", () => {
       expect(n.derivedTextData).toBeUndefined();
       expect(n.derivedSymbolData).toBeUndefined();
     }
+  });
+});
+
+describe("convertFigMessage: Figma fields kept for round-trip (import polish)", () => {
+  function file() {
+    const authored = { space: "OKLCH", c0: 0.7, c1: 0.1, c2: 250, c3: 1 };
+    return {
+      type: "NODE_CHANGES",
+      sessionID: 0,
+      ackID: 0,
+      nodeChanges: [
+        { guid: g(0, 0), phase: "CREATED", type: "DOCUMENT" },
+        node(g(0, 1), "CANVAS", g(0, 0), "!"),
+        node(g(1, 1), "RECTANGLE", g(0, 1), "!", {
+          size: { x: 200, y: 300 },
+          transform: T(0, 0),
+          targetAspectRatio: { value: { x: 2, y: 3 } },
+          fillPaints: [{ type: "SOLID", color: { r: 0.2, g: 0.4, b: 0.9, a: 1 }, opacity: 1, visible: true, authoredColor: authored }],
+          effects: [{ type: "DROP_SHADOW", color: { r: 0, g: 0, b: 0, a: 0.25 }, visible: true, authoredColor: authored }],
+          derivedSymbolDataLayoutVersion: 3,
+          stackLayoutVersion: 2,
+          prototypeInteractions: [
+            {
+              id: g(1, 9),
+              event: { interactionType: "ON_CLICK", transitionTimeoutVar: { dataType: "FLOAT", resolvedDataType: "FLOAT", value: { floatValue: 0.5 } } },
+              actions: [{ connectionType: "BACK", transitionDurationVar: { dataType: "FLOAT", resolvedDataType: "FLOAT", value: { floatValue: 0.3 } }, transitionOverridesEnabled: true }],
+            },
+          ],
+        }),
+        node(g(1, 2), "TEXT", g(0, 1), "\"", {
+          size: { x: 40, y: 16 },
+          transform: T(0, 400),
+          textData: { characters: "Hi" },
+          textTracking: 0.5,
+          fontVersion: "3",
+          textUserLayoutVersion: 5,
+          textExplicitLayoutVersion: 1,
+          textBidiVersion: 1,
+        }),
+      ],
+    };
+  }
+
+  it("keeps targetAspectRatio (and locks proportions), authored colours, layout version stamps, textTracking and prototype bindings", () => {
+    const { message, report } = convertFigMessage(file(), MODEL);
+    const back = codec.decodeMessage(codec.encodeMessage(message));
+    const rect = back.nodeChanges!.find((n) => n.type === "ROUNDED_RECTANGLE")!;
+    expect(rect.targetAspectRatio?.value).toEqual({ x: 2, y: 3 });
+    expect(rect.proportionsConstrained).toBe(true);
+    expect(report.mappings["targetAspectRatio → proportionsConstrained"]).toBe(1);
+    expect(rect.fillPaints![0].authoredColor?.space).toBe("OKLCH");
+    expect(rect.fillPaints![0].authoredColor?.c2).toBeCloseTo(250);
+    expect(rect.effects![0].authoredColor?.space).toBe("OKLCH");
+    expect(rect.derivedSymbolDataLayoutVersion).toBe(3);
+    expect(rect.stackLayoutVersion).toBe(2);
+    const ix = rect.prototypeInteractions![0];
+    expect(ix.event?.transitionTimeoutVar?.value?.floatValue).toBeCloseTo(0.5);
+    expect(ix.actions![0].transitionDurationVar?.value?.floatValue).toBeCloseTo(0.3);
+    expect(ix.actions![0].transitionOverridesEnabled).toBe(true);
+    const text = back.nodeChanges!.find((n) => n.type === "TEXT")!;
+    expect(text.textTracking).toBeCloseTo(0.5);
+    expect([text.fontVersion, text.textUserLayoutVersion, text.textExplicitLayoutVersion, text.textBidiVersion]).toEqual(["3", 5, 1, 1]);
+    for (const k of ["targetAspectRatio", "textTracking", "authoredColor", "fontVersion", "textUserLayoutVersion", "derivedSymbolDataLayoutVersion"])
+      expect(Object.keys(report.droppedFields).some((f) => f.endsWith(`.${k}`))).toBe(false);
   });
 });

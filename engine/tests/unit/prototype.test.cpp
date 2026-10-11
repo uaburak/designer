@@ -1003,3 +1003,50 @@ TEST_CASE("prototype.expressions: VAR_MODE_LOOKUP reads a variable's value in a 
   CHECK(lookup(dark.toString()) == doctest::Approx(2));  // A itself is in the default (Light) mode
   CHECK(lookup("") == doctest::Approx(1));               // no mode: the consumer's
 }
+
+TEST_CASE("prototype.player: After delay and a duration bound to number variables (transitionTimeoutVar / transitionDurationVar)") {
+  Fixture f(screens());
+  auto run = [&](CommandId id, const std::string& j) {
+    CommandArgs a;
+    REQUIRE(json::parse(j, a.raw));
+    REQUIRE(f.ed.command(id, a) == OK);
+  };
+  auto q = [](Guid g) { return "\"" + g.toString() + "\""; };
+  run(CommandId::CREATE_VARIABLE_COLLECTION, R"({"name":"Motion"})");
+  Guid set = f.ed.lastCreated()[0];
+  run(CommandId::CREATE_VARIABLE, "{\"collection\":" + q(set) + ",\"type\":\"FLOAT\",\"name\":\"delay\",\"value\":0.5}");
+  Guid delay = f.ed.lastCreated()[0];
+  run(CommandId::CREATE_VARIABLE, "{\"collection\":" + q(set) + ",\"type\":\"FLOAT\",\"name\":\"duration\",\"value\":0.8}");
+  Guid duration = f.ed.lastCreated()[0];
+  auto alias = [&](Guid v) { return "{\"value\":{\"alias\":{\"guid\":" + q(v) + "}},\"dataType\":\"ALIAS\",\"resolvedDataType\":\"FLOAT\"}"; };
+  NodeChange c = NodeChange::changed(A);
+  c.mask = F_EXTRA;
+  c.props.extra["prototypeInteractions"] = extra("prototypeInteractions",
+      "[{\"event\":{\"interactionType\":\"AFTER_TIMEOUT\",\"transitionTimeout\":2,\"transitionTimeoutVar\":" + alias(delay) +
+          "},\"actions\":[{\"connectionType\":\"INTERNAL_NODE\",\"navigationType\":\"NAVIGATE\",\"transitionNodeID\":" + q(B) +
+          ",\"transitionType\":\"DISSOLVE\",\"transitionDuration\":0.3,\"transitionDurationVar\":" + alias(duration) + ",\"easingType\":\"LINEAR\"}]}]");
+  f.ed.applyChanges({c}, APPLY_REMOTE);
+  // The model reads the bindings and writes them back.
+  auto list = proto::interactions(f.ed.document().get(A)->props);
+  REQUIRE(list.size() == 1);
+  CHECK(!list[0].timeoutVar.isNull());
+  REQUIRE(list[0].actions.size() == 1);
+  CHECK(!list[0].actions[0].durationVar.isNull());
+  json::Value back = proto::toJson(list[0]);
+  REQUIRE(back.get("event"));
+  CHECK(back.get("event")->get("transitionTimeoutVar") != nullptr);
+  CHECK(back.get("actions")->array[0].get("transitionDurationVar") != nullptr);
+  // The player: after the variable's 0.5 s (not the literal 2 s), a dissolve of the variable's 0.8 s (not 0.3 s).
+  f.player.setScale(proto::ScaleMode::FIT);
+  REQUIRE(f.player.start(kPage, A));
+  f.advance(16);
+  f.advance(400);
+  CHECK(f.player.screen() == A);
+  f.advance(200);
+  CHECK(f.player.screen() == B);
+  f.advance(16);
+  f.advance(600);
+  CHECK(f.player.animating());
+  f.advance(300);
+  CHECK_FALSE(f.player.animating());
+}

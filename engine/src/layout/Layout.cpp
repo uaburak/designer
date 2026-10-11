@@ -147,6 +147,11 @@ Vec2 Layout::natural(Guid id, double width, double height, int hug) {
     }
     if (any) size = {u.w, u.h};
   }
+  // Lock aspect ratio: one axis imposed (Fill, Stretch, constraints) sets the other, over its own Hug (Figma).
+  if (double r = aspectRatio(p); r > 0 && ((width > 0) != (height > 0))) {
+    if (width > 0) size.y = width / r;
+    else size.x = height * r;
+  }
   size = clampSize(size, p);
   memo_[key] = size;
   return size;
@@ -175,18 +180,24 @@ Vec2 Layout::contentSize(Guid frame, Vec2 frameSize, int hug) {
   if (p.stack().stackMode == StackMode::GRID) return gridContentSize(frame, frameSize, (hug & kHugWidth) != 0, (hug & kHugHeight) != 0);
   int P = p.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
   const int bitP = P == 0 ? kHugWidth : kHugHeight, bitC = P == 0 ? kHugHeight : kHugWidth;
-  // A child that stretches across the counter axis this frame hugs counts for its content there (fillHugAxes).
-  auto measure = [&](Guid c, const NodeProps& cp) {
-    int f = 0;
-    if (cp.stackChildAlignSelf == StackCounterAlign::STRETCH && (hug & bitC)) f |= bitC;
-    return natural(c, -1, -1, f);
-  };
   double pad[4];
   padding(p, pad);
   double padP = P == 0 ? pad[0] + pad[2] : pad[1] + pad[3];
   double padC = C == 0 ? pad[0] + pad[2] : pad[1] + pad[3];
   double gap = p.stack().stackSpacing, counterGap = p.stack().stackCounterSpacing.value_or(p.stack().stackSpacing);
   bool wrap = p.stack().stackWrap == StackWrap::WRAP && P == 0 && !(hug & bitP);
+  // A child that stretches across the counter axis this frame hugs counts for its content there (fillHugAxes); one
+  // stretched across a counter axis of a set size with its aspect ratio locked is as long as that size sets it (place).
+  auto measure = [&](Guid c, const NodeProps& cp) {
+    int f = 0;
+    if (cp.stackChildAlignSelf == StackCounterAlign::STRETCH && (hug & bitC)) f |= bitC;
+    if (cp.stackChildAlignSelf == StackCounterAlign::STRETCH && !(hug & bitC) && !wrap && axisAligned(cp.transform) && !cp.fitsChildren() &&
+        aspectRatio(cp) > 0) {
+      double inner = std::max(0.0, axis(frameSize, C) - padC);
+      return natural(c, C == 0 ? inner : -1, C == 1 ? inner : -1);
+    }
+    return natural(c, -1, -1, f);
+  };
   double main = 0, cross = 0;
   std::vector<Guid> kids = flowChildren(frame);
   if (!wrap) {
@@ -276,6 +287,12 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
       it.size = natural(c, std::max(0.0, innerC), -1);
       Rect b2 = layoutBox(cp.transform, it.size);
       it.bp = b2.h;
+    } else if (it.stretch && !wrap && it.grow <= 0 && aspectRatio(cp) > 0) {
+      // Stretched across the counter axis with its aspect ratio locked: that length sets its primary one (Figma).
+      double inner = std::max(0.0, innerC);
+      it.size = natural(c, C == 0 ? inner : -1, C == 1 ? inner : -1);
+      Rect b2 = layoutBox(cp.transform, it.size);
+      it.bp = P == 0 ? b2.w : b2.h;
     }
     items.push_back(it);
   }
@@ -337,7 +354,7 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
           setAxis(items[i].size, P, items[i].bp);
           // Its other axis may follow from this one (a wrapping frame's height from its width).
           const NodeProps& cp = doc_.get(items[i].id)->props;
-          if ((cp.isAutoLayout() || (cp.type == NodeType::TEXT && P == 0)) && !items[i].stretch) {
+          if ((cp.isAutoLayout() || (cp.type == NodeType::TEXT && P == 0) || aspectRatio(cp) > 0) && !items[i].stretch) {
             Vec2 n2 = natural(items[i].id, P == 0 ? items[i].bp : -1, P == 1 ? items[i].bp : -1);
             items[i].size = n2;
             setAxis(items[i].size, P, items[i].bp);
@@ -549,6 +566,12 @@ void Layout::applyConstraints(Guid frame, bool flowChildrenToo) {
       double sx = std::fabs(t0.m00), sy = std::fabs(t0.m11);
       if (sx > 0) s1.x = w1 / sx;
       if (sy > 0) s1.y = h1 / sy;
+      // Lock aspect ratio: a constraint that resizes one axis resizes the other with it (Figma).
+      if (double r = aspectRatio(cp); r > 0) {
+        bool w = std::fabs(s1.x - s0.x) > kEps, h = std::fabs(s1.y - s0.y) > kEps;
+        if (w && !h) s1.y = s1.x / r;
+        else if (h && !w) s1.x = s1.y * r;
+      }
     }
     Mat2x3 linear = t0;
     linear.m02 = linear.m12 = 0;

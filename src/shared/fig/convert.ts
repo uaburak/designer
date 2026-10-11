@@ -265,6 +265,12 @@ function figmaNodeFixups(n: any, report: ImportReport, variantDefs: Map<string, 
     m.type = "ROUNDED_RECTANGLE";
     inc(report.mappings, "RECTANGLE → ROUNDED_RECTANGLE");
   }
+  // UI3's "Lock aspect ratio" is `targetAspectRatio` (the plugin API deprecates constrainProportions for it); the panel
+  // and the canvas read `proportionsConstrained`: a layer locked in Figma is locked in both.
+  if (m.targetAspectRatio?.value && m.proportionsConstrained !== true) {
+    m.proportionsConstrained = true;
+    inc(report.mappings, "targetAspectRatio → proportionsConstrained");
+  }
   if (m.variableConsumptionMap !== undefined) {
     if (m.parameterConsumptionMap === undefined) {
       m.parameterConsumptionMap = m.variableConsumptionMap;

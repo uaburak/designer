@@ -2339,7 +2339,7 @@ void Editor::dragResize(Vec2 world, uint32_t mods) {
   bool locked = !resized.empty();
   for (Guid id : resized) {
     const Node* n = doc_.get(id);
-    locked &= n && n->props.proportionsConstrained;
+    locked &= n && (n->props.proportionsConstrained || Layout::aspectRatio(n->props) > 0);
   }
   bool shift = locked ? !(mods & MOD_CTRL) : (mods & MOD_SHIFT) != 0;
   if (scaling_) shift = true;  // the Scale tool keeps the proportions

@@ -173,10 +173,27 @@ bool Player::hasIx(Guid id) const {
 std::vector<Interaction> Player::ix(Guid id) const {
   const NodeProps* p = props(id);
   if (!p) return {};
-  if (hasInteractions(*p)) return interactions(*p);
-  if (p->type != NodeType::INSTANCE) return {};
-  const NodeProps* m = props(ed_.mainOf(id));
-  return m ? interactions(*m) : std::vector<Interaction>{};
+  std::vector<Interaction> list;
+  if (hasInteractions(*p)) list = interactions(*p);
+  else if (p->type == NodeType::INSTANCE)
+    if (const NodeProps* m = props(ed_.mainOf(id))) list = interactions(*m);
+  // A delay or a duration bound to a number variable (Figma's transitionTimeoutVar / transitionDurationVar): its value
+  // in the hotspot's modes, else the literal stored next to it.
+  auto seconds = [&](const json::Value& var, double& out) {
+    Editor::Resolved r;
+    if (!var.isNull() && evaluate(var, id, r) && r.kind == Editor::Resolved::Kind::FLOAT && std::isfinite(r.f)) out = std::max(0.0, r.f);
+  };
+  std::function<void(std::vector<Action>&)> actions = [&](std::vector<Action>& as) {
+    for (Action& a : as) {
+      seconds(a.durationVar, a.duration);
+      for (Branch& b : a.branches) actions(b.actions);
+    }
+  };
+  for (Interaction& i : list) {
+    seconds(i.timeoutVar, i.timeout);
+    actions(i.actions);
+  }
+  return list;
 }
 
 Guid Player::topLevelOf(Guid id) const {
