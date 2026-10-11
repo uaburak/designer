@@ -4,12 +4,13 @@
  * write logs Figma's activity action, removed people's drafts go to Unassigned drafts — and also implements the parts
  * of `OrgsRepository` (user groups) and `TeamsRepository` (restore) the Admin app uses.
  */
-import type { AdminRepository, OrgsRepository } from "@shared/org/repositories";
+import type { AdminRepository, IdentityRepository, OrgsRepository } from "@shared/org/repositories";
 import type * as O from "@shared/org/types";
-import { ACTION_LABEL, SEAT_LABEL, formatUtc, productOf, teamAccess, toCsv, userType } from "../labels";
+import { SEAT_LABEL, eventText, formatUtc, productOf, teamAccess, toCsv, userType } from "../labels";
 import { makeSeed, type Seed } from "./seed";
 import { fakeOrgLibraries, fakeSharedFonts, seedResources, type FakeSharedFonts, type ResourcesState } from "./fakeResources";
 import type { OrgLibrariesRepository } from "@shared/libraries/orgTypes";
+import { fakeIdentity, seedIdentity, type IdentityState } from "./fakeIdentity";
 
 export type { AdminTeamsApi } from "../context";
 import type { AdminTeamsApi } from "../context";
@@ -25,6 +26,12 @@ export interface FakeAdminStore {
   state: Seed;
   /** Libraries, their settings rows and the org's fonts (tests read them) */
   resources: ResourcesState;
+  /** Admin › Settings › Login and provisioning, domains, data storage localization (docs/multiplayer.md §15.13) */
+  identity: IdentityRepository;
+  /** The identity rows (tests read and set them: `dns`, `regionAvailable`…) */
+  identityState: IdentityState;
+  /** The fake's SAML Test: a successful sign-in through the IdP config — pass as AdminApp's `onTestSso` */
+  testSso: (tenantId: string) => Promise<void>;
   /** The caller (the acting admin) */
   me: string;
 }
@@ -37,7 +44,7 @@ class Fail extends Error {
 
 const clone = <T,>(v: T): T => structuredClone(v);
 
-export function createFakeAdminStore(options: { now?: number; me?: string; latency?: number } = {}): FakeAdminStore {
+export function createFakeAdminStore(options: { now?: number; me?: string; latency?: number; /** Publish each new domain's TXT record at once (the demo) */ autoDns?: boolean } = {}): FakeAdminStore {
   const now = options.now ?? Date.now();
   const s = makeSeed(now);
   const me = options.me ?? "u1";
@@ -260,6 +267,12 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
         w.admins = patch.adminIds.map(ref);
       }
       if (patch.defaultTeamIds) w.defaultTeamIds = [...patch.defaultTeamIds];
+      if (patch.sharing !== undefined && JSON.stringify(patch.sharing) !== JSON.stringify(w.sharing ?? null)) {
+        const x = patch.sharing?.linkExpiryMaxHours;
+        if (x !== undefined && x !== null && !(Number.isInteger(x) && x >= 1 && x <= 744)) throw new Fail("invalid", "Links must expire within 1 hour to 31 days");
+        log("workspace_public_link_setting_change", entity(), { from: w.sharing ?? null, to: patch.sharing });
+        w.sharing = patch.sharing && Object.keys(patch.sharing).length ? { ...patch.sharing } : null;
+      }
       for (const uid of patch.members?.add ?? []) {
         person(uid).workspaceId = w.id;
         log("workspace_member_add", entity(), { user_id: uid });
@@ -340,11 +353,23 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
     },
     async updateSettings(_org, patch) {
       const org = { type: "org" as const, id: s.orgId, name: s.orgName };
-      if (patch.teamCreation && patch.teamCreation !== s.settings.teamCreation) log("org_team_creation_controls", org, { to: patch.teamCreation });
-      if (patch.guestMembership && patch.guestMembership !== s.settings.guestMembership) log("org_guest_invite_setting_change", org, { to: patch.guestMembership });
-      if (patch.defaultSeat && patch.defaultSeat !== s.settings.defaultSeat) log("org_default_license_type_change", org, { to: patch.defaultSeat });
-      if (patch.publicLinks !== undefined && patch.publicLinks !== s.settings.publicLinks) log("public_link_setting_change", org, { to: patch.publicLinks });
-      s.settings = { ...s.settings, ...patch, seatApproval: { ...s.settings.seatApproval, ...patch.seatApproval } };
+      const before = s.settings;
+      ident.validateSettings(before, patch);
+      const next: O.OrgSettings = { ...before, ...patch, seatApproval: { ...before.seatApproval, ...patch.seatApproval } };
+      s.settings = next;
+      // As server/src/org/admin.ts patchSettings: each changed key its Figma action; the three identity keys by the hooks
+      const changed = (k: keyof O.OrgSettings) => JSON.stringify(before[k]) !== JSON.stringify(next[k]);
+      const one = (k: keyof O.OrgSettings) => ({ setting: k, from: before[k], to: next[k] });
+      const actions: [keyof O.OrgSettings, O.ActivityAction][] = [
+        ["teamCreation", "org_team_creation_controls"], ["guestMembership", "org_guest_invite_setting_change"], ["defaultSeat", "org_default_license_type_change"],
+        ["cursorChat", "cursor_chat_setting_change"], ["audio", "audio_setting_change"], ["externalContent", "external_collaboration_controls_setting_change"],
+        ["passwordMode", "autogen_password_controls_setting_change"], ["openSessions", "open_sessions_setting_change"],
+      ];
+      for (const [k, action] of actions) if (changed(k)) log(action, org, one(k));
+      const sharing = (["publicLinks", "passwordRequired", "linkExpiryMaxHours"] as const).filter(changed);
+      if (sharing.length === 1) log("public_link_setting_change", org, one(sharing[0]));
+      else if (sharing.length) log("public_link_setting_change", org, { settings: sharing, from: Object.fromEntries(sharing.map((k) => [k, before[k]])), to: Object.fromEntries(sharing.map((k) => [k, next[k]])) });
+      ident.afterSettings(before, next);
       return wait(s.settings);
     },
     async unassignedDrafts() {
@@ -386,7 +411,7 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
       }
       // [F-act] the CSV covers the date range and ignores the other filters
       const q = (query ?? {}) as O.ActivityQuery;
-      const rows = filterActivity({ startTime: q.startTime, endTime: q.endTime }).map((r) => [formatUtc(r.timestamp), r.actor?.name ?? "", r.actor?.email ?? "", r.action.type, ACTION_LABEL[r.action.type], r.entity.type, r.entity.name, productOf(r), s.teams.find((t) => t.id === r.context.team_id)?.name ?? "", r.context.ip_address]);
+      const rows = filterActivity({ startTime: q.startTime, endTime: q.endTime }).map((r) => [formatUtc(r.timestamp), r.actor?.name ?? "", r.actor?.email ?? "", r.action.type, eventText(r), r.entity.type, r.entity.name, productOf(r), s.teams.find((t) => t.id === r.context.team_id)?.name ?? "", r.context.ip_address]);
       return toCsv(["Date (UTC)", "Team member", "Email", "Event type", "Event", "Entity type", "Entity", "Product", "Team", "IP address"], rows);
     },
   };
@@ -486,8 +511,13 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
     },
   };
 
+  const ident = fakeIdentity(s, seedIdentity(s, now), me, log, wait, () => Date.now(), { autoDns: options.autoDns });
   const resources = seedResources(s, now);
   const orgLibraries = fakeOrgLibraries(s, resources, me, log, wait, () => Date.now());
   const fonts = fakeSharedFonts(s, resources, me, wait, () => Date.now());
-  return { admin, orgs, teams, orgLibraries, fonts, state: s, resources, me };
+  const testSso = async () => {
+    await new Promise((r) => setTimeout(r, options.latency ?? 0));
+    ident.completeTest();
+  };
+  return { admin, orgs, teams, orgLibraries, fonts, identity: ident.identity, identityState: ident.state, testSso, state: s, resources, me };
 }

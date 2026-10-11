@@ -219,7 +219,7 @@ describe("Admin", () => {
     expect(saved[0].split("\n")[0]).toBe("Date (UTC),Team member,Email,Event type,Event,Entity type,Entity,Product,Team,IP address");
   });
 
-  it("Settings: guest membership and team creation saved; round-4 settings disabled", async () => {
+  it("Settings: guest membership and team creation saved", async () => {
     const fake = await open();
     await go("Settings");
     click(button("Change", $('[data-setting="guestMembership"]')));
@@ -235,7 +235,6 @@ describe("Admin", () => {
     await settle();
     expect(fake.state.settings.teamCreation).toBe("admins");
     expect(fake.state.activity[0].action.type).toBe("org_team_creation_controls");
-    expect((button("Change", $('[data-setting="publicLinks"]')) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("Billing groups: created, deleted (people back to Unassigned)", async () => {

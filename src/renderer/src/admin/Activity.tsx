@@ -7,7 +7,7 @@ import { useState } from "react";
 import { Button, Select, TextInput, type SelectEntry } from "@/ds";
 import type { ActivityLog, ActivityQuery } from "@shared/org/types";
 import { useAdmin, useLoad } from "./context";
-import { ACTION_LABEL, EVENT_GROUPS, formatUtc, productOf } from "./labels";
+import { ACTION_LABEL, EVENT_GROUPS, eventText, formatUtc, productOf } from "./labels";
 import { Table, styles, type Column } from "./parts";
 
 type Range = "1" | "7" | "30" | "90" | "365" | "custom";
@@ -64,7 +64,7 @@ export function ActivityTab() {
     },
     {
       id: "event", label: "Event", width: "minmax(220px, 2fr)",
-      render: (r) => <span className={styles.whoText}><span className={styles.whoName} title={r.action.type}>{ACTION_LABEL[r.action.type] ?? r.action.type}</span><span className={styles.whoEmail}>{r.entity.name}</span></span>,
+      render: (r) => <span className={styles.whoText}><span className={styles.whoName} title={r.action.type}>{eventText(r)}</span><span className={styles.whoEmail}>{r.entity.name}</span></span>,
     },
     { id: "product", label: "Product", width: 110, render: (r) => <span className={styles.muted}>{productOf(r)}</span> },
     { id: "team", label: "Team", width: "minmax(100px, 1fr)", render: (r) => <span className={styles.muted}>{teamName(r.context.team_id)}</span> },

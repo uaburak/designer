@@ -8,10 +8,10 @@ import { AdminApp } from "./AdminApp";
 import { createFakeAdminStore } from "./fake/fakeAdmin";
 
 export default function AdminRoute() {
-  const [fake] = useState(() => createFakeAdminStore({ latency: 60 }));
+  const [fake] = useState(() => createFakeAdminStore({ latency: 60, autoDns: true }));
   return (
     <div style={{ height: "100vh" }}>
-      <AdminApp orgId={fake.state.orgId} store={fake} fonts={fake.fonts} onBack={() => history.back()} />
+      <AdminApp orgId={fake.state.orgId} store={fake} fonts={fake.fonts} onTestSso={fake.testSso} onBack={() => history.back()} />
       <TooltipManager />
       <ToastHost />
     </div>

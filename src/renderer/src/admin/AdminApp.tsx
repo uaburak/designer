@@ -49,10 +49,12 @@ export interface AdminAppProps {
   fonts?: SharedFontsApi;
   /** The viewer administers only this workspace (not the org): Admin › ‹workspace› › Libraries */
   workspace?: AdminWorkspaceScope;
+  /** Settings › SAML SSO › Test: Home passes `(tenant) => designer.account.signIn({ tenant })` (docs/desktop.md §18); absent: Test is disabled */
+  onTestSso?: (tenantId: string) => Promise<unknown>;
 }
 
-export function AdminApp({ orgId, store, onExportCsv, onBack, initial, now = Date.now, fonts, workspace }: AdminAppProps) {
-  const ctx = useAdminState(orgId, store, onExportCsv, now, fonts, workspace);
+export function AdminApp({ orgId, store, onExportCsv, onBack, initial, now = Date.now, fonts, workspace, onTestSso }: AdminAppProps) {
+  const ctx = useAdminState(orgId, store, onExportCsv, now, fonts, workspace, onTestSso);
   return (
     <AdminContext.Provider value={ctx}>
       <AdminLayout onBack={onBack} initial={initial} />
