@@ -17,10 +17,24 @@ export type Location =
   | { kind: "folder"; folderId: FolderId }
   | { kind: "starred" }
   | { kind: "trash" }
-  | { kind: "search"; text: string };
+  | { kind: "search"; text: string }
+  // An organization's space (docs/multiplayer.md §14.6; org.ts): its drafts, All teams, a team, a folder, its trash,
+  // Resources and Admin. The org is the current space (`Prefs.browse.space`).
+  | OrgLocation;
 
-export const sameLocation = (a: Location, b: Location): boolean =>
-  a.kind === b.kind && (a.kind !== "folder" || a.folderId === (b as { folderId: FolderId }).folderId) && (a.kind !== "search" || a.text === (b as { text: string }).text);
+export type OrgLocation =
+  | { kind: "org-drafts" }
+  | { kind: "teams" }
+  | { kind: "team"; teamId: string; tab?: "folders" | "members" }
+  | { kind: "project"; projectId: string }
+  | { kind: "org-trash" }
+  | { kind: "resources" }
+  | { kind: "admin" };
+
+const ORG_KINDS = new Set<Location["kind"]>(["org-drafts", "teams", "team", "project", "org-trash", "resources", "admin"]);
+export const isOrgLocation = (loc: Location): loc is OrgLocation => ORG_KINDS.has(loc.kind);
+
+export const sameLocation = (a: Location, b: Location): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 /** The store query behind a location (All folders lists folders only). */
 export function fileQuery(loc: Location): FileQuery | null {
@@ -39,6 +53,8 @@ export function fileQuery(loc: Location): FileQuery | null {
       return { in: "trash" };
     case "search":
       return loc.text.trim() ? { in: "search", text: loc.text } : null;
+    default:
+      return null;
   }
 }
 
@@ -59,6 +75,20 @@ export function locationTitle(loc: Location, folders: readonly Folder[]): string
       return "Trash";
     case "search":
       return `Results for “${loc.text.trim()}”`;
+    case "org-drafts":
+      return "Drafts";
+    case "teams":
+      return "All teams";
+    case "team":
+      return "Team";
+    case "project":
+      return "Folder";
+    case "org-trash":
+      return "Trash";
+    case "resources":
+      return "Resources";
+    case "admin":
+      return "Admin";
   }
 }
 
