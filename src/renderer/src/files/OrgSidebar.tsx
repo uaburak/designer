@@ -92,7 +92,7 @@ export function OrgSidebar(props: OrgSidebarProps) {
           );
         })}
       </div>
-      <SidebarItem icon="24.layout" label="Resources" selected={is("resources")} onClick={() => go({ kind: "resources" })} />
+      <SidebarItem icon="24.library" label="Resources" selected={is("resources")} onClick={() => go({ kind: "resources" })} />
       <SidebarItem icon="24.trash.outline" label="Trash" selected={is("org-trash")} onClick={() => go({ kind: "org-trash" })} />
       {(info?.role === "admin" || !!info?.workspaceAdminOf.length || !!info?.billingGroupAdminOf.length) && <SidebarItem icon="24.settings.small" label="Admin" selected={is("admin")} onClick={() => go({ kind: "admin" })} />}
     </div>

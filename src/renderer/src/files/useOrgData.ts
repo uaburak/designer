@@ -117,13 +117,10 @@ export function useOrgData(org: OrgBackend | undefined, orgId: string | null, lo
   });
   const seq = useRef(0);
 
-  const loadShell = useCallback(async () => {
-    if (!org) return;
+  const readShell = useCallback(async (): Promise<OrgShell | null> => {
+    if (!org) return null;
     const orgs = await org.orgs.list().catch(() => [] as O.OrgSummary[]);
-    if (!orgId) {
-      setShell((s) => ({ ...s, orgs, info: null, teams: [] }));
-      return;
-    }
+    if (!orgId) return { orgs, info: null, teams: [], folders: {} };
     const [info, teams] = await Promise.all([org.orgs.get(orgId).catch(() => null), org.teams.list(orgId, "mine").catch(() => [] as O.TeamSummary[])]);
     teamsRef.current = teams;
     const folders: Record<string, O.ProjectSummary[]> = {};
@@ -134,8 +131,15 @@ export function useOrgData(org: OrgBackend | undefined, orgId: string | null, lo
         folders[k] = await org.projects.list(teamId, parent || null).catch(() => []);
       }),
     );
-    setShell({ orgs, info, teams, folders });
+    return { orgs, info, teams, folders };
   }, [org, orgId]);
+  const loadShell = useCallback(
+    () =>
+      readShell().then((s) => {
+        if (s) setShell(s);
+      }),
+    [readShell],
+  );
 
   const loadPage = useCallback(async () => {
     if (!org || !orgId || !active) return;

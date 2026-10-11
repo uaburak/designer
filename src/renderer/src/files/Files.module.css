@@ -192,6 +192,104 @@
   .moveRow[aria-disabled="true"] { color: var(--figma-color-text-disabled); }
   .moveName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+  /* --- Organizations (docs/multiplayer.md §14; the owner's 1.png ÷ 2) --- */
+  /* The space row: the org's icon, name and chevron as one switcher button; the plan badge at the right */
+  .spaceButton {
+    display: flex;
+    flex: 0 1 auto;
+    min-width: 0;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: var(--ds-size-row);
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-align: left;
+    cursor: default;
+  }
+  .spaceButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: 2px; }
+  .spaceButton > [data-ds="Icon"] { flex: none; color: var(--figma-color-icon-secondary); }
+  .planBadge { flex: none; margin-left: auto; }
+  /* A team's icon: its initial in white on green — the sidebar's 16 circle, a 24 / 40 rounded square elsewhere */
+  .teamIcon {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-success);
+    color: var(--figma-color-text-onsuccess);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+  .teamIcon[data-size="16"] { width: var(--ds-size-icon-16); height: var(--ds-size-icon-16); border-radius: var(--ds-radius-full); }
+  .teamIcon[data-size="24"] { width: var(--ds-size-icon-24); height: var(--ds-size-icon-24); }
+  .teamIcon[data-size="40"] { width: var(--ds-space-10); height: var(--ds-space-10); font: var(--ds-font-heading-medium); letter-spacing: var(--ds-tracking-heading-medium); }
+  .teamIcon img { width: 100%; height: 100%; object-fit: cover; }
+  .teamIcon[data-initial]::before { content: attr(data-initial); }
+
+  .orgContent { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--ds-space-6) var(--ds-space-8) var(--ds-space-12); }
+  .orgGrid { display: grid; grid-template-columns: repeat(auto-fill, var(--ds-size-card-width)); gap: var(--ds-size-card-gap); align-content: start; padding-bottom: var(--ds-space-6); }
+  .orgBanner { margin-bottom: var(--ds-space-4); }
+  .orgTabs { margin-bottom: var(--ds-space-4); }
+  .orgSections { display: flex; flex-direction: column; gap: var(--ds-space-4); }
+  .sectionTitle { margin: 0 0 var(--ds-space-3); font: var(--ds-font-body-large-strong); letter-spacing: var(--ds-tracking-body-large-strong); }
+  .mutedText { margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .dialogHint { margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+
+  /* A team's page header (1.png: the 40 icon, 20 to its 24px name) */
+  .teamHeader { display: flex; align-items: center; gap: var(--ds-space-5); margin-bottom: var(--ds-space-6); }
+  .teamHeaderText { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+  .teamTitle { margin: 0; overflow: hidden; font: var(--ds-font-heading-large); letter-spacing: var(--ds-tracking-heading-large); text-overflow: ellipsis; white-space: nowrap; }
+  .moreButton { display: inline-flex; color: var(--figma-color-icon); }
+
+  /* All teams: the teams, and the user groups at the right */
+  .withAside { display: grid; grid-template-columns: minmax(0, 1fr) var(--ds-size-panel); gap: var(--ds-space-8); }
+  .asideMain { display: flex; flex-direction: column; gap: var(--ds-space-2); min-width: 0; }
+  .aside { min-width: 0; padding-left: var(--ds-space-6); border-left: 1px solid var(--figma-color-border); }
+  .asideHeader { display: flex; align-items: center; justify-content: space-between; }
+  .asideHeader .sectionTitle { margin: 0; }
+  .teamGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--ds-size-card-width), 1fr)); gap: var(--ds-space-4); margin-bottom: var(--ds-space-6); }
+  .teamCard { display: flex; align-items: center; gap: var(--ds-space-3); padding: var(--ds-space-4); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-large); }
+  .teamCardMain {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    align-items: center;
+    gap: var(--ds-space-3);
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    text-align: left;
+    cursor: default;
+  }
+  .teamCardMain:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: 2px; }
+  .teamCardText { display: flex; flex-direction: column; min-width: 0; }
+  .teamCardName { overflow: hidden; font: var(--ds-font-body-large-strong); letter-spacing: var(--ds-tracking-body-large-strong); text-overflow: ellipsis; white-space: nowrap; }
+  .teamCardSub { overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); text-overflow: ellipsis; white-space: nowrap; }
+  .groupList { display: flex; flex-direction: column; margin: var(--ds-space-2) 0 0; padding: 0; list-style: none; }
+  .groupRow { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-2); height: var(--ds-size-row); }
+  .groupName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Members (a team's, a folder's) */
+  .membersPane { display: flex; flex-direction: column; gap: var(--ds-space-4); max-width: calc(var(--ds-size-card-width) * 3); }
+  .accessRow { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-3); }
+  .accessLabel { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .inviteRow { display: flex; align-items: center; gap: var(--ds-space-2); }
+  .inviteEmail { flex: 1 1 auto; min-width: 0; }
+  .memberList { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+  .memberRow { display: flex; align-items: center; gap: var(--ds-space-2); min-height: var(--ds-space-12); border-bottom: 1px solid var(--figma-color-border); }
+  .memberWho { display: flex; flex: 1 1 auto; align-items: center; gap: var(--ds-space-3); min-width: 0; }
+  .memberText { display: flex; flex-direction: column; min-width: 0; }
+  .memberName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .memberRole { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .moveSection { padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-1); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+
   /* "This file is password protected" (LinkPassword.tsx) */
   .passwordError { margin: var(--ds-space-2) 0 0; color: var(--figma-color-text-danger); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
 }

@@ -50,6 +50,15 @@ import {
 } from "./model";
 import { Sidebar, type DropApi } from "./Sidebar";
 import type { FilesBackend } from "./storeAccess";
+import { AdminApp } from "@/admin";
+import type * as O from "@shared/org/types";
+import type { SpaceId } from "@shared/store/repositories";
+import { PLAN_BADGE, orgErrorText, orgIdOf, orgSpace, spaceMenu } from "./org";
+import { OrgMain } from "./OrgMain";
+import { OrgSidebar } from "./OrgSidebar";
+import { CreateOrgDialog, DestinationDialog, type Destination, type DestinationSection } from "./orgDialogs";
+import { orgDestinations, useOrgData } from "./useOrgData";
+import { isOrgLocation } from "./model";
 import { useWorkspaceData } from "./useWorkspaceData";
 import styles from "./Files.module.css";
 
@@ -62,7 +71,15 @@ export interface FileBrowserProps {
   toast?: (o: ToastOptions) => void;
 }
 
-type DialogState = { kind: "new-folder"; parentId: FolderId | null } | { kind: "move"; targets: act.Targets } | { kind: "delete-forever"; targets: act.Targets } | { kind: "empty-trash" };
+type DialogState =
+  | { kind: "new-folder"; parentId: FolderId | null }
+  | { kind: "move"; targets: act.Targets }
+  | { kind: "move-spaces"; files: FileKey[]; sections: DestinationSection[]; title: string }
+  | { kind: "delete-forever"; targets: act.Targets }
+  | { kind: "empty-trash" }
+  | { kind: "create-org" };
+/** Local locations an org's space has its own of (shown when the space is switched). */
+const LOCAL_ONLY = new Set<Location["kind"]>(["drafts", "folders", "folder", "trash"]);
 type MenuState = { at: { x: number; y: number }; entries: MenuEntry[]; run: (id: string) => void };
 
 const DRAG_TYPE = "application/x-designer-items";
@@ -148,6 +165,49 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   const forward = () => {
     setNav((n) => ({ ...n, index: Math.min(n.stack.length - 1, n.index + 1) }));
     setSelection(EMPTY_SELECTION);
+  };
+
+  // --- the space: the local workspace or an organization (docs/multiplayer.md §14.6; Prefs.browse.space) ---
+
+  const space: SpaceId = data.prefs?.browse.space ?? "local";
+  const orgId = backend.org ? orgIdOf(space) : null;
+  const orgView = useOrgData(backend.org, orgId, location, !!orgId);
+  const orgShell = orgView.shell;
+  // Opened in an org's space on a local-only place (Home's default Recents / Drafts): its own Drafts instead.
+  const [placed, setPlaced] = useState(false);
+  if (!placed && data.prefs) {
+    setPlaced(true);
+    const fix: Location | null = orgId && LOCAL_ONLY.has(location.kind) ? { kind: "org-drafts" } : !orgId && isOrgLocation(location) ? { kind: "drafts" } : null;
+    if (fix) setNav((n) => ({ stack: [...n.stack.slice(0, n.index), fix], index: n.index }));
+  }
+  const [orgExpanded, setOrgExpanded] = useState<Set<string>>(() => new Set());
+
+  // Recents and Starred show org files too, each card saying its team (§14.6): the teams of the orgs listed there.
+  const [teamNames, setTeamNames] = useState<Record<string, string>>({});
+  const listedOrgs = useMemo(() => [...new Set([...data.files, ...data.starredFiles].map((f) => f.space?.orgId).filter((x): x is string => !!x))].sort().join(","), [data.files, data.starredFiles]);
+  useEffect(() => {
+    const org = backend.org;
+    if (!org || !listedOrgs) return;
+    let live = true;
+    void Promise.all(listedOrgs.split(",").map((id) => org.teams.list(id, "mine").catch(() => [] as O.TeamSummary[]))).then((lists) => {
+      if (live) setTeamNames(Object.fromEntries(lists.flat().map((t) => [t.id, t.name])));
+    });
+    return () => {
+      live = false;
+    };
+  }, [backend.org, listedOrgs]);
+  const placeOf = useCallback((f: FileListItem): string | null => (f.space ? (f.space.teamId ? (teamNames[f.space.teamId] ?? null) : "Drafts") : null), [teamNames]);
+
+  const switchSpace = (next: SpaceId) => {
+    if (next === space) return;
+    if (data.prefs) setPrefs({ ...data.prefs, browse: { ...data.prefs.browse, space: next } });
+    repo.setBrowsePrefs({ space: next }).then(setPrefs, (e) => toast({ kind: "error", message: act.errorText(e) }));
+    setOrgExpanded(new Set());
+    go(next === "local" ? { kind: "drafts" } : { kind: "org-drafts" });
+  };
+  const runSpace = (id: string) => {
+    if (id === "create-org") setDialog({ kind: "create-org" });
+    else if (id.startsWith("space:")) switchSpace(id.slice(6) as SpaceId);
   };
 
   const onSearch = (text: string) => {
@@ -294,6 +354,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
         setRenaming(t.files[0] ? fileItemId(t.files[0]) : folderItemId(t.folders[0]));
         return;
       case "move":
+        if (backend.org && orgShell.orgs.length && t.files.length && !t.folders.length) return void moveAcrossSpaces(t.files);
         return setDialog({ kind: "move", targets: t });
       case "remove-from-recents":
         await act.removeFromRecents(ctx, t.files);
@@ -317,6 +378,40 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
     }
   };
 
+  /**
+   * "Move to…" for local files when the person is in organizations: this workspace's Drafts and folders, then each
+   * org's folders (§14.6: a local file moves into a team folder as a shared room; never back out of an org).
+   */
+  const moveAcrossSpaces = async (files: FileKey[]) => {
+    const org = backend.org!;
+    const local: Destination[] = [{ id: "local:drafts", label: "Drafts", depth: 1, kind: "drafts" }, ...folders.flatten().map(({ folder, depth }) => ({ id: `local:${folder.id}`, label: folder.name, depth, kind: "local-folder" as const, color: folder.color }))];
+    const here = commonParent({ files, folders: [] }, known, folders);
+    const sections: DestinationSection[] = [{ title: workspaceName || "Drafts", rows: local.map((r) => (r.id === `local:${here === null ? "drafts" : here}` ? { ...r, disabled: true } : r)) }];
+    for (const o of orgShell.orgs) {
+      const rows = await orgDestinations(org, o.id, { forFolder: false, isAdmin: o.role === "admin" }).catch(() => [] as Destination[]);
+      // Into an org, files go to a folder (an org's drafts are made there, not moved in)
+      sections.push({ title: o.name, rows: rows.filter((r) => r.kind !== "drafts") });
+    }
+    setDialog({ kind: "move-spaces", files, sections, title: `Move ${targetsName({ files, folders: [] })}` });
+  };
+  const moveIntoSpace = async (files: FileKey[], dest: Destination) => {
+    if (dest.kind === "drafts" || dest.kind === "local-folder") {
+      await act.moveTo(ctx, { files, folders: [] }, dest.kind === "drafts" ? null : dest.id.slice(6));
+      return;
+    }
+    const org = backend.org!;
+    let moved = 0;
+    for (const fileKey of files) {
+      try {
+        await org.projects.moveLocalFile(fileKey, dest.id, await org.snapshotOf(fileKey));
+        moved++;
+      } catch (e) {
+        toast({ kind: "error", message: `Couldn’t move “${known.find((f) => f.fileKey === fileKey)?.name ?? "file"}”: ${orgErrorText(e)}` });
+      }
+    }
+    if (moved) toast({ message: moved === 1 ? `Moved to ${dest.label}` : `Moved ${moved} files to ${dest.label}` });
+  };
+
   const menuFor = (e: React.MouseEvent, entries: MenuEntry[], t: act.Targets, from?: Folder) => {
     e.preventDefault();
     e.stopPropagation();
@@ -337,16 +432,25 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   const accountName = account.state?.user ? account.state.user.name || account.state.user.email : null;
   const onAccountMenu = (e: React.MouseEvent) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const spaces = backend.org && account.state?.user ? ["-" as const, ...spaceEntries()] : [];
     setMenu({
       at: { x: r.left + 8, y: r.bottom },
-      entries: accountMenu(account.state),
+      entries: [...accountMenu(account.state), ...spaces],
       run: (id) =>
         id === "settings"
           ? openSettings()
-          : void account.run(id).then((failure) => {
-              if (failure) toast({ kind: "error", message: failure });
-            }),
+          : id === "create-org" || id.startsWith("space:")
+            ? runSpace(id)
+            : void account.run(id).then((failure) => {
+                if (failure) toast({ kind: "error", message: failure });
+              }),
     });
+  };
+  const spaceEntries = () => spaceMenu({ local: workspaceName || "Drafts", orgs: orgShell.orgs, current: space, signedIn: !!account.state?.user });
+  /** The space row's chevron: the switcher (1.png) */
+  const onSpaceMenu = (e: React.MouseEvent) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setMenu({ at: { x: r.left, y: r.bottom }, entries: spaceEntries(), run: runSpace });
   };
 
   const starredFolderSet = useMemo(() => new Set(starredFolderIds), [starredFolderIds]);
@@ -571,9 +675,42 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
     return s;
   }, [moveDialog, folders]);
 
+  const orgSummary = orgId ? orgShell.orgs.find((o) => o.id === orgId) : undefined;
+  const spaceName = orgId ? (orgShell.info?.name ?? orgSummary?.name ?? "") : workspaceName;
+  const orgMain = !!orgId && (isOrgLocation(location) || location.kind === "search");
+  const openTitled = (fileKey: FileKey, title: string, newTab = false) => void openFile(fileKey, { title, newTab }, deps).catch((e) => toast({ kind: "error", message: act.errorText(e) }));
+
+  // Admin replaces the file browser (its own sidebar starts with "Back to files")
+  if (orgId && location.kind === "admin" && backend.org) {
+    return (
+      <>
+        <AdminApp orgId={orgId} store={{ admin: backend.org.admin, orgs: backend.org.orgs, teams: backend.org.teams }} onBack={() => (nav.index > 0 ? back() : go({ kind: "org-drafts" }))} />
+        {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} />}
+      </>
+    );
+  }
+
   return (
     <div className={styles.app} data-files-app="">
       <Sidebar
+        onSpaceMenu={backend.org && (account.state?.user || orgShell.orgs.length) ? onSpaceMenu : undefined}
+        spaceBadge={orgId ? PLAN_BADGE : undefined}
+        spaceSection={
+          orgId ? (
+            <OrgSidebar
+              info={orgShell.info}
+              teams={orgShell.teams}
+              folders={orgShell.folders}
+              expanded={orgExpanded}
+              onToggle={(k, teamId, parentId) => {
+                if (!orgExpanded.has(k)) orgView.openFolders(teamId, parentId);
+                setOrgExpanded((s) => (s.has(k) ? new Set([...s].filter((x) => x !== k)) : new Set([...s, k])));
+              }}
+              location={location}
+              go={go}
+            />
+          ) : undefined
+        }
         ownerName={accountName ?? ownerOf(workspaceName)}
         ownerPicture={account.state?.user?.picture ?? undefined}
         onAccountMenu={onAccountMenu}
@@ -586,7 +723,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
             />
           ) : undefined
         }
-        teamName={workspaceName}
+        teamName={spaceName}
         location={location}
         search={search}
         onSearch={onSearch}
@@ -606,6 +743,21 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
         onTrashMenu={(e) => menuFor(e, trashMenu(false), NO_TARGETS)}
         dnd={dnd}
       />
+      {orgMain && backend.org && orgId ? (
+        <OrgMain
+          org={backend.org}
+          orgId={orgId}
+          info={orgShell.info}
+          location={location}
+          page={orgView.page}
+          reload={orgView.reload}
+          go={go}
+          nav={{ canBack: nav.index > 0, canForward: nav.index < nav.stack.length - 1, back, forward }}
+          openFile={openTitled}
+          toast={toast}
+          now={Math.max(tick, orgView.page.loadedAt)}
+        />
+      ) : (
       <main
         className={styles.main}
         aria-label={title}
@@ -763,9 +915,11 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
             onDragItems={onDragItems}
             dropOn={dropOn}
             folderDrop={folderDrop}
+            placeOf={placeOf}
           />
         )}
       </main>
+      )}
       {linkOpen && <OpenLinkDialog onClose={() => setLinkOpen(false)} onOpen={(fileKey, name, intent) => void openFile(fileKey, { ...(name ? { title: name } : {}), intent }, deps)} onError={(message) => toast({ kind: "error", message })} />}
       {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} />}
       {dialog?.kind === "new-folder" && (
@@ -793,6 +947,34 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
             setDialog(null);
             const t = moveDialog.targets;
             void act.moveTo(ctx, dest === null ? { files: t.files, folders: t.files.length ? [] : t.folders } : t, dest);
+          }}
+        />
+      )}
+      {dialog?.kind === "move-spaces" && (
+        <DestinationDialog
+          title={dialog.title}
+          sections={dialog.sections}
+          onClose={() => setDialog(null)}
+          onMove={(dest) => {
+            const files = dialog.files;
+            setDialog(null);
+            void moveIntoSpace(files, dest);
+          }}
+        />
+      )}
+      {dialog?.kind === "create-org" && backend.org && (
+        <CreateOrgDialog
+          onClose={() => setDialog(null)}
+          onCreate={async (input) => {
+            setDialog(null);
+            try {
+              const made = await backend.org!.orgs.create(input);
+              toast({ message: `Created ${made.name}` });
+              switchSpace(orgSpace(made.id));
+              go({ kind: "teams" });
+            } catch (e) {
+              toast({ kind: "error", message: orgErrorText(e) });
+            }
           }}
         />
       )}

@@ -172,6 +172,11 @@ export function OrgMain(props: OrgMainProps) {
     });
   };
 
+  const join = async (t: O.TeamSummary) => {
+    const r = await write(() => org.teams.join(t.id));
+    if (r) toast({ message: r.status === "joined" ? `You joined ${t.name}` : `Asked to join ${t.name}` });
+  };
+
   // --- the grid of folders and files ---
 
   const grid = (folders: O.ProjectSummary[], files: O.OrgFile[], label: string) => (
@@ -437,17 +442,12 @@ export function OrgMain(props: OrgMainProps) {
     case "none":
       if (location.kind === "resources") {
         title = { items: [{ id: "resources", label: "Resources" }] };
-        body = <EmptyState size="page" icon="24.layout" title="Resources" body={`Libraries, fonts, plugins and templates shared in ${orgName} will show up here.`} />;
+        body = <EmptyState size="page" icon="24.library" title="Resources" body={`Libraries, fonts, plugins and templates shared in ${orgName} will show up here.`} />;
       } else if (page.error && page.key === key) {
         title = { items: [{ id: location.kind, label: "" }] };
         body = <EmptyState size="page" icon="24.warning" title="Couldn’t load this page" body={page.error} action={{ label: "Try again", onClick: reload }} />;
       } else body = <Spinner size={24} />;
       break;
-  }
-
-  async function join(t: O.TeamSummary) {
-    const r = await write(() => org.teams.join(t.id));
-    if (r) toast({ message: r.status === "joined" ? `You joined ${t.name}` : `Asked to join ${t.name}` });
   }
 
   const moveDialog = dialog?.kind === "move" ? dialog : null;

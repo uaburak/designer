@@ -17,8 +17,9 @@ export function FolderGlyph({ color, size = 24 }: { color: FolderColor; size?: 1
  */
 export function TeamIcon({ name, src, size = 16 }: { name: string; src?: string | null; size?: 16 | 24 | 40 }) {
   return (
-    <span data-team-icon="" className={styles.teamIcon} data-size={size} aria-hidden>
-      {src ? <img src={src} alt="" /> : initials(name, 1)}
+    // The initial is drawn by CSS (attr): it isn't part of the row's text or its accessible name
+    <span data-team-icon="" className={styles.teamIcon} data-size={size} data-initial={src ? undefined : initials(name, 1)} aria-hidden>
+      {src && <img src={src} alt="" />}
     </span>
   );
 }
