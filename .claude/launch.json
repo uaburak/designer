@@ -32,6 +32,15 @@
         "VITE_DESIGNER_SERVER=http://localhost:8787 npx vite --config vite.web.config.ts --host 127.0.0.1"
       ],
       "port": 5199
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "npx vite --config vite.web.config.ts --port 5199 --strictPort"
+      ],
+      "port": 5199
     }
   ]
 }
