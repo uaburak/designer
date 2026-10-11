@@ -316,7 +316,7 @@ export class BranchService {
       await this.host.writeBaseFromVersion(meta.fileKey, mainFileKey, v.id);
       const base = await this.host.readBase(meta.fileKey);
       const snapshot = encodeMessage(base.toMessage());
-      const rec = await remote.create({ mainFileKey, branchFileKey: meta.fileKey, name, snapshot, localBaseSeq: v.seq });
+      const { record: rec } = await remote.create({ mainFileKey, branchFileKey: meta.fileKey, name, snapshot });
       const saved = await this.save({ ...rec, base: { ...rec.base, mainVersionId: v.id } });
       await this.host.addVersion(meta.fileKey, { kind: "branch", title: null, description: null });
       this.emit({ type: "branch.updated", branch: saved });
@@ -399,7 +399,7 @@ export class BranchService {
   async mainStatus(branchFileKey: FileKey): Promise<{ changed: boolean; mainHeadSeq: number; baseSeq: number }> {
     const r = await this.record(branchFileKey);
     // A shared main's seqs are its room's (§15.7); a local one's, its journal's.
-    const mainHeadSeq = r.branchKey && this.host.remote ? await this.host.remote.mainRoomSeq(r.mainFileKey) : await this.host.headSeq(r.mainFileKey);
+    const mainHeadSeq = r.branchKey && this.host.remote ? await this.host.remote.roomSeq(r.mainFileKey) : await this.host.headSeq(r.mainFileKey);
     return { changed: mainHeadSeq !== r.base.mainSeq, mainHeadSeq, baseSeq: r.base.mainSeq };
   }
 
@@ -532,18 +532,14 @@ export class BranchService {
     return this.serial(branchFileKey, async () => {
       const { p, r, result } = await this.final(branchFileKey, input?.previewId, "update", input?.resolutions ?? {});
       const batch = result.batch;
+      if (r.branchKey && this.host.remote) return this.applyUpdateShared(p, r, encodeMessage(batch));
       if (batch.nodeChanges?.length) {
         await this.host.appendSystem(branchFileKey, encodeMessage(batch), { kind: "update", label: "Updated from main", expectSeq: p.branchHeadSeq, blobRefsAdded: [...messageImageHashes(batch)] });
       }
-      if (r.branchKey && this.host.remote) await this.host.remote.whenSent(branchFileKey);
       await this.host.addVersion(branchFileKey, { kind: "update", title: null, description: null });
       // The base becomes main's head as merged.
       await this.host.writeBase(branchFileKey, encodeMessage(p.main.toMessage()));
-      let next: BranchRecord = { ...r, base: { mainSeq: p.mainHeadSeq, mainVersionId: null, at: this.host.now() }, mainSeenSeq: p.mainHeadSeq };
-      if (r.branchKey && this.host.remote) {
-        const row = await this.host.remote.updated(next, encodeMessage(p.main.toMessage()));
-        next = { ...next, ...row, branchFileKey, base: { mainSeq: row.base.mainSeq, mainVersionId: null, at: next.base.at }, mainSeenSeq: row.mainSeenSeq };
-      }
+      const next: BranchRecord = { ...r, base: { mainSeq: p.mainHeadSeq, mainVersionId: null, at: this.host.now() }, mainSeenSeq: p.mainHeadSeq };
       this.previews.delete(p.previewId);
       const saved = await this.save(next);
       this.emit({ type: "branch.updated", branch: saved });
@@ -556,10 +552,9 @@ export class BranchService {
     return this.serial(r0.mainFileKey, () =>
       this.serial(branchFileKey, async () => {
         const { p, r, result } = await this.final(branchFileKey, input?.previewId, "merge", input?.resolutions ?? {});
-        const remote = r.branchKey ? this.host.remote : null;
-        if (remote && !(await remote.caughtUp(r.mainFileKey))) throw new StoreError("offline", "Main isn't up to date with its room. Try again when you're online.");
         const title = typeof input?.title === "string" && input.title.trim() ? input.title.trim() : r.name;
         const description = typeof input?.description === "string" && input.description.trim() ? input.description.trim() : null;
+        if (r.branchKey && this.host.remote) return this.mergeShared(p, r, encodeMessage(result.batch), title, description);
         // 4. The pre-merge checkpoint (restoring it undoes the merge).
         await this.host.addVersion(r.mainFileKey, { kind: "autosave", title: null, description: null });
         // 5. One batch on main.
@@ -567,20 +562,55 @@ export class BranchService {
         if (batch.nodeChanges?.length) {
           await this.host.appendSystem(r.mainFileKey, encodeMessage(batch), { kind: "merge", label: `Merged ${r.name}`, expectSeq: p.mainHeadSeq, blobRefsAdded: [...messageImageHashes(batch)] });
         }
-        if (remote) await remote.whenSent(r.mainFileKey);
         // 6. Main's "Branch merged" version; 7. the branch's, and its record.
         const version = await this.host.addVersion(r.mainFileKey, { kind: "merge", title, description });
         await this.host.addVersion(branchFileKey, { kind: "merge", title, description });
         const now = this.host.now();
         const me = this.host.user();
-        let next: BranchRecord = { ...r, status: "merged", mergedAt: now, mergedBy: me.id, mergeVersionId: version.id, archivedAt: r.archivedAt ?? now };
-        if (remote) next = { ...next, ...(await remote.merged(next, version)), branchFileKey, base: next.base };
+        const next: BranchRecord = { ...r, status: "merged", mergedAt: now, mergedBy: me.id, mergeVersionId: version.id, archivedAt: r.archivedAt ?? now };
         this.previews.delete(p.previewId);
         const saved = await this.save(next);
         this.emit({ type: "branch.merged", branch: saved });
         return { branch: saved, version };
       }),
     );
+  }
+
+  /**
+   * The rooms' seqs of both local copies, which must be live and caught up (§15.5 step 1): the merge read exactly
+   * these documents, so the server's head check is exact.
+   */
+  private async roomSeqs(r: BranchRecord): Promise<{ mainSeq: number; branchSeq: number }> {
+    const remote = this.host.remote!;
+    if (!(await remote.caughtUp(r.mainFileKey)) || !(await remote.caughtUp(r.branchFileKey))) throw new StoreError("offline", "This file isn't up to date with its room. Try again when you're online.");
+    return { mainSeq: await remote.roomSeq(r.mainFileKey), branchSeq: await remote.roomSeq(r.branchFileKey) };
+  }
+
+  /** Update from main of a shared branch: one call; the frame comes back to the branch's copy through its link. */
+  private async applyUpdateShared(p: CachedPreview, r: BranchRecord, batch: Uint8Array): Promise<BranchRecord> {
+    const remote = this.host.remote!;
+    const seqs = await this.roomSeqs(r);
+    const base = encodeMessage(p.main.toMessage());
+    const res = await remote.update(r, { ...seqs, base, batch });
+    await this.host.writeBase(r.branchFileKey, base);
+    this.previews.delete(p.previewId);
+    const saved = await this.save({ ...res.record, branchFileKey: r.branchFileKey, base: { ...res.record.base, at: this.host.now() } });
+    this.emit({ type: "branch.updated", branch: saved });
+    return saved;
+  }
+
+  /** Merge of a shared branch: one call (freeze, pre-merge autosave, frame, versions on both rooms). */
+  private async mergeShared(p: CachedPreview, r: BranchRecord, batch: Uint8Array, title: string, description: string | null): Promise<{ branch: BranchRecord; version: VersionRecord }> {
+    const remote = this.host.remote!;
+    const seqs = await this.roomSeqs(r);
+    const res = await remote.merge(r, { ...seqs, title, ...(description ? { description } : {}), batch });
+    const version = await remote.version(r.mainFileKey, res.versionId).catch(
+      (): VersionRecord => ({ id: res.versionId, kind: "merge", title, description, createdAt: this.host.now(), seq: res.mainSeq, sizeBytes: 0, blobRefs: [], restoredFrom: null, libraryVersion: null }),
+    );
+    this.previews.delete(p.previewId);
+    const saved = await this.save({ ...res.record, branchFileKey: r.branchFileKey, base: r.base });
+    this.emit({ type: "branch.merged", branch: saved });
+    return { branch: saved, version };
   }
 
   // -------------------------------------------------------------------------------------------------------------------

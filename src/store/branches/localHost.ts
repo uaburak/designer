@@ -99,7 +99,6 @@ export function localBranchHost(d: LocalBranchDeps): BranchHost {
           linkedCopies: () => mp.linkedCopies(),
           headSeq: (key) => d.files.headSeqOf(key),
           signedIn: () => mp.signedIn,
-          sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
         })
       : null,
   };

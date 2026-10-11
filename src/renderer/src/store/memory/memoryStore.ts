@@ -437,7 +437,6 @@ export class MemoryStore {
         linkedCopies: () => mp.linkedCopies(),
         headSeq: async (fileKey) => this.headSeq(this.fileData(fileKey)),
         signedIn: () => mp.signedIn,
-        sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
       }),
     });
     void store;
