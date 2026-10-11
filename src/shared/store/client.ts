@@ -30,6 +30,7 @@ import type { AppendAck, ChangeBatch, FileKey } from "./types";
 import type { MultiplayerEvent, MultiplayerRepository } from "../multiplayer/types";
 import type { CommentsEvent, CommentsRepository } from "../comments";
 import type { NotificationsEvent, NotificationsRepository } from "../notifications";
+import type { AdminRepository, OrgEvent, OrgsRepository, ProjectsRepository, TeamsRepository } from "../org/repositories";
 
 interface Pending {
   m: StoreMethod;
@@ -93,6 +94,7 @@ export class StoreClient implements StoreApi {
   private readonly multiplayerEvents = new Listeners<MultiplayerEvent>();
   private readonly commentsEvents = new Listeners<CommentsEvent>();
   private readonly notificationsEvents = new Listeners<NotificationsEvent>();
+  private readonly orgEvents = new Listeners<OrgEvent>();
   private readonly connected = new Listeners<{ generation: number }>();
   /** Calls wait for this: the hello and the resync of a new port */
   private gate!: Promise<void>;
@@ -200,6 +202,7 @@ export class StoreClient implements StoreApi {
         else if (msg.topic === "multiplayer") this.multiplayerEvents.emit(msg.d as MultiplayerEvent);
         else if (msg.topic === "comments") this.commentsEvents.emit(msg.d as CommentsEvent);
         else if (msg.topic === "notifications") this.notificationsEvents.emit(msg.d as NotificationsEvent);
+        else if (msg.topic === "org") this.orgEvents.emit(msg.d as OrgEvent);
         return;
     }
   }
@@ -455,5 +458,91 @@ export class StoreClient implements StoreApi {
     removeMember: (fileKey, email) => this.call("multiplayer.removeMember", [fileKey, email]),
     presence: (fileKey, data) => this.call("multiplayer.presence", [fileKey, data]),
     watch: (listener) => this.multiplayerEvents.add(listener),
+  };
+
+  readonly orgs: OrgsRepository = {
+    list: () => this.call("orgs.list", []),
+    get: (orgId) => this.call("orgs.get", [orgId]),
+    create: (input) => this.call("orgs.create", [input]),
+    people: (orgId, query) => this.call("orgs.people", [orgId, query]),
+    drafts: (orgId) => this.call("orgs.drafts", [orgId]),
+    createDraft: (orgId, input) => this.call("orgs.createDraft", [orgId, input]),
+    search: (orgId, text) => this.call("orgs.search", [orgId, text]),
+    requestSeat: (orgId, seat, note) => this.call("orgs.requestSeat", [orgId, seat, note]),
+    groups: (orgId) => this.call("orgs.groups", [orgId]),
+    createGroup: (orgId, input) => this.call("orgs.createGroup", [orgId, input]),
+    updateGroup: (groupId, patch) => this.call("orgs.updateGroup", [groupId, patch]),
+    setGroupMembers: (groupId, change) => this.call("orgs.setGroupMembers", [groupId, change]),
+    deleteGroup: (groupId) => this.call("orgs.deleteGroup", [groupId]),
+    leave: (orgId) => this.call("orgs.leave", [orgId]),
+    watch: (listener) => this.orgEvents.add(listener),
+  };
+
+  readonly teams: TeamsRepository = {
+    list: (orgId, filter) => this.call("teams.list", [orgId, filter]),
+    get: (teamId) => this.call("teams.get", [teamId]),
+    create: (orgId, input) => this.call("teams.create", [orgId, input]),
+    update: (teamId, patch) => this.call("teams.update", [teamId, patch]),
+    remove: (teamId) => this.call("teams.remove", [teamId]),
+    restore: (teamId) => this.call("teams.restore", [teamId]),
+    transfer: (teamId, userId) => this.call("teams.transfer", [teamId, userId]),
+    members: (teamId) => this.call("teams.members", [teamId]),
+    invite: (teamId, input) => this.call("teams.invite", [teamId, input]),
+    setMember: (teamId, principal, patch) => this.call("teams.setMember", [teamId, principal, patch]),
+    removeMember: (teamId, principal) => this.call("teams.removeMember", [teamId, principal]),
+    join: (teamId) => this.call("teams.join", [teamId]),
+    leave: (teamId) => this.call("teams.leave", [teamId]),
+    requests: (teamId) => this.call("teams.requests", [teamId]),
+    answerRequest: (teamId, userId, approve) => this.call("teams.answerRequest", [teamId, userId, approve]),
+  };
+
+  readonly projects: ProjectsRepository = {
+    list: (teamId, parentId) => this.call("projects.list", [teamId, parentId ?? null]),
+    get: (projectId) => this.call("projects.get", [projectId]),
+    create: (teamId, input) => this.call("projects.create", [teamId, input]),
+    update: (projectId, patch) => this.call("projects.update", [projectId, patch]),
+    move: (projectId, to) => this.call("projects.move", [projectId, to]),
+    trash: (projectId) => this.call("projects.trash", [projectId]),
+    restore: (projectId) => this.call("projects.restore", [projectId]),
+    deleteForever: (projectId) => this.call("projects.deleteForever", [projectId]),
+    members: (projectId) => this.call("projects.members", [projectId]),
+    invite: (projectId, input) => this.call("projects.invite", [projectId, input]),
+    setMember: (projectId, principal, role) => this.call("projects.setMember", [projectId, principal, role]),
+    removeMember: (projectId, principal) => this.call("projects.removeMember", [projectId, principal]),
+    files: (projectId) => this.call("projects.files", [projectId]),
+    createFile: (projectId, input) => this.call("projects.createFile", [projectId, input]),
+    moveFiles: (keys, to) => this.call("projects.moveFiles", [keys, to]),
+    moveLocalFile: (fileKey, projectId, input) => this.call("projects.moveLocalFile", [fileKey, projectId, input]),
+    trashFiles: (keys) => this.call("projects.trashFiles", [keys]),
+    restoreFiles: (keys) => this.call("projects.restoreFiles", [keys]),
+    trashed: (teamId) => this.call("projects.trashed", [teamId]),
+  };
+
+  readonly admin: AdminRepository = {
+    dashboard: (orgId) => this.call("admin.dashboard", [orgId]),
+    people: (orgId, query) => this.call("admin.people", [orgId, query]),
+    addPeople: (orgId, input) => this.call("admin.addPeople", [orgId, input]),
+    updatePeople: (orgId, input) => this.call("admin.updatePeople", [orgId, input]),
+    removePeople: (orgId, userIds) => this.call("admin.removePeople", [orgId, userIds]),
+    seatRequests: (orgId, state) => this.call("admin.seatRequests", [orgId, state]),
+    answerSeatRequest: (orgId, id, approve) => this.call("admin.answerSeatRequest", [orgId, id, approve]),
+    guestRequests: (orgId) => this.call("admin.guestRequests", [orgId]),
+    answerGuestRequest: (orgId, id, approve) => this.call("admin.answerGuestRequest", [orgId, id, approve]),
+    teams: (orgId, query) => this.call("admin.teams", [orgId, query]),
+    workspaces: (orgId) => this.call("admin.workspaces", [orgId]),
+    createWorkspace: (orgId, input) => this.call("admin.createWorkspace", [orgId, input]),
+    updateWorkspace: (workspaceId, patch) => this.call("admin.updateWorkspace", [workspaceId, patch]),
+    deleteWorkspace: (workspaceId) => this.call("admin.deleteWorkspace", [workspaceId]),
+    billingGroups: (orgId) => this.call("admin.billingGroups", [orgId]),
+    createBillingGroup: (orgId, input) => this.call("admin.createBillingGroup", [orgId, input]),
+    updateBillingGroup: (id, patch) => this.call("admin.updateBillingGroup", [id, patch]),
+    deleteBillingGroup: (id) => this.call("admin.deleteBillingGroup", [id]),
+    activity: (orgId, query) => this.call("admin.activity", [orgId, query]),
+    settings: (orgId) => this.call("admin.settings", [orgId]),
+    updateSettings: (orgId, patch) => this.call("admin.updateSettings", [orgId, patch]),
+    unassignedDrafts: (orgId) => this.call("admin.unassignedDrafts", [orgId]),
+    moveUnassigned: (orgId, input) => this.call("admin.moveUnassigned", [orgId, input]),
+    deleteUnassigned: (orgId, fileKeys) => this.call("admin.deleteUnassigned", [orgId, fileKeys]),
+    exportCsv: (orgId, what, query) => this.call("admin.exportCsv", [orgId, what, query]),
   };
 }

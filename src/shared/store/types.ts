@@ -2,6 +2,7 @@
  * Records and value types of the store (docs/data.md §2, §5, §6, §9, §13) — shared by the store, the renderer clients
  * and the viewer. Each record is one JSON file on disk and, later, one Firestore document (§12.4).
  */
+import type { SpaceId } from "../org/repositories";
 
 export type FileKey = string;
 export type FolderId = string;
@@ -56,7 +57,21 @@ export interface FileMeta {
   enabledLibraries: FileKey[];
   library: { status: "none" | "published" | "unpublished"; latestVersion: number | null };
   importedFrom: { kind: "fig" | "legacy"; name: string } | null;
+  /**
+   * The org space this local copy belongs to (docs/multiplayer.md §14.6): the linked copy of an org file's room. Absent
+   * or null: a local file. Local listings (Drafts, folders, search, Trash) leave such copies out; Recents and Starred
+   * show them.
+   */
+  space?: FileSpace | null;
   _clk: Clock;
+}
+
+/** Where an org file lives (docs/multiplayer.md §14.6): its org, its room key, its team and folder (both null: drafts). */
+export interface FileSpace {
+  orgId: string;
+  key: string;
+  teamId: string | null;
+  projectId: string | null;
 }
 
 export interface Prefs {
@@ -66,7 +81,12 @@ export interface Prefs {
   viewedAt: Record<FileKey, number>;
   /** In starring order */
   starred: { files: FileKey[]; folders: FolderId[] };
-  browse: { layout: "grid" | "list"; sort: "last-viewed" | "last-modified" | "alphabetical" | "date-created" };
+  browse: {
+    layout: "grid" | "list";
+    sort: "last-viewed" | "last-modified" | "alphabetical" | "date-created";
+    /** The space Home shows (docs/multiplayer.md §14.6; Home's org switcher sets it, per machine). Absent: "local" */
+    space?: SpaceId;
+  };
   _clk: Clock;
 }
 

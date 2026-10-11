@@ -29,6 +29,20 @@ export interface NotificationsDeps {
   pingMs?: number;
 }
 
+/**
+ * A change in an org the person is in (docs/multiplayer.md §14.6, §14.11): `what` names what changed — "orgs" (their
+ * memberships, role or seat), "org", "teams", "team" (+teamId), "projects" (+teamId, parentId), "files" (+projectId,
+ * null: drafts) — or is an OrgEvent's own type ("teams.changed", …).
+ */
+export interface OrgNotice {
+  t: "org";
+  orgId?: string;
+  what?: string;
+  teamId?: string;
+  parentId?: string | null;
+  projectId?: string | null;
+}
+
 const EMPTY: NotificationPage = { items: [], unread: 0, pending: 0, files: [], next: null };
 
 export class NotificationsService {
@@ -59,6 +73,20 @@ export class NotificationsService {
   onChange(listener: (e: NotificationsEvent) => void): Unsubscribe {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  private orgListeners = new Set<(n: OrgNotice) => void>();
+  /** `{t: "org", …}` notices from the inbox (the org spaces' cache follows them: src/store/org/service.ts) */
+  onOrg(listener: (n: OrgNotice) => void): Unsubscribe {
+    this.orgListeners.add(listener);
+    return () => this.orgListeners.delete(listener);
+  }
+
+  /** The inbox socket opened again: what changed while it was closed is unknown */
+  private reconnectListeners = new Set<() => void>();
+  onReconnect(listener: () => void): Unsubscribe {
+    this.reconnectListeners.add(listener);
+    return () => this.reconnectListeners.delete(listener);
   }
 
   /** The counts as last heard */
@@ -149,6 +177,7 @@ export class NotificationsService {
       if (every > 0) this.ping = setInterval(() => this.ws === ws && ws.readyState === 1 && ws.send("ping"), every);
       // What came while away: the counts now.
       void this.list({ limit: 1 }).catch(() => {});
+      for (const l of this.reconnectListeners) l();
     };
     ws.onmessage = (e) => {
       if (this.ws !== ws || typeof e.data !== "string" || e.data === "pong") return;
@@ -156,6 +185,11 @@ export class NotificationsService {
       try {
         msg = JSON.parse(e.data) as InboxMessage;
       } catch {
+        return;
+      }
+      // The org spaces' cache notices (docs/multiplayer.md §14.6, §14.11) ride the same socket: handed on as they are.
+      if ((msg as { t: string }).t === "org") {
+        for (const l of this.orgListeners) l(msg as unknown as OrgNotice);
         return;
       }
       if (msg.t !== "notifications") return;

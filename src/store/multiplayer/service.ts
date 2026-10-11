@@ -14,7 +14,7 @@ import { decodeMessage } from "../../shared/schema/codec";
 import { messageImageHashes } from "../../shared/schema/patch";
 import { StoreError } from "../../shared/store/protocol";
 import type { FileChange, Unsubscribe } from "../../shared/store/repositories";
-import type { FileKey, FileMeta } from "../../shared/store/types";
+import type { FileKey, FileMeta, FileSpace } from "../../shared/store/types";
 import { touchedBy, withoutPending, type Touched } from "./conflict";
 
 /** What the store gives the service. */
@@ -22,8 +22,11 @@ export interface MultiplayerHost {
   readonly fileChanges: { on(listener: (c: FileChange) => void): Unsubscribe };
   backlog(fileKey: FileKey, fromSeq: number): Promise<FileChange[]>;
   appendRemote(fileKey: FileKey, message: Uint8Array): Promise<{ seq: number }>;
-  /** A new local file holding this snapshot as it is (no GUID remapping: the room's nodes keep their ids) */
-  createSharedFile(input: { name: string; snapshot: Uint8Array }): Promise<FileMeta>;
+  /** A new local file holding this snapshot as it is (no GUID remapping: the room's nodes keep their ids); `space`: the
+   *  org file it copies (docs/multiplayer.md §14.6), so it never lists among local Drafts */
+  createSharedFile(input: { name: string; snapshot: Uint8Array; space?: FileSpace | null }): Promise<FileMeta>;
+  /** An org file's copy moved (or a local file moved into an org): its `FileMeta.space` */
+  setFileSpace?(fileKey: FileKey, space: FileSpace | null): Promise<void>;
   getMeta(fileKey: FileKey): FileMeta | null;
   readonly deviceOrdinal: number;
   /** New edit sessions use it from now on (and it is kept for the next start) */
@@ -158,19 +161,61 @@ export class MultiplayerService {
 
   /** Share › Invite on a file not shared yet: registers it on the server with the editor's snapshot of it at `headSeq`. */
   async share(fileKey: FileKey, input: { snapshot: Uint8Array; headSeq: number }): Promise<FileShareState> {
+    if ((await this.loadState()).links[fileKey]) return this.fileState(fileKey);
+    await this.shareTo(fileKey, input, (key, name) => this.api("POST", "/files", { key, name }));
+    return this.fileState(fileKey);
+  }
+
+  /**
+   * Share with a destination (docs/multiplayer.md §14.6): registers a local file on the server through `register` (the
+   * plain `POST /files`, an org's folder or drafts), uploads its images and the editor's snapshot at `headSeq`, and links
+   * it. `key` is the room key to use (default: one made from the file's key). Returns what `register` answered.
+   */
+  async shareTo<T>(fileKey: FileKey, input: { snapshot: Uint8Array; headSeq: number }, register: (key: string, name: string) => Promise<T>, key?: string): Promise<T> {
     const st = await this.loadState();
-    if (st.links[fileKey]) return this.fileState(fileKey);
+    if (st.links[fileKey]) throw new StoreError("invalid", "This file is shared already");
     const meta = this.host.getMeta(fileKey);
     if (!meta) throw new StoreError("not-found", "No such file");
     this.needOrdinal();
-    const key = roomKeyFor(fileKey, this.deps.random);
-    await this.api("POST", "/files", { key, name: meta.name });
-    await this.uploadBlobs(key, imagesOf(input.snapshot));
-    await this.api("PUT", `/files/${key}/snapshot?seq=0`, input.snapshot);
-    st.links[fileKey] = { key, since: 0, acked: input.headSeq, sessions: [], role: "owner" };
+    const room = key ?? roomKeyFor(fileKey, this.deps.random);
+    const answer = await register(room, meta.name);
+    await this.uploadBlobs(room, imagesOf(input.snapshot));
+    await this.api("PUT", `/files/${room}/snapshot?seq=0`, input.snapshot);
+    st.links[fileKey] = { key: room, since: 0, acked: input.headSeq, sessions: [], role: "owner" };
     await this.persist(fileKey);
     this.startLink(fileKey);
-    return this.fileState(fileKey);
+    return answer;
+  }
+
+  /** A fresh room key (an org file created on the server: docs/multiplayer.md §14.6) */
+  newRoomKey(base = "file"): string {
+    return roomKeyFor(base, this.deps.random);
+  }
+
+  /** The local copy linked to a room, if this installation has one */
+  async linkedCopy(key: string): Promise<FileKey | null> {
+    const st = await this.loadState();
+    const hit = Object.entries(st.links).find(([fileKey, l]) => l.key === key && this.host.getMeta(fileKey));
+    return hit?.[0] ?? null;
+  }
+
+  /** Every room key → its local copy (listings fill in `OrgFile.fileKey`) */
+  async linkedCopies(): Promise<Map<string, FileKey>> {
+    const st = await this.loadState();
+    return new Map(Object.entries(st.links).filter(([fileKey]) => this.host.getMeta(fileKey)).map(([fileKey, l]) => [l.key, fileKey]));
+  }
+
+  /** The signed-in person's id, read from the session token's payload (unverified: it only keys caches), else null */
+  get userId(): string | null {
+    const token = this.session?.token;
+    const part = token?.split(".")[1];
+    if (!part) return null;
+    try {
+      const json = JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(part.length / 4) * 4, "="))) as { uid?: unknown };
+      return typeof json.uid === "string" ? json.uid : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Files on the server the user owns or was invited to. */
@@ -207,7 +252,7 @@ export class MultiplayerService {
       throw e instanceof StoreError && e.code === "not-found" ? new StoreError("not-found", "This file isn't shared with you, or the link is off") : e;
     });
     if (remote.needsPassword) await this.unlock(key, password);
-    const fileKey = await this.copyFromRoom(key, remote.name, remote.role);
+    const fileKey = await this.copyFromRoom(key, remote.name, remote.role, spaceOf(key, (remote as RemoteWithOrg).org));
     return { fileKey };
   }
 
@@ -259,13 +304,13 @@ export class MultiplayerService {
   private locked = new Set<FileKey>();
 
   /** A local copy made from the room's snapshot (and its images), linked at the snapshot's seq. */
-  private async copyFromRoom(key: string, name: string, role: Role): Promise<FileKey> {
+  private async copyFromRoom(key: string, name: string, role: Role, space: FileSpace | null = null): Promise<FileKey> {
     const st = await this.loadState();
     const res = await this.raw("GET", `/files/${key}/snapshot`);
     const seq = Number(res.headers.get("x-seq") ?? "0");
     const snapshot = new Uint8Array(await res.arrayBuffer());
     await this.downloadBlobs(key, imagesOf(snapshot));
-    const meta = await this.host.createSharedFile({ name, snapshot });
+    const meta = await this.host.createSharedFile({ name, snapshot, ...(space ? { space } : {}) });
     const head = Math.max(0, ...(await this.host.backlog(meta.fileKey, 0)).map((c) => c.seq));
     st.links[meta.fileKey] = { key, since: seq, acked: head, sessions: [], role, ...(this.passes.has(key) ? { pass: this.passes.get(key) } : {}) };
     await this.persist(meta.fileKey);
@@ -279,12 +324,13 @@ export class MultiplayerService {
     const rec = this.state?.links[fileKey];
     if (!rec) return;
     const name = this.host.getMeta(fileKey)?.name ?? "Untitled";
+    const space = this.host.getMeta(fileKey)?.space ?? null;
     this.live.get(fileKey)?.stop();
     this.live.delete(fileKey);
     delete this.state!.links[fileKey];
     await this.persist(fileKey);
     try {
-      const fresh = await this.copyFromRoom(rec.key, name, rec.role);
+      const fresh = await this.copyFromRoom(rec.key, name, rec.role, space);
       for (const l of this.replaced) l(fileKey, fresh);
     } catch (e) {
       this.host.log("error", `multiplayer: couldn't get a fresh copy of ${name}`, e);
@@ -553,17 +599,12 @@ export class MultiplayerService {
       throw new StoreError("offline", "Couldn't reach the server. Check your connection and try again.");
     }
     if (res.ok) return res;
-    const text = await res.text().catch(() => "");
-    let message = text;
-    try {
-      message = (JSON.parse(text) as { error?: string }).error ?? text;
-    } catch {
-      // plain text
-    }
-    if (res.status === 401) throw new StoreError("forbidden", "Your session expired. Log in again.");
-    if (res.status === 403) throw new StoreError("forbidden", message || "You don't have access");
-    if (res.status === 404) throw new StoreError("not-found", message || "Not found");
-    throw new StoreError("invalid", message || `The server said ${res.status}`);
+    throw await httpError(res);
+  }
+
+  /** A call answering text (the Admin's CSV exports) */
+  async callText(method: string, path: string, body?: unknown): Promise<string> {
+    return (await this.raw(method, path, body)).text();
   }
 
   // --- for the store's comments (src/store/comments/service.ts, docs/multiplayer.md §10) ---
@@ -612,8 +653,46 @@ export class MultiplayerService {
 
   private async api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
     const res = await this.raw(method, path, body);
-    return (await res.json()) as T;
+    // 204 (a delete, leaving): nothing to read
+    if (res.status === 204) return undefined as T;
+    const text = await res.text();
+    return (text ? JSON.parse(text) : undefined) as T;
   }
+}
+
+/** `GET /files/:key` of an org file adds where it lives (docs/multiplayer.md §14.12) */
+type RemoteWithOrg = SharedFileInfo & { org?: { id: string; teamId: string | null; projectId: string | null } | null };
+
+function spaceOf(key: string, org: RemoteWithOrg["org"]): FileSpace | null {
+  return org && typeof org.id === "string" ? { orgId: org.id, key, teamId: org.teamId ?? null, projectId: org.projectId ?? null } : null;
+}
+
+/**
+ * The server's refusal as a StoreError (docs/multiplayer.md §14.6, §14.12): `{error, code}` bodies; the machine code (and
+ * the body's other fields, e.g. `seat`) go in `detail`. 401 → forbidden (log in again), 403 → forbidden, 404 / 410 →
+ * not-found, 409 → conflict, 413 → too-large, the rest → invalid.
+ */
+export async function httpError(res: Response): Promise<StoreError> {
+  const text = await res.text().catch(() => "");
+  let message = text;
+  let detail: Record<string, unknown> | undefined;
+  try {
+    const body = JSON.parse(text) as { error?: string; code?: unknown };
+    message = body.error ?? text;
+    if (typeof body.code === "string") {
+      const { error: _e, ...rest } = body;
+      detail = rest;
+    }
+  } catch {
+    // plain text
+  }
+  if (res.status === 401) return new StoreError("forbidden", "Your session expired. Log in again.", detail);
+  if (res.status === 403) return new StoreError("forbidden", message || "You don't have access", detail);
+  if (res.status === 404) return new StoreError("not-found", message || "Not found", detail);
+  if (res.status === 410) return new StoreError("not-found", message || "This link has expired", detail ?? { code: "gone" });
+  if (res.status === 409) return new StoreError("conflict", message || "That changed meanwhile", detail);
+  if (res.status === 413) return new StoreError("too-large", message || "That is too large", detail);
+  return new StoreError("invalid", message || `The server said ${res.status}`, detail);
 }
 
 /** One shared file's socket. */
