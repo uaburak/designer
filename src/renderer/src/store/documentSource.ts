@@ -26,6 +26,7 @@ import type { FileChange, OpenedFile, StoreApi, Unsubscribe, WorkspaceEvent } fr
 import type { BatchKind, ChangeBatch, FileKey, FileMeta, FileUiState, Folder, FolderId, VersionId, VersionRecord } from "../../../shared/store/types";
 import { messageToEngine, messageToKiwi } from "./engineMessage";
 import { storeLibraryAccess } from "./libraryAccess";
+import { noteLibraryUsage } from "@/editor/libraryUsage";
 import { engineDocumentFromTable, prepareEngineDocument, tableOf, type DocumentFacts, type EngineWireFormat, type OpenedDocument, type PreparedDocument } from "./loadDocument";
 import type { LoadWorkerReply, LoadWorkerRequest } from "./loadWorker";
 
@@ -622,6 +623,7 @@ class Source implements StoreDocumentSource {
         ...(refs.length ? { blobRefsAdded: refs } : {}),
         wallClock: (this.opts.now ?? Date.now)(),
       };
+      noteLibraryUsage(this, batch.kind, kiwi.nodeChanges, batch.label); // library analytics (docs/data.md §17.3)
     } catch (e) {
       this.fail(e);
       return;

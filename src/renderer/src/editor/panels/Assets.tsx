@@ -18,7 +18,7 @@ import { useEditor, type EditorController } from "../controller";
 import { goToComponent, insertInstance } from "../components";
 import { engineMethod } from "../engineCompat";
 import { useLibraries, useUI } from "../hooks";
-import { insertLibraryComponent, isHiddenWhenPublishing, setHiddenWhenPublishing } from "../libraries";
+import { insertLibraryComponent, isHiddenWhenPublishing, librariesButtonLabel, setHiddenWhenPublishing } from "../libraries";
 import { assetLabel, groupAssets, searchAssets, type ComponentAsset } from "../model/components";
 import { useComponentAssets } from "./design/ComponentPicker";
 import { RemoteThumb } from "./libraries/Thumbs";
@@ -282,7 +282,7 @@ export function Assets() {
         actions={
           // Live (rail-assets.txt): Libraries at 204, 12 — its blue dot while an enabled library has updates.
           <span className={lstyles.libButton}>
-            <IconButton icon="24.library" label={pending ? "Review library updates" : "Libraries"} tone="secondary" data-libraries-button="" onClick={() => openLibraries(pending ? "updates" : "libraries")} />
+            <IconButton icon="24.library" label={librariesButtonLabel(ed)} tone="secondary" data-libraries-button="" onClick={() => openLibraries(pending ? "updates" : "libraries")} />
             {pending > 0 && <span className={lstyles.badge} data-updates-badge="" aria-hidden />}
           </span>
         }

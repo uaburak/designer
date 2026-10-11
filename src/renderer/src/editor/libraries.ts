@@ -20,12 +20,15 @@ import type { EncodedAsset, Guid, LibraryAssetUsage, LocalAssetInfo, Message, Pi
 import type { LibraryDiff, LibraryRecord, LibraryVersion, PublishPreview, Redirect, LibraryAsset } from "../../../shared/store/types";
 import type { Engine } from "@/engine/Engine";
 import type { EditorController } from "./controller";
-import type { EditorPublishAsset, LibraryAccess, LibraryEntry } from "./documentSource";
+import type { EditorPublishAsset, LibraryAccess, LibraryEntry, OrgPublishContext } from "./documentSource";
 import { changesOf, engineCall, engineExports, engineMethod, runEngineCommand } from "./engineCompat";
 import { frameAt, toPage } from "./placeImages";
 import { editorUrl } from "../files/desktop";
 import { copiesHave, guidText, type LibraryCopy, type LNode, type LocalAsset, type PayloadIn } from "./model/libraries";
 import { viewCentre } from "./canvas/viewInsets";
+import { attachLibraryUsage, gid } from "./libraryUsage";
+import { setExplicitMode } from "./variables";
+import type { DefaultMode } from "../../../shared/libraries/orgTypes";
 
 const THUMB = 256;
 
@@ -97,9 +100,11 @@ export interface LibraryState {
   names: Map<string, string>;
   /** What each library has that the copies here don't */
   diffs: Map<string, LibraryDiff>;
+  /** An org copy: its org, whether the person may change its link, its library's scope (docs/data.md §16.6); null: a local file */
+  org: OrgPublishContext | null;
 }
 
-const OFF: LibraryState = { on: false, loading: false, inDrafts: true, own: null, available: [], enabled: [], manifests: new Map(), names: new Map(), diffs: new Map() };
+const OFF: LibraryState = { on: false, loading: false, inDrafts: true, own: null, available: [], enabled: [], manifests: new Map(), names: new Map(), diffs: new Map(), org: null };
 
 /**
  * One asset's update (one row of Figma's Updates list): an asset is the pair (library, key) — a file can hold several
@@ -145,18 +150,26 @@ export class LibraryIndex {
   private reconcileAgain = false;
   private busyRetries = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private unpublishedCache: { version: number; value: boolean } | null = null;
+  /** Collections imported with a default mode for this file, until the insertion's step sets it (§16.5) */
+  private pendingModes: { collection: Guid; mode: string }[] = [];
 
   constructor(private readonly ed: EditorController) {
     const access = ed.source.libraries;
     if (!access || !libraryEngine(ed)) return;
-    // The engine marks its clipboard with this file's key (a paste elsewhere knows where it came from).
-    ed.engine.setFileKey(access.fileKey);
+    // The engine marks its clipboard with this file's library key (a paste elsewhere knows where it came from); a
+    // local file moved into an org gets its room key from then on (docs/data.md §16.9).
+    let markedKey = access.libraryKey;
+    ed.engine.setFileKey(markedKey);
     this.state = { ...OFF, on: true, loading: true, inDrafts: access.inDrafts(), enabled: [...access.enabled()] };
     this.offs.push(
       access.onChange((e) => {
         if (e.type === "published" || e.type === "status") this.previews.delete(e.libraryFileKey);
+        if (access.libraryKey !== markedKey && !ed.engine.destroyed) ed.engine.setFileKey((markedKey = access.libraryKey));
         void this.refresh();
       }),
+      // Usage of org libraries (docs/data.md §17.3)
+      attachLibraryUsage(ed),
       ed.engine.on("DOCUMENT_CHANGED", (e) => {
         this.docVersion++; // usage may have changed
         const copiesChanged = changesOf(e).some((c) => {
@@ -243,12 +256,12 @@ export class LibraryIndex {
       do {
         this.again = false;
         try {
-          const [ownRead, available] = await Promise.all([this.readOwn(), access.available().catch(() => [] as LibraryEntry[])]);
+          const [ownRead, available, org] = await Promise.all([this.readOwn(), access.available().catch(() => [] as LibraryEntry[]), access.org ? access.org().catch(() => null) : Promise.resolve(null)]);
           if (ownRead && (ownRead.manifest?.version ?? 0) !== this.checkedVersion) this.reconcileWith(ownRead.record, ownRead.manifest);
           const own = ownRead?.record ?? null;
           const enabled = [...access.enabled()];
           const copies = this.copies();
-          const libs = [...new Set([...enabled, ...copies.map((c) => c.library)])].filter((lib) => lib !== access.fileKey);
+          const libs = [...new Set([...enabled, ...copies.map((c) => c.library)])].filter((lib) => lib !== access.libraryKey);
           const manifests = new Map<string, LibraryVersion>();
           const diffs = new Map<string, LibraryDiff>();
           const names = new Map(this.state.names);
@@ -263,7 +276,7 @@ export class LibraryIndex {
               if (d) diffs.set(lib, d);
             }
           }
-          this.set({ loading: false, own: own && own.status !== "deleted" ? own : null, available, enabled, manifests, diffs, names, inDrafts: access.inDrafts() });
+          this.set({ loading: false, own: own && own.status !== "deleted" ? own : null, available, enabled, manifests, diffs, names, inDrafts: access.inDrafts(), org });
         } catch {
           this.set({ loading: false });
         }
@@ -284,8 +297,8 @@ export class LibraryIndex {
     const access = this.access;
     if (!access) return null;
     try {
-      const record = await access.record(access.fileKey);
-      const manifest = record && record.status !== "deleted" && record.latestVersion > 0 ? await access.version(access.fileKey) : null;
+      const record = await access.record(access.libraryKey);
+      const manifest = record && record.status !== "deleted" && record.latestVersion > 0 ? await access.version(access.libraryKey) : null;
       if ((manifest?.version ?? 0) >= (this.own?.manifest?.version ?? 0)) this.own = { record, manifest };
       return { record, manifest };
     } catch {
@@ -319,7 +332,7 @@ export class LibraryIndex {
 
   private reconcileWith(record: LibraryRecord | null, manifest: LibraryVersion | null): void {
     const ed = this.ed;
-    const fileKey = this.access?.fileKey;
+    const fileKey = this.access?.libraryKey;
     if (!this.state.on || !fileKey || ed.engine.destroyed || (manifest?.version ?? 0) < this.publishedHere) return;
     const listed = new Map((manifest?.assets ?? []).map((a) => [a.key, a.versionHash]));
     const movedHere = (m: { oldKey?: string; pasteFileKey?: string }) => !!record?.movedIn.some((r) => r.fromLibraryFileKey === m.pasteFileKey && r.fromKey === m.oldKey && r.toLibraryFileKey === fileKey);
@@ -397,6 +410,72 @@ export class LibraryIndex {
     showToast({ message: n === 1 ? "1 library update available" : `${n} library updates available`, action: { label: "Review", onAction: () => this.ed.ui.set({ librariesDialog: { tab: "updates" } }) }, duration: 8000 });
   }
 
+  /**
+   * Does this file have unpublished changes (the Libraries button's "Review unpublished changes")? Only once it has
+   * been published: an asset never published (listed, keyed, not hidden), one removed since, or a style / variable /
+   * collection whose content no longer matches its published version. Mains are judged by new or removed only — their
+   * hash depends on their page being derived, and opening a file derives only the page shown (a whole check is the
+   * Publish dialog's). Cached per document change.
+   */
+  unpublishedChanges(): boolean {
+    if (!this.state.on || !this.state.own || this.state.own.latestVersion < 1 || this.state.inDrafts || this.ed.engine.destroyed) return false;
+    if (this.unpublishedCache?.version === this.docVersion) return this.unpublishedCache.value;
+    let value = false;
+    try {
+      for (const a of this.ed.engine.localAssets()) {
+        if (a.componentSetId) continue; // a variant publishes with its set
+        if (a.softDeleted || a.hiddenFromPublishing) {
+          if (a.publishedVersion) value = true; // removed (or hidden) since its publish
+        } else if (!a.publishedVersion) value = true; // new
+        else if (a.kind !== "COMPONENT" && a.kind !== "COMPONENT_SET" && a.versionHash !== a.publishedVersion) value = true;
+        if (value) break;
+      }
+    } catch {
+      value = false;
+    }
+    this.unpublishedCache = { version: this.docVersion, value };
+    return value;
+  }
+
+  /** The default modes an org library has for this file (docs/data.md §16.5), from the libraries listed for it. */
+  defaultModesOf(lib: string): DefaultMode[] {
+    return this.state.available.find((e) => e.fileKey === lib)?.org?.defaultModes ?? [];
+  }
+
+  /**
+   * A library's collections brought into this file for the first time (an import's created VARIABLE_COLLECTION copies):
+   * those with a default mode for this file wait for `applyDefaultModes`, which the insertion's own step runs.
+   */
+  noteImported(lib: string, assets: readonly { key: string; id: Guid; kind: string; created: boolean }[]): void {
+    const defaults = this.defaultModesOf(lib);
+    if (!defaults.length) return;
+    for (const a of assets) {
+      if (!a.created || a.kind !== "VARIABLE_COLLECTION") continue;
+      const d = defaults.find((x) => x.collectionKey === a.key);
+      if (d) this.pendingModes.push({ collection: a.id, mode: d.modeId });
+    }
+  }
+
+  /**
+   * "Applying a default mode" (docs/data.md §16.5): each collection noted by `noteImported` gets its default mode as the
+   * explicit mode of every page (`variableModeBySetMap`). Run inside the insertion's undo step. A mode the copy doesn't
+   * have is skipped. Returns how many were set.
+   */
+  applyDefaultModes(): number {
+    const todo = this.pendingModes.splice(0);
+    if (!todo.length || this.ed.engine.destroyed) return 0;
+    const pages = this.ed.engine.pages().map((p) => p.guid);
+    let n = 0;
+    for (const t of todo) {
+      const node = this.ed.engine.readNode(t.collection, { fields: ["variableSetModes"] } as never) as { variableSetModes?: { id?: unknown }[] } | null;
+      const has = (node?.variableSetModes ?? []).some((m) => gid(m.id) === t.mode);
+      if (!has || !pages.length) continue;
+      setExplicitMode(this.ed, pages, t.collection, t.mode);
+      n++;
+    }
+    return n;
+  }
+
   /** A library's latest manifest (the enabled ones' are in the state; others are read on demand). */
   async manifest(lib: string): Promise<LibraryVersion | null> {
     return this.state.manifests.get(lib) ?? (await this.access?.version(lib).catch(() => null)) ?? null;
@@ -420,6 +499,16 @@ export class LibraryIndex {
     }
     return p;
   }
+}
+
+/**
+ * The Libraries button's tooltip (help "Share libraries in an organization"): "Review library updates" when libraries
+ * used here have updates, "Review unpublished changes" when this file has unpublished changes, else "Libraries".
+ */
+export function librariesButtonLabel(ed: EditorController): string {
+  if (ed.libraries.pendingCount() > 0) return "Review library updates";
+  if (ed.libraries.unpublishedChanges()) return "Review unpublished changes";
+  return "Libraries";
 }
 
 // ---- Publishing --------------------------------------------------------------------------------------------------------
@@ -531,7 +620,7 @@ export async function draftPublish(ed: EditorController): Promise<PublishDraft> 
   const access = ed.source.libraries;
   if (!access || !libraryEngine(ed)) throw new Error("Libraries aren't available here");
   const { items, hiddenCount } = draftItems(ed);
-  const previous = await access.version(access.fileKey).catch(() => null);
+  const previous = await access.version(access.libraryKey).catch(() => null);
   const preview = await access.previewPublish(items.map((i) => toPublishAsset(i, false)));
   const created = new Set(preview.created.map((a) => a.key));
   const modified = new Set(preview.modified.map((a) => a.key));
@@ -634,6 +723,8 @@ export interface PublishChoices {
   selected: ReadonlySet<string>;
   /** fromKey → "move" (Move to this file) or "copy" (Publish as a copy) */
   moveModes: ReadonlyMap<string, "move" | "copy">;
+  /** An org file: "Allow any member of ‹org› to access the file" checked ("org") or not ("team") — docs/data.md §16.6 */
+  scope?: "team" | "org";
 }
 
 /** A published version, and whether this file recorded it on its assets (`markPublished`) yet. */
@@ -678,7 +769,7 @@ export async function publishLibrary(ed: EditorController, draft: PublishDraft, 
   for (const r of draft.removed) if (!choices.selected.has(r.key) && !shipped.has(r.key)) assets.push({ ...r, dependencies: [...r.dependencies] } as EditorPublishAsset);
   onProgress?.(total, total);
   const moves = draft.moves.filter((m) => assets.some((a) => a.key === m.item.key)).map((m) => ({ key: m.item.key, fromLibraryFileKey: m.fromLibraryFileKey, fromKey: m.fromKey, mode: choices.moveModes.get(m.fromKey) ?? ("move" as const) }));
-  const version = await access.publish({ description: choices.description, assets, moves });
+  const version = await access.publish({ description: choices.description, assets, moves, ...(choices.scope ? { scope: choices.scope } : {}) });
   ed.libraries.notePublished(version.version);
   let recorded = true;
   if (!ed.engine.destroyed) {
@@ -793,7 +884,9 @@ function updateAssets(ed: EditorController, payloads: readonly PayloadIn[], opts
 function importCopies(ed: EditorController, lib: string, payloads: PayloadIn[]): Map<string, Guid> {
   if (!payloads.length) return new Map();
   const r = importAssets(ed, payloads, { libraryKey: lib });
-  return r.status === Status.OK ? new Map(r.assets.filter((a) => a.libraryKey === lib).map((a) => [a.key, a.id])) : new Map();
+  if (r.status !== Status.OK) return new Map();
+  ed.libraries.noteImported(lib, r.assets.filter((a) => a.libraryKey === lib));
+  return new Map(r.assets.filter((a) => a.libraryKey === lib).map((a) => [a.key, a.id]));
 }
 
 /** The copy of a library asset here (importing it, with what it needs, when it isn't) — its GUID, or null. */
@@ -805,6 +898,9 @@ export async function ensureCopy(ed: EditorController, lib: string, key: string)
   const payloads = await fetchForImport(ed, lib, [{ key, versionHash: asset.versionHash }]);
   if (ed.engine.destroyed) return null;
   const roots = importCopies(ed, lib, payloads);
+  // A collection brought in with a default mode for this file (§16.5): set at once, its own step (the style or
+  // variable applied next is the caller's step).
+  ed.libraries.applyDefaultModes();
   return roots.get(key) ?? ed.libraries.copies().find((c) => c.library === lib && c.key === key)?.guid ?? null;
 }
 
@@ -823,7 +919,15 @@ export async function insertLibraryComponent(ed: EditorController, lib: string, 
   const roots = importCopies(ed, lib, payloads);
   const main = roots.get(asset.key) ?? ed.libraries.copies().find((c) => c.library === lib && c.key === asset.key)?.guid;
   if (!main) return null;
-  return runEngineCommand(ed.engine, "INSERT_INSTANCE", { main, x: centre.x, y: centre.y, ...(frame ? { parent: frame } : {}) }) === Status.OK ? (ed.selection[0] ?? null) : null;
+  const insert = () => runEngineCommand(ed.engine, "INSERT_INSTANCE", { main, x: centre.x, y: centre.y, ...(frame ? { parent: frame } : {}) });
+  let status: number = Status.OK;
+  // The default modes of collections it brought in (§16.5) are part of the insertion's step.
+  ed.batch("Insert instance", () => {
+    status = insert();
+    if (status === Status.OK) ed.libraries.applyDefaultModes();
+  });
+  if (status === Status.E_BUSY) status = insert(); // an engine that can't join the open step
+  return status === Status.OK ? (ed.selection[0] ?? null) : null;
 }
 
 // ---- Updates --------------------------------------------------------------------------------------------------------------

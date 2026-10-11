@@ -7,7 +7,7 @@
  * Update, Update all; removed assets (Restore component) and moved ones (accepted with the update).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, EmptyState, Icon, IconButton, SearchField, SegmentedControl, Spinner, Tabs, showToast, cx, Dialog } from "@/ds";
+import { Button, EmptyState, Icon, IconButton, SearchField, SegmentedControl, Spinner, Tabs, showToast, cx, Dialog, tooltipProps } from "@/ds";
 import type { LibraryAsset, LibraryVersion } from "../../../../../shared/store/types";
 import { useEditor } from "../../controller";
 import { useDocumentVersion, useLibraries, useUI } from "../../hooks";
@@ -15,10 +15,16 @@ import { acceptUpdates, restoreRemovedComponent, selectedInstancesOf, setLibrary
 import type { LibraryEntry } from "../../documentSource";
 import { NodeThumb, RemoteThumb, kindGlyph } from "./Thumbs";
 import styles from "./Libraries.module.css";
+import { EditorLibraryAnalytics } from "../../analytics/EditorAnalytics";
 
 export function LibrariesDialog() {
   const open = useUI((s) => s.librariesDialog);
-  return open ? <Libraries /> : null;
+  return (
+    <>
+      {open ? <Libraries /> : null}
+      <EditorLibraryAnalytics />
+    </>
+  );
 }
 
 const countsText = (c: { components: number; styles: number; variables: number }) => {
@@ -76,8 +82,9 @@ function LibraryList({ onOpen, onPublish }: { onOpen: (lib: string) => void; onP
   const q = query.trim().toLowerCase();
   const match = (name: string) => !q || name.toLowerCase().includes(q);
   const byKey = new Map(state.available.map((e) => [e.fileKey, e]));
-  const added = state.enabled.map((lib) => byKey.get(lib) ?? { fileKey: lib, name: state.names.get(lib) ?? "Missing library", location: "", record: null }).filter((e) => match(e.name));
+  const added = pinApproved(state.enabled.map((lib) => byKey.get(lib) ?? { fileKey: lib, name: state.names.get(lib) ?? "Missing library", location: "", record: null }).filter((e) => match(e.name)) as LibraryEntry[]);
   const others = state.available.filter((e) => !state.enabled.includes(e.fileKey) && match(e.name));
+  const sections = otherSections(others, state.org?.orgName ?? null);
   const toggle = async (lib: string, on: boolean, name: string) => {
     setBusy(lib);
     try {
@@ -116,24 +123,26 @@ function LibraryList({ onOpen, onPublish }: { onOpen: (lib: string) => void; onP
         <div className={styles.sectionTitle}>Added to this file</div>
         {added.length === 0 && <div className={styles.none}>{q ? `No results for “${query}”` : "No libraries added to this file"}</div>}
         {added.map((e) => (
-          <LibraryRow key={e.fileKey} entry={e as LibraryEntry} missing={!byKey.has(e.fileKey)} onOpen={byKey.has(e.fileKey) ? () => onOpen(e.fileKey) : undefined}>
+          <LibraryRow key={e.fileKey} entry={e} orgName={state.org?.orgName ?? null} missing={!byKey.has(e.fileKey)} onOpen={byKey.has(e.fileKey) ? () => onOpen(e.fileKey) : undefined}>
             <Button variant="secondary" loading={busy === e.fileKey} onClick={() => void toggle(e.fileKey, false, e.name)}>
               Remove from file
             </Button>
           </LibraryRow>
         ))}
       </section>
-      <section aria-label="Libraries in this workspace">
-        <div className={styles.sectionTitle}>Libraries in this workspace</div>
-        {others.length === 0 && <div className={styles.none}>{q ? `No results for “${query}”` : state.available.length ? "Every library is added to this file" : "No other files are published as libraries yet"}</div>}
-        {others.map((e) => (
-          <LibraryRow key={e.fileKey} entry={e} onOpen={() => onOpen(e.fileKey)}>
-            <Button variant="primary" loading={busy === e.fileKey} onClick={() => void toggle(e.fileKey, true, e.name)}>
-              Add to file
-            </Button>
-          </LibraryRow>
-        ))}
-      </section>
+      {sections.map((s, i) => (
+        <section key={s.title} aria-label={s.title}>
+          <div className={styles.sectionTitle}>{s.title}</div>
+          {i === 0 && others.length === 0 && <div className={styles.none}>{q ? `No results for “${query}”` : state.available.length ? "Every library is added to this file" : "No other files are published as libraries yet"}</div>}
+          {s.entries.map((e) => (
+            <LibraryRow key={e.fileKey} entry={e} orgName={state.org?.orgName ?? null} onOpen={() => onOpen(e.fileKey)}>
+              <Button variant="primary" loading={busy === e.fileKey} onClick={() => void toggle(e.fileKey, true, e.name)}>
+                Add to file
+              </Button>
+            </LibraryRow>
+          ))}
+        </section>
+      ))}
     </div>
   );
 }
@@ -146,13 +155,53 @@ function LibIcon() {
   );
 }
 
-function LibraryRow({ entry, missing, onOpen, children }: { entry: LibraryEntry; missing?: boolean; onOpen?: () => void; children: React.ReactNode }) {
+/** Approved libraries first (help "Help people find and use libraries": "pinned to the top"), each list's order kept. */
+export function pinApproved(list: readonly LibraryEntry[]): LibraryEntry[] {
+  return [...list.filter((e) => e.org?.approved), ...list.filter((e) => !e.org?.approved)];
+}
+
+/**
+ * The libraries this file can add, in sections: a local file's workspace ("Libraries in this workspace"); an org
+ * file's per team — the person's teams (or the file shared with them) by team name, then the libraries published to
+ * the whole organization under its name (the headings are ours: Figma's UI3 modal wasn't captured). Approved first.
+ */
+export function otherSections(others: readonly LibraryEntry[], orgName: string | null): { title: string; entries: LibraryEntry[] }[] {
+  if (!others.some((e) => e.org)) return [{ title: "Libraries in this workspace", entries: [...others] }];
+  const teams = new Map<string, LibraryEntry[]>();
+  const org: LibraryEntry[] = [];
+  for (const e of others) {
+    const mine = !e.org || e.org.via.includes("team") || e.org.via.includes("file");
+    if (mine && e.org?.teamName) teams.set(e.org.teamName, [...(teams.get(e.org.teamName) ?? []), e]);
+    else org.push(e);
+  }
+  const out = [...teams].sort(([a], [b]) => a.localeCompare(b)).map(([title, entries]) => ({ title, entries: pinApproved(entries) }));
+  out.push({ title: orgName ?? "Organization", entries: pinApproved(org) });
+  return out.filter((s, i) => i === 0 || s.entries.length);
+}
+
+/** An approved library's check mark and its tooltip ("Approved by ‹org› admin", the help's screenshot) */
+function ApprovedMark({ entry, orgName }: { entry: LibraryEntry; orgName: string | null }) {
+  const approved = entry.org?.approved;
+  if (!approved) return null;
+  // The workspace's wording is ours (unverified): Figma's article shows only the organization's.
+  const text = approved === "org" ? `Approved by ${orgName ?? "organization"} admin` : "Approved by workspace admin";
+  return (
+    <span className={styles.approved} data-approved={approved} aria-label={text} {...tooltipProps(text)}>
+      <Icon name="16.check" />
+    </span>
+  );
+}
+
+function LibraryRow({ entry, orgName = null, missing, onOpen, children }: { entry: LibraryEntry; orgName?: string | null; missing?: boolean; onOpen?: () => void; children: React.ReactNode }) {
   return (
     <div className={styles.libRow} data-library-row={entry.name}>
       <LibIcon />
       <button type="button" className={styles.libOpen} onClick={onOpen} disabled={!onOpen} aria-label={`Preview ${entry.name}`}>
-        <span className={styles.libName}>{entry.name}</span>
-        <span className={styles.meta}>{missing ? "Missing library · assets used here keep working" : `${entry.location} · ${countsText(entry.record.counts)}`}</span>
+        <span className={styles.libNameRow}>
+          <span className={styles.libName}>{entry.name}</span>
+          <ApprovedMark entry={entry} orgName={orgName} />
+        </span>
+        <span className={styles.meta}>{missing ? "Missing library · assets used here keep working" : [entry.location, countsText(entry.record.counts)].filter(Boolean).join(" · ")}</span>
       </button>
       {children}
     </div>

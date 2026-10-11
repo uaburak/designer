@@ -394,8 +394,26 @@ export function nextModeName(c: Pick<Collection, "modes">): string {
   for (let i = c.modes.length + 1; ; i++) if (!used.has(`Mode ${i}`)) return `Mode ${i}`;
 }
 
-/** Limits Figma's UI enforces (R3-07): 5,000 variables per collection, 40 modes, mode names ≤ 40 characters. */
-export const LIMITS = { variables: 5000, modes: 40, modeName: 40 } as const;
+/**
+ * Limits: 5,000 variables per collection and mode names ≤ 40 characters (Figma's UI, R3-07); modes per collection a
+ * soft guard of 1,000 (docs/data.md §16.8: we are "Enterprise", whose per-collection number Figma doesn't publish — its
+ * "unlimited" is through extensions); an extension chain at most 16 deep (ours: a guard against runaway resolution).
+ */
+export const LIMITS = { variables: 5000, modes: 1000, modeName: 40, extensionDepth: 16 } as const;
+
+/** How many collections `c` extends through (0: not an extended collection). */
+export function extensionDepth(c: Collection): number {
+  let n = 0;
+  for (let cur = c; cur.parentCollection && n <= LIMITS.extensionDepth; cur = cur.parentCollection) n++;
+  return n;
+}
+
+/** An extended collection's mode whose parent mode is gone (deleted in the collection it extends): it may be removed. */
+export function orphanMode(c: Collection, mode: Guid): boolean {
+  const m = c.modes.find((x) => x.id === mode);
+  const parent = c.parentCollection;
+  return !!c.parent && !!m && !!parent && !!m.parentMode && !parent.modes.some((x) => x.id === m.parentMode);
+}
 
 /** Names can't contain "." "{" "}" (R3-07); they're cleaned of empty slash segments. */
 export function validVariableName(name: string): string | null {

@@ -43,7 +43,7 @@ function copyFormats(ed: EditorController, cut = false): Record<string, string> 
   const kiwi = engineCall<(o: { cut?: boolean }) => Uint8Array | null>(ed.engine, "encodeSelectionKiwi", "set_wire_format");
   if (kiwi) {
     const bytes = kiwi({ cut });
-    return bytes && bytes.length ? encodeClipboardKiwi(bytes, { fileKey: ed.source.libraries?.fileKey ?? null }) : null;
+    return bytes && bytes.length ? encodeClipboardKiwi(bytes, { fileKey: ed.source.libraries?.libraryKey ?? null }) : null;
   }
   const message = ed.engine.encodeSelection({ cut });
   return message && message.nodeChanges.length ? encodeClipboard(message) : null;
@@ -65,7 +65,7 @@ async function pastePayload(ed: EditorController, payload: ClipboardPayload, mod
   if (!bytes || ed.engine.destroyed) return;
   const pasteKiwi = engineCall<(b: Uint8Array, o: PasteOptions) => number>(ed.engine, "pasteKiwi", "set_wire_format");
   if (!pasteKiwi || mode?.mode === "point") return pasteMessage(ed, messageToEngine(decodeMessage(bytes)), mode);
-  const fileKey = ed.source.libraries?.fileKey ?? null;
+  const fileKey = ed.source.libraries?.libraryKey ?? null;
   const from = decodeMessage(bytes).pasteFileKey;
   pasteKiwi(bytes, pasteOptions(mode));
   ed.focusCanvas();
@@ -85,7 +85,7 @@ function movedToast(ed: EditorController, moved: number): void {
  * copies; a cut published main is moved here, `libraryMoveInfo`) — a moved component's toast offers Publish….
  */
 function pasteMessage(ed: EditorController, message: Message, mode: EditorController["pendingPaste"]): void {
-  const fileKey = ed.source.libraries?.fileKey ?? null;
+  const fileKey = ed.source.libraries?.libraryKey ?? null;
   const from = (message as Message & { pasteFileKey?: string }).pasteFileKey;
   pasteInto(ed, message, mode);
   movedToast(ed, fileKey && from && from !== fileKey ? movedAmong(ed, ed.selection) : 0);

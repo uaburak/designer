@@ -139,6 +139,7 @@ function FileHeader() {
     commandItem(ed, "file.version-history"),
     "-" as const,
     commandItem(ed, "file.publish-library"),
+    commandItem(ed, "file.library-analytics"),
     ...branchMenuEntries(ed, commandItem),
     "-" as const,
     commandItem(ed, "file.color-profile"),

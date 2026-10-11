@@ -48,6 +48,7 @@ import { openSettings } from "../settings/bridge";
 import { BRANCH_COMMANDS } from "./branching/commands";
 import { isBranch } from "./branching/state";
 import { accountBridge, accountSignedIn } from "../files/account";
+import { canShowLibraryAnalytics, openLibraryAnalytics } from "./analytics/EditorAnalytics";
 
 /**
  * The keyboard layout picked in the Keyboard shortcuts panel (shortcuts/layouts.ts): a pressed key's place → the U.S.
@@ -788,6 +789,8 @@ export const COMMANDS: EditorCommand[] = [
     // Libraries publish from main only (docs/data.md §15.5 branch-cannot-publish).
     enabled: (ed) => ed.libraries.get().on && !isBranch(ed),
   },
+  // The file name menu's "Library analytics" (help "View and explore library analytics": an org library's file)
+  { id: "file.library-analytics", label: "Library analytics", run: openLibraryAnalytics, enabled: canShowLibraryAnalytics },
   { id: "file.export", label: "Export…", keys: [k("KeyE", { mod: true, shift: true })], run: (ed) => ed.ui.set({ exportDialog: true, uiHidden: false }), enabled: canExport },
   { id: "file.export-frames-to-pdf", label: "Export frames to PDF…", run: (ed) => void exportFramesToPdf(ed), enabled: canExport },
   {

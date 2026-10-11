@@ -1,0 +1,96 @@
+@layer app {
+  .modal { display: flex; flex-direction: column; gap: var(--ds-space-3); min-height: 50vh; }
+  .libraryName { min-width: 0; overflow: hidden; font: var(--ds-font-body-large-strong); letter-spacing: var(--ds-tracking-body-large-strong); white-space: nowrap; text-overflow: ellipsis; }
+  .body { display: flex; flex-direction: column; gap: var(--ds-space-4); max-height: 64vh; overflow-y: auto; }
+  .loading { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-4) 0; color: var(--figma-color-text-secondary); }
+  .none { padding: var(--ds-space-2) 0; color: var(--figma-color-text-secondary); }
+  .meta { min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
+  .freshness { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); }
+
+  /* ---- Totals ---- */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--ds-space-2); }
+  .stat { display: flex; flex-direction: column; gap: var(--ds-space-1); padding: var(--ds-space-3); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); }
+  .statLabel { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); }
+  .statValue { color: var(--figma-color-text); font: var(--ds-font-heading-medium); letter-spacing: var(--ds-tracking-heading-medium); }
+
+  /* ---- Lists ---- */
+  .section { display: flex; flex-direction: column; }
+  .sectionTitle { display: flex; align-items: center; height: var(--ds-size-row); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .listRow {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-3);
+    min-height: var(--ds-size-list-row);
+    padding: 0 var(--ds-space-1);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+  }
+  button.listRow:hover { background: var(--figma-color-bg-hover); }
+  button.listRow:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .name { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+  /* ---- Controls ---- */
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-2); }
+  .spacer { flex: 1 1 auto; }
+
+  /* ---- The insertions graph ---- */
+  .graph { display: flex; flex-direction: column; gap: var(--ds-space-2); }
+  .graphHead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ds-space-2); }
+  .legend { display: flex; flex-wrap: wrap; gap: var(--ds-space-3); color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); }
+  .legendItem { display: inline-flex; align-items: center; gap: var(--ds-space-1); }
+  .swatchCurrent, .swatchCompare, .swatchUnavailable, .swatchIncomplete { display: inline-block; width: var(--ds-space-3); height: 0; border-top: 2px solid var(--figma-color-bg-brand); }
+  .swatchCompare { border-top-color: var(--figma-color-text); }
+  .swatchUnavailable { border-top-color: var(--figma-color-icon-disabled); }
+  .swatchIncomplete { border-top-style: dashed; }
+  .plot { position: relative; }
+  .svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .grid { stroke: var(--figma-color-border); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .axis { fill: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); }
+  .lineCurrent, .lineCurrentDashed, .lineCompare, .lineCompareDashed, .lineUnavailable { fill: none; stroke-width: 2; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .lineCurrent, .lineCurrentDashed { stroke: var(--figma-color-bg-brand); }
+  .lineCompare, .lineCompareDashed { stroke: var(--figma-color-text); }
+  .lineUnavailable { stroke: var(--figma-color-icon-disabled); }
+  .lineCurrentDashed, .lineCompareDashed { stroke-dasharray: 4 4; }
+  .dot { fill: var(--figma-color-bg-brand); stroke: var(--figma-color-bg); stroke-width: 2; }
+  .hit { fill: transparent; }
+  .tooltip {
+    position: absolute;
+    top: 0;
+    z-index: var(--ds-z-tooltip);
+    padding: var(--ds-space-1-5) var(--ds-space-2);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-inverse);
+    color: var(--figma-color-text-oninverse);
+    font: var(--ds-font-body-small);
+    letter-spacing: var(--ds-tracking-body-small);
+    white-space: nowrap;
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+  .tooltip .meta { color: var(--figma-color-text-oninverse); }
+  .tooltipTitle { font-weight: 600; }
+
+  /* ---- Tables ---- */
+  .tableBox { display: flex; flex-direction: column; }
+  .table { width: 100%; border-collapse: collapse; font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .th { height: var(--ds-size-row); padding: 0 var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-align: left; white-space: nowrap; }
+  .sort { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; cursor: default; }
+  .sort:hover { color: var(--figma-color-text); }
+  .sort:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .td { height: var(--ds-size-list-row); padding: 0 var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); color: var(--figma-color-text); white-space: nowrap; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .row:hover { background: var(--figma-color-bg-hover); }
+  .row:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -2px; }
+  .hidden { color: var(--figma-color-text-secondary); }
+
+  /* ---- Usage view ---- */
+  .usageHeader { display: flex; align-items: center; gap: var(--ds-space-2); }
+  .usageTitle { min-width: 0; overflow: hidden; font: var(--ds-font-heading-medium); letter-spacing: var(--ds-tracking-heading-medium); white-space: nowrap; text-overflow: ellipsis; }
+  .usageFields { display: flex; flex-direction: column; gap: var(--ds-space-2); }
+  .field { display: flex; flex-direction: column; gap: var(--ds-space-1); }
+}

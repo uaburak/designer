@@ -9,6 +9,7 @@
 import type { Guid, Message, NodeChange } from "@/engine/codec";
 import type { DocumentFacts, EngineWireFormat, PreparedDocument } from "@/store/loadDocument";
 import type { LibraryEvent } from "../../../shared/store/repositories";
+import type { LibraryAnalyticsRepository, LibraryScope, LibraryUsageEvent, OrgLibrariesRepository, OrgLibraryContext } from "../../../shared/libraries/orgTypes";
 import type { LibraryDiff, LibraryRecord, LibraryVersion, PreviewOptions, PreviewRecord, PublishAsset, PublishPreview } from "../../../shared/store/types";
 import { memoryImageStore, type ImageStore } from "./images";
 
@@ -112,9 +113,21 @@ export interface LibraryEntry {
   fileKey: string;
   /** The library file's name */
   name: string;
-  /** "Drafts" or its folder's name */
+  /** "Drafts" or its folder's name (an org library: its team's name) */
   location: string;
   record: LibraryRecord;
+  /** An org library (docs/data.md §16): where it stands relative to this file — approved, default, default modes */
+  org?: OrgLibraryContext;
+}
+
+/** An org file as a library (docs/data.md §16.6): the Publish dialog's "Allow any member of ‹org› to access the file". */
+export interface OrgPublishContext {
+  orgId: string;
+  orgName: string;
+  /** May change the file's link access (the checkbox is disabled otherwise) */
+  canShare: boolean;
+  /** The published library's scope; null: never published */
+  scope: LibraryScope | null;
 }
 
 /** What a library event or a change of this file's enabled libraries looks like to the editor. */
@@ -125,8 +138,17 @@ export type LibraryNotice = LibraryEvent | { type: "enabled"; enabled: readonly 
  * find updates. Payloads cross as the engine's Messages; the store keeps kiwi.
  */
 export interface LibraryAccess {
-  /** This file's key (the library's key when it publishes) */
+  /** This file's key */
   readonly fileKey: string;
+  /**
+   * "This file's library" (docs/data.md §16.3 `libraryKeyOfFile`): the room key of an org copy, else the file key. The
+   * library's own record, versions, publishes and the clipboard's origin go by it.
+   */
+  readonly libraryKey: string;
+  /** An org copy's org (null: a local file). Optional. */
+  org?(): Promise<OrgPublishContext | null>;
+  /** Library analytics (docs/data.md §17.3): whether this file reports usage, and the store's queue. Optional. */
+  analytics?: { reports(): boolean; record(events: LibraryUsageEvent[]): Promise<void>; /** The views' reads (the Library analytics modal) */ views?: LibraryAnalyticsRepository; orgLibraries?: OrgLibrariesRepository };
   /** In Drafts: Figma refuses to publish ("Move to a folder to publish") */
   inDrafts(): boolean;
   /** The libraries enabled in this file */
@@ -138,7 +160,8 @@ export interface LibraryAccess {
   record(lib: string): Promise<LibraryRecord | null>;
   version(lib: string, version?: number): Promise<LibraryVersion>;
   previewPublish(assets: EditorPublishAsset[]): Promise<PublishPreview>;
-  publish(input: { description: string; assets: EditorPublishAsset[]; moves: { key: string; fromLibraryFileKey: string; fromKey: string; mode: "move" | "copy" }[] }): Promise<LibraryVersion>;
+  /** `scope`: an org file's "Allow any member of ‹org› to access the file" (absent: the library's current scope) */
+  publish(input: { description: string; assets: EditorPublishAsset[]; moves: { key: string; fromLibraryFileKey: string; fromKey: string; mode: "move" | "copy" }[]; scope?: LibraryScope }): Promise<LibraryVersion>;
   setEnabled(lib: string, enabled: boolean): Promise<void>;
   /** Payloads as the store holds them (`bytes`, kiwi) and as the engine's Message (`message`, decoded lazily) */
   payloads(lib: string, wants: { key: string; versionHash: string }[], opts: { withDependencies: boolean }): Promise<{ key: string; versionHash: string; message: Message; bytes?: Uint8Array }[]>;

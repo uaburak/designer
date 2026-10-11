@@ -29,6 +29,18 @@ const GROUPS: { title: string; kinds: LibraryAsset["kind"][] }[] = [
   { title: "Variables", kinds: ["VARIABLE_COLLECTION", "VARIABLE"] },
 ];
 
+/** A failed publish, in words (the store's codes; an org library's server refusals come as `forbidden` with their code). */
+export function publishErrorText(e: unknown): string {
+  const code = (e as { code?: string }).code;
+  const detail = ((e as { detail?: { code?: string } }).detail ?? {}).code;
+  if (code === "draft-cannot-publish" || detail === "draft_cannot_publish") return "Move this file to a folder to publish it";
+  if (code === "branch-cannot-publish" || detail === "branch_cannot_publish") return "Libraries can only be published from the main file";
+  if (detail === "seat_required") return "You need a Full seat to publish a library";
+  if (code === "conflict") return "Someone else published this library. Review the changes and publish again";
+  if (code === "offline") return "You're offline. Publish again when you're back online";
+  return "The library couldn't be published";
+}
+
 export function PublishDialog() {
   const open = useUI((s) => s.publishOpen);
   return open ? <Publish /> : null;
@@ -43,11 +55,17 @@ function Publish() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [moveModes, setMoveModes] = useState<Map<string, "move" | "copy">>(new Map());
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  // An org file (docs/data.md §16.6): "Allow any member of ‹org› to access the file" — checked when the library is
+  // already published to the organization; changes the file's link access, so only for people who can share it.
+  const org = state.org;
+  const [toOrg, setToOrg] = useState<boolean | null>(null);
+  const orgChecked = toOrg ?? org?.scope === "org";
   const close = () => {
     ed.ui.set({ publishOpen: false });
     ed.focusCanvas();
   };
   const inDrafts = state.inDrafts;
+  const [reload, setReload] = useState(0);
   useEffect(() => {
     if (inDrafts) return;
     let live = true;
@@ -62,7 +80,7 @@ function Publish() {
     return () => {
       live = false;
     };
-  }, [ed, inDrafts]);
+  }, [ed, inDrafts, reload]);
 
   const rows = useMemo<Row[]>(() => {
     if (!draft) return [];
@@ -89,14 +107,15 @@ function Publish() {
     if (!draft) return;
     setProgress({ done: 0, total: draft.items.length });
     try {
-      const published = await publishLibrary(ed, draft, { description: description.trim(), selected, moveModes }, (done, total) => setProgress({ done, total }));
+      const published = await publishLibrary(ed, draft, { description: description.trim(), selected, moveModes, ...(org?.canShare ? { scope: orgChecked ? ("org" as const) : ("team" as const) } : {}) }, (done, total) => setProgress({ done, total }));
       // Published; should this file not have recorded it on its assets yet (an edit kept the engine busy), it says so.
       showToast(published.recorded ? { message: "Library published", kind: "success" } : { message: "Library published, but this file couldn't record it yet", kind: "error" });
       close();
     } catch (e) {
       setProgress(null);
-      const code = (e as { code?: string }).code;
-      showToast({ message: code === "draft-cannot-publish" ? "Move this file to a folder to publish it" : "The library couldn't be published", kind: "error" });
+      showToast({ message: publishErrorText(e), kind: "error" });
+      // Someone published meanwhile (an org library, docs/data.md §16.6): the changes are looked for again.
+      if ((e as { code?: string }).code === "conflict") setReload((n) => n + 1);
     }
   };
   const firstPublish = !state.own;
@@ -145,6 +164,12 @@ function Publish() {
           </div>
         </div>
         <TextArea label="Description" placeholder="Describe what changed (optional)" value={description} onChange={setDescription} />
+        {org && (
+          <div className={styles.orgScope} data-publish-org-scope="">
+            <Checkbox label={`Allow any member of ${org.orgName} to access the file`} checked={orgChecked} disabled={!org.canShare || !!progress} onChange={setToOrg} />
+            {!org.canShare && <span className={styles.orgScopeHint}>Only people who can share this file can change who can access it</span>}
+          </div>
+        )}
         {error && <div className={styles.error}>{error}</div>}
         {!draft && !error && (
           <div className={styles.loading}>

@@ -26,7 +26,7 @@ import type { Guid } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { runEditorCommand } from "../../commands";
 import { useLocalAssets, useUI } from "../../hooks";
-import { formatLiteral, groupTree, inGroup, matchesQuery, resolveVariable, rootOf, splitName, valueIn, VAR_TYPE_ICON, VAR_TYPE_LABEL, VAR_TYPES, type Collection, type GroupNode, type Variable, type VarType } from "../../model/variables";
+import { formatLiteral, groupTree, inGroup, matchesQuery, orphanMode, resolveVariable, rootOf, splitName, valueIn, VAR_TYPE_ICON, VAR_TYPE_LABEL, VAR_TYPES, type Collection, type GroupNode, type Variable, type VarType } from "../../model/variables";
 import {
   addMode,
   createCollection,
@@ -288,7 +288,8 @@ export function LocalVariables() {
         { id: "import", label: "Import mode" },
         { id: "export", label: "Export mode" },
         "-",
-        { id: "delete", label: "Delete mode", disabled: inherited || c.modes.length < 2 },
+        // An extension removes a mode only when the parent's mode was deleted (docs/data.md §16.8).
+        { id: "delete", label: "Delete mode", disabled: (inherited && !orphanMode(c, modeId)) || c.modes.length < 2 },
       ],
       pick: (id) => {
         if (id === "export") void exportModes(ed, c.id, [modeId]);

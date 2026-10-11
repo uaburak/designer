@@ -72,6 +72,10 @@
     outline: none;
   }
   .libOpen:not(:disabled):hover .libName { text-decoration: underline; }
+  .libNameRow { display: flex; align-items: center; gap: var(--ds-space-1); max-width: 100%; min-width: 0; }
+  .approved { display: inline-flex; flex: none; color: var(--figma-color-icon-brand); }
+  .orgScope { display: flex; flex-direction: column; gap: var(--ds-space-1); }
+  .orgScopeHint { padding-left: calc(var(--ds-size-checkbox) + var(--ds-space-2)); color: var(--figma-color-text-secondary); }
   .libOpen:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .previewHeader { display: flex; align-items: center; gap: var(--ds-space-2); }
   .previewGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: var(--ds-space-3); }

@@ -35,6 +35,7 @@ import {
   isCollectionNode,
   isVariableNode,
   LIMITS,
+  extensionDepth,
   modeAt,
   nextModeName,
   nextName,
@@ -479,7 +480,7 @@ export function addMode(ed: EditorController, collection: Guid, copyFrom?: Guid,
   const c = a.lookup.collection(collection);
   if (!c) return null;
   if (c.modes.length >= LIMITS.modes) {
-    showToast({ message: `A collection can have up to ${LIMITS.modes} modes`, kind: "error" });
+    showToast({ message: `Limited to ${LIMITS.modes} modes only`, kind: "error" });
     return null;
   }
   const modeName = (name ?? nextModeName(c)).slice(0, LIMITS.modeName);
@@ -969,6 +970,12 @@ export function bindPaint(ed: EditorController, refs: readonly Guid[], field: Pa
 
 /** "Extend collection" (R3-32): a collection inheriting `collection`'s variables and modes; its values overridable. */
 export function extendCollection(ed: EditorController, collection: Guid): Guid | null {
+  // Chains: C extends B extends A — at most 16 deep (docs/data.md §16.8, ours).
+  const c = assets(ed).lookup.collection(collection);
+  if (c && extensionDepth(c) + 1 > LIMITS.extensionDepth) {
+    showToast({ message: "Can't extend further", kind: "error" });
+    return null;
+  }
   const r = engineRun(ed, VARIABLE_COMMAND.extendCollection, { collection });
   return r.ok ? (r.created[0] ?? null) : null;
 }
