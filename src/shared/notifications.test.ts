@@ -60,3 +60,22 @@ describe("notifications (shared)", () => {
     expect(linkWith("https://x.dev/f/file_abc123", { commentId: "c_thread01" })).toBe("https://x.dev/f/file_abc123#comment-c_thread01");
   });
 });
+
+describe("round 5's kinds (docs/editor.md D-4, docs/plugins.md §10.3)", () => {
+  it("Dev Mode statuses follow Settings › Notifications › Dev Mode; plugin rows always come", () => {
+    expect(DEFAULT_NOTIFICATION_PREFS.devMode).toBe("status");
+    expect(cleanPrefs({ devMode: "none" }).devMode).toBe("none");
+    expect(cleanPrefs({ devMode: "x" }).devMode).toBe("status");
+    const off = { ...DEFAULT_NOTIFICATION_PREFS, devMode: "none" as const };
+    expect([wantsDesktop(off, "dev_ready"), wantsDesktop(off, "dev_changed"), wantsDesktop(off, "plugin_request"), wantsDesktop(DEFAULT_NOTIFICATION_PREFS, "dev_completed")]).toEqual([false, false, true, true]);
+  });
+
+  it("rows, desktop text and the link into Dev Mode's ready-for-dev view", () => {
+    const n = item({ kind: "dev_changed", text: "Checkout\nNew totals", fileName: "Shop" });
+    expect(notificationAction(n)).toBe("Updated Checkout after a change: New totals");
+    expect(desktopText(n).body).toBe("Updated Checkout after a change: New totals · Shop");
+    expect(notificationAction(item({ kind: "dev_completed", count: 3, text: "X" }))).toBe("3 designs marked as completed");
+    expect(notificationAction(item({ kind: "plugin_request_answer", state: "denied", text: "Unsplash" }))).toBe("Declined your request for Unsplash");
+    expect(notificationLink(item({ kind: "dev_ready", fileKey: "file_abc123" }))).toBe("designer://open?key=file_abc123&m=dev&dev=ready");
+  });
+});

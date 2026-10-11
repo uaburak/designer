@@ -25,11 +25,19 @@ export type NotificationKind =
   | "request-denied"
   /** A file's owner made you its owner */
   | "ownership"
-  /** Round 5 (docs/editor.md D-4): a design you follow in Dev Mode was marked ready for dev / completed / changed */
+  /**
+   * Round 5 (docs/editor.md D-4): a design in a file you viewed in Dev Mode was marked ready for dev / completed / updated
+   * after a change ("Done with changes"). `text` is the design's name — for `dev_changed` the name, a line break and the
+   * reason (`devStatusText` splits them). One person's rows of one kind on one file fold within an hour (`count`).
+   */
   | "dev_ready"
   | "dev_completed"
   | "dev_changed"
-  /** Round 5 (docs/plugins.md §10.3): someone asked to approve a plugin or widget (admins), and its answer (the requester) */
+  /**
+   * Round 5 (docs/plugins.md §10.3): someone asked to approve a plugin or widget (org admins; `state` pending → approved
+   * | denied when answered), and its answer (the requester; `state` approved | denied). `text` is the plugin's name,
+   * `fileName` the org's; no file.
+   */
   | "plugin_request"
   | "plugin_request_answer";
 
@@ -105,6 +113,8 @@ export interface NotificationPrefs {
     digest: boolean;
   };
   productNews: boolean;
+  /** Round 5 (docs/editor.md D-4): Settings › Notifications › Dev Mode — "Status changes" | "Nothing" on this computer */
+  devMode: "status" | "none";
 }
 
 /** Figma's defaults: everything on (help.figma.com 360039813234: desktop and email notifications are on by default). */
@@ -112,6 +122,7 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   desktop: { enabled: true, comments: "all" },
   email: { enabled: true, comments: "all", invites: "all", community: "all", workspace: "all", userGroups: "all", digest: true },
   productNews: true,
+  devMode: "status",
 };
 
 const pick = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T => (allowed.includes(v as T) ? (v as T) : fallback);
@@ -136,10 +147,22 @@ export function cleanPrefs(v: unknown): NotificationPrefs {
       digest: bool(em.digest, d.email.digest),
     },
     productNews: bool((o as Record<string, unknown>).productNews, d.productNews),
+    devMode: pick((o as Record<string, unknown>).devMode, ["status", "none"] as const, d.devMode),
   };
 }
 
 export const isCommentKind = (k: NotificationKind): boolean => k === "comment" || k === "reply" || k === "mention" || k === "reaction";
+export const isDevStatusKind = (k: NotificationKind): boolean => k === "dev_ready" || k === "dev_completed" || k === "dev_changed";
+
+/** Kinds whose rows fold within `DEV_STATUS_FOLD_MS` (one person, one kind, one file) — docs/editor.md D-4 */
+export const DEV_STATUS_FOLD_MS = 60 * 60_000;
+
+/** A Dev Mode status row's design name and (for `dev_changed`) its reason, from `text` */
+export function devStatusText(text: string | null): { design: string; reason: string } {
+  const t = text ?? "";
+  const i = t.indexOf("\n");
+  return i < 0 ? { design: t, reason: "" } : { design: t.slice(0, i), reason: t.slice(i + 1) };
+}
 
 /**
  * Is this notification one for the computer ("Send notifications to my computer")? File comments follow their choice —
@@ -148,6 +171,8 @@ export const isCommentKind = (k: NotificationKind): boolean => k === "comment" |
  */
 export function wantsDesktop(prefs: NotificationPrefs, kind: NotificationKind): boolean {
   if (!prefs.desktop.enabled) return false;
+  // Settings › Notifications › Dev Mode: "Status changes" / "Nothing" (round 5)
+  if (isDevStatusKind(kind)) return prefs.devMode !== "none";
   if (!isCommentKind(kind)) return true;
   const level = prefs.desktop.comments;
   if (level === "none") return false;
@@ -156,7 +181,7 @@ export function wantsDesktop(prefs: NotificationPrefs, kind: NotificationKind): 
 }
 
 /** The row's second line before " · <file>", in Figma's words ("Commented", "4 comments", "Reacted", "2 reactions"). */
-export function notificationAction(n: Pick<NotificationItem, "kind" | "count" | "state" | "role">): string {
+export function notificationAction(n: Pick<NotificationItem, "kind" | "count" | "state" | "role"> & { text?: string | null }): string {
   const many = n.count > 1;
   switch (n.kind) {
     case "comment":
@@ -177,24 +202,28 @@ export function notificationAction(n: Pick<NotificationItem, "kind" | "count" | 
       return "Denied your request to edit";
     case "ownership":
       return "Made you the owner";
-    // Round 5's kinds: placeholders until 5c / 5h word their rows (docs/editor.md D-4, docs/plugins.md §10.3)
+    // Round 5's kinds (docs/editor.md D-4, docs/plugins.md §10.3; our wording, Figma's bell wording is unverified)
     case "dev_ready":
-      return "Marked as ready for dev";
     case "dev_completed":
-      return "Marked as completed";
-    case "dev_changed":
-      return "Changed a design ready for dev";
+    case "dev_changed": {
+      const { design, reason } = devStatusText(n.text ?? null);
+      if (n.kind === "dev_ready") return many ? `${n.count} designs marked ready for dev` : design ? `Marked ${design} ready for dev` : "Marked a design ready for dev";
+      if (n.kind === "dev_completed") return many ? `${n.count} designs marked as completed` : design ? `Marked ${design} as completed` : "Marked a design as completed";
+      return many ? `${n.count} designs updated after a change` : `Updated ${design || "a design"} after a change${reason ? `: ${reason}` : ""}`;
+    }
     case "plugin_request":
-      return "Requested a plugin";
+      return n.text ? `Requested ${n.text}` : "Requested a plugin";
     case "plugin_request_answer":
-      return "Answered your plugin request";
+      return n.state === "denied" ? `Declined your request for ${n.text || "a plugin"}` : `Approved your request for ${n.text || "a plugin"}`;
   }
 }
 
 /** A desktop notification's title and body (macOS shows the app's name above them). */
 export function desktopText(n: NotificationItem): { title: string; body: string } {
   const action = `${notificationAction(n)} · ${n.fileName}`;
-  return { title: n.actor.name, body: n.text && n.count === 1 ? `${action}\n${n.text}` : action };
+  // Dev Mode and plugin rows carry their text in the action already
+  const own = isDevStatusKind(n.kind) || n.kind === "plugin_request" || n.kind === "plugin_request_answer";
+  return { title: n.actor.name, body: n.text && n.count === 1 && !own ? `${action}\n${n.text}` : action };
 }
 
 /** The link a desktop notification's click opens (designer://open, as the server's /f/<key> page hands it over; Home
@@ -204,6 +233,11 @@ export function notificationLink(n: Pick<NotificationItem, "fileKey" | "kind" | 
   const u = new URL("designer://open");
   u.searchParams.set("key", n.fileKey);
   if (isCommentKind(n.kind) && n.threadId) u.hash = `comment-${n.threadId}`;
+  // Dev Mode status rows open the file in Dev Mode on its ready-for-dev view (OpenIntent.devMode "ready", D-4)
+  if (isDevStatusKind(n.kind)) {
+    u.searchParams.set("m", "dev");
+    u.searchParams.set("dev", "ready");
+  }
   return u.toString();
 }
 

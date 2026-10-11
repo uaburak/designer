@@ -25,6 +25,8 @@ export interface FileRow {
   link_access: Audience;
   org_link_access: Audience;
   proto_link_access: "none" | "viewer";
+  /** 0015 (docs/editor.md D-6): the org's members with the prototype link */
+  proto_org_link_access: "none" | "viewer";
   link_expires_at: number | null;
   viewers_can_copy: number;
   link_password: string | null;
@@ -91,7 +93,7 @@ export interface OrgRow {
   updated_at: number;
 }
 
-export const FILE_COLS = `f.key, f.name, f.owner_id, f.org_id, f.team_id, f.project_id, f.editor_type, f.access, f.link_access, f.org_link_access, f.proto_link_access,
+export const FILE_COLS = `f.key, f.name, f.owner_id, f.org_id, f.team_id, f.project_id, f.editor_type, f.access, f.link_access, f.org_link_access, f.proto_link_access, f.proto_org_link_access,
   f.link_expires_at, f.viewers_can_copy, f.link_password, f.link_password_version, f.trashed_at, f.trashed_by, f.created_at, f.updated_at`;
 
 export function settingsOf(row: Pick<OrgRow, "settings"> | null): OrgSettings {
@@ -250,6 +252,11 @@ export class Access {
     return [...toGrants(results), ...(f.org_id ? await this.groupGrants("file", f.key) : [])];
   }
 
+  /** Invited from Share prototype (docs/editor.md D-6; 0015 prototype_members), by user id or email */
+  private prototypeMember(key: string): Promise<boolean> {
+    return this.once(`pm:${key}`, async () => !!(await this.d1.prepare(`SELECT 1 AS x FROM prototype_members WHERE file_key = ?1 AND (user_id = ?2 OR email = ?3) LIMIT 1`).bind(key, this.user.id, this.user.email).first()));
+  }
+
   /** Is someone (by id) in the org? Drafts of people removed are "Unassigned drafts" (§14.7). */
   ownerInOrg(orgId: string, userId: string): Promise<boolean> {
     return this.once(`oi:${orgId}:${userId}`, async () => !!(await this.d1.prepare(`SELECT 1 AS x FROM org_members WHERE org_id = ?1 AND user_id = ?2`).bind(orgId, userId).first()));
@@ -280,7 +287,10 @@ export class Access {
         viewersCanCopy: f.viewers_can_copy !== 0,
         passwordProtected: f.link_password !== null,
         trashedAt,
+        protoLinkAccess: f.proto_link_access,
+        protoOrgLinkAccess: f.proto_org_link_access,
       },
+      prototypeMember: await this.prototypeMember(f.key),
       fileGrants: await this.fileGrants(f),
       folders,
       team: team ? { id: team.id, ownerId: team.owner_id, workspaceId: team.workspace_id, orgAccess: team.org_access, workspaceAccess: team.workspace_access, visibility: team.visibility, deletedAt: team.deleted_at, grants: await this.teamGrants(team.id) } : null,
@@ -445,7 +455,8 @@ export async function accessibleFiles(acc: Access, where: string, args: unknown[
   const out: OrgFile[] = [];
   for (const f of results) {
     const a = await acc.file(f);
-    if (!a.ok || (!opts.trashed && a.trashed)) continue;
+    // Prototype-only files aren't listed (they open from their link: docs/editor.md D-6)
+    if (!a.ok || a.prototypeOnly || (!opts.trashed && a.trashed)) continue;
     out.push(toOrgFile(f, a));
   }
   return out;

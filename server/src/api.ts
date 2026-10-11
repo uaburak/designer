@@ -151,6 +151,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (parts[0] === "files" && parts[2] === "library-usage") return (await import("./analytics/ingest")).fileUsageRoute(orgCtx());
   if (parts[0] === "orgs" && parts[2] === "admin" && (parts[3] === "identity" || parts[3] === "domains")) return (await import("./auth/identityRoutes")).identityRoute(orgCtx());
   if (parts[0] === "orgs" && parts[2] === "admin" && parts[3] === "plan-tokens") return (await import("./rest/planTokens")).planTokensRoute(orgCtx());
+  // Private plugins and approval (docs/plugins.md §10, round 5c)
+  if (parts[0] === "plugins" || (parts[0] === "orgs" && (parts[2] === "plugins" || (parts[2] === "admin" && parts[3] === "plugins")))) return (await import("./plugins/routes")).pluginRoutes(orgCtx());
   if (parts[0] === "orgs") return (await import("./org/orgs")).orgsRoute(orgCtx());
   if (parts[0] === "teams") return (await import("./org/teams")).teamsRoute(orgCtx());
   if (parts[0] === "projects") return (await import("./org/projects")).projectsRoute(orgCtx());
@@ -186,6 +188,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (!f) throw new HttpError(404, "no such file");
   const passOk = f.link_password !== null && (await validPass(req, url, deps, key, user.id, f.link_password_version));
   const access = await acc.file(f, { viaLink: true, passOk });
+  // Dev Mode's file routes (docs/editor.md D-1, D-3, D-4, D-6; round 5c): their own access rules
+  if (parts[2] === "dev-resources" || parts[2] === "code-connect" || parts[2] === "dev-status" || parts[2] === "prototype-members") return (await import("./devmode/routes")).fileDevModeRoute(orgCtx(), f, access);
   // "Password required": someone in by the link alone shows a pass for the current password (POST …/unlock) — invited
   // people never need it. The file's name and the unlock route are open to them so the app can ask.
   const open = (parts.length === 2 && m === "GET") || (parts.length === 3 && parts[2] === "unlock" && m === "POST");
@@ -211,6 +215,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
     inOrg ? logActivity(deps, { orgId: f.org_id!, action, actor: user, entity: fileEntity({ ...f, name }), teamId: f.team_id, details, req }) : Promise.resolve();
   // The file's sharing policy (docs/multiplayer.md §15.6; null outside orgs)
   const policy = await acc.policy(f);
+  // Prototype-only callers (docs/editor.md D-6) reach the document, comments and the socket, nothing else.
+  if (a?.prototypeOnly && !(await import("./devmode/prototype")).prototypeOpen(parts, m)) throw new HttpError(403, "you can only view this file's prototype", "forbidden");
 
   if (parts.length === 2) {
     if (m === "GET") {
@@ -228,6 +234,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
         accessMode: f.access,
         orgLinkAccess: f.org_link_access,
         protoLinkAccess: f.proto_link_access,
+        protoOrgLinkAccess: f.proto_org_link_access,
         linkExpiresAt: f.link_expires_at,
         linkExpired,
         trashedAt: f.trashed_at,
@@ -238,7 +245,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       });
     }
     if (m === "PATCH") {
-      const body = await readJson<{ name?: string; linkAccess?: string; viewersCanCopy?: unknown; linkPassword?: unknown; access?: unknown; orgLinkAccess?: unknown; protoLinkAccess?: unknown; linkExpiresAt?: unknown }>(req);
+      const body = await readJson<{ name?: string; linkAccess?: string; viewersCanCopy?: unknown; linkPassword?: unknown; access?: unknown; orgLinkAccess?: unknown; protoLinkAccess?: unknown; protoOrgLinkAccess?: unknown; linkExpiresAt?: unknown }>(req);
       // The org's sharing policy refuses the whole patch before anything is written (§15.6).
       (await import("./policy/sharing")).checkFilePatch(policy, f, body, deps.now());
       if (body.linkPassword !== undefined) {
@@ -262,7 +269,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
         if (body.linkAccess !== "editor") await deps.rooms.fetch(key, "/room/revoke-link", { method: "POST" });
         await log("fig_file_link_access_change", { link: "public", from: f.link_access, to: body.linkAccess });
       }
-      if (body.orgLinkAccess !== undefined || body.access !== undefined || body.protoLinkAccess !== undefined || body.linkExpiresAt !== undefined) {
+      if (body.orgLinkAccess !== undefined || body.access !== undefined || body.protoLinkAccess !== undefined || body.protoOrgLinkAccess !== undefined || body.linkExpiresAt !== undefined) {
         need(a?.canManage, "only the owner and admins can");
         await patchOrgFileSettings(deps, acc, f, body, log, policy);
       }
@@ -528,7 +535,7 @@ async function fileOrg(acc: Access, f: FileRow) {
 }
 
 /** PATCH /files/:key's org fields: Inherited / Limited, the org link, prototype link, link expiry (§14.12). */
-async function patchOrgFileSettings(deps: Deps, acc: Access, f: FileRow, body: { access?: unknown; orgLinkAccess?: unknown; protoLinkAccess?: unknown; linkExpiresAt?: unknown; linkAccess?: unknown }, log: (action: ActivityAction, details?: Record<string, unknown>) => Promise<void>, policy: FilePolicy | null): Promise<void> {
+async function patchOrgFileSettings(deps: Deps, acc: Access, f: FileRow, body: { access?: unknown; orgLinkAccess?: unknown; protoLinkAccess?: unknown; protoOrgLinkAccess?: unknown; linkExpiresAt?: unknown; linkAccess?: unknown }, log: (action: ActivityAction, details?: Record<string, unknown>) => Promise<void>, policy: FilePolicy | null): Promise<void> {
   const d1 = deps.db.d1;
   const now = deps.now();
   let lowered = false;
@@ -551,7 +558,10 @@ async function patchOrgFileSettings(deps: Deps, acc: Access, f: FileRow, body: {
     if (body.protoLinkAccess !== "none" && body.protoLinkAccess !== "viewer") throw new HttpError(400, "protoLinkAccess is none or viewer");
     await d1.prepare(`UPDATE files SET proto_link_access = ?2, updated_at = ?3 WHERE key = ?1`).bind(f.key, body.protoLinkAccess, now).run();
     await log("fig_file_proto_link_access_change", { from: f.proto_link_access, to: body.protoLinkAccess });
+    if (body.protoLinkAccess === "none") lowered = true;
   }
+  // The org's members with the prototype link (docs/editor.md D-6, round 5c)
+  if (body.protoOrgLinkAccess !== undefined && (await (await import("./devmode/prototype")).patchProtoOrgLink(deps, f, body.protoOrgLinkAccess, (d) => log("fig_file_proto_link_access_change", d)))) lowered = true;
   if (body.linkExpiresAt !== undefined) {
     const at = body.linkExpiresAt;
     if (at !== null && (typeof at !== "number" || !Number.isFinite(at) || at <= now)) throw new HttpError(400, "linkExpiresAt is a future time (ms) or null");

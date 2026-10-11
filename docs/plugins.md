@@ -527,6 +527,61 @@ The first publish assigns the id: a 19-digit decimal string, like Figma's. The d
   - The requester gets `plugin_request_answer` ("Your request for ‹plugin› was approved | declined").
   - A declined requester may ask again.
 
+### 10.3a As built — the server (5c, 2026-10-11, branch `worktree-agent-a0361bbba40d714b8`)
+
+**Where**: `server/src/plugins/` (`private.ts`, `approvals.ts`, `routes.ts`), dispatched from one `api.ts` line. Tests: `server/src/plugins/plugins.test.ts`.
+
+**Publishing (§10.1), three steps:**
+1. `POST /orgs/:org/plugins {manifest, parts, name?, description?, pluginId?}` answers `{plugin, version, missing}`.
+   - **A new plugin** gets its 19-digit id right away, in a `version = 0` row. Lists and `GET /plugins/:id` hide that row until the first commit.
+   - **`pluginId`** names a plugin to update. Only its publisher or an org admin may.
+   - **The pending manifest and part list** are stored as the version's `.meta` chunk, so the commit needs no body.
+   - **Parts whose SHA-1 is unchanged** from the current version are copied over on the server and aren't listed in `missing`.
+   - **Refused**: widgets ("Widgets aren't supported in DesignerV2 yet"), a manifest without `name` / `main` / `api` or over 64 kB, and part lists without `code`. Part names are `code`, `ui` or `ui:<key>`, at most 50 parts.
+2. `PUT /plugins/:id/parts/:version/:name` uploads one part.
+   - It is checked against its declared SHA-1 and size, ≤ 10 MB.
+   - It is stored in 1 MiB chunks.
+   - A version other than current + 1 answers 409 `stale`.
+3. `POST /plugins/:id/versions/:version/commit` answers `{plugin}`.
+   - Every part must match. Otherwise it answers 409 with `missing`.
+   - It is atomic on the version (another publish that finished first → 409 `stale`).
+   - It keeps the current and the previous version's chunks.
+   - Logged as `private_plugin_publish` on version 1, `private_plugin_update` after.
+
+**The other routes:**
+- `GET /plugins/:id/parts/:version/:name` serves the current or the previous version, `private, max-age=31536000, immutable`.
+- `PATCH /plugins/:id` → `{plugin}`, logged as `private_plugin_update`.
+- `DELETE /plugins/:id` → 204. It soft-deletes the row, drops the chunks and logs `private_plugin_delete`.
+- Guests get 403 everywhere; people outside the org get 404.
+- Each change sends `{t: "plugins", orgId}` to the org's inboxes (for the store's `plugins` topic).
+
+**Members' routes** (these two are ours, needed by 5g's `allowed` and "Request approval"):
+- `GET /orgs/:org/plugins/approved?kind=` → `{approved}`.
+- `GET /orgs/:org/plugins/requests` → `{requests}` (the caller's own).
+
+**Requests (§10.3)**:
+- `POST /orgs/:org/plugins/requests` → 201 `{request}`.
+- Refused with 403 `forbidden` when the kind's requests are off, and for guests.
+- Refused with 409 for a second pending request, or when the plugin is already approved for the org (or for the `workspaceId` asked about — a workspace approval doesn't cover drafts).
+- Org admins, plus the workspace's admins when `workspaceId` is given, get `plugin_request`: `text` = the plugin's name, `fileName` = the org's name, `state: "pending"`. It counts in the Requests tab's pending number.
+
+**Admins (§10.2)**:
+- `GET /orgs/:org/admin/plugins?kind=` (default `plugin`) → `{approved, requests, private}`. Workspace admins see only their workspaces' requests.
+- `POST …/approvals` → 204. Approving for the org needs an org admin; workspace scopes need an admin of each. Approving also answers the pending requests it covers.
+- `DELETE …/approvals/:pluginId?workspace=&kind=` → 204 / 404.
+- `POST …/requests/:id {approve, reason?, workspaceIds?}` → `{request}`. A request already answered → 409.
+
+**Answering**:
+- The requester gets `plugin_request_answer` with `state` approved | denied. The admins' rows take the same state.
+- A declined request keeps `declineReason`, and the person may ask again.
+- Actions are `plugin_approvelist_*` / `widget_approvelist_*` as §16.11. A decline is `_reject_workspace` when the answering admin is a workspace admin, `_reject_org` otherwise.
+
+**Settings** (`server/src/org/admin.ts` `patchSettings`):
+- The four keys are validated.
+- `pluginApproval` → `plugin_approvelist_enable` (approved) / `_disable` (all).
+- `widgetApproval` → `widgets_enabled` (approved) / `widgets_disable` (all). This pairing is our reading of Figma's names.
+- A change to `pluginRequests` / `widgetRequests` is logged under its kind's approval action, with the key in `details` (Figma has no action for it).
+
 ### 10.4 Types (`src/shared/plugins/types.ts`, committed verbatim before the round)
 
 ```ts

@@ -2323,6 +2323,18 @@ The local answer's fields:
 
 5c implements these in `server/src/devmode/codeConnect.ts`, dispatched from `/v1`.
 
+**As built (5c, 2026-10-11)** — `server/src/devmode/rest.ts` `devModeRestRoute(req, url, deps, caller, parts)`. `parts` may start with `"v1"` or not. It returns null for any other path. 5a's `restRoute` checks scope, tier and rate first. Answers:
+- Errors are Figma's `{status, err}` (the 404 is "File not found").
+- A branch key is refused (400).
+- Access: `resolveAccess` by the link, with no password pass. Prototype-only callers can't read (403). Writes need `canWriteDev` (docs/editor.md D-3 "As built").
+- `POST /v1/dev_resources` reports per-item errors as `{file_key, node_id, error}`. `PUT` reports them as `{id, error}`. `DELETE` answers 200 with an empty body.
+- **Code Connect**:
+  - `POST /v1/code_connect` accepts our links and Figma's (`/f|file|design|proto/<key>/…?node-id=1-2`, `1:2`, `1%3A2`). Each doc is upserted as `origin: "cli"`, replacing a UI mapping of the same label. Limits: ≤ 500 docs per call, templates ≤ 256 kB. It answers `{published: [{nodeId, fileKey, label, url: <origin>/f/<key>?node-id=1-2}], errors: [{url, label, error}]}`.
+  - `DELETE /v1/code_connect {label, nodes?: ({fileKey, nodeId} | {url})[]}` answers `{removed: [{fileKey, nodeId, label}], errors}`. It removes CLI mappings only. Without `nodes`, it removes the label's CLI mappings that the caller last published (ours).
+  - `GET /v1/files/:key/code_connect?label` answers `{docs}`. Each doc is a `CodeConnectDoc` plus `origin`. Readers: view access, or the library's users.
+  - Logged as one `code_connect_publish` / `_unpublish` per file and call.
+- Not built: the pre-round `patAllows` stays unchanged for the private `/files/:key/dev-resources…` routes. A PAT can't use them; the CLI and integrations use `/v1`.
+
 **Library analytics** (`rest/analytics.ts`). It reuses `server/src/analytics/query.ts` with Figma's names (data.md §17.6).
 
 | Route | Params | Rows |
