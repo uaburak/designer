@@ -1,0 +1,5 @@
+node_modules/
+dist/
+fixtures/
+src/trust.generated.ts
+.wrangler/
