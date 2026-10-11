@@ -797,6 +797,97 @@ The v1 engine is built single-threaded with non-shared memory (`-sPTHREADS=0`, `
 - `extraResources`: `schema/document.kiwi` → `resources/schema/document.kiwi` (the store loads it; `docs/data.md` §5.8) and `resources/seed/*.fig` (demo seed). Inter ships inside the renderer build (`public/fonts/`).
 - **Windows (2026-10-11, `npm run dist:win`)**: x64 NSIS installer (`dist/DesignerV2-Setup-<version>.exe`, per user, the folder can be chosen) and a portable zip, built on the Mac without Wine — `signAndEditExecutable: false`, so the .exe keeps Electron's icon and is unsigned (SmartScreen: More info › Run anyway). The haptics addon is a macOS-only extra resource. The window: no title bar (`titleBarStyle: "hidden"`) with the system's caption buttons drawn over the tab bar's right end (`titleBarOverlay`, the tab bar's colours, recoloured on a theme change; the bar keeps 138 px for them); no menu bar — Figma's Windows app has a main menu button at the bar's left (the Figma glyph, 40 px) that pops the same app menu up (`tabs:main-menu`); its accelerators stay the window's. Keys: Ctrl is ⌘ everywhere (the engine's `MOD_PRIMARY`, `IS_MAC` in the panels). Agents: `which` tries PATHEXT (.exe first), a .cmd / .bat shim (npm's) runs through cmd.exe (`spawnCli`), installers through cmd.exe (`spawnShell`); a Unix installer line (curl | bash) opens the download page instead. Not checked on a Windows machine yet.
 
+### 12.5 Managed deployment: the MSI and deployment keys (contract, Phase 7 round 4; written 2026-10-11)
+
+Figma's Enterprise deployment, read on help.figma.com 2026-10-11:
+- **[F-msi]** Microsoft MSI installer — https://help.figma.com/hc/en-us/articles/14172933259287 : Admin › Settings › Other › **Enterprise installer** › Download (org admins, Enterprise); the MSI installs **per machine** in Program Files for all users; standard `msiexec` options; an MSI install **does not update itself** (Figma points admins at an RSS feed of releases).
+- **[F-mac-keys]** macOS property list — https://help.figma.com/hc/en-us/articles/17719332934167 : domain `com.figma.Desktop`, `~/Library/Preferences/com.figma.Desktop.plist` (one user) or `/Library/Preferences/com.figma.Desktop.plist` (all users; "an administrator … can use this method to stop non-admin users from changing these settings"); `defaults write com.figma.Desktop ProxyUrl "https://myproxy.com"`.
+- **[F-win-keys]** Windows registry — https://help.figma.com/hc/en-us/articles/17717066917911 : `HKEY_LOCAL_MACHINE\SOFTWARE\Figma` ("apply to all users on a computer"; HKCU isn't mentioned). An older version of the page called the allow-list `AllowedOrigins`.
+
+| Key (Figma's name) | macOS type | Windows type | Figma's meaning |
+|---|---|---|---|
+| `DisableUpdater` | Boolean | `REG_DWORD` (1 = on) | turns automatic updates off |
+| `AllowedOriginHosts` | Array of strings | `REG_MULTI_SZ` (one per line) | non-Figma domains the app may load; `https://*.example.com` allows redirects to any subdomain |
+| `ProxyUrl` | String | `REG_SZ` | every request goes through this URL; `http://`, `https://`, `ftp://`, `socks://`; `direct://` = no proxy; Electron's `proxyRules` syntax for more |
+
+**Ours.**
+- **Where they are read** (`src/main/policy.ts`, new; synchronous, before `app.whenReady()`, each command with a 2-second timeout; a missing key or file is simply absent):
+  - macOS, domain = our appId **`net.burakkoc.designer`** (electron-builder.yml; §12.4's `net.burakkoc.designerv2` is stale): `/Library/Managed Preferences/net.burakkoc.designer.plist` (configuration profiles — ours), then `/Library/Preferences/net.burakkoc.designer.plist`, each through `plutil -convert json -o - <file>`; then the user's domain through `defaults export net.burakkoc.designer -` piped to `plutil -convert json -o - -` (cfprefsd's current values, so a fresh `defaults write` counts). **The first source that has a key wins**: managed, then all users, then the user — Figma's "stop non-admin users from changing" (ours as an order; Figma doesn't state one).
+  - Windows: `reg query "HKLM\SOFTWARE\DesignerV2"` (Figma's place, under our product name), then `HKCU\SOFTWARE\DesignerV2` (ours, for unmanaged machines); HKLM wins per key. Output lines `    <Name>    <REG_TYPE>    <data>`; `REG_MULTI_SZ` data is split on `\0`.
+  - Linux: none.
+- **`DesktopPolicy`** (`src/shared/desktopPolicy.ts`, committed verbatim before round 4):
+
+```ts
+/** Managed deployment keys (docs/desktop.md §12.5; Figma's names) as main read them at start */
+export interface DesktopPolicy {
+  disableUpdater: boolean;
+  /** Empty: no restriction */
+  allowedOriginHosts: string[];
+  /** null: the system's settings; "direct://": no proxy */
+  proxyUrl: string | null;
+  /** Where each key came from ("HKLM", "HKCU", "/Library/Managed Preferences", "/Library/Preferences", "user") — logged at start */
+  sources: Partial<Record<"DisableUpdater" | "AllowedOriginHosts" | "ProxyUrl", string>>;
+}
+
+export const NO_POLICY: DesktopPolicy = { disableUpdater: false, allowedOriginHosts: [], proxyUrl: null, sources: {} };
+
+/** An origin against AllowedOriginHosts entries: "https://*.example.com" matches https subdomains of example.com (not
+ *  example.com itself), "https://example.com" that origin exactly, a bare "example.com" means https://example.com. */
+export function originAllowed(origin: string, patterns: readonly string[]): boolean {
+  let u: URL;
+  try {
+    u = new URL(origin);
+  } catch {
+    return false;
+  }
+  return patterns.some((raw) => {
+    const p = raw.trim().toLowerCase();
+    if (!p) return false;
+    const withScheme = /^[a-z]+:\/\//.test(p) ? p : `https://${p}`;
+    const scheme = withScheme.slice(0, withScheme.indexOf("://") + 1);
+    const host = withScheme.slice(withScheme.indexOf("://") + 3).replace(/\/.*$/, "");
+    if (u.protocol !== scheme) return false;
+    if (host.startsWith("*.")) return u.host.endsWith(host.slice(1)) && u.host.length > host.length - 1;
+    return u.host === host;
+  });
+}
+```
+
+- **What each key does here:**
+  - `ProxyUrl`: before `ready`, `app.commandLine.appendSwitch("proxy-server", value)` (Chromium takes the same `proxyRules` syntax), or `appendSwitch("no-proxy-server")` for `direct://`. That covers every view and Electron's `net`. Main's own HTTP (account requests, the sign-in code exchange, shared fonts, Google Fonts) moves from Node's `fetch` to **`net.fetch`** when a proxy is set, so it goes through Chromium's stack. The store utility process is forked with `HTTP_PROXY` / `HTTPS_PROXY` = the URL and `NODE_USE_ENV_PROXY=1` when the scheme is `http(s)://` — Node's own proxy support for `fetch` (and undici's `WebSocket`, which uses the same dispatcher); **verify** that Electron 44's Node has `NODE_USE_ENV_PROXY` (Node ≥ 24.5) and that the room sockets follow it. A `socks://` proxy reaches the views and main only; the store's requests go direct and a warning is logged. The sign-in loopback (127.0.0.1) and the system browser are not affected (the browser uses the system's proxy).
+  - `DisableUpdater`: the app has **no updater yet** (§12.4: unsigned DMG / NSIS / zip, updated by hand). The value is kept in `DesktopPolicy` for the future updater and for a "Check for updates…" item, which must not exist while it is true. An MSI install is treated the same (Figma: MSI installs don't update): the future updater also checks for the MSI's `HKLM\SOFTWARE\DesignerV2\InstalledByMsi` value, written by the MSI.
+  - `AllowedOriginHosts` (**ours as a mapping**: our views load only `app://` and open every `http(s)` link in the system browser, §12.1, so there is nothing "non-Figma" loaded in-app today): when the list is non-empty it is the complete list of origins besides the default server (`DEFAULT_SERVER`) the app may talk to or load — `DESIGNER_SERVER` is honoured only if `originAllowed` (else ignored, logged), and any future in-app web content (embeds, Sites previews) is checked against it. Empty or absent: today's behaviour.
+- **Shown where**: nothing in the UI except the effects; `DESIGNER_LOG=debug` prints the policy and its sources at start. Admin › Settings › Other › **Enterprise installer** shows Figma's row with **Download** disabled and the tooltip "Built with npm run dist:msi" (ours: there is no hosted build to download).
+
+**MSI target** (`electron-builder.yml`, round 4d):
+
+```yaml
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+    - target: msi
+      arch: [x64]
+msi:
+  # Figma: "The MSI will install Figma in Program Files for all users of a machine"
+  perMachine: true
+  oneClick: true
+  runAfterFinish: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  # Made once (a random GUID) and never changed: Windows Installer upgrades in place by it
+  upgradeCode: "<round 4d generates it once and commits it>"
+  artifactName: ${productName}-${version}-x64.${ext}
+  # The MSI writes HKLM\SOFTWARE\DesignerV2\InstalledByMsi = 1 (DWORD) through electron-builder's msi `additionalWixArgs`
+  # or a WiX fragment in build/msi/ — whichever electron-builder 26 supports; the deployment keys themselves are the
+  # admin's (GPO / Intune), never written by the installer.
+```
+
+- Script `dist:msi` in `package.json`: the same build as `dist:win`, `--win msi --x64`.
+- **Can't be built or tested on the owner's Mac**: electron-builder makes MSIs with the WiX toolset, which runs on Windows (on macOS only through Wine, not installed and not to be installed — the 16 GB rule). Build it on a Windows machine or a `windows-latest` GitHub Actions runner; check install, uninstall and an upgrade over an older version there. Silent install: `msiexec /i DesignerV2-<version>-x64.msi /qn` (Figma: standard msiexec options).
+
 ---
 
 ## 13. Clipboard
@@ -1081,7 +1172,7 @@ export const isSharedFaceId = (id: string): boolean => id.startsWith("s:");
 
 ## 15. Opening files from outside, deep links
 
-- **URL scheme** `designerv2://`: `designerv2://file/<fileKey>?node-id=<s>-<l>` (Figma's URL style, `1-23` for GUID `1:23`), and `designerv2://folder/<folderId>`. These are handled by `open-url` (queued until ready) and by `second-instance` argv. An open file is activated and sent `tab:navigate`; a file that is not open is opened at that node.
+- **URL scheme** `designerv2://`: `designerv2://file/<fileKey>?node-id=<s>-<l>` (Figma's URL style, `1-23` for GUID `1:23`), and `designerv2://folder/<folderId>`. Round 4 adds `designerv2://sign-in?tenant=<id>` (§18.1). These are handled by `open-url` (queued until ready) and by `second-instance` argv. An open file is activated and sent `tab:navigate`; a file that is not open is opened at that node.
 - **`.fig` files**:
   - Opened from Finder or the Dock (`open-file`, queued before `ready`) or passed in `second-instance` argv: imported into **Drafts** through the store's `files.importLocalCopy`, then opened in a new tab. Figma does the same for a double-clicked `.fig`.
   - Dropped on Home: imported into the folder being viewed, not opened. Home shows a toast `Imported “‹name›”` with an `Open` action.
@@ -1122,6 +1213,47 @@ export const isSharedFaceId = (id: string): boolean => id.startsWith("s:");
 | `DESIGNER_LOG=debug` | verbose main, store and fonts logs to stdout |
 
 Main also handles `ipcMain` `test:*` channels when `process.env.DESIGNER_TEST === "1"`: `test:tabs` returns full runtime state, and `test:flush-all` runs the quit flush without quitting. These are compiled out of packaged builds.
+
+## 18. The account in main: single sign-on and the idle timeout (contract, Phase 7 round 4; written 2026-10-11)
+
+The server side is `docs/multiplayer.md` §15 (§15.4 sign-in routing, §15.8 the idle timeout). Main owns the session token (§2 of multiplayer.md: `safeStorage`, no renderer sees it), so main runs both.
+
+### 18.1 Signing in with SAML through the loopback
+
+- **Nothing changes in the loopback** (`src/main/account/signIn.ts`): main still opens `/auth/login?port&state&challenge` and receives `code` (or `error`) on `http://127.0.0.1:<port>/callback`. The browser now shows the server's login page — **Continue with Google** or **Use single sign-on** (email → the org's IdP) — and the code comes back from Google's callback or from the SAML ACS alike. `/auth/token` is unchanged.
+- **`signInWithBrowser`** gains `tenant?: string` → `&tenant=<id>` on the login URL (the server goes straight to that org's IdP).
+- **IPC**: `account:sign-in` takes `[opts?: {tenant?: string}]` (was `[]`). Home's sign-in buttons pass nothing.
+- **Deep link** `designerv2://sign-in?tenant=<18 digits>` (§15 URL scheme): main validates `^\d{18}$` and starts `signIn({tenant})` — this is how an IdP-initiated login (an Okta tile) reaches the app (multiplayer.md §15.2 decision 3). Signed in already: the new session replaces the old one (as a second sign-in does today).
+- **Errors**: an `error` on the loopback other than `access_denied` is one of `SignInError` (`src/shared/org/identity.ts`); `SignInResult` stays `{ok: false, error: "failed", message}` with `message = SIGN_IN_ERROR_TEXT[error]`, which Home already shows.
+
+### 18.2 The idle timeout (`src/main/account/idle.ts`, new)
+
+- **Activity**: on `app.on("web-contents-created")` main listens to each WebContents' `input-event` (Electron) and counts `mouseDown`, `keyDown`, `mouseWheel` and `gestureScrollBegin` as activity — no preload change, every view (tab bar, Home, editors, Present) counts. At most once a minute (the first input after a quiet minute at once) main posts `POST /me/sessions/active` (exists) and keeps its answer `{activeAt, idleLimitMs}`.
+- **State**: `idleLimitMs` and `activeAt` also come from `GET /me`'s `session` (multiplayer.md §15.8) at start and after sign-in. `idleLimitMs == null` → no timer.
+- **The timer** fires at `activeAt + idleLimitMs − IDLE_WARNING_MS` (one minute, Figma's help.figma.com 14376092335127). Then main:
+  1. if there was input since the last post, posts it and reschedules (no prompt);
+  2. else asks `GET /me` (the limit may have changed, and an admin's change resets `activeAt` on the server) and reschedules if the deadline moved;
+  3. else sends **`account:idle {state: "warning", logoutAt}`** to the active view of the most recently focused window. With no window focused it also shows a system notification "You'll be logged out soon" (Electron `Notification`; a click focuses the window) and, on macOS, `app.dock.bounce("critical")`.
+- **The prompt** (in the view, a ds `Modal`; Home and editors render one shared component `src/renderer/src/account/IdleWarning.tsx`): title "Are you still there?", text "For your security, you'll be logged out in ‹s› seconds because you've been inactive.", buttons **Log out** and **Stay logged in** (primary). Figma documents the prompt but not its words — ours, to be replaced by Figma's when seen. Any input in the app also counts as staying (main sees it and clears the prompt).
+- **Stay logged in** → `account:stay-signed-in` → `POST /me/sessions/active` → reschedule → `account:idle {state: "cleared"}` to every view.
+- **The deadline** (`logoutAt`) with no activity → `DELETE /me/sessions/current?reason=idle` (best effort, 5 s; the server logs `user_idle_session_timeout`), then today's local sign-out (`signOut()`), then `account:idle {state: "logged-out"}`: Home shows the toast "You were logged out because you were inactive." Editors of shared files lose their sockets and show their signed-out state (as today).
+- **A 401 with `code: "idle_timeout"`** on any of main's account requests (the computer slept past the deadline) → the same local sign-out and toast.
+- **The web app** (`src/renderer/src/store/webAccount.ts`) does the same with the page's own input events and timer.
+
+### 18.3 Shared types (committed verbatim before round 4)
+
+`src/shared/ipc.ts` — changes and additions:
+
+```ts
+// IpcInvoke: the sign-in takes an optional tenant (docs/desktop.md §18.1)
+  "account:sign-in": { args: [opts?: { tenant?: string }]; result: SignInResult };
+  "account:stay-signed-in": { args: []; result: AccountState };
+// IpcEvents:
+  "account:idle": IdleNotice;
+// roles: "account:stay-signed-in": ["home", "editor"]; the event goes to "home" and "editor" views
+/** The idle timeout's prompt (docs/desktop.md §18.2) */
+export type IdleNotice = { state: "warning"; logoutAt: number } | { state: "cleared" } | { state: "logged-out" };
+```
 
 ---
 
