@@ -6,14 +6,14 @@
  *   review, Merge branch (Name, Description, Merge) when they can edit main and every conflict is picked;
  * - a reviewer: Add your review → "Finish your review" (Approve / Suggest changes, a comment, Submit), Review again.
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Avatar, Banner, Button, Dialog, EmptyState, RadioGroup, ScrollArea, SearchField, Spinner, TextArea, TextInput, showToast } from "@/ds";
 import type { BranchRecord, MergePreview } from "../../../../shared/merge/branches";
 import type { Resolutions } from "../../../../shared/merge/types";
 import type { FileKey } from "../../../../shared/store/types";
 import { useEditor } from "../controller";
 import type { BranchingBackend, Reviewer } from "./access";
-import { ChunkCompare, SideDocs } from "./ChunkCompare";
+import { ChunkCompare, useSideDocs } from "./ChunkCompare";
 import { allPicked, reviewBadge, reviewRole, sendLabel } from "./model";
 import { BranchBadge, BranchWindow, ChangeList, codeOf, Conflicts, errorText } from "./parts";
 import { openBranchWindow, refreshBranch, useBranching } from "./state";
@@ -36,16 +36,19 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
   const [canMerge, setCanMerge] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const images = ed.source.images ? (h: string) => ed.source.images!.get(h) : null;
-  const docs = useMemo(() => new SideDocs(backend.branches, images), [backend]); // eslint-disable-line react-hooks/exhaustive-deps -- one per window
-  useEffect(() => () => docs.destroy(), [docs]);
+  const docs = useSideDocs(backend.branches, images);
 
   const close = () => {
     openBranchWindow(ed, null);
     ed.focusCanvas();
   };
+  // The latest preview asked for is the one shown (the store keeps only the latest one per branch).
+  const loads = useRef(0);
   const load = async (resolutions: Resolutions) => {
+    const n = ++loads.current;
     try {
       const p = await backend.branches.preview(branchFileKey, "merge", resolutions);
+      if (n !== loads.current) return p;
       setPreview(p);
       setSelected((s) => s ?? p.chunks[0]?.index ?? null);
       return p;

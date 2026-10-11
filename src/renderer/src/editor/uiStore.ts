@@ -67,7 +67,7 @@ export interface UIState extends PreferenceFlags {
   cursorChat?: { x: number; y: number } | null;
   /** Round 10, Vector › Simplify vector / Offset vector: their popover */
   vectorOp?: "simplify" | "offset" | null;
-  /** Round 10, File › Move to project…: its dialog */
+  /** Round 10, File › Move to folder…: its dialog */
   moveFileDialog?: boolean;
   /** Round 10, File › Create branch…: its dialog */
   branchDialog?: boolean;

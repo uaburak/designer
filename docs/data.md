@@ -1574,6 +1574,14 @@ Each case builds B, then O and T by applying change Messages, runs `merge3` in b
 
 **Not built**: a test of the org tile's count on the fake org server (`src/store/org/fake/` has no branches); Home's dropdown for a file whose local copy is offline / not signed in shows the store's error; version history's per-person author ("user" of a room version) isn't shown; a room version's "x-seq" checked against the listed seq; Home's Branches modal doesn't offer Merge (the editor's Review and merge does).
 
+#### 15.9.1 Fixes from running rounds 1–2 end to end in a browser (2026-10-11)
+
+- **Catching up before a shared merge / update** (§15.5 step 1): a browser tab joins only the file it edits (`MultiplayerService.setSession({only})`), so with only the branch open main's copy was never live and the merge refused at once (`offline`). `MultiplayerService.visit(fileKey)` joins a room outside `only` for a while (released, it lingers 30 s, then closes); `RemoteBranches.catchUp` visits and waits until the copy is live with nothing of its own unacknowledged, rejecting `offline` after 15 s (`CATCH_UP_TIMEOUT_MS`) — never a hang. `BranchService` catches both copies up before `final` (merge and update) and, best effort for 5 s, before a preview reads the tables; `roomSeqs` then checks the local heads still equal the preview's (a frame landing in between is `stale`).
+- **"Unacknowledged" is this copy's own frames**: `syncState().unsent` counts the journal's non-remote frames after `acked`. The old `acked >= head` was never true once the journal's tail was someone else's frame — a merge into main arrives as one — so the second merge (and naming a room version, `versionsRoom.caughtUp`) waited out its timeout.
+- **Edit stamps** (`merge3.ts EDIT_STAMPS` = `editInfo`): the engine stamps an edited layer's ancestors up to the page, so a rectangle added on a branch also showed "Page 1 — Edited". A node whose only change is a stamp makes no chunk; two stamps never conflict (the later `lastEditedAt` is kept); stamps still travel in the batch (Dev Mode's "Changed" on main).
+- **Previews**: `preview` runs one at a time per branch (the last one asked for is the one kept), the windows show only their latest load, and `SideDocs` (`useSideDocs`) survives React StrictMode's double mount — its first cleanup destroyed the engines' holder the window kept, so both sides said "Preview unavailable".
+- Comments, members and access requests of a shared file are read once per burst (`READ_FRESH_MS` 2 s, in-flight reads shared; the room's comments notice, a write, an invite / removal / answer read again).
+
 ---
 
 ## 16. Libraries in organizations (contract, Phase 7 round 3; written 2026-10-11)

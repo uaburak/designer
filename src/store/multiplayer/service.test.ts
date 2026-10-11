@@ -301,6 +301,71 @@ describe("MultiplayerService", () => {
     expect(b.store.files.get(fb)!.frames.filter((c) => c.kind === "remote").length).toBe(1);
   });
 
+  it("visits a room this client isn't in (a browser tab joins only its file) and leaves it after the linger", async () => {
+    // Bug: a merge from a tab with only the branch open waited on main's copy, whose room that tab never joined.
+    const { a, b, fa, fb } = await sharedPair();
+    await b.svc.setSession({ server: SERVER, token: await signIn("b@x.co") }, { only: [] });
+    await settle();
+    expect((await b.svc.syncState(fb))!.connection).toBe("offline");
+    a.store.edit(fa, [node(1, { name: "While B's tab was elsewhere" })]);
+    await settle();
+    expect(b.store.doc(fb)["0:1"].name).toBe("Home");
+
+    const release = await b.svc.visit(fb, 20);
+    const again = await b.svc.visit(fb, 20);
+    await settle();
+    expect(b.store.doc(fb)["0:1"].name).toBe("While B's tab was elsewhere");
+    // The journal's tail is A's frame, never acknowledged to B: nothing of B's is unsent (a merge waited on `acked >= head`).
+    const s = (await b.svc.syncState(fb))!;
+    expect(s).toMatchObject({ connection: "live", pending: 0, unsent: 0 });
+    expect(s.acked).toBeLessThan(b.store.files.get(fb)!.frames.at(-1)!.seq);
+    b.store.edit(fb, [node(1, { name: "B again" })]);
+    expect((await b.svc.syncState(fb))!.unsent).toBe(1);
+    await settle();
+    expect((await b.svc.syncState(fb))!.unsent).toBe(0);
+    release();
+    await new Promise((r) => setTimeout(r, 40));
+    expect((await b.svc.syncState(fb))!.connection).toBe("live"); // still held by `again`
+    again();
+    again(); // a second call of one release does nothing
+    await new Promise((r) => setTimeout(r, 40));
+    await settle();
+    expect((await b.svc.syncState(fb))!.connection).toBe("offline");
+    // A file this client is in anyway: nothing to join, nothing to leave.
+    const stay = await a.svc.visit(fa, 0);
+    stay();
+    await new Promise((r) => setTimeout(r, 10));
+    expect((await a.svc.syncState(fa))!.connection).toBe("live");
+  });
+
+  it("shares reads of a file's members and access requests made at once; an invite reads them again", async () => {
+    const { a, fa } = await sharedPair();
+    const gets: string[] = [];
+    const svc = a.svc as unknown as { deps: { fetch: typeof fetch } };
+    const inner = svc.deps.fetch;
+    svc.deps.fetch = async (input, init) => {
+      const u = new URL(String(input));
+      if ((init?.method ?? "GET") === "GET" && /\/(members|requests)$/.test(u.pathname)) gets.push(u.pathname.split("/").pop()!);
+      return inner(input, init);
+    };
+    // Sharing and inviting read them a moment ago: still fresh.
+    await a.svc.members(fa);
+    expect(gets).toEqual([]);
+    const realNow = Date.now;
+    const t0 = realNow();
+    Date.now = () => t0 + 3000; // past the freshness window
+    try {
+      await Promise.all([a.svc.members(fa), a.svc.members(fa), a.svc.requests(fa), a.svc.requests(fa)]);
+      await a.svc.members(fa);
+      expect(gets.sort()).toEqual(["members", "requests"]);
+      // A change made here reads them again at once.
+      expect((await a.svc.removeMember(fa, "b@x.co")).map((m) => m.email)).not.toContain("b@x.co");
+      expect(gets.filter((g) => g === "members").length).toBe(2);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
   it("lets a viewer follow but sends nothing from it", async () => {
     const a = await installation("a@x.co");
     const v = await installation("v@x.co");

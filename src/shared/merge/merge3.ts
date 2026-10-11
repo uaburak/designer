@@ -54,6 +54,25 @@ const UNCLEARABLE: ReadonlySet<string> = new Set(["guid", "phase", "parentIndex"
 const NOT_DATA: ReadonlySet<string> = new Set(["guid", "phase", "clearedFields", "guidPath"]);
 const EMPTY = new Uint8Array(0);
 
+/**
+ * Edit stamps (docs/schema.md §12 "Dev Mode": `editInfo` is stamped on every edited layer and its ancestors up to the
+ * page): a record of edits, not one. A node whose only change is a stamp makes no chunk — a rectangle added on a page
+ * lists the rectangle, not "Page 1 — Edited" (Figma lists only the added layer) — and two stamps never conflict: the
+ * later edit's is kept. They still travel with the merge (Dev Mode's "Changed" on main).
+ */
+export const EDIT_STAMPS: ReadonlySet<string> = new Set(["editInfo"]);
+
+/** A delta that only re-stamps a node (`EDIT_STAMPS`) */
+export function stampOnly(d: NodeDelta): boolean {
+  return d.phase === "updated" && d.items.every((i) => EDIT_STAMPS.has(i.field)) && d.fields.every((f) => EDIT_STAMPS.has(f.field));
+}
+
+/** The later of two `editInfo` stamps (absent counts as never) */
+function laterStamp(a: any, b: any): boolean {
+  const at = (v: any) => (v && v !== ABSENT ? Number(v.lastEditedAt ?? v.createdAt ?? 0) : -1);
+  return at(a) > at(b);
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // M: an overlay on T
 // ---------------------------------------------------------------------------------------------------------------------
@@ -386,6 +405,11 @@ export function mergeTables(input: MergeInput, opts: MergeOptions = {}): MergeOu
     for (const f of o.fields) {
       if (!copy && ASSET_BOOKKEEPING.has(f.field)) continue; // rule 9: main's, set below
       const tf = tFields.get(f.field);
+      if (EDIT_STAMPS.has(f.field)) {
+        // A stamp never conflicts: O's when it is the later edit.
+        if (!tf || laterStamp(f.after, tf.after)) sets.push({ field: f.field });
+        continue;
+      }
       if (!tf) {
         sets.push({ field: f.field });
         continue;
@@ -429,6 +453,7 @@ export function mergeTables(input: MergeInput, opts: MergeOptions = {}): MergeOu
   // --- chunks numbered; conflicts and changes placed ------------------------------------------------------------
   const movedFrom = new Map<string, string>(); // destination display → source displays
   for (const [k, d] of dO.deltas) {
+    if (stampOnly(d)) continue; // a stamp alone is no change to review
     const display = displayOf(k);
     chunks.markChanged(display, sideO);
     if (d.phase === "updated" && d.fields.some((f) => f.field === "parentIndex") && B.nodes.has(k)) {
@@ -439,7 +464,8 @@ export function mergeTables(input: MergeInput, opts: MergeOptions = {}): MergeOu
       }
     }
   }
-  for (const k of dT.deltas.keys()) {
+  for (const [k, d] of dT.deltas) {
+    if (stampOnly(d)) continue;
     const display = displayOf(k);
     if (chunks.has(display)) chunks.markChanged(display, sideT);
   }
@@ -684,7 +710,10 @@ export function mergeTables(input: MergeInput, opts: MergeOptions = {}): MergeOu
     if (nc.phase === "CREATED") stats.created++;
     else if (nc.phase === "REMOVED") stats.removed++;
     else stats.updated++;
-    const ch = chunkOfKey(guidKey(nc.guid!));
+    const key = guidKey(nc.guid!);
+    // A re-stamp of a node no chunk holds (a page whose layer was added) belongs to no chunk: it makes none.
+    if (nc.phase !== "CREATED" && nc.phase !== "REMOVED" && !chunks.has(displayOf(key)) && Object.keys(nc).every((f) => NOT_DATA.has(f) || EDIT_STAMPS.has(f))) return;
+    const ch = chunkOfKey(key);
     if (ch.nodeChanges[ch.nodeChanges.length - 1] !== i) ch.nodeChanges.push(i);
   });
   // A REMOVED + CREATED pair counts once.

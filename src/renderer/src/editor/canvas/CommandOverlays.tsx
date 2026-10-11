@@ -1,6 +1,6 @@
 /**
  * Round 10's pieces for the Figma menu's commands (docs/editor.md "Round 10 — Menus, commands, left side and toolbar"):
- * File › Move to project… (a dialog of the workspace's places), Cursor chat (/ : a bubble at the pointer), View ›
+ * File › Move to folder… (a dialog of the workspace's places), Cursor chat (/ : a bubble at the pointer), View ›
  * Memory usage (a chip at the canvas's bottom left), Vector › Simplify vector (a slider, help.figma.com "Simplify a
  * vector path") and Offset vector (Amount, Join, ✓, "Offset a vector path"). Their looks are unverified (no live
  * capture); they use the DS's own parts.
@@ -44,7 +44,7 @@ export function CommandOverlays() {
   );
 }
 
-/** File › Move to project…: Drafts and the workspace's folders; the file moves to the one picked. */
+/** File › Move to folder…: Drafts and the workspace's folders; the file moves to the one picked. */
 function MoveFileDialog() {
   const ed = useEditor();
   const ops = fileOps(ed);
@@ -64,7 +64,7 @@ function MoveFileDialog() {
   const value = (id: string | null) => id ?? "drafts";
   return (
     <Dialog
-      title="Move to project"
+      title="Move to folder"
       open
       onClose={close}
       footer={
@@ -88,7 +88,7 @@ function MoveFileDialog() {
       }
     >
       <div className={styles.places} data-move-file="">
-        {places ? <RadioGroup label="Projects" value={to} options={places.map((p) => ({ value: value(p.id), label: p.name }))} onChange={setTo} /> : null}
+        {places ? <RadioGroup label="Folders" value={to} options={places.map((p) => ({ value: value(p.id), label: p.name }))} onChange={setTo} /> : null}
       </div>
     </Dialog>
   );

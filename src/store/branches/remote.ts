@@ -43,6 +43,8 @@ export interface SyncState {
   connection: "live" | "connecting" | "offline";
   /** Local frames sent and not acknowledged yet */
   pending: number;
+  /** This copy's own journal frames the room hasn't acknowledged (other people's frames at the tail don't count). Absent: `acked` against the head. */
+  unsent?: number;
 }
 
 export interface RemoteDeps {
@@ -66,7 +68,19 @@ export interface RemoteDeps {
   uploadBlobs?(roomKey: string, sha1s: string[]): Promise<void>;
   /** A call answering bytes (a branch's base); absent: branches made elsewhere aren't taken in */
   callBytes?(method: string, path: string): Promise<{ bytes: Uint8Array; headers: Headers }>;
+  /**
+   * Joins a file's room for a while when this client isn't in it (`MultiplayerService.visit`: a browser tab joins only
+   * the file it edits, so a merge from the branch's tab joins main's room); returns the release. Absent: every shared
+   * file's room is joined already.
+   */
+  visit?(fileKey: FileKey): Promise<() => void>;
+  /** Waits (tests: a fake clock); default setTimeout */
+  sleep?(ms: number): Promise<void>;
+  now?(): number;
 }
+
+/** How long a merge or an update waits for both copies to catch up with their rooms before it gives up */
+export const CATCH_UP_TIMEOUT_MS = 15_000;
 
 /** The images a batch uses (none when it isn't a kiwi Message) */
 export function batchImages(batch: Uint8Array): string[] {
@@ -122,7 +136,34 @@ export class RemoteBranches {
   /** The link is live, nothing waits to be sent and the room has every local frame (a merge needs it: §15.5 step 1). */
   async caughtUp(fileKey: FileKey): Promise<boolean> {
     const s = await this.d.syncState(fileKey);
-    return !!s && s.connection === "live" && s.pending === 0 && s.acked >= (await this.d.headSeq(fileKey));
+    if (!s || s.connection !== "live" || s.pending !== 0) return false;
+    return s.unsent !== undefined ? s.unsent === 0 : s.acked >= (await this.d.headSeq(fileKey));
+  }
+
+  /**
+   * Brings a shared file's local copy up to date with its room (§15.5 step 1): joins the room when this client isn't in
+   * it (`visit`), then waits until the link is live with nothing unacknowledged. Resolves with the release (the caller
+   * releases once it's done); rejects `offline` after `timeoutMs` — a merge never waits forever on a room.
+   */
+  async catchUp(fileKey: FileKey, timeoutMs = CATCH_UP_TIMEOUT_MS): Promise<() => void> {
+    await this.link(fileKey);
+    const release = this.d.visit ? await this.d.visit(fileKey) : () => {};
+    const now = this.d.now ?? Date.now;
+    const sleep = this.d.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+    const until = now() + timeoutMs;
+    try {
+      while (!(await this.caughtUp(fileKey))) {
+        if (now() >= until) {
+          const s = await this.d.syncState(fileKey);
+          throw new StoreError("offline", s?.connection === "live" ? "Changes to this file are still being saved. Try again in a moment." : "Couldn’t reach this file’s room. Check your connection and try again.", { fileKey, connection: s?.connection ?? "offline", pending: s?.pending ?? 0 });
+        }
+        await sleep(50);
+      }
+    } catch (e) {
+      release();
+      throw e;
+    }
+    return release;
   }
 
   /** `POST /files/:main/branches`, then the branch room's snapshot (its "Branch created") and base; the local copy linked. */

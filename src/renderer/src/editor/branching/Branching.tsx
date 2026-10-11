@@ -81,8 +81,9 @@ function CreateBranch() {
         </>
       }
     >
-      <div data-create-branch="" onKeyDown={(e) => e.key === "Enter" && void create()}>
-        <TextInput label="Branch name" placeholder="Branch name" value={name} onChange={setName} autoFocus />
+      {/* TextInput keeps Enter to itself (stopPropagation): Return submits through onExit, as Create team's dialog. */}
+      <div data-create-branch="">
+        <TextInput label="Branch name" placeholder="Branch name" value={name} onChange={setName} autoFocus onExit={(r) => (r === "enter" ? void create() : r === "escape" ? close() : undefined)} />
       </div>
     </Dialog>
   );

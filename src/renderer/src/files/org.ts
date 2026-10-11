@@ -78,8 +78,8 @@ export const canEditFolder = (p: Pick<O.ProjectSummary, "me">, org: Pick<O.OrgSu
 /** A View seat edits no design file (§14.3); Home offers "Ask to upgrade" where it would create one */
 export const seatCanCreateDesign = (seat: O.Seat) => seat === "full";
 
-/** The plan badge after the org's name in the sidebar (1.png "Professional"; an organization's plan here). */
-export const PLAN_BADGE = "Organization";
+/** The plan's name after the org's name in the sidebar (Figma shows the plan: 1.png "Professional" for a Professional team; ours is an Enterprise org — R20). */
+export const PLAN_BADGE = "Enterprise";
 
 /** The seat-capped wording (docs/multiplayer.md §6 item 7, §14.3) */
 export const CAPPED_TEXT = "You can only view and comment on this file.";

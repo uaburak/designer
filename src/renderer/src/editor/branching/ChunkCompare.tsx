@@ -4,7 +4,7 @@
  * display node exported as a PNG. "Side by side" (the default) or "Overlay" with the right side's opacity; Zoom out,
  * Zoom in and Fit (R21 [merge] / [review]).
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState, IconButton, SegmentedControl, Spinner } from "@/ds";
 import { Engine } from "@/engine/Engine";
 import type { Message } from "@/engine/codec";
@@ -21,11 +21,16 @@ export interface SideSpec {
   caption: string;
 }
 
-/** The engines a preview's sides were loaded into, one per side, until the window closes. */
+/**
+ * The engines a preview's sides were loaded into, one per side, until the window closes. `destroy` frees them; the
+ * next `engine` call starts afresh — React's StrictMode runs a window's cleanup and effects twice on mount, and the
+ * window kept a destroyed SideDocs whose every side failed ("Preview unavailable"). Use it through `useSideDocs`.
+ */
 export class SideDocs {
   private readonly engines = new Map<string, Promise<Engine>>();
-  private readonly canvases: HTMLCanvasElement[] = [];
-  private destroyed = false;
+  private readonly canvases = new Set<HTMLCanvasElement>();
+  /** Bumped by `destroy`: an engine still loading for an earlier generation is dropped when it's ready */
+  private generation = 0;
   constructor(
     private readonly branches: BranchesRepository,
     private readonly images: ((hash: string) => Promise<Uint8Array | null>) | null
@@ -35,32 +40,47 @@ export class SideDocs {
     const key = `${previewId}|${side}`;
     let e = this.engines.get(key);
     if (!e) {
+      const gen = this.generation;
       e = (async () => {
         const opened = await this.branches.openSide(previewId, side);
-        if (this.destroyed) throw new Error("closed");
+        if (gen !== this.generation) throw new Error("closed");
         const canvas = document.createElement("canvas");
         canvas.className = styles.hiddenCanvas;
         canvas.setAttribute("aria-hidden", "true");
         document.body.appendChild(canvas);
-        this.canvases.push(canvas);
+        this.canvases.add(canvas);
         const engine = await Engine.create(canvas, { sessionID: 1, theme: "DARK" });
+        if (gen !== this.generation) {
+          engine.destroy();
+          canvas.remove();
+          this.canvases.delete(canvas);
+          throw new Error("closed");
+        }
         if (this.images) engine.setImageSource(this.images);
         engine.load(mergedDocument(opened) as Message);
         engine.setViewerMode(true);
         return engine;
       })();
       this.engines.set(key, e);
-      e.catch(() => this.engines.delete(key));
+      e.catch(() => this.engines.get(key) === e && this.engines.delete(key));
     }
     return e;
   }
 
   destroy(): void {
-    this.destroyed = true;
+    this.generation++;
     for (const e of this.engines.values()) void e.then((x) => x.destroy(), () => {});
     this.engines.clear();
     for (const c of this.canvases) c.remove();
+    this.canvases.clear();
   }
+}
+
+/** A window's SideDocs, freed when it closes */
+export function useSideDocs(branches: BranchesRepository, images: ((hash: string) => Promise<Uint8Array | null>) | null): SideDocs {
+  const docs = useMemo(() => new SideDocs(branches, images), [branches]); // eslint-disable-line react-hooks/exhaustive-deps -- one per window
+  useEffect(() => () => docs.destroy(), [docs]);
+  return docs;
 }
 
 /** A design's PNG from an engine (null: not on this side, or nothing to draw), scaled to fit 1200 px. */

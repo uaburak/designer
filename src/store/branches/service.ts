@@ -25,6 +25,8 @@ export const PREVIEW_TTL_MS = 10 * 60 * 1000;
 export const MAX_PREVIEWS = 4;
 /** The main-changed notice is sent at most this often per branch */
 export const MAIN_CHANGED_THROTTLE_MS = 1000;
+/** A shared branch's preview waits this long for the copies to catch up with their rooms, then shows what they hold */
+export const PREVIEW_CATCH_UP_MS = 5000;
 
 /** What the store gives the service. */
 export interface BranchHost {
@@ -424,9 +426,29 @@ export class BranchService {
 
   /** The three tables of a merge now: base, main's head, the branch's head (both flushed). */
   private async sides(r: BranchRecord): Promise<{ base: NodeTable; main: NodeTable; branch: NodeTable; mainHeadSeq: number; branchHeadSeq: number }> {
+    // A shared branch's preview reads main's and the branch's copies as their rooms have them (main's room joined if
+    // this tab isn't in it); offline, it shows what the copies hold — the merge itself then refuses (`catchUp`).
+    if (r.branchKey && this.host.remote) (await this.catchUpBoth(r, PREVIEW_CATCH_UP_MS).catch((e) => (this.host.log("info", "branch preview: the copies aren't caught up", e), null)))?.();
     await Promise.all([this.host.flush(r.mainFileKey), this.host.flush(r.branchFileKey)]);
     const [base, main, branch] = await Promise.all([this.host.readBase(r.branchFileKey), this.host.headTable(r.mainFileKey), this.host.headTable(r.branchFileKey)]);
     return { base, main: main.table, branch: branch.table, mainHeadSeq: main.seq, branchHeadSeq: branch.seq };
+  }
+
+  /** Both copies of a shared branch caught up with their rooms (`RemoteBranches.catchUp`); resolves with the release */
+  private async catchUpBoth(r: BranchRecord, timeoutMs?: number): Promise<() => void> {
+    const remote = this.host.remote!;
+    const releases: (() => void)[] = [];
+    const releaseAll = () => releases.forEach((f) => f());
+    try {
+      const got = await Promise.allSettled([remote.catchUp(r.mainFileKey, timeoutMs), remote.catchUp(r.branchFileKey, timeoutMs)]);
+      for (const g of got) if (g.status === "fulfilled") releases.push(g.value);
+      const failed = got.find((g): g is PromiseRejectedResult => g.status === "rejected");
+      if (failed) throw failed.reason;
+    } catch (e) {
+      releaseAll();
+      throw e;
+    }
+    return releaseAll;
   }
 
   /** The version numbers of the library copies main and the branch hold at different versions (merge rule 8). */
@@ -476,17 +498,22 @@ export class BranchService {
   async preview(branchFileKey: FileKey, direction: "merge" | "update", resolutions: Resolutions = {}): Promise<MergePreview> {
     if (direction !== "merge" && direction !== "update") throw new StoreError("invalid", `bad direction ${String(direction)}`);
     const res = checkResolutions(resolutions);
-    const r = await this.record(branchFileKey);
-    this.active(r);
-    const sides = await this.sides(r);
-    // One preview per branch and direction.
-    for (const [id, p] of this.previews) if (p.branchFileKey === branchFileKey && p.direction === direction) this.previews.delete(id);
-    const versions = await this.copyVersions(sides.main, sides.branch);
-    const cached: CachedPreview = { previewId: randomId(22), branchFileKey, direction, ...sides, versions, resolutions: res, at: this.host.now() };
-    const { result } = this.run(cached, res);
-    this.previews.set(cached.previewId, cached);
-    this.sweepPreviews();
-    return this.toPreview(cached, result);
+    // One at a time per branch, in call order: each replaces the one before (below), so the last one asked for is the
+    // one kept — two at once (a window opened twice) used to finish in either order, and the window then held an id
+    // the service had already dropped ("This preview has expired", Preview unavailable on both sides).
+    return this.serial(branchFileKey, async () => {
+      const r = await this.record(branchFileKey);
+      this.active(r);
+      const sides = await this.sides(r);
+      // One preview per branch and direction.
+      for (const [id, p] of this.previews) if (p.branchFileKey === branchFileKey && p.direction === direction) this.previews.delete(id);
+      const versions = await this.copyVersions(sides.main, sides.branch);
+      const cached: CachedPreview = { previewId: randomId(22), branchFileKey, direction, ...sides, versions, resolutions: res, at: this.host.now() };
+      const { result } = this.run(cached, res);
+      this.previews.set(cached.previewId, cached);
+      this.sweepPreviews();
+      return this.toPreview(cached, result);
+    });
   }
 
   private cached(previewId: string): CachedPreview {
@@ -545,7 +572,7 @@ export class BranchService {
   }
 
   async applyUpdate(branchFileKey: FileKey, input: { previewId: string; resolutions: Resolutions }): Promise<BranchRecord> {
-    return this.serial(branchFileKey, async () => {
+    return this.serial(branchFileKey, () => this.caughtUp(branchFileKey, async () => {
       const { p, r, result } = await this.final(branchFileKey, input?.previewId, "update", input?.resolutions ?? {});
       const batch = result.batch;
       if (r.branchKey && this.host.remote) return this.applyUpdateShared(p, r, encodeMessage(batch));
@@ -560,13 +587,13 @@ export class BranchService {
       const saved = await this.save(next);
       this.emit({ type: "branch.updated", branch: saved });
       return saved;
-    });
+    }));
   }
 
   async merge(branchFileKey: FileKey, input: { previewId: string; resolutions: Resolutions; title?: string; description?: string }): Promise<{ branch: BranchRecord; version: VersionRecord }> {
     const r0 = await this.record(branchFileKey);
     return this.serial(r0.mainFileKey, () =>
-      this.serial(branchFileKey, async () => {
+      this.serial(branchFileKey, () => this.caughtUp(branchFileKey, async () => {
         const { p, r, result } = await this.final(branchFileKey, input?.previewId, "merge", input?.resolutions ?? {});
         const title = typeof input?.title === "string" && input.title.trim() ? input.title.trim() : r.name;
         const description = typeof input?.description === "string" && input.description.trim() ? input.description.trim() : null;
@@ -588,24 +615,47 @@ export class BranchService {
         const saved = await this.save(next);
         this.emit({ type: "branch.merged", branch: saved });
         return { branch: saved, version };
-      }),
+      })),
     );
   }
 
   /**
-   * The rooms' seqs of both local copies, which must be live and caught up (§15.5 step 1): the merge read exactly
-   * these documents, so the server's head check is exact.
+   * Runs a shared branch's merge or update with both copies caught up with their rooms (§15.5 step 1) — main's room
+   * joined for it when this client isn't in it (a browser tab with only the branch open) — so `final` compares the
+   * preview with the rooms' documents; `offline` after CATCH_UP_TIMEOUT_MS instead of waiting forever. Local branches:
+   * `fn` as it is.
    */
-  private async roomSeqs(r: BranchRecord): Promise<{ mainSeq: number; branchSeq: number }> {
+  private async caughtUp<T>(branchFileKey: FileKey, fn: () => Promise<T>): Promise<T> {
+    const r = await this.record(branchFileKey);
+    if (!r.branchKey || !this.host.remote) return fn();
+    const release = await this.catchUpBoth(r);
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * The rooms' seqs of both local copies, caught up (`caughtUp`, §15.5 step 1) and still holding exactly the documents
+   * the preview read — a frame that landed since is `stale` — so the server's head check is exact.
+   */
+  private async roomSeqs(r: BranchRecord, p: CachedPreview): Promise<{ mainSeq: number; branchSeq: number }> {
     const remote = this.host.remote!;
-    if (!(await remote.caughtUp(r.mainFileKey)) || !(await remote.caughtUp(r.branchFileKey))) throw new StoreError("offline", "This file isn't up to date with its room. Try again when you're online.");
-    return { mainSeq: await remote.roomSeq(r.mainFileKey), branchSeq: await remote.roomSeq(r.branchFileKey) };
+    if (!(await remote.caughtUp(r.mainFileKey)) || !(await remote.caughtUp(r.branchFileKey))) throw new StoreError("offline", "Couldn’t reach this file’s room. Check your connection and try again.");
+    const seqs = { mainSeq: await remote.roomSeq(r.mainFileKey), branchSeq: await remote.roomSeq(r.branchFileKey) };
+    const [mainHead, branchHead] = await Promise.all([this.host.headSeq(r.mainFileKey), this.host.headSeq(r.branchFileKey)]);
+    if (mainHead !== p.mainHeadSeq || branchHead !== p.branchHeadSeq) {
+      this.previews.delete(p.previewId);
+      throw new StoreError("stale", "The files changed since the preview. Review the changes again.");
+    }
+    return seqs;
   }
 
   /** Update from main of a shared branch: one call; the frame comes back to the branch's copy through its link. */
   private async applyUpdateShared(p: CachedPreview, r: BranchRecord, batch: Uint8Array): Promise<BranchRecord> {
     const remote = this.host.remote!;
-    const seqs = await this.roomSeqs(r);
+    const seqs = await this.roomSeqs(r, p);
     const base = encodeMessage(p.main.toMessage());
     const res = await remote.update(r, { ...seqs, base, batch });
     await this.host.writeBase(r.branchFileKey, base);
@@ -618,7 +668,7 @@ export class BranchService {
   /** Merge of a shared branch: one call (freeze, pre-merge autosave, frame, versions on both rooms). */
   private async mergeShared(p: CachedPreview, r: BranchRecord, batch: Uint8Array, title: string, description: string | null): Promise<{ branch: BranchRecord; version: VersionRecord }> {
     const remote = this.host.remote!;
-    const seqs = await this.roomSeqs(r);
+    const seqs = await this.roomSeqs(r, p);
     const res = await remote.merge(r, { ...seqs, title, ...(description ? { description } : {}), batch });
     const version = await remote.version(r.mainFileKey, res.versionId).catch(
       (): VersionRecord => ({ id: res.versionId, kind: "merge", title, description, createdAt: this.host.now(), seq: res.mainSeq, sizeBytes: 0, blobRefs: [], restoredFrom: null, libraryVersion: null }),

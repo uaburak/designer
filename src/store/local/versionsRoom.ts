@@ -43,7 +43,8 @@ export interface RoomVersionDeps {
   /** A call answering bytes */
   callBytes(method: string, path: string): Promise<{ bytes: Uint8Array; headers: Headers }>;
   /** The link: frames sent and not acknowledged, the last local seq the room acknowledged, the connection */
-  syncState(fileKey: FileKey): Promise<{ acked: number; pending: number; connection: "live" | "connecting" | "offline" } | null>;
+  /** `unsent`: this copy's own frames not acknowledged (MultiplayerService.syncState); absent: `acked` against the head */
+  syncState(fileKey: FileKey): Promise<{ acked: number; pending: number; unsent?: number; connection: "live" | "connecting" | "offline" } | null>;
   /** The local journal's head, after a flush */
   flushedHead(fileKey: FileKey): Promise<number>;
   /** The local copy's document now */
@@ -164,7 +165,7 @@ export class RoomVersions {
     for (;;) {
       const s = await this.d.syncState(fileKey);
       if (!s) throw new StoreError("invalid", "This file isn't shared");
-      if (s.pending === 0 && s.acked >= head) return;
+      if (s.pending === 0 && (s.unsent !== undefined ? s.unsent === 0 : s.acked >= head)) return;
       if (this.d.now() >= until) throw new StoreError("offline", "This file isn't up to date with its room. Try again when you're online.");
       await this.d.sleep(POLL_MS);
     }

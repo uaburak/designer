@@ -111,4 +111,31 @@ describe("comments in the store", () => {
     };
     expect(await b.list("fb")).toMatchObject({ error: "offline", threads: [{ id: seen.threads[0].id }] });
   });
+
+  it("reads a shared file's comments once when asked several times at open; the room's notice and writes read again", async () => {
+    // The owner's run: opening a shared file fetched /comments 2–3 times in a burst (the first read, then the link up).
+    const devSignIn = async (email: string) => (await (await handle(new Request(`${SERVER}/auth/dev`, { method: "POST", body: JSON.stringify({ email, name: email.split("@")[0] }) }), server)).json()) as { token: string; user: { id: string } };
+    const alice = await devSignIn("alice@x.co");
+    const mp = fakeMp(alice.token, { fa: "file_shared2" });
+    await mp.call("POST", "/files", { key: "file_shared2", name: "F" });
+    const gets: string[] = [];
+    const call = mp.call;
+    mp.call = async (method: string, path: string, body?: unknown) => {
+      if (method === "GET" && path.endsWith("/comments")) gets.push(path);
+      return call(method, path, body);
+    };
+    const s = new CommentsService(host(), mp as unknown as MultiplayerService);
+    await Promise.all([s.list("fa"), s.list("fa")]);
+    await s.list("fa");
+    expect(gets.length).toBe(1);
+    now += 2500; // past the freshness window
+    await s.list("fa");
+    expect(gets.length).toBe(2);
+    mp.fire("fa"); // the room: they changed
+    await s.list("fa");
+    expect(gets.length).toBe(3);
+    await s.add("fa", { message: "New", anchor });
+    expect((await s.list("fa")).threads.length).toBe(1);
+    expect(gets.length).toBe(4);
+  });
 });
