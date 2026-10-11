@@ -65,19 +65,27 @@ export async function logForUserOrgs(deps: Deps, user: Pick<User, "id" | "email"
   }
 }
 
-/** A socket opened on an org file: fig_file_view (…_external for a guest, …_prototype for Present), at most hourly. */
-export async function logFileView(deps: Deps, f: FileEntitySource & { org_id: string; team_id: string | null }, user: Pick<User, "id" | "email" | "name">, opts: { guest: boolean; prototype: boolean; req: Request }): Promise<void> {
-  const action: ActivityAction = opts.prototype ? "fig_file_view_prototype" : opts.guest ? "fig_file_view_external" : "fig_file_view";
-  try {
-    const seen = await deps.db.d1
-      .prepare(`SELECT 1 AS x FROM activity_log WHERE org_id = ?1 AND actor_id = ?2 AND at > ?3 AND action = ?4 AND entity_id = ?5 LIMIT 1`)
-      .bind(f.org_id, user.id, deps.now() - VIEW_EVERY_MS, action, f.key)
-      .first();
-    if (seen) return;
-  } catch {
-    return;
-  }
-  await logActivity(deps, { orgId: f.org_id, action, actor: user, entity: fileEntity(f), teamId: f.team_id, req: opts.req });
+/**
+ * A socket opened on an org file (docs/multiplayer.md §15.9, corrected in round 4): the file's org logs
+ * `fig_file_view` (`fig_file_view_prototype` for Present) — guests included —, and the viewer's home org (captured, and
+ * not the file's) logs `fig_file_view_external` / `fig_file_view_prototype_external` with the file's entity [F-log].
+ * Each at most hourly per person and file.
+ */
+export async function logFileView(deps: Deps, f: FileEntitySource & { org_id: string; team_id: string | null }, user: Pick<User, "id" | "email" | "name">, opts: { prototype: boolean; req: Request; home?: { orgId: string } | null }): Promise<void> {
+  const once = async (orgId: string, action: ActivityAction, details: Record<string, unknown> = {}) => {
+    try {
+      const seen = await deps.db.d1
+        .prepare(`SELECT 1 AS x FROM activity_log WHERE org_id = ?1 AND actor_id = ?2 AND at > ?3 AND action = ?4 AND entity_id = ?5 LIMIT 1`)
+        .bind(orgId, user.id, deps.now() - VIEW_EVERY_MS, action, f.key)
+        .first();
+      if (seen) return;
+    } catch {
+      return;
+    }
+    await logActivity(deps, { orgId, action, actor: user, entity: fileEntity(f), teamId: orgId === f.org_id ? f.team_id : null, details, req: opts.req });
+  };
+  await once(f.org_id, opts.prototype ? "fig_file_view_prototype" : "fig_file_view");
+  if (opts.home && opts.home.orgId !== f.org_id) await once(opts.home.orgId, opts.prototype ? "fig_file_view_prototype_external" : "fig_file_view_external", { external_org_id: f.org_id });
 }
 
 export interface FileEntitySource {

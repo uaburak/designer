@@ -17,6 +17,15 @@ import { libraryStatusNotice, librarySettingsNotice } from "./notices";
 export interface ObjectNamespace {
   idFromName(name: string): unknown;
   get(id: never): { fetch(req: Request): Promise<Response> };
+  /** The namespace's objects restricted to a jurisdiction (docs/multiplayer.md §15.10; Cloudflare's `jurisdiction("eu")`) */
+  jurisdiction?(name: "eu"): ObjectNamespace;
+}
+
+/** The namespace of a jurisdiction (null: the default one); 503 when this deployment has none */
+export function inJurisdiction(ns: ObjectNamespace | undefined, j: "eu" | null): ObjectNamespace | undefined {
+  if (!ns || !j) return ns;
+  if (!ns.jurisdiction) throw new HttpError(503, "data storage localization isn't available here");
+  return ns.jurisdiction(j);
 }
 
 /** What libraries and fonts need of the Worker's env (index.ts passes the whole env as `deps.env`) */
@@ -34,6 +43,22 @@ export function objectFetch(ns: ObjectNamespace | undefined, name: string, path:
 }
 
 export const libraries = (deps: Deps) => (deps.env as LibraryEnv).LIBRARIES;
+
+/**
+ * Where a library's object lives (§15.10): `libraries.jurisdiction` once the library has a row; before its first
+ * publish (bytes uploaded ahead of it), the file's org's region.
+ */
+export async function libraryJurisdiction(d1: D1Like, key: string): Promise<"eu" | null> {
+  const r = await d1.prepare(`SELECT jurisdiction FROM libraries WHERE key = ?1`).bind(key).first<{ jurisdiction: string | null }>();
+  if (r) return r.jurisdiction === "eu" ? "eu" : null;
+  const o = await d1.prepare(`SELECT o.data_region FROM files f JOIN orgs o ON o.id = f.org_id WHERE f.key = ?1`).bind(key).first<{ data_region: string }>();
+  return o?.data_region === "eu" ? "eu" : null;
+}
+
+/** `objectFetch` on a library's object in its jurisdiction (one D1 read per call, no cache — §15.10) */
+export async function libraryFetch(deps: Deps, key: string, path: string, init: { method?: string; body?: ArrayBuffer | string | null } = {}): Promise<Response> {
+  return objectFetch(inJurisdiction(libraries(deps), await libraryJurisdiction(deps.db.d1, key)), key, path, init);
+}
 export const fontObjects = (deps: Deps) => (deps.env as LibraryEnv).FONTS;
 
 // ---- rows -----------------------------------------------------------------------------------------------------------
@@ -297,7 +322,7 @@ export async function libraryFileStatus(deps: Deps, key: string, event: "trash" 
   if (status === "deleted") {
     await d1.prepare(`DELETE FROM library_subscriptions WHERE library_key = ?1`).bind(key).run();
     try {
-      await objectFetch(libraries(deps), key, "/delete", { method: "POST" });
+      await libraryFetch(deps, key, "/delete", { method: "POST" });
     } catch (e) {
       console.error("libraries: the object of a deleted library wasn't emptied", key, e);
     }

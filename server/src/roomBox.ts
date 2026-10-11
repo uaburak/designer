@@ -14,6 +14,11 @@
  *   history_snapshots (seq, idx, bytes)    snapshots versions start from, shared by the versions that use them
  *   history_frames (seq, …)                frames after such a snapshot, up to a version's seq, shared likewise
  *
+ * Moving to another region (docs/multiplayer.md §15.10, policy/region.ts): `POST /room/freeze {moving: true}` marks the
+ * room (meta `moving`) — writes answer 503 `{code: "moving"}` and `FileRoom` closes and refuses sockets with 4012 —
+ * `GET /room/dump?after=` pages its tables out, `POST /room/load` pages them into the new object, and `POST
+ * /room/unfreeze {moving: true}` lifts the mark if the move fails.
+ *
  * A version is "the document at `seq`": a snapshot at `snapshot_seq` ≤ seq plus the frames (snapshot_seq, seq]. The room
  * never decodes kiwi, so it keeps what it has; a client may later replace a version's content with one snapshot at its
  * seq (PUT /room/versions/:id/snapshot), and what no version needs any more is dropped.
@@ -21,6 +26,10 @@
 import { encodeChangesDown, type ChangesDown } from "../../src/shared/multiplayer/protocol";
 import type { RoomStorage } from "../../src/shared/multiplayer/room";
 import type { SqlLike } from "./previews";
+import { dumpPage, loadPage } from "./policy/dump";
+
+/** The room's tables, in the order a move copies them (docs/multiplayer.md §15.10) */
+export const ROOM_TABLES = ["meta", "frames", "snapshot", "blobs", "base_chunks", "versions", "history_snapshots", "history_frames"] as const;
 
 /** SQLite values hold 2 MB; snapshots and images are stored in 1 MB rows. */
 const CHUNK = 1024 * 1024;
@@ -302,6 +311,11 @@ export class RoomBox {
     return this.storage.meta("frozen") === 1;
   }
 
+  /** Being moved to another region: writes and sockets are refused until the old object is deleted */
+  moving(): boolean {
+    return this.storage.meta("moving") === 1;
+  }
+
   /**
    * The /room/… routes that need no socket; null for the others (FileRoom's). Identity comes from the Worker's
    * headers (`x-user-id`, `x-user-name`).
@@ -322,7 +336,26 @@ export class RoomBox {
     const userId = req.headers.get("x-user-id") || null;
     const userName = req.headers.get("x-user-name") || null;
     const st = this.storage;
+    if (this.moving() && m !== "GET" && m !== "DELETE" && path !== "/room/unfreeze" && path !== "/room/freeze") throw new RoomError(503, "this file is moving to another region; try again in a moment", { code: "moving" });
     switch (`${m} ${path}`) {
+      case "GET /room/dump": {
+        // A page of the room's tables for its copy in another region (§15.10); the freeze mark stays behind.
+        return json(dumpPage(this.sql, ROOM_TABLES, url.searchParams.get("after"), (t, row) => t === "meta" && row.k === "moving"));
+      }
+      case "POST /room/load": {
+        const { rows } = (await req.json()) as { rows?: unknown };
+        let n = 0;
+        try {
+          this.host.transaction(() => {
+            n = loadPage(this.sql, ROOM_TABLES, rows);
+          });
+        } catch (e) {
+          throw new RoomError(400, `load: ${(e as Error).message}`);
+        } finally {
+          st.reload();
+        }
+        return json({ ok: true, rows: n, lastSeq: st.lastSeq() });
+      }
       case "GET /room/snapshot": {
         const seq = st.meta("snapshotSeq");
         if (seq < 0) return new Response("no snapshot yet", { status: 404 });
@@ -427,15 +460,22 @@ export class RoomBox {
       case "POST /room/apply":
         return this.apply(new Uint8Array(await req.arrayBuffer()), userId, userName);
       case "POST /room/freeze": {
+        const { expectSeq, moving } = (await req.json().catch(() => ({}))) as { expectSeq?: number; moving?: boolean };
+        // A move to another region (§15.10): no more writes; FileRoom closes the sockets with 4012.
+        if (moving === true) {
+          st.setMeta("moving", 1);
+          return json({ ok: true, lastSeq: st.lastSeq() });
+        }
         // The branch side of a merge: its head must be the one the merge read, and it takes no more frames.
-        const { expectSeq } = (await req.json()) as { expectSeq?: number };
         if (expectSeq !== st.lastSeq()) throw new RoomError(409, "the branch changed since the preview", { code: "stale", lastSeq: st.lastSeq() });
         st.setMeta("frozen", 1);
         return json({ ok: true, lastSeq: st.lastSeq() });
       }
-      case "POST /room/unfreeze":
-        st.clearMeta("frozen");
+      case "POST /room/unfreeze": {
+        const { moving } = (await req.json().catch(() => ({}))) as { moving?: boolean };
+        st.clearMeta(moving === true ? "moving" : "frozen");
         return json({ ok: true });
+      }
     }
     const blob = /^\/room\/blobs\/([0-9a-f]{40})$/.exec(path);
     if (blob && m === "GET") {

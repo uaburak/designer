@@ -13,6 +13,7 @@ import { body, cleanName, EMAIL, HttpError, ID, json, noContent, randomId, type 
 import { createOrgFile, inviteEmail } from "./orgs";
 import { reauth, subtreeFileKeys } from "./reauth";
 import { grantGroup, groupMembers, parsePrincipal, teamMembers } from "./teams";
+import { requireInside } from "../policy/external";
 
 const MAX_DEPTH = 10;
 const canWrite = (a: { ok: boolean; role?: string | null; canManage?: boolean }) => a.ok && (a.role === "owner" || a.role === "editor" || a.canManage === true);
@@ -56,6 +57,8 @@ export async function projectsOfTeamRoute(ctx: Ctx, team: TeamRow): Promise<Resp
   if (m === "POST") {
     const b = await body<{ name?: unknown; parentId?: unknown; access?: unknown }>(ctx.req);
     const name = cleanName(b.name, "name", 200);
+    // A member whose org restricts external content creates folders there only (§15.6) [F-external].
+    requireInside(await acc.home(), team.org_id, "create folders");
     const access = b.access === "limited" ? "limited" : "inherited";
     let depth = 1;
     let parentId: string | null = null;

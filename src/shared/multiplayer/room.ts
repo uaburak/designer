@@ -11,6 +11,8 @@
  * - Viewers receive everything but may not send changes.
  * - Presence is relayed, remembered per member for newcomers, never stored.
  * - Signals go to one session only (by its sessionID), never stored.
+ * - The org's room policy (cursor chat, audio — docs/multiplayer.md §15.9) arrives with each socket's identity (the
+ *   Worker's `x-policy`) and goes out in `welcome.policy`; a change (`setPolicy`) is broadcast as `{t: "policy"}`.
  */
 import {
   decodeChangesUp,
@@ -23,6 +25,7 @@ import {
   type Role,
   type ServerControl,
 } from "./protocol";
+import type { RoomPolicy } from "../org/identity";
 
 export interface RoomStorage {
   /** Next sessionID for this file (1, 2, 3 …), persisted */
@@ -47,6 +50,8 @@ export interface Identity {
   userId: string;
   name?: string;
   role: Role;
+  /** The org's room policy when the socket was opened (absent outside orgs: everything allowed) */
+  policy?: RoomPolicy;
 }
 
 /** What a member is; a host that hibernates keeps it with the socket and gives it back through `restore`. */
@@ -143,6 +148,15 @@ export class Room {
     }
   }
 
+  /** The org changed cursor chat or audio: every member's state takes it, and those that said hello are told. */
+  setPolicy(policy: RoomPolicy): void {
+    for (const [c, m] of this.members) {
+      m.policy = { ...policy };
+      this.onState(c, m);
+    }
+    this.broadcast({ t: "policy", policy: { ...policy } });
+  }
+
   /** Close a user's sockets (removed, or their role changed: they reconnect with the new one). */
   closeUser(userId: string, code: number, reason: string): void {
     for (const [c, m] of [...this.members]) {
@@ -160,7 +174,7 @@ export class Room {
     this.onState(conn, m);
     const peers: PeerInfo[] = [];
     for (const [c, o] of this.members) if (c !== conn && o.sessionID) peers.push(peerOf(o));
-    this.send(conn, { t: "welcome", sessionID: m.sessionID, role: m.role, seq: this.storage.lastSeq(), peers, snapshotSeq: this.storage.snapshotSeq() });
+    this.send(conn, { t: "welcome", sessionID: m.sessionID, role: m.role, seq: this.storage.lastSeq(), peers, snapshotSeq: this.storage.snapshotSeq(), ...(m.policy ? { policy: m.policy } : {}) });
     for (const f of this.storage.readAfter(since)) conn.send(encodeChangesDown(f));
     this.send(conn, { t: "ready", seq: this.storage.lastSeq() });
     this.broadcast({ t: "peer-joined", peer: { sessionID: m.sessionID, userId: m.userId, name: m.name, role: m.role } }, conn);

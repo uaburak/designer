@@ -21,10 +21,17 @@
  *   POST /payloads {wants, withDependencies}
  *                                        → [u32 n] then n × [u32 jsonLen][{key, versionHash, size}][bytes] (u32 LE)
  *   POST /delete                         everything dropped (the file was deleted forever)
+ *   POST /freeze · /unfreeze             a move to another region (docs/multiplayer.md §15.10): writes answer 503
+ *                                        {code: "moving"} while frozen
+ *   GET  /dump?after= · POST /load {rows} its tables paged out and into the copy (policy/dump.ts)
  */
 import { diffAgainst, withDependencies } from "../../../src/shared/store/libraryRules";
 import type { LibraryAsset, LibraryVersion, Redirect } from "../../../src/shared/store/types";
 import type { SqlLike } from "../previews";
+import { dumpPage, loadPage } from "../policy/dump";
+
+/** The object's tables, in the order a move copies them */
+export const LIBRARY_TABLES = ["meta", "manifests", "payloads", "blobs"] as const;
 
 const CHUNK = 1024 * 1024;
 /** A payload or an image (data.md §16.10) */
@@ -70,6 +77,31 @@ export class LibraryBox {
     if (path === "/delete" && m === "POST") {
       await this.host.deleteAll();
       return json({ ok: true });
+    }
+    // A move to another region (§15.10)
+    if (path === "/freeze" && m === "POST") {
+      this.host.sql.exec(`INSERT OR REPLACE INTO meta (k, v) VALUES ('moving', '1')`);
+      return json({ ok: true });
+    }
+    if (path === "/unfreeze" && m === "POST") {
+      this.host.sql.exec(`DELETE FROM meta WHERE k = 'moving'`);
+      return json({ ok: true });
+    }
+    if (path === "/dump" && m === "GET") return json(dumpPage(this.host.sql, LIBRARY_TABLES, new URL(req.url).searchParams.get("after"), (t, row) => t === "meta" && row.k === "moving"));
+    if (path === "/load" && m === "POST") {
+      const { rows } = (await req.json()) as { rows?: unknown };
+      try {
+        let n = 0;
+        this.host.transaction(() => {
+          n = loadPage(this.host.sql, LIBRARY_TABLES, rows);
+        });
+        return json({ ok: true, rows: n });
+      } catch (e) {
+        return json({ error: `load: ${(e as Error).message}`, code: "invalid" }, 400);
+      }
+    }
+    if (m === "PUT" || path === "/commit") {
+      if (this.host.sql.exec(`SELECT 1 AS x FROM meta WHERE k = 'moving'`).toArray().length) return json({ error: "this library is moving to another region; try again in a moment", code: "moving" }, 503);
     }
     if (path === "/missing" && m === "POST") {
       const b = (await req.json()) as { payloads?: { key: string; versionHash: string }[]; blobs?: string[] };

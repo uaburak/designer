@@ -24,6 +24,8 @@ import { accessibleFiles, FILE_COLS, personRef, toOrgFile, userByEmail, type Acc
 import { body, cleanName, EMAIL, HttpError, json, noContent, randomId, type Ctx } from "./http";
 import { createOrg } from "./migrate";
 import { orgFileKeys, reauth } from "./reauth";
+import { emailDomain } from "../../../src/shared/org/identity";
+import { homeOrgOf, logExternal, requireInside } from "../policy/external";
 
 export const EDITOR_TYPES: readonly EditorType[] = ["design", "figjam", "slides", "buzz", "sites", "make"];
 export const SEATS: readonly Seat[] = ["full", "dev", "collab", "view"];
@@ -35,6 +37,8 @@ export async function orgsRoute(ctx: Ctx): Promise<Response> {
     if (m === "GET") return json({ orgs: await orgSummaries(deps.db.d1, user.id) });
     if (m === "POST") {
       const b = await body<{ name?: unknown; importSharedFiles?: unknown }>(ctx.req);
+      // A member whose org restricts external content can't create another one (§15.6) [F-external].
+      requireInside(await acc.home(), null, "create organizations");
       const id = await createOrg(ctx, cleanName(b.name, "name", 100), b.importSharedFiles === true);
       acc.reset();
       return json({ org: await orgInfo(acc, id) }, 201);
@@ -121,6 +125,7 @@ export async function orgInfo(acc: Access, orgId: string): Promise<OrgInfo> {
     billingGroupAdminOf: await acc.billingAdminOf(orgId),
     counts: { members: c?.members ?? 0, guests: c?.guests ?? 0, teams: c?.teams ?? 0 },
     settings: await acc.settings(orgId),
+    dataRegion: org.data_region === "eu" ? "eu" : "default",
   };
 }
 
@@ -257,7 +262,10 @@ export async function addPerson(deps: Deps, orgId: string, email: string, role: 
     .bind(orgId, e, u?.id ?? null, role, seat, opts.workspaceId ?? null, opts.billingGroupId ?? null, opts.by?.id ?? null, now)
     .run();
   const entity = userEntity(u ?? { id: e, email: e, name: null });
-  await logActivity(deps, { orgId, action: !u ? "org_invite_create" : role === "guest" ? "org_user_create_external" : "org_user_create", actor: opts.by, entity, details: { role, seat, ...(opts.details ?? {}) }, req: opts.req });
+  // The org logs org_user_create (guests too); the person's home org, when captured and another, its external twin
+  // (docs/multiplayer.md §15.9, §15.11 — corrected in round 4).
+  await logActivity(deps, { orgId, action: !u ? "org_invite_create" : "org_user_create", actor: opts.by, entity, details: { role, seat, ...(opts.details ?? {}) }, req: opts.req });
+  if (u) await logExternal(deps, u, orgId, "org_user_create_external", entity, { actor: opts.by, details: { role }, req: opts.req });
   if (opts.workspaceId && role !== "guest") await joinDefaultTeams(deps, opts.workspaceId, e, u?.id ?? null, opts.by);
   if (u) await orgNotice(deps, [u.id], { what: "orgs" });
   return { userId: u?.id ?? null, created: true };
@@ -287,15 +295,23 @@ export async function inviteEmail(ctx: Ctx, orgId: string, email: string, resour
   if (!EMAIL.test(e)) throw new HttpError(400, "bad email");
   const row = await d1.prepare(`SELECT user_id, role FROM org_members WHERE org_id = ?1 AND email = ?2`).bind(orgId, e).first<{ user_id: string | null; role: OrgRole }>();
   if (row) return { kind: row.role === "guest" ? "guest" : "member", userId: row.user_id, email: e };
+  // Someone whose own org restricts external content can't accept an outside invite (§15.6) [F-external].
+  const invitee = await userByEmail(d1, e);
+  const theirs = invitee ? await homeOrgOf(d1, invitee) : null;
+  if (theirs?.restricted && theirs.orgId !== orgId) throw new HttpError(403, `${e}'s organization doesn't allow them to join content outside it`, "external_restricted");
   const settings = await acc.settings(orgId);
   const me = await acc.membership(orgId);
+  // An email on any of the org's domains (verified or not) joins as a member [F-domain] (§15.7).
+  const domain = emailDomain(e);
+  const onDomain = !!domain && !!(await d1.prepare(`SELECT 1 AS x FROM org_domains WHERE org_id = ?1 AND domain = ?2`).bind(orgId, domain).first());
   // An org admin inviting someone adds them as a member (the owner's decision, 2026-10-11: friends are members;
   // admins add anyone as a member by hand). Everyone else's outside invites make guests (§14.1).
-  if (me?.role === "admin") {
+  if (me?.role === "admin" || onDomain) {
     const added = await addPerson(deps, orgId, e, "member", settings.defaultSeat, { by: user, req: ctx.req, details: { via: resource.type } });
     return { kind: "member", userId: added.userId, email: e };
   }
   if (settings.guestMembership === "block") throw new HttpError(403, "people outside the organization can't be invited", "guest_blocked");
+
   if (settings.guestMembership === "approval") {
     const id = randomId();
     await d1
@@ -303,11 +319,33 @@ export async function inviteEmail(ctx: Ctx, orgId: string, email: string, resour
       .bind(id, orgId, e, user.id, resource.type, resource.id, role, deps.now())
       .run();
     const org = (await acc.org(orgId))!;
-    for (const admin of await orgAdminIds(d1, orgId)) await notifyOrg(deps, { userId: admin, kind: "guest_request", actorId: user.id, orgId, name: org.name, text: `${e} · ${resource.name}`, role, state: "pending" });
+    // Requests go to the resource's workspace admins, or to org admins outside workspaces [F-guestctl].
+    for (const admin of await guestAnswerers(d1, orgId, resource)) await notifyOrg(deps, { userId: admin, kind: "guest_request", actorId: user.id, orgId, name: org.name, text: `${e} · ${resource.name}`, role, state: "pending" });
     return { kind: "requested", requestId: id, email: e };
   }
   const added = await addPerson(deps, orgId, e, "guest", settings.defaultSeat, { by: user, req: ctx.req, details: { via: resource.type } });
   return { kind: "guest", userId: added.userId, email: e };
+}
+
+/** The workspace of a team, folder or file (null: outside workspaces) */
+export async function resourceWorkspace(d1: D1Like, resource: { type: "team" | "project" | "file"; id: string }): Promise<string | null> {
+  const sql =
+    resource.type === "team"
+      ? `SELECT workspace_id AS w FROM teams WHERE id = ?1`
+      : resource.type === "project"
+        ? `SELECT t.workspace_id AS w FROM projects p JOIN teams t ON t.id = p.team_id WHERE p.id = ?1`
+        : `SELECT t.workspace_id AS w FROM files f JOIN teams t ON t.id = f.team_id WHERE f.key = ?1`;
+  return (await d1.prepare(sql).bind(resource.id).first<{ w: string | null }>())?.w ?? null;
+}
+
+/** Who answers a guest request [F-guestctl]: the resource's workspace admins, else the org's admins */
+export async function guestAnswerers(d1: D1Like, orgId: string, resource: { type: "team" | "project" | "file"; id: string }): Promise<string[]> {
+  const ws = await resourceWorkspace(d1, resource);
+  if (ws) {
+    const { results } = await d1.prepare(`SELECT user_id FROM workspace_admins WHERE workspace_id = ?1`).bind(ws).all<{ user_id: string }>();
+    if (results.length) return results.map((r) => r.user_id);
+  }
+  return orgAdminIds(d1, orgId);
 }
 
 /**
@@ -330,7 +368,9 @@ export async function removeFromOrg(deps: Deps, orgId: string, userId: string, b
   await d1.prepare(`DELETE FROM billing_group_admins WHERE user_id = ?2 AND billing_group_id IN (SELECT id FROM billing_groups WHERE org_id = ?1)`).bind(orgId, userId).run();
   await d1.prepare(`DELETE FROM seat_requests WHERE org_id = ?1 AND user_id = ?2 AND state = 'pending'`).bind(orgId, userId).run();
   await d1.prepare(`DELETE FROM org_members WHERE org_id = ?1 AND user_id = ?2`).bind(orgId, userId).run();
-  await logActivity(deps, { orgId, action: row.role === "guest" ? "org_user_delete_external" : "org_user_delete", actor: by, entity: userEntity({ id: userId, email: row.email, name: row.name }), req });
+  const person = { id: userId, email: row.email, name: row.name };
+  await logActivity(deps, { orgId, action: "org_user_delete", actor: by, entity: userEntity(person), details: { role: row.role }, req });
+  await logExternal(deps, person, orgId, "org_user_delete_external", userEntity(person), { actor: by, req });
   await reauth(deps, await orgFileKeys(d1, orgId), [userId]);
   await orgNotice(deps, [userId], { what: "orgs" });
   return true;
@@ -349,6 +389,8 @@ export async function createOrgFile(ctx: Ctx, input: { key: unknown; name: unkno
   const editorType = (input.editorType ?? "design") as EditorType;
   if (!EDITOR_TYPES.includes(editorType)) throw new HttpError(400, "editorType");
   const me = await acc.requireMember(input.orgId, { guests: input.projectId !== null });
+  // A member whose org restricts external content creates files there only (§15.6, §15.9).
+  requireInside(await acc.home(), input.orgId, "create files");
   let teamId: string | null = null;
   if (input.projectId !== null) {
     const p = await acc.project(input.projectId);
@@ -370,7 +412,11 @@ export async function createOrgFile(ctx: Ctx, input: { key: unknown; name: unkno
     action = "fig_file_move";
   } else {
     await d1
-      .prepare(`INSERT INTO files (key, owner_id, name, created_at, updated_at, org_id, team_id, project_id, editor_type) VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6, ?7, ?8)`)
+      // In an org whose data is in the EU, the room is made there (§15.10): before the first snapshot upload.
+      .prepare(
+        `INSERT INTO files (key, owner_id, name, created_at, updated_at, org_id, team_id, project_id, editor_type, jurisdiction)
+         VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6, ?7, ?8, (SELECT CASE data_region WHEN 'eu' THEN 'eu' END FROM orgs WHERE id = ?5))`,
+      )
       .bind(key, user.id, name, now, input.orgId, teamId, input.projectId, editorType)
       .run();
   }

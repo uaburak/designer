@@ -9,6 +9,9 @@ import type { Deps } from "../api";
 import type { D1Like, User } from "../db";
 import { branchAccess, type BranchRow } from "../branchAccess";
 import { HttpError, placeholders } from "./http";
+import { emailDomain, type FilePolicy } from "../../../src/shared/org/identity";
+import { homeOrgOf, type HomeOrg } from "../policy/external";
+import { policyOfFile } from "../policy/sharing";
 
 export interface FileRow {
   key: string;
@@ -81,6 +84,8 @@ export interface OrgRow {
   id: string;
   name: string;
   settings: string;
+  /** Data storage localization (0013, docs/multiplayer.md §15.10) */
+  data_region?: "default" | "eu";
   created_by: string;
   created_at: number;
   updated_at: number;
@@ -125,6 +130,16 @@ export class Access {
       this.cache.set(key, p);
     }
     return p;
+  }
+
+  /** The caller's home org (docs/multiplayer.md §15.9; external.ts) */
+  home(): Promise<HomeOrg | null> {
+    return this.once(`home`, () => homeOrgOf(this.d1, this.user));
+  }
+
+  /** A file's sharing policy (§15.6; null outside orgs), its org's settings and workspace read once per request */
+  policy(f: Pick<FileRow, "org_id" | "team_id" | "editor_type">): Promise<FilePolicy | null> {
+    return policyOfFile(this.d1, f, (k, fn) => this.once(k, fn));
   }
 
   /** Forget what was read (after a write in the same request) */
@@ -248,6 +263,7 @@ export class Access {
     // A file in a trashed folder is in the trash with it.
     const trashedAt = f.trashed_at ?? chain.find((p) => p.trashed_at !== null)?.trashed_at ?? null;
     const m = orgId ? await this.membership(orgId) : null;
+    const home = await this.home();
     return {
       user: { id: this.user.id, email: this.user.email },
       file: {
@@ -273,7 +289,9 @@ export class Access {
       userGroups: orgId ? await this.groups(orgId) : [],
       viaLink: opts.viaLink,
       passOk: opts.passOk,
-      externalRestricted: false,
+      externalRestricted: home?.restricted ?? false,
+      homeOrgId: home?.orgId ?? null,
+      policy: await this.policy(f),
       now: this.deps.now(),
       ownerInOrg: orgId && !f.project_id ? await this.ownerInOrg(orgId, f.owner_id) : true,
     };
@@ -448,6 +466,17 @@ export async function personIn(d1: D1Like, orgId: string, userId: string): Promi
 
 /** Invites waiting for this email (org, team, folder rows) become this user's — at sign-in, as 0001's members. */
 export async function claimInvites(d1: D1Like, user: { id: string; email: string }): Promise<void> {
+  // A member whose home org restricts external content doesn't accept outside invites (§15.6) [F-external]: those
+  // stay pending by email. The would-be home org's invite (an org owning the email's verified domain) is claimed first.
+  const domain = emailDomain(user.email);
+  if (domain) await d1.prepare(`UPDATE org_members SET user_id = ?1 WHERE email = ?2 AND user_id IS NULL AND org_id IN (SELECT org_id FROM org_domains WHERE domain = ?3 AND verified_at IS NOT NULL)`).bind(user.id, user.email, domain).run();
+  const home = await homeOrgOf(d1, user);
+  if (home?.restricted) {
+    await d1.prepare(`UPDATE org_members SET user_id = ?1 WHERE email = ?2 AND user_id IS NULL AND org_id = ?3`).bind(user.id, user.email, home.orgId).run();
+    await d1.prepare(`UPDATE team_members SET user_id = ?1 WHERE email = ?2 AND user_id IS NULL AND team_id IN (SELECT id FROM teams WHERE org_id = ?3)`).bind(user.id, user.email, home.orgId).run();
+    await d1.prepare(`UPDATE project_members SET user_id = ?1 WHERE email = ?2 AND user_id IS NULL AND project_id IN (SELECT p.id FROM projects p JOIN teams t ON t.id = p.team_id WHERE t.org_id = ?3)`).bind(user.id, user.email, home.orgId).run();
+    return;
+  }
   for (const t of ["org_members", "team_members", "project_members"]) await d1.prepare(`UPDATE ${t} SET user_id = ?1 WHERE email = ?2 AND user_id IS NULL`).bind(user.id, user.email).run();
 }
 

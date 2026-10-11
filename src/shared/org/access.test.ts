@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveAccess, resolveContainer, seatCanEdit, type AccessRows, type Grant } from "./access";
+import type { FilePolicy } from "./identity";
 
 const ME = { id: "u_me", email: "me@x.co" };
 const NOW = Date.UTC(2026, 9, 11);
@@ -150,6 +151,56 @@ describe("resolveAccess (docs/multiplayer.md §14.4, the 22 cases)", () => {
   it("22: external content restricted, a grant can edit on another org's file → viewer, no comments", () => {
     const r = ok(resolveAccess(rows({ membership: null, externalRestricted: true, fileGrants: [user("editor")] })));
     expect(r).toMatchObject({ role: "editor", roomRole: "viewer", canEdit: false, canComment: false, capped: "external" });
+  });
+});
+
+describe("resolveAccess, round 4's policies (docs/multiplayer.md §15.9, cases 23–30)", () => {
+  const policy = (over: Partial<FilePolicy> = {}): FilePolicy => ({ publicLinks: true, passwordRequired: false, passwordMode: "any", linkExpiryMaxHours: null, cursorChat: true, audio: true, openSessions: true, ...over });
+  const outsider = { membership: null, viaLink: true };
+
+  it("23: public links off, an outsider by the link → none", () => {
+    expect(ok(resolveAccess(rows({ ...outsider, policy: policy() }, { linkAccess: "editor" }))).role).toBe("editor");
+    expect(resolveAccess(rows({ ...outsider, policy: policy({ publicLinks: false }) }, { linkAccess: "editor" }))).toEqual({ ok: false, reason: "none", role: null });
+  });
+
+  it("24: public links off, a member by the org link → viewer (the org link keeps working)", () => {
+    const r = ok(resolveAccess(rows({ viaLink: true, policy: policy({ publicLinks: false }) }, { linkAccess: "editor", orgLinkAccess: "viewer", access: "limited" })));
+    expect(r).toMatchObject({ role: "viewer", via: ["audience"] });
+  });
+
+  it("25: passwords required, a link without a password → none for link-only people, unchanged for invited ones", () => {
+    const p = policy({ passwordRequired: true });
+    expect(resolveAccess(rows({ ...outsider, policy: p }, { linkAccess: "viewer" })).ok).toBe(false);
+    expect(ok(resolveAccess(rows({ ...outsider, policy: p, fileGrants: [user("editor")] }, { linkAccess: "viewer" }))).role).toBe("editor");
+    // with a password set (and the pass), the link works
+    expect(ok(resolveAccess(rows({ ...outsider, policy: p, passOk: true }, { linkAccess: "viewer", passwordProtected: true }))).via).toEqual(["link"]);
+  });
+
+  it("26: a restricted member, a legacy file shared can edit → viewer, no comments", () => {
+    const r = ok(resolveAccess(rows({ membership: null, folders: [], team: null, externalRestricted: true, homeOrgId: "home", fileGrants: [user("editor")] }, { orgId: null, teamId: null, projectId: null })));
+    expect(r).toMatchObject({ role: "editor", roomRole: "viewer", canEdit: false, canComment: false, capped: "external", canShare: false });
+  });
+
+  it("27: a restricted member, their own legacy file → owner but view-only (capped: external)", () => {
+    const r = ok(resolveAccess(rows({ membership: null, folders: [], team: null, externalRestricted: true, homeOrgId: "home" }, { orgId: null, teamId: null, projectId: null, ownerId: ME.id })));
+    expect(r).toMatchObject({ role: "owner", roomRole: "viewer", canEdit: false, capped: "external" });
+  });
+
+  it("28: a restricted member, a file in their home org → unchanged", () => {
+    const r = ok(resolveAccess(rows({ externalRestricted: true, homeOrgId: "o1", team: { ...rows().team!, grants: [user("editor")] } })));
+    expect(r).toMatchObject({ role: "editor", canEdit: true, canComment: true, capped: null });
+  });
+
+  it("29: restricted, a file in another org by its public password link with the pass → viewer", () => {
+    const r = ok(resolveAccess(rows({ ...outsider, passOk: true, externalRestricted: true, homeOrgId: "home", policy: policy() }, { linkAccess: "editor", passwordProtected: true })));
+    expect(r).toMatchObject({ role: "editor", roomRole: "viewer", canEdit: false, capped: "external", via: ["link"] });
+  });
+
+  it("30: not captured (capture off: no home org, not restricted) → no cap", () => {
+    const r = ok(resolveAccess(rows({ membership: null, externalRestricted: false, homeOrgId: null, fileGrants: [user("editor")] })));
+    expect(r).toMatchObject({ role: "editor", canEdit: true, capped: null });
+    const legacy = ok(resolveAccess(rows({ membership: null, folders: [], team: null, externalRestricted: false, homeOrgId: null }, { orgId: null, teamId: null, projectId: null, ownerId: ME.id })));
+    expect(legacy).toMatchObject({ role: "owner", canEdit: true, capped: null });
   });
 });
 
