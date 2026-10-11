@@ -169,7 +169,7 @@ function Actions() {
   const pluginRow = (r: PluginRow, section = r.section): Row => ({ key: `plugin:${r.key}`, label: r.label, section, icon: "24.plugin", disabled: !!r.disabled, run: () => startPlugin(r), plugin: r });
 
   const rows: Row[] = useMemo(() => {
-    if (prompt) return prompt.suggestions.map((sg, i) => ({ key: `suggestion:${i}`, label: sg.name, section: prompt.defs[prompt.index].name, run: () => true }));
+    if (prompt) return prompt.suggestions.map((sg, i) => ({ key: `suggestion:${i}`, label: sg.name, section: `${prompt.ref.name} › ${prompt.defs[prompt.index].name}`, run: () => true }));
     if (tab === "plugins") return plugins ? pluginRows(plugins, query).map((r) => pluginRow(r)) : [];
     if (tab === "assets")
       return searchAssets(assets, query).map((a) => ({
@@ -203,7 +203,7 @@ function Actions() {
   }, [prompt?.run, prompt?.index]);
   /** Enter / Tab in the prompt: the picked suggestion (or the typed text, freeform) for this parameter; the last runs. */
   const acceptParameter = (picked: Suggestion | null) => {
-    if (!prompt) return;
+    if (!prompt || prompt.error) return;
     const def = prompt.defs[prompt.index];
     const value = picked ? picked.data : def.allowFreeform || !prompt.suggestions.length ? query : undefined;
     if (value === undefined || (value === "" && !def.optional)) return;
@@ -317,7 +317,7 @@ function Actions() {
             setActiveKey(undefined);
           }} />
         <div ref={list} id="actions-results" role="listbox" aria-label="Results" className={styles.list}>
-          {prompt && (
+          {prompt && (prompt.error || prompt.loading || !rows.length) && (
             <div role="presentation" className={styles.header}>
               {`${prompt.ref.name} › ${prompt.defs[prompt.index].name}`}
               {prompt.error ? ` — ${prompt.error}` : prompt.loading ? ` — ${prompt.loading}` : ""}

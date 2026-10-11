@@ -359,6 +359,46 @@ describe("plugins: the sandbox", () => {
     expect(pageChildren(ed).length).toBe(count);
   });
 
+  it("exportAsync (SVG as bytes and as a string), text ranges, group / ungroup, clone and components", async () => {
+    const { ed, engine } = await editor();
+    const { r } = await run(
+      ed,
+      inline(`
+        (async () => {
+          const out = {};
+          const rect = figma.createRectangle();
+          rect.resize(40, 20);
+          const svg = await rect.exportAsync({ format: "SVG_STRING" });
+          out.svg = svg.startsWith("<svg") && svg.includes('width="40"');
+          const bytes = await rect.exportAsync({ format: "SVG" });
+          out.bytes = bytes instanceof Uint8Array && bytes.length > 20;
+          const text = figma.createText();
+          text.characters = "Hello world";
+          text.setRangeFontSize(6, 11, 24);
+          out.mixed = text.fontSize === figma.mixed;
+          out.range = [text.getRangeFontSize(0, 5), text.getRangeFontSize(6, 11)];
+          text.insertCharacters(5, ",");
+          out.chars = text.characters;
+          const other = figma.createEllipse();
+          const g = figma.group([rect, other], figma.currentPage);
+          out.group = [g.type, g.children.length];
+          const kids = figma.ungroup(g);
+          out.ungroup = kids.length;
+          const copy = rect.clone();
+          out.clone = copy.id !== rect.id && copy.width === 40;
+          const comp = figma.createComponentFromNode(copy);
+          out.component = comp.type;
+          const inst = comp.createInstance();
+          out.instance = [inst.type, inst.mainComponent && inst.mainComponent.id === comp.id];
+          figma.root.setPluginData("result", JSON.stringify(out));
+          figma.closePlugin();
+        })();
+      `)
+    );
+    await untilEnded(r);
+    expect(JSON.parse(rootData(engine, "result")!)).toEqual({ svg: true, bytes: true, mixed: true, range: [12, 24], chars: "Hello, world", group: ["GROUP", 2], ungroup: 2, clone: true, component: "COMPONENT", instance: ["INSTANCE", true] });
+  });
+
   it("a plugin's error is reported and the run ends", async () => {
     const { ed } = await editor();
     const logs: string[][] = [];

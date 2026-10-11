@@ -218,7 +218,7 @@ export class PluginRun {
     }
     this.attachEvents();
     this.env.ui.stoppers.set(this.runId, () => this.stop());
-    this.env.ui.setRunning(this.runId, this.spec.name, true);
+    if (!this.spec.awaitParameters) this.env.ui.setRunning(this.runId, this.spec.name, true);
     await this.waitIdle();
     try {
       await this.vm.evaluate(this.spec.code, this.spec.manifest.main || "code.js");
@@ -237,7 +237,8 @@ export class PluginRun {
 
   /** The parameters the person gave (Enter in the Actions panel): figma.on("run") gets them. */
   async submitParameters(parameters: Record<string, unknown>): Promise<void> {
-    (this.spec as { parameters?: Record<string, unknown> }).parameters = parameters;
+    Object.assign(this.spec, { parameters, awaitParameters: false });
+    this.updateRunning();
     if (this.listening.has("run")) await this.enter("__dispatch", "run", encodeValue({ command: this.spec.command, parameters }));
   }
 
@@ -346,7 +347,7 @@ export class PluginRun {
   private updateRunning(): void {
     const w = this.env.ui.window(this.runId);
     // Figma: the "Running ‹name›" toast while a run is open and its UI is hidden or absent.
-    this.env.ui.setRunning(this.runId, this.spec.name, this.running && (!w || !w.visible));
+    this.env.ui.setRunning(this.runId, this.spec.name, this.running && !this.spec.awaitParameters && (!w || !w.visible));
   }
 
   private async drop(data: unknown, at: { x: number; y: number }): Promise<void> {

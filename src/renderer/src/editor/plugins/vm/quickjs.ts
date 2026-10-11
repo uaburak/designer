@@ -7,15 +7,19 @@
  * asyncify build is the contract's; host calls here are synchronous (an async API answers {async: id} and settles
  * later through `__settle`), so no call suspends the VM.
  */
-import { newQuickJSAsyncWASMModuleFromVariant, type QuickJSAsyncContext, type QuickJSAsyncRuntime, type QuickJSAsyncWASMModule, type QuickJSHandle } from "quickjs-emscripten-core";
+import { newQuickJSAsyncWASMModuleFromVariant, newVariant, type QuickJSAsyncContext, type QuickJSAsyncRuntime, type QuickJSAsyncWASMModule, type QuickJSHandle } from "quickjs-emscripten-core";
 import variant from "@jitl/quickjs-wasmfile-release-asyncify";
+import wasmUrl from "@jitl/quickjs-wasmfile-release-asyncify/wasm?url";
 import { VmError, type PluginVm, type VmOptions } from "./types";
 
 let modulePromise: Promise<QuickJSAsyncWASMModule> | null = null;
 
 /** The QuickJS module, loaded once per view (each run makes its own runtime from it). */
 export function quickJsModule(): Promise<QuickJSAsyncWASMModule> {
-  modulePromise ??= newQuickJSAsyncWASMModuleFromVariant(variant).catch((e) => {
+  // The view loads the .wasm from the URL the bundler gave it (Vite's dependency step moves the module's own JS away
+  // from the file it looks for next to itself); tests in Node read it from the package as it is.
+  const v = import.meta.env.MODE === "test" ? variant : newVariant(variant, { wasmLocation: wasmUrl });
+  modulePromise ??= newQuickJSAsyncWASMModuleFromVariant(v).catch((e) => {
     modulePromise = null;
     throw e;
   });

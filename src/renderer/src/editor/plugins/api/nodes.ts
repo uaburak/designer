@@ -9,6 +9,7 @@ import { Status } from "@/engine/abi";
 import { keyAfter, keyBetween } from "@shared/schema/fractionalIndex";
 import { fieldsOf, readProps, PROP_NAMES, sizingOf } from "../../agents/nodeSpec";
 import { cssOf } from "../../model/exports";
+import { mainOf } from "../../components";
 import { ApiError, MIXED } from "./codec";
 import { mustNode, parentOf, readNode, ref, refOf, type ApiContext } from "./context";
 import {
@@ -356,7 +357,7 @@ const PROPS: Record<string, Prop> = {
       return vs.length ? Object.fromEntries(vs.map((p) => [p.name, p.value])) : null;
     },
   },
-  mainComponent: { get: (ctx, n) => refOf(ctx, ((n as unknown as Obj).symbolData as { symbolID?: string } | undefined)?.symbolID) },
+  mainComponent: { get: (ctx, n) => (n.type === "INSTANCE" ? ref(mainOf(ctx.ed, n as never) as NodeChange | null) : null) },
   overrides: { get: () => [] },
   exposedInstances: { get: () => [] },
   isExposedInstance: field("isExposedInstance", false),

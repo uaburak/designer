@@ -391,14 +391,15 @@ export async function exportNode(ctx: ApiContext, id: Guid, settings: unknown): 
   const s = (settings ?? { format: "PNG" }) as Obj;
   const format = String(s.format ?? "PNG");
   if (format === "JSON_REST_V1") throw new ApiError("exportAsync with JSON_REST_V1 is not supported in DesignerV2 yet");
-  const imageType = format === "JPG" ? "JPEG" : format;
+  const imageType = format === "JPG" ? "JPEG" : format === "SVG_STRING" ? "SVG" : format;
+  if (!["PNG", "JPEG", "SVG", "PDF"].includes(imageType)) throw new ApiError(`exportAsync: unknown format ${format}`);
   const constraint = s.constraint as { type?: string; value?: number } | undefined;
   const engineSettings = {
     imageType,
     suffix: "",
     constraint: { type: constraint?.type === "WIDTH" ? "WIDTH" : constraint?.type === "HEIGHT" ? "HEIGHT" : "CONTENT_SCALE", value: constraint?.value ?? 1 },
     svgOutlineText: s.svgOutlineText !== false,
-    svgIDMode: s.svgIdAttribute ? "IF_NEEDED" : "IF_NEEDED",
+    svgIDMode: s.svgIdAttribute ? "ALWAYS" : "IF_NEEDED",
     contentsOnly: s.contentsOnly !== false,
     useAbsoluteBounds: !!s.useAbsoluteBounds,
   };

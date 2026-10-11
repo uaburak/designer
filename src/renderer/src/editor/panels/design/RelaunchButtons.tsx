@@ -8,6 +8,7 @@
 import { useMemo } from "react";
 import { Button } from "@/ds";
 import type { Guid, NodeChange } from "@/engine/codec";
+import { useUndoState } from "@/engine/hooks";
 import { useEditor } from "../../controller";
 import { usePluginService, usePlugins, type PluginService } from "../../plugins/service";
 import styles from "./Design.module.css";
@@ -39,9 +40,11 @@ export function RelaunchButtons({ refs }: { refs: readonly Guid[] }) {
   const service = usePluginService(ed);
   const snap = usePlugins(service);
   const key = refs.join(",");
+  // Every committed edit moves the undo state: a run's setRelaunchData shows at once.
+  const undo = useUndoState(ed.store);
   const nodes = useMemo(() => (refs.length ? ed.engine.readNodes([...refs], { fields: ["pluginRelaunchData"] }) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- read again when the selection or the plugin lists change
-    [ed, key, snap, ed.store.structure]);
+    [ed, key, snap, undo]);
   const buttons = service ? relaunchesOf(service, nodes) : [];
   if (!service || !buttons.length) return null;
   return (
