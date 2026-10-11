@@ -60,8 +60,8 @@ import { LibraryRouter } from "./libraries/router";
 import { orgLibrariesRepository } from "./libraries/orgLibraries";
 import { AnalyticsQueue, analyticsRepository } from "./libraries/analyticsQueue";
 import { identityRepository } from "./org/identity";
-import { notImplementedPlugins } from "./plugins/stub";
-import { notImplementedDevMode } from "./devmode/stub";
+import { PluginsService } from "./plugins/service";
+import { DevModeService, type LocalDevRecord } from "./devmode/service";
 import { UsageReporter } from "./libraries/usage";
 
 export interface LocalStoreOptions {
@@ -333,7 +333,45 @@ export class LocalStore {
       log,
     });
     files.changes.on((c) => this.usage.touched(c.fileKey));
+
+    // Plugins (docs/plugins.md §6, §10): saved / recents in plugins.json, private plugins cached under spaces/plugins/
+    const pluginsPath = join(dirs.root, "plugins.json");
+    this.plugins = new PluginsService({
+      server: this.libraryServer,
+      cache,
+      loadLocal: () => readJsonOrNull(pluginsPath),
+      saveLocal: (value) => this.spacesQueue.run(() => writeJsonAtomic(dirs.tmp, pluginsPath, value)),
+      getMeta: (fileKey) => ws.files.get(fileKey) ?? null,
+      orgInfo: (orgId) => this.org.orgs.get(orgId).catch(() => null),
+      teamWorkspace: (teamId) => this.org.teams.get(teamId).then((t) => t.workspaceId),
+      notices: this.notifications,
+      now: () => clock.now(),
+      log,
+    });
+    // Dev Mode (docs/editor.md D-1, D-3, D-4, D-6): a local file's records beside its journal
+    const devPath = (fileKey: FileKey, what: LocalDevRecord) => {
+      if (!isFileKey(fileKey)) throw new StoreError("invalid", `bad file key ${fileKey}`);
+      return join(dirs.files, fileKey, `${what}.json`);
+    };
+    this.devMode = new DevModeService({
+      server: this.libraryServer,
+      getMeta: (fileKey) => ws.files.get(fileKey) ?? null,
+      roomKey: (fileKey) => this.multiplayer.roomKey(fileKey),
+      linkedCopy: (key) => this.multiplayer.linkedCopy(key),
+      branchOf: async (fileKey) => {
+        const r = await this.branches.get(fileKey);
+        return r ? { mainFileKey: r.mainFileKey, mainKey: r.mainKey } : null;
+      },
+      readLocal: (fileKey, what) => readJsonOrNull(devPath(fileKey, what)),
+      writeLocal: (fileKey, what, value) => writeJsonAtomic(dirs.tmp, devPath(fileKey, what), value),
+      now: () => clock.now(),
+    });
   }
+
+  /** Saved / recents, private plugins and approvals (docs/plugins.md §10); events on topic `plugins` */
+  readonly plugins: PluginsService;
+  /** Dev resources, Code Connect, statuses' reports, prototype members (docs/editor.md D-8); events on topic `devmode` */
+  readonly devMode: DevModeService;
 
   /** The server as the libraries reach it */
   readonly libraryServer: LibraryServer;
@@ -705,6 +743,7 @@ export class LocalStore {
     this.usage.close();
     await this.analytics.close().catch((e) => this.log("warn", "analytics: the quit's send failed", e));
     this.orgLibraries.close();
+    this.plugins.close();
     this.org.close();
     this.branches.close();
     this.notifications.close();
@@ -861,8 +900,8 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     orgLibraries: orgLibrariesRepository(s.libraryServer),
     analytics: analyticsRepository(s.analytics, s.libraryServer),
     identity: identityRepository(s.multiplayer, (orgId) => void s.org.notice({ t: "org", what: "org", orgId })),
-    plugins: notImplementedPlugins(),
-    devMode: notImplementedDevMode(),
+    plugins: s.plugins.repository(),
+    devMode: s.devMode.repository(),
   };
 }
 

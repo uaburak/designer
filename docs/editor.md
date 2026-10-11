@@ -313,6 +313,32 @@ Also in that commit:
 - **D-4** — `POST /files/:key/dev-status {nodeId, nodeName, status, kind, changeMessage?}` → 204 (kind and status must agree: ready ↔ READY_FOR_DEV, completed ↔ COMPLETED, changed_done ↔ either, removed ↔ NONE); `POST /files/:key/dev-status/viewed` → 204 (an upsert at most hourly; skipped without `canDevMode`); `GET /files/:key/dev-status/notify` → `{notify, viewed}`; `PUT … {notify}` → `{notify}`. `emitWebhook` `DEV_MODE_STATUS_UPDATE` with the node's dev resources as `related_links`. Notifications: `text` = the design's name (for `dev_changed`: name, a line break, the reason — `devStatusText` splits it); one person's unread rows of one kind on one file fold within an hour (`DEV_STATUS_FOLD_MS`). `NotificationPrefs.devMode: "status" | "none"` (default status) gates the desktop push. The row's link is `designer://open?key=…&m=dev&dev=ready` (5f/5h read `dev=ready` into `OpenIntent.devMode`).
 - **D-6** — `resolveAccess` tries the prototype level only when everything else refuses (`AccessRows.file.protoLinkAccess` / `protoOrgLinkAccess`, `AccessRows.prototypeMember`): an invitation needs no link or password; the org's prototype link is for members (not guests) by the link; the public one follows the public link's rules (by the link in orgs, the policy, expiry → `gone`, password → `password_required`). The result is `role: "viewer"`, `prototypeOnly: true`, no Dev Mode / sharing / managing, comments yes unless external, export by `viewers_can_copy`. In `api.ts`, a prototype-only caller reaches only `GET /files/:key`, unlock, snapshot, blobs, comments, ws and activity (`prototypeOpen`), others 403. Prototype-only files aren't in listings. `GET /files/:key` adds `protoOrgLinkAccess`. Routes: `GET / PUT {email} / DELETE :email /files/:key/prototype-members` (people who can share; an invitee with an account gets an "invite" as viewer; removal revokes their sockets; `fig_file_member_add` / `_remove` with `role: "prototype"`); `PATCH /files/:key {protoOrgLinkAccess}` (org files, owner and admins; `fig_file_proto_link_access_change {link: "org"}`; turning either prototype link off re-resolves sockets). **Deviation**: the Worker sends `x-role: viewer`, not `prototype` — the room (`room.ts`, 5a's) refuses writes only for `role === "viewer"`, so an unknown role would write; the client knows from `FileAccess.prototypeOnly`.
 
+### As built — the store (round 5g, 2026-10-11, branch `worktree-agent-a3ed1d1a7df356ff6`)
+
+**Where**: `src/store/devmode/service.ts` (`DevModeService`, no Node or DOM imports), wired in `LocalStore` and `MemoryStore`. Tests: `src/store/devmode/devmode.test.ts`, against 5c's real handler (the org of `server/src/testing/orgWorld.ts`), plus `src/renderer/src/store/memory/devmodePlugins.test.ts` (MemoryStore) and a host fake for key resolution.
+
+**Change to D-8**: `DevModeRepository.watch(listener)` and `DevModeEvent {fileKey, what: "resources" | "codeConnect"}`. Like `orgs.watch`, it is the client's listener on topic `devmode`, not an RPC.
+
+**Keys** (`recordsOf`):
+- A caller names a local file key or a room key. A room key is resolved to its linked copy when there is one; one with no copy here goes to the server as it is (a library's key from an instance).
+- **Dev resources and Code Connect live on main.** A branch maps to its main through its `BranchRecord`: main's room key (`mainKey`) when main is shared, else main's local key.
+- A shared file's records are on the server; a local file's are on disk.
+- **Status reports, viewers, the notify switch and prototype members** go to the file's own room. The server tells no one about a branch's statuses. For a local file, `reportStatus`, `viewed` and `setStatusNotifications` resolve at once and `prototypeMembers` answers `[]`. `invitePrototype` / `removePrototype` refuse with `invalid` ("Share this file to invite people to its prototype").
+
+**Local records:**
+- Stored in `files/<key>/dev-resources.json` `{v: 1, devResources}` and `code-connect.json` `{v: 1, mappings}` (desktop), or `designer.devStore.v1.devResources.<key>` / `.codeConnect.<key>` (browser; deleted with the file).
+- They follow the server's rules, checked in the store:
+  - node ids as `NODE_ID`; http(s) URLs ≤ 2048;
+  - an empty name becomes host + path;
+  - "You can add up to 10 links to a layer." (`invalid`) and "This link has already been added." (`conflict`);
+  - the label's default language (`languageOf`); UI mappings only (`origin: "ui"`, `template: null`).
+- Writes to one file are serialised. Writing needs the file to be on this computer (`not-found` otherwise); reading a key with no file answers `[]`.
+- `createdBy` / `updatedBy` are the signed-in person's id, or null.
+
+**Remote**: the routes as 5c built them. Inputs are checked first (node ids, URLs, labels, imports, emails; the report's `kind` must agree with its `status`), and the server's refusals come back as `StoreError`s. Signed out → `offline`.
+
+**Events**: each change made here says `{fileKey, what}` for the key the caller named and, when it differs, for the key the records live under (main's local key or room key). Other people's changes aren't heard: the room has no broadcast for them (5c's open point).
+
 ### Not built in round 5 (Dev Mode)
 
 - Code Connect's GitHub autocomplete and its AI snippet previews;

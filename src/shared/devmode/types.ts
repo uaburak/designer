@@ -18,6 +18,11 @@ export const DEV_RESOURCE_LIMIT = 10;
 export type DevStatus = "READY_FOR_DEV" | "COMPLETED" | "NONE";
 export interface DevStatusReport { nodeId: string; nodeName: string; status: DevStatus; kind: "ready" | "completed" | "changed_done" | "removed"; changeMessage?: string }
 
+/** Topic "devmode" (round 5g): a file's dev resources or Code Connect mappings changed through this store — read again.
+ *  Said for the key the caller named and, when it differs, the key the records live under (a branch's main, a room
+ *  key). Other people's changes aren't heard (the room has no broadcast for them yet). */
+export interface DevModeEvent { fileKey: string; what: "resources" | "codeConnect" }
+
 /** The store's devMode repository (both stores; events on topic "devmode": {fileKey, what: "resources" | "codeConnect"}) */
 export interface DevModeRepository {
   devResources(fileKey: string, nodeIds?: string[]): Promise<DevResourceRecord[]>;
@@ -35,4 +40,6 @@ export interface DevModeRepository {
   prototypeMembers(fileKey: string): Promise<{ email: string; userId: string | null; name: string | null }[]>;
   invitePrototype(fileKey: string, email: string): Promise<void>;
   removePrototype(fileKey: string, email: string): Promise<void>;
+  /** Topic "devmode" (not an RPC: the client's own listeners) */
+  watch(listener: (e: DevModeEvent) => void): () => void;
 }

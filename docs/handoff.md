@@ -406,3 +406,21 @@ Acceptance (verified with `scripts/drive.mjs` on the built demo app): launch →
   - **Verified**: `npm run check` (200 files, 1691 tests; new: `rest/rest.test.ts` 17, `webhooks/webhooks.test.ts` 7) and `npm --prefix server run typecheck`. Not run against `wrangler dev` (no client renders before 5b); `encodeBody: "manual"` and the two-member gzip are untested on workerd.
   - **Shared-file edits outside the row**: `server/src/devmode/devResources.ts` and `codeConnect.ts` (one `roomBroadcast` line per write, at 5c's request), `server/src/roomBroadcast.ts` (new).
   - **Open**: a delivery row has no claim while it is sent (the cron and `waitUntil` could send one twice in the same minute); `protocol.ts` doesn't type `hello.helper` or the broadcast messages.
+- 2026-10-11 — **Phase 7 round 5g, the store's plugins and Dev Mode repositories** (branch `worktree-agent-a3ed1d1a7df356ff6`). The as-built records are `docs/plugins.md` §10.3b and `docs/editor.md` "As built — the store (round 5g)".
+  - **`src/store/plugins/service.ts`** (`PluginsService`):
+    - saved / recents in `Workspace/plugins.json` (browser: `designer.devStore.v1.plugins`), recents ≤ 10;
+    - private plugins listed and cached per org; bundles downloaded once per version under `spaces/plugins/<id>/<version>/`;
+    - publish in three steps (only changed parts sent; the folder's plugin id remembered);
+    - `allowed` from the org cache's settings and the approved list (30 s, offline cache, team → workspace);
+    - requests and the admin calls; the Inbox's `{t: "plugins"}` → topic `plugins`.
+  - **`src/store/devmode/service.ts`** (`DevModeService`):
+    - a shared file's records on the server, a local file's in `files/<key>/dev-resources.json` / `code-connect.json` (browser: `designer.devStore.v1.devResources.<key>` / `.codeConnect.<key>`), with the server's rules;
+    - branches map to main (main's room key when shared); statuses, viewers and prototype members go to the file's own room;
+    - topic `devmode`.
+  - **API change for 5d / 5e / 5f / 5h**: `plugins.watch(listener)` and `devMode.watch(listener)` (client-side listeners on the two topics, as `orgs.watch`); the types `PluginsEvent` and `DevModeEvent`. Otherwise the repositories are the verbatim D-8 / §10.4 ones.
+  - **Shared-file edits**: `src/shared/plugins/types.ts`, `src/shared/devmode/types.ts` (the two `watch`es), `src/shared/store/client.ts` (topics), `src/shared/store/protocol.ts` (a comment), `src/store/server.ts` (broadcasts), `src/store/notifications/service.ts` (`onPlugins`), `src/store/localStore.ts`, `src/renderer/src/store/memory/memoryStore.ts`; the two stubs are deleted.
+  - **Tests**: `src/store/plugins/plugins.test.ts` 6 and `src/store/devmode/devmode.test.ts` 5, against 5c's real handler; `src/renderer/src/store/memory/devmodePlugins.test.ts` 2 (MemoryStore). `server/src/testing/orgWorld.ts`: one cast (`BodyInit` → `RequestInit["body"]`) so the root typecheck takes it.
+  - **Open**:
+    - Other people's dev-resource changes aren't heard (no room broadcast).
+    - Plugin icons, `PATCH /plugins/:id` and sweeping the bundle cache aren't built.
+    - `allowed` reads org settings from the org cache, which a settings change refreshes through the Inbox's `{t: "org"}`.

@@ -11,6 +11,8 @@ import type { RoomPolicy } from "../shared/org/identity";
 import type { NotificationsEvent } from "../shared/notifications";
 import type { OrgEvent } from "../shared/org/repositories";
 import type { BranchEvent } from "../shared/merge/branches";
+import type { PluginsEvent } from "../shared/plugins/types";
+import type { DevModeEvent } from "../shared/devmode/types";
 
 /**
  * What the server needs from a store: `LocalStore` (the utility process), or the browser's in-memory dev store
@@ -42,6 +44,10 @@ export interface ServableStore {
   readonly branches?: { onEvent(listener: (e: BranchEvent) => void): Unsubscribe };
   /** Shared fonts changed (docs/desktop.md §14.3), topic `fonts` */
   readonly fonts?: { onEvent(listener: (e: FontsEvent) => void): Unsubscribe };
+  /** Saved / recents and orgs' private plugins and approvals changed (docs/plugins.md §10), topic `plugins` */
+  readonly plugins?: { onEvent(listener: (e: PluginsEvent) => void): Unsubscribe };
+  /** A file's dev resources or Code Connect mappings changed (docs/editor.md D-8), topic `devmode` */
+  readonly devMode?: { onEvent(listener: (e: DevModeEvent) => void): Unsubscribe };
   readonly files: {
     /** Frames after `fromSeq` for a subscriber catching up */
     backlog(fileKey: FileKey, fromSeq: number): Promise<FileChange[]>;
@@ -150,6 +156,8 @@ export class StoreServer {
     if (store.org) this.offs.push(store.org.onEvent((d) => this.broadcast({ t: "evt", topic: "org", d })));
     if (store.branches) this.offs.push(store.branches.onEvent((d) => this.broadcast({ t: "evt", topic: "branches", d })));
     if (store.fonts) this.offs.push(store.fonts.onEvent((d) => this.broadcast({ t: "evt", topic: "fonts", d })));
+    if (store.plugins) this.offs.push(store.plugins.onEvent((d) => this.broadcast({ t: "evt", topic: "plugins", d })));
+    if (store.devMode) this.offs.push(store.devMode.onEvent((d) => this.broadcast({ t: "evt", topic: "devmode", d })));
   }
 
   get size(): number {

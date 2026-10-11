@@ -114,6 +114,13 @@ export class NotificationsService {
     return () => this.fontsListeners.delete(listener);
   }
 
+  private pluginsListeners = new Set<(n: { t: "plugins"; orgId: string }) => void>();
+  /** `{t: "plugins", orgId}` notices from the inbox (an org's private plugins, approvals or requests, docs/plugins.md §10) */
+  onPlugins(listener: (n: { t: "plugins"; orgId: string }) => void): Unsubscribe {
+    this.pluginsListeners.add(listener);
+    return () => this.pluginsListeners.delete(listener);
+  }
+
   /** The inbox socket opened again: what changed while it was closed is unknown */
   private reconnectListeners = new Set<() => void>();
   onReconnect(listener: () => void): Unsubscribe {
@@ -232,6 +239,10 @@ export class NotificationsService {
       }
       if (raw.t === "fonts") {
         if (typeof raw.orgId === "string") for (const l of [...this.fontsListeners]) l({ t: "fonts", orgId: raw.orgId, version: String(raw.version ?? "") });
+        return;
+      }
+      if (raw.t === "plugins") {
+        if (typeof raw.orgId === "string") for (const l of [...this.pluginsListeners]) l({ t: "plugins", orgId: raw.orgId });
         return;
       }
       if (msg.t !== "notifications") return;

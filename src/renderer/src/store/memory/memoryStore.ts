@@ -61,8 +61,8 @@ import { LibraryRouter } from "../../../../store/libraries/router";
 import { orgLibrariesRepository } from "../../../../store/libraries/orgLibraries";
 import { AnalyticsQueue, analyticsRepository } from "../../../../store/libraries/analyticsQueue";
 import { identityRepository } from "../../../../store/org/identity";
-import { notImplementedPlugins } from "../../../../store/plugins/stub";
-import { notImplementedDevMode } from "../../../../store/devmode/stub";
+import { PluginsService } from "../../../../store/plugins/service";
+import { DevModeService, type LocalDevRecord } from "../../../../store/devmode/service";
 import { UsageReporter } from "../../../../store/libraries/usage";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -202,6 +202,11 @@ const K = {
   /** A branch's record and base (docs/data.md §15.2) */
   branch: (key: FileKey) => `${KV_PREFIX}branch.${key}`,
   branchBase: (key: FileKey) => `${KV_PREFIX}branchBase.${key}`,
+  /** Saved / recent plugins (docs/plugins.md §6) and an org's cached private plugins and approvals (§10) */
+  plugins: `${KV_PREFIX}plugins`,
+  pluginsOrg: (orgId: string) => `${KV_PREFIX}plugins.org.${orgId}`,
+  /** A local file's dev resources and Code Connect mappings (docs/editor.md D-1, D-3) */
+  devRecord: (key: FileKey, what: LocalDevRecord) => `${KV_PREFIX}${what === "dev-resources" ? "devResources" : "codeConnect"}.${key}`,
 };
 
 export interface MemoryStoreOptions {
@@ -547,7 +552,58 @@ export class MemoryStore {
       log: (level, message, detail) => this.log(level, message, detail),
     });
     this.fileChanges.on((c) => this.usage.touched(c.fileKey));
+
+    // Plugins (docs/plugins.md §6, §10): saved / recents and orgs' lists in the storage, bundles in memory
+    const orgName = (name: string) => /^plugins\/orgs\/([A-Za-z0-9_-]{1,64})\.json$/.exec(name)?.[1] ?? null;
+    const pluginCache: LibraryCacheStore = {
+      readJson: async <T>(name: string) => {
+        const org = orgName(name);
+        return (org ? json(K.pluginsOrg(org)) : (memo.get(name) ?? null)) as T | null;
+      },
+      writeJson: async (name, value) => {
+        const org = orgName(name);
+        if (org) void put(K.pluginsOrg(org), value);
+        else memo.set(name, structuredClone(value));
+      },
+      readBytes: async (name) => (memo.get(name) as Uint8Array | undefined) ?? null,
+      writeBytes: async (name, bytes) => void memo.set(name, bytes.slice()),
+    };
+    this.plugins = new PluginsService({
+      server: this.libraryServer,
+      cache: pluginCache,
+      loadLocal: async () => json(K.plugins),
+      saveLocal: async (value) => {
+        if (!kv.set(K.plugins, JSON.stringify(value))) throw new StoreError("invalid", "The browser's storage is full");
+      },
+      getMeta,
+      orgInfo: (orgId) => this.org.orgs.get(orgId).catch(() => null),
+      teamWorkspace: (teamId) => this.org.teams.get(teamId).then((t) => t.workspaceId),
+      notices: this.notifications,
+      now: () => this.clock.now(),
+      log: (level, message, detail) => this.log(level, message, detail),
+    });
+    // Dev Mode (docs/editor.md D-1, D-3, D-4, D-6): a local file's records one key each
+    this.devMode = new DevModeService({
+      server: this.libraryServer,
+      getMeta,
+      roomKey: (fileKey) => mp.roomKey(fileKey),
+      linkedCopy: (key) => mp.linkedCopy(key),
+      branchOf: async (fileKey) => {
+        const r = await this.branches.get(fileKey);
+        return r ? { mainFileKey: r.mainFileKey, mainKey: r.mainKey } : null;
+      },
+      readLocal: async (fileKey, what) => json(K.devRecord(fileKey, what)),
+      writeLocal: async (fileKey, what, value) => {
+        if (!kv.set(K.devRecord(fileKey, what), JSON.stringify(value))) throw new StoreError("invalid", "The browser's storage is full");
+      },
+      now: () => this.clock.now(),
+    });
   }
+
+  /** Saved / recents, private plugins and approvals (docs/plugins.md §10); events on topic `plugins` */
+  readonly plugins: PluginsService;
+  /** Dev resources, Code Connect, statuses' reports, prototype members (docs/editor.md D-8); events on topic `devmode` */
+  readonly devMode: DevModeService;
 
   /** Org libraries (docs/data.md §16.3), behind the router with the local ones; analytics (§17) */
   readonly libraryServer: LibraryServer;
@@ -632,6 +688,7 @@ export class MemoryStore {
     this.usage.close();
     void this.analytics.close();
     this.orgLibraries.close();
+    this.plugins.close();
     this.org.close();
     this.branches.close();
     this.notifications.close();
@@ -827,6 +884,8 @@ export class MemoryStore {
       this.branches.forget(k);
       this.storage.remove(K.branch(k));
       this.storage.remove(K.branchBase(k));
+      this.storage.remove(K.devRecord(k, "dev-resources"));
+      this.storage.remove(K.devRecord(k, "code-connect"));
       if (this.storage.get(`${KV_PREFIX}lib.${k}`) !== null) this.libraries.forget(k);
       this.data.delete(k);
       this.runtime.delete(k);
@@ -1222,8 +1281,8 @@ export class MemoryStore {
       orgLibraries: orgLibrariesRepository(this.libraryServer),
       analytics: analyticsRepository(this.analytics, this.libraryServer),
       identity: identityRepository(this.multiplayer, (orgId) => void this.org.notice({ t: "org", what: "org", orgId })),
-      plugins: notImplementedPlugins(),
-      devMode: notImplementedDevMode(),
+      plugins: this.plugins.repository(),
+      devMode: this.devMode.repository(),
     };
   }
 }

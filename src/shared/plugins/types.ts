@@ -36,6 +36,10 @@ export interface PrivatePlugin { id: string; orgId: string; kind: PluginKind; na
 export interface PluginApproval { pluginId: string; kind: PluginKind; name: string; scope: { type: "org" } | { type: "workspace"; id: string }; addedBy: string | null; addedAt: number }
 export interface PluginRequest { id: string; orgId: string; pluginId: string; kind: PluginKind; name: string; manifest: PluginManifest | null; requestedBy: { id: string; email: string; name: string | null }; workspaceId: string | null; reason: string; state: "pending" | "approved" | "declined"; declineReason: string; createdAt: number; answeredAt: number | null }
 
+/** Topic "plugins" (round 5g): this installation's saved / recents changed, or an org's private plugins, approvals or
+ *  requests changed (the Inbox's `{t: "plugins", orgId}`, or a change made here) — read again */
+export type PluginsEvent = { what: "local" } | { what: "org"; orgId: string };
+
 /** The plugins repository on StoreApi (both stores; events on topic "plugins") */
 export interface PluginsRepository {
   /** Saved and recent plugins of this installation */
@@ -55,4 +59,6 @@ export interface PluginsRepository {
   approve(orgId: string, input: { pluginId: string; kind: PluginKind; name: string; scope: { type: "org" } | { type: "workspace"; ids: string[] } }): Promise<void>;
   unapprove(orgId: string, pluginId: string, workspaceId?: string): Promise<void>;
   answer(orgId: string, requestId: string, input: { approve: boolean; reason?: string; workspaceIds?: string[] }): Promise<PluginRequest>;
+  /** Topic "plugins" (not an RPC: the client's own listeners, as `orgs.watch`) */
+  watch(listener: (e: PluginsEvent) => void): () => void;
 }
