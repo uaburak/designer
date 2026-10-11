@@ -908,6 +908,160 @@ Settings › Account › "Your uploaded fonts" — "Upload fonts for your person
 - **The trash button** (`fonts:remove-uploaded {id}`): the file holding that face goes, with its other faces (a collection, a variable font's instances).
 - **Not built**: Figma keeps uploaded fonts with the account (they follow you to other computers); ours stay on this computer.
 
+### 14.3 Shared fonts (contract, Phase 7 round 3; written 2026-10-11)
+
+**Status: contract, not built.** Fonts an organization's admins upload for the whole organization, or a team's admins for their team, served to the people who may use them and cached like Google fonts. Research: R18 D-2. Facts read on 2026-10-11:
+- **[SF]** Add fonts to an organization or team — https://help.figma.com/hc/en-us/articles/360039956774
+- **[SF-guide]** Guide to managing an organization — https://help.figma.com/hc/en-us/articles/360052679454
+- The picker's filter "Used at ‹organization›" — R11 §4 (help.figma.com 360041308034).
+
+**What Figma does** [SF]:
+- Organization and Enterprise. "There's no need to share, install or update fonts for individual users."
+- **Organization fonts**: only org admins upload them — file browser › **Admin** › **Resources** › **Fonts** › **Font** › pick one or more files › **Open** › confirm "you have the necessary rights and licenses to use the font(s)" › **Upload**.
+- **Team fonts**: only team admins — the team › ⌄ › **View settings** › **View team's fonts** (lists them) › **Upload fonts** › files › **Open** › a checkbox confirming the same rights › **Upload**.
+- **.TTF and .OTF only**; web fonts can't be uploaded.
+- **Same family already there** (org upload): a warning with **Skip** (leave the font out) or **Replace** (update the existing font).
+- Organization fonts appear in the font picker **for files in the organization**, for members of any team; team fonts in the picker **for files in that team**.
+- Not stated (unverified): deleting, size or count limits, workspace scope, guests, caching and offline use.
+
+**Decisions:**
+
+| Topic | Decision |
+|---|---|
+| Storage | Bytes in one Durable Object **`FontObject` per org** (SQLite, 1 MB chunks, content-addressed by SHA-1; team fonts in their org's object). Rows in D1 `shared_fonts` (migration 0012, docs/data.md §16.11). Same reasons as libraries (data.md §16.2): no R2 to enable, five-gigabyte account budget, one object per org isolates and deletes cleanly. |
+| Limits | A file ≤ 50 MB (as §14.2), ≤ 200 faces per org (ours; Figma states none). |
+| Formats | TTF and OTF, a variable TTF included (one row per named instance, as the index does). Collections (TTC / OTC) are refused: Figma's rule (§14.2's personal upload accepts them; shared upload doesn't). |
+| Parsing | The **client** parses (main's `parseFile`, the same reader as the index) and sends the faces with the bytes; the object checks the magic (`0x00010000`, `true` or `OTTO`) and the SHA-1. Admins are trusted for names. The Worker's 10 ms CPU never reads font tables. |
+| Who uploads / removes | Org fonts: org admins. Team fonts: the team's admins and owner, and org admins. Remove (ours; Figma's page doesn't describe it): the same people. |
+| Who gets them | Org fonts: the org's **members and admins** — not guests (ours: Figma serves them to "members"; unverified for guests). Team fonts: the team's members (guests who are team members included). |
+| Which files | As Figma: org fonts in files of that org (drafts included); team fonts in files of that team. Local files and other orgs' files don't see them; such a text shows as a missing font there, as for anyone without the font. |
+| Precedence | Installed (system and user, uploaded-by-you) > team > org > Google > bundled Inter fallback (ours: Figma states installed over Figma-served; the order among shared and Google is unverified). |
+| Cache | `userData/fonts/shared/<sha1>.<ttf\|otf>`, downloaded on first use like Google fonts, kept for offline. A file no longer listed for the person is deleted on the next successful refresh (licences: someone who left the org stops having it). |
+| Activity log | Nothing: Figma's action types name no font action [docs/data.md §16.1]. |
+
+**Server routes** (`server/src/fonts/routes.ts`, `fontObject.ts`):
+
+| Route | Who | Request → Response |
+|---|---|---|
+| `GET /me/fonts` | signed in | → `SharedFontList` — every face the caller may use across their orgs and teams, `version` = a hash of the ids |
+| `GET /orgs/:org/fonts?team=<id>` | org members (org fonts); team members (`team=`) | → `{faces: SharedFontFace[]}` (Admin › Resources › Fonts; View team's fonts) |
+| `POST /orgs/:org/fonts/check` | uploaders | `{teamId?, families: string[]}` → `{conflicts: FontConflict[]}` |
+| `PUT /orgs/:org/fonts?team=<id>&onConflict=skip\|replace` | uploaders | body: the file; headers `x-font-faces` (base64 JSON `SharedFontFaceInput[]`), `x-font-file-name`, `x-font-licence: confirmed` (required: 400 without) → `FontUploadAnswer`. A family already in the scope with no `onConflict` → 409 `conflict` `{families}`; `skip` → nothing stored for it; `replace` → that family's faces in the scope are deleted first (their bytes too when no other row uses the SHA-1). |
+| `DELETE /orgs/:org/fonts/:id` · `DELETE /orgs/:org/fonts?team=&family=` | uploaders | → `{faces}` (a face, or a whole family) |
+| `GET /fonts/:sha1` | anyone who may use a face with that SHA-1 | → bytes, `content-type: font/ttf\|font/otf`, `cache-control: private, max-age=31536000, immutable` |
+
+- After an upload, replace or removal: the Inbox notice `{t: "fonts", orgId, version}` to every member of the org (team fonts: the team's members) — the store forwards it on its event topic `fonts` (docs/data.md §16.3), main refreshes.
+
+**Main** (`src/main/sharedFonts.ts`, new; `src/main/fonts.ts`, `src/main/ipc.ts`):
+- **A fourth source** next to system / user / Google: `FontIndex.shared?: SharedFontFace[]` (from `GET /me/fonts` through the session, as `accountRequest` does; cached in `userData/cache/shared-fonts-v1.json` for offline). Refreshed at launch when signed in, on the store's `fonts` event, on sign-in / sign-out (signed out: an empty list, cached files kept until the next signed-in refresh decides), and at most every 6 hours on window focus. A changed `version` → `fonts:changed`.
+- **Face ids** `s:<faceId>`; `fonts:read` of one downloads `GET /fonts/:sha1` into the cache on first use (then the file), and slices nothing (TTF / OTF are single files).
+- **The editor** (`src/renderer/src/engine/fonts.ts`, `editor/fontList.ts`, `editor/openFonts.ts`, `panels/design/FontPicker.tsx`): the font registry takes `index.shared` filtered to the open file's scope — `FileMeta.space.orgId` for org faces, `space.teamId` for team faces; a local file takes none — with §14.3's precedence. The picker's filter **"Used at ‹organization›"** (live's group with "Uploaded by you" / "Installed by you"; shown only in org files) lists them; "All fonts" includes them.
+- **Uploading** (Admin › Resources › Fonts; team settings › View team's fonts): views can't name paths, so main does it:
+  1. `fonts:shared-pick {scope}` → main's Open dialog (TTF, OTF, multiple), each file parsed; refused files listed (`failed`); then `POST …/fonts/check` → `{candidates: FontUploadCandidate[], conflicts, failed}` or `{cancelled: true}`. Candidates keep a `token`; the paths stay in main.
+  2. The view shows Figma's licence confirmation and, for conflicts, **Skip** / **Replace** per family.
+  3. `fonts:shared-upload {scope, tokens, licenceConfirmed: true, choices}` → main uploads each file (`PUT …/fonts`) → `FontUploadResult`. Tokens expire after 10 minutes.
+  - `fonts:shared-list {scope}` → `{faces}`; `fonts:shared-remove {scope, ids? , family?}` → `{faces}`.
+- **The browser** (`npm run web`): not in round 3 (no main process; the web editor sees no shared fonts).
+
+The types are `src/shared/fonts/sharedTypes.ts`, committed verbatim before round 3:
+
+```ts
+/**
+ * Shared fonts (docs/desktop.md §14.3): organization and team fonts uploaded by admins, served by the multiplayer
+ * server, cached by main next to Google fonts. Committed before Phase 7 round 3.
+ */
+
+/** Where a shared font belongs */
+export type SharedFontScope = { type: "org"; orgId: string } | { type: "team"; orgId: string; teamId: string };
+
+/** A face as the uploader's client parsed it (main's parseFile) */
+export interface SharedFontFaceInput {
+  family: string;
+  style: string;
+  postscriptName: string;
+  /** 1–1000 */
+  weight: number;
+  italic: boolean;
+  /** 1–9 */
+  stretch: number;
+  /** A named instance of a variable font */
+  variable: boolean;
+}
+
+export interface SharedFontFace extends SharedFontFaceInput {
+  /** The face's id; in the font index it is "s:" + id */
+  id: string;
+  sha1: string;
+  format: "ttf" | "otf";
+  size: number;
+  fileName: string;
+  orgId: string;
+  /** null: an organization font */
+  teamId: string | null;
+  uploadedAt: number;
+  uploadedBy: { id: string; name: string | null } | null;
+}
+
+/** GET /me/fonts; FontIndex.shared is its `faces` */
+export interface SharedFontList {
+  /** Changes whenever the faces do */
+  version: string;
+  faces: SharedFontFace[];
+}
+
+/** A family already in the scope: Skip or Replace */
+export interface FontConflict {
+  family: string;
+  /** Faces of that family already uploaded */
+  existing: number;
+}
+export type FontConflictChoice = "skip" | "replace";
+
+/** One picked file, parsed by main (its path stays in main) */
+export interface FontUploadCandidate {
+  token: string;
+  fileName: string;
+  format: "ttf" | "otf";
+  size: number;
+  sha1: string;
+  faces: SharedFontFaceInput[];
+}
+
+/** PUT /orgs/:org/fonts */
+export interface FontUploadAnswer {
+  uploaded: SharedFontFace[];
+  /** Families whose faces were replaced */
+  replaced: string[];
+}
+
+export interface FontUploadResult {
+  uploaded: SharedFontFace[];
+  skipped: string[];
+  replaced: string[];
+  failed: { fileName: string; reason: string }[];
+}
+
+/** The IPC channels round 3d adds to src/shared/ipc.ts (Home and editor views; main does the dialog and the upload) */
+export interface SharedFontsChannels {
+  "fonts:shared-list": { args: [{ scope: SharedFontScope }]; result: { faces: SharedFontFace[] } };
+  "fonts:shared-pick": {
+    args: [{ scope: SharedFontScope }];
+    result: { candidates: FontUploadCandidate[]; conflicts: FontConflict[]; failed: { fileName: string; reason: string }[] } | { cancelled: true };
+  };
+  "fonts:shared-upload": {
+    args: [{ scope: SharedFontScope; tokens: string[]; licenceConfirmed: true; choices: Record<string, FontConflictChoice> }];
+    result: FontUploadResult;
+  };
+  "fonts:shared-remove": { args: [{ scope: SharedFontScope; ids?: string[]; family?: string }]; result: { faces: SharedFontFace[] } };
+}
+
+/** Face ids in the font index */
+export const sharedFaceId = (id: string): string => `s:${id}`;
+export const isSharedFaceId = (id: string): boolean => id.startsWith("s:");
+```
+
+`src/shared/ipc.ts` gains (3d): `FontIndex.shared?: SharedFontFace[]`; `FontFaceInfo.source` unchanged (shared faces aren't `FontFaceInfo`s); the four channels, allowed for `["home", "editor"]`.
+
 ---
 
 ## 15. Opening files from outside, deep links
