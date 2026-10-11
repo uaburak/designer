@@ -373,6 +373,12 @@ export interface AiRepository {
 
 ## 10. Open questions for the owner
 
+**Answered by the owner, 2026-10-12:**
+1. **Image provider: Antigravity for all three** — Make and Edit through its `generate_image`, and **Expand through Antigravity too**: the image is placed on the larger canvas (the new area transparent / masked) and sent as an Edit whose prompt asks to fill the empty area to match, keeping the original pixels (6b re-composites the untouched original over the result so it never shifts). No Gemini / OpenAI key needed; those stay optional providers.
+2. **Local models download on first use** (with a confirmation and size), not shipped in the app.
+3. **Credits stop at the allowance**: when the monthly "AI balance" is used up, AI actions are disabled until the next month (Settings › AI shows the balance; the owner can raise the allowance there). Not a warning only.
+4. / 5. **Later**: Skills published to a team / org and OAuth connectors (Notion, Linear, Asana) wait; owner-added MCP servers work this round.
+
 1. **Image provider.**
    - OpenAI (gpt-image models, needs an API key with billing), the Gemini API (a key, billing for image models), or Antigravity on your Google plan (no key, but only make and edit).
    - Expand needs an API.
