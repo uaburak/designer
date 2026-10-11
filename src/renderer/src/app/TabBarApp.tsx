@@ -48,7 +48,9 @@ export default function TabBarApp() {
   const onMove = useCallback((id: string, to: number) => api?.tabs.move(id, to + 1), [api]);
   const onNew = useCallback(() => api?.tabs.newFile(), [api]);
   const onContextMenu = useCallback((id: string, at: { x: number; y: number }) => api?.tabs.contextMenu(id, at.x, at.y), [api]);
+  const onMainMenu = useCallback((at: { x: number; y: number }) => api?.tabs.mainMenu(at.x, at.y), [api]);
+  const windows = api?.platform === "win32";
 
   // In a browser (no main): an empty bar, to look at.
-  return <TabBar tabs={tabs} active={snapshot?.activeTabId ?? "home"} fullScreen={Boolean(snapshot?.fullScreen || win.fullScreen)} onActivate={onActivate} onClose={onClose} onMove={onMove} onNew={onNew} onContextMenu={onContextMenu} />;
+  return <TabBar tabs={tabs} active={snapshot?.activeTabId ?? "home"} fullScreen={Boolean(snapshot?.fullScreen || win.fullScreen)} onActivate={onActivate} onClose={onClose} onMove={onMove} onNew={onNew} onContextMenu={onContextMenu} windows={windows} onMainMenu={onMainMenu} />;
 }

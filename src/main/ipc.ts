@@ -92,6 +92,9 @@ export function registerIpc() {
     const id = str(p?.tabId, 64);
     if (id && typeof p.x === "number" && typeof p.y === "number") ctl.tabs.contextMenu(id, p.x, p.y);
   });
+  onSend("tabs:main-menu", ({ ctl }, p) => {
+    if (typeof p?.x === "number" && typeof p.y === "number") Menu.getApplicationMenu()?.popup({ window: ctl.win, x: Math.round(p.x), y: Math.round(p.y) });
+  });
   onSend("tabs:reopen", ({ ctl }) => void ctl.tabs.reopen());
 
   // ── Navigation ──

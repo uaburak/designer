@@ -9,6 +9,8 @@ export const TABBAR_HEIGHT = 38;
 export const TRAFFIC_LIGHT_ROOM = 80;
 /** The traffic lights' place: centred in the 38px bar */
 export const TRAFFIC_LIGHT_POSITION = { x: 14, y: 12 } as const;
+/** Windows: the caption buttons drawn by the system over the tab bar (titleBarOverlay), in its colours */
+export const CAPTION_OVERLAY = { dark: { color: "#3b3b3b", symbolColor: "#ffffff" }, light: { color: "#e6e6e6", symbolColor: "#000000" } } as const;
 export const DEFAULT_WINDOW_SIZE = { width: 1440, height: 900 } as const;
 export const MIN_WINDOW_SIZE = { width: 800, height: 520 } as const;
 

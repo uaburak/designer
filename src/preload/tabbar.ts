@@ -12,6 +12,7 @@ const api: TabBarApi = {
     close: (tabId) => send("tabs:close", { tabId: String(tabId) }),
     move: (tabId, toIndex) => send("tabs:move", { tabId: String(tabId), toIndex: Number(toIndex) }),
     contextMenu: (tabId, x, y) => send("tabs:context-menu", { tabId: String(tabId), x: Number(x), y: Number(y) }),
+    mainMenu: (x, y) => send("tabs:main-menu", { x: Number(x), y: Number(y) }),
     reopen: () => send("tabs:reopen"),
     newFile: () => void invoke("nav:new-file", { folderId: null }).catch(() => {}),
   },

@@ -9,6 +9,7 @@ export const STRINGS = {
   untitled: "Untitled",
   home: "Home",
   newDesignFile: "New design file",
+  mainMenu: "Main menu",
   collapse: "Collapse",
   expand: "Expand",
   lock: "Lock",

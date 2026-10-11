@@ -77,6 +77,8 @@ export interface TabBarApi extends DesktopCommon {
     /** toIndex counts Home as 0 */
     move(id: string, toIndex: number): void;
     contextMenu(id: string, x: number, y: number): void;
+    /** Windows: the main menu button (the app's menu, as Figma's Windows app has no menu bar) */
+    mainMenu(x: number, y: number): void;
     reopen(): void;
     /** "+": a new design file in Drafts, opened */
     newFile(): void;

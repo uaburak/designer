@@ -1,6 +1,6 @@
 import { app, BaseWindow, nativeTheme, screen, type WebContentsView } from "electron";
 import type { WindowState } from "../shared/ipc";
-import { DEFAULT_WINDOW_SIZE, MIN_WINDOW_SIZE, TABBAR_HEIGHT, TRAFFIC_LIGHT_POSITION } from "../shared/layout";
+import { CAPTION_OVERLAY, DEFAULT_WINDOW_SIZE, MIN_WINDOW_SIZE, TABBAR_HEIGHT, TRAFFIC_LIGHT_POSITION } from "../shared/layout";
 import { persistable, restoreTabs } from "../shared/tabs";
 import { flushSession, readSession, writeSession, type WindowBounds, type WindowSession } from "./session";
 import { stopStoreHost } from "./storeHost";
@@ -35,6 +35,13 @@ export function finishQuit(): Promise<void> {
 export const controllers = new Map<string, WindowController>();
 
 const windowBackground = () => (nativeTheme.shouldUseDarkColors ? "#2c2c2c" : "#ffffff");
+/** Windows: the system's caption buttons over the tab bar's right end, in its colours (no 1px line under them) */
+const captionOverlay = () => ({ ...CAPTION_OVERLAY[nativeTheme.shouldUseDarkColors ? "dark" : "light"], height: TABBAR_HEIGHT - 1 });
+/** macOS: the traffic lights inset in the tab bar; Windows: no title bar, the caption buttons drawn over it */
+const chrome = () =>
+  process.platform === "darwin"
+    ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { ...TRAFFIC_LIGHT_POSITION } }
+    : { titleBarStyle: "hidden" as const, titleBarOverlay: captionOverlay() };
 
 /** A saved place still on one of the screens — its top edge on a display, enough of it to grab (a display may be gone since). */
 function onScreen({ x, y, width }: WindowBounds) {
@@ -66,8 +73,7 @@ export class WindowController {
       minHeight: MIN_WINDOW_SIZE.height,
       show: false,
       title: "DesignerV2",
-      titleBarStyle: "hiddenInset",
-      trafficLightPosition: { ...TRAFFIC_LIGHT_POSITION },
+      ...chrome(),
       backgroundColor: windowBackground(),
     });
     controllers.set(this.id, this);
@@ -177,6 +183,7 @@ export class WindowController {
   themeChanged() {
     if (this.win.isDestroyed()) return;
     this.win.setBackgroundColor(windowBackground());
+    if (process.platform !== "darwin") this.win.setTitleBarOverlay(captionOverlay());
     this.tabbar.setBackgroundColor(backgroundOf("tabbar"));
     this.tabs.home.setBackgroundColor(backgroundOf("home"));
     for (const view of this.tabs.contentViews()) if (view !== this.tabs.home) view.setBackgroundColor(backgroundOf("editor"));

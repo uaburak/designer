@@ -502,9 +502,9 @@ function PaddingRows({ nodes, highlight }: { nodes: PanelNode[]; highlight: High
         data-padding-field={sides.join(",")}
         onPointerEnter={hover.onPointerEnter}
         onPointerLeave={hover.onPointerLeave}
-        // ⌘-click on any padding field: the one field over all four.
+        // ⌘-click (Ctrl-click on Windows) on any padding field: the one field over all four.
         onPointerDownCapture={(e) => {
-          if (one || !e.metaKey || e.button !== 0) return;
+          if (one || !(e.metaKey || e.ctrlKey) || e.button !== 0) return;
           e.preventDefault();
           e.stopPropagation();
           highlight(paddingHighlight(ALL_SIDES)).onPointerEnter();

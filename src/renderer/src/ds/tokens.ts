@@ -300,6 +300,9 @@ export const size = {
   "tab-max": 240, // G
   "traffic-room": 80,
   "traffic-room-fullscreen": 8,
+  // Windows: the system's caption buttons (titleBarOverlay, 3 × 46) at the right, Figma's main menu button (40) at the left
+  "window-controls-room": 138,
+  "main-menu": 40,
   toolbar: 48,
   "toolbar-bottom": 12,
   // The Keyboard shortcuts panel along the editor's bottom (the owner's screenshots of live Figma, 1512-wide window):

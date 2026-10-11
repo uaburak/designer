@@ -12,7 +12,7 @@
  * and the tooltips (keymap.ts, prefs.ts; main rebuilds the menu bar).
  */
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { Button, Icon, IconButton, KeyCap, Popover, Select, Tabs, radius, size, space } from "@/ds";
+import { Button, IS_MAC, Icon, IconButton, KeyCap, Popover, Select, Tabs, radius, size, space } from "@/ds";
 import { KEYBOARD_LAYOUTS, type KeyCombo, type KeyboardLayoutId } from "@shared/shortcuts";
 import { useEditor } from "../controller";
 import { useUI } from "../hooks";
@@ -23,6 +23,9 @@ import { drawnKeyboard, layoutMap } from "./layouts";
 import { ESSENTIALS, SHORTCUT_TABS, tabUsageIds, usageIds, type ShortcutRow, type ShortcutTab } from "./panelData";
 import { shortcutPrefs, useShortcutSettings } from "./prefs";
 import styles from "./ShortcutsPanel.module.css";
+
+/** The modifiers held while recording a shortcut: ⌘ is the mod on a Mac (⌃ its own), Ctrl elsewhere. */
+const heldOf = (e: KeyboardEvent) => ({ mod: (IS_MAC ? e.metaKey : e.ctrlKey) || undefined, ctrl: (IS_MAC && e.ctrlKey) || undefined, alt: e.altKey || undefined, shift: e.shiftKey || undefined });
 
 /** help.figma.com "Select a keyboard layout" (the Layout tab's "Learn more"). */
 const LAYOUT_HELP = "https://help.figma.com/hc/en-us/articles/360040328653";
@@ -74,7 +77,7 @@ function Panel() {
       const code = bindingCode(e.code);
       const combo = code ? comboOfPress(e, code) : null;
       if (!combo) {
-        setHeld({ mod: e.metaKey || undefined, ctrl: e.ctrlKey || undefined, alt: e.altKey || undefined, shift: e.shiftKey || undefined });
+        setHeld(heldOf(e));
         return;
       }
       const bindings = shortcutPrefs.get().bindings;
@@ -88,7 +91,7 @@ function Panel() {
     };
     const onKeyUp = (e: KeyboardEvent) => {
       stop(e);
-      setHeld(e.metaKey || e.ctrlKey || e.altKey || e.shiftKey ? { mod: e.metaKey || undefined, ctrl: e.ctrlKey || undefined, alt: e.altKey || undefined, shift: e.shiftKey || undefined } : null);
+      setHeld(e.metaKey || e.ctrlKey || e.altKey || e.shiftKey ? heldOf(e) : null);
     };
     // A press anywhere else stops recording.
     const onPointerDown = (e: PointerEvent) => {

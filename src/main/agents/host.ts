@@ -1,5 +1,5 @@
 import { app, clipboard, dialog, nativeImage, safeStorage, shell, webContents, type WebContents } from "electron";
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -13,7 +13,7 @@ import { ImagePathError, resolveImagePaths } from "./imageArgs";
 import { attachmentsDirOf, clipboardPaths, readFiles, saveAttachments, turnAttachments } from "./attachments";
 import type { AttachResult } from "../../shared/agents/attachments";
 import { configText, connectClient, disconnectClient, listClients, CLIENTS, type ClientEnv } from "./clients";
-import { cliEnv, cliPath, detectProviders, LOCAL_SERVERS, searchPath, which } from "./detect";
+import { cliEnv, cliPath, detectProviders, LOCAL_SERVERS, searchPath, spawnCli, spawnShell, which } from "./detect";
 import { McpServer, newToken } from "./mcpServer";
 import { listModels, runOpenAiTurn, trimBase } from "./openaiBridge";
 import { STDIO_BRIDGE_SOURCE } from "./stdioBridge";
@@ -387,7 +387,7 @@ function runCli(t: Turn, spec: CliSpec, req: TurnRequest) {
     plan,
     cwd,
     env: cliEnv({ ...plan.env }),
-    spawn: (cmd, args, options) => spawn(cmd, args, options),
+    spawn: (cmd, args, options) => spawnCli(cmd, args, options),
     emit: (e) => {
       if (e.type === "session") addImageDirs(e.resume);
       emit(t, e);
@@ -543,11 +543,11 @@ export function usage(providerId: string, fresh = false): Promise<UsageInfo | nu
 function runBin(path: string, args: string[], ms = 15_000): Promise<RunResult> {
   return new Promise((resolve) => {
     mkdirSync(file("work"), { recursive: true });
-    const child = spawn(path, args, { env: cliEnv(), cwd: file("work"), stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawnCli(path, args, { env: cliEnv(), cwd: file("work"), stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (d) => (stdout += d));
-    child.stderr.on("data", (d) => (stderr += d));
+    child.stdout?.on("data", (d) => (stdout += d));
+    child.stderr?.on("data", (d) => (stderr += d));
     child.on("error", () => resolve({ code: 1, stdout, stderr }));
     child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
     setTimeout(() => child.exitCode === null && child.kill(), ms);
@@ -633,7 +633,7 @@ export async function signIn(providerId: string): Promise<AuthState> {
     if (!l?.child || l.child.exitCode !== null) {
       mkdirSync(file("work"), { recursive: true });
       // The CLI's own login: its sign-in page opens in the browser, the CLI waits for it.
-      const child = spawn(path, login.args, { env: cliEnv(), cwd: file("work"), stdio: ["pipe", "pipe", "pipe"] });
+      const child = spawnCli(path, login.args, { env: cliEnv(), cwd: file("work"), stdio: ["pipe", "pipe", "pipe"] });
       const entry = { child, out: "", at: Date.now() };
       child.stdout?.on("data", (d) => (entry.out = (entry.out + d).slice(-8000)));
       child.stderr?.on("data", (d) => (entry.out = (entry.out + d).slice(-8000)));
@@ -670,6 +670,7 @@ export async function signOut(providerId: string): Promise<AuthState> {
  * user's own ~/.local instead (its bin is on our search path) — no sudo, no password.
  */
 export function userInstallCommand(command: string): string {
+  if (process.platform === "win32") return command; // %APPDATA%\npm is the user's own
   return /^npm install -g /.test(command) ? command.replace(/^npm install -g /, `npm install -g --prefix ${shq(join(homedir(), ".local"))} `) : command;
 }
 
@@ -682,7 +683,8 @@ export async function install(providerId: string): Promise<{ ok: boolean; opened
   const what: { label: string; command?: string; page: string } | null =
     spec ? { label: spec.label, ...spec.install } : srv ? { label: srv.label, ...srv.install } : null;
   if (!what) return { ok: false, error: "Unknown agent" };
-  if (!what.command) {
+  // Windows: a Unix installer line (curl … | bash) can't run here — the download page instead.
+  if (!what.command || (process.platform === "win32" && /\b(curl|bash|sh|brew)\b/.test(what.command))) {
     await shell.openExternal(what.page);
     return { ok: true, opened: "page" };
   }
@@ -692,7 +694,7 @@ export async function install(providerId: string): Promise<{ ok: boolean; opened
   const command = userInstallCommand(what.command);
   const job = new Promise<{ ok: boolean; opened?: "installed" | "page"; error?: string }>((resolve) => {
     mkdirSync(file("work"), { recursive: true });
-    const child = spawn("/bin/zsh", ["-c", command], { env: { ...cliEnv(), PATH: searchPath().join(delimiter) }, cwd: file("work"), stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawnShell(command, { env: { ...cliEnv(), PATH: searchPath().join(delimiter) }, cwd: file("work"), stdio: ["pipe", "pipe", "pipe"] });
     // The owner's click is the go: an installer's own "continue? [Y/n]" gets yes.
     child.stdin?.end("y\n");
     let out = "";
@@ -747,7 +749,7 @@ export async function connect(sender: WebContents, client: McpClientId) {
   if (client === "claude-code") {
     const bin = which("claude");
     if (bin) {
-      const run = (args: string[]) => new Promise<number>((resolve) => spawn(bin, args, { env: cliEnv(), cwd: file("work"), stdio: "ignore" }).on("close", (c) => resolve(c ?? 1)).on("error", () => resolve(1)));
+      const run = (args: string[]) => new Promise<number>((resolve) => spawnCli(bin, args, { env: cliEnv(), cwd: file("work"), stdio: "ignore" }).on("close", (c) => resolve(c ?? 1)).on("error", () => resolve(1)));
       await run(["mcp", "remove", "--scope", "user", MCP_SERVER_NAME]);
       const code = await run(["mcp", "add", "--transport", "http", "--scope", "user", MCP_SERVER_NAME, server.url, "--header", `Authorization: Bearer ${server.token}`]);
       if (code === 0) return { ok: true, path };
@@ -760,7 +762,7 @@ export async function disconnect(client: McpClientId) {
   if (client === "claude-code") {
     const bin = which("claude");
     if (bin) {
-      const code = await new Promise<number>((resolve) => spawn(bin, ["mcp", "remove", "--scope", "user", MCP_SERVER_NAME], { env: cliEnv(), cwd: file("work"), stdio: "ignore" }).on("close", (c) => resolve(c ?? 1)).on("error", () => resolve(1)));
+      const code = await new Promise<number>((resolve) => spawnCli(bin, ["mcp", "remove", "--scope", "user", MCP_SERVER_NAME], { env: cliEnv(), cwd: file("work"), stdio: "ignore" }).on("close", (c) => resolve(c ?? 1)).on("error", () => resolve(1)));
       if (code === 0) return { ok: true, path: join(homedir(), ".claude.json") };
     }
   }

@@ -194,7 +194,7 @@ function Layers() {
               }
               onPointerDown={(e) => {
                 if (e.button !== 0) return;
-                if (e.shiftKey || e.metaKey) engine.setSelection(selected.has(node.id) ? selection.refs.filter((r) => r !== node.id) : [...selection.refs, node.id]);
+                if (e.shiftKey || e.metaKey || e.ctrlKey) engine.setSelection(selected.has(node.id) ? selection.refs.filter((r) => r !== node.id) : [...selection.refs, node.id]);
                 else engine.setSelection([node.id]);
               }}
               onDoubleClick={() => engine.command("ZOOM_TO_SELECTION")}

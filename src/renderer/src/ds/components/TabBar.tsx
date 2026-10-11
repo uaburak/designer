@@ -22,6 +22,10 @@ export interface TabBarProps {
   trailing?: ReactNode;
   /** No traffic lights: 8px instead of 80 */
   fullScreen?: boolean;
+  /** Windows: Figma's main menu button at the left (no menu bar) and room for the caption buttons at the right */
+  windows?: boolean;
+  /** Windows: the main menu button, pressed — the shell pops the app's menu under it */
+  onMainMenu?: (at: { x: number; y: number }) => void;
   /** Gallery: a forced hover on this tab */
   hoverId?: string;
 }
@@ -36,7 +40,7 @@ export { dropIndex };
  * free space moves the window. Titles use the native `title` attribute: no
  * DOM tooltip can leave a 38px view.
  */
-export function TabBar({ tabs, active, onActivate, onClose, onMove, onContextMenu, onNew, trailing, fullScreen, hoverId }: TabBarProps) {
+export function TabBar({ tabs, active, onActivate, onClose, onMove, onContextMenu, onNew, trailing, fullScreen, windows, onMainMenu, hoverId }: TabBarProps) {
   const strip = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ id: string; dx: number; from: number; to: number; width: number } | null>(null);
 
@@ -76,7 +80,21 @@ export function TabBar({ tabs, active, onActivate, onClose, onMove, onContextMen
   };
 
   return (
-    <div data-ds="TabBar" className={cx(styles.bar, fullScreen && styles.fullScreen)}>
+    <div data-ds="TabBar" className={cx(styles.bar, fullScreen && styles.fullScreen, windows && styles.windows)}>
+      {windows && (
+        <button
+          type="button"
+          aria-label={STRINGS.mainMenu}
+          title={STRINGS.mainMenu}
+          className={styles.mainMenu}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            onMainMenu?.({ x: r.left, y: r.bottom });
+          }}
+        >
+          <Icon name="24.figma" />
+        </button>
+      )}
       <div
         ref={strip}
         role="tablist"

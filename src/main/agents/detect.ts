@@ -1,3 +1,4 @@
+import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -11,14 +12,26 @@ import { listModels } from "./openaiBridge";
  * short PATH, so the usual install folders are searched too — and the local model servers that answer.
  */
 
+const WIN = process.platform === "win32";
+
 export function searchPath(home = homedir(), path = process.env.PATH ?? ""): string[] {
+  // Windows: npm's global shims (%APPDATA%\npm), the native installers' ~\.local\bin, Bun, Volta, Cursor, LM Studio.
+  if (WIN) {
+    const appData = process.env.APPDATA ?? join(home, "AppData", "Roaming");
+    const local = process.env.LOCALAPPDATA ?? join(home, "AppData", "Local");
+    const extra = [join(home, ".local", "bin"), join(appData, "npm"), join(home, ".bun", "bin"), join(local, "Volta", "bin"), join(local, "Programs", "cursor", "resources", "app", "bin"), join(home, ".lmstudio", "bin")];
+    return [...new Set([...path.split(delimiter).filter(Boolean), ...extra])];
+  }
   const extra = [join(home, ".local", "bin"), "/opt/homebrew/bin", "/usr/local/bin", join(home, ".npm-global", "bin"), join(home, ".bun", "bin"), join(home, ".volta", "bin"), join(home, ".cursor", "bin"), join(home, ".lmstudio", "bin"), "/usr/bin", "/bin"];
   return [...new Set([...path.split(delimiter).filter(Boolean), ...extra])];
 }
 
+/** Windows: a bare name runs as name.exe / .cmd / .bat (PATHEXT; .exe first). */
+const exts = (bin: string) => (WIN && !/\.[a-z0-9]+$/i.test(bin) ? [".exe", ...(process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").toLowerCase().split(";").filter((e) => e && e !== ".exe")] : [""]);
+
 export function which(bin: string, dirs = searchPath()): string | null {
-  for (const d of dirs) {
-    const p = join(d, bin);
+  for (const d of dirs) for (const ext of exts(bin)) {
+    const p = join(d, bin + ext);
     try {
       if (!statSync(p).isFile()) continue;
       accessSync(p, constants.X_OK);
@@ -28,6 +41,21 @@ export function which(bin: string, dirs = searchPath()): string | null {
     }
   }
   return null;
+}
+
+/** Windows quoting for a .cmd / .bat shim run through cmd.exe: each argument in "", inner quotes escaped. */
+const winQuote = (a: string) => `"${a.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1")}"`;
+
+/** Starts a CLI found by `which`: Windows runs a .cmd / .bat shim (npm's) through the shell, which Node requires. */
+export function spawnCli(cmd: string, args: readonly string[], options: SpawnOptions): ChildProcess {
+  if (WIN && /\.(cmd|bat)$/i.test(cmd)) return spawn(winQuote(cmd), args.map(winQuote), { ...options, shell: true, windowsHide: true });
+  return spawn(cmd, args, { ...options, windowsHide: true });
+}
+
+/** A shell command line (an installer's documented one): zsh on a Mac, cmd.exe on Windows. */
+export function spawnShell(command: string, options: SpawnOptions): ChildProcess {
+  if (WIN) return spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", command], { ...options, windowsHide: true, windowsVerbatimArguments: true });
+  return spawn("/bin/zsh", ["-c", command], options);
 }
 
 /** The environment a CLI runs in: ours, with the search path (so its own helpers — node, git — are found). */

@@ -320,6 +320,8 @@ export interface IpcSend {
   "tabs:close": { tabId: string };
   "tabs:move": { tabId: string; toIndex: number };
   "tabs:context-menu": { tabId: string; x: number; y: number };
+  /** Windows: the tab bar's main menu button — the app's menu, popped up at (x, y) in the bar */
+  "tabs:main-menu": { x: number; y: number };
   "tabs:reopen": void;
   /** Home in front ("Back to files"), the file shown there when given */
   "nav:go-home": { revealFileKey?: string } | undefined;
@@ -420,6 +422,7 @@ export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {
   "tabs:close": ["tabbar", "editor"],
   "tabs:move": ["tabbar"],
   "tabs:context-menu": ["tabbar"],
+  "tabs:main-menu": ["tabbar"],
   "tabs:reopen": ["tabbar", "home"],
   "nav:go-home": ["editor"],
   "tab:report": ["editor"],
