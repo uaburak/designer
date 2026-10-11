@@ -582,6 +582,55 @@ The first publish assigns the id: a 19-digit decimal string, like Figma's. The d
 - `widgetApproval` → `widgets_enabled` (approved) / `widgets_disable` (all). This pairing is our reading of Figma's names.
 - A change to `pluginRequests` / `widgetRequests` is logged under its kind's approval action, with the key in `details` (Figma has no action for it).
 
+### 10.3b As built — the store (5g, 2026-10-11, branch `worktree-agent-a3ed1d1a7df356ff6`)
+
+**Where**: `src/store/plugins/service.ts` (`PluginsService`, no Node or DOM imports), wired in `LocalStore` and `MemoryStore`. Tests: `src/store/plugins/plugins.test.ts`, against 5c's real handler (the org of `server/src/testing/orgWorld.ts`).
+
+**Change to §10.4**: `PluginsRepository.watch(listener)` and `PluginsEvent` (`{what: "local"}` | `{what: "org", orgId}`). Like `orgs.watch`, it is the client's listener on topic `plugins`, not an RPC.
+
+**Saved and recents:**
+- Kept in `Workspace/plugins.json` (desktop) and `designer.devStore.v1.plugins` (browser).
+- The shape is `{v: 1, saved, recents, published}`. `published` maps `orgId + development path` to the published id.
+- A ref is checked and copied (`cleanRef`). One plugin is the same `source.type` and id (plus path or org); a private plugin's versions count as one.
+- Recents: newest first, at most `MAX_RECENTS` = 10. Running a private plugin moves a saved ref to that version.
+- Each change says `{what: "local"}`.
+
+**Private plugins:**
+- `listPrivate(orgId)` calls `GET /orgs/:org/plugins` (both kinds). The answer is cached in `spaces/plugins/orgs/<orgId>.json`, keyed by the signed-in person. Offline, the cache answers; with nothing cached the call fails with `offline`.
+- `bundle(id, version)`:
+  - The parts come from the manifest's `ui`: `code`, then `ui` or `ui:<key>`.
+  - Each part is read from `spaces/plugins/<id>/<version>/<part>` (`ui:k` is stored as `ui-k`), else downloaded and kept.
+  - The manifest is kept beside the parts, so a cached version opens offline.
+  - Without a cache, `GET /plugins/:id` must name that version as current; otherwise the call fails with `conflict` `{current}`.
+  - The browser keeps bundles in memory and org lists in `designer.devStore.v1.plugins.org.<orgId>`.
+- `publish(orgId, bundle, {name, description, developmentPath})`:
+  1. Checks the parts first: a single `""` ui file can't sit beside named ones; keys are `[A-Za-z0-9_.-]{1,64}`; a part is at most 10 MB.
+  2. Hashes the parts with SHA-1 (`crypto.subtle`).
+  3. `POST /orgs/:org/plugins`, with `pluginId` when this folder published before. If that plugin is gone (404), it publishes again as a new one.
+  4. `PUT`s only the parts in `missing`, then commits.
+  5. Writes the new version's bundle into the cache.
+  6. Says `{what: "org"}`.
+
+  An update sends only the changed parts, because the server copies the unchanged ones.
+- `removePrivate(id)`: `GET` (for the org), then `DELETE`. It also drops the plugin from saved, recents and `published`.
+
+**`allowed(fileKey, ref)`:**
+1. A private plugin, for an org guest → `{ok: false, reason: "guest"}`, wherever it runs.
+2. The file's org comes from `FileMeta.space`. Without one → ok.
+3. The org's settings and role come from the org cache (`OrgService.orgs.get`; a settings change reaches it with the Inbox's `{t: "org"}`). `pluginApproval` / `widgetApproval` "all" → ok.
+4. Exempt → ok: the org's own private plugins, and development plugins (§10.2).
+5. Otherwise the members' `GET /orgs/:org/plugins/approved?kind=`:
+   - kept 30 s (`APPROVED_TTL_MS`), and dropped by `{t: "plugins", orgId}` and by every change made here;
+   - cached for offline use, together with each team's workspace;
+   - an org row, or a workspace row for the file's team's workspace, allows it. Drafts have no workspace.
+6. Refused → `canRequest` = the kind's requests setting is on, the person isn't a guest, and they have no pending request for it (`GET /orgs/:org/plugins/requests`).
+
+**Requests and admin calls**: `request`, `admin`, `approve`, `unapprove` and `answer` are thin over §10.3a's routes. Each change says `{what: "org", orgId}`. `unapprove` sends `kind=widget` only when the cached lists know the id only as a widget.
+
+**Events**: `NotificationsService.onPlugins` hands on the Inbox's `{t: "plugins", orgId}`; the service turns it into `{what: "org", orgId}`. `StoreServer` broadcasts topic `plugins`; `StoreClient` hands it to `plugins.watch`.
+
+**Not built**: plugin icons (§10.1's optional PNG; neither the server nor the store carries them), `PATCH /plugins/:id` (no repository method), and a size limit for the bundle cache (it is never swept).
+
 ### 10.4 Types (`src/shared/plugins/types.ts`, committed verbatim before the round)
 
 ```ts

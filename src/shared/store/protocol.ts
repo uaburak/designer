@@ -6,7 +6,7 @@
 export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer" | "comments" | "notifications" | "orgs" | "teams" | "projects" | "admin" | "branches" | "orgLibraries" | "analytics" | "identity" | "plugins" | "devMode";
 export type StoreMethod = `${Repository}.${string}`;
 export type PortRole = "main" | "home" | "editor";
-/** `org`: OrgEvent (docs/multiplayer.md §14.6); `branches`: BranchEvent (docs/data.md §15.6); `fonts`: FontsEvent (docs/desktop.md §14.3); `session`: SessionEnded (docs/multiplayer.md §15.8) */
+/** `org`: OrgEvent (docs/multiplayer.md §14.6); `branches`: BranchEvent (docs/data.md §15.6); `fonts`: FontsEvent (docs/desktop.md §14.3); `session`: SessionEnded (docs/multiplayer.md §15.8); `plugins`: PluginsEvent (docs/plugins.md §10); `devmode`: DevModeEvent (docs/editor.md D-8) */
 export type EventTopic = "workspace" | "file.changes" | "library" | "multiplayer" | "comments" | "notifications" | "org" | "branches" | "fonts" | "session" | "plugins" | "devmode";
 
 export type RpcRequest = { t: "req"; id: number; m: StoreMethod; a: unknown[] };
