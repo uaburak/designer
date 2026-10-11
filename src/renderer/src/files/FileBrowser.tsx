@@ -698,7 +698,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   if (orgId && location.kind === "admin" && backend.org) {
     return (
       <>
-        <AdminApp orgId={orgId} store={{ admin: backend.org.admin, orgs: backend.org.orgs, teams: backend.org.teams }} onBack={() => (nav.index > 0 ? back() : go({ kind: "org-drafts" }))} />
+        <AdminApp orgId={orgId} store={{ admin: backend.org.admin, orgs: backend.org.orgs, teams: backend.org.teams, orgLibraries: backend.org.orgLibraries }} fonts={backend.org.fonts} onBack={() => (nav.index > 0 ? back() : go({ kind: "org-drafts" }))} />
         {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} />}
       </>
     );

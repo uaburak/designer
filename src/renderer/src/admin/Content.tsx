@@ -8,6 +8,7 @@ import { Badge, Button, Checkbox, Dialog, Icon, SearchField, Select, Tabs, TextI
 import type { AdminPerson, AdminTeam, OrgFile, OrgWorkspace, UnassignedDrafts } from "@shared/org/types";
 import { useAdmin, useLoad } from "./context";
 import { formatAgo, formatDate, teamAccess } from "./labels";
+import { LibrariesTab } from "./Resources";
 import { ChoiceDialog, ConfirmDialog, Field, NameDialog, PickDialog, RowMenu, Table, Who, byNumber, byText, personItem, styles, type Column } from "./parts";
 
 // ---------------------------------------------------------------------------------------------------- Teams
@@ -191,7 +192,7 @@ function WorkspaceDetail({ workspace: w, onBack }: { workspace: OrgWorkspace; on
         <Button variant="destructive-secondary" onClick={() => setDialog("delete")}>Delete workspace</Button>
       </div>
       <div className={styles.toolbar}>
-        <Tabs label="Workspace" value={tab} onChange={setTab} tabs={[{ value: "members", label: `Members (${members.length})` }, { value: "teams", label: `Teams (${wsTeams.length})` }, { value: "admins", label: `Workspace admins (${w.admins.length})` }]} />
+        <Tabs label="Workspace" value={tab} onChange={setTab} tabs={[{ value: "members", label: `Members (${members.length})` }, { value: "teams", label: `Teams (${wsTeams.length})` }, { value: "admins", label: `Workspace admins (${w.admins.length})` }, ...(store.orgLibraries ? [{ value: "libraries", label: "Libraries" }] : [])]} />
         <span className={styles.spacer} />
         {tab === "members" && <Button variant="primary" onClick={() => setDialog("addMembers")}>Add members</Button>}
         {tab === "teams" && <Button variant="primary" onClick={() => setDialog("addTeams")}>Add teams</Button>}
@@ -205,6 +206,7 @@ function WorkspaceDetail({ workspace: w, onBack }: { workspace: OrgWorkspace; on
         </>
       )}
       {tab === "admins" && <Table label="Workspace admins" rows={w.admins} columns={adminColumns} rowKey={(p) => p.id} />}
+      {tab === "libraries" && <LibrariesTab workspaceId={w.id} />}
       {dialog === "rename" && <NameDialog title="Rename workspace" label="Workspace name" value={w.name} confirm="Save" onSave={(name) => patch({ name })} onClose={() => setDialog(null)} />}
       {dialog === "delete" && <ConfirmDialog title={`Delete ${w.name}?`} body="Its teams and people become unassigned. Nothing else is deleted." confirm="Delete workspace" destructive onConfirm={() => run(() => store.admin.deleteWorkspace(w.id), `Deleted ${w.name}`).then(onBack)} onClose={() => setDialog(null)} />}
       {dialog === "admins" && <PickDialog title="Workspace admins" items={all.filter((p) => !p.pending && p.role !== "guest").map(personItem)} initial={w.admins.map((a) => a.id)} confirm="Save" min={1} onSave={(ids) => patch({ adminIds: ids }, "Workspace admins saved")} onClose={() => setDialog(null)} />}

@@ -11,7 +11,7 @@ export default function AdminRoute() {
   const [fake] = useState(() => createFakeAdminStore({ latency: 60 }));
   return (
     <div style={{ height: "100vh" }}>
-      <AdminApp orgId={fake.state.orgId} store={fake} onBack={() => history.back()} />
+      <AdminApp orgId={fake.state.orgId} store={fake} fonts={fake.fonts} onBack={() => history.back()} />
       <TooltipManager />
       <ToastHost />
     </div>
