@@ -24,9 +24,20 @@
     border-right: 1px solid var(--figma-color-border);
     background: var(--figma-color-bg);
   }
-  .account {
+  /* The account (name, then its chevron) and, at the right, the notifications bell 8 from the edge (live 1.png) */
+  .accountRow {
     display: flex;
     flex: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ds-space-2);
+    height: var(--ds-size-home-topbar);
+    padding-right: var(--ds-space-2);
+  }
+  .account {
+    display: flex;
+    flex: 0 1 auto;
+    min-width: 0;
     align-items: center;
     gap: var(--ds-space-2);
     height: var(--ds-size-home-topbar);
@@ -35,7 +46,6 @@
     letter-spacing: var(--ds-tracking-body-large-strong);
   }
   button.account {
-    width: 100%;
     border: 0;
     background: none;
     color: inherit;

@@ -1,15 +1,18 @@
 /**
- * The `designer` Worker (docs/multiplayer.md): the API in api.ts over D1, and one FileRoom Durable Object per file.
+ * The `designer` Worker (docs/multiplayer.md): the API in api.ts over D1, one FileRoom Durable Object per file, and
+ * one Inbox per person for live notifications (§12).
  */
-import { handle, type Env as ApiEnv, type Rooms } from "./api";
+import { handle, type Env as ApiEnv, type Inboxes, type Rooms } from "./api";
 import { Db } from "./db";
 
 export { FileRoom } from "./fileRoom";
 export { PreviewObject } from "./previewObject";
+export { Inbox } from "./inbox";
 
 interface Env extends ApiEnv {
   DB: D1Database;
   ROOMS: DurableObjectNamespace;
+  INBOXES: DurableObjectNamespace;
 }
 
 export default {
@@ -27,6 +30,17 @@ export default {
         return stub.fetch(new Request(`https://room${path}`, { method: init.method, headers, body: init.body }));
       },
     };
-    return handle(req, { db: new Db(env.DB), env, rooms, fetch: (...a) => fetch(...a), now: () => Date.now() });
+    const inbox = (userId: string) => env.INBOXES.get(env.INBOXES.idFromName(userId));
+    const inboxes: Inboxes = {
+      async notify(userId, message) {
+        await inbox(userId).fetch(new Request("https://inbox/inbox/notify", { method: "POST", body: JSON.stringify(message) }));
+      },
+      connect(userId, original) {
+        const headers = new Headers(original.headers);
+        headers.delete("authorization");
+        return inbox(userId).fetch(new Request("https://inbox/inbox/ws", { method: "GET", headers }));
+      },
+    };
+    return handle(req, { db: new Db(env.DB), env, rooms, inboxes, fetch: (...a) => fetch(...a), now: () => Date.now() });
   },
 } satisfies ExportedHandler<Env>;

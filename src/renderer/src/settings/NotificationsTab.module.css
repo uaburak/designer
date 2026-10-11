@@ -1,0 +1,36 @@
+/*
+ * Settings › Notifications (the owner's 3.png / 4.png at 2x, halved; text widths say 11 px options and descriptions,
+ * 13 px group titles, 14 px section titles). Centres: a section's title, 24 to its checkbox, 32 to a group's title
+ * (40 in), 28 to each radio; 36 between groups, 48 from a group's end to the next section's title, 44 to the footer;
+ * the content 48 from the modal's left, the first title's centre 52 from the top.
+ */
+@layer app {
+  .tab {
+    padding: 40px var(--ds-space-12) var(--ds-space-8);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .section + .section { margin-top: 22px; }
+  .title {
+    margin: 0;
+    font: var(--ds-font-heading-medium);
+    font-size: 14px;
+    line-height: 24px;
+    letter-spacing: var(--ds-tracking-heading-medium);
+  }
+  .check { display: flex; height: 24px; }
+  .description { margin: 0 0 0 var(--ds-space-6); color: var(--figma-color-text-secondary); line-height: 16px; }
+  .group { margin-top: var(--ds-space-2); padding-left: var(--ds-space-10); }
+  .group[data-first] { margin-top: 6px; }
+  .group[data-first][data-after-text] { margin-top: 10px; }
+  .subtitle { margin: 0; font: var(--ds-font-body-large); letter-spacing: var(--ds-tracking-body-large); line-height: 28px; }
+  .group[data-disabled] .subtitle { color: var(--figma-color-text-disabled); }
+  .radios label { height: 28px; }
+  /* 24 under its title (the group title's row is 28); the next section 48 below it */
+  .digest { display: flex; height: 24px; margin-top: -2px; }
+  .section:last-of-type { margin-top: 24px; }
+  .footer { margin: 24px 0 0; color: var(--figma-color-text-secondary); line-height: 16px; }
+  .link { color: var(--figma-color-text-brand); text-decoration: none; }
+  .link:hover { text-decoration: underline; }
+}

@@ -7,6 +7,7 @@ import type { Guid } from "@/engine/codec";
 import { getStoreClient } from "@/store";
 import type { OpenIntent } from "@shared/multiplayer/types";
 import type { EditorController } from "../controller";
+import { commentsOf } from "../comments/commentsController";
 import { setMode } from "../devmode/devMode";
 import { present, presentStart } from "../present";
 
@@ -40,6 +41,14 @@ export function applyIntent(ed: EditorController, intent: OpenIntent): void {
   }
   if (intent.mode === "dev") setMode(ed, "dev");
   else if (intent.mode === "proto") present(ed, node && node !== page ? { node } : {});
+  const thread = intent.commentId;
+  const comments = thread ? commentsOf(ed) : null;
+  if (thread && comments) {
+    // A notification about a comment (docs/multiplayer.md §12): comment mode, the thread open on its page, in view.
+    ed.engine.setTool("COMMENT");
+    comments.start();
+    void comments.reload().then(() => !ed.engine.destroyed && comments.openThread(thread, true));
+  }
 }
 
 /** The intent this editor was opened with: the browser's URL (`node-id`, `m`), else what the store kept for it. */

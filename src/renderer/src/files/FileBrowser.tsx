@@ -10,6 +10,8 @@ import type { FileKey, FileListItem, Folder, FolderId, Prefs } from "@shared/sto
 import type { OpenIntent } from "@shared/multiplayer/types";
 import { accountMenu, useAccount } from "./account";
 import { OpenLinkDialog, openSharedFile, SharedFilesView } from "./SharedFiles";
+import { NotificationsBell } from "../notifications/NotificationsBell";
+import { NotificationSettingsDialog } from "../notifications/NotificationSettingsDialog";
 import * as act from "./actions";
 import { ConfirmDialog, MoveDialog, NewFolderDialog } from "./dialogs";
 import { importWithShell, newDesignFile, onOpenShared, onReveal, onShellCommand, openFile, pickFigFiles, saveLocalCopy, setMenuState, type OpenDeps } from "./desktop";
@@ -330,6 +332,8 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
 
   const account = useAccount();
   const [linkOpen, setLinkOpen] = useState(false);
+  // The bell's gear: Settings › Notifications (docs/multiplayer.md §12)
+  const [notificationSettings, setNotificationSettings] = useState(false);
   // Recents' tabs (live Figma): "Recently viewed" | "Shared files" (signed in)
   const [recentsTab, setRecentsTab] = useState<"viewed" | "shared">("viewed");
   const accountName = account.state?.user ? account.state.user.name || account.state.user.email : null;
@@ -572,6 +576,15 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
       <Sidebar
         ownerName={accountName ?? ownerOf(workspaceName)}
         onAccountMenu={account.available ? onAccountMenu : undefined}
+        accountAccessory={
+          account.state?.user ? (
+            <NotificationsBell
+              userId={account.state.user.id}
+              onOpen={(n) => n.fileKey && openSharedRef.current(n.fileKey, n.threadId && n.kind !== "invite" ? { commentId: n.threadId } : {})}
+              onOpenSettings={() => setNotificationSettings(true)}
+            />
+          ) : undefined
+        }
         teamName={workspaceName}
         location={location}
         search={search}
@@ -754,6 +767,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
       </main>
       {linkOpen && <OpenLinkDialog onClose={() => setLinkOpen(false)} onOpen={(fileKey, name, intent) => void openFile(fileKey, { ...(name ? { title: name } : {}), intent }, deps)} onError={(message) => toast({ kind: "error", message })} />}
       {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} />}
+      <NotificationSettingsDialog open={notificationSettings} onClose={() => setNotificationSettings(false)} />
       {dialog?.kind === "new-folder" && (
         <NewFolderDialog
           onClose={() => setDialog(null)}

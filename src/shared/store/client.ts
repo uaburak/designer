@@ -29,6 +29,7 @@ import type {
 import type { AppendAck, ChangeBatch, FileKey } from "./types";
 import type { MultiplayerEvent, MultiplayerRepository } from "../multiplayer/types";
 import type { CommentsEvent, CommentsRepository } from "../comments";
+import type { NotificationsEvent, NotificationsRepository } from "../notifications";
 
 interface Pending {
   m: StoreMethod;
@@ -91,6 +92,7 @@ export class StoreClient implements StoreApi {
   private readonly libraryEvents = new Listeners<LibraryEvent>();
   private readonly multiplayerEvents = new Listeners<MultiplayerEvent>();
   private readonly commentsEvents = new Listeners<CommentsEvent>();
+  private readonly notificationsEvents = new Listeners<NotificationsEvent>();
   private readonly connected = new Listeners<{ generation: number }>();
   /** Calls wait for this: the hello and the resync of a new port */
   private gate!: Promise<void>;
@@ -197,6 +199,7 @@ export class StoreClient implements StoreApi {
         else if (msg.topic === "file.changes") this.deliver(msg.d as FileChange);
         else if (msg.topic === "multiplayer") this.multiplayerEvents.emit(msg.d as MultiplayerEvent);
         else if (msg.topic === "comments") this.commentsEvents.emit(msg.d as CommentsEvent);
+        else if (msg.topic === "notifications") this.notificationsEvents.emit(msg.d as NotificationsEvent);
         return;
     }
   }
@@ -418,6 +421,15 @@ export class StoreClient implements StoreApi {
     move: (fileKey, id, anchor) => this.call("comments.move", [fileKey, id, anchor]),
     mentionable: (fileKey) => this.call("comments.mentionable", [fileKey]),
     watch: (listener) => this.commentsEvents.add(listener),
+  };
+
+  readonly notifications: NotificationsRepository = {
+    list: (query) => this.call("notifications.list", [query]),
+    markRead: (input) => this.call("notifications.markRead", [input]),
+    prefs: () => this.call("notifications.prefs", []),
+    setPrefs: (prefs) => this.call("notifications.setPrefs", [prefs]),
+    answer: (id, approve) => this.call("notifications.answer", [id, approve]),
+    watch: (listener) => this.notificationsEvents.add(listener),
   };
 
   readonly multiplayer: MultiplayerRepository = {

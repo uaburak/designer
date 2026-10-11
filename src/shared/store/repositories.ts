@@ -33,6 +33,7 @@ import type {
 
 import type { MultiplayerRepository } from "../multiplayer/types";
 import type { CommentsRepository } from "../comments";
+import type { NotificationsRepository } from "../notifications";
 
 export type Unsubscribe = () => void;
 
@@ -218,6 +219,8 @@ export interface StoreApi {
   workspace: WorkspaceRepository;
   /** Comments on files: the server for shared ones, the store for local ones (docs/multiplayer.md §10) */
   comments: CommentsRepository;
+  /** The bell: notifications on the server, live through the person's inbox (docs/multiplayer.md §12) */
+  notifications: NotificationsRepository;
   files: FileRepository;
   blobs: BlobStore;
   libraries: LibraryRegistry;

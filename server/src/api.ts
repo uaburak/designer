@@ -5,6 +5,7 @@
 import type { Role } from "../../src/shared/multiplayer/protocol";
 import { normalizeEmail, type Db, type User } from "./db";
 import { authorizeUrl, exchangeCode, GoogleError } from "./google";
+import { notificationsRoute, notifyEditRequest, notifyInvite, notifyOwnership, notifyRequestAnswered } from "./notifications";
 import { isPreviewPath, previews, viewerPage } from "./previews";
 import { checkPassword, hashPassword, randomToken, sha256b64url, signToken, verifyToken } from "./tokens";
 
@@ -24,10 +25,19 @@ export interface Rooms {
   fetch(fileKey: string, path: string, init: RequestInit & { identity?: { userId: string; name: string | null; role: Role } }, original?: Request): Promise<Response>;
 }
 
+/** Each person's inbox (the Inbox Durable Object, docs/multiplayer.md §12): live notifications to their open apps. */
+export interface Inboxes {
+  notify(userId: string, message: unknown): Promise<void>;
+  /** The inbox's WebSocket for this (authenticated) person */
+  connect(userId: string, original: Request): Promise<Response>;
+}
+
 export interface Deps {
   db: Db;
   env: Env;
   rooms: Rooms;
+  /** Absent where there are none (tests that don't look): notifications are still stored */
+  inboxes?: Inboxes;
   fetch: typeof fetch;
   /** Milliseconds */
   now(): number;
@@ -110,7 +120,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (embed && m === "GET") return embedRoute(embed[1], embed[2], url, deps);
 
   const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
-  const isSocket = parts[0] === "files" && parts[2] === "ws" && parts.length === 3;
+  const isSocket = (parts[0] === "files" && parts[2] === "ws" && parts.length === 3) || (parts[0] === "notifications" && parts[1] === "ws" && parts.length === 2);
   const user = await authenticate(req, url, deps, isSocket);
 
   if (path === "/me" && m === "GET") return json(publicUser(user));
@@ -126,6 +136,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
     return json({ ok: true });
   }
 
+  if (parts[0] === "notifications") return notificationsRoute(req, deps, user, parts, (key, requesterId, approve) => answerEditRequest(deps, key, user, requesterId, approve));
   if (parts[0] !== "files") throw new HttpError(404, "not found");
   if (parts.length === 1) {
     if (m === "GET") return json({ files: await deps.db.files(user.id) });
@@ -213,6 +224,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       const done = await deps.db.transferOwnership(key, email, user.id, deps.now());
       if (!done) throw new HttpError(400, "only someone invited who has logged in can own the file");
       for (const userId of [done.toId, user.id]) await deps.rooms.fetch(key, "/room/revoke", { method: "POST", body: JSON.stringify({ userId }) });
+      await notifyOwnership(deps, { key, by: user, toId: done.toId });
       return json({ ok: true });
     }
     case "members": {
@@ -224,9 +236,11 @@ async function route(req: Request, deps: Deps): Promise<Response> {
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpError(400, "bad email");
         if (body.role !== "editor" && body.role !== "viewer") throw new HttpError(400, "role is editor or viewer");
         if (email === user.email) throw new HttpError(400, "you own this file");
+        const invited = !(await deps.db.members(key)).some((x) => x.email === email);
         const memberId = await deps.db.putMember(key, email, body.role, user.id, deps.now());
         // A changed role takes effect on the member's open sockets: they reconnect with it.
         if (memberId) await deps.rooms.fetch(key, "/room/revoke", { method: "POST", body: JSON.stringify({ userId: memberId }) });
+        if (memberId && invited) await notifyInvite(deps, { key, by: user, userId: memberId, role: body.role });
         return json({ ok: true });
       }
       if (parts.length === 4 && m === "DELETE") {
@@ -258,6 +272,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
         if (role !== "viewer") throw new HttpError(400, "you can already edit");
         await deps.db.addRequest(key, user.id, deps.now());
         await deps.rooms.fetch(key, "/room/notice", { method: "POST", body: JSON.stringify({ kind: "access-request", userId: user.id, name: user.name ?? user.email }) });
+        await notifyEditRequest(deps, { key, by: user });
         return json({ ok: true });
       }
       if (parts.length === 3 && m === "GET") {
@@ -267,15 +282,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       if (parts.length === 4 && m === "POST") {
         atLeast("editor");
         const { approve } = await readJson<{ approve?: unknown }>(req);
-        const r = await deps.db.takeRequest(key, parts[3]);
-        if (!r) throw new HttpError(404, "no such request");
-        // The answer reaches them first, on the socket they have now…
-        await deps.rooms.fetch(key, "/room/notice", { method: "POST", body: JSON.stringify({ kind: approve === true ? "access-granted" : "access-denied", userId: parts[3] }) });
-        if (approve === true) {
-          await deps.db.putMember(key, r.email, "editor", user.id, deps.now());
-          // …which then reconnects as an editor.
-          await deps.rooms.fetch(key, "/room/revoke", { method: "POST", body: JSON.stringify({ userId: parts[3] }) });
-        }
+        if (!(await answerEditRequest(deps, key, user, parts[3], approve === true))) throw new HttpError(404, "no such request");
         return json({ ok: true });
       }
       break;
@@ -307,6 +314,22 @@ async function route(req: Request, deps: Deps): Promise<Response> {
 }
 
 const rank: Record<Role, number> = { viewer: 0, editor: 1, owner: 2 };
+
+/** "Ask to edit" answered by `by` (an editor or the owner — the caller checks): false when there was no such request.
+ *  From the Share dialog and from the notifications' Requests tab. */
+async function answerEditRequest(deps: Deps, key: string, by: User, requesterId: string, approve: boolean): Promise<boolean> {
+  const r = await deps.db.takeRequest(key, requesterId);
+  if (!r) return false;
+  // The answer reaches them first, on the socket they have now…
+  await deps.rooms.fetch(key, "/room/notice", { method: "POST", body: JSON.stringify({ kind: approve ? "access-granted" : "access-denied", userId: requesterId }) });
+  if (approve) {
+    await deps.db.putMember(key, r.email, "editor", by.id, deps.now());
+    // …which then reconnects as an editor.
+    await deps.rooms.fetch(key, "/room/revoke", { method: "POST", body: JSON.stringify({ userId: requesterId }) });
+  }
+  await notifyRequestAnswered(deps, { key, by, requesterId, approve });
+  return true;
+}
 
 function cleanName(name: unknown): string {
   const n = typeof name === "string" ? name.trim().slice(0, 200) : "";

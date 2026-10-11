@@ -6,6 +6,7 @@ import { startAgents, stopAgents } from "./agents/host";
 import { askStoreGone, asked, testAnswers } from "./dialogs";
 import { startFontWatch, warmFontIndex } from "./fonts";
 import { checkSession, initAccount } from "./account";
+import { initNotifications } from "./notifications";
 import { keyFromLink } from "../shared/multiplayer/types";
 import { registerIpc } from "./ipc";
 import { installAppMenu } from "./menu";
@@ -83,6 +84,8 @@ if (!app.requestSingleInstanceLock()) {
     // A kept session the server no longer accepts is dropped (in the background; offline keeps it).
     void checkSession();
     initAccount();
+    // What reaches the bell while the app isn't in front shows on the computer; a click opens it (docs/multiplayer.md §12).
+    initNotifications((_key, link) => openLink(link));
 
     // While developing, the dock shows the app's icon (a packaged app has it in its bundle).
     if (DEV_URL && process.platform === "darwin") {

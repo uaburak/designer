@@ -11,12 +11,15 @@
     "bindings": [
       { "name": "ROOMS", "class_name": "FileRoom" },
       // One per developer preview (docs/multiplayer.md §9)
-      { "name": "PREVIEWS", "class_name": "PreviewObject" }
+      { "name": "PREVIEWS", "class_name": "PreviewObject" },
+      // One per person: live notifications to their open apps (docs/multiplayer.md §12)
+      { "name": "INBOXES", "class_name": "Inbox" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["FileRoom"] },
-    { "tag": "v2", "new_sqlite_classes": ["PreviewObject"] }
+    { "tag": "v2", "new_sqlite_classes": ["PreviewObject"] },
+    { "tag": "v3", "new_sqlite_classes": ["Inbox"] }
   ],
   // The developer preview viewer (npm run build:viewer → out/viewer/index.html), served by the Worker at /p/<id>
   // (server/src/previews.ts). The Worker runs first for every request, so the API keeps its routes.

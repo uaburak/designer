@@ -44,6 +44,7 @@ import { MemoryLibraries } from "./memoryLibraries";
 import { multiplayerApi } from "../../../../store/multiplayer/api";
 import { MultiplayerService } from "../../../../store/multiplayer/service";
 import { CommentsService, commentsApi } from "../../../../store/comments/service";
+import { NotificationsService, notificationsApi } from "../../../../store/notifications/service";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Ids and clocks (docs/data.md §1)
@@ -211,6 +212,8 @@ export class MemoryStore {
   readonly multiplayer: MultiplayerService;
   /** Comments (docs/multiplayer.md §10): local files' in this storage, shared files' on the server */
   readonly comments: CommentsService;
+  /** The bell (docs/multiplayer.md §12): the person's inbox socket while the page's session is on */
+  readonly notifications: NotificationsService;
   readonly clock: { now(): number };
   private readonly hlc: HlcClock;
   private readonly data = new Map<FileKey, FileData>();
@@ -336,6 +339,7 @@ export class MemoryStore {
       },
       this.multiplayer,
     );
+    this.notifications = new NotificationsService(this.multiplayer, { WebSocket: globalThis.WebSocket as never });
     // eslint-disable-next-line @typescript-eslint/no-this-alias -- the host's getter reads the live ordinal
     const store = this;
   }
@@ -394,6 +398,7 @@ export class MemoryStore {
   dispose(): void {
     this.offWatch?.();
     this.comments.close();
+    this.notifications.close();
     this.multiplayer.close();
     for (const rt of this.runtime.values()) if (rt.updatedAtTimer) clearTimeout(rt.updatedAtTimer);
   }
@@ -919,6 +924,6 @@ export class MemoryStore {
       }),
       collectGarbage: async () => ({ live: 0, deleted: 0, kept: this.storage.keys(`${KV_PREFIX}blob.`).length }),
     };
-    return { workspace, files, blobs, libraries, previews, store, multiplayer: multiplayerApi(this.multiplayer), comments: commentsApi(this.comments) };
+    return { workspace, files, blobs, libraries, previews, store, multiplayer: multiplayerApi(this.multiplayer), comments: commentsApi(this.comments), notifications: notificationsApi(this.notifications) };
   }
 }

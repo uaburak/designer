@@ -44,6 +44,7 @@ import { SerialQueue } from "./local/queue";
 import { multiplayerApi } from "./multiplayer/api";
 import { MultiplayerService } from "./multiplayer/service";
 import { CommentsService, commentsApi } from "./comments/service";
+import { NotificationsService, notificationsApi } from "./notifications/service";
 
 export interface LocalStoreOptions {
   workspaceDir: string;
@@ -120,6 +121,8 @@ export class LocalStore {
   /** Shared files' rooms (docs/multiplayer.md §5); idle until main hands over a session */
   /** Comments (docs/multiplayer.md §10): local files' in files/<key>/comments.json, shared files' on the server */
   readonly comments: CommentsService;
+  /** The bell (docs/multiplayer.md §12): the person's inbox socket while a session is on */
+  readonly notifications: NotificationsService;
   readonly multiplayer: MultiplayerService;
 
   private constructor(
@@ -185,6 +188,7 @@ export class LocalStore {
       },
       this.multiplayer,
     );
+    this.notifications = new NotificationsService(this.multiplayer, { WebSocket: globalThis.WebSocket as never });
   }
 
   private readonly commentsQueue = new SerialQueue();
@@ -518,6 +522,7 @@ export class LocalStore {
     this.closed = true;
     if (this.gcTimer) this.timers.clearTimeout(this.gcTimer);
     this.comments.close();
+    this.notifications.close();
     this.multiplayer.close();
     await this.files.shutdown();
     await this.ws.queue.idle();
@@ -638,7 +643,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
       return mp.setSession(session);
     },
   };
-  return { workspace, files, blobs, libraries, previews, store, multiplayer, comments: commentsApi(s.comments) };
+  return { workspace, files, blobs, libraries, previews, store, multiplayer, comments: commentsApi(s.comments), notifications: notificationsApi(s.notifications) };
 }
 
 /** `previews.*` (docs/data.md §13) over this store, plus main's `exportHtml` and the start's `sweepExpired`. */

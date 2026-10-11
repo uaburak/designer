@@ -112,6 +112,8 @@ export interface SharedFileInfo {
 export interface OpenIntent {
   nodeId?: string;
   mode?: "dev" | "proto";
+  /** A comment thread to open (a notification about it: docs/multiplayer.md §12; the link's `#comment-<id>`) */
+  commentId?: string;
 }
 
 /** A link's `node-id` and `m`, as Figma writes them; null fields are left out. */
@@ -121,6 +123,8 @@ export function intentFromLink(text: string): OpenIntent {
   if (node) out.nodeId = `${node[1]}:${node[2]}`;
   const mode = /[?&]m=(dev|proto)\b/.exec(text);
   if (mode) out.mode = mode[1] as "dev" | "proto";
+  const comment = /[?&#]comment[-=]([A-Za-z0-9_-]{6,64})/.exec(text);
+  if (comment) out.commentId = comment[1];
   return out;
 }
 
@@ -129,6 +133,7 @@ export function linkWith(link: string, intent: OpenIntent): string {
   const u = new URL(link);
   if (intent.nodeId) u.searchParams.set("node-id", intent.nodeId.replace(":", "-"));
   if (intent.mode) u.searchParams.set("m", intent.mode);
+  if (intent.commentId) u.hash = `comment-${intent.commentId}`;
   return u.toString();
 }
 

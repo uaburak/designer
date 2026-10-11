@@ -17,6 +17,7 @@ import type { Role } from "../../src/shared/multiplayer/protocol";
 import { buildThreads, COMMENT_ID, MAX_COMMENT_LENGTH, type Comment, type CommentAnchor, type CommentUser } from "../../src/shared/comments";
 import type { Deps } from "./api";
 import type { User } from "./db";
+import { forgetComments, notifyComment, notifyReaction } from "./notifications";
 import { randomToken } from "./tokens";
 
 export interface CommentsContext {
@@ -150,6 +151,7 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
       // Replying reads the thread.
       await markRead(thread.id, now);
       await changed(thread.id);
+      await notifyComment(deps, { key, by: user, commentId: id, threadId: thread.id, reply: true, message, mentions });
       return list();
     }
     const anchor = cleanAnchor(body.anchor);
@@ -164,6 +166,7 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
       .run();
     await markRead(id, now);
     await changed(id);
+    await notifyComment(deps, { key, by: user, commentId: id, threadId: id, reply: false, message, mentions });
     return list();
   }
 
@@ -191,7 +194,9 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
       const body = await readJson(req);
       const emoji = cleanEmoji(body?.emoji);
       if (!emoji) return fail(400, "emoji");
+      const had = await d1.prepare(`SELECT 1 FROM comment_reactions WHERE comment_id = ?1 AND user_id = ?2 AND emoji = ?3`).bind(id, user.id, emoji).first();
       await d1.prepare(`INSERT INTO comment_reactions (comment_id, user_id, emoji, created_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING`).bind(id, user.id, emoji, deps.now()).run();
+      if (!had) await notifyReaction(deps, { key, by: user, commentId: id, threadId: c.thread_id, emoji });
     } else if (m === "DELETE") {
       const emoji = cleanEmoji(new URL(req.url).searchParams.get("emoji"));
       if (!emoji) return fail(400, "emoji");
@@ -212,6 +217,7 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
     } else await d1.prepare(`DELETE FROM comment_reactions WHERE comment_id = ?1`).bind(id).run();
     await d1.prepare(`DELETE FROM comments WHERE id = ?1`).bind(id).run();
     await changed(c.thread_id);
+    await forgetComments(deps, key, [id]);
     return list();
   }
 

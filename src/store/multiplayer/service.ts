@@ -122,6 +122,7 @@ export class MultiplayerService {
     this.live.clear();
     this.session = session;
     this.only = only;
+    for (const l of this.sessionListeners) l(session);
     if (!session) return this.status();
     const st = await this.loadState();
     try {
@@ -579,6 +580,22 @@ export class MultiplayerService {
   /** A JSON call to the server with the session */
   call<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
     return this.api<T>(method, path, body);
+  }
+
+  private sessionListeners = new Set<(session: MultiplayerSession | null) => void>();
+  /** The session changed (the store's notifications follow it: src/store/notifications/service.ts) */
+  onSession(listener: (session: MultiplayerSession | null) => void): Unsubscribe {
+    this.sessionListeners.add(listener);
+    return () => this.sessionListeners.delete(listener);
+  }
+
+  /** A WebSocket URL on the server with the session's token (null signed out) */
+  wsUrl(path: string): string | null {
+    if (!this.session) return null;
+    const u = new URL(path, this.session.server);
+    u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
+    u.searchParams.set("token", this.session.token);
+    return u.toString();
   }
 
   private roomComments = new Set<(fileKey: FileKey) => void>();

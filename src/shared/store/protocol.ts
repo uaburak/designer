@@ -3,10 +3,10 @@
  * are structured clones (Uint8Arrays are copied once, no JSON). The store sends `hello` first on every new port.
  */
 
-export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer" | "comments";
+export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer" | "comments" | "notifications";
 export type StoreMethod = `${Repository}.${string}`;
 export type PortRole = "main" | "home" | "editor";
-export type EventTopic = "workspace" | "file.changes" | "library" | "multiplayer" | "comments";
+export type EventTopic = "workspace" | "file.changes" | "library" | "multiplayer" | "comments" | "notifications";
 
 export type RpcRequest = { t: "req"; id: number; m: StoreMethod; a: unknown[] };
 export type RpcResponse = { t: "res"; id: number; ok: true; v: unknown } | { t: "res"; id: number; ok: false; e: { code: StoreErrorCode; message: string; detail?: unknown } };
@@ -97,6 +97,7 @@ export const STORE_METHODS = {
   store: ["shutdown", "flushAll", "info", "collectGarbage"],
   multiplayer: ["setSession", "status", "fileState", "share", "listRemote", "openShared", "members", "fileInfo", "setLinkAccess", "setViewersCanCopy", "requestEdit", "requests", "answerRequest", "invite", "removeMember", "presence", "takeOpenIntent", "unlockFile", "setLinkPassword", "transferOwnership", "signal"],
   comments: ["list", "add", "edit", "remove", "setResolved", "setRead", "react", "move", "mentionable"],
+  notifications: ["list", "markRead", "prefs", "setPrefs", "answer"],
 } as const satisfies Record<Repository, readonly string[]>;
 
 /** Methods that take filesystem paths stay in main, behind native dialogs, so a renderer can never name a path. */
@@ -147,6 +148,8 @@ export const RETRY_SAFE = new Set<string>([
   "multiplayer.fileInfo",
   "comments.list",
   "comments.mentionable",
+  "notifications.list",
+  "notifications.prefs",
 ]);
 
 /**

@@ -46,6 +46,10 @@ export function multiplayerApi(m: MultiplayerService): MultiplayerRepository {
 
 const cleanIntent = (i: unknown): OpenIntent | undefined => {
   if (!i || typeof i !== "object") return undefined;
-  const { nodeId, mode } = i as OpenIntent;
-  return { ...(typeof nodeId === "string" && /^[0-9]+:[0-9]+$/.test(nodeId) ? { nodeId } : {}), ...(mode === "dev" || mode === "proto" ? { mode } : {}) };
+  const { nodeId, mode, commentId } = i as OpenIntent;
+  return {
+    ...(typeof nodeId === "string" && /^[0-9]+:[0-9]+$/.test(nodeId) ? { nodeId } : {}),
+    ...(mode === "dev" || mode === "proto" ? { mode } : {}),
+    ...(typeof commentId === "string" && /^[A-Za-z0-9_-]{6,64}$/.test(commentId) ? { commentId } : {}),
+  };
 };

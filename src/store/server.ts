@@ -7,6 +7,7 @@ import { isKnownMethod, roleMayCall, serializeError, StoreError, type PortRole, 
 import type { FileChange, LibraryEvent, OpenedFile, StoreApi, Unsubscribe, WorkspaceEvent } from "../shared/store/repositories";
 import type { FileKey } from "../shared/store/types";
 import type { FileShareState, MultiplayerNotice } from "../shared/multiplayer/types";
+import type { NotificationsEvent } from "../shared/notifications";
 
 /**
  * What the server needs from a store: `LocalStore` (the utility process), or the browser's in-memory dev store
@@ -28,6 +29,8 @@ export interface ServableStore {
   };
   /** Comments changed (docs/multiplayer.md §10) */
   readonly comments?: { onChange(listener: (fileKey: FileKey) => void): Unsubscribe };
+  /** The bell's counts and new notifications (docs/multiplayer.md §12) */
+  readonly notifications?: { onChange(listener: (e: NotificationsEvent) => void): Unsubscribe };
   readonly files: {
     /** Frames after `fromSeq` for a subscriber catching up */
     backlog(fileKey: FileKey, fromSeq: number): Promise<FileChange[]>;
@@ -129,6 +132,7 @@ export class StoreServer {
       this.offs.push(mp.onSignal((fileKey, from, data) => void mp.fileState(fileKey).then((state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state, signal: { from, data } } }))));
     }
     if (store.comments) this.offs.push(store.comments.onChange((fileKey) => this.broadcast({ t: "evt", topic: "comments", d: { fileKey } })));
+    if (store.notifications) this.offs.push(store.notifications.onChange((d) => this.broadcast({ t: "evt", topic: "notifications", d })));
   }
 
   get size(): number {
