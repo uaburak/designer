@@ -34,7 +34,7 @@ import type {
 import type { MultiplayerRepository } from "../multiplayer/types";
 import type { CommentsRepository } from "../comments";
 import type { NotificationsRepository } from "../notifications";
-import type { AdminRepository, OrgsRepository, ProjectsRepository, TeamsRepository } from "../org/repositories";
+import type { AdminRepository, IdentityRepository, OrgsRepository, ProjectsRepository, TeamsRepository } from "../org/repositories";
 import type { BranchesRepository } from "../merge/branches";
 import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "../libraries/orgTypes";
 
@@ -254,4 +254,6 @@ export interface StoreApi {
   orgLibraries: OrgLibrariesRepository;
   /** Library analytics (docs/data.md §17): the editor's usage events, queued and batched by the store; the views' reads */
   analytics: LibraryAnalyticsRepository;
+  /** Admin › Settings › Login and provisioning, domains, data storage localization (docs/multiplayer.md §15; round 4c) */
+  identity: IdentityRepository;
 }

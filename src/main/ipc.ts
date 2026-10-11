@@ -148,6 +148,8 @@ export function registerIpc() {
   onInvoke("account:sign-in", () => account.signIn());
   onInvoke("account:cancel-sign-in", () => account.cancelSignIn());
   onInvoke("account:sign-out", () => account.signOut());
+  // Round 4f replaces this stub with the idle timer's (docs/desktop.md §18.2)
+  onInvoke("account:stay-signed-in", () => account.accountState());
   onInvoke("account:request", (_c, r) => account.accountRequest({ method: r?.method, path: str(r?.path, 200) ?? "", body: r?.body }));
   // ── Haptics (a scrub's steps; throttled, macOS only) ──
   onSend("haptics:tick", () => void hapticTick());

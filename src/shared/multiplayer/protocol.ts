@@ -7,6 +7,7 @@
  *
  * Control messages are JSON text frames; document changes are binary frames (the kiwi Message needs no re-encoding).
  */
+import type { RoomPolicy } from "../org/identity";
 
 /** Binary frame: client → server. `[u8 1][u32 batch][kiwi Message]` */
 export const FRAME_CHANGES_UP = 1;
@@ -31,7 +32,7 @@ export const MAX_SIGNAL_BYTES = 32_000;
 
 export type ServerControl =
   /** The session this connection is. `sessionID` is unique for the file: use it in new nodes' GUIDs. `seq`: the last accepted frame. */
-  | { t: "welcome"; sessionID: number; role: Role; seq: number; peers: PeerInfo[]; snapshotSeq: number }
+  | { t: "welcome"; sessionID: number; role: Role; seq: number; peers: PeerInfo[]; snapshotSeq: number; policy?: RoomPolicy }
   /** The catch-up after `since` is complete (the frames before it were sent as binary frames). */
   | { t: "ready"; seq: number }
   | { t: "peer-joined"; peer: PeerInfo }
@@ -42,7 +43,12 @@ export type ServerControl =
   | { t: "notice"; kind: "access-request" | "access-granted" | "access-denied"; userId: string; name?: string }
   /** The file's comments changed (docs/multiplayer.md §10): read them again */
   | { t: "comments"; threadId: string; by: string }
+  /** The org changed cursor chat or audio (docs/multiplayer.md §15.9) */
+  | { t: "policy"; policy: RoomPolicy }
   | { t: "error"; code: "unauthorized" | "forbidden" | "bad-frame" | "too-large" | "too-old"; message: string };
+
+/** The room is moving to another region (§15.10): reconnect after a moment */
+export const CLOSE_MOVING = 4012;
 
 /** Figma's file roles: owner, "can edit", "can view" */
 export type Role = "owner" | "editor" | "viewer";

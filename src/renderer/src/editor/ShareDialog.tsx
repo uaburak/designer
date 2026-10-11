@@ -21,6 +21,7 @@ import { Portal } from "@/ds/overlay/Portal";
 import { useFocusScope } from "@/ds/overlay/FocusTrap";
 import { useCurrentPage } from "@/engine/hooks";
 import { getStoreClient } from "@/store";
+import { generateLinkPassword } from "@shared/org/identity";
 import { linkWith, type AccessRequest, type FileMember, type FileShareState, type LinkAccess, type OpenIntent, type SharedFileInfo } from "@shared/multiplayer/types";
 import type { PreviewRecord } from "../../../shared/store/types";
 import { useAccount } from "../files/account";
@@ -612,7 +613,7 @@ function ShareSettings({ p, onDone }: { p: People; onDone: () => void }) {
         <div className={styles.passwordRow}>
           <Checkbox label="Password required" checked={passwordOn} onChange={(on) => setPasswordOn(on === true)} disabled={!p.canShare} />
           {passwordOn && (
-            <button type="button" className={styles.generate} onClick={() => setPassword(generatePassword())} aria-label="Generate password" data-share="generate-password">
+            <button type="button" className={styles.generate} onClick={() => setPassword(generateLinkPassword())} aria-label="Generate password" data-share="generate-password">
               <Icon name="24.rotate" />
               Generate
             </button>
@@ -647,13 +648,6 @@ function ShareSettings({ p, onDone }: { p: People; onDone: () => void }) {
       </footer>
     </>
   );
-}
-
-/** "Generate": four random words, as Figma's (help.figma.com 5726720100247) */
-const WORDS = "amber anchor apple arrow autumn bamboo beacon berry bloom breeze canyon cedar cloud comet coral cotton crystal dawn delta desert echo ember falcon fern forest frost galaxy garden glacier harbor hazel horizon island ivory jade jasmine juniper lagoon lemon lily lotus maple meadow meteor mint moss nebula oasis ocean olive orbit orchid pebble pepper pine planet plum prairie quartz rain raven reef river robin saffron sage sand shadow silver sky spruce star stone storm summer sunset thunder tide timber topaz tulip valley velvet violet willow winter".split(" ");
-function generatePassword(): string {
-  const r = crypto.getRandomValues(new Uint32Array(4));
-  return [...r].map((n) => WORDS[n % WORDS.length]).join("-");
 }
 
 /** "Copy public embed code" (live: the code selected in a read-only field, "Embed <page> in your webpage", Cancel, Copy). */
