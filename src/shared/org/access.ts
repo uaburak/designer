@@ -16,6 +16,12 @@
  * Round 4 (docs/multiplayer.md §15.9): the public link (step 4) yields to the file's sharing policy (public links off;
  * passwords required and none set); the external cap (step 5) applies to files outside the user's home org — files
  * outside any org included, so a restricted member's own drafts elsewhere become view-only.
+ *
+ * Round 5 (docs/editor.md D-6): a level below viewer, **prototype**, tried only when everything above refuses. It is
+ * granted by a `prototype_members` row (invited from Share prototype), the prototype link for anyone
+ * (`files.proto_link_access`, the public link's rules: the policy, expiry, password) or for the org's members
+ * (`proto_org_link_access`, by the link, as the org link). The result is a viewer with `prototypeOnly` — no Dev Mode,
+ * no sharing; comments yes (ours), export as `viewers_can_copy`.
  */
 import type { FilePolicy } from "./identity";
 import type { Audience, EditorType, FileAccess, GrantRole, InheritMode, Level, OrgRole, Seat } from "./types";
@@ -47,7 +53,13 @@ export interface AccessRows {
     viewersCanCopy: boolean;
     passwordProtected: boolean;
     trashedAt: number | null;
+    /** Round 5 (D-6): "Anyone with the prototype link" (absent: none) */
+    protoLinkAccess?: "none" | "viewer";
+    /** Round 5 (D-6): the org's members with the prototype link (absent: none) */
+    protoOrgLinkAccess?: "none" | "viewer";
   };
+  /** Round 5 (D-6): the user (by id or email) was invited from Share prototype */
+  prototypeMember?: boolean;
   /** members rows (user or pending email) + group_grants on the file */
   fileGrants: Grant[];
   /** Nearest first, to the top */
@@ -111,7 +123,48 @@ export function grantOf(gs: readonly Grant[], user: { id: string; email: string 
 }
 
 export function resolveAccess(r: AccessRows): AccessResult {
-  return r.file.orgId === null ? legacy(r) : org(r);
+  const a = r.file.orgId === null ? legacy(r) : org(r);
+  return a.ok ? a : prototype(r, a);
+}
+
+/**
+ * The prototype level (round 5, docs/editor.md D-6), when nothing else lets the caller in. An invitation from Share
+ * prototype needs no link and no password; the prototype links follow their file links' rules (the org's members by
+ * the link; anyone signed in, by the link for org files, under the policy, the expiry and the password).
+ */
+function prototype(r: AccessRows, denied: AccessDenied): AccessResult {
+  const { file, user, membership } = r;
+  if (!user || file.trashedAt !== null) return denied;
+  const isOrgAdmin = membership?.role === "admin";
+  if (file.orgId !== null && r.team && r.team.deletedAt !== null && !isOrgAdmin) return denied;
+  const via: Via[] = [];
+  if (r.prototypeMember) via.push("file");
+  const member = file.orgId !== null && !!membership && (membership.role === "admin" || membership.role === "member");
+  if (member && file.protoOrgLinkAccess === "viewer" && r.viaLink && linkLive(r)) via.push("audience");
+  let refused: AccessDenied | null = null;
+  if (file.protoLinkAccess === "viewer" && (file.orgId === null || r.viaLink) && publicLinkAllowed(r)) {
+    if (!linkLive(r)) refused = { ok: false, reason: "gone", role: null };
+    else if (file.passwordProtected && !r.passOk) refused = { ok: false, reason: "password_required", role: "viewer" };
+    else via.push("link");
+  }
+  if (!via.length) return refused && denied.reason === "none" ? refused : denied;
+  const external = isExternal(r);
+  return {
+    ok: true,
+    role: "viewer",
+    roomRole: "viewer",
+    canView: true,
+    trashed: false,
+    canEdit: false,
+    canComment: !external,
+    canExport: file.viewersCanCopy,
+    canDevMode: false,
+    canShare: false,
+    canManage: false,
+    capped: external ? "external" : null,
+    prototypeOnly: true,
+    via,
+  };
 }
 
 const linkLive = (r: AccessRows) => r.file.linkExpiresAt === null || r.now < r.file.linkExpiresAt;

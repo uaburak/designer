@@ -371,3 +371,25 @@ Acceptance (verified with `scripts/drive.mjs` on the built demo app): launch →
   - **Tests**: `account/__tests__/idleWarning.dom.test.ts` (2), `files/__tests__/session.dom.test.ts` (1), `store/__tests__/webAccount.dom.test.ts` (3), `files/__tests__/account.test.ts` (+1 SSO texts), `server/src/auth/identity.test.ts` (idle case now expects `idle_timeout` after the row is gone), `server/src/account.test.ts` (+DELETE /me/sessions), `src/store/multiplayer/policy.test.ts` (the socket-upgrade case now `idle_timeout`).
   - **Shared-file edits outside the row**: `src/shared/multiplayer/types.ts` (`SharedFileInfo` fields, `LinkSettingsPatch`, `updateLink`), `src/shared/store/protocol.ts` + `client.ts`, `src/store/multiplayer/api.ts` + `service.ts` (`updateLink`), `src/shared/idleTimer.ts` + `src/main/account/idle.ts` (moved, re-exported), `src/renderer/src/editor/commands.ts` (one guard line + import), `settings/Settings.module.css` (one class), `server/src/api.ts` (`authenticate`: the tombstone check), `server/src/account.ts`, `server/migrations/0014_idle_sessions.sql`.
   - **Not built / open**: wording is ours wherever Figma documents only behaviour (prompt, notices, toasts); "outside the org" is decided client-side without the org's domains (admins never asked; same-domain emails count as inside); Admin › workspace Settings for workspace admins (only Libraries exists).
+- 2026-10-11 — **Phase 7 round 5c, server Dev Mode and plugins** (branch `worktree-agent-a0361bbba40d714b8`). The as-built records are `docs/editor.md` "As built — the server (round 5c)", `docs/multiplayer.md` §16.7 "As built (5c)" and `docs/plugins.md` §10.3a.
+  - **Dev Mode** (`server/src/devmode/`):
+    - dev resources: private routes plus the `/v1` twins, ≤ 10 per node, a URL once per node, Full / Dev seats;
+    - Code Connect: storage, the UI mapping routes, `/v1/code_connect` publish and unpublish, `GET /v1/files/:key/code_connect`; mappings readable by the library's users;
+    - the dev-status report with `DEV_MODE_STATUS_UPDATE`, Dev Mode viewers, the per-file switch;
+    - the five notification kinds, Dev Mode statuses folded within the hour, `NotificationPrefs.devMode` for the desktop push;
+    - prototype-only access: `resolveAccess`'s prototype level, `prototype_members`, `protoOrgLinkAccess`, `prototypeOpen` gating the file routes;
+    - `devModeRestRoute` filled for 5a.
+  - **Plugins** (`server/src/plugins/`): private plugins published in three steps (SHA-1-checked parts in 1 MiB chunks, versions), approvals for the org and for workspaces, requests and their answers with Figma's activity actions, and `patchSettings` for the four plugin keys.
+  - **Tests**: `devmode.test.ts` 9, `plugins.test.ts` 5, `access.test.ts` +6, `src/shared/notifications.test.ts` +2. `npm run check` (1667 tests) and `npm --prefix server run typecheck` are green. Not deployed, not pushed.
+  - **Shared-file edits**:
+    - `src/shared/org/access.ts`: optional `AccessRows` fields;
+    - `src/shared/notifications.ts`: `devMode` pref, `isDevStatusKind`, `devStatusText`, `DEV_STATUS_FOLD_MS`; `notificationAction` takes `text`;
+    - `server/src/api.ts`: two dispatch lines, the prototype guard, and `protoOrgLinkAccess` in GET / PATCH;
+    - `server/src/org/db.ts`: `FILE_COLS` + `proto_org_link_access`, `prototypeMember`, listings skip prototype-only;
+    - `server/src/org/admin.ts`: `patchSettings`;
+    - `server/src/notifications.ts`.
+  - **Open**:
+    - The room has no broadcast route, so the `{t: "dev-resources"}` post isn't sent.
+    - The Worker sends `x-role: viewer` for prototype-only (room.ts treats any other role as a writer).
+    - Prototype invitations don't go through the org's guest policy.
+    - 5a must run `devModeRestRoute` after its scope checks. `parts` may keep the leading `v1`.
