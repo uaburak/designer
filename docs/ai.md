@@ -84,7 +84,7 @@ Each AI row has an "AI" badge (Learn more). The "Visual search (AI beta)" button
    - Boost resolution: local (`swin2sr-x4`, 128 px tiles with 16 px overlap; the output's long side is capped at 4096).
    - Erase: local (`lama`, 512² crop around the lasso, composited inside a feathered mask). With no model it falls back to the image API with a mask.
    - Isolate: local. The lasso crop goes through `birefnet-lite`, the result is intersected with the lasso and becomes a **new image layer above**, with the original kept [unverified].
-   - Expand: an image API only. The original goes on the padded canvas, the mask is the new area, the layer grows in the dragged directions.
+   - Expand: the image route, Antigravity by default (owner, §10.1): the original goes on the padded canvas, the new area transparent, sent as an Edit asking to fill it; the untouched original is re-composited over the result. With an OpenAI / Gemini key it can use their masked edit instead. The layer grows in the dragged directions.
    - Make an image / Edit with prompt: the image route.
    - Results are new image hashes through the editor's images import, set as the layer's IMAGE fill (or a new layer), each action one `writeAction` step. Several selected images are one step.
 7. **Vectorize** is a tracer in the engine (C++, our code). §5.
@@ -92,7 +92,7 @@ Each AI row has an "AI" badge (Learn more). The "Visual search (AI beta)" button
 9. **Credits = a usage ledger.** No billing.
    - Every run records `AiUsageEntry` through `store.ai.record`. Agent chat turns are recorded from their existing `usage` events.
    - `creditsFor` (§8) maps tokens, megapixels or a fixed cost to Figma-like numbers.
-   - "AI balance" shows the month against `monthlyCredits` (default 4,250). It warns only unless `stopAtLimit` is on.
+   - "AI balance" shows the month against `monthlyCredits` (default 4,250). With `stopAtLimit` on (the default, owner §10.3) AI actions stop with `over-limit` until the next month; off, it only warns.
    - For files in an org, the store reports daily totals to the server (`POST /me/ai-usage`, absolute totals for each (org, day, editor_type) → upsert into `ai_usage_daily.seat_credits`). That fills `GET /v1/ai_usage/daily` (multiplayer.md §16.7). No new migration.
 10. **Skills** are personal this round. The store writes `Workspace/spaces/ai/skills/<id>.md` (frontmatter `name`, `description`, then the instructions).
     - The Agents composer's "+" becomes a menu: Add files and photos, Skills ▸, Connectors ▸. `/name` invokes a skill.
@@ -226,7 +226,7 @@ export interface AiSettings {
   /** Keys kept in the keychain; only whether one is set */
   imageKeys: { openai: boolean; gemini: boolean };
 }
-export const DEFAULT_AI_SETTINGS: AiSettings = { enabled: true, text: null, image: null, actions: {}, monthlyCredits: 4250, stopAtLimit: false, indexForSearch: true, imageKeys: { openai: false, gemini: false } };
+export const DEFAULT_AI_SETTINGS: AiSettings = { enabled: true, text: null, image: null, actions: {}, monthlyCredits: 4250, stopAtLimit: true, indexForSearch: true, imageKeys: { openai: false, gemini: false } };
 export const AI_TEXT_DEFAULT_ORDER = ["claude-code", "codex", "antigravity", "cursor-agent", "ollama", "lmstudio"] as const;
 
 export type AiErrorCode = "no-provider" | "signed-out" | "rate-limited" | "refused" | "bad-output" | "network" | "timeout" | "cancelled" | "disabled" | "over-limit" | "too-large" | "unsupported" | "no-model";
@@ -371,6 +371,8 @@ export interface AiRepository {
 - IPC: the list above holds with these fits to the existing conventions. `agents:consent-answer` is a one-way send (`IpcSend`, `["editor"]`), like `agents:tool-result`, not an invoke. `ai:run` and `ai:image` answer `void` (their events carry the `runId`). `ai:set-settings` takes `Partial<Omit<AiSettings, "imageKeys">>`; `ai:set-image-key` takes `{ provider: "openai" | "gemini"; key: string | null }`. `ai:models` answers `{ info, state }`. Events (`ai:event`, `ai:model-state`, `agents:consent`) have no role list in `IpcEvents`, like the others. Main-side stubs are in `src/main/ipc.ts`; 6f / 6b replace them.
 - The `aimodel:` scheme (6b) follows the `plugin:` pattern: a `src/main/ai/protocol.ts` exporting `AIMODEL_SCHEME_PRIVILEGES` (`standard`, `secure`, `supportFetchAPI`, `corsEnabled`) that joins the array in `registerScheme()` in `src/main/protocol.ts` (one call registers all schemes), and a handler beside `handleScheme`. The app's CSP needs `aimodel:` added to `connect-src` (the worker fetches the model files and runs onnxruntime's Wasm; `script-src` already has `'wasm-unsafe-eval'`, `worker-src` already has `'self' blob:`). Nothing else changes in the CSP.
 - The two stubs are in place; `src/store/ai/stub.ts` holds `notImplementedAi()` and `notImplementedSearch()`.
+
+**Reviewed 2026-10-12 (before the agents):** the block above matches `src/shared/ai/types.ts` exactly, and every addition listed is in. The fits above are kept: a one-way `agents:consent-answer` is how `agents:tool-result` answers main; `ai:run` / `ai:image` take a caller-chosen `runId`, so there is nothing to return (unlike `agents:turn`, whose id main makes); `ai:set-image-key`'s `"openai" | "gemini"` matches `AiSettings.imageKeys` — with Antigravity the default for Make, Edit and Expand (§10.1) the keys are optional providers, and nothing needs one; `ai:models` answers both lists in one call so Settings shows sizes and states together; the `aimodel:` scheme stays with 6b, which owns `src/main/protocol.ts`'s one line. One change from the owner's answers: `DEFAULT_AI_SETTINGS.stopAtLimit` is `true` (§10.3), in the block and in the code.
 
 ## 9. Ownership, merge order — see `docs/roadmap.md` "Round 6"
 

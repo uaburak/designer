@@ -19,7 +19,7 @@ export interface AiSettings {
   /** Keys kept in the keychain; only whether one is set */
   imageKeys: { openai: boolean; gemini: boolean };
 }
-export const DEFAULT_AI_SETTINGS: AiSettings = { enabled: true, text: null, image: null, actions: {}, monthlyCredits: 4250, stopAtLimit: false, indexForSearch: true, imageKeys: { openai: false, gemini: false } };
+export const DEFAULT_AI_SETTINGS: AiSettings = { enabled: true, text: null, image: null, actions: {}, monthlyCredits: 4250, stopAtLimit: true, indexForSearch: true, imageKeys: { openai: false, gemini: false } };
 export const AI_TEXT_DEFAULT_ORDER = ["claude-code", "codex", "antigravity", "cursor-agent", "ollama", "lmstudio"] as const;
 
 export type AiErrorCode = "no-provider" | "signed-out" | "rate-limited" | "refused" | "bad-output" | "network" | "timeout" | "cancelled" | "disabled" | "over-limit" | "too-large" | "unsupported" | "no-model";

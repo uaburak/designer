@@ -169,10 +169,10 @@ export const STORE_METHODS = {
   // Plugins (docs/plugins.md §10.4, round 5g); `plugins` is also an event topic
   plugins: ["local", "setSaved", "ranRecently", "listPrivate", "bundle", "publish", "removePrivate", "allowed", "request", "admin", "approve", "unapprove", "answer"],
   // Dev Mode (docs/editor.md D-8, round 5g); `devmode` is also an event topic
+  devMode: ["devResources", "addDevResource", "editDevResource", "removeDevResource", "codeConnect", "setCodeConnect", "removeCodeConnect", "reportStatus", "viewed", "setStatusNotifications", "prototypeMembers", "invitePrototype", "removePrototype"],
   // AI ledger and Skills (docs/ai.md §8, round 6g) and the search index (round 6d)
   ai: ["record", "balance", "history", "skills", "saveSkill", "removeSkill"],
   search: ["upsert", "remove", "versions", "query", "thumb", "stats", "clear"],
-  devMode: ["devResources", "addDevResource", "editDevResource", "removeDevResource", "codeConnect", "setCodeConnect", "removeCodeConnect", "reportStatus", "viewed", "setStatusNotifications", "prototypeMembers", "invitePrototype", "removePrototype"],
 } as const satisfies Record<Repository, readonly string[]>;
 
 /** Methods that take filesystem paths stay in main, behind native dialogs, so a renderer can never name a path. */
