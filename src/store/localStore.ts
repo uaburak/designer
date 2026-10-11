@@ -46,6 +46,8 @@ import { MultiplayerService } from "./multiplayer/service";
 import { CommentsService, commentsApi } from "./comments/service";
 import { NotificationsService, notificationsApi } from "./notifications/service";
 import { OrgService } from "./org/service";
+import { BranchService } from "./branches/service";
+import { localBranchHost } from "./branches/localHost";
 
 export interface LocalStoreOptions {
   workspaceDir: string;
@@ -216,10 +218,13 @@ export class LocalStore {
       },
       this.notifications,
     );
+    this.branches = new BranchService(localBranchHost({ dirs, ws, files, libraries, multiplayer: this.multiplayer, clock, log, timers }));
   }
 
   /** The org spaces (docs/multiplayer.md §14.6): the server's orgs, teams, folders and their files, cached per org */
   readonly org: OrgService;
+  /** Branches (docs/data.md §15): records, merge previews, Update from main and Merge; events on topic `branches` */
+  readonly branches: BranchService;
   private readonly spacesQueue = new SerialQueue();
 
   /** A new org file's local copy (docs/multiplayer.md §14.6): an empty document, its `space` set from the start. */
@@ -299,12 +304,16 @@ export class LocalStore {
         clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>),
       };
       const compactor = opts.compactor ?? inlineCompactor;
-      const files = new FileStore({ dirs, workspace: ws, schemas, hlc, clock, deviceOrdinal, compactor, log, timers });
+      // A branch at the end of its GUID block asks its main file for the next (docs/data.md §15.2).
+      const late: { store: LocalStore | null } = { store: null };
+      const files = new FileStore({ dirs, workspace: ws, schemas, hlc, clock, deviceOrdinal, compactor, log, timers, nextSessionBlock: (k) => late.store?.branches.nextSessionBlock(k) ?? Promise.resolve(null) });
       const libraries = new LocalLibraries({ dirs, workspace: ws, files, blobs, hlc, clock, log });
       await libraries.load();
       ws.sizeOf = (k) => files.cachedSize(k);
       const store = new LocalStore(dirs, ws, files, blobs, libraries, deviceOrdinal, clock, log, opts.generation ?? 1, compactor, timers, hlc, opts.userDataDir ?? null, opts.fetch);
       store.viewerTemplate = opts.viewerTemplate ?? null;
+      late.store = store;
+      void store.branches.load().catch((e) => log("warn", "loading branches failed", e));
       // Background start-up work: sizes for the file list, version thinning, the first GC.
       void Promise.all([...ws.files.keys()].map((k) => files.sizeOf(k).catch(() => 0))).catch(() => {});
       void files.thinAll([...ws.files.keys()]).catch((e) => log("warn", "version thinning failed", e));
@@ -419,6 +428,7 @@ export class LocalStore {
 
   private async deleteItems(doomed: { files: FileKey[]; folders: FolderId[] }): Promise<void> {
     for (const k of doomed.files) {
+      this.branches.forget(k);
       await this.files.deleteFileData(k);
       await this.libraries.fileDeleted(k);
       await this.ws.queue.run(() => this.ws.forgetFile(k));
@@ -565,6 +575,7 @@ export class LocalStore {
     if (this.gcTimer) this.timers.clearTimeout(this.gcTimer);
     this.comments.close();
     this.org.close();
+    this.branches.close();
     this.notifications.close();
     this.multiplayer.close();
     await this.files.shutdown();
@@ -626,7 +637,8 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     watch: (listener) => s.workspaceEvents.on(listener),
   };
   const files: FileRepository = {
-    open: (fileKey, opts) => s.files.open(fileKey, { mode: opts?.mode === "edit" ? "edit" : "view", tabId: opts?.tabId }, owner),
+    // An archived or merged branch opens read-only (docs/data.md §15.5).
+    open: (fileKey, opts) => s.files.open(fileKey, { mode: s.branches.openMode(fileKey, opts?.mode === "edit" ? "edit" : "view"), tabId: opts?.tabId }, owner),
     reattach: (fileKey, sessionID, last) => s.files.reattach(fileKey, sessionID, last ?? 0, owner),
     append: (fileKey, batch) => s.files.append(fileKey, batch, owner),
     flush: (fileKey) => s.files.flush(fileKey),
@@ -656,7 +668,10 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     getRecord: async (lib) => s.libraries.getRecord(lib),
     getVersion: (lib, version) => s.libraries.getVersion(lib, version),
     previewPublish: (lib, assets) => s.libraries.previewPublish(lib, assets ?? []),
-    publish: (req) => s.libraries.publish(req),
+    publish: async (req) => {
+      s.branches.checkCanPublish(req?.libraryFileKey);
+      return s.libraries.publish(req);
+    },
     unpublish: (lib) => s.libraries.unpublish(lib),
     setEnabled: (fileKey, lib, enabled) => s.libraries.setEnabled(fileKey, lib, !!enabled),
     getPayloads: (lib, wants, opts) => s.libraries.getPayloads(lib, wants ?? [], { withDependencies: !!opts?.withDependencies }),
@@ -700,6 +715,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     teams: s.org.teams,
     projects: s.org.projects,
     admin: s.org.admin,
+    branches: s.branches.repository(),
   };
 }
 

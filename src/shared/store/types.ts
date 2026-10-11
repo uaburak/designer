@@ -3,6 +3,7 @@
  * and the viewer. Each record is one JSON file on disk and, later, one Firestore document (§12.4).
  */
 import type { SpaceId } from "../org/repositories";
+import type { BranchStatus } from "../merge/branches";
 
 export type FileKey = string;
 export type FolderId = string;
@@ -63,8 +64,24 @@ export interface FileMeta {
    * show them.
    */
   space?: FileSpace | null;
+  /**
+   * A branch's file (docs/data.md §15.2): its main file, the branch's name and status. Absent or null: not a branch.
+   * Local listings (Drafts, folders, search) leave branches out — they show under their main file; Recents, Starred and
+   * Trash list them.
+   */
+  branch?: FileBranch | null;
   _clk: Clock;
 }
+
+/** `FileMeta.branch` (docs/data.md §15.2) */
+export interface FileBranch {
+  mainFileKey: FileKey;
+  name: string;
+  status: BranchStatus;
+}
+
+// Branches' records (docs/data.md §15.2) live with the merge types (src/shared/merge/branches.ts); re-exported here.
+export type { BranchRecord, BranchReview, BranchStatus } from "../merge/branches";
 
 /** Where an org file lives (docs/multiplayer.md §14.6): its org, its room key, its team and folder (both null: drafts). */
 export interface FileSpace {
@@ -104,8 +121,12 @@ export interface FileUiState {
 
 // --- writes (docs/data.md §5.4) ---
 
-export type BatchKind = "edit" | "undo" | "redo" | "system" | "remote" | "restore";
-export const BATCH_KINDS: readonly BatchKind[] = ["edit", "undo", "redo", "system", "remote", "restore"];
+/**
+ * "merge" (main ← a branch) and "update" (a branch ← main) are the store's own batches (docs/data.md §15.2): journaled,
+ * never undoable, applied by open editors as remote changes.
+ */
+export type BatchKind = "edit" | "undo" | "redo" | "system" | "remote" | "restore" | "merge" | "update";
+export const BATCH_KINDS: readonly BatchKind[] = ["edit", "undo", "redo", "system", "remote", "restore", "merge", "update"];
 
 export interface ChangeBatch {
   sessionID: number;
@@ -163,7 +184,9 @@ export const MAX_BATCH_BYTES = 64 * 1024 * 1024;
 
 export interface VersionRecord {
   id: VersionId;
-  kind: "autosave" | "named" | "restore" | "publish" | "import";
+  /** "branch": "Branch created" (on main and on the branch), "update": "Updated from main", "merge": "Branch merged"
+   *  (docs/data.md §15.2) — kept forever, as every kind but "autosave" */
+  kind: "autosave" | "named" | "restore" | "publish" | "import" | "branch" | "update" | "merge";
   title: string | null;
   description: string | null;
   createdAt: number;

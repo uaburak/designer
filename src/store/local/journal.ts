@@ -29,7 +29,8 @@ const PAYLOAD_FIXED = 44;
 /** Messages above this are stored deflate-raw (flag bit 0). */
 export const DEFLATE_THRESHOLD = 64 * 1024;
 
-const KINDS: BatchKind[] = ["edit", "undo", "redo", "system", "remote", "restore"];
+/** Frame kind codes: append only (a code is on disk) */
+const KINDS: BatchKind[] = ["edit", "undo", "redo", "system", "remote", "restore", "merge", "update"];
 export const kindCode = (k: BatchKind): number => {
   const i = KINDS.indexOf(k);
   if (i < 0) throw new Error(`unknown batch kind ${k}`);

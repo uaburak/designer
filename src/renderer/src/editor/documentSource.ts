@@ -153,7 +153,8 @@ export interface EditorUiState {
 /** A saved version, as the version history lists it. */
 export interface VersionInfo {
   id: string;
-  kind: "autosave" | "named" | "restore" | "publish" | "import";
+  /** "branch" / "update" / "merge": Branch created, Updated from main, Branch merged (docs/data.md §15.2) */
+  kind: "autosave" | "named" | "restore" | "publish" | "import" | "branch" | "update" | "merge";
   title: string | null;
   description: string | null;
   createdAt: number;

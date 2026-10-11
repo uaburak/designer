@@ -171,6 +171,8 @@ export class WorkspaceModel {
     const byModified = (a: FileMeta, b: FileMeta) => b.updatedAt - a.updatedAt;
     // Recents and Starred show both spaces; Drafts, folders, Trash and search are the local space's alone.
     const local = [...this.files.values()].filter((m) => !this.isOrgCopy(m));
+    // Branches show under their main file (docs/data.md §15.2), not among Drafts, a folder's files or search results.
+    const listed = local.filter((m) => !m.branch);
     switch (q.in) {
       case "recents": {
         const out: FileListItem[] = [];
@@ -181,11 +183,11 @@ export class WorkspaceModel {
         return out;
       }
       case "drafts":
-        return local.filter((m) => m.folderId === null && live(m)).sort(byModified).map((m) => this.item(m));
+        return listed.filter((m) => m.folderId === null && live(m)).sort(byModified).map((m) => this.item(m));
       case "folder": {
         this.getFolder(q.folderId);
         if (this.isFolderTrashed(q.folderId)) return [];
-        return local.filter((m) => m.folderId === q.folderId && m.trashedAt === null).sort(byModified).map((m) => this.item(m));
+        return listed.filter((m) => m.folderId === q.folderId && m.trashedAt === null).sort(byModified).map((m) => this.item(m));
       }
       case "starred":
         return this.prefs.starred.files.map((k) => this.files.get(k)).filter((m): m is FileMeta => !!m && live(m)).map((m) => this.item(m));
@@ -194,7 +196,7 @@ export class WorkspaceModel {
       case "search": {
         const needle = searchKey(q.text.trim());
         if (!needle) return [];
-        return local.filter((m) => live(m) && searchKey(m.name).includes(needle)).sort(byModified).map((m) => this.item(m));
+        return listed.filter((m) => live(m) && searchKey(m.name).includes(needle)).sort(byModified).map((m) => this.item(m));
       }
     }
   }

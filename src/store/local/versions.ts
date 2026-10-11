@@ -13,7 +13,7 @@ const DAY = 24 * 60 * 60 * 1000;
 
 /**
  * Retention (thinned at store start and after each checkpoint):
- *   named, restore, publish, import → forever
+ *   named, restore, publish, import, branch, update, merge → forever (docs/data.md §15.2)
  *   autosave newer than 30 days → all; 30–180 days → the last one of each day; older → the last one of each week.
  * Versions cannot be deleted by hand (Figma has no such action).
  */
