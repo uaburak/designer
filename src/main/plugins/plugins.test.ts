@@ -9,8 +9,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { INVOKE_ROLES } from "../../shared/ipc";
 
 vi.mock("electron", () => ({ protocol: { handle: () => undefined } }));
-const { parseManifest, runsHere } = await import("./manifest");
-const { domainsAllow, effectiveDomains, parseDomain, pluginUiCsp, toCspSources } = await import("./network");
+const { parseManifest, runsHere } = await import("../../shared/plugins/manifest");
+const { domainsAllow, effectiveDomains, parseDomain, pluginUiCsp, cspSourcesOf: toCspSources } = await import("../../shared/plugins/network");
 const { pluginFetch, refusedText } = await import("./fetch");
 const { ClientStorage, QUOTA_TEXT, STORAGE_QUOTA_BYTES } = await import("./storage");
 const { DevelopmentPlugins, insideFolder, watchedFiles } = await import("./manifests");

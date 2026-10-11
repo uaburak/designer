@@ -52,6 +52,9 @@ function fakeDesktop(manifestOf: () => RunSpec["manifest"]): PluginDesktop & { f
     read: async () => {
       throw new Error("not in tests");
     },
+    newPlugin: async () => ({ cancelled: true }),
+    beginRun: async () => {},
+    endRun: async () => {},
     openUi: async ({ runId }) => ({ url: `plugin://${runId}/ui.html` }),
     closeUi: async () => {},
     fetch: async ({ url }): Promise<PluginFetchResponse> => {

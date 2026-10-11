@@ -200,8 +200,8 @@ const PLUGIN_COMMANDS: EditorCommand[] = [
   { id: "plugins.run-last", label: "Run last plugin", keys: [k("KeyP", { mod: true, alt: true })], run: (ed) => pluginsOf(ed)?.runLast(), enabled: (ed) => !!pluginsOf(ed)?.get().last },
   { id: "plugins.manage", label: "Manage plugins…", run: (ed) => openActions(ed, "plugins"), enabled: (ed) => !!pluginsOf(ed) },
   { id: "plugins.none", label: "No saved plugins", run: () => {}, enabled: () => false },
-  // "New plugin…" writes Figma's templates into a folder main picks (5e); no channel for it yet: listed, disabled.
-  { id: "plugins.new", label: "New plugin…", run: () => {}, enabled: () => false },
+  // "New plugin…": the "Create a plugin" dialog; main writes Figma's templates into a folder the person picks.
+  { id: "plugins.new", label: "New plugin…", run: (ed) => pluginsOf(ed)?.openNewPlugin(), enabled: (ed) => !!pluginsOf(ed)?.canDevelop },
   { id: "plugins.import", label: "Import new plugin from manifest…", run: (ed) => void pluginsOf(ed)?.importManifest(), enabled: (ed) => !!pluginsOf(ed) && !!pluginDesktop() },
   { id: "plugins.hot-reload", label: "Hot reload plugin", run: (ed) => pluginsOf(ed)?.toggleHotReload(), enabled: (ed) => !!pluginsOf(ed), checked: (ed) => !!pluginsOf(ed)?.get().hotReload },
   { id: "plugins.developer-vm", label: "Use developer VM", run: (ed) => pluginsOf(ed)?.toggleDeveloperVm(), enabled: (ed) => !!pluginsOf(ed), checked: (ed) => !!pluginsOf(ed)?.get().developerVm },

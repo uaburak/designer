@@ -1,5 +1,5 @@
 import type { PluginFetchInit, PluginFetchResponse } from "../../shared/ipc";
-import { domainsAllow } from "./network";
+import { domainsAllow } from "../../shared/plugins/network";
 
 /**
  * `fetch` from a plugin's code (docs/plugins.md decision 4, §3.3): main checks the URL against the run's

@@ -3,7 +3,7 @@ import { mkdir, open, readFile, realpath, rename, writeFile } from "node:fs/prom
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { DevelopmentPlugin } from "../../shared/ipc";
 import type { PluginBundle, PluginManifest } from "../../shared/plugins/types";
-import { parseManifest } from "./manifest";
+import { parseManifest } from "../../shared/plugins/manifest";
 
 /**
  * Development plugins (docs/plugins.md §3.3): "Import new plugin from manifest…" keeps `{path, id, name, addedAt}`

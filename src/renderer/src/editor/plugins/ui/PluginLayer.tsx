@@ -10,6 +10,7 @@ import { getStoreClient } from "@/store";
 import { useEditor } from "../../controller";
 import { attachPlugins, usePluginService, usePlugins, type PluginServiceOptions } from "../service";
 import { usePluginUi, type PluginUiStore, type PluginWindowState } from "./store";
+import { NewPluginDialog } from "./NewPluginDialog";
 import styles from "./PluginLayer.module.css";
 
 /** Figma's iframe sandbox: scripts, forms, popups, modals, downloads — never same-origin. */
@@ -140,7 +141,12 @@ export function PluginLayer() {
     return attachPlugins(ed, { store });
   }, [ed]);
   const service = usePluginService(ed);
-  usePlugins(service);
+  const snap = usePlugins(service);
   if (!service) return null;
-  return <Windows ui={service.ui} />;
+  return (
+    <>
+      <Windows ui={service.ui} />
+      {snap?.creating && <NewPluginDialog service={service} onClose={() => service.openNewPlugin(false)} />}
+    </>
+  );
 }

@@ -51,6 +51,9 @@ async function setup(options: { allowed?: boolean } = {}) {
       reads.push(id);
       return bundles[id];
     },
+    newPlugin: async () => ({ cancelled: true }),
+    beginRun: async () => {},
+    endRun: async () => {},
     openUi: async ({ runId }) => ({ url: `plugin://${runId}/ui.html` }),
     closeUi: async () => {},
     fetch: async () => {

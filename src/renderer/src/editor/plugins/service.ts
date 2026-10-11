@@ -33,6 +33,8 @@ export interface PluginsSnapshot {
   last: { ref: PluginRef; command: string } | null;
   hotReload: boolean;
   developerVm: boolean;
+  /** "Create a plugin" is open (New plugin…) */
+  creating: boolean;
 }
 
 const LOCAL_KEY = "designer.plugins.local";
@@ -83,7 +85,7 @@ export class PluginService {
     this.store = options.store ?? null;
     const prefs = readJson(PREFS_KEY, { hotReload: true, developerVm: false, last: null as PluginsSnapshot["last"] });
     const local = readJson(LOCAL_KEY, { saved: [] as PluginRef[], recents: [] as PluginRef[] });
-    this.snap = { development: [], organization: [], orgName: null, saved: local.saved, recents: local.recents, running: [], last: prefs.last ?? null, hotReload: prefs.hotReload !== false, developerVm: !!prefs.developerVm };
+    this.snap = { development: [], organization: [], orgName: null, saved: local.saved, recents: local.recents, running: [], last: prefs.last ?? null, hotReload: prefs.hotReload !== false, developerVm: !!prefs.developerVm, creating: false };
     if (this.desktop) this.offs.push(this.desktop.onChanged(({ id }) => void this.hotReload(id)));
   }
 
@@ -181,6 +183,30 @@ export class PluginService {
     } catch (e) {
       showToast({ message: e instanceof Error ? e.message : String(e), kind: "error" });
     }
+  }
+
+  /** New plugin…: the "Create a plugin" dialog (needs main). */
+  openNewPlugin(open = true): void {
+    this.set({ creating: open && !!this.desktop });
+  }
+
+  /** "Save as": main writes the template into a folder the person picks; the plugin joins Development. */
+  async newPlugin(name: string, template: "default" | "run-once" | "custom-ui" | "inspect" | "codegen"): Promise<boolean> {
+    if (!this.desktop) return false;
+    try {
+      const r = await this.desktop.newPlugin({ name, template });
+      if ("cancelled" in r) return false;
+      this.manifests.set(r.plugin.id, r.manifest);
+      await this.refresh();
+      return true;
+    } catch (e) {
+      showToast({ message: e instanceof Error ? e.message : String(e), kind: "error" });
+      return false;
+    }
+  }
+
+  get canDevelop(): boolean {
+    return !!this.desktop;
   }
 
   async removeDevelopment(id: string): Promise<void> {

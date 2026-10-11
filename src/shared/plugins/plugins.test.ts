@@ -17,7 +17,7 @@ describe("parseManifest", () => {
   it("refuses what Figma refuses, with each reason", () => {
     const r = parseManifest({ name: "", api: 1, main: "", documentAccess: "all", networkAccess: { allowedDomains: [] }, editorType: ["sketch"], menu: [{ name: "x" }], permissions: ["camera"] });
     expect("errors" in r && r.errors).toEqual(
-      expect.arrayContaining(['"name" is required', '"api" is required (e.g. "1.0.0")', '"main" is required (the plugin\'s code file)', '"id" is required', '"documentAccess" must be "dynamic-page"', expect.stringContaining("allowedDomains"), expect.stringContaining("editorType"), 'menu[0] needs a "command" or a "menu"', expect.stringContaining("permissions")])
+      expect.arrayContaining(['"name" is required', '"api" is required', '"id" is required', '"documentAccess" must be "dynamic-page"', expect.stringContaining("allowedDomains"), expect.stringContaining("editorType"), expect.stringContaining("menu[0]"), expect.stringContaining("permissions"), expect.stringContaining('"main"')])
     );
     expect(parseManifest("{not json")).toEqual({ errors: [expect.stringContaining("isn't valid JSON")] });
     expect(parseManifest({ ...base, containsWidget: true })).toEqual({ errors: ["Widgets aren't supported in DesignerV2 yet"] });
@@ -29,7 +29,7 @@ describe("parseManifest", () => {
     expect("manifest" in r && r.manifest.id).toBe(developmentId("/Users/me/plugin/manifest.json"));
     expect(developmentId("/a")).toMatch(/^dev:[0-9a-f]{16}$/);
     expect(developmentId("/a")).not.toBe(developmentId("/b"));
-    expect("manifest" in r && r.warnings).toEqual(['networkAccess: "*" needs a "reasoning"', 'networkAccess: localhost needs a "reasoning"']);
+    expect("manifest" in r && r.warnings).toEqual(['networkAccess: "*" and localhost need a "reasoning"']);
   });
 
   it("runs in Figma Design and Dev Mode only", () => {
@@ -66,11 +66,11 @@ describe("network rules", () => {
     expect(allowedUrl({ allowedDomains: ["none"] }, "https://figma.com")).toBe(false);
     expect(allowedUrl({ allowedDomains: ["*"], reasoning: "x" }, "https://anything.org/")).toBe(true);
     expect(allowedUrl({ allowedDomains: ["*"], reasoning: "x" }, "http://anything.org/")).toBe(false);
-    expect(domainsOf(undefined, false)).toEqual(["none"]);
+    expect(domainsOf(undefined, false)).toEqual([]);
   });
 
   it("turns the domains into CSP sources; refuses anything that could break the header", () => {
-    expect(toCspSources(access)).toEqual(["figma.com", "*.example.com", "https://api.site.com/v1/", "wss://socket.io", "http://localhost:3000"]);
+    expect(toCspSources(access)).toEqual(["https://figma.com", "wss://figma.com", "https://*.example.com", "wss://*.example.com", "https://api.site.com/v1/", "wss://socket.io", "http://localhost:3000"]);
     expect(toCspSources(access, { development: true })).toContain("http://localhost:9000");
     expect(toCspSources({ allowedDomains: ["none"] })).toEqual([]);
     expect(toCspSources({ allowedDomains: ["*"] })).toEqual(["https:", "wss:"]);
@@ -79,7 +79,7 @@ describe("network rules", () => {
     expect(csp).toContain("default-src 'none'");
     expect(csp).toContain("connect-src 'none'");
     expect(csp).toContain("form-action 'none'");
-    expect(uiCsp({ allowedDomains: ["figma.com"] })).toContain("connect-src figma.com");
+    expect(uiCsp({ allowedDomains: ["figma.com"] })).toContain("connect-src https://figma.com wss://figma.com");
     expect(refusedMessage("https://x.org")).toBe("Refused to connect to 'https://x.org' because it violates the plugin's networkAccess (manifest.json)");
   });
 });

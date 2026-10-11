@@ -8,7 +8,7 @@ import type { Guid, NodeChange } from "@/engine/codec";
 import { dismissToast, showToast } from "@/ds";
 import { Status } from "@/engine/abi";
 import type { PluginManifest } from "@shared/plugins/types";
-import { allowedUrl, refusedMessage, toCspSources, uiCsp } from "@shared/plugins/network";
+import { allowedUrl, refusedMessage, uiCsp } from "@shared/plugins/network";
 import type { EditorController } from "../controller";
 import { ApiError, decodeValue, encodeValue, MIXED } from "./api/codec";
 import { readNode, ref, refOf, type ApiContext } from "./api/context";
@@ -103,7 +103,8 @@ export class PluginRun {
     private readonly env: RunEnv
   ) {
     this.spec = spec;
-    this.runId = `run-${Date.now().toString(36)}-${++runSeq}`;
+    // The host of plugin://<runId>/: lower case, [a-z0-9][a-z0-9-]{0,62} (main's RUN_ID).
+    this.runId = `run-${Date.now().toString(36)}-${++runSeq}`.toLowerCase();
     this.ended = new Promise((r) => (this.resolveEnded = r));
     const write = () => this.write();
     this.ctx = {
@@ -217,6 +218,9 @@ export class PluginRun {
       throw e;
     }
     this.attachEvents();
+    // Main checks this run's fetches against its manifest (plugins:begin-run, docs/plugins.md §3.4).
+    const access = this.spec.manifest.networkAccess;
+    await this.env.desktop?.beginRun({ runId: this.runId, allowedDomains: access?.allowedDomains ?? ["none"], ...(access?.devAllowedDomains ? { devAllowedDomains: access.devAllowedDomains } : {}), dev: this.spec.development }).catch((e: unknown) => this.log("warn", [`plugins:begin-run failed: ${e instanceof Error ? e.message : String(e)}`]));
     this.env.ui.stoppers.set(this.runId, () => this.stop());
     if (!this.spec.awaitParameters) this.env.ui.setRunning(this.runId, this.spec.name, true);
     await this.waitIdle();
@@ -315,7 +319,7 @@ export class PluginRun {
     const desktop = this.env.desktop;
     if (desktop) {
       desktop
-        .openUi({ runId: this.runId, html: themed, allowedDomains: toCspSources(access, { development: this.spec.development }), dev: this.spec.development })
+        .openUi({ runId: this.runId, html: themed, allowedDomains: access?.allowedDomains ?? ["none"], ...(access?.devAllowedDomains ? { devAllowedDomains: access.devAllowedDomains } : {}), dev: this.spec.development })
         .then(({ url }) => this.uiOpen && this.env.ui.patchWindow(this.runId, { src: { url } }))
         .catch((e) => {
           // No plugin: scheme (main not built yet): the browser's way.
@@ -391,6 +395,7 @@ export class PluginRun {
     this.closeUi();
     this.env.ui.setRunning(this.runId, this.spec.name, false);
     this.env.ui.stoppers.delete(this.runId);
+    void this.env.desktop?.endRun(this.runId).catch(() => {});
     this.vm?.dispose();
     this.vm = null;
     for (const a of this.codegenAnswers.values()) a({ result: null, error: "The plugin was closed" });

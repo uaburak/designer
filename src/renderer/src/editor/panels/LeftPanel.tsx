@@ -89,7 +89,7 @@ function ToolsPanel() {
   const [filter, setFilter] = useState({ price: "price-all", type: "type-all" });
   return (
     <div className={styles.placeholderTab} data-tools="">
-      {/* Live: "Create" as text (11 / 450, primary) at 173, 18 — New plugin… (Import from a manifest while main has no templates channel) */}
+      {/* Live: "Create" as text (11 / 450, primary) at 173, 18 — New plugin… */}
       <TabHeader
         title="Tools"
         actions={
@@ -97,8 +97,7 @@ function ToolsPanel() {
             type="button"
             className={styles.toolsCreate}
             onClick={() => {
-              const id = isEnabled(ed, command("plugins.new")) ? "plugins.new" : "plugins.import";
-              if (isEnabled(ed, command(id))) runEditorCommand(ed, id);
+              if (isEnabled(ed, command("plugins.new"))) runEditorCommand(ed, "plugins.new");
               else showToast({ message: "Developing plugins needs the desktop app" });
             }}
           >

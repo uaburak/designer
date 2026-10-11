@@ -1,5 +1,5 @@
 import { protocol, type WebContents } from "electron";
-import { domainsAllow, pluginUiCsp } from "./network";
+import { domainsAllow, pluginUiCsp } from "../../shared/plugins/network";
 import { pluginRuns, RUN_ID, type PluginRun, type PluginRuns } from "./runs";
 
 /**

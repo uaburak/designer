@@ -1,4 +1,4 @@
-import { effectiveDomains } from "./network";
+import { effectiveDomains } from "../../shared/plugins/network";
 
 /**
  * The plugin runs main knows of (docs/plugins.md §3.3): registered by the editor view that runs them
