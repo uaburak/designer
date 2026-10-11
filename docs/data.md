@@ -34,6 +34,7 @@ What a node, a property, a variable or a component *is* belongs to the document 
 | Versions | An autosave checkpoint every 30 min of editing, named versions (⌥⌘S), and library publishes. Each is a full snapshot, hard-linked. Restoring is non-destructive: a diff applied as one undoable edit. |
 | Libraries | Publishing snapshots each non-hidden component, set, style and variable under a stable 40-hex `key` and a content `versionHash`, into a workspace registry stored per asset version. Consumers keep **in-document read-only copies** (Figma's internal-only canvas), so they work offline and without the library. Updates are pulled through Review. "Move to this file" records redirects. Drafts cannot publish, as in Figma. |
 | Branches (contract, Phase 7) | A branch is a copy of a main file with the same GUIDs and asset keys plus its own base snapshot. Updates from main and merges are a three-way merge per (GUID, field) over NODE_CHANGES, grouped like Figma's `DiffChunk`. A merge is one journaled batch plus a version of `kind: "merge"` (§15). |
+| Org libraries (contract, Phase 7 round 3) | A library published from an org file lives on the server under its room key: metadata in D1, bytes in one `LibraryObject` Durable Object per library. Scope team or org (= the file's "Anyone at ‹org›" link), approved / enabled by default per org, workspace and team and per editor type, default modes per workspace and team, subscriptions per file on the server, update notices through the Inbox. The store routes `LibraryRegistry` by key: local libraries are §9, unchanged (§16). Library analytics: client-aggregated insert / detach counts and per-file instance snapshots, rolled up daily by a Cron Trigger (§17). |
 | Repositories | `WorkspaceRepository`, `FileRepository`, `BlobStore`, `LibraryRegistry`. `LocalAdapter` is always authoritative. `FirestoreAdapter` is added later behind a `Replicator` that pushes and pulls with per-property LWW using hybrid logical clocks. `PreviewAdapter` serves the web viewer. |
 | Server | Replaced Firebase (2026-10-10): accounts, shared files and previews on Cloudflare, `docs/multiplayer.md` (§12). Only the store process talks to it. |
 | Previews | A read-only snapshot with derived text and geometry, plus images, uploaded under an unguessable 128-bit id. Viewed in a web viewer (the same Wasm renderer) with Dev-Mode-like Inspect. Published to the Cloudflare Worker (`docs/multiplayer.md` §9) or exported as one self-contained HTML file. |
@@ -1534,6 +1535,836 @@ Each case builds B, then O and T by applying change Messages, runs `merge3` in b
 
 ---
 
+## 16. Libraries in organizations (contract, Phase 7 round 3; written 2026-10-11)
+
+**Status: contract, not built.** Libraries published from org files live on the server, so every member of their audience can enable them, get their updates, and see their use. Local libraries (§9) keep working exactly as today. Research: `docs/research/figma/R18-enterprise.md` C-1, D-3, D-4, D-5. The plan: `docs/roadmap.md` Phase 7 round 3. The organization model this builds on: `docs/multiplayer.md` §14.
+
+Figma's facts below were read on help.figma.com and developers.figma.com on 2026-10-11:
+- **[L-org]** Share libraries in an organization — https://help.figma.com/hc/en-us/articles/360040529593
+- **[L-find]** Help people find and use libraries (approve, enable by default, default variable modes) — https://help.figma.com/hc/en-us/articles/21310245473815
+- **[L-guide]** Guide to managing an organization (libraries, fonts, approved lists) — https://help.figma.com/hc/en-us/articles/360052679454
+- **[L-ext]** Extend a variable collection — https://help.figma.com/hc/en-us/articles/36346281624471 ; What's new from Schema 2025 — https://help.figma.com/hc/en-us/articles/35794667554839
+- **[L-api-ext]** Plugin API `ExtendedVariableCollection` — https://developers.figma.com/docs/plugins/api/ExtendedVariableCollection/ ; Update 121 (2025-11-20) — https://developers.figma.com/docs/plugins/updates/2025/11/20/version-1-update-121
+- **[L-log]** Activity log action types — https://developers.figma.com/docs/rest-api/activity-logs-action-types/
+- Cloudflare's limits (read the same day): Workers https://developers.cloudflare.com/workers/platform/limits/ , D1 https://developers.cloudflare.com/d1/platform/limits/ and /pricing/ , Durable Objects https://developers.cloudflare.com/durable-objects/platform/limits/ , R2 https://developers.cloudflare.com/r2/pricing/
+
+**(unverified)** marks a rule we could not find stated by Figma; the choice made there is ours and says so.
+
+### 16.1 What Figma does (the behaviour to match)
+
+**Publishing and audience** [L-org]:
+- Libraries are on Organization and Enterprise. Anyone with "can edit" on a file can publish it. Drafts can't publish (§9.3, unchanged).
+- Three levels of reach:
+  1. **File**: "Anyone with access to the published file can use the library" — guests included, which is how guests get a library: "invite them to the original file".
+  2. **Team**: "Only direct team members can access the styles and components." People who reach only some of the team's folders or files don't, unless the file is shared with the organization.
+  3. **Organization**: the Publish dialog's checkbox **"Allow any member of ‹organization› to access the file"**. It sets the file's link sharing to **"Anyone at ‹organization›"**. For a published library, setting that link access does the same; setting it back to "Only people invited to this file" removes org access and keeps the team.
+- Each publish adds a version history checkpoint. The Libraries button's tooltip reads **"Review library updates"** when libraries used in the file have updates, and **"Review unpublished changes"** when the file has unpublished edits.
+- **Unpublish**: the Libraries modal › the library › **Unpublish** › **"Remove file from library"**. It removes the library for everyone; styles stay in files and stop receiving updates.
+
+**Approved libraries** [L-find] (Organization and Enterprise; org admins and workspace admins):
+- An approved library shows a **check mark** next to its name in files, in the Assets panel, in quick insert and in Admin, and is **pinned to the top** of the list.
+- Org admins: Admin › **Resources** › the library › **Manage this library** › **"Set as approved library"**. Workspace admins: Admin › ‹workspace› › **Libraries** › the same modal and toggle.
+- A workspace-approved library shows the check mark in all of that workspace's files, even for people not assigned to the workspace. Draft files show it only for the workspace the person is assigned to.
+- A workspace admin can't unapprove a library approved for the organization.
+
+**Enabled by default** [L-find, L-org]:
+- Per file type: **Design files**, **FigJam boards**, **Slide decks**, **Figma Buzz files**. The team settings offer **All files** or **Design files** (and FigJam in the older article).
+- **Org admins**: any published library for every file of the organization. If the library isn't shared with the whole organization, a warning says enabling it by default publishes it to the organization and changes the file's permissions.
+- **Workspace** (Enterprise): org admins and workspace admins, for a workspace's files.
+- **Team admins**: any org-shared library, including other teams', for the teams they manage (team › ⌄ › **View settings** › **Shared** › **"View team's libraries"**).
+- Lower-level admins can override the defaults for the workspaces or teams they manage. Higher-level admins get an in-app notification when an approved library is overridden.
+- The setting doesn't touch anyone's manual access; to remove access, unpublish. Turning a default off: Admin › Resources › Libraries › **Off**; team admins can still enable it, members can still add it by hand.
+
+**Default variable modes** (Enterprise) [L-find]:
+- The library must hold a collection with at least two modes, published.
+- Team: "View team's libraries" › the library › **Enabled by default** (All files / Design files) › the **Default mode** column. Workspace: Admin › Resources › Libraries (org admins) or Admin › ‹workspace› › Libraries › **Manage this library** › the workspace › **"Enable this library by default"** › Design files › **"Manage default modes"**.
+- "People can switch to another mode whenever they need to."
+
+**Extended collections** (Enterprise, Full seats) [L-ext, L-api-ext]:
+- Anyone with "can edit" on a file can **Extend collection**. The extension inherits every mode and variable (names, settings, order) and keeps getting the parent's changes "to any variables that have not been explicitly overridden".
+- Only **values** can be overridden (blue cells; **Reset change**). No new variables or modes, no description or scope changes ("open the parent collection"). Colour value and opacity override together.
+- Library collections can be extended (Plugin API `extendLibraryCollectionByKeyAsync`, Update 121). Extensions chain: `rootVariableCollectionId` is documented with "if Collection C extends B which extends A (root)". An extension can remove a mode only when the parent's mode was deleted.
+- After a parent publishes and a consumer accepts, "previously set variable modes" are removed from designs and must be reapplied through the extension (migration flow: export a brand mode, delete it, extend, **Import mode**; on main, not a branch).
+- **Mode limits**: Professional 10 and Organization 20 per collection [L-ext Schema 2025]; Enterprise "Unlimited (via extended collections)" (pricing table, R18 D-5). Enterprise's per-collection number is not published (unverified).
+
+**Activity log** [L-log]: `org_library_approve`, `org_library_unapprove`, `org_library_setting_change`, `workspace_library_approve`, `workspace_library_unapprove`, `workspace_library_setting_change`. Figma publishes **no** action for publishing a library or for fonts; we log none either.
+
+### 16.2 Decisions
+
+| Topic | Decision |
+|---|---|
+| Identity | An org library's key is its file's **room key** (`files.key`, `FileSpace.key`). It is the same on every computer, so copies' `sourceLibraryKey` means the same library for everyone. A local library's key stays its `FileKey` (22 base62, §1). Room keys contain `_` (`roomKeyFor`), so the two never collide: `isLocalLibraryKey`. |
+| Where it lives | **D1** holds the metadata: library rows, versions, the current asset list (names for analytics), settings, subscriptions. One Durable Object **`LibraryObject` per library** holds the bytes: version manifests, asset payloads, thumbnails and the images payloads use, in SQLite 1 MB chunks. `server/src/previewObject.ts` is the template. |
+| Why not D1 for bytes | The free plan caps one D1 database at **500 MB**, shared with everything else, and a row at 2 MB. A design system with images would eat it. |
+| Why not R2 | R2's free tier (10 GB) is roomy, but it is a separate product to enable on the account (unverified: whether it needs a payment method on file), a new binding and a new failure mode. Durable Objects are already used three times. The free plan gives Durable Objects **5 GB per account** across all objects (the per-object figure on the free plan is 1 GB or 10 GB — Cloudflare's page contradicts itself); a few libraries of tens of MB fit. If storage ever binds, payloads move to R2 behind `LibraryObject`'s routes: nothing outside it changes. |
+| Atomicity | A publish uploads missing payloads and blobs first (content-addressed, idempotent), then one **commit** call to the object writes manifest *n* in one SQLite transaction, refusing a stale `baseVersion`. D1 is written after it, idempotently. |
+| Who sees a library | §16.4: the file's own access, or team membership, or org membership when the library is published to the org. Guests only through the file. |
+| Scope | `team` or `org`, Figma's two. **Workspace is not a publishing scope** at Figma (not found in [L-org], [L-find]); workspaces approve and enable by default (§16.5). |
+| Org scope = link access | As Figma: scope `org` ⇔ the file's `org_link_access` is not `none`. Publishing with "Allow any member…" sets `org_link_access = 'viewer'` when it was `none`; changing the link to `none` drops the library to `team`. The two are kept equal by one function, `syncLibraryScope`. |
+| Subscriptions | Which files enable which library is on the server (`library_subscriptions`), so everyone opening an org file sees the same enabled libraries. A row exists only for an explicit choice; otherwise the defaults decide (§16.5). |
+| Update notices | The person's **Inbox** (multiplayer.md §12) carries `{t: "library", libraryKey, version}`; the store turns it into today's `LibraryEvent {type: "published"}`. No bell row: Figma's bell has no library-update kind that we found (unverified), the Libraries button's badge and toast are the notice. |
+| Local libraries | Untouched: §9's registry on disk, `Workspace.defaultLibraries`, `FileMeta.enabledLibraries` of local files. |
+| Local files and org libraries | Figma's rule: org libraries are offered only in files of that org (drafts in the org included). A local file never lists them. Exception (ours): a local file already holding copies of a library whose file moved into an org keeps receiving its updates (§16.9). |
+| Mode cap | The hard 40-mode cap per collection becomes a soft guard of **1,000** modes; extensions are unlimited in number and chain depth ≤ **16** (ours, a guard against cycles and runaway resolution). §16.8. |
+| Free-plan limits | Every route is ≤ 6 D1 queries (the free plan allows 50 per invocation), bulk writes use one statement over `json_each(?)` (100 bound parameters at most per query), big work runs in the Durable Object (30 s CPU), the Worker stays under 10 ms CPU. |
+
+### 16.3 Records and the store
+
+```ts
+// src/shared/libraries/orgTypes.ts (committed verbatim before round 3) — the whole file is in §16.12.
+// The essentials, for reading this section:
+export type LibraryKey = string;                    // room key (org) or FileKey (local)
+export type LibraryScope = "team" | "org";
+export type LibraryEditorType = "design" | "figjam" | "slides" | "buzz";
+export type SettingScope = { type: "org" | "workspace" | "team"; id: string };
+export interface OrgLibraryRecord extends LibraryRecord { org: OrgLibraryContext }   // what listAvailable / getRecord return for org libraries
+```
+
+- **The store routes by key.** `src/store/libraries/router.ts` implements today's `LibraryRegistry` over two registries: `LocalLibraries` (§9, unchanged) for local keys and `OrgLibraries` (new, `src/store/libraries/org.ts`) for room keys. A call with a `fileKey` (`listAvailable(forFileKey)`, `setEnabled(fileKey, …)`) goes by that file: an org copy (`FileMeta.space` set) → the org registry, else local. A call with a `libraryFileKey` goes by the key's form. **The interface does not change.**
+- **What the editor changes**: one rule, `libraryKeyOfFile(meta)` (= `meta.space?.key ?? meta.fileKey`), wherever it names "this file's library" (Publish, the Libraries modal's "Current file", `markPublished`, the manifest checks of §9.1). Everything else already treats the key as opaque.
+- **`OrgLibraries` methods**, over §16.10's routes:
+
+  | `LibraryRegistry` method | Org behaviour |
+  |---|---|
+  | `listAvailable(forFileKey)` | `GET /libraries?file=<roomKey>` → `OrgLibraryRecord[]` relative to that file (approved, default, default modes). Cached per org file (`Workspace/spaces/library-lists/<orgId>.json` / `designer.devStore.v1.libs.<orgId>`) for offline. |
+  | `getRecord(key)` | `GET /libraries/:key` (cached) |
+  | `getVersion(key, n?)` | `GET /libraries/:key/versions/:n\|latest`; manifests are immutable and cached on disk forever (`Workspace/spaces/libraries/<key>/versions/<n>.json`) |
+  | `previewPublish(key, assets)` | computed **in the store** with `libraryRules.previewAgainst` against the latest manifest (fetched or cached); no server write |
+  | `publish(req)` | §16.6: `missing` → `PUT` payloads / blobs → `POST versions` (with `baseVersion`, `scope`, and the collections' modes the store reads from the VARIABLE_COLLECTION payloads). On `conflict` (someone published meanwhile) the store fails with StoreErrorCode `conflict`; the editor re-runs the preview. |
+  | `unpublish(key)` | `POST /libraries/:key/unpublish` |
+  | `setEnabled(fileKey, key, on)` | `PUT /files/:roomKey/libraries/:key {enabled}`; the copy's `FileMeta.enabledLibraries` is rewritten from the answer's effective list (the field keeps meaning "enabled in this file") |
+  | `getPayloads(key, wants, opts)` | local cache `Workspace/spaces/libraries/<key>/assets/<assetKey>/<hash>.kiwi` first; the rest from `POST /libraries/:key/payloads` (one binary answer), images through `GET /libraries/:key/blobs/:sha1` into the local `BlobStore` before the payload is returned |
+  | `diff(key, have)` | `POST /libraries/:key/diff` online; offline from the cached latest manifest with `libraryRules.diffAgainst` |
+  | `watch` | the Inbox notice `{t: "library", libraryKey, version}` and `{t: "library", libraryKey, status}` → `LibraryEvent` |
+
+- **New store repositories** (`StoreApi` additions; interfaces in `orgTypes.ts`): `orgLibraries: OrgLibrariesRepository` (Admin, team settings, Home's org Libraries page) and `analytics: LibraryAnalyticsRepository` (§17). The event topics `library` (existing) and `fonts` (new, docs/desktop.md §14.3) are fed from the Inbox.
+- **Errors**: StoreErrorCode `conflict` (stale publish), `forbidden` with detail `{code}` (`seat_required`, `not_admin`, `branch_cannot_publish`, `draft_cannot_publish`), `offline` (publishing, settings), `not-found`.
+- **The browser's MemoryStore** gets the same router (org part only through its server client; payload cache in memory).
+
+### 16.4 Who can see and use an org library
+
+`canUseLibrary(access, lib)` in `server/src/libraries/access.ts`, for a caller and a library (status `published`):
+1. The caller can **view the library's file** (`resolveAccess(...).role` not null, `viaLink: false`) → yes. Guests reach libraries only this way [L-org].
+2. Else the caller is a **direct member of the file's team** (`team_members` with their user id, or through a `group_grants` row on the team) → yes [L-org "direct team members"].
+3. Else the library's scope is `org` and the caller is an org **member or admin** (not a guest) → yes.
+4. Else no (404 for the routes, as §14.12: "also for what exists but the caller can't see").
+
+`listAvailable(forFile)` additionally requires the library to be in **the same org** as the file, and not the file itself. Trashed library files list nowhere (status `trashed`).
+
+Admin listings use a wider rule [L-find]: org admins see every library of the org, "including ones in closed or secret teams"; workspace admins every library of their workspaces' teams plus org-scope ones; team admins their team's and every org-scope one.
+
+### 16.5 Approved, default, default modes
+
+**Settings rows** (`library_settings`): one per (library, scope) where `scope` is the org, a workspace or a team. Each holds `approved` (org and workspace rows only) and one tri-state per editor type: `1` on, `0` off (an override), `null` inherit.
+
+**Who may write** (`PUT /orgs/:org/libraries/:key/settings`):
+
+| Scope | approved | defaults | default modes |
+|---|---|---|---|
+| org | org admins | org admins | — (Figma offers workspace and team) |
+| workspace | org admins; that workspace's admins (they can't unapprove an org-approved library — it stays approved: §16.5 resolution) | org admins; that workspace's admins | the same |
+| team | — | the team's admins and owner; org admins; that team's workspace admins | the same |
+
+- Enabling a default at **org** scope on a library with scope `team` publishes it to the org: the route sets scope `org` and the file's `org_link_access = 'viewer'` (the warning's "changes the file's permissions"), logs `fig_file_link_access_change` too.
+- A team admin may make a default only of a library their team can use (§16.4 rule 2 for their own team's, rule 3 for others').
+
+**Resolution for one file** `F` of editor type `E` (team `T`, workspace `W` = `T`'s workspace; a draft: `W` = its owner's workspace, `T` none) and one library `L` the caller can use:
+- `approved(F, L)` = `"org"` if the org row approves; else `"workspace"` if `W`'s row approves; else null. (So an org approval can't be undone from a workspace.)
+- `defaultOn(F, L)` = the first non-null of `T`'s row[E], `W`'s row[E], the org's row[E]; null → off. Lower levels override higher ones [L-find].
+- `enabled(F, L)` = the file's subscription row if any (`on` / `off`), else `defaultOn(F, L)`. **Effective for existing and new files alike**; a member can still remove a default library from one file (an `off` row) and add it back.
+- `defaultModes(F, L)` = per collection, `T`'s choice, else `W`'s; none → the collection's own default (its first mode).
+- **Override notice**: when a workspace or team row sets `0` (off) for an editor type on a library approved at a higher level, every org admin (workspace override) or the org and workspace admins (team override) get a notification `library_default_override` (wording unverified: "‹person› turned off ‹library› for ‹team›").
+
+**Applying a default mode** (ours: Figma states only the outcome): when the editor first brings a collection of `L` into a file — the first `getPayloads` that creates the collection's copy — and `defaultModes(F, L)` names a mode for it, the editor sets that mode as the explicit mode for the collection on **every page** of the file (`variableModeBySetMap`, docs/schema.md §6.4) in the same undo step as the insertion. People change it afterwards as any explicit mode. Files already holding the collection are not changed when an admin changes the default later.
+
+### 16.6 Publishing from an org file
+
+1. The editor runs §9.3 steps 1–3 unchanged. Its Publish dialog adds Figma's checkbox **"Allow any member of ‹org› to access the file"** (checked when the file's `orgLinkAccess` isn't `none`; disabled for people who can't change the link — `canShare` false).
+2. The store's `publish(req)`:
+   1. `POST /libraries/:key/missing {payloads: [{key, versionHash}], blobs: [sha1]}` — every payload of the request, every thumbnail sha1 and every image sha1 the payloads use (`messageImageHashes`) → what the object lacks.
+   2. `PUT /libraries/:key/payloads/:assetKey/:versionHash` (the snapshot-container bytes of §9.2) and `PUT /libraries/:key/blobs/:sha1` for each missing one. The object checks a blob's SHA-1 and a payload's container magic.
+   3. `POST /libraries/:key/versions {baseVersion, description, scope, assets, changes, moves, collections}` → `{version, library}`.
+3. The Worker, for step 3: checks the caller can edit the file (`canEdit`), has a Full seat (`seat_required`), the file isn't a draft (`draft_cannot_publish`, §9.3) or a branch (`branch_cannot_publish`, §15); posts the commit to `LibraryObject` (stale `baseVersion` → 409 `conflict`; a payload or blob the manifest names but the object lacks → 400 `invalid` naming it); then in D1: upserts `libraries`, inserts `library_versions`, upserts the changed `library_assets` rows and marks removed ones, writes `library_redirects` for `mode: "move"`; `syncLibraryScope`; asks the file's room for a version `{kind: "publish", title: description, library_version: n}` (the room's version route of §15.7.1, `RoomVersionKind` already has `publish`); then the Inbox notices (§16.7).
+4. The store's answer is §9.3's: the editor's `markPublished`, `meta.library` on the local copy, `LibraryEvent published`.
+
+**Unpublish** (`POST /libraries/:key/unpublish`, editors of the file): status `unpublished`, subscriptions kept (publishing again brings them back), notices with `status`. **File trashed / restored / deleted forever** (§14.12's file routes call `libraryFileStatus`): `trashed` / back to `published` / `deleted` — `deleted` drops the object's storage (`deleteAll`) and the subscriptions; the `libraries` row stays so consumers' Libraries modal can say "Missing library" (§9.6). **Moving the file** to another team or folder changes its team (§16.4 rule 2 follows `files.team_id`; nothing to rewrite).
+
+### 16.7 Update notices
+
+- After a commit, the Worker posts `{t: "library", libraryKey, version}` to the Inbox of every person who can use the library (§16.4), computed in one query: the file's members and group members, its team's members, and — scope `org` — the org's members with an account. More than 500 recipients: the rest through `ctx.waitUntil`. Unpublish / trash / restore / delete post `{t: "library", libraryKey, status}`.
+- The store's `NotificationsService` forwards these (`onLibrary`), the org registry drops its cached record and manifest pointer, and `libraries.watch` emits `published` / `status`. The editor does what §9.4 already does: `diff` for each enabled library, the blue badge, "Review library updates".
+- Settings changes (approve, defaults, default modes, scope) post `{t: "org", what: "libraries", orgId}` to the org's members: their cached `listAvailable` answers are dropped.
+
+### 16.8 Extended collections at org scale, and the mode cap
+
+Round 5 built extended collections (Extend collection, `VARIABLE_OVERRIDE`, publish / consume / local extensions of library collections; docs/schema.md §6.2–6.6). Org scale adds nothing to the document. The rules:
+- **An extension of a library collection** is published from its own file as a library of its own. Its payload carries the parent collection and the parent's variables as `dependencyOnly` assets (§9.1), so consumers of the extension need no access to the parent's library.
+- **Chains**: an extension may be extended (C extends B extends A [L-api-ext]). Each level is one library; consumers get the whole chain as dependencies. Depth ≤ 16 (ours; the editor refuses "Extend collection" past it with a toast "Can't extend further").
+- **Parent updates** reach the extension's file through §16.7 like any library update. Consumers of the extension see them only after the extension's file accepts them and publishes. That is Figma's chain.
+- **Restrictions checked in round 3 (R18 D-5)**, each a test in 3c: in an extension the Local variables window disables Create variable, Add mode, rename of variables / modes / groups, Edit description, Scoping, Delete variable, Duplicate; values can be edited (blue) and **Reset change** reverts; colour and opacity are one override; "Remove mode" only for a mode whose parent mode is gone; "Import mode" into an extension writes overrides only, never adds a mode; extending is refused on a branch's file when migrating (Figma recommends main; ours: allowed, with no warning — unverified whether Figma blocks it).
+- **Mode cap**: `LIMITS.modes` (editor/model/variables.ts) goes from 40 to a soft guard of **1,000** per collection, with Figma's error wording for the guard ("Limited to 1000 modes only", the Plugin API's form). We are "Enterprise": no plan checks. Figma's Enterprise per-collection number is unverified; its "unlimited" is through extensions, which have no cap in count here. `docs/schema.md` §6.1's "40 modes" line follows.
+- **Accepting a parent's update** in a consumer removes nothing here: our explicit modes point at mode ids that survive. Figma's "previously set variable modes are removed" applies to migrating brand modes into extensions (the modes were deleted). Ours behaves the same in that case: an explicit mode whose mode no longer exists falls back to Auto.
+
+### 16.9 Local files, local libraries, and files moving into an org
+
+- **Local libraries are §9**, unchanged: registry on disk, offered to local files only.
+- **A local library file moved into an org** (`projects.moveLocalFile`, §14.6) keeps its `FileKey` as the linked copy; from now on it publishes as the org library `space.key`. On its first org publish the store writes `libraries/<fileKey>/moved.json {to: roomKey, at}` (store-internal; the local record's status stays). Then for **local** consumers holding copies of `<fileKey>`:
+  - `diff(fileKey, have)` forwards to the org library and returns every asset whose copy exists as `moved` — a `Redirect {from: (fileKey, key) → to: (roomKey, key)}` — plus the org manifest's updates. Accepting is §9.5's re-point: copies' `sourceLibraryKey` becomes the room key, instances keep their links, the file's `enabledLibraries` swaps the key.
+  - From then on that local file receives the org library's updates (ours; Figma has no local space). It still can't *add* org libraries (§16.2).
+  - Signed out or no longer able to use the library: `diff` answers from the old local manifest (no updates).
+- **Org files consuming a library moved in**: they were local copies too; the same forwarding applies once.
+- **Org file → local**: not offered (§14.6). "Duplicate to drafts" (a local copy) keeps the copies (self-contained, §9.4) and lists no org libraries.
+
+### 16.10 HTTP routes
+
+Conventions of §14.12 (JSON, `{error, code}`, `Authorization: Bearer`). `:key` is a library's room key.
+
+**Consuming and publishing** (`server/src/libraries/routes.ts`):
+
+| Route | Who | Request → Response |
+|---|---|---|
+| `GET /libraries?file=<roomKey>` | can view the file | → `{libraries: OrgLibraryRecord[]}` usable in that file (§16.4, same org), relative to it (§16.5) |
+| `GET /libraries/:key` | `canUseLibrary` | → `{library: OrgLibraryRecord}` (relative to the caller's workspace) |
+| `GET /libraries/:key/versions/:n` (`latest` allowed) | `canUseLibrary` | → `LibraryVersion` (§9.2's shape; from the object) |
+| `POST /libraries/:key/diff` | `canUseLibrary` | `{have: {key, versionHash}[]}` → `LibraryDiff` (computed in the object) |
+| `POST /libraries/:key/payloads` | `canUseLibrary` | `{wants: {key, versionHash}[], withDependencies}` → `application/octet-stream`: `[u32 n]` then n × `[u32 jsonLen][{key, versionHash, size}][bytes]` |
+| `GET /libraries/:key/blobs/:sha1` | `canUseLibrary` | → bytes, `cache-control: private, max-age=31536000, immutable` |
+| `POST /libraries/:key/missing` | can edit the file | `{payloads: {key, versionHash}[], blobs: string[]}` → the same shape, only what the object lacks |
+| `PUT /libraries/:key/payloads/:assetKey/:versionHash` | can edit the file | bytes (≤ 50 MB) → 204 |
+| `PUT /libraries/:key/blobs/:sha1` | can edit the file | bytes (≤ 50 MB, SHA-1 checked) → 204 |
+| `POST /libraries/:key/versions` | can edit, Full seat, not a draft or branch | `OrgPublishInput` → `{version: LibraryVersion, library: OrgLibraryRecord}`; 409 `conflict` when `baseVersion` isn't the latest |
+| `PATCH /libraries/:key` | can share the file (`canShare`) | `{scope}` → `{library: OrgLibraryInfo}` (also changes `org_link_access`, §16.2) |
+| `POST /libraries/:key/unpublish` | can edit the file | → 204 |
+| `GET /files/:key/libraries` | can view the file | → `FileLibraries` `{enabled: LibraryKey[], defaults: LibraryKey[], overrides: {libraryKey, enabled}[]}` |
+| `PUT /files/:key/libraries/:libraryKey` | can edit the file | `{enabled: boolean \| null}` (null: back to the default) → `FileLibraries` |
+
+**Managing** (`/orgs/:org/libraries…` and `/teams/:team/libraries`):
+
+| Route | Who | Request → Response |
+|---|---|---|
+| `GET /orgs/:org/libraries?text=&workspace=&team=&approved=1&default=1` (`/orgs/:org/libraries/analytics`, §17.6, is matched before `:key`) | members (each sees what they can use); admins (§16.4's wider rule) | → `{libraries: OrgLibrarySummary[]}` |
+| `GET /orgs/:org/libraries/:key` | as above | → `{library: OrgLibraryInfo}` ("Manage this library": every scope row the caller may see or change) |
+| `PUT /orgs/:org/libraries/:key/settings` | §16.5's table | `LibrarySettingsInput` → `{library: OrgLibraryInfo}`; logs `org_library_approve` / `_unapprove` / `org_library_setting_change` (org rows), `workspace_library_approve` / `_unapprove` / `workspace_library_setting_change` (workspace rows); team rows log nothing (Figma names none) |
+| `GET /teams/:team/libraries` | team members ("View team's libraries") | → `{libraries: TeamLibraryRow[]}` — the team's own and every org-scope library, with the team row |
+
+**Analytics**: §17.6.
+
+### 16.11 D1: migration `server/migrations/0012_libraries.sql`
+
+0010 (orgs) and 0011 (branches) exist. 0012 is the following text; the round 3 server agent (3a) copies it verbatim. It also holds §17's analytics tables and docs/desktop.md §14.3's fonts table, so the round has one migration.
+
+```sql
+-- Libraries in organizations (docs/data.md §16), library analytics (§17), shared fonts (docs/desktop.md §14.3).
+-- Times are ms since the epoch; days are 'YYYY-MM-DD' in UTC.
+
+-- One row per org library: its file's room key. No foreign key to files: a library whose file was deleted forever
+-- keeps its row (status 'deleted') so consumers can say "Missing library" (§9.6).
+CREATE TABLE libraries (
+  key               TEXT PRIMARY KEY,
+  org_id            TEXT NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,
+  -- the file's name at the last publish or rename (the live name is files.name while the file exists)
+  name              TEXT NOT NULL,
+  scope             TEXT NOT NULL DEFAULT 'team' CHECK (scope IN ('team', 'org')),
+  status            TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('published', 'unpublished', 'trashed', 'deleted')),
+  latest_version    INTEGER NOT NULL,
+  -- {components, styles, variables} of the latest version's listed assets
+  counts            TEXT NOT NULL DEFAULT '{}',
+  first_published_at INTEGER NOT NULL,
+  last_published_at INTEGER NOT NULL,
+  published_by      TEXT REFERENCES users (id) ON DELETE SET NULL
+);
+CREATE INDEX libraries_org ON libraries (org_id, status);
+
+CREATE TABLE library_versions (
+  library_key  TEXT NOT NULL REFERENCES libraries (key) ON DELETE CASCADE,
+  version      INTEGER NOT NULL,
+  description  TEXT NOT NULL DEFAULT '',
+  -- counts of the version's created / modified / removed / moved (the manifest itself is in LibraryObject)
+  changes      TEXT NOT NULL DEFAULT '{}',
+  published_at INTEGER NOT NULL,
+  published_by TEXT REFERENCES users (id) ON DELETE SET NULL,
+  PRIMARY KEY (library_key, version)
+);
+
+-- The latest manifest's assets, for names and counts in analytics and Admin. removed_in: the version that removed it.
+CREATE TABLE library_assets (
+  library_key       TEXT NOT NULL REFERENCES libraries (key) ON DELETE CASCADE,
+  key               TEXT NOT NULL,
+  kind              TEXT NOT NULL CHECK (kind IN ('COMPONENT', 'COMPONENT_SET', 'STYLE', 'VARIABLE_COLLECTION', 'VARIABLE')),
+  name              TEXT NOT NULL,
+  description       TEXT NOT NULL DEFAULT '',
+  style_type        TEXT,
+  resolved_type     TEXT,
+  component_set_key TEXT,
+  collection_key    TEXT,
+  -- VARIABLE_COLLECTION only: [{id, name}] in order (default modes, the Modes tab)
+  modes             TEXT,
+  version_hash      TEXT NOT NULL,
+  dependency_only   INTEGER NOT NULL DEFAULT 0,
+  thumbnail_sha1    TEXT,
+  removed_in        INTEGER,
+  PRIMARY KEY (library_key, key)
+);
+CREATE INDEX library_assets_kind ON library_assets (library_key, kind);
+
+-- Move to this file (§9.5) across org libraries
+CREATE TABLE library_redirects (
+  from_library TEXT NOT NULL,
+  from_key     TEXT NOT NULL,
+  to_library   TEXT NOT NULL REFERENCES libraries (key) ON DELETE CASCADE,
+  to_key       TEXT NOT NULL,
+  version      INTEGER NOT NULL,
+  at           INTEGER NOT NULL,
+  PRIMARY KEY (from_library, from_key)
+);
+CREATE INDEX library_redirects_to ON library_redirects (to_library);
+
+-- Approved / enabled by default / default modes, per (library, org | workspace | team). Defaults: 1 on, 0 off (an
+-- override of a higher level), NULL inherit.
+CREATE TABLE library_settings (
+  library_key    TEXT NOT NULL REFERENCES libraries (key) ON DELETE CASCADE,
+  scope_type     TEXT NOT NULL CHECK (scope_type IN ('org', 'workspace', 'team')),
+  scope_id       TEXT NOT NULL,
+  approved       INTEGER NOT NULL DEFAULT 0,
+  default_design INTEGER CHECK (default_design IN (0, 1)),
+  default_figjam INTEGER CHECK (default_figjam IN (0, 1)),
+  default_slides INTEGER CHECK (default_slides IN (0, 1)),
+  default_buzz   INTEGER CHECK (default_buzz IN (0, 1)),
+  -- [{collectionKey, modeId}] (workspace and team rows)
+  default_modes  TEXT NOT NULL DEFAULT '[]',
+  updated_by     TEXT REFERENCES users (id) ON DELETE SET NULL,
+  updated_at     INTEGER NOT NULL,
+  PRIMARY KEY (library_key, scope_type, scope_id)
+);
+CREATE INDEX library_settings_scope ON library_settings (scope_type, scope_id);
+
+-- A file's explicit choice for a library ("Add to file" / "Remove from file"); no row: the defaults decide (§16.5).
+CREATE TABLE library_subscriptions (
+  file_key    TEXT NOT NULL REFERENCES files (key) ON DELETE CASCADE,
+  library_key TEXT NOT NULL REFERENCES libraries (key) ON DELETE CASCADE,
+  enabled     INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+  changed_by  TEXT REFERENCES users (id) ON DELETE SET NULL,
+  changed_at  INTEGER NOT NULL,
+  PRIMARY KEY (file_key, library_key)
+);
+CREATE INDEX library_subscriptions_library ON library_subscriptions (library_key);
+
+-- §17: insertions and detachments, pre-aggregated by the clients per (day, file, asset, action). team_id and
+-- workspace_id are the file's at ingestion (a later move doesn't rewrite history).
+CREATE TABLE library_actions_daily (
+  day          TEXT NOT NULL,
+  library_key  TEXT NOT NULL REFERENCES libraries (key) ON DELETE CASCADE,
+  asset_key    TEXT NOT NULL,
+  asset_type   TEXT NOT NULL CHECK (asset_type IN ('component', 'style', 'variable')),
+  file_key     TEXT NOT NULL,
+  team_id      TEXT,
+  workspace_id TEXT,
+  action       TEXT NOT NULL CHECK (action IN ('insert', 'detach')),
+  count        INTEGER NOT NULL,
+  PRIMARY KEY (library_key, day, asset_key, file_key, action)
+);
+CREATE INDEX library_actions_team ON library_actions_daily (library_key, team_id, day);
+
+-- §17: the current instances of each library asset in each file (a snapshot the file's clients replace).
+CREATE TABLE library_usage (
+  file_key     TEXT NOT NULL REFERENCES files (key) ON DELETE CASCADE,
+  library_key  TEXT NOT NULL REFERENCES libraries (key) ON DELETE CASCADE,
+  asset_key    TEXT NOT NULL,
+  asset_type   TEXT NOT NULL CHECK (asset_type IN ('component', 'style', 'variable', 'mode')),
+  -- asset_type 'mode': asset_key is '<collectionKey>/<modeId>'
+  instances    INTEGER NOT NULL,
+  PRIMARY KEY (file_key, library_key, asset_key)
+);
+CREATE INDEX library_usage_library ON library_usage (library_key, asset_key);
+
+-- The hash of each file's last accepted snapshot (an unchanged upload is a no-op)
+CREATE TABLE library_usage_files (
+  file_key    TEXT PRIMARY KEY REFERENCES files (key) ON DELETE CASCADE,
+  hash        TEXT NOT NULL,
+  reported_at INTEGER NOT NULL
+);
+
+-- §17.5: the daily roll-up (Cron Trigger) — what the analytics views read.
+CREATE TABLE library_asset_stats (
+  library_key  TEXT NOT NULL REFERENCES libraries (key) ON DELETE CASCADE,
+  asset_key    TEXT NOT NULL,
+  asset_type   TEXT NOT NULL,
+  instances    INTEGER NOT NULL DEFAULT 0,
+  files_using  INTEGER NOT NULL DEFAULT 0,
+  teams_using  INTEGER NOT NULL DEFAULT 0,
+  inserts_30d  INTEGER NOT NULL DEFAULT 0,
+  detaches_30d INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (library_key, asset_key)
+);
+CREATE TABLE library_stats (
+  library_key         TEXT PRIMARY KEY REFERENCES libraries (key) ON DELETE CASCADE,
+  teams_using         INTEGER NOT NULL DEFAULT 0,
+  inserts_last_week   INTEGER NOT NULL DEFAULT 0,
+  inserts_this_week   INTEGER NOT NULL DEFAULT 0,
+  detaches_this_week  INTEGER NOT NULL DEFAULT 0,
+  -- the last whole day included ('YYYY-MM-DD'): "updated daily"
+  through_day         TEXT NOT NULL
+);
+
+-- docs/desktop.md §14.3: shared fonts (org or team), one row per face; the bytes are in the org's FontObject.
+CREATE TABLE shared_fonts (
+  id              TEXT PRIMARY KEY,
+  org_id          TEXT NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,
+  -- null: an organization font; else a team font
+  team_id         TEXT REFERENCES teams (id) ON DELETE CASCADE,
+  family          TEXT NOT NULL,
+  style           TEXT NOT NULL,
+  postscript_name TEXT NOT NULL,
+  weight          INTEGER NOT NULL,
+  italic          INTEGER NOT NULL DEFAULT 0,
+  stretch         INTEGER NOT NULL DEFAULT 5,
+  variable        INTEGER NOT NULL DEFAULT 0,
+  sha1            TEXT NOT NULL,
+  format          TEXT NOT NULL CHECK (format IN ('ttf', 'otf')),
+  size            INTEGER NOT NULL,
+  file_name       TEXT NOT NULL,
+  uploaded_by     TEXT REFERENCES users (id) ON DELETE SET NULL,
+  uploaded_at     INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX shared_fonts_face ON shared_fonts (org_id, COALESCE(team_id, ''), family, style);
+CREATE INDEX shared_fonts_sha1 ON shared_fonts (org_id, sha1);
+```
+
+Notes:
+- **Ids**: font face ids are 16-character base62 (`randomId(16)`, as §14.5).
+- **Notifications**: `library_default_override` is a new kind (§16.5), stored with `file_key` null and the library's name in `file_name`, as §14.15's org kinds.
+- **Activity retention** moves to §17.5's daily cron (§14.15 swept it on read).
+
+### 16.12 Shared types: `src/shared/libraries/orgTypes.ts` (committed verbatim before round 3)
+
+```ts
+/**
+ * Libraries in organizations (docs/data.md §16) and library analytics (§17): the value types and the two new store
+ * repositories, committed before Phase 7 round 3 so its agents compile against the same shapes.
+ */
+import type { FileKey, FileMeta, LibraryAsset, LibraryRecord, Redirect } from "../store/types";
+import type { EditorType, PersonRef } from "../org/types";
+
+// ---- identity ---------------------------------------------------------------------------------------------
+
+/** A library's key: its file's room key for an org library (FileSpace.key), its FileKey for a local one (§16.2). */
+export type LibraryKey = string;
+/** Local FileKeys are 22 base62; room keys contain "_" (roomKeyFor), so the forms never collide. */
+export const isLocalLibraryKey = (key: string): boolean => /^[0-9A-Za-z]{22}$/.test(key);
+/** "This file's library": the room key of an org copy, else the local file key. */
+export const libraryKeyOfFile = (meta: Pick<FileMeta, "fileKey" | "space">): LibraryKey => meta.space?.key ?? meta.fileKey;
+
+export type LibraryScope = "team" | "org";
+/** Figma's "Design files", "FigJam boards", "Slide decks", "Figma Buzz files" */
+export type LibraryEditorType = Extract<EditorType, "design" | "figjam" | "slides" | "buzz">;
+export const LIBRARY_EDITOR_TYPES: readonly LibraryEditorType[] = ["design", "figjam", "slides", "buzz"];
+export type SettingScope = { type: "org"; id: string } | { type: "workspace"; id: string } | { type: "team"; id: string };
+
+/** A published collection's modes, in order (the first is its default) */
+export interface CollectionModes {
+  collectionKey: string;
+  name: string;
+  modes: { id: string; name: string }[];
+}
+export interface DefaultMode {
+  collectionKey: string;
+  modeId: string;
+}
+
+// ---- consuming ----------------------------------------------------------------------------------------------
+
+/** Where an org library stands, relative to the file asking (listAvailable) or the caller (getRecord). */
+export interface OrgLibraryContext {
+  orgId: string;
+  teamId: string | null;
+  teamName: string | null;
+  workspaceId: string | null;
+  scope: LibraryScope;
+  /** The library file's name */
+  name: string;
+  /** null until a client uploaded a thumbnail (OrgFile.thumbnailUrl) */
+  thumbnailUrl: string | null;
+  publishedBy: PersonRef | null;
+  /** The check mark: approved for the organization, for the file's (caller's) workspace, or not */
+  approved: "org" | "workspace" | null;
+  /** On by default for this file (its editor type, team, workspace) — §16.5 */
+  enabledByDefault: boolean;
+  /** Default modes for this file's team or workspace (§16.5) */
+  defaultModes: DefaultMode[];
+  /** Why the caller can use it (§16.4) */
+  via: ("file" | "team" | "org")[];
+}
+/** What LibraryRegistry.listAvailable / getRecord return for an org library: today's record plus `org`. */
+export interface OrgLibraryRecord extends LibraryRecord {
+  libraryFileKey: LibraryKey;
+  org: OrgLibraryContext;
+}
+export const isOrgLibrary = (r: LibraryRecord): r is OrgLibraryRecord => (r as Partial<OrgLibraryRecord>).org != null;
+
+/** GET/PUT /files/:key/libraries */
+export interface FileLibraries {
+  /** Effective: explicit choices over the defaults */
+  enabled: LibraryKey[];
+  /** On by default for this file */
+  defaults: LibraryKey[];
+  /** The file's explicit choices */
+  overrides: { libraryKey: LibraryKey; enabled: boolean }[];
+}
+
+// ---- publishing -----------------------------------------------------------------------------------------------
+
+/** POST /libraries/:key/versions (the store builds it from a PublishRequest, §16.6) */
+export interface OrgPublishInput {
+  /** The latest version the preview was computed against (0: first publish) */
+  baseVersion: number;
+  description: string;
+  /** "Allow any member of ‹org› to access the file" */
+  scope: LibraryScope;
+  /** The complete manifest of the new version (thumbnails as sha1; payloads and blobs uploaded before) */
+  assets: LibraryAsset[];
+  changes: { created: string[]; modified: string[]; removed: string[]; moved: Redirect[] };
+  moves: { key: string; fromLibraryFileKey: LibraryKey; fromKey: string; mode: "move" | "copy" }[];
+  /** Read by the store from the VARIABLE_COLLECTION payloads */
+  collections: CollectionModes[];
+}
+/** POST /libraries/:key/missing, both ways */
+export interface LibraryMissing {
+  payloads: { key: string; versionHash: string }[];
+  blobs: string[];
+}
+
+// ---- managing (Admin › Resources › Libraries, team settings, Home's Libraries) ----------------------------------
+
+export interface LibraryScopeSetting {
+  scope: SettingScope;
+  scopeName: string;
+  /** org and workspace rows only */
+  approved: boolean;
+  /** true on, false off (an override), null inherit */
+  defaults: Record<LibraryEditorType, boolean | null>;
+  defaultModes: DefaultMode[];
+  updatedAt: number;
+  updatedBy: PersonRef | null;
+}
+export interface OrgLibrarySummary {
+  key: LibraryKey;
+  name: string;
+  orgId: string;
+  teamId: string | null;
+  teamName: string | null;
+  workspaceId: string | null;
+  scope: LibraryScope;
+  status: LibraryRecord["status"];
+  latestVersion: number;
+  lastPublishedAt: number;
+  counts: { components: number; styles: number; variables: number };
+  thumbnailUrl: string | null;
+  approved: { org: boolean; workspaceIds: string[] };
+  /** Where it is on by default (any editor type) */
+  defaultIn: { org: LibraryEditorType[]; workspaceIds: string[]; teamIds: string[] };
+  /** From the daily roll-up (§17.5) */
+  insertsLastWeek: number;
+}
+export interface OrgLibraryInfo extends OrgLibrarySummary {
+  collections: CollectionModes[];
+  /** Every scope row the caller may see */
+  settings: LibraryScopeSetting[];
+  /** What the caller may change */
+  canManage: { org: boolean; workspaceIds: string[]; teamIds: string[] };
+}
+export interface TeamLibraryRow extends OrgLibrarySummary {
+  /** The team's own row (defaults null when never set) */
+  setting: LibraryScopeSetting;
+}
+export interface LibrarySettingsInput {
+  scope: SettingScope;
+  approved?: boolean;
+  defaults?: Partial<Record<LibraryEditorType, boolean | null>>;
+  /** modeId null: back to the collection's default */
+  defaultModes?: { collectionKey: string; modeId: string | null }[];
+}
+export interface OrgLibrariesQuery {
+  text?: string;
+  workspaceId?: string;
+  teamId?: string;
+  approved?: boolean;
+  enabledByDefault?: boolean;
+}
+
+export interface OrgLibrariesRepository {
+  list(orgId: string, query?: OrgLibrariesQuery): Promise<OrgLibrarySummary[]>;
+  get(orgId: string, key: LibraryKey): Promise<OrgLibraryInfo>;
+  updateSettings(orgId: string, key: LibraryKey, input: LibrarySettingsInput): Promise<OrgLibraryInfo>;
+  /** "Allow any member of ‹org› to access the file" after publishing (PATCH /libraries/:key) */
+  setScope(key: LibraryKey, scope: LibraryScope): Promise<OrgLibraryInfo>;
+  /** Team › View settings › "View team's libraries" */
+  teamLibraries(teamId: string): Promise<TeamLibraryRow[]>;
+}
+
+// ---- library analytics (§17) ------------------------------------------------------------------------------------
+
+export type AnalyticsAssetType = "component" | "style" | "variable";
+export type UsageAction = "insert" | "detach";
+/** Figma's ranges: 30, 60, 90 days, "last year" (rolling 12 months) */
+export type AnalyticsRange = 30 | 60 | 90 | 365;
+
+/** What the editor reports (§17.3); the store maps fileKey to the room key and `at` to a UTC day. */
+export interface LibraryUsageEvent {
+  fileKey: FileKey;
+  libraryKey: LibraryKey;
+  assetKey: string;
+  assetType: AnalyticsAssetType;
+  action: UsageAction;
+  count: number;
+  at: number;
+}
+/** POST /analytics/library-events — pre-aggregated per (day, file, library, asset, action) */
+export interface WireUsageEvent {
+  day: string;
+  file: string;
+  library: LibraryKey;
+  asset: string;
+  type: AnalyticsAssetType;
+  action: UsageAction;
+  count: number;
+}
+/** PUT /files/:key/library-usage — the file's current instances of org-library assets (§17.4) */
+export interface FileUsageSnapshot {
+  /** sha1 of the canonical rows: unchanged → the server does nothing */
+  hash: string;
+  assets: { library: LibraryKey; asset: string; type: AnalyticsAssetType; instances: number }[];
+  modes: { library: LibraryKey; collection: string; mode: string; instances: number }[];
+}
+
+/** One week of actions, Figma's REST names; `week` is its Sunday 'YYYY-MM-DD' (UTC) */
+export interface WeeklyActions {
+  week: string;
+  insertions: number;
+  detachments: number;
+}
+export interface AssetStatsRow {
+  key: string;
+  name: string;
+  type: AnalyticsAssetType;
+  description: string;
+  componentSetKey?: string;
+  componentSetName?: string;
+  /** Component sets: their variants */
+  variants?: number;
+  styleType?: string;
+  variableType?: string;
+  collectionKey?: string;
+  collectionName?: string;
+  /** A current snapshot */
+  instances: number;
+  /** In the last 30 days */
+  insertions: number;
+  detachments: number;
+  teamsUsing: number;
+  filesUsing: number;
+}
+/** Library analytics › Overview */
+export interface LibraryOverview {
+  libraryKey: LibraryKey;
+  teamsUsing: number;
+  counts: { components: number; styles: number; variables: number };
+  /** "Activity this week": the last seven days */
+  thisWeek: { insertions: number; detachments: number };
+  rows: AssetStatsRow[];
+  /** The last day included ('YYYY-MM-DD') */
+  throughDay: string;
+}
+export interface TeamActionsRow {
+  teamId: string | null;
+  teamName: string;
+  workspaceName: string | null;
+  insertions: number;
+  detachments: number;
+  /** Share of all insertions, 0–1 */
+  share: number;
+}
+/** Library analytics › Analytics, for one Type and one Duration */
+export interface LibraryActions {
+  type: AnalyticsAssetType;
+  range: AnalyticsRange;
+  series: WeeklyActions[];
+  /** "Compare with" */
+  compare: { libraryKey: LibraryKey; name: string; series: WeeklyActions[] } | null;
+  topTeams: TeamActionsRow[];
+  teamsUsing: number;
+  rows: AssetStatsRow[];
+  throughDay: string;
+}
+export interface FileUsageRow {
+  /** null: "File not visible" (the caller can't see that file or its team) */
+  fileKey: string | null;
+  fileName: string;
+  teamName: string | null;
+  workspaceName: string | null;
+  instances: number;
+  lastModified: number | null;
+}
+/** One asset's usage view: "Used by" teams, "Used in" files */
+export interface AssetUsage {
+  row: AssetStatsRow;
+  teams: TeamActionsRow[];
+  files: FileUsageRow[];
+}
+export interface ModeUsageRow {
+  collectionKey: string;
+  collectionName: string;
+  modeId: string;
+  modeName: string;
+  instances: number;
+}
+/** File browser › All teams (All workspaces) › Libraries */
+export interface OrgLibrariesAnalytics {
+  totals: { teams: number; teamsWithLibraries: number; libraries: number; components: number; styles: number; variables: number };
+  libraries: { key: LibraryKey; name: string; teamName: string | null; components: number; styles: number; variables: number; insertsLastWeek: number }[];
+  throughDay: string;
+}
+
+export interface LibraryAnalyticsRepository {
+  /** The editor's events; queued and batched by the store, never fails (dropped for local files) */
+  record(events: LibraryUsageEvent[]): Promise<void>;
+  orgOverview(orgId: string, query?: { workspaceId?: string; text?: string }): Promise<OrgLibrariesAnalytics>;
+  overview(key: LibraryKey): Promise<LibraryOverview>;
+  actions(key: LibraryKey, query: { type: AnalyticsAssetType; range: AnalyticsRange; compareWith?: LibraryKey }): Promise<LibraryActions>;
+  usage(key: LibraryKey, assetKey: string): Promise<AssetUsage>;
+  modes(key: LibraryKey, collectionKey?: string): Promise<ModeUsageRow[]>;
+  /** "Download CSV" (the view offers it above five teams, Figma's rule; the view saves the text through main) */
+  csv(key: LibraryKey, query: { type: AnalyticsAssetType; range: AnalyticsRange }): Promise<string>;
+}
+
+// StoreApi gains: orgLibraries: OrgLibrariesRepository; analytics: LibraryAnalyticsRepository;
+```
+
+### 16.13 Server layout (round 3a)
+
+- `server/src/libraries/`: `routes.ts` (§16.10), `db.ts` (queries, `syncLibraryScope`, `libraryFileStatus`, settings resolution of §16.5), `access.ts` (`canUseLibrary`, the admin reach), `libraryObject.ts` (the Durable Object: tables `manifests(version, json)`, `payloads(key, hash, chunk, bytes)`, `blobs(sha1, chunk, bytes)`, `meta(latest)`; routes `/missing`, `/payload`, `/blob`, `/commit`, `/version/:n`, `/diff`, `/payloads`, `/delete`; `diff` and `payloads` with dependencies use `libraryRules` from `src/shared/store/libraryRules.ts`), `notices.ts` (§16.7).
+- `server/src/index.ts`: export `LibraryObject` and `FontObject`; `scheduled()` runs §17.5.
+- `server/wrangler.jsonc`: bindings `LIBRARIES` (`LibraryObject`) and `FONTS` (`FontObject`); migration tag **`v4`** `new_sqlite_classes: ["LibraryObject", "FontObject"]`; `"triggers": {"crons": ["17 3 * * *"]}` (one of the free plan's five).
+- `server/src/api.ts`: one dispatch line each for `/libraries`, `/analytics`, `/orgs/:org/libraries`, `/orgs/:org/fonts`, `/teams/:team/libraries`, `/fonts`, `/me/fonts`, `/files/:key/libraries`, `/files/:key/library-usage`; the file trash / restore / delete paths call `libraryFileStatus`; `PATCH /files/:key`'s `orgLinkAccess` calls `syncLibraryScope`.
+- Tests on node:sqlite with in-memory objects (`server/src/testing/memoryLibraries.ts`, as `memoryPreviews.ts`): publish twice with a stale base, payload dedupe, diff / payloads with dependencies, access rules 1–4 incl. guests and a Limited folder, scope ↔ link access, approval and default resolution across org / workspace / team incl. overrides and drafts, default modes, subscriptions, notices, unpublish / trash / delete, the activity actions.
+
+---
+
+## 17. Library analytics (contract, Phase 7 round 3; written 2026-10-11)
+
+**Status: contract, not built.** Figma's in-app library analytics for org libraries (§16): what the editor reports, how the store batches it, how the server stores and rolls it up, what the views read. Research: R18 D-3. Facts read on 2026-10-11:
+- **[A-help]** Library analytics — https://help.figma.com/hc/en-us/articles/360039238353
+- **[A-api]** Library Analytics REST endpoints — https://developers.figma.com/docs/rest-api/library-analytics-endpoints/ (Enterprise; round 5a serves them from the same tables)
+
+### 17.1 What Figma does
+
+- **Who**: Organization and Enterprise. Any org **member** with "can view" or "can edit" on the library file. **Guests can't** [A-help].
+- **Where**: org-wide — file browser › **All teams** (Enterprise with workspaces: **All workspaces**) › **Libraries**: totals of teams, teams with libraries, libraries, components and styles; per library its components, styles and **"Inserts last week"**; a search field. One library — in the library file, nothing selected, the file name's ⌄ › **Library analytics**, or right-click the library in the file browser.
+- **Overview tab**: teams using the library; total components, styles and variables; **"Activity this week"** (the last seven days); every style, variable collection and component listed.
+- **Analytics tab**: **Type** (Components / Styles / Variables); **Duration** 30, 60, 90 days or "last year" (rolling 12 months); the **insertions graph** (current data blue, unavailable grey, comparison black, a dashed line for an incomplete week; it runs to the end of the current week); **Compare with** another library's insertions; **Top teams** with insertions and share; a sortable statistics table; **Download CSV** only when more than five teams use the library (otherwise the data can be copied from the modal).
+- **Per asset**: components and sets — Variants column, a usage view with description, total instances, teams ("Used by"), files ("Used in"), a file table with instances and last modified; for sets, Instances is a current snapshot, Inserts and Detaches the last 30 days. Styles: the same. Variables: name, collection, instances, inserts and detaches over 30 days; a **Modes** tab (mode, collection, instance count; filter by collection; no drill-down).
+- **Insertions**: components — copying and pasting an instance, duplicating one in a file, dragging from Assets, swapping an instance, adding content to a slot. Styles and variables — pasting or duplicating content that uses them, or applying them.
+- **Detaches**: "Detach instance"; for styles and variables, their Detach buttons.
+- **Not counted**: use in other people's drafts; nested components; a style or variable used by an inserted component (only the component counts), a variable used by an inserted style (only the style); insertions made by duplicating a file; slots themselves (content added to a slot counts as an insertion of its component).
+- **Visibility**: file-level usage only for teams open to the whole organization, or "Only those invited" teams the viewer is in; the API calls the rest **"File not visible"** and still counts its instances [A-api].
+- **Freshness**: updated **daily**, up to **one year** kept; styles and variables tracked since 2024-10-10.
+- **API** [A-api]: weekly actions (`week`, `insertions`, `detachments`) grouped by asset or team, and usages (`usages`, `teams_using`, `files_using`) grouped by asset or file; weeks start Sunday 00:00 UTC; only weeks with data are returned.
+
+### 17.2 Decisions
+
+| Topic | Decision |
+|---|---|
+| What is measured | Only org libraries (§16) used in **org files that are not drafts and not branches**. Local files and local libraries report nothing (Figma counts organizations only). |
+| Drafts | Figma skips "other people's drafts"; since a draft's owner is the only one seeing its numbers anyway, we skip all drafts (ours: simpler, same for everyone else). |
+| Who computes events | The **editor**, from its own change batches (§17.3): it has the engine to tell whether a GUID is a library copy. One module, no call sites spread over the editor. |
+| Instances | The **store**, from the file's document when the file is closed or flushed idle (§17.4), at most once a day per file and only when changed. |
+| Transport | Pre-aggregated in the store per (UTC day, file, library, asset, action) and sent in batches; the server upserts with `count = count + excluded.count`. No raw event rows exist anywhere. |
+| No people | No user id, name or IP is stored with analytics (Figma's views and API show none). Team and workspace come from the file. |
+| Roll-up | One daily **Cron Trigger** (03:17 UTC) recomputes the stats tables in a few SQL statements that run inside D1; the Worker's 10 ms CPU isn't spent on rows. |
+| Weeks | Sunday 00:00 UTC, Figma's API rule; the graph's last week is dashed when incomplete. |
+| Retention | Actions 53 weeks; usage rows live while the file and library do. |
+| Free plan | A batch is one access query plus one `INSERT … SELECT FROM json_each(?)`; a few friends write tens of rows a day against 100,000. |
+
+### 17.3 Usage events from the editor
+
+`src/renderer/src/editor/libraryUsage.ts` (new, round 3c) watches the editor's own batches (`documentSource.ts` hands it each appended `ChangeBatch` and the engine; one hook line) and calls `store.analytics.record(events)`, debounced 2 s. Rules, per batch:
+- **Counted kinds**: `edit` only — the person's own edits, agents' turns included. `undo`, `redo`, `system`, `remote`, `restore` never count; an undone insert is not taken back (unverified at Figma; ours).
+- **Files**: org copies (`FileMeta.space` set, `projectId` not null, not a branch). Otherwise nothing is recorded.
+- **Component insert** (assetType `component`; the key is the **component's**, a variant's own key — the set's key comes from the manifest): a node CREATED as an INSTANCE whose `symbolData.symbolID` resolves to a copy with `sourceLibraryKey` of an org library, **not inside another instance** and not inside another node created in the same batch that is itself counted (a pasted frame holding three instances counts three; an instance nested in a pasted instance doesn't). Also: an existing instance whose `symbolID` changes to such a copy (**swap**), and an instance created inside slot content (Figma: adding content to a slot).
+- **Component detach**: a node whose type changes from INSTANCE and gains `detachedSymbolId` pointing at a library copy (the engine's DETACH).
+- **Style insert**: a node's `styleIdFor*` newly set to a library style copy in a batch that is not a component insert of an ancestor (only the component counts); pasted / duplicated content counts each node using the style once per style.
+- **Style detach**: a `styleIdFor*` that pointed at a library style copy is cleared **and** the matching paint / text / effect / grid field is written in the same change (the engine's detach writes the look inline; a plain removal doesn't).
+- **Variable insert**: a binding (`parameterConsumptionMap` entry or a paint's / effect's variable alias) newly pointing at a library variable copy, not under a counted component insert or style insert.
+- **Variable detach**: such a binding removed **and** the raw value written in the same change (Detach variable).
+- **Duplicating a file** makes no batches in the new file: nothing counts, as Figma.
+- The event's `libraryKey` is the copy's `sourceLibraryKey`; `assetKey` the copy's `key`. Copies of assets the library has since removed still count (their row shows the last known name).
+
+### 17.4 Instance counts per file (the "Instances" snapshot)
+
+`src/store/libraries/usage.ts` (round 3b) computes a `FileUsageSnapshot` for an org copy (same file rules as §17.3) when the file is closed or flushed after 5 minutes idle, **at most once per UTC day per file** and only when its `headSeq` moved since the last one:
+- It reads the document as compaction does (snapshot + journal, generic NodeChange merge; no engine).
+- **Components**: INSTANCE nodes (real nodes; instance sublayers are derived and never counted — Figma's "nested components") whose `symbolData.symbolID` is a library copy; counted under the copy's `key`.
+- **Styles**: nodes with a `styleIdFor*` naming a library style copy, once per (node, style).
+- **Variables**: nodes with a binding to a library variable copy, once per (node, variable).
+- **Modes**: nodes with an explicit `variableModeBySetMap` entry for a library collection copy, once per (node, mode) — the Modes tab's "instance count" (ours: Figma doesn't define it).
+- `hash` = sha1 of the sorted rows. `PUT /files/:roomKey/library-usage` replaces the file's rows unless the hash is unchanged.
+- On the owner's 32k-layer file this must stay under 1 s in the store process (a bench, not in `npm run check`).
+
+### 17.5 Batching, ingestion, the daily roll-up
+
+**Client** (`src/store/libraries/analyticsQueue.ts`, both stores):
+- `analytics.record` maps each event's `fileKey` to its room key and `at` to its UTC day, drops what §17.2 excludes, and adds it to an in-memory map keyed `(day, file, library, asset, type, action)` → count.
+- The map is persisted to `Workspace/spaces/analytics-queue.json` (desktop; `designer.devStore.v1.analytics` in the browser) on every change, debounced 5 s, so a quit or crash loses at most 5 s.
+- It is sent every 10 minutes, on quit (best effort, 2 s), and when the connection comes back: `POST /analytics/library-events {events: WireUsageEvent[]}` in chunks of 500. Sent rows leave the queue when the server answers 2xx; `4xx` drops the chunk; `5xx` / offline keeps it. Rows older than 7 days are dropped (the server refuses them anyway). Signed out: nothing is queued.
+
+**Server** (`server/src/analytics/ingest.ts`):
+- `POST /analytics/library-events`: for the distinct files of the batch, one query keeps those the caller can **edit** (`resolveAccess`), in an org, with a project (not a draft) and not a branch, and joins each file's `team_id` and its team's `workspace_id`. Rows for other files, for libraries that aren't org libraries of the same org, for days outside [today − 7, today] or with `count` outside 1…10,000 are dropped. One statement inserts the rest:
+
+  ```sql
+  INSERT INTO library_actions_daily (day, library_key, asset_key, asset_type, file_key, team_id, workspace_id, action, count)
+  SELECT e.value ->> 'day', e.value ->> 'library', e.value ->> 'asset', e.value ->> 'type', e.value ->> 'file',
+         e.value ->> 'team', e.value ->> 'workspace', e.value ->> 'action', e.value ->> 'count'
+  FROM json_each(?1) AS e
+  ON CONFLICT (library_key, day, asset_key, file_key, action) DO UPDATE SET count = count + excluded.count;
+  ```
+
+  → `{accepted, dropped}`.
+- `PUT /files/:key/library-usage` (can edit; same file rules): unchanged hash → 204; else `DELETE FROM library_usage WHERE file_key = ?`, one `INSERT … SELECT FROM json_each(?)`, the hash row → 204.
+- The routes are rate-limited per person: 60 calls an hour (429 `rate_limited`).
+
+**Daily roll-up** (`server/src/analytics/rollup.ts`, `scheduled()` at `17 3 * * *`): for the day `D` = yesterday (UTC), in order, each one SQL statement run in D1:
+1. `library_asset_stats` ← for every asset of every published library: `instances`, `files_using`, `teams_using` from `library_usage` (files joined to their current team; drafts and branches excluded again), `inserts_30d` / `detaches_30d` from `library_actions_daily` over [D − 29, D]. (`INSERT OR REPLACE … SELECT … GROUP BY`.)
+2. `library_stats` ← per library: teams using (distinct teams with instances or actions in the last 30 days), inserts of the last whole week, inserts and detaches of the last seven days up to D, `through_day = D`.
+3. Retention: `DELETE FROM library_actions_daily WHERE day < D − 371 days`; `DELETE FROM activity_log WHERE at < now − 365 days` (moved here from §14.15's read-time sweep).
+
+The views read the stats tables for tables and totals and `library_actions_daily` with `day <= through_day` for the graphs, so numbers change once a day, as Figma's.
+
+### 17.6 Routes (`server/src/analytics/query.ts`)
+
+Who: org members (not guests) who can **view the library's file** (§17.1). `:key` is the library's room key.
+
+| Route | → |
+|---|---|
+| `GET /orgs/:org/libraries/analytics?workspace=&text=` | `OrgLibrariesAnalytics` (the libraries the caller can use; totals over the org or the workspace) |
+| `GET /libraries/:key/analytics/overview` | `LibraryOverview` |
+| `GET /libraries/:key/analytics/actions?type=component\|style\|variable&range=30\|60\|90\|365&compare=<key>` | `LibraryActions` (the compared library must be usable by the caller too) |
+| `GET /libraries/:key/analytics/usage/:assetKey` | `AssetUsage` |
+| `GET /libraries/:key/analytics/modes?collection=` | `{modes: ModeUsageRow[]}` |
+| `GET /libraries/:key/analytics/csv?type=&range=` | `text/csv` — Figma's REST column names: `component_key, component_name, component_set_key, component_set_name, instances, insertions, detachments, teams_using, files_using` (styles: `style_key, style_name, style_type, …`; variables: `variable_key, variable_name, variable_type, collection_key, collection_name, …`) |
+
+- **Visibility of files and teams** (§17.1): a `FileUsageRow` or `TeamActionsRow` is named only when its team is open to the org (`org_access` not `none`) or the caller is in it; otherwise `fileKey: null, fileName: "File not visible"` (team: `"Team not visible"`, ours), counts kept.
+- Week buckets: `strftime` over `day` shifted to the Sunday; weeks with no data appear as zero in `series` (the graph needs them; the CSV and round 5a's API leave them out as Figma does).
+- Round 5a's `/v1/analytics/libraries/:key/{component,style,variable}/{actions,usages}` reuse these queries with Figma's field names and `group_by`.
+
+### 17.7 Privacy
+
+- Stored: library, asset, file room key, team, workspace, day, counts. Never a person, an IP, a node id or content.
+- Events leave the computer only for org files the person can edit; local files never report.
+- A person leaving the org changes nothing in the numbers (there is nothing personal to remove). Deleting a file forever removes its usage rows (`ON DELETE CASCADE`) and keeps its past actions (team and day only, the file key no longer resolves: "File not visible").
+- Settings › Account gains no switch (Figma has none; analytics are the org's).
+
+
+---
+
 ## Open questions
 
 1. **Coarse LWW for instance overrides**: `engine.md` §14 Q1 asks whether instance overrides stay one `symbolData` property. If they do, LWW merges two devices' overrides on the same instance at whole-property granularity. That is acceptable for one user, and changing it is a document-contract decision. (Clearing fields is settled: `clearedFields`, §5.5.)
@@ -1544,3 +2375,4 @@ Each case builds B, then O and T by applying change Messages, runs `merge3` in b
 6. **OAuth client**: the sign-in plan needs a "Desktop app" OAuth client in the new project. The alternative is a Cloud Function that mints custom tokens. Decide when the owner creates the project.
 7. **Legacy text font**: the old model has no font family (text inherited the site's CSS font). Which family should converted text use: the site's font, if installed, or Inter?
 8. **Previews and glyph outlines**: the preview design assumes the engine can emit text layout with outlines. If it cannot at first, previews would need font files, and only fonts marked `embeddable` could be uploaded.
+9. **Org libraries in local files** (§16.2, §16.9): Figma offers org libraries only in the org's files. Local files keep receiving updates of a library whose file moved into an org, but can't add org libraries. Should local files be able to add org libraries the owner can use (ours, convenient for files never moved into an org)?
