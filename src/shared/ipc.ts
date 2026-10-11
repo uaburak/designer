@@ -11,6 +11,7 @@ import type { AgentSettings, AuthState, ConnectResult, McpClientId, McpClientInf
 import type { AttachResult } from "./agents/attachments";
 import type { AccountMethod, AccountResponse, AccountState, SignInResult } from "./account";
 import type { CommandId, MenuStatePatch } from "./commands";
+import type { SharedFontFace, SharedFontsChannels } from "./fonts/sharedTypes";
 import type { ShortcutSettings } from "./shortcuts";
 import type { TabKind, TabReport, TabStatus } from "./tabs";
 
@@ -223,6 +224,11 @@ export interface FontIndex {
   faces: FontFaceInfo[];
   /** The Google Fonts catalog (empty offline before it was first fetched) */
   google?: GoogleFontFamily[];
+  /**
+   * Organization and team fonts the signed-in person may use (docs/desktop.md §14.3; `GET /me/fonts`, cached for
+   * offline): every org and team of theirs — the editor keeps those of the open file's org and team. Ids "s:" + id.
+   */
+  shared?: SharedFontFace[];
 }
 
 /** One exported file: its name (relative, "/" for folders) and bytes. */
@@ -247,7 +253,8 @@ export interface VectorClipboard {
   skipped: { text: number; images: number };
 }
 
-export interface IpcInvoke {
+/** The shared fonts' four channels (docs/desktop.md §14.3) are `SharedFontsChannels` (src/shared/fonts/sharedTypes.ts). */
+export interface IpcInvoke extends SharedFontsChannels {
   "desktop:init": { args: []; result: InitInfo };
   "tabs:get": { args: []; result: TabsSnapshot };
   "nav:open-file": { args: [OpenWorkspaceFile]; result: OpenFileResult };
@@ -416,6 +423,10 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "fonts:upload": ["home", "editor"],
   "fonts:remove-uploaded": ["home", "editor"],
   "fonts:preview": ["editor"],
+  "fonts:shared-list": ["home", "editor"],
+  "fonts:shared-pick": ["home", "editor"],
+  "fonts:shared-upload": ["home", "editor"],
+  "fonts:shared-remove": ["home", "editor"],
   "clipboard:read-vector": ["editor"],
   // Settings › Agents in Home too: the setup channels (not turns or tools)
   "agents:providers": ["home", "editor"],

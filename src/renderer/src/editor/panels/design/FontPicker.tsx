@@ -1,7 +1,8 @@
 /**
  * The font picker (Figma UI3's Typography: help.figma.com "Browse and apply fonts", docs/research/figma/R11-fonts.md):
  * the Font family field opens a panel left of the right panel with a search, the filter menu ("All fonts", "In this
- * file", "Popular", "Installed by you", "Google fonts", "Variable fonts" — remembered for the session) and every family
+ * file", "Popular", "Installed by you", "Google fonts", "Variable fonts", and in an organization's file "Used at
+ * ‹organization›" for its organization and team fonts — remembered for the session) and every family
  * in one list, each name drawn in its own face (only the rows on screen load one). Hovering a family, or moving to it
  * with ↑ ↓, previews it on the selected text; a click (or Enter) applies it, Esc or a click outside puts the text
  * back. A family with more than one style has a chevron that opens its styles (a variable font's named instances),
@@ -10,7 +11,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Icon, Popover, SearchField, Select, VirtualList, type Mixed, isMixed } from "@/ds";
 import { closestStyle, type FontFamily } from "@/engine/fonts";
-import { FONT_FILTER_MENU, filterFamilies, hasStyle, type FontFilter } from "../../fontList";
+import { filterFamilies, fontFilterMenu, hasStyle, useFontScope, type FontFilter } from "../../fontList";
 import { useFontPreview } from "../../fontPreview";
 import styles from "./FontPicker.module.css";
 
@@ -112,7 +113,11 @@ export function FontPicker({ anchor, family, style, list, fileFamilies, onPrevie
   const [typed, setTyped] = useState<string | null>(null);
   const query = typed ?? "";
   const setQuery = (q: string) => setTyped(q);
-  const [filter, setFilterState] = useState<FontFilter>(sessionFilter);
+  // "Used at ‹organization›" only in an organization's file (docs/desktop.md §14.3).
+  const scope = useFontScope();
+  const filterMenu = useMemo(() => fontFilterMenu(scope ? (scope.orgName ?? "your organization") : null), [scope]);
+  const [chosen, setFilterState] = useState<FontFilter>(sessionFilter);
+  const filter: FontFilter = chosen === "org" && !scope ? "all" : chosen;
   const setFilter = (f: FontFilter) => {
     sessionFilter = f;
     setFilterState(f);
@@ -187,13 +192,13 @@ export function FontPicker({ anchor, family, style, list, fileFamilies, onPrevie
           <SearchField value={typed ?? family ?? ""} onChange={setQuery} placeholder="Search fonts" label="Search fonts" autoFocus selectOnFocus onExit={(r) => r === "escape" && onClose()} />
         </div>
         <div className={styles.filter}>
-          <Select label="Font filter" variant="ghost" value={filter} options={FONT_FILTER_MENU.map((f) => (f === "-" ? f : { value: f.value, label: f.label }))} onChange={(v) => setFilter(v as FontFilter)} data-font-filter="" />
+          <Select label="Font filter" variant="ghost" value={filter} options={filterMenu.map((f) => (f === "-" ? f : { value: f.value, label: f.label }))} onChange={(v) => setFilter(v as FontFilter)} data-font-filter="" />
         </div>
         <div className={styles.list} role="listbox" aria-label="Fonts">
           {list === null ? (
             <div className={styles.empty}>Loading fonts…</div>
           ) : shown.length === 0 ? (
-            <div className={styles.empty}>{query ? `No fonts match “${query}”` : filter === "file" ? "No fonts in this file" : filter === "uploaded" ? "No uploaded fonts" : "No fonts"}</div>
+            <div className={styles.empty}>{query ? `No fonts match “${query}”` : filter === "file" ? "No fonts in this file" : filter === "uploaded" ? "No uploaded fonts" : filter === "org" ? "No organization fonts" : "No fonts"}</div>
           ) : (
             <VirtualList
               count={shown.length}
@@ -307,7 +312,7 @@ function StylesMenu({ family, anchor, current, onHover, onPick, onClose }: {
     return () => window.removeEventListener("pointerdown", down, true);
   }, [anchor, onClose]);
   // Only the family's Regular is loaded for a Google preview: its styles show in the UI font then.
-  const styled = face && family.source !== "google";
+  const styled = face && family.source !== "google" && family.source !== "shared";
   // Inside the picker's panel (fixed, so not clipped by it): a press on it isn't "outside" the picker.
   return (
     <>

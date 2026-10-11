@@ -4,7 +4,8 @@
  * - an installed family: by its name (Chromium finds the computer's fonts itself);
  * - Figma's Inter: the bundled file, as a FontFace;
  * - a Google family: a tiny subset of its Regular holding just the name's letters (main fetches it through Google's
- *   css2 `text=`, `fonts:preview`), as a FontFace — a few KB, never the whole family.
+ *   css2 `text=`, `fonts:preview`), as a FontFace — a few KB, never the whole family;
+ * - an organization or team font (docs/desktop.md §14.3): its Regular's whole file (`fonts:read`), as a FontFace.
  * Asked only for the rows on screen; at most a few previews load at once. While one loads the row shows a skeleton.
  */
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
@@ -40,6 +41,13 @@ async function loadFace(family: FontFamily): Promise<State> {
     const url = BUNDLED_URLS[family.faces[0]?.id ?? ""];
     if (!url) return { failed: true };
     source = `url(${url})`;
+  } else if (family.source === "shared") {
+    // An organization or team font: its Regular's file (downloaded once and cached by main, as the engine reads it).
+    const desktop = desktopFonts();
+    const face = [...family.faces].sort((a, b) => Number(a.italic) - Number(b.italic) || Math.abs(a.weight - 400) - Math.abs(b.weight - 400))[0];
+    if (!desktop || !face) return { failed: true };
+    const bytes = await desktop.read(face.id);
+    source = (bytes instanceof Uint8Array ? bytes.slice().buffer : bytes) as ArrayBuffer;
   } else {
     const preview = desktopFonts()?.preview;
     if (!preview) return { failed: true };

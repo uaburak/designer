@@ -70,6 +70,13 @@ export interface DocumentSource {
   readonly libraries?: LibraryAccess;
   /** Developer previews of this file (docs/data.md §13). Optional: absent, only nothing can be published. */
   readonly previews?: PreviewAccess;
+  /**
+   * The organization and team the file belongs to (docs/multiplayer.md §14.6): which organization and team fonts it
+   * sees (docs/desktop.md §14.3). Optional: absent or null, a local file.
+   */
+  fileSpace?(): { orgId: string; teamId: string | null } | null;
+  /** An organization's name, for the font picker's "Used at ‹organization›" (null when unknown). Optional. */
+  orgName?(orgId: string): Promise<string | null>;
 }
 
 /**

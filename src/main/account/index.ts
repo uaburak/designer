@@ -140,10 +140,19 @@ function broadcast(): void {
   for (const c of webContents.getAllWebContents()) if (!c.isDestroyed() && viewOf(c)) c.send("account:changed", state);
 }
 
+const sessionListeners = new Set<() => void>();
+/** Main's own listeners for a sign-in, a sign-out or a dropped session (the shared fonts refresh on it). */
+export function onSessionChanged(listener: () => void): () => void {
+  sessionListeners.add(listener);
+  return () => sessionListeners.delete(listener);
+}
+
 function setSession(s: Session | null): void {
+  const changed = (s?.token ?? null) !== (session?.token ?? null);
   session = s;
   save(s);
   broadcast();
+  if (changed) for (const l of [...sessionListeners]) l();
   const c = storeClient();
   if (c) pushSession(c);
 }

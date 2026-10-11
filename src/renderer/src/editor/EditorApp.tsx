@@ -27,7 +27,7 @@ import type { Message } from "@/engine/codec";
 import { messageToEngine } from "@/store/engineMessage";
 import { decodeMessage as decodeKiwiMessage } from "../../../shared/schema/codec";
 import { applyEngineBytes, changeBytesOf, engineDerivedDataVersion, engineMethod, engineWireFormat, loadEngineBytes } from "./engineCompat";
-import { planFonts, requestFonts } from "./openFonts";
+import { applyFontScope, planFonts, requestFonts } from "./openFonts";
 import { attachKeyboard, runTextKey } from "./keyboard";
 import { attachClipboard } from "./clipboardIO";
 import { attachDesktop } from "./desktop";
@@ -130,6 +130,8 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       // fonts are requested as soon as the file is decoded, so they bind during the hand-over and the first frame's
       // text is shaped once. A snapshot that carries this engine's derived data (stored glyphs and instance layout,
       // as Figma's files do) draws its first frame before any font: the load doesn't wait for them then.
+      // The file's organization and team fonts (docs/desktop.md §14.3) before any of its fonts is asked for.
+      cleanups.push(applyFontScope(source));
       const eager = source.prepare?.() ?? null;
       const creating = Engine.create(canvas, { sessionID: source.sessionID ?? 1, theme: engineTheme(currentTheme().resolved) });
       let loaded: number;

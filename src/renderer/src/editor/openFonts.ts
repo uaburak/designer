@@ -6,8 +6,33 @@
  * dependencies on demand, the engine asks for a page's fonts itself (REQUEST_FONT) when the page is first shown.
  * `later` (the other pages' fonts) is a prefetch a caller may still ask for (`requestFonts(plan, {prefetch: true})`).
  */
-import { FALLBACK_FAMILIES, fonts as fontService } from "@/engine/fonts";
+import { FALLBACK_FAMILIES, fonts as fontService, type FontScope } from "@/engine/fonts";
 import type { DocumentFacts, FontRef } from "@/store/loadDocument";
+import type { DocumentSource } from "./documentSource";
+
+/**
+ * The open file's organization and team fonts (docs/desktop.md §14.3): the font service takes the file's scope before
+ * its fonts are asked for (an org font's text binds at once, not after a "missing"), then the organization's name for
+ * the picker's "Used at ‹organization›". A local file: no scope, no shared fonts. Returns a cancel (the name's read).
+ */
+export function applyFontScope(source: Pick<DocumentSource, "fileSpace" | "orgName">, service: { setScope(s: FontScope | null): void } = fontService): () => void {
+  const space = source.fileSpace?.() ?? null;
+  if (!space) {
+    service.setScope(null);
+    return () => {};
+  }
+  let alive = true;
+  service.setScope({ orgId: space.orgId, teamId: space.teamId, orgName: null });
+  void source
+    .orgName?.(space.orgId)
+    .then((orgName) => {
+      if (alive && orgName) service.setScope({ orgId: space.orgId, teamId: space.teamId, orgName });
+    })
+    .catch(() => {});
+  return () => {
+    alive = false;
+  };
+}
 
 export interface FontPlan {
   /** Requested before the load: the shown page's fonts (every font when the pages aren't known), plus the fallback family */

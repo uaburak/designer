@@ -1,6 +1,6 @@
 import { contextBridge } from "electron";
 import type { HomeApi } from "../shared/desktop";
-import { agentSetupApi, common, files, forwardStorePort, invoke, nav, on, openExternal, send, uploadedFonts, viewMenu } from "./common";
+import { agentSetupApi, common, files, forwardStorePort, invoke, nav, on, openExternal, send, sharedFontsApi, uploadedFonts, viewMenu } from "./common";
 
 /** Home's view: the file browser, on the store over its own port. */
 forwardStorePort();
@@ -25,7 +25,7 @@ const api: HomeApi = {
   menu: viewMenu(base.menu),
   openExternal,
   // Settings (src/renderer/src/settings): uploaded fonts with their bytes for the samples, and Agents' setup.
-  fonts: { read: (id) => invoke("fonts:read", { id: String(id) }), ...uploadedFonts },
+  fonts: { read: (id) => invoke("fonts:read", { id: String(id) }), ...uploadedFonts, ...sharedFontsApi },
   agents: agentSetupApi(),
 };
 
