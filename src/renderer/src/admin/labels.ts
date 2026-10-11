@@ -50,7 +50,7 @@ export const EVENT_GROUPS: { name: string; actions: ActivityAction[] }[] = [
   { name: "Seat changes", actions: ["org_user_account_type_change", "org_user_account_type_change_to_full", "org_user_account_type_upgrade_requested", "org_user_account_type_upgrade_approved", "org_user_account_type_upgrade_denied"] },
   { name: "Workspaces", actions: ["workspace_create", "workspace_rename", "workspace_delete", "workspace_member_add", "workspace_member_remove", "workspace_admins_add", "workspace_admins_remove", "workspace_visibility_setting_change", "workspace_team_csv_exported"] },
   { name: "Billing groups", actions: ["license_group_create", "license_group_rename", "license_group_delete", "license_group_admins_add", "license_group_admins_remove", "license_group_membership_change"] },
-  { name: "Libraries", actions: ["org_library_approve"] },
+  { name: "Libraries", actions: ["org_library_approve", "org_library_unapprove", "org_library_setting_change", "workspace_library_approve", "workspace_library_unapprove", "workspace_library_setting_change"] },
   { name: "Users", actions: ["user_sign_in", "user_sign_out", "personal_access_token_create", "personal_access_token_delete", "user_group_create", "user_group_rename", "user_group_delete", "user_group_member_add", "user_group_member_remove"] },
 ];
 
@@ -153,6 +153,11 @@ export const ACTION_LABEL: Record<ActivityAction, string> = {
   repo_merge_to_source: "Merged branch",
   repo_merge_from_source: "Updated branch from main",
   org_library_approve: "Approved library",
+  org_library_unapprove: "Unapproved library",
+  org_library_setting_change: "Changed library settings",
+  workspace_library_approve: "Approved library for workspace",
+  workspace_library_unapprove: "Unapproved library for workspace",
+  workspace_library_setting_change: "Changed workspace library settings",
 };
 
 /** The Product column: the file's editor type for file events, else empty (Figma: "the related product, when applicable") */
