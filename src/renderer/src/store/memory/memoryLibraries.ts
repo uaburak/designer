@@ -22,6 +22,8 @@ export const LIB_KEYS = {
   record: (lib: FileKey) => `${KV_PREFIX}lib.${lib}`,
   version: (lib: FileKey, n: number) => `${KV_PREFIX}libver.${lib}.${n}`,
   payload: (lib: FileKey, key: string, hash: string) => `${KV_PREFIX}libasset.${lib}.${key}.${hash}`,
+  /** §16.9's alias */
+  moved: (lib: FileKey) => `${KV_PREFIX}libmoved.${lib}`,
 };
 
 export interface MemoryLibrariesDeps {
@@ -258,6 +260,26 @@ export class MemoryLibraries {
     const has = meta.enabledLibraries.includes(lib);
     if (has === enabled) return { ...meta };
     return ws.queue.run(() => ws.patchFile(fileKey, { enabledLibraries: enabled ? [...meta.enabledLibraries, lib] : meta.enabledLibraries.filter((k) => k !== lib) }));
+  }
+
+  // A library file moved into an org (docs/data.md §16.9): `libmoved.<lib>` {to: roomKey, at}, as moved.json on disk
+
+  movedTo(lib: FileKey): { to: string; at: number } | null {
+    const m = this.read<{ to?: unknown; at?: unknown }>(LIB_KEYS.moved(lib));
+    return m && typeof m.to === "string" ? { to: m.to, at: Number(m.at) || 0 } : null;
+  }
+
+  movedFrom(to: string): FileKey[] {
+    const prefix = `${KV_PREFIX}libmoved.`;
+    return this.d.storage
+      .keys(prefix)
+      .map((k) => k.slice(prefix.length))
+      .filter((lib) => this.movedTo(lib)?.to === to);
+  }
+
+  async markMoved(lib: FileKey, to: string): Promise<void> {
+    if (!this.record(lib) || this.movedTo(lib)?.to === to) return;
+    this.write(LIB_KEYS.moved(lib), { to, at: this.d.clock.now() });
   }
 
   /** The library's records and payloads go with its file (deleted forever). */

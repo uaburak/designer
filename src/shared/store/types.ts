@@ -279,6 +279,11 @@ export interface PublishRequest {
   /** Every asset the new version contains (selected + kept + dependencies) */
   assets: PublishAsset[];
   moves: { key: string; fromLibraryFileKey: FileKey; fromKey: string; mode: "move" | "copy" }[];
+  /**
+   * An org file's library (docs/data.md §16.6): the Publish dialog's "Allow any member of ‹org› to access the file"
+   * ("org") or not ("team"). Absent: the library's current scope ("team" on a first publish). Local libraries ignore it.
+   */
+  scope?: "team" | "org";
 }
 
 export interface PublishPreview {

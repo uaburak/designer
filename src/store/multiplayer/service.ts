@@ -592,6 +592,16 @@ export class MultiplayerService {
   }
 
   private async raw(method: string, path: string, body?: unknown): Promise<Response> {
+    const res = await this.request(method, path, body);
+    if (res.ok) return res;
+    throw await httpError(res);
+  }
+
+  /**
+   * A call with the session whatever the answer's status (the libraries' analytics queue tells 4xx from 5xx, and
+   * payloads answer bytes: src/store/libraries/org.ts); signed out or unreachable → `offline`.
+   */
+  async request(method: string, path: string, body?: unknown): Promise<Response> {
     if (!this.session) throw new StoreError("offline", "Log in to share files");
     const init: RequestInit = { method, headers: { authorization: `Bearer ${this.session.token}` } };
     const pass = this.passes.get(/^\/files\/([^/?]+)/.exec(path)?.[1] ?? "");
@@ -609,8 +619,7 @@ export class MultiplayerService {
     } catch {
       throw new StoreError("offline", "Couldn't reach the server. Check your connection and try again.");
     }
-    if (res.ok) return res;
-    throw await httpError(res);
+    return res;
   }
 
   /** A call answering bytes (a room version's snapshot and frames, docs/data.md §15.7.1): the body and its headers */

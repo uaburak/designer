@@ -43,6 +43,24 @@ export interface OrgNotice {
   projectId?: string | null;
 }
 
+/**
+ * A library's change (docs/data.md §16.7): a new version, or its status (unpublished, trashed, restored, deleted). The
+ * org libraries' registry turns it into a LibraryEvent (src/store/libraries/org.ts).
+ */
+export interface LibraryNotice {
+  t: "library";
+  libraryKey: string;
+  version?: number;
+  status?: "published" | "unpublished" | "trashed" | "deleted";
+}
+
+/** An org's or team's shared fonts changed (docs/desktop.md §14.3): forwarded on the store's topic `fonts` */
+export interface FontsNotice {
+  t: "fonts";
+  orgId: string;
+  version: string;
+}
+
 const EMPTY: NotificationPage = { items: [], unread: 0, pending: 0, files: [], next: null };
 
 export class NotificationsService {
@@ -80,6 +98,20 @@ export class NotificationsService {
   onOrg(listener: (n: OrgNotice) => void): Unsubscribe {
     this.orgListeners.add(listener);
     return () => this.orgListeners.delete(listener);
+  }
+
+  private libraryListeners = new Set<(n: LibraryNotice) => void>();
+  /** `{t: "library", …}` notices from the inbox (org libraries' updates, docs/data.md §16.7) */
+  onLibrary(listener: (n: LibraryNotice) => void): Unsubscribe {
+    this.libraryListeners.add(listener);
+    return () => this.libraryListeners.delete(listener);
+  }
+
+  private fontsListeners = new Set<(n: FontsNotice) => void>();
+  /** `{t: "fonts", …}` notices from the inbox (shared fonts, docs/desktop.md §14.3) */
+  onFonts(listener: (n: FontsNotice) => void): Unsubscribe {
+    this.fontsListeners.add(listener);
+    return () => this.fontsListeners.delete(listener);
   }
 
   /** The inbox socket opened again: what changed while it was closed is unknown */
@@ -190,6 +222,16 @@ export class NotificationsService {
       // The org spaces' cache notices (docs/multiplayer.md §14.6, §14.11) ride the same socket: handed on as they are.
       if ((msg as { t: string }).t === "org") {
         for (const l of this.orgListeners) l(msg as unknown as OrgNotice);
+        return;
+      }
+      // Libraries' and shared fonts' notices (docs/data.md §16.7, docs/desktop.md §14.3): handed on as they are.
+      const raw = msg as unknown as { t: string; libraryKey?: unknown; orgId?: unknown; version?: unknown };
+      if (raw.t === "library") {
+        if (typeof raw.libraryKey === "string") for (const l of [...this.libraryListeners]) l(raw as LibraryNotice);
+        return;
+      }
+      if (raw.t === "fonts") {
+        if (typeof raw.orgId === "string") for (const l of [...this.fontsListeners]) l({ t: "fonts", orgId: raw.orgId, version: String(raw.version ?? "") });
         return;
       }
       if (msg.t !== "notifications") return;

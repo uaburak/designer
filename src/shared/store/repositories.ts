@@ -36,6 +36,7 @@ import type { CommentsRepository } from "../comments";
 import type { NotificationsRepository } from "../notifications";
 import type { AdminRepository, OrgsRepository, ProjectsRepository, TeamsRepository } from "../org/repositories";
 import type { BranchesRepository } from "../merge/branches";
+import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "../libraries/orgTypes";
 
 // Branches' repository and events (docs/data.md §15.6) live in src/shared/merge/branches.ts; re-exported here.
 export type { BranchEvent, BranchesRepository, MergePreview } from "../merge/branches";
@@ -168,6 +169,12 @@ export interface BlobStore {
   url(sha1: string): string;
 }
 
+/** Topic `fonts` (docs/desktop.md §14.3): an organization's or team's shared fonts changed (the Inbox's `{t: "fonts"}`) */
+export interface FontsEvent {
+  orgId: string;
+  version: string;
+}
+
 export type LibraryEvent = { type: "published"; libraryFileKey: FileKey; version: number } | { type: "status"; libraryFileKey: FileKey; status: LibraryRecord["status"] };
 
 export interface LibraryRegistry {
@@ -243,4 +250,8 @@ export interface StoreApi {
   admin: AdminRepository;
   /** Branches of a file (docs/data.md §15): local ones in the store, shared ones through the server; events on `branches` */
   branches: BranchesRepository;
+  /** Org libraries' settings: Admin › Resources › Libraries, team settings, Home (docs/data.md §16.3, §16.5) */
+  orgLibraries: OrgLibrariesRepository;
+  /** Library analytics (docs/data.md §17): the editor's usage events, queued and batched by the store; the views' reads */
+  analytics: LibraryAnalyticsRepository;
 }

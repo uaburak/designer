@@ -73,7 +73,36 @@ export class LocalLibraries {
       const r = await readJsonOrNull<LibraryRecord>(join(this.dir(lib), "library.json"));
       if (r && r.libraryFileKey === lib) this.records.set(lib, r);
       else this.d.log("warn", `library ${lib} has no readable library.json`);
+      const moved = await readJsonOrNull<{ to?: unknown; at?: unknown }>(join(this.dir(lib), "moved.json"));
+      if (moved && typeof moved.to === "string") this.moved.set(lib, { to: moved.to, at: Number(moved.at) || 0 });
     }
+  }
+
+  // -------------------------------------------------------------------------------------------------------------------
+  // A library file moved into an org (docs/data.md §16.9): libraries/<lib>/moved.json {to: roomKey, at}
+  // -------------------------------------------------------------------------------------------------------------------
+
+  private readonly moved = new Map<FileKey, { to: string; at: number }>();
+
+  /** The org library this local library became, if it did */
+  movedTo(lib: FileKey): { to: string; at: number } | null {
+    return this.moved.get(lib) ?? null;
+  }
+
+  /** The local libraries that became `to` */
+  movedFrom(to: string): FileKey[] {
+    return [...this.moved].filter(([, m]) => m.to === to).map(([lib]) => lib);
+  }
+
+  /** Written on the file's first org publish; only for a library published here before (else nothing to forward) */
+  async markMoved(lib: FileKey, to: string): Promise<void> {
+    if (!this.records.has(lib) || this.moved.get(lib)?.to === to) return;
+    await this.queue.run(async () => {
+      const m = { to, at: this.d.clock.now() };
+      await ensureDir(this.dir(lib));
+      await writeJsonAtomic(this.d.dirs.tmp, join(this.dir(lib), "moved.json"), m);
+      this.moved.set(lib, m);
+    });
   }
 
   private async saveRecord(r: LibraryRecord): Promise<void> {
