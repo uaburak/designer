@@ -8,8 +8,9 @@
  * seq the room has acknowledged — the frames after it are resent on reconnect) and the room sessions this client has
  * been (to recognise its own frames in a catch-up after a reconnect).
  */
-import { encodeChangesUp, decodeChangesDown, type PeerInfo, type Role, type ServerControl } from "../../shared/multiplayer/protocol";
-import type { AccessRequest, FileMember, FileShareState, LinkAccess, MultiplayerNotice, MultiplayerSession, MultiplayerStatus, OpenIntent, RemoteFile, SharedFileInfo } from "../../shared/multiplayer/types";
+import type { RoomPolicy } from "../../shared/org/identity";
+import { CLOSE_MOVING, encodeChangesUp, decodeChangesDown, type PeerInfo, type Role, type ServerControl } from "../../shared/multiplayer/protocol";
+import type { AccessRequest, FileMember, FileShareState, LinkAccess, MultiplayerNotice, MultiplayerSession, MultiplayerStatus, OpenIntent, RemoteFile, SessionEnded, SharedFileInfo } from "../../shared/multiplayer/types";
 import { decodeMessage } from "../../shared/schema/codec";
 import { messageImageHashes } from "../../shared/schema/patch";
 import { StoreError } from "../../shared/store/protocol";
@@ -88,6 +89,8 @@ export interface SessionOptions {
 
 const CLOSE_UNSHARED = 4001;
 const CLOSE_ACCESS = 4003;
+/** After a 4012 (the room is moving to another region, docs/multiplayer.md §15.9) the link reconnects after this long */
+export const MOVING_RETRY_MS = 2000;
 /** A client uploads a new snapshot when the room holds this many frames past the last one (the room keeps a tail) */
 export const COMPACT_EVERY = 1000;
 /** A read of a file's members or access requests answers the reads asked for within this long after it */
@@ -127,6 +130,8 @@ export class MultiplayerService {
     this.dropVisits();
     this.live.clear();
     this.session = session;
+    this.ended = false;
+    this.policies.clear();
     this.reads.clear(); // another person's reads aren't this one's
     this.only = only;
     for (const l of this.sessionListeners) l(session);
@@ -160,7 +165,63 @@ export class MultiplayerService {
       requests: this.requestCounts.get(fileKey) ?? 0,
       me: link?.sessionID || null,
       locked: this.locked.has(fileKey),
+      policy: this.policies.get(fileKey) ?? null,
     };
+  }
+
+  /** The room's policy per open file (docs/multiplayer.md §15.9): from `welcome.policy`, then `{t: "policy"}` */
+  private policies = new Map<FileKey, RoomPolicy>();
+  private policyListeners = new Set<(fileKey: FileKey, policy: RoomPolicy) => void>();
+  /** The org changed cursor chat or audio while the file is open (the editor applies it at once) */
+  onPolicy(listener: (fileKey: FileKey, policy: RoomPolicy) => void): Unsubscribe {
+    this.policyListeners.add(listener);
+    return () => this.policyListeners.delete(listener);
+  }
+
+  /** @internal The room's policy, from its welcome (null: none — outside orgs) or a `{t: "policy"}` (`changed`) */
+  setPolicy(fileKey: FileKey, policy: RoomPolicy | null, changed: boolean): void {
+    const before = this.policies.get(fileKey) ?? null;
+    if (policy) this.policies.set(fileKey, { cursorChat: policy.cursorChat !== false, audio: policy.audio !== false });
+    else this.policies.delete(fileKey);
+    const after = this.policies.get(fileKey) ?? null;
+    if (JSON.stringify(before) === JSON.stringify(after)) return;
+    if (changed && after) for (const l of [...this.policyListeners]) l(fileKey, after);
+    this.emitState(fileKey);
+  }
+
+  /** The session ended by the server's 401 (once per session) */
+  private ended = false;
+  private endedListeners = new Set<(e: SessionEnded) => void>();
+  /** The server ended the session (docs/multiplayer.md §15.8): main / the web page signs out on `idle_timeout` */
+  onSessionEnded(listener: (e: SessionEnded) => void): Unsubscribe {
+    this.endedListeners.add(listener);
+    return () => this.endedListeners.delete(listener);
+  }
+
+  /** A 401 on one of our calls (the server answers 401 only for a dead session): said once, and the session is dropped
+   *  here too (sockets close, the org caches and the inbox follow `onSession`), so nothing keeps retrying with it. A
+   *  refusal of an earlier session (signed in again meanwhile) changes nothing. */
+  private async sessionRefused(res: Response, session: MultiplayerSession): Promise<void> {
+    if (this.ended || this.session !== session) return;
+    let code: unknown = null;
+    try {
+      code = ((await res.clone().json()) as { code?: unknown }).code;
+    } catch {
+      // not JSON
+    }
+    if (this.ended || this.session !== session) return;
+    this.ended = true;
+    const e: SessionEnded = { reason: code === "idle_timeout" ? "idle_timeout" : "expired" };
+    this.host.log("warn", `multiplayer: the server ended the session (${e.reason})`);
+    await this.setSession(null);
+    this.ended = true;
+    for (const l of [...this.endedListeners]) {
+      try {
+        l(e);
+      } catch (err) {
+        this.host.log("warn", "multiplayer: a session listener failed", err);
+      }
+    }
   }
 
   /** Share › Invite on a file not shared yet: registers it on the server with the editor's snapshot of it at `headSeq`. */
@@ -695,7 +756,8 @@ export class MultiplayerService {
    */
   async request(method: string, path: string, body?: unknown): Promise<Response> {
     if (!this.session) throw new StoreError("offline", "Log in to share files");
-    const init: RequestInit = { method, headers: { authorization: `Bearer ${this.session.token}` } };
+    const session = this.session;
+    const init: RequestInit = { method, headers: { authorization: `Bearer ${session.token}` } };
     const pass = this.passes.get(/^\/files\/([^/?]+)/.exec(path)?.[1] ?? "");
     if (pass) (init.headers as Record<string, string>)["x-file-pass"] = pass;
     if (body instanceof Uint8Array) {
@@ -711,6 +773,7 @@ export class MultiplayerService {
     } catch {
       throw new StoreError("offline", "Couldn't reach the server. Check your connection and try again.");
     }
+    if (res.status === 401) await this.sessionRefused(res, session);
     return res;
   }
 
@@ -804,6 +867,8 @@ export async function httpError(res: Response): Promise<StoreError> {
   } catch {
     // plain text
   }
+  // 401 `idle_timeout` (§15.8): detail.code says it; MultiplayerService has also said `SessionEnded` and dropped the session
+  if (res.status === 401 && detail?.code === "idle_timeout") return new StoreError("forbidden", "You were logged out because you were inactive.", detail);
   if (res.status === 401) return new StoreError("forbidden", "Your session expired. Log in again.", detail);
   if (res.status === 403) return new StoreError("forbidden", message || "You don't have access", detail);
   if (res.status === 404) return new StoreError("not-found", message || "Not found", detail);
@@ -964,6 +1029,9 @@ class Link {
       this.peers.clear();
       this.svc.emitState(this.fileKey);
       if (e.code === CLOSE_UNSHARED) return void this.svc.unlink(this.fileKey);
+      // The room is moving to another region (§15.10): its copy answers once the Worker flipped the file — like 4003,
+      // a reconnect without backoff, after a moment.
+      if (e.code === CLOSE_MOVING) return this.retry(MOVING_RETRY_MS);
       // Refused before the socket opened (no welcome) or its access changed: a new link password stops the link until
       // the person enters it (Figma: open sessions re-enter a changed password).
       if (e.code === CLOSE_ACCESS || this.attempt >= 1) {
@@ -995,6 +1063,7 @@ class Link {
           if (!rec.sessions.includes(msg.sessionID)) rec.sessions = [...rec.sessions.slice(-63), msg.sessionID];
           this.peers = new Map(msg.peers.map((p) => [p.sessionID, p]));
           this.snapshotSeq = msg.snapshotSeq ?? 0;
+          this.svc.setPolicy(this.fileKey, msg.policy ?? null, false);
           await this.svc.persist(this.fileKey);
           return;
         case "ready": {
@@ -1025,6 +1094,8 @@ class Link {
         }
         case "signal":
           return this.svc.signalled(this.fileKey, msg.from, msg.data);
+        case "policy":
+          return this.svc.setPolicy(this.fileKey, msg.policy ?? null, true);
       }
       return;
     }

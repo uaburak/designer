@@ -2,6 +2,7 @@
  * The store's `multiplayer` repository (docs/multiplayer.md §5): what views and main may ask of the store about shared
  * files. The session token goes in through `setSession` (main only, desktop; the page itself in the browser).
  */
+import type { FilePolicy, RoomPolicy } from "../org/identity";
 import type { FileKey } from "../store/types";
 import type { PeerInfo, Role } from "./protocol";
 
@@ -53,6 +54,9 @@ export interface FileShareState {
   me?: number | null;
   /** The file's link password changed and this user (in by the link) must enter it: the link waits (`unlockFile`) */
   locked?: boolean;
+  /** The org's room policy (cursor chat, audio — docs/multiplayer.md §15.9) as the room last said it (`welcome.policy`,
+   *  `{t: "policy"}`); null outside orgs or before the room spoke: everything allowed */
+  policy?: RoomPolicy | null;
 }
 
 export interface AccessRequest {
@@ -72,6 +76,20 @@ export interface MultiplayerEvent {
   notice?: MultiplayerNotice;
   /** A message from one session of the room to this one ("Ask to spotlight", audio's WebRTC signalling) */
   signal?: { from: number; data: unknown };
+  /** The room's policy changed while the file is open (`{t: "policy"}`, docs/multiplayer.md §15.9); also `state.policy` */
+  policy?: RoomPolicy;
+}
+
+/**
+ * The server ended the session (docs/multiplayer.md §15.8, docs/desktop.md §18.2): a 401 on one of the store's calls,
+ * said at most once per session; the store has already dropped the session itself (sockets closed, as
+ * `setSession(null)`) — main / the web page signs out locally. `idle_timeout`: the org's idle session timeout passed
+ * ("You were logged out because you were inactive."). `expired`: any other 401 (signed out everywhere, the token's 30
+ * days) — and also an idle timeout first refused on a socket upgrade, which the store can't see: the server deleted
+ * the session there, so the next call is a plain 401 (main's `GET /me` / its own timer tell the two apart).
+ */
+export interface SessionEnded {
+  reason: "idle_timeout" | "expired";
 }
 
 /** What a person in a file shares with the others (docs/multiplayer.md §6), at most ~10 times a second */
@@ -105,6 +123,8 @@ export interface SharedFileInfo {
   /** The caller is in by the link alone and hasn't entered the current password */
   needsPassword?: boolean;
   link: string;
+  /** The org's sharing policy for this file (docs/multiplayer.md §15.6, §15.16); null outside orgs */
+  policy?: FilePolicy | null;
 }
 
 /** Where a link lands in its file: a frame or page (Figma's `node-id=1-2`) and a mode (`m=dev` Dev Mode, `m=proto` the
@@ -179,4 +199,6 @@ export interface MultiplayerRepository {
   /** Cursor, selection, page … for the file's other people (not stored) */
   presence(fileKey: FileKey, data: unknown): Promise<void>;
   watch(listener: (e: MultiplayerEvent) => void): () => void;
+  /** The server ended the session (event topic `session`): main and the web page sign out on `idle_timeout` */
+  watchSession(listener: (e: SessionEnded) => void): () => void;
 }

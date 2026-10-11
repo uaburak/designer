@@ -6,7 +6,8 @@
 import { isKnownMethod, roleMayCall, serializeError, StoreError, type PortRole, type RpcMessage, type RpcRequest, type RpcTransport } from "../shared/store/protocol";
 import type { FileChange, FontsEvent, LibraryEvent, OpenedFile, StoreApi, Unsubscribe, WorkspaceEvent } from "../shared/store/repositories";
 import type { FileKey } from "../shared/store/types";
-import type { FileShareState, MultiplayerNotice } from "../shared/multiplayer/types";
+import type { FileShareState, MultiplayerNotice, SessionEnded } from "../shared/multiplayer/types";
+import type { RoomPolicy } from "../shared/org/identity";
 import type { NotificationsEvent } from "../shared/notifications";
 import type { OrgEvent } from "../shared/org/repositories";
 import type { BranchEvent } from "../shared/merge/branches";
@@ -27,6 +28,8 @@ export interface ServableStore {
     onReplaced(listener: (from: FileKey, to: FileKey) => void): Unsubscribe;
     onNotice(listener: (fileKey: FileKey, notice: MultiplayerNotice) => void): Unsubscribe;
     onSignal(listener: (fileKey: FileKey, from: number, data: unknown) => void): Unsubscribe;
+    onPolicy(listener: (fileKey: FileKey, policy: RoomPolicy) => void): Unsubscribe;
+    onSessionEnded(listener: (e: SessionEnded) => void): Unsubscribe;
     fileState(fileKey: FileKey): Promise<FileShareState>;
   };
   /** Comments changed (docs/multiplayer.md §10) */
@@ -138,6 +141,9 @@ export class StoreServer {
       this.offs.push(mp.onReplaced((from, to) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey: from, state: { shared: false, key: null, role: null, connection: "offline", peers: [], requests: 0 }, replacedBy: to } })));
       this.offs.push(mp.onNotice((fileKey, notice) => void mp.fileState(fileKey).then((state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state, notice } }))));
       this.offs.push(mp.onSignal((fileKey, from, data) => void mp.fileState(fileKey).then((state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state, signal: { from, data } } }))));
+      // The org changed cursor chat or audio (docs/multiplayer.md §15.9); the server ended the session (§15.8)
+      this.offs.push(mp.onPolicy((fileKey, policy) => void mp.fileState(fileKey).then((state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state, policy } }))));
+      this.offs.push(mp.onSessionEnded((d) => this.broadcast({ t: "evt", topic: "session", d })));
     }
     if (store.comments) this.offs.push(store.comments.onChange((fileKey) => this.broadcast({ t: "evt", topic: "comments", d: { fileKey } })));
     if (store.notifications) this.offs.push(store.notifications.onChange((d) => this.broadcast({ t: "evt", topic: "notifications", d })));
