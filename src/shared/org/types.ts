@@ -206,4 +206,10 @@ export type ActivityAction =
   | "branch_member_remove"
   | "repo_merge_to_source"
   | "repo_merge_from_source"
-  | "org_library_approve";
+  | "org_library_approve"
+  // Round 3 (docs/data.md §16): Figma's library approval / settings actions
+  | "org_library_unapprove"
+  | "org_library_setting_change"
+  | "workspace_library_approve"
+  | "workspace_library_unapprove"
+  | "workspace_library_setting_change";
