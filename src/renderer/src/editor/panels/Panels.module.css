@@ -286,3 +286,35 @@
   .missingStyle { color: var(--figma-color-text-secondary); }
   .missingPick { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ds-space-2); min-width: 0; }
 }
+/* Tools: the plugins by source (docs/plugins.md §6) — a section header, then 32px rows with the plugin glyph */
+.toolsList { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: var(--ds-space-2); }
+.toolsSection {
+  display: flex;
+  align-items: center;
+  height: var(--ds-size-control);
+  margin-top: var(--ds-space-2);
+  padding: 0 var(--ds-space-4);
+  color: var(--figma-color-text-secondary);
+  font: var(--ds-font-body-medium);
+  letter-spacing: var(--ds-tracking-body-medium);
+}
+.toolsRow {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  width: calc(100% - var(--ds-space-4));
+  height: var(--ds-size-control-large);
+  margin: 0 var(--ds-space-2);
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-medium);
+  background: none;
+  color: var(--figma-color-text);
+  font: var(--ds-font-body-medium);
+  letter-spacing: var(--ds-tracking-body-medium);
+  text-align: left;
+}
+.toolsRow:hover:not(:disabled) { background: var(--figma-color-bg-hover); }
+.toolsRow:disabled { color: var(--figma-color-text-disabled); }
+.toolsRowLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+

@@ -1,7 +1,8 @@
 /**
  * The left sidebar (240, resizable): the file header (name ▾ with the Edit file menu and rename, the location,
  * Minimize UI), then what the navigation bar's tab shows — File: Pages and Layers (or Find and replace, ⌘F),
- * Assets, Agents (panels/agents: chats with the AI tools on this computer) and Tools (not built in this app).
+ * Assets, Agents (panels/agents: chats with the AI tools on this computer) and Tools (the plugins this person can run
+ * here, docs/plugins.md §6: by Source — Development, Your organization — and type; a row runs it).
  */
 import { useCallback, useState, useSyncExternalStore } from "react";
 import { EmptyState, Icon, IconButton, MenuButton, ResizeHandle, SearchField, Select, TextInput, showToast } from "@/ds";
@@ -18,6 +19,9 @@ import { FindPanel } from "./Find";
 import { TabHeader } from "./TabHeader";
 import { NavStrip } from "./Rail";
 import { AgentsPanel } from "./agents/AgentsPanel";
+import { usePluginService, usePlugins } from "../plugins/service";
+import { pluginRows } from "../plugins/actions";
+import { isEnabled } from "../commands";
 import styles from "./Panels.module.css";
 
 export function LeftPanel() {
@@ -51,7 +55,7 @@ export function LeftPanel() {
   );
 }
 
-/** Tools (plugins, widgets, shaders, Weave tools; live: search, Source and Category): not part of this app. */
+/** Tools (plugins, widgets, shaders, Weave tools; live: search, Source and Category): the plugins here (no Community, no shaders as tools). */
 const TOOLS_FILTER = [
   { id: "price-all", label: "All prices", group: "price" as const },
   { id: "price-free", label: "Free", group: "price" as const },
@@ -66,8 +70,7 @@ const TOOLS_FILTER = [
 /** Source and Category (live shows them as "Source" and "Category"; their lists are not captured: unverified, help "Find tools"). */
 const TOOLS_SOURCES = [
   { value: "source", label: "Source" },
-  { value: "figma", label: "Figma" },
-  { value: "community", label: "Community" },
+  { value: "development", label: "Development" },
   { value: "organization", label: "Your organization" },
 ];
 const TOOLS_CATEGORIES = [
@@ -79,17 +82,26 @@ const TOOLS_CATEGORIES = [
 ];
 
 function ToolsPanel() {
+  const ed = useEditor();
   const [query, setQuery] = useState("");
   const [source, setSource] = useState("source");
   const [category, setCategory] = useState("category");
   const [filter, setFilter] = useState({ price: "price-all", type: "type-all" });
   return (
     <div className={styles.placeholderTab} data-tools="">
-      {/* Live: "Create" as text (11 / 450, primary) at 173, 18 — nothing to create here: it says so */}
+      {/* Live: "Create" as text (11 / 450, primary) at 173, 18 — New plugin… (Import from a manifest while main has no templates channel) */}
       <TabHeader
         title="Tools"
         actions={
-          <button type="button" className={styles.toolsCreate} onClick={() => showToast({ message: "Plugins, widgets and shaders aren’t part of this app" })}>
+          <button
+            type="button"
+            className={styles.toolsCreate}
+            onClick={() => {
+              const id = isEnabled(ed, command("plugins.new")) ? "plugins.new" : "plugins.import";
+              if (isEnabled(ed, command(id))) runEditorCommand(ed, id);
+              else showToast({ message: "Developing plugins needs the desktop app" });
+            }}
+          >
             Create
           </button>
         }
@@ -114,7 +126,33 @@ function ToolsPanel() {
         <Select label="Filter by source" variant="ghost" width="hug" prefix="24.globe" className={styles.toolsFilter} value={source} options={TOOLS_SOURCES} onChange={setSource} />
         <Select label="Filter by category" variant="ghost" width="hug" prefix="24.filter" className={styles.toolsFilter} value={category} options={TOOLS_CATEGORIES} onChange={setCategory} />
       </div>
-      <EmptyState icon="24.tools" title="No tools" body="Plugins, widgets and shaders aren’t part of this app." />
+      <ToolsList query={query} source={source} type={filter.type} />
+    </div>
+  );
+}
+
+/** The plugins as rows (widgets aren't built: the Widgets type lists none). */
+function ToolsList({ query, source, type }: { query: string; source: string; type: string }) {
+  const ed = useEditor();
+  const plugins = usePluginService(ed);
+  usePlugins(plugins);
+  if (!plugins || type === "type-widgets" || type === "type-shaders") return <EmptyState icon="24.tools" title="No tools" body={plugins ? "Widgets and shaders aren’t built in this app yet." : "Plugins aren’t available here."} />;
+  const rows = pluginRows(plugins, query).filter((r) => (source === "development" ? r.ref.source.type === "development" : source === "organization" ? r.ref.source.type === "private" : true));
+  // Recents and Saved repeat the plugins listed by source: by source only here.
+  const shown = rows.filter((r, i) => (r.section !== "Recents" && r.section !== "Saved") || !rows.some((x, j) => j !== i && x.ref.id === r.ref.id && x.section !== r.section));
+  const unique = shown.filter((r, i) => shown.findIndex((x) => x.key === r.key || (x.ref.id === r.ref.id && x.command === r.command)) === i);
+  if (!unique.length) return <EmptyState icon="24.tools" title="No tools" body={query ? "No plugins match." : "Import a plugin from Plugins › Development › Import new plugin from manifest…"} />;
+  return (
+    <div className={styles.toolsList} role="list" aria-label="Plugins">
+      {unique.map((r, i) => (
+        <div key={r.key} style={{ display: "contents" }}>
+          {(i === 0 || unique[i - 1].section !== r.section) && <div className={styles.toolsSection}>{r.section}</div>}
+          <button type="button" role="listitem" className={styles.toolsRow} disabled={!!r.disabled} title={r.disabled ?? undefined} onClick={() => void plugins.run(r.ref, r.command)}>
+            <Icon name="24.plugin" />
+            <span className={styles.toolsRowLabel}>{r.label}</span>
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

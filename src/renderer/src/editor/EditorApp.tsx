@@ -45,6 +45,7 @@ import { CanvasMenu, attachCanvasMenu, attachGridTracks } from "./canvas/CanvasM
 import { TitleRename, attachTitleRename } from "./canvas/TitleRename";
 import { EyedropperLoupe, InlineValueEdit, NudgeDialog } from "./canvas/CanvasTools";
 import { ActionsPanel } from "./panels/ActionsPanel";
+import { PluginLayer } from "./plugins/ui/PluginLayer";
 import { CommandOverlays } from "./canvas/CommandOverlays";
 import { AgentImagePlaceholders } from "./canvas/AgentImagePlaceholders";
 import { attachCanvasTools } from "./canvasTools";
@@ -437,6 +438,7 @@ function Overlays() {
       {/* Docked along the bottom: the panels end over it and the toolbar sits over it (EditorApp.module.css); the canvas keeps its size. */}
       <ShortcutsPanel />
       <ActionsPanel />
+      <PluginLayer />
       <VersionDialogs />
       <LibrariesDialog />
       <PublishDialog />

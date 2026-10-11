@@ -39,6 +39,8 @@ export class PluginUiStore {
   private readonly listeners = new Set<() => void>();
   /** runId → the iframe's link (set when it loads) */
   readonly frames = new Map<string, FrameLink>();
+  /** runId → Stop (the "Running ‹name›" toast's ✕) */
+  readonly stoppers = new Map<string, () => void>();
   /** runId → the message handler (the run's `__uiMessage`), the drop handler, the window's ✕ */
   readonly handlers = new Map<string, { message(data: unknown, origin: string): void; drop?(data: unknown, at: { x: number; y: number }): void; close(): void; stop(): void; loaded(): void }>();
 

@@ -7,11 +7,18 @@
  * — not part of this app); here it opens on Recents (what was run from the palette, kept per machine; none yet: the
  * block's header alone, as live's with no recents is unverified); typing searches the editor's command
  * registry (menus.ts actionItems). Assets lists this file's components
- * (a pick inserts an instance in the middle of the view); plugins and widgets aren't part of this app. ↑ ↓ move, Enter
- * runs, Esc (or a press outside, or ⌘K) closes.
+ * (a pick inserts an instance in the middle of the view). Plugins & widgets (docs/plugins.md §6) lists the plugins by
+ * section — Recents, Saved, Development, From ‹org› — and, typed into, their menu commands too (also in All's search);
+ * a plugin with parameters prompts for them in the palette (suggestions from figma.parameters.on("input"), Tab / Enter
+ * to the next, Enter on the last runs). ↑ ↓ move, Enter runs, Esc (or a press outside, or ⌘K) closes.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Icon, IconButton, Portal, Tabs, TOOLS, useDismiss, type IconName, type ToolId } from "@/ds";
+import { Icon, IconButton, MenuButton, Portal, Tabs, TOOLS, useDismiss, type IconName, type MenuEntry, type ToolId } from "@/ds";
+import type { PluginParameter, PluginRef } from "@shared/plugins/types";
+import { pluginsOf, usePlugins, type PluginService } from "../plugins/service";
+import { pluginRows, suggestionsOf, type PluginRow, type Suggestion } from "../plugins/actions";
+import type { PluginRun } from "../plugins/host";
+import { takeRequestedTab } from "./actionsTab";
 import { useEditor, type EditorController } from "../controller";
 import { insertInstance } from "../components";
 import { useUI } from "../hooks";
@@ -43,6 +50,8 @@ interface Row {
   icon?: IconName;
   disabled?: boolean;
   run: () => boolean;
+  /** A plugin's row: its ⋯ menu */
+  plugin?: PluginRow;
 }
 
 function loadRecents(): string[] {
@@ -128,7 +137,11 @@ function Actions() {
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<Tab>("all");
+  const [tab, setTab] = useState<Tab>(() => takeRequestedTab() ?? "all");
+  const plugins = pluginsOf(ed);
+  const pluginsSnap = usePlugins(plugins);
+  // A plugin's parameters being asked for (Figma's Quick Actions prompt).
+  const [prompt, setPrompt] = useState<ParameterPrompt | null>(null);
   // The row lit by ↑ ↓ or the pointer (its key); unset, typing lights the first match (Enter runs it) and an empty
   // query lights nothing (live).
   const [activeKey, setActiveKey] = useState<string | undefined>(undefined);
@@ -141,8 +154,23 @@ function Actions() {
   const [button] = useState(() => document.querySelector('[data-ds="EditorToolbar"] button[aria-label="Actions"]'));
   useDismiss(root, () => close(ed), { ignore: button, blur: true, resize: true, escape: false });
 
+  const startPlugin = (r: PluginRow): boolean => {
+    if (!plugins) return false;
+    const defs = r.parameters?.length ? r.parameters : null;
+    if (!defs) {
+      void plugins.run(r.ref, r.command);
+      return true;
+    }
+    void plugins.run(r.ref, r.command, { awaitParameters: true }).then((run) => {
+      if (run) setPrompt({ run, ref: r.ref, defs, index: 0, values: {}, suggestions: [], error: null, loading: null });
+    });
+    return true;
+  };
+  const pluginRow = (r: PluginRow, section = r.section): Row => ({ key: `plugin:${r.key}`, label: r.label, section, icon: "24.plugin", disabled: !!r.disabled, run: () => startPlugin(r), plugin: r });
+
   const rows: Row[] = useMemo(() => {
-    if (tab === "plugins") return [];
+    if (prompt) return prompt.suggestions.map((sg, i) => ({ key: `suggestion:${i}`, label: sg.name, section: prompt.defs[prompt.index].name, run: () => true }));
+    if (tab === "plugins") return plugins ? pluginRows(plugins, query).map((r) => pluginRow(r)) : [];
     if (tab === "assets")
       return searchAssets(assets, query).map((a) => ({
         key: `asset:${a.id}`,
@@ -151,12 +179,42 @@ function Actions() {
         icon: (a.kind === "set" ? "16.component.set" : "16.component") as IconName,
         run: () => insertInstance(ed, a.target) !== null,
       }));
-    return actionRows(items, query, recents, (id) => {
+    const commands = actionRows(items, query, recents, (id) => {
       const ran = runMenuItem(ed, id);
       if (ran) remember(id);
       return ran;
     });
-  }, [tab, assets, query, items, recents, ed]);
+    // All's search finds plugins and their commands too.
+    const found = query.trim() && plugins ? pluginRows(plugins, query).map((r) => pluginRow(r, "Plugins")) : [];
+    return [...commands, ...found];
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pluginRow / startPlugin read the latest service and prompt
+  }, [tab, assets, query, items, recents, ed, prompt, plugins, pluginsSnap]);
+
+  /** The parameters prompt: the person typed `q` for the current parameter. */
+  const askSuggestions = (p: ParameterPrompt, q: string) => {
+    const def = p.defs[p.index];
+    void p.run.parameterInput(def.key, q, p.values).then((a) => {
+      setPrompt((cur) => (cur && cur.run === p.run && cur.index === p.index ? { ...cur, suggestions: suggestionsOf(a.suggestions), error: a.error ?? null, loading: a.loading ?? null } : cur));
+    });
+  };
+  useEffect(() => {
+    if (prompt && !prompt.suggestions.length && !prompt.error) askSuggestions(prompt, "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per parameter
+  }, [prompt?.run, prompt?.index]);
+  /** Enter / Tab in the prompt: the picked suggestion (or the typed text, freeform) for this parameter; the last runs. */
+  const acceptParameter = (picked: Suggestion | null) => {
+    if (!prompt) return;
+    const def = prompt.defs[prompt.index];
+    const value = picked ? picked.data : def.allowFreeform || !prompt.suggestions.length ? query : undefined;
+    if (value === undefined || (value === "" && !def.optional)) return;
+    const values = { ...prompt.values, [def.key]: value };
+    setQuery("");
+    setActiveKey(undefined);
+    if (prompt.index + 1 < prompt.defs.length) return setPrompt({ ...prompt, index: prompt.index + 1, values, suggestions: [], error: null, loading: null });
+    setPrompt(null);
+    close(ed);
+    void prompt.run.submitParameters(values);
+  };
 
   const active = activeKey === undefined ? (query.trim() ? rows.findIndex((r) => !r.disabled) : -1) : rows.findIndex((r) => r.key === activeKey);
   const setActive = (i: number) => setActiveKey(rows[i]?.key);
@@ -167,9 +225,15 @@ function Actions() {
   }, [active]);
 
   const pick = (i: number) => {
+    if (prompt) return acceptParameter(prompt.suggestions[i] ?? null);
     const r = rows[i];
     if (!r || r.disabled) return;
-    close(ed);
+    const asks = !!r.plugin?.parameters?.length;
+    if (!asks) close(ed);
+    else {
+      setQuery("");
+      setActiveKey(undefined);
+    }
     r.run();
   };
   const step = (dir: 1 | -1) => {
@@ -194,8 +258,15 @@ function Actions() {
           e.stopPropagation();
           if (e.key === "Escape") {
             e.preventDefault();
-            if (query) setQuery("");
+            if (prompt) {
+              prompt.run.stop();
+              setPrompt(null);
+              setQuery("");
+            } else if (query) setQuery("");
             else close(ed);
+          } else if (e.key === "Tab" && prompt) {
+            e.preventDefault();
+            pick(active);
           } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault();
             step(e.key === "ArrowDown" ? 1 : -1);
@@ -216,7 +287,7 @@ function Actions() {
             ref={input}
             type="text"
             aria-label="Search"
-            placeholder="Search actions"
+            placeholder={prompt ? (prompt.defs[prompt.index].description ?? prompt.defs[prompt.index].name) : "Search actions"}
             spellCheck={false}
             autoComplete="off"
             value={query}
@@ -228,6 +299,7 @@ function Actions() {
             onChange={(e) => {
               setQuery(e.target.value);
               setActiveKey(undefined);
+              if (prompt) askSuggestions(prompt, e.target.value);
             }}
           />
           {/* Live: "Visual search (AI beta)" at 491, 12 — live's AI image search, not part of this app */}
@@ -245,7 +317,13 @@ function Actions() {
             setActiveKey(undefined);
           }} />
         <div ref={list} id="actions-results" role="listbox" aria-label="Results" className={styles.list}>
-          {tab === "plugins" && <p className={styles.empty}>Plugins and widgets aren’t part of this app</p>}
+          {prompt && (
+            <div role="presentation" className={styles.header}>
+              {`${prompt.ref.name} › ${prompt.defs[prompt.index].name}`}
+              {prompt.error ? ` — ${prompt.error}` : prompt.loading ? ` — ${prompt.loading}` : ""}
+            </div>
+          )}
+          {!prompt && tab === "plugins" && !rows.length && <p className={styles.empty}>{query ? "No plugins match" : plugins ? "No plugins yet. Import one from Plugins › Development" : "Plugins aren’t available here"}</p>}
           {tab === "assets" && !rows.length && <p className={styles.empty}>{query ? "No components match" : "No components in this file"}</p>}
           {tab === "all" && query.trim() !== "" && !rows.length && <p className={styles.empty}>No results for “{query.trim()}”</p>}
           {tab === "all" && query.trim() === "" && !rows.length && (
@@ -274,6 +352,13 @@ function Actions() {
                 <span className={styles.glyph}>{r.icon && <Icon name={r.icon} />}</span>
                 <span className={styles.label}>{r.label}</span>
                 {r.shortcut && <span className={styles.shortcut}>{r.shortcut}</span>}
+                {r.plugin && plugins && (
+                  <span className={styles.more} onClick={(e) => e.stopPropagation()}>
+                    <MenuButton label="More" entries={() => pluginRowMenu(plugins, r.plugin!.ref)} onSelect={(id) => pluginRowAction(plugins, r.plugin!.ref, id)}>
+                      <Icon name="24.more" />
+                    </MenuButton>
+                  </span>
+                )}
               </div>
             </div>
           ))}
@@ -281,4 +366,29 @@ function Actions() {
       </div>
     </Portal>
   );
+}
+
+/** The parameters prompt's state: the run waiting for figma.on("run"), the parameter being asked, what was given. */
+interface ParameterPrompt {
+  run: PluginRun;
+  ref: PluginRef;
+  defs: PluginParameter[];
+  index: number;
+  values: Record<string, unknown>;
+  suggestions: Suggestion[];
+  error: string | null;
+  loading: string | null;
+}
+
+/** A plugin row's ⋯: Save / Remove from saved; development plugins: Open console, Remove. */
+function pluginRowMenu(s: PluginService, ref: PluginRef): MenuEntry[] {
+  const out: MenuEntry[] = [{ id: "save", label: s.isSaved(ref) ? "Remove from saved" : "Save" }];
+  if (ref.source.type === "development") out.push("-", { id: "console", label: "Open console" }, { id: "remove", label: "Remove" });
+  return out;
+}
+
+function pluginRowAction(s: PluginService, ref: PluginRef, id: string): void {
+  if (id === "save") void s.setSaved(ref, !s.isSaved(ref));
+  else if (id === "console") s.openConsole();
+  else if (id === "remove") void s.removeDevelopment(ref.id);
 }

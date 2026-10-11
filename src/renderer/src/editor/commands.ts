@@ -50,6 +50,9 @@ import { isBranch } from "./branching/state";
 import { accountBridge, accountSignedIn } from "../files/account";
 import { canShowLibraryAnalytics, openLibraryAnalytics } from "./analytics/EditorAnalytics";
 import { presenceOf } from "./multiplayer/presence";
+import { pluginsOf } from "./plugins/service";
+import { pluginDesktop } from "./plugins/desktop";
+import { openActions } from "./panels/actionsTab";
 
 /**
  * The keyboard layout picked in the Keyboard shortcuts panel (shortcuts/layouts.ts): a pressed key's place → the U.S.
@@ -192,6 +195,19 @@ const placeImage = (id: string, label: string, keys?: KeyCombo[]): EditorCommand
 });
 
 /** Not built yet: shown, disabled (Figma's menus list them). */
+/** The Figma menu's Plugins items (plugins/service.ts holds the lists and runs). */
+const PLUGIN_COMMANDS: EditorCommand[] = [
+  { id: "plugins.run-last", label: "Run last plugin", keys: [k("KeyP", { mod: true, alt: true })], run: (ed) => pluginsOf(ed)?.runLast(), enabled: (ed) => !!pluginsOf(ed)?.get().last },
+  { id: "plugins.manage", label: "Manage plugins…", run: (ed) => openActions(ed, "plugins"), enabled: (ed) => !!pluginsOf(ed) },
+  { id: "plugins.none", label: "No saved plugins", run: () => {}, enabled: () => false },
+  // "New plugin…" writes Figma's templates into a folder main picks (5e); no channel for it yet: listed, disabled.
+  { id: "plugins.new", label: "New plugin…", run: () => {}, enabled: () => false },
+  { id: "plugins.import", label: "Import new plugin from manifest…", run: (ed) => void pluginsOf(ed)?.importManifest(), enabled: (ed) => !!pluginsOf(ed) && !!pluginDesktop() },
+  { id: "plugins.hot-reload", label: "Hot reload plugin", run: (ed) => pluginsOf(ed)?.toggleHotReload(), enabled: (ed) => !!pluginsOf(ed), checked: (ed) => !!pluginsOf(ed)?.get().hotReload },
+  { id: "plugins.developer-vm", label: "Use developer VM", run: (ed) => pluginsOf(ed)?.toggleDeveloperVm(), enabled: (ed) => !!pluginsOf(ed), checked: (ed) => !!pluginsOf(ed)?.get().developerVm },
+  { id: "plugins.open-console", label: "Open console", run: (ed) => pluginsOf(ed)?.openConsole(), enabled: (ed) => !!pluginsOf(ed) && !!pluginDesktop() },
+];
+
 const later = (id: string, label: string, keys?: KeyCombo[]): EditorCommand => ({ id, label, keys, run: () => {}, enabled: () => false });
 
 /** One of Figma's own web pages (Help and account ▸), in the browser (the desktop app opens it outside). */
@@ -737,10 +753,8 @@ export const COMMANDS: EditorCommand[] = [
   // and merge changes…, Archive.
   ...BRANCH_COMMANDS,
   later("file.color-profile", "Color profile…"),
-  // The Figma menu's Plugins, Widgets and Preferences items not built (shown as Figma lists them, disabled).
-  later("plugins.run-last", "Run last plugin", [k("KeyP", { mod: true, alt: true })]),
-  later("plugins.manage", "Manage plugins…"),
-  later("plugins.none", "No saved plugins"),
+  // Plugins (docs/plugins.md §6; plugins/service.ts). Widgets aren't built (§11): listed as Figma lists them, disabled.
+  ...PLUGIN_COMMANDS,
   later("widgets.manage", "Manage widgets…"),
   later("widgets.select-all", "Select all widgets"),
   // Preferences' checks (preferences.ts: live Figma's order, defaults and wording; kept per machine). ⇧⌘′ Snap to

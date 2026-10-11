@@ -1,0 +1,43 @@
+/* A plugin's UI window (docs/plugins.md §3.2): a ds floating panel — the title bar with the plugin's name and ✕, the
+   iframe below at the size the plugin asked for. */
+.window {
+  position: fixed;
+  z-index: var(--ds-z-popover);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--ds-radius-large);
+  background: var(--figma-color-bg);
+  color: var(--figma-color-text);
+  box-shadow: var(--ds-elevation-400-menu-panel);
+}
+.window[hidden] { display: none; }
+.titleBar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-2);
+  height: calc(var(--ds-size-control-large) + var(--ds-space-2));
+  padding: 0 var(--ds-space-2) 0 var(--ds-space-4);
+  border-bottom: 1px solid var(--figma-color-border);
+  font: var(--ds-font-body-medium-strong);
+  letter-spacing: var(--ds-tracking-body-medium-strong);
+  cursor: default;
+  user-select: none;
+}
+.title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frame { flex: 1 1 auto; display: block; border: 0; background: var(--figma-color-bg); }
+/* While the window is dragged, the iframe mustn't take the pointer. */
+.dragging .frame { pointer-events: none; }
+/* "Running ‹name›": bottom centre, above the toolbar */
+.running {
+  position: fixed;
+  z-index: var(--ds-z-popover);
+  left: 50%;
+  bottom: calc(var(--ds-space-6) * 4);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  align-items: center;
+}

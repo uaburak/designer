@@ -25,6 +25,7 @@ import { ExportSection, type ExportTarget } from "./Export";
 import { VectorEditPanel } from "./VectorPoints";
 import { isFrameNode, isTextNode, usePaintTargets, useSelectedNodes, type PanelNode } from "./shared";
 import { TypeHeader } from "./Header";
+import { RelaunchButtons } from "./RelaunchButtons";
 import { ComponentBlock, InstanceHeader, componentSelection } from "./Component";
 import { useMultiEditVariants } from "./multiEdit";
 import { ApplyModeButton, ModeRows } from "./Variables";
@@ -76,6 +77,7 @@ export function DesignPanel() {
     <>
       {nodes.length === 0 ? (
         <>
+          <RelaunchButtons refs={[page, "0:0"]} />
           <PanelSection title="Page" actions={<ApplyModeButton refs={[page]} />}>
             <div className={`${styles.paintRow} ${styles.pageRow}`}>
               <ColorInput
@@ -133,6 +135,7 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
     <>
       {/* An instance: its name, Go to main component and its properties; a component, set or variant: its name and Properties (Current variant) */}
       {comp?.kind === "instance" ? <InstanceHeader instance={comp.node} /> : comp ? <ComponentBlock sel={comp} /> : <TypeHeader nodes={nodes} />}
+      <RelaunchButtons refs={nodes.map((n) => n.guid)} />
       <PositionSection nodes={nodes} />
       <LayoutSection nodes={nodes} />
       <AppearanceSection nodes={nodes} />

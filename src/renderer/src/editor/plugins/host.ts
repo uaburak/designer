@@ -217,6 +217,7 @@ export class PluginRun {
       throw e;
     }
     this.attachEvents();
+    this.env.ui.stoppers.set(this.runId, () => this.stop());
     this.env.ui.setRunning(this.runId, this.spec.name, true);
     await this.waitIdle();
     try {
@@ -388,6 +389,7 @@ export class PluginRun {
     this.offs.splice(0).forEach((off) => off());
     this.closeUi();
     this.env.ui.setRunning(this.runId, this.spec.name, false);
+    this.env.ui.stoppers.delete(this.runId);
     this.vm?.dispose();
     this.vm = null;
     for (const a of this.codegenAnswers.values()) a({ result: null, error: "The plugin was closed" });

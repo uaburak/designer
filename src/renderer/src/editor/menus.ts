@@ -12,6 +12,7 @@ import { COMMAND_BY_ID, command, isEnabled, runEditorCommand, shortcutOf } from 
 import { instanceChanges, resetChanges, selectedInstance, selectionNodes } from "./components";
 import { isComponent, isComponentSet, isInstance } from "./model/components";
 import { branchMenuIds } from "./branching/commands";
+import { canvasPluginsMenu, pluginsMenu, runPluginMenuItem } from "./plugins/menus";
 
 /** A frame-like layer: a frame, component, set, instance or section (not a group). */
 const isFrameLike = (n: { type?: string; resizeToFit?: boolean }) => ["FRAME", "SYMBOL", "INSTANCE", "SECTION"].includes(String(n.type)) && !n.resizeToFit;
@@ -90,6 +91,7 @@ const resetInstance = (ed: EditorController): MenuEntry => {
 
 /** Runs a menu pick: a registry command, or a dynamic item (Reset ▸ group, Select layer ▸). True when it ran. */
 export function runMenuItem(ed: EditorController, id: string): boolean {
+  if (runPluginMenuItem(ed, id)) return true;
   if (id.startsWith(RESET_PREFIX)) {
     const inst = selectedInstance(ed);
     if (!inst) return false;
@@ -385,8 +387,8 @@ export const MAIN_MENU: Spec[] = [
     items: ["vector.join", "vector.smooth-join", "vector.delete-heal", "vector.split", "vector.simplify", "vector.offset"],
   },
   "-",
-  // Plugins and widgets aren't part of this app: their items listed, disabled (live main-plugins / main-widgets).
-  { label: "Plugins", width: 181, items: ["plugins.run-last", "-", { label: "Saved plugins", items: ["plugins.none"] }, "-", "plugins.manage"] },
+  // Plugins (docs/plugins.md §6, plugins/menus.ts); widgets aren't built (§11): their items listed, disabled.
+  (ed: EditorController) => pluginsMenu(ed, (id, label) => withoutCheck(commandItem(ed, id, label))),
   { label: "Widgets", width: 152, items: ["widgets.manage", "widgets.select-all"] },
   {
     label: "Preferences",
@@ -456,8 +458,8 @@ function moveToPage(ed: EditorController): MenuEntry | null {
   return { id: "submenu:move-to-page", label: "Move to page", items, disabled: !items.length };
 }
 
-/** Plugins ▸ / Widgets ▸ in the canvas menu: open, their items disabled (plugins aren't part of this app). */
-const PLUGINS: SubSpec = { label: "Plugins", items: ["plugins.run-last", "-", { label: "Saved plugins", items: ["plugins.none"] }, "-", "plugins.manage"] };
+/** Plugins ▸ in the canvas menu (plugins/menus.ts); Widgets ▸ open, its items disabled (widgets aren't built). */
+const PLUGINS = (ed: EditorController): MenuEntry => canvasPluginsMenu(ed, (id, label) => withoutCheck(commandItem(ed, id, label)));
 const WIDGETS: SubSpec = { label: "Widgets", items: ["widgets.manage", "widgets.select-all"] };
 
 /**
