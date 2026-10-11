@@ -60,7 +60,7 @@ const toUser = (r: UserRow): User => ({ id: r.id, email: r.email, name: r.name, 
 export const normalizeEmail = (email: string): string => email.trim().toLowerCase();
 
 export class Db {
-  constructor(private d1: D1Like) {}
+  constructor(readonly d1: D1Like) {}
 
   /** Sign-in: the user for this Google account, created or refreshed; invites waiting for its email become theirs. */
   async upsertUser(p: { sub: string; email: string; name?: string | null; picture?: string | null }, now: number): Promise<User> {

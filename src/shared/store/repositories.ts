@@ -32,6 +32,7 @@ import type {
 } from "./types";
 
 import type { MultiplayerRepository } from "../multiplayer/types";
+import type { CommentsRepository } from "../comments";
 
 export type Unsubscribe = () => void;
 
@@ -215,6 +216,8 @@ export interface StoreApi {
   /** Shared files on the multiplayer server (docs/multiplayer.md §5) */
   multiplayer: MultiplayerRepository;
   workspace: WorkspaceRepository;
+  /** Comments on files: the server for shared ones, the store for local ones (docs/multiplayer.md §10) */
+  comments: CommentsRepository;
   files: FileRepository;
   blobs: BlobStore;
   libraries: LibraryRegistry;

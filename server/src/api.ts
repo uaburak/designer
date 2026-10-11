@@ -297,6 +297,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       }
       break;
     }
+    case "comments": return (await import("./comments")).commentsRoute(req, deps, { key, role, user, parts });
     case "ws": {
       if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new HttpError(426, "expected a WebSocket");
       return deps.rooms.fetch(key, "/room/ws", { method: "GET", identity }, req);

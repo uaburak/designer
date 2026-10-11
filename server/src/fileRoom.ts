@@ -107,6 +107,13 @@ export class FileRoom extends DurableObject {
         this.room.notice((await req.json()) as Parameters<Room["notice"]>[0]);
         return Response.json({ ok: true });
       }
+      case "POST /room/comments": {
+        // Comments changed (server/src/comments.ts): everyone in the file reads them again.
+        const { threadId, by } = (await req.json()) as { threadId: string; by: string };
+        const text = JSON.stringify({ t: "comments", threadId, by });
+        for (const ws of this.ctx.getWebSockets()) if ((ws.deserializeAttachment() as MemberState | null)?.sessionID) ws.send(text);
+        return Response.json({ ok: true });
+      }
       case "POST /room/revoke-link": {
         // Everyone not owner / member reconnects: those in only by the link are refused or come back as viewers.
         for (const ws of this.ctx.getWebSockets()) {

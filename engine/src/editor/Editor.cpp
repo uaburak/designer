@@ -1822,7 +1822,8 @@ void Editor::setViewOptions(uint32_t options) {
 
 Status Editor::setTool(Tool t) {
   if (!toolImplemented(t)) return E_UNSUPPORTED;
-  if (viewer_ && t != Tool::MOVE && t != Tool::HAND && !(devEdits_ && (t == Tool::ANNOTATION || t == Tool::MEASUREMENT))) return E_READONLY;
+  // "can view" people comment too (Figma: viewers' toolbar is Move, Hand, Comment; the comment UI is the editor's DOM).
+  if (viewer_ && t != Tool::MOVE && t != Tool::HAND && t != Tool::COMMENT && !(devEdits_ && (t == Tool::ANNOTATION || t == Tool::MEASUREMENT))) return E_READONLY;
   if (t != tool_ && text_.node != kNoGuid) endTextEdit();
   // In vector edit mode the Pen and Move switch its own tool; any other tool leaves it.
   if (vector_.node != kNoGuid) {

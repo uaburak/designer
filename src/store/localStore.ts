@@ -43,6 +43,7 @@ import { previewService, type PreviewSession } from "./preview/previews";
 import { SerialQueue } from "./local/queue";
 import { multiplayerApi } from "./multiplayer/api";
 import { MultiplayerService } from "./multiplayer/service";
+import { CommentsService, commentsApi } from "./comments/service";
 
 export interface LocalStoreOptions {
   workspaceDir: string;
@@ -117,6 +118,8 @@ export class LocalStore {
   /** Serializes previews.json */
   readonly previewQueue = new SerialQueue();
   /** Shared files' rooms (docs/multiplayer.md §5); idle until main hands over a session */
+  /** Comments (docs/multiplayer.md §10): local files' in files/<key>/comments.json, shared files' on the server */
+  readonly comments: CommentsService;
   readonly multiplayer: MultiplayerService;
 
   private constructor(
@@ -169,8 +172,22 @@ export class LocalStore {
       },
       { fetch: this.fetch, WebSocket: globalThis.WebSocket as never, random: () => randomInt(0, 2 ** 32) / 2 ** 32 },
     );
+    const commentsPath = (fileKey: FileKey) => {
+      if (!ws.files.has(fileKey)) throw new StoreError("not-found", "No such file");
+      return join(dirs.files, fileKey, "comments.json");
+    };
+    this.comments = new CommentsService(
+      {
+        load: async (fileKey) => readJsonOrNull(commentsPath(fileKey)),
+        save: (fileKey, record) => this.commentsQueue.run(() => writeJsonAtomic(dirs.tmp, commentsPath(fileKey), record)),
+        now: () => clock.now(),
+        random: () => randomInt(0, 2 ** 32) / 2 ** 32,
+      },
+      this.multiplayer,
+    );
   }
 
+  private readonly commentsQueue = new SerialQueue();
   private readonly multiplayerQueue = new SerialQueue();
   /** multiplayer.json, read-modify-written one change at a time */
   private saveMultiplayer(change: (s: { installationId?: unknown; links?: Record<string, unknown> }) => void): Promise<void> {
@@ -500,6 +517,7 @@ export class LocalStore {
     if (this.closed) return;
     this.closed = true;
     if (this.gcTimer) this.timers.clearTimeout(this.gcTimer);
+    this.comments.close();
     this.multiplayer.close();
     await this.files.shutdown();
     await this.ws.queue.idle();
@@ -620,7 +638,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
       return mp.setSession(session);
     },
   };
-  return { workspace, files, blobs, libraries, previews, store, multiplayer };
+  return { workspace, files, blobs, libraries, previews, store, multiplayer, comments: commentsApi(s.comments) };
 }
 
 /** `previews.*` (docs/data.md §13) over this store, plus main's `exportHtml` and the start's `sweepExpired`. */

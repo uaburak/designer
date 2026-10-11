@@ -40,6 +40,8 @@ export type ServerControl =
   | { t: "signal"; from: number; data: unknown }
   /** Something about the file for its people: an "Ask to edit" request (to editors), its answer (to the requester) */
   | { t: "notice"; kind: "access-request" | "access-granted" | "access-denied"; userId: string; name?: string }
+  /** The file's comments changed (docs/multiplayer.md §10): read them again */
+  | { t: "comments"; threadId: string; by: string }
   | { t: "error"; code: "unauthorized" | "forbidden" | "bad-frame" | "too-large" | "too-old"; message: string };
 
 /** Figma's file roles: owner, "can edit", "can view" */

@@ -64,6 +64,7 @@ import { PresentationView } from "@/present/PresentationView";
 import { editorPresentationSource } from "./present";
 import { ShareDialog } from "./ShareDialog";
 import { Multiplayer } from "./multiplayer/Multiplayer";
+import { CommentsLayer } from "./comments/CommentsLayer";
 import { InlinePreview } from "./InlinePreview";
 import { attachDevMode } from "./devmode/devMode";
 import { DevLeftPanel, DevMeasurements, DevRightPanel } from "./devmode/DevPanels";
@@ -391,6 +392,7 @@ function CanvasLayers() {
       <AgentImagePlaceholders />
       {dev && <DevMeasurements />}
       <ImagePlacer />
+      <CommentsLayer />
     </>
   );
 }

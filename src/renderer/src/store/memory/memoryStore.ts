@@ -43,6 +43,7 @@ import { KV_PREFIX, memoryStorage, parseWithBytes, stringifyWithBytes, type KeyV
 import { MemoryLibraries } from "./memoryLibraries";
 import { multiplayerApi } from "../../../../store/multiplayer/api";
 import { MultiplayerService } from "../../../../store/multiplayer/service";
+import { CommentsService, commentsApi } from "../../../../store/comments/service";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Ids and clocks (docs/data.md §1)
@@ -172,6 +173,8 @@ const K = {
   device: `${KV_PREFIX}device`,
   installation: `${KV_PREFIX}multiplayer.installation`,
   link: (key: FileKey) => `${KV_PREFIX}multiplayer.link.${key}`,
+  /** A local file's comments (docs/multiplayer.md §10) */
+  comments: (key: FileKey) => `${KV_PREFIX}comments.${key}`,
 };
 
 export interface MemoryStoreOptions {
@@ -206,6 +209,8 @@ export class MemoryStore {
   deviceOrdinal = 1;
   /** Shared files' rooms (docs/multiplayer.md §5); idle until the page hands over a session */
   readonly multiplayer: MultiplayerService;
+  /** Comments (docs/multiplayer.md §10): local files' in this storage, shared files' on the server */
+  readonly comments: CommentsService;
   readonly clock: { now(): number };
   private readonly hlc: HlcClock;
   private readonly data = new Map<FileKey, FileData>();
@@ -316,6 +321,21 @@ export class MemoryStore {
         random: () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32,
       },
     );
+    this.comments = new CommentsService(
+      {
+        load: async (fileKey) => {
+          if (!this.ws.files.has(fileKey)) throw new StoreError("not-found", "No such file");
+          return json(K.comments(fileKey));
+        },
+        save: async (fileKey, record) => {
+          if (!this.ws.files.has(fileKey)) throw new StoreError("not-found", "No such file");
+          if (!kv.set(K.comments(fileKey), JSON.stringify(record))) throw new StoreError("invalid", "The browser's storage is full");
+        },
+        now: () => this.clock.now(),
+        random: () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32,
+      },
+      this.multiplayer,
+    );
     // eslint-disable-next-line @typescript-eslint/no-this-alias -- the host's getter reads the live ordinal
     const store = this;
   }
@@ -373,6 +393,7 @@ export class MemoryStore {
   /** Stops following other pages' writes. */
   dispose(): void {
     this.offWatch?.();
+    this.comments.close();
     this.multiplayer.close();
     for (const rt of this.runtime.values()) if (rt.updatedAtTimer) clearTimeout(rt.updatedAtTimer);
   }
@@ -898,6 +919,6 @@ export class MemoryStore {
       }),
       collectGarbage: async () => ({ live: 0, deleted: 0, kept: this.storage.keys(`${KV_PREFIX}blob.`).length }),
     };
-    return { workspace, files, blobs, libraries, previews, store, multiplayer: multiplayerApi(this.multiplayer) };
+    return { workspace, files, blobs, libraries, previews, store, multiplayer: multiplayerApi(this.multiplayer), comments: commentsApi(this.comments) };
   }
 }

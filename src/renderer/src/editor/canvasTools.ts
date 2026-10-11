@@ -2,8 +2,8 @@
  * Round 8's canvas tools on the editor's side (docs/engine-build.md "Round 8 — selection", docs/editor.md): the view
  * options sent to the engine whenever the UI changes them (rulers, Snap to pixel grid, Show slices, Pixel preview…),
  * Preferences › Nudge amount (kept per machine), the eyedropper's pick (COLOR_PICK: the canvas pixel under the
- * pointer becomes the selection's fill), an auto-layout bar's value edited in place (REQUEST_INLINE_EDIT), the
- * Comment tool's note (comments come with multiplayer), and the text size / weight / spacing keys.
+ * pointer becomes the selection's fill), an auto-layout bar's value edited in place (REQUEST_INLINE_EDIT), and the
+ * text size / weight / spacing keys. (The Comment tool's clicks are editor/comments/CommentsLayer.tsx's.)
  */
 import { showToast } from "@/ds";
 import { hapticTick } from "@/ds/util/haptics";
@@ -220,11 +220,6 @@ export function attachCanvasTools(ed: EditorController, canvas: HTMLCanvasElemen
   offs.push(
     ed.engine.on("CAMERA_CHANGED", () => {
       if (ed.ui.get().inlineValueEdit) ed.ui.set({ inlineValueEdit: null });
-    })
-  );
-  offs.push(
-    ed.engine.on("TOOL_CHANGED", (e) => {
-      if (e.tool === "COMMENT") showToast({ message: "Comments come with multiplayer" });
     })
   );
   return () => offs.forEach((off) => off());
