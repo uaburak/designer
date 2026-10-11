@@ -11,6 +11,7 @@ import { accessibleFiles, personRef, type MemberRow, type ProjectRow, type TeamR
 import { body, cleanName, EMAIL, HttpError, ID, json, noContent, randomId, type Ctx } from "./http";
 import { inviteEmail, orgAdminIds } from "./orgs";
 import { teamFileKeys, reauth } from "./reauth";
+import { logExternal, personById, requireInside } from "../policy/external";
 
 const AUDIENCES: readonly Audience[] = ["none", "viewer", "editor"];
 const audienceRank = (a: Audience) => AUDIENCES.indexOf(a);
@@ -245,6 +246,7 @@ export async function teamsRoute(ctx: Ctx): Promise<Response> {
       const me = rights.membership;
       if (!me || me.role === "guest") throw new HttpError(403, "guests can't join teams");
       if (rights.inTeam) return json({ status: "joined" });
+      requireInside(await acc.home(), orgId, "join teams");
       if (rights.audience) {
         const role: GrantRole = team.org_access === "editor" || (team.workspace_id === me.workspace_id && team.workspace_access === "editor") ? "editor" : "viewer";
         await acc.d1.prepare(`INSERT INTO team_members (team_id, email, user_id, role, admin, created_at) VALUES (?1, ?2, ?3, ?4, 0, ?5) ON CONFLICT (team_id, email) DO NOTHING`).bind(team.id, user.email, user.id, role, now).run();
@@ -377,7 +379,10 @@ async function putTeamMember(ctx: Ctx, t: TeamRow, email: unknown, groupId: unkn
     .prepare(`INSERT INTO team_members (team_id, email, user_id, role, admin, invited_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`)
     .bind(t.id, e, invited.userId, role, admin ? 1 : 0, user.id, deps.now())
     .run();
-  await log(invited.kind === "guest" ? "team_member_add_external" : "team_member_add", { email: e, user_id: invited.userId, role, admin });
+  // The team's org logs team_member_add; a captured person's home org (another org) its external twin (§15.9).
+  await log("team_member_add", { email: e, user_id: invited.userId, role, admin, ...(invited.kind === "guest" ? { guest: true } : {}) });
+  const person = await personById(acc.d1, invited.userId);
+  if (person) await logExternal(deps, person, t.org_id, "team_member_add_external", teamEntity(t), { actor: user, details: { role }, req: ctx.req });
   if (invited.userId) {
     await notifyOrg(deps, { userId: invited.userId, kind: "team_invite", actorId: user.id, orgId: t.org_id, teamId: t.id, name: t.name, role });
     await orgNotice(deps, [invited.userId], { what: "teams", orgId: t.org_id });
@@ -415,7 +420,9 @@ async function removeTeamMember(ctx: Ctx, t: TeamRow, p: { kind: "u" | "e" | "g"
   if (!row) throw new HttpError(404, "no such member");
   if (row.user_id === t.owner_id) throw new HttpError(409, "transfer the team before its owner leaves");
   await acc.d1.prepare(`DELETE FROM team_members WHERE team_id = ?1 AND email = ?2`).bind(t.id, row.email).run();
-  await log(row.org_role === "guest" ? "team_member_remove_external" : "team_member_remove", { email: row.email, user_id: row.user_id });
+  await log("team_member_remove", { email: row.email, user_id: row.user_id, ...(row.org_role === "guest" ? { guest: true } : {}) });
+  const person = await personById(ctx.acc.d1, row.user_id);
+  if (person) await logExternal(deps, person, t.org_id, "team_member_remove_external", teamEntity(t), { actor: user, req: ctx.req });
   if (row.user_id) {
     await reauth(deps, await teamFileKeys(acc.d1, t.id), [row.user_id]);
     await orgNotice(deps, [row.user_id], { what: "teams", orgId: t.org_id });

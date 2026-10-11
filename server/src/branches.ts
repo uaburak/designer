@@ -298,8 +298,12 @@ async function createBranch(ctx: Ctx, f: FileRow, a: AccessGranted, isBranch: bo
   const now = deps.now();
   const d1 = deps.db.d1;
   await d1
-    .prepare(`INSERT INTO files (key, owner_id, name, created_at, updated_at, org_id, team_id, project_id, editor_type) VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6, ?7, ?8)`)
-    .bind(branchKey, user.id, name, now, f.org_id, f.team_id, f.project_id, f.editor_type)
+    // A branch's room lives in its main file's jurisdiction (docs/multiplayer.md §15.10).
+    .prepare(
+      `INSERT INTO files (key, owner_id, name, created_at, updated_at, org_id, team_id, project_id, editor_type, jurisdiction)
+       VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6, ?7, ?8, (SELECT jurisdiction FROM files WHERE key = ?9))`,
+    )
+    .bind(branchKey, user.id, name, now, f.org_id, f.team_id, f.project_id, f.editor_type, f.key)
     .run();
   await d1
     .prepare(`INSERT INTO branches (key, main_key, name, created_by, created_at, base_seq, main_seen_seq, session_base) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7)`)

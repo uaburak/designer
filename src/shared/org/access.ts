@@ -12,7 +12,12 @@
  *   in only by an expired link gets `gone` (HTTP 410), by a link behind a password they have no pass for
  *   `password_required` (403);
  * - a soft-deleted team's content resolves for org admins only.
+ *
+ * Round 4 (docs/multiplayer.md §15.9): the public link (step 4) yields to the file's sharing policy (public links off;
+ * passwords required and none set); the external cap (step 5) applies to files outside the user's home org — files
+ * outside any org included, so a restricted member's own drafts elsewhere become view-only.
  */
+import type { FilePolicy } from "./identity";
 import type { Audience, EditorType, FileAccess, GrantRole, InheritMode, Level, OrgRole, Seat } from "./types";
 
 /** A grant row: a person (by user id, or by email while the invite is pending) or a user group. */
@@ -57,8 +62,12 @@ export interface AccessRows {
   viaLink: boolean;
   /** A valid x-file-pass for the current password (§6 item 8) */
   passOk: boolean;
-  /** Round 4: the user's home org restricts external content and this file is another org's */
+  /** Round 4: the user's home org (§15.9) restricts external content; the cap applies to files outside `homeOrgId` */
   externalRestricted: boolean;
+  /** Round 4: the org whose verified domain matches the user's email, with capture on and the user a member there */
+  homeOrgId?: string | null;
+  /** Round 4: the file's sharing policy (§15.6; null or absent outside orgs) */
+  policy?: FilePolicy | null;
   now: number;
   /** Is the file's owner still in its org? (default true; false: an unassigned draft, §14.7) */
   ownerInOrg?: boolean;
@@ -107,6 +116,12 @@ export function resolveAccess(r: AccessRows): AccessResult {
 
 const linkLive = (r: AccessRows) => r.file.linkExpiresAt === null || r.now < r.file.linkExpiresAt;
 
+/** The policy lets the public link work (§15.9): public links on, and a password set when passwords are required */
+export const publicLinkAllowed = (r: Pick<AccessRows, "policy" | "file">): boolean => !r.policy || (r.policy.publicLinks && (!r.policy.passwordRequired || r.file.passwordProtected));
+
+/** The external cap applies: the user's home org restricts and the file isn't in it */
+const isExternal = (r: AccessRows): boolean => r.externalRestricted && (r.homeOrgId == null || r.file.orgId !== r.homeOrgId);
+
 /** §3 exactly as today: owner, members, "Anyone with the link" (+ its password); expiry applies too. */
 function legacy(r: AccessRows): AccessResult {
   const via: Via[] = [];
@@ -126,7 +141,9 @@ function legacy(r: AccessRows): AccessResult {
   if (!role) return { ok: false, reason: "none", role: null };
   if (r.file.trashedAt !== null && role === "viewer") return { ok: false, reason: "none", role: null };
   const trashed = r.file.trashedAt !== null;
-  const canEdit = !trashed && role !== "viewer";
+  // Round 4: a restricted member's files outside any org are view-only — their own drafts there too [F-external].
+  const external = isExternal(r);
+  const canEdit = !trashed && role !== "viewer" && !external;
   return {
     ok: true,
     role,
@@ -134,12 +151,12 @@ function legacy(r: AccessRows): AccessResult {
     canView: true,
     trashed,
     canEdit,
-    canComment: !trashed,
+    canComment: !trashed && !external,
     canExport: canEdit || r.file.viewersCanCopy,
     canDevMode: true,
-    canShare: role !== "viewer",
+    canShare: role !== "viewer" && !external,
     canManage: role === "owner",
-    capped: null,
+    capped: external ? "external" : null,
     via,
   };
 }
@@ -151,6 +168,7 @@ function legacy(r: AccessRows): AccessResult {
 function linkStep(r: AccessRows, role: Level | null, via: Via[]): AccessDenied | null {
   if (!r.user || r.file.linkAccess === "none") return null;
   if (r.file.orgId !== null && !r.viaLink) return null;
+  if (!publicLinkAllowed(r)) return null;
   if (!linkLive(r)) return role === null ? { ok: false, reason: "gone", role: null } : null;
   if (r.file.passwordProtected && !r.passOk && role === null) return { ok: false, reason: "password_required", role: r.file.linkAccess };
   if (levelRank(r.file.linkAccess) > levelRank(role)) via.push("link");
@@ -245,11 +263,12 @@ function org(r: AccessRows): AccessResult {
     canEdit = false;
     capped = "seat";
   }
-  if (canEdit && r.externalRestricted) {
+  const external = isExternal(r);
+  if (canEdit && external) {
     canEdit = false;
     capped = "external";
   }
-  if (r.externalRestricted && !capped) capped = "external";
+  if (external && !capped) capped = "external";
   if (trashed) canEdit = false;
   return {
     ok: true,
@@ -261,7 +280,7 @@ function org(r: AccessRows): AccessResult {
     canComment: capped !== "external" && !trashed,
     canExport: canEdit || file.viewersCanCopy,
     canDevMode: !membership || membership.seat === "full" || membership.seat === "dev",
-    canShare: role === "owner" || role === "editor",
+    canShare: (role === "owner" || role === "editor") && capped !== "external",
     canManage,
     capped,
     via,

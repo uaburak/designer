@@ -55,14 +55,13 @@ import {
   contextScopes,
   defaultsOf,
   fileContext,
-  libraries,
+  libraryFetch,
   libraryRow,
   libName,
   countsOf,
   modesOf,
   movedInto,
   movedOutOf,
-  objectFetch,
   orgLibraryRows,
   peopleIn,
   resolveSettings,
@@ -184,43 +183,43 @@ export async function librariesRoute(ctx: Ctx): Promise<Response> {
     const blobs = Array.isArray(b.blobs) ? b.blobs : [];
     if (payloads.length > MAX_ASSETS || blobs.length > MAX_ASSETS) throw new HttpError(400, "too many");
     if (!payloads.every((p) => isSha1((p as { key?: unknown })?.key) && isSha1((p as { versionHash?: unknown })?.versionHash)) || !blobs.every(isSha1)) throw new HttpError(400, "payloads are {key, versionHash} and blobs SHA-1s");
-    return objectFetch(libraries(deps), key, "/missing", { method: "POST", body: JSON.stringify({ payloads: payloads.map((p) => ({ key: (p as { key: string }).key, versionHash: (p as { versionHash: string }).versionHash })), blobs }) });
+    return libraryFetch(deps, key, "/missing", { method: "POST", body: JSON.stringify({ payloads: payloads.map((p) => ({ key: (p as { key: string }).key, versionHash: (p as { versionHash: string }).versionHash })), blobs }) });
   }
   if (parts.length === 5 && sub === "payloads" && m === "PUT") {
     if (!isSha1(parts[3]) || !isSha1(parts[4])) throw new HttpError(400, "an asset key and its versionHash are SHA-1s");
     await editable(ctx, key);
-    return objectFetch(libraries(deps), key, `/payload/${parts[3]}/${parts[4]}`, { method: "PUT", body: await bytes(req) });
+    return libraryFetch(deps, key, `/payload/${parts[3]}/${parts[4]}`, { method: "PUT", body: await bytes(req) });
   }
   if (parts.length === 4 && sub === "blobs" && m === "PUT") {
     if (!isSha1(parts[3])) throw new HttpError(400, "bad SHA-1");
     await editable(ctx, key);
-    return objectFetch(libraries(deps), key, `/blob/${parts[3]}`, { method: "PUT", body: await bytes(req) });
+    return libraryFetch(deps, key, `/blob/${parts[3]}`, { method: "PUT", body: await bytes(req) });
   }
 
   // Reads: anyone who can use the library.
   if (parts.length === 4 && sub === "versions" && m === "GET") {
     if (parts[3] !== "latest" && !/^\d{1,9}$/.test(parts[3])) throw new HttpError(400, "a version number or latest");
     await usableLibrary(ctx, key);
-    return objectFetch(libraries(deps), key, `/version/${parts[3]}`);
+    return libraryFetch(deps, key, `/version/${parts[3]}`);
   }
   if (parts.length === 3 && sub === "diff" && m === "POST") {
     await usableLibrary(ctx, key);
     const b = await body<{ have?: unknown }>(req);
     const have = Array.isArray(b.have) ? b.have.filter((h) => isSha1((h as { key?: unknown })?.key) && typeof (h as { versionHash?: unknown })?.versionHash === "string") : [];
     if (have.length > 100_000) throw new HttpError(400, "too many");
-    return objectFetch(libraries(deps), key, "/diff", { method: "POST", body: JSON.stringify({ have, movedOut: await movedOutOf(acc.d1, key) }) });
+    return libraryFetch(deps, key, "/diff", { method: "POST", body: JSON.stringify({ have, movedOut: await movedOutOf(acc.d1, key) }) });
   }
   if (parts.length === 3 && sub === "payloads" && m === "POST") {
     await usableLibrary(ctx, key);
     const b = await body<{ wants?: unknown; withDependencies?: unknown }>(req);
     const wants = Array.isArray(b.wants) ? b.wants : [];
     if (wants.length > MAX_ASSETS) throw new HttpError(400, "too many");
-    return objectFetch(libraries(deps), key, "/payloads", { method: "POST", body: JSON.stringify({ wants, withDependencies: b.withDependencies === true }) });
+    return libraryFetch(deps, key, "/payloads", { method: "POST", body: JSON.stringify({ wants, withDependencies: b.withDependencies === true }) });
   }
   if (parts.length === 4 && sub === "blobs" && m === "GET") {
     if (!isSha1(parts[3])) throw new HttpError(400, "bad SHA-1");
     await usableLibrary(ctx, key);
-    return objectFetch(libraries(deps), key, `/blob/${parts[3]}`);
+    return libraryFetch(deps, key, `/blob/${parts[3]}`);
   }
   throw new HttpError(404, "not found");
 }
@@ -275,7 +274,7 @@ async function publish(ctx: Ctx, key: string): Promise<Response> {
   const input = cleanPublish(await body(req));
   const now = deps.now();
 
-  const res = await objectFetch(libraries(deps), key, "/commit", {
+  const res = await libraryFetch(deps, key, "/commit", {
     method: "POST",
     body: JSON.stringify({ libraryFileKey: key, baseVersion: input.baseVersion, publishedAt: now, description: input.description, changes: input.changes, assets: input.assets }),
   });
@@ -293,8 +292,8 @@ async function publish(ctx: Ctx, key: string): Promise<Response> {
   const scope = await scopeOf(ctx, f, a.canShare || a.canManage, input.scope);
   await d1
     .prepare(
-      `INSERT INTO libraries (key, org_id, name, scope, status, latest_version, counts, first_published_at, last_published_at, published_by)
-       VALUES (?1, ?2, ?3, ?4, 'published', ?5, ?6, ?7, ?7, ?8)
+      `INSERT INTO libraries (key, org_id, name, scope, status, latest_version, counts, first_published_at, last_published_at, published_by, jurisdiction)
+       VALUES (?1, ?2, ?3, ?4, 'published', ?5, ?6, ?7, ?7, ?8, (SELECT CASE data_region WHEN 'eu' THEN 'eu' END FROM orgs WHERE id = ?2))
        ON CONFLICT (key) DO UPDATE SET name = excluded.name, scope = excluded.scope, status = 'published', latest_version = MAX(latest_version, excluded.latest_version),
          counts = excluded.counts, last_published_at = excluded.last_published_at, published_by = excluded.published_by`,
     )

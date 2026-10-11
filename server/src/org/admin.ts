@@ -11,6 +11,11 @@ import { body, cleanName, csv, EMAIL, HttpError, json, nextCursor, noContent, pa
 import { addPerson, adminCount, joinDefaultTeams, orgUserIds, removeFromOrg, SEATS, seatRequest, setSeat } from "./orgs";
 import { deleteFileForever } from "./projects";
 import { orgFileKeys, reauth } from "./reauth";
+import { IDLE_MAX_HOURS, IDLE_MIN_HOURS, type IdpAttributes, type WorkspaceSharingSettings } from "../../../src/shared/org/identity";
+import { onIdentitySettingsChanged, validateIdentitySettings } from "../auth/settingsHooks";
+import { applySharingChange, cleanWorkspaceSharing, sharingOf, tightened, validMaxHours } from "../policy/sharing";
+import { broadcastRoomPolicy } from "../policy/roomPolicy";
+import { resourceWorkspace } from "./orgs";
 
 interface Scope {
   me: MemberRow;
@@ -64,14 +69,19 @@ export async function adminRoute(ctx: Ctx, orgId: string): Promise<Response> {
       break;
     }
     case "guest-requests": {
-      orgOnly();
-      if (!rest.length && m === "GET") return json({ requests: await guestRequests(ctx, orgId) });
+      // Org admins answer every request; workspace admins those for their workspaces' content [F-guestctl].
+      if (!scope.org && !scope.workspaces.length) throw new HttpError(403, "only organization and workspace admins answer guest requests", "not_admin");
+      if (!rest.length && m === "GET") return json({ requests: await guestRequests(ctx, orgId, scope) });
       if (rest.length === 1 && m === "POST") {
         const { approve } = await body<{ approve?: unknown }>(ctx.req);
-        return json({ request: await answerGuest(ctx, orgId, rest[0], approve === true) });
+        return json({ request: await answerGuest(ctx, orgId, rest[0], approve === true, scope) });
       }
       break;
     }
+    case "data-region":
+      // Data storage localization (docs/multiplayer.md §15.10; ours: self-serve for org admins)
+      orgOnly();
+      return (await import("../policy/region")).dataRegionRoute(ctx, orgId, rest);
     case "teams":
       if (!rest.length && m === "GET") return teams(ctx, orgId, scope);
       break;
@@ -159,6 +169,23 @@ interface PersonRow {
   name: string | null;
   picture: string | null;
   teams: number;
+  idp_attributes: string | null;
+  provisioned_by: "scim" | "jit" | null;
+  scim_active: number | null;
+}
+
+/** What SAML JIT and SCIM told us about a member (Admin › People's metadata columns, §15.5); null: nothing */
+function idpOf(r: Pick<PersonRow, "idp_attributes" | "provisioned_by" | "scim_active">): IdpAttributes | null {
+  let attrs: Partial<IdpAttributes> = {};
+  try {
+    const v = JSON.parse(r.idp_attributes ?? "{}") as unknown;
+    if (v && typeof v === "object" && !Array.isArray(v)) attrs = v as Partial<IdpAttributes>;
+  } catch {
+    // none
+  }
+  const { provisionedBy: _p, scimActive: _s, ...rest } = attrs;
+  if (!r.provisioned_by && r.scim_active === null && !Object.keys(rest).length) return null;
+  return { ...rest, provisionedBy: r.provisioned_by ?? null, scimActive: r.scim_active === null ? null : r.scim_active === 1 };
 }
 
 const toAdminPerson = (r: PersonRow): AdminPerson => ({
@@ -175,9 +202,11 @@ const toAdminPerson = (r: PersonRow): AdminPerson => ({
   joinedAt: r.created_at,
   pending: !r.user_id,
   teams: r.teams,
+  idp: idpOf(r),
 });
 
 const PERSON_SELECT = `SELECT m.email, m.user_id, m.role, m.seat, m.workspace_id, m.billing_group_id, m.last_active_at, m.created_at, u.name, u.picture,
+  m.idp_attributes, m.provisioned_by, (SELECT s.active FROM scim_users s WHERE s.org_id = m.org_id AND s.user_id = m.user_id) AS scim_active,
   (SELECT COUNT(*) FROM team_members tm JOIN teams t ON t.id = tm.team_id WHERE t.org_id = m.org_id AND tm.email = m.email AND t.deleted_at IS NULL) AS teams
   FROM org_members m LEFT JOIN users u ON u.id = m.user_id`;
 
@@ -372,23 +401,30 @@ async function guestRequest(ctx: Ctx, orgId: string, r: GuestRow): Promise<Guest
 
 const GUEST_SELECT = `SELECT g.*, u.email AS i_email, u.name AS i_name, u.picture AS i_picture, m.role AS i_role FROM guest_requests g JOIN users u ON u.id = g.invited_by LEFT JOIN org_members m ON m.org_id = g.org_id AND m.user_id = g.invited_by`;
 
-async function guestRequests(ctx: Ctx, orgId: string): Promise<GuestRequest[]> {
+async function guestRequests(ctx: Ctx, orgId: string, scope: Scope): Promise<GuestRequest[]> {
   const state = ctx.url.searchParams.get("state");
   const { results } = await ctx.acc.d1
     .prepare(`${GUEST_SELECT} WHERE g.org_id = ?1 AND (?2 = 'all' OR g.state = ?2) ORDER BY g.created_at DESC`)
     .bind(orgId, state === "approved" || state === "denied" || state === "all" ? state : "pending")
     .all<GuestRow>();
   const out: GuestRequest[] = [];
-  for (const r of results) out.push(await guestRequest(ctx, orgId, r));
+  for (const r of results) if (await guestReach(ctx, scope, r)) out.push(await guestRequest(ctx, orgId, r));
   return out;
 }
 
+/** Org admins reach every guest request; workspace admins those whose resource is in one of their workspaces */
+async function guestReach(ctx: Ctx, scope: Scope, r: Pick<GuestRow, "resource_type" | "resource_id">): Promise<boolean> {
+  if (scope.org) return true;
+  const ws = await resourceWorkspace(ctx.acc.d1, { type: r.resource_type, id: r.resource_id });
+  return ws !== null && scope.workspaces.includes(ws);
+}
+
 /** An admin answers a guest invite held for approval: approved, the email joins as a guest with the grant it was given. */
-async function answerGuest(ctx: Ctx, orgId: string, id: string, approve: boolean): Promise<GuestRequest> {
+async function answerGuest(ctx: Ctx, orgId: string, id: string, approve: boolean, scope: Scope): Promise<GuestRequest> {
   const { deps, user, acc } = ctx;
   const d1 = acc.d1;
   const r = await d1.prepare(`${GUEST_SELECT} WHERE g.id = ?1 AND g.org_id = ?2`).bind(id, orgId).first<GuestRow>();
-  if (!r) throw new HttpError(404, "no such request");
+  if (!r || !(await guestReach(ctx, scope, r))) throw new HttpError(404, "no such request");
   if (r.state === "pending") {
     await d1.prepare(`UPDATE guest_requests SET state = ?2, answered_by = ?3, answered_at = ?4 WHERE id = ?1`).bind(id, approve ? "approved" : "denied", user.id, deps.now()).run();
     if (approve) {
@@ -468,7 +504,7 @@ async function teams(ctx: Ctx, orgId: string, scope: Scope): Promise<Response> {
 
 async function workspaceOf(ctx: Ctx, orgId: string, id: string): Promise<OrgWorkspace | null> {
   const d1 = ctx.acc.d1;
-  const w = await d1.prepare(`SELECT * FROM workspaces WHERE id = ?1 AND org_id = ?2`).bind(id, orgId).first<{ id: string; name: string; hidden: number; created_at: number }>();
+  const w = await d1.prepare(`SELECT * FROM workspaces WHERE id = ?1 AND org_id = ?2`).bind(id, orgId).first<{ id: string; name: string; hidden: number; created_at: number; settings: string }>();
   if (!w) return null;
   const { results: admins } = await d1
     .prepare(`SELECT u.id, u.email, u.name, u.picture, m.role FROM workspace_admins a JOIN users u ON u.id = a.user_id LEFT JOIN org_members m ON m.org_id = ?2 AND m.user_id = u.id WHERE a.workspace_id = ?1`)
@@ -476,7 +512,7 @@ async function workspaceOf(ctx: Ctx, orgId: string, id: string): Promise<OrgWork
     .all<{ id: string; email: string; name: string | null; picture: string | null; role: OrgRole | null }>();
   const { results: defaults } = await d1.prepare(`SELECT team_id FROM workspace_default_teams WHERE workspace_id = ?1`).bind(id).all<{ team_id: string }>();
   const c = await d1.prepare(`SELECT (SELECT COUNT(*) FROM org_members WHERE workspace_id = ?1) AS members, (SELECT COUNT(*) FROM teams WHERE workspace_id = ?1 AND deleted_at IS NULL) AS teams`).bind(id).first<{ members: number; teams: number }>();
-  return { id: w.id, name: w.name, hidden: w.hidden === 1, admins: admins.map(personRef), defaultTeamIds: defaults.map((d) => d.team_id), memberCount: c?.members ?? 0, teamCount: c?.teams ?? 0, createdAt: w.created_at };
+  return { id: w.id, name: w.name, hidden: w.hidden === 1, admins: admins.map(personRef), defaultTeamIds: defaults.map((d) => d.team_id), memberCount: c?.members ?? 0, teamCount: c?.teams ?? 0, createdAt: w.created_at, sharing: sharingOf(w.settings) };
 }
 
 async function workspaces(ctx: Ctx, orgId: string, scope: Scope, rest: string[]): Promise<Response> {
@@ -507,7 +543,8 @@ async function workspaces(ctx: Ctx, orgId: string, scope: Scope, rest: string[])
   const log = (action: Parameters<typeof logActivity>[1]["action"], details: Record<string, unknown> = {}, name = w.name) => logActivity(deps, { orgId, action, actor: user, entity: workspaceEntity({ id: w.id, name }), details, req: ctx.req });
   if (m === "PATCH") {
     const b = await body<WorkspacePatch>(ctx.req);
-    if ((b.adminIds !== undefined || b.hidden !== undefined || b.teams !== undefined) && !scope.org) throw new HttpError(403, "only organization admins can do that", "not_admin");
+    if ((b.adminIds !== undefined || b.hidden !== undefined || b.teams !== undefined || b.sharing !== undefined) && !scope.org) throw new HttpError(403, "only organization admins can do that", "not_admin");
+    if (b.sharing !== undefined) await setWorkspaceSharing(ctx, orgId, w, cleanWorkspaceSharing(b.sharing));
     if (b.name !== undefined) {
       const name = cleanName(b.name, "name", 100);
       if (name !== w.name) {
@@ -561,6 +598,37 @@ async function workspaces(ctx: Ctx, orgId: string, scope: Scope, rest: string[])
     return noContent();
   }
   throw new HttpError(405, "method not allowed");
+}
+
+/**
+ * Public sharing › Custom settings for workspaces [F-share] (§15.6): each present key overrides the org's for files in
+ * the workspace's teams. Logged; expiries clamped and link-only people reauthorized when it tightened.
+ */
+async function setWorkspaceSharing(ctx: Ctx, orgId: string, w: { id: string; name: string }, sharing: WorkspaceSharingSettings | null): Promise<void> {
+  const { deps, user, acc } = ctx;
+  const d1 = acc.d1;
+  const row = await d1.prepare(`SELECT settings FROM workspaces WHERE id = ?1`).bind(w.id).first<{ settings: string }>();
+  let all: Record<string, unknown> = {};
+  try {
+    all = JSON.parse(row?.settings ?? "{}") as Record<string, unknown>;
+  } catch {
+    // replaced
+  }
+  const before = sharingOf(row?.settings);
+  if (JSON.stringify(before) === JSON.stringify(sharing)) return;
+  if (sharing) all.sharing = sharing;
+  else delete all.sharing;
+  await d1.prepare(`UPDATE workspaces SET settings = ?2, updated_at = ?3 WHERE id = ?1`).bind(w.id, JSON.stringify(all), deps.now()).run();
+  await logActivity(deps, { orgId, action: "workspace_public_link_setting_change", actor: user, entity: workspaceEntity(w), details: { from: before, to: sharing }, req: ctx.req });
+  const org = settingsOf(await acc.org(orgId));
+  const eff = (s: WorkspaceSharingSettings | null) => ({
+    publicLinks: s?.publicLinks ?? org.publicLinks,
+    passwordRequired: s?.passwordRequired ?? org.passwordRequired,
+    linkExpiryMaxHours: s && s.linkExpiryMaxHours !== undefined ? s.linkExpiryMaxHours : org.linkExpiryMaxHours,
+  });
+  const { results } = await d1.prepare(`SELECT id FROM teams WHERE workspace_id = ?1`).bind(w.id).all<{ id: string }>();
+  await applySharingChange(deps, orgId, { tightened: tightened(eff(before), eff(sharing)), teamIds: results.map((r) => r.id) });
+  acc.reset();
 }
 
 async function requireOrgUsers(ctx: Ctx, orgId: string, ids: string[]): Promise<void> {
@@ -669,25 +737,42 @@ async function billingGroups(ctx: Ctx, orgId: string, rest: string[]): Promise<R
   throw new HttpError(405, "method not allowed");
 }
 
+/**
+ * `PATCH admin/settings` (§14.12, §15.6): each key validated, then saved together, then what each change sets off —
+ * its activity action (Figma's, or ours where Figma lists none), the expiry clamp and the revoke-link fan-out when
+ * sharing tightened, the room policy broadcast for cursor chat and audio, the reauth of the members' outside files for
+ * external content. `authMethod`, `idleSessionTimeoutHours` and `domainCapture` are validated here for shape and handed
+ * to the identity hooks (auth/settingsHooks.ts, round 4a), which check what they need, act and log them.
+ */
 async function patchSettings(ctx: Ctx, orgId: string, patch: Partial<OrgSettings>): Promise<OrgSettings> {
   const { deps, user, acc } = ctx;
   const org = (await acc.org(orgId))!;
   const before = settingsOf(org);
   const next: OrgSettings = { ...before };
-  const pick = <K extends keyof OrgSettings>(k: K, ok: (v: unknown) => boolean) => {
+  const known = new Set<string>(Object.keys(before));
+  for (const k of Object.keys(patch)) if (!known.has(k)) throw new HttpError(400, `${k} isn't a setting`);
+  const pick = <K extends keyof OrgSettings>(k: K, ok: (v: unknown) => boolean, hint = "") => {
     if (patch[k] === undefined) return;
-    if (!ok(patch[k])) throw new HttpError(400, `${k}`);
+    if (!ok(patch[k])) throw new HttpError(400, `${k}${hint}`);
     next[k] = patch[k] as OrgSettings[K];
   };
+  const bool = (v: unknown) => typeof v === "boolean";
   pick("teamCreation", (v) => v === "anyone" || v === "admins");
   pick("groupCreation", (v) => v === "anyone" || v === "admins");
   pick("guestMembership", (v) => v === "allow" || v === "approval" || v === "block");
   pick("defaultSeat", (v) => SEATS.includes(v as Seat));
-  pick("publicLinks", (v) => typeof v === "boolean");
-  pick("linkExpiryMaxHours", (v) => v === null || (typeof v === "number" && v > 0 && v <= 24 * 365));
-  pick("passwordRequired", (v) => typeof v === "boolean");
-  pick("cursorChat", (v) => typeof v === "boolean");
-  pick("audio", (v) => typeof v === "boolean");
+  pick("publicLinks", bool);
+  pick("linkExpiryMaxHours", validMaxHours, " is null or 1–744 hours");
+  pick("passwordRequired", bool);
+  pick("cursorChat", bool);
+  pick("audio", bool);
+  // Round 4 (§15.6)
+  pick("authMethod", (v) => v === "any" || v === "google" || v === "saml");
+  pick("idleSessionTimeoutHours", (v) => v === null || (typeof v === "number" && Number.isInteger(v) && v >= IDLE_MIN_HOURS && v <= IDLE_MAX_HOURS), ` is null or ${IDLE_MIN_HOURS}–${IDLE_MAX_HOURS} hours`);
+  pick("domainCapture", bool);
+  pick("externalContent", (v) => v === "allowed" || v === "restricted");
+  pick("passwordMode", (v) => v === "any" || v === "autogenerated");
+  pick("openSessions", bool);
   if (patch.seatApproval !== undefined) {
     const s = patch.seatApproval as Record<string, unknown>;
     if (!s || typeof s !== "object") throw new HttpError(400, "seatApproval");
@@ -700,15 +785,57 @@ async function patchSettings(ctx: Ctx, orgId: string, patch: Partial<OrgSettings
     }
     next.seatApproval = approval;
   }
+  // Access to external content needs domain capture [F-external].
+  if (patch.externalContent === "restricted" && !next.domainCapture) throw new HttpError(409, "turn on domain capture before restricting external content");
+  // The identity hooks (round 4a): SAML tested, domains verified… (throw HttpError)
+  const identityPatch: Partial<OrgSettings> = {};
+  for (const k of ["authMethod", "idleSessionTimeoutHours", "domainCapture"] as const) if (patch[k] !== undefined && JSON.stringify(patch[k]) !== JSON.stringify(before[k])) (identityPatch as Record<string, unknown>)[k] = patch[k];
+  if (Object.keys(identityPatch).length) await validateIdentitySettings(deps, orgId, identityPatch);
+
   await acc.d1.prepare(`UPDATE orgs SET settings = ?2, updated_at = ?3 WHERE id = ?1`).bind(orgId, JSON.stringify(next), deps.now()).run();
-  // Each changed key its Figma action (where Figma names one)
-  const actions: Partial<Record<keyof OrgSettings, Parameters<typeof logActivity>[1]["action"]>> = { teamCreation: "org_team_creation_controls", guestMembership: "org_guest_invite_setting_change", defaultSeat: "org_default_license_type_change", publicLinks: "public_link_setting_change" };
-  for (const k of Object.keys(actions) as (keyof OrgSettings)[]) {
-    if (JSON.stringify(before[k]) !== JSON.stringify(next[k])) await logActivity(deps, { orgId, action: actions[k]!, actor: user, entity: { type: "org", id: orgId, name: org.name }, details: { setting: k, from: before[k], to: next[k] }, req: ctx.req });
-  }
+  const changed = (k: keyof OrgSettings) => JSON.stringify(before[k]) !== JSON.stringify(next[k]);
+  const entity = { type: "org" as const, id: orgId, name: org.name };
+  const log = (action: Parameters<typeof logActivity>[1]["action"], keys: (keyof OrgSettings)[]) =>
+    logActivity(deps, { orgId, action, actor: user, entity, details: keys.length === 1 ? { setting: keys[0], from: before[keys[0]], to: next[keys[0]] } : { settings: keys, from: Object.fromEntries(keys.map((k) => [k, before[k]])), to: Object.fromEntries(keys.map((k) => [k, next[k]])) }, req: ctx.req });
+  // Each changed key its Figma action (where Figma names one; ours marked in §15.11). authMethod, the idle timeout and
+  // domain capture are logged by the identity hooks.
+  const actions: [keyof OrgSettings, Parameters<typeof logActivity>[1]["action"]][] = [
+    ["teamCreation", "org_team_creation_controls"],
+    ["guestMembership", "org_guest_invite_setting_change"],
+    ["defaultSeat", "org_default_license_type_change"],
+    ["cursorChat", "cursor_chat_setting_change"],
+    ["audio", "audio_setting_change"],
+    ["externalContent", "external_collaboration_controls_setting_change"],
+    ["passwordMode", "autogen_password_controls_setting_change"],
+    ["openSessions", "open_sessions_setting_change"],
+  ];
+  for (const [k, action] of actions) if (changed(k)) await log(action, [k]);
+  const sharingKeys = (["publicLinks", "passwordRequired", "linkExpiryMaxHours"] as const).filter(changed);
+  if (sharingKeys.length) await log("public_link_setting_change", [...sharingKeys]);
   acc.reset();
+
+  if (sharingKeys.length) await applySharingChange(deps, orgId, { tightened: tightened(before, next) });
+  if (changed("cursorChat") || changed("audio")) await broadcastRoomPolicy(deps, orgId, { cursorChat: next.cursorChat, audio: next.audio });
+  if (changed("externalContent")) await reauthOutsideFiles(ctx, orgId);
+  await onIdentitySettingsChanged(deps, orgId, before, next, user, ctx.req);
   await orgNotice(deps, await orgUserIds(acc.d1, orgId), { what: "org", orgId });
   return next;
+}
+
+/** External content changed: the org's members reconnect to files outside it (their role there is resolved again). */
+async function reauthOutsideFiles(ctx: Ctx, orgId: string): Promise<void> {
+  const d1 = ctx.acc.d1;
+  const { results: people } = await d1.prepare(`SELECT user_id FROM org_members WHERE org_id = ?1 AND role IN ('admin', 'member') AND user_id IS NOT NULL`).bind(orgId).all<{ user_id: string }>();
+  const ids = people.map((p) => p.user_id);
+  if (!ids.length) return;
+  const { results } = await d1
+    .prepare(
+      `SELECT f.key FROM files f WHERE (f.org_id IS NULL OR f.org_id <> ?1)
+         AND (f.owner_id IN (${placeholders(ids.length, 2)}) OR f.key IN (SELECT file_key FROM members WHERE user_id IN (${placeholders(ids.length, 2)})))`,
+    )
+    .bind(orgId, ...ids)
+    .all<{ key: string }>();
+  await reauth(ctx.deps, results.map((r) => r.key), ids);
 }
 
 /** Drafts whose owner is no longer in the org (§14.7). */

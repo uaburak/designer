@@ -2,13 +2,18 @@
  * One shared file's Durable Object (docs/multiplayer.md §4): the pure `Room` on SQLite storage, with hibernatable
  * WebSockets — each socket's member state rides in its serialized attachment, so an object woken by a message rebuilds
  * its members without anyone reconnecting. Reached only through the Worker, which has already resolved the caller's
- * identity and role (headers `x-user-id`, `x-user-name`, `x-role`).
+ * identity and role (headers `x-user-id`, `x-user-name`, `x-role`) and the org's room policy (`x-policy`, §15.9).
+ *
+ * Moving to another region (docs/multiplayer.md §15.10): `POST /room/freeze {moving: true}` closes every socket with
+ * 4012 (`CLOSE_MOVING`: clients reconnect after a moment, reaching the copy once the Worker flipped the file's
+ * jurisdiction) and refuses new ones with 503 `{code: "moving"}` until the object is deleted.
  */
 import { DurableObject } from "cloudflare:workers";
-import { type Role } from "../../src/shared/multiplayer/protocol";
+import { CLOSE_MOVING, type Role } from "../../src/shared/multiplayer/protocol";
 import { Room, type MemberState } from "../../src/shared/multiplayer/room";
 import type { SqlLike } from "./previews";
 import { RoomBox } from "./roomBox";
+import { parseRoomPolicy } from "./policy/roomPolicy";
 
 export { MAX_BLOB_BYTES } from "./roomBox";
 /** Close codes the client reads: 4001 the file stopped being shared, 4003 access changed, 4009 a snapshot replaced history. */
@@ -45,10 +50,12 @@ export class FileRoom extends DurableObject {
 
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
-    const identity = { userId: req.headers.get("x-user-id") ?? "", name: req.headers.get("x-user-name") || undefined, role: (req.headers.get("x-role") ?? "viewer") as Role };
+    const policy = parseRoomPolicy(req.headers.get("x-policy"));
+    const identity = { userId: req.headers.get("x-user-id") ?? "", name: req.headers.get("x-user-name") || undefined, role: (req.headers.get("x-role") ?? "viewer") as Role, ...(policy ? { policy } : {}) };
     switch (`${req.method} ${url.pathname}`) {
       case "GET /room/ws": {
         if (!identity.userId) return new Response("no identity", { status: 400 });
+        if (this.box.moving()) return Response.json({ error: "this file is moving to another region", code: "moving" }, { status: 503 });
         const pair = new WebSocketPair();
         this.ctx.acceptWebSocket(pair[1]);
         this.room.connect(pair[1], identity);
@@ -72,6 +79,18 @@ export class FileRoom extends DurableObject {
           if (s && s.role !== "owner") this.room.closeUser(s.userId, CLOSE_ACCESS, "access changed");
         }
         return Response.json({ ok: true });
+      }
+      case "POST /room/policy": {
+        // The org changed cursor chat or audio (§15.9): every member is told at once.
+        const p = parseRoomPolicy(await req.text());
+        if (!p) return new Response("bad policy", { status: 400 });
+        this.room.setPolicy(p);
+        return Response.json({ ok: true });
+      }
+      case "POST /room/freeze": {
+        const res = await this.box.fetch(req);
+        if (res?.ok && this.box.moving()) this.room.closeAll(CLOSE_MOVING, "moving to another region");
+        return res ?? new Response("not found", { status: 404 });
       }
       case "POST /room/revoke": {
         const { userId } = (await req.json()) as { userId: string };
@@ -98,6 +117,10 @@ export class FileRoom extends DurableObject {
   }
 
   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
+    if (this.box.moving()) {
+      ws.close(CLOSE_MOVING, "moving to another region");
+      return;
+    }
     if (typeof message !== "string" && this.box.frozen()) {
       // A merged branch (or one being merged) takes no more frames: the client reconnects and is told its role.
       ws.send(JSON.stringify({ t: "error", code: "forbidden", message: "this branch was merged" }));

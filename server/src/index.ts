@@ -2,11 +2,14 @@
  * The `designer` Worker (docs/multiplayer.md): the API in api.ts over D1, one FileRoom Durable Object per file, one
  * Inbox per person for live notifications (§12), one LibraryObject per org library and one FontObject per org
  * (docs/data.md §16, docs/desktop.md §14.3). `scheduled()` is the daily roll-up of library analytics and the
- * retention sweeps (docs/data.md §17.5; wrangler.jsonc's cron).
+ * retention sweeps (docs/data.md §17.5; wrangler.jsonc's cron). Rooms and library objects of orgs whose data region is
+ * the EU live in Cloudflare's `eu` jurisdiction (docs/multiplayer.md §15.10: `roomsOn`, `libraryFetch`).
  */
 import { handle, type Env as ApiEnv, type Inboxes, type Rooms } from "./api";
 import { Db } from "./db";
 import { rollup } from "./analytics/rollup";
+import type { ObjectNamespace } from "./libraries/db";
+import { roomsOn } from "./policy/region";
 
 export { FileRoom } from "./fileRoom";
 export { PreviewObject } from "./previewObject";
@@ -24,19 +27,9 @@ interface Env extends ApiEnv {
 
 export default {
   fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const rooms: Rooms = {
-      fetch(fileKey, path, init, original) {
-        const stub = env.ROOMS.get(env.ROOMS.idFromName(fileKey));
-        const headers = new Headers(original?.headers);
-        headers.delete("authorization");
-        if (init.identity) {
-          headers.set("x-user-id", init.identity.userId);
-          headers.set("x-user-name", init.identity.name ?? "");
-          headers.set("x-role", init.identity.role);
-        }
-        return stub.fetch(new Request(`https://room${path}`, { method: init.method, headers, body: init.body }));
-      },
-    };
+    // Each file's room in its jurisdiction (files.jurisdiction, docs/multiplayer.md §15.10), with x-policy (§15.9).
+    const db = new Db(env.DB);
+    const rooms: Rooms = roomsOn(env.ROOMS as unknown as ObjectNamespace, db.d1);
     const inbox = (userId: string) => env.INBOXES.get(env.INBOXES.idFromName(userId));
     const inboxes: Inboxes = {
       async notify(userId, message) {
@@ -48,7 +41,7 @@ export default {
         return inbox(userId).fetch(new Request("https://inbox/inbox/ws", { method: "GET", headers }));
       },
     };
-    return handle(req, { db: new Db(env.DB), env, rooms, inboxes, fetch: (...a) => fetch(...a), now: () => Date.now(), waitUntil: (p) => ctx.waitUntil(p) });
+    return handle(req, { db, env, rooms, inboxes, fetch: (...a) => fetch(...a), now: () => Date.now(), waitUntil: (p) => ctx.waitUntil(p) });
   },
 
   /** "17 3 * * *": the library analytics roll-up for yesterday (UTC) and the retention sweeps */

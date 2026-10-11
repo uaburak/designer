@@ -12,15 +12,19 @@ interface Box {
 }
 
 function namespace<B extends Box>(make: (host: { sql: ReturnType<typeof sqliteStorage>["sql"]; transaction: (fn: () => void) => void; deleteAll: () => Promise<void> }) => B) {
-  const objects = new Map<string, { box: B; wiped: number }>();
-  const binding: ObjectNamespace = {
+  type Made = { box: B; wiped: number };
+  const objects = new Map<string, Made>();
+  /** Objects of the `eu` jurisdiction (docs/multiplayer.md §15.10): separate from the default ones */
+  const euObjects = new Map<string, Made>();
+  const failing: string[] = [];
+  const over = (map: Map<string, Made>, eu: boolean): ObjectNamespace => ({
     idFromName: (name) => name,
     get: (id) => {
       const name = id as unknown as string;
-      let o = objects.get(name);
+      let o = map.get(name);
       if (!o) {
         const storage = sqliteStorage();
-        const made = { wiped: 0 } as { box: B; wiped: number };
+        const made = { wiped: 0 } as Made;
         made.box = make({
           sql: storage.sql,
           transaction: storage.transaction,
@@ -29,13 +33,25 @@ function namespace<B extends Box>(make: (host: { sql: ReturnType<typeof sqliteSt
             dropAll(storage.sql);
           },
         });
-        objects.set(name, (o = made));
+        map.set(name, (o = made));
       }
       const box = o.box;
-      return { fetch: (req: Request) => box.fetch(req) };
+      return {
+        fetch: async (req: Request) => {
+          const at = failing.indexOf(new URL(req.url).pathname);
+          if (at >= 0) {
+            failing.splice(at, 1);
+            return new Response("injected failure", { status: 500 });
+          }
+          return box.fetch(req);
+        },
+      };
     },
-  };
-  return { binding, objects };
+    ...(eu ? {} : { jurisdiction: () => euBinding }),
+  });
+  const euBinding = over(euObjects, true);
+  const binding = over(objects, false);
+  return { binding, objects, euObjects, failNext: (path: string) => void failing.push(path) };
 }
 
 /** Every table of the object's database dropped (Cloudflare's deleteAll) */
