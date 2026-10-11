@@ -1992,7 +1992,7 @@ See `docs/roadmap.md` Phase 7 "Round 4" — open questions for the owner (IdP-in
 
 ## 16. REST API and webhooks (contract, Phase 7 round 5; written 2026-10-11)
 
-**Status: contract, not built.** This section covers Figma's public REST API (`/v1/…`, `/v2/…`) and Webhooks V2 on our Worker. The callers are the owner's and dev friends' scripts, CI, the Code Connect CLI (docs/editor.md "Dev Mode — round 5"), and anything written against Figma's API with its host swapped. Research: R18 E-1, `server/spikes/rest-images.md`. The plan: `docs/roadmap.md` "Round 5".
+**Status: the server is built (round 5a, 2026-10-11; §16.16 "As built"); the clients are round 5b's.** This section covers Figma's public REST API (`/v1/…`, `/v2/…`) and Webhooks V2 on our Worker. The callers are the owner's and dev friends' scripts, CI, the Code Connect CLI (docs/editor.md "Dev Mode — round 5"), and anything written against Figma's API with its host swapped. Research: R18 E-1, `server/spikes/rest-images.md`. The plan: `docs/roadmap.md` "Round 5".
 
 Facts below were read on developers.figma.com on 2026-10-11 (paths under `https://developers.figma.com/docs/rest-api/`):
 - **[R-auth]** `/authentication/`, `/personal-access-tokens/`, `/oauth-apps/`, `/scopes/`
@@ -2855,3 +2855,69 @@ export interface CodeConnectDoc {
 ### 16.15 Not decided here (owner)
 
 See `docs/roadmap.md` "Round 5" — open questions.
+
+### 16.16 As built — the server (round 5a, 2026-10-11)
+
+**Layout**:
+- `server/src/rest/`: `index.ts` (`restRoute`: CORS `*`, auth, scope, the plan-token gate, rate, dispatch; `HttpError`s from shared helpers become REST errors), `scopes.ts` (the route table), `rate.ts`, `signedUrl.ts`, `jobs.ts` (the Worker's side), `roomJobs.ts` (the room's side, `RestJobs`), `render.ts` (`RenderBackend`, `ClientBackend`; `serverRenderEnabled` always false), `access.ts`, `http.ts`, `uploads.ts` (thumbnail and part uploads on the private API), `files.ts`, `comments.ts`, `teams.ts`, `libraries.ts`, `variables.ts`, `devResources.ts`, `analytics.ts`, `org.ts`, `planTokens.ts`.
+- `server/src/webhooks/`: `routes.ts`, `emit.ts`, `deliver.ts`, `events.ts` (the FILE_COMMENT, FILE_VERSION_UPDATE and LIBRARY_PUBLISH builders).
+- `server/src/roomBroadcast.ts` (5c's request, below).
+
+**Dispatch in `api.ts`**: `/v1` and `/v2` at the top of `handle()` — before the private API's CORS and OPTIONS, which refuse unknown origins — with `authenticate` passed in for session Bearers; `/orgs/:org/admin/plan-tokens…`; the file switch's `thumbnail` and `rest-jobs` cases; `fileDeleted` (FILE_DELETE) before an org file's permanent delete and before stop-sharing outside orgs.
+
+**Auth**: `X-Figma-Token` or `Authorization: Bearer` with a personal access token, a plan access token (`dsgn_plan_…`) or a session (every scope). Unknown or expired: 403 `Invalid token` (Figma's). `account.ts accessToken` reads both kinds; `personalToken` (the private API's PATs) refuses plan tokens; Settings' token list and limit count personal ones only.
+
+**Errors**: `/v1/files/…` and `/v1/images/…` answer `{status, err}`; the variables routes and every other route `{status, error: true, message}`; a 429 is always `{status: 429, err: "Rate limit exceeded"}`.
+
+**Rate limits**: one multi-row `INSERT … ON CONFLICT DO UPDATE … RETURNING` per call (the minute bucket — `t1day` for low seats' Tier 1 — and `day`). The rate type is the caller's seat in the org of the file, team, folder or library named, else their best seat anywhere; plan tokens count as `org:<id>`, type high. The daily cron deletes counters older than two days.
+
+**Render jobs** (for 5b):
+- The room: `POST /room/rest-job?fileKey= {job, waitMs, wanted}` → `{ok: true, parts, cached, jobKey}` | `{ok: false, status, err}`. The job key is the SHA-1 of the canonical JSON `{kind, params, at: "s:<seq>" | "v:<version>"}`; the same key asked twice at once runs once. An unknown `version` answers 404.
+- Who: `Room.renderers()` — members whose hello said `render: true`: owners and editors idle longest first (`activeAt` moves with each accepted frame), then viewers, then **helpers**. A helper says `hello {since, render: true, helper: true}`. `helper` is read from the hello untyped: it is an addition to §16.6's protocol, and 5b may add `helper?: boolean` to `ClientControl`. `variables_post` goes to owners and editors only.
+- Each client gets 20 s (`REST_TIMING.clientMs`); the Worker waits 25.5 s. With no renderer, `{t: "rest-wanted", fileKey}` goes to the inboxes of the owner and the file's editors (`members`, role editor), once per job; then the job waits for a renderer to say hello.
+- The client uploads `PUT /files/:key/rest-jobs/:id/parts/:name` (a session; ≤ 64 MB; only the user the job went to; the room keeps the bytes by SHA-1), then sends `{t: "rest-job-done", id, parts: [{name, sha1, size, contentType}]}`. A part that doesn't match its upload makes the answer void, and the next client is asked. `{t: "rest-job-failed", id, err}`: an `err` that starts with an HTTP status and a space (`"404 Node not found"`) answers that status; otherwise 400 for `variables_post`, 500 for the others.
+- **Parts**:
+  - `images`: one part per node id (name = the id, `"1:2"`); a missing one is `null`.
+  - `variables_local`, `variables_post`: part `json`, the gzip of the whole answer (`{status, error, meta}`).
+  - **`file`, `nodes`: part `json`, the gzip of the answer's JSON text without its opening `{` and without `role`, `thumbnailUrl`, `branches` and `mainFileKey`.** The Worker writes `{"role":…,"thumbnailUrl":…,["mainFileKey":…,]["branches":[…],]` as a gzip member of its own before the cached part, so one cached render serves every caller without the Worker reading it. Callers that send `accept-encoding: gzip` get the two members as they are (`encodeBody: "manual"`); others get the text unzipped.
+- The cache: the room's `rest_cache` (job key → parts, size, created, used) and `rest_blobs` (parts by SHA-1, 1 MB rows), not the room's `blobs`, so an eviction never touches an image fill. LRU over 64 MB, 30 days. A region move doesn't copy them (a cache). `GET /room/rest-blob/:sha1` reads `rest_blobs`, then `blobs`.
+- The thumbnail: `PUT /files/:key/thumbnail` (people who can edit, a PNG ≤ 2 MB) → the room (`rest_cache` key `thumbnail`, never evicted). `thumbnailUrl` is a signed `/v1/files/:key/thumbnail`.
+
+**Signed URLs**: HMAC-SHA256 with a key derived from `SESSION_SECRET`, over `<path>:<exp>`. Renders `/v1/blobs/:key/:sha1.<format>` (30 days), image fills `/v1/blobs/:key/:sha1` (14 days, type sniffed), library thumbnails `/v1/library-blobs/:libraryKey/:sha1.png`, file thumbnails (30 days).
+
+**Routes, where they differ from the contract or it left a choice**:
+- Comments: `parent_id` is `""` on a thread's first comment; `order_id` is `null` on replies. A REST pin goes on page `"0:1"` unless `client_meta.page_id` names one (ours). About 20 common reactions map between shortcodes and characters (`rest/comments.ts`; `src/shared/comments.ts` isn't 5a's); others pass as they are. Writes go through `commentsRoute`, so the room, notifications and FILE_COMMENT follow.
+- Meta: `version` is the room's head seq; `last_touched_by` is `null` (not tracked).
+- Versions: newest first; `before` and `after` take version ids; `thumbnail_url` is `""`.
+- Folders: what `Access.container` lets the caller see — a Limited folder is listed to its team's members and its files only to its people, as on the private API.
+- Libraries: team lists page with numeric `cursor.before` / `after` (positions in the list); `containing_frame` is left out; `user` is the item's first publisher, else the library's last.
+- Published variables: `id` is `VariableID:<node_id>` / `VariableCollectionId:<node_id>` once 0015's node id is written, else the asset key.
+- Dev resources and Code Connect: `devModeRestRoute(req, url, deps, caller, ["v1", …parts])`; a plan token is refused first.
+- Activity logs: `order` defaults to asc and `limit` to 1000. AI usage: plan tokens only; `metering_period_*` is the calendar month of `day` (ours).
+- Plan tokens: the Admin routes of §16.3; `expiresInDays` 1–365; at most 50 per org.
+- REST reads of org files log `fig_file_view` with `client_name "REST API"` and `details.token_id` (the token's id, or `"session"`), once an hour.
+
+**Webhooks**:
+- `POST` accepts `context` in any case and Figma's deprecated `team_id`. Creating needs the context's rights (team admins, folder editors, file editors); plan tokens reach their own org's.
+- `GET` without `context` or `plan_api_id` lists the caller's own (ours). Pagination: `cursor` is the last id; `next_page` is a URL. In `requests`, `response_info.status` is a string (Figma's example).
+- Delivery: `deliverRows` right after the rows are queued (in `waitUntil`); retries by `sweepWebhooks` on the five-minute cron (`scheduled()` tells the crons apart by `controller.cron`). Redirects aren't followed.
+- Endpoints: https only, `http://localhost` when `DEV_AUTH=1`, no private or loopback IP literals.
+- The activity entity of webhook actions: `{type: "webhook", id, name, event_type, context, context_id}`.
+- Reach: the file and, for a branch, its main file; the folder chain; the team, when the file is Inherited and no folder on the way is Limited.
+
+**Event sources**:
+- FILE_COMMENT: `comments.ts`, threads and replies.
+- FILE_VERSION_UPDATE: `branches.ts`, `POST …/versions {kind: "named"}` and a `PATCH` naming an autosave.
+- LIBRARY_PUBLISH: `libraries/routes.ts`, one event per type (components = COMPONENT + COMPONENT_SET, styles, variables = VARIABLE), split by 200. `library_assets.node_id` comes from the manifest's `guid`; `created_at` / `created_by` are kept from the first publish; `updated_at` moves with each.
+- FILE_DELETE: `api.ts`.
+- FILE_UPDATE: `RoomBox.edited(fileUpdate)` keeps `webhookDirtyAt` and `webhookDue`; one alarm with the autosave, earliest first. The autosave now also needs `dueSince`, so a webhook alarm never takes an early autosave. `FileRoom.alarm` calls `emitFileUpdate` with its own `env.DB`. The room asks D1 whether a FILE_UPDATE webhook reaches the file at wake (async, cached 5 minutes; unknown counts as yes). The file's key is `ctx.id.name`, else the `?fileKey=` the Worker's REST calls carry.
+
+**5c's requests (built here)**:
+- `POST /room/broadcast {t: "dev-resources" | "code-connect", …}` sends a non-stored message to every member that said hello. `roomBroadcast(deps, key, t)` is called from `devmode/devResources.ts` (add, edit, remove) and `devmode/codeConnect.ts` (upsert, UI delete, CLI unpublish); clients read the links or mappings again. `ServerControl` in `protocol.ts` doesn't list them yet.
+- The room refuses changes from any role but owner and editor (it refused `viewer` only).
+
+**Not built**: `ServerBackend` (decision 7); OAuth (`/v1/oauth/*` answers 404); a claim on a webhook row while it is sent (the cron and `waitUntil` could, rarely, send one row twice).
+
+**Tests** (node:sqlite; `server/src/testing/restWorld.ts`: orgWorld + memoryRooms with `RestJobs`, fake render clients and a recording `fetch`):
+- `rest/rest.test.ts` (17): auth and scopes, plan tokens, rate limits (high, low, daily), signed URLs and the thumbnail, render order / timeout / cache / versions / helper wanted / 503 / failures, variables (shape, POST, local, published), meta and versions, comments, folders, dev resources through 5c, activity logs and AI usage, analytics.
+- `webhooks/webhooks.test.ts` (7): creation and the PING's signature, rights, endpoint rules, limits; reads, PUT, the log, DELETE, the plan listing; retries on the cron's clock and the 7-day log; FILE_COMMENT's reach through team and folder with the Limited folder left out; FILE_VERSION_UPDATE; LIBRARY_PUBLISH and the REST library reads; FILE_DELETE; FILE_UPDATE from the alarm; the broadcast and the write guard.

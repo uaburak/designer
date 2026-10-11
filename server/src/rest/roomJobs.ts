@@ -203,6 +203,7 @@ export class RestJobs {
         if (!asked && wanted.length) {
           asked = true;
           await this.host.wanted(wanted).catch(() => undefined);
+          continue; // a helper may have joined meanwhile
         }
         if (!(await this.waitRenderer(deadline))) return { ok: false, status: 503, err: "No client available to render this file. Open the file in DesignerV2 and try again." };
         continue;

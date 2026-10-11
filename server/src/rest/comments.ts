@@ -120,7 +120,7 @@ export async function commentsRestRoute(ctx: RestCtx): Promise<Response> {
   const d1 = deps.db.d1;
 
   if (parts.length === 3 && m === "GET") {
-    const { results } = await d1.prepare(`${SELECT} WHERE c.file_key = ?1 ORDER BY c.created_at, c.id`).bind(key).all<Row>();
+    const { results } = await d1.prepare(`${SELECT} WHERE c.file_key = ?1 ORDER BY c.created_at, c.rowid`).bind(key).all<Row>();
     return restJson({ comments: await toComments(ctx, key, results) });
   }
   if (parts.length === 3 && m === "POST") {

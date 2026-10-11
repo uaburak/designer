@@ -89,6 +89,7 @@ export async function addResource(deps: Deps, f: FileRow, user: User, input: { n
     .bind(id, f.key, node, name, url, user.id, now)
     .first<Row>();
   if (!r) throw new HttpError(409, DUPLICATE);
+  await (await import("../roomBroadcast")).roomBroadcast(deps, f.key, "dev-resources");
   await logDev(deps, f, user, "dev_resource_create", { node_id: node, url, name }, req);
   return toRecord(r);
 }
@@ -101,11 +102,13 @@ export async function editResource(deps: Deps, row: Row, patch: { name?: unknown
     if (dup) throw new HttpError(409, DUPLICATE);
   }
   const r = await deps.db.d1.prepare(`UPDATE dev_resources SET name = ?2, url = ?3, updated_at = ?4 WHERE id = ?1 RETURNING *`).bind(row.id, name, url, deps.now()).first<Row>();
+  await (await import("../roomBroadcast")).roomBroadcast(deps, row.file_key, "dev-resources");
   return toRecord(r!);
 }
 
 export async function removeResource(deps: Deps, f: FileRow, user: User, row: Row, req: Request | null): Promise<void> {
   await deps.db.d1.prepare(`DELETE FROM dev_resources WHERE id = ?1`).bind(row.id).run();
+  await (await import("../roomBroadcast")).roomBroadcast(deps, f.key, "dev-resources");
   await logDev(deps, f, user, "dev_resource_delete", { node_id: row.node_id, url: row.url, name: row.name }, req);
 }
 

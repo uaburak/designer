@@ -21,6 +21,7 @@ import { RoomBox } from "./roomBox";
 import { parseRoomPolicy } from "./policy/roomPolicy";
 import { RestJobs } from "./rest/roomJobs";
 import { Db } from "./db";
+import { BROADCAST_KINDS } from "./roomBroadcast";
 
 export { MAX_BLOB_BYTES } from "./roomBox";
 /** Close codes the client reads: 4001 the file stopped being shared, 4003 access changed, 4009 a snapshot replaced history. */
@@ -103,6 +104,13 @@ export class FileRoom extends DurableObject {
         this.ctx.acceptWebSocket(pair[1]);
         this.room.connect(pair[1], identity);
         return new Response(null, { status: 101, webSocket: pair[0] });
+      }
+      case "POST /room/broadcast": {
+        // Non-stored notices (roomBroadcast.ts): dev resources, Code Connect changed — open copies read them again.
+        const msg = (await req.json().catch(() => null)) as { t?: unknown } | null;
+        if (!msg || !(BROADCAST_KINDS as readonly unknown[]).includes(msg.t)) return new Response("bad notice", { status: 400 });
+        this.room.broadcastNotice(msg as { t: string });
+        return Response.json({ ok: true });
       }
       case "POST /room/notice": {
         this.room.notice((await req.json()) as Parameters<Room["notice"]>[0]);

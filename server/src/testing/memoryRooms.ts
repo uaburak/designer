@@ -11,6 +11,7 @@ import type { ObjectNamespace } from "../libraries/db";
 import { parseRoomPolicy } from "../policy/roomPolicy";
 import { RoomBox } from "../roomBox";
 import { RestJobs } from "../rest/roomJobs";
+import { BROADCAST_KINDS } from "../roomBroadcast";
 import type { RestJob } from "../../../src/shared/rest/types";
 import { sqliteStorage } from "./memoryPreviews";
 
@@ -57,7 +58,7 @@ export function memoryRooms(now: () => number): MemoryRooms {
   const all = new Map<string, MemoryRoom>();
   const calls: MemoryRooms["calls"] = [];
   const wanted: MemoryRooms["wanted"] = [];
-  let out: MemoryRooms;
+  const out = {} as MemoryRooms;
   const make = (key: string): MemoryRoom => {
     const storage = sqliteStorage();
     const made: MemoryRoom = { members: [], alarm: null } as unknown as MemoryRoom;
@@ -144,6 +145,12 @@ export function memoryRooms(now: () => number): MemoryRooms {
         const res = await get(key).rest.fetch(new Request(url, { method: init.method, headers, body: init.body as RequestInit["body"] }));
         return res ?? new Response("not found", { status: 404 });
       }
+      if (url.pathname === "/room/broadcast") {
+        const msg = JSON.parse(String(init.body)) as { t: string };
+        if (!(BROADCAST_KINDS as readonly string[]).includes(msg.t)) return new Response("bad notice", { status: 400 });
+        get(key).room.broadcastNotice(msg);
+        return Response.json({ ok: true });
+      }
       if (url.pathname === "/room" && init.method === "DELETE") {
         all.delete(key);
         return Response.json({ ok: true });
@@ -163,7 +170,7 @@ export function memoryRooms(now: () => number): MemoryRooms {
       return res ?? new Response("not found", { status: 404 });
     },
   };
-  out = { rooms, get, join, send, say, calls, wanted };
+  Object.assign(out, { rooms, get, join, send, say, calls, wanted });
   return out;
 }
 

@@ -393,3 +393,16 @@ Acceptance (verified with `scripts/drive.mjs` on the built demo app): launch →
     - The Worker sends `x-role: viewer` for prototype-only (room.ts treats any other role as a writer).
     - Prototype invitations don't go through the org's guest policy.
     - 5a must run `devModeRestRoute` after its scope checks. `parts` may keep the leading `v1`.
+- 2026-10-11 — **Phase 7 round 5a, REST server** (branch `worktree-agent-a9d19bc00f589c4e0`; `docs/multiplayer.md` §16.16 "As built").
+  - **Built**:
+    - Every `/v1` and `/v2` route of §16.7 in `server/src/rest/`: auth by `X-Figma-Token` or Bearer, scopes, tiers, rate limits in D1 with Figma's headers, Figma's error shapes, CORS `*`, signed blob URLs.
+    - Plan access tokens (`/orgs/:org/admin/plan-tokens`).
+    - Render jobs on the room (`RestJobs`): editor › viewer › helper, 20 s each, a cache by room state, `rest-wanted` through inboxes, the 503; the thumbnail and part uploads. `REST_SERVER_RENDER` stays off (not built).
+    - Webhooks V2 (`server/src/webhooks/`): the routes, PING, the HMAC header, retries on a five-minute cron, the 7-day log; FILE_COMMENT, FILE_VERSION_UPDATE, LIBRARY_PUBLISH (with `library_assets.node_id` and dates), FILE_DELETE, and FILE_UPDATE from the room's alarm.
+    - 5c's requests: `POST /room/broadcast` (`dev-resources`, `code-connect`, hooked in `devmode/`) and the room refusing writes from any role but owner and editor. The first two "Open" items of 5c's entry above are closed.
+  - **For 5b**: the job protocol and the parts are in §16.16. The `file` / `nodes` part is the JSON **without its opening `{`** and without `role`, `thumbnailUrl`, `branches` and `mainFileKey`. The hidden helper says `hello {render: true, helper: true}`. A failure may start with a status (`"404 …"`).
+  - **For 5g / 5h**: plan tokens are `AccessTokenInfo` with `kind: "plan"`, from `GET /orgs/:org/admin/plan-tokens`. `POST` takes `{description, expiresInDays: 1–365, scopes ⊆ PLAN_TOKEN_SCOPES}` and answers `{token, info}`, once.
+  - **Deploy (pending, the owner)**: migration **0015** (`npm --prefix server run db:migrate`); the new cron `*/5 * * * *` in `wrangler.jsonc` (a deploy picks it up). No new Durable Object class, wrangler migration tag or secret (signed URLs derive from `SESSION_SECRET`).
+  - **Verified**: `npm run check` (200 files, 1691 tests; new: `rest/rest.test.ts` 17, `webhooks/webhooks.test.ts` 7) and `npm --prefix server run typecheck`. Not run against `wrangler dev` (no client renders before 5b); `encodeBody: "manual"` and the two-member gzip are untested on workerd.
+  - **Shared-file edits outside the row**: `server/src/devmode/devResources.ts` and `codeConnect.ts` (one `roomBroadcast` line per write, at 5c's request), `server/src/roomBroadcast.ts` (new).
+  - **Open**: a delivery row has no claim while it is sent (the cron and `waitUntil` could send one twice in the same minute); `protocol.ts` doesn't type `hello.helper` or the broadcast messages.

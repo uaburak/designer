@@ -104,7 +104,7 @@ export class Room {
   renderers(opts: { canEdit?: boolean } = {}): Connection[] {
     const tier = (m: MemberState) => (m.helper ? 2 : m.role === "viewer" ? 1 : 0);
     return [...this.members]
-      .filter(([, m]) => m.sessionID && m.render && (!opts.canEdit || m.role !== "viewer"))
+      .filter(([, m]) => m.sessionID && m.render && (!opts.canEdit || m.role === "owner" || m.role === "editor"))
       .sort(([, a], [, b]) => tier(a) - tier(b) || (a.activeAt ?? 0) - (b.activeAt ?? 0))
       .map(([c]) => c);
   }
@@ -167,7 +167,8 @@ export class Room {
       return;
     }
     if (!m.sessionID) return this.fail(conn, "unauthorized", "hello first");
-    if (m.role === "viewer") return this.fail(conn, "forbidden", "viewers can't edit");
+    // Only owners and editors write (defense in depth: any other level — viewer, prototype-only — is refused)
+    if (m.role !== "owner" && m.role !== "editor") return this.fail(conn, "forbidden", "viewers can't edit");
     if (data.length > MAX_FRAME_BYTES) return this.fail(conn, "too-large", "frame over the limit");
     const up = decodeChangesUp(data);
     if (!up) return this.fail(conn, "bad-frame", "unknown binary frame");
@@ -200,6 +201,12 @@ export class Room {
       if (!m.sessionID) continue;
       if (n.kind === "access-request" ? m.role !== "viewer" : m.userId === n.userId) c.send(text);
     }
+  }
+
+  /** A non-stored notice to every member that said hello (`{t: "dev-resources"}`, `{t: "code-connect"}`: read them again) */
+  broadcastNotice(msg: { t: string } & Record<string, unknown>): void {
+    const text = JSON.stringify(msg);
+    for (const [c, m] of this.members) if (m.sessionID) c.send(text);
   }
 
   /** The org changed cursor chat or audio: every member's state takes it, and those that said hello are told. */

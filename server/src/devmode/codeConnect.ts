@@ -109,6 +109,7 @@ async function upsert(deps: Deps, key: string, user: User, i: UpsertInput): Prom
     )
     .bind(key, i.node, i.label, i.language, i.origin, i.source, i.component, i.template, JSON.stringify(i.imports), i.nestable ? 1 : 0, i.instructions, user.id, deps.now())
     .first<Row>();
+  await (await import("../roomBroadcast")).roomBroadcast(deps, key, "code-connect");
   return toMapping(r!);
 }
 
@@ -160,6 +161,7 @@ export async function codeConnectRoute(req: Request, url: URL, deps: Deps, user:
     if (!existing) throw new HttpError(404, "no such mapping");
     if (existing.origin === "cli") throw new HttpError(409, "this mapping was published from the CLI; unpublish it there");
     await deps.db.d1.prepare(`DELETE FROM code_connect WHERE file_key = ?1 AND node_id = ?2 AND label = ?3`).bind(f.key, node, label).run();
+    await (await import("../roomBroadcast")).roomBroadcast(deps, f.key, "code-connect");
     await logDev(deps, f, user, "code_connect_unpublish", { node_id: node, label, origin: "ui" }, req);
     return noContent();
   }
@@ -319,6 +321,7 @@ export async function unpublishDocs(req: Request, deps: Deps, user: User, input:
     l.nodes.push(t.nodeId);
     logged.set(t.fileKey, l);
   }
+  for (const { f } of logged.values()) await (await import("../roomBroadcast")).roomBroadcast(deps, f.key, "code-connect");
   for (const { f, nodes } of logged.values()) await logDev(deps, f, user, "code_connect_unpublish", { node_ids: nodes.slice(0, 100), count: nodes.length, label, origin: "cli" }, req);
   return { removed, errors };
 }

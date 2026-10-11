@@ -94,9 +94,9 @@ export async function emitWebhook(
 export const waitOf = (deps: Deps) => (p: Promise<unknown>) => (deps.waitUntil ? deps.waitUntil(p) : void p);
 
 /** FILE_UPDATE from the room's alarm (§16.10), with the object's own D1 */
-export async function emitFileUpdate(db: Db, env: Deps["env"], fileKey: string, waitUntil: (p: Promise<unknown>) => void): Promise<void> {
+export async function emitFileUpdate(db: Db, env: Deps["env"], fileKey: string, waitUntil: (p: Promise<unknown>) => void, fetchFn: typeof fetch = (...a) => fetch(...a)): Promise<void> {
   const f = await db.d1.prepare(`SELECT name, org_id, team_id, project_id FROM files WHERE key = ?1`).bind(fileKey).first<{ name: string; org_id: string | null; team_id: string | null; project_id: string | null }>();
   if (!f) return;
-  const deps = { db, env, now: () => Date.now(), fetch: (...a: Parameters<typeof fetch>) => fetch(...a), rooms: { fetch: async () => new Response(null, { status: 404 }) } } as Deps;
+  const deps = { db, env, now: () => Date.now(), fetch: fetchFn, rooms: { fetch: async () => new Response(null, { status: 404 }) } } as Deps;
   await emitWebhook(deps, { event_type: "FILE_UPDATE", file_key: fileKey, file_name: f.name }, { fileKey, orgId: f.org_id, teamId: f.team_id, projectId: f.project_id }, waitUntil);
 }
