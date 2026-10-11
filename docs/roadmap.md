@@ -196,6 +196,8 @@ Round 1's main session, before the agents: commit `src/shared/org/types.ts` and 
 - **Export** (`editor/exportCore.ts`, `src/shared/exportFiles.ts`): MP4 / WebM through WebCodecs, GIF, animated SVG.
 - **Dev Mode** (`editor/devmode/`): the Motion tab.
 
+**Owner, 2026-10-11: not now** — FigJam, Slides, Buzz, Sites + Make and Weave (rounds 9–13) and round 6c's Weave tools are set aside; Draw (7) and Motion (8) stay. The schema numbers stay reserved (docs/schema.md §15).
+
 ### Rounds 9–13 — the other products (each split into engine / chrome / server, as above)
 - **9 FigJam**:
   - Stickies, shapes with text, connectors with routing, sections, tables (CSV), code blocks, stamps, washi tape, marker.
