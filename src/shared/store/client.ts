@@ -31,7 +31,7 @@ import type { AppendAck, ChangeBatch, FileKey } from "./types";
 import type { MultiplayerEvent, MultiplayerRepository } from "../multiplayer/types";
 import type { CommentsEvent, CommentsRepository } from "../comments";
 import type { NotificationsEvent, NotificationsRepository } from "../notifications";
-import type { AdminRepository, OrgEvent, OrgsRepository, ProjectsRepository, TeamsRepository } from "../org/repositories";
+import type { AdminRepository, IdentityRepository, OrgEvent, OrgsRepository, ProjectsRepository, TeamsRepository } from "../org/repositories";
 import type { BranchEvent, BranchesRepository } from "../merge/branches";
 import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "../libraries/orgTypes";
 
@@ -586,6 +586,22 @@ export class StoreClient implements StoreApi {
     usage: (key, assetKey) => this.call("analytics.usage", [key, assetKey]),
     modes: (key, collectionKey) => this.call("analytics.modes", [key, collectionKey]),
     csv: (key, query) => this.call("analytics.csv", [key, query]),
+  };
+
+  readonly identity: IdentityRepository = {
+    overview: (orgId) => this.call("identity.overview", [orgId]),
+    saveIdp: (orgId, input) => this.call("identity.saveIdp", [orgId, input]),
+    refreshIdpMetadata: (orgId) => this.call("identity.refreshIdpMetadata", [orgId]),
+    deleteIdp: (orgId) => this.call("identity.deleteIdp", [orgId]),
+    generateScimToken: (orgId) => this.call("identity.generateScimToken", [orgId]),
+    revokeScimToken: (orgId) => this.call("identity.revokeScimToken", [orgId]),
+    addDomain: (orgId, domain) => this.call("identity.addDomain", [orgId, domain]),
+    verifyDomain: (orgId, domain) => this.call("identity.verifyDomain", [orgId, domain]),
+    removeDomain: (orgId, domain) => this.call("identity.removeDomain", [orgId, domain]),
+    domainAccounts: (orgId, domain) => this.call("identity.domainAccounts", [orgId, domain]),
+    dataRegion: (orgId) => this.call("identity.dataRegion", [orgId]),
+    setDataRegion: (orgId, region) => this.call("identity.setDataRegion", [orgId, region]),
+    moveNext: (orgId) => this.call("identity.moveNext", [orgId]),
   };
 
   /** Topic `fonts` (docs/desktop.md §14.3): main refreshes its shared fonts on it */

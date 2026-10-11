@@ -3,7 +3,7 @@
  * are structured clones (Uint8Arrays are copied once, no JSON). The store sends `hello` first on every new port.
  */
 
-export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer" | "comments" | "notifications" | "orgs" | "teams" | "projects" | "admin" | "branches" | "orgLibraries" | "analytics";
+export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer" | "comments" | "notifications" | "orgs" | "teams" | "projects" | "admin" | "branches" | "orgLibraries" | "analytics" | "identity";
 export type StoreMethod = `${Repository}.${string}`;
 export type PortRole = "main" | "home" | "editor";
 /** `org`: OrgEvent (docs/multiplayer.md §14.6); `branches`: BranchEvent (docs/data.md §15.6); `fonts`: FontsEvent (docs/desktop.md §14.3) */
@@ -161,6 +161,8 @@ export const STORE_METHODS = {
   // Org libraries' settings (docs/data.md §16.3, §16.5) and library analytics (§17)
   orgLibraries: ["list", "get", "updateSettings", "setScope", "teamLibraries"],
   analytics: ["record", "orgOverview", "overview", "actions", "usage", "modes", "csv"],
+  // Identity and security (docs/multiplayer.md §15, round 4)
+  identity: ["overview", "saveIdp", "refreshIdpMetadata", "deleteIdp", "generateScimToken", "revokeScimToken", "addDomain", "verifyDomain", "removeDomain", "domainAccounts", "dataRegion", "setDataRegion", "moveNext"],
 } as const satisfies Record<Repository, readonly string[]>;
 
 /** Methods that take filesystem paths stay in main, behind native dialogs, so a renderer can never name a path. */

@@ -60,6 +60,7 @@ import { libraryServerOf, OrgLibraries, type LibraryCacheStore, type LibraryServ
 import { LibraryRouter } from "../../../../store/libraries/router";
 import { orgLibrariesRepository } from "../../../../store/libraries/orgLibraries";
 import { AnalyticsQueue, analyticsRepository } from "../../../../store/libraries/analyticsQueue";
+import { notImplementedIdentity } from "../../../../store/org/identityStub";
 import { UsageReporter } from "../../../../store/libraries/usage";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1214,6 +1215,7 @@ export class MemoryStore {
       branches: this.branches.repository(),
       orgLibraries: orgLibrariesRepository(this.libraryServer),
       analytics: analyticsRepository(this.analytics, this.libraryServer),
+      identity: notImplementedIdentity(),
     };
   }
 }

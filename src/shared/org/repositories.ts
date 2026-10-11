@@ -3,6 +3,7 @@
  * StoreApi (orgs / teams / projects / admin) and the `org` event topic; 1d's fake implements AdminRepository.
  */
 import type * as O from "./types";
+import type * as I from "./identity";
 import type { FileKey } from "../store/types";
 import type { Unsubscribe } from "../store/emitter";
 
@@ -122,3 +123,21 @@ export interface AdminRepository {
   exportCsv(orgId: string, what: "people" | "teams" | "activity", query?: unknown): Promise<string>;
 }
 
+/** Admin › Settings › Login and provisioning, domains, data storage localization (docs/multiplayer.md §15; org admins) */
+export interface IdentityRepository {
+  overview(orgId: string): Promise<I.IdentityOverview>;
+  saveIdp(orgId: string, input: I.IdpConfigInput): Promise<I.IdpConfig>;
+  refreshIdpMetadata(orgId: string): Promise<I.IdpConfig>;
+  deleteIdp(orgId: string): Promise<void>;
+  generateScimToken(orgId: string): Promise<I.ScimTokenCreated>;
+  revokeScimToken(orgId: string): Promise<void>;
+  addDomain(orgId: string, domain: string): Promise<I.OrgDomain>;
+  /** Throws a StoreError with code "domain_unverified" and `found` (the TXT values seen) when the record isn't there */
+  verifyDomain(orgId: string, domain: string): Promise<I.OrgDomain>;
+  removeDomain(orgId: string, domain: string): Promise<void>;
+  domainAccounts(orgId: string, domain: string): Promise<O.PersonRef[]>;
+  dataRegion(orgId: string): Promise<I.DataRegionStatus>;
+  setDataRegion(orgId: string, region: I.DataRegion): Promise<I.DataRegionStatus>;
+  /** Moves one file or library; call until `files.moved == files.total` and `libraries.moved == libraries.total` */
+  moveNext(orgId: string): Promise<I.DataRegionStatus>;
+}

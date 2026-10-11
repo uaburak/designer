@@ -59,6 +59,7 @@ import { libraryServerOf, OrgLibraries, type LibraryCacheStore, type LibraryServ
 import { LibraryRouter } from "./libraries/router";
 import { orgLibrariesRepository } from "./libraries/orgLibraries";
 import { AnalyticsQueue, analyticsRepository } from "./libraries/analyticsQueue";
+import { notImplementedIdentity } from "./org/identityStub";
 import { UsageReporter } from "./libraries/usage";
 
 export interface LocalStoreOptions {
@@ -853,6 +854,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     branches: s.branches.repository(),
     orgLibraries: orgLibrariesRepository(s.libraryServer),
     analytics: analyticsRepository(s.analytics, s.libraryServer),
+    identity: notImplementedIdentity(),
   };
 }
 

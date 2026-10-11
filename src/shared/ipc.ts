@@ -337,12 +337,15 @@ export interface IpcInvoke extends SharedFontsChannels {
   "agents:client-config": { args: [{ client: McpClientId }]; result: { path: string; text: string; stdio: string } };
   /** The signed-in account (docs/multiplayer.md §2); the session token stays in main */
   "account:get": { args: []; result: AccountState };
-  /** Sign in with Google in the system browser; resolves when the browser comes back (or is cancelled / times out) */
-  "account:sign-in": { args: []; result: SignInResult };
+  /** Sign in in the system browser (Google or the org's SAML SSO); resolves when the browser comes back (or is
+   *  cancelled / times out). `tenant`: straight to that org's IdP (docs/desktop.md §18.1) */
+  "account:sign-in": { args: [opts?: { tenant?: string }]; result: SignInResult };
   "account:cancel-sign-in": { args: []; result: AccountState };
   "account:sign-out": { args: []; result: AccountState };
   /** Settings: the caller's own account on the server (`/me…` only — shared/account.ts ACCOUNT_PATH); main adds the session */
   "account:request": { args: [{ method: AccountMethod; path: string; body?: unknown }]; result: AccountResponse };
+  /** The idle prompt's "Stay logged in" (docs/desktop.md §18.2) */
+  "account:stay-signed-in": { args: []; result: AccountState };
 }
 
 export interface IpcSend {
@@ -399,7 +402,12 @@ export interface IpcEvents {
   "agents:mcp-state": McpState;
   /** Signed in or out, or a sign-in started / ended */
   "account:changed": AccountState;
+  /** The idle timeout's prompt, to "home" and "editor" views (docs/desktop.md §18.2) */
+  "account:idle": IdleNotice;
 }
+
+/** The idle timeout's prompt (docs/desktop.md §18.2) */
+export type IdleNotice = { state: "warning"; logoutAt: number } | { state: "cleared" } | { state: "logged-out" };
 
 /** Which roles may use which channel (main drops anything else). */
 export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
@@ -455,6 +463,7 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "account:cancel-sign-in": ["home", "editor"],
   "account:sign-out": ["home", "editor"],
   "account:request": ["home", "editor"],
+  "account:stay-signed-in": ["home", "editor"],
 };
 
 export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {
