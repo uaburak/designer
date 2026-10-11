@@ -1,0 +1,9 @@
+// Round 1e probe — local only (wrangler dev / dry-run). Never deploy: no account_id on purpose.
+{
+  "name": "designer-spike-rest-images-probe",
+  "main": "worker.ts",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": false,
+  // Vite's ?url import in src/renderer/src/engine/fonts.ts has no meaning here
+  "alias": { "./fonts/Inter-3.19.ttf?url": "./inter-url.ts" }
+}

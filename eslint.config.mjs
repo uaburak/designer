@@ -10,6 +10,8 @@ export default defineConfig([
   globalIgnores(["out/**", "dist/**", "node_modules/**", "docs/**", "**/*.generated.ts", "src/renderer/src/engine/wasm/**", "engine/build/**", ".claude/**",
     // The multiplayer server's own install and wrangler's build output (docs/multiplayer.md).
     "server/node_modules/**", "server/.wrangler/**",
+    // Round 1e spikes: their own installs, bundles and wrangler output; tested by their own `npm test` (server/spikes/).
+    "server/spikes/**",
     // Emscripten JS libraries: macro-preprocessed, written against the glue's globals.
     "engine/src/**/library_*.js", "engine/cmake/*.js"]),
   js.configs.recommended,
