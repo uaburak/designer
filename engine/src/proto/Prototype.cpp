@@ -75,6 +75,7 @@ Action readAction(const json::Value& v) {
   a.dest = guidOf(v.get("transitionNodeID"));
   a.transition = enumOf(v.get("transitionType"), kTransitions, Transition::INSTANT);
   a.duration = num(v.get("transitionDuration"), 0.3);
+  if (const json::Value* d = v.get("transitionDurationVar"); d && d->isObject()) a.durationVar = *d;
   a.easing = enumOf(v.get("easingType"), kEasings, Easing::OUT_CUBIC);
   if (const json::Value* f = v.get("easingFunction"); f && f->isArray())
     for (auto& x : f->array) a.easingFunction.push_back(x.numberOr(0));
@@ -165,6 +166,7 @@ json::Value actionJson(const Action& a) {
   }
   put("transitionType", stringValue(transitionName(a.transition)));
   put("transitionDuration", numberValue(a.duration));
+  if (!a.durationVar.isNull()) put("transitionDurationVar", a.durationVar);
   put("easingType", stringValue(easingName(a.easing)));
   if (!a.easingFunction.empty()) {
     json::Value f;
@@ -337,6 +339,7 @@ std::vector<Interaction> interactions(const NodeProps& p) {
     if (const json::Value* e = x.get("event"); e && e->isObject()) {
       i.trigger = enumOf(e->get("interactionType"), kTriggers, Trigger::ON_CLICK);
       i.timeout = num(e->get("transitionTimeout"), 0.8);
+      if (const json::Value* d = e->get("transitionTimeoutVar"); d && d->isObject()) i.timeoutVar = *d;
       i.mediaHitTime = num(e->get("mediaHitTime"), 0);
       if (const json::Value* k = e->get("keyTrigger"); k && k->isObject())
         if (const json::Value* codes = k->get("keyCodes"); codes && codes->isArray())
@@ -445,6 +448,7 @@ json::Value toJson(const Interaction& i) {
   json::Value e = object();
   e.object.emplace_back("interactionType", stringValue(triggerName(i.trigger)));
   if (i.trigger == Trigger::AFTER_TIMEOUT) e.object.emplace_back("transitionTimeout", numberValue(i.timeout));
+  if (i.trigger == Trigger::AFTER_TIMEOUT && !i.timeoutVar.isNull()) e.object.emplace_back("transitionTimeoutVar", i.timeoutVar);
   if (i.trigger == Trigger::ON_MEDIA_HIT) e.object.emplace_back("mediaHitTime", numberValue(i.mediaHitTime));
   if (i.trigger == Trigger::ON_KEY_DOWN) {
     json::Value k = object();

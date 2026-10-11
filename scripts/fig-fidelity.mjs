@@ -63,6 +63,11 @@ const ignoreDerived = flag("--ignore-derived");
 // --view <page>,<x>,<y>,<w>,<h>,<width>: draw that region of that page (a GUID or an index among the pages) at that
 // pixel width instead, ours only (<name>.view.png): to look at areas the thumbnail doesn't show.
 const viewArg = opt("--view");
+// --geometry: also compare every real node's transform / size and every derivedSymbolData entry Figma stored with
+// ours (all pages derived, then the engine's own derived snapshot): counts off by > 0.5 px, split by kind, and the
+// worst cases (--geometry-list n, default 12). With --ignore-derived it measures our layout against Figma's.
+const geometry = flag("--geometry");
+const geometryList = Number(opt("--geometry-list", "12"));
 const files = [...argv];
 if (samples) {
   const dir = path.join(repo, "docs/research/figma/samples");
@@ -215,7 +220,7 @@ function pageMain() {
     window.__fid = {
       ready: true,
       // Loads the snapshot, shows the page, waits for fonts and images, draws the region; compares with Figma's.
-      async run({ id, page, region, thumbW, thumbH, ss, bg, figmaPng, details, inspect }) {
+      async run({ id, page, region, thumbW, thumbH, ss, bg, figmaPng, details, inspect, geometry }) {
         const out = { problems: [] };
         window.__lastId = id;
         const snapshot = new Uint8Array(await (await fetch(`/__fid/doc.bin?id=${id}`)).arrayBuffer());
@@ -334,12 +339,101 @@ function pageMain() {
         out.images = { ours: await pngOf(ours), figma: await pngOf(figma), diff: await pngOf(diff), triplet: await pngOf(trip), big: await pngOf(big) };
         out.stats = engine.stats();
         if (inspect) out.inspect = await new Function("engine", `return (async () => { ${inspect} })()`)(engine);
+        if (geometry) {
+          // Every page derived (fonts settled), then the engine's derived snapshot: compared in Node.
+          for (const pg of engine.pages()) {
+            engine.setCurrentPage(pg.guid);
+            engine.pump();
+            await fonts.settled();
+            engine.pump();
+          }
+          out.geometry = b64(engine.encodeDocumentKiwi({ derived: true }));
+        }
         return out;
       },
     };
   })().catch((e) => {
     window.__fid = { error: String(e?.stack ?? e) };
   });
+}
+
+// ---- Geometry: Figma's stored layout against ours -------------------------------------------------------------------
+
+const OFF = 0.5;
+const gkey = (g) => `${g.sessionID}:${g.localID}`;
+const pathKey = (p) => (p?.guids ?? []).map(gkey).join("/");
+// The largest difference between two (transform, size) pairs: translation and size in px, the 2×2 part × 100
+// (a rotation or flip of 1 % reads as 1 px).
+function geomDelta(a, b) {
+  let d = 0;
+  if (a.transform && b.transform)
+    for (const [k, w] of [["m02", 1], ["m12", 1], ["m00", 100], ["m01", 100], ["m10", 100], ["m11", 100]]) d = Math.max(d, Math.abs((a.transform[k] ?? 0) - (b.transform[k] ?? 0)) * w);
+  if (a.size && b.size) d = Math.max(d, Math.abs(a.size.x - b.size.x), Math.abs(a.size.y - b.size.y));
+  return d;
+}
+function compareGeometry(figma, ours, listN) {
+  const byF = new Map(figma.nodeChanges.filter((n) => n.guid).map((n) => [gkey(n.guid), n]));
+  const byO = new Map(ours.nodeChanges.filter((n) => n.guid).map((n) => [gkey(n.guid), n]));
+  // Hidden: the node or an ancestor is hidden (Figma keeps a hidden layer's geometry from when it was last shown).
+  const hiddenMemo = new Map();
+  const hidden = (n) => {
+    if (!n) return false;
+    const k = gkey(n.guid);
+    if (hiddenMemo.has(k)) return hiddenMemo.get(k);
+    hiddenMemo.set(k, false);
+    const h = n.visible === false || (n.parentIndex ? hidden(byF.get(gkey(n.parentIndex.guid))) : false);
+    hiddenMemo.set(k, h);
+    return h;
+  };
+  const internal = (n) => {
+    for (let c = n, i = 0; c && i < 500; i++) {
+      if (c.type === "CANVAS") return !!c.internalOnly;
+      c = c.parentIndex ? byF.get(gkey(c.parentIndex.guid)) : null;
+    }
+    return false;
+  };
+  const r = { nodes: 0, nodesOff: 0, nodesOffHidden: 0, offByType: {}, sublayers: 0, sublayersOff: 0, sublayersMissing: 0, worst: [] };
+  const worst = [];
+  for (const f of figma.nodeChanges) {
+    if (!f.guid || !f.transform || !f.size || f.type === "CANVAS" || f.type === "DOCUMENT") continue;
+    const o = byO.get(gkey(f.guid));
+    if (!o) continue;
+    r.nodes++;
+    const d = geomDelta(f, o);
+    if (d > OFF) {
+      r.nodesOff++;
+      const h = hidden(f);
+      if (h) r.nodesOffHidden++;
+      const t = `${f.type}${h ? " (hidden)" : ""}${internal(f) ? " (internal)" : ""}`;
+      r.offByType[t] = (r.offByType[t] ?? 0) + 1;
+      worst.push({ d, what: "node", id: gkey(f.guid), type: f.type, name: f.name, hidden: h, figma: { size: f.size, t: [f.transform.m02, f.transform.m12] }, ours: { size: o.size, t: [o.transform?.m02, o.transform?.m12] } });
+    }
+    if (f.type === "INSTANCE" && f.derivedSymbolData?.length) {
+      const mine = new Map((o.derivedSymbolData ?? []).map((e) => [pathKey(e.guidPath), e]));
+      for (const e of f.derivedSymbolData) {
+        if (!e.size && !e.transform) continue;
+        r.sublayers++;
+        const m = mine.get(pathKey(e.guidPath));
+        if (!m) {
+          r.sublayersMissing++;
+          continue;
+        }
+        const d2 = geomDelta(e, m);
+        if (d2 > OFF) {
+          r.sublayersOff++;
+          worst.push({ d: d2, what: "sublayer", id: `${gkey(f.guid)} ${pathKey(e.guidPath)}`, name: f.name, hidden: hidden(f), figma: { size: e.size, t: e.transform && [e.transform.m02, e.transform.m12] }, ours: { size: m.size, t: m.transform && [m.transform.m02, m.transform.m12] } });
+        }
+      }
+    }
+  }
+  r.worst = worst.sort((a, b) => b.d - a.d).slice(0, listN);
+  return r;
+}
+function printGeometry(g) {
+  console.log(`  geometry: nodes ${g.nodesOff} / ${g.nodes} off > ${OFF} px (${g.nodesOffHidden} hidden), sublayers ${g.sublayersOff} / ${g.sublayers} off, ${g.sublayersMissing} not derived`);
+  const types = Object.entries(g.offByType).sort((a, b) => b[1] - a[1]);
+  if (types.length) console.log(`    by type: ${types.map(([t, n]) => `${t} ${n}`).join(", ")}`);
+  for (const w of g.worst) console.log(`    ${w.d.toFixed(2).padStart(8)}  ${w.what} ${w.id} ${JSON.stringify(w.name ?? "")}${w.hidden ? " hidden" : ""}  figma ${JSON.stringify(w.figma)}  ours ${JSON.stringify(w.ours)}`);
 }
 
 // ---- Server, import, browser ----------------------------------------------------------------------------------------
@@ -528,6 +622,7 @@ try {
       figmaPng: view ? null : Buffer.from(fig.thumbnail).toString("base64"),
       details,
       inspect,
+      geometry,
     });
     docs.delete(id);
     const entry = {
@@ -555,6 +650,10 @@ try {
         : `${name.padEnd(28)} ΔE mean ${r.meanDE.toFixed(2).padStart(6)}   >10 ${pct(r.bad).padStart(7)}   >25 ${pct(r.veryBad).padStart(7)}   (${entry.size.width}×${entry.size.height}, ${entry.ms} ms)${entry.problems.length ? `  [${entry.problems.slice(0, 3).join("; ")}]` : ""}`
     );
     if (r.inspect !== undefined) console.log(JSON.stringify(r.inspect, null, 1));
+    if (r.geometry) {
+      entry.geometry = compareGeometry(msg, decodeMessage(new Uint8Array(Buffer.from(r.geometry, "base64"))), geometryList);
+      printGeometry(entry.geometry);
+    }
     if (details && r.worst) for (const c of r.worst) console.log(`    cell (${c.x},${c.y}) ΔE ${c.meanDE.toFixed(1)}  world (${c.world.x.toFixed(0)}, ${c.world.y.toFixed(0)})`);
   }
   console.log(`\n${outDir}`);

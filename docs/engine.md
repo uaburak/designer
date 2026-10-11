@@ -439,6 +439,7 @@ Math is in `double`, stored as `float`. Positions are not rounded, as in Figma (
 - Constraints don't apply:
   - inside groups (groups follow their children, §4.5);
   - when the user resizes with ⌘ held: the gesture sets `ignoreConstraints` (Figma's behaviour).
+- **Lock aspect ratio** (`targetAspectRatio`, Figma's 423, an unmodelled field read by `Layout::aspectRatio`; plugin API "targetAspectRatio": kept "when the user resizes it via auto layout, constraints, the properties panel, or on-canvas"; never on an auto-resizing text): a constraint that resizes one axis resizes the other by the ratio; in auto layout, Fill on the primary axis sets the counter length and Fill across the counter axis (stretch, the frame's counter length set) sets the primary one — the frame's Hug follows. Turning `proportionsConstrained` on through `set_props` records the layer's width : height there; off clears it (import polish, 2026-10-11).
 
 ### 4.5 Groups and boolean operations (`Groups.cpp`)
 After children change, a group-like node (`GROUP`, `FRAME+resizeToFit`, `BOOLEAN_OPERATION`):

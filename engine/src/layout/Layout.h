@@ -127,6 +127,12 @@ class Layout {
   static double gridGap(const NodeProps& p, bool column);
   static std::string gridGapBytes(bool column, double gap);
 
+  // Figma's "Lock aspect ratio" (targetAspectRatio 423, kept in NodeProps::extra): the width / height a layer keeps
+  // when auto layout, constraints, the panel or the canvas resize it; 0 when unlocked, and for a text that sizes itself
+  // (Figma: not for auto-resizing text). aspectRatioBytes: the field's kiwi bytes for a width : height.
+  static double aspectRatio(const NodeProps& p);
+  static std::string aspectRatioBytes(Vec2 ratio);
+
  private:
   // Grid auto layout (GridLayout.cpp): tracks sized and items placed for a size (hugW / hugH: that axis hugs).
   struct Grid;

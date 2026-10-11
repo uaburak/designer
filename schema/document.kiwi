@@ -322,6 +322,29 @@ message Video {
   string s3Url = 2;
 }
 
+enum ColorSpace {          // the space a colour was picked in (Paint / Effect authoredColor)
+  DEFAULT = 0;
+  SRGB = 1;
+  DISPLAY_P3 = 2;
+  HSL = 3;
+  HSB = 4;
+  OKLAB = 5;
+  OKLCH = 6;
+}
+
+message AuthoredColor {    // a colour as picked: c0..c3 in `space`'s own components
+  ColorSpace space = 1;
+  float c0 = 2;
+  float c1 = 3;
+  float c2 = 4;
+  float c3 = 5;
+}
+
+message AuthoredColorStop {
+  AuthoredColor authoredColor = 1;
+  float position = 2;
+}
+
 message Paint {
   PaintType type = 1;
   Color color = 2;                       // SOLID; fallback when colorVar cannot be resolved
@@ -354,9 +377,12 @@ message Paint {
   Vector patternSpacing = 37;            // PATTERN: "Spacing" X / Y, as a share of the tile (0.2 = 20 %)
   CodeComponentId customEffectId = 39;   // CUSTOM: the shader (a preset "By Figma": assetRef.key, docs/schema.md §5.8)
   ComponentPropAssignment[] componentPropAssignments = 40;  // CUSTOM: the shader's parameters (defID → value / varValue)
-  // Reserved field numbers (11): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  AuthoredColor authoredColor = 44;      // SOLID: the colour as picked in its own space (HSL, OKLCH…); `color` draws
+  AuthoredColorStop[] authoredStops = 45;  // gradients: the stops as picked; `stops` draw
+  // Reserved field numbers (12): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r13 = 13 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r22 = 22 [deprecated];
   byte _r24 = 24 [deprecated]; byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r33 = 33 [deprecated];
+  byte _r41 = 41 [deprecated]; byte _r42 = 42 [deprecated]; byte _r43 = 43 [deprecated];
 }
 
 enum PatternTileType {
@@ -452,10 +478,13 @@ message Effect {
   float refractionIntensity = 36;        // glass "Refraction" (0..1); "Frost" is `radius`
   CodeComponentId customEffectId = 43;   // CUSTOM: the shader (a preset "By Figma": assetRef.key, docs/schema.md §5.8)
   ComponentPropAssignment[] componentPropAssignments = 44;  // CUSTOM: the shader's parameters (defID → value / varValue)
-  // Reserved field numbers (11): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  AuthoredColor authoredColor = 56;          // `color` as picked in its own space; `color` draws
+  AuthoredColor secondaryAuthoredColor = 57; // the second colour as picked
+  // Reserved field numbers (22): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r14 = 14 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated];
   byte _r37 = 37 [deprecated]; byte _r38 = 38 [deprecated]; byte _r39 = 39 [deprecated]; byte _r40 = 40 [deprecated]; byte _r41 = 41 [deprecated];
   byte _r42 = 42 [deprecated];
+  byte _r45 = 45 [deprecated]; byte _r46 = 46 [deprecated]; byte _r47 = 47 [deprecated]; byte _r48 = 48 [deprecated]; byte _r49 = 49 [deprecated]; byte _r50 = 50 [deprecated]; byte _r51 = 51 [deprecated]; byte _r52 = 52 [deprecated]; byte _r53 = 53 [deprecated]; byte _r54 = 54 [deprecated]; byte _r55 = 55 [deprecated];
 }
 
 enum MaskType {
@@ -1118,6 +1147,7 @@ message PrototypeEvent {   // the trigger
   KeyTrigger keyTrigger = 4;
   float transitionTimeout = 6;     // "After delay" seconds
   float mediaHitTime = 7;          // ON_MEDIA_HIT: the video's time, seconds
+  VariableData transitionTimeoutVar = 8;  // "After delay" bound to a number variable (seconds)
   // Reserved field numbers (1): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r5 = 5 [deprecated];
 }
@@ -1157,8 +1187,16 @@ message PrototypeAction {
   bool transitionResetVideoPosition = 17;        // "Reset video state"
   float mediaSkipToTime = 21;                    // SKIP_TO: seconds
   float mediaSkipByAmount = 22;                  // SKIP_FORWARD / SKIP_BACKWARD: seconds
-  // Reserved field numbers (3): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  string targetVariableSetKey = 29;              // SET_VARIABLE_MODE: a library collection's key
+  bool simpleLink = 37;
+  VariableSetID variableSetTargetExtensionId = 38;  // SET_VARIABLE_MODE: the extended collection
+  bool transitionOverridesEnabled = 42;
+  bool enableJitSmartAnimate = 43;
+  VariableData transitionDurationVar = 46;       // transitionDuration bound to a number variable (seconds)
+  VariableData easingVar = 47;                   // the easing bound to a variable
+  // Reserved field numbers (15): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r14 = 14 [deprecated]; byte _r15 = 15 [deprecated]; byte _r23 = 23 [deprecated];
+  byte _r30 = 30 [deprecated]; byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r33 = 33 [deprecated]; byte _r34 = 34 [deprecated]; byte _r35 = 35 [deprecated]; byte _r36 = 36 [deprecated]; byte _r39 = 39 [deprecated]; byte _r40 = 40 [deprecated]; byte _r41 = 41 [deprecated]; byte _r44 = 44 [deprecated]; byte _r45 = 45 [deprecated];
 }
 
 message PrototypeInteraction {
@@ -1782,6 +1820,7 @@ message NodeChange {
   ConstraintType horizontalConstraint = 28;       // @own @nooverride
   ConstraintType verticalConstraint = 37;         // @own @nooverride
   bool proportionsConstrained = 151;              // "Constrain proportions"
+  OptionalVector targetAspectRatio = 423;         // "Lock aspect ratio": the width : height kept when auto layout, constraints, the panel or the canvas resize the layer; absent = unlocked
   ExportSettings[] exportSettings = 45;
   PrototypeInteraction[] prototypeInteractions = 226;
   VariableDataMap parameterConsumptionMap = 445;  // bindings of this node's fields to variables and component properties
@@ -1882,6 +1921,7 @@ message NodeChange {
   float fontSize = 21;                            // @default(12) @bind(FONT_SIZE)
   Number lineHeight = 40;                         // @default({100, PERCENT}) @bind(LINE_HEIGHT)
   Number letterSpacing = 165;                     // @default({0, PERCENT}) @bind(LETTER_SPACING)
+  float textTracking = 27;                        // Figma's legacy tracking (older texts); kept, letterSpacing draws
   float paragraphSpacing = 23;                    // @bind(PARAGRAPH_SPACING)
   float paragraphIndent = 22;                     // @bind(PARAGRAPH_INDENT)
   float listSpacing = 264;
@@ -1986,8 +2026,17 @@ message NodeChange {
   Vector overlayRelativePosition = 199;           // @nooverride
   OverlayBackgroundInteraction overlayBackgroundInteraction = 200; // @nooverride
   OverlayBackgroundAppearance overlayBackgroundAppearance = 201;   // @nooverride
-  // Reserved field numbers (796): Figma fields not kept, or reserved for future Figma fields. Never reuse.
-  byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated]; byte _r27 = 27 [deprecated]; byte _r53 = 53 [deprecated]; byte _r54 = 54 [deprecated]; byte _r55 = 55 [deprecated];
+
+  // --- Figma's layout version stamps: which of Figma's layout rules made the stored geometry. Kept through import and
+  // export (a .fig written back keeps them); the engine's own derived data is stamped by Message.derivedDataVersion.
+  string fontVersion = 202;
+  uint textUserLayoutVersion = 203;
+  uint textExplicitLayoutVersion = 396;
+  uint textBidiVersion = 279;
+  int derivedSymbolDataLayoutVersion = 196;
+  uint stackLayoutVersion = 574;
+  // Reserved field numbers (787): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated]; byte _r53 = 53 [deprecated]; byte _r54 = 54 [deprecated]; byte _r55 = 55 [deprecated];
   byte _r56 = 56 [deprecated]; byte _r57 = 57 [deprecated]; byte _r58 = 58 [deprecated]; byte _r59 = 59 [deprecated]; byte _r60 = 60 [deprecated]; byte _r61 = 61 [deprecated];
   byte _r62 = 62 [deprecated]; byte _r63 = 63 [deprecated]; byte _r64 = 64 [deprecated]; byte _r65 = 65 [deprecated]; byte _r66 = 66 [deprecated]; byte _r67 = 67 [deprecated];
   byte _r68 = 68 [deprecated]; byte _r69 = 69 [deprecated]; byte _r70 = 70 [deprecated]; byte _r71 = 71 [deprecated]; byte _r72 = 72 [deprecated]; byte _r73 = 73 [deprecated];
@@ -2005,7 +2054,7 @@ message NodeChange {
   byte _r175 = 175 [deprecated]; byte _r176 = 176 [deprecated]; byte _r177 = 177 [deprecated]; byte _r178 = 178 [deprecated]; byte _r179 = 179 [deprecated]; byte _r180 = 180 [deprecated];
   byte _r181 = 181 [deprecated]; byte _r182 = 182 [deprecated]; byte _r183 = 183 [deprecated]; byte _r185 = 185 [deprecated]; byte _r187 = 187 [deprecated]; byte _r188 = 188 [deprecated];
   byte _r189 = 189 [deprecated]; byte _r190 = 190 [deprecated]; byte _r191 = 191 [deprecated]; byte _r192 = 192 [deprecated]; byte _r193 = 193 [deprecated]; byte _r194 = 194 [deprecated];
-  byte _r196 = 196 [deprecated]; byte _r197 = 197 [deprecated]; byte _r202 = 202 [deprecated]; byte _r203 = 203 [deprecated]; byte _r204 = 204 [deprecated]; byte _r207 = 207 [deprecated];
+  byte _r197 = 197 [deprecated]; byte _r204 = 204 [deprecated]; byte _r207 = 207 [deprecated];
   byte _r208 = 208 [deprecated]; byte _r211 = 211 [deprecated]; byte _r212 = 212 [deprecated]; byte _r214 = 214 [deprecated]; byte _r216 = 216 [deprecated]; byte _r217 = 217 [deprecated];
   byte _r219 = 219 [deprecated]; byte _r220 = 220 [deprecated]; byte _r222 = 222 [deprecated]; byte _r224 = 224 [deprecated]; byte _r227 = 227 [deprecated]; byte _r228 = 228 [deprecated];
   byte _r239 = 239 [deprecated]; byte _r240 = 240 [deprecated]; byte _r241 = 241 [deprecated]; byte _r242 = 242 [deprecated]; byte _r243 = 243 [deprecated]; byte _r244 = 244 [deprecated];
@@ -2013,7 +2062,7 @@ message NodeChange {
   byte _r252 = 252 [deprecated]; byte _r253 = 253 [deprecated]; byte _r254 = 254 [deprecated]; byte _r255 = 255 [deprecated]; byte _r257 = 257 [deprecated]; byte _r258 = 258 [deprecated];
   byte _r259 = 259 [deprecated]; byte _r262 = 262 [deprecated]; byte _r263 = 263 [deprecated]; byte _r265 = 265 [deprecated]; byte _r267 = 267 [deprecated]; byte _r270 = 270 [deprecated];
   byte _r272 = 272 [deprecated]; byte _r273 = 273 [deprecated]; byte _r274 = 274 [deprecated]; byte _r275 = 275 [deprecated]; byte _r276 = 276 [deprecated]; byte _r277 = 277 [deprecated];
-  byte _r278 = 278 [deprecated]; byte _r279 = 279 [deprecated]; byte _r281 = 281 [deprecated]; byte _r282 = 282 [deprecated]; byte _r284 = 284 [deprecated]; byte _r285 = 285 [deprecated];
+  byte _r278 = 278 [deprecated]; byte _r281 = 281 [deprecated]; byte _r282 = 282 [deprecated]; byte _r284 = 284 [deprecated]; byte _r285 = 285 [deprecated];
   byte _r286 = 286 [deprecated]; byte _r287 = 287 [deprecated]; byte _r288 = 288 [deprecated]; byte _r289 = 289 [deprecated]; byte _r290 = 290 [deprecated]; byte _r291 = 291 [deprecated];
   byte _r292 = 292 [deprecated]; byte _r293 = 293 [deprecated]; byte _r301 = 301 [deprecated]; byte _r302 = 302 [deprecated]; byte _r303 = 303 [deprecated];
   byte _r304 = 304 [deprecated]; byte _r306 = 306 [deprecated]; byte _r307 = 307 [deprecated]; byte _r308 = 308 [deprecated]; byte _r309 = 309 [deprecated]; byte _r310 = 310 [deprecated];
@@ -2025,10 +2074,10 @@ message NodeChange {
   byte _r372 = 372 [deprecated]; byte _r373 = 373 [deprecated]; byte _r377 = 377 [deprecated]; byte _r378 = 378 [deprecated]; byte _r379 = 379 [deprecated]; byte _r381 = 381 [deprecated];
   byte _r382 = 382 [deprecated]; byte _r383 = 383 [deprecated]; byte _r385 = 385 [deprecated]; byte _r386 = 386 [deprecated]; byte _r387 = 387 [deprecated]; byte _r388 = 388 [deprecated];
   byte _r389 = 389 [deprecated]; byte _r390 = 390 [deprecated]; byte _r391 = 391 [deprecated]; byte _r392 = 392 [deprecated]; byte _r393 = 393 [deprecated]; byte _r394 = 394 [deprecated];
-  byte _r396 = 396 [deprecated]; byte _r397 = 397 [deprecated]; byte _r398 = 398 [deprecated]; byte _r399 = 399 [deprecated]; byte _r400 = 400 [deprecated]; byte _r401 = 401 [deprecated];
+  byte _r397 = 397 [deprecated]; byte _r398 = 398 [deprecated]; byte _r399 = 399 [deprecated]; byte _r400 = 400 [deprecated]; byte _r401 = 401 [deprecated];
   byte _r402 = 402 [deprecated]; byte _r403 = 403 [deprecated]; byte _r404 = 404 [deprecated]; byte _r405 = 405 [deprecated]; byte _r406 = 406 [deprecated]; byte _r407 = 407 [deprecated];
   byte _r408 = 408 [deprecated]; byte _r409 = 409 [deprecated]; byte _r410 = 410 [deprecated]; byte _r414 = 414 [deprecated]; byte _r417 = 417 [deprecated]; byte _r418 = 418 [deprecated];
-  byte _r419 = 419 [deprecated]; byte _r420 = 420 [deprecated]; byte _r421 = 421 [deprecated]; byte _r422 = 422 [deprecated]; byte _r423 = 423 [deprecated]; byte _r424 = 424 [deprecated];
+  byte _r419 = 419 [deprecated]; byte _r420 = 420 [deprecated]; byte _r421 = 421 [deprecated]; byte _r422 = 422 [deprecated]; byte _r424 = 424 [deprecated];
   byte _r425 = 425 [deprecated]; byte _r426 = 426 [deprecated]; byte _r427 = 427 [deprecated]; byte _r428 = 428 [deprecated]; byte _r429 = 429 [deprecated]; byte _r430 = 430 [deprecated];
   byte _r431 = 431 [deprecated]; byte _r432 = 432 [deprecated]; byte _r433 = 433 [deprecated]; byte _r434 = 434 [deprecated]; byte _r443 = 443 [deprecated]; byte _r444 = 444 [deprecated];
   byte _r451 = 451 [deprecated]; byte _r454 = 454 [deprecated]; byte _r455 = 455 [deprecated]; byte _r456 = 456 [deprecated]; byte _r457 = 457 [deprecated]; byte _r458 = 458 [deprecated];
@@ -2049,7 +2098,7 @@ message NodeChange {
   byte _r551 = 551 [deprecated]; byte _r552 = 552 [deprecated]; byte _r553 = 553 [deprecated]; byte _r554 = 554 [deprecated]; byte _r557 = 557 [deprecated];
   byte _r558 = 558 [deprecated]; byte _r559 = 559 [deprecated]; byte _r560 = 560 [deprecated]; byte _r561 = 561 [deprecated]; byte _r562 = 562 [deprecated]; byte _r563 = 563 [deprecated];
   byte _r564 = 564 [deprecated]; byte _r565 = 565 [deprecated]; byte _r566 = 566 [deprecated]; byte _r567 = 567 [deprecated]; byte _r568 = 568 [deprecated]; byte _r569 = 569 [deprecated];
-  byte _r570 = 570 [deprecated]; byte _r571 = 571 [deprecated]; byte _r572 = 572 [deprecated]; byte _r573 = 573 [deprecated]; byte _r574 = 574 [deprecated]; byte _r575 = 575 [deprecated];
+  byte _r570 = 570 [deprecated]; byte _r571 = 571 [deprecated]; byte _r572 = 572 [deprecated]; byte _r573 = 573 [deprecated]; byte _r575 = 575 [deprecated];
   byte _r576 = 576 [deprecated]; byte _r577 = 577 [deprecated]; byte _r578 = 578 [deprecated]; byte _r579 = 579 [deprecated]; byte _r580 = 580 [deprecated]; byte _r581 = 581 [deprecated];
   byte _r582 = 582 [deprecated]; byte _r583 = 583 [deprecated]; byte _r584 = 584 [deprecated]; byte _r585 = 585 [deprecated]; byte _r586 = 586 [deprecated]; byte _r587 = 587 [deprecated];
   byte _r588 = 588 [deprecated]; byte _r589 = 589 [deprecated]; byte _r590 = 590 [deprecated]; byte _r591 = 591 [deprecated]; byte _r592 = 592 [deprecated]; byte _r593 = 593 [deprecated];
