@@ -87,4 +87,36 @@ export const codex: CliSpec = {
     logout: { kind: "command", args: ["logout"] },
   },
   install: { command: "npm install -g @openai/codex", page: "https://developers.openai.com/codex/cli" },
+  /**
+   * A one-shot AI run: `codex exec --json` in the run's empty folder, read-only, the user's MCP servers left out
+   * (`-c mcp_servers={}`), the answer's schema as a file (`--output-schema` [unverified flag]), pictures with `--image`.
+   */
+  oneShot: (o) => {
+    const model = modelArg(codex, o.model);
+    const effort = effortArg(codex, o.effort);
+    const images = o.images ?? [];
+    return {
+      args: [
+        "exec",
+        "--json",
+        "--skip-git-repo-check",
+        "--sandbox", "read-only",
+        "-c", "mcp_servers={}",
+        ...(o.schema ? ["--output-schema", "schema.json"] : []),
+        ...(effort ? ["-c", `model_reasoning_effort=${toml(effort)}`] : []),
+        ...(model ? ["-m", model] : []),
+        ...(images.length ? [`--image=${images.map((i) => i.path).join(",")}`] : []),
+        "-",
+      ],
+      stdin: `${o.system}\n\nUse no tools: answer from what is in this message.\n\n${o.prompt}`,
+      files: o.schema ? { "schema.json": JSON.stringify(o.schema) } : undefined,
+      line(line) {
+        const item = line.item as { type?: string; text?: string } | undefined;
+        if (line.type === "item.completed" && item?.type === "agent_message" && item.text) return { delta: item.text, result: item.text };
+        if (line.type === "turn.completed") return { usage: tokenUsage(line.usage) ?? undefined };
+        if (line.type === "turn.failed" || line.type === "error") return { error: text((line.error as { message?: string } | undefined)?.message) || text(line.message) || "Codex failed." };
+        return {};
+      },
+    };
+  },
 };

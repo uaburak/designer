@@ -1,5 +1,7 @@
 import { app, dialog, ipcMain, Menu, shell, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type WebContents } from "electron";
-import { DEFAULT_AI_SETTINGS } from "../shared/ai/types";
+import type { AiRunRequest, ConnectorToolPolicy } from "../shared/ai/types";
+import { cancelRun, startRun } from "./ai/host";
+import { AI_ACTIONS, aiSettings, cleanRoute, setAiSettings, setImageKey } from "./ai/settings";
 import { INVOKE_ROLES, SEND_ROLES, type IpcInvoke, type IpcSend, type NativeMenuItem, type Role } from "../shared/ipc";
 import { isFileKey } from "../shared/tabs";
 import type { McpClientId } from "../shared/agents/types";
@@ -72,6 +74,37 @@ function onInvoke<C extends keyof IpcInvoke>(channel: C, fn: (caller: Caller, ..
 }
 
 const str = (v: unknown, max = 512) => (typeof v === "string" && v.length <= max ? v : null);
+
+/** `ai:run`'s request as plain checked data (docs/ai.md §8): ≤ 8 PNGs, a JSON schema of plain data. */
+function aiRunRequest(r: AiRunRequest): AiRunRequest {
+  const runId = str(r?.runId, 100);
+  if (!runId) throw new Error("ai:run: a runId");
+  if (!AI_ACTIONS.includes(r.action)) throw new Error("ai:run: unknown action");
+  const prompt = str(r.prompt, 400_000);
+  const system = str(r.system, 100_000);
+  if (prompt === null || system === null) throw new Error("ai:run: a system prompt and a prompt");
+  const images = (Array.isArray(r.images) ? r.images : []).slice(0, 8).flatMap((i) => {
+    const data = str(i?.data, 12 * 1024 * 1024);
+    return data ? [{ name: str(i?.name, 200) ?? "image.png", data }] : [];
+  });
+  let schema: Record<string, unknown> | undefined;
+  if (r.schema && typeof r.schema === "object") {
+    const text = JSON.stringify(r.schema);
+    if (text.length > 200_000) throw new Error("ai:run: the schema is too large");
+    schema = JSON.parse(text) as Record<string, unknown>;
+  }
+  const max = Number(r.maxOutputTokens);
+  return {
+    runId,
+    action: r.action,
+    route: cleanRoute(r.route) ?? undefined,
+    system,
+    prompt,
+    ...(images.length ? { images } : {}),
+    ...(schema ? { schema } : {}),
+    ...(Number.isFinite(max) && max > 0 ? { maxOutputTokens: Math.min(200_000, Math.round(max)) } : {}),
+  };
+}
 const folderOf = (v: unknown) => (v === null || v === undefined ? null : str(v, 64));
 
 export function registerIpc() {
@@ -170,23 +203,40 @@ export function registerIpc() {
   onInvoke("plugins:storage", (_c, call) => plugins.clientStorage().call(call));
   // Open console: the view's own devtools (the host offers it for development plugins).
   onInvoke("plugins:open-console", ({ sender }) => sender.openDevTools({ mode: "detach" }));
-  // ── AI and connectors: stubs until round 6f / 6b (docs/ai.md §8) ──
+  // ── AI (src/main/ai, docs/ai.md §2.1–2.2) and connectors (src/main/agents/connectors.ts, §2.11) ──
   const aiNotBuilt = (): never => { throw new Error("AI isn't built yet"); };
-  onInvoke("ai:settings", () => ({ ...DEFAULT_AI_SETTINGS }));
-  onInvoke("ai:set-settings", () => ({ ...DEFAULT_AI_SETTINGS }));
-  onInvoke("ai:set-image-key", () => ({ ...DEFAULT_AI_SETTINGS }));
-  onInvoke("ai:run", aiNotBuilt);
+  onInvoke("ai:settings", () => aiSettings());
+  onInvoke("ai:set-settings", (_c, patch) => setAiSettings(patch && typeof patch === "object" ? patch : {}));
+  onInvoke("ai:set-image-key", (_c, p) => setImageKey({ provider: p?.provider, key: p?.key === null ? null : (str(p?.key, 4000) ?? null) }));
+  onInvoke("ai:run", ({ sender }, req) => startRun(sender, aiRunRequest(req)));
+  // Image runs and local models: 6b (src/main/ai/images, models.ts).
   onInvoke("ai:image", aiNotBuilt);
-  onInvoke("ai:cancel", () => undefined);
+  onInvoke("ai:cancel", ({ sender }, p) => {
+    const id = str(p?.runId, 100);
+    if (id) cancelRun(sender, id);
+  });
   onInvoke("ai:models", () => ({ info: [], state: [] }));
   onInvoke("ai:model-download", aiNotBuilt);
   onInvoke("ai:model-remove", aiNotBuilt);
-  onInvoke("agents:connectors", () => []);
-  onInvoke("agents:add-connector", aiNotBuilt);
-  onInvoke("agents:update-connector", aiNotBuilt);
-  onInvoke("agents:remove-connector", () => []);
-  onInvoke("agents:test-connector", aiNotBuilt);
-  onSend("agents:consent-answer", () => undefined);
+  onInvoke("agents:connectors", () => agents.connectors());
+  onInvoke("agents:add-connector", (_c, p) => {
+    const t = p?.transport;
+    const transport =
+      t?.kind === "http"
+        ? { kind: "http" as const, url: str(t.url, 2000) ?? "", key: str(t.key, 4000) ?? undefined }
+        : { kind: "stdio" as const, command: str(t?.kind === "stdio" ? t.command : "", 2000) ?? "", args: (t?.kind === "stdio" && Array.isArray(t.args) ? t.args : []).map((a) => str(a, 2000) ?? "").slice(0, 50) };
+    return agents.addConnector({ name: str(p?.name, 60) ?? "", transport });
+  });
+  onInvoke("agents:update-connector", (_c, p) => {
+    const policies: Record<string, ConnectorToolPolicy> = {};
+    if (p?.policies && typeof p.policies === "object") for (const [k, v] of Object.entries(p.policies).slice(0, 500)) if (k.length <= 200 && (v === "allow" || v === "ask" || v === "off")) policies[k] = v;
+    return agents.updateConnector({ id: str(p?.id, 64) ?? "", enabled: typeof p?.enabled === "boolean" ? p.enabled : undefined, policies });
+  });
+  onInvoke("agents:remove-connector", (_c, p) => agents.removeConnector(str(p?.id, 64) ?? ""));
+  onInvoke("agents:test-connector", (_c, p) => agents.testConnector(str(p?.id, 64) ?? ""));
+  onSend("agents:consent-answer", ({ sender }, p) => {
+    if (p && typeof p.reqId === "number") agents.answerConsent(sender, { reqId: p.reqId, allow: p.allow === true, remember: p.remember === true });
+  });
   onInvoke("devmode:link-title", (_c, p) => linkTitle(p?.url));
   // ── Haptics (a scrub's steps; throttled, macOS only) ──
   onSend("haptics:tick", () => void hapticTick());
@@ -312,6 +362,10 @@ function registerAgentsIpc() {
       // Checked again in main: only files in the chat's own attachments folder reach the agent.
       attachments: (Array.isArray(req.attachments) ? req.attachments.slice(0, MAX_ATTACHMENTS) : []).map((a) => ({ path: str(a?.path, 2000) ?? "", name: str(a?.name, 300) ?? "", mime: a?.mime })),
       history: (Array.isArray(req.history) ? req.history : []).slice(-40).map((m) => ({ role: m?.role === "assistant" ? "assistant" : "user", text: str(m?.text, 100_000) ?? "" })),
+      // Skills and connectors (docs/ai.md §2.10–2.11): the one run with /name in full, the others by name.
+      ...(str(req.skill?.name, 64) && str(req.skill?.instructions, 64 * 1024) !== null ? { skill: { name: req.skill!.name, instructions: req.skill!.instructions } } : {}),
+      ...(Array.isArray(req.skills) ? { skills: req.skills.slice(0, 100).flatMap((k) => (str(k?.name, 64) ? [{ name: k.name, description: str(k.description, 1024) ?? "" }] : [])) } : {}),
+      ...(Array.isArray(req.connectors) ? { connectors: req.connectors.slice(0, 50).flatMap((id) => (str(id, 64) ? [id] : [])) } : {}),
       context: {
         fileName: str(req.context?.fileName, 300) ?? "",
         pageName: str(req.context?.pageName, 300) ?? "",

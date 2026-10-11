@@ -5,6 +5,7 @@
  */
 import type { ToolContent } from "./tools";
 import type { AttachResult, TurnAttachment } from "./attachments";
+import type { Connector, ConnectorConsent, ConnectorToolPolicy } from "../ai/types";
 
 /** How a provider is driven: a CLI run headless with our MCP server, or an OpenAI-compatible chat API we bridge. */
 export type ProviderKind = "claude-code" | "antigravity" | "codex" | "cursor-agent" | "openai-compatible";
@@ -231,7 +232,16 @@ export interface AgentsApi {
   connect(client: McpClientId): Promise<ConnectResult>;
   disconnect(client: McpClientId): Promise<ConnectResult>;
   clientConfig(client: McpClientId): Promise<{ path: string; text: string; stdio: string }>;
+  // Connectors (docs/ai.md §2.11): the desktop app's; absent in a browser stand-in.
+  connectors?(): Promise<Connector[]>;
+  addConnector?(c: { name: string; transport: { kind: "http"; url: string; key?: string } | { kind: "stdio"; command: string; args: string[] } }): Promise<Connector[]>;
+  updateConnector?(p: { id: string; enabled?: boolean; policies?: Record<string, ConnectorToolPolicy> }): Promise<Connector[]>;
+  removeConnector?(id: string): Promise<Connector[]>;
+  testConnector?(id: string): Promise<Connector>;
+  /** A connector's tool wants to run (its policy is Ask): show the consent card, answer with answerConsent */
+  onConsent?(cb: (c: ConnectorConsent) => void): () => void;
+  answerConsent?(reqId: number, allow: boolean, remember?: boolean): void;
 }
 
 /** The setup half of AgentsApi (no turns, no tools): what Settings › Agents uses — Home has it too. */
-export type AgentSetupApi = Pick<AgentsApi, "providers" | "settings" | "setSettings" | "addServer" | "removeServer" | "test" | "auth" | "signIn" | "signOut" | "install" | "mcp" | "onMcpState" | "clients" | "connect" | "disconnect" | "clientConfig">;
+export type AgentSetupApi = Pick<AgentsApi, "providers" | "settings" | "setSettings" | "addServer" | "removeServer" | "test" | "auth" | "signIn" | "signOut" | "install" | "mcp" | "onMcpState" | "clients" | "connect" | "disconnect" | "clientConfig" | "connectors" | "addConnector" | "updateConnector" | "removeConnector" | "testConnector">;

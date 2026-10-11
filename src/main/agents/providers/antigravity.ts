@@ -4,7 +4,7 @@ import type { AuthState, ChatEvent, UsageWindow } from "../../../shared/agents/t
 import { SYSTEM_PROMPT } from "../../../shared/agents/prompts";
 import { MCP_SERVER_NAME } from "../../../shared/agents/tools";
 import { friendlyApiError } from "../../../shared/agents/errors";
-import { promptWithContext, promptWithHistory, text, tokenUsage, type AuthEnv, type CliModels, type CliSpec, type RunResult } from "./turns";
+import { oneShotText, promptWithContext, promptWithHistory, text, tokenUsage, type AuthEnv, type CliModels, type CliSpec, type OneShotInput, type OneShotPlan, type RunResult } from "./turns";
 
 /**
  * Google Antigravity's CLI (`agy`, antigravity.google/docs/cli): how a Google AI Pro / Ultra plan reaches the chat
@@ -143,7 +143,53 @@ function stepTool(u: Record<string, unknown>): { name: string; args?: unknown; h
 
 const firstLine = (s: string) => s.split("\n")[0].slice(0, 140) || undefined;
 
+/** This app's project for one-shot AI runs (docs/ai.md §2.2): no MCP server, no commands, no web. */
+export const AGY_AI_PROJECT = "designerv2-ai";
+
+/** The one-shot project: the runs' folder (pictures are read there), every MCP server, command and web call denied. */
+export function agyAiProject(workDir: string): string {
+  return JSON.stringify(
+    {
+      id: AGY_AI_PROJECT,
+      name: "DesignerV2 AI",
+      projectResources: { resources: [{ folderUri: `file://${encodeURI(workDir)}` }] },
+      permissionGrants: { permissionGrants: { allow: [], deny: ["mcp(*)", "command(*)", "unsandboxed(*)", "read_url(*)", "execute_url(*)"] }, v2Migrated: true },
+    },
+    null,
+    2
+  );
+}
+
+/**
+ * A one-shot AI run: `agy -p` in the AI project (nothing but reading the run's own folder), slash commands off,
+ * `--json-schema` when the CLI has it; its stream's agent_response deltas are the progress, `result` the answer.
+ */
+function agyOneShot(o: OneShotInput): OneShotPlan {
+  const model = o.model && o.model !== "default" ? o.model : AGY_DEFAULT_MODEL;
+  return {
+    args: ["-p", oneShotText(o), "--output-format", "stream-json", "--model", model, "--project", AGY_AI_PROJECT, "--disable-slash-commands", ...(o.schema ? ["--json-schema", JSON.stringify(o.schema)] : [])],
+    files: { [join(o.home, ".gemini", "config", "projects", `${AGY_AI_PROJECT}.json`)]: agyAiProject(dirname(o.cwd)) },
+    line(line) {
+      if (line.event === "init") return { model: text((line.init as { model?: string } | undefined)?.model) || undefined };
+      if (line.event === "step_update") {
+        const u = (line.step_update ?? {}) as Record<string, unknown>;
+        return u.step_type === "agent_response" && text(u.text_delta) ? { delta: text(u.text_delta) } : {};
+      }
+      if (line.event !== "result") return {};
+      const r = (line.result ?? {}) as { status?: string; error?: unknown; response?: string; usage?: unknown; structured_output?: unknown };
+      const usage = tokenUsage(r.usage) ?? undefined;
+      if (r.status && r.status !== "SUCCESS") {
+        const why = typeof r.error === "string" ? r.error : text((r.error as { message?: string } | undefined)?.message);
+        return { usage, error: friendlyApiError(why) || `Antigravity stopped (${r.status}).` };
+      }
+      if (r.structured_output !== undefined && r.structured_output !== null) return { usage, json: r.structured_output, result: JSON.stringify(r.structured_output) };
+      return { usage, result: text(r.response) };
+    },
+  };
+}
+
 export const antigravity: CliSpec = {
+  oneShot: agyOneShot,
   id: "antigravity",
   label: "Antigravity (Google AI)",
   note: "Google’s agent with your Google AI plan — Gemini models and image generation.",

@@ -36,6 +36,7 @@ import type {
 } from "./ipc";
 import type { AccountMethod, AccountResponse, AccountState, SignInResult } from "./account";
 import type { AgentSetupApi, AgentsApi } from "./agents/types";
+import type { AiApi, AiSetupApi } from "./ai/api";
 import type { SharedFontScope } from "./fonts/sharedTypes";
 import type { ShortcutSettings } from "./shortcuts";
 import type { TabReport } from "./tabs";
@@ -160,6 +161,8 @@ export interface HomeApi extends DesktopCommon {
   fonts: { read(id: string): Promise<Uint8Array> } & UploadedFontsApi & SharedFontsApi;
   /** Settings › Agents: the agents' setup (no turns) */
   agents: AgentSetupApi;
+  /** Settings › AI (src/main/ai, docs/ai.md §7): the settings, image keys, local models (no runs) */
+  ai: AiSetupApi;
 }
 
 /** "Your uploaded fonts" (docs/desktop.md §14.2) */
@@ -232,6 +235,8 @@ export interface EditorApi extends DesktopCommon {
   };
   /** Agents and the MCP server (src/main/agents; docs/research/figma/R12-agents-mcp.md) */
   agents: AgentsApi;
+  /** AI (src/main/ai, docs/ai.md §2.2, §8): one-shot runs and their events, image runs, settings, local models */
+  ai: AiApi;
   /** The system clipboard's flavours a paste event can't see (docs/desktop.md §13 "Vector paste") */
   clipboard: {
     /** Vector artwork as SVG (Illustrator's SVG or PDF, any SVG), or null */

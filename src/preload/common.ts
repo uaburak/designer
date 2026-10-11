@@ -3,6 +3,7 @@ import type { IpcEvents, IpcInvoke, IpcSend, MenuStatePatch, NativeMenuItem, Ope
 import type { FilesApi, NavApi, SharedFontsApi, ViewMenuApi } from "../shared/desktop";
 import type { AccountMethod } from "../shared/account";
 import type { AgentSetupApi, McpClientId } from "../shared/agents/types";
+import type { AiSetupApi } from "../shared/ai/api";
 
 /**
  * What every role's preload shares (each preload is bundled on its own —
@@ -123,6 +124,24 @@ export function agentSetupApi(): AgentSetupApi {
     connect: (client: McpClientId) => invoke("agents:connect", { client }),
     disconnect: (client: McpClientId) => invoke("agents:disconnect", { client }),
     clientConfig: (client: McpClientId) => invoke("agents:client-config", { client }),
+    connectors: () => invoke("agents:connectors"),
+    addConnector: (c) => invoke("agents:add-connector", plain(c)),
+    updateConnector: (p) => invoke("agents:update-connector", plain(p)),
+    removeConnector: (id) => invoke("agents:remove-connector", { id: String(id) }),
+    testConnector: (id) => invoke("agents:test-connector", { id: String(id) }),
+  };
+}
+
+/** Main's AI setup (Settings › AI): plain data both ways. */
+export function aiSetupApi(): AiSetupApi {
+  return {
+    settings: () => invoke("ai:settings"),
+    setSettings: (patch) => invoke("ai:set-settings", plain(patch ?? {})),
+    setImageKey: (provider, key) => invoke("ai:set-image-key", { provider, key: key === null ? null : String(key) }),
+    models: () => invoke("ai:models"),
+    modelDownload: (id) => invoke("ai:model-download", { id }),
+    modelRemove: (id) => invoke("ai:model-remove", { id }),
+    onModelState: (cb) => on("ai:model-state", cb),
   };
 }
 

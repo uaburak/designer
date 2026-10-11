@@ -5,7 +5,13 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFile
 import { homedir } from "node:os";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import type { ToolResult } from "../../shared/agents/tools";
-import { MCP_SERVER_NAME } from "../../shared/agents/tools";
+import { MCP_SERVER_NAME, textResult } from "../../shared/agents/tools";
+import type { Connector, ConnectorConsent, ConnectorToolPolicy } from "../../shared/ai/types";
+import { ConnectorHub, type ConsentAnswer, type StoredConnector } from "./connectors";
+import { aiSettings } from "../ai/settings";
+import { ledgerBalance } from "../ai/ledger";
+import { overLimit } from "../ai/run";
+import { readyStore } from "../storeHost";
 import type { AgentSettings, ChatEvent, McpClientId, McpConnection, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnRequest, UsageInfo } from "../../shared/agents/types";
 import { cliSpec, type CliSpec } from "./providers";
 import { runCliProcess, loginUrl, type AuthEnv, type CliModels, type RunResult } from "./providers/turns";
@@ -115,6 +121,8 @@ interface Turn {
   grant?: string;
   /** Folders besides the chat's own whose pictures place_image may read (the agent's own output folder for this chat) */
   imageDirs: string[];
+  /** The connectors this turn may use (enabled ones the chat turned on) */
+  connectors: string[];
 }
 
 let server: McpServer | null = null;
@@ -185,6 +193,103 @@ function runToolInView(fileKey: string, call0: Omit<ToolCall, "reqId">): Promise
   });
 }
 
+/**
+ * Any tool of a chat or an outside client: `get_skill` answered here, a connector's tool proxied (its policy and the
+ * consent card — docs/ai.md §2.11), the rest run in the file's view.
+ */
+async function runAnyTool(fileKey: string, call: Omit<ToolCall, "reqId">): Promise<ToolResult> {
+  if (call.name === "get_skill") return getSkill(String(call.args?.name ?? ""));
+  const t = call.turnId ? turns.get(call.turnId) : undefined;
+  if (t && hub?.has(t.connectors, call.name)) return hub.call(t.connectors, call.name, call.args ?? {}, t.id);
+  return runToolInView(fileKey, call);
+}
+
+/** `get_skill {name}`: an enabled Skill's instructions, from the store (6g's skills; docs/ai.md §2.10). */
+async function getSkill(name: string): Promise<ToolResult> {
+  const wanted = name.trim().replace(/^\//, "").toLowerCase();
+  try {
+    const skills = await (await readyStore()).ai.skills();
+    const s = skills.find((k) => k.enabled && k.name === wanted);
+    if (!s) return textResult(`No enabled Skill is named “${wanted}”. The Skills you can use are listed with the message.`, true);
+    return textResult(`<skill name="${s.name}">\n${s.instructions}\n</skill>`);
+  } catch (err) {
+    return textResult(`Skills aren't available: ${err instanceof Error ? err.message : String(err)}`, true);
+  }
+}
+
+// ── Connectors (docs/ai.md §2.11): userData/agents/connectors.json, keys sealed in keys.json as "connector:<id>" ──
+
+let hub: ConnectorHub | null = null;
+let consentSeq = 0;
+const consents = new Map<number, { resolve: (a: ConsentAnswer) => void; sender: number; turnId: string; timer: ReturnType<typeof setTimeout> }>();
+
+function connectorHub(): ConnectorHub {
+  hub ??= new ConnectorHub({
+    storage: {
+      read: () => {
+        try {
+          const list = JSON.parse(readFileSync(file("connectors.json"), "utf8")) as unknown;
+          return Array.isArray(list) ? (list as StoredConnector[]) : [];
+        } catch {
+          return [];
+        }
+      },
+      write: (list) => writePrivate(file("connectors.json"), JSON.stringify(list, null, 1)),
+      key: (id) => keyOf(`connector:${id}`) ?? null,
+      setKey: (id, key) => {
+        const keys = readKeys();
+        if (key) {
+          if (!canEncrypt()) throw new Error("This computer's keychain isn't available: the key wasn't kept");
+          keys[`connector:${id}`] = seal(key);
+        } else delete keys[`connector:${id}`];
+        writePrivate(file("keys.json"), JSON.stringify(keys));
+      },
+    },
+    spawn: (cmd, args, options) => spawnCli(cmd, args, options),
+    env: () => cliEnv(),
+    cwd: file("work"),
+    ask: askConsent,
+  });
+  return hub;
+}
+
+/** Ask: the consent card in the chat of the turn that called (`agents:consent`), denied after 5 minutes unanswered. */
+function askConsent(c: Omit<ConnectorConsent, "reqId">): Promise<ConsentAnswer> {
+  const t = turns.get(c.turnId);
+  if (!t || t.sender.isDestroyed()) return Promise.resolve({ allow: false });
+  const reqId = ++consentSeq;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => settleConsent(reqId, { allow: false }), 5 * 60_000);
+    consents.set(reqId, { resolve, sender: t.sender.id, turnId: t.id, timer });
+    t.sender.send("agents:consent", { reqId, ...c } satisfies ConnectorConsent);
+  });
+}
+
+function settleConsent(reqId: number, a: ConsentAnswer) {
+  const p = consents.get(reqId);
+  if (!p) return;
+  clearTimeout(p.timer);
+  consents.delete(reqId);
+  p.resolve(a);
+}
+
+/** `agents:consent-answer` from a view: only the view the card went to may answer it. */
+export function answerConsent(sender: WebContents, a: { reqId: number; allow: boolean; remember?: boolean }) {
+  const p = consents.get(a?.reqId);
+  if (!p || p.sender !== sender.id) return;
+  settleConsent(a.reqId, { allow: a.allow === true, remember: a.allow === true && a.remember === true });
+}
+
+const denyConsents = (match: (p: { sender: number; turnId: string }) => boolean) => {
+  for (const [id, p] of consents) if (match(p)) settleConsent(id, { allow: false });
+};
+
+export const connectors = (): Connector[] => connectorHub().list();
+export const addConnector = (p: { name: string; transport: { kind: "http"; url: string; key?: string } | { kind: "stdio"; command: string; args: string[] } }) => connectorHub().add(p);
+export const updateConnector = (p: { id: string; enabled?: boolean; policies?: Record<string, ConnectorToolPolicy> }) => connectorHub().update(p);
+export const removeConnector = (id: string) => connectorHub().remove(id);
+export const testConnector = (id: string) => connectorHub().test(id);
+
 /** `agents:tool-result` from a view: only the view the call went to may answer it. */
 export function settleToolCall(sender: WebContents, r: ToolCallResult) {
   const p = pending.get(r?.reqId);
@@ -208,7 +313,8 @@ export async function startAgents(): Promise<void> {
     {
       activeFileKey,
       isOpen: (k) => !!viewFor(k),
-      runTool: (fileKey, call) => runToolInView(fileKey, call),
+      runTool: (fileKey, call) => runAnyTool(fileKey, call),
+      extraTools: (session) => connectorHub().toolsFor(session.chat?.connectors ?? []),
       onConnections: (list) => broadcast(mcpState(list)),
       version: app.getVersion(),
     },
@@ -225,6 +331,7 @@ export async function startAgents(): Promise<void> {
 
 export async function stopAgents(): Promise<void> {
   for (const t of turns.values()) stopTurn(t.id);
+  hub?.close();
   await server?.stop();
   server = null;
 }
@@ -282,6 +389,12 @@ export async function providers(fresh = false): Promise<ProviderInfo[]> {
 
 const serverOf = (id: string) => [...LOCAL_SERVERS, ...readStored().custom].find((s) => s.id === id);
 
+/** An OpenAI-compatible server's address and key, for a one-shot AI run's route (src/main/ai/host.ts); null if unknown. */
+export function serverRoute(id: string): { id: string; label: string; baseUrl: string; apiKey?: string } | null {
+  const srv = serverOf(id);
+  return srv ? { id: srv.id, label: srv.label, baseUrl: srv.baseUrl, apiKey: keyOf(srv.id) } : null;
+}
+
 export async function testProvider(id: string): Promise<{ ok: boolean; models: string[]; error?: string; version?: string }> {
   const spec = cliSpec(id);
   if (spec) {
@@ -324,13 +437,13 @@ function finishTurn(t: Turn, event?: ChatEvent) {
 }
 
 /** A chat's MCP token, bound to its file (made on its first turn). */
-function grantFor(fileKey: string, chatId: string, client: string, turnId: string): string {
+function grantFor(fileKey: string, chatId: string, client: string, turnId: string, connectors: string[]): string {
   const key = `${fileKey}/${chatId}`;
   let token = chatTokens.get(key);
   if (!token) {
-    token = server!.grantChat({ fileKey, turnId, client });
+    token = server!.grantChat({ fileKey, turnId, client, connectors });
     chatTokens.set(key, token);
-  } else server!.updateChat(token, { turnId, client });
+  } else server!.updateChat(token, { turnId, client, connectors });
   return token;
 }
 
@@ -346,28 +459,36 @@ export function forgetFile(fileKey: string) {
 export function startTurn(sender: WebContents, fileKey: string, req: TurnRequest): { turnId: string } {
   if (!server?.url) throw new Error("The agents' server isn't running");
   const turnId = randomUUID();
-  const t: Turn = { id: turnId, chatId: String(req.chatId).slice(0, 80), fileKey, sender, stopped: false, imageDirs: [] };
+  // The chat's connectors that exist and are on (docs/ai.md §2.11).
+  const known = new Set(connectorHub().list().filter((c) => c.enabled).map((c) => c.id));
+  const t: Turn = { id: turnId, chatId: String(req.chatId).slice(0, 80), fileKey, sender, stopped: false, imageDirs: [], connectors: (req.connectors ?? []).filter((id) => known.has(id)) };
   turns.set(turnId, t);
   const s = readStored();
   const providerId = String(req.providerId);
   const spec = cliSpec(providerId);
   // Only files in this chat's own attachments folder.
   const request: TurnRequest = { ...req, model: req.model ?? s.models[providerId], attachments: turnAttachments(chatDir(t.chatId), req.attachments) };
-  queueMicrotask(() => {
+  void (async () => {
+    // The credits stop (docs/ai.md §2.9): AI off, or the month's credits used up, refuses the turn.
+    const ai = aiSettings();
+    if (!ai.enabled) return finishTurn(t, { type: "error", message: "AI is turned off in Settings › AI." });
+    const over = await overLimit({ settings: () => ai, balance: ledgerBalance }, "agent");
+    if (over) return finishTurn(t, { type: "error", message: over.message });
+    if (t.stopped) return finishTurn(t);
     if (spec) runCli(t, spec, request);
     else {
       const srv = serverOf(providerId);
       if (!srv) return finishTurn(t, { type: "error", message: "Pick an agent first (the model menu under the message box)." });
-      runServer(t, srv, request);
+      await runServer(t, srv, request);
     }
-  });
+  })().catch((err) => finishTurn(t, { type: "error", message: err instanceof Error ? err.message : String(err) }));
   return { turnId };
 }
 
 function runCli(t: Turn, spec: CliSpec, req: TurnRequest) {
   const path = cliPath(spec);
   if (!path) return finishTurn(t, { type: "error", message: `${spec.label} isn't installed on this computer.` });
-  const token = grantFor(t.fileKey, t.chatId, spec.label, t.id);
+  const token = grantFor(t.fileKey, t.chatId, spec.label, t.id, t.connectors);
   t.grant = token;
   // Each chat gets its own empty folder (its CLI session's project), the turn's MCP config in it.
   const cwd = chatDir(t.chatId);
@@ -401,20 +522,22 @@ function runCli(t: Turn, spec: CliSpec, req: TurnRequest) {
   if (child) t.child = child;
 }
 
-function runServer(t: Turn, srv: { id: string; label: string; baseUrl: string }, req: TurnRequest) {
+async function runServer(t: Turn, srv: { id: string; label: string; baseUrl: string }, req: TurnRequest) {
   const abort = new AbortController();
   t.abort = abort;
   const model = req.model;
   if (!model) return finishTurn(t, { type: "error", message: `Pick a model of ${srv.label} first.` });
   emit(t, { type: "status", text: `Asking ${model} on ${srv.label}…` });
-  runOpenAiTurn({
+  const extraTools = t.connectors.length ? await connectorHub().toolsFor(t.connectors) : [];
+  return runOpenAiTurn({
     baseUrl: srv.baseUrl,
     apiKey: keyOf(srv.id),
     model,
     request: req,
     signal: abort.signal,
     emit: (e) => emit(t, e),
-    runTool: (name, args) => runToolInView(t.fileKey, { turnId: t.id, client: srv.label, name, args }),
+    extraTools,
+    runTool: (name, args) => runAnyTool(t.fileKey, { turnId: t.id, client: srv.label, name, args }),
   })
     .then(() => finishTurn(t))
     .catch((err) => finishTurn(t, t.stopped ? undefined : { type: "error", message: `${srv.label}: ${err instanceof Error ? err.message : String(err)}` }));
@@ -424,6 +547,7 @@ export function stopTurn(turnId: string) {
   const t = turns.get(turnId);
   if (!t) return;
   t.stopped = true;
+  denyConsents((p) => p.turnId === turnId);
   t.abort?.abort();
   if (t.child && t.child.exitCode === null) {
     t.child.kill("SIGINT");
@@ -434,6 +558,7 @@ export function stopTurn(turnId: string) {
 /** A view went away: its turns stop, its pending calls fail. */
 export function viewGone(sender: WebContents) {
   for (const t of turns.values()) if (t.sender === sender) stopTurn(t.id);
+  denyConsents((p) => p.sender === sender.id);
   for (const [id, p] of pending)
     if (p.sender === sender.id) {
       clearTimeout(p.timer);

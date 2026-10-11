@@ -20,6 +20,9 @@ import { asksForImage, requestedAspect } from "./activity";
 import { FADE_MS, ImagePlaceholders, placeholderArgs, placeholderTarget, reshapeTarget, targetAspect, type PlaceholderEnv } from "./imagePlaceholder";
 import { AgentTurns, EngineBusy, type TurnRecord } from "./turns";
 import type { AgentSetupHost } from "./setup";
+import { creditsFor, type AiSkill, type ConnectorConsent } from "@shared/ai/types";
+import { invokedSkill } from "@shared/ai/skillFile";
+import { getStoreClient } from "@/store";
 
 /**
  * An image the agent makes: being made, made (about to be placed), on the canvas, or not placed (an error, Stop) — or
@@ -53,6 +56,10 @@ export interface ChatMessage {
   /** The turn's step: how many layers it touched, and whether it is applied / undone / stale */
   changes?: { count: number; state: TurnRecord["state"]; overwritten?: number };
   provider?: string;
+  /** assistant: the turn's tokens (its AI credits on hover — docs/ai.md §7) */
+  usage?: TokenUsage;
+  /** user: the Skill it ran with /name */
+  skill?: string;
 }
 
 export interface Chat {
@@ -71,6 +78,8 @@ export interface Chat {
   /** (Older chats) the CLI session of `providerId` */
   resume?: string;
   messages: ChatMessage[];
+  /** The connectors turned on for this chat (docs/ai.md §2.11: enabled per chat) */
+  connectors?: string[];
 }
 
 /** The agent and model last picked in this file (a new chat starts with it). */
@@ -100,6 +109,10 @@ export interface AgentsState {
   usage: Record<string, UsageInfo | null>;
   /** What CLI aliases resolved to in their last turns ("opus" → "claude-opus-5-5"), for the short names */
   resolved: ResolvedModels;
+  /** Connectors' tools waiting for the user's answer (the consent cards), by turn */
+  consents: ConnectorConsent[];
+  /** The connectors a new chat will start with (before its first message) */
+  draftConnectors: string[];
 }
 
 const EMPTY_SETTINGS: AgentSettings = { providerId: null, models: {}, custom: [] };
@@ -167,7 +180,7 @@ export class AgentsService implements AgentSetupHost {
     this.storageKey = `designer.agents.chats.${fileId}`;
     this.choiceKey = `designer.agents.choice.${fileId}`;
     this.choice = this.loadChoice();
-    this.state = { available: !!api, view: "list", settingsItem: null, chats: this.load(), current: null, providers: [], providersLoading: false, settings: EMPTY_SETTINGS, mcp: { running: false, url: null, connections: [] }, clients: [], running: {}, usage: {}, resolved: loadResolved() };
+    this.state = { available: !!api, view: "list", settingsItem: null, chats: this.load(), current: null, providers: [], providersLoading: false, settings: EMPTY_SETTINGS, mcp: { running: false, url: null, connections: [] }, clients: [], running: {}, usage: {}, resolved: loadResolved(), consents: [], draftConnectors: [] };
     if (!this.state.chats.length) this.state.view = "chat";
     if (!api) return;
     this.offs.push(
@@ -186,6 +199,7 @@ export class AgentsService implements AgentSetupHost {
         return r;
       }),
       api.onMcpState((mcp) => this.set({ mcp })),
+      api.onConsent?.((c) => this.set({ consents: [...this.state.consents.filter((x) => x.reqId !== c.reqId), c] })) ?? (() => {}),
       this.turns.onChange((t) => this.onTurnChange(t))
     );
     void api.mcp().then((mcp) => this.set({ mcp }), () => {});
@@ -511,9 +525,15 @@ export class AgentsService implements AgentSetupHost {
     });
   }
 
-  async send(prompt: string, context: ChatMessage["context"] = this.selectionContext(), attachments: Attachment[] = []) {
+  /**
+   * Sends a message. `skills`: the user's Skills (docs/ai.md §2.10) — the first enabled one named with `/name` runs
+   * (its instructions go with the turn, its token leaves the prompt), the other enabled ones are listed for get_skill.
+   */
+  async send(prompt: string, context: ChatMessage["context"] = this.selectionContext(), attachments: Attachment[] = [], skills: readonly AiSkill[] = []) {
     const files = attachments.slice(0, MAX_ATTACHMENTS);
     const text = prompt.trim();
+    const invoked = invokedSkill(text, skills);
+    const enabled = skills.filter((s) => s.enabled).map((s) => ({ name: s.name, description: s.description }));
     if ((!text && !files.length) || !this.api) return;
     const provider = this.activeProvider();
     let chat = this.currentChat();
@@ -521,12 +541,12 @@ export class AgentsService implements AgentSetupHost {
       // The id its attachments were copied under.
       const id = this.draftId ?? uid();
       this.draftId = null;
-      chat = { id, title: (text || files.map((f) => f.name).join(", ")).slice(0, 60), updatedAt: Date.now(), providerId: provider?.id ?? null, model: provider ? this.modelOf(provider) : undefined, effort: provider ? this.effortOf(provider) : undefined, messages: [] };
-      this.set({ chats: [chat, ...this.state.chats], current: chat.id, view: "chat" });
+      chat = { id, title: (text || files.map((f) => f.name).join(", ")).slice(0, 60), updatedAt: Date.now(), providerId: provider?.id ?? null, model: provider ? this.modelOf(provider) : undefined, effort: provider ? this.effortOf(provider) : undefined, messages: [], ...(this.state.draftConnectors.length ? { connectors: this.state.draftConnectors } : {}) };
+      this.set({ chats: [chat, ...this.state.chats], current: chat.id, view: "chat", draftConnectors: [] });
     }
     const chatId = chat.id;
     if (this.state.running[chatId]) return;
-    const user: ChatMessage = { id: uid(), role: "user", text, context, ...(files.length ? { attachments: files } : {}) };
+    const user: ChatMessage = { id: uid(), role: "user", text, context, ...(files.length ? { attachments: files } : {}), ...(invoked ? { skill: invoked.skill.name } : {}) };
     const answer: ChatMessage = { id: uid(), role: "assistant", parts: [], state: "running", startedAt: Date.now(), provider: provider?.label };
     // A picture asked for: where it will land, in the chat and on the canvas, from now on (over the selected layer it fills).
     if (provider && asksForImage(text)) {
@@ -550,7 +570,10 @@ export class AgentsService implements AgentSetupHost {
         providerId: provider.id,
         model,
         ...(effort ? { effort } : {}),
-        prompt: text || (files.length === 1 ? "Look at the attached file." : "Look at the attached files."),
+        prompt: (invoked ? invoked.prompt || `Run the Skill /${invoked.skill.name}.` : text) || (files.length === 1 ? "Look at the attached file." : "Look at the attached files."),
+        ...(invoked ? { skill: { name: invoked.skill.name, instructions: invoked.skill.instructions } } : {}),
+        ...(enabled.length ? { skills: enabled } : {}),
+        ...(chat.connectors?.length ? { connectors: chat.connectors } : {}),
         history,
         resume: sessionOf(chat, provider.id),
         context: { fileName: this.ed.ui.get().fileName, pageName, selection: context ?? [] },
@@ -575,6 +598,40 @@ export class AgentsService implements AgentSetupHost {
     setTimeout(() => this.updateMessage(chat, message, (m) => (m.parts?.some(isCancelled) ? { ...m, parts: withoutCancelled(m.parts) } : m)), FADE_MS);
   }
 
+  /** A consent card's answer: Allow once, Always allow (`remember`), Deny. */
+  answerConsent(reqId: number, allow: boolean, remember = false) {
+    this.set({ consents: this.state.consents.filter((c) => c.reqId !== reqId) });
+    this.api?.answerConsent?.(reqId, allow, remember);
+  }
+
+  /** The connectors on for a chat (the "+" menu's Connectors ▸); a new chat's until its first message. */
+  chatConnectors(chatId: string | null): string[] {
+    return chatId ? (this.state.chats.find((c) => c.id === chatId)?.connectors ?? []) : this.state.draftConnectors;
+  }
+
+  toggleConnector(chatId: string | null, id: string) {
+    const now = this.chatConnectors(chatId);
+    const next = now.includes(id) ? now.filter((x) => x !== id) : [...now, id];
+    if (!chatId) this.set({ draftConnectors: next });
+    else this.updateChat(chatId, (c) => ({ ...c, connectors: next }));
+  }
+
+  /** A finished turn in the usage ledger (docs/ai.md §2.9: chat turns from their usage events); ignored until 6g's store has it. */
+  private recordUsage(target: { chat: string; message: string; providerId: string; model?: string }) {
+    const m = this.state.chats.find((c) => c.id === target.chat)?.messages.find((x) => x.id === target.message);
+    const u = m?.usage;
+    if (!u || !(u.input || u.output)) return;
+    const provider = this.state.providers.find((p) => p.id === target.providerId);
+    const fileKey = (this.ed.source as { fileKey?: string }).fileKey ?? null;
+    try {
+      void getStoreClient()
+        .ai.record({ action: "agent", providerId: target.providerId, model: target.model, input: u.input, output: u.output, images: 0, credits: creditsFor("agent", u), fileKey, orgId: null, local: provider?.kind === "openai-compatible" && /localhost|127\.0\.0\.1/.test(provider.detail ?? ""), ok: m.state !== "error" })
+        .catch(() => {});
+    } catch {
+      /* no store here (a browser stand-in) */
+    }
+  }
+
   stop(chatId: string) {
     const turnId = this.state.running[chatId];
     if (turnId && this.api) void this.api.stop(turnId);
@@ -591,7 +648,7 @@ export class AgentsService implements AgentSetupHost {
       return;
     }
     if (event.type === "usage") {
-      this.updateChat(chat, (c) => ({ ...c, tokens: addTokens(c.tokens, event.usage) }));
+      this.updateChat(chat, (c) => ({ ...c, tokens: addTokens(c.tokens, event.usage), messages: c.messages.map((m) => (m.id === message ? { ...m, usage: addTokens(m.usage, event.usage) } : m)) }));
       return;
     }
     if (event.type === "limits") {
@@ -625,7 +682,8 @@ export class AgentsService implements AgentSetupHost {
     const touched = this.touched.get(turnId)?.size ?? 0;
     const running = { ...this.state.running };
     delete running[target.chat];
-    this.set({ running });
+    this.set({ running, consents: this.state.consents.filter((c) => c.turnId !== turnId) });
+    this.recordUsage(target);
     this.updateChat(target.chat, (c) => {
       const own = c.sessions?.[target.providerId];
       return own ? { ...c, sessions: { ...c.sessions, [target.providerId]: { ...own, upTo: c.messages.length } } } : c;

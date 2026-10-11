@@ -1,7 +1,7 @@
 import type { AuthState, ChatEvent } from "../../../shared/agents/types";
 import { SYSTEM_PROMPT } from "../../../shared/agents/prompts";
 import { MCP_SERVER_NAME } from "../../../shared/agents/tools";
-import { emailIn, mcpServerEntry, modelArg, promptWithHistory, shortToolName, summarize, text, type CliSpec, type RunResult } from "./turns";
+import { emailIn, mcpServerEntry, modelArg, oneShotText, promptWithHistory, shortToolName, summarize, text, tokenUsage, type CliSpec, type RunResult } from "./turns";
 
 /**
  * Cursor's CLI agent, print mode (`cursor-agent -p --output-format stream-json`, cursor.com/docs/cli "Output format":
@@ -92,4 +92,32 @@ export const cursorAgent: CliSpec = {
     logout: { kind: "command", args: ["logout"] },
   },
   install: { command: "curl https://cursor.com/install -fsS | bash", page: "https://cursor.com/cli" },
+  /**
+   * A one-shot AI run: print mode in the run's empty folder with no MCP config, the shell and writes denied (it has no
+   * flag to turn its tools off, nor a schema flag: the schema is in the prompt and checked by the run).
+   */
+  oneShot: (o) => {
+    const model = modelArg(cursorAgent, o.model);
+    let streamed = false;
+    return {
+      args: ["-p", "--output-format", "stream-json", "--stream-partial-output", ...(model ? ["--model", model] : []), oneShotText(o)],
+      files: { ".cursor/cli.json": JSON.stringify({ permissions: { allow: [], deny: ["Shell(*)", "Write(**)"] } }) },
+      line(line) {
+        if (line.type === "assistant") {
+          const content = ((line.message as { content?: { type?: string; text?: string }[] } | undefined)?.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("");
+          if (!content) return {};
+          if (line.timestamp_ms !== undefined) {
+            streamed = true;
+            return { delta: content };
+          }
+          return streamed ? {} : { delta: content };
+        }
+        if (line.type === "result") {
+          if (line.is_error) return { error: text(line.result) || "Cursor's agent failed." };
+          return { result: text(line.result), usage: tokenUsage(line.usage) ?? undefined };
+        }
+        return {};
+      },
+    };
+  },
 };

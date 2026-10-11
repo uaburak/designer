@@ -1,7 +1,7 @@
 import type { AuthState, ChatEvent, UsageWindow } from "../../../shared/agents/types";
 import { SYSTEM_PROMPT } from "../../../shared/agents/prompts";
 import { MCP_SERVER_NAME } from "../../../shared/agents/tools";
-import { effortArg, mcpServerEntry, modelArg, promptWithContext, promptWithHistory, shortToolName, summarize, text, tokenUsage, type CliSpec, type RunResult } from "./turns";
+import { effortArg, mcpServerEntry, modelArg, promptWithContext, promptWithHistory, shortToolName, summarize, text, tokenUsage, type CliSpec, type OneShotInput, type OneShotPlan, type RunResult } from "./turns";
 
 /**
  * Claude Code (`claude -p --output-format stream-json`, docs.claude.com "CLI reference" / "Headless mode"): no
@@ -52,6 +52,56 @@ export function parseClaudeStatus(stdout: string): AuthState {
   } catch {
     return { state: "signed-out", detail: "Couldn't read “claude auth status”" };
   }
+}
+
+/**
+ * A one-shot AI run (docs/ai.md §2.2): `-p` with no tools (`--tools ""`), no MCP server (`--strict-mcp-config` and no
+ * config), no session kept (`--no-session-persistence`), the action's own system prompt in place of the agent's
+ * (`--system-prompt`), and `--json-schema` when the CLI has it (its StructuredOutput tool then answers, the result's
+ * `structured_output`). Streamed (stream-json + partial messages) for progress; pictures go inline as image blocks
+ * (`--input-format stream-json`), since there is no Read tool to open a file.
+ */
+function claudeOneShot(o: OneShotInput): OneShotPlan {
+  const model = modelArg(claudeCode, o.model);
+  const effort = effortArg(claudeCode, o.effort);
+  const images = o.images ?? [];
+  return {
+    args: [
+      "-p",
+      "--output-format", "stream-json",
+      "--verbose",
+      "--include-partial-messages",
+      "--tools", "",
+      "--strict-mcp-config",
+      "--no-session-persistence",
+      "--permission-mode", "dontAsk",
+      "--system-prompt", o.system,
+      ...(o.schema ? ["--json-schema", JSON.stringify(o.schema)] : []),
+      ...(model ? ["--model", model] : []),
+      ...(effort ? ["--effort", effort] : []),
+      ...(images.length ? ["--input-format", "stream-json"] : []),
+    ],
+    stdin: images.length
+      ? `${JSON.stringify({ type: "user", message: { role: "user", content: [...images.map((i) => ({ type: "image", source: { type: "base64", media_type: "image/png", data: i.data } })), { type: "text", text: o.prompt }] } })}\n`
+      : o.prompt,
+    line(line) {
+      if (line.type === "system" && line.subtype === "init") return { model: text(line.model) || undefined };
+      if (line.type === "stream_event") {
+        const ev = line.event as { type?: string; delta?: { type?: string; text?: string; partial_json?: string } } | undefined;
+        if (ev?.type === "content_block_delta" && ev.delta?.type === "text_delta" && ev.delta.text) return { delta: ev.delta.text };
+        if (ev?.type === "content_block_delta" && ev.delta?.type === "input_json_delta" && ev.delta.partial_json) return { delta: ev.delta.partial_json };
+        return {};
+      }
+      if (line.type !== "result") return {};
+      const usage = tokenUsage(line.usage) ?? undefined;
+      if (line.is_error || (typeof line.subtype === "string" && line.subtype.startsWith("error"))) {
+        const why = text(line.result);
+        return { usage, error: /not logged in|\/login/i.test(why) ? "Claude Code isn’t signed in on this computer. Sign in from Agent settings, then try again." : why || `Claude Code stopped (${String(line.subtype ?? line.terminal_reason)}).` };
+      }
+      if (line.structured_output !== undefined && line.structured_output !== null) return { usage, json: line.structured_output, result: JSON.stringify(line.structured_output) };
+      return { usage, result: text(line.result) };
+    },
+  };
 }
 
 export const claudeCode: CliSpec = {
@@ -146,6 +196,7 @@ export const claudeCode: CliSpec = {
     }
     return out;
   },
+  oneShot: (o) => claudeOneShot(o),
   // Its local /usage command: no model call, no session kept, no MCP servers started.
   usage: { args: ["-p", "/usage", "--output-format", "json", "--no-session-persistence", "--strict-mcp-config", "--tools", ""], parse: parseClaudeUsage },
   auth: {

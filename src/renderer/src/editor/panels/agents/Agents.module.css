@@ -262,4 +262,27 @@
   .mcpSection > div:first-child > span:first-child { flex: none; }
   .mcpSection > div:first-child > div:last-child { flex: 1 1 auto; justify-content: space-between; padding-left: var(--ds-space-1); }
   .mcpCount { color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+
+  /* Skills and connectors (docs/ai.md §2.10–2.11): a skill's instructions, a connector's tool with its policy */
+  .textArea { width: 100%; min-height: calc(var(--ds-space-4) * 8); padding: var(--ds-space-1-5) var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); color: var(--figma-color-text); font: var(--ds-font-body-medium); resize: vertical; outline: none; }
+  .textArea:focus { border-color: var(--figma-color-border-selected); }
+  .toolPolicy { display: flex; align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-control); }
+  .toolPolicyName { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-code); text-overflow: ellipsis; white-space: nowrap; }
+
+  /* The composer's `/` list: the skills whose name starts with what is typed */
+  .slashList { display: flex; flex-direction: column; max-height: calc(var(--ds-size-row) * 6); overflow-y: auto; margin: 0 calc(var(--ds-space-1) * -1); }
+  .slashItem { display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: var(--ds-space-1) var(--ds-space-1-5); border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); text-align: left; cursor: default; }
+  .slashItem:hover, .slashItem[data-active] { background: var(--figma-color-bg-hover); }
+  .slashName { font: var(--ds-font-body-medium-strong); }
+  .slashDesc { overflow: hidden; max-width: 100%; color: var(--figma-color-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
+  .connectorChip { color: var(--figma-color-text); }
+  .plus { display: inline-flex; flex: none; }
+
+  /* A connector's consent card in the chat: "Allow once", "Always allow", "Deny" */
+  .consent { display: flex; flex-direction: column; gap: var(--ds-space-2); margin: var(--ds-space-2) 0; padding: var(--ds-space-2) var(--ds-space-3); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-large); background: var(--figma-color-bg-secondary); }
+  .consentTitle { margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
+  .consentArgs { max-height: calc(var(--ds-size-row) * 5); margin: 0; overflow: auto; color: var(--figma-color-text-secondary); font: var(--ds-font-code); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+  /* A finished reply's AI credits (hover: the turn's credits) */
+  .credits { display: inline-flex; align-items: center; gap: var(--ds-space-half); margin-top: var(--ds-space-1); color: var(--figma-color-icon-tertiary); font: var(--ds-font-body-small); }
 }

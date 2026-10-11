@@ -5,12 +5,12 @@
  * Sign in / Sign out / Test connection, a line on what it is, its page.
  */
 import { useEffect, useState, type ReactNode } from "react";
-import { Button, Icon, IconButton, Select, Spinner, TextInput, cx, showToast, type IconName } from "@/ds";
+import { Button, IconButton, Select, Spinner, TextInput, cx, showToast, type IconName } from "@/ds";
 import type { AuthState, McpClientInfo, ProviderInfo } from "@shared/agents/types";
 import { modelLabel, type AgentSetupHost } from "../../agents/setup";
 import styles from "./Agents.module.css";
-
-const errorText = (err: unknown) => (err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : String(err));
+import { Block, Field, Group, Row, errorText } from "./settingsParts";
+import { ConnectorsGroup, SkillsGroup, aiSettingsPage } from "./aiSettings";
 
 const openExternal = (url: string) => {
   const d = (window as unknown as { designer?: { openExternal?: (u: string) => void } }).designer;
@@ -77,35 +77,6 @@ function Bar({ title, onBack, action }: { title: string; onBack?: () => void; ac
 
 // ---- The list -------------------------------------------------------------------------------------------------------
 
-function Group({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className={styles.group} aria-label={title}>
-      <h3 className={styles.groupTitle}>{title}</h3>
-      <div role="list">{children}</div>
-    </section>
-  );
-}
-
-type RowProps = { icon: IconName; label: string; status?: string; on?: boolean; dim?: boolean; onClick: () => void; statusProps?: Record<string, string> } & Record<`data-${string}`, string | undefined>;
-
-function Row({ icon, label, status, on, dim, onClick, statusProps, ...data }: RowProps) {
-  return (
-    <div role="listitem" className={styles.rowItem}>
-      <button type="button" className={cx(styles.row, dim && styles.rowDim)} onClick={onClick} {...data}>
-        <span className={styles.rowIcon}><Icon name={icon} /></span>
-        <span className={styles.rowLabel}>{label}</span>
-        {status && (
-          <span className={styles.rowStatus}>
-            {on && <span className={cx(styles.dot, styles.dotOn)} />}
-            <span {...statusProps}>{status}</span>
-          </span>
-        )}
-        <span className={styles.rowChevron}><Icon name="16.chevron.right" /></span>
-      </button>
-    </div>
-  );
-}
-
 function SettingsList({ service }: { service: AgentSetupHost }) {
   const state = service.get();
   const local = state.providers.filter((p) => !isCustom(p));
@@ -147,6 +118,8 @@ function SettingsList({ service }: { service: AgentSetupHost }) {
           ))}
           <Row icon="24.plus" label="Add a server" onClick={() => service.openSetting("add-server")} data-settings-row="add-server" />
         </Group>
+        <SkillsGroup service={service} />
+        <ConnectorsGroup service={service} />
         <Group title="Connect other apps">
           <Row icon="24.link" label="MCP server" status={!state.mcp.url ? "Not running" : n === 1 ? "1 connection" : `${n} connections`} on={n > 0} onClick={() => service.openSetting("mcp")} data-settings-row="mcp" />
           {state.clients.map((c) => (
@@ -184,31 +157,16 @@ function SettingsPage({ service, item }: { service: AgentSetupHost; item: string
   } else if (kind === "mcp") {
     title = "MCP server";
     body = <McpPage service={service} />;
+  } else {
+    // Skills and connectors (docs/ai.md §2.10–2.11): aiSettings.tsx
+    const page = aiSettingsPage(kind, id, service);
+    if (page) ({ title, body } = page);
   }
   return (
     <>
       <Bar title={title} onBack={back} />
       <div className={cx(styles.scroll, styles.page)}>{body}</div>
     </>
-  );
-}
-
-/** A labelled line of an item's page: "Status  ● Connected". */
-function Field({ label, children, ...data }: { label: string; children: ReactNode } & Record<`data-${string}`, string | undefined>) {
-  return (
-    <div className={styles.field} {...data}>
-      <span className={styles.fieldLabel}>{label}</span>
-      <span className={styles.fieldValue}>{children}</span>
-    </div>
-  );
-}
-
-function Block({ title, children, ...data }: { title?: string; children: ReactNode } & Record<`data-${string}`, string | undefined>) {
-  return (
-    <section className={styles.block} {...data}>
-      {title && <h3 className={styles.blockTitle}>{title}</h3>}
-      {children}
-    </section>
   );
 }
 

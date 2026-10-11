@@ -19,6 +19,8 @@ export interface OpenAiTurn {
   emit(e: ChatEvent): void;
   signal: AbortSignal;
   fetch?: typeof fetch;
+  /** Tools besides ours (the chat's connectors', proxied by runTool — docs/ai.md §2.11) */
+  extraTools?: { name: string; description: string; inputSchema: Record<string, unknown> }[];
   /** Tool rounds before the model must answer */
   maxRounds?: number;
 }
@@ -86,7 +88,7 @@ export async function runOpenAiTurn(t: OpenAiTurn): Promise<void> {
   const doFetch = t.fetch ?? fetch;
   const url = `${trimBase(t.baseUrl)}/chat/completions`;
   const messages: Msg[] = [{ role: "system", content: SYSTEM_PROMPT }, ...t.request.history.slice(-20).map((m) => ({ role: m.role, content: m.text }) as Msg), { role: "user", content: promptWithContext(t.request, "You can't open files here: ask the user about them if you need to.") }];
-  const tools = openAiTools();
+  const tools = [...openAiTools(), ...(t.extraTools ?? []).map((x) => ({ type: "function" as const, function: { name: x.name, description: x.description, parameters: x.inputSchema } }))];
   const max = t.maxRounds ?? 24;
   for (let round = 0; round <= max; round++) {
     const res = await doFetch(url, {

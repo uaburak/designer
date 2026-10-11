@@ -125,7 +125,50 @@ export interface CliSpec {
    * reads; null when it said nothing usable.
    */
   usage?: { args: string[]; parse(r: RunResult): UsageWindow[] | null };
+  /** A one-shot AI run (docs/ai.md §2.2): no tools, no MCP, no session kept — the answer as text */
+  oneShot?(o: OneShotInput): OneShotPlan;
 }
+
+/** What a one-shot run asks (src/main/ai/run.ts). */
+export interface OneShotInput {
+  system: string;
+  prompt: string;
+  /** The answer's JSON Schema, for a CLI that enforces it (Claude Code / Antigravity `--json-schema`) */
+  schema?: Record<string, unknown>;
+  model?: string;
+  effort?: string;
+  /** Pictures to look at, written as PNG files in `cwd` (their paths); Claude Code gets them inline instead */
+  images?: { name: string; path: string; data: string }[];
+  /** An empty folder of the run's own */
+  cwd: string;
+  home: string;
+}
+
+/** A one-shot run's command, and how its output reads. */
+export interface OneShotPlan {
+  args: string[];
+  stdin?: string;
+  env?: Record<string, string>;
+  /** Written before the run (relative to cwd, or absolute), mode 0600 */
+  files?: Record<string, string>;
+  /** One NDJSON line: text streamed so far (progress), and the final answer when this line carries it */
+  line(l: Record<string, unknown>): OneShotLine;
+}
+
+export interface OneShotLine {
+  delta?: string;
+  /** The answer (its text, or the CLI's structured output as JSON text) */
+  result?: string;
+  /** The CLI's structured output, already parsed */
+  json?: unknown;
+  usage?: { input: number; output: number };
+  error?: string;
+  model?: string;
+}
+
+/** A one-shot's prompt for a CLI that takes no separate system prompt: the instructions, then the request. */
+export const oneShotText = (o: Pick<OneShotInput, "system" | "prompt" | "images">) =>
+  `${o.system}\n\n${o.images?.length ? `Open these pictures (in your workspace) and use no other tool: ${o.images.map((i) => i.path).join(", ")}.` : "Use no tools: answer from what is in this message."}\n\n${o.prompt}`;
 
 /** The model flag's value, or null for the CLI's default (the spec's first model). */
 export const modelArg = (spec: Pick<CliSpec, "models">, model: string | undefined): string | null => (model && model !== spec.models[0] && model !== "default" ? model : null);
@@ -137,7 +180,19 @@ export function promptWithContext(r: TurnRequest, attachHow = "Open them to see 
     ? c.selection.map((s) => `${s.type.toLowerCase()} "${s.name}" (id ${s.id}, ${Math.round(s.width)} × ${Math.round(s.height)})`).join(", ")
     : "nothing";
   const files = attachmentsNote(r.attachments ?? [], attachHow);
-  return `[Design file "${c.fileName}", page "${c.pageName}". Selected: ${sel}.]\n${files ? `${files}\n` : ""}\n${r.prompt}`;
+  return `[Design file "${c.fileName}", page "${c.pageName}". Selected: ${sel}.]\n${files ? `${files}\n` : ""}${skillsNote(r)}\n${r.prompt}`;
+}
+
+/**
+ * The turn's Skills (docs/ai.md §2.10): the one the user ran with `/name` in full — only the first named is invoked, as
+ * in Figma — and the other enabled ones by name and description, fetched with get_skill when they fit.
+ */
+export function skillsNote(r: Pick<TurnRequest, "skill" | "skills">): string {
+  const parts: string[] = [];
+  const others = (r.skills ?? []).filter((s) => s.name !== r.skill?.name).slice(0, 100);
+  if (others.length) parts.push(`[Skills you can use — fetch one's instructions with get_skill {name} when it fits the task:\n${others.map((s) => `- ${s.name}: ${s.description.replace(/\s+/g, " ").slice(0, 300)}`).join("\n")}]`);
+  if (r.skill) parts.push(`[The user ran the Skill /${r.skill.name}. Follow its instructions for this message:\n<skill name="${r.skill.name}">\n${r.skill.instructions}\n</skill>]`);
+  return parts.length ? `${parts.join("\n")}\n` : "";
 }
 
 /** A chat without a CLI session of its own (or one started with another agent): the conversation so far, then the turn. */

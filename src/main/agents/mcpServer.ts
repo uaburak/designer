@@ -27,6 +27,15 @@ export interface ChatGrant {
   turnId: string | null;
   /** The chat's provider ("Claude Code"): what the session shows as its client */
   client: string;
+  /** The connectors this chat's turn may use (docs/ai.md §2.11): their tools are listed and proxied */
+  connectors?: string[];
+}
+
+/** A tool besides ours (a connector's, proxied — docs/ai.md §2.11). */
+export interface ExtraTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
 }
 
 export interface McpSession {
@@ -44,6 +53,8 @@ export interface McpHost {
   isOpen(fileKey: string): boolean;
   /** Runs a tool in the view that holds `fileKey` */
   runTool(fileKey: string, call: { turnId: string | null; client: string; name: string; args: Record<string, unknown> }): Promise<ToolResult>;
+  /** Tools besides ours for a session (a chat's connectors'); their calls go to `runTool` too */
+  extraTools?(session: McpSession): Promise<ExtraTool[]>;
   /** The connections changed (the right panel's count) */
   onConnections?(connections: McpConnection[]): void;
   version?: string;
@@ -265,14 +276,19 @@ export class McpServer {
       }
       case "ping":
         return ok({});
-      case "tools/list":
+      case "tools/list": {
+        const extra = await this.extraTools(session);
         return ok({
-          tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, readOnlyHint: !t.write, destructiveHint: t.name === "delete_nodes" } })),
+          tools: [
+            ...TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, readOnlyHint: !t.write, destructiveHint: t.name === "delete_nodes" } })),
+            ...extra.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
+          ],
         });
+      }
       case "tools/call": {
         const name = String(m.params?.name ?? "");
         const args = (m.params?.arguments ?? {}) as Record<string, unknown>;
-        if (!TOOL_BY_NAME.has(name)) return rpcError(m.id, -32602, `Unknown tool: ${name}`);
+        if (!TOOL_BY_NAME.has(name) && !(await this.extraTools(session)).some((t) => t.name === name)) return rpcError(m.id, -32602, `Unknown tool: ${name}`);
         if (typeof args !== "object" || Array.isArray(args)) return rpcError(m.id, -32602, "arguments must be an object");
         const result = await this.call(session, name, args);
         const { touched: _touched, ...wire } = result;
@@ -285,6 +301,12 @@ export class McpServer {
       default:
         return notification ? null : rpcError(m.id, -32601, `Method not found: ${m.method}`);
     }
+  }
+
+  /** A chat session's connectors' tools (none for outside clients); a failing host lists none. */
+  private async extraTools(session: McpSession): Promise<ExtraTool[]> {
+    if (!session.chat?.connectors?.length || !this.host.extraTools) return [];
+    return this.host.extraTools(session).catch(() => []);
   }
 
   /** A tool on the session's file (bound now if it is an outside client's first call). */

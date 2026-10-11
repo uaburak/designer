@@ -3,7 +3,9 @@ import type { EditorApi } from "../shared/desktop";
 import type { FlushReason, TabAttach } from "../shared/ipc";
 import type { AgentsApi, ToolCallResult } from "../shared/agents/types";
 import type { ShortcutSettings } from "../shared/shortcuts";
-import { agentSetupApi, common, files, forwardStorePort, invoke, nav, on, openExternal, send, sharedFontsApi, uploadedFonts, viewMenu } from "./common";
+import type { AiApi } from "../shared/ai/api";
+import type { AiImageRequest, AiRunRequest } from "../shared/ai/types";
+import { agentSetupApi, aiSetupApi, common, files, forwardStorePort, invoke, nav, on, openExternal, send, sharedFontsApi, uploadedFonts, viewMenu } from "./common";
 
 /**
  * A file tab's view (`?editor&file=<fileKey>`), or the spare editor (`?editor`
@@ -95,6 +97,7 @@ const api: EditorApi = {
   },
   // Text › Spell check: the view's own spell checker (webPreferences.spellcheck, src/main/views.ts), at most 2000 words a call.
   agents: agentsApi(),
+  ai: aiApi(),
   clipboard: {
     readVector: () => invoke("clipboard:read-vector"),
   },
@@ -147,5 +150,18 @@ function agentsApi(): AgentsApi {
         .catch((err: unknown): Omit<ToolCallResult, "reqId"> => ({ content: [{ type: "text", text: err instanceof Error ? err.message : String(err) }], isError: true }))
         .then((r) => send("agents:tool-result", { reqId: call.reqId, content: r.content, isError: r.isError, touched: r.touched }));
     }),
+  onConsent: (cb) => on("agents:consent", cb),
+  answerConsent: (reqId, allow, remember) => send("agents:consent-answer", { reqId: Number(reqId), allow: allow === true, remember: remember === true }),
+  };
+}
+
+// AI (src/main/ai, docs/ai.md §8): plain data both ways, checked again in main.
+function aiApi(): AiApi {
+  return {
+    ...aiSetupApi(),
+    run: (request) => invoke("ai:run", JSON.parse(JSON.stringify(request ?? null)) as AiRunRequest),
+    image: (request) => invoke("ai:image", JSON.parse(JSON.stringify(request ?? null)) as AiImageRequest),
+    cancel: (runId) => invoke("ai:cancel", { runId: String(runId) }),
+    onEvent: (cb) => on("ai:event", cb),
   };
 }

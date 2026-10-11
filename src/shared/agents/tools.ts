@@ -364,7 +364,21 @@ export const TOOLS: ToolDef[] = [
     inputSchema: { type: "object", properties: { nodeIds: { type: "array", items: { type: "string" } } }, required: ["nodeIds"] },
     write: false,
   },
+  {
+    name: "get_skill",
+    title: "Get skill",
+    description:
+      "A Skill's full instructions, by its name (the Skills this chat can use are listed with the message, each with its description). Fetch one when its description fits the task, then follow its instructions. Answered by the app itself — no layers are read or changed.",
+    inputSchema: { type: "object", properties: { name: { type: "string", description: "The Skill's name, as listed (lowercase, hyphens), without the /." } }, required: ["name"] },
+    write: false,
+  },
 ];
+
+/** Tools main answers itself (never sent to the editor view): `get_skill` (docs/ai.md §2.10). */
+export const MAIN_TOOLS: ReadonlySet<string> = new Set(["get_skill"]);
+
+/** A connector's tool as agents see it through our server (docs/ai.md §2.11): `‹connector›__‹tool›`. */
+export const CONNECTOR_TOOL_SEP = "__";
 
 export const TOOL_BY_NAME: ReadonlyMap<string, ToolDef> = new Map(TOOLS.map((t) => [t.name, t]));
 

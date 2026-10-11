@@ -10,6 +10,9 @@ import { Button, Dialog, EmptyState, Icon, IconButton, MenuButton, Portal, Searc
 import { readableError } from "@shared/agents/errors";
 import { MAX_ATTACHMENTS, isImageMime, type Attachment, type AttachResult } from "@shared/agents/attachments";
 import type { ProviderInfo } from "@shared/agents/types";
+import { creditsFor, type ConnectorConsent } from "@shared/ai/types";
+import { slashQuery } from "@shared/ai/skillFile";
+import { useConnectors, useSkills } from "./aiData";
 import { useEditor } from "../../controller";
 import { useTopics } from "../../hooks";
 import { agentsOf, toolLabel, type AgentsService, type Chat, type ChatMessage, type ImagePart, type MessagePart } from "../../agents/service";
@@ -212,6 +215,7 @@ function ChatView({ service, chat }: { service: AgentsService; chat: Chat | null
         ) : (
           chat.messages.map((m) => (m.role === "user" ? <UserMessage key={m.id} m={m} /> : <AgentMessage key={m.id} m={m} service={service} />))
         )}
+        {running && chat && state.consents.filter((c) => c.turnId === state.running[chat.id]).map((c) => <ConsentCard key={c.reqId} c={c} service={service} />)}
       </div>
       <Composer service={service} chat={chat} running={running} />
     </div>
@@ -280,6 +284,42 @@ function AgentMessage({ m, service }: { m: ChatMessage; service: AgentsService }
       {m.error && <div className={styles.error} role="alert">{m.error}</div>}
       {m.state === "stopped" && <div className={styles.stopped}>Stopped</div>}
       {m.changes && m.turnId && <Changes turnId={m.turnId} changes={m.changes} service={service} />}
+      {m.usage && m.state !== "running" && <Credits usage={m.usage} />}
+    </div>
+  );
+}
+
+/** A finished reply's AI credits icon: the turn's credits on hover (docs/ai.md §7, Figma's agent prompt). */
+function Credits({ usage }: { usage: NonNullable<ChatMessage["usage"]> }) {
+  const credits = creditsFor("agent", usage);
+  const label = `${credits.toLocaleString("en-US")} AI ${credits === 1 ? "credit" : "credits"} · ${formatTokens(usage.input + usage.output)} tokens`;
+  return (
+    <span className={styles.credits} aria-label={label} {...tooltipProps(label)} data-credits={credits}>
+      <Icon name="16.sparkle" />
+    </span>
+  );
+}
+
+/** A connector's tool asks to run (its policy is Ask): "Allow once", "Always allow", "Deny" (docs/ai.md §2.11). */
+function ConsentCard({ c, service }: { c: ConnectorConsent; service: AgentsService }) {
+  const args = JSON.stringify(c.args ?? {}, null, 1);
+  return (
+    <div className={styles.consent} role="alertdialog" aria-label={`${c.connector} wants to use ${c.tool}`} data-consent={c.reqId}>
+      <p className={styles.consentTitle}>
+        {c.connector} wants to use {c.tool}
+      </p>
+      {args !== "{}" && <pre className={styles.consentArgs}>{args.slice(0, 2000)}</pre>}
+      <div className={styles.actions}>
+        <Button variant="primary" onClick={() => service.answerConsent(c.reqId, true)} data-consent-once="">
+          Allow once
+        </Button>
+        <Button variant="secondary" onClick={() => service.answerConsent(c.reqId, true, true)} data-consent-always="">
+          Always allow
+        </Button>
+        <Button variant="secondary" onClick={() => service.answerConsent(c.reqId, false)} data-consent-deny="">
+          Deny
+        </Button>
+      </div>
     </div>
   );
 }
@@ -528,16 +568,71 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
       )
       .finally(() => setAdding((n) => n - 1));
   };
+  // Skills (`/name`, the "+" menu's Skills ▸) and the chat's connectors (Connectors ▸) — docs/ai.md §2.10–2.11.
+  const { list: skills } = useSkills();
+  const { list: allConnectors } = useConnectors(service.api);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const [caret, setCaret] = useState(0);
+  const [slashActive, setSlashActive] = useState(0);
+  const [slashClosed, setSlashClosed] = useState<string | null>(null);
+  const slash = slashQuery(text, caret);
+  const slashMatches = slash && slashClosed !== text ? skills.filter((s) => s.enabled && s.name.startsWith(slash.query)).slice(0, 8) : [];
+  const on = service.chatConnectors(chatId);
+  const chatConnectors = allConnectors.filter((c) => c.enabled && on.includes(c.id));
+  const pickSkill = (name: string) => {
+    const at = slash ?? { start: 0, query: "" };
+    const before = slash ? text.slice(0, at.start) : "";
+    const after = slash ? text.slice(at.start + 1 + at.query.length) : text;
+    const next = `${before}/${name} ${after.replace(/^\s+/, "")}`;
+    setText(next);
+    const pos = before.length + name.length + 2;
+    setCaret(pos);
+    setSlashActive(0);
+    requestAnimationFrame(() => {
+      input.current?.focus();
+      input.current?.setSelectionRange(pos, pos);
+    });
+  };
+  const plus = (id: string) => {
+    if (id === "files") return add(service.pickAttachments());
+    if (id.startsWith("skill:")) return pickSkill(id.slice(6));
+    if (id.startsWith("connector:")) return service.toggleConnector(chatId, id.slice(10));
+    if (id === "add-skill" || id === "add-connector") {
+      service.setView("settings");
+      return service.openSetting(id);
+    }
+    if (id === "manage-skills" || id === "manage-connectors") {
+      service.setView("settings");
+      return service.openSetting(null);
+    }
+  };
   const canSend = (!!text.trim() || files.length > 0) && !!provider && !adding;
   const send = () => {
     if (!canSend || running) return;
-    void service.send(text, context, files);
+    void service.send(text, context, files, skills);
     setText("");
     setDropped([]);
     setFiles([]);
     setProblems([]);
   };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slashMatches.length && !e.nativeEvent.isComposing) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        e.stopPropagation();
+        return setSlashActive((i) => (i + (e.key === "ArrowDown" ? 1 : slashMatches.length - 1)) % slashMatches.length);
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        e.stopPropagation();
+        return pickSkill(slashMatches[Math.min(slashActive, slashMatches.length - 1)].name);
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        return setSlashClosed(text);
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       send();
@@ -581,8 +676,17 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
       }}
       onDrop={onDrop}
     >
-      {(context.length > 0 || files.length > 0 || adding > 0) && (
+      {(context.length > 0 || files.length > 0 || adding > 0 || chatConnectors.length > 0) && (
         <div className={styles.chips}>
+          {chatConnectors.map((c) => (
+            <span key={c.id} className={cx(styles.chip, styles.connectorChip)} data-connector-chip={c.id} {...tooltipProps(`${c.name} is on for this chat`)}>
+              <Icon name="16.slot" />
+              <span className={styles.chipName}>{c.name}</span>
+              <button type="button" className={styles.chipRemove} aria-label={`Turn off ${c.name}`} onClick={() => service.toggleConnector(chatId, c.id)}>
+                <Icon name="16.close" />
+              </button>
+            </span>
+          ))}
           {context.slice(0, 3).map((c) => <ContextChip key={c.id} item={c} onRemove={() => setDropped([...dropped, c.id])} />)}
           {context.length > 3 && <span className={styles.more}>+{context.length - 3}</span>}
           {files.map((f) => <AttachmentChip key={f.id} a={f} onRemove={() => setFiles(files.filter((x) => x.id !== f.id))} />)}
@@ -599,19 +703,83 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
           {problems.join(". ")}
         </div>
       )}
+      {slashMatches.length > 0 && (
+        <div className={styles.slashList} role="listbox" aria-label="Skills" data-slash-list="">
+          {slashMatches.map((s, i) => (
+            <button
+              key={s.id}
+              type="button"
+              role="option"
+              aria-selected={i === slashActive}
+              className={styles.slashItem}
+              data-active={i === slashActive || undefined}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pickSkill(s.name)}
+              data-slash-skill={s.name}
+            >
+              <span className={styles.slashName}>/{s.name}</span>
+              <span className={styles.slashDesc}>{s.description}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <textarea
+        ref={input}
         className={styles.input}
         value={text}
         rows={2}
         placeholder={chat?.messages.length ? "Reply…" : "Describe a design or a change"}
         aria-label="Message"
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          setCaret(e.target.selectionStart ?? e.target.value.length);
+          setSlashActive(0);
+        }}
+        onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
         onKeyDown={onKey}
         onPaste={onPaste}
         data-agents-input=""
       />
       <div className={styles.composerBar}>
-        <IconButton icon="24.plus.small" label="Add files and photos" tone="secondary" disabled={full || !state.available} onClick={() => add(service.pickAttachments())} data-attach="" />
+        <span className={styles.plus} data-attach="">
+        <MenuButton
+          label="Add"
+          tooltip="Add files, skills and connectors"
+          placement="top"
+          className={styles.barButton}
+          disabled={!state.available}
+          entries={() => [
+            { id: "files", label: "Add files and photos", disabled: full },
+            {
+              id: "skills",
+              label: "Skills",
+              items: [
+                ...skills.filter((s) => s.enabled).map((s) => ({ id: `skill:${s.name}`, label: `/${s.name}` })),
+                ...(skills.some((s) => s.enabled) ? ["-" as const] : []),
+                { id: "add-skill", label: "Add skill" },
+                { id: "manage-skills", label: "Manage skills" },
+              ],
+            },
+            ...(service.api?.connectors
+              ? [
+                  {
+                    id: "connectors",
+                    label: "Connectors",
+                    items: [
+                      ...allConnectors.filter((c) => c.enabled).map((c) => ({ id: `connector:${c.id}`, label: c.name, checked: on.includes(c.id) })),
+                      ...(allConnectors.some((c) => c.enabled) ? ["-" as const] : []),
+                      { id: "add-connector", label: "Add connector" },
+                      { id: "manage-connectors", label: "Manage connectors" },
+                    ],
+                  },
+                ]
+              : []),
+          ]}
+          onSelect={plus}
+        >
+          <Icon name="24.plus.small" />
+        </MenuButton>
+        </span>
         <span className={styles.barGap} />
         {provider ? (
           <ModelMenus service={service} provider={provider} />
