@@ -280,6 +280,7 @@ async function patchProfile(deps: Deps, userId: string, body: Record<string, unk
     }
     if (typeof p.closedCaptions === "boolean") next.closedCaptions = p.closedCaptions;
     if (typeof p.viewHistory === "boolean") next.viewHistory = p.viewHistory;
+    if (typeof p.restHelper === "boolean") next.restHelper = p.restHelper;
     await d1.prepare(`UPDATE users SET prefs = ?2 WHERE id = ?1`).bind(userId, JSON.stringify(next)).run();
   }
   return null;

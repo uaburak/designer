@@ -9,8 +9,9 @@
  * been (to recognise its own frames in a catch-up after a reconnect).
  */
 import type { RoomPolicy } from "../../shared/org/identity";
-import { CLOSE_MOVING, encodeChangesUp, decodeChangesDown, type PeerInfo, type Role, type ServerControl } from "../../shared/multiplayer/protocol";
-import type { AccessRequest, FileMember, FileShareState, LinkAccess, LinkSettingsPatch, MultiplayerNotice, MultiplayerSession, MultiplayerStatus, OpenIntent, RemoteFile, SessionEnded, SharedFileInfo } from "../../shared/multiplayer/types";
+import { CLOSE_MOVING, encodeChangesUp, decodeChangesDown, type ClientControl, type PeerInfo, type Role, type ServerControl } from "../../shared/multiplayer/protocol";
+import type { AccessRequest, FileMember, FileShareState, LinkAccess, LinkSettingsPatch, MultiplayerNotice, MultiplayerSession, MultiplayerStatus, OpenIntent, RemoteFile, RestJobAnswer, RestJobRequest, SessionEnded, SharedFileInfo } from "../../shared/multiplayer/types";
+import type { RestJob, RestJobPart } from "../../shared/rest/types";
 import { decodeMessage } from "../../shared/schema/codec";
 import { messageImageHashes } from "../../shared/schema/patch";
 import { StoreError } from "../../shared/store/protocol";
@@ -44,6 +45,8 @@ export interface MultiplayerHost {
   putBlob(bytes: Uint8Array): Promise<void>;
   /** The file's document at its journal head — snapshot and frames merged — as a kiwi Message (for the room's compaction) */
   headSnapshot(fileKey: FileKey): Promise<Uint8Array>;
+  /** The file's thumbnail PNG (Home's card), null when it has none: uploaded for the REST API's `thumbnailUrl` (§16.7) */
+  thumbnail?(fileKey: FileKey): Promise<Uint8Array | null>;
 }
 
 interface WebSocketLike {
@@ -95,6 +98,10 @@ export const MOVING_RETRY_MS = 2000;
 export const COMPACT_EVERY = 1000;
 /** A read of a file's members or access requests answers the reads asked for within this long after it */
 export const READ_FRESH_MS = 2000;
+/** A shared file's thumbnail goes to the server at most this often (docs/multiplayer.md §16.7: `thumbnailUrl`) */
+export const THUMBNAIL_EVERY_MS = 60_000;
+
+const sha1Hex = async (bytes: Uint8Array): Promise<string> => [...new Uint8Array(await crypto.subtle.digest("SHA-1", bytes as Uint8Array<ArrayBuffer>))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
 const imagesOf = (message: Uint8Array): string[] => {
   try {
@@ -249,6 +256,7 @@ export class MultiplayerService {
     st.links[fileKey] = { key: room, since: 0, acked: input.headSeq, sessions: [], role: "owner" };
     await this.persist(fileKey);
     this.startLink(fileKey);
+    void this.uploadThumbnail(fileKey);
     return answer;
   }
 
@@ -454,6 +462,7 @@ export class MultiplayerService {
     const snapshot = await this.host.headSnapshot(fileKey);
     try {
       await this.api("PUT", `/files/${key}/snapshot?seq=${seq}`, snapshot);
+      void this.uploadThumbnail(fileKey);
       return true;
     } catch (e) {
       this.host.log("warn", "multiplayer: the room didn't take the snapshot", e);
@@ -609,9 +618,140 @@ export class MultiplayerService {
 
   close(): void {
     this.off();
+    for (const t of this.thumbs.values()) if (t.timer) clearTimeout(t.timer);
+    this.thumbs.clear();
     for (const l of this.live.values()) l.stop();
     this.dropVisits();
     this.live.clear();
+  }
+
+  // --- REST render jobs (docs/multiplayer.md §16.6, as built §16.16) ---
+
+  /** Editors that can answer render jobs, per file: token → whether it is the hidden render helper */
+  private renderers = new Map<FileKey, Map<string, { helper: boolean }>>();
+  private restListeners = new Set<(fileKey: FileKey, req: RestJobRequest) => void>();
+  private wantedListeners = new Set<(fileKey: FileKey) => void>();
+
+  /**
+   * An editor with the file's engine loaded can render (on), or no longer (off, its token; none: all of them). The
+   * room hears it in the link's hello — `{render: true}`, `helper: true` too when only the hidden helper renders — so a
+   * change of either reconnects the link (a hello is said once per socket). Returns the renderer's token (on).
+   */
+  async restRender(fileKey: FileKey, on: boolean, opts: { helper?: boolean } = {}, token?: string): Promise<string | null> {
+    const before = this.renderFlags(fileKey);
+    let set = this.renderers.get(fileKey);
+    let id: string | null = null;
+    if (on) {
+      id = token ?? `r_${randomId(this.deps.random, 12)}`;
+      if (!set) this.renderers.set(fileKey, (set = new Map()));
+      set.set(id, { helper: opts.helper === true });
+    } else {
+      if (token) set?.delete(token);
+      else set?.clear();
+      if (set && !set.size) this.renderers.delete(fileKey);
+    }
+    const after = this.renderFlags(fileKey);
+    if (before.render !== after.render || before.helper !== after.helper) this.live.get(fileKey)?.rehello();
+    return id;
+  }
+
+  /** @internal What this client's hello says about rendering the file */
+  renderFlags(fileKey: FileKey): { render: boolean; helper: boolean } {
+    const set = this.renderers.get(fileKey);
+    if (!set?.size) return { render: false, helper: false };
+    return { render: true, helper: [...set.values()].every((r) => r.helper) };
+  }
+
+  /** A job for one of the file's renderers (an editor before the hidden helper) */
+  onRestJob(listener: (fileKey: FileKey, req: RestJobRequest) => void): Unsubscribe {
+    this.restListeners.add(listener);
+    return () => this.restListeners.delete(listener);
+  }
+
+  /** A room of this person's has no client that can render (`{t: "rest-wanted"}` on the inbox): main's helper hears it */
+  onRestWanted(listener: (fileKey: FileKey) => void): Unsubscribe {
+    this.wantedListeners.add(listener);
+    return () => this.wantedListeners.delete(listener);
+  }
+
+  /** @internal The room's `rest-job`: handed to a renderer, or refused when none is left (it went meanwhile). */
+  restJob(fileKey: FileKey, id: string, job: RestJob): void {
+    const rec = this.state?.links[fileKey];
+    const set = this.renderers.get(fileKey);
+    const to = set ? [...set.entries()].sort((a, b) => Number(a[1].helper) - Number(b[1].helper))[0]?.[0] : undefined;
+    if (!rec || !to || !this.restListeners.size) {
+      this.live.get(fileKey)?.say({ t: "rest-job-failed", id, err: "503 No client available to render this file. Open the file in DesignerV2 and try again." });
+      return;
+    }
+    const meta = this.host.getMeta(fileKey);
+    const req: RestJobRequest = { id, job, to, seq: rec.since, name: meta?.name ?? "Untitled", lastModified: meta?.updatedAt ?? Date.now() };
+    for (const l of [...this.restListeners]) l(fileKey, req);
+  }
+
+  /**
+   * A renderer's answer: each part uploaded (`PUT /files/:key/rest-jobs/:id/parts/:name`, the room checks it by SHA-1),
+   * then `rest-job-done` with the parts — after the frames this copy queued before it (a POST's variables reach the
+   * room first, so the next read's job key has moved). A failed upload answers `rest-job-failed`.
+   */
+  async restAnswer(fileKey: FileKey, id: string, answer: RestJobAnswer): Promise<void> {
+    const rec = (await this.loadState()).links[fileKey];
+    const link = this.live.get(fileKey);
+    if (!rec || !link) throw new StoreError("invalid", "This file isn't shared");
+    if ("err" in answer) return link.say({ t: "rest-job-failed", id, err: String(answer.err).slice(0, 1000) });
+    const parts: RestJobPart[] = [];
+    try {
+      for (const p of answer.parts) {
+        await this.raw("PUT", `/files/${rec.key}/rest-jobs/${encodeURIComponent(id)}/parts/${encodeURIComponent(p.name)}`, p.bytes);
+        parts.push({ name: p.name, sha1: await sha1Hex(p.bytes), size: p.bytes.length, contentType: p.contentType });
+      }
+    } catch (e) {
+      this.host.log("warn", `multiplayer ${fileKey}: a render job's part wasn't uploaded`, e);
+      return link.say({ t: "rest-job-failed", id, err: `The render's upload failed: ${e instanceof Error ? e.message : String(e)}` });
+    }
+    await link.settled();
+    link.say({ t: "rest-job-done", id, parts });
+  }
+
+  /** @internal The inbox's `{t: "rest-wanted", fileKey}` (the room key): said for this installation's copy, if it has one */
+  async restWanted(key: string): Promise<void> {
+    const fileKey = await this.linkedCopy(key);
+    if (fileKey) for (const l of [...this.wantedListeners]) l(fileKey);
+  }
+
+  /** Throttled thumbnail uploads per file */
+  private thumbs = new Map<FileKey, { last: number; timer: ReturnType<typeof setTimeout> | null }>();
+
+  /**
+   * The file's thumbnail changed (the editor saved one): a shared file this person can edit sends it to the server, at
+   * most once a minute — `thumbnailUrl` in the REST API (§16.7). Snapshots send it too (share, compaction).
+   */
+  thumbnailSaved(fileKey: FileKey): void {
+    const rec = this.state?.links[fileKey];
+    if (!rec || rec.role === "viewer" || !this.session || !this.host.thumbnail) return;
+    let t = this.thumbs.get(fileKey);
+    if (!t) this.thumbs.set(fileKey, (t = { last: 0, timer: null }));
+    if (t.timer) return;
+    const entry = t;
+    entry.timer = setTimeout(() => {
+      entry.timer = null;
+      entry.last = Date.now();
+      void this.uploadThumbnail(fileKey);
+    }, Math.max(0, entry.last + THUMBNAIL_EVERY_MS - Date.now()));
+  }
+
+  /** @internal `PUT /files/:key/thumbnail` with the store's PNG (editors; ≤ 2 MB). False when there was none or it failed. */
+  async uploadThumbnail(fileKey: FileKey): Promise<boolean> {
+    const rec = this.state?.links[fileKey];
+    if (!rec || rec.role === "viewer" || !this.session || !this.host.thumbnail) return false;
+    try {
+      const png = await this.host.thumbnail(fileKey);
+      if (!png || png.length > 2 * 1024 * 1024) return false;
+      await this.raw("PUT", `/files/${rec.key}/thumbnail`, png);
+      return true;
+    } catch (e) {
+      this.host.log("warn", `multiplayer ${fileKey}: the thumbnail wasn't uploaded`, e);
+      return false;
+    }
   }
 
   // --- internals, used by links ---
@@ -944,6 +1084,27 @@ class Link {
     if (this.ready) this.ws?.send(JSON.stringify({ t: "signal", to, data }));
   }
 
+  /** A control message to the room (a render job's answer) */
+  say(msg: ClientControl): void {
+    if (this.ready) this.ws?.send(JSON.stringify(msg));
+  }
+
+  /** Resolves once the frames queued before now are sent */
+  settled(): Promise<void> {
+    return this.sending.catch(() => {});
+  }
+
+  /** What the hello says changed (this client can render now, or no longer): a new socket says it */
+  rehello(): void {
+    const ws = this.ws;
+    if (this.stopped || !ws) return;
+    this.ws = null;
+    this.ready = false;
+    this.peers.clear();
+    ws.close(1000, "hello again");
+    this.connect();
+  }
+
   private send(c: FileChange): void {
     this.pending.set(c.seq, touchedBy(decodeMessage(c.message)));
     const ws = this.ws;
@@ -1009,7 +1170,9 @@ class Link {
         if (!r || this.ws !== ws) return;
         this.pending.clear();
         if (r.role !== "viewer") for (const c of await this.svc.host_.backlog(this.fileKey, r.acked)) if (c.kind !== "remote") this.pending.set(c.seq, touchedBy(decodeMessage(c.message)));
-        ws.send(JSON.stringify({ t: "hello", since: r.since }));
+        const flags = this.svc.renderFlags(this.fileKey);
+        const hello: ClientControl = { t: "hello", since: r.since, ...(flags.render ? { render: true } : {}), ...(flags.helper ? { helper: true } : {}) };
+        ws.send(JSON.stringify(hello));
       });
     };
     ws.onmessage = (e) => {
@@ -1102,6 +1265,8 @@ class Link {
           return this.svc.signalled(this.fileKey, msg.from, msg.data);
         case "policy":
           return this.svc.setPolicy(this.fileKey, msg.policy ?? null, true);
+        case "rest-job":
+          return this.svc.restJob(this.fileKey, msg.id, msg.job);
       }
       return;
     }
