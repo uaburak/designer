@@ -45,6 +45,8 @@ import {
 import { viewRect } from "./canvas/viewInsets";
 import type { KeyCombo } from "@shared/shortcuts";
 import { openSettings } from "../settings/bridge";
+import { BRANCH_COMMANDS } from "./branching/commands";
+import { isBranch } from "./branching/state";
 import { accountBridge, accountSignedIn } from "../files/account";
 
 /**
@@ -728,9 +730,9 @@ export const COMMANDS: EditorCommand[] = [
   { id: "file.duplicate", label: "Duplicate", run: (ed) => void duplicateFile(ed), enabled: (ed) => !!fileOps(ed) },
   { id: "file.move", label: "Move to project…", run: (ed) => ed.ui.set({ moveFileDialog: true, uiHidden: false }), enabled: (ed) => !!fileOps(ed) },
   { id: "file.save-local-copy", label: "Save local copy…", run: (ed) => void saveLocalCopy(ed), enabled: canSaveLocalCopy },
-  // Round 10: a branch is a copy of the file named after it, opened in a tab (objectCommands.ts; reviewing and merging
-  // branches aren't built — docs/roadmap.md Phase 6).
-  { id: "file.create-branch", label: "Create branch…", run: (ed) => ed.ui.set({ branchDialog: true, uiHidden: false }), enabled: (ed) => !!fileOps(ed) },
+  // Branching (Phase 7 round 2b, branching/commands.ts): Create branch…, See all branches, Update from main…, Review
+  // and merge changes…, Archive.
+  ...BRANCH_COMMANDS,
   later("file.color-profile", "Color profile…"),
   // The Figma menu's Plugins, Widgets and Preferences items not built (shown as Figma lists them, disabled).
   later("plugins.run-last", "Run last plugin", [k("KeyP", { mod: true, alt: true })]),
@@ -783,7 +785,8 @@ export const COMMANDS: EditorCommand[] = [
     id: "file.publish-library",
     label: "Publish library…",
     run: (ed) => ed.ui.set({ publishOpen: true, uiHidden: false }),
-    enabled: (ed) => ed.libraries.get().on,
+    // Libraries publish from main only (docs/data.md §15.5 branch-cannot-publish).
+    enabled: (ed) => ed.libraries.get().on && !isBranch(ed),
   },
   { id: "file.export", label: "Export…", keys: [k("KeyE", { mod: true, shift: true })], run: (ed) => ed.ui.set({ exportDialog: true, uiHidden: false }), enabled: canExport },
   { id: "file.export-frames-to-pdf", label: "Export frames to PDF…", run: (ed) => void exportFramesToPdf(ed), enabled: canExport },
