@@ -13,6 +13,7 @@ import { allowedServer, describePolicy, loadPolicy, proxied, proxySwitches } fro
 import { initNotifications } from "./notifications";
 import { keyFromLink } from "../shared/multiplayer/types";
 import { registerIpc } from "./ipc";
+import { initRestHelper } from "./restHelper";
 import { installAppMenu } from "./menu";
 import { DEV_URL, handleScheme, isAppUrl, registerScheme } from "./protocol";
 import { flushStore, retryStoreHost, startStoreHost, storeClient, storeDebug } from "./storeHost";
@@ -147,6 +148,8 @@ if (!app.requestSingleInstanceLock()) {
     void startAgents().catch((err) => console.warn("[agents] the MCP server didn't start:", err));
     // Settings › Your uploaded fonts: their folder is scanned with the user's fonts (and watched).
     initUploadedFonts();
+    // REST API requests for files the person owns, answered by a hidden editor when no one has them open (docs/multiplayer.md §16.6)
+    initRestHelper();
     // The font index (a cached JSON after the first launch) is ready before the first file's editor asks for it.
     setTimeout(warmFontIndex, 1500);
     // Fonts installed or removed while the app runs reach every editor (as Figma's font helper's do).

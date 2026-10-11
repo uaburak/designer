@@ -50,6 +50,8 @@ export interface AccountPrefs {
   closedCaptions?: boolean;
   /** View history: false = "Off" — opening a file isn't recorded for others to see */
   viewHistory?: boolean;
+  /** "Answer API requests for my files while DesignerV2 is open" (the desktop's render helper, docs/multiplayer.md §16.6): absent = on */
+  restHelper?: boolean;
 }
 
 /** Settings › Community: the Community profile (help.figma.com 360038510833, 4404108672663). */

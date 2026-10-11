@@ -74,6 +74,7 @@ import { AnnotationEditor } from "./devmode/AnnotationEditor";
 import { CategoriesDialog, FocusBar, MeasurementText, StatusMenu } from "./devmode/DevOverlays";
 import { CompareChanges } from "./devmode/CompareChanges";
 import { Branching } from "./branching/Branching";
+import { attachRestRunner } from "./rest";
 import styles from "./EditorApp.module.css";
 
 export interface EditorAppProps {
@@ -301,6 +302,8 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
   useEffect(() => {
     if (ed) onReady?.(ed);
   }, [ed, onReady]);
+
+  useEffect(() => (ed ? attachRestRunner(ed) : undefined), [ed]); // REST render jobs (docs/multiplayer.md §16.6)
 
   // The chrome has painted (two frames after its first commit): the file's images may go to the GPU now.
   useEffect(() => {

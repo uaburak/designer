@@ -193,6 +193,7 @@ export class LocalStore {
         getBlob: (sha1) => blobs.get(sha1),
         putBlob: async (bytes) => void (await blobs.put(bytes)),
         headSnapshot: async (fileKey) => codec.encodeMessage(currentMessage(await readSnapshotFile((await files.compactedHead(fileKey)).path))),
+        thumbnail: async (fileKey) => (ws.files.has(fileKey) && ws.getMeta(fileKey).thumbnail ? new Uint8Array(await fsp.readFile(join(dirs.files, fileKey, "thumbnail.png")).catch(() => new Uint8Array())) : null),
       },
       { fetch: this.fetch, WebSocket: globalThis.WebSocket as never, random: () => randomInt(0, 2 ** 32) / 2 ** 32 },
     );
@@ -783,7 +784,11 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
       s.usage.closedFile(fileKey);
     },
     subscribe: (fileKey, fromSeq, listener) => subscribeLocal(s, fileKey, fromSeq, listener),
-    saveThumbnail: (fileKey, png, size) => s.files.saveThumbnail(fileKey, png, size ?? { width: 0, height: 0 }),
+    saveThumbnail: async (fileKey, png, size) => {
+      await s.files.saveThumbnail(fileKey, png, size ?? { width: 0, height: 0 });
+      // A shared file's thumbnail reaches the server too (the REST API's thumbnailUrl, docs/multiplayer.md §16.7)
+      s.multiplayer.thumbnailSaved(fileKey);
+    },
     setUiState: (fileKey, patch) => s.files.setUiState(fileKey, patch ?? {}),
     saveSnapshot: (fileKey, save) => s.files.saveSnapshot(fileKey, save, owner),
     listVersions: (fileKey) => s.files.listVersions(fileKey),

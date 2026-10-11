@@ -1,5 +1,5 @@
 /** The `multiplayer` repository (docs/multiplayer.md §5) over a store's service — LocalStore and the browser's dev store. */
-import type { LinkAccess, LinkSettingsPatch, MultiplayerRepository, OpenIntent } from "../../shared/multiplayer/types";
+import type { LinkAccess, LinkSettingsPatch, MultiplayerRepository, OpenIntent, RestJobAnswer } from "../../shared/multiplayer/types";
 import { StoreError } from "../../shared/store/protocol";
 import type { MultiplayerService } from "./service";
 
@@ -36,15 +36,35 @@ export function multiplayerApi(m: MultiplayerService): MultiplayerRepository {
       const c = m.onNotice((fileKey, notice) => void m.fileState(fileKey).then((state) => listener({ fileKey, state, notice })));
       const d = m.onSignal((fileKey, from, data) => void m.fileState(fileKey).then((state) => listener({ fileKey, state, signal: { from, data } })));
       const e = m.onPolicy((fileKey, policy) => void m.fileState(fileKey).then((state) => listener({ fileKey, state, policy })));
+      const f = m.onRestJob((fileKey, restJob) => void m.fileState(fileKey).then((state) => listener({ fileKey, state, restJob })));
+      const g = m.onRestWanted((fileKey) => void m.fileState(fileKey).then((state) => listener({ fileKey, state, restWanted: true })));
       return () => {
         a();
         b();
         c();
         d();
         e();
+        f();
+        g();
       };
     },
+    restRender: (fileKey, on, opts, token) => m.restRender(fileKey, on === true, { helper: (opts as { helper?: unknown } | undefined)?.helper === true }, typeof token === "string" && token ? token : undefined),
+    restAnswer: (fileKey, id, answer) => m.restAnswer(fileKey, String(id), cleanAnswer(answer)),
     watchSession: (listener) => m.onSessionEnded(listener),
+  };
+}
+
+/** A render job's answer: parts of bytes with names and types, or an error text */
+function cleanAnswer(a: unknown): RestJobAnswer {
+  if (!a || typeof a !== "object") throw new StoreError("invalid", "restAnswer needs the parts or an error");
+  const v = a as { parts?: unknown; err?: unknown };
+  if (typeof v.err === "string") return { err: v.err };
+  if (!Array.isArray(v.parts)) throw new StoreError("invalid", "restAnswer needs the parts or an error");
+  return {
+    parts: v.parts.map((p: { name?: unknown; bytes?: unknown; contentType?: unknown }) => {
+      if (!p || typeof p.name !== "string" || !p.name || !(p.bytes instanceof Uint8Array) || typeof p.contentType !== "string") throw new StoreError("invalid", "a part is {name, bytes, contentType}");
+      return { name: p.name, bytes: p.bytes, contentType: p.contentType };
+    }),
   };
 }
 

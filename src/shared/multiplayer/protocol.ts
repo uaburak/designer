@@ -22,7 +22,7 @@ export const CHANGES_DOWN_HEADER = 13;
 export type ClientControl =
   /** First message. `since`: the last seq this client holds (its snapshot's seq, or the last frame it applied). Who
    *  the client is comes from the Worker (the session token on the socket's URL), not from here. */
-  | { t: "hello"; since: number; /** This client can answer REST render jobs (docs/multiplayer.md §16.6): an editor view with the file's engine loaded */ render?: boolean }
+  | { t: "hello"; since: number; /** This client can answer REST render jobs (docs/multiplayer.md §16.6): an editor view with the file's engine loaded */ render?: boolean; /** With `render`: the desktop app's hidden render helper (docs/multiplayer.md §16.6), asked after editors and viewers */ helper?: boolean }
   /** Ephemeral (never stored): cursor, selection, viewport … opaque to the server. */
   | { t: "presence"; data: unknown }
   /** Ephemeral, to one session of the file (never stored): "Ask to spotlight", audio's WebRTC offers / answers / ICE. */

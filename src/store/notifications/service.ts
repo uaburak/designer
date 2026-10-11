@@ -230,6 +230,12 @@ export class NotificationsService {
         if (typeof raw.libraryKey === "string") for (const l of [...this.libraryListeners]) l(raw as LibraryNotice);
         return;
       }
+      // A room of this person's has no client that can render (docs/multiplayer.md §16.6): the store's copy, if any, says it.
+      if (raw.t === "rest-wanted") {
+        const key = (raw as { fileKey?: unknown }).fileKey;
+        if (typeof key === "string") void this.mp.restWanted(key);
+        return;
+      }
       if (raw.t === "fonts") {
         if (typeof raw.orgId === "string") for (const l of [...this.fontsListeners]) l({ t: "fonts", orgId: raw.orgId, version: String(raw.version ?? "") });
         return;

@@ -350,6 +350,10 @@ export class MemoryStore {
           this.saveData(fileKey, d);
           return d.snapshot;
         },
+        thumbnail: async (fileKey) => {
+          const t = this.ws.files.has(fileKey) ? this.fileData(fileKey).thumbnail : null;
+          return t?.mime === "image/png" ? t.bytes : null;
+        },
       },
       {
         fetch: (...a) => fetch(...a),
@@ -1044,6 +1048,7 @@ export class MemoryStore {
     this.saveData(fileKey, d);
     await this.ws.queue.run(() => this.ws.patchFile(fileKey, { thumbnail: { version: (meta.thumbnail?.version ?? 0) + 1, width: size?.width ?? dims.width, height: size?.height ?? dims.height } }));
     this.thumbnails.emit(fileKey);
+    this.multiplayer.thumbnailSaved(fileKey);
   }
 
   /** The thumbnail's bytes and type, or null. */

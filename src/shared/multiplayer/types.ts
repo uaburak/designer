@@ -4,6 +4,7 @@
  */
 import type { FilePolicy, RoomPolicy } from "../org/identity";
 import type { FileKey } from "../store/types";
+import type { RestJob } from "../rest/types";
 import type { PeerInfo, Role } from "./protocol";
 
 export interface MultiplayerSession {
@@ -78,7 +79,26 @@ export interface MultiplayerEvent {
   signal?: { from: number; data: unknown };
   /** The room's policy changed while the file is open (`{t: "policy"}`, docs/multiplayer.md §15.9); also `state.policy` */
   policy?: RoomPolicy;
+  /** A REST render job (docs/multiplayer.md §16.6) for the renderer `to` (`restRender`'s answer): run it, `restAnswer` */
+  restJob?: RestJobRequest;
+  /** The room has no client that can render (`{t: "rest-wanted"}` on the inbox): main's render helper may open the file */
+  restWanted?: true;
 }
+
+/** A REST render job as the store hands it to the editor that renders the file (docs/multiplayer.md §16.6) */
+export interface RestJobRequest {
+  id: string;
+  job: RestJob;
+  /** The renderer it is for (`restRender`'s token) */
+  to: string;
+  /** The room seq this copy holds (Figma's `version` of the answer), the file's name and when it last changed (ms) */
+  seq: number;
+  name: string;
+  lastModified: number;
+}
+
+/** A render job's result: its parts (docs/multiplayer.md §16.16), or why it failed (`"404 …"` answers that status) */
+export type RestJobAnswer = { parts: { name: string; bytes: Uint8Array; contentType: string }[] } | { err: string };
 
 /**
  * The server ended the session (docs/multiplayer.md §15.8, docs/desktop.md §18.2): a 401 on one of the store's calls,
@@ -223,6 +243,14 @@ export interface MultiplayerRepository {
   /** Cursor, selection, page … for the file's other people (not stored) */
   presence(fileKey: FileKey, data: unknown): Promise<void>;
   watch(listener: (e: MultiplayerEvent) => void): () => void;
+  /**
+   * An editor with this file's engine loaded can answer REST render jobs (docs/multiplayer.md §16.6): the file's room
+   * hears `hello {render: true}` (`helper`: the hidden render helper, `helper: true` too). Returns the renderer's token
+   * (jobs come as `MultiplayerEvent.restJob` with `to` = it); `restRender(fileKey, false, …, token)` ends it.
+   */
+  restRender(fileKey: FileKey, on: boolean, opts?: { helper?: boolean }, token?: string): Promise<string | null>;
+  /** A job's parts uploaded (`PUT /files/:key/rest-jobs/:id/parts/:name`), then `rest-job-done`; or `rest-job-failed` */
+  restAnswer(fileKey: FileKey, id: string, answer: RestJobAnswer): Promise<void>;
   /** The server ended the session (event topic `session`): main and the web page sign out on `idle_timeout` */
   watchSession(listener: (e: SessionEnded) => void): () => void;
 }
