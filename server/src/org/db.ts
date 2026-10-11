@@ -7,6 +7,7 @@ import { resolveAccess, resolveContainer, type AccessGranted, type AccessResult,
 import { DEFAULT_ORG_SETTINGS, type Audience, type EditorType, type FileAccess, type GrantRole, type InheritMode, type OrgFile, type OrgRole, type OrgSettings, type PersonRef, type Seat } from "../../../src/shared/org/types";
 import type { Deps } from "../api";
 import type { D1Like, User } from "../db";
+import { branchAccess, type BranchRow } from "../branchAccess";
 import { HttpError, placeholders } from "./http";
 
 export interface FileRow {
@@ -278,7 +279,19 @@ export class Access {
     };
   }
 
+  /** The file's `branches` row when it is a branch (docs/data.md §15.7), else null */
+  branch(key: string): Promise<BranchRow | null> {
+    return this.once(`b:${key}`, () => this.d1.prepare(`SELECT * FROM branches WHERE key = ?1`).bind(key).first<BranchRow>());
+  }
+
   async file(f: FileRow, opts: { viaLink: boolean; passOk: boolean } = { viaLink: false, passOk: false }): Promise<AccessResult> {
+    // A branch resolves through its main file (§15.7; branchAccess.ts).
+    const b = await this.branch(f.key);
+    if (b) {
+      const main = await this.fileRow(b.main_key);
+      if (!main) return { ok: false, reason: "none", role: null };
+      return branchAccess(resolveAccess(await this.rowsFor(main, opts)), b, this.user.id);
+    }
     return resolveAccess(await this.rowsFor(f, opts));
   }
 
@@ -402,7 +415,8 @@ export function toOrgFile(f: FileRow & { owner_name?: string | null; owner_email
 /** Files (with their owner's name) the caller can open, of those `where` selects. */
 export async function accessibleFiles(acc: Access, where: string, args: unknown[], opts: { trashed?: boolean } = {}): Promise<OrgFile[]> {
   const { results } = await acc.d1
-    .prepare(`SELECT ${FILE_COLS}, u.name AS owner_name, u.email AS owner_email FROM files f LEFT JOIN users u ON u.id = f.owner_id WHERE ${where} ORDER BY f.updated_at DESC`)
+    // Branches are listed under their main file (docs/data.md §15.7), not as files of their own.
+    .prepare(`SELECT ${FILE_COLS}, u.name AS owner_name, u.email AS owner_email FROM files f LEFT JOIN users u ON u.id = f.owner_id WHERE (${where}) AND NOT EXISTS (SELECT 1 FROM branches b WHERE b.key = f.key) ORDER BY f.updated_at DESC`)
     .bind(...args)
     .all<FileRow & { owner_name: string | null; owner_email: string | null }>();
   const out: OrgFile[] = [];
