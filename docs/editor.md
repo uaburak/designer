@@ -2,6 +2,81 @@
 
 `src/renderer/src/editor/` is the new file editor: Figma's UI3 chrome (rail, left panel with Pages and Layers, rulers, the engine canvas, the right Design panel, the bottom toolbar, menus) built from the design system (`src/renderer/src/ds/`) around the C++/Wasm engine (`src/renderer/src/engine/`). Contracts it follows: `docs/engine.md` §10 (binding), `docs/design-system.md` + `docs/design-system-usage.md` (look), `docs/schema.md` (field names), `docs/desktop.md` §13 (clipboard), `docs/research/figma/R7-editor.md` (behaviour), `docs/research/visual-diff.md` (measured metrics).
 
+## Branching (2026-10-11, Phase 7 round 2b, branch `worktree-agent-acab7360aeb949400`)
+
+Figma's branching UI over `BranchesRepository` (`src/shared/merge/branches.ts`, docs/data.md §15.5–§15.6).
+- Wording and layout: `docs/research/figma/R21-branching-ui.md`, with its unverified choices in a table.
+- Code: `src/renderer/src/editor/branching/`.
+
+**Reaching the store** (`access.ts`):
+- `backendOf(ed)` is the repository plus file names, the reviewers (main's editors), the viewer, `canEditMain`,
+  `openFile` and the branch's link (main's link + `/branch/<key>`).
+- `getBranches(store)` reads `store.branches`. Until round 2a adds it, there is no backend: Create branch… falls back
+  to round 10's plain copy (`objectCommands.ts createBranch`), and the other items stay off.
+- **Merger**: replace `getBranches(store)` with `store.branches` once StoreApi has it.
+
+**State** (`state.ts`): one store per editor, not in UIState. It holds:
+- the file's `BranchRecord` and main's name;
+- `mainChanged`, from `mainStatus` and `branch.main-changed` events;
+- the open branching window.
+
+`attachBranching` loads it and follows `watch`.
+
+**Items** (`commands.ts`, spread into the registry):
+- **File submenu** (shown per state):
+  - Create branch… (main only; no branches of branches);
+  - Update from main… and Review and merge changes… (an active branch);
+  - See all branches.
+- **File name menu**: the same, plus Archive on a branch.
+- Publish library… is disabled on a branch.
+
+**Windows**:
+- **Create branch**: a "Branch name" field, then Cancel / Create. It calls `branches.create`, then opens the branch.
+- **The title**: the left sidebar's "‹main› / ‹branch›", with the badge (In review, Approved, Changes suggested,
+  Archived, Merged).
+- **The notice** (bottom right): "There are updates from the main file", with **Update** and ×.
+- **Branches**:
+  - tabs Active, Archived and Yours;
+  - each row shows the name, "‹author› · ‹time›", the badge, Open on hover, and a menu: Copy link, Rename (in place),
+    then Archive, or Restore (disabled for merged branches).
+- **Update from main file**:
+  - the changes by page and top-level layer, each tagged Added / Edited / Removed and previewed in main's latest
+    version;
+  - a warning banner, then **Resolve conflicts**;
+  - **Apply changes**, enabled once every conflict is picked. It calls `applyUpdate` with the picks; a `stale`
+    refusal previews again.
+- **Branch review**:
+  - the changes;
+  - Compare changes' views through `branches.openSide`: Side by side (main | branch) or Overlay with an opacity
+    slider, plus Zoom out / Fit / Zoom in (`ChunkCompare.tsx`, the drawing code of `devmode/CompareChanges.tsx`);
+  - the "Review request" section;
+  - for the author: **Request review**, reviewers (Search, Add) → a description → "Send to N reviewers"; later
+    **Request another review**;
+  - for a reviewer: **Add your review** → "Finish your review" (Approve / Suggest changes, Figma's two instruction
+    lines, Submit), then **Review again**;
+  - **Merge branch**, when the viewer can edit main and every conflict is picked: Name (the branch's name) and
+    Description → **Merge**. A toast says "Branch merged" and main opens.
+- **Resolve conflicts** (`parts.tsx Conflicts`):
+  - the conflicting chunks in the left sidebar, each with a main / branch badge;
+  - main on the left, the branch on the right;
+  - Keep main / Keep branch, a pick per chunk (`chunk:<index>`);
+  - **Resolve all** › Pick main file / Pick branch (`*`);
+  - **Next**.
+
+**Tests**:
+- `branching/__tests__/model.test.ts`: 4 cases;
+- `branching/__tests__/branching.dom.test.ts`: 6 cases on `fake/memoryBranches.ts`, an in-memory repository with a
+  fake editor.
+
+**Not built / open**:
+- the real side previews (the fake has no documents; the engine path is Compare changes', untested here);
+- branch comments, Duplicate as new file, Home's branch cards (2d);
+- renaming from the sidebar's file name: it still renames the file (the store should keep the two names in step);
+- "Other team members" (no team model locally);
+- a reviewer's edit icon;
+- a merge memory-limit banner;
+- `pasteBranchSourceFileKey`.
+
 ## Status 2026-10-10 — Round 16 — Padding fields, scrubbing, haptics, Apply variable inside the field (branch `r16-inputs`)
 
 The owner's request with live Figma (53–57.png); shots `docs/research/inputs16/`, `EDITOR_ONLY=inputs16` (12 checks × 2 themes).

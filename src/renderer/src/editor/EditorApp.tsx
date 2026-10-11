@@ -72,6 +72,7 @@ import { DevLeftPanel, DevMeasurements, DevRightPanel } from "./devmode/DevPanel
 import { AnnotationEditor } from "./devmode/AnnotationEditor";
 import { CategoriesDialog, FocusBar, MeasurementText, StatusMenu } from "./devmode/DevOverlays";
 import { CompareChanges } from "./devmode/CompareChanges";
+import { Branching } from "./branching/Branching";
 import styles from "./EditorApp.module.css";
 
 export interface EditorAppProps {
@@ -451,6 +452,7 @@ function Overlays() {
       <StatusMenu />
       <CategoriesDialog />
       <CompareChanges />
+      <Branching />
       <RenameLayersDialog />
     </>
   );

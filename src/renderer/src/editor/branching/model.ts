@@ -1,0 +1,125 @@
+/**
+ * Branching's pure parts (docs/editor.md "Branching", docs/data.md §15): the change list grouped as Figma's review
+ * lists it (page, then top-level layer — DiffChunk's display node), the change tags, the review badges, the picks of
+ * Resolve conflicts as `Resolutions`, and the branches modal's rows. Wording: docs/research/figma/R21-branching-ui.md.
+ */
+import type { BranchRecord, BranchReview, MergePreview } from "../../../../shared/merge/branches";
+import type { DiffChunk, Resolutions, Side } from "../../../../shared/merge/types";
+
+export type ChangeTag = "Added" | "Edited" | "Removed";
+
+/** A chunk's tag: its display node created, removed, or changed inside ([logrocket]: Added / Edited / Removed). */
+export function changeTag(c: Pick<DiffChunk, "phase">): ChangeTag {
+  return c.phase === "CREATED" ? "Added" : c.phase === "REMOVED" ? "Removed" : "Edited";
+}
+
+export interface ChunkGroup {
+  /** The page's id, or "assets" for the internal page's chunks */
+  id: string;
+  /** The page's name ("Assets": variables, styles, components on the internal page — unverified) */
+  name: string;
+  chunks: DiffChunk[];
+}
+
+/** Chunks by page in the order they come (the merge core's: the document's page order), assets last. */
+export function groupChunks(chunks: readonly DiffChunk[]): ChunkGroup[] {
+  const pages = new Map<string, ChunkGroup>();
+  let assets: ChunkGroup | null = null;
+  for (const c of chunks) {
+    if (c.canvasIsInternal || !c.canvasId) {
+      (assets ??= { id: "assets", name: "Assets", chunks: [] }).chunks.push(c);
+      continue;
+    }
+    let g = pages.get(c.canvasId);
+    if (!g) pages.set(c.canvasId, (g = { id: c.canvasId, name: c.canvasName || "Page", chunks: [] }));
+    g.chunks.push(c);
+  }
+  return [...pages.values(), ...(assets ? [assets] : [])];
+}
+
+/** Chunks holding conflicts, in list order. */
+export const conflictChunks = (p: Pick<MergePreview, "chunks">) => p.chunks.filter((c) => c.conflicts.length > 0);
+
+/**
+ * The side picked for a chunk: its own pick, else Resolve all's, else — when each of its conflicts is picked one by
+ * one and all agree — that side; null while unpicked.
+ */
+export function pickOf(picks: Resolutions, chunk: Pick<DiffChunk, "index" | "conflicts">): Side | null {
+  const own = picks[`chunk:${chunk.index}`];
+  if (own) return own;
+  if (picks["*"]) return picks["*"];
+  const sides = new Set(chunk.conflicts.map((id) => picks[id]));
+  if (sides.size === 1) {
+    const [s] = [...sides];
+    return s ?? null;
+  }
+  return null;
+}
+
+/** A pick per chunk (`chunk:<index>`, docs/data.md §15.6); a new pick replaces the conflict-level ones it covers. */
+export function withPick(picks: Resolutions, chunk: Pick<DiffChunk, "index" | "conflicts">, side: Side): Resolutions {
+  const next: Resolutions = { ...picks, [`chunk:${chunk.index}`]: side };
+  for (const id of chunk.conflicts) delete next[id];
+  return next;
+}
+
+/** Resolve all › Pick main file / Pick branch: every chunk's conflicts to one side (`*`); single picks give way. */
+export const pickAll = (side: Side): Resolutions => ({ "*": side });
+
+/** Every conflict chunk picked (Next / Apply changes / Merge enabled). */
+export function allPicked(picks: Resolutions, p: Pick<MergePreview, "chunks">): boolean {
+  return conflictChunks(p).every((c) => pickOf(picks, c) !== null);
+}
+
+export type BadgeKind = "In review" | "Approved" | "Changes suggested" | "Merged" | "Archived";
+
+/** The badge next to a branch's name (R21: the grey "In review", "Approved", "Changes suggested"; Merged / Archived). */
+export function branchBadge(b: Pick<BranchRecord, "status" | "review">): BadgeKind | null {
+  if (b.status === "merged") return "Merged";
+  if (b.status === "archived") return "Archived";
+  return reviewBadge(b.review);
+}
+
+export function reviewBadge(r: BranchReview | null): "In review" | "Approved" | "Changes suggested" | null {
+  if (!r || r.state === "closed") return null;
+  return r.state === "approved" ? "Approved" : r.state === "changes-suggested" ? "Changes suggested" : "In review";
+}
+
+export const badgeTone = (b: BadgeKind): "default" | "success" | "warning" => (b === "Approved" ? "success" : b === "Changes suggested" ? "warning" : "default");
+
+/** Who the viewer is in a branch's review: its author, one of its reviewers, or neither. */
+export function reviewRole(b: Pick<BranchRecord, "createdBy" | "review">, me: { id: string | null }): "author" | "reviewer" | "other" {
+  if (me.id !== null && b.review?.reviewers.some((r) => r.userId === me.id)) return "reviewer";
+  if (b.createdBy.id === me.id || b.createdBy.id === null) return "author";
+  return "other";
+}
+
+/** "Send to 1 reviewer" / "Send to 3 reviewers" (R21 [request]: the alt text and the button). */
+export const sendLabel = (n: number) => (n === 1 ? "Send to 1 reviewer" : `Send to ${n} reviewers`);
+
+/** A branches-modal row's line under the name: "‹author› · ‹when›". */
+export function branchMeta(b: Pick<BranchRecord, "createdBy" | "createdAt">, now = Date.now()): string {
+  return `${b.createdBy.id === null ? "You" : (b.createdBy.name ?? "Someone")} · ${ago(b.createdAt, now)}`;
+}
+
+function ago(at: number, now: number): string {
+  const s = Math.max(0, Math.round((now - at) / 1000));
+  if (s < 60) return "Just now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} minute${m === 1 ? "" : "s"} ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} hour${h === 1 ? "" : "s"} ago`;
+  const d = Math.round(h / 24);
+  return `${d} day${d === 1 ? "" : "s"} ago`;
+}
+
+/** A branch's link: main's link with `/branch/<key>` (docs/data.md §15.1 Access); local branches have none. */
+export function branchLink(mainLink: string, branchKey: string): string {
+  try {
+    const u = new URL(mainLink);
+    u.pathname = `${u.pathname.replace(/\/$/, "")}/branch/${branchKey}`;
+    return u.toString();
+  } catch {
+    return `${mainLink.replace(/\/$/, "")}/branch/${branchKey}`;
+  }
+}
