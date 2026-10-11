@@ -75,7 +75,10 @@ function storeBackend(): BranchingBackend | null {
       return !state?.shared || state.role !== "viewer";
     },
     openFile: async (fileKey) => {
-      await desktop()?.nav?.openFile?.(fileKey);
+      const open = desktop()?.nav?.openFile;
+      // In a plain browser (no desktop nav) a file opens as `?editor&file=<fileKey>`, as Home does.
+      if (open) await open(fileKey);
+      else location.assign(`${location.pathname}?editor&file=${encodeURIComponent(fileKey)}`);
     },
     link: async (b) => {
       if (!b.branchKey) return null;
