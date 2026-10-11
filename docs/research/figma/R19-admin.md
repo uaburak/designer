@@ -28,7 +28,7 @@ a choice of ours where Figma's text says nothing.
   F-teamcreate]. The newest article says "click Activity **in the left sidebar**" [F-act]. On Enterprise, a workspace is
   selected "in the sidebar" and has its own Teams tab [F-teams-csv].
 - **Ours**: the sections as a left sidebar (Dashboard, People, Content, Activity, Billing, Settings) and the
-  sub-pages as tabs under the page title. Resources is round 3 (3e) and isn't shown yet. A workspace's own scope in
+  sub-pages as tabs under the page title; Resources (Libraries | Fonts) since round 3e (§9). A workspace admin gets the workspace's own Admin (its Libraries); the rest of a workspace's own scope in
   the sidebar is not built: workspace pages open from Content › Workspaces (unverified).
 
 ## 2. Dashboard
@@ -106,6 +106,40 @@ a choice of ours where Figma's text says nothing.
 - **Ours**: Creating user groups (Anyone / Admins only), Default seat (View, the owner's answer), and round 4's rows
   shown disabled (Public links, Link expiration, Require passwords, Cursor chat, Audio — the settings named in
   [F-guide]'s security list).
+
+## 9. Resources (read 2026-10-11, for round 3e)
+
+Sources: **[L-find]** Help people find and use libraries — https://help.figma.com/hc/en-us/articles/21310245473815 ;
+**[L-org]** Share libraries in an organization — https://help.figma.com/hc/en-us/articles/360040529593 ;
+**[SF]** Add fonts to an organization or team — https://help.figma.com/hc/en-us/articles/360039956774 ;
+**[F-guide2]** Guide to managing an organization — https://help.figma.com/hc/en-us/articles/360052679454 .
+
+- **Approve** [L-find]: org admins: Admin › **Resources** › find the library › click it › the **Manage this library**
+  modal › the toggle **"Set as approved library"**. Workspace admins: Admin › the workspace › **Libraries** › the same.
+  "A workspace admin cannot unapprove a library that an organization admin approved at the organization level."
+- **Default** [L-find]: section **"Enable or disable a default library"**; file types **Design files**, **FigJam
+  boards**, **Slide decks**, **Figma Buzz files**; org admins: Admin › Resources › **Libraries** › the library › select
+  the workspace › select the file types. A **Caution** block says "The Libraries tab contains a list of all the
+  libraries you have access to in the organization." When the library isn't shared with everyone: "Figma will publish
+  the library to the organization", and the file's permissions change. [L-org]: "Click **Off** next to the library" to
+  stop a default.
+- **Default modes** (Enterprise) [L-find]: a collection with at least two modes, published; org admins Admin ›
+  Resources › Libraries, workspace admins Admin › ‹workspace› › Libraries; remove the **"Added by default"** search
+  filter if the library isn't on by default anywhere; in Manage this library: the workspace › **"Enable this library by
+  default"** › Design files on › **"Manage default modes"**.
+- **Fonts** [SF]: Admin › **Resources** › **Fonts** › **Font** › pick files (several at once) › **Open** › "Confirm you
+  have the necessary rights and licenses to use the font(s)" › **Upload**. A family already uploaded: **Skip** ("leave
+  the font out of the upload") or **Replace** ("update the existing font"). "Admins should only upload fonts they own
+  or have a license to use in Figma." The team flow has "Check the box to confirm…" and **Upload fonts**. Neither
+  article describes the org font list's columns or removing a font; [F-guide2] doesn't either (no "Manage fonts" label
+  was found on help.figma.com — a 2025 forum request asks for deleting fonts in the admin panel).
+- **Ours (unverified)**: the filter **"Approved"** (only "Added by default" is named); the list's columns (Team, counts,
+  Enabled by default, Inserts last week — Home's org Libraries' column — Last published); the modal's layout, the
+  "Where" select, a workspace's tri-state "Organization setting (On/Off) / On / Off"; the warning as a confirm
+  ("Publish to the organization?" … **Enable by default**; the sentence says "will publish the library to the
+  organization and change the file's permissions" without Figma's name); the font table (Font, Styles, Uploaded by,
+  Date added), **Remove font**, the conflict dialog's title, the licence checkbox's "I confirm I have…" wording; a
+  workspace admin's Admin showing only Libraries.
 
 ## 8. Open
 
