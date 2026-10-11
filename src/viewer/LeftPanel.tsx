@@ -4,7 +4,7 @@
  * it on the canvas.
  */
 import { useMemo, useState } from "react";
-import { LayerRow, PageRow, PanelSection, ScrollArea, type IconName } from "@/ds";
+import { Icon, LayerRow, MenuButton, PageRow, PanelSection, ScrollArea, type IconName } from "@/ds";
 import { useCurrentPage, useSelection } from "@/engine/hooks";
 import type { Guid } from "@/engine/codec";
 import { useViewer } from "./context";
@@ -53,9 +53,18 @@ export function LeftPanel() {
   return (
     <aside className={styles.left} aria-label="Layers panel">
       <div className={styles.fileHeader}>
-        <span className={styles.fileName} title={preview.manifest.fileName}>
-          {preview.manifest.fileName || "Untitled"}
-        </span>
+        {host?.fileMenu ? (
+          <MenuButton label="File" entries={() => host.fileMenu!.entries()} onSelect={(id) => host.fileMenu!.onSelect(id)} className={styles.fileMenu}>
+            <span className={styles.fileName} title={preview.manifest.fileName}>
+              {preview.manifest.fileName || "Untitled"}
+            </span>
+            <Icon name="16.chevron.down" />
+          </MenuButton>
+        ) : (
+          <span className={styles.fileName} title={preview.manifest.fileName}>
+            {preview.manifest.fileName || "Untitled"}
+          </span>
+        )}
         <span className={styles.fileSub}>{host?.subtitle ?? "Developer preview"}</span>
       </div>
       <Pages />
@@ -103,9 +112,17 @@ function Statuses() {
   const page = useCurrentPage(store);
   const list = useMemo(() => doc.statuses(page), [doc, page]);
   const [open, setOpen] = useState(true);
-  if (!list.length) return null;
+  // The editor's Dev Mode: "Ready for dev" with the file's count opens the view of every page's designs (D-4).
+  const total = useMemo(() => (host?.onReadyView ? engine.pages().reduce((n, p) => n + doc.statuses(p.guid).length, 0) : 0), [engine, doc, host]);
+  if (!list.length && !total) return null;
   return (
     <PanelSection title="Ready for development" collapsible open={open} onOpenChange={setOpen} pad="none" className={styles.pages}>
+      {open && host?.onReadyView && (
+        <button type="button" className={styles.statusRow} data-ready-view="" onClick={() => host.onReadyView!()}>
+          <span>Ready for dev</span>
+          <span className={styles.statusLabel}>{total}</span>
+        </button>
+      )}
       {open &&
         list.map((s) => (
           <button

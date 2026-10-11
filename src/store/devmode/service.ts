@@ -128,6 +128,15 @@ export class DevModeService {
     return () => this.listeners.delete(listener);
   }
 
+  /**
+   * Someone else's change, said by the file's room (`{t: "dev-resources" | "code-connect"}`, server/src/roomBroadcast.ts):
+   * told for the local file and its room key, as this store's own changes are.
+   */
+  roomChanged(fileKey: string, roomKey: string | null, what: DevModeEvent["what"]): void {
+    const keys = roomKey && roomKey !== fileKey ? [fileKey, roomKey] : [fileKey];
+    for (const k of keys) for (const l of [...this.listeners]) l({ fileKey: k, what });
+  }
+
   private emit(asked: string, t: Target, what: DevModeEvent["what"]): void {
     const keys = asked === t.key ? [asked] : [asked, t.key];
     for (const fileKey of keys) for (const l of [...this.listeners]) l({ fileKey, what });

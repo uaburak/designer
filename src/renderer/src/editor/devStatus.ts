@@ -6,6 +6,8 @@
  * and the toolbar; here it is in the canvas menu (unverified placement).
  */
 import type { Guid, NodeChange, NodeFields } from "@/engine/codec";
+import { getStoreClient } from "@/store";
+import type { DevModeRepository, DevStatusReport } from "@shared/devmode/types";
 import type { EditorController } from "./controller";
 
 type StatusNode = NodeChange & { sectionStatusInfo?: { status?: string } };
@@ -64,10 +66,36 @@ export function setDevStatusOf(ed: EditorController, ids: readonly Guid[], statu
     : null;
   const label = opts.label ?? (status === "BUILD" ? "Mark as ready for dev" : status === "COMPLETED" ? "Mark as completed" : "Remove status");
   ed.setProps(ids, { sectionStatusInfo: info } as unknown as NodeFields, label);
+  reportDevStatus(ed, ids, status, label === "Done with changes" ? "changed_done" : status === "BUILD" ? "ready" : status === "COMPLETED" ? "completed" : "removed", opts.description);
   // A design marked ready is compared with the file as it was then (Compare changes): a version saved now
   // (unverified: whether Figma saves one, or keeps its own snapshot).
   if (status === "BUILD" && ed.source.saveVersion) {
     const names = ids.map((id) => ed.engine.readNode(id, { fields: ["name"] })?.name ?? "").filter(Boolean);
     void ed.source.saveVersion({ title: `${names.length === 1 ? `“${names[0]}”` : `${names.length} designs`} marked ready for dev` }).catch(() => {});
+  }
+}
+
+/**
+ * The status change, told to the file's server (docs/editor.md D-4: `POST /files/:key/dev-status`, through the store's
+ * `devMode.reportStatus`): the server raises DEV_MODE_STATUS_UPDATE and tells the people who viewed the file in Dev
+ * Mode. Local files report nothing (the store answers at once). Never fails the edit.
+ */
+export function reportDevStatus(ed: EditorController, ids: readonly Guid[], status: "BUILD" | "COMPLETED" | null, kind: DevStatusReport["kind"], changeMessage?: string, given?: Pick<DevModeRepository, "reportStatus"> | null): void {
+  const fileKey = (ed.source as { fileKey?: string }).fileKey;
+  if (!fileKey) return;
+  const repo = given === undefined ? storeDevMode() : given;
+  if (!repo) return;
+  const wire: DevStatusReport["status"] = status === "BUILD" ? "READY_FOR_DEV" : status === "COMPLETED" ? "COMPLETED" : "NONE";
+  for (const id of ids) {
+    const nodeName = ed.engine.readNode(id, { fields: ["name"] })?.name ?? "";
+    void repo.reportStatus(fileKey, { nodeId: id, nodeName, status: wire, kind, ...(changeMessage ? { changeMessage } : {}) }).catch(() => {});
+  }
+}
+
+function storeDevMode(): Pick<DevModeRepository, "reportStatus"> | null {
+  try {
+    return (getStoreClient() as { devMode?: DevModeRepository }).devMode ?? null;
+  } catch {
+    return null;
   }
 }

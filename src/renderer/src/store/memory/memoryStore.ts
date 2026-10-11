@@ -602,6 +602,8 @@ export class MemoryStore {
       },
       now: () => this.clock.now(),
     });
+    // Other people's dev resources / Code Connect changes, said by the file's room: open copies read them again.
+    mp.onDevMode((fileKey, what) => void mp.roomKey(fileKey).then((room) => this.devMode.roomChanged(fileKey, room, what), () => this.devMode.roomChanged(fileKey, null, what)));
   }
 
   /** Saved / recents, private plugins and approvals (docs/plugins.md §10); events on topic `plugins` */

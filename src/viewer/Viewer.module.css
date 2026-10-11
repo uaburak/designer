@@ -56,6 +56,19 @@
     white-space: nowrap;
   }
   .fileSub { color: var(--figma-color-text-secondary); }
+  .fileMenu {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    margin-left: calc(-1 * var(--ds-space-1));
+    padding: 0 var(--ds-space-1);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: none;
+    color: var(--figma-color-text);
+  }
+  .fileMenu:hover, .fileMenu[data-open] { background: var(--figma-color-bg-hover); }
   .pages { flex: none; }
   .pageList { max-height: 30vh; overflow-y: auto; padding-bottom: var(--ds-space-2); }
   .layers { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
@@ -86,6 +99,16 @@
     font: var(--ds-font-body-medium-strong);
     letter-spacing: var(--ds-tracking-body-medium-strong);
   }
+  button.rightTab, .rightTabOff { border: 0; color: var(--figma-color-text); }
+  .rightTabOff {
+    padding: var(--ds-space-1) var(--ds-space-2);
+    border-radius: var(--ds-radius-medium);
+    background: none;
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+  .rightTabOff:hover { color: var(--figma-color-text); }
   .rightBody { flex: 1 1 auto; min-height: 0; }
   .multi { padding: var(--ds-space-4); color: var(--figma-color-text-secondary); }
   .layerHeader {

@@ -978,6 +978,17 @@ export class MultiplayerService {
     for (const l of this.roomComments) l(fileKey);
   }
 
+  private roomDevMode = new Set<(fileKey: FileKey, what: "resources" | "codeConnect") => void>();
+  /** A file's room said its dev resources or Code Connect mappings changed (someone's write, docs/editor.md D-1 / D-3) */
+  onDevMode(listener: (fileKey: FileKey, what: "resources" | "codeConnect") => void): Unsubscribe {
+    this.roomDevMode.add(listener);
+    return () => this.roomDevMode.delete(listener);
+  }
+
+  /** @internal */
+  devModeChanged(fileKey: FileKey, what: "resources" | "codeConnect"): void {
+    for (const l of this.roomDevMode) l(fileKey, what);
+  }
   private async api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
     const res = await this.raw(method, path, body);
     // 204 (a delete, leaving): nothing to read
@@ -1256,6 +1267,10 @@ class Link {
           return;
         case "comments":
           return this.svc.commentsChanged(this.fileKey);
+        case "dev-resources":
+          return this.svc.devModeChanged(this.fileKey, "resources");
+        case "code-connect":
+          return this.svc.devModeChanged(this.fileKey, "codeConnect");
         case "presence": {
           const p = this.peers.get(msg.sessionID);
           if (p) p.presence = msg.data;

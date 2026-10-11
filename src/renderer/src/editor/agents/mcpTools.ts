@@ -22,6 +22,8 @@ import { base64Bytes, isImageArg, MAX_IMAGE_BYTES, sniffImage, type ImageArg } f
 import { mediaPaint } from "../model/paints";
 import type { ImportedImage } from "../images";
 import { landInBox, type Box } from "./imagePlaceholder";
+import { codeConnectSnippets, type CodeConnectSource, type ViewSnippet } from "../../../../viewer/inspect/codeConnect";
+import { editorDevData } from "../devmode/round5";
 import { addInteractionTool, getPrototypeTool, prototypeContext, prototypeField, prototypeOf, removeFlowTool, removeInteractionTool, setFlowTool, setPrototypeSettingsTool, updateInteractionTool } from "./prototypeTools";
 import { describeSchema } from "@shared/agents/schemaDescribe";
 import { reactionsFromDoc } from "./prototypeSpec";
@@ -39,6 +41,56 @@ export interface ToolEnv {
   setPage?: (page: Guid) => void;
   /** set_selection: the user's selection becomes `refs` when the turn ends — if they haven't changed it since it began */
   requestSelection?: (refs: Guid[]) => void;
+  /** Code Connect mappings (get_code_connect_map, get_design_context); default: the store's, through Dev Mode's data */
+  codeConnect?: CodeConnectSource | null;
+}
+
+const MAX_CONNECTED = 200;
+
+/** The Code Connect source of the session: the env's, else the editor's (null without a store or a file key). */
+function connectSource(env: ToolEnv): CodeConnectSource | null {
+  if (env.codeConnect !== undefined) return env.codeConnect;
+  try {
+    return editorDevData(env.ed)?.codeConnect ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Each instance or component in the trees (and the roots) with its first snippet (or `label`'s), by node id. */
+async function connectedSnippets(env: ToolEnv, ids: readonly Guid[], label?: string): Promise<Map<Guid, ViewSnippet>> {
+  const out = new Map<Guid, ViewSnippet>();
+  const source = connectSource(env);
+  if (!source) return out;
+  for (const id of ids.slice(0, MAX_CONNECTED)) {
+    const list = await codeConnectSnippets(env.ed.engine, id, source).catch(() => [] as ViewSnippet[]);
+    const pick = label ? list.find((x) => x.label === label) : list[0];
+    if (pick) out.set(id, pick);
+  }
+  return out;
+}
+
+/** Figma's Code Connect map entry (developers.figma.com figma-mcp-server tools-and-prompts). */
+const mapEntry = (s: ViewSnippet) => ({
+  componentName: s.component ?? "",
+  source: s.source ?? "",
+  snippet: s.error ? "" : s.code,
+  snippetImports: s.imports,
+  snippetNestedFunctions: [] as string[],
+  version: s.origin === "cli" ? "CLI" : "UI",
+  label: s.label,
+  ...(s.instructions ? { instructions: s.instructions } : {}),
+  ...(s.error ? { error: `${s.error.type}: ${s.error.message}` } : {}),
+});
+
+/** get_code_connect_map: the layer and the instances under it that are connected to code. */
+async function getCodeConnectMap(env: ToolEnv, args: Spec): Promise<ToolResult> {
+  const refs = targets(env, args);
+  const all = env.ed.engine.readNodes(refs, { subtree: true, fields: ["type"] });
+  const ids = all.filter((n) => n.type === "INSTANCE" || n.type === "SYMBOL" || refs.includes(n.guid)).map((n) => n.guid);
+  const found = await connectedSnippets(env, ids, typeof args.label === "string" ? args.label : undefined);
+  if (!connectSource(env)) return textResult("Code Connect isn't available for this file (it isn't in the workspace).", true);
+  return textResult(Object.fromEntries([...found].map(([id, s]) => [id, mapEntry(s)])));
 }
 
 const MAX_NODES = 600;
@@ -194,16 +246,18 @@ const styleRef = (v: unknown): string | null => {
   return null;
 };
 
-function getDesignContext(env: ToolEnv, args: Spec): ToolResult {
+async function getDesignContext(env: ToolEnv, args: Spec): Promise<ToolResult> {
   const refs = targets(env, args);
   const depth = typeof args.depth === "number" ? Math.max(0, Math.min(20, args.depth)) : 8;
   const { roots, count, truncated } = trees(env, refs, depth);
   const vars = variableNames(env);
   const styles = styleNames(env);
   const parents = new Map<Guid, NodeChange | null>();
+  const described = new Map<Guid, Record<string, unknown>>();
   const describe = (t: Tree, parent: NodeChange | null): Record<string, unknown> => {
     parents.set(t.node.guid, parent);
     const d = describeNode(t.node, parent);
+    described.set(t.node.guid, d);
     // Variables and styles it uses, by name.
     try {
       const bound = env.ed.engine.boundVariables(t.node.guid).filter((b) => b.variable);
@@ -227,11 +281,23 @@ function getDesignContext(env: ToolEnv, args: Spec): ToolResult {
     else if ((t.node.childIds?.length ?? 0) > 0) d.childCount = t.node.childIds!.length;
     return d;
   };
-  const out = roots.map((t) => {
+  const out: Record<string, unknown>[] = roots.map((t) => {
     const parentNode = t.node.parentIndex?.guid ? read(env, t.node.parentIndex.guid) : null;
     const d = describe(t, parentNode);
     return { ...d, css: cssOf(t.node as never) };
   });
+  // Figma's "with Code Connect snippets": a connected instance or component carries its mapped snippet.
+  const connectable = [...described.keys()].filter((id) => {
+    const type = (env.ed.engine.readNode(id, { fields: ["type"] }) as NodeChange | null)?.type;
+    return type === "INSTANCE" || type === "SYMBOL";
+  });
+  const snippets = await connectedSnippets(env, connectable);
+  for (const [id, sn] of snippets) {
+    const entry = mapEntry(sn);
+    const root = roots.findIndex((t) => t.node.guid === id);
+    const target = root >= 0 ? out[root] : described.get(id);
+    if (target) target.codeConnect = entry;
+  }
   return textResult({ nodes: out, layers: count, ...(truncated ? { note: "Deeper or further layers were left out: call get_design_context on a child id." } : {}) });
 }
 
@@ -1112,7 +1178,9 @@ export async function runTool(env: ToolEnv, name: string, args: Spec): Promise<T
       case "get_metadata":
         return getMetadata(env, args);
       case "get_design_context":
-        return getDesignContext(env, args);
+        return await getDesignContext(env, args);
+      case "get_code_connect_map":
+        return await getCodeConnectMap(env, args);
       case "get_screenshot":
         return await getScreenshot(env, args);
       case "get_variable_defs":

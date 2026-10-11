@@ -229,6 +229,22 @@ describe("the org's policies in an open file (§15.9)", () => {
     expect(events.filter((e) => e.policy)).toHaveLength(n);
   });
 
+  it("the room's dev-resources / code-connect broadcasts reach the open file (docs/editor.md D-1, D-3)", async () => {
+    const { fileKey } = await shared();
+    await mp.fileState(fileKey);
+    const heard: [string, string][] = [];
+    const off = mp.onDevMode((k, what) => heard.push([k, what]));
+    const key = [...rooms.keys()].at(-1)!;
+    roomOf(key).broadcastNotice({ t: "dev-resources", nodeId: "1:2" });
+    roomOf(key).broadcastNotice({ t: "code-connect" });
+    await flush();
+    off();
+    expect(heard).toEqual([
+      [fileKey, "resources"],
+      [fileKey, "codeConnect"],
+    ]);
+  });
+
   it("a room moving to another region (4012) reconnects after 2 s, without backoff", async () => {
     const { fileKey, key } = await shared();
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });

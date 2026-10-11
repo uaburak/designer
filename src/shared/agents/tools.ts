@@ -88,6 +88,14 @@ export const TOOLS: ToolDef[] = [
     write: false,
   },
   {
+    name: "get_code_connect_map",
+    title: "Get Code Connect map",
+    description:
+      "The code components mapped to a layer (default: the selection) and the instances inside it, by node id: { componentName, source, snippet, snippetImports, snippetNestedFunctions, version: \"UI\" | \"CLI\", label, instructions } — Figma's Code Connect map. Use the mapped components instead of writing new ones; follow each mapping's instructions.",
+    inputSchema: { type: "object", properties: { nodeId, label: { type: "string", description: "Only this label's mappings (React, SwiftUI …); default: the first label of each layer." } } },
+    write: false,
+  },
+  {
     name: "create_nodes",
     title: "Create layers",
     description:

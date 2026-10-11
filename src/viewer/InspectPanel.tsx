@@ -83,8 +83,15 @@ function usePluginLanguages(codegen: CodegenHost | undefined): PluginLanguages |
   return { list, current: live, onPick: setCurrent };
 }
 
-export function InspectPanel({ onPresent }: { onPresent?: () => void }) {
+/** A second tab beside Inspect (the editor's Dev Mode: "Plugins", docs/plugins.md §7). */
+export interface ExtraTab {
+  label: string;
+  render(): ReactNode;
+}
+
+export function InspectPanel({ onPresent, extraTab }: { onPresent?: () => void; extraTab?: ExtraTab }) {
   const { store, preview, host } = useViewer();
+  const [tab, setTab] = useState<"inspect" | "extra">("inspect");
   const plugins = usePluginLanguages(host?.dev?.codegen);
   const selection = useSelection(store);
   const [language, setLanguage] = useState<Language>(storedLanguage);
@@ -105,14 +112,27 @@ export function InspectPanel({ onPresent }: { onPresent?: () => void }) {
   return (
     <aside className={styles.right} aria-label="Inspect panel" data-panel="inspect">
       <div className={styles.rightHeader}>
-        <span className={styles.rightTab} aria-current="page">
-          Inspect
-        </span>
+        {extraTab ? (
+          <>
+            <button type="button" className={tab === "inspect" ? styles.rightTab : styles.rightTabOff} aria-current={tab === "inspect" ? "page" : undefined} onClick={() => setTab("inspect")}>
+              Inspect
+            </button>
+            <button type="button" className={tab === "extra" ? styles.rightTab : styles.rightTabOff} aria-current={tab === "extra" ? "page" : undefined} onClick={() => setTab("extra")} data-tab={extraTab.label}>
+              {extraTab.label}
+            </button>
+          </>
+        ) : (
+          <span className={styles.rightTab} aria-current="page">
+            Inspect
+          </span>
+        )}
         <span className={styles.grow} />
         {onPresent && <IconButton icon="24.play" label="Present" shortcut="⌥⌘↩" onClick={onPresent} />}
       </div>
       <ScrollArea className={styles.rightBody}>
-        {!inspect ? (
+        {extraTab && tab === "extra" ? (
+          extraTab.render()
+        ) : !inspect ? (
           <EmptyState icon="24.info" title="Inspect is off" body="The person who shared this preview turned off Inspect." />
         ) : selection.refs.length === 0 ? (
           <NothingSelected code={{ language, units, onLanguage: choose, onUnits, plugins }} />

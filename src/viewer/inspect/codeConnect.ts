@@ -246,8 +246,9 @@ export async function runTemplate(root: SnapNode, mapping: CodeConnectMapping, n
  * The layer's Code Connect snippets, one per label (an empty list: no mapping — Inspect shows only the built-in
  * code). Nested instances with mappings of the same label are run inline or shown as pills.
  */
-export async function codeConnectSnippets(engine: Pick<Engine, "componentInfo"> & Read, id: Guid, source: CodeConnectSource): Promise<ViewSnippet[]> {
-  const target = targetOf(engine.componentInfo(id), source.fileKey);
+export async function codeConnectSnippets(engine: Pick<Engine, "componentInfo"> & Read, id: Guid, source: CodeConnectSource, opts: { target?: ConnectTarget | null } = {}): Promise<ViewSnippet[]> {
+  // `target`: the mapping to use when the layer isn't in its file (the playground's scratch copy of a component)
+  const target = opts.target ?? targetOf(engine.componentInfo(id), source.fileKey);
   if (!target) return [];
   const cache = new Map<string, Promise<CodeConnectMapping[]>>();
   const mappingsOf = (key: string) => {

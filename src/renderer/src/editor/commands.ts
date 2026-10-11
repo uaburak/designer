@@ -15,6 +15,7 @@ import { canExport, copyAsCode, copyAsPng, copyAsSvg, copyAsText, exportFramesTo
 import { present, togglePreview } from "./present";
 import { setDevStatus, statusOfTargets, statusTargets } from "./devStatus";
 import { annotationsShown, modeOf, setMode, toggleAnnotations } from "./devmode/devMode";
+import { round5, setRound5 } from "./devmode/round5";
 import { textSummary, toggledBold, toggledItalic } from "./model/text";
 import { fields, type ExtraFields } from "./panels/design/shared";
 import type { Guid } from "@/engine/codec";
@@ -807,6 +808,8 @@ export const COMMANDS: EditorCommand[] = [
   },
   // The file name menu's "Library analytics" (help "View and explore library analytics": an org library's file)
   { id: "file.library-analytics", label: "Library analytics", run: openLibraryAnalytics, enabled: canShowLibraryAnalytics },
+  // Dev Mode's file name menu › Library ▸ (docs/editor.md D-1, Code Connect UI): the file's components and their code.
+  { id: "dev.connect-components", label: "Connect components to code", run: (ed) => setRound5(ed, { connect: { focus: [] } }), enabled: (ed) => modeOf(ed) === "dev" && round5(ed).canEdit && ed.components.assets().length > 0 },
   { id: "file.export", label: "Export…", keys: [k("KeyE", { mod: true, shift: true })], run: (ed) => ed.ui.set({ exportDialog: true, uiHidden: false }), enabled: canExport },
   { id: "file.export-frames-to-pdf", label: "Export frames to PDF…", run: (ed) => void exportFramesToPdf(ed), enabled: canExport },
   {

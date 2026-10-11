@@ -66,6 +66,7 @@ import { LinkEditor } from "./canvas/LinkEditor";
 import { PresentationView } from "@/present/PresentationView";
 import { editorPresentationSource } from "./present";
 import { ShareDialog } from "./ShareDialog";
+import { SharePrototypeDialog } from "./SharePrototypeDialog";
 import { Multiplayer } from "./multiplayer/Multiplayer";
 import { CommentsLayer } from "./comments/CommentsLayer";
 import { InlinePreview } from "./InlinePreview";
@@ -73,6 +74,10 @@ import { attachDevMode } from "./devmode/devMode";
 import { DevLeftPanel, DevMeasurements, DevRightPanel } from "./devmode/DevPanels";
 import { AnnotationEditor } from "./devmode/AnnotationEditor";
 import { CategoriesDialog, FocusBar, MeasurementText, StatusMenu } from "./devmode/DevOverlays";
+import { attachRound5 } from "./devmode/round5";
+import { ReadyForDev } from "./devmode/ReadyForDev";
+import { CodeConnectDialog } from "./devmode/CodeConnectDialog";
+import { PlaygroundDialog } from "./devmode/Playground";
 import { CompareChanges } from "./devmode/CompareChanges";
 import { Branching } from "./branching/Branching";
 import { attachRestRunner } from "./rest";
@@ -264,6 +269,7 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       // Dev Mode: every edit stamps editInfo (a design marked ready shows "Changed"); the engine's Dev Mode events.
       engine.setEditTracking(true);
       cleanups.push(attachDevMode(ed));
+      cleanups.push(attachRound5(ed));
       if (visibleRef.current) cleanups.push(attachViewInsets(engine, canvas, visibleRef.current));
       // The file's last page and camera when the source kept them, else the first view asked for.
       if (!restoreUiState(ed)) {
@@ -419,6 +425,7 @@ function CanvasOverlays() {
   return (
     <>
       <FocusBar />
+      <ReadyForDev />
       <Rulers />
       <ReturnToInstance />
       {minimized && <MinimizedPanels />}
@@ -461,6 +468,8 @@ function Overlays() {
       <StatusMenu />
       <CategoriesDialog />
       <CompareChanges />
+      <CodeConnectDialog />
+      <PlaygroundDialog />
       <Branching />
       <RenameLayersDialog />
     </>
@@ -472,17 +481,24 @@ function Presenting() {
   const ed = useEditor();
   const presenting = useUI((s) => s.presenting);
   const source = useMemo(() => (presenting ? editorPresentationSource(ed) : null), [ed, presenting]);
+  // Share prototype from the presentation's toolbar (docs/editor.md D-6): the store's file; without one, the link is copied.
+  const fileKey = (ed.source as { fileKey?: string }).fileKey ?? null;
+  const [sharing, setSharing] = useState<{ node: string | null } | null>(null);
   if (!presenting || !source) return null;
   return (
-    <PresentationView
-      source={source}
-      page={presenting.page}
-      node={presenting.node}
-      onClose={() => {
-        ed.ui.set({ presenting: null });
-        ed.focusCanvas();
-      }}
-    />
+    <>
+      <PresentationView
+        source={source}
+        page={presenting.page}
+        node={presenting.node}
+        onShare={fileKey ? (screen) => setSharing({ node: screen }) : undefined}
+        onClose={() => {
+          ed.ui.set({ presenting: null });
+          ed.focusCanvas();
+        }}
+      />
+      {sharing && fileKey && <SharePrototypeDialog fileKey={fileKey} nodeId={sharing.node} onClose={() => setSharing(null)} />}
+    </>
   );
 }
 

@@ -6,6 +6,7 @@ import type { LoadedPreview } from "./source";
 import type { ViewerDoc } from "./viewerDoc";
 import type { DevResourceRecord } from "@shared/devmode/types";
 import type { CodeConnectSource } from "./inspect/codeConnect";
+import type { MenuEntry } from "@/ds";
 
 export interface ViewerState {
   engine: Engine;
@@ -26,6 +27,10 @@ export interface ViewerHost {
   onFocus?(id: string): void;
   /** The status chip in Inspect's header: its menu */
   onStatus?(id: string, rect: DOMRect): void;
+  /** The file name's menu (Dev Mode's: Library ▸ Connect components to code …) */
+  fileMenu?: { entries(): MenuEntry[]; onSelect(id: string): void };
+  /** The left panel's "Ready for dev" row: the Ready for dev view (docs/editor.md D-4) */
+  onReadyView?(): void;
   /** Dev Mode's round 5 data (dev resources, Code Connect, codegen plugins); the viewer gives its preview's */
   dev?: DevData;
 }
