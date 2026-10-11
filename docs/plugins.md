@@ -545,6 +545,8 @@ Figma's fields [P-man], parsed and checked by `parseManifest(json, {development}
   - Values are kept per plugin in `clientStorage`'s store (main).
 - **Dev Mode's edits**: the engine's viewer mode with Dev Mode's own edits (editor.md round 6). A Dev Mode plugin may write only what Dev Mode may (annotations, measurements, statuses, dev resources, plugin data); other writes throw Figma's "Cannot write to node … in Dev Mode" (wording unverified).
 
+**As built (5f, 2026-10-12)**: docs/editor.md "As built — Dev Mode in the editor, the viewer and the CLI" › Dev Mode plugins. The Plugins tab beside Inspect, inspect UIs docked (`PluginWindowState.docked`, `PluginFrame`), codegen languages under "Plugins" in the language menu with one headless run while chosen (`PluginRun.headless()`: no "Running" toast for `codegen` / `inspect` runs). Not built: preferences (`unit`, `select`, `action`), Dev Mode's write restrictions for plugins.
+
 ## 8. Plugin data in the document (schema, 5d)
 
 `schema/document.kiwi` gains Figma's messages and fields, with Figma's numbers (from `docs/research/figma/figma-schema-106.kiwi`; check `@ours` collisions first; `docs/schema.md` gets the rows):
