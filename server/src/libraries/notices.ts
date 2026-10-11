@@ -19,20 +19,28 @@ export async function libraryAudience(deps: Deps, key: LibraryKey): Promise<stri
     .bind(key)
     .first<{ org_id: string; scope: string; team_id: string | null; project_id: string | null }>();
   if (!lib) return [];
-  const { results } = await d1
-    .prepare(
-      `SELECT owner_id AS id FROM files WHERE key = ?1
-       UNION SELECT user_id FROM members WHERE file_key = ?1 AND user_id IS NOT NULL
-       UNION SELECT u.user_id FROM group_grants g JOIN user_group_members u ON u.group_id = g.group_id WHERE g.resource_type = 'file' AND g.resource_id = ?1
-       UNION SELECT user_id FROM project_members WHERE project_id = ?5 AND user_id IS NOT NULL
-       UNION SELECT owner_id FROM teams WHERE id = ?2
-       UNION SELECT user_id FROM team_members WHERE team_id = ?2 AND user_id IS NOT NULL
-       UNION SELECT u.user_id FROM group_grants g JOIN user_group_members u ON u.group_id = g.group_id WHERE g.resource_type = 'team' AND g.resource_id = ?2
-       UNION SELECT user_id FROM org_members WHERE ?4 = 'org' AND org_id = ?3 AND role IN ('admin', 'member') AND user_id IS NOT NULL`,
-    )
-    .bind(key, lib.team_id, lib.org_id, lib.scope, lib.project_id)
-    .all<{ id: string | null }>();
-  return results.map((r) => r.id).filter((x): x is string => !!x);
+  // Two queries: D1 allows at most 5 terms in a compound SELECT ("too many terms in compound SELECT" past that).
+  const [file, team] = await Promise.all([
+    d1
+      .prepare(
+        `SELECT owner_id AS id FROM files WHERE key = ?1
+         UNION SELECT user_id FROM members WHERE file_key = ?1 AND user_id IS NOT NULL
+         UNION SELECT u.user_id FROM group_grants g JOIN user_group_members u ON u.group_id = g.group_id WHERE g.resource_type = 'file' AND g.resource_id = ?1
+         UNION SELECT user_id FROM project_members WHERE project_id = ?2 AND user_id IS NOT NULL`,
+      )
+      .bind(key, lib.project_id)
+      .all<{ id: string | null }>(),
+    d1
+      .prepare(
+        `SELECT owner_id AS id FROM teams WHERE id = ?1
+         UNION SELECT user_id FROM team_members WHERE team_id = ?1 AND user_id IS NOT NULL
+         UNION SELECT u.user_id FROM group_grants g JOIN user_group_members u ON u.group_id = g.group_id WHERE g.resource_type = 'team' AND g.resource_id = ?1
+         UNION SELECT user_id FROM org_members WHERE ?3 = 'org' AND org_id = ?2 AND role IN ('admin', 'member') AND user_id IS NOT NULL`,
+      )
+      .bind(lib.team_id, lib.org_id, lib.scope)
+      .all<{ id: string | null }>(),
+  ]);
+  return [...new Set([...file.results, ...team.results].map((r) => r.id).filter((x): x is string => !!x))];
 }
 
 /** Sends `message` to everyone: the first 500 now, the rest after the answer. */

@@ -9,6 +9,8 @@
 
   /* ---- Totals ---- */
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--ds-space-2); }
+  /* The week's activity ("4 insertions · 1 detachment") takes its own row: in a fifth column of 120 it wrapped */
+  .stat[data-stat="week"] { grid-column: 1 / -1; }
   .stat { display: flex; flex-direction: column; gap: var(--ds-space-1); padding: var(--ds-space-3); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); }
   .statLabel { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); }
   .statValue { color: var(--figma-color-text); font: var(--ds-font-heading-medium); letter-spacing: var(--ds-tracking-heading-medium); }

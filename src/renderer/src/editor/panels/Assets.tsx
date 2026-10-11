@@ -21,6 +21,7 @@ import { useLibraries, useUI } from "../hooks";
 import { insertLibraryComponent, isHiddenWhenPublishing, librariesButtonLabel, setHiddenWhenPublishing } from "../libraries";
 import { assetLabel, groupAssets, searchAssets, type ComponentAsset } from "../model/components";
 import { useComponentAssets } from "./design/ComponentPicker";
+import { ApprovedMark } from "./libraries/LibrariesDialog";
 import { RemoteThumb } from "./libraries/Thumbs";
 import { TabHeader } from "./TabHeader";
 import lstyles from "./libraries/Libraries.module.css";
@@ -233,7 +234,11 @@ export function Assets() {
             <span className={styles.cardThumb}>
               {s.items[0] && (s.items[0].remote ? <RemoteThumb asset={s.items[0].remote} size={TILE} className={styles.remoteThumb} /> : <Thumb asset={s.items[0]} size={TILE} />)}
             </span>
-            <span className={styles.cardTitle}>{s.title}</span>
+            <span className={styles.cardName}>
+              <span className={styles.cardTitle}>{s.title}</span>
+              {/* "An approved library shows a check mark next to its name … in the Assets panel" (help, §16.1) */}
+              {s.library && <ApprovedMark entry={libs.available.find((e) => e.fileKey === s.library)} orgName={libs.org?.orgName ?? null} />}
+            </span>
             <span className={styles.cardCount}>{plural(s.items.length, "component")}</span>
           </button>
         ))}

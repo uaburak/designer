@@ -25,6 +25,7 @@ import { memoryDocumentSource, type DocumentSource } from "./documentSource";
 import { EditorApp } from "./EditorApp";
 import type { EditorController } from "./controller";
 import type { ImageStore } from "./images";
+import { withImages } from "./sourceImages";
 import { CAPTURE_DOCUMENT, CAPTURE_UI_STATE, COMPONENTS_DOCUMENT, EMPTY_DOCUMENT, PAINTS_DOCUMENT, PROTOTYPE_DOCUMENT, REFERENCE_DOCUMENT, TEXT_DOCUMENT, TYPES_DOCUMENT, VARIABLES_DOCUMENT } from "./fixtures";
 import styles from "./EditorApp.module.css";
 
@@ -84,19 +85,6 @@ function storeImages(): ImageStore {
   };
 }
 
-/** The store's source with the store's blobs as its images (everything else is the source's own). */
-function withImages(source: StoreSource): DocumentSource {
-  if ((source as DocumentSource).images) return source;
-  const images = storeImages();
-  return new Proxy(source, {
-    get(target, key) {
-      if (key === "images") return images;
-      const v = Reflect.get(target, key, target);
-      return typeof v === "function" ? v.bind(target) : v;
-    },
-  }) as DocumentSource;
-}
-
 /**
  * One open per file per page, shared by every mount (React's StrictMode mounts twice; the store refuses a
  * second open of the same file), closed — flushed, the session ended — a moment after the last mount goes.
@@ -134,7 +122,7 @@ function useStoreSource(fileKey: string | null, tabId: string | undefined): { so
         if (!live) return;
         mark("sourceOpened");
         if (source.recovery) showToast({ message: "This file was recovered after an unexpected quit" });
-        setState({ source: withImages(source), error: null });
+        setState({ source: withImages(source, storeImages), error: null });
       })
       .catch((e: unknown) => {
         if (live) setState({ source: null, error: e instanceof Error ? e.message : String(e) });

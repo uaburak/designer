@@ -81,7 +81,8 @@ export function InsertionsGraph({ type, data, libraryName, today }: { type: Anal
           ))}
           {weeks.map((w, i) =>
             i % labelEvery === 0 ? (
-              <text key={w.week} x={x(i)} y={H - 4} className={styles.axis} textAnchor="middle">
+              // The last week's date ends at the plot's right edge (centred, "Oct 11" was cut to "Oct 1")
+              <text key={w.week} x={x(i)} y={H - 4} className={styles.axis} textAnchor={i === weeks.length - 1 ? "end" : "middle"}>
                 {shortDate(w.week)}
               </text>
             ) : null

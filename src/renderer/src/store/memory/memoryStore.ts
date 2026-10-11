@@ -1095,7 +1095,11 @@ export class MemoryStore {
       getFile: async (fileKey) => ws.getFile(fileKey),
       createFile: (input) => this.createFile(input),
       duplicateFile: (fileKey) => this.duplicateFile(fileKey),
-      renameFile: (fileKey, name) => q(() => ws.renameFile(fileKey, name)),
+      renameFile: async (fileKey, name) => {
+        const meta = await q(() => ws.renameFile(fileKey, name));
+        await this.multiplayer.renameRemote(fileKey, meta.name);
+        return meta;
+      },
       moveFiles: (keys, folderId) => q(() => ws.moveFiles(keys ?? [], folderId ?? null)),
       trash: async (items) => void (await q(() => ws.trash(items ?? {}))),
       restore: async (items) => void (await q(() => ws.restore(items ?? {}))),
