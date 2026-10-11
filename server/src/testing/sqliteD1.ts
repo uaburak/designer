@@ -1,13 +1,16 @@
 /** D1 for Node tests: node:sqlite behind the narrow `D1Like`, with the real migrations applied. */
 import { readdirSync, readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { D1Like, D1Stmt } from "../db";
 
 export function sqliteD1(): D1Like {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
-  const dir = new URL("../../migrations/", import.meta.url);
-  for (const f of readdirSync(dir).filter((n) => n.endsWith(".sql")).sort()) db.exec(readFileSync(new URL(f, dir), "utf8"));
+  // A path, not a URL: a happy-dom test's global URL isn't Node's (Home's DOM tests run the real handler too)
+  const dir = join(fileURLToPath(import.meta.url), "../../../migrations");
+  for (const f of readdirSync(dir).filter((n) => n.endsWith(".sql")).sort()) db.exec(readFileSync(join(dir, f), "utf8"));
   const prepare = (sql: string, params: unknown[] = []): D1Stmt => {
     const stmt = () => db.prepare(sql);
     const args = params as (string | number | null)[];

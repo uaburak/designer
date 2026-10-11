@@ -9,6 +9,8 @@ import { encodeMessage } from "@shared/schema/codec";
 import type { AdminRepository, FileRepository, OrgsRepository, ProjectsRepository, TeamsRepository, WorkspaceRepository } from "@shared/store/repositories";
 import type { FileKey, FileListItem, FileMeta, FolderId } from "@shared/store/types";
 import type { BranchesRepository } from "@shared/merge/branches";
+import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "@shared/libraries/orgTypes";
+import type { SharedFontsApi } from "@shared/desktop";
 
 /** The org spaces (StoreApi.orgs / teams / projects / admin) and the two calls Home adds around them. */
 export interface OrgBackend {
@@ -20,6 +22,12 @@ export interface OrgBackend {
   openShared(key: string): Promise<{ fileKey: FileKey }>;
   /** A local file's whole document and its head seq, for "Move to" a folder (§14.6: the snapshot goes up with it) */
   snapshotOf(fileKey: FileKey): Promise<{ snapshot: Uint8Array; headSeq: number }>;
+  /** Libraries in the org (docs/data.md §16): the team's libraries, which files are libraries; absent: not shown */
+  orgLibraries?: OrgLibrariesRepository;
+  /** Library analytics (§17): All teams › Libraries, a library's Library analytics */
+  analytics?: LibraryAnalyticsRepository;
+  /** Team fonts through main (docs/desktop.md §14.3; Home's preload `designer.fonts`); absent in a browser */
+  fonts?: SharedFontsApi;
 }
 
 export interface FilesBackend {
@@ -43,6 +51,13 @@ export async function localSnapshot(files: Pick<FileRepository, "open">, fileKey
   return { snapshot: encodeMessage(messageToKiwi(mergedDocument(opened))), headSeq: opened.headSeq };
 }
 
+/** Home's preload fonts API when it has the shared-font channels (the desktop app), else undefined */
+function sharedFontsBridge(): SharedFontsApi | undefined {
+  if (typeof window === "undefined") return undefined;
+  const fonts = (window as unknown as { designer?: { fonts?: Partial<SharedFontsApi> } }).designer?.fonts;
+  return fonts?.sharedList && fonts.sharedPick && fonts.sharedUpload && fonts.sharedRemove ? (fonts as SharedFontsApi) : undefined;
+}
+
 let shared: FilesBackend | null = null;
 
 export function filesBackend(): Promise<FilesBackend> {
@@ -59,6 +74,9 @@ export function filesBackend(): Promise<FilesBackend> {
       admin: client.admin,
       openShared: (key) => client.multiplayer.openShared(key),
       snapshotOf: (fileKey) => localSnapshot(client.files, fileKey),
+      orgLibraries: client.orgLibraries,
+      analytics: client.analytics,
+      fonts: sharedFontsBridge(),
     },
     branches: client.branches,
   };

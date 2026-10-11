@@ -2,9 +2,10 @@
  * The main area in an organization (docs/multiplayer.md §14; research docs/research/figma/R20-home-org.md, 1.png):
  * Drafts, All teams (with user groups at the right), a team (Folders / Members: audience and visibility, join or ask
  * to join, leave, transfer, delete / restore), a folder (Files / Members: Inherited or Limited, invite, create file /
- * folder, nested folders), the teams' trash, Resources, and search — over the store's `orgs` / `teams` / `projects`.
+ * folder, nested folders), the teams' trash, Resources, and search; libraries and fonts (orgLibraries.tsx: All teams ›
+ * Libraries, a team's View settings, a library file's Library analytics) — over the store's `orgs` / `teams` / `projects`.
  */
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Avatar, Banner, Breadcrumb, Button, ContextMenu, EmptyState, FileCard, FolderCard, Icon, IconButton, MenuButton, Select, Spinner, Tabs, TextInput, type MenuEntry, type ToastOptions } from "@/ds";
 import type * as O from "@shared/org/types";
 import type { FileKey } from "@shared/store/types";
@@ -33,6 +34,8 @@ import {
   type TeamAccessChoice,
 } from "./org";
 import { AskToUpgradeDialog, DestinationDialog, NameDialog, TransferDialog, type Destination } from "./orgDialogs";
+import { LibraryAnalytics } from "./libraryAnalytics";
+import { OrgLibrariesDialog, TeamFontsDialog, TeamLibrariesDialog, TeamSettingsDialog } from "./orgLibraries";
 import { TeamIcon } from "./parts";
 import type { OrgBackend } from "./storeAccess";
 import { orgDestinations, type OrgPageState } from "./useOrgData";
@@ -65,7 +68,12 @@ type Dialog =
   | { kind: "delete-team"; team: O.TeamSummary }
   | { kind: "leave-team"; team: O.TeamSummary }
   | { kind: "delete-folder"; project: O.ProjectSummary }
-  | { kind: "move"; title: string; rows: Destination[]; files?: string[]; folder?: O.ProjectSummary };
+  | { kind: "move"; title: string; rows: Destination[]; files?: string[]; folder?: O.ProjectSummary }
+  | { kind: "org-libraries" }
+  | { kind: "library-analytics"; key: string; name: string }
+  | { kind: "team-settings"; team: O.TeamInfo; canAdmin: boolean }
+  | { kind: "team-libraries"; team: O.TeamInfo; canAdmin: boolean }
+  | { kind: "team-fonts"; team: O.TeamInfo; canAdmin: boolean };
 
 type Menu = { at: { x: number; y: number }; entries: MenuEntry[]; run: (id: string) => void };
 
@@ -89,6 +97,22 @@ export function OrgMain(props: OrgMainProps) {
   const orgName = info?.name ?? "";
   const seat = info?.seat ?? "view";
   const isAdmin = info?.role === "admin";
+  const hasAnalytics = !!(org.analytics && org.orgLibraries);
+
+  // Which files shown are published libraries (their context menu offers Library analytics; data.md §17.1)
+  const [libraryKeys, setLibraryKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const showsFiles = data.kind === "project" || data.kind === "search";
+  useEffect(() => {
+    if (!hasAnalytics || !showsFiles) return;
+    let live = true;
+    org.orgLibraries!.list(orgId).then(
+      (list) => live && setLibraryKeys(new Set(list.map((l) => l.key))),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [org, orgId, hasAnalytics, showsFiles, key]);
 
   /** A write: its refusal is a toast ("Ask to upgrade" for a seat), then the lists read again. */
   const write = async <T,>(fn: () => Promise<T>, done?: string): Promise<T | undefined> => {
@@ -142,10 +166,19 @@ export function OrgMain(props: OrgMainProps) {
       at: { x: e.clientX, y: e.clientY },
       entries: inTrash
         ? [{ id: "restore", label: "Restore" }]
-        : [{ id: "open", label: "Open" }, { id: "open-new-tab", label: "Open in new tab" }, "-", { id: "move", label: "Move to…", disabled: !may }, "-", { id: "trash", label: "Move to trash", disabled: !may }],
+        : [
+            { id: "open", label: "Open" },
+            { id: "open-new-tab", label: "Open in new tab" },
+            ...(hasAnalytics && libraryKeys.has(f.key) ? ["-" as const, { id: "library-analytics", label: "Library analytics" }] : []),
+            "-",
+            { id: "move", label: "Move to…", disabled: !may },
+            "-",
+            { id: "trash", label: "Move to trash", disabled: !may },
+          ],
       run: (id) => {
         if (id === "open") void openOrgFile(f);
         if (id === "open-new-tab") void openOrgFile(f, true);
+        if (id === "library-analytics") setDialog({ kind: "library-analytics", key: f.key, name: f.name });
         if (id === "move") void moveFiles([f]);
         if (id === "trash") void write(() => org.projects.trashFiles([f.key]), "File moved to trash");
         if (id === "restore") void write(() => org.projects.restoreFiles([f.key]), "File restored");
@@ -243,11 +276,20 @@ export function OrgMain(props: OrgMainProps) {
     case "teams": {
       title = { items: [{ id: "teams", label: "All teams" }] };
       const canCreate = isAdmin || info?.settings.teamCreation !== "admins";
-      actions = canCreate ? (
-        <Button variant="tinted" size="large" icon="24.plus.small" onClick={() => setDialog({ kind: "create-team" })}>
-          Create team
-        </Button>
-      ) : null;
+      actions = (
+        <>
+          {hasAnalytics && (
+            <Button variant="secondary" size="large" icon="24.library" onClick={() => setDialog({ kind: "org-libraries" })}>
+              Libraries
+            </Button>
+          )}
+          {canCreate && (
+            <Button variant="tinted" size="large" icon="24.plus.small" onClick={() => setDialog({ kind: "create-team" })}>
+              Create team
+            </Button>
+          )}
+        </>
+      );
       const mine = data.teams.filter((t) => t.me && t.me.role);
       const others = data.teams.filter((t) => !(t.me && t.me.role));
       const teamCard = (t: O.TeamSummary) => (
@@ -308,7 +350,9 @@ export function OrgMain(props: OrgMainProps) {
             New folder
           </Button>
         ) : null;
+      const hasSettings = !!org.orgLibraries || !!org.fonts;
       const teamMenu: MenuEntry[] = [
+        ...(hasSettings ? [{ id: "settings", label: "View settings" }, "-" as const] : []),
         ...(t.me?.owner ? [{ id: "transfer", label: "Transfer ownership…" }] : []),
         ...(t.me && !t.me.owner ? [{ id: "leave", label: "Leave team" }] : []),
         ...(canAdmin ? ["-" as const, { id: "delete", label: "Delete team…" }] : []),
@@ -327,6 +371,7 @@ export function OrgMain(props: OrgMainProps) {
                 label="Team actions"
                 entries={teamMenu}
                 onSelect={(id) => {
+                  if (id === "settings") setDialog({ kind: "team-settings", team: t, canAdmin });
                   if (id === "transfer") setDialog({ kind: "transfer", team: t, members: data.members });
                   if (id === "leave") setDialog({ kind: "leave-team", team: t });
                   if (id === "delete") setDialog({ kind: "delete-team", team: t });
@@ -583,6 +628,22 @@ export function OrgMain(props: OrgMainProps) {
           }}
         />
       )}
+      {dialog?.kind === "org-libraries" && hasAnalytics && <OrgLibrariesDialog org={org} orgId={orgId} onClose={() => setDialog(null)} onOpenLibrary={(lib) => setDialog({ kind: "library-analytics", ...lib })} />}
+      {dialog?.kind === "library-analytics" && hasAnalytics && (
+        <LibraryAnalytics store={{ analytics: org.analytics!, orgLibraries: org.orgLibraries! }} libraryKey={dialog.key} name={dialog.name} onClose={() => setDialog(null)} />
+      )}
+      {dialog?.kind === "team-settings" && (
+        <TeamSettingsDialog
+          team={dialog.team}
+          libraries={!!org.orgLibraries}
+          fonts={!!org.fonts}
+          onClose={() => setDialog(null)}
+          onLibraries={() => setDialog({ ...dialog, kind: "team-libraries" })}
+          onFonts={() => setDialog({ ...dialog, kind: "team-fonts" })}
+        />
+      )}
+      {dialog?.kind === "team-libraries" && org.orgLibraries && <TeamLibrariesDialog org={org} orgId={orgId} team={dialog.team} canManage={dialog.canAdmin} toast={toast} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "team-fonts" && org.fonts && <TeamFontsDialog fonts={org.fonts} orgId={orgId} team={dialog.team} canManage={dialog.canAdmin} toast={toast} onClose={() => setDialog(null)} />}
       {moveDialog && (
         <DestinationDialog
           title={moveDialog.title}

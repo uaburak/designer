@@ -177,9 +177,12 @@ export function useOrgData(org: OrgBackend | undefined, orgId: string | null, lo
     void loadShell();
   }, [loadShell]);
   const key = JSON.stringify(location);
+  // Only the org's Trash lists by the sidebar's teams: other pages don't load again when the shell arrives (a team
+  // page read /members and /requests twice on open)
+  const teamsDep = location.kind === "org-trash" ? shell.teams.length : -1;
   useEffect(() => {
     void loadPage();
-  }, [loadPage, key, shell.teams.length]);
+  }, [loadPage, key, teamsDep]);
 
   // Live: the `org` topic (writes from this view or another, Inbox notices, cache refreshes), coalesced.
   useEffect(() => {

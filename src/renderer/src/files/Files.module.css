@@ -305,4 +305,21 @@
   .branchHint { display: block; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
   .branchOpen { visibility: hidden; }
   .branchRow:hover .branchOpen, .branchRow:focus-within .branchOpen { visibility: visible; }
+
+  /* Libraries and fonts (orgLibraries.tsx): All teams › Libraries, View team's libraries / fonts */
+  .libsPane { display: flex; flex-direction: column; gap: var(--ds-space-4); }
+  .libsTotals { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--ds-space-3); margin: 0; }
+  .libsTotal { display: flex; flex-direction: column; gap: var(--ds-space-1); padding: var(--ds-space-3); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); }
+  .libsTotal dt { margin: 0; }
+  .libsTotalValue { margin: 0; color: var(--figma-color-text); font: var(--ds-font-heading-medium); letter-spacing: var(--ds-tracking-heading-medium); }
+  .libsTable { width: 100%; border-collapse: collapse; color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .libsTable th { padding: var(--ds-space-2); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-align: left; border-bottom: 1px solid var(--figma-color-border); }
+  .libsTable td { padding: var(--ds-space-2); vertical-align: middle; border-bottom: 1px solid var(--figma-color-border); }
+  .libsName { display: flex; flex-direction: column; min-width: 0; padding: 0; color: inherit; font: inherit; text-align: left; background: none; border: 0; }
+  button.libsName { cursor: default; }
+  button.libsName:hover .memberName { text-decoration: underline; }
+  .libsModes { display: flex; flex-direction: column; align-items: flex-start; gap: var(--ds-space-1); }
+  .settingsLink { display: flex; align-items: center; min-height: var(--ds-size-row); padding: 0 var(--ds-space-2); color: var(--figma-color-text-brand); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); text-align: left; background: none; border: 0; border-radius: var(--ds-radius-medium); }
+  .settingsLink:hover { background: var(--figma-color-bg-hover); }
+  .spacer { flex: 1 1 auto; }
 }

@@ -10,6 +10,10 @@ Read 2026-10-11 for Phase 7 round 1c (`src/renderer/src/files/`, docs/multiplaye
 - **[F-folder]** Projects renamed to folders — https://help.figma.com/hc/en-us/articles/41753150926103
 - **[F-move]** Move a file — https://help.figma.com/hc/en-us/articles/360038511573
 - **[F-seatreq]** Approve or decline seat requests — https://help.figma.com/hc/en-us/articles/1500003870721
+- **[F-analytics]** Library analytics — https://help.figma.com/hc/en-us/articles/360039238353 (read 2026-10-11, round 3f)
+- **[F-teamlib]** Enable a library for a team — https://help.figma.com/hc/en-us/articles/360039234953 (read 2026-10-11)
+- **[F-find]** Help people find and use libraries (default modes) — https://help.figma.com/hc/en-us/articles/21310245473815 (read 2026-10-11)
+- **[F-fonts]** Add fonts to an organization or team — https://help.figma.com/hc/en-us/articles/360039956774 (read 2026-10-11)
 - **[1.png]** the owner's screenshot of live Figma's Home (Professional plan, 2x)
 
 ## Sidebar
@@ -40,3 +44,12 @@ Read 2026-10-11 for Phase 7 round 1c (`src/renderer/src/files/`, docs/multiplaye
 
 ## What Home does here (round 1c)
 - **Ours / unverified**: the space switcher also lists the local workspace (no plan has a "local" space); the org row's badge says the plan, **Enterprise** (ours is an Enterprise org; 1.png shows "Professional" for a Professional team); teams with their folders nested under All teams in the sidebar (Figma's custom sidebar pins them instead); the button label **Ask to upgrade** and the View-seat notice; "Join team" for teams open to the org; Ask to join without the role / note (the store's `teams.join` takes neither); the org's Trash lists the teams' trash (drafts' trash isn't listed by the API); "Resources" is a placeholder; "Community" isn't shown.
+
+## Libraries and fonts (round 3f, read 2026-10-11)
+- **Org-wide analytics** [F-analytics]: Organization — **All teams**, then **Libraries**; Enterprise with workspaces — **All workspaces**, then **Libraries**. The modal's totals: **Total teams**, **Teams with libraries**, **Total libraries**, **Total components**, **Total styles**; each library: **# of components**, **# of styles**, **Inserts last week**; a **Search** field. (No variables total is named there; we show none.)
+- **One library** [F-analytics]: in the library file, nothing selected, the file name's ⌄ › **Library analytics**; or in the file browser **right-click the library file › Library analytics**. Tabs **Overview** / **Analytics** (the modal is the editor's, round 3c).
+- **Enable a library for a team** [F-teamlib]: team admins; the team dropdown › **View settings** › under **Libraries** or **Shared** › **View team's libraries** (Professional; the Organization / Enterprise path in the same article says **Enable libraries** — the default-mode article [F-find] says "From the Shared section, click **View team's libraries**" for organizations, which we follow). **Off** next to the library, then **Design files**, **FigJam boards**, **Slide decks**, **Buzz files** or **All files**; back to **Off** to remove.
+- **Default mode** [F-find] (Enterprise): the library must have a published collection with at least two modes; **Enabled by default** set to **All files** or **Design files**; then the **Default mode** column.
+- **Team fonts** [F-fonts]: team admins; the team's dropdown › **View settings** › **View team's fonts** lists the team's fonts › **Upload fonts** › pick files › **Open** › a checkbox confirming "the necessary rights and licenses" (label not quoted) › **Upload**. .TTF and .OTF only. Team fonts show in the font picker for that team's files. Removing isn't described. Org fonts: Admin › Resources › Fonts › **Font** (round 3e); same-family conflicts **Skip** / **Replace**.
+- **Ours / unverified** (round 3f): the **Libraries** button sits in All teams' header next to Create team; the modals' titles ("Libraries", "‹team› settings", "Fonts", "Upload fonts"); the Shared section's two rows; a row of the org list opens that library's analytics; "View settings" in the team's ⋯ menu (Figma: the ⌄ by the team name); a mix of file types shows as their names joined (the dropdown names one type or All files); a workspace default read as Design files; the checkbox's words "I have the necessary rights and licenses to use the font(s)" (from the org steps' sentence); Skip as the conflict default; Remove per family with the trash icon (§14.3: the uploaders); "Library analytics" offered only on published libraries of the org (the store's `orgLibraries.list`).
+
