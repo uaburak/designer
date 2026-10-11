@@ -573,6 +573,41 @@ describe("merge3 — §15.8 corpus", () => {
   });
 });
 
+describe("merge3 — edit stamps (editInfo)", () => {
+  const stamp = (t: number) => ({ editInfo: { lastEditedAt: t, createdAt: 100 } });
+
+  it("a layer added on a page lists the layer only; the page's re-stamp travels without a chunk", () => {
+    // The owner's run: a rectangle drawn on the branch showed "Page 1 — Edited" (the engine stamps the page) too.
+    const base = edit(baseDoc(), { guid: PAGE, ...stamp(100) });
+    const branch = edit(base, node(30, "ROUNDED_RECTANGLE", at(PAGE, "#"), stamp(200)), { guid: PAGE, ...stamp(200) });
+    const r = run(base, base.clone(), branch, "merge");
+    expect(r.chunks.map((c) => [c.displayName, c.phase])).toEqual([["N30", "CREATED"]]);
+    expect(r.conflicts).toEqual([]);
+    const m = applied(r, base, branch);
+    expect(m.nodes.get(guidKey(PAGE))?.editInfo?.lastEditedAt).toBe(200);
+    expect(same(m, branch)).toBe(true);
+  });
+
+  it("stamps on both sides never conflict: the later edit's is kept, in both directions", () => {
+    const base = edit(baseDoc(), { guid: PAGE, ...stamp(100) });
+    const main = edit(base, upd(11, { name: "main", ...stamp(300) }), { guid: PAGE, ...stamp(300) }, upd(10, stamp(300)));
+    const branch = edit(base, upd(21, { name: "branch", ...stamp(200) }), { guid: PAGE, ...stamp(200) }, upd(20, stamp(200)));
+    for (const dir of ["merge", "update"] as const) {
+      const r = run(base, main, branch, dir);
+      expect(r.conflicts).toEqual([]);
+      // The incoming side's change only (its frame), never a chunk for the stamped page.
+      expect(r.chunks.map((c) => c.displayNode)).toEqual([dir === "merge" ? k(20) : k(10)]);
+      expect(applied(r, main, branch).nodes.get(guidKey(PAGE))?.editInfo?.lastEditedAt).toBe(300);
+    }
+  });
+
+  it("a real page edit still makes the page's chunk", () => {
+    const base = baseDoc();
+    const branch = edit(base, { guid: PAGE, name: "Home", ...stamp(200) });
+    expect(run(base, base.clone(), branch, "merge").chunks.map((c) => c.displayName)).toEqual(["Home"]);
+  });
+});
+
 describe("merge3 — a large table", () => {
   it("20 000 layers, 500 edits across 50 frames on the branch, 100 on main: bounded time", () => {
     const nodes: NodeChange[] = [...newDocumentMessage().nodeChanges!];

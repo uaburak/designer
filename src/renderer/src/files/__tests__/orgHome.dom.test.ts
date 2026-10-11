@@ -125,7 +125,8 @@ describe("Home in an organization", () => {
     expect((await ctx.a.api.workspace.getPrefs()).browse.space).toBe(`org:${orgId}`);
     const nav = $("nav")!.textContent!;
     expect(nav).toContain("Acme");
-    expect(nav).toContain("Organization");
+    expect(nav).toContain("Enterprise"); // the plan's name, as Figma's badge (1.png "Professional")
+    expect(nav).not.toContain("Organization");
     for (const label of ["Drafts", "All teams", "Design", "Resources", "Trash", "Admin"]) expect(sidebarItem(label), label).toBeTruthy();
     // The team page: its name, the folder made, Folders / Members
     expect($("main h1")?.textContent).toBe("Design");

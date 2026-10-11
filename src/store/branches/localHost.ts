@@ -101,6 +101,7 @@ export function localBranchHost(d: LocalBranchDeps): BranchHost {
           signedIn: () => mp.signedIn,
           uploadBlobs: (key, sha1s) => mp.uploadBlobs(key, sha1s),
           callBytes: (method, path) => mp.callBytes(method, path),
+          visit: (fileKey) => mp.visit(fileKey),
         })
       : null,
   };

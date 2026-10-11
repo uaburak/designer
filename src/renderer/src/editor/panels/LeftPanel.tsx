@@ -3,7 +3,7 @@
  * Minimize UI), then what the navigation bar's tab shows — File: Pages and Layers (or Find and replace, ⌘F),
  * Assets, Agents (panels/agents: chats with the AI tools on this computer) and Tools (not built in this app).
  */
-import { useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import { EmptyState, Icon, IconButton, MenuButton, ResizeHandle, SearchField, Select, TextInput, showToast } from "@/ds";
 import { useEditor } from "../controller";
 import { command, runEditorCommand, shortcutOf } from "../commands";
@@ -123,6 +123,11 @@ function FileHeader() {
   const ed = useEditor();
   const name = useUI((s) => s.fileName);
   const renaming = useUI((s) => s.renaming?.kind === "file");
+  // Where the file is (its folder, or Drafts): follows moves, and an org file's folder name once the store read it.
+  const location = useSyncExternalStore(
+    useCallback((changed: () => void) => ed.source.onMetaChanged?.(changed) ?? (() => {}), [ed]),
+    () => ed.source.location
+  );
   // The Edit file menu (help "Navigate the left sidebar": rename, version history, color profile, move).
   // Built when the menu opens (the branch rows follow the file's branch state).
   const entries = () => [
@@ -149,7 +154,7 @@ function FileHeader() {
             <Icon name="16.chevron.down" />
           </MenuButton>
         )}
-        <span className={styles.fileLocation}>{ed.source.location}</span>
+        <span className={styles.fileLocation}>{location}</span>
       </div>
       <IconButton icon="24.sidebar.closed" label="Minimize UI" shortcut={shortcutOf(command("view.minimize-ui"))} onClick={() => runEditorCommand(ed, "view.minimize-ui")} />
     </div>

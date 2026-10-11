@@ -40,6 +40,9 @@ export interface LocalComments {
   reads: Record<string, number>;
 }
 
+/** Reads of a shared file's comments asked for within this long of one answer share it (opening a file asked 2–3 times) */
+export const READ_FRESH_MS = 2000;
+
 /** The author of a local file's comments */
 export const LOCAL_ID = "you";
 
@@ -55,11 +58,18 @@ export class CommentsService {
     private host: CommentsHost,
     private mp: MultiplayerService,
   ) {
-    this.offs.push(mp.onComments((fileKey) => this.emit(fileKey)));
+    // The room says they changed: the next read goes to the server.
+    this.offs.push(
+      mp.onComments((fileKey) => {
+        this.reads.delete(fileKey);
+        this.emit(fileKey);
+      }),
+    );
     const live = new Map<FileKey, string>();
     this.offs.push(
       mp.onFileState((fileKey, s) => {
-        // Back online (or newly shared): read the server's list again.
+        // Back online (or newly shared): read the server's list again — unless a read just answered (opening a file
+        // reads its comments, then its link comes up a moment later: one read, not two).
         if (s.connection === "live" && live.get(fileKey) !== "live") this.emit(fileKey);
         live.set(fileKey, s.connection);
       }),
@@ -75,11 +85,22 @@ export class CommentsService {
     return () => this.listeners.delete(listener);
   }
 
+  /** A shared file's server reads in flight or answered within READ_FRESH_MS (the room's change notice drops it) */
+  private reads = new Map<FileKey, { p: Promise<CommentsState>; doneAt: number | null }>();
+
   async list(fileKey: FileKey): Promise<CommentsState> {
     const key = await this.sharedKey(fileKey);
     if (!key) return this.localState(fileKey, await this.loadLocal(fileKey));
     try {
-      return this.fromServer(fileKey, await this.mp.call("GET", `/files/${key}/comments`));
+      const hit = this.reads.get(fileKey);
+      if (hit && (hit.doneAt === null || this.host.now() - hit.doneAt < READ_FRESH_MS)) return await hit.p;
+      const entry: { p: Promise<CommentsState>; doneAt: number | null } = { p: this.mp.call("GET", `/files/${key}/comments`).then((body) => this.fromServer(fileKey, body)), doneAt: null };
+      this.reads.set(fileKey, entry);
+      entry.p.then(
+        () => void (entry.doneAt = this.host.now()),
+        () => void (this.reads.get(fileKey) === entry && this.reads.delete(fileKey)),
+      );
+      return await entry.p;
     } catch (e) {
       const last = this.cache.get(fileKey);
       const error = e instanceof Error ? e.message : String(e);
@@ -214,7 +235,10 @@ export class CommentsService {
     const run = async () => {
       const key = await this.sharedKey(fileKey);
       let state: CommentsState;
-      if (key) state = this.fromServer(fileKey, await w.server(key));
+      if (key) {
+        this.reads.delete(fileKey);
+        state = this.fromServer(fileKey, await w.server(key));
+      }
       else {
         const rec = await this.loadLocal(fileKey);
         w.local(rec, { id: LOCAL_ID, name: "You" });

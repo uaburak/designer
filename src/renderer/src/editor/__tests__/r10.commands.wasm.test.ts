@@ -88,7 +88,7 @@ describe("round 10: the stubs live has enabled (live menus/main-*.txt)", () => {
     for (const id of ["text.direction-auto", "text.direction-ltr", "text.direction-rtl"]) expect(enabled(ed, id), id).toBe(true);
   });
 
-  it("File › Duplicate, Move to project…, Create branch… where the document source has file operations", async () => {
+  it("File › Duplicate, Move to folder…, Create branch… where the document source has file operations", async () => {
     const { ed, source } = await editor();
     expect(enabled(ed, "file.duplicate")).toBe(false);
     const made: string[] = [];

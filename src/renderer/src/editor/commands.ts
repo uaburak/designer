@@ -728,7 +728,7 @@ export const COMMANDS: EditorCommand[] = [
   },
   // Round 10: the workspace's file operations, where the document source has them (objectCommands.ts FileOps).
   { id: "file.duplicate", label: "Duplicate", run: (ed) => void duplicateFile(ed), enabled: (ed) => !!fileOps(ed) },
-  { id: "file.move", label: "Move to project…", run: (ed) => ed.ui.set({ moveFileDialog: true, uiHidden: false }), enabled: (ed) => !!fileOps(ed) },
+  { id: "file.move", label: "Move to folder…", run: (ed) => ed.ui.set({ moveFileDialog: true, uiHidden: false }), enabled: (ed) => !!fileOps(ed) },
   { id: "file.save-local-copy", label: "Save local copy…", run: (ed) => void saveLocalCopy(ed), enabled: canSaveLocalCopy },
   // Branching (Phase 7 round 2b, branching/commands.ts): Create branch…, See all branches, Update from main…, Review
   // and merge changes…, Archive.

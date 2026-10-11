@@ -297,6 +297,28 @@ export async function openStoreDocument(store: StoreApi, fileKey: FileKey, opts:
   return source;
 }
 
+/**
+ * File › Move to folder… in an org: the folders of the person's teams they can add files to, nested ones too, as
+ * "‹team› / ‹folder› / …" (an org admin: every folder of those teams).
+ */
+async function orgFolders(store: StoreApi, orgId: string): Promise<{ id: string; name: string }[]> {
+  const admin = (await store.orgs.list().catch(() => [])).some((o) => o.id === orgId && o.role === "admin");
+  const out: { id: string; name: string }[] = [];
+  for (const team of await store.teams.list(orgId, "mine")) {
+    const walk = async (parentId: string | null, path: string, depth: number): Promise<void> => {
+      if (depth > 10) return; // Figma nests folders 10 deep
+      for (const p of await store.projects.list(team.id, parentId).catch(() => [])) {
+        if (p.trashedAt) continue;
+        const name = `${path} / ${p.name}`;
+        if (admin || p.me === "owner" || p.me === "editor") out.push({ id: p.id, name });
+        if (p.folderCount > 0) await walk(p.id, name, depth + 1);
+      }
+    };
+    await walk(null, team.name, 1);
+  }
+  return out;
+}
+
 class Source implements StoreDocumentSource {
   readonly fileKey: FileKey;
   readonly sessionID: number;
@@ -308,6 +330,8 @@ class Source implements StoreDocumentSource {
   private trashed = false;
   private deleted = false;
   private readonly folderNames = new Map<FolderId, string>();
+  /** An org file's folder (docs/multiplayer.md §14.6 `space.projectId`): its name, once the store has read it */
+  private orgFolder: { projectId: string; name: string } | null = null;
   private batchSeq = 0;
   private restoring = false;
   private inFlight = new Set<Promise<unknown>>();
@@ -320,7 +344,7 @@ class Source implements StoreDocumentSource {
   private readonly fileMeta = new Listeners<FileMeta>();
   readonly libraries: LibraryAccess;
   readonly previews: PreviewAccess;
-  /** Round 10, the File menu's Duplicate / Move to project… / Save local copy… (editor/objectCommands.ts FileOps) */
+  /** Round 10, the File menu's Duplicate / Move to folder… / Save local copy… (editor/objectCommands.ts FileOps) */
   readonly fileOps: FileOps;
   private uiPatch: Partial<FileUiState> | null = null;
   private uiTimer: ReturnType<typeof setTimeout> | null = null;
@@ -351,8 +375,12 @@ class Source implements StoreDocumentSource {
     this.offWatch = store.workspace.watch((e) => {
       const before = this.meta;
       this.onWorkspaceEvent(e);
-      if (this.meta !== before) this.fileMeta.emit(this.meta);
+      if (this.meta !== before) {
+        this.fileMeta.emit(this.meta);
+        if (this.meta.space?.projectId !== before.space?.projectId) this.readOrgFolder();
+      }
     });
+    this.readOrgFolder();
     this.libraries = storeLibraryAccess(store, () => this.meta, (l) => this.fileMeta.add(l));
     const fileKey = this.fileKey;
     this.fileOps = {
@@ -361,11 +389,17 @@ class Source implements StoreDocumentSource {
         const meta = await store.workspace.duplicateFile(fileKey);
         return { fileKey: meta.fileKey, name: meta.name };
       },
-      folders: async () => [
-        { id: null, name: "Drafts" },
-        ...(await store.workspace.listFolders()).filter((f) => !f.trashedAt).map((f) => ({ id: f.id, name: f.name })),
-      ],
-      moveTo: (folderId) => store.workspace.moveFiles([fileKey], folderId),
+      // An org file moves among its org's folders (the ones this person can edit in their teams) and its drafts; a
+      // local one among the workspace's.
+      folders: async () => {
+        const space = this.meta.space;
+        if (!space) return [{ id: null, name: "Drafts" }, ...(await store.workspace.listFolders()).filter((f) => !f.trashedAt).map((f) => ({ id: f.id, name: f.name }))];
+        return [{ id: null, name: "Drafts" }, ...(await orgFolders(store, space.orgId))];
+      },
+      moveTo: (folderId) => {
+        const space = this.meta.space;
+        return space ? store.projects.moveFiles([space.key], { projectId: folderId }) : store.workspace.moveFiles([fileKey], folderId);
+      },
       branch: async (name) => {
         // A branch here: a copy named "<file> / <branch>" (Figma's breadcrumb), in the file's place.
         const copy = await store.workspace.duplicateFile(fileKey);
@@ -386,8 +420,16 @@ class Source implements StoreDocumentSource {
     return this.meta.name;
   }
 
+  /**
+   * Where the file is, under its name (Figma: the folder, or Drafts). An org file's is its org folder (`space`), not
+   * the local copy's place — a file made in "Design team / Website" said "Drafts"; empty until the folder's name is read.
+   */
   get location(): string {
-    const id = this.meta.folderId;
+    const { space, folderId: id } = this.place();
+    if (space) {
+      if (!space.projectId) return "Drafts";
+      return this.orgFolder?.projectId === space.projectId ? this.orgFolder.name : "";
+    }
     return id === null ? "Drafts" : (this.folderNames.get(id) ?? "Drafts");
   }
 
@@ -400,6 +442,40 @@ class Source implements StoreDocumentSource {
   async orgName(orgId: string): Promise<string | null> {
     const orgs = await this.store.orgs?.list().catch(() => []);
     return orgs?.find((o) => o.id === orgId)?.name ?? null;
+  }
+
+  /** A branch's main file, for where the branch is (a branch lives where its main does: docs/data.md §15.7) */
+  private mainMeta: FileMeta | null = null;
+
+  /** The file's place: a branch's is its main's */
+  private place(): Pick<FileMeta, "space" | "folderId"> {
+    return this.meta.branch && this.mainMeta?.fileKey === this.meta.branch.mainFileKey && !this.meta.space ? this.mainMeta : this.meta;
+  }
+
+  /** Reads an org file's folder name (`projects.get`) — a branch's main first — then tells the header */
+  private readOrgFolder(): void {
+    const main = this.meta.branch?.mainFileKey;
+    if (main && !this.meta.space && this.mainMeta?.fileKey !== main) {
+      void this.store.workspace
+        .getFile(main)
+        .then((m) => {
+          this.mainMeta = m;
+          this.metaListeners.emit(this.snapshotMeta());
+          this.readOrgFolder();
+        })
+        .catch(() => {});
+      return;
+    }
+    const projectId = this.place().space?.projectId;
+    if (!projectId || this.orgFolder?.projectId === projectId || !this.store.projects) return;
+    void this.store.projects
+      .get(projectId)
+      .then((p) => {
+        if (this.place().space?.projectId !== projectId) return;
+        this.orgFolder = { projectId, name: p.name };
+        this.metaListeners.emit(this.snapshotMeta());
+      })
+      .catch(() => {});
   }
 
   private snapshotMeta(): DocumentMeta {

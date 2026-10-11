@@ -90,6 +90,8 @@ const CLOSE_UNSHARED = 4001;
 const CLOSE_ACCESS = 4003;
 /** A client uploads a new snapshot when the room holds this many frames past the last one (the room keeps a tail) */
 export const COMPACT_EVERY = 1000;
+/** A read of a file's members or access requests answers the reads asked for within this long after it */
+export const READ_FRESH_MS = 2000;
 
 const imagesOf = (message: Uint8Array): string[] => {
   try {
@@ -122,8 +124,10 @@ export class MultiplayerService {
     const same = session && this.session && session.server === this.session.server && session.token === this.session.token && sameOnly;
     if (same) return this.status();
     for (const l of this.live.values()) l.stop();
+    this.dropVisits();
     this.live.clear();
     this.session = session;
+    this.reads.clear(); // another person's reads aren't this one's
     this.only = only;
     for (const l of this.sessionListeners) l(session);
     if (!session) return this.status();
@@ -222,11 +226,14 @@ export class MultiplayerService {
    * A shared file's sync position (branching, docs/data.md §15.7): its room key, the room seq the copy holds, the last
    * local seq the room acknowledged, the connection and the frames not acknowledged yet. Null when it isn't shared.
    */
-  async syncState(fileKey: FileKey): Promise<{ key: string; since: number; acked: number; connection: FileShareState["connection"]; pending: number } | null> {
+  async syncState(fileKey: FileKey): Promise<{ key: string; since: number; acked: number; connection: FileShareState["connection"]; pending: number; unsent: number } | null> {
     const rec = (await this.loadState()).links[fileKey];
     if (!rec) return null;
     const link = this.live.get(fileKey);
-    return { key: rec.key, since: rec.since, acked: rec.acked, connection: link?.connection ?? "offline", pending: link?.pendingCount ?? 0 };
+    // This copy's own frames the room hasn't acknowledged. Not `head - acked`: the journal's tail can be other people's
+    // frames (a merge into main arrives as one), which are never acknowledged — the room sent them.
+    const unsent = (await this.host.backlog(fileKey, rec.acked)).filter((c) => c.kind !== "remote").length;
+    return { key: rec.key, since: rec.since, acked: rec.acked, connection: link?.connection ?? "offline", pending: link?.pendingCount ?? 0, unsent };
   }
 
   /** Files on the server the user owns or was invited to. */
@@ -393,9 +400,30 @@ export class MultiplayerService {
     }
   }
 
-  async members(fileKey: FileKey): Promise<FileMember[]> {
-    const { members } = await this.api<{ members: FileMember[] }>("GET", `/files/${await this.keyOf(fileKey)}/members`);
-    return members;
+  /**
+   * A shared file's people. Reads asked for while one is under way, or within READ_FRESH_MS of its answer, share it:
+   * opening a file asked for them several times at once (comments' mentions on every read, the Share dialog). A change
+   * made here (invite, remove, transfer) reads them again.
+   */
+  async members(fileKey: FileKey, fresh = false): Promise<FileMember[]> {
+    return this.shared(`members:${fileKey}`, fresh, async () => {
+      const { members } = await this.api<{ members: FileMember[] }>("GET", `/files/${await this.keyOf(fileKey)}/members`);
+      return members;
+    });
+  }
+
+  /** Reads in flight or answered within READ_FRESH_MS, by what they read */
+  private reads = new Map<string, { p: Promise<unknown>; doneAt: number | null }>();
+  private shared<T>(id: string, fresh: boolean, load: () => Promise<T>): Promise<T> {
+    const hit = this.reads.get(id);
+    if (!fresh && hit && (hit.doneAt === null || Date.now() - hit.doneAt < READ_FRESH_MS)) return hit.p as Promise<T>;
+    const entry: { p: Promise<unknown>; doneAt: number | null } = { p: load(), doneAt: null };
+    this.reads.set(id, entry);
+    entry.p.then(
+      () => void (entry.doneAt = Date.now()),
+      () => void (this.reads.get(id) === entry && this.reads.delete(id)),
+    );
+    return entry.p as Promise<T>;
   }
 
   private requestCounts = new Map<FileKey, number>();
@@ -407,7 +435,7 @@ export class MultiplayerService {
 
   /** @internal A notice from the room: requests are counted for editors, answers reach the person who asked. */
   async notice(fileKey: FileKey, n: MultiplayerNotice): Promise<void> {
-    if (n.kind === "access-request") await this.requests(fileKey).catch(() => []);
+    if (n.kind === "access-request") await this.requests(fileKey, true).catch(() => []);
     for (const l of this.notices) l(fileKey, n);
   }
 
@@ -415,18 +443,22 @@ export class MultiplayerService {
     await this.api("POST", `/files/${await this.keyOf(fileKey)}/requests`);
   }
 
-  async requests(fileKey: FileKey): Promise<AccessRequest[]> {
-    const { requests } = await this.api<{ requests: AccessRequest[] }>("GET", `/files/${await this.keyOf(fileKey)}/requests`);
-    if (this.requestCounts.get(fileKey) !== requests.length) {
-      this.requestCounts.set(fileKey, requests.length);
-      this.emitState(fileKey);
-    }
-    return requests;
+  /** Access requests (editors); shared as `members` reads are, read again on a new request and after an answer */
+  async requests(fileKey: FileKey, fresh = false): Promise<AccessRequest[]> {
+    return this.shared(`requests:${fileKey}`, fresh, async () => {
+      const { requests } = await this.api<{ requests: AccessRequest[] }>("GET", `/files/${await this.keyOf(fileKey)}/requests`);
+      if (this.requestCounts.get(fileKey) !== requests.length) {
+        this.requestCounts.set(fileKey, requests.length);
+        this.emitState(fileKey);
+      }
+      return requests;
+    });
   }
 
   async answerRequest(fileKey: FileKey, userId: string, approve: boolean): Promise<AccessRequest[]> {
     await this.api("POST", `/files/${await this.keyOf(fileKey)}/requests/${encodeURIComponent(userId)}`, { approve });
-    return this.requests(fileKey);
+    this.reads.delete(`members:${fileKey}`);
+    return this.requests(fileKey, true);
   }
 
   async setViewersCanCopy(fileKey: FileKey, on: boolean): Promise<SharedFileInfo> {
@@ -445,12 +477,12 @@ export class MultiplayerService {
 
   async invite(fileKey: FileKey, email: string, role: "editor" | "viewer"): Promise<FileMember[]> {
     await this.api("PUT", `/files/${await this.keyOf(fileKey)}/members`, { email, role });
-    return this.members(fileKey);
+    return this.members(fileKey, true);
   }
 
   async removeMember(fileKey: FileKey, email: string): Promise<FileMember[]> {
     await this.api("DELETE", `/files/${await this.keyOf(fileKey)}/members/${encodeURIComponent(email)}`);
-    return this.members(fileKey);
+    return this.members(fileKey, true);
   }
 
   /** "Transfer ownership" to an invited member (owner only; can't be undone). */
@@ -462,7 +494,7 @@ export class MultiplayerService {
       await this.persist(fileKey);
       this.emitState(fileKey);
     }
-    return this.members(fileKey);
+    return this.members(fileKey, true);
   }
 
   /** "Password required" for people in by the link (null turns it off). */
@@ -500,6 +532,7 @@ export class MultiplayerService {
   close(): void {
     this.off();
     for (const l of this.live.values()) l.stop();
+    this.dropVisits();
     this.live.clear();
   }
 
@@ -553,6 +586,54 @@ export class MultiplayerService {
   /** @internal */
   get deps_(): MultiplayerDeps {
     return this.deps;
+  }
+
+  /** Links joined for a while outside `only` (`visit`): how many callers hold each, and the timer that ends it */
+  private visits = new Map<FileKey, { count: number; link: Link; timer: ReturnType<typeof setTimeout> | null }>();
+
+  /**
+   * Joins a shared file's room for a while even when this client joins only some rooms (`only`: a browser tab edits
+   * one file) — a branch's merge in a tab that has only the branch open needs main's copy caught up with its room
+   * (docs/data.md §15.7). Returns the release; the link stays `lingerMs` after the last release (a merge right after
+   * its preview doesn't reconnect), then closes. A no-op for a file whose room this client is in anyway.
+   */
+  async visit(fileKey: FileKey, lingerMs = 30_000): Promise<() => void> {
+    const st = await this.loadState();
+    if (!this.session || !st.links[fileKey]) return () => {};
+    let v = this.visits.get(fileKey);
+    if (!v) {
+      if (this.live.has(fileKey)) return () => {};
+      const link = new Link(this, fileKey);
+      this.live.set(fileKey, link);
+      link.start();
+      v = { count: 0, link, timer: null };
+      this.visits.set(fileKey, v);
+    }
+    if (v.timer) clearTimeout(v.timer);
+    v.timer = null;
+    v.count++;
+    const visit = v;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      if (--visit.count > 0) return;
+      visit.timer = setTimeout(() => {
+        if (this.visits.get(fileKey) !== visit || visit.count > 0) return;
+        this.visits.delete(fileKey);
+        if (this.live.get(fileKey) === visit.link && this.only && !this.only.has(fileKey)) {
+          visit.link.stop();
+          this.live.delete(fileKey);
+          this.emitState(fileKey);
+        }
+      }, lingerMs);
+    };
+  }
+
+  /** The links were all stopped (sign-out, a new session, close): the visits end with them */
+  private dropVisits(): void {
+    for (const v of this.visits.values()) if (v.timer) clearTimeout(v.timer);
+    this.visits.clear();
   }
 
   private startLink(fileKey: FileKey): void {

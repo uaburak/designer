@@ -2,7 +2,7 @@
  * Round 10 — the Figma menu's commands that are the editor's own (docs/editor.md "Round 10 — Menus, commands, left side
  * and toolbar"; live menus/main-edit.txt, main-view.txt, main-object.txt, main-file.txt, context-*.txt): Copy /
  * Paste properties (⌥⌘C / ⌥⌘V), Hide other layers, Set as thumbnail / Restore default thumbnail, Find previous / next
- * frame (Home / End), More layout options ▸, and the File menu's Duplicate, Save local copy…, Move to project… where
+ * frame (Home / End), More layout options ▸, and the File menu's Duplicate, Save local copy…, Move to folder… where
  * the document source can do them. What live does beyond its menus' labels is from
  * help.figma.com or, where noted, unverified.
  */
@@ -195,7 +195,7 @@ export function addLayout(ed: EditorController, flow: LayoutFlow): void {
   });
 }
 
-// ---- File: Duplicate, Save local copy…, Move to project…, Create branch… ---------------------------------------------
+// ---- File: Duplicate, Save local copy…, Move to folder…, Create branch… ---------------------------------------------
 
 /** The document source's file operations (the store's: docs/data.md §5), when the file lives in the workspace. */
 export interface FileOps {

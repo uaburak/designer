@@ -130,3 +130,40 @@ describe("RemoteBranches against the server (docs/data.md §15.7.1)", () => {
     await expect(remote.patch(merged.record, { status: "active" })).rejects.toMatchObject({ code: "invalid" });
   });
 });
+
+describe("RemoteBranches.catchUp (a merge never waits forever on a room)", () => {
+  const deps = (state: () => SyncState | null, visits: string[]) => {
+    let clock = 0;
+    return new RemoteBranches({
+      call: async () => ({}) as never,
+      syncState: async () => state(),
+      shareTo: async () => ({}) as never,
+      newRoomKey: () => "k",
+      linkedCopies: async () => new Map(),
+      headSeq: async () => 0,
+      signedIn: () => true,
+      visit: async (fileKey) => (visits.push(`join ${fileKey}`), () => void visits.push(`leave ${fileKey}`)),
+      sleep: async (ms) => void (clock += ms),
+      now: () => clock,
+    });
+  };
+
+  it("joins a room this tab isn't in, waits until the copy is live, and hands back the release", async () => {
+    const visits: string[] = [];
+    let polls = 0;
+    const remote = deps(() => ({ key: "main_1", since: 3, acked: 0, connection: ++polls > 3 ? "live" : "connecting", pending: 0 }), visits);
+    const release = await remote.catchUp("mainLocal");
+    expect(visits).toEqual(["join mainLocal"]);
+    release();
+    expect(visits).toEqual(["join mainLocal", "leave mainLocal"]);
+  });
+
+  it("gives up with `offline` after the timeout and leaves the room", async () => {
+    const visits: string[] = [];
+    const remote = deps(() => ({ key: "main_1", since: 3, acked: 0, connection: "connecting", pending: 0 }), visits);
+    await expect(remote.catchUp("mainLocal", 1000)).rejects.toMatchObject({ code: "offline", message: "Couldn’t reach this file’s room. Check your connection and try again." });
+    expect(visits).toEqual(["join mainLocal", "leave mainLocal"]);
+    const saving = deps(() => ({ key: "main_1", since: 3, acked: 0, connection: "live", pending: 2 }), []);
+    await expect(saving.catchUp("mainLocal", 1000)).rejects.toMatchObject({ code: "offline", message: "Changes to this file are still being saved. Try again in a moment." });
+  });
+});

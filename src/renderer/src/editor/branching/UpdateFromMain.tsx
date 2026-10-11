@@ -3,14 +3,14 @@
  * "not a before and after"); conflicts go through Resolve conflicts; Apply changes takes them all (no picking of
  * updates). A head that moved since the preview (`stale`) previews again.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Banner, Button, EmptyState, ScrollArea, Spinner, showToast } from "@/ds";
 import type { MergePreview } from "../../../../shared/merge/branches";
 import type { Resolutions } from "../../../../shared/merge/types";
 import type { FileKey } from "../../../../shared/store/types";
 import { useEditor } from "../controller";
 import type { BranchingBackend } from "./access";
-import { ChunkCompare, SideDocs } from "./ChunkCompare";
+import { ChunkCompare, useSideDocs } from "./ChunkCompare";
 import { allPicked } from "./model";
 import { BranchWindow, ChangeList, codeOf, Conflicts, errorText } from "./parts";
 import { openBranchWindow, refreshBranch, setBranching } from "./state";
@@ -25,15 +25,18 @@ export function UpdateFromMain({ backend, branchFileKey }: { backend: BranchingB
   const [selected, setSelected] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const images = ed.source.images ? (h: string) => ed.source.images!.get(h) : null;
-  const docs = useMemo(() => new SideDocs(backend.branches, images), [backend]); // eslint-disable-line react-hooks/exhaustive-deps -- one per window
-  useEffect(() => () => docs.destroy(), [docs]);
+  const docs = useSideDocs(backend.branches, images);
   const close = () => {
     openBranchWindow(ed, null);
     ed.focusCanvas();
   };
+  // The latest preview asked for is the one shown (the store keeps only the latest one per branch).
+  const loads = useRef(0);
   const load = async (resolutions: Resolutions) => {
+    const n = ++loads.current;
     try {
       const p = await backend.branches.preview(branchFileKey, "update", resolutions);
+      if (n !== loads.current) return p;
       setPreview(p);
       setSelected((s) => s ?? p.chunks[0]?.index ?? null);
       return p;

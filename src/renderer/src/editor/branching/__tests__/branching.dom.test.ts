@@ -70,6 +70,18 @@ describe("branching on main", () => {
     expect(ed.ui.get().branchDialog).toBe(false);
   });
 
+  it("Create branch: Return in the name field creates it (the field keeps Enter to itself)", async () => {
+    const { ed, repo } = await setup("main");
+    act(() => COMMAND_BY_ID.get("file.create-branch")!.run(ed));
+    const field = $("[data-create-branch] input") as HTMLInputElement;
+    type(field, "Explore nav");
+    act(() => field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    await settle();
+    expect(repo.calls.find((c) => c.method === "create")?.args).toEqual(["main", "Explore nav"]);
+    expect(repo.opened).toEqual(["branch-1"]);
+    expect(ed.ui.get().branchDialog).toBe(false);
+  });
+
   it("the Branches modal: Active / Archived / Yours, Open, Archive, Restore, Rename", async () => {
     const { ed, repo } = await setup("main", {}, (r) => {
       r.seed({ branchFileKey: "b1", mainFileKey: "main", name: "Nav", createdAt: 2 });
