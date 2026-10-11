@@ -1,4 +1,4 @@
-import { app, ipcMain, Menu, shell, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type WebContents } from "electron";
+import { app, dialog, ipcMain, Menu, shell, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type WebContents } from "electron";
 import { INVOKE_ROLES, SEND_ROLES, type IpcInvoke, type IpcSend, type NativeMenuItem, type Role } from "../shared/ipc";
 import { isFileKey } from "../shared/tabs";
 import type { McpClientId } from "../shared/agents/types";
@@ -10,6 +10,7 @@ import { exportAssets } from "./files";
 import { hapticTick } from "./haptics";
 import { fontIndex, readFont } from "./fonts";
 import { googlePreview } from "./googleFonts";
+import * as sharedFonts from "./sharedFonts";
 import { isAppUrl } from "./protocol";
 import { workspaceDir } from "./storeHost";
 import { setShortcutSettings, shortcutSettings } from "./shortcuts";
@@ -188,6 +189,31 @@ export function registerIpc() {
     const id = str(p?.id, 64);
     if (!id) throw new Error("fonts:remove-uploaded: no id");
     return removeUploadedFont(id);
+  });
+  // ── Organization and team fonts (docs/desktop.md §14.3): main picks, parses and uploads; views see faces ──
+  onInvoke("fonts:shared-list", (_c, p) => sharedFonts.listScopeFonts(sharedFonts.checkScope(p?.scope)));
+  onInvoke("fonts:shared-pick", async ({ ctl }, p) => {
+    const scope = sharedFonts.checkScope(p?.scope);
+    const r = await dialog.showOpenDialog(ctl.win, { title: "Upload fonts", buttonLabel: "Open", properties: ["openFile", "multiSelections"], filters: [{ name: "Fonts", extensions: ["ttf", "otf"] }] });
+    if (r.canceled || !r.filePaths.length) return { cancelled: true as const };
+    return sharedFonts.prepareUpload(scope, r.filePaths.slice(0, 200));
+  });
+  onInvoke("fonts:shared-upload", (_c, p) => {
+    const scope = sharedFonts.checkScope(p?.scope);
+    // Figma's confirmation: "you have the necessary rights and licenses to use the font(s)".
+    if (p?.licenceConfirmed !== true) throw new Error("fonts:shared-upload: the licence isn't confirmed");
+    const tokens = Array.isArray(p.tokens) ? p.tokens.map((t) => str(t, 64)).filter((t): t is string => t !== null).slice(0, 200) : [];
+    const choices: Record<string, "skip" | "replace"> = {};
+    if (p.choices && typeof p.choices === "object")
+      for (const [family, choice] of Object.entries(p.choices).slice(0, 500)) if ((choice === "skip" || choice === "replace") && family.length <= 300) choices[family] = choice;
+    return sharedFonts.uploadPicked(scope, tokens, choices);
+  });
+  onInvoke("fonts:shared-remove", (_c, p) => {
+    const scope = sharedFonts.checkScope(p?.scope);
+    const ids = Array.isArray(p?.ids) ? p.ids.map((t) => str(t, 64)).filter((t): t is string => t !== null).slice(0, 500) : undefined;
+    const family = str(p?.family, 300) ?? undefined;
+    if (!ids?.length && !family) throw new Error("fonts:shared-remove: ids or a family");
+    return sharedFonts.removeScopeFonts(scope, { ids, family });
   });
   // ── The Keyboard shortcuts panel's bindings, shortcuts used, layout (settings.json) ──
   onInvoke("shortcuts:get", () => shortcutSettings());

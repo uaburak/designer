@@ -1,10 +1,11 @@
 /**
  * The font pickers' list (docs/editor.md "Typography"): every family the font service knows — the bundled Inter and
  * the desktop's index of the system's and the user's fonts (`fonts:list`, src/main/fonts.ts), variable fonts by
- * their named instances — with each family's own styles. Read once per process and again when the list changes.
+ * their named instances, Google Fonts, and the open file's organization and team fonts (docs/desktop.md §14.3) —
+ * with each family's own styles. Read once per process and again when the list changes.
  */
 import { useEffect, useState } from "react";
-import { fonts, type FontFamily } from "@/engine/fonts";
+import { fonts, type FontFamily, type FontScope } from "@/engine/fonts";
 
 let current: FontFamily[] | null = null;
 
@@ -31,6 +32,17 @@ export function useFontFamilies(): FontFamily[] | null {
   return list;
 }
 
+/** The open file's organization (for "Used at ‹organization›"); null in a local file. Re-renders when it changes. */
+export function useFontScope(): FontScope | null {
+  const [scope, setScope] = useState<FontScope | null>(() => fonts.scope());
+  useEffect(() => {
+    const read = () => setScope(fonts.scope());
+    read();
+    return fonts.onListChange(read);
+  }, []);
+  return scope;
+}
+
 /**
  * The family options a picker shows: the list's, plus the names in `extra` it lacks (a file's missing fonts stay
  * selectable as the current value).
@@ -55,8 +67,10 @@ export function familyStyles(list: readonly FontFamily[] | null, family: string,
 
 /**
  * Figma's font filters, in live's order (popovers/font-picker-filter-menu.txt: 240 × 229): All fonts | In this file |
- * Popular fonts, Google fonts, Variable fonts | Uploaded by you, Installed by you ("Used at <organization>" needs an
- * organization; this app has none). Nothing is uploaded to this app, so "Uploaded by you" lists nothing.
+ * Popular fonts, Google fonts, Variable fonts | [Used at ‹organization›], Uploaded by you, Installed by you. "Used at
+ * ‹organization›" (R11 §4: shared fonts, organizations only) is shown only in an organization's file and lists the
+ * organization's and the file's team's fonts (docs/desktop.md §14.3). Nothing is uploaded to this app's picker as
+ * "yours" yet, so "Uploaded by you" lists nothing.
  */
 export const FONT_FILTERS = [
   { value: "all", label: "All fonts" },
@@ -64,16 +78,24 @@ export const FONT_FILTERS = [
   { value: "popular", label: "Popular fonts" },
   { value: "google", label: "Google fonts" },
   { value: "variable", label: "Variable fonts" },
+  { value: "org", label: "Used at" },
   { value: "uploaded", label: "Uploaded by you" },
   { value: "installed", label: "Installed by you" },
 ] as const;
 export type FontFilter = (typeof FONT_FILTERS)[number]["value"];
 
-/** The filter menu's rows with live's lines between its groups (after All fonts, In this file, Variable fonts). */
-export const FONT_FILTER_MENU: ({ value: FontFilter; label: string } | "-")[] = (() => {
-  const [all, file, popular, google, variable, uploaded, installed] = FONT_FILTERS;
-  return [all, "-", file, "-", popular, google, variable, "-", uploaded, installed];
-})();
+/**
+ * The filter menu's rows with live's lines between its groups (after All fonts, In this file, Variable fonts); in an
+ * organization's file (`orgName` given) "Used at ‹organization›" heads the last group.
+ */
+export function fontFilterMenu(orgName: string | null = null): ({ value: FontFilter; label: string } | "-")[] {
+  const [all, file, popular, google, variable, org, uploaded, installed] = FONT_FILTERS;
+  const used = orgName !== null ? [{ value: org.value, label: `Used at ${orgName}` }] : [];
+  return [all, "-", file, "-", popular, google, variable, "-", ...used, uploaded, installed];
+}
+
+/** The menu outside an organization (a local file). */
+export const FONT_FILTER_MENU = fontFilterMenu(null);
 
 /** How many of the most used Google families "Popular" lists (Figma curates its own; Google's ranking stands in). */
 export const POPULAR_COUNT = 50;
@@ -106,6 +128,9 @@ export function filterFamilies(list: readonly FontFamily[], filter: FontFilter, 
       break;
     case "variable":
       out = list.filter((f) => f.variable);
+      break;
+    case "org":
+      out = list.filter((f) => f.source === "shared");
       break;
     case "uploaded":
       out = [];

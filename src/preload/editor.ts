@@ -3,7 +3,7 @@ import type { EditorApi } from "../shared/desktop";
 import type { FlushReason, TabAttach } from "../shared/ipc";
 import type { AgentsApi, ToolCallResult } from "../shared/agents/types";
 import type { ShortcutSettings } from "../shared/shortcuts";
-import { agentSetupApi, common, files, forwardStorePort, invoke, nav, on, openExternal, send, uploadedFonts, viewMenu } from "./common";
+import { agentSetupApi, common, files, forwardStorePort, invoke, nav, on, openExternal, send, sharedFontsApi, uploadedFonts, viewMenu } from "./common";
 
 /**
  * A file tab's view (`?editor&file=<fileKey>`), or the spare editor (`?editor`
@@ -91,6 +91,7 @@ const api: EditorApi = {
     preview: (family, text) => invoke("fonts:preview", { family: String(family), text: String(text) }),
     onChanged: (cb) => on("fonts:changed", () => cb()),
     ...uploadedFonts,
+    ...sharedFontsApi,
   },
   // Text › Spell check: the view's own spell checker (webPreferences.spellcheck, src/main/views.ts), at most 2000 words a call.
   agents: agentsApi(),

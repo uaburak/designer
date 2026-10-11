@@ -12,13 +12,15 @@
  *
  * Precedence, as Figma's: a family installed on the computer wins over the same
  * family served by Figma (its Inter, Google Fonts); Figma's Inter wins over
- * Google's (docs/research/figma/R11-fonts.md).
+ * Google's (docs/research/figma/R11-fonts.md). Organization and team fonts
+ * (docs/desktop.md §14.3) come only in a file of that organization or team
+ * (`setScope`): installed > team > organization > Figma's Inter > Google.
  */
 import interUrl from "./fonts/Inter-3.19.ttf?url";
 import type { EngineExports } from "./EngineExports";
 
-/** Where a face comes from: Figma's own (bundled), installed on the computer, or Google Fonts. */
-export type FontFaceSource = "bundled" | "system" | "user" | "google";
+/** Where a face comes from: Figma's own (bundled), installed on the computer, Google Fonts, or the organization / team (shared). */
+export type FontFaceSource = "bundled" | "system" | "user" | "google" | "shared";
 
 /** One face of a font file (the desktop's FontIndex entries, the bundled Inter's, the Google catalog's styles). */
 export interface FontFaceInfo {
@@ -37,11 +39,23 @@ export interface FontFaceInfo {
   /** Google Fonts: the family's category ("Sans Serif" …) and popularity rank */
   category?: string;
   popularity?: number;
+  /** Shared fonts: the organization, and the team (null: an organization font) */
+  orgId?: string;
+  teamId?: string | null;
+}
+
+/** The open file's organization and team (docs/desktop.md §14.3): which shared fonts it sees; null — a local file. */
+export interface FontScope {
+  orgId: string;
+  teamId: string | null;
+  /** For the picker's "Used at ‹organization›" (null until known) */
+  orgName: string | null;
 }
 
 /** Where faces come from. `read` returns the whole file the face is in. */
 export interface FontSource {
-  list(): Promise<FontFaceInfo[]>;
+  /** Every face the file may use: `scope` picks the shared fonts (none without one) */
+  list(scope?: FontScope | null): Promise<FontFaceInfo[]>;
   read(face: FontFaceInfo): Promise<Uint8Array>;
 }
 
@@ -87,8 +101,21 @@ export interface GoogleFamilyEntry {
   styles: { style: string; weight: number; italic: boolean; id: string }[];
 }
 
+/** A shared face as the desktop's index lists it (src/shared/fonts/sharedTypes.ts SharedFontFace, the fields used here). */
+export interface SharedFaceEntry {
+  id: string;
+  family: string;
+  style: string;
+  postscriptName?: string;
+  weight: number;
+  italic: boolean;
+  variable?: boolean;
+  orgId: string;
+  teamId: string | null;
+}
+
 interface DesktopFonts {
-  list(): Promise<{ faces: FontFaceInfo[]; google?: GoogleFamilyEntry[] }>;
+  list(): Promise<{ faces: FontFaceInfo[]; google?: GoogleFamilyEntry[]; shared?: SharedFaceEntry[] }>;
   read(id: string): Promise<Uint8Array | ArrayBuffer>;
   preview?(family: string, text: string): Promise<Uint8Array | ArrayBuffer>;
   onChanged?(cb: () => void): () => void;
@@ -100,12 +127,46 @@ export function desktopFonts(): DesktopFonts | null {
 }
 
 /**
- * Every face, by precedence: the installed fonts, Figma's Inter unless Inter is installed, the Google families that
- * neither has.
+ * The shared faces a file in `scope` sees (docs/desktop.md §14.3): its organization's fonts, and its team's; a local
+ * file (no scope) none. As FontFaceInfo with "s:" ids (what `fonts:read` downloads).
  */
-export function mergeFaces(local: readonly FontFaceInfo[], google: readonly GoogleFamilyEntry[] = []): FontFaceInfo[] {
+export function sharedForScope(shared: readonly SharedFaceEntry[], scope: FontScope | null | undefined): FontFaceInfo[] {
+  if (!scope) return [];
+  return shared
+    .filter((f) => f.orgId === scope.orgId && (f.teamId === null || (scope.teamId !== null && f.teamId === scope.teamId)))
+    .map((f) => ({
+      id: `s:${f.id}`,
+      family: f.family,
+      style: f.style,
+      ...(f.postscriptName ? { postscriptName: f.postscriptName } : {}),
+      weight: f.weight,
+      italic: f.italic,
+      source: "shared" as const,
+      collectionIndex: 0,
+      ...(f.variable ? { variable: true } : {}),
+      orgId: f.orgId,
+      teamId: f.teamId,
+    }));
+}
+
+/**
+ * Every face, by precedence (whole families: a family comes from one place): the installed fonts, the team's fonts,
+ * the organization's, Figma's Inter, the Google families none of them has. `shared`: the file's (sharedForScope).
+ */
+export function mergeFaces(local: readonly FontFaceInfo[], google: readonly GoogleFamilyEntry[] = [], shared: readonly FontFaceInfo[] = []): FontFaceInfo[] {
   const have = new Set(local.map((f) => f.family.toLowerCase()));
   const out = [...local];
+  // The team's fonts before the organization's (§14.3's order), each family whole.
+  for (const level of [shared.filter((f) => !!f.teamId), shared.filter((f) => !f.teamId)]) {
+    const added = new Set<string>();
+    for (const f of level) {
+      const fam = f.family.toLowerCase();
+      if (have.has(fam)) continue;
+      out.push(f);
+      added.add(fam);
+    }
+    for (const fam of added) have.add(fam);
+  }
   if (!have.has("inter")) out.push(...BUNDLED_FACES);
   for (const f of BUNDLED_FACES) have.add(f.family.toLowerCase());
   for (const g of google) {
@@ -117,14 +178,14 @@ export function mergeFaces(local: readonly FontFaceInfo[], google: readonly Goog
   return out;
 }
 
-/** Figma's Inter, plus the desktop's fonts and the Google catalog when there is a desktop. */
+/** Figma's Inter, plus the desktop's fonts, the Google catalog and the file's shared fonts when there is a desktop. */
 export const defaultFontSource: FontSource = {
-  async list() {
+  async list(scope) {
     const desktop = desktopFonts();
     if (!desktop) return [...BUNDLED_FACES];
     try {
       const index = await desktop.list();
-      return mergeFaces(index.faces, index.google ?? []);
+      return mergeFaces(index.faces, index.google ?? [], sharedForScope(index.shared ?? [], scope));
     } catch {
       return [...BUNDLED_FACES];
     }
@@ -179,8 +240,8 @@ export interface FontFamily {
   family: string;
   styles: string[];
   faces: FontFaceInfo[];
-  /** Where the family comes from (the picker's filters): installed on the computer, Figma's own, Google Fonts */
-  source: "local" | "bundled" | "google";
+  /** Where the family comes from (the picker's filters): installed on the computer, Figma's own, Google Fonts, the organization / team */
+  source: "local" | "bundled" | "google" | "shared";
   /** Some face is a variable font */
   variable: boolean;
   /** Google Fonts: category and popularity rank */
@@ -201,7 +262,7 @@ export function groupFamilies(faces: readonly FontFaceInfo[]): FontFamily[] {
     .map(([family, list]) => {
       const sorted = [...list].sort((a, b) => a.weight - b.weight || Number(a.italic) - Number(b.italic));
       const first = sorted[0];
-      const source = first.source === "google" ? "google" : first.source === "bundled" ? "bundled" : "local";
+      const source = first.source === "google" ? "google" : first.source === "bundled" ? "bundled" : first.source === "shared" ? "shared" : "local";
       return {
         family,
         styles: [...new Set(sorted.map((f) => f.style))],
@@ -259,6 +320,7 @@ class FontService {
   private readonly missingNames = new Map<string, { family: string; style: string }>();
   private readonly missingListeners = new Set<() => void>();
   private watching = false;
+  private fileScope: FontScope | null = null;
 
   /** Called by Engine.create: the module to feed, and the fallback list (once). */
   attach(exports: EngineExports): void {
@@ -298,6 +360,26 @@ class FontService {
     for (const l of this.missingListeners) l();
   }
 
+  /**
+   * The open file's organization and team (docs/desktop.md §14.3): the shared fonts it sees. One file per editor
+   * process — a spare editor adopted for a file sets it then. Another org or team reads the list again; the name
+   * alone (known later) only tells the pickers.
+   */
+  setScope(scope: FontScope | null): void {
+    const before = this.fileScope;
+    this.fileScope = scope ? { ...scope } : null;
+    if (before?.orgId === scope?.orgId && before?.teamId === scope?.teamId) {
+      if (before?.orgName !== scope?.orgName) for (const l of this.listListeners) l();
+      return;
+    }
+    this.refresh();
+  }
+
+  /** The open file's scope (null: a local file, which sees no shared fonts). */
+  scope(): FontScope | null {
+    return this.fileScope;
+  }
+
   /** The names reported missing so far (fonts not installed, not served, or not downloadable now). */
   missing(): { family: string; style: string }[] {
     return [...this.missingNames.values()];
@@ -328,7 +410,7 @@ class FontService {
       this.watching = true;
       desktopFonts()?.onChanged?.(() => this.refresh());
     }
-    this.faces ??= this.source.list().catch(() => BUNDLED_FACES);
+    this.faces ??= this.source.list(this.fileScope).catch(() => BUNDLED_FACES);
     return this.faces;
   }
 

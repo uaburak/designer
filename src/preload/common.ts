@@ -1,6 +1,6 @@
 import { ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
 import type { IpcEvents, IpcInvoke, IpcSend, MenuStatePatch, NativeMenuItem, OpenWorkspaceFile, Role, ThemePreference, ThemeState } from "../shared/ipc";
-import type { FilesApi, NavApi, ViewMenuApi } from "../shared/desktop";
+import type { FilesApi, NavApi, SharedFontsApi, ViewMenuApi } from "../shared/desktop";
 import type { AccountMethod } from "../shared/account";
 import type { AgentSetupApi, McpClientId } from "../shared/agents/types";
 
@@ -90,6 +90,15 @@ export const uploadedFonts = {
   uploaded: () => invoke("fonts:uploaded"),
   upload: () => invoke("fonts:upload"),
   removeUploaded: (id: string) => invoke("fonts:remove-uploaded", { id: String(id) }),
+};
+
+/** Organization and team fonts (docs/desktop.md §14.3; Home and editors): plain data both ways, main checks it again. */
+const plain = <T>(v: T): T => JSON.parse(JSON.stringify(v ?? null)) as T;
+export const sharedFontsApi: SharedFontsApi = {
+  sharedList: (scope) => invoke("fonts:shared-list", { scope: plain(scope) }),
+  sharedPick: (scope) => invoke("fonts:shared-pick", { scope: plain(scope) }),
+  sharedUpload: (req) => invoke("fonts:shared-upload", plain(req)),
+  sharedRemove: (req) => invoke("fonts:shared-remove", plain(req)),
 };
 
 /** Agents' setup (Settings › Agents, the Agents tab's settings): plain data both ways. */

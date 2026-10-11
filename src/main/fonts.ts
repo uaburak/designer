@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { app, webContents } from "electron";
 import type { FontFaceInfo, FontIndex } from "../shared/ipc";
 import { googleCatalog, googleFontPath, onGoogleCatalogChanged, setGoogleFontsRoot } from "./googleFonts";
+import { onSharedFontsChanged, readSharedFont, setSharedFontsParser, setSharedFontsRoot, setSharedFontsSession, sharedFonts, startSharedFonts } from "./sharedFonts";
 import { viewOf } from "./views";
 
 /**
@@ -17,7 +18,9 @@ import { viewOf } from "./views";
  * paths) and a face's whole file (`fonts:read`), which the engine parses.
  *
  * The index also carries the Google Fonts catalog (`googleFonts.ts`): a
- * Google face's id downloads its file on the first `fonts:read`.
+ * Google face's id downloads its file on the first `fonts:read`; and the
+ * organization and team fonts the server serves to the signed-in person
+ * (`sharedFonts.ts`, §14.3): an `s:` id downloads its file the same way.
  *
  * Font folders are watched (`watchFonts`): a font installed or removed while
  * the app runs is rescanned and every view hears `fonts:changed`, as Figma's
@@ -225,6 +228,8 @@ export async function parseFile(path: string, source: FontFaceInfo["source"]): P
   }
 }
 
+setSharedFontsParser((path, source) => parseFile(path, source));
+
 // ---- Index --------------------------------------------------------------------------------
 
 const cachePath = () => join(app.getPath("userData"), "cache", `fonts-v${VERSION}.json`);
@@ -234,13 +239,17 @@ let indexVersion = 1;
 
 let googleRootSet = false;
 
+function setRoots(): void {
+  if (googleRootSet) return;
+  googleRootSet = true;
+  setGoogleFontsRoot(app.getPath("userData"));
+  setSharedFontsRoot(app.getPath("userData"));
+}
+
 async function buildIndex(): Promise<FontIndex> {
-  if (!googleRootSet) {
-    googleRootSet = true;
-    setGoogleFontsRoot(app.getPath("userData"));
-  }
-  const [local, google] = await Promise.all([scanLocal(), googleCatalog().catch(() => [])]);
-  return { version: indexVersion, faces: local, google };
+  setRoots();
+  const [local, google, shared] = await Promise.all([scanLocal(), googleCatalog().catch(() => []), sharedFonts().catch(() => [])]);
+  return { version: indexVersion, faces: local, google, shared };
 }
 
 async function scanLocal(): Promise<FontFaceInfo[]> {
@@ -336,8 +345,8 @@ export function watchFonts(changed: (version: number) => void, options: { dirs?:
       if (sig === last) return;
       last = sig;
       indexVersion++;
-      const google = await googleCatalog().catch(() => []);
-      indexing = Promise.resolve({ version: indexVersion, faces, google });
+      const [google, shared] = await Promise.all([googleCatalog().catch(() => []), sharedFonts().catch(() => [])]);
+      indexing = Promise.resolve({ version: indexVersion, faces, google, shared });
       changed(indexVersion);
     } catch {
       // the next change tries again
@@ -364,17 +373,67 @@ export function watchFonts(changed: (version: number) => void, options: { dirs?:
     indexing = null;
     changed(indexVersion);
   });
+  // The organization and team fonts changed (a refresh found another version): the index takes the new list.
+  onSharedFontsChanged(() => {
+    indexVersion++;
+    const before = indexing;
+    indexing = before
+      ? before.then(async (i) => ({ ...i, version: indexVersion, shared: await sharedFonts().catch(() => []) })).catch(() => buildIndex())
+      : null;
+    changed(indexVersion);
+  });
   return () => {
     if (timer) clearTimeout(timer);
     for (const w of own) w.close();
   };
 }
 
-/** Starts watching at launch: every editor view hears `fonts:changed` and reads the list again. */
+/**
+ * Starts watching at launch: every editor view hears `fonts:changed` and reads the list again. Also starts the shared
+ * fonts' refreshes (§14.3): at once when signed in, on the store's `fonts` event, on sign-in / sign-out, on focus.
+ */
 export function startFontWatch(): () => void {
-  return watchFonts((version) => {
+  const stop = watchFonts((version) => {
     for (const contents of webContents.getAllWebContents())
       if (viewOf(contents)?.role === "editor" && !contents.isDestroyed()) contents.send("fonts:changed", { version });
+  });
+  let stopShared: (() => void) | null = null;
+  void startSharedFontsWithApp().then((s) => (stopShared = s)).catch((e: unknown) => console.warn("[fonts] shared fonts didn't start", e));
+  return () => {
+    stop();
+    stopShared?.();
+  };
+}
+
+/** The shared fonts on the app's account, store and windows (imported late: tests of this module need none of them). */
+async function startSharedFontsWithApp(): Promise<() => void> {
+  setRoots();
+  const [account, storeHost] = await Promise.all([import("./account"), import("./storeHost")]);
+  setSharedFontsSession(() => {
+    const token = account.sessionToken();
+    const user = token ? account.accountState().user : null;
+    return token && user ? { server: account.serverUrl(), token, userId: user.id } : null;
+  });
+  return startSharedFonts({
+    onStoreFonts: (cb) => {
+      let offClient: (() => void) | null = null;
+      const attach = (client: { watchFonts(l: () => void): () => void }) => {
+        offClient?.();
+        offClient = client.watchFonts(cb);
+      };
+      const current = storeHost.storeClient();
+      if (current) attach(current);
+      const offReady = storeHost.onStoreReady(attach);
+      return () => {
+        offReady();
+        offClient?.();
+      };
+    },
+    onSession: (cb) => account.onSessionChanged(cb),
+    onFocus: (cb) => {
+      app.on("browser-window-focus", cb);
+      return () => app.off("browser-window-focus", cb);
+    },
   });
 }
 
@@ -387,6 +446,7 @@ export function startFontWatch(): () => void {
  */
 export async function readFont(id: string): Promise<Uint8Array> {
   if (id.startsWith("g:")) return new Uint8Array(await readFile(await googleFontPath(id)));
+  if (id.startsWith("s:")) return readSharedFont(id.slice(2));
   if (!paths.has(id)) await fontIndex();
   const path = paths.get(id);
   if (!path) throw new Error(`fonts: no face ${id}`);

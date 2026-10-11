@@ -17,6 +17,7 @@ import type {
   HomeState,
   ImportResult,
   InitInfo,
+  IpcInvoke,
   MenuCommandEvent,
   MenuStatePatch,
   NativeMenuItem,
@@ -34,6 +35,7 @@ import type {
 } from "./ipc";
 import type { AccountMethod, AccountResponse, AccountState, SignInResult } from "./account";
 import type { AgentSetupApi, AgentsApi } from "./agents/types";
+import type { SharedFontScope } from "./fonts/sharedTypes";
 import type { ShortcutSettings } from "./shortcuts";
 import type { TabReport } from "./tabs";
 
@@ -149,7 +151,7 @@ export interface HomeApi extends DesktopCommon {
   menu: ViewMenuApi;
   openExternal(url: string): void;
   /** Settings › Account › Your uploaded fonts: the faces, a face's bytes (its sample), upload, remove */
-  fonts: { read(id: string): Promise<Uint8Array> } & UploadedFontsApi;
+  fonts: { read(id: string): Promise<Uint8Array> } & UploadedFontsApi & SharedFontsApi;
   /** Settings › Agents: the agents' setup (no turns) */
   agents: AgentSetupApi;
 }
@@ -160,6 +162,18 @@ export interface UploadedFontsApi {
   /** Main's Open dialog; the files checked and copied into userData/fonts/uploaded */
   upload(): Promise<{ fonts: UploadedFont[]; failed: string[] } | { cancelled: true }>;
   removeUploaded(id: string): Promise<UploadedFont[]>;
+}
+
+/**
+ * Organization and team fonts (docs/desktop.md §14.3; Admin › Resources › Fonts, a team's View team's fonts): the
+ * scope's list, main's Open dialog with each file parsed and the conflicts asked, the upload once the licence is
+ * confirmed and Skip / Replace chosen per family, removal.
+ */
+export interface SharedFontsApi {
+  sharedList(scope: SharedFontScope): Promise<IpcInvoke["fonts:shared-list"]["result"]>;
+  sharedPick(scope: SharedFontScope): Promise<IpcInvoke["fonts:shared-pick"]["result"]>;
+  sharedUpload(req: IpcInvoke["fonts:shared-upload"]["args"][0]): Promise<IpcInvoke["fonts:shared-upload"]["result"]>;
+  sharedRemove(req: IpcInvoke["fonts:shared-remove"]["args"][0]): Promise<IpcInvoke["fonts:shared-remove"]["result"]>;
 }
 
 export interface EditorApi extends DesktopCommon {
@@ -201,7 +215,8 @@ export interface EditorApi extends DesktopCommon {
     preview(family: string, text: string): Promise<Uint8Array>;
     /** Fonts were installed or removed, or the Google catalog changed */
     onChanged(cb: () => void): () => void;
-  } & UploadedFontsApi;
+  } & UploadedFontsApi &
+    SharedFontsApi;
   /**
    * Text › Spell check (round 10; src/renderer/src/editor/spellcheck.ts): the view's spell checker (Chromium's, the
    * system's dictionaries) — which of `words` it doesn't know. In the preload, no IPC.

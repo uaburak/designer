@@ -391,6 +391,17 @@ class Source implements StoreDocumentSource {
     return id === null ? "Drafts" : (this.folderNames.get(id) ?? "Drafts");
   }
 
+  /** The org space of this file (a linked copy of an org file's room), for its organization and team fonts. */
+  fileSpace(): { orgId: string; teamId: string | null } | null {
+    const s = this.meta.space;
+    return s ? { orgId: s.orgId, teamId: s.teamId } : null;
+  }
+
+  async orgName(orgId: string): Promise<string | null> {
+    const orgs = await this.store.orgs?.list().catch(() => []);
+    return orgs?.find((o) => o.id === orgId)?.name ?? null;
+  }
+
   private snapshotMeta(): DocumentMeta {
     return { fileName: this.fileName, location: this.location, folderId: this.meta.folderId, trashed: this.trashed, deleted: this.deleted };
   }
