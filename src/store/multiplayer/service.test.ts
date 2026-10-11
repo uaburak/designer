@@ -461,6 +461,16 @@ describe("MultiplayerService", () => {
     await expect(late.svc.openShared(info.key)).rejects.toMatchObject({ code: "not-found" });
   });
 
+  it("renames a shared file on the server (what Home's listings and its library read), not only its copy", async () => {
+    const { a, b, fa, fb } = await sharedPair();
+    await a.svc.renameRemote(fa, "Landing v2");
+    expect((await b.svc.listRemote())[0].name).toBe("Landing v2");
+    await b.svc.renameRemote(fb, "Landing v3"); // an editor can
+    expect((await a.svc.listRemote())[0].name).toBe("Landing v3");
+    const local = a.store.addFile("Not shared", [node(0, {})]);
+    await expect(a.svc.renameRemote(local, "x")).resolves.toBeUndefined(); // nothing to tell
+  });
+
   it("lists members and invites, and refuses to share while signed out", async () => {
     const { a, fa } = await sharedPair();
     const members = await a.svc.members(fa);

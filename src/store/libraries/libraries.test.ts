@@ -193,9 +193,16 @@ describe("the org registry (docs/data.md §16.3, §16.6)", () => {
 
     const preview = await a.org.previewPublish("libf_A", [button, colors]);
     expect(preview.created.map((x) => x.name)).toEqual(["Button", "Colors"]);
+    // Not published yet: the editor asks for its own record at every refresh; the server is asked once a while
+    fake.log.length = 0;
+    expect(await a.org.getRecord("libf_A")).toBeNull();
+    expect(await a.org.getRecord("libf_A")).toBeNull();
+    expect(fake.log).toEqual(["GET /libraries/libf_A"]);
     fake.log.length = 0;
     const v1 = await a.org.publish({ libraryFileKey: "libf_A", description: "First", assets: [button, colors], moves: [], scope: "org" });
     expect(v1.version).toBe(1);
+    expect((await a.org.getRecord("libf_A"))?.latestVersion).toBe(1); // a publish forgets the "not a library"
+    fake.log.splice(fake.log.indexOf("GET /libraries/libf_A"), 1);
     expect(fake.log).toEqual([
       "GET /libraries/libf_A/versions/latest",
       "POST /libraries/libf_A/missing",
@@ -249,7 +256,7 @@ describe("the org registry (docs/data.md §16.3, §16.6)", () => {
     a.host.add("Design System", space("libf_A"));
     await a.host.blobs.put(IMAGE);
     const icon = asset("icon", "Icon", "icon@1", { dependencyOnly: true, payload: payload("Icon", { fillPaints: [{ type: "IMAGE", image: { hash: createHash("sha1").update(IMAGE).digest() } }] }) });
-    const button = asset("button", "Button", "button@1", { dependencies: [icon.key] });
+    const button = asset("button", "Button", "button@1", { dependencies: [icon.key], thumbnailPng: PNG });
     await a.org.publish({ libraryFileKey: "libf_A", description: "", assets: [button, icon], moves: [] });
 
     const b = client(bob);
@@ -277,8 +284,11 @@ describe("the org registry (docs/data.md §16.3, §16.6)", () => {
     expect(b.host.blobMap.has(bytesHex(IMAGE))).toBe(true); // the image came before the payloads
     expect(b.host.cacheMap.has(CACHE.payload("libf_A", button.key, button.versionHash))).toBe(true);
 
-    // Offline: the caches answer (the manifest read online first, as the editor does).
+    // Offline: the caches answer (the manifest read online first, as the editor does). Its thumbnails come with it
+    // (the Assets panel shows them from local blobs).
+    expect(b.host.blobMap.has(bytesHex(PNG))).toBe(false);
     await b.org.getVersion("libf_A");
+    expect(b.host.blobMap.has(bytesHex(PNG))).toBe(true);
     fake.online = false;
     expect((await b.org.listAvailable(app.fileKey)).map((r) => r.libraryFileKey)).toEqual(["libf_A"]);
     expect((await b.org.getVersion("libf_A")).version).toBe(1);

@@ -461,6 +461,17 @@ export class MultiplayerService {
     return this.requests(fileKey, true);
   }
 
+  /**
+   * A shared file renamed here (the editor's title, Home's Rename): its name on the server too — Home's org listings,
+   * the people it is shared with, its library's name and Library analytics read it there. Branches keep their own
+   * names (BranchService); a viewer's copy, signed out or offline, the server keeps its name (logged).
+   */
+  async renameRemote(fileKey: FileKey, name: string): Promise<void> {
+    const rec = (await this.loadState()).links[fileKey];
+    if (!rec || rec.role === "viewer" || !this.session || this.host.getMeta(fileKey)?.branch) return;
+    await this.api("PATCH", `/files/${rec.key}`, { name }).catch((e: unknown) => this.host.log("warn", `multiplayer: couldn't rename ${rec.key} on the server`, e));
+  }
+
   async setViewersCanCopy(fileKey: FileKey, on: boolean): Promise<SharedFileInfo> {
     await this.api("PATCH", `/files/${await this.keyOf(fileKey)}`, { viewersCanCopy: on });
     return this.fileInfo(fileKey);
