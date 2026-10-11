@@ -122,6 +122,8 @@ The owner wants every feature of Figma's Enterprise plan. R18 lists them all: th
 Migrations continue from **0010** (round 1) and **0011** (round 2).
 
 ### Open questions for the owner (Phase 7)
+**Answered by the owner, 2026-10-11:** (1) friends are **members** — an admin adds anyone as a member by hand, and "Import shared files" (§14.8) imports the people the owner shared with as members, not guests; (2) the default seat stays Figma's **View** (with "Ask to upgrade"); (3) org admins **edit everything implicitly** (keep §14.2 rule 4); (4) not asked — default: keep per-file sharing outside orgs (Figma keeps sharing drafts); (5) open; (6) **several orgs** — the org switcher in the account menu, "Create organization" as many times as wanted, the name asked at creation.
+
 1. **Friends: members or guests?** By Figma's rule, people outside the org's email domains are guests, and the owner has no domain. §14.8 imports them as guests, and admins can add anyone as a member by hand (ours). Members see every Visible team and use shared fonts and org libraries; guests see only what they're invited to.
 2. **Default seat.** Figma's default for new people is View (§14.3), with "Ask to upgrade". Should the owner's org default to Full, so friends can edit Design files at once?
 3. **Admins edit everything implicitly** (§14.2 rule 4, unverified at Figma). Keep, or make org admins only *manage* permissions?

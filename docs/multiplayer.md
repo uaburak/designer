@@ -862,9 +862,9 @@ Today every shared file belongs to no org (`files.org_id` null). Nothing moves b
 1. Makes the org. The caller becomes `admin`, seat `full`, `OrgSettings` at defaults.
 2. Makes a team named "‹name›" (owner and admin: the caller; org access none, Visible) and in it a top-level folder **"Shared files"** (Inherited).
 3. Moves every file **the caller owns** with `org_id` null into that folder: sets `org_id`, `team_id`, `project_id`. Rooms, keys, links, members, passwords, comments and notifications stay as they are; nothing in a room changes.
-4. Adds every person with a grant on those files (members rows, pending ones included) to the org as **guest**, seat `full` if they had "can edit" on any of them, else `view`. A pending email becomes a pending `org_members` row.
+4. Adds every person with a grant on those files (members rows, pending ones included) to the org as **member** (owner's decision 2026-10-11), seat `full` if they had "can edit" on any of them, else `view`. A pending email becomes a pending `org_members` row.
 
-   They remain guests until an admin makes them members (§14.1: no domains). Their file roles stay what they were, so nobody loses access.
+   They are members at once (the owner's decision; Figma would make them guests without a shared domain). Their file roles stay what they were, so nobody loses access.
 5. Logs `org_user_create` / `org_user_create_external`, `team_create`, `project_create` and `fig_file_move` with `details.migrated: true`.
 
 Files other people own and shared with the caller stay outside the org: they are theirs. Each owner may run "Create organization" or be invited and move their files in. Local files are untouched; they move with "Move to…" (§14.6).
@@ -1170,8 +1170,9 @@ export interface UnassignedDrafts { owner: { id: string; email: string; name: st
 
 ### 14.14 Not decided here (owner)
 
-See `docs/roadmap.md` Phase 7 "Open questions for the owner". Until answered:
-- friends are guests;
-- seats default to View, with the owner able to raise them;
-- admins edit implicitly;
-- files outside an org stay legal.
+See `docs/roadmap.md` Phase 7 "Open questions for the owner". **Answered (owner, 2026-10-11):**
+- friends are **members**: an admin adds anyone as a member by hand, and §14.8's import makes the people the owner shared with **members** (not guests); the email-domain rule still makes self-joiners from other domains guests;
+- seats default to **View** (Figma's), "Ask to upgrade" raises them;
+- org admins **edit everything implicitly**;
+- **several orgs** per person: the org switcher, "Create organization" asks the name;
+- files outside an org stay legal (not asked; Figma keeps sharing drafts).

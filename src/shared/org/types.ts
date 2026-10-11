@@ -1,0 +1,209 @@
+/**
+ * Organizations' shared value types (docs/multiplayer.md §14.13, committed verbatim before Phase 7 round 1 so the
+ * server, the store, Home and the Admin app compile against the same shapes). ActivityLog: §14.10.
+ */
+export type OrgRole = "admin" | "member" | "guest";
+export type Seat = "full" | "dev" | "collab" | "view";
+export type GrantRole = "editor" | "viewer";
+export type Level = "owner" | "editor" | "viewer";
+export type Audience = "none" | "viewer" | "editor";
+export type InheritMode = "inherited" | "limited";
+/** Figma's EditorType, by product (docs/schema.md §15): design = DESIGN, figjam = WHITEBOARD, slides = SLIDES, buzz = COOPER, sites = SITES, make = FIGMAKE */
+export type EditorType = "design" | "figjam" | "slides" | "buzz" | "sites" | "make";
+export type Principal = `u:${string}` | `e:${string}` | `g:${string}`;
+
+export interface OrgSettings {
+  /** "Anyone" (default) or "Admins only" [F-ws team creation] */
+  teamCreation: "anyone" | "admins";
+  /** Enterprise: "Team and user group creation" [F-group] */
+  groupCreation: "anyone" | "admins";
+  /** Guest membership: Allow (default) / Require admin approval / Block (enforced round 4, stored round 1) */
+  guestMembership: "allow" | "approval" | "block";
+  /** Seat for new people [unverified default] */
+  defaultSeat: Seat;
+  seatApproval: Record<Exclude<Seat, "view">, "manual" | "manual_unless_available" | "auto">;
+  /** Sharing and publishing (round 4): public links allowed, link expiry maximum in hours (null: none), passwords required */
+  publicLinks: boolean;
+  linkExpiryMaxHours: number | null;
+  passwordRequired: boolean;
+  /** Round 4: */
+  cursorChat: boolean;
+  audio: boolean;
+}
+export const DEFAULT_ORG_SETTINGS: OrgSettings = {
+  teamCreation: "anyone", groupCreation: "anyone", guestMembership: "allow", defaultSeat: "view",
+  seatApproval: { full: "manual_unless_available", dev: "manual_unless_available", collab: "manual_unless_available" },
+  publicLinks: true, linkExpiryMaxHours: null, passwordRequired: false, cursorChat: true, audio: true,
+};
+
+export interface OrgSummary { id: string; name: string; role: OrgRole; seat: Seat; workspaceId: string | null }
+export interface OrgInfo extends OrgSummary {
+  createdAt: number;
+  /** The caller's admin reach */
+  workspaceAdminOf: string[];
+  billingGroupAdminOf: string[];
+  counts: { members: number; guests: number; teams: number };
+  settings: OrgSettings;            // readable by everyone in the org (the UI hides what policy forbids)
+}
+export interface PersonRef { id: string; email: string; name: string | null; picture: string | null; role: OrgRole }
+export interface GroupRef { id: string; name: string; memberCount: number }
+export interface UserGroup extends GroupRef { description: string; createdBy: string; external: boolean; members: PersonRef[]; canManage: boolean }
+
+export interface TeamSummary {
+  id: string; name: string; icon: string | null; workspaceId: string | null;
+  visibility: "visible" | "hidden"; orgAccess: Audience; workspaceAccess: Audience;
+  /** The caller's place: null when they only see it (browse) */
+  me: { role: GrantRole | null; admin: boolean; owner: boolean; requested: boolean } | null;
+  memberCount: number; projectCount: number;
+}
+export interface TeamInfo extends TeamSummary { description: string; ownerId: string; createdAt: number; deletedAt: number | null }
+export interface TeamPatch { name?: string; description?: string; icon?: string | null; orgAccess?: Audience; workspaceAccess?: Audience; visibility?: "visible" | "hidden"; workspaceId?: string | null }
+export interface TeamMember { principal: Principal; person: PersonRef | null; group: GroupRef | null; email: string | null; role: GrantRole; admin: boolean; owner: boolean; pending: boolean; guest: boolean }
+export interface JoinRequest { userId: string; person: PersonRef; createdAt: number }
+
+export interface ProjectSummary { id: string; teamId: string; parentId: string | null; name: string; access: InheritMode; fileCount: number; folderCount: number; updatedAt: number; trashedAt: number | null; me: Level | null }
+export interface ProjectInfo extends ProjectSummary { ownerId: string; depth: number; path: { id: string; name: string }[]; createdAt: number }
+export interface ProjectMember extends Omit<TeamMember, "admin"> { inherited: boolean /* from the team or a parent: can't be lowered here */ }
+
+export interface OrgFile {
+  key: string; name: string; editorType: EditorType; ownerId: string; ownerName: string | null;
+  orgId: string; teamId: string | null; projectId: string | null;
+  updatedAt: number; createdAt: number; trashedAt: number | null;
+  /** Figma REST's thumbnail_url: a route of ours (/files/:key/thumbnail), null until a client uploaded one */
+  thumbnailUrl: string | null;
+  access: FileAccess;
+  /** The local linked copy on this installation, if any */
+  fileKey: string | null;
+  /** Round 2: branches (docs/data.md §15) */
+  mainFileKey?: string | null; branchCount?: number;
+}
+export interface FileAccess { role: Level; canEdit: boolean; canComment: boolean; canExport: boolean; canDevMode: boolean; canShare: boolean; canManage: boolean; capped: "seat" | "external" | null; via: ("file" | "folder" | "team" | "org-admin" | "workspace-admin" | "audience" | "link")[] }
+export interface OrgSearchResult { files: OrgFile[]; projects: ProjectSummary[]; teams: TeamSummary[]; people: PersonRef[] }
+
+export interface SeatRequest { id: string; orgId: string; userId: string; person: PersonRef; seat: Exclude<Seat, "view">; note: string; state: "pending" | "approved" | "denied"; createdAt: number; answeredAt: number | null; answeredBy: string | null }
+export interface GuestRequest { id: string; email: string; invitedBy: PersonRef; resource: { type: "team" | "project" | "file"; id: string; name: string }; role: GrantRole; state: "pending" | "approved" | "denied"; createdAt: number }
+
+export interface Page<T> { items: T[]; cursor: string | null; total?: number }
+export interface AdminDashboard { members: number; guests: number; seats: Record<Seat, number>; pendingSeatRequests: number; pendingGuestRequests: number; teams: number; workspaces: number; activeLast30Days: number }
+export interface PeopleQuery { text?: string; role?: OrgRole; seat?: Seat; workspaceId?: string | "none"; billingGroupId?: string | "none"; activeBefore?: number; cursor?: string; limit?: number }
+export interface AdminPerson extends PersonRef { seat: Seat; workspaceId: string | null; billingGroupId: string | null; lastActiveAt: number | null; joinedAt: number; pending: boolean; teams: number }
+export interface AddPeopleInput { emails: string[]; role: Exclude<OrgRole, "admin"> | "admin"; seat?: Seat; workspaceId?: string | null; billingGroupId?: string | null }
+export interface UpdatePeopleInput { userIds: string[]; role?: OrgRole; seat?: Seat; workspaceId?: string | null; billingGroupId?: string | null }
+export interface TeamsQuery { text?: string; workspaceId?: string | "none"; includeHidden?: boolean; includeDeleted?: boolean; cursor?: string; limit?: number }
+export interface AdminTeam extends TeamInfo { ownerName: string | null; adminCount: number; fileCount: number; lastEditedAt: number | null }
+export interface OrgWorkspace { id: string; name: string; hidden: boolean; admins: PersonRef[]; defaultTeamIds: string[]; memberCount: number; teamCount: number; createdAt: number }
+export interface WorkspacePatch { name?: string; hidden?: boolean; adminIds?: string[]; defaultTeamIds?: string[]; members?: { add?: string[]; remove?: string[] }; teams?: { add?: string[]; remove?: string[] } }
+export interface BillingGroup { id: string; name: string; admins: PersonRef[]; memberCount: number }
+export interface ActivityQuery { events?: string[]; email?: string; teamId?: string; startTime?: number; endTime?: number; order?: "asc" | "desc"; cursor?: string; limit?: number }
+export interface ActivityPage { activity_logs: ActivityLog[]; cursor: string | null; next_page: boolean }
+export interface UnassignedDrafts { owner: { id: string; email: string; name: string | null; removedAt: number }; files: OrgFile[] }
+
+// §14.10 Activity log: Figma's row shape; the actions round 1 (and round 2's branches) write
+export interface ActivityLog {
+  id: string;                         // the row id as a string
+  timestamp: number;                  // Unix seconds (Figma's); `at` in D1 is ms
+  actor: { type: "user"; id: string; email: string; name: string } | null;
+  action: { type: ActivityAction; details: Record<string, unknown> };
+  entity: { type: ActivityEntityType; id: string; name: string } & Record<string, string>; // Figma's entity fields
+  context: { client_name: string | null; ip_address: string; is_figma_support_team_action: false; org_id: string; team_id: string | null };
+}
+export type ActivityEntityType = "file" | "file_repo" | "org" | "project" | "team" | "user" | "workspace" | "idp_user" | "plugin" | "widget" | "policy_acknowledgement_config";
+
+export type ActivityAction =
+  | "fig_file_create"
+  | "fig_file_duplicate"
+  | "fig_file_move"
+  | "fig_file_rename"
+  | "fig_file_trash"
+  | "fig_file_restore"
+  | "fig_file_permanent_delete"
+  | "fig_file_member_add"
+  | "fig_file_member_permission_change"
+  | "fig_file_member_remove"
+  | "fig_file_link_access_change"
+  | "fig_file_link_expiration_change"
+  | "fig_file_proto_link_access_change"
+  | "fig_file_set_password"
+  | "fig_file_unset_password"
+  | "fig_file_viewer_access_change"
+  | "fig_file_view"
+  | "fig_file_view_external"
+  | "fig_file_view_prototype"
+  | "fig_file_export"
+  | "fig_file_save_as"
+  | "project_create"
+  | "project_rename"
+  | "project_move"
+  | "project_trash"
+  | "project_restore"
+  | "project_delete"
+  | "project_member_add"
+  | "project_member_permission_change"
+  | "project_member_remove"
+  | "project_team_access_change"
+  | "team_create"
+  | "team_rename"
+  | "team_delete"
+  | "team_restore"
+  | "team_member_add"
+  | "team_member_add_external"
+  | "team_member_permission_change"
+  | "team_member_remove"
+  | "team_member_remove_external"
+  | "team_org_access_change"
+  | "team_sharing_audience_control_change"
+  | "team_workspace_change"
+  | "team_license_group_change"
+  | "org_team_creation_controls"
+  | "org_team_csv_exported"
+  | "org_user_create"
+  | "org_user_create_external"
+  | "org_user_delete"
+  | "org_user_delete_external"
+  | "org_user_permission_change"
+  | "org_user_account_type_change"
+  | "org_user_account_type_change_to_full"
+  | "org_user_account_type_upgrade_requested"
+  | "org_user_account_type_upgrade_approved"
+  | "org_user_account_type_upgrade_denied"
+  | "org_invite_create"
+  | "org_join_request_create"
+  | "org_join_request_approve"
+  | "roster_exported"
+  | "org_default_license_type_change"
+  | "org_guest_invite_setting_change"
+  | "public_link_setting_change"
+  | "workspace_create"
+  | "workspace_rename"
+  | "workspace_delete"
+  | "workspace_member_add"
+  | "workspace_member_remove"
+  | "workspace_admins_add"
+  | "workspace_admins_remove"
+  | "workspace_visibility_setting_change"
+  | "workspace_team_csv_exported"
+  | "license_group_create"
+  | "license_group_rename"
+  | "license_group_delete"
+  | "license_group_admins_add"
+  | "license_group_admins_remove"
+  | "license_group_membership_change"
+  | "user_sign_in"
+  | "user_sign_out"
+  | "personal_access_token_create"
+  | "personal_access_token_delete"
+  | "user_group_create"
+  | "user_group_rename"
+  | "user_group_delete"
+  | "user_group_member_add"
+  | "user_group_member_remove"
+  | "branch_create"
+  | "branch_archive"
+  | "branch_unarchive"
+  | "branch_delete"
+  | "branch_member_add"
+  | "branch_member_permission_change"
+  | "branch_member_remove"
+  | "repo_merge_to_source"
+  | "repo_merge_from_source"
+  | "org_library_approve";
