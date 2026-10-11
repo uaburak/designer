@@ -176,6 +176,28 @@ describe("file JSON (GET /v1/files/:key)", () => {
     expect(byId(j.document, "1:52").children.map((c: Any) => c.id)).toEqual(["1:50", "1:51"]);
   });
 
+  it("plugin_data: the listed plugins' pluginData and, with `shared`, every namespace's sharedPluginData", async () => {
+    const engine = await engineOf("structure");
+    const entries = [
+      { pluginID: "1234", key: "a", value: "one" },
+      { pluginID: "1234", key: "gone", value: "" },
+      { pluginID: "9999", key: "b", value: "other plugin's" },
+      { pluginID: "shared:tokens", key: "c", value: "shared" },
+    ];
+    expect(engine.setProps(["1:53"], { pluginData: entries } as Any)).toBe(0);
+    expect(engine.setProps(["0:0"], { pluginData: [{ pluginID: "1234", key: "root", value: "r" }] } as Any)).toBe(0);
+    const none: Any = await fileJson(engine, {}, ctx);
+    expect(byId(none.document, "1:53")).not.toHaveProperty("pluginData");
+    expect(none.document).not.toHaveProperty("pluginData");
+    const own: Any = await fileJson(engine, { plugin_data: ["1234"] }, ctx);
+    expect(byId(own.document, "1:53").pluginData).toEqual({ "1234": { a: "one" } });
+    expect(byId(own.document, "1:53")).not.toHaveProperty("sharedPluginData");
+    expect(own.document.pluginData).toEqual({ "1234": { root: "r" } });
+    expect(byId(own.document, "1:52")).not.toHaveProperty("pluginData");
+    const both: Any = await nodesJson(engine, { ids: ["1:53"], plugin_data: ["shared", "9999"] }, ctx);
+    expect(both.nodes["1:53"].document).toMatchObject({ pluginData: { "9999": { b: "other plugin's" } }, sharedPluginData: { tokens: { c: "shared" } } });
+  });
+
   it("geometry=paths: outlines in the node's space, size and relativeTransform", async () => {
     const engine = await engineOf("structure");
     const j: Any = await fileJson(engine, { geometry: "paths" }, ctx);

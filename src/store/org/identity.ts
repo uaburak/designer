@@ -67,16 +67,20 @@ function cleanIdpInput(input: unknown): I.IdpConfigInput {
   return out;
 }
 
-/** `onChanged`: the org's members-visible state changed (the stores pass OrgService.notice({t: "org", what: "org", orgId})) */
-export function identityRepository(host: IdentityHost, onChanged?: (orgId: string) => void): IdentityRepository {
+/**
+ * `onChanged`: the org's members-visible state changed (the stores pass OrgService.notice({t: "org", what: "org",
+ * orgId})). The write answers after that refresh, so the org read next — and the `org.updated` event — already carry
+ * the change (the refresh used to run detached, and whoever read the org right after the write raced it).
+ */
+export function identityRepository(host: IdentityHost, onChanged?: (orgId: string) => void | Promise<void>): IdentityRepository {
   const base = (orgId: unknown) => `/orgs/${seg(orgId, "org")}/admin`;
   const call = <T>(method: string, path: string, body?: unknown): Promise<T> => {
     if (!host.signedIn) return Promise.reject(new StoreError("offline", "Log in to manage your organization"));
     return host.call<T>(method, path, body);
   };
-  const changed = (orgId: unknown) => {
+  const changed = async (orgId: unknown) => {
     try {
-      onChanged?.(String(orgId));
+      await onChanged?.(String(orgId));
     } catch {
       // a refresh is best effort
     }
@@ -85,13 +89,13 @@ export function identityRepository(host: IdentityHost, onChanged?: (orgId: strin
     overview: async (orgId) => call<I.IdentityOverview>("GET", `${base(orgId)}/identity`),
     saveIdp: async (orgId, input) => {
       const { idp } = await call<{ idp: I.IdpConfig }>("PUT", `${base(orgId)}/identity/saml`, cleanIdpInput(input));
-      changed(orgId);
+      await changed(orgId);
       return idp;
     },
     refreshIdpMetadata: async (orgId) => (await call<{ idp: I.IdpConfig }>("POST", `${base(orgId)}/identity/saml/refresh`)).idp,
     deleteIdp: async (orgId) => {
       await call("DELETE", `${base(orgId)}/identity/saml`);
-      changed(orgId);
+      await changed(orgId);
     },
     generateScimToken: async (orgId) => call<I.ScimTokenCreated>("POST", `${base(orgId)}/identity/scim-token`),
     revokeScimToken: async (orgId) => void (await call("DELETE", `${base(orgId)}/identity/scim-token`)),
@@ -102,19 +106,19 @@ export function identityRepository(host: IdentityHost, onChanged?: (orgId: strin
     },
     verifyDomain: async (orgId, domain) => {
       const d = (await call<{ domain: I.OrgDomain }>("POST", `${base(orgId)}/domains/${domainSeg(domain)}/verify`)).domain;
-      changed(orgId);
+      await changed(orgId);
       return d;
     },
     removeDomain: async (orgId, domain) => {
       await call("DELETE", `${base(orgId)}/domains/${domainSeg(domain)}`);
-      changed(orgId);
+      await changed(orgId);
     },
     domainAccounts: async (orgId, domain) => (await call<{ people: O.PersonRef[] }>("GET", `${base(orgId)}/domains/${domainSeg(domain)}/accounts`)).people,
     dataRegion: async (orgId) => call<I.DataRegionStatus>("GET", `${base(orgId)}/data-region`),
     setDataRegion: async (orgId, region) => {
       if (region !== "default" && region !== "eu") throw new StoreError("invalid", "region is default or eu", { code: "invalid", field: "region" });
       const s = await call<I.DataRegionStatus>("PUT", `${base(orgId)}/data-region`, { region });
-      changed(orgId);
+      await changed(orgId);
       return s;
     },
     moveNext: async (orgId) => call<I.DataRegionStatus>("POST", `${base(orgId)}/data-region/move`),

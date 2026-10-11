@@ -12,7 +12,7 @@ import type { OrgEvent } from "../../shared/org/repositories";
 import { StoreClient } from "../../shared/store/client";
 import { portTransport, StoreError } from "../../shared/store/protocol";
 import { StoreServer } from "../server";
-import { openTestStore, settle, type TestStore } from "../testing/harness";
+import { openTestStore, type TestStore } from "../testing/harness";
 import { acmeServer, REAL_ORIGIN as ORIGIN, TEST_IDP_ENTITY as IDP_ENTITY, TEST_IDP_SSO as IDP_SSO, testIdpMetadata as idpMetadata } from "./fake/real";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -194,8 +194,8 @@ describe("identity (docs/multiplayer.md §15.13, as built §15.16–§15.17)", (
     expect(await id.dataRegion(w.orgId)).toEqual({ region: "default", files: { total: 2, moved: 2 }, libraries: { total: 0, moved: 0 }, moving: null, available: true });
     const events: OrgEvent[] = [];
     t.store.org.onEvent((e) => events.push(e));
+    // The write answers after the org is read again: no waiting (this used to race a detached refresh under load)
     expect(await id.setDataRegion(w.orgId, "eu")).toMatchObject({ region: "eu", files: { total: 2, moved: 0 } });
-    await settle();
     expect(events).toContainEqual({ type: "org.updated", orgId: w.orgId });
     expect((await t.api.orgs.get(w.orgId)).dataRegion).toBe("eu");
     const moved: string[] = [];

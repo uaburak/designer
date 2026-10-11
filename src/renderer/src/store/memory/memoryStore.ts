@@ -1287,7 +1287,7 @@ export class MemoryStore {
       branches: this.branches.repository(),
       orgLibraries: orgLibrariesRepository(this.libraryServer),
       analytics: analyticsRepository(this.analytics, this.libraryServer),
-      identity: identityRepository(this.multiplayer, (orgId) => void this.org.notice({ t: "org", what: "org", orgId })),
+      identity: identityRepository(this.multiplayer, (orgId) => this.org.notice({ t: "org", what: "org", orgId })),
       plugins: this.plugins.repository(),
       devMode: this.devMode.repository(),
     };

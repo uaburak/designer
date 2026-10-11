@@ -12,5 +12,8 @@ export function setMainFetchProxied(on: boolean): void {
   useChromium = on;
 }
 
+/** Whether main's requests go through Chromium's stack (a proxy set by the deployment keys) */
+export const mainFetchProxied = (): boolean => useChromium;
+
 export const mainFetch = (input: string | URL | Request, init?: RequestInit): Promise<Response> =>
   useChromium ? electron.net.fetch(input instanceof URL ? input.toString() : input, init) : fetch(input, init);

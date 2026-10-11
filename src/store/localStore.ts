@@ -906,7 +906,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     branches: s.branches.repository(),
     orgLibraries: orgLibrariesRepository(s.libraryServer),
     analytics: analyticsRepository(s.analytics, s.libraryServer),
-    identity: identityRepository(s.multiplayer, (orgId) => void s.org.notice({ t: "org", what: "org", orgId })),
+    identity: identityRepository(s.multiplayer, (orgId) => s.org.notice({ t: "org", what: "org", orgId })),
     plugins: s.plugins.repository(),
     devMode: s.devMode.repository(),
   };

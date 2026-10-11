@@ -422,6 +422,7 @@ export class RestDocument {
   /** The DOCUMENT node with its pages (`ids`: only the paths to them and their subtrees, Figma's rule) */
   document(): Any {
     const doc: Any = { id: "0:0", name: "Document", type: "DOCUMENT", scrollBehavior: "SCROLLS" };
+    if (this.params.plugin_data?.length) this.pluginData((this.engine.readNode("0:0", { fields: ["pluginData"] }) as Any) ?? {}, doc);
     const depth = this.params.depth;
     const pages = this.engine.pages();
     if (depth !== undefined && depth < 1) return doc;
@@ -445,6 +446,31 @@ export class RestDocument {
       if (page) doc.children.push(this.convert(page, byId, IDENTITY, null, depth === undefined ? Infinity : depth - 1, keep, wanted).json);
     }
     return doc;
+  }
+
+  /**
+   * `plugin_data` (developers.figma.com, GET file / file nodes): "a comma separated list of plugin IDs and/or the
+   * string `shared`". A node then carries `pluginData` — `{pluginId: {key: value}}`, the listed plugins' private data —
+   * and, with `shared`, `sharedPluginData` — `{namespace: {key: value}}`, every namespace. The schema keeps both in one
+   * list (`pluginData` 204; shared entries are `pluginID "shared:<namespace>"`, docs/plugins.md §8). Written only when
+   * asked for and the node has some (an empty value is a deleted entry).
+   */
+  private pluginData(n: Any, out: Any): void {
+    const asked = this.params.plugin_data;
+    const entries: { pluginID?: string; key?: string; value?: string }[] = n.pluginData ?? [];
+    if (!asked?.length || !entries.length) return;
+    const shared = asked.includes("shared");
+    const own: Record<string, Record<string, string>> = {};
+    const sharedOut: Record<string, Record<string, string>> = {};
+    for (const e of entries) {
+      const id = e.pluginID ?? "";
+      if (!e.value || e.key === undefined) continue;
+      if (id.startsWith("shared:")) {
+        if (shared) (sharedOut[id.slice(7)] ??= {})[e.key] = e.value;
+      } else if (id && asked.includes(id)) (own[id] ??= {})[e.key] = e.value;
+    }
+    if (Object.keys(own).length) out.pluginData = own;
+    if (Object.keys(sharedOut).length) out.sharedPluginData = sharedOut;
   }
 
   /** One node and its subtree (`depth` from it), for `GET …/nodes`; null when the id isn't in the document */
@@ -541,6 +567,7 @@ export class RestDocument {
     if (n.locked === true) out.locked = true;
     const sb = n.scrollBehavior === "FIXED_WHEN_CHILD_OF_SCROLLING_FRAME" ? "FIXED" : n.scrollBehavior === "STICKY_SCROLLS" ? "STICKY_SCROLLS" : "SCROLLS";
     out.scrollBehavior = sb;
+    this.pluginData(n, out);
 
     let bound: ReturnType<typeof restBindings> | null = null;
     if (type !== "DOCUMENT" && type !== "CANVAS") {

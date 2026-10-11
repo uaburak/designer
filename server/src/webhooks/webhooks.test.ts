@@ -7,7 +7,7 @@ import { LIB, P1, SECRET, T1, assetKey, publish, type Any } from "../testing/org
 import { Db } from "../db";
 import { emitFileUpdate } from "./emit";
 import { endpointError } from "./routes";
-import { sweepWebhooks } from "./deliver";
+import { SEND_LEASE_MS, deliverRows, sweepWebhooks } from "./deliver";
 
 let w: RestWorld;
 let alice: string;
@@ -82,6 +82,34 @@ describe("Webhooks V2 routes (§16.9)", () => {
     w.now.t += 8 * 86_400_000;
     await sweepWebhooks(deps);
     expect(await w.rows(`SELECT id FROM webhook_requests`)).toEqual([]);
+  });
+
+  it("a row being sent is claimed: the cron in the same minute doesn't send it again; a dead sender's lease expires", async () => {
+    const id = (await hook(alice, {})).body.id;
+    await w.settle();
+    w.deliveries.length = 0;
+    // A send that hangs until released, as a slow endpoint during waitUntil
+    let release = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    let calls = 0;
+    const slow = { db: w.deps.db, now: w.deps.now, fetch: (async (...a: Parameters<typeof fetch>) => (calls++, await gate, w.deps.fetch(...a))) as typeof fetch };
+    const ids = (await w.rows(`INSERT INTO webhook_requests (webhook_id, endpoint, payload, attempt, next_at, created_at) VALUES (?1, 'https://hooks.example.com/a', '{"event_type":"PING"}', 0, ?2, ?2) RETURNING id`, id, w.now.t)).map((r: Any) => r.id as number);
+    const first = deliverRows(slow, ids);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toBe(1);
+    expect((await sweepWebhooks(slow)).sent).toBe(0);
+    await deliverRows(slow, ids);
+    expect(calls).toBe(1);
+    release();
+    await first;
+    expect(w.deliveries).toHaveLength(1);
+    expect((await w.rows(`SELECT attempt, next_at, sending_until FROM webhook_requests WHERE id = ?1`, ids[0]))[0]).toEqual({ attempt: 1, next_at: null, sending_until: null });
+    // A lease left by a sender that never answered frees after SEND_LEASE_MS
+    await w.rows(`UPDATE webhook_requests SET next_at = ?1, sending_until = ?2 WHERE id = ?3`, w.now.t, w.now.t + SEND_LEASE_MS, ids[0]);
+    expect((await sweepWebhooks(slow)).sent).toBe(0);
+    w.now.t += SEND_LEASE_MS;
+    expect((await sweepWebhooks(slow)).sent).toBe(1);
+    expect(w.deliveries).toHaveLength(2);
   });
 });
 

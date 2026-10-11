@@ -58,6 +58,26 @@ describe("devmode:link-title", () => {
     expect(hop).toHaveBeenCalledTimes(1);
   });
 
+  it("refuses a name that resolves to a local address, and connects to the address it checked", async () => {
+    const at = (map: Record<string, string[]>) => async (host: string) => (map[host] ?? []).map((address) => ({ address, family: address.includes(":") ? 6 : 4 }));
+    // Any one local address among the answers is enough to refuse; nothing is fetched.
+    const fetcher = vi.fn(fetch);
+    const evil = at({ "evil.example": ["93.184.215.14", "127.0.0.1"], "v6.example": ["fd00::1"], "meta.example": ["169.254.169.254"] });
+    for (const host of ["evil.example", "v6.example", "meta.example", "nowhere.example"]) expect(await linkTitle(`https://${host}/`, { fetcher, resolver: evil }), host).toEqual({ title: null });
+    expect(fetcher).not.toHaveBeenCalled();
+    // A redirect to a public-looking name that resolves locally stops there.
+    const hop = vi.fn(async () => new Response(null, { status: 302, headers: { Location: "https://internal.example/admin" } }));
+    expect(await linkTitle("https://example.com/", { fetcher: hop, resolver: at({ "example.com": ["93.184.215.14"], "internal.example": ["10.0.0.5"] }) })).toEqual({ title: null });
+    expect(hop).toHaveBeenCalledTimes(1);
+    // The default connection is pinned: a name nothing else resolves reaches the server at the resolver's address.
+    const port = new URL(origin).port;
+    const pinnedOnly = at({ "pinned.test": ["127.0.0.1"] });
+    expect(await linkTitle(`http://pinned.test:${port}/page`, { schemes: ["http:"], allowLocal: true, resolver: pinnedOnly })).toEqual({ title: "Button & Co — Storybook" });
+    expect(await linkTitle(`http://pinned.test:${port}/hop`, { schemes: ["http:"], allowLocal: true, resolver: pinnedOnly })).toEqual({ title: "Button & Co — Storybook" });
+    // …and refused once local addresses aren't allowed.
+    expect(await linkTitle(`http://pinned.test:${port}/page`, { schemes: ["http:"], resolver: pinnedOnly })).toEqual({ title: null });
+  });
+
   it("decodes entities and collapses space", () => {
     expect(titleOf("<TITLE data-x>A&#39;s &#x2014; b&nbsp;c</TITLE>")).toBe("A's — b c");
     expect(titleOf("<p>none</p>")).toBeNull();

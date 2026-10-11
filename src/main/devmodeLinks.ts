@@ -1,10 +1,17 @@
+import { lookup as dnsLookup, type LookupAddress } from "node:dns";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
-import { mainFetch } from "./net";
+import { Readable } from "node:stream";
+import { mainFetch, mainFetchProxied } from "./net";
 
 /**
  * A dev resource link's name (docs/editor.md D-3, `devmode:link-title {url}` → `{title}`): main reads the page's
  * `<title>` — `https:` only (each redirect too, at most 5), 5 s, at most 512 kB read, no cookies, HTML only. Hosts that
- * are this computer or the local network (localhost, private and link-local addresses written as such) are refused.
+ * are this computer or the local network are refused: by their written form, and by every address their name resolves
+ * to (`dns.lookup` with `all`). The connection is then made to the address that was checked (the socket's `lookup`
+ * answers it), so a second resolution can't swap in a local one (DNS rebinding). Each redirect is checked the same
+ * way. Behind a deployment proxy (net.ts) the proxy connects: the name is still resolved and checked, but not pinned.
  * Any failure is `null`: the editor then names the link by its host and path.
  */
 
@@ -13,9 +20,14 @@ export const LINK_TITLE_MAX_BYTES = 512 * 1024;
 const MAX_REDIRECTS = 5;
 
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
+/** `dns.lookup(host, {all: true})`'s answer */
+export type Resolver = (hostname: string) => Promise<LookupAddress[]>;
 
 export interface LinkTitleOptions {
+  /** Tests only: replaces the pinned connection (the written form, and the resolver's answer when one is given, are still checked) */
   fetcher?: Fetcher;
+  /** Tests only: name resolution (default `dns.lookup` with `all`) */
+  resolver?: Resolver;
   /** Tests only: the schemes allowed (default `https:`) and whether local hosts are */
   schemes?: string[];
   allowLocal?: boolean;
@@ -33,6 +45,54 @@ export function isLocalHost(hostname: string): boolean {
   }
   if (v === 6) return host === "::1" || host === "::" || /^f[cd]/.test(host) || /^fe[89ab]/.test(host) || host.startsWith("::ffff:");
   return false;
+}
+
+const systemResolver: Resolver = (hostname) =>
+  new Promise((resolve, reject) => dnsLookup(hostname, { all: true, verbatim: true }, (err, addresses) => (err ? reject(err) : resolve(addresses))));
+
+/**
+ * The address to connect to for `hostname`, or null when the name or any address it resolves to is local (or it
+ * doesn't resolve). An IP literal is its own address. `allowLocal` (tests) skips the checks.
+ */
+export async function checkedAddress(hostname: string, resolver: Resolver = systemResolver, allowLocal = false): Promise<LookupAddress | null> {
+  const host = hostname.replace(/^\[|\]$/g, "");
+  const literal = isIP(host);
+  if (literal) return !allowLocal && isLocalHost(host) ? null : { address: host, family: literal };
+  if (!allowLocal && isLocalHost(host)) return null;
+  let addresses: LookupAddress[];
+  try {
+    addresses = await resolver(host);
+  } catch {
+    return null;
+  }
+  if (!addresses.length || (!allowLocal && addresses.some((a) => isLocalHost(a.address)))) return null;
+  return addresses[0];
+}
+
+/**
+ * GET `url` over a socket connected to `pinned` (already checked), whatever the name resolves to by then. TLS still
+ * verifies the certificate for the URL's name (SNI and Host are the URL's). No cookies, no proxy, no redirects.
+ */
+export function pinnedFetch(url: string, init: RequestInit, pinned: LookupAddress): Promise<Response> {
+  const u = new URL(url);
+  const request = u.protocol === "https:" ? httpsRequest : httpRequest;
+  const headers: Record<string, string> = {};
+  new Headers(init.headers).forEach((v, k) => (headers[k] = v));
+  // Node calls lookup with `all: true` when it races address families (autoSelectFamily): answer only the checked one.
+  const lookup = (_host: string, options: { all?: boolean }, cb: (...args: unknown[]) => void) =>
+    options?.all ? cb(null, [pinned]) : cb(null, pinned.address, pinned.family);
+  return new Promise((resolve, reject) => {
+    const req = request(u, { method: "GET", headers, signal: init.signal ?? undefined, agent: false, lookup: lookup as never }, (res) => {
+      const out = new Headers();
+      for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) out.set(k, Array.isArray(v) ? v.join(", ") : v);
+      const status = res.statusCode ?? 502;
+      const empty = status === 204 || status === 304 || (status >= 300 && status < 400);
+      if (empty) res.resume();
+      resolve(new Response(empty ? null : (Readable.toWeb(res) as ReadableStream<Uint8Array>), { status, headers: out }));
+    });
+    req.on("error", reject);
+    req.end();
+  });
 }
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", ndash: "–", mdash: "—", middot: "·", hellip: "…", laquo: "«", raquo: "»", bull: "•" };
@@ -87,15 +147,25 @@ export async function linkTitle(url: unknown, opts: LinkTitleOptions = {}): Prom
   const none = { title: null };
   if (typeof url !== "string" || url.length > 2048) return none;
   const schemes = opts.schemes ?? ["https:"];
-  const fetcher = opts.fetcher ?? mainFetch;
+  const resolver = opts.resolver ?? systemResolver;
+  const allowLocal = opts.allowLocal ?? false;
   const signal = AbortSignal.timeout(opts.timeoutMs ?? LINK_TITLE_TIMEOUT_MS);
   let current = url;
   try {
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
       const u = new URL(current);
       if (!schemes.includes(u.protocol) || u.username || u.password) return none;
-      if (!opts.allowLocal && isLocalHost(u.hostname)) return none;
-      const res = await fetcher(u.toString(), { method: "GET", redirect: "manual", credentials: "omit", signal, headers: { Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1" } });
+      if (!allowLocal && isLocalHost(u.hostname)) return none;
+      const init: RequestInit = { method: "GET", redirect: "manual", credentials: "omit", signal, headers: { Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1" } };
+      let res: Response;
+      if (opts.fetcher) {
+        if (opts.resolver && !(await checkedAddress(u.hostname, resolver, allowLocal))) return none;
+        res = await opts.fetcher(u.toString(), init);
+      } else {
+        const pinned = await checkedAddress(u.hostname, resolver, allowLocal);
+        if (!pinned) return none;
+        res = mainFetchProxied() ? await mainFetch(u.toString(), init) : await pinnedFetch(u.toString(), init, pinned);
+      }
       const location = res.headers.get("location");
       if (res.status >= 300 && res.status < 400 && location) {
         void res.body?.cancel().catch(() => undefined);
