@@ -95,7 +95,7 @@ async function open(tab?: Parameters<typeof openSettings>[0]) {
 describe("Settings", () => {
   it("has Figma's tabs and ours, AI and Agents after Security, and closes on Escape", async () => {
     await open();
-    expect($$("[role='tab']").map((t) => t.textContent)).toEqual(["Account", "Community", "Notifications", "Security", "AI", "Agents"]);
+    expect($$("[role='tab']").map((t) => t.textContent)).toEqual(["Account", "Notifications", "Security", "AI", "Agents"]);
     expect($("[role='tab'][aria-selected='true']")?.textContent).toBe("Account");
     await click($("[data-settings-tab='security']")!);
     expect($("[data-settings-panel]")?.getAttribute("data-settings-panel")).toBe("security");

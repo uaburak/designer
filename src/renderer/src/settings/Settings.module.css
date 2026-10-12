@@ -173,10 +173,6 @@
   .libraryRow { display: flex; align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-row); }
   .libraryName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  /* Community */
-  .profileFields { display: flex; align-self: stretch; flex-direction: column; gap: var(--ds-space-3); }
-  .handle { font: var(--ds-font-settings-heading); }
-
   /* Agents (the Agents tab's settings, embedded) */
   .agents { display: flex; flex-direction: column; min-height: 100%; }
 }

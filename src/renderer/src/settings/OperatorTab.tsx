@@ -134,8 +134,8 @@ function SpendGuard() {
           </p>
           <h4 className={own.subheading}>Thresholds</h4>
           <div className={own.row}>
-            <TextInput label="Warn at (%)" value={warn} onChange={(v) => setWarn(v.replace(/[^\d]/g, ""))} variant="outlined" invalid={!validThresholds} data-operator-guard-warn="" />
-            <TextInput label="Only operators at (%)" value={guard} onChange={(v) => setGuard(v.replace(/[^\d]/g, ""))} variant="outlined" invalid={!validThresholds} data-operator-guard-limit="" />
+            <TextInput className={own.fill} label="Warn at (%)" value={warn} onChange={(v) => setWarn(v.replace(/[^\d]/g, ""))} variant="outlined" invalid={!validThresholds} data-operator-guard-warn="" />
+            <TextInput className={own.fill} label="Only operators at (%)" value={guard} onChange={(v) => setGuard(v.replace(/[^\d]/g, ""))} variant="outlined" invalid={!validThresholds} data-operator-guard-limit="" />
             <Button variant="secondary" disabled={!validThresholds || busy} onClick={() => void call("PATCH", "/operator/spend-guard", { warnPercent: warnN, guardPercent: guardN })} data-operator-guard-save="">
               Save
             </Button>
@@ -143,7 +143,7 @@ function SpendGuard() {
           <h4 className={own.subheading}>Server storage cap</h4>
           <p className={`${styles.text} ${styles.muted}`}>{`Every account’s stored files and previews together, in megabytes${status.serverStorageCustom ? "" : " (the default)"}. Workers Paid includes 1 GB of Durable Object storage.`}</p>
           <div className={own.row}>
-            <TextInput label="Storage cap (MB)" value={cap} onChange={(v) => setCap(v.replace(/[^\d]/g, ""))} variant="outlined" invalid={!validCap} data-operator-storage-cap="" />
+            <TextInput className={own.fill} label="Storage cap (MB)" value={cap} onChange={(v) => setCap(v.replace(/[^\d]/g, ""))} variant="outlined" invalid={!validCap} data-operator-storage-cap="" />
             <Button variant="secondary" disabled={!validCap || busy} onClick={() => void call("PATCH", "/operator/spend-guard", { serverStorageBytes: capN * MB })} data-operator-storage-save="">
               Save
             </Button>
@@ -199,7 +199,7 @@ function Signup() {
           <h4 className={own.subheading}>Allowlist</h4>
           <p className={`${styles.text} ${styles.muted}`}>With “{SIGNUP_MODE_LABEL.invite}”, these emails can sign up too, besides people invited to a file or an organization.</p>
           <div className={own.row}>
-            <TextInput label="Email to allow" value={email} onChange={setEmail} placeholder="name@example.com" variant="outlined" data-operator-allow-email="" />
+            <TextInput className={own.fill} label="Email" value={email} onChange={setEmail} placeholder="Email" variant="outlined" data-operator-allow-email="" />
             <Button
               variant="secondary"
               disabled={!email.trim()}
@@ -259,7 +259,7 @@ function Accounts() {
   return (
     <Section heading="Accounts" data-settings-section="accounts">
       <div className={own.row}>
-        <TextInput label="Search accounts" value={text} onChange={setText} onCommit={(v) => void load(v, null)} placeholder="Search by email or name" variant="outlined" data-operator-search="" />
+        <TextInput className={own.fill} label="Search accounts" value={text} onChange={setText} onCommit={(v) => void load(v, null)} placeholder="Search accounts" variant="outlined" data-operator-search="" />
         <Button variant="secondary" onClick={() => void load(text, null)}>
           Search
         </Button>

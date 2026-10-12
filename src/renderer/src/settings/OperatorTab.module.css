@@ -3,7 +3,8 @@
  * rows) are Settings.module.css's.
  */
 @layer app {
-  .row { display: flex; align-items: center; gap: var(--ds-space-2); margin-top: var(--ds-space-3); }
+  .row { display: flex; align-self: stretch; align-items: center; gap: var(--ds-space-2); margin-top: var(--ds-space-3); }
+  .fill { flex: 1 1 0; min-width: 0; }
   .subheading { margin: var(--ds-space-6) 0 var(--ds-space-2); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
   .list { display: flex; align-self: stretch; flex-direction: column; margin: var(--ds-space-3) 0 0; padding: 0; list-style: none; }
   .listRow { display: flex; align-items: center; gap: var(--ds-space-3); min-height: var(--ds-size-row); }

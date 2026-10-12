@@ -109,6 +109,25 @@ describe("Settings › Operator", () => {
     expect($(`[data-operator-account='${alice.id}']`)?.hasAttribute("data-suspended")).toBe(false);
   });
 
+  it("has no Community tab, and its text fields are real text inputs that take typing", async () => {
+    await open(true, "operator");
+    expect($$("[role='tab']").map((t) => t.textContent)).toEqual(["Account", "Notifications", "Security", "AI", "Agents", "Operator"]);
+    const email = $("[data-operator-allow-email] input") as HTMLInputElement;
+    const search = $("[data-operator-search] input") as HTMLInputElement;
+    expect(email.type).toBe("text");
+    expect(email.placeholder).toBe("Email");
+    expect(search.type).toBe("text");
+    expect(search.placeholder).toBe("Search accounts");
+    // the field fills the row beside its button
+    expect($("[data-operator-allow-email]")!.className).toMatch(/fill/);
+    expect($("[data-operator-search]")!.className).toMatch(/fill/);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(email, "bob@x.co");
+      email.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(email.value).toBe("bob@x.co");
+  });
+
   it("shows the spend guard: the month's usage, the mode, the thresholds", async () => {
     const fake = await open(true, "operator");
     const table = $("[data-operator-usage]")!;

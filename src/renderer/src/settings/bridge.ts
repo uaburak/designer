@@ -10,13 +10,12 @@ import type { AgentSetupApi } from "@shared/agents/types";
 import type { AiSetupApi } from "@shared/ai/api";
 import { accountBridge } from "../files/account";
 
-export type SettingsTab = "account" | "community" | "notifications" | "security" | "ai" | "agents" | "operator";
+export type SettingsTab = "account" | "notifications" | "security" | "ai" | "agents" | "operator";
 
 /** The tabs, Figma's four and ours (AI: providers, credits, local models — docs/ai.md §7; Agents: our AIs' settings;
  *  Operator: the server's operators only — docs/multiplayer.md §17), in order. */
 export const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: "account", label: "Account" },
-  { id: "community", label: "Community" },
   { id: "notifications", label: "Notifications" },
   { id: "security", label: "Security" },
   { id: "ai", label: "AI" },

@@ -1,6 +1,6 @@
 /**
  * Figma's Settings modal (help.figma.com 1500006061462; the owner's screenshots 3–9.png; docs/design-system.md
- * "Settings modal"): "Account | Community | Notifications | Security" — and ours, "AI" (providers, credits, local models;
+ * "Settings modal"): "Account | Notifications | Security" — and ours, "AI" (providers, credits, local models;
  * docs/ai.md §7), "Agents" (the settings of our own AIs) and, for the server's operators, "Operator" (docs/multiplayer.md §17) — beside the close button, a scrolling body under them. Opened from Home's account menu (Settings) and the
  * editor's main menu (Help and account › Account settings); `SettingsHost` renders it in each view.
  */
@@ -12,7 +12,6 @@ import { AgentsTab } from "./AgentsTab";
 import { AiBalanceHost } from "./AiBalance";
 import { AiTab } from "./AiTab";
 import { closeSettings, setSettingsTab, SETTINGS_TABS, useSettingsState, type SettingsTab } from "./bridge";
-import { CommunityTab } from "./CommunityTab";
 import { NotificationsTab } from "./NotificationsTab";
 import { OperatorTab, useIsOperator } from "./OperatorTab";
 import { SecurityTab } from "./SecurityTab";
@@ -83,7 +82,6 @@ export function SettingsModal({ tab, onTab, onClose }: SettingsModalProps) {
           </div>
           <div className={styles.body} role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${tab}`} data-settings-panel={tab}>
             {tab === "account" && <AccountTab />}
-            {tab === "community" && <CommunityTab />}
             {tab === "notifications" && <NotificationsTab />}
             {tab === "security" && <SecurityTab />}
             {tab === "ai" && <AiTab />}
