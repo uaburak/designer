@@ -6,7 +6,7 @@ Contract for roadmap Phase 6 (owner's decision 2026-10-10: Cloudflare instead of
 
 | Piece | Cloudflare | Code |
 |---|---|---|
-| HTTP API, sign-in, sharing | Worker `designer` → `https://designer.burak-kc-sp.workers.dev` | `server/src/index.ts`, `server/src/api.ts`, `server/src/auth.ts` |
+| HTTP API, sign-in, sharing | Worker `designer` → `https://wecra.app` (custom domain; `https://designer.burak-kc-sp.workers.dev` too, §7) | `server/src/index.ts`, `server/src/api.ts`, `server/src/auth.ts` |
 | One room per file (sequencer, journal, snapshot, presence) | Durable Object `FileRoom`, SQLite storage, WebSocket hibernation | `server/src/fileRoom.ts` around the pure `src/shared/multiplayer/room.ts` |
 | Accounts, files, members, sign-in codes | D1 `designer` | `server/schema.sql`, `server/src/db.ts` |
 | Images of shared files | the room's SQLite (`blobs`, 1 MB chunks) — no R2 | `server/src/fileRoom.ts` |
@@ -132,11 +132,12 @@ Every upload to the server shows in a panel at the bottom right of Home and of e
 - Real Google sign-in verified against `wrangler dev` (the owner's account; session sealed with safeStorage). Against production: the owner's first log in after this.
 - Wrangler authenticates with an API token in `server/.env` (`CLOUDFLARE_API_TOKEN`, git-ignored): `wrangler login`'s OAuth page failed twice in the owner's browser ("No CSRF value available in the session cookie"). Token permissions: Edit Cloudflare Workers template + Account › D1 › Edit.
 - Redeploy: `npm --prefix server run deploy`; new migrations: `npm --prefix server run db:migrate`.
+- **wecra.app (Wecra 1.0.4, 2026-10-12)**: the owner's domain (Cloudflare Registrar) is the Worker's custom domain (`server/wrangler.jsonc` `routes`), and the server's address from 1.0.4 on (`src/shared/account.ts` `DEFAULT_SERVER`). `workers_dev` stays on: apps up to 1.0.3 keep talking to `https://designer.burak-kc-sp.workers.dev`, the same Worker, D1 and Durable Objects. Sessions are bearer tokens (not cookies), so a session signed in at the old address is accepted at the new one: main reads a kept session for a `FORMER_SERVERS` address as wecra.app's (`sameServer`, `src/main/account/accounts.ts` `decodeAccounts`; the web app's `readSession` the same) — nobody signs in again. What the server builds from `url.origin` now says wecra.app for 1.0.4 apps: Copy link (`/f/<key>`), preview links (`/p/<id>`), the REST `url`s, SAML's entity id and ACS URL (an IdP set up against the workers.dev address keeps working there; set it up again at wecra.app to move it). Pasted links parse by path, so a workers.dev link opens too. The legal pages name wecra.app whichever host serves them. The owner adds `https://wecra.app/auth/callback` to the Google OAuth client's redirect URIs (§8) and, for the consent screen, verifies wecra.app in Search Console.
 
 ## 8. What the owner does
 
 - Cloudflare: account (done), `workers.dev` subdomain `burak-kc-sp` (done), `npx wrangler login` in `server/` when asked; R2 enabled before step 6.
-- Google Cloud Console: a project, OAuth consent screen (External, testing, the owner and friends as test users), an OAuth client of type **Web application** with redirect URIs `https://designer.burak-kc-sp.workers.dev/auth/callback` and `http://localhost:8787/auth/callback`; its client id and secret go in with `npx wrangler secret put GOOGLE_CLIENT_SECRET` (and the id as `GOOGLE_CLIENT_ID`). Nothing goes in the repo.
+- Google Cloud Console: a project, OAuth consent screen (External, testing, the owner and friends as test users), an OAuth client of type **Web application** with redirect URIs `https://wecra.app/auth/callback`, `https://designer.burak-kc-sp.workers.dev/auth/callback` (apps up to 1.0.3) and `http://localhost:8787/auth/callback`; its client id and secret go in with `npx wrangler secret put GOOGLE_CLIENT_SECRET` (and the id as `GOOGLE_CLIENT_ID`). Nothing goes in the repo.
 
 ## 9. Previews (2026-10-11)
 
@@ -1332,7 +1333,7 @@ Facts about Figma below were read on help.figma.com, developers.figma.com and Cl
 
 #### 15.3.2 SP metadata — `GET /saml/:tenantId`
 
-`application/samlmetadata+xml`: `EntityDescriptor entityID="<origin>/saml/<tenantId>"`, `SPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol" AuthnRequestsSigned="false" WantAssertionsSigned="true|false (signing)"`, `NameIDFormat urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress`, `AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="<origin>/saml/<tenantId>/consume" index="0" isDefault="true"`. No signing or encryption key of ours (AuthnRequests are unsigned; encrypted assertions are not accepted in round 4 — spike risk 6). `<origin>` is the Worker's public origin (`https://designer.burak-kc-sp.workers.dev`), from `url.origin`.
+`application/samlmetadata+xml`: `EntityDescriptor entityID="<origin>/saml/<tenantId>"`, `SPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol" AuthnRequestsSigned="false" WantAssertionsSigned="true|false (signing)"`, `NameIDFormat urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress`, `AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="<origin>/saml/<tenantId>/consume" index="0" isDefault="true"`. No signing or encryption key of ours (AuthnRequests are unsigned; encrypted assertions are not accepted in round 4 — spike risk 6). `<origin>` is the Worker's public origin (`https://wecra.app`; `https://designer.burak-kc-sp.workers.dev` for an IdP set up before 1.0.4), from `url.origin`.
 
 #### 15.3.3 AuthnRequest — `GET /saml/:tenantId/start?st=<state token>`
 
@@ -2110,7 +2111,7 @@ Enterprise's numbers are not on the page. A 429 carries `Retry-After` (seconds),
 
 | # | Topic | Decision |
 |---|---|---|
-| 1 | Host | The same Worker: `<server>/v1/…` and `<server>/v2/…` (today `https://designer.burak-kc-sp.workers.dev`). Figma's paths and field names exactly, so a Figma client works with its base URL swapped (the Code Connect CLI's `--api-url`, most SDKs' `baseUrl`). |
+| 1 | Host | The same Worker: `<server>/v1/…` and `<server>/v2/…` (today `https://wecra.app`; the workers.dev address answers too). Figma's paths and field names exactly, so a Figma client works with its base URL swapped (the Code Connect CLI's `--api-url`, most SDKs' `baseUrl`). |
 | 2 | Tokens | See the list after this table. |
 | 3 | Scopes | Figma's names (§16.3). A PAT may hold `org:activity_log_read` only when an org admin made it; this is checked per request against the org asked for. |
 | 4 | Rate limits | Figma's tiers. Full or Dev seats, and people outside orgs, get the **Organization Full / Dev** numbers (20 / 100 / 150 a minute). View and Collab seats get Figma's `low` numbers, except Tier 1 is **20 a day** (ours: "a month" would make the API useless to friends with View seats); Tier 2 is 5 and Tier 3 is 10 a minute. A **daily cap of 5,000 REST calls per person** (ours) keeps the API from eating the free plan's 100,000 Worker requests a day. Counted in D1 (`rest_rate`, one upsert per call; the free plan's 100,000 row writes a day allow it). |

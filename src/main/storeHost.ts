@@ -9,13 +9,13 @@ import { loginBypassed } from "./gateRules";
 
 /**
  * The store (docs/desktop.md §1, §9; docs/data.md §7): the utility process
- * "Designer Store", the only writer of the workspace. Main starts it
+ * "Wecra Store", the only writer of the workspace. Main starts it
  * before the first window, keeps its own client on it (workspace events for
  * tab titles and closing trashed files; import and export, which take paths)
  * and brokers one MessagePort per Home/editor page load. When it exits it
  * is started again — at most 3 times in 60 s — and every live view gets a
  * port to the new one (its client reattaches and resends by itself); a 4th
- * exit gives up (`onGiveUp`: “Designer can’t save changes right now.”).
+ * exit gives up (`onGiveUp`: “Wecra can’t save changes right now.”).
  *
  * On quit it is flushed and shut down after the tabs have flushed
  * (stopStoreHost, from index.ts's will-quit).
@@ -129,7 +129,7 @@ export const storeClient = (): StoreClient | null => store?.client ?? null;
 /** Main's client once the store holds the workspace (rejects if this start failed). */
 export async function readyStore(): Promise<StoreClient> {
   const s = store;
-  if (!s) throw new Error("Designer can’t reach its files right now.");
+  if (!s) throw new Error("Wecra can’t reach its files right now.");
   await s.ready;
   return s.client;
 }

@@ -27,7 +27,7 @@ import { confirmQuit, controllers, finishQuit, lifecycle, type WindowController 
 import { initGate, openMain, whenOpen } from "./gate";
 
 /**
- * Designer's desktop side (docs/desktop-impl.md): one window of views —
+ * Wecra's desktop side (docs/desktop-impl.md): one window of views —
  * the tab bar, Home, each open file — each its own renderer process; the
  * store, a utility process, the only writer of the workspace; main keeps
  * the tabs, the menu, the flushes and questions on closing, and what only

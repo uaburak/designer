@@ -52,7 +52,7 @@ const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export function startStore(opts: StartStoreOptions): StoreHandle {
   const generation = opts.generation ?? 1;
-  const child = utilityProcess.fork(opts.entry, [], { serviceName: "Designer Store", stdio: "inherit", env: { ...process.env, ...(opts.env ?? {}) } });
+  const child = utilityProcess.fork(opts.entry, [], { serviceName: "Wecra Store", stdio: "inherit", env: { ...process.env, ...(opts.env ?? {}) } });
   let exited = false;
   child.once("exit", () => {
     exited = true;

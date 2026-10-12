@@ -546,7 +546,7 @@ export async function notifyLibraryOverride(deps: Deps, n: { userIds: string[]; 
 
 /**
  * The spend guard's word to an operator (docs/multiplayer.md §17.1): a metric past its warning, or the guard engaged.
- * No file and no org; "Designer" stands where the file's name goes, the operator is their own actor.
+ * No file and no org; "Wecra" stands where the file's name goes, the operator is their own actor.
  */
 /**
  * "Delete organization" (docs/multiplayer.md §14.17): each person of the org but the admin who did it hears that it was
@@ -558,7 +558,7 @@ export async function notifyOrgDeleted(deps: Deps, n: { userId: string; actorId:
 }
 
 export async function notifyCapacity(deps: Deps, n: { userId: string; text: string }): Promise<void> {
-  await safely("a capacity warning", () => deliver(deps, { userId: n.userId, kind: "capacity_warning", fileKey: null, actorId: n.userId, text: n.text, place: { orgId: null as unknown as string, teamId: null, name: "Designer" } }));
+  await safely("a capacity warning", () => deliver(deps, { userId: n.userId, kind: "capacity_warning", fileKey: null, actorId: n.userId, text: n.text, place: { orgId: null as unknown as string, teamId: null, name: "Wecra" } }));
 }
 
 async function readJson(req: Request): Promise<Record<string, unknown> | null> {

@@ -39,7 +39,7 @@ describe("the quit's uploads question", () => {
   });
 
   it("says it in our words", () => {
-    expect(uploadsQuitText(3)).toEqual({ message: "Uploads in progress", detail: "Designer is still uploading 3 files. If you quit, they’ll continue next time you open Designer." });
+    expect(uploadsQuitText(3)).toEqual({ message: "Uploads in progress", detail: "Wecra is still uploading 3 files. If you quit, they’ll continue next time you open Wecra." });
     expect(uploadsQuitText(1).detail).toContain("uploading 1 file.");
   });
 });

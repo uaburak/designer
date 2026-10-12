@@ -11,7 +11,7 @@
 //   cancel()                                  (the sheet in progress, if any)
 //
 // Not ephemeral (prefersEphemeralWebBrowserSession = NO): Safari's cookies are shared, so Google remembers the person
-// (macOS first asks "“Designer” Wants to Use “…” to Sign In"). The window handle is Electron's
+// (macOS first asks "“Wecra” Wants to Use “…” to Sign In"). The window handle is Electron's
 // getNativeWindowHandle() — an NSView* on macOS — whose window the sheet hangs on. Node-API only (ABI-stable), built
 // universal by native/authsheet/build.mjs and committed as authsheet.node, like native/haptics.
 

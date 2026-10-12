@@ -9,18 +9,20 @@ import { operatorEmails } from "./quota/quota";
 
 const UPDATED = "12 October 2026";
 
-export function legalPage(path: string, url: URL, deps: Deps): Response {
+/** The service's public address, as the pages name it (whichever host they were reached at: workers.dev answers too) */
+const SITE = "wecra.app";
+
+export function legalPage(path: string, deps: Deps): Response {
   const contact = operatorEmails(deps)[0];
   const mail = `<a href="mailto:${esc(contact)}">${esc(contact)}</a>`;
-  const host = esc(url.host);
-  const html = path === "/privacy" ? privacy(host, mail) : terms(host, mail);
+  const html = path === "/privacy" ? privacy(SITE, mail) : terms(SITE, mail);
   return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
 }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 function page(title: string, body: string): string {
-  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title} · Designer</title>
+  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title} · Wecra</title>
 <style>body{font:15px/1.6 -apple-system,system-ui,sans-serif;margin:0;padding:32px 16px;color:#1e1e1e;background:#fff}main{max-width:680px;margin:0 auto}h1{font-size:24px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 8px}p,li{margin:0 0 10px}.muted{color:#666;font-size:13px}a{color:#0d70e0}
 @media (prefers-color-scheme:dark){body{background:#1e1e1e;color:#eee}.muted{color:#aaa}a{color:#5fa8ff}}</style>
 <main>${body}<p class="muted"><a href="/privacy">Privacy policy</a> · <a href="/terms">Terms of service</a></p></main></html>`;
@@ -29,8 +31,8 @@ function page(title: string, body: string): string {
 function privacy(host: string, mail: string): string {
   return page(
     "Privacy policy",
-    `<h1>Privacy policy</h1><p class="muted">Designer (${host}) · last updated ${UPDATED}</p>
-<p>Designer is a design app run by one person, its operator, as a personal project. This page says what the server keeps about you and what happens to it.</p>
+    `<h1>Privacy policy</h1><p class="muted">Wecra (${host}) · last updated ${UPDATED}</p>
+<p>Wecra is a design app run by one person, its operator, as a personal project. This page says what the server keeps about you and what happens to it.</p>
 <h2>What we keep</h2>
 <ul>
 <li><b>Your Google account's basics</b>: your name, email address and profile picture, and Google's account id, received when you log in with Google. We ask Google for nothing else (only the <code>openid</code>, <code>email</code> and <code>profile</code> scopes).</li>
@@ -55,8 +57,8 @@ function privacy(host: string, mail: string): string {
 function terms(host: string, mail: string): string {
   return page(
     "Terms of service",
-    `<h1>Terms of service</h1><p class="muted">Designer (${host}) · last updated ${UPDATED}</p>
-<p>Designer is a personal, non-commercial project offered free of charge, as is. By logging in you agree to these terms.</p>
+    `<h1>Terms of service</h1><p class="muted">Wecra (${host}) · last updated ${UPDATED}</p>
+<p>Wecra is a personal, non-commercial project offered free of charge, as is. By logging in you agree to these terms.</p>
 <h2>Your content</h2>
 <p>What you make and upload stays yours. You give the service only what it needs to keep it and show it to the people you share it with.</p>
 <h2>Fair use</h2>

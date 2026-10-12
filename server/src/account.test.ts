@@ -60,7 +60,7 @@ describe("sessions", () => {
     const list = await call<{ sessions: SessionInfo[] }>("GET", "/me/sessions", { token: app.token });
     expect(list.status).toBe(200);
     expect(list.body.sessions.map((s) => [s.kind, s.os, s.browser, s.ip, s.city, s.country, s.current])).toEqual([
-      ["app", "macOS", "Designer Desktop", "188.119.27.5", "Antalya", "Türkiye", true],
+      ["app", "macOS", "Wecra Desktop", "188.119.27.5", "Antalya", "Türkiye", true],
       ["login", "iOS (iPhone)", "Safari", "5.24.163.188", null, null, false],
       ["login", "macOS", "Chrome", "46.221.39.115", null, "Türkiye", false],
     ]);

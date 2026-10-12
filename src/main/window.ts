@@ -88,7 +88,7 @@ export class WindowController {
       minWidth: MIN_WINDOW_SIZE.width,
       minHeight: MIN_WINDOW_SIZE.height,
       show: false,
-      title: "Designer",
+      title: "Wecra",
       ...chrome(),
       backgroundColor: windowBackground(),
     });

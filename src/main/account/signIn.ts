@@ -199,7 +199,7 @@ export async function signInWithBrowser(opts: SignInOptions): Promise<Session> {
     if (url.pathname !== "/callback") return void res.writeHead(404).end();
     if (!sameState(url.searchParams.get("state") ?? "", state)) {
       // Not our sign-in (a stale tab): leave the real one waiting.
-      return void page(res, 400, "This sign-in link is out of date. Start again from Designer.");
+      return void page(res, 400, "This sign-in link is out of date. Start again from Wecra.");
     }
     const error = url.searchParams.get("error");
     const code = url.searchParams.get("code");
@@ -209,7 +209,7 @@ export async function signInWithBrowser(opts: SignInOptions): Promise<Session> {
       page(res, 200, err.code === "failed" && error && Object.hasOwn(SIGN_IN_ERROR_TEXT, error) ? `${err.message} You can close this tab.` : "Sign-in was cancelled. You can close this tab.");
       return settle({ error: err });
     }
-    page(res, 200, "You're signed in. You can close this tab and go back to Designer.");
+    page(res, 200, "You're signed in. You can close this tab and go back to Wecra.");
     settle({ code });
   });
   await new Promise<void>((res, rej) => http.once("error", rej).listen(0, "127.0.0.1", () => res()));
@@ -233,5 +233,5 @@ export async function signInWithBrowser(opts: SignInOptions): Promise<Session> {
 
 function page(res: ServerResponse, status: number, text: string) {
   res.writeHead(status, { "content-type": "text/html; charset=utf-8", connection: "close" });
-  res.end(`<!doctype html><meta charset="utf-8"><title>Designer</title><body style="font:14px -apple-system,system-ui;margin:48px;color:#222">${text}</body>`);
+  res.end(`<!doctype html><meta charset="utf-8"><title>Wecra</title><body style="font:14px -apple-system,system-ui;margin:48px;color:#222">${text}</body>`);
 }

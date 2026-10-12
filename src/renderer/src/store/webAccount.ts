@@ -5,7 +5,7 @@
  * by the page's tabs, and goes to the page's own dev store — whose rooms a tab joins only for the file it edits (Home
  * tabs none: several tabs share one storage, and one file's frames must be written by one tab).
  */
-import { ACCOUNT_PATH, DEFAULT_SERVER, type AccountMethod, type AccountResponse, type AccountState, type AccountUser, type SignInMethod, type SignInResult } from "@shared/account";
+import { ACCOUNT_PATH, DEFAULT_SERVER, sameServer, type AccountMethod, type AccountResponse, type AccountState, type AccountUser, type SignInMethod, type SignInResult } from "@shared/account";
 import { IdleTimer, type IdleState } from "@shared/idleTimer";
 import type { IdleNotice } from "@shared/ipc";
 import { SIGN_IN_ERROR_TEXT, type SignInError } from "@shared/org/identity";
@@ -26,7 +26,8 @@ export const webServer = (): string => ((import.meta.env.VITE_DESIGNER_SERVER as
 function readSession(): WebSession | null {
   try {
     const s = JSON.parse(localStorage.getItem(SESSION_KEY) ?? "null") as WebSession | null;
-    return s && s.server === webServer() && s.expiresAt > Date.now() && typeof s.token === "string" ? s : null;
+    // A session kept for the server's former address (FORMER_SERVERS) is the current server's
+    return s && sameServer(s.server, webServer()) && s.expiresAt > Date.now() && typeof s.token === "string" ? { ...s, server: webServer() } : null;
   } catch {
     return null;
   }
@@ -225,7 +226,7 @@ export function completeWebSignIn(): Promise<SignInResult | null> {
 async function completeOnce(): Promise<SignInResult | null> {
   if (typeof location === "undefined") return null;
   const url = new URL(location.href);
-  // The IdP-initiated bounce (an Okta tile → the ACS's "Continue to Designer", multiplayer.md §15.2 decision 3 and
+  // The IdP-initiated bounce (an Okta tile → the ACS's "Continue to Wecra", multiplayer.md §15.2 decision 3 and
   // §15.17): `/?sso=<tenant>` starts a normal SP-initiated sign-in with this page's own state and challenge.
   const sso = url.searchParams.get("sso");
   if (sso !== null) {

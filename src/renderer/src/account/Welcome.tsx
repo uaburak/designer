@@ -15,7 +15,7 @@ import { signInFailure } from "../files/account";
 import styles from "./Welcome.module.css";
 
 export const WELCOME_TEXT = {
-  title: "Welcome to Designer",
+  title: "Welcome to Wecra",
   line: "Log in to open your files and start designing.",
   google: "Log in with Google",
   sso: "Log in with SSO",
@@ -42,11 +42,11 @@ export function Welcome({ state, method, error, version, onSignIn, onCancel }: W
       <div className={styles.drag} aria-hidden />
       <div className={styles.body}>
         <span className={styles.logo}>
-          <Icon name="24.figma" size={48} label="Designer" />
+          <Icon name="24.figma" size={48} label="Wecra" />
         </span>
         {screen !== "splash" && (
           <>
-            <span className={styles.wordmark}>Designer</span>
+            <span className={styles.wordmark}>Wecra</span>
             <h1 className={styles.title}>{WELCOME_TEXT.title}</h1>
             {screen === "welcome" ? (
               <>
@@ -78,7 +78,7 @@ export function Welcome({ state, method, error, version, onSignIn, onCancel }: W
           </>
         )}
       </div>
-      {screen !== "splash" && <footer className={styles.footer}>{version ? `Designer ${version}` : "Designer"}</footer>}
+      {screen !== "splash" && <footer className={styles.footer}>{version ? `Wecra ${version}` : "Wecra"}</footer>}
     </main>
   );
 }

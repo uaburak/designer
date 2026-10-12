@@ -42,7 +42,22 @@ export function welcomeScreen(state: AccountState | null): "splash" | "welcome" 
 export type SignInResult = { ok: true; state: AccountState } | { ok: false; error: "cancelled" | "timeout" | "failed"; message?: string; state: AccountState };
 
 /** The production server; `DESIGNER_SERVER` overrides it (e.g. http://localhost:8787 for `npm --prefix server run dev`). */
-export const DEFAULT_SERVER = "https://designer.burak-kc-sp.workers.dev";
+export const DEFAULT_SERVER = "https://wecra.app";
+
+/**
+ * The production server's address up to 1.0.3 (docs/multiplayer.md §7): the same Worker, which still answers there for
+ * apps not yet updated. Sessions are bearer tokens, not cookies, so one signed in there keeps working at wecra.app.
+ */
+export const FORMER_SERVERS: readonly string[] = ["https://designer.burak-kc-sp.workers.dev"];
+
+/** Whether something kept for `stored` (a session, a cache) belongs to `current`: the same address, or a former
+ *  address of the default server while the default server is the one in use. */
+export function sameServer(stored: unknown, current: string): boolean {
+  if (typeof stored !== "string") return false;
+  const a = stored.replace(/\/+$/, "");
+  const b = current.replace(/\/+$/, "");
+  return a === b || (b === DEFAULT_SERVER && FORMER_SERVERS.includes(a));
+}
 
 // ── Settings (docs/multiplayer.md §13; docs/research/figma/R17-settings.md) ──────────────────────────────────────────
 
@@ -69,7 +84,7 @@ export interface AccountPrefs {
   closedCaptions?: boolean;
   /** View history: false = "Off" — opening a file isn't recorded for others to see */
   viewHistory?: boolean;
-  /** "Answer API requests for my files while Designer is open" (the desktop's render helper, docs/multiplayer.md §16.6): absent = on */
+  /** "Answer API requests for my files while Wecra is open" (the desktop's render helper, docs/multiplayer.md §16.6): absent = on */
   restHelper?: boolean;
 }
 
@@ -211,7 +226,7 @@ export function timeAgo(then: number, now: number): string {
 export function deviceFromUserAgent(ua: string | null): { kind: "app" | "login"; os: string | null; browser: string | null } {
   const s = ua ?? "";
   const app = /DesignerV2-Desktop\/[\w.-]+(?: \(([^)]*)\))?/.exec(s);
-  if (app) return { kind: "app", os: app[1] || null, browser: "Designer Desktop" };
+  if (app) return { kind: "app", os: app[1] || null, browser: "Wecra Desktop" };
   const os = /iPhone/.test(s) ? "iOS (iPhone)" : /iPad/.test(s) ? "iOS (iPad)" : /Android/.test(s) ? "Android" : /CrOS/.test(s) ? "ChromeOS" : /Mac OS X|Macintosh/.test(s) ? "macOS" : /Windows/.test(s) ? "Windows" : /Linux/.test(s) ? "Linux" : null;
   const browser = /Edg(e|A|iOS)?\//.test(s) ? "Edge" : /OPR\//.test(s) ? "Opera" : /Firefox\/|FxiOS/.test(s) ? "Firefox" : /Chrome\/|CriOS/.test(s) ? "Chrome" : /Safari\//.test(s) ? "Safari" : null;
   return { kind: "login", os, browser };

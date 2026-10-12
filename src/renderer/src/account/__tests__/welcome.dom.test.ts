@@ -82,7 +82,7 @@ describe("the welcome page", () => {
     out.say(base);
     expect(screen()).toBe("welcome");
     expect(text()).toContain(WELCOME_TEXT.title);
-    expect(text()).toContain("Designer 1.0.0");
+    expect(text()).toContain("Wecra 1.0.0");
     expect($("[data-welcome-google]").textContent).toBe(WELCOME_TEXT.google);
     expect($("[data-welcome-sso]").textContent).toBe(WELCOME_TEXT.sso);
   });

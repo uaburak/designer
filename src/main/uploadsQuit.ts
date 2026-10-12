@@ -23,7 +23,7 @@ export const uploadsInFlight = (list: readonly Pick<UploadProgress, "state">[]):
 /** The question's words (ours: Figma's desktop app has no such question) */
 export const uploadsQuitText = (count: number) => ({
   message: "Uploads in progress",
-  detail: `Designer is still uploading ${count === 1 ? "1 file" : `${count} files`}. If you quit, they’ll continue next time you open Designer.`,
+  detail: `Wecra is still uploading ${count === 1 ? "1 file" : `${count} files`}. If you quit, they’ll continue next time you open Wecra.`,
 });
 
 let decided: Promise<boolean> | null = null;

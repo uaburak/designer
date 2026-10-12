@@ -21,7 +21,7 @@
  *   DELETE /plugins/:id                    → 204, soft (`deleted_at`; `private_plugin_delete`)
  *
  * Part names: `code`, `ui` (a single ui file) or `ui:<key>` (a `ui` map). Widgets are refused ("Widgets aren't
- * supported in Designer yet", §11).
+ * supported in Wecra yet", §11).
  */
 import type { PluginKind, PluginManifest, PrivatePlugin } from "../../../src/shared/plugins/types";
 import type { ActivityAction } from "../../../src/shared/org/types";
@@ -147,7 +147,7 @@ function cleanManifest(v: unknown): PluginManifest {
   if (typeof m.name !== "string" || !m.name.trim() || m.name.length > 100) throw new HttpError(400, "manifest.name is required (≤ 100 characters)");
   if (typeof m.main !== "string" || !m.main) throw new HttpError(400, "manifest.main is required");
   if (typeof m.api !== "string" || !m.api) throw new HttpError(400, "manifest.api is required");
-  if (m.containsWidget === true || m.widgetApi !== undefined) throw new HttpError(400, "Widgets aren't supported in Designer yet");
+  if (m.containsWidget === true || m.widgetApi !== undefined) throw new HttpError(400, "Widgets aren't supported in Wecra yet");
   if (JSON.stringify(m).length > 64 * 1024) throw new HttpError(413, "the manifest is too large");
   return m as unknown as PluginManifest;
 }

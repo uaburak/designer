@@ -418,7 +418,7 @@ export function fakeGovernance(s: Seed, st: GovernanceState, ident: FakeIdentity
     async setupTwoFactor() {
       st.twoFactorPending = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
       const p = s.people.find((x) => x.id === me)!;
-      return wait({ secret: st.twoFactorPending, otpauthUrl: `otpauth://totp/Designer:${encodeURIComponent(p.email)}?secret=${st.twoFactorPending}&issuer=Designer` });
+      return wait({ secret: st.twoFactorPending, otpauthUrl: `otpauth://totp/Wecra:${encodeURIComponent(p.email)}?secret=${st.twoFactorPending}&issuer=Wecra` });
     },
     async enableTwoFactor(code) {
       if (!st.twoFactorPending || !/^\d{6}$/.test(code)) throw fail("invalid", "That code didn't work. Try again.", { code: "two_factor_invalid" });

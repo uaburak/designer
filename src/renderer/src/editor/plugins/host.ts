@@ -505,7 +505,7 @@ export class PluginRun {
         return made;
       },
       "node.gridPosition": () => {
-        throw new ApiError("setGridChildPosition is not supported in Designer yet");
+        throw new ApiError("setGridChildPosition is not supported in Wecra yet");
       },
       "pluginData.get": (id, ns, key) => getPluginData(ctx(), s(id), ns === null ? null : s(ns), s(key)),
       "pluginData.set": (id, ns, key, value) => setPluginData(ctx(), s(id), ns === null ? null : s(ns), s(key), s(value)),
@@ -663,13 +663,13 @@ export class PluginRun {
         ctx().write();
         this.env.ed.engine.runCommand("DELETE_VARIABLE_COLLECTION", { collection: s(id) });
       },
-      "library.importStyle": () => Promise.reject(new ApiError("importStyleByKeyAsync is not supported in Designer yet")),
-      "library.importComponent": () => Promise.reject(new ApiError("importComponentByKeyAsync is not supported in Designer yet")),
-      "library.importVariable": () => Promise.reject(new ApiError("importVariableByKeyAsync is not supported in Designer yet")),
+      "library.importStyle": () => Promise.reject(new ApiError("importStyleByKeyAsync is not supported in Wecra yet")),
+      "library.importComponent": () => Promise.reject(new ApiError("importComponentByKeyAsync is not supported in Wecra yet")),
+      "library.importVariable": () => Promise.reject(new ApiError("importVariableByKeyAsync is not supported in Wecra yet")),
       "library.collections": () => Promise.resolve([]),
       "library.variables": () => Promise.resolve([]),
       "annotations.categories": () => Promise.resolve([]),
-      "annotations.addCategory": () => Promise.reject(new ApiError("addAnnotationCategoryAsync is not supported in Designer yet")),
+      "annotations.addCategory": () => Promise.reject(new ApiError("addAnnotationCategoryAsync is not supported in Wecra yet")),
       // The run
       close: (message) => {
         this.commit();

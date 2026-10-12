@@ -206,7 +206,7 @@ export class RestJobs {
           await this.host.wanted(wanted).catch(() => undefined);
           continue; // a helper may have joined meanwhile
         }
-        if (!(await this.waitRenderer(deadline))) return { ok: false, status: 503, err: "No client available to render this file. Open the file in Designer and try again." };
+        if (!(await this.waitRenderer(deadline))) return { ok: false, status: 503, err: "No client available to render this file. Open the file in Wecra and try again." };
         continue;
       }
       tried.add(next);
@@ -220,7 +220,7 @@ export class RestJobs {
       }
       return a;
     }
-    return { ok: false, status: 503, err: "No client available to render this file. Open the file in Designer and try again." };
+    return { ok: false, status: 503, err: "No client available to render this file. Open the file in Wecra and try again." };
   }
 
   /** Wait for a member that can render to say hello (false: the deadline passed) */

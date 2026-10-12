@@ -26,7 +26,7 @@ vi.mock("@/store", async (importOriginal) => {
   const codes = ["aaaa-bbbb", "cccc-dddd"];
   const governance = {
     twoFactor: async () => (gov.calls.push("status"), gov.state.status),
-    setupTwoFactor: async () => (gov.calls.push("setup"), { secret: "JBSWY3DPEHPK3PXPJBSW", otpauthUrl: "otpauth://totp/Designer:burak%40x.co?secret=JBSWY3DPEHPK3PXPJBSW&issuer=Designer" }),
+    setupTwoFactor: async () => (gov.calls.push("setup"), { secret: "JBSWY3DPEHPK3PXPJBSW", otpauthUrl: "otpauth://totp/Wecra:burak%40x.co?secret=JBSWY3DPEHPK3PXPJBSW&issuer=Wecra" }),
     enableTwoFactor: async (code: string) => {
       gov.calls.push(`enable:${code}`);
       if (code !== "123456") throw new StoreError("invalid", "two_factor_invalid", { code: "two_factor_invalid" });

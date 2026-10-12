@@ -1,7 +1,7 @@
 /**
  * The store utility process entry (docs/data.md §7): the single writer of the workspace.
  *
- * Main forks this bundle (`utilityProcess.fork(storeEntry, [], {serviceName: "Designer Store"})`, see host.ts) and
+ * Main forks this bundle (`utilityProcess.fork(storeEntry, [], {serviceName: "Wecra Store"})`, see host.ts) and
  * sends `{type: "init", …}` with its own MessagePort; the store takes the workspace lock, loads the index, replies
  * `{type: "ready"}` and serves main's port. Every view port arrives later as `{type: "port", role}`. The same bundle
  * started as a worker thread with `workerData.designerStoreRole === "compactor"` is the compaction worker.
@@ -89,5 +89,5 @@ if (!isMainThread && (workerData as { designerStoreRole?: string } | null)?.desi
 } else {
   const parent = (process as unknown as { parentPort?: ParentPortLike }).parentPort;
   if (parent) runStoreProcess(parent);
-  else console.error("Designer Store: start me with utilityProcess.fork (see src/store/host.ts)");
+  else console.error("Wecra Store: start me with utilityProcess.fork (see src/store/host.ts)");
 }

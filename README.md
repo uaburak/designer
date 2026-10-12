@@ -2,6 +2,8 @@
 
 A 1:1 clone of the Figma desktop app, for personal use: Figma's UI3 look and wording, a tab bar with Home and the open files, Home as Figma's file browser (Recents, Drafts, folders, Starred, Trash), and each file in its own tab with the editor (canvas, layers, design panel). The canvas is a C++ engine compiled to WebAssembly and drawn with its own WebGL2 renderer. Files live on this computer, saved as you go; there is no multiplayer and no sign-in.
 
+The app ships as **Wecra** (from 1.0.4; "Designer" 1.0.0–1.0.3) and talks to the server at https://wecra.app; the repository keeps the DesignerV2 name (docs/desktop.md §12.7).
+
 Start with [AGENTS.md](AGENTS.md) and [docs/handoff.md](docs/handoff.md); how it fits together is in [docs/architecture.md](docs/architecture.md).
 
 ## Run
@@ -24,7 +26,7 @@ Files are kept in `~/Library/Application Support/DesignerV2/Workspace` (`DESIGNE
 
 ```bash
 npm run build        # out/ — run it with `npm start`
-npm run dist         # dist/Designer-<version>.dmg + zip (macOS, arm64; Developer ID, notarized with APPLE_KEYCHAIN_PROFILE set)
+npm run dist         # dist/Wecra-<version>.dmg + zip (macOS, arm64; Developer ID, notarized with APPLE_KEYCHAIN_PROFILE set)
 npm run release -- 0.2.0 notes.md   # a release that installed copies update to (docs/desktop.md §12.6); uploads nothing
 npm run check        # types, lint, tests — before committing
 npm run engine:test  # the engine's native tests

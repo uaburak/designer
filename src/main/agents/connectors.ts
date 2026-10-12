@@ -324,7 +324,7 @@ export class ConnectorHub {
     const client: McpClient =
       c.transport.kind === "http" ? new HttpMcpClient(c.transport.url, this.o.storage.key(c.id), this.o.fetch) : new StdioMcpClient(c.transport.command, c.transport.args, this.o.spawn, this.o.env(), this.o.cwd);
     const ready = (async () => {
-      await client.request("initialize", { protocolVersion: MCP_CLIENT_PROTOCOL, capabilities: {}, clientInfo: { name: "designer-connectors", title: "Designer", version: "1" } });
+      await client.request("initialize", { protocolVersion: MCP_CLIENT_PROTOCOL, capabilities: {}, clientInfo: { name: "designer-connectors", title: "Wecra", version: "1" } });
       await client.notify("notifications/initialized");
     })();
     this.clients.set(c.id, { client, ready });

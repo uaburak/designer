@@ -4,7 +4,7 @@ import type { UpdaterStatus } from "../shared/ipc";
 
 const appMenuNow = vi.hoisted(() => ({ menu: null as null | { getMenuItemById(id: string): { enabled: boolean } | null } }));
 vi.mock("electron", () => ({
-  app: { name: "Designer" },
+  app: { name: "Wecra" },
   Menu: { buildFromTemplate: (t: MenuItemConstructorOptions[]) => t, setApplicationMenu: () => {}, getApplicationMenu: () => appMenuNow.menu },
   nativeTheme: { themeSource: "system" },
   webContents: { getFocusedWebContents: () => null },

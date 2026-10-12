@@ -137,7 +137,7 @@ describe("the spike's 29 cases, on the real routes", () => {
   it("a missing InResponseTo (unsolicited) never makes a session: the bounce page", async () => {
     const res = await post(await signedFor(signAssertion, { inResponseTo: null }));
     expect(res.status).toBe(200);
-    expect(res.text).toContain("Continue to Designer");
+    expect(res.text).toContain("Continue to Wecra");
     expect(res.text).toContain(`designer://sign-in?tenant=${tenant}`);
     expect(signedIn(res)).toBe(false);
     expect(await w.rows(`SELECT id FROM users WHERE email = 'eve@acme.test'`)).toHaveLength(0);

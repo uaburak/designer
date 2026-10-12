@@ -97,7 +97,7 @@ function split(args) {
 const COMMANDS = {
   async launch() {
     if (app) return console.log("already launched");
-    // DESIGNER_EXECUTABLE: a packaged app (dist/mac-arm64/Designer.app/Contents/MacOS/Designer) instead of out/ with the dev Electron.
+    // DESIGNER_EXECUTABLE: a packaged app (dist/mac-arm64/Wecra.app/Contents/MacOS/Wecra) instead of out/ with the dev Electron.
     const packaged = process.env.DESIGNER_EXECUTABLE;
     // The views are cross-origin isolated (COOP/COEP): their first load swaps the renderer process, and Playwright's
     // attach sometimes waits forever on the page target that went away (the app itself starts fine). A launch that
@@ -581,5 +581,5 @@ rl.on("close", async () => {
   await COMMANDS.quit();
   process.exit(0);
 });
-console.log('Designer driver — "help" for commands, "launch" to start');
+console.log('Wecra driver — "help" for commands, "launch" to start');
 rl.prompt();

@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { AccountList, accountAdded, accountDropped, decodeAccounts, logOut, logOutAll, MAX_ACCOUNTS, switchAccount, type AccountFlowDeps } from "./accounts";
 import type { Session } from "./signIn";
+import { DEFAULT_SERVER, FORMER_SERVERS, sameServer } from "../../shared/account";
 
 const SERVER = "https://designer.example";
 const NOW = 1_800_000_000_000;
@@ -70,6 +71,17 @@ describe("the kept accounts", () => {
     expect(l.current?.user.id).toBe("a");
     expect((await decodeAccounts(null, { server: SERVER, now: NOW, unseal })).size).toBe(0);
     expect((await decodeAccounts({ nonsense: true }, { server: SERVER, now: NOW, unseal })).size).toBe(0);
+  });
+
+  it("keeps a session signed in at the workers.dev address (up to 1.0.3) as wecra.app's — the same Worker", async () => {
+    const stored = await new AccountList([session("a", { server: FORMER_SERVERS[0] }), session("b", { server: DEFAULT_SERVER })], "a").encode(seal);
+    const l = await decodeAccounts(stored, { server: DEFAULT_SERVER, now: NOW, unseal });
+    expect(l.all().map((s) => [s.user.id, s.server, s.token])).toEqual([["a", "https://wecra.app", "t-a"], ["b", "https://wecra.app", "t-b"]]);
+    expect(l.current?.user.id).toBe("a");
+    // Only for the default server: a development server doesn't take the production one's sessions
+    expect((await decodeAccounts(stored, { server: "http://localhost:8787", now: NOW, unseal })).size).toBe(0);
+    expect(sameServer("https://wecra.app/", DEFAULT_SERVER)).toBe(true);
+    expect(sameServer(FORMER_SERVERS[0], "https://other")).toBe(false);
   });
 });
 

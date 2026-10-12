@@ -20,7 +20,7 @@ describe("parseManifest", () => {
       expect.arrayContaining(['"name" is required', '"api" is required', '"id" is required', '"documentAccess" must be "dynamic-page"', expect.stringContaining("allowedDomains"), expect.stringContaining("editorType"), expect.stringContaining("menu[0]"), expect.stringContaining("permissions"), expect.stringContaining('"main"')])
     );
     expect(parseManifest("{not json")).toEqual({ errors: [expect.stringContaining("isn't valid JSON")] });
-    expect(parseManifest({ ...base, containsWidget: true })).toEqual({ errors: ["Widgets aren't supported in Designer yet"] });
+    expect(parseManifest({ ...base, containsWidget: true })).toEqual({ errors: ["Widgets aren't supported in Wecra yet"] });
     expect("errors" in parseManifest({ ...base, capabilities: ["codegen"] })).toBe(true);
   });
 

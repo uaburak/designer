@@ -29,7 +29,7 @@ export class WelcomeWindow {
       minWidth: MIN_WINDOW_SIZE.width,
       minHeight: MIN_WINDOW_SIZE.height,
       show: false,
-      title: "Designer",
+      title: "Wecra",
       ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { ...TRAFFIC_LIGHT_POSITION } } : { titleBarStyle: "hidden" as const, titleBarOverlay: overlay() }),
       backgroundColor: backgroundOf("welcome"),
     });

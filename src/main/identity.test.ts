@@ -1,4 +1,4 @@
-// The rename to "Designer" (1.0.0) keeps the owner's data: userData stays <appData>/DesignerV2, and the name Electron
+// The renames to "Designer" (1.0.0) and "Wecra" (1.0.4) keep the owner's data: userData stays <appData>/DesignerV2, and the name Electron
 // gives the keychain item before `ready` stays "DesignerV2" so "DesignerV2 Safe Storage" keeps opening every "enc:" value.
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,7 +26,7 @@ function fakeApp(appData: string) {
   const log: string[] = [];
   let ready!: () => void;
   const readyP = new Promise<void>((r) => (ready = r));
-  let name = "Designer"; // package.json's productName, as Electron starts with it
+  let name = "Wecra"; // package.json's productName, as Electron starts with it
   const paths: Record<string, string> = {};
   const app: IdentityApp & { name: () => string } = {
     getPath: () => appData,
@@ -45,7 +45,7 @@ describe("userData", () => {
     const { app, paths } = fakeApp(appData);
     applyIdentity(app, {});
     expect(paths.userData).toBe(join(appData, "DesignerV2"));
-    expect(readdirSync(appData)).toEqual(["DesignerV2"]); // no "Designer" folder made, nothing moved
+    expect(readdirSync(appData)).toEqual(["DesignerV2"]); // no "Wecra" (or "Designer") folder made, nothing moved
     expect(readdirSync(join(appData, "DesignerV2")).sort()).toEqual(before);
     expect(existsSync(join(paths.userData, "account", "session.json"))).toBe(true);
   });
@@ -63,7 +63,7 @@ describe("userData", () => {
 });
 
 describe("the keychain's name", () => {
-  it("is the pre-1.0 one until ready, then the app is Designer", async () => {
+  it("is the pre-1.0 one until ready, then the app is Wecra", async () => {
     const { app, log, ready } = fakeApp(appDataWithProfile());
     applyIdentity(app, {});
     // Electron names the item from app.name between the main script's first run and `ready`
@@ -72,11 +72,11 @@ describe("the keychain's name", () => {
     await ready();
     expect(app.name()).toBe(PRODUCT_NAME);
     // userData is set before the name changes anything, and the name goes back only once ready
-    expect(log).toEqual(["setPath userData", "setName DesignerV2", "setName Designer"]);
+    expect(log).toEqual(["setPath userData", "setName DesignerV2", "setName Wecra"]);
   });
 
   it("would be a new, empty item under the new name", () => {
-    expect(keychainItem(PRODUCT_NAME).service).toBe("Designer Safe Storage");
+    expect(keychainItem(PRODUCT_NAME).service).toBe("Wecra Safe Storage");
     expect(keychainItem(PRODUCT_NAME).service).not.toBe(keychainItem(LEGACY_NAME).service);
   });
 });

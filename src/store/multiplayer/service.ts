@@ -1113,7 +1113,7 @@ export class MultiplayerService {
     const set = this.renderers.get(fileKey);
     const to = set ? [...set.entries()].sort((a, b) => Number(a[1].helper) - Number(b[1].helper))[0]?.[0] : undefined;
     if (!rec || !to || !this.restListeners.size) {
-      this.live.get(fileKey)?.say({ t: "rest-job-failed", id, err: "503 No client available to render this file. Open the file in Designer and try again." });
+      this.live.get(fileKey)?.say({ t: "rest-job-failed", id, err: "503 No client available to render this file. Open the file in Wecra and try again." });
       return;
     }
     const meta = this.host.getMeta(fileKey);
@@ -1457,7 +1457,7 @@ export function isGone(e: unknown): boolean {
 }
 
 /** An upload stopped by the session or the store going away (it goes again with the next start) */
-const PAUSED_TEXT = "Upload paused. It will continue when Designer reconnects.";
+const PAUSED_TEXT = "Upload paused. It will continue when Wecra reconnects.";
 
 /** An org file's place in `register`'s answer (`POST /files` with an org, a folder's `POST …/files`: `{file}`) */
 function placeOf(answer: unknown): UploadPlace | null {

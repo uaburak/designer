@@ -219,7 +219,7 @@ export async function verifyTotp(secret: Uint8Array, code: string, nowMs: number
   }
   return null;
 }
-export function otpauthUrl(secretB32: string, email: string, issuer = "Designer"): string {
+export function otpauthUrl(secretB32: string, email: string, issuer = "Wecra"): string {
   const label = encodeURIComponent(`${issuer}:${email}`);
   return `otpauth://totp/${label}?secret=${secretB32}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=${TOTP.digits}&period=${TOTP.periodS}`;
 }

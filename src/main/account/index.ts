@@ -126,7 +126,7 @@ export function accountState(): AccountState {
   };
 }
 
-/** What the server learns the desktop app by (Sessions: "App", "Designer Desktop", the OS). */
+/** What the server learns the desktop app by (Sessions: "App", "Wecra Desktop", the OS). */
 export function desktopUserAgent(): string {
   const os = process.platform === "darwin" ? "macOS" : process.platform === "win32" ? "Windows" : "Linux";
   // The token stays "DesignerV2-Desktop": servers already deployed (src/shared/account.ts, server/src/activity.ts) parse it.

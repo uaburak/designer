@@ -16,7 +16,7 @@ import type { Seed } from "./seed";
 type Log = (type: O.ActivityAction, entity: O.ActivityLog["entity"], details?: Record<string, unknown>, teamId?: string | null) => void;
 
 /** The Worker's public origin (docs/multiplayer.md §15.3.2) */
-export const FAKE_ORIGIN = "https://designer.burak-kc-sp.workers.dev";
+export const FAKE_ORIGIN = "https://wecra.app";
 
 /** A refusal shaped like the store's StoreError (`code`, `detail`), with the server's identity codes */
 export class FakeIdentityError extends Error {

@@ -187,7 +187,7 @@ describe("private plugins (§10.1)", () => {
     expect(log.filter((l) => l.includes("/plugins"))).toEqual([]);
     // The server's own refusals come back as they are
     const widget = { ...bundle("x"), manifest: { ...bundle("x").manifest, containsWidget: true, widgetApi: "1.0.0" } };
-    expect(await refusal(bob.api.plugins.publish(w.orgId, widget, { name: "W", description: "", developmentPath: "/w" }))).toMatchObject({ code: "invalid", message: "Widgets aren't supported in Designer yet" });
+    expect(await refusal(bob.api.plugins.publish(w.orgId, widget, { name: "W", description: "", developmentPath: "/w" }))).toMatchObject({ code: "invalid", message: "Widgets aren't supported in Wecra yet" });
   });
 });
 

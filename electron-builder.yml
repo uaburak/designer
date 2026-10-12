@@ -1,8 +1,9 @@
 appId: net.burakkoc.designer
-# "Designer" from 1.0.0 (Designer.app, Designer-<version>.dmg, Designer-<version>-arm64-mac.zip, Designer-Setup-<version>.exe);
-# "DesignerV2" before. userData and the keychain's "DesignerV2 Safe Storage" keep the old name (src/main/identity.ts),
+# "Wecra" from 1.0.4 (Wecra.app, Wecra-<version>.dmg, Wecra-<version>-arm64-mac.zip, Wecra-Setup-<version>.exe, the msi);
+# "Designer" from 1.0.0 to 1.0.3, "DesignerV2" before. An installed Designer.app updated in place keeps its folder name
+# and shows "Wecra" (docs/desktop.md §12.7). userData and the keychain's "DesignerV2 Safe Storage" keep the old name (src/main/identity.ts),
 # so does package.json's name; the appId, the publish feed and the MSI's upgradeCode never change.
-productName: Designer
+productName: Wecra
 directories:
   buildResources: build
   output: dist
@@ -33,7 +34,7 @@ mac:
   # glint-notary); without it electron-builder signs and skips notarization with a warning
   notarize: true
   extendInfo:
-    NSMicrophoneUsageDescription: "Designer uses your microphone for audio conversations in shared files."
+    NSMicrophoneUsageDescription: "Wecra uses your microphone for audio conversations in shared files."
   extraResources:
     - from: native/haptics/haptics.node
       to: haptics.node

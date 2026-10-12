@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds a Designer release that installed copies pick up on their own (docs/desktop.md §12.6):
+# Builds a Wecra release that installed copies pick up on their own (docs/desktop.md §12.6):
 #
 #   npm run release -- 0.2.0 notes.md [--win]
 #   scripts/release.sh 0.2.0 notes.md [--win]
@@ -46,7 +46,7 @@ REPO="uaburak/designer"
 NOTARY_PROFILE="${NOTARY_PROFILE:-glint-notary}"
 TAG="v$VERSION"
 DIST="$ROOT/dist"
-APP="$DIST/mac-arm64/Designer.app"
+APP="$DIST/mac-arm64/Wecra.app"
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -67,7 +67,7 @@ node -e 'const [a,b]=process.argv.slice(1).map(v=>v.split(".").map(Number));proc
     || die "$VERSION isn't newer than $CURRENT (installed copies only take a newer version)"
 if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then die "$REPO already has a release $TAG"; fi
 
-step "Designer $VERSION (was $CURRENT)"
+step "Wecra $VERSION (was $CURRENT)"
 # A release that fails part way leaves package.json at the version it had.
 BACKUP="$(mktemp -d)"
 cp package.json package-lock.json "$BACKUP/"
@@ -95,8 +95,8 @@ xcrun stapler validate "$APP" || die "the app has no stapled notarization ticket
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")" == "$VERSION" ]] \
     || die "the app doesn't carry version $VERSION"
 
-DMG="$DIST/Designer-$VERSION.dmg"
-ZIP="$(ls "$DIST"/Designer-"$VERSION"-*-mac.zip 2>/dev/null | head -1 || true)"
+DMG="$DIST/Wecra-$VERSION.dmg"
+ZIP="$(ls "$DIST"/Wecra-"$VERSION"-*-mac.zip 2>/dev/null | head -1 || true)"
 [[ -f "$DMG" ]] || die "no DMG at $DMG"
 [[ -n "$ZIP" && -f "$ZIP" ]] || die "no zip for $VERSION in $DIST"
 [[ -f "$DIST/latest-mac.yml" ]] || die "no latest-mac.yml in $DIST"
@@ -106,7 +106,7 @@ FILES=("$DMG" "$ZIP" "$DIST"/*.blockmap "$DIST/latest-mac.yml")
 if [[ $WINDOWS == 1 ]]; then
     step "Building the Windows installer (unsigned)"
     npx electron-builder --win nsis --x64 --publish never
-    SETUP="$DIST/Designer-Setup-$VERSION.exe"
+    SETUP="$DIST/Wecra-Setup-$VERSION.exe"
     [[ -f "$SETUP" && -f "$DIST/latest.yml" ]] || die "no installer or latest.yml in $DIST"
     FILES=("$DMG" "$ZIP" "$SETUP" "$DIST"/*.blockmap "$DIST/latest-mac.yml" "$DIST/latest.yml")
 fi
@@ -121,10 +121,10 @@ for f in "${FILES[@]}"; do echo "  ${f#"$ROOT"/}"; done
 cat <<EOF
 
 package.json is now at $VERSION; commit and push that before publishing:
-  git commit -am "Designer $VERSION" && git push
+  git commit -am "Wecra $VERSION" && git push
 
 Publish: a GitHub release tagged $TAG on $REPO with the files above, marked as the latest.
-  gh release create $TAG$ARGS --repo $REPO --title "Designer $VERSION"${NOTES:+ --notes-file "$NOTES"} --latest
+  gh release create $TAG$ARGS --repo $REPO --title "Wecra $VERSION"${NOTES:+ --notes-file "$NOTES"} --latest
 
 Installed copies see it at their next daily check, or right away with "Check for Updates…".
 EOF

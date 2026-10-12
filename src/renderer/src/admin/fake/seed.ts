@@ -177,7 +177,7 @@ export function makeSeed(now = Date.now(), orgId = "org1"): Seed {
       id: String(100_000 + N - i), timestamp: Math.floor(at / 1000),
       actor: { type: "user", id: actorP.id, email: actorP.email, name: actorP.name ?? actorP.email },
       action: { type: action, details: {} }, entity,
-      context: { client_name: rnd() < 0.7 ? "Designer Desktop" : "Chrome", ip_address: pick(ips), is_figma_support_team_action: false, org_id: orgId, team_id: entity.type === "file" || entity.type === "project" || entity.type === "team" ? t.id : null },
+      context: { client_name: rnd() < 0.7 ? "Wecra Desktop" : "Chrome", ip_address: pick(ips), is_figma_support_team_action: false, org_id: orgId, team_id: entity.type === "file" || entity.type === "project" || entity.type === "team" ? t.id : null },
     });
   }
 

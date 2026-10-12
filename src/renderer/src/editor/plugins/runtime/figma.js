@@ -20,7 +20,7 @@
     return v;
   }
   function notSupported(name) {
-    return function () { throw new Error(name + " is not supported in Designer yet"); };
+    return function () { throw new Error(name + " is not supported in Wecra yet"); };
   }
 
   // ---- Node handles ---------------------------------------------------------------------------------------------
@@ -733,7 +733,7 @@
 
   // Later (docs/plugins.md §5): each throws Figma-style when used.
   ["payments", "timer", "buzz", "textreview", "vscode", "motion", "widget", "slides"].forEach(function (name) {
-    Object.defineProperty(figma, name, { enumerable: false, get: function () { throw new Error("figma." + name + " is not supported in Designer yet"); } });
+    Object.defineProperty(figma, name, { enumerable: false, get: function () { throw new Error("figma." + name + " is not supported in Wecra yet"); } });
   });
   ["createNodeFromJSXAsync", "createVideoAsync", "createSticky", "createConnector", "createShapeWithText", "createTable", "createCodeBlock", "createGif", "createLinkPreviewAsync", "createSlide", "createSlideRow", "createPageDivider", "createTransformGroup"].forEach(function (name) {
     value(name, notSupported(name));

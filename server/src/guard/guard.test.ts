@@ -187,7 +187,7 @@ describe("the five-minute check", () => {
     expect(await warnings()).toBe(2);
     const refused = await call("GET", "/files", alice.token);
     expect(refused.status).toBe(503);
-    expect(await refused.json()).toMatchObject({ code: "capacity_reached", error: "Designer has reached its capacity for this month. Try again on the 1st." });
+    expect(await refused.json()).toMatchObject({ code: "capacity_reached", error: "Wecra has reached its capacity for this month. Try again on the 1st." });
     expect((await call("GET", "/files", op.token)).status).toBe(200);
     expect((await call("GET", "/me/usage", alice.token)).status).toBe(503);
     // Public previews, links, embeds: off

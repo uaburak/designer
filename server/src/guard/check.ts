@@ -60,7 +60,7 @@ export async function checkSpend(deps: CheckDeps): Promise<GuardState> {
   const { settings } = state;
   const fresh = metricsPast(usage, settings.warnPercent).filter((m) => !next.warned.includes(m));
   for (const m of fresh) {
-    const line = `${SPEND_METRIC_LABEL[m]}: ${formatSpend(m, usage[m]!)} of ${formatSpend(m, SPEND_INCLUDED[m])} included this month (${Math.floor(percentOf(m, usage[m]!))}%). At ${settings.guardPercent}% only operators can use Designer until the 1st.`;
+    const line = `${SPEND_METRIC_LABEL[m]}: ${formatSpend(m, usage[m]!)} of ${formatSpend(m, SPEND_INCLUDED[m])} included this month (${Math.floor(percentOf(m, usage[m]!))}%). At ${settings.guardPercent}% only operators can use Wecra until the 1st.`;
     console.warn(`spend guard: ${line}`);
     await tellOperators(deps, line);
     next.warned.push(m);
@@ -69,7 +69,7 @@ export async function checkSpend(deps: CheckDeps): Promise<GuardState> {
   const decision = decide(after, now);
   if (decision.active && decision.reason === "usage" && !next.guardNotified) {
     const past = metricsPast(usage, settings.guardPercent).map((m) => SPEND_METRIC_LABEL[m]);
-    const line = `${past.join(", ")} reached ${settings.guardPercent}% of what's included this month. Designer now serves only operators until the 1st. Settings › Operator can change this.`;
+    const line = `${past.join(", ")} reached ${settings.guardPercent}% of what's included this month. Wecra now serves only operators until the 1st. Settings › Operator can change this.`;
     console.warn(`spend guard: ${line}`);
     await tellOperators(deps, line);
     next.guardNotified = true;

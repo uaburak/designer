@@ -96,7 +96,7 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
       id: String(900_000 + ++seq), timestamp: Math.floor(Date.now() / 1000),
       actor: { type: "user", id: a.id, email: a.email, name: a.name ?? a.email },
       action: { type, details }, entity,
-      context: { client_name: "Designer Desktop", ip_address: "127.0.0.1", is_figma_support_team_action: false, org_id: s.orgId, team_id: teamId },
+      context: { client_name: "Wecra Desktop", ip_address: "127.0.0.1", is_figma_support_team_action: false, org_id: s.orgId, team_id: teamId },
     });
   };
   const userEntity = (p: O.AdminPerson): O.ActivityLog["entity"] => ({ type: "user", id: p.id, name: p.name ?? p.email, email: p.email });

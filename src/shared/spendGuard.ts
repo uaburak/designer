@@ -75,7 +75,7 @@ export const DEFAULT_WARN_PERCENT = 80;
 export const DEFAULT_GUARD_PERCENT = 95;
 
 /** 503 `capacity_reached`: every non-operator request while the guard is on */
-export const CAPACITY_REACHED_TEXT = "Designer has reached its capacity for this month. Try again on the 1st.";
+export const CAPACITY_REACHED_TEXT = "Wecra has reached its capacity for this month. Try again on the 1st.";
 
 export interface SpendUsageRow {
   metric: SpendMetric;

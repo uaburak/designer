@@ -25,7 +25,7 @@ export function agyImageProject(workDir: string): string {
   return JSON.stringify(
     {
       id: AGY_IMAGE_PROJECT,
-      name: "Designer images",
+      name: "Wecra images",
       projectResources: { resources: [{ folderUri: `file://${encodeURI(workDir)}` }] },
       permissionGrants: { permissionGrants: { allow: [], deny: ["mcp(*)", "command(*)", "unsandboxed(*)", "read_url(*)", "execute_url(*)"] }, v2Migrated: true },
     },

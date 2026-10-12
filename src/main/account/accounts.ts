@@ -4,7 +4,7 @@
  * (userData/account/sessions.json, each token sealed on its own), and the flows that move between accounts (add,
  * switch, log out, log out of all, a refused session) with the windows' part handed in.
  */
-import type { AccountUser } from "../../shared/account";
+import { sameServer, type AccountUser } from "../../shared/account";
 import type { Session } from "./signIn";
 
 /** Figma: "You can be logged in to a maximum of 10 accounts at a time." */
@@ -100,8 +100,9 @@ export class AccountList {
 const isUser = (u: unknown): u is AccountUser => !!u && typeof u === "object" && typeof (u as AccountUser).id === "string" && typeof (u as AccountUser).email === "string";
 
 /**
- * The kept file read back: sessions.json, or the single-account session.json of before (`legacy`). A session for
- * another server (DESIGNER_SERVER changed), past its end, or whose token can't be opened (another Mac's keychain) is
+ * The kept file read back: sessions.json, or the single-account session.json of before (`legacy`). A session kept
+ * for the server's former address (FORMER_SERVERS, workers.dev up to 1.0.3) is the current one's, read as wecra.app;
+ * one for another server (DESIGNER_SERVER changed), past its end, or whose token can't be opened (another Mac's keychain) is
  * left out; the current one is kept when it survives, else the first.
  */
 export async function decodeAccounts(raw: unknown, o: { server: string; now: number; unseal: (sealed: string) => Promise<string | null> }): Promise<AccountList> {
@@ -118,9 +119,9 @@ export async function decodeAccounts(raw: unknown, o: { server: string; now: num
     stored.map(async (a): Promise<Session | null> => {
       if (!a || typeof a !== "object") return null;
       const s = a as StoredAccount;
-      if (s.server !== o.server || typeof s.expiresAt !== "number" || s.expiresAt <= o.now || !isUser(s.user) || typeof s.token !== "string") return null;
+      if (!sameServer(s.server, o.server) || typeof s.expiresAt !== "number" || s.expiresAt <= o.now || !isUser(s.user) || typeof s.token !== "string") return null;
       const token = s.token.startsWith("raw:") ? s.token.slice(4) : s.token.startsWith("enc:") ? await o.unseal(s.token) : null;
-      return token ? { server: s.server, token, expiresAt: s.expiresAt, user: { id: s.user.id, email: s.user.email, name: s.user.name ?? null, picture: s.user.picture ?? null } } : null;
+      return token ? { server: o.server, token, expiresAt: s.expiresAt, user: { id: s.user.id, email: s.user.email, name: s.user.name ?? null, picture: s.user.picture ?? null } } : null;
     }),
   );
   return new AccountList(

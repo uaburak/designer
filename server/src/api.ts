@@ -127,7 +127,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   // The legal pages Google's consent screen links to (docs/multiplayer.md §17)
   if ((path === "/privacy" || path === "/terms") && (m === "GET" || m === "HEAD")) {
     await throttle(deps, req, "public");
-    return (await import("./legal")).legalPage(path, url, deps);
+    return (await import("./legal")).legalPage(path, deps);
   }
   // Google Search Console's URL-prefix verification of this host (the OAuth consent screen's domain, §17)
   const verification = deps.env.GOOGLE_SITE_VERIFICATION;
@@ -859,17 +859,17 @@ function linkPage(key: string, params: URLSearchParams): Response {
 }
 
 function linkHtml(app: string): Response {
-  const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Open in Designer</title>
+  const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Open in Wecra</title>
 <body style="font:14px -apple-system,system-ui;margin:0;display:grid;place-items:center;min-height:100vh;background:#f5f5f5;color:#1e1e1e">
-<div style="text-align:center;max-width:360px;padding:24px"><h1 style="font-size:18px;font-weight:600;margin:0 0 8px">Open this file in Designer</h1>
+<div style="text-align:center;max-width:360px;padding:24px"><h1 style="font-size:18px;font-weight:600;margin:0 0 8px">Open this file in Wecra</h1>
 <p style="margin:0 0 20px;color:#666">You need the desktop app and to be logged in with an account that has access.</p>
 <a href="${app.replace(/&/g, "&amp;")}" style="display:inline-block;padding:8px 16px;border-radius:6px;background:#0d99ff;color:#fff;text-decoration:none;font-weight:500">Open in the app</a>
-<p style="margin:20px 0 0;color:#888;font-size:12px">Or in Designer: Home › Recents › Shared files › Open link…, and paste this link.</p></div>
+<p style="margin:20px 0 0;color:#888;font-size:12px">Or in Wecra: Home › Recents › Shared files › Open link…, and paste this link.</p></div>
 <script>location.href=${JSON.stringify(app)}</script>`;
   return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=3600" } });
 }
 
 function page(status: number, text: string): Response {
-  const html = `<!doctype html><meta charset="utf-8"><title>Designer</title><body style="font:14px system-ui;margin:40px">${text.replace(/[<>&]/g, "")}</body>`;
+  const html = `<!doctype html><meta charset="utf-8"><title>Wecra</title><body style="font:14px system-ui;margin:40px">${text.replace(/[<>&]/g, "")}</body>`;
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8" } });
 }

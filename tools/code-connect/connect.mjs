@@ -25,8 +25,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-/** The deployed server's API URL — set at deploy (docs/multiplayer.md); override with -a, codeConnect.apiUrl or DESIGNER_SERVER */
-export const DEFAULT_API_URL = "https://designer-server.workers.dev/v1";
+/** The deployed server's API URL (docs/multiplayer.md §7); override with -a, codeConnect.apiUrl or DESIGNER_SERVER */
+export const DEFAULT_API_URL = "https://wecra.app/v1";
 export const CONFIG_FILE = "figma.config.json";
 export const DEFAULT_INCLUDE = ["**/*.figma.ts", "**/*.figma.js", "**/*.figma.batch.json"];
 const TEMPLATE_RE = /\.figma\.(ts|tsx|js|jsx|mjs)$/;

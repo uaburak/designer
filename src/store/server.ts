@@ -147,7 +147,7 @@ export interface StoreServerOptions {
 }
 
 /** The gate's refusal */
-export const LOG_IN_FIRST = "Log in to Designer to create or open files.";
+export const LOG_IN_FIRST = "Log in to Wecra to create or open files.";
 
 export class StoreServer {
   private readonly connections = new Set<Connection>();
