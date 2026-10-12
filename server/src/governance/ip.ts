@@ -3,6 +3,7 @@
  * 14a's `network.ts`). Both live in `org_ip_ranges` (`kind`). The allowlist has no switch of its own: it is on when its
  * ranges are `enforced`, off (kept) when they are `disabled`.
  */
+import { forgetNetworkRanges } from "./network";
 import { ipInCidr, normalizeCidr, type IpAllowlist, type IpRange, type NetworkRange, type NetworkRangeState } from "../../../src/shared/org/governance";
 import type { Deps } from "../api";
 import type { User } from "../db";
@@ -137,6 +138,7 @@ export async function networkRangesRoute(ctx: Ctx, orgId: string, rest: string[]
     const id = randomId();
     const now = deps.now();
     await d1.prepare(`INSERT INTO org_ip_ranges (id, org_id, kind, cidr, state, created_by, created_at, updated_at) VALUES (?1, ?2, 'network', ?3, 'testing', ?4, ?5, ?5)`).bind(id, orgId, cidr, user.id, now).run();
+    forgetNetworkRanges(d1);
     await logActivity(deps, { orgId, action: "network_access_restriction_range_create", actor: user, entity, details: { range: cidr, state: "testing" }, req: ctx.req });
     return json({ range: (await networkRangesOf(deps, orgId, id))[0] }, 201);
   }
@@ -149,6 +151,7 @@ export async function networkRangesRoute(ctx: Ctx, orgId: string, rest: string[]
     if (state !== range.state) {
       const before = await enforcedNetworkRanges(deps, orgId);
       await d1.prepare(`UPDATE org_ip_ranges SET state = ?2, updated_at = ?3 WHERE id = ?1`).bind(range.id, state, deps.now()).run();
+    forgetNetworkRanges(d1);
       await logActivity(deps, { orgId, action: "network_access_restriction_range_update", actor: user, entity, details: { range: range.cidr, from: range.state, to: state }, req: ctx.req });
       await restriction(before);
     }
@@ -157,6 +160,7 @@ export async function networkRangesRoute(ctx: Ctx, orgId: string, rest: string[]
   if (m === "DELETE") {
     const before = await enforcedNetworkRanges(deps, orgId);
     await d1.prepare(`DELETE FROM org_ip_ranges WHERE id = ?1`).bind(range.id).run();
+    forgetNetworkRanges(d1);
     await logActivity(deps, { orgId, action: "network_access_restriction_range_delete", actor: user, entity, details: { range: range.cidr, state: range.state }, req: ctx.req });
     await restriction(before);
     return noContent();
