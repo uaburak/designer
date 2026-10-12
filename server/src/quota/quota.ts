@@ -16,6 +16,8 @@ import { ACCOUNT_SUSPENDED_TEXT, DEFAULT_OPERATOR_EMAILS, DEFAULT_SIGNUP_MODE, Q
 import type { Deps } from "../api";
 import { normalizeEmail, parseOverrides, type D1Like, type User } from "../db";
 import { HttpError } from "../org/http";
+import { guardActive } from "../guard/state";
+import { serverStorageLimit } from "../guard/storageCap";
 
 const MINUTE = 60_000;
 const DAY = 86_400_000;
@@ -121,13 +123,14 @@ export async function reserveStorage(deps: Deps, ownerId: string, item: string, 
   const owner = await d1.prepare(`SELECT stored_bytes, quota_overrides FROM users WHERE id = ?1`).bind(ownerId).first<{ stored_bytes: number; quota_overrides: string }>();
   const old = (await d1.prepare(`SELECT bytes FROM stored_items WHERE item = ?1`).bind(item).first<{ bytes: number }>())?.bytes ?? 0;
   const total = await serverStoredBytes(d1);
+  const serverCap = await serverStorageLimit(d1);
   const limit = limitOf(parseOverrides(owner?.quota_overrides), "storage_bytes");
   const stored = owner?.stored_bytes ?? 0;
   const check = (bytes: number) => {
     const delta = bytes - old;
     if (delta <= 0) return;
     if (stored + delta > limit) throw quotaError("storage_bytes", limit);
-    if (total + delta > QUOTA_LIMITS.server_storage_bytes) throw quotaError("server_storage_bytes", QUOTA_LIMITS.server_storage_bytes, 507);
+    if (total + delta > serverCap) throw quotaError("server_storage_bytes", serverCap, 507);
   };
   check(Number.isFinite(declared) && declared > 0 ? declared : 0);
   return {
@@ -267,6 +270,8 @@ export async function admitSignIn(deps: Deps, p: { sub: string; email: string },
     .first<{ suspended_at: number | null }>();
   if (existing) return existing.suspended_at != null ? "account_suspended" : null;
   if (isOperatorEmail(deps, email)) return null;
+  // The spend guard (docs/multiplayer.md §17.1): no new accounts while only operators are served
+  if (await guardActive(deps)) return "signup_closed";
   const mode = await signupMode(d1);
   if (mode === "closed") return "signup_closed";
   if (mode === "invite" && !(await invited(d1, email))) return "signup_invite_only";

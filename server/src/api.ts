@@ -19,6 +19,7 @@ import { checkPassword, hashPassword, sha256b64url, signToken, verifyToken } fro
 import { SIGNUP_SIGN_IN_ERROR_TEXT } from "../../src/shared/quota";
 import { admitSignIn, countFor, guardedUpload, moveStorage, requireActive, requireFileSlot } from "./quota/quota";
 import { throttle } from "./quota/throttle";
+import { capacityGate, requireCapacity } from "./guard/state";
 
 export interface Env {
   GOOGLE_CLIENT_ID?: string;
@@ -110,6 +111,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   const m = req.method;
 
   if (path === "/") return json({ name: "designer", ok: true });
+  // The spend guard (docs/multiplayer.md §17.1): public previews, links and embeds off while only operators are served
+  await capacityGate(deps, path);
   // The legal pages Google's consent screen links to (docs/multiplayer.md §17)
   if ((path === "/privacy" || path === "/terms") && (m === "GET" || m === "HEAD")) {
     await throttle(deps, req, "public");
@@ -685,6 +688,7 @@ async function authenticate(req: Request, url: URL, deps: Deps, allowQuery: bool
     const user = await deps.db.user(pat.userId);
     if (!user) throw new HttpError(401, "token expired");
     requireActive(user);
+    await requireCapacity(deps, user);
     await refuseOnRestrictedNetwork(user);
     return { user, sid: null, scopes: pat.scopes };
   }
@@ -693,6 +697,8 @@ async function authenticate(req: Request, url: URL, deps: Deps, allowQuery: bool
   // Suspended by the operator (§17): said as such, though suspension also ended the sessions
   if (user) requireActive(user);
   if (!p || !user || user.tokenVersion !== p.tv) throw new HttpError(401, "session expired");
+  // The spend guard (§17.1): past 95% of an included amount, only operators (503 capacity_reached; per-isolate state, no D1)
+  await requireCapacity(deps, user);
   if (p.sid) {
     const s = await deps.db.touchSession(p.sid, user.id, deps.now());
     if (!s) {

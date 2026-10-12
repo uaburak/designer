@@ -13,4 +13,12 @@
   .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .suspended { color: var(--figma-color-text-danger); }
   .actions { display: flex; flex: none; align-items: center; gap: var(--ds-space-3); }
+  .state { margin: var(--ds-space-2) 0 0; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .state[data-active] { color: var(--figma-color-text-danger); }
+  .table { align-self: stretch; margin-top: var(--ds-space-3); border-collapse: collapse; font: var(--ds-font-settings-cell); letter-spacing: var(--ds-tracking-settings-cell); }
+  .table th { padding: var(--ds-space-1) var(--ds-space-2) var(--ds-space-1) 0; color: var(--figma-color-text-secondary); font-weight: inherit; text-align: left; }
+  .table td { padding: var(--ds-space-1) var(--ds-space-2) var(--ds-space-1) 0; border-top: 1px solid var(--figma-color-border); color: var(--figma-color-text); }
+  .table th:not(:first-child), .table td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+  .table tr[data-level="warn"] td { color: var(--figma-color-text-warning); }
+  .table tr[data-level="guard"] td { color: var(--figma-color-text-danger); }
 }

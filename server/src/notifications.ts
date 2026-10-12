@@ -544,6 +544,14 @@ export async function notifyLibraryOverride(deps: Deps, n: { userIds: string[]; 
   for (const userId of new Set(n.userIds)) await notifyOrg(deps, { userId, kind: "library_default_override", actorId: n.actorId, orgId: n.orgId, teamId: n.teamId, name: n.libraryName, text: n.scopeName });
 }
 
+/**
+ * The spend guard's word to an operator (docs/multiplayer.md §17.1): a metric past its warning, or the guard engaged.
+ * No file and no org; "Designer" stands where the file's name goes, the operator is their own actor.
+ */
+export async function notifyCapacity(deps: Deps, n: { userId: string; text: string }): Promise<void> {
+  await safely("a capacity warning", () => deliver(deps, { userId: n.userId, kind: "capacity_warning", fileKey: null, actorId: n.userId, text: n.text, place: { orgId: null as unknown as string, teamId: null, name: "Designer" } }));
+}
+
 async function readJson(req: Request): Promise<Record<string, unknown> | null> {
   try {
     const v = (await req.json()) as unknown;

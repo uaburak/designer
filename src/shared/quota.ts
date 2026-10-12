@@ -49,8 +49,9 @@ export const QUOTA_LIMITS: Record<QuotaKind, number> = {
   signups_per_ip_per_day: 3,
   /** New accounts a day, everyone together */
   signups_per_day: 200,
-  /** Every account's stored bytes together: below the free plan's 5 GB of Durable Object storage */
-  server_storage_bytes: 4096 * MB,
+  /** Every account's stored bytes together: below the 1 GB of Durable Object storage Workers Paid includes (and the
+   *  spend guard's 95% of it, src/shared/spendGuard.ts); the operator can change it (Settings › Operator) */
+  server_storage_bytes: 900 * MB,
 };
 
 export const ACCOUNT_QUOTA_KINDS: readonly AccountQuotaKind[] = ["shared_files", "storage_bytes", "uploads_per_day", "previews", "orgs_created", "invitations_per_day", "comments_per_minute", "rest_calls_per_day"];

@@ -1,5 +1,5 @@
 // The multiplayer server (docs/multiplayer.md). Secrets (never here): wrangler secret put SESSION_SECRET,
-// GOOGLE_CLIENT_SECRET. Local development reads server/.dev.vars (git-ignored).
+// GOOGLE_CLIENT_SECRET, CF_API_TOKEN. Local development reads server/.dev.vars (git-ignored).
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "designer",
@@ -40,7 +40,10 @@
     // The web app (npm run web) may sign in and call the API from here
     "WEB_ORIGINS": "http://localhost:5199",
     // The server's operators (docs/multiplayer.md §17): Settings › Operator, /operator/… routes
-    "OPERATOR_EMAILS": "design.burakkoc@gmail.com"
+    "OPERATOR_EMAILS": "design.burakkoc@gmail.com",
+    // The spend guard (docs/multiplayer.md §17.1) reads this account's usage; with the secret CF_API_TOKEN (Account
+    // Analytics: Read): npx wrangler secret put CF_API_TOKEN
+    "CF_ACCOUNT_ID": "dd8b9e757657d35f82adff075509b048"
     // Optional: "GOOGLE_SITE_VERIFICATION": "google<token>.html" — Search Console's HTML-file check, served at /<that>
   },
   // Optional (docs/multiplayer.md §17): Workers Rate Limiting bindings make quota/throttle.ts count across the network

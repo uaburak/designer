@@ -1,11 +1,13 @@
 /**
  * Settings › Operator (ours; docs/multiplayer.md §17): shown only to the server's operators (`GET /me/usage`'s
- * `operator`). Who may sign up (Open / Invited people only / Closed, and the allowlist), and every account with its
- * usage — Suspend / Unsuspend, and Quota… to override one of its limits.
+ * `operator`). The spend guard (§17.1: the month's Cloudflare usage, the mode and thresholds, the server's storage cap),
+ * who may sign up (Open / Invited people only / Closed, and the allowlist), and every account with its usage —
+ * Suspend / Unsuspend, and Quota… to override one of its limits.
  */
 import { useEffect, useState } from "react";
 import { Button, Dialog, Select, Spinner, TextInput, showToast } from "@/ds";
 import { ACCOUNT_QUOTA_KINDS, QUOTA_LABEL, QUOTA_LIMITS, SIGNUP_MODES, SIGNUP_MODE_LABEL, formatBytes, isByteQuota, type AccountQuotaKind, type AccountUsage, type OperatorAccount, type OperatorSettings, type SignupMode } from "@shared/quota";
+import { SPEND_GUARD_MODES, SPEND_GUARD_MODE_LABEL, formatSpend, type SpendGuardMode, type SpendGuardStatus } from "@shared/spendGuard";
 import { useAccount } from "../files/account";
 import { Divider, Link, Section } from "./AccountTab";
 import { accountCall } from "./bridge";
@@ -36,10 +38,124 @@ export function useIsOperator(): boolean {
 export function OperatorTab() {
   return (
     <div className={styles.page} data-settings-operator="">
+      <SpendGuard />
+      <Divider />
       <Signup />
       <Divider />
       <Accounts />
     </div>
+  );
+}
+
+/** "12 Oct, 14:05" */
+const checkedText = (at: number) => new Date(at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+function SpendGuard() {
+  const [status, setStatus] = useState<SpendGuardStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [warn, setWarn] = useState("");
+  const [guard, setGuard] = useState("");
+  const [cap, setCap] = useState("");
+  const show = (s: SpendGuardStatus) => {
+    setStatus(s);
+    setError(null);
+    setWarn(String(s.warnPercent));
+    setGuard(String(s.guardPercent));
+    setCap(String(Math.round(s.serverStorageBytes / MB)));
+  };
+  const call = (method: "PATCH" | "POST", path: string, body?: Record<string, unknown>) => {
+    setBusy(true);
+    return accountCall<SpendGuardStatus>(method, path, body)
+      .then(show, (e: unknown) => showToast({ kind: "error", message: errorText(e) }))
+      .finally(() => setBusy(false));
+  };
+  useEffect(() => {
+    accountCall<SpendGuardStatus>("GET", "/operator/spend-guard").then(show, (e: unknown) => setError(errorText(e)));
+  }, []);
+  const known = status?.usage.some((u) => u.used !== null) ?? false;
+  const warnN = Number(warn);
+  const guardN = Number(guard);
+  const capN = Number(cap);
+  const validThresholds = Number.isInteger(warnN) && Number.isInteger(guardN) && warnN >= 1 && guardN <= 100 && warnN <= guardN;
+  const validCap = cap.trim() !== "" && Number.isInteger(capN) && capN >= 1;
+  return (
+    <Section heading="Spend guard" data-settings-section="spend-guard">
+      <p className={styles.text}>Keeps the Cloudflare bill at the Workers Paid base. At the warning you get a notification; at the limit only operators can use the server until the 1st (UTC).</p>
+      {error && <p className={styles.note}>{error}</p>}
+      {!status && !error && <Spinner />}
+      {status && (
+        <>
+          <p className={own.state} data-operator-guard-state={status.active ? "operator_only" : "normal"} data-active={status.active ? "" : undefined}>
+            {status.active ? (status.reason === "forced" ? "Only operators can use the server (set by you)." : "Only operators can use the server: an included amount is used up.") : "Everyone can use the server."}
+          </p>
+          <div className={own.row}>
+            <Select
+              label="Spend guard"
+              value={status.mode}
+              options={SPEND_GUARD_MODES.map((m) => ({ value: m, label: SPEND_GUARD_MODE_LABEL[m] }))}
+              onChange={(v) => void call("PATCH", "/operator/spend-guard", { mode: v as SpendGuardMode })}
+              width={240}
+              data-operator-guard-mode=""
+            />
+            <Button variant="secondary" loading={busy} onClick={() => void call("POST", "/operator/spend-guard/check")} data-operator-guard-check="">
+              Check now
+            </Button>
+          </div>
+          {known ? (
+            <table className={own.table} data-operator-usage="">
+              <thead>
+                <tr>
+                  <th>Metric</th>
+                  <th>Used</th>
+                  <th>Included</th>
+                  <th>%</th>
+                </tr>
+              </thead>
+              <tbody>
+                {status.usage.map((u) => (
+                  <tr key={u.metric} data-metric={u.metric} data-level={u.percent === null ? undefined : u.percent >= status.guardPercent ? "guard" : u.percent >= status.warnPercent ? "warn" : undefined}>
+                    <td>{u.label}</td>
+                    <td>{u.used === null ? "Unknown" : formatSpend(u.metric, u.used)}</td>
+                    <td>{formatSpend(u.metric, u.included)}</td>
+                    <td>{u.percent === null ? "–" : `${u.percent < 1 && u.percent > 0 ? "<1" : Math.floor(u.percent)}%`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className={styles.note} data-operator-usage-unknown="">
+              Usage unknown{status.error ? `: ${status.error}` : ""}. The guard doesn’t enforce anything until it can read usage.
+            </p>
+          )}
+          <p className={styles.note} data-operator-guard-checked="">
+            {status.checkedAt ? `Last checked ${checkedText(status.checkedAt)}` : "Not checked yet"}
+            {known && status.error ? ` · ${status.error}` : ""}
+          </p>
+          <h4 className={own.subheading}>Thresholds</h4>
+          <div className={own.row}>
+            <TextInput label="Warn at (%)" value={warn} onChange={(v) => setWarn(v.replace(/[^\d]/g, ""))} variant="outlined" invalid={!validThresholds} data-operator-guard-warn="" />
+            <TextInput label="Only operators at (%)" value={guard} onChange={(v) => setGuard(v.replace(/[^\d]/g, ""))} variant="outlined" invalid={!validThresholds} data-operator-guard-limit="" />
+            <Button variant="secondary" disabled={!validThresholds || busy} onClick={() => void call("PATCH", "/operator/spend-guard", { warnPercent: warnN, guardPercent: guardN })} data-operator-guard-save="">
+              Save
+            </Button>
+          </div>
+          <h4 className={own.subheading}>Server storage cap</h4>
+          <p className={`${styles.text} ${styles.muted}`}>{`Every account’s stored files and previews together, in megabytes${status.serverStorageCustom ? "" : " (the default)"}. Workers Paid includes 1 GB of Durable Object storage.`}</p>
+          <div className={own.row}>
+            <TextInput label="Storage cap (MB)" value={cap} onChange={(v) => setCap(v.replace(/[^\d]/g, ""))} variant="outlined" invalid={!validCap} data-operator-storage-cap="" />
+            <Button variant="secondary" disabled={!validCap || busy} onClick={() => void call("PATCH", "/operator/spend-guard", { serverStorageBytes: capN * MB })} data-operator-storage-save="">
+              Save
+            </Button>
+            {status.serverStorageCustom && (
+              <Link tight onClick={() => void call("PATCH", "/operator/spend-guard", { serverStorageBytes: null })} data-operator-storage-reset="">
+                Use default
+              </Link>
+            )}
+          </div>
+        </>
+      )}
+    </Section>
   );
 }
 
@@ -79,7 +195,7 @@ function Signup() {
               data-operator-signup-mode=""
             />
           </div>
-          <p className={styles.note}>{`${settings.accounts} ${settings.accounts === 1 ? "account" : "accounts"} · ${formatBytes(settings.serverStorageBytes)} of ${formatBytes(QUOTA_LIMITS.server_storage_bytes)} stored`}</p>
+          <p className={styles.note}>{`${settings.accounts} ${settings.accounts === 1 ? "account" : "accounts"} · ${formatBytes(settings.serverStorageBytes)} stored`}</p>
           <h4 className={own.subheading}>Allowlist</h4>
           <p className={`${styles.text} ${styles.muted}`}>With “{SIGNUP_MODE_LABEL.invite}”, these emails can sign up too, besides people invited to a file or an organization.</p>
           <div className={own.row}>

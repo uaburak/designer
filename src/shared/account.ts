@@ -183,7 +183,7 @@ export interface AccessTokenInfo {
 /** What a view may ask the server through main (`account:request`): the caller's own account (and its quota usage),
  *  and the operator's routes (docs/multiplayer.md §17; the server refuses them to anyone else), nothing else. */
 export const ACCOUNT_PATH =
-  /^(\/me(\/(profile|sessions|tokens|usage)(\/[A-Za-z0-9_-]{1,64})?)?|\/operator\/(settings|accounts(\?[A-Za-z0-9_=&%.+-]{0,200})?|accounts\/[A-Za-z0-9_-]{1,64}\/(suspend|unsuspend|quota)))$/;
+  /^(\/me(\/(profile|sessions|tokens|usage)(\/[A-Za-z0-9_-]{1,64})?)?|\/operator\/(settings|spend-guard(\/check)?|accounts(\?[A-Za-z0-9_=&%.+-]{0,200})?|accounts\/[A-Za-z0-9_-]{1,64}\/(suspend|unsuspend|quota)))$/;
 export type AccountMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
 export interface AccountResponse<T = unknown> {

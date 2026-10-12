@@ -10,6 +10,7 @@
  *                                                   the apps' account channel has no PUT)
  *   GET   /operator/settings                        OperatorSettings
  *   PATCH /operator/settings {signupMode?, allow?: email, disallow?: email}   OperatorSettings
+ *   GET | PATCH /operator/spend-guard, POST /operator/spend-guard/check   the spend guard (guard/check.ts, §17.1)
  */
 import { ACCOUNT_QUOTA_KINDS, MAX_QUOTA_OVERRIDE, QUOTA_LIMITS, SIGNUP_MODES, isAccountQuotaKind, type OperatorAccount, type OperatorSettings, type SignupMode } from "../../../src/shared/quota";
 import type { Deps } from "../api";
@@ -40,6 +41,8 @@ const ACCOUNT_SQL = `SELECT u.id, u.email, u.name, u.created_at, u.last_seen_at,
 
 export async function operatorRoute(req: Request, url: URL, deps: Deps, user: User, parts: string[]): Promise<Response> {
   if (!isOperatorEmail(deps, user.email)) throw new HttpError(403, "Only the operator of this server can do this.", "forbidden");
+  // The spend guard (docs/multiplayer.md §17.1): usage, mode, thresholds, the server's storage cap
+  if (parts[1] === "spend-guard") return (await import("../guard/check")).spendGuardRoute(req, deps, user, parts);
   const d1 = deps.db.d1;
   const m = req.method;
   const toAccount = (r: AccountRow): OperatorAccount => ({

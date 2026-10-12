@@ -2982,7 +2982,7 @@ The server opens to everyone on Cloudflare's **free plan** (100k Worker requests
 | `rest_calls_per_day` | 5,000 (§16.4's daily cap) | `rest_rate` · 429 |
 | `signups_per_ip_per_day` | 3 new accounts | `quota_counters` (`ip:<addr>`) → sign-in error `signup_limit` |
 | `signups_per_day` | 200 new accounts | `quota_counters` (`*`) → `signup_limit` |
-| `server_storage_bytes` | 4 GB, everyone together | `quota_counters` (`*`, window 0) · 507 |
+| `server_storage_bytes` | 900 MB, everyone together (below Workers Paid's 1 GB of Durable Object storage; the operator can change it, §17.1) | `quota_counters` (`*`, window 0) · 507 |
 
 - **Refusals**: `{error, code: "quota_exceeded", kind, limit}` with `quotaText`'s words; the store keeps `{code, kind, limit}` in `StoreError.detail` and says the same words (`httpError`, previews' `request`, `orgErrorText`).
 - **Stored bytes** are what passes through the Worker's upload routes: snapshots (also branch versions and bases), images, thumbnails, preview documents and images, library payloads and blobs, fonts — charged to the file's owner (the uploader for libraries, fonts and branch versions), released by prefix when the file, library or preview goes (`Db.deleteFile`, unpublish, the daily sweep of expired previews), moved by "Transfer ownership". **Not counted**: the room's journal frames and its own compactions (approximate by design).
@@ -2994,3 +2994,41 @@ The server opens to everyone on Cloudflare's **free plan** (100k Worker requests
 - **Legal pages**: `GET /privacy`, `GET /terms` (`server/src/legal.ts`), plain and short, the operator's email as contact. `GOOGLE_SITE_VERIFICATION` serves Search Console's HTML file.
 - **Delete account** (`DELETE /me`, §13) also releases what the account stored and its counters.
 - Tests: `server/src/quota/quota.test.ts` (every kind, suspension, sign-up modes, operator-only access, deletion, legal pages, throttling, no anonymous writes); `src/renderer/src/settings/__tests__/operator.dom.test.ts`.
+
+### 17.1 Spend guard (2026-10-12)
+
+The server now runs on **Workers Paid** ($5/month). Cloudflare has no hard spending cap — past the included amounts it bills overage — so the server enforces one: it keeps usage inside what the base price includes. Code: `server/src/guard/` (`usage.ts` the analytics, `state.ts` the per-request check, `check.ts` the cron step and routes, `storageCap.ts`); shared numbers and words `src/shared/spendGuard.ts`. No migration: two rows of `server_settings` (0019) — `spend_guard` (mode, thresholds) and `spend_usage` (the latest snapshot) — and a third, `server_storage_bytes`, when the operator changes the storage cap.
+
+**Included per month** (the owner's order summary, 2026-10-12; developers.cloudflare.com pricing pages, read the same day, for the rest):
+
+| Metric | Included | Overage | Measured from (GraphQL Analytics API) |
+|---|---|---|---|
+| Workers requests | 10M | $0.30/M | `workersInvocationsAdaptive` sum.requests (account-wide) |
+| Workers CPU time | 30M CPU-ms | $0.02/M ms | `workersInvocationsAdaptive` sum.cpuTimeUs ÷ 1000 |
+| Durable Objects requests | 1M | $0.15/M | `durableObjectsInvocationsAdaptiveGroups` sum.requests; hibernated WebSocket messages (counted there 1:1) taken back to their billed 20:1 with `durableObjectsPeriodicGroups` sum.inboundWebsocketMsgCount |
+| Durable Objects duration | 400K GB-s | $12.50/M GB-s | `durableObjectsPeriodicGroups` sum.activeTime (µs) × 128 MB |
+| Durable Objects SQLite rows read / written | 25B / 50M | $0.001/M / $1.00/M | `durableObjectsPeriodicGroups` sum.rowsRead / rowsWritten |
+| Durable Objects storage | **1 GB** | $0.20/GB-month | `durableObjectsStorageGroups` max.storedBytes, latest day |
+| D1 rows read / written | 25B / 50M | $0.001/M / $1.00/M | `d1AnalyticsAdaptiveGroups` sum.rowsRead / rowsWritten |
+| D1 storage | 5 GB | $0.75/GB-month | `d1StorageAdaptiveGroups` max.databaseSizeBytes, latest day, summed over databases |
+| Workers Logs events (`observability.enabled`) | 20M | $0.60/M | estimated: one invocation log per Worker and Durable Object request (`console.*` lines aren't seen — set `observability.head_sampling_rate` below 1 if logs ever matter) |
+
+Not used, so not measured: Workers KV ($0.50/M reads beyond 10M), R2, Queues. Free: static-asset requests, Cron Triggers, the Cache API. Storage is compared as a level (the GB-month ≈ what is held all month). Sources: developers.cloudflare.com/workers/platform/pricing/, /durable-objects/platform/pricing/, /d1/platform/pricing/, /workers/observability/logs/workers-logs/, /analytics/graphql-api/tutorials/querying-workers-metrics/, /durable-objects/observability/graphql-analytics/, /d1/observability/metrics-analytics/.
+
+- **The check** (`*/5 * * * *`, before webhook retries): six queries to `https://api.cloudflare.com/client/v4/graphql` (one per dataset, so a dataset refused leaves only its own metrics unknown), month to date in UTC. The snapshot is written only when something changed materially — a metric moved ≥ 0.5 point, a warning, the decision, the month, the error — or hourly: at most one row write per check.
+- **Warn at 80%** of any included amount: one notification per metric per month to every operator with an account (the bell, kind `capacity_warning`, "Usage warning · Designer", the metric's line as its text) and the Worker's log. One more when the guard engages.
+- **Guard at 95%** (`operator_only`): every authenticated request from a non-operator — sessions, personal access tokens, the REST API, socket upgrades — gets 503 `{code: "capacity_reached", error: "Designer has reached its capacity for this month. Try again on the 1st."}`; sign-up is closed (`admitSignIn` → `signup_closed`; operators always pass); uploads are refused with everything else; public previews (`/p/…` and their public reads), file links (`/f/…`) and embeds answer 503 for everyone. Operators keep full access. Sockets already open stay until they reconnect.
+- **Cheap per request**: `requireCapacity` (in `authenticate`) and `capacityGate` (public paths) decide from a per-isolate copy of the two rows, read from D1 at most once a minute per isolate (concurrent requests share the read); the decision uses the request's clock, so the 1st of the month (UTC) lifts an automatic guard at once. A failed read is no guard.
+- **Usage unknown**: without `CF_API_TOKEN`/`CF_ACCOUNT_ID`, or when the API fails, nothing is enforced (logged once per failure) and Settings › Operator says "Usage unknown". A partial failure enforces on the metrics it could read.
+- **The operator** (Settings › Operator › Spend guard; `GET|PATCH /operator/spend-guard {mode?, warnPercent?, guardPercent?, serverStorageBytes?: number | null}`, `POST /operator/spend-guard/check`): mode Automatic (default) · Everyone (this month) · Operators only (this month) · Off (no enforcement, warnings still come); a forced mode ends with the month. Thresholds 1–100 (warn ≤ guard). The usage table (metric, used, included, %) and the last check's time; "Check now". The **server storage cap** (`server_storage_bytes`, default 900 MB so stored files stop before Durable Object storage reaches 95% of its 1 GB): the operator's number replaces the default; "Use default" goes back.
+- **The apps**: the store maps `capacity_reached` to `StoreError("unavailable", <the server's message>)` (`httpError`, previews' `request`); `orgErrorText` shows the message.
+- Tests: `server/src/guard/guard.test.ts` (fake GraphQL API: parsing, threshold math, warn once, guard on/off, monthly reset, operator bypass and overrides, API failure, the per-isolate cache, the storage cap); `src/renderer/src/settings/__tests__/operator.dom.test.ts`.
+
+**Owner steps** (once):
+
+1. Workers Paid: Cloudflare dashboard → Workers & Pages → Plans → Workers Paid (done 2026-10-12).
+2. An API token: dashboard → My Profile → API Tokens → Create Token → Create Custom Token → Permissions: **Account › Account Analytics › Read**; Account Resources: Include › your account → Continue → Create Token. Copy it.
+3. `cd server && npx wrangler secret put CF_API_TOKEN` and paste it.
+4. `CF_ACCOUNT_ID` is in `server/wrangler.jsonc` `vars` (the same as `account_id`; `npx wrangler whoami` lists it, and it is the hex id in the dashboard's URL `dash.cloudflare.com/<account id>/…`).
+5. `npm run deploy` (from `server/`); then Settings › Operator › Spend guard › Check now should fill the table.
+6. A backup: dashboard → Manage Account → Notifications → Add → **Billing** › "Usage Based Billing" (per product, e.g. Workers requests, Durable Objects) with a threshold — an email when usage passes it, in case the guard itself fails.

@@ -1171,6 +1171,8 @@ export async function httpError(res: Response): Promise<StoreError> {
   // Public sign-up's limits (docs/multiplayer.md §17): `detail` keeps `{code, kind, limit}`; the words are the shared ones
   if (isQuotaRefusal(detail)) return new StoreError(res.status === 413 ? "too-large" : "forbidden", quotaText(detail.kind, detail.limit), detail);
   if (detail?.code === "account_suspended") return new StoreError("forbidden", ACCOUNT_SUSPENDED_TEXT, detail);
+  // The server's spend guard (§17.1): 503 `capacity_reached`, its message says it ("…Try again on the 1st.")
+  if (detail?.code === "capacity_reached") return new StoreError("unavailable", message, detail);
   // Governance+ (docs/governance.md §2.5, §2.10): `detail` keeps `{code, gate}`; the org's encryption key → unavailable
   const gcode = detail?.code;
   if ((res.status === 403 || res.status === 503) && isGovernanceCode(gcode)) {

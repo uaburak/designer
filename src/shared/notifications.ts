@@ -39,7 +39,9 @@ export type NotificationKind =
    * `fileName` the org's; no file.
    */
   | "plugin_request"
-  | "plugin_request_answer";
+  | "plugin_request_answer"
+  /** The server's spend guard (docs/multiplayer.md §17.1), to its operators: `text` says which metric and how far */
+  | "capacity_warning";
 
 export interface NotificationActor {
   id: string;
@@ -221,6 +223,8 @@ export function notificationAction(n: Pick<NotificationItem, "kind" | "count" | 
       return `Requested approval for ${n.text || "a plugin"}`;
     case "plugin_request_answer":
       return n.state === "denied" ? `Declined your request for ${n.text || "a plugin"}` : `Approved your request for ${n.text || "a plugin"}`;
+    case "capacity_warning":
+      return "Usage warning";
   }
 }
 

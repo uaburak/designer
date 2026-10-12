@@ -51,9 +51,11 @@ export default {
   },
 
   /** "17 3 * * *": the library analytics roll-up for yesterday (UTC) and the retention sweeps; "*\/5 * * * *": webhook
-   *  deliveries that are due (and the 7-day log) */
+   *  deliveries that are due (and the 7-day log), after the spend guard's usage check */
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
     if (controller.cron === "*/5 * * * *") {
+      // The spend guard (docs/multiplayer.md §17.1): month-to-date usage from Cloudflare's analytics; never fails the cron
+      await (await import("./guard/check")).checkSpend(depsOf(env)).catch((e: unknown) => console.error("spend guard: check failed", e));
       const { sweepWebhooks } = await import("./webhooks/deliver");
       await sweepWebhooks({ db: new Db(env.DB), now: () => Date.now(), fetch: (...a) => fetch(...a) });
       return;

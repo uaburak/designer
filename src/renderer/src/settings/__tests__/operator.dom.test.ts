@@ -4,6 +4,7 @@ import { act } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AccountState } from "@shared/account";
 import { QUOTA_LIMITS, type OperatorAccount, type OperatorSettings } from "@shared/quota";
+import { SPEND_INCLUDED, SPEND_METRICS, SPEND_METRIC_LABEL, type SpendGuardStatus } from "@shared/spendGuard";
 import { $, $$, mount, type Mounted } from "@/ds/__tests__/dom";
 import { closeSettings, openSettings } from "../bridge";
 import { SettingsHost } from "../SettingsModal";
@@ -26,8 +27,24 @@ const click = (el: Element) =>
 const user = { id: "u1", email: "design.burakkoc@gmail.com", name: "Burak", picture: null };
 const alice: OperatorAccount = { id: "u2", email: "alice@x.co", name: "Alice", createdAt: 0, lastSeenAt: 0, suspendedAt: null, suspendedReason: null, operator: false, sharedFiles: 3, storageBytes: 5 * 1024 * 1024, previews: 1, orgsCreated: 0, overrides: {} };
 
-function fakeDesigner(operator: boolean) {
+const guardStatus = (known: boolean): SpendGuardStatus => ({
+  mode: "auto",
+  warnPercent: 80,
+  guardPercent: 95,
+  active: false,
+  reason: null,
+  configured: known,
+  month: "2026-10",
+  checkedAt: known ? Date.UTC(2026, 9, 12, 12) : null,
+  error: known ? null : "CF_API_TOKEN or CF_ACCOUNT_ID isn't set",
+  serverStorageBytes: 900 * 1024 * 1024,
+  serverStorageCustom: false,
+  usage: SPEND_METRICS.map((m) => ({ metric: m, label: SPEND_METRIC_LABEL[m], used: known ? SPEND_INCLUDED[m] * (m === "workers_requests" ? 0.85 : 0.1) : null, included: SPEND_INCLUDED[m], percent: known ? (m === "workers_requests" ? 85 : 10) : null })),
+});
+
+function fakeDesigner(operator: boolean, known = true) {
   const requests: { method: string; path: string; body?: unknown }[] = [];
+  let guard = guardStatus(known);
   let settings: OperatorSettings = { signupMode: "open", allowlist: [], defaults: { ...QUOTA_LIMITS }, serverStorageBytes: 0, accounts: 2 };
   let account = alice;
   const state: AccountState = { server: "https://s", user, signingIn: false };
@@ -47,6 +64,8 @@ function fakeDesigner(operator: boolean) {
           settings = { ...settings, ...(b.signupMode ? { signupMode: b.signupMode } : {}), allowlist: b.allow ? [...settings.allowlist, b.allow] : settings.allowlist };
           return { status: 200, body: settings };
         }
+        if (r.path === "/operator/spend-guard" && r.method === "GET") return { status: 200, body: guard };
+        if (r.path === "/operator/spend-guard" && r.method === "PATCH") return { status: 200, body: (guard = { ...guard, ...(r.body as Partial<SpendGuardStatus>), active: (r.body as { mode?: string }).mode === "operator_only", reason: (r.body as { mode?: string }).mode === "operator_only" ? "forced" : null }) };
         if (r.path.startsWith("/operator/accounts?")) return { status: 200, body: { accounts: [account], cursor: null } };
         if (r.path === `/operator/accounts/${alice.id}/suspend`) return { status: 200, body: { account: (account = { ...account, suspendedAt: 1, suspendedReason: (r.body as { reason?: string }).reason ?? null }) } };
         if (r.path === `/operator/accounts/${alice.id}/unsuspend`) return { status: 200, body: { account: (account = { ...account, suspendedAt: null, suspendedReason: null }) } };
@@ -57,8 +76,8 @@ function fakeDesigner(operator: boolean) {
   return { requests };
 }
 
-async function open(operator: boolean, tab?: Parameters<typeof openSettings>[0]) {
-  const fake = fakeDesigner(operator);
+async function open(operator: boolean, tab?: Parameters<typeof openSettings>[0], known = true) {
+  const fake = fakeDesigner(operator, known);
   m = mount(SettingsHost, {});
   act(() => openSettings(tab));
   await settle();
@@ -88,5 +107,24 @@ describe("Settings › Operator", () => {
     await click($("[data-operator-unsuspend]")!);
     await settle();
     expect($(`[data-operator-account='${alice.id}']`)?.hasAttribute("data-suspended")).toBe(false);
+  });
+
+  it("shows the spend guard: the month's usage, the mode, the thresholds", async () => {
+    const fake = await open(true, "operator");
+    const table = $("[data-operator-usage]")!;
+    expect(table.textContent).toContain("Workers requests");
+    expect(table.querySelector("[data-metric='workers_requests']")?.getAttribute("data-level")).toBe("warn");
+    expect(table.querySelector("[data-metric='workers_requests']")?.textContent).toContain("8.5M");
+    expect($("[data-operator-guard-checked]")?.textContent).toContain("Last checked");
+    expect($("[data-operator-guard-state]")?.getAttribute("data-operator-guard-state")).toBe("normal");
+    await click($("[data-operator-guard-save]")!);
+    await settle();
+    expect(fake.requests).toContainEqual({ method: "PATCH", path: "/operator/spend-guard", body: { warnPercent: 80, guardPercent: 95 } });
+  });
+
+  it("says usage unknown without the API token", async () => {
+    await open(true, "operator", false);
+    expect($("[data-operator-usage]")).toBeNull();
+    expect($("[data-operator-usage-unknown]")?.textContent).toContain("Usage unknown: CF_API_TOKEN");
   });
 });

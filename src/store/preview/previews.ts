@@ -114,6 +114,7 @@ async function request(host: PreviewHost, session: PreviewSession, method: strin
   const detail = parseDetail(text);
   if (isQuotaRefusal(detail)) throw new StoreError("forbidden", quotaText(detail.kind, detail.limit), detail);
   if (detail?.code === "account_suspended") throw new StoreError("forbidden", ACCOUNT_SUSPENDED_TEXT, detail);
+  if (detail?.code === "capacity_reached") throw new StoreError("unavailable", message, detail);
   if (res.status === 404) throw new StoreError("not-found", message || "No such preview");
   throw new StoreError("invalid", message || `The server said ${res.status}`);
 }
