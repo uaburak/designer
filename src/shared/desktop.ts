@@ -30,6 +30,7 @@ import type {
   TabsSnapshot,
   ThemePreference,
   ThemeState,
+  UpdaterStatus,
   UploadedFont,
   VectorClipboard,
   WindowState,
@@ -96,6 +97,13 @@ export interface TabBarApi extends DesktopCommon {
     reopen(): void;
     /** "+": a new design file in Drafts, opened */
     newFile(): void;
+  };
+  /** The app's updates (docs/desktop.md §12.6): the "Restart to update" pill and a manual check's progress */
+  updates: {
+    get(): Promise<UpdaterStatus>;
+    onState(cb: (s: UpdaterStatus) => void): Unsubscribe;
+    check(): void;
+    restart(): void;
   };
 }
 

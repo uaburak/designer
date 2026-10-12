@@ -20,6 +20,7 @@ import { installAppMenu } from "./menu";
 import { DEV_URL, handleScheme, isAppUrl, registerScheme } from "./protocol";
 import { flushStore, retryStoreHost, startStoreHost, storeClient, storeDebug } from "./storeHost";
 import { initTheme } from "./theme";
+import { initUpdater } from "./updater";
 import { controllers, finishQuit, lifecycle, openWindow, type WindowController } from "./window";
 
 /**
@@ -137,6 +138,8 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionCheckHandler((_wc, permission, origin, details) => allowed(permission, origin) || (permission === "media" && isAppUrl(origin) && (details as { mediaType?: string }).mediaType === "audio"));
     session.defaultSession.setDevicePermissionHandler(() => false);
 
+    // Updates (docs/desktop.md §12.6): before the menu, which shows "Check for Updates…" only when it runs.
+    initUpdater();
     installAppMenu(current, Boolean(DEV_URL));
     // The store first: Home and the file tabs get their ports as their pages load.
     startStoreHost(() => {

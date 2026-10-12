@@ -23,4 +23,8 @@ export const STRINGS = {
   dismiss: "Dismiss",
   loading: "Loading",
   unsaved: "Unsaved changes",
+  /** The tab bar's update notice (docs/desktop.md §12.6; Figma's "Restart to update", the progress lines ours) */
+  restartToUpdate: "Restart to update",
+  checkingForUpdates: "Checking for updates…",
+  downloadingUpdate: "Downloading update…",
 } as const;

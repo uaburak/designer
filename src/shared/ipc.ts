@@ -255,6 +255,29 @@ export interface VectorClipboard {
   skipped: { text: number; images: number };
 }
 
+/**
+ * The app's updates (docs/desktop.md §12.6; electron-updater over the GitHub releases): where the updater is.
+ * `upToDate` and `error` are what the last check found; `ready` is a downloaded update, installed on quit or by
+ * "Restart to update".
+ */
+export type UpdateState =
+  | { kind: "idle" }
+  | { kind: "checking" }
+  | { kind: "downloading"; percent: number; version: string | null }
+  | { kind: "ready"; version: string }
+  | { kind: "upToDate"; version: string }
+  | { kind: "error"; message: string };
+
+export interface UpdaterStatus {
+  /** False in development, under `DisableUpdater`, for an MSI install or the portable zip: no menu item, no checks */
+  enabled: boolean;
+  state: UpdateState;
+  /** The state comes from "Check for Updates…" (the tab bar shows its progress), not the daily check (which stays quiet) */
+  manual: boolean;
+  /** The running app's version */
+  current: string;
+}
+
 /** The shared fonts' four channels (docs/desktop.md §14.3) are `SharedFontsChannels` (src/shared/fonts/sharedTypes.ts). */
 export interface IpcInvoke extends SharedFontsChannels {
   "desktop:init": { args: []; result: InitInfo };
@@ -281,6 +304,8 @@ export interface IpcInvoke extends SharedFontsChannels {
   "theme:set": { args: [ThemePreference]; result: ThemeState };
   /** "Enhance contrast" on or off: main keeps it (settings.json) and tells every view (`theme:changed`) */
   "theme:set-contrast": { args: [boolean]; result: ThemeState };
+  /** The updater's state (docs/desktop.md §12.6), for the tab bar */
+  "updater:get": { args: []; result: UpdaterStatus };
   /** The user's keyboard shortcuts (settings.json; src/shared/shortcuts.ts) */
   "shortcuts:get": { args: []; result: ShortcutSettings };
   /** Bindings, shortcuts used or the layout changed (only the fields given): main keeps them, rebuilds the menu bar's accelerators, tells every editor */
@@ -427,6 +452,10 @@ export interface IpcSend {
   /** Windows: the tab bar's main menu button — the app's menu, popped up at (x, y) in the bar */
   "tabs:main-menu": { x: number; y: number };
   "tabs:reopen": void;
+  /** "Check for Updates…" from the tab bar (docs/desktop.md §12.6) */
+  "updater:check": void;
+  /** "Restart to update": the app's normal quit (every file flushed, the store shut down), then the update installs and the app opens again */
+  "updater:restart": void;
   /** Home in front ("Back to files"), the file shown there when given */
   "nav:go-home": { revealFileKey?: string } | undefined;
   "tab:report": TabReport;
@@ -446,6 +475,8 @@ export interface IpcSend {
 
 export interface IpcEvents {
   "tabs:state": TabsSnapshot;
+  /** To the tab bar: the updater's state changed (docs/desktop.md §12.6) */
+  "updater:state": UpdaterStatus;
   "window:state": WindowState;
   "menu:command": MenuCommandEvent;
   /** An editor view's tab and file (the spare editor adopted for a file that opens) */
@@ -502,6 +533,7 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "file:export-preview": ["editor"],
   "theme:set": ["tabbar", "home", "editor"],
   "theme:set-contrast": ["home", "editor"],
+  "updater:get": ["tabbar"],
   "shortcuts:get": ["editor"],
   "shortcuts:set": ["editor"],
   "menu:popup": ["tabbar", "home", "editor"],
@@ -581,6 +613,8 @@ export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {
   "tabs:context-menu": ["tabbar"],
   "tabs:main-menu": ["tabbar"],
   "tabs:reopen": ["tabbar", "home"],
+  "updater:check": ["tabbar"],
+  "updater:restart": ["tabbar"],
   "nav:go-home": ["editor"],
   "tab:report": ["editor"],
   "tab:flushed": ["editor"],

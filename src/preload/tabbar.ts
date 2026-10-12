@@ -16,6 +16,12 @@ const api: TabBarApi = {
     reopen: () => send("tabs:reopen"),
     newFile: () => void invoke("nav:new-file", { folderId: null }).catch(() => {}),
   },
+  updates: {
+    get: () => invoke("updater:get"),
+    onState: (cb) => on("updater:state", cb),
+    check: () => send("updater:check"),
+    restart: () => send("updater:restart"),
+  },
 };
 
 contextBridge.exposeInMainWorld("designer", api);

@@ -5,6 +5,7 @@ import { persistable, restoreTabs } from "../shared/tabs";
 import { flushSession, readSession, writeSession, type WindowBounds, type WindowSession } from "./session";
 import { stopStoreHost } from "./storeHost";
 import { emit, TabManager } from "./tabs";
+import { exitForUpdate } from "./updater";
 import { backgroundOf, createView, destroyView } from "./views";
 
 /**
@@ -27,7 +28,8 @@ let finishing: Promise<void> | null = null;
 export function finishQuit(): Promise<void> {
   finishing ??= stopStoreHost().finally(() => {
     flushSession();
-    app.exit(0);
+    // "Restart to update" (docs/desktop.md §12.6): the updater installs and opens the app again instead.
+    if (!exitForUpdate()) app.exit(0);
   });
   return finishing;
 }

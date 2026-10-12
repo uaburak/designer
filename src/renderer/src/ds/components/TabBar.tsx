@@ -3,6 +3,8 @@ import { cx } from "../util/cx";
 import { Icon } from "../icons/Icon";
 import { STRINGS } from "../strings";
 import { dropIndex } from "../util/geometry";
+import { Button } from "./Button";
+import { Spinner } from "./Spinner";
 import styles from "./TabBar.module.css";
 
 export type TabBarTab = { id: string; title: string; dirty?: boolean; kind?: "design" | "prototype" };
@@ -20,6 +22,8 @@ export interface TabBarProps {
   onNew?: () => void;
   /** The 40px slot at the right edge (the shell's icon button) */
   trailing?: ReactNode;
+  /** At the right, before `trailing`: the app's update notice (`TabBarUpdate`) */
+  notice?: ReactNode;
   /** No traffic lights: 8px instead of 80 */
   fullScreen?: boolean;
   /** Windows: Figma's main menu button at the left (no menu bar) and room for the caption buttons at the right */
@@ -40,7 +44,7 @@ export { dropIndex };
  * free space moves the window. Titles use the native `title` attribute: no
  * DOM tooltip can leave a 38px view.
  */
-export function TabBar({ tabs, active, onActivate, onClose, onMove, onContextMenu, onNew, trailing, fullScreen, windows, onMainMenu, hoverId }: TabBarProps) {
+export function TabBar({ tabs, active, onActivate, onClose, onMove, onContextMenu, onNew, trailing, notice, fullScreen, windows, onMainMenu, hoverId }: TabBarProps) {
   const strip = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ id: string; dx: number; from: number; to: number; width: number } | null>(null);
 
@@ -146,8 +150,31 @@ export function TabBar({ tabs, active, onActivate, onClose, onMove, onContextMen
         </button>
       )}
       <div className={styles.spacer} />
+      {notice && <div className={styles.notice}>{notice}</div>}
       {trailing && <div className={styles.trailing}>{trailing}</div>}
     </div>
+  );
+}
+
+export type TabBarUpdateState = { kind: "checking" } | { kind: "downloading"; percent: number } | { kind: "ready"; version: string };
+
+/**
+ * The app's update in the tab bar (docs/desktop.md §12.6): Figma shows "Restart to update" there once an update has
+ * downloaded — never forced, quitting installs it too. While "Check for Updates…" runs, its progress in the same place.
+ */
+export function TabBarUpdate({ state, onRestart }: { state: TabBarUpdateState; onRestart: () => void }) {
+  if (state.kind === "ready") {
+    return (
+      <Button variant="primary" className={styles.update} title={`Version ${state.version} is ready to install`} onClick={onRestart}>
+        {STRINGS.restartToUpdate}
+      </Button>
+    );
+  }
+  return (
+    <span data-ds="TabBarUpdate" role="status" className={styles.updateStatus}>
+      <Spinner size={16} />
+      {state.kind === "checking" ? STRINGS.checkingForUpdates : `${STRINGS.downloadingUpdate} ${state.percent}%`}
+    </span>
   );
 }
 

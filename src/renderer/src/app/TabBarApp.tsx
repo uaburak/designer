@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { TabsSnapshot, WindowState } from "@shared/ipc";
-import { TabBar, useThemeRoot } from "@/ds";
+import type { TabsSnapshot, UpdaterStatus, WindowState } from "@shared/ipc";
+import { TabBar, TabBarUpdate, useThemeRoot, type TabBarUpdateState } from "@/ds";
 import { desktopAs } from "./native";
 
 /**
@@ -14,6 +14,7 @@ export default function TabBarApp() {
   const api = desktopAs.tabbar();
   const [snapshot, setSnapshot] = useState<TabsSnapshot | null>(null);
   const [win, setWin] = useState<WindowState>({ fullScreen: false, focused: true });
+  const [update, setUpdate] = useState<UpdaterStatus | null>(null);
 
   useEffect(() => {
     if (!api) return;
@@ -21,10 +22,13 @@ export default function TabBarApp() {
     void api.tabs.get().then((s) => live && setSnapshot(s));
     const offState = api.tabs.onState(setSnapshot);
     const offWin = api.onWindowState(setWin);
+    void api.updates.get().then((s) => live && setUpdate(s));
+    const offUpdate = api.updates.onState(setUpdate);
     return () => {
       live = false;
       offState();
       offWin();
+      offUpdate();
     };
   }, [api]);
 
@@ -50,7 +54,19 @@ export default function TabBarApp() {
   const onContextMenu = useCallback((id: string, at: { x: number; y: number }) => api?.tabs.contextMenu(id, at.x, at.y), [api]);
   const onMainMenu = useCallback((at: { x: number; y: number }) => api?.tabs.mainMenu(at.x, at.y), [api]);
   const windows = api?.platform === "win32";
+  const onRestart = useCallback(() => api?.updates.restart(), [api]);
+  const notice = updateNotice(update);
 
   // In a browser (no main): an empty bar, to look at.
-  return <TabBar tabs={tabs} active={snapshot?.activeTabId ?? "home"} fullScreen={Boolean(snapshot?.fullScreen || win.fullScreen)} onActivate={onActivate} onClose={onClose} onMove={onMove} onNew={onNew} onContextMenu={onContextMenu} windows={windows} onMainMenu={onMainMenu} />;
+  return <TabBar tabs={tabs} active={snapshot?.activeTabId ?? "home"} fullScreen={Boolean(snapshot?.fullScreen || win.fullScreen)} onActivate={onActivate} onClose={onClose} onMove={onMove} onNew={onNew} onContextMenu={onContextMenu} windows={windows} onMainMenu={onMainMenu} notice={notice && <TabBarUpdate state={notice} onRestart={onRestart} />} />;
+}
+
+/** What the tab bar shows of the updater (docs/desktop.md §12.6): "Restart to update" once an update is in; a manual check's progress; nothing for the daily check. */
+export function updateNotice(s: UpdaterStatus | null): TabBarUpdateState | null {
+  if (!s?.enabled) return null;
+  if (s.state.kind === "ready") return { kind: "ready", version: s.state.version };
+  if (!s.manual) return null;
+  if (s.state.kind === "checking") return { kind: "checking" };
+  if (s.state.kind === "downloading") return { kind: "downloading", percent: s.state.percent };
+  return null;
 }
