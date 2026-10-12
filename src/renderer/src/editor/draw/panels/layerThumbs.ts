@@ -9,7 +9,6 @@
  */
 import type { Guid, Pixels } from "@/engine/codec";
 import type { EditorController } from "../../controller";
-import { guidString } from "./drawPanel";
 
 /** The preview's box in device px (32 CSS px at 2×). */
 export const THUMB_MAX = 64;
@@ -162,11 +161,8 @@ export function layerThumbnails(ed: EditorController): LayerThumbnails {
     const tree = ed.getTree();
     const changed: Guid[] = [];
     const removed: Guid[] = [];
-    // (The kiwi stream carries GUIDs as {sessionID, localID}; the tree keys them "s:l".)
-    for (const c of changes) {
-      const id = guidString(c.guid);
-      if (id) (c.phase === "REMOVED" ? removed : changed).push(id);
-    }
+    // "s:l" on either wire (Engine.onDocumentChanged normalises the kiwi stream's {sessionID, localID}).
+    for (const c of changes) if (c.guid) (c.phase === "REMOVED" ? removed : changed).push(c.guid);
     t.invalidate(changed, (id) => tree.nodes.get(id)?.parent ?? null, removed);
   });
   return thumbs;

@@ -596,7 +596,7 @@ describe("engine (wasm, headless): E4 + E5", () => {
     const changed: EventOf<"COMPONENTS_CHANGED">[] = [];
     engine.on("COMPONENTS_CHANGED", (e) => changed.push(e));
     // An override through setProps on a derived ref; never in DOCUMENT_CHANGED.
-    const docs: NodeChange[][] = [];
+    const docs: (readonly NodeChange[])[] = [];
     engine.onDocumentChanged((c) => docs.push(c));
     expect(engine.setProps(["I1:3;1:2"], { fillPaints: [id(1)] })).toBe(Status.OK);
     expect(docs).toHaveLength(1);
@@ -690,7 +690,7 @@ describe("engine (wasm, headless): variables, modes and styles (E6)", () => {
     expect(engine.resolveVariable(overlay)).toEqual({ r: 1, g: 0, b: 0, a: 0.5 });
 
     // A value edit is one DOCUMENT_CHANGED with the variable and the layer; undo restores both.
-    const docs: NodeChange[][] = [];
+    const docs: (readonly NodeChange[])[] = [];
     engine.onDocumentChanged((changes) => docs.push(changes));
     expect(engine.command("SET_VARIABLE_VALUE", { variable: bg, mode: dark, value: { r: 0, g: 1, b: 0, a: 1 } })).toBe(Status.OK);
     expect(docs).toHaveLength(1);
@@ -871,7 +871,7 @@ describe("engine (wasm, headless): libraries (E6)", () => {
     expect(lib.setProps(["1:11"], { opacity: 0.5 })).toBe(Status.OK);
     const v2 = lib.encodeAssets([button]);
     expect(v2.assets[0].versionHash).not.toBe(buttonInfo.versionHash);
-    const docs: NodeChange[][] = [];
+    const docs: (readonly NodeChange[])[] = [];
     con.onDocumentChanged((c) => docs.push(c));
     const updated = con.applyLibraryUpdate(v2.assets.map((a) => a.message), { libraryKey: LIB });
     expect(updated.status).toBe(Status.OK);
@@ -1093,6 +1093,9 @@ describe("engine (wasm, headless): kiwi at the boundary (Figma parity round 3)",
     // A drag: DOCUMENT_CHANGED carries the Message's kiwi bytes; `message` is the kiwi-shaped Message, decoded lazily.
     const changes: EventOf<"DOCUMENT_CHANGED">[] = [];
     engine.on("DOCUMENT_CHANGED", (e) => changes.push(e));
+    // onDocumentChanged's handlers get the GUIDs as "s:l" (the type's string) on the kiwi wire too.
+    const viewed: (readonly NodeChange[])[] = [];
+    engine.onDocumentChanged((c) => viewed.push(c));
     engine.pointer(PointerType.DOWN, 100, 150, 0, 1, 0);
     for (let x = 105; x <= 160; x += 5) engine.pointer(PointerType.MOVE, x, 150, 0, 1, 0);
     engine.pointer(PointerType.UP, 160, 150, 0, 0, 0);
@@ -1105,6 +1108,9 @@ describe("engine (wasm, headless): kiwi at the boundary (Figma parity round 3)",
     expect(decoded.nodeChanges![0].transform?.m02).toBe(84);
     expect(decoded.nodeChanges![0].name).toBeUndefined();
     expect((changes[0].message as unknown as typeof decoded).nodeChanges![0].guid).toEqual({ sessionID: 1, localID: 5 });
+    expect(viewed).toHaveLength(1);
+    expect(viewed[0][0].guid).toBe("1:5");
+    expect(viewed[0][0].transform?.m02).toBe(84);
 
     // The snapshot as kiwi (every node, the generated codec reads it); the JSON method still answers.
     const snapshot = decodeKiwi(engine.encodeDocumentKiwi());

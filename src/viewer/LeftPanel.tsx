@@ -43,6 +43,11 @@ export function layerIcon(n: LayerNode): IconName {
       return "16.instance";
     case "GROUP":
       return "16.group";
+    // Draw (docs/draw.md §9's layer icons)
+    case "TEXT_PATH":
+      return "16.text-path";
+    case "TRANSFORM":
+      return "16.repeat";
     default:
       return "16.rectangle";
   }

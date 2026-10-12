@@ -239,6 +239,49 @@ describe("nodes JSON (GET /v1/files/:key/nodes) and the part", () => {
 
   it("types map as Figma's", () => {
     expect([restType({ type: "ROUNDED_RECTANGLE" }), restType({ type: "SYMBOL" }), restType({ type: "FRAME", isStateGroup: true }), restType({ type: "FRAME", resizeToFit: true }), restType({ type: "VARIABLE" })]).toEqual(["RECTANGLE", "COMPONENT", "COMPONENT_SET", "GROUP", null]);
+    // Draw (docs/draw.md §7): the plugin API's names [Figma's REST names unverified]
+    expect([restType({ type: "TEXT_PATH" }), restType({ type: "TRANSFORM" })]).toEqual(["TEXT_PATH", "TRANSFORM_GROUP"]);
+  });
+});
+
+describe("file JSON: Figma Draw (docs/draw.md §7)", () => {
+  /** The types document with a dynamic stroke, a stretch brush stroke and its BRUSH node on the internal canvas. */
+  async function drawEngine(): Promise<Engine> {
+    const engine = await engineOf(TYPES_DOCUMENT);
+    engine.setProps(["1:2"], { strokePaints: [{ type: "SOLID", color: { r: 0, g: 0, b: 0, a: 1 }, opacity: 1, visible: true }], strokeWeight: 4, dynamicStrokeSettings: { frequency: 3, wiggle: 2, smoothen: 0.5 } } as Any);
+    engine.setProps(["1:20"], { strokePaints: [{ type: "SOLID", color: { r: 0, g: 0, b: 0, a: 1 }, opacity: 1, visible: true }], strokeWeight: 6 } as Any);
+    return engine;
+  }
+
+  it("stroke kinds: a dynamic stroke as complexStrokeProperties; a basic stroke has none", async () => {
+    const engine = await drawEngine();
+    const json: Any = await fileJson(engine, {}, ctx);
+    const doc = json.document;
+    expect(byId(doc, "1:2").complexStrokeProperties).toEqual({ type: "DYNAMIC", frequency: 3, wiggle: 2, smoothen: 0.5 });
+    expect(byId(doc, "1:20").complexStrokeProperties).toBeUndefined();
+    expect(byId(doc, "1:20").strokeWeight).toBe(6);
+  });
+
+  // TODO(7b): enable when round 7a / 7b's engine keeps TEXT_PATH and TRANSFORM nodes (docs/roadmap.md "Round 7").
+  it.skip("a TEXT_PATH with its text and start, a TRANSFORM_GROUP with its repeats (7b)", async () => {
+    const engine = await drawEngine();
+    engine.applyChanges(
+      {
+        type: "NODE_CHANGES",
+        sessionID: 1,
+        nodeChanges: [
+          { guid: "1:30", phase: "CREATED", type: "TRANSFORM" as never, name: "Repeat group 1", parentIndex: { guid: "0:1", position: "z" }, size: { x: 80, y: 80 }, transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 400 }, transformModifiers: [{ type: "REPEAT", repeatType: "LINEAR", axis: "X", count: 3, unitType: "PIXELS", offset: { x: 10, y: 0 }, visible: true }] } as Any,
+          { guid: "1:31", phase: "CREATED", type: "ELLIPSE", name: "Dot", parentIndex: { guid: "1:30", position: "!" }, size: { x: 20, y: 20 }, transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 } } as Any,
+          { guid: "1:32", phase: "CREATED", type: "TEXT_PATH" as never, name: "Around", parentIndex: { guid: "0:1", position: "zz" }, size: { x: 100, y: 100 }, textData: { characters: "Around" }, fontSize: 12, textPathStart: { tValue: 1.5, forward: true } } as Any,
+        ],
+      },
+      "user"
+    );
+    const json: Any = await fileJson(engine, {}, ctx);
+    const doc = json.document;
+    expect(byId(doc, "1:30")).toMatchObject({ type: "TRANSFORM_GROUP", transformModifiers: [{ type: "REPEAT", repeatType: "LINEAR", axis: "HORIZONTAL", count: 3, unitType: "PIXELS", offset: 10 }] });
+    expect(byId(doc, "1:30").children.map((c: Any) => c.id)).toEqual(["1:31"]);
+    expect(byId(doc, "1:32")).toMatchObject({ type: "TEXT_PATH", characters: "Around", textPathStartData: { segment: 1, position: 0.5 } });
   });
 });
 

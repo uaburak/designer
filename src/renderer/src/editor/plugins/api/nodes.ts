@@ -31,6 +31,16 @@ import {
   toTransform,
   weightOf,
 } from "./convert";
+import {
+  complexStrokeProperties,
+  setComplexStrokeProperties,
+  setTextPathStartData,
+  setTransformModifiers,
+  setVariableWidthStrokeProperties,
+  textPathStartData,
+  transformModifiers,
+  variableWidthStrokeProperties,
+} from "./draw";
 
 type Obj = Record<string, unknown>;
 type Getter = (ctx: ApiContext, n: NodeChange) => unknown;
@@ -91,7 +101,7 @@ const needString = (name: string) => (v: unknown) => {
   return v;
 };
 
-const isText = (n: NodeChange) => n.type === "TEXT";
+const isText = (n: NodeChange) => n.type === "TEXT" || (n.type as string) === "TEXT_PATH";
 const transformOf = (n: NodeChange) => n.transform ?? IDENTITY;
 
 /** The node's transform relative to its page. */
@@ -415,6 +425,11 @@ const PROPS: Record<string, Prop> = {
   gridColumnCount: field("gridColumns", 0),
   gridRowGap: field("gridRowGap", 0),
   gridColumnGap: field("gridColumnGap", 0),
+  // Draw (docs/draw.md §7, api/draw.ts)
+  textPathStartData: { get: (_ctx, n) => textPathStartData(n), set: setTextPathStartData, only: ["TEXT_PATH"] },
+  transformModifiers: { get: (_ctx, n) => transformModifiers(n), set: setTransformModifiers, only: ["TRANSFORM_GROUP"] },
+  complexStrokeProperties: { get: complexStrokeProperties, set: setComplexStrokeProperties },
+  variableWidthStrokeProperties: { get: variableWidthStrokeProperties, set: setVariableWidthStrokeProperties },
 };
 
 function boundVariables(ctx: ApiContext, n: NodeChange): Obj {

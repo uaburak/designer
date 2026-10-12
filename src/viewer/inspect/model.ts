@@ -117,6 +117,12 @@ export function paddingOf(node: NodeChange): Padding {
   return { top, right: node.stackPaddingRight ?? left, bottom: node.stackPaddingBottom ?? top, left };
 }
 
+/** A text or a text on a path (Draw's TEXT_PATH inspects as text: Typography, text colour; docs/draw.md §7). */
+export const isTextLike = (node: Pick<NodeChange, "type">): boolean => node.type === "TEXT" || (node.type as string) === "TEXT_PATH";
+
+/** Draw's transform group (TRANSFORM): inspected as a group (docs/draw.md §7). */
+export const isTransformGroup = (node: Pick<NodeChange, "type">): boolean => (node.type as string) === "TRANSFORM";
+
 export const isAutoLayout = (node: NodeChange) => node.stackMode === "HORIZONTAL" || node.stackMode === "VERTICAL";
 
 /** How the layer sizes on each axis, in Figma's words. */
@@ -217,6 +223,8 @@ export function typeLabel(node: NodeChange): string {
     FRAME: "Frame", GROUP: "Group", SECTION: "Section", TEXT: "Text", RECTANGLE: "Rectangle", ROUNDED_RECTANGLE: "Rectangle",
     ELLIPSE: "Ellipse", LINE: "Line", VECTOR: "Vector", STAR: "Star", REGULAR_POLYGON: "Polygon", BOOLEAN_OPERATION: "Boolean",
     SYMBOL: "Component", INSTANCE: "Instance", CANVAS: "Page", SLICE: "Slice",
+    // Draw (the Layers names of docs/draw.md §5.9's As built [unverified])
+    TEXT_PATH: "Text on path", TRANSFORM: "Transform group",
   };
   return names[node.type ?? ""] ?? "Layer";
 }

@@ -255,30 +255,5 @@ export function engineMethod<F extends (...args: never[]) => unknown>(engine: En
 
 // ---- Change events on either wire --------------------------------------------------------------------------------
 
-type GuidLike = string | { sessionID: number; localID: number } | undefined;
-const guidText = (g: GuidLike): string => (typeof g === "string" ? g : g ? `${g.sessionID}:${g.localID}` : "");
-
-const viewCache = new WeakMap<object, NodeChange[]>();
-
-/**
- * A DOCUMENT_CHANGED's node changes with GUIDs as "s:l" strings (`guid`, `parentIndex.guid`), whatever the engine's
- * wire: with `wire: "kiwi"` the event's `message` is the kiwi-shaped Message (GUID objects, decoded lazily from its
- * `bytes`), with JSON the engine's interim form. A shallow view — every other field is as the wire gives it, so
- * readers test keys (`"name" in c`), phases and GUIDs, not values. One view per event, shared by every reader.
- */
-export function changesOf(event: { message: { nodeChanges?: readonly unknown[] } }): readonly NodeChange[] {
-  const cached = viewCache.get(event);
-  if (cached) return cached;
-  const list = (event.message?.nodeChanges ?? []) as (NodeChange & { guid: GuidLike })[];
-  const view =
-    list.length && typeof list[0]?.guid !== "string"
-      ? list.map((c) => {
-          const v = { ...c, guid: guidText(c.guid) } as NodeChange;
-          const p = (c as { parentIndex?: { guid: GuidLike; position: string } }).parentIndex;
-          if (p) v.parentIndex = { ...p, guid: guidText(p.guid) };
-          return v;
-        })
-      : (list as NodeChange[]);
-  viewCache.set(event, view);
-  return view;
-}
+/** Moved to the engine bindings (`engine/guids.ts`), where `Engine.onDocumentChanged` uses it; kept here for its readers. */
+export { changesOf } from "../engine/guids";

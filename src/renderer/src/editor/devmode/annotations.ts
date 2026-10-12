@@ -72,12 +72,14 @@ export function propertiesFor(t: PropertyTarget): PropertyType[] {
   const auto = frameLike && !!t.stackMode && t.stackMode !== "NONE";
   if (auto || (t.parentStackMode && t.parentStackMode !== "NONE")) out.push("MIN_WIDTH", "MAX_WIDTH", "MIN_HEIGHT", "MAX_HEIGHT");
   if (t.type === "TEXT") out.push("TEXT_STYLE", "FONT_FAMILY", "FONT_STYLE", "FONT_SIZE", "FONT_WEIGHT", "LINE_HEIGHT", "LETTER_SPACING", "TEXT_ALIGN_HORIZONTAL");
+  // Draw (docs/draw.md §7): a text on a path is text without line height; a transform group is a group.
+  if (t.type === "TEXT_PATH") out.push("TEXT_STYLE", "FONT_FAMILY", "FONT_STYLE", "FONT_SIZE", "FONT_WEIGHT", "LETTER_SPACING", "TEXT_ALIGN_HORIZONTAL");
   if (auto && t.stackMode !== "GRID") out.push("STACK_MODE", "STACK_SPACING", "STACK_PADDING", "STACK_ALIGNMENT");
   if (auto && t.stackMode === "GRID") out.push("STACK_MODE", "STACK_PADDING", "GRID_ROW_COUNT", "GRID_COLUMN_COUNT", "GRID_ROW_GAP", "GRID_COLUMN_GAP");
   if (t.parentStackMode === "GRID") out.push("GRID_ROW_ANCHOR_INDEX", "GRID_COLUMN_ANCHOR_INDEX", "GRID_ROW_SPAN", "GRID_COLUMN_SPAN");
   if (t.type === "INSTANCE") out.push("COMPONENT");
   out.push("FILL", "STROKE", "STROKE_WIDTH");
-  if (t.type !== "TEXT" && t.type !== "LINE" && !t.resizeToFit) out.push("CORNER_RADIUS");
+  if (t.type !== "TEXT" && t.type !== "TEXT_PATH" && t.type !== "LINE" && t.type !== "TRANSFORM" && !t.resizeToFit) out.push("CORNER_RADIUS");
   out.push("EFFECT", "OPACITY");
   return out;
 }

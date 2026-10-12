@@ -13,6 +13,7 @@ import type { EditorController } from "../controller";
 import { ApiError, decodeValue, encodeValue, MIXED } from "./api/codec";
 import { readNode, ref, refOf, type ApiContext } from "./api/context";
 import * as doc from "./api/document";
+import * as draw from "./api/draw";
 import { childrenOf, descendants, getPluginData, getProp, getRelaunchData, insertChild, nodeCss, pluginDataKeys, removeNode, rescale, resize, setPluginData, setProp, setRelaunchData, topLevelFrame } from "./api/nodes";
 import type { PluginDesktop } from "./desktop";
 import bridgeSource from "./runtime/bridge.js?raw";
@@ -267,7 +268,7 @@ export class PluginRun {
   private collect(changes: readonly NodeChange[], kind: string): void {
     const origin = kind === "SYSTEM" ? "REMOTE" : "LOCAL";
     for (const c of changes) {
-      const id = typeof c.guid === "string" ? c.guid : `${(c.guid as unknown as { sessionID: number }).sessionID}:${(c.guid as unknown as { localID: number }).localID}`;
+      const id = c.guid; // "s:l" on either wire (Engine.onDocumentChanged)
       if (c.phase === "CREATED") this.pendingChanges.push({ type: "CREATE", id, origin, node: refOf(this.ctx, id) });
       else if (c.phase === "REMOVED") this.pendingChanges.push({ type: "DELETE", id, origin, node: { id, removed: true } });
       else {
@@ -584,6 +585,10 @@ export class PluginRun {
       ungroup: (id) => doc.ungroup(ctx(), id),
       flatten: (nodes, parent, index) => doc.flatten(ctx(), nodes, parent, n(index)),
       boolean: (op, nodes, parent, index) => doc.booleanOp(ctx(), s(op), nodes, parent, n(index)),
+      // Draw (docs/draw.md §7)
+      createTextPath: (id, segment, position) => draw.createTextPath(ctx(), id, segment, position),
+      transformGroup: (nodes, parent, index, modifiers) => draw.transformGroup(ctx(), nodes, parent, n(index), modifiers),
+      "brushes.load": (type) => Promise.resolve().then(() => draw.loadBrushes(ctx(), type)),
       "selection.colors": () => doc.selectionColors(ctx()),
       "viewport.get": () => doc.viewport(ctx()),
       "viewport.set": (v) => doc.setViewport(ctx(), (v ?? {}) as Obj),
@@ -798,6 +803,14 @@ const PROPERTY_NAMES: Record<string, string> = {
   pluginData: "pluginData",
   pluginRelaunchData: "relaunchData",
   parentIndex: "parent",
+  // Draw (docs/draw.md §7)
+  textPathStart: "textPathStartData",
+  transformModifiers: "transformModifiers",
+  strokeBrushGuid: "complexStrokeProperties",
+  dynamicStrokeSettings: "complexStrokeProperties",
+  scatterStrokeSettings: "complexStrokeProperties",
+  stretchStrokeSettings: "complexStrokeProperties",
+  variableWidthPoints: "variableWidthStrokeProperties",
 };
 const apiProperty = (k: string) => PROPERTY_NAMES[k] ?? k;
 
