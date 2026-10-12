@@ -5,7 +5,7 @@
  */
 import type { Guid } from "@/engine/codec";
 import { getStoreClient } from "@/store";
-import type { OpenIntent } from "@shared/multiplayer/types";
+import { intentFromLink, type OpenIntent } from "@shared/multiplayer/types";
 import type { EditorController } from "../controller";
 import { commentsOf } from "../comments/commentsController";
 import { setMode } from "../devmode/devMode";
@@ -54,15 +54,22 @@ export function applyIntent(ed: EditorController, intent: OpenIntent): void {
   }
 }
 
-/** The intent this editor was opened with: the browser's URL (`node-id`, `m`), else what the store kept for it. */
+/**
+ * The intent this editor was opened with: the browser's URL (`node-id`, `m`, `dev=ready`, `#comment-<id>` — what
+ * files/desktop.ts `editorUrl` writes), else what the store kept for it.
+ */
 export async function openIntent(fileKey: string): Promise<OpenIntent | null> {
   if (typeof location !== "undefined") {
-    const p = new URLSearchParams(location.search);
-    const node = /^([0-9]+)[-:]([0-9]+)$/.exec(p.get("node-id") ?? "");
-    const m = p.get("m");
-    if (node || m === "dev" || m === "proto") return { ...(node ? { nodeId: `${node[1]}:${node[2]}` } : {}), ...(m === "dev" || m === "proto" ? { mode: m } : {}) };
+    const fromUrl = urlIntent(location.search, location.hash);
+    if (fromUrl) return fromUrl;
   }
   return getStoreClient()
     .multiplayer.takeOpenIntent(fileKey)
     .catch(() => null);
+}
+
+/** The intent in an editor page's address (`?editor&file=…&node-id=1-2&m=dev&dev=ready#comment-…`), or null. */
+export function urlIntent(search: string, hash = ""): OpenIntent | null {
+  const intent = intentFromLink(`${search}${hash}`);
+  return Object.keys(intent).length ? intent : null;
 }

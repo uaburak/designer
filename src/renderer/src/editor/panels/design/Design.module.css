@@ -367,7 +367,7 @@
 
 @layer app {
   /* The selection header's actions (Edit object, Create component, Use as mask, Boolean groups), right-aligned */
-  .headerActions { display: flex; align-items: center; gap: var(--ds-space-1); margin-left: auto; }
+  .headerActions { display: flex; align-items: center; gap: var(--ds-space-1); min-width: 0; margin-left: auto; }
   /* An icon that opens a menu (blend mode, individual strokes, boolean groups): an icon button's box */
   .iconMenu {
     display: inline-flex;

@@ -3,7 +3,8 @@ import type { LinkAccess, LinkSettingsPatch, MultiplayerRepository, OpenIntent, 
 import { StoreError } from "../../shared/store/protocol";
 import type { MultiplayerService } from "./service";
 
-export function multiplayerApi(m: MultiplayerService): MultiplayerRepository {
+/** `owner`: the port the repository is bound to (its renderers end when it closes: `releaseRenderersOf`) */
+export function multiplayerApi(m: MultiplayerService, owner?: object): MultiplayerRepository {
   return {
     setSession: (session) => m.setSession(session && typeof session.server === "string" && typeof session.token === "string" ? { server: session.server, token: session.token } : null),
     status: () => m.status(),
@@ -48,7 +49,7 @@ export function multiplayerApi(m: MultiplayerService): MultiplayerRepository {
         g();
       };
     },
-    restRender: (fileKey, on, opts, token) => m.restRender(fileKey, on === true, { helper: (opts as { helper?: unknown } | undefined)?.helper === true }, typeof token === "string" && token ? token : undefined),
+    restRender: (fileKey, on, opts, token) => m.restRender(fileKey, on === true, { helper: (opts as { helper?: unknown } | undefined)?.helper === true }, typeof token === "string" && token ? token : undefined, owner),
     restAnswer: (fileKey, id, answer) => m.restAnswer(fileKey, String(id), cleanAnswer(answer)),
     watchSession: (listener) => m.onSessionEnded(listener),
   };

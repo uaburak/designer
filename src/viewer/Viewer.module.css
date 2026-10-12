@@ -148,6 +148,9 @@
     cursor: default;
     flex-wrap: wrap;
   }
+  /* A row straight in a section (Component, Colors, Effects) keeps the 8 that grid2 / list give theirs: its text at 16
+     like every other row's, not at 8. */
+  section > .value { margin-inline: var(--ds-space-2); }
   .value:hover { background: var(--figma-color-bg-hover); }
   .value:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .valueLabel { flex: none; width: 100%; color: var(--figma-color-text-secondary); }
@@ -417,5 +420,8 @@
   }
   .connectErrorName { color: var(--figma-color-text-danger); font: var(--ds-font-body-medium-strong); }
   .connectActions { display: flex; gap: var(--ds-space-2); padding: 0 var(--ds-space-4) var(--ds-space-2); }
+  /* The row holds the panel's margins already: its buttons share it (the panel-wide rule above gave each 16 more on
+     both sides — "Explore component behavior" sat 32 in from the panel's edge, narrower than every other button). */
+  .right .connectActions [data-ds="Button"][data-variant="secondary"] { flex: 1 1 0; width: auto; min-width: 0; margin: 0; }
 
 }

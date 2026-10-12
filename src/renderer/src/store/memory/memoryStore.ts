@@ -1301,7 +1301,7 @@ export class MemoryStore {
       libraries,
       previews,
       store,
-      multiplayer: multiplayerApi(this.multiplayer),
+      multiplayer: multiplayerApi(this.multiplayer, owner),
       comments: commentsApi(this.comments),
       notifications: notificationsApi(this.notifications),
       orgs: this.org.orgs,

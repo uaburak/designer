@@ -6,7 +6,7 @@
 import { isKnownMethod, roleMayCall, serializeError, StoreError, type PortRole, type RpcMessage, type RpcRequest, type RpcTransport } from "../shared/store/protocol";
 import type { FileChange, FontsEvent, LibraryEvent, OpenedFile, StoreApi, Unsubscribe, WorkspaceEvent } from "../shared/store/repositories";
 import type { FileKey } from "../shared/store/types";
-import type { FileShareState, MultiplayerNotice, SessionEnded } from "../shared/multiplayer/types";
+import type { FileShareState, MultiplayerNotice, RestJobRequest, SessionEnded } from "../shared/multiplayer/types";
 import type { RoomPolicy } from "../shared/org/identity";
 import type { NotificationsEvent } from "../shared/notifications";
 import type { OrgEvent } from "../shared/org/repositories";
@@ -31,7 +31,12 @@ export interface ServableStore {
     onNotice(listener: (fileKey: FileKey, notice: MultiplayerNotice) => void): Unsubscribe;
     onSignal(listener: (fileKey: FileKey, from: number, data: unknown) => void): Unsubscribe;
     onPolicy(listener: (fileKey: FileKey, policy: RoomPolicy) => void): Unsubscribe;
+    /** A REST render job for one of the file's renderers, and a room wanting one (docs/multiplayer.md §16.17) */
+    onRestJob(listener: (fileKey: FileKey, req: RestJobRequest) => void): Unsubscribe;
+    onRestWanted(listener: (fileKey: FileKey) => void): Unsubscribe;
     onSessionEnded(listener: (e: SessionEnded) => void): Unsubscribe;
+    /** A port closed: the REST renderers it registered end with it */
+    releaseRenderersOf?(owner: object): void;
     fileState(fileKey: FileKey): Promise<FileShareState>;
   };
   /** Comments changed (docs/multiplayer.md §10) */
@@ -149,6 +154,9 @@ export class StoreServer {
       this.offs.push(mp.onSignal((fileKey, from, data) => void mp.fileState(fileKey).then((state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state, signal: { from, data } } }))));
       // The org changed cursor chat or audio (docs/multiplayer.md §15.9); the server ended the session (§15.8)
       this.offs.push(mp.onPolicy((fileKey, policy) => void mp.fileState(fileKey).then((state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state, policy } }))));
+      // REST render jobs reach the editors (runner.ts) and main's render helper (restHelper.ts) as multiplayer events
+      this.offs.push(mp.onRestJob((fileKey, restJob) => void mp.fileState(fileKey).then((state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state, restJob } }))));
+      this.offs.push(mp.onRestWanted((fileKey) => void mp.fileState(fileKey).then((state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state, restWanted: true } }))));
       this.offs.push(mp.onSessionEnded((d) => this.broadcast({ t: "evt", topic: "session", d })));
     }
     if (store.comments) this.offs.push(store.comments.onChange((fileKey) => this.broadcast({ t: "evt", topic: "comments", d: { fileKey } })));
@@ -180,6 +188,7 @@ export class StoreServer {
     if (!this.connections.delete(conn)) return;
     conn.closed = true;
     conn.subscriptions.clear();
+    this.store.multiplayer?.releaseRenderersOf?.(conn.owner);
     await this.store.files.endSessionsOf(conn.owner).catch((e) => this.store.log("warn", "ending a closed port's sessions failed", e));
   }
 
