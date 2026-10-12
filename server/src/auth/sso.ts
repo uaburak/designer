@@ -16,7 +16,8 @@ import { errorBody, HttpError } from "../org/http";
 import { randomToken, sha256b64url, signToken, verifyToken } from "../tokens";
 import { captureAtSignIn } from "./capture";
 import { loginPage, messagePage } from "./pages";
-import { idpByOrg, type IdpRow, spConfigOf } from "./saml/config";
+import { idpForDomain, type IdpRow, spConfigOf } from "./saml/config";
+import type { User } from "../db";
 import { authnRedirect } from "./saml/sp";
 
 export const STATE_SECONDS = 600;
@@ -59,10 +60,22 @@ export function appBack(st: AppState, params: Record<string, string>): string {
 const redirect = (to: string) => new Response(null, { status: 302, headers: { location: to, "cache-control": "no-store" } });
 export const backWithError = (st: AppState, error: string) => redirect(appBack(st, { error }));
 
-/** A one-time code for the app (2 minutes, bound to its challenge), and the redirect carrying it */
-export async function backWithCode(deps: Deps, st: AppState, userId: string, auth: SessionAuth, orgId: string | null): Promise<Response> {
+/**
+ * A one-time code for the app (2 minutes, bound to its challenge), and the redirect carrying it. Round 14
+ * (docs/governance.md §2.2, §2.4): an account a network access restriction blocks goes back with
+ * `error=network_restricted`; with two-factor authentication on, the code is stored pending and the browser goes to
+ * `/auth/2fa` first.
+ */
+export async function backWithCode(deps: Deps, st: AppState, user: Pick<User, "id" | "email">, auth: SessionAuth, orgId: string | null, req: Request): Promise<Response> {
+  if (await (await import("../governance/network")).networkCheck(deps, user, req)) return backWithError(st, "network_restricted");
   const code = randomToken();
-  await deps.db.putAuthCode(await sha256b64url(code), userId, st.c, deps.now() + CODE_MS, auth, orgId);
+  const hash = await sha256b64url(code);
+  const tf = await import("../governance/twoFactor");
+  if (await tf.twoFactorOn(deps, user.id)) {
+    await deps.db.putAuthCode(hash, user.id, st.c, deps.now() + tf.CHALLENGE_MS, auth, orgId, true);
+    return tf.startChallenge(deps, new URL(req.url).origin, st, hash);
+  }
+  await deps.db.putAuthCode(hash, user.id, st.c, deps.now() + CODE_MS, auth, orgId);
   return redirect(appBack(st, { code }));
 }
 
@@ -110,7 +123,7 @@ export async function loginRoute(url: URL, deps: Deps): Promise<Response> {
   return loginPage(st, { sso: method === "sso" });
 }
 
-/** The org whose verified domain this email is on, with its IdP configuration */
+/** The org whose verified domain this email is on, with the IdP serving that domain (docs/governance.md §2.9) */
 async function ssoFor(deps: Deps, email: string): Promise<{ idp: IdpRow; orgName: string } | null> {
   const domain = emailDomain(email.trim());
   if (!domain) return null;
@@ -118,7 +131,7 @@ async function ssoFor(deps: Deps, email: string): Promise<{ idp: IdpRow; orgName
     .prepare(`SELECT o.id, o.name FROM org_domains d JOIN orgs o ON o.id = d.org_id WHERE d.domain = ?1 AND d.verified_at IS NOT NULL`)
     .bind(domain)
     .first<{ id: string; name: string }>();
-  const idp = r ? await idpByOrg(deps.db.d1, r.id) : null;
+  const idp = r ? await idpForDomain(deps.db.d1, r.id, domain) : null;
   return idp && r ? { idp, orgName: r.name } : null;
 }
 
@@ -191,11 +204,12 @@ export async function googleCallback(url: URL, deps: Deps, req: Request): Promis
   await captureAtSignIn(deps, user, req);
   // 4. the login method of the person's org: SAML → on to its IdP with the same app state (the loopback still completes)
   const need = await requiredMethod(deps, user.id);
+  // With several IdPs (round 14) SAML applies to members on mapped domains; the others may use Google [G+].
   if (need?.settings.authMethod === "saml") {
-    const idp = await idpByOrg(deps.db.d1, need.orgId);
+    const idp = await idpForDomain(deps.db.d1, need.orgId, emailDomain(user.email), { offDomain: true });
     if (idp) return startAuthn(deps, url.origin, idp, st);
   }
-  return backWithCode(deps, st, user.id, "google", null);
+  return backWithCode(deps, st, user, "google", null, req);
 }
 
 /** `designer://sign-in?tenant=` from the bounce page, or the web app's own login with the tenant */

@@ -160,18 +160,39 @@ export class Db {
   }
 
   /** A sign-in code (hashed), bound to the app's PKCE challenge; `auth` / `orgId`: how it was earned (SAML: the org) */
-  async putAuthCode(codeHash: string, userId: string, challenge: string, expiresAt: number, auth: SessionAuth = "google", orgId: string | null = null): Promise<void> {
-    await this.d1.prepare(`INSERT INTO auth_codes (code_hash, user_id, challenge, expires_at, auth, org_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`).bind(codeHash, userId, challenge, expiresAt, auth, orgId).run();
+  /** `mfaPending`: the person has two-factor authentication on; `/auth/token` refuses the code until `/auth/2fa` passes
+   *  (docs/governance.md §2.4), which trades it for a fresh one (`takePendingAuthCode`). */
+  async putAuthCode(codeHash: string, userId: string, challenge: string, expiresAt: number, auth: SessionAuth = "google", orgId: string | null = null, mfaPending = false): Promise<void> {
+    await this.d1
+      .prepare(`INSERT INTO auth_codes (code_hash, user_id, challenge, expires_at, auth, org_id, mfa_pending) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`)
+      .bind(codeHash, userId, challenge, expiresAt, auth, orgId, mfaPending ? 1 : 0)
+      .run();
   }
 
-  /** The code's row, deleted as it is read (single use); expired codes are swept on the way. */
+  /** The code's row, deleted as it is read (single use); expired codes are swept on the way. A code still waiting for
+   *  its second factor is never taken. */
   async takeAuthCode(codeHash: string, now: number): Promise<{ userId: string; challenge: string; auth: SessionAuth; orgId: string | null } | null> {
     await this.d1.prepare(`DELETE FROM auth_codes WHERE expires_at <= ?1`).bind(now).run();
     const r = await this.d1
-      .prepare(`DELETE FROM auth_codes WHERE code_hash = ?1 RETURNING user_id, challenge, expires_at, auth, org_id`)
+      .prepare(`DELETE FROM auth_codes WHERE code_hash = ?1 AND mfa_pending = 0 RETURNING user_id, challenge, expires_at, auth, org_id`)
       .bind(codeHash)
       .first<{ user_id: string; challenge: string; expires_at: number; auth: SessionAuth; org_id: string | null }>();
     return r && r.expires_at > now ? { userId: r.user_id, challenge: r.challenge, auth: r.auth, orgId: r.org_id } : null;
+  }
+
+  /** A code waiting for its second factor (read, not taken), or null when it is unknown, expired or already passed */
+  async pendingAuthCode(codeHash: string, now: number): Promise<{ userId: string } | null> {
+    const r = await this.d1.prepare(`SELECT user_id FROM auth_codes WHERE code_hash = ?1 AND mfa_pending = 1 AND expires_at > ?2`).bind(codeHash, now).first<{ user_id: string }>();
+    return r ? { userId: r.user_id } : null;
+  }
+
+  /** The second factor passed: the pending row is taken (atomically: one of two concurrent posts wins) */
+  async takePendingAuthCode(codeHash: string, now: number): Promise<{ userId: string; challenge: string; auth: SessionAuth; orgId: string | null } | null> {
+    const r = await this.d1
+      .prepare(`DELETE FROM auth_codes WHERE code_hash = ?1 AND mfa_pending = 1 AND expires_at > ?2 RETURNING user_id, challenge, auth, org_id`)
+      .bind(codeHash, now)
+      .first<{ user_id: string; challenge: string; auth: SessionAuth; org_id: string | null }>();
+    return r ? { userId: r.user_id, challenge: r.challenge, auth: r.auth, orgId: r.org_id } : null;
   }
 
   /** Registers a file as shared; false when the key is already someone else's. Re-sharing one's own file is a no-op. */

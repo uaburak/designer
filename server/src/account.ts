@@ -14,6 +14,7 @@
  *   GET    /me/tokens               {tokens: AccessTokenInfo[]}
  *   POST   /me/tokens               {description, expiresInDays, scopes} → {token (shown once), info}
  *   DELETE /me/tokens/:id           "Revoke access"
+ *   …/me/two-factor…                round 14: governance/twoFactor.ts
  *
  * Personal access tokens (`dsgn_…`) are Bearer tokens for the API's reads (`patAllows`): kept as their SHA-256 only.
  */
@@ -61,6 +62,9 @@ export async function accountRoute(req: Request, deps: Deps, caller: Caller, par
   }
 
   switch (parts[1]) {
+    // Two-factor authentication (docs/governance.md §2.4, §4)
+    case "two-factor":
+      return (await import("./governance/twoFactor")).twoFactorRoute(req, deps, user, parts.slice(2));
     case "profile": {
       if (parts.length !== 2) break;
       if (m === "GET") return json(await profile(deps, user.id));

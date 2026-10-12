@@ -109,6 +109,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (path === "/auth/dev" && m === "POST") return devSignIn(req, deps);
   // Identity (docs/multiplayer.md §15): SSO routing, the SAML SP of each org, SCIM — no session.
   if (path === "/auth/sso" && m === "POST") return (await import("./auth/sso")).ssoRoute(req, url, deps);
+  // Round 14: the sign-in's second factor (docs/governance.md §2.4)
+  if (path === "/auth/2fa" && (m === "GET" || m === "POST")) return (await import("./governance/twoFactor")).twoFactorSignIn(req, url, deps);
   if (path.startsWith("/saml/")) return (await import("./auth/saml/routes")).samlRoute(req, url, deps, path.split("/").filter(Boolean).map(decodeURIComponent));
   if (path === "/scim" || path.startsWith("/scim/")) return (await import("./auth/scim/routes")).scimRoute(req, url, deps, path.split("/").filter(Boolean).map(decodeURIComponent));
   const link = /^\/f\/([A-Za-z0-9_-]{6,64})$/.exec(path);
@@ -123,6 +125,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   const user = caller.user;
   // AI usage, daily totals from the people's apps (docs/ai.md §2.9) — sessions only, not personal access tokens.
   if (parts[0] === "me" && parts[1] === "ai-usage" && !caller.scopes) return (await import("./ai/usage")).aiUsageRoute({ req, url, deps, user, parts, m, acc: new Access(deps, user) });
+  // `/me/two-factor…` (round 14) is the account's too: accountRoute hands it to governance/twoFactor.ts
   if (parts[0] === "me" && parts[1] !== "fonts") return (await import("./account")).accountRoute(req, deps, caller, parts);
   // A personal access token reads files and comments, nothing else (account.ts patAllows).
   if (caller.scopes && !patAllows(caller.scopes, m, parts)) throw new HttpError(403, "a personal access token can't do that");
@@ -631,10 +634,18 @@ async function authenticate(req: Request, url: URL, deps: Deps, allowQuery: bool
   const header = req.headers.get("authorization");
   const raw = header?.startsWith("Bearer ") ? header.slice(7) : allowQuery ? url.searchParams.get("token") : null;
   if (!raw) throw new HttpError(401, "sign in first");
+  // Network access restrictions (docs/governance.md §2.2, §2.5): 403 `network_restricted` on every authenticated route
+  // but `GET /me`, sign-out and `/me/sessions/current` (cached ranges: no D1 read off a restricted network).
+  const refuseOnRestrictedNetwork = async (user: User) => {
+    const net = await import("./governance/network");
+    if (!net.networkExempt(req.method, url.pathname) && (await net.networkCheck(deps, user, req)))
+      throw new HttpError(403, "This network only allows work accounts. Log in with your work account, or switch networks.", "network_restricted");
+  };
   const pat = await personalToken(deps, raw);
   if (pat) {
     const user = await deps.db.user(pat.userId);
     if (!user) throw new HttpError(401, "token expired");
+    await refuseOnRestrictedNetwork(user);
     return { user, sid: null, scopes: pat.scopes };
   }
   const p = await verifyToken<SessionPayload>(raw, secret(deps), seconds(deps));
@@ -652,6 +663,7 @@ async function authenticate(req: Request, url: URL, deps: Deps, allowQuery: bool
   }
   // Admin › People "Last active" (§14.11): moved on with the session, at most every 5 minutes.
   await touchOrgActivity(deps, user.id);
+  await refuseOnRestrictedNetwork(user);
   return { user, sid: p.sid ?? null, scopes: null };
 }
 

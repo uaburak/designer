@@ -2,8 +2,10 @@
  * The identity settings' hooks (docs/multiplayer.md §15.6–§15.8), called by `patchSettings` (round 4b) for
  * `authMethod`, `idleSessionTimeoutHours` and `domainCapture`:
  *
- * - `validateIdentitySettings` (before saving; throws `HttpError`): the values' shapes; `authMethod: "saml"` needs an
- *   IdP configuration with a successful sign-in (`tested_at`, decision 7 — 409 `invalid` "Test SAML SSO first");
+ * - `validateIdentitySettings` (before saving; throws `HttpError`): the values' shapes (the idle timeout by the shared
+ *   `validIdleHours`: quarter hours from 15 minutes with Governance+); `authMethod: "saml"` needs an IdP configuration
+ *   with a successful sign-in (`tested_at`, decision 7 — 409 `invalid` "Test SAML SSO first"; with several IdPs, every
+ *   one with a mapped domain);
  *   `domainCapture: true` needs ≥ 1 domain, every one verified (409 `domain_unverified`).
  * - `onIdentitySettingsChanged` (after saving): logs `google_sso_auth_change` / `saml_sso_auth_change`,
  *   `idle_timeout_setting_change`, `org_domain_capture_change` — so `patchSettings` must **not** log these three keys
@@ -11,6 +13,7 @@
  *   turns on (§15.7).
  */
 import { IDLE_MAX_HOURS, IDLE_MIN_HOURS } from "../../../src/shared/org/identity";
+import { validIdleHours } from "../../../src/shared/org/governance";
 import type { OrgSettings } from "../../../src/shared/org/types";
 import { logActivity, orgEntity } from "../activity";
 import type { Deps } from "../api";
@@ -18,7 +21,7 @@ import type { User } from "../db";
 import { HttpError } from "../org/http";
 import { captureExisting } from "./capture";
 import { resetOrgSessions } from "./idle";
-import { idpByOrg } from "./saml/config";
+import { idpsByOrg } from "./saml/config";
 
 /** Refuses a patch the org can't take yet (throws `HttpError`) */
 export async function validateIdentitySettings(deps: Deps, orgId: string, patch: Partial<OrgSettings>): Promise<void> {
@@ -26,14 +29,20 @@ export async function validateIdentitySettings(deps: Deps, orgId: string, patch:
   if (patch.authMethod !== undefined) {
     if (patch.authMethod !== "any" && patch.authMethod !== "google" && patch.authMethod !== "saml") throw new HttpError(400, "authMethod", "invalid", { field: "authMethod" });
     if (patch.authMethod === "saml") {
-      const idp = await idpByOrg(d1, orgId);
-      if (!idp || idp.tested_at === null) throw new HttpError(409, "Test SAML SSO first", "invalid", { field: "authMethod" });
+      // One IdP: it must be tested. Several (round 14, docs/governance.md §2.9): every IdP with a mapped domain must be,
+      // and at least one has to be.
+      const idps = await idpsByOrg(d1, orgId);
+      const mapped = idps.length > 1 ? new Set((await d1.prepare(`SELECT DISTINCT idp_tenant_id AS t FROM org_domains WHERE org_id = ?1 AND idp_tenant_id IS NOT NULL`).bind(orgId).all<{ t: string }>()).results.map((r) => r.t)) : null;
+      const used = mapped ? idps.filter((i) => mapped.has(i.tenant_id)) : idps;
+      if (!used.length || used.some((i) => i.tested_at === null)) throw new HttpError(409, "Test SAML SSO first", "invalid", { field: "authMethod" });
     }
   }
   if (patch.idleSessionTimeoutHours !== undefined) {
+    // Governance+ (docs/governance.md §2.8): any quarter hour from 15 minutes; without it whole hours from 12
     const h = patch.idleSessionTimeoutHours;
-    if (h !== null && (typeof h !== "number" || !Number.isInteger(h) || h < IDLE_MIN_HOURS || h > IDLE_MAX_HOURS))
-      throw new HttpError(400, `The idle session timeout is ${IDLE_MIN_HOURS} hours to ${IDLE_MAX_HOURS / 24} days`, "invalid", { field: "idleSessionTimeoutHours" });
+    const plus = !!(await d1.prepare(`SELECT governance_plus FROM orgs WHERE id = ?1`).bind(orgId).first<{ governance_plus: number }>())?.governance_plus;
+    if (h !== null && (typeof h !== "number" || !validIdleHours(h, plus)))
+      throw new HttpError(400, plus ? `The idle session timeout is 15 minutes to ${IDLE_MAX_HOURS / 24} days, in steps of 15 minutes` : `The idle session timeout is ${IDLE_MIN_HOURS} hours to ${IDLE_MAX_HOURS / 24} days`, "invalid", { field: "idleSessionTimeoutHours" });
   }
   if (patch.domainCapture !== undefined) {
     if (typeof patch.domainCapture !== "boolean") throw new HttpError(400, "domainCapture", "invalid", { field: "domainCapture" });
