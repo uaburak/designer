@@ -48,12 +48,14 @@ export interface ItemsViewProps {
   onBranches?: (e: React.MouseEvent<HTMLElement>, f: FileListItem) => void;
   /** A branch tile's main file name ("‹file› / ‹branch›") */
   mainNames?: Readonly<Record<string, string>>;
+  /** A file's state badge (offline: "Available offline" on what is on this computer — docs/cloud.md §2) */
+  badgeOf?: (f: FileListItem) => string | null;
 }
 
 const ITEM = "[data-collection-item]";
 
 export function ItemsView(props: ItemsViewProps) {
-  const { items, layout, location, sort, order, folders, selected, renaming, now, previews, starredFolders, thumbnailUrl, onItemClick, onOpen, onItemMenu, onBlankMenu, onNavigate, onSelectAll, onClearSelection, onDelete, onMarquee, onRename, onStar, onSortColumn, onDragItems, dropOn, folderDrop, placeOf, branchCounts = {}, onBranches, mainNames = {} } = props;
+  const { items, layout, location, sort, order, folders, selected, renaming, now, previews, starredFolders, thumbnailUrl, onItemClick, onOpen, onItemMenu, onBlankMenu, onNavigate, onSelectAll, onClearSelection, onDelete, onMarquee, onRename, onStar, onSortColumn, onDragItems, dropOn, folderDrop, placeOf, branchCounts = {}, onBranches, mainNames = {}, badgeOf } = props;
   const branchesOf = (f: FileListItem) => (!f.branch && f.trashedAt === null && onBranches ? (branchCounts[f.fileKey] ?? 0) : 0);
   // A branch reads "‹file› / ‹branch›"; renaming edits its own name.
   const titleOf = (item: Item, f: FileListItem) => (renaming === item.id ? f.name : branchTileTitle(f, f.branch ? mainNames[f.branch.mainFileKey] : null));
@@ -141,7 +143,9 @@ export function ItemsView(props: ItemsViewProps) {
           )}
         </span>
       );
-      return <ListRow key={item.id} id={item.id} columns={columns} cells={{ name, date: t ? timeAgo(t, now) : "—", place: orgPlace(f) ?? place(f.folderId) }} {...events} {...drag(item)} />;
+      const badge = badgeOf?.(f);
+      const where = orgPlace(f) ?? place(f.folderId);
+      return <ListRow key={item.id} id={item.id} columns={columns} cells={{ name, date: t ? timeAgo(t, now) : "—", place: badge ? `${where} · ${badge}` : where }} {...events} {...drag(item)} />;
     }
     return (
       <div key={item.id} className={styles.dragWrap} {...drag(item)}>
@@ -150,6 +154,7 @@ export function ItemsView(props: ItemsViewProps) {
           title={titleOf(item, f)}
           subtitle={orgPlace(f) ? `${subtitle} · ${orgPlace(f)}` : subtitle}
           branch={!!f.branch}
+          badge={badgeOf?.(f) ?? undefined}
           branches={nBranches > 0 ? { count: nBranches, onMenu: (e) => onBranches?.(e, f) } : undefined}
           thumbnail={thumbnailUrl(f) ?? undefined}
           starred={f.starred}

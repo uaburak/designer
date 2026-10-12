@@ -69,7 +69,12 @@ import { effectiveGate, orgGateOf } from "./governance";
 import { GuestExpiryBanner, IpBlocked, NetworkRestricted, PolicyModal, TwoFactorRequired } from "../account/Gates";
 import { isOrgLocation } from "./model";
 import { useWorkspaceData } from "./useWorkspaceData";
+import { isOffline, useCloud } from "./useCloud";
 import styles from "./Files.module.css";
+
+/** Home offline (docs/cloud.md §2; ours): what is on this computer opens */
+export const OFFLINE_TEXT = "You’re offline. Files you’ve opened on this computer are still available.";
+export const AVAILABLE_OFFLINE = "Available offline";
 
 export interface FileBrowserProps {
   backend: FilesBackend;
@@ -139,12 +144,19 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   }, []);
   const now = Math.max(tick, data.loadedAt);
 
+  // Personal Drafts in the cloud (docs/cloud.md §2): signed in, the personal space is the person's Drafts and Trash
+  // (flat, no folders); offline, only what is on this computer lists, each with its badge.
+  const cloud = useCloud(backend.cloud);
+  const personal = !!cloud?.uid;
+  const offline = isOffline(cloud);
+  const shownFiles = useMemo(() => (offline ? data.files.filter((f) => !f.cloud?.remote) : data.files), [offline, data.files]);
+
   const browse = data.prefs?.browse ?? DEFAULT_BROWSE;
   const current = !!data.location && sameLocation(data.location, location);
-  const starredFolderIds = useMemo(() => data.prefs?.starred.folders ?? [], [data.prefs]);
+  const starredFolderIds = useMemo(() => (personal ? [] : (data.prefs?.starred.folders ?? [])), [data.prefs, personal]);
   const items = useMemo(
-    () => (current ? listItems({ location, folders, files: data.files, counts: data.counts, starredFolders: starredFolderIds, sort: browse.sort, order, filter }) : []),
-    [current, location, folders, data.files, data.counts, starredFolderIds, browse.sort, order, filter],
+    () => (current ? listItems({ location, folders, files: shownFiles, counts: data.counts, starredFolders: starredFolderIds, sort: browse.sort, order, filter }) : []),
+    [current, location, folders, shownFiles, data.counts, starredFolderIds, browse.sort, order, filter],
   );
   const ids = useMemo(() => items.map((i) => i.id), [items]);
   const sel = useMemo(() => pruneSelection(selection, ids), [selection, ids]);
@@ -239,6 +251,9 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
     const fix: Location | null = orgId && LOCAL_ONLY.has(location.kind) ? { kind: "org-drafts" } : !orgId && isOrgLocation(location) ? { kind: "drafts" } : null;
     if (fix) setNav((n) => ({ stack: [...n.stack.slice(0, n.index), fix], index: n.index }));
   }
+  // The person's Drafts are flat (docs/cloud.md §2): a folder page (a reveal, the history) shows Drafts instead
+  // (adjusted while rendering, as `placed` above: the next render no longer matches)
+  if (personal && !orgId && (location.kind === "folders" || location.kind === "folder")) setNav((n) => ({ stack: [...n.stack.slice(0, n.index), { kind: "drafts" }], index: n.index }));
   const [orgExpanded, setOrgExpanded] = useState<Set<string>>(() => new Set());
   // Org and team icons (§14.16) come through the store (the page loads no network pictures); the switcher's ahead
   useEffect(() => {
@@ -440,6 +455,8 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
         return;
       case "move":
         if (backend.org && orgShell.orgs.length && t.files.length && !t.folders.length) return void moveAcrossSpaces(t.files);
+        // The person's Drafts have no folders (docs/cloud.md §2): files move only into an organization
+        if (personal) return;
         return setDialog({ kind: "move", targets: t });
       case "remove-from-recents":
         await act.removeFromRecents(ctx, t.files);
@@ -469,9 +486,11 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
    */
   const moveAcrossSpaces = async (files: FileKey[]) => {
     const org = backend.org!;
-    const local: Destination[] = [{ id: "local:drafts", label: "Drafts", depth: 1, kind: "drafts" }, ...folders.flatten().map(({ folder, depth }) => ({ id: `local:${folder.id}`, label: folder.name, depth, kind: "local-folder" as const, color: folder.color }))];
-    const here = commonParent({ files, folders: [] }, known, folders);
-    const sections: DestinationSection[] = [{ title: workspaceName || "Drafts", rows: local.map((r) => (r.id === `local:${here === null ? "drafts" : here}` ? { ...r, disabled: true } : r)) }];
+    const drafts: Destination = { id: "local:drafts", label: "Drafts", depth: 1, kind: "drafts" };
+    // The person's Drafts are flat (docs/cloud.md §2): no local folders to move into
+    const local: Destination[] = personal ? [drafts] : [drafts, ...folders.flatten().map(({ folder, depth }) => ({ id: `local:${folder.id}`, label: folder.name, depth, kind: "local-folder" as const, color: folder.color }))];
+    const here = personal ? null : commonParent({ files, folders: [] }, known, folders);
+    const sections: DestinationSection[] = [{ title: spaceTitle || "Drafts", rows: local.map((r) => (r.id === `local:${here === null ? "drafts" : here}` ? { ...r, disabled: true } : r)) }];
     for (const o of orgShell.orgs) {
       const rows = await orgDestinations(org, o.id, { forFolder: false, isAdmin: o.role === "admin" }).catch(() => [] as Destination[]);
       // Into an org, files go to a folder (an org's drafts are made there, not moved in)
@@ -527,6 +546,8 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   // Recents' tabs (live Figma): "Recently viewed" | "Shared files" (signed in)
   const [recentsTab, setRecentsTab] = useState<"viewed" | "shared">("viewed");
   const accountName = account.state?.user ? account.state.user.name || account.state.user.email : null;
+  // The personal space's name (docs/cloud.md §2): the person's, as Figma's Starter sidebar; signed out, the local team's
+  const spaceTitle = personal ? (accountName ?? data.workspace?.teamName ?? "") : (data.workspace?.teamName ?? "");
   // Figma's account menu (files/account.ts accountMenu): the spaces have their own switcher on the space row.
   const onAccountMenu = (e: React.MouseEvent) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -552,10 +573,12 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
       setMenu({ at: { x: e.clientX, y: e.clientY }, entries: [{ id: "leave", label: "Leave organization…" }], run: (id) => id === "leave" && setDialog({ kind: "leave-org", orgId, name }) });
       return;
     }
+    // The person's own space is named after them (docs/cloud.md §2): nothing to rename here
+    if (personal) return;
     e.preventDefault();
     setMenu({ at: { x: e.clientX, y: e.clientY }, entries: [{ id: "rename", label: "Rename" }], run: (id) => id === "rename" && setDialog({ kind: "rename-local-team" }) });
   };
-  const spaceEntries = () => spaceMenu({ local: workspaceName || "Drafts", orgs: orgShell.orgs, current: space, signedIn: !!account.state?.user });
+  const spaceEntries = () => spaceMenu({ local: spaceTitle || "Drafts", orgs: orgShell.orgs, current: space, signedIn: !!account.state?.user });
   /** The space row's chevron: the switcher (1.png) */
   const onSpaceMenu = (e: React.MouseEvent) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -563,6 +586,8 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   };
 
   const starredFolderSet = useMemo(() => new Set(starredFolderIds), [starredFolderIds]);
+  // Personal Drafts are flat (docs/cloud.md §2): a file moves only into an organization's folder
+  const canMove = !personal || (!!backend.org && orgShell.orgs.length > 0);
   /** The open menu's Duplicate once the files' export access is known (the menu opened with the cached answer). */
   const refreshMenuExport = (keys: readonly FileKey[], shown: MenuEntry[], entriesFor: (restricted: boolean) => MenuEntry[]) => {
     if (!keys.length || !backend.exportAccess) return;
@@ -578,7 +603,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
     const t = selectedTargets(next.ids);
     const byKey = new Map(items.filter((i) => i.kind === "file").map((i) => [i.file.fileKey, i.file] as const));
     const allStarred = t.files.every((k) => byKey.get(k)?.starred) && t.folders.every((f) => starredFolderSet.has(f));
-    const menuCtx = { location, files: t.files.length, folders: t.folders.length, allStarred, color: t.folders.length === 1 && !t.files.length ? folders.get(t.folders[0])?.color : undefined };
+    const menuCtx = { location, files: t.files.length, folders: t.folders.length, allStarred, color: t.folders.length === 1 && !t.files.length ? folders.get(t.folders[0])?.color : undefined, canMove };
     const shown = itemMenu({ ...menuCtx, exportRestricted: exportRestricted(t.files) });
     menuFor(e, shown, t);
     refreshMenuExport(t.files, shown, (restricted) => itemMenu({ ...menuCtx, exportRestricted: restricted }));
@@ -586,7 +611,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   const sidebarFolderMenu = (e: React.MouseEvent, f: Folder) =>
     menuFor(e, itemMenu({ location: { kind: "folders" }, files: 0, folders: 1, allStarred: starredFolderSet.has(f.id), color: f.color }), { files: [], folders: [f.id] }, f);
   const sidebarFileMenu = (e: React.MouseEvent, f: FileListItem) => {
-    const menuCtx = { location: { kind: "starred" } as const, files: 1, folders: 0, allStarred: f.starred };
+    const menuCtx = { location: { kind: "starred" } as const, files: 1, folders: 0, allStarred: f.starred, canMove };
     const shown = itemMenu({ ...menuCtx, exportRestricted: exportRestricted([f.fileKey]) });
     menuFor(e, shown, { files: [f.fileKey], folders: [] });
     refreshMenuExport([f.fileKey], shown, (restricted) => itemMenu({ ...menuCtx, exportRestricted: restricted }));
@@ -783,7 +808,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
       case "recents":
         return <EmptyState size="page" icon="24.recent" title="No recent files" body="Files you open will show up here." action={{ label: "New design file", onClick: () => void newFile() }} />;
       case "drafts":
-        return <EmptyState size="page" icon="24.file" title="No files in drafts" body="Design files you create show up here until you move them into a folder." action={{ label: "New design file", onClick: () => void newFile() }} />;
+        return <EmptyState size="page" icon="24.file" title="No files in drafts" body={personal ? "Design files you create show up here." : "Design files you create show up here until you move them into a folder."} action={{ label: "New design file", onClick: () => void newFile() }} />;
       case "folders":
         return <EmptyState size="page" icon="24.folder" title="No folders yet" body="Use folders to keep related files together." action={{ label: "New folder", onClick: () => setDialog({ kind: "new-folder", parentId: null }) }} />;
       case "folder":
@@ -814,7 +839,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   }, [moveDialog, folders]);
 
   const orgSummary = orgId ? orgShell.orgs.find((o) => o.id === orgId) : undefined;
-  const spaceName = orgId ? (orgShell.info?.name ?? orgSummary?.name ?? "") : workspaceName;
+  const spaceName = orgId ? (orgShell.info?.name ?? orgSummary?.name ?? "") : spaceTitle;
   const orgMain = !!orgId && (isOrgLocation(location) || location.kind === "search");
   const openTitled = (fileKey: FileKey, title: string, newTab = false) => void openFile(fileKey, { title, newTab }, deps).catch((e) => toast({ kind: "error", message: act.errorText(e) }));
 
@@ -910,6 +935,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           ) : undefined
         }
         teamName={spaceName}
+        personal={personal ? { picture: account.state?.user?.picture ?? undefined } : undefined}
         location={location}
         search={search}
         onSearch={onSearch}
@@ -985,7 +1011,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
             />
           </div>
           <div className={styles.create}>
-            {canCreateFolders(location) && !folderGone && !outsideHome && (
+            {canCreateFolders(location) && !folderGone && !outsideHome && !personal && (
               <Button variant="tinted" size="large" icon="24.plus.small" onClick={() => setDialog({ kind: "new-folder", parentId: newFolderParent(location) })}>
                 New folder
               </Button>
@@ -1007,6 +1033,11 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
             )}
           </div>
         </header>
+        {offline && (
+          <div className={styles.offlineBanner} role="status" data-offline-banner="">
+            {OFFLINE_TEXT}
+          </div>
+        )}
         <div className={styles.filters}>
           {location.kind === "recents" && account.state?.user && (
             <div className={styles.tabs} role="tablist" aria-label="Recents">
@@ -1112,6 +1143,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
             folderDrop={folderDrop}
             placeOf={placeOf}
             branchCounts={branchCounts}
+            badgeOf={offline ? (f) => (f.cloud && !f.cloud.remote ? AVAILABLE_OFFLINE : null) : undefined}
             onBranches={backend.branches ? (e, f) => branchSwitcher.open(e, { name: f.name, fileKey: f.fileKey }) : undefined}
             mainNames={mainNames}
           />

@@ -40,6 +40,8 @@ export interface FileRow {
   updated_at: number;
   /** 0013: the room's jurisdiction ("eu"), null: the default — handed to `rooms.fetch` so it needn't read it again */
   jurisdiction?: "eu" | null;
+  /** 0023 (docs/cloud.md §2): "personal" — in its owner's Drafts; null elsewhere */
+  space?: "personal" | null;
 }
 
 export interface TeamRow {
@@ -111,7 +113,7 @@ export interface OrgRow {
 }
 
 export const FILE_COLS = `f.key, f.name, f.owner_id, f.org_id, f.team_id, f.project_id, f.editor_type, f.access, f.link_access, f.org_link_access, f.proto_link_access, f.proto_org_link_access,
-  f.link_expires_at, f.viewers_can_copy, f.link_password, f.link_password_version, f.trashed_at, f.trashed_by, f.created_at, f.updated_at, f.jurisdiction`;
+  f.link_expires_at, f.viewers_can_copy, f.link_password, f.link_password_version, f.trashed_at, f.trashed_by, f.created_at, f.updated_at, f.jurisdiction, f.space`;
 
 export function settingsOf(row: Pick<OrgRow, "settings"> | null): OrgSettings {
   let s: Partial<OrgSettings> = {};

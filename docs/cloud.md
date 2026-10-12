@@ -72,3 +72,68 @@ Content-addressed, immutable, keyed by the SHA-1 already used everywhere (`blobs
 
 Merge order: A, then B. Deploy: create buckets (`wrangler r2 bucket create wecra-files`, `… wecra-files-eu --jurisdiction eu`),
 migration 0022, deploy, then the 1.1 app.
+
+## 6. As built — B, personal Drafts in the cloud (2026-10-12)
+
+**Server** (`server/src/personal/routes.ts`, migration `0023_personal_drafts.sql`):
+- `files.space TEXT CHECK (space IN ('personal'))`; 0023 makes every file outside an org (not a branch) its owner's
+  draft (1.0.x shares were the owner's local drafts). Legacy `POST /files` (no org) now writes `space = 'personal'`.
+  `FILE_COLS` carries `f.space`; `GET /files/:key` answers `space`.
+- `GET /me/drafts[?trashed=1]` → `{files: PersonalFile[]}` (owner = caller, `space = 'personal'`, no org, branches left
+  out; newest change / newest trashed first). Sessions only (a personal access token: 403).
+- `POST /me/drafts {key?, name?}` → `{key, name, role: "owner", file}` (201; the same owner's key again: 200, the same
+  draft — the store's retries after a lost answer). Quota `shared_files`, external-content policy, suspension checked.
+  The document is uploaded by the client after (as a share): a draft registered whose upload never landed answers
+  `no_snapshot`, and the store opens it as a new document and finishes the upload. (Deviation: the server writes no
+  empty snapshot — the Worker doesn't carry the schema codec.)
+- Rename / trash / restore / delete forever are the file routes': `POST /files/:key/trash|restore` now take a personal
+  draft (its owner only); `DELETE` deletes at once (as before for files outside orgs).
+- `PATCH /files/:key {space}`: `{orgId, projectId|null}` moves the owner's draft into an org (it is `createOrgFile`'s
+  move-in, which now clears `space`); `"personal"` takes the owner's org draft (no folder) back to their Drafts.
+- Daily cron: `purgePersonalTrash` deletes drafts 30 days in the trash (room, branches, rows), 200 per run.
+
+**Store** (`src/store/personal/service.ts` `PersonalService`; `StoreApi.cloud`, topic `cloud`):
+- Records: `FileMeta.cloud {uid, key, pendingCreate?, remote?}` (`src/shared/store/cloud.ts`). The workspace's records
+  are the cache (in `Workspace/files/`, not a new `Workspace/cache/` — no on-disk move). A draft listed by the server and
+  never opened here is a record with no document (`remote`); opening it (`files.open`, Duplicate, Save local copy)
+  downloads its room's snapshot into the record (`MultiplayerService.linkInto`). Offline it refuses: "“X” isn't available
+  offline. Connect to the internet to open it."
+- Accounts: `WorkspaceModel.account` (the signed-in uid) — Drafts, Trash and search list that account's drafts only,
+  Recents / Starred hide other accounts'; Drafts are flat (folders ignored). Links carry `LinkRecord.uid` and join rooms
+  only with their own account's session (no more dropping another account's links on a switch).
+- New files (Design, Duplicate, Import .fig incl. main's Open dialog, Duplicate version) are `pendingCreate` drafts with a
+  reserved room key, registered at once in the background through `MultiplayerService.shareTo` (`POST /me/drafts`, then
+  A's upload path — the upload panel shows "Drafts"); offline they stay pending and register when the server answers
+  again (each sync: session start, the inbox reconnecting, Home shown / focused, a 60 s retry while something waits).
+- Writes on a registered draft go to the server first (rename `PATCH`, trash / restore, delete forever / Empty trash);
+  offline they fail `offline` with nothing changed here. `refresh()` makes the records say what the server says (names,
+  trash, new drafts from elsewhere; a draft gone from the list is asked about: deleted → the record goes, moved into an
+  org → it becomes the org copy, given away → it stays as a shared copy).
+- Migration (1.1): at a sign-in, every local file that is no draft yet — not an org copy, branch or someone else's
+  linked file — is marked a pending draft of that account, its folder path a name prefix ("KOC / Brand / Icon"), its
+  folder dropped, a trashed one (itself or by its folder) kept trashed; then registered one at a time (the server's
+  trash too). A file shared before 1.1 by its owner just becomes the draft (its link claimed). Nothing is deleted;
+  idempotent (the reserved key makes a repeated `POST /me/drafts` the same draft; the next start goes on with what is
+  pending).
+- Cache: `Workspace/cloud.json {v, limitBytes}` (default 5 GB; Settings: 1–50 GB, ≥ 256 MB). Size = each cached draft's
+  directory plus its images. Over the bound, least recently opened (`prefs.viewedAt`) first; never one open, a published
+  library, one with unacknowledged edits or an upload not finished. Eviction keeps the record, the thumbnail and the
+  device's session counter (`sessions.json`, so a later download never reuses a session id). Checked after a file
+  closes, a download and every sync. Org copies aren't counted or evicted.
+- Tests turn it off with `LocalStoreOptions.personalDrafts: false` where they test local files' own behaviour.
+
+**Home** (`src/renderer/src/files/`): signed in (`cloud.status().uid`), the space row is the person (name and photo),
+then Drafts and Trash — no All folders, folder tree, New folder, starred folders, team Rename; "Move to folder…" only
+when there is an org to move into (its local section is Drafts alone). Folder pages fall back to Drafts. Offline
+(`checked && !online`): "You’re offline. Files you’ve opened on this computer are still available." over the list, only
+cached drafts listed, each with "Available offline" (`FileCard.badge`). The switcher's personal entry is the person's
+name. Settings › Account: "Your spaces" shows the person's space; **Offline cache** (size, "N used by M files", Clear
+cache). Signed out / the browser's dev store (`localOnlyCloud`): the local workspace as before.
+
+**Not done:** server-backed Recents (Recents spans spaces from this computer's views); thumbnails of drafts never opened
+here (cards show none until opened); org copies in the cache bound.
+
+**First launch of 1.1 (the owner):** Home opens with the person's name in the sidebar and Drafts holding every local
+file, folder files renamed "Folder / File"; the upload panel lists them uploading one by one to "Drafts" (big files take
+a while; quitting resumes them next time). Nothing local is removed. The `shared_files` quota (200) and `uploads_per_day`
+apply to the migration — raise them for the account as operator first if the workspace holds more.

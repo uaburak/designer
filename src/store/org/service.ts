@@ -1393,9 +1393,10 @@ export class OrgService {
         let key: string;
         let answer: unknown;
         if (linked) {
-          // Shared outside any org already (§3): the room moves, the server decides whether it may.
+          // Shared outside any org already (§3) — a personal draft (docs/cloud.md §2): the room moves into the org (the
+          // server's `POST /files` with its key moves its owner's file in), the server deciding whether it may.
           key = linked;
-          answer = await this.call("POST", `/files/${seg(key, "file")}/move`, { projectId: id });
+          answer = await this.call("POST", "/files", { key, name: meta.name, orgId, projectId: id });
         } else {
           key = this.mp.newRoomKey(meta.fileKey);
           try {

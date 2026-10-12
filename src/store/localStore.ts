@@ -8,7 +8,7 @@ import { closeSync, openSync, promises as fsp, writeSync } from "node:fs";
 import { join } from "node:path";
 import { newDocumentMessage } from "../shared/schema/codec";
 import { codec } from "../shared/schema/document.generated";
-import { sessionIdFor } from "../shared/schema/guid";
+import { sessionIdFor, splitSessionId } from "../shared/schema/guid";
 import { NodeTable } from "../shared/schema/patch";
 import { withNewAssetIdentity } from "../shared/store/assetIdentity";
 import { StoreError } from "../shared/store/protocol";
@@ -50,6 +50,7 @@ import { cleanOrgPlace, importIntoOrg } from "./multiplayer/orgImport";
 import { CommentsService, commentsApi } from "./comments/service";
 import { NotificationsService, notificationsApi } from "./notifications/service";
 import { OrgService } from "./org/service";
+import { PersonalService, type CloudState } from "./personal/service";
 import { BranchService } from "./branches/service";
 import { localBranchHost } from "./branches/localHost";
 import { dirname } from "node:path";
@@ -89,6 +90,9 @@ export interface LocalStoreOptions {
   viewerTemplate?: string | null;
   /** How the store reaches the multiplayer server (shared files, previews); the global fetch by default (tests: the Worker's handler) */
   fetch?: typeof fetch;
+  /** Personal Drafts in the cloud (docs/cloud.md §2): signed in, the workspace is the account's cache (default on;
+   *  tests of local files' own behaviour turn it off) */
+  personalDrafts?: boolean;
 }
 
 const defaultLog: Log = (level, message, detail) => {
@@ -174,6 +178,7 @@ export class LocalStore {
     readonly hlc: HlcClock,
     private readonly userDataDir: string | null = null,
     fetchFn?: typeof globalThis.fetch,
+    personalDrafts = true,
   ) {
     this.fetch = fetchFn ?? ((...a: Parameters<typeof globalThis.fetch>) => globalThis.fetch(...a));
     this.workspaceEvents = ws.events;
@@ -189,6 +194,8 @@ export class LocalStore {
         backlog: (fileKey, fromSeq) => files.backlog(fileKey, fromSeq),
         appendRemote: (fileKey, message) => files.appendRemote(fileKey, message),
         createSharedFile: (input) => this.createSharedFile(input),
+        fillFile: (fileKey, snapshot) => this.fillCloudFile(fileKey, snapshot),
+        newDocument: () => codec.encodeMessage(newDocumentMessage()),
         setFileSpace: async (fileKey, space) => void (await ws.queue.run(() => ws.setFileSpace(fileKey, space))),
         getMeta: (fileKey) => (ws.files.has(fileKey) ? ws.getMeta(fileKey) : null),
         get deviceOrdinal() {
@@ -240,6 +247,7 @@ export class LocalStore {
       this.multiplayer,
     );
     this.notifications = new NotificationsService(this.multiplayer, { WebSocket: globalThis.WebSocket as never });
+    this.personal = new PersonalService(this.multiplayer, this.personalHost(), this.notifications, { enabled: personalDrafts });
     const spacePath = (orgId: string) => {
       if (!/^[A-Za-z0-9_-]{1,64}$/.test(orgId)) throw new StoreError("invalid", `bad org id ${orgId}`);
       return join(dirs.root, "spaces", `${orgId}.json`);
@@ -284,7 +292,7 @@ export class LocalStore {
         await files.createFile(key, input.snapshot, input.images, 0);
         const meta = newMeta(key, input.name, null, clock.now());
         meta.enabledLibraries = [...input.enabledLibraries];
-        return ws.queue.run(() => ws.addFile(meta));
+        return this.addDraft(meta);
       },
       now: () => clock.now(),
       sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -469,6 +477,109 @@ export class LocalStore {
 
   /** The org spaces (docs/multiplayer.md §14.6): the server's orgs, teams, folders and their files, cached per org */
   readonly org: OrgService;
+  /** Personal Drafts in the cloud and the cache the workspace is (docs/cloud.md §2) */
+  readonly personal: PersonalService;
+
+  /** The personal service's view of the disk (docs/cloud.md §2) */
+  private personalHost(): ConstructorParameters<typeof PersonalService>[1] {
+    const { ws, files, dirs } = this;
+    const blobSizes = new Map<string, number>();
+    const blobSize = async (sha1: string) => {
+      let n = blobSizes.get(sha1);
+      if (n === undefined) {
+        n = await fsp.stat(this.blobs.path(sha1)).then((st) => st.size, () => 0);
+        blobSizes.set(sha1, n);
+      }
+      return n;
+    };
+    return {
+      metas: () => ws.files.values(),
+      getMeta: (fileKey) => ws.files.get(fileKey) ?? null,
+      patchMeta: async (fileKey, patch) => void (ws.files.has(fileKey) && (await ws.queue.run(() => ws.patchFile(fileKey, patch)))),
+      addRemote: async (input) => {
+        const fileKey = newFileKey();
+        await ensureDir(join(dirs.files, fileKey));
+        const meta = newMeta(fileKey, input.name.trim() || "Untitled", null, input.createdAt);
+        meta.updatedAt = input.updatedAt;
+        meta.trashedAt = input.trashedAt;
+        meta.cloud = { ...input.cloud };
+        return ws.queue.run(() => ws.addFile(meta));
+      },
+      forget: (fileKey) => this.deleteItems({ files: [fileKey], folders: [] }),
+      dropDocument: async (fileKey) => {
+        await files.dropDocument(fileKey);
+        this.scheduleGc(60_000);
+      },
+      documentSize: async (fileKey) => {
+        let n = await files.sizeOf(fileKey);
+        for (const sha1 of await files.blobRefsOf(fileKey)) n += await blobSize(sha1);
+        return n;
+      },
+      isOpen: (fileKey) => files.openFiles().some((f) => f.fileKey === fileKey && f.sessions > 0),
+      isLibrary: (fileKey) => this.libraries.getRecord(fileKey)?.status === "published",
+      lastOpened: (fileKey) => ws.prefs.viewedAt[fileKey] ?? null,
+      trashedAt: (meta) => {
+        if (meta.trashedAt !== null) return meta.trashedAt;
+        for (let id = meta.folderId, guard = 0; id && guard < 12; guard++) {
+          const f = ws.folders.get(id);
+          if (!f) break;
+          if (f.trashedAt !== null) return f.trashedAt;
+          id = f.parentId;
+        }
+        return null;
+      },
+      folderPath: (meta) => {
+        const names: string[] = [];
+        for (let id = meta.folderId, guard = 0; id && guard < 12; guard++) {
+          const f = ws.folders.get(id);
+          if (!f) break;
+          names.unshift(f.name);
+          id = f.parentId;
+        }
+        return names;
+      },
+      setAccount: (uid) => ws.setAccount(uid),
+      headSnapshot: async (fileKey) => codec.encodeMessage(currentMessage(await readSnapshotFile((await files.compactedHead(fileKey)).path))),
+      headSeq: async (fileKey) => (await files.flush(fileKey), files.headSeqOf(fileKey)),
+      load: () => readJsonOrNull(join(dirs.root, "cloud.json")),
+      save: (state: CloudState) => writeJsonAtomic(dirs.tmp, join(dirs.root, "cloud.json"), state),
+      log: this.log,
+      now: () => this.clock.now(),
+      setTimeout: (fn, ms) => this.timers.setTimeout(fn, ms),
+      clearTimeout: (h) => this.timers.clearTimeout(h),
+    };
+  }
+
+  /** A cloud file listed from the server gets its room's document (docs/cloud.md §2), as a shared file's copy does */
+  async fillCloudFile(fileKey: FileKey, snapshot: Uint8Array): Promise<void> {
+    this.guard();
+    this.ws.getMeta(fileKey);
+    let table: NodeTable;
+    try {
+      table = NodeTable.fromMessage(codec.decodeMessage(snapshot));
+    } catch (e) {
+      throw new StoreError("corrupt", `The file couldn't be read: ${(e as Error).message}`);
+    }
+    if (!table.get("0:0")) throw new StoreError("corrupt", "The file has no document");
+    await this.files.createFile(fileKey, snapshot, [...table.imageHashes()].sort(), table.derivedDataVersion);
+    // New edit sessions here never reuse one of this device's earlier sessions of the file (its GUIDs are in the room):
+    // past the counter kept when it was evicted and past every session of this device the snapshot holds
+    let next = Number((await readJsonOrNull<{ nextLocal?: unknown }>(join(this.dirs.files, fileKey, "sessions.json")))?.nextLocal) || 1;
+    for (const guid of table.nodes.keys()) {
+      const { deviceOrdinal, n } = splitSessionId(Number(guid.split(":")[0]));
+      if (deviceOrdinal === this.deviceOrdinal) next = Math.max(next, n + 1);
+    }
+    if (next > 1) await this.setNextLocal(fileKey, next);
+    this.files.forgetSize(fileKey);
+  }
+
+  /** A new file's record: signed in, a draft of the account registered on the server (docs/cloud.md §2) */
+  private async addDraft(meta: FileMeta): Promise<FileMeta> {
+    this.personal.asDraft(meta);
+    const added = await this.ws.queue.run(() => this.ws.addFile(meta));
+    this.personal.created(added.fileKey);
+    return added;
+  }
   /** Governance+'s refusals (docs/governance.md §2.5, round 14e) on topic `org` (`access.blocked`) */
   readonly governanceEvents: ReturnType<typeof governanceEvents>;
   /** Branches (docs/data.md §15): records, merge previews, Update from main and Merge; events on topic `branches` */
@@ -558,7 +669,7 @@ export class LocalStore {
       const libraries = new LocalLibraries({ dirs, workspace: ws, files, blobs, hlc, clock, log });
       await libraries.load();
       ws.sizeOf = (k) => files.cachedSize(k);
-      const store = new LocalStore(dirs, ws, files, blobs, libraries, deviceOrdinal, clock, log, opts.generation ?? 1, compactor, timers, hlc, opts.userDataDir ?? null, withFakeLatency(opts.fetch ?? ((...a: Parameters<typeof fetch>) => globalThis.fetch(...a)), process.env.DESIGNER_FAKE_LATENCY_MS));
+      const store = new LocalStore(dirs, ws, files, blobs, libraries, deviceOrdinal, clock, log, opts.generation ?? 1, compactor, timers, hlc, opts.userDataDir ?? null, withFakeLatency(opts.fetch ?? ((...a: Parameters<typeof fetch>) => globalThis.fetch(...a)), process.env.DESIGNER_FAKE_LATENCY_MS), opts.personalDrafts !== false);
       store.viewerTemplate = opts.viewerTemplate ?? null;
       late.store = store;
       void store.branches.load().catch((e) => log("warn", "loading branches failed", e));
@@ -614,11 +725,12 @@ export class LocalStore {
     await this.files.createFile(fileKey, codec.encodeMessage(doc), []);
     const meta = newMeta(fileKey, name, folderId, this.clock.now());
     meta.enabledLibraries = libs;
-    return this.ws.queue.run(() => this.ws.addFile(meta));
+    return this.addDraft(meta);
   }
 
   async duplicateFile(fileKey: FileKey): Promise<FileMeta> {
     this.guard();
+    await this.personal.ensureLocal(fileKey);
     const src = this.ws.getMeta(fileKey);
     const head = await this.files.compactedHead(fileKey);
     const key = newFileKey();
@@ -627,7 +739,7 @@ export class LocalStore {
     const meta = newMeta(key, `${src.name} (Copy)`, folderId, this.clock.now());
     meta.enabledLibraries = [...src.enabledLibraries];
     meta.thumbnail = await this.copyThumbnail(fileKey, key, src.thumbnail);
-    return this.ws.queue.run(() => this.ws.addFile(meta));
+    return this.addDraft(meta);
   }
 
   /**
@@ -653,12 +765,15 @@ export class LocalStore {
 
   async trash(items: { files?: FileKey[]; folders?: FolderId[] }): Promise<void> {
     this.guard();
+    // A registered draft goes to the server's trash first (docs/cloud.md §2)
+    await this.personal.trashFirst(items?.files ?? [], true);
     const { files } = await this.ws.queue.run(() => this.ws.trash(items ?? {}));
     for (const f of files) await this.libraries.fileTrashed(f.fileKey);
   }
 
   async restore(items: { files?: FileKey[]; folders?: FolderId[] }): Promise<void> {
     this.guard();
+    await this.personal.trashFirst(items?.files ?? [], false);
     const { files } = await this.ws.queue.run(() => this.ws.restore(items ?? {}));
     for (const k of files) await this.libraries.fileRestored(k);
   }
@@ -666,12 +781,18 @@ export class LocalStore {
   async deleteForever(items: { files?: FileKey[]; folders?: FolderId[] }): Promise<void> {
     this.guard();
     const doomed = this.ws.collectDeletion(items ?? {});
+    // A registered draft is deleted on the server first (docs/cloud.md §2)
+    await this.personal.deleteFirst(doomed.files);
     await this.deleteItems(doomed);
   }
 
   async emptyTrash(): Promise<void> {
     this.guard();
-    await this.deleteItems(this.ws.collectDeletion(this.ws.trashContents()));
+    // Signed in, the trash Home shows: the account's drafts (docs/cloud.md §2)
+    const contents = this.ws.account !== null ? { files: this.ws.listFiles({ in: "trash" }).map((f) => f.fileKey), folders: [] } : this.ws.trashContents();
+    const doomed = this.ws.collectDeletion(contents);
+    await this.personal.deleteFirst(doomed.files);
+    await this.deleteItems(doomed);
   }
 
   private async deleteItems(doomed: { files: FileKey[]; folders: FolderId[] }): Promise<void> {
@@ -715,7 +836,7 @@ export class LocalStore {
     await this.createDuplicate(key, path, record.blobRefs, record.derivedDataVersion ?? 0);
     const meta = newMeta(key, `${src.name} (${record.title ?? versionDateLabel(record.createdAt)})`, null, this.clock.now());
     meta.enabledLibraries = [...src.enabledLibraries];
-    return this.ws.queue.run(() => this.ws.addFile(meta));
+    return this.addDraft(meta);
   }
 
   async importLocalCopy(path: string, folderId: FolderId | null): Promise<FileMeta> {
@@ -774,8 +895,11 @@ export class LocalStore {
       }
     }
     if (prepared.report) this.log("info", `imported ${name}: ${prepared.report.nodesIn} → ${prepared.report.nodesOut} nodes`, prepared.report);
+    // Into the person's Drafts (docs/cloud.md §2): a draft registered on the server, unless it is an org file's copy
+    if (!space) this.personal.asDraft(meta);
     const created = await this.ws.queue.run(() => this.ws.addFile(meta));
     await this.files.addVersion(key, { kind: "import", title: null, description: null, restoredFrom: null, libraryVersion: null });
+    if (!space) this.personal.created(key);
     return created;
   }
 
@@ -790,6 +914,7 @@ export class LocalStore {
   async exportLocalCopy(fileKey: FileKey, path: string): Promise<void> {
     this.guard();
     if (typeof path !== "string" || !path) throw new StoreError("invalid", "exportLocalCopy needs a path");
+    await this.personal.ensureLocal(fileKey);
     const meta = this.ws.getMeta(fileKey);
     const head = await this.files.compactedHead(fileKey);
     await writeLocalCopy({
@@ -847,6 +972,7 @@ export class LocalStore {
     this.orgLibraries.close();
     this.plugins.close();
     this.governanceEvents.close();
+    this.personal.close();
     this.org.close();
     this.branches.close();
     this.notifications.close();
@@ -900,8 +1026,10 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     createFile: (input) => s.createFile(input),
     duplicateFile: (fileKey) => s.duplicateFile(fileKey),
     renameFile: async (fileKey, name) => {
+      // A registered draft is renamed on the server first (docs/cloud.md §2); offline, refused
+      if (typeof name === "string" && name.trim()) await s.personal.renameFirst(fileKey, name);
       const meta = await q(() => ws.renameFile(fileKey, name));
-      await s.multiplayer.renameRemote(fileKey, meta.name);
+      if (!meta.cloud) await s.multiplayer.renameRemote(fileKey, meta.name);
       return meta;
     },
     moveFiles: (keys, folderId) => q(() => ws.moveFiles(keys ?? [], folderId ?? null)),
@@ -916,7 +1044,11 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
   };
   const files: FileRepository = {
     // An archived or merged branch opens read-only (docs/data.md §15.5).
-    open: (fileKey, opts) => s.files.open(fileKey, { mode: s.branches.openMode(fileKey, opts?.mode === "edit" ? "edit" : "view"), tabId: opts?.tabId }, owner),
+    // A draft whose document isn't here downloads it first (docs/cloud.md §2)
+    open: async (fileKey, opts) => {
+      await s.personal.ensureLocal(fileKey);
+      return s.files.open(fileKey, { mode: s.branches.openMode(fileKey, opts?.mode === "edit" ? "edit" : "view"), tabId: opts?.tabId }, owner);
+    },
     reattach: (fileKey, sessionID, last) => s.files.reattach(fileKey, sessionID, last ?? 0, owner),
     append: (fileKey, batch) => s.files.append(fileKey, batch, owner),
     flush: (fileKey) => s.files.flush(fileKey),
@@ -924,6 +1056,8 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
       await s.files.close(fileKey, sessionID);
       // An org file's instance snapshot (docs/data.md §17.4) when it closes
       s.usage.closedFile(fileKey);
+      // The cache's bound (docs/cloud.md §2)
+      s.personal.closed_(fileKey);
     },
     subscribe: (fileKey, fromSeq, listener) => subscribeLocal(s, fileKey, fromSeq, listener),
     saveThumbnail: async (fileKey, png, size) => {
@@ -987,7 +1121,11 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
       s.session = session && typeof session.server === "string" && typeof session.token === "string" ? { server: session.server, token: session.token } : null;
       s.markSessionKnown();
       if (s.session) void previews.sweepExpired().catch((e) => s.log("warn", "sweeping expired previews failed", e));
-      return mp.setSession(session);
+      // The personal Drafts follow the account (docs/cloud.md §2): its listings at once, then the sync behind
+      return mp.setSession(session).then((status) => {
+        void s.personal.sessionChanged().catch((e) => s.log("warn", "cloud: the sync after a sign-in failed", e));
+        return status;
+      });
     },
   };
   return {
@@ -1014,6 +1152,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     devMode: s.devMode.repository(),
     ai: s.ai.repository(),
     search: s.search.repository(),
+    cloud: s.personal.repository(),
   };
 }
 

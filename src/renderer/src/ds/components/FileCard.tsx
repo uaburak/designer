@@ -28,6 +28,8 @@ export interface FileCardProps {
   branches?: { count: number; onMenu: (e: React.MouseEvent<HTMLElement>) => void };
   /** A branch's own tile (Recents, Starred): the branch icon at its top left */
   branch?: boolean;
+  /** A short state at the thumbnail's bottom left (Home offline: "Available offline", docs/cloud.md §2) */
+  badge?: string;
 }
 
 function CardRename({ value, onDone }: { value: string; onDone: (name: string | null) => void }) {
@@ -50,7 +52,7 @@ export function FileKindIcon({ size = 16 }: { size?: 16 | 20 | 24 }) {
  * then — 12px on — the title (11/550) over when it was edited (11, secondary;
  * `formatEdited`). Enter opens, Space selects.
  */
-export function FileCard({ id, title, subtitle, thumbnail, starred, selected, renaming, onOpen, onSelect, onContextMenu, onRename, onStar, forceHover, branches, branch }: FileCardProps) {
+export function FileCard({ id, title, subtitle, thumbnail, starred, selected, renaming, onOpen, onSelect, onContextMenu, onRename, onStar, forceHover, branches, branch, badge }: FileCardProps) {
   const hasBranches = !!branches && branches.count > 0;
   return (
     <div
@@ -79,6 +81,11 @@ export function FileCard({ id, title, subtitle, thumbnail, starred, selected, re
     >
       <div className={styles.thumb}>
         {thumbnail && <img src={thumbnail} alt="" draggable={false} />}
+        {badge && (
+          <span className={styles.stateBadge} data-card-badge="">
+            {badge}
+          </span>
+        )}
         {(hasBranches || branch) && (
           <span className={styles.branchIcon} data-branch-icon="" aria-hidden>
             <Icon name="16.branch" />

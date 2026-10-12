@@ -32,6 +32,10 @@ export interface MultiplayerHost {
   /** A new local file holding this snapshot as it is (no GUID remapping: the room's nodes keep their ids); `space`: the
    *  org file it copies (docs/multiplayer.md §14.6), so it never lists among local Drafts */
   createSharedFile(input: { name: string; snapshot: Uint8Array; space?: FileSpace | null }): Promise<FileMeta>;
+  /** A record listed from the server with no document here (docs/cloud.md §2) gets the room's snapshot as it is */
+  fillFile?(fileKey: FileKey, snapshot: Uint8Array): Promise<void>;
+  /** A new file's document (a draft registered whose content never reached its room) */
+  newDocument?(): Uint8Array;
   /** An org file's copy moved (or a local file moved into an org): its `FileMeta.space` */
   setFileSpace?(fileKey: FileKey, space: FileSpace | null): Promise<void>;
   getMeta(fileKey: FileKey): FileMeta | null;
@@ -121,6 +125,9 @@ interface LinkRecord {
   pass?: string;
   /** Shared from here, but its images and snapshot didn't all reach the room yet: the link uploads them before it joins */
   pendingUpload?: true;
+  /** The account (server user id) the link was made with (docs/cloud.md §2): another account signed in leaves it idle
+   *  rather than joining with a session that can't open it. Absent on links made before 1.1: joined by any account. */
+  uid?: string;
 }
 
 interface State {
@@ -426,7 +433,7 @@ export class MultiplayerService {
     // The file exists on the server from here: the link remembers its upload until the snapshot has landed, so a
     // failure part-way (the 2026-10-12 incident: the row made, then the image check and the snapshot refused) is
     // finished by the next start of the link instead of leaving a file with no snapshot behind.
-    const rec: LinkRecord = { key: room, since: 0, acked: input.headSeq, sessions: [], role: "owner", pendingUpload: true };
+    const rec: LinkRecord = { key: room, since: 0, acked: input.headSeq, sessions: [], role: "owner", pendingUpload: true, ...this.uidField() };
     st.links[fileKey] = rec;
     await this.persist(fileKey);
     try {
@@ -802,10 +809,68 @@ export class MultiplayerService {
     await this.downloadBlobs(key, imagesOf(snapshot));
     const meta = await this.host.createSharedFile({ name, snapshot, ...(space ? { space } : {}) });
     const head = Math.max(0, ...(await this.host.backlog(meta.fileKey, 0)).map((c) => c.seq));
-    st.links[meta.fileKey] = { key, since: seq, acked: head, sessions: [], role, ...(this.passes.has(key) ? { pass: this.passes.get(key) } : {}) };
+    st.links[meta.fileKey] = { key, since: seq, acked: head, sessions: [], role, ...this.uidField(), ...(this.passes.has(key) ? { pass: this.passes.get(key) } : {}) };
     await this.persist(meta.fileKey);
     this.startLink(meta.fileKey);
     return meta.fileKey;
+  }
+
+  /** `{uid}` of the signed-in account for a new link record (nothing when the token says no one) */
+  private uidField(): { uid?: string } {
+    const uid = this.userId;
+    return uid ? { uid } : {};
+  }
+
+  /** The link was made by the signed-in account (or before 1.1, by any): its room may be joined with this session */
+  private ownLink(fileKey: FileKey): boolean {
+    const uid = this.state?.links[fileKey]?.uid;
+    return !uid || !this.userId || uid === this.userId;
+  }
+
+  /**
+   * A draft of the person's Drafts listed from the server, with no document here yet (docs/cloud.md §2): the room's
+   * snapshot (and its images) fill the record `fileKey` as it is, and the record is linked at the snapshot's seq. A
+   * draft whose content never reached its room (registered, then the upload stopped elsewhere) opens as a new document
+   * whose upload this link finishes (`pendingUpload`).
+   */
+  async linkInto(fileKey: FileKey, key: string, role: Role = "owner"): Promise<void> {
+    const st = await this.loadState();
+    if (st.links[fileKey]) return;
+    if (!this.host.fillFile || !this.host.newDocument) throw new StoreError("invalid", "This store keeps no cloud files");
+    this.needOrdinal();
+    let seq = 0;
+    let snapshot: Uint8Array;
+    let pendingUpload = false;
+    try {
+      const res = await this.raw("GET", `/files/${key}/snapshot`);
+      seq = Number(res.headers.get("x-seq") ?? "0");
+      snapshot = new Uint8Array(await res.arrayBuffer());
+    } catch (e) {
+      if (!(e instanceof StoreError && (e.detail as { code?: unknown } | undefined)?.code === "no_snapshot")) throw e;
+      snapshot = this.host.newDocument();
+      pendingUpload = true;
+    }
+    await this.downloadBlobs(key, imagesOf(snapshot));
+    await this.host.fillFile(fileKey, snapshot);
+    const head = Math.max(0, ...(await this.host.backlog(fileKey, 0)).map((c) => c.seq));
+    st.links[fileKey] = { key, since: seq, acked: head, sessions: [], role, ...this.uidField(), ...(pendingUpload ? { pendingUpload: true as const } : {}) };
+    await this.persist(fileKey);
+    this.startLink(fileKey);
+  }
+
+  /** A link made before 1.1 becomes the signed-in account's (the 1.1 migration of the person's own files) */
+  async claimLink(fileKey: FileKey): Promise<void> {
+    const rec = (await this.loadState()).links[fileKey];
+    const uid = this.userId;
+    if (!rec || !uid || rec.uid === uid) return;
+    rec.uid = uid;
+    await this.persist(fileKey);
+  }
+
+  /** A link's record as the cache sees it (docs/cloud.md §2): its room, role, account and an upload not finished */
+  async linkInfo(fileKey: FileKey): Promise<{ key: string; role: Role; uid: string | null; pendingUpload: boolean; uploading: boolean } | null> {
+    const rec = (await this.loadState()).links[fileKey];
+    return rec ? { key: rec.key, role: rec.role, uid: rec.uid ?? null, pendingUpload: !!rec.pendingUpload, uploading: this.uploading.has(fileKey) } : null;
   }
 
   /** @internal This copy fell behind what the room still holds (away too long): a fresh copy replaces it as the
@@ -1288,7 +1353,7 @@ export class MultiplayerService {
   }
 
   private startLink(fileKey: FileKey): void {
-    if (!this.session || this.live.has(fileKey) || (this.only && !this.only.has(fileKey))) return;
+    if (!this.session || this.live.has(fileKey) || (this.only && !this.only.has(fileKey)) || !this.ownLink(fileKey)) return;
     const link = new Link(this, fileKey);
     this.live.set(fileKey, link);
     link.start();
@@ -1314,6 +1379,7 @@ export class MultiplayerService {
       if (!r || typeof r.key !== "string") continue;
       links[k] = { key: r.key, since: Number(r.since) || 0, acked: Number(r.acked) || 0, sessions: Array.isArray(r.sessions) ? r.sessions.filter(Number.isInteger) : [], role: r.role === "owner" || r.role === "viewer" ? r.role : "editor" };
       if (r.pendingUpload === true) links[k].pendingUpload = true;
+      if (typeof r.uid === "string" && r.uid) links[k].uid = r.uid;
       if (typeof r.pass === "string") {
         links[k].pass = r.pass;
         this.passes.set(r.key, r.pass);

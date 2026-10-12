@@ -4,6 +4,7 @@
  */
 import type { SpaceId } from "../org/repositories";
 import type { BranchStatus } from "../merge/branches";
+import type { CloudFile } from "./cloud";
 
 export type FileKey = string;
 export type FolderId = string;
@@ -64,6 +65,11 @@ export interface FileMeta {
    * show them.
    */
   space?: FileSpace | null;
+  /**
+   * The person's Drafts on the server this record caches (docs/cloud.md §2): its account, room key, and whether it
+   * waits to be registered (`pendingCreate`) or has no document here (`remote`). Absent or null: a local file.
+   */
+  cloud?: CloudFile | null;
   /**
    * A branch's file (docs/data.md §15.2): its main file, the branch's name and status. Absent or null: not a branch.
    * Local listings (Drafts, folders, search) leave branches out — they show under their main file; Recents, Starred and

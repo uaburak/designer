@@ -456,8 +456,9 @@ export async function createOrgFile(ctx: Ctx, input: { key: unknown; name: unkno
   let action: "fig_file_create" | "fig_file_move" = "fig_file_create";
   if (had) {
     if (had.owner_id !== user.id || had.org_id !== null) throw new HttpError(409, "file key taken");
-    // "Move to…" a file shared outside any org into the org (§14.6): the file keeps its room, members and link.
-    await d1.prepare(`UPDATE files SET org_id = ?2, team_id = ?3, project_id = ?4, editor_type = ?5, name = ?6, updated_at = ?7 WHERE key = ?1`).bind(key, input.orgId, teamId, input.projectId, editorType, name, now).run();
+    // "Move to…" a file shared outside any org — a personal draft (docs/cloud.md §2) — into the org (§14.6): the file
+    // keeps its room, members and link, and leaves its owner's Drafts.
+    await d1.prepare(`UPDATE files SET org_id = ?2, team_id = ?3, project_id = ?4, editor_type = ?5, name = ?6, updated_at = ?7, space = NULL WHERE key = ?1`).bind(key, input.orgId, teamId, input.projectId, editorType, name, now).run();
     action = "fig_file_move";
   } else {
     await d1

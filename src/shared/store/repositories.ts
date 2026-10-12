@@ -41,6 +41,7 @@ import type { PluginsRepository } from "../plugins/types";
 import type { DevModeRepository } from "../devmode/types";
 import type { AiRepository, SearchRepository } from "../ai/types";
 import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "../libraries/orgTypes";
+import type { CloudRepository } from "./cloud";
 
 // Branches' repository and events (docs/data.md §15.6) live in src/shared/merge/branches.ts; re-exported here.
 export type { BranchEvent, BranchesRepository, MergePreview } from "../merge/branches";
@@ -274,4 +275,6 @@ export interface StoreApi {
   ai: AiRepository;
   /** The visual / text search index of components and frames (docs/ai.md §6; round 6d) */
   search: SearchRepository;
+  /** Personal Drafts in the cloud: the cache's status and bound (docs/cloud.md §2); events on `cloud` */
+  cloud: CloudRepository;
 }

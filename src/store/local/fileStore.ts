@@ -1186,6 +1186,38 @@ export class FileStore {
     this.actors.delete(fileKey);
   }
 
+  /**
+   * A cached cloud file evicted (docs/cloud.md §2): its document goes — journal, snapshots, versions — while its record
+   * (meta.json) and Home's thumbnail stay. Opening it again downloads it from its room.
+   */
+  async dropDocument(fileKey: FileKey): Promise<void> {
+    const a = this.actor(fileKey);
+    await a.queue.run(async () => {
+      if (a.sessions.size) throw new StoreError("invalid", "The file is open");
+      for (const t of [a.syncTimer, a.updatedAtTimer, a.checkpointTimer]) if (t) this.timers.clearTimeout(t);
+      await a.head?.writer?.close().catch(() => {});
+      // This device's next session counter outlives the document: a download later never reuses a session (and its GUIDs)
+      const state = a.head?.state ?? (await readJsonOrNull<FileStoreState>(this.path(a, "store.json")));
+      a.head = null;
+      if (state) await writeJsonAtomic(this.d.dirs.tmp, this.path(a, "sessions.json"), { nextLocal: state.sessions.nextLocal });
+      const keep = new Set(["meta.json", "thumbnail.png", "sessions.json"]);
+      for (const n of await fsp.readdir(a.dir).catch(() => [] as string[])) if (!keep.has(n)) await fsp.rm(join(a.dir, n), { recursive: true, force: true });
+    });
+    this.actors.delete(fileKey);
+  }
+
+  /** The file has a document here (a cloud file's record may have none: docs/cloud.md §2) */
+  async hasDocument(fileKey: FileKey): Promise<boolean> {
+    return exists(join(this.d.dirs.files, fileKey, "store.json"));
+  }
+
+  /** Forget the cached size (a document written into a record from outside the actor: a cloud file filled) */
+  forgetSize(fileKey: FileKey): void {
+    const a = this.actors.get(fileKey);
+    if (a && !a.head && !a.sessions.size) this.actors.delete(fileKey);
+    else if (a) a.sizeBytes = null;
+  }
+
   /** Every blob a file or one of its versions references (GC live set). */
   async blobRefsOf(fileKey: FileKey): Promise<string[]> {
     const a = this.actor(fileKey);

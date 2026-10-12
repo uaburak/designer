@@ -125,6 +125,18 @@
   }
   .create { display: flex; flex: none; gap: var(--ds-space-2); }
 
+  /* Offline (docs/cloud.md §2): one line under the top bar */
+  .offlineBanner {
+    flex: none;
+    margin: var(--ds-space-4) var(--ds-space-8) 0;
+    padding: var(--ds-space-2) var(--ds-space-4);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+
   .filters {
     display: flex;
     flex: none;

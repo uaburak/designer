@@ -168,6 +168,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   // The server's operator (docs/multiplayer.md §17): accounts, suspension, quota overrides, the sign-up mode
   if (parts[0] === "operator") return (await import("./quota/operator")).operatorRoute(req, url, deps, sessionOnly(caller), parts);
   if (parts[0] === "me" && parts[1] === "ai-usage" && !caller.scopes) return (await import("./ai/usage")).aiUsageRoute({ req, url, deps, user, parts, m, acc: new Access(deps, user) });
+  // Personal Drafts on the server (docs/cloud.md §2)
+  if (parts[0] === "me" && parts[1] === "drafts") return (await import("./personal/routes")).personalRoute(req, url, deps, caller, parts);
   // `/me/two-factor…` (round 14) is the account's too: accountRoute hands it to governance/twoFactor.ts
   if (parts[0] === "me" && parts[1] !== "fonts") return (await import("./account")).accountRoute(req, deps, caller, parts);
   // A personal access token reads files and comments, nothing else (account.ts patAllows).
@@ -306,6 +308,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
         linkExpiresAt: f.link_expires_at,
         linkExpired,
         trashedAt: f.trashed_at,
+        // "personal": in its owner's Drafts (docs/cloud.md §2)
+        space: f.space ?? null,
         access: a ? fileAccessOf(a) : null,
         org: a ? await fileOrg(acc, f) : null,
         branch: (await acc.branch(key)) ? await (await import("./branches")).branchInfo(deps, key) : null,
@@ -313,7 +317,9 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       });
     }
     if (m === "PATCH") {
-      const body = await readJson<{ name?: string; linkAccess?: string; viewersCanCopy?: unknown; linkPassword?: unknown; access?: unknown; orgLinkAccess?: unknown; protoLinkAccess?: unknown; protoOrgLinkAccess?: unknown; linkExpiresAt?: unknown }>(req);
+      const body = await readJson<{ name?: string; linkAccess?: string; viewersCanCopy?: unknown; linkPassword?: unknown; access?: unknown; orgLinkAccess?: unknown; protoLinkAccess?: unknown; protoOrgLinkAccess?: unknown; linkExpiresAt?: unknown; space?: unknown }>(req);
+      // Between the owner's Drafts and an organization (docs/cloud.md §2): a move of its own
+      if (body.space !== undefined) return (await import("./personal/routes")).patchSpace(orgCtx(), f, body.space);
       // The org's sharing policy refuses the whole patch before anything is written (§15.6).
       (await import("./policy/sharing")).checkFilePatch(policy, f, body, deps.now());
       if (body.linkPassword !== undefined) {
@@ -537,8 +543,11 @@ async function route(req: Request, deps: Deps): Promise<Response> {
     case "trash":
     case "restore": {
       if (parts.length !== 3 || m !== "POST") break;
-      if (!inOrg) throw new HttpError(400, "only files in an organization go to the trash; stop sharing instead");
-      need(writer, "only people who can edit the file can do that");
+      // Outside orgs, a personal draft (docs/cloud.md §2) goes to its owner's trash
+      const personal = !inOrg && f.space === "personal";
+      if (!inOrg && !personal) throw new HttpError(400, "only files in an organization go to the trash; stop sharing instead");
+      if (personal) need(a?.role === "owner", "only the owner can do that");
+      else need(writer, "only people who can edit the file can do that");
       const trash = parts[2] === "trash";
       if (trash === (f.trashed_at !== null)) throw new HttpError(409, trash ? "the file is already in the trash" : "the file isn't in the trash");
       await deps.db.d1.prepare(`UPDATE files SET trashed_at = ?2, trashed_by = ?3, updated_at = ?4 WHERE key = ?1`).bind(key, trash ? deps.now() : null, trash ? user.id : null, deps.now()).run();

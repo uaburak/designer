@@ -247,7 +247,8 @@ export class Db {
   /** Registers a file as shared; false when the key is already someone else's. Re-sharing one's own file is a no-op. */
   async createFile(key: string, ownerId: string, name: string, now: number): Promise<boolean> {
     await this.d1
-      .prepare(`INSERT INTO files (key, owner_id, name, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4) ON CONFLICT (key) DO NOTHING`)
+      // A file outside any org is its owner's draft (docs/cloud.md §2): 1.0.x apps sharing a local file register it here
+      .prepare(`INSERT INTO files (key, owner_id, name, created_at, updated_at, space) VALUES (?1, ?2, ?3, ?4, ?4, 'personal') ON CONFLICT (key) DO NOTHING`)
       .bind(key, ownerId, name, now)
       .run();
     const r = await this.d1.prepare(`SELECT owner_id FROM files WHERE key = ?1`).bind(key).first<{ owner_id: string }>();

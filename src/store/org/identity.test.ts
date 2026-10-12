@@ -59,7 +59,8 @@ beforeEach(async () => {
     log.push(`${init?.method ?? "GET"} ${new URL(String(input)).pathname}`);
     return w.srv.fetch(input, init);
   };
-  t = await openTestStore({ fetch });
+  // Requests counted: no personal Drafts sync behind (docs/cloud.md §2)
+  t = await openTestStore({ fetch, personalDrafts: false });
   await t.api.multiplayer.setSession({ server: ORIGIN, token: w.admin.token });
 });
 

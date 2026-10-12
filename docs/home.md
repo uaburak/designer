@@ -88,6 +88,8 @@ In a browser, a file opens as `?editor&file=<fileKey>`, and "Open in new tab" op
   - Right-clicking the space row gives **Leave organization…**.
   - A deleted organization shows its admins **Restore organization**.
 
+- **Personal Drafts in the cloud** (Wecra 1.1, docs/cloud.md §2 and §6): signed in, the personal space is the person (name and photo) with Drafts and Trash only — no All folders, folder tree or New folder; Drafts are the account's drafts on the server (records cached here, `FileMeta.cloud`), listed again when Home shows or comes to the front (`useCloud`). Offline, only files on this computer list, each "Available offline", under the offline line. Signed out or in the browser's dev store, the local workspace as above. Tests: `__tests__/personalHome.dom.test.ts`.
+
 ## Left to do
 
 - Drive it in the built app with `scripts/drive.mjs` once `?files` is Home.

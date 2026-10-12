@@ -1,6 +1,7 @@
 /**
- * Home's sidebar (Figma's 2026 file browser): the account, Search, Recents | the team: Drafts, All folders (the
- * folder tree, nested and coloured), Trash | Starred. Drafts and folders take dropped files.
+ * Home's sidebar (Figma's 2026 file browser): the account, Search, Recents | the space: signed in, the person's own
+ * (their name: Drafts, Trash — docs/cloud.md §2) or an org's (OrgSidebar); signed out, the local team (Drafts, All
+ * folders with the folder tree, nested and coloured, Trash) | Starred. Drafts and folders take dropped files.
  */
 import { useState, type ReactNode } from "react";
 import { Avatar, Badge, FileKindIcon, Icon, SearchField, SidebarDivider, SidebarHeader, SidebarItem } from "@/ds";
@@ -52,6 +53,11 @@ export interface SidebarProps {
   spaceBadge?: string;
   /** An organization's entries (OrgSidebar), in place of the local Drafts / All folders / Trash */
   spaceSection?: ReactNode;
+  /**
+   * The person's own space (docs/cloud.md §2, Figma's Starter layout): their name with the photo, then Drafts and Trash
+   * — no folders (personal Drafts are flat). Absent: the local workspace's team with its folders (signed out).
+   */
+  personal?: { picture?: string };
 }
 
 /** A sidebar entry that takes dropped files/folders. */
@@ -122,7 +128,9 @@ function FolderTree({ parent, depth, props }: { parent: FolderId | null; depth: 
 }
 
 export function Sidebar(props: SidebarProps) {
-  const { ownerName, ownerPicture, onAccountMenu, accountAccessory, teamName, location, search, onSearch, onSearchExit, go, starredFolders, starredFiles, starredOpen, onStarredOpen, onOpenFile, onFolderMenu, onFileMenu, onAllFoldersMenu, onTrashMenu, dnd, onSpaceMenu, spaceBadge, spaceSection, spaceIconUrl, onSpaceContextMenu } = props;
+  const { ownerName, ownerPicture, onAccountMenu, accountAccessory, teamName, location, search, onSearch, onSearchExit, go, starredFolders, starredFiles, starredOpen, onStarredOpen, onOpenFile, onFolderMenu, onFileMenu, onAllFoldersMenu, onTrashMenu, dnd, onSpaceMenu, spaceBadge, spaceSection, spaceIconUrl, onSpaceContextMenu, personal } = props;
+  // The person's space shows their photo; an org its icon (spaceSection set), the local team its initial
+  const spaceIcon = personal && !spaceSection ? <Avatar name={teamName} src={personal.picture} size={16} /> : <TeamIcon name={teamName} iconUrl={spaceIconUrl} />;
   const is = (kind: Location["kind"]) => location.kind === kind;
   return (
     <nav className={styles.sidebar} aria-label="File browser">
@@ -151,13 +159,13 @@ export function Sidebar(props: SidebarProps) {
       <div className={styles.team} onContextMenu={onSpaceContextMenu}>
         {onSpaceMenu ? (
           <button type="button" className={styles.spaceButton} aria-haspopup="menu" aria-label={`${teamName}, switch space`} onClick={onSpaceMenu}>
-            <TeamIcon name={teamName} iconUrl={spaceIconUrl} />
+            {spaceIcon}
             <span className={styles.teamName}>{teamName}</span>
             <Icon name="16.chevron.down" />
           </button>
         ) : (
           <>
-            <Avatar name={teamName} size={16} />
+            <Avatar name={teamName} src={personal?.picture} size={16} />
             <span className={styles.teamName}>{teamName}</span>
           </>
         )}
@@ -172,10 +180,14 @@ export function Sidebar(props: SidebarProps) {
         <DropTarget dest={null} dnd={dnd}>
           {(over) => <SidebarItem icon="24.file" label="Drafts" selected={is("drafts")} dropTarget={over} onClick={() => go({ kind: "drafts" })} />}
         </DropTarget>
-        <SidebarItem icon="24.view.grid" label="All folders" selected={is("folders")} onClick={() => go({ kind: "folders" })} onContextMenu={onAllFoldersMenu} />
-        <div role="tree" aria-label="Folders">
-          <FolderTree parent={null} depth={1} props={props} />
-        </div>
+        {!personal && (
+          <>
+            <SidebarItem icon="24.view.grid" label="All folders" selected={is("folders")} onClick={() => go({ kind: "folders" })} onContextMenu={onAllFoldersMenu} />
+            <div role="tree" aria-label="Folders">
+              <FolderTree parent={null} depth={1} props={props} />
+            </div>
+          </>
+        )}
         <SidebarItem icon="24.trash.outline" label="Trash" selected={is("trash")} onClick={() => go({ kind: "trash" })} onContextMenu={onTrashMenu} />
       </div>
       )}

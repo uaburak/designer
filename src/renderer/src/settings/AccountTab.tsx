@@ -11,6 +11,9 @@ import { getStoreClient } from "@/store";
 import { fontsBridge, openLink } from "./bridge";
 import { ChangeEmailDialog, ChangeLanguageDialog, ChangeNameDialog, ChangeRoleDialog, DeleteAccountDialog, DraftLibrariesDialog, ViewHistoryDialog } from "./SettingsDialogs";
 import { useProfile } from "./useProfile";
+import { OfflineCache } from "./OfflineCache";
+import { useCloud } from "../files/useCloud";
+import type { CloudRepository } from "@shared/store/cloud";
 import styles from "./Settings.module.css";
 
 type DialogId = "team" | "name" | "email" | "role" | "language" | "view-history" | "delete" | "libraries" | null;
@@ -80,6 +83,10 @@ export function AccountTab() {
       off();
     };
   }, []);
+  // Personal Drafts in the cloud (docs/cloud.md §2): signed in, the person's own space and this computer's cache
+  const cloud = getStoreClient().cloud as CloudRepository | undefined;
+  const cloudStatus = useCloud(cloud);
+  const personal = !!cloudStatus?.uid;
   const name = profile?.name ?? user?.name ?? user?.email ?? "";
   const prefs: AccountPrefs = profile?.prefs ?? {};
   const savePrefs = (p: AccountPrefs) => save({ prefs: p });
@@ -153,18 +160,30 @@ export function AccountTab() {
             <section className={styles.section} data-settings-section="spaces">
               <h3 className={styles.title}>Your spaces</h3>
               {/* Our one space is this computer's workspace (its team name); organisations come with Phase 7 (Enterprise). */}
-              <div className={styles.space}>
-                <span className={styles.spaceAvatar} aria-hidden>{(teamName ?? "M").charAt(0).toUpperCase()}</span>
-                <div className={styles.spaceLines}>
-                  <span>{teamName ?? "My team"}</span>
-                  <span className={styles.muted}>Owner</span>
-                  <span className={styles.spaceSeat}>Full seat</span>
-                  {/* Ours: the local team's Rename (Home: right-click the team's name) */}
-                  <Link tight onClick={() => setDialog("team")} data-rename-team="">
-                    Rename team
-                  </Link>
+              {personal ? (
+                // The person's own space: their Drafts on the server (docs/cloud.md §2), named after them
+                <div className={styles.space} data-personal-space="">
+                  <span className={styles.spaceAvatar} aria-hidden>{(name || "M").charAt(0).toUpperCase()}</span>
+                  <div className={styles.spaceLines}>
+                    <span>{name}</span>
+                    <span className={styles.muted}>Owner</span>
+                    <span className={styles.spaceSeat}>Full seat</span>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className={styles.space}>
+                  <span className={styles.spaceAvatar} aria-hidden>{(teamName ?? "M").charAt(0).toUpperCase()}</span>
+                  <div className={styles.spaceLines}>
+                    <span>{teamName ?? "My team"}</span>
+                    <span className={styles.muted}>Owner</span>
+                    <span className={styles.spaceSeat}>Full seat</span>
+                    {/* Ours: the local team's Rename (Home: right-click the team's name) */}
+                    <Link tight onClick={() => setDialog("team")} data-rename-team="">
+                      Rename team
+                    </Link>
+                  </div>
+                </div>
+              )}
               <p className={`${styles.text} ${styles.strong} ${styles.spaceNote}`}>
                 <Link onClick={() => openLink("https://help.figma.com/hc/en-us/articles/27468498501527")}>Learn</Link> what products are included in each seat.
               </p>
@@ -234,6 +253,12 @@ export function AccountTab() {
                 <span>Answer API requests for my files while Wecra is open. When no one has a file open, Wecra opens it in the background to answer.</span>
               </div>
             </Section>
+          </>
+        )}
+        {user && personal && cloud && (
+          <>
+            <Divider />
+            <OfflineCache cloud={cloud} />
           </>
         )}
         <Divider />

@@ -64,6 +64,12 @@ export class WorkspaceModel {
   readonly queue = new SerialQueue();
   /** Bytes on disk per file (filled in by the file store) */
   sizeOf: (fileKey: FileKey) => number = () => 0;
+  /**
+   * The signed-in account whose personal Drafts the records cache (docs/cloud.md §2), null signed out. Signed in, the
+   * personal space is that account's cloud files alone — Drafts are flat, other accounts' files and plain local files
+   * (another person's file opened by its link) stay out; signed out, the local workspace as before 1.1.
+   */
+  account: string | null = null;
   protected readonly hlc: { now(): Hlc };
   protected readonly clock: { now(): number };
   protected readonly persist: WorkspacePersistence;
@@ -166,11 +172,30 @@ export class WorkspaceModel {
     return !!m.space;
   }
 
+  /** Another account's cloud file (docs/cloud.md §2): never listed while this one is signed in */
+  isOtherAccount(m: FileMeta): boolean {
+    return !!m.cloud && m.cloud.uid !== this.account;
+  }
+
+  /** In the personal space shown: signed in, the account's drafts; signed out, the local files */
+  isPersonal(m: FileMeta): boolean {
+    if (this.isOrgCopy(m)) return false;
+    return this.account === null ? !m.cloud : m.cloud?.uid === this.account;
+  }
+
+  /** Signed in or out (docs/cloud.md §2): Home lists again */
+  setAccount(uid: string | null): void {
+    if (uid === this.account) return;
+    this.account = uid;
+    this.events.emit({ type: "workspace.updated", workspace: { ...this.workspace } });
+  }
+
   listFiles(q: FileQuery): FileListItem[] {
     const live = (m: FileMeta) => !this.isFileTrashed(m);
     const byModified = (a: FileMeta, b: FileMeta) => b.updatedAt - a.updatedAt;
-    // Recents and Starred show both spaces; Drafts, folders, Trash and search are the local space's alone.
-    const local = [...this.files.values()].filter((m) => !this.isOrgCopy(m));
+    // Recents and Starred show every space (another account's files aside); Drafts, folders, Trash and search are the
+    // personal space's alone (docs/cloud.md §2: signed in, the account's drafts).
+    const local = [...this.files.values()].filter((m) => this.isPersonal(m));
     // Branches show under their main file (docs/data.md §15.2), not among Drafts, a folder's files or search results.
     const listed = local.filter((m) => !m.branch);
     switch (q.in) {
@@ -178,19 +203,20 @@ export class WorkspaceModel {
         const out: FileListItem[] = [];
         for (const r of this.prefs.recents) {
           const m = this.files.get(r.fileKey);
-          if (m && live(m)) out.push(this.item(m));
+          if (m && live(m) && !this.isOtherAccount(m)) out.push(this.item(m));
         }
         return out;
       }
       case "drafts":
-        return listed.filter((m) => m.folderId === null && live(m)).sort(byModified).map((m) => this.item(m));
+        // Signed in, Drafts are flat (docs/cloud.md §2): a draft's local folder no longer shows
+        return listed.filter((m) => (m.folderId === null || this.account !== null) && live(m)).sort(byModified).map((m) => this.item(m));
       case "folder": {
         this.getFolder(q.folderId);
         if (this.isFolderTrashed(q.folderId)) return [];
         return listed.filter((m) => m.folderId === q.folderId && m.trashedAt === null).sort(byModified).map((m) => this.item(m));
       }
       case "starred":
-        return this.prefs.starred.files.map((k) => this.files.get(k)).filter((m): m is FileMeta => !!m && live(m)).map((m) => this.item(m));
+        return this.prefs.starred.files.map((k) => this.files.get(k)).filter((m): m is FileMeta => !!m && live(m) && !this.isOtherAccount(m)).map((m) => this.item(m));
       case "trash":
         return local.filter((m) => m.trashedAt !== null).sort((a, b) => (b.trashedAt ?? 0) - (a.trashedAt ?? 0)).map((m) => this.item(m));
       case "search": {
@@ -273,8 +299,9 @@ export class WorkspaceModel {
     const m = this.getMeta(fileKey);
     const same = (m.space ?? null) === null ? space === null : !!space && m.space!.orgId === space.orgId && m.space!.key === space.key && m.space!.teamId === space.teamId && m.space!.projectId === space.projectId;
     if (same) return { ...m };
-    // An org file has no local folder: a copy moved into an org leaves its local folder (it lists in the org's).
-    return this.patchFile(fileKey, space ? { space: { ...space }, folderId: null } : { space: null });
+    // An org file has no local folder: a copy moved into an org leaves its local folder (it lists in the org's) — and
+    // a personal draft moved into an org leaves the person's Drafts (docs/cloud.md §2).
+    return this.patchFile(fileKey, space ? { space: { ...space }, folderId: null, ...(m.cloud ? { cloud: null } : {}) } : { space: null });
   }
 
   private checkName(name: unknown, what: string): string {

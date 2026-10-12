@@ -38,6 +38,8 @@ export interface MenuContext {
   color?: FolderColor;
   /** A selected file is shared with the person as a viewer who may not export it (docs/governance.md §2.7): no Duplicate */
   exportRestricted?: boolean;
+  /** False: nowhere to move files to (personal Drafts are flat and the person is in no organization — docs/cloud.md §2) */
+  canMove?: boolean;
 }
 
 const item = (id: MenuId, label: string, extra: Partial<Exclude<MenuEntry, "-" | { header: string }>> = {}): MenuEntry => ({ id, label, ...extra });
@@ -74,7 +76,7 @@ export function itemMenu(ctx: MenuContext): MenuEntry[] {
     "-",
     item("duplicate", "Duplicate", { disabled: !!ctx.folders || !!ctx.exportRestricted }),
     item("rename", "Rename", { disabled: !one }),
-    item("move", "Move to folder…"),
+    ...(ctx.canMove === false ? [] : [item("move", "Move to folder…")]),
     ...(ctx.location.kind === "recents" && !ctx.folders ? [item("remove-from-recents", "Remove from recents")] : []),
     "-",
     item("trash", "Move to trash", { shortcut: keys(["backspace"]) }),

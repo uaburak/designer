@@ -14,6 +14,7 @@ import type { SharedFontsApi } from "@shared/desktop";
 import type { GovernanceRepository, IdentityRepository } from "@shared/org/repositories";
 import type { PluginsRepository } from "@shared/plugins/types";
 import type { SessionEnded } from "@shared/multiplayer/types";
+import type { CloudRepository } from "@shared/store/cloud";
 import { exportAllowedFor } from "./governance";
 import type { UploadSource } from "../uploads/UploadPanel";
 
@@ -63,6 +64,9 @@ export interface FilesBackend {
   exportAccess?: (fileKey: FileKey) => Promise<boolean>;
   /** Uploads to the server, for the upload panel (`multiplayer.uploads` and its topic, docs/multiplayer.md §5.1); absent: no panel */
   uploads?: UploadSource;
+  /** Personal Drafts in the cloud (docs/cloud.md §2): signed in, the personal space is the person's Drafts and Trash;
+   *  absent or no account: the local workspace's team, folders and Drafts */
+  cloud?: CloudRepository;
 }
 
 /** The store's snapshot with its journal applied, as one kiwi Message (the editor hands the same to `multiplayer.share`). */
@@ -106,6 +110,7 @@ export function filesBackend(): Promise<FilesBackend> {
     watchSession: (listener) => client.multiplayer.watchSession(listener),
     exportAccess: (fileKey) => exportAllowedFor(client.multiplayer, fileKey),
     uploads: client.multiplayer,
+    cloud: client.cloud,
   };
   return Promise.resolve(shared);
 }

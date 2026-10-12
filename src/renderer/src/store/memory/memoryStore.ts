@@ -68,6 +68,7 @@ import { PluginsService } from "../../../../store/plugins/service";
 import { DevModeService, type LocalDevRecord } from "../../../../store/devmode/service";
 import { SearchService } from "../../../../store/search/service";
 import { AiService } from "../../../../store/ai/service";
+import { localOnlyCloud } from "../../../../store/personal/localOnly";
 import { UsageReporter } from "../../../../store/libraries/usage";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1377,6 +1378,8 @@ export class MemoryStore {
       devMode: this.devMode.repository(),
       ai: this.ai.repository(),
       search: this.search.repository(),
+      // The browser's dev store keeps its files here: no personal Drafts in the cloud (docs/cloud.md §2)
+      cloud: localOnlyCloud(),
     };
   }
 }

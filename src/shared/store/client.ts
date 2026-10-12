@@ -37,6 +37,7 @@ import type { PluginsEvent, PluginsRepository } from "../plugins/types";
 import type { DevModeEvent, DevModeRepository } from "../devmode/types";
 import type { UploadEvent } from "../multiplayer/uploads";
 import type { AiRepository, SearchRepository } from "../ai/types";
+import type { CloudEvent, CloudRepository } from "./cloud";
 import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "../libraries/orgTypes";
 
 interface Pending {
@@ -108,6 +109,7 @@ export class StoreClient implements StoreApi {
   private readonly fontsEvents = new Listeners<FontsEvent>();
   private readonly pluginsEvents = new Listeners<PluginsEvent>();
   private readonly devModeEvents = new Listeners<DevModeEvent>();
+  private readonly cloudEvents = new Listeners<CloudEvent>();
   private readonly connected = new Listeners<{ generation: number }>();
   /** Calls wait for this: the hello and the resync of a new port */
   private gate!: Promise<void>;
@@ -222,6 +224,7 @@ export class StoreClient implements StoreApi {
         else if (msg.topic === "plugins") this.pluginsEvents.emit(msg.d as PluginsEvent);
         else if (msg.topic === "devmode") this.devModeEvents.emit(msg.d as DevModeEvent);
         else if (msg.topic === "uploads") this.uploadEvents.emit(msg.d as UploadEvent);
+        else if (msg.topic === "cloud") this.cloudEvents.emit(msg.d as CloudEvent);
         return;
     }
   }
@@ -665,6 +668,15 @@ export class StoreClient implements StoreApi {
     skills: () => this.call("ai.skills", []),
     saveSkill: (s) => this.call("ai.saveSkill", [s]),
     removeSkill: (id) => this.call("ai.removeSkill", [id]),
+  };
+
+  readonly cloud: CloudRepository = {
+    status: () => this.call("cloud.status", []),
+    refresh: () => this.call("cloud.refresh", []),
+    cacheInfo: () => this.call("cloud.cacheInfo", []),
+    setCacheLimit: (bytes) => this.call("cloud.setCacheLimit", [bytes]),
+    clearCache: () => this.call("cloud.clearCache", []),
+    watch: (listener) => this.cloudEvents.add(listener),
   };
 
   readonly search: SearchRepository = {

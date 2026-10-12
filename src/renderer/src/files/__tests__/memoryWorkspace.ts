@@ -411,10 +411,12 @@ export class MemoryWorkspace implements WorkspaceRepository, MemoryExtras {
   }
 
   /** Test/demo setup: a file with given times, optionally viewed/starred/with a thumbnail. */
-  seedFile(input: { name: string; folderId?: FolderId | null; createdAt?: number; updatedAt?: number; viewedAt?: number; starred?: boolean; trashedAt?: number; thumbnail?: string }): FileMeta {
+  seedFile(input: { name: string; folderId?: FolderId | null; createdAt?: number; updatedAt?: number; viewedAt?: number; starred?: boolean; trashedAt?: number; thumbnail?: string; cloud?: FileMeta["cloud"] }): FileMeta {
     const meta = this.add({ name: input.name, folderId: input.folderId ?? null, createdAt: input.createdAt, updatedAt: input.updatedAt });
     const m = this.meta(meta.fileKey);
     if (input.trashedAt !== undefined) m.trashedAt = input.trashedAt;
+    // A personal draft's record (docs/cloud.md §2)
+    if (input.cloud) m.cloud = { ...input.cloud };
     if (input.thumbnail) {
       this.thumbnails.set(m.fileKey, input.thumbnail);
       m.thumbnail = { version: 1, width: 800, height: 450 };

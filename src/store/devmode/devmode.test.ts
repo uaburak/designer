@@ -44,7 +44,8 @@ async function open(token: string): Promise<TestStore> {
     log.push(`${req.method} ${new URL(req.url).pathname}${new URL(req.url).search}`);
     return handle(req, w.deps);
   };
-  const s = await openTestStore({ fetch });
+  // A local file's records: the workspace not the account's cloud cache (docs/cloud.md §2)
+  const s = await openTestStore({ fetch, personalDrafts: false });
   await s.api.multiplayer.setSession({ server: ORIGIN, token });
   return s;
 }
