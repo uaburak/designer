@@ -21,7 +21,9 @@ interface Relaunch {
 }
 
 /** The buttons for these nodes (the manifests the service knows decide names and multipleSelection). */
-export function relaunchesOf(s: PluginService, nodes: readonly Pick<NodeChange, "pluginRelaunchData">[]): Relaunch[] {
+export function relaunchesOf(s: PluginService, read: readonly (Pick<NodeChange, "pluginRelaunchData"> | null | undefined)[] | null | undefined): Relaunch[] {
+  // While a file loads (after a reload) a read can come back without nodes, or without some of them.
+  const nodes = (read ?? []).filter((n): n is Pick<NodeChange, "pluginRelaunchData"> => !!n);
   if (!nodes.length) return [];
   const per = nodes.map((n) => (n.pluginRelaunchData ?? []).filter((e) => !e.isDeleted && e.pluginID && e.command));
   const out: Relaunch[] = [];
@@ -42,7 +44,7 @@ export function RelaunchButtons({ refs }: { refs: readonly Guid[] }) {
   const key = refs.join(",");
   // Every committed edit moves the undo state: a run's setRelaunchData shows at once.
   const undo = useUndoState(ed.store);
-  const nodes = useMemo(() => (refs.length ? ed.engine.readNodes([...refs], { fields: ["pluginRelaunchData"] }) : []),
+  const nodes = useMemo(() => (refs.length && !ed.engine.destroyed ? (ed.engine.readNodes([...refs], { fields: ["pluginRelaunchData"] }) ?? []) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- read again when the selection or the plugin lists change
     [ed, key, snap, undo]);
   const buttons = service ? relaunchesOf(service, nodes) : [];

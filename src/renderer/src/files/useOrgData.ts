@@ -23,6 +23,11 @@ export interface OrgShell {
   folders: Record<string, O.ProjectSummary[]>;
   /** The account is on a network that only allows work accounts (docs/governance.md §2.5: 403 `network_restricted`) */
   network?: boolean;
+  /**
+   * The space (`orgId`, null for the local one) `orgs` was read for, once the store answered the list: an org missing
+   * from it then is gone for the person (removed, left, an expired guest), and Home falls back to their own space.
+   */
+  listedFor?: string | null;
 }
 
 export type OrgPageData =
@@ -139,12 +144,17 @@ export function useOrgData(org: OrgBackend | undefined, orgId: string | null, lo
   const readShell = useCallback(async (): Promise<OrgShell | null> => {
     if (!org) return null;
     let network = false;
+    let listed = true;
     const orgs = await org.orgs.list().catch((e: unknown) => {
       network = isNetworkRestricted(e);
+      listed = false;
       return [] as O.OrgSummary[];
     });
     if (network) return { orgs, info: null, teams: [], folders: {}, network };
-    if (!orgId) return { orgs, info: null, teams: [], folders: {} };
+    const listedFor = listed ? orgId : undefined;
+    if (!orgId) return { orgs, info: null, teams: [], folders: {}, listedFor };
+    // Gone from the list: nothing more to read there (Home switches back to the person's own space)
+    if (listed && !orgs.some((o) => o.id === orgId)) return { orgs, info: null, teams: [], folders: {}, listedFor };
     const [info, teams] = await Promise.all([org.orgs.get(orgId).catch(() => null), org.teams.list(orgId, "mine").catch(() => [] as O.TeamSummary[])]);
     teamsRef.current = teams;
     const folders: Record<string, O.ProjectSummary[]> = {};
@@ -155,7 +165,7 @@ export function useOrgData(org: OrgBackend | undefined, orgId: string | null, lo
         folders[k] = await org.projects.list(teamId, parent || null).catch(() => []);
       }),
     );
-    return { orgs, info, teams, folders };
+    return { orgs, info, teams, folders, listedFor };
   }, [org, orgId]);
   const loadShell = useCallback(
     () =>

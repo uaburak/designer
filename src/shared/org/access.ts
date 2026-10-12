@@ -26,7 +26,8 @@
  * Round 14 (docs/governance.md §2.7, §2.13): File exporting — `canExport = canEdit || (viewersCanCopy &&
  * viewerMayExport(policy, isOrgMember))`: editors always export; viewers as the policy's `fileExporting` says, where
  * people outside the org (guests, and link visitors not in it) count as guests. An expired guest has no membership
- * (the server leaves their row out), so they resolve as anyone outside the org.
+ * (the server leaves their row out, and their own grants on the org's file, folders, team and groups: `Access.expiredGuest`),
+ * so they resolve as anyone outside the org.
  */
 import type { FilePolicy } from "./identity";
 import { viewerMayExport } from "./governance";

@@ -917,6 +917,65 @@ function designerNav(): { goHome?: () => void; newFile?: () => void } | undefine
   return (window as unknown as { designer?: { nav?: { goHome?: () => void; newFile?: () => void } } }).designer?.nav;
 }
 
+/** "can view" in a shared file (the role the room gave; the engine is in viewer mode then: Multiplayer.tsx). */
+export function viewOnly(ed: EditorController): boolean {
+  // An editor without a source (a test's stub) is no shared file.
+  if (!ed.source) return false;
+  const p = presenceOf(ed)?.state;
+  return !!p?.shared && p.role === "viewer";
+}
+
+/**
+ * The commands that change the file outside the engine's command table (whose own state already refuses edits in viewer
+ * mode): off for a viewer. Figma's "can view" (help.figma.com "Share files and prototypes", "Guide to branching"):
+ * view, comment, inspect, export and copy as the owner allows — no editing, no placing images, no renaming the file or
+ * its layers, no moving it, no versions or publishing, and branches only by people who can edit the main file.
+ */
+const VIEWER_EDITS = new Set([
+  "edit.cut",
+  "edit.paste",
+  "edit.paste-over-selection",
+  "edit.paste-here",
+  "edit.paste-to-replace",
+  "edit.paste-properties",
+  "edit.find-replace",
+  "tool.image",
+  "file.place-image",
+  "file.rename",
+  "file.move",
+  "file.save-version",
+  "file.publish-library",
+  "file.create-branch",
+  "file.update-from-main",
+  "file.review-and-merge",
+  "file.archive-branch",
+  "object.ungroup",
+  "object.set-as-thumbnail",
+  "object.restore-default-thumbnail",
+  "object.hide-other-layers",
+  "object.remove-fill",
+  "object.remove-stroke",
+  "object.swap-fill-stroke",
+  "object.reset-all-changes",
+  "object.rotate-180",
+  "object.rotate-90-left",
+  "object.rotate-90-right",
+  "object.rename",
+  "object.create-brush.stretch",
+  "object.create-brush.scatter",
+  "object.apply-transforms",
+  "object.mark-ready-for-dev",
+  "object.mark-completed",
+  "object.remove-dev-status",
+  "canvas.rename-layers-ai",
+]);
+const viewerEdits = (id: string) => VIEWER_EDITS.has(id) || id.startsWith("object.add-layout-") || (id.startsWith("text.") && id !== "text.spell-check");
+for (const c of COMMANDS) {
+  if (!viewerEdits(c.id)) continue;
+  const own = c.enabled;
+  c.enabled = (ed) => !viewOnly(ed) && (own ? own(ed) : true);
+}
+
 export const COMMAND_BY_ID = new Map(COMMANDS.map((c) => [c.id, c]));
 
 export function command(id: string): EditorCommand {

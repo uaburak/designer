@@ -485,6 +485,16 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
 
   const account = useAccount();
   useSessionNotices(backend, toast);
+  // The shown org is gone from the person's list (removed, left, an expired guest): back to their own space, as Figma
+  // does, instead of a switcher naming nothing. Signed in only (signed out the store lists no orgs at all).
+  const orgGone = !!orgId && !!account.state?.user && orgShell.listedFor === orgId && !orgShell.orgs.some((o) => o.id === orgId);
+  const switchSpaceRef = useRef(switchSpace);
+  useLayoutEffect(() => {
+    switchSpaceRef.current = switchSpace;
+  });
+  useEffect(() => {
+    if (orgGone) switchSpaceRef.current("local");
+  }, [orgGone]);
   const [linkOpen, setLinkOpen] = useState(false);
   // Recents' tabs (live Figma): "Recently viewed" | "Shared files" (signed in)
   const [recentsTab, setRecentsTab] = useState<"viewed" | "shared">("viewed");

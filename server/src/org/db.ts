@@ -171,6 +171,25 @@ export class Access {
   }
 
   /**
+   * Is the caller a guest of the org whose access expired (Governance+, docs/governance.md §2.13)? Such a guest counts as
+   * not in the org, so their own grants on its files, folders and teams (and its user groups) count for nothing until the
+   * daily sweep deletes them. Asked only when `membership` found no row, so a member pays nothing more.
+   */
+  expiredGuest(orgId: string): Promise<boolean> {
+    return this.once(`xg:${orgId}`, async () => {
+      if (await this.membership(orgId)) return false;
+      const r = await this.d1
+        .prepare(
+          `SELECT 1 AS x FROM org_members m JOIN orgs o ON o.id = m.org_id WHERE m.org_id = ?1 AND (m.user_id = ?2 OR (m.user_id IS NULL AND m.email = ?3))
+           AND m.role = 'guest' AND o.governance_plus = 1 AND m.expires_at IS NOT NULL AND m.expires_at <= ?4 LIMIT 1`,
+        )
+        .bind(orgId, this.user.id, this.user.email, this.deps.now())
+        .first();
+      return !!r;
+    });
+  }
+
+  /**
    * What blocks the caller in the org (docs/governance.md §2.5), once per request: nothing (no query) without the add-on
    * or outside the org; otherwise one query (gate.ts `gateCols`).
    */
@@ -306,6 +325,8 @@ export class Access {
     // A file in a trashed folder is in the trash with it.
     const trashedAt = f.trashed_at ?? chain.find((p) => p.trashed_at !== null)?.trashed_at ?? null;
     const m = orgId ? await this.membership(orgId) : null;
+    // An expired guest (§2.13) is anyone outside the org: their own rows on the org's file, folders and team are gone.
+    const expired = orgId ? await this.expiredGuest(orgId) : false;
     const home = await this.home();
     return {
       user: { id: this.user.id, email: this.user.email },
@@ -326,13 +347,13 @@ export class Access {
         protoLinkAccess: f.proto_link_access,
         protoOrgLinkAccess: f.proto_org_link_access,
       },
-      prototypeMember: await this.prototypeMember(f.key),
-      fileGrants: await this.fileGrants(f),
-      folders,
-      team: team ? { id: team.id, ownerId: team.owner_id, workspaceId: team.workspace_id, orgAccess: team.org_access, workspaceAccess: team.workspace_access, visibility: team.visibility, deletedAt: team.deleted_at, grants: await this.teamGrants(team.id) } : null,
+      prototypeMember: !expired && (await this.prototypeMember(f.key)),
+      fileGrants: expired ? [] : await this.fileGrants(f),
+      folders: expired ? folders.map((p) => ({ ...p, grants: [] })) : folders,
+      team: team ? { id: team.id, ownerId: team.owner_id, workspaceId: team.workspace_id, orgAccess: team.org_access, workspaceAccess: team.workspace_access, visibility: team.visibility, deletedAt: team.deleted_at, grants: expired ? [] : await this.teamGrants(team.id) } : null,
       membership: m ? { role: m.role, seat: m.seat, workspaceId: m.workspace_id } : null,
-      workspaceAdminOf: orgId ? await this.workspaceAdminOf(orgId) : [],
-      userGroups: orgId ? await this.groups(orgId) : [],
+      workspaceAdminOf: orgId && !expired ? await this.workspaceAdminOf(orgId) : [],
+      userGroups: orgId && !expired ? await this.groups(orgId) : [],
       viaLink: opts.viaLink,
       passOk: opts.passOk,
       externalRestricted: home?.restricted ?? false,
@@ -375,17 +396,19 @@ export class Access {
     const team = await this.team(teamId);
     if (!team) return { ok: false, reason: "none", role: null };
     const m = await this.membership(team.org_id);
+    const expired = await this.expiredGuest(team.org_id);
     const chainTrashed = projectId ? (await this.chain(projectId)).some((p) => p.trashed_at !== null) : false;
+    const folders = projectId ? await this.folderRows(projectId) : [];
     const r = resolveContainer({
       user: { id: this.user.id, email: this.user.email },
       orgId: team.org_id,
       teamId,
       projectId,
-      folders: projectId ? await this.folderRows(projectId) : [],
-      team: { id: team.id, ownerId: team.owner_id, workspaceId: team.workspace_id, orgAccess: team.org_access, workspaceAccess: team.workspace_access, visibility: team.visibility, deletedAt: team.deleted_at, grants: await this.teamGrants(team.id) },
+      folders: expired ? folders.map((p) => ({ ...p, grants: [] })) : folders,
+      team: { id: team.id, ownerId: team.owner_id, workspaceId: team.workspace_id, orgAccess: team.org_access, workspaceAccess: team.workspace_access, visibility: team.visibility, deletedAt: team.deleted_at, grants: expired ? [] : await this.teamGrants(team.id) },
       membership: m ? { role: m.role, seat: m.seat, workspaceId: m.workspace_id } : null,
-      workspaceAdminOf: await this.workspaceAdminOf(team.org_id),
-      userGroups: await this.groups(team.org_id),
+      workspaceAdminOf: expired ? [] : await this.workspaceAdminOf(team.org_id),
+      userGroups: expired ? [] : await this.groups(team.org_id),
       now: this.deps.now(),
     });
     // A folder in the trash: its editors and admins still see it (to restore), read-only.
