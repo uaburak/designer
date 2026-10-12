@@ -384,7 +384,7 @@ Old **7c "editor types" is dropped**: Draw is a mode of a Design file, and the o
 ### Round 8 — Motion — **contract written 2026-10-12** (`docs/motion.md`)
 
 
-**Owner, 2026-10-12:** time-stamped comments (8g, migration 0017) are deferred — not in this round. Other answers in docs/motion.md §12.
+**Owner, 2026-10-12: Round 8 (Motion) is skipped for now — the whole round is deferred.** The contract (docs/motion.md, with his answers in §12) stays ready for later; time-stamped comments (8g, migration 0017) are deferred with it. Nothing of Round 8 is started.
 
 **Contract:** `docs/motion.md` covers:
 - Figma's verified facts (§1: the help centre's Motion articles, the blog, the plugin API's Motion types, Figma's own motion skills) and what we already have (§2);
