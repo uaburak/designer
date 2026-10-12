@@ -1,12 +1,14 @@
 /**
  * Actions (⌘K, the toolbar's Actions, the Figma menu's "Actions…"; live toolbar/actions-panel.txt): a 529 × 354 palette
  * over the bottom toolbar, its left edge at the toolbar's and 8 above it — the search (431 × 32 at 44, 8), the tabs All
- * / Assets / Plugins & widgets (at 8, 48), the "Visual search (AI beta)" button at 491, 12 (live's AI; listed, not
- * built), then sections: a header (11 / 450, secondary) and rows of 32 (13 / 400, the text at 44 after a 24 glyph
- * column). Live Figma's All tab opens on Recents and its AI sections (Image editing, Design tools, Riffing and writing
- * — not part of this app); here it opens on Recents (what was run from the palette, kept per machine; none yet: the
- * block's header alone, as live's with no recents is unverified); typing searches the editor's command
- * registry (menus.ts actionItems). Assets lists this file's components
+ * / Assets / Plugins & widgets (at 8, 48), the "Visual search (AI beta)" button at 491, 12 (opens visual search,
+ * editor/search), then sections: a header (11 / 450, secondary) and rows of 32 (13 / 400, the text at 44 after a 24
+ * glyph column). The All tab opens on Recents (what was run from the palette, kept per machine; none yet: the block's
+ * header alone, as live's with no recents is unverified), then the AI sections — Image editing, Design tools, Riffing
+ * and writing (editor/ai/actionRows.ts), each row with the "AI" badge; typing searches the editor's command registry
+ * (menus.ts actionItems) and the AI rows. An AI row with a form (Rewrite this…, Translate to…, Replace content, First
+ * Draft) shows it in the panel; a run started here shows its progress with Stop, and its error, in place of the list
+ * (editor/ai/AiPanel.tsx); Esc or closing the panel stops it (docs/ai.md §2.3). Assets lists this file's components
  * (a pick inserts an instance in the middle of the view). Plugins & widgets (docs/plugins.md §6) lists the plugins by
  * section — Recents, Saved, Development, From ‹org› — and, typed into, their menu commands too (also in All's search);
  * a plugin with parameters prompts for them in the palette (suggestions from figma.parameters.on("input"), Tab / Enter
@@ -26,6 +28,10 @@ import { useUI } from "../hooks";
 import { actionItems, runMenuItem, type ActionItem } from "../menus";
 import { assetLabel, searchAssets } from "../model/components";
 import { useComponentAssets } from "./design/ComponentPicker";
+import { aiOf } from "../ai/service";
+import { AI_ROW_BY_ID, AI_ROWS, imageRowHandler, type AiRowDef } from "../ai/actionRows";
+import { AiBadge, AiPanelView, showsAiView, useAiState } from "../ai/AiPanel";
+import { openVisualSearch } from "../search";
 import styles from "./ActionsPanel.module.css";
 
 /** Live: 529 × 354, 8 above the toolbar */
@@ -53,6 +59,8 @@ interface Row {
   run: () => boolean;
   /** A plugin's row: its ⋯ menu */
   plugin?: PluginRow;
+  /** An AI row: the "AI" badge; the panel stays open for its form or progress */
+  ai?: boolean;
 }
 
 function loadRecents(): string[] {
@@ -93,13 +101,13 @@ function score(label: string, query: string): number {
  * matches, best first, by section.
  */
 export function actionRows(items: readonly ActionItem[], query: string, recents: readonly string[], run: (id: string) => boolean): Row[] {
-  const row = (a: ActionItem, section = a.section): Row => ({ key: `${section}:${a.id}`, label: a.label, section, shortcut: a.shortcut, icon: toolIcon(a.id), disabled: a.disabled, run: () => run(a.id) });
+  const row = (a: ActionItem, section = a.section): Row => ({ key: `${section}:${a.id}`, label: a.label, section, shortcut: a.shortcut, icon: AI_ROW_BY_ID.get(a.id)?.icon ?? toolIcon(a.id), disabled: a.disabled, run: () => run(a.id), ...(AI_ROW_BY_ID.has(a.id) ? { ai: true } : {}) });
   const q = query.trim();
   if (!q) {
     const byId = new Map(items.map((a) => [a.id, a]));
     const recent = recents.map((id) => byId.get(id)).filter((a): a is ActionItem => !!a);
-    // (live: Recents only — with none yet, an empty block; no list of every command)
-    return recent.map((a) => row(a, "Recents"));
+    // (live: Recents, then the AI sections — no list of every command)
+    return [...recent.map((a) => row(a, "Recents")), ...items.filter((a) => AI_ROW_BY_ID.has(a.id)).map((a) => row(a))];
   }
   const scored = items.map((a) => ({ a, s: score(a.label, q) })).filter((x) => x.s > 0);
   // Sections in the order of their best match; within one, best first (the menu's order breaks ties).
@@ -132,6 +140,15 @@ function close(ed: EditorController) {
   ed.focusCanvas();
 }
 
+/** The AI rows as palette items: disabled while AI is off (Settings › AI, an organization), image rows until their tools register. */
+function aiItems(ed: EditorController, enabled: boolean): ActionItem[] {
+  return AI_ROWS.map((r) => {
+    const image = r.section === "Image editing";
+    const h = image ? imageRowHandler(r.action) : undefined;
+    return { id: r.id, label: r.label, section: r.section, disabled: !enabled || (image && !(h && (h.enabled?.(ed) ?? true))) };
+  });
+}
+
 function Actions() {
   const ed = useEditor();
   const root = useRef<HTMLDivElement>(null);
@@ -150,7 +167,14 @@ function Actions() {
   const assets = useComponentAssets();
   const [recents] = useState(loadRecents);
   // The commands as they stand when the palette opens (enabled or not for this selection).
-  const items = useMemo(() => actionItems(ed), [ed]);
+  const ai = aiOf(ed);
+  const aiState = useAiState(ai);
+  const items = useMemo(() => [...actionItems(ed), ...aiItems(ed, aiState.enabled)], [ed, aiState.enabled]);
+  useEffect(() => {
+    void ai.refresh();
+    return () => ai.panelClosed();
+  }, [ai]);
+  const aiView = showsAiView(aiState);
   // The toolbar's Actions button toggles it itself.
   const [button] = useState(() => document.querySelector('[data-ds="EditorToolbar"] button[aria-label="Actions"]'));
   useDismiss(root, () => close(ed), { ignore: button, blur: true, resize: true, escape: false });
@@ -181,7 +205,8 @@ function Actions() {
         run: () => insertInstance(ed, a.target) !== null,
       }));
     const commands = actionRows(items, query, recents, (id) => {
-      const ran = runMenuItem(ed, id);
+      const def = AI_ROW_BY_ID.get(id);
+      const ran = def ? runAi(def) : runMenuItem(ed, id);
       if (ran) remember(id);
       return ran;
     });
@@ -190,6 +215,28 @@ function Actions() {
     return [...commands, ...found];
     // eslint-disable-next-line react-hooks/exhaustive-deps -- pluginRow / startPlugin read the latest service and prompt
   }, [tab, assets, query, items, recents, ed, prompt, plugins, pluginsSnap]);
+
+  /** An AI row: its form, or its run in the panel (closed when it succeeds); an image tool's row runs it. */
+  const runAi = (def: AiRowDef): boolean => {
+    if (def.section === "Image editing") {
+      const h = imageRowHandler(def.action);
+      if (!h) return false;
+      close(ed);
+      h.run(ed);
+      return true;
+    }
+    if (def.form) {
+      ai.openForm(def.form);
+      return true;
+    }
+    const done = (r: number | null) => {
+      if (r !== null && !ai.get().error) close(ed);
+    };
+    if (def.action === "rename-layers") void ai.renameLayers({ fromPanel: true }).then(done);
+    else if (def.action === "shorten") void ai.editTexts({ kind: "shorten" }, { fromPanel: true }).then(done);
+    else if (def.action === "add-interactions") void ai.addInteractions({ fromPanel: true }).then(done);
+    return true;
+  };
 
   /** The parameters prompt: the person typed `q` for the current parameter. */
   const askSuggestions = (p: ParameterPrompt, q: string) => {
@@ -229,7 +276,7 @@ function Actions() {
     if (prompt) return acceptParameter(prompt.suggestions[i] ?? null);
     const r = rows[i];
     if (!r || r.disabled) return;
-    const asks = !!r.plugin?.parameters?.length;
+    const asks = !!r.plugin?.parameters?.length || !!r.ai;
     if (!asks) close(ed);
     else {
       setQuery("");
@@ -258,6 +305,18 @@ function Actions() {
         style={{ left: at.left, top: at.top, width: WIDTH, height: HEIGHT }}
         onKeyDown={(e) => {
           e.stopPropagation();
+          if (aiView) {
+            // Esc stops the run, else leaves the form; the form's own keys stay its own.
+            if (e.key === "Escape") {
+              e.preventDefault();
+              if (aiState.run) ai.stop();
+              else ai.openForm(null);
+            } else if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              close(ed);
+            }
+            return;
+          }
           if (e.key === "Escape") {
             e.preventDefault();
             if (prompt) {
@@ -281,6 +340,10 @@ function Actions() {
           }
         }}
       >
+        {aiView ? (
+          <AiPanelView ai={ai} onDone={() => close(ed)} />
+        ) : (
+        <>
         <div className={styles.search}>
           <span className={styles.searchIcon}>
             <Icon name="24.search.small" />
@@ -304,8 +367,17 @@ function Actions() {
               if (prompt) askSuggestions(prompt, e.target.value);
             }}
           />
-          {/* Live: "Visual search (AI beta)" at 491, 12 — live's AI image search, not part of this app */}
-          <IconButton icon="24.image" label="Visual search (AI beta)" className={styles.visualSearch} disabled />
+          {/* Live: "Visual search (AI beta)" at 491, 12 — opens visual search (docs/ai.md §6) */}
+          <IconButton
+            icon="24.image"
+            label="Visual search (AI beta)"
+            className={styles.visualSearch}
+            disabled={!aiState.enabled}
+            onClick={() => {
+              close(ed);
+              openVisualSearch({ selection: ed.selection.length > 0 });
+            }}
+          />
         </div>
         {/* Live: both lines are there for assistive tech — "Results will update as you type." at -1, 3 and "11 results available." at -1, 27 */}
         <div role="status" className={styles.srOnly}>
@@ -353,6 +425,7 @@ function Actions() {
               >
                 <span className={styles.glyph}>{r.icon && <Icon name={r.icon} />}</span>
                 <span className={styles.label}>{r.label}</span>
+                {r.ai && <AiBadge />}
                 {r.shortcut && <span className={styles.shortcut}>{r.shortcut}</span>}
                 {r.plugin && plugins && (
                   <span className={styles.more} onClick={(e) => e.stopPropagation()}>
@@ -373,6 +446,8 @@ function Actions() {
             </span>
             <span className={styles.label}>Import new plugin from manifest…</span>
           </button>
+        )}
+        </>
         )}
       </div>
     </Portal>

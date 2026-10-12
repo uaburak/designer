@@ -589,7 +589,8 @@ async function placeImageTool(env: ToolEnv, args: Spec): Promise<ToolResult> {
 
 // ---- Writes: layers -------------------------------------------------------------------------------------------------
 
-function createNodes(env: ToolEnv, args: Spec): ToolResult {
+/** create_nodes (also First Draft's apply, editor/ai: inside its own write, `env.write` running `fn` as it is). */
+export function createNodes(env: ToolEnv, args: Spec): ToolResult {
   const specs = Array.isArray(args.nodes) ? (args.nodes as Spec[]) : [];
   if (!specs.length) throw new ToolError("nodes: give at least one spec");
   const parentId = args.parentId ? normId(args.parentId) : currentPage(env);

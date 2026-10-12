@@ -131,7 +131,7 @@ describe("round 9: the Figma menu (live menus/main-*.txt)", () => {
     const { ed, engine } = await editor();
     engine.setSelection(["1:2"]);
     const main = mainMenu(ed);
-    expect(labels(main)).toEqual(["Back to files", "Actions…", "File", "Edit", "View", "Object", "Text", "Arrange", "Vector", "Plugins", "Widgets", "Preferences", "Libraries", "Open in desktop app", "Help and account"]);
+    expect(labels(main)).toEqual(["Back to files", "Actions…", "File", "Edit", "View", "Object", "Text", "Arrange", "Vector", "Plugins", "Widgets", "Preferences", "Libraries", "AI balance", "Open in desktop app", "Help and account"]);
     expect(Math.round(MAIN_MENU_WIDTH)).toBe(194);
     const actions = items(main).find((i) => i.id === "tool.actions")!;
     expect(actions.disabled).toBe(false);

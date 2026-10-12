@@ -8,6 +8,7 @@
  * - a video (a layer with a video fill): Video (help.figma.com 8878274530455 "Video properties": "Check the box to
  *   autoplay video", "Click the Loop icon to loop video", "Click the Sound icon to turn the video's default sound
  *   setting on or off") — the schema's videoPlayback.
+ * Two or more top-level frames: Interactions offers "Add interactions" with AI (AddInteractions.tsx, docs/ai.md §3).
  * An interaction row ("Click → Details", newest first) opens Interaction details (InteractionDetails.tsx). Everything is stored in
  * the schema's prototype fields (prototypeInteractions, prototypeStartingPoint, prototypeDevice,
  * prototypeBackgroundColor, scrollDirection, scrollBehavior), so it round-trips with .fig files.
@@ -42,6 +43,7 @@ import {
 import { useSelectedNodes, type PanelNode } from "../design/shared";
 import { present } from "../../present";
 import { InteractionDetails, hasVideoFill } from "./InteractionDetails";
+import { AddInteractionsButton } from "./AddInteractions";
 import styles from "./Prototype.module.css";
 
 export type ProtoNode = PanelNode & PrototypeFields;
@@ -262,7 +264,7 @@ function Selected({
   return (
     <>
       {one && topLevel && isFrame(one) && <FlowSection frame={one} frames={frames} />}
-      <InteractionsSection nodes={nodes} frames={frames} onOpen={onOpen} openIndex={openIndex} />
+      <InteractionsSection nodes={nodes} frames={frames} onOpen={onOpen} openIndex={openIndex} screens={nodes.length > 1 && nodes.every((n) => n.parentIndex?.guid === page && isFrame(n))} />
       {nodes.every((n) => hasVideoFill(n as never)) && <VideoSection nodes={nodes} />}
       <ScrollSection nodes={nodes} topLevel={topLevel} isFrame={nodes.every(isFrame)} />
     </>
@@ -315,11 +317,14 @@ function InteractionsSection({
   frames,
   onOpen,
   openIndex,
+  screens,
 }: {
   nodes: ProtoNode[];
   frames: PageFrame[];
   onOpen: (node: Guid, index: number, anchor: HTMLElement | null) => void;
   openIndex: { node: Guid; index: number } | null;
+  /** Two or more top-level frames: "Add interactions" (AI) connects them */
+  screens?: boolean;
 }) {
   const ed = useEditor();
   const one = nodes.length === 1 ? nodes[0] : null;
@@ -345,7 +350,8 @@ function InteractionsSection({
     if (one) onOpen(one.guid, list.length, anchor);
   };
   return (
-    <PanelSection title="Interactions" empty={list.length === 0 && !mixed} actions={<IconButton icon="24.plus.small" label="Add interaction" tone="secondary" onClick={add} />}>
+    <PanelSection title="Interactions" empty={list.length === 0 && !mixed && !screens} actions={<IconButton icon="24.plus.small" label="Add interaction" tone="secondary" onClick={add} />}>
+      {screens && <AddInteractionsButton />}
       {mixed && <div className={styles.note}>Click + to replace mixed interactions</div>}
       {one &&
         // Live (2026-10-10): the newest interaction on top; each row "Hover → 1" — the short trigger, the first

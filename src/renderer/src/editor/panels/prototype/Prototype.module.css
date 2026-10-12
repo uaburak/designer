@@ -194,4 +194,30 @@
     color: var(--figma-color-text-danger);
     font: var(--ds-font-body-small);
   }
+  /* Add interactions (AI): the button across the section, the AI badge after it */
+  .aiRow {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    padding: var(--ds-space-1) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-size-panel-pad-left);
+  }
+  /* Its banner at the bottom of the canvas, over the toolbar: Preview, Keep it, ✕ */
+  .aiBanner {
+    position: fixed;
+    left: 50%;
+    bottom: calc(var(--ds-size-toolbar-bottom) + var(--ds-space-6));
+    z-index: var(--ds-z-floating);
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-4);
+    border-radius: var(--ds-radius-large);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    box-shadow: var(--ds-elevation-400-menu-panel);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    transform: translateX(-50%);
+  }
+  .aiBannerText { margin-right: var(--ds-space-2); white-space: nowrap; }
 }
