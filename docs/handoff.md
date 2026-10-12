@@ -586,3 +586,21 @@ Acceptance (verified with `scripts/drive.mjs` on the built demo app): launch →
   - **Web HMR**: `main.tsx` reuses its root (`import.meta.hot.data`, else the container) when re-run; the TDZ offenders made lazy — `plugins/api/nodes.ts` reads `PROP_NAMES` on first use, `commands.ts` calls `canExport` / `hasTextSelected` instead of referencing them at load. Files mixing component and other exports still make Fast Refresh fall back to a full reload (correct, slower). Test: `app/__tests__/mainHmr.dom.test.ts`. Not tried in a live Vite session.
   - **Lint**: `Menu.tsx` `edges` memoized on `edgeBottom` and the effect depends on it; lint has no warnings now.
   - Checks: `npm run check` (238 files, 1948 tests, no lint warnings), `npm run engine:test` (624 cases). Not checked by screenshot: the new status chips' look.
+- 2026-10-12 — **Phase 7 round 7 contract: Draw** (docs only). `docs/draw.md` holds:
+  - Figma Draw verified on help.figma.com and the plugin API (Update 123): the 25 built-in brush names, the ComplexStrokeProperties ranges, TextPathNode / TransformGroupNode / TransformModifier;
+  - what we already have, with file references;
+  - the engine model: TRANSFORM 48 repeats as derived instances, dynamic strokes, TEXT_PATH 41 layout along a path with `Glyph.rotation`, brush install / Brush tool / Create brush / clipboard, multi-edit in vector edit;
+  - CommandIds 310–321, tools BRUSH / TEXT_PATH, exports;
+  - Draw mode's chrome (toolbar, secondary toolbar, sidebar with sliders, Transform section, Stroke Dynamic / Brush, 48 px thumbnail Layers);
+  - our own procedural brushes under Figma's names;
+  - plugin API / REST / `.fig` fidelity;
+  - `src/shared/draw/types.ts` verbatim.
+
+  The roadmap's Round 7 is rewritten:
+  - 7a engine model and render, then 7b engine tools and the release wasm, one after the other;
+  - 7c toolbar and tools, 7d panels and layers, 7e assets / plugin / `.fig`, in parallel with the engine work;
+  - old 7c "editor types" dropped (Draw is a mode).
+
+  `docs/schema.md` §15.1: the Draw row decided; `multiEditGlueId 462` moved to Sites.
+  - **Next**: the main session's pre-round commit (schema §4.1 + `engine:gen`, shared types, Engine.ts stubs, abi.ts, icons), then the agents.
+  - **Open**: `docs/draw.md` §11. Above all, a Draw sample `.fig` and a signed-in capture to calibrate every [unverified] constant.

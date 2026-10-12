@@ -498,6 +498,8 @@ Real Figma files carry Figma's own layout results. The golden layout tests (§11
   - Flatten (⌘E) writes the result as a VECTOR.
 - **Path hit-testing** (`PathHitTest.cpp`): winding number on the flattened polyline at the current zoom tolerance; distance to the polyline for strokes and lines.
 
+- **Figma Draw (Phase 7 round 7)**: transform groups (TRANSFORM 48, repeat as derived instances), dynamic strokes (`DynamicStroke.*`), text on a path (TEXT_PATH 41, `text/TextPathLayout.*`), brushes' install / tool / Create brush and multi-edit are specified in `docs/draw.md` §4. That file is this contract's Draw section.
+
 ---
 
 ## 6. Renderer (ours)
