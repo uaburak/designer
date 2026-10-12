@@ -75,11 +75,6 @@ export function sortReady(items: readonly ReadyItem[], sort: ReadySort): ReadyIt
   return list.sort((a, b) => at(b) - at(a) || a.order - b.order);
 }
 
-/** What a card says: "Changed" for a Ready to Dev design edited since (Figma's), else the owner's status. */
-export function readyItemLabel(item: ReadyItem): string {
-  if (item.workflow === "ready-to-dev" && item.status === "CHANGED") return "Changed";
-  return FRAME_STATUSES.find((s) => s.id === item.workflow)?.label ?? item.workflow;
-}
 
 export const FILTERS: { value: ReadyFilter; label: string }[] = [{ value: "all", label: "All" }, ...FRAME_STATUSES.map((s) => ({ value: s.id, label: s.label }))];
 export const SORTS: { value: ReadySort; label: string }[] = [

@@ -11,7 +11,8 @@ import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../controller";
 import { useDocumentVersion, useUI } from "../hooks";
 import { setDevStatusOf } from "../devStatus";
-import { canSetStatus, frameStatusLabel, frameStatusOf } from "../frameStatus";
+import { canSetStatus, frameStatusOf } from "../frameStatus";
+import { StatusTag } from "./StatusTag";
 import { frameStatusMenu, isStatusRow, pickFrameStatus } from "../panels/design/FrameStatusButton";
 import { CATEGORY_COLORS, CATEGORY_COLOR_LABEL, CATEGORY_HEX, type Category, type CategoryColor } from "./annotations";
 import { closeFocus, modeOf, openFocus, readCategories, setMode, writeCategories } from "./devMode";
@@ -204,18 +205,16 @@ export function FocusBar() {
         See all ready for dev
       </Button>
       <span className={styles.focusName}>{name}</span>
-      {status && (
-        <button
-          type="button"
-          className={styles.focusStatus}
-          data-status={status}
+      {workflow && (
+        <StatusTag
+          workflow={workflow}
+          dev={status}
+          variant="chip"
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             ed.ui.set({ statusMenu: { ref: focus, x: r.left, y: r.top, width: r.width, height: r.height } });
           }}
-        >
-          {status === "CHANGED" && workflow === "ready-to-dev" ? "Changed" : workflow ? frameStatusLabel(workflow) : status === "COMPLETED" ? "Completed" : "Ready for dev"}
-        </button>
+        />
       )}
       <span className={styles.grow} />
       <Button variant="secondary" onClick={() => closeFocus(ed, { inspectOnPage: true })}>

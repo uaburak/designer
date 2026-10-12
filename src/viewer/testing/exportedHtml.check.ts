@@ -104,8 +104,10 @@ describe("the exported preview HTML (headless Chromium)", () => {
       expect(text).toContain("Surface");
       expect(text).toContain("Export Card");
       // Dev Mode status: the badge in Inspect, the row in the left panel's "Ready for development".
-      expect(text).toContain("Ready for dev");
-      expect(await page.locator("[data-status-row]").innerText()).toContain("Card");
+      // The owner's labels (docs/editor.md "Frame status (ours)"): Card is Ready to Dev, Other is Process.
+      expect(text).toContain("Ready to Dev");
+      expect(await page.locator('[data-status-row="ready-to-dev"]').innerText()).toContain("Card");
+      expect(await page.locator('[data-status-row="process"]').innerText()).toContain("Process");
       await page.screenshot({ path: join(outDir, "02-card-inspect.png") });
 
       // Zoomed to the card: still a busy picture (the photo's bands, the texts).

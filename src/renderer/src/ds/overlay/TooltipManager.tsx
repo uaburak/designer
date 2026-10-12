@@ -36,16 +36,19 @@ export function TooltipManager() {
       current.current = null;
       setTip(null);
     };
+    // An open menu (a MenuButton's, a context menu, the canvas status menu) never has a tooltip under it: checked when
+    // the tooltip would show, not only when the pointer arrives — a menu opened during the delay (by a key, or by the
+    // control's own press) wins.
+    const menuOpen = () => Boolean(document.querySelector('[data-ds="Menu"]:not([data-static])'));
     const show = (el: HTMLElement, delay: number) => {
       const t = read(el);
-      if (!t) return;
+      if (!t || menuOpen()) return;
       window.clearTimeout(timer.current);
       current.current = el;
       const warm = Date.now() - lastHidden.current < timing.tooltipWarm;
       if (warm || delay === 0) setTip(t);
-      else timer.current = window.setTimeout(() => current.current === el && setTip(t), delay);
+      else timer.current = window.setTimeout(() => current.current === el && !menuOpen() && setTip(t), delay);
     };
-    const menuOpen = () => Boolean(document.querySelector('[data-ds="Menu"]:not([data-static])'));
     const over = (e: PointerEvent) => {
       if (e.pointerType !== "mouse" || e.buttons) return;
       const el = (e.target as Element | null)?.closest?.<HTMLElement>("[data-tooltip]");

@@ -718,7 +718,8 @@ Guid Editor::makeComponentFrom(Guid node) {
   c.frameMaskDisabled = true;
   c.transform = Mat2x3::translate(u.x, u.y);
   c.size = {u.w, u.h};
-  c.parentIndex = {parent, placeManyAt(parent, index + 1, 1, GuidSet{node})[0]};
+  // At the layer's own place (Figma): placeManyAt counts the siblings without the layer, so its index is the slot.
+  c.parentIndex = {parent, placeManyAt(parent, index, 1, GuidSet{node})[0]};
   Guid comp = newGuid();
   write(NodeChange::created(comp, c));
   auto keys = fractional::keysBetween("", std::nullopt, static_cast<int>(kids.size()));

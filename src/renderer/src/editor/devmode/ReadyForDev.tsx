@@ -13,9 +13,10 @@ import { ViewerDoc } from "../../../../viewer/viewerDoc";
 import { editedAgo, type DevStatus } from "../../../../viewer/inspect/devMode";
 import { useEditor, type EditorController } from "../controller";
 import { useUI } from "../hooks";
-import { FRAME_STATUS_COLOR, frameStatusLabel, statusIn, type FrameStatus, type PluginDataEntry } from "../workflowStatus";
+import { frameStatusLabel, statusIn, type FrameStatus, type PluginDataEntry } from "../workflowStatus";
 import { openFocus } from "./devMode";
-import { FILTERS, SORTS, filterReady, readyItemLabel, readyItems, sortReady, type ReadyItem } from "./readyFeed";
+import { FILTERS, SORTS, filterReady, readyItems, sortReady, type ReadyItem } from "./readyFeed";
+import { StatusTag } from "./StatusTag";
 import { setRound5, useRound5, type Round5State } from "./round5";
 import styles from "./DevMode.module.css";
 
@@ -160,10 +161,7 @@ function ReadyCard({ ed, item, onOpen }: { ed: EditorController; item: ReadyItem
       <span className={styles.readyThumb}>{src && <img src={src} alt="" />}</span>
       <span className={styles.readyName}>{item.name}</span>
       <span className={styles.readyMeta}>
-        <span className={styles.readyStatus} data-status={item.workflow}>
-          <span className={styles.statusDot} style={{ background: FRAME_STATUS_COLOR[item.workflow] }} aria-hidden />
-          {readyItemLabel(item)}
-        </span>
+        <StatusTag workflow={item.workflow} dev={item.status} variant="dot" />
         <span>{item.pageName}</span>
       </span>
       {ago && <span className={styles.hint}>{ago}</span>}

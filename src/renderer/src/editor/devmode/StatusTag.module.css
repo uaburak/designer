@@ -1,0 +1,20 @@
+@layer app {
+  .tag { display: inline-flex; flex: none; align-items: center; gap: var(--ds-space-1); min-width: 0; white-space: nowrap; }
+  .dot { flex: none; width: var(--ds-space-2); height: var(--ds-space-2); border-radius: var(--ds-radius-full); }
+  .label { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
+  .tag[data-status="cancelled"] .label { color: var(--figma-color-text-disabled); }
+  .changed { color: var(--figma-color-text-warning); font: var(--ds-font-body-medium-strong); }
+  .chip,
+  .changedChip {
+    flex: none;
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    font: var(--ds-font-body-medium-strong);
+    line-height: var(--ds-size-control);
+  }
+  /* Filled with the status's colour, its label white as the canvas draws it (Cancelled muted). */
+  .chip { background: var(--status-color); color: var(--figma-color-text-onbrand); cursor: default; }
+  .tag[data-status="cancelled"] .chip { color: var(--figma-color-text-secondary); }
+  .changedChip { background: var(--figma-color-bg-warning); color: var(--figma-color-text-onwarning); }
+}

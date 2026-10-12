@@ -8,6 +8,15 @@ import type { AssetId, Guid, NodeChange } from "@/engine/codec";
 import type { BoundName, InspectInput } from "./inspect/model";
 import { boundsOf, IDENTITY, multiply, type Affine, type Box } from "./inspect/measure";
 import { annotationsOf, statusOf, type AnnotationView, type AssetNode, type DevStatus, type StatusNode } from "./inspect/devMode";
+import { statusIn, type FrameStatus, type PluginDataEntry } from "@/editor/workflowStatus";
+
+/** A design with a status: the owner's (`workflow`) and Figma's own, if any (`status`, "CHANGED" when edited since). */
+export interface DesignStatus {
+  id: Guid;
+  name: string;
+  status: DevStatus | null;
+  workflow: FrameStatus;
+}
 
 export interface LayerNode {
   id: Guid;
@@ -50,7 +59,7 @@ export class ViewerDoc {
   private readonly geometry = new Map<Guid, { transform: Affine; size: { x: number; y: number }; parent: Guid | null; type: string } | null>();
   private styleNames: Map<Guid, string> | null = null;
   private collections: Map<Guid, { name: string; modes: Map<Guid, string> }> | null = null;
-  private readonly statusCache = new Map<Guid, { id: Guid; name: string; status: DevStatus }[]>();
+  private readonly statusCache = new Map<Guid, DesignStatus[]>();
   private readonly annotationCache = new Map<Guid, { id: Guid; notes: AnnotationView[] }[]>();
 
   constructor(readonly engine: Engine) {}
@@ -187,10 +196,12 @@ export class ViewerDoc {
   }
 
   /**
-   * The page's designs with a Dev Mode status ("Ready for dev", "Completed"): its top-level frames and sections and
-   * the frames and sections inside sections, in the Layers panel's order.
+   * The page's designs with a status — the owner's (docs/editor.md "Frame status (ours)": `designer.workflow` in
+   * pluginData, else the one Figma's "Ready for dev" / "Completed" stands for), with Figma's own beside it (`status`, for
+   * "Changed"): its top-level frames, sections, components and instances and those inside sections, in the Layers
+   * panel's order.
    */
-  statuses(page: Guid): { id: Guid; name: string; status: DevStatus }[] {
+  statuses(page: Guid): DesignStatus[] {
     const cached = this.statusCache.get(page);
     if (cached) return cached;
     const tree = this.tree(page);
@@ -198,18 +209,19 @@ export class ViewerDoc {
     const walk = (list: readonly Guid[]) => {
       for (const id of list) {
         const n = tree.nodes.get(id);
-        if (!n || (n.type !== "FRAME" && n.type !== "SECTION" && n.type !== "SYMBOL")) continue;
+        if (!n || (n.type !== "FRAME" && n.type !== "SECTION" && n.type !== "SYMBOL" && n.type !== "INSTANCE")) continue;
         ids.push(id);
         if (n.type === "SECTION") walk(n.children);
       }
     };
     walk(tree.roots);
-    const out: { id: Guid; name: string; status: DevStatus }[] = [];
+    const out: DesignStatus[] = [];
     if (ids.length) {
-      const rows = this.engine.readNodes(ids, { fields: ["sectionStatusInfo", "editInfo"] }) as (NodeChange & StatusNode)[];
+      const rows = this.engine.readNodes(ids, { fields: ["sectionStatusInfo", "editInfo", "pluginData"] }) as (NodeChange & StatusNode & { pluginData?: PluginDataEntry[] })[];
       rows.forEach((r, i) => {
-        const status = statusOf(r);
-        if (status) out.push({ id: ids[i], name: tree.nodes.get(ids[i])?.name ?? "", status });
+        const s = r?.sectionStatusInfo?.status;
+        const workflow = statusIn(r?.pluginData, s === 1 ? "BUILD" : s === 2 ? "COMPLETED" : typeof s === "string" ? s : null);
+        if (workflow) out.push({ id: ids[i], name: tree.nodes.get(ids[i])?.name ?? "", status: statusOf(r), workflow });
       });
     }
     this.statusCache.set(page, out);

@@ -23,7 +23,8 @@ import type { VariableUse } from "./viewerDoc";
 import { AnnotationsSection, AssetsSection, CodeSettings, ExportSection, type PluginLanguages } from "./DevSections";
 import { CodeConnectSection } from "./inspect/CodeConnectSection";
 import { DevResourcesSection } from "./inspect/DevResources";
-import { editedAgo, listRows, STATUS_LABEL } from "./inspect/devMode";
+import { editedAgo, listRows } from "./inspect/devMode";
+import { StatusTag } from "@/editor/devmode/StatusTag";
 import { composeInUnit, cssInUnit, storedUnits, storeUnits, swiftUIInUnit, type Language, type UnitSettings } from "./inspect/units";
 import styles from "./Viewer.module.css";
 
@@ -271,7 +272,7 @@ function LayerInspect({ id, code }: { id: Guid; code: CodeChoice }) {
   const { engine, doc, preview, host } = useViewer();
   const input = useMemo(() => doc.inspect(id), [doc, id]);
   const page = engine.getSelection().pageId;
-  const status = useMemo(() => doc.statuses(page).find((s) => s.id === id)?.status ?? null, [doc, page, id]);
+  const status = useMemo(() => doc.statuses(page).find((s) => s.id === id) ?? null, [doc, page, id]);
   const notes = useMemo(() => doc.annotations(page).find((a) => a.id === id)?.notes ?? [], [doc, page, id]);
   const info = useMemo(() => {
     try {
@@ -294,16 +295,16 @@ function LayerInspect({ id, code }: { id: Guid; code: CodeChoice }) {
           <span className={styles.layerName}>{n.name || typeLabel(n)}</span>
           <span className={styles.layerType}>{typeLabel(n)}</span>
         </div>
-        {status &&
-          (host?.onStatus ? (
-            <button type="button" className={styles.devStatus} data-status={status} onClick={(e) => host.onStatus!(id, e.currentTarget.getBoundingClientRect())}>
-              {STATUS_LABEL[status]}
-            </button>
-          ) : (
-            <span className={styles.devStatus} data-status={status}>
-              {STATUS_LABEL[status]}
-            </span>
-          ))}
+        {status && (
+          <span className={styles.devStatus} data-dev-status={status.workflow}>
+            <StatusTag
+              workflow={status.workflow}
+              dev={status.status}
+              variant="chip"
+              onClick={host?.onStatus ? (e) => host.onStatus!(id, e.currentTarget.getBoundingClientRect()) : undefined}
+            />
+          </span>
+        )}
         {dev?.canEdit && dev.addDevResource && (
           <MenuButton label="Layer options" entries={[{ id: "add-link", label: "Add a dev resource link" }]} onSelect={(a) => a === "add-link" && setAddingLink(true)}>
             <Icon name="24.more" />

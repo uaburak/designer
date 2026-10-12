@@ -9,7 +9,7 @@ import { useCurrentPage, useSelection } from "@/engine/hooks";
 import type { Guid } from "@/engine/codec";
 import { useViewer } from "./context";
 import type { LayerNode, PageTree } from "./viewerDoc";
-import { STATUS_LABEL } from "./inspect/devMode";
+import { StatusTag } from "@/editor/devmode/StatusTag";
 import styles from "./Viewer.module.css";
 
 export function layerIcon(n: LayerNode): IconName {
@@ -104,8 +104,9 @@ function Pages() {
 }
 
 /**
- * "Ready for development" (help.figma.com 15023124644247 / 26781702258583): the page's designs marked "Ready for dev"
- * or "Completed"; a row selects and zooms to its design.
+ * "Ready for development" (help.figma.com 15023124644247 / 26781702258583): the page's designs with a status — the
+ * owner's labels and dots (docs/editor.md "Frame status (ours)"), Figma's "Changed" beside Ready to Dev; a row selects
+ * and zooms to its design.
  */
 function Statuses() {
   const { engine, store, doc, host } = useViewer();
@@ -129,7 +130,7 @@ function Statuses() {
             key={s.id}
             type="button"
             className={styles.statusRow}
-            data-status-row={s.status}
+            data-status-row={s.workflow}
             onClick={() => {
               // The editor's Dev Mode opens the design in focus view (help.figma.com 23918228264855); the viewer zooms to it.
               if (host?.onFocus) return host.onFocus(s.id);
@@ -138,9 +139,7 @@ function Statuses() {
             }}
           >
             <span>{s.name}</span>
-            <span className={styles.statusLabel} data-status={s.status}>
-              {STATUS_LABEL[s.status]}
-            </span>
+            <StatusTag workflow={s.workflow} dev={s.status} variant="dot" />
           </button>
         ))}
     </PanelSection>

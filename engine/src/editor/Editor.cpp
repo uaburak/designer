@@ -1336,7 +1336,7 @@ bool Editor::tick(double timeMs) {
   cameraTick(timeMs);
   scrollbarTick(timeMs);
   // The `</>` button's tooltip: after the tooltip delay under the pointer (DevMode.cpp devIconHoverAt).
-  if (devIconHover_ != kNoGuid && !devTooltip_) {
+  if (devIconHover_ != kNoGuid && !devTooltip_ && !devIconPressed_) {
     if (devIconSince_ < 0) devIconSince_ = timeMs;
     else if (timeMs - devIconSince_ >= kTooltipDelayMs) {
       devTooltip_ = true;

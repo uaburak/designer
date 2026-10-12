@@ -386,12 +386,13 @@ void Editor::devIconHoverAt(Vec2 s) {
   devIconHover_ = over;
   devIconSince_ = -1;
   devTooltip_ = false;
+  devIconPressed_ = false;
   needsRender_ = true;
 }
 
 int32_t Editor::chromeDelay() const {
   int32_t bars = scrollbarDelay();  // round 16: the scrollbars fading
-  if (devIconHover_ == kNoGuid || devTooltip_) return bars;
+  if (devIconHover_ == kNoGuid || devTooltip_ || devIconPressed_) return bars;
   int32_t tip = devIconSince_ < 0 ? 16 : static_cast<int32_t>(std::max(1.0, std::ceil(devIconSince_ + kTooltipDelayMs - timeMs_)));
   return bars < 0 ? tip : std::min(bars, tip);
 }
@@ -412,6 +413,7 @@ uint32_t Editor::devPointerDown(Vec2 s, uint32_t mods) {
     if (h.kind == DevStatusMark::Kind::MarkButton && !canEditDev()) continue;
     devTooltip_ = false;
     devIconSince_ = -1;
+    devIconPressed_ = devIconHover_ != kNoGuid;
     events_.statusClicks.push_back({h.frame, h.kind == DevStatusMark::Kind::MarkButton ? "mark" : "menu", h.rect});
     needsRender_ = true;
     return P_HANDLED;
