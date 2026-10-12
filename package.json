@@ -1,7 +1,7 @@
 {
   "name": "designer-v2",
   "productName": "Designer",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "A 1:1 Figma desktop clone for personal use",
   "author": "Burak Koç",
