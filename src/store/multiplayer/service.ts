@@ -818,7 +818,7 @@ export class MultiplayerService {
     const set = this.renderers.get(fileKey);
     const to = set ? [...set.entries()].sort((a, b) => Number(a[1].helper) - Number(b[1].helper))[0]?.[0] : undefined;
     if (!rec || !to || !this.restListeners.size) {
-      this.live.get(fileKey)?.say({ t: "rest-job-failed", id, err: "503 No client available to render this file. Open the file in DesignerV2 and try again." });
+      this.live.get(fileKey)?.say({ t: "rest-job-failed", id, err: "503 No client available to render this file. Open the file in Designer and try again." });
       return;
     }
     const meta = this.host.getMeta(fileKey);

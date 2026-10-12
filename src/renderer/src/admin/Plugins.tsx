@@ -163,7 +163,7 @@ export function PluginsTab({ kind, workspaceId }: { kind: PluginKind; workspaceI
       {view === "private" && (
         <>
           <p className={`${styles.note} ${styles.intro}`}>
-            {kind === "widget" ? "Widgets aren't supported in DesignerV2 yet." : `Private plugins published by members of ${names.orgName}. They're available to every member without approval.`}
+            {kind === "widget" ? "Widgets aren't supported in Designer yet." : `Private plugins published by members of ${names.orgName}. They're available to every member without approval.`}
           </p>
           <Table label={`Private ${noun.many}`} rows={priv} columns={privateColumns} rowKey={(p) => p.id} empty={data === undefined ? "Loading…" : `No private ${noun.many}`} />
         </>

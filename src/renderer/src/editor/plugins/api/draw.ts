@@ -7,7 +7,7 @@
  * Reads come from the document's own fields (schema 432 / 446–455 / 482), so they work on any engine. Writes that need
  * the engine's Draw commands (CommandId 310–321, `Engine.runDrawCommand` / `installBrush` / `listBrushes`) are round
  * 7b's: until it lands, Engine.ts's stubs throw "not built" and these calls answer Figma-style "… is not supported in
- * DesignerV2 yet". `transformModifiers =` and `variableWidthStrokeProperties =` write document fields and work now.
+ * Designer yet". `transformModifiers =` and `variableWidthStrokeProperties =` write document fields and work now.
  */
 import type { Guid, NodeChange, NodeFields } from "@/engine/codec";
 import { Status } from "@/engine/abi";
@@ -32,7 +32,7 @@ function engineDraw<T>(what: string, fn: () => T): T {
   try {
     return fn();
   } catch (e) {
-    if (e instanceof Error && /not built/.test(e.message)) throw new ApiError(`${what} is not supported in DesignerV2 yet`);
+    if (e instanceof Error && /not built/.test(e.message)) throw new ApiError(`${what} is not supported in Designer yet`);
     throw e;
   }
 }
@@ -40,7 +40,7 @@ function engineDraw<T>(what: string, fn: () => T): T {
 function runDraw<K extends keyof DrawCommandArgs>(ctx: ApiContext, what: string, id: K, args: DrawCommandArgs[K]): void {
   ctx.write();
   const status = engineDraw(what, () => ctx.ed.engine.runDrawCommand(id, args));
-  if (status === Status.E_UNSUPPORTED) throw new ApiError(`${what} is not supported in DesignerV2 yet`);
+  if (status === Status.E_UNSUPPORTED) throw new ApiError(`${what} is not supported in Designer yet`);
   if (status !== Status.OK) throw new ApiError(`in ${what}: the engine refused the change (status ${status})`);
 }
 

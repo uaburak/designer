@@ -1,3 +1,4 @@
+import "./boot";
 import { app, nativeImage, powerMonitor, session, systemPreferences } from "electron";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -21,10 +22,11 @@ import { DEV_URL, handleScheme, isAppUrl, registerScheme } from "./protocol";
 import { flushStore, retryStoreHost, startStoreHost, storeClient, storeDebug } from "./storeHost";
 import { initTheme } from "./theme";
 import { initUpdater } from "./updater";
+import { PRODUCT_NAME } from "./identity";
 import { controllers, finishQuit, lifecycle, openWindow, type WindowController } from "./window";
 
 /**
- * DesignerV2's desktop side (docs/desktop-impl.md): one window of views —
+ * Designer's desktop side (docs/desktop-impl.md): one window of views —
  * the tab bar, Home, each open file — each its own renderer process; the
  * store, a utility process, the only writer of the workspace; main keeps
  * the tabs, the menu, the flushes and questions on closing, and what only
@@ -47,9 +49,6 @@ app.enableSandbox();
   const { ignored } = allowedServer(process.env.DESIGNER_SERVER, policy);
   if (ignored) console.warn(`[policy] DESIGNER_SERVER ${ignored} isn't in AllowedOriginHosts: using ${serverUrl()}`);
 }
-
-// A run of its own (scripts/drive.mjs): its workspace, its windows — not the everyday app's.
-if (process.env.DESIGNER_USER_DATA) app.setPath("userData", process.env.DESIGNER_USER_DATA);
 
 /** The window in front (v1 has one). */
 const current = (): WindowController | null => [...controllers.values()][0] ?? null;
@@ -105,7 +104,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(() => {
-    app.setAboutPanelOptions({ applicationName: "DesignerV2", applicationVersion: app.getVersion(), copyright: "Burak Koç" });
+    app.setAboutPanelOptions({ applicationName: PRODUCT_NAME, applicationVersion: app.getVersion(), copyright: "Burak Koç" });
     initTheme();
     handleScheme();
     handlePluginScheme();

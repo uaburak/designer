@@ -74,7 +74,7 @@ export function parseManifest(input: unknown, opts: { development?: boolean; pat
   const errors: string[] = [];
   const warnings: string[] = [];
   if (!isObj(json)) return { errors: ["The manifest isn't a JSON object"] };
-  if (json.containsWidget === true || json.widgetApi !== undefined) return { errors: ["Widgets aren't supported in DesignerV2 yet"] };
+  if (json.containsWidget === true || json.widgetApi !== undefined) return { errors: ["Widgets aren't supported in Designer yet"] };
   if (!isStr(json.name, 300) || !json.name.trim()) errors.push('"name" is required');
   if (json.id !== undefined && (!isStr(json.id, 200) || !json.id)) errors.push('"id" must be a string');
   if (json.id === undefined && !opts.development) errors.push('"id" is required');

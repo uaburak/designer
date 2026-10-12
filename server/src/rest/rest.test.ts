@@ -150,7 +150,7 @@ describe("render jobs (§16.6)", () => {
     const pat = await w.pat("alice", ["file_content:read"]);
     const none = await w.rest("GET", `/v1/images/${LIB}?ids=1:2,1-3`, pat);
     expect(none.status).toBe(503);
-    expect(none.body).toEqual({ status: 503, err: "No client available to render this file. Open the file in DesignerV2 and try again.", images: { "1:2": null, "1:3": null } });
+    expect(none.body).toEqual({ status: 503, err: "No client available to render this file. Open the file in Designer and try again.", images: { "1:2": null, "1:3": null } });
     expect(w.mem.wanted).toEqual([{ key: LIB, userIds: [w.people.alice.id] }]);
     w.mem.onWanted = () => void w.renderer(LIB, "alice", "owner", { helper: true, answer: (job: Any) => ({ [job.params.ids[0]]: png("render") }) });
     const r = await w.rest("GET", `/v1/images/${LIB}?ids=1:2,1:3&format=svg&scale=2`, pat);

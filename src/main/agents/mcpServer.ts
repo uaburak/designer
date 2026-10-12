@@ -272,7 +272,7 @@ export class McpServer {
         return ok({
           protocolVersion: PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0],
           capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: MCP_SERVER_NAME, title: "DesignerV2", version: this.host.version ?? "0" },
+          serverInfo: { name: MCP_SERVER_NAME, title: "Designer", version: this.host.version ?? "0" },
           instructions: MCP_INSTRUCTIONS,
         });
       }
@@ -316,7 +316,7 @@ export class McpServer {
     if (!session.fileKey) session.fileKey = this.host.activeFileKey();
     const fileKey = session.fileKey;
     const error = (text: string): ToolResult => ({ content: [{ type: "text", text }], isError: true });
-    if (!fileKey) return error("No design file is open in DesignerV2. Open a file and try again.");
+    if (!fileKey) return error("No design file is open in Designer. Open a file and try again.");
     if (!this.host.isOpen(fileKey)) return error("The file this session works on is closed. Open it again (or start a new session) and try again.");
     // Client-reported to the org's developer logs (docs/governance.md §2.12): batched, fire-and-forget, a no-op for local files.
     try {

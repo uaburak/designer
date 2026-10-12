@@ -41,7 +41,7 @@ describe("manifest", () => {
     expect(errors({ ...base, networkAccess: { allowedDomains: [] } })).toMatch(/at least one/);
     expect(errors({ ...base, networkAccess: { allowedDomains: ["none", "example.com"] } })).toMatch(/only entry/);
     expect(errors({ ...base, networkAccess: { allowedDomains: ["example.com; script-src *"] } })).toMatch(/isn't a domain/);
-    expect(errors({ ...base, containsWidget: true })).toBe("Widgets aren't supported in DesignerV2 yet");
+    expect(errors({ ...base, containsWidget: true })).toBe("Widgets aren't supported in Designer yet");
     expect(errors({ ...base, capabilities: ["codegen"], editorType: ["dev"] })).toMatch(/codegenLanguages/);
     // A development manifest may leave out its id (main names it); a published one may not.
     const { id: _id, ...noId } = base;

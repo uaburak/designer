@@ -30,7 +30,7 @@ const session = (id: string, current: boolean, extra: Partial<SessionInfo> = {})
 function fakeDesigner() {
   const requests: { method: string; path: string; body?: unknown }[] = [];
   let profile: AccountProfile = { ...user, role: "Design", community: {}, prefs: {}, provider: "google" };
-  let sessions = [session("s1", true, { kind: "app", browser: "DesignerV2 Desktop" }), session("s2", false, { os: "iOS (iPhone)", browser: "Safari" })];
+  let sessions = [session("s1", true, { kind: "app", browser: "Designer Desktop" }), session("s2", false, { os: "iOS (iPhone)", browser: "Safari" })];
   let fonts: UploadedFont[] = [
     { id: "f1", family: "Matter", style: "Bold", weight: 700, italic: false, file: "Matter-1.otf" },
     { id: "f2", family: "Matter", style: "Bold Italic", weight: 700, italic: true, file: "Matter-2.otf" },
@@ -134,7 +134,7 @@ describe("Settings", () => {
     const fake = await open("security");
     const rows = $$("[data-session]");
     expect(rows).toHaveLength(2);
-    for (const t of ["Antalya, Türkiye", "App · 1.2.3.4", "DesignerV2 Desktop", "Just now", "Current"]) expect(rows[0].textContent).toContain(t);
+    for (const t of ["Antalya, Türkiye", "App · 1.2.3.4", "Designer Desktop", "Just now", "Current"]) expect(rows[0].textContent).toContain(t);
     for (const t of ["Login · 1.2.3.4", "iOS (iPhone)", "Safari", "Sign out"]) expect(rows[1].textContent).toContain(t);
     await click($("[data-sign-out-session]")!);
     await settle();

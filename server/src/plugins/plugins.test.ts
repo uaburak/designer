@@ -85,7 +85,7 @@ describe("private plugins (§10.1)", () => {
     expect((await bad([{ name: "ui", sha1: sha1("x"), size: 1 }])).body.error).toBe("the code part is required");
     expect((await bad([{ name: "../code", sha1: sha1("x"), size: 1 }])).status).toBe(400);
     expect((await bad([{ name: "code", sha1: sha1("x"), size: 11 * 1024 * 1024 }])).status).toBe(413);
-    expect((await bad([{ name: "code", sha1: sha1("x"), size: 1 }], manifest("W", { containsWidget: true, widgetApi: "1.0.0" }))).body.error).toBe("Widgets aren't supported in DesignerV2 yet");
+    expect((await bad([{ name: "code", sha1: sha1("x"), size: 1 }], manifest("W", { containsWidget: true, widgetApi: "1.0.0" }))).body.error).toBe("Widgets aren't supported in Designer yet");
   });
 });
 

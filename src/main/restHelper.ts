@@ -2,7 +2,7 @@
  * The render helper (docs/multiplayer.md §16.6): when a file's room has nobody who can answer a REST API request,
  * the server puts `{t: "rest-wanted", fileKey}` on the inboxes of its owner and editors; the store says it as a
  * `multiplayer` event (`restWanted`) for this installation's copy. Main then opens that file — only one the person
- * owns, and only while Settings › Account › "Answer API requests for my files while DesignerV2 is open" is on (the
+ * owns, and only while Settings › Account › "Answer API requests for my files while Designer is open" is on (the
  * default) — in a **hidden editor view** (no tab, never shown, `?editor&file=…&restHelper`), whose editor joins the
  * room with `hello {render: true, helper: true}` and answers the jobs. A helper closes after five minutes without a
  * job, and as soon as the file is open in a tab (that editor answers then).

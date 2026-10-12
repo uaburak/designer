@@ -78,7 +78,7 @@ export class WindowController {
       minWidth: MIN_WINDOW_SIZE.width,
       minHeight: MIN_WINDOW_SIZE.height,
       show: false,
-      title: "DesignerV2",
+      title: "Designer",
       ...chrome(),
       backgroundColor: windowBackground(),
     });

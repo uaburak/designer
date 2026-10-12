@@ -50,7 +50,7 @@ export interface AccountPrefs {
   closedCaptions?: boolean;
   /** View history: false = "Off" — opening a file isn't recorded for others to see */
   viewHistory?: boolean;
-  /** "Answer API requests for my files while DesignerV2 is open" (the desktop's render helper, docs/multiplayer.md §16.6): absent = on */
+  /** "Answer API requests for my files while Designer is open" (the desktop's render helper, docs/multiplayer.md §16.6): absent = on */
   restHelper?: boolean;
 }
 
@@ -190,7 +190,7 @@ export function timeAgo(then: number, now: number): string {
 export function deviceFromUserAgent(ua: string | null): { kind: "app" | "login"; os: string | null; browser: string | null } {
   const s = ua ?? "";
   const app = /DesignerV2-Desktop\/[\w.-]+(?: \(([^)]*)\))?/.exec(s);
-  if (app) return { kind: "app", os: app[1] || null, browser: "DesignerV2 Desktop" };
+  if (app) return { kind: "app", os: app[1] || null, browser: "Designer Desktop" };
   const os = /iPhone/.test(s) ? "iOS (iPhone)" : /iPad/.test(s) ? "iOS (iPad)" : /Android/.test(s) ? "Android" : /CrOS/.test(s) ? "ChromeOS" : /Mac OS X|Macintosh/.test(s) ? "macOS" : /Windows/.test(s) ? "Windows" : /Linux/.test(s) ? "Linux" : null;
   const browser = /Edg(e|A|iOS)?\//.test(s) ? "Edge" : /OPR\//.test(s) ? "Opera" : /Firefox\/|FxiOS/.test(s) ? "Firefox" : /Chrome\/|CriOS/.test(s) ? "Chrome" : /Safari\//.test(s) ? "Safari" : null;
   return { kind: "login", os, browser };

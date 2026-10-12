@@ -224,7 +224,7 @@ export function completeWebSignIn(): Promise<SignInResult | null> {
 async function completeOnce(): Promise<SignInResult | null> {
   if (typeof location === "undefined") return null;
   const url = new URL(location.href);
-  // The IdP-initiated bounce (an Okta tile → the ACS's "Continue to DesignerV2", multiplayer.md §15.2 decision 3 and
+  // The IdP-initiated bounce (an Okta tile → the ACS's "Continue to Designer", multiplayer.md §15.2 decision 3 and
   // §15.17): `/?sso=<tenant>` starts a normal SP-initiated sign-in with this page's own state and challenge.
   const sso = url.searchParams.get("sso");
   if (sso !== null) {

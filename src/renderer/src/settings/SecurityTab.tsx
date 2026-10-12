@@ -258,7 +258,7 @@ function TwoFactorCodeDialog({ gov, kind, onClose }: { gov: GovernanceRepository
   );
 }
 
-const codesText = (codes: readonly string[]) => `DesignerV2 recovery codes\n\nEach code can be used once.\n\n${codes.join("\n")}\n`;
+const codesText = (codes: readonly string[]) => `Designer recovery codes\n\nEach code can be used once.\n\n${codes.join("\n")}\n`;
 
 /** Shown once: the codes, Copy, Download (a download link — Electron's will-download shows the Save dialog), Done. */
 function RecoveryCodesDialog({ title, codes, onClose }: { title: string; codes: string[]; onClose: () => void }) {

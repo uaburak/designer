@@ -56,7 +56,7 @@ export function AgentsPanel() {
     <div className={styles.panel} data-agents="" data-view={state.view}>
       <TabHeader title="Agents" actions={actions} />
       {!state.available ? (
-        <EmptyState icon="24.agents" title="Agents run in the desktop app" body="Open this file in DesignerV2 to chat with the AI tools on your computer." />
+        <EmptyState icon="24.agents" title="Agents run in the desktop app" body="Open this file in Designer to chat with the AI tools on your computer." />
       ) : state.view === "settings" ? (
         <AgentSettings service={service} />
       ) : state.view === "list" && state.chats.length ? (

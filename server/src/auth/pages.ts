@@ -1,7 +1,7 @@
 /**
- * The Worker's own sign-in pages (docs/multiplayer.md §15.4, §15.3): Figma's login page ("Log in to DesignerV2",
- * Continue with Google, Use single sign-on), the SSO email step, the IdP-initiated bounce ("Continue to DesignerV2"),
- * "Log in to DesignerV2 from the app", and the SSO failure page. Plain HTML served by the Worker in a browser — not
+ * The Worker's own sign-in pages (docs/multiplayer.md §15.4, §15.3): Figma's login page ("Log in to Designer",
+ * Continue with Google, Use single sign-on), the SSO email step, the IdP-initiated bounce ("Continue to Designer"),
+ * "Log in to Designer from the app", and the SSO failure page. Plain HTML served by the Worker in a browser — not
  * the app's chrome (no design-system tokens there); every value interpolated is escaped.
  */
 
@@ -34,8 +34,8 @@ export function loginPage(st: string, opts: { sso?: boolean; error?: string; ema
     );
   return html(
     200,
-    "Log in to DesignerV2",
-    `<h1>Log in to DesignerV2</h1><a class="btn" href="${esc(google)}">Continue with Google</a><div class="hr">or</div>
+    "Log in to Designer",
+    `<h1>Log in to Designer</h1><a class="btn" href="${esc(google)}">Continue with Google</a><div class="hr">or</div>
 <a class="btn" href="/auth/login?st=${encodeURIComponent(st)}&amp;method=sso">Use single sign-on</a>`,
   );
 }
@@ -44,9 +44,9 @@ export function loginPage(st: string, opts: { sso?: boolean; error?: string; ema
 export function bouncePage(appUrl: string, webUrl: string | null): Response {
   return html(
     200,
-    "Continue to DesignerV2",
-    `<h1>Continue to DesignerV2</h1><p>You signed in with your identity provider. Continue in the app to finish logging in.</p>
-<a class="btn primary" href="${esc(appUrl)}">Continue to DesignerV2</a>${webUrl ? `<p class="muted"><a href="${esc(webUrl)}">Continue in the browser</a></p>` : ""}`,
+    "Continue to Designer",
+    `<h1>Continue to Designer</h1><p>You signed in with your identity provider. Continue in the app to finish logging in.</p>
+<a class="btn primary" href="${esc(appUrl)}">Continue to Designer</a>${webUrl ? `<p class="muted"><a href="${esc(webUrl)}">Continue in the browser</a></p>` : ""}`,
   );
 }
 
@@ -54,15 +54,15 @@ export function bouncePage(appUrl: string, webUrl: string | null): Response {
 export function fromAppPage(appUrl: string, webUrl: string | null): Response {
   return html(
     200,
-    "Log in to DesignerV2",
-    `<h1>Log in to DesignerV2</h1><p>Log in from the DesignerV2 app to use single sign-on.</p><a class="btn primary" href="${esc(appUrl)}">Open DesignerV2</a>${
-      webUrl ? `<p class="muted"><a href="${esc(webUrl)}">Use DesignerV2 in the browser</a></p>` : ""
+    "Log in to Designer",
+    `<h1>Log in to Designer</h1><p>Log in from the Designer app to use single sign-on.</p><a class="btn primary" href="${esc(appUrl)}">Open Designer</a>${
+      webUrl ? `<p class="muted"><a href="${esc(webUrl)}">Use Designer in the browser</a></p>` : ""
     }`,
   );
 }
 
 /** Any refusal of the ACS (the reason only in the log line) */
-export const ssoFailedPage = (text = "Single sign-on didn't work. Try again from DesignerV2.") => html(403, "Single sign-on didn't work", `<h1>Single sign-on didn't work</h1><p>${esc(text)}</p>`);
+export const ssoFailedPage = (text = "Single sign-on didn't work. Try again from Designer.") => html(403, "Single sign-on didn't work", `<h1>Single sign-on didn't work</h1><p>${esc(text)}</p>`);
 
 export const messagePage = (status: number, title: string, text: string) => html(status, title, `<h1>${esc(title)}</h1><p>${esc(text)}</p>`);
 

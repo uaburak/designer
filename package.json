@@ -1,6 +1,6 @@
 {
   "name": "designer-v2",
-  "productName": "DesignerV2",
+  "productName": "Designer",
   "version": "0.1.0",
   "private": true,
   "description": "A 1:1 Figma desktop clone for personal use",

@@ -31,7 +31,7 @@ describe("the login page and SSO routing (§15.4)", () => {
   it("answers Figma's login page; method=google goes to Google, method=sso asks for the email, tenant goes to its SAML start", async () => {
     const { res } = await w.login();
     expect(res.status).toBe(200);
-    expect(res.text).toContain("Log in to DesignerV2");
+    expect(res.text).toContain("Log in to Designer");
     expect(res.text).toContain("Continue with Google");
     expect(res.text).toContain("Use single sign-on");
     const st = /st=([^&"]+)/.exec(res.text)![1];
@@ -365,6 +365,6 @@ describe("the web app", () => {
     const r = await w.acs(tenant, signAssertion(buildResponse({ sp: `${ORIGIN}/saml/${tenant}`, inResponseTo: null })));
     expect(r.text).toContain(`${WEB}/?sso=${tenant}`);
     const page = await w.call("GET", `/saml/${tenant}/start`);
-    expect(page.text).toContain("Log in from the DesignerV2 app");
+    expect(page.text).toContain("Log in from the Designer app");
   });
 });

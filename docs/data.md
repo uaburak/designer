@@ -130,7 +130,7 @@ The default is **`<userData>/Workspace`**. The reasons:
 - It matches Figma: files are not user-visible documents. Getting a file out is an explicit action (Save Local Copy).
 - The single-writer and journal invariants hold only on a local disk the app controls. iCloud Drive, Dropbox, OneDrive and Google Drive replay partial writes, create "conflicted copies" and evict files, which breaks append-only journals and rename-based atomic writes.
 - Time Machine already backs up `~/Library/Application Support`. Save Local Copy is the other backup (a shared file also lives in its room, `docs/multiplayer.md`).
-- Dev and test runs are isolated for free (`DesignerV2-Dev`, `DESIGNER_USER_DATA`; `docs/desktop.md` §12.1).
+- Dev and test runs are isolated for free (`DESIGNER_USER_DATA`, `DESIGNER_WORKSPACE`; `docs/desktop.md` §12.1).
 
 `Settings › Workspace location…` can move the workspace to another **local** folder. It refuses paths under `~/Library/Mobile Documents`, `~/Library/CloudStorage`, `~/Dropbox`, `~/OneDrive` or `~/Google Drive`, and network volumes (`statfs` type `smbfs`, `afpfs`, `nfs`, `webdav`).
 

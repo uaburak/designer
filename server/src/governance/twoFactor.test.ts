@@ -58,7 +58,7 @@ describe("/me/two-factor", () => {
     const other = (await w.call("POST", "/orgs", { token: t, body: { name: "Other" } })).body.org.id as string;
     // a setup that expired
     const old = await w.call("POST", "/me/two-factor/setup", { token: t });
-    expect(old.body.otpauthUrl).toBe(`otpauth://totp/DesignerV2%3Aalice%40acme.test?secret=${old.body.secret}&issuer=DesignerV2&algorithm=SHA1&digits=6&period=30`);
+    expect(old.body.otpauthUrl).toBe(`otpauth://totp/Designer%3Aalice%40acme.test?secret=${old.body.secret}&issuer=Designer&algorithm=SHA1&digits=6&period=30`);
     w.now.t += 11 * 60_000;
     const late = await w.call("POST", "/me/two-factor/enable", { token: t, body: { code: await codeAt(base32Decode(old.body.secret)!) } });
     expect(late.status).toBe(409);

@@ -87,8 +87,8 @@ export async function askFlushTimeout(win: BaseWindow | null, title: string, act
 export async function askStoreGone(): Promise<"retry" | "quit"> {
   const answer = await ask(null, {
     type: "error",
-    message: "DesignerV2 can’t save changes right now.",
-    detail: "The part of DesignerV2 that saves your files stopped several times. Changes made since then may not be saved.",
+    message: "Designer can’t save changes right now.",
+    detail: "The part of Designer that saves your files stopped several times. Changes made since then may not be saved.",
     buttons: ["Try Again", "Quit"],
     defaultId: 0,
     cancelId: 0,

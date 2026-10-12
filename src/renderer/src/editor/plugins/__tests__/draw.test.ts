@@ -116,7 +116,7 @@ describe("Draw plugin API: text on a path", () => {
     expect(() => createTextPath(ctx, "1:1", 0, 0)).toThrow(/vector, rectangle, ellipse/);
     expect(() => createTextPath(ctx, "1:2", 0.5, 0)).toThrow(/segment/);
     const stub = fakeCtx([node("1:2")], { stubs: true });
-    expect(() => createTextPath(stub.ctx, "1:2", 0, 0)).toThrow("createTextPath is not supported in DesignerV2 yet");
+    expect(() => createTextPath(stub.ctx, "1:2", 0, 0)).toThrow("createTextPath is not supported in Designer yet");
   });
 });
 
@@ -222,7 +222,7 @@ describe("Draw plugin API: complex strokes", () => {
     loadBrushes(ctx, "SCATTER");
     expect(installed).toHaveLength(25);
     expect(() => loadBrushes(ctx, "CUSTOM")).toThrow(/invalid brush type/);
-    expect(() => loadBrushes(fakeCtx([], { stubs: true }).ctx, "STRETCH")).toThrow("loadBrushesAsync is not supported in DesignerV2 yet");
+    expect(() => loadBrushes(fakeCtx([], { stubs: true }).ctx, "STRETCH")).toThrow("loadBrushesAsync is not supported in Designer yet");
   });
 
   it("variableWidthStrokeProperties: presets and custom points (width = ascent + descent), null for dynamic strokes", () => {

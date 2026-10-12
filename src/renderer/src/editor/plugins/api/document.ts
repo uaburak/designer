@@ -264,7 +264,7 @@ export function getRange(ctx: ApiContext, id: Guid, name: string, start: unknown
     if (name === "listOptions") return { type: "NONE" };
     if (name === "indentation" || name === "listSpacing" || name === "paragraphIndent" || name === "paragraphSpacing") return (n as unknown as Obj)[name] ?? 0;
     if (name.startsWith("boundVariable:")) return null;
-    throw new ApiError(`getRange${name.charAt(0).toUpperCase()}${name.slice(1)} is not supported in DesignerV2 yet`);
+    throw new ApiError(`getRange${name.charAt(0).toUpperCase()}${name.slice(1)} is not supported in Designer yet`);
   }
   const s = ctx.ed.engine.textRangeStyle(id, range);
   if (!s) return MIXED;
@@ -277,7 +277,7 @@ export function setRange(ctx: ApiContext, id: Guid, name: string, start: unknown
   const n = mustNode(ctx, id);
   const range = checkRange(n, start, end);
   const f = RANGE_FIELDS[name];
-  if (!f?.fromApi) throw new ApiError(`setRange${name.charAt(0).toUpperCase()}${name.slice(1)} is not supported in DesignerV2 yet`);
+  if (!f?.fromApi) throw new ApiError(`setRange${name.charAt(0).toUpperCase()}${name.slice(1)} is not supported in Designer yet`);
   const fields = f.fromApi(value);
   ctx.write();
   ctx.ed.engine.setStyleRange(range);
@@ -401,7 +401,7 @@ export async function exportNode(ctx: ApiContext, id: Guid, settings: unknown): 
   if (!exportAllowed(ctx.ed)) throw new ApiError("in exportAsync: export is not allowed in this file");
   const s = (settings ?? { format: "PNG" }) as Obj;
   const format = String(s.format ?? "PNG");
-  if (format === "JSON_REST_V1") throw new ApiError("exportAsync with JSON_REST_V1 is not supported in DesignerV2 yet");
+  if (format === "JSON_REST_V1") throw new ApiError("exportAsync with JSON_REST_V1 is not supported in Designer yet");
   const imageType = format === "JPG" ? "JPEG" : format === "SVG_STRING" ? "SVG" : format;
   if (!["PNG", "JPEG", "SVG", "PDF"].includes(imageType)) throw new ApiError(`exportAsync: unknown format ${format}`);
   const constraint = s.constraint as { type?: string; value?: number } | undefined;
@@ -489,7 +489,7 @@ export function styleSet(ctx: ApiContext, id: string, field: string, value: unkn
             : field === "fontName"
               ? { fontName: fontNameFromApi(value) }
               : (() => {
-                  throw new ApiError(`Setting ${field} on a style is not supported in DesignerV2 yet`);
+                  throw new ApiError(`Setting ${field} on a style is not supported in Designer yet`);
                 })();
   writeFields(ctx, id, fields, field);
 }

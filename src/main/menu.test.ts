@@ -3,7 +3,7 @@ import type { MenuItemConstructorOptions } from "electron";
 import type { UpdaterStatus } from "../shared/ipc";
 
 vi.mock("electron", () => ({
-  app: { name: "DesignerV2" },
+  app: { name: "Designer" },
   Menu: { buildFromTemplate: (t: MenuItemConstructorOptions[]) => t, setApplicationMenu: () => {} },
   nativeTheme: { themeSource: "system" },
   webContents: { getFocusedWebContents: () => null },

@@ -223,7 +223,7 @@ export function AccountTab() {
             <Section heading="API requests" data-settings-section="rest-helper">
               <div className={styles.switchRow}>
                 <Switch label="Answer API requests for my files" size="large" checked={prefs.restHelper !== false} onChange={(c) => void savePrefs({ restHelper: c })} data-rest-helper="" />
-                <span>Answer API requests for my files while DesignerV2 is open. When no one has a file open, DesignerV2 opens it in the background to answer.</span>
+                <span>Answer API requests for my files while Designer is open. When no one has a file open, Designer opens it in the background to answer.</span>
               </div>
             </Section>
           </>

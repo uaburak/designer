@@ -12,7 +12,7 @@ export interface JobOptions {
   wanted: string[];
 }
 
-export const NO_CLIENT = "No client available to render this file. Open the file in DesignerV2 and try again.";
+export const NO_CLIENT = "No client available to render this file. Open the file in Designer and try again.";
 
 export const KEY_UNAVAILABLE = "This file is unavailable because its encryption key can't be reached";
 

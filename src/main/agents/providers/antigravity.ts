@@ -45,7 +45,7 @@ export function agyProject(workDir: string): string {
   return JSON.stringify(
     {
       id: AGY_PROJECT,
-      name: "DesignerV2 chats",
+      name: "Designer chats",
       projectResources: { resources: [{ folderUri: `file://${encodeURI(workDir)}` }] },
       permissionGrants: {
         permissionGrants: {
@@ -151,7 +151,7 @@ export function agyAiProject(workDir: string): string {
   return JSON.stringify(
     {
       id: AGY_AI_PROJECT,
-      name: "DesignerV2 AI",
+      name: "Designer AI",
       projectResources: { resources: [{ folderUri: `file://${encodeURI(workDir)}` }] },
       permissionGrants: { permissionGrants: { allow: [], deny: ["mcp(*)", "command(*)", "unsandboxed(*)", "read_url(*)", "execute_url(*)"] }, v2Migrated: true },
     },

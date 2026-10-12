@@ -24,7 +24,7 @@ Files are kept in `~/Library/Application Support/DesignerV2/Workspace` (`DESIGNE
 
 ```bash
 npm run build        # out/ — run it with `npm start`
-npm run dist         # dist/DesignerV2-<version>.dmg + zip (macOS, arm64; Developer ID, notarized with APPLE_KEYCHAIN_PROFILE set)
+npm run dist         # dist/Designer-<version>.dmg + zip (macOS, arm64; Developer ID, notarized with APPLE_KEYCHAIN_PROFILE set)
 npm run release -- 0.2.0 notes.md   # a release that installed copies update to (docs/desktop.md §12.6); uploads nothing
 npm run check        # types, lint, tests — before committing
 npm run engine:test  # the engine's native tests

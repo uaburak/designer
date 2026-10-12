@@ -97,7 +97,7 @@ export function ChangeLanguageDialog({ language, onSave, onClose }: { language: 
     >
       <div className={styles.form}>
         <Select label="Language" value={value} options={LANGUAGES.map((l) => ({ value: l.id, label: l.label, disabled: !l.available, hint: l.available ? undefined : "Coming later" }))} onChange={setValue} />
-        <p className={`${styles.text} ${styles.muted}`}>DesignerV2 is in English for now; the other languages Figma has are listed for later.</p>
+        <p className={`${styles.text} ${styles.muted}`}>Designer is in English for now; the other languages Figma has are listed for later.</p>
       </div>
     </Dialog>
   );
