@@ -12,7 +12,9 @@
  * edges), and a canvas selection opens its ancestors and scrolls into view.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { IconButton, LayerRow, PanelSection, VirtualList, layerListWidth, onFontsLoaded, showToast, type IconName } from "@/ds";
+import { IconButton, LAYER_ROW_LARGE, LAYER_THUMB, LayerRow, PanelSection, VirtualList, layerListWidth, onFontsLoaded, showToast, type IconName } from "@/ds";
+import { layerThumbnails } from "../draw/panels/layerThumbs";
+import { LayerThumb } from "../draw/panels/LayerThumb";
 import { useHover, useSelection } from "@/engine/hooks";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../controller";
@@ -71,6 +73,10 @@ export function layerIcon(node: TreeNode, parent?: TreeNode | null): IconName {
       return "16.frame";
     case "SECTION":
       return "16.section";
+    case "TRANSFORM":
+      return "16.repeat";
+    case "TEXT_PATH":
+      return "16.text-path";
     case "ELLIPSE":
       return "16.ellipse";
     case "TEXT":
@@ -124,6 +130,11 @@ export function layerKind(node: TreeNode, parent?: TreeNode | null): string {
       return node.stackMode && node.stackMode !== "NONE" ? "Auto layout" : "Frame";
     case "SECTION":
       return "Section";
+    // [unverified] names: the plugin API's TRANSFORM_GROUP, and the toolbar's "Text on path"
+    case "TRANSFORM":
+      return "Transform group";
+    case "TEXT_PATH":
+      return "Text on path";
     case "ELLIPSE":
       return "Ellipse";
     case "TEXT":
@@ -163,6 +174,13 @@ export function selectable(ed: EditorController, refs: readonly Guid[]): Guid[] 
   return out;
 }
 
+/** A layer selected and the camera on it (as ⇧2, Zoom to selection, gliding over 300 ms). */
+export function zoomToLayer(ed: EditorController, id: Guid): void {
+  ed.engine.setSelection(selectable(ed, [id]));
+  ed.ui.set({ anchor: id });
+  ed.engine.command("ZOOM_TO_SELECTION", { animate: 300 });
+}
+
 /** "Collapse layers" (⌥L, the Layers header): every expanded layer closes but the selection's ancestors (Figma). */
 export function collapseLayers(ed: EditorController, tree: LayerTree = ed.getTree()): void {
   ed.ui.set((s) => ({ expanded: collapsedLayers(tree, ed.selection, s.expanded) }));
@@ -190,6 +208,11 @@ export function Layers() {
   const [drop, setDrop] = useState<DropTarget | null>(null);
   const press = useRef<{ id: Guid; x: number; y: number; dragging: Guid[] | null; deferred: boolean } | null>(null);
   const cellDrag = useRef<CellDrag | null>(null);
+  // Draw (docs/draw.md §5.9): 48 px rows, each with the layer's preview in the glyph's place.
+  const drawMode = useUI((s) => s.mode === "draw");
+  const thumbs = drawMode && !ed.engine.destroyed ? layerThumbnails(ed) : null;
+  const rowHeight = drawMode ? LAYER_ROW_LARGE : ROW;
+  const nameLeft = NAME_LEFT + (drawMode ? LAYER_THUMB - 16 : 0);
 
   const rows = useMemo(() => visibleRows(tree, expanded), [tree, expanded]);
   const selected = useMemo(() => new Set(selection), [selection]);
@@ -221,10 +244,10 @@ export function Layers() {
       rows.map((r) => r.id),
       NAMES_PER_READ
     );
-    return { px: layerListWidth(rows.map((r, i) => ({ depth: r.depth, name: names[i] }))), pending: names.includes(null) };
+    return { px: layerListWidth(rows.map((r, i) => ({ depth: r.depth, name: names[i] })), drawMode), pending: names.includes(null) };
     // fonts / namesRead: measured again once the UI font is in, read on while names are missing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, tree, fonts, namesRead]);
+  }, [rows, tree, fonts, namesRead, drawMode]);
   useEffect(() => {
     if (!width.pending) return;
     const t = window.setTimeout(() => setNamesRead((n) => n + 1), 0);
@@ -262,9 +285,9 @@ export function Layers() {
     if (!v || firstSelectedDepth < 0 || !reveal.current) return;
     reveal.current = false;
     const want = firstSelectedDepth * INDENT;
-    const room = v.scrollLeft + v.clientWidth - INSET - (NAME_LEFT + want);
+    const room = v.scrollLeft + v.clientWidth - INSET - (nameLeft + want);
     if (v.scrollLeft > want || room < NAME_MIN) v.scrollLeft = want;
-  }, [firstSelected, firstSelectedDepth, selection]);
+  }, [firstSelected, firstSelectedDepth, selection, nameLeft]);
 
   const select = (refs: Guid[]) => {
     const next = selectable(ed, refs);
@@ -438,7 +461,7 @@ export function Layers() {
       >
         <VirtualList
           count={rows.length}
-          rowHeight={ROW}
+          rowHeight={rowHeight}
           axis="both"
           contentWidth={width.px}
           // Scrolled sideways, the names fade at the new visible edge (CSS only: no render).
@@ -451,12 +474,14 @@ export function Layers() {
             // Pass 2 (Figma's two-pass panel): the row's name, eye, lock and icon are computed only now, for the rows
             // the list draws; a row without them in hand brings its whole window in one engine read.
             if (!tree.details.has(row.id)) tree.details.prefetch(detailsWindow(rows, i));
+            const icon = layerIcon(node, node.parent ? tree.nodes.get(node.parent) : null);
             return (
               <LayerRow
                 id={row.id}
                 depth={row.depth}
                 name={node.name}
-                icon={layerIcon(node, node.parent ? tree.nodes.get(node.parent) : null)}
+                icon={icon}
+                thumbnail={thumbs ? <LayerThumb thumbs={thumbs} node={row.id} icon={icon} /> : undefined}
                 iconLabel={layerKind(node, node.parent ? tree.nodes.get(node.parent) : null)}
                 kind={node.type === "SYMBOL" || node.stateGroup ? "component" : node.type === "INSTANCE" ? "instance" : "default"}
                 tone={componentRows.has(row.id) ? "component" : "default"}
@@ -475,7 +500,8 @@ export function Layers() {
                 onPointerEnter={() => {
                   if (!press.current && !cellDrag.current && highlight) ed.engine.setHover(selectable(ed, [row.id]));
                 }}
-                onDoubleClick={() => ed.ui.set({ renaming: { kind: "layer", id: row.id } })}
+                // Draw: a double-click on the preview zooms to the layer (help "Figma Draw"); on the name it renames.
+                onDoubleClick={(e) => ((e.target as Element | null)?.closest?.("[data-layer-thumb]") ? zoomToLayer(ed, row.id) : ed.ui.set({ renaming: { kind: "layer", id: row.id } }))}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   if (!selected.has(row.id)) select([row.id]);

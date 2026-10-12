@@ -6,6 +6,9 @@
  * "N selected", the kind's actions), Position (with Constraints), Layout /
  * Auto layout (Flow, sizing menus, min / max), Appearance, Typography (text),
  * Fill, Stroke, Selection colors, Effects, Layout guide (frames), Export.
+ * Draw mode (round 7d, docs/draw.md §5.3; `designSections`): Position, Dimensions, Appearance, Transform,
+ * Typography, Fill, Stroke, Effects, Export — with sliders and larger previews; Transform also shows in Design for
+ * transform groups.
  */
 import { useEffect, useState } from "react";
 import { ColorInput, PanelSection, ToggleIconButton, useTheme } from "@/ds";
@@ -23,7 +26,10 @@ import { TypographySection } from "./Typography";
 import { EffectsSection, LayoutGuideSection } from "./Effects";
 import { ExportSection, type ExportTarget } from "./Export";
 import { VectorEditPanel } from "./VectorPoints";
-import { isFrameNode, isTextNode, usePaintTargets, useSelectedNodes, type PanelNode } from "./shared";
+import { usePaintTargets, useSelectedNodes, type PanelNode } from "./shared";
+import { designSections, isTypeNode } from "../../draw/panels/drawPanel";
+import { TransformSection } from "../../draw/panels/TransformSection";
+import draw from "../../draw/panels/DrawPanels.module.css";
 import { TypeHeader } from "./Header";
 import { RelaunchButtons } from "./RelaunchButtons";
 import { ComponentBlock, InstanceHeader, componentSelection } from "./Component";
@@ -114,10 +120,12 @@ export function DesignPanel() {
 
 function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNodes: PanelNode[]; onPick: (t: PickerTarget) => void }) {
   const ed = useEditor();
-  const frames = nodes.every(isFrameNode);
-  const sections = nodes.some((n) => n.type === "SECTION");
-  // Typography shows when any selected layer is a text (Figma's live panel: "4 selected" with a text in it).
-  const texts = nodes.filter(isTextNode);
+  // The sections by mode (docs/draw.md §5.3): Draw's reduced list, Design's (with Transform for transform groups).
+  const mode = useUI((s) => s.mode ?? "design");
+  const shown = new Set(designSections(mode, nodes));
+  const drawMode = mode === "draw";
+  // Typography shows when any selected layer is a text or a text on a path (Figma's live panel: "4 selected" with a text in it).
+  const texts = nodes.filter(isTypeNode);
   const vectorRef = useStoreSlice(ed.vector.state, (s) => (s.active ? s.ref : null));
   const editingVector = !!vectorRef && nodes.length === 1 && nodes[0].guid === vectorRef;
   // One component, set, variant or instance: its header and properties come first (UI3).
@@ -134,18 +142,20 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
   return (
     <>
       {/* An instance: its name, Go to main component and its properties; a component, set or variant: its name and Properties (Current variant) */}
-      {comp?.kind === "instance" ? <InstanceHeader instance={comp.node} /> : comp ? <ComponentBlock sel={comp} /> : <TypeHeader nodes={nodes} />}
+      {/* (Draw: a component's header without its properties; an instance keeps its swap header) */}
+      {comp?.kind === "instance" ? <InstanceHeader instance={comp.node} /> : comp && !drawMode ? <ComponentBlock sel={comp} /> : <TypeHeader nodes={nodes} />}
       <RelaunchButtons refs={nodes.map((n) => n.guid)} />
-      <PositionSection nodes={nodes} />
-      <LayoutSection nodes={nodes} />
-      <AppearanceSection nodes={nodes} />
-      {texts.length > 0 && <TypographySection nodes={texts} />}
-      <PaintsSection title="Fill" field="fillPaints" nodes={paintNodes} onPick={onPick} />
-      <PaintsSection title="Stroke" field="strokePaints" nodes={paintNodes} onPick={onPick} />
+      {shown.has("position") && <PositionSection nodes={nodes} />}
+      {shown.has("layout") && <LayoutSection nodes={nodes} />}
+      {shown.has("appearance") && <AppearanceSection nodes={nodes} />}
+      {shown.has("transform") && <TransformSection nodes={nodes} />}
+      {shown.has("typography") && <TypographySection nodes={texts} />}
+      <PaintsSection title="Fill" field="fillPaints" nodes={paintNodes} onPick={onPick} className={drawMode ? draw.largePreviews : undefined} />
+      <PaintsSection title="Stroke" field="strokePaints" nodes={paintNodes} onPick={onPick} className={drawMode ? draw.largePreviews : undefined} />
       {/* A section has neither effects nor layout guides (Figma's live panel: Fill, Stroke, Export) */}
-      {!sections && <EffectsSection nodes={nodes} />}
-      <SelectionColorsSection nodes={nodes} onPick={onPick} />
-      {frames && !sections && <LayoutGuideSection nodes={nodes} />}
+      {shown.has("effects") && <EffectsSection nodes={nodes} />}
+      {shown.has("selectionColors") && <SelectionColorsSection nodes={nodes} onPick={onPick} />}
+      {shown.has("layoutGuide") && <LayoutGuideSection nodes={nodes} />}
       <ExportSection targets={nodes as ExportTarget[]} page={false} />
     </>
   );

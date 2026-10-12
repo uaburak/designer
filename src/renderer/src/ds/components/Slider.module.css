@@ -1,0 +1,47 @@
+@layer ds {
+  /* Slider (§4.38): a 24 high hit area, a 2 px track (the value's part in the icon colour), a 10 px round thumb */
+  .slider {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    min-width: 0;
+    height: var(--ds-size-control);
+    margin: 0 5px; /* half the thumb: its centre reaches both ends */
+    outline: none;
+    touch-action: none;
+    cursor: default;
+  }
+  .track {
+    position: relative;
+    flex: 1 1 auto;
+    height: 2px;
+    border-radius: var(--ds-radius-full);
+    background: var(--figma-color-border-strong);
+  }
+  .fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: calc(var(--slider-fraction, 0) * 100%);
+    border-radius: inherit;
+    background: var(--figma-color-icon);
+  }
+  .thumb {
+    position: absolute;
+    top: 50%;
+    left: calc(var(--slider-fraction, 0) * 100%);
+    width: 10px;
+    height: 10px;
+    border: 1px solid var(--figma-color-border-strong);
+    border-radius: var(--ds-radius-full);
+    background: var(--ds-color-picker-thumb);
+    box-shadow: var(--ds-elevation-100);
+    transform: translate(-50%, -50%);
+  }
+  .slider:hover .thumb, .slider[data-hover] .thumb { border-color: var(--figma-color-icon-secondary); }
+  .slider:focus-visible .thumb, .slider[data-focus-visible] .thumb { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: 1px; }
+  .slider[data-mixed] .fill { width: 0; }
+  .slider[aria-disabled="true"] { opacity: 0.4; }
+}

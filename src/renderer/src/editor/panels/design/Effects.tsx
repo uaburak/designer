@@ -38,6 +38,7 @@ import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
 import { Grip, moved, useReorder } from "./reorder";
 import { SHADER_EFFECTS, SHADER_FILLS, presetOf, shaderEffect, type ShaderFields, type ShaderPreset } from "../../model/shaders";
 import { ShaderParams } from "./ShaderSettings";
+import { DrawSlider, SLIDER_RANGE, useDrawMode } from "../../draw/panels/DrawSliders";
 
 // ---- Effects ---------------------------------------------------------------------------------------
 
@@ -134,6 +135,7 @@ function finishOnboarding() {
 export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
   const ed = useEditor();
   const kept = useKeeps("effects");
+  const drawMode = useDrawMode();
   const refs = nodes.map((n) => n.guid);
   const shared = mixed(nodes.map((n) => n.effects ?? []), sameData);
   const isMixedList = shared !== undefined && typeof shared === "symbol";
@@ -201,6 +203,7 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
           effect={effects[open.index]}
           anchor={open.anchor}
           opaque={opaqueLayers(nodes)}
+          sliders={drawMode}
           onClose={() => setOpen(null)}
           onChange={(next, info) => writeEffects(ed, refs, effects.map((x, j) => (j === open.index ? next : x)), "Effect", info)}
           onCancel={() => ed.cancelEdit()}
@@ -255,10 +258,13 @@ export function EffectSettings({
   onCancel,
   onClose,
   onShaders,
+  sliders = false,
 }: {
   effect: Effect;
   anchor: HTMLElement;
   opaque?: boolean;
+  /** Draw (docs/draw.md §5.3): a slider under blur, spread, density, opacity and radius */
+  sliders?: boolean;
   onChange: (next: Effect, info: ChangeInfo) => void;
   onCancel: () => void;
   onClose: () => void;
@@ -290,6 +296,14 @@ export function EffectSettings({
   const set = (patch: Partial<Effect>, info: ChangeInfo) => onChange({ ...effect, ...patch }, info);
   const vec = (key: string, fallback: V2) => (effect[key] as V2 | undefined) ?? fallback;
   const num = (key: string, fallback: number) => (effect[key] as number | undefined) ?? fallback;
+  // Draw's slider under a field (an empty label cell keeps the grid's pairs).
+  const slide = (label: string, value: number, [min, max]: readonly [number, number], write: (v: number, info: ChangeInfo) => void) =>
+    sliders ? (
+      <>
+        <span />
+        <DrawSlider spec={{ label, value, min, max, onChange: write, onCancel }} />
+      </>
+    ) : null;
   const colorRow = (label: string, key: "color" | "secondaryColor", value: Color, aria = "Color") => (
     <>
       <span className={styles.settingsLabel}>{label}</span>
@@ -325,9 +339,12 @@ export function EffectSettings({
         <NumericInput label="Position Y" prefix="Y" value={offset.y} onChange={(y, info) => set({ offset: { x: offset.x, y } }, info)} onCancel={onCancel} />
         <span className={styles.settingsLabel}>Blur</span>
         <NumericInput scrubHandle="previous" label="Blur radius" min={0} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />
+        {slide("Blur radius", effect.radius ?? 0, SLIDER_RANGE.blur, (v, info) => set({ radius: v }, info))}
         <span className={styles.settingsLabel}>Spread</span>
         <NumericInput scrubHandle="previous" label="Spread" value={effect.spread ?? 0} onChange={(v, info) => set({ spread: v }, info)} onCancel={onCancel} />
+        {slide("Spread", effect.spread ?? 0, SLIDER_RANGE.spread, (v, info) => set({ spread: v }, info))}
         {colorRow("Color", "color", color)}
+        {slide("Color opacity", toPercent(color.a ?? 1), SLIDER_RANGE.percent, (o, info) => set({ color: { ...color, a: o / 100 } }, info))}
         {effect.type === "DROP_SHADOW" && !opaque && (
           <div className={styles.fxWide}>
             <Checkbox label="Show behind transparent areas" checked={effect.showShadowBehindNode === true} onChange={(on) => set({ showShadowBehindNode: on }, pick)} />
@@ -364,6 +381,7 @@ export function EffectSettings({
           <>
             <span className={styles.settingsLabel}>Blur</span>
             <NumericInput scrubHandle="previous" label="Blur radius" min={0} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />
+            {slide("Blur radius", effect.radius ?? 0, SLIDER_RANGE.blur, (v, info) => set({ radius: v }, info))}
           </>
         )}
       </>
@@ -389,10 +407,12 @@ export function EffectSettings({
         {xy("Noise size", "noiseSize", "Noise size", { x: 0.5, y: 0.5 }, 0)}
         <span className={styles.settingsLabel}>Density</span>
         <NumericInput label="Density" min={0} max={100} unit="%" value={pct(num("density", 1), 1)} onChange={(v, info) => set({ density: v / 100 }, info)} onCancel={onCancel} />
+        {slide("Density", pct(num("density", 1), 1), SLIDER_RANGE.percent, (v, info) => set({ density: v / 100 }, info))}
         {kind === "MULTITONE" ? (
           <>
             <span className={styles.settingsLabel}>Opacity</span>
             <NumericInput label="Opacity" min={0} max={100} unit="%" value={pct(num("opacity", 0.25), 0.25)} onChange={(v, info) => set({ opacity: v / 100 }, info)} onCancel={onCancel} />
+            {slide("Opacity", pct(num("opacity", 0.25), 0.25), SLIDER_RANGE.percent, (v, info) => set({ opacity: v / 100 }, info))}
           </>
         ) : (
           colorRow("Color", "color", color)
@@ -406,6 +426,7 @@ export function EffectSettings({
         {xy("Size", "noiseSize", "Size", { x: 0.5, y: 0.5 }, 0)}
         <span className={styles.settingsLabel}>Radius</span>
         <NumericInput label="Radius" min={0} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />
+        {slide("Radius", effect.radius ?? 0, SLIDER_RANGE.blur, (v, info) => set({ radius: v }, info))}
         <div className={cx(styles.fxWide, styles.fxCheck)}>
           <Checkbox label="Clip to shape" checked={effect.clipToShape === true} onChange={(on) => set({ clipToShape: on }, pick)} />
         </div>

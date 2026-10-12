@@ -31,6 +31,7 @@ import { LimitRow, SIZING_LIST_DY, SizeField, sizeLabels, sizeLocked, useLimitAx
 import { canResizeToFit, resizeToFit, spacingItems, writeSpacing } from "./layoutActions";
 import { cancelScrub, editEach, exitToCanvas, perLayer, scrubEach, stepInfo } from "./Sections";
 import { fields, isFrameNode, isGroupNode, isInstanceSublayer, isTextNode, typeOf, useParents, useSupports, type PanelNode } from "./shared";
+import { useDrawMode } from "../../draw/panels/DrawSliders";
 import styles from "./Design.module.css";
 
 type Flow = "NONE" | "VERTICAL" | "HORIZONTAL" | "GRID";
@@ -51,7 +52,9 @@ export function instanceFlow(nodes: readonly PanelNode[]): "hidden" | "locked" |
 export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   const ed = useEditor();
   const labels = useUI((s) => s.propertyLabels);
-  const autoLayoutKept = useSupports("stackMode");
+  // Draw (docs/draw.md §5.3): "Dimensions" — W / H only, no auto layout, no min / max.
+  const drawMode = useDrawMode();
+  const autoLayoutKept = useSupports("stackMode") && !drawMode;
   const constrainKept = useSupports("proportionsConstrained");
   const parents = useParents(nodes);
   const limits = useLimitAxes(nodes);
@@ -97,7 +100,7 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   );
 
   return (
-    <PanelSection title={auto ? "Auto layout" : "Layout"} actions={actions}>
+    <PanelSection title={drawMode ? "Dimensions" : auto ? "Auto layout" : "Layout"} actions={drawMode ? undefined : actions}>
       <PropertyGrid labels={labels}>
         {flowable && <FlowRow nodes={nodes} disabled={flowLocked} onAdd={addAutoLayout} onRemove={removeAutoLayout} />}
         {texts.length > 0 && <TextResizingRow nodes={texts} />}
@@ -112,12 +115,12 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
           {locked ? <LockedSize axis="x" nodes={nodes} parents={parents} /> : <SizeField axis="x" nodes={nodes} parents={parents} onAddLimit={limits.open} disabled={sizeLocked(nodes, "x")} />}
           {locked ? <LockedSize axis="y" nodes={nodes} parents={parents} /> : <SizeField axis="y" nodes={nodes} parents={parents} onAddLimit={limits.open} disabled={sizeLocked(nodes, "y")} />}
         </PropertyRow>
-        {limits.axes.map((axis) => (
+        {!drawMode && limits.axes.map((axis) => (
           <LimitRow key={axis} axis={axis} nodes={nodes} />
         ))}
         {spacing && <SpacingRow nodes={nodes} />}
         {auto && <AutoLayoutRows nodes={nodes} />}
-        {parents.length > 0 && parents.every((p) => isGrid(p)) && nodes.every((n) => n.stackPositioning !== "ABSOLUTE") && <GridSpanRow nodes={nodes} />}
+        {!drawMode && parents.length > 0 && parents.every((p) => isGrid(p)) && nodes.every((n) => n.stackPositioning !== "ABSOLUTE") && <GridSpanRow nodes={nodes} />}
       </PropertyGrid>
       {/* Live (design/mixed-multi.txt): shown when a frame is among the layers (Rect + Ellipse + Text + F_frame), for the frames */}
       {clipFrames.length > 0 && !sections && !groups && (

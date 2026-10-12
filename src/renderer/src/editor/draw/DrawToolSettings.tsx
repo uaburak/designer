@@ -9,7 +9,7 @@
  * Every change goes to the engine with setDrawToolSettings (drawTools.ts); the settings last the session.
  */
 import { useState, type MouseEvent } from "react";
-import { ColorPicker, hexToRgba, Icon, IconButton, NumericInput, Popover, rgbToHex, SegmentedControl, Swatch, Toolbar, ToolbarDivider, type PickerPaint } from "@/ds";
+import { ColorPicker, hexToRgba, Icon, IconButton, NumericInput, Popover, rgbToHex, SegmentedControl, Slider, Swatch, Toolbar, ToolbarDivider, type PickerPaint } from "@/ds";
 import { DRAW_WEIGHT_RANGE, DYNAMIC_RANGE, type DynamicSettings } from "@shared/draw/types";
 import { useEditor } from "../controller";
 import { useUI } from "../hooks";
@@ -35,9 +35,9 @@ export function DrawToolSettings({ tool }: { tool: DrawTool }) {
   const settings = tool === "PENCIL" ? state.settings.pencil : state.settings.brush;
   const set = (patch: { color?: string; opacity?: number; weight?: number }) => (tool === "PENCIL" ? setPencil(ed, patch) : setBrushTool(ed, patch));
   // The open popover and the button it opens from
-  const [popover, setPopover] = useState<{ what: "color" | "brush" | "dynamic"; anchor: HTMLElement } | null>(null);
+  const [popover, setPopover] = useState<{ what: "color" | "brush" | "dynamic" | "weight"; anchor: HTMLElement } | null>(null);
   const open = popover?.what ?? null;
-  const toggle = (what: "color" | "brush" | "dynamic") => (e: MouseEvent<HTMLElement>) => {
+  const toggle = (what: "color" | "brush" | "dynamic" | "weight") => (e: MouseEvent<HTMLElement>) => {
     const anchor = e.currentTarget;
     setPopover((o) => (o?.what === what ? null : { what, anchor }));
   };
@@ -69,7 +69,15 @@ export function DrawToolSettings({ tool }: { tool: DrawTool }) {
         step={1}
         precision={1}
         onChange={(v) => set({ weight: v })}
+        suffix={<IconButton icon="16.chevron.down" label="Weight slider" aria-expanded={open === "weight"} className={styles.weightMore} onClick={toggle("weight")} />}
       />
+      {open === "weight" && (
+        <Popover anchor={popover!.anchor} placement="top" label="Weight" onClose={close}>
+          <div className={styles.weightSlider}>
+            <Slider label="Weight" value={settings.weight} min={DRAW_WEIGHT_RANGE[0]} max={DRAW_WEIGHT_RANGE[1]} step={0.5} onChange={(v) => set({ weight: v })} />
+          </div>
+        </Popover>
+      )}
       <ToolbarDivider />
       {tool === "PENCIL" ? (
         <div className={styles.group}>

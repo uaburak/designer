@@ -27,6 +27,7 @@ import { ApplyModeButton, ModeRows, VariableField } from "./Variables";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
 import { IDENTITY, panelPosition, roundPanel, rotateTo, rotationOf, withPanelPosition } from "../../model/geometry";
 import { PANEL_MENU_GAP, fields, hasCorners, isFrameNode, isGroupNode, isInstanceSublayer, typeOf, useKeeps, useParents, useSupports, useTextEditRef, type BlendModeName, type PanelNode } from "./shared";
+import { SLIDER_RANGE, SliderRow, useDrawMode } from "../../draw/panels/DrawSliders";
 import styles from "./Design.module.css";
 
 type Fields = Parameters<EditorController["engine"]["setProps"]>[1];
@@ -190,7 +191,9 @@ export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
   const inGrid = nodes.every((n, i) => isGrid(parents[i]) && n.stackPositioning !== "ABSOLUTE");
   const absolute = mixed(nodes.map((n) => n.stackPositioning === "ABSOLUTE"));
   const constraintsOpen = useUI((s) => !!s.constraintsOpen);
-  const constraints = constraintsKept && nodes.every((n) => hasConstraints(constraintChain(ed, n), n.stackPositioning === "ABSOLUTE"));
+  // Draw has no constraints (docs/draw.md §5.3).
+  const drawMode = useDrawMode();
+  const constraints = !drawMode && constraintsKept && nodes.every((n) => hasConstraints(constraintChain(ed, n), n.stackPositioning === "ABSOLUTE"));
   const section = nodes.every((n) => typeOf(n) === "SECTION");
   const refs = nodes.map((n) => n.guid);
   const pos = nodes.map((n) => panelPosition(n.transform ?? IDENTITY, groupChain(ed, n)));
@@ -398,13 +401,15 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
     };
   const setCorner = (f: CornerField, v: number, info: ChangeInfo) => editEach(ed, "Corner radius", info, refs, (n) => cornerFields(n, f, v));
   const blendLabel = (b: Mixed<string> | undefined) => (b === undefined || b === MIXED ? "Mixed" : b === "PASS_THROUGH" ? "Pass through" : BLEND_LABEL[b as keyof typeof BLEND_LABEL] ?? b);
+  // Draw (docs/draw.md §5.3): sliders under Opacity and Corner radius; no variable modes.
+  const drawMode = useDrawMode();
 
   return (
     <PanelSection
       title="Appearance"
       actions={
         <>
-          <ApplyModeButton refs={refs} />
+          {!drawMode && <ApplyModeButton refs={refs} />}
           {nodes.length === 1 && <BindButton layer={nodes[0]} field="VISIBLE" type="BOOL" />}
           <IconButton
             icon={visible === false ? "24.hidden.small" : "24.eye.small"}
@@ -447,6 +452,14 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
             <NumericInput label="Corner radius" prefix="24.corners" min={signedOk ? undefined : 0} disabled={plainOnly} value={independentNow ? MIXED : fieldValue(radius)} {...radiusHandlers} />
           </VariableField>
         </PropertyRow>
+        {drawMode && (
+          <SliderRow
+            sliders={[
+              { label: "Opacity", value: fieldValue(opacity), min: SLIDER_RANGE.opacity[0], max: SLIDER_RANGE.opacity[1], onChange: opacityHandlers.onChange, onCancel: opacityHandlers.onCancel },
+              plainOnly ? null : { label: "Corner radius", value: independentNow ? MIXED : fieldValue(radius), min: SLIDER_RANGE.cornerRadius[0], max: SLIDER_RANGE.cornerRadius[1], onChange: radiusHandlers.onChange, onCancel: radiusHandlers.onCancel },
+            ]}
+          />
+        )}
         {independent && (
           <>
             {[CORNERS.slice(0, 2), CORNERS.slice(2)].map((pair, i) => (
@@ -463,7 +476,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
         )}
         {polygons.length > 0 && countKept && <CountRow nodes={polygons} stars={stars} />}
       </PropertyGrid>
-      <ModeRows refs={refs} />
+      {!drawMode && <ModeRows refs={refs} />}
     </PanelSection>
   );
 }

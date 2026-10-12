@@ -44,7 +44,17 @@ export interface LayerRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onD
   onRename?: (name: string | null, exit: ExitReason) => void;
   onPointerDown?: (e: React.PointerEvent<HTMLDivElement>) => void;
   onDoubleClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
+  /**
+   * Draw mode's layer preview (docs/draw.md §5.9): with it the row is 48 high and the 32 × 32 slot
+   * (`data-layer-thumb`) takes the type glyph's place — `null` shows the glyph in the slot (nothing drawn yet). The
+   * glyph's name stays the slot's accessible name.
+   */
+  thumbnail?: ReactNode;
 }
+
+/** Draw mode's row pitch and its preview's box (docs/draw.md §5.9 [sizes unverified]). */
+export const LAYER_ROW_LARGE = 48;
+export const LAYER_THUMB = 32;
 
 /** The inline rename: a ghost field; reports the new name (null when unchanged or cancelled) and how it was left. */
 function RenameField({ value, onDone, className, label = STRINGS.rename }: { value: string; onDone: (name: string | null, exit: ExitReason) => void; className?: string; label?: string }) {
@@ -107,18 +117,19 @@ export const LAYER_NAME_END = size.control;
  * end, its whole name shows, then the lock and the eye): the inset, 4, depth × 24, the chevron, the glyph + 8, the
  * name, `LAYER_NAME_END`, the two cells and the inset. `name` is its width or its text (measured in the row's type).
  */
-export function layerRowExtent(depth: number, name: number | string): number {
+export function layerRowExtent(depth: number, name: number | string, thumbnail = false): number {
   const nameWidth = typeof name === "number" ? name : textWidth(name, "body-medium-regular");
-  return size["row-inset"] + space["1"] + depth * size["layer-indent"] + 16 + 16 + space["2"] + nameWidth + LAYER_NAME_END + 2 * size.control + size["row-inset"];
+  return size["row-inset"] + space["1"] + depth * size["layer-indent"] + 16 + (thumbnail ? LAYER_THUMB : 16) + space["2"] + nameWidth + LAYER_NAME_END + 2 * size.control + size["row-inset"];
 }
 
 /**
  * The width a list of layer rows scrolls to: its widest row's extent (rounded up), 0 when it has none — the list
- * never narrower than its view (the rows fill it; it doesn't scroll sideways while every row fits).
+ * never narrower than its view (the rows fill it; it doesn't scroll sideways while every row fits). `thumbnail`:
+ * Draw's rows (a 32 preview in the glyph's place).
  */
-export function layerListWidth(rows: readonly { depth: number; name: string | null }[]): number {
+export function layerListWidth(rows: readonly { depth: number; name: string | null }[], thumbnail = false): number {
   let w = 0;
-  for (const r of rows) if (r.name !== null) w = Math.max(w, layerRowExtent(r.depth, r.name));
+  for (const r of rows) if (r.name !== null) w = Math.max(w, layerRowExtent(r.depth, r.name, thumbnail));
   return Math.ceil(w);
 }
 
@@ -134,7 +145,8 @@ export function layerListWidth(rows: readonly { depth: number; name: string | nu
  * unless the row is selected or a top-level frame; components and instances in purple; hidden layers faded. Enter
  * belongs to the list (select the children), not the row.
  */
-export function LayerRow({ id, depth, name, icon, iconLabel, kind = "default", tone = "default", expanded, selected, selectedAncestor, hovered, locked, hidden, strong, renaming, run, drop, onToggleExpand, onToggleLock, onToggleVisible, onRename, onPointerDown, onDoubleClick, className, style, ...rest }: LayerRowProps) {
+export function LayerRow({ id, depth, name, icon, iconLabel, kind = "default", tone = "default", expanded, selected, selectedAncestor, hovered, locked, hidden, strong, renaming, run, drop, onToggleExpand, onToggleLock, onToggleVisible, onRename, onPointerDown, onDoubleClick, thumbnail, className, style, ...rest }: LayerRowProps) {
+  const large = thumbnail !== undefined;
   const cells = renaming ? { rest: 0, hover: 0 } : tailCells({ locked, hidden, lock: !!onToggleLock, visible: !!onToggleVisible });
   return (
     <div
@@ -149,7 +161,8 @@ export function LayerRow({ id, depth, name, icon, iconLabel, kind = "default", t
       data-run={selected || selectedAncestor ? run : undefined}
       data-drop={drop}
       data-tone={tone === "component" ? "component" : undefined}
-      className={cx(styles.row, kind !== "default" && styles.component, hidden && styles.hiddenLayer, strong && styles.strong, className)}
+      data-size={large ? "large" : undefined}
+      className={cx(styles.row, large && styles.large, kind !== "default" && styles.component, hidden && styles.hiddenLayer, strong && styles.strong, className)}
       style={{ ...style, ["--depth" as string]: depth, ["--tail-rest" as string]: cells.rest, ["--tail-hover" as string]: cells.hover }}
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}
@@ -164,7 +177,13 @@ export function LayerRow({ id, depth, name, icon, iconLabel, kind = "default", t
             <Icon name="16.chevron.down" />
           </button>
         )}
-        <span className={styles.type} data-layer-icon="" role={iconLabel ? "img" : undefined} aria-label={iconLabel} {...tooltipProps(iconLabel)}><Icon name={icon} size={16} /></span>
+        {large ? (
+          <span className={styles.thumb} data-layer-thumb="" role={iconLabel ? "img" : undefined} aria-label={iconLabel} {...tooltipProps(iconLabel)}>
+            {thumbnail ?? <Icon name={icon} size={16} />}
+          </span>
+        ) : (
+          <span className={styles.type} data-layer-icon="" role={iconLabel ? "img" : undefined} aria-label={iconLabel} {...tooltipProps(iconLabel)}><Icon name={icon} size={16} /></span>
+        )}
         {renaming ? (
           <RenameField className={styles.rename} value={name} onDone={(n, r) => onRename?.(n, r)} />
         ) : (

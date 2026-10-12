@@ -570,6 +570,36 @@ Built against the Engine.ts stubs. Every Draw call goes through `drawCall` (`edi
 - **Double-click on the thumbnail** zooms to the layer (as Zoom to selection; ⇧2). A double-click on the name still renames.
 - Design mode keeps 32 px rows.
 
+### As built (7d, 2026-10-12)
+
+Built against the Engine.ts stubs, as 7c: every Draw command goes through `runDraw` (`drawCall`), so until 7b lands the controls send nothing and the panel shows what the document holds. The logic is in `editor/draw/panels/drawPanel.ts`; the sliders in `DrawSliders.tsx`; styles in `DrawPanels.module.css`.
+
+- **Sections** (`designSections(mode, nodes)`, used by `panels/design/DesignPanel.tsx`):
+  - Draw: Position (Alignment, X / Y, rotation; no constraints), **Dimensions** (`LayoutSection` titled so in Draw: W / H, no auto layout, Flow, min / max or grid span), Appearance (no variable modes, no Apply variable mode), **Transform**, Typography (texts and text paths), Fill, Stroke, Effects, Export. No Selection colors, no Layout guide.
+  - A component in Draw shows `TypeHeader`, not its properties; an instance keeps `InstanceHeader` (its swap header — the properties come with it) [ours].
+  - Design: unchanged, plus Transform when every selected layer is a transform group.
+  - `rightPanelTabs(mode)`: Draw has no Prototype tab; `RightPanel` shows Design in Draw and gives the chosen tab back in Design.
+- **Sliders** (DS `Slider`, `docs/design-system.md` §4.38): a `SliderRow` under Opacity / Corner radius and under Stroke weight; in the stroke popover under Frequency / Wiggle / Smoothen and the Scatter fields; in the effect popover under blur radius, spread, the shadow colour's opacity, noise density / opacity and texture radius. Each writes through the field's own handlers (one undo step per drag). Ranges where a field has none are ours (`SLIDER_RANGE`: 0–100; spread −100…100; Dynamic's Wiggle slider 0–10).
+- **Larger previews**: Fill and Stroke paint chits 20 px inside the 24 field in Draw (ours: §5.3's 24 doesn't fit inside a 24 field).
+- **Stroke** (`panels/design/Stroke.tsx`, in Advanced stroke settings):
+  - Stroke Type reads the kind from the document (`strokeKindOf`: a brush GUID, Dynamic settings, or neither; Mixed across layers) and writes `SET_STROKE_KIND` BASIC / DYNAMIC (with `DYNAMIC_DEFAULTS`) or `SET_STROKE_BRUSH` with the last-used brush (`lastBrush`: the Brush tool's, installed first when it is a built-in; nothing is sent when it can't be installed).
+  - Dynamic: Frequency, Wiggle, Smoothen, clamped to `DYNAMIC_RANGE`, a scrub one "Change stroke".
+  - Brush: the **Brush** picker (7c's `BrushMenu` with `placement="left-of-panel"`, all sections — no `type` filter, so a stroke can go from a stretch to a scatter brush [ours]); a pick sets the layers' brush and becomes the last-used brush (`chooseBrush`). Then **Direction** (Forward / Backward → `SET_BRUSH_SETTINGS stretch`) or Gap, Wiggle, Size jitter, Angular jitter, Rotation (clamped to `SCATTER_RANGE`).
+  - Style, dashes and the dash cap show for Basic strokes only; Width profile is disabled for Dynamic, Brush and dashed strokes.
+- **Transform** (`draw/panels/TransformSection.tsx`):
+  - "+" (`MenuButton`, tooltip "Additional transform modifier"): Linear repeat / Radial repeat → `ADD_TRANSFORM_MODIFIER` with `REPEAT_DEFAULTS`.
+  - Rows for one selected transform group: the REPEAT modifiers in document order (SYMMETRY / SKEW kept, not listed), each its 16 glyph and "Linear repeat" / "Radial repeat", the eye (`SET_TRANSFORM_MODIFIER {visible}`), "−" (`REMOVE_…`), a grip (`MOVE_…`, document indices).
+  - A row opens the **Repeat** popover: Count (1…1000, rounded), Gap with a px / % toggle (RELATIVE shown as a percent; switching keeps the number shown [ours]), Axis Horizontal / Vertical for Linear, Order Forward / Reverse. A scrub is one "Change repeat".
+  - **Apply transforms to selection** (a secondary button) when transform groups are selected → `APPLY_TRANSFORMS`.
+- **Typography** for TEXT_PATH: no line height (letter spacing alone), Justify added to the horizontal alignments, **Flip** (`24.text-path-flip`, "Flip text orientation" → `FLIP_TEXT_PATH` with the refs) in Type settings' place — so Type settings' paragraph / list / truncation fields don't show.
+- **Layers** (`panels/Layers.tsx`, `draw/panels/layerThumbs.ts`, `LayerThumb.tsx`):
+  - In Draw: 48 px rows (DS `LayerRow` `thumbnail`), the list's width counting the 32 preview; `TRANSFORM` → `16.repeat` "Transform group", `TEXT_PATH` → `16.text-path` "Text on path" [names unverified].
+  - `LayerThumbnails`: `renderNodeThumbnailPixels({node, maxSize: 64})` for subscribed (on-screen) rows only, 8 per idle slice (`requestIdleCallback`), cached per content version in an LRU of 512. `DOCUMENT_CHANGED` bumps the version of each changed layer and its ancestors (the stream's `{sessionID, localID}` GUIDs normalised to "s:l"); a stale preview shows until redrawn; removed layers leave the cache. Kept as the engine's RGBA and put on the row's canvas (`putImageData`), not `ImageBitmap`s (no async hop for 64 px).
+  - A double-click on the preview selects the layer and zooms to it (`zoomToLayer`: `ZOOM_TO_SELECTION`, 300 ms); on the name it renames. A click on the preview selects as a click on the row.
+- **Secondary toolbar**: the weight's chevron opens a popover with the DS Slider (0.5–100, step 0.5).
+- **Tests**: `editor/__tests__/r7.drawPanels.dom.test.ts` (fake engine: sections per mode and the tabs, stroke kinds and their commands with clamping and one-step scrubs, the brush pick, repeats read from the document, the Transform rows and Apply, the Repeat popover, Flip, the previews' cache — once per row, ancestors on change, 8 per slice, the LRU, a late subscriber, `DOCUMENT_CHANGED` with kiwi GUIDs — and zoom on double-click); `ds/__tests__/r7.slider.dom.test.ts` (the Slider's values, drag, cancel, keys, Mixed, disabled; LayerRow's slot).
+- **Checked in the browser** (`vite.web.config.ts`, the demo file in Draw): the sections, sliders, Stroke Type, the previews drawn and redrawn after a fill change; the Gallery's Slider and Draw rows in both themes. Not checked: anything the 7b engine draws (repeats, brush and dynamic strokes, text paths).
+
 ## 6. Brush assets (7e; `src/shared/draw/brushes/`)
 
 - **Our own artwork, generated.** `src/shared/draw/brushes/generate.ts` builds each brush's `BrushArtwork` from a recipe and a fixed seed. It is deterministic, pure TS and needs no assets. `scripts/brushes.mjs` writes `builtin.generated.json`, which is committed; `index.ts` exports `BUILTIN_BRUSHES: BuiltinBrush[]` from it. Nothing is traced from or modelled on Figma's artwork; only the names are Figma's (the plugin API's enum), so plugins and `.fig` round trips agree.

@@ -15,6 +15,7 @@ import { CommentsPanel } from "../comments/CommentsPanel";
 import { DesignPanel } from "./design/DesignPanel";
 import { PrototypePanel } from "./prototype/PrototypePanel";
 import { designPanelTab } from "./design/tabOrder";
+import { rightPanelTabs } from "../draw/panels/drawPanel";
 import { present } from "../present";
 import { useAccount } from "../../files/account";
 import { ConnectionDot, Facepile, useFacepile } from "../multiplayer/Multiplayer";
@@ -25,7 +26,10 @@ import styles from "./Panels.module.css";
 export function RightPanel({ floating }: { floating?: boolean } = {}) {
   const ed = useEditor();
   const width = useUI((s) => s.rightWidth);
-  const tab = useUI((s) => s.rightTab);
+  // Draw has no Prototype tab (docs/draw.md §5.3 [unverified]): the Design tab shows; Design mode gets the chosen one back.
+  const drawMode = useUI((s) => s.mode === "draw");
+  const chosen = useUI((s) => s.rightTab);
+  const tab = drawMode ? "design" : chosen;
   const viewer = usePresence(ed).role === "viewer";
   const commenting = useTool(ed.store) === "COMMENT";
   const [viewerTab, setViewerTab] = useState<"comments" | "properties">("comments");
@@ -71,7 +75,7 @@ export function RightPanel({ floating }: { floating?: boolean } = {}) {
               tabs={[
                 // Live (left/rail-assets.txt): 53 × 24 at 1208 and 69 × 24 at 1265
                 { value: "design", label: "Design", width: 53 },
-                { value: "prototype", label: "Prototype", width: 69 },
+                ...(rightPanelTabs(drawMode ? "draw" : "design").includes("prototype") ? [{ value: "prototype", label: "Prototype", width: 69 }] : []),
               ]}
               onChange={(v) => ed.ui.set({ rightTab: v as "design" | "prototype" })}
             />

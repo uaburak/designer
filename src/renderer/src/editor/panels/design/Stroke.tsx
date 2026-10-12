@@ -12,7 +12,7 @@
  * borderStrokeWeightsIndependent, border{Top,Right,Bottom,Left}Weight,
  * dashPattern, strokeCap, strokeJoin, miterLimit.
  */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { VariableField } from "./Variables";
 import { MIXED, MenuButton, NumericInput, Popover, PropertyGrid, PropertyRow, SegmentedControl, Select, Icon, IconButton, TextInput, cx, type ChangeInfo, type IconName, type MenuEntry, type SelectOption } from "@/ds";
 import type { NodeFields, StrokeAlign, StrokeCap } from "@/engine/codec";
@@ -22,6 +22,12 @@ import { fieldValue, mixed, mixedNumber, sameData } from "../../model/mixed";
 import { exitToCanvas } from "./Sections";
 import { WIDTH_PROFILES, matchProfile, presetPoints as presetOf, profilePath, readWidthPoints, type WidthPoint } from "../../widthProfile";
 import { PANEL_MENU_GAP, fields, hasCorners, typeOf, useKeeps, type PanelNode } from "./shared";
+import { DYNAMIC_RANGE, SCATTER_RANGE, type BrushEntry, type StrokeKind } from "@shared/draw/types";
+import { BrushMenu, BrushPreview } from "../../draw/BrushMenu";
+import { brushSections } from "../../draw/drawTools";
+import { DYNAMIC_FIELDS, SCATTER_FIELDS, dynamicOf, pickStrokeBrush, scatterOf, setDynamic, setScatter, setStretch, setStrokeKind, stretchOf, strokeBrushOf, strokeKindOf } from "../../draw/panels/drawPanel";
+import { DrawSlider, SLIDER_RANGE, SliderRow, useDrawMode, type SliderSpec } from "../../draw/panels/DrawSliders";
+import draw from "../../draw/panels/DrawPanels.module.css";
 import styles from "./Design.module.css";
 
 export type StrokeSide = "ALL" | "TOP" | "BOTTOM" | "LEFT" | "RIGHT" | "CUSTOM";
@@ -89,6 +95,8 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
       for (const n of nodes) ed.engine.setProps([n.guid], singleField ? fields({ [singleField]: v, strokeWeight: v }) : { strokeWeight: v });
     });
   const sideMenu: MenuEntry[] = SIDE_ITEMS.flatMap((s): MenuEntry[] => [...(s.id === "CUSTOM" ? ["-" as const] : []), { id: s.id, label: s.label, icon: s.icon, checked: side === s.id, radio: true }]);
+  // Draw (docs/draw.md §5.3): the weight's slider under its field.
+  const drawMode = useDrawMode();
   return (
     <PropertyGrid labels={labels}>
       <PropertyRow
@@ -151,6 +159,9 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
         />
         </VariableField>
       </PropertyRow>
+      {drawMode && side !== "CUSTOM" && (
+        <SliderRow sliders={[null, { label: "Stroke weight", value: weight, min: SLIDER_RANGE.strokeWeight[0], max: SLIDER_RANGE.strokeWeight[1], step: 0.5, onChange: writeWeight, onCancel: () => ed.cancelEdit() }]} />
+      )}
       <EndPointsRow nodes={nodes} />
       {perSide && side === "CUSTOM" && (
         <>
@@ -313,7 +324,8 @@ function WidthProfileRow({ nodes }: { nodes: PanelNode[] }) {
   const profiles = lists.map((l) => matchProfile(l));
   const same = profiles.every((p, i) => p === profiles[0] && (p !== "CUSTOM" || JSON.stringify(lists[i]) === JSON.stringify(lists[0])));
   const value = same ? profiles[0] ?? "UNIFORM" : MIXED;
-  const allowed = ed.engine.commandState("SET_WIDTH_PROFILE") !== 0;
+  // Figma: no width profile on dynamic, brush or dashed strokes (docs/draw.md §5.4).
+  const allowed = ed.engine.commandState("SET_WIDTH_PROFILE") !== 0 && nodes.every((n) => strokeKindOf(n) === "BASIC" && !n.dashPattern?.length);
   const options: SelectOption[] = WIDTH_PROFILES.map((p) => ({ value: p.value, label: p.label, image: <ProfileImage points={presetOf(p.value)} /> }));
   if (value === "CUSTOM") options.push({ value: "CUSTOM", label: "Custom", image: <ProfileImage points={lists[0]} />, disabled: true });
   return (
@@ -345,7 +357,9 @@ function WidthProfileRow({ nodes }: { nodes: PanelNode[] }) {
 
 /**
  * The stroke settings popover as Figma's live one (popovers/stroke-advanced-settings.txt, 240 wide): Stroke Type
- * (Basic; Dynamic and Brush not built), Style (Solid / Dashed / Custom, 128), the dash fields, Join (Miter / Bevel /
+ * (Basic / Dynamic / Brush, round 7d: SET_STROKE_KIND / SET_STROKE_BRUSH; Dynamic's Frequency, Wiggle, Smoothen;
+ * Brush's picker and Direction or Scatter's fields — docs/draw.md §5.4), then for Basic strokes Style
+ * (Solid / Dashed / Custom, 128), the dash fields, Join (Miter / Bevel /
  * Round as segments, 128), Miter angle — and, for open paths or dashes, the cap.
  */
 function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor: HTMLElement; onClose: () => void }) {
@@ -359,6 +373,8 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
   const join = mixed(nodes.map((n) => n.strokeJoin ?? "MITER"));
   const angle = mixedNumber(nodes.map((n) => Math.round(miterAngle(n.miterLimit ?? 4) * 100) / 100));
   const open = nodes.every(isOpenPath);
+  // Stroke Type (docs/draw.md §5.4): implicit in the document (a brush GUID, Dynamic settings, or neither).
+  const kind = mixed(nodes.map(strokeKindOf));
   const set = (label: string, f: NodeFields) => ed.setProps(refs, f, label);
   const setDash = (dash: number, gap: number, info: ChangeInfo) => ed.edit("Dash", info, () => void ed.engine.setProps(refs, fields({ dashPattern: [dash, gap] })));
   const pickStyle = (v: string) => {
@@ -373,18 +389,21 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
           <SegmentedControl
             label="Stroke Type"
             fullWidth
-            value="BASIC"
+            value={kind === undefined ? "BASIC" : kind === MIXED ? MIXED : kind}
             options={[
               { value: "BASIC", label: "Basic" },
-              // Live: Dynamic and Brush enabled (#ffffffb2, not dimmed); their strokes aren't built, so Basic stays picked.
               { value: "DYNAMIC", label: "Dynamic" },
               { value: "BRUSH", label: "Brush" },
             ]}
-            onChange={() => undefined}
+            onChange={(v) => setStrokeKind(ed, refs, v as StrokeKind)}
           />
         </div>
         {/* (keeps the grid's label / control parity after the full-width row) */}
         <span style={{ display: "none" }} />
+        {kind === "DYNAMIC" && <DynamicRows nodes={nodes} />}
+        {kind === "BRUSH" && <BrushRows nodes={nodes} />}
+        {kind === "BASIC" && (
+          <>
         <span className={styles.settingsLabel}>Style</span>
         <Select
           label="Style"
@@ -436,6 +455,8 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
             />
           </>
         )}
+          </>
+        )}
         <WidthProfileRow nodes={nodes} />
         <span className={styles.settingsLabel}>Join</span>
         <SegmentedControl
@@ -471,5 +492,114 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
         )}
       </div>
     </Popover>
+  );
+}
+
+// ---- Dynamic and Brush strokes (docs/draw.md §5.4; round 7d) ----------------------------------------------------
+
+/** A popover cell: the number field, and in Draw its slider under it. */
+function FieldWithSlider({ field, slider }: { field: ReactNode; slider: SliderSpec | null }) {
+  if (!slider) return <>{field}</>;
+  return (
+    <div className={cx(styles.settingsWideField, draw.fieldWithSlider)}>
+      {field}
+      <DrawSlider spec={slider} />
+    </div>
+  );
+}
+
+/** Dynamic: Frequency, Wiggle, Smoothen — each clamped to the plugin API's range; a scrub or a drag is one step. */
+function DynamicRows({ nodes }: { nodes: PanelNode[] }) {
+  const ed = useEditor();
+  const drawMode = useDrawMode();
+  const refs = nodes.map((n) => n.guid);
+  return (
+    <>
+      {DYNAMIC_FIELDS.flatMap((f) => {
+        const value = fieldValue(mixedNumber(nodes.map((n) => dynamicOf(n)[f.id]), 1e-4));
+        const [min, max] = DYNAMIC_RANGE[f.id];
+        const write = (v: number, info: ChangeInfo) => setDynamic(ed, refs, f.id, v, info);
+        return [
+          <span key={`${f.id}-label`} className={styles.settingsLabel}>
+            {f.label}
+          </span>,
+          <FieldWithSlider
+            key={f.id}
+            field={<NumericInput className={drawMode ? undefined : styles.settingsWideField} scrubHandle="previous" label={f.label} min={min} max={max} step={f.step} bigStep={f.step * 10} precision={2} value={value} onChange={write} onCancel={() => ed.cancelEdit()} data-dynamic-field={f.id} />}
+            slider={drawMode ? { label: f.label, value, min, max: f.id === "wiggle" ? 10 : max, step: f.step, onChange: write, onCancel: () => ed.cancelEdit() } : null}
+          />,
+        ];
+      })}
+    </>
+  );
+}
+
+/** The selection's brush as the picker shows it (the file's BRUSH node, or the GUID alone before the engine lists it). */
+function brushEntryOf(sections: ReturnType<typeof brushSections>, guid: string): BrushEntry {
+  return [...sections.stretch, ...sections.scatter, ...sections.custom].find((e) => e.guid === guid) ?? { guid, name: "Brush", type: "STRETCH", builtin: null };
+}
+
+/** Brush: the Brush picker (7c's Brush styles menu beside the panel), then Direction (stretch) or Scatter's fields. */
+function BrushRows({ nodes }: { nodes: PanelNode[] }) {
+  const ed = useEditor();
+  const drawMode = useDrawMode();
+  const refs = nodes.map((n) => n.guid);
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const guid = mixed(nodes.map((n) => strokeBrushOf(n) ?? ""));
+  const entry = typeof guid === "string" && guid ? brushEntryOf(brushSections(ed), guid) : null;
+  const direction = mixed(nodes.map((n) => stretchOf(n).direction));
+  return (
+    <>
+      <span className={styles.settingsLabel}>Brush</span>
+      <button type="button" className={cx(styles.settingsWideField, draw.brushPicker)} aria-label="Brush" aria-haspopup="listbox" aria-expanded={!!anchor} data-stroke-brush={entry?.guid ?? "mixed"} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}>
+        {entry ? <BrushPreview entry={entry} className={draw.brushPreview} /> : <span />}
+        <span>{entry ? entry.name : "Mixed"}</span>
+        <Icon name="16.chevron.down" />
+      </button>
+      {anchor && (
+        <BrushMenu
+          anchor={anchor}
+          placement="left-of-panel"
+          current={entry}
+          onPick={(picked) => {
+            pickStrokeBrush(ed, refs, picked);
+            setAnchor(null);
+          }}
+          onClose={() => setAnchor(null)}
+        />
+      )}
+      {entry?.type === "STRETCH" && (
+        <>
+          <span className={styles.settingsLabel}>Direction</span>
+          <SegmentedControl
+            label="Direction"
+            className={styles.settingsWideField}
+            fullWidth
+            value={direction === undefined ? "FORWARD" : direction}
+            options={[
+              { value: "FORWARD", label: "Forward" },
+              { value: "BACKWARD", label: "Backward" },
+            ]}
+            onChange={(v) => setStretch(ed, refs, v as "FORWARD" | "BACKWARD")}
+          />
+        </>
+      )}
+      {entry?.type === "SCATTER" &&
+        SCATTER_FIELDS.flatMap((f) => {
+          const value = fieldValue(mixedNumber(nodes.map((n) => scatterOf(n)[f.id]), 1e-4));
+          const [min, max] = SCATTER_RANGE[f.id];
+          const write = (v: number, info: ChangeInfo) => setScatter(ed, refs, f.id, v, info);
+          return [
+            <span key={`${f.id}-label`} className={styles.settingsLabel}>
+              {f.label}
+            </span>,
+            <FieldWithSlider
+              key={f.id}
+              field={<NumericInput className={drawMode ? undefined : styles.settingsWideField} scrubHandle="previous" label={f.label} unit={f.unit} min={min} max={max} step={f.step} bigStep={f.step * 10} precision={2} value={value} onChange={write} onCancel={() => ed.cancelEdit()} data-scatter-field={f.id} />}
+              slider={drawMode ? { label: f.label, value, min, max, step: f.step, onChange: write, onCancel: () => ed.cancelEdit() } : null}
+            />,
+          ];
+        })}
+    </>
   );
 }

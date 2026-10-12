@@ -617,3 +617,13 @@ Acceptance (verified with `scripts/drive.mjs` on the built demo app): launch →
     - built-in artwork arrives with 7e (picked up automatically through `import.meta.glob`);
     - the real calls arrive with 7b;
     - 7d's Stroke can reuse `BrushMenu` (`placement`, `type`) and `installedBrush`.
+- 2026-10-12 — **Round 7d: Draw's panels and layers** (worktree branch; `docs/draw.md` "As built (7d)" after §5.9). Built against the Engine.ts stubs.
+  - **Right panel in Draw**: no Prototype tab; Position (no constraints), Dimensions (W / H only), Appearance (no variable modes), **Transform**, Typography, Fill, Stroke, Effects, Export — `designSections` in `editor/draw/panels/drawPanel.ts`. Design shows Transform for transform groups.
+  - **DS `Slider`** (`ds/components/Slider.*`, design-system §4.38) under Opacity, Corner radius, Stroke weight, the Dynamic / Scatter fields and the effect fields in Draw; the secondary toolbar's weight popover uses it too. Larger paint chits in Draw.
+  - **Stroke**: Stroke Type Basic / Dynamic / Brush is live (SET_STROKE_KIND / SET_STROKE_BRUSH with the last-used brush), Dynamic's and Scatter's fields, Direction, the Brush picker (7c's `BrushMenu`).
+  - **Transform section** (`editor/draw/panels/TransformSection.tsx`): Linear / Radial repeat, rows with eye / remove / reorder, the Repeat popover (Count, Gap px / %, Axis, Order), Apply transforms to selection.
+  - **Typography** for text paths: Flip, Justify, no line height.
+  - **Layers in Draw**: 48 px rows with engine previews (`layerThumbs.ts`: visible rows, 8 per idle slice, LRU 512, redrawn on DOCUMENT_CHANGED up the tree); double-click a preview zooms to the layer. DS `LayerRow` gained the `thumbnail` slot.
+  - **Checks**: `npm run check` green (tests `r7.drawPanels.dom.test.ts`, `r7.slider.dom.test.ts`). Checked in the browser on the web build's demo file (sections, sliders, Stroke Type, previews drawn and redrawn) and the Gallery. No engine build.
+  - **Found on the way**: DOCUMENT_CHANGED's `nodeChanges[].guid` arrive as `{sessionID, localID}` objects at runtime although `NodeChange.guid` is typed `Guid` (a string) — the previews normalise them (`guidString`). Seen on the web build; not checked whether the desktop wire differs. A listener comparing them with "s:l" strings may miss — e.g. `editor/ai/service.ts` (Replace content banner: `made.some((c) => c.guid === id)`); not changed here.
+  - **Open**: everything the engine draws arrives with 7b (repeats, dynamic / brush strokes, text paths, brush previews); the Draw sizes and wording stay [unverified] until the owner's Draw capture (§11).

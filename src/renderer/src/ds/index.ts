@@ -46,6 +46,7 @@ export * from "./components/Menu";
 export * from "./components/Select";
 export * from "./components/Checkbox";
 export * from "./components/Switch";
+export * from "./components/Slider";
 export * from "./components/Radio";
 export * from "./components/SegmentedControl";
 export * from "./components/Tabs";

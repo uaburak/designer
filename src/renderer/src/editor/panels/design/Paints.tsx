@@ -92,7 +92,7 @@ export function PaintRow({ paint, label, onColor, onOpacity, onPick, className }
   );
 }
 
-export function PaintsSection({ title, field, nodes, onPick }: { title: "Fill" | "Stroke"; field: PaintField; nodes: PanelNode[]; onPick: (t: PickerTarget) => void }) {
+export function PaintsSection({ title, field, nodes, onPick, className }: { title: "Fill" | "Stroke"; field: PaintField; nodes: PanelNode[]; onPick: (t: PickerTarget) => void; /** Draw: larger previews (docs/draw.md §5.3) */ className?: string }) {
   const ed = useEditor();
   const labels = useUI((s) => s.propertyLabels);
   const refs = nodes.map((n) => n.guid);
@@ -122,6 +122,7 @@ export function PaintsSection({ title, field, nodes, onPick }: { title: "Fill" |
     <PanelSection
       title={title}
       empty={empty}
+      className={className}
       actions={
         <>
           <StylesButton

@@ -11,6 +11,7 @@ import { ContextMenu, MenuButton, type MenuEntry } from "../components/Menu";
 import { Select, type SelectOption } from "../components/Select";
 import { Checkbox } from "../components/Checkbox";
 import { Switch } from "../components/Switch";
+import { Slider } from "../components/Slider";
 import { RadioGroup } from "../components/Radio";
 import { SegmentedControl } from "../components/SegmentedControl";
 import { Tabs } from "../components/Tabs";
@@ -85,6 +86,7 @@ export function ComponentMatrix() {
   const [sel, setSel] = useState("hug");
   const [check, setCheck] = useState(true);
   const [sw, setSw] = useState(false);
+  const [slider, setSlider] = useState(40);
   const [radio, setRadio] = useState("auto");
   const [seg, setSeg] = useState("left");
   const [tab, setTab] = useState("design");
@@ -261,6 +263,14 @@ export function ComponentMatrix() {
           <Cell id="Switch/on/default/disabled"><Switch label="Show" checked disabled onChange={noop} /></Cell>
           <Cell id="Switch/live/default/default" label="live"><Switch label="Has icon" checked={sw} onChange={setSw} showLabel /></Cell>
         </Row>
+        <Row label="Slider">
+          <Cell id="Slider/default/default/default" width={120}><Slider label="Opacity" value={40} min={0} max={100} onChange={noop} /></Cell>
+          <Cell id="Slider/default/default/hover" width={120}><Slider label="Opacity" value={40} min={0} max={100} onChange={noop} data-hover /></Cell>
+          <Cell id="Slider/default/default/focus-visible" width={120}><Slider label="Opacity" value={75} min={0} max={100} onChange={noop} data-focus-visible /></Cell>
+          <Cell id="Slider/default/default/mixed" width={120}><Slider label="Opacity" value={MIXED} min={0} max={100} onChange={noop} /></Cell>
+          <Cell id="Slider/default/default/disabled" width={120}><Slider label="Opacity" value={40} min={0} max={100} disabled onChange={noop} /></Cell>
+          <Cell id="Slider/live/default/default" label="live" width={120}><Slider label="Weight" value={slider} min={0} max={100} onChange={(v) => setSlider(v)} /></Cell>
+        </Row>
         <Row label="RadioGroup">
           <Cell id="RadioGroup/vertical/default/default"><RadioGroup label="Resizing" value={radio} onChange={setRadio} options={[{ value: "auto", label: "Auto width" }, { value: "height", label: "Auto height" }, { value: "fixed", label: "Fixed size", disabled: true }]} /></Cell>
           <Cell id="RadioGroup/horizontal/default/mixed"><RadioGroup label="Align" value={MIXED} orientation="horizontal" onChange={noop} options={[{ value: "a", label: "Top" }, { value: "b", label: "Bottom" }]} /></Cell>
@@ -341,6 +351,13 @@ export function ComponentMatrix() {
               <LayerRow id="10" depth={1} name="Drop inside" icon="16.frame" drop="inside" expanded={false} />
               <LayerRow id="11" depth={1} name="Drop after" icon="16.ellipse" drop="after" />
               <LayerRow id="12" depth={1} name="Focused" icon="16.section" data-focus-visible />
+            </div>
+          </Cell>
+          <Cell id="LayerRow/draw/default/states" label="draw (48, thumbnails)">
+            <div className={styles.panelPlain} role="tree" aria-label="Layers in Draw">
+              <LayerRow id="d1" depth={0} name="Repeat group 1" icon="16.repeat" iconLabel="Transform group" thumbnail={null} expanded onToggleExpand={noop} onToggleLock={noop} onToggleVisible={noop} />
+              <LayerRow id="d2" depth={1} name="Petal" icon="16.vector" iconLabel="Vector" thumbnail={null} selected run="single" onToggleLock={noop} onToggleVisible={noop} />
+              <LayerRow id="d3" depth={0} name="Along the path" icon="16.text-path" iconLabel="Text on path" thumbnail={null} hovered onToggleLock={noop} onToggleVisible={noop} />
             </div>
           </Cell>
           <Cell id="PageRow/list/default/states">

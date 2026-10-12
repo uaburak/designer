@@ -1,0 +1,31 @@
+@layer app {
+  /* Transform section (docs/draw.md §5.5): a modifier row is a button in the effect row's field (glyph 24, name) */
+  .repeatField { padding: 0; border: 0; color: inherit; text-align: left; outline: none; }
+  .repeatField:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .repeatGlyph { display: flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); color: var(--figma-color-icon); }
+  .applyRow { display: flex; padding: var(--ds-space-1) var(--ds-size-panel-pad-right) var(--ds-space-1) var(--ds-size-panel-pad-left); }
+  .applyButton { flex: 1 1 auto; }
+  /* The Repeat popover's Gap: the number, then the px / % toggle */
+  .gapField { display: flex; gap: var(--ds-space-1); min-width: 0; }
+  .gapField > [data-ds="NumericInput"] { flex: 1 1 auto; min-width: 0; }
+
+  /* Stroke settings in Draw (§5.4): the Brush picker's button — the brush's preview and name, a chevron */
+  .brushPicker {
+    display: flex; flex: 1 1 auto; align-items: center; gap: var(--ds-space-2); min-width: 0; height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1) 0 var(--ds-space-2); border: 0; border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary); color: var(--figma-color-text); outline: none;
+  }
+  .brushPicker:hover { box-shadow: inset 0 0 0 1px var(--figma-color-border); }
+  .brushPicker:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .brushPicker > span:nth-child(2) { flex: 1 1 auto; min-width: 0; overflow: hidden; text-align: left; white-space: nowrap; text-overflow: ellipsis; }
+  .brushPreview { flex: none; width: 48px; height: 12px; background: var(--figma-color-icon); mask-repeat: no-repeat; mask-position: center; mask-size: contain; }
+  .brushPreview[data-brush-preview="none"] { background: transparent; }
+  /* A number field and its slider in one popover cell */
+  .fieldWithSlider { display: flex; flex-direction: column; gap: 0; min-width: 0; }
+
+  /* Larger previews in Draw (the blog's "larger previews"; size ours): paint chits 20 inside the 24 field */
+  .largePreviews [data-ds="Swatch"] { width: 20px; height: 20px; }
+
+  /* Layers in Draw (§5.9): the preview drawn by the engine, fitted into the 32 box */
+  .thumbCanvas { display: block; max-width: 32px; max-height: 32px; image-rendering: auto; }
+}

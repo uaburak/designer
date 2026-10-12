@@ -1366,6 +1366,16 @@ Figma's Admin location (`src/renderer/src/admin/`; research `docs/research/figma
 - **Share prototype** (`editor/SharePrototypeDialog.tsx`, the Share modal's CSS module): one card — "Share prototype" · Copy link · ✕, the invite field + **Invite**, "Who has access" (the link row: a ghost `Select` "Anyone with the link / Anyone at ‹org› / Only invited people" with "can view prototype"; members with a ghost `Select` "can view prototype / Remove"), "Advanced" with the `Checkbox` "Allow viewers to copy, share, and export". Opened from the presentation view's primary **Share prototype** and Share › More › **Share prototype**.
 - **Not verified against live Figma**: everything's pixel metrics and the labels R19 marks unverified.
 
+### 4.38 Slider (2026-10-12, Phase 7 round 7d)
+
+Draw's sidebar sliders (`docs/draw.md` §5.3: "a streamlined set of illustration-related properties with slider controls"). `ds/components/Slider.tsx` + `Slider.module.css`; Gallery `Slider/*` (default, hover, focus-visible, mixed, disabled, live). Figma's own slider was not captured (Draw needs a signed-in session): the look is ours, in the house tokens.
+- **Props**: `{ label; value: Mixed<number> | null; min; max; step? = 1; onChange(v, ChangeInfo); onCancel?; disabled? }` plus any `data-*` / `aria-*`. `sliderValue(v, min, max, step)` (clamp, snap from `min`, the step's decimals) and `sliderFraction` are exported.
+- **Look**: a 24 high (`--ds-size-control`) hit area, 5 in at each end so the thumb's centre reaches both; a 2 px track in `--figma-color-border-strong`, the part up to the value in `--figma-color-icon`; a 10 px round thumb (`--ds-color-picker-thumb`, 1 px `--figma-color-border-strong`, `--ds-elevation-100`), its border `icon-secondary` on hover; the focus ring on the thumb. The value's place is `--slider-fraction` (set inline). Mixed: no fill, no thumb, read out "Mixed". Disabled: 40 %.
+- **Gestures** (§4.0): a press jumps the thumb under the pointer and drags (pointer capture): `final: false` per move, one `final: true` on release — the editor's `ed.edit` makes it one undo step; Esc or a pointer cancel calls `onCancel`. ← ↓ / → ↑ step, ⇧ ten steps, Home / End: each `final: true, source: "step"`.
+- **A11y**: `role="slider"` with `aria-valuemin / max / now`, `aria-valuetext` "Mixed", `aria-disabled`; focusable unless disabled.
+- **Uses**: the editor's `draw/panels/DrawSliders.tsx` (`SliderRow`: a PropertyRow of sliders under the fields they belong to — Opacity, Corner radius, Stroke weight; `DrawSlider` in popovers — Dynamic and Scatter fields, effect blur / spread / colour opacity / density / radius), Draw's secondary toolbar's weight popover.
+- **LayerRow's thumbnail slot** (§4.17, same round): `thumbnail?: ReactNode` makes the row 48 high (`LAYER_ROW_LARGE`) with a 32 × 32 slot (`LAYER_THUMB`, `data-layer-thumb`, radius small on `bg-secondary`, a 1 px `border-selected` ring when selected) in the glyph's place; `null` shows the glyph in the slot. `layerRowExtent` / `layerListWidth` take `thumbnail` for the wider preview. Gallery `LayerRow/draw/default/states`.
+
 ## 5. File layout, Gallery, visual verification
 
 ### 5.1 Files

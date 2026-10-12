@@ -11,6 +11,9 @@
  *
  * The engine keeps text fields with E3; until `supportsField` sees one, its
  * control shows disabled with Figma's defaults (Inter Regular 12, Auto, 0%).
+ *
+ * A text on a path (TEXT_PATH, round 7d, docs/draw.md §5.8): the same section without line height, Justify added
+ * to the alignments, and Flip in Type settings' place.
  */
 import { useState } from "react";
 import { Icon, IconButton, MIXED, MenuButton, NumericInput, PanelSection, PropertyGrid, PropertyRow, SegmentedControl, Select, isMixed, type ChangeInfo, type MenuEntry } from "@/ds";
@@ -24,7 +27,17 @@ import { TypeSettings } from "./TypeSettings";
 import { exitToCanvas } from "./Sections";
 import { familyNames, familyStyles, groupStyles, useFontFamilies } from "../../fontList";
 import { FontField } from "./FontPicker";
-import { fields, useSupports, type ExtraFields, type FontName, type NumberValue, type PanelNode } from "./shared";
+import { fields, typeOf, useSupports, type ExtraFields, type FontName, type NumberValue, type PanelNode } from "./shared";
+import { runDraw } from "../../draw/drawTools";
+
+/** A text on a path (TEXT_PATH 41, docs/draw.md §4.4). */
+export const isTextPath = (n: PanelNode): boolean => typeOf(n) === "TEXT_PATH";
+
+/** Flip (docs/draw.md §5.8; tooltip wording [unverified], forum): the text to the path's other side — FLIP_TEXT_PATH. */
+export function FlipTextPathButton({ refs }: { refs: readonly string[] }) {
+  const ed = useEditor();
+  return <IconButton icon="24.text-path-flip" label="Flip text orientation" tone="secondary" data-flip-text-path="" onClick={() => runDraw(ed, "FLIP_TEXT_PATH", { refs: [...refs] })} />;
+}
 import styles from "./Design.module.css";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
 import { VariableField } from "./Variables";
@@ -113,6 +126,9 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
   // Live (popovers/font-weight-menu.txt): the upright styles by weight, then the italics, then "Variable font axes…".
   const styleGroups = groupStyles(styleOptions);
   const variable = !isMixed(family) && !!fontList?.find((f) => f.family.toLowerCase() === family.toLowerCase())?.variable;
+  // Text on a path (docs/draw.md §5.8): TEXT's section without line height (nor Type settings' paragraph, list and
+  // truncation fields), Justify added, and Flip (FLIP_TEXT_PATH) in Type settings' place.
+  const paths = nodes.length > 0 && nodes.every(isTextPath);
 
   return (
     <PanelSection
@@ -190,7 +206,8 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
           </VariableField>
           </span>
         </PropertyRow>
-        <PropertyRow labels={["Line height", "Letter spacing"]}>
+        <PropertyRow labels={paths ? ["Letter spacing"] : ["Line height", "Letter spacing"]}>
+          {!paths && (
           <VariableField nodes={nodes} fields={["LINE_HEIGHT"]} prefix="24.text.line-height" disabled={!lhKept}>
           <NumericInput
             className={styles.typeMetric}
@@ -208,6 +225,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
             onExit={exitToCanvas(ed)}
           />
           </VariableField>
+          )}
           <VariableField nodes={nodes} fields={["LETTER_SPACING"]} prefix="24.text.letter-spacing" disabled={!lsKept}>
           <NumericInput
             className={styles.typeMetric}
@@ -226,7 +244,13 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
         )}
         <PropertyRow
           label="Alignment"
-          action={<IconButton icon="24.adjust.small" label="Type settings" tone="secondary" aria-expanded={!!details} onClick={(e) => setDetails(details ? null : e.currentTarget)} />}
+          action={
+            paths ? (
+              <FlipTextPathButton refs={refs} />
+            ) : (
+              <IconButton icon="24.adjust.small" label="Type settings" tone="secondary" aria-expanded={!!details} onClick={(e) => setDetails(details ? null : e.currentTarget)} />
+            )
+          }
         >
           <SegmentedControl
             label="Text align horizontal"
@@ -237,6 +261,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
               { value: "LEFT", icon: "24.text.align-left", tooltip: "Align left" },
               { value: "CENTER", icon: "24.text.align-center", tooltip: "Align center" },
               { value: "RIGHT", icon: "24.text.align-right", tooltip: "Align right" },
+              ...(paths ? [{ value: "JUSTIFIED", icon: "24.text.align-justified" as const, tooltip: "Justify" }] : []),
             ]}
             onChange={(v) => write("Text alignment", { textAlignHorizontal: v as ExtraFields["textAlignHorizontal"] })}
           />
