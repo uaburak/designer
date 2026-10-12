@@ -19,10 +19,31 @@
  * (parts by SHA-1, 1 MB rows) and `rest_cache` (job key → parts, size, created / used). Results are dropped least
  * recently used once they pass 64 MB, and after 30 days. The tables are a cache: a move to another region doesn't copy
  * them (roomBox.ts ROOM_TABLES leaves them out).
+ *
+ * On R2 (docs/cloud.md §1): with the room's objects bound, a part is `r/<fileKey>/<sha1>` (sealed with the room's cipher
+ * under `e/<orgId>/r/…` when key management is on), indexed in `rest_r2`; parts no cache entry needs go to the room's
+ * `r2_trash`. `rest_blobs` rows are those stored before (a cache: they age out).
  */
 import type { RestJob, RestJobPart } from "../../../src/shared/rest/types";
 import type { Connection, MemberState, RestAnswer, Room } from "../../../src/shared/multiplayer/room";
 import type { SqlLike } from "../previews";
+import { PLAIN_CIPHER, type RoomCipher } from "../ekm/cipher";
+import { r2Redirect, restKey, type BucketName } from "../storage/objects";
+import type { RoomObjectsHost } from "../storage/roomObjects";
+
+/** The room's R2 for parts: its objects host, its cipher, and the trash's flush (RoomObjects.flush) */
+export interface RestObjects extends RoomObjectsHost {
+  cipher(): RoomCipher;
+  flush(): Promise<void>;
+}
+
+interface RestR2Row {
+  sha1: string;
+  bucket: BucketName;
+  key: string;
+  size: number;
+  sealed: number;
+}
 
 /** Timing (tests lower these) */
 export const REST_TIMING = { clientMs: 20_000, waitMs: 25_000 };
@@ -47,6 +68,8 @@ export interface RestJobsHost {
   hasVersion(id: string): boolean;
   /** `{t: "rest-wanted", fileKey}` to these people's inboxes */
   wanted(userIds: string[]): Promise<void>;
+  /** R2 for parts (docs/cloud.md §1); absent: rows */
+  objects?: RestObjects;
 }
 
 interface Pending {
@@ -99,6 +122,28 @@ export class RestJobs {
   reset(): void {
     this.host.sql.exec(`CREATE TABLE IF NOT EXISTS rest_blobs (sha1 TEXT NOT NULL, idx INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY (sha1, idx))`);
     this.host.sql.exec(`CREATE TABLE IF NOT EXISTS rest_cache (job_key TEXT PRIMARY KEY, parts TEXT NOT NULL, size INTEGER NOT NULL, created_at INTEGER NOT NULL, used_at INTEGER NOT NULL)`);
+    this.host.sql.exec(`CREATE TABLE IF NOT EXISTS rest_r2 (sha1 TEXT PRIMARY KEY, bucket TEXT NOT NULL, key TEXT NOT NULL, size INTEGER NOT NULL, sealed INTEGER NOT NULL DEFAULT 0)`);
+    this.host.sql.exec(`CREATE TABLE IF NOT EXISTS r2_trash (bucket TEXT NOT NULL, key TEXT NOT NULL, PRIMARY KEY (bucket, key))`);
+  }
+
+  private r2Row(sha1: string): RestR2Row | null {
+    return this.host.sql.exec<RestR2Row>(`SELECT sha1, bucket, key, size, sealed FROM rest_r2 WHERE sha1 = ?`, sha1).toArray()[0] ?? null;
+  }
+
+  /** A part on R2 as an answer: by name for the Worker (plain), opened here (sealed) */
+  private async r2Response(r: RestR2Row, contentType: string, extra: Record<string, string> = {}): Promise<Response> {
+    const headers = { "content-type": contentType, ...extra };
+    if (!r.sealed) return r2Redirect(r.bucket, r.key, headers);
+    const bytes = await this.r2Bytes(r);
+    return bytes ? new Response(bytes, { headers }) : new Response("no such blob", { status: 404 });
+  }
+
+  private async r2Bytes(r: RestR2Row): Promise<Uint8Array | null> {
+    const store = this.host.objects?.store(r.bucket);
+    const obj = store ? await store.get(r.key) : null;
+    if (!obj) return null;
+    const raw = new Uint8Array(await obj.arrayBuffer());
+    return r.sealed ? (this.host.objects?.cipher() ?? PLAIN_CIPHER).open(raw, "rest_blobs") : raw;
   }
 
   /** Room.onRest */
@@ -116,6 +161,14 @@ export class RestJobs {
 
   /** The /room/rest… routes; null for the others */
   async fetch(req: Request): Promise<Response | null> {
+    try {
+      return await this.route(req);
+    } finally {
+      await this.host.objects?.flush();
+    }
+  }
+
+  private async route(req: Request): Promise<Response | null> {
     const url = new URL(req.url);
     const path = url.pathname;
     const m = req.method;
@@ -133,7 +186,7 @@ export class RestJobs {
       const bytes = new Uint8Array(await req.arrayBuffer());
       if (bytes.length > MAX_PART_BYTES) return json({ error: "part too large" }, 413);
       const sha1 = await sha1Hex(bytes);
-      this.putBlob(sha1, bytes);
+      await this.putBlob(sha1, bytes);
       p.uploads.set(name, { sha1, size: bytes.length });
       return json({ ok: true, sha1, size: bytes.length });
     }
@@ -141,6 +194,8 @@ export class RestJobs {
     if (blob && m === "GET") {
       let rows = this.host.sql.exec<{ bytes: ArrayBuffer }>(`SELECT bytes FROM rest_blobs WHERE sha1 = ? ORDER BY idx`, blob[1]).toArray();
       if (!rows.length) rows = this.host.sql.exec<{ bytes: ArrayBuffer }>(`SELECT bytes FROM blobs WHERE sha1 = ? ORDER BY idx`, blob[1]).toArray();
+      const r2 = rows.length ? null : this.r2Row(blob[1]);
+      if (r2) return this.r2Response(r2, "application/octet-stream");
       if (!rows.length) return new Response("no such blob", { status: 404 });
       return new Response(concat(rows), { headers: { "content-type": "application/octet-stream" } });
     }
@@ -152,8 +207,8 @@ export class RestJobs {
       if (bytes.length > MAX_THUMBNAIL_BYTES) return json({ error: "thumbnail too large" }, 413);
       const sha1 = await sha1Hex(bytes);
       const now = this.host.now();
+      await this.putBlob(sha1, bytes);
       this.host.transaction(() => {
-        this.putBlob(sha1, bytes);
         this.host.sql.exec(`INSERT OR REPLACE INTO rest_cache (job_key, parts, size, created_at, used_at) VALUES (?, ?, ?, ?, ?)`, THUMB_KEY, JSON.stringify([{ name: "thumbnail", sha1, size: bytes.length, contentType: "image/png" }]), bytes.length, now, now);
         this.collect();
       });
@@ -163,6 +218,8 @@ export class RestJobs {
       const t = this.cacheRow(THUMB_KEY);
       if (!t) return new Response("no thumbnail", { status: 404 });
       const rows = this.host.sql.exec<{ bytes: ArrayBuffer }>(`SELECT bytes FROM rest_blobs WHERE sha1 = ? ORDER BY idx`, t.parts[0].sha1).toArray();
+      const r2 = rows.length ? null : this.r2Row(t.parts[0].sha1);
+      if (r2) return this.r2Response(r2, "image/png", { "x-sha1": t.parts[0].sha1 });
       return new Response(concat(rows), { headers: { "content-type": "image/png", "x-sha1": t.parts[0].sha1 } });
     }
     return null;
@@ -270,16 +327,19 @@ export class RestJobs {
     });
   }
 
-  /** A part's bytes (an uncached job's, before `dropParts`) */
-  partBytes(sha1: string): Uint8Array | null {
+  /** A part's bytes (an uncached job's, before `dropParts`), opened */
+  async partBytes(sha1: string): Promise<Uint8Array | null> {
     const rows = this.host.sql.exec<{ bytes: ArrayBuffer }>(`SELECT bytes FROM rest_blobs WHERE sha1 = ? ORDER BY idx`, sha1).toArray();
-    return rows.length ? concat(rows) : null;
+    if (rows.length) return concat(rows);
+    const r2 = this.r2Row(sha1);
+    return r2 ? this.r2Bytes(r2) : null;
   }
 
   /** An uncached job's parts, read: gone (unless a cache entry shares the bytes) */
   dropParts(parts: RestJobPart[]): void {
     if (!parts.length) return;
     this.host.transaction(() => this.collect());
+    void this.host.objects?.flush();
   }
 
   private cacheRow(key: string): { parts: RestJobPart[] } | null {
@@ -301,6 +361,7 @@ export class RestJobs {
       }
       this.collect();
     });
+    void this.host.objects?.flush();
   }
 
   /** Parts no cache entry (nor a job running now) refers to */
@@ -309,10 +370,25 @@ export class RestJobs {
     for (const r of this.host.sql.exec<{ parts: string }>(`SELECT parts FROM rest_cache`).toArray()) for (const p of JSON.parse(r.parts) as RestJobPart[]) keep.add(p.sha1);
     for (const p of this.pending.values()) for (const u of p.uploads.values()) keep.add(u.sha1);
     for (const r of this.host.sql.exec<{ sha1: string }>(`SELECT DISTINCT sha1 FROM rest_blobs`).toArray()) if (!keep.has(r.sha1)) this.host.sql.exec(`DELETE FROM rest_blobs WHERE sha1 = ?`, r.sha1);
+    for (const r of this.host.sql.exec<RestR2Row>(`SELECT sha1, bucket, key FROM rest_r2`).toArray()) {
+      if (keep.has(r.sha1)) continue;
+      this.host.sql.exec(`INSERT OR IGNORE INTO r2_trash (bucket, key) VALUES (?, ?)`, r.bucket, r.key);
+      this.host.sql.exec(`DELETE FROM rest_r2 WHERE sha1 = ?`, r.sha1);
+    }
   }
 
-  private putBlob(sha1: string, bytes: Uint8Array): void {
-    if (this.host.sql.exec(`SELECT sha1 FROM rest_blobs WHERE sha1 = ? AND idx = 0`, sha1).toArray().length) return;
+  private async putBlob(sha1: string, bytes: Uint8Array): Promise<void> {
+    if (this.r2Row(sha1) || this.host.sql.exec(`SELECT sha1 FROM rest_blobs WHERE sha1 = ? AND idx = 0`, sha1).toArray().length) return;
+    const o = this.host.objects;
+    const t = o?.target();
+    const fileKey = o?.fileKey();
+    if (o && t && fileKey) {
+      const c = o.cipher();
+      const key = restKey(fileKey, sha1, c.enabled ? o.orgId() : null);
+      await t.store.put(key, c.enabled ? await c.seal(bytes, "rest_blobs") : bytes);
+      this.host.sql.exec(`INSERT OR REPLACE INTO rest_r2 (sha1, bucket, key, size, sealed) VALUES (?, ?, ?, ?, ?)`, sha1, t.name, key, bytes.length, c.enabled ? 1 : 0);
+      return;
+    }
     for (let i = 0, idx = 0; i < bytes.length || idx === 0; i += CHUNK, idx++) this.host.sql.exec(`INSERT OR REPLACE INTO rest_blobs (sha1, idx, bytes) VALUES (?, ?, ?)`, sha1, idx, bytes.slice(i, i + CHUNK).buffer);
   }
 }

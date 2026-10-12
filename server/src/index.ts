@@ -12,6 +12,7 @@ import { Db } from "./db";
 import { rollup } from "./analytics/rollup";
 import type { ObjectNamespace } from "./libraries/db";
 import { roomsOn } from "./policy/region";
+import type { ObjectStore } from "./storage/objects";
 
 export { FileRoom } from "./fileRoom";
 export { PreviewObject } from "./previewObject";
@@ -25,13 +26,16 @@ interface Env extends ApiEnv {
   INBOXES: DurableObjectNamespace;
   LIBRARIES: DurableObjectNamespace;
   FONTS: DurableObjectNamespace;
+  /** R2 (docs/cloud.md §1): wecra-files and wecra-files-eu (jurisdiction eu) */
+  FILES?: ObjectStore;
+  FILES_EU?: ObjectStore;
 }
 
 /** The API's dependencies over the bindings (requests and the daily cron) */
 function depsOf(env: Env, waitUntil?: (p: Promise<unknown>) => void): Deps {
   // Each file's room in its jurisdiction (files.jurisdiction, docs/multiplayer.md §15.10), with x-policy (§15.9).
   const db = new Db(env.DB);
-  const rooms: Rooms = roomsOn(env.ROOMS as unknown as ObjectNamespace, db.d1);
+  const rooms: Rooms = roomsOn(env.ROOMS as unknown as ObjectNamespace, db.d1, env);
   const inbox = (userId: string) => env.INBOXES.get(env.INBOXES.idFromName(userId));
   const inboxes: Inboxes = {
     async notify(userId, message) {
@@ -71,5 +75,8 @@ export default {
     await (await import("./quota/quota")).sweepQuotas({ ...depsOf(env), now: () => controller.scheduledTime });
     // Organizations deleted more than 14 days ago, deleted for good (docs/multiplayer.md §14.17)
     await (await import("./org/deletion")).purgeDeletedOrgs({ ...depsOf(env), now: () => controller.scheduledTime });
+    // R2 (docs/cloud.md §1): references of deleted files dropped, objects unreferenced for 7 days deleted
+    const r2 = await (await import("./storage/refs")).sweepR2({ ...depsOf(env), now: () => controller.scheduledTime });
+    if (r2.dropped || r2.deleted) console.log("r2 sweep", r2);
   },
 } satisfies ExportedHandler<Env>;

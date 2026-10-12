@@ -14,8 +14,8 @@ import { EKM_RECHECK_MS } from "../../../src/shared/org/governance";
 import { fileEntity, logActivity } from "../activity";
 import type { Deps } from "../api";
 import { Db, type D1Like } from "../db";
-import { PLAIN_CIPHER, type RoomCipher } from "./cipher";
-import { orgCipher } from "./keys";
+import { aesCipher, PLAIN_CIPHER, type RoomCipher } from "./cipher";
+import { unwrapDek } from "./keys";
 
 export type RoomKeyState = "none" | "ok" | "unavailable";
 
@@ -38,6 +38,8 @@ interface KeyRow {
 export class RoomKey {
   state: RoomKeyState | null = null;
   cipher: RoomCipher = PLAIN_CIPHER;
+  /** The org-bound cipher for the file's blobs on R2 (shared by the org's files, docs/cloud.md §1); null without a key */
+  objectCipher: RoomCipher | null = null;
   orgId: string | null = null;
   private checkedAt = 0;
   private loading: Promise<RoomKeyState> | null = null;
@@ -77,9 +79,10 @@ export class RoomKey {
     if (!row?.org || !row.dek) return this.set(this.host.sealedBefore() ? "unavailable" : "none", PLAIN_CIPHER);
     // Unwrapped again on every check: that is the check that the root key still opens it (native; no subrequest).
     try {
-      const cipher = await orgCipher(this.host.rootKey(), row.org, row.dek, key);
+      const dek = await unwrapDek(this.host.rootKey(), row.org, row.dek);
       if (row.state === "unavailable") await this.flip(row.org, "ok");
-      return this.set("ok", cipher);
+      this.objectCipher = aesCipher(dek, row.org);
+      return this.set("ok", aesCipher(dek, key));
     } catch (e) {
       console.error("ekm: the org's key couldn't be unwrapped", row.org, (e as Error).message);
       if (row.state !== "unavailable") await this.flip(row.org, "unavailable", key);
@@ -90,6 +93,7 @@ export class RoomKey {
   private set(state: RoomKeyState, cipher: RoomCipher, retry = false): RoomKeyState {
     this.state = state;
     this.cipher = cipher;
+    if (!cipher.enabled) this.objectCipher = null;
     // `retry`: not really known — ask again on the next call
     this.checkedAt = retry ? this.host.now() - EKM_RECHECK_MS : this.host.now();
     return state;

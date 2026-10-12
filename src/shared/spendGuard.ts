@@ -17,9 +17,12 @@ export type SpendMetric =
   | "d1_rows_read"
   | "d1_rows_written"
   | "d1_storage_bytes"
-  | "log_events";
+  | "log_events"
+  | "r2_storage_bytes"
+  | "r2_class_a"
+  | "r2_class_b";
 
-export const SPEND_METRICS: readonly SpendMetric[] = ["workers_requests", "workers_cpu_ms", "do_requests", "do_duration_gbs", "do_rows_read", "do_rows_written", "do_storage_bytes", "d1_rows_read", "d1_rows_written", "d1_storage_bytes", "log_events"];
+export const SPEND_METRICS: readonly SpendMetric[] = ["workers_requests", "workers_cpu_ms", "do_requests", "do_duration_gbs", "do_rows_read", "do_rows_written", "do_storage_bytes", "d1_rows_read", "d1_rows_written", "d1_storage_bytes", "log_events", "r2_storage_bytes", "r2_class_a", "r2_class_b"];
 
 const GB = 1e9;
 
@@ -28,7 +31,11 @@ const GB = 1e9;
  * Durable Objects 1M requests, 400K GB-s and 1 GB of storage — and developers.cloudflare.com (read 2026-10-12) for the
  * rest: durable-objects/platform/pricing (WebSocket messages billed 20:1, SQLite rows), d1/platform/pricing, Workers Logs
  * (workers/observability/logs/workers-logs). Static-asset requests are free; the Cache API has no charge of its own;
- * Workers KV, R2, Queues aren't used. Storage is compared as a level (GB-month ≈ the stored size held all month).
+ * Workers KV and Queues aren't used. Storage is compared as a level (GB-month ≈ the stored size held all month).
+ *
+ * R2 (docs/cloud.md §3; developers.cloudflare.com/r2/pricing, read 2026-10-12): Standard storage 10 GB-month, Class A
+ * operations (writes, lists, multipart) 1M and Class B (reads, heads) 10M a month free; then $0.015/GB-month, $4.50/M
+ * and $0.36/M. Deletes are free.
  */
 export const SPEND_INCLUDED: Record<SpendMetric, number> = {
   workers_requests: 10_000_000,
@@ -42,6 +49,9 @@ export const SPEND_INCLUDED: Record<SpendMetric, number> = {
   d1_rows_written: 50_000_000,
   d1_storage_bytes: 5 * GB,
   log_events: 20_000_000,
+  r2_storage_bytes: 10 * GB,
+  r2_class_a: 1_000_000,
+  r2_class_b: 10_000_000,
 };
 
 export const SPEND_METRIC_LABEL: Record<SpendMetric, string> = {
@@ -56,6 +66,9 @@ export const SPEND_METRIC_LABEL: Record<SpendMetric, string> = {
   d1_rows_written: "D1 rows written",
   d1_storage_bytes: "D1 storage",
   log_events: "Workers Logs events (estimated)",
+  r2_storage_bytes: "R2 storage",
+  r2_class_a: "R2 Class A operations",
+  r2_class_b: "R2 Class B operations",
 };
 
 /**
@@ -113,7 +126,7 @@ export interface SpendGuardStatus {
 
 /** "1.2M", "830K", "3.4 GB" — a metric's amount in the usage table */
 export function formatSpend(metric: SpendMetric, n: number): string {
-  if (metric === "do_storage_bytes" || metric === "d1_storage_bytes") {
+  if (metric === "do_storage_bytes" || metric === "d1_storage_bytes" || metric === "r2_storage_bytes") {
     if (n >= GB) return `${(n / GB).toFixed(2)} GB`;
     return `${Math.round(n / 1e6)} MB`;
   }

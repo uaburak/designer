@@ -24,6 +24,7 @@ import { inJurisdiction, libraries, type ObjectNamespace } from "../libraries/db
 import { body, HttpError, json, type Ctx } from "../org/http";
 import { encodeRoomPolicy } from "./roomPolicy";
 import { setIdentityHeaders } from "../identityHeaders";
+import { resolveR2, type StorageEnv } from "../storage/objects";
 
 type Jurisdiction = "eu" | null;
 const jurisdictionOf = (region: DataRegion): Jurisdiction => (region === "eu" ? "eu" : null);
@@ -33,6 +34,9 @@ export interface RegionEnv {
   /** The FileRoom namespace */
   ROOMS?: ObjectNamespace;
 }
+
+/** What a move does besides the objects' tables: the file's images re-homed in the new region's bucket (storage/relocate.ts) */
+type AfterCopy = () => Promise<unknown>;
 
 /** A file's room's jurisdiction (`files.jurisdiction`); null: the default namespace (and files not in D1) */
 export async function fileJurisdiction(d1: D1Like, key: string): Promise<Jurisdiction> {
@@ -48,21 +52,26 @@ const stubOf = (ns: ObjectNamespace | undefined, j: Jurisdiction, name: string) 
 
 /**
  * The Worker's `Rooms` over the FileRoom namespace: each call to the file's room in its jurisdiction, with the identity
- * the Worker resolved (`x-user-id`, `x-user-name`, `x-role`) and the org's room policy (`x-policy`, §15.9).
+ * the Worker resolved (`x-user-id`, `x-user-name`, `x-role`), the org's room policy (`x-policy`, §15.9) and the file's
+ * region (`x-region`: the room's R2 bucket, docs/cloud.md §1). A checkpoint the room answers by name (`x-r2-key`) is
+ * read here straight from R2 (`resolveR2`).
  */
-export function roomsOn(ns: ObjectNamespace, d1: D1Like): Rooms {
+export function roomsOn(ns: ObjectNamespace, d1: D1Like, env?: StorageEnv): Rooms {
   return {
     async fetch(fileKey, path, init, original) {
       // The caller's file row says it when it has one (`jurisdiction`); otherwise read now — never cached
-      const stub = stubOf(ns, init.jurisdiction !== undefined ? init.jurisdiction : await fileJurisdiction(d1, fileKey), fileKey);
+      const j = init.jurisdiction !== undefined ? init.jurisdiction : await fileJurisdiction(d1, fileKey);
+      const stub = stubOf(ns, j, fileKey);
       const headers = new Headers(original?.headers);
       headers.delete("authorization");
       headers.set("x-file-key", fileKey);
+      headers.set("x-region", j === "eu" ? "eu" : "default");
       // The name percent-encoded: header values are bytes (identityHeaders.ts)
       if (init.identity) setIdentityHeaders(headers, init.identity);
       if (init.policy) headers.set("x-policy", encodeRoomPolicy(init.policy as RoomPolicy));
       // A stream body (an upload passed on: quota.ts guardedStream) needs `duplex` where fetch is Node's (tests)
-      return stub.fetch(new Request(`https://room${path}`, { method: init.method, headers, body: init.body, duplex: "half" } as RequestInit));
+      const res = await stub.fetch(new Request(`https://room${path}`, { method: init.method, headers, body: init.body, duplex: "half" } as RequestInit));
+      return resolveR2(res, env);
     },
   };
 }
@@ -130,9 +139,18 @@ async function moveNext(ctx: Ctx, orgId: string): Promise<DataRegionStatus> {
   const file = await d1.prepare(`SELECT key, name, editor_type, link_access, proto_link_access, team_id, jurisdiction FROM files WHERE org_id = ?1 AND jurisdiction IS NOT ?2 ORDER BY key LIMIT 1`).bind(orgId, to).first<{ key: string; name: string; editor_type: string; link_access: string; proto_link_access: string; team_id: string | null; jurisdiction: string | null }>();
   if (file) {
     const from: Jurisdiction = file.jurisdiction === "eu" ? "eu" : null;
-    await moveObject(regionEnv(ctx).ROOMS, file.key, from, to, ROOM_PATHS, async () => {
-      await d1.prepare(`UPDATE files SET jurisdiction = ?2 WHERE key = ?1`).bind(file.key, to).run();
-    });
+    const { relocateFileBlobs } = await import("../storage/relocate");
+    await moveObject(
+      regionEnv(ctx).ROOMS,
+      file.key,
+      from,
+      to,
+      ROOM_PATHS,
+      async () => {
+        await d1.prepare(`UPDATE files SET jurisdiction = ?2 WHERE key = ?1`).bind(file.key, to).run();
+      },
+      () => relocateFileBlobs(deps, file.key, to),
+    );
     await logActivity(deps, { orgId, action: "fig_file_region_move", actor: user, entity: fileEntity(file), teamId: file.team_id, details: { object: "room", from: from ?? "default", to: to ?? "default" }, req: ctx.req });
     return dataRegionStatus(ctx, orgId, file.key);
   }
@@ -152,6 +170,8 @@ async function moveNext(ctx: Ctx, orgId: string): Promise<DataRegionStatus> {
 
 interface MovePaths {
   base: string;
+  /** After the load: the copy copies its R2 objects into its own bucket (called until `{done: true}`) */
+  relocate: string;
   freeze: [string, string, string | null];
   unfreeze: [string, string, string | null];
   dump: string;
@@ -161,6 +181,7 @@ interface MovePaths {
 
 const ROOM_PATHS: MovePaths = {
   base: "https://room",
+  relocate: "/room/storage/relocate",
   freeze: ["POST", "/room/freeze", JSON.stringify({ moving: true })],
   unfreeze: ["POST", "/room/unfreeze", JSON.stringify({ moving: true })],
   dump: "/room/dump",
@@ -170,6 +191,7 @@ const ROOM_PATHS: MovePaths = {
 
 const LIBRARY_PATHS: MovePaths = {
   base: "https://object",
+  relocate: "/relocate",
   freeze: ["POST", "/freeze", null],
   unfreeze: ["POST", "/unfreeze", null],
   dump: "/dump",
@@ -179,8 +201,10 @@ const LIBRARY_PATHS: MovePaths = {
 
 type Stub = { fetch(req: Request): Promise<Response> };
 
-async function call(stub: Stub, p: MovePaths, method: string, path: string, body: string | null = null): Promise<Response> {
-  const res = await stub.fetch(new Request(`${p.base}${path}`, { method, body, headers: body ? { "content-type": "application/json" } : {} }));
+async function call(stub: Stub, p: MovePaths, method: string, path: string, body: string | null = null, region?: Jurisdiction): Promise<Response> {
+  // `x-region`: the object's R2 bucket (docs/cloud.md §1) — the copy's is the new region's
+  const headers: Record<string, string> = { ...(body ? { "content-type": "application/json" } : {}), ...(region !== undefined ? { "x-region": region === "eu" ? "eu" : "default" } : {}) };
+  const res = await stub.fetch(new Request(`${p.base}${path}`, { method, body, headers }));
   if (!res.ok) throw new Error(`${method} ${path}: ${res.status} ${await res.text().catch(() => "")}`.trim());
   return res;
 }
@@ -189,7 +213,7 @@ async function call(stub: Stub, p: MovePaths, method: string, path: string, body
  * Freeze → dump / load in pages → `flip` (the D1 row) → delete the old object. Before the flip, a failure unfreezes the
  * old object and deletes the partial copy, then answers 502; after it, a failed delete only leaves an unused object.
  */
-export async function moveObject(ns: ObjectNamespace | undefined, name: string, from: Jurisdiction, to: Jurisdiction, p: MovePaths, flip: () => Promise<void>): Promise<void> {
+export async function moveObject(ns: ObjectNamespace | undefined, name: string, from: Jurisdiction, to: Jurisdiction, p: MovePaths, flip: () => Promise<void>, afterCopy?: AfterCopy): Promise<void> {
   if (from === to) return flip();
   const old = stubOf(ns, from, name);
   let copy: Stub | null = null;
@@ -201,9 +225,15 @@ export async function moveObject(ns: ObjectNamespace | undefined, name: string, 
     let after: string | null = null;
     do {
       const page = (await (await call(old, p, "GET", `${p.dump}${after ? `?after=${encodeURIComponent(after)}` : ""}`)).json()) as { rows: unknown[]; cursor: string | null };
-      if (page.rows.length) await call(copy, p, "POST", p.load, JSON.stringify({ rows: page.rows }));
+      if (page.rows.length) await call(copy, p, "POST", p.load, JSON.stringify({ rows: page.rows }), to);
       after = page.cursor;
     } while (after);
+    // R2 objects (docs/cloud.md §1): the copy's checkpoints into the new region's bucket, then the file's images
+    for (let i = 0; i < 100; i++) {
+      const r = (await (await call(copy, p, "POST", p.relocate, null, to)).json().catch(() => ({ done: true }))) as { done?: boolean };
+      if (r.done !== false) break;
+    }
+    await afterCopy?.();
     await flip();
   } catch (e) {
     if (frozen) {

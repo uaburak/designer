@@ -3,6 +3,7 @@
  * like Figma's import panel — each file going to the server with where it goes, how far along it is, a check when done,
  * the error with Retry when it failed, Cancel on hover while it goes. Figma has no upload panel of this kind for moves
  * and shares; its words where it has them ("Uploading", "Retry", "Cancel"), ours otherwise (marked in the docs).
+ * Wecra 1.1 (docs/cloud.md §4): while a file goes, its speed and the time left ("3.2 MB/s · About 2 minutes left", ours).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Icon, IconButton, Portal, cx } from "@/ds";
@@ -32,6 +33,23 @@ export function formatBytes(n: number): string {
   }
   const s = v >= 100 ? Math.round(v).toString() : (Math.round(v * 10) / 10).toString();
   return `${s} ${units[i]}`;
+}
+
+/** The time left as the panel says it: "12 seconds left", "About 1 minute left", "About 2 hours left" (ours) */
+export function timeLeftText(seconds: number): string {
+  const s = Math.max(1, Math.ceil(seconds));
+  if (s < 60) return s === 1 ? "1 second left" : `${s} seconds left`;
+  const m = Math.round(s / 60);
+  if (m < 60) return m === 1 ? "About 1 minute left" : `About ${m} minutes left`;
+  const h = Math.round(m / 60);
+  return h === 1 ? "About 1 hour left" : `About ${h} hours left`;
+}
+
+/** The speed line of a file going up: "3.2 MB/s · About 2 minutes left"; null until the speed is known */
+export function speedText(u: Pick<UploadProgress, "state" | "bytesPerSecond" | "secondsLeft">): string | null {
+  if (u.state !== "uploading" || u.bytesPerSecond === undefined) return null;
+  const speed = `${formatBytes(Math.round(u.bytesPerSecond))}/s`;
+  return u.secondsLeft === undefined || u.bytesPerSecond <= 0 ? speed : `${speed} · ${timeLeftText(u.secondsLeft)}`;
 }
 
 export const percentOf = (u: Pick<UploadProgress, "bytesSent" | "bytesTotal">): number => (u.bytesTotal > 0 ? Math.min(100, Math.floor((u.bytesSent / u.bytesTotal) * 100)) : 0);
@@ -96,6 +114,7 @@ function UploadRow({ u, onRetry, onCancel }: { u: UploadProgress; onRetry(id: st
   const pct = percentOf(u);
   const failed = u.state === "failed";
   const done = u.state === "done";
+  const speed = speedText(u);
   return (
     <li className={cx(styles.row, failed && styles.failed)} data-state={u.state} aria-label={u.name}>
       <span className={styles.fileIcon}>
@@ -125,6 +144,11 @@ function UploadRow({ u, onRetry, onCancel }: { u: UploadProgress; onRetry(id: st
               <span>{statusText(u)}</span>
               {!done && u.bytesTotal > 0 && <span className={styles.pct}>{pct}%</span>}
             </div>
+            {speed && (
+              <div className={styles.speed} data-upload-speed="">
+                {speed}
+              </div>
+            )}
           </>
         )}
       </div>

@@ -7,7 +7,7 @@ import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UploadEvent, UploadProgress } from "@shared/multiplayer/uploads";
 import { click, mount, type Mounted } from "@/ds/__tests__/dom";
-import { formatBytes, panelTitle, UPLOAD_PANEL_HIDE_MS, Uploads, type UploadSource } from "../UploadPanel";
+import { formatBytes, panelTitle, speedText, timeLeftText, UPLOAD_PANEL_HIDE_MS, Uploads, type UploadSource } from "../UploadPanel";
 
 let m: Mounted | null = null;
 afterEach(() => {
@@ -130,5 +130,29 @@ describe("its words", () => {
     expect(panelTitle([up({}), up({ id: "2", state: "queued" })])).toBe("Uploading 2 files");
     expect(panelTitle([up({ state: "failed" }), up({ id: "2", state: "done" })])).toBe("Upload failed");
     expect(panelTitle([up({ state: "done" })])).toBe("Uploaded 1 file");
+  });
+});
+
+describe("the speed line (docs/cloud.md §4)", () => {
+  it("shows the speed and the time left while a file goes, nothing before the speed is known or once done", async () => {
+    const s = fakeSource();
+    m = mount(Uploads, { source: s.source });
+    await flush();
+    s.say({ upload: up({ bytesSent: 12 * MB }) });
+    expect(panel()!.querySelector("[data-upload-speed]")).toBeNull();
+    s.say({ upload: up({ bytesSent: 40 * MB, bytesPerSecond: 3.2 * MB, secondsLeft: 93.75 }) });
+    expect(panel()!.querySelector("[data-upload-speed]")!.textContent).toBe("3.2 MB/s · About 2 minutes left");
+    s.say({ upload: up({ state: "done", bytesSent: 340 * MB }) });
+    expect(panel()!.querySelector("[data-upload-speed]")).toBeNull();
+  });
+
+  it("words the time left as seconds, then about minutes and hours", () => {
+    expect(timeLeftText(0.2)).toBe("1 second left");
+    expect(timeLeftText(42)).toBe("42 seconds left");
+    expect(timeLeftText(65)).toBe("About 1 minute left");
+    expect(timeLeftText(30 * 60)).toBe("About 30 minutes left");
+    expect(timeLeftText(2.4 * 3600)).toBe("About 2 hours left");
+    expect(speedText({ state: "uploading", bytesPerSecond: 820_000 })).toBe("820 KB/s");
+    expect(speedText({ state: "retrying", bytesPerSecond: 820_000, secondsLeft: 3 })).toBeNull();
   });
 });

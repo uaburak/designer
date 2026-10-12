@@ -12,7 +12,7 @@ import { sqliteD1 } from "../testing/sqliteD1";
 import { checkSpend, material, resetCheckLog } from "./check";
 import { decide, guardActive, metricsPast, readGuard, REFRESH_MS, resetGuardCache, type GuardState } from "./state";
 import { serverStorageLimit } from "./storageCap";
-import { fetchUsage, GRAPHQL_URL, queryFor, toUsage } from "./usage";
+import { fetchUsage, GRAPHQL_URL, queryFor, r2Class, toUsage } from "./usage";
 
 const ORIGIN = "https://designer.example.workers.dev";
 const OPERATOR = "design.burakkoc@gmail.com";
@@ -51,6 +51,8 @@ function usageAt(f: { workers?: number; d1Written?: number; doStorage?: number }
     durableObjectsStorageGroups: [{ max: { storedBytes: (f.doStorage ?? 0.01) * SPEND_INCLUDED.do_storage_bytes }, dimensions: { date: "2026-10-12" } }],
     d1AnalyticsAdaptiveGroups: [{ sum: { rowsRead: 100, rowsWritten: (f.d1Written ?? 0.01) * SPEND_INCLUDED.d1_rows_written } }],
     d1StorageAdaptiveGroups: [{ max: { databaseSizeBytes: 1e6 }, dimensions: { date: "2026-10-12", databaseId: "a" } }],
+    r2StorageAdaptiveGroups: [{ max: { payloadSize: 1e6, metadataSize: 100 }, dimensions: { datetime: "2026-10-12T00:00:00Z", bucketName: "wecra-files" } }],
+    r2OperationsAdaptiveGroups: [{ sum: { requests: 10 }, dimensions: { actionType: "PutObject" } }],
   };
 }
 
@@ -99,7 +101,35 @@ describe("usage from Cloudflare's GraphQL Analytics API", () => {
     expect(q).toContain(`datetime_geq: "2026-10-01T00:00:00Z"`);
     expect(queryFor("d1", ACCOUNT, now)).toContain(`date_geq: "2026-10-01", date_leq: "2026-10-12"`);
     await fetchUsage(deps.fetch, deps.env, now);
-    expect(graphqlCalls).toHaveLength(6);
+    expect(graphqlCalls).toHaveLength(8);
+    expect(queryFor("r2Storage", ACCOUNT, now)).toContain(`r2StorageAdaptiveGroups(limit: 10000, filter: {datetime_geq: "2026-10-01T00:00:00Z", datetime_leq: "2026-10-12T12:00:00Z"}`);
+    expect(queryFor("r2Ops", ACCOUNT, now)).toContain(`r2OperationsAdaptiveGroups(`);
+  });
+
+  it("R2 (docs/cloud.md §3): each bucket's latest stored size summed; operations by class, deletes free", () => {
+    const u = toUsage({
+      r2Storage: [
+        { max: { payloadSize: 5e9, metadataSize: 1e6 }, dimensions: { datetime: "2026-10-12T10:00:00Z", bucketName: "wecra-files" } },
+        { max: { payloadSize: 4e9, metadataSize: 0 }, dimensions: { datetime: "2026-10-11T10:00:00Z", bucketName: "wecra-files" } },
+        { max: { payloadSize: 2e9, metadataSize: 0 }, dimensions: { datetime: "2026-10-12T09:00:00Z", bucketName: "wecra-files-eu" } },
+      ],
+      r2Ops: [
+        { sum: { requests: 700 }, dimensions: { actionType: "PutObject" } },
+        { sum: { requests: 30 }, dimensions: { actionType: "UploadPart" } },
+        { sum: { requests: 5 }, dimensions: { actionType: "ListObjects" } },
+        { sum: { requests: 9000 }, dimensions: { actionType: "GetObject" } },
+        { sum: { requests: 100 }, dimensions: { actionType: "HeadObject" } },
+        { sum: { requests: 400 }, dimensions: { actionType: "DeleteObject" } },
+        { sum: { requests: 2 }, dimensions: { actionType: "AbortMultipartUpload" } },
+      ],
+    });
+    expect(u.r2_storage_bytes).toBe(7e9 + 1e6);
+    expect(u.r2_class_a).toBe(735);
+    expect(u.r2_class_b).toBe(9100);
+    expect(r2Class("CompleteMultipartUpload")).toBe("a");
+    expect(SPEND_INCLUDED.r2_storage_bytes).toBe(10e9);
+    expect(SPEND_INCLUDED.r2_class_a).toBe(1_000_000);
+    expect(SPEND_INCLUDED.r2_class_b).toBe(10_000_000);
   });
 
   it("parses each metric: CPU µs → ms, hibernated messages 20:1, active time → GB-s, the latest day's storage", () => {
@@ -288,16 +318,16 @@ describe("the operator", () => {
     expect((await call("GET", "/files", alice.token)).status).toBe(503);
   });
 
-  it("sets the server's storage cap (default 900 MB, under the 1 GB included)", async () => {
+  it("sets the server's storage cap (none by default since R2, docs/cloud.md §3)", async () => {
     const op = await dev(OPERATOR);
-    expect(QUOTA_LIMITS.server_storage_bytes).toBeLessThan(0.95 * SPEND_INCLUDED.do_storage_bytes);
-    expect(await serverStorageLimit(d1)).toBe(QUOTA_LIMITS.server_storage_bytes);
+    expect(await serverStorageLimit(d1)).toBe(Infinity);
+    expect((await status(op.token)).serverStorageBytes).toBe(QUOTA_LIMITS.server_storage_bytes);
     expect((await call("PATCH", "/operator/spend-guard", op.token, { serverStorageBytes: 12 })).status).toBe(400);
     const s = (await (await call("PATCH", "/operator/spend-guard", op.token, { serverStorageBytes: 500 * 1024 * 1024 })).json()) as SpendGuardStatus;
     expect(s).toMatchObject({ serverStorageBytes: 500 * 1024 * 1024, serverStorageCustom: true });
     expect(await serverStorageLimit(d1)).toBe(500 * 1024 * 1024);
     await call("PATCH", "/operator/spend-guard", op.token, { serverStorageBytes: null });
-    expect(await serverStorageLimit(d1)).toBe(QUOTA_LIMITS.server_storage_bytes);
+    expect(await serverStorageLimit(d1)).toBe(Infinity);
   });
 });
 

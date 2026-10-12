@@ -13,6 +13,10 @@
  * - `d1AnalyticsAdaptiveGroups` sum {rowsRead, rowsWritten}; `d1StorageAdaptiveGroups` max {databaseSizeBytes}, the
  *   latest day's, summed over the databases
  * - Workers Logs events, estimated: one invocation log per Worker and Durable Object request (console lines not seen)
+ * - `r2StorageAdaptiveGroups` max {payloadSize, metadataSize} by {datetime, bucketName} — the latest stored size of each
+ *   bucket, summed (docs/cloud.md §3)
+ * - `r2OperationsAdaptiveGroups` sum {requests} by {actionType} — Class A (writes, lists, multipart) and Class B (reads,
+ *   heads) as developers.cloudflare.com/r2/pricing lists them; deletes and aborts are free
  *
  * Secrets: `CF_API_TOKEN` (Account › Account Analytics › Read), var `CF_ACCOUNT_ID`.
  */
@@ -50,6 +54,8 @@ const QUERIES = {
   doStorage: `durableObjectsStorageGroups(limit: 1, filter: {date_geq: "{start}", date_leq: "{end}"}, orderBy: [date_DESC]) { max { storedBytes } dimensions { date } }`,
   d1: `d1AnalyticsAdaptiveGroups(limit: 10000, filter: {date_geq: "{start}", date_leq: "{end}"}) { sum { rowsRead rowsWritten } }`,
   d1Storage: `d1StorageAdaptiveGroups(limit: 10000, filter: {date_geq: "{start}", date_leq: "{end}"}) { max { databaseSizeBytes } dimensions { date databaseId } }`,
+  r2Storage: `r2StorageAdaptiveGroups(limit: 10000, filter: {datetime_geq: "{start}T00:00:00Z", datetime_leq: "{nowIso}"}, orderBy: [datetime_DESC]) { max { payloadSize metadataSize } dimensions { datetime bucketName } }`,
+  r2Ops: `r2OperationsAdaptiveGroups(limit: 10000, filter: {datetime_geq: "{start}T00:00:00Z", datetime_leq: "{nowIso}"}) { sum { requests } dimensions { actionType } }`,
 } as const;
 type Dataset = keyof typeof QUERIES;
 
@@ -57,7 +63,7 @@ type Dataset = keyof typeof QUERIES;
 export function queryFor(dataset: Dataset, accountId: string, now: number): string {
   const iso = new Date(now).toISOString();
   const start = `${iso.slice(0, 7)}-01`;
-  const field = QUERIES[dataset].replace("{start}", start).replace("{end}", iso.slice(0, 10)).replace("{nowIso}", `${iso.slice(0, 19)}Z`);
+  const field = QUERIES[dataset].replaceAll("{start}", start).replaceAll("{end}", iso.slice(0, 10)).replaceAll("{nowIso}", `${iso.slice(0, 19)}Z`);
   return `query { viewer { accounts(filter: {accountTag: "${accountId}"}) { ${field} } } }`;
 }
 
@@ -87,6 +93,26 @@ function latestDay(rows: Row[], k: string): number {
   return rows.filter((r) => (r.dimensions?.date ?? "") === day).reduce((n, r) => n + (Number(r.max?.[k]) || 0), 0);
 }
 
+/** R2's operations by class (developers.cloudflare.com/r2/pricing): free ones (deletes, aborts) are neither */
+export function r2Class(actionType: string): "a" | "b" | null {
+  if (/^(Delete|Abort)/.test(actionType)) return null;
+  if (/^(Get|Head)/.test(actionType) || actionType === "UsageSummary") return "b";
+  return "a";
+}
+
+/** R2's stored bytes: each bucket's latest row (payload + metadata), summed */
+function r2Stored(rows: Row[]): number {
+  const latest = new Map<string, Row>();
+  for (const r of rows) {
+    const b = r.dimensions?.bucketName ?? "";
+    const at = latest.get(b);
+    if (!at || (r.dimensions?.datetime ?? "") > (at.dimensions?.datetime ?? "")) latest.set(b, r);
+  }
+  let n = 0;
+  for (const r of latest.values()) n += (Number(r.max?.payloadSize) || 0) + (Number(r.max?.metadataSize) || 0);
+  return n;
+}
+
 /** Month-to-date usage. Never throws: failures leave their metrics out and say why. */
 export async function fetchUsage(fetcher: typeof fetch, env: GuardEnv, now: number): Promise<UsageResult> {
   if (!configured(env)) return { usage: {}, error: "CF_API_TOKEN or CF_ACCOUNT_ID isn't set" };
@@ -104,7 +130,7 @@ export async function fetchUsage(fetcher: typeof fetch, env: GuardEnv, now: numb
 /** The metrics from whichever datasets answered */
 export function toUsage(got: Partial<Record<Dataset, Row[]>>): Usage {
   const u: Usage = {};
-  const { workers, doInvocations, doPeriodic, doStorage, d1, d1Storage } = got;
+  const { workers, doInvocations, doPeriodic, doStorage, d1, d1Storage, r2Storage, r2Ops } = got;
   if (workers) {
     u.workers_requests = sumOf(workers, "requests");
     if (has(workers, "sum", "cpuTimeUs")) u.workers_cpu_ms = sumOf(workers, "cpuTimeUs") / 1000;
@@ -128,6 +154,11 @@ export function toUsage(got: Partial<Record<Dataset, Row[]>>): Usage {
   }
   if (d1Storage) u.d1_storage_bytes = latestDay(d1Storage, "databaseSizeBytes");
   if (workers && doInvocations) u.log_events = sumOf(workers, "requests") + sumOf(doInvocations, "requests");
+  if (r2Storage) u.r2_storage_bytes = r2Stored(r2Storage);
+  if (r2Ops) {
+    u.r2_class_a = r2Ops.filter((r) => r2Class(r.dimensions?.actionType ?? "") === "a").reduce((n, r) => n + (Number(r.sum?.requests) || 0), 0);
+    u.r2_class_b = r2Ops.filter((r) => r2Class(r.dimensions?.actionType ?? "") === "b").reduce((n, r) => n + (Number(r.sum?.requests) || 0), 0);
+  }
   // Only known metrics, in the shared order
   return Object.fromEntries(SPEND_METRICS.filter((m) => u[m] !== undefined && Number.isFinite(u[m])).map((m) => [m, u[m]!])) as Usage;
 }

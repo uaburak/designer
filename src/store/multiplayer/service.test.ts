@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { handle, type Deps, type Rooms } from "../../../server/src/api";
 import { Db } from "../../../server/src/db";
 import { sqliteD1 } from "../../../server/src/testing/sqliteD1";
+import { memoryBuckets } from "../../../server/src/testing/memoryR2";
 import { MemoryRoomStorage, Room, type Connection } from "../../shared/multiplayer/room";
 import { decodeMessage, encodeMessage, type NodeChange } from "../../shared/schema/codec";
 import type { FileChange } from "../../shared/store/repositories";
@@ -797,5 +798,58 @@ describe("MultiplayerService, the upload panel", () => {
     expect(states.at(-1)).toBe("done");
     expect(a2.uploads().at(-1)).toMatchObject({ fileKey: fa, name: "Resumed" });
     expect(a2.uploads().at(-1)!.bytesSent).toBeGreaterThan(0);
+  });
+});
+
+// --- Wecra 1.1 (docs/cloud.md §4): images to R2, 4 at a time, big ones in parts, the snapshot after them ---
+
+describe("MultiplayerService, images to R2", () => {
+  it("sends a file's images 4 at a time, one over 8 MB in parts (a failed part alone again), then the snapshot", async () => {
+    const r2 = memoryBuckets();
+    Object.assign(server.env, r2);
+    let active = 0;
+    let most = 0;
+    let failPart2 = true;
+    const blobCall = (m: string, path: string) => (m === "PUT" || m === "POST") && /\/blobs\/[0-9a-f]{40}(\/|$)/.test(path);
+    const a = await watchedInstallation("a@x.co", async (m, path, init) => {
+      if (m === "PUT" && path.endsWith("/parts/2") && failPart2) {
+        failPart2 = false;
+        return cfPage(503);
+      }
+      if (!blobCall(m, path) || path.endsWith("/complete") || path.endsWith("/uploads")) return null;
+      active++;
+      most = Math.max(most, active);
+      await wait(5);
+      try {
+        return await serverFetch(`${SERVER}${path}`, init);
+      } finally {
+        active--;
+      }
+    });
+    const images = [...Array.from({ length: 5 }, (_, i) => new Uint8Array(300_000).fill(i + 1)), new Uint8Array(9 * 1024 * 1024 + 123).fill(9)];
+    const hashes: string[] = [];
+    for (const img of images) {
+      await a.store.putBlob(img);
+      hashes.push([...a.store.blobs.keys()].at(-1)!);
+    }
+    const hashOf = (hex: string) => Uint8Array.from(hex.match(/../g)!.map((h) => parseInt(h, 16)));
+    const snapshot = msg([node(0, { name: "Document" }), ...hashes.map((h, i) => node(10 + i, { name: `Photo ${i}`, fillPaints: [{ type: "IMAGE", image: { hash: hashOf(h) } }] } as any))]);
+    const fa = a.store.addFile("Photos", [node(0, { name: "Document" })]);
+    const shared = await a.svc.share(fa, { snapshot, headSeq: 0 });
+    expect(most).toBeGreaterThan(1);
+    expect(most).toBeLessThanOrEqual(4);
+    const big = hashes[5];
+    const parts = a.calls.filter((c) => c.includes(`/blobs/${big}/uploads/`));
+    expect(parts.filter((c) => c.endsWith("/parts/1"))).toHaveLength(1);
+    expect(parts.filter((c) => c.endsWith("/parts/2"))).toHaveLength(2);
+    expect(parts.at(-1)).toMatch(/\/complete$/);
+    // The snapshot only after every image landed
+    const snapAt = a.calls.findIndex((c) => c.startsWith("PUT") && c.includes(`/files/${shared.key}/snapshot`));
+    const lastBlob = Math.max(...a.calls.map((c, i) => (c.includes("/blobs/") && !c.includes("/missing") ? i : -1)));
+    expect(snapAt).toBeGreaterThan(lastBlob);
+    expect([...r2.FILES.objects.keys()].filter((k) => k.startsWith("b/")).sort()).toEqual(hashes.map((h) => `b/${h}`).sort());
+    const done = a.uploads().at(-1)!;
+    expect(done).toMatchObject({ state: "done", bytesTotal: snapshot.length + images.reduce((n, b) => n + b.length, 0) });
+    expect(a.uploads().some((u) => u.state === "retrying")).toBe(true);
   });
 });

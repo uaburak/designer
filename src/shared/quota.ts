@@ -31,8 +31,9 @@ const MB = 1024 * 1024;
 export const QUOTA_LIMITS: Record<QuotaKind, number> = {
   /** Files the account owns on the server (shared files, org files and drafts, branches) */
   shared_files: 200,
-  /** Snapshots, images, thumbnails, previews and library payloads the account's files and previews keep */
-  storage_bytes: 500 * MB,
+  /** Snapshots, images, thumbnails, previews and library payloads the account's files and previews keep (on R2 from
+   *  Wecra 1.1, docs/cloud.md §3; a blob shared by several of the account's files counts once) */
+  storage_bytes: 20 * 1024 * MB,
   /** Uploads of bytes (snapshots, images, thumbnails, preview documents and images, library payloads, fonts) a day */
   uploads_per_day: 3000,
   /** Developer previews live or being published at once */
@@ -49,9 +50,9 @@ export const QUOTA_LIMITS: Record<QuotaKind, number> = {
   signups_per_ip_per_day: 3,
   /** New accounts a day, everyone together */
   signups_per_day: 200,
-  /** Every account's stored bytes together: below the 1 GB of Durable Object storage Workers Paid includes (and the
-   *  spend guard's 95% of it, src/shared/spendGuard.ts); the operator can change it (Settings › Operator) */
-  server_storage_bytes: 900 * MB,
+  /** Every account's stored bytes together: no cap by default since content moved to R2 (docs/cloud.md §3 — the spend
+   *  guard decides, src/shared/spendGuard.ts); shown as 1 TB, enforced only when the operator sets a number (Settings › Operator) */
+  server_storage_bytes: 1024 * 1024 * MB,
 };
 
 export const ACCOUNT_QUOTA_KINDS: readonly AccountQuotaKind[] = ["shared_files", "storage_bytes", "uploads_per_day", "previews", "orgs_created", "invitations_per_day", "comments_per_minute", "rest_calls_per_day"];

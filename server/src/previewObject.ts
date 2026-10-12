@@ -23,6 +23,9 @@ export class PreviewObject extends DurableObject {
         await ctx.storage.deleteAlarm();
         await ctx.storage.deleteAll();
       },
+      // R2 (docs/cloud.md §1): the buckets and the preview's id (the object's name)
+      env: env as never,
+      name: () => ctx.id.name ?? null,
     });
   }
 

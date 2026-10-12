@@ -16,6 +16,10 @@
  * Key management (docs/governance.md §2.10, ekm/room.ts): on every wake the object reads its org's key from D1 and
  * unwraps it before any event (`blockConcurrencyWhile`), seals the rows still plain, and checks again every hour.
  * While the key can't be unwrapped, calls answer 503 `key_unavailable` and sockets are refused.
+ *
+ * Object storage (docs/cloud.md §1, storage/roomObjects.ts): checkpoints go to the R2 bucket of the file's region (the
+ * Worker's `x-region` on every call); once per wake (never awaited by a call or a socket) the room moves one more of
+ * its old rows to R2 (`objects.step`), until nothing is left.
  */
 import { DurableObject } from "cloudflare:workers";
 import { CLOSE_MOVING, type Role } from "../../src/shared/multiplayer/protocol";
@@ -29,6 +33,8 @@ import { Db } from "./db";
 import { BROADCAST_KINDS } from "./roomBroadcast";
 import { RoomEkm, KEY_UNAVAILABLE } from "./ekm/room";
 import { discoveryAlarm, discoveryTake, forgetDiscoveryRoom, sharedAlarm, type DiscoveryRoom } from "./discovery/record";
+import { noteRegion, roomObjectsHost } from "./storage/roomHost";
+import type { ObjectStore } from "./storage/objects";
 
 export { MAX_BLOB_BYTES } from "./roomBox";
 /** Close codes the client reads: 4001 the file stopped being shared, 4003 access changed, 4009 a snapshot replaced history. */
@@ -41,6 +47,9 @@ interface RoomEnv {
   SESSION_SECRET?: string;
   /** Key management's root key (32 bytes, base64; `wrangler secret put EKM_ROOT_KEY`) */
   EKM_ROOT_KEY?: string;
+  /** R2 (docs/cloud.md §1): wecra-files, wecra-files-eu */
+  FILES?: ObjectStore;
+  FILES_EU?: ObjectStore;
 }
 
 /** How long the room trusts its answer to "does this file have a webhook?" (§16.10) */
@@ -54,9 +63,21 @@ export class FileRoom extends DurableObject {
   private hooks: { at: number; has: boolean } | null = null;
   private fileKey: string | null;
   private ekm: RoomEkm;
+  /** This wake's migration step (one per wake, docs/cloud.md §1) */
+  private stepped = false;
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
+    // R2 for checkpoints and REST parts (docs/cloud.md §1), in the bucket of the file's region
+    const objects = roomObjectsHost({
+      env: env as RoomEnv,
+      d1: (env as RoomEnv).DB ?? null,
+      storage: () => this.box.storage,
+      fileKey: () => this.fileKey,
+      orgId: () => (this.ekm.key.cipher.enabled ? this.ekm.key.orgId : null),
+      blobCipher: () => this.ekm.key.objectCipher,
+      now: () => Date.now(),
+    });
     // Snapshot, frames, images, the branch base, versions and autosave (roomBox.ts); the sockets are this object's.
     this.box = new RoomBox({
       sql: ctx.storage.sql as unknown as SqlLike,
@@ -77,6 +98,7 @@ export class FileRoom extends DurableObject {
           return s?.userId === userId && s.sessionID === sessionID;
         }),
       cipher: () => this.ekm.key.cipher,
+      objects,
     });
     this.fileKey = ctx.id.name ?? null;
     this.ekm = new RoomEkm({
@@ -105,6 +127,7 @@ export class FileRoom extends DurableObject {
         const body = JSON.stringify({ t: "rest-wanted", fileKey: this.fileKey });
         await Promise.all(userIds.map((u) => ns.get(ns.idFromName(u)).fetch(new Request("https://inbox/inbox/notify", { method: "POST", body })).catch(() => undefined)));
       },
+      objects: { ...objects, cipher: () => this.ekm.key.cipher, flush: () => this.box.objects.flush() },
     });
     // Discovery reads its job's part opened: rest_blobs rows are sealed once stored when key management is on
     const rest = this.rest;
@@ -113,7 +136,7 @@ export class FileRoom extends DurableObject {
       sql: ctx.storage.sql as unknown as SqlLike,
       now: () => Date.now(),
       d1: (env as RoomEnv).DB ?? null,
-      rest: { run: (job, waitMs, wanted) => rest.run(job, waitMs, wanted), partBytes: (sha1) => this.ekm.partBytes(sha1), dropParts: (parts) => rest.dropParts(parts) },
+      rest: { run: (job, waitMs, wanted) => rest.run(job, waitMs, wanted), partBytes: async (sha1) => (await this.ekm.partBytes(sha1)) ?? (await rest.partBytes(sha1)), dropParts: (parts) => rest.dropParts(parts) },
     };
     for (const ws of ctx.getWebSockets()) {
       const state = ws.deserializeAttachment() as MemberState | null;
@@ -147,7 +170,9 @@ export class FileRoom extends DurableObject {
       this.fileKey = named;
       await this.ekm.check(true);
     }
+    noteRegion(this.box.storage, req.headers.get("x-region"));
     const gated = (await this.ekm.gate(req.method, url.pathname)) ?? (await this.ekm.route(req.method, url.pathname));
+    if (!gated) this.wakeStep();
     if (gated && gated.status === 503 && req.method === "GET" && url.pathname === "/room/ws" && req.headers.get("upgrade") === "websocket") {
       // A refused upgrade looks like a network failure to the client (it retries forever): accept, say why, close — as the
       // hourly re-check does for open sockets — so the store marks the file blocked.
@@ -224,6 +249,8 @@ export class FileRoom extends DurableObject {
       }
       case "DELETE /room": {
         this.room.closeAll(CLOSE_UNSHARED, "file no longer shared");
+        // Its checkpoints on R2 go with it (images stay referenced in D1 until the file's row goes: the daily cron)
+        await this.box.objects.dropAll().catch((e) => console.error("r2: the room's checkpoints weren't deleted", e));
         await this.ctx.storage.deleteAll();
         this.box.reset();
         this.rest.reset();
@@ -256,10 +283,26 @@ export class FileRoom extends DurableObject {
       ws.close(CLOSE_ACCESS, "access changed");
       return;
     }
+    this.wakeStep();
     const before = this.box.storage.lastSeq();
     this.room.receive(ws, typeof message === "string" ? message : new Uint8Array(message));
     if (this.box.storage.lastSeq() > before) this.box.edited(this.wantsFileUpdate());
     this.discover(); // after edited(), which sets the alarm
+  }
+
+  /**
+   * One step of the lazy migration to R2 per wake (docs/cloud.md §1): in the background — the call or the frame that
+   * woke the room goes on at once (the step's R2 writes let other events in; its transactions re-check what they move).
+   */
+  private wakeStep(): void {
+    if (this.stepped || this.box.moving() || !this.box.objects.enabled()) return;
+    this.stepped = true;
+    this.ctx.waitUntil(
+      this.box.objects
+        .step()
+        .then(() => this.box.objects.flush())
+        .catch((e) => console.error("r2: the room's migration step failed", e)),
+    );
   }
 
   /** Discovery's capture (docs/governance.md §2.11): the last writer and cursor chat; the alarm moves earlier when due sooner */

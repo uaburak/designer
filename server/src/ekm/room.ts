@@ -35,6 +35,8 @@ const KEYLESS = new Set([
   "POST /room/comments",
   "POST /room/broadcast",
   "POST /room/policy",
+  // A move's copy copies its R2 checkpoints as stored (docs/cloud.md §1)
+  "POST /room/storage/relocate",
 ]);
 
 export interface RoomEkmHost extends Omit<RoomKeyHost, "sealedBefore"> {
@@ -115,7 +117,8 @@ export class RoomEkm {
           rows = sql.exec<{ bytes: ArrayBuffer }>(`SELECT bytes FROM blobs WHERE sha1 = ? ORDER BY idx`, blob[1]).toArray();
           table = "blobs";
         }
-        if (!rows.length) return new Response("no such blob", { status: 404 });
+        // A part on R2 (docs/cloud.md §1): RestJobs reads it (sealed objects opened with the room's cipher)
+        if (!rows.length) return (await rest.fetch(req)) ?? new Response("no such blob", { status: 404 });
         return new Response(await openJoined(cipher, rows, table), { headers: { "content-type": "application/octet-stream" } });
       }
       if (url.pathname === "/room/thumbnail" && m === "GET") {
@@ -123,6 +126,7 @@ export class RoomEkm {
         const sha1 = t ? (JSON.parse(t.parts) as { sha1: string }[])[0]?.sha1 : undefined;
         if (!sha1) return new Response("no thumbnail", { status: 404 });
         const rows = sql.exec<{ bytes: ArrayBuffer }>(`SELECT bytes FROM rest_blobs WHERE sha1 = ? ORDER BY idx`, sha1).toArray();
+        if (!rows.length) return (await rest.fetch(req)) ?? new Response("no thumbnail", { status: 404 });
         return new Response(await openJoined(cipher, rows, "rest_blobs"), { headers: { "content-type": "image/png", "x-sha1": sha1 } });
       }
     } catch (e) {

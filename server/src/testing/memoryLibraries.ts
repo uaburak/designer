@@ -6,12 +6,16 @@ import type { ObjectNamespace } from "../libraries/db";
 import { LibraryBox } from "../libraries/libraryBox";
 import { FontBox } from "../fonts/fontBox";
 import { sqliteStorage } from "./memoryPreviews";
+import type { StorageEnv } from "../storage/objects";
 
 interface Box {
   fetch(req: Request): Promise<Response>;
 }
 
-function namespace<B extends Box>(make: (host: { sql: ReturnType<typeof sqliteStorage>["sql"]; transaction: (fn: () => void) => void; deleteAll: () => Promise<void> }) => B) {
+type Host = { sql: ReturnType<typeof sqliteStorage>["sql"]; transaction: (fn: () => void) => void; deleteAll: () => Promise<void>; env?: StorageEnv; name?: () => string | null };
+
+/** `env`: R2 buckets (testing/memoryR2.ts) — the objects then keep their bytes there (docs/cloud.md §1) */
+function namespace<B extends Box>(make: (host: Host) => B, env?: StorageEnv) {
   type Made = { box: B; wiped: number };
   const objects = new Map<string, Made>();
   /** Objects of the `eu` jurisdiction (docs/multiplayer.md §15.10): separate from the default ones */
@@ -32,6 +36,7 @@ function namespace<B extends Box>(make: (host: { sql: ReturnType<typeof sqliteSt
             made.wiped++;
             dropAll(storage.sql);
           },
+          ...(env ? { env, name: () => name } : {}),
         });
         map.set(name, (o = made));
       }
@@ -59,12 +64,12 @@ function dropAll(sql: ReturnType<typeof sqliteStorage>["sql"]): void {
   for (const { name } of sql.exec<{ name: string }>(`SELECT name FROM sqlite_master WHERE type = 'table'`).toArray()) sql.exec(`DROP TABLE IF EXISTS "${name}"`);
 }
 
-export function memoryLibraries() {
-  return namespace((host) => new LibraryBox(host));
+export function memoryLibraries(env?: StorageEnv) {
+  return namespace((host) => new LibraryBox(host), env);
 }
 
-export function memoryFonts() {
-  return namespace((host) => new FontBox(host));
+export function memoryFonts(env?: StorageEnv) {
+  return namespace((host) => new FontBox(host), env);
 }
 
 /** Rows of one object's table (tests look inside) */

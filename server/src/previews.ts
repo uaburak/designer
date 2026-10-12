@@ -28,6 +28,8 @@ import type { D1Like, User } from "./db";
 import { QUOTA_LIMITS } from "../../src/shared/quota";
 import { guardedUpload, pruneStorage, releaseStorage, requirePreviewSlot } from "./quota/quota";
 import { throttle } from "./quota/throttle";
+import { BoxObjects, boxObjectsHost, type ChunkTable } from "./storage/boxObjects";
+import { resolveR2, type StorageEnv } from "./storage/objects";
 
 /** SQLite values hold 2 MB; documents and images are stored in 1 MB rows. */
 const CHUNK = 1024 * 1024;
@@ -177,7 +179,8 @@ function d1(env: PreviewEnv): D1Like {
 async function box(env: PreviewEnv, id: string, path: string, init: RequestInit): Promise<Response> {
   const ns = env.PREVIEWS;
   if (!ns) throw new PreviewHttpError(503, "previews aren't set up on this server");
-  return ns.get(ns.idFromName(id) as never).fetch(new Request(`https://preview${path}`, init));
+  // A file the object names on R2 (docs/cloud.md §1) is read here straight from R2
+  return resolveR2(await ns.get(ns.idFromName(id) as never).fetch(new Request(`https://preview${path}`, init)), env as StorageEnv);
 }
 
 /** Delete account (docs/multiplayer.md §12): every preview of the person unpublished — storage and rows. */
@@ -308,31 +311,59 @@ export interface BoxHost {
   setAlarm(at: number | null): Promise<void>;
   /** Deletes everything the object stores */
   deleteAll(): Promise<void>;
+  /** R2 (docs/cloud.md §1): the env's buckets and the preview's id (the object's name); absent: rows only */
+  env?: StorageEnv;
+  name?(): string | null;
 }
+
+/** The `files` rows as R2 names them (the lazy migration's table) */
+const FILES: ChunkTable = { table: "files", cols: ["name"], name: ([n]) => n };
 
 /**
  * One preview's storage: `meta` (the live manifest as JSON), `files` (name, idx, bytes) with names `doc` (live),
- * `doc:next` (staged by PUT /doc until the manifest) and `img:<sha1>`.
+ * `doc:next` (staged by PUT /doc until the manifest) and `img:<sha1>`. On R2 (docs/cloud.md §1) each is one object
+ * under `p/<id>/` indexed by the same name (a staged document's own key, renamed to `doc` in the index when it goes
+ * live); the rows are what a preview stored before.
  */
 export class PreviewBox {
-  constructor(private host: BoxHost) {}
+  readonly objects: BoxObjects;
+  private stepped = false;
+
+  constructor(private host: BoxHost) {
+    this.objects = new BoxObjects(host.sql, (fn) => host.transaction(fn), host.env ? boxObjectsHost(host.env, () => "default", () => (host.name?.() ? `p/${host.name()}/` : null)) : undefined);
+  }
 
   /** The tables, again after a deleteAll (the object lives on with empty storage). */
   private ensure(): void {
     this.host.sql.exec(`CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)`);
     this.host.sql.exec(`CREATE TABLE IF NOT EXISTS files (name TEXT NOT NULL, idx INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY (name, idx))`);
+    this.objects.ensure();
   }
 
   async fetch(req: Request): Promise<Response> {
     this.ensure();
+    try {
+      return await this.route(req);
+    } finally {
+      await this.objects.flush();
+    }
+  }
+
+  private async route(req: Request): Promise<Response> {
     const path = new URL(req.url).pathname;
     const m = req.method;
     if (path === "/box" && m === "DELETE") {
+      await this.objects.dropAll();
       await this.host.deleteAll();
       return json({ ok: true });
     }
+    // One old file moved to R2 per wake
+    if (!this.stepped) {
+      this.stepped = true;
+      void this.objects.step([FILES]).catch((e) => console.error("r2: the preview's migration step failed", e));
+    }
     if (path === "/box/doc" && m === "PUT") {
-      this.put("doc:next", new Uint8Array(await req.arrayBuffer()));
+      await this.put("doc:next", new Uint8Array(await req.arrayBuffer()));
       return json({ ok: true });
     }
     if (path === "/box/images/missing" && m === "POST") {
@@ -347,7 +378,7 @@ export class PreviewBox {
       if (bytes.length > MAX_PREVIEW_IMAGE_BYTES) return json({ error: "image too large" }, 413);
       // Content-addressed: the bytes must be what the name says.
       if ((await sha1Hex(bytes)) !== image[1]) return json({ error: "the bytes don't match their SHA-1" }, 400);
-      this.put(`img:${image[1]}`, bytes);
+      await this.put(`img:${image[1]}`, bytes);
       return json({ ok: true });
     }
 
@@ -365,7 +396,10 @@ export class PreviewBox {
   async alarm(): Promise<void> {
     this.ensure();
     const manifest = this.manifest();
-    if (!manifest || previewExpired(manifest, this.host.now())) await this.host.deleteAll();
+    if (!manifest || previewExpired(manifest, this.host.now())) {
+      await this.objects.dropAll();
+      await this.host.deleteAll();
+    }
     else if (manifest.expiresAt !== null) await this.host.setAlarm(manifest.expiresAt);
   }
 
@@ -379,7 +413,12 @@ export class PreviewBox {
       if (staged) {
         this.host.sql.exec(`DELETE FROM files WHERE name = 'doc'`);
         this.host.sql.exec(`UPDATE files SET name = 'doc' WHERE name = 'doc:next'`);
+        if (this.objects.hasObject("doc:next")) {
+          this.objects.removeObject("doc");
+          this.host.sql.exec(`UPDATE r2_index SET name = 'doc' WHERE name = 'doc:next'`);
+        }
       }
+      for (const name of this.objects.names("img:")) if (!keep.has(name)) this.objects.removeObject(name);
       this.host.sql.exec(`INSERT INTO meta (k, v) VALUES ('manifest', ?) ON CONFLICT (k) DO UPDATE SET v = excluded.v`, JSON.stringify(manifest));
       for (const { name } of this.host.sql.exec<{ name: string }>(`SELECT DISTINCT name FROM files WHERE name LIKE 'img:%'`).toArray()) {
         if (!keep.has(name)) this.host.sql.exec(`DELETE FROM files WHERE name = ?`, name);
@@ -395,10 +434,13 @@ export class PreviewBox {
   }
 
   private has(name: string): boolean {
-    return this.host.sql.exec(`SELECT 1 FROM files WHERE name = ? AND idx = 0`, name).toArray().length > 0;
+    return this.objects.hasObject(name) || this.host.sql.exec(`SELECT 1 FROM files WHERE name = ? AND idx = 0`, name).toArray().length > 0;
   }
 
-  private put(name: string, bytes: Uint8Array): void {
+  private async put(name: string, bytes: Uint8Array): Promise<void> {
+    // A staged document has its own key (the live one keeps its own until the manifest swaps them)
+    const keyName = name === "doc:next" ? `doc-${this.host.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}` : name.replace(/^img:/, "img/");
+    if (await this.objects.putObject(name, bytes, () => this.host.sql.exec(`DELETE FROM files WHERE name = ?`, name), keyName)) return;
     this.host.transaction(() => {
       this.host.sql.exec(`DELETE FROM files WHERE name = ?`, name);
       for (let i = 0, idx = 0; i < bytes.length || idx === 0; i += CHUNK, idx++) this.host.sql.exec(`INSERT INTO files (name, idx, bytes) VALUES (?, ?, ?)`, name, idx, bytes.slice(i, i + CHUNK).buffer);
@@ -407,7 +449,7 @@ export class PreviewBox {
 
   private bytes(name: string, cacheControl: string): Response {
     const rows = this.host.sql.exec<{ bytes: ArrayBuffer }>(`SELECT bytes FROM files WHERE name = ? ORDER BY idx`, name).toArray();
-    if (!rows.length) return json({ error: "not found" }, 404);
+    if (!rows.length) return this.objects.objectResponse(name, { "content-type": "application/octet-stream", "cache-control": cacheControl }) ?? json({ error: "not found" }, 404);
     const out = new Uint8Array(rows.reduce((n, r) => n + r.bytes.byteLength, 0));
     let at = 0;
     for (const r of rows) {
