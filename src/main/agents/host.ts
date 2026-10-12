@@ -1,5 +1,6 @@
 import { app, clipboard, dialog, nativeImage, safeStorage, shell, webContents, type WebContents } from "electron";
 import { reportAiPrompt } from "../account/governanceReports";
+import { sealAsync, unsealAsync } from "../sealed";
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
@@ -304,11 +305,12 @@ export function settleToolCall(sender: WebContents, r: ToolCallResult) {
 /** Starts the MCP server (with the app). */
 export async function startAgents(): Promise<void> {
   const stored = readStored();
-  let token = unseal(stored.token);
+  // The keychain off main's thread (sealed.ts): a keychain prompt nobody answers only keeps the MCP server waiting.
+  let token = await unsealAsync(stored.token);
   if (!token) {
     token = newToken();
-    stored.token = seal(token);
-    writeStored(stored);
+    stored.token = await sealAsync(token);
+    writeStored({ ...readStored(), token: stored.token });
   }
   server = new McpServer(
     {
