@@ -1,16 +1,27 @@
 /**
  * Save Local Copy (docs/data.md §11.2): flush, compact, then a ZIP of stored entries — canvas.fig (the head snapshot
- * bytes as they are), meta.json, thumbnail.png, images/<sha1> — written to a temporary file and renamed onto `path`.
- * Version history, UI state and the library registry are not included, as in Figma.
+ * re-encoded the way Figma writes its own, shared/fig/figmaExport.ts), meta.json, thumbnail.png, images/<sha1> —
+ * written to a temporary file and renamed onto `path`. Version history, UI state and the library registry are not
+ * included, as in Figma.
  */
 import { randomBytes } from "node:crypto";
 import { promises as fsp } from "node:fs";
 import { dirname, join } from "node:path";
+import { constants, zstdCompressSync } from "node:zlib";
+import type { FigCodecs } from "../../shared/fig/compression";
 import { writeFigFile, type FigMeta } from "../../shared/fig/figFile";
+import { encodeFigmaCanvas } from "../../shared/fig/figmaExport";
 import type { FileMeta } from "../../shared/store/types";
 import type { LocalBlobs } from "../local/blobs";
 import { fsyncDir } from "../local/fsutil";
 import { currentMessage, readSnapshotFile } from "../local/snapshot";
+import { nodeCodecs, own } from "../kiwi/codecs";
+
+/** Figma's zstd frames carry no checksum (our snapshots' do, for recovery): an export writes Figma's kind. */
+export const figmaExportCodecs: FigCodecs = {
+  ...nodeCodecs,
+  zstdCompress: (d, level) => own(zstdCompressSync(d, { params: { [constants.ZSTD_c_compressionLevel]: level, [constants.ZSTD_c_checksumFlag]: 0 } })),
+};
 
 export async function writeLocalCopy(input: {
   snapshotPath: string;
@@ -22,9 +33,9 @@ export async function writeLocalCopy(input: {
   path: string;
   now: number;
 }): Promise<{ bytes: number; images: number }> {
-  const canvas = new Uint8Array(await fsp.readFile(input.snapshotPath));
   const snap = await readSnapshotFile(input.snapshotPath);
   const message = currentMessage(snap);
+  const canvas = encodeFigmaCanvas(message, figmaExportCodecs);
   // meta.json's background colour is the first page's.
   const pages = (message.nodeChanges ?? []).filter((n) => n.type === "CANVAS" && !n.internalOnly && n.parentIndex?.guid?.sessionID === 0 && n.parentIndex.guid.localID === 0);
   pages.sort((a, b) => ((a.parentIndex?.position ?? "") < (b.parentIndex?.position ?? "") ? -1 : 1));
@@ -37,6 +48,7 @@ export async function writeLocalCopy(input: {
       render_coordinates: { x: 0, y: 0, width: input.meta.thumbnail?.width ?? 0, height: input.meta.thumbnail?.height ?? 0 },
     },
     file_name: input.meta.name,
+    developer_related_links: [],
     exported_at: new Date(input.now).toISOString(),
   };
   const images: [string, Uint8Array][] = [];

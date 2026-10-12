@@ -13,12 +13,12 @@ import { join } from "node:path";
 import { inflateRawSync } from "node:zlib";
 import { decodeBinarySchema } from "kiwi-schema";
 import { describe, expect, it } from "vitest";
-import { codec, SCHEMA_BINARY } from "../schema/document.generated";
-import { DOCUMENT_FORMAT_VERSION } from "../schema/codec";
+import { codec } from "../schema/document.generated";
 import { interpretSchema } from "../schema/dynamic";
 import { deflateRawStored, inflateRawStored, type FigCodecs } from "./compression";
 import { decodeCanvas, figContainer, readCanvasChunks } from "./container";
 import { readFigFile } from "./figFile";
+import { encodeFigmaCanvas, toFigmaMessage } from "./figmaExport";
 import { decodeAnySchema } from "./importFig";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- Figma-shaped test data */
@@ -160,18 +160,29 @@ describe(".fig round trip of Draw's fields (docs/draw.md §8)", () => {
 
   it("import → export: Figma reads our .fig back and every Draw node is byte for byte the one it wrote", () => {
     const { message } = importFig(figmaFig());
-    // Our export (Save Local Copy writes the snapshot as it is): our schema, our version, our Message.
-    const exported = figContainer(SCHEMA_BINARY, codec.encodeMessage(message), DOCUMENT_FORMAT_VERSION, STORED);
+    // Our export (Save Local Copy re-encodes the snapshot the way Figma writes its own: figmaExport.ts).
+    const exported = encodeFigmaCanvas(message, STORED);
     const canvas = decodeCanvas(exported, STORED);
     // A reader takes the schema the container carries (kiwi files are self-describing), then Figma's own encoding of
     // each Draw node is compared: the same bytes as the file Figma wrote.
     const back = interpretSchema(decodeBinarySchema(canvas.schema)).decode("Message", canvas.message);
     const before = new Map(drawFile().nodeChanges.map((n: any) => [key(n), n]));
     const after = new Map(back.nodeChanges.map((n: any) => [key(n), n]));
-    for (const id of DRAW_IDS) expect(toHexString(figma.encode("NodeChange", after.get(id))), id).toBe(toHexString(figma.encode("NodeChange", before.get(id))));
-    // …and ours imports it again unchanged.
+    // The export writes out what Figma always writes (visible, opacity, the stroke basics) at the values absence meant.
+    const BASE: Record<string, unknown> = { visible: true, opacity: 1, strokeWeight: 0, strokeAlign: "CENTER", strokeJoin: "MITER" };
+    for (const id of DRAW_IDS) {
+      const b: any = before.get(id);
+      const a: any = { ...(after.get(id) as object) };
+      for (const k of Object.keys(a)) if (!(k in b)) {
+        expect(BASE[k], `${id}.${k}`).toEqual(a[k]);
+        delete a[k];
+      }
+      expect(toHexString(figma.encode("NodeChange", a)), id).toBe(toHexString(figma.encode("NodeChange", b)));
+    }
+    // …and ours imports it again as exported.
     const again = importFig(exported).message;
-    expect(codec.encodeMessage(again)).toEqual(codec.encodeMessage(message));
+    const { derivedDataVersion: _stamp, ...rest } = again;
+    expect(rest).toEqual(toFigmaMessage(message));
   });
 });
 

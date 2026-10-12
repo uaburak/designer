@@ -224,7 +224,7 @@ Every JSON file and every snapshot is written this way. Journals are the only fi
 
 `Message = { type: NODE_CHANGES, sessionID: 0, ackID: 0, nodeChanges: [every live node, phase CREATED, DOCUMENT first, parents before children], blobs: [...] }`.
 
-Readers accept chunk 1 as zstd (magic `28 B5 2F FD`) or deflate-raw. Disk snapshots use zstd through Node's `zlib.zstdCompress`. Clipboard archives and preview snapshots use deflate-raw, which browsers can decode with `DecompressionStream`. Because a snapshot *is* a `canvas.fig`, Save Local Copy zips it without re-encoding (§11.2).
+Readers accept chunk 1 as zstd (magic `28 B5 2F FD`) or deflate-raw. Disk snapshots use zstd through Node's `zlib.zstdCompress`. Clipboard archives and preview snapshots use deflate-raw, which browsers can decode with `DecompressionStream`. A snapshot is a `canvas.fig` our importer reads as is; Save Local Copy re-encodes it for Figma (§11.2).
 
 **Derived data (2026-10-07, Figma parity round 3).** A disk snapshot may carry the engine's `@derived` fields (`derivedTextData` with glyph outlines in `blobs`, `derivedSymbolData` with instance sublayer geometry, `fillGeometry` / `strokeGeometry`) with `Message.derivedDataVersion` set to the engine stamp that computed them — what Figma's own files store, so an open draws its first frame from stored geometry before any font arrives. The snapshot the engine writes (§5.5 "Snapshots from the engine") has them; a compaction keeps them for the nodes no frame touched (the merge drops a node's derived fields when a change touches it, §5.5 step 2); an import of a `.fig` keeps Figma's text layout and instance geometry stamped `FIGMA_DERIVED_DATA_VERSION` (§11.1 step 4; the engine reads it as its own, the next engine snapshot replaces it with the engine's stamp). `store.json` records the head's `derivedDataVersion` (`Generation.derivedDataVersion`, `OpenedFile.derivedDataVersion`, `VersionRecord.derivedDataVersion`), so the editor knows before decoding whether the first frame can wait for nothing.
 
@@ -807,8 +807,8 @@ SVG is not a blob. It is imported as vector nodes (`docs/desktop.md` §13).
 `files.exportLocalCopy(fileKey, path)`, main only, from File › Save Local Copy… or Home's menu:
 1. Flush, then compact.
 2. Write a ZIP with *stored* (uncompressed) entries, as Figma does:
-   - `canvas.fig`: the head snapshot bytes as is (§5.1);
-   - `meta.json`: `{client_meta: {background_color, thumbnail_size, render_coordinates}, file_name, exported_at}`;
+   - `canvas.fig`: the head snapshot re-encoded the way Figma writes its own (`src/shared/fig/figmaExport.ts`; 2026-10-12, real Figma listed a snapshot-as-is export but never finished opening it): header version 106 (Figma's, not our `DOCUMENT_FORMAT_VERSION`); chunk 0 our schema without the `_rN` placeholders and `@ours` fields, a strict subset of Figma's; chunk 1 zstd without a frame checksum; Message `sessionID` 0, no `derivedDataVersion`, no `@ours` node fields, our engine's `@derived` fields dropped (Figma's own, from an import, kept), and the fields Figma writes on every node (`visible`, `opacity`, `transform`, `strokeWeight` / `strokeAlign` / `strokeJoin`, `size`; a TEXT's font, size, line height, letter spacing, alignment and one `textData.lines` entry per paragraph) written at the values their absence means;
+   - `meta.json`: `{client_meta: {background_color, thumbnail_size, render_coordinates}, file_name, developer_related_links: [], exported_at}`;
    - `thumbnail.png`;
    - `images/<sha1>` for each blob ref.
 3. Write to `tmp/`, then rename onto `path`.

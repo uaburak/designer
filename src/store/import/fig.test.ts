@@ -1,8 +1,9 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { decodeCanvas } from "../../shared/fig/container";
+import { decodeCanvas, readCanvasChunks } from "../../shared/fig/container";
 import { readFigFile, writeFigFile } from "../../shared/fig/figFile";
+import { FIGMA_FILE_VERSION, figmaExportSchema } from "../../shared/fig/figmaExport";
 import { decodeMessage } from "../../shared/schema/codec";
 import { RESERVED_SESSION_LIMIT, sessionIdFor } from "../../shared/schema/guid";
 import { NodeTable, tablesEqual } from "../../shared/schema/patch";
@@ -80,10 +81,17 @@ describe(".fig import and Save Local Copy (docs/data.md §11)", () => {
     expect(fig.images.size).toBe(3);
     const head = decodeCanvas(fig.canvas, nodeCodecs);
     expect(head.prelude).toBe("fig-kiwi");
-    expect(head.version).toBe(1);
+    // Written as Figma writes its own (figmaExport.ts): Figma's version, a subset of Figma's schema, session 0, no
+    // zstd checksum, Figma's meta.json keys.
+    expect(head.version).toBe(FIGMA_FILE_VERSION);
     expect(head.compression).toBe("zstd");
-    const state = JSON.parse(readFileSync(join(t.dir, "Workspace", "files", imported.fileKey, "store.json"), "utf8"));
-    expect(new Uint8Array(readFileSync(join(t.dir, "Workspace", "files", imported.fileKey, state.head.snapshot)))).toEqual(fig.canvas); // as is, no re-encoding
+    expect(head.schema).toEqual(figmaExportSchema());
+    const chunk1 = readCanvasChunks(fig.canvas).chunks[1];
+    expect(chunk1[4] & 0x04).toBe(0); // frame header descriptor: no content checksum
+    const exported = decodeMessage(head.message);
+    expect(exported.sessionID).toBe(0);
+    expect(exported.derivedDataVersion).toBeUndefined();
+    expect(fig.meta?.developer_related_links).toEqual([]);
     const again = await t.api.files.importLocalCopy(out, null);
     const a = NodeTable.fromMessage(decodeMessage((await t.api.files.open(imported.fileKey, { mode: "view" })).snapshot));
     const b = NodeTable.fromMessage(decodeMessage((await t.api.files.open(again.fileKey, { mode: "view" })).snapshot));
