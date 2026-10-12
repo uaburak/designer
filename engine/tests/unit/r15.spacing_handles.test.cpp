@@ -358,4 +358,16 @@ TEST_CASE("r15 dev: the `</>` button fills on hover, its tooltip after 500 ms, a
   REQUIRE(ev.statusClicks.size() == 1);
   CHECK(ev.statusClicks[0].frame == AL);
   CHECK(ev.statusClicks[0].action == "mark");
+  // Its status menu is open now: the tooltip doesn't come back under it while the pointer stays (it did, 500 ms on).
+  CHECK(e.overlay().dev.iconHover == AL);
+  e.tick(3000);
+  e.tick(4000);
+  CHECK(!e.overlay().dev.tooltip);
+  CHECK(e.chromeDelay() == -1);
+  // Off it and back: the tooltip after the delay again.
+  move(e, {600, 600});
+  move(e, c);
+  e.tick(5000);
+  e.tick(5600);
+  CHECK(e.overlay().dev.tooltip);
 }

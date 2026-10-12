@@ -113,7 +113,11 @@ export async function syntheticPreview(): Promise<SyntheticPreview> {
         textData: { characters: "Set in Inter Italic" }, textAutoResize: "WIDTH_AND_HEIGHT", fontName: { family: "Inter", style: "Italic", postscript: "" }, fontSize: 14,
         fillPaints: [solid(0x757575)],
       },
-      { guid: "1:10", phase: "CREATED", type: "FRAME", name: "Other", parentIndex: { guid: "0:1", position: "\"" }, size: { x: 200, y: 200 }, transform: at(400, 0), fillPaints: [solid(0x0d99ff)] },
+      {
+        guid: "1:10", phase: "CREATED", type: "FRAME", name: "Other", parentIndex: { guid: "0:1", position: "\"" }, size: { x: 200, y: 200 }, transform: at(400, 0), fillPaints: [solid(0x0d99ff)],
+        // The owner's status "Process" (ours only: no sectionStatusInfo).
+        ...({ pluginData: [{ pluginID: "designer.workflow", key: "status", value: "process" }] } as object),
+      },
       // An icon in it (Dev Mode's Assets detect it).
       { guid: "1:11", phase: "CREATED", type: "STAR", name: "Icon/Star", parentIndex: { guid: "1:10", position: "!" }, size: { x: 24, y: 24 }, transform: at(16, 16), fillPaints: [solid(0xffffff)], ...({ count: 5, starInnerScale: 0.382 } as object) },
       {

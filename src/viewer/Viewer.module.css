@@ -269,20 +269,8 @@
 
   /* ---- Round 5: Dev Mode statuses, code settings, List view, annotations, assets ---- */
   .grow { flex: 1 1 auto; }
-  .devStatus {
-    flex: none;
-    margin-left: auto;
-    padding: 0 var(--ds-space-2);
-    border-radius: var(--ds-radius-medium);
-    background: var(--figma-color-bg-success);
-    color: var(--figma-color-text-onsuccess);
-    font: var(--ds-font-body-medium-strong);
-    line-height: var(--ds-size-control);
-    white-space: nowrap;
-  }
-  .devStatus[data-status="COMPLETED"] { background: var(--figma-color-bg-secondary); color: var(--figma-color-text); }
-  .devStatus[data-status="CHANGED"] { background: var(--figma-color-bg-warning); color: var(--figma-color-text-onwarning); }
-  button.devStatus { border: 0; cursor: default; }
+  /* The header's status (editor/devmode/StatusTag: the owner's chip, "Changed" beside it) at the right */
+  .devStatus { display: inline-flex; flex: none; margin-left: auto; }
   .edited { padding: var(--ds-space-1) var(--ds-space-4) 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
   .compareRow { padding: var(--ds-space-2) var(--ds-space-4); border-bottom: 1px solid var(--figma-color-border); }
   .codeActions { display: flex; align-items: center; gap: var(--ds-space-1); }
@@ -344,9 +332,7 @@
   }
   .statusRow:hover { background: var(--figma-color-bg-hover); }
   .statusRow > span:first-of-type { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .statusLabel { color: var(--figma-color-text-success); white-space: nowrap; }
-  .statusLabel[data-status="CHANGED"] { color: var(--figma-color-text-warning); }
-  .statusLabel[data-status="COMPLETED"] { color: var(--figma-color-text-secondary); }
+  .statusLabel { color: var(--figma-color-text-secondary); white-space: nowrap; }
 
   /* ---- Dev resources (D-3) ---- */
   .resourceRow { display: flex; align-items: center; min-height: var(--ds-size-row); padding: 0 var(--ds-space-2) 0 var(--ds-space-2); }

@@ -26,7 +26,12 @@ export function currentPage(ctx: ApiContext): Guid {
 
 const DEFAULT_NAMES: Record<string, string> = { RECTANGLE: "Rectangle", LINE: "Line", ELLIPSE: "Ellipse", POLYGON: "Polygon", STAR: "Star", VECTOR: "Vector", TEXT: "", FRAME: "Frame", COMPONENT: "Component", SECTION: "Section", SLICE: "Slice", BOOLEAN_OPERATION: "Boolean", PAGE: "Page" };
 
-/** Figma's figma.createX(): a new node on the current page at (0, 0), not selected. */
+/**
+ * Figma's figma.createX(): a new node on the current page, not selected, centred in the view — Figma's docs: "The
+ * behavior is similar to using the R shortcut followed by a click" (developers.figma.com …/figma-createrectangle), i.e.
+ * placed where the person is looking, not at the page's 0,0 far off screen (whole pixels; the exact rounding is
+ * [unverified] against live Figma).
+ */
 export function create(ctx: ApiContext, type: string): unknown {
   if (type === "PAGE") return createPage(ctx);
   const engineType = ENGINE_TYPE[type];
@@ -41,7 +46,10 @@ export function create(ctx: ApiContext, type: string): unknown {
   if (type === "SECTION") Object.assign(fields, { size: { x: 100, y: 100 } });
   if (type === "SLICE" || type === "VECTOR") delete fields.fillPaints;
   if (type === "LINE") Object.assign(fields, { size: { x: 100, y: 0 } });
-  const node = { guid, type: engineType, phase: "CREATED", name: DEFAULT_NAMES[type] ?? type, transform: IDENTITY, parentIndex: { guid: page, position: positionAt(ctx, page, -1) }, ...fields } as NodeChange;
+  const size = (fields.size as { x: number; y: number } | undefined) ?? { x: 100, y: 100 };
+  const c = ctx.ed.engine.viewCenter();
+  const transform = { ...IDENTITY, m02: Math.round(c.x - size.x / 2), m12: Math.round(c.y - size.y / 2) };
+  const node = { guid, type: engineType, phase: "CREATED", name: DEFAULT_NAMES[type] ?? type, transform, parentIndex: { guid: page, position: positionAt(ctx, page, -1) }, ...fields } as NodeChange;
   const message: Message = { type: "NODE_CHANGES", sessionID: session(ctx), nodeChanges: [node] };
   const status = ctx.ed.engine.applyChanges(message, "user");
   if (status !== Status.OK) throw new ApiError(`Couldn't create a ${type.toLowerCase()} (status ${status})`);

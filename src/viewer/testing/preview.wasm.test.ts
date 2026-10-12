@@ -56,7 +56,11 @@ describe("a preview of a synthetic file (engine, headless)", () => {
       expect(doc.pageBox("1:3")).toEqual({ x: 24, y: 54, width: 272, height: 120 });
       expect(doc.tree("0:1").roots).toEqual(["1:30", "1:20", "1:10", "1:1"]);
       // Dev Mode: the card's status, the title's annotation, the icon in "Other" — through the snapshot.
-      expect(doc.statuses("0:1")).toEqual([{ id: "1:1", name: "Card", status: "READY_FOR_DEV" }]);
+      // The owner's statuses (pluginData, else the one Figma's stands for), Figma's own beside them.
+      expect(doc.statuses("0:1")).toEqual([
+        { id: "1:10", name: "Other", status: null, workflow: "process" },
+        { id: "1:1", name: "Card", status: "READY_FOR_DEV", workflow: "ready-to-dev" },
+      ]);
       expect(doc.annotations("0:1")).toEqual([{ id: "1:2", notes: [{ text: "Use the brand font", properties: [{ label: "Font size", value: "24px" }] }] }]);
       expect(detectAssets("1:10", (id) => doc.assetNode(id))).toEqual([{ id: "1:11", name: "Icon/Star", kind: "icon" }]);
       expect(detectAssets("1:1", (id) => doc.assetNode(id))).toEqual([{ id: "1:3", name: "Photo", kind: "image", imageHash: image.sha1 }]);

@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cx } from "../util/cx";
 import { inTriangle, isItem, nextItem, shortcutKeys, tidy, toNativeTemplate, type MenuEntry, type NativeMenuItem } from "../util/menu";
 import { createTypeahead, typeahead } from "../util/typeahead";
@@ -95,7 +95,8 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
   // window; it is an extended menu then (the rows past the window's bottom move up on the wheel or on the bar).
   const [tall, setTall] = useState(false);
   const extend = extendProp || tall;
-  const edges = edgeBottom === undefined ? SUBMENU_EDGES : { top: SUBMENU_EDGES.top, bottom: edgeBottom };
+  // One object per edgeBottom (not per render), so the placing effect can depend on it.
+  const edges = useMemo(() => (edgeBottom === undefined ? SUBMENU_EDGES : { top: SUBMENU_EDGES.top, bottom: edgeBottom }), [edgeBottom]);
   const subId = useId();
   const list = tidy(entries);
   // Live: a tool menu and a list over its field (gap, W / H) open with the current value lit, a menu under its trigger
@@ -183,7 +184,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
       el.style.visibility = "visible";
     }
     if (autoFocus) el.focus({ preventScroll: true });
-  }, [x, y, flipX, flipY, above, autoFocus, isStatic, keepTop, over, submenu, extend, home, edges.bottom]);
+  }, [x, y, flipX, flipY, above, autoFocus, isStatic, keepTop, over, submenu, extend, home, edges]);
 
   // Resting on the bar moves the rows up a row at a time (unverified: live's capture shows the bar at rest).
   const moreScroll = (el: HTMLElement) => {

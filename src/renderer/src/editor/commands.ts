@@ -415,7 +415,7 @@ export const COMMANDS: EditorCommand[] = [
   { id: "edit.copy-as-png", label: "Copy as PNG", keys: [k("KeyC", { mod: true, shift: true })], run: (ed) => void copyAsPng(ed), enabled: (ed) => hasSelection(ed) && canExport(ed) },
   { id: "edit.copy-as-svg", label: "Copy as SVG", run: (ed) => void copyAsSvg(ed), enabled: (ed) => hasSelection(ed) && canExport(ed) },
   { id: "edit.copy-as-code", label: "Copy as code", run: (ed) => void copyAsCode(ed), enabled: hasSelection },
-  { id: "edit.copy-as-text", label: "Copy as text", run: (ed) => void copyAsText(ed), enabled: hasTextSelected },
+  { id: "edit.copy-as-text", label: "Copy as text", run: (ed) => void copyAsText(ed), enabled: (ed) => hasTextSelected(ed) },
   engine("edit.duplicate", "Duplicate", "DUPLICATE", [k("KeyD", { mod: true })]),
   engine("edit.delete", "Delete", "DELETE", [k("Backspace"), k("Delete")]),
   // Round 10: ⌥⌘C / ⌥⌘V (help.figma.com "Copy and paste properties").
@@ -811,8 +811,10 @@ export const COMMANDS: EditorCommand[] = [
   { id: "file.library-analytics", label: "Library analytics", run: openLibraryAnalytics, enabled: canShowLibraryAnalytics },
   // Dev Mode's file name menu › Library ▸ (docs/editor.md D-1, Code Connect UI): the file's components and their code.
   { id: "dev.connect-components", label: "Connect components to code", run: (ed) => setRound5(ed, { connect: { focus: [] } }), enabled: (ed) => modeOf(ed) === "dev" && round5(ed).canEdit && ed.components.assets().length > 0 },
-  { id: "file.export", label: "Export…", keys: [k("KeyE", { mod: true, shift: true })], run: (ed) => ed.ui.set({ exportDialog: true, uiHidden: false }), enabled: canExport },
-  { id: "file.export-frames-to-pdf", label: "Export frames to PDF…", run: (ed) => void exportFramesToPdf(ed), enabled: canExport },
+  // exporting.ts's checks are called, not referenced, here: the modules import each other, and a hot update that
+  // re-evaluated this list first met `canExport` in its temporal dead zone.
+  { id: "file.export", label: "Export…", keys: [k("KeyE", { mod: true, shift: true })], run: (ed) => ed.ui.set({ exportDialog: true, uiHidden: false }), enabled: (ed) => canExport(ed) },
+  { id: "file.export-frames-to-pdf", label: "Export frames to PDF…", run: (ed) => void exportFramesToPdf(ed), enabled: (ed) => canExport(ed) },
   {
     id: "file.share-preview",
     label: "Share preview…",

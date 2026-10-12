@@ -341,6 +341,27 @@ describe("plugins: the sandbox", () => {
     expect(out.fills).toContain("between 0 and 1");
   });
 
+  it("new nodes are centred in the view, not at the page's 0,0 (Figma: like R and a click)", async () => {
+    const { ed, engine } = await editor();
+    engine.centerOn(1000, -500, 1);
+    const { r } = await run(
+      ed,
+      inline(`
+        const c = figma.viewport.center;
+        const rect = figma.createRectangle();
+        const frame = figma.createFrame();
+        frame.resize(200, 50);
+        figma.root.setPluginData("result", JSON.stringify({ c, rect: [rect.x, rect.y, rect.width, rect.height], frame: [frame.x, frame.y] }));
+        figma.closePlugin();
+      `),
+    );
+    await untilEnded(r);
+    const out = JSON.parse(rootData(engine, "result")!);
+    expect(out.c).toEqual({ x: 1000, y: -500 });
+    expect(out.rect).toEqual([950, -550, 100, 100]);
+    expect(out.frame).toEqual([950, -550]);
+  });
+
   it("a runaway slice is interrupted (the interrupt handler's limit); Stop ends a run between slices", async () => {
     const { ed } = await editor();
     const ui = new PluginUiStore();

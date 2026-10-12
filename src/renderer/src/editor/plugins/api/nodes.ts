@@ -42,7 +42,10 @@ interface Prop {
   only?: readonly string[];
 }
 
-const SPEC_PROPS = new Set(PROP_NAMES);
+// Read on first use, not at load: nodeSpec and this module import each other (through the editor), and a hot update
+// that re-evaluates them in the other order met PROP_NAMES in its temporal dead zone.
+let specProps: ReadonlySet<string> | null = null;
+const isSpecProp = (name: string) => (specProps ??= new Set(PROP_NAMES)).has(name);
 
 /** Writes fields on one node (inside the run's slice). */
 export function writeFields(ctx: ApiContext, id: Guid, fields: NodeFields, what: string): void {
@@ -444,7 +447,7 @@ export function getProp(ctx: ApiContext, id: Guid, name: string): unknown {
   const n = id === "0:0" ? ({ ...(readNode(ctx, "0:0") ?? {}), guid: "0:0", type: "DOCUMENT" } as NodeChange) : mustNode(ctx, id);
   const p = PROPS[name];
   if (p) return p.get(ctx, n);
-  if (SPEC_PROPS.has(name)) return viaSpec(name).get(ctx, n);
+  if (isSpecProp(name)) return viaSpec(name).get(ctx, n);
   return undefined;
 }
 
@@ -457,7 +460,7 @@ export function setProp(ctx: ApiContext, id: Guid, name: string, value: unknown)
     if (!p.set) throw new ApiError(`Cannot assign to read only property '${name}' of object '${apiType(n as never)}'`);
     return p.set(ctx, n, value);
   }
-  if (SPEC_PROPS.has(name)) return viaSpec(name).set!(ctx, n, value);
+  if (isSpecProp(name)) return viaSpec(name).set!(ctx, n, value);
   throw new ApiError(`object is not extensible: cannot set '${name}'`);
 }
 

@@ -428,6 +428,23 @@ TEST_CASE("components: create component from a frame converts it; from a shape w
   CHECK(e.document().worldBounds(R) == Rect{200, 0, 50, 50});
 }
 
+TEST_CASE("components: create component from a shape keeps the layer's place in the layer order") {
+  auto nodes = baseChanges();
+  const Guid A{1, 1}, R{1, 2}, B{1, 3};
+  nodes.push_back(make(A, NodeType::ROUNDED_RECTANGLE, kPage, "!", {0, 0, 50, 50}, "Below"));
+  nodes.push_back(make(R, NodeType::ROUNDED_RECTANGLE, kPage, "\"", {100, 0, 50, 50}, "Dot"));
+  nodes.push_back(make(B, NodeType::FRAME, kPage, "#", {200, 0, 50, 50}, "Card 1"));
+  Editor e = load(nodes);
+  e.setSelection({R});
+  REQUIRE(e.command(CommandId::CREATE_COMPONENT) == OK);
+  Guid c = e.selection()[0];
+  std::vector<Guid> order = e.document().children(kPage);
+  REQUIRE(order.size() == 3);
+  CHECK(order[0] == A);
+  CHECK(order[1] == c);  // still under "Card 1", as the rectangle was
+  CHECK(order[2] == B);
+}
+
 TEST_CASE("components: detach makes a frame with real layers; a nested instance detaches its ancestors first") {
   auto nodes = buttonDoc();
   const Guid ICON{2, 1}, SHAPE{2, 2}, NESTED{1, 5};

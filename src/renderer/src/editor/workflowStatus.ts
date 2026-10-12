@@ -72,3 +72,13 @@ export function withStatus(entries: readonly PluginDataEntry[] | undefined, stat
   const rest = (entries ?? []).filter((e) => !(e.pluginID === WORKFLOW_PLUGIN_ID && e.key === WORKFLOW_KEY));
   return status ? [...rest, { pluginID: WORKFLOW_PLUGIN_ID, key: WORKFLOW_KEY, value: status }] : rest;
 }
+
+/**
+ * How a design's status shows wherever it is listed (Dev Mode's left list and Inspect header, developer previews, the
+ * Ready for dev cards, focus view): always the owner's label and colour; Figma's "Changed" (yellow) is a marker beside
+ * Ready to Dev when the design was edited since it was marked — never in its place (2026-10-12). `dev` is Figma's own
+ * status as read (the viewer's "CHANGED", or the engine's).
+ */
+export function statusShown(workflow: FrameStatus, dev?: string | null): { label: string; color: string; changed: boolean } {
+  return { label: frameStatusLabel(workflow), color: FRAME_STATUS_COLOR[workflow], changed: workflow === "ready-to-dev" && dev === "CHANGED" };
+}

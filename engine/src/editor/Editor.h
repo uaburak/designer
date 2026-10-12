@@ -1936,6 +1936,9 @@ class Editor : private LayoutHost, public TextLayouts {
   Guid devIconHover_ = kNoGuid;
   double devIconSince_ = -1;
   bool devTooltip_ = false;
+  // Pressed (its status menu opens): no tooltip again until the pointer leaves the button (the chrome's tooltips never
+  // show under an open menu, ds TooltipManager).
+  bool devIconPressed_ = false;
   static constexpr double kTooltipDelayMs = 500;
   // Round 12: a selected grid's gap under the pointer or being dragged; the drag's gap when it started.
   GridGapHover gridGap_;

@@ -1,5 +1,5 @@
 import { lazy, StrictMode, Suspense, type ComponentType } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import "@/ds/global.css";
 
 /**
@@ -26,7 +26,17 @@ const page = (): ComponentType => {
 };
 const Page = page();
 
-createRoot(document.getElementById("root")!).render(
+/**
+ * One root per container for the page's life. A hot update that re-runs this module (Vite, when an update reaches it)
+ * renders into the root it made before instead of calling createRoot on the same container again, which React refuses
+ * ("createRoot() on a container that has already been passed"). A full reload starts afresh as before.
+ */
+const container = document.getElementById("root")! as HTMLElement & { __designerRoot?: Root };
+const root = (import.meta.hot?.data?.root as Root | undefined) ?? container.__designerRoot ?? createRoot(container);
+container.__designerRoot = root;
+if (import.meta.hot?.data) import.meta.hot.data.root = root;
+
+root.render(
   <StrictMode>
     <Suspense fallback={null}>
       <Page />
