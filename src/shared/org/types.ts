@@ -95,6 +95,8 @@ export interface OrgInfo extends OrgSummary {
   settings: OrgSettings;            // readable by everyone in the org (the UI hides what policy forbids)
   /** Data storage localization (§15.10); optional so round 1–3 code compiles, always sent from round 4 */
   dataRegion?: DataRegion;
+  /** Round 14: the Governance+ add-on (docs/governance.md §2.1) */
+  governancePlus?: boolean;
 }
 export interface PersonRef { id: string; email: string; name: string | null; picture: string | null; role: OrgRole }
 export interface GroupRef { id: string; name: string; memberCount: number }
@@ -127,8 +129,6 @@ export interface OrgFile {
   fileKey: string | null;
   /** Round 2: branches (docs/data.md §15) */
   mainFileKey?: string | null; branchCount?: number;
-  /** Round 14: the Governance+ add-on (docs/governance.md §2.1) */
-  governancePlus?: boolean;
 }
 export interface FileAccess { role: Level; canEdit: boolean; canComment: boolean; canExport: boolean; canDevMode: boolean; canShare: boolean; canManage: boolean; capped: "seat" | "external" | null; /** Only prototype grants reach the file (docs/editor.md D-6): the presentation view only */ prototypeOnly: boolean; via: ("file" | "folder" | "team" | "org-admin" | "workspace-admin" | "audience" | "link")[] }
 export interface OrgSearchResult { files: OrgFile[]; projects: ProjectSummary[]; teams: TeamSummary[]; people: PersonRef[] }
