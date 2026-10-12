@@ -3,7 +3,7 @@
  * sessions (bound to the port: when the port closes, the store ends them and releases the locks, §7.4) and its file
  * subscriptions. Events go to every port, except `file.changes`, which goes only to ports that subscribed.
  */
-import { isKnownMethod, roleMayCall, serializeError, StoreError, type PortRole, type RpcMessage, type RpcRequest, type RpcTransport } from "../shared/store/protocol";
+import { isKnownMethod, roleMayCall, serializeError, SESSION_METHODS, StoreError, type PortRole, type RpcMessage, type RpcRequest, type RpcTransport } from "../shared/store/protocol";
 import type { FileChange, FontsEvent, LibraryEvent, OpenedFile, StoreApi, Unsubscribe, WorkspaceEvent } from "../shared/store/repositories";
 import type { FileKey } from "../shared/store/types";
 import type { FileShareState, MultiplayerNotice, RestJobRequest, SessionEnded } from "../shared/multiplayer/types";
@@ -135,7 +135,16 @@ export interface StoreServerOptions {
   generation: number;
   /** Called after `store.shutdown` has been answered (the entry exits the process) */
   onShutdown?: () => void;
+  /**
+   * The login gate (docs/desktop.md §18.6): SESSION_METHODS are refused (`forbidden`, "Log in to …") unless a session
+   * is on. `known` resolves when main has said once whether there is one (`multiplayer.setSession`); calls before that
+   * wait for it (at most `waitMs`). Absent: no gate (development, tests, the browser's dev store).
+   */
+  session?: { signedIn(): boolean; known: Promise<void>; waitMs?: number };
 }
+
+/** The gate's refusal */
+export const LOG_IN_FIRST = "Log in to Designer to create or open files.";
 
 export class StoreServer {
   private readonly connections = new Set<Connection>();
@@ -206,6 +215,7 @@ export class StoreServer {
     try {
       if (typeof msg.m !== "string" || !isKnownMethod(msg.m)) throw new StoreError("invalid", `unknown method ${String(msg.m)}`);
       if (!roleMayCall(conn.role, msg.m)) throw new StoreError("forbidden", `${conn.role} may not call ${msg.m}`);
+      if (this.opts.session && SESSION_METHODS.has(msg.m)) await this.requireSession(this.opts.session);
       const args = Array.isArray(msg.a) ? msg.a : [];
       const v = await this.dispatch(conn, msg.m, args);
       conn.send({ t: "res", id, ok: true, v });
@@ -218,6 +228,16 @@ export class StoreServer {
     } catch (e) {
       conn.send({ t: "res", id, ok: false, e: serializeError(e) });
     }
+  }
+
+  /** Signed in, or `forbidden`: waits (bounded) for main's first word on the session. */
+  private async requireSession(gate: NonNullable<StoreServerOptions["session"]>): Promise<void> {
+    if (!gate.signedIn()) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([gate.known, new Promise<void>((r) => (timer = setTimeout(r, gate.waitMs ?? 15_000)))]);
+      clearTimeout(timer);
+    }
+    if (!gate.signedIn()) throw new StoreError("forbidden", LOG_IN_FIRST);
   }
 
   private async dispatch(conn: Connection, m: string, a: any[]): Promise<unknown> {

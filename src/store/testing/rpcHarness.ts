@@ -20,10 +20,12 @@ export interface RpcTestbed {
   close(): Promise<void>;
 }
 
-export async function rpcTestbed(): Promise<RpcTestbed> {
+/** `requireSession`: the login gate on (docs/desktop.md §18.6), its wait for main's first word short */
+export async function rpcTestbed(opts: { requireSession?: boolean } = {}): Promise<RpcTestbed> {
   let t = await openTestStore();
   let generation = 1;
-  let server = new StoreServer(t.store, { generation });
+  const gate = () => (opts.requireSession ? { session: { signedIn: () => t.store.session !== null, known: t.store.sessionKnown, waitMs: 100 } } : {});
+  let server = new StoreServer(t.store, { generation, ...gate() });
   const clients: StoreClient[] = [];
   const bed: RpcTestbed = {
     get t() {
@@ -49,7 +51,7 @@ export async function rpcTestbed(): Promise<RpcTestbed> {
       t.crash();
       t = await t.reopen();
       generation++;
-      server = new StoreServer(t.store, { generation });
+      server = new StoreServer(t.store, { generation, ...gate() });
     },
     async close() {
       for (const c of clients) c.close();

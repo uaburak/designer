@@ -8,6 +8,7 @@ import { askCrashed, askFlushFailed, askFlushTimeout, askUnresponsive, tellFileE
 import { exportPreview, importFiles, saveLocalCopy } from "./files";
 import { onWorkspaceEvent, readyStore, storeClient, workspaceDir } from "./storeHost";
 import { SpareEditor } from "./spare";
+import { menuSignedOut } from "./menu";
 import { setThemePreference } from "./theme";
 import { adoptView, createView, destroyView, viewOf } from "./views";
 import type { WindowController } from "./window";
@@ -674,7 +675,8 @@ export class TabManager {
   /** The menu bar's items set for the view in front: enabled and checked (mutated in place, never rebuilt). */
   applyMenu() {
     const menu = Menu.getApplicationMenu();
-    if (!menu || this.ctl.win.isDestroyed()) return;
+    // Signed out (the window closing for Log out): the menu stays as the gate set it (docs/desktop.md §18.6).
+    if (!menu || this.ctl.win.isDestroyed() || menuSignedOut()) return;
     const checked = this.menuStates.get(this.shown ?? HOME)?.checked ?? {};
     for (const id of layoutCommands()) {
       const item = menu.getMenuItemById(id);

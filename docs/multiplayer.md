@@ -30,6 +30,7 @@ The desktop app never holds a Google secret; the Worker runs Google's web OAuth 
 4. Main checks `state` (constant time), then `POST /auth/token {code, verifier}` → `{token, user}`. The code is single-use.
 5. **Session token**: `v1.<base64url(JSON {uid, tv, exp})>.<HMAC-SHA256>` with Worker secret `SESSION_SECRET`, 30 days; `tv` = the user's token version (Sign out everywhere bumps it). Main keeps it with `safeStorage` (`userData/account/session.bin`) and gives it to the store process; no renderer sees it.
 6. Local development: `wrangler dev` with `DEV_AUTH=1` in `server/.dev.vars` enables `POST /auth/dev {email, name}` — never set in production.
+7. **The sign-in sheet** (macOS, 2026-10-12; docs/desktop.md §18.6): instead of a port, main sends `callback=designer` and shows the login in ASWebAuthenticationSession; the signed state carries `a: 1`, and only such a state ends on `designer://auth/callback?code=…&state=…` (or `error=…`), which the sheet catches. Same code, same PKCE, same `/auth/token`; Google's redirect URI is unchanged. The loopback (step 1–4) stays for Windows and as the fallback.
 
 ### 2.1 Device ordinals and the web app
 

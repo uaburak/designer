@@ -135,6 +135,12 @@ export class LocalStore {
   private closed = false;
   /** The session main handed over (`multiplayer.setSession`): previews publish with it (docs/multiplayer.md §9) */
   session: PreviewSession | null = null;
+  private sessionHeard!: () => void;
+  /** Main has said once whether a session is on (the login gate waits for it, src/store/server.ts) */
+  readonly sessionKnown = new Promise<void>((resolve) => (this.sessionHeard = resolve));
+  markSessionKnown(): void {
+    this.sessionHeard();
+  }
   /** The viewer's built page, for previews exported as HTML */
   viewerTemplate: string | null = null;
   /** Serializes previews.json */
@@ -940,6 +946,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     // Previews publish with the same session (docs/multiplayer.md §9); a new one also sweeps the expired ones.
     setSession: (session) => {
       s.session = session && typeof session.server === "string" && typeof session.token === "string" ? { server: session.server, token: session.token } : null;
+      s.markSessionKnown();
       if (s.session) void previews.sweepExpired().catch((e) => s.log("warn", "sweeping expired previews failed", e));
       return mp.setSession(session);
     },

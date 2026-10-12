@@ -182,6 +182,26 @@ export const STORE_METHODS = {
 /** Methods that take filesystem paths stay in main, behind native dialogs, so a renderer can never name a path. */
 const MAIN_ONLY = new Set<string>(["files.importLocalCopy", "files.exportLocalCopy", "previews.exportHtml", "multiplayer.setSession"]);
 
+/**
+ * Methods that make or open a file (docs/desktop.md §18.6): with the login gate on, the store answers them only while
+ * a session is on — signed out nobody can reach a file, from a view or from main. Listing, flushing what is open and
+ * the rest stay open (Log out flushes after the session is gone).
+ */
+export const SESSION_METHODS: ReadonlySet<string> = new Set<StoreMethod>([
+  "workspace.createFile",
+  "workspace.duplicateFile",
+  "files.open",
+  "files.openVersion",
+  "files.duplicateVersion",
+  "files.importLocalCopy",
+  "files.importFigBytes",
+  "projects.createFile",
+  "orgs.createDraft",
+  "multiplayer.openShared",
+  "branches.create",
+  "branches.openSide",
+]);
+
 export function isKnownMethod(m: string): m is StoreMethod {
   const dot = m.indexOf(".");
   if (dot < 0) return false;

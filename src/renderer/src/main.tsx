@@ -7,6 +7,7 @@ import "@/ds/global.css";
  * own code. Each page brings the design system's CSS (Inter, the
  * `--figma-color-*` tokens) and follows the theme through `ds/theme.ts`.
  * - `?tabbar`: the tab bar's view
+ * - `?welcome`: the signed-out window's view (the splash, the welcome page; docs/desktop.md §18.6)
  * - `?files` (and no query): Home, the file browser on the store
  * - `?editor&file=<fileKey>`: a file's editor (`?editor` alone: a sample, in a browser)
  * - `?present&file=<fileKey>[&page=…][&node=…]`: the presentation view (a prototype tab)
@@ -17,6 +18,7 @@ const params = new URLSearchParams(location.search);
 
 const page = (): ComponentType => {
   if (params.has("tabbar")) return lazy(() => import("@/app/TabBarApp"));
+  if (params.has("welcome")) return lazy(() => import("@/account/WelcomeApp"));
   if (params.has("gallery")) return lazy(() => import("@/ds/Gallery"));
   if (params.has("engine")) return lazy(() => import("@/engine/Playground"));
   if (params.has("admin")) return lazy(() => import("@/admin/AdminRoute"));

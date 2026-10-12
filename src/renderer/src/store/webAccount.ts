@@ -5,7 +5,7 @@
  * by the page's tabs, and goes to the page's own dev store — whose rooms a tab joins only for the file it edits (Home
  * tabs none: several tabs share one storage, and one file's frames must be written by one tab).
  */
-import { ACCOUNT_PATH, DEFAULT_SERVER, type AccountMethod, type AccountResponse, type AccountState, type AccountUser, type SignInResult } from "@shared/account";
+import { ACCOUNT_PATH, DEFAULT_SERVER, type AccountMethod, type AccountResponse, type AccountState, type AccountUser, type SignInMethod, type SignInResult } from "@shared/account";
 import { IdleTimer, type IdleState } from "@shared/idleTimer";
 import type { IdleNotice } from "@shared/ipc";
 import { SIGN_IN_ERROR_TEXT, type SignInError } from "@shared/org/identity";
@@ -148,7 +148,7 @@ export const webAccount = {
    * it is Log in with Google (`method=google`: straight to Google — a member of an org that requires SAML goes on to
    * its IdP, multiplayer.md §15.4); `tenant` goes straight to that org's IdP (SSO, Admin's Test, the IdP's bounce).
    */
-  signIn: async (opts?: { tenant?: string }): Promise<SignInResult> => {
+  signIn: async (opts?: { tenant?: string; method?: SignInMethod }): Promise<SignInResult> => {
     if (opts?.tenant !== undefined && !TENANT.test(opts.tenant)) return { ok: false, error: "failed", message: "not a tenant id", state: state() };
     const st = random(24);
     const verifier = random(48);
@@ -158,7 +158,8 @@ export const webAccount = {
     const login = new URL("/auth/login", webServer());
     const params = new URLSearchParams({ return: back.toString(), state: st, challenge: await sha256(verifier) });
     if (opts?.tenant !== undefined) params.set("tenant", opts.tenant);
-    else params.set("method", "google");
+    // The welcome page's Log in with SSO: the server's single sign-on page (email → the org's IdP); else Google.
+    else params.set("method", opts?.method === "sso" ? "sso" : "google");
     login.search = params.toString();
     location.assign(login.toString());
     return new Promise<SignInResult>(() => {});

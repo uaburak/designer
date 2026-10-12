@@ -19,4 +19,5 @@ export const VIEW_BACKGROUND = {
   tabbar: { dark: "#3b3b3b", light: "#e6e6e6" },
   home: { dark: "#2c2c2c", light: "#ffffff" },
   editor: { dark: "#2c2c2c", light: "#ffffff" },
+  welcome: { dark: "#2c2c2c", light: "#ffffff" },
 } as const;

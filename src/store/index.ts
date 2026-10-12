@@ -23,6 +23,8 @@ export interface StoreInitMessage {
   deviceOrdinal?: number;
   teamName?: string;
   seedFigs?: string[];
+  /** The login gate (docs/desktop.md §18.6): SESSION_METHODS only with a session */
+  requireSession?: boolean;
   /** The preview viewer's built page; default: out/viewer/index.html next to this bundle's out/main */
   viewerTemplate?: string;
 }
@@ -65,6 +67,7 @@ function runStoreProcess(parent: ParentPortLike): void {
       (store) => {
         server = new StoreServer(store, {
           generation: msg.generation,
+          ...(msg.requireSession ? { session: { signedIn: () => store.session !== null, known: store.sessionKnown } } : {}),
           // Answered first, then gone: main waits for the exit.
           onShutdown: () => setTimeout(() => process.exit(0), 20),
         });

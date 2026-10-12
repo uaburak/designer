@@ -16,7 +16,8 @@ import { onStoreReady, storeClient } from "../storeHost";
 import type { StoreClient } from "../../shared/store/client";
 import { viewOf } from "../views";
 import { IdleTimer, type IdleState } from "./idle";
-import { signInWithBrowser, SignInError, TENANT_ID, type Session } from "./signIn";
+import { authSheet } from "./authSheet";
+import { SheetUnavailable, signInFlow, signInWithBrowser, signInWithSheet, SignInError, TENANT_ID, type Session, type SignInMethod, type SignInOptions } from "./signIn";
 
 interface StoredSession {
   server: string;
@@ -46,7 +47,7 @@ function load(): void {
 }
 
 /** Reads userData/account/session.json once; resolves when the session (if any) is in. */
-function loadSession(): Promise<void> {
+export function loadSession(): Promise<void> {
   if (loaded) return Promise.resolve();
   if (loading) return loading;
   let s: StoredSession;
@@ -71,7 +72,8 @@ function loadSession(): Promise<void> {
     if (loaded) return;
     loaded = true;
     accept(token);
-    if (session) announce(true);
+    // Known now (signed in or not): the welcome window leaves its splash, or gives way to the app.
+    announce(session !== null);
   });
   return loading;
 }
@@ -97,7 +99,7 @@ function save(s: Session | null): void {
 export function accountState(): AccountState {
   load();
   const user = session?.user ?? null;
-  return { server: serverUrl(), user: user && { ...user, picture: viewPicture(user.picture) }, signingIn: pending !== null };
+  return { server: serverUrl(), user: user && { ...user, picture: viewPicture(user.picture) }, signingIn: pending !== null, ...(loaded ? {} : { loading: true }) };
 }
 
 /** What the server learns the desktop app by (Sessions: "App", "Designer Desktop", the OS). */
@@ -196,31 +198,63 @@ function announce(changed: boolean): void {
   broadcast();
   if (changed) for (const l of [...sessionListeners]) l();
   const c = storeClient();
-  if (c) pushSession(c);
+  if (c) void pushSession(c);
 }
 
 /** The store joins shared files' rooms with the session (docs/multiplayer.md §5); null leaves them. */
-function pushSession(client: StoreClient): void {
+function pushSession(client: StoreClient): Promise<void> {
+  // Not read yet (the keychain): the store hears when it is — a "none" now would be a wrong first word.
+  load();
+  if (!loaded) return Promise.resolve();
   const token = sessionToken();
-  void client.multiplayer.setSession(token && session ? { server: session.server, token } : null).catch((e) => console.warn("[account] the store didn't take the session", e));
+  return client.multiplayer.setSession(token && session ? { server: session.server, token } : null).then(
+    () => {},
+    (e: unknown) => console.warn("[account] the store didn't take the session", e),
+  );
+}
+
+/** The store has the session now (the gate waits for it before Home opens: the store refuses files without one). */
+export function sessionToStore(): Promise<void> {
+  const c = storeClient();
+  return c ? pushSession(c) : Promise.resolve();
 }
 
 /** Every store start (and restart) gets the session. */
 export function initAccount(): void {
-  onStoreReady(pushSession);
+  onStoreReady((c) => void pushSession(c));
 }
 
-/** Opens the browser and waits for it; a second call replaces a sign-in still waiting. `tenant`: an org's SAML
- *  (Admin's Test, the `designer://sign-in?tenant=` link) — the server goes straight to its IdP. */
-export async function signIn(opts?: { tenant?: string }): Promise<SignInResult> {
+/** The window the sign-in sheet hangs on: the focused one, else the first */
+const sheetWindow = (): BaseWindow | null => BaseWindow.getFocusedWindow() ?? BaseWindow.getAllWindows().find((w) => !w.isDestroyed() && w.isVisible()) ?? null;
+
+/**
+ * Signs in (docs/desktop.md §18.6): on a Mac in the sign-in sheet over the window (only the server's, Google's or the
+ * IdP's pages), else — and when the sheet can't start — in the system browser; a second call replaces a sign-in still
+ * waiting. `tenant`: an org's SAML (Admin's Test, the `designer://sign-in?tenant=` link) — straight to its IdP;
+ * `method`: the welcome page's Log in with Google ("google") or Log in with SSO ("sso").
+ */
+export async function signIn(opts?: { tenant?: string; method?: SignInMethod }): Promise<SignInResult> {
   const tenant = typeof opts?.tenant === "string" ? opts.tenant : undefined;
+  const method = opts?.method === "google" || opts?.method === "sso" ? opts.method : undefined;
   if (tenant !== undefined && !TENANT_ID.test(tenant)) return { ok: false, error: "failed", message: "Not an organization's single sign-on.", state: accountState() };
   pending?.abort();
   const ac = new AbortController();
   pending = ac;
   broadcast();
   try {
-    const s = await signInWithBrowser({ server: serverUrl(), signal: ac.signal, openBrowser: (url) => shell.openExternal(url), userAgent: desktopUserAgent(), fetch: mainFetch, tenant });
+    const base: SignInOptions = { server: serverUrl(), signal: ac.signal, openBrowser: (url) => shell.openExternal(url), userAgent: desktopUserAgent(), fetch: mainFetch, tenant, method };
+    const win = sheetWindow();
+    const sheet = authSheet(win);
+    let s: Session;
+    if (signInFlow({ platform: process.platform, sheet, window: win !== null }) === "sheet" && sheet) {
+      try {
+        s = await signInWithSheet({ ...base, sheet });
+      } catch (e) {
+        if (!(e instanceof SheetUnavailable)) throw e;
+        console.warn("[account] the sign-in sheet didn't start: the browser instead");
+        s = await signInWithBrowser(base);
+      }
+    } else s = await signInWithBrowser(base);
     if (pending === ac) pending = null;
     setSession(s);
     // The new session's idle limit (GET /me's session).
@@ -241,11 +275,26 @@ export function cancelSignIn(): AccountState {
   return accountState();
 }
 
-export function signOut(): AccountState {
+let signOutGuard: (() => Promise<boolean>) | null = null;
+/** Before Log out drops the session (docs/desktop.md §18.6): the open files flushed — false keeps the person signed
+ *  in (they chose to stay with a file that didn't save). Set by the window gate (src/main/gate.ts). */
+export function setSignOutGuard(guard: (() => Promise<boolean>) | null): void {
+  signOutGuard = guard;
+}
+
+/** Log out (the account menu): the files settled first, then the session dropped — the gate then closes the windows
+ *  and shows the welcome page. The idle timeout and a refused session drop it without asking (dropSession). */
+export async function signOut(): Promise<AccountState> {
   pending?.abort();
+  if (session && signOutGuard && !(await signOutGuard())) return accountState();
   setSession(null);
   return accountState();
 }
+
+/** Signed in now (a kept session counts offline): the gate's question */
+export const signedIn = (): boolean => sessionToken() !== null;
+/** The kept session has been read (signed in or not) */
+export const sessionKnown = (): boolean => loaded;
 
 /** At launch, in the background: a session the server no longer accepts (signed out everywhere, user gone) is dropped.
  *  Offline or a server error keeps it — local work never waits on the network. */
@@ -308,7 +357,11 @@ const idle = new IdleTimer({
   endSession: async () => {
     await api("DELETE", "/me/sessions/current?reason=idle", 5_000);
   },
-  signOut: () => void signOut(),
+  // The idle timeout logs out without asking: the gate still flushes every file before the window closes.
+  signOut: () => {
+    pending?.abort();
+    setSession(null);
+  },
   notify: (n) => notifyIdle(n),
 });
 
@@ -367,3 +420,13 @@ export function initIdle(): void {
 
 /** Under test (DESIGNER_TEST): the timer's state */
 export const idleDebug = () => idle.debug();
+
+/** Under test (DESIGNER_TEST, scripts/drive.mjs): a session handed in as a finished sign-in would (a dev session from
+ *  the local server's /auth/dev) — the gate's sign-in path without Google. */
+export function signInForTest(s: Session): AccountState {
+  if (process.env.DESIGNER_TEST !== "1") throw new Error("test only");
+  pending?.abort();
+  pending = null;
+  setSession(s);
+  return accountState();
+}

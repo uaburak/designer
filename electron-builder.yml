@@ -37,6 +37,9 @@ mac:
   extraResources:
     - from: native/haptics/haptics.node
       to: haptics.node
+    # The sign-in sheet (ASWebAuthenticationSession; src/main/account/authSheet.ts, docs/desktop.md §18.6)
+    - from: native/authsheet/authsheet.node
+      to: authsheet.node
   category: public.app-category.graphics-design
   target:
     - target: dmg

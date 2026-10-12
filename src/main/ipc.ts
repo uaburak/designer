@@ -29,6 +29,7 @@ import { checkForUpdates, onUpdaterChange, restartToUpdate, updaterStatus } from
 import { emit, settleFlush } from "./tabs";
 import { viewOf, type ViewInfo } from "./views";
 import { controllers, type WindowController } from "./window";
+import { welcomeReady } from "./gate";
 
 /**
  * Every ipcMain handler (docs/desktop.md §10). Each message is checked
@@ -56,6 +57,9 @@ function check(channel: string, roles: readonly Role[], e: IpcMainEvent | IpcMai
   if (!roles.includes(info.role)) return drop(channel, `role ${info.role}`), null;
   if (!e.senderFrame || e.senderFrame !== e.sender.mainFrame) return drop(channel, "not the main frame"), null;
   if (!isAppUrl(e.senderFrame.url)) return drop(channel, "not the app's page"), null;
+  // The welcome window's view has no WindowController: only channels that never use `ctl` are open to it (INVOKE_ROLES,
+  // SEND_ROLES: init, ready, the theme, the account) — and those check the role first where they would.
+  if (info.role === "welcome") return { info, ctl: null as unknown as WindowController, sender: e.sender };
   // Its window is closing (a last report on the way out): nothing to tell.
   const ctl = controllers.get(info.windowId);
   if (!ctl) return null;
@@ -113,8 +117,8 @@ const folderOf = (v: unknown) => (v === null || v === undefined ? null : str(v, 
 
 export function registerIpc() {
   // ── Init and window ──
-  onInvoke("desktop:init", ({ info, ctl }) => ({ version: app.getVersion(), platform: process.platform, role: info.role, tabId: info.tabId, fileKey: info.fileKey, windowId: ctl.id, theme: themeState() }));
-  onSend("shell:ready", ({ info, ctl }) => ctl.markReady(info.role === "tabbar" ? "tabbar" : "content"));
+  onInvoke("desktop:init", ({ info }) => ({ version: app.getVersion(), platform: process.platform, role: info.role, tabId: info.tabId, fileKey: info.fileKey, windowId: info.windowId, theme: themeState() }));
+  onSend("shell:ready", ({ info, ctl }) => (info.role === "welcome" ? welcomeReady() : ctl.markReady(info.role === "tabbar" ? "tabbar" : "content")));
 
   // ── Tabs ──
   onInvoke("tabs:get", ({ ctl }) => ctl.tabs.snapshot());
@@ -195,7 +199,10 @@ export function registerIpc() {
   // ── The account (docs/multiplayer.md §2) ──
   onInvoke("account:get", () => account.accountState());
   // A tenant (Admin's Test SAML SSO): 18 digits, else refused by signIn (docs/desktop.md §18.1)
-  onInvoke("account:sign-in", (_c, opts) => account.signIn(opts && typeof opts === "object" && typeof opts.tenant === "string" ? { tenant: opts.tenant.slice(0, 32) } : undefined));
+  // `method`: the welcome page's Log in with Google / Log in with SSO (docs/desktop.md §18.6)
+  onInvoke("account:sign-in", (_c, opts) =>
+    account.signIn(opts && typeof opts === "object" && typeof opts.tenant === "string" ? { tenant: opts.tenant.slice(0, 32) } : opts && typeof opts === "object" && (opts.method === "google" || opts.method === "sso") ? { method: opts.method } : undefined),
+  );
   onInvoke("account:cancel-sign-in", () => account.cancelSignIn());
   onInvoke("account:sign-out", () => account.signOut());
   // The idle prompt's Stay logged in (docs/desktop.md §18.2)

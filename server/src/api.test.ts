@@ -120,6 +120,42 @@ describe("sign-in", () => {
     expect((await call("GET", `/auth/callback?code=good&state=forged`)).status).toBe(400);
   });
 
+  it("the desktop sign-in sheet (callback=designer) ends on designer://auth/callback, with PKCE as the loopback", async () => {
+    const verifier = "s".repeat(50);
+    const login = await call("GET", `/auth/login?method=google&callback=designer&state=${"d".repeat(20)}&challenge=${await sha256b64url(verifier)}`);
+    expect(login.status).toBe(302);
+    const toGoogle = new URL(login.headers.get("location")!);
+    // Google still comes back to the Worker: no new redirect URI at Google.
+    expect(toGoogle.searchParams.get("redirect_uri")).toBe(`${ORIGIN}/auth/callback`);
+    const state = encodeURIComponent(toGoogle.searchParams.get("state")!);
+    const back = new URL((await call("GET", `/auth/callback?code=good&state=${state}`)).headers.get("location")!);
+    expect(back.protocol + "//" + back.host + back.pathname).toBe("designer://auth/callback");
+    expect(back.searchParams.get("state")).toBe("d".repeat(20));
+    // The code is bound to the challenge: a wrong verifier is refused, the right one makes a session.
+    expect((await call("POST", "/auth/token", { body: { code: back.searchParams.get("code"), verifier: "x".repeat(50) } })).status).toBe(400);
+    const again = new URL((await call("GET", `/auth/callback?code=good&state=${state}`)).headers.get("location")!);
+    const res = await call("POST", "/auth/token", { body: { code: again.searchParams.get("code"), verifier } });
+    expect(res.status).toBe(200);
+    // Errors go to the sheet's callback too.
+    const denied = new URL((await call("GET", `/auth/callback?error=access_denied&state=${state}`)).headers.get("location")!);
+    expect(denied.href.startsWith("designer://auth/callback?")).toBe(true);
+    expect(denied.searchParams.get("error")).toBe("access_denied");
+  });
+
+  it("sends to designer:// only the sheet's sign-ins: other callbacks, mixes and forged states are refused", async () => {
+    const q = `state=${"e".repeat(20)}&challenge=${"C".repeat(43)}`;
+    for (const bad of [`callback=evil&${q}`, `callback=designer&port=50123&${q}`, `callback=designer&return=${encodeURIComponent("http://localhost:5173/")}&${q}`, `callback=designer%3A%2F%2Fx&${q}`]) {
+      expect((await call("GET", `/auth/login?method=google&${bad}`)).status).toBe(400);
+    }
+    // The loopback's sign-in never goes to the scheme.
+    const loop = await call("GET", `/auth/login?method=google&port=50123&${q}`);
+    const loopState = encodeURIComponent(new URL(loop.headers.get("location")!).searchParams.get("state")!);
+    expect(new URL((await call("GET", `/auth/callback?code=good&state=${loopState}`)).headers.get("location")!).origin).toBe("http://127.0.0.1:50123");
+    // A state signed with another secret claiming the sheet is refused.
+    const forged = await signToken({ p: 0, a: 1, s: "e".repeat(20), c: "C".repeat(43), exp: now / 1000 + 100 }, "t".repeat(40));
+    expect((await call("GET", `/auth/callback?code=good&state=${encodeURIComponent(forged)}`)).status).toBe(400);
+  });
+
   it("checks login parameters and refuses unsigned, forged, expired and signed-out sessions", async () => {
     expect((await call("GET", `/auth/login?port=80&state=${"a".repeat(20)}&challenge=${"C".repeat(43)}`)).status).toBe(400);
     expect((await call("GET", "/me")).status).toBe(401);

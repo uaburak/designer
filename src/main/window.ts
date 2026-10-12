@@ -1,9 +1,9 @@
 import { app, BaseWindow, nativeTheme, screen, type WebContentsView } from "electron";
 import type { WindowState } from "../shared/ipc";
 import { CAPTION_OVERLAY, DEFAULT_WINDOW_SIZE, MIN_WINDOW_SIZE, TABBAR_HEIGHT, TRAFFIC_LIGHT_POSITION } from "../shared/layout";
-import { persistable, restoreTabs } from "../shared/tabs";
+import { emptyTabs, persistable, restoreTabs } from "../shared/tabs";
 import { flushSession, readSession, writeSession, type WindowBounds, type WindowSession } from "./session";
-import { stopStoreHost } from "./storeHost";
+import { flushStore, stopStoreHost } from "./storeHost";
 import { drainGovernanceReportsWithin } from "./account/governanceReports";
 import { emit, TabManager } from "./tabs";
 import { exitForUpdate } from "./updater";
@@ -64,6 +64,9 @@ export class WindowController {
   private closeAllowed = false;
   private closing = false;
   private shown = false;
+  private shownListeners: (() => void)[] = [];
+  /** Logged out (docs/desktop.md §18.6): its tabs aren't kept for the next person */
+  private signedOut = false;
   private ready = { tabbar: false, content: false };
 
   constructor(saved?: WindowSession) {
@@ -183,6 +186,34 @@ export class WindowController {
     this.shown = true;
     this.win.show();
     this.tabs.activeView().webContents.focus();
+    for (const l of this.shownListeners.splice(0)) l();
+  }
+
+  /** Resolves once the window is on screen (the welcome window it replaces closes then, docs/desktop.md §18.6). */
+  whenShown(): Promise<void> {
+    if (this.shown) return Promise.resolve();
+    return new Promise((resolve) => this.shownListeners.push(resolve));
+  }
+
+  /** The place it has (or would have) on screen: the welcome window that replaces it takes it */
+  placement(): WindowBounds {
+    return this.win.isDestroyed() ? this.bounds : this.win.getBounds();
+  }
+
+  /**
+   * Logged out (docs/desktop.md §18.6): every open file flushed, the store's too, then the window closed without
+   * questions — every file tab with it, none kept in session.json (nor the closed tabs), so the next sign-in starts at
+   * Home. The local files stay on disk. Log out's own questions came first (`settleAll`, the gate's sign-out guard).
+   */
+  async closeForSignOut(): Promise<void> {
+    if (this.win.isDestroyed() || this.closeAllowed) return;
+    this.signedOut = true;
+    await this.tabs.flushQuietly().catch(() => {});
+    await flushStore();
+    this.closeAllowed = true;
+    this.persist();
+    flushSession();
+    if (!this.win.isDestroyed()) this.win.close();
   }
 
   /** The theme changed: each view's colour before its page paints. */
@@ -217,7 +248,7 @@ export class WindowController {
   }
 
   session(): WindowSession {
-    const kept = persistable(this.tabs.state);
+    const kept = persistable(this.signedOut ? emptyTabs() : this.tabs.state);
     return {
       id: this.id,
       bounds: this.bounds,
@@ -234,8 +265,13 @@ export class WindowController {
   }
 }
 
-/** The first window of the saved session (v1 opens one). */
-export function openWindow(): WindowController {
+/** The first window of the saved session (v1 opens one); `bounds`: where the welcome window it replaces was. */
+export function openWindow(bounds?: WindowBounds): WindowController {
   const saved = readSession().windows[0];
-  return new WindowController(saved);
+  if (!bounds) return new WindowController(saved);
+  const tabs = persistable(restoreTabs(saved ? { tabs: saved.tabs, active: saved.activeTabId, closed: saved.closed } : null));
+  return new WindowController({ id: saved?.id ?? "main", maximized: saved?.maximized ?? false, fullScreen: false, tabs: tabs.tabs, activeTabId: tabs.active, closed: tabs.closed, bounds });
 }
+
+/** Where the saved session's window was (the welcome window opens there) */
+export const savedBounds = (): WindowBounds | undefined => readSession().windows[0]?.bounds;

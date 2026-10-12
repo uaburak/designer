@@ -16,8 +16,24 @@ export interface AccountState {
   /** The server signed in to (or that sign-in would use) */
   server: string;
   user: AccountUser | null;
-  /** A sign-in is waiting for the browser */
+  /** A sign-in is waiting for the browser (or the sign-in sheet) */
   signingIn: boolean;
+  /** The kept session is still being read (the keychain may be asking): neither signed in nor out yet — the welcome
+   *  window shows its splash, never the welcome page (docs/desktop.md §18.6). Absent: known. */
+  loading?: boolean;
+}
+
+/** The welcome page's two ways in (docs/desktop.md §18.6): Google, or the server's single sign-on page (SAML) */
+export type SignInMethod = "google" | "sso";
+
+/**
+ * What the signed-out welcome window shows (docs/desktop.md §18.6), from the account as last heard: the splash while
+ * the kept session loads and while a signed-in window takes over (never a flash of the welcome page for someone
+ * signed in), the welcome page otherwise — "signing-in" while a sign-in waits.
+ */
+export function welcomeScreen(state: AccountState | null): "splash" | "welcome" | "signing-in" {
+  if (!state || state.loading || state.user) return "splash";
+  return state.signingIn ? "signing-in" : "welcome";
 }
 
 export type SignInResult = { ok: true; state: AccountState } | { ok: false; error: "cancelled" | "timeout" | "failed"; message?: string; state: AccountState };

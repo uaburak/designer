@@ -30,6 +30,8 @@ export interface StartStoreOptions {
   /** DESIGNER_SEED=demo: .fig files imported into "Samples" when the workspace is empty */
   seedFigs?: string[];
   env?: Record<string, string | undefined>;
+  /** The login gate (docs/desktop.md §18.6): files are made and opened only with a session */
+  requireSession?: boolean;
 }
 
 export interface StoreHandle {
@@ -67,6 +69,7 @@ export function startStore(opts: StartStoreOptions): StoreHandle {
     deviceOrdinal: opts.deviceOrdinal,
     teamName: opts.teamName,
     seedFigs: opts.seedFigs,
+    requireSession: opts.requireSession,
   };
   child.postMessage(init, [mainChannel.port1]);
   const ready = new Promise<{ wid: string }>((resolve, reject) => {

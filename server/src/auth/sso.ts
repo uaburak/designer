@@ -3,7 +3,7 @@
  * callback with account linking, domain capture and the login method, and the one-time code the app trades for a
  * session. The app's loopback and PKCE (§2) are unchanged whichever method the person picks in the browser.
  *
- *   GET  /auth/login   port | return, state, challenge — or st (a signed state already made here); method=google|sso; tenant
+ *   GET  /auth/login   port | return | callback=designer, state, challenge — or st (a signed state already made here); method=google|sso; tenant
  *   POST /auth/sso     form {email, st} → 302 to the org's SAML start · JSON {email} → SsoLookup | 404 sso_not_found
  *   GET  /auth/callback  Google's answer
  */
@@ -24,13 +24,20 @@ export const STATE_SECONDS = 600;
 export const CODE_MS = 120_000;
 export const REQUEST_MS = 10 * 60_000;
 
-/** The app's side of a sign-in: its loopback port (0 for the web app) or page, its own state, its PKCE challenge */
+/** The app's side of a sign-in: its loopback port (0 for the web app and the sheet) or page, its own state, its PKCE
+ *  challenge; `a: 1` — the desktop app's sign-in sheet (macOS ASWebAuthenticationSession, docs/desktop.md §18.6),
+ *  which ends on `designer://auth/callback` instead of the loopback. Set only by `callback=designer` on /auth/login and
+ *  carried inside the signed state, so no other sign-in can be sent to the app's scheme. */
 export interface AppState {
   p: number;
   r?: string;
+  a?: 1;
   s: string;
   c: string;
 }
+
+/** Where the sign-in sheet's sign-in ends (docs/desktop.md §18.6): the app's scheme, caught by the sheet itself */
+export const SHEET_CALLBACK = "designer://auth/callback";
 type SignedState = AppState & { exp: number };
 
 export function sessionSecret(deps: Deps): string {
@@ -45,13 +52,14 @@ export const signState = (deps: Deps, st: AppState) => signToken({ ...st, exp: s
 export async function verifyState(deps: Deps, token: string | null): Promise<AppState | null> {
   const p = token ? await verifyToken<SignedState>(token, sessionSecret(deps), seconds(deps)) : null;
   if (!p || typeof p.s !== "string" || typeof p.c !== "string" || typeof p.p !== "number") return null;
-  return { p: p.p, s: p.s, c: p.c, ...(typeof p.r === "string" ? { r: p.r } : {}) };
+  return { p: p.p, s: p.s, c: p.c, ...(typeof p.r === "string" ? { r: p.r } : {}), ...(p.a === 1 ? { a: 1 as const } : {}) };
 }
 
-/** Where the browser goes back to: the loopback (`code`, `state`, `error`) or the web page (`auth_…`) */
+/** Where the browser goes back to: the loopback (`code`, `state`, `error`), the sign-in sheet's
+ *  `designer://auth/callback` (the same parameters) or the web page (`auth_…`) */
 export function appBack(st: AppState, params: Record<string, string>): string {
   const web = typeof st.r === "string";
-  const back = web ? new URL(st.r!) : new URL(`http://127.0.0.1:${st.p}/callback`);
+  const back = web ? new URL(st.r!) : st.a === 1 ? new URL(SHEET_CALLBACK) : new URL(`http://127.0.0.1:${st.p}/callback`);
   const k = (n: string) => (web ? `auth_${n}` : n);
   back.searchParams.set(k("state"), st.s);
   for (const [n, v] of Object.entries(params)) back.searchParams.set(k(n), v);
@@ -82,7 +90,11 @@ export async function backWithCode(deps: Deps, st: AppState, user: Pick<User, "i
 /** The app's parameters, checked as §2 step 1 always has */
 async function appStateFrom(url: URL, deps: Deps): Promise<AppState> {
   const ret = url.searchParams.get("return");
-  const p = ret === null ? Number(url.searchParams.get("port")) : 0;
+  const cb = url.searchParams.get("callback");
+  // The desktop app's sign-in sheet: no loopback and no page — never together with either.
+  if (cb !== null && (cb !== "designer" || ret !== null || url.searchParams.has("port"))) throw new HttpError(400, "bad callback");
+  const sheet = cb === "designer";
+  const p = ret === null && !sheet ? Number(url.searchParams.get("port")) : 0;
   const s = url.searchParams.get("state") ?? "";
   const c = url.searchParams.get("challenge") ?? "";
   if (ret !== null) {
@@ -93,10 +105,10 @@ async function appStateFrom(url: URL, deps: Deps): Promise<AppState> {
       // refused below
     }
     if (!back || !webOrigins(deps).includes(back.origin)) throw new HttpError(400, "return page not allowed");
-  } else if (!Number.isInteger(p) || p < 1024 || p > 65535) throw new HttpError(400, "bad port");
+  } else if (!sheet && (!Number.isInteger(p) || p < 1024 || p > 65535)) throw new HttpError(400, "bad port");
   if (!/^[A-Za-z0-9_-]{16,128}$/.test(s)) throw new HttpError(400, "bad state");
   if (!/^[A-Za-z0-9_-]{43}$/.test(c)) throw new HttpError(400, "bad challenge");
-  return { p, s, c, ...(ret !== null ? { r: ret } : {}) };
+  return { p, s, c, ...(ret !== null ? { r: ret } : {}), ...(sheet ? { a: 1 as const } : {}) };
 }
 
 function googleConfig(url: URL, deps: Deps) {

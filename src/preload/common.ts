@@ -1,7 +1,7 @@
 import { ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
 import type { IpcEvents, IpcInvoke, IpcSend, MenuStatePatch, NativeMenuItem, OpenWorkspaceFile, Role, ThemePreference, ThemeState } from "../shared/ipc";
 import type { FilesApi, NavApi, SharedFontsApi, ViewMenuApi } from "../shared/desktop";
-import type { AccountMethod } from "../shared/account";
+import type { AccountMethod, SignInMethod } from "../shared/account";
 import type { AgentSetupApi, McpClientId } from "../shared/agents/types";
 import type { AiSetupApi } from "../shared/ai/api";
 
@@ -72,7 +72,8 @@ export function common<R extends Role>(role: R) {
     haptics: { tick: () => send("haptics:tick") },
     account: {
       get: () => invoke("account:get"),
-      signIn: (opts?: { tenant?: string }) => invoke("account:sign-in", ...(opts && typeof opts.tenant === "string" ? [{ tenant: String(opts.tenant) }] : [])),
+      signIn: (opts?: { tenant?: string; method?: SignInMethod }) =>
+        invoke("account:sign-in", ...(opts && typeof opts.tenant === "string" ? [{ tenant: String(opts.tenant) }] : opts?.method === "google" || opts?.method === "sso" ? [{ method: opts.method }] : [])),
       cancelSignIn: () => invoke("account:cancel-sign-in"),
       signOut: () => invoke("account:sign-out"),
       onChanged: (cb: (s: IpcEvents["account:changed"]) => void) => on("account:changed", cb),
