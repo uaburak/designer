@@ -431,6 +431,9 @@ export const MAIN_MENU: Spec[] = [
     ],
   },
   { id: "file.libraries", label: "Libraries" },
+  // docs/ai.md §7: "AI balance" (credits used, remaining, the reset date) — not in the live capture (an account
+  // without AI credits); placed after Libraries [unverified].
+  "file.ai-balance",
   "-",
   "file.open-in-desktop",
   {
@@ -515,7 +518,7 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
     ...(multi && isEnabled(ed, command("object.wrap-in-section")) ? ["object.wrap-in-section"] : []),
     ...(isEnabled(ed, command("object.ungroup")) && !allComponents ? [{ id: "object.ungroup", label: "Ungroup" }] : []),
     // Live (context-layer-row.txt): Rename ⌘R after Frame selection on a Layers row, then "Rename layers" with its
-    // "AI" tag (live's AI renaming: listed, not built).
+    // "AI" tag (editor/ai: renames the selected layers' default names).
     ...(row ? ["object.rename", (e: EditorController): MenuEntry => ({ ...commandItem(e, "canvas.rename-layers-ai"), badge: "AI" })] : []),
     "vector.flatten",
     "vector.outline-stroke",

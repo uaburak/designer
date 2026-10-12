@@ -46,6 +46,7 @@ import {
 import { viewRect } from "./canvas/viewInsets";
 import type { KeyCombo } from "@shared/shortcuts";
 import { openSettings } from "../settings/bridge";
+import { openAiBalance } from "../settings/AiBalance";
 import { BRANCH_COMMANDS } from "./branching/commands";
 import { isBranch } from "./branching/state";
 import { accountBridge, accountSignedIn } from "../files/account";
@@ -834,8 +835,15 @@ export const COMMANDS: EditorCommand[] = [
   later("canvas.send-to-make", "Send to Figma Make"),
   later("canvas.find-similar", "Find similar designs"),
   later("canvas.add-motion", "Add motion"),
-  // Live's AI renaming of the selected layers (the Layers row's menu, "AI" tag): listed, not built.
-  later("canvas.rename-layers-ai", "Rename layers"),
+  // Rename layers with AI (the Layers row's menu, "AI" tag; docs/ai.md §3, editor/ai): the selected layers' default names.
+  {
+    id: "canvas.rename-layers-ai",
+    label: "Rename layers",
+    run: (ed) => void import("./ai/service").then((m) => m.aiOf(ed).renameLayers({ refs: [...ed.selection] })),
+    enabled: (ed) => ed.selection.length > 0,
+  },
+  // The main menu's "AI balance" (help 33459875669015: credits used, remaining, the reset date): the modal of settings/AiBalance.tsx.
+  { id: "file.ai-balance", label: "AI balance", run: () => openAiBalance() },
   // Round 10, / : the cursor chat bubble at the pointer (seen by nobody else until multiplayer, roadmap Phase 6).
   ui("canvas.cursor-chat", "Cursor chat", [k("Slash")], (ed) => openCursorChat(ed)),
   // Help and account (live main-help.txt): Figma's own pages open in the browser; no account here.

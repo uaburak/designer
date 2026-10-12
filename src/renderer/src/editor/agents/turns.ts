@@ -50,6 +50,8 @@ export class AgentTurns {
   private turns = new Map<string, TurnRecord>();
   private outside = new Map<string, number>();
   private nextActor = 1;
+  /** The AI actions' actor (writeAction) */
+  private aiActor: number | undefined;
   private listeners = new Set<Listener>();
   private off: () => void;
 
@@ -117,6 +119,29 @@ export class AgentTurns {
       this.ed.actorWriting--;
       e.actorEnd(!done);
       if (done && t && e.actorInfo(t.actor).canUndo) t.steps++;
+    }
+  }
+
+  /**
+   * An AI action's apply (docs/ai.md §2.3, editor/ai): `fn` runs as the AI's own actor — `refs` its selection, so the
+   * user's selection, page and view stay theirs — and is **one step of the user's history** labelled `label`
+   * (`undoTo: 0`: ⌘Z takes it back). Rolled back if `fn` throws; EngineBusy while the user's gesture or step is open.
+   */
+  writeAction<T>(label: string, fn: () => T, refs: readonly Guid[] = []): T {
+    const e = this.ed.engine;
+    this.aiActor ??= this.nextActor++;
+    const status = e.actorBegin(this.aiActor, { label, refs, merge: false, undoTo: 0 });
+    if (status === Status.E_BUSY) throw new EngineBusy();
+    if (status !== Status.OK) throw new Error(status === Status.E_READONLY ? "The file is read-only." : `The engine refused the change (status ${status}).`);
+    this.ed.actorWriting++;
+    let done = false;
+    try {
+      const out = fn();
+      done = true;
+      return out;
+    } finally {
+      this.ed.actorWriting--;
+      e.actorEnd(!done);
     }
   }
 

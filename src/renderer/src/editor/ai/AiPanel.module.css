@@ -1,0 +1,55 @@
+/* The Actions panel's AI views (docs/ai.md §3): a header (back, the action's name, AI), then the form or the run. */
+.view { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+.header {
+  display: flex; flex: none; align-items: center; gap: var(--ds-space-1);
+  height: calc(var(--ds-size-control-large) + var(--ds-space-4)); padding: 0 var(--ds-space-2);
+  border-bottom: 1px solid var(--figma-color-border);
+}
+.title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--ds-font-body-large-strong); letter-spacing: var(--ds-tracking-body-large-strong); }
+.body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: var(--ds-space-4); }
+.form { display: flex; flex-direction: column; gap: var(--ds-space-3); }
+.actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--ds-space-2); }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-2); }
+.grow { flex: 1 1 auto; min-width: 0; }
+.label { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+.field { color: var(--figma-color-text-secondary); }
+.note { margin: var(--ds-space-2) 0; color: var(--figma-color-text-secondary); }
+/* Progress: the label beside the spinner, Stop at the end */
+.running { display: flex; align-items: center; gap: var(--ds-space-3); padding: var(--ds-space-4) 0; font: var(--ds-font-body-large-regular); letter-spacing: var(--ds-tracking-body-large-regular); }
+.running > span { flex: 1 1 auto; }
+.error { display: flex; flex-direction: column; gap: var(--ds-space-3); color: var(--figma-color-text); }
+.error > p { margin: 0; font: var(--ds-font-body-large-regular); letter-spacing: var(--ds-tracking-body-large-regular); }
+.error > :first-child { color: var(--figma-color-icon-danger); }
+/* Translate to…'s languages */
+.list { display: flex; flex-direction: column; max-height: 180px; overflow-y: auto; }
+.option { display: flex; flex: none; align-items: center; height: var(--ds-size-control-large); padding: 0 var(--ds-space-2); border-radius: var(--ds-radius-medium); font: var(--ds-font-body-large-regular); letter-spacing: var(--ds-tracking-body-large-regular); cursor: default; }
+.option:hover, .option:focus-visible { background: var(--figma-color-bg-hover); outline: none; }
+/* First Draft's suggestions */
+.chips { display: flex; flex-wrap: wrap; gap: var(--ds-space-1); }
+.chip {
+  height: var(--ds-size-control); padding: 0 var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-full);
+  background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); cursor: default;
+}
+.chip:hover { background: var(--figma-color-bg-hover); }
+/* Theme thumbnails */
+.themes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--ds-space-2); }
+.theme {
+  display: flex; flex-direction: column; align-items: stretch; gap: var(--ds-space-1); padding: var(--ds-space-1);
+  border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-text);
+  font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); cursor: default;
+}
+.theme:hover { background: var(--figma-color-bg-hover); }
+.themeOn { border-color: var(--figma-color-border-selected); box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+/* A theme's colours (the thumbnail's own inline colours are the theme's, not the chrome's) */
+.themeSwatches { display: flex; gap: var(--ds-space-1); height: var(--ds-size-control-large); padding: var(--ds-space-2); border-radius: var(--ds-radius-small); }
+.themeSwatches > span { flex: 1 1 0; border-radius: var(--ds-radius-full); }
+.presets { display: flex; gap: var(--ds-space-1); }
+.preset { width: var(--ds-size-icon-16); height: var(--ds-size-icon-16); padding: 0; border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-full); cursor: default; }
+.presetOn { box-shadow: 0 0 0 2px var(--figma-color-border-selected); }
+.hex { width: calc(var(--ds-size-field) + var(--ds-space-4)); }
+/* The AI badge on a row (live: "AI" 11/400 secondary, a 20 × 16 link at the row's end) */
+.badge {
+  display: inline-flex; flex: none; align-items: center; height: var(--ds-size-icon-16); padding: 0 var(--ds-space-1); border-radius: var(--ds-radius-medium);
+  color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); text-decoration: none;
+}
+.badge:hover { background: var(--figma-color-bg-hover); }

@@ -1,0 +1,19 @@
+/* A run outside Actions, or a suggestion: a pill centred over the bottom toolbar (Figma's bottom banners). */
+.pill {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--ds-size-toolbar-bottom) + var(--ds-space-6));
+  z-index: var(--ds-z-floating);
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--ds-radius-large);
+  background: var(--figma-color-bg);
+  color: var(--figma-color-text);
+  box-shadow: var(--ds-elevation-400-menu-panel);
+  font: var(--ds-font-body-medium);
+  letter-spacing: var(--ds-tracking-body-medium);
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
