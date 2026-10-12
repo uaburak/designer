@@ -63,7 +63,7 @@ import { AnalyticsQueue, analyticsRepository } from "../../../../store/libraries
 import { identityRepository } from "../../../../store/org/identity";
 import { PluginsService } from "../../../../store/plugins/service";
 import { DevModeService, type LocalDevRecord } from "../../../../store/devmode/service";
-import { notImplementedSearch } from "../../../../store/ai/stub";
+import { SearchService } from "../../../../store/search/service";
 import { AiService } from "../../../../store/ai/service";
 import { UsageReporter } from "../../../../store/libraries/usage";
 
@@ -624,10 +624,28 @@ export class MemoryStore {
       log: (level, message, detail) => this.log(level, message, detail),
     });
     mp.onSession(() => void this.ai.flush());
+
+    // Visual search (docs/ai.md §6): one key per file's index, its bytes as base64
+    const searchKey = (name: string) => `${KV_PREFIX}search.${name}`;
+    this.search = new SearchService({
+      read: async (name) => {
+        const text = kv.get(searchKey(name));
+        return text === null ? null : fromBase64(text);
+      },
+      write: async (name, bytes) => {
+        if (!kv.set(searchKey(name), toBase64(bytes))) throw new StoreError("invalid", "The browser's storage is full");
+      },
+      remove: async (name) => kv.remove(searchKey(name)),
+      list: async () => kv.keys(searchKey("")).map((k) => k.slice(searchKey("").length)),
+      getMeta: (fileKey) => getMeta(fileKey as FileKey),
+      log: (level, message, detail) => this.log(level, message, detail),
+    });
   }
 
   /** The AI usage ledger, Skills, the org reports (docs/ai.md §2.9) */
   readonly ai: AiService;
+  /** The visual search index (docs/ai.md §6) */
+  readonly search: SearchService;
 
   /** Saved / recents, private plugins and approvals (docs/plugins.md §10); events on topic `plugins` */
   readonly plugins: PluginsService;
@@ -921,6 +939,7 @@ export class MemoryStore {
       this.runtime.delete(k);
       this.storage.remove(K.file(k));
       this.storage.remove(K.meta(k));
+      await this.search.fileDeleted(k);
       await this.ws.queue.run(() => this.ws.forgetFile(k));
     }
     const depth = (id: FolderId) => this.ws.folderDepth(id);
@@ -1315,9 +1334,22 @@ export class MemoryStore {
       plugins: this.plugins.repository(),
       devMode: this.devMode.repository(),
       ai: this.ai.repository(),
-      search: notImplementedSearch(),
+      search: this.search.repository(),
     };
   }
 }
 
 const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+function toBase64(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+function fromBase64(text: string): Uint8Array {
+  const s = atob(text);
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
+}

@@ -62,6 +62,7 @@ import { RenameLayersDialog } from "./panels/RenameLayers";
 import { LibrariesDialog } from "./panels/libraries/LibrariesDialog";
 import { PublishDialog } from "./panels/libraries/PublishDialog";
 import { ExportDialog } from "./ExportDialog";
+import { VisualSearchHost } from "./search";
 import { LinkEditor } from "./canvas/LinkEditor";
 import { PresentationView } from "@/present/PresentationView";
 import { editorPresentationSource } from "./present";
@@ -468,6 +469,7 @@ function Overlays() {
       <StatusMenu />
       <CategoriesDialog />
       <CompareChanges />
+      <VisualSearchHost />
       <CodeConnectDialog />
       <PlaygroundDialog />
       <Branching />

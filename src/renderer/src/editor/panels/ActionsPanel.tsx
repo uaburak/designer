@@ -26,6 +26,7 @@ import { useUI } from "../hooks";
 import { actionItems, runMenuItem, type ActionItem } from "../menus";
 import { assetLabel, searchAssets } from "../model/components";
 import { useComponentAssets } from "./design/ComponentPicker";
+import { openVisualSearch } from "../search";
 import styles from "./ActionsPanel.module.css";
 
 /** Live: 529 × 354, 8 above the toolbar */
@@ -305,7 +306,7 @@ function Actions() {
             }}
           />
           {/* Live: "Visual search (AI beta)" at 491, 12 — live's AI image search, not part of this app */}
-          <IconButton icon="24.image" label="Visual search (AI beta)" className={styles.visualSearch} disabled />
+          <IconButton icon="24.image" label="Visual search (AI beta)" className={styles.visualSearch} onClick={() => openVisualSearch()} />
         </div>
         {/* Live: both lines are there for assistive tech — "Results will update as you type." at -1, 3 and "11 results available." at -1, 27 */}
         <div role="status" className={styles.srOnly}>

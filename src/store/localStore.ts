@@ -62,7 +62,7 @@ import { AnalyticsQueue, analyticsRepository } from "./libraries/analyticsQueue"
 import { identityRepository } from "./org/identity";
 import { PluginsService } from "./plugins/service";
 import { DevModeService, type LocalDevRecord } from "./devmode/service";
-import { notImplementedSearch } from "./ai/stub";
+import { SearchService } from "./search/service";
 import { AiService } from "./ai/service";
 import { UsageReporter } from "./libraries/usage";
 
@@ -394,10 +394,30 @@ export class LocalStore {
       log,
     });
     this.multiplayer.onSession(() => void this.ai.flush());
+
+    // Visual search (docs/ai.md §6): one index per file under Workspace/spaces/search/
+    const searchRoot = join(spaces, "search");
+    const searchPath = (name: string) => {
+      if (!/^[A-Za-z0-9_-]+\.idx$/.test(name)) throw new StoreError("invalid", `bad search index name ${name}`);
+      return join(searchRoot, name);
+    };
+    this.search = new SearchService({
+      read: (name) => fsp.readFile(searchPath(name)).then((b) => new Uint8Array(b.buffer, b.byteOffset, b.byteLength), (e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e))),
+      write: async (name, bytes) => {
+        await ensureDir(searchRoot);
+        await atomicWrite(dirs.tmp, searchPath(name), bytes);
+      },
+      remove: (name) => fsp.rm(searchPath(name), { force: true }),
+      list: () => fsp.readdir(searchRoot).catch(() => [] as string[]),
+      getMeta: (fileKey) => ws.files.get(fileKey as FileKey) ?? null,
+      log,
+    });
   }
 
   /** The AI usage ledger, Skills, the org reports (docs/ai.md §2.9) */
   readonly ai: AiService;
+  /** The visual search index (docs/ai.md §6) */
+  readonly search: SearchService;
 
   /** Saved / recents, private plugins and approvals (docs/plugins.md §10); events on topic `plugins` */
   readonly plugins: PluginsService;
@@ -628,6 +648,7 @@ export class LocalStore {
       this.branches.forget(k);
       await this.files.deleteFileData(k);
       await this.libraries.fileDeleted(k);
+      await this.search.fileDeleted(k);
       await this.ws.queue.run(() => this.ws.forgetFile(k));
     }
     // Deepest folders first, so a parent never disappears before its children.
@@ -939,7 +960,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     plugins: s.plugins.repository(),
     devMode: s.devMode.repository(),
     ai: s.ai.repository(),
-    search: notImplementedSearch(),
+    search: s.search.repository(),
   };
 }
 

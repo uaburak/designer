@@ -62,6 +62,7 @@
     "vitest": "4.1.11"
   },
   "dependencies": {
+    "@huggingface/transformers": "4.3.0",
     "@jitl/quickjs-wasmfile-release-asyncify": "0.32.0",
     "kiwi-schema": "0.5.0",
     "quickjs-emscripten-core": "0.32.0"
