@@ -394,9 +394,8 @@ describe("MultiplayerService", () => {
     const hash = Uint8Array.from(sha1.match(/../g)!.map((h) => parseInt(h, 16)));
     a.store.edit(fa, [node(9, { phase: "CREATED", name: "Photo", fillPaints: [{ type: "IMAGE", image: { hash } }] } as any, 2 * 2 ** 20 + 1)]);
     // The frame waits for its image (downloaded in a pool now: a few more hops)
-    await settle();
-    await settle();
-    expect(b.store.blobs.get(sha1)).toEqual(png);
+    // The image comes through the pooled background download: wait for it, not for a fixed number of ticks
+    await vi.waitFor(() => expect(b.store.blobs.get(sha1)).toEqual(png), { timeout: 5000 });
     expect(b.store.doc(fb)[`${2 * 2 ** 20 + 1}:9`].name).toBe("Photo");
   });
 
