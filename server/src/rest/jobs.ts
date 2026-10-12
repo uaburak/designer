@@ -4,6 +4,7 @@
  */
 import type { RestJob, RestJobPart } from "../../../src/shared/rest/types";
 import type { Deps } from "../api";
+import { RestError } from "./http";
 import { REST_TIMING, type JobAnswer } from "./roomJobs";
 
 export interface JobOptions {
@@ -12,6 +13,15 @@ export interface JobOptions {
 }
 
 export const NO_CLIENT = "No client available to render this file. Open the file in DesignerV2 and try again.";
+
+export const KEY_UNAVAILABLE = "This file is unavailable because its encryption key can't be reached";
+
+/** A room that can't unwrap its org's key answers 503 `key_unavailable` (docs/governance.md §2.10): so does the REST call */
+async function throwIfKeyUnavailable(res: Response): Promise<void> {
+  if (res.status !== 503) return;
+  const body = (await res.clone().json().catch(() => null)) as { code?: unknown } | null;
+  if (body?.code === "key_unavailable") throw new RestError(503, KEY_UNAVAILABLE, { code: "key_unavailable" });
+}
 
 /** The room's answer, or a 503 when it takes longer than the Worker waits */
 export async function askRoom(deps: Deps, fileKey: string, job: RestJob, opts: JobOptions): Promise<JobAnswer> {
@@ -22,6 +32,7 @@ export async function askRoom(deps: Deps, fileKey: string, job: RestJob, opts: J
   });
   const ask = (async (): Promise<JobAnswer> => {
     const res = await deps.rooms.fetch(fileKey, `/room/rest-job?fileKey=${encodeURIComponent(fileKey)}`, { method: "POST", body: JSON.stringify({ job, waitMs, wanted: opts.wanted }) });
+    await throwIfKeyUnavailable(res);
     if (!res.ok && res.status !== 400) return { ok: false, status: 502, err: "The file's room couldn't take the job" };
     return (await res.json()) as JobAnswer;
   })();
@@ -35,6 +46,7 @@ export async function askRoom(deps: Deps, fileKey: string, job: RestJob, opts: J
 /** A part's bytes from the room */
 export async function partBytes(deps: Deps, fileKey: string, part: RestJobPart): Promise<Uint8Array | null> {
   const res = await deps.rooms.fetch(fileKey, `/room/rest-blob/${part.sha1}?fileKey=${encodeURIComponent(fileKey)}`, { method: "GET" });
+  await throwIfKeyUnavailable(res);
   return res.ok ? new Uint8Array(await res.arrayBuffer()) : null;
 }
 
