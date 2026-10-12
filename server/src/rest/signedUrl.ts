@@ -1,7 +1,8 @@
 /**
  * Signed blob URLs (docs/multiplayer.md §16.2 decision 10): Figma answers expiring S3 links; ours are
  * `<server>/v1/blobs/:fileKey/:sha1[.ext]?exp=<unix s>&sig=<HMAC>` (renders 30 days, image fills 14 days),
- * `<server>/v1/library-blobs/:libraryKey/:sha1.png?…` (library thumbnails) and `<server>/v1/files/:key/thumbnail?…`.
+ * `<server>/v1/library-blobs/:libraryKey/:sha1.png?…` (library thumbnails), `<server>/v1/files/:key/thumbnail?…` and
+ * Discovery's hourly files `<server>/v1/discovery/files/:org/:YYYY/:MM/:DD/:HH.json?…` (`file_ttl_in_seconds`).
  * They need no auth header, like S3's: the signature is the permission.
  */
 import type { Deps } from "../api";
@@ -29,8 +30,13 @@ function secretOf(deps: Deps): string {
 }
 
 /** A signed URL for `path` (starting `/v1/…`) valid `days` days */
-export async function signPath(deps: Deps, origin: string, path: string, days: number): Promise<string> {
-  const exp = Math.floor(deps.now() / 1000) + days * 86_400;
+export function signPath(deps: Deps, origin: string, path: string, days: number): Promise<string> {
+  return signPathFor(deps, origin, path, days * 86_400);
+}
+
+/** A signed URL for `path` valid `seconds` seconds (Discovery's hourly files: `file_ttl_in_seconds`) */
+export async function signPathFor(deps: Deps, origin: string, path: string, seconds: number): Promise<string> {
+  const exp = Math.floor(deps.now() / 1000) + seconds;
   const sig = b64url(new Uint8Array(await crypto.subtle.sign("HMAC", await key(secretOf(deps)), enc.encode(`${path}:${exp}`))));
   return `${origin}${path}?exp=${exp}&sig=${sig}`;
 }
@@ -62,6 +68,8 @@ function sniff(b: Uint8Array): string {
 export async function signedRoute(deps: Deps, url: URL, parts: string[]): Promise<Response> {
   if (!(await verifySigned(deps, url))) throw new RestError(403, "Invalid or expired signature");
   const headers = (type: string) => ({ "content-type": type, "cache-control": "private, max-age=86400", "access-control-allow-origin": "*" });
+  // Discovery's hourly files (docs/governance.md §2.11), generated now from D1
+  if (parts[0] === "discovery") return (await import("../discovery/rest")).discoveryFile(deps, parts);
   if (parts[0] === "files" && parts[2] === "thumbnail") {
     const res = await deps.rooms.fetch(parts[1], `/room/thumbnail?fileKey=${parts[1]}`, { method: "GET" });
     if (!res.ok) throw new RestError(404, "No thumbnail");

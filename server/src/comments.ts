@@ -12,6 +12,9 @@
  *   POST   /files/:key/comments/read                   {threadIds, read}
  *
  * Every answer is the whole list, `{threads, me, canResolveAny, canDeleteAny}`.
+ *
+ * Discovery (docs/governance.md §2.11): each change's text — a comment posted, edited or deleted, a reaction added or
+ * removed — is recorded with the room notice (`changed`), after the answer; nothing for orgs without Discovery.
  */
 import type { Role } from "../../src/shared/multiplayer/protocol";
 import { buildThreads, COMMENT_ID, MAX_COMMENT_LENGTH, type Comment, type CommentAnchor, type CommentUser } from "../../src/shared/comments";
@@ -19,6 +22,7 @@ import type { Deps } from "./api";
 import type { User } from "./db";
 import { forgetComments, notifyComment, notifyReaction } from "./notifications";
 import { randomToken } from "./tokens";
+import { recordFileText, type FileText } from "./discovery/record";
 
 export interface CommentsContext {
   key: string;
@@ -112,7 +116,10 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
     return json({ threads: buildThreads(rows, readMap, user.id), me: person(user.id, user.name, user.email, user.picture), canResolveAny: editor, canDeleteAny: false });
   };
 
+  /** Discovery's texts of this change (`changed` records them) */
+  const disc: FileText[] = [];
   const changed = async (threadId: string) => {
+    if (disc.length) await recordFileText(deps, key, disc.splice(0));
     try {
       await deps.rooms.fetch(key, "/room/comments", { method: "POST", body: JSON.stringify({ threadId, by: user.id }) });
     } catch (e) {
@@ -150,6 +157,7 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
         .run();
       // Replying reads the thread.
       await markRead(thread.id, now);
+      disc.push({ text: message, action: "insert", textType: "file_comments", resourceId: id, parentCommentId: thread.id, userId: user.id });
       await changed(thread.id);
       await notifyComment(deps, { key, by: user, commentId: id, threadId: thread.id, reply: true, message, mentions });
       await (await import("./webhooks/events")).commentPosted(deps, key, user, id);
@@ -166,6 +174,7 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
       .bind(id, key, user.id, message, JSON.stringify(mentions), next?.n ?? 1, anchor.pageId, anchor.x, anchor.y, anchor.nodeId ?? null, anchor.offset?.x ?? null, anchor.offset?.y ?? null, now)
       .run();
     await markRead(id, now);
+    disc.push({ text: message, action: "insert", textType: "file_comments", resourceId: id, nodeId: anchor.nodeId ?? null, userId: user.id });
     await changed(id);
     await notifyComment(deps, { key, by: user, commentId: id, threadId: id, reply: false, message, mentions });
     await (await import("./webhooks/events")).commentPosted(deps, key, user, id);
@@ -199,10 +208,12 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
       const had = await d1.prepare(`SELECT 1 FROM comment_reactions WHERE comment_id = ?1 AND user_id = ?2 AND emoji = ?3`).bind(id, user.id, emoji).first();
       await d1.prepare(`INSERT INTO comment_reactions (comment_id, user_id, emoji, created_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING`).bind(id, user.id, emoji, deps.now()).run();
       if (!had) await notifyReaction(deps, { key, by: user, commentId: id, threadId: c.thread_id, emoji });
+      if (!had) disc.push({ text: emoji, action: "insert", textType: "file_comment_reactions", resourceId: `${id}:${emoji}`, parentCommentId: id, userId: user.id });
     } else if (m === "DELETE") {
       const emoji = cleanEmoji(new URL(req.url).searchParams.get("emoji"));
       if (!emoji) return fail(400, "emoji");
-      await d1.prepare(`DELETE FROM comment_reactions WHERE comment_id = ?1 AND user_id = ?2 AND emoji = ?3`).bind(id, user.id, emoji).run();
+      const gone = await d1.prepare(`DELETE FROM comment_reactions WHERE comment_id = ?1 AND user_id = ?2 AND emoji = ?3 RETURNING emoji`).bind(id, user.id, emoji).first();
+      if (gone) disc.push({ text: emoji, action: "delete", textType: "file_comment_reactions", resourceId: `${id}:${emoji}`, parentCommentId: id, userId: user.id });
     } else return fail(405, "method not allowed");
     await changed(c.thread_id);
     return list();
@@ -218,6 +229,7 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
       await d1.prepare(`DELETE FROM comments WHERE thread_id = ?1 AND id <> ?1`).bind(id).run();
     } else await d1.prepare(`DELETE FROM comment_reactions WHERE comment_id = ?1`).bind(id).run();
     await d1.prepare(`DELETE FROM comments WHERE id = ?1`).bind(id).run();
+    disc.push({ text: "", action: "delete", textType: "file_comments", resourceId: id, parentCommentId: root ? null : c.thread_id, userId: user.id });
     await changed(c.thread_id);
     await forgetComments(deps, key, [id]);
     return list();
@@ -232,6 +244,7 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
     const message = cleanMessage(body.message);
     if (message === null) return fail(400, "a comment needs some text");
     await d1.prepare(`UPDATE comments SET message = ?2, mentions = ?3, edited_at = ?4 WHERE id = ?1`).bind(id, message, JSON.stringify(cleanMentions(body.mentions)), now).run();
+    disc.push({ text: message, action: "update", textType: "file_comments", resourceId: id, parentCommentId: root ? null : c.thread_id, userId: user.id });
   }
   if (body.resolved !== undefined) {
     if (!root) return fail(400, "resolve the thread");

@@ -7,7 +7,7 @@ import type { RestScope, RestTier } from "../../../src/shared/rest/types";
 
 export interface RouteSpec {
   /** Route group, for dispatch */
-  group: "me" | "files" | "images" | "comments" | "teams" | "libraries" | "variables" | "dev" | "analytics" | "org" | "webhooks" | "signed";
+  group: "me" | "files" | "images" | "comments" | "teams" | "libraries" | "variables" | "dev" | "analytics" | "org" | "webhooks" | "discovery" | "devlog" | "signed";
   scopes: RestScope[];
   tier: RestTier;
   /** A plan access token may call it */
@@ -65,6 +65,11 @@ export function routeSpec(version: string, method: string, parts: string[]): Rou
     if (a === "analytics" && b === "libraries" && n === 5 && get && ["component", "style", "variable"].includes(d) && (parts[4] === "actions" || parts[4] === "usages")) return { group: "analytics", scopes: ["library_analytics:read"], tier: 3, plan: true };
     if (a === "activity_logs" && n === 1 && get) return { group: "org", scopes: ["org:activity_log_read"], tier: 3, plan: true };
     if (a === "ai_usage" && b === "daily" && n === 2 && get) return { group: "org", scopes: ["org:ai_metering_usage_read"], tier: 3, plan: true };
+    // Governance+ (docs/governance.md §1, §2.11, §2.12): Discovery (a plan token or an org admin), its signed hourly
+    // files, developer logs (plan tokens only)
+    if (a === "discovery" && n === 1 && get) return { group: "discovery", scopes: ["org:discovery_read"], tier: 2, plan: true };
+    if (a === "discovery" && b === "files" && n === 7 && get) return { group: "signed", scopes: [], tier: 2 };
+    if (a === "developer_logs" && n === 1 && method === "POST") return { group: "devlog", scopes: ["org:developer_log_read"], tier: 3, plan: true };
     return null;
   }
   if (version === "v2") {

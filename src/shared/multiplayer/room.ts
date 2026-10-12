@@ -16,6 +16,9 @@
  * - REST render jobs (docs/multiplayer.md §16.6): `hello {render: true}` marks a socket that can answer them
  *   (`helper: true` too: the desktop app's hidden render helper, asked last); `renderers()` lists them in the order
  *   jobs try them; `rest-job-done` / `rest-job-failed` go to the host's `onRest`.
+ * - Discovery (docs/governance.md §2.11): only for members whose policy says `discovery: true`, the room keeps the last
+ *   writer and each cursor chat message's final text (the last text before the bubble closed or the member left); the
+ *   host drains them with `drainDiscovery()` after each message and does the I/O. Off: nothing is kept.
  */
 import {
   decodeChangesUp,
@@ -71,6 +74,19 @@ export interface MemberState extends Identity {
   activeAt?: number;
 }
 
+/** What the room captured for Discovery since the last drain (docs/governance.md §2.11) */
+export interface DiscoveryCapture {
+  /** Cursor chat messages that ended: their final text */
+  chat: { userId: string; text: string; at: number }[];
+  /** The last accepted frame's author and time */
+  wrote: { userId: string; at: number } | null;
+}
+
+/** The longest cursor chat text kept (the client sends at most 52 characters) */
+export const DISCOVERY_CHAT_MAX = 200;
+/** Chat messages kept between drains (the oldest go first) */
+export const DISCOVERY_CHAT_QUEUE = 100;
+
 /** A REST job's answer from a member (§16.6) */
 export type RestAnswer = { t: "rest-job-done"; id: string; parts: RestJobPart[] } | { t: "rest-job-failed"; id: string; err: string };
 
@@ -85,6 +101,7 @@ export interface RoomOptions {
 
 export class Room {
   private members = new Map<Connection, MemberState>();
+  private discovery: DiscoveryCapture | null = null;
 
   constructor(
     private storage: RoomStorage,
@@ -117,6 +134,30 @@ export class Room {
   /** A REST job to one member */
   sendJob(conn: Connection, id: string, job: RestJob): void {
     this.send(conn, { t: "rest-job", id, job });
+  }
+
+  /** Discovery's capture since the last call (null: nothing), emptied */
+  drainDiscovery(): DiscoveryCapture | null {
+    const d = this.discovery;
+    this.discovery = null;
+    return d;
+  }
+
+  private captured(): DiscoveryCapture {
+    return (this.discovery ??= { chat: [], wrote: null });
+  }
+
+  /** A member's chat bubble went from `before` to `after`: a message that ended is captured */
+  private chatEnded(m: MemberState, before: unknown, after: unknown): void {
+    if (!m.policy?.discovery) return;
+    const prev = chatOf(before);
+    if (!prev) return;
+    const next = chatOf(after);
+    if (next && (next.startsWith(prev) || prev.startsWith(next))) return; // still typing (or deleting)
+    // Closed, emptied, or replaced by another message (at most DISCOVERY_CHAT_QUEUE wait for a drain)
+    const chat = this.captured().chat;
+    if (chat.length >= DISCOVERY_CHAT_QUEUE) chat.shift();
+    chat.push({ userId: m.userId, text: prev.slice(0, DISCOVERY_CHAT_MAX), at: this.now() });
   }
 
   /** Members that said hello */
@@ -156,6 +197,7 @@ export class Room {
         return;
       }
       if (msg.t === "presence") {
+        this.chatEnded(m, m.presence, msg.data);
         m.presence = msg.data;
         this.onState(conn, m);
         this.broadcast({ t: "presence", sessionID: m.sessionID, data: msg.data }, conn);
@@ -175,6 +217,7 @@ export class Room {
     const frame: ChangesDown = { seq: this.storage.lastSeq() + 1, sessionID: m.sessionID, batch: up.batch, message: up.message };
     this.storage.append(frame);
     m.activeAt = this.now();
+    if (m.policy?.discovery) this.captured().wrote = { userId: m.userId, at: m.activeAt };
     const out = encodeChangesDown(frame);
     for (const [c, other] of this.members) if (other.sessionID) c.send(out);
   }
@@ -183,6 +226,7 @@ export class Room {
     const m = this.members.get(conn);
     if (!m) return;
     this.members.delete(conn);
+    this.chatEnded(m, m.presence, undefined);
     if (m.sessionID) this.broadcast({ t: "peer-left", sessionID: m.sessionID });
   }
 
@@ -259,6 +303,12 @@ export class Room {
     this.members.delete(conn);
     conn.close(1008, code);
   }
+}
+
+/** The chat text of a presence (null: no bubble; "" an empty one) */
+function chatOf(presence: unknown): string | null {
+  const c = presence && typeof presence === "object" ? (presence as { chat?: unknown }).chat : undefined;
+  return typeof c === "string" ? c.trim() : null;
 }
 
 function peerOf(m: MemberState): PeerInfo {

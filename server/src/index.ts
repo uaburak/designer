@@ -62,5 +62,7 @@ export default {
     await (await import("./rest/rate")).sweepRate(env.DB, controller.scheduledTime);
     // Guests whose access ended (docs/governance.md §2.13): removed, logged org_user_delete {reason: "guest_expired"}
     await (await import("./governance/guests")).sweepExpiredGuests(depsOf(env));
+    // Discovery events and developer logs older than 30 days (docs/governance.md §2.11, §2.12)
+    await (await import("./discovery/record")).sweepGovernanceLogs(env.DB, controller.scheduledTime);
   },
 } satisfies ExportedHandler<Env>;
