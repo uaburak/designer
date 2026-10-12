@@ -131,6 +131,8 @@ export const TOKEN_SCOPES = [
   { id: "webhooks:write", group: "Webhooks", label: "Create and manage webhooks." },
   { id: "org:activity_log_read", group: "Organization", label: "Read organization activity logs." },
   { id: "org:ai_metering_usage_read", group: "Organization", label: "Read organization AI usage." },
+  { id: "org:discovery_read", group: "Organization", label: "Read organization discovery data." },
+  { id: "org:developer_log_read", group: "Organization", label: "Read organization developer logs." },
 ] as const satisfies readonly { id: RestScope; group: string; label: string }[];
 export type TokenScope = (typeof TOKEN_SCOPES)[number]["id"];
 export const isTokenScope = (s: unknown): s is TokenScope => TOKEN_SCOPES.some((t) => t.id === s);

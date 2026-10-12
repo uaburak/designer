@@ -4,6 +4,7 @@
  */
 import type * as O from "./types";
 import type * as I from "./identity";
+import type * as G from "./governance";
 import type { FileKey } from "../store/types";
 import type { Unsubscribe } from "../store/emitter";
 import type { AccessTokenInfo, TokenScope } from "../account";
@@ -146,4 +147,46 @@ export interface IdentityRepository {
   setDataRegion(orgId: string, region: I.DataRegion): Promise<I.DataRegionStatus>;
   /** Moves one file or library (`moving`: the key this call moved); call until `moving` is null (docs/multiplayer.md §15.16) */
   moveNext(orgId: string): Promise<I.DataRegionStatus>;
+}
+
+/** Governance+ (docs/governance.md §4; round 14): Admin's calls (org admins) plus the members' gates and the caller's
+ *  own two-factor authentication. The store maps the server's 403 codes to StoreError "forbidden" with `detail.code`. */
+export interface GovernanceRepository {
+  // ---- admin
+  overview(orgId: string): Promise<G.GovernanceOverview>;
+  /** Admin › Billing › Governance+ Add / Remove; removing while key management is on: "conflict" */
+  setGovernancePlus(orgId: string, on: boolean): Promise<G.GovernanceOverview>;
+  setIpAllowlist(orgId: string, input: { enabled: boolean; ranges: string[] }): Promise<G.IpAllowlist>;
+  addNetworkRange(orgId: string, cidr: string): Promise<G.NetworkRange>;
+  setNetworkRange(orgId: string, rangeId: string, state: G.NetworkRangeState): Promise<G.NetworkRange>;
+  removeNetworkRange(orgId: string, rangeId: string): Promise<void>;
+  policies(orgId: string): Promise<G.InternalPolicy[]>;
+  createPolicy(orgId: string, input: G.InternalPolicyInput): Promise<G.InternalPolicy>;
+  /** Enable or disable; a policy's text never changes (§2.6) */
+  setPolicyEnabled(orgId: string, policyId: string, enabled: boolean): Promise<G.InternalPolicy>;
+  /** People › Change / Remove expiration date, and the bulk action; null removes */
+  setGuestExpiration(orgId: string, userIds: string[], expiresAt: number | null): Promise<void>;
+  ekm(orgId: string): Promise<G.EkmStatus>;
+  enableEkm(orgId: string, input: G.EkmInput): Promise<G.EkmStatus>;
+  /** Encrypts one existing file (`encrypting`); call until it is null */
+  encryptNext(orgId: string): Promise<G.EkmStatus>;
+  developerLogs(orgId: string, query: G.DeveloperLogsQuery): Promise<G.DeveloperLogsResponse["meta"]>;
+  idps(orgId: string): Promise<I.IdpConfig[]>;
+  /** tenantId absent: + Add IDP */
+  saveIdp(orgId: string, tenantId: string | null, input: I.IdpConfigInput): Promise<I.IdpConfig>;
+  refreshIdp(orgId: string, tenantId: string): Promise<I.IdpConfig>;
+  removeIdp(orgId: string, tenantId: string): Promise<void>;
+  generateIdpScimToken(orgId: string, tenantId: string): Promise<I.ScimTokenCreated>;
+  revokeIdpScimToken(orgId: string, tenantId: string): Promise<void>;
+  /** null unmaps the domain */
+  mapDomain(orgId: string, domain: string, tenantId: string | null): Promise<I.OrgDomain>;
+  // ---- members
+  pendingPolicies(orgId: string): Promise<G.PolicyPrompt[]>;
+  acknowledgePolicy(orgId: string, policyId: string): Promise<void>;
+  // ---- the caller's account (Settings › Security)
+  twoFactor(): Promise<G.TwoFactorStatus>;
+  setupTwoFactor(): Promise<G.TwoFactorSetup>;
+  enableTwoFactor(code: string): Promise<G.TwoFactorEnabled>;
+  regenerateRecoveryCodes(code: string): Promise<G.TwoFactorEnabled>;
+  disableTwoFactor(code: string): Promise<void>;
 }

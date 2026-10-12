@@ -60,6 +60,7 @@ import { LibraryRouter } from "./libraries/router";
 import { orgLibrariesRepository } from "./libraries/orgLibraries";
 import { AnalyticsQueue, analyticsRepository } from "./libraries/analyticsQueue";
 import { identityRepository } from "./org/identity";
+import { governanceRepository } from "./org/governance";
 import { PluginsService } from "./plugins/service";
 import { DevModeService, type LocalDevRecord } from "./devmode/service";
 import { SearchService } from "./search/service";
@@ -957,6 +958,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     orgLibraries: orgLibrariesRepository(s.libraryServer),
     analytics: analyticsRepository(s.analytics, s.libraryServer),
     identity: identityRepository(s.multiplayer, (orgId) => s.org.notice({ t: "org", what: "org", orgId })),
+    governance: governanceRepository(),
     plugins: s.plugins.repository(),
     devMode: s.devMode.repository(),
     ai: s.ai.repository(),

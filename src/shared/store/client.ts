@@ -31,7 +31,7 @@ import type { AppendAck, ChangeBatch, FileKey } from "./types";
 import type { MultiplayerEvent, MultiplayerRepository, SessionEnded } from "../multiplayer/types";
 import type { CommentsEvent, CommentsRepository } from "../comments";
 import type { NotificationsEvent, NotificationsRepository } from "../notifications";
-import type { AdminRepository, IdentityRepository, OrgEvent, OrgsRepository, ProjectsRepository, TeamsRepository } from "../org/repositories";
+import type { AdminRepository, GovernanceRepository, IdentityRepository, OrgEvent, OrgsRepository, ProjectsRepository, TeamsRepository } from "../org/repositories";
 import type { BranchEvent, BranchesRepository } from "../merge/branches";
 import type { PluginsEvent, PluginsRepository } from "../plugins/types";
 import type { DevModeEvent, DevModeRepository } from "../devmode/types";
@@ -671,6 +671,37 @@ export class StoreClient implements StoreApi {
     dataRegion: (orgId) => this.call("identity.dataRegion", [orgId]),
     setDataRegion: (orgId, region) => this.call("identity.setDataRegion", [orgId, region]),
     moveNext: (orgId) => this.call("identity.moveNext", [orgId]),
+  };
+
+  readonly governance: GovernanceRepository = {
+    overview: (orgId) => this.call("governance.overview", [orgId]),
+    setGovernancePlus: (orgId, on) => this.call("governance.setGovernancePlus", [orgId, on]),
+    setIpAllowlist: (orgId, input) => this.call("governance.setIpAllowlist", [orgId, input]),
+    addNetworkRange: (orgId, cidr) => this.call("governance.addNetworkRange", [orgId, cidr]),
+    setNetworkRange: (orgId, rangeId, state) => this.call("governance.setNetworkRange", [orgId, rangeId, state]),
+    removeNetworkRange: (orgId, rangeId) => this.call("governance.removeNetworkRange", [orgId, rangeId]),
+    policies: (orgId) => this.call("governance.policies", [orgId]),
+    createPolicy: (orgId, input) => this.call("governance.createPolicy", [orgId, input]),
+    setPolicyEnabled: (orgId, policyId, enabled) => this.call("governance.setPolicyEnabled", [orgId, policyId, enabled]),
+    setGuestExpiration: (orgId, userIds, expiresAt) => this.call("governance.setGuestExpiration", [orgId, userIds, expiresAt]),
+    ekm: (orgId) => this.call("governance.ekm", [orgId]),
+    enableEkm: (orgId, input) => this.call("governance.enableEkm", [orgId, input]),
+    encryptNext: (orgId) => this.call("governance.encryptNext", [orgId]),
+    developerLogs: (orgId, query) => this.call("governance.developerLogs", [orgId, query]),
+    idps: (orgId) => this.call("governance.idps", [orgId]),
+    saveIdp: (orgId, tenantId, input) => this.call("governance.saveIdp", [orgId, tenantId, input]),
+    refreshIdp: (orgId, tenantId) => this.call("governance.refreshIdp", [orgId, tenantId]),
+    removeIdp: (orgId, tenantId) => this.call("governance.removeIdp", [orgId, tenantId]),
+    generateIdpScimToken: (orgId, tenantId) => this.call("governance.generateIdpScimToken", [orgId, tenantId]),
+    revokeIdpScimToken: (orgId, tenantId) => this.call("governance.revokeIdpScimToken", [orgId, tenantId]),
+    mapDomain: (orgId, domain, tenantId) => this.call("governance.mapDomain", [orgId, domain, tenantId]),
+    pendingPolicies: (orgId) => this.call("governance.pendingPolicies", [orgId]),
+    acknowledgePolicy: (orgId, policyId) => this.call("governance.acknowledgePolicy", [orgId, policyId]),
+    twoFactor: () => this.call("governance.twoFactor", []),
+    setupTwoFactor: () => this.call("governance.setupTwoFactor", []),
+    enableTwoFactor: (code) => this.call("governance.enableTwoFactor", [code]),
+    regenerateRecoveryCodes: (code) => this.call("governance.regenerateRecoveryCodes", [code]),
+    disableTwoFactor: (code) => this.call("governance.disableTwoFactor", [code]),
   };
 
   /** Topic `fonts` (docs/desktop.md §14.3): main refreshes its shared fonts on it */

@@ -92,7 +92,7 @@ describe("Admin › Settings › Extensions and Plan access tokens", () => {
     expect(rows("Plan access tokens").map((r) => r.textContent)).toEqual([expect.stringContaining("Activity export")]);
     click(button("Generate new token", $('[data-setting="planTokens"]')!));
     await settle();
-    expect($$("[data-plan-scope]", dialog()).map((s) => s.getAttribute("data-plan-scope"))).toEqual(["org:activity_log_read", "org:ai_metering_usage_read", "library_analytics:read", "webhooks:read", "webhooks:write"]);
+    expect($$("[data-plan-scope]", dialog()).map((s) => s.getAttribute("data-plan-scope"))).toEqual(["org:activity_log_read", "org:ai_metering_usage_read", "library_analytics:read", "webhooks:read", "webhooks:write", "org:discovery_read", "org:developer_log_read"]);
     expect(button("Generate token", dialog()).disabled).toBe(true);
     type(input("Token name"), "Usage export");
     click(checkbox("org:ai_metering_usage_read"));

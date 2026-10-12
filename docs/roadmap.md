@@ -465,11 +465,9 @@ Old **7c "editor types" is dropped**: Draw is a mode of a Design file, and the o
 - Encryption: key management.
 - Not built: AI hosting controls, Support visibility.
 
-**The contract is a draft, cut short by the usage limit.** Before the agents start, the main session has to:
-- finish `docs/governance.md` §6 as compiling TypeScript;
-- check §7 against D1 locally.
+**The contract is final (2026-10-12)**; the owner's answers are in `docs/governance.md` §8.
 
-**Before the agents** (main session, one commit):
+**Before the agents** (main session, one commit) — **done 2026-10-12**:
 - `src/shared/org/governance.ts` (§6);
 - the type additions listed in §6;
 - `GovernanceRepository` with `StoreApi.governance` stubs;
@@ -486,7 +484,7 @@ Old **7c "editor types" is dropped**: Draw is a mode of a Design file, and the o
 |---|---|---|
 | 14a server identity | `server/src/auth/` (multiple IdPs in `saml/`, `identityRoutes.ts`, `domains.ts`, `scim/` per-IdP tokens, `sso.ts` + `pages.ts`: the 2FA challenge page and `network_restricted` at sign-in, `settingsHooks.ts` `validIdleHours`), `server/src/governance/twoFactor.ts` + `network.ts` (fills `networkCheck`), `server/src/account.ts` (`/me/two-factor…`), `server/src/db.ts` (codes' `mfa_pending`), `server/src/api.ts` — only `authenticate` (the network check) and the dispatch lines of `/auth/2fa` and `/me/two-factor` | §2.2 (sign-in side), §2.4, §2.8, §2.9; tests on node:sqlite: TOTP vectors (RFC 6238), replay of a step, recovery codes, rate limit, the challenge on Google and SAML, the IdP mapping and routing, unmapped domains, network shadow and enforce |
 | 14b server org policy | `server/src/governance/` except 14a's two files (`gate.ts` filled, `ip.ts`, `policies.ts`, `guests.ts`, `routes.ts` with `admin/governance`, `ip-allowlist`, `network-ranges`, `policies`, `guests/expiration`), `server/src/org/` (settings keys, the gate in `Access.rowsFor`, guest expiry on join, People fields), `src/shared/org/access.ts` + test (`canExport` by `fileExporting`, expired guests), `server/src/policy/` (`fileExporting` in `filePolicy`, `discovery` in `x-policy`), `server/src/activity.ts`, `server/src/api.ts` — only the `/files` routes (gates, `export_restricted`) and the socket upgrade's gate, `server/src/index.ts` (one line in the daily cron: guest expiry) | §2.1, §2.3, §2.5–§2.7, §2.13, §3 |
-| 14c server EKM | `server/src/ekm/` (new: wrapping, SigV4 KMS client, `RoomCipher`, routes `admin/key-management…`), `server/src/roomBox.ts` + `server/src/fileRoom.ts` (encrypted tables, unwrap on wake, `key_unavailable`), `server/src/policy/dump.ts` only if the move needs it | §2.10; tests: a fake KMS through `deps.fetch`, round trip, revocation → 503, lazy encryption, encrypt-next, the region move of an encrypted room |
+| 14c server EKM | `server/src/ekm/` (new: managed wrapping under `EKM_ROOT_KEY`, `RoomCipher`, routes `admin/key-management…`; no KMS client), `server/src/roomBox.ts` + `server/src/fileRoom.ts` (encrypted tables, unwrap on wake, `key_unavailable`), `server/src/policy/dump.ts` only if the move needs it | §2.10; tests: round trip, a wrong or missing root key → 503, lazy encryption, encrypt-next, the region move of an encrypted room |
 | 14d server Discovery and developer logs | `server/src/discovery/` (fills the stubs; `/v1/discovery` and signed files), `server/src/rest/` (`devlog.ts`, the routes, the log line in `restRoute`, `scopes.ts`), `server/src/rest/roomJobs.ts` (the `discovery_text` job), `src/shared/multiplayer/room.ts` (cursor chat capture), `server/src/comments.ts` + `server/src/devmode/devResources.ts` (one `recordDiscovery` call each), `server/src/index.ts` (one line: retention) | §2.11, §2.12 |
 | 14e store | `src/store/org/governance.ts` (new) + wiring in `localStore.ts`, `server.ts`, `renderer/src/store/memory/`, `src/shared/store/protocol.ts`; `src/store/multiplayer/` (the new 403 codes and gates surfaced as events) | `GovernanceRepository` over 14a–14d's routes, tested against the real handler |
 | 14f desktop main | `src/main/agents/mcpServer.ts` (MCP reports), `src/main/ai/` (AI prompt reports) | client-reported Discovery and developer-log events for org files |
@@ -502,12 +500,7 @@ Old **7c "editor types" is dropped**: Draw is a mode of a Design file, and the o
 
 No new Durable Object class and no new cron. The engine and the schema are untouched.
 
-**Open questions for the owner:**
-1. **Guest 2FA.** Default: our TOTP for Google and SAML accounts, required for guests of orgs that turn it on. This is stronger than Figma, where SSO accounts can't enable 2FA; whether Figma blocks Google guests is unverified. The other choice is Figma-literal: Google sign-in counts as enough, and the feature never blocks anyone here.
-2. **Key management.** Default: "managed" (a Worker secret), plus optional AWS KMS through an IAM access key, untested without an AWS account. Does the owner want the AWS path built at all, or only managed?
-3. **Discovery.** It captures everyone's text. Default: off, an admin switch (ours). Its in-file events are attributed to the last writer of the hour (approximate), and AI prompts are client-reported.
-4. **Self-serve network restrictions and policies** (Figma: Support). Default: org admins, as with the data region.
-5. **IPv6 in the IP allowlist** (Figma: IPv4 only). Default: accept both, because otherwise members on IPv6 are blocked.
+**Owner's answers (2026-10-12):** free-tier and performance first, the main session decides — our TOTP for guest 2FA, **managed keys only** (no AWS KMS), Discovery off by default, self-serve network ranges and policies, IPv4 + IPv6 in the allowlist (`docs/governance.md` §8).
 
 ## Legacy removed (2026-10-06)
 

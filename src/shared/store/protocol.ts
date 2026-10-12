@@ -3,7 +3,7 @@
  * are structured clones (Uint8Arrays are copied once, no JSON). The store sends `hello` first on every new port.
  */
 
-export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer" | "comments" | "notifications" | "orgs" | "teams" | "projects" | "admin" | "branches" | "orgLibraries" | "analytics" | "identity" | "plugins" | "devMode" | "ai" | "search";
+export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer" | "comments" | "notifications" | "orgs" | "teams" | "projects" | "admin" | "branches" | "orgLibraries" | "analytics" | "identity" | "governance" | "plugins" | "devMode" | "ai" | "search";
 export type StoreMethod = `${Repository}.${string}`;
 export type PortRole = "main" | "home" | "editor";
 /** `org`: OrgEvent (docs/multiplayer.md §14.6); `branches`: BranchEvent (docs/data.md §15.6); `fonts`: FontsEvent (docs/desktop.md §14.3); `session`: SessionEnded (docs/multiplayer.md §15.8); `plugins`: PluginsEvent (docs/plugins.md §10); `devmode`: DevModeEvent (docs/editor.md D-8) */
@@ -166,6 +166,8 @@ export const STORE_METHODS = {
   analytics: ["record", "orgOverview", "overview", "actions", "usage", "modes", "csv"],
   // Identity and security (docs/multiplayer.md §15, round 4)
   identity: ["overview", "saveIdp", "refreshIdpMetadata", "deleteIdp", "generateScimToken", "revokeScimToken", "addDomain", "verifyDomain", "removeDomain", "domainAccounts", "dataRegion", "setDataRegion", "moveNext"],
+  // Governance+ (docs/governance.md §4, round 14)
+  governance: ["overview", "setGovernancePlus", "setIpAllowlist", "addNetworkRange", "setNetworkRange", "removeNetworkRange", "policies", "createPolicy", "setPolicyEnabled", "setGuestExpiration", "ekm", "enableEkm", "encryptNext", "developerLogs", "idps", "saveIdp", "refreshIdp", "removeIdp", "generateIdpScimToken", "revokeIdpScimToken", "mapDomain", "pendingPolicies", "acknowledgePolicy", "twoFactor", "setupTwoFactor", "enableTwoFactor", "regenerateRecoveryCodes", "disableTwoFactor"],
   // Plugins (docs/plugins.md §10.4, round 5g); `plugins` is also an event topic
   plugins: ["local", "setSaved", "ranRecently", "listPrivate", "bundle", "publish", "removePrivate", "allowed", "request", "admin", "approve", "unapprove", "answer"],
   // Dev Mode (docs/editor.md D-8, round 5g); `devmode` is also an event topic

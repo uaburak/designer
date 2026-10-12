@@ -3,6 +3,7 @@
  * server, the store, Home and the Admin app compile against the same shapes). ActivityLog: §14.10.
  */
 import type { DataRegion, IdentityActivityAction, IdpAttributes, WorkspaceSharingSettings } from "./identity";
+import type { FileExporting, GovernanceActivityAction, OrgGate } from "./governance";
 
 export type OrgRole = "admin" | "member" | "guest";
 export type Seat = "full" | "dev" | "collab" | "view";
@@ -58,6 +59,15 @@ export interface OrgSettings {
   aiEnabled: boolean;
   /** Monthly AI credits per member; null = no limit set */
   aiCreditLimit: number | null;
+  // ---- Phase 7 round 14: Governance+ (docs/governance.md §2); stored always, enforced only with the add-on ----
+  /** Guest membership › 2FA for Guests */
+  twoFactorForGuests: boolean;
+  /** "Set default duration for guest access" in days (1…GUEST_EXPIRY_MAX_DAYS); null: none */
+  guestExpiryDays: number | null;
+  /** External access › File exporting */
+  fileExporting: FileExporting;
+  /** Discovery (ours: off by default, it captures everyone's text) */
+  discovery: boolean;
 }
 export const DEFAULT_ORG_SETTINGS: OrgSettings = {
   teamCreation: "anyone", groupCreation: "anyone", guestMembership: "allow", defaultSeat: "view",
@@ -66,9 +76,16 @@ export const DEFAULT_ORG_SETTINGS: OrgSettings = {
   authMethod: "any", idleSessionTimeoutHours: null, domainCapture: false, externalContent: "allowed", passwordMode: "any", openSessions: true,
   pluginApproval: "all", pluginRequests: true, widgetApproval: "all", widgetRequests: true,
   aiEnabled: true, aiCreditLimit: null,
+  twoFactorForGuests: false, guestExpiryDays: null, fileExporting: "all", discovery: false,
 };
 
-export interface OrgSummary { id: string; name: string; role: OrgRole; seat: Seat; workspaceId: string | null }
+export interface OrgSummary {
+  id: string; name: string; role: OrgRole; seat: Seat; workspaceId: string | null;
+  /** Round 14: what blocks the caller in this org (docs/governance.md §2.5); absent: nothing */
+  gate?: OrgGate;
+  /** Round 14: a guest's access ends then (ms) */
+  guestExpiresAt?: number | null;
+}
 export interface OrgInfo extends OrgSummary {
   createdAt: number;
   /** The caller's admin reach */
@@ -110,6 +127,8 @@ export interface OrgFile {
   fileKey: string | null;
   /** Round 2: branches (docs/data.md §15) */
   mainFileKey?: string | null; branchCount?: number;
+  /** Round 14: the Governance+ add-on (docs/governance.md §2.1) */
+  governancePlus?: boolean;
 }
 export interface FileAccess { role: Level; canEdit: boolean; canComment: boolean; canExport: boolean; canDevMode: boolean; canShare: boolean; canManage: boolean; capped: "seat" | "external" | null; /** Only prototype grants reach the file (docs/editor.md D-6): the presentation view only */ prototypeOnly: boolean; via: ("file" | "folder" | "team" | "org-admin" | "workspace-admin" | "audience" | "link")[] }
 export interface OrgSearchResult { files: OrgFile[]; projects: ProjectSummary[]; teams: TeamSummary[]; people: PersonRef[] }
@@ -120,7 +139,7 @@ export interface GuestRequest { id: string; email: string; invitedBy: PersonRef;
 export interface Page<T> { items: T[]; cursor: string | null; total?: number }
 export interface AdminDashboard { members: number; guests: number; seats: Record<Seat, number>; pendingSeatRequests: number; pendingGuestRequests: number; teams: number; workspaces: number; activeLast30Days: number }
 export interface PeopleQuery { text?: string; role?: OrgRole; seat?: Seat; workspaceId?: string | "none"; billingGroupId?: string | "none"; activeBefore?: number; cursor?: string; limit?: number }
-export interface AdminPerson extends PersonRef { seat: Seat; workspaceId: string | null; billingGroupId: string | null; lastActiveAt: number | null; joinedAt: number; pending: boolean; teams: number; idp?: IdpAttributes | null }
+export interface AdminPerson extends PersonRef { seat: Seat; workspaceId: string | null; billingGroupId: string | null; lastActiveAt: number | null; joinedAt: number; pending: boolean; teams: number; idp?: IdpAttributes | null; /** Round 14: 2FA on (the CSV's `2FA_enabled`) */ twoFactor?: boolean; /** Round 14: guests only */ guestExpiresAt?: number | null }
 export interface AddPeopleInput { emails: string[]; role: Exclude<OrgRole, "admin"> | "admin"; seat?: Seat; workspaceId?: string | null; billingGroupId?: string | null }
 export interface UpdatePeopleInput { userIds: string[]; role?: OrgRole; seat?: Seat; workspaceId?: string | null; billingGroupId?: string | null }
 export interface TeamsQuery { text?: string; workspaceId?: string | "none"; includeHidden?: boolean; includeDeleted?: boolean; cursor?: string; limit?: number }
@@ -289,4 +308,5 @@ export type ActivityAction =
   | "code_connect_unpublish"
   // Round 6, ours (docs/ai.md §2.12): Admin › Settings › AI
   | "org_ai_setting_change"
-  | IdentityActivityAction;
+  | IdentityActivityAction
+  | GovernanceActivityAction;

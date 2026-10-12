@@ -61,6 +61,7 @@ import { LibraryRouter } from "../../../../store/libraries/router";
 import { orgLibrariesRepository } from "../../../../store/libraries/orgLibraries";
 import { AnalyticsQueue, analyticsRepository } from "../../../../store/libraries/analyticsQueue";
 import { identityRepository } from "../../../../store/org/identity";
+import { governanceRepository } from "../../../../store/org/governance";
 import { PluginsService } from "../../../../store/plugins/service";
 import { DevModeService, type LocalDevRecord } from "../../../../store/devmode/service";
 import { SearchService } from "../../../../store/search/service";
@@ -1331,6 +1332,7 @@ export class MemoryStore {
       orgLibraries: orgLibrariesRepository(this.libraryServer),
       analytics: analyticsRepository(this.analytics, this.libraryServer),
       identity: identityRepository(this.multiplayer, (orgId) => this.org.notice({ t: "org", what: "org", orgId })),
+      governance: governanceRepository(),
       plugins: this.plugins.repository(),
       devMode: this.devMode.repository(),
       ai: this.ai.repository(),

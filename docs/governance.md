@@ -1,6 +1,6 @@
-# Governance+ (contract, Phase 7 round 14; written 2026-10-12 — DRAFT, cut short by the usage limit)
+# Governance+ (contract, Phase 7 round 14; written 2026-10-12, finalized the same day)
 
-**Status: draft contract.** Facts (§1) and decisions (§2–§9) are written. The migration (§10) is complete enough to commit. The shared types (§11) are a precise sketch: the main session finalizes them as compiling TypeScript before the round. Items marked **TODO** were not finished in this session.
+**Status: final.** The owner's answer to the open questions (2026-10-12): "do what makes most sense — we are free-tier and performance first". So the defaults hold, except key management, which is **managed only** (no AWS KMS path: it needs a paid AWS account and can't be tested). The shared types are committed as `src/shared/org/governance.ts` (§6) and the migration as `server/migrations/0018_governance.sql` (§7), checked on local D1.
 
 Governance+ is Figma's paid Enterprise add-on (`docs/research/figma/R18-enterprise.md` A-8). It sits on top of `docs/multiplayer.md` §14 (orgs), §15 (identity and security) and §16 (REST). **(ours)** marks a choice Figma doesn't document, or a place where we differ on purpose. **(unverified)** marks a Figma fact we couldn't open.
 
@@ -115,13 +115,12 @@ Sources, read 2026-10-12:
    - `org_domains.idp_tenant_id` maps a domain. With exactly one IdP, unmapped verified domains use it (today's behaviour).
    - `authMethod: "saml"` applies to members whose domain is mapped; members on unmapped domains may use Google [G+]. Every IdP with a mapped domain must be tested first.
    - The round-4 single-IdP routes keep working on the oldest IdP.
-10. **EKM on the free plan.**
-    - Cloudflare offers no KMS. Workers can call AWS KMS over HTTPS (SigV4 with WebCrypto), which the free plan allows: one subrequest per unwrap.
-    - Figma's cross-account role needs an AWS identity of ours; we have none. So the honest design is **envelope encryption** with two key sources:
-      - **`managed`** (the default): the org's DEK is wrapped under the Worker secret `EKM_ROOT_KEY`. Say plainly in the UI that this only protects stored bytes, not against the operator. Cloudflare already encrypts DO storage at rest.
-      - **`aws_kms`**: the customer's KMS key ARN, an optional multi-region replica ARN, and an IAM access key limited to `kms:Encrypt` / `kms:Decrypt` on that key, sealed under `EKM_ROOT_KEY`. Revoking the key or its policy really cuts us off. Customer-managed keys **can't work the way Figma's do** (role trust); this is the closest honest form, and it can't be tested without an AWS account (tests fake KMS through `deps.fetch`).
+10. **EKM on the free plan — managed keys only (owner, 2026-10-12).**
+    - Cloudflare offers no KMS, and Figma's cross-account role needs an AWS identity of ours; we have none. An AWS KMS path would need a paid AWS account and couldn't be tested, so it is **not built**.
+    - **Envelope encryption, `managed`:** the org's DEK (32 random bytes) is wrapped (AES-KW or AES-GCM) under the Worker secret `EKM_ROOT_KEY`. The UI says plainly that this protects stored bytes, not against the operator. Cloudflare already encrypts DO storage at rest. `KeySource` stays a type (`"managed"`) so another source can be added later without a migration of the API.
+    - **Performance:** WebCrypto AES-GCM runs natively; one unwrap per room wake (cached in memory, re-checked hourly), no subrequests.
     - **Data:** AES-256-GCM per 1 MB row, with a header `"DV2E" | v1 | iv(12)`. Encrypted: the room's `snapshot`, `history_snapshots`, `history_frames`, `base_chunks`, `blobs`, `rest_blobs` (Figma's checkpoints and media). Plain: the live `frames` journal until compaction, `meta`, version metadata, libraries (component definitions; Figma doesn't encrypt them), D1.
-    - **The room** unwraps the DEK on wake (it reads D1 itself), keeps it in memory, and re-unwraps every hour. A refusal sets `org_keys.state = 'unavailable'` and the org's files answer 503 `key_unavailable` (sockets and REST).
+    - **The room** unwraps the DEK on wake (it reads D1 itself), keeps it in memory, and re-unwraps every hour. A failure (the secret rotated or missing) sets `org_keys.state = 'unavailable'` and the org's files answer 503 `key_unavailable` (sockets and REST).
     - **Ours, differing from Figma:** we don't log everyone out, because an account spans orgs.
     - **Existing files:** each is encrypted on its next wake, plus an Admin loop `POST admin/key-management/encrypt-next` with progress (as the data-region move).
     - EKM can't be turned off.
@@ -194,7 +193,7 @@ Sources, read 2026-10-12:
   - **Login and provisioning:** Manage identity providers (IdP) — the table, + Add IDP, Edit configuration with domains, More › Remove; SCIM per IdP; **Session timeout** (Default 21 days / Custom timeout in minutes, hours or days); **IP allowlist** (a toggle plus the comma-separated field, with the caller's own IP shown).
   - **External access** (renames today's "Access"): Guest membership with **2FA for Guests** (a confirm: "‹N› guests will be blocked") and **Set default duration for guest access**; **File exporting** (the three radios; workspace overrides in Custom settings for workspaces); **Network access restrictions** (ranges with Testing / Enforced / Disabled and "‹N› accounts would have been blocked in the last 7 days").
   - **Other:** **Internal policies** (list, New policy with title, text, audience and cadence, Enable / Disable, acknowledged count); **Discovery** (toggle, ours).
-  - **Data:** **Key management** (source, ARNs, credentials, state, "Encrypting files… N of M").
+  - **Data:** **Key management** (Turn on, with the managed-key note; state; "Encrypting files… N of M").
   - **Billing:** Governance+ Add / Remove.
 - **People:** the guests' "Guest access expiration date" column, a "Blocked" badge, the Change / Remove expiration date actions, the bulk "Set guest expiration date", and the CSV's `2FA_enabled`.
 - **Activity:** a **Developer logs** tab with filters (Token name, User email, IP address, Token type, Source, Date range) and Load more.
@@ -204,27 +203,29 @@ Sources, read 2026-10-12:
   - Home and the editor mount them from `OrgSummary.gate` and from 403 codes. The editor gates exporting by `access.canExport`, and the Share dialog's Advanced label becomes Figma's "Viewers can copy, share, and export from this file".
   - The idle option at 15 minutes needs no client change beyond Admin; main's `IdleTimer` already prompts at −60 s.
 
-## 6. Shared types — `src/shared/org/governance.ts` (TODO: finalize as compiling code before the round)
+## 6. Shared types — `src/shared/org/governance.ts` (committed; the file is the contract)
 
-These must exist, with these names:
+They exist, with these names:
 - `FileExporting = "all" | "guests_blocked" | "viewers_blocked"` and `FILE_EXPORTING_LABEL` (§1 labels); `viewerMayExport(p, isOrgMember)`.
 - `IDLE_GOVERNANCE_MIN_HOURS = 0.25`; `validIdleHours(h, governancePlus)`.
 - `GUEST_EXPIRY_WARNING_MS = 14 d`, `GUEST_EXPIRY_MAX_DAYS = 3650`.
-- `IpRange {id, cidr, createdAt, createdBy}`; `NetworkRange extends IpRange {state, wouldBlock7d}`; `normalizeCidr(s): string | null` (v4 and v6, with prefix limits for network ranges); `ipInCidr(ip, cidr)`.
-- `TOTP = {digits: 6, periodS: 30, window: 1}`; `base32Encode` / `base32Decode`; `totpCode(secret, counter): Promise<string>` (WebCrypto HMAC-SHA1, RFC 4226 truncation); `otpauthUrl(secretB32, email, "DesignerV2")`; `TwoFactorStatus`, `TwoFactorSetup`, `TwoFactorEnabled`.
+- `IpRange {id, cidr, createdAt, createdBy}`; `NetworkRange extends IpRange {state, wouldBlock7d}`; `IpAllowlist`; `parseIp`; `normalizeCidr(s, kind)`: string | null (v4 and v6, `NETWORK_MIN_PREFIX` for network ranges); `ipInCidr(ip, cidr)` (IPv4-mapped v6 matches v4 ranges).
+- `TOTP = {digits: 6, periodS: 30, window: 1}`; `base32Encode` / `base32Decode`; `totpCode(secret, counter): Promise<string>` (WebCrypto HMAC-SHA1, RFC 4226 truncation); `totpStep`, `verifyTotp(secret, code, now, lastStep)` (no replay); `otpauthUrl(secretB32, email, "DesignerV2")`; `generateRecoveryCode`; `TwoFactorStatus`, `TwoFactorSetup`, `TwoFactorEnabled`.
 - `PolicyAudience = "members" | "guests" | "everyone"`, `PolicyCadence = "yearly" | "once"`; `InternalPolicy`, `InternalPolicyInput`, `PolicyPrompt`; `policyApplies(p, role)`; `needsAcknowledgement(p, lastAt, now)`; limits: title ≤ 200, text ≤ 20,000.
 - `OrgGate = {kind: "two_factor"} | {kind: "policy", policies: PolicyPrompt[]} | {kind: "ip", ip: string}`.
-- `KeySource = "managed" | "aws_kms"`; `EkmStatus`; `EkmInput`; `KMS_ARN_RE`; `ENC_MAGIC = "DV2E"`.
+- `KeySource = "managed"`; `EkmStatus`; `EkmInput`; `ENC_MAGIC = "DV2E"`, `ENC_VERSION`, `ENC_HEADER_BYTES`, `EKM_RECHECK_MS`.
 - `DiscoveryTextType` (Figma's 9), `DiscoveryActionType`, `DiscoveryEvent` (§1 fields, snake_case), `DiscoveryResponse`; `discoveryHourKey(ms)`; `DiscoveryTextItem {nodeId, textType, text}`.
 - `DeveloperLogItem`, `DeveloperLogsQuery`, `DeveloperLogsResponse` (§1 shapes, plus `token_type` `"session"`); `McpLogReport`.
 - `GovernanceOverview`; `GovernanceErrorCode`; `GovernanceActivityAction` (§1 and §3); `GovernanceSignInError = "network_restricted" | "two_factor_failed"` with texts.
-- `GovernanceRepository` (overview, setGovernancePlus, setIpAllowlist, network-range CRUD, policies CRUD, pendingPolicies, acknowledgePolicy, setGuestExpiration, ekm / enableEkm / encryptNext, developerLogs, the IdP and domain-mapping methods) and `StoreApi.governance` with `notImplemented` stubs.
+- `GovernanceRepository` is in `src/shared/org/repositories.ts` (admin calls, the members' policy calls, the caller's own 2FA); `StoreApi.governance`, the protocol's method list and the client are wired; both stores use the stub `src/store/org/governance.ts` until 14e.
 
 Additions elsewhere:
 - `OrgSettings` gains `twoFactorForGuests: false`, `guestExpiryDays: null`, `fileExporting: "all"`, `discovery: false`.
 - `OrgInfo.governancePlus?`; `OrgSummary.gate?`, `OrgSummary.guestExpiresAt?`; `AdminPerson.twoFactor?`, `AdminPerson.guestExpiresAt?`.
 - `FilePolicy.fileExporting?`, `WorkspaceSharingSettings.fileExporting?`, `RoomPolicy.discovery?`.
-- `SignInError | GovernanceSignInError`; `IdentityOverview.idps?` and `IdpConfig.name? / domains?`.
+- `SignInError | GovernanceSignInError`; `IdentityOverview.idps?` and `IdpConfig.name? / domains?`, `IdpConfigInput.name?`.
+- `RestScope` and `TOKEN_SCOPES` gain `org:discovery_read`, `org:developer_log_read` (also plan-token scopes); Admin's `ACTION_LABEL` has a first sentence per new action (14h refines).
+- Server stubs: `server/src/governance/gate.ts` (`orgGate`, `networkCheck`: let everything through), `server/src/discovery/record.ts` (`recordDiscovery`, `discoveryAlarm`, `DiscoveryRoom`), `server/src/rest/devlog.ts` (`logDeveloperCall`, `DeveloperLogEntry`), `server/src/ekm/cipher.ts` (`RoomCipher`, `PLAIN_CIPHER`).
 - `RestJob | {kind: "discovery_text"}`; `ActivityAction | GovernanceActivityAction`; `ErrorCode | GovernanceErrorCode`.
 
 ## 7. D1: migration `server/migrations/0018_governance.sql` (0017 is reserved for time-stamped comments)
@@ -324,20 +325,16 @@ CREATE TABLE policy_acknowledgements (
   PRIMARY KEY (policy_id, user_id)
 );
 
--- Encryption key management (§2.10)
+-- Encryption key management (§2.10): managed keys only (the org's DEK wrapped under the Worker secret EKM_ROOT_KEY)
 CREATE TABLE org_keys (
-  org_id              TEXT PRIMARY KEY REFERENCES orgs (id) ON DELETE CASCADE,
-  source              TEXT NOT NULL CHECK (source IN ('managed', 'aws_kms')),
-  wrapped_dek         TEXT NOT NULL,
-  kms_key_arn         TEXT,
-  kms_replica_key_arn TEXT,
-  aws_region          TEXT,
-  aws_credentials     TEXT,
-  state               TEXT NOT NULL DEFAULT 'ok' CHECK (state IN ('ok', 'unavailable')),
-  checked_at          INTEGER,
-  created_by          TEXT REFERENCES users (id) ON DELETE SET NULL,
-  created_at          INTEGER NOT NULL,
-  updated_at          INTEGER NOT NULL
+  org_id      TEXT PRIMARY KEY REFERENCES orgs (id) ON DELETE CASCADE,
+  source      TEXT NOT NULL DEFAULT 'managed' CHECK (source IN ('managed')),
+  wrapped_dek TEXT NOT NULL,
+  state       TEXT NOT NULL DEFAULT 'ok' CHECK (state IN ('ok', 'unavailable')),
+  checked_at  INTEGER,
+  created_by  TEXT REFERENCES users (id) ON DELETE SET NULL,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
 );
 ALTER TABLE files ADD COLUMN encrypted_at INTEGER;
 
@@ -389,8 +386,12 @@ CREATE TABLE developer_logs (
 CREATE INDEX developer_logs_org ON developer_logs (org_id, at);
 ```
 
-TODO (main session, before the round): check `PRAGMA defer_foreign_keys` and the table rebuild against D1 locally (`wrangler d1 migrations apply --local`); check that no view or trigger references `idp_configs`.
+Checked 2026-10-12 on local D1 (`wrangler d1 migrations apply --local` over 0001–0016 with an IdP and a SCIM token, then 0018): the rebuild keeps the rows, `scim_tokens.tenant_id` is filled, `PRAGMA foreign_key_check` is empty. No view, trigger or foreign key references `idp_configs`.
 
-## 8. Not decided here
+## 8. The owner's answers (2026-10-12: "free-tier and performance first; decide")
 
-See `docs/roadmap.md` "Round 14" — open questions.
+1. **Guest 2FA:** our TOTP (§2.4). Free (no SMS), and the only form that can block anyone here.
+2. **Key management:** managed only (§2.10). No AWS path.
+3. **Discovery:** off by default, an admin switch (§2.11). When off, nothing is recorded and the room's hourly job doesn't run — no cost.
+4. **Network restrictions and policies:** self-serve by org admins (§2.2), as the data region.
+5. **IP allowlist:** IPv4 and IPv6 (§2.3).

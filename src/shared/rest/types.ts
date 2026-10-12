@@ -6,9 +6,11 @@ export type RestScope =
   | "file_variables:read" | "file_variables:write" | "file_code_connect:write"
   | "library_assets:read" | "library_content:read" | "team_library_content:read" | "library_analytics:read"
   | "folders:read" | "folder_metadata:read" | "projects:read" | "project_metadata:read"
-  | "webhooks:read" | "webhooks:write" | "org:activity_log_read" | "org:ai_metering_usage_read";
+  | "webhooks:read" | "webhooks:write" | "org:activity_log_read" | "org:ai_metering_usage_read"
+  // Round 14 (docs/governance.md §4)
+  | "org:discovery_read" | "org:developer_log_read";
 /** Scopes a plan access token may hold (§16.3) */
-export const PLAN_TOKEN_SCOPES: readonly RestScope[] = ["org:activity_log_read", "org:ai_metering_usage_read", "library_analytics:read", "webhooks:read", "webhooks:write"];
+export const PLAN_TOKEN_SCOPES: readonly RestScope[] = ["org:activity_log_read", "org:ai_metering_usage_read", "library_analytics:read", "webhooks:read", "webhooks:write", "org:discovery_read", "org:developer_log_read"];
 /** Per-minute limits by tier (§16.2 decision 4): Figma's Organization numbers; low seats' Tier 1 is per day (ours) */
 export const RATE_LIMITS = { high: { 1: 20, 2: 100, 3: 150 }, low: { 1: 20, 2: 5, 3: 10 }, lowTier1PerDay: true, dailyCap: 5000 } as const;
 
@@ -20,7 +22,9 @@ export type RestJob =
   | { kind: "nodes"; params: FileParams & { ids: string[] }; version?: string }
   | { kind: "images"; params: ImagesParams; version?: string }
   | { kind: "variables_local"; version?: string }
-  | { kind: "variables_post"; body: VariablesPostBody; actorUserId: string };
+  | { kind: "variables_post"; body: VariablesPostBody; actorUserId: string }
+  /** Round 14 Discovery (docs/governance.md §2.11): every text-bearing node; one part "json" = DiscoveryTextItem[] */
+  | { kind: "discovery_text"; version?: undefined };
 export interface RestJobPart { name: string; sha1: string; size: number; contentType: string }
 /** images: one part per id (name = the node id), absent = null; file / nodes / variables_*: one part "json" (gzip) */
 export type RestJobResult = { ok: true; parts: RestJobPart[] } | { ok: false; status: number; err: string };
