@@ -1,7 +1,8 @@
 /**
- * The account in main (docs/multiplayer.md §2): Sign in with Google through the browser (signIn.ts), the session token
- * kept with safeStorage in userData/account/session.json (mode 0600), every view told on `account:changed`. The token
- * never reaches a view; the store gets it from here when shared files arrive (docs/multiplayer.md §5).
+ * The account in main (docs/multiplayer.md §2, docs/desktop.md §18.7): Sign in with Google through the sign-in sheet or
+ * the browser (signIn.ts); up to 10 accounts signed in at once, one current (accounts.ts), their session tokens kept
+ * with safeStorage in userData/account/sessions.json (mode 0600), every view told on `account:changed`. A token never
+ * reaches a view; the store gets the current one from here (docs/multiplayer.md §5).
  */
 import { app, BaseWindow, Notification, powerMonitor, shell, webContents, type WebContents } from "electron";
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -17,89 +18,112 @@ import type { StoreClient } from "../../shared/store/client";
 import { viewOf } from "../views";
 import { IdleTimer, type IdleState } from "./idle";
 import { authSheet } from "./authSheet";
+import { AccountList, accountAdded, accountDropped, decodeAccounts, logOut, logOutAll, MAX_ACCOUNTS, switchAccount, type AccountFlowDeps } from "./accounts";
 import { SheetUnavailable, signInFlow, signInWithBrowser, signInWithSheet, SignInError, TENANT_ID, type Session, type SignInMethod, type SignInOptions } from "./signIn";
-
-interface StoredSession {
-  server: string;
-  /** "enc:<base64>" (safeStorage) or "raw:<token>" when the OS offers no encryption */
-  token: string;
-  expiresAt: number;
-  user: AccountUser;
-}
 
 /** DESIGNER_SERVER (development) unless the deployment keys' AllowedOriginHosts leave it out (docs/desktop.md §12.5) */
 export const serverUrl = (): string =>
   desktopPolicy().allowedOriginHosts.length ? allowedServer(process.env.DESIGNER_SERVER, desktopPolicy()).server : (process.env.DESIGNER_SERVER || DEFAULT_SERVER).replace(/\/+$/, "");
 
 const dir = () => join(app.getPath("userData"), "account");
-const file = () => join(dir(), "session.json");
+const file = () => join(dir(), "sessions.json");
+/** Before several accounts: the one session (read once, then replaced by sessions.json) */
+const legacyFile = () => join(dir(), "session.json");
 
-let session: Session | null = null;
+const FULL_TEXT = `You can be logged in to a maximum of ${MAX_ACCOUNTS} accounts at a time.`;
+
+let list = new AccountList();
+/** The current account's session */
+const current = (): Session | null => list.current;
 let loaded = false;
 let loading: Promise<void> | null = null;
 let pending: AbortController | null = null;
 
-/** The kept session, for the sync callers: a "raw:" one is in at once; a sealed one comes through the keychain off
- *  main's thread (sealed.ts) and is announced when it lands. Never `decryptString` here: on a Mac a keychain prompt
- *  holds it, and this runs first thing at launch (checkSession) — main frozen before the store even starts. */
+/** The kept sessions, for the sync callers: they come through the keychain off main's thread (sealed.ts) and are
+ *  announced when they land. Never `decryptString` here: on a Mac a keychain prompt holds it, and this runs first thing
+ *  at launch (checkSession) — main frozen before the store even starts. */
 function load(): void {
   if (!loaded) void loadSession();
 }
 
-/** Reads userData/account/session.json once; resolves when the session (if any) is in. */
+/** Reads userData/account/sessions.json (or the single session.json of before) once; resolves when the sessions are in. */
 export function loadSession(): Promise<void> {
   if (loaded) return Promise.resolve();
   if (loading) return loading;
-  let s: StoredSession;
+  let raw: unknown = null;
+  let legacy = false;
   try {
-    s = JSON.parse(readFileSync(file(), "utf8")) as StoredSession;
+    raw = JSON.parse(readFileSync(file(), "utf8"));
   } catch {
-    loaded = true;
-    return Promise.resolve();
+    try {
+      raw = JSON.parse(readFileSync(legacyFile(), "utf8"));
+      legacy = true;
+    } catch {
+      loaded = true;
+      return Promise.resolve();
+    }
   }
-  const accept = (token: string | null) => {
-    // A session for another server (DESIGNER_SERVER changed) or past its end is no session.
-    if (token && s?.server === serverUrl() && s.expiresAt > Date.now()) session = { server: s.server, token, expiresAt: s.expiresAt, user: s.user };
-  };
-  if (typeof s?.token !== "string" || !s.token.startsWith("enc:")) {
-    loaded = true;
-    accept(typeof s?.token === "string" && s.token.startsWith("raw:") ? s.token.slice(4) : null);
-    return Promise.resolve();
-  }
-  loading = unsealAsync(s.token, { warn: (m) => console.warn(`[account] ${m}`) }).then((token) => {
-    loading = null;
-    // Signed in or out meanwhile: that answer stands.
-    if (loaded) return;
-    loaded = true;
-    accept(token);
-    // Known now (signed in or not): the welcome window leaves its splash, or gives way to the app.
-    announce(session !== null);
-  });
+  loading = decodeAccounts(raw, { server: serverUrl(), now: Date.now(), unseal: (t) => unsealAsync(t, { warn: (m) => console.warn(`[account] ${m}`) }) })
+    .catch(() => new AccountList())
+    .then((l) => {
+      loading = null;
+      // Signed in or out meanwhile: that answer stands.
+      if (loaded) return;
+      loaded = true;
+      list = l;
+      if (legacy) save();
+      // Known now (signed in or not): the welcome window leaves its splash, or gives way to the app.
+      void announce(list.current !== null);
+    });
   return loading;
 }
 
 let saving: Promise<void> = Promise.resolve();
-/** In order (sealing is async); the file is 0600. */
-function save(s: Session | null): void {
+let saves = 0;
+/** Each token sealed once (the keychain isn't asked again for the same one) */
+const sealedTokens = new Map<string, string>();
+/** In order (sealing is async), the last save having the last word; the file is 0600. */
+function save(): void {
+  const gen = ++saves;
+  const snapshot = new AccountList(list.all(), list.current?.user.id ?? null);
   saving = saving
     .then(async () => {
-      if (!s) return void rmSync(file(), { force: true });
-      const stored: StoredSession = { server: s.server, token: await sealAsync(s.token), expiresAt: s.expiresAt, user: s.user };
-      // Signed out (or in again) while the keychain answered: the later save has the last word.
-      if (session?.token !== s.token) return;
+      if (!snapshot.size) {
+        rmSync(file(), { force: true });
+        rmSync(legacyFile(), { force: true });
+        return;
+      }
+      const stored = await snapshot.encode(async (token) => {
+        const known = sealedTokens.get(token);
+        if (known) return known;
+        const sealed = await sealAsync(token);
+        sealedTokens.set(token, sealed);
+        return sealed;
+      });
+      // Changed again while the keychain answered: the later save writes.
+      if (gen !== saves) return;
       mkdirSync(dir(), { recursive: true });
       const tmp = `${file()}.tmp`;
       writeFileSync(tmp, JSON.stringify(stored, null, 1), { mode: 0o600 });
       renameSync(tmp, file());
       chmodSync(file(), 0o600);
+      rmSync(legacyFile(), { force: true });
     })
-    .catch((e: unknown) => console.warn("[account] the session wasn't kept:", e instanceof Error ? e.message : e));
+    .catch((e: unknown) => console.warn("[account] the sessions weren't kept:", e instanceof Error ? e.message : e));
 }
+
+const viewUser = (user: AccountUser): AccountUser => ({ ...user, picture: viewPicture(user.picture) });
 
 export function accountState(): AccountState {
   load();
-  const user = session?.user ?? null;
-  return { server: serverUrl(), user: user && { ...user, picture: viewPicture(user.picture) }, signingIn: pending !== null, ...(loaded ? {} : { loading: true }) };
+  const user = current()?.user ?? null;
+  return {
+    server: serverUrl(),
+    user: user && viewUser(user),
+    accounts: list.all().map((s) => viewUser(s.user)),
+    signingIn: pending !== null,
+    ...(loaded ? {} : { loading: true }),
+  };
 }
 
 /** What the server learns the desktop app by (Sessions: "App", "Designer Desktop", the OS). */
@@ -136,16 +160,17 @@ function viewPicture(picture: string | null): string | null {
 
 /**
  * Settings (docs/multiplayer.md §13): a view's request for the caller's own account (`/me…` only), sent with the
- * session. A refused session is dropped; after Delete account the app is logged out; a changed name or photo is
- * every view's at once.
+ * current session. A refused session is dropped; after Delete account that account is logged out; a changed name or
+ * photo is every view's at once.
  */
 export async function accountRequest(r: { method: AccountMethod; path: string; body?: unknown }): Promise<AccountResponse> {
   if (!["GET", "POST", "PATCH", "DELETE"].includes(r?.method) || typeof r.path !== "string" || !ACCOUNT_PATH.test(r.path)) throw new Error("account:request: not an account path");
   const token = sessionToken();
-  if (!token || !session) return { status: 401, body: { error: "Log in first" } };
+  const s = current();
+  if (!token || !s) return { status: 401, body: { error: "Log in first" } };
   let res: Response;
   try {
-    res = await mainFetch(`${session.server}${r.path}`, {
+    res = await mainFetch(`${s.server}${r.path}`, {
       method: r.method,
       headers: { authorization: `Bearer ${token}`, "user-agent": desktopUserAgent(), ...(r.body !== undefined ? { "content-type": "application/json" } : {}) },
       body: r.body === undefined ? undefined : JSON.stringify(r.body),
@@ -155,21 +180,33 @@ export async function accountRequest(r: { method: AccountMethod; path: string; b
     return { status: 0, body: { error: "You're offline" } };
   }
   const body = (await res.json().catch(() => null)) as unknown;
-  if (res.status === 401) dropSession(body);
-  else if (res.ok && r.method === "DELETE" && r.path === "/me") setSession(null);
-  else if (res.ok && r.path === "/me/profile" && r.method === "PATCH" && session && body && typeof body === "object") {
+  if (res.status === 401) dropSession(body, s.user.id);
+  else if (res.ok && r.method === "DELETE" && r.path === "/me") void flow((d) => accountDropped(d, s.user.id));
+  else if (res.ok && r.path === "/me/profile" && r.method === "PATCH" && body && typeof body === "object") {
     const p = body as AccountUser;
-    const user: AccountUser = { id: p.id, email: p.email, name: p.name, picture: p.picture };
-    if (JSON.stringify(user) !== JSON.stringify(session.user)) setSession({ ...session, user });
+    updateUser(s.token, { id: p.id, email: p.email, name: p.name, picture: p.picture });
   }
   return { status: res.status, body };
 }
 
-/** The session token for the server, or null (signed out / expired) — main and the store only. */
+/** The account's name or photo changed (Settings, GET /me): kept and shown — while that session is still kept. */
+function updateUser(token: string, user: AccountUser): void {
+  const s = list.all().find((a) => a.token === token);
+  if (!s || s.user.id !== user.id || JSON.stringify(user) === JSON.stringify(s.user)) return;
+  list.put({ ...s, user });
+  save();
+  broadcast();
+}
+
+/** The current session's token for the server, or null (signed out / expired) — main and the store only. */
 export function sessionToken(): string | null {
   load();
-  if (session && session.expiresAt <= Date.now()) setSession(null);
-  return session?.token ?? null;
+  const s = current();
+  if (s && s.expiresAt <= Date.now()) {
+    void flow((d) => accountDropped(d, s.user.id));
+    return null;
+  }
+  return s?.token ?? null;
 }
 
 function broadcast(): void {
@@ -178,36 +215,30 @@ function broadcast(): void {
 }
 
 const sessionListeners = new Set<() => void>();
-/** Main's own listeners for a sign-in, a sign-out or a dropped session (the shared fonts refresh on it). */
+/** Main's own listeners for a sign-in, a sign-out, a switch to another account or a dropped session (the shared fonts
+ *  refresh on it; the gate opens or closes the app window). */
 export function onSessionChanged(listener: () => void): () => void {
   sessionListeners.add(listener);
   return () => sessionListeners.delete(listener);
 }
 
-function setSession(s: Session | null): void {
-  const changed = (s?.token ?? null) !== (session?.token ?? null);
-  session = s;
-  loaded = true;
-  if (!s) idle.stop();
-  save(s);
-  announce(changed);
-}
-
-/** Every view, main's listeners (when the token changed) and the store learn the session. */
-function announce(changed: boolean): void {
+/** Every view, main's listeners (when the current token changed) and the store learn the session; resolves when the
+ *  store has it. */
+function announce(changed: boolean): Promise<void> {
   broadcast();
   if (changed) for (const l of [...sessionListeners]) l();
   const c = storeClient();
-  if (c) void pushSession(c);
+  return c ? pushSession(c) : Promise.resolve();
 }
 
-/** The store joins shared files' rooms with the session (docs/multiplayer.md §5); null leaves them. */
+/** The store joins shared files' rooms with the current session (docs/multiplayer.md §5); null leaves them. */
 function pushSession(client: StoreClient): Promise<void> {
   // Not read yet (the keychain): the store hears when it is — a "none" now would be a wrong first word.
   load();
   if (!loaded) return Promise.resolve();
   const token = sessionToken();
-  return client.multiplayer.setSession(token && session ? { server: session.server, token } : null).then(
+  const s = current();
+  return client.multiplayer.setSession(token && s ? { server: s.server, token } : null).then(
     () => {},
     (e: unknown) => console.warn("[account] the store didn't take the session", e),
   );
@@ -224,6 +255,63 @@ export function initAccount(): void {
   onStoreReady((c) => void pushSession(c));
 }
 
+// ---- moving between accounts (docs/desktop.md §18.7) ---------------------------------------------------------------
+
+/** The windows' part of leaving one account for another; set by the gate (src/main/gate.ts). */
+export interface AccountWindows {
+  /** Every open file settled (a failed save asks) — false: the person stays with the account */
+  settle(): Promise<boolean>;
+  /** The account's file tabs closed, its files flushed — another account comes next */
+  leave(): Promise<void>;
+  /** Another account is current (the store has its session): Home again */
+  arrived(): void;
+}
+let windows: AccountWindows | null = null;
+export function setAccountWindows(w: AccountWindows | null): void {
+  windows = w;
+}
+
+/** The list changed: kept, announced; a new current session restarts the idle timeout with its own limit. */
+function commit(before: string | null): Promise<void> {
+  loaded = true;
+  save();
+  const s = current();
+  const changed = before !== (s?.token ?? null);
+  if (changed) {
+    idle.stop();
+    if (s) {
+      // The new session's idle limit (GET /me's session).
+      idle.start(null);
+      void fetchMe().then((me) => me && idle.start(me.session));
+    }
+  }
+  return announce(changed);
+}
+
+/** One flow at a time (a switch waits for a log out's questions, and so on) */
+let flows: Promise<unknown> = Promise.resolve();
+function flow<T>(run: (d: AccountFlowDeps) => Promise<T>): Promise<T> {
+  const deps = (): AccountFlowDeps => {
+    let before = current()?.token ?? null;
+    return {
+      list,
+      settle: async () => (windows ? windows.settle() : true),
+      leave: async () => {
+        await windows?.leave();
+      },
+      commit: () => {
+        const b = before;
+        before = current()?.token ?? null;
+        return commit(b);
+      },
+      arrived: () => windows?.arrived(),
+    };
+  };
+  const next = flows.then(() => run(deps()));
+  flows = next.catch(() => {});
+  return next;
+}
+
 /** The window the sign-in sheet hangs on: the focused one, else the first */
 const sheetWindow = (): BaseWindow | null => BaseWindow.getFocusedWindow() ?? BaseWindow.getAllWindows().find((w) => !w.isDestroyed() && w.isVisible()) ?? null;
 
@@ -231,7 +319,9 @@ const sheetWindow = (): BaseWindow | null => BaseWindow.getFocusedWindow() ?? Ba
  * Signs in (docs/desktop.md §18.6): on a Mac in the sign-in sheet over the window (only the server's, Google's or the
  * IdP's pages), else — and when the sheet can't start — in the system browser; a second call replaces a sign-in still
  * waiting. `tenant`: an org's SAML (Admin's Test, the `designer://sign-in?tenant=` link) — straight to its IdP;
- * `method`: the welcome page's Log in with Google ("google") or Log in with SSO ("sso").
+ * `method`: the welcome page's Log in with Google ("google") or Log in with SSO ("sso"). Signed in already, this is
+ * the account menu's **Add account** (§18.7): the current account stays until the new one is in, then the app
+ * switches to it.
  */
 export async function signIn(opts?: { tenant?: string; method?: SignInMethod }): Promise<SignInResult> {
   const tenant = typeof opts?.tenant === "string" ? opts.tenant : undefined;
@@ -256,10 +346,8 @@ export async function signIn(opts?: { tenant?: string; method?: SignInMethod }):
       }
     } else s = await signInWithBrowser(base);
     if (pending === ac) pending = null;
-    setSession(s);
-    // The new session's idle limit (GET /me's session).
-    idle.start(null);
-    void fetchMe().then((me) => me && idle.start(me.session));
+    const r = await flow((d) => accountAdded(d, s));
+    if (r === "full") throw new SignInError("failed", FULL_TEXT);
     app.focus({ steal: true });
     return { ok: true, state: accountState() };
   } catch (e) {
@@ -275,19 +363,26 @@ export function cancelSignIn(): AccountState {
   return accountState();
 }
 
-let signOutGuard: (() => Promise<boolean>) | null = null;
-/** Before Log out drops the session (docs/desktop.md §18.6): the open files flushed — false keeps the person signed
- *  in (they chose to stay with a file that didn't save). Set by the window gate (src/main/gate.ts). */
-export function setSignOutGuard(guard: (() => Promise<boolean>) | null): void {
-  signOutGuard = guard;
+/** The account menu's account rows: the app moves to that account (files settled and closed, Home reloaded). */
+export async function switchTo(userId: string): Promise<AccountState> {
+  pending?.abort();
+  if (typeof userId === "string") await flow((d) => switchAccount(d, userId));
+  return accountState();
 }
 
-/** Log out (the account menu): the files settled first, then the session dropped — the gate then closes the windows
- *  and shows the welcome page. The idle timeout and a refused session drop it without asking (dropSession). */
+/** Log out (the account menu): the current account only — its files settled first (Cancel keeps it). Another account
+ *  signed in becomes current; none left, the gate closes the window and shows the welcome page. The idle timeout and a
+ *  refused session drop an account without asking (dropSession). */
 export async function signOut(): Promise<AccountState> {
   pending?.abort();
-  if (session && signOutGuard && !(await signOutGuard())) return accountState();
-  setSession(null);
+  await flow((d) => logOut(d));
+  return accountState();
+}
+
+/** Log out of all accounts (the account menu, with more than one): the files settled once, then the welcome page. */
+export async function signOutAll(): Promise<AccountState> {
+  pending?.abort();
+  await flow((d) => logOutAll(d));
   return accountState();
 }
 
@@ -301,7 +396,7 @@ export const sessionKnown = (): boolean => loaded;
 export async function checkSession(): Promise<void> {
   await loadSession();
   const token = sessionToken();
-  if (!token || !session) return;
+  if (!token || !current()) return;
   // Signed in (maybe offline): activity counts from now; the limit comes with /me.
   idle.start(null);
   const me = await fetchMe();
@@ -315,29 +410,31 @@ async function fetchMe(): Promise<{ user: AccountUser; session: IdleState | null
   const body = (await res.json().catch(() => null)) as (AccountUser & { session?: SessionIdle | null }) | null;
   if (!body || typeof body !== "object") return undefined;
   const user: AccountUser = { id: body.id, email: body.email, name: body.name, picture: body.picture };
-  if (session && JSON.stringify(user) !== JSON.stringify(session.user)) setSession({ ...session, user });
+  updateUser(res.token, user);
   const s = body.session;
   return { user, session: s && typeof s.activeAt === "number" ? { activeAt: s.activeAt, idleLimitMs: typeof s.idleLimitMs === "number" ? s.idleLimitMs : null } : null };
 }
 
 /** Main's own request to the server with the session; a refused session is dropped (an idle one with the toast).
  *  null when signed out or not answered. */
-async function api(method: "GET" | "POST" | "DELETE", path: string, timeoutMs: number): Promise<Response | null> {
+async function api(method: "GET" | "POST" | "DELETE", path: string, timeoutMs: number): Promise<(Response & { token: string }) | null> {
   const token = sessionToken();
-  if (!token || !session) return null;
+  const s = current();
+  if (!token || !s) return null;
   try {
-    const res = await mainFetch(`${session.server}${path}`, { method, headers: { authorization: `Bearer ${token}`, "user-agent": desktopUserAgent() }, signal: AbortSignal.timeout(timeoutMs) });
-    if (res.status === 401 && session?.token === token) dropSession(await res.clone().json().catch(() => null));
-    return res;
+    const res = await mainFetch(`${s.server}${path}`, { method, headers: { authorization: `Bearer ${token}`, "user-agent": desktopUserAgent() }, signal: AbortSignal.timeout(timeoutMs) });
+    if (res.status === 401 && list.all().some((a) => a.token === token)) dropSession(await res.clone().json().catch(() => null), s.user.id);
+    return Object.assign(res, { token });
   } catch {
     return null;
   }
 }
 
-/** A 401: the session is gone; `idle_timeout` (the computer slept past the deadline) also says why (docs/desktop.md §18.2). */
-function dropSession(body: unknown): void {
+/** A 401: that account's session is gone — only that account (docs/desktop.md §18.7); `idle_timeout` (the computer
+ *  slept past the deadline) also says why (docs/desktop.md §18.2). */
+function dropSession(body: unknown, userId: string): void {
   const idleOut = !!body && typeof body === "object" && (body as { code?: unknown }).code === "idle_timeout";
-  setSession(null);
+  void flow((d) => accountDropped(d, userId));
   if (idleOut) notifyIdle({ state: "logged-out" });
 }
 
@@ -357,10 +454,12 @@ const idle = new IdleTimer({
   endSession: async () => {
     await api("DELETE", "/me/sessions/current?reason=idle", 5_000);
   },
-  // The idle timeout logs out without asking: the gate still flushes every file before the window closes.
+  // The idle timeout logs out the current account without asking: its files are still flushed (the window's tabs
+  // when another account takes over, else the gate's closing window).
   signOut: () => {
     pending?.abort();
-    setSession(null);
+    const s = current();
+    if (s) void flow((d) => accountDropped(d, s.user.id));
   },
   notify: (n) => notifyIdle(n),
 });
@@ -422,11 +521,11 @@ export function initIdle(): void {
 export const idleDebug = () => idle.debug();
 
 /** Under test (DESIGNER_TEST, scripts/drive.mjs): a session handed in as a finished sign-in would (a dev session from
- *  the local server's /auth/dev) — the gate's sign-in path without Google. */
-export function signInForTest(s: Session): AccountState {
+ *  the local server's /auth/dev) — the gate's sign-in path without Google; signed in already, an added account. */
+export async function signInForTest(s: Session): Promise<AccountState> {
   if (process.env.DESIGNER_TEST !== "1") throw new Error("test only");
   pending?.abort();
   pending = null;
-  setSession(s);
+  await flow((d) => accountAdded(d, s));
   return accountState();
 }

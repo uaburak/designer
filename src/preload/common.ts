@@ -76,6 +76,9 @@ export function common<R extends Role>(role: R) {
         invoke("account:sign-in", ...(opts && typeof opts.tenant === "string" ? [{ tenant: String(opts.tenant) }] : opts?.method === "google" || opts?.method === "sso" ? [{ method: opts.method }] : [])),
       cancelSignIn: () => invoke("account:cancel-sign-in"),
       signOut: () => invoke("account:sign-out"),
+      // Several accounts (docs/desktop.md §18.7)
+      switchTo: (userId: string) => invoke("account:switch", String(userId ?? "").slice(0, 128)),
+      signOutAll: () => invoke("account:sign-out-all"),
       onChanged: (cb: (s: IpcEvents["account:changed"]) => void) => on("account:changed", cb),
       // The idle timeout's prompt (docs/desktop.md §18.2)
       staySignedIn: () => invoke("account:stay-signed-in"),

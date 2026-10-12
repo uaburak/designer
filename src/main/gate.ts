@@ -1,5 +1,5 @@
 import { app } from "electron";
-import { loadSession, onSessionChanged, sessionKnown, sessionToStore, setSignOutGuard, signedIn } from "./account";
+import { loadSession, onSessionChanged, sessionKnown, sessionToStore, setAccountWindows, signedIn } from "./account";
 import { loginBypassed, OpenQueue } from "./gateRules";
 import { setMenuSignedOut } from "./menu";
 import { WelcomeWindow } from "./welcome";
@@ -51,13 +51,22 @@ function showWelcome(bounds = savedBounds()): WelcomeWindow {
 
 /** Wired once at launch (before the first window). */
 export function initGate(): void {
+  // Leaving an account (Log out, a switch to another — docs/desktop.md §18.7): every file settled first (a failed save
+  // asks; Cancel keeps the person with that account); for another account the file tabs close and Home reloads.
+  setAccountWindows({
+    settle: async () => {
+      for (const ctl of [...controllers.values()]) if (!(await ctl.tabs.settleAll("close"))) return false;
+      return true;
+    },
+    leave: async () => {
+      await Promise.all([...controllers.values()].map((c) => c.leaveAccount()));
+    },
+    arrived: () => {
+      for (const c of controllers.values()) c.accountArrived();
+    },
+  });
   if (bypassed()) return;
   setMenuSignedOut(true);
-  // Log out: every file settled first (a failed save asks; Cancel keeps the person signed in).
-  setSignOutGuard(async () => {
-    for (const ctl of [...controllers.values()]) if (!(await ctl.tabs.settleAll("close"))) return false;
-    return true;
-  });
   onSessionChanged(() => void reconcile());
 }
 

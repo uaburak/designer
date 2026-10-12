@@ -371,6 +371,10 @@ export interface IpcInvoke extends SharedFontsChannels {
   "account:sign-in": { args: [opts?: { tenant?: string; method?: SignInMethod }]; result: SignInResult };
   "account:cancel-sign-in": { args: []; result: AccountState };
   "account:sign-out": { args: []; result: AccountState };
+  /** Several accounts (docs/desktop.md §18.7): the app moves to another signed-in account (by its user id) */
+  "account:switch": { args: [userId: string]; result: AccountState };
+  /** Log out of all accounts */
+  "account:sign-out-all": { args: []; result: AccountState };
   /** Settings: the caller's own account on the server (`/me…`, and the operator's `/operator/…` — shared/account.ts
    *  ACCOUNT_PATH); main adds the session */
   "account:request": { args: [{ method: AccountMethod; path: string; body?: unknown }]; result: AccountResponse };
@@ -577,6 +581,8 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "account:sign-in": ["home", "editor", "welcome"],
   "account:cancel-sign-in": ["home", "editor", "welcome"],
   "account:sign-out": ["home", "editor"],
+  "account:switch": ["home"],
+  "account:sign-out-all": ["home"],
   "account:request": ["home", "editor"],
   "account:stay-signed-in": ["home", "editor"],
   "plugins:list-development": ["editor"],

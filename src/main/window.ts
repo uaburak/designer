@@ -216,6 +216,25 @@ export class WindowController {
     if (!this.win.isDestroyed()) this.win.close();
   }
 
+  /**
+   * Leaving an account for another (docs/desktop.md §18.7; its own questions came first, `settleAll`): every open file
+   * flushed, the store's too, then every file tab closed and the closed tabs forgotten — the files belong to the account
+   * being left. The window stays; Home reloads once the next account is in (`accountArrived`).
+   */
+  async leaveAccount(): Promise<void> {
+    if (this.win.isDestroyed()) return;
+    await this.tabs.flushQuietly().catch(() => {});
+    await flushStore();
+    this.tabs.dispatch({ type: "reset" });
+    flushSession();
+  }
+
+  /** The next account is current (the store has its session): Home starts again for it. */
+  accountArrived(): void {
+    if (this.win.isDestroyed()) return;
+    this.tabs.reloadHome();
+  }
+
   /** The theme changed: each view's colour before its page paints. */
   themeChanged() {
     if (this.win.isDestroyed()) return;

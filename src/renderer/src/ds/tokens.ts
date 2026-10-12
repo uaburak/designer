@@ -389,6 +389,10 @@ export const size = {
   "settings-pad": 48,
   "settings-content": 200,
   "settings-photo": 120,
+  // Home's account menu (the owner's screenshot of live Figma, 2026-10-12): ~300 wide, the header's photo 48, 32 rows.
+  "account-menu": 300,
+  "account-photo": 48,
+  "account-row": 32,
   chit: 14, // K
   "swatch-round": 16,
   "styles-row": 30,

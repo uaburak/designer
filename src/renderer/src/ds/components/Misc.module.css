@@ -39,6 +39,8 @@
   .a24 { width: 24px; height: 24px; font-size: 10px; }
   .a28 { width: 28px; height: 28px; font-size: 11px; }
   .a32 { width: 32px; height: 32px; }
+  /* The account menu's header (live Figma: the photo 48, centred) */
+  .a48 { width: var(--ds-size-account-photo); height: var(--ds-size-account-photo); font-size: 18px; }
 
   .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--ds-space-2); max-width: 280px; margin: 0 auto; padding: var(--ds-space-6) var(--ds-space-4); text-align: center; }
   .emptyIcon { display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--ds-radius-full); background: var(--figma-color-bg-secondary); color: var(--figma-color-icon-secondary); }

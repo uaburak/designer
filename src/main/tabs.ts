@@ -288,6 +288,11 @@ export class TabManager {
     else again();
   }
 
+  /** Home's page again (another account is current, docs/desktop.md §18.7): its lists, spaces and orgs are the new account's. */
+  reloadHome() {
+    if (!this.home.webContents.isDestroyed()) this.home.webContents.reload();
+  }
+
   /** The view of a tab, or Home's. */
   viewOf(id: string): WebContentsView | undefined {
     return id === HOME ? this.home : this.runtime.get(id)?.view;

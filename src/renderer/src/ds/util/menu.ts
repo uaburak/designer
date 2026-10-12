@@ -33,6 +33,16 @@ export type MenuItem = {
   /** No special colour (Figma doesn't colour delete); kept for the native menu */
   danger?: boolean;
   items?: MenuEntry[];
+  /**
+   * The account menu's header (Home; live Figma): the person's photo (48) centred, the label — their name — underlined
+   * as a link, the email under it in the secondary colour. Still a row of the menu (keys reach it; picking it runs it).
+   */
+  profile?: { email: string; picture?: string };
+  /** `checked` drawn at the row's end instead of in a check column (the account menu's current account: every row keeps
+   *  the glyph column's text edge) */
+  checkEnd?: boolean;
+  /** A person's photo in the glyph column (the account menu's accounts) */
+  avatar?: { name: string; picture?: string };
 };
 export type MenuHeader = { header: string };
 export type MenuEntry = MenuItem | "-" | MenuHeader;

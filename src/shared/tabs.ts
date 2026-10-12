@@ -57,7 +57,9 @@ export type TabsAction =
   /** A file renamed (the store's `file.renamed`): its tabs and closed entries take the name */
   | { type: "retitle-file"; fileKey: string; title: string }
   /** A file trashed or deleted: its tabs close without going into the closed history, and it leaves that history */
-  | { type: "drop-file"; fileKey: string };
+  | { type: "drop-file"; fileKey: string }
+  /** Another account (docs/desktop.md §18.7): every file tab closed and the closed history emptied — Home in front */
+  | { type: "reset" };
 
 export const MAX_CLOSED = 20;
 export const UNTITLED = "Untitled";
@@ -157,6 +159,8 @@ export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
       const active = ids.includes(state.active) ? nextActive(state, ids) : state.active;
       return { tabs, active, closed };
     }
+    case "reset":
+      return state.tabs.length || state.closed.length || state.active !== HOME ? emptyTabs() : state;
   }
 }
 

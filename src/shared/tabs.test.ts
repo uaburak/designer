@@ -143,3 +143,16 @@ describe("prototype tabs (Present, R8 §9)", () => {
     expect(s.tabs).toEqual([]);
   });
 });
+
+describe("another account (docs/desktop.md §18.7)", () => {
+  it("resets: every file tab and the closed history gone, Home in front", () => {
+    let s: TabsState = emptyTabs();
+    s = tabsReducer(s, { type: "open", fileKey: "k1", title: "One" });
+    s = tabsReducer(s, { type: "open", fileKey: "k2", title: "Two" });
+    s = tabsReducer(s, { type: "close", ids: [s.tabs[0].id] });
+    expect(s.closed.length).toBe(1);
+    s = tabsReducer(s, { type: "reset" });
+    expect(s).toEqual({ tabs: [], active: HOME, closed: [] });
+    expect(tabsReducer(s, { type: "reset" })).toBe(s);
+  });
+});

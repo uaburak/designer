@@ -86,6 +86,9 @@
     --ds-size-settings-pad: 48px;
     --ds-size-settings-content: 200px;
     --ds-size-settings-photo: 120px;
+    --ds-size-account-menu: 300px;
+    --ds-size-account-photo: 48px;
+    --ds-size-account-row: 32px;
     --ds-size-chit: 14px;
     --ds-size-swatch-round: 16px;
     --ds-size-styles-row: 30px;

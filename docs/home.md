@@ -80,5 +80,5 @@ In a browser, a file opens as `?editor&file=<fileKey>`, and "Open in new tab" op
 ## Left to do
 
 - Drive it in the built app with `scripts/drive.mjs` once `?files` is Home.
-- Figma pieces with no counterpart here: Resources and Community, notifications, the account menu (theme switching and similar), FigJam / Slides / Make creation, sharing.
+- Figma pieces with no counterpart here: Resources and Community, notifications, FigJam / Slides / Make creation, sharing.
 - Wording to confirm against Figma's current file browser: empty-state and toast copy. The menus match the menu bar ("Move to folder…", "Move to trash").

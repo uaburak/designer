@@ -205,6 +205,9 @@ export function registerIpc() {
   );
   onInvoke("account:cancel-sign-in", () => account.cancelSignIn());
   onInvoke("account:sign-out", () => account.signOut());
+  // Several accounts (docs/desktop.md §18.7)
+  onInvoke("account:switch", (_c, userId) => account.switchTo(str(userId, 128) ?? ""));
+  onInvoke("account:sign-out-all", () => account.signOutAll());
   // The idle prompt's Stay logged in (docs/desktop.md §18.2)
   onInvoke("account:stay-signed-in", () => account.staySignedIn());
   onInvoke("account:request", (_c, r) => account.accountRequest({ method: r?.method, path: str(r?.path, 200) ?? "", body: r?.body }));

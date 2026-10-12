@@ -4,7 +4,7 @@
  * through its watch.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Breadcrumb, Button, ContextMenu, EmptyState, Icon, IconButton, MenuButton, SegmentedControl, Select, Spinner, showToast, type MenuEntry, type ToastOptions } from "@/ds";
+import { Breadcrumb, Button, ContextMenu, EmptyState, Icon, IconButton, MenuButton, SegmentedControl, Select, Spinner, showToast, useTheme, type MenuEntry, type ToastOptions } from "@/ds";
 import { keys } from "@/ds/util/keys";
 import type { FileKey, FileListItem, Folder, FolderId, Prefs } from "@shared/store/types";
 import type { OpenIntent } from "@shared/multiplayer/types";
@@ -87,7 +87,7 @@ type DialogState =
   | { kind: "create-org" };
 /** Local locations an org's space has its own of (shown when the space is switched). */
 const LOCAL_ONLY = new Set<Location["kind"]>(["drafts", "folders", "folder", "trash"]);
-type MenuState = { at: { x: number; y: number }; entries: MenuEntry[]; run: (id: string) => void };
+type MenuState = { at: { x: number; y: number }; entries: MenuEntry[]; run: (id: string) => void; className?: string };
 
 const DRAG_TYPE = "application/x-designer-items";
 const DEFAULT_BROWSE: Prefs["browse"] = { layout: "grid", sort: "last-viewed" };
@@ -484,6 +484,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   // --- the account (docs/multiplayer.md §2) ---
 
   const account = useAccount();
+  const theme = useTheme();
   useSessionNotices(backend, toast);
   // The shown org is gone from the person's list (removed, left, an expired guest): back to their own space, as Figma
   // does, instead of a switcher naming nothing. Signed in only (signed out the store lists no orgs at all).
@@ -499,20 +500,19 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   // Recents' tabs (live Figma): "Recently viewed" | "Shared files" (signed in)
   const [recentsTab, setRecentsTab] = useState<"viewed" | "shared">("viewed");
   const accountName = account.state?.user ? account.state.user.name || account.state.user.email : null;
+  // Figma's account menu (files/account.ts accountMenu): the spaces have their own switcher on the space row.
   const onAccountMenu = (e: React.MouseEvent) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const spaces = backend.org && account.state?.user ? ["-" as const, ...spaceEntries()] : [];
     setMenu({
       at: { x: r.left + 8, y: r.bottom },
-      entries: [...accountMenu(account.state), ...spaces],
+      entries: accountMenu(account.state, { theme: theme.preference, multi: account.multi }),
+      className: styles.accountMenu,
       run: (id) =>
-        id === "settings"
-          ? openSettings()
-          : id === "create-org" || id.startsWith("space:")
-            ? runSpace(id)
-            : void account.run(id).then((failure) => {
-                if (failure) toast({ kind: "error", message: failure });
-              }),
+        id === "settings" || id === "profile"
+          ? openSettings("account")
+          : void account.run(id).then((failure) => {
+              if (failure) toast({ kind: "error", message: failure });
+            }),
     });
   };
   const spaceEntries = () => spaceMenu({ local: workspaceName || "Drafts", orgs: orgShell.orgs, current: space, signedIn: !!account.state?.user });
@@ -826,7 +826,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           onTestSso={testSso}
           onBack={() => (nav.index > 0 ? back() : go({ kind: "org-drafts" }))}
         />
-        {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} />}
+        {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} className={menu.className} />}
         {gateLayers}
       </>
     );
@@ -1071,7 +1071,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
       )}
       {branchSwitcher.element}
       {linkOpen && <OpenLinkDialog onClose={() => setLinkOpen(false)} onOpen={(fileKey, name, intent) => void openFile(fileKey, { ...(name ? { title: name } : {}), intent }, deps)} onError={(message) => toast({ kind: "error", message })} />}
-      {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} />}
+      {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} className={menu.className} />}
       {dialog?.kind === "new-folder" && (
         <NewFolderDialog
           onClose={() => setDialog(null)}

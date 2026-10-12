@@ -7,6 +7,7 @@ import { Portal } from "../overlay/Portal";
 import { useDismiss } from "../overlay/useDismiss";
 import { Icon, type IconName } from "../icons/Icon";
 import { tooltipProps } from "../overlay/TooltipManager";
+import { Avatar } from "./Misc";
 import { timing } from "../tokens";
 import styles from "./Menu.module.css";
 
@@ -111,10 +112,10 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
   const typed = useRef(createTypeahead());
   const intent = useRef<number | undefined>(undefined);
   const pointer = useRef<{ x: number; y: number } | null>(null);
-  const hasChecks = list.some((e) => isItem(e) && e.checked !== undefined);
+  const hasChecks = list.some((e) => isItem(e) && e.checked !== undefined && !e.checkEnd);
   // A glyph column when an item has a glyph; an `inlineIcon` glyph sits before its own label instead (live main menu:
   // "Actions…" at 40, the other rows at 16).
-  const hasIcons = list.some((e) => isItem(e) && e.icon && !e.inlineIcon);
+  const hasIcons = list.some((e) => isItem(e) && (e.icon || e.avatar) && !e.inlineIcon);
 
   // An extended menu moves instead of scrolling: never above where it opened, never ending above the window's bottom.
   const more = useRef<HTMLDivElement>(null);
@@ -309,6 +310,24 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
           if (entry === "-") return <div key={`line-${i}`} role="separator" className={styles.separator} />;
           if (!isItem(entry)) return <div key={`header-${i}`} role="presentation" className={styles.header}>{entry.header}</div>;
           const lit = !entry.disabled && (active === i || sub?.index === i);
+          if (entry.profile)
+            return (
+              <div
+                key={entry.id}
+                role="menuitem"
+                data-menu-index={i}
+                data-highlighted={lit || undefined}
+                aria-label={`${entry.label}, ${entry.profile.email}`}
+                data-profile=""
+                className={cx(styles.item, styles.profile)}
+                onPointerEnter={(e) => enter(i, e)}
+                onClick={() => pick(i)}
+              >
+                <Avatar name={entry.label} src={entry.profile.picture} size={48} />
+                <span className={styles.profileName}>{entry.label}</span>
+                <span className={styles.profileEmail}>{entry.profile.email}</span>
+              </div>
+            );
           return (
             <div
               key={entry.id}
@@ -324,7 +343,11 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
               onClick={() => pick(i)}
             >
               {hasChecks && <span className={styles.check}>{entry.checked && <Icon name="16.check" />}</span>}
-              {hasIcons && <span className={styles.icon}>{entry.icon && !entry.inlineIcon && <MenuIcon name={entry.icon} />}</span>}
+              {hasIcons && (
+                <span className={styles.icon}>
+                  {entry.avatar ? <Avatar name={entry.avatar.name} src={entry.avatar.picture} size={16} /> : entry.icon && !entry.inlineIcon && <MenuIcon name={entry.icon} />}
+                </span>
+              )}
               {entry.inlineIcon && entry.icon && <span className={cx(styles.icon, styles.inlineIcon)}><MenuIcon name={entry.icon} /></span>}
               {entry.swatch && <span className={styles.swatch} style={{ background: entry.swatch }} aria-hidden />}
               <span className={styles.label}>{entry.label}</span>
@@ -348,6 +371,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
                 ) : (
                   <span className={styles.shortcut}>{entry.shortcut}</span>
                 ))}
+              {entry.checkEnd && <span className={styles.checkEnd}>{entry.checked && <Icon name="16.check" />}</span>}
               {entry.items && <Icon name="16.chevron.right" className={styles.chevron} />}
             </div>
           );

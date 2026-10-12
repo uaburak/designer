@@ -16,6 +16,9 @@ export interface AccountState {
   /** The server signed in to (or that sign-in would use) */
   server: string;
   user: AccountUser | null;
+  /** Every account signed in on this computer (docs/desktop.md §18.7), the current one included, in the order they
+   *  were added — the account menu lists them when there is more than one. Absent: only `user` (a browser). */
+  accounts?: AccountUser[];
   /** A sign-in is waiting for the browser (or the sign-in sheet) */
   signingIn: boolean;
   /** The kept session is still being read (the keychain may be asking): neither signed in nor out yet — the welcome

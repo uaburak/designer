@@ -108,6 +108,8 @@
     color: var(--ds-color-menu-text-secondary);
   }
   .item[data-highlighted] .badge { color: var(--ds-color-menu-text-on-highlight-secondary); }
+  /* A check at the row's end (MenuItem `checkEnd`): the check column stays out, the text edge with it */
+  .checkEnd { display: flex; flex: none; width: 16px; }
   .chevron { flex: none; margin-right: calc(var(--ds-space-1) * -1); }
   /* An extended menu's bar at the window's bottom (live frame-presets-menu.txt: 24 high, the panel's colour, the menu's bottom corners) */
   .more {
@@ -118,6 +120,39 @@
     height: var(--ds-size-menu-item);
     border-radius: 0 0 var(--ds-radius-large) var(--ds-radius-large);
     background: var(--figma-color-bg);
+    color: var(--ds-color-menu-text-secondary);
+  }
+  /*
+   * The account menu's header (MenuItem `profile`; the owner's screenshot of live Figma's Home): the photo centred, the
+   * name under it underlined as a link, the email in the secondary colour. No row highlight — the name thickens instead.
+   */
+  .profile {
+    flex-direction: column;
+    gap: var(--ds-space-1);
+    height: auto;
+    padding-block: var(--ds-space-3) var(--ds-space-2);
+    text-align: center;
+    white-space: normal;
+  }
+  .profile::before { content: none; }
+  .profile > [data-ds="Avatar"] { margin-bottom: var(--ds-space-1); }
+  .profileName {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font: var(--ds-font-body-large-strong);
+    letter-spacing: var(--ds-tracking-body-large-strong);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+  .profile[data-highlighted] .profileName { text-decoration-thickness: 2px; }
+  .profileEmail {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--ds-color-menu-text-secondary);
   }
   .separator { height: 1px; margin: var(--ds-space-2) 0; background: var(--ds-color-menu-separator); }
