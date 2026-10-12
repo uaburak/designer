@@ -288,3 +288,41 @@ describe("resolveAccess: the prototype level (docs/editor.md D-6, round 5)", () 
     expect(ok(resolveAccess(rows({ prototypeMember: true, externalRestricted: true, homeOrgId: "o2" })))).toMatchObject({ capped: "external", canComment: false });
   });
 });
+
+describe("File exporting (docs/governance.md §2.7, round 14)", () => {
+  const pol = (fileExporting: "all" | "guests_blocked" | "viewers_blocked") => ({ publicLinks: true, passwordRequired: false, fileExporting }) as FilePolicy;
+  const viewer = { team: { ...rows().team!, grants: [user("viewer")] } };
+  const guest = { role: "guest" as const, seat: "view" as const, workspaceId: null };
+
+  it("all (and no policy, and Governance+ off): viewers export as viewers_can_copy says", () => {
+    expect(ok(resolveAccess(rows({ ...viewer, policy: pol("all") }))).canExport).toBe(true);
+    expect(ok(resolveAccess(rows({ ...viewer, policy: { publicLinks: true } as FilePolicy }))).canExport).toBe(true);
+    expect(ok(resolveAccess(rows({ ...viewer, policy: pol("all") }, { viewersCanCopy: false }))).canExport).toBe(false);
+  });
+
+  it("guests_blocked: members and admins export, guests and link visitors from outside the org don't", () => {
+    expect(ok(resolveAccess(rows({ ...viewer, policy: pol("guests_blocked") }))).canExport).toBe(true);
+    expect(ok(resolveAccess(rows({ ...viewer, membership: { role: "admin", seat: "full", workspaceId: null }, policy: pol("guests_blocked") }))).canExport).toBe(true);
+    expect(ok(resolveAccess(rows({ fileGrants: [user("viewer")], membership: { ...guest }, policy: pol("guests_blocked") }))).canExport).toBe(false);
+    expect(ok(resolveAccess(rows({ membership: null, viaLink: true, policy: pol("guests_blocked") }, { linkAccess: "viewer" }))).canExport).toBe(false);
+    expect(ok(resolveAccess(rows({ membership: null, viaLink: true, policy: pol("all") }, { linkAccess: "viewer" }))).canExport).toBe(true);
+  });
+
+  it("viewers_blocked: no viewer exports; editors always do (a guest editor too)", () => {
+    expect(ok(resolveAccess(rows({ ...viewer, policy: pol("viewers_blocked") }))).canExport).toBe(false);
+    expect(ok(resolveAccess(rows({ fileGrants: [user("editor")], membership: { ...guest, seat: "full" }, policy: pol("viewers_blocked") }))).canExport).toBe(true);
+    expect(ok(resolveAccess(rows({ team: { ...rows().team!, grants: [user("editor")] }, policy: pol("viewers_blocked") }, { viewersCanCopy: false }))).canExport).toBe(true);
+  });
+
+  it("the prototype level follows it too", () => {
+    expect(ok(resolveAccess(rows({ prototypeMember: true, membership: null, policy: pol("guests_blocked") }))).canExport).toBe(false);
+    expect(ok(resolveAccess(rows({ prototypeMember: true, policy: pol("guests_blocked") }))).canExport).toBe(true);
+  });
+
+  it("an expired guest has no membership (the server leaves the row out): they count as outside the org", () => {
+    const r = ok(resolveAccess(rows({ fileGrants: [user("viewer")], membership: null, policy: pol("guests_blocked") })));
+    expect(r).toMatchObject({ role: "viewer", canExport: false });
+    // …and lose what only membership gave (the team's org audience)
+    expect(resolveAccess(rows({ team: { ...rows().team!, orgAccess: "viewer" }, membership: null })).ok).toBe(false);
+  });
+});

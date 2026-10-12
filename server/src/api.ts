@@ -140,7 +140,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
 
   if (parts[0] === "notifications") return notificationsRoute(req, deps, user, parts, (key, requesterId, approve) => answerEditRequest(deps, key, user, requesterId, approve));
   // Organizations (docs/multiplayer.md §14.12): one dispatch line each.
-  const orgCtx = (): Ctx => ({ req, url, deps, user, parts, m, acc: new Access(deps, user) });
+  const orgCtx = (): Ctx => ({ req, url, deps, user, parts, m, acc: new Access(deps, user, req) });
   // Libraries in organizations, library analytics, shared fonts (docs/data.md §16–§17, docs/desktop.md §14.3).
   if (parts[0] === "me") return (await import("./fonts/routes")).meFontsRoute(orgCtx());
   if (parts[0] === "orgs" && parts[2] === "libraries") return (await import("./libraries/routes")).orgLibrariesRoute(orgCtx());
@@ -185,11 +185,14 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (!FILE_KEY.test(key)) throw new HttpError(400, "bad file key");
   // Who the caller is to this file (resolveAccess, §14.4). Naming the file by its key is opening it by its link: the
   // key is what the link carries (ours — `viaLink` is true on every /files/:key route, false in listings).
-  const acc = new Access(deps, user);
+  const acc = new Access(deps, user, req);
   const f = await acc.fileRow(key);
   if (!f) throw new HttpError(404, "no such file");
   const passOk = f.link_password !== null && (await validPass(req, url, deps, key, user.id, f.link_password_version));
   const access = await acc.file(f, { viaLink: true, passOk });
+  // Governance+ gates (docs/governance.md §2.5) on every route of an org file, its socket upgrade included: 403
+  // {error, code, gate} for the org's people (link visitors from outside aren't gated). No query without the add-on.
+  if (f.org_id && access.ok) await acc.checkGate(f.org_id);
   // Dev Mode's file routes (docs/editor.md D-1, D-3, D-4, D-6; round 5c): their own access rules
   if (parts[2] === "dev-resources" || parts[2] === "code-connect" || parts[2] === "dev-status" || parts[2] === "prototype-members") return (await import("./devmode/routes")).fileDevModeRoute(orgCtx(), f, access);
   // "Password required": someone in by the link alone shows a pass for the current password (POST …/unlock) — invited
@@ -382,7 +385,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       if (m === "GET") {
         // "Viewers can copy, save, and export" off (§14.12, R18 A-8): viewing still needs the snapshot; Save local copy
         // and Duplicate ask with ?purpose=export and are refused.
-        if (url.searchParams.get("purpose") === "export" && !a?.canExport) throw new HttpError(403, "the owner turned off copying and exporting for viewers");
+        if (url.searchParams.get("purpose") === "export" && !a?.canExport) throw new HttpError(403, "exporting is turned off for you in this file", "export_restricted");
         return deps.rooms.fetch(key, "/room/snapshot", { method: "GET", identity });
       }
       if (m === "PUT") {
@@ -481,7 +484,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       if (parts.length !== 3 || m !== "POST") break;
       const body = await readJson<{ action?: unknown; details?: unknown }>(req);
       if (body.action !== "fig_file_export" && body.action !== "fig_file_save_as" && body.action !== "fig_file_view_prototype") throw new HttpError(400, "action is fig_file_export, fig_file_save_as or fig_file_view_prototype");
-      if ((body.action === "fig_file_export" || body.action === "fig_file_save_as") && !a?.canExport) throw new HttpError(403, "the owner turned off copying and exporting for viewers");
+      // File exporting (docs/governance.md §2.7) and "Viewers can copy, share, and export from this file"
+      if ((body.action === "fig_file_export" || body.action === "fig_file_save_as") && !a?.canExport) throw new HttpError(403, "exporting is turned off for you in this file", "export_restricted");
       const details = body.details && typeof body.details === "object" && !Array.isArray(body.details) ? (body.details as Record<string, unknown>) : {};
       if (JSON.stringify(details).length > 2000) throw new HttpError(400, "details too large");
       await log(body.action, { ...details, client_reported: true });
@@ -496,7 +500,10 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       // The file's org logs the view; the viewer's home org (captured, another org) its external twin (§15.9).
       if (inOrg && a) await logFileView(deps, { ...f, org_id: f.org_id! }, user, { prototype: url.searchParams.get("m") === "proto", req, home: await acc.home() });
       // The org's room policy rides with the upgrade (x-policy → welcome.policy); absent outside orgs.
-      const roomPolicy = (await import("./policy/roomPolicy")).roomPolicyOf(policy);
+      // Discovery (docs/governance.md §2.11): the org's setting, with Governance+
+      const org = inOrg ? await acc.org(f.org_id!) : null;
+      const discovery = !!org?.governance_plus && (await acc.settings(f.org_id!)).discovery;
+      const roomPolicy = (await import("./policy/roomPolicy")).roomPolicyOf(policy, discovery);
       return deps.rooms.fetch(key, "/room/ws", { method: "GET", identity, ...(roomPolicy ? { policy: roomPolicy } : {}) }, req);
     }
   }

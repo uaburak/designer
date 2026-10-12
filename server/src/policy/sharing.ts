@@ -5,6 +5,7 @@
  */
 import { filePolicy, isGeneratedPassword, LINK_EXPIRY_MAX_HOURS, type FilePolicy, type WorkspaceSharingSettings } from "../../../src/shared/org/identity";
 import type { EditorType, OrgSettings } from "../../../src/shared/org/types";
+import { FILE_EXPORTING_LABEL, type FileExporting } from "../../../src/shared/org/governance";
 import type { Deps } from "../api";
 import type { D1Like } from "../db";
 import { settingsOf } from "../org/db";
@@ -45,8 +46,14 @@ export async function teamSharing(d1: D1Like, teamId: string | null, once: Once 
 export async function policyOfFile(d1: D1Like, f: PolicyFile, once: Once = noCache): Promise<FilePolicy | null> {
   if (!f.org_id) return null;
   const orgId = f.org_id;
-  const settings = await once(`org-settings:${orgId}`, async () => settingsOf(await d1.prepare(`SELECT settings FROM orgs WHERE id = ?1`).bind(orgId).first<{ settings: string }>()));
-  return filePolicy(settings, await teamSharing(d1, f.team_id, once), f.editor_type);
+  const org = await once(`org-settings:${orgId}`, async () => {
+    const r = await d1.prepare(`SELECT settings, governance_plus FROM orgs WHERE id = ?1`).bind(orgId).first<{ settings: string; governance_plus: number }>();
+    return { settings: settingsOf(r), governancePlus: !!r?.governance_plus };
+  });
+  const ws = await teamSharing(d1, f.team_id, once);
+  const p = filePolicy(org.settings, ws, f.editor_type);
+  // File exporting (docs/governance.md §2.7): with Governance+ only; the workspace's setting overrides the org's.
+  return org.governancePlus ? { ...p, fileExporting: ws?.fileExporting ?? org.settings.fileExporting } : p;
 }
 
 export interface FilePatch {
@@ -98,7 +105,12 @@ export function cleanWorkspaceSharing(v: unknown): WorkspaceSharingSettings | nu
   if (!v || typeof v !== "object" || Array.isArray(v)) throw new HttpError(400, "sharing is an object or null");
   const s = v as Record<string, unknown>;
   const out: WorkspaceSharingSettings = {};
-  for (const k of Object.keys(s)) if (k !== "publicLinks" && k !== "passwordRequired" && k !== "linkExpiryMaxHours") throw new HttpError(400, `sharing.${k} isn't a workspace setting`);
+  for (const k of Object.keys(s)) if (k !== "publicLinks" && k !== "passwordRequired" && k !== "linkExpiryMaxHours" && k !== "fileExporting") throw new HttpError(400, `sharing.${k} isn't a workspace setting`);
+  // Round 14 (docs/governance.md §2.7): Custom settings for workspaces › File exporting
+  if (s.fileExporting !== undefined) {
+    if (typeof s.fileExporting !== "string" || !(s.fileExporting in FILE_EXPORTING_LABEL)) throw new HttpError(400, "sharing.fileExporting is all, guests_blocked or viewers_blocked");
+    out.fileExporting = s.fileExporting as FileExporting;
+  }
   if (s.publicLinks !== undefined) {
     if (typeof s.publicLinks !== "boolean") throw new HttpError(400, "sharing.publicLinks");
     out.publicLinks = s.publicLinks;

@@ -66,6 +66,8 @@ export async function groupsRoute(ctx: Ctx): Promise<Response> {
   const g = parts[1] ? await acc.d1.prepare(`SELECT * FROM user_groups WHERE id = ?1`).bind(parts[1]).first<GroupRow>() : null;
   const me = g ? await acc.membership(g.org_id) : null;
   if (!g || !me || (me.role === "guest" && !(await isIn(ctx, g.id)))) throw new HttpError(404, "no such group");
+  // Governance+ gates (docs/governance.md §2.5)
+  await acc.checkGate(g.org_id);
   const manage = me.role === "admin" || g.created_by === user.id;
   if (!manage) throw new HttpError(403, "only the group's creator and admins can change it");
   if (parts.length === 2 && m === "PATCH") {

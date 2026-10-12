@@ -12,6 +12,8 @@ import { HttpError, placeholders } from "./http";
 import { emailDomain, type FilePolicy } from "../../../src/shared/org/identity";
 import { homeOrgOf, type HomeOrg } from "../policy/external";
 import { policyOfFile } from "../policy/sharing";
+import type { OrgGate } from "../../../src/shared/org/governance";
+import { gateCols, gateError, gateFor, type GateRow } from "../governance/gate";
 
 export interface FileRow {
   key: string;
@@ -80,6 +82,8 @@ export interface MemberRow {
   created_at: number;
   seat_changed_at: number | null;
   last_active_at: number | null;
+  /** 0018 (docs/governance.md §2.13): a guest's access ends then (ms); null: never */
+  expires_at?: number | null;
 }
 
 export interface OrgRow {
@@ -88,6 +92,8 @@ export interface OrgRow {
   settings: string;
   /** Data storage localization (0013, docs/multiplayer.md §15.10) */
   data_region?: "default" | "eu";
+  /** 0018 (docs/governance.md §2.1): the Governance+ add-on */
+  governance_plus?: number;
   created_by: string;
   created_at: number;
   updated_at: number;
@@ -121,6 +127,8 @@ export class Access {
   constructor(
     readonly deps: Deps,
     readonly user: User,
+    /** The request, for the Governance+ gates' IP allowlist (docs/governance.md §2.5); null: not checked */
+    readonly req: Request | null = null,
   ) {
     this.d1 = deps.db.d1;
   }
@@ -149,10 +157,38 @@ export class Access {
     this.cache.clear();
   }
 
+  /** The caller's row in the org. A guest whose access expired (with Governance+, docs/governance.md §2.13) has none. */
   membership(orgId: string): Promise<MemberRow | null> {
     return this.once(`m:${orgId}`, () =>
-      this.d1.prepare(`SELECT * FROM org_members WHERE org_id = ?1 AND (user_id = ?2 OR (user_id IS NULL AND email = ?3))`).bind(orgId, this.user.id, this.user.email).first<MemberRow>(),
+      this.d1
+        .prepare(
+          `SELECT m.* FROM org_members m JOIN orgs o ON o.id = m.org_id WHERE m.org_id = ?1 AND (m.user_id = ?2 OR (m.user_id IS NULL AND m.email = ?3))
+           AND (m.expires_at IS NULL OR o.governance_plus = 0 OR m.expires_at > ?4)`,
+        )
+        .bind(orgId, this.user.id, this.user.email, this.deps.now())
+        .first<MemberRow>(),
     );
+  }
+
+  /**
+   * What blocks the caller in the org (docs/governance.md §2.5), once per request: nothing (no query) without the add-on
+   * or outside the org; otherwise one query (gate.ts `gateCols`).
+   */
+  gate(orgId: string): Promise<OrgGate | null> {
+    return this.once(`gate:${orgId}`, async () => {
+      const org = await this.org(orgId);
+      if (!org?.governance_plus) return null;
+      const m = await this.membership(orgId);
+      if (!m) return null;
+      const row = await this.d1.prepare(`SELECT ${gateCols("?2")} FROM orgs o WHERE o.id = ?1`).bind(orgId, this.user.id).first<GateRow>();
+      return row ? gateFor(this.deps, { orgId, settings: org.settings, role: m.role, user: this.user, req: this.req, row }) : null;
+    });
+  }
+
+  /** 403 `{error, code, gate}` when the caller is gated in the org */
+  async checkGate(orgId: string): Promise<void> {
+    const g = await this.gate(orgId);
+    if (g) throw gateError(g, (await this.org(orgId))?.name ?? "");
   }
 
   org(orgId: string): Promise<OrgRow | null> {
@@ -347,9 +383,11 @@ export class Access {
   }
 
   /** The caller's membership, or 404 (an org they aren't in doesn't exist for them). */
-  async requireMember(orgId: string, opts: { guests?: boolean } = {}): Promise<MemberRow> {
+  /** The caller's membership, or 404; gated (§2.5) unless `gate: false` (the gate's own routes). */
+  async requireMember(orgId: string, opts: { guests?: boolean; gate?: boolean } = {}): Promise<MemberRow> {
     const m = await this.membership(orgId);
     if (!m || !(await this.org(orgId))) throw new HttpError(404, "no such organization");
+    if (opts.gate !== false) await this.checkGate(orgId);
     if (!opts.guests && m.role === "guest") throw new HttpError(403, "guests can't do that");
     return m;
   }
@@ -389,6 +427,7 @@ export class Access {
     if (!team) throw new HttpError(404, "no such team");
     const rights = await this.teamRights(team);
     if (!rights.canSee) throw new HttpError(404, "no such team");
+    if (rights.membership) await this.checkGate(team.org_id);
     return { team, rights };
   }
 }

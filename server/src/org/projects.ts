@@ -93,6 +93,8 @@ export async function projectsRoute(ctx: Ctx): Promise<Response> {
   const a = await acc.container(team.id, p.id);
   if (!a.ok) throw new HttpError(404, "no such folder");
   const orgId = team.org_id;
+  // Governance+ gates (docs/governance.md §2.5)
+  await acc.checkGate(orgId);
   const now = deps.now();
   const write = canWrite(a);
   const trashedHere = p.trashed_at !== null;

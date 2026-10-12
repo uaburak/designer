@@ -7,11 +7,13 @@
 import type { FilePolicy, RoomPolicy } from "../../../src/shared/org/identity";
 import type { Deps } from "../api";
 
-/** The room's part of a file's policy: absent outside orgs (= everything allowed) */
-export const roomPolicyOf = (p: FilePolicy | null): RoomPolicy | undefined => (p ? { cursorChat: p.cursorChat, audio: p.audio } : undefined);
+/** The room's part of a file's policy: absent outside orgs (= everything allowed). Round 14 (docs/governance.md
+ *  §2.11): `discovery` — the org's Discovery setting, with the add-on — tells the room to record cursor chat and run its
+ *  hourly `discovery_text` job; absent means off. */
+export const roomPolicyOf = (p: FilePolicy | null, discovery = false): RoomPolicy | undefined => (p ? { cursorChat: p.cursorChat, audio: p.audio, ...(discovery ? { discovery: true } : {}) } : undefined);
 
 /** `x-policy`'s value (and `POST /room/policy`'s body) */
-export const encodeRoomPolicy = (p: RoomPolicy): string => JSON.stringify({ cursorChat: p.cursorChat, audio: p.audio });
+export const encodeRoomPolicy = (p: RoomPolicy): string => JSON.stringify({ cursorChat: p.cursorChat, audio: p.audio, ...(p.discovery ? { discovery: true } : {}) });
 
 /** `x-policy` or `POST /room/policy`'s body, read by the room; null when absent or malformed */
 export function parseRoomPolicy(v: unknown): RoomPolicy | null {
@@ -24,8 +26,9 @@ export function parseRoomPolicy(v: unknown): RoomPolicy | null {
     }
   }
   if (!o || typeof o !== "object") return null;
-  const { cursorChat, audio } = o as Record<string, unknown>;
-  return typeof cursorChat === "boolean" && typeof audio === "boolean" ? { cursorChat, audio } : null;
+  const { cursorChat, audio, discovery } = o as Record<string, unknown>;
+  if (typeof cursorChat !== "boolean" || typeof audio !== "boolean") return null;
+  return discovery === true ? { cursorChat, audio, discovery: true } : { cursorChat, audio };
 }
 
 /** `POST /room/policy` to every room of the org's files (inline, as reauth) */

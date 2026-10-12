@@ -55,6 +55,20 @@ export async function logActivity(deps: Deps, a: ActivityInput): Promise<void> {
   }
 }
 
+/** An event at most once per `everyMs` per actor and action in the org (e.g. `ip_allowlist_rejected`, hourly: docs/governance.md §3) */
+export async function logOncePer(deps: Deps, everyMs: number, a: ActivityInput): Promise<void> {
+  try {
+    const seen = await deps.db.d1
+      .prepare(`SELECT 1 AS x FROM activity_log WHERE org_id = ?1 AND actor_id = ?2 AND action = ?3 AND at > ?4 LIMIT 1`)
+      .bind(a.orgId, a.actor?.id ?? null, a.action, deps.now() - everyMs)
+      .first();
+    if (seen) return;
+  } catch {
+    return;
+  }
+  await logActivity(deps, a);
+}
+
 /** One event in every org the user is in (sign-ins, sign-outs, tokens: §14.10). */
 export async function logForUserOrgs(deps: Deps, user: Pick<User, "id" | "email" | "name">, action: ActivityAction, req: Request | null, details: Record<string, unknown> = {}): Promise<void> {
   try {
@@ -103,6 +117,17 @@ export const teamEntity =(t: { id: string; name: string }): Entity => ({ type: "
 export const projectEntity = (p: { id: string; name: string }): Entity => ({ type: "project", id: p.id, name: p.name });
 export const orgEntity = (o: { id: string; name: string }): Entity => ({ type: "org", id: o.id, name: o.name });
 export const workspaceEntity = (w: { id: string; name: string }): Entity => ({ type: "workspace", id: w.id, name: w.name });
+/** Figma's `policy_acknowledgement_config {id, title, audience, cadence, enabled_at, enabled_status}` [F-log] (docs/governance.md §1) */
+export const policyEntity = (p: { id: string; title: string; audience: string; cadence: string; enabled_at: number | null; disabled_at: number | null }): Entity => ({
+  type: "policy_acknowledgement_config",
+  id: p.id,
+  name: p.title,
+  title: p.title,
+  audience: p.audience,
+  cadence: p.cadence,
+  enabled_at: p.enabled_at === null ? "" : new Date(p.enabled_at).toISOString(),
+  enabled_status: p.enabled_at !== null && p.disabled_at === null ? "enabled" : "disabled",
+});
 export const userEntity = (u: { id: string; email: string; name: string | null }): Entity => ({ type: "user", id: u.id, name: u.name ?? u.email, email: u.email });
 
 interface Row {

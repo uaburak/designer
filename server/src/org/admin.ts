@@ -16,6 +16,9 @@ import { onIdentitySettingsChanged, validateIdentitySettings } from "../auth/set
 import { applySharingChange, cleanWorkspaceSharing, sharingOf, tightened, validMaxHours } from "../policy/sharing";
 import { broadcastRoomPolicy } from "../policy/roomPolicy";
 import { resourceWorkspace } from "./orgs";
+import { FILE_EXPORTING_LABEL, GUEST_EXPIRY_MAX_DAYS, validIdleHours } from "../../../src/shared/org/governance";
+import { GOVERNANCE_SECTIONS } from "../governance/routes";
+import { guestExpiryOnJoin } from "../governance/guests";
 
 interface Scope {
   me: MemberRow;
@@ -38,6 +41,8 @@ export async function adminRoute(ctx: Ctx, orgId: string): Promise<Response> {
   };
   const section = parts[3];
   const rest = parts.slice(4);
+  // Governance+ (docs/governance.md §4)
+  if (GOVERNANCE_SECTIONS.has(section)) return (await import("../governance/routes")).governanceRoute(ctx, orgId, section, rest, scope);
 
   switch (section) {
     case "dashboard":
@@ -174,6 +179,9 @@ interface PersonRow {
   idp_attributes: string | null;
   provisioned_by: "scim" | "jit" | null;
   scim_active: number | null;
+  /** Round 14 */
+  two_factor: number;
+  expires_at: number | null;
 }
 
 /** What SAML JIT and SCIM told us about a member (Admin › People's metadata columns, §15.5); null: nothing */
@@ -205,10 +213,14 @@ const toAdminPerson = (r: PersonRow): AdminPerson => ({
   pending: !r.user_id,
   teams: r.teams,
   idp: idpOf(r),
+  // Round 14 (docs/governance.md §5 People): 2FA on (the CSV's 2FA_enabled); a guest's access expiration date
+  twoFactor: r.two_factor === 1,
+  ...(r.role === "guest" ? { guestExpiresAt: r.expires_at ?? null } : {}),
 });
 
 const PERSON_SELECT = `SELECT m.email, m.user_id, m.role, m.seat, m.workspace_id, m.billing_group_id, m.last_active_at, m.created_at, u.name, u.picture,
   m.idp_attributes, m.provisioned_by, (SELECT s.active FROM scim_users s WHERE s.org_id = m.org_id AND s.user_id = m.user_id) AS scim_active,
+  EXISTS (SELECT 1 FROM user_two_factor t WHERE t.user_id = m.user_id AND t.enabled_at IS NOT NULL) AS two_factor, m.expires_at,
   (SELECT COUNT(*) FROM team_members tm JOIN teams t ON t.id = tm.team_id WHERE t.org_id = m.org_id AND tm.email = m.email AND t.deleted_at IS NULL) AS teams
   FROM org_members m LEFT JOIN users u ON u.id = m.user_id`;
 
@@ -255,8 +267,8 @@ async function people(ctx: Ctx, orgId: string, scope: Scope): Promise<Response> 
   if (q.get("format") === "csv") {
     await logActivity(ctx.deps, { orgId, action: "roster_exported", actor: ctx.user, entity: await orgEntityOf(ctx, orgId), details: { count: results.length }, req: ctx.req });
     return csv(
-      ["email", "name", "role", "seat", "workspace_id", "billing_group_id", "teams", "last_active", "joined", "pending"],
-      results.map((r) => [r.email, r.name ?? "", r.role, r.seat, r.workspace_id ?? "", r.billing_group_id ?? "", r.teams, r.last_active_at ? new Date(r.last_active_at).toISOString() : "", new Date(r.created_at).toISOString(), !r.user_id]),
+      ["email", "name", "role", "seat", "workspace_id", "billing_group_id", "teams", "last_active", "joined", "pending", "2FA_enabled"],
+      results.map((r) => [r.email, r.name ?? "", r.role, r.seat, r.workspace_id ?? "", r.billing_group_id ?? "", r.teams, r.last_active_at ? new Date(r.last_active_at).toISOString() : "", new Date(r.created_at).toISOString(), !r.user_id, r.two_factor === 1]),
     );
   }
   const { offset, limit } = paging(ctx.url);
@@ -311,7 +323,9 @@ async function updatePeople(ctx: Ctx, orgId: string, scope: Scope, input: Update
   for (const r of rows) {
     const entity = userEntity({ id: r.user_id ?? r.email, email: r.email, name: r.name });
     if (input.role !== undefined && input.role !== r.role) {
-      await d1.prepare(`UPDATE org_members SET role = ?3 WHERE org_id = ?1 AND email = ?2`).bind(orgId, r.email, input.role).run();
+      // A guest's expiry goes with the guest role; someone made a guest gets the default duration (§2.13)
+      const expiresAt = input.role === "guest" ? await guestExpiryOnJoin(d1, orgId, deps.now()) : null;
+      await d1.prepare(`UPDATE org_members SET role = ?3, expires_at = ?4 WHERE org_id = ?1 AND email = ?2`).bind(orgId, r.email, input.role, expiresAt).run();
       await logActivity(deps, { orgId, action: "org_user_permission_change", actor: user, entity, details: { from: r.role, to: input.role }, req: ctx.req });
       if (r.user_id && (r.role === "admin" || input.role === "guest")) await reauth(deps, await orgFileKeys(d1, orgId), [r.user_id]);
     }
@@ -618,10 +632,15 @@ async function setWorkspaceSharing(ctx: Ctx, orgId: string, w: { id: string; nam
   }
   const before = sharingOf(row?.settings);
   if (JSON.stringify(before) === JSON.stringify(sharing)) return;
+  // File exporting (docs/governance.md §2.7) needs Governance+
+  const exportChanged = (before?.fileExporting ?? null) !== (sharing?.fileExporting ?? null);
+  if (exportChanged && sharing?.fileExporting !== undefined && !(await acc.org(orgId))?.governance_plus) throw new HttpError(403, "Requires Governance+", "governance_plus_required");
+  const linkPart = (s: WorkspaceSharingSettings | null) => JSON.stringify({ publicLinks: s?.publicLinks, passwordRequired: s?.passwordRequired, linkExpiryMaxHours: s?.linkExpiryMaxHours });
   if (sharing) all.sharing = sharing;
   else delete all.sharing;
   await d1.prepare(`UPDATE workspaces SET settings = ?2, updated_at = ?3 WHERE id = ?1`).bind(w.id, JSON.stringify(all), deps.now()).run();
-  await logActivity(deps, { orgId, action: "workspace_public_link_setting_change", actor: user, entity: workspaceEntity(w), details: { from: before, to: sharing }, req: ctx.req });
+  if (linkPart(before) !== linkPart(sharing)) await logActivity(deps, { orgId, action: "workspace_public_link_setting_change", actor: user, entity: workspaceEntity(w), details: { from: before, to: sharing }, req: ctx.req });
+  if (exportChanged) await logActivity(deps, { orgId, action: "workspace_file_export_controls_setting_change", actor: user, entity: workspaceEntity(w), details: { from: before?.fileExporting ?? null, to: sharing?.fileExporting ?? null }, req: ctx.req });
   const org = settingsOf(await acc.org(orgId));
   const eff = (s: WorkspaceSharingSettings | null) => ({
     publicLinks: s?.publicLinks ?? org.publicLinks,
@@ -770,7 +789,9 @@ async function patchSettings(ctx: Ctx, orgId: string, patch: Partial<OrgSettings
   pick("audio", bool);
   // Round 4 (§15.6)
   pick("authMethod", (v) => v === "any" || v === "google" || v === "saml");
-  pick("idleSessionTimeoutHours", (v) => v === null || (typeof v === "number" && Number.isInteger(v) && v >= IDLE_MIN_HOURS && v <= IDLE_MAX_HOURS), ` is null or ${IDLE_MIN_HOURS}–${IDLE_MAX_HOURS} hours`);
+  // Round 14 (docs/governance.md §2.8): with Governance+ any quarter hour from 15 minutes; without, whole hours from 12
+  const governancePlus = !!org.governance_plus;
+  pick("idleSessionTimeoutHours", (v) => (v === null || typeof v === "number") && validIdleHours(v as number | null, governancePlus), governancePlus ? ` is null or 0.25–${IDLE_MAX_HOURS} hours in quarter hours` : ` is null or ${IDLE_MIN_HOURS}–${IDLE_MAX_HOURS} hours`);
   pick("domainCapture", bool);
   pick("externalContent", (v) => v === "allowed" || v === "restricted");
   pick("passwordMode", (v) => v === "any" || v === "autogenerated");
@@ -783,6 +804,13 @@ async function patchSettings(ctx: Ctx, orgId: string, patch: Partial<OrgSettings
   // Round 6 (docs/ai.md §2.12): Settings › AI
   pick("aiEnabled", bool);
   pick("aiCreditLimit", (v) => v === null || (typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= AI_CREDIT_LIMIT_MAX), ` is null or 0–${AI_CREDIT_LIMIT_MAX} credits`);
+  // Round 14 (docs/governance.md §2.4, §2.7, §2.11, §2.13): Governance+'s settings
+  pick("twoFactorForGuests", bool);
+  pick("guestExpiryDays", (v) => v === null || (typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= GUEST_EXPIRY_MAX_DAYS), ` is null or 1–${GUEST_EXPIRY_MAX_DAYS} days`);
+  pick("fileExporting", (v) => typeof v === "string" && v in FILE_EXPORTING_LABEL, " is all, guests_blocked or viewers_blocked");
+  pick("discovery", bool);
+  const gPlusKeys = (["twoFactorForGuests", "guestExpiryDays", "fileExporting", "discovery"] as const).filter((k) => JSON.stringify(before[k]) !== JSON.stringify(next[k]));
+  if (!governancePlus && gPlusKeys.length) throw new HttpError(403, "Requires Governance+", "governance_plus_required", { field: gPlusKeys[0] });
   if (patch.seatApproval !== undefined) {
     const s = patch.seatApproval as Record<string, unknown>;
     if (!s || typeof s !== "object") throw new HttpError(400, "seatApproval");
@@ -799,7 +827,8 @@ async function patchSettings(ctx: Ctx, orgId: string, patch: Partial<OrgSettings
   if (patch.externalContent === "restricted" && !next.domainCapture) throw new HttpError(409, "turn on domain capture before restricting external content");
   // The identity hooks (round 4a): SAML tested, domains verified… (throw HttpError)
   const identityPatch: Partial<OrgSettings> = {};
-  for (const k of ["authMethod", "idleSessionTimeoutHours", "domainCapture"] as const) if (patch[k] !== undefined && JSON.stringify(patch[k]) !== JSON.stringify(before[k])) (identityPatch as Record<string, unknown>)[k] = patch[k];
+  // The idle timeout's range is checked above (validIdleHours: quarter hours with Governance+); its hook still logs it
+  for (const k of ["authMethod", "domainCapture"] as const) if (patch[k] !== undefined && JSON.stringify(patch[k]) !== JSON.stringify(before[k])) (identityPatch as Record<string, unknown>)[k] = patch[k];
   if (Object.keys(identityPatch).length) await validateIdentitySettings(deps, orgId, identityPatch);
 
   await acc.d1.prepare(`UPDATE orgs SET settings = ?2, updated_at = ?3 WHERE id = ?1`).bind(orgId, JSON.stringify(next), deps.now()).run();
@@ -818,6 +847,11 @@ async function patchSettings(ctx: Ctx, orgId: string, patch: Partial<OrgSettings
     ["externalContent", "external_collaboration_controls_setting_change"],
     ["passwordMode", "autogen_password_controls_setting_change"],
     ["openSessions", "open_sessions_setting_change"],
+    // Round 14 (docs/governance.md §1, §3)
+    ["twoFactorForGuests", "mfa_required_setting_change"],
+    ["guestExpiryDays", "org_guest_expiration_setting_change"],
+    ["fileExporting", "file_export_controls_setting_change"],
+    ["discovery", "discovery_setting_change"],
   ];
   for (const [k, action] of actions) if (changed(k)) await log(action, [k]);
   // Plugin and widget approval (docs/plugins.md §10.2): Figma's names; the request switches ride with them (Figma has
@@ -837,7 +871,7 @@ async function patchSettings(ctx: Ctx, orgId: string, patch: Partial<OrgSettings
   acc.reset();
 
   if (sharingKeys.length) await applySharingChange(deps, orgId, { tightened: tightened(before, next) });
-  if (changed("cursorChat") || changed("audio")) await broadcastRoomPolicy(deps, orgId, { cursorChat: next.cursorChat, audio: next.audio });
+  if (changed("cursorChat") || changed("audio") || changed("discovery")) await broadcastRoomPolicy(deps, orgId, { cursorChat: next.cursorChat, audio: next.audio, discovery: governancePlus && next.discovery });
   if (changed("externalContent")) await reauthOutsideFiles(ctx, orgId);
   await onIdentitySettingsChanged(deps, orgId, before, next, user, ctx.req);
   await orgNotice(deps, await orgUserIds(acc.d1, orgId), { what: "org", orgId });

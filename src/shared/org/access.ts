@@ -22,8 +22,14 @@
  * (`files.proto_link_access`, the public link's rules: the policy, expiry, password) or for the org's members
  * (`proto_org_link_access`, by the link, as the org link). The result is a viewer with `prototypeOnly` — no Dev Mode,
  * no sharing; comments yes (ours), export as `viewers_can_copy`.
+ *
+ * Round 14 (docs/governance.md §2.7, §2.13): File exporting — `canExport = canEdit || (viewersCanCopy &&
+ * viewerMayExport(policy, isOrgMember))`: editors always export; viewers as the policy's `fileExporting` says, where
+ * people outside the org (guests, and link visitors not in it) count as guests. An expired guest has no membership
+ * (the server leaves their row out), so they resolve as anyone outside the org.
  */
 import type { FilePolicy } from "./identity";
+import { viewerMayExport } from "./governance";
 import type { Audience, EditorType, FileAccess, GrantRole, InheritMode, Level, OrgRole, Seat } from "./types";
 
 /** A grant row: a person (by user id, or by email while the invite is pending) or a user group. */
@@ -157,7 +163,7 @@ function prototype(r: AccessRows, denied: AccessDenied): AccessResult {
     trashed: false,
     canEdit: false,
     canComment: !external,
-    canExport: file.viewersCanCopy,
+    canExport: viewerExport(r),
     canDevMode: false,
     canShare: false,
     canManage: false,
@@ -166,6 +172,9 @@ function prototype(r: AccessRows, denied: AccessDenied): AccessResult {
     via,
   };
 }
+
+/** May a viewer of this org file export? "Viewers can copy, share, and export" and the policy's File exporting (§2.7) */
+const viewerExport = (r: AccessRows): boolean => r.file.viewersCanCopy && viewerMayExport(r.policy ?? {}, !!r.membership && (r.membership.role === "admin" || r.membership.role === "member"));
 
 const linkLive = (r: AccessRows) => r.file.linkExpiresAt === null || r.now < r.file.linkExpiresAt;
 
@@ -332,7 +341,7 @@ function org(r: AccessRows): AccessResult {
     trashed,
     canEdit,
     canComment: capped !== "external" && !trashed,
-    canExport: canEdit || file.viewersCanCopy,
+    canExport: canEdit || viewerExport(r),
     canDevMode: !membership || membership.seat === "full" || membership.seat === "dev",
     canShare: (role === "owner" || role === "editor") && capped !== "external",
     canManage,

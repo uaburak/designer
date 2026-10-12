@@ -26,6 +26,8 @@ import { createOrg } from "./migrate";
 import { orgFileKeys, reauth } from "./reauth";
 import { emailDomain } from "../../../src/shared/org/identity";
 import { homeOrgOf, logExternal, requireInside } from "../policy/external";
+import { gateCols, gateFor, type GateRow } from "../governance/gate";
+import { guestExpiryOnJoin } from "../governance/guests";
 
 export const EDITOR_TYPES: readonly EditorType[] = ["design", "figjam", "slides", "buzz", "sites", "make"];
 export const SEATS: readonly Seat[] = ["full", "dev", "collab", "view"];
@@ -34,7 +36,7 @@ export const FILE_KEY = /^[A-Za-z0-9_-]{6,64}$/;
 export async function orgsRoute(ctx: Ctx): Promise<Response> {
   const { parts, m, deps, user, acc } = ctx;
   if (parts.length === 1) {
-    if (m === "GET") return json({ orgs: await orgSummaries(deps.db.d1, user.id) });
+    if (m === "GET") return json({ orgs: await orgSummaries(deps, user, ctx.req) });
     if (m === "POST") {
       const b = await body<{ name?: unknown; importSharedFiles?: unknown }>(ctx.req);
       // A member whose org restricts external content can't create another one (§15.6) [F-external].
@@ -49,8 +51,11 @@ export async function orgsRoute(ctx: Ctx): Promise<Response> {
   if (parts[2] === "groups") return (await import("./groups")).orgGroupsRoute(ctx, orgId);
   if (parts[2] === "teams") return (await import("./teams")).orgTeamsRoute(ctx, orgId);
   if (parts[2] === "admin") return (await import("./admin")).adminRoute(ctx, orgId);
+  // Internal policies' prompts and agreement (docs/governance.md §4): open while the caller is gated
+  if (parts[2] === "policies") return (await import("../governance/policies")).memberPoliciesRoute(ctx, orgId);
   if (parts.length === 2 && m === "GET") {
-    await acc.requireMember(orgId, { guests: true });
+    // Not gated: OrgInfo carries the gate (docs/governance.md §2.5), so Home can prompt
+    await acc.requireMember(orgId, { guests: true, gate: false });
     return json({ org: await orgInfo(acc, orgId) });
   }
   switch (parts[2]) {
@@ -86,7 +91,8 @@ export async function orgsRoute(ctx: Ctx): Promise<Response> {
     }
     case "me": {
       if (parts.length !== 3 || m !== "DELETE") break;
-      const me = await acc.requireMember(orgId, { guests: true });
+      // Leaving is never gated
+      const me = await acc.requireMember(orgId, { guests: true, gate: false });
       if (me.role === "admin" && (await adminCount(deps.db.d1, orgId)) <= 1) throw new HttpError(409, "make someone else an admin before you leave");
       await removeFromOrg(deps, orgId, user.id, user, ctx.req);
       return noContent();
@@ -95,12 +101,24 @@ export async function orgsRoute(ctx: Ctx): Promise<Response> {
   throw new HttpError(404, "not found");
 }
 
-export async function orgSummaries(d1: D1Like, userId: string): Promise<OrgSummary[]> {
-  const { results } = await d1
-    .prepare(`SELECT o.id, o.name, m.role, m.seat, m.workspace_id FROM org_members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ?1 ORDER BY o.name`)
-    .bind(userId)
-    .all<{ id: string; name: string; role: OrgRole; seat: Seat; workspace_id: string | null }>();
-  return results.map((r) => ({ id: r.id, name: r.name, role: r.role, seat: r.seat, workspaceId: r.workspace_id }));
+/**
+ * `GET /orgs`: the caller's orgs (expired guests left out, docs/governance.md §2.13), each with its gate (§2.5) and a
+ * guest's expiry — one query for all of them (the gate's columns are skipped for orgs without Governance+).
+ */
+export async function orgSummaries(deps: Deps, user: User, req: Request | null): Promise<OrgSummary[]> {
+  const { results } = await deps.db.d1
+    .prepare(
+      `SELECT o.id, o.name, o.settings, m.role, m.seat, m.workspace_id, m.expires_at, ${gateCols("?1")} FROM org_members m JOIN orgs o ON o.id = m.org_id
+       WHERE m.user_id = ?1 AND (m.expires_at IS NULL OR o.governance_plus = 0 OR m.expires_at > ?2) ORDER BY o.name`,
+    )
+    .bind(user.id, deps.now())
+    .all<GateRow & { id: string; name: string; settings: string; role: OrgRole; seat: Seat; workspace_id: string | null; expires_at: number | null }>();
+  const out: OrgSummary[] = [];
+  for (const r of results) {
+    const gate = r.g_plus ? await gateFor(deps, { orgId: r.id, settings: r.settings, role: r.role, user, req, row: r }) : null;
+    out.push({ id: r.id, name: r.name, role: r.role, seat: r.seat, workspaceId: r.workspace_id, ...(gate ? { gate } : {}), ...(r.g_plus && r.role === "guest" ? { guestExpiresAt: r.expires_at ?? null } : {}) });
+  }
+  return out;
 }
 
 export async function orgInfo(acc: Access, orgId: string): Promise<OrgInfo> {
@@ -114,7 +132,8 @@ export async function orgInfo(acc: Access, orgId: string): Promise<OrgInfo> {
     )
     .bind(orgId)
     .first<{ members: number; guests: number; teams: number }>();
-  return {
+  const gate = await acc.gate(orgId);
+  const info: OrgInfo & { governancePlus: boolean } = {
     id: org.id,
     name: org.name,
     role: me.role,
@@ -126,7 +145,12 @@ export async function orgInfo(acc: Access, orgId: string): Promise<OrgInfo> {
     counts: { members: c?.members ?? 0, guests: c?.guests ?? 0, teams: c?.teams ?? 0 },
     settings: await acc.settings(orgId),
     dataRegion: org.data_region === "eu" ? "eu" : "default",
+    // Round 14 (docs/governance.md §2.1, §2.5, §2.13)
+    governancePlus: !!org.governance_plus,
+    ...(gate ? { gate } : {}),
+    ...(org.governance_plus && me.role === "guest" ? { guestExpiresAt: me.expires_at ?? null } : {}),
   };
+  return info;
 }
 
 export async function adminCount(d1: D1Like, orgId: string): Promise<number> {
@@ -257,9 +281,11 @@ export async function addPerson(deps: Deps, orgId: string, email: string, role: 
   const had = await d1.prepare(`SELECT user_id FROM org_members WHERE org_id = ?1 AND email = ?2`).bind(orgId, e).first<{ user_id: string | null }>();
   if (had) return { userId: had.user_id, created: false };
   const now = deps.now();
+  // A guest's access ends after the org's default duration (Governance+, docs/governance.md §2.13)
+  const expiresAt = role === "guest" ? await guestExpiryOnJoin(d1, orgId, now) : null;
   await d1
-    .prepare(`INSERT INTO org_members (org_id, email, user_id, role, seat, workspace_id, billing_group_id, invited_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`)
-    .bind(orgId, e, u?.id ?? null, role, seat, opts.workspaceId ?? null, opts.billingGroupId ?? null, opts.by?.id ?? null, now)
+    .prepare(`INSERT INTO org_members (org_id, email, user_id, role, seat, workspace_id, billing_group_id, invited_by, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`)
+    .bind(orgId, e, u?.id ?? null, role, seat, opts.workspaceId ?? null, opts.billingGroupId ?? null, opts.by?.id ?? null, now, expiresAt)
     .run();
   const entity = userEntity(u ?? { id: e, email: e, name: null });
   // The org logs org_user_create (guests too); the person's home org, when captured and another, its external twin
@@ -353,7 +379,7 @@ export async function guestAnswerers(d1: D1Like, orgId: string, resource: { type
  * workspace and billing admin rows and pending requests go; their sockets in the org's files close. Their drafts stay
  * (owner_id kept) and list as "Unassigned drafts".
  */
-export async function removeFromOrg(deps: Deps, orgId: string, userId: string, by: User | null, req: Request | null): Promise<boolean> {
+export async function removeFromOrg(deps: Deps, orgId: string, userId: string, by: User | null, req: Request | null, details: Record<string, unknown> = {}): Promise<boolean> {
   const d1 = deps.db.d1;
   const row = await d1.prepare(`SELECT m.email, m.role, u.name FROM org_members m LEFT JOIN users u ON u.id = m.user_id WHERE m.org_id = ?1 AND m.user_id = ?2`).bind(orgId, userId).first<{ email: string; role: OrgRole; name: string | null }>();
   if (!row) return false;
@@ -369,7 +395,7 @@ export async function removeFromOrg(deps: Deps, orgId: string, userId: string, b
   await d1.prepare(`DELETE FROM seat_requests WHERE org_id = ?1 AND user_id = ?2 AND state = 'pending'`).bind(orgId, userId).run();
   await d1.prepare(`DELETE FROM org_members WHERE org_id = ?1 AND user_id = ?2`).bind(orgId, userId).run();
   const person = { id: userId, email: row.email, name: row.name };
-  await logActivity(deps, { orgId, action: "org_user_delete", actor: by, entity: userEntity(person), details: { role: row.role }, req });
+  await logActivity(deps, { orgId, action: "org_user_delete", actor: by, entity: userEntity(person), details: { role: row.role, ...details }, req });
   await logExternal(deps, person, orgId, "org_user_delete_external", userEntity(person), { actor: by, req });
   await reauth(deps, await orgFileKeys(d1, orgId), [userId]);
   await orgNotice(deps, [userId], { what: "orgs" });

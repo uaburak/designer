@@ -6,7 +6,7 @@
  * every five minutes, webhook retries (docs/multiplayer.md §16.9). Rooms and library objects of orgs whose data region is
  * the EU live in Cloudflare's `eu` jurisdiction (docs/multiplayer.md §15.10: `roomsOn`, `libraryFetch`).
  */
-import { handle, type Env as ApiEnv, type Inboxes, type Rooms } from "./api";
+import { handle, type Deps, type Env as ApiEnv, type Inboxes, type Rooms } from "./api";
 import { Db } from "./db";
 import { rollup } from "./analytics/rollup";
 import type { ObjectNamespace } from "./libraries/db";
@@ -26,23 +26,28 @@ interface Env extends ApiEnv {
   FONTS: DurableObjectNamespace;
 }
 
+/** The API's dependencies over the bindings (requests and the daily cron) */
+function depsOf(env: Env, waitUntil?: (p: Promise<unknown>) => void): Deps {
+  // Each file's room in its jurisdiction (files.jurisdiction, docs/multiplayer.md §15.10), with x-policy (§15.9).
+  const db = new Db(env.DB);
+  const rooms: Rooms = roomsOn(env.ROOMS as unknown as ObjectNamespace, db.d1);
+  const inbox = (userId: string) => env.INBOXES.get(env.INBOXES.idFromName(userId));
+  const inboxes: Inboxes = {
+    async notify(userId, message) {
+      await inbox(userId).fetch(new Request("https://inbox/inbox/notify", { method: "POST", body: JSON.stringify(message) }));
+    },
+    connect(userId, original) {
+      const headers = new Headers(original.headers);
+      headers.delete("authorization");
+      return inbox(userId).fetch(new Request("https://inbox/inbox/ws", { method: "GET", headers }));
+    },
+  };
+  return { db, env, rooms, inboxes, fetch: (...a) => fetch(...a), now: () => Date.now(), ...(waitUntil ? { waitUntil } : {}) };
+}
+
 export default {
   fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    // Each file's room in its jurisdiction (files.jurisdiction, docs/multiplayer.md §15.10), with x-policy (§15.9).
-    const db = new Db(env.DB);
-    const rooms: Rooms = roomsOn(env.ROOMS as unknown as ObjectNamespace, db.d1);
-    const inbox = (userId: string) => env.INBOXES.get(env.INBOXES.idFromName(userId));
-    const inboxes: Inboxes = {
-      async notify(userId, message) {
-        await inbox(userId).fetch(new Request("https://inbox/inbox/notify", { method: "POST", body: JSON.stringify(message) }));
-      },
-      connect(userId, original) {
-        const headers = new Headers(original.headers);
-        headers.delete("authorization");
-        return inbox(userId).fetch(new Request("https://inbox/inbox/ws", { method: "GET", headers }));
-      },
-    };
-    return handle(req, { db, env, rooms, inboxes, fetch: (...a) => fetch(...a), now: () => Date.now(), waitUntil: (p) => ctx.waitUntil(p) });
+    return handle(req, depsOf(env, (p) => ctx.waitUntil(p)));
   },
 
   /** "17 3 * * *": the library analytics roll-up for yesterday (UTC) and the retention sweeps; "*\/5 * * * *": webhook
@@ -55,5 +60,7 @@ export default {
     }
     await rollup(env.DB, controller.scheduledTime);
     await (await import("./rest/rate")).sweepRate(env.DB, controller.scheduledTime);
+    // Guests whose access ended (docs/governance.md §2.13): removed, logged org_user_delete {reason: "guest_expired"}
+    await (await import("./governance/guests")).sweepExpiredGuests(depsOf(env));
   },
 } satisfies ExportedHandler<Env>;
