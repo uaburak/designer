@@ -12,6 +12,10 @@
  * `{t: "rest-wanted"}` goes to inboxes through `INBOXES`; FILE_UPDATE is emitted from the alarm with the object's own
  * D1 (`emitWebhook`), only when the file has a webhook that could want it (asked at wake, kept 5 minutes). The file's
  * key is the object's name (`ctx.id.name`, set by `idFromName`), else the one the Worker's REST calls carry (`?fileKey=`).
+ *
+ * Key management (docs/governance.md §2.10, ekm/room.ts): on every wake the object reads its org's key from D1 and
+ * unwraps it before any event (`blockConcurrencyWhile`), seals the rows still plain, and checks again every hour.
+ * While the key can't be unwrapped, calls answer 503 `key_unavailable` and sockets are refused.
  */
 import { DurableObject } from "cloudflare:workers";
 import { CLOSE_MOVING, type Role } from "../../src/shared/multiplayer/protocol";
@@ -22,6 +26,7 @@ import { parseRoomPolicy } from "./policy/roomPolicy";
 import { RestJobs } from "./rest/roomJobs";
 import { Db } from "./db";
 import { BROADCAST_KINDS } from "./roomBroadcast";
+import { RoomEkm, KEY_UNAVAILABLE } from "./ekm/room";
 
 export { MAX_BLOB_BYTES } from "./roomBox";
 /** Close codes the client reads: 4001 the file stopped being shared, 4003 access changed, 4009 a snapshot replaced history. */
@@ -32,6 +37,8 @@ interface RoomEnv {
   DB?: D1Database;
   INBOXES?: DurableObjectNamespace;
   SESSION_SECRET?: string;
+  /** Key management's root key (32 bytes, base64; `wrangler secret put EKM_ROOT_KEY`) */
+  EKM_ROOT_KEY?: string;
 }
 
 /** How long the room trusts its answer to "does this file have a webhook?" (§16.10) */
@@ -43,6 +50,7 @@ export class FileRoom extends DurableObject {
   private rest: RestJobs;
   private hooks: { at: number; has: boolean } | null = null;
   private fileKey: string | null;
+  private ekm: RoomEkm;
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
@@ -60,8 +68,18 @@ export class FileRoom extends DurableObject {
           const s = ws.deserializeAttachment() as MemberState | null;
           return s?.userId === userId && s.sessionID === sessionID;
         }),
+      cipher: () => this.ekm.key.cipher,
     });
     this.fileKey = ctx.id.name ?? null;
+    this.ekm = new RoomEkm({
+      d1: (env as RoomEnv).DB as never,
+      sql: ctx.storage.sql as unknown as SqlLike,
+      rootKey: () => (env as RoomEnv).EKM_ROOT_KEY,
+      now: () => Date.now(),
+      fileKey: () => this.fileKey,
+      box: () => this.box,
+      refuseSockets: () => this.refuseSockets(),
+    });
     this.room = new Room(this.box.storage, (ws, state) => (ws as WebSocket).serializeAttachment(state), {
       onRest: (conn, member, answer) => this.rest.answer(conn, member, answer),
       onRenderer: () => this.rest.renderer(),
@@ -84,17 +102,38 @@ export class FileRoom extends DurableObject {
       const state = ws.deserializeAttachment() as MemberState | null;
       if (state) this.room.restore(ws, state);
     }
+    // The org's key before any event (one D1 read per wake); the rows still plain are sealed then.
+    void ctx.blockConcurrencyWhile(async () => void (await this.ekm.check()));
+  }
+
+  /** The key became unavailable: every member is told and closed (they reconnect into a 503). */
+  private refuseSockets(): void {
+    const text = JSON.stringify({ t: "error", code: KEY_UNAVAILABLE.code, message: KEY_UNAVAILABLE.error });
+    for (const ws of this.ctx.getWebSockets()) {
+      try {
+        ws.send(text);
+      } catch {
+        // already closed
+      }
+    }
+    this.room.closeAll(CLOSE_ACCESS, "the encryption key is unavailable");
   }
 
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const policy = parseRoomPolicy(req.headers.get("x-policy"));
     const identity = { userId: req.headers.get("x-user-id") ?? "", name: req.headers.get("x-user-name") || undefined, role: (req.headers.get("x-role") ?? "viewer") as Role, ...(policy ? { policy } : {}) };
+    // The Worker names the file on its REST calls and encrypt-next (?fileKey=): the object's name when the runtime
+    // doesn't give it. Learning it reads the org's key again.
+    const named = url.searchParams.get("fileKey");
+    if (!this.fileKey && named && /^[A-Za-z0-9_-]{6,64}$/.test(named)) {
+      this.fileKey = named;
+      await this.ekm.check(true);
+    }
+    const gated = (await this.ekm.gate(req.method, url.pathname)) ?? (await this.ekm.route(req.method, url.pathname));
+    if (gated) return gated;
     if (url.pathname.startsWith("/room/rest") || url.pathname === "/room/thumbnail") {
-      // The Worker names the file on its REST calls (?fileKey=): the object's name when the runtime doesn't give it.
-      const key = url.searchParams.get("fileKey");
-      if (!this.fileKey && key) this.fileKey = key;
-      return (await this.rest.fetch(req)) ?? new Response("not found", { status: 404 });
+      return (await this.ekm.rest(req, url, this.rest)) ?? new Response("not found", { status: 404 });
     }
     switch (`${req.method} ${url.pathname}`) {
       case "GET /room/ws": {
@@ -169,6 +208,17 @@ export class FileRoom extends DurableObject {
   }
 
   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
+    if (this.ekm.key.state === "unavailable") {
+      try {
+        ws.send(JSON.stringify({ t: "error", code: KEY_UNAVAILABLE.code, message: KEY_UNAVAILABLE.error }));
+        ws.close(CLOSE_ACCESS, "the encryption key is unavailable");
+      } catch {
+        // already closed
+      }
+      return;
+    }
+    // The hourly re-check (frames are the plain journal: nothing waits for it)
+    if (this.ekm.key.due()) void this.ekm.check();
     if (this.box.moving()) {
       ws.close(CLOSE_MOVING, "moving to another region");
       return;
@@ -200,7 +250,10 @@ export class FileRoom extends DurableObject {
 
   /** Autosave (docs/data.md §6: 30 minutes of edits) and FILE_UPDATE (§16.10: 30 minutes after a burst of edits) */
   async alarm(): Promise<void> {
+    // No autosave while the key is unavailable: the version's frames couldn't be sealed (the next edit sets the alarm again).
+    if ((await this.ekm.check()) === "unavailable") return;
     const { fileUpdate } = this.box.alarm();
+    await this.box.sealPending();
     const db = (this.env as RoomEnv).DB;
     if (!fileUpdate || !db || !this.fileKey) return;
     const { emitFileUpdate } = await import("./webhooks/emit");
