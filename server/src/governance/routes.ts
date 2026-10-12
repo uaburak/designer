@@ -97,6 +97,7 @@ export async function governanceRoute(ctx: Ctx, orgId: string, section: string, 
       const b = await body<{ governancePlus?: unknown }>(ctx.req);
       if (typeof b.governancePlus !== "boolean") throw new HttpError(400, "governancePlus is true or false", "invalid", { field: "governancePlus" });
       await setGovernancePlus(ctx, orgId, b.governancePlus);
+      (await import("../discovery/record")).forgetGovernanceOrgs(ctx.deps.db.d1);
       return json(await overviewOf(ctx, orgId));
     }
     throw new HttpError(405, "method not allowed");

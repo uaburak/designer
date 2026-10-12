@@ -97,7 +97,15 @@ async function dispatch(req: Request, url: URL, deps: Deps, version: string, par
   const headers = await charge(deps, caller, spec.tier, await rateType(deps, caller, orgId), orgId !== null || caller.kind === "plan");
 
   const ctx: RestCtx = { req, url, deps, caller, parts, version, m: req.method, acc: new Access(deps, caller.user), headers };
-  const res = await route(ctx, spec.group);
+  // Developer logs (docs/governance.md §2.12): a call that reached a Governance+ org's resource, logged after the
+  // answer — failed calls too. Not a G+ org: one cached list, no query.
+  const line = await (await import("./devlog")).developerLogLine(deps, req, version, parts, caller, orgId, spec.fileKey);
+  let res: Response;
+  try {
+    res = await route(ctx, spec.group);
+  } finally {
+    if (line) await (await import("./devlog")).writeDeveloperLog(deps, line);
+  }
   const out = new Headers(res.headers);
   for (const [k, v] of Object.entries(headers)) if (!out.has(k)) out.set(k, v);
   return new Response(res.body, { status: res.status, headers: out, ...(out.get("content-encoding") ? { encodeBody: "manual" } : {}) } as ResponseInit);
@@ -126,6 +134,10 @@ async function route(ctx: RestCtx, group: string): Promise<Response> {
       return (await import("./org")).orgRestRoute(ctx);
     case "webhooks":
       return (await import("../webhooks/routes")).webhooksRoute(ctx);
+    case "discovery":
+      return (await import("../discovery/rest")).discoveryRestRoute(ctx);
+    case "devlog":
+      return (await import("./devlog")).developerLogsRestRoute(ctx);
   }
   throw new RestError(404, "Not found");
 }

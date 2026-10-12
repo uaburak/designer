@@ -27,6 +27,7 @@ import { RestJobs } from "./rest/roomJobs";
 import { Db } from "./db";
 import { BROADCAST_KINDS } from "./roomBroadcast";
 import { RoomEkm, KEY_UNAVAILABLE } from "./ekm/room";
+import { discoveryAlarm, discoveryTake, forgetDiscoveryRoom, type DiscoveryRoom } from "./discovery/record";
 
 export { MAX_BLOB_BYTES } from "./roomBox";
 /** Close codes the client reads: 4001 the file stopped being shared, 4003 access changed, 4009 a snapshot replaced history. */
@@ -48,6 +49,7 @@ export class FileRoom extends DurableObject {
   private box: RoomBox;
   private room: Room;
   private rest: RestJobs;
+  private discovery: DiscoveryRoom;
   private hooks: { at: number; has: boolean } | null = null;
   private fileKey: string | null;
   private ekm: RoomEkm;
@@ -98,6 +100,7 @@ export class FileRoom extends DurableObject {
         await Promise.all(userIds.map((u) => ns.get(ns.idFromName(u)).fetch(new Request("https://inbox/inbox/notify", { method: "POST", body })).catch(() => undefined)));
       },
     });
+    this.discovery = { fileKey: () => this.fileKey, sql: ctx.storage.sql as unknown as SqlLike, now: () => Date.now(), d1: (env as RoomEnv).DB ?? null, rest: this.rest };
     for (const ws of ctx.getWebSockets()) {
       const state = ws.deserializeAttachment() as MemberState | null;
       if (state) this.room.restore(ws, state);
@@ -201,6 +204,7 @@ export class FileRoom extends DurableObject {
         await this.ctx.storage.deleteAll();
         this.box.reset();
         this.rest.reset();
+        forgetDiscoveryRoom(this.discovery);
         return Response.json({ ok: true });
       }
     }
@@ -232,6 +236,19 @@ export class FileRoom extends DurableObject {
     const before = this.box.storage.lastSeq();
     this.room.receive(ws, typeof message === "string" ? message : new Uint8Array(message));
     if (this.box.storage.lastSeq() > before) this.box.edited(this.wantsFileUpdate());
+    this.discover(); // after edited(), which sets the alarm
+  }
+
+  /** Discovery's capture (docs/governance.md §2.11): the last writer and cursor chat; the alarm moves earlier when due sooner */
+  private discover(): void {
+    const cap = this.room.drainDiscovery();
+    if (cap) this.ctx.waitUntil(discoveryTake(this.discovery, cap).then((due) => this.armDiscovery(due)).catch((e) => console.error("discovery", e)));
+  }
+
+  private async armDiscovery(due: number | null): Promise<void> {
+    if (due === null) return;
+    const at = await this.ctx.storage.getAlarm();
+    if (at === null || at > due) await this.ctx.storage.setAlarm(due);
   }
 
   /** Does the file have a webhook FILE_UPDATE could reach? Unknown → yes (the alarm asks D1 again). */
@@ -253,6 +270,7 @@ export class FileRoom extends DurableObject {
     // No autosave while the key is unavailable: the version's frames couldn't be sealed (the next edit sets the alarm again).
     if ((await this.ekm.check()) === "unavailable") return;
     const { fileUpdate } = this.box.alarm();
+    await this.armDiscovery(await discoveryAlarm(this.discovery).catch((e) => (console.error("discovery", e), null)));
     await this.box.sealPending();
     const db = (this.env as RoomEnv).DB;
     if (!fileUpdate || !db || !this.fileKey) return;
@@ -262,6 +280,7 @@ export class FileRoom extends DurableObject {
 
   webSocketClose(ws: WebSocket, code: number, reason: string): void {
     this.room.leave(ws);
+    this.discover();
     try {
       ws.close(code === 1005 ? 1000 : code, reason);
     } catch {
@@ -271,5 +290,6 @@ export class FileRoom extends DurableObject {
 
   webSocketError(ws: WebSocket): void {
     this.room.leave(ws);
+    this.discover();
   }
 }

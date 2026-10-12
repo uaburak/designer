@@ -45,6 +45,10 @@ export async function adminRoute(ctx: Ctx, orgId: string): Promise<Response> {
   if (GOVERNANCE_SECTIONS.has(section)) return (await import("../governance/routes")).governanceRoute(ctx, orgId, section, rest, scope);
 
   switch (section) {
+    case "developer-logs":
+      orgOnly();
+      if (rest.length || m !== "GET") break;
+      return (await import("../rest/devlog")).adminDeveloperLogs(ctx, orgId);
     case "dashboard":
       if (m === "GET" && !rest.length) return json(await dashboard(ctx, orgId));
       break;
@@ -120,7 +124,12 @@ export async function adminRoute(ctx: Ctx, orgId: string): Promise<Response> {
       orgOnly();
       if (rest.length) break;
       if (m === "GET") return json(await acc.settings(orgId));
-      if (m === "PATCH") return json(await patchSettings(ctx, orgId, await body<Partial<OrgSettings>>(ctx.req)));
+      if (m === "PATCH") {
+        const patch = await body<Partial<OrgSettings>>(ctx.req);
+        const next = await patchSettings(ctx, orgId, patch);
+        if (patch.discovery !== undefined) (await import("../discovery/record")).forgetGovernanceOrgs(ctx.deps.db.d1);
+        return json(next);
+      }
       break;
     }
     case "drafts": {

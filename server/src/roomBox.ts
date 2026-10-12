@@ -668,6 +668,7 @@ export class RoomBox {
     if (seq >= st.lastSeq()) {
       st.clearMeta("editedSince");
       st.clearMeta("dueSince");
+      st.clearMeta("autosaveAt");
     }
     return toVersion(row);
   }
@@ -737,6 +738,8 @@ export class RoomBox {
     }
     const at = autosaveAlarm({ lastVersionAt: st.meta("lastVersionAt"), dueSince: st.meta("dueSince") }, now);
     if (at !== null && st.meta("dueSince") < 0) st.setMeta("dueSince", now);
+    // The one alarm is shared (Discovery's hourly job may ring it earlier): remember when the autosave is due.
+    st.setMeta("autosaveAt", at ?? -1);
     const due = st.meta("webhookDue");
     const next = [at, due >= 0 ? due : null].filter((x): x is number => x !== null);
     if (next.length) this.host.setAlarm(Math.min(...next));
@@ -749,16 +752,19 @@ export class RoomBox {
   alarm(): { fileUpdate: boolean } {
     const st = this.storage;
     const now = this.host.now();
-    if (st.meta("dueSince") >= 0 && st.meta("editedSince") === 1 && st.meta("snapshotSeq") >= 0 && st.lastSeq() > st.meta("lastVersionSeq")) {
+    const saveAt = st.meta("autosaveAt");
+    const saveLater = saveAt > now; // rung early by another user of the alarm (Discovery): not yet
+    if (!saveLater && st.meta("dueSince") >= 0 && st.meta("editedSince") === 1 && st.meta("snapshotSeq") >= 0 && st.lastSeq() > st.meta("lastVersionSeq")) {
       this.host.transaction(() => void this.take({ kind: "autosave" }));
     }
     const due = st.meta("webhookDue");
+    const again = [saveLater ? saveAt : null, due > now ? due : null].filter((x): x is number => x !== null);
+    if (again.length) this.host.setAlarm(Math.min(...again));
     if (due >= 0 && due <= now) {
       st.clearMeta("webhookDue");
       st.clearMeta("webhookDirtyAt");
       return { fileUpdate: true };
     }
-    if (due >= 0) this.host.setAlarm(due);
     return { fileUpdate: false };
   }
 

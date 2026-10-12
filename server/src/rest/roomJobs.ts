@@ -12,7 +12,8 @@
  * in `Room.renderers()` order (editor idle longest › viewer › helper), each given `clientMs` (20 s) until one answers
  * `rest-job-done` with every part uploaded; nobody → `wanted` (the Worker's list of people whose desktop app may start
  * its render helper, sent `{t: "rest-wanted", fileKey}` through their inboxes), then wait for a renderer to join within
- * `waitMs`. `variables_post` is never cached and needs a member who can edit.
+ * `waitMs`. `variables_post` is never cached and needs a member who can edit. `discovery_text` (docs/governance.md §2.11,
+ * the room's hourly Discovery job) is never cached either: the room reads its part (`partBytes`) and drops it (`dropParts`).
  *
  * Storage (as built — ours, not the room's `blobs`, so a cache eviction never touches an image fill): `rest_blobs`
  * (parts by SHA-1, 1 MB rows) and `rest_cache` (job key → parts, size, created / used). Results are dropped least
@@ -76,7 +77,7 @@ export function canonical(v: unknown): string {
 
 /** §16.6's job key: SHA-1 of {kind, params sorted, seq | version}; null for jobs never cached */
 export async function jobKeyOf(job: RestJob, seq: number): Promise<string | null> {
-  if (job.kind === "variables_post") return null;
+  if (job.kind === "variables_post" || job.kind === "discovery_text") return null;
   const params = "params" in job ? job.params : {};
   return sha1Hex(canonical({ kind: job.kind, params, at: versionOf(job) ? `v:${versionOf(job)}` : `s:${seq}` }));
 }
@@ -267,6 +268,18 @@ export class RestJobs {
         finish(null);
       }
     });
+  }
+
+  /** A part's bytes (an uncached job's, before `dropParts`) */
+  partBytes(sha1: string): Uint8Array | null {
+    const rows = this.host.sql.exec<{ bytes: ArrayBuffer }>(`SELECT bytes FROM rest_blobs WHERE sha1 = ? ORDER BY idx`, sha1).toArray();
+    return rows.length ? concat(rows) : null;
+  }
+
+  /** An uncached job's parts, read: gone (unless a cache entry shares the bytes) */
+  dropParts(parts: RestJobPart[]): void {
+    if (!parts.length) return;
+    this.host.transaction(() => this.collect());
   }
 
   private cacheRow(key: string): { parts: RestJobPart[] } | null {

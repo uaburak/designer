@@ -9,7 +9,8 @@
  *   DELETE /files/:key/dev-resources/:id                → 204
  *
  * The REST twins (`/v1/…dev_resources`, §16.7) are in rest.ts over the same functions. Logged as `dev_resource_create`
- * / `dev_resource_delete` (ours) for org files.
+ * / `dev_resource_delete` (ours) for org files. Discovery (docs/governance.md §2.11): each change is a
+ * `developer_related_links` event (the link's name and URL), after the answer; nothing for orgs without Discovery.
  */
 import { DEV_RESOURCE_LIMIT, type DevResourceRecord } from "../../../src/shared/devmode/types";
 import type { AccessResult } from "../../../src/shared/org/access";
@@ -18,6 +19,11 @@ import type { User } from "../db";
 import type { FileRow } from "../org/db";
 import { body, HttpError, noContent, randomId } from "../org/http";
 import { json, line, logDev, nodeId, requireReadDev, requireWriteDev } from "./common";
+import { recordFileText } from "../discovery/record";
+
+/** Discovery's event of a change: "name url" (ours: Figma doesn't say how a link's text reads) */
+const discover = (deps: Deps, r: Row, action: "insert" | "update" | "delete", userId: string, orgId?: string | null) =>
+  recordFileText(deps, r.file_key, [{ text: `${r.name} ${r.url}`, action, textType: "developer_related_links", nodeId: r.node_id, resourceId: r.id, userId }], orgId);
 
 interface Row {
   id: string;
@@ -91,10 +97,12 @@ export async function addResource(deps: Deps, f: FileRow, user: User, input: { n
   if (!r) throw new HttpError(409, DUPLICATE);
   await (await import("../roomBroadcast")).roomBroadcast(deps, f.key, "dev-resources");
   await logDev(deps, f, user, "dev_resource_create", { node_id: node, url, name }, req);
+  await discover(deps, r, "insert", user.id, f.org_id);
   return toRecord(r);
 }
 
-export async function editResource(deps: Deps, row: Row, patch: { name?: unknown; url?: unknown }): Promise<DevResourceRecord> {
+/** `user`: who edits (Discovery's attribution; the link's creator when not given) */
+export async function editResource(deps: Deps, row: Row, patch: { name?: unknown; url?: unknown }, user?: User): Promise<DevResourceRecord> {
   const url = patch.url !== undefined ? cleanUrl(patch.url) : row.url;
   const name = patch.name !== undefined ? nameFor(patch.name, url) : row.name;
   if (url !== row.url) {
@@ -103,6 +111,8 @@ export async function editResource(deps: Deps, row: Row, patch: { name?: unknown
   }
   const r = await deps.db.d1.prepare(`UPDATE dev_resources SET name = ?2, url = ?3, updated_at = ?4 WHERE id = ?1 RETURNING *`).bind(row.id, name, url, deps.now()).first<Row>();
   await (await import("../roomBroadcast")).roomBroadcast(deps, row.file_key, "dev-resources");
+  const by = user?.id ?? row.created_by;
+  if (by && (r!.name !== row.name || r!.url !== row.url)) await discover(deps, r!, "update", by);
   return toRecord(r!);
 }
 
@@ -110,6 +120,7 @@ export async function removeResource(deps: Deps, f: FileRow, user: User, row: Ro
   await deps.db.d1.prepare(`DELETE FROM dev_resources WHERE id = ?1`).bind(row.id).run();
   await (await import("../roomBroadcast")).roomBroadcast(deps, f.key, "dev-resources");
   await logDev(deps, f, user, "dev_resource_delete", { node_id: row.node_id, url: row.url, name: row.name }, req);
+  await discover(deps, row, "delete", user.id, f.org_id);
 }
 
 /** `/files/:key/dev-resources…` (parts: ["files", key, "dev-resources", id?]) */
@@ -135,7 +146,7 @@ export async function devResourcesRoute(req: Request, url: URL, deps: Deps, user
       return noContent();
     }
     const b = await body<{ name?: unknown; url?: unknown }>(req);
-    return json({ devResource: await editResource(deps, row, b) });
+    return json({ devResource: await editResource(deps, row, b, user) });
   }
   throw new HttpError(405, "method not allowed");
 }

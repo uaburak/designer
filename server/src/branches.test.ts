@@ -114,6 +114,11 @@ describe("the room's storage (roomBox.ts)", () => {
     now += AUTOSAVE_MS;
     mem.send("main_00001", a, bytes("e5"));
     expect(room.alarm).toBe(now + AUTOSAVE_QUIET_MS);
+    // Rung early (Discovery shares the alarm): nothing is taken and the autosave's time is set again
+    room.box.alarm();
+    expect((await call("GET", "/files/main_00001/versions", alice.token)).body.versions[0].kind).not.toBe("autosave");
+    expect(room.alarm).toBe(now + AUTOSAVE_QUIET_MS);
+    now += AUTOSAVE_QUIET_MS;
     room.box.alarm();
     const versions = (await call("GET", "/files/main_00001/versions", alice.token)).body.versions;
     expect(versions[0]).toMatchObject({ kind: "autosave", seq: 5, user: { id: null } });

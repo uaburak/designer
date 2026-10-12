@@ -159,6 +159,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   // Private plugins and approval (docs/plugins.md §10, round 5c)
   if (parts[0] === "plugins" || (parts[0] === "orgs" && (parts[2] === "plugins" || (parts[2] === "admin" && parts[3] === "plugins")))) return (await import("./plugins/routes")).pluginRoutes(orgCtx());
   if (parts[0] === "orgs" && parts[2] === "admin" && parts[3] === "key-management") return (await import("./ekm/routes")).keyManagementRoute(orgCtx());
+  // Governance+ client reports (docs/governance.md §4): AI prompts for Discovery, MCP calls for developer logs
+  if (parts[0] === "orgs" && parts.length === 4 && ((parts[2] === "discovery" && parts[3] === "ai-prompt") || (parts[2] === "developer-logs" && parts[3] === "mcp"))) return (await import("./discovery/routes")).memberReportRoute(orgCtx());
   if (parts[0] === "orgs") return (await import("./org/orgs")).orgsRoute(orgCtx());
   if (parts[0] === "teams") return (await import("./org/teams")).teamsRoute(orgCtx());
   if (parts[0] === "projects") return (await import("./org/projects")).projectsRoute(orgCtx());
