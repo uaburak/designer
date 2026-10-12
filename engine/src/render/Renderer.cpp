@@ -1,6 +1,8 @@
 #include "render/Renderer.h"
 
 #include "geometry/Brush.h"
+#include "geometry/DynamicStroke.h"
+#include "geometry/Repeat.h"
 
 #include <algorithm>
 #include <cmath>
@@ -445,7 +447,7 @@ void Renderer::drawFills(const Document& doc, Guid id, const NodeProps& p, const
   }
 }
 
-void Renderer::drawPattern(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Paint& paint) {
+void Renderer::drawPattern(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Paint& paint, bool stroke) {
   double a = alpha * paint.opacity;
   const PaintExtras& x = paintExtras(paint);
   if (!(a > 0) || patternDepth_ > 1 || x.sourceNodeId == kNoGuid || x.sourceNodeId == id) return;
@@ -473,14 +475,22 @@ void Renderer::drawPattern(const Document& doc, Guid id, const NodeProps& p, con
     return al == PatternAlignment::START ? 0.0 : al == PatternAlignment::CENTER ? (len - t) / 2 : len - t;
   };
   Vec2 origin{anchor(x.horizontalAlignment, p.size.x, tile.x), anchor(x.verticalAlignment, p.size.y, tile.y)};
+  // A pattern stroke reaches past the box by the stroke's reach (node units): the tiles cover that too.
+  double pad = 0;
+  if (stroke) {
+    pad = p.strokeWeight * (p.strokeAlign == StrokeAlign::CENTER ? 0.5 : 1) * std::max(1.0, std::min(p.miterLimit, 4.0)) + 1;
+    geom::DynamicSettings dyn;
+    if (!p.extra.empty() && dynamicSettingsOf(p, dyn)) pad += geom::dynamicReach(dyn, p.strokeWeight);
+    if (!p.extra.empty() && strokeBrushOf(p) != kNoGuid) pad = std::max(pad, p.strokeWeight * 4);
+  }
   // The part of the box on screen (node space).
   Mat2x3 inv = m.inverse();
   Rect seen = Rect::fromPoints(inv.apply({screen_.x, screen_.y}), inv.apply({screen_.right(), screen_.bottom()}));
   seen = seen.united(Rect::fromPoints(inv.apply({screen_.right(), screen_.y}), inv.apply({screen_.x, screen_.bottom()})));
-  double x0 = std::max(0.0, seen.x), y0 = std::max(0.0, seen.y);
-  double x1 = std::min(p.size.x, seen.right()), y1 = std::min(p.size.y, seen.bottom());
+  double x0 = std::max(-pad, seen.x), y0 = std::max(-pad, seen.y);
+  double x1 = std::min(p.size.x + pad, seen.right()), y1 = std::min(p.size.y + pad, seen.bottom());
   if (x1 <= x0 || y1 <= y0) return;
-  gfx::IRect r = deviceRect(transformedBounds(m, p.size.x, p.size.y), 2);
+  gfx::IRect r = deviceRect(transformedBounds(m * Mat2x3::translate(-pad, -pad), p.size.x + 2 * pad, p.size.y + 2 * pad), 2);
   if (r.w <= 0 || r.h <= 0) return;
   bool hexRows = x.tileType == PatternTileType::HORIZONTAL_HEXAGONAL, hexCols = x.tileType == PatternTileType::VERTICAL_HEXAGONAL;
   long i0 = static_cast<long>(std::floor((x0 - origin.x - tile.x) / step.x)) - (hexRows ? 1 : 0);
@@ -507,10 +517,16 @@ void Renderer::drawPattern(const Document& doc, Guid id, const NodeProps& p, con
   cull_ = savedCull;
   tree_ = savedTree;
   endLayer(saved);
-  // Through the node's fill shape.
+  // Through the node's fill shape — or, for a pattern stroke, its stroke (Figma Draw's pattern strokes).
   int saved2 = beginLayer(r);
   int M = current_;
-  drawFills(doc, id, p, m, 1, true);
+  if (stroke) {
+    NodeProps white = p;
+    white.strokePaints = {Paint::solid(Color{1, 1, 1, 1})};
+    drawStrokePaints(doc, id, white, m, 1);
+  } else {
+    drawFills(doc, id, p, m, 1, true);
+  }
   endLayer(saved2);
   stats_.layers += 2;
   compositeLayer(P, M, 1, static_cast<float>(a), paint.blendMode == BlendMode::PASS_THROUGH ? BlendMode::NORMAL : paint.blendMode,
@@ -582,12 +598,33 @@ void Renderer::drawShaderPaint(const Document& doc, Guid id, const NodeProps& p,
 
 void Renderer::drawStrokes(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha) {
   if (!(p.strokeWeight > 0) || !anyVisible(p.strokePaints)) return;
+  bool pattern = false;
+  for (const Paint& s : p.strokePaints) pattern |= s.visible && s.type == PaintType::PATTERN;
+  if (!pattern) return drawStrokePaints(doc, id, p, m, alpha);
+  // Pattern strokes (Figma Draw): the source's tiles through the stroke; the other paints as they are, in order.
+  for (const Paint& s : p.strokePaints) {
+    if (!s.visible) continue;
+    if (s.type == PaintType::PATTERN) {
+      drawPattern(doc, id, p, m, alpha, s, true);
+      continue;
+    }
+    NodeProps one = p;
+    one.strokePaints = {s};
+    drawStrokePaints(doc, id, one, m, alpha);
+  }
+}
+
+void Renderer::drawStrokePaints(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha) {
+  if (!(p.strokeWeight > 0) || !anyVisible(p.strokePaints)) return;
   bool independent = p.stroke().borderStrokeWeightsIndependent && (p.isRectLike() || p.isFrameLike());
   // A dashed frame stroke (a component set's) goes through the stroker like a dashed rectangle's.
   bool dashedFrame = p.isFrameLike() && !p.stroke().dashPattern.empty();
   // A variable width (round 12) goes through the stroker.
   bool variable = !p.extra.empty() && hasWidthPoints(p) && widthProfileAllowed(p);
-  bool sdf = !p.isPathShape() && !p.invertedCorners() && !independent && !dashedFrame && !variable && (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
+  // Figma Draw's dynamic and brush strokes are drawn from the geometry's centre line, whatever the shape.
+  bool drawn = !p.extra.empty() && (p.extra.count("dynamicStrokeSettings") || strokeBrushOf(p) != kNoGuid);
+  bool sdf = !p.isPathShape() && !p.invertedCorners() && !independent && !dashedFrame && !variable && !drawn &&
+             (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
   if (sdf) {
     ShapeKind kind = p.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;
     CornerRadii radii = kind == ShapeKind::Rect ? geom::clampRadii(p.size, p.cornerRadii) : kSquare;
@@ -644,6 +681,11 @@ void Renderer::drawStrokes(const Document& doc, Guid id, const NodeProps& p, con
       return;
     }
   }
+  // A dynamic stroke (Figma Draw, docs/draw.md §4.3): its wandering centre line, stroked as any other.
+  geom::Path dynamic;
+  uint64_t dynamicKey = 0;
+  const geom::Path* center = &g->stroke.path;
+  if (drawn && dynamicCenter(p, *g, tol, dynamic, &dynamicKey)) center = &dynamic;
   bool closedArea = !g->fills.empty() && !g->hasOpenEnds;
   bool aligned = closedArea && p.strokeAlign != StrokeAlign::CENTER;
   geom::StrokeStyle style;
@@ -658,11 +700,12 @@ void Renderer::drawStrokes(const Document& doc, Guid id, const NodeProps& p, con
   h.add(g->strokeKey).add(style.width).add(style.join).add(style.miterLimit).add(style.cap).add(style.fitDashes).add(level).add(0x57ull);
   for (double d : style.dashes) h.add(d);
   if (variable) h.add(widthPointsKey(p)).add(0x7a1dull);
+  if (dynamicKey) h.add(dynamicKey).add(0xD1Aull);
   const CurveEntry* entry = curves_.path(h.h, [&](std::vector<float>& out) {
     std::vector<geom::WidthPoint> profile;
     if (variable) profile = widthPointsOf(p);
     if (!profile.empty()) style.profile = &profile;
-    geom::toQuads(geom::strokePath(g->stroke.path, style, tol), tol, out);
+    geom::toQuads(geom::strokePath(*center, style, tol), tol, out);
   });
   const CurveEntry* clip = nullptr;
   bool clipOdd = false;
@@ -1339,7 +1382,7 @@ void Renderer::drawContent(const Document& doc, uint32_t i, const NodeProps& p, 
   const RenderNode& rn = tree_->nodes()[i];
   Guid id = rn.id;
   if (analytic) drawAnalyticShadows(p, m, alpha, false);
-  if (p.type == NodeType::TEXT) {
+  if (p.isTextLike()) {
     drawText(doc, p, id, m, alpha);
     if (strokes) drawStrokes(doc, id, p, m, alpha);
     return;
@@ -1350,7 +1393,8 @@ void Renderer::drawContent(const Document& doc, uint32_t i, const NodeProps& p, 
     return;
   }
   if (p.isGroupLike()) {
-    drawChildren(doc, i + 1, rn.end, m, alpha);
+    if (p.type == NodeType::TRANSFORM) drawRepeat(doc, i, m, alpha);
+    else drawChildren(doc, i + 1, rn.end, m, alpha);
     return;
   }
   drawFills(doc, id, p, m, alpha);
@@ -1534,7 +1578,7 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
   if (p.strokeWeight > 0)
     for (auto& s : p.strokePaints) paints += s.visible ? 1 : 0;
   bool blend = p.blendMode != BlendMode::PASS_THROUGH && p.blendMode != BlendMode::NORMAL;
-  bool opacityLayer = p.opacity < 1 && (container || paints > 1 || p.type == NodeType::TEXT || generic);
+  bool opacityLayer = p.opacity < 1 && (container || paints > 1 || p.isTextLike() || generic);
   bool needsLayer = opacityLayer || blend || std::max(blurSigma, startSigma) > 0 || generic || post;
   double a = alpha * p.opacity;
 
@@ -1707,7 +1751,7 @@ void Renderer::drawOutlined(const Document& doc, uint32_t i, const NodeProps& p,
   const RenderNode& rn = tree_->nodes()[i];
   const Color ink{outlineInk_.r, outlineInk_.g, outlineInk_.b, 1};
   const double alpha = outlineInk_.a;
-  if (p.type == NodeType::TEXT) {
+  if (p.isTextLike()) {
     if (const text::TextLayout* L = texts_ ? texts_->textLayout(rn.id) : nullptr) drawGlyphs(*L, m, ink, alpha);
     return;
   }
@@ -1733,7 +1777,52 @@ void Renderer::drawOutlined(const Document& doc, uint32_t i, const NodeProps& p,
         outline(g->stroke.path);
     }
   }
-  if (rn.hasChildren) drawChildren(doc, i + 1, rn.end, m, 1);
+  if (rn.hasChildren) {
+    if (p.type == NodeType::TRANSFORM) drawRepeat(doc, i, m, 1);
+    else drawChildren(doc, i + 1, rn.end, m, 1);
+  }
+}
+
+void Renderer::drawRepeat(const Document& doc, uint32_t i, const Mat2x3& m, double alpha) {
+  const std::vector<RenderNode>& nodes = tree_->nodes();
+  const RenderNode& rn = nodes[i];
+  const geom::RepeatResult* rep = repeatOf(doc, rn.id);
+  if (!rep || rep->instances.size() <= 1) return drawChildren(doc, i + 1, rn.end, m, alpha);
+  // Nested groups multiply: at most kMaxRepeatInstances copies of anything, the first ones.
+  size_t n = rep->instances.size();
+  size_t budget = static_cast<size_t>(std::max(1.0, std::floor(static_cast<double>(geom::kMaxRepeatInstances) / repeatScale_)));
+  n = std::min(n, budget);
+  // What the children cover on screen (copy 0), to cull each copy (their tree bounds are copy 0's).
+  bool culling = cull_;
+  Rect content;
+  bool any = false;
+  if (culling)
+    for (uint32_t c = i + 1; c < rn.end; c = nodes[c].end) {
+      Rect b = screenBounds(c);
+      content = any ? content.united(b) : b;
+      any = true;
+    }
+  Mat2x3 mi = m.inverse();
+  double savedScale = repeatScale_;
+  repeatScale_ *= static_cast<double>(n);
+  for (size_t k = 0; k < n; k++) {
+    const Mat2x3& inst = rep->instances[k];
+    Mat2x3 mk = m * inst;
+    bool identity = inst == Mat2x3{};
+    if (culling && any && !identity) {
+      Rect r = transformedBounds(mk * mi * Mat2x3::translate(content.x, content.y), content.w, content.h);
+      Rect padded{r.x - 2, r.y - 2, r.w + 4, r.h + 4};
+      if (!padded.intersects(screen_)) {
+        stats_.culled++;
+        continue;
+      }
+    }
+    // A copy isn't where the tree's bounds say: drawn without culling (as pattern tiles are).
+    cull_ = culling && identity;
+    drawChildren(doc, i + 1, rn.end, mk, alpha);
+  }
+  cull_ = culling;
+  repeatScale_ = savedScale;
 }
 
 // ---- Execution ---------------------------------------------------------------------------------

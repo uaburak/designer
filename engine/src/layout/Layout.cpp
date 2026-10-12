@@ -1,5 +1,7 @@
 #include "layout/Layout.h"
 
+#include "geometry/Repeat.h"
+
 #include <algorithm>
 #include <cmath>
 #include <unordered_set>
@@ -145,6 +147,8 @@ Vec2 Layout::natural(Guid id, double width, double height, int hug) {
       any = true;
       if (cn->props.mask && cn->props.visible) break;  // what is above a mask is clipped by it (Figma: a masked group is the mask's size)
     }
+    // A transform group: the box of its evaluated instances (docs/draw.md §4.2).
+    if (any && p.type == NodeType::TRANSFORM) u = geom::evaluateRepeat(transformModifiersOf(p), u).bounds;
     if (any) size = {u.w, u.h};
   }
   // Lock aspect ratio: one axis imposed (Fill, Stretch, constraints) sets the other, over its own Hug (Figma).
@@ -601,6 +605,12 @@ void Layout::fitGroup(Guid id) {
     u = any ? u.united(b) : b;
     any = true;
     if (cp.mask && cp.visible) break;  // the layers above a mask are clipped by it: the group is the mask's size
+  }
+  // A transform group (Figma Draw, docs/draw.md §4.2): its box is the bounds of its evaluated instances — the selection
+  // box covers the whole repeat. The instances follow the children's box, so shifting both keeps everything in place.
+  if (const NodeProps& gp = doc_.get(id)->props; gp.type == NodeType::TRANSFORM) {
+    Rect content;
+    if (repeatContent(doc_, id, content)) u = geom::evaluateRepeat(transformModifiersOf(gp), content).bounds;
   }
   const Mat2x3 gt = doc_.get(id)->props.transform;
   const Vec2 gs = doc_.get(id)->props.size;

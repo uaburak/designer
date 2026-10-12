@@ -1,5 +1,7 @@
 #include "export/Export.h"
 
+#include "geometry/Repeat.h"
+
 #include <algorithm>
 #include <cmath>
 #include <unordered_set>
@@ -42,7 +44,7 @@ struct Bounder {
     auto addPath = [&](const geom::Path& path) {
       if (!path.empty()) add(path.transformed(W).bounds());
     };
-    if (p.type == NodeType::TEXT) {
+    if (p.isTextLike()) {
       const text::TextLayout* L = texts ? texts->textLayout(id) : nullptr;
       if (L) {
         bool ink = false;
@@ -107,6 +109,14 @@ struct Bounder {
         cr = cany ? cr.united(b) : b;
         cany = true;
       }
+      // A transform group: every copy of its content (docs/draw.md §4.2).
+      if (cany && p.type == NodeType::TRANSFORM)
+        if (const geom::RepeatResult* rep = repeatOf(doc, id); rep && rep->instances.size() > 1) {
+          Mat2x3 Wi = W.inverse();
+          Rect all = cr;
+          for (const Mat2x3& inst : rep->instances) all = all.united(transformedBounds(W * inst * Wi * Mat2x3::translate(cr.x, cr.y), cr.w, cr.h));
+          cr = all;
+        }
       if (cany && p.clipsContent()) cr = intersect(cr, transformedBounds(W, p.size.x, p.size.y));
       if (cany && (cr.w > 0 || cr.h > 0)) add(cr);
     }
@@ -348,7 +358,7 @@ bool ready(const Document& doc, TextLayouts* texts, const Target& t, double scal
   bool ok = true;
   forEachDrawn(doc, t, [&](Guid id, const Node& n) {
     const NodeProps& p = n.props;
-    if (p.type == NodeType::TEXT && texts) {
+    if (p.isTextLike() && texts) {
       const text::TextLayout* L = texts->textLayout(id);
       if (L && L->pendingFont) ok = false;
     }

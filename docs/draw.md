@@ -88,7 +88,7 @@ Sources (help.figma.com unless said):
 | Pen, shapes, arc | ✓ | engine.md §8.4 |
 | BRUSH nodes, brush strokes drawn | ✓ STRETCH / SCATTER from imported `.fig`s (`strokeBrushGuid`, settings, `scatterBrushTransforms`), canvas + export | `engine/src/geometry/Brush.{h,cpp}`, `engine/tests/unit/render.brush.test.cpp`, `docs/engine-build.md` "BRUSH nodes" |
 | Brush tool, built-in brushes, Create brush, Brush stroke UI | ✗ Stroke Type lists Dynamic / Brush but keeps Basic | `editor/panels/design/Stroke.tsx` ~379 |
-| Dynamic strokes | ✗ `dynamicStrokeSettings` 448 is stored (and blocks width profiles), not drawn | `geometry/VariableWidth.cpp widthProfileAllowed` |
+| Dynamic strokes | ◐ 7a: drawn, bounded, hit and exported (§4.10); the commands and the UI are 7b–7d | `geometry/DynamicStroke.*` |
 | Variable width, width profiles | ✓ round 12 | `geometry/VariableWidth.*`, `tools/VariableWidthTool.cpp`, `editor/widthProfile.ts` |
 | Shape builder (M) | ✓ round 12 | `tools/ShapeBuilder.cpp` |
 | Lasso (Q), Paint, Bend, Cut, Erase | ✓ rounds 8 / 15 | `editor/VectorEditing.cpp`, `canvas/BottomToolbar.tsx VECTOR_TOOL_GROUPS` |
@@ -96,7 +96,7 @@ Sources (help.figma.com unless said):
 | Split / Simplify / Offset vector | ✓ | `editor/ArrangeCommands.cpp` (`VECTOR_SPLIT` 282, `VECTOR_SIMPLIFY` 283, `VECTOR_OFFSET` 284) |
 | Rotation origin ⌥R | ✓ (view state, not stored) | `tools/CanvasTools.cpp`, `SHOW_ROTATION_ORIGIN` 236 |
 | Pattern fill | ✓ round 7 (`PaintType PATTERN = 8`, Select source, tile type, spacing, alignment) | engine.md §6.5, `editor.md` #10 |
-| Pattern **stroke** | ? not checked — 7a verifies and fixes | — |
+| Pattern **stroke** | ✓ 7a: was not drawn on the canvas (`setPaint` refused PATTERN); now drawn through the stroke (§4.10). SVG / PDF skip PATTERN paints | `render/Renderer.cpp drawStrokes` |
 | Noise, Texture, progressive blur, Glass | ✓ round 7 | engine.md §6.5 / §6.7 |
 | Text on a path | ✗ The Type tools ▾ item is listed but disabled | `ds/components/EditorToolbar.tsx` `text-on-path`; schema drops `TEXT_PATH` |
 | Transforms (repeat) | ✗ The schema drops `TRANSFORM` 48 and `transformModifiers` 455 | — |
@@ -402,6 +402,78 @@ Every exporter reads the evaluated scene (`export/Scene.cpp`):
 - **Multi-edit**: a marquee across two layers moves both; undo is one step.
 - **Export**: SVG / PDF of each (structure and bounds), including a pattern stroke.
 - **Wasm** (`src/renderer/src/engine/__tests__/draw.wasm.test.ts`): each ABI call and command through `Engine.ts`.
+
+### 4.10 As built (7a, 2026-10-12)
+
+Derived geometry only; nothing new is journaled. Native tests: `engine/tests/unit/r7.draw.test.cpp` (16 cases). No wasm build (7b builds the round's release wasm).
+
+**Scene** (`scene/Node.{h,cpp}`, `CodecKiwi.cpp`):
+- `NodeType::TEXT_PATH = 41` and `TRANSFORM = 48`, named, read from kiwi and JSON.
+- `NodeProps::isGroupLike()` includes TRANSFORM, so a transform group is a group everywhere (layout, selection, ungroup, marquee, effects).
+- `isTransformGroup()`, and `isTextLike()` (TEXT or TEXT_PATH).
+- `defaultProps(TEXT_PATH)`: black fill, OUTSIDE stroke, `textAlignVertical BOTTOM`.
+
+**Transform groups** (`geometry/Repeat.{h,cpp}`):
+- `geom::evaluateRepeat(modifiers, contentBox, cap)` → `RepeatResult {instances, bounds, capped}`. It follows §4.2 exactly (LINEAR X / Y / X_AND_Y, RADIAL clockwise about `(B.cx, B.bottom + r)`, PIXELS / RELATIVE, FORWARD / REVERSE, SYMMETRY / SKEW passed through, count clamped to 1…1000, at most 10 000 instances).
+- `transformModifiersOf(props)` decodes `transformModifiers` once per distinct bytes.
+- `repeatContent(doc, id, box)`: the union of the visible children's layout boxes.
+- `repeatOf(doc, id)`: the cached result, keyed by the content box and the modifier bytes.
+- `repeatAncestor(doc, id)`: the innermost enclosing TRANSFORM.
+- **Bounds**: `Layout::natural` and `Layout::fitGroup` size a TRANSFORM to its instances' bounds (a system write, children shifted as for a group). `Editor::markDirty` lays a TRANSFORM out when its `extra` changes, i.e. its modifiers.
+- **Render**: `Renderer::drawRepeat` draws the children once per instance. Each copy is culled on its own; copies other than the source draw with culling off, as pattern tiles do. Nested groups share one budget of 10 000 copies (`repeatScale_`).
+  - `RenderTree::bound` unions every copy into the group's visual bounds.
+  - `RenderTree::damageRepeats` damages the whole group when anything inside it changes.
+- **Hit-testing** (`hit/HitTest.cpp`): a TRANSFORM candidate tests all its copies, topmost first, each point mapped back through M_k⁻¹ to the source layers. Copies the point is outside of are skipped by their content's render bounds. Layers inside a TRANSFORM are not hit on their own. The path ends at the source layer, so `pick` selects the group and ⌘ deep-selects the source.
+- **Booleans** read every copy of a TRANSFORM operand (`NodeGeometry` collect).
+- **Export**:
+  - SVG writes `<g>` around one `<g transform="matrix(…)">` per copy, the source first and bare (element ids repeat in the copies);
+  - PDF writes the content once per copy under `q … cm … Q`;
+  - export bounds (`contentBounds`) hold every copy.
+
+**Dynamic strokes** (`geometry/DynamicStroke.{h,cpp}`):
+- `geom::dynamicCenterline(center, weight, settings, seed, tolerance)` implements §4.3 with `kDynWavelengthPx = 100` and `kDynAmplitude = 0.5`.
+  - The contour is resampled every λ/16; the low pass is a moving average over smoothen · λ/2.
+  - The knots come from a counter-based hash (splitmix64) of (seed, contour, knot). A closed contour's knots wrap.
+  - **Wiggle 0 returns the centre line unchanged** (exactly Basic).
+- `geom::dynamicWave(...)` gives the displacement alone (tests, bounds).
+- `dynamicSettingsOf(props)` clamps to the plugin ranges; a brush stroke is never dynamic. `strokeSeedOf(props)`.
+- `dynamicCenter(props, geometry, tol, out, key)` returns the displaced centre, cached by (centre line, settings, seed, weight, tolerance level).
+- **Used by**:
+  - the renderer (the ordinary stroker on the displaced centre; rectangles and ellipses leave the SDF path);
+  - render bounds (`Document::outerStroke`: the wave's reach, brushes' weight × (1 + wiggle + size jitter));
+  - hit-testing (the displaced centre; brushes: inside their outline);
+  - the exporters (`exporter::strokeOf`: dynamic → the displaced centre, outline only; brush → the artwork outline as a ring).
+
+**Text on a path** (`text/TextPathLayout.{h,cpp}`):
+- `text::layoutTextPath(props, network)` follows §4.4. It shapes one line (line breaks become spaces, offsets kept) with `layoutText` and places each glyph centre at `s₀ + shift + x + advance/2` along the path. Glyphs turn with the path (`LaidGlyph::rotation`, radians clockwise). Glyphs off an open path's ends, or past one turn of a closed one, are dropped from `glyphs` (the characters stay). Decorations and links are cleared.
+- The tangent eases across a flattened curve's pieces; a turn sharper than ~15° is a real corner and keeps each side's direction.
+- `TextLayout::path` (`TextPathMap`): `frameAt(x)`, `toNode(straight point)`, `arcAt`, `onPath`, `sample`. It maps the straight line's coordinates (`caretXs`, `selectionRects`) onto the path, for 7b's caret, selection and click mapping.
+- `textPathStartOf(props)` reads `textPathStart` (absent: 0, forward).
+- `textPathContour(net, data, size, tValue, …)` gives where tValue lands (the tValue encoding of §4.4: segment + arc-length fraction, segment direction = forward).
+- `textPathProject(net, data, size, point, tValue)` gives the nearest tValue (the start handle and the Text on path tool's click).
+- `text::glyphMatrix(glyph)` is used everywhere glyphs become outlines or instances: `TextRender`, `NodeGeometry` (Flatten, strokes), `exporter::glyphPath`, PDF text. `Glyph.rotation` (9) is read and written in `derivedTextData` (`text/DerivedText`), and `Editor::encodeDerivedFields` stores a TEXT_PATH's layout.
+- `Editor::textLayout` lays out a TEXT_PATH (cached by its size; falls back to stored derived text while its fonts load). `GeometryCache::setTextPathSource` / `textPathLayout(id)` give the geometry and hit-testing its glyphs (set in `Editor::Editor`).
+- Render bounds grow by 1.5 × the largest font size (`Document::derive`). Hit-testing uses the turned glyph boxes (advance × ascent…descent).
+- The hover and selection outline draws the path itself (`Overlay` `nodeOutline`).
+- SVG with Outline text off writes one `<text><tspan x y rotate>` per glyph; outlined, the placed glyph paths. Greeking is off for path text.
+- `hitsEdge(doc, id, local, slop)` (`hit/HitTest.h`) is the Text on path tool's edge target.
+
+**Pattern strokes** were not drawn on the canvas (`setPaint` refused PATTERN). `Renderer::drawStrokes` now sends each PATTERN stroke paint through `drawPattern(…, stroke = true)`: the tiles cover the box plus the stroke's reach and show through the stroke's own outline (`drawStrokePaints` in white as the mask). The vector exporters still skip PATTERN paints, for fills and strokes alike (PNG / JPG draw them); see the open items.
+
+**For 7b** (the internal APIs to call):
+- Commands:
+  - `transformModifiersOf` / `repeatOf` / `repeatContent` for ADD / SET / REMOVE / MOVE_TRANSFORM_MODIFIER;
+  - APPLY_TRANSFORMS: duplicate children with `inst` prepended to their transforms, k ≥ 1;
+  - Flatten / Outline stroke: walk `repeatOf` instances, and `dynamicCenter` / `brushStroke` for the stroke outline (`exporter::strokeOf` / `strokeOutline` already do this).
+- Text path tools: `textPathProject` (TEXT_PATH_START gesture and the tool's click), `textPathContour`, `TextLayout::path->frameAt` (caret, selection quads), `hitsEdge` (hover target), `layoutTextPath`.
+- CREATE_TEXT_PATH from a shape needs the shape's network: `geom::networkFromPath(doc.geometry(id)->stroke.path, …)`. A rectangle's path starts at the top-left, going clockwise; an ellipse's at its rightmost point (`geom::ellipsePath`).
+- `RepeatResult::capped` for the layer's stroke-warning badge.
+
+**Open (7a)**:
+- SVG / PDF don't write PATTERN paints (fills or strokes) as vectors.
+- In SVG, copies repeat the children's `id` attributes.
+- Decorations on a path aren't drawn (as decided).
+- Every constant in §4.2–4.4 still waits for a Draw `.fig` (§11).
 
 ## 5. Draw chrome (7c toolbar and tools, 7d panels and layers)
 

@@ -33,6 +33,10 @@ class GeometryCache {
  public:
   using TextSource = std::function<const text::TextLayout*(Guid)>;
   void setTextSource(TextSource source) { text_ = std::move(source); }
+  // TEXT_PATH layouts (Figma Draw's text on a path, text/TextPathLayout.h): its geometry is its placed glyphs' outlines,
+  // and hit-testing reads its glyph boxes. The editor sets it (Editor::textLayout).
+  void setTextPathSource(TextSource source) { pathText_ = std::move(source); }
+  const text::TextLayout* textPathLayout(Guid id) const { return pathText_ ? pathText_(id) : nullptr; }
 
   // The node's geometry (nullptr for nodes without one: pages, groups, frames' children…).
   // Frames and rectangles: their (rounded, smoothed) box; ellipses: their arc; vectors, stars,
@@ -57,6 +61,7 @@ class GeometryCache {
   std::unordered_map<Guid, Entry, GuidHash> entries_;
   std::unordered_map<const void*, std::pair<Bytes, geom::VectorNetwork>> networks_;
   TextSource text_;
+  TextSource pathText_;
 };
 
 }  // namespace eng

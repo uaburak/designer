@@ -403,6 +403,13 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     // 79.png: a frame with a big radius hovered outlines its whole box, the rounded fill inside); shapes: their own
     // outline (80.png was ours, wrongly rounded on a frame).
     if (n->props.isFrameLike()) ownShape = false;
+    // A text on a path (Figma Draw): its path, 1 px — the path is never painted, only outlined (docs/draw.md §4.4).
+    if (ownShape && n->props.type == NodeType::TEXT_PATH)
+      if (const geom::VectorNetwork* net = doc.geometryCache().network(n->props.shape().vectorData); net && !net->empty()) {
+        geom::StrokeCenter c = geom::networkStroke(*net, n->props.shape().vectorData, n->props.size, StrokeCap::NONE);
+        pathOutline(c.path, view * doc.worldTransform(id), weight, color);
+        return;
+      }
     if (ownShape && (n->props.isPathShape() || n->props.invertedCorners() ||
                      (n->props.isRectLike() && n->props.stroke().cornerSmoothing > 0))) {
       // Vectors, stars, booleans…, inverted or smoothed corners: their own outline.

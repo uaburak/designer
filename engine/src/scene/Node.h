@@ -49,7 +49,9 @@ enum class NodeType : uint8_t {
   VARIABLE = 28,
   VARIABLE_SET = 31,
   VARIABLE_OVERRIDE = 35,  // an extended collection's values for one inherited variable
+  TEXT_PATH = 41,  // Figma Draw: text laid along its own path (vectorData + TEXT's fields; textPathStart), docs/draw.md §4.4
   BRUSH = 46,  // Figma Draw: a brush's artwork (a vector on the internal canvas)
+  TRANSFORM = 48,  // Figma Draw: a transform group — a group whose transformModifiers repeat its children (docs/draw.md §4.2)
 };
 
 enum class StrokeAlign : uint8_t { CENTER = 0, INSIDE = 1, OUTSIDE = 2 };
@@ -1154,7 +1156,11 @@ struct NodeProps {
   // merges into the node's (an empty value removes that field); CREATED replaces it.
   std::map<std::string, std::string> extra;
 
-  bool isGroupLike() const { return type == NodeType::GROUP || (type == NodeType::FRAME && resizeToFit); }
+  // Groups — and Figma Draw's transform groups (TRANSFORM), which are groups whose children are drawn repeated.
+  bool isGroupLike() const { return type == NodeType::GROUP || type == NodeType::TRANSFORM || (type == NodeType::FRAME && resizeToFit); }
+  bool isTransformGroup() const { return type == NodeType::TRANSFORM; }
+  // TEXT, or a text on a path (TEXT_PATH): laid out and drawn as glyphs.
+  bool isTextLike() const { return type == NodeType::TEXT || type == NodeType::TEXT_PATH; }
   bool isBoolean() const { return type == NodeType::BOOLEAN_OPERATION; }
   // Fitted to its children's bounds (groups and boolean operations, docs/engine.md §4.5).
   bool fitsChildren() const { return isGroupLike() || isBoolean(); }

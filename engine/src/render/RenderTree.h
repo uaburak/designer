@@ -110,6 +110,9 @@ class RenderTree {
   std::unordered_map<Guid, std::vector<Guid>, GuidHash> patternSources_;
   void notePatterns(Guid id, const Node* n);
   void damagePatternUsers(const Document& doc);
+  // Figma Draw's transform groups: whether any is drawn here, and the damage a change inside one makes.
+  bool hasRepeats_ = false;
+  void damageRepeats(const Document& doc);
 };
 
 }  // namespace eng

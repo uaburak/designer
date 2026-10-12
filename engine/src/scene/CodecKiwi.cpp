@@ -126,7 +126,9 @@ NodeType nodeTypeOf(uint32_t v) {
     case 28: return NodeType::VARIABLE;
     case 31: return NodeType::VARIABLE_SET;
     case 35: return NodeType::VARIABLE_OVERRIDE;
+    case 41: return NodeType::TEXT_PATH;
     case 46: return NodeType::BRUSH;
+    case 48: return NodeType::TRANSFORM;
     default: return NodeType::NONE;
   }
 }

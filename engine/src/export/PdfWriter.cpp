@@ -1,5 +1,7 @@
 #include "export/PdfWriter.h"
 
+#include "geometry/Repeat.h"
+
 #include <cmath>
 #include <cstdio>
 #include <map>
@@ -614,7 +616,7 @@ class Writer {
           run += "/" + fonts_[fi].name + " 1 Tf\n";
           font = fi;
         }
-        Mat2x3 T = M * Mat2x3{g.size, 0, g.x, 0, -g.size, g.y};
+        Mat2x3 T = M * text::glyphMatrix(g) * Mat2x3{1, 0, 0, 0, -1, 0};  // a glyph on a text path is turned
         char hex[8];
         std::snprintf(hex, sizeof hex, "<%02X>", static_cast<unsigned>(code));
         run += matrixOps(T) + " Tm " + hex + " Tj\n";
@@ -703,11 +705,11 @@ class Writer {
     for (auto& f : p.fillPaints) paints += drawable(f) ? 1 : 0;
     paints += st.present() ? st.paints.size() : 0;
     bool blend = blendName(p.blendMode) != nullptr;
-    bool group = blend || (p.opacity < 1 && (container || paints > 1 || p.type == NodeType::TEXT));
+    bool group = blend || (p.opacity < 1 && (container || paints > 1 || p.isTextLike()));
     double a = group ? 1 : alpha * p.opacity;
     std::string body;
     std::string& out = group ? body : o;
-    if (p.type == NodeType::TEXT) {
+    if (p.isTextLike()) {
       textNode(out, id, p, E, a);
       if (st.present()) {
         Shape glyphs;
@@ -719,7 +721,23 @@ class Writer {
         stroke(out, st, glyphs, p.size, E, a);
       }
     } else if (p.isGroupLike()) {
-      siblings(out, drawnChildren(doc_, id), 0, a);
+      const geom::RepeatResult* rep = p.type == NodeType::TRANSFORM ? repeatOf(doc_, id) : nullptr;
+      if (rep && rep->instances.size() > 1) {
+        // A transform group (Figma Draw): the content once per copy, each under its own `cm` (docs/draw.md §4.8).
+        std::string content;
+        siblings(content, drawnChildren(doc_, id), 0, a);
+        Mat2x3 C0 = F_ * E;
+        Mat2x3 C0i = C0.inverse();
+        for (const Mat2x3& inst : rep->instances) {
+          if (inst == Mat2x3{}) {
+            out += content;
+            continue;
+          }
+          out += "q\n" + matrixOps(C0 * inst * C0i) + " cm\n" + content + "Q\n";
+        }
+      } else {
+        siblings(out, drawnChildren(doc_, id), 0, a);
+      }
     } else {
       // Fills: per region when a vector's regions have their own fills.
       if (sh.kind == Shape::Kind::Path) {

@@ -416,6 +416,8 @@ const char* nodeTypeName(NodeType t) {
     case NodeType::VARIABLE_SET: return "VARIABLE_SET";
     case NodeType::VARIABLE_OVERRIDE: return "VARIABLE_OVERRIDE";
     case NodeType::BRUSH: return "BRUSH";
+    case NodeType::TEXT_PATH: return "TEXT_PATH";
+    case NodeType::TRANSFORM: return "TRANSFORM";
     case NodeType::SYMBOL: return "SYMBOL";
     case NodeType::INSTANCE: return "INSTANCE";
     case NodeType::SECTION: return "SECTION";
@@ -429,7 +431,8 @@ NodeType nodeTypeFromName(std::string_view s) {
                                       NodeType::TEXT, NodeType::SYMBOL, NodeType::INSTANCE, NodeType::SECTION,
                                       NodeType::BOOLEAN_OPERATION, NodeType::VECTOR, NodeType::STAR, NodeType::LINE,
                                       NodeType::REGULAR_POLYGON, NodeType::SLICE, NodeType::VARIABLE, NodeType::VARIABLE_SET,
-                                      NodeType::VARIABLE_OVERRIDE, NodeType::BRUSH};
+                                      NodeType::VARIABLE_OVERRIDE, NodeType::BRUSH, NodeType::TEXT_PATH,
+                                      NodeType::TRANSFORM};
   for (NodeType t : kAll)
     if (s == nodeTypeName(t)) return t;
   return NodeType::NONE;
@@ -580,6 +583,14 @@ NodeProps defaultProps(NodeType type) {
       p.fillPaints = {Paint::solid(Color::hex(0x000000))};
       p.strokeAlign = StrokeAlign::OUTSIDE;
       p.text().textAutoResize = TextAutoResize::WIDTH_AND_HEIGHT;
+      p.text().autoRename = true;
+      break;
+    case NodeType::TEXT_PATH:
+      // Text on a path (docs/draw.md §4.4): the text tool's defaults, its baseline on the path, no auto resize (its box is
+      // the path's).
+      p.fillPaints = {Paint::solid(Color::hex(0x000000))};
+      p.strokeAlign = StrokeAlign::OUTSIDE;
+      p.text().textAlignVertical = TextAlignVertical::BOTTOM;
       p.text().autoRename = true;
       break;
     default: break;

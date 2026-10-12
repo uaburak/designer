@@ -5,6 +5,8 @@
 #include <map>
 
 #include "geometry/Boolean.h"
+#include "geometry/Brush.h"
+#include "geometry/DynamicStroke.h"
 #include "geometry/Shapes.h"
 #include "geometry/Stroker.h"
 #include "render/ImageCache.h"
@@ -47,7 +49,7 @@ geom::Path Shape::path() const {
 Shape fillShape(const Document& doc, Guid id, const NodeProps& p) {
   Shape s;
   s.size = p.size;
-  if (p.type == NodeType::TEXT || p.isGroupLike() || p.type == NodeType::SLICE || p.type == NodeType::CANVAS) return s;
+  if (p.isTextLike() || p.isGroupLike() || p.type == NodeType::SLICE || p.type == NodeType::CANVAS) return s;
   if (plainShape(p)) {
     s.kind = p.type == NodeType::ELLIPSE ? Shape::Kind::Ellipse : Shape::Kind::Rect;
     if (s.kind == Shape::Kind::Rect) s.radii = geom::clampRadii(p.size, p.cornerRadii);
@@ -76,6 +78,30 @@ Stroke strokeOf(const Document& doc, Guid id, const NodeProps& p) {
   bool independent = p.stroke().borderStrokeWeightsIndependent && (p.isRectLike() || p.isFrameLike());
   bool dashedFrame = p.isFrameLike() && !p.stroke().dashPattern.empty();
   if (!p.extra.empty() && widthProfileAllowed(p)) s.profile = widthPointsOf(p);
+  // Figma Draw's brush and dynamic strokes are written as what the canvas draws (docs/draw.md §4.8).
+  bool drawn = !p.extra.empty() && (p.extra.count("dynamicStrokeSettings") || strokeBrushOf(p) != kNoGuid);
+  if (drawn) {
+    if (const NodeGeometry* g = doc.geometry(id); g && !g->stroke.path.empty()) {
+      geom::Path outline;
+      if (brushStroke(doc, p, *g, 0.05, outline)) {
+        // A brush: its artwork's outline, filled with the stroke paints ("Simplify stroke" doesn't apply).
+        s.center = std::move(outline);
+        s.ring = true;
+        s.outlineOnly = true;
+        return s;
+      }
+      geom::Path center;
+      if (dynamicCenter(p, *g, 0.05, center)) {
+        // A dynamic stroke: its wandering centre line, stroked as any other — written as its outline.
+        s.center = std::move(center);
+        s.caps = g->stroke.caps;
+        bool closedArea = !g->fills.empty() && !g->hasOpenEnds;
+        s.aligned = closedArea && p.strokeAlign != StrokeAlign::CENTER;
+        s.outlineOnly = true;
+        return s;
+      }
+    }
+  }
   if (!independent && !dashedFrame && s.profile.empty() && plainShape(p)) {
     s.primitive = p.type == NodeType::ELLIPSE ? Shape::Kind::Ellipse : Shape::Kind::Rect;
     if (s.primitive == Shape::Kind::Rect) s.radii = geom::clampRadii(p.size, p.cornerRadii);
@@ -165,9 +191,10 @@ geom::Path glyphPath(const text::LaidGlyph& g) {
   const text::GlyphOutline& o = g.font->outline(g.glyph);
   Vec2 last{1e300, 1e300};
   bool open = false;
+  const Mat2x3 G = text::glyphMatrix(g);  // a glyph on a text path is turned
   for (size_t c = 0; c < o.curveCount(); c++) {
     const float* q = &o.curves[c * 6];
-    auto at = [&](float x, float y) { return Vec2{g.x + x * g.size, g.y + y * g.size}; };
+    auto at = [&](float x, float y) { return G.apply({x, y}); };
     Vec2 p0 = at(q[0], q[1]), p1 = at(q[2], q[3]), p2 = at(q[4], q[5]);
     if (!(p0 == last)) {
       if (open) path.close();

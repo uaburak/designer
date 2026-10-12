@@ -689,6 +689,12 @@ class Renderer {
   void drawContent(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m, double alpha, bool shadowsDone, bool strokes = true);
   void drawFills(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, bool whiteMask = false);
   void drawStrokes(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha);
+  // drawStrokes without PATTERN stroke paints (drawStrokes sends those through drawPattern, masked by the stroke).
+  void drawStrokePaints(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha);
+  // A transform group's children (Figma Draw, docs/draw.md §4.2): once per instance, culled per copy, at most
+  // geom::kMaxRepeatInstances copies drawn however deep the groups nest.
+  void drawRepeat(const Document& doc, uint32_t i, const Mat2x3& m, double alpha);
+  double repeatScale_ = 1;
   void drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double alpha, bool inner);
   // A background blur (uniform or progressive), or glass: the backdrop copied, blurred and painted into the shape.
   // How far past its box a background blur's (glass: `glass`) backdrop copy reaches, device px, at `scale` device px
@@ -714,7 +720,8 @@ class Renderer {
   void progressiveComposite(int src, float opacity, BlendMode bm, gfx::IRect r, double s0, double s1, const Effect& e,
                             const Mat2x3& m, Vec2 size);
   // A PATTERN fill: its source layer tiled over the node's box, through the node's fill shape.
-  void drawPattern(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Paint& paint);
+  // `stroke`: a pattern stroke — the tiles through the stroke's outline instead of the fill.
+  void drawPattern(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Paint& paint, bool stroke = false);
   // A shader fill (PaintType::CUSTOM, round 11): its preset drawn over the node's box into a layer, through the node's
   // fill shape.
   void drawShaderPaint(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Paint& paint);

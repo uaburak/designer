@@ -604,3 +604,12 @@ Acceptance (verified with `scripts/drive.mjs` on the built demo app): launch →
   `docs/schema.md` §15.1: the Draw row decided; `multiEditGlueId 462` moved to Sites.
   - **Next**: the main session's pre-round commit (schema §4.1 + `engine:gen`, shared types, Engine.ts stubs, abi.ts, icons), then the agents.
   - **Open**: `docs/draw.md` §11. Above all, a Draw sample `.fig` and a signed-in capture to calibrate every [unverified] constant.
+- 2026-10-12 — **Phase 7 round 7a: Draw engine, model and render** (branch `worktree-agent-a0251707b27230a25`; native only, no wasm build — 7b builds the round's release wasm). As built: `docs/draw.md` §4.10.
+  - **Transform groups** (TRANSFORM 48, `geometry/Repeat.*`): repeats evaluated as derived instances (linear / radial, px / relative, order, the 10 000 cap), the group's box their bounds (a layout system write), drawn once per copy with per-copy culling, damage over every copy, hit-testing mapped back to the source layer, booleans over the copies, SVG `<g transform>` / PDF `cm` per copy (not Figma's source-only export).
+  - **Dynamic strokes** (`geometry/DynamicStroke.*`): the seeded wandering centre line (our constants: 100 px wavelength at frequency 1, amplitude 0.5 × wiggle × weight), used by the renderer, render bounds, hit-testing and the exporters; brushes now count in render bounds, hit-testing and SVG / PDF too.
+  - **Text on a path** (TEXT_PATH 41, `text/TextPathLayout.*`): one shaped line placed and turned along the node's network from `textPathStart` (alignment, flip, overflow), `Glyph.rotation` everywhere glyphs are drawn, outlined, hit or stored (`derivedTextData`), the path drawn as the hover / selection outline, SVG `<tspan rotate>` with Outline text off.
+  - **Pattern strokes**: weren't drawn on the canvas at all; now the tiles show through the stroke.
+  - Minimal touches outside 7a's folders, all in `engine/src/editor/`: `Editor::Editor` sets the TEXT_PATH layout source; `Editor::textLayout` lays out TEXT_PATH; `markDirty` lays out a TRANSFORM whose modifiers change; the text cache drops on `F_VECTOR_DATA`; `encodeDerivedFields` stores a TEXT_PATH's layout.
+  - **Verify**: `npm run engine:test` (`r7.draw.test.cpp`, 16 cases).
+  - **For 7b**: the internal APIs are listed in docs/draw.md §4.10 "For 7b".
+  - **Open**: SVG / PDF still skip PATTERN paints (fills and strokes); repeated SVG ids in copies; every constant waits for a Draw `.fig` (§11).
