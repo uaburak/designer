@@ -4,7 +4,7 @@
  * guests, guest expiration, file exporting, Discovery's room policy and the gates.
  */
 import { beforeEach, describe, expect, it } from "vitest";
-import { LIB, T1, W1, WEB, world, type Any, type World } from "../testing/orgWorld";
+import { BRAND, LIB, P2, T1, T3, W1, WEB, world, type Any, type World } from "../testing/orgWorld";
 import { sweepExpiredGuests } from "./guests";
 import { orgGate } from "./gate";
 import { dayOf } from "./ip";
@@ -249,12 +249,33 @@ describe("guest expiration (§2.13)", () => {
     // Lazily: not a member any more
     expect((await as("gus", "GET", "/orgs")).body.orgs).toEqual([]);
     expect((await as("gus", "GET", `/orgs/${w.orgId}`)).status).toBe(404);
-    expect((await as("gus", "GET", `/files/${LIB}`)).status).toBe(200); // still a file member (viewer): outside the org now
+    // Outside the org now: the file grant counts for nothing either (until the cron deletes it)
+    expect((await as("gus", "GET", `/files/${LIB}`)).status).toBe(404);
     expect((await sweepExpiredGuests(w.deps))).toBe(1);
     expect(await w.rows(`SELECT * FROM org_members WHERE user_id = ?1`, w.people.gus.id)).toEqual([]);
     const del = (await w.rows(`SELECT details FROM activity_log WHERE action = 'org_user_delete'`)).map((r) => JSON.parse(r.details));
     expect(del).toEqual([{ role: "guest", reason: "guest_expired" }]);
     expect((await as("gus", "GET", `/files/${LIB}`)).status).toBe(404);
+  });
+
+  it("an expired guest's own grants on the org's files, folders and teams stop at once; links still let them in as anyone", async () => {
+    // gus: viewer on LIB (the world), editor on folder P2 (WEB) and on team T3 (BRAND)
+    await w.run(`INSERT INTO project_members (project_id, email, user_id, role, created_at) VALUES (?1, 'gus@x.co', ?2, 'editor', 0)`, P2, w.people.gus.id);
+    await w.run(`INSERT INTO team_members (team_id, email, user_id, role, admin, created_at) VALUES (?1, 'gus@x.co', ?2, 'editor', 0, 0)`, T3, w.people.gus.id);
+    expect((await admin("PUT", "guests/expiration", { userIds: [w.people.gus.id], expiresAt: w.now.t + HOUR })).status).toBe(204);
+    for (const k of [LIB, WEB, BRAND]) expect((await as("gus", "GET", `/files/${k}`)).status).toBe(200);
+    w.now.t += 2 * HOUR;
+    for (const k of [LIB, WEB, BRAND]) expect((await as("gus", "GET", `/files/${k}`)).status).toBe(404);
+    expect((await as("gus", "GET", `/orgs/${w.orgId}/teams/${T3}`)).status).toBe(404);
+    // A link anyone can use still opens the file, as for anyone outside the org
+    await w.run(`UPDATE files SET link_access = 'viewer' WHERE key = ?1`, WEB);
+    const viaLink = await as("gus", "GET", `/files/${WEB}`);
+    expect(viaLink.status).toBe(200);
+    expect(viaLink.body.access.canEdit).toBe(false);
+    // Members are unaffected; a new date brings the grants back
+    expect((await as("bob", "GET", `/files/${LIB}`)).status).toBe(200);
+    await w.run(`UPDATE org_members SET expires_at = ?2 WHERE user_id = ?1`, w.people.gus.id, w.now.t + DAY);
+    expect((await as("gus", "GET", `/files/${LIB}`)).status).toBe(200);
   });
 
   it("without the add-on nothing expires", async () => {

@@ -68,6 +68,8 @@ interface Knobs {
   listRefuse?: unknown;
   /** An org whose Drafts never answer (a slow read) */
   hang?: string;
+  /** The org is gone from the person's list (removed, left, an expired guest) */
+  gone?: boolean;
 }
 
 async function setup(knobs: Knobs) {
@@ -99,7 +101,7 @@ async function setup(knobs: Knobs) {
     },
     list: async (): Promise<OrgSummary[]> => {
       if (knobs.listRefuse) throw knobs.listRefuse;
-      return (await api.orgs.list()).map((o) => (o.id === org.id ? { ...o, gate: knobs.gate, guestExpiresAt: knobs.guestExpiresAt } : o));
+      return (await api.orgs.list()).filter((o) => !(knobs.gone && o.id === org.id)).map((o) => (o.id === org.id ? { ...o, gate: knobs.gate, guestExpiresAt: knobs.guestExpiresAt } : o));
     },
     drafts: async (id: string) => {
       reads.push("drafts");
@@ -203,6 +205,16 @@ describe("Home's Governance+ gates", () => {
   it("a guest's access ending within 14 days shows a banner", async () => {
     await setup({ guestExpiresAt: Date.now() + 3 * 86_400_000 - 1000 });
     expect($("[data-guest-expiry]")?.textContent).toBe("Your guest access to Acme ends in 3 days.");
+  });
+
+  it("the shown org gone from the list (a guest removed): back to the person's own space", async () => {
+    const ctx = await setup({});
+    expect((await ctx.api.workspace.getPrefs()).browse.space).toBe(`org:${ctx.org.id}`);
+    ctx.knobs.gone = true;
+    ctx.emit({ type: "orgs.changed" });
+    await settleLong();
+    expect((await ctx.api.workspace.getPrefs()).browse.space).toBe("local");
+    expect(document.body.textContent).not.toContain("Enterprise");
   });
 
   it("the pure parts", () => {

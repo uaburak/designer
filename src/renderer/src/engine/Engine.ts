@@ -1100,7 +1100,8 @@ export class Engine {
         ? encodeText(JSON.stringify({ refs, ...(options.fields ? { fields: options.fields } : {}), ...(options.limit !== undefined ? { limit: options.limit } : {}) }))
         : encodeRefs(refs);
     this.x.readNodes(this.h, payload, flags);
-    return this.after(decodeMessage(this.x.result()).nodeChanges);
+    // No node found (a page not loaded yet, during a reload): the message has no nodeChanges at all.
+    return this.after(decodeMessage(this.x.result()).nodeChanges ?? []);
   }
 
   /**
