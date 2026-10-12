@@ -1,0 +1,47 @@
+@layer app {
+  /* The image's secondary toolbar sits where vector edit's does (8 over the bottom toolbar). */
+  .row { display: contents; }
+  .busyLabel { display: flex; align-items: center; gap: var(--ds-space-2); padding: 0 var(--ds-space-2); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); white-space: nowrap; }
+  .setting { display: flex; align-items: center; gap: var(--ds-space-2); padding: 0 var(--ds-space-2); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); white-space: nowrap; }
+  .setting input[type="range"] { width: calc(var(--ds-size-field) * 1.5); accent-color: var(--figma-color-bg-brand); }
+  .value { min-width: var(--ds-space-6); color: var(--figma-color-text); font-variant-numeric: tabular-nums; text-align: end; }
+  .stats { padding: 0 var(--ds-space-2); color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); white-space: nowrap; }
+
+  /* The prompt card (Make an image, Edit with prompt), above the toolbars. */
+  .card {
+    position: fixed;
+    bottom: calc(var(--ds-size-toolbar-bottom) + var(--ds-space-16) + var(--ds-space-16));
+    left: 50%;
+    z-index: var(--ds-z-popover);
+    display: flex;
+    flex-direction: column;
+    gap: var(--ds-space-2);
+    width: var(--ds-size-popover);
+    padding: var(--ds-space-3);
+    border-radius: var(--ds-radius-large);
+    background: var(--figma-color-bg);
+    box-shadow: var(--ds-elevation-400-menu-panel);
+    transform: translateX(-50%);
+  }
+  .cardHead { display: flex; align-items: center; justify-content: space-between; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
+  .cardFoot { display: flex; align-items: center; gap: var(--ds-space-2); }
+  .spacer { flex: 1; }
+  .reference { position: relative; width: var(--ds-size-control-large); height: var(--ds-size-control-large); overflow: hidden; border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); background: var(--ds-checkerboard); }
+  .reference img { width: 100%; height: 100%; object-fit: cover; }
+  .card[data-drop] { outline: var(--ds-focus-width) solid var(--figma-color-border-brand-strong); }
+
+  /* Canvas overlays: the run's sweep over its layers, Select area's lasso, Expand's frame and handles. */
+  .layer { position: absolute; inset: 0; z-index: var(--ds-z-base); overflow: hidden; pointer-events: none; }
+  .sweep { position: absolute; top: 0; left: 0; overflow: hidden; outline: 1px solid var(--figma-color-border-brand); background: color-mix(in srgb, var(--figma-color-bg-tertiary) 60%, transparent); transform-origin: 0 0; }
+  .sweep::after { position: absolute; inset: 0; background: linear-gradient(100deg, transparent 25%, var(--ds-color-ai-shine) 50%, transparent 75%); transform: translateX(-100%); animation: sweep var(--ds-duration-sweep) ease-in-out infinite; content: ""; }
+  .progress { position: absolute; bottom: 0; left: 0; height: var(--ds-space-1); background: var(--figma-color-bg-brand); }
+  .lassoLayer { position: absolute; inset: 0; z-index: var(--ds-z-base); cursor: crosshair; pointer-events: auto; }
+  .lassoLayer svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .lassoPath { fill: color-mix(in srgb, var(--figma-color-bg-brand) 15%, transparent); stroke: var(--figma-color-border-brand-strong); stroke-dasharray: 4 3; stroke-width: 1.5; }
+  .expandBox { position: absolute; top: 0; left: 0; transform-origin: 0 0; pointer-events: none; }
+  .expandFrame { position: absolute; outline: 1px solid var(--figma-color-border-brand-strong); background: color-mix(in srgb, var(--figma-color-bg-brand) 8%, transparent); }
+  .handle { position: absolute; width: var(--ds-space-2); height: var(--ds-space-2); margin: calc(var(--ds-space-1) * -1) 0 0 calc(var(--ds-space-1) * -1); border: 1px solid var(--figma-color-border-brand-strong); border-radius: var(--ds-radius-small); background: var(--figma-color-bg); pointer-events: auto; }
+
+  @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+  @media (prefers-reduced-motion: reduce) { .sweep::after { display: none; } }
+}

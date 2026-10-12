@@ -14,6 +14,7 @@ import { initNotifications } from "./notifications";
 import { keyFromLink } from "../shared/multiplayer/types";
 import { registerIpc } from "./ipc";
 import { handlePluginScheme } from "./plugins/protocol";
+import { handleAimodelScheme } from "./ai/protocol";
 import { initRestHelper } from "./restHelper";
 import { installAppMenu } from "./menu";
 import { DEV_URL, handleScheme, isAppUrl, registerScheme } from "./protocol";
@@ -107,6 +108,7 @@ if (!app.requestSingleInstanceLock()) {
     initTheme();
     handleScheme();
     handlePluginScheme();
+    handleAimodelScheme();
     registerIpc();
     // A kept session the server no longer accepts is dropped (in the background; offline keeps it).
     void checkSession();

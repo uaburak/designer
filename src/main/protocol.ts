@@ -3,6 +3,7 @@ import { open } from "node:fs/promises";
 import { join, normalize, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { PLUGIN_SCHEME_PRIVILEGES } from "./plugins/protocol";
+import { AIMODEL_SCHEME_PRIVILEGES } from "./ai/protocol";
 import { workspaceDir } from "./storeHost";
 
 /**
@@ -40,7 +41,7 @@ const CSP = [
   "img-src 'self' data: blob:",
   "media-src 'self' data: blob:",
   "font-src 'self' data: blob:",
-  "connect-src 'self' data: blob:",
+  "connect-src 'self' data: blob: aimodel:",
   // Plugin UIs only (docs/plugins.md §3.2): each run's document on the plugin: scheme, in a sandboxed iframe.
   "frame-src plugin:",
   "worker-src 'self' blob:",
@@ -51,7 +52,7 @@ const CSP = [
 
 /** Before `ready`. One call registers every scheme (a second call would replace the first): the app's and plugins'. */
 export function registerScheme() {
-  protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } }, PLUGIN_SCHEME_PRIVILEGES]);
+  protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } }, PLUGIN_SCHEME_PRIVILEGES, AIMODEL_SCHEME_PRIVILEGES]);
 }
 
 const TYPES: Record<string, string> = { ".wasm": "application/wasm", ".js": "text/javascript", ".mjs": "text/javascript" };

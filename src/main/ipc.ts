@@ -1,6 +1,9 @@
 import { app, dialog, ipcMain, Menu, shell, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type WebContents } from "electron";
 import type { AiRunRequest, ConnectorToolPolicy } from "../shared/ai/types";
 import { cancelRun, startRun } from "./ai/host";
+import { cleanImageRequest, startImageRun } from "./ai/images";
+import { isModelId } from "./ai/models";
+import { modelStore } from "./ai/protocol";
 import { AI_ACTIONS, aiSettings, cleanRoute, setAiSettings, setImageKey } from "./ai/settings";
 import { INVOKE_ROLES, SEND_ROLES, type IpcInvoke, type IpcSend, type NativeMenuItem, type Role } from "../shared/ipc";
 import { isFileKey } from "../shared/tabs";
@@ -204,20 +207,25 @@ export function registerIpc() {
   // Open console: the view's own devtools (the host offers it for development plugins).
   onInvoke("plugins:open-console", ({ sender }) => sender.openDevTools({ mode: "detach" }));
   // ── AI (src/main/ai, docs/ai.md §2.1–2.2) and connectors (src/main/agents/connectors.ts, §2.11) ──
-  const aiNotBuilt = (): never => { throw new Error("AI isn't built yet"); };
   onInvoke("ai:settings", () => aiSettings());
   onInvoke("ai:set-settings", (_c, patch) => setAiSettings(patch && typeof patch === "object" ? patch : {}));
   onInvoke("ai:set-image-key", (_c, p) => setImageKey({ provider: p?.provider, key: p?.key === null ? null : (str(p?.key, 4000) ?? null) }));
   onInvoke("ai:run", ({ sender }, req) => startRun(sender, aiRunRequest(req)));
-  // Image runs and local models: 6b (src/main/ai/images, models.ts).
-  onInvoke("ai:image", aiNotBuilt);
+  // Image runs (src/main/ai/images) and local models (src/main/ai/models.ts, served at aimodel:).
+  onInvoke("ai:image", ({ sender }, req) => startImageRun(sender, cleanImageRequest(req)));
   onInvoke("ai:cancel", ({ sender }, p) => {
     const id = str(p?.runId, 100);
     if (id) cancelRun(sender, id);
   });
-  onInvoke("ai:models", () => ({ info: [], state: [] }));
-  onInvoke("ai:model-download", aiNotBuilt);
-  onInvoke("ai:model-remove", aiNotBuilt);
+  onInvoke("ai:models", () => ({ info: modelStore().info(), state: modelStore().states() }));
+  onInvoke("ai:model-download", (_c, p) => {
+    if (!isModelId(p?.id)) throw new Error("ai:model-download: unknown model");
+    return modelStore().download(p.id);
+  });
+  onInvoke("ai:model-remove", (_c, p) => {
+    if (!isModelId(p?.id)) throw new Error("ai:model-remove: unknown model");
+    return modelStore().remove(p.id);
+  });
   onInvoke("agents:connectors", () => agents.connectors());
   onInvoke("agents:add-connector", (_c, p) => {
     const t = p?.transport;
