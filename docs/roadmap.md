@@ -381,11 +381,57 @@ Old **7c "editor types" is dropped**: Draw is a mode of a Design file, and the o
 
 **Open questions**: `docs/draw.md` §11 (a Draw sample `.fig` and a signed-in capture; brush names; when brushes are installed; whether Text on path keeps the shape).
 
-### Round 8 — Motion
-- **Engine** (`engine/`; schema KEYFRAME / KEYFRAME_TRACK / ANIMATION_PRESET_INSTANCE and their fields): the animation evaluator (time → derived overrides, never journaled), auto-keyframing.
-- **Editor** (`src/renderer/src/editor/motion/`): Motion mode, timeline, presets, easing editor, motion variables, animated components.
-- **Export** (`editor/exportCore.ts`, `src/shared/exportFiles.ts`): MP4 / WebM through WebCodecs, GIF, animated SVG.
-- **Dev Mode** (`editor/devmode/`): the Motion tab.
+### Round 8 — Motion — **contract written 2026-10-12** (`docs/motion.md`)
+
+**Contract:** `docs/motion.md` covers:
+- Figma's verified facts (§1: the help centre's Motion articles, the blog, the plugin API's Motion types, Figma's own motion skills) and what we already have (§2);
+- the decisions (§3);
+- the engine model: schema with Figma's numbers, where motion nodes live and how layers bind to them, timelines, track evaluation, fields and composition, presets, easing, interpolation, commands and routing, text, audio, the player, rendering, budgets (§4);
+- the motion layer: evaluated values as preview writes, restored before every transaction and every document read (§5);
+- the chrome: Motion mode, the timeline, the easing menu and editors, the canvas, the right panel, audio, variables, time-stamped comments, commands (§6);
+- export: the Animated tab, MP4 / WebM (WebCodecs), GIF (`gifenc`), animated SVG, Lottie and dotLottie (§7);
+- Dev Mode's Motion tab with CSS / React / JSON (§8); plugin API, REST, agents, `.fig` (§9);
+- the shared types (§10), tests (§11) and the open questions (§12).
+
+**Before the agents** (main session, one commit; it is the round's only schema editor):
+- `schema/document.kiwi`: §4.1 with Figma's numbers:
+  - KEYFRAME 56, KEYFRAME_TRACK 57, ANIMATION_PRESET_INSTANCE 58;
+  - the enums and messages listed there, complete;
+  - `NodeChange` 505–514, 521, 523, 535, 542–545, 552, 553, 566, 580, 582, 583, 586, 587, 591, 597–603, 605, 610;
+  - `SpringParams.springType 4`, `VariableAnyValue` 19 / 20, `ComponentPropValue.easingData 5`, `Effect` 37–42 / 45–54, `PrototypeAction` 39–41;
+  - the new values of `VariableDataType`, `VariableResolvedDataType`, `VariableField` (43–76), `StyleType ANIMATION 7`, `ConnectionType 10`, `ComponentPropType EASING 8`; EASING / TIMING lose `@later` (TIMING in ms).
+- Then `npm run engine:gen` (C++ and TS codecs; no wasm build).
+- `src/shared/motion/types.ts` verbatim (§10), `CommentAnchor.timeMs` in `src/shared/comments.ts`.
+- The `Engine.ts` stubs, `abi.ts` (CommandIds 330–349, tool `ANCHOR_POINT`), the `MOTION_CHANGED` event in `codec.ts`.
+- The chrome stubs `editor/motion/easing/EasingEditor.tsx` and `editor/motion/index.ts`.
+- The §10 icons.
+- `npm run check` green.
+
+| Agent | Owns | Delivers |
+|---|---|---|
+| 8a engine: model, evaluator, render, player | `engine/src/motion/` (new: `Fields.h`, `Easing.*`, `Interpolate.*`, `Track.*`, `Presets.*`, `MotionIndex.*`, `MotionLayer.*`, `TextStagger.*`), `engine/src/proto/` (timelines in the player; `ease` moved to `motion::Easing`), `engine/src/render/` (motion world, path trim, per-element text runs, the Motion icon in frame titles, the motion path / anchor overlays' drawing), `engine/src/geometry/` (path trim), `engine/src/text/` (element grouping), `engine/src/hit/`, `engine/src/export/` (a frame at t, SVG `ids: "guid"`, shapes for Lottie), `engine/src/scene/` (`motionWorld`, the transaction-begin hook), `engine/tests/unit/r8.motion*.test.cpp`, the bench cases. Minimal touches in `engine/src/editor/` (the pipeline stage after bindings; `Editor::overlay` passes the motion overlays), listed in its as-built note | §4.1 defaults, §4.3–4.8, §4.10, §4.12–4.14, §5. Native tests only (`npm run engine:test`), **no wasm build**. As built written into §4 "For 8b": the internal APIs |
+| 8b engine: editing and API | `engine/src/editor/` (commands 330–349, routing, ownership in delete / duplicate / clipboard / detach / flatten / libraries, auto-keyframe, the anchor tool, motion path gestures), `engine/src/tools/`, `engine/src/api/MotionApi.inc` (new) + its one line in `Api.cpp`, `engine/api/exports.txt`, `src/renderer/src/engine/` (fills the stubs), `engine/tests/unit/r8.motion_edit.test.cpp`, `src/renderer/src/engine/__tests__/motion.wasm.test.ts`, **the release wasm** (the round's only wasm build) | §4.2 ownership, §4.9, §4.11 commands, the bindings of §10. **Starts after 8a merges** (one engine builder at a time) |
+| 8c Motion mode and the timeline | `src/renderer/src/editor/motion/` except `motion/easing/`, `motion/panels/` and `motion/export/` (new: `timeline/`, `clock.ts`, `audio/`, `MotionMode.tsx`), `ds/components/EditorToolbar.tsx` (Motion enabled, the Beta tag), `editor/canvas/BottomToolbar.tsx`, `editor/canvas/viewInsets.ts`, `editor/canvas/CanvasMenu.tsx`, `editor/EditorApp.tsx` (mounting the timeline: one line), `editor/uiStore.ts` (`motion`), `editor/commands.ts`, `editor/menus.ts`, `editor/images.ts` (`isAudioFile`), `ds/gallery/` (its demos) | §6.1, §6.2, §6.4 (the TS side), §6.6, §6.9; the read-only timeline 8f mounts. Tests: the clock, the timeline's hit maths, snapping and selection, routing calls (fake engine), audio scheduling (fake AudioContext) |
+| 8d right panel, easing, variables | `editor/motion/easing/` (fills the stub: the menu, Custom bezier, Custom spring), `editor/motion/panels/` (new: `KeyframeDiamond.tsx`, `AnimationsSection.tsx`, `MotionTransformSection.tsx`, `AudioSection.tsx`), `editor/panels/RightPanel.tsx`, `panels/design/DesignPanel.tsx`, `Sizing.tsx`, `Layout.tsx`, `Paints.tsx`, `Stroke.tsx` (Path trim start / end), `Effects.tsx`, `ShaderSettings.tsx`, `Typography.tsx` (Text stagger), `Component.tsx` (read-only in Motion), `editor/panels/variables/` (Easing / Timing), `editor/panels/prototype/` (read-only "Control animation") | §6.3, §6.5, §6.7. Tests: diamond states, the Animations section's commands, the easing editors' values, the variable types (fake engine) |
+| 8e export | `src/renderer/src/editor/motion/export/` (new: `frames.ts`, `video.ts`, `gif.ts`, `svg.ts`, `lottie/`, `zip.ts`, `audioMix.ts`), `panels/design/Export.tsx` + `Export.module.css` (the Animated tab), `editor/exportCore.ts`, `editor/exporting.ts`, `src/shared/exportFiles.ts` (the new MIME types), `package.json` + lock (`mp4-muxer`, `webm-muxer`, `gifenc`, exact versions) | §7. Tests as §11 (fake encoders; real GIF / SVG / Lottie / ZIP bytes) |
+| 8f Dev Mode, plugin API, REST, agents, `.fig` | `src/viewer/inspect/motion*.ts(x)` (new: the tab, `cssMotion.ts`, `reactMotion.ts`), `src/viewer/InspectPanel.tsx` (the Motion tab), `editor/devmode/` (its wiring and the read-only timeline mount), `editor/plugins/api/` + `plugins/runtime/figma.js`, `editor/rest/fileJson.ts`, `src/shared/agents/tools.ts` + `src/main/agents/host.ts` (the motion tools), `src/shared/fig/` tests, `docs/plugins.md` (its Motion section) | §8, §9. Tests: code snapshots per format, the plugin surface on the wasm engine (after 8b), the `.fig` round trip |
+| 8g time-stamped comments | `server/migrations/0017_comment_time.sql` (the round's only migration), `server/src/comments.ts` (+ test), `src/store/` (the local comments' `timeMs`), `src/renderer/src/editor/comments/` | §6.8. Tests: the route keeps and returns `time_ms`; pins filtered by the playhead |
+
+**Merge order**:
+1. The main session's commit.
+2. **8a**.
+3. **8g** (independent; any time after 1).
+4. **8b**: builds the release wasm.
+5. **8d**: the easing editor 8c uses.
+6. **8c**.
+7. **8e**.
+8. **8f**: its plugin wasm tests are skipped until 8b, then switched on.
+
+8c, 8d, 8e, 8f and 8g work in parallel against the stubs from the start. 8b starts when 8a is merged.
+
+**Deploy**: migration 0017 and `npm --prefix server run deploy` — by the owner, at the end of all work.
+
+**Open questions**: `docs/motion.md` §12 (a Motion sample `.fig` and a signed-in capture; base values vs t = 0 in Design; which frames play in Motion mode; scale vs size keys; time-stamped comments now or later).
 
 **Owner, 2026-10-11: not now** — FigJam, Slides, Buzz, Sites + Make and Weave (rounds 9–13) and round 6c's Weave tools are set aside (round 6's contract: docs/ai.md); Draw (7) and Motion (8) stay. Round 7's old "editor types" item went with them (docs/draw.md, 2026-10-12). The schema numbers stay reserved (docs/schema.md §15).
 

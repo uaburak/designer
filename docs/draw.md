@@ -162,7 +162,7 @@ float rotation = 9;                          // a glyph's turn on a text path, r
 ```
 
 - `EffectType REPEAT = 4 / SYMMETRY = 5` and `Effect` 14–18 stay dropped. They are Figma's older encoding, which `TransformModifier` supersedes; a `.fig` that still uses them loses them (counted in the import report).
-- **Not adopted** (still reserved, unverified meaning): `multiEditGlueId 462` (it sits among Sites' responsive-set fields 457–461 and belongs to round 12, Sites; `docs/schema.md` §15.1 is corrected), `strokeCapSize 497`, `pathTrim 542`, `strokeOffset 554`, `offsetFillMaskGeometry 564`, `customEffects 569`, `strokeData 571` (`StrokeData` / `Stroke`: several strokes on one layer), `CUSTOM_EFFECT_INSTANCE 63`. Adopt one only when a Draw `.fig` shows it in use.
+- **Not adopted** (still reserved, unverified meaning): `multiEditGlueId 462` (it sits among Sites' responsive-set fields 457–461 and belongs to round 12, Sites; `docs/schema.md` §15.1 is corrected), `strokeCapSize 497`, `pathTrim 542` (adopted by Motion's round 8: Path trim, docs/motion.md §4.1), `strokeOffset 554`, `offsetFillMaskGeometry 564`, `customEffects 569`, `strokeData 571` (`StrokeData` / `Stroke`: several strokes on one layer), `CUSTOM_EFFECT_INSTANCE 63`. Adopt one only when a Draw `.fig` shows it in use.
 - Field metadata: all new fields are ordinary overridable fields. `textPathStart` and `transformModifiers` can be instance overrides; nothing is `@own`. `Glyph.rotation` is under `derivedTextData` (`@derived`).
 - `.fig` import / export: `src/shared/fig/convert.ts` projects by field name, so TEXT_PATH and TRANSFORM nodes and their fields survive import → export once the schema has them. 7e adds a fidelity test (§8).
 
