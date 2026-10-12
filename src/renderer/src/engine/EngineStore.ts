@@ -8,6 +8,7 @@
 import type { Camera, Guid, NodeChange, PageInfo, Selection, UndoState } from "./codec";
 import type { Engine } from "./Engine";
 import type { FacetName } from "./facets.generated";
+import { changesOf } from "./guids";
 
 /** NODES_CHANGED's GEOMETRY group (engine.md §10.4): what a gesture's frames change. */
 const GEOMETRY_GROUP = 1;
@@ -77,10 +78,7 @@ export class EngineStore {
           return;
         case "DOCUMENT_CHANGED":
           // Either wire: a kiwi-wire message carries GUID objects (docs/engine-build.md "Figma parity round 3").
-          for (const change of event.message.nodeChanges) {
-            const g = change.guid as Guid | { sessionID: number; localID: number };
-            this.touch(typeof g === "string" ? g : `${g.sessionID}:${g.localID}`);
-          }
+          for (const change of changesOf(event)) this.touch(change.guid);
           return;
       }
     });

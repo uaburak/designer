@@ -417,11 +417,11 @@ Figma's fields [P-man], parsed and checked by `parseManifest(json, {development}
 
 **Later (not round 5; each throws `"‹name› is not supported in DesignerV2 yet"`):**
 - `figma.payments`, `figma.timer`, `figma.buzz`, `figma.textreview`, `figma.vscode`, `figma.motion`.
-- `createNodeFromJSXAsync`, `createTextPath`, `createVideoAsync`, `loadBrushesAsync`.
+- `createNodeFromJSXAsync`, `createVideoAsync`. (`createTextPath`, `transformGroup`, `loadBrushesAsync`: §5b, round 7e.)
 - FigJam and Slides creators (`createSticky`, `createConnector`, `createShapeWithText`, `createTable`, `createSlide` …).
 - `figma.widget`.
 - `figma.on('slidesviewchange' | 'canvasviewchange' | 'textreview')`.
-- `PageDivider`, `TransformGroup`.
+- `PageDivider`. (`TransformGroupNode`, `TextPathNode`: §5b.)
 
 **Typings**: `src/shared/plugins/api.d.ts` is **not ours to write**. The test fixtures use the published `@figma/plugin-typings` (dev dependency, exact pin) to type-check the sample plugins, so the API's shape is Figma's by construction.
 
@@ -475,6 +475,30 @@ Figma's fields [P-man], parsed and checked by `parseManifest(json, {development}
 - **Not built yet** (each throws or answers empty, Figma's shape): `import*ByKeyAsync`, `teamLibrary` (empty lists), `extendLibraryCollectionByKeyAsync`, annotation categories (empty), `figma.devResources` and the node dev-resource methods, `exportAsync` `JSON_REST_V1` (5b's `fileJson.ts`), `vectorNetwork` / `vectorPaths` / `fillGeometry` / `strokeGeometry` (empty), `setGridChildPosition`, range `listOptions` / `indentation` / style ids / bound variables (read only, defaults), codegen preferences UI (5f), Dev Mode's Plugins panel (5f), `stylechange`. Fonts: `characters =` doesn't refuse an unloaded font (the engine loads it).
 
 **Tests**: `plugins/__tests__/plugins.wasm.test.ts` (20: the §5 fixtures — rectangles, run-once, custom-ui, selection-colors, rename-layers, codegen-css, network, storage, dynamic-page, parameters, relaunch — on the wasm engine; the sandbox's escapes; the slice limit and Stop; errors; documentchange / selectionchange; export, text ranges, group, clone, components; `createSandbox`), `service.wasm.test.ts` (5), `devWorker.test.ts` (2), `src/shared/plugins/plugins.test.ts` (7), main's `plugins.test.ts` on the shared rules. The fixtures' `code.js` are type-checked against `@figma/plugin-typings` (`npm run typecheck` runs `__tests__/fixtures/tsconfig.json`). Verified in a browser (`vite --config vite.web.config.ts`, `?editor`): the Custom UI round trip (rectangles made, the answer shown in the iframe, the iframe's `fetch` blocked by its CSP), the run as one undo step, the Running toast's Stop, the Plugins menu, Actions' plugin rows and the parameters prompt end to end, relaunch buttons and a relaunched run. Not verified: the desktop app with real development plugins (`plugin:` iframe, main's fetch), the developer VM in Electron.
+
+## 5b. Draw (round 7e, 2026-10-12; docs/draw.md §7)
+
+Figma's Update 123 (2026-01-26) as `@figma/plugin-typings` 1.139.0 types it. **Where**: `editor/plugins/api/draw.ts` (the host side), `runtime/figma.js` (the shapes), the readers shared with REST and Dev Mode in `src/shared/draw/apiShapes.ts`.
+
+**Node types.** The engine's `TEXT_PATH` (41) is the API's `TEXT_PATH`; its `TRANSFORM` (48) is `TRANSFORM_GROUP` (`api/convert.ts apiType`, so `findAllWithCriteria({types})` and handles see them).
+- **`TextPathNode`**: Figma's text subset (`characters`, `fontName`, `fontSize`, `fontWeight`, `textCase`, `letterSpacing`, `hyperlink`, `textStyleId`, `textAlignHorizontal` LEFT / CENTER / RIGHT / JUSTIFIED, `textAlignVertical`, `autoRename`, `insertCharacters` / `deleteCharacters`, the `getRange*` / `setRange*` of that subset, `getStyledTextSegments`), read-only `vectorPaths` / `vectorNetwork` / `handleMirroring`, and **`textPathStartData`** `{segment, position}` — read from `textPathStart.tValue` (segment + position, docs/draw.md §4.4 [unverified encoding]); written with `SET_TEXT_PATH_START`. No auto resize, line height or paragraph properties.
+- **`TransformGroupNode`**: a group's mixins plus **`transformModifiers`**: the document's REPEAT modifiers as `{type: "REPEAT", count, unitType, offset, repeatType, axis?}` (LINEAR `axis` HORIZONTAL ↔ X, VERTICAL ↔ Y; `offset` = `offset.x`). Setting it writes the field directly (one step of the run, any engine): the REPEATs are replaced, SYMMETRY / SKEW a file holds are kept after them.
+
+**`ComplexStrokesMixin`** on every node with geometry:
+- **`complexStrokeProperties`**: read from the document's implicit kind (§4.3) — `{type: "BASIC"}`; `{type: "DYNAMIC", frequency, wiggle, smoothen}`; `{type: "BRUSH", brushType: "STRETCH", brushName, direction}` or `{type: "BRUSH", brushType: "SCATTER", brushName, gap, wiggle, sizeJitter, angularJitter, rotation}`. `brushName` is the BRUSH node's built-in key (its display name and type), else `"CUSTOM"`. Writing: BASIC / DYNAMIC → `SET_STROKE_KIND`; BRUSH → `SET_STROKE_BRUSH` with the installed built-in (`engine.listBrushes()` by name and type), then `SET_BRUSH_SETTINGS`. Figma's rules: `"CUSTOM"` throws "Setting a custom brush is not supported yet"; an unloaded brush throws "The brush ‹NAME› isn't loaded: call figma.loadBrushesAsync('‹TYPE›') first" [wording ours]; ranges as the typings (frequency 0.01–20, smoothen 0–1, sizeJitter 0–3, angular jitter and rotation −180…180) throw outside them; wiggle and gap have no upper bound in Figma's, so ours are clamped (`SCATTER_RANGE` / `DYNAMIC_RANGE`).
+- **`variableWidthStrokeProperties`**: `{widthProfile: preset}` when the points are one of round 12's presets, `{widthProfile: "CUSTOM", variableWidthPoints: [{position, width}]}` otherwise (`width` = ascent + descent); null for dynamic and brush strokes. Writing a preset or custom points writes `variableWidthPoints` (each width split evenly about the path); with a dynamic stroke it throws ("not supported in combination with dynamic strokes").
+- **`setFillsAsync` / `setStrokesAsync`**: Figma's way to set pattern fills and strokes (the PATTERN paint of round 7, §5's `paintFromApi`).
+
+**`figma.*`**:
+- **`createTextPath(node, startSegment, startPosition)`**: a vector, rectangle, ellipse, polygon, star or line; `CREATE_TEXT_PATH {replace: true}` — the source goes, the TEXT_PATH takes its name, parent and index (found in the parent's children at the source's index); the returned node is the one to use, as Figma says.
+- **`transformGroup(nodes, parent, index, modifiers)`**: `ADD_TRANSFORM_MODIFIER` on the nodes (wraps them as Group does), then the whole list written to the group in order [Figma's "each to the node at the same position" read as a slip, docs/draw.md §4.2], then moved to `parent` / `index`.
+- **`loadBrushesAsync('STRETCH' | 'SCATTER')`**: installs every built-in of that type (`engine.installBrush` with our artwork, `src/shared/draw/brushes/`), inside the run's step.
+
+**Until round 7b** the engine's Draw calls are Engine.ts stubs: `createTextPath`, `transformGroup`, `loadBrushesAsync`, `textPathStartData =` and `complexStrokeProperties =` answer "‹name› is not supported in DesignerV2 yet"; every reader, `transformModifiers =` and `variableWidthStrokeProperties =` work now.
+
+**`documentchange`**: `textPathStart` → `textPathStartData`, `transformModifiers`, the stroke-kind fields → `complexStrokeProperties`, `variableWidthPoints` → `variableWidthStrokeProperties`.
+
+**Tests**: `plugins/__tests__/draw.test.ts` (fake engine: the readers, every writer's commands in order, validation, the stubs' answer); `plugins/__tests__/draw.wasm.test.ts` (QuickJS + the wasm: the API's shape, a dynamic stroke read back, custom width points written; three end-to-end tests `it.skip` with `TODO(7b)` — text path, transform group, brushes).
 
 ## 6. The chrome
 

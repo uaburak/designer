@@ -5,6 +5,7 @@
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Status } from "@/engine/abi";
+import { changesOf } from "@/engine/guids";
 import type { Pixels } from "@/engine/codec";
 import { DYNAMIC_DEFAULTS, REPEAT_DEFAULTS, type BrushType, type DrawCommandArgs, type InstallBrushInput, type RepeatModifierInput } from "@shared/draw/types";
 import type { ChangeInfo } from "@/ds";
@@ -390,7 +391,8 @@ describe("round 7d: Layers previews (docs/draw.md §5.9)", () => {
     thumbs.subscribe("1:1", () => {});
     thumbs.get("1:1");
     thumbs.pump();
-    onChange!([{ guid: { sessionID: 1, localID: 2 } }]);
+    // Engine.onDocumentChanged hands its handlers changesOf(event): the kiwi stream's {sessionID, localID} as "s:l".
+    onChange!(changesOf({ message: { nodeChanges: [{ guid: { sessionID: 1, localID: 2 } }] } }) as { guid: unknown }[]);
     thumbs.pump();
     expect(rendered).toEqual(["1:1", "1:1"]);
   });

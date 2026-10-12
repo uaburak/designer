@@ -7,6 +7,7 @@
  * E_UNSUPPORTED and nothing changes — the panel still shows what the document holds.
  */
 import { Status } from "@/engine/abi";
+import { guidString } from "@/engine/guids";
 import type { ChangeInfo } from "@/ds";
 import {
   DYNAMIC_DEFAULTS,
@@ -69,11 +70,7 @@ export const rightPanelTabs = (mode: Mode): ("design" | "prototype")[] => (mode 
 // ---- Stroke kinds --------------------------------------------------------------------------------------------------
 
 /** A GUID field as the bindings print it ("s:l"), from either form the engine reads it in. */
-export function guidString(g: unknown): GuidString | null {
-  if (typeof g === "string") return g || null;
-  if (g && typeof g === "object" && "sessionID" in g && "localID" in g) return `${(g as { sessionID: number }).sessionID}:${(g as { localID: number }).localID}`;
-  return null;
-}
+export { guidString };
 
 /** The fields the stroke kinds live in (schema 446–452, 482; not typed by the facade yet). */
 export type StrokeKindFields = {

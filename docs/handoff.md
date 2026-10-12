@@ -641,3 +641,12 @@ Acceptance (verified with `scripts/drive.mjs` on the built demo app): launch →
   - **Verify**: `npm run engine:test` (`r7.draw.test.cpp`, 16 cases).
   - **For 7b**: the internal APIs are listed in docs/draw.md §4.10 "For 7b".
   - **Open**: SVG / PDF still skip PATTERN paints (fills and strokes); repeated SVG ids in copies; every constant waits for a Draw `.fig` (§11).
+- 2026-10-12 — **Round 7e: brush assets, the Draw plugin API, REST, Dev Mode, `.fig`** (worktree branch; `docs/draw.md` "As built (7e)" after §8, `docs/plugins.md` §5b). Built against the Engine.ts stubs.
+  - **Brushes**: Figma's 25 names on our own procedural artwork — `src/shared/draw/brushes/` (`generate.ts`, committed `builtin.generated.json`, `index.ts` `BUILTIN_BRUSHES`), written by `npm run brushes` (`scripts/brushes.mjs`, `--check`). 7c's Brush tool and menus pick them up.
+  - **Plugin API** (`editor/plugins/api/draw.ts`, `runtime/figma.js`): `TextPathNode` / `textPathStartData`, `TransformGroupNode` / `transformModifiers`, `complexStrokeProperties`, `variableWidthStrokeProperties`, `setFillsAsync` / `setStrokesAsync`, `figma.createTextPath`, `figma.transformGroup`, `figma.loadBrushesAsync`.
+  - **REST** (`editor/rest/fileJson.ts`): TEXT_PATH, TRANSFORM_GROUP, `complexStrokeProperties`. **Dev Mode** (`src/viewer/inspect/`, `editor/devmode/annotations.ts`): text paths inspect as text, transform groups as groups.
+  - **`.fig`**: `src/shared/fig/draw.test.ts` — Figma's schema in, our export out, every Draw node byte for byte.
+  - **GUID fix**: `Engine.onDocumentChanged` gives "s:l" GUIDs on either wire (`engine/guids.ts` `changesOf` / `guidString`); the per-site conversions are gone (EngineStore, plugin host, AI banner, layer previews). Tests: `engine/__tests__/guids.test.ts`, a kiwi-wire check in `engine.wasm.test.ts`.
+  - **Checks**: `npm run check` green (2109 tests, 4 skipped — the 7b ones). No engine build; not checked in the running app.
+  - **Next (after 7b merges)**: switch on the `it.skip` / `TODO(7b)` tests in `plugins/__tests__/draw.wasm.test.ts` (3) and `rest/__tests__/fileJson.wasm.test.ts` (1); the "not supported yet" wasm test then returns early by itself.
+  - **Open**: Figma's REST names for Draw's types and fields are unverified (we use the plugin API's); the brush artwork is ours and is not calibrated against anything (§11); a real Draw `.fig` from the owner joins `draw.test.ts`.

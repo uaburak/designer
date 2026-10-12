@@ -129,6 +129,11 @@
     method(p, "outlineStroke", function () { return call("node.outlineStroke", this.__nodeId); });
     method(p, "setFillStyleIdAsync", function (id) { return Promise.resolve(call("set", this.__nodeId, "fillStyleId", id)); });
     method(p, "setStrokeStyleIdAsync", function (id) { return Promise.resolve(call("set", this.__nodeId, "strokeStyleId", id)); });
+    // The only way to set pattern fills and strokes (Figma: the pattern's source is loaded first).
+    method(p, "setFillsAsync", function (paints) { return Promise.resolve(call("set", this.__nodeId, "fills", paints)); });
+    method(p, "setStrokesAsync", function (paints) { return Promise.resolve(call("set", this.__nodeId, "strokes", paints)); });
+    // ComplexStrokesMixin (Draw, Update 123)
+    props(p, ["complexStrokeProperties", "variableWidthStrokeProperties"]);
   }
 
   var CORNERS = ["cornerRadius", "cornerSmoothing"];
@@ -175,6 +180,29 @@
     method(p, "getStyledTextSegments", function (fields, start, end) { return freeze(call("text.segments", this.__nodeId, fields, start === undefined ? 0 : start, end === undefined ? -1 : end)); });
   }
 
+  // TextPathNode's text (Figma's BaseNonResizableTextMixin: no auto resize, line height or paragraph properties).
+  var TEXT_PATH_PROPS = ["characters", "fontName", "fontSize", "textCase", "letterSpacing", "hyperlink", "textStyleId", "textAlignHorizontal", "textAlignVertical", "autoRename", "textPathStartData"];
+  var TEXT_PATH_RANGES = ["FontName", "FontSize", "FontWeight", "Fills", "TextCase", "LetterSpacing", "Hyperlink", "TextStyleId", "FillStyleId", "OpenTypeFeatures"];
+
+  function textPathMixin(p) {
+    props(p, TEXT_PATH_PROPS);
+    props(p, ["hasMissingFont", "fontWeight", "openTypeFeatures", "vectorPaths", "vectorNetwork", "handleMirroring"], { readonly: true });
+    method(p, "insertCharacters", function (start, characters, useStyle) { call("text.insert", this.__nodeId, start, String(characters), useStyle || "BEFORE"); });
+    method(p, "deleteCharacters", function (start, end) { call("text.delete", this.__nodeId, start, end); });
+    TEXT_PATH_RANGES.forEach(function (f) {
+      var field = f.charAt(0).toLowerCase() + f.slice(1);
+      method(p, "getRange" + f, function (start, end) { return freeze(call("text.getRange", this.__nodeId, field, start, end)); });
+      if (f !== "FontWeight" && f !== "OpenTypeFeatures") method(p, "setRange" + f, function (start, end, value) { call("text.setRange", this.__nodeId, field, start, end, value); });
+    });
+    method(p, "getRangeAllFontNames", function (start, end) { return call("text.allFontNames", this.__nodeId, start, end); });
+    method(p, "getRangeBoundVariable", function (start, end, field) { return call("text.getRange", this.__nodeId, "boundVariable:" + field, start, end); });
+    method(p, "setRangeBoundVariable", function (start, end, field, variable) { call("text.setRange", this.__nodeId, "boundVariable:" + field, start, end, variable ? variable.id || variable : null); });
+    method(p, "setRangeTextStyleIdAsync", function (start, end, id) { return Promise.resolve(call("text.setRange", this.__nodeId, "textStyleId", start, end, id)); });
+    method(p, "setRangeFillStyleIdAsync", function (start, end, id) { return Promise.resolve(call("text.setRange", this.__nodeId, "fillStyleId", start, end, id)); });
+    method(p, "setTextStyleIdAsync", function (id) { return Promise.resolve(call("set", this.__nodeId, "textStyleId", id)); });
+    method(p, "getStyledTextSegments", function (fields, start, end) { return freeze(call("text.segments", this.__nodeId, fields, start === undefined ? 0 : start, end === undefined ? -1 : end)); });
+  }
+
   function componentMixin(p) {
     props(p, ["description", "descriptionMarkdown", "documentationLinks"]);
     props(p, ["key", "remote", "componentPropertyDefinitions"], { readonly: true });
@@ -203,6 +231,9 @@
     VECTOR: ["scene", "layout", "blend", "geometry", "corner"],
     TEXT: ["scene", "layout", "blend", "geometry", "text"],
     SLICE: ["scene", "layout"],
+    // Draw (Update 123)
+    TEXT_PATH: ["scene", "layout", "blend", "geometry", "textPath"],
+    TRANSFORM_GROUP: ["scene", "children", "layout", "blend"],
   };
 
   function protoFor(type) {
@@ -220,6 +251,7 @@
       else if (m === "rect") props(p, CORNERS.concat(RECT_CORNERS, STROKE_SIDES));
       else if (m === "corner") props(p, CORNERS);
       else if (m === "text") textMixin(p);
+      else if (m === "textPath") textPathMixin(p);
       else if (m === "component") componentMixin(p);
     });
     if (type === "COMPONENT") {
@@ -247,6 +279,7 @@
       method(p, "setVectorNetworkAsync", function (n) { return Promise.resolve(call("set", this.__nodeId, "vectorNetwork", n)); });
     }
     if (type === "BOOLEAN_OPERATION") props(p, ["booleanOperation"]);
+    if (type === "TRANSFORM_GROUP") props(p, ["transformModifiers"]);
     if (type === "SECTION") props(p, ["sectionContentsHidden"]);
     if (type === "PAGE") {
       props(p, ["selection", "backgrounds", "prototypeBackgrounds", "flowStartingPoints", "selectedTextRange", "prototypeStartNode", "guides"]);
@@ -573,6 +606,10 @@
   value("group", function (nodes, parent, index) { return call("group", nodes, parent, index === undefined ? -1 : index); });
   value("ungroup", function (node) { return call("ungroup", node); });
   value("flatten", function (nodes, parent, index) { return call("flatten", nodes, parent || null, index === undefined ? -1 : index); });
+  // Draw (docs/draw.md §7; Figma's Update 123)
+  value("createTextPath", function (node, startSegment, startPosition) { return call("createTextPath", node, startSegment, startPosition); });
+  value("transformGroup", function (nodes, parent, index, modifiers) { return call("transformGroup", nodes, parent, index === undefined ? -1 : index, modifiers || []); });
+  value("loadBrushesAsync", function (brushType) { return call("brushes.load", brushType); });
   ["union", "subtract", "intersect", "exclude"].forEach(function (op) {
     value(op, function (nodes, parent, index) { return call("boolean", op.toUpperCase(), nodes, parent, index === undefined ? -1 : index); });
   });
@@ -698,7 +735,7 @@
   ["payments", "timer", "buzz", "textreview", "vscode", "motion", "widget", "slides"].forEach(function (name) {
     Object.defineProperty(figma, name, { enumerable: false, get: function () { throw new Error("figma." + name + " is not supported in DesignerV2 yet"); } });
   });
-  ["createNodeFromJSXAsync", "createTextPath", "createVideoAsync", "loadBrushesAsync", "createSticky", "createConnector", "createShapeWithText", "createTable", "createCodeBlock", "createGif", "createLinkPreviewAsync", "createSlide", "createSlideRow", "createPageDivider", "createTransformGroup"].forEach(function (name) {
+  ["createNodeFromJSXAsync", "createVideoAsync", "createSticky", "createConnector", "createShapeWithText", "createTable", "createCodeBlock", "createGif", "createLinkPreviewAsync", "createSlide", "createSlideRow", "createPageDivider", "createTransformGroup"].forEach(function (name) {
     value(name, notSupported(name));
   });
 

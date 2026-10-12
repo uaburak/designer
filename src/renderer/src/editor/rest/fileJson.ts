@@ -14,6 +14,7 @@ import type { Engine } from "@/engine/Engine";
 import type { BoundVariable } from "@/engine/codec";
 import type { FileParams } from "../../../../shared/rest/types";
 import { guidStr, restCollectionId, restVariableId } from "./ids";
+import { complexStrokeOf, repeatModifiersOf, strokeBrushOf, textPathStartOf } from "../../../../shared/draw/apiShapes";
 
 type Any = any;
 type Matrix = { m00: number; m01: number; m02: number; m10: number; m11: number; m12: number };
@@ -116,6 +117,11 @@ export function restType(n: Any): string | null {
       return "RECTANGLE";
     case "BRUSH":
       return "VECTOR";
+    // Draw (docs/draw.md §7): Figma's REST names are unverified; the plugin API's are used.
+    case "TEXT_PATH":
+      return "TEXT_PATH";
+    case "TRANSFORM":
+      return "TRANSFORM_GROUP";
     default:
       return null;
   }
@@ -669,10 +675,10 @@ export class RestDocument {
     if (isFrameLike) out.clipsContent = n.frameMaskDisabled === false;
     if (type !== "SLICE") {
       out.fills = (n.fillPaints ?? []).map((p: Any, i: number) => restPaint(p, bound?.paints.get(`fillPaints:${i}`)));
-      if (type !== "GROUP") {
+      if (type !== "GROUP" && type !== "TRANSFORM_GROUP") {
         out.strokes = (n.strokePaints ?? []).map((p: Any, i: number) => restPaint(p, bound?.paints.get(`strokePaints:${i}`)));
         out.strokeWeight = n.strokeWeight ?? 1;
-        out.strokeAlign = n.strokeAlign ?? (type === "TEXT" || SHAPES.has(type) ? "CENTER" : "INSIDE");
+        out.strokeAlign = n.strokeAlign ?? (type === "TEXT" || type === "TEXT_PATH" || SHAPES.has(type) ? "CENTER" : "INSIDE");
         if (n.borderStrokeWeightsIndependent) out.individualStrokeWeights = { top: n.borderTopWeight ?? 0, right: n.borderRightWeight ?? 0, bottom: n.borderBottomWeight ?? 0, left: n.borderLeftWeight ?? 0 };
         if (n.dashPattern?.length) out.strokeDashes = [...n.dashPattern];
         if ((n.strokePaints ?? []).length) {
@@ -680,6 +686,18 @@ export class RestDocument {
           if (n.strokeJoin && n.strokeJoin !== "MITER") out.strokeJoin = n.strokeJoin;
           if (n.strokeJoin === "MITER" && n.miterLimit !== undefined && n.miterLimit !== 4) out.strokeMiterAngle = round(((2 * Math.asin(1 / n.miterLimit)) * 180) / Math.PI);
         }
+        // Dynamic and brush strokes (docs/draw.md §7): the plugin API's ComplexStrokeProperties; Basic is left out [ours].
+        const brushId = strokeBrushOf(n);
+        let brush: Any = null;
+        if (brushId) {
+          try {
+            brush = this.engine.readNode(brushId, { fields: ["name", "brushType"] });
+          } catch {
+            brush = null;
+          }
+        }
+        const complex = complexStrokeOf(n, brush);
+        if (complex.type !== "BASIC") out.complexStrokeProperties = complex;
       }
     }
     if (type === "RECTANGLE" || isFrameLike) {
@@ -765,9 +783,12 @@ export class RestDocument {
     if (type === "ELLIPSE" && n.arcData) out.arcData = { startingAngle: n.arcData.startingAngle ?? 0, endingAngle: n.arcData.endingAngle ?? 2 * Math.PI, innerRadius: n.arcData.innerRadius ?? 0 };
     if (type === "BOOLEAN_OPERATION") out.booleanOperation = n.booleanOperation ?? "UNION";
     if (type === "SECTION") out.sectionContentsHidden = n.sectionContentsHidden === true;
+    // Draw: a transform group's repeats, a text path's start (docs/draw.md §7)
+    if (type === "TRANSFORM_GROUP") out.transformModifiers = repeatModifiersOf(n);
+    if (type === "TEXT_PATH") out.textPathStartData = textPathStartOf(n);
 
-    // Text
-    if (type === "TEXT") {
+    // Text (a text path carries the same text fields, docs/draw.md §4.4)
+    if (type === "TEXT" || type === "TEXT_PATH") {
       const td = n.textData ?? {};
       out.characters = td.characters ?? "";
       let intrinsic: number | null = null;

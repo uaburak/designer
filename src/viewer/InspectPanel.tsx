@@ -15,7 +15,7 @@ import { Button, CodeBlock, Dialog, EmptyState, Icon, IconButton, MenuButton, Pa
 import { useCurrentPage, useSelection } from "@/engine/hooks";
 import type { Effect, Guid, NodeChange, Paint } from "@/engine/codec";
 import { cssLines, cssSnippet } from "./inspect/css";
-import { cornersOf, cssColor, hexOf, isAutoLayout, num, paddingOf, rotationOf, sizingOf, typeLabel, typographyOf, visibleEffects, visiblePaints } from "./inspect/model";
+import { cornersOf, cssColor, hexOf, isAutoLayout, isTextLike, num, paddingOf, rotationOf, sizingOf, typeLabel, typographyOf, visibleEffects, visiblePaints } from "./inspect/model";
 import { compose, swiftUI } from "./inspect/native";
 import { useViewer, type CodegenHost, type CodegenLanguage } from "./context";
 import { layerIcon } from "./LeftPanel";
@@ -330,7 +330,7 @@ function LayerInspect({ id, code }: { id: Guid; code: CodeChoice }) {
       <LayoutSection node={n} sizing={sizingOf(input)} parentBox={doc.parentOf(id) ? doc.pageBox(doc.parentOf(id)!) : null} box={doc.pageBox(id)} />
       <CodeSection input={input} code={code} />
       <ColorsSection node={n} variables={input.variables} styles={input.styles ?? {}} />
-      {n.type === "TEXT" && <TypographySection node={n} styleName={input.styles?.text} variables={input.variables} />}
+      {isTextLike(n) && <TypographySection node={n} styleName={input.styles?.text} variables={input.variables} />}
       <EffectsSection effects={visibleEffects(n.effects)} styleName={input.styles?.effect} />
       {preview.manifest.options.export && <AssetsSection id={id} />}
       {preview.manifest.options.export && <ExportSection id={id} node={n} />}
@@ -538,7 +538,7 @@ function ColorsSection({ node, variables, styles: names }: { node: NodeChange; v
   if (!fills.length && !strokes.length) return null;
   return (
     <PanelSection title="Colors">
-      {fills.length > 0 && <div className={styles.subTitle}>{node.type === "TEXT" ? "Text" : "Fill"}</div>}
+      {fills.length > 0 && <div className={styles.subTitle}>{isTextLike(node) ? "Text" : "Fill"}</div>}
       {fills.map((p) => paintRow(p, (node.fillPaints ?? []).indexOf(p), "fillPaints", variables, names.fill))}
       {strokes.length > 0 && (
         <>

@@ -28,6 +28,8 @@ export function apiType(n: Pick<NodeChange, "type"> & { isStateGroup?: boolean; 
       return "POLYGON";
     default:
       if ((n.type as string) === "BRUSH") return "VECTOR";
+      // Draw (docs/draw.md §7): the engine's TRANSFORM (48) is the Plugin API's TRANSFORM_GROUP; TEXT_PATH keeps its name.
+      if ((n.type as string) === "TRANSFORM") return "TRANSFORM_GROUP";
       return n.type ?? "NONE";
   }
 }

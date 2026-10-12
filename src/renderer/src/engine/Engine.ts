@@ -128,6 +128,7 @@ import { fonts } from "./fonts";
 import { keyCodeOf } from "./keyCodes";
 import { prepareGfx, recordWebGPUFallback, type GfxBackend, type GfxPreference } from "./gfx";
 import { loadEngine } from "./loadEngine";
+import { changesOf } from "./guids";
 
 /** The encoding of the engine's structured outputs (docs/engine-build.md "Figma parity round 3"). */
 export type WireFormat = "json" | "kiwi";
@@ -420,8 +421,9 @@ export class Engine {
   }
 
   /** A committed transaction's changes (one Message per commit) — what storage persists. */
-  onDocumentChanged(handler: (changes: NodeChange[], event: EventOf<"DOCUMENT_CHANGED">) => void): () => void {
-    return this.on("DOCUMENT_CHANGED", (e) => handler(e.message.nodeChanges, e));
+  /** The changes with their GUIDs as "s:l" on either wire (`changesOf`: the kiwi wire decodes GUID objects). */
+  onDocumentChanged(handler: (changes: readonly NodeChange[], event: EventOf<"DOCUMENT_CHANGED">) => void): () => void {
+    return this.on("DOCUMENT_CHANGED", (e) => handler(changesOf(e), e));
   }
 
   onSelectionChanged(handler: (selection: Selection) => void): () => void {

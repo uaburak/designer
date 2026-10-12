@@ -13,6 +13,7 @@ import {
   cssVar,
   gradientAngle,
   isAutoLayout,
+  isTextLike,
   num,
   paddingOf,
   px,
@@ -124,7 +125,7 @@ export function cssSnippet(input: InspectInput): CssSnippet {
   if (rot) layout.push({ property: "transform", value: `rotate(${num(-rot)}deg)` });
 
   const corners = cornersOf(n);
-  if (corners && n.type !== "ELLIPSE" && n.type !== "TEXT") {
+  if (corners && n.type !== "ELLIPSE" && !isTextLike(n)) {
     const c = (target: string, value: number) => v(target, px(value));
     const tl = n.rectangleCornerRadiiIndependent ? c("RECTANGLE_TOP_LEFT_CORNER_RADIUS", corners.tl) : c("CORNER_RADIUS", corners.tl);
     if (!n.rectangleCornerRadiiIndependent) style.push({ property: "border-radius", value: tl });
@@ -136,7 +137,8 @@ export function cssSnippet(input: InspectInput): CssSnippet {
   } else if (n.type === "ELLIPSE") style.push({ property: "border-radius", value: `${px(Math.max(size.x, size.y))}` });
 
   const strokes = visiblePaints(n.strokePaints);
-  const isText = n.type === "TEXT";
+  // A text on a path writes as text (its glyphs' look); a transform group as a group — CSS has no repeat [ours].
+  const isText = isTextLike(n);
   if (strokes.length && (n.strokeWeight ?? 1) > 0) {
     const color = paintCss(strokes[0], input, "strokePaints", (n.strokePaints ?? []).indexOf(strokes[0])) ?? "currentColor";
     const kind = n.dashPattern?.length ? "dashed" : "solid";

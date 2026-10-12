@@ -10,7 +10,7 @@
  */
 import type { NodeChange, Paint } from "@/engine/codec";
 import type { CssDecl } from "./css";
-import { cssColor, hexOf, num, typographyOf } from "./model";
+import { cssColor, hexOf, isTextLike, num, typographyOf } from "./model";
 import { markdownPlain } from "@/editor/devmode/annotations";
 
 // ---- Statuses ----------------------------------------------------------------------------------------------------
@@ -84,7 +84,7 @@ const firstSolid = (paints: readonly Paint[] | undefined): string | null => {
 /** An annotation property's label and the layer's value for it (Figma's names; "—" when the layer has none). */
 export function annotationProperty(type: string, n: NodeChange): { label: string; value: string } {
   const size = n.size ?? { x: 0, y: 0 };
-  const t = n.type === "TEXT" ? typographyOf(n) : null;
+  const t = isTextLike(n) ? typographyOf(n) : null;
   const px = (v: number | undefined | null) => (v === undefined || v === null ? "—" : `${num(v)}px`);
   const e = n as NodeChange & Record<string, unknown>;
   switch (type) {
@@ -174,7 +174,7 @@ export function detectAssets(root: string, get: (id: string) => AssetNode | null
     const n = get(id);
     if (!n || !n.visible) return { ok: true, real: false };
     if (imageFillOf(n)) return { ok: false, real: false };
-    if (n.type === "TEXT") return { ok: false, real: false };
+    if (n.type === "TEXT" || n.type === "TEXT_PATH") return { ok: false, real: false };
     if (VECTORS.has(n.type) && !n.children.length) return { ok: true, real: n.type !== "RECTANGLE" && n.type !== "ROUNDED_RECTANGLE" };
     if (!CONTAINERS.has(n.type)) return { ok: false, real: false };
     let real = n.type === "BOOLEAN_OPERATION";

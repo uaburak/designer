@@ -248,7 +248,7 @@ function textLength(n: NodeChange): number {
 }
 
 function checkRange(n: NodeChange, start: unknown, end: unknown): { from: number; to: number } {
-  if (n.type !== "TEXT") throw new ApiError("Expected a text node");
+  if (n.type !== "TEXT" && (n.type as string) !== "TEXT_PATH") throw new ApiError("Expected a text node");
   const len = textLength(n);
   if (typeof start !== "number" || typeof end !== "number" || start < 0 || end > len || start >= end) throw new ApiError(`Expected 0 <= start < end <= ${len}, got start=${String(start)} end=${String(end)}`);
   return { from: start, to: end };
