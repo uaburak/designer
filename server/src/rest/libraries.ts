@@ -81,7 +81,7 @@ export async function librariesRestRoute(ctx: RestCtx): Promise<Response> {
   if (!(kind in KINDS)) throw new RestError(404, "Not found");
   if (a === "files") {
     const f = await acc.fileRow(id);
-    const fa = f ? await acc.file(f, { viaLink: true, passOk: false }) : null;
+    const fa = f ? await acc.openFile(f, { viaLink: true, passOk: false }) : null;
     if (!f || !fa?.ok) throw new RestError(404, "Not found");
     if (await acc.branch(id)) throw new RestError(404, "Branches have no published library");
     const lib = await usableLib(ctx, id);

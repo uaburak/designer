@@ -347,7 +347,7 @@ async function resolve(ctx: Ctx, key: string): Promise<Resolved> {
   const f = b && (await acc.fileRow(key));
   const main = b && (await acc.fileRow(b.main_key));
   if (!b || !f || !main) throw new HttpError(404, "no such branch");
-  const a = await acc.file(f, { viaLink: true, passOk: false });
+  const a = await acc.openFile(f, { viaLink: true, passOk: false });
   if (!a.ok) throw new HttpError(404, "no such branch");
   const am = await acc.file(main, { viaLink: true, passOk: false });
   return { b, f, main, a, am, canEditMain: am.ok && !am.trashed && am.canEdit, creator: b.created_by === user.id };

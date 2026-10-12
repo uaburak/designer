@@ -120,8 +120,14 @@ async function newRecoveryCodes(deps: Deps, userId: string): Promise<string[]> {
   const codes = new Set<string>();
   while (codes.size < RECOVERY_CODE_COUNT) codes.add(generateRecoveryCode());
   const d1 = deps.db.d1;
-  await d1.prepare(`DELETE FROM user_recovery_codes WHERE user_id = ?1`).bind(userId).run();
-  for (const c of codes) await d1.prepare(`INSERT INTO user_recovery_codes (user_id, code_hash) VALUES (?1, ?2)`).bind(userId, await recoveryHash(userId, c)).run();
+  const hashes = await Promise.all([...codes].map((c) => recoveryHash(userId, c)));
+  // One batch (a D1 transaction): the old codes never outlive the new ones, nor are both sets ever missing
+  const stmts = [
+    d1.prepare(`DELETE FROM user_recovery_codes WHERE user_id = ?1`).bind(userId),
+    d1.prepare(`INSERT INTO user_recovery_codes (user_id, code_hash) SELECT ?1, value FROM json_each(?2)`).bind(userId, JSON.stringify(hashes)),
+  ];
+  if (d1.batch) await d1.batch(stmts);
+  else for (const s of stmts) await s.run();
   return [...codes];
 }
 
@@ -130,19 +136,21 @@ async function newRecoveryCodes(deps: Deps, userId: string): Promise<string[]> {
 const tooMany = () => new HttpError(429, "Too many attempts. Try again in a few minutes.", "rate_limited");
 const invalid = () => new HttpError(400, "That code didn't work. Try again.", "two_factor_invalid", { field: "code" });
 
-function lockedOut(r: TwoFactorRow, now: number): boolean {
-  return r.failed_since !== null && now - r.failed_since < TWO_FACTOR_FAILURE_WINDOW_MS && r.failed_count >= TWO_FACTOR_MAX_FAILURES;
-}
-
-/** Counts a failure (a new window when the last one has passed) → the failures in the window now */
-async function recordFailure(deps: Deps, r: TwoFactorRow): Promise<number> {
-  const now = deps.now();
-  const fresh = r.failed_since === null || now - r.failed_since >= TWO_FACTOR_FAILURE_WINDOW_MS;
+/**
+ * Reserves one attempt atomically, before the code is checked: counted as a failure (a new window when the last one
+ * has passed) unless a success resets it. No row → the window already holds TWO_FACTOR_MAX_FAILURES: 429. So parallel
+ * guesses can't get past the limit (each takes a slot in the same UPDATE). → the attempts in the window now.
+ */
+async function reserveAttempt(deps: Deps, userId: string, now: number): Promise<number | null> {
+  const expired = `(failed_since IS NULL OR ?2 - failed_since >= ?3)`;
   const n = await deps.db.d1
-    .prepare(`UPDATE user_two_factor SET failed_count = CASE WHEN ?2 = 1 THEN 1 ELSE failed_count + 1 END, failed_since = CASE WHEN ?2 = 1 THEN ?3 ELSE failed_since END WHERE user_id = ?1 RETURNING failed_count`)
-    .bind(r.user_id, fresh ? 1 : 0, now)
+    .prepare(
+      `UPDATE user_two_factor SET failed_count = CASE WHEN ${expired} THEN 1 ELSE failed_count + 1 END, failed_since = CASE WHEN ${expired} THEN ?2 ELSE failed_since END
+       WHERE user_id = ?1 AND (${expired} OR failed_count < ?4) RETURNING failed_count`,
+    )
+    .bind(userId, now, TWO_FACTOR_FAILURE_WINDOW_MS, TWO_FACTOR_MAX_FAILURES)
     .first<{ failed_count: number }>();
-  return n?.failed_count ?? 1;
+  return n?.failed_count ?? null;
 }
 
 /**
@@ -151,7 +159,8 @@ async function recordFailure(deps: Deps, r: TwoFactorRow): Promise<number> {
  */
 export async function checkCode(deps: Deps, r: TwoFactorRow, code: unknown, recovery: boolean): Promise<"totp" | "recovery"> {
   const now = deps.now();
-  if (lockedOut(r, now)) throw tooMany();
+  const attempts = await reserveAttempt(deps, r.user_id, now);
+  if (attempts === null) throw tooMany();
   const d1 = deps.db.d1;
   const c = typeof code === "string" ? code.trim() : "";
   if (/^\d{3}\s?\d{3}$/.test(c)) {
@@ -170,7 +179,7 @@ export async function checkCode(deps: Deps, r: TwoFactorRow, code: unknown, reco
       return "recovery";
     }
   }
-  if ((await recordFailure(deps, r)) >= TWO_FACTOR_MAX_FAILURES) throw tooMany();
+  if (attempts >= TWO_FACTOR_MAX_FAILURES) throw tooMany();
   throw invalid();
 }
 

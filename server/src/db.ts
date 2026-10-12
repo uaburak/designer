@@ -16,6 +16,8 @@ export interface D1Stmt {
 
 export interface D1Like {
   prepare(sql: string): D1Stmt;
+  /** D1's batch: the statements in one transaction (all or none). Optional for narrow stand-ins. */
+  batch?(stmts: D1Stmt[]): Promise<unknown[]>;
 }
 
 export interface User {

@@ -45,7 +45,7 @@ async function analyticsAccess(ctx: Ctx, key: string): Promise<{ lib: LibRow; re
   if (!lib || lib.status === "deleted") throw new HttpError(404, "no such library");
   const m = await acc.membership(lib.org_id);
   const f = await acc.fileRow(key);
-  const a = f ? await acc.file(f, { viaLink: true, passOk: false }) : null;
+  const a = f ? await acc.openFile(f, { viaLink: true, passOk: false }) : null;
   if (!m || !a?.ok) throw new HttpError(404, "no such library");
   if (m.role === "guest") throw new HttpError(403, "guests can't see library analytics");
   return { lib, reach: await reachOf(acc, lib.org_id) };

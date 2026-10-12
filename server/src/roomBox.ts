@@ -34,7 +34,7 @@ import { encodeChangesDown, type ChangesDown } from "../../src/shared/multiplaye
 import type { RoomStorage } from "../../src/shared/multiplayer/room";
 import type { SqlLike } from "./previews";
 import { dumpPage, loadPage } from "./policy/dump";
-import { PLAIN_CIPHER, SealError, type RoomCipher } from "./ekm/cipher";
+import { PLAIN_CIPHER, SealError, type RoomCipher, type SealedTable } from "./ekm/cipher";
 import { openJoined, pageHasPlain, plainSizeSql, sealAll, sealChunks, sealWhere } from "./ekm/rows";
 
 /** The room's tables, in the order a move copies them (docs/multiplayer.md §15.10) */
@@ -340,7 +340,8 @@ export class RoomBox {
     if (!c.enabled) return { sealed: 0, first: false };
     const first = st.meta("ekm") !== 1;
     if (!first && !force && st.meta("ekmDirty") !== 1) return { sealed: 0, first: false };
-    const sealed = await sealAll(this.sql, c);
+    // The first sweep also opens rows that merely look sealed: a plain row starting with the header is sealed too
+    const sealed = await sealAll(this.sql, c, first);
     this.pendingFrames.clear();
     st.setMeta("ekm", 1);
     st.clearMeta("ekmDirty");
@@ -422,7 +423,7 @@ export class RoomBox {
       case "GET /room/snapshot": {
         const seq = st.meta("snapshotSeq");
         if (seq < 0) return new Response("no snapshot yet", { status: 404 });
-        return this.bytesResponse(this.read(`SELECT bytes FROM snapshot ORDER BY idx`), { "x-seq": String(seq), "x-last-seq": String(st.lastSeq()) });
+        return this.bytesResponse(this.read(`SELECT bytes FROM snapshot ORDER BY idx`), "snapshot", { "x-seq": String(seq), "x-last-seq": String(st.lastSeq()) });
       }
       case "GET /room/frames": {
         // The frames after `since` (an embed's catch-up on the snapshot): [u32 length][changes-down frame] each.
@@ -432,7 +433,7 @@ export class RoomBox {
       case "PUT /room/snapshot": {
         const seq = Number(url.searchParams.get("seq"));
         // Sealed before the checks: nothing awaits between them and the transaction.
-        const parts = await sealChunks(this.cipher, new Uint8Array(await req.arrayBuffer()));
+        const parts = await sealChunks(this.cipher, new Uint8Array(await req.arrayBuffer()), "snapshot");
         const current = st.meta("snapshotSeq");
         // A snapshot holds the document as of `seq`: it can only move forward, and not past what the room accepted.
         if (!Number.isInteger(seq) || seq < Math.max(current, 0) || seq > st.lastSeq()) {
@@ -483,13 +484,13 @@ export class RoomBox {
       case "GET /room/base": {
         const seq = st.meta("baseSeq");
         if (seq < 0) return new Response("no base yet", { status: 404 });
-        return this.bytesResponse(this.read(`SELECT bytes FROM base_chunks WHERE slot = 'base' ORDER BY idx`), { "x-seq": String(seq) });
+        return this.bytesResponse(this.read(`SELECT bytes FROM base_chunks WHERE slot = 'base' ORDER BY idx`), "base_chunks", { "x-seq": String(seq) });
       }
       case "PUT /room/base": {
         // The first base is the base; later ones are staged until the update that absorbs them (POST /room/apply).
         const seq = Number(url.searchParams.get("seq"));
         if (!Number.isInteger(seq) || seq < 0) throw new RoomError(400, "bad seq");
-        const parts = await sealChunks(this.cipher, new Uint8Array(await req.arrayBuffer()));
+        const parts = await sealChunks(this.cipher, new Uint8Array(await req.arrayBuffer()), "base_chunks");
         const first = st.meta("baseSeq") < 0;
         const slot = first ? "base" : "next";
         this.host.transaction(() => {
@@ -545,7 +546,7 @@ export class RoomBox {
     if (blob && m === "GET") {
       const rows = this.read(`SELECT bytes FROM blobs WHERE sha1 = ? ORDER BY idx`, blob[1]);
       if (!rows.length) return new Response("no such blob", { status: 404 });
-      return this.bytesResponse(rows, { "cache-control": "private, max-age=31536000, immutable" });
+      return this.bytesResponse(rows, "blobs", { "cache-control": "private, max-age=31536000, immutable" });
     }
     if (blob && m === "PUT") {
       const bytes = new Uint8Array(await req.arrayBuffer());
@@ -553,7 +554,7 @@ export class RoomBox {
       // Content-addressed: the bytes must be what the name says (nobody can swap an image under a hash).
       const sum = [...new Uint8Array(await crypto.subtle.digest("SHA-1", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
       if (sum !== blob[1]) return new Response("the bytes don't match their SHA-1", { status: 400 });
-      const parts = await sealChunks(this.cipher, bytes);
+      const parts = await sealChunks(this.cipher, bytes, "blobs");
       this.host.transaction(() => {
         this.sql.exec(`DELETE FROM blobs WHERE sha1 = ?`, blob[1]);
         parts.forEach((part, idx) => this.sql.exec(`INSERT INTO blobs (sha1, idx, bytes) VALUES (?, ?, ?)`, blob[1], idx, part));
@@ -576,7 +577,7 @@ export class RoomBox {
         return json({ version: toVersion(this.versionRow(row.id)!) });
       }
       if (part === "snapshot" && m === "GET") {
-        return this.bytesResponse(this.read(`SELECT bytes FROM history_snapshots WHERE seq = ? ORDER BY idx`, row.snapshot_seq), { "x-seq": String(row.seq), "x-snapshot-seq": String(row.snapshot_seq) });
+        return this.bytesResponse(this.read(`SELECT bytes FROM history_snapshots WHERE seq = ? ORDER BY idx`, row.snapshot_seq), "history_snapshots", { "x-seq": String(row.seq), "x-snapshot-seq": String(row.snapshot_seq) });
       }
       if (part === "frames" && m === "GET") {
         const c = this.cipher;
@@ -584,14 +585,14 @@ export class RoomBox {
           this.sql
             .exec<{ seq: number; session: number; batch: number; message: ArrayBuffer }>(`SELECT seq, session, batch, message FROM history_frames WHERE seq > ? AND seq <= ? ORDER BY seq`, row.snapshot_seq, row.seq)
             .toArray()
-            .map(async (r) => ({ seq: r.seq, sessionID: r.session, batch: r.batch, message: await c.open(new Uint8Array(r.message)) })),
+            .map(async (r) => ({ seq: r.seq, sessionID: r.session, batch: r.batch, message: await c.open(new Uint8Array(r.message), "history_frames") })),
         );
         return new Response(packFrames(frames), { headers: { "content-type": "application/octet-stream", "x-seq": String(row.seq) } });
       }
       if (part === "snapshot" && m === "PUT") {
         // The client's own snapshot of the version (its document at seq): the version needs no frames any more.
         const bytes = new Uint8Array(await req.arrayBuffer());
-        const parts = await sealChunks(this.cipher, bytes);
+        const parts = await sealChunks(this.cipher, bytes, "history_snapshots");
         this.host.transaction(() => {
           this.sql.exec(`DELETE FROM history_snapshots WHERE seq = ?`, row.seq);
           parts.forEach((part, idx) => this.sql.exec(`INSERT INTO history_snapshots (seq, idx, bytes) VALUES (?, ?, ?)`, row.seq, idx, part));
@@ -775,8 +776,8 @@ export class RoomBox {
   }
 
   /** Rows opened (sealed or plain) and joined */
-  private async bytesResponse(rows: { bytes: ArrayBuffer }[], headers: Record<string, string>): Promise<Response> {
-    return new Response(await openJoined(this.cipher, rows), { headers: { "content-type": "application/octet-stream", ...headers } });
+  private async bytesResponse(rows: { bytes: ArrayBuffer }[], table: SealedTable, headers: Record<string, string>): Promise<Response> {
+    return new Response(await openJoined(this.cipher, rows, table), { headers: { "content-type": "application/octet-stream", ...headers } });
   }
 }
 

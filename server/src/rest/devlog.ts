@@ -204,7 +204,7 @@ export async function developerLogsPage(deps: Pick<Deps, "db" | "now">, orgId: s
   const where: string[] = ["org_id = ?1", "at >= ?2"];
   const binds: unknown[] = [orgId];
   const range = q.date_range ?? "LAST_30D";
-  if (!(range in RANGES)) throw new BadQuery("date_range is LAST_24H, LAST_7D or LAST_30D");
+  if (typeof range !== "string" || !Object.hasOwn(RANGES, range)) throw new BadQuery("date_range is LAST_24H, LAST_7D or LAST_30D");
   binds.push(deps.now() - RANGES[range]);
   const bind = (v: unknown) => `?${binds.push(v)}`;
   const prefixes = (col: string, values: string[]) => {
@@ -219,11 +219,11 @@ export async function developerLogsPage(deps: Pick<Deps, "db" | "now">, orgId: s
   prefixes("user_email", list(q.user_email, "user_email"));
   prefixes("ip_address", list(q.ip_address, "ip_address"));
   if (q.token_type !== undefined) {
-    if (!(q.token_type in TYPES)) throw new BadQuery("token_type is PLAN_ACCESS_TOKEN, PERSONAL_ACCESS_TOKEN or OAUTH_TOKEN");
+    if (typeof q.token_type !== "string" || !Object.hasOwn(TYPES, q.token_type)) throw new BadQuery("token_type is PLAN_ACCESS_TOKEN, PERSONAL_ACCESS_TOKEN or OAUTH_TOKEN");
     where.push(`token_type = ${bind(TYPES[q.token_type])}`);
   }
   if (q.event_source !== undefined) {
-    if (!(q.event_source in SOURCES)) throw new BadQuery("event_source is REST_API or MCP_SERVER");
+    if (typeof q.event_source !== "string" || !Object.hasOwn(SOURCES, q.event_source)) throw new BadQuery("event_source is REST_API or MCP_SERVER");
     where.push(`event_source = ${bind(SOURCES[q.event_source])}`);
   }
   const limit = q.limit === undefined ? 25 : Number(q.limit);

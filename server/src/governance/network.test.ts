@@ -61,6 +61,19 @@ describe("enforced ranges", () => {
     expect((await w.call("DELETE", "/me/sessions/current", { token: bob.token, headers: ON })).status).toBe(204);
   });
 
+  it("a guest whose access expired no longer counts as the org's account (review fix)", async () => {
+    await range("203.0.113.0/24", "enforced");
+    const gus = await w.dev("gus@elsewhere.test");
+    await w.run(`INSERT INTO org_members (org_id, email, user_id, role, seat, created_at, expires_at) VALUES (?1, 'gus@elsewhere.test', ?2, 'guest', 'view', 1, ?3)`, w.orgId, gus.id, w.now.t - 1);
+    const r = await orgs(gus.token, ON);
+    expect(r.status).toBe(403);
+    expect(r.body.code).toBe("network_restricted");
+    // not yet expired: the org's
+    const tim = await w.dev("tim@elsewhere.test");
+    await w.run(`INSERT INTO org_members (org_id, email, user_id, role, seat, created_at, expires_at) VALUES (?1, 'tim@elsewhere.test', ?2, 'guest', 'view', 1, ?3)`, w.orgId, tim.id, w.now.t + 86_400_000);
+    expect((await orgs(tim.token, ON)).status).toBe(200);
+  });
+
   it("answers the sign-in with error=network_restricted", async () => {
     await range("203.0.113.0/24", "enforced");
     const { res } = await w.login("&method=google");

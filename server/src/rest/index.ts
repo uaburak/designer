@@ -41,7 +41,8 @@ export async function restRoute(req: Request, deps: Deps, session: (req: Request
     res = await dispatch(req, url, deps, version, parts, session);
   } catch (e) {
     if (e instanceof RestError) res = errorResponse(e, parts);
-    else if (e instanceof HttpError) res = errorResponse(new RestError(e.status, e.message), parts);
+    // Ours (§2.5): a Governance+ gate keeps its `code` and `gate` in Figma's error shape
+    else if (e instanceof HttpError) res = errorResponse(new RestError(e.status, e.message, e.detail ? { code: e.code, ...e.detail } : {}), parts);
     else {
       console.error(e);
       res = errorResponse(new RestError(500, "Internal error"), parts);
@@ -96,12 +97,16 @@ async function dispatch(req: Request, url: URL, deps: Deps, version: string, par
   const orgId = caller.kind === "plan" ? caller.orgId : await targetOrg(deps, parts, spec.fileKey);
   const headers = await charge(deps, caller, spec.tier, await rateType(deps, caller, orgId), orgId !== null || caller.kind === "plan");
 
-  const ctx: RestCtx = { req, url, deps, caller, parts, version, m: req.method, acc: new Access(deps, caller.user), headers };
+  const ctx: RestCtx = { req, url, deps, caller, parts, version, m: req.method, acc: new Access(deps, caller.user, req), headers };
   // Developer logs (docs/governance.md §2.12): a call that reached a Governance+ org's resource, logged after the
   // answer — failed calls too. Not a G+ org: one cached list, no query.
   const line = await (await import("./devlog")).developerLogLine(deps, req, version, parts, caller, orgId, spec.fileKey);
   let res: Response;
   try {
+    // Governance+ gates (docs/governance.md §2.5), as on the private API: the target org's (team's, folder's, library's)
+    // for its people; a file's in `fileFor` once it opens (link visitors from outside the org have no membership: no
+    // gate). A plan token acts as the org: no gate. No query without the add-on. Logged like any failed call.
+    if (orgId && caller.kind !== "plan" && !spec.fileKey) await ctx.acc.checkGate(orgId);
     res = await route(ctx, spec.group);
   } finally {
     if (line) await (await import("./devlog")).writeDeveloperLog(deps, line);

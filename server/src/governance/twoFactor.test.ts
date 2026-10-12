@@ -125,6 +125,31 @@ describe("/me/two-factor", () => {
     expect((await w.call("DELETE", "/me/two-factor", { token: t, body: { code: await codeAt(secret) } })).status).toBe(204);
   });
 
+  it("parallel guesses can't pass the limit: each takes its slot before the code is checked (review fix)", async () => {
+    const t = w.admin.token;
+    const { secret } = await enable(t);
+    nextStep();
+    const right = await codeAt(secret);
+    const wrong = right === "123456" ? "654321" : "123456";
+    // 19 wrong guesses and the right code, all at once: the right one comes after the limit
+    const statuses = await Promise.all(Array.from({ length: 20 }, (_, i) => w.call("DELETE", "/me/two-factor", { token: t, body: { code: i === 19 ? right : wrong } }).then((r) => r.status)));
+    expect(statuses.filter((s) => s === 400)).toHaveLength(4);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(16);
+    expect((await w.call("GET", "/me/two-factor", { token: t })).body.enabled).toBe(true);
+    expect((await w.rows<{ failed_count: number }>(`SELECT failed_count FROM user_two_factor WHERE user_id = ?1`, w.admin.id))[0].failed_count).toBe(5);
+    // a success resets the count
+    w.now.t += 10 * 60_000;
+    expect((await w.call("POST", "/me/two-factor/recovery-codes", { token: t, body: { code: wrong } })).status).toBe(400);
+    nextStep();
+    const batch = vi.spyOn(w.d1, "batch" as never);
+    const again = await w.call("POST", "/me/two-factor/recovery-codes", { token: t, body: { code: await codeAt(secret) } });
+    expect(again.status).toBe(200);
+    // the new recovery codes replace the old ones in one batch (atomic)
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect(await w.rows(`SELECT 1 FROM user_recovery_codes WHERE user_id = ?1`, w.admin.id)).toHaveLength(10);
+    expect((await w.rows<{ failed_count: number; failed_since: number | null }>(`SELECT failed_count, failed_since FROM user_two_factor WHERE user_id = ?1`, w.admin.id))[0]).toEqual({ failed_count: 0, failed_since: null });
+  });
+
   it("is the session's: a personal access token can't reach it", async () => {
     const pat = await w.call("POST", "/me/tokens", { token: w.admin.token, body: { description: "x", expiresInDays: 30, scopes: ["current_user:read"] } });
     expect(pat.status, pat.text).toBe(201);

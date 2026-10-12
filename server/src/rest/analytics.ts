@@ -40,7 +40,7 @@ async function access(ctx: RestCtx, key: string): Promise<{ orgId: string; seesA
   }
   const m = await ctx.acc.membership(lib.org_id);
   const f = await ctx.acc.fileRow(key);
-  const a = f ? await ctx.acc.file(f, { viaLink: true, passOk: false }) : null;
+  const a = f ? await ctx.acc.openFile(f, { viaLink: true, passOk: false }) : null;
   if (!m || !a?.ok) throw new RestError(404, "Library not found");
   if (m.role === "guest") throw new RestError(403, "Guests can't see library analytics");
   const { results } = await ctx.acc.d1

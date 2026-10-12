@@ -97,6 +97,11 @@ async function run(ctx: RestCtx, f: FileRow, job: RestJob) {
   return backendFor(ctx.deps, f.key, { wanted: await wantedFor(ctx.deps, f.key) }).run(job);
 }
 
+/** Image fills and renders are exports: the file's "Restrict exporting" applies (docs/governance.md §2.7) */
+function requireExport(a: FileAccess["a"]): void {
+  if (!a.canExport) throw new RestError(403, "Exporting is turned off for you in this file", { code: "export_restricted" });
+}
+
 export async function filesRoute(ctx: RestCtx): Promise<Response> {
   const { parts, url, deps } = ctx;
   if (parts[0] === "images") return images(ctx, parts[1]);
@@ -118,7 +123,8 @@ export async function filesRoute(ctx: RestCtx): Promise<Response> {
     return jsonFromPart(ctx.req, bytes, await prefixOf(ctx, fa, params.branch_data === true), ctx.headers ?? {});
   }
   if (sub === "images" && parts.length === 3) {
-    const { f } = await fileFor(ctx, key);
+    const { f, a } = await fileFor(ctx, key);
+    requireExport(a);
     const res = await deps.rooms.fetch(key, `/room/rest-images?fileKey=${key}`, { method: "GET" });
     const { sha1s } = res.ok ? ((await res.json()) as { sha1s: string[] }) : { sha1s: [] };
     const images: Record<string, string> = {};
@@ -180,6 +186,7 @@ export async function filesRoute(ctx: RestCtx): Promise<Response> {
 async function images(ctx: RestCtx, key: string): Promise<Response> {
   const { url, deps } = ctx;
   const fa = await fileFor(ctx, key);
+  requireExport(fa.a);
   const ids = list(url.searchParams.get("ids")).map(nodeId);
   if (!ids.length) throw new RestError(400, "ids is required");
   if (ids.length > 1000 || !ids.every((i) => NODE_ID.test(i))) throw new RestError(400, "Invalid ids");

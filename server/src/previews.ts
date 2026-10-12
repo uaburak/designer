@@ -134,10 +134,20 @@ async function route(req: Request, url: URL, deps: Deps, signedIn: () => Promise
     if (!isPreviewManifest(manifest) || manifest.previewId !== id) throw new PreviewHttpError(400, "bad manifest");
     const now = deps.now();
     if (previewExpired(manifest, now)) throw new PreviewHttpError(400, "the manifest has already expired");
+    const fileKey = typeof body.fileKey === "string" && /^[0-9A-Za-z]{22}$/.test(body.fileKey) ? body.fileKey : null;
+    // A preview of an org file: the org's Governance+ gates (docs/governance.md §2.5) for its people, before it goes live
+    const orgId = fileKey ? ((await db.prepare(`SELECT org_id FROM files WHERE key = ?1`).bind(fileKey).first<{ org_id: string | null }>())?.org_id ?? null) : null;
+    if (orgId) {
+      const { orgGate, gateError } = await import("./governance/gate");
+      const gate = await orgGate(deps, user, orgId, req);
+      if (gate) {
+        const e = gateError(gate, (await db.prepare(`SELECT name FROM orgs WHERE id = ?1`).bind(orgId).first<{ name: string }>())?.name ?? "");
+        return json({ error: e.message, code: e.code, ...e.detail }, 403);
+      }
+    }
     await claim(db, id, user.id, now);
     const res = await box(env, id, "/box/manifest", { method: "PUT", body: JSON.stringify(manifest) });
     if (!res.ok) return res;
-    const fileKey = typeof body.fileKey === "string" && /^[0-9A-Za-z]{22}$/.test(body.fileKey) ? body.fileKey : null;
     await db
       .prepare(`UPDATE previews SET file_key = ?, file_name = ?, updated_at = ?, published_at = COALESCE(published_at, ?), expires_at = ? WHERE id = ?`)
       .bind(fileKey, manifest.fileName.slice(0, 200) || "Untitled", now, now, manifest.expiresAt, id)
