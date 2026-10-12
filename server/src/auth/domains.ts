@@ -7,6 +7,8 @@
  *   POST   /orgs/:org/admin/domains/:domain/verify      → {domain}                  409 domain_unverified {found} · domain_taken · 503
  *   DELETE /orgs/:org/admin/domains/:domain             → 204                       409 for the caller's own domain
  *   GET    /orgs/:org/admin/domains/:domain/accounts    → {people: PersonRef[]}     accounts on it that aren't members
+ *   PUT    /orgs/:org/admin/domains/:domain/idp {tenantId | null} → {domain, tenantId}   round 14, Governance+ only:
+ *          the IdP serving the domain (docs/governance.md §2.9); 409 mapping to an untested IdP while SAML is required
  */
 import { DOMAIN_TXT_PREFIX, emailDomain, normalizeDomain, type OrgDomain } from "../../../src/shared/org/identity";
 import type { OrgSettings, PersonRef } from "../../../src/shared/org/types";
@@ -17,10 +19,18 @@ import { personRef, settingsOf } from "../org/db";
 import { HttpError, type Ctx } from "../org/http";
 import { orgUserIds } from "../org/orgs";
 import { orgFileKeys, reauth } from "../org/reauth";
+import { idpByTenant } from "./saml/config";
+
+/** 403 `governance_plus_required` unless the org has the Governance+ add-on (docs/governance.md §2.1) */
+export async function requireGovernancePlus(d1: D1Like, orgId: string): Promise<void> {
+  const r = await d1.prepare(`SELECT governance_plus FROM orgs WHERE id = ?1`).bind(orgId).first<{ governance_plus: number }>();
+  if (!r?.governance_plus) throw new HttpError(403, "This needs Governance+", "governance_plus_required");
+}
 
 interface DomainRow {
   org_id: string;
   domain: string;
+  idp_tenant_id: string | null;
   token: string;
   created_by: string | null;
   created_at: number;
@@ -61,7 +71,7 @@ export async function domainsRoute(ctx: Ctx, orgId: string, rest: string[]): Pro
   const { m, deps, user, acc } = ctx;
   const d1 = deps.db.d1;
   const org = (await acc.org(orgId))!;
-  const log = (action: "org_domain_add" | "org_domain_verify" | "org_domain_remove" | "org_domain_capture_change", details: Record<string, unknown>) => logActivity(deps, { orgId, action, actor: user, entity: orgEntity(org), details, req: ctx.req });
+  const log = (action: "org_domain_add" | "org_domain_verify" | "org_domain_remove" | "org_domain_capture_change" | "org_domain_idp_mapping_change", details: Record<string, unknown>) => logActivity(deps, { orgId, action, actor: user, entity: orgEntity(org), details, req: ctx.req });
   const row = async (domain: string) => {
     const r = await d1.prepare(`SELECT * FROM org_domains WHERE org_id = ?1 AND domain = ?2`).bind(orgId, domain).first<DomainRow>();
     if (!r) throw new HttpError(404, "no such domain");
@@ -111,6 +121,24 @@ export async function domainsRoute(ctx: Ctx, orgId: string, rest: string[]): Pro
       .all<{ id: string; email: string; name: string | null; picture: string | null; role: "guest" | null }>();
     const people: PersonRef[] = results.map((r) => personRef({ ...r, role: r.role ?? "guest" }));
     return Response.json({ people });
+  }
+  if (rest.length === 2 && rest[1] === "idp" && m === "PUT") {
+    await requireGovernancePlus(d1, orgId);
+    const r = await row(domain);
+    const input = (await ctx.req.json().catch(() => null)) as { tenantId?: unknown } | null;
+    const to = input?.tenantId;
+    if (!input || (to !== null && typeof to !== "string")) throw new HttpError(400, "tenantId is an identity provider's tenant id or null", "invalid", { field: "tenantId" });
+    if (to !== null) {
+      const idp = await idpByTenant(d1, to);
+      if (!idp || idp.org_id !== orgId) throw new HttpError(404, "no such identity provider");
+      if (settingsOf(org).authMethod === "saml" && idp.tested_at === null) throw new HttpError(409, "Test SAML SSO first", "invalid", { field: "tenantId" });
+    }
+    if (r.idp_tenant_id !== to) {
+      await d1.prepare(`UPDATE org_domains SET idp_tenant_id = ?3 WHERE org_id = ?1 AND domain = ?2`).bind(orgId, domain, to).run();
+      await log("org_domain_idp_mapping_change", { domain, from: r.idp_tenant_id, to });
+      await orgNotice(deps, await orgUserIds(d1, orgId), { what: "org", orgId });
+    }
+    return Response.json({ domain: toDomain(await row(domain)), tenantId: to });
   }
   if (rest.length === 1 && m === "DELETE") {
     const r = await row(domain);

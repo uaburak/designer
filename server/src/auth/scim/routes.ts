@@ -11,7 +11,7 @@
 import { SCIM_ENTERPRISE_SCHEMA, SCIM_FIGMA_SCHEMA, SCIM_GROUP_SCHEMA, SCIM_USER_SCHEMA } from "../../../../src/shared/org/identity";
 import type { Deps } from "../../api";
 import { sha256b64url } from "../../tokens";
-import { idpByTenant } from "../saml/config";
+import { idpByOrg, idpByTenant } from "../saml/config";
 import { SCIM_TOKEN_PREFIX } from "../identityRoutes";
 import { ScimError, scimError, scimJson, type ScimCtx } from "./common";
 import { groupsRoute } from "./groups";
@@ -42,9 +42,11 @@ async function route(req: Request, url: URL, deps: Deps, parts: string[]): Promi
     throw new ScimError(401, "a SCIM token is required");
   }
   const tok = raw.startsWith(SCIM_TOKEN_PREFIX)
-    ? await deps.db.d1.prepare(`SELECT id, org_id, created_by, last_used_at FROM scim_tokens WHERE token_hash = ?1 AND revoked_at IS NULL`).bind(await sha256b64url(raw)).first<{ id: string; org_id: string; created_by: string | null; last_used_at: number | null }>()
+    ? await deps.db.d1.prepare(`SELECT id, org_id, tenant_id, created_by, last_used_at FROM scim_tokens WHERE token_hash = ?1 AND revoked_at IS NULL`).bind(await sha256b64url(raw)).first<{ id: string; org_id: string; tenant_id: string | null; created_by: string | null; last_used_at: number | null }>()
     : null;
-  if (!tok || !idp || tok.org_id !== idp.org_id) throw new ScimError(401, "the SCIM token isn't valid for this tenant");
+  // A token per IdP (docs/governance.md §2.9); one from before round 14 without a tenant serves the org's oldest IdP
+  const forTenant = tok && idp && tok.org_id === idp.org_id && (tok.tenant_id === idp.tenant_id || (tok.tenant_id === null && (await idpByOrg(deps.db.d1, idp.org_id))?.tenant_id === idp.tenant_id));
+  if (!tok || !idp || !forTenant) throw new ScimError(401, "the SCIM token isn't valid for this tenant");
   const now = deps.now();
   if (tok.last_used_at === null || tok.last_used_at < now - 60_000) await deps.db.d1.prepare(`UPDATE scim_tokens SET last_used_at = ?2 WHERE id = ?1`).bind(tok.id, now).run();
   const ctx: ScimCtx = { deps, req, orgId: idp.org_id, tenantId: idp.tenant_id, base: `${url.origin}/scim/v2/${idp.tenant_id}`, tokenCreator: tok.created_by };

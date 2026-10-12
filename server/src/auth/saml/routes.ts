@@ -12,7 +12,7 @@ import { HttpError } from "../../org/http";
 import { bouncePage, fromAppPage, messagePage, ssoFailedPage } from "../pages";
 import { accountForEmail, ensureMember, memberRow, setNameFromIdp } from "../people";
 import { backWithCode, backWithError, bounceTargets, startAuthn, verifyState, type AppState } from "../sso";
-import { d1Cache, idpByTenant, spConfigOf, type IdpRow } from "./config";
+import { d1Cache, idpByTenant, idpForDomain, spConfigOf, type IdpRow } from "./config";
 import { MAX_POST_BYTES, assertionEmail, assertionPerson, spMetadata, verifyResponse } from "./sp";
 
 export async function samlRoute(req: Request, url: URL, deps: Deps, parts: string[]): Promise<Response> {
@@ -92,6 +92,9 @@ async function consume(req: Request, url: URL, deps: Deps, idp: IdpRow): Promise
   const domain = emailDomain(email);
   const onDomain = domain ? await d1.prepare(`SELECT 1 AS x FROM org_domains WHERE org_id = ?1 AND domain = ?2 AND verified_at IS NOT NULL`).bind(idp.org_id, domain).first() : null;
   if (!onDomain) return fail(`${email} isn't on a verified domain of the org`, app, "sso_domain");
+  // Several IdPs (docs/governance.md §2.9): the domain must be this IdP's (mapped to it, or the org's only IdP)
+  const serving = await idpForDomain(d1, idp.org_id, domain);
+  if (serving?.tenant_id !== idp.tenant_id) return fail(`${domain} isn't mapped to this identity provider`, app, "sso_domain");
 
   // 7. the person: the account by email (else a new one), not deactivated by SCIM, JIT, the login method
   const org = await d1.prepare(`SELECT id, name, settings FROM orgs WHERE id = ?1`).bind(idp.org_id).first<{ id: string; name: string; settings: string }>();
@@ -116,8 +119,8 @@ async function consume(req: Request, url: URL, deps: Deps, idp: IdpRow): Promise
   });
   // 8. the code for the app's loopback (or web page; `user_sign_in` is logged when the app trades it); the configuration
   // is now tested
-  if (idp.tested_at === null) await d1.prepare(`UPDATE idp_configs SET tested_at = ?2 WHERE org_id = ?1 AND tested_at IS NULL`).bind(idp.org_id, now).run();
-  return backWithCode(deps, app, user.id, "saml", idp.org_id);
+  if (idp.tested_at === null) await d1.prepare(`UPDATE idp_configs SET tested_at = ?2 WHERE tenant_id = ?1 AND tested_at IS NULL`).bind(idp.tenant_id, now).run();
+  return backWithCode(deps, app, user, "saml", idp.org_id, req);
 }
 
 /** False when this assertion ID was already accepted (a replay); expired rows are swept on the way */

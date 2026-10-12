@@ -395,3 +395,42 @@ Checked 2026-10-12 on local D1 (`wrangler d1 migrations apply --local` over 0001
 3. **Discovery:** off by default, an admin switch (§2.11). When off, nothing is recorded and the room's hourly job doesn't run — no cost.
 4. **Network restrictions and policies:** self-serve by org admins (§2.2), as the data region.
 5. **IP allowlist:** IPv4 and IPv6 (§2.3).
+
+## 9. As built — 14a (server identity, 2026-10-12)
+
+**Two-factor authentication** (`server/src/governance/twoFactor.ts`, routes as §4):
+- The secret is 20 random bytes, sealed AES-256-GCM (iv 12 | ciphertext, base64url) under a key HKDF-derived from `SESSION_SECRET` (salt `designer/two-factor`), with the user id as additional data, so a row can't be moved to another account. Recovery codes are stored as `SHA-256(userId:code)`; input is case- and space-insensitive, the dash optional.
+- `POST setup` overwrites a pending (never an enabled) row; `enable` refuses an expired setup with 409. `recovery-codes` and `DELETE` take a TOTP code or an unused recovery code; `enable` takes TOTP only.
+- Replay: `last_step` moves with `UPDATE … WHERE last_step < step`, so a step (or an older one inside the ±1 window) is accepted once, even across two concurrent posts.
+- Rate limit, ours in detail: one counter per account for every check (sign-in page and the `/me` routes). The 5th failure in the window already answers 429 (`rate_limited`), and so does every check until 10 minutes after the first failure, the right code included.
+- Sign-in: `backWithCode` (auth/sso.ts), shared by Google's callback and the SAML ACS, now takes the user and the request. It checks the network restriction first (→ `error=network_restricted`), then, with 2FA on, stores the code with `mfa_pending = 1` for 10 minutes and redirects to `/auth/2fa?mt=`. `mt` is a signed token naming the pending code's hash and the app's state (no raw code in a URL). A right code takes the pending row atomically and hands the loopback a **fresh** 2-minute code. A used or expired challenge goes back with `error=two_factor_failed`; a forged `mt` gets "This sign-in link has expired". `/auth/token` (`Db.takeAuthCode`) never takes a pending code. `POST /auth/dev` has no second step.
+- Page text: "Two-factor authentication", "Enter the 6-digit code from your authenticator app", button **Verify**, "Lost your device? Enter one of your recovery codes instead." (ours). Wrong code: "That code didn't work. Try again." (400 `two_factor_invalid` on the JSON routes).
+- `user_two_factor_enable` / `_disable` are written with `logForUserOrgs` (every org the person is in, guests included).
+
+**Network access restrictions, sign-in side** (`server/src/governance/network.ts`):
+- `networkCheck(deps, user, req)`: the live ranges (kind 'network', state testing/enforced, orgs with `governance_plus = 1`) are one query on `org_ip_ranges_kind`. They are cached per isolate per D1 binding for `RANGES_TTL_MS` = 60 s, so an address outside every range costs no D1 read. A request from inside a range asks once, cached 60 s, whether the account is the org's (a member or guest of any role, or its email on a verified domain).
+- Enforced → blocked. Testing → `INSERT … ON CONFLICT DO NOTHING` into `network_shadow_hits` (day = floor(ms / 86 400 000)), deduplicated in memory, written through `waitUntil`.
+- **For 14b:** the range admin routes should call `forgetNetworkRanges(d1)` after a change, so this isolate sees it at once (other isolates within 60 s). Co-owning orgs aren't modelled.
+- `authenticate` (session and PAT, also `/v1`, socket upgrades and previews) answers 403 `network_restricted` except `GET /me`, `/me/sessions/current` (any method), `DELETE /me/sessions` and `POST /auth/signout-everywhere` (`networkExempt`). The address is `CF-Connecting-IP`; without it there is no check.
+
+**Multiple IdPs:**
+- `idpByOrg` is now the oldest IdP (`ORDER BY created_at, tenant_id`); `idpsByOrg` lists them all.
+- `idpForDomain(d1, org, domain)`: the mapped IdP. An unmapped verified domain uses the org's IdP when it has exactly one, and gets none otherwise. `POST /auth/sso` routes with it.
+- The ACS also refuses (`sso_domain`) an email whose domain this IdP doesn't serve. `tested_at` is set per tenant.
+- With `authMethod: "saml"`, Google's callback sends a member to the IdP serving their email's domain. With one IdP, off-domain members still go to it (round 4). With several, members on unmapped domains continue with Google.
+- `validateIdentitySettings` for `saml`: with one IdP, it must be tested. With several, every IdP with a mapped domain must be tested, and at least one domain must be mapped.
+- Routes as §4. They are G+ only (403 `governance_plus_required`); round 4's `identity/saml…` and `identity/scim-token` stay ungated on the oldest IdP. `PUT identity/saml` also accepts `name`.
+- `POST idps` → 201; a second configuration of the same IdP entity → 409. `PUT idps/:t` with `{name}` alone renames.
+- Changing or deleting an IdP that is in use (the only one, or one with mapped domains) while SAML is required → 409. Deleting is also refused when it would leave a sole untested IdP while SAML is required.
+- Delete revokes the IdP's SCIM tokens (all of the org's when it was the last one), unmaps its domains (each logged `org_domain_idp_mapping_change {domain, from, to: null}`), and clears `saml_requests` only when it was the last IdP.
+- `PUT domains/:domain/idp {tenantId | null}` → `{domain, tenantId}`. It returns 404 for another org's tenant, and 409 "Test SAML SSO first" when mapping to an untested IdP while SAML is required. A change is logged `{domain, from, to}`.
+- `GET identity/idps` → `{idps}`: each `IdpConfig` with `name`, `domains` and **`scim: {baseUrl, token}`** (ours, not in the shared type — the per-IdP SCIM row of Admin). `IdentityOverview.idps` carries the same and is present only when the org has an IdP (round 4's shape stays exact without one). `idp` is the oldest IdP, with `name` and `domains`.
+- SCIM: one live token per IdP (`scim_tokens.tenant_id`). A token authenticates only at its own tenant's `/scim/v2/:tenantId`; a token without a tenant serves the oldest IdP. Round 4's token routes are the oldest IdP's.
+- SSO routing by mapping doesn't look at `governance_plus`: with the add-on removed, stored mappings keep routing (they restrict nothing). Only the admin routes are gated.
+
+**Idle timeout:** `validateIdentitySettings` uses the shared `validIdleHours(h, orgs.governance_plus)`. **Open, for 14b:** `server/src/org/admin.ts` `patchSettings` still pre-checks `idleSessionTimeoutHours` as whole hours 12–336 (`pick(...)`) before the hook runs, so `PATCH admin/settings` refuses quarter hours until that line defers to the hook (or to `validIdleHours`). `idleLimitSql` already multiplies fractional hours correctly.
+
+**Tests** (node:sqlite):
+- `server/src/governance/twoFactor.test.ts` (8): RFC 6238 vectors through the shared helper and the sealed secret, setup/enable/regenerate/disable with activity in two orgs, step replay, the 429 lockout, PAT refused, the Google challenge (pending code refused by `/auth/token`, single use), recovery codes at sign-in, the SAML challenge.
+- `server/src/governance/network.test.ts` (4): enforce (IPv4 and IPv6, exempt routes, members, guests and domain accounts pass, PAT refused, sign-out), `error=network_restricted` at sign-in, no G+ or disabled → open, the cache TTL, shadow hits once per day.
+- `server/src/auth/idps.test.ts` (6): the G+ gate, add/list/rename/duplicate, mapping and its log, SSO and ACS routing, unmapped domains with one IdP and with several, SAML required only on mapped domains, removal, SCIM per IdP, quarter-hour idle validation.

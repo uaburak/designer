@@ -65,3 +65,18 @@ export function fromAppPage(appUrl: string, webUrl: string | null): Response {
 export const ssoFailedPage = (text = "Single sign-on didn't work. Try again from DesignerV2.") => html(403, "Single sign-on didn't work", `<h1>Single sign-on didn't work</h1><p>${esc(text)}</p>`);
 
 export const messagePage = (status: number, title: string, text: string) => html(status, title, `<h1>${esc(title)}</h1><p>${esc(text)}</p>`);
+
+/**
+ * `GET|POST /auth/2fa` (docs/governance.md §2.4): the second step of a sign-in once two-factor authentication is on.
+ * `mt` is the signed challenge; a recovery code is accepted in the same field.
+ */
+export function twoFactorPage(mt: string, error?: string, status = 200): Response {
+  return html(
+    status,
+    "Two-factor authentication",
+    `<h1>Two-factor authentication</h1>${error ? `<p class="err">${esc(error)}</p>` : ""}
+<form method="post" action="/auth/2fa"><input type="hidden" name="mt" value="${esc(mt)}"><label for="code">Enter the 6-digit code from your authenticator app</label>
+<input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="20" required autofocus><button class="btn primary" type="submit">Verify</button></form>
+<p class="muted">Lost your device? Enter one of your recovery codes instead.</p>`,
+  );
+}

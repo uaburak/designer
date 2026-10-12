@@ -15,6 +15,8 @@ const MAX_METADATA = 256 * 1024;
 export interface IdpRow {
   org_id: string;
   tenant_id: string;
+  /** Round 14: the Identity providers table's name */
+  name: string;
   provider: IdpProvider;
   idp_entity_id: string;
   sso_url: string;
@@ -27,8 +29,28 @@ export interface IdpRow {
   updated_at: number;
 }
 
-export const idpByOrg = (d1: D1Like, orgId: string) => d1.prepare(`SELECT * FROM idp_configs WHERE org_id = ?1`).bind(orgId).first<IdpRow>();
+/** The org's oldest IdP — the one round 4's single-IdP routes work on (docs/governance.md §2.9) */
+export const idpByOrg = (d1: D1Like, orgId: string) => d1.prepare(`SELECT * FROM idp_configs WHERE org_id = ?1 ORDER BY created_at, tenant_id LIMIT 1`).bind(orgId).first<IdpRow>();
+/** Every IdP of the org, oldest first */
+export const idpsByOrg = async (d1: D1Like, orgId: string) => (await d1.prepare(`SELECT * FROM idp_configs WHERE org_id = ?1 ORDER BY created_at, tenant_id`).bind(orgId).all<IdpRow>()).results;
 export const idpByTenant = (d1: D1Like, tenantId: string) => (/^\d{18}$/.test(tenantId) ? d1.prepare(`SELECT * FROM idp_configs WHERE tenant_id = ?1`).bind(tenantId).first<IdpRow>() : Promise.resolve(null));
+
+/**
+ * The IdP that serves an email domain in an org (docs/governance.md §2.9): the IdP the domain is mapped to; an unmapped
+ * domain uses the org's IdP when it has exactly one (round 4's behaviour), none otherwise ("unmapped domains can't use
+ * SSO"). A domain that isn't a verified domain of the org gets null — or, with `offDomain`, the sole IdP (round 4's
+ * Google-then-SAML path, whose ACS then refuses the email).
+ */
+export async function idpForDomain(d1: D1Like, orgId: string, domain: string | null, o: { offDomain?: boolean } = {}): Promise<IdpRow | null> {
+  const d = domain ? await d1.prepare(`SELECT idp_tenant_id FROM org_domains WHERE org_id = ?1 AND domain = ?2 AND verified_at IS NOT NULL`).bind(orgId, domain).first<{ idp_tenant_id: string | null }>() : null;
+  if (d?.idp_tenant_id) {
+    const mapped = await idpByTenant(d1, d.idp_tenant_id);
+    if (mapped && mapped.org_id === orgId) return mapped;
+  }
+  if (!d && !o.offDomain) return null;
+  const { results } = await d1.prepare(`SELECT * FROM idp_configs WHERE org_id = ?1 LIMIT 2`).bind(orgId).all<IdpRow>();
+  return results.length === 1 ? results[0] : null;
+}
 
 export const spConfigOf = (r: IdpRow): SpConfig => ({ tenantId: r.tenant_id, idpEntityId: r.idp_entity_id, ssoUrl: r.sso_url, certificates: JSON.parse(r.certificates) as string[], signing: r.signing });
 
@@ -40,10 +62,12 @@ export function newTenantId(): string {
   return s;
 }
 
-export function toIdpConfig(r: IdpRow, origin: string): IdpConfig {
+export function toIdpConfig(r: IdpRow, origin: string, domains?: string[]): IdpConfig {
   const u = spUrls(origin, r.tenant_id);
   return {
     tenantId: r.tenant_id,
+    name: r.name ?? "",
+    ...(domains ? { domains } : {}),
     provider: r.provider,
     idpEntityId: r.idp_entity_id,
     ssoUrl: r.sso_url,
