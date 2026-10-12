@@ -1,7 +1,7 @@
 {
   "name": "designer-v2",
   "productName": "Wecra",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "private": true,
   "description": "A 1:1 Figma desktop clone for personal use",
   "author": "Burak Koç",
