@@ -1,4 +1,5 @@
 import { app, clipboard, dialog, nativeImage, safeStorage, shell, webContents, type WebContents } from "electron";
+import { reportAiPrompt } from "../account/governanceReports";
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
@@ -463,6 +464,8 @@ export function startTurn(sender: WebContents, fileKey: string, req: TurnRequest
   const known = new Set(connectorHub().list().filter((c) => c.enabled).map((c) => c.id));
   const t: Turn = { id: turnId, chatId: String(req.chatId).slice(0, 80), fileKey, sender, stopped: false, imageDirs: [], connectors: (req.connectors ?? []).filter((id) => known.has(id)) };
   turns.set(turnId, t);
+  // Client-reported to Discovery for an org file (docs/governance.md §2.11): once per turn, fire-and-forget.
+  reportAiPrompt(fileKey, String(req.prompt ?? ""), "agents_chat");
   const s = readStored();
   const providerId = String(req.providerId);
   const spec = cliSpec(providerId);
