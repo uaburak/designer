@@ -55,6 +55,7 @@ import { presenceOf } from "./multiplayer/presence";
 import { pluginsOf } from "./plugins/service";
 import { pluginDesktop } from "./plugins/desktop";
 import { openActions } from "./panels/actionsTab";
+import { applyTransforms, canApplyTransforms, canCreateBrush, canFlipTextPath, createBrush, flipTextPath } from "./draw/drawTools";
 
 /**
  * The keyboard layout picked in the Keyboard shortcuts panel (shortcuts/layouts.ts): a pressed key's place → the U.S.
@@ -358,7 +359,11 @@ export const COMMANDS: EditorCommand[] = [
   placeImage("tool.image", "Image/video…", [k("KeyK", { mod: true, shift: true })]),
   tool("tool.pen", "Pen", "PEN", [k("KeyP")]),
   tool("tool.pencil", "Pencil", "PENCIL", [k("KeyP", { shift: true })]),
+  // Round 7c (docs/draw.md §5.7): Figma Draw's Brush — Draw's alone; its key B is ours [unverified].
+  { ...tool("tool.brush", "Brush", "BRUSH", [k("KeyB")]), enabled: (ed) => ed.tools.has("BRUSH") && modeOf(ed) === "draw" },
   tool("tool.text", "Text", "TEXT", [k("KeyT")]),
+  // Type tools › Text on path (live toolbar; no key): click a shape's edge, type along it (docs/draw.md §4.4).
+  tool("tool.text-on-path", "Text on path", "TEXT_PATH", []),
   // Comment: the engine takes no clicks; the comments layer puts down a new comment (editor/comments, docs/multiplayer.md §10).
   tool("tool.comment", "Comment", "COMMENT", [k("KeyC")]),
   // Dev Mode's tools, in Design too (live toolbar: "Annotation Y", "Measurement ⇧M"; help.figma.com also ⇧T).
@@ -487,12 +492,12 @@ export const COMMANDS: EditorCommand[] = [
   ui("view.memory-usage", "Memory usage", undefined, (ed) => ed.ui.set((s) => ({ memoryUsage: !s.memoryUsage })), (ed) => !!ed.ui.get().memoryUsage),
   // ⌥⌘\ (on by default): other people's cursors (none until multiplayer, roadmap Phase 6).
   ui("view.multiplayer-cursors", "Multiplayer cursors", [k("Backslash", { mod: true, alt: true })], (ed) => ed.ui.set((s) => ({ multiplayerCursors: s.multiplayerCursors === false })), (ed) => ed.ui.get().multiplayerCursors !== false),
-  // Round 10: Draw (live's View menu and the toolbar's mode switch; unverified beyond them): the Design editor with
-  // the Pencil to hand — Figma Draw's brushes and its own panels aren't built. Again: back to Design.
+  // Draw (live's View menu and the toolbar's mode switch; docs/draw.md §5.7): Draw's toolbar and panels; Draw starts on
+  // Move [unverified]. Again: back to Design (leaving with the Brush puts Move back: draw/drawTools.ts).
   ui("view.switch-to-draw", "Switch to Draw", undefined, (ed) => {
     if (modeOf(ed) === "draw") return setMode(ed, "design");
     setMode(ed, "draw");
-    if (ed.tools.has("PENCIL")) ed.setTool("PENCIL");
+    ed.setTool("MOVE");
   }, (ed) => modeOf(ed) === "draw"),
   engine("view.zoom-in", "Zoom in", "ZOOM_IN", [k("Equal", { mod: true }), k("Equal", { mod: true, shift: true }), k("Equal"), k("NumpadAdd")]),
   engine("view.zoom-out", "Zoom out", "ZOOM_OUT", [k("Minus", { mod: true }), k("Minus"), k("NumpadSubtract")]),
@@ -683,6 +688,15 @@ export const COMMANDS: EditorCommand[] = [
   // help.figma.com "Simplify a vector path" (a slider) / "Offset a vector path" (Amount, Join, ✓): their popover.
   engine("vector.simplify", "Simplify vector", "VECTOR_SIMPLIFY", undefined, { run: (ed) => ed.ui.set({ vectorOp: "simplify" }) }),
   engine("vector.offset", "Offset vector", "VECTOR_OFFSET", undefined, { run: (ed) => ed.ui.set({ vectorOp: "offset" }) }),
+
+  // ---- Draw (round 7c, docs/draw.md §5.7; the engine's CommandIds 310–321) ----
+  // Right-click › Create brush › Stretch brush / Scatter brush (help.figma.com 31440438150935): one vector-like layer.
+  { id: "object.create-brush.stretch", label: "Stretch brush", run: (ed) => void createBrush(ed, "STRETCH"), enabled: canCreateBrush },
+  { id: "object.create-brush.scatter", label: "Scatter brush", run: (ed) => void createBrush(ed, "SCATTER"), enabled: canCreateBrush },
+  // A transform group's repeats become real layers (help.figma.com 31440427042839).
+  { id: "object.apply-transforms", label: "Apply transforms to selection", run: (ed) => void applyTransforms(ed), enabled: canApplyTransforms },
+  // Text on a path: the text to the path's other side (Typography's Flip; wording [unverified]).
+  { id: "text.flip-path", label: "Flip", run: (ed) => void flipTextPath(ed), enabled: canFlipTextPath },
 
   // ---- Text (E3; the text round: links and lists) ----
   // While a text is edited the engine takes ⌘B ⌘I ⌘U ⇧⌘X ⇧⌘7 ⇧⌘8 itself (on the selected characters); these run

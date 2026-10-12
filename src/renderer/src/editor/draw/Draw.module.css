@@ -1,0 +1,47 @@
+@layer app {
+  /* Draw's secondary toolbar (docs/draw.md §5.2): where vector edit's sits, 8 over the bottom toolbar. */
+  .group { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); }
+  .swatchButton {
+    display: flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control);
+    padding: 0; border: 0; border-radius: var(--ds-radius-medium); background: transparent; outline: none; cursor: default;
+  }
+  .swatchButton:hover, .swatchButton[aria-expanded="true"] { background: var(--figma-color-bg-hover); }
+  .swatchButton:focus-visible, .brushButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .weight { flex: none; width: calc(var(--ds-size-field) - var(--ds-space-4)); }
+  .style { flex: none; }
+  /* The Brush styles button: the current brush's preview and name, a chevron (live "More ▾"'s look) */
+  .brushButton {
+    display: flex; flex: none; align-items: center; gap: var(--ds-space-1); height: var(--ds-size-control); padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
+    border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-text); outline: none; cursor: default;
+    font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); white-space: nowrap;
+  }
+  .brushButton:hover, .brushButton[aria-expanded="true"] { background: var(--figma-color-bg-hover); }
+  .brushButton > svg { flex: none; color: var(--figma-color-icon-secondary); }
+  .brushButton .preview { width: var(--ds-size-control-large); height: var(--ds-size-control); }
+
+  /* The Dynamic settings popover: label, field */
+  .settings { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-4) var(--ds-space-4); }
+  .settingLabel { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); }
+
+  /* The Brush styles menu: section headers, then 32 high rows (check, preview, name) [ours: 240 × 32] */
+  .brushList { display: flex; flex-direction: column; max-height: calc(var(--ds-size-row) * 12); padding-block: var(--ds-space-2); overflow-y: auto; outline: none; }
+  .brushHeader {
+    display: flex; align-items: center; height: var(--ds-size-control); padding: 0 var(--ds-space-4);
+    color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+  .brushRow {
+    display: flex; align-items: center; gap: var(--ds-space-2); height: var(--ds-size-row); margin: 0 var(--ds-space-2); padding: 0 var(--ds-space-2);
+    border-radius: var(--ds-radius-medium); color: var(--figma-color-text); outline: none; cursor: default;
+    font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); white-space: nowrap;
+  }
+  .brushRow[data-highlighted] { background: var(--ds-color-menu-highlight); }
+  .brushRow:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .brushCheck { display: flex; flex: none; align-items: center; justify-content: center; width: var(--ds-space-4); color: var(--figma-color-icon); }
+  /* The engine's preview as a mask over the icon ink: one image for both themes */
+  .preview {
+    flex: none; width: calc(var(--ds-size-field) + var(--ds-space-2)); height: var(--ds-size-control);
+    background: var(--figma-color-icon); mask-repeat: no-repeat; mask-position: center; mask-size: contain;
+  }
+  .preview[data-brush-preview="none"] { background: transparent; }
+  .brushName { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+}

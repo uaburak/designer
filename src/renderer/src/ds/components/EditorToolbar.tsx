@@ -15,11 +15,12 @@ export type ToolId =
   | "move" | "hand" | "scale"
   | "frame" | "section" | "slice"
   | "rectangle" | "line" | "arrow" | "ellipse" | "polygon" | "star" | "image"
-  | "pen" | "pencil"
+  | "pen" | "pencil" | "brush"
   | "text" | "text-on-path"
   | "comment" | "annotation" | "measurement";
 
-export type ToolGroupId = "move" | "region" | "shape" | "creation" | "text" | "comment";
+/** Draw mode's quick-access slots ("pen", "pencil", "brush") hold one tool each (docs/draw.md §5.1). */
+export type ToolGroupId = "move" | "region" | "shape" | "creation" | "pen" | "pencil" | "brush" | "text" | "comment";
 export type EditorMode = "draw" | "design" | "motion" | "dev";
 
 export type ToolDef = {
@@ -47,6 +48,8 @@ export const TOOLS: Record<ToolId, ToolDef> = {
   image: { id: "image", label: "Image/video…", shortcut: keys(["shift", "mod", "k"]), icon: "24.image" },
   pen: { id: "pen", label: "Pen", shortcut: "P", icon: "24.pen" },
   pencil: { id: "pencil", label: "Pencil", shortcut: keys(["shift", "p"]), icon: "24.pencil" },
+  // Figma Draw's Brush (help.figma.com 31440438150935); its key B is ours [unverified] (docs/draw.md §5.1).
+  brush: { id: "brush", label: "Brush", shortcut: "B", icon: "24.brush" },
   text: { id: "text", label: "Text", shortcut: "T", icon: "24.text" },
   "text-on-path": { id: "text-on-path", label: "Text on path", icon: "24.text-on-path" },
   comment: { id: "comment", label: "Comment", shortcut: "C", icon: "24.comment" },
@@ -67,8 +70,30 @@ export const TOOL_GROUPS: ToolGroupDef[] = [
   { id: "comment", label: "Comment tools", tools: ["comment", "annotation", "measurement"], menuWidth: 186 },
 ];
 
-/** The group a tool belongs to. */
-export const groupOf = (tool: ToolId): ToolGroupId => TOOL_GROUPS.find((g) => g.tools.includes(tool))!.id;
+/**
+ * Draw mode's toolbar (docs/draw.md §5.1; help.figma.com 31440394517143: "quick-access tools" Pen, Brush, Pencil):
+ * Move tools ▾ │ Shape tools ▾ │ Pen │ Pencil │ Brush │ Type tools ▾ │ Comment tools ▾ — the three drawing tools are slots
+ * of their own, without a menu. Frame and Section aren't offered [unverified]; their keys still work.
+ */
+export const DRAW_TOOL_GROUPS: ToolGroupDef[] = [
+  TOOL_GROUPS[0],
+  TOOL_GROUPS[2],
+  { id: "pen", label: "Pen", tools: ["pen"], menuWidth: 0 },
+  { id: "pencil", label: "Pencil", tools: ["pencil"], menuWidth: 0 },
+  { id: "brush", label: "Brush", tools: ["brush"], menuWidth: 0 },
+  TOOL_GROUPS[4],
+  TOOL_GROUPS[5],
+];
+
+/** A mode's tool slots (Dev Mode and Motion keep Design's; the editor disables what they can't use). */
+export const toolGroups = (mode: EditorMode = "design"): ToolGroupDef[] => (mode === "draw" ? DRAW_TOOL_GROUPS : TOOL_GROUPS);
+
+/**
+ * The slot a tool belongs to in a mode. A tool the mode has no slot for (Frame in Draw, Brush in Design) answers its
+ * Design slot (Brush: Creation tools), which the Draw toolbar doesn't show — no slot lights there.
+ */
+export const groupOf = (tool: ToolId, mode: EditorMode = "design"): ToolGroupId =>
+  (toolGroups(mode).find((g) => g.tools.includes(tool)) ?? TOOL_GROUPS.find((g) => g.tools.includes(tool)))?.id ?? "creation";
 
 /** The tool a key chooses (single keys and ⇧ combinations, outside text fields), or null — for the editor's keymap. */
 export function toolForKey(e: { key: string; shiftKey: boolean; metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean }): ToolId | null {
@@ -76,7 +101,7 @@ export function toolForKey(e: { key: string; shiftKey: boolean; metaKey?: boolea
   const k = e.key.toLowerCase();
   if (e.metaKey || e.ctrlKey) return e.shiftKey && k === "k" ? "image" : null;
   if (e.shiftKey) return ({ s: "section", l: "arrow", p: "pencil", t: "annotation", m: "measurement" } as Record<string, ToolId>)[k] ?? null;
-  return ({ v: "move", h: "hand", k: "scale", f: "frame", s: "slice", r: "rectangle", l: "line", o: "ellipse", p: "pen", t: "text", c: "comment", y: "annotation" } as Record<string, ToolId>)[k] ?? null;
+  return ({ v: "move", h: "hand", k: "scale", f: "frame", s: "slice", r: "rectangle", l: "line", o: "ellipse", p: "pen", b: "brush", t: "text", c: "comment", y: "annotation" } as Record<string, ToolId>)[k] ?? null;
 }
 
 export type EditorModeDef = { id: EditorMode; label: string; icon: IconName; shortcut?: string };
@@ -114,7 +139,8 @@ export interface EditorToolbarProps {
 
 /**
  * Figma's bottom toolbar (presentational): Move ▾, Region ▾, Shape ▾,
- * Creation ▾, Text ▾, Comment ▾, Actions | Draw · Design · Motion · Dev Mode.
+ * Creation ▾, Text ▾, Comment ▾, Actions | Draw · Design · Motion · Dev Mode;
+ * in Draw: Move ▾, Shape ▾, Pen, Pencil, Brush, Text ▾, Comment ▾ (`DRAW_TOOL_GROUPS`).
  * A slot shows the last tool chosen in it; its chevron opens the group
  * (the current tool ticked) above the toolbar. ← → move within the mode
  * switch. The keys themselves are the editor's (see `toolForKey`).
@@ -122,11 +148,14 @@ export interface EditorToolbarProps {
 export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActive, mode, onMode, disabledModes = [], disabledTools = [], floating, offset, shortcuts }: EditorToolbarProps) {
   const shortcutOf = (id: ToolId | "actions", own: string | undefined) => (shortcuts && id in shortcuts ? (shortcuts[id] ?? undefined) : own);
   const modeRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const current = groupOf(tool);
+  const current = groupOf(tool, mode);
   return (
-    <Toolbar floating={floating} offset={offset} data-ds="EditorToolbar">
-      {TOOL_GROUPS.map((g) => {
+    <Toolbar floating={floating} offset={offset} data-ds="EditorToolbar" data-mode={mode}>
+      {toolGroups(mode).map((g) => {
         const shown = TOOLS[g.id === current ? tool : groupTools?.[g.id] ?? g.tools[0]];
+        // A quick-access slot (Draw's Pen, Pencil, Brush): the tool alone, no chevron
+        if (g.tools.length === 1)
+          return <ToolButton key={g.id} icon={shown.icon} label={shown.label} shortcut={shortcutOf(shown.id, shown.shortcut)} active={g.id === current} onSelect={() => onTool(shown.id)} disabled={disabledTools.includes(shown.id)} />;
         return (
           <ToolButton
             key={g.id}

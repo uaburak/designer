@@ -9,6 +9,16 @@ import { useCallback, useSyncExternalStore } from "react";
 import type { Camera, Guid } from "@/engine/codec";
 import type { ImportedImage } from "./images";
 import type { PreferenceKey } from "./preferences";
+import type { BrushType, BuiltinBrushName, DrawToolSettings, GuidString } from "@shared/draw/types";
+
+/**
+ * Draw's tool settings in the UI: what the engine gets (`settings`), and the brush the Brush styles button shows — a
+ * built-in may be chosen before it is installed into the file (its guid then null; docs/draw.md §6 "only when first used").
+ */
+export interface DrawToolsState {
+  settings: DrawToolSettings;
+  brush: { name: string; type: BrushType; builtin: BuiltinBrushName | null; guid: GuidString | null };
+}
 
 /** The navigation bar's tabs (Figma 2026: File, Agents, Assets, Tools; Variables opens the variables view instead) */
 export type RailTab = "file" | "agents" | "assets" | "tools";
@@ -151,6 +161,11 @@ export interface UIState extends PreferenceFlags {
   gridTrackEditor?: { x: number; y: number; width: number; height: number } | null;
   /** Dev Mode (⇧D, the toolbar's mode switch): the Inspect panel, read-only canvas, annotations as dots (devmode/) */
   mode?: "design" | "dev" | "draw";
+  /**
+   * Draw's Pencil and Brush settings (the secondary toolbar, docs/draw.md §5.2; editor/draw/drawTools.ts): sent to the
+   * engine with setDrawToolSettings; kept for the session. Unset: DRAW_TOOLS_DEFAULT.
+   */
+  drawTools?: DrawToolsState;
   /** View › Annotations (labels, dots and saved measurements); default on */
   annotations?: boolean;
   /** The note editor: the layer, which note (−1: a new one), where (viewport px) */

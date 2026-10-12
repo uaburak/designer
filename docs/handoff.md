@@ -604,3 +604,16 @@ Acceptance (verified with `scripts/drive.mjs` on the built demo app): launch →
   `docs/schema.md` §15.1: the Draw row decided; `multiEditGlueId 462` moved to Sites.
   - **Next**: the main session's pre-round commit (schema §4.1 + `engine:gen`, shared types, Engine.ts stubs, abi.ts, icons), then the agents.
   - **Open**: `docs/draw.md` §11. Above all, a Draw sample `.fig` and a signed-in capture to calibrate every [unverified] constant.
+- 2026-10-12 — **Round 7c: Draw's toolbar and tools chrome** (worktree branch; `docs/draw.md` §5.7 "As built (7c)"). Built against the Engine.ts stubs.
+  - **Toolbar**: Draw's tool set (Move ▾, Shape ▾, Pen, Pencil, Brush, Type ▾, Comment ▾). The quick-access slots have no menu. The Brush is B and Draw-only. Text on path is enabled and maps to the engine's `TEXT_PATH`.
+  - **Secondary toolbar** (`editor/draw/DrawToolSettings.tsx`) for the Pencil and the Brush: colour, weight, and the style (Basic / Dynamic with its popover, or the Brush styles menu).
+  - **Brush styles menu** (`editor/draw/BrushMenu.tsx`): Stretch / Scatter / Custom with engine previews, the current brush ticked.
+  - **Tool settings**: `ui.drawTools` (`editor/draw/drawTools.ts`) is sent with `setDrawToolSettings` on every change and on entering Draw. Built-ins are installed on first use. ⌘-click sampling is applied.
+  - **Commands and menus**: `tool.brush`, `tool.text-on-path`, Create brush ▸ (in Draw's canvas menu), Apply transforms to selection, Flip text orientation. Switch to Draw now starts on Move.
+  - **Checks**: `npm run check` green. No engine build.
+  - **Not checked**: by screenshot or in the running app (another session held the web preview port).
+  - **Open**:
+    - the weight's slider popover waits for 7d's DS `Slider`;
+    - built-in artwork arrives with 7e (picked up automatically through `import.meta.glob`);
+    - the real calls arrive with 7b;
+    - 7d's Stroke can reuse `BrushMenu` (`placement`, `type`) and `installedBrush`.

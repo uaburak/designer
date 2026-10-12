@@ -73,7 +73,7 @@ function LiveToolbar() {
         onMode={setMode}
         onTool={(t) => {
           setTool(t);
-          setGroups((g) => ({ ...g, [groupOf(t)]: t }));
+          setGroups((g) => ({ ...g, [groupOf(t, mode)]: t }));
         }}
       />
     </div>
@@ -103,12 +103,17 @@ export function PickerDemos() {
           <Cell id="AlignmentMatrix/horizontal/default/disabled"><AlignmentMatrix direction="horizontal" value={{ primary: "MIN", counter: "MIN" }} onChange={noop} disabled /></Cell>
         </Row>
       </Comp>
-      <Comp name="EditorToolbar" note="Figma's bottom toolbar (530 × 48): tool slots with their menus, Actions, the mode switch.">
+      <Comp name="EditorToolbar" note="Figma's bottom toolbar (530 × 48): tool slots with their menus, Actions, the mode switch. Switch to Draw in the live one: Pen, Pencil and Brush become slots of their own.">
         <Row>
           <Cell id="EditorToolbar/default/default/live" label="live"><LiveToolbar /></Cell>
           <Cell id="EditorToolbar/default/default/disabled" label="disabled: Pen, the comment tools, Motion, Dev Mode">
             <div className={styles.stage}>
               <EditorToolbar tool="move" onTool={noop} mode="design" onMode={noop} disabledTools={["pen", "comment", "annotation", "measurement"]} disabledModes={["motion", "dev"]} />
+            </div>
+          </Cell>
+          <Cell id="EditorToolbar/draw/default/default" label="Draw: Move ▾, Shape ▾, Pen, Pencil, Brush, Type ▾ (Text on path), Comment ▾">
+            <div className={styles.stage}>
+              <EditorToolbar tool="brush" onTool={noop} mode="draw" onMode={noop} disabledModes={["motion"]} />
             </div>
           </Cell>
         </Row>

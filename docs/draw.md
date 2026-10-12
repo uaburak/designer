@@ -498,6 +498,63 @@ They persist per session [ours].
 - `text.flip-path`: "Flip" in Typography (§5.8), and the canvas menu for a TEXT_PATH.
 - `view.switch-to-draw` stays. It no longer forces the Pencil: Draw starts on Move [unverified].
 
+### As built (7c, 2026-10-12)
+
+Built against the Engine.ts stubs. Every Draw call goes through `drawCall` (`editor/draw/drawTools.ts`), which reads the stubs' "not built" as "nothing yet", so the chrome works on its own state until 7b lands.
+
+- **Toolbar** (`ds/components/EditorToolbar.tsx`):
+  - `ToolId` gains `brush` (Brush, B, `24.brush`).
+  - `DRAW_TOOL_GROUPS` is §5.1's order. Pen, Pencil and Brush are single-tool slots with no chevron.
+  - `toolGroups(mode)` picks the slots; `groupOf(tool, mode)` falls back to the Design slot, so Frame in Draw lights no slot.
+  - `toolForKey` maps B to Brush.
+  - Text on path is enabled wherever the engine has `TEXT_PATH`: `BottomToolbar`'s `ENGINE_TOOL` maps `text-on-path` → `TEXT_PATH` and `brush` → `BRUSH`.
+  - The Brush is disabled outside Draw.
+- **Secondary toolbar** (`editor/draw/DrawToolSettings.tsx`, styles in `Draw.module.css`): it shows in Draw when the tool is PENCIL or BRUSH and vector edit is off. Otherwise the image toolbar shows, as before.
+  - Colour: a round swatch that opens the DS ColorPicker (SOLID, opacity included).
+  - Weight: a NumericInput, 0.5–100.
+  - Pencil style: a Basic / Dynamic SegmentedControl. With Dynamic, a `24.dynamic-stroke` button opens the "Dynamic stroke" popover with Frequency, Wiggle and Smoothen, clamped to `DYNAMIC_RANGE`.
+  - Brush style: the **Brush styles** button, showing the current brush's preview and name, opens `BrushMenu`.
+  - **Not built**: the weight's slider popover. It waits for 7d's DS `Slider` and is one line once it exists.
+- **State** (`ui.drawTools: DrawToolsState`, `editor/uiStore.ts`):
+  - It holds `settings` (the §9 `DrawToolSettings`) and the brush shown (`{name, type, builtin, guid}`). A built-in can be chosen before it is installed.
+  - `setPencil` / `setBrushTool` clamp the values and send the whole settings with `setDrawToolSettings` on every change.
+  - `attachDrawTools` (mounted by `BottomToolbar`):
+    - sends the settings on entering Draw;
+    - puts Move back when Draw is left with the Brush;
+    - installs the Brush's built-in when the Brush first becomes the tool (the default is HEIST);
+    - applies `DRAW_TOOL_SAMPLED` (⌘-click) and sends the result back.
+- **Brushes**:
+  - `brushSections` lists Figma's 15 Stretch and 10 Scatter built-ins, in Figma's order and named by `brushDisplayName`. Each carries its GUID once the file has a BRUSH node with that name and type.
+  - **Custom** holds `listBrushes()`'s other nodes.
+  - `chooseBrush` / `installedBrush` install a built-in through `installBrush` on first use.
+  - The built-ins' artwork comes from 7e's `src/shared/draw/brushes/index.ts` (`BUILTIN_BRUSHES`), picked up with an eager `import.meta.glob`. It is empty until 7e merges, so no wiring is needed. Until then a built-in can't be installed: it is chosen with `guid: null`. `setBuiltinBrushes` overrides the artwork in tests.
+- **Brush styles menu** (`editor/draw/BrushMenu.tsx`):
+  - a DS Popover (default `top`; 7d's Stroke can pass `left-of-panel` and `type`) holding a listbox;
+  - Stretch / Scatter / Custom groups, Custom only when there are custom brushes;
+  - 32 high rows: a tick, the preview (96 × 24) and the name;
+  - ↑ ↓ Home End to move, Enter to pick.
+  - Previews come from `brushPreview` (weight 6 [ours]), turned into a PNG and used as a CSS mask over `--figma-color-icon`. One image therefore serves both themes; it is cached per engine and brush.
+  - `BrushPreview` is exported for 7d.
+- **Commands** (`editor/commands.ts`):
+  - `tool.brush` "Brush" (B), enabled only in Draw;
+  - `tool.text-on-path` "Text on path", no key;
+  - `object.create-brush.stretch` "Stretch brush" / `.scatter` "Scatter brush": enabled for one vector-like layer when the engine enables CREATE_BRUSH; E_INVALID toasts "Only closed paths can be used as brushes";
+  - `object.apply-transforms` "Apply transforms to selection": a TRANSFORM selected;
+  - `text.flip-path` "Flip": a TEXT_PATH selected;
+  - `view.switch-to-draw`, which now selects Move.
+  - The Actions palette lists Brush and Text on path with the tools.
+- **Canvas menu** (`editor/menus.ts canvasMenu`):
+  - **Create brush ▸** (Stretch brush, Scatter brush) comes after Outline stroke, for one vector-like layer, in Draw mode only. That limit is [ours]: Design's live menus don't show it, and help.figma.com describes it in the Draw article.
+  - "Apply transforms to selection" shows for a transform group.
+  - "Flip text orientation" (`text.flip-path`) shows for a text path.
+  - `CanvasMenu.tsx` is unchanged.
+- **Gallery**: `EditorToolbar/draw/default/default`. The live toolbar's mode switch also shows Draw's tool set.
+- **Tests**:
+  - `ds/__tests__/r7.drawToolbar.dom.test.ts`: the toolbar per mode, the quick-access slots, Text on path, B.
+  - `editor/__tests__/r7.drawTools.dom.test.ts`, on a fake engine: settings sent and clamped, the stubs tolerated, mode entry and exit, the Brush installing its built-in, picks installed once, sampling, the menu's sections and tick, the secondary toolbar for each tool, the commands' enablement and engine calls, and the open-path toast.
+  - `editor/__tests__/r7.drawChrome.wasm.test.ts`, on the real engine: Create brush ▸ in Draw's canvas menu, Switch to Draw on Move, the Brush only in Draw, the Actions palette.
+  - `r10.commands.wasm.test.ts` now expects Move on Switch to Draw.
+
 ### 5.8 Typography for a TEXT_PATH (7d; `panels/design/Typography.tsx`)
 
 - The **same section as TEXT**, minus auto resize, line height, paragraph spacing, lists and truncation, plus a **Flip** button (icon `24.text-path-flip`, tooltip "Flip text orientation" [unverified wording, forum]) → FLIP_TEXT_PATH.

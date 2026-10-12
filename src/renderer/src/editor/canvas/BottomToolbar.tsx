@@ -5,11 +5,13 @@
  * `Overlays`, not the view between the panels): nothing about the panels or
  * the canvas moves it, so a panel drag neither moves nor re-renders it. A slot shows the last
  * tool chosen in it; tools the engine doesn't implement yet are disabled.
- * The mode switch stays on Design (the others come later). In vector edit
+ * The mode switch: Draw, Design, Dev Mode (Motion comes later). In vector edit
  * mode Figma's secondary toolbar opens 8 over it (live toolbar/vector-edit-toolbar.txt): Move, Lasso │ Paint, Bend,
  * Cut, Erase │ More ▾ (Vector editing tools: Shape builder, Variable width) │ Close.
+ * Draw mode (docs/draw.md §5.1, §5.2; round 7c): the toolbar's Draw tool set (Move ▾, Shape ▾, Pen, Pencil, Brush,
+ * Type ▾, Comment ▾), and with the Pencil or the Brush the secondary toolbar of their settings (draw/DrawToolSettings).
  */
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ContextMenu, EditorToolbar, groupOf, IconButton, showToast, Toolbar, ToolbarDivider, ToolTextButton, type IconName, type MenuEntry, type ToolGroupId, type ToolId } from "@/ds";
 import type { ToolName } from "@/engine/abi";
 import { useTool } from "@/engine/hooks";
@@ -22,6 +24,8 @@ import { useStoreSlice } from "../uiStore";
 import { setMode } from "../devmode/devMode";
 import type { VectorTool } from "../vectorEdit";
 import { ImageToolbar } from "../imageTools/ImageToolbar";
+import { DrawToolSettings, isDrawTool } from "../draw/DrawToolSettings";
+import { attachDrawTools } from "../draw/drawTools";
 
 /** The toolbar's tools → the engine's (null: a tool the engine has no id for). */
 export const ENGINE_TOOL: Record<ToolId, ToolName | null> = {
@@ -40,8 +44,9 @@ export const ENGINE_TOOL: Record<ToolId, ToolName | null> = {
   image: "IMAGE",
   pen: "PEN",
   pencil: "PENCIL",
+  brush: "BRUSH",
   text: "TEXT",
-  "text-on-path": null,
+  "text-on-path": "TEXT_PATH",
   comment: "COMMENT",
   annotation: "ANNOTATION",
   measurement: "MEASUREMENT",
@@ -71,11 +76,14 @@ export function BottomToolbar() {
   // While images wait to be placed, the Image tool is the one in use (Figma).
   const tool = placing ? "image" : engineTool;
   const actionsOpen = useUI((s) => !!s.actionsOpen);
-  const [groups, setGroups] = useState<Partial<Record<ToolGroupId, ToolId>>>({});
-  // A tool chosen by key is remembered in its slot too.
-  if (groups[groupOf(tool)] !== tool) setGroups({ ...groups, [groupOf(tool)]: tool });
   const dev = useUI((s) => s.mode === "dev");
   const draw = useUI((s) => s.mode === "draw");
+  const mode = dev ? "dev" : draw ? "draw" : "design";
+  const [groups, setGroups] = useState<Partial<Record<ToolGroupId, ToolId>>>({});
+  // A tool chosen by key is remembered in its slot too.
+  if (groups[groupOf(tool, mode)] !== tool) setGroups({ ...groups, [groupOf(tool, mode)]: tool });
+  // Draw's tool settings follow the mode, the tool and the engine's sampling (draw/drawTools.ts).
+  useEffect(() => attachDrawTools(ed), [ed]);
   // The tools' keys the user changed (the Keyboard shortcuts panel); the others keep the toolbar's own wording.
   const bindings = useShortcutSettings().bindings;
   const shortcuts = useMemo(() => {
@@ -88,7 +96,8 @@ export function BottomToolbar() {
     }
     return out;
   }, [bindings]);
-  const disabledTools = useMemo(() => (Object.keys(ENGINE_TOOL) as ToolId[]).filter((t) => !isAvailable(ed, t) || (dev && !DEV_TOOLS.has(t))), [ed, dev]);
+  // The Brush is Draw's alone (docs/draw.md §5.1).
+  const disabledTools = useMemo(() => (Object.keys(ENGINE_TOOL) as ToolId[]).filter((t) => !isAvailable(ed, t) || (dev && !DEV_TOOLS.has(t)) || (t === "brush" && !draw)), [ed, dev, draw]);
   const pick = (t: ToolId) => {
     if (t === "image") {
       setGroups((g) => ({ ...g, shape: "image" }));
@@ -96,14 +105,14 @@ export function BottomToolbar() {
       return;
     }
     const name = ENGINE_TOOL[t];
-    if (!name || !ed.tools.has(name) || (dev && !DEV_TOOLS.has(t))) return;
+    if (!name || !ed.tools.has(name) || (dev && !DEV_TOOLS.has(t)) || (t === "brush" && !draw)) return;
     ed.setTool(name);
-    setGroups((g) => ({ ...g, [groupOf(t)]: t }));
+    setGroups((g) => ({ ...g, [groupOf(t, mode)]: t }));
     ed.focusCanvas();
   };
   return (
     <>
-      {vectorEditing ? <VectorEditToolbar /> : !dev && <ImageToolbar />}
+      {vectorEditing ? <VectorEditToolbar /> : draw && isDrawTool(ENGINE_TOOL[tool] ?? "") ? <DrawToolSettings tool={ENGINE_TOOL[tool] as "PENCIL" | "BRUSH"} /> : !dev && <ImageToolbar />}
       <EditorToolbar
       floating
       tool={tool}
@@ -112,7 +121,7 @@ export function BottomToolbar() {
       onTool={pick}
       onActions={() => runEditorCommand(ed, "tool.actions")}
       actionsActive={actionsOpen}
-      mode={dev ? "dev" : draw ? "draw" : "design"}
+      mode={mode}
       onMode={(m) => {
         if (m === "dev" || m === "design") setMode(ed, m);
         else if (m === "draw") runEditorCommand(ed, "view.switch-to-draw");

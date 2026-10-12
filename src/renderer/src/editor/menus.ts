@@ -13,6 +13,7 @@ import { instanceChanges, resetChanges, selectedInstance, selectionNodes } from 
 import { isComponent, isComponentSet, isInstance } from "./model/components";
 import { branchMenuIds } from "./branching/commands";
 import { canvasPluginsMenu, pluginsMenu, runPluginMenuItem } from "./plugins/menus";
+import { isBrushSource } from "./draw/drawTools";
 
 /** A frame-like layer: a frame, component, set, instance or section (not a group). */
 const isFrameLike = (n: { type?: string; resizeToFit?: boolean }) => ["FRAME", "SYMBOL", "INSTANCE", "SECTION"].includes(String(n.type)) && !n.resizeToFit;
@@ -464,6 +465,8 @@ function moveToPage(ed: EditorController): MenuEntry | null {
 /** Plugins ▸ in the canvas menu (plugins/menus.ts); Widgets ▸ open, its items disabled (widgets aren't built). */
 const PLUGINS = (ed: EditorController): MenuEntry => canvasPluginsMenu(ed, (id, label) => withoutCheck(commandItem(ed, id, label)));
 const WIDGETS: SubSpec = { label: "Widgets", items: ["widgets.manage", "widgets.select-all"] };
+/** Right-click › Create brush ▸ Stretch brush / Scatter brush (help.figma.com 31440438150935). */
+const CREATE_BRUSH: SubSpec = { label: "Create brush", items: ["object.create-brush.stretch", "object.create-brush.scatter"] };
 
 /**
  * The canvas's menu, item for item as live Figma's (docs/research/figma/live/menus/context-*.txt): over a selection
@@ -522,6 +525,12 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
     ...(row ? ["object.rename", (e: EditorController): MenuEntry => ({ ...commandItem(e, "canvas.rename-layers-ai"), badge: "AI" })] : []),
     "vector.flatten",
     "vector.outline-stroke",
+    // Draw (round 7c, docs/draw.md §5.7): Create brush ▸ for one vector-like layer in Draw mode (help.figma.com's Draw
+    // article names the submenu; Design's live menus haven't it; its place after Outline stroke is ours), Apply
+    // transforms for a transform group, Flip for text on a path.
+    ...(single && isBrushSource(single.type) && ed.ui.get().mode === "draw" ? [CREATE_BRUSH] : []),
+    ...(nodes.some((n) => n.type === "TRANSFORM") ? ["object.apply-transforms"] : []),
+    ...(nodes.some((n) => n.type === "TEXT_PATH") ? [{ id: "text.flip-path", label: "Flip text orientation" }] : []),
     ...(thumbnail && !row ? ["object.set-as-thumbnail"] : []),
     "object.use-as-mask",
     "-",
@@ -624,7 +633,7 @@ export interface ActionItem {
 }
 
 /** The toolbar's tools, as the palette lists them (the bottom toolbar's order). */
-const TOOL_ACTIONS = ["tool.move", "tool.hand", "tool.scale", "tool.frame", "tool.section", "tool.slice", "tool.rectangle", "tool.line", "tool.arrow", "tool.ellipse", "tool.polygon", "tool.star", "tool.image", "tool.pen", "tool.pencil", "tool.text", "tool.comment", "tool.annotation", "tool.measurement"];
+const TOOL_ACTIONS = ["tool.move", "tool.hand", "tool.scale", "tool.frame", "tool.section", "tool.slice", "tool.rectangle", "tool.line", "tool.arrow", "tool.ellipse", "tool.polygon", "tool.star", "tool.image", "tool.pen", "tool.pencil", "tool.brush", "tool.text", "tool.text-on-path", "tool.comment", "tool.annotation", "tool.measurement"];
 
 /**
  * The Actions palette's commands (⌘K; panels/ActionsPanel.tsx): every command of the Figma menu (live main-*.txt) in

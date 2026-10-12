@@ -67,7 +67,7 @@ describe("round 10: the stubs live has enabled (live menus/main-*.txt)", () => {
     expect(ed.ui.get().navMinimized).toBe(true);
     runEditorCommand(ed, "view.switch-to-draw");
     expect(ed.ui.get().mode).toBe("draw");
-    expect(ed.store.tool).toBe("PENCIL");
+    expect(ed.store.tool).toBe("MOVE"); // round 7c (docs/draw.md §5.7): Draw starts on Move
     runEditorCommand(ed, "view.switch-to-draw");
     expect(ed.ui.get().mode).toBe("design");
   });
