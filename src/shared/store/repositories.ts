@@ -29,6 +29,7 @@ import type {
   VersionId,
   VersionRecord,
   Workspace,
+  OrgImportPlace,
 } from "./types";
 
 import type { MultiplayerRepository } from "../multiplayer/types";
@@ -159,8 +160,10 @@ export interface FileRepository {
    * A `.fig` from its bytes (Home's Import in any window, a file dropped from Finder, the browser demo): a new file in
    * `folderId` (default Drafts) named from the .fig's meta (else `name`, ".fig" dropped), with its images, thumbnail
    * and an "import" version. `unsupported-format` for FigJam/Slides/not a .fig, `corrupt`, `too-large` (> 1 GB).
+   * `org`: into that org's Drafts or folder instead (an org file, uploaded with the upload panel showing it;
+   * src/store/multiplayer/orgImport.ts) — `folderId` is then ignored.
    */
-  importFigBytes(bytes: Uint8Array, name: string, folderId?: FolderId | null): Promise<FileMeta>;
+  importFigBytes(bytes: Uint8Array, name: string, folderId?: FolderId | null, org?: OrgImportPlace | null): Promise<FileMeta>;
   /** Main only */
   exportLocalCopy(fileKey: FileKey, path: string): Promise<void>;
 }

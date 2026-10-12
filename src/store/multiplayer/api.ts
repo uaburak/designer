@@ -52,6 +52,10 @@ export function multiplayerApi(m: MultiplayerService, owner?: object): Multiplay
     restRender: (fileKey, on, opts, token) => m.restRender(fileKey, on === true, { helper: (opts as { helper?: unknown } | undefined)?.helper === true }, typeof token === "string" && token ? token : undefined, owner),
     restAnswer: (fileKey, id, answer) => m.restAnswer(fileKey, String(id), cleanAnswer(answer)),
     watchSession: (listener) => m.onSessionEnded(listener),
+    uploads: async () => m.uploads.list(),
+    retryUpload: async (id) => m.uploads.retry(String(id)),
+    cancelUpload: async (id) => m.uploads.cancel(String(id)),
+    watchUploads: (listener) => m.onUploads(listener),
   };
 }
 

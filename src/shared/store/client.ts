@@ -35,6 +35,7 @@ import type { AdminRepository, GovernanceRepository, IdentityRepository, OrgEven
 import type { BranchEvent, BranchesRepository } from "../merge/branches";
 import type { PluginsEvent, PluginsRepository } from "../plugins/types";
 import type { DevModeEvent, DevModeRepository } from "../devmode/types";
+import type { UploadEvent } from "../multiplayer/uploads";
 import type { AiRepository, SearchRepository } from "../ai/types";
 import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "../libraries/orgTypes";
 
@@ -99,6 +100,7 @@ export class StoreClient implements StoreApi {
   private readonly libraryEvents = new Listeners<LibraryEvent>();
   private readonly multiplayerEvents = new Listeners<MultiplayerEvent>();
   private readonly sessionEvents = new Listeners<SessionEnded>();
+  private readonly uploadEvents = new Listeners<UploadEvent>();
   private readonly commentsEvents = new Listeners<CommentsEvent>();
   private readonly notificationsEvents = new Listeners<NotificationsEvent>();
   private readonly orgEvents = new Listeners<OrgEvent>();
@@ -219,6 +221,7 @@ export class StoreClient implements StoreApi {
         else if (msg.topic === "session") this.sessionEvents.emit(msg.d as SessionEnded);
         else if (msg.topic === "plugins") this.pluginsEvents.emit(msg.d as PluginsEvent);
         else if (msg.topic === "devmode") this.devModeEvents.emit(msg.d as DevModeEvent);
+        else if (msg.topic === "uploads") this.uploadEvents.emit(msg.d as UploadEvent);
         return;
     }
   }
@@ -391,7 +394,7 @@ export class StoreClient implements StoreApi {
     restoreDiff: (fileKey, id) => this.call("files.restoreDiff", [fileKey, id]),
     duplicateVersion: (fileKey, id) => this.call("files.duplicateVersion", [fileKey, id]),
     importLocalCopy: (path, folderId) => this.call("files.importLocalCopy", [path, folderId]),
-    importFigBytes: (bytes, name, folderId) => this.call("files.importFigBytes", [bytes, name, folderId ?? null]),
+    importFigBytes: (bytes, name, folderId, org) => this.call("files.importFigBytes", [bytes, name, folderId ?? null, org ?? null]),
     exportLocalCopy: (fileKey, path) => this.call("files.exportLocalCopy", [fileKey, path]),
   };
 
@@ -479,6 +482,10 @@ export class StoreClient implements StoreApi {
     restAnswer: (fileKey, id, answer) => this.call("multiplayer.restAnswer", [fileKey, id, answer]),
     watch: (listener) => this.multiplayerEvents.add(listener),
     watchSession: (listener) => this.sessionEvents.add(listener),
+    uploads: () => this.call("multiplayer.uploads", []),
+    retryUpload: (id) => this.call("multiplayer.retryUpload", [id]),
+    cancelUpload: (id) => this.call("multiplayer.cancelUpload", [id]),
+    watchUploads: (listener) => this.uploadEvents.add(listener),
   };
 
   readonly orgs: OrgsRepository = {

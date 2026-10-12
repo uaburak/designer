@@ -91,6 +91,12 @@ export interface FileSpace {
   projectId: string | null;
 }
 
+/** Where Home's Import puts a .fig when an org is the space shown: the org's Drafts (`projectId` null) or a folder */
+export interface OrgImportPlace {
+  orgId: string;
+  projectId: string | null;
+}
+
 export interface Prefs {
   /** Newest first, ≤ 50 */
   recents: { fileKey: FileKey; viewedAt: number }[];

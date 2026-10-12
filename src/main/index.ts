@@ -23,7 +23,7 @@ import { flushStore, retryStoreHost, startStoreHost, storeClient, storeDebug } f
 import { initTheme } from "./theme";
 import { initUpdater } from "./updater";
 import { PRODUCT_NAME } from "./identity";
-import { controllers, finishQuit, lifecycle, type WindowController } from "./window";
+import { confirmQuit, controllers, finishQuit, lifecycle, type WindowController } from "./window";
 import { initGate, openMain, whenOpen } from "./gate";
 
 /**
@@ -190,7 +190,11 @@ if (!app.requestSingleInstanceLock()) {
   // No window left to settle (macOS keeps running without one): the store flushes and shuts down, then the app exits.
   app.on("will-quit", (e) => {
     e.preventDefault();
-    void finishQuit();
+    // Uploads in flight: asked first (window.ts confirmQuit; answered once per quit)
+    void confirmQuit(null).then((ok) => {
+      if (ok) return finishQuit();
+      lifecycle.quitting = false;
+    });
   });
   // macOS: closing the window doesn't quit (the Dock brings it back).
   app.on("window-all-closed", () => {

@@ -13,6 +13,8 @@
 import "@/ds/global.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SettingsHost } from "../settings/SettingsModal";
+import { Uploads, type UploadSource } from "../uploads/UploadPanel";
+import { getStoreClient } from "@/store";
 import { IdleWarning } from "../account/IdleWarning";
 import { currentTheme, HelpButton, ReturnFocusProvider, Spinner, ToastHost, TooltipManager, useThemeRoot, type ThemeName } from "@/ds";
 import { Status } from "@/engine/abi";
@@ -365,12 +367,19 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       <IdleWarning />
       <TooltipManager />
       <ToastHost />
+      <Uploads source={editorUploads()} placement="editor" />
       </ReturnFocusProvider>
     </EditorContext.Provider>
   );
 }
 
 export default EditorApp;
+
+/** The upload panel's source in an editor: the page's store client (docs/multiplayer.md §5.1) */
+let uploadsSource: UploadSource | null = null;
+function editorUploads(): UploadSource {
+  return (uploadsSource ??= getStoreClient().multiplayer);
+}
 
 function LeftPlaceholder() {
   return (

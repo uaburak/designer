@@ -1,0 +1,65 @@
+/* The upload panel (docs/design-system.md §4.22a): Figma's import panel's card — white (dark: the panel colour), radius
+   13, the menu-panel elevation, 360 wide, bottom-right 16 in from the edges (in an editor, left of the properties panel). */
+@layer app {
+  .panel {
+    position: fixed;
+    right: var(--ds-space-4);
+    bottom: var(--ds-space-4);
+    z-index: var(--ds-z-toast);
+    display: flex;
+    flex-direction: column;
+    width: 360px;
+    max-height: min(420px, calc(100vh - 96px));
+    border-radius: var(--ds-radius-large);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    box-shadow: var(--ds-elevation-400-menu-panel);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    overflow: hidden;
+    animation: enter var(--ds-duration-medium) var(--ds-ease-out);
+  }
+  .editor { right: calc(var(--ds-size-panel) + var(--ds-space-2)); bottom: var(--ds-space-2); }
+  .inline { position: relative; right: auto; bottom: auto; animation: none; }
+
+  .header {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: 48px;
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-4);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .title { flex: 1 1 auto; min-width: 0; font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chevron { transition: transform var(--ds-duration-medium) var(--ds-ease-out); }
+  .collapsedChevron { transform: rotate(180deg); }
+
+  .rows { margin: 0; padding: var(--ds-space-1) 0; list-style: none; overflow-y: auto; }
+  .row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ds-space-2);
+    padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
+  }
+  .row:hover { background: var(--figma-color-bg-hover); }
+  .fileIcon { display: flex; flex: none; color: var(--figma-color-icon-secondary); }
+  .body { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; padding-top: var(--ds-space-1); }
+  .name, .secondary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .secondary { color: var(--figma-color-text-secondary); }
+  .error { color: var(--figma-color-text-danger); }
+
+  .track { height: 4px; margin: var(--ds-space-1) 0 2px; border-radius: var(--ds-radius-full); background: var(--figma-color-bg-secondary); overflow: hidden; }
+  .fill { height: 100%; border-radius: var(--ds-radius-full); background: var(--figma-color-bg-brand); transition: width var(--ds-duration-medium) linear; }
+  .waiting { min-width: 8%; opacity: 0.4; }
+  .meta { display: flex; gap: var(--ds-space-2); color: var(--figma-color-text-secondary); font-variant-numeric: tabular-nums; }
+  .pct { margin-left: auto; }
+
+  .end { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); min-height: 32px; }
+  .check { display: flex; color: var(--figma-color-icon-success); }
+  /* Cancel shows on hover while uploading (and always for a failed upload, beside Retry) */
+  .cancel { display: flex; visibility: hidden; }
+  .row:hover .cancel, .row:focus-within .cancel, .cancelShown { visibility: visible; }
+
+  @keyframes enter { from { opacity: 0; transform: translateY(8px); } }
+}

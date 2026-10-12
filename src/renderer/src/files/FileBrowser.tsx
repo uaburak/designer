@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Breadcrumb, Button, ContextMenu, EmptyState, Icon, IconButton, MenuButton, SegmentedControl, Select, Spinner, showToast, useTheme, type MenuEntry, type ToastOptions } from "@/ds";
 import { keys } from "@/ds/util/keys";
-import type { FileKey, FileListItem, Folder, FolderId, Prefs } from "@shared/store/types";
+import type { FileKey, FileListItem, Folder, FolderId, OrgImportPlace, Prefs } from "@shared/store/types";
 import type { OpenIntent } from "@shared/multiplayer/types";
 import { accountBridge, accountMenu, useAccount } from "./account";
 import { EXTERNAL_RESTRICTED_TEXT, useAdminWorkspace, useHomeOrg } from "./orgPolicy";
@@ -334,8 +334,15 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
     }
   };
 
-  /** `.fig` files from a file input or dropped from Finder, into a folder (null: Drafts), through the store's `importFigBytes`. */
-  const importFiles = async (files: File[], folderId: FolderId | null) => {
+  /**
+   * Where Import puts files while an org is the space shown (as Figma: where the person is): the folder shown, else the
+   * org's Drafts. Null in the local space.
+   */
+  const orgImportPlace = (): OrgImportPlace | null => (orgId && isOrgLocation(location) ? { orgId, projectId: location.kind === "project" ? location.projectId : null } : null);
+
+  /** `.fig` files from a file input or dropped from Finder, into a folder (null: Drafts) — or, `org`, into the org's
+   *  Drafts or folder — through the store's `importFigBytes`. */
+  const importFiles = async (files: File[], folderId: FolderId | null, org: OrgImportPlace | null = null) => {
     if (!files.length) return;
     if (!backend.importFigBytes) {
       toast({ kind: "error", message: "Importing .fig files needs the desktop app" });
@@ -346,10 +353,10 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
     const done: string[] = [];
     for (const file of figs) {
       try {
-        const meta = await backend.importFigBytes(file, folderId);
+        const meta = await backend.importFigBytes(file, folderId, org);
         done.push(meta.name);
       } catch (e) {
-        toast({ kind: "error", message: `Couldn’t import “${file.name}”: ${act.errorText(e)}` });
+        toast({ kind: "error", message: `Couldn’t import “${file.name}”: ${org ? orgErrorText(e) : act.errorText(e)}` });
       }
     }
     if (done.length) toast({ kind: "success", message: done.length === 1 ? `Imported “${done[0]}”` : `Imported ${done.length} files` });
@@ -357,7 +364,10 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
 
   const doImport = async () => {
     const folderId = newFileFolder(location);
+    const org = orgImportPlace();
     try {
+      // Into an org: the page reads the .fig itself (main's dialog imports into the local workspace)
+      if (org) return void (await importFiles(await pickFigFiles(), null, org));
       const viaShell = await importWithShell(folderId);
       if (viaShell) {
         if (viaShell.files.length) toast({ kind: "success", message: viaShell.files.length === 1 ? `Imported “${viaShell.files[0].name}”` : `Imported ${viaShell.files.length} files` });
@@ -921,6 +931,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           nav={{ canBack: nav.index > 0, canForward: nav.index < nav.stack.length - 1, back, forward }}
           openFile={openTitled}
           onBranches={backend.branches ? (e, f) => branchSwitcher.open(e, { name: f.name, fileKey: f.fileKey, key: f.key, canCreate: f.access.canExport || f.access.canEdit }) : undefined}
+          onImport={backend.importFigBytes && !outsideHome ? (files, projectId) => void (files ? importFiles(files, null, { orgId, projectId }) : doImport()) : undefined}
           toast={toast}
           now={Math.max(tick, orgView.page.loadedAt)}
           noCreate={outsideHome}
