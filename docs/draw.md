@@ -768,6 +768,8 @@ export function splitTValue(tValue: number): { segment: number; position: number
 
 ## 11. Open questions for the owner
 
+**Answered by the owner, 2026-10-12:** (1) build with our own constants now — no sample file / live capture yet; calibrate later when he provides a `draw.fig`; (2) Figma's 25 brush names on our own artwork; (3) not asked — default: brushes are added to a file only when first used; (4) text on path keeps the original shape, the text is a new layer above it.
+
 1. **A Draw sample `.fig` and one live capture.** Everything [unverified] above waits on Figma itself. Two things from the owner would settle most of it:
    - **The sample file**: in Figma Draw, one file with a linear and a radial repeat (default and edited), text on a circle and on an open path (flipped and not), a Dynamic stroke at two settings, one stretch and one scatter built-in brush, and a custom brush. Save it as `.fig` into `docs/research/figma/samples/draw.fig`.
    - **The live capture**: sign in to figma.com in the built-in browser, so an agent can capture Draw's toolbar, secondary toolbar, sidebar and menus (`research/figma/live/draw/`).
