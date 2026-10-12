@@ -18,7 +18,7 @@ import { AiRunError, type AiApi } from "../../../../shared/ai/api";
 import { creditsFor, type AiAction, type AiImageRequest, type AiModelId, type AiModelInfo, type AiRoute, type AiRunEvent, type AiUsage } from "../../../../shared/ai/types";
 import type { EditorController } from "../controller";
 import type { ImportedImage } from "../images";
-import { hashBytes, imagePaint, isImageLike, paintImageHash, progressivePaintFields, type FullPaint } from "../model/paints";
+import { hashBytes, imagePaint, paintImageHash, progressivePaintFields, type FullPaint } from "../model/paints";
 import { encodePng } from "../agents/png";
 import { viewCentre } from "../canvas/viewInsets";
 import { newNodeGuid } from "../variables";

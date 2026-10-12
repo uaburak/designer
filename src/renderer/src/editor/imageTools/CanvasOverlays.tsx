@@ -4,7 +4,7 @@
  * Expand's frame with its blue handles. Canvas chrome: never the document's, never in undo. Rendered into the canvas's
  * own box (a portal), positioned from the camera.
  */
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import type { Guid } from "@/engine/codec";
 import { useEditor } from "../controller";
@@ -160,8 +160,8 @@ export function ImageCanvasOverlays({ tools }: { tools: ImageTools }) {
   const busy = useStoreSlice(tools.state, (s) => s.busy);
   const mode = useStoreSlice(tools.state, (s) => s.mode);
   const target = useStoreSlice(tools.state, (s) => s.target);
-  const [host, setHost] = useState<HTMLElement | null>(null);
-  useEffect(() => setHost(ed.canvas?.parentElement ?? null), [ed]);
+  // The canvas's own box (the editor sets `canvas` before any tool can open).
+  const host = ed.canvas?.parentElement ?? null;
   if (!host) return null;
   return createPortal(
     <>

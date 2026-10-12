@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ColorInput, ColorPicker, Icon, IconButton, isMixed, MenuButton, MIXED, PanelSection, cx, type ChangeInfo, type ColorModel, type PickerPaint } from "@/ds";
 import { useTextSummary } from "./useTextSummary";
+import { openMakeImage } from "../../imageTools/ImageToolbar";
 import type { Color, Guid, Paint } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
@@ -439,6 +440,7 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
       stop={stop}
       onStopChange={setStop}
       imageUrl={ed.images.urlOf(paintImageHash(paint))}
+      onMakeImage={refs.length === 1 ? () => (onClose(), openMakeImage(ed, refs[0])) : undefined}
       onChooseImage={
         ed.images.store
           ? () =>

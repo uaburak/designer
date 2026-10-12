@@ -174,6 +174,8 @@ export interface ColorPickerProps<P extends PickerPaint> {
   /** IMAGE: what to preview, and the "Choose image…" action */
   imageUrl?: string | null;
   onChooseImage?: () => void;
+  /** IMAGE without a picture yet: "Make an image" (AI) makes one for this fill (the image tools); with a picture it only says why it does nothing */
+  onMakeImage?: () => void;
   /** "Check color contrast": what's behind the layer (a solid colour); the button shows only with it */
   contrastBackground?: RGBA | null;
   /** A gradient's "Rotate gradient" (its handles turn 90° about the middle — the editor owns the paint's transform) */
@@ -215,7 +217,7 @@ export interface ColorPickerProps<P extends PickerPaint> {
  * page". Controlled: `value` in, `onChange(next, { final })` out.
  */
 export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
-  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, documentColors = [], libraries, initialTab = "custom", imageUrl, onChooseImage, onRotateGradient, contrastBackground, imageControls, imageAction, pattern, onShaders, shader, offsetX = -1, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
+  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, documentColors = [], libraries, initialTab = "custom", imageUrl, onChooseImage, onMakeImage, onRotateGradient, contrastBackground, imageControls, imageAction, pattern, onShaders, shader, offsetX = -1, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
   const [tab, setTab] = useState(initialTab);
   const [contrast, setContrast] = useState(false);
   const [ownModel, setOwnModel] = useState<ColorModel>("hex");
@@ -692,7 +694,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
         <div className={styles.imageOverlay}>
           <Button variant="primary" className={value.type === "VIDEO" ? styles.uploadVideo : styles.upload} disabled={!onChooseImage} onClick={onChooseImage}>Upload from computer</Button>
           {value.type === "IMAGE" && (
-            <Button variant="secondary" className={cx(styles.upload, styles.makeImage)} aria-disabled="true" tooltip="Current selection has a fill" onClick={(e) => e.preventDefault()}>
+            <Button variant="secondary" className={cx(styles.upload, styles.makeImage)} {...(onMakeImage && !imageUrl ? { onClick: onMakeImage } : { "aria-disabled": true, tooltip: "Current selection has a fill", onClick: (e: { preventDefault(): void }) => e.preventDefault() })}>
               <Icon name="16.sparkle" />
               Make an image
             </Button>

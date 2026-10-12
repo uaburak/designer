@@ -21,6 +21,7 @@ import { useUI } from "../hooks";
 import { useStoreSlice } from "../uiStore";
 import { setMode } from "../devmode/devMode";
 import type { VectorTool } from "../vectorEdit";
+import { ImageToolbar } from "../imageTools/ImageToolbar";
 
 /** The toolbar's tools → the engine's (null: a tool the engine has no id for). */
 export const ENGINE_TOOL: Record<ToolId, ToolName | null> = {
@@ -102,7 +103,7 @@ export function BottomToolbar() {
   };
   return (
     <>
-      {vectorEditing && <VectorEditToolbar />}
+      {vectorEditing ? <VectorEditToolbar /> : !dev && <ImageToolbar />}
       <EditorToolbar
       floating
       tool={tool}

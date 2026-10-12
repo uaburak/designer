@@ -19,6 +19,7 @@ import { useTopics } from "../hooks";
 import { useStoreSlice } from "../uiStore";
 import type { EditorController } from "../controller";
 import { editorAi, imageToolsOf, type ImageTools } from "./controller";
+import { registerAiImageRow } from "../ai/actionRows";
 import { EXPAND_ASPECTS, ImageCanvasOverlays, padForAspect } from "./CanvasOverlays";
 import type { Rgba } from "./pixels";
 import { decodeImage, imageTargets } from "./tools";
@@ -189,6 +190,19 @@ export function ImageToolbar() {
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   const targets = imageTargets(ed);
   const one = targets.length === 1 && ed.selection.length === 1;
+
+  // Actions' Image editing rows (6a's actionRows.ts) run these tools.
+  useEffect(() => {
+    const some = (e: EditorController) => imageTargets(e).length > 0;
+    const single = (e: EditorController) => e.selection.length === 1 && imageTargets(e).length === 1;
+    const offs = [
+      registerAiImageRow("make-image", { run: (e) => openMakeImage(e) }),
+      registerAiImageRow("remove-background", { run: (e) => void imageToolsOf(e).removeBackground(), enabled: some }),
+      registerAiImageRow("boost-resolution", { run: (e) => void imageToolsOf(e).boostResolution(), enabled: some }),
+      registerAiImageRow("edit-image", { run: (e) => imageToolsOf(e).open("edit"), enabled: single }),
+    ];
+    return () => offs.forEach((off) => off());
+  }, []);
 
   // A tool closes when its image is no longer selected (Vectorize keeps its own preview frame selected-free).
   useEffect(() => {

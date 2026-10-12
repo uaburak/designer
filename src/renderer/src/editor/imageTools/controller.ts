@@ -11,7 +11,8 @@ import { readableError } from "@shared/agents/errors";
 import { AiRunError, type AiApi } from "../../../../shared/ai/api";
 import { creditsFor, DEFAULT_AI_SETTINGS, type AiAction, type AiModelId, type AiModelInfo, type AiRoute } from "../../../../shared/ai/types";
 import { getStoreClient } from "@/store";
-import { loadAiBalance, resetDate } from "@/settings/AiBalance";
+import { loadAiBalance, openAiBalance, resetDate } from "@/settings/AiBalance";
+import { aiMessage } from "../ai/messages";
 import type { EditorController } from "../controller";
 import { Store } from "../uiStore";
 import type { Insets, Point, Rgba } from "./pixels";
@@ -86,6 +87,21 @@ export function appHooks(ed: EditorController, state: Store<ImageToolsState>): t
   };
 }
 
+/** Codes whose words come from a provider run: said in Figma's voice (messages.ts); the tools' own refusals keep theirs. */
+const RUN_CODES = new Set(["signed-out", "rate-limited", "refused", "bad-output", "network", "timeout", "disabled", "over-limit", "too-large"]);
+
+/** A failure as a toast (over-limit opens AI balance, as the actions do). */
+export function showToolError(err: unknown): void {
+  if (err instanceof AiRunError) {
+    if (err.code === "cancelled") return;
+    const message = RUN_CODES.has(err.code) ? aiMessage(err.code, err.message) : readableError(err.message);
+    if (err.code === "over-limit") openAiBalance();
+    showToast({ message, kind: "error", ...(err.code === "over-limit" ? { action: { label: "AI balance", onAction: openAiBalance } } : {}) });
+    return;
+  }
+  showToast({ message: readableError(err instanceof Error ? err.message : String(err)), kind: "error" });
+}
+
 let pendingConfirm: ((yes: boolean) => void) | null = null;
 
 export class ImageTools {
@@ -148,7 +164,7 @@ export class ImageTools {
       await fn({ signal: abort.signal, onProgress: (share) => this.state.set((s) => (s.busy ? { busy: { ...s.busy, progress: share } } : {})) });
       return true;
     } catch (err) {
-      if (!(err instanceof AiRunError && err.code === "cancelled") && !abort.signal.aborted) showToast({ message: readableError(err instanceof Error ? err.message : String(err)), kind: "error" });
+      if (!abort.signal.aborted) showToolError(err);
       return false;
     } finally {
       this.abort = null;
@@ -220,7 +236,7 @@ export class ImageTools {
       return true;
     } catch (err) {
       this.close();
-      if (!(err instanceof AiRunError && err.code === "cancelled")) showToast({ message: readableError(err instanceof Error ? err.message : String(err)), kind: "error" });
+      showToolError(err);
       return false;
     }
   }
