@@ -7,7 +7,7 @@ import type { Access } from "./db";
 import type { IdentityErrorCode } from "../../../src/shared/org/identity";
 import type { GovernanceErrorCode } from "../../../src/shared/org/governance";
 
-export type ErrorCode = "invalid" | "unauthorized" | "forbidden" | "seat_required" | "not_admin" | "admins_only" | "guest_blocked" | "password_required" | "not_found" | "conflict" | "gone" | "too_large" | "rate_limited" | "internal" | "stale" | "branch_cannot_publish" | "draft_cannot_publish" | IdentityErrorCode | GovernanceErrorCode;
+export type ErrorCode = "invalid" | "unauthorized" | "forbidden" | "seat_required" | "not_admin" | "admins_only" | "guest_blocked" | "password_required" | "not_found" | "conflict" | "gone" | "too_large" | "rate_limited" | "internal" | "stale" | "branch_cannot_publish" | "draft_cannot_publish" | "quota_exceeded" | "account_suspended" | IdentityErrorCode | GovernanceErrorCode;
 
 const CODE_OF: Record<number, ErrorCode> = { 400: "invalid", 401: "unauthorized", 403: "forbidden", 404: "not_found", 405: "invalid", 409: "conflict", 410: "gone", 413: "too_large", 426: "invalid", 429: "rate_limited" };
 

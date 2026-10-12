@@ -25,13 +25,18 @@
 import { isPreviewManifest, previewExpired, type PreviewManifest } from "../../src/shared/preview/format";
 import type { Deps } from "./api";
 import type { D1Like, User } from "./db";
+import { QUOTA_LIMITS } from "../../src/shared/quota";
+import { guardedUpload, pruneStorage, releaseStorage, requirePreviewSlot } from "./quota/quota";
+import { throttle } from "./quota/throttle";
 
 /** SQLite values hold 2 MB; documents and images are stored in 1 MB rows. */
 const CHUNK = 1024 * 1024;
 export const MAX_PREVIEW_DOC_BYTES = 64 * 1024 * 1024;
 export const MAX_PREVIEW_IMAGE_BYTES = 40 * 1024 * 1024;
-/** Live or being published, per owner */
-export const MAX_PREVIEWS_PER_USER = 100;
+/** Live or being published, per owner (the `previews` quota's default, src/shared/quota.ts; the operator may raise it) */
+export const MAX_PREVIEWS_PER_USER = QUOTA_LIMITS.previews;
+/** Public reads stay in the edge cache this long (seconds); a republish or unpublish purges this location's copy */
+const PUBLIC_CACHE_S = 60;
 const PREVIEW_ID = /^[0-9A-Za-z]{22}$/;
 const SHA1 = /^[0-9a-f]{40}$/;
 
@@ -80,6 +85,7 @@ async function route(req: Request, url: URL, deps: Deps, signedIn: () => Promise
 
   if (parts[0] === "p") {
     if (parts.length !== 2 || !PREVIEW_ID.test(parts[1]) || (m !== "GET" && m !== "HEAD")) throw new PreviewHttpError(404, "not found");
+    await throttle(deps, req, "public");
     return viewerPage(url, env);
   }
 
@@ -95,12 +101,7 @@ async function route(req: Request, url: URL, deps: Deps, signedIn: () => Promise
   const rest = parts.slice(2).join("/");
 
   // Public reads
-  if (m === "GET" && (rest === "manifest.json" || rest === "doc.kiwi" || /^images\/[0-9a-f]{40}$/.test(rest))) {
-    const res = await box(env, id, `/box/${rest}`, { method: "GET" });
-    const headers = new Headers(res.headers);
-    for (const [k, v] of Object.entries(PUBLIC)) headers.set(k, v);
-    return new Response(res.body, { status: res.status, headers });
-  }
+  if (m === "GET" && (rest === "manifest.json" || rest === "doc.kiwi" || /^images\/[0-9a-f]{40}$/.test(rest))) return publicRead(req, deps, env, id, rest);
 
   // The owner's writes
   const user = await signedIn();
@@ -109,24 +110,30 @@ async function route(req: Request, url: URL, deps: Deps, signedIn: () => Promise
     await ownedOrMissing(db, id, user.id);
     await box(env, id, "/box", { method: "DELETE" });
     await db.prepare(`DELETE FROM previews WHERE id = ?`).bind(id).run();
+    await releaseStorage(deps.db.d1, `p:${id}:`);
+    await purge(url.origin, id);
     return json({ ok: true });
   }
   if (rest === "images/missing" && m === "POST") {
     const { sha1s } = await readJson<{ sha1s?: unknown }>(req);
     if (!Array.isArray(sha1s) || sha1s.length > 5000 || !sha1s.every((s) => typeof s === "string" && SHA1.test(s))) throw new PreviewHttpError(400, "sha1s");
-    await claim(db, id, user.id, deps.now());
+    await claim(deps, db, id, user.id, deps.now());
     return box(env, id, "/box/images/missing", { method: "POST", body: JSON.stringify({ sha1s }) });
   }
   const image = /^images\/([0-9a-f]{40})$/.exec(rest);
   if (image && m === "PUT") {
-    const body = await readBody(req, MAX_PREVIEW_IMAGE_BYTES, "image too large");
-    await claim(db, id, user.id, deps.now());
-    return box(env, id, `/box/images/${image[1]}`, { method: "PUT", body });
+    await claim(deps, db, id, user.id, deps.now());
+    const up = await guardedUpload(deps, req, user, { ownerId: user.id, item: `p:${id}:i:${image[1]}` }, MAX_PREVIEW_IMAGE_BYTES, "image too large");
+    const res = await box(env, id, `/box/images/${image[1]}`, { method: "PUT", body: up.body });
+    if (res.ok) await up.commit();
+    return res;
   }
   if (rest === "doc" && m === "PUT") {
-    const body = await readBody(req, MAX_PREVIEW_DOC_BYTES, "preview too large");
-    await claim(db, id, user.id, deps.now());
-    return box(env, id, "/box/doc", { method: "PUT", body });
+    await claim(deps, db, id, user.id, deps.now());
+    const up = await guardedUpload(deps, req, user, { ownerId: user.id, item: `p:${id}:doc` }, MAX_PREVIEW_DOC_BYTES, "preview too large");
+    const res = await box(env, id, "/box/doc", { method: "PUT", body: up.body });
+    if (res.ok) await up.commit();
+    return res;
   }
   if (rest === "manifest" && m === "PUT") {
     const body = await readJson<{ manifest?: unknown; fileKey?: unknown }>(req);
@@ -145,9 +152,12 @@ async function route(req: Request, url: URL, deps: Deps, signedIn: () => Promise
         return json({ error: e.message, code: e.code, ...e.detail }, 403);
       }
     }
-    await claim(db, id, user.id, now);
+    await claim(deps, db, id, user.id, now);
     const res = await box(env, id, "/box/manifest", { method: "PUT", body: JSON.stringify(manifest) });
     if (!res.ok) return res;
+    // Images the live manifest no longer lists were dropped by the object: no longer charged
+    await pruneStorage(deps, `p:${id}:`, new Set([`p:${id}:doc`, ...manifest.images.map((s) => `p:${id}:i:${s}`)]));
+    await purge(url.origin, id);
     await db
       .prepare(`UPDATE previews SET file_key = ?, file_name = ?, updated_at = ?, published_at = COALESCE(published_at, ?), expires_at = ? WHERE id = ?`)
       .bind(fileKey, manifest.fileName.slice(0, 200) || "Untitled", now, now, manifest.expiresAt, id)
@@ -175,7 +185,10 @@ export async function deletePreviewsOf(deps: Deps, userId: string): Promise<void
   const env = deps.env as PreviewEnv;
   const db = env.DB ?? deps.db.d1;
   const { results } = await db.prepare(`SELECT id FROM previews WHERE owner_id = ?`).bind(userId).all<{ id: string }>();
-  for (const { id } of results) if (env.PREVIEWS) await box(env, id, "/box", { method: "DELETE" });
+  for (const { id } of results) {
+    if (env.PREVIEWS) await box(env, id, "/box", { method: "DELETE" });
+    await releaseStorage(db, `p:${id}:`);
+  }
   await db.prepare(`DELETE FROM previews WHERE owner_id = ?`).bind(userId).run();
 }
 
@@ -209,15 +222,15 @@ async function listPreviews(db: D1Like, userId: string, now: number, origin: str
   return results.map((r) => ({ id: r.id, fileKey: r.file_key, fileName: r.file_name, createdAt: r.created_at, updatedAt: r.updated_at, expiresAt: r.expires_at, url: previewLink(origin, r.id) }));
 }
 
-/** The id is the caller's: theirs already, or unused and now claimed. Someone else's answers 404. */
-async function claim(db: D1Like, id: string, userId: string, now: number): Promise<void> {
+/** The id is the caller's: theirs already, or unused and now claimed (within their `previews` quota). Someone else's
+ *  answers 404. */
+async function claim(deps: Deps, db: D1Like, id: string, userId: string, now: number): Promise<void> {
   const row = await db.prepare(`SELECT owner_id FROM previews WHERE id = ?`).bind(id).first<{ owner_id: string }>();
   if (row) {
     if (row.owner_id !== userId) throw new PreviewHttpError(404, "no such preview");
     return;
   }
-  const count = await db.prepare(`SELECT COUNT(*) AS n FROM previews WHERE owner_id = ?`).bind(userId).first<{ n: number }>();
-  if ((count?.n ?? 0) >= MAX_PREVIEWS_PER_USER) throw new PreviewHttpError(507, `at most ${MAX_PREVIEWS_PER_USER} previews; unpublish one first`);
+  await requirePreviewSlot(deps, db, userId);
   await db.prepare(`INSERT INTO previews (id, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`).bind(id, userId, now, now).run();
   const after = await db.prepare(`SELECT owner_id FROM previews WHERE id = ?`).bind(id).first<{ owner_id: string }>();
   if (after?.owner_id !== userId) throw new PreviewHttpError(404, "no such preview");
@@ -238,11 +251,43 @@ async function readJson<T>(req: Request): Promise<T> {
   throw new PreviewHttpError(400, "expected a JSON object");
 }
 
-async function readBody(req: Request, max: number, tooLarge: string): Promise<ArrayBuffer> {
-  if (Number(req.headers.get("content-length") ?? "0") > max) throw new PreviewHttpError(413, tooLarge);
-  const body = await req.arrayBuffer();
-  if (body.byteLength > max) throw new PreviewHttpError(413, tooLarge);
-  return body;
+/**
+ * A public read (the viewer's manifest, document and images): throttled per IP, refused for a suspended owner, and
+ * kept in the edge cache (Cloudflare's Cache API, where there is one) for PUBLIC_CACHE_S — images, content-addressed,
+ * for as long as the browser keeps them.
+ */
+async function publicRead(req: Request, deps: Deps, env: PreviewEnv, id: string, rest: string): Promise<Response> {
+  await throttle(deps, req, "public");
+  const cache = edgeCache();
+  const key = new Request(req.url, { method: "GET" });
+  const hit = cache ? await cache.match(key) : undefined;
+  if (hit) return hit;
+  const owner = await d1(env).prepare(`SELECT u.suspended_at FROM previews p JOIN users u ON u.id = p.owner_id WHERE p.id = ?1`).bind(id).first<{ suspended_at: number | null }>();
+  if (owner && owner.suspended_at != null) throw new PreviewHttpError(404, "no such preview");
+  const res = await box(env, id, `/box/${rest}`, { method: "GET" });
+  const headers = new Headers(res.headers);
+  for (const [k, v] of Object.entries(PUBLIC)) headers.set(k, v);
+  if (res.ok && !rest.startsWith("images/")) headers.set("cache-control", `public, max-age=${PUBLIC_CACHE_S}`);
+  const out = new Response(res.body, { status: res.status, headers });
+  if (cache && res.ok) {
+    const put = cache.put(key, out.clone());
+    if (deps.waitUntil) deps.waitUntil(put);
+    else await put;
+  }
+  return out;
+}
+
+/** Workers' default cache (absent in Node's tests) */
+function edgeCache(): { match(r: Request): Promise<Response | undefined>; put(r: Request, res: Response): Promise<void>; delete(r: Request): Promise<boolean> } | null {
+  const c = (globalThis as { caches?: { default?: unknown } }).caches?.default;
+  return c ? (c as ReturnType<typeof edgeCache>) : null;
+}
+
+/** A republished or unpublished preview: this location's cached manifest and document go */
+async function purge(origin: string, id: string): Promise<void> {
+  const cache = edgeCache();
+  if (!cache) return;
+  for (const f of ["manifest.json", "doc.kiwi"]) await cache.delete(new Request(`${origin}/previews/${id}/${f}`));
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

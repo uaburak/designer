@@ -47,6 +47,7 @@ import { logActivity, repoEntity } from "./activity";
 import type { Deps } from "./api";
 import type { BranchRow } from "./branchAccess";
 import { normalizeEmail } from "./db";
+import { guardedUpload, requireFileSlot } from "./quota/quota";
 import { canOpen, type FileRow } from "./org/db";
 import { body, cleanName, HttpError, json, noContent, randomId, type Ctx, type ErrorCode } from "./org/http";
 import { reauth } from "./org/reauth";
@@ -259,9 +260,11 @@ export async function fileBranchesRoute(ctx: Ctx, f: FileRow, a: AccessGranted |
     if (m === "GET") return passThrough(deps, key, `/room/versions/${id}/${sub}`, { method: "GET", identity });
     if (m === "PUT" && sub === "snapshot") {
       if (!canEdit) throw new HttpError(403, "you can only view this file");
-      const bytes = await ctx.req.arrayBuffer();
-      if (bytes.byteLength > MAX_SNAPSHOT_BYTES) throw new HttpError(413, "snapshot too large");
-      return json(await roomJson(deps, key, `/room/versions/${id}/snapshot`, { method: "PUT", identity, body: bytes }));
+      // Daily uploads and stored bytes (docs/multiplayer.md §17), charged to the uploader, before the body is read
+      const up = await guardedUpload(deps, ctx.req, user, { ownerId: user.id, item: `f:${key}:v:${id}` }, MAX_SNAPSHOT_BYTES, "snapshot too large");
+      const out = await roomJson(deps, key, `/room/versions/${id}/snapshot`, { method: "PUT", identity, body: up.body });
+      await up.commit();
+      return json(out);
     }
   }
   throw new HttpError(404, "not found");
@@ -272,6 +275,8 @@ async function createBranch(ctx: Ctx, f: FileRow, a: AccessGranted, isBranch: bo
   const { deps, user, acc } = ctx;
   if (isBranch) throw new HttpError(400, "a branch can't be branched");
   if (a.trashed) throw new HttpError(403, "the file is in the trash");
+  // A branch is a file its creator owns: the `shared_files` quota (docs/multiplayer.md §17)
+  await requireFileSlot(deps, user);
   // Viewers branch only when "viewers can copy" is on (Figma: otherwise they don't see the option).
   if (!a.canExport) throw new HttpError(403, "the owner turned off copying for viewers");
   if (f.org_id) {
@@ -397,9 +402,10 @@ export async function branchesRoute(ctx: Ctx): Promise<Response> {
         if (!Number.isInteger(seq) || seq < 0) throw new HttpError(400, "bad seq");
         const head = await headOf(deps, b.main_key);
         if (seq > head.lastSeq) throw new HttpError(400, "seq is past the main file's head", undefined, { lastSeq: head.lastSeq });
-        const bytes = await ctx.req.arrayBuffer();
-        if (bytes.byteLength > MAX_SNAPSHOT_BYTES) throw new HttpError(413, "snapshot too large");
-        return json(await roomJson(deps, key, `/room/base?seq=${seq}`, { method: "PUT", identity, body: bytes }));
+        const up = await guardedUpload(deps, ctx.req, ctx.user, { ownerId: ctx.user.id, item: `f:${key}:base` }, MAX_SNAPSHOT_BYTES, "snapshot too large");
+        const out = await roomJson(deps, key, `/room/base?seq=${seq}`, { method: "PUT", identity, body: up.body });
+        await up.commit();
+        return json(out);
       }
       case "POST update":
         return json(await applyUpdate(ctx, r));

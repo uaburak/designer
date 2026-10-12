@@ -4,6 +4,7 @@
  */
 import type { EditorType, OrgRole, OrgSettings, PersonRef } from "./types";
 import { GOVERNANCE_SIGN_IN_ERROR_TEXT, type FileExporting, type GovernanceSignInError } from "./governance";
+import { SIGNUP_SIGN_IN_ERROR_TEXT, type SignupSignInError } from "../quota";
 
 // ---- sign-in -------------------------------------------------------------------------------------------------------
 
@@ -12,7 +13,7 @@ export type AuthMethod = "any" | "google" | "saml";
 /** How a session was signed in (sessions.auth_method) */
 export type SessionAuth = "google" | "saml" | "dev";
 /** `error=` values the loopback (or the web page's `auth_error`) can receive, besides Google's own */
-export type SignInError = "access_denied" | "google_failed" | "sso_failed" | "sso_domain" | "google_required" | GovernanceSignInError;
+export type SignInError = "access_denied" | "google_failed" | "sso_failed" | "sso_domain" | "google_required" | GovernanceSignInError | SignupSignInError;
 export const SIGN_IN_ERROR_TEXT: Record<SignInError, string> = {
   access_denied: "Sign-in was cancelled.",
   google_failed: "Google sign-in didn't work. Try again.",
@@ -20,6 +21,7 @@ export const SIGN_IN_ERROR_TEXT: Record<SignInError, string> = {
   sso_domain: "Your email isn't on a verified domain of this organization. Ask your organization's admin.",
   google_required: "Your organization requires you to log in with a Google account.",
   ...GOVERNANCE_SIGN_IN_ERROR_TEXT,
+  ...SIGNUP_SIGN_IN_ERROR_TEXT,
 };
 /** `POST /auth/sso {email}` (JSON) */
 export interface SsoLookup { tenantId: string; orgName: string }

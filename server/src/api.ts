@@ -16,6 +16,9 @@ import { reauth } from "./org/reauth";
 import { notificationsRoute, notifyEditRequest, notifyInvite, notifyOwnership, notifyRequestAnswered } from "./notifications";
 import { isPreviewPath, previews, viewerPage } from "./previews";
 import { checkPassword, hashPassword, sha256b64url, signToken, verifyToken } from "./tokens";
+import { SIGNUP_SIGN_IN_ERROR_TEXT } from "../../src/shared/quota";
+import { admitSignIn, countFor, guardedUpload, moveStorage, requireActive, requireFileSlot } from "./quota/quota";
+import { throttle } from "./quota/throttle";
 
 export interface Env {
   GOOGLE_CLIENT_ID?: string;
@@ -26,6 +29,10 @@ export interface Env {
   DEV_AUTH?: string;
   /** Comma-separated origins of the web app allowed to sign in and call the API (CORS), e.g. "http://localhost:5199" */
   WEB_ORIGINS?: string;
+  /** Comma-separated emails of the server's operators (docs/multiplayer.md §17); default the owner's */
+  OPERATOR_EMAILS?: string;
+  /** Google Search Console's HTML-file verification, e.g. "google1234abcd.html" (served at /<that>; §17) */
+  GOOGLE_SITE_VERIFICATION?: string;
 }
 
 /** A file's room (the FileRoom Durable Object, in the file's jurisdiction — docs/multiplayer.md §15.10); `path` is one
@@ -103,6 +110,16 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   const m = req.method;
 
   if (path === "/") return json({ name: "designer", ok: true });
+  // The legal pages Google's consent screen links to (docs/multiplayer.md §17)
+  if ((path === "/privacy" || path === "/terms") && (m === "GET" || m === "HEAD")) {
+    await throttle(deps, req, "public");
+    return (await import("./legal")).legalPage(path, url, deps);
+  }
+  // Google Search Console's URL-prefix verification of this host (the OAuth consent screen's domain, §17)
+  const verification = deps.env.GOOGLE_SITE_VERIFICATION;
+  if (verification && /^google[0-9a-f]{8,32}\.html$/.test(verification) && path === `/${verification}`) return new Response(`google-site-verification: ${verification}`, { headers: { "content-type": "text/html; charset=utf-8" } });
+  // Signing in without an account yet: throttled per IP (quota/throttle.ts) — no D1 counting for strangers
+  if (path.startsWith("/auth/") || (path.startsWith("/saml/") && path.endsWith("/start"))) await throttle(deps, req, "auth");
   if (path === "/auth/login" && m === "GET") return login(url, deps);
   if (path === "/auth/callback" && m === "GET") return callback(url, deps, req);
   if (path === "/auth/token" && m === "POST") return token(req, deps);
@@ -114,16 +131,24 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (path.startsWith("/saml/")) return (await import("./auth/saml/routes")).samlRoute(req, url, deps, path.split("/").filter(Boolean).map(decodeURIComponent));
   if (path === "/scim" || path.startsWith("/scim/")) return (await import("./auth/scim/routes")).scimRoute(req, url, deps, path.split("/").filter(Boolean).map(decodeURIComponent));
   const link = /^\/f\/([A-Za-z0-9_-]{6,64})$/.exec(path);
-  if (link && m === "GET") return linkPage(link[1], url.searchParams);
+  if (link && m === "GET") {
+    await throttle(deps, req, "public");
+    return linkPage(link[1], url.searchParams);
+  }
   if (isPreviewPath(path)) return previews(req, url, deps, async () => sessionOnly(await authenticate(req, url, deps, false)));
   const embed = /^\/embed\/([A-Za-z0-9_-]{6,64})(?:\/(snapshot|frames|images\/[0-9a-f]{40}))?$/.exec(path);
-  if (embed && m === "GET") return embedRoute(embed[1], embed[2], url, deps);
+  if (embed && m === "GET") {
+    await throttle(deps, req, "public");
+    return embedRoute(embed[1], embed[2], url, deps);
+  }
 
   const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
   const isSocket = (parts[0] === "files" && parts[2] === "ws" && parts.length === 3) || (parts[0] === "notifications" && parts[1] === "ws" && parts.length === 2);
   const caller = await authenticate(req, url, deps, isSocket);
   const user = caller.user;
   // AI usage, daily totals from the people's apps (docs/ai.md §2.9) — sessions only, not personal access tokens.
+  // The server's operator (docs/multiplayer.md §17): accounts, suspension, quota overrides, the sign-up mode
+  if (parts[0] === "operator") return (await import("./quota/operator")).operatorRoute(req, url, deps, sessionOnly(caller), parts);
   if (parts[0] === "me" && parts[1] === "ai-usage" && !caller.scopes) return (await import("./ai/usage")).aiUsageRoute({ req, url, deps, user, parts, m, acc: new Access(deps, user) });
   // `/me/two-factor…` (round 14) is the account's too: accountRoute hands it to governance/twoFactor.ts
   if (parts[0] === "me" && parts[1] !== "fonts") return (await import("./account")).accountRoute(req, deps, caller, parts);
@@ -180,6 +205,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       if (!FILE_KEY.test(key)) throw new HttpError(400, "bad file key");
       // A member whose org restricts external content creates files there only (§15.6, §15.9).
       (await import("./policy/external")).requireInside(await new Access(deps, user).home(), null, "create files");
+      // The `shared_files` quota (§17): re-sharing one's own file is no new file
+      if ((await deps.db.file(key))?.ownerId !== user.id) await requireFileSlot(deps, user);
       const name = cleanName(body.name);
       if (!(await deps.db.createFile(key, user.id, name, deps.now()))) throw new HttpError(409, "file key taken");
       return json({ key, name, role: "owner" }, 201);
@@ -334,6 +361,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       const done = await deps.db.transferOwnership(key, email, user.id, deps.now());
       if (!done) throw new HttpError(400, "only someone invited who has logged in can own the file");
       for (const userId of [done.toId, user.id]) await deps.rooms.fetch(key, "/room/revoke", { method: "POST", body: JSON.stringify({ userId }) });
+      // What the file stores is the new owner's to carry (§17)
+      await moveStorage(deps, `f:${key}:`, done.toId);
       await notifyOwnership(deps, { key, by: user, toId: done.toId });
       await log("fig_file_member_permission_change", { email: normalizeEmail(email), user_id: done.toId, role: "owner", previous_owner: user.id });
       return json({ ok: true });
@@ -358,6 +387,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
         const ownerEmail = (await deps.db.user(f.owner_id))?.email;
         if (email === ownerEmail) throw new HttpError(400, email === user.email ? "you own this file" : "they own this file");
         const before = (await deps.db.members(key)).find((x) => x.email === email);
+        // A new person invited counts against the inviter's daily invitations (§17); in an org, addPerson counts it
+        if (!inOrg && !before) await countFor(deps, user, "invitations_per_day");
         if (inOrg && !before) {
           const outcome = await (await import("./org/orgs")).inviteEmail(orgCtx(), f.org_id!, email, { type: "file", id: key, name: f.name }, body.role);
           if (outcome.kind === "requested") return json({ ok: true, requested: true, requestId: outcome.requestId }, 202);
@@ -398,11 +429,11 @@ async function route(req: Request, deps: Deps): Promise<Response> {
         need(a?.canEdit, "you can only view this file");
         const seq = Number(url.searchParams.get("seq"));
         if (!Number.isInteger(seq) || seq < 0) throw new HttpError(400, "bad seq");
-        const length = Number(req.headers.get("content-length") ?? "0");
-        if (length > MAX_SNAPSHOT_BYTES) throw new HttpError(413, "snapshot too large");
-        const body = await req.arrayBuffer();
-        if (body.byteLength > MAX_SNAPSHOT_BYTES) throw new HttpError(413, "snapshot too large");
-        return deps.rooms.fetch(key, `/room/snapshot?seq=${seq}`, { method: "PUT", body, identity });
+        // The uploader's daily uploads and the owner's stored bytes (§17), before the body is read
+        const up = await guardedUpload(deps, req, user, { ownerId: f.owner_id, item: `f:${key}:snap` }, MAX_SNAPSHOT_BYTES, "snapshot too large");
+        const res = await deps.rooms.fetch(key, `/room/snapshot?seq=${seq}`, { method: "PUT", body: up.body, identity });
+        if (res.ok) await up.commit();
+        return res;
       }
       break;
     }
@@ -439,9 +470,10 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       if (m === "GET") return deps.rooms.fetch(key, `/room/blobs/${parts[3]}`, { method: "GET", identity });
       if (m === "PUT") {
         need(a?.canEdit, "you can only view this file");
-        const body = await req.arrayBuffer();
-        if (body.byteLength > 40 * 1024 * 1024) throw new HttpError(413, "image too large");
-        return deps.rooms.fetch(key, `/room/blobs/${parts[3]}`, { method: "PUT", body, identity });
+        const up = await guardedUpload(deps, req, user, { ownerId: f.owner_id, item: `f:${key}:b:${parts[3]}` }, 40 * 1024 * 1024, "image too large");
+        const res = await deps.rooms.fetch(key, `/room/blobs/${parts[3]}`, { method: "PUT", body: up.body, identity });
+        if (res.ok) await up.commit();
+        return res;
       }
       break;
     }
@@ -648,11 +680,14 @@ async function authenticate(req: Request, url: URL, deps: Deps, allowQuery: bool
   if (pat) {
     const user = await deps.db.user(pat.userId);
     if (!user) throw new HttpError(401, "token expired");
+    requireActive(user);
     await refuseOnRestrictedNetwork(user);
     return { user, sid: null, scopes: pat.scopes };
   }
   const p = await verifyToken<SessionPayload>(raw, secret(deps), seconds(deps));
   const user = p && (await deps.db.user(p.uid));
+  // Suspended by the operator (§17): said as such, though suspension also ended the sessions
+  if (user) requireActive(user);
   if (!p || !user || user.tokenVersion !== p.tv) throw new HttpError(401, "session expired");
   if (p.sid) {
     const s = await deps.db.touchSession(p.sid, user.id, deps.now());
@@ -688,7 +723,8 @@ async function embedRoute(key: string, part: string | undefined, url: URL, deps:
   // An org's policy with public links off refuses embeds too (§15.6); passwords required means no embed without one,
   // and a file with a password is never embedded.
   const policy = row ? await (await import("./policy/sharing")).policyOfFile(deps.db.d1, row) : null;
-  if (!f || f.linkAccess === "none" || f.passwordProtected || expired || (policy && (!policy.publicLinks || policy.passwordRequired))) {
+  const ownerSuspended = !!f && (await deps.db.user(f.ownerId))?.suspendedAt != null;
+  if (!f || f.linkAccess === "none" || f.passwordProtected || expired || ownerSuspended || (policy && (!policy.publicLinks || policy.passwordRequired))) {
     if (!part) return page(404, "This file isn't available to embed. Its owner can share it with anyone who has the link, without a password.");
     throw new HttpError(404, "not available");
   }
@@ -764,6 +800,9 @@ async function devSignIn(req: Request, deps: Deps): Promise<Response> {
   if (deps.env.DEV_AUTH !== "1") throw new HttpError(404, "not found");
   const body = await readJson<{ email?: string; name?: string }>(req);
   if (!body.email) throw new HttpError(400, "email");
+  // The same gate as Google's sign-in (§17): the sign-up mode, the per-IP and daily counts, suspension
+  const refused = await admitSignIn(deps, { sub: `dev:${normalizeEmail(body.email)}`, email: body.email }, req);
+  if (refused) throw new HttpError(403, SIGNUP_SIGN_IN_ERROR_TEXT[refused], refused === "account_suspended" ? "account_suspended" : "forbidden", { reason: refused });
   const user = await deps.db.upsertUser({ sub: `dev:${normalizeEmail(body.email)}`, email: body.email, name: body.name ?? null }, deps.now());
   return issueSession(user, deps, req, { method: "dev", orgId: null });
 }
@@ -788,7 +827,7 @@ function linkHtml(app: string): Response {
 <a href="${app.replace(/&/g, "&amp;")}" style="display:inline-block;padding:8px 16px;border-radius:6px;background:#0d99ff;color:#fff;text-decoration:none;font-weight:500">Open in the app</a>
 <p style="margin:20px 0 0;color:#888;font-size:12px">Or in Designer: Home › Recents › Shared files › Open link…, and paste this link.</p></div>
 <script>location.href=${JSON.stringify(app)}</script>`;
-  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
+  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=3600" } });
 }
 
 function page(status: number, text: string): Response {

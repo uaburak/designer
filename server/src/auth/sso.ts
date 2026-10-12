@@ -19,6 +19,7 @@ import { loginPage, messagePage } from "./pages";
 import { idpForDomain, type IdpRow, spConfigOf } from "./saml/config";
 import type { User } from "../db";
 import { authnRedirect } from "./saml/sp";
+import { admitSignIn } from "../quota/quota";
 
 export const STATE_SECONDS = 600;
 export const CODE_MS = 120_000;
@@ -67,6 +68,9 @@ export const backWithError = (st: AppState, error: string) => redirect(appBack(s
  * `/auth/2fa` first.
  */
 export async function backWithCode(deps: Deps, st: AppState, user: Pick<User, "id" | "email">, auth: SessionAuth, orgId: string | null, req: Request): Promise<Response> {
+  // Suspended by the operator (docs/multiplayer.md §17): no code, whichever way they signed in
+  const row = await deps.db.d1.prepare(`SELECT suspended_at FROM users WHERE id = ?1`).bind(user.id).first<{ suspended_at: number | null }>();
+  if (row?.suspended_at != null) return backWithError(st, "account_suspended");
   if (await (await import("../governance/network")).networkCheck(deps, user, req)) return backWithError(st, "network_restricted");
   const code = randomToken();
   const hash = await sha256b64url(code);
@@ -197,6 +201,10 @@ export async function googleCallback(url: URL, deps: Deps, req: Request): Promis
     if (!(e instanceof GoogleError)) throw e;
     return backWithError(st, "google_failed");
   }
+  // 0. public sign-up (docs/multiplayer.md §17): a new account passes the sign-up mode and the daily counts; a
+  //    suspended one is refused
+  const refused = await admitSignIn(deps, profile, req);
+  if (refused) return backWithError(st, refused);
   // 1. the account (by sub; else a none: account with this verified email is claimed; else a new one)
   const user = await deps.db.upsertUser(profile, deps.now());
   // 2. invites waiting for the email; 3. domain capture

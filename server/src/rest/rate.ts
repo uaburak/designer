@@ -6,6 +6,7 @@
 import { RATE_LIMITS, type RestTier } from "../../../src/shared/rest/types";
 import type { Deps } from "../api";
 import { RestError, type RestCaller } from "./http";
+import { limitOf } from "../quota/quota";
 
 export type RateType = "high" | "low";
 
@@ -32,7 +33,7 @@ export async function charge(deps: Deps, caller: RestCaller, tier: RestTier, typ
   const subject = caller.kind === "plan" ? `org:${caller.orgId}` : caller.user.id;
   const minute = Math.floor(now / MINUTE);
   const day = Math.floor(now / DAY);
-  const buckets: { bucket: string; window: number; limit: number; resetAt: number }[] = [{ bucket: "day", window: day, limit: RATE_LIMITS.dailyCap, resetAt: (day + 1) * DAY }];
+  const buckets: { bucket: string; window: number; limit: number; resetAt: number }[] = [{ bucket: "day", window: day, limit: caller.kind === "plan" ? RATE_LIMITS.dailyCap : limitOf(caller.user.quotas, "rest_calls_per_day"), resetAt: (day + 1) * DAY }];
   if (type === "low" && tier === 1 && RATE_LIMITS.lowTier1PerDay) buckets.push({ bucket: "t1day", window: day, limit: RATE_LIMITS.low[1], resetAt: (day + 1) * DAY });
   else buckets.push({ bucket: `t${tier}`, window: minute, limit: RATE_LIMITS[type][tier], resetAt: (minute + 1) * MINUTE });
   const values = buckets.map((_, i) => `(?1, ?${i * 2 + 2}, ?${i * 2 + 3}, 1)`).join(", ");

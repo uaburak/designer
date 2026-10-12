@@ -62,6 +62,10 @@ export async function accountRoute(req: Request, deps: Deps, caller: Caller, par
   }
 
   switch (parts[1]) {
+    // What the account uses of its quotas, and whether it is the server's operator (docs/multiplayer.md §17)
+    case "usage":
+      if (parts.length === 2 && m === "GET") return json(await (await import("./quota/usage")).accountUsage(deps, user));
+      break;
     // Two-factor authentication (docs/governance.md §2.4, §4)
     case "two-factor":
       return (await import("./governance/twoFactor")).twoFactorRoute(req, deps, user, parts.slice(2));
@@ -325,6 +329,9 @@ async function deleteAccount(deps: Deps, user: User): Promise<void> {
   await deletePreviewsOf(deps, user.id);
   await d1.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(user.id).run();
   await d1.prepare(`DELETE FROM access_tokens WHERE user_id = ?1`).bind(user.id).run();
+  // Their counters (docs/multiplayer.md §17); stored bytes of org files they owned stay charged to the kept row
+  await d1.prepare(`DELETE FROM quota_counters WHERE subject = ?1`).bind(user.id).run();
+  await d1.prepare(`DELETE FROM signup_allowlist WHERE email = ?1`).bind(user.email).run();
   if (await keptByOrgs(deps, user.id)) {
     // Org content still names them (drafts, teams, folders, groups, invites): the row stays as a tombstone — no email,
     // no Google account, no sign-in; their name reads "Deleted user".
@@ -334,6 +341,7 @@ async function deleteAccount(deps: Deps, user: User): Promise<void> {
       .run();
     return;
   }
+  await (await import("./quota/quota")).releaseOwner(d1, user.id);
   await d1.prepare(`DELETE FROM users WHERE id = ?1`).bind(user.id).run();
 }
 

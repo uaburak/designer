@@ -1,0 +1,16 @@
+/*
+ * Settings › Operator (ours; docs/multiplayer.md §17). The shared pieces (sections, links, notes, the dialogs' form
+ * rows) are Settings.module.css's.
+ */
+@layer app {
+  .row { display: flex; align-items: center; gap: var(--ds-space-2); margin-top: var(--ds-space-3); }
+  .subheading { margin: var(--ds-space-6) 0 var(--ds-space-2); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .list { display: flex; align-self: stretch; flex-direction: column; margin: var(--ds-space-3) 0 0; padding: 0; list-style: none; }
+  .listRow { display: flex; align-items: center; gap: var(--ds-space-3); min-height: var(--ds-size-row); }
+  .grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .account { display: flex; align-items: flex-start; gap: var(--ds-space-3); padding: var(--ds-space-2) 0; border-top: 1px solid var(--figma-color-border); font: var(--ds-font-settings-cell); letter-spacing: var(--ds-tracking-settings-cell); }
+  .who { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+  .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .suspended { color: var(--figma-color-text-danger); }
+  .actions { display: flex; flex: none; align-items: center; gap: var(--ds-space-3); }
+}

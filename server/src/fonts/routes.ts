@@ -21,6 +21,7 @@ import { inboxMessage } from "../notifications";
 import { fontObjects, objectFetch } from "../libraries/db";
 import { sha1Hex } from "../libraries/libraryBox";
 import { MAX_FONT_BYTES } from "./fontBox";
+import { chargeStored, guardedUpload, releaseStorage } from "../quota/quota";
 
 /** Ours (Figma states none): faces per org, org and team fonts together */
 export const MAX_FACES_PER_ORG = 200;
@@ -131,7 +132,10 @@ async function conflictsIn(d1: D1Like, orgId: string, teamId: string | null, fam
 async function dropUnused(ctx: Ctx, orgId: string, sha1s: Iterable<string>): Promise<void> {
   for (const sha1 of new Set(sha1s)) {
     const used = await ctx.acc.d1.prepare(`SELECT 1 AS x FROM shared_fonts WHERE org_id = ?1 AND sha1 = ?2 LIMIT 1`).bind(orgId, sha1).first();
-    if (!used) await objectFetch(fontObjects(ctx.deps), orgId, `/font/${sha1}`, { method: "DELETE" });
+    if (!used) {
+      await objectFetch(fontObjects(ctx.deps), orgId, `/font/${sha1}`, { method: "DELETE" });
+      await releaseStorage(ctx.deps.db.d1, `o:${orgId}:font:${sha1}`);
+    }
   }
 }
 
@@ -230,12 +234,15 @@ export async function orgFontsRoute(ctx: Ctx): Promise<Response> {
     if ((count?.n ?? 0) + faces.length > MAX_FACES_PER_ORG) throw new HttpError(400, `an organization holds at most ${MAX_FACES_PER_ORG} font styles`);
 
     // The bytes first (the object checks the format and computes the SHA-1), then the rows.
-    const res = await objectFetch(fontObjects(deps), orgId, "/font", { method: "PUT", body: await req.arrayBuffer() });
+    // Daily uploads and stored bytes (docs/multiplayer.md §17), charged to the uploader by the font's SHA-1 once known
+    const up = await guardedUpload(deps, req, ctx.user, { ownerId: ctx.user.id, item: `o:${orgId}:font:new` }, MAX_FONT_BYTES, "the font file is larger than 50 MB");
+    const res = await objectFetch(fontObjects(deps), orgId, "/font", { method: "PUT", body: up.body });
     if (!res.ok) {
       const e = (await res.json().catch(() => ({ error: "the font was refused" }))) as { error: string };
       throw new HttpError(res.status === 413 ? 413 : 400, e.error);
     }
     const stored = (await res.json()) as { sha1: string; format: "ttf" | "otf"; size: number };
+    await chargeStored(deps, ctx.user.id, `o:${orgId}:font:${stored.sha1}`, up.body.byteLength);
     let oldSha1s: string[] = [];
     if (replaced.length) {
       const { results } = await d1

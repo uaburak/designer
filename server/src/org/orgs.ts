@@ -41,6 +41,8 @@ export async function orgsRoute(ctx: Ctx): Promise<Response> {
       const b = await body<{ name?: unknown; importSharedFiles?: unknown }>(ctx.req);
       // A member whose org restricts external content can't create another one (§15.6) [F-external].
       requireInside(await acc.home(), null, "create organizations");
+      // The `orgs_created` quota (docs/multiplayer.md §17)
+      await (await import("../quota/quota")).requireOrgSlot(deps, user);
       const id = await createOrg(ctx, cleanName(b.name, "name", 100), b.importSharedFiles === true);
       acc.reset();
       return json({ org: await orgInfo(acc, id) }, 201);
@@ -280,6 +282,8 @@ export async function addPerson(deps: Deps, orgId: string, email: string, role: 
   const u = await userByEmail(d1, e);
   const had = await d1.prepare(`SELECT user_id FROM org_members WHERE org_id = ?1 AND email = ?2`).bind(orgId, e).first<{ user_id: string | null }>();
   if (had) return { userId: had.user_id, created: false };
+  // Someone new invited by a person counts against that person's daily invitations (docs/multiplayer.md §17)
+  if (opts.by) await (await import("../quota/quota")).countFor(deps, opts.by, "invitations_per_day");
   const now = deps.now();
   // A guest's access ends after the org's default duration (Governance+, docs/governance.md §2.13)
   const expiresAt = role === "guest" ? await guestExpiryOnJoin(d1, orgId, now) : null;
@@ -430,6 +434,8 @@ export async function createOrgFile(ctx: Ctx, input: { key: unknown; name: unkno
   if (!seatCanEdit(me.seat, editorType)) throw new HttpError(403, `your ${me.seat} seat can't create this kind of file`, "seat_required", { seat: seatNeeded(editorType), current: me.seat });
   const now = deps.now();
   const had = await acc.fileRow(key);
+  // The `shared_files` quota (docs/multiplayer.md §17): a file moved in from outside the org is no new file
+  if (had?.owner_id !== user.id) await (await import("../quota/quota")).requireFileSlot(deps, user);
   let action: "fig_file_create" | "fig_file_move" = "fig_file_create";
   if (had) {
     if (had.owner_id !== user.id || had.org_id !== null) throw new HttpError(409, "file key taken");

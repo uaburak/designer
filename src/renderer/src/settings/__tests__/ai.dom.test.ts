@@ -28,6 +28,8 @@ const host: AiStoreHost = {
 };
 let ledger = new AiService(host);
 vi.mock("@/store", () => ({
+  // The modal asks whether the account operates the server (Settings › Operator): no account here
+  storeMode: () => "desktop",
   getStoreClient: () => ({
     ai: ledger.repository(),
     orgs: {

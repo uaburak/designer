@@ -6,6 +6,8 @@ import type { Role } from "../../src/shared/multiplayer/protocol";
 import type { SessionAuth } from "../../src/shared/org/identity";
 import { idleLimitSql, type SessionTouch } from "./auth/idle";
 import { randomToken } from "./tokens";
+import { isAccountQuotaKind, type QuotaOverrides } from "../../src/shared/quota";
+import { releaseStorage } from "./quota/quota";
 
 export interface D1Stmt {
   bind(...values: unknown[]): D1Stmt;
@@ -26,6 +28,10 @@ export interface User {
   name: string | null;
   picture: string | null;
   tokenVersion: number;
+  /** Suspended by the operator (docs/multiplayer.md §17): every route refuses it */
+  suspendedAt?: number | null;
+  /** The operator's quota overrides for this account (src/shared/quota.ts) */
+  quotas?: QuotaOverrides;
 }
 
 /** Where a session signed in from (docs/multiplayer.md §13): the desktop app or a browser, its OS, its IP's place. */
@@ -67,9 +73,24 @@ interface UserRow {
   name: string | null;
   picture: string | null;
   token_version: number;
+  suspended_at?: number | null;
+  quota_overrides?: string | null;
 }
 
-const toUser = (r: UserRow): User => ({ id: r.id, email: r.email, name: r.name, picture: r.picture, tokenVersion: r.token_version });
+const toUser = (r: UserRow): User => ({ id: r.id, email: r.email, name: r.name, picture: r.picture, tokenVersion: r.token_version, suspendedAt: r.suspended_at ?? null, quotas: parseOverrides(r.quota_overrides) });
+
+/** `users.quota_overrides`: known kinds with whole non-negative numbers, anything else dropped */
+export function parseOverrides(text: string | null | undefined): QuotaOverrides {
+  if (!text) return {};
+  try {
+    const v = JSON.parse(text) as Record<string, unknown>;
+    const out: QuotaOverrides = {};
+    if (v && typeof v === "object") for (const [k, n] of Object.entries(v)) if (isAccountQuotaKind(k) && typeof n === "number" && Number.isInteger(n) && n >= 0) out[k] = n;
+    return out;
+  } catch {
+    return {};
+  }
+}
 
 export const normalizeEmail = (email: string): string => email.trim().toLowerCase();
 
@@ -84,7 +105,7 @@ export class Db {
   async upsertUser(p: { sub: string; email: string; name?: string | null; picture?: string | null }, now: number): Promise<User> {
     const email = normalizeEmail(p.email);
     const refresh = `email = ?2, name = CASE WHEN name_locked = 1 THEN name ELSE ?3 END, picture = CASE WHEN picture_locked = 1 THEN picture ELSE ?4 END, last_seen_at = ?5`;
-    const cols = `id, email, name, picture, token_version`;
+    const cols = `id, email, name, picture, token_version, suspended_at, quota_overrides`;
     const args = [p.sub, email, p.name ?? null, p.picture ?? null, now];
     let row = await this.d1.prepare(`UPDATE users SET ${refresh} WHERE google_sub = ?1 RETURNING ${cols}`).bind(...args).first<UserRow>();
     if (!row)
@@ -135,7 +156,7 @@ export class Db {
   }
 
   async user(id: string): Promise<User | null> {
-    const r = await this.d1.prepare(`SELECT id, email, name, picture, token_version FROM users WHERE id = ?1`).bind(id).first<UserRow>();
+    const r = await this.d1.prepare(`SELECT id, email, name, picture, token_version, suspended_at, quota_overrides FROM users WHERE id = ?1`).bind(id).first<UserRow>();
     return r ? toUser(r) : null;
   }
 
@@ -319,7 +340,10 @@ export class Db {
     await this.d1.prepare(`UPDATE files SET name = ?2, updated_at = ?3 WHERE key = ?1`).bind(key, name, now).run();
   }
 
+  /** A file's rows; what it stored is no longer charged to anyone (its room, its library: docs/multiplayer.md §17) */
   async deleteFile(key: string): Promise<void> {
+    await releaseStorage(this.d1, `f:${key}:`);
+    await releaseStorage(this.d1, `l:${key}:`);
     await this.d1.prepare(`DELETE FROM access_requests WHERE file_key = ?1`).bind(key).run();
     await this.d1.prepare(`DELETE FROM members WHERE file_key = ?1`).bind(key).run();
     await this.d1.prepare(`DELETE FROM files WHERE key = ?1`).bind(key).run();

@@ -369,7 +369,8 @@ export interface IpcInvoke extends SharedFontsChannels {
   "account:sign-in": { args: [opts?: { tenant?: string }]; result: SignInResult };
   "account:cancel-sign-in": { args: []; result: AccountState };
   "account:sign-out": { args: []; result: AccountState };
-  /** Settings: the caller's own account on the server (`/me…` only — shared/account.ts ACCOUNT_PATH); main adds the session */
+  /** Settings: the caller's own account on the server (`/me…`, and the operator's `/operator/…` — shared/account.ts
+   *  ACCOUNT_PATH); main adds the session */
   "account:request": { args: [{ method: AccountMethod; path: string; body?: unknown }]; result: AccountResponse };
   /** The idle prompt's "Stay logged in" (docs/desktop.md §18.2) */
   "account:stay-signed-in": { args: []; result: AccountState };

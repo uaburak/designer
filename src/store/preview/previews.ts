@@ -11,6 +11,17 @@ import type { PreviewDevData, PreviewPackage } from "../../shared/preview/format
 import { inlinePreviewHtml } from "../../shared/preview/html";
 import { buildPreviewPackage } from "../../shared/preview/package";
 import { StoreError } from "../../shared/store/protocol";
+import { ACCOUNT_SUSPENDED_TEXT, isQuotaRefusal, quotaText } from "../../shared/quota";
+
+/** The refusal's fields besides `error` (`{code, kind, limit}`), or null */
+function parseDetail(text: string): Record<string, unknown> | null {
+  try {
+    const v = JSON.parse(text) as unknown;
+    return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
 import type { PreviewService } from "../../shared/store/repositories";
 import { isFileKey, type FileKey, type PreviewOptions, type PreviewRecord } from "../../shared/store/types";
 import { writeFileAtomically } from "../export/fig";
@@ -99,6 +110,10 @@ async function request(host: PreviewHost, session: PreviewSession, method: strin
     // plain text
   }
   if (res.status === 401) throw new StoreError("forbidden", "Your session expired. Log in again.");
+  // Public sign-up's limits (docs/multiplayer.md §17): the previews count, storage, uploads a day; a suspended account
+  const detail = parseDetail(text);
+  if (isQuotaRefusal(detail)) throw new StoreError("forbidden", quotaText(detail.kind, detail.limit), detail);
+  if (detail?.code === "account_suspended") throw new StoreError("forbidden", ACCOUNT_SUSPENDED_TEXT, detail);
   if (res.status === 404) throw new StoreError("not-found", message || "No such preview");
   throw new StoreError("invalid", message || `The server said ${res.status}`);
 }

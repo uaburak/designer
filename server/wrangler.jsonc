@@ -38,7 +38,13 @@
   "vars": {
     "GOOGLE_CLIENT_ID": "511486232492-8fr5pqjmcfadd334nrl6abljrran7vhl.apps.googleusercontent.com",
     // The web app (npm run web) may sign in and call the API from here
-    "WEB_ORIGINS": "http://localhost:5199"
+    "WEB_ORIGINS": "http://localhost:5199",
+    // The server's operators (docs/multiplayer.md §17): Settings › Operator, /operator/… routes
+    "OPERATOR_EMAILS": "design.burakkoc@gmail.com"
+    // Optional: "GOOGLE_SITE_VERIFICATION": "google<token>.html" — Search Console's HTML-file check, served at /<that>
   },
+  // Optional (docs/multiplayer.md §17): Workers Rate Limiting bindings make quota/throttle.ts count across the network
+  // instead of per isolate — "ratelimits": [{ "name": "RATE_LIMIT_AUTH", "namespace_id": "1001", "simple": { "limit": 30,
+  // "period": 60 } }, { "name": "RATE_LIMIT_PUBLIC", "namespace_id": "1002", "simple": { "limit": 600, "period": 60 } }]
   "observability": { "enabled": true }
 }

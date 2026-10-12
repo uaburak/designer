@@ -64,5 +64,7 @@ export default {
     await (await import("./governance/guests")).sweepExpiredGuests(depsOf(env));
     // Discovery events and developer logs older than 30 days (docs/governance.md §2.11, §2.12)
     await (await import("./discovery/record")).sweepGovernanceLogs(env.DB, controller.scheduledTime);
+    // Quota counters of past days, expired previews' rows and stored bytes (docs/multiplayer.md §17)
+    await (await import("./quota/quota")).sweepQuotas({ ...depsOf(env), now: () => controller.scheduledTime });
   },
 } satisfies ExportedHandler<Env>;

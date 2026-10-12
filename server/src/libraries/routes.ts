@@ -49,6 +49,7 @@ import { fileEntity, logActivity } from "../activity";
 import type { FileRow } from "../org/db";
 import { body, HttpError, json, noContent, type Ctx } from "../org/http";
 import { reauth } from "../org/reauth";
+import { guardedUpload } from "../quota/quota";
 import { notifyLibraryOverride } from "../notifications";
 import { adminSees, canManage, canUseLibrary, reachOf, usable, type Reach, type Via } from "./access";
 import {
@@ -190,12 +191,19 @@ export async function librariesRoute(ctx: Ctx): Promise<Response> {
   if (parts.length === 5 && sub === "payloads" && m === "PUT") {
     if (!isSha1(parts[3]) || !isSha1(parts[4])) throw new HttpError(400, "an asset key and its versionHash are SHA-1s");
     await editable(ctx, key);
-    return libraryFetch(deps, key, `/payload/${parts[3]}/${parts[4]}`, { method: "PUT", body: await bytes(req) });
+    // Daily uploads and stored bytes (docs/multiplayer.md §17), charged to the publisher, before the body is read
+    const up = await guardedUpload(deps, req, ctx.user, { ownerId: ctx.user.id, item: `l:${key}:p:${parts[3]}:${parts[4]}` }, MAX_BYTES, "larger than 50 MB");
+    const res = await libraryFetch(deps, key, `/payload/${parts[3]}/${parts[4]}`, { method: "PUT", body: up.body });
+    if (res.ok) await up.commit();
+    return res;
   }
   if (parts.length === 4 && sub === "blobs" && m === "PUT") {
     if (!isSha1(parts[3])) throw new HttpError(400, "bad SHA-1");
     await editable(ctx, key);
-    return libraryFetch(deps, key, `/blob/${parts[3]}`, { method: "PUT", body: await bytes(req) });
+    const up = await guardedUpload(deps, req, ctx.user, { ownerId: ctx.user.id, item: `l:${key}:b:${parts[3]}` }, MAX_BYTES, "larger than 50 MB");
+    const res = await libraryFetch(deps, key, `/blob/${parts[3]}`, { method: "PUT", body: up.body });
+    if (res.ok) await up.commit();
+    return res;
   }
 
   // Reads: anyone who can use the library.
@@ -226,12 +234,6 @@ export async function librariesRoute(ctx: Ctx): Promise<Response> {
   throw new HttpError(404, "not found");
 }
 
-async function bytes(req: Request): Promise<ArrayBuffer> {
-  if (Number(req.headers.get("content-length") ?? "0") > MAX_BYTES) throw new HttpError(413, "larger than 50 MB");
-  const b = await req.arrayBuffer();
-  if (b.byteLength > MAX_BYTES) throw new HttpError(413, "larger than 50 MB");
-  return b;
-}
 
 // ---- publishing (§16.6) ---------------------------------------------------------------------------------------------
 

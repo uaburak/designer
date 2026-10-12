@@ -144,6 +144,8 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
     if (!body) return fail(400, "expected a JSON object");
     const message = cleanMessage(body.message);
     if (message === null) return fail(400, "a comment needs some text");
+    // Comments and replies a minute (docs/multiplayer.md §17): 429 quota_exceeded
+    await (await import("./quota/quota")).countFor(deps, user, "comments_per_minute");
     const mentions = cleanMentions(body.mentions);
     const id = typeof body.id === "string" && COMMENT_ID.test(body.id) ? body.id : `c_${randomToken(12)}`;
     if (await one(id)) return fail(409, "comment id taken");

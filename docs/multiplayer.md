@@ -2953,3 +2953,32 @@ See `docs/roadmap.md` "Round 5" — open questions.
 **Not verified here**: the JSON against Figma's own output for the same files.
 
 **Checked end to end (2026-10-12)**, against `wrangler dev`: the web app's editor and the built Electron app answer the room's jobs (file, nodes, images PNG / SVG / PDF / JPG, variables local and POST), the cache answers a repeat, and with nobody online a call waits out the 25 s and answers 503. **The hidden helper renders**: a `WebContentsView` created by `createView` and never added to a window reports `visibilityState: "visible"`, runs `requestAnimationFrame`, gets a WebGL2 context and its 0 × 0 canvas exports through the engine's offscreen path — an images job answered in ~0.6 s from the moment `rest-wanted` arrived, with the design's pixels. No `paintWhenInitiallyHidden` or offscreen window is needed. Two fixes made it work (both in the store): `StoreServer` forwards `onRestJob` / `onRestWanted` as `multiplayer` events (before, no editor or main ever heard a job: every call was 503), and a port's renderers end when the port closes (`MultiplayerService.releaseRenderersOf`, from `StoreServer.disconnect`; `multiplayerApi(m, owner)` tags each `restRender` with its port) — a closed tab's token otherwise stayed first in line, so jobs went to an editor that was gone and the helper, once open, was never asked.
+
+## 17. Public sign-up: quotas, the operator, legal pages (2026-10-12)
+
+The server opens to everyone on Cloudflare's **free plan** (100k Worker requests and 100k D1 row writes a day, D1 5 GB, 5 GB of Durable Object storage for the account): exhausting any of them stops the service for everyone, the operator included. So each account has limits — generous for real use, tight for abuse — and the operator has controls. The numbers are in one place, `src/shared/quota.ts` (`QUOTA_LIMITS`, `quotaText`); the server's side is `server/src/quota/`; migration `0019_public_signup.sql`.
+
+| Kind | Default | Counted |
+|---|---|---|
+| `shared_files` | 200 files owned (shared, org files and drafts, branches) | COUNT at creation · 403 |
+| `storage_bytes` | 500 MB | `users.stored_bytes`, moved by each upload's change (`stored_items` per stored thing) · 403 |
+| `uploads_per_day` | 3,000 | `quota_counters` · 429 |
+| `previews` | 20 live | COUNT at claim · 403 |
+| `orgs_created` | 3 | COUNT · 403 |
+| `invitations_per_day` | 100 new people invited | `quota_counters` · 429 |
+| `comments_per_minute` | 20 | `quota_counters` · 429 |
+| `rest_calls_per_day` | 5,000 (§16.4's daily cap) | `rest_rate` · 429 |
+| `signups_per_ip_per_day` | 3 new accounts | `quota_counters` (`ip:<addr>`) → sign-in error `signup_limit` |
+| `signups_per_day` | 200 new accounts | `quota_counters` (`*`) → `signup_limit` |
+| `server_storage_bytes` | 4 GB, everyone together | `quota_counters` (`*`, window 0) · 507 |
+
+- **Refusals**: `{error, code: "quota_exceeded", kind, limit}` with `quotaText`'s words; the store keeps `{code, kind, limit}` in `StoreError.detail` and says the same words (`httpError`, previews' `request`, `orgErrorText`).
+- **Stored bytes** are what passes through the Worker's upload routes: snapshots (also branch versions and bases), images, thumbnails, preview documents and images, library payloads and blobs, fonts — charged to the file's owner (the uploader for libraries, fonts and branch versions), released by prefix when the file, library or preview goes (`Db.deleteFile`, unpublish, the daily sweep of expired previews), moved by "Transfer ownership". **Not counted**: the room's journal frames and its own compactions (approximate by design).
+- **Uploads** check the declared `content-length` (size limit, quota) before reading the body (`guardedUpload`).
+- **Operator** (`OPERATOR_EMAILS`, default the owner's): `GET /operator/accounts?text=&cursor=`, `POST /operator/accounts/:id/suspend {reason?}` · `unsuspend`, `PUT|POST /operator/accounts/:id/quota {kind, limit|null}`, `GET|PATCH /operator/settings {signupMode?, allow?, disallow?}`; sessions only. Settings › **Operator** (desktop, operators only — `GET /me/usage`'s `operator`).
+- **Suspension**: 403 `account_suspended` on every authenticated route (sessions and PATs); sessions, sign-in codes and open sockets end; sign-in goes back with `error=account_suspended`; its previews and embeds aren't served. Operators can't be suspended.
+- **Sign-up mode** (`server_settings.signup_mode`): `open` (default) · `invite` (emails invited to a file, org, team or folder, or on `signup_allowlist`) · `closed` (existing accounts only). Operators always pass. Gated at Google's callback (and `/auth/dev`); SAML JIT and SCIM accounts are their org's admins' to make (not gated).
+- **Throttling** (no D1 for strangers, `quota/throttle.ts`): per IP per minute, 30 on `/auth/*` and `/saml/*/start`, 600 on `/p/`, `/previews/*` public reads, `/embed/`, `/f/`, `/privacy`, `/terms` — in memory per isolate, or a Workers Rate Limiting binding (`RATE_LIMIT_AUTH`, `RATE_LIMIT_PUBLIC`) when configured. Public preview reads are cached at the edge 60 s (`caches.default`, purged here on republish/unpublish); `/f/` 1 h; the legal pages 1 day. Tested: no unauthenticated route writes a D1 row.
+- **Legal pages**: `GET /privacy`, `GET /terms` (`server/src/legal.ts`), plain and short, the operator's email as contact. `GOOGLE_SITE_VERIFICATION` serves Search Console's HTML file.
+- **Delete account** (`DELETE /me`, §13) also releases what the account stored and its counters.
+- Tests: `server/src/quota/quota.test.ts` (every kind, suspension, sign-up modes, operator-only access, deletion, legal pages, throttling, no anonymous writes); `src/renderer/src/settings/__tests__/operator.dom.test.ts`.

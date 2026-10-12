@@ -16,6 +16,7 @@ import type { RestJob, RestJobPart } from "../../shared/rest/types";
 import { decodeMessage } from "../../shared/schema/codec";
 import { messageImageHashes } from "../../shared/schema/patch";
 import { StoreError } from "../../shared/store/protocol";
+import { ACCOUNT_SUSPENDED_TEXT, isQuotaRefusal, quotaText } from "../../shared/quota";
 import type { FileChange, Unsubscribe } from "../../shared/store/repositories";
 import type { FileKey, FileMeta, FileSpace } from "../../shared/store/types";
 import { touchedBy, withoutPending, type Touched } from "./conflict";
@@ -1167,6 +1168,9 @@ export async function httpError(res: Response): Promise<StoreError> {
   // 401 `idle_timeout` (§15.8): detail.code says it; MultiplayerService has also said `SessionEnded` and dropped the session
   if (res.status === 401 && detail?.code === "idle_timeout") return new StoreError("forbidden", "You were logged out because you were inactive.", detail);
   if (res.status === 401) return new StoreError("forbidden", "Your session expired. Log in again.", detail);
+  // Public sign-up's limits (docs/multiplayer.md §17): `detail` keeps `{code, kind, limit}`; the words are the shared ones
+  if (isQuotaRefusal(detail)) return new StoreError(res.status === 413 ? "too-large" : "forbidden", quotaText(detail.kind, detail.limit), detail);
+  if (detail?.code === "account_suspended") return new StoreError("forbidden", ACCOUNT_SUSPENDED_TEXT, detail);
   // Governance+ (docs/governance.md §2.5, §2.10): `detail` keeps `{code, gate}`; the org's encryption key → unavailable
   const gcode = detail?.code;
   if ((res.status === 403 || res.status === 503) && isGovernanceCode(gcode)) {

@@ -103,6 +103,8 @@ export function orgErrorText(e: unknown): string {
   if (detail === "guest_blocked") return "Guests can’t be invited to this organization.";
   if (detail === "not_admin") return "Only admins can do this.";
   if (detail === "limited") return "You don’t have access to this folder.";
+  // Public sign-up's limits and suspension (docs/multiplayer.md §17): the store's message already says it
+  if ((detail === "quota_exceeded" || detail === "account_suspended") && e instanceof Error) return e.message;
   if (code === "offline") return "You’re offline. Try again when you’re back online.";
   if (code === "conflict") return e instanceof Error && e.message ? `${e.message.charAt(0).toUpperCase()}${e.message.slice(1)}` : "That name is taken.";
   if (code === "forbidden") return "You don’t have permission to do this.";

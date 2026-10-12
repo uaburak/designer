@@ -192,6 +192,8 @@ describe("developer previews (docs/multiplayer.md §9)", () => {
     const userId = ((await (await call("GET", "/me", { token: owner })).json()) as { id: string }).id;
     const db = (deps.env as PreviewEnv).DB!;
     for (let i = 0; i < MAX_PREVIEWS_PER_USER; i++) await db.prepare(`INSERT INTO previews (id, owner_id, created_at, updated_at) VALUES (?, ?, 0, 0)`).bind(`id${i}`, userId).run();
-    expect((await call("PUT", `/previews/${ID}/doc`, { token: owner, body: new Uint8Array([1]) })).status).toBe(507);
+    const res = await call("PUT", `/previews/${ID}/doc`, { token: owner, body: new Uint8Array([1]) });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "quota_exceeded", kind: "previews", limit: MAX_PREVIEWS_PER_USER });
   });
 });
