@@ -1,15 +1,14 @@
 /**
  * The local models' worker, as the editor calls it (docs/ai.md §2.4): `runModel(id, input)` runs a downloaded model
- * in a module Worker (modelWorker.ts: onnxruntime-web — WebGPU, else wasm — and @huggingface/transformers for the
- * search models' tokenizers). One worker, one live session at a time; the worker is ended after 60 s idle (its memory
+ * in a module Worker (modelWorker.ts: onnxruntime-web — WebGPU, else wasm). One worker, one live session at a time; the worker is ended after 60 s idle (its memory
  * goes with it — the 16 GB rule). The models' files come from main at `aimodel://<id>/<path>` once downloaded
  * (`ensureModel` asks first: models download on first use, owner §10.2).
  *
  * Inputs:
  * - `{kind: "onnx", file, inputs}` — one ONNX run of the model's `file` (the image tools' pre/post-processing is in
  *   runners.ts); answers `OnnxTensor[]` (the session's outputs in order).
- * - `{kind: "text", text}` / `{kind: "image", image}` — an embedding (CLIP ViT-B/32: image or text, 512 floats;
- *   MiniLM: text, 384), normalized; answers a Float32Array. (Visual search, 6d.)
+ * - `{kind: "text"}` / `{kind: "image"}` are refused: visual search (6d) embeds in its own worker
+ *   (editor/search/embed.worker.ts) over the same `aimodel:` files.
  */
 import type { AiModelId } from "../../../../shared/ai/types";
 import type { Rgba } from "./pixels";

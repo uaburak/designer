@@ -27,6 +27,8 @@ export const AI_ROWS: readonly AiRowDef[] = [
   { id: "ai.remove-background", action: "remove-background", label: "Remove background", section: "Image editing", icon: "24.erase" },
   { id: "ai.boost-resolution", action: "boost-resolution", label: "Boost resolution", section: "Image editing", icon: "24.expand" },
   { id: "ai.edit-image", action: "edit-image", label: "Edit image with prompt", section: "Image editing", icon: "24.pencil" },
+  // "Find more like" (help 24037716110615: Actions › Find more like) — visual search over the selection (6d); placed with the image rows, which run registered handlers [our placement]
+  { id: "ai.find-more-like", action: "visual-search", label: "Find more like", section: "Image editing", icon: "24.search" },
   { id: "ai.rename-layers", action: "rename-layers", label: "Rename layers", section: "Design tools", icon: "24.text" },
   { id: "ai.replace-content", action: "replace-content", label: "Replace content", section: "Design tools", icon: "24.styles", form: "replace-content" },
   { id: "ai.add-interactions", action: "add-interactions", label: "Add interactions", section: "Design tools", icon: "24.prototyping" },

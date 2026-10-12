@@ -128,7 +128,7 @@ describe("the image toolbar", () => {
   it("registers Actions' Image editing rows", async () => {
     const { ed, engine, view } = await setup();
     act(() => void engine.setSelection(["1:5"]));
-    for (const a of ["make-image", "remove-background", "boost-resolution", "edit-image"] as const) expect(imageRowHandler(a)).toBeTruthy();
+    for (const a of ["make-image", "remove-background", "boost-resolution", "edit-image", "visual-search"] as const) expect(imageRowHandler(a)).toBeTruthy();
     expect(imageRowHandler("remove-background")!.enabled!(ed)).toBe(true);
     act(() => imageRowHandler("edit-image")!.run(ed));
     expect(document.querySelector("[data-image-prompt=edit]")).not.toBeNull();

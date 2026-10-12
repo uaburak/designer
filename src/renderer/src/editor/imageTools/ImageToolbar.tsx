@@ -20,6 +20,7 @@ import { useStoreSlice } from "../uiStore";
 import type { EditorController } from "../controller";
 import { editorAi, imageToolsOf, type ImageTools } from "./controller";
 import { registerAiImageRow } from "../ai/actionRows";
+import { findMoreLike } from "../search";
 import { EXPAND_ASPECTS, ImageCanvasOverlays, padForAspect } from "./CanvasOverlays";
 import type { Rgba } from "./pixels";
 import { decodeImage, imageTargets } from "./tools";
@@ -200,6 +201,7 @@ export function ImageToolbar() {
       registerAiImageRow("remove-background", { run: (e) => void imageToolsOf(e).removeBackground(), enabled: some }),
       registerAiImageRow("boost-resolution", { run: (e) => void imageToolsOf(e).boostResolution(), enabled: some }),
       registerAiImageRow("edit-image", { run: (e) => imageToolsOf(e).open("edit"), enabled: single }),
+      registerAiImageRow("visual-search", { run: () => findMoreLike(), enabled: (e) => e.selection.length > 0 }),
     ];
     return () => offs.forEach((off) => off());
   }, []);
