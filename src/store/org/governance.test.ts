@@ -202,6 +202,22 @@ describe("governance (docs/governance.md §4, as built §9 14a–14d)", () => {
     expect((await refusal(g.setGuestExpiration(w.orgId, [], at))).detail).toMatchObject({ field: "userIds" });
   });
 
+  it("the guest's list entry keeps guestExpiresAt (and the gate) after the org itself is read (§9 end-to-end run)", async () => {
+    // Found end to end: `orgs.get` rewrote the cached summary with five fields, so Home's list lost the guest's expiry
+    // (no banner) and any gate after the org was opened once.
+    const gus = await w.dev("gus@elsewhere.test");
+    await w.call("POST", `/orgs/${w.orgId}/admin/people`, { token: w.admin.token, body: { emails: ["gus@elsewhere.test"], role: "guest" } });
+    await t.api.governance.setGovernancePlus(w.orgId, true);
+    const at = clock.t + 5 * 86_400_000;
+    await t.api.governance.setGuestExpiration(w.orgId, [gus.id], at);
+    await w.call("PATCH", `/orgs/${w.orgId}/admin/settings`, { token: w.admin.token, body: { twoFactorForGuests: true } });
+    await t.api.multiplayer.setSession({ server: ORIGIN, token: gus.token });
+    const entry = async () => (await t.api.orgs.list()).find((o) => o.id === w.orgId);
+    expect(await entry()).toMatchObject({ guestExpiresAt: at, gate: { kind: "two_factor" } });
+    expect(await t.api.orgs.get(w.orgId)).toMatchObject({ guestExpiresAt: at, gate: { kind: "two_factor" } });
+    expect(await entry()).toMatchObject({ guestExpiresAt: at, gate: { kind: "two_factor" } });
+  });
+
   it("key management: no root key → unavailable; turn on, encrypt-next; Governance+ can't be removed then", async () => {
     const g = t.api.governance;
     expect((await refusal(g.enableEkm(w.orgId, { source: "managed" }))).detail).toMatchObject({ code: "governance_plus_required" });

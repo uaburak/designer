@@ -76,6 +76,17 @@ const FRESH_MS = 2000;
 
 const clone = <T>(v: T): T => (v === undefined ? v : (JSON.parse(JSON.stringify(v)) as T));
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+/** An org's list entry from its info: the same fields `GET /orgs` sends, Governance+'s gate and a guest's expiry included
+ *  (docs/governance.md §2.5, §2.13) — reading the org must not drop them from the list Home reads */
+const summaryOf = (v: O.OrgInfo): O.OrgSummary => ({
+  id: v.id,
+  name: v.name,
+  role: v.role,
+  seat: v.seat,
+  workspaceId: v.workspaceId,
+  ...(v.gate ? { gate: clone(v.gate) } : {}),
+  ...(v.guestExpiresAt !== undefined ? { guestExpiresAt: v.guestExpiresAt } : {}),
+});
 const seg = (s: unknown, what: string): string => {
   if (typeof s !== "string" || !s || s.length > 256) throw new StoreError("invalid", `bad ${what}`);
   return encodeURIComponent(s);
@@ -492,7 +503,7 @@ export class OrgService {
       get: (c: OrgCache) => c.info ?? undefined,
       set: (c: OrgCache, v: O.OrgInfo) => {
         c.info = v ?? null;
-        if (v) c.summary = { id: v.id, name: v.name, role: v.role, seat: v.seat, workspaceId: v.workspaceId };
+        if (v) c.summary = summaryOf(v);
       },
       fetch: async () => pick<O.OrgInfo>(await this.call("GET", `/orgs/${seg(orgId, "org")}`), "org"),
       event: { type: "org.updated", orgId } as OrgEvent,
@@ -613,7 +624,7 @@ export class OrgService {
         await this.ensureLoaded();
         const c = this.cacheOf(org.id);
         c.info = clone(org);
-        c.summary = { id: org.id, name: org.name, role: org.role, seat: org.seat, workspaceId: org.workspaceId };
+        c.summary = summaryOf(org);
         await this.save(org.id);
         this.emit({ type: "orgs.changed" });
         return org;
