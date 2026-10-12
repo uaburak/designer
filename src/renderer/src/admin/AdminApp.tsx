@@ -6,9 +6,9 @@
  * preload's shared fonts (docs/desktop.md §14.3). A workspace admin who isn't an org admin gets the workspace's own
  * Admin (`workspace`): its Libraries. Home mounts it for admins; `?admin` runs it on the fake.
  */
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { Icon, SidebarDivider, SidebarItem, Tabs, type IconName } from "@/ds";
-import { ActivityTab } from "./Activity";
+import { ActivityTab, DeveloperLogsTab } from "./Activity";
 import { BillingGroupsTab, BillingOverview } from "./Billing";
 import { TeamsTab, UnassignedDraftsTab, WorkspacesTab } from "./Content";
 import { Dashboard, GuestRequestsPage, SeatRequestsPage } from "./Dashboard";
@@ -33,6 +33,8 @@ const SECTIONS: { id: AdminSection; label: string; icon: IconName; tabs?: { valu
   { id: "billing", label: "Billing", icon: "24.list-view", tabs: [{ value: "overview", label: "Overview" }, { value: "groups", label: "Billing groups" }] },
   { id: "settings", label: "Settings", icon: "24.settings.small" },
 ];
+/** Activity's tabs with Governance+'s Developer logs (ours: Figma shows them at figma.com/developers/log) */
+const ACTIVITY_TABS = [{ value: "log", label: "Activity log" }, { value: "developer", label: "Developer logs" }];
 /** A workspace admin's Admin › ‹workspace› (Figma: "select the workspace, open the Libraries tab") */
 const WORKSPACE_SECTIONS: typeof SECTIONS = [
   { id: "libraries", label: "Libraries", icon: "24.library" },
@@ -71,17 +73,18 @@ export function AdminApp({ orgId, store, onExportCsv, onBack, initial, now = Dat
 }
 
 function AdminLayout({ onBack, initial }: { onBack?: () => void; initial?: AdminAppProps["initial"] }) {
-  const { workspace } = useAdmin();
-  const sections = workspace ? WORKSPACE_SECTIONS : SECTIONS;
+  const { workspace, store } = useAdmin();
+  // Round 14h: with `store.governance`, Activity gains the Developer logs tab (docs/governance.md §5)
+  const sections = workspace ? WORKSPACE_SECTIONS : store.governance ? SECTIONS.map((s) => (s.id === "activity" ? { ...s, tabs: ACTIVITY_TABS } : s)) : SECTIONS;
   const [section, setSection] = useState<AdminSection>(initial && sections.some((s) => s.id === initial.section) ? initial.section : sections[0].id);
   const [tabs, setTabs] = useState<Partial<Record<AdminSection, string>>>(initial?.tab ? { [initial.section]: initial.tab } : {});
   const [dashView, setDashView] = useState<"seatRequests" | "guestRequests" | null>(null);
   const meta = sections.find((s) => s.id === section)!;
   const tab = tabs[section] ?? meta.tabs?.[0].value;
-  const go = useCallback((s: AdminSection) => {
+  const go = (s: AdminSection) => {
     setSection(s);
     setDashView(null);
-  }, []);
+  };
   const title = section === "dashboard" && dashView ? (dashView === "seatRequests" ? "Seat requests" : "Guest requests") : meta.label;
   return (
     <div className={styles.app} data-admin="">
@@ -121,7 +124,8 @@ function AdminLayout({ onBack, initial }: { onBack?: () => void; initial?: Admin
           {section === "resources" && (tab === "plugins" || tab === "widgets") && <PluginsTab key={tab} kind={tab === "widgets" ? "widget" : "plugin"} />}
           {section === "libraries" && workspace && <LibrariesTab workspaceId={workspace.id} />}
           {section === "plugins" && workspace && <PluginsTab key={tab} kind={tab === "widgets" ? "widget" : "plugin"} workspaceId={workspace.id} />}
-          {section === "activity" && <ActivityTab />}
+          {section === "activity" && tab !== "developer" && <ActivityTab />}
+          {section === "activity" && tab === "developer" && <DeveloperLogsTab />}
           {section === "billing" && tab === "overview" && <BillingOverview />}
           {section === "billing" && tab === "groups" && <BillingGroupsTab />}
           {section === "settings" && <SettingsTab />}

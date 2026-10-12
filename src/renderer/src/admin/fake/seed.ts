@@ -60,14 +60,18 @@ export function makeSeed(now = Date.now(), orgId = "org1"): Seed {
       billingGroupId: i < 14 ? "bg-product" : i < 24 ? "bg-brand" : null,
       lastActiveAt: i === 30 ? null : i > 31 ? now - (200 + i * 6) * DAY : ago(i < 20 ? 6 : 120),
       joinedAt: now - (400 - i * 7) * DAY, pending: false, teams: 1 + (i % 4),
+      // Round 14: most members use 2FA (the CSV's 2FA_enabled)
+      twoFactor: i % 3 !== 2,
     });
   });
   GUESTS.forEach((name, i) => {
     const [first] = ascii(name).split(" ");
-    people.push({ id: `g${i + 1}`, email: `${first}@${["agency.com", "freelance.io", "partner.de", "studio-rossi.it"][i]}`, name, picture: null, role: "guest", seat: i === 0 ? "collab" : "view", workspaceId: null, billingGroupId: null, lastActiveAt: ago(40), joinedAt: now - (60 + i * 9) * DAY, pending: false, teams: 1 });
+    people.push({ id: `g${i + 1}`, email: `${first}@${["agency.com", "freelance.io", "partner.de", "studio-rossi.it"][i]}`, name, picture: null, role: "guest", seat: i === 0 ? "collab" : "view", workspaceId: null, billingGroupId: null, lastActiveAt: ago(40), joinedAt: now - (60 + i * 9) * DAY, pending: false, teams: 1,
+      // Round 14: one guest uses 2FA; two have an access expiration date
+      twoFactor: i === 0, guestExpiresAt: i === 0 ? now + 60 * DAY : i === 2 ? now + 10 * DAY : null });
   });
-  people.push({ id: "p1", email: "new.hire@studio.co", name: null, picture: null, role: "member", seat: "view", workspaceId: null, billingGroupId: null, lastActiveAt: null, joinedAt: now - 2 * DAY, pending: true, teams: 0 });
-  people.push({ id: "p2", email: "contractor@outside.dev", name: null, picture: null, role: "guest", seat: "view", workspaceId: null, billingGroupId: null, lastActiveAt: null, joinedAt: now - 5 * DAY, pending: true, teams: 0 });
+  people.push({ id: "p1", email: "new.hire@studio.co", name: null, picture: null, role: "member", seat: "view", workspaceId: null, billingGroupId: null, lastActiveAt: null, joinedAt: now - 2 * DAY, pending: true, teams: 0, twoFactor: false });
+  people.push({ id: "p2", email: "contractor@outside.dev", name: null, picture: null, role: "guest", seat: "view", workspaceId: null, billingGroupId: null, lastActiveAt: null, joinedAt: now - 5 * DAY, pending: true, teams: 0, twoFactor: false });
   const ref = (id: string): PersonRef => {
     const p = people.find((x) => x.id === id)!;
     return { id: p.id, email: p.email, name: p.name, picture: p.picture, role: p.role };

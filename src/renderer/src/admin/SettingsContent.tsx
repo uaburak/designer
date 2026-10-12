@@ -52,7 +52,8 @@ export function PublicSharingDialog({ settings, onClose }: { settings: OrgSettin
   const [adding, setAdding] = useState(false);
   const hours = expires ? expiryHours(expiry.n, expiry.unit) : null;
   const valid = !expires || hours !== null;
-  const custom = (workspaces ?? []).filter((w) => w.sharing && Object.keys(w.sharing).length);
+  // Round 14: a workspace's file exporting override is Settings › File exporting's, not a public sharing one
+  const custom = (workspaces ?? []).filter((w) => w.sharing && Object.keys(w.sharing).some((k) => k !== "fileExporting"));
   const others = (workspaces ?? []).filter((w) => !custom.includes(w));
   const save = () => {
     const patch: Partial<OrgSettings> = {};
@@ -108,7 +109,7 @@ export function PublicSharingDialog({ settings, onClose }: { settings: OrgSettin
                   <span className={styles.settingDescription}>{workspaceSummary(w.sharing!)}</span>
                 </span>
                 <Button variant="secondary" onClick={() => setEditing(w)}>Edit</Button>
-                <Button variant="secondary" onClick={() => void run(() => store.admin.updateWorkspace(w.id, { sharing: null }), "Custom settings removed")}>Remove</Button>
+                <Button variant="secondary" onClick={() => void run(() => store.admin.updateWorkspace(w.id, { sharing: w.sharing?.fileExporting ? { fileExporting: w.sharing.fileExporting } : null }), "Custom settings removed")}>Remove</Button>
               </div>
             ))}
           </div>
@@ -159,7 +160,7 @@ function WorkspaceSharingDialog({ workspace, org, onClose }: { workspace: OrgWor
   const valid = exp !== "on" || hours !== null;
   const orgSetting = (on: boolean) => `Organization setting (${on ? "On" : "Off"})`;
   const save = () => {
-    const sharing: WorkspaceSharingSettings = {};
+    const sharing: WorkspaceSharingSettings = w.fileExporting ? { fileExporting: w.fileExporting } : {};
     if (links !== "org") sharing.publicLinks = links === "on";
     if (pw !== "org") sharing.passwordRequired = pw === "on";
     if (exp !== "org") sharing.linkExpiryMaxHours = hours;

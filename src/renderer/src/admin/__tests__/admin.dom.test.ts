@@ -119,7 +119,7 @@ describe("Admin", () => {
     click(button("Get CSV"));
     await settle();
     expect(saved[0][0]).toBe("people-2026-10-11.csv");
-    expect(saved[0][1].split("\n")[0]).toBe("Name,Email,User type,Seat type,Workspace,Billing group,Last active,Joined");
+    expect(saved[0][1].split("\n")[0]).toBe("Name,Email,User type,Seat type,Workspace,Billing group,Last active,Joined,2FA_enabled,Guest access expiration date");
     expect(fake.state.activity[0].action.type).toBe("roster_exported");
   });
 

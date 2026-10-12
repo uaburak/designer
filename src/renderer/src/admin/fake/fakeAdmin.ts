@@ -4,7 +4,8 @@
  * write logs Figma's activity action, removed people's drafts go to Unassigned drafts — and also implements the parts
  * of `OrgsRepository` (user groups) and `TeamsRepository` (restore) the Admin app uses.
  */
-import type { AdminRepository, IdentityRepository, OrgsRepository } from "@shared/org/repositories";
+import type { AdminRepository, GovernanceRepository, IdentityRepository, OrgsRepository } from "@shared/org/repositories";
+import { GUEST_EXPIRY_MAX_DAYS } from "@shared/org/governance";
 import type * as O from "@shared/org/types";
 import { SEAT_LABEL, eventText, formatUtc, productOf, teamAccess, toCsv, userType } from "../labels";
 import { makeSeed, type Seed } from "./seed";
@@ -12,6 +13,7 @@ import { fakeOrgLibraries, fakeSharedFonts, seedResources, type FakeSharedFonts,
 import type { OrgLibrariesRepository } from "@shared/libraries/orgTypes";
 import { fakeIdentity, seedIdentity, type IdentityState } from "./fakeIdentity";
 import { fakePlanTokens, fakePlugins, seedPlugins, type AdminPluginsApi, type PluginsState } from "./fakePlugins";
+import { fakeGovernance, seedGovernance, type GovernanceState } from "./fakeGovernance";
 
 export type { AdminTeamsApi } from "../context";
 import type { AdminTeamsApi } from "../context";
@@ -37,6 +39,10 @@ export interface FakeAdminStore {
   plugins: AdminPluginsApi;
   /** Approvals, requests, private plugins and plan tokens (tests read them) */
   pluginsState: PluginsState;
+  /** Governance+ (docs/governance.md; round 14h): Admin's calls, in memory */
+  governance: GovernanceRepository;
+  /** The Governance+ rows (tests read and set them) */
+  governanceState: GovernanceState;
   /** The caller (the acting admin) */
   me: string;
 }
@@ -49,9 +55,11 @@ class Fail extends Error {
 
 const clone = <T,>(v: T): T => structuredClone(v);
 
-export function createFakeAdminStore(options: { now?: number; me?: string; latency?: number; /** Publish each new domain's TXT record at once (the demo) */ autoDns?: boolean } = {}): FakeAdminStore {
+export function createFakeAdminStore(options: { now?: number; me?: string; latency?: number; /** Publish each new domain's TXT record at once (the demo) */ autoDns?: boolean; /** Start with the Governance+ add-on (round 14) */ governancePlus?: boolean } = {}): FakeAdminStore {
   const now = options.now ?? Date.now();
   const s = makeSeed(now);
+  const gov = seedGovernance(s, now, options.governancePlus ?? false);
+  const started = Date.now();
   const me = options.me ?? "u1";
   let seq = 0;
   const wait = <T,>(v: T): Promise<T> => (options.latency ? new Promise((r) => setTimeout(() => r(clone(v)), options.latency)) : Promise.resolve(clone(v)));
@@ -159,7 +167,9 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
         const email = raw.trim().toLowerCase();
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Fail("invalid", `"${raw}" isn't an email address`);
         if (s.people.some((p) => p.email === email)) throw new Fail("conflict", `${email} is already in the organization`);
-        const p: O.AdminPerson = { id: `n${++seq}`, email, name: null, picture: null, role: input.role, seat: input.seat ?? s.settings.defaultSeat, workspaceId: input.workspaceId ?? null, billingGroupId: input.billingGroupId ?? null, lastActiveAt: null, joinedAt: Date.now(), pending: true, teams: 0 };
+        const p: O.AdminPerson = { id: `n${++seq}`, email, name: null, picture: null, role: input.role, seat: input.seat ?? s.settings.defaultSeat, workspaceId: input.workspaceId ?? null, billingGroupId: input.billingGroupId ?? null, lastActiveAt: null, joinedAt: Date.now(), pending: true, teams: 0, twoFactor: false,
+          // Round 14 (§2.13): a guest who joins gets the default duration
+          ...(input.role === "guest" && gov.governancePlus && s.settings.guestExpiryDays ? { guestExpiresAt: Date.now() + s.settings.guestExpiryDays * 86_400_000 } : {}) };
         s.people.push(p);
         added.push(p);
         log("org_invite_create", userEntity(p), { role: input.role, seat: p.seat });
@@ -277,7 +287,13 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
       if (patch.sharing !== undefined && JSON.stringify(patch.sharing) !== JSON.stringify(w.sharing ?? null)) {
         const x = patch.sharing?.linkExpiryMaxHours;
         if (x !== undefined && x !== null && !(Number.isInteger(x) && x >= 1 && x <= 744)) throw new Fail("invalid", "Links must expire within 1 hour to 31 days");
-        log("workspace_public_link_setting_change", entity(), { from: w.sharing ?? null, to: patch.sharing });
+        // Round 14 (as server/src/org/admin.ts): file exporting needs Governance+ and logs its own action; the link
+        // action only when a link key changed
+        const { fileExporting: fromExport, ...fromLinks } = w.sharing ?? {};
+        const { fileExporting: toExport, ...toLinks } = patch.sharing ?? {};
+        if (fromExport !== toExport && toExport !== undefined && !gov.governancePlus) throw new Fail("forbidden", "Requires Governance+");
+        if (JSON.stringify(fromLinks) !== JSON.stringify(toLinks)) log("workspace_public_link_setting_change", entity(), { from: w.sharing ?? null, to: patch.sharing });
+        if (fromExport !== toExport) log("workspace_file_export_controls_setting_change", entity(), { from: fromExport ?? null, to: toExport ?? null });
         w.sharing = patch.sharing && Object.keys(patch.sharing).length ? { ...patch.sharing } : null;
       }
       for (const uid of patch.members?.add ?? []) {
@@ -361,6 +377,11 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
     async updateSettings(_org, patch) {
       const org = { type: "org" as const, id: s.orgId, name: s.orgName };
       const before = s.settings;
+      // Round 14 (docs/governance.md §2.1): Governance+ keys need the add-on
+      const gKeys = (["twoFactorForGuests", "guestExpiryDays", "fileExporting", "discovery"] as const).filter((k) => k in patch && JSON.stringify(patch[k]) !== JSON.stringify(before[k]));
+      if (gKeys.length && !gov.governancePlus) throw new Fail("forbidden", "Requires Governance+");
+      const days = patch.guestExpiryDays;
+      if (days !== undefined && days !== null && !(Number.isInteger(days) && days >= 1 && days <= GUEST_EXPIRY_MAX_DAYS)) throw new Fail("invalid", `Choose between 1 and ${GUEST_EXPIRY_MAX_DAYS.toLocaleString("en-US")} days`);
       ident.validateSettings(before, patch);
       const next: O.OrgSettings = { ...before, ...patch, seatApproval: { ...before.seatApproval, ...patch.seatApproval } };
       s.settings = next;
@@ -371,6 +392,9 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
         ["teamCreation", "org_team_creation_controls"], ["guestMembership", "org_guest_invite_setting_change"], ["defaultSeat", "org_default_license_type_change"],
         ["cursorChat", "cursor_chat_setting_change"], ["audio", "audio_setting_change"], ["externalContent", "external_collaboration_controls_setting_change"],
         ["passwordMode", "autogen_password_controls_setting_change"], ["openSessions", "open_sessions_setting_change"],
+        // Round 14 (docs/governance.md §1, §3)
+        ["twoFactorForGuests", "mfa_required_setting_change"], ["guestExpiryDays", "org_guest_expiration_setting_change"],
+        ["fileExporting", "file_export_controls_setting_change"], ["discovery", "discovery_setting_change"],
       ];
       for (const [k, action] of actions) if (changed(k)) log(action, org, one(k));
       // Settings › Extensions (docs/plugins.md §10.3a): the approval action of each kind; the request switch rides with it
@@ -414,8 +438,9 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
       const org = { type: "org" as const, id: s.orgId, name: s.orgName };
       if (what === "people") {
         log("roster_exported", org);
-        const rows = filterPeople(query as O.PeopleQuery).map((p) => [p.name ?? "", p.email, userType(p), SEAT_LABEL[p.seat], wsName(p.workspaceId), bgName(p.billingGroupId), p.lastActiveAt ? new Date(p.lastActiveAt).toISOString() : "", new Date(p.joinedAt).toISOString()]);
-        return toCsv(["Name", "Email", "User type", "Seat type", "Workspace", "Billing group", "Last active", "Joined"], rows);
+        // Round 14: Figma's `2FA_enabled` column [G+]; the guest's expiration date (ours)
+        const rows = filterPeople(query as O.PeopleQuery).map((p) => [p.name ?? "", p.email, userType(p), SEAT_LABEL[p.seat], wsName(p.workspaceId), bgName(p.billingGroupId), p.lastActiveAt ? new Date(p.lastActiveAt).toISOString() : "", new Date(p.joinedAt).toISOString(), p.twoFactor ? "true" : "false", p.guestExpiresAt ? new Date(p.guestExpiresAt).toISOString() : ""]);
+        return toCsv(["Name", "Email", "User type", "Seat type", "Workspace", "Billing group", "Last active", "Joined", "2FA_enabled", "Guest access expiration date"], rows);
       }
       if (what === "teams") {
         log("org_team_csv_exported", org);
@@ -527,7 +552,8 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
     },
   };
 
-  const ident = fakeIdentity(s, seedIdentity(s, now), me, log, wait, () => Date.now(), { autoDns: options.autoDns });
+  const ident = fakeIdentity(s, seedIdentity(s, now), me, log, wait, () => Date.now(), { autoDns: options.autoDns, governancePlus: () => gov.governancePlus });
+  const governance = fakeGovernance(s, gov, ident, me, log, wait, () => now + (Date.now() - started));
   const resources = seedResources(s, now);
   const orgLibraries = fakeOrgLibraries(s, resources, me, log, wait, () => Date.now());
   const fonts = fakeSharedFonts(s, resources, me, wait, () => Date.now());
@@ -536,5 +562,5 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
     ident.completeTest();
   };
   const plugins = fakePlugins(s, pluginsState, log, wait, me, () => Date.now());
-  return { admin, orgs, teams, orgLibraries, fonts, identity: ident.identity, identityState: ident.state, testSso, state: s, resources, plugins, pluginsState, me };
+  return { admin, orgs, teams, orgLibraries, fonts, identity: ident.identity, identityState: ident.state, testSso, state: s, resources, plugins, pluginsState, governance, governanceState: gov, me };
 }
