@@ -3,7 +3,7 @@
  * kept with safeStorage in userData/account/session.json (mode 0600), every view told on `account:changed`. The token
  * never reaches a view; the store gets it from here when shared files arrive (docs/multiplayer.md §5).
  */
-import { app, BaseWindow, Notification, powerMonitor, safeStorage, shell, webContents, type WebContents } from "electron";
+import { app, BaseWindow, Notification, powerMonitor, shell, webContents, type WebContents } from "electron";
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ACCOUNT_PATH, DEFAULT_SERVER, type AccountMethod, type AccountResponse, type AccountState, type AccountUser, type SignInResult } from "../../shared/account";
@@ -11,6 +11,7 @@ import type { IdleNotice } from "../../shared/ipc";
 import type { SessionIdle } from "../../shared/org/identity";
 import { mainFetch } from "../net";
 import { allowedServer, desktopPolicy } from "../policy";
+import { sealAsync, unsealAsync } from "../sealed";
 import { onStoreReady, storeClient } from "../storeHost";
 import type { StoreClient } from "../../shared/store/client";
 import { viewOf } from "../views";
@@ -34,37 +35,63 @@ const file = () => join(dir(), "session.json");
 
 let session: Session | null = null;
 let loaded = false;
+let loading: Promise<void> | null = null;
 let pending: AbortController | null = null;
 
-const canEncrypt = () => {
-  try {
-    return safeStorage.isEncryptionAvailable();
-  } catch {
-    return false;
-  }
-};
-
+/** The kept session, for the sync callers: a "raw:" one is in at once; a sealed one comes through the keychain off
+ *  main's thread (sealed.ts) and is announced when it lands. Never `decryptString` here: on a Mac a keychain prompt
+ *  holds it, and this runs first thing at launch (checkSession) — main frozen before the store even starts. */
 function load(): void {
-  if (loaded) return;
-  loaded = true;
-  try {
-    const s = JSON.parse(readFileSync(file(), "utf8")) as StoredSession;
-    const token = s.token.startsWith("enc:") ? safeStorage.decryptString(Buffer.from(s.token.slice(4), "base64")) : s.token.startsWith("raw:") ? s.token.slice(4) : null;
-    // A session for another server (DESIGNER_SERVER changed) or past its end is no session.
-    if (token && s.server === serverUrl() && s.expiresAt > Date.now()) session = { server: s.server, token, expiresAt: s.expiresAt, user: s.user };
-  } catch {
-    session = null;
-  }
+  if (!loaded) void loadSession();
 }
 
+/** Reads userData/account/session.json once; resolves when the session (if any) is in. */
+function loadSession(): Promise<void> {
+  if (loaded) return Promise.resolve();
+  if (loading) return loading;
+  let s: StoredSession;
+  try {
+    s = JSON.parse(readFileSync(file(), "utf8")) as StoredSession;
+  } catch {
+    loaded = true;
+    return Promise.resolve();
+  }
+  const accept = (token: string | null) => {
+    // A session for another server (DESIGNER_SERVER changed) or past its end is no session.
+    if (token && s?.server === serverUrl() && s.expiresAt > Date.now()) session = { server: s.server, token, expiresAt: s.expiresAt, user: s.user };
+  };
+  if (typeof s?.token !== "string" || !s.token.startsWith("enc:")) {
+    loaded = true;
+    accept(typeof s?.token === "string" && s.token.startsWith("raw:") ? s.token.slice(4) : null);
+    return Promise.resolve();
+  }
+  loading = unsealAsync(s.token, { warn: (m) => console.warn(`[account] ${m}`) }).then((token) => {
+    loading = null;
+    // Signed in or out meanwhile: that answer stands.
+    if (loaded) return;
+    loaded = true;
+    accept(token);
+    if (session) announce(true);
+  });
+  return loading;
+}
+
+let saving: Promise<void> = Promise.resolve();
+/** In order (sealing is async); the file is 0600. */
 function save(s: Session | null): void {
-  if (!s) return void rmSync(file(), { force: true });
-  mkdirSync(dir(), { recursive: true });
-  const stored: StoredSession = { server: s.server, token: canEncrypt() ? `enc:${safeStorage.encryptString(s.token).toString("base64")}` : `raw:${s.token}`, expiresAt: s.expiresAt, user: s.user };
-  const tmp = `${file()}.tmp`;
-  writeFileSync(tmp, JSON.stringify(stored, null, 1), { mode: 0o600 });
-  renameSync(tmp, file());
-  chmodSync(file(), 0o600);
+  saving = saving
+    .then(async () => {
+      if (!s) return void rmSync(file(), { force: true });
+      const stored: StoredSession = { server: s.server, token: await sealAsync(s.token), expiresAt: s.expiresAt, user: s.user };
+      // Signed out (or in again) while the keychain answered: the later save has the last word.
+      if (session?.token !== s.token) return;
+      mkdirSync(dir(), { recursive: true });
+      const tmp = `${file()}.tmp`;
+      writeFileSync(tmp, JSON.stringify(stored, null, 1), { mode: 0o600 });
+      renameSync(tmp, file());
+      chmodSync(file(), 0o600);
+    })
+    .catch((e: unknown) => console.warn("[account] the session wasn't kept:", e instanceof Error ? e.message : e));
 }
 
 export function accountState(): AccountState {
@@ -157,8 +184,14 @@ export function onSessionChanged(listener: () => void): () => void {
 function setSession(s: Session | null): void {
   const changed = (s?.token ?? null) !== (session?.token ?? null);
   session = s;
+  loaded = true;
   if (!s) idle.stop();
   save(s);
+  announce(changed);
+}
+
+/** Every view, main's listeners (when the token changed) and the store learn the session. */
+function announce(changed: boolean): void {
   broadcast();
   if (changed) for (const l of [...sessionListeners]) l();
   const c = storeClient();
@@ -216,6 +249,7 @@ export function signOut(): AccountState {
 /** At launch, in the background: a session the server no longer accepts (signed out everywhere, user gone) is dropped.
  *  Offline or a server error keeps it — local work never waits on the network. */
 export async function checkSession(): Promise<void> {
+  await loadSession();
   const token = sessionToken();
   if (!token || !session) return;
   // Signed in (maybe offline): activity counts from now; the limit comes with /me.
