@@ -586,7 +586,11 @@ export function KeyManagementDialog({ onClose }: { onClose: () => void }) {
   const [confirming, setConfirming] = useState(false);
   const [encrypting, setEncrypting] = useState(false);
   const alive = useRef(true);
-  useEffect(() => () => void (alive.current = false), []);
+  // Set again on mount: StrictMode's dev double mount runs the cleanup once before the real mount
+  useEffect(() => {
+    alive.current = true;
+    return () => void (alive.current = false);
+  }, []);
   const st = status ?? loaded ?? null;
   if (!st) return null;
   const { total, encrypted } = st.files;

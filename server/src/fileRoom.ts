@@ -147,6 +147,15 @@ export class FileRoom extends DurableObject {
       await this.ekm.check(true);
     }
     const gated = (await this.ekm.gate(req.method, url.pathname)) ?? (await this.ekm.route(req.method, url.pathname));
+    if (gated && gated.status === 503 && req.method === "GET" && url.pathname === "/room/ws" && req.headers.get("upgrade") === "websocket") {
+      // A refused upgrade looks like a network failure to the client (it retries forever): accept, say why, close — as the
+      // hourly re-check does for open sockets — so the store marks the file blocked.
+      const pair = new WebSocketPair();
+      pair[1].accept();
+      pair[1].send(JSON.stringify({ t: "error", code: KEY_UNAVAILABLE.code, message: KEY_UNAVAILABLE.error }));
+      pair[1].close(CLOSE_ACCESS, "the encryption key is unavailable");
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
     if (gated) return gated;
     if (url.pathname.startsWith("/room/rest") || url.pathname === "/room/thumbnail") {
       return (await this.ekm.rest(req, url, this.rest)) ?? new Response("not found", { status: 404 });
