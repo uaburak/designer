@@ -1,10 +1,10 @@
 {
   "name": "designer-v2",
   "productName": "Designer",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "A 1:1 Figma desktop clone for personal use",
-  "author": "Burak Ko\u00e7",
+  "author": "Burak Koç",
   "main": "./out/main/index.js",
   "scripts": {
     "postinstall": "install-electron",
