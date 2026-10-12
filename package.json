@@ -19,6 +19,7 @@
     "dist": "npm run build && electron-builder --mac",
     "dist:win": "npm run build && electron-builder --win --x64",
     "dist:msi": "npm run build && electron-builder --win msi --x64",
+    "release": "bash scripts/release.sh",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc -p src/renderer/src/editor/plugins/__tests__/fixtures/tsconfig.json",
     "lint": "eslint",
     "test": "vitest run",
@@ -69,6 +70,7 @@
     "vitest": "4.1.11"
   },
   "dependencies": {
+    "electron-updater": "6.8.9",
     "kiwi-schema": "0.5.0"
   }
 }

@@ -25,7 +25,8 @@ import { workspaceDir } from "./storeHost";
 import { setShortcutSettings, shortcutSettings } from "./shortcuts";
 import { setContrast, setThemePreference, themeState } from "./theme";
 import { removeUploadedFont, uploadFonts, uploadedFonts } from "./uploadedFonts";
-import { settleFlush } from "./tabs";
+import { checkForUpdates, onUpdaterChange, restartToUpdate, updaterStatus } from "./updater";
+import { emit, settleFlush } from "./tabs";
 import { viewOf, type ViewInfo } from "./views";
 import { controllers, type WindowController } from "./window";
 
@@ -138,6 +139,14 @@ export function registerIpc() {
     if (typeof p?.x === "number" && typeof p.y === "number") Menu.getApplicationMenu()?.popup({ window: ctl.win, x: Math.round(p.x), y: Math.round(p.y) });
   });
   onSend("tabs:reopen", ({ ctl }) => void ctl.tabs.reopen());
+
+  // ── Updates (docs/desktop.md §12.6): the tab bar's pill and a manual check's progress ──
+  onInvoke("updater:get", () => updaterStatus());
+  onSend("updater:check", () => checkForUpdates());
+  onSend("updater:restart", () => restartToUpdate());
+  onUpdaterChange((status) => {
+    for (const ctl of controllers.values()) emit(ctl.tabbar.webContents, "updater:state", status);
+  });
 
   // ── Navigation ──
   onInvoke("nav:open-file", ({ ctl }, file) => {

@@ -6,6 +6,7 @@ import { flushSession, readSession, writeSession, type WindowBounds, type Window
 import { stopStoreHost } from "./storeHost";
 import { drainGovernanceReportsWithin } from "./account/governanceReports";
 import { emit, TabManager } from "./tabs";
+import { exitForUpdate } from "./updater";
 import { backgroundOf, createView, destroyView } from "./views";
 
 /**
@@ -31,7 +32,8 @@ export function finishQuit(): Promise<void> {
     .then(() => stopStoreHost())
     .finally(() => {
       flushSession();
-      app.exit(0);
+      // "Restart to update" (docs/desktop.md §12.6): the updater installs and opens the app again instead.
+      if (!exitForUpdate()) app.exit(0);
     });
   return finishing;
 }

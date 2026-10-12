@@ -4,6 +4,8 @@ First written 2026-10-06 when the first Claude session stopped and the owner mov
 
 ## Status 2026-10-12 — Round 14 (Governance+) — READ THIS FIRST
 
+**Updates (2026-10-12):** the app updates itself (electron-updater over the GitHub releases of `uaburak/designer`; Developer ID + notarized; "Check for Updates…", the tab bar's "Restart to update") — docs/desktop.md §12.4, §12.6; release with `npm run release -- <version> [notes.md]`. The first release's DMG replaces the installed ad-hoc copy by hand once.
+
 The owner answered Round 14's open questions with "free-tier and performance first; you decide" (docs/governance.md §8): our TOTP for guest 2FA, **managed keys only** (no AWS KMS), Discovery off by default, self-serve network ranges and policies, IPv4 + IPv6. Round 8 (Motion) stays deferred; rounds 9–13 stay set aside.
 
 All eight parts are merged on main (pre-commit 41775c0e, then 14a–14h; "§9 As built" sections at the end of docs/governance.md): server identity (2FA, multiple IdPs, network restrictions), org policy (the add-on switch, gates, IP allowlist, policies, guest expiry, file exporting), key management (AES-256-GCM rows, managed DEK), Discovery and developer logs, the store, desktop main reports, the clients (Settings › Security 2FA, Home gates, export gating) and Admin. Main-session fixes while merging: the room's one alarm is shared (autosave waits for `autosaveAt`), rooms learn their file key from `x-file-key`, range/discovery caches dropped on change.

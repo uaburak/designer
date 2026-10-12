@@ -7,18 +7,39 @@ files:
   - out/**
   - package.json
 asar: true
+# Updates (docs/desktop.md §12.6): electron-updater reads latest-mac.yml / latest.yml from the latest GitHub release of
+# uaburak/designer (public). This writes resources/app-update.yml; scripts/release.sh builds with --publish never and
+# prints the `gh release create` that uploads the files.
+publish:
+  provider: github
+  owner: uaburak
+  repo: designer
+  releaseType: release
 # The trackpad's haptics addon (src/main/haptics.ts, docs/desktop.md §10.2 "Haptics"): macOS only, loaded from Resources
 mac:
-  # Personal use: ad-hoc signed ("-"), never a Developer ID found in the keychain (docs/desktop.md §12.4)
-  identity: "-"
-  # Ad-hoc: no hardened runtime (it would need disable-library-validation to launch on another Mac)
-  hardenedRuntime: false
+  # Developer ID, hardened runtime, notarized (docs/desktop.md §12.4): Squirrel.Mac installs an update only when its
+  # signature matches the running app's, and Gatekeeper opens a downloaded copy without a warning. The same identity
+  # as Glint's; only this one, never another found in the keychain.
+  identity: "Bilal koç (Q6GDNC3V8B)"
+  # Signs with the certificate's hash: codesign can't match the name's "ç" (build/sign.mjs)
+  sign: ./build/sign.mjs
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # notarytool with the keychain profile in APPLE_KEYCHAIN_PROFILE (scripts/release.sh sets it: $NOTARY_PROFILE, else
+  # glint-notary); without it electron-builder signs and skips notarization with a warning
+  notarize: true
+  extendInfo:
+    NSMicrophoneUsageDescription: "DesignerV2 uses your microphone for audio conversations in shared files."
   extraResources:
     - from: native/haptics/haptics.node
       to: haptics.node
   category: public.app-category.graphics-design
   target:
     - target: dmg
+      arch: [arm64]
+    # What Squirrel.Mac installs (latest-mac.yml points at it); the DMG is for the first install
+    - target: zip
       arch: [arm64]
   icon: build/icon.png
 dmg:
@@ -32,6 +53,9 @@ win:
   icon: build/icon.png
   # Built from a Mac without Wine: leave the .exe's icon / version resources alone
   signAndEditExecutable: false
+  # Unsigned: no publisherName in app-update.yml, so electron-updater doesn't ask the NSIS update for a signature
+  # (latest.yml's sha512 is still checked). The portable zip and the MSI never update themselves (updater.ts).
+  verifyUpdateCodeSignature: false
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true

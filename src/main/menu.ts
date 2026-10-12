@@ -2,6 +2,7 @@ import { app, Menu, nativeTheme, webContents, type KeyboardEvent, type MenuItemC
 import { command, MENU_LAYOUT, registersAccelerator, runsFromMenuBar, type CommandId, type MenuEntry } from "../shared/commands";
 import { acceleratorFor, type KeyCombo } from "../shared/shortcuts";
 import { readSettings } from "./session";
+import { checkForUpdates, onUpdaterChange, restartToUpdate, updaterStatus } from "./updater";
 import type { WindowController } from "./window";
 
 /**
@@ -58,8 +59,16 @@ export function appMenu(current: () => WindowController | null, dev: boolean, bi
 
   const theme = (["app.theme-light", "app.theme-dark", "app.theme-system"] as const).map((id) => item(id, { checked: nativeTheme.themeSource === id.slice("app.theme-".length) }));
 
+  // "Check for Updates…" (docs/desktop.md §12.6): Figma's — in the app menu on a Mac, under Help in the Windows main
+  // menu; "Restart to Update" once an update is in. Left out when the updater is off (development, DisableUpdater, MSI).
+  const updates = updaterStatus();
+  const update: MenuItemConstructorOptions[] = updates.enabled
+    ? [updates.state.kind === "ready" ? { id: "app.restart-to-update", label: "Restart to Update", click: () => restartToUpdate() } : { id: "app.check-for-updates", label: "Check for Updates…", click: () => checkForUpdates() }]
+    : [];
+
   const appSubmenu: MenuItemConstructorOptions[] = [
     { role: "about" },
+    ...update,
     { type: "separator" },
     { label: "Theme", submenu: theme },
     { type: "separator" },
@@ -77,6 +86,7 @@ export function appMenu(current: () => WindowController | null, dev: boolean, bi
     ...Object.entries(MENU_LAYOUT).map(([label, list]): MenuItemConstructorOptions => {
       const submenu = entries(list);
       if (label === "File" && !mac) submenu.push({ type: "separator" }, { label: "Theme", submenu: theme }, { type: "separator" }, { role: "quit" });
+      if (label === "Help" && !mac && update.length) submenu.push({ type: "separator" }, ...update);
       return label === "Help" ? { role: "help", submenu } : { label, submenu };
     }),
   ];
@@ -89,7 +99,19 @@ let built: { current: () => WindowController | null; dev: boolean } | null = nul
 export function installAppMenu(current: () => WindowController | null, dev: boolean): void {
   built = { current, dev };
   Menu.setApplicationMenu(appMenu(current, dev, readSettings().shortcuts?.bindings));
+  // The update item's label follows the updater: rebuilt when it turns on, off or ready, not on every percent.
+  let shown = updateItemKey();
+  onUpdaterChange(() => {
+    if (updateItemKey() === shown) return;
+    shown = updateItemKey();
+    refreshAppMenu();
+  });
 }
+
+const updateItemKey = () => {
+  const s = updaterStatus();
+  return !s.enabled ? "off" : s.state.kind === "ready" ? "ready" : "check";
+};
 
 /** The user changed a shortcut: the menu bar again with its accelerators, then the window in front's enabled / checked items. */
 export function refreshAppMenu(): void {

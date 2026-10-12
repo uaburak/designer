@@ -73,5 +73,8 @@
   .add:hover { background: var(--ds-color-tabbar-hover); color: var(--figma-color-text); }
   .add:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -1px; }
   .spacer { flex: 1 1 auto; min-width: var(--ds-space-6); }
+  .notice { display: flex; flex: none; align-items: center; padding: 0 var(--ds-space-2); -webkit-app-region: no-drag; }
+  .update { border-radius: var(--ds-radius-full); }
+  .updateStatus { display: flex; align-items: center; gap: var(--ds-space-2); color: var(--figma-color-text-secondary); white-space: nowrap; }
   .trailing { display: flex; flex: none; align-items: center; justify-content: center; width: 40px; -webkit-app-region: no-drag; }
 }
