@@ -98,7 +98,9 @@ void fullColor(const Image& img, Palette& p, int k) {
   std::vector<Lab> samples;
   size_t count = std::min<size_t>(opaque.size(), kMaxSamples);
   samples.reserve(count);
-  for (size_t s = 0; s < count; s++) samples.push_back(oklab(img.rgba.data() + static_cast<size_t>(opaque[s * opaque.size() / count]) * 4));
+  // In 64 bits: size_t is 32 bits in wasm, where s × 1,048,576 overflowed for a 1024² picture and every sample came
+  // from its first rows (a three-colour logo traced as one layer of its mean colour).
+  for (size_t s = 0; s < count; s++) samples.push_back(oklab(img.rgba.data() + static_cast<size_t>(opaque[static_cast<size_t>(static_cast<uint64_t>(s) * opaque.size() / count)]) * 4));
   // k-means++ (Arthur & Vassilvitskii 2007): the first centre drawn uniformly, each next one with probability ∝ D².
   Rng rng{1};
   std::vector<Lab> centres;

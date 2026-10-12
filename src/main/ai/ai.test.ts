@@ -177,7 +177,8 @@ describe("a one-shot run on an OpenAI-compatible server", () => {
     expect(types[0]).toBe("status");
     expect(types.filter((t) => t === "delta").length).toBeGreaterThan(2);
     expect(types.slice(-3)).toEqual(["usage", "result", "done"]);
-    expect(events.find((e) => e.type === "usage")).toEqual({ type: "usage", usage: { input: 100, output: 20, images: 0, credits: 1 } });
+    // Who answered rides on the usage (found 2026-10-12: with "Automatic" the ledger said "auto"; only main knows).
+    expect(events.find((e) => e.type === "usage")).toEqual({ type: "usage", usage: { input: 100, output: 20, images: 0, credits: 1, providerId: "ollama", model: "llama-test" } });
     expect(events.find((e) => e.type === "result")).toMatchObject({ json: { names: [{ id: "1:2", name: "Header" }] } });
     expect(requests[0]).toMatchObject({ model: "llama-test", stream: true, response_format: { type: "json_schema", json_schema: { schema: SCHEMA } } });
     expect((requests[0].messages as { role: string }[])[0]).toEqual({ role: "system", content: "Answer with JSON only." });

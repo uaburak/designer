@@ -30,7 +30,7 @@ beforeAll(async () => {
   vi.spyOn(fonts, "missing").mockReturnValue([]);
 });
 
-type Answer = { json: unknown; usage?: { input: number; output: number; credits?: number } } | { error: { code: AiErrorCode; message: string } } | "hang";
+type Answer = { json: unknown; usage?: { input: number; output: number; credits?: number; providerId?: string; model?: string } } | { error: { code: AiErrorCode; message: string } } | "hang";
 
 /** A fake main: each run answers with `script(request)` a tick later (or never: "hang", until cancelled). */
 function fakeAi(script: (req: AiRunRequest) => Answer) {
@@ -53,7 +53,7 @@ function fakeAi(script: (req: AiRunRequest) => Answer) {
           emit(req.runId, { type: "error", code: a.error.code, message: a.error.message });
         } else {
           const u = a.usage ?? { input: 1200, output: 300 };
-          emit(req.runId, { type: "usage", usage: { input: u.input, output: u.output, images: 0, credits: u.credits ?? 1 } });
+          emit(req.runId, { type: "usage", usage: { ...u, images: 0, credits: u.credits ?? 1 } });
           emit(req.runId, { type: "result", text: JSON.stringify(a.json), json: a.json });
         }
         emit(req.runId, { type: "done" });
@@ -256,7 +256,7 @@ describe("Text actions", () => {
 describe("Add interactions", () => {
   it("connects the selected frames from the answer (NAVIGATE / BACK), one step, 20 credits, the banner", async () => {
     let ids: { button: string; back: string; a: string; b: string } | null = null;
-    const t = await editor(() => ({ json: { interactions: [{ sourceId: ids!.button, trigger: "ON_CLICK", action: "NAVIGATE", destinationId: ids!.b }, { sourceId: ids!.back, trigger: "ON_CLICK", action: "BACK" }, { sourceId: ids!.button, trigger: "ON_CLICK", action: "NAVIGATE", destinationId: ids!.a }] }, usage: { input: 2000, output: 200, credits: 20 } }));
+    const t = await editor(() => ({ json: { interactions: [{ sourceId: ids!.button, trigger: "ON_CLICK", action: "NAVIGATE", destinationId: ids!.b }, { sourceId: ids!.back, trigger: "ON_CLICK", action: "BACK" }, { sourceId: ids!.button, trigger: "ON_CLICK", action: "NAVIGATE", destinationId: ids!.a }] }, usage: { input: 2000, output: 200, credits: 20, providerId: "antigravity", model: "gemini-3-pro" } }));
     const made = (await t.call("create_nodes", {
       nodes: [
         { type: "FRAME", name: "Home", x: 3000, y: 0, width: 390, height: 800, children: [{ type: "FRAME", name: "Sign up button", x: 20, y: 700, width: 200, height: 48, children: [{ type: "TEXT", characters: "Sign up" }] }] },
@@ -275,7 +275,8 @@ describe("Add interactions", () => {
     expect(live(ids.button)[0].actions?.[0]).toMatchObject({ navigationType: "NAVIGATE" });
     expect(live(ids.back)[0].actions?.[0]).toMatchObject({ connectionType: "BACK" });
     expect(t.ai.get().banner).toEqual({ kind: "interactions", count: 2, start: a });
-    expect(t.ledger[0]).toMatchObject({ action: "add-interactions", credits: 20 });
+    // The provider main says answered, not Settings › AI's route (with "Automatic" that was "auto" — found running it for real).
+    expect(t.ledger[0]).toMatchObject({ action: "add-interactions", credits: 20, providerId: "antigravity", model: "gemini-3-pro" });
     // ✕ on the banner undoes the step.
     t.ai.closeBanner(true);
     expect(live(ids.button)).toHaveLength(0);

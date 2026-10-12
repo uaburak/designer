@@ -1,28 +1,29 @@
 /**
  * The local image tools' model calls (docs/ai.md §2.6) — the pre- and post-processing around one ONNX run each, pure
  * apart from `runModel` (the worker; tests put a fake runner there):
- * - Remove background: BiRefNet lite at 1024², ImageNet mean / std, the logits' sigmoid as the matte, resized back and
+ * - Remove background: ISNet at 1024², its own mean / std, its probabilities as the matte, resized back and
  *   applied as alpha.
  * - Boost resolution: Swin2SR x4 per 128 px tile (tiles.ts), each padded to a multiple of 8 (its window), values 0…1.
  * - Erase: LaMa on a 512² crop around the lasso (image 0…1, mask 0 / 1; its output is 0…255), put back inside a
  *   feathered mask.
- * - Isolate: the lasso's crop through BiRefNet, the matte intersected with the lasso.
+ * - Isolate: the lasso's crop through ISNet, the matte intersected with the lasso.
  */
 import type { AiModelId } from "../../../../shared/ai/types";
-import { applyMatte, blank, blendMasked, crop, dilate, feather, fromChw, grow, maskBounds, matteFromLogits, resize, resizeMap, toChw, type Rect, type Rgba } from "./pixels";
+import { applyMatte, blank, blendMasked, crop, dilate, feather, fromChw, grow, maskBounds, matteFromProbabilities, resize, resizeMap, toChw, type Rect, type Rgba } from "./pixels";
 import { upscaleTiled } from "./tiles";
 import { runModel, type OnnxTensor } from "./worker";
 
 /** Each model's ONNX file (the pins in src/main/ai/models.ts). */
 export const MODEL_FILE: Partial<Record<AiModelId, string>> = {
-  "birefnet-lite": "onnx/model_fp16.onnx",
-  "swin2sr-x4": "onnx/model_fp16.onnx",
+  isnet: "onnx/model_fp16.onnx",
+  "swin2sr-x4": "onnx/model.onnx",
   lama: "inpainting_lama_2025jan.onnx",
 };
 
-const IMAGENET_MEAN = [0.485, 0.456, 0.406];
-const IMAGENET_STD = [0.229, 0.224, 0.225];
-export const BIREFNET_SIZE = 1024;
+/** ISNet's preprocessor_config.json: (v − 128) / 256 on 0…255, i.e. (x − 0.502) / 1.004 on 0…1 */
+const ISNET_MEAN = [128 / 255, 128 / 255, 128 / 255];
+const ISNET_STD = [256 / 255, 256 / 255, 256 / 255];
+export const ISNET_SIZE = 1024;
 export const LAMA_SIZE = 512;
 
 async function onnx(id: AiModelId, inputs: OnnxTensor[]): Promise<OnnxTensor[]> {
@@ -35,12 +36,12 @@ const count = (dims: number[]) => dims.reduce((a, b) => a * b, 1);
 
 /** The picture's foreground matte (0…255, the picture's size). */
 export async function foregroundMatte(image: Rgba): Promise<Uint8Array> {
-  const input = resize(image, BIREFNET_SIZE, BIREFNET_SIZE);
-  const out = await onnx("birefnet-lite", [{ data: toChw(input, IMAGENET_MEAN, IMAGENET_STD), dims: [1, 3, BIREFNET_SIZE, BIREFNET_SIZE] }]);
-  // BiRefNet answers its last (finest) prediction last.
-  const pred = [...out].reverse().find((t) => count(t.dims) === BIREFNET_SIZE * BIREFNET_SIZE);
+  const input = resize(image, ISNET_SIZE, ISNET_SIZE);
+  const out = await onnx("isnet", [{ data: toChw(input, ISNET_MEAN, ISNET_STD), dims: [1, 3, ISNET_SIZE, ISNET_SIZE] }]);
+  // ISNet's export answers the finest side output, already through its sigmoid (0…1).
+  const pred = out.find((t) => count(t.dims) === ISNET_SIZE * ISNET_SIZE);
   if (!pred) throw new Error("The background model answered an unexpected shape.");
-  return resizeMap(matteFromLogits(pred.data), BIREFNET_SIZE, BIREFNET_SIZE, image.width, image.height);
+  return resizeMap(matteFromProbabilities(pred.data), ISNET_SIZE, ISNET_SIZE, image.width, image.height);
 }
 
 export async function removeBackground(image: Rgba): Promise<Rgba> {

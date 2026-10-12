@@ -63,8 +63,23 @@ describe("Expand's compositing", () => {
     const out = recomposite(answer, original, 11, 5, { x: 2, y: 1 });
     expect([out.width, out.height]).toEqual([11, 5]);
     for (let y = 0; y < 4; y++) for (let x = 0; x < 6; x++) expect(px(out, x + 2, y + 1)).toEqual(px(original, x, y));
-    expect(px(out, 0, 0)).toEqual([0, 0, 250, 255]);
-    expect(px(out, 10, 4)).toEqual([0, 0, 250, 255]);
+    // The new area is opaque (here all of it lies in the seam band of a 6 × 4 original, so it leans to its edge colours)
+    expect(px(out, 0, 0)[3]).toBe(255);
+    expect(px(out, 10, 4)[3]).toBe(255);
+  });
+
+  it("fades the new area into the original's edge over a narrow band, leaving the original exact", () => {
+    // Found running Expand on Antigravity (2026-10-12): the fill's tone differed and the paste left a hard seam.
+    const orig = fill(100, 100, () => [200, 100, 50, 255]);
+    const answer = fill(200, 100, () => [0, 0, 0, 255]);
+    const out = recomposite(answer, orig, 200, 100, { x: 50, y: 0 });
+    for (const x of [50, 99, 149]) expect(px(out, x, 50)).toEqual([200, 100, 50, 255]);
+    const near = px(out, 49, 50), mid = px(out, 47, 50), far = px(out, 40, 50);
+    expect(near[0]).toBeGreaterThan(150);
+    expect(mid[0]).toBeLessThan(near[0]);
+    expect(mid[0]).toBeGreaterThan(0);
+    expect(far).toEqual([0, 0, 0, 255]);
+    expect(px(out, 150, 50)[0]).toBeGreaterThan(150);
   });
 
   it("pads to an aspect ratio with the least growth, centred", () => {
@@ -107,19 +122,22 @@ describe("Boost resolution's tiles", () => {
 });
 
 describe("the models' processing (a fake runner)", () => {
-  it("Remove background: 1024² ImageNet input, the sigmoid matte back at the picture's size", async () => {
+  it("Remove background: ISNet's 1024² input ((v − 128) / 256), its probabilities as the matte at the picture's size", async () => {
     let seen: ModelInput | null = null;
-    setModelRunner(async (_id, input) => {
+    let model = "";
+    setModelRunner(async (id, input) => {
       seen = input;
+      model = id;
       const out = new Float32Array(1024 * 1024);
-      for (let y = 0; y < 1024; y++) for (let x = 0; x < 1024; x++) out[y * 1024 + x] = y < 512 ? 20 : -20;
-      return [{ data: new Float32Array(4), dims: [1, 1, 2, 2] }, { data: out, dims: [1, 1, 1024, 1024] }];
+      for (let y = 0; y < 1024; y++) for (let x = 0; x < 1024; x++) out[y * 1024 + x] = y < 512 ? 0.999 : 0.001;
+      return [{ data: out, dims: [1, 1, 1024, 1024] }];
     });
     const matte = await foregroundMatte(fill(10, 10, () => [255, 255, 255, 255]));
+    expect(model).toBe("isnet");
     expect(seen!).toMatchObject({ kind: "onnx", file: "onnx/model_fp16.onnx" });
     const input = (seen! as Extract<ModelInput, { kind: "onnx" }>).inputs[0];
     expect(input.dims).toEqual([1, 3, 1024, 1024]);
-    expect(input.data[0]).toBeCloseTo((1 - 0.485) / 0.229, 4);
+    expect(input.data[0]).toBeCloseTo((255 - 128) / 256, 4);
     expect(matte[0]).toBe(255);
     expect(matte[99]).toBe(0);
   });

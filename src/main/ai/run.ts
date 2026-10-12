@@ -50,7 +50,14 @@ interface Live {
 }
 
 /** Credits of a text action's tokens (the agent-chat default formula for token actions). */
-export const usageOf = (action: AiAction, t: { input: number; output: number }, model?: string): AiUsage => ({ input: t.input, output: t.output, images: 0, credits: creditsFor(action, { input: t.input, output: t.output, model }) });
+export const usageOf = (action: AiAction, t: { input: number; output: number }, model?: string, providerId?: string): AiUsage => ({
+  input: t.input,
+  output: t.output,
+  images: 0,
+  credits: creditsFor(action, { input: t.input, output: t.output, model }),
+  ...(providerId ? { providerId } : {}),
+  ...(model ? { model } : {}),
+});
 
 /** "Your AI credits reset on November 1." */
 export function overLimitMessage(b: AiBalance): string {
@@ -108,9 +115,10 @@ export class AiRuns {
   private async execute(req: AiRunRequest, emit: Emit, signal: AbortSignal): Promise<void> {
     const total = { input: 0, output: 0 };
     let model: string | undefined;
+    let providerId: string | undefined;
     let attempted = false;
     const fail = (err: unknown) => {
-      if (attempted && (total.input || total.output)) emit({ type: "usage", usage: usageOf(req.action, total, model) });
+      if (attempted && (total.input || total.output)) emit({ type: "usage", usage: usageOf(req.action, total, model, providerId) });
       if (signal.aborted && (!(err instanceof AiError) || err.code === "cancelled")) return emit({ type: "done", cancelled: true });
       const e = err instanceof AiError ? err : new AiError("network", err instanceof Error ? err.message : String(err));
       if (e.code === "cancelled") return emit({ type: "done", cancelled: true });
@@ -123,6 +131,7 @@ export class AiRuns {
       const over = await overLimit(this.deps, req.action);
       if (over) throw over;
       const route = await this.deps.resolveRoute(req.action, req.route);
+      providerId = route.providerId;
       if (signal.aborted) throw new AiError("cancelled", "Cancelled.");
       const schemaFlag = route.kind === "cli" && req.schema ? ((await this.deps.takesSchema?.(route)) ?? true) : false;
       emit({ type: "status", text: `Asking ${route.kind === "cli" ? route.spec.label : route.label}…` });
@@ -143,7 +152,7 @@ export class AiRuns {
         text = second.text;
         if (answer.errors.length) throw new AiError("bad-output", `The answer didn't match what this action needs (${answer.errors.slice(0, 3).join("; ")}).`);
       }
-      emit({ type: "usage", usage: usageOf(req.action, total, model) });
+      emit({ type: "usage", usage: usageOf(req.action, total, model, providerId) });
       emit({ type: "result", text, ...(answer.json !== undefined ? { json: answer.json } : {}) });
       emit({ type: "done" });
     } catch (err) {

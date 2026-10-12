@@ -70,7 +70,7 @@ function listen(handler: (req: IncomingMessage, res: ServerResponse, body: Buffe
 
 describe("the local models' catalogue", () => {
   it("pins every model at a commit, with a size and a SHA-256 per file", () => {
-    expect(AI_MODELS.map((m) => m.id)).toEqual(["birefnet-lite", "swin2sr-x4", "lama", "clip-vit-b32", "minilm-l6"]);
+    expect(AI_MODELS.map((m) => m.id)).toEqual(["isnet", "swin2sr-x4", "lama", "clip-vit-b32", "minilm-l6"]);
     for (const m of AI_MODELS) {
       expect(m.revision).toMatch(/^[0-9a-f]{40}$/);
       expect(m.bytes).toBe(m.files.reduce((s, f) => s + f.bytes, 0));
@@ -78,7 +78,16 @@ describe("the local models' catalogue", () => {
       expect(m.files.some((f) => f.path.endsWith(".onnx"))).toBe(true);
     }
     // docs/ai.md §2.4's sizes
-    expect(AI_MODELS.find((m) => m.id === "birefnet-lite")!.files.find((f) => f.path.endsWith(".onnx"))!.bytes).toBe(114_538_221);
+    expect(AI_MODELS.find((m) => m.id === "isnet")!.files.find((f) => f.path.endsWith(".onnx"))!.bytes).toBe(88_152_708);
+  });
+
+  it("pins models that run on onnxruntime-web's wasm (found running them for real, 2026-10-12)", () => {
+    const onnx = (id: string) => AI_MODELS.find((m) => m.id === id)!.files.find((f) => f.path.endsWith(".onnx"))!;
+    // BiRefNet lite needed > 4 GB at 1024² on wasm and a 64-input Concat on WebGPU: background removal is ISNet's.
+    expect(AI_MODELS.some((m) => /birefnet/i.test(m.repo))).toBe(false);
+    expect(AI_MODELS.find((m) => m.id === "isnet")!.repo).toBe("imgly/isnet-general-onnx");
+    // Swin2SR's fp16 export fails its first wasm run ("Shape mismatch attempting to re-use buffer"); the fp32 one runs.
+    expect(onnx("swin2sr-x4")).toEqual({ path: "onnx/model.onnx", bytes: 55_046_351, sha256: "2038700d530bb756a29552d7c8ddbd4a8f734df6cc43162ed543360a7aeb02f7" });
   });
 
   it("never joins a path outside the model's folder", () => {
@@ -282,7 +291,8 @@ describe("OpenAI Images and the Gemini API (fake HTTP)", () => {
     const ev = await run({ runId: "o1", action: "make-image", prompt: "a red square", size: { width: 1600, height: 900 }, route: { providerId: "openai-images", model: "gpt-image-1" } }, d());
     expect(ev.map((e) => e.type)).toEqual(["status", "image", "usage", "done"]);
     expect(ev[1]).toMatchObject({ type: "image", mime: "image/png", width: 4, height: 2 });
-    expect(ev[2]).toEqual({ type: "usage", usage: { input: 0, output: 0, images: 1, credits: 2 } });
+    // Who answered rides on the usage, so the ledger names it even for a run without a route (Expand; found 2026-10-12).
+    expect(ev[2]).toEqual({ type: "usage", usage: { input: 0, output: 0, images: 1, credits: 2, providerId: "openai-images", model: "gpt-image-1" } });
     const req = seen.find((s) => s.url === "/v1/images/generations")!;
     expect(req.headers.authorization).toBe("Bearer sk-test");
     expect(JSON.parse(req.body.toString())).toEqual({ model: "gpt-image-1", prompt: "a red square", n: 1, size: "1536x1024" });

@@ -66,7 +66,7 @@ const toggle = (label: string) => $$('[role="switch"]').find((s) => s.getAttribu
 const field = (label: string) => $$("input").find((i) => i.getAttribute("aria-label") === label) as HTMLInputElement;
 
 const INFO: AiModelInfo[] = [
-  { id: "birefnet-lite", label: "BiRefNet lite", use: "Remove background", license: "MIT", repo: "onnx-community/BiRefNet_lite-ONNX", revision: "", files: [], bytes: 114_500_000 },
+  { id: "isnet", label: "ISNet", use: "Remove background", license: "Apache-2.0", repo: "imgly/isnet-general-onnx", revision: "", files: [], bytes: 88_200_000 },
   { id: "minilm-l6", label: "all-MiniLM-L6-v2", use: "Search", license: "Apache-2.0", repo: "Xenova/all-MiniLM-L6-v2", revision: "", files: [], bytes: 23_000_000 },
 ];
 
@@ -80,7 +80,7 @@ function fakeAi(opts: { models?: "fail" } = {}) {
     settings: async () => settings,
     setSettings: async (patch) => (patches.push(patch), (settings = { ...settings, ...patch })),
     setImageKey: async (provider, key) => (keys.push([provider, key]), (settings = { ...settings, imageKeys: { ...settings.imageKeys, [provider]: key !== null } })),
-    models: async () => (opts.models === "fail" ? Promise.reject(new Error("no")) : { info: INFO, state: [{ id: "birefnet-lite", state: "ready", bytes: INFO[0].bytes }] }),
+    models: async () => (opts.models === "fail" ? Promise.reject(new Error("no")) : { info: INFO, state: [{ id: "isnet", state: "ready", bytes: INFO[0].bytes }] }),
     modelDownload: async (id) => {
       downloads.push(id);
       const s: AiModelState = { id, state: "downloading", received: 11_500_000, bytes: 23_000_000 };
@@ -152,10 +152,10 @@ describe("Settings › AI", () => {
     expect(f.keys.at(-1)).toEqual(["openai", null]);
     const rows = $$("[data-ai-model]");
     expect(rows.map((r) => [r.getAttribute("data-ai-model"), r.getAttribute("data-state")])).toEqual([
-      ["birefnet-lite", "ready"],
+      ["isnet", "ready"],
       ["minilm-l6", "absent"],
     ]);
-    expect(rows[0].textContent).toContain("114.5 MB");
+    expect(rows[0].textContent).toContain("88.2 MB");
     expect(rows[0].textContent).toContain("Downloaded");
     click(button("Download", rows[1]));
     await settle();

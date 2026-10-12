@@ -321,8 +321,9 @@ export class AiActions {
     const credits = usage ? (usage.credits ?? creditsFor(action, usage)) : ok ? creditsFor(action, {}) : 0;
     const entry: Omit<AiUsageEntry, "id" | "at"> = {
       action,
-      providerId: route?.providerId ?? "auto",
-      ...(route?.model ? { model: route.model } : {}),
+      // Who answered as main says (with "Automatic" only main knows), else the route Settings › AI picks.
+      providerId: usage?.providerId ?? route?.providerId ?? "auto",
+      ...((usage?.model ?? route?.model) ? { model: usage?.model ?? route?.model } : {}),
       input: usage?.input ?? 0,
       output: usage?.output ?? 0,
       images: 0,

@@ -66,13 +66,13 @@ Each AI row has an "AI" badge (Learn more). The "Visual search (AI beta)" button
 
    | id | model (repo) | licence | file | size |
    |---|---|---|---|---|
-   | `birefnet-lite` | BiRefNet lite (`onnx-community/BiRefNet_lite-ONNX`) | MIT | `onnx/model_fp16.onnx` | 114.5 MB |
-   | `swin2sr-x4` | Swin2SR compressed x4 (`Xenova/swin2SR-compressed-sr-x4-48`) | Apache-2.0 upstream (mv-lab), **verify** | `onnx/model_fp16.onnx` | 32.7 MB |
+   | `isnet` | ISNet general use (`imgly/isnet-general-onnx`; weights from xuebinqin/DIS) | Apache-2.0 upstream (the ONNX repo is tagged MIT) | `onnx/model_fp16.onnx` | 88.2 MB |
+   | `swin2sr-x4` | Swin2SR compressed x4 (`Xenova/swin2SR-compressed-sr-x4-48`) | Apache-2.0 (mv-lab/swin2sr, verified 2026-10-12) | `onnx/model.onnx` (fp32) | 55.0 MB |
    | `lama` | LaMa inpainting (`opencv/inpainting_lama`) | Apache-2.0 (page) | `inpainting_lama_2025jan.onnx` | 92.6 MB |
    | `clip-vit-b32` | CLIP ViT-B/32 (`Xenova/clip-vit-base-patch32`) | MIT (OpenAI) | `onnx/vision_model_quantized.onnx` + `onnx/text_model_quantized.onnx` | 89.1 + 64.5 MB |
    | `minilm-l6` | all-MiniLM-L6-v2 (`Xenova/all-MiniLM-L6-v2`) | Apache-2.0 | `onnx/model_quantized.onnx` | 23.0 MB |
 
-   - Rejected: ISNet's ONNX on Hugging Face (tagged AGPL-3.0), RMBG (non-commercial), `@imgly/background-removal` (AGPL).
+   - Rejected: `onnx-community/ISNet-ONNX` (tagged AGPL-3.0; ISNet general use is taken from `imgly/isnet-general-onnx` instead, tagged MIT, its weights Apache-2.0 at xuebinqin/DIS), RMBG (non-commercial), the `@imgly/background-removal` package (AGPL), **BiRefNet lite** (dropped 2026-10-12 after running it: its deformable-conv decoder needs more than wasm's 4 GB at 1024² — `std::bad_alloc` — and a Concat of up to 64 inputs that Apple's WebGPU (10 storage buffers a stage) can't build).
    - Sizes are from the Hugging Face API on 2026-10-12. Revisions and SHA-256: pinned by 6b (§4 "As built").
 5. **Image APIs** (keys in the OS keychain through safeStorage, like custom servers):
    - **OpenAI Images**: `POST /v1/images/generations`, and `/v1/images/edits` (multipart: `image[]`, `mask` with transparent = change, `prompt`).
@@ -80,10 +80,10 @@ Each AI row has an "AI" badge (Learn more). The "Visual search (AI beta)" button
    - **Antigravity** (the owner's Google AI plan, its `generate_image`, no key): Make an image and Edit with prompt only.
    - Model ids come from settings, not hard-coded.
 6. **Which image tools run where:**
-   - Remove background: local (`birefnet-lite`, 1024² input, the matte resized and applied as alpha).
+   - Remove background: local (`isnet`, 1024² input, the matte resized and applied as alpha).
    - Boost resolution: local (`swin2sr-x4`, 128 px tiles with 16 px overlap; the output's long side is capped at 4096).
    - Erase: local (`lama`, 512² crop around the lasso, composited inside a feathered mask). With no model it falls back to the image API with a mask.
-   - Isolate: local. The lasso crop goes through `birefnet-lite`, the result is intersected with the lasso and becomes a **new image layer above**, with the original kept [unverified].
+   - Isolate: local. The lasso crop goes through `isnet`, the result is intersected with the lasso and becomes a **new image layer above**, with the original kept [unverified].
    - Expand: the image route, Antigravity by default (owner, §10.1): the original goes on the padded canvas, the new area transparent, sent as an Edit asking to fill it; the untouched original is re-composited over the result. With an OpenAI / Gemini key it can use their masked edit instead. The layer grows in the dragged directions.
    - Make an image / Edit with prompt: the image route.
    - Results are new image hashes through the editor's images import, set as the layer's IMAGE fill (or a new layer), each action one `writeAction` step. Several selected images are one step.
@@ -136,7 +136,9 @@ Prompt templates and schemas live in `src/shared/ai/prompts.ts` and `src/shared/
 
 **Tests**: `src/shared/ai/schemas.test.ts` (readers, prompts, kits), `editor/__tests__/aiRules.test.ts` (rename eligibility, matching, batches, Replace content groups, the text write, the builder over every block of every kit, styles), `editor/__tests__/aiActions.wasm.test.ts` (on the engine with a fake `ai` API: each action's request and schema, one undo step each, cancel mid-run, bad-output, over-limit, missing fonts, Replace content's distinct values, Add interactions with its banner ✕ undoing, First Draft building and restyling, the ledger), `editor/__tests__/aiPanels.dom.test.ts` (the panel's sections and badges, a form's run with Stop, over-limit's message with AI balance, the Prototype tab's button).
 
-**Not built / unverified**: Figma's exact error strings and banner wording; Translate's language list; First Draft's place in the All tab (it isn't in the live capture); the "Find more like" / duplicate suggestion timing; nobody has run an action against a real provider from the app yet (fake API only); no screenshot check of the new chrome.
+**Not built / unverified**: Figma's exact error strings and banner wording; Translate's language list; First Draft's place in the All tab (it isn't in the live capture); the "Find more like" / duplicate suggestion timing; Antigravity, Codex and Cursor as the text provider (only Claude Code ran for real, below).
+
+**Run for real (2026-10-12)**, the built app, Settings › AI's text provider on Automatic (→ Claude Code, `claude` 2.1.292, signed in), every answer schema-checked on the first try, each one undo step (⌘Z / redo checked for Rename layers): First Draft "a login screen" 17 s (a 390 × 456 frame; a theme click restyled it), Rename layers on the draft with "Frame N" / "Rectangle N" names 33 s (frames named "Status bar", "Header", "Input field"…; rectangles kept — Figma's rule), Rewrite this... 14 s, Translate to... Turkish on the frame 22 s, Replace content with a prompt 29 s (Turkish banking copy, the two inputs' texts differing), a second First Draft "a sign up screen" 18 s, Add interactions on the two 21 s ("Added 4 interactions", Preview / Keep it). The ledger recorded every run with its tokens and credits; with Monthly credits at 1, Shorten stopped at once with "You've used all 1 AI credits for this month. They reset on November 1." and AI balance (the image tools too) while Rename stays free. Fixed: the ledger's provider (see §4 "Run for real").
 
 ## 4. Image tools UI (6b)
 
@@ -165,19 +167,19 @@ Figma's wording checked on help 24004542669463 (2026-10-12): secondary toolbar �
 
 | id | repo @ revision | files (bytes) | total |
 |---|---|---|---|
-| `birefnet-lite` | `onnx-community/BiRefNet_lite-ONNX` @ `de15b22ba131738a16dff04aab8bdf8dc32e3ac1` | `onnx/model_fp16.onnx` (114,538,221; `d39b897c…ec402`), `config.json`, `preprocessor_config.json` | 114.5 MB |
-| `swin2sr-x4` | `Xenova/swin2SR-compressed-sr-x4-48` @ `7d3f2242026e00cbd998056c2a11e200fce198a7` | `onnx/model_fp16.onnx` (32,742,186; `1c47d2e3…c36b0`), `config.json`, `preprocessor_config.json` | 32.7 MB |
+| `isnet` | `imgly/isnet-general-onnx` @ `440dea96dd4a3b06bbbf5abec3e26569dd7ec49f` | `onnx/model_fp16.onnx` (88,152,708; `2eb4b5dd…04f20`), `config.json`, `preprocessor_config.json` | 88.2 MB |
+| `swin2sr-x4` | `Xenova/swin2SR-compressed-sr-x4-48` @ `7d3f2242026e00cbd998056c2a11e200fce198a7` | `onnx/model.onnx` (55,046,351; `2038700d…b02f7`; the fp16 export was dropped, see below), `config.json`, `preprocessor_config.json` | 55.0 MB |
 | `lama` | `opencv/inpainting_lama` @ `aee6d22f0a13e5e35af1c9a1c3afd62841fc6f3f` | `inpainting_lama_2025jan.onnx` (92,591,623; `7df918ac…fdf2`) — the folder's LICENSE is Apache-2.0 | 92.6 MB |
 | `clip-vit-b32` | `Xenova/clip-vit-base-patch32` @ `d15189d7028b43f1d3e65039190477f6af591c2a` | `onnx/vision_model_quantized.onnx`, `onnx/text_model_quantized.onnx`, `config.json`, `preprocessor_config.json`, `tokenizer.json`, `tokenizer_config.json`, `special_tokens_map.json` (6d's `SEARCH_MODEL_FILES` and one more) | 155.9 MB |
 | `minilm-l6` | `Xenova/all-MiniLM-L6-v2` @ `751bff37182d3f1213fa05d7196b954e230abad9` | `onnx/model_quantized.onnx`, `config.json`, `tokenizer.json`, `tokenizer_config.json`, `special_tokens_map.json` | 23.7 MB |
 
-Swin2SR's model card names no licence (upstream mv-lab/swin2sr is Apache-2.0) — still to **verify**.
+Swin2SR's licence, verified 2026-10-12: Apache-2.0 — mv-lab/swin2sr's LICENSE and README ("This project is released under the Apache 2.0 license", commit `6f25d76`) and the base model's card (`caidas/swin2SR-compressed-sr-x4-48`, `license: apache-2.0`). Pinned file changed to the fp32 `onnx/model.onnx` (55,046,351; `2038700d…b02f7`), see "Run for real" below.
 
 **Packages**: `onnxruntime-web` **1.31.0-dev.20260914-8d85527a0** exact (devDependencies; the build `@huggingface/transformers` 4.3.0 pins, so one copy; published 2026-09-14). `@huggingface/transformers` 4.3.0 is 6d's (dependencies).
 
 **Editor (`src/renderer/src/editor/imageTools/`)**:
 - `worker.ts` — `runModel(id, {kind: "onnx", file, inputs})` → the outputs, in a module Worker (`modelWorker.ts`: `onnxruntime-web/webgpu` — WebGPU when an adapter exists, else wasm; its wasm from the package by `?url`; one live session, a call for another model releases it; fp16 inputs when the session's metadata asks; fp16 outputs back as float32). The worker ends 60 s after its last call. `setModelRunner` replaces it (tests). Embeddings are 6d's own worker (`editor/search/embed.worker.ts`) over the same `aimodel:` files.
-- `runners.ts` — Remove background (BiRefNet 1024², ImageNet mean / std, the finest output's sigmoid, resized back, applied as alpha), Boost (per tile: padded to a multiple of 8 by mirroring, 0…1 in, ×4 out, cropped), Erase (a square region twice the lasso's size around it, 512² in, the mask dilated 4 px as 0/1, LaMa's 0…255 out — 0…1 detected — resized back, blended in a 3 px feathered mask, alpha kept), Isolate (the lasso's bounds + 2 px through BiRefNet, the matte ∩ the lasso feathered 1 px).
+- `runners.ts` — Remove background (ISNet 1024², (v − 128) / 256 as its preprocessor says, its probabilities as the matte, resized back, applied as alpha), Boost (per tile: padded to a multiple of 8 by mirroring, 0…1 in, ×4 out, cropped), Erase (a square region twice the lasso's size around it, 512² in, the mask dilated 4 px as 0/1, LaMa's 0…255 out — 0…1 detected — resized back, blended in a 3 px feathered mask, alpha kept), Isolate (the lasso's bounds + 2 px through ISNet, the matte ∩ the lasso feathered 1 px).
 - `tiles.ts` — 128 px tiles, 16 px overlap, the last flush with the edge; linear ramps over the overlaps; alpha resized on its own; the output's long side ≤ 4096 (the input scaled first).
 - `pixels.ts` — resize (alpha-weighted bilinear, box average when shrinking ≥ 2×), crop / paste, CHW tensors, mattes, lasso rasterising (even-odd, pixel centres), dilate / feather, Expand's padded canvas + OpenAI mask (transparent = change) and `recomposite` (the answer stretched to the canvas, made opaque, the original pasted back exactly), aspect insets, fp16.
 - `tools.ts` — image layers = the topmost visible IMAGE fill. The picture as the layer shows it is drawn from the image with the engine's own `imageMatrix` (render/Renderer.cpp: Fill, Fit, Crop/Stretch with its transform, Tile, 90° rotations) at the image's density (1–4 px per unit, ≤ 4096) — not `exportNodes`, which would bake strokes, effects and children in. Results:
@@ -197,7 +199,24 @@ Swin2SR's model card names no licence (upstream mv-lab/swin2sr is Apache-2.0) �
 
 **Tests**: `src/main/ai/images/images.test.ts` (the pins' shape; downloads from a local HTTP server: progress, one fetch for two calls, a wrong checksum / a short file / no network leave nothing and serve nothing, a new revision is absent; `aimodel:` answers with CORS / CORP, 404 for unlisted files, traversal, other models; requests checked; routes; Expand / Erase wording; the credits stop, AI off, no key, no agy; OpenAI generations and edits (multipart parts, mask, refusals) and Gemini (parts, no picture, a bad key) on fake HTTP; a stub `agy` saving into its brain folder: the project's denials, the files in its workspace, quota, no picture, timeout, cancel), `src/renderer/src/editor/imageTools/__tests__/pixels.test.ts` (lasso masks, feathering, blending, Expand's canvas / mask / re-composite, aspect insets, the tile plan's coverage, the 4096 cap, a seamless tiled upscale, each model's pre / post-processing on a fake runner, fp16), `imageTools.wasm.test.ts` (each tool on the real engine with fixture pictures and a fake runner / fake `ai:image`: its picture, its one undo step and label, ⌘Z; the download confirmation; Erase's API fallback; Isolate's new layer; Expand's growth and untouched original; Make an image both ways; the ledger; Vectorize's debounce, apply, cancel, and its start from real `exportNodes`), `imageToolbar.dom.test.ts` (the toolbar for an image only; More › Vectorize → Grayscale → the debounced update → Apply as one step and ⌘Z; Cancel; Select area waiting for a lasso, Esc; Actions' rows registered).
 
-**Not built / open**: nothing has run against the real models or real agy / OpenAI / Gemini yet (fake runner and stubs only) — fp16 BiRefNet / Swin2SR on the wasm backend (no WebGPU) is the first thing to try; Erase / Isolate and Expand work on the picture as drawn, so a cropped image becomes a Fill-mode picture of what showed; Figma's Expand aspect options, prompt placeholders and the toolbar's exact layout are [unverified]; no cancel inside a single ONNX call (between tiles / steps only); Settings › AI's per-model Remove doesn't stop a live worker (it ends within 60 s).
+**Not built / open**: OpenAI Images and the Gemini API haven't run for real (no keys); Erase / Isolate and Expand work on the picture as drawn, so a cropped image becomes a Fill-mode picture of what showed; Figma's Expand aspect options, prompt placeholders and the toolbar's exact layout are [unverified]; no cancel inside a single ONNX call (between tiles / steps only); Settings › AI's per-model Remove doesn't stop a live worker (it ends within 60 s).
+
+### Run for real (2026-10-12, the built app on the owner's M3 / 16 GB, a temp userData)
+
+Every Round 6 feature ran in the desktop app through `playwright-core` (Settings › AI, the image toolbar, Actions, Visual search), on a procedural test photo (a shaded ball and a box on a table, sensor noise) and a flat logo. What broke, each fixed with a regression test:
+- **BiRefNet lite ran nowhere** → replaced by **ISNet** (`isnet`, above). On WebGPU its first run failed ("Too many storage buffers in shader. Current: 11, Max is 10"; the JSEP build: a Concat needing 17–65 where Apple allows 8–10); on wasm `std::bad_alloc` (its deformable convolutions make 822 MB tensors at 1024², several live at once; the fp32 export too). ISNet: 2.1 s on wasm (Node, 4 threads), ≈ 0.5 s warm in the app.
+- **A model failing on WebGPU at its first run** wasn't retried: only session creation fell back. `imageTools/sessions.ts` `SessionCache` (tested without onnxruntime): a failed creation or run on WebGPU drops the session and redoes the call on wasm, and the model stays on wasm in that worker; `wasmOnly` for models that run without an error but answer wrong pixels on WebGPU — **LaMa** (white and magenta noise on the M3; right on wasm, 4–5 s for 512²). The worker logs `[ai models] <model> on WebGPU | wasm` and fallbacks (devtools).
+- **Swin2SR's fp16 export fails its first wasm run** ("Shape mismatch attempting to re-use buffer {1,3,128,128} != {1,3,512,512}", with or without the memory pattern) → pinned the fp32 `onnx/model.onnx` (55 MB). Sessions are made with `enableMemPattern: false` (tiles vary in size).
+- **Vectorize's Full color traced a 1024² picture as one layer of its mean colour**: the k-means sample index `s × count` overflowed wasm's 32-bit `size_t` (native tests are 64-bit) → computed in 64 bits (`Quantize.cpp`; `vectorize.wasm.test.ts` traces a 1024² three-colour logo).
+- **The prompt card's Send stayed disabled** whatever was typed (the ds TextArea keeps a draft and calls only `onCommit` when given one — and leaving the field would have sent the prompt) → `onChange` + `onExit("enter")` for ⌘↵ (`imageToolbar.dom.test.ts`).
+- **The ledger said `auto` / `image`** for runs on "Automatic" or without a route (Expand) → main's `usage` event carries `providerId` and `model` (`AiUsage`), the views record those first.
+- **Expand left a hard seam** where Antigravity's fill met the pasted original (another tone) → the new area fades into the original's edge colours over a band outside it (4 % of the short side, 4–64 px); the original stays exact.
+- **"Find more like" listed the layer itself first** (score 1) → `runSearch`'s `exclude`.
+- **transformers.js pre-loading onnxruntime's wasm through our `env.fetch`** was refused ("Failed to pre-load WASM binary", then loaded again) → the bundled runtime URLs are let through.
+
+Timings: the five downloads (Settings › AI › Download, SHA-256 checked) 4–26 s each, ≈ 67 s for all; Remove background 16 s with ISNet's first download, 0.55 s warm; Boost 768 × 512 → 3072 × 2048 (35 tiles) 72 s with its download, 724 × 644 → 2896 × 2576 73 s; Erase ≈ 10 s (LaMa on wasm); Isolate 0.3 s warm; Vectorize preview ≈ 0.15 s to open; Make an image (Antigravity, 1024²) 51 s, Edit with prompt 63 s, Expand 112 s. The renderer peaked at ≈ 1.1 GB (Boost) and 1.7 GB (Boost from a 724 px picture).
+
+Not tested in the app: a machine without WebGPU — `--disable-gpu` also takes WebGL2 away, so the editor doesn't open; the wasm path ran for real through the fallback (above) and LaMa, and in Node on the same onnxruntime-web build (ISNet 2.1 s, Swin2SR ≈ 4 s a 128 px tile, LaMa 4–5 s).
 
 ## 5. Vectorize in the engine (6e — the round's only engine work)
 
@@ -264,7 +283,7 @@ The pixels for begin are the layer's contents as drawn (`exportNodes([id], {imag
 - Path decomposition: an edge-marking walk with the set pixels on the right (each boundary edge walked once, linear time) rather than the paper's invert-and-repeat; the minority turn policy at diagonals (majority over 4×4 … 8×8 around the corner).
 - Optimal polygon: a segment (i, j) is possible when i … j is straight (the paper's §2.2.1 test: not all four directions, every point within ½ in L∞ of the line, points within 1 of the start unconstraining). The paper's i − 1 … j + 1 form leaves no segment out of a point next to a sharp corner, so it is not used. Each point's reach is made non-decreasing; the fewest segments then bound each vertex to a range and the least penalty is found over those ranges only. The cyclic problem is solved from up to 24 starts within the narrowest point's reach (any polygon has a vertex there).
 - Vertex adjustment, smoothing (α from the unit square; a corner when α > alphaMax, else α clamped to 0.55–1) and curve optimisation as specified; a joined curve keeps the run's ends, end tangents and area, every joint and segment middle within optTolerance, and every point within optTolerance + 0.5 px of the run (no overshoot); runs ≤ 32 segments and < 179°. The midpoint between two corners is dropped (a square is four points).
-- Budget: an update stops past 1.5 s (engine_trace 2 s) or 200,000 segments and reports `exceeded`. Measured: 1024², 8 colours, release wasm in Node on the owner's Mac (under load): 117–162 ms the trace, 126–177 ms the whole update — inside the 250 ms budget.
+- Budget: an update stops past 1.5 s (engine_trace 2 s) or 200,000 segments and reports `exceeded`. Measured: 1024², 8 colours, release wasm in Node on the owner's Mac (under load): 117–162 ms the trace, 126–177 ms the whole update — inside the 250 ms budget. Run for real (2026-10-12): Full color on a 1024² picture had traced one layer of the mean colour in wasm — the k-means sample index overflowed the 32-bit `size_t`; fixed (64-bit), the logo now traces as its colours and the photo as eight.
 
 **Tests**: `engine/tests/unit/trace.test.cpp` (12 cases: a square, a disk and a ring within 0.5 px of their outlines with the hole kept; decomposition orientation and the minority policy; stripes and a quantized gradient stacked with ≥ 99.5 % coverage; k-means determinism; the threshold's extremes; speckle merging; the pixel budget, the segment cap and layer counts; engine_trace's JSON; begin / update / end with commit, undo and cancel), `src/renderer/src/engine/__tests__/vectorize.wasm.test.ts` (trace, preview, the undo step, cancel, the 1024² bench; `VECTORIZE_BENCH=1` prints the times).
 
@@ -314,7 +333,7 @@ Figma's words are from help 24037716110615 ("Search for assets and designs using
 
 **Tests**: `src/store/search/search.test.ts` (half floats; the format round trip and refusals; name tiers; 0.6/0.4 scores; image-only ranking and the floor; exact first over vectors; names only; sort by modified, kinds, file, library, limit; versions and incremental upserts across a restart; removed nodes and files; deleted, trashed and renamed files; another version's index; checks; LocalStore's `spaces/search/<key>.idx` through a restart, Trash and Delete forever), `src/renderer/src/store/memory/search.test.ts` (the dev store's keys), `src/renderer/src/editor/search/__tests__/search.wasm.test.ts` (on the wasm engine with a fake embedder: targets, text, 224 px sizes, hashes, chains, white padding; a pass, nothing again, a touched frame alone, a reopened file, a deleted frame; indexing off / no models; 20 a pass; busy fonts; the query with text, an image and no models; the models' states and download; the worker client's routing and failure).
 
-**Not built / for later**: model downloads themselves and the `aimodel:` scheme (6b; until then the view says local models aren't available and searches names only); the Actions panel's "Find more like" row (6a's list — it calls `findMoreLike()`); Community; the real CLIP / MiniLM have not run in the app yet (no models on disk); headless exports draw no pixels in Node, so the tests feed pixels for ranking; Insert of another file's frame loads that whole file in a headless engine (fine for normal files, slow for very large ones).
+**Not built / for later**: model downloads themselves and the `aimodel:` scheme (6b; until then the view says local models aren't available and searches names only); the Actions panel's "Find more like" row (6a's list — it calls `findMoreLike()`); Community; CLIP and MiniLM ran for real on 2026-10-12 (four frames indexed; "login form with password" → Sign Up, Login; "blue circle with a yellow star" → the vectorized logo; "green cube on a table" → the photo; Find more like on Sign Up; each query well under 2.5 s); headless exports draw no pixels in Node, so the tests feed pixels for ranking; Insert of another file's frame loads that whole file in a headless engine (fine for normal files, slow for very large ones).
 
 ## 7. Usage, settings, chrome (6g)
 
@@ -385,7 +404,7 @@ export interface AiImageRequest {
   size?: { width: number; height: number };
 }
 
-export interface AiUsage { input: number; output: number; images: number; credits: number }
+export interface AiUsage { input: number; output: number; images: number; credits: number; providerId?: string; model?: string } // who answered: main fills them (2026-10-12)
 
 export type AiRunEvent =
   | { type: "status"; text: string }
@@ -448,7 +467,7 @@ export interface Connector {
 }
 export interface ConnectorConsent { reqId: number; turnId: string; connectorId: string; connector: string; tool: string; args: unknown }
 
-export type AiModelId = "birefnet-lite" | "swin2sr-x4" | "lama" | "clip-vit-b32" | "minilm-l6";
+export type AiModelId = "isnet" | "swin2sr-x4" | "lama" | "clip-vit-b32" | "minilm-l6";
 export interface AiModelInfo { id: AiModelId; label: string; use: string; license: string; repo: string; revision: string; files: { path: string; bytes: number; sha256: string }[]; bytes: number }
 export interface AiModelState { id: AiModelId; state: "absent" | "downloading" | "ready" | "error"; received?: number; bytes: number; error?: string }
 
@@ -531,7 +550,7 @@ export interface AiRepository {
 **The Agents panel** (`src/renderer/src/editor/panels/agents/`): the composer's "+" is a menu — "Add files and photos", "Skills ▸" (the enabled skills as `/name`, "Add skill", "Manage skills"), "Connectors ▸" (checkable per chat, "Add connector", "Manage connectors"); typing `/` lists matching skills (↑↓, ↩ / Tab, Esc); the chat's connectors show as chips. A consent card in the running chat ("‹Connector› wants to use ‹tool›", its arguments, "Allow once" / "Always allow" / "Deny"). A finished reply shows the AI credits icon (hover: "N AI credits · T tokens"). Agent settings gain **Skills** (rows; Add skill: "Upload a file" or "Start from scratch"; a skill's page: Save, Export, Disable skill, Delete) and **Connectors** (rows; Add connector: Server URL + optional key, or a command; a connector's page: status, Test connection, on/off, each tool's Allow / Ask / Off, Remove connector). `aiData.ts` keeps one copy of both lists per page; `src/shared/ai/skillFile.ts` reads and writes the `.md` (frontmatter `name`, `description`) — 6g's store can use it for `skills/<id>.md`.
 - The service (`editor/agents/service.ts`, shared edit): `send(prompt, context, attachments, skills)` runs the first enabled `/name` (its token out of the prompt), lists the others; per-chat `connectors`; `consents`; each reply's `usage`; a finished turn is recorded with `store.ai.record({action: "agent", …, orgId: null})` (ignored until 6g).
 
-**Not built / for later**: the org's `aiCreditLimit` as the allowance (6g, in `ledger.ts`); 6a's actions record their own runs (`store.ai.record` with their file and org) — main only emits `usage`; OAuth connectors and shared Skills (§10.4–5); Codex's `--output-schema` and Antigravity's `structured_output` are unverified (a missing one only means the repair path does the work). Nobody has run a one-shot through the real CLIs from the app yet (stub CLI and local servers only); `editorShotAgents.mjs` clicks `[data-attach]`, which now opens the "+" menu.
+**Not built / for later**: the org's `aiCreditLimit` as the allowance (6g, in `ledger.ts`); 6a's actions record their own runs (`store.ai.record` with their file and org) — main only emits `usage`; OAuth connectors and shared Skills (§10.4–5); Codex's `--output-schema` and Antigravity's `structured_output` are unverified (a missing one only means the repair path does the work). Claude Code one-shots ran for real (§3 "Run for real"); the other CLIs and local servers only against stubs; `editorShotAgents.mjs` clicks `[data-attach]`, which now opens the "+" menu.
 
 **Tests**: `src/main/ai/ai.test.ts` (the JSON and schema check; each adapter's plan; runs on a local OpenAI-compatible server: streaming, json_schema → json_object fallback, the repair retry, bad-output, timeout, cancel, another view's cancel; the credits stop and `disabled`; runs on a stub CLI speaking Claude Code's stream-json: structured answer, repair, signed-out, cancel kills it, timeout; connectors: SSE answers, a keyed HTTP server — Allow / Ask (Deny, Allow once, Always allow) / Off, a wrong key, a stdio server, and the consent round trip through our MCP server with an outside client kept out), `src/shared/ai/skillFile.test.ts`, `src/shared/ai/api.test.ts`.
 
@@ -571,7 +590,7 @@ export interface AiRepository {
    - OpenAI (gpt-image models, needs an API key with billing), the Gemini API (a key, billing for image models), or Antigravity on your Google plan (no key, but only make and edit).
    - Expand needs an API.
    - Default: Antigravity for make and edit, the Gemini key for expand.
-2. **Local model downloads**: ≈ 115 MB (remove background), 33 MB (boost), 93 MB (erase), 154 MB (visual search) and 23 MB (text search), ≈ 416 MB in all, each downloaded on first use after a confirmation. OK, or bundle some with the app?
+2. **Local model downloads**: ≈ 88 MB (remove background; was 115 MB with BiRefNet), 55 MB (boost), 93 MB (erase), 154 MB (visual search) and 23 MB (text search), ≈ 415 MB in all, each downloaded on first use after a confirmation. OK, or bundle some with the app?
 3. **Credits**: warn only (default), or stop at the monthly allowance (4,250)?
 4. **Skills publishing** to a team or org (needs a server table and a migration). Default: later.
 5. **Connectors with OAuth** (Notion, Linear, Asana's hosted MCP servers need it). Default: keys and stdio only this round.

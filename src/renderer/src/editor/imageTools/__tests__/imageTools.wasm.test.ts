@@ -79,7 +79,7 @@ function memoryIO(store: ReturnType<typeof memoryImageStore>) {
   return { io, pixels };
 }
 
-const MODELS: AiModelInfo[] = ["birefnet-lite", "swin2sr-x4", "lama"].map((id) => ({ id: id as AiModelInfo["id"], label: id, use: "", license: "MIT", repo: "x/y", revision: "a".repeat(40), files: [], bytes: 1000 }));
+const MODELS: AiModelInfo[] = ["isnet", "swin2sr-x4", "lama"].map((id) => ({ id: id as AiModelInfo["id"], label: id, use: "", license: "MIT", repo: "x/y", revision: "a".repeat(40), files: [], bytes: 1000 }));
 
 /** main's AI: models ready (or not), `ai:image` answering `answer` as a PNG with its usage. */
 function fakeApi(o: { answer?: Rgba; ready?: boolean } = {}) {
@@ -109,7 +109,7 @@ function fakeApi(o: { answer?: Rgba; ready?: boolean } = {}) {
         const emit = (event: AiRunEventMsg["event"]) => listeners.forEach((l) => l({ runId: req.runId, event }));
         emit({ type: "status", text: "Asking Antigravity…" });
         emit({ type: "image", data, mime: "image/png", width: a.width, height: a.height });
-        emit({ type: "usage", usage: { input: 0, output: 0, images: 1, credits: 8 } });
+        emit({ type: "usage", usage: { input: 0, output: 0, images: 1, credits: 8, providerId: req.route?.providerId ?? "antigravity", model: "gemini-image-test" } });
         emit({ type: "done" });
       }, 1);
     },
@@ -117,16 +117,16 @@ function fakeApi(o: { answer?: Rgba; ready?: boolean } = {}) {
   return { api, requests, downloads };
 }
 
-/** The models replaced: BiRefNet keeps the left half, Swin2SR repeats each pixel 4 × 4, LaMa paints mid grey. */
+/** The models replaced: ISNet keeps the left half, Swin2SR repeats each pixel 4 × 4, LaMa paints mid grey. */
 function fakeModels(calls: string[]) {
   setModelRunner(async (id, input: ModelInput) => {
     calls.push(id);
     if (input.kind !== "onnx") throw new Error("not onnx");
     const [t] = input.inputs;
-    if (id === "birefnet-lite") {
+    if (id === "isnet") {
       const n = 1024;
       const out = new Float32Array(n * n);
-      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) out[y * n + x] = x < n / 2 ? 12 : -12;
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) out[y * n + x] = x < n / 2 ? 1 : 0;
       return [{ data: out, dims: [1, 1, n, n] }] satisfies OnnxTensor[];
     }
     if (id === "swin2sr-x4") {
@@ -214,7 +214,7 @@ describe("each tool is one undo step", () => {
     expect(px(out, 2, 16)).toEqual([255, 0, 0, 255]);
     expect(px(out, 50, 16)[3]).toBe(0);
     expect(s.labels).toContain("Remove background");
-    expect(s.recorded).toEqual([{ action: "remove-background", providerId: "local", model: "birefnet-lite", images: 1, credits: 1, local: true, ok: true }]);
+    expect(s.recorded).toEqual([{ action: "remove-background", providerId: "local", model: "isnet", images: 1, credits: 1, local: true, ok: true }]);
     undo(s.engine);
     expect(s.target().hash).toBe(s.original.hash);
   });
@@ -239,13 +239,13 @@ describe("each tool is one undo step", () => {
     const calls: string[] = [];
     fakeModels(calls);
     await expect(tools.removeBackground(s.env, [s.target()])).rejects.toMatchObject({ code: "cancelled" });
-    expect(s.confirms).toEqual(["birefnet-lite"]);
+    expect(s.confirms).toEqual(["isnet"]);
     expect(calls).toEqual([]);
     expect(s.fake.downloads).toEqual([]);
     const yes = await setup({ ready: false, confirm: true });
     fakeModels(calls);
     await tools.removeBackground(yes.env, [yes.target()]);
-    expect(yes.fake.downloads).toEqual(["birefnet-lite"]);
+    expect(yes.fake.downloads).toEqual(["isnet"]);
   });
 
   it("Erase fills the lassoed area (LaMa) and keeps the rest exactly", async () => {
@@ -273,7 +273,8 @@ describe("each tool is one undo step", () => {
     const out = s.pixels.get(s.target().hash)!;
     expect(px(out, 10, 10)).toEqual([9, 9, 9, 255]);
     expect(px(out, 100, 100)).toEqual([255, 0, 0, 255]);
-    expect(s.recorded.at(-1)).toMatchObject({ action: "erase-object", providerId: "image", credits: 8, local: false, ok: true });
+    // The provider main says answered (this run had no route: it was recorded as "image" — found 2026-10-12)
+    expect(s.recorded.at(-1)).toMatchObject({ action: "erase-object", providerId: "antigravity", model: "gemini-image-test", credits: 8, local: false, ok: true });
   });
 
   it("Isolate makes a new image layer just above, the original kept; ⌘Z removes it", async () => {

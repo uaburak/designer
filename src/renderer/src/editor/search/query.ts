@@ -17,6 +17,8 @@ export interface SearchInput {
   libraryKey?: string;
   fileKey?: string;
   limit?: number;
+  /** The layer a "Find more like" started from: not a result of its own search */
+  exclude?: { fileKey: string; nodeId: string };
 }
 
 export interface SearchOutcome {
@@ -48,7 +50,9 @@ export async function searchQuery(input: SearchInput, embedder: Embedder | null)
 export async function runSearch(repo: Pick<SearchRepository, "query">, input: SearchInput, embedder: Embedder | null): Promise<SearchOutcome> {
   if (!input.image && !input.text?.trim()) return { hits: [], semantic: false };
   const { query, semantic } = await searchQuery(input, embedder);
-  return { hits: await repo.query(query), semantic };
+  const x = input.exclude;
+  const hits = await repo.query(query);
+  return { hits: x ? hits.filter((h) => h.doc.fileKey !== x.fileKey || h.doc.nodeId !== x.nodeId) : hits, semantic };
 }
 
 /** Components and sets first ("Figma tab shows components and designs"), then "Other designs" (frames) */
