@@ -628,7 +628,7 @@ export class MultiplayerService {
   // --- REST render jobs (docs/multiplayer.md §16.6, as built §16.16) ---
 
   /** Editors that can answer render jobs, per file: token → whether it is the hidden render helper */
-  private renderers = new Map<FileKey, Map<string, { helper: boolean }>>();
+  private renderers = new Map<FileKey, Map<string, { helper: boolean; owner?: object }>>();
   private restListeners = new Set<(fileKey: FileKey, req: RestJobRequest) => void>();
   private wantedListeners = new Set<(fileKey: FileKey) => void>();
 
@@ -637,14 +637,14 @@ export class MultiplayerService {
    * room hears it in the link's hello — `{render: true}`, `helper: true` too when only the hidden helper renders — so a
    * change of either reconnects the link (a hello is said once per socket). Returns the renderer's token (on).
    */
-  async restRender(fileKey: FileKey, on: boolean, opts: { helper?: boolean } = {}, token?: string): Promise<string | null> {
+  async restRender(fileKey: FileKey, on: boolean, opts: { helper?: boolean } = {}, token?: string, owner?: object): Promise<string | null> {
     const before = this.renderFlags(fileKey);
     let set = this.renderers.get(fileKey);
     let id: string | null = null;
     if (on) {
       id = token ?? `r_${randomId(this.deps.random, 12)}`;
       if (!set) this.renderers.set(fileKey, (set = new Map()));
-      set.set(id, { helper: opts.helper === true });
+      set.set(id, { helper: opts.helper === true, ...(owner ? { owner } : {}) });
     } else {
       if (token) set?.delete(token);
       else set?.clear();
@@ -653,6 +653,23 @@ export class MultiplayerService {
     const after = this.renderFlags(fileKey);
     if (before.render !== after.render || before.helper !== after.helper) this.live.get(fileKey)?.rehello();
     return id;
+  }
+
+  /**
+   * A port closed (a tab or the hidden helper went away without saying `restRender(off)` — a view's renderer process
+   * ends without React's cleanups): its renderers go, so the room stops sending it jobs that nobody answers (each one
+   * waited out the 20 s a client gets before the helper was even asked — found running round 5 end to end, 2026-10-12).
+   */
+  releaseRenderersOf(owner: object): void {
+    for (const [fileKey, set] of [...this.renderers]) {
+      const mine = [...set].filter(([, r]) => r.owner === owner).map(([id]) => id);
+      if (!mine.length) continue;
+      const before = this.renderFlags(fileKey);
+      for (const id of mine) set.delete(id);
+      if (!set.size) this.renderers.delete(fileKey);
+      const after = this.renderFlags(fileKey);
+      if (before.render !== after.render || before.helper !== after.helper) this.live.get(fileKey)?.rehello();
+    }
   }
 
   /** @internal What this client's hello says about rendering the file */

@@ -19,7 +19,7 @@ import { pluginsOf, usePlugins, type PluginService } from "../plugins/service";
 import { pluginDesktop } from "../plugins/desktop";
 import { pluginRows, suggestionsOf, type PluginRow, type Suggestion } from "../plugins/actions";
 import type { PluginRun } from "../plugins/host";
-import { takeRequestedTab } from "./actionsTab";
+import { allTabEmptyNote, takeRequestedTab } from "./actionsTab";
 import { useEditor, type EditorController } from "../controller";
 import { insertInstance } from "../components";
 import { useUI } from "../hooks";
@@ -246,6 +246,7 @@ function Actions() {
     }
   };
 
+  const allEmpty = allTabEmptyNote(query, rows.length, prompt !== null);
   return (
     <Portal>
       <div
@@ -326,8 +327,8 @@ function Actions() {
           )}
           {!prompt && tab === "plugins" && !rows.length && <p className={styles.empty}>{query ? "No plugins match" : plugins ? "No plugins yet. Import one from its manifest below" : "Plugins aren’t available here"}</p>}
           {tab === "assets" && !rows.length && <p className={styles.empty}>{query ? "No components match" : "No components in this file"}</p>}
-          {tab === "all" && query.trim() !== "" && !rows.length && <p className={styles.empty}>No results for “{query.trim()}”</p>}
-          {tab === "all" && query.trim() === "" && !rows.length && (
+          {tab === "all" && allEmpty.kind === "no-results" && <p className={styles.empty}>No results for “{allEmpty.query}”</p>}
+          {tab === "all" && allEmpty.kind === "recents" && (
             <div role="presentation" className={styles.header}>
               Recents
             </div>

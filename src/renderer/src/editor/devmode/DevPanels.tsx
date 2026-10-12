@@ -58,7 +58,36 @@ function previewOf(ed: EditorController, fileName: string): LoadedPreview {
 
 const selectCanEdit = (s: { canEdit: boolean }) => s.canEdit;
 
-/** The viewer's context on the editor's engine; a new document reader after every committed change (debounced). */
+/**
+ * Calls `changed` (debounced, 120 ms) after the document changes: this copy's own transactions (DOCUMENT_CHANGED) and
+ * also everything applied from outside — a shared file's other people (the room's frames), an undo, a library update —
+ * which reach the engine without a DOCUMENT_CHANGED but move the tree (STRUCTURE_CHANGED) or nodes (NODES_CHANGED).
+ * Found running round 5 end to end (2026-10-12): Dev Mode's Layers and Ready for development lists stayed on the
+ * document as it was when Dev Mode opened while a designer edited the shared file. Returns the unsubscribe.
+ */
+export function onDevDocumentChange(ed: EditorController, changed: () => void, delayMs = 120): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const bump = () => {
+    if (timer) return;
+    timer = setTimeout(() => {
+      timer = null;
+      changed();
+    }, delayMs);
+  };
+  const offs = [
+    ed.engine.on("DOCUMENT_CHANGED", bump),
+    ed.engine.on("NODES_CHANGED", bump),
+    ed.store.subscribe("structure", bump),
+    ed.store.subscribe("pages", bump),
+    ed.store.subscribe("page", bump),
+  ];
+  return () => {
+    offs.forEach((off) => off());
+    if (timer) clearTimeout(timer);
+  };
+}
+
+/** The viewer's context on the editor's engine; a new document reader after every change (debounced). */
 function DevContext({ children }: { children: ReactNode }) {
   const ed = useEditor();
   const fileName = useUI((s) => s.fileName);
@@ -67,21 +96,7 @@ function DevContext({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const dev = useMemo(() => editorDevData(ed), [ed, canEdit]);
   const [version, setVersion] = useState(0);
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const bump = () => {
-      if (timer) return;
-      timer = setTimeout(() => {
-        timer = null;
-        setVersion((v) => v + 1);
-      }, 120);
-    };
-    const offs = [ed.engine.on("DOCUMENT_CHANGED", bump), ed.store.subscribe("pages", bump), ed.store.subscribe("page", bump)];
-    return () => {
-      offs.forEach((off) => off());
-      if (timer) clearTimeout(timer);
-    };
-  }, [ed]);
+  useEffect(() => onDevDocumentChange(ed, () => setVersion((v) => v + 1)), [ed]);
   const state = useMemo<ViewerState>(
     () => ({
       engine: ed.engine,

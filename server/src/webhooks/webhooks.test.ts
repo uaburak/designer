@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FILE_UPDATE_QUIET_MS } from "../roomBox";
 import { roomBroadcast } from "../roomBroadcast";
 import { restWorld, type RestWorld } from "../testing/restWorld";
@@ -95,8 +95,8 @@ describe("Webhooks V2 routes (§16.9)", () => {
     const slow = { db: w.deps.db, now: w.deps.now, fetch: (async (...a: Parameters<typeof fetch>) => (calls++, await gate, w.deps.fetch(...a))) as typeof fetch };
     const ids = (await w.rows(`INSERT INTO webhook_requests (webhook_id, endpoint, payload, attempt, next_at, created_at) VALUES (?1, 'https://hooks.example.com/a', '{"event_type":"PING"}', 0, ?2, ?2) RETURNING id`, id, w.now.t)).map((r: Any) => r.id as number);
     const first = deliverRows(slow, ids);
-    await new Promise((r) => setTimeout(r, 0));
-    expect(calls).toBe(1);
+    // (The claim is a database round trip: one macrotask wasn't always enough under the full suite's load.)
+    await vi.waitFor(() => expect(calls).toBe(1));
     expect((await sweepWebhooks(slow)).sent).toBe(0);
     await deliverRows(slow, ids);
     expect(calls).toBe(1);
@@ -143,7 +143,9 @@ describe("events (§16.10)", () => {
     ], { description: "First" });
     expect(r.status).toBe(201);
     await w.settle();
-    expect(w.deliveries.map((d) => d.body)).toMatchObject([
+    // The per-type events are sent at once, so they arrive in any order (the full `npm run check` saw styles first).
+    const byType = (b: { created_components?: unknown[] }) => (b.created_components?.length ? 0 : 1);
+    expect(w.deliveries.map((d) => d.body as { created_components?: unknown[] }).sort((a, b) => byType(a) - byType(b))).toMatchObject([
       { event_type: "LIBRARY_PUBLISH", description: "First", created_components: [{ key: assetKey("Button"), name: "Button" }], created_styles: [] },
       { event_type: "LIBRARY_PUBLISH", created_components: [], created_styles: [{ key: assetKey("Red"), name: "Red" }] },
     ]);

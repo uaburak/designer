@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { decodeMessage } from "../shared/schema/codec";
+import type { MultiplayerEvent, RestJobRequest } from "../shared/multiplayer/types";
 import type { FileChange, WorkspaceEvent } from "../shared/store/repositories";
 import { batch, rect, settle } from "./testing/harness";
 import { rpcTestbed, type RpcTestbed } from "./testing/rpcHarness";
@@ -64,6 +65,27 @@ describe("the store port protocol (docs/data.md §8.3)", () => {
     expect(changes).toHaveLength(3);
   });
 
+  // Found running round 5 end to end (2026-10-12): the server never forwarded the service's REST events, so an open
+  // editor never got a job (every /v1 render answered 503) and main's render helper never heard rest-wanted.
+  it("forwards REST render jobs and rest-wanted to the ports' multiplayer watchers (docs/multiplayer.md §16.17)", async () => {
+    bed = await rpcTestbed();
+    const editor = await bed.connect("editor");
+    const main = await bed.connect("main");
+    const seen: MultiplayerEvent[] = [];
+    const mainSeen: MultiplayerEvent[] = [];
+    editor.multiplayer.watch((e) => seen.push(e));
+    main.multiplayer.watch((e) => mainSeen.push(e));
+    await settle();
+    const mp = bed.t.store.multiplayer as unknown as { restListeners: Set<(k: string, r: RestJobRequest) => void>; wantedListeners: Set<(k: string) => void> };
+    expect(mp.restListeners.size).toBeGreaterThan(0);
+    const req: RestJobRequest = { id: "j1", job: { kind: "file", params: {} } as RestJobRequest["job"], to: "r_1", seq: 3, name: "F", lastModified: 1 };
+    for (const l of mp.restListeners) l("f1", req);
+    for (const l of mp.wantedListeners) l("f1");
+    await settle();
+    await vi.waitFor(() => expect(seen.find((e) => e.restJob)).toMatchObject({ fileKey: "f1", restJob: { id: "j1", to: "r_1" } }));
+    await vi.waitFor(() => expect(mainSeen.find((e) => e.restWanted)).toMatchObject({ fileKey: "f1", restWanted: true }));
+  });
+
   it("ends a port's edit sessions when the port closes (a tab closed or crashed)", async () => {
     bed = await rpcTestbed();
     const a = await bed.connect("editor");
@@ -76,6 +98,23 @@ describe("the store port protocol (docs/data.md §8.3)", () => {
     await bed.t.idle();
     const o = await b.files.open(f.fileKey, { mode: "edit" });
     expect(o.sessionID).toBeGreaterThan(0);
+  });
+
+  // Found running round 5 end to end (2026-10-12): a closed tab's renderer stayed registered, so the room kept sending
+  // REST jobs to an editor that was gone (20 s each) before main's render helper was asked.
+  it("ends a port's REST renderers when the port closes (docs/multiplayer.md §16.17)", async () => {
+    bed = await rpcTestbed();
+    const a = await bed.connect("editor");
+    const b = await bed.connect("editor");
+    const mp = bed.t.store.multiplayer;
+    const tokenA = await a.multiplayer.restRender("f1", true, {});
+    await b.multiplayer.restRender("f1", true, { helper: true });
+    expect(tokenA).toBeTruthy();
+    expect(mp.renderFlags("f1")).toEqual({ render: true, helper: false });
+    a.close();
+    await vi.waitFor(() => expect(mp.renderFlags("f1")).toEqual({ render: true, helper: true }));
+    b.close();
+    await vi.waitFor(() => expect(mp.renderFlags("f1")).toEqual({ render: false, helper: false }));
   });
 
   it("survives a store restart: the client reattaches its session, resends unacknowledged batches and resubscribes", async () => {

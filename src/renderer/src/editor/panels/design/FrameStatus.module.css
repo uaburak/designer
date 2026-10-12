@@ -1,9 +1,14 @@
 @layer app {
   /* The Design panel header's status button (ours: editor/frameStatus.ts, docs/editor.md "Frame status (ours)"): a
      filled dot in the status's colour (FRAME_STATUS_COLOR, tokens) before its label. */
-  .headerButton { display: inline-flex; align-items: center; padding: 0; border: 0; background: none; }
+  /* It gives way first when the header is full (a long status beside a frame's three actions): its label ellipsizes,
+     the actions stay inside the panel. */
+  .headerButton { display: inline-flex; flex: 0 1 auto; align-items: center; min-width: 0; padding: 0; border: 0; background: none; }
+  .text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .face {
     display: inline-flex;
+    min-width: 0;
+    max-width: 100%;
     align-items: center;
     gap: var(--ds-space-1);
     height: var(--ds-size-icon-16);

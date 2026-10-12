@@ -30,9 +30,13 @@ interface HomeBridge {
 
 const bridge = (): HomeBridge | null => (typeof window === "undefined" ? null : ((window as unknown as { designer?: HomeBridge }).designer ?? null));
 
-/** The browser's address of a file (the `?editor` route), with where a link asked to land. */
+/**
+ * The browser's address of a file (the `?editor` route), with where a link asked to land — every field of the intent,
+ * as `intentFromLink` reads them back (`dev=ready`: a Dev Mode notification's ready-for-dev view; `#comment-<id>`: a
+ * comment notification's thread). The editor reads it in `openIntent` (editor/multiplayer/links.ts).
+ */
 export const editorUrl = (fileKey: FileKey, intent: OpenIntent = {}) =>
-  `${location.pathname}?editor&file=${encodeURIComponent(fileKey)}${intent.nodeId ? `&node-id=${intent.nodeId.replace(":", "-")}` : ""}${intent.mode ? `&m=${intent.mode}` : ""}`;
+  `${location.pathname}?editor&file=${encodeURIComponent(fileKey)}${intent.nodeId ? `&node-id=${intent.nodeId.replace(":", "-")}` : ""}${intent.mode ? `&m=${intent.mode}` : ""}${intent.devMode === "ready" ? "&dev=ready" : ""}${intent.commentId ? `#comment-${encodeURIComponent(intent.commentId)}` : ""}`;
 
 export interface OpenDeps {
   /** In a browser nothing activates a tab, so Home records the view itself (in the app main does, docs/desktop.md §5) */

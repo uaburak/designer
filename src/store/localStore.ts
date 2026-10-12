@@ -879,7 +879,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     }),
     collectGarbage: () => s.collectGarbage(),
   };
-  const mp = multiplayerApi(s.multiplayer);
+  const mp = multiplayerApi(s.multiplayer, owner);
   const multiplayer: typeof mp = {
     ...mp,
     // Previews publish with the same session (docs/multiplayer.md §9); a new one also sweeps the expired ones.

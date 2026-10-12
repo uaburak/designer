@@ -118,3 +118,21 @@ describe("the agents' Code Connect", () => {
     expect(ctx.nodes[0].codeConnect).toMatchObject({ componentName: "Button", version: "UI" });
   });
 });
+
+// Found running round 5 end to end (2026-10-12): Dev Mode's Layers / Ready for development lists didn't follow a
+// shared file's other people — their frames reach the engine as a remote apply, which fires no DOCUMENT_CHANGED.
+describe("Dev Mode's panels follow changes applied from outside", () => {
+  it("a remote rename and a remote new layer reach onDevDocumentChange", async () => {
+    const { ed, engine } = await editor();
+    const { onDevDocumentChange } = await import("../devmode/DevPanels");
+    let calls = 0;
+    const off = onDevDocumentChange(ed, () => calls++, 0);
+    engine.applyChanges({ type: "NODE_CHANGES", sessionID: 7, nodeChanges: [{ guid: "2:2", name: "Renamed remotely" } as never] }, "remote");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(calls).toBe(1);
+    engine.applyChanges({ type: "NODE_CHANGES", sessionID: 7, nodeChanges: [{ guid: "7:1", phase: "CREATED", type: "FRAME", name: "From Alice", parentIndex: { guid: "0:1", position: "~" }, size: { x: 10, y: 10 } } as never] }, "remote");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(calls).toBe(2);
+    off();
+  });
+});

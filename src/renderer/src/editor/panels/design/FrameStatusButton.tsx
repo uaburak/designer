@@ -34,7 +34,7 @@ function Face({ status, text }: { status: FrameStatus | null; text: string }) {
   return (
     <>
       <span className={styles.dot} style={status ? { background: FRAME_STATUS_COLOR[status] } : undefined} aria-hidden />
-      {text}
+      <span className={styles.text}>{text}</span>
     </>
   );
 }
