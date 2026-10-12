@@ -7,7 +7,7 @@ import { startAgents, stopAgents } from "./agents/host";
 import { askStoreGone, asked, testAnswers } from "./dialogs";
 import { startFontWatch, warmFontIndex } from "./fonts";
 import { initUploadedFonts } from "./uploadedFonts";
-import { checkSession, initAccount, initIdle, serverUrl, signIn } from "./account";
+import { checkSession, initAccount, initIdle, serverUrl, signIn, signInForTest } from "./account";
 import { signInTenant } from "./account/signIn";
 import { setMainFetchProxied } from "./net";
 import { allowedServer, describePolicy, loadPolicy, proxied, proxySwitches } from "./policy";
@@ -23,7 +23,8 @@ import { flushStore, retryStoreHost, startStoreHost, storeClient, storeDebug } f
 import { initTheme } from "./theme";
 import { initUpdater } from "./updater";
 import { PRODUCT_NAME } from "./identity";
-import { controllers, finishQuit, lifecycle, openWindow, type WindowController } from "./window";
+import { controllers, finishQuit, lifecycle, type WindowController } from "./window";
+import { initGate, openMain, whenOpen } from "./gate";
 
 /**
  * Designer's desktop side (docs/desktop-impl.md): one window of views —
@@ -53,34 +54,42 @@ app.enableSandbox();
 /** The window in front (v1 has one). */
 const current = (): WindowController | null => [...controllers.values()][0] ?? null;
 
-function windowOrNew() {
-  const ctl = current();
-  if (!ctl) return openWindow();
-  if (ctl.win.isMinimized()) ctl.win.restore();
-  ctl.win.focus();
-  return ctl;
-}
-
 /** designer://open?key=…[&node-id=…&m=dev] — a shared file's link (the server's /f/<key> page hands it over, with the
- *  frame and mode it names; docs/multiplayer.md §3). */
+ *  frame and mode it names; docs/multiplayer.md §3). Signed out, it waits for the next sign-in (docs/desktop.md §18.6). */
 let pendingLink: string | null = null;
-/** designer://sign-in?tenant=… (docs/desktop.md §18.1): a sign-in through that org's SSO */
+/** designer://sign-in?tenant=… (docs/desktop.md §18.1): a sign-in through that org's SSO — the welcome page's too */
 let pendingTenant: string | null = null;
 function openLink(url: string) {
   if (!url.startsWith("designer:")) return;
+  // The sign-in sheet's own callback (docs/desktop.md §18.6) is caught by the sheet; one reaching the app is stale.
+  if (/^designer:\/\/auth\//.test(url)) return;
   const tenant = signInTenant(url);
   if (tenant) {
     if (!app.isReady()) return void (pendingTenant = tenant);
-    void windowOrNew();
+    openMain();
     return void signIn({ tenant });
   }
   const key = keyFromLink(url);
   if (!key) return;
   if (!app.isReady()) return void (pendingLink = url);
-  const ctl = windowOrNew();
+  openMain();
   // A new window's Home is still loading: the tab manager waits for it.
-  setTimeout(() => ctl.tabs.openSharedLink(key, url), 0);
+  whenOpen(`link:${key}`, (ctl) => setTimeout(() => ctl.tabs.openSharedLink(key, url), 0));
 }
+
+/** A .fig opened from the Finder (or dropped on the Dock icon): imported into Drafts and shown in Home — after the next
+ *  sign-in when nobody is signed in (docs/desktop.md §18.6). */
+const pendingFiles: string[] = [];
+function openFigFile(path: string) {
+  if (!/\.fig$/i.test(path)) return;
+  if (!app.isReady()) return void pendingFiles.push(path);
+  openMain();
+  whenOpen(`fig:${path}`, (ctl) => void ctl.tabs.importFiles(null, [path]).then((r) => r.files[0] && ctl.tabs.goHome(r.files[0].fileKey)));
+}
+app.on("open-file", (e, path) => {
+  e.preventDefault();
+  openFigFile(path);
+});
 const linkIn = (argv: string[]) => argv.find((a) => a.startsWith("designer:"));
 if (process.defaultApp && process.argv[1]) app.setAsDefaultProtocolClient("designer", process.execPath, [join(process.cwd(), process.argv[1])]);
 else app.setAsDefaultProtocolClient("designer");
@@ -100,7 +109,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on("second-instance", (_e, argv) => {
     const link = linkIn(argv);
     if (link) openLink(link);
-    else void windowOrNew();
+    else openMain();
   });
 
   app.whenReady().then(() => {
@@ -144,10 +153,13 @@ if (!app.requestSingleInstanceLock()) {
     startStoreHost(() => {
       void askStoreGone().then((answer) => (answer === "quit" ? app.quit() : retryStoreHost()));
     });
-    const first = openWindow();
-    // A shared file's link the app was started with.
-    const pendingKey = pendingLink && keyFromLink(pendingLink);
-    if (pendingLink && pendingKey) first.tabs.openSharedLink(pendingKey, pendingLink);
+    // The login gate (docs/desktop.md §18.6): the app window when signed in, else the welcome window (its splash
+    // while the kept session is read).
+    initGate();
+    openMain();
+    // A shared file's link and .fig files the app was started with: now, or after the sign-in.
+    if (pendingLink) openLink(pendingLink);
+    for (const path of pendingFiles.splice(0)) openFigFile(path);
     // Started by designer://sign-in?tenant=…
     if (pendingTenant) void signIn({ tenant: pendingTenant });
     // The agents' MCP server (127.0.0.1, a token): MCP clients and the Agents tab reach the open files through it.
@@ -167,7 +179,7 @@ if (!app.requestSingleInstanceLock()) {
     powerMonitor.on("lock-screen", flushAll);
 
     app.on("activate", () => {
-      if (!current()) openWindow();
+      if (!current()) openMain();
     });
   });
 
@@ -201,6 +213,7 @@ if (process.env.DESIGNER_TEST === "1") {
       asked,
       store: storeDebug,
       storeClient,
+      signInForTest,
     },
   });
 }

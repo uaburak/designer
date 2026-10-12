@@ -1,5 +1,5 @@
 import { app, Menu, nativeTheme, webContents, type KeyboardEvent, type MenuItemConstructorOptions } from "electron";
-import { command, MENU_LAYOUT, registersAccelerator, runsFromMenuBar, type CommandId, type MenuEntry } from "../shared/commands";
+import { command, layoutCommands, MENU_LAYOUT, registersAccelerator, runsFromMenuBar, type CommandId, type MenuEntry } from "../shared/commands";
 import { acceleratorFor, type KeyCombo } from "../shared/shortcuts";
 import { readSettings } from "./session";
 import { checkForUpdates, onUpdaterChange, restartToUpdate, updaterStatus } from "./updater";
@@ -36,11 +36,13 @@ export function appMenu(current: () => WindowController | null, dev: boolean, bi
       registerAccelerator: registersAccelerator(accelerator),
       type: spec.kind === "checkbox" ? "checkbox" : spec.kind === "radio" ? "radio" : "normal",
       // Disabled until the view in front says otherwise (TabManager.applyMenu runs once the window is up).
-      enabled: spec.scope === "app" || spec.scope === "shell",
+      enabled: signedOut ? enabledSignedOut(id) : spec.scope === "app" || spec.scope === "shell",
       ...extra,
       click: (_item, _win, event: KeyboardEvent) => {
         // A plain key (N, [, ⇧V…) a page left unhandled is typing in a text field, never this command (runsFromMenuBar).
         if (!runsFromMenuBar(extra.accelerator ?? accelerator, !!event.triggeredByAccelerator)) return;
+        // Signed out (docs/desktop.md §18.6): nothing but the app's own items, whatever the item's state says.
+        if (signedOut && !enabledSignedOut(id)) return;
         const ctl = current();
         ctl?.tabs.command(id, event.triggeredByAccelerator ? "accelerator" : "menu", webContents.getFocusedWebContents());
         // A checkbox flips itself on click: the view's report decides.
@@ -117,5 +119,28 @@ const updateItemKey = () => {
 export function refreshAppMenu(): void {
   if (!built) return;
   Menu.setApplicationMenu(appMenu(built.current, built.dev, readSettings().shortcuts?.bindings));
-  built.current()?.tabs.applyMenu();
+  if (signedOut) setMenuSignedOut(true);
+  else built.current()?.tabs.applyMenu();
 }
+
+// ---- signed out (docs/desktop.md §18.6) ------------------------------------------------------------------------------
+
+let signedOut = false;
+
+/** Signed out, only the app's own items stay on (Theme, Open data folder): New design file, Import…, Save local copy,
+ *  the tabs' and the editor's commands are all off — the menu bar can't reach a file. */
+export const enabledSignedOut = (id: CommandId): boolean => command(id).scope === "app";
+
+/** The gate's switch (src/main/gate.ts): off → every item as signedOut says; on → the app window's own state again. */
+export function setMenuSignedOut(on: boolean): void {
+  signedOut = on;
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return;
+  if (!on) return void built?.current()?.tabs.applyMenu();
+  for (const id of layoutCommands()) {
+    const item = menu.getMenuItemById(id);
+    if (item && item.enabled !== enabledSignedOut(id)) item.enabled = enabledSignedOut(id);
+  }
+}
+
+export const menuSignedOut = (): boolean => signedOut;

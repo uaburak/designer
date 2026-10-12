@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { handle } from "../../../server/src/api";
 import { loadIdp, loadWorld, ORIGIN, type TestIdp, type World } from "./testWorld";
 import { SIGN_IN_ERROR_TEXT } from "../../shared/org/identity";
-import { loopbackError, signInTenant, signInWithBrowser, SignInError } from "./signIn";
+import { loopbackError, sheetCallback, SheetUnavailable, signInFlow, signInTenant, signInWithBrowser, signInWithSheet, SignInError } from "./signIn";
 
 /**
  * The desktop sign-in (docs/multiplayer.md §2, §15.4; docs/desktop.md §18.1) against the Worker's real handler on
@@ -42,6 +42,7 @@ async function browser(start: string): Promise<string> {
   if (!url.searchParams.has("tenant")) url.searchParams.set("method", "google");
   let tenant = "";
   for (let hop = 0; hop < 10; hop++) {
+    if (url.protocol === "designer:") return url.href;
     if (url.hostname === "127.0.0.1") return (await fetch(url)).text();
     tenant = /^\/saml\/(\d{18})\//.exec(url.pathname)?.[1] ?? tenant;
     if (url.href.startsWith(idp.IDP_SSO)) {
@@ -167,5 +168,110 @@ describe("single sign-on (docs/desktop.md §18.1)", () => {
     const res = await w.acs(tenant, idp.signAssertion(idp.buildResponse({ sp: `${ORIGIN}/saml/${tenant}`, inResponseTo: null, nameId: "eve@acme.test" })));
     expect(res.text).toContain(`designer://sign-in?tenant=${tenant}`);
     expect(signInTenant(`designer://sign-in?tenant=${tenant}`)).toBe(tenant);
+  });
+});
+
+/** The sign-in sheet as the tests play it: the "browser" above inside it, its end caught on designer:// as macOS does. */
+function fakeSheet(o: { starts?: boolean; answer?: "follow" | "cancel" | "fail" | "hang" } = {}) {
+  const sheet = {
+    opened: "",
+    cancelled: 0,
+    done: null as null | ((error: string | null, url: string | null) => void),
+    start(url: string, scheme: string, done: (error: string | null, url: string | null) => void) {
+      if (o.starts === false) return false;
+      expect(scheme).toBe("designer");
+      sheet.opened = url;
+      sheet.done = done;
+      const answer = o.answer ?? "follow";
+      if (answer === "cancel") setTimeout(() => done("cancelled", null), 5);
+      else if (answer === "fail") setTimeout(() => done("presentation failed", null), 5);
+      else if (answer === "follow") void browser(url).then((back) => done(null, back), (e: unknown) => done(String(e), null));
+      return true;
+    },
+    cancel() {
+      sheet.cancelled++;
+      sheet.done?.("cancelled", null);
+    },
+  };
+  return sheet;
+}
+
+describe("the sign-in sheet (docs/desktop.md §18.6)", () => {
+  it("Log in with Google: /auth/login?callback=designer&method=google in the sheet, the code from designer://auth/callback, a session", async () => {
+    const sheet = fakeSheet();
+    const s = await signInWithSheet({ server: ORIGIN, fetch: appFetch, sheet, method: "google" });
+    const opened = new URL(sheet.opened);
+    expect(opened.pathname).toBe("/auth/login");
+    expect(opened.searchParams.get("callback")).toBe("designer");
+    expect(opened.searchParams.get("method")).toBe("google");
+    expect(opened.searchParams.has("port")).toBe(false);
+    expect(s.user.email).toBe("me@example.com");
+    expect((await me(s.token)).name).toBe("Me");
+  });
+
+  it("SAML through the sheet: a tenant goes straight to the org's IdP, the ACS ends on the sheet's callback", async () => {
+    const tenant = await w.addIdp();
+    await w.verifiedDomain("acme.test");
+    const sheet = fakeSheet();
+    const s = await signInWithSheet({ server: ORIGIN, fetch: appFetch, sheet, tenant });
+    expect(new URL(sheet.opened).searchParams.get("tenant")).toBe(tenant);
+    expect(s.user.email).toBe("eve@acme.test");
+  });
+
+  it("the sheet's Cancel, Google's refusal and Cancel from the app are cancels; a sheet that fails is a failure", async () => {
+    await expect(signInWithSheet({ server: ORIGIN, fetch: appFetch, sheet: fakeSheet({ answer: "cancel" }) })).rejects.toMatchObject({ code: "cancelled" });
+    googleAnswer = "deny";
+    await expect(signInWithSheet({ server: ORIGIN, fetch: appFetch, sheet: fakeSheet(), method: "google" })).rejects.toMatchObject({ code: "cancelled" });
+    const ac = new AbortController();
+    const hanging = fakeSheet({ answer: "hang" });
+    const p = signInWithSheet({ server: ORIGIN, fetch: appFetch, sheet: hanging, signal: ac.signal });
+    setTimeout(() => ac.abort(), 10);
+    await expect(p).rejects.toMatchObject({ code: "cancelled" });
+    expect(hanging.cancelled).toBe(1);
+    await expect(signInWithSheet({ server: ORIGIN, fetch: appFetch, sheet: fakeSheet({ answer: "fail" }) })).rejects.toMatchObject({ code: "failed" });
+  });
+
+  it("times out, closing the sheet", async () => {
+    const sheet = fakeSheet({ answer: "hang" });
+    await expect(signInWithSheet({ server: ORIGIN, fetch: appFetch, sheet, timeoutMs: 30 })).rejects.toMatchObject({ code: "timeout" });
+    expect(sheet.cancelled).toBe(1);
+  });
+
+  it("a sheet that doesn't start is SheetUnavailable (the browser takes over); a bad tenant is refused before either", async () => {
+    await expect(signInWithSheet({ server: ORIGIN, fetch: appFetch, sheet: fakeSheet({ starts: false }) })).rejects.toBeInstanceOf(SheetUnavailable);
+    const sheet = fakeSheet();
+    await expect(signInWithSheet({ server: ORIGIN, fetch: appFetch, sheet, tenant: "1&x=2" })).rejects.toMatchObject({ code: "failed" });
+    expect(sheet.opened).toBe("");
+  });
+
+  it("sheetCallback: only designer://auth/callback with our state; errors keep their meaning", () => {
+    const st = "s".repeat(32);
+    expect(sheetCallback(`designer://auth/callback?state=${st}&code=abc`, st)).toEqual({ code: "abc" });
+    expect(sheetCallback(`designer://auth/callback?state=${"x".repeat(32)}&code=abc`, st)).toMatchObject({ error: { code: "failed" } });
+    expect(sheetCallback(`designer://auth/callback?code=abc`, st)).toMatchObject({ error: { code: "failed" } });
+    expect(sheetCallback(`designer://open/callback?state=${st}&code=abc`, st)).toMatchObject({ error: { code: "failed" } });
+    expect(sheetCallback(`https://auth/callback?state=${st}&code=abc`, st)).toMatchObject({ error: { code: "failed" } });
+    expect(sheetCallback(`designer://auth/callback?state=${st}&error=access_denied`, st)).toMatchObject({ error: { code: "cancelled" } });
+    expect(sheetCallback(`designer://auth/callback?state=${st}&error=sso_domain`, st)).toMatchObject({ error: { code: "failed", message: SIGN_IN_ERROR_TEXT.sso_domain } });
+    expect(sheetCallback("not a url", st)).toMatchObject({ error: { code: "failed" } });
+  });
+
+  it("signInFlow: the sheet only on a Mac with the addon and a window", () => {
+    const sheet = fakeSheet();
+    expect(signInFlow({ platform: "darwin", sheet, window: true })).toBe("sheet");
+    expect(signInFlow({ platform: "darwin", sheet: null, window: true })).toBe("browser");
+    expect(signInFlow({ platform: "darwin", sheet, window: false })).toBe("browser");
+    expect(signInFlow({ platform: "win32", sheet, window: true })).toBe("browser");
+  });
+
+  it("the browser's Log in with SSO opens the server's single sign-on page (method=sso)", async () => {
+    let opened = "";
+    const ac = new AbortController();
+    const p = signInWithBrowser({ server: ORIGIN, fetch: appFetch, method: "sso", signal: ac.signal, openBrowser: (u) => void (opened = u) });
+    await new Promise((r) => setTimeout(r, 20));
+    ac.abort();
+    await expect(p).rejects.toMatchObject({ code: "cancelled" });
+    expect(new URL(opened).searchParams.get("method")).toBe("sso");
+    expect((await server(opened)).status).toBe(200);
   });
 });

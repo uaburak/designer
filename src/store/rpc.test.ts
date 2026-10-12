@@ -4,6 +4,7 @@ import type { MultiplayerEvent, RestJobRequest } from "../shared/multiplayer/typ
 import type { FileChange, WorkspaceEvent } from "../shared/store/repositories";
 import { batch, rect, settle } from "./testing/harness";
 import { rpcTestbed, type RpcTestbed } from "./testing/rpcHarness";
+import { LOG_IN_FIRST } from "./server";
 
 let bed: RpcTestbed | null = null;
 afterEach(async () => {
@@ -27,6 +28,44 @@ describe("the store port protocol (docs/data.md §8.3)", () => {
     const put = await home.blobs.put(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10]));
     expect(await home.blobs.get(put.sha1)).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10]));
     await expect(home.workspace.getFile("nope")).rejects.toMatchObject({ name: "StoreError", code: "not-found" });
+  });
+
+  it("the login gate (docs/desktop.md §18.6): no file is made or opened without a session, from any port", async () => {
+    bed = await rpcTestbed({ requireSession: true });
+    const home = await bed.connect("home");
+    const editor = await bed.connect("editor");
+    const main = await bed.connect("main");
+    // Made while the gate was off (an earlier signed-in run): the file is on disk, listing it is allowed.
+    const kept = await bed.t.api.workspace.createFile({ name: "Kept", folderId: null });
+    // Before main has said anything the call waits (here 100 ms), then is refused.
+    await expect(home.workspace.createFile({ folderId: null })).rejects.toMatchObject({ code: "forbidden", message: LOG_IN_FIRST });
+    await main.multiplayer.setSession(null);
+    for (const call of [
+      () => home.workspace.createFile({ folderId: null }),
+      () => home.workspace.duplicateFile(kept.fileKey),
+      () => editor.files.open(kept.fileKey, { mode: "edit" }),
+      () => main.files.open(kept.fileKey, { mode: "view" }),
+      () => main.files.importLocalCopy("/tmp/x.fig", null),
+      () => editor.files.importFigBytes(new Uint8Array([1, 2, 3]), "x.fig", null),
+    ]) {
+      await expect(call()).rejects.toMatchObject({ code: "forbidden", message: LOG_IN_FIRST });
+    }
+    expect((await home.workspace.listFiles({ in: "drafts" })).map((f) => f.name)).toEqual(["Kept"]);
+    // Signed in (main's session reached the store): the same calls go through.
+    bed.t.store.session = { server: "https://designer.example", token: "t" };
+    const made = await home.workspace.createFile({ name: "New", folderId: null });
+    expect((await editor.files.open(made.fileKey, { mode: "edit" })).snapshot).toBeInstanceOf(Uint8Array);
+    // Logged out again: refused again.
+    bed.t.store.session = null;
+    await expect(editor.files.open(made.fileKey, { mode: "view" })).rejects.toMatchObject({ code: "forbidden" });
+  });
+
+  it("without the gate (development, tests) files open with no session", async () => {
+    bed = await rpcTestbed();
+    const home = await bed.connect("home");
+    expect(bed.t.store.session).toBeNull();
+    const f = await home.workspace.createFile({ folderId: null });
+    expect((await home.files.open(f.fileKey, { mode: "view" })).snapshot).toBeInstanceOf(Uint8Array);
   });
 
   it("keeps path methods and store.* for main", async () => {

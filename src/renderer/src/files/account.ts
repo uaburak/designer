@@ -3,7 +3,7 @@
  * and opens Figma's account menu — Log in / Log out. Main does the sign-in in the system browser; Home only asks.
  */
 import { useEffect, useState } from "react";
-import type { AccountMethod, AccountResponse, AccountState, SignInResult } from "@shared/account";
+import type { AccountMethod, AccountResponse, AccountState, SignInMethod, SignInResult } from "@shared/account";
 import type { IdleNotice } from "@shared/ipc";
 import { SIGN_IN_ERROR_TEXT } from "@shared/org/identity";
 import type { MenuEntry } from "@/ds";
@@ -14,7 +14,7 @@ import { webAccount } from "../store/webAccount";
 export interface AccountBridge {
   get(): Promise<AccountState>;
   /** `tenant`: an org's SAML SSO, straight to its IdP (docs/desktop.md §18.1) */
-  signIn(opts?: { tenant?: string }): Promise<SignInResult>;
+  signIn(opts?: { tenant?: string; method?: SignInMethod }): Promise<SignInResult>;
   cancelSignIn(): Promise<AccountState>;
   signOut(): Promise<AccountState>;
   onChanged(cb: (s: AccountState) => void): () => void;

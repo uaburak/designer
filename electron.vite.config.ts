@@ -25,7 +25,7 @@ export default defineConfig(({ mode }) => ({
     build: {
       externalizeDeps: true,
       isolatedEntries: true,
-      rollupOptions: { input: { tabbar: preload("tabbar"), home: preload("home"), editor: preload("editor") } },
+      rollupOptions: { input: { tabbar: preload("tabbar"), home: preload("home"), editor: preload("editor"), welcome: preload("welcome") } },
     },
   },
   // The dev app's pages always on :3000 — a second start fails loudly instead of drifting to another port.

@@ -35,7 +35,7 @@ import type {
   VectorClipboard,
   WindowState,
 } from "./ipc";
-import type { AccountMethod, AccountResponse, AccountState, SignInResult } from "./account";
+import type { AccountMethod, AccountResponse, AccountState, SignInMethod, SignInResult } from "./account";
 import type { AgentSetupApi, AgentsApi } from "./agents/types";
 import type { AiApi, AiSetupApi } from "./ai/api";
 import type { SharedFontScope } from "./fonts/sharedTypes";
@@ -61,11 +61,11 @@ interface DesktopCommon {
   onFullScreen(cb: (fullScreen: boolean) => void): Unsubscribe;
   /** The trackpad's haptic tick (a scrub's step; macOS, throttled by main — docs/desktop.md §10.2 "Haptics") */
   haptics: { tick(): void };
-  /** The account on the multiplayer server (docs/multiplayer.md §2); sign-in/out only from Home and editors */
+  /** The account on the multiplayer server (docs/multiplayer.md §2); sign-in from the welcome page, Home and editors */
   account: {
     get(): Promise<AccountState>;
-    /** `tenant`: an org's SAML SSO (18 digits) — straight to its IdP (docs/desktop.md §18.1) */
-    signIn(opts?: { tenant?: string }): Promise<SignInResult>;
+    /** `tenant`: an org's SAML SSO (18 digits) — straight to its IdP (docs/desktop.md §18.1); `method`: the welcome page's "google" / "sso" (§18.6) */
+    signIn(opts?: { tenant?: string; method?: SignInMethod }): Promise<SignInResult>;
     cancelSignIn(): Promise<AccountState>;
     signOut(): Promise<AccountState>;
     onChanged(cb: (s: AccountState) => void): Unsubscribe;
@@ -285,4 +285,9 @@ export interface PluginsDesktopApi {
   onChanged(cb: (e: { id: string }) => void): Unsubscribe;
 }
 
-export type DesktopApi = TabBarApi | HomeApi | EditorApi;
+/** The signed-out window's view (docs/desktop.md §18.6): the account only — log in, cancel, the theme */
+export interface WelcomeApi extends DesktopCommon {
+  role: "welcome";
+}
+
+export type DesktopApi = TabBarApi | HomeApi | EditorApi | WelcomeApi;

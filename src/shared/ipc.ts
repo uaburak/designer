@@ -10,7 +10,7 @@
 import type { AgentSettings, AuthState, ConnectResult, McpClientId, McpClientInfo, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnEvent, TurnRequest, UsageInfo } from "./agents/types";
 import type { AttachResult } from "./agents/attachments";
 import type { AiImageRequest, AiModelId, AiModelInfo, AiModelState, AiRunEventMsg, AiRunRequest, AiSettings, Connector, ConnectorConsent, ConnectorToolPolicy } from "./ai/types";
-import type { AccountMethod, AccountResponse, AccountState, SignInResult } from "./account";
+import type { AccountMethod, AccountResponse, AccountState, SignInMethod, SignInResult } from "./account";
 import type { CommandId, MenuStatePatch } from "./commands";
 import type { SharedFontFace, SharedFontsChannels } from "./fonts/sharedTypes";
 import type { PluginBundle, PluginManifest } from "./plugins/types";
@@ -18,7 +18,8 @@ import type { ShortcutSettings } from "./shortcuts";
 import type { TabKind, TabReport, TabStatus } from "./tabs";
 
 /** What a view is (each its own WebContentsView, renderer process and preload). */
-export type Role = "tabbar" | "home" | "editor";
+/** `welcome`: the signed-out window's one view (docs/desktop.md §18.6) — the splash, then the welcome page */
+export type Role = "tabbar" | "home" | "editor" | "welcome";
 
 export type ThemePreference = "system" | "light" | "dark";
 
@@ -366,7 +367,8 @@ export interface IpcInvoke extends SharedFontsChannels {
   "account:get": { args: []; result: AccountState };
   /** Sign in in the system browser (Google or the org's SAML SSO); resolves when the browser comes back (or is
    *  cancelled / times out). `tenant`: straight to that org's IdP (docs/desktop.md §18.1) */
-  "account:sign-in": { args: [opts?: { tenant?: string }]; result: SignInResult };
+  /** `method` (docs/desktop.md §18.6): the welcome page's Log in with Google / Log in with SSO */
+  "account:sign-in": { args: [opts?: { tenant?: string; method?: SignInMethod }]; result: SignInResult };
   "account:cancel-sign-in": { args: []; result: AccountState };
   "account:sign-out": { args: []; result: AccountState };
   /** Settings: the caller's own account on the server (`/me…`, and the operator's `/operator/…` — shared/account.ts
@@ -523,7 +525,7 @@ export type IdleNotice = { state: "warning"; logoutAt: number } | { state: "clea
 
 /** Which roles may use which channel (main drops anything else). */
 export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
-  "desktop:init": ["tabbar", "home", "editor"],
+  "desktop:init": ["tabbar", "home", "editor", "welcome"],
   "tabs:get": ["tabbar", "home"],
   "nav:open-file": ["home", "editor"],
   "nav:open-prototype": ["editor"],
@@ -532,7 +534,7 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "file:save-local-copy": ["home", "editor"],
   "file:export-assets": ["editor"],
   "file:export-preview": ["editor"],
-  "theme:set": ["tabbar", "home", "editor"],
+  "theme:set": ["tabbar", "home", "editor", "welcome"],
   "theme:set-contrast": ["home", "editor"],
   "updater:get": ["tabbar"],
   "shortcuts:get": ["editor"],
@@ -571,9 +573,9 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "agents:connect": ["home", "editor"],
   "agents:disconnect": ["home", "editor"],
   "agents:client-config": ["home", "editor"],
-  "account:get": ["tabbar", "home", "editor"],
-  "account:sign-in": ["home", "editor"],
-  "account:cancel-sign-in": ["home", "editor"],
+  "account:get": ["tabbar", "home", "editor", "welcome"],
+  "account:sign-in": ["home", "editor", "welcome"],
+  "account:cancel-sign-in": ["home", "editor", "welcome"],
   "account:sign-out": ["home", "editor"],
   "account:request": ["home", "editor"],
   "account:stay-signed-in": ["home", "editor"],
@@ -607,7 +609,7 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
 };
 
 export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {
-  "shell:ready": ["tabbar", "home", "editor"],
+  "shell:ready": ["tabbar", "home", "editor", "welcome"],
   "tabs:activate": ["tabbar", "home"],
   "tabs:close": ["tabbar", "editor"],
   "tabs:move": ["tabbar"],

@@ -1,0 +1,58 @@
+/* The welcome page (docs/desktop.md §18.6): the whole window, centered; its top strip drags the window as the tab bar does */
+@layer app {
+  .page {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--ds-space-8) var(--ds-space-4);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    user-select: none;
+  }
+  .drag {
+    position: absolute;
+    inset: 0 0 auto;
+    height: var(--ds-size-tabbar);
+    -webkit-app-region: drag;
+  }
+  .body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    max-width: calc(var(--ds-size-panel) + var(--ds-space-12));
+    text-align: center;
+  }
+  .logo { display: flex; color: var(--figma-color-text); }
+  .wordmark { margin-top: var(--ds-space-3); font: var(--ds-font-heading-medium); }
+  .title { margin: var(--ds-space-8) 0 0; font: var(--ds-font-heading-large); }
+  .line { margin: var(--ds-space-2) 0 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-large); }
+  .note { margin: 0; color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
+  .actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--ds-space-3);
+    width: 100%;
+    margin-top: var(--ds-space-6);
+  }
+  .waiting {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--ds-space-2);
+    margin-top: var(--ds-space-6);
+    color: var(--figma-color-icon-secondary);
+  }
+  .waiting > button { margin-top: var(--ds-space-4); }
+  .error { width: 100%; margin-top: var(--ds-space-4); text-align: left; }
+  .footer {
+    position: absolute;
+    bottom: var(--ds-space-4);
+    color: var(--figma-color-text-tertiary);
+    font: var(--ds-font-body-medium);
+  }
+}

@@ -5,6 +5,7 @@ import type { WorkspaceEvent } from "../shared/store/repositories";
 import type { StoreClient } from "../shared/store/client";
 import { startStore, type StoreHandle } from "../store/host";
 import { desktopPolicy, storeProxyEnv } from "./policy";
+import { loginBypassed } from "./gateRules";
 
 /**
  * The store (docs/desktop.md §1, §9; docs/data.md §7): the utility process
@@ -62,6 +63,8 @@ function spawn() {
     workspaceDir: workspaceDir(),
     generation,
     seedFigs: seedFigs(),
+    // The login gate (docs/desktop.md §18.6): no file without a session, unless the gate is off (development, tests)
+    requireSession: !loginBypassed(process.env),
     // ProxyUrl (docs/desktop.md §12.5): Node's own proxy support for the store's fetch and sockets
     env: proxyEnv(),
   });
