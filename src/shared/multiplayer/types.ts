@@ -3,6 +3,7 @@
  * files. The session token goes in through `setSession` (main only, desktop; the page itself in the browser).
  */
 import type { FilePolicy, RoomPolicy } from "../org/identity";
+import type { GovernanceErrorCode, OrgGate } from "../org/governance";
 import type { FileKey } from "../store/types";
 import type { RestJob } from "../rest/types";
 import type { PeerInfo, Role } from "./protocol";
@@ -58,6 +59,10 @@ export interface FileShareState {
   /** The org's room policy (cursor chat, audio — docs/multiplayer.md §15.9) as the room last said it (`welcome.policy`,
    *  `{t: "policy"}`); null outside orgs or before the room spoke: everything allowed */
   policy?: RoomPolicy | null;
+  /** Governance+ (docs/governance.md §2.5, §2.10; round 14e): the server refuses this file — an org gate (`gate`: what
+   *  to do first), the network restriction, or the org's encryption key unavailable. The link waits; it tries again when
+   *  the person agrees to a policy or turns on two-factor authentication, and every few minutes. */
+  blocked?: { code: GovernanceErrorCode; gate?: OrgGate } | null;
 }
 
 export interface AccessRequest {

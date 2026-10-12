@@ -28,6 +28,8 @@ export type StoreErrorCode =
   | "draft-cannot-publish"
   | "invalid"
   | "forbidden"
+  /** The server can't serve it right now (an org file whose encryption key is unavailable: docs/governance.md §2.10) */
+  | "unavailable"
   | "offline"
   /** A name taken or a stale write (the server's 409; docs/multiplayer.md §14.6) */
   | "conflict"
@@ -269,6 +271,13 @@ export const RETRY_SAFE = new Set<string>([
   "identity.overview",
   "identity.domainAccounts",
   "identity.dataRegion",
+  "governance.overview",
+  "governance.policies",
+  "governance.ekm",
+  "governance.developerLogs",
+  "governance.idps",
+  "governance.pendingPolicies",
+  "governance.twoFactor",
 ]);
 
 /**
