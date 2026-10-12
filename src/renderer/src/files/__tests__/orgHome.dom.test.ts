@@ -362,7 +362,7 @@ describe("Adding files in an organization (help.figma.com 360041003114)", () => 
     expect(header()).toEqual(["Design", "Import"]);
     click(headerButton("Import"));
     await settleLong();
-    expect(ctx.shellImport).toHaveBeenCalledTimes(1);
+    expect(ctx.shellImport).not.toHaveBeenCalled(); // into an org the page reads the .fig itself (the upload panel path), not main's dialog
     dropFiles($('[data-ds="EmptyState"]')!, ["Poster.fig"]);
     await settleLong();
     expect(ctx.imported).toEqual(["Poster.fig"]);
@@ -371,7 +371,7 @@ describe("Adding files in an organization (help.figma.com 360041003114)", () => 
     expect(menuItem("New design file")).toBeTruthy();
     click(menuItem("Import…")!);
     await settleLong();
-    expect(ctx.shellImport).toHaveBeenCalledTimes(2);
+    expect(ctx.shellImport).not.toHaveBeenCalled();
   });
 
   it("a folder: New folder, Design and Import; files dropped on it (or on a subfolder's card) are imported", async () => {
@@ -379,7 +379,7 @@ describe("Adding files in an organization (help.figma.com 360041003114)", () => 
     expect(header()).toEqual(["New folder", "Design", "Import"]);
     click(headerButton("Import"));
     await settleLong();
-    expect(ctx.shellImport).toHaveBeenCalledTimes(1);
+    expect(ctx.shellImport).not.toHaveBeenCalled(); // into an org the page reads the .fig itself (the upload panel path), not main's dialog
     dropFiles($('[data-ds="EmptyState"]')!, ["Logo.fig"]);
     await settleLong();
     expect(ctx.imported).toEqual(["Logo.fig"]);
@@ -395,7 +395,7 @@ describe("Adding files in an organization (help.figma.com 360041003114)", () => 
     click($$('[role="dialog"] [role="option"]').find((o) => o.textContent?.includes("Web"))!);
     click(dialogButton("Import"));
     await settleLong();
-    expect(ctx.shellImport).toHaveBeenCalledTimes(1);
+    expect(ctx.shellImport).not.toHaveBeenCalled(); // into an org the page reads the .fig itself (the upload panel path), not main's dialog
     dropFiles($$('[data-ds="FolderCard"]').find((c) => c.getAttribute("aria-label") === "Web")!, ["Icons.fig"]);
     await settleLong();
     expect(ctx.imported).toEqual(["Icons.fig"]);
