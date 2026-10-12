@@ -25,6 +25,7 @@ import type { Deps } from "./api";
 import type { User } from "./db";
 import { deletePreviewsOf } from "./previews";
 import { randomToken, sha256b64url } from "./tokens";
+import { rootD1 } from "./requestD1";
 
 /** Who is calling: the user, the session their token belongs to (null: an older token or a PAT), a PAT's scopes. */
 export interface Caller {
@@ -380,10 +381,24 @@ async function keptByOrgs(deps: Deps, userId: string): Promise<boolean> {
  */
 export async function touchOrgActivity(deps: Deps, userId: string, force = false): Promise<void> {
   const now = deps.now();
+  // Every request asks; the row moves at most every 5 minutes — this isolate skips the round trip until then
+  const touched = touchedOf(deps);
+  if (!force && (touched.get(userId) ?? -Infinity) > now - 300_000) return;
+  if (touched.size >= 5_000) touched.clear();
+  touched.set(userId, now);
   await deps.db.d1
     .prepare(`UPDATE org_members SET last_active_at = ?2 WHERE user_id = ?1 AND (last_active_at IS NULL OR last_active_at < ?3)`)
     .bind(userId, now, force ? now - 60_000 : now - 300_000)
     .run();
+}
+
+/** When this isolate last moved each person's org activity on, per D1 binding (each test world has its own) */
+const touchedByD1 = new WeakMap<object, Map<string, number>>();
+function touchedOf(deps: Deps): Map<string, number> {
+  const key = rootD1(deps.db.d1);
+  let m = touchedByD1.get(key);
+  if (!m) touchedByD1.set(key, (m = new Map()));
+  return m;
 }
 
 function safeParse<T>(text: string, fallback: T): T {

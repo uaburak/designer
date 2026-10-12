@@ -47,6 +47,7 @@ import { logActivity, repoEntity } from "./activity";
 import type { Deps } from "./api";
 import type { BranchRow } from "./branchAccess";
 import { normalizeEmail } from "./db";
+import { prefetch, type Query } from "./requestD1";
 import { guardedUpload, requireFileSlot } from "./quota/quota";
 import { canOpen, type FileRow } from "./org/db";
 import { body, cleanName, HttpError, json, noContent, randomId, type Ctx, type ErrorCode } from "./org/http";
@@ -97,11 +98,15 @@ type Row = BranchRow & { creator_name: string | null; creator_email: string | nu
 
 const SELECT = `SELECT b.*, u.name AS creator_name, u.email AS creator_email FROM branches b LEFT JOIN users u ON u.id = b.created_by`;
 
+/** A branch's reviews, newest first (prefetched for a list of branches: requestD1.ts) */
+const reviewsQ = (branchKey: string, latestOnly: boolean): Query => ({ sql: `SELECT * FROM branch_reviews WHERE branch_key = ?1 ORDER BY created_at DESC, id DESC ${latestOnly ? "LIMIT 1" : ""}`, args: [branchKey] });
+
 async function reviewsOf(deps: Deps, branchKey: string, latestOnly: boolean): Promise<BranchReviewJson[]> {
   const d1 = deps.db.d1;
+  const q = reviewsQ(branchKey, latestOnly);
   const { results } = await d1
-    .prepare(`SELECT * FROM branch_reviews WHERE branch_key = ?1 ORDER BY created_at DESC, id DESC ${latestOnly ? "LIMIT 1" : ""}`)
-    .bind(branchKey)
+    .prepare(q.sql)
+    .bind(...q.args)
     .all<{ id: string; requested_by: string; description: string; state: BranchReviewJson["state"]; created_at: number; updated_at: number }>();
   const out: BranchReviewJson[] = [];
   for (const r of results) {
@@ -213,6 +218,8 @@ export async function fileBranchesRoute(ctx: Ctx, f: FileRow, a: AccessGranted |
       const stmt = deps.db.d1.prepare(`${SELECT} WHERE b.main_key = ?1 AND ${where} ORDER BY b.created_at DESC`);
       const { results } = await (tab === "yours" ? stmt.bind(key, user.id) : stmt.bind(key)).all<Row>();
       const branches: BranchJson[] = [];
+      // Each branch's latest review, in one round trip
+      await prefetch(deps.db.d1, results.map((r) => reviewsQ(r.key, true)));
       for (const r of results) branches.push(await toJson(deps, r));
       return json({ branches });
     }

@@ -8,6 +8,11 @@
   "compatibility_date": "2026-09-01",
   // @node-saml/node-saml (SAML SSO, docs/multiplayer.md §15.3): Buffer, zlib, crypto.X509Certificate
   "compatibility_flags": ["nodejs_compat"],
+  // The SAML libraries as their own module, imported only by SAML routes (src/auth/saml/lib.js): built before every
+  // deploy/dev, uploaded next to the bundle unbundled — no other request's isolate parses their 1.2 MB
+  "build": { "command": "node scripts/build-saml.mjs" },
+  "find_additional_modules": true,
+  "rules": [{ "type": "ESModule", "globs": ["**/*.gen.mjs"], "fallthrough": false }],
   "workers_dev": true,
   "durable_objects": {
     "bindings": [

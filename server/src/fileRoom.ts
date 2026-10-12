@@ -23,6 +23,7 @@ import { Room, type MemberState } from "../../src/shared/multiplayer/room";
 import type { SqlLike } from "./previews";
 import { RoomBox } from "./roomBox";
 import { parseRoomPolicy } from "./policy/roomPolicy";
+import { fromHeaderText } from "./identityHeaders";
 import { RestJobs } from "./rest/roomJobs";
 import { Db } from "./db";
 import { BROADCAST_KINDS } from "./roomBroadcast";
@@ -138,7 +139,7 @@ export class FileRoom extends DurableObject {
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const policy = parseRoomPolicy(req.headers.get("x-policy"));
-    const identity = { userId: req.headers.get("x-user-id") ?? "", name: req.headers.get("x-user-name") || undefined, role: (req.headers.get("x-role") ?? "viewer") as Role, ...(policy ? { policy } : {}) };
+    const identity = { userId: req.headers.get("x-user-id") ?? "", name: fromHeaderText(req.headers.get("x-user-name")) ?? undefined, role: (req.headers.get("x-role") ?? "viewer") as Role, ...(policy ? { policy } : {}) };
     // The Worker names the file on every call (x-file-key, roomsOn) and on REST / encrypt-next (?fileKey=): the object's name when the runtime
     // doesn't give it. Learning it reads the org's key again.
     const named = url.searchParams.get("fileKey") ?? req.headers.get("x-file-key");

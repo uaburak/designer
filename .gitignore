@@ -11,3 +11,6 @@ dist
 
 docs/research/figma/live/img/
 docs/research/figma/live/behaviour/img/
+
+# The SAML libraries' module, built by server/scripts/build-saml.mjs before every wrangler build
+server/src/*.gen.mjs

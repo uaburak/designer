@@ -641,7 +641,7 @@ export class FakeOrgServer {
       return json({ ok: true });
     }
     if (sub === "snapshot" && m === "GET") {
-      if (!f.snapshot) throw new HttpError(404, "not_found", "no snapshot");
+      if (!f.snapshot) throw new HttpError(404, "no_snapshot", "no snapshot yet");
       return new Response(f.snapshot.bytes.slice(), { headers: { "x-seq": String(f.snapshot.seq) } });
     }
     if (sub === "blobs" && p[3] === "missing") return json({ missing: [] });

@@ -8,7 +8,7 @@ import type { GrantRole, OrgRole, Principal, ProjectInfo, ProjectMember, Project
 import { logActivity, projectEntity } from "../activity";
 import { normalizeEmail } from "../db";
 import { notifyOrg, orgNotice } from "../notifications";
-import { accessibleFiles, personRef, subtree, type Access, type ProjectRow, type TeamRow } from "./db";
+import { accessibleFiles, personRef, Q, readFirst, subtree, type Access, type ProjectRow, type TeamRow } from "./db";
 import { body, cleanName, EMAIL, HttpError, ID, json, noContent, randomId, type Ctx } from "./http";
 import { createOrgFile, inviteEmail } from "./orgs";
 import { reauth, subtreeFileKeys } from "./reauth";
@@ -20,13 +20,12 @@ const canWrite = (a: { ok: boolean; role?: string | null; canManage?: boolean })
 
 export async function projectSummaries(acc: Access, rows: ProjectRow[]): Promise<ProjectSummary[]> {
   const out: ProjectSummary[] = [];
+  // Each folder's access and counts, all in one round trip
+  await acc.prefetchProjects(rows);
   for (const p of rows) {
     const a = await acc.container(p.team_id, p.id);
     if (!a.ok) continue;
-    const c = await acc.d1
-      .prepare(`SELECT (SELECT COUNT(*) FROM files WHERE project_id = ?1 AND trashed_at IS NULL) AS files, (SELECT COUNT(*) FROM projects WHERE parent_id = ?1 AND trashed_at IS NULL) AS folders`)
-      .bind(p.id)
-      .first<{ files: number; folders: number }>();
+    const c = await readFirst<{ files: number; folders: number }>(acc.d1, Q.projectCounts(p.id));
     const team = await acc.team(p.team_id);
     // `orgId` beyond §14.13's ProjectSummary (the store asked: a folder names its org)
     out.push(Object.assign({ id: p.id, teamId: p.team_id, parentId: p.parent_id, name: p.name, access: p.access, fileCount: c?.files ?? 0, folderCount: c?.folders ?? 0, updatedAt: p.updated_at, trashedAt: p.trashed_at, me: a.role } satisfies ProjectSummary, { orgId: team?.org_id ?? null }));

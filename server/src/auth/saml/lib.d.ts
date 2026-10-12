@@ -55,3 +55,6 @@ export declare class X509Certificate {
   readonly publicKey: { readonly asymmetricKeyType?: string; readonly asymmetricKeyDetails?: { modulusLength?: number }; export(options: { format: "jwk" }): unknown };
 }
 export declare function createHash(algorithm: string): { update(data: Uint8Array | string): { digest(encoding: "hex"): string } };
+
+/** Loads node-saml and xmldom (the Worker: its separate module) — before `SAML` or `DOMParser` is used */
+export declare function loadSamlLib(): Promise<void>;

@@ -144,8 +144,8 @@ describe("/me/two-factor", () => {
     const batch = vi.spyOn(w.d1, "batch" as never);
     const again = await w.call("POST", "/me/two-factor/recovery-codes", { token: t, body: { code: await codeAt(secret) } });
     expect(again.status).toBe(200);
-    // the new recovery codes replace the old ones in one batch (atomic)
-    expect(batch).toHaveBeenCalledTimes(1);
+    // the new recovery codes replace the old ones in one batch (atomic); the other is authenticate's user-and-session read
+    expect(batch).toHaveBeenCalledTimes(2);
     expect(await w.rows(`SELECT 1 FROM user_recovery_codes WHERE user_id = ?1`, w.admin.id)).toHaveLength(10);
     expect((await w.rows<{ failed_count: number; failed_since: number | null }>(`SELECT failed_count, failed_since FROM user_two_factor WHERE user_id = ?1`, w.admin.id))[0]).toEqual({ failed_count: 0, failed_since: null });
   });

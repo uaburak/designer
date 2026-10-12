@@ -461,6 +461,8 @@ export async function createOrgFile(ctx: Ctx, input: { key: unknown; name: unkno
   await logActivity(deps, { orgId: input.orgId, action, actor: user, entity: fileEntity(f), teamId, details: action === "fig_file_move" ? { from: null, to: input.projectId } : {}, req: ctx.req });
   if (action === "fig_file_move") await reauth(deps, [key]);
   await orgNotice(deps, [user.id], { what: "files", orgId: input.orgId, projectId: input.projectId });
+  // Its access reads in one round trip (requestD1.ts)
+  await acc.prefetchFile(f);
   const a = await acc.file(f);
   if (!a.ok) throw new HttpError(500, "the new file can't be opened");
   return toOrgFile(f, a);

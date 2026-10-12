@@ -8,6 +8,7 @@ import type { EditorType, OrgSettings } from "../../../src/shared/org/types";
 import { FILE_EXPORTING_LABEL, type FileExporting } from "../../../src/shared/org/governance";
 import type { Deps } from "../api";
 import type { D1Like } from "../db";
+import type { Query } from "../requestD1";
 import { settingsOf } from "../org/db";
 import { HttpError } from "../org/http";
 
@@ -37,17 +38,23 @@ const noCache: Once = (_k, fn) => fn();
 export async function teamSharing(d1: D1Like, teamId: string | null, once: Once = noCache): Promise<WorkspaceSharingSettings | null> {
   if (!teamId) return null;
   return once(`ws-sharing:${teamId}`, async () => {
-    const r = await d1.prepare(`SELECT w.settings FROM teams t JOIN workspaces w ON w.id = t.workspace_id WHERE t.id = ?1`).bind(teamId).first<{ settings: string }>();
+    const q = wsSharingQ(teamId);
+    const r = await d1.prepare(q.sql).bind(...q.args).first<{ settings: string }>();
     return r ? sharingOf(r.settings) : null;
   });
 }
+
+/** The reads of `policyOfFile` (requestD1.ts prefetching: Access.prefetchFile) */
+export const wsSharingQ = (teamId: string): Query => ({ sql: `SELECT w.settings FROM teams t JOIN workspaces w ON w.id = t.workspace_id WHERE t.id = ?1`, args: [teamId] });
+export const orgSettingsQ = (orgId: string): Query => ({ sql: `SELECT settings, governance_plus FROM orgs WHERE id = ?1`, args: [orgId] });
 
 /** The file's effective policy (`GET /files/:key` → `policy`); null outside orgs */
 export async function policyOfFile(d1: D1Like, f: PolicyFile, once: Once = noCache): Promise<FilePolicy | null> {
   if (!f.org_id) return null;
   const orgId = f.org_id;
   const org = await once(`org-settings:${orgId}`, async () => {
-    const r = await d1.prepare(`SELECT settings, governance_plus FROM orgs WHERE id = ?1`).bind(orgId).first<{ settings: string; governance_plus: number }>();
+    const q = orgSettingsQ(orgId);
+    const r = await d1.prepare(q.sql).bind(...q.args).first<{ settings: string; governance_plus: number }>();
     return { settings: settingsOf(r), governancePlus: !!r?.governance_plus };
   });
   const ws = await teamSharing(d1, f.team_id, once);

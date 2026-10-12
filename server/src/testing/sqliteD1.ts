@@ -27,12 +27,13 @@ export function sqliteD1(): D1Like {
   };
   return {
     prepare: (sql) => prepare(sql),
-    // D1's batch: one transaction (node:sqlite runs synchronously, so nothing interleaves)
+    // D1's batch: one transaction (node:sqlite runs synchronously, so nothing interleaves); each statement's answer is
+    // D1's `{results}` (the rows of a read or of RETURNING; none for other writes)
     batch: async (stmts) => {
       db.exec("BEGIN");
       try {
         const out: unknown[] = [];
-        for (const s of stmts) out.push(await s.run());
+        for (const s of stmts) out.push({ ...(await s.all()), success: true });
         db.exec("COMMIT");
         return out;
       } catch (e) {

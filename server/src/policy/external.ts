@@ -12,6 +12,7 @@ import type { ActivityAction } from "../../../src/shared/org/types";
 import { logActivity, type Entity } from "../activity";
 import type { Deps } from "../api";
 import type { D1Like, User } from "../db";
+import type { Query } from "../requestD1";
 import { settingsOf } from "../org/db";
 import { HttpError } from "../org/http";
 
@@ -22,17 +23,25 @@ export interface HomeOrg {
   restricted: boolean;
 }
 
-/** The person's home org (null: none — no verified domain of theirs with capture on, or not a member there) */
-export async function homeOrgOf(d1: D1Like, user: { id: string; email: string }): Promise<HomeOrg | null> {
+/** `homeOrgOf`'s read (null: an email without a domain needs none) — prefetched by Access.prefetchFile */
+export function homeOrgQ(user: { id: string; email: string }): Query | null {
   const domain = emailDomain(user.email);
   if (!domain) return null;
-  const { results } = await d1
-    .prepare(
-      `SELECT o.id, o.name, o.settings FROM org_domains d JOIN orgs o ON o.id = d.org_id
+  return {
+    sql: `SELECT o.id, o.name, o.settings FROM org_domains d JOIN orgs o ON o.id = d.org_id
        JOIN org_members m ON m.org_id = o.id AND m.user_id = ?1 AND m.role IN ('admin', 'member')
        WHERE d.domain = ?2 AND d.verified_at IS NOT NULL`,
-    )
-    .bind(user.id, domain)
+    args: [user.id, domain],
+  };
+}
+
+/** The person's home org (null: none — no verified domain of theirs with capture on, or not a member there) */
+export async function homeOrgOf(d1: D1Like, user: { id: string; email: string }): Promise<HomeOrg | null> {
+  const q = homeOrgQ(user);
+  if (!q) return null;
+  const { results } = await d1
+    .prepare(q.sql)
+    .bind(...q.args)
     .all<{ id: string; name: string; settings: string }>();
   for (const r of results) {
     const s = settingsOf(r);

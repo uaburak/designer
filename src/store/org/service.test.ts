@@ -168,6 +168,15 @@ async function acme() {
   return { srv, alice, a, org, team, folder };
 }
 
+/** The refusal a call ends with (a call that resolves fails the test) */
+const refusal = (p: Promise<unknown>) =>
+  p.then(
+    () => {
+      throw new Error("expected a refusal");
+    },
+    (e: unknown) => e as StoreError,
+  );
+
 const codeOf = (p: Promise<unknown>) =>
   p.then(
     () => "resolved",
@@ -243,6 +252,47 @@ describe("org spaces", () => {
     expect(await a.org.orgs.drafts(org.id)).toEqual([]);
     await a.org.projects.restoreFiles([moved.key]);
     expect((await a.org.orgs.drafts(org.id)).map((f) => f.key)).toEqual([moved.key]);
+  });
+
+  it("a move whose snapshot upload fails part-way: the copy is in the folder, members hear it's still uploading, the next start finishes it", async () => {
+    const { srv, alice, a, folder } = await acme();
+    const local = await a.host.addLocal("B2C Project");
+    // Cloudflare's 1102 page for the snapshot, as on 2026-10-12 (this installation's own fetch; the server is fine)
+    let failing = true;
+    const flaky: typeof fetch = async (input, init) =>
+      failing && init?.method === "PUT" && /\/snapshot\?seq=/.test(String(input)) ? new Response("<!DOCTYPE html><html><body>Error 1102</body></html>", { status: 503, headers: { "content-type": "text/html" } }) : srv.fetch(input, init);
+    const host = a.host;
+    a.mp.close();
+    const mp = new MultiplayerService(host, { fetch: flaky, WebSocket: NoSocket as never, random: Math.random, backoff: () => 60_000, uploadRetryDelays: [0, 0] });
+    const org = new OrgService(mp, host, new Notices());
+    running.push({ mp, org });
+    await mp.setSession({ server: SERVER, token: alice.token });
+    const err = await refusal(org.projects.moveLocalFile(local.fileKey, folder.id, { snapshot: await host.headSnapshot(local.fileKey), headSeq: 0 }));
+    expect(err).toBeInstanceOf(StoreError);
+    expect(err.message).not.toMatch(/DOCTYPE|<html/i);
+    expect(err.detail).toMatchObject({ code: "upload_incomplete", pendingUpload: true });
+    const key = (await mp.roomKey(local.fileKey))!;
+    expect(host.getMeta(local.fileKey)?.space).toMatchObject({ key, projectId: folder.id });
+    expect((await srv.file(key))?.snapshot).toBeNull();
+
+    // Another person opening it meanwhile: the room's 404 `no_snapshot` reads as "still uploading", nothing linked
+    const bob = await srv.addUser("bob@example.com", "Bob");
+    await srv.call("PUT", `/files/${key}/members`, alice.token, { email: "bob@example.com", role: "editor" });
+    const b = await installation(srv, bob.token);
+    const opening = await refusal(b.mp.openShared(key));
+    expect(opening).toMatchObject({ code: "unavailable", message: "This file is still uploading. Try again in a moment." });
+    expect(opening.detail).toMatchObject({ code: "no_snapshot" });
+    expect(await b.mp.linkedCopies()).toEqual(new Map());
+
+    // The next start, the server well again: the snapshot goes, the link forgets it was pending
+    mp.close();
+    failing = false;
+    const mp2 = new MultiplayerService(host, { fetch: flaky, WebSocket: NoSocket as never, random: Math.random });
+    running.push({ mp: mp2, org: new OrgService(mp2, host, new Notices()) });
+    await mp2.setSession({ server: SERVER, token: alice.token });
+    for (let i = 0; i < 50 && !(await srv.file(key))?.snapshot; i++) await new Promise((r) => setTimeout(r, 5));
+    expect((await srv.file(key))?.snapshot).not.toBeNull();
+    expect((await b.mp.openShared(key)).fileKey).toBeTruthy();
   });
 
   it("a member opens an org file: the copy knows its place from GET /files/:key", async () => {
