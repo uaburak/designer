@@ -60,7 +60,7 @@ import { LibraryRouter } from "./libraries/router";
 import { orgLibrariesRepository } from "./libraries/orgLibraries";
 import { AnalyticsQueue, analyticsRepository } from "./libraries/analyticsQueue";
 import { identityRepository } from "./org/identity";
-import { governanceRepository } from "./org/governance";
+import { governanceEvents, governanceRepository, refreshGates } from "./org/governance";
 import { PluginsService } from "./plugins/service";
 import { DevModeService, type LocalDevRecord } from "./devmode/service";
 import { SearchService } from "./search/service";
@@ -240,6 +240,8 @@ export class LocalStore {
       this.notifications,
     );
     this.branches = new BranchService(localBranchHost({ dirs, ws, files, libraries, multiplayer: this.multiplayer, clock, log, timers }));
+    // Governance+'s refusals as org events (docs/governance.md §2.5): Home re-reads the org's gate
+    this.governanceEvents = governanceEvents(this.multiplayer, this.org, () => clock.now());
     const mp = this.multiplayer;
     this.roomVersions = new RoomVersions({
       // Signed out, a shared file's history is its local copy's checkpoints.
@@ -441,6 +443,8 @@ export class LocalStore {
 
   /** The org spaces (docs/multiplayer.md §14.6): the server's orgs, teams, folders and their files, cached per org */
   readonly org: OrgService;
+  /** Governance+'s refusals (docs/governance.md §2.5, round 14e) on topic `org` (`access.blocked`) */
+  readonly governanceEvents: ReturnType<typeof governanceEvents>;
   /** Branches (docs/data.md §15): records, merge previews, Update from main and Merge; events on topic `branches` */
   readonly branches: BranchService;
   private readonly spacesQueue = new SerialQueue();
@@ -798,6 +802,7 @@ export class LocalStore {
     await this.analytics.close().catch((e) => this.log("warn", "analytics: the quit's send failed", e));
     this.orgLibraries.close();
     this.plugins.close();
+    this.governanceEvents.close();
     this.org.close();
     this.branches.close();
     this.notifications.close();
@@ -958,7 +963,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     orgLibraries: orgLibrariesRepository(s.libraryServer),
     analytics: analyticsRepository(s.analytics, s.libraryServer),
     identity: identityRepository(s.multiplayer, (orgId) => s.org.notice({ t: "org", what: "org", orgId })),
-    governance: governanceRepository(),
+    governance: governanceRepository(s.multiplayer, { changed: (orgId) => refreshGates(s.org, orgId), retry: (orgId) => s.multiplayer.retryBlocked(orgId) }),
     plugins: s.plugins.repository(),
     devMode: s.devMode.repository(),
     ai: s.ai.repository(),

@@ -9,6 +9,7 @@
  * been (to recognise its own frames in a catch-up after a reconnect).
  */
 import type { RoomPolicy } from "../../shared/org/identity";
+import { GOVERNANCE_SIGN_IN_ERROR_TEXT, REQUIRES_GOVERNANCE_PLUS, type GovernanceErrorCode, type OrgGate } from "../../shared/org/governance";
 import { CLOSE_MOVING, encodeChangesUp, decodeChangesDown, type ClientControl, type PeerInfo, type Role, type ServerControl } from "../../shared/multiplayer/protocol";
 import type { AccessRequest, FileMember, FileShareState, LinkAccess, LinkSettingsPatch, MultiplayerNotice, MultiplayerSession, MultiplayerStatus, OpenIntent, RemoteFile, RestJobAnswer, RestJobRequest, SessionEnded, SharedFileInfo } from "../../shared/multiplayer/types";
 import type { RestJob, RestJobPart } from "../../shared/rest/types";
@@ -101,6 +102,36 @@ export const READ_FRESH_MS = 2000;
 /** A shared file's thumbnail goes to the server at most this often (docs/multiplayer.md §16.7: `thumbnailUrl`) */
 export const THUMBNAIL_EVERY_MS = 60_000;
 
+/** A link the server refuses with a Governance+ code tries again after this long (or at once when the person acts) */
+export const BLOCKED_RETRY_MS = 5 * 60_000;
+
+/** Governance+'s refusals (docs/governance.md §4): 403s, and 503 `key_unavailable` (`two_factor_invalid` is a 400) */
+export type GovernanceRefusalCode = Exclude<GovernanceErrorCode, "two_factor_invalid">;
+const GOVERNANCE_REFUSALS = new Set<string>(["governance_plus_required", "two_factor_required", "policy_acknowledgement_required", "ip_not_allowed", "network_restricted", "key_unavailable", "export_restricted"] satisfies GovernanceRefusalCode[]);
+export const isGovernanceCode = (c: unknown): c is GovernanceRefusalCode => typeof c === "string" && GOVERNANCE_REFUSALS.has(c);
+const isGate = (g: unknown): g is OrgGate => !!g && typeof g === "object" && typeof (g as { kind?: unknown }).kind === "string";
+
+/** The text a refusal shows (ours where Figma's is unpublished, as docs/governance.md §5's screens) */
+const GOVERNANCE_REFUSAL_TEXT: Partial<Record<GovernanceRefusalCode, string>> = {
+  governance_plus_required: REQUIRES_GOVERNANCE_PLUS,
+  two_factor_required: "This organization requires two-factor authentication for guests.",
+  policy_acknowledgement_required: "Agree to your organization's policies to continue.",
+  ip_not_allowed: "This organization only allows access from approved networks.",
+  network_restricted: GOVERNANCE_SIGN_IN_ERROR_TEXT.network_restricted,
+  key_unavailable: "This file is unavailable because its encryption key can't be reached.",
+  export_restricted: "Exporting is turned off for you in this file.",
+};
+
+/** A call or a file's socket refused with a Governance+ code (MultiplayerService.onGovernance) */
+export interface GovernanceRefusal {
+  code: GovernanceRefusalCode;
+  gate?: OrgGate;
+  /** The org whose gate it is; null when account-wide (`network_restricted`) or not known */
+  orgId: string | null;
+  /** The shared file refused, when the call named one */
+  fileKey?: FileKey;
+}
+
 const sha1Hex = async (bytes: Uint8Array): Promise<string> => [...new Uint8Array(await crypto.subtle.digest("SHA-1", bytes as Uint8Array<ArrayBuffer>))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
 const imagesOf = (message: Uint8Array): string[] => {
@@ -139,6 +170,7 @@ export class MultiplayerService {
     this.session = session;
     this.ended = false;
     this.policies.clear();
+    this.blocked.clear();
     this.reads.clear(); // another person's reads aren't this one's
     this.only = only;
     for (const l of this.sessionListeners) l(session);
@@ -173,7 +205,86 @@ export class MultiplayerService {
       me: link?.sessionID || null,
       locked: this.locked.has(fileKey),
       policy: this.policies.get(fileKey) ?? null,
+      blocked: this.blocked.get(fileKey) ?? null,
     };
+  }
+
+  // --- Governance+ refusals (docs/governance.md §2.5, §2.10; round 14e) ---
+
+  /** Shared files whose room the server refuses with a Governance+ code: their links wait */
+  private blocked = new Map<FileKey, { code: GovernanceRefusalCode; gate?: OrgGate }>();
+  private blockedTimer: ReturnType<typeof setTimeout> | null = null;
+  private governanceListeners = new Set<(e: GovernanceRefusal) => void>();
+
+  /** A call or a socket refused with one of Governance+'s codes (the stores refresh the org and say `access.blocked`) */
+  onGovernance(listener: (e: GovernanceRefusal) => void): Unsubscribe {
+    this.governanceListeners.add(listener);
+    return () => this.governanceListeners.delete(listener);
+  }
+
+  private governanceRefused(e: GovernanceRefusal): void {
+    for (const l of [...this.governanceListeners]) {
+      try {
+        l(e);
+      } catch (err) {
+        this.host.log("warn", "multiplayer: a governance listener failed", err);
+      }
+    }
+  }
+
+  /** The refusal's body, read off a copy of the answer (only 403 and 503 answers are looked at) */
+  private async governanceAnswer(res: Response, path: string): Promise<void> {
+    let body: { code?: unknown; gate?: unknown } | null = null;
+    try {
+      body = (await res.json()) as { code?: unknown; gate?: unknown };
+    } catch {
+      return;
+    }
+    // Gates and restrictions only: the add-on missing (Admin) and the export restriction (one file's action) aren't
+    if (!isGovernanceCode(body?.code) || body.code === "governance_plus_required" || body.code === "export_restricted") return;
+    const roomKey = /^\/files\/([^/?]+)/.exec(path)?.[1] ?? null;
+    const fileKey = roomKey ? this.fileOfRoom(roomKey) : null;
+    const orgId = /^\/orgs\/([^/?]+)/.exec(path)?.[1] ?? (fileKey ? (this.host.getMeta(fileKey)?.space?.orgId ?? null) : null);
+    this.governanceRefused({ code: body.code, ...(isGate(body.gate) ? { gate: body.gate } : {}), orgId: body.code === "network_restricted" ? null : orgId, ...(fileKey ? { fileKey } : {}) });
+  }
+
+  private fileOfRoom(roomKey: string): FileKey | null {
+    for (const [fileKey, rec] of Object.entries(this.state?.links ?? {})) if (rec.key === roomKey) return fileKey;
+    return null;
+  }
+
+  /** @internal The room refuses this link (a gate, the network, the org's key): it waits, the editor is told. */
+  block(fileKey: FileKey, b: { code: GovernanceRefusalCode; gate?: OrgGate }, say = false): void {
+    this.blocked.set(fileKey, b);
+    this.live.get(fileKey)?.stop();
+    this.live.delete(fileKey);
+    this.emitState(fileKey);
+    if (say) {
+      const orgId = b.code === "network_restricted" ? null : (this.host.getMeta(fileKey)?.space?.orgId ?? null);
+      this.governanceRefused({ ...b, orgId, fileKey });
+    }
+    if (!this.blockedTimer) {
+      this.blockedTimer = setTimeout(() => {
+        this.blockedTimer = null;
+        this.retryBlocked();
+      }, BLOCKED_RETRY_MS);
+    }
+  }
+
+  /** The waiting links try again: the person agreed to a policy, turned on 2FA, or the slow timer rang. `orgId`: only
+   *  that org's files (and those whose org isn't known). */
+  retryBlocked(orgId?: string | null): void {
+    for (const fileKey of [...this.blocked.keys()]) {
+      const org = this.host.getMeta(fileKey)?.space?.orgId ?? null;
+      if (orgId && org && org !== orgId) continue;
+      this.blocked.delete(fileKey);
+      this.startLink(fileKey);
+      this.emitState(fileKey);
+    }
+    if (!this.blocked.size && this.blockedTimer) {
+      clearTimeout(this.blockedTimer);
+      this.blockedTimer = null;
+    }
   }
 
   /** The room's policy per open file (docs/multiplayer.md §15.9): from `welcome.policy`, then `{t: "policy"}` */
@@ -382,7 +493,14 @@ export class MultiplayerService {
       this.live.delete(fileKey);
       this.emitState(fileKey);
       return true;
-    } catch {
+    } catch (e) {
+      // A Governance+ refusal (the file's org gate, the network): the link waits instead of retrying
+      const code = e instanceof StoreError ? (e.detail as { code?: unknown } | undefined)?.code : undefined;
+      if (isGovernanceCode(code)) {
+        const gate = (e as StoreError & { detail: { gate?: unknown } }).detail.gate;
+        this.block(fileKey, { code, ...(isGate(gate) ? { gate } : {}) });
+        return true;
+      }
       return false;
     }
   }
@@ -618,6 +736,9 @@ export class MultiplayerService {
 
   close(): void {
     this.off();
+    this.blocked.clear();
+    if (this.blockedTimer) clearTimeout(this.blockedTimer);
+    this.blockedTimer = null;
     for (const t of this.thumbs.values()) if (t.timer) clearTimeout(t.timer);
     this.thumbs.clear();
     for (const l of this.live.values()) l.stop();
@@ -937,6 +1058,8 @@ export class MultiplayerService {
       throw new StoreError("offline", "Couldn't reach the server. Check your connection and try again.");
     }
     if (res.status === 401) await this.sessionRefused(res, session);
+    // Governance+'s refusals (403 gates and restrictions, 503 key_unavailable) are said once read (§2.5)
+    if ((res.status === 403 || res.status === 503) && this.governanceListeners.size && this.session === session) void this.governanceAnswer(res.clone(), path);
     return res;
   }
 
@@ -1044,6 +1167,11 @@ export async function httpError(res: Response): Promise<StoreError> {
   // 401 `idle_timeout` (§15.8): detail.code says it; MultiplayerService has also said `SessionEnded` and dropped the session
   if (res.status === 401 && detail?.code === "idle_timeout") return new StoreError("forbidden", "You were logged out because you were inactive.", detail);
   if (res.status === 401) return new StoreError("forbidden", "Your session expired. Log in again.", detail);
+  // Governance+ (docs/governance.md §2.5, §2.10): `detail` keeps `{code, gate}`; the org's encryption key → unavailable
+  const gcode = detail?.code;
+  if ((res.status === 403 || res.status === 503) && isGovernanceCode(gcode)) {
+    return new StoreError(gcode === "key_unavailable" ? "unavailable" : "forbidden", GOVERNANCE_REFUSAL_TEXT[gcode] ?? (message || "You don't have access"), detail);
+  }
   if (res.status === 403) return new StoreError("forbidden", message || "You don't have access", detail);
   if (res.status === 404) return new StoreError("not-found", message || "Not found", detail);
   if (res.status === 410) return new StoreError("not-found", message || "This link has expired", detail ?? { code: "gone" });
@@ -1209,6 +1337,14 @@ class Link {
       if (typeof data === "string" && data.includes('"t":"error"')) {
         const msg = JSON.parse(data) as Extract<ServerControl, { t: "error" }>;
         this.svc.host_.log("warn", `multiplayer ${this.fileKey}: ${msg.code} — ${msg.message}`);
+        // The org's encryption key became unavailable (docs/governance.md §2.10; the room closes with 4003 next): the
+        // link waits rather than reconnecting into the room's 503, and the editor is told as for other access errors.
+        const code: unknown = msg.code;
+        if (isGovernanceCode(code)) {
+          this.stopped = true;
+          this.svc.block(this.fileKey, { code }, true);
+          return;
+        }
         if (msg.code === "too-old") {
           // This copy is older than what the room still holds: a fresh copy takes its place.
           this.stopped = true;

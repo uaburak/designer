@@ -45,6 +45,8 @@ export interface ServableStore {
   readonly notifications?: { onChange(listener: (e: NotificationsEvent) => void): Unsubscribe };
   /** The org spaces' changes (docs/multiplayer.md §14.6), topic `org` */
   readonly org?: { onEvent(listener: (e: OrgEvent) => void): Unsubscribe };
+  /** Governance+'s refusals (docs/governance.md §2.5, round 14e): `access.blocked` OrgEvents, also on topic `org` */
+  readonly governanceEvents?: { onEvent(listener: (e: OrgEvent) => void): Unsubscribe };
   /** Branches' changes (docs/data.md §15.6), topic `branches` */
   readonly branches?: { onEvent(listener: (e: BranchEvent) => void): Unsubscribe };
   /** Shared fonts changed (docs/desktop.md §14.3), topic `fonts` */
@@ -162,6 +164,7 @@ export class StoreServer {
     if (store.comments) this.offs.push(store.comments.onChange((fileKey) => this.broadcast({ t: "evt", topic: "comments", d: { fileKey } })));
     if (store.notifications) this.offs.push(store.notifications.onChange((d) => this.broadcast({ t: "evt", topic: "notifications", d })));
     if (store.org) this.offs.push(store.org.onEvent((d) => this.broadcast({ t: "evt", topic: "org", d })));
+    if (store.governanceEvents) this.offs.push(store.governanceEvents.onEvent((d) => this.broadcast({ t: "evt", topic: "org", d })));
     if (store.branches) this.offs.push(store.branches.onEvent((d) => this.broadcast({ t: "evt", topic: "branches", d })));
     if (store.fonts) this.offs.push(store.fonts.onEvent((d) => this.broadcast({ t: "evt", topic: "fonts", d })));
     if (store.plugins) this.offs.push(store.plugins.onEvent((d) => this.broadcast({ t: "evt", topic: "plugins", d })));

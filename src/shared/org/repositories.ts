@@ -18,7 +18,11 @@ export type OrgEvent =
   | { type: "team.updated"; teamId: string }
   | { type: "projects.changed"; teamId: string; parentId: string | null }
   | { type: "files.changed"; orgId: string; projectId: string | null } // null: drafts
-  | { type: "cache.stale"; orgId: string; offline: boolean };
+  | { type: "cache.stale"; orgId: string; offline: boolean }
+  /** Governance+ (docs/governance.md §2.5, round 14e): the server refused a call or a file's socket with one of its codes.
+   *  `orgId`: the org whose gate it is (null: account-wide, `network_restricted`); `fileKey`: the shared file refused.
+   *  For org gates the store re-reads the org first (`org.updated`, `orgs.changed`), so `OrgSummary.gate` is fresh. */
+  | { type: "access.blocked"; orgId: string | null; code: G.GovernanceErrorCode; gate?: G.OrgGate; fileKey?: FileKey };
 
 export interface OrgsRepository {
   /** The orgs the user is in (cached; empty when signed out) */

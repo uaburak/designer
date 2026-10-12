@@ -61,7 +61,7 @@ import { LibraryRouter } from "../../../../store/libraries/router";
 import { orgLibrariesRepository } from "../../../../store/libraries/orgLibraries";
 import { AnalyticsQueue, analyticsRepository } from "../../../../store/libraries/analyticsQueue";
 import { identityRepository } from "../../../../store/org/identity";
-import { governanceRepository } from "../../../../store/org/governance";
+import { governanceEvents, governanceRepository, refreshGates } from "../../../../store/org/governance";
 import { PluginsService } from "../../../../store/plugins/service";
 import { DevModeService, type LocalDevRecord } from "../../../../store/devmode/service";
 import { SearchService } from "../../../../store/search/service";
@@ -250,6 +250,8 @@ export class MemoryStore {
   readonly notifications: NotificationsService;
   /** The org spaces (docs/multiplayer.md §14.6) over the same server client */
   readonly org: OrgService;
+  /** Governance+'s refusals (docs/governance.md §2.5, round 14e) on topic `org` (`access.blocked`) */
+  readonly governanceEvents: ReturnType<typeof governanceEvents>;
   /** Branches (docs/data.md §15) with the desktop store's rules */
   readonly branches: BranchService;
   /** Shared files' version history: their rooms' (docs/data.md §15.7.1) */
@@ -410,6 +412,8 @@ export class MemoryStore {
       },
       this.notifications,
     );
+    // Governance+'s refusals as org events (docs/governance.md §2.5): Home re-reads the org's gate
+    this.governanceEvents = governanceEvents(this.multiplayer, this.org, () => this.clock.now());
     // eslint-disable-next-line @typescript-eslint/no-this-alias -- the host's getter reads the live ordinal
     const store = this;
     const mp = this.multiplayer;
@@ -738,6 +742,7 @@ export class MemoryStore {
     void this.analytics.close();
     this.orgLibraries.close();
     this.plugins.close();
+    this.governanceEvents.close();
     this.org.close();
     this.branches.close();
     this.notifications.close();
@@ -1332,7 +1337,7 @@ export class MemoryStore {
       orgLibraries: orgLibrariesRepository(this.libraryServer),
       analytics: analyticsRepository(this.analytics, this.libraryServer),
       identity: identityRepository(this.multiplayer, (orgId) => this.org.notice({ t: "org", what: "org", orgId })),
-      governance: governanceRepository(),
+      governance: governanceRepository(this.multiplayer, { changed: (orgId) => refreshGates(this.org, orgId), retry: (orgId) => this.multiplayer.retryBlocked(orgId) }),
       plugins: this.plugins.repository(),
       devMode: this.devMode.repository(),
       ai: this.ai.repository(),
