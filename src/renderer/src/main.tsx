@@ -1,6 +1,10 @@
 import { lazy, StrictMode, Suspense, type ComponentType } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import "@/ds/global.css";
+import { isWebApp, webRoute } from "@/app/webApp";
+import { completeWebSignIn, currentWebSession } from "@/store/webAccount";
+
+const webSignedIn = () => currentWebSession() !== null;
 
 /**
  * One page, a role per view (docs/desktop-impl.md), each loading only its
@@ -17,6 +21,20 @@ import "@/ds/global.css";
 const params = new URLSearchParams(location.search);
 
 const page = (): ComponentType => {
+  // The web app (docs/cloud.md §7): the product's routes only; signed out, a file's address shows the welcome page
+  // (Home's gate) and comes back to the file after Log in
+  if (isWebApp()) {
+    const route = webRoute(location.search);
+    if (route !== "files" && webSignedIn()) return route === "editor" ? lazy(() => import("@/editor/EditorRoute")) : lazy(() => import("@/present/PresentRoute"));
+    // Back from Log in on a file's address: the session first, then the file's page
+    if (route !== "files" && params.has("auth_code"))
+      return lazy(async () => {
+        await completeWebSignIn();
+        location.reload();
+        return { default: () => null };
+      });
+    return lazy(() => import("@/files/FilesApp"));
+  }
   if (params.has("tabbar")) return lazy(() => import("@/app/TabBarApp"));
   if (params.has("welcome")) return lazy(() => import("@/account/WelcomeApp"));
   if (params.has("gallery")) return lazy(() => import("@/ds/Gallery"));

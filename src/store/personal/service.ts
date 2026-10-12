@@ -108,7 +108,9 @@ export class PersonalService {
     private mp: MultiplayerService,
     private host: PersonalHost,
     notices?: { onReconnect?(listener: () => void): Unsubscribe },
-    private opts: { enabled?: boolean } = {},
+    /** `defaultLimitBytes`: the cache's bound until Settings sets one (default DEFAULT_CACHE_LIMIT_BYTES, 5 GB; the web
+     *  app's 1 GB, docs/cloud.md §7) */
+    private opts: { enabled?: boolean; defaultLimitBytes?: number } = {},
   ) {
     if (notices?.onReconnect) this.offs.push(notices.onReconnect(() => void this.sync()));
   }
@@ -477,7 +479,7 @@ export class PersonalService {
     if (this.state) return this.state;
     const raw = (await this.host.load().catch(() => null)) as Partial<CloudState> | null;
     const limit = Number(raw?.limitBytes);
-    this.state = { v: 1, limitBytes: Number.isFinite(limit) && limit > 0 ? limit : DEFAULT_CACHE_LIMIT_BYTES };
+    this.state = { v: 1, limitBytes: Number.isFinite(limit) && limit > 0 ? limit : (this.opts.defaultLimitBytes ?? DEFAULT_CACHE_LIMIT_BYTES) };
     return this.state;
   }
 

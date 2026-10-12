@@ -100,6 +100,7 @@ export const STORE_METHODS = {
     "importLocalCopy",
     "exportLocalCopy",
     "importFigBytes",
+    "exportFigBytes",
   ],
   blobs: ["put", "has", "get"],
   libraries: ["listAvailable", "getRecord", "getVersion", "previewPublish", "publish", "unpublish", "setEnabled", "getPayloads", "diff"],

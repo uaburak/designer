@@ -203,3 +203,65 @@ apply to the migration — raise them for the account as operator first if the w
   --jurisdiction eu`; `npm run db:migrate` (0022); `npm run deploy`; then run the operator loop until `finished`. The spend
   guard's token (Account Analytics: Read) should read R2's datasets too; if Settings › Operator says R2 usage is
   unknown, add "Workers R2 Storage: Read" to it.
+
+## 7. The web app at https://wecra.app (as built, 2026-10-12)
+
+Figma's model: the web app is the product, the desktop app wraps it. The renderer is built for a browser and served by
+the same Worker as the API, so the page, its sign-in and every call are one origin (no CORS).
+
+- **Build** (`vite.webapp.config.ts`, `npm run build:web` = `build:viewer` + the app): `out/web/index.html`,
+  `out/web/assets/*` (hashed), `out/web/boot.js`, and the viewer copied to `out/web/_viewer/index.html`. `define`
+  `VITE_WECRA_WEB=1` makes it the product (`src/renderer/src/app/webApp.ts isWebApp()`; never under the desktop
+  preload). onnxruntime's 27 MB Wasm is over Workers Static Assets' 25 MiB a file: the build drops it and points its
+  references at the same version on jsDelivr (the models it runs are the desktop's `aimodel://` anyway); the build fails
+  if any file is still over 25 MiB.
+- **Worker** (`server/src/webApp.ts`, dispatched first in `api.ts route`): `GET|HEAD /`, `/index.html`, `/app`, `/app/…`
+  → the app's `index.html` (`cache-control: no-cache`, the CSP, `x-frame-options: DENY`, nosniff); `/assets/<name>` →
+  `public, max-age=31536000, immutable` (`.wasm` as `application/wasm`); `/boot.js` revalidated. Nothing else falls
+  back to the app: every API path keeps its answers (an unknown path is the API's 401/404, JSON). Without the app in the
+  assets `/` stays the health JSON (also at `/health`). The viewer is read from `/_viewer/index.html` (`previews.ts
+  VIEWER_ASSET`) for `/p/<id>` and `/embed/<key>`. `wrangler.jsonc` assets → `../out/web`; `WEB_ORIGINS` =
+  `https://wecra.app,http://localhost:5199`; `/auth/login?return=` also accepts the Worker's own origin (workers.dev,
+  `wrangler dev`). `npm --prefix server run deploy` runs `build:web` first.
+- **CSP**: `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self'
+  'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; media-src 'self' data: blob:; connect-src
+  'self' wss://<host> https://raw.githubusercontent.com https://cdn.jsdelivr.net; frame-src 'self' blob: data:;
+  object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`.
+- **Routes** (query routing, what the browser build already had): `/` Home (signed out: the welcome page),
+  `/?editor&file=<fileKey>` a file, `/?present&file=<fileKey>` its presentation; `/app/…` is reserved for the app.
+  Development routes (`?gallery`, `?engine`, `?admin`, `?tabbar`, `?welcome`, `?editor` without a file) show Home. A
+  file's address signed out shows the welcome page and comes back to the file after Log in.
+- **Session** (`webAccount.ts`): Log in with Google / SSO by redirect (`/auth/login?return=<page>` → Google →
+  `/auth/callback` → back with `auth_code`, traded with PKCE at `/auth/token`); the bearer token in localStorage
+  (`designer.web.session`); `webServer()` is the page's origin. Any end of the session (Log out, the idle timeout, a
+  refused session) deletes that account's cache and reloads `/` (`onWebSessionDropped` → `clearWebCache`).
+- **Store** (`src/renderer/src/store/`): the same `MemoryStore` + `StoreServer` over a MessageChannel, now with
+  `personalDrafts` — the desktop's `PersonalService` with a browser host (`MemoryStore.personalHost`, `fillCloudFile`,
+  `dropDocument`) and `MultiplayerService` / `OrgService` as before: Drafts and org files from the server, new files
+  registered as drafts, writes on the server first, remote records downloaded when opened, the LRU bound (1 GB default,
+  `WEB_CACHE_LIMIT_BYTES`). No local "My team", no demo seed. The records live in **IndexedDB**, one database per account
+  (`wecra.cache.<uid>`, `memory/idbStorage.ts`): small records read at open, images and search indexes (`blob.*`,
+  `search.*`) read on demand (`getAsync`, sizes kept for the cache bound), writes batched per tick, `flush()` before Home
+  navigates to a file, other tabs told through a BroadcastChannel; a deletion elsewhere closes it (`onClosedElsewhere`
+  → reload). Evicted drafts keep their thumbnail (`thumb.<key>`); images no file uses any more are dropped.
+- **Hidden on the web**: local fonts (the font picker lists Figma's Inter, Google Fonts — catalog via the Worker's
+  `GET /google-fonts/catalog`, files from raw.githubusercontent.com cached in Cache Storage — and the org/team fonts from
+  `/me/fonts`; no "Installed by you" / "Uploaded by you", no Settings › "Your uploaded fonts"; `engine/webFonts.ts`),
+  the Agents rail tab and Settings › Agents (CLI agents and the MCP server run on the computer), haptics (no bridge), the
+  macOS sign-in sheet (redirect instead), Add account (one account per browser). **Save local copy…** downloads the
+  `.fig` (`files.exportFigBytes`, deflate via CompressionStream), Duplicate opens the copy in a new browser tab, Import is
+  the file picker / drop.
+- **Tests**: `server/src/webApp.test.ts` (app vs API paths, headers, CSP, same-origin sign-in), `googleCatalog.test.ts`,
+  `store/__tests__/webStore.test.ts` (idbStorage on `memory/fakeIdb.ts`; the web store against the real Worker handler:
+  registration, reload from the cache without downloading, a draft from another browser, Clear cache, `.fig` bytes,
+  writes server-first), `app/__tests__/webApp.dom.test.ts` (welcome → Log in → Home with the person's Drafts → Log out
+  deletes the cache), `engine/__tests__/webFonts.test.ts`. Checked headless (Chromium) against `wrangler dev` with
+  DEV_AUTH: `/` welcome, dev session, Home (person's Drafts, no My team), New design file → editor with the engine's
+  Wasm, the draft on the server, reload from the cache, immutable assets, no CSP errors.
+- **Deploy**: `cd server && npm run deploy` (builds `out/web`, then `wrangler deploy`). Google sign-in needs nothing new
+  for wecra.app (its redirect URI `https://wecra.app/auth/callback` exists); for the app on workers.dev,
+  `https://designer.burak-kc-sp.workers.dev/auth/callback` must be an authorized redirect URI too.
+- **Not done**: path URLs like Figma's `/design/<key>/<name>` (the routes are queries; `/app/…` is reserved for them);
+  onnxruntime-based image tools and visual search on the web (their models are the desktop's); the Inbox's `fonts`
+  notice doesn't refresh the web font list at once (session change and focus do); Google's download-list fallback for
+  families missing from the repository (no CORS).

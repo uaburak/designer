@@ -7,6 +7,7 @@
  * help.figma.com or, where noted, unverified.
  */
 import { showToast } from "@/ds";
+import { isWebApp } from "@/app/webApp";
 import type { Guid, NodeChange } from "@/engine/codec";
 import type { EditorController } from "./controller";
 import { exportAllowed } from "./exporting";
@@ -229,6 +230,8 @@ export async function duplicateFile(ed: EditorController): Promise<void> {
   const copy = await ops.duplicate();
   const open = desktop()?.nav?.openFile;
   if (open) await open(copy.fileKey);
+  // The web app: the copy in a new browser tab, as Figma's web app opens it
+  else if (isWebApp()) window.open(`${location.pathname}?editor&file=${encodeURIComponent(copy.fileKey)}`, "_blank", "noopener");
   else showToast({ message: `Duplicated as “${copy.name}”` });
 }
 
@@ -244,14 +247,21 @@ export async function createBranch(ed: EditorController, name: string): Promise<
 }
 
 export function canSaveLocalCopy(ed: EditorController): boolean {
-  return !!fileOps(ed) && !!desktop()?.files?.saveLocalCopy && exportAllowed(ed);
+  return !!fileOps(ed) && (!!desktop()?.files?.saveLocalCopy || isWebApp()) && exportAllowed(ed);
 }
 
 /** File › Save local copy…: the file as a .fig, where the Save dialog says (the desktop app's `files.saveLocalCopy`). */
 export async function saveLocalCopy(ed: EditorController): Promise<void> {
   const ops = fileOps(ed);
   const save = desktop()?.files?.saveLocalCopy;
-  if (!ops || !save || !exportAllowed(ed)) return;
+  if (!ops || !exportAllowed(ed)) return;
+  // The web app: the .fig goes to the browser's downloads (docs/cloud.md §7)
+  if (!save) {
+    if (!isWebApp()) return;
+    await ed.source.flush();
+    await (await import("@/store")).downloadFig(ops.fileKey);
+    return;
+  }
   await ed.source.flush();
   const r = await save(ops.fileKey);
   if ("path" in r) showToast({ message: "Saved a local copy" });

@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { GoogleFontFamily, GoogleFontStyle } from "../shared/ipc";
+import {
+  CATALOG_URL, DOWNLOAD_LIST, LICENSE_DIRS, PREVIEW_CSS, familyDir, googleStyleName, isSfnt, parseCatalog, parseGoogleFaceId, parseMetadataPb, pickFile, metadataUrl, repoFileUrl,
+  type FamilyFiles,
+} from "../shared/fonts/google";
+import type { GoogleFontFamily } from "../shared/ipc";
 import { mainFetch } from "./net";
 
 /**
@@ -22,11 +26,6 @@ import { mainFetch } from "./net";
  * Everything that touches the network goes through `setFetch` (tests mock it).
  */
 
-const CATALOG_URL = "https://fonts.google.com/metadata/fonts";
-const REPO_RAW = "https://raw.githubusercontent.com/google/fonts/main";
-const DOWNLOAD_LIST = "https://fonts.google.com/download/list?family=";
-const PREVIEW_CSS = "https://fonts.googleapis.com/css2";
-const LICENSE_DIRS = ["ofl", "apache", "ufl"];
 const CATALOG_VERSION = 1;
 const REFRESH_MS = 7 * 24 * 3600 * 1000;
 const TIMEOUT_MS = 30_000;
@@ -62,72 +61,9 @@ async function get(url: string, headers?: Record<string, string>): Promise<{ ok:
 
 // ---- Catalog ------------------------------------------------------------------------------
 
-/** Google's style names for a weight (the named instances its variable fonts carry, the subfamilies of its statics). */
-const WEIGHT_NAMES: Record<number, string> = { 100: "Thin", 200: "ExtraLight", 300: "Light", 400: "Regular", 500: "Medium", 600: "SemiBold", 700: "Bold", 800: "ExtraBold", 900: "Black" };
-
-export function googleStyleName(weight: number, italic: boolean): string {
-  const w = WEIGHT_NAMES[weight] ?? String(weight);
-  if (!italic) return w;
-  return weight === 400 ? "Italic" : `${w} Italic`;
-}
-
-/** A face's id: a variable family's styles share their slant's file (`v` / `vi`), a static style is its own. */
-export function googleFaceId(family: string, weight: number, italic: boolean, variable: boolean): string {
-  const kind = variable ? (italic ? "vi" : "v") : `${weight}${italic ? "i" : ""}`;
-  return `g:${kind}:${family}`;
-}
-
-export function parseGoogleFaceId(id: string): { family: string; variable: boolean; italic: boolean; weight: number } | null {
-  const m = /^g:(v|vi|\d+i?):(.+)$/.exec(id);
-  if (!m) return null;
-  const kind = m[1];
-  if (kind === "v" || kind === "vi") return { family: m[2], variable: true, italic: kind === "vi", weight: 400 };
-  return { family: m[2], variable: false, italic: kind.endsWith("i"), weight: parseInt(kind, 10) };
-}
-
-interface RawFamily {
-  family?: unknown;
-  category?: unknown;
-  popularity?: unknown;
-  axes?: { tag?: unknown; min?: unknown; max?: unknown; defaultValue?: unknown }[];
-  fonts?: Record<string, unknown>;
-}
-
-/** `fonts.google.com/metadata/fonts` (with or without its `)]}'` guard) → the families, sorted by name. */
-export function parseCatalog(text: string): GoogleFontFamily[] {
-  const start = text.indexOf("{");
-  if (start < 0) throw new Error("google fonts: not a catalog");
-  const data = JSON.parse(text.slice(start)) as { familyMetadataList?: RawFamily[] };
-  const out: GoogleFontFamily[] = [];
-  for (const f of data.familyMetadataList ?? []) {
-    if (typeof f.family !== "string" || !f.family) continue;
-    const axes = (f.axes ?? [])
-      .filter((a) => typeof a.tag === "string")
-      .map((a) => ({ tag: String(a.tag), min: Number(a.min), max: Number(a.max), default: Number(a.defaultValue) }));
-    const variable = axes.length > 0;
-    const styles: GoogleFontStyle[] = [];
-    for (const key of Object.keys(f.fonts ?? {})) {
-      const m = /^(\d+)(i?)$/.exec(key);
-      if (!m) continue;
-      const weight = parseInt(m[1], 10);
-      // Variable fonts name their instances at the hundreds only (a wght axis from 1 to 1000 still has Thin … Black).
-      if (!WEIGHT_NAMES[weight]) continue;
-      const italic = m[2] === "i";
-      styles.push({ style: googleStyleName(weight, italic), weight, italic, id: googleFaceId(f.family, weight, italic, variable) });
-    }
-    if (!styles.length) continue;
-    styles.sort((a, b) => a.weight - b.weight || Number(a.italic) - Number(b.italic));
-    out.push({
-      family: f.family,
-      category: typeof f.category === "string" ? f.category : "",
-      popularity: typeof f.popularity === "number" ? f.popularity : 1e6,
-      axes,
-      styles,
-    });
-  }
-  out.sort((a, b) => a.family.localeCompare(b.family));
-  return out;
-}
+// The pure parts (the catalog's reduction, face ids, METADATA.pb, pickFile) are src/shared/fonts/google.ts, shared with
+// the server and the web app.
+export { familyDir, googleFaceId, googleStyleName, parseCatalog, parseGoogleFaceId, parseMetadataPb, pickFile, type MetadataFont } from "../shared/fonts/google";
 
 interface CatalogCache {
   version: number;
@@ -212,51 +148,6 @@ function refreshInBackground(previous: GoogleFontFamily[] | null): void {
 
 // ---- Files --------------------------------------------------------------------------------
 
-/** A family's folder in the repository (and in the cache): its name, lower case, letters and digits only. */
-export function familyDir(family: string): string {
-  return family.toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-export interface MetadataFont {
-  style: "normal" | "italic";
-  weight: number;
-  filename: string;
-}
-
-/** The `fonts { … }` entries of a METADATA.pb (protobuf text format). */
-export function parseMetadataPb(text: string): MetadataFont[] {
-  const out: MetadataFont[] = [];
-  const block = /(?:^|\n)fonts\s*\{([\s\S]*?)\n\}/g;
-  for (let m = block.exec(text); m; m = block.exec(text)) {
-    const body = m[1];
-    const field = (name: string) => new RegExp(`\\n\\s*${name}:\\s*(?:"((?:[^"\\\\]|\\\\.)*)"|(\\S+))`).exec(`\n${body}`);
-    const style = field("style")?.[1];
-    const weight = Number(field("weight")?.[2]);
-    const filename = field("filename")?.[1];
-    if (!filename || (style !== "normal" && style !== "italic") || !Number.isFinite(weight)) continue;
-    out.push({ style, weight, filename });
-  }
-  return out;
-}
-
-/** The file of `fonts` that holds a style: the slant's variable font, else the static file of that weight and slant. */
-export function pickFile(fonts: readonly MetadataFont[], weight: number, italic: boolean): MetadataFont | null {
-  const style = italic ? "italic" : "normal";
-  const same = fonts.filter((f) => f.style === style);
-  const pool = same.length ? same : fonts;
-  const variable = pool.find((f) => f.filename.includes("["));
-  if (variable) return variable;
-  let best: MetadataFont | null = null;
-  for (const f of pool) if (!best || Math.abs(f.weight - weight) < Math.abs(best.weight - weight)) best = f;
-  return best;
-}
-
-interface FamilyFiles {
-  license: string;
-  dir: string;
-  fonts: MetadataFont[];
-}
-
 const filesDir = (dir: string) => join(root, "fonts", "google", dir);
 const metadataCache = new Map<string, Promise<FamilyFiles | null>>();
 const downloads = new Map<string, Promise<string>>();
@@ -275,7 +166,7 @@ function familyFiles(family: string): Promise<FamilyFiles | null> {
         // not yet
       }
       for (const license of LICENSE_DIRS) {
-        const res = await get(`${REPO_RAW}/${license}/${dir}/METADATA.pb`).catch(() => null);
+        const res = await get(metadataUrl(license, dir)).catch(() => null);
         if (!res?.ok) continue;
         const fonts = parseMetadataPb(await res.text());
         if (!fonts.length) continue;
@@ -291,12 +182,6 @@ function familyFiles(family: string): Promise<FamilyFiles | null> {
   }
   return p;
 }
-
-const isSfnt = (b: Uint8Array) => {
-  if (b.length < 12) return false;
-  const tag = ((b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]) >>> 0;
-  return tag === 0x00010000 || tag === 0x4f54544f || tag === 0x74727565 || tag === 0x74746366;
-};
 
 /** The download list's file for a style (when the repository has no folder for the family). */
 async function fromDownloadList(family: string, weight: number, italic: boolean, variable: boolean): Promise<{ name: string; bytes: Uint8Array } | null> {
@@ -339,7 +224,7 @@ async function download(family: string, weight: number, italic: boolean, variabl
   if (files && file) {
     const path = join(filesDir(dir), file.filename);
     if (await exists(path)) return path;
-    const res = await get(`${REPO_RAW}/${files.license}/${dir}/${encodeURIComponent(file.filename)}`).catch(() => null);
+    const res = await get(repoFileUrl(files, file.filename)).catch(() => null);
     if (res?.ok) {
       const bytes = new Uint8Array(await res.arrayBuffer());
       if (isSfnt(bytes)) {

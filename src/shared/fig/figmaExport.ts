@@ -19,7 +19,7 @@ import { decodeBinarySchema, encodeBinarySchema, type Definition, type Schema } 
 import { codec, FIELD_FLAGS, NODE_FIELDS, SCHEMA_BINARY, type Message, type NodeChange } from "../schema/document.generated";
 import { NodeTable } from "../schema/patch";
 import type { FigCodecs } from "./compression";
-import { encodeCanvas, PRELUDE_DESIGN } from "./container";
+import { encodeCanvas, PRELUDE_DESIGN, writeCanvasChunks } from "./container";
 import { FIGMA_DERIVED_DATA_VERSION } from "./convert";
 
 /** The `fig-kiwi` version Figma writes today (docs/research/figma/samples/sections.fig, the owner's 2026-10 export). */
@@ -126,4 +126,13 @@ export function encodeFigmaCanvas(message: Message, codecs: FigCodecs): Uint8Arr
     },
     codecs,
   );
+}
+
+/**
+ * `encodeFigmaCanvas` with an asynchronous deflate (a browser's CompressionStream; the web app's Save local copy…):
+ * both chunks deflate-raw, which Figma reads as it reads its older files.
+ */
+export async function encodeFigmaCanvasAsync(message: Message, deflateRaw: (data: Uint8Array) => Promise<Uint8Array>): Promise<Uint8Array> {
+  const [schema, body] = await Promise.all([deflateRaw(figmaExportSchema()), deflateRaw(codec.encodeMessage(toFigmaMessage(message)))]);
+  return writeCanvasChunks({ prelude: PRELUDE_DESIGN, version: FIGMA_FILE_VERSION, chunks: [schema, body] });
 }

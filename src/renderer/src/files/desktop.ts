@@ -7,6 +7,7 @@
 import type { WorkspaceRepository } from "@shared/store/repositories";
 import type { FileKey, FolderId } from "@shared/store/types";
 import { intentFromLink, type OpenIntent } from "@shared/multiplayer/types";
+import { isWebApp } from "../app/webApp";
 
 export interface ImportResult {
   files: { fileKey: FileKey; name: string }[];
@@ -62,6 +63,8 @@ export async function openFile(fileKey: FileKey, { newTab = false, title, intent
     return;
   }
   await deps.workspace?.recordViewed(fileKey).catch(() => {});
+  // The web app: what Home wrote is in the browser's cache before the page goes (docs/cloud.md §7)
+  if (!deps.navigate && isWebApp()) await (await import("@/store")).flushWebStore().catch(() => {});
   (deps.navigate ?? browserNavigate)(editorUrl(fileKey, intent), newTab);
 }
 

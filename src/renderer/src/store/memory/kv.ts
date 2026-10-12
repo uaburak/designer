@@ -12,6 +12,12 @@ export interface KeyValueStorage {
   keys(prefix: string): string[];
   /** Another page changed a key (the `storage` event); null where pages can't share */
   watch?(listener: (key: string, value: string | null) => void): () => void;
+  /** A storage whose big records are read on demand (the web app's IndexedDB, idbStorage.ts): `get` may answer null
+   *  for a record that `has` — read those with `getAsync` */
+  getAsync?(key: string): Promise<string | null>;
+  has?(key: string): boolean;
+  /** The record's size in bytes */
+  sizeOf?(key: string): number;
 }
 
 /** Keys live in their own namespace, so `reset` never touches the rest of the origin's storage. */

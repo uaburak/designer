@@ -10,6 +10,7 @@ import { IdleTimer, type IdleState } from "@shared/idleTimer";
 import type { IdleNotice } from "@shared/ipc";
 import { SIGN_IN_ERROR_TEXT, type SignInError } from "@shared/org/identity";
 import type { MemoryStore } from "./memory/memoryStore";
+import { isWebApp } from "../app/webApp";
 
 interface WebSession {
   server: string;
@@ -21,7 +22,8 @@ interface WebSession {
 const SESSION_KEY = "designer.web.session";
 const PENDING_KEY = "designer.web.signin";
 
-export const webServer = (): string => ((import.meta.env.VITE_DESIGNER_SERVER as string | undefined) || DEFAULT_SERVER).replace(/\/+$/, "");
+/** The server the page signs in to: VITE_DESIGNER_SERVER, else the web app's own origin (wecra.app serves both), else wecra.app */
+export const webServer = (): string => ((import.meta.env.VITE_DESIGNER_SERVER as string | undefined) || (isWebApp() && typeof location !== "undefined" ? location.origin : DEFAULT_SERVER)).replace(/\/+$/, "");
 
 function readSession(): WebSession | null {
   try {
@@ -31,6 +33,12 @@ function readSession(): WebSession | null {
   } catch {
     return null;
   }
+}
+
+/** The page's session now (the server and its bearer token), or null signed out — for the page's own server calls */
+export function currentWebSession(): { server: string; token: string; userId: string } | null {
+  const s = readSession();
+  return s ? { server: s.server, token: s.token, userId: s.user.id } : null;
 }
 
 const listeners = new Set<(s: AccountState) => void>();
@@ -67,8 +75,19 @@ async function sessionCall(s: WebSession, method: string, path: string): Promise
 
 /** The page's session ended under it: signed out here and in the page's other tabs (`storage`) */
 function dropSession(): void {
+  const uid = readSession()?.user.id ?? null;
   localStorage.removeItem(SESSION_KEY);
   changed();
+  if (uid) for (const l of dropListeners) l(uid);
+}
+
+const dropListeners = new Set<(uid: string) => void>();
+
+/** The page's session ended (Log out, the idle timeout, a refused session): `uid` is the account that was signed in —
+ *  the web app deletes that account's cache (docs/cloud.md §7) */
+export function onWebSessionDropped(listener: (uid: string) => void): () => void {
+  dropListeners.add(listener);
+  return () => void dropListeners.delete(listener);
 }
 
 const notifyIdle = (n: IdleNotice) => {
@@ -262,7 +281,8 @@ async function completeOnce(): Promise<SignInResult | null> {
 export function connectWebSession(store: MemoryStore, fileKey: string | null): void {
   const apply = () => {
     const s = readSession();
-    void store.multiplayer.setSession(s ? { server: s.server, token: s.token } : null, { only: fileKey ? [fileKey] : [] }).catch((e) => console.warn("[multiplayer]", e));
+    // The rooms, then the personal Drafts (the web app's store follows the account, docs/cloud.md §2)
+    void store.setSession(s ? { server: s.server, token: s.token } : null, { only: fileKey ? [fileKey] : [] }).catch((e) => console.warn("[multiplayer]", e));
   };
   apply();
   listeners.add(apply);

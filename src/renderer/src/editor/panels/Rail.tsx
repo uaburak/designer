@@ -17,6 +17,7 @@ import { MAIN_MENU_WIDTH, mainMenu, runMenuItem } from "../menus";
 import type { RailTab } from "../uiStore";
 import { MissingFontsButton } from "./MissingFonts";
 import styles from "./Panels.module.css";
+import { isWebApp } from "@/app/webApp";
 
 type Open = { at: { x: number; y: number }; entries: MenuEntry[] } | null;
 
@@ -29,6 +30,9 @@ const TABS: { tab: RailTab; icon: "24.page" | "24.agents" | "24.assets" | "24.to
   { tab: "assets", icon: "24.assets", label: "Assets", command: "view.assets" },
   { tab: "tools", icon: "24.tools", label: "Tools", command: "view.tools" },
 ];
+
+/** The tabs shown: the web app has no Agents (they run on the computer: CLI agents, the MCP server — docs/cloud.md §7) */
+const railTabs = () => (isWebApp() ? TABS.filter((t) => t.tab !== "agents") : TABS);
 
 /**
  * View › Minimize left navigation bar (round 10; unverified look — help "Navigate the left sidebar" names the option
@@ -55,7 +59,7 @@ export function NavStrip() {
           }}
         />
       </div>
-      {TABS.map((t) => (
+      {railTabs().map((t) => (
         <IconButton
           key={t.tab}
           icon={t.icon}
@@ -106,7 +110,7 @@ export function Rail() {
           <RailItem compact icon="24.figma" label="Main menu" active={!!menu} onClick={openMain} />
         </div>
         <RailSeparator />
-        {TABS.map((t) => (
+        {railTabs().map((t) => (
           <RailItem
             key={t.tab}
             icon={t.icon}

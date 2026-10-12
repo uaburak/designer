@@ -69,6 +69,9 @@ import { DevModeService, type LocalDevRecord } from "../../../../store/devmode/s
 import { SearchService } from "../../../../store/search/service";
 import { AiService } from "../../../../store/ai/service";
 import { localOnlyCloud } from "../../../../store/personal/localOnly";
+import { PersonalService, type CloudState } from "../../../../store/personal/service";
+import { encodeFigmaCanvasAsync } from "../../../../shared/fig/figmaExport";
+import { writeFigFile, type FigMeta } from "../../../../shared/fig/figFile";
 import { UsageReporter } from "../../../../store/libraries/usage";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -197,6 +200,10 @@ const K = {
   meta: (key: FileKey) => `${KV_PREFIX}meta.${key}`,
   file: (key: FileKey) => `${KV_PREFIX}file.${key}`,
   blob: (sha1: string) => `${KV_PREFIX}blob.${sha1}`,
+  /** A cached draft's thumbnail while its document isn't here (evicted, docs/cloud.md §2) */
+  thumb: (key: FileKey) => `${KV_PREFIX}thumb.${key}`,
+  /** The personal cache's settings (docs/cloud.md §2: cloud.json) */
+  cloud: `${KV_PREFIX}cloud`,
   /** The server's ordinal for this browser (docs/multiplayer.md §2.1) */
   device: `${KV_PREFIX}device`,
   installation: `${KV_PREFIX}multiplayer.installation`,
@@ -228,11 +235,26 @@ export interface MemoryStoreOptions {
    * can't decode natively); without one those files are refused as `unsupported-format`.
    */
   zstdDecompress?: (data: Uint8Array) => Uint8Array | Promise<Uint8Array>;
+  /**
+   * Personal Drafts in the cloud (docs/cloud.md §2, §7): signed in, the person's Drafts are the server's and this
+   * storage is their cache — the web app. Off (the default): the local workspace of the dev store.
+   */
+  personalDrafts?: boolean;
+  /** The cache's bound until Settings sets one (the web app: 1 GB) */
+  cacheLimitBytes?: number;
+  /** The server's network (tests: the Worker's handler); default the page's fetch */
+  fetch?: typeof fetch;
 }
 
 /** deflate-raw through the browser's DecompressionStream. */
 async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
   const stream = new Blob([data.slice().buffer as ArrayBuffer]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/** deflate-raw through the browser's CompressionStream (a `.fig` download). */
+async function deflateRaw(data: Uint8Array): Promise<Uint8Array> {
+  const stream = new Blob([data.slice().buffer as ArrayBuffer]).stream().pipeThrough(new CompressionStream("deflate-raw"));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
@@ -328,6 +350,8 @@ export class MemoryStore {
         backlog: async (fileKey, fromSeq) => this.backlog(fileKey, fromSeq),
         appendRemote: async (fileKey, message) => this.appendRemote(fileKey, message),
         createSharedFile: (input) => this.addFile({ name: input.name.trim() || "Untitled", folderId: null, snapshot: input.snapshot, space: input.space ?? null }),
+        fillFile: async (fileKey, snapshot) => this.fillCloudFile(fileKey, snapshot),
+        newDocument: () => encodeMessage(newDocumentMessage()),
         setFileSpace: async (fileKey, space) => void (await this.ws.queue.run(() => this.ws.setFileSpace(fileKey, space))),
         getMeta: (fileKey) => (this.ws.files.has(fileKey) ? this.ws.getMeta(fileKey) : null),
         get deviceOrdinal() {
@@ -350,13 +374,14 @@ export class MemoryStore {
           else kv.remove(K.link(fileKey));
         },
         log: (level, message, detail) => this.log(level, message, detail),
-        hasBlobs: async (sha1s) => sha1s.map((s) => this.blob(s) !== null),
+        hasBlobs: async (sha1s) => sha1s.map((s) => this.hasBlob(s)),
         getBlob: async (sha1) => {
-          const b = this.blob(sha1);
+          const b = await this.blobAsync(sha1);
           if (!b) throw new StoreError("not-found", `no blob ${sha1}`);
           return b.bytes;
         },
         putBlob: async (bytes) => void (await this.putBlob(bytes)),
+        ...(kv.sizeOf ? { blobSizes: async (sha1s: string[]) => sha1s.map((s) => Math.round(((kv.sizeOf!(K.blob(s)) || 0) * 3) / 4)) } : {}),
         headSnapshot: async (fileKey) => {
           const d = this.fileData(fileKey);
           this.compact(d);
@@ -380,7 +405,7 @@ export class MemoryStore {
           }),
       },
       {
-        fetch: (...a) => fetch(...a),
+        fetch: opts.fetch ?? ((...a) => fetch(...a)),
         WebSocket: globalThis.WebSocket as never,
         random: () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32,
       },
@@ -401,6 +426,8 @@ export class MemoryStore {
       this.multiplayer,
     );
     this.notifications = new NotificationsService(this.multiplayer, { WebSocket: globalThis.WebSocket as never });
+    // Personal Drafts in the cloud (docs/cloud.md §2): the web app's; the dev store keeps its local workspace
+    this.personal = new PersonalService(this.multiplayer, this.personalHost(), this.notifications, { enabled: !!opts.personalDrafts, ...(opts.cacheLimitBytes ? { defaultLimitBytes: opts.cacheLimitBytes } : {}) });
     // The org spaces (docs/multiplayer.md §14.6), each org's cache under designer.devStore.v1.space.<orgId>
     this.org = new OrgService(
       this.multiplayer,
@@ -533,9 +560,9 @@ export class MemoryStore {
         copyOf,
         patchFile,
         blobs: {
-          has: async (sha1s) => sha1s.map((s) => !!this.blob(s)),
+          has: async (sha1s) => sha1s.map((s) => this.hasBlob(s)),
           get: async (sha1) => {
-            const b = this.blob(sha1);
+            const b = await this.blobAsync(sha1);
             if (!b) throw new StoreError("not-found", `no blob ${sha1}`);
             return b.bytes;
           },
@@ -648,7 +675,7 @@ export class MemoryStore {
     const searchKey = (name: string) => `${KV_PREFIX}search.${name}`;
     this.search = new SearchService({
       read: async (name) => {
-        const text = kv.get(searchKey(name));
+        const text = kv.getAsync ? await kv.getAsync(searchKey(name)) : kv.get(searchKey(name));
         return text === null ? null : fromBase64(text);
       },
       write: async (name, bytes) => {
@@ -732,7 +759,10 @@ export class MemoryStore {
     }
     for (const key of kv.keys(`${KV_PREFIX}meta.`)) {
       const m = read<FileMeta>(key);
-      if (m?.fileKey && kv.get(K.file(m.fileKey)) !== null) store.ws.files.set(m.fileKey, m);
+      if (!m?.fileKey) continue;
+      if (kv.get(K.file(m.fileKey)) !== null) store.ws.files.set(m.fileKey, m);
+      // A draft whose document isn't here (listed from the server, or evicted): its record, downloaded when opened
+      else if (m.cloud?.key) store.ws.files.set(m.fileKey, { ...m, cloud: { ...m.cloud, remote: true } });
     }
     if (!existing) {
       await store.ws.saveWorkspace();
@@ -740,6 +770,191 @@ export class MemoryStore {
       if (opts.seed) await opts.seed(store);
     }
     return store;
+  }
+
+  /** Personal Drafts in the cloud and the cache this storage is (docs/cloud.md §2; the web app) */
+  readonly personal: PersonalService;
+
+  /**
+   * The page's session (or none), as main hands it to the desktop store: the rooms (`only`: a browser tab joins only
+   * the file it edits), then the personal Drafts follow the account (docs/cloud.md §2).
+   */
+  async setSession(session: { server: string; token: string } | null, opts: { only?: FileKey[] } = {}): Promise<void> {
+    await this.multiplayer.setSession(session, opts);
+    await this.personal.sessionChanged().catch((e) => this.log("warn", "cloud: the sync after a sign-in failed", e));
+  }
+
+  /** The personal service's view of this storage (docs/cloud.md §2), as LocalStore's is of the disk */
+  private personalHost(): ConstructorParameters<typeof PersonalService>[1] {
+    const ws = this.ws;
+    const kv = this.storage;
+    const blobBytes = (sha1: string) => Math.round(((kv.sizeOf ? kv.sizeOf(K.blob(sha1)) : (kv.get(K.blob(sha1))?.length ?? 0)) * 3) / 4);
+    return {
+      metas: () => ws.files.values(),
+      getMeta: (fileKey) => ws.files.get(fileKey) ?? null,
+      patchMeta: async (fileKey, patch) => void (ws.files.has(fileKey) && (await ws.queue.run(() => ws.patchFile(fileKey, patch)))),
+      addRemote: async (input) => {
+        const meta = newMeta(newFileKey(), input.name.trim() || "Untitled", null, input.createdAt);
+        meta.updatedAt = input.updatedAt;
+        meta.trashedAt = input.trashedAt;
+        meta.cloud = { ...input.cloud };
+        return ws.queue.run(() => ws.addFile(meta));
+      },
+      forget: (fileKey) => this.deleteItems({ files: [fileKey], folders: [] }),
+      dropDocument: async (fileKey) => this.dropDocument(fileKey),
+      documentSize: async (fileKey) => {
+        let n = this.sizeOf(fileKey);
+        const d = this.data.get(fileKey) ?? (kv.get(K.file(fileKey)) !== null ? this.fileData(fileKey) : null);
+        for (const sha1 of d?.blobRefs ?? []) n += blobBytes(sha1);
+        return n;
+      },
+      isOpen: (fileKey) => (this.runtime.get(fileKey)?.sessions.size ?? 0) > 0,
+      isLibrary: (fileKey) => kv.get(`${KV_PREFIX}lib.${fileKey}`) !== null,
+      lastOpened: (fileKey) => ws.prefs.viewedAt[fileKey] ?? null,
+      trashedAt: (meta) => {
+        if (meta.trashedAt !== null) return meta.trashedAt;
+        for (let id = meta.folderId, guard = 0; id && guard < 12; guard++) {
+          const f = ws.folders.get(id);
+          if (!f) break;
+          if (f.trashedAt !== null) return f.trashedAt;
+          id = f.parentId;
+        }
+        return null;
+      },
+      folderPath: (meta) => {
+        const names: string[] = [];
+        for (let id = meta.folderId, guard = 0; id && guard < 12; guard++) {
+          const f = ws.folders.get(id);
+          if (!f) break;
+          names.unshift(f.name);
+          id = f.parentId;
+        }
+        return names;
+      },
+      setAccount: (uid) => ws.setAccount(uid),
+      headSnapshot: async (fileKey) => {
+        const d = this.fileData(fileKey);
+        this.compact(d);
+        this.saveData(fileKey, d);
+        return d.snapshot;
+      },
+      headSeq: async (fileKey) => this.headSeq(this.fileData(fileKey)),
+      load: async () => {
+        try {
+          return JSON.parse(kv.get(K.cloud) ?? "null") as unknown;
+        } catch {
+          return null;
+        }
+      },
+      save: async (state: CloudState) => void kv.set(K.cloud, JSON.stringify(state)),
+      log: (level, message, detail) => this.log(level, message, detail),
+      now: () => this.clock.now(),
+      setTimeout: (fn, ms) => setTimeout(fn, ms),
+      clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+    };
+  }
+
+  /** A draft listed from the server (or evicted) gets its room's document (docs/cloud.md §2), as LocalStore's fillCloudFile */
+  fillCloudFile(fileKey: FileKey, snapshot: Uint8Array): void {
+    this.ws.getMeta(fileKey);
+    let table: NodeTable;
+    try {
+      table = NodeTable.fromMessage(decodeMessage(snapshot));
+    } catch (e) {
+      throw new StoreError("corrupt", `The file couldn't be read: ${(e as Error).message}`);
+    }
+    if (!table.get("0:0")) throw new StoreError("corrupt", "The file has no document");
+    // New edit sessions never reuse one of this device's sessions the room's document holds (nor one used before it was evicted)
+    const kept = this.parseJson<{ thumbnail?: FileData["thumbnail"]; nextLocal?: number }>(K.thumb(fileKey));
+    let next = Number(kept?.nextLocal) || 1;
+    for (const guid of table.nodes.keys()) {
+      const { deviceOrdinal, n } = splitSessionId(Number(guid.split(":")[0]));
+      if (deviceOrdinal === this.deviceOrdinal) next = Math.max(next, n + 1);
+    }
+    this.saveData(fileKey, {
+      snapshot,
+      snapshotSeq: 0,
+      ...(table.derivedDataVersion ? { derivedDataVersion: table.derivedDataVersion } : {}),
+      frames: [],
+      nextLocal: next,
+      lastBatchSeq: {},
+      versions: [],
+      thumbnail: kept?.thumbnail ?? null,
+      ui: null,
+      blobRefs: [...table.imageHashes()],
+    });
+    this.storage.remove(K.thumb(fileKey));
+  }
+
+  /** Eviction (docs/cloud.md §2): the document and the images no other file uses go; the record and thumbnail stay */
+  private dropDocument(fileKey: FileKey): void {
+    const raw = this.storage.get(K.file(fileKey));
+    if (raw === null) return;
+    const d = this.data.get(fileKey) ?? parseWithBytes<FileData>(raw);
+    this.storage.set(K.thumb(fileKey), stringifyWithBytes({ thumbnail: d.thumbnail, nextLocal: d.nextLocal }));
+    this.data.delete(fileKey);
+    this.storage.remove(K.file(fileKey));
+    this.dropUnusedBlobs(new Set(d.blobRefs));
+  }
+
+  /** Of these images, the ones no file here refers to any more (nor a library's record) leave the storage */
+  private dropUnusedBlobs(candidates: Set<string>): void {
+    const scan = (raw: string) => {
+      for (const c of [...candidates]) if (raw.includes(c)) candidates.delete(c);
+    };
+    for (const key of this.storage.keys(`${KV_PREFIX}file.`)) {
+      if (!candidates.size) return;
+      const d = this.data.get(key.slice(`${KV_PREFIX}file.`.length));
+      if (d) for (const r of d.blobRefs) candidates.delete(r);
+      else scan(this.storage.get(key) ?? "");
+    }
+    for (const key of this.storage.keys(`${KV_PREFIX}lib`)) {
+      if (!candidates.size) return;
+      scan(this.storage.get(key) ?? "");
+    }
+    for (const sha1 of candidates) this.storage.remove(K.blob(sha1));
+  }
+
+  private parseJson<T>(key: string): T | null {
+    const raw = this.storage.get(key);
+    if (raw === null) return null;
+    try {
+      return parseWithBytes<T>(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The file as a `.fig` (docs/data.md §11.2: canvas.fig as Figma writes it, meta.json, thumbnail.png, images/<sha1>) —
+   * the web app's Save local copy…, a download. Deflate (the browser's CompressionStream) where the desktop writes zstd.
+   */
+  async exportFigBytes(fileKey: FileKey): Promise<Uint8Array> {
+    await this.personal.ensureLocal(fileKey);
+    const meta = this.ws.getMeta(fileKey);
+    const d = this.fileData(fileKey);
+    this.compact(d);
+    this.saveData(fileKey, d);
+    const message = decodeMessage(d.snapshot);
+    const canvas = await encodeFigmaCanvasAsync(message, deflateRaw);
+    const pages = (message.nodeChanges ?? []).filter((n) => n.type === "CANVAS" && !n.internalOnly && n.parentIndex?.guid?.sessionID === 0 && n.parentIndex.guid.localID === 0);
+    pages.sort((a, b) => ((a.parentIndex?.position ?? "") < (b.parentIndex?.position ?? "") ? -1 : 1));
+    const bg = pages[0]?.backgroundColor ?? { r: 0.9607843160629272, g: 0.9607843160629272, b: 0.9607843160629272, a: 1 };
+    const size = { width: meta.thumbnail?.width ?? 0, height: meta.thumbnail?.height ?? 0 };
+    const figMeta: FigMeta = {
+      client_meta: { background_color: { r: bg.r, g: bg.g, b: bg.b, a: bg.a }, thumbnail_size: size, render_coordinates: { x: 0, y: 0, ...size } },
+      file_name: meta.name,
+      developer_related_links: [],
+      exported_at: new Date(this.clock.now()).toISOString(),
+    };
+    const images: [string, Uint8Array][] = [];
+    for (const sha1 of [...d.blobRefs].sort()) {
+      const b = (await this.blobAsync(sha1)) ?? ((await this.multiplayer.wantBlob(sha1)) ? await this.blobAsync(sha1) : null);
+      // An image that isn't here: the paint shows as missing, as in Figma
+      if (b) images.push([sha1, b.bytes]);
+    }
+    const thumbnail = d.thumbnail?.mime === "image/png" ? d.thumbnail.bytes : null;
+    return writeFigFile({ canvas, meta: figMeta, thumbnail, images }, { date: new Date(this.clock.now()) });
   }
 
   log(level: "debug" | "info" | "warn" | "error", message: string, detail?: unknown): void {
@@ -750,6 +965,7 @@ export class MemoryStore {
   /** Stops following other pages' writes. */
   dispose(): void {
     this.offWatch?.();
+    this.personal.close();
     this.comments.close();
     this.usage.close();
     void this.ai.close();
@@ -874,6 +1090,9 @@ export class MemoryStore {
     /** A branch's file (docs/data.md §15.2) */
     branch?: FileMeta["branch"];
     enabledLibraries?: FileKey[];
+    /** A new file of the person's (Design, Duplicate, Import, a version duplicated): signed in, a draft registered on
+     *  the server (docs/cloud.md §2) */
+    draft?: boolean;
   }): Promise<FileMeta> {
     const key = newFileKey();
     const table = NodeTable.fromMessage(decodeMessage(input.snapshot));
@@ -895,7 +1114,10 @@ export class MemoryStore {
     if (input.space) meta.space = { ...input.space };
     if (input.branch) meta.branch = { ...input.branch };
     if (input.enabledLibraries) meta.enabledLibraries = [...input.enabledLibraries];
-    return this.ws.queue.run(() => this.ws.addFile(meta));
+    if (input.draft && !input.space) this.personal.asDraft(meta);
+    const added = await this.ws.queue.run(() => this.ws.addFile(meta));
+    if (input.draft && !input.space) this.personal.created(key);
+    return added;
   }
 
   /** `files.importFigBytes` (docs/data.md §11.1): the shared import with the browser's codecs. */
@@ -933,7 +1155,7 @@ export class MemoryStore {
       thumbnail: dims ? { bytes: prepared.thumbnail!, mime: "image/png" } : null,
       thumbSize: dims ?? undefined,
       importedFrom: { kind: "fig", name: prepared.name },
-      ...(space ? { space } : {}),
+      ...(space ? { space } : { draft: true }),
     });
     this.addVersion(meta.fileKey, { kind: "import", title: null, description: null, restoredFrom: null });
     return meta;
@@ -949,10 +1171,11 @@ export class MemoryStore {
     const folderId = input?.folderId ?? null;
     this.checkFolder(folderId);
     const name = typeof input?.name === "string" && input.name.trim() ? input.name.trim() : "Untitled";
-    return this.addFile({ name, folderId, snapshot: encodeMessage(newDocumentMessage()) });
+    return this.addFile({ name, folderId, snapshot: encodeMessage(newDocumentMessage()), draft: true });
   }
 
   async duplicateFile(fileKey: FileKey): Promise<FileMeta> {
+    await this.personal.ensureLocal(fileKey);
     const src = this.ws.getMeta(fileKey);
     const d = this.fileData(fileKey);
     this.compact(d);
@@ -965,6 +1188,7 @@ export class MemoryStore {
       nextLocal: d.nextLocal,
       thumbnail: d.thumbnail,
       thumbSize: src.thumbnail ? { width: src.thumbnail.width, height: src.thumbnail.height } : undefined,
+      draft: true,
     });
   }
 
@@ -979,6 +1203,7 @@ export class MemoryStore {
       this.data.delete(k);
       this.runtime.delete(k);
       this.storage.remove(K.file(k));
+      this.storage.remove(K.thumb(k));
       this.storage.remove(K.meta(k));
       await this.search.fileDeleted(k);
       await this.ws.queue.run(() => this.ws.forgetFile(k));
@@ -1179,7 +1404,7 @@ export class MemoryStore {
   async duplicateVersion(fileKey: FileKey, id: VersionId): Promise<FileMeta> {
     const src = this.ws.getMeta(fileKey);
     const v = this.version(fileKey, id);
-    return this.addFile({ name: `${src.name} (${v.record.title ?? versionDateLabel(v.record.createdAt)})`, folderId: null, snapshot: duplicateSnapshot(v.snapshot), nextLocal: this.fileData(fileKey).nextLocal });
+    return this.addFile({ name: `${src.name} (${v.record.title ?? versionDateLabel(v.record.createdAt)})`, folderId: null, snapshot: duplicateSnapshot(v.snapshot), nextLocal: this.fileData(fileKey).nextLocal, draft: true });
   }
 
   async saveThumbnail(fileKey: FileKey, png: Uint8Array, size: { width: number; height: number }): Promise<void> {
@@ -1198,6 +1423,7 @@ export class MemoryStore {
 
   /** The thumbnail's bytes and type, or null. */
   thumbnail(fileKey: FileKey): { bytes: Uint8Array; mime: string } | null {
+    if (!this.data.has(fileKey) && this.storage.get(K.file(fileKey)) === null) return this.parseJson<{ thumbnail: FileData["thumbnail"] }>(K.thumb(fileKey))?.thumbnail ?? null;
     try {
       return this.fileData(fileKey).thumbnail;
     } catch {
@@ -1220,13 +1446,25 @@ export class MemoryStore {
     if (!(bytes instanceof Uint8Array)) throw new StoreError("invalid", "a blob is bytes");
     const sha1 = await sha1Hex(bytes);
     const mime = sniffMime(bytes, hint?.mime);
-    if (this.storage.get(K.blob(sha1)) === null) this.storage.set(K.blob(sha1), stringifyWithBytes({ mime, bytes }));
+    if (!this.hasBlob(sha1)) this.storage.set(K.blob(sha1), stringifyWithBytes({ mime, bytes }));
     return { sha1, size: bytes.length, mime };
   }
 
+  /** The image now, when it is in memory (a storage that reads images on demand may not have it yet: `blobAsync`) */
   blob(sha1: string): { bytes: Uint8Array; mime: string } | null {
     const raw = isSha1(sha1) ? this.storage.get(K.blob(sha1)) : null;
     return raw === null ? null : parseWithBytes<{ bytes: Uint8Array; mime: string }>(raw);
+  }
+
+  /** The image, read from the storage if need be */
+  async blobAsync(sha1: string): Promise<{ bytes: Uint8Array; mime: string } | null> {
+    if (!isSha1(sha1)) return null;
+    const raw = this.storage.getAsync ? await this.storage.getAsync(K.blob(sha1)) : this.storage.get(K.blob(sha1));
+    return raw === null ? null : parseWithBytes<{ bytes: Uint8Array; mime: string }>(raw);
+  }
+
+  hasBlob(sha1: string): boolean {
+    return isSha1(sha1) && (this.storage.has ? this.storage.has(K.blob(sha1)) : this.storage.get(K.blob(sha1)) !== null);
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -1250,15 +1488,32 @@ export class MemoryStore {
       createFile: (input) => this.createFile(input),
       duplicateFile: (fileKey) => this.duplicateFile(fileKey),
       renameFile: async (fileKey, name) => {
+        // A registered draft is renamed on the server first (docs/cloud.md §2); offline, refused
+        if (typeof name === "string" && name.trim()) await this.personal.renameFirst(fileKey, name);
         const meta = await q(() => ws.renameFile(fileKey, name));
-        await this.multiplayer.renameRemote(fileKey, meta.name);
+        if (!meta.cloud) await this.multiplayer.renameRemote(fileKey, meta.name);
         return meta;
       },
       moveFiles: (keys, folderId) => q(() => ws.moveFiles(keys ?? [], folderId ?? null)),
-      trash: async (items) => void (await q(() => ws.trash(items ?? {}))),
-      restore: async (items) => void (await q(() => ws.restore(items ?? {}))),
-      deleteForever: (items) => this.deleteItems(ws.collectDeletion(items ?? {})),
-      emptyTrash: () => this.deleteItems(ws.collectDeletion(ws.trashContents())),
+      trash: async (items) => {
+        await this.personal.trashFirst(items?.files ?? [], true);
+        await q(() => ws.trash(items ?? {}));
+      },
+      restore: async (items) => {
+        await this.personal.trashFirst(items?.files ?? [], false);
+        await q(() => ws.restore(items ?? {}));
+      },
+      deleteForever: async (items) => {
+        const doomed = ws.collectDeletion(items ?? {});
+        await this.personal.deleteFirst(doomed.files);
+        await this.deleteItems(doomed);
+      },
+      emptyTrash: async () => {
+        // Signed in, the trash Home shows: the account's drafts (docs/cloud.md §2)
+        const doomed = ws.collectDeletion(ws.account !== null ? { files: ws.listFiles({ in: "trash" }).map((f) => f.fileKey), folders: [] } : ws.trashContents());
+        await this.personal.deleteFirst(doomed.files);
+        await this.deleteItems(doomed);
+      },
       setStarred: (target, starred) => q(() => ws.setStarred(target, !!starred)),
       recordViewed: (fileKey) => q(() => ws.recordViewed(fileKey)),
       removeFromRecents: (fileKey) => q(() => ws.removeFromRecents(fileKey)),
@@ -1266,13 +1521,19 @@ export class MemoryStore {
     };
     const files: FileRepository = {
       // An archived or merged branch opens read-only (docs/data.md §15.5).
-      open: async (fileKey, opts) => this.open(fileKey, { ...(opts ?? {}), mode: this.branches.openMode(fileKey, opts?.mode === "edit" ? "edit" : "view") }, owner),
+      // A draft whose document isn't here downloads it first (docs/cloud.md §2)
+      open: async (fileKey, opts) => {
+        await this.personal.ensureLocal(fileKey);
+        return this.open(fileKey, { ...(opts ?? {}), mode: this.branches.openMode(fileKey, opts?.mode === "edit" ? "edit" : "view") }, owner);
+      },
       reattach: async (fileKey, sessionID) => this.reattach(fileKey, sessionID, owner),
       append: async (fileKey, batch) => this.append(fileKey, batch, owner),
       flush: async (fileKey) => void this.ws.getMeta(fileKey),
       close: async (fileKey, sessionID) => {
         this.close(fileKey, sessionID);
         this.usage.closedFile(fileKey);
+        // The cache's bound (docs/cloud.md §2)
+        this.personal.closed_(fileKey);
       },
       subscribe: (fileKey, fromSeq, listener) => {
         let last = fromSeq;
@@ -1300,13 +1561,15 @@ export class MemoryStore {
       exportLocalCopy: async () => {
         throw new StoreError("forbidden", "Saving a local copy needs the desktop app");
       },
+      // The web app's Save local copy…: the .fig's bytes, which the page downloads
+      exportFigBytes: (fileKey) => this.exportFigBytes(fileKey),
     };
     const blobs: BlobStore = {
       put: (bytes, hint) => this.putBlob(bytes, hint),
-      has: async (sha1s) => (sha1s ?? []).map((s) => isSha1(s) && this.storage.get(K.blob(s)) !== null),
+      has: async (sha1s) => (sha1s ?? []).map((s) => this.hasBlob(s)),
       get: async (sha1) => {
         // A shared file's image still coming down is waited for (docs/cloud.md §4.1)
-        const b = this.blob(sha1) ?? ((await this.multiplayer.wantBlob(sha1)) ? this.blob(sha1) : null);
+        const b = (await this.blobAsync(sha1)) ?? ((await this.multiplayer.wantBlob(sha1)) ? await this.blobAsync(sha1) : null);
         if (!b) throw new StoreError("not-found", `no blob ${sha1}`);
         return b.bytes;
       },
@@ -1380,8 +1643,8 @@ export class MemoryStore {
       devMode: this.devMode.repository(),
       ai: this.ai.repository(),
       search: this.search.repository(),
-      // The browser's dev store keeps its files here: no personal Drafts in the cloud (docs/cloud.md §2)
-      cloud: localOnlyCloud(),
+      // The web app: the person's Drafts are the server's (docs/cloud.md §2, §7); the dev store keeps its files here
+      cloud: this.opts.personalDrafts ? this.personal.repository() : localOnlyCloud(),
     };
   }
 }

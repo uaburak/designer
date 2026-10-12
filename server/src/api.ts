@@ -17,6 +17,7 @@ import { errorBody, HttpError, type Ctx } from "./org/http";
 import { reauth } from "./org/reauth";
 import { notificationsRoute, notifyEditRequest, notifyInvite, notifyOwnership, notifyRequestAnswered } from "./notifications";
 import { isPreviewPath, previews, viewerPage } from "./previews";
+import { webAppRoute, type AssetsBinding } from "./webApp";
 import { checkPassword, hashPassword, sha256b64url, signToken, verifyToken } from "./tokens";
 import { SIGNUP_SIGN_IN_ERROR_TEXT } from "../../src/shared/quota";
 import { admitSignIn, countFor, guardedStream, moveStorage, ownedFilesQ, requireActive, requireFileSlot } from "./quota/quota";
@@ -121,7 +122,10 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   const path = url.pathname.replace(/\/+$/, "") || "/";
   const m = req.method;
 
-  if (path === "/") return json({ name: "designer", ok: true });
+  // The web app (docs/cloud.md §7): `/`, `/app/…` and its hashed files from the Worker's assets; API paths never
+  const app = await webAppRoute(req, url, path, (deps.env as { ASSETS?: AssetsBinding }).ASSETS);
+  if (app) return app;
+  if (path === "/" || path === "/health") return json({ name: "designer", ok: true });
   // The spend guard (docs/multiplayer.md §17.1): public previews, links and embeds off while only operators are served
   await capacityGate(deps, path);
   // The legal pages Google's consent screen links to (docs/multiplayer.md §17)
@@ -134,6 +138,11 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (verification && /^google[0-9a-f]{8,32}\.html$/.test(verification) && path === `/${verification}`) return new Response(`google-site-verification: ${verification}`, { headers: { "content-type": "text/html; charset=utf-8" } });
   // Signing in without an account yet: throttled per IP (quota/throttle.ts) — no D1 counting for strangers
   if (path.startsWith("/auth/") || (path.startsWith("/saml/") && path.endsWith("/start"))) await throttle(deps, req, "auth");
+  // The Google Fonts catalog for the web app's font picker (docs/desktop.md §14.1; engine/webFonts.ts)
+  if (path === "/google-fonts/catalog" && m === "GET") {
+    await throttle(deps, req, "public");
+    return (await import("./fonts/googleCatalog")).googleCatalogRoute(req, deps);
+  }
   if (path === "/auth/login" && m === "GET") return login(url, deps);
   if (path === "/auth/callback" && m === "GET") return callback(url, deps, req);
   if (path === "/auth/token" && m === "POST") return token(req, deps);

@@ -15,6 +15,7 @@ import { closeSettings, setSettingsTab, SETTINGS_TABS, useSettingsState, type Se
 import { NotificationsTab } from "./NotificationsTab";
 import { OperatorTab, useIsOperator } from "./OperatorTab";
 import { SecurityTab } from "./SecurityTab";
+import { isWebApp } from "@/app/webApp";
 import styles from "./Settings.module.css";
 
 export interface SettingsModalProps {
@@ -28,7 +29,8 @@ export function SettingsModal({ tab, onTab, onClose }: SettingsModalProps) {
   useFocusScope(panel, { trap: true, enabled: true });
   // Operator: only for the server's operators (docs/multiplayer.md §17)
   const operator = useIsOperator();
-  const tabs = SETTINGS_TABS.filter((t) => t.id !== "operator" || operator);
+  // The web app has no Agents tab: agents run on the computer (CLI agents, the MCP server — docs/cloud.md §7)
+  const tabs = SETTINGS_TABS.filter((t) => (t.id !== "operator" || operator) && (t.id !== "agents" || !isWebApp()));
   const move = (dir: 1 | -1) => {
     const i = tabs.findIndex((t) => t.id === tab);
     const next = tabs[(i + dir + tabs.length) % tabs.length];

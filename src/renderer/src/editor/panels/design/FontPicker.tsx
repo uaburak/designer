@@ -10,7 +10,7 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Icon, Popover, SearchField, Select, VirtualList, type Mixed, isMixed } from "@/ds";
-import { closestStyle, type FontFamily } from "@/engine/fonts";
+import { closestStyle, desktopFonts, type FontFamily } from "@/engine/fonts";
 import { filterFamilies, fontFilterMenu, hasStyle, useFontScope, type FontFilter } from "../../fontList";
 import { useFontPreview } from "../../fontPreview";
 import styles from "./FontPicker.module.css";
@@ -115,9 +115,11 @@ export function FontPicker({ anchor, family, style, list, fileFamilies, onPrevie
   const setQuery = (q: string) => setTyped(q);
   // "Used at ‹organization›" only in an organization's file (docs/desktop.md §14.3).
   const scope = useFontScope();
-  const filterMenu = useMemo(() => fontFilterMenu(scope ? (scope.orgName ?? "your organization") : null), [scope]);
+  // The web app has no fonts on the computer: no "Uploaded by you" / "Installed by you" there.
+  const local = !!desktopFonts();
+  const filterMenu = useMemo(() => fontFilterMenu(scope ? (scope.orgName ?? "your organization") : null, { local }), [scope, local]);
   const [chosen, setFilterState] = useState<FontFilter>(sessionFilter);
-  const filter: FontFilter = chosen === "org" && !scope ? "all" : chosen;
+  const filter: FontFilter = (chosen === "org" && !scope) || (!local && (chosen === "uploaded" || chosen === "installed")) ? "all" : chosen;
   const setFilter = (f: FontFilter) => {
     sessionFilter = f;
     setFilterState(f);

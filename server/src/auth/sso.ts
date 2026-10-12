@@ -108,7 +108,8 @@ async function appStateFrom(url: URL, deps: Deps): Promise<AppState> {
     } catch {
       // refused below
     }
-    if (!back || !webOrigins(deps).includes(back.origin)) throw new HttpError(400, "return page not allowed");
+    // The web app served by this Worker (wecra.app, workers.dev, a local `wrangler dev`) or a listed origin
+    if (!back || (back.origin !== url.origin && !webOrigins(deps).includes(back.origin))) throw new HttpError(400, "return page not allowed");
   } else if (!sheet && (!Number.isInteger(p) || p < 1024 || p > 65535)) throw new HttpError(400, "bad port");
   if (!/^[A-Za-z0-9_-]{16,128}$/.test(s)) throw new HttpError(400, "bad state");
   if (!/^[A-Za-z0-9_-]{43}$/.test(c)) throw new HttpError(400, "bad challenge");

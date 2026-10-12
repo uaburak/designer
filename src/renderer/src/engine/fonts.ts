@@ -14,10 +14,12 @@
  * family served by Figma (its Inter, Google Fonts); Figma's Inter wins over
  * Google's (docs/research/figma/R11-fonts.md). Organization and team fonts
  * (docs/desktop.md §14.3) come only in a file of that organization or team
- * (`setScope`): installed > team > organization > Figma's Inter > Google.
+ * (`setScope`): installed > team > organization > Figma's Inter > Google. In the web app (no desktop) the Google
+ * catalog and the shared fonts come from the page's server instead of main (webFonts.ts).
  */
 import interUrl from "./fonts/Inter-3.19.ttf?url";
 import type { EngineExports } from "./EngineExports";
+import { webFontSource } from "./webFonts";
 
 /** Where a face comes from: Figma's own (bundled), installed on the computer, Google Fonts, or the organization / team (shared). */
 export type FontFaceSource = "bundled" | "system" | "user" | "google" | "shared";
@@ -182,7 +184,16 @@ export function mergeFaces(local: readonly FontFaceInfo[], google: readonly Goog
 export const defaultFontSource: FontSource = {
   async list(scope) {
     const desktop = desktopFonts();
-    if (!desktop) return [...BUNDLED_FACES];
+    if (!desktop) {
+      // The web app: Google Fonts and the signed-in person's shared fonts (webFonts.ts); else Figma's Inter alone.
+      const web = webFontSource();
+      if (!web) return [...BUNDLED_FACES];
+      try {
+        return await web.list(scope);
+      } catch {
+        return [...BUNDLED_FACES];
+      }
+    }
     try {
       const index = await desktop.list();
       return mergeFaces(index.faces, index.google ?? [], sharedForScope(index.shared ?? [], scope));
@@ -194,7 +205,11 @@ export const defaultFontSource: FontSource = {
     const url = BUNDLED_URLS[face.id];
     if (url) return new Uint8Array(await (await fetch(url)).arrayBuffer());
     const desktop = desktopFonts();
-    if (!desktop) throw new Error(`no font ${face.family} ${face.style}`);
+    if (!desktop) {
+      const web = webFontSource();
+      if (!web) throw new Error(`no font ${face.family} ${face.style}`);
+      return web.read(face);
+    }
     const bytes = await desktop.read(face.id);
     return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   },
@@ -406,9 +421,10 @@ class FontService {
   /** Every face known (bundled + desktop), for the font pickers. */
   list(): Promise<FontFaceInfo[]> {
     if (!this.watching && this.source === defaultFontSource) {
-      // The desktop says when fonts are installed or removed (main watches the font folders).
+      // The desktop says when fonts are installed or removed (main watches the font folders); the web app when the
+      // Google catalog arrives or the shared fonts change.
       this.watching = true;
-      desktopFonts()?.onChanged?.(() => this.refresh());
+      (desktopFonts() ?? webFontSource())?.onChanged?.(() => this.refresh());
     }
     this.faces ??= this.source.list(this.fileScope).catch(() => BUNDLED_FACES);
     return this.faces;

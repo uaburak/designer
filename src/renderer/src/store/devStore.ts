@@ -26,6 +26,11 @@ export interface DevStoreOptions {
   clock?: { now(): number };
   /** A zstd decoder for `.fig` imports (see MemoryStoreOptions.zstdDecompress) */
   zstdDecompress?: (data: Uint8Array) => Uint8Array | Promise<Uint8Array>;
+  /** A storage opened asynchronously (the web app's IndexedDB cache, idbStorage.ts); wins over `storage` */
+  openStorage?: () => Promise<KeyValueStorage>;
+  /** Personal Drafts in the cloud (the web app; see MemoryStoreOptions.personalDrafts) */
+  personalDrafts?: boolean;
+  cacheLimitBytes?: number;
 }
 
 export interface DevStore {
@@ -37,6 +42,8 @@ export interface DevStore {
   thumbnailUrl(fileKey: FileKey): string | null;
   /** An object URL for an image blob ("" when unknown) */
   blobUrl(sha1: string): string;
+  /** The storage behind it, once open */
+  readonly storage: Promise<KeyValueStorage>;
   close(): void;
 }
 
@@ -67,8 +74,10 @@ export function createDevStore(opts: DevStoreOptions = {}): DevStore {
     return url;
   };
   const client = new StoreClient({ blobUrl, onError: (e) => console.warn("[dev store]", e) });
-  const kv = opts.storage === "memory" ? memoryStorage() : opts.storage && opts.storage !== "browser" ? opts.storage : (browserStorage() ?? memoryStorage());
-  const ready = MemoryStore.open({ storage: kv, teamName: opts.teamName ?? "My team", clock: opts.clock, zstdDecompress: opts.zstdDecompress, seed: opts.seed === false ? undefined : seedDemoWorkspace }).then((s) => {
+  const storage: Promise<KeyValueStorage> = opts.openStorage
+    ? opts.openStorage()
+    : Promise.resolve(opts.storage === "memory" ? memoryStorage() : opts.storage && opts.storage !== "browser" ? opts.storage : (browserStorage() ?? memoryStorage()));
+  const ready = storage.then((kv) => MemoryStore.open({ storage: kv, teamName: opts.teamName ?? "My team", clock: opts.clock, zstdDecompress: opts.zstdDecompress, seed: opts.seed === false ? undefined : seedDemoWorkspace, personalDrafts: opts.personalDrafts, cacheLimitBytes: opts.cacheLimitBytes })).then((s) => {
     store = s;
     s.thumbnails.on((key) => {
       const t = thumbs.get(key);
@@ -99,6 +108,7 @@ export function createDevStore(opts: DevStoreOptions = {}): DevStore {
       return url;
     },
     blobUrl,
+    storage,
     close() {
       client.close();
       server?.close();

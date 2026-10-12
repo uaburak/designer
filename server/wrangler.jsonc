@@ -44,9 +44,10 @@
   // The daily library analytics roll-up and retention sweeps at 03:17 UTC (docs/data.md §17.5), and webhook retries every
   // five minutes (docs/multiplayer.md §16.9) — two of the free plan's five
   "triggers": { "crons": ["17 3 * * *", "*/5 * * * *"] },
-  // The developer preview viewer (npm run build:viewer → out/viewer/index.html), served by the Worker at /p/<id>
-  // (server/src/previews.ts). The Worker runs first for every request, so the API keeps its routes.
-  "assets": { "directory": "../out/viewer", "binding": "ASSETS", "run_worker_first": true, "html_handling": "none", "not_found_handling": "none" },
+  // The web app and the developer preview viewer (npm run build:web → out/web: the app's index.html and assets/ at /,
+  // the viewer at _viewer/index.html for /p/<id> and /embed/<key>; server/src/webApp.ts, previews.ts, docs/cloud.md §7).
+  // The Worker runs first for every request, so the API keeps its routes. `npm run deploy` builds it first.
+  "assets": { "directory": "../out/web", "binding": "ASSETS", "run_worker_first": true, "html_handling": "none", "not_found_handling": "none" },
   // Object storage (docs/cloud.md §1): checkpoints, images and blobs, REST parts, library payloads, previews, icons and
   // shared fonts. Create once: npx wrangler r2 bucket create wecra-files; npx wrangler r2 bucket create wecra-files-eu
   // --jurisdiction eu (orgs with the EU data region, docs/multiplayer.md §15.10)
@@ -57,8 +58,9 @@
   "d1_databases": [{ "binding": "DB", "database_name": "designer", "database_id": "98f2c9e2-7272-4ab0-b1ec-ee6e27b66edd", "migrations_dir": "migrations" }],
   "vars": {
     "GOOGLE_CLIENT_ID": "511486232492-8fr5pqjmcfadd334nrl6abljrran7vhl.apps.googleusercontent.com",
-    // The web app (npm run web) may sign in and call the API from here
-    "WEB_ORIGINS": "http://localhost:5199",
+    // Pages that may sign in and call the API from another origin (CORS). The Worker's own origin (the web app it serves)
+    // is always allowed; wecra.app first: the IdP bounce sends people there. localhost:5199: the dev page (npm run web)
+    "WEB_ORIGINS": "https://wecra.app,http://localhost:5199",
     // The server's operators (docs/multiplayer.md §17): Settings › Operator, /operator/… routes
     "OPERATOR_EMAILS": "design.burakkoc@gmail.com",
     // The spend guard (docs/multiplayer.md §17.1) reads this account's usage; with the secret CF_API_TOKEN (Account

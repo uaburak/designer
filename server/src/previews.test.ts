@@ -107,7 +107,7 @@ describe("developer previews (docs/multiplayer.md §9)", () => {
     expect(page.status).toBe(200);
     expect(page.headers.get("content-type")).toContain("text/html");
     expect(await page.text()).toContain("Developer preview");
-    expect(viewerFetches).toEqual([`${ORIGIN}/index.html`]);
+    expect(viewerFetches).toEqual([`${ORIGIN}/_viewer/index.html`]);
     expect((await call("GET", "/p/short")).status).toBe(404);
 
     const list = await call("GET", "/previews", { token: owner });

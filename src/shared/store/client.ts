@@ -402,6 +402,7 @@ export class StoreClient implements StoreApi {
     importLocalCopy: (path, folderId) => this.call("files.importLocalCopy", [path, folderId]),
     importFigBytes: (bytes, name, folderId, org) => this.call("files.importFigBytes", [bytes, name, folderId ?? null, org ?? null]),
     exportLocalCopy: (fileKey, path) => this.call("files.exportLocalCopy", [fileKey, path]),
+    exportFigBytes: (fileKey) => this.call("files.exportFigBytes", [fileKey]),
   };
 
   readonly blobs: BlobStore = {

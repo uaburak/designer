@@ -11,7 +11,10 @@
  * Which store: the desktop client when the page runs under the app's preload (`window.designer`), else the browser's
  * dev store (localStorage, seeded with demo files). `?store=dev` / `?store=desktop` force one.
  */
-import { completeWebSignIn, connectWebSession } from "./webAccount";
+import { completeWebSignIn, connectWebSession, currentWebSession, onWebSessionDropped } from "./webAccount";
+import { downloadBytes, figFileName, isWebApp, WEB_CACHE_LIMIT_BYTES, webCacheName } from "../app/webApp";
+import { deleteIdbStorage, openIdbStorage, type IdbStorage } from "./memory/idbStorage";
+import { memoryStorage, type KeyValueStorage } from "./memory/kv";
 import type { FileKey, FileMeta } from "../../../shared/store/types";
 import { storeClient, type StoreClient } from "./client";
 import { createDevStore, type DevStore } from "./devStore";
@@ -44,7 +47,34 @@ export function getStoreClient(): StoreClient {
   if (storeMode() === "desktop") client = storeClient();
   else {
     const params = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams();
-    dev = createDevStore({ role: params.has("editor") ? "editor" : "home" });
+    // The web app (docs/cloud.md §7): the signed-in account's Drafts from the server, cached in its own IndexedDB
+    // database (1 GB by default); no demo files. Elsewhere the dev store's demo workspace in localStorage.
+    const uid = isWebApp() ? currentWebSession()?.userId : undefined;
+    currentCacheOwner = uid ?? null;
+    dev = createDevStore({
+      role: params.has("editor") ? "editor" : "home",
+      ...(isWebApp()
+        ? {
+            seed: false,
+            personalDrafts: true,
+            cacheLimitBytes: WEB_CACHE_LIMIT_BYTES,
+            openStorage: () =>
+              uid
+                ? openIdbStorage({ name: webCacheName(uid) }).then(
+                    (s) => {
+                      // Another tab logged this account out (its cache deleted) or a newer version took it: start over
+                      s.onClosedElsewhere = () => location.reload();
+                      return s as KeyValueStorage;
+                    },
+                    (e: unknown) => {
+                      console.warn("[cache] IndexedDB is unavailable; nothing is kept between page loads", e);
+                      return memoryStorage();
+                    },
+                  )
+                : Promise.resolve(memoryStorage()),
+          }
+        : {}),
+    });
     client = dev.client;
     // The browser's account (docs/multiplayer.md §2): finish a sign-in coming back from Google, then hand the session to
     // the store — this tab joins the room of the file it edits.
@@ -55,6 +85,44 @@ export function getStoreClient(): StoreClient {
     });
   }
   return client;
+}
+
+/**
+ * The web app's sign-out (docs/cloud.md §7): the account's cache is deleted — its records, documents and images — and
+ * the page starts over on the welcome page. Other tabs of the account let go of the database and reload too.
+ */
+export async function clearWebCache(uid: string): Promise<void> {
+  const mine = dev;
+  if (mine && currentCacheOwner === uid) {
+    const storage = (await mine.storage.catch(() => null)) as Partial<IdbStorage> | null;
+    mine.close();
+    if (storage?.destroy) await storage.destroy();
+  }
+  await deleteIdbStorage(webCacheName(uid));
+}
+
+let currentCacheOwner: string | null = null;
+
+if (isWebApp() && typeof window !== "undefined")
+  onWebSessionDropped((uid) => {
+    void clearWebCache(uid).finally(() => {
+      // A store closed under the page: Home (the welcome page now) starts afresh at the next sign-in
+      if (currentCacheOwner === uid) location.replace(location.pathname);
+    });
+  });
+
+/** Before the page leaves (Home → a file's page): every write of the browser's store is kept */
+export async function flushWebStore(): Promise<void> {
+  const s = dev ? ((await dev.storage.catch(() => null)) as Partial<IdbStorage> | null) : null;
+  await s?.flush?.();
+}
+
+/** The web app's Save local copy…: the file as a `.fig` download (the desktop app's is main's Save dialog) */
+export async function downloadFig(fileKey: FileKey): Promise<void> {
+  const files = getStoreClient().files;
+  if (!files.exportFigBytes) throw new Error("Saving a local copy isn't available here");
+  const [bytes, meta] = await Promise.all([files.exportFigBytes(fileKey), getStoreClient().workspace.getFile(fileKey)]);
+  downloadBytes(bytes, figFileName(meta.name));
 }
 
 /** The dev store behind `getStoreClient()`, or null on the desktop. */

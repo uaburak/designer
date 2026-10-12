@@ -13,6 +13,7 @@
     "web": "vite --config vite.web.config.ts",
     "build": "electron-vite build && npm run build:viewer",
     "build:viewer": "vite build --config vite.viewer.config.ts",
+    "build:web": "npm run build:viewer && vite build --config vite.webapp.config.ts",
     "viewer": "vite --config vite.viewer.config.ts",
     "viewer:check": "npm run build:viewer && vitest run --config vitest.viewer.config.ts",
     "start": "electron-vite preview",

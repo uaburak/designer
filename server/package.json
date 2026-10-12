@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "build:web": "npm --prefix .. run build:web",
+    "deploy": "npm run build:web && wrangler deploy",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "db:migrate:local": "wrangler d1 migrations apply designer --local",
     "db:migrate": "wrangler d1 migrations apply designer --remote"

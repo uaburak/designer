@@ -86,12 +86,16 @@ export type FontFilter = (typeof FONT_FILTERS)[number]["value"];
 
 /**
  * The filter menu's rows with live's lines between its groups (after All fonts, In this file, Variable fonts); in an
- * organization's file (`orgName` given) "Used at ‹organization›" heads the last group.
+ * organization's file (`orgName` given) "Used at ‹organization›" heads the last group. `local: false` — the web app,
+ * which has no fonts on the computer (Figma's needs its font installer for them): no "Uploaded by you" or "Installed
+ * by you" (this app's uploaded fonts are files on the computer too, docs/desktop.md §14.2).
  */
-export function fontFilterMenu(orgName: string | null = null): ({ value: FontFilter; label: string } | "-")[] {
+export function fontFilterMenu(orgName: string | null = null, opts: { local?: boolean } = {}): ({ value: FontFilter; label: string } | "-")[] {
   const [all, file, popular, google, variable, org, uploaded, installed] = FONT_FILTERS;
   const used = orgName !== null ? [{ value: org.value, label: `Used at ${orgName}` }] : [];
-  return [all, "-", file, "-", popular, google, variable, "-", ...used, uploaded, installed];
+  const local = opts.local === false ? [] : [uploaded, installed];
+  const last = [...used, ...local];
+  return [all, "-", file, "-", popular, google, variable, ...(last.length ? ["-" as const, ...last] : [])];
 }
 
 /** The menu outside an organization (a local file). */

@@ -2,7 +2,7 @@
 // interim "Inter + the file's families" stub.
 import { describe, expect, it } from "vitest";
 import { closestStyle, groupFamilies, mergeFaces, type FontFaceInfo } from "@/engine/fonts";
-import { familyNames, filterFamilies, missingFonts } from "../fontList";
+import { familyNames, filterFamilies, fontFilterMenu, missingFonts } from "../fontList";
 import { fontFamilies, fontStyles } from "../panels/design/Typography";
 
 const face = (family: string, style: string, weight: number, italic = false, id = `${family}-${style}`): FontFaceInfo => ({
@@ -70,6 +70,12 @@ describe("font list", () => {
     expect(names(filterFamilies(list, "popular", ""))).toEqual(["Abril Fatface", "Inter", "Lora"]);
     expect(names(filterFamilies(list, "all", "neue helv"))).toEqual(["Helvetica Neue"]);
     expect(names(filterFamilies(list, "all", "AVÉN"))).toEqual(["avenir"]);
+  });
+
+  it("the web app's menu has no fonts on the computer: no Uploaded by you, no Installed by you", () => {
+    const labels = (m: ReturnType<typeof fontFilterMenu>) => m.map((e) => (e === "-" ? "-" : e.label));
+    expect(labels(fontFilterMenu(null, { local: false }))).toEqual(["All fonts", "-", "In this file", "-", "Popular fonts", "Google fonts", "Variable fonts"]);
+    expect(labels(fontFilterMenu("Acme", { local: false })).slice(-2)).toEqual(["-", "Used at Acme"]);
   });
 
   it("finds the document's missing fonts: a family nobody has, or a style the family lacks", () => {

@@ -261,8 +261,13 @@ export function AccountTab() {
             <OfflineCache cloud={cloud} />
           </>
         )}
-        <Divider />
-        <UploadedFonts />
+        {/* The web app has no fonts on the computer (docs/desktop.md §14.2: the uploaded fonts are files there) */}
+        {fontsBridge() && (
+          <>
+            <Divider />
+            <UploadedFonts />
+          </>
+        )}
         <Divider />
         <Section heading="Library" data-settings-section="library">
           <p className={styles.text}>
@@ -381,7 +386,6 @@ function UploadedFonts() {
       >
         Upload font
       </Button>
-      {!api && <p className={styles.note}>Uploading fonts needs the desktop app.</p>}
       {fonts.length > 0 && (
         <div className={styles.fonts} role="list" aria-label="Your uploaded fonts">
           {fonts.map((f) => (

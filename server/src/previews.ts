@@ -195,10 +195,13 @@ export async function deletePreviewsOf(deps: Deps, userId: string): Promise<void
   await db.prepare(`DELETE FROM previews WHERE owner_id = ?`).bind(userId).run();
 }
 
+/** The viewer's page among the Worker's assets (out/web: the web app at `/`, the viewer beside it — docs/cloud.md §7) */
+export const VIEWER_ASSET = "/_viewer/index.html";
+
 /** The viewer page for `/p/<id>`: the built viewer reads the id from its own path. */
 export async function viewerPage(url: URL, env: PreviewEnv): Promise<Response> {
   if (!env.ASSETS) throw new PreviewHttpError(503, "the preview viewer isn't deployed on this server");
-  const res = await env.ASSETS.fetch(new Request(new URL("/index.html", url.origin)));
+  const res = await env.ASSETS.fetch(new Request(new URL(VIEWER_ASSET, url.origin)));
   if (!res.ok) throw new PreviewHttpError(503, "the preview viewer isn't deployed on this server");
   const headers = new Headers(res.headers);
   headers.set("content-type", "text/html; charset=utf-8");

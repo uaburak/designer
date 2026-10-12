@@ -1093,7 +1093,7 @@ Settings › Account › "Your uploaded fonts" — "Upload fonts for your person
   2. The view shows Figma's licence confirmation and, for conflicts, **Skip** / **Replace** per family.
   3. `fonts:shared-upload {scope, tokens, licenceConfirmed: true, choices}` → main uploads each file (`PUT …/fonts`) → `FontUploadResult`. Tokens expire after 10 minutes.
   - `fonts:shared-list {scope}` → `{faces}`; `fonts:shared-remove {scope, ids? , family?}` → `{faces}`.
-- **The browser** (`npm run web`): not in round 3 (no main process; the web editor sees no shared fonts).
+- **The browser**: the web app (docs/cloud.md §7) reads Google Fonts (`GET /google-fonts/catalog`, files from the google/fonts repository) and the shared fonts (`/me/fonts`, `/fonts/<sha1>`) itself (`engine/webFonts.ts`); `npm run web` (the dev page) still sees Inter only.
 
 The types are `src/shared/fonts/sharedTypes.ts`, committed verbatim before round 3:
 

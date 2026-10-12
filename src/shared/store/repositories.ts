@@ -167,6 +167,11 @@ export interface FileRepository {
   importFigBytes(bytes: Uint8Array, name: string, folderId?: FolderId | null, org?: OrgImportPlace | null): Promise<FileMeta>;
   /** Main only */
   exportLocalCopy(fileKey: FileKey, path: string): Promise<void>;
+  /**
+   * The file as `.fig` bytes (the web app's Save local copy…, which the page downloads — no path; docs/cloud.md §7).
+   * Only the browser's store answers it; the desktop store writes the file itself (`exportLocalCopy`).
+   */
+  exportFigBytes?(fileKey: FileKey): Promise<Uint8Array>;
 }
 
 export interface BlobStore {
