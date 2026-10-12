@@ -455,12 +455,59 @@ Old **7c "editor types" is dropped**: Draw is a mode of a Design file, and the o
   - Sites' code layers run on the same runtime.
 - **13 Weave**: the node-graph canvas, model nodes through the owner's providers, the Figma node, publishing workflows as Weave tools.
 
-### Round 14 — Governance+ (add-on, last)
-- Identity: multiple IdPs, guest 2FA (TOTP), guest expiry, extended idle timeout (15 min).
-- Network: IP allowlist and network restrictions.
-- Content: the org-wide export restriction, internal policies.
-- APIs: Discovery and developer logs.
-- Encryption: key management for stored snapshots and media.
+### Round 14 — Governance+ (add-on, last) — **contract drafted 2026-10-12** (`docs/governance.md`)
+
+**Scope:**
+- Identity: multiple IdPs, guest 2FA (our TOTP), guest expiration, the idle timeout down to 15 min.
+- Network: IP allowlist and network access restrictions.
+- Content: the org-wide export restriction (plus enforcing the file-level "Viewers can copy, share, and export" in clients, a base-plan fix), internal policies.
+- APIs: Discovery and Developer logs.
+- Encryption: key management.
+- Not built: AI hosting controls, Support visibility.
+
+**The contract is a draft, cut short by the usage limit.** Before the agents start, the main session has to:
+- finish `docs/governance.md` §6 as compiling TypeScript;
+- check §7 against D1 locally.
+
+**Before the agents** (main session, one commit):
+- `src/shared/org/governance.ts` (§6);
+- the type additions listed in §6;
+- `GovernanceRepository` with `StoreApi.governance` stubs;
+- `server/migrations/0018_governance.sql` (§7 verbatim) — no agent edits migrations this round;
+- `ErrorCode | GovernanceErrorCode`;
+- server stubs:
+  - `server/src/governance/gate.ts`: `orgGate(deps, user, orgId, req)` and `networkCheck(deps, user, req)`;
+  - `server/src/discovery/record.ts`: `recordDiscovery(deps, events)` and `discoveryAlarm(room)`;
+  - `server/src/rest/devlog.ts`: `logDeveloperCall(deps, entry)`;
+  - `server/src/ekm/cipher.ts`: `RoomCipher` with a pass-through implementation;
+- `npm run check` green.
+
+| Agent | Owns | Delivers |
+|---|---|---|
+| 14a server identity | `server/src/auth/` (multiple IdPs in `saml/`, `identityRoutes.ts`, `domains.ts`, `scim/` per-IdP tokens, `sso.ts` + `pages.ts`: the 2FA challenge page and `network_restricted` at sign-in, `settingsHooks.ts` `validIdleHours`), `server/src/governance/twoFactor.ts` + `network.ts` (fills `networkCheck`), `server/src/account.ts` (`/me/two-factor…`), `server/src/db.ts` (codes' `mfa_pending`), `server/src/api.ts` — only `authenticate` (the network check) and the dispatch lines of `/auth/2fa` and `/me/two-factor` | §2.2 (sign-in side), §2.4, §2.8, §2.9; tests on node:sqlite: TOTP vectors (RFC 6238), replay of a step, recovery codes, rate limit, the challenge on Google and SAML, the IdP mapping and routing, unmapped domains, network shadow and enforce |
+| 14b server org policy | `server/src/governance/` except 14a's two files (`gate.ts` filled, `ip.ts`, `policies.ts`, `guests.ts`, `routes.ts` with `admin/governance`, `ip-allowlist`, `network-ranges`, `policies`, `guests/expiration`), `server/src/org/` (settings keys, the gate in `Access.rowsFor`, guest expiry on join, People fields), `src/shared/org/access.ts` + test (`canExport` by `fileExporting`, expired guests), `server/src/policy/` (`fileExporting` in `filePolicy`, `discovery` in `x-policy`), `server/src/activity.ts`, `server/src/api.ts` — only the `/files` routes (gates, `export_restricted`) and the socket upgrade's gate, `server/src/index.ts` (one line in the daily cron: guest expiry) | §2.1, §2.3, §2.5–§2.7, §2.13, §3 |
+| 14c server EKM | `server/src/ekm/` (new: wrapping, SigV4 KMS client, `RoomCipher`, routes `admin/key-management…`), `server/src/roomBox.ts` + `server/src/fileRoom.ts` (encrypted tables, unwrap on wake, `key_unavailable`), `server/src/policy/dump.ts` only if the move needs it | §2.10; tests: a fake KMS through `deps.fetch`, round trip, revocation → 503, lazy encryption, encrypt-next, the region move of an encrypted room |
+| 14d server Discovery and developer logs | `server/src/discovery/` (fills the stubs; `/v1/discovery` and signed files), `server/src/rest/` (`devlog.ts`, the routes, the log line in `restRoute`, `scopes.ts`), `server/src/rest/roomJobs.ts` (the `discovery_text` job), `src/shared/multiplayer/room.ts` (cursor chat capture), `server/src/comments.ts` + `server/src/devmode/devResources.ts` (one `recordDiscovery` call each), `server/src/index.ts` (one line: retention) | §2.11, §2.12 |
+| 14e store | `src/store/org/governance.ts` (new) + wiring in `localStore.ts`, `server.ts`, `renderer/src/store/memory/`, `src/shared/store/protocol.ts`; `src/store/multiplayer/` (the new 403 codes and gates surfaced as events) | `GovernanceRepository` over 14a–14d's routes, tested against the real handler |
+| 14f desktop main | `src/main/agents/mcpServer.ts` (MCP reports), `src/main/ai/` (AI prompt reports) | client-reported Discovery and developer-log events for org files |
+| 14g clients | `src/renderer/src/settings/SecurityTab.tsx` (2FA), `src/renderer/src/account/` (`PolicyModal`, `TwoFactorRequired`, `IpBlocked`, `NetworkRestricted`, `GuestExpiryBanner`), `src/renderer/src/files/` (gates, banner), `src/renderer/src/editor/exporting.ts` + `commands.ts` + `objectCommands.ts` + `panels/design/Export.tsx` (`access.canExport`), `editor/ShareDialog.tsx` (the label), `editor/EditorApp.tsx` (one line), `editor/rest/discoveryText.ts` (the job), `package.json` + lock (`qrcode-generator` 1.4.4 exact) | §5 "Clients" |
+| 14h Admin | `src/renderer/src/admin/` | §5 Admin sections, People, Developer logs |
+
+**Merge order:** the main session's commit → **14a** → **14b** (both touch `api.ts` in different functions) → **14c** → **14d** (14c and 14d both touch the room; 14d rebases) → **14e** → **14f** → **14g** → **14h**.
+
+**Deploy (owner, at the end):**
+- `wrangler secret put EKM_ROOT_KEY` (32 random bytes, base64);
+- migration 0018;
+- `npm --prefix server run deploy`.
+
+No new Durable Object class and no new cron. The engine and the schema are untouched.
+
+**Open questions for the owner:**
+1. **Guest 2FA.** Default: our TOTP for Google and SAML accounts, required for guests of orgs that turn it on. This is stronger than Figma, where SSO accounts can't enable 2FA; whether Figma blocks Google guests is unverified. The other choice is Figma-literal: Google sign-in counts as enough, and the feature never blocks anyone here.
+2. **Key management.** Default: "managed" (a Worker secret), plus optional AWS KMS through an IAM access key, untested without an AWS account. Does the owner want the AWS path built at all, or only managed?
+3. **Discovery.** It captures everyone's text. Default: off, an admin switch (ours). Its in-file events are attributed to the last writer of the hour (approximate), and AI prompts are client-reported.
+4. **Self-serve network restrictions and policies** (Figma: Support). Default: org admins, as with the data region.
+5. **IPv6 in the IP allowlist** (Figma: IPv4 only). Default: accept both, because otherwise members on IPv6 are blocked.
 
 ## Legacy removed (2026-10-06)
 
