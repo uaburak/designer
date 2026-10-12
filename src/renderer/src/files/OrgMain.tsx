@@ -59,6 +59,10 @@ export interface OrgMainProps {
   /** The person's home org restricts external content and this org isn't it (docs/multiplayer.md §15.6, [F-external]):
    *  nothing is created here — no Design, New folder or Create team */
   noCreate?: boolean;
+  /** An org gate (docs/governance.md §2.5: two-factor authentication for guests, the IP allowlist) shown instead of the content */
+  blocked?: ReactNode;
+  /** Above the content: the guest's access ending soon (§2.13) */
+  banner?: ReactNode;
 }
 
 type Dialog =
@@ -83,7 +87,7 @@ type Menu = { at: { x: number; y: number }; entries: MenuEntry[]; run: (id: stri
 const pageKey = (loc: Location) => JSON.stringify(loc);
 
 export function OrgMain(props: OrgMainProps) {
-  const { org, orgId, info, location, page, reload, go, nav, openFile, onBranches, toast, now, noCreate = false } = props;
+  const { org, orgId, info, location, page, reload, go, nav, openFile, onBranches, toast, now, noCreate = false, blocked, banner } = props;
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -510,9 +514,10 @@ export function OrgMain(props: OrgMainProps) {
           <IconButton icon="24.arrow.right" label="Forward" tone="secondary" disabled={!nav.canForward} onClick={nav.forward} />
         </div>
         <div className={styles.title}>{title.items[0]?.label ? <Breadcrumb items={title.items} onNavigate={(id) => title.onNavigate?.(id)} /> : null}</div>
-        <div className={styles.create}>{actions}</div>
+        <div className={styles.create}>{blocked ? null : actions}</div>
       </header>
-      <div className={styles.orgContent}>{current || data.kind === "none" ? body : <div className={styles.center} aria-busy><Spinner size={24} /></div>}</div>
+      {banner}
+      {blocked ?? <div className={styles.orgContent}>{current || data.kind === "none" ? body : <div className={styles.center} aria-busy><Spinner size={24} /></div>}</div>}
       {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} />}
       {dialog?.kind === "ask-upgrade" && (
         <AskToUpgradeDialog

@@ -11,7 +11,7 @@ import { rotateSelection, zoomTo } from "./actions";
 import { copyFromMenu, pasteFromMenu } from "./clipboardIO";
 import { engineCommandEnabled, runEngineCommand } from "./engineCompat";
 import { chooseAndPlaceImages } from "./canvas/ImagePlacer";
-import { canExport, copyAsCode, copyAsPng, copyAsSvg, copyAsText, exportFramesToPdf, hasTextSelected } from "./exporting";
+import { canExport, copyAsCode, copyAsPng, copyAsSvg, copyAsText, exportAllowed, exportFramesToPdf, hasTextSelected } from "./exporting";
 import { present, togglePreview } from "./present";
 import { setDevStatus, statusOfTargets, statusTargets } from "./devStatus";
 import { annotationsShown, modeOf, setMode, toggleAnnotations } from "./devmode/devMode";
@@ -29,6 +29,7 @@ import {
   addLayout,
   canCopyProperties,
   canPasteProperties,
+  canDuplicateFile,
   canSaveLocalCopy,
   canSetThumbnail,
   copyProperties,
@@ -390,8 +391,9 @@ export const COMMANDS: EditorCommand[] = [
     run: (ed) => void ed.engine.redo(),
     enabled: (ed) => ed.store.undo.canRedo,
   },
-  { id: "edit.copy", label: "Copy", keys: [k("KeyC", { mod: true })], native: true, run: (ed) => copyFromMenu(ed, false), enabled: hasSelection },
-  { id: "edit.cut", label: "Cut", keys: [k("KeyX", { mod: true })], native: true, run: (ed) => copyFromMenu(ed, true), enabled: hasSelection },
+  // A viewer of a file whose owner turned off "Viewers can copy, share, and export" copies no layers (docs/governance.md §2.7)
+  { id: "edit.copy", label: "Copy", keys: [k("KeyC", { mod: true })], native: true, run: (ed) => copyFromMenu(ed, false), enabled: (ed) => hasSelection(ed) && exportAllowed(ed) },
+  { id: "edit.cut", label: "Cut", keys: [k("KeyX", { mod: true })], native: true, run: (ed) => copyFromMenu(ed, true), enabled: (ed) => hasSelection(ed) && exportAllowed(ed) },
   { id: "edit.paste", label: "Paste", keys: [k("KeyV", { mod: true })], native: true, run: (ed) => pasteFromMenu(ed, null) },
   {
     // ⇧⌘V: where it was copied from, just above the selection (not into it).
@@ -419,7 +421,7 @@ export const COMMANDS: EditorCommand[] = [
   { id: "edit.paste-to-replace", label: "Paste to replace", keys: [k("KeyR", { mod: true, shift: true })], run: (ed) => pasteFromMenu(ed, { mode: "replace" }), enabled: hasSelection },
   { id: "edit.copy-as-png", label: "Copy as PNG", keys: [k("KeyC", { mod: true, shift: true })], run: (ed) => void copyAsPng(ed), enabled: (ed) => hasSelection(ed) && canExport(ed) },
   { id: "edit.copy-as-svg", label: "Copy as SVG", run: (ed) => void copyAsSvg(ed), enabled: (ed) => hasSelection(ed) && canExport(ed) },
-  { id: "edit.copy-as-code", label: "Copy as code", run: (ed) => void copyAsCode(ed), enabled: hasSelection },
+  { id: "edit.copy-as-code", label: "Copy as code", run: (ed) => void copyAsCode(ed), enabled: (ed) => hasSelection(ed) && exportAllowed(ed) },
   { id: "edit.copy-as-text", label: "Copy as text", run: (ed) => void copyAsText(ed), enabled: (ed) => hasTextSelected(ed) },
   engine("edit.duplicate", "Duplicate", "DUPLICATE", [k("KeyD", { mod: true })]),
   engine("edit.delete", "Delete", "DELETE", [k("Backspace"), k("Delete")]),
@@ -762,7 +764,7 @@ export const COMMANDS: EditorCommand[] = [
     enabled: (ed) => typeof ed.source.rename === "function",
   },
   // Round 10: the workspace's file operations, where the document source has them (objectCommands.ts FileOps).
-  { id: "file.duplicate", label: "Duplicate", run: (ed) => void duplicateFile(ed), enabled: (ed) => !!fileOps(ed) },
+  { id: "file.duplicate", label: "Duplicate", run: (ed) => void duplicateFile(ed), enabled: (ed) => canDuplicateFile(ed) },
   { id: "file.move", label: "Move to folder…", run: (ed) => ed.ui.set({ moveFileDialog: true, uiHidden: false }), enabled: (ed) => !!fileOps(ed) },
   { id: "file.save-local-copy", label: "Save local copy…", run: (ed) => void saveLocalCopy(ed), enabled: canSaveLocalCopy },
   // Branching (Phase 7 round 2b, branching/commands.ts): Create branch…, See all branches, Update from main…, Review

@@ -77,6 +77,7 @@ import { DevLeftPanel, DevMeasurements, DevRightPanel } from "./devmode/DevPanel
 import { AnnotationEditor } from "./devmode/AnnotationEditor";
 import { CategoriesDialog, FocusBar, MeasurementText, StatusMenu } from "./devmode/DevOverlays";
 import { attachRound5 } from "./devmode/round5";
+import { attachExportAccess } from "./exporting";
 import { ReadyForDev } from "./devmode/ReadyForDev";
 import { CodeConnectDialog } from "./devmode/CodeConnectDialog";
 import { PlaygroundDialog } from "./devmode/Playground";
@@ -272,6 +273,7 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       engine.setEditTracking(true);
       cleanups.push(attachDevMode(ed));
       cleanups.push(attachRound5(ed));
+      cleanups.push(attachExportAccess(ed));
       if (visibleRef.current) cleanups.push(attachViewInsets(engine, canvas, visibleRef.current));
       // The file's last page and camera when the source kept them, else the first view asked for.
       if (!restoreUiState(ed)) {

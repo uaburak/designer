@@ -6,6 +6,8 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type * as O from "@shared/org/types";
+import type { OrgGate } from "@shared/org/governance";
+import { effectiveGate, gateOfError, isNetworkRestricted } from "./governance";
 import type { Location } from "./model";
 import type { Destination } from "./orgDialogs";
 import type { OrgBackend } from "./storeAccess";
@@ -19,6 +21,8 @@ export interface OrgShell {
   teams: O.TeamSummary[];
   /** Folders by "<teamId>/<parentId or ''>" — loaded as the sidebar opens them */
   folders: Record<string, O.ProjectSummary[]>;
+  /** The account is on a network that only allows work accounts (docs/governance.md §2.5: 403 `network_restricted`) */
+  network?: boolean;
 }
 
 export type OrgPageData =
@@ -37,11 +41,14 @@ export interface OrgPageState {
   key: string;
   page: OrgPageData;
   loadedAt: number;
+  /** What refused the page (docs/governance.md §2.5): an org gate, or the network restriction */
+  blocked?: OrgGate | "network" | null;
 }
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 export const folderKey = (teamId: string, parentId: string | null) => `${teamId}/${parentId ?? ""}`;
 const quiet = <T,>(p: Promise<T>, fallback: T) => p.catch(() => fallback);
+const NO_AGREED: ReadonlySet<string> = new Set();
 
 export async function loadOrgPage(org: OrgBackend, orgId: string, loc: Location, teams: readonly O.TeamSummary[]): Promise<OrgPageData> {
   switch (loc.kind) {
@@ -105,7 +112,7 @@ export async function orgDestinations(org: OrgBackend, orgId: string, input: { f
 }
 
 /** The org's shell (switcher, sidebar) and the shown location's page. */
-export function useOrgData(org: OrgBackend | undefined, orgId: string | null, location: Location, active: boolean) {
+export function useOrgData(org: OrgBackend | undefined, orgId: string | null, location: Location, active: boolean, agreed: ReadonlySet<string> = NO_AGREED) {
   const [shell, setShell] = useState<OrgShell>({ orgs: [], info: null, teams: [], folders: {} });
   const [page, setPage] = useState<OrgPageState>({ ready: false, error: null, key: "", page: { kind: "none" }, loadedAt: 0 });
   const opened = useRef(new Set<string>());
@@ -119,7 +126,12 @@ export function useOrgData(org: OrgBackend | undefined, orgId: string | null, lo
 
   const readShell = useCallback(async (): Promise<OrgShell | null> => {
     if (!org) return null;
-    const orgs = await org.orgs.list().catch(() => [] as O.OrgSummary[]);
+    let network = false;
+    const orgs = await org.orgs.list().catch((e: unknown) => {
+      network = isNetworkRestricted(e);
+      return [] as O.OrgSummary[];
+    });
+    if (network) return { orgs, info: null, teams: [], folders: {}, network };
     if (!orgId) return { orgs, info: null, teams: [], folders: {} };
     const [info, teams] = await Promise.all([org.orgs.get(orgId).catch(() => null), org.teams.list(orgId, "mine").catch(() => [] as O.TeamSummary[])]);
     teamsRef.current = teams;
@@ -141,8 +153,10 @@ export function useOrgData(org: OrgBackend | undefined, orgId: string | null, lo
     [readShell],
   );
 
+  // A gated org (its list entry says so, docs/governance.md §2.5) loads no page: every read would be refused.
+  const gated = !!effectiveGate(shell.orgs.find((o) => o.id === orgId)?.gate, agreed);
   const loadPage = useCallback(async () => {
-    if (!org || !orgId || !active) return;
+    if (!org || !orgId || !active || gated) return;
     const mine = ++seq.current;
     const loc = locRef.current;
     const key = JSON.stringify(loc);
@@ -150,9 +164,10 @@ export function useOrgData(org: OrgBackend | undefined, orgId: string | null, lo
       const data = await loadOrgPage(org, orgId, loc, teamsRef.current);
       if (mine === seq.current) setPage({ ready: true, error: null, key, page: data, loadedAt: Date.now() });
     } catch (e) {
-      if (mine === seq.current) setPage({ ready: true, error: message(e), key, page: { kind: "none" }, loadedAt: Date.now() });
+      const blocked = isNetworkRestricted(e) ? "network" : gateOfError(e);
+      if (mine === seq.current) setPage({ ready: true, error: message(e), key, page: { kind: "none" }, loadedAt: Date.now(), blocked });
     }
-  }, [org, orgId, active]);
+  }, [org, orgId, active, gated]);
 
   const reload = useCallback(() => {
     void loadShell().then(() => loadPage());

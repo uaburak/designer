@@ -9,6 +9,7 @@
 import { showToast } from "@/ds";
 import type { Guid, NodeChange } from "@/engine/codec";
 import type { EditorController } from "./controller";
+import { exportAllowed } from "./exporting";
 import { fields } from "./panels/design/shared";
 import { gridDefaults, type GridNode } from "./model/grid";
 import { viewCentre } from "./canvas/viewInsets";
@@ -215,10 +216,15 @@ export function fileOps(ed: EditorController): FileOps | null {
 type DesktopBridge = { designer?: { nav?: { openFile?: (fileKey: string) => Promise<unknown> }; files?: { saveLocalCopy?: (fileKey: string) => Promise<{ path: string } | { cancelled: true }> } } };
 const desktop = () => (window as unknown as DesktopBridge).designer;
 
+/** File › Duplicate is there for a viewer only when the file lets viewers copy and export (docs/governance.md §2.7). */
+export function canDuplicateFile(ed: EditorController): boolean {
+  return !!fileOps(ed) && exportAllowed(ed);
+}
+
 /** File › Duplicate: a copy in Drafts, opened in a new tab (live Figma). */
 export async function duplicateFile(ed: EditorController): Promise<void> {
   const ops = fileOps(ed);
-  if (!ops) return;
+  if (!ops || !exportAllowed(ed)) return;
   await ed.source.flush();
   const copy = await ops.duplicate();
   const open = desktop()?.nav?.openFile;
@@ -238,14 +244,14 @@ export async function createBranch(ed: EditorController, name: string): Promise<
 }
 
 export function canSaveLocalCopy(ed: EditorController): boolean {
-  return !!fileOps(ed) && !!desktop()?.files?.saveLocalCopy;
+  return !!fileOps(ed) && !!desktop()?.files?.saveLocalCopy && exportAllowed(ed);
 }
 
 /** File › Save local copy…: the file as a .fig, where the Save dialog says (the desktop app's `files.saveLocalCopy`). */
 export async function saveLocalCopy(ed: EditorController): Promise<void> {
   const ops = fileOps(ed);
   const save = desktop()?.files?.saveLocalCopy;
-  if (!ops || !save) return;
+  if (!ops || !save || !exportAllowed(ed)) return;
   await ed.source.flush();
   const r = await save(ops.fileKey);
   if ("path" in r) showToast({ message: "Saved a local copy" });

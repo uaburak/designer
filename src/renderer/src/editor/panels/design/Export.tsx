@@ -15,7 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button, Checkbox, Icon, IconButton, MenuButton, PanelSection, Popover, Select, TextInput, cx } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
-import { canExport, exportItems, renderExport, type ExportItem } from "../../exporting";
+import { canExport, exportItems, renderExport, useExportAllowed, type ExportItem } from "../../exporting";
 import { useDocumentVersion } from "../../hooks";
 import { mixed, sameData } from "../../model/mixed";
 import {
@@ -53,7 +53,13 @@ function writeSettings(ed: EditorController, refs: readonly Guid[], list: Export
   ed.setProps(refs, fields({ exportSettings: list } as never), label);
 }
 
-export function ExportSection({ targets, page }: { targets: ExportTarget[]; page: boolean }) {
+/** Hidden for a viewer the file or the org doesn't let export (docs/governance.md §2.7: "hidden or disabled"). */
+export function ExportSection(props: { targets: ExportTarget[]; page: boolean }) {
+  const ed = useEditor();
+  return useExportAllowed(ed) ? <ExportSectionBody {...props} /> : null;
+}
+
+function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: boolean }) {
   const ed = useEditor();
   const kept = useKeeps("exportSettings");
   const refs = targets.map((t) => t.guid);

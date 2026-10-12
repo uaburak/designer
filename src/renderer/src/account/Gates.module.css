@@ -1,0 +1,27 @@
+/* The org gates (docs/governance.md §5 "Clients"; ours): a page in Home's main area, a modal, the whole window, a banner */
+@layer app {
+  .gate { display: flex; flex: 1 1 auto; align-items: center; justify-content: center; min-height: 0; padding: var(--ds-space-8); }
+  .policyText {
+    max-height: 50vh;
+    overflow-y: auto;
+    color: var(--figma-color-text);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+  }
+  .window {
+    position: fixed;
+    inset: 0;
+    z-index: var(--ds-z-scrim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--ds-space-8);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+  }
+  .windowBody { display: flex; flex-direction: column; align-items: center; gap: var(--ds-space-4); max-width: calc(var(--ds-size-panel) * 2); text-align: center; }
+  .windowTitle { margin: 0; font: var(--ds-font-heading-large); }
+  .windowText { margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-large); }
+  .banner { margin: 0 var(--ds-space-4) var(--ds-space-2); }
+}
