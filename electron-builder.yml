@@ -9,6 +9,10 @@ files:
 asar: true
 # The trackpad's haptics addon (src/main/haptics.ts, docs/desktop.md §10.2 "Haptics"): macOS only, loaded from Resources
 mac:
+  # Personal use: ad-hoc signed ("-"), never a Developer ID found in the keychain (docs/desktop.md §12.4)
+  identity: "-"
+  # Ad-hoc: no hardened runtime (it would need disable-library-validation to launch on another Mac)
+  hardenedRuntime: false
   extraResources:
     - from: native/haptics/haptics.node
       to: haptics.node

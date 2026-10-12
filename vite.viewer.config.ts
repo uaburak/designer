@@ -64,7 +64,8 @@ function singleFile(): Plugin {
           html = html.replace(new RegExp(`<script type="module" crossorigin src="[^"]*${f.replace(/\./g, "\\.")}"></script>`), () => `<script type="module">${js}</script>`);
         }
         // The module script stays where Vite put it (head); modules run after parsing, when the data block is there.
-        const wasm = files.find((x) => x.endsWith(".wasm"));
+        // The engine's wasm by name: other wasm assets (QuickJS for Code Connect templates) sort before it.
+        const wasm = files.find((x) => /^engine-[^/]*\.wasm$/.test(x));
         if (!wasm) throw new Error("viewer build: no engine.wasm asset");
         const b64 = readFileSync(join(assets, wasm)).toString("base64");
         if (!html.includes("<!--designer:preview-data-->")) throw new Error("viewer build: the data placeholder is gone");
