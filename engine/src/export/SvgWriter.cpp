@@ -1,5 +1,7 @@
 #include "export/SvgWriter.h"
 
+#include "geometry/Repeat.h"
+
 #include <cmath>
 #include <cstdio>
 #include <unordered_map>
@@ -548,6 +550,44 @@ class Writer {
       tspans.clear();
     };
     std::u16string_view text16(L->text);
+    if (L->path) {
+      // A text on a path (Figma Draw): one <tspan> per glyph at its place, turned by `rotate` — not <textPath>, which
+      // would leave the layout to the viewer (docs/draw.md §4.8).
+      for (size_t i = 0; i < L->glyphs.size(); i++) {
+        const text::LaidGlyph& g = L->glyphs[i];
+        const text::ResolvedStyle& rs = L->styles[g.style];
+        if (!rs.fills) continue;
+        const uint32_t total = static_cast<uint32_t>(text16.size());
+        uint32_t from = g.cluster, to = i + 1 < L->glyphs.size() ? L->glyphs[i + 1].cluster : total;
+        if (from > to) std::swap(from, to);
+        if (to > total) to = total;
+        if (from > to) from = to;
+        std::u16string chars(text16.substr(from, to - from));
+        while (!chars.empty() && (chars.back() == u' ' || chars.back() == u'\n' || chars.back() == u'\r')) chars.pop_back();
+        chars = text::applyCase(chars, rs.textCase);
+        std::string utf8 = escape(text::utf16To8(chars));
+        if (utf8.empty()) continue;
+        for (const Paint& paint : *rs.fills) {
+          if (!drawable(paint)) continue;
+          std::string fill = paintAttr("fill", paint, p.size, E);
+          if (fill.empty()) continue;
+          std::string attrs = fill + " xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"" + escape(rs.fontName.family) +
+                              "\" font-size=\"" + num(rs.fontSize) + "\"";
+          int weight = 400;
+          bool italic = false;
+          text::styleWeight(rs.fontName.style, weight, italic);
+          if (weight != 400) attrs += " font-weight=\"" + std::to_string(weight) + "\"";
+          if (italic) attrs += " font-style=\"italic\"";
+          if (!translationOnly(E)) attrs += " transform=\"" + matrixText(E) + "\"";
+          Vec2 at{g.x, g.y};
+          if (translationOnly(E)) at = E.apply(at);
+          double degrees = g.rotation * 180.0 / 3.14159265358979323846;
+          out.push_back("<text" + attrs + "><tspan x=\"" + num(at.x) + "\" y=\"" + num(at.y) + "\" rotate=\"" + num(degrees) + "\">" + utf8 +
+                        "</tspan></text>\n");
+        }
+      }
+      return;
+    }
     for (const text::LaidLine& line : L->lines) {
       uint32_t g0 = line.firstGlyph, g1 = line.firstGlyph + line.glyphCount;
       for (uint32_t i = g0; i < g1;) {
@@ -736,7 +776,7 @@ class Writer {
     Shape sh = fillShape(doc_, id, p);
     Stroke st = strokeOf(doc_, id, p);
     backgroundBlur(p, sh, E, before);
-    if (p.type == NodeType::TEXT) {
+    if (p.isTextLike()) {
       textEls(id, p, E, els);
       if (st.present()) {
         Shape glyphs;
@@ -749,6 +789,22 @@ class Writer {
       }
     } else if (p.isGroupLike()) {
       els = siblingsEls(drawnChildren(doc_, id), 0);
+      // A transform group (Figma Draw): its copies, each a <g transform> around the children's elements, the source
+      // first (docs/draw.md §4.8 — no <use>, for compatibility; unlike Figma's export, which wrote the source alone).
+      if (p.type == NodeType::TRANSFORM && !els.empty())
+        if (const geom::RepeatResult* rep = repeatOf(doc_, id); rep && rep->instances.size() > 1) {
+          Mat2x3 Ei = E.inverse();
+          std::string body = join(els);
+          Els copies;
+          for (const Mat2x3& inst : rep->instances) {
+            if (inst == Mat2x3{}) {
+              copies.push_back(body);
+              continue;
+            }
+            copies.push_back("<g transform=\"" + matrixText(E * inst * Ei) + "\">\n" + body + "</g>\n");
+          }
+          els = {"<g>\n" + join(copies) + "</g>\n"};
+        }
     } else {
       Els kids;
       if (drawsChildren(p)) kids = siblingsEls(drawnChildren(doc_, id), 0);

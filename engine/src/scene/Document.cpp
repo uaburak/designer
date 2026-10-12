@@ -6,7 +6,11 @@
 #include <cmath>
 
 #include "base/FractionalIndex.h"
+#include "base/Json.h"
+#include "geometry/Brush.h"
+#include "geometry/DynamicStroke.h"
 #include "geometry/VariableWidth.h"
+#include "scene/CodecKiwi.h"
 
 namespace eng {
 
@@ -37,7 +41,32 @@ double outerStroke(const NodeProps& p) {
     if (p.strokeJoin == StrokeJoin::MITER) share *= std::max(1.0, std::min(p.miterLimit, 16.0));
     reach = std::max(reach, share);
   }
+  if (!p.extra.empty()) {
+    // Figma Draw (docs/draw.md §4.3, §4.5): a dynamic stroke's centre line wanders; a brush's artwork spans the weight
+    // and a scatter brush's stamps stray by its wiggle and size jitter.
+    geom::DynamicSettings dyn;
+    if (dynamicSettingsOf(p, dyn)) reach = std::max(reach, (p.strokeAlign == StrokeAlign::CENTER ? w / 2 : w) + geom::dynamicReach(dyn, w));
+    if (strokeBrushOf(p) != kNoGuid) {
+      double spread = 0;
+      auto it = p.extra.find("scatterStrokeSettings");
+      json::Value v;
+      if (it != p.extra.end() && json::parse(codec::extraValueToJson("NodeChange", it->second), v) && v.isObject()) {
+        if (const json::Value* x = v.get("wiggle")) spread += std::fabs(x->numberOr(0));
+        if (const json::Value* x = v.get("sizeJitter")) spread += std::fabs(x->numberOr(0));
+      }
+      reach = std::max(reach, w * (1 + spread));
+    }
+  }
   return reach;
+}
+
+// A text on a path (TEXT_PATH): its glyphs sit on its path, up to a line's height off it and half a glyph past it.
+double textPathReach(const NodeProps& p) {
+  if (p.type != NodeType::TEXT_PATH) return 0;
+  double size = p.text().fontSize;
+  for (const TextStyle& st : p.text().textData.styleOverrideTable)
+    if (st.mask & R_FONT_SIZE) size = std::max(size, st.fontSize);
+  return 1.5 * size;
 }
 
 // How far effects draw past the node's box (shadows, layer blur).
@@ -269,7 +298,7 @@ Document::Derived& Document::derive(Guid id) const {
   }
   // The render bounds: the box, grown by the outside part of visible strokes.
   Rect box = transformedBounds(d.world, p.size.x, p.size.y);
-  double grow = (outerStroke(p) + effectsOutset(p)) * std::sqrt(std::fabs(d.world.determinant()));
+  double grow = (outerStroke(p) + effectsOutset(p) + textPathReach(p)) * std::sqrt(std::fabs(d.world.determinant()));
   d.bounds = {box.x - grow, box.y - grow, box.w + 2 * grow, box.h + 2 * grow};
   // The page's spatial index (pages and the document aren't in one).
   bool indexed = page != kNoGuid && p.type != NodeType::DOCUMENT && p.type != NodeType::CANVAS;

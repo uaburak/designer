@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "geometry/Boolean.h"
+#include "geometry/Repeat.h"
 #include "geometry/Shapes.h"
 #include "scene/Document.h"
 #include "text/TextLayout.h"
@@ -45,9 +46,10 @@ geom::Path textPath(const text::TextLayout& L) {
     const text::GlyphOutline& o = g.font->outline(g.glyph);
     Vec2 last{1e300, 1e300};
     bool open = false;
+    const Mat2x3 G = text::glyphMatrix(g);
     for (size_t c = 0; c < o.curveCount(); c++) {
       const float* q = &o.curves[c * 6];
-      auto at = [&](float x, float y) { return Vec2{g.x + x * g.size, g.y + y * g.size}; };
+      auto at = [&](float x, float y) { return G.apply({x, y}); };
       Vec2 p0 = at(q[0], q[1]), p1 = at(q[2], q[3]), p2 = at(q[4], q[5]);
       if (!(p0 == last)) {
         if (open) path.close();
@@ -94,16 +96,17 @@ uint64_t GeometryCache::inputKey(const Document& doc, Guid id, const NodeProps& 
     h.d(p.shape().vectorData.normalizedSize.x), h.d(p.shape().vectorData.normalizedSize.y);
     for (auto& st : p.shape().vectorData.styleOverrideTable) h.pod(st.styleID), h.pod(st.strokeCap), h.pod(st.mask), h.d(st.cornerRadius);
   }
-  if (p.type == NodeType::TEXT && text_) {
-    const text::TextLayout* L = text_(id);
+  if ((p.type == NodeType::TEXT && text_) || (p.type == NodeType::TEXT_PATH && pathText_)) {
+    const text::TextLayout* L = p.type == NodeType::TEXT ? text_(id) : pathText_(id);
     h.pod(L);
     if (L) {
       h.pod(L->glyphs.size());
-      for (auto& g : L->glyphs) h.pod(g.glyph), h.pod(g.x), h.pod(g.y), h.pod(g.size), h.pod(g.font);
+      for (auto& g : L->glyphs) h.pod(g.glyph), h.pod(g.x), h.pod(g.y), h.pod(g.size), h.pod(g.font), h.pod(g.rotation);
     }
   }
   if (p.isBoolean() || p.isGroupLike()) {
     h.pod(p.shape().booleanOperation);
+    if (auto tm = p.extra.find("transformModifiers"); tm != p.extra.end()) h.bytes(tm->second.data(), tm->second.size());
     if (depth < kMaxDepth)
       for (Guid c : doc.children(id)) {
         const Node* n = doc.get(c);
@@ -168,6 +171,11 @@ void GeometryCache::build(const Document& doc, Guid id, const NodeProps& p, Node
       if (text_)
         if (const text::TextLayout* L = text_(id)) closedShape(textPath(*L));
       break;
+    case NodeType::TEXT_PATH:
+      // Its placed glyphs (the path itself is never painted).
+      if (pathText_)
+        if (const text::TextLayout* L = pathText_(id)) closedShape(textPath(*L));
+      break;
     case NodeType::BOOLEAN_OPERATION: {
       std::vector<Operand> ops;
       // An operand: a child's fill regions in this node's space (groups contribute their children's union).
@@ -176,6 +184,13 @@ void GeometryCache::build(const Document& doc, Guid id, const NodeProps& p, Node
         if (!n || !n->props.visible || d > kMaxDepth) return;
         Mat2x3 cm = m * n->props.transform;
         if (n->props.isGroupLike()) {
+          // A transform group: its children once per instance (docs/draw.md §4.2).
+          const geom::RepeatResult* rep = n->props.type == NodeType::TRANSFORM ? repeatOf(doc, c) : nullptr;
+          if (rep) {
+            for (const Mat2x3& inst : rep->instances)
+              for (Guid k : doc.children(c)) collect(k, cm * inst, acc, d + 1);
+            return;
+          }
           for (Guid k : doc.children(c)) collect(k, cm, acc, d + 1);
           return;
         }

@@ -28,6 +28,7 @@ struct StoredGlyph {
   float fontSize = 12;
   uint32_t firstCharacter = 0;
   float advance = 0;  // em
+  float rotation = 0;  // radians clockwise (Glyph.rotation: a glyph on a text path)
 };
 struct StoredLine {
   float x = 0, baseline = 0, width = 0, top = 0, height = 0, ascent = 0;

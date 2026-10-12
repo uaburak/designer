@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "geometry/Repeat.h"
 #include "scene/Extras.h"
 
 namespace eng {
@@ -22,6 +23,7 @@ void RenderTree::add(const Document& doc, Guid id, uint32_t parent, int depth) {
   nodes_.push_back(r);
   index_[id] = i;
   notePatterns(id, n);
+  hasRepeats_ |= n->props.type == NodeType::TRANSFORM;
   const std::vector<Guid>& kids = doc.children(id);
   nodes_[i].hasChildren = !kids.empty();
   for (Guid c : kids) add(doc, c, i, depth + 1);
@@ -38,6 +40,7 @@ void RenderTree::addTo(std::vector<RenderNode>& out, const Document& doc, Guid i
   r.parent = parent;
   out.push_back(r);
   notePatterns(id, n);
+  hasRepeats_ |= n->props.type == NodeType::TRANSFORM;
   size_t at = out.size() - 1;
   const std::vector<Guid>& kids = doc.children(id);
   out[at].hasChildren = !kids.empty();
@@ -62,7 +65,7 @@ void RenderTree::bound(const Document& doc, uint32_t i) {
   for (uint32_t c = i + 1; c < r.end && !r.backdropInside; c = nodes_[c].end) r.backdropInside = nodes_[c].backdropInside;
   Rect own = doc.renderBounds(r.id);
   Rect ink;
-  if (p.type == NodeType::TEXT && ink_ && ink_(r.id, ink) && ink.w > 0 && ink.h > 0) own = own.united(transformedBounds(doc.worldTransform(r.id) * Mat2x3::translate(ink.x, ink.y), ink.w, ink.h));
+  if (p.isTextLike() && ink_ && ink_(r.id, ink) && ink.w > 0 && ink.h > 0) own = own.united(transformedBounds(doc.worldTransform(r.id) * Mat2x3::translate(ink.x, ink.y), ink.w, ink.h));
   bool group = p.fitsChildren() && !p.isBoolean();
   if (!group && !(p.isFrameLike() && !p.clipsContent())) {
     r.visual = own;
@@ -80,6 +83,14 @@ void RenderTree::bound(const Document& doc, uint32_t i) {
       r.visual = own;
       return;
     }
+    // A transform group (docs/draw.md §4.2): its children drawn once per instance — each copy of their bounds.
+    if (p.type == NodeType::TRANSFORM)
+      if (const geom::RepeatResult* rep = repeatOf(doc, r.id); rep && rep->instances.size() > 1) {
+        Mat2x3 W = doc.worldTransform(r.id), Wi = W.inverse();
+        Rect all = u;
+        for (const Mat2x3& inst : rep->instances) all = all.united(transformedBounds(W * inst * Wi * Mat2x3::translate(u.x, u.y), u.w, u.h));
+        u = all;
+      }
     Rect box = doc.worldBounds(r.id);
     double g = std::max({box.x - own.x, own.right() - box.right(), box.y - own.y, own.bottom() - box.bottom(), 0.0});
     u = {u.x - g, u.y - g, u.w + 2 * g, u.h + 2 * g};
@@ -116,6 +127,7 @@ void RenderTree::build(const Document& doc) {
   nodes_.clear();
   index_.clear();
   patternSources_.clear();
+  hasRepeats_ = false;
   version_ = doc.version();
   if (page_ != kNoGuid)
     for (Guid c : doc.children(page_)) add(doc, c, kNoParent, 0);
@@ -225,6 +237,25 @@ void RenderTree::damagePatternUsers(const Document& doc) {
   }
 }
 
+void RenderTree::damageRepeats(const Document& doc) {
+  // A change inside a transform group shows in every copy: the whole group's bounds (docs/draw.md §4.2).
+  if (!hasRepeats_) return;
+  std::unordered_set<Guid, GuidHash> hit;
+  auto climb = [&](Guid id) {
+    for (int d = 0; id != kNoGuid && d < 512; d++, id = doc.parentOf(id)) {
+      const Node* n = doc.get(id);
+      if (!n || n->props.type == NodeType::CANVAS) return;
+      if (n->props.type == NodeType::TRANSFORM) hit.insert(id);
+    }
+  };
+  for (const Document::ChangeRecord& c : changes_) {
+    climb(doc.parentOf(c.id));
+    if (c.parentBefore != kNoGuid) climb(c.parentBefore);
+  }
+  for (Guid g : hit)
+    if (auto it = index_.find(g); it != index_.end()) damage(nodes_[it->second].visual);
+}
+
 void RenderTree::damage(const Rect& r) {
   if (damage_.all || r.w < 0 || r.h < 0) return;
   if (damage_.rects.size() >= 512) {
@@ -274,6 +305,7 @@ bool RenderTree::sync(const Document& doc, Guid page) {
     build(doc);
     for (const Document::ChangeRecord& k : changes_)
       if (auto it = index_.find(k.id); it != index_.end()) damage(nodes_[it->second].visual);
+    damageRepeats(doc);
     return true;
   }
   // Two passes: every changed subtree out, then each back in where the document puts it now. Taking them all out
@@ -311,6 +343,7 @@ bool RenderTree::sync(const Document& doc, Guid page) {
       if (marks_[j] == 2) damage(nodes_[j].visual);
   }
   damagePatternUsers(doc);
+  damageRepeats(doc);
   version_ = doc.version();
   return false;
 }

@@ -213,6 +213,7 @@ std::shared_ptr<const StoredText> storedFromLayout(const TextLayout& L) {
     sg.fontSize = g.size;
     sg.firstCharacter = g.cluster;
     sg.advance = g.size > 0 ? g.advance / g.size : 0;
+    sg.rotation = g.rotation;
     s.glyphs.push_back(sg);
   }
   for (const Decoration& d : L.decorations)
@@ -275,11 +276,14 @@ std::unique_ptr<TextLayout> layoutFromStored(const std::shared_ptr<const StoredT
     out.advance = g.advance * g.fontSize;
     out.cluster = g.firstCharacter;
     out.style = styleIndex(g.styleID);
+    out.rotation = g.rotation;
     if (g.outline) {
       const GlyphOutline& o = font->outline(g.outline);
       if (!o.empty()) {
         Rect r{out.x + o.bounds[0] * out.size, out.y + o.bounds[1] * out.size, (o.bounds[2] - o.bounds[0]) * out.size,
                (o.bounds[3] - o.bounds[1]) * out.size};
+        if (out.rotation != 0)
+          r = transformedBounds(glyphMatrix(out) * Mat2x3::translate(o.bounds[0], o.bounds[1]), o.bounds[2] - o.bounds[0], o.bounds[3] - o.bounds[1]);
         L.inkBounds = anyInk ? L.inkBounds.united(r) : r;
         anyInk = true;
       }
@@ -412,6 +416,7 @@ bool readStoredText(std::string_view fields, const std::vector<Bytes>& blobs, St
               case 4: ok = getF(bb, sg.fontSize); break;
               case 5: ok = bb.readVarUint(sg.firstCharacter); break;
               case 6: ok = getF(bb, sg.advance); break;
+              case 9: ok = getF(bb, sg.rotation); break;
               default: ok = skipField(bb, "Glyph", g);
             }
             if (!ok) return false;
@@ -537,6 +542,7 @@ void writeStoredText(schema::Out& o, const StoredText& s, codec::BlobsOut& blobs
     o.varuint(4), o.varfloat(g.fontSize);
     o.varuint(5), o.varuint(g.firstCharacter);
     o.varuint(6), o.varfloat(g.advance);
+    if (g.rotation != 0) o.varuint(9), o.varfloat(g.rotation);
     o.byte(0);
   }
   if (!s.decorations.empty()) {

@@ -7,6 +7,7 @@
 // boxes, ENDING truncation with "…", underline and strikethrough.
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -48,7 +49,15 @@ struct LaidGlyph {
   uint32_t cluster = 0;   // the first UTF-16 unit of its cluster
   uint16_t style = 0;     // index into TextLayout::styles
   bool marker = false;    // a list's bullet or number (not a character of the text)
+  float rotation = 0;     // radians, clockwise about its origin: a glyph on a text path (TEXT_PATH; Glyph.rotation)
 };
+
+// A glyph's em space → node space: scaled by its size, turned by its rotation, at its origin.
+inline Mat2x3 glyphMatrix(const LaidGlyph& g) {
+  if (g.rotation == 0) return Mat2x3{g.size, 0, g.x, 0, g.size, g.y};
+  double c = std::cos(g.rotation), s = std::sin(g.rotation);
+  return Mat2x3{c * g.size, -s * g.size, g.x, s * g.size, c * g.size, g.y};
+}
 
 struct LaidLine {
   double top = 0, height = 0;  // node space
@@ -80,6 +89,8 @@ struct LinkBox {
   uint32_t id = 0;              // 1-based, one per link run (hyperlinkID)
 };
 
+struct TextPathMap;
+
 struct TextLayout {
   std::u16string text;  // the characters, UTF-16 (before textCase)
   std::vector<ResolvedStyle> styles;
@@ -101,6 +112,9 @@ struct TextLayout {
   std::vector<double> caretXs;
   // Made from stored derived data (derivedTextData) instead of shaping: what it was made from (text/DerivedText).
   std::shared_ptr<const StoredText> stored;
+  // A text on a path (TEXT_PATH, text/TextPathLayout.h): how the one line's straight coordinates (caretXs, lines,
+  // selectionRects) map onto the path. Glyphs are already placed on it.
+  std::shared_ptr<const TextPathMap> path;
 
   // Caret geometry: the x of the caret before UTF-16 unit `index` on `line`.
   double caretX(uint32_t index, size_t line) const;

@@ -23,10 +23,15 @@ bool hitsOwnShape(const NodeProps& p, Vec2 local, double slop, bool topLevel, bo
 // by their geometry — inside a fill under its winding rule, or near the stroke's centre line.
 bool hitsNode(const Document& doc, Guid id, Vec2 local, double slop, bool topLevel);
 
+// Whether `local` (node space) is within `slop` of the node's outline — its stroke's centre line or its fill's edge:
+// the Text on path tool's target (Figma Draw, docs/draw.md §4.4: the edge of a shape, a vector or a brush stroke).
+bool hitsEdge(const Document& doc, Guid id, Vec2 local, double slop);
+
 // The ids from the page's direct child down to the innermost visible node under
 // `world`. Hidden nodes and what's in them are skipped; children outside a
 // clipping frame don't count; groups are hit only through their children; the
 // path stops before the first locked node. `pixel` is one CSS px in world units.
+// A transform group's copies hit too: a hit on copy k is a hit on the layer it repeats (docs/draw.md §4.2).
 std::vector<Guid> hitPath(const Document& doc, Guid page, Vec2 world, double pixel);
 
 // Every layer under `world`, topmost first, each as its path from the page's

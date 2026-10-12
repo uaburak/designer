@@ -66,6 +66,7 @@ add_library(eng_core STATIC
   src/text/Unicode.cpp
   src/text/Fonts.cpp
   src/text/TextLayout.cpp
+  src/text/TextPathLayout.cpp
   src/text/DerivedText.cpp
   src/text/TextEdit.cpp
   src/text/TextFeatures.cpp
@@ -82,6 +83,8 @@ add_library(eng_core STATIC
   src/geometry/Stroker.cpp
   src/geometry/Boolean.cpp
   src/geometry/Brush.cpp
+  src/geometry/DynamicStroke.cpp
+  src/geometry/Repeat.cpp
   src/geometry/VariableWidth.cpp
   src/geometry/PlanarFaces.cpp
   src/geometry/NodeGeometry.cpp
@@ -181,6 +184,7 @@ else()
     tests/unit/text.parity.test.cpp
     tests/unit/text.features.test.cpp
     tests/unit/render.brush.test.cpp
+    tests/unit/r7.draw.test.cpp
     tests/unit/export.test.cpp
     tests/unit/prototype.test.cpp
     tests/unit/prototype.video.test.cpp

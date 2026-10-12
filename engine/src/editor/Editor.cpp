@@ -72,7 +72,10 @@ const char* cursorName(CursorKind k) {
   return kNames[static_cast<size_t>(k)];
 }
 
-Editor::Editor() = default;
+Editor::Editor() {
+  // Figma Draw's text on a path: its geometry (Flatten, hit-testing, strokes) is its placed glyphs (docs/draw.md §4.4).
+  doc_.geometryCache().setTextPathSource([this](Guid id) { return textLayout(id); });
+}
 
 // ---- Transactions -----------------------------------------------------------
 
@@ -198,7 +201,7 @@ void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
   if (c.phase != Phase::CHANGED) textCache_.erase(c.guid);
   else if (typeBefore == NodeType::TEXT) {
     if (mask & ~kTextLayoutInert) textCache_.erase(c.guid);
-  } else if (mask & (kTextLayoutFields | F_SIZE | F_FILLS | F_TYPE | F_EXTRA)) {
+  } else if (mask & (kTextLayoutFields | F_SIZE | F_FILLS | F_TYPE | F_EXTRA | F_VECTOR_DATA)) {
     textCache_.erase(c.guid);
   }
   if (c.phase != Phase::CHANGED || (mask & (kTextLayoutFields | F_FILLS | F_TYPE | F_EXTRA))) measured_.erase(c.guid);
@@ -378,6 +381,8 @@ void Editor::markLayout(const NodeChange& c, Guid parentBefore) {
     if (const Node* parent = doc_.get(p.parentIndex.guid); parent && parent->props.stack().stackMode == StackMode::GRID) markParent(p.parentIndex.guid);
   }
   if (p.isFrameLike() && (m & F_SIZE)) layoutDirty_.insert(c.guid);  // its children's constraints
+  // A transform group's modifiers decide its box (docs/draw.md §4.2: the bounds of its instances, a system write).
+  if (p.type == NodeType::TRANSFORM && (m & (F_EXTRA | F_TYPE))) layoutDirty_.insert(c.guid);
   if (m & (F_MIN_SIZE | F_MAX_SIZE)) layoutDirty_.insert(c.guid);   // its own size may break a new limit
   if (p.type == NodeType::TEXT && p.text().textAutoResize != TextAutoResize::NONE &&
       ((m & (kTextLayoutFields | F_SIZE | F_TYPE)) || ((m & F_EXTRA) && text::changesTextLayout(c.props.extra))))
@@ -1122,7 +1127,7 @@ void Editor::encodeDerivedFields(Guid id, std::string& fields, codec::BlobsOut& 
   const Node* n = doc_.get(id);
   if (!n) return;
   schema::Out o;
-  if (n->props.type == NodeType::TEXT) {
+  if (n->props.isTextLike()) {  // TEXT, and a text on a path (its glyphs placed and turned: Glyph.rotation)
     std::shared_ptr<const text::StoredText> s;
     Guid page = doc_.pageOf(id);
     if (derivedPages_.count(page) || !storedText_.count(id)) {

@@ -33,7 +33,7 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
   double scale = levelScale(m);
   float em = 0;
   for (const text::LaidGlyph& g : L->glyphs) em = std::max(em, g.size);
-  if (!L->glyphs.empty() && em * scale < kGlyphMinEmPx && !exporting_) {
+  if (!L->glyphs.empty() && em * scale < kGlyphMinEmPx && !exporting_ && !L->path) {
     stats_.greeked++;
     const text::LaidGlyph& first = L->glyphs.front();
     const auto* fills = L->styles[first.style].fills;
@@ -91,7 +91,7 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
           if (!shaderAt(g, f)) continue;
           const CurveEntry* e = curves_.glyph(g.font, g.glyph);
           if (!e) continue;
-          Mat2x3 em{g.size, 0, g.x, 0, g.size, g.y};
+          Mat2x3 em = text::glyphMatrix(g);
           Mat2x3 gm = m * em;
           DrawInstance q{};
           q.linear[0] = static_cast<float>(gm.m00);
@@ -121,7 +121,7 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
       const CurveEntry* e = curves_.glyph(g.font, g.glyph);
       if (!e) continue;
       // em → node space: scale by the font size, then to the glyph's origin.
-      Mat2x3 em{g.size, 0, g.x, 0, g.size, g.y};
+      Mat2x3 em = text::glyphMatrix(g);
       DrawInstance q{};
       Mat2x3 gm = m * em;
       q.linear[0] = static_cast<float>(gm.m00);
@@ -180,7 +180,7 @@ void Renderer::drawGlyphs(const text::TextLayout& L, const Mat2x3& m, const Colo
   for (const text::LaidGlyph& g : L.glyphs) {
     const CurveEntry* e = curves_.glyph(g.font, g.glyph);
     if (!e) continue;
-    Mat2x3 gm = m * Mat2x3{g.size, 0, g.x, 0, g.size, g.y};
+    Mat2x3 gm = m * text::glyphMatrix(g);
     DrawInstance q{};
     q.linear[0] = static_cast<float>(gm.m00);
     q.linear[1] = static_cast<float>(gm.m10);

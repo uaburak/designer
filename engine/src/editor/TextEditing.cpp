@@ -16,6 +16,7 @@
 #include "scene/CodecJson.h"
 #include "scene/CodecKiwi.h"
 #include "text/TextEdit.h"
+#include "text/TextPathLayout.h"
 #include "text/Unicode.h"
 
 namespace eng {
@@ -35,6 +36,20 @@ text::LineInfo paragraphLine(const TextData& t, const std::u16string& str, uint3
 
 const text::TextLayout* Editor::textLayout(Guid id) {
   const Node* n = doc_.get(id);
+  if (n && n->props.type == NodeType::TEXT_PATH) {
+    // Text on a path (docs/draw.md §4.4): laid along its own network; the cache's box is its size (the path scales).
+    text::LayoutOptions o;
+    o.width = n->props.size.x;
+    o.height = n->props.size.y;
+    uint32_t generation = text::FontRegistry::get().generation();
+    CachedText& c = textCache_[id];
+    if (!(c.layout && c.width == o.width && c.height == o.height && c.generation == generation))
+      keepTextLayout(id, c, text::layoutTextPath(n->props, doc_.geometryCache().network(n->props.shape().vectorData)), o, generation);
+    // Its fonts not in: what the file stored (derivedTextData), as TEXT.
+    if ((c.layout->pendingFont || c.layout->missingFont) && !storedText_.empty())
+      if (const text::TextLayout* stored = storedLayout(id, n->props, *c.layout)) return stored;
+    return c.layout.get();
+  }
   if (!n || n->props.type != NodeType::TEXT) return nullptr;
   text::LayoutOptions o = text::optionsFor(n->props);
   uint32_t generation = text::FontRegistry::get().generation();

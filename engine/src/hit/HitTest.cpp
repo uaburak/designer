@@ -3,9 +3,14 @@
 #include <algorithm>
 #include <cmath>
 
+#include "geometry/Brush.h"
+#include "geometry/DynamicStroke.h"
+#include "geometry/Repeat.h"
 #include "geometry/Shapes.h"
 #include "geometry/Stroker.h"
 #include "geometry/VariableWidth.h"
+#include "text/TextLayout.h"
+#include "text/TextPathLayout.h"
 
 namespace eng {
 
@@ -78,6 +83,38 @@ bool hitsNode(const Document& doc, Guid id, Vec2 local, double slop, bool topLev
   const NodeProps& p = n->props;
   // A slice is hit on its edge only (it paints nothing; the layers under it stay clickable — unverified live).
   if (p.type == NodeType::SLICE) return std::fabs(shapeDistance(p, local)) <= slop;
+  // A text on a path (Figma Draw): its glyphs' turned boxes (their advance, ascent to descent), not its box.
+  if (p.type == NodeType::TEXT_PATH) {
+    const text::TextLayout* L = doc.geometryCache().textPathLayout(id);
+    if (!L || L->lines.empty()) return false;
+    double asc = L->lines[0].ascent, desc = L->lines[0].descent;
+    for (const text::LaidGlyph& g : L->glyphs) {
+      Mat2x3 G = Mat2x3::translate(g.x, g.y) * Mat2x3::rotate(g.rotation);
+      Vec2 q = G.inverse().apply(local);
+      if (q.x >= -slop && q.x <= g.advance + slop && q.y >= -asc - slop && q.y <= desc + slop) return true;
+    }
+    return false;
+  }
+  // Figma Draw's brush and dynamic strokes (docs/draw.md §4.3, §4.5): within the outline they are drawn as.
+  if (!p.extra.empty() && anyVisible(p.strokePaints) && p.strokeWeight > 0 &&
+      (strokeBrushOf(p) != kNoGuid || p.extra.count("dynamicStrokeSettings"))) {
+    if (const NodeGeometry* g = doc.geometry(id); g && !g->stroke.path.empty()) {
+      double tol = std::max(slop / 8, 1e-4);
+      geom::Path outline;
+      if (brushStroke(doc, p, *g, tol, outline)) {
+        std::vector<geom::Polyline> polys = geom::flatten(outline, tol);
+        if (geom::contains(polys, local, false) || geom::distanceTo(polys, local) <= slop) return true;
+      } else if (geom::Path center; dynamicCenter(p, *g, tol, center)) {
+        double half = p.strokeAlign == StrokeAlign::CENTER ? p.strokeWeight / 2 : p.strokeWeight;
+        if (geom::distanceTo(geom::flatten(center, tol), local) <= std::max(half, slop)) return true;
+      }
+      // The fill still takes clicks (below); the plain centre line no longer does.
+      if (anyVisible(p.fillPaints))
+        for (auto& f : g->fills)
+          if (!f.path.empty() && geom::contains(geom::flatten(f.path, tol), local, f.windingRule == WindingRule::ODD)) return true;
+      return false;
+    }
+  }
   // A variable-width stroke (round 12): hit within its outline.
   bool variable = !p.extra.empty() && anyVisible(p.strokePaints) && p.strokeWeight > 0 && hasWidthPoints(p) && widthProfileAllowed(p);
   if (!p.isPathShape() && !variable) return hitsOwnShape(p, local, slop, topLevel);
@@ -115,7 +152,90 @@ bool hitsNode(const Document& doc, Guid id, Vec2 local, double slop, bool topLev
   return geom::distanceTo(geom::flatten(g->stroke.path, tol), local) <= std::max(half, slop);
 }
 
+bool hitsEdge(const Document& doc, Guid id, Vec2 local, double slop) {
+  const NodeGeometry* g = doc.geometry(id);
+  if (!g) return false;
+  double tol = std::max(slop / 8, 1e-4);
+  if (!g->stroke.path.empty() && geom::distanceTo(geom::flatten(g->stroke.path, tol), local) <= slop) return true;
+  for (auto& f : g->fills)
+    if (!f.path.empty() && geom::distanceTo(geom::flatten(f.path, tol), local) <= slop) return true;
+  return false;
+}
+
 namespace {
+
+// A layer inside a transform group, hit at one of the group's copies (docs/draw.md §4.2): the innermost visible layer
+// of `id`'s subtree under `world`, where `world` is already mapped back to copy 0 — kNoGuid when none.
+Guid hitSubtree(const Document& doc, Guid id, Vec2 world, double pixel, int depth);
+
+Guid hitTransformCopies(const Document& doc, Guid group, Vec2 world, double pixel, int depth, bool skipSource) {
+  const geom::RepeatResult* rep = repeatOf(doc, group);
+  const std::vector<Guid>& kids = doc.children(group);
+  Mat2x3 W = doc.worldTransform(group), Wi = W.inverse();
+  size_t n = rep ? rep->instances.size() : 1;
+  // What the children can cover (their render bounds, group space, grown by the slop): copies the point is outside of
+  // are skipped without a look at their layers.
+  Rect cover;
+  bool any = false;
+  for (Guid c : kids) {
+    const Node* cn = doc.get(c);
+    if (!cn || !cn->props.visible) continue;
+    Rect b = transformedBounds(Wi * Mat2x3::translate(doc.renderBounds(c).x, doc.renderBounds(c).y), doc.renderBounds(c).w,
+                               doc.renderBounds(c).h);
+    cover = any ? cover.united(b) : b;
+    any = true;
+  }
+  if (!any) return kNoGuid;
+  double unit = std::sqrt(std::fabs(W.determinant()));
+  double slop = (unit > 0 ? pixel / unit : pixel) * kHitSlopCss;
+  cover = {cover.x - slop, cover.y - slop, cover.w + 2 * slop, cover.h + 2 * slop};
+  Vec2 local = Wi.apply(world);
+  // Topmost copy first.
+  for (size_t k = n; k-- > 0;) {
+    const Mat2x3 inst = rep ? rep->instances[k] : Mat2x3{};
+    bool identity = inst == Mat2x3{};
+    if (identity && skipSource) continue;
+    Vec2 q = inst.inverse().apply(local);
+    if (!cover.contains(q)) continue;
+    Vec2 back = W.apply(q);
+    for (size_t c = kids.size(); c-- > 0;) {
+      Guid hit = hitSubtree(doc, kids[c], back, pixel, depth + 1);
+      if (hit != kNoGuid) return hit;
+    }
+  }
+  return kNoGuid;
+}
+
+Guid hitSubtree(const Document& doc, Guid id, Vec2 world, double pixel, int depth) {
+  const Node* n = doc.get(id);
+  if (!n || !n->props.visible || depth > 64) return kNoGuid;
+  const NodeProps& p = n->props;
+  if (p.type == NodeType::TRANSFORM) return hitTransformCopies(doc, id, world, pixel, depth, false);
+  Mat2x3 m = doc.worldTransform(id);
+  double unit = std::sqrt(std::fabs(m.determinant()));
+  double slop = (unit > 0 ? pixel / unit : pixel) * kHitSlopCss;
+  Vec2 local = m.inverse().apply(world);
+  if (p.fitsChildren()) {
+    if (p.isBoolean()) {
+      const NodeGeometry* g = doc.geometry(id);
+      bool inside = false;
+      if (g)
+        for (auto& f : g->fills) inside |= geom::contains(geom::flatten(f.path, slop / 8), local, false);
+      if (!inside) return kNoGuid;
+    }
+    const std::vector<Guid>& kids = doc.children(id);
+    for (size_t c = kids.size(); c-- > 0;)
+      if (Guid hit = hitSubtree(doc, kids[c], world, pixel, depth + 1); hit != kNoGuid) return hit;
+    return kNoGuid;
+  }
+  bool clips = p.clipsContent();
+  if (!clips || hitsOwnShape(p, local, slop, true, true)) {
+    const std::vector<Guid>& kids = doc.children(id);
+    for (size_t c = kids.size(); c-- > 0;)
+      if (Guid hit = hitSubtree(doc, kids[c], world, pixel, depth + 1); hit != kNoGuid) return hit;
+  }
+  return hitsNode(doc, id, local, slop, false) ? id : kNoGuid;
+}
 
 // Calls f(path) for each node hit at `world`, topmost first; stops when f returns false.
 template <typename F>
@@ -130,10 +250,24 @@ void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f,
     return true;
   });
   std::sort(candidates.begin(), candidates.end(), [&](Guid a, Guid b) { return doc.paintsBefore(b, a); });
+  auto truncateLocked = [&](std::vector<Guid>& path) {
+    for (size_t i = 0; i < path.size() && !includeLocked; i++) {
+      const Node* pn = doc.get(path[i]);
+      if (pn && pn->props.locked) {
+        path.resize(i);
+        break;
+      }
+    }
+  };
   for (Guid id : candidates) {
     const Node* n = doc.get(id);
+    if (!n || !doc.visibleInTree(id)) continue;
+    // A transform group (Figma Draw) is hit here, all its copies at once, each mapped back to the layers it repeats;
+    // its layers aren't hit on their own (the outermost group stands for everything inside it).
+    if (repeatAncestor(doc, id) != kNoGuid) continue;
+    bool transform = n->props.type == NodeType::TRANSFORM;
     // Groups and boolean operations are hit through their children.
-    if (!n || n->props.fitsChildren() || !doc.visibleInTree(id)) continue;
+    if (n->props.fitsChildren() && !transform) continue;
     bool clipped = false;
     for (Guid a = n->props.parentIndex.guid; a != kNoGuid && !clipped;) {
       const Node* an = doc.get(a);
@@ -158,6 +292,15 @@ void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f,
       a = an->props.parentIndex.guid;
     }
     if (clipped) continue;
+    if (transform) {
+      Guid hit = hitTransformCopies(doc, id, world, pixel, 0, false);
+      if (hit == kNoGuid) continue;
+      std::vector<Guid> path = doc.pathFromPage(hit);
+      truncateLocked(path);
+      if (path.empty()) continue;
+      if (!f(std::move(path))) return;
+      continue;
+    }
     Mat2x3 m = doc.worldTransform(id);
     double unit = std::sqrt(std::fabs(m.determinant()));
     double slop = (unit > 0 ? pixel / unit : pixel) * kHitSlopCss;
@@ -166,13 +309,7 @@ void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f,
     bool topLevel = n->props.parentIndex.guid == page || (parent && parent->props.type == NodeType::SECTION);
     if (!hitsNode(doc, id, m.inverse().apply(world), slop, topLevel)) continue;
     std::vector<Guid> path = doc.pathFromPage(id);
-    for (size_t i = 0; i < path.size() && !includeLocked; i++) {
-      const Node* pn = doc.get(path[i]);
-      if (pn && pn->props.locked) {
-        path.resize(i);
-        break;
-      }
-    }
+    truncateLocked(path);
     // A locked top-level layer: the click goes through it to what is under it (round 8: locked layers take no clicks).
     if (path.empty()) continue;
     if (!f(std::move(path))) return;
