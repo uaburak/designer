@@ -79,7 +79,16 @@ export class RequestD1 implements D1Like {
   };
 
   /** Runs these reads now, in one round trip; the code's identical reads then take their rows */
-  async prefetch(queries: Query[]): Promise<void> {
+  async prefetch(all: Query[]): Promise<void> {
+    // Reads prefetched already (and not dropped by a write since) aren't sent again: a route that prefetches a page's
+    // reads together (org/pages.ts) makes the helpers' own prefetches free
+    const seen = new Set<string>();
+    const queries = all.filter((q) => {
+      const k = keyOf(q.sql, q.args);
+      if (this.ready.has(k) || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
     if (!queries.length || !this.base.batch) return;
     const results = (await this.base.batch(queries.map((q) => this.base.prepare(q.sql).bind(...q.args)))) as { results?: unknown[] }[];
     queries.forEach((q, i) => this.ready.set(keyOf(q.sql, q.args), results[i]?.results ?? []));

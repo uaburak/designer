@@ -67,6 +67,8 @@ export async function loadOrgPage(org: OrgBackend, orgId: string, loc: Location,
       return { kind: "teams", teams: browse, groups };
     }
     case "team": {
+      // One request (`GET /teams/:id/page`), answered from the store's cache at once when it has the page
+      if (org.teams.page) return { kind: "team", ...(await org.teams.page(loc.teamId)) };
       const team = await org.teams.get(loc.teamId);
       const [folders, members, requests] = await Promise.all([
         quiet(org.projects.list(team.id, null), []),
@@ -76,6 +78,7 @@ export async function loadOrgPage(org: OrgBackend, orgId: string, loc: Location,
       return { kind: "team", team, folders, members, requests };
     }
     case "project": {
+      if (org.projects.page) return { kind: "project", ...(await org.projects.page(loc.projectId)) };
       const project = await org.projects.get(loc.projectId);
       const [team, folders, files, members] = await Promise.all([
         quiet(org.teams.get(project.teamId), null),

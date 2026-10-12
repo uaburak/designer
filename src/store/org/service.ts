@@ -3,10 +3,14 @@
  * server's routes (§14.12), a cache per org for offline reads, and org files as linked room copies.
  *
  * - **Cache.** One JSON per org (`Workspace/spaces/<orgId>.json` on the desktop, `designer.devStore.v1.space.<orgId>` in
- *   the browser), holding the last lists of teams, folders, files, drafts, people and groups — keyed by the signed-in
- *   person, so another account never sees them. A read answers from it at once and refreshes behind (an event when the
- *   answer changed); with nothing cached it waits for the server. Offline, the cache answers (`cache.stale`,
- *   offline: true) and writes fail with `offline`.
+ *   the browser), holding the last lists of teams, folders, files, drafts, members, join requests, people and groups —
+ *   keyed by the signed-in person, so another account never sees them. Stale-while-revalidate: a read answers from it
+ *   at once and refreshes behind (an event when the answer changed); with nothing cached it waits for the server (one
+ *   request per Home page: `teams.page`, `projects.page` over `GET /teams/:id/page`, `/projects/:id/page`). A write
+ *   patches what it knows into the cache (the server's answer, or the moved / removed entries), marks the org's
+ *   entries stale (the next read answers at once and refreshes) and announces itself; an answer to a read started
+ *   before a write isn't stored over it. Offline, the cache answers (`cache.stale`, offline: true) and writes fail with
+ *   `offline`.
  * - **Events** (topic `org`) come from the person's Inbox socket (`{t: "org", …}` notices, §14.11): the entries named
  *   are refreshed first, then the event goes out. Writes made here announce themselves the same way. No polling.
  * - **Files.** An org file's local copy is a shared file's (§5), its `FileMeta.space` set: `multiplayer.openShared(key)`
@@ -22,7 +26,8 @@ import { StoreError } from "../../shared/store/protocol";
 import { ICON_MAX_BYTES, ICON_URL, bytesToDataUrl, iconMime } from "../../shared/org/icons";
 import type { Unsubscribe } from "../../shared/store/repositories";
 import type { FileKey, FileMeta, FileSpace } from "../../shared/store/types";
-import type { MultiplayerService } from "../multiplayer/service";
+import { isGovernanceCode, type MultiplayerService } from "../multiplayer/service";
+import type { OrgGate } from "../../shared/org/governance";
 import type { OrgNotice } from "../notifications/service";
 
 /** What the store gives the service. */
@@ -69,6 +74,11 @@ export interface OrgCache {
   files: Record<string, O.OrgFile[]>;
   people: { people: O.PersonRef[]; groups: O.GroupRef[] } | null;
   groups: O.UserGroup[] | null;
+  /** Team people and join requests by team id, folder people by folder id (Home's pages; caches saved before
+   *  2026-10-12 have none: read as empty) */
+  teamMembers: Record<string, O.TeamMember[]>;
+  requests: Record<string, O.JoinRequest[]>;
+  projectMembers: Record<string, O.ProjectMember[]>;
 }
 
 const DRAFTS = "@drafts";
@@ -79,6 +89,16 @@ const clone = <T>(v: T): T => (v === undefined ? v : (JSON.parse(JSON.stringify(
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 /** An org's list entry from its info: the same fields `GET /orgs` sends, Governance+'s gate and a guest's expiry included
  *  (docs/governance.md §2.5, §2.13) — reading the org must not drop them from the list Home reads */
+/** A team's list entry from its info (the fields `GET /orgs/:id/teams` sends) */
+const summaryOfTeam = (t: O.TeamInfo): O.TeamSummary => {
+  const { description: _d, ownerId: _o, createdAt: _c, deletedAt: _x, ...summary } = clone(t);
+  return summary;
+};
+/** A folder's list entry from its info */
+const summaryOfProject = (p: O.ProjectInfo): O.ProjectSummary => {
+  const { ownerId: _o, depth: _d, path: _p, createdAt: _c, ...summary } = clone(p);
+  return summary;
+};
 const summaryOf = (v: O.OrgInfo): O.OrgSummary => ({
   id: v.id,
   name: v.name,
@@ -97,6 +117,13 @@ const seg = (s: unknown, what: string): string => {
   return encodeURIComponent(s);
 };
 const isOffline = (e: unknown) => e instanceof StoreError && e.code === "offline";
+/** A server from before a route (its "not found" for an unknown path — a missing team or folder says which) */
+const routeMissing = (e: unknown) => e instanceof StoreError && e.code === "not-found" && e.message === "not found";
+/** The org a team or folder names (the server adds `orgId` beyond §14.13's shapes) */
+const orgOf = (v: object): string | null => {
+  const id = (v as { orgId?: unknown }).orgId;
+  return typeof id === "string" && id ? id : null;
+};
 const pick = <T>(body: unknown, ...keys: string[]): T => {
   if (body && typeof body === "object") for (const k of keys) if (k in body) return (body as Record<string, unknown>)[k] as T;
   return body as T;
@@ -141,6 +168,10 @@ export class OrgService {
   private workspaceOrg = new Map<string, string>();
   private billingOrg = new Map<string, string>();
   private inflight = new Map<string, Promise<void>>();
+  /** Reads with nothing cached, by key: concurrent ones (a hover's prefetch, then the click) share one request */
+  private loading = new Map<string, Promise<unknown>>();
+  /** Writes per org: an answer to a read started before the latest write isn't stored over the write's patch */
+  private writes = new Map<string, number>();
   private freshAt = new Map<string, number>();
   private saving = new Map<string, Promise<void>>();
   private offs: Unsubscribe[] = [];
@@ -194,6 +225,8 @@ export class OrgService {
     this.loaded = null;
     this.loadedFor = undefined;
     this.inflight.clear();
+    this.loading.clear();
+    this.writes.clear();
     this.freshAt.clear();
     this.teamOrg.clear();
     this.projectTeam.clear();
@@ -258,7 +291,7 @@ export class OrgService {
   /** Resolves when every cache write so far is done (tests) */
   async idle(): Promise<void> {
     for (let i = 0; i < 3; i++) {
-      await Promise.all([...this.inflight.values()]).catch(() => {});
+      await Promise.all([...this.inflight.values(), ...this.loading.values()].map((p) => p.catch(() => {})));
       await Promise.all([...this.saving.values()]);
     }
   }
@@ -276,6 +309,8 @@ export class OrgService {
     event: OrgEvent | null;
     /** Learns where things are from the answer; returns its org when the answer says */
     place?: (v: T) => string | null | void;
+    /** The other reads this answer holds (a page's parts: `team:<id>`, `members:<id>`…) — fresh with it */
+    parts?: (v: T) => string[];
   }): Promise<T> {
     this.requireSession();
     await this.ensureLoaded();
@@ -286,16 +321,36 @@ export class OrgService {
       if ((this.freshAt.get(spec.key) ?? -Infinity) + FRESH_MS < this.host.now()) void this.refresh(spec).catch(() => {});
       return clone(hit);
     }
-    const v = await spec.fetch();
-    this.store(spec, v);
-    return clone(v);
+    let p = this.loading.get(spec.key) as Promise<T> | undefined;
+    if (!p) {
+      const gen = this.writeGen(orgId);
+      p = spec.fetch().then((v) => {
+        this.store(spec, v, gen);
+        return v;
+      });
+      this.loading.set(spec.key, p);
+      const done = () => {
+        if (this.loading.get(spec.key) === p) this.loading.delete(spec.key);
+      };
+      p.then(done, done);
+    }
+    return clone(await p);
   }
 
-  private store<T>(spec: { key: string; orgId: string | null; set: (c: OrgCache, v: T) => void; place?: (v: T) => string | null | void }, v: T): boolean {
+  private writeGen(orgId: string | null): number {
+    return orgId ? (this.writes.get(orgId) ?? 0) : 0;
+  }
+
+  /** `gen`: the org's write count when the read began — a write since then wins over this (older) answer */
+  private store<T>(spec: { key: string; orgId: string | null; set: (c: OrgCache, v: T) => void; place?: (v: T) => string | null | void; parts?: (v: T) => string[] }, v: T, gen?: number): boolean {
     const placed = spec.place?.(v) ?? null;
     const orgId = spec.orgId ?? placed;
+    if (gen !== undefined && spec.orgId && this.writeGen(spec.orgId) !== gen) return false;
     this.freshAt.set(spec.key, this.host.now());
     if (!orgId) return false;
+    // Read before its org was known (the key's org part empty): fresh under the org's key too, which the next read uses
+    if (!spec.orgId && spec.key.startsWith("|")) this.freshAt.set(`${orgId}${spec.key}`, this.host.now());
+    for (const part of (v && spec.parts?.(v)) || []) this.freshAt.set(`${orgId}|${part}`, this.host.now());
     const c = this.cacheOf(orgId);
     const before = JSON.stringify(c);
     spec.set(c, clone(v));
@@ -305,13 +360,15 @@ export class OrgService {
   }
 
   /** Asks the server again; an event when the answer changed, `cache.stale` when the server can't be reached */
-  private refresh<T>(spec: { key: string; orgId: string | null; get: (c: OrgCache) => T | undefined; set: (c: OrgCache, v: T) => void; fetch: () => Promise<T>; event: OrgEvent | null; place?: (v: T) => string | null | void }): Promise<void> {
+  private refresh<T>(spec: { key: string; orgId: string | null; get: (c: OrgCache) => T | undefined; set: (c: OrgCache, v: T) => void; fetch: () => Promise<T>; event: OrgEvent | null; place?: (v: T) => string | null | void; parts?: (v: T) => string[] }): Promise<void> {
     const running = this.inflight.get(spec.key);
     if (running) return running;
-    const p = (async () => {
+    const gen = this.writeGen(spec.orgId);
+    let p: Promise<void> | undefined = undefined;
+    p = (async () => {
       try {
         const v = await spec.fetch();
-        if (this.store(spec, v) && spec.event) this.emit(spec.event);
+        if (this.store(spec, v, gen) && spec.event) this.emit(spec.event);
       } catch (e) {
         if (isOffline(e) && spec.orgId) this.emit({ type: "cache.stale", orgId: spec.orgId, offline: true });
         else if (e instanceof StoreError && (e.code === "not-found" || e.code === "forbidden") && spec.orgId) {
@@ -322,22 +379,35 @@ export class OrgService {
             void this.save(spec.orgId);
             if (spec.event) this.emit(spec.event);
           }
+          // A Governance+ gate met by a refresh behind a cached page (a team's or folder's route: the refusal itself
+          // can't say whose org it is): said for this org, so Home shows the gate rather than the stale page
+          const detail = e.detail as { code?: unknown; gate?: unknown } | undefined;
+          if (e.code === "forbidden" && isGovernanceCode(detail?.code) && detail.gate && typeof detail.gate === "object") {
+            this.emit({ type: "access.blocked", orgId: spec.orgId, code: detail.code, gate: detail.gate as OrgGate });
+          }
         } else this.host.log("warn", `org: refreshing ${spec.key} failed`, e);
       } finally {
-        this.inflight.delete(spec.key);
+        if (this.inflight.get(spec.key) === p) this.inflight.delete(spec.key);
       }
     })();
     this.inflight.set(spec.key, p);
     return p;
   }
 
-  /** A change made here or told by the Inbox: the cached entries dropped (the next read asks the server) */
-  private drop(orgId: string | null | undefined, change: (c: OrgCache) => void): void {
+  /**
+   * A change made here or told by the Inbox: `change` patches the cache with what is known (entries it deletes are
+   * read from the server next time), and every entry of the org is stale — the next read answers from the cache at
+   * once and refreshes behind. Reads on their way since before are not stored over it.
+   */
+  private drop(orgId: string | null | undefined, change: (c: OrgCache) => void = () => {}): void {
     if (!orgId) return;
+    this.writes.set(orgId, this.writeGen(orgId) + 1);
+    for (const k of [...this.freshAt.keys()]) if (k.startsWith(`${orgId}|`)) this.freshAt.delete(k);
+    for (const k of [...this.inflight.keys()]) if (k.startsWith(`${orgId}|`)) this.inflight.delete(k);
+    for (const k of [...this.loading.keys()]) if (k.startsWith(`${orgId}|`)) this.loading.delete(k);
     const c = this.caches.get(orgId);
     if (!c) return;
     change(c);
-    for (const k of [...this.freshAt.keys()]) if (k.startsWith(`${orgId}|`)) this.freshAt.delete(k);
     void this.save(orgId);
   }
 
@@ -433,10 +503,8 @@ export class OrgService {
         const teamId = typeof n.teamId === "string" ? n.teamId : null;
         if (!teamId) return;
         const org = orgId ?? this.teamOrg.get(teamId) ?? null;
-        this.drop(org, (x) => {
-          delete x.team[teamId];
-          x.teams = {};
-        });
+        // Kept, stale: Home shows the team at once and reads it again behind (gone: dropped then)
+        this.drop(org);
         this.emit({ type: "team.updated", teamId });
         if (org) this.emit({ type: "teams.changed", orgId: org });
         return;
@@ -446,10 +514,7 @@ export class OrgService {
         if (!teamId) return;
         const parentId = typeof n.parentId === "string" ? n.parentId : null;
         const org = orgId ?? this.teamOrg.get(teamId) ?? null;
-        this.drop(org, (x) => {
-          for (const k of Object.keys(x.projects)) if (k.startsWith(`${teamId}/`)) delete x.projects[k];
-          for (const [id, p] of Object.entries(x.project)) if (p.teamId === teamId) delete x.project[id];
-        });
+        this.drop(org);
         if (org) await refreshed(() => this.refresh({ ...this.projectListSpec(org, teamId, parentId), event: null }));
         this.emit({ type: "projects.changed", teamId, parentId });
         return;
@@ -587,6 +652,163 @@ export class OrgService {
       },
       fetch: async () => pick<O.OrgFile[]>(await this.call("GET", `/orgs/${seg(orgId, "org")}/drafts`), "files"),
       event: { type: "files.changed", orgId, projectId: null } as OrgEvent,
+    };
+  }
+
+  private teamMembersSpec(orgId: string | null, teamId: string) {
+    return {
+      key: `${orgId ?? ""}|members:${teamId}`,
+      orgId,
+      get: (c: OrgCache) => c.teamMembers[teamId],
+      set: (c: OrgCache, v: O.TeamMember[]) => {
+        if (v) c.teamMembers[teamId] = v;
+        else delete c.teamMembers[teamId];
+      },
+      fetch: async () => pick<O.TeamMember[]>(await this.call("GET", `/teams/${seg(teamId, "team")}/members`), "members"),
+      event: { type: "team.updated", teamId } as OrgEvent,
+    };
+  }
+
+  private requestsSpec(orgId: string | null, teamId: string) {
+    return {
+      key: `${orgId ?? ""}|requests:${teamId}`,
+      orgId,
+      get: (c: OrgCache) => c.requests[teamId],
+      set: (c: OrgCache, v: O.JoinRequest[]) => {
+        if (v) c.requests[teamId] = v;
+        else delete c.requests[teamId];
+      },
+      fetch: async () => pick<O.JoinRequest[]>(await this.call("GET", `/teams/${seg(teamId, "team")}/requests`), "requests"),
+      event: { type: "team.updated", teamId } as OrgEvent,
+    };
+  }
+
+  private projectMembersSpec(orgId: string | null, projectId: string) {
+    const team = this.projectTeam.get(projectId);
+    return {
+      key: `${orgId ?? ""}|pmembers:${projectId}`,
+      orgId,
+      get: (c: OrgCache) => c.projectMembers[projectId],
+      set: (c: OrgCache, v: O.ProjectMember[]) => {
+        if (v) c.projectMembers[projectId] = v;
+        else delete c.projectMembers[projectId];
+      },
+      fetch: async () => pick<O.ProjectMember[]>(await this.call("GET", `/projects/${seg(projectId, "folder")}/members`), "members"),
+      event: team ? ({ type: "projects.changed", teamId: team, parentId: projectId } as OrgEvent) : null,
+    };
+  }
+
+  /** Home's team page: the team, its top-level folders, members and join requests — cached as those four entries */
+  private teamPageSpec(orgId: string | null, teamId: string) {
+    const top = `${teamId}/`;
+    const path = `/teams/${seg(teamId, "team")}`;
+    return {
+      key: `${orgId ?? ""}|teampage:${teamId}`,
+      orgId,
+      get: (c: OrgCache): O.TeamPage | undefined => {
+        const [team, folders, members, requests] = [c.team[teamId], c.projects[top], c.teamMembers[teamId], c.requests[teamId]];
+        return team && folders && members && requests ? { team, folders, members, requests } : undefined;
+      },
+      set: (c: OrgCache, v: O.TeamPage) => {
+        if (!v) {
+          delete c.team[teamId];
+          delete c.projects[top];
+          delete c.teamMembers[teamId];
+          delete c.requests[teamId];
+          return;
+        }
+        c.team[teamId] = v.team;
+        c.projects[top] = v.folders;
+        c.teamMembers[teamId] = v.members;
+        c.requests[teamId] = v.requests;
+      },
+      fetch: async (): Promise<O.TeamPage> => {
+        let page: O.TeamPage | null = null;
+        try {
+          const r = await this.call<Partial<O.TeamPage>>("GET", `${path}/page`);
+          if (r?.team) page = { team: r.team, folders: r.folders ?? [], members: r.members ?? [], requests: r.requests ?? [] };
+        } catch (e) {
+          if (!routeMissing(e)) throw e;
+        }
+        if (!page) {
+          // A server from before the page routes: the parts one by one, as Home read them (a refused part empty)
+          const team = pick<O.TeamInfo>(await this.call("GET", path), "team");
+          const quiet = <T>(p: Promise<T>, none: T) => p.catch(() => none);
+          const [folders, members, requests] = await Promise.all([
+            quiet(this.call("GET", `${path}/projects`).then((b) => pick<O.ProjectSummary[]>(b, "projects")), []),
+            quiet(this.call("GET", `${path}/members`).then((b) => pick<O.TeamMember[]>(b, "members")), []),
+            team.me?.admin || team.me?.owner ? quiet(this.call("GET", `${path}/requests`).then((b) => pick<O.JoinRequest[]>(b, "requests")), []) : Promise.resolve([]),
+          ]);
+          page = { team, folders, members, requests };
+        }
+        const org = orgOf(page.team) ?? orgId;
+        if (org) this.teamOrg.set(page.team.id, org);
+        for (const p of page.folders) this.learnProject(p, org);
+        return page;
+      },
+      event: { type: "team.updated", teamId } as OrgEvent,
+      place: (v: O.TeamPage) => (v ? (orgOf(v.team) ?? this.teamOrg.get(v.team.id) ?? null) : null),
+      parts: () => [`team:${teamId}`, `projects:${top}`, `members:${teamId}`, `requests:${teamId}`],
+    };
+  }
+
+  /** Home's folder page: the folder, its team, subfolders, files and members — cached as those entries */
+  private projectPageSpec(orgId: string | null, projectId: string) {
+    const path = `/projects/${seg(projectId, "folder")}`;
+    const team = this.projectTeam.get(projectId);
+    return {
+      key: `${orgId ?? ""}|projectpage:${projectId}`,
+      orgId,
+      get: (c: OrgCache): O.ProjectPage | undefined => {
+        const project = c.project[projectId];
+        if (!project) return undefined;
+        const [folders, files, members] = [c.projects[`${project.teamId}/${projectId}`], c.files[projectId], c.projectMembers[projectId]];
+        return folders && files && members ? { project, team: c.team[project.teamId] ?? null, folders, files, members } : undefined;
+      },
+      set: (c: OrgCache, v: O.ProjectPage) => {
+        const teamId = v?.project.teamId ?? c.project[projectId]?.teamId;
+        if (!v) {
+          delete c.project[projectId];
+          if (teamId) delete c.projects[`${teamId}/${projectId}`];
+          delete c.files[projectId];
+          delete c.projectMembers[projectId];
+          return;
+        }
+        c.project[projectId] = v.project;
+        if (v.team) c.team[v.team.id] = v.team;
+        c.projects[`${v.project.teamId}/${projectId}`] = v.folders;
+        c.files[projectId] = v.files.map((f) => ({ ...f, fileKey: null }));
+        c.projectMembers[projectId] = v.members;
+      },
+      fetch: async (): Promise<O.ProjectPage> => {
+        let page: O.ProjectPage | null = null;
+        try {
+          const r = await this.call<Partial<O.ProjectPage>>("GET", `${path}/page`);
+          if (r?.project) page = { project: r.project, team: r.team ?? null, folders: r.folders ?? [], files: r.files ?? [], members: r.members ?? [] };
+        } catch (e) {
+          if (!routeMissing(e)) throw e;
+        }
+        if (!page) {
+          // A server from before the page routes: the parts one by one, as Home read them
+          const project = pick<O.ProjectInfo>(await this.call("GET", path), "project");
+          const quiet = <T>(p: Promise<T>, none: T) => p.catch(() => none);
+          const teamPath = `/teams/${seg(project.teamId, "team")}`;
+          const [team, folders, files, members] = await Promise.all([
+            quiet(this.call("GET", teamPath).then((b) => pick<O.TeamInfo>(b, "team")), null),
+            quiet(this.call("GET", `${teamPath}/projects${query({ parent: project.id })}`).then((b) => pick<O.ProjectSummary[]>(b, "projects")), []),
+            this.call("GET", `${path}/files`).then((b) => pick<O.OrgFile[]>(b, "files")),
+            quiet(this.call("GET", `${path}/members`).then((b) => pick<O.ProjectMember[]>(b, "members")), []),
+          ]);
+          page = { project, team, folders, files, members };
+        }
+        const org = orgOf(page.project) ?? (page.team ? orgOf(page.team) : null) ?? this.teamOrg.get(page.project.teamId) ?? orgId;
+        this.learnProject(page.project, org);
+        for (const p of page.folders) this.learnProject(p, org);
+        return page;
+      },
+      event: (team ? { type: "projects.changed", teamId: team, parentId: projectId } : orgId ? { type: "files.changed", orgId, projectId } : null) as OrgEvent | null,
+      place: (v: O.ProjectPage) => (v ? (orgOf(v.project) ?? this.teamOrg.get(v.project.teamId) ?? null) : null),
+      parts: (v: O.ProjectPage) => [`project:${projectId}`, `projects:${v.project.teamId}/${projectId}`, `files:${projectId}`, `pmembers:${projectId}`, ...(v.team ? [`team:${v.team.id}`] : [])],
     };
   }
 
@@ -823,16 +1045,39 @@ export class OrgService {
 
   private teamsRepository(): TeamsRepository {
     const teamPath = (teamId: unknown) => `/teams/${seg(teamId, "team")}`;
-    const changed = async (teamId: string, orgId?: string | null) => {
-      const org = orgId ?? this.teamOrg.get(teamId) ?? null;
+    /** A team changed: what the server answered goes into the cache (the team, its list entries; `null`: it's gone
+     *  for the person), the rest is stale — read at once next time, refreshed behind */
+    const changed = async (teamId: string, orgId?: string | null, patch?: { team?: O.TeamInfo | null; members?: O.TeamMember[]; requests?: O.JoinRequest[]; left?: boolean }) => {
+      const org = orgId ?? (patch?.team ? orgOf(patch.team) : null) ?? this.teamOrg.get(teamId) ?? null;
       this.drop(org, (c) => {
-        delete c.team[teamId];
-        c.teams = {};
+        if (patch?.team === null) {
+          delete c.team[teamId];
+          for (const f of ["mine", "browse"] as const) if (c.teams[f]) c.teams[f] = c.teams[f]!.filter((t) => t.id !== teamId);
+        } else if (patch?.team) {
+          const t = patch.team;
+          c.team[teamId] = clone(t);
+          for (const f of ["mine", "browse"] as const) {
+            const list = c.teams[f];
+            if (!list) continue;
+            const i = list.findIndex((x) => x.id === teamId);
+            const summary = summaryOfTeam(t);
+            if (i >= 0) list[i] = summary;
+            else if (f === "mine" && t.me) c.teams[f] = [...list, summary].sort((a, b) => a.name.localeCompare(b.name));
+          }
+        }
+        // Left: out of the person's teams (still in Browse when visible)
+        if (patch?.left && c.teams.mine) c.teams.mine = c.teams.mine.filter((t) => t.id !== teamId);
+        if (patch?.members) c.teamMembers[teamId] = clone(patch.members);
+        if (patch?.requests) c.requests[teamId] = clone(patch.requests);
       });
       this.emit({ type: "team.updated", teamId });
       if (org) this.emit({ type: "teams.changed", orgId: org });
     };
     const members = (body: unknown) => pick<O.TeamMember[]>(body, "members");
+    const orgOfTeamId = async (teamId: string) => {
+      await this.ensureLoaded();
+      return this.teamOrg.get(teamId) ?? null;
+    };
     return {
       list: (orgId, filter) => this.read(this.teamListSpec(String(orgId), filter === "browse" ? "browse" : "mine")),
       get: async (teamId) => {
@@ -848,59 +1093,61 @@ export class OrgService {
           },
           fetch: async () => pick<O.TeamInfo>(await this.call("GET", teamPath(id)), "team"),
           event: { type: "team.updated", teamId: id },
+          place: (v) => (v ? orgOf(v) : null),
         });
       },
+      page: async (teamId) => this.read(this.teamPageSpec(await orgOfTeamId(String(teamId)), String(teamId))),
       create: async (orgId, input) => {
         const id = String(orgId);
         const team = pick<O.TeamInfo>(await this.call("POST", `/orgs/${seg(id, "org")}/teams`, { name: cleanName(input?.name, null, "team"), ...(input?.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}) }), "team");
         this.teamOrg.set(team.id, id);
-        await changed(team.id, id);
+        await changed(team.id, id, { team });
         return team;
       },
       update: async (teamId, patch) => {
         const team = pick<O.TeamInfo>(await this.call("PATCH", teamPath(teamId), patch ?? {}), "team");
-        await changed(String(teamId));
+        await changed(String(teamId), null, { team });
         return team;
       },
       setIcon: async (teamId, image) => {
         const team = pick<O.TeamInfo>(await this.call("PUT", `${teamPath(teamId)}/icon`, iconBytes(image)), "team");
-        await changed(String(teamId));
+        await changed(String(teamId), null, { team });
         return team;
       },
       removeIcon: async (teamId) => {
         const team = pick<O.TeamInfo>(await this.call("DELETE", `${teamPath(teamId)}/icon`), "team");
-        await changed(String(teamId));
+        await changed(String(teamId), null, { team });
         return team;
       },
       remove: async (teamId) => {
         await this.call("DELETE", teamPath(teamId));
-        await changed(String(teamId));
+        await changed(String(teamId), null, { team: null });
       },
       restore: async (teamId) => {
         const team = pick<O.TeamInfo>(await this.call("POST", `${teamPath(teamId)}/restore`), "team");
-        await changed(String(teamId));
+        await changed(String(teamId), null, { team });
         return team;
       },
       transfer: async (teamId, userId) => {
         const team = pick<O.TeamInfo>(await this.call("POST", `${teamPath(teamId)}/transfer`, { userId: String(userId) }), "team");
-        await changed(String(teamId));
+        await changed(String(teamId), null, { team });
         return team;
       },
-      members: async (teamId) => members(await this.call("GET", `${teamPath(teamId)}/members`)),
+      members: async (teamId) => this.read(this.teamMembersSpec(await orgOfTeamId(String(teamId)), String(teamId))),
       invite: async (teamId, input) => {
         if (input?.role !== "editor" && input?.role !== "viewer") throw new StoreError("invalid", "bad role");
         const r = await members(await this.call("PUT", `${teamPath(teamId)}/members`, { ...(input.email ? { email: String(input.email) } : { groupId: String(input.groupId ?? "") }), role: input.role, ...(input.admin === true ? { admin: true } : {}) }));
-        await changed(String(teamId));
+        await changed(String(teamId), null, { members: r });
         return r;
       },
       setMember: async (teamId, principal, patch) => {
         const r = await members(await this.call("PATCH", `${teamPath(teamId)}/members/${seg(principal, "member")}`, { ...(patch?.role ? { role: patch.role } : {}), ...(typeof patch?.admin === "boolean" ? { admin: patch.admin } : {}) }));
-        await changed(String(teamId));
+        await changed(String(teamId), null, { members: r });
         return r;
       },
       removeMember: async (teamId, principal) => {
         const r = await members(await this.call("DELETE", `${teamPath(teamId)}/members/${seg(principal, "member")}`));
-        await changed(String(teamId));
+        await changed(String(teamId), null, { members: r });
         return r;
       },
       join: async (teamId) => {
@@ -912,12 +1159,12 @@ export class OrgService {
         const uid = this.mp.userId;
         if (!uid) throw new StoreError("offline", "Log in to leave a team");
         await this.call("DELETE", `${teamPath(teamId)}/members/${seg(`u:${uid}`, "member")}`);
-        await changed(String(teamId));
+        await changed(String(teamId), null, { left: true });
       },
-      requests: async (teamId) => pick<O.JoinRequest[]>(await this.call("GET", `${teamPath(teamId)}/requests`), "requests"),
+      requests: async (teamId) => this.read(this.requestsSpec(await orgOfTeamId(String(teamId)), String(teamId))),
       answerRequest: async (teamId, userId, approve) => {
         const r = pick<O.JoinRequest[]>(await this.call("POST", `${teamPath(teamId)}/requests/${seg(userId, "person")}`, { approve: approve === true }), "requests");
-        if (approve === true) await changed(String(teamId));
+        await changed(String(teamId), null, { requests: r });
         return r;
       },
     };
@@ -929,47 +1176,78 @@ export class OrgService {
 
   private projectsRepository(): ProjectsRepository {
     const projectPath = (id: unknown) => `/projects/${seg(id, "folder")}`;
-    /** A team's folders changed: every level of it dropped */
-    const foldersChanged = async (teamId: string, parentId: string | null, projectId?: string) => {
+    /**
+     * A folder changed: the server's answer (`info`) replaces it in the cache and in the list it now sits in; `gone`
+     * (trashed, deleted) takes it out. Everything else of the org (counts, paths below a moved folder) is stale.
+     */
+    const foldersChanged = async (teamId: string, parentId: string | null, projectId?: string, change?: { info?: O.ProjectInfo; gone?: boolean }) => {
       const org = this.teamOrg.get(teamId) ?? null;
       this.drop(org, (c) => {
-        for (const k of Object.keys(c.projects)) if (k.startsWith(`${teamId}/`)) delete c.projects[k];
-        if (projectId) delete c.project[projectId];
-        delete c.team[teamId];
-        c.teams = {};
+        if (!projectId || (!change?.info && !change?.gone)) return;
+        for (const [k, list] of Object.entries(c.projects)) c.projects[k] = list.filter((x) => x.id !== projectId);
+        if (change.gone) {
+          delete c.project[projectId];
+          return;
+        }
+        const info = change.info!;
+        c.project[projectId] = clone(info);
+        const k = `${info.teamId}/${info.parentId ?? ""}`;
+        if (c.projects[k]) c.projects[k] = [...c.projects[k], summaryOfProject(info)].sort((a, b) => a.name.localeCompare(b.name));
       });
       this.emit({ type: "projects.changed", teamId, parentId });
     };
-    /** Files moved, trashed or restored: the lists holding them (and the destination) dropped */
-    const filesChanged = async (keys: string[], to?: string | null) => {
+    /**
+     * Files moved or trashed: out of the lists holding them, into the destination's list when it is cached (`to`:
+     * a folder, null the mover's drafts); `added`: a new file into its folder's list. Restored files: their lists are
+     * read again (`refetch`: where they go back isn't known here).
+     */
+    const filesChanged = async (keys: string[], to?: string | null, opts: { added?: O.OrgFile; refetch?: boolean } = {}) => {
       const touched = new Map<string, Set<string | null>>();
       const add = (orgId: string, projectId: string | null) => {
         let s = touched.get(orgId);
         if (!s) touched.set(orgId, (s = new Set()));
         s.add(projectId);
       };
+      const moved = new Map<string, O.OrgFile[]>();
       for (const c of this.caches.values())
         for (const [k, list] of Object.entries(c.files))
           if (list.some((f) => keys.includes(f.key))) {
             add(c.orgId, k === DRAFTS ? null : k);
             if (to !== undefined) add(c.orgId, to);
+            if (!opts.refetch) {
+              moved.set(c.orgId, [...(moved.get(c.orgId) ?? []), ...list.filter((f) => keys.includes(f.key))]);
+              c.files[k] = list.filter((f) => !keys.includes(f.key));
+            }
           }
+      const destTeam = to ? (this.projectTeam.get(to) ?? null) : null;
       if (to) {
-        const team = this.projectTeam.get(to);
-        const org = team ? this.teamOrg.get(team) : undefined;
+        const org = destTeam ? this.teamOrg.get(destTeam) : undefined;
         if (org) add(org, to);
       }
+      if (opts.added) add(opts.added.orgId, opts.added.projectId);
       for (const [orgId, projects] of touched) {
         this.drop(orgId, (c) => {
-          for (const p of projects) delete c.files[p ?? DRAFTS];
-          // folder counts move too
-          c.projects = {};
-          c.project = {};
+          if (opts.refetch) for (const p of projects) delete c.files[p ?? DRAFTS];
+          const dest = to !== undefined ? c.files[to ?? DRAFTS] : undefined;
+          if (dest) for (const f of moved.get(orgId) ?? []) if (!dest.some((x) => x.key === f.key)) dest.unshift({ ...f, projectId: to ?? null, teamId: to ? destTeam : null });
+          const a = opts.added;
+          if (a && a.orgId === orgId) {
+            const list = c.files[a.projectId ?? DRAFTS];
+            if (list && !list.some((x) => x.key === a.key)) list.unshift({ ...a, fileKey: null });
+          }
         });
         for (const projectId of projects) this.emit({ type: "files.changed", orgId, projectId });
       }
     };
     const members = (body: unknown) => pick<O.ProjectMember[]>(body, "members");
+    /** A folder's people as the server answered a change to them (its subfolders' inherited ones are stale) */
+    const membersChanged = (projectId: string, list: O.ProjectMember[]): O.ProjectMember[] => {
+      const team = this.projectTeam.get(projectId);
+      const org = team ? (this.teamOrg.get(team) ?? null) : null;
+      this.drop(org, (c) => (c.projectMembers[projectId] = clone(list)));
+      if (team) this.emit({ type: "projects.changed", teamId: team, parentId: projectId });
+      return list;
+    };
     const project = (body: unknown) => {
       const p = pick<O.ProjectInfo>(body, "project");
       this.learnProject(p);
@@ -1008,48 +1286,60 @@ export class OrgService {
             ...(input?.access === "inherited" || input?.access === "limited" ? { access: input.access } : {}),
           }),
         );
-        await foldersChanged(t, p.parentId, p.id);
+        await foldersChanged(t, p.parentId, p.id, { info: p });
         return p;
       },
       update: async (projectId, patch) => {
         const p = project(await this.call("PATCH", projectPath(projectId), { ...(patch?.name !== undefined ? { name: cleanName(patch.name, null, "folder") } : {}), ...(patch?.access === "inherited" || patch?.access === "limited" ? { access: patch.access } : {}) }));
-        await foldersChanged(p.teamId, p.parentId, p.id);
+        await foldersChanged(p.teamId, p.parentId, p.id, { info: p });
         return p;
       },
       move: async (projectId, to) => {
         const from = await this.teamOfProject(String(projectId)).catch(() => null);
         const p = project(await this.call("POST", `${projectPath(projectId)}/move`, { teamId: String(to?.teamId ?? ""), parentId: typeof to?.parentId === "string" ? to.parentId : null }));
-        if (from && from !== p.teamId) await foldersChanged(from, null, p.id);
-        await foldersChanged(p.teamId, p.parentId, p.id);
+        if (from && from !== p.teamId) await foldersChanged(from, null, p.id, { info: p });
+        await foldersChanged(p.teamId, p.parentId, p.id, { info: p });
         return p;
       },
       trash: async (projectId) => {
         const id = String(projectId);
         const team = await this.teamOfProject(id).catch(() => null);
         await this.call("POST", `${projectPath(id)}/trash`);
-        if (team) await foldersChanged(team, null, id);
+        if (team) await foldersChanged(team, null, id, { gone: true });
       },
       restore: async (projectId) => {
         const p = project(await this.call("POST", `${projectPath(projectId)}/restore`));
-        await foldersChanged(p.teamId, p.parentId, p.id);
+        await foldersChanged(p.teamId, p.parentId, p.id, { info: p });
         return p;
       },
       deleteForever: async (projectId) => {
         const id = String(projectId);
         const team = this.projectTeam.get(id) ?? null;
         await this.call("DELETE", projectPath(id));
-        if (team) await foldersChanged(team, null, id);
+        if (team) await foldersChanged(team, null, id, { gone: true });
       },
-      members: async (projectId) => members(await this.call("GET", `${projectPath(projectId)}/members`)),
+      page: async (projectId) => {
+        const id = String(projectId);
+        await this.ensureLoaded();
+        const team = this.projectTeam.get(id);
+        const page = await this.read(this.projectPageSpec(team ? (this.teamOrg.get(team) ?? null) : null, id));
+        return { ...page, files: await this.withCopies(page.files) };
+      },
+      members: async (projectId) => {
+        const id = String(projectId);
+        await this.ensureLoaded();
+        const team = this.projectTeam.get(id);
+        return this.read(this.projectMembersSpec(team ? (this.teamOrg.get(team) ?? null) : null, id));
+      },
       invite: async (projectId, input) => {
         if (input?.role !== "editor" && input?.role !== "viewer") throw new StoreError("invalid", "bad role");
-        return members(await this.call("PUT", `${projectPath(projectId)}/members`, { ...(input.email ? { email: String(input.email) } : { groupId: String(input.groupId ?? "") }), role: input.role }));
+        return membersChanged(String(projectId), members(await this.call("PUT", `${projectPath(projectId)}/members`, { ...(input.email ? { email: String(input.email) } : { groupId: String(input.groupId ?? "") }), role: input.role })));
       },
       setMember: async (projectId, principal, role) => {
         if (role !== "editor" && role !== "viewer") throw new StoreError("invalid", "bad role");
-        return members(await this.call("PATCH", `${projectPath(projectId)}/members/${seg(principal, "member")}`, { role }));
+        return membersChanged(String(projectId), members(await this.call("PATCH", `${projectPath(projectId)}/members/${seg(principal, "member")}`, { role })));
       },
-      removeMember: async (projectId, principal) => members(await this.call("DELETE", `${projectPath(projectId)}/members/${seg(principal, "member")}`)),
+      removeMember: async (projectId, principal) => membersChanged(String(projectId), members(await this.call("DELETE", `${projectPath(projectId)}/members/${seg(principal, "member")}`))),
       files: async (projectId) => {
         const id = String(projectId);
         await this.ensureLoaded();
@@ -1061,7 +1351,7 @@ export class OrgService {
         const teamId = await this.teamOfProject(id);
         const orgId = await this.orgOfTeam(teamId);
         const r = await this.createOrgFile(input?.name, { orgId, teamId, projectId: id }, (key, name) => this.call("POST", `${projectPath(id)}/files`, { key, name, ...(input?.editorType ? { editorType: input.editorType } : {}) }));
-        await filesChanged([], id);
+        await filesChanged([], undefined, { added: { ...r.file, orgId, teamId, projectId: id } });
         return r;
       },
       moveFiles: async (keys, to) => {
@@ -1125,7 +1415,7 @@ export class OrgService {
       restoreFiles: async (keys) => {
         const list = Array.isArray(keys) ? keys.map(String) : [];
         for (const key of list) await this.call("POST", `/files/${seg(key, "file")}/restore`);
-        await filesChanged(list);
+        await filesChanged(list, undefined, { refetch: true });
         // A restored file's list wasn't cached while it was trashed: its team's lists go too.
         for (const c of this.caches.values()) this.drop(c.orgId, (x) => (x.files = {}));
       },
@@ -1291,5 +1581,5 @@ export class OrgService {
 }
 
 function emptyCache(orgId: string, uid: string | null, now: number): OrgCache {
-  return { v: 1, uid, orgId, savedAt: now, summary: null, info: null, teams: {}, team: {}, projects: {}, project: {}, files: {}, people: null, groups: null };
+  return { v: 1, uid, orgId, savedAt: now, summary: null, info: null, teams: {}, team: {}, projects: {}, project: {}, files: {}, people: null, groups: null, teamMembers: {}, requests: {}, projectMembers: {} };
 }

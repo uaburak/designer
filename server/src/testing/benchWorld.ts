@@ -199,6 +199,9 @@ export function benchRoutes(w: BenchWorld): { name: string; method: string; path
     { name: "GET /projects/:id", method: "GET", path: `/projects/${project}` },
     { name: "GET /projects/:id/files", method: "GET", path: `/projects/${project}/files` },
     { name: "GET /projects/:id/members", method: "GET", path: `/projects/${project}/members` },
+    // Home's pages in one request each (org/pages.ts): what the five routes above answer, together
+    { name: "GET /teams/:id/page", method: "GET", path: `/teams/${team}/page` },
+    { name: "GET /projects/:id/page", method: "GET", path: `/projects/${project}/page` },
     { name: "GET /files/:key", method: "GET", path: `/files/${w.fileKey}` },
     { name: "GET /files/:key/ws", method: "GET", path: `/files/${w.fileKey}/ws`, headers: { upgrade: "websocket" } },
     { name: "GET /files/:key/branches?tab=active", method: "GET", path: `/files/${w.fileKey}/branches?tab=active` },

@@ -27,6 +27,16 @@ describe("RequestD1", () => {
     expect(prepare).toHaveBeenCalledTimes(1);
   });
 
+  it("doesn't send again what is prefetched already (until a write)", async () => {
+    const { d1, batch } = await world();
+    await d1.prefetch([USER, USER]);
+    await d1.prefetch([USER]);
+    expect(batch).toHaveBeenCalledTimes(1);
+    await d1.prepare(`UPDATE users SET name = 'B' WHERE id = ?1`).bind("u1").run();
+    await d1.prefetch([USER]);
+    expect(batch).toHaveBeenCalledTimes(2);
+  });
+
   it("a write drops what was prefetched: reads after it see it", async () => {
     const { d1 } = await world();
     await d1.prefetch([USER]);

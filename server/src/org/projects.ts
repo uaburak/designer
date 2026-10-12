@@ -8,7 +8,7 @@ import type { GrantRole, OrgRole, Principal, ProjectInfo, ProjectMember, Project
 import { logActivity, projectEntity } from "../activity";
 import { normalizeEmail } from "../db";
 import { notifyOrg, orgNotice } from "../notifications";
-import { accessibleFiles, personRef, Q, readFirst, subtree, type Access, type ProjectRow, type TeamRow } from "./db";
+import { accessibleFiles, FOLDER_FILES, personRef, Q, readFirst, subtree, type Access, type ProjectRow, type TeamRow } from "./db";
 import { body, cleanName, EMAIL, HttpError, ID, json, noContent, randomId, type Ctx } from "./http";
 import { createOrgFile, inviteEmail } from "./orgs";
 import { reauth, subtreeFileKeys } from "./reauth";
@@ -33,7 +33,7 @@ export async function projectSummaries(acc: Access, rows: ProjectRow[]): Promise
   return out;
 }
 
-async function projectInfo(acc: Access, p: ProjectRow): Promise<ProjectInfo> {
+export async function projectInfo(acc: Access, p: ProjectRow): Promise<ProjectInfo> {
   const [summary] = await projectSummaries(acc, [p]);
   if (!summary) throw new HttpError(404, "no such folder");
   const chain = await acc.chain(p.id);
@@ -47,10 +47,8 @@ export async function projectsOfTeamRoute(ctx: Ctx, team: TeamRow): Promise<Resp
   if (team.deleted_at !== null) throw new HttpError(404, "this team was deleted");
   if (m === "GET") {
     const parent = ctx.url.searchParams.get("parent");
-    const { results } = await acc.d1
-      .prepare(`SELECT * FROM projects WHERE team_id = ?1 AND parent_id ${parent ? "= ?2" : "IS NULL"} AND trashed_at IS NULL ORDER BY name`)
-      .bind(team.id, ...(parent ? [parent] : []))
-      .all<ProjectRow>();
+    const q = Q.teamFolders(team.id, parent);
+    const { results } = await acc.d1.prepare(q.sql).bind(...q.args).all<ProjectRow>();
     return json({ projects: await projectSummaries(acc, results) });
   }
   if (m === "POST") {
@@ -194,9 +192,15 @@ export async function projectsRoute(ctx: Ctx): Promise<Response> {
       await tell();
       return json({ project: await projectInfo(acc, (await acc.project(p.id))!) });
     }
+    // Home's folder page in one request (docs/multiplayer.md §14.12 "Pages")
+    case "page": {
+      if (parts.length !== 3 || m !== "GET") break;
+      const { projectPage } = await import("./pages");
+      return json(await projectPage(ctx, p, team));
+    }
     case "files": {
       if (parts.length !== 3) break;
-      if (m === "GET") return json({ files: await accessibleFiles(acc, `f.project_id = ?1 AND f.trashed_at IS NULL`, [p.id]) });
+      if (m === "GET") return json({ files: await accessibleFiles(acc, FOLDER_FILES, [p.id]) });
       if (m === "POST") {
         notTrashed();
         const b = await body<{ key?: unknown; name?: unknown; editorType?: unknown }>(ctx.req);
@@ -259,7 +263,7 @@ export async function deleteFileForever(ctx: Ctx, key: string): Promise<void> {
   await deps.db.deleteFile(key);
 }
 
-async function projectMembers(ctx: Ctx, team: TeamRow, p: ProjectRow): Promise<ProjectMember[]> {
+export async function projectMembers(ctx: Ctx, team: TeamRow, p: ProjectRow): Promise<ProjectMember[]> {
   const d1 = ctx.acc.d1;
   const chain = await ctx.acc.chain(p.id);
   const out: ProjectMember[] = [];
@@ -271,12 +275,13 @@ async function projectMembers(ctx: Ctx, team: TeamRow, p: ProjectRow): Promise<P
   };
   for (const [i, folder] of chain.entries()) {
     const inherited = i > 0;
+    const q = Q.folderMemberRows(folder.id, team.org_id);
     const { results } = await d1
-      .prepare(`SELECT pm.email, pm.user_id, pm.role, u.name, u.picture, m.role AS org_role FROM project_members pm LEFT JOIN users u ON u.id = pm.user_id LEFT JOIN org_members m ON m.org_id = ?2 AND m.email = pm.email WHERE pm.project_id = ?1 ORDER BY pm.created_at`)
-      .bind(folder.id, team.org_id)
+      .prepare(q.sql)
+      .bind(...q.args)
       .all<{ email: string; user_id: string | null; role: GrantRole; name: string | null; picture: string | null; org_role: OrgRole | null }>();
     if (!inherited) {
-      const owner = await d1.prepare(`SELECT u.id, u.email, u.name, u.picture, m.role FROM users u LEFT JOIN org_members m ON m.org_id = ?2 AND m.user_id = u.id WHERE u.id = ?1`).bind(p.owner_id, team.org_id).first<{ id: string; email: string; name: string | null; picture: string | null; role: OrgRole | null }>();
+      const owner = await readFirst<{ id: string; email: string; name: string | null; picture: string | null; role: OrgRole | null }>(d1, Q.folderOwner(p.owner_id, team.org_id));
       if (owner) push({ principal: `u:${owner.id}`, person: personRef(owner), group: null, email: owner.email, role: "editor", owner: true, pending: false, guest: owner.role === "guest", inherited: false });
     }
     for (const r of results)

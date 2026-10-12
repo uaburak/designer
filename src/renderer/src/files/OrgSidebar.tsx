@@ -8,6 +8,7 @@ import type * as O from "@shared/org/types";
 import type { Location } from "./model";
 import { folderKey } from "./useOrgData";
 import { FolderGlyph, TeamIcon } from "./parts";
+import type { IntentHandlers, PrefetchTarget } from "./prefetch";
 import styles from "./Files.module.css";
 
 export interface OrgSidebarProps {
@@ -20,6 +21,8 @@ export interface OrgSidebarProps {
   go: (loc: Location) => void;
   onTeamMenu?: (e: React.MouseEvent, team: O.TeamSummary) => void;
   onFolderMenu?: (e: React.MouseEvent, folder: O.ProjectSummary) => void;
+  /** Prefetch on intent (prefetch.ts): a row the pointer rests on or the keyboard focuses reads its page ahead */
+  intent?: (target: PrefetchTarget) => IntentHandlers;
 }
 
 /** A row's fold: in the indent before a folder's glyph, at the row's end for a team (its icon sits at the left edge). */
@@ -42,7 +45,7 @@ function Disclosure({ depth, open, onToggle }: { depth: number; open: boolean; o
 }
 
 function FolderBranch({ teamId, parentId, depth, props }: { teamId: string; parentId: string | null; depth: number; props: OrgSidebarProps }) {
-  const { folders, expanded, onToggle, location, go, onFolderMenu } = props;
+  const { folders, expanded, onToggle, location, go, onFolderMenu, intent } = props;
   return (
     <>
       {(folders[folderKey(teamId, parentId)] ?? []).map((f) => {
@@ -50,7 +53,7 @@ function FolderBranch({ teamId, parentId, depth, props }: { teamId: string; pare
         const open = expanded.has(k);
         return (
           <div key={f.id} role="treeitem" aria-expanded={f.folderCount > 0 ? open : undefined} aria-level={depth}>
-            <div className={styles.treeRow}>
+            <div className={styles.treeRow} {...intent?.({ kind: "project", projectId: f.id })}>
               <SidebarItem icon={<FolderGlyph color="none" />} label={f.name} indent={depth - 1} selected={location.kind === "project" && location.projectId === f.id} onClick={() => go({ kind: "project", projectId: f.id })} onContextMenu={onFolderMenu ? (e) => onFolderMenu(e, f) : undefined} />
               {f.folderCount > 0 && <Disclosure depth={depth} open={open} onToggle={() => onToggle(k, teamId, f.id)} />}
             </div>
@@ -67,7 +70,7 @@ function FolderBranch({ teamId, parentId, depth, props }: { teamId: string; pare
 }
 
 export function OrgSidebar(props: OrgSidebarProps) {
-  const { info, teams, expanded, onToggle, location, go, onTeamMenu } = props;
+  const { info, teams, expanded, onToggle, location, go, onTeamMenu, intent } = props;
   const is = (kind: Location["kind"]) => location.kind === kind;
   return (
     <div className={styles.navGroup}>
@@ -79,7 +82,7 @@ export function OrgSidebar(props: OrgSidebarProps) {
           const open = expanded.has(k);
           return (
             <div key={t.id} role="treeitem" aria-expanded={t.projectCount > 0 ? open : undefined} aria-level={1}>
-              <div className={styles.treeRow}>
+              <div className={styles.treeRow} {...intent?.({ kind: "team", teamId: t.id })}>
                 <SidebarItem icon={<TeamIcon name={t.name} src={t.icon} iconUrl={t.iconUrl} />} label={t.name} indent={0} selected={location.kind === "team" && location.teamId === t.id} onClick={() => go({ kind: "team", teamId: t.id })} onContextMenu={onTeamMenu ? (e) => onTeamMenu(e, t) : undefined} />
                 {t.projectCount > 0 && <Disclosure depth={1} open={open} onToggle={() => onToggle(k, t.id, null)} />}
               </div>

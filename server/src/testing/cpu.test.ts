@@ -13,6 +13,10 @@ const WARM_BOUND_MS = 4;
 /** The D1 round trips a route may make (each costs the Worker CPU to send and decode; a prefetch batch is one) — was
  *  20–60 before requestD1.ts */
 const QUERY_BOUND = 12;
+/** Home's page routes (org/pages.ts) answer what four or five routes did (25–36 round trips between them) with their
+ *  reads prefetched together: 7–8 round trips today */
+const PAGE_QUERY_BOUND = 9;
+const PAGE_ROUTES = new Set(["GET /teams/:id/page", "GET /projects/:id/page"]);
 
 interface Sample {
   name: string;
@@ -74,10 +78,11 @@ for (const governance of [false, true]) {
       if (process.env.CPU_REPORT) {
         console.log(`\nGovernance+ ${governance ? "on" : "off"}\n` + samples.map((s) => `${s.name.padEnd(40)} ${String(s.status).padEnd(4)} js ${s.jsMs.toFixed(2).padStart(6)} ms  sqlite ${s.sqliteMs.toFixed(2).padStart(6)} ms  queries ${s.queries}`).join("\n"));
       }
+      expect(samples.filter((s) => PAGE_ROUTES.has(s.name))).toHaveLength(PAGE_ROUTES.size);
       for (const s of samples) {
         expect(s.status, s.name).toBeLessThan(400);
         expect(s.jsMs, `${s.name}: ${s.jsMs.toFixed(2)} ms of JS`).toBeLessThan(WARM_BOUND_MS);
-        expect(s.queries, `${s.name}: ${s.queries} queries`).toBeLessThanOrEqual(QUERY_BOUND);
+        expect(s.queries, `${s.name}: ${s.queries} queries`).toBeLessThanOrEqual(PAGE_ROUTES.has(s.name) ? PAGE_QUERY_BOUND : QUERY_BOUND);
       }
     });
   });

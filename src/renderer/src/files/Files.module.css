@@ -12,6 +12,10 @@
     letter-spacing: var(--ds-tracking-body-large);
   }
   .center { display: flex; align-items: center; justify-content: center; height: 100%; }
+  /* A page on its way (OrgMain): the spinner only after a moment — a page the store has cached arrives within a frame
+     or two, and shows without a flash */
+  .pending > * { animation: pendingShow var(--ds-duration-instant) linear var(--ds-duration-medium) both; }
+  @keyframes pendingShow { from { opacity: 0; } to { opacity: 1; } }
 
   /* --- Sidebar --- */
   .sidebar {

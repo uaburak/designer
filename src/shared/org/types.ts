@@ -121,6 +121,12 @@ export interface JoinRequest { userId: string; person: PersonRef; createdAt: num
 export interface ProjectSummary { id: string; teamId: string; parentId: string | null; name: string; access: InheritMode; fileCount: number; folderCount: number; updatedAt: number; trashedAt: number | null; me: Level | null }
 export interface ProjectInfo extends ProjectSummary { ownerId: string; depth: number; path: { id: string; name: string }[]; createdAt: number }
 export interface ProjectMember extends Omit<TeamMember, "admin"> { inherited: boolean /* from the team or a parent: can't be lowered here */ }
+/** Home's team page in one request (`GET /teams/:id/page`, docs/multiplayer.md §14.12 "Pages"): each part as its own
+ *  route answers it; a part that route would refuse is empty (requests: the team's admins only) */
+export interface TeamPage { team: TeamInfo; folders: ProjectSummary[]; members: TeamMember[]; requests: JoinRequest[] }
+/** Home's folder page in one request (`GET /projects/:id/page`): `team` null and no `folders` when the team's own
+ *  routes refuse the caller (someone invited to the folder only) */
+export interface ProjectPage { project: ProjectInfo; team: TeamInfo | null; folders: ProjectSummary[]; files: OrgFile[]; members: ProjectMember[] }
 
 export interface OrgFile {
   key: string; name: string; editorType: EditorType; ownerId: string; ownerName: string | null;
