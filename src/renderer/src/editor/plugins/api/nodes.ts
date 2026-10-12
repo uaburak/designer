@@ -459,6 +459,8 @@ export function pageOf(ctx: ApiContext, id: Guid): Guid | null {
 
 /** `node.prop` for the VM. */
 export function getProp(ctx: ApiContext, id: Guid, name: string): unknown {
+  // A removed node answers `removed` (true) instead of throwing (Figma: "Returns true if this node has been removed").
+  if (name === "removed" && id !== "0:0") return !readNode(ctx, id, false);
   const n = id === "0:0" ? ({ ...(readNode(ctx, "0:0") ?? {}), guid: "0:0", type: "DOCUMENT" } as NodeChange) : mustNode(ctx, id);
   const p = PROPS[name];
   if (p) return p.get(ctx, n);

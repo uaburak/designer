@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // The Plugin API for Draw (docs/draw.md §7) through QuickJS and figma.js on the real engine: what works on today's
-// engine (the stroke kind read from the document, variable width written as points, the API's shape), and — skipped
-// until round 7b's engine lands its Draw commands — text paths, transform groups and brushes end to end.
+// engine (the stroke kind read from the document, variable width written as points, the API's shape), and — on round
+// 7b's engine Draw commands — text paths, transform groups and brushes end to end.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -95,35 +95,7 @@ describe("plugins: the Draw API on the engine (docs/draw.md §7)", () => {
     expect((engine.readNode("1:2") as unknown as { variableWidthPoints?: unknown[] }).variableWidthPoints).toHaveLength(2);
   });
 
-  it("calls into the engine's Draw commands answer Figma-style until round 7b builds them", async () => {
-    const { ed, engine } = await editor();
-    // Only meaningful while Engine.ts's Draw calls are stubs; once 7b lands, the skipped tests below take over.
-    let built = true;
-    try {
-      engine.listBrushes();
-    } catch {
-      built = false;
-    }
-    if (built) return;
-    const { result } = await runFor(
-      ed,
-      engine,
-      `const out = [];
-       const v = figma.createVector();
-       for (const f of [() => figma.createTextPath(v, 0, 0), () => figma.transformGroup([v], figma.currentPage, 0, [])]) {
-         try { f(); out.push("ok"); } catch (e) { out.push(e.message); }
-       }
-       try { await figma.loadBrushesAsync("STRETCH"); out.push("ok"); } catch (e) { out.push(e.message); }
-       v.remove();
-       figma.root.setPluginData("result", JSON.stringify(out));
-       figma.closePlugin();`
-    );
-    expect(result).toEqual(["createTextPath is not supported in DesignerV2 yet", "transformGroup is not supported in DesignerV2 yet", "loadBrushesAsync is not supported in DesignerV2 yet"]);
-  });
-
-  // TODO(7b): enable when round 7b's engine implements CREATE_TEXT_PATH / ADD_TRANSFORM_MODIFIER / INSTALL_BRUSH /
-  // SET_STROKE_BRUSH (docs/roadmap.md "Round 7", step 7: "7e's plugin wasm tests are switched on").
-  it.skip("createTextPath replaces an ellipse with a TEXT_PATH in its place; textPathStartData round-trips (7b)", async () => {
+  it("createTextPath replaces an ellipse with a TEXT_PATH in its place; textPathStartData round-trips (7b)", async () => {
     const { ed, engine } = await editor();
     const { result } = await runFor(
       ed,
@@ -140,7 +112,7 @@ describe("plugins: the Draw API on the engine (docs/draw.md §7)", () => {
     expect(result).toEqual({ type: "TEXT_PATH", removed: true, same: true, start: { segment: 1, position: 0.25 }, chars: "Around" });
   });
 
-  it.skip("transformGroup makes a TRANSFORM_GROUP with the modifiers; transformModifiers round-trips (7b)", async () => {
+  it("transformGroup makes a TRANSFORM_GROUP with the modifiers; transformModifiers round-trips (7b)", async () => {
     const { ed, engine } = await editor();
     const { result } = await runFor(
       ed,
@@ -161,7 +133,7 @@ describe("plugins: the Draw API on the engine (docs/draw.md §7)", () => {
     });
   });
 
-  it.skip("loadBrushesAsync installs the built-ins; a brush stroke reads back by name; DYNAMIC clears it (7b)", async () => {
+  it("loadBrushesAsync installs the built-ins; a brush stroke reads back by name; DYNAMIC clears it (7b)", async () => {
     const { ed, engine } = await editor();
     const { result } = await runFor(
       ed,

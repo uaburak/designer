@@ -262,8 +262,7 @@ describe("file JSON: Figma Draw (docs/draw.md §7)", () => {
     expect(byId(doc, "1:20").strokeWeight).toBe(6);
   });
 
-  // TODO(7b): enable when round 7a / 7b's engine keeps TEXT_PATH and TRANSFORM nodes (docs/roadmap.md "Round 7").
-  it.skip("a TEXT_PATH with its text and start, a TRANSFORM_GROUP with its repeats (7b)", async () => {
+  it("a TEXT_PATH with its text and start, a TRANSFORM_GROUP with its repeats (7b)", async () => {
     const engine = await drawEngine();
     engine.applyChanges(
       {

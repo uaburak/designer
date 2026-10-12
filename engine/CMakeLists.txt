@@ -53,6 +53,8 @@ add_library(eng_core STATIC
   src/tools/SpacingHandles.cpp
   src/tools/ShapeBuilder.cpp
   src/tools/VariableWidthTool.cpp
+  src/tools/DrawTools.cpp
+  src/editor/DrawCommands.cpp
   src/editor/SlotCommands.cpp
   src/editor/SelectionCommands.cpp
   src/editor/ArrangeCommands.cpp
@@ -185,6 +187,7 @@ else()
     tests/unit/text.features.test.cpp
     tests/unit/render.brush.test.cpp
     tests/unit/r7.draw.test.cpp
+    tests/unit/r7.draw_edit.test.cpp
     tests/unit/export.test.cpp
     tests/unit/prototype.test.cpp
     tests/unit/prototype.video.test.cpp

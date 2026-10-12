@@ -263,14 +263,16 @@ VectorNetwork Editor::writeVector(Guid id, VectorNetwork net, const Mat2x3& loca
   d.styleOverrideTable = pruned(net, styles ? *styles : p.shape().vectorData.styleOverrideTable);
   d.network = std::make_shared<std::vector<uint8_t>>(net.encode());
   c.props.shape().vectorData = d;
-  if (id == vector_.node && vector_.pendingType && p.type != NodeType::VECTOR) {
+  bool held = id != vector_.node && std::find(vector_.group.begin(), vector_.group.end(), id) != vector_.group.end();
+  bool pending = id == vector_.node ? vector_.pendingType : held && p.type != NodeType::LINE;
+  if (pending && p.type != NodeType::VECTOR) {
     // A shape's first edit: it becomes a VECTOR (same GUID), its outline now the network.
     c.mask |= F_TYPE | F_CORNER_RADII | F_CORNER_SMOOTHING | F_INVERTED_CORNERS | F_ARC_DATA;
     c.props.type = NodeType::VECTOR;
     c.props.cornerRadii = {0, 0, 0, 0};
     c.props.stroke().cornerSmoothing = 0;
     c.props.shape().arcData = {};
-    vector_.pendingType = false;
+    if (id == vector_.node) vector_.pendingType = false;
   }
   write(c);
   return net;
@@ -288,6 +290,17 @@ void Editor::reloadVector() {
   auto prune = [&](std::vector<uint32_t>& v, size_t size) { v.erase(std::remove_if(v.begin(), v.end(), [&](uint32_t i) { return i >= size; }), v.end()); };
   prune(vector_.selVerts, vector_.net.vertices.size());
   prune(vector_.selSegs, vector_.net.segments.size());
+  for (auto it = vector_.others.begin(); it != vector_.others.end();) {
+    VectorNetwork on;
+    bool cv = false;
+    if (!doc_.has(it->first) || !networkOf(it->first, on, cv)) {
+      it = vector_.others.erase(it);
+      continue;
+    }
+    prune(it->second.verts, on.vertices.size());
+    prune(it->second.segs, on.segments.size());
+    ++it;
+  }
   if (vector_.penFrom >= static_cast<int>(vector_.net.vertices.size())) vector_.penFrom = -1;
   if (vector_.widthSelected >= static_cast<int>(widthPointsOf(n->props).size())) vector_.widthSelected = -1;
   vector_.builderHover = -1;  // the regions are recomputed (builderUpdate) when asked
@@ -369,11 +382,19 @@ void Editor::switchVectorNode(Guid id) {
   VectorNetwork net;
   bool convert = false;
   if (id == vector_.node || !networkOf(id, net, convert)) return;
+  // Multi-edit (docs/draw.md §4.6): the selections stay; the one edited before keeps its own among the others.
+  if (!vector_.selVerts.empty() || !vector_.selSegs.empty()) vector_.others[vector_.node] = {vector_.selVerts, vector_.selSegs};
+  else vector_.others.erase(vector_.node);
   vector_.node = id;
   vector_.net = std::move(net);
   vector_.pendingType = convert;
   vector_.selVerts.clear();
   vector_.selSegs.clear();
+  if (auto it = vector_.others.find(id); it != vector_.others.end()) {
+    vector_.selVerts = it->second.verts;
+    vector_.selSegs = it->second.segs;
+    vector_.others.erase(it);
+  }
   vector_.penFrom = -1;
   vector_.hoverVertex = vector_.hoverSegment = -1;
   vector_.widthSelected = vector_.widthHover = -1;
@@ -493,7 +514,7 @@ uint32_t Editor::vectorPointerDown(Vec2 s, uint32_t mods, int clickCount) {
       }
     return parent;
   };
-  if (vector_.node == kNoGuid && tool_ == Tool::PENCIL) {
+  if (vector_.node == kNoGuid && (tool_ == Tool::PENCIL || tool_ == Tool::BRUSH)) {
     drawParent_ = innermostFrame();
     pencilPoints_ = {world};
     gesture_ = Gesture::Pencil;
@@ -642,6 +663,8 @@ uint32_t Editor::vectorPointerDown(Vec2 s, uint32_t mods, int clickCount) {
     vector_.drag = VectorSession::Drag::Lasso;
     vector_.lasso = {world};
     vector_.baseSel = shift ? vector_.selVerts : std::vector<uint32_t>{};
+    if (!shift) vector_.others.clear();
+    vector_.othersBase = vector_.others;
     gesture_ = Gesture::Vector;
     return P_HANDLED | P_CAPTURE;
   }
@@ -724,12 +747,38 @@ uint32_t Editor::vectorPointerDown(Vec2 s, uint32_t mods, int clickCount) {
       return P_HANDLED;
     }
     if (shift) eng::toggle(vector_.selVerts, vv);
-    else if (!has(vector_.selVerts, vv)) vector_.selVerts = {vv}, vector_.selSegs.clear();
+    else if (!has(vector_.selVerts, vv)) vector_.selVerts = {vv}, vector_.selSegs.clear(), vector_.others.clear();
     vector_.drag = VectorSession::Drag::Vertices;
+    heldDragStart();
     begin(TxnKind::GESTURE, "Edit vector");
     gesture_ = Gesture::Vector;
     vectorChanged();
     return P_HANDLED | P_CAPTURE;
+  }
+  // Multi-edit: a point of another held layer (each shows its points, docs/draw.md §4.6).
+  if (!bend && vector_.group.size() > 1) {
+    Guid on = kNoGuid;
+    int ov = heldVertexAt(s, on);
+    if (ov >= 0) {
+      uint32_t vv = static_cast<uint32_t>(ov);
+      if (shift) {
+        eng::toggle(vector_.others[on].verts, vv);
+      } else {
+        bool already = has(vector_.others[on].verts, vv);
+        if (!already) vector_.selVerts.clear(), vector_.selSegs.clear(), vector_.others.clear();
+        switchVectorNode(on);
+        if (!already) vector_.selVerts = {vv};
+        vector_.startNet = vector_.net;
+        vector_.startWorld = doc_.worldTransform(vector_.node);
+        vector_.startLocal = doc_.get(vector_.node)->props.transform;
+      }
+      vector_.drag = VectorSession::Drag::Vertices;
+      heldDragStart();
+      begin(TxnKind::GESTURE, "Edit vector");
+      gesture_ = Gesture::Vector;
+      vectorChanged();
+      return P_HANDLED | P_CAPTURE;
+    }
   }
   double t = 0;
   int seg = vectorSegmentAt(s, t);
@@ -741,8 +790,9 @@ uint32_t Editor::vectorPointerDown(Vec2 s, uint32_t mods, int clickCount) {
       vector_.bendT = std::clamp(t, 0.05, 0.95);
     } else {
       if (shift) eng::toggle(vector_.selSegs, sg);
-      else if (!has(vector_.selSegs, sg)) vector_.selSegs = {sg}, vector_.selVerts.clear();
+      else if (!has(vector_.selSegs, sg)) vector_.selSegs = {sg}, vector_.selVerts.clear(), vector_.others.clear();
       vector_.drag = VectorSession::Drag::Vertices;
+      heldDragStart();
     }
     begin(TxnKind::GESTURE, "Edit vector");
     gesture_ = Gesture::Vector;
@@ -752,6 +802,23 @@ uint32_t Editor::vectorPointerDown(Vec2 s, uint32_t mods, int clickCount) {
   // Nothing of the network: a click on another layer leaves the mode (one of the held layers: its points show); a
   // double-click anywhere too.
   auto path = hitPath(doc_, page_, world, pixel());
+  if (clickCount < 2 && !path.empty() && path.back() != vector_.node &&
+      std::find(vector_.group.begin(), vector_.group.end(), path.back()) == vector_.group.end() && (shift || (mods & MOD_PRIMARY))) {
+    // Multi-edit (Figma): Shift-click adds a vector layer to the ones held; ⌘-click switches to it alone.
+    Guid other = path.back();
+    const Node* on = doc_.get(other);
+    VectorNetwork tmp;
+    bool cv = false;
+    if (on && !on->props.locked && !other.isDerived() && networkOf(other, tmp, cv)) {
+      if (shift) {
+        vector_.group.push_back(other);
+        vectorChanged();
+      } else {
+        startVectorEdit(other);
+      }
+      return P_HANDLED;
+    }
+  }
   if (clickCount < 2 && !path.empty() && path.back() != vector_.node &&
       std::find(vector_.group.begin(), vector_.group.end(), path.back()) != vector_.group.end()) {
     switchVectorNode(path.back());
@@ -764,7 +831,8 @@ uint32_t Editor::vectorPointerDown(Vec2 s, uint32_t mods, int clickCount) {
   vector_.drag = VectorSession::Drag::Marquee;
   vector_.baseSel = shift ? vector_.selVerts : std::vector<uint32_t>{};
   vector_.marquee = {world.x, world.y, 0, 0};
-  if (!shift) vector_.selVerts.clear(), vector_.selSegs.clear();
+  if (!shift) vector_.selVerts.clear(), vector_.selSegs.clear(), vector_.others.clear();
+  vector_.othersBase = vector_.others;
   gesture_ = Gesture::Vector;
   vectorChanged();
   return P_HANDLED | P_CAPTURE;
@@ -835,7 +903,16 @@ void Editor::vectorPointerMove(Vec2 s, uint32_t mods) {
       std::set<uint32_t> moving(vector_.selVerts.begin(), vector_.selVerts.end());
       for (uint32_t sg : vector_.selSegs)
         if (sg < net.segments.size()) moving.insert(net.segments[sg].start), moving.insert(net.segments[sg].end);
-      if (moving.empty()) return;
+      if (moving.empty()) {
+        // Only other held layers' points move (multi-edit): by the pointer's own travel.
+        Vec2 wd = world - downWorld_;
+        if (mods & MOD_SHIFT) (std::fabs(wd.x) > std::fabs(wd.y) ? wd.y : wd.x) = 0;
+        if (!(mods & (MOD_CTRL | MOD_PRIMARY))) wd = {std::round(wd.x), std::round(wd.y)};
+        heldDragMove(wd);
+        flushLayout();
+        vectorChanged();
+        return;
+      }
       // The first moving point snaps to the pixel grid; the others follow it.
       uint32_t lead = *moving.begin();
       Vec2 target = snapLocal(vector_.startNet.vertices[lead].p + (l - l0));
@@ -861,6 +938,7 @@ void Editor::vectorPointerMove(Vec2 s, uint32_t mods) {
         d = lin.apply(wd);
       }
       for (uint32_t v : moving) net.vertices[v].p = vector_.startNet.vertices[v].p + d;
+      heldDragMove(vector_.startWorld.applyLinear(d));  // multi-edit: the other layers' points by the same amount
       break;
     }
     case VectorSession::Drag::Handle: {
@@ -901,6 +979,7 @@ void Editor::vectorPointerMove(Vec2 s, uint32_t mods) {
       for (uint32_t i = 0; i < net.vertices.size(); i++)
         if (vector_.marquee.contains(vector_.startWorld.apply(net.vertices[i].p)) && !has(sel, i)) sel.push_back(i);
       vector_.selVerts = sel;
+      heldSelectWhere([&](Vec2 w) { return vector_.marquee.contains(w); });
       vectorChanged();
       return;
     }
@@ -919,6 +998,7 @@ void Editor::vectorPointerMove(Vec2 s, uint32_t mods) {
         for (uint32_t i = 0; i < net.vertices.size(); i++)
           if (insidePolygon(vector_.lasso, vector_.startWorld.apply(net.vertices[i].p)) && !has(sel, i)) sel.push_back(i);
       vector_.selVerts = sel;
+      if (vector_.lasso.size() > 2) heldSelectWhere([&](Vec2 w) { return insidePolygon(vector_.lasso, w); });
       vectorChanged();
       return;
     }
@@ -947,6 +1027,8 @@ void Editor::vectorPointerUp(Vec2 s, uint32_t mods) {
   vector_.drag = VectorSession::Drag::None;
   vector_.lasso.clear();
   vector_.trail.clear();
+  vector_.othersStart.clear();
+  vector_.othersBase.clear();
   vectorChanged();
 }
 
@@ -1163,14 +1245,14 @@ uint32_t Editor::vectorKey(KeyCode code, uint32_t mods) {
         if (gesture_ == Gesture::None && vector_.widthSelected >= 0) widthDeleteSelected();
         return K_HANDLED;
       }
-      if (vector_.selVerts.empty() && vector_.selSegs.empty()) return K_HANDLED;
+      if (vector_.selVerts.empty() && vector_.selSegs.empty() && vector_.others.empty()) return K_HANDLED;
       vectorDeleteAndHeal();
       return K_HANDLED;
     case KeyCode::ArrowLeft:
     case KeyCode::ArrowRight:
     case KeyCode::ArrowUp:
     case KeyCode::ArrowDown: {
-      if (primary || gesture_ != Gesture::None || (vector_.selVerts.empty() && vector_.selSegs.empty())) return K_HANDLED;
+      if (primary || gesture_ != Gesture::None || (vector_.selVerts.empty() && vector_.selSegs.empty() && vector_.others.empty())) return K_HANDLED;
       double step = shift ? 10 : 1;
       Vec2 wd{code == KeyCode::ArrowLeft ? -step : code == KeyCode::ArrowRight ? step : 0,
               code == KeyCode::ArrowUp ? -step : code == KeyCode::ArrowDown ? step : 0};
@@ -1182,7 +1264,10 @@ uint32_t Editor::vectorKey(KeyCode code, uint32_t mods) {
       for (uint32_t sg : vector_.selSegs) moving.insert(net.segments[sg].start), moving.insert(net.segments[sg].end);
       for (uint32_t v : moving) net.vertices[v].p = net.vertices[v].p + d;
       begin(TxnKind::USER, "Nudge");
-      vector_.net = writeVector(vector_.node, net, doc_.get(vector_.node)->props.transform);
+      if (!moving.empty()) vector_.net = writeVector(vector_.node, net, doc_.get(vector_.node)->props.transform);
+      heldDragStart();
+      heldDragMove(wd);  // multi-edit: the other held layers' points too
+      vector_.othersStart.clear();
       commit();
       vectorChanged();
       return K_HANDLED;
@@ -1191,6 +1276,7 @@ uint32_t Editor::vectorKey(KeyCode code, uint32_t mods) {
       if (!primary) return 0;
       vector_.selVerts.clear();
       for (uint32_t i = 0; i < vector_.net.vertices.size(); i++) vector_.selVerts.push_back(i);
+      heldSelectWhere([](Vec2) { return true; });  // multi-edit: every held layer's points
       vectorChanged();
       return K_HANDLED;
     default: return 0;
@@ -1199,11 +1285,17 @@ uint32_t Editor::vectorKey(KeyCode code, uint32_t mods) {
 
 // ---- Edits from panels and menus -------------------------------------------------------------
 
-Status Editor::vectorDeleteAndHeal() {
-  if (vector_.node == kNoGuid || busy()) return E_INVALID;
-  VectorNetwork net = vector_.net;
-  std::set<uint32_t> dropVerts, dropSegs(vector_.selSegs.begin(), vector_.selSegs.end());
-  for (uint32_t v : vector_.selVerts) {
+namespace {
+
+// The selected points removed — a point between two segments heals them into one — and the selected segments; points
+// left with no segment go too (unless nothing would remain).
+VectorNetwork deletedAndHealed(const VectorNetwork& in, const std::vector<uint32_t>& selVerts, const std::vector<uint32_t>& selSegs) {
+  VectorNetwork net = in;
+  std::set<uint32_t> dropVerts, dropSegs;
+  for (uint32_t sg : selSegs)
+    if (sg < net.segments.size()) dropSegs.insert(sg);
+  for (uint32_t v : selVerts) {
+    if (v >= net.vertices.size()) continue;
     auto segs = incident(net, v);
     bool healable = segs.size() == 2 && !dropSegs.count(segs[0]) && !dropSegs.count(segs[1]);
     if (healable) {
@@ -1239,7 +1331,35 @@ Status Editor::vectorDeleteAndHeal() {
   for (uint32_t i = 0; i < net.vertices.size(); i++)
     if (incident(net, i).empty() && !dropSegs.empty()) lonely.insert(i);
   if (lonely.size() < net.vertices.size()) net = compact(net, lonely, {});
+  return net;
+}
+
+}  // namespace
+
+Status Editor::vectorDeleteAndHeal() {
+  if (vector_.node == kNoGuid || busy()) return E_INVALID;
   begin(TxnKind::USER, "Delete");
+  // Multi-edit: each other held layer with selected points, in its own network (docs/draw.md §4.6).
+  for (auto& [g, held] : std::map<Guid, VectorSession::Held>(vector_.others)) {
+    VectorNetwork on;
+    bool convert = false;
+    const Node* n = doc_.get(g);
+    if (!n || (held.verts.empty() && held.segs.empty()) || !networkOf(g, on, convert)) continue;
+    VectorNetwork after = deletedAndHealed(on, held.verts, held.segs);
+    if (after.vertices.empty()) {
+      write(NodeChange::removed(g));
+      vector_.group.erase(std::remove(vector_.group.begin(), vector_.group.end(), g), vector_.group.end());
+    } else {
+      writeVector(g, after, n->props.transform);
+    }
+  }
+  vector_.others.clear();
+  if (vector_.selVerts.empty() && vector_.selSegs.empty()) {
+    commit();
+    vectorChanged();
+    return OK;
+  }
+  VectorNetwork net = deletedAndHealed(vector_.net, vector_.selVerts, vector_.selSegs);
   vector_.selVerts.clear();
   vector_.selSegs.clear();
   vector_.penFrom = -1;
@@ -1257,6 +1377,91 @@ Status Editor::vectorDeleteAndHeal() {
   commit();
   vectorChanged();
   return OK;
+}
+
+// ---- Multi-edit (docs/draw.md §4.6): the other held layers' points ------------------------------------------------
+
+int Editor::heldVertexAt(Vec2 screen, Guid& node) const {
+  int best = -1;
+  double bestD = kVertexReach;
+  for (Guid g : vectorLayers()) {
+    if (g == vector_.node) continue;
+    VectorNetwork net;
+    bool convert = false;
+    if (!networkOf(g, net, convert)) continue;
+    Mat2x3 m = camera_.matrix() * doc_.worldTransform(g);
+    for (uint32_t i = 0; i < net.vertices.size(); i++) {
+      double d = (m.apply(net.vertices[i].p) - screen).length();
+      if (d <= bestD) bestD = d, best = static_cast<int>(i), node = g;
+    }
+  }
+  return best;
+}
+
+void Editor::heldDragStart() {
+  vector_.othersStart.clear();
+  for (auto& [g, held] : vector_.others) {
+    if (held.verts.empty() && held.segs.empty()) continue;
+    const Node* n = doc_.get(g);
+    VectorSession::HeldStart st;
+    bool convert = false;
+    if (!n || !networkOf(g, st.net, convert)) continue;
+    st.id = g;
+    st.world = doc_.worldTransform(g);
+    st.local = n->props.transform;
+    vector_.othersStart.push_back(std::move(st));
+  }
+}
+
+void Editor::heldDragMove(Vec2 worldDelta) {
+  for (const VectorSession::HeldStart& st : vector_.othersStart) {
+    auto it = vector_.others.find(st.id);
+    if (it == vector_.others.end()) continue;
+    Mat2x3 lin = st.world.inverse();
+    lin.m02 = lin.m12 = 0;
+    Vec2 d = lin.apply(worldDelta);
+    VectorNetwork net = st.net;
+    std::set<uint32_t> moving;
+    for (uint32_t v : it->second.verts)
+      if (v < net.vertices.size()) moving.insert(v);
+    for (uint32_t sg : it->second.segs)
+      if (sg < net.segments.size()) moving.insert(net.segments[sg].start), moving.insert(net.segments[sg].end);
+    for (uint32_t v : moving) net.vertices[v].p = st.net.vertices[v].p + d;
+    writeVector(st.id, net, st.local);
+  }
+}
+
+void Editor::heldSelectWhere(const std::function<bool(Vec2)>& inside) {
+  for (Guid g : vectorLayers()) {
+    if (g == vector_.node) continue;
+    VectorNetwork net;
+    bool convert = false;
+    if (!networkOf(g, net, convert)) continue;
+    Mat2x3 W = doc_.worldTransform(g);
+    VectorSession::Held sel;
+    if (auto b = vector_.othersBase.find(g); b != vector_.othersBase.end()) sel = b->second;
+    for (uint32_t i = 0; i < net.vertices.size(); i++)
+      if (inside(W.apply(net.vertices[i].p)) && !has(sel.verts, i)) sel.verts.push_back(i);
+    if (sel.verts.empty() && sel.segs.empty()) vector_.others.erase(g);
+    else vector_.others[g] = sel;
+  }
+}
+
+std::vector<Editor::HeldSelection> Editor::vectorSelections() const {
+  std::vector<HeldSelection> out;
+  for (Guid g : vectorLayers()) {
+    HeldSelection h;
+    h.node = g;
+    if (g == vector_.node) {
+      h.vertices = vector_.selVerts;
+      h.segments = vector_.selSegs;
+    } else if (auto it = vector_.others.find(g); it != vector_.others.end()) {
+      h.vertices = it->second.verts;
+      h.segments = it->second.segs;
+    }
+    out.push_back(std::move(h));
+  }
+  return out;
 }
 
 int Editor::vectorMirroring(VectorMirror& out) const {
@@ -1403,9 +1608,30 @@ void Editor::vectorOverlay(Overlay& o) const {
   o.handles = false;
   o.sizeBadge = false;
   o.hover.clear();
-  // Round 12: the other held layers outlined (their points show when they are clicked).
-  for (Guid g : vectorLayers())
-    if (g != vector_.node) o.hover.push_back(g);
+  // Multi-edit (docs/draw.md §4.6): every held layer shows its points, and its selected segments.
+  for (Guid g : vectorLayers()) {
+    if (g == vector_.node) continue;
+    o.hover.push_back(g);
+    if (vector_.tool == VectorTool::SHAPE_BUILDER || vector_.tool == VectorTool::VARIABLE_WIDTH) continue;
+    VectorNetwork on;
+    bool convert = false;
+    if (!networkOf(g, on, convert)) continue;
+    Mat2x3 Wg = doc_.worldTransform(g);
+    auto it = vector_.others.find(g);
+    for (uint32_t sg = 0; it != vector_.others.end() && sg < on.segments.size(); sg++) {
+      if (!has(it->second.segs, sg)) continue;
+      const VNSegment& gs = on.segments[sg];
+      Vec2 a = on.vertices[gs.start].p, b = on.vertices[gs.end].p;
+      o.curves.push_back({Wg.apply(a), Wg.apply(a + gs.tangentStart), Wg.apply(b + gs.tangentEnd), Wg.apply(b), 2.0, true});
+    }
+    for (uint32_t v = 0; v < on.vertices.size(); v++) {
+      OverlayMark m;
+      m.shape = OverlayMark::Shape::Vertex;
+      m.world = Wg.apply(on.vertices[v].p);
+      m.selected = it != vector_.others.end() && has(it->second.verts, v);
+      o.marks.push_back(m);
+    }
+  }
   if (vector_.tool == VectorTool::SHAPE_BUILDER) return builderOverlay(o);
   if (vector_.tool == VectorTool::VARIABLE_WIDTH) return widthOverlay(o);
   // Only the selected and hovered segments are drawn (2 px, the selection colour): at rest the path shows its own
@@ -1477,13 +1703,16 @@ void Editor::pencilFinish() {
     Vec2 p3 = net.vertices[std::min(i + 2, p.size() - 1)].p;
     net.segments.push_back(VNSegment{static_cast<uint32_t>(i), static_cast<uint32_t>(i + 1), (p2 - p0) * (1.0 / 6), (p1 - p3) * (1.0 / 6), 0});
   }
-  begin(TxnKind::USER, "Pencil");
+  // Figma Draw (docs/draw.md §4.5): the Pencil's and the Brush's settings (the secondary toolbar) — colour, weight and
+  // style: a Basic or Dynamic Pencil stroke, the Brush's brush.
+  const bool brush = tool_ == Tool::BRUSH;
+  begin(TxnKind::USER, brush ? "Brush" : "Pencil");
   Guid id = newGuid();
   NodeChange c = NodeChange::created(id, defaultProps(NodeType::VECTOR));
   c.props.name = "Vector";
   c.props.strokeCap = StrokeCap::ROUND;
   c.props.strokeJoin = StrokeJoin::ROUND;
-  c.props.strokeWeight = 2;
+  drawStrokeProps(c.props, brush);
   c.props.parentIndex = {drawParent_, placeAt(drawParent_, doc_.children(drawParent_).size(), kNoGuid)};
   c.props.transform = doc_.worldTransform(drawParent_).inverse() * Mat2x3::translate(b.x, b.y);
   write(c);

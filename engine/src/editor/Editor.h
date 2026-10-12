@@ -25,6 +25,7 @@
 #include "editor/Selection.h"
 #include "editor/Snapping.h"
 #include "editor/Undo.h"
+#include "geometry/DynamicStroke.h"
 #include "geometry/PlanarFaces.h"
 #include "geometry/VariableWidth.h"
 #include "geometry/VectorNetwork.h"
@@ -52,7 +53,8 @@ enum class Tool : uint8_t {
 // ANNOTATION and MEASUREMENT: Dev Mode's tools (⇧T, ⇧M), editor/DevMode.cpp. Round 8 (tools/CanvasTools.cpp): SCALE (K)
 // selects and moves as MOVE, its handles scale the layers with their properties; SLICE (S) draws slices; COMMENT (C) is
 // inert until multiplayer; EYEDROPPER (I, ⌃C "Pick color"): a click emits COLOR_PICK and the tool goes back to Move.
-// BRUSH and TEXT_PATH (Phase 7 round 7, docs/draw.md §4.7): not implemented until round 7b.
+// BRUSH and TEXT_PATH (Phase 7 round 7, docs/draw.md §4.4–4.5; round 7b, tools/DrawTools.cpp): the Brush draws as the
+// Pencil does with the Brush's brush (setDrawToolSettings); Text on path makes a TEXT_PATH from a shape's edge.
 const char* toolName(Tool t);
 bool toolImplemented(Tool t);
 
@@ -88,7 +90,9 @@ enum class CursorKind : uint8_t {
   // Round 15: the Pencil tool's pencil; vector edit's Bend (⌘), Paint, Cut and Lasso tools.
   PENCIL, BEND, PAINT_BUCKET, CUT, LASSO,
   // Round 15: auto layout's padding / gap handle — a double arrow across a short bar, turned to the drag's angle.
-  SPACING
+  SPACING,
+  // Phase 7 round 7 (Draw, docs/draw.md §4.7): the Brush tool; Text on path over a path's edge.
+  BRUSH, TEXT_PATH
 };
 const char* cursorName(CursorKind k);
 
@@ -175,6 +179,11 @@ void normalizeOverridePaths(std::vector<NodeChange>& nodes);
 // Slot content in Figma's form (under the Internal Only Canvas, named by its instance's SLOT assignment) moves under
 // the instance it fills: drawn in its slot, resolved in its slot's modes (slotHosts_).
 void adoptSlotContent(std::vector<NodeChange>& nodes);
+
+// Figma Draw (editor/DrawCommands.cpp): SVG path data (a BrushArtwork's `d`: M L H V Q C Z, absolute or relative) as a
+// path; a brush laid along a fixed S-curve as straight RGBA (black, coverage in alpha), w × h px at `weight`.
+bool parseSvgPath(std::string_view d, geom::Path& out);
+bool brushPreview(const geom::Path& artwork, Vec2 box, bool scatter, int w, int h, double weight, std::string& rgba);
 
 class Editor : private LayoutHost, public TextLayouts {
  public:
@@ -375,6 +384,41 @@ class Editor : private LayoutHost, public TextLayouts {
   Status command(CommandId id, double dx = 0, double dy = 0);
   Status command(CommandId id, const CommandArgs& args);
   uint32_t commandState(CommandId id) const;
+
+  // ---- Figma Draw (docs/draw.md §4; round 7b: editor/DrawCommands.cpp, tools/DrawTools.cpp) ----
+  // The Pencil's and the Brush's settings (the secondary toolbar's DrawToolSettings, src/shared/draw/types.ts).
+  struct DrawTools {
+    struct Pencil {
+      Color color{0, 0, 0, 1};
+      double opacity = 1, weight = 2;
+      bool dynamic = false;
+      geom::DynamicSettings settings;
+    } pencil;
+    struct Brush {
+      Color color{0, 0, 0, 1};
+      double opacity = 1, weight = 4;
+      Guid brush = kNoGuid;
+    } brush;
+  };
+  Status setDrawToolSettings(const json::Value& v);
+  const DrawTools& drawTools() const { return drawTools_; }
+  // INSTALL_BRUSH: a BRUSH node on the Internal Only Canvas with this artwork (its own box, the stroke along +x); the
+  // one already there with this name and type when there is one. Inside an open step it joins it; otherwise it is a
+  // system write (journaled, no undo step: installing a brush to pick it isn't an edit). kNoGuid on bad input.
+  Guid installBrush(const std::string& name, bool scatter, Vec2 size, const geom::Path& artwork, WindingRule rule);
+  struct BrushInfo {
+    Guid guid = kNoGuid;
+    std::string name;
+    bool scatter = false;
+  };
+  // The file's BRUSH nodes, in document order.
+  std::vector<BrushInfo> listBrushes() const;
+  // A BRUSH node's artwork (its fill paths, own space) and box; false when `id` isn't a usable brush.
+  bool brushArtwork(Guid id, geom::Path& out, Vec2& box, bool& scatter) const;
+  // A selected TEXT_PATH's start handle (world), when one shows (selected alone, not being edited).
+  bool textPathHandle(Guid& node, Vec2& world) const;
+  // The layer whose edge the Text on path tool would write on at `world` (kNoGuid: none).
+  Guid textPathTargetAt(Vec2 world) const;
   // Layers panel drag: `ids` to `parent` at `index` in paint order (0 = bottom-most,
   // n = above the top-most), keeping their relative order and their place on the
   // page. Pages: parent = the DOCUMENT. Returns how many moved (0 = refused).
@@ -512,12 +556,15 @@ class Editor : private LayoutHost, public TextLayouts {
     // radius, W / H, whole degree), its auto-layout flow swapped, or it snapped to a new guide. At most one per pointer
     // move (several steps in one move: one tick); the count is the moves that ticked since the last takeEvents.
     uint32_t haptics = 0;
+    // DRAW_TOOL_SAMPLED (round 7b, docs/draw.md §4.5): ⌘-click with the Pencil or the Brush — each a JSON object
+    // (DrawToolSampled without its type).
+    std::vector<std::string> drawSampled;
     bool selection = false, camera = false, tool = false, cursor = false, hover = false, undo = false,
          structure = false, pages = false, currentPage = false, textEdit = false, vectorEdit = false, paintEdit = false,
          navigation = false;
     bool any() const {
       return !colorPicks.empty() || !inlineEdits.empty() || !annotationOpens.empty() || !measurementEdits.empty() || !statusClicks.empty() || measurementSelection ||
-             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !prototypeSelected.empty() || !gridTracks.empty() || !renames.empty() || haptics != 0 || !nodes.empty() || !components.empty() || !collections.empty() ||
+             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !prototypeSelected.empty() || !gridTracks.empty() || !renames.empty() || haptics != 0 || !drawSampled.empty() || !nodes.empty() || !components.empty() || !collections.empty() ||
              !variables.empty() || !styles.empty() || selection || camera || tool || cursor || hover || undo || structure || pages ||
              currentPage || textEdit || vectorEdit || paintEdit || navigation;
     }
@@ -578,6 +625,12 @@ class Editor : private LayoutHost, public TextLayouts {
   // Round 12 (help.figma.com "Select one or more vector layers and press Enter"): several layers at once — the first
   // is the one whose points show (a click on another switches to it); the Shape builder works on all of them.
   Status startVectorEditMany(const std::vector<Guid>& ids);
+  // Multi-edit (docs/draw.md §4.6): each held layer's selected points and segments, the edited one first.
+  struct HeldSelection {
+    Guid node = kNoGuid;
+    std::vector<uint32_t> vertices, segments;
+  };
+  std::vector<HeldSelection> vectorSelections() const;
   // The layers vector edit mode holds (the edited one first; ones undone away are left out).
   std::vector<Guid> vectorLayers() const;
   // Round 12: the Variable width tool applies (a stroke without dashes or a dynamic stroke, a network without
@@ -980,7 +1033,7 @@ class Editor : private LayoutHost, public TextLayouts {
 
   enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect, Vector, Pencil, Paint, Noodle, Grid,
                                  Measure, MeasureDrag, Radius, Gap, LayoutBar, ZoomArea, Reorder, RotationOrigin, Guide, Shape,
-                                 Scrollbar };
+                                 Scrollbar, TextPathStart };
 
   struct Target {
     Guid id;
@@ -1449,6 +1502,19 @@ class Editor : private LayoutHost, public TextLayouts {
     bool committedInDrag = false;
     // Round 12: the other layers held (Enter on several), the edited one included; ones not in the document are skipped.
     std::vector<Guid> group;
+    // Multi-edit (round 7b, docs/draw.md §4.6): the other held layers' selected points and segments (the edited one's
+    // are selVerts / selSegs), and, while they are dragged, their networks and transforms when the drag started.
+    struct Held {
+      std::vector<uint32_t> verts, segs;
+    };
+    std::map<Guid, Held> others;
+    struct HeldStart {
+      Guid id;
+      geom::VectorNetwork net;
+      Mat2x3 world, local;
+    };
+    std::vector<HeldStart> othersStart;
+    std::map<Guid, Held> othersBase;  // a Shift marquee / lasso: the other layers' selections it adds to
     // The Shape builder: its regions (world) for `builderKey`, the inputs' layers, the region under the pointer, the
     // regions a drag took (⌥ held when it started: they are removed).
     uint64_t builderKey = 0;
@@ -1507,7 +1573,33 @@ class Editor : private LayoutHost, public TextLayouts {
   void widthOverlay(Overlay& o) const;
   Status widthCommand(CommandId id, const CommandArgs& args);
   uint32_t widthCommandState(CommandId id) const;
+  // Figma Draw (editor/DrawCommands.cpp, tools/DrawTools.cpp).
+  Status drawCommand(CommandId id, const CommandArgs& args);
+  uint32_t drawCommandState(CommandId id) const;
+  std::vector<Guid> drawTargets(const CommandArgs& args) const;
+  Status createTextPath(Guid src, double tValue, bool replace, Guid* made);
+  void drawStrokeProps(NodeProps& p, bool brush);  // a new Pencil / Brush stroke: the tool's colour, weight and style
+  uint64_t newStrokeSeed();
+  uint64_t seedState_ = 0x9E3779B97F4A7C15ull;
+  uint32_t drawPointerDown(Vec2 s, uint32_t mods);
+  bool drawCursor(Vec2 s);
+  bool drawSample(Vec2 world, uint32_t mods);
+  void textPathStartMove(Vec2 world);
+  void textPathOverlay(Overlay& o) const;
+  void textPathEditOverlay(Overlay& o, const text::TextLayout& L) const;
+  void brushClipboard(std::vector<NodeChange>& nodes, const std::vector<const NodeProps*>& copied) const;
+  void brushPaste(const std::vector<NodeChange>& clip, std::unordered_map<Guid, Guid, GuidHash>& remap);
+  void remapStrokeBrush(NodeProps& p, const std::unordered_map<Guid, Guid, GuidHash>& remap) const;
+  DrawTools drawTools_;
+  Guid textPathDrag_ = kNoGuid;    // the TEXT_PATH whose start handle is dragged
+  Guid textPathHover_ = kNoGuid;   // the edge the Text on path tool is over (highlighted)
   void switchVectorNode(Guid id);
+  // Multi-edit (docs/draw.md §4.6): another held layer's point under the pointer; the other layers' selected points
+  // remembered when a drag starts and moved by a world delta; their points selected where `inside` holds (a marquee, a lasso).
+  int heldVertexAt(Vec2 screen, Guid& node) const;
+  void heldDragStart();
+  void heldDragMove(Vec2 worldDelta);
+  void heldSelectWhere(const std::function<bool(Vec2)>& inside);
   // Pencil.
   void pencilFinish();
   std::vector<Vec2> pencilPoints_;  // world

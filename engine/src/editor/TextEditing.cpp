@@ -186,7 +186,7 @@ void Editor::setTextSelection(uint32_t anchor, uint32_t focus, bool keepX) {
 
 Status Editor::startTextEdit(Guid id, bool selectAll) {
   const Node* n = doc_.get(id);
-  if (!n || n->props.type != NodeType::TEXT || n->props.locked) return E_INVALID;
+  if (!n || !n->props.isTextLike() || n->props.locked) return E_INVALID;  // TEXT, or text on a path (docs/draw.md §4.4)
   if (text_.node == id) {
     if (selectAll) setTextSelection(0, static_cast<uint32_t>(editedText().size()));
     return OK;
@@ -336,6 +336,7 @@ Rect Editor::caretRectCss() const {
   double x = L->caretX(text_.focus, line);
   Mat2x3 m = camera_.matrix() * doc_.worldTransform(text_.node);
   Vec2 top = m.apply({x, l.top}), bottom = m.apply({x, l.top + l.height});
+  if (L->path) top = m.apply(L->path->toNode({x, l.top})), bottom = m.apply(L->path->toNode({x, l.top + l.height}));
   return {top.x, top.y, 0, (bottom - top).length()};
 }
 
@@ -379,6 +380,19 @@ uint32_t Editor::textIndexAt(Vec2 screen) const {
   const text::TextLayout* L = const_cast<Editor*>(this)->textLayout(text_.node);
   if (!L) return 0;
   Vec2 local = doc_.worldTransform(text_.node).inverse().apply(camera_.toWorld(screen));
+  if (L->path && !L->lines.empty()) {
+    // Text on a path: the glyph boundary nearest the point, its place on the path (docs/draw.md §4.4).
+    const text::LaidLine& l = L->lines[0];
+    uint32_t best = 0;
+    double bestD = 1e300;
+    for (uint32_t i = 0; i <= L->text.size(); i++) {
+      double x = L->caretX(i, 0);
+      Vec2 p = L->path->toNode({x, l.top + l.height / 2});
+      double d = (p - local).length();
+      if (d < bestD) bestD = d, best = i;
+    }
+    return best;
+  }
   return L->indexAt(local);
 }
 
@@ -737,7 +751,7 @@ bool Editor::textRange(Guid id, uint32_t& from, uint32_t& to) const {
 
 std::string Editor::textRangeStyle(Guid id, uint32_t from, uint32_t to, bool useSelection) {
   const Node* n = doc_.get(id);
-  if (!n || n->props.type != NodeType::TEXT) return {};
+  if (!n || !n->props.isTextLike()) return {};
   const NodeProps& p = n->props;
   const text::TextLayout* L = textLayout(id);
   if (!L) return {};

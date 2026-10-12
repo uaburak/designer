@@ -726,6 +726,7 @@ void Editor::dragGap(Vec2 world, uint32_t mods) {
 void Editor::updateCursor(Vec2 s) {
   if (spaceHeld_ || tool_ == Tool::HAND) return changeCursor(CursorKind::HAND);
   if (zoomHeld_) return changeCursor((mods_ & MOD_ALT) ? CursorKind::ZOOM_OUT : CursorKind::ZOOM_IN);
+  if (drawCursor(s)) return;  // Draw (tools/DrawTools.cpp): the Brush, Text on path, a text path's start handle
   if (tool_ == Tool::TEXT || gesture_ == Gesture::TextSelect) return changeCursor(CursorKind::IBEAM);
   if (tool_ == Tool::EYEDROPPER) return changeCursor(CursorKind::EYEDROPPER);
   if (tool_ == Tool::COMMENT) return changeCursor(CursorKind::COMMENT);
@@ -963,12 +964,15 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   if (proto_.on)
     if (uint32_t r = protoPointerDown(s, mods)) return r;
 
+  // Draw (tools/DrawTools.cpp): ⌘-click sampling, Text on path (also the Text tool on a path's edge), the start handle.
+  if (uint32_t r = drawPointerDown(s, mods)) return r;
+
   if (tool_ == Tool::TEXT) {
     // On a text layer: edit it there. Elsewhere: a click makes auto-width text, a drag a box of that width.
     auto path = hitPath(doc_, page_, downWorld_, pixel());
     if (!path.empty()) {
       const Node* hit = doc_.get(path.back());
-      if (hit && hit->props.type == NodeType::TEXT && !hit->props.locked) {
+      if (hit && hit->props.isTextLike() && !hit->props.locked) {
         setTool(Tool::MOVE);
         startTextEdit(path.back(), false);
         return textPointerDown(s, mods, clickCount_);
@@ -983,7 +987,7 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   if (paint_.node != kNoGuid)
     if (uint32_t r = paintPointerDown(s, mods)) return r;
 
-  if (tool_ == Tool::PEN || tool_ == Tool::PENCIL || vector_.node != kNoGuid) {
+  if (tool_ == Tool::PEN || tool_ == Tool::PENCIL || tool_ == Tool::BRUSH || vector_.node != kNoGuid) {
     if (uint32_t r = vectorPointerDown(s, mods, clickCount_)) return r;
   }
 
@@ -1123,7 +1127,7 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   if (!viewer_ && clickCount_ >= 2 && !shift && !path.empty()) {
     // Double-click on a text layer: edit it, the word under the pointer selected.
     const Node* hit = doc_.get(path.back());
-    if (hit && hit->props.type == NodeType::TEXT && !hit->props.locked && (selected(path.back()) || pick(doc_, path, selection_, deep) == path.back())) {
+    if (hit && hit->props.isTextLike() && !hit->props.locked && (selected(path.back()) || pick(doc_, path, selection_, deep) == path.back())) {
       if (startTextEdit(path.back(), false) == OK) return textPointerDown(s, mods, 2);
     }
   }
@@ -1310,9 +1314,15 @@ void Editor::movePointer(Vec2 s, uint32_t mods) {
     case Gesture::Vector: vectorPointerMove(s, mods); break;
     case Gesture::Paint: paintPointerMove(s, mods); break;
     case Gesture::Pencil:
-      if (pencilPoints_.empty() || (camera_.toScreen(pencilPoints_.back()) - s).length() >= 1) pencilPoints_.push_back(world);
+      // Shift: a straight line from where the stroke started (the Pencil and the Brush, docs/draw.md §4.5).
+      if (mods & MOD_SHIFT) {
+        if (!pencilPoints_.empty()) pencilPoints_ = {pencilPoints_.front(), world};
+      } else if (pencilPoints_.empty() || (camera_.toScreen(pencilPoints_.back()) - s).length() >= 1) {
+        pencilPoints_.push_back(world);
+      }
       needsRender_ = true;
       break;
+    case Gesture::TextPathStart: textPathStartMove(world); break;
     case Gesture::Pan: {
       // A right press pans once it moved past the drag threshold.
       if (rightPress_ && !rightPanned_) {
@@ -1409,7 +1419,16 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
       endGesture();
       updateHover(s, mods);
       return;
+    case Gesture::TextPathStart:
+      textPathStartMove(world);
+      if (txn_.open) commit();
+      textPathDrag_ = kNoGuid;
+      gesture_ = Gesture::None;
+      endGesture();
+      updateHover(s, mods);
+      return;
     case Gesture::Pencil:
+      if ((mods & MOD_SHIFT) && !pencilPoints_.empty()) pencilPoints_ = {pencilPoints_.front()};
       pencilPoints_.push_back(world);
       gesture_ = Gesture::None;
       pencilFinish();
@@ -1536,6 +1555,11 @@ void Editor::cancelGesture() {
       reloadVector();
       break;
     case Gesture::Pencil: pencilPoints_.clear(); break;
+    case Gesture::TextPathStart:
+      if (txn_.open) rollback();
+      textPathDrag_ = kNoGuid;
+      needsRender_ = true;
+      break;
     case Gesture::Noodle:
       proto_.drag = ProtoSession::Drag::None;
       proto_.target = kNoGuid;

@@ -222,6 +222,17 @@ export class EngineExports {
   vectorizeUpdate = (h: number, options: Uint8Array): number => this.withBytes([options], (p) => this.fn("vectorize_update")(h, p[0], p[1]));
   vectorizeEnd = (h: number, commit: boolean): number => this.fn("vectorize_end")(h, commit ? 1 : 0);
 
+  // ---- Draw (docs/draw.md §4.5, §4.7; round 7b, engine/src/api/DrawApi.inc) ----
+  /** `input`: InstallBrushInput (JSON) → {guid} in the result slot. */
+  installBrush = (h: number, input: Uint8Array): number => this.withBytes([input], (p) => this.fn("install_brush")(h, p[0], p[1]));
+  /** → [{guid, name, type}] in the result slot. */
+  listBrushes = (h: number): number => this.fn("list_brushes")(h);
+  /** `src`: {brush} or {artwork, type} (JSON) → pixels (u32 width, u32 height, RGBA) in the result slot. */
+  brushPreview = (h: number, src: Uint8Array, width: number, height: number, weight: number): number =>
+    this.withBytes([src], (p) => this.fn("brush_preview")(h, p[0], p[1], width, height, weight));
+  /** `settings`: DrawToolSettings (JSON). */
+  setDrawToolSettings = (h: number, settings: Uint8Array): number => this.withBytes([settings], (p) => this.fn("set_draw_tool_settings")(h, p[0], p[1]));
+
   // ---- Components ----
   /** A derived ref ("I…;…") → its localID in the derived session (0xFFFFFFFE); 0 for anything else. */
   refId = (ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("ref_id")(p[0], p[1]) >>> 0);
@@ -379,4 +390,5 @@ export const USED_EXPORTS = [
   "present_set_options", "present_state", "present_media", "present_media_frame",
   "set_view_options", "set_nudge", "start_guide", "set_annotation_view", "set_edit_tracking", "set_focus", "select_measurement", "dev_info",
   "trace", "vectorize_begin", "vectorize_update", "vectorize_end",
+  "install_brush", "list_brushes", "brush_preview", "set_draw_tool_settings",
 ].map((name) => `engine_${name}`);
