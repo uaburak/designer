@@ -30,7 +30,7 @@ const MB = 1024 * 1024;
 /** The defaults. Overrides (`users.quota_overrides`) replace a kind's number for one account. */
 export const QUOTA_LIMITS: Record<QuotaKind, number> = {
   /** Files the account owns on the server (shared files, org files and drafts, branches) */
-  shared_files: 200,
+  shared_files: 5000, // every personal draft counts since Wecra 1.1 (docs/cloud.md)
   /** Snapshots, images, thumbnails, previews and library payloads the account's files and previews keep */
   storage_bytes: 500 * MB,
   /** Uploads of bytes (snapshots, images, thumbnails, preview documents and images, library payloads, fonts) a day */
