@@ -3,7 +3,7 @@
  * (src/shared/multiplayer/room.ts), with an in-process WebSocket: share, join, edits both ways, Figma's conflict rule,
  * offline edits resent on reconnect, viewers.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handle, type Deps, type Rooms } from "../../../server/src/api";
 import { Db } from "../../../server/src/db";
 import { sqliteD1 } from "../../../server/src/testing/sqliteD1";
