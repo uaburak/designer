@@ -92,6 +92,8 @@ type MenuState = { at: { x: number; y: number }; entries: MenuEntry[]; run: (id:
 const DRAG_TYPE = "application/x-designer-items";
 const DEFAULT_BROWSE: Prefs["browse"] = { layout: "grid", sort: "last-viewed" };
 const NO_TARGETS: act.Targets = { files: [], folders: [] };
+/** Duplicate or Save local copy… of a file whose viewers may not export it (ours) */
+export const EXPORT_RESTRICTED_TEXT = "The owner has turned off copying and exporting for viewers of this file";
 
 const ownerOf = (teamName: string) => teamName.replace(/['’]s team$/i, "").trim() || teamName;
 
@@ -146,6 +148,28 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   const known = useMemo(() => [...data.files, ...data.starredFiles], [data.files, data.starredFiles]);
   const ctx: act.ActionContext = useMemo(() => ({ repo, folders, known, toast }), [repo, folders, known, toast]);
   const deps: OpenDeps = useMemo(() => ({ workspace: repo, ...openDeps }), [repo, openDeps]);
+
+  // --- File exporting (docs/governance.md §2.7): no Duplicate or Save local copy… for a viewer the file restricts ---
+
+  const [exportAccess, setExportAccess] = useState<ReadonlyMap<FileKey, boolean>>(() => new Map());
+  const asking = useRef(new Set<FileKey>());
+  /** Asks (again) whether each file may be copied out; true when all may. Unknown files count as allowed until asked. */
+  const checkExport = useCallback(
+    async (keys: readonly FileKey[]): Promise<boolean> => {
+      const ask = backend.exportAccess;
+      if (!ask || !keys.length) return true;
+      const answers = await Promise.all(
+        keys.map(async (k) => {
+          const on = await ask(k).catch(() => true);
+          setExportAccess((m) => (m.get(k) === on ? m : new Map(m).set(k, on)));
+          return on;
+        }),
+      );
+      return answers.every(Boolean);
+    },
+    [backend.exportAccess],
+  );
+  const exportRestricted = (keys: readonly FileKey[]) => keys.some((k) => exportAccess.get(k) === false);
 
   // --- branches (docs/data.md §15.9): each main file's count, its dropdown, the Branches modal ---
 
@@ -373,6 +397,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
         for (const f of t.folders) await act.setStarred(ctx, { folderId: f }, id === "star");
         return;
       case "duplicate": {
+        if (!(await checkExport(t.files))) return void toast({ kind: "error", message: EXPORT_RESTRICTED_TEXT });
         const copies = await act.duplicate(ctx, t.files);
         if (copies.length) setSelection({ ids: copies.map(fileItemId), anchor: fileItemId(copies[0]) });
         return;
@@ -488,17 +513,34 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   };
 
   const starredFolderSet = useMemo(() => new Set(starredFolderIds), [starredFolderIds]);
+  /** The open menu's Duplicate once the files' export access is known (the menu opened with the cached answer). */
+  const refreshMenuExport = (keys: readonly FileKey[], shown: MenuEntry[], entriesFor: (restricted: boolean) => MenuEntry[]) => {
+    if (!keys.length || !backend.exportAccess) return;
+    const was = exportRestricted(keys);
+    void checkExport(keys).then((ok) => {
+      if (ok === !was) return;
+      setMenu((m) => (m && m.entries === shown ? { ...m, entries: entriesFor(!ok) } : m));
+    });
+  };
   const itemsMenu = (e: React.MouseEvent, item: Item) => {
     const next = contextSelect(sel, ids, item.id);
     setSelection(next);
     const t = selectedTargets(next.ids);
     const byKey = new Map(items.filter((i) => i.kind === "file").map((i) => [i.file.fileKey, i.file] as const));
     const allStarred = t.files.every((k) => byKey.get(k)?.starred) && t.folders.every((f) => starredFolderSet.has(f));
-    menuFor(e, itemMenu({ location, files: t.files.length, folders: t.folders.length, allStarred, color: t.folders.length === 1 && !t.files.length ? folders.get(t.folders[0])?.color : undefined }), t);
+    const menuCtx = { location, files: t.files.length, folders: t.folders.length, allStarred, color: t.folders.length === 1 && !t.files.length ? folders.get(t.folders[0])?.color : undefined };
+    const shown = itemMenu({ ...menuCtx, exportRestricted: exportRestricted(t.files) });
+    menuFor(e, shown, t);
+    refreshMenuExport(t.files, shown, (restricted) => itemMenu({ ...menuCtx, exportRestricted: restricted }));
   };
   const sidebarFolderMenu = (e: React.MouseEvent, f: Folder) =>
     menuFor(e, itemMenu({ location: { kind: "folders" }, files: 0, folders: 1, allStarred: starredFolderSet.has(f.id), color: f.color }), { files: [], folders: [f.id] }, f);
-  const sidebarFileMenu = (e: React.MouseEvent, f: FileListItem) => menuFor(e, itemMenu({ location: { kind: "starred" }, files: 1, folders: 0, allStarred: f.starred }), { files: [f.fileKey], folders: [] });
+  const sidebarFileMenu = (e: React.MouseEvent, f: FileListItem) => {
+    const menuCtx = { location: { kind: "starred" } as const, files: 1, folders: 0, allStarred: f.starred };
+    const shown = itemMenu({ ...menuCtx, exportRestricted: exportRestricted([f.fileKey]) });
+    menuFor(e, shown, { files: [f.fileKey], folders: [] });
+    refreshMenuExport([f.fileKey], shown, (restricted) => itemMenu({ ...menuCtx, exportRestricted: restricted }));
+  };
 
   const rename = (item: Item, name: string | null) => {
     setRenaming(null);
@@ -625,7 +667,10 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
         case "file.move":
           return t.files.length || t.folders.length ? void run("move", t) : undefined;
         case "file.save-local-copy":
-          if (t.files.length === 1) void saveLocalCopy(t.files[0]).catch((e) => toast({ kind: "error", message: act.errorText(e) }));
+          if (t.files.length === 1)
+            void checkExport(t.files)
+              .then((ok) => (ok ? saveLocalCopy(t.files[0]) : void toast({ kind: "error", message: EXPORT_RESTRICTED_TEXT })))
+              .catch((e) => toast({ kind: "error", message: act.errorText(e) }));
           return;
       }
     };
@@ -657,11 +702,20 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
     "edit.select-all": ids.length > 0,
     "edit.delete": sel.ids.length > 0,
     "file.delete": sel.ids.length > 0,
-    "file.duplicate": !inTrash && selFiles.files.length > 0 && !selFiles.folders.length,
+    "file.duplicate": !inTrash && selFiles.files.length > 0 && !selFiles.folders.length && !exportRestricted(selFiles.files),
     "file.rename": !inTrash && sel.ids.length === 1,
     "file.move": !inTrash && sel.ids.length > 0,
-    "file.save-local-copy": !inTrash && selFiles.files.length === 1 && !selFiles.folders.length,
+    "file.save-local-copy": !inTrash && selFiles.files.length === 1 && !selFiles.folders.length && !exportRestricted(selFiles.files),
   });
+  // The selection's export access, asked once per file (the menu bar's Duplicate and Save local copy… follow it).
+  const selFileKeys = selFiles.files.join("\n");
+  useEffect(() => {
+    const unknown = selFiles.files.filter((k) => !exportAccess.has(k) && !asking.current.has(k));
+    if (!unknown.length) return;
+    for (const k of unknown) asking.current.add(k);
+    void checkExport(unknown).finally(() => unknown.forEach((k) => asking.current.delete(k)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selFileKeys, checkExport, exportAccess]);
   useEffect(() => setMenuState(JSON.parse(menuEnabled) as Record<string, boolean>), [menuEnabled]);
 
   // --- what shows ---
@@ -718,7 +772,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   // agree to (a modal; Cancel goes back to Drafts), 2FA for guests or the IP allowlist (in place of the content) — and
   // the account-wide network restriction (the whole window). Read from what Home already loaded.
   const blockedBy = orgView.page.blocked;
-  const gate = orgId ? orgGateOf(orgSummary, blockedBy && blockedBy !== "network" ? blockedBy : null, agreed) : null;
+  const gate = orgId ? orgGateOf(orgSummary, orgView.eventGate ?? (blockedBy && blockedBy !== "network" ? blockedBy : null), agreed) : null;
   const me = account.state?.user?.id ?? null;
   const networkRestricted = (loggedOutAs === null || (me !== null && me !== loggedOutAs)) && (!!orgShell.network || blockedBy === "network");
   const gateOrgName = spaceName || "This organization";

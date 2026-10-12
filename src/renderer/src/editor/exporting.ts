@@ -18,6 +18,7 @@ import type { EditorController } from "./controller";
 import { editorBridge } from "./desktop";
 import { engineExports } from "./engineCompat";
 import { presenceOf } from "./multiplayer/presence";
+import { exportAllowedFor, type ExportAccessStore } from "../files/governance";
 import { encodePixels, renderEngineExport } from "./exportCore";
 import {
   cssOf,
@@ -68,18 +69,17 @@ export function useExportAllowed(ed: EditorController): boolean {
 /** Whether this file can be exported here: the engine builds it and the person is allowed to. */
 export const canExport = (ed: EditorController) => engineCanExport(ed) && exportAllowed(ed);
 
-type AccessStore = { fileState(key: string): Promise<{ shared: boolean; role: string | null }>; fileInfo(key: string): Promise<{ access?: { canExport?: boolean } | null }> };
+type AccessStore = ExportAccessStore;
 
-/** The server's answer for a shared file: local files, owners and editors export; a viewer asks `fileInfo` once. */
-export async function loadExportAllowed(store: AccessStore, fileKey: string): Promise<boolean> {
-  const st = await store.fileState(fileKey).catch(() => null);
-  if (!st?.shared || st.role !== "viewer") return true;
-  const info = await store.fileInfo(fileKey).catch(() => null);
-  return info?.access?.canExport !== false;
-}
+/** The server's answer for a shared file: local files, owners and editors export; a viewer asks `fileInfo` once (Home asks the same). */
+export const loadExportAllowed = exportAllowedFor;
+
+/** The least time between two reads of the export access on window focus. */
+export const FOCUS_RELOAD_MS = 30_000;
 
 /**
- * EditorApp's one line: reads the access when the editor opens and when the room's role changes, and while
+ * EditorApp's one line: reads the access when the editor opens, when the room's role or policy changes, on window
+ * focus (throttled), and while
  * restricted stops the document's copy and cut of layers (the canvas's ⌘C / ⌘X; text fields copy as ever).
  */
 export function attachExportAccess(ed: EditorController, store?: AccessStore | null): () => void {
@@ -95,19 +95,31 @@ export function attachExportAccess(ed: EditorController, store?: AccessStore | n
   }
   let live = true;
   let asked = 0;
+  let lastLoad = 0;
   const load = () => {
+    lastLoad = Date.now();
     const mine = ++asked;
     void loadExportAllowed(mp!, fileKey).then((on) => live && mine === asked && !ed.engine.destroyed && setExportAllowed(ed, on));
   };
   load();
   const presence = presenceOf(ed);
   let role = presence?.state.role ?? null;
+  let policy = presence?.state.policy ?? null;
   const offPresence = presence?.subscribe(() => {
     const next = presence.state.role;
-    if (next === role) return;
+    const nextPolicy = presence.state.policy;
+    // The role (a viewer made an editor), or the org pushing a new room policy (an admin changed settings): ask again.
+    if (next === role && nextPolicy === policy) return;
     role = next;
+    policy = nextPolicy;
     load();
   });
+  // The file's share settings ("Viewers can copy, share, and export…") and the org's File exporting reach no room
+  // event: read again when the window comes back to the front, at most every FOCUS_RELOAD_MS (no polling).
+  const onFocus = () => {
+    if (Date.now() - lastLoad >= FOCUS_RELOAD_MS) load();
+  };
+  window.addEventListener("focus", onFocus);
   const block = (e: Event) => {
     if (exportAllowed(ed) || !ed.selection.length) return;
     const t = e.target;
@@ -120,6 +132,7 @@ export function attachExportAccess(ed: EditorController, store?: AccessStore | n
   return () => {
     live = false;
     offPresence?.();
+    window.removeEventListener("focus", onFocus);
     window.removeEventListener("copy", block, true);
     window.removeEventListener("cut", block, true);
   };

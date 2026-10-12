@@ -6,10 +6,10 @@
  * Key management with its "Encrypting files…" loop. Figma's wording where it is published; the rest is ours (marked).
  */
 import { useEffect, useRef, useState } from "react";
-import { Badge, Banner, Button, Checkbox, CodeBlock, Dialog, RadioGroup, Select, Switch, TextArea, TextInput, showToast } from "@/ds";
+import { Badge, Banner, Button, Checkbox, CodeBlock, Dialog, RadioGroup, Select, Switch, TextArea, TextInput, showToast, type SelectOption } from "@/ds";
 import {
   FILE_EXPORTING_LABEL, GUEST_EXPIRY_MAX_DAYS, POLICY_AUDIENCE_LABEL, POLICY_CADENCE_LABEL, POLICY_TEXT_MAX, POLICY_TITLE_MAX,
-  ipInCidr, normalizeCidr,
+  NETWORK_TESTING_MIN_MS, ipInCidr, normalizeCidr,
   type EkmStatus, type FileExporting, type GovernanceOverview, type InternalPolicy, type NetworkRange, type NetworkRangeState, type PolicyAudience, type PolicyCadence,
 } from "@shared/org/governance";
 import { IDP_PROVIDER_LABEL, type IdpConfig, type IdpConfigInput, type IdpProvider, type ScimTokenCreated, type ScimTokenInfo } from "@shared/org/identity";
@@ -415,10 +415,40 @@ export function FileExportingDialog({ settings, onClose }: { settings: OrgSettin
 const STATES = Object.keys(NETWORK_STATE_LABEL) as NetworkRangeState[];
 export const wouldBlockText = (n: number) => `${n === 1 ? "1 account" : `${n} accounts`} would have been blocked in the last 7 days`;
 
+/** A range's earliest Enforced (ms): Testing for NETWORK_TESTING_MIN_MS — since it was added, or later when known */
+export const enforceableAt = (r: NetworkRange, known?: number): number | null =>
+  r.state === "testing" ? Math.max(r.createdAt + NETWORK_TESTING_MIN_MS, known ?? 0) : r.state === "enforced" ? 0 : null;
+
+/** The Status options of a range: Enforced only from Testing, 24 hours in (§2.2; the server refuses earlier with 409) */
+export function rangeStateOptions(r: NetworkRange, at: number | null, now: number): SelectOption[] {
+  return STATES.map((s) => {
+    if (s !== "enforced" || r.state === "enforced") return { value: s, label: NETWORK_STATE_LABEL[s] };
+    if (at === null) return { value: s, label: NETWORK_STATE_LABEL[s], disabled: true, hint: "Set to Testing first" };
+    return at > now ? { value: s, label: NETWORK_STATE_LABEL[s], disabled: true, hint: `Can be enforced after ${formatDateTime(at)}` } : { value: s, label: NETWORK_STATE_LABEL[s] };
+  });
+}
+
+const formatDateTime = (ms: number) => new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
 export function NetworkRangesDialog({ onClose }: { onClose: () => void }) {
-  const { orgId, store, run } = useAdmin();
+  const { orgId, store, run, now } = useAdmin();
   const g = store.governance!;
   const { overview } = useGovernance();
+  // When a range can be enforced, as the server last said (its 409's `enforceableAt`) or as set here (Testing now)
+  const [known, setKnown] = useState<Readonly<Record<string, number>>>({});
+  const setState = async (r: NetworkRange, state: NetworkRangeState) => {
+    try {
+      await g.setNetworkRange(orgId, r.id, state);
+    } catch (e) {
+      const at = (e as { detail?: { enforceableAt?: unknown } } | null)?.detail?.enforceableAt;
+      if (typeof at === "number") setKnown((k) => ({ ...k, [r.id]: at }));
+      // The 409 itself ("…enforced after at least 24 hours in testing") through run's toast
+      await run(() => Promise.reject(e));
+      return;
+    }
+    if (state === "testing") setKnown((k) => ({ ...k, [r.id]: now() + NETWORK_TESTING_MIN_MS }));
+    await run(async () => undefined, `${r.cidr}: ${NETWORK_STATE_LABEL[state]}`);
+  };
   const [cidr, setCidr] = useState("");
   const [removing, setRemoving] = useState<NetworkRange | null>(null);
   const normalized = cidr.trim() ? normalizeCidr(cidr, "network") : null;
@@ -431,7 +461,7 @@ export function NetworkRangesDialog({ onClose }: { onClose: () => void }) {
     { id: "range", label: "IP range", width: "minmax(200px, 2fr)", render: (r) => <span className={styles.whoText}><span className={styles.whoName}>{r.cidr}</span><span className={styles.whoEmail} data-would-block={r.wouldBlock7d}>{wouldBlockText(r.wouldBlock7d)}</span></span> },
     {
       id: "state", label: "Status", width: 140,
-      render: (r) => <Select label={`Status of ${r.cidr}`} width={124} value={r.state} options={STATES.map((s) => ({ value: s, label: NETWORK_STATE_LABEL[s] }))} onChange={(v) => void run(() => g.setNetworkRange(orgId, r.id, v as NetworkRangeState), `${r.cidr}: ${NETWORK_STATE_LABEL[v as NetworkRangeState]}`)} />,
+      render: (r) => <Select label={`Status of ${r.cidr}`} width={124} value={r.state} options={rangeStateOptions(r, enforceableAt(r, known[r.id]), now())} onChange={(v) => void setState(r, v as NetworkRangeState)} />,
     },
     { id: "added", label: "Added", width: 110, render: (r) => <span className={styles.muted}>{formatDate(r.createdAt)}</span> },
     { id: "menu", label: "", width: 32, align: "end", render: (r) => <RowMenu label={`More for ${r.cidr}`} entries={[{ id: "remove", label: "Remove", danger: true }]} onSelect={() => setRemoving(r)} /> },

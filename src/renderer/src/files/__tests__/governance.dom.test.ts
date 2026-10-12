@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AccountState } from "@shared/account";
 import type { OrgGate } from "@shared/org/governance";
 import type { OrgSummary } from "@shared/org/types";
+import type { OrgEvent } from "@shared/org/repositories";
 import { StoreError } from "@shared/store/protocol";
 import { $, $$, mount, type Mounted } from "@/ds/__tests__/dom";
 import { MemoryStore } from "@/store/memory/memoryStore";
@@ -65,6 +66,8 @@ interface Knobs {
   guestExpiresAt?: number;
   refuse?: unknown;
   listRefuse?: unknown;
+  /** An org whose Drafts never answer (a slow read) */
+  hang?: string;
 }
 
 async function setup(knobs: Knobs) {
@@ -83,14 +86,24 @@ async function setup(knobs: Knobs) {
   (window as unknown as { designer: unknown }).designer = { account: { get: async () => state, signIn: async () => ({ ok: true, state }), cancelSignIn: async () => state, signOut: async () => (signedOut.push(1), state), onChanged: () => () => {} } };
   const acknowledged: string[] = [];
   const reads: string[] = [];
+  const watchers: ((e: OrgEvent) => void)[] = [];
   const orgs = {
     ...api.orgs,
+    watch: (l: (e: OrgEvent) => void) => {
+      watchers.push(l);
+      const off = api.orgs.watch(l);
+      return () => {
+        watchers.splice(watchers.indexOf(l), 1);
+        off();
+      };
+    },
     list: async (): Promise<OrgSummary[]> => {
       if (knobs.listRefuse) throw knobs.listRefuse;
       return (await api.orgs.list()).map((o) => (o.id === org.id ? { ...o, gate: knobs.gate, guestExpiresAt: knobs.guestExpiresAt } : o));
     },
     drafts: async (id: string) => {
       reads.push("drafts");
+      if (id === knobs.hang) return new Promise<never>(() => {});
       if (knobs.refuse) throw knobs.refuse;
       return api.orgs.drafts(id);
     },
@@ -117,7 +130,8 @@ async function setup(knobs: Knobs) {
   };
   m = mount(FileBrowser, { backend, initialLocation: { kind: "org-drafts" }, toast: () => {} });
   await settleLong();
-  return { api, org, acknowledged, reads, signedOut, knobs };
+  const emit = (e: OrgEvent) => act(() => watchers.forEach((l) => l(e)));
+  return { api, org, acknowledged, reads, signedOut, knobs, emit };
 }
 
 const policy = (id: string, title: string) => ({ id, title, text: `${title} text` });
@@ -202,5 +216,42 @@ describe("Home's Governance+ gates", () => {
     expect(gateOfError(new Error("x"))).toBeNull();
     expect(isNetworkRestricted(new StoreError("forbidden", "x", { code: "network_restricted" }))).toBe(true);
     expect(effectiveGate({ kind: "policy", policies: [policy("a", "A")] }, new Set(["a"]))).toBeNull();
+  });
+
+  it("the store's access.blocked events: an org's gate, the network restriction; cleared when the orgs are read again", async () => {
+    const ctx = await setup({});
+    expect($("[data-gate]")).toBeNull();
+    ctx.emit({ type: "access.blocked", orgId: ctx.org.id, code: "ip_not_allowed", gate: { kind: "ip", ip: "192.0.2.7" } });
+    await settle();
+    expect($("[data-gate='ip']")?.textContent).toContain("192.0.2.7");
+    ctx.emit({ type: "orgs.changed" });
+    await settleLong();
+    expect($("[data-gate='ip']")).toBeNull();
+    ctx.emit({ type: "access.blocked", orgId: ctx.org.id, code: "policy_acknowledgement_required", gate: { kind: "policy", policies: [policy("p9", "Data handling")] } });
+    await settle();
+    expect($('[role="dialog"]')?.textContent).toContain("Data handling");
+    await press($("[data-policy-agree]")!);
+    await settleLong();
+    expect(ctx.acknowledged).toEqual(["p9"]);
+    expect($('[role="dialog"]')).toBeNull();
+    ctx.emit({ type: "access.blocked", orgId: null, code: "network_restricted" });
+    await settle();
+    expect($("[data-gate='network']")).toBeTruthy();
+  });
+
+  it("another org shows no gate the last org's refused read carried", async () => {
+    const refused = new StoreError("forbidden", "ip_not_allowed", { error: "ip_not_allowed", code: "ip_not_allowed", gate: { kind: "ip", ip: "198.51.100.1" } });
+    const ctx = await setup({ refuse: refused });
+    expect($("[data-gate='ip']")).toBeTruthy();
+    const other = await act(async () => ctx.api.orgs.create({ name: "Globex" }));
+    await settleLong();
+    expect($("[data-gate='ip']")).toBeTruthy();
+    ctx.knobs.hang = other.id; // its page is still loading
+    await act(async () => {
+      await ctx.api.workspace.setBrowsePrefs({ space: `org:${other.id}` });
+    });
+    await settleLong();
+    expect(ctx.reads.length).toBeGreaterThan(1);
+    expect($("[data-gate='ip']")).toBeNull();
   });
 });

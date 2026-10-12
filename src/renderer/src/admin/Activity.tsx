@@ -3,7 +3,7 @@
  * Custom), Events (by Figma's groups) and Team; Get CSV (the date range only, as Figma's); rows with the date and
  * time in UTC, the team member, the event, the product and team when there is one, and the IP address.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Select, TextInput, type SelectEntry } from "@/ds";
 import type { ActivityLog, ActivityQuery } from "@shared/org/types";
 import { REQUIRES_GOVERNANCE_PLUS, type DeveloperDateRange, type DeveloperEventSource, type DeveloperLogItem, type DeveloperLogsQuery, type DeveloperTokenType } from "@shared/org/governance";
@@ -106,6 +106,18 @@ const ITEM_TOKEN_LABEL: Record<DeveloperLogItem["actor"]["token_type"], string> 
 const SOURCE_LABEL: Record<DeveloperEventSource, string> = { REST_API: "REST API", MCP_SERVER: "MCP server" };
 const DATE_RANGE_LABEL: Record<DeveloperDateRange, string> = { LAST_24H: "Last 24 hours", LAST_7D: "Last 7 days", LAST_30D: "Last 30 days" };
 const DEV_PAGE = 25;
+/** The text filters ask the server this long after the last keystroke */
+export const DEV_FILTER_DEBOUNCE_MS = 300;
+
+/** `value`, `ms` after it last changed */
+function useDebounced<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return settled;
+}
 
 /**
  * Admin › Activity › Developer logs (ours: Figma shows them at figma.com/developers/log; the filters are the Developer
@@ -122,10 +134,16 @@ export function DeveloperLogsTab() {
   const [tokenType, setTokenType] = useState<DeveloperTokenType | "all">("all");
   const [source, setSource] = useState<DeveloperEventSource | "all">("all");
   const [range, setRange] = useState<DeveloperDateRange>("LAST_30D");
+  // Typing asks once it pauses, not per keystroke
+  const tokenNameQ = useDebounced(tokenName.trim(), DEV_FILTER_DEBOUNCE_MS);
+  const emailQ = useDebounced(email.trim(), DEV_FILTER_DEBOUNCE_MS);
+  const ipQ = useDebounced(ip.trim(), DEV_FILTER_DEBOUNCE_MS);
+  const loadingMore = useRef(false);
+  const [busy, setBusy] = useState(false);
   const query: DeveloperLogsQuery = {
-    token_name: tokenName.trim() || undefined,
-    user_email: email.trim() || undefined,
-    ip_address: ip.trim() || undefined,
+    token_name: tokenNameQ || undefined,
+    user_email: emailQ || undefined,
+    ip_address: ipQ || undefined,
     token_type: tokenType === "all" ? undefined : tokenType,
     event_source: source === "all" ? undefined : source,
     date_range: range,
@@ -142,9 +160,17 @@ export function DeveloperLogsTab() {
   const rows = [...(first?.items ?? []), ...(fresh && more?.key === key ? more.rows : [])];
   const cursor = !fresh ? null : more?.key === key ? more.cursor : first?.has_more ? first.cursor : null;
   const loadMore = async () => {
-    if (!cursor) return;
-    const page = await run(() => g.developerLogs(orgId, { ...query, cursor }));
-    if (page) setMore({ key, rows: [...(more?.key === key ? more.rows : []), ...page.items], cursor: page.has_more ? page.cursor : null });
+    // One page at a time: a second click while one loads would add the same rows twice
+    if (!cursor || loadingMore.current) return;
+    loadingMore.current = true;
+    setBusy(true);
+    try {
+      const page = await run(() => g.developerLogs(orgId, { ...query, cursor }));
+      if (page) setMore((m) => ({ key, rows: [...(m?.key === key ? m.rows : []), ...page.items], cursor: page.has_more ? page.cursor : null }));
+    } finally {
+      loadingMore.current = false;
+      setBusy(false);
+    }
   };
   const columns: Column<DeveloperLogItem>[] = [
     { id: "date", label: "Date (UTC)", width: 150, render: (r) => <span className={styles.muted}>{formatUtc(Date.parse(r.timestamp) / 1000)}</span> },
@@ -177,7 +203,7 @@ export function DeveloperLogsTab() {
       <Table label="Developer logs" rows={rows} columns={columns} rowKey={(r) => r.uuid} empty="No calls match these filters" />
       {cursor && (
         <div className={styles.loadMore}>
-          <Button variant="secondary" onClick={() => void loadMore()}>Load more</Button>
+          <Button variant="secondary" disabled={busy} onClick={() => void loadMore()}>Load more</Button>
         </div>
       )}
     </>

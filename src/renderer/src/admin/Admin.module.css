@@ -200,7 +200,7 @@
   .progress { height: 6px; overflow: hidden; border-radius: var(--ds-radius-full); background: var(--figma-color-bg-secondary); }
   .progressBar { display: block; height: 100%; border-radius: var(--ds-radius-full); background: var(--figma-color-bg-brand); }
   /* Round 14h: an internal policy's text (Settings › Other › Internal policies) */
-  .policyText { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: var(--ds-space-3); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); user-select: text; }
+  .policyText { max-height: calc(var(--ds-size-row) * 10); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: var(--ds-space-3); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); user-select: text; }
 
   /* --- Dialog bodies --- */
   .form { display: flex; flex-direction: column; gap: var(--ds-space-4); }

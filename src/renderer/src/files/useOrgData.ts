@@ -4,7 +4,7 @@
  * org location lists — reloaded whenever the `org` topic reports a change (the store's cache answers first, then
  * refreshes behind and says so).
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type * as O from "@shared/org/types";
 import type { OrgGate } from "@shared/org/governance";
 import { effectiveGate, gateOfError, isNetworkRestricted } from "./governance";
@@ -43,8 +43,11 @@ export interface OrgPageState {
   loadedAt: number;
   /** What refused the page (docs/governance.md §2.5): an org gate, or the network restriction */
   blocked?: OrgGate | "network" | null;
+  /** The org whose read was refused (a gate is that org's only) */
+  blockedOrg?: string | null;
 }
 
+const NO_REFUSALS: { gates: Readonly<Record<string, OrgGate>>; network: boolean } = { gates: {}, network: false };
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 export const folderKey = (teamId: string, parentId: string | null) => `${teamId}/${parentId ?? ""}`;
 const quiet = <T,>(p: Promise<T>, fallback: T) => p.catch(() => fallback);
@@ -123,6 +126,15 @@ export function useOrgData(org: OrgBackend | undefined, orgId: string | null, lo
     teamsRef.current = shell.teams;
   });
   const seq = useRef(0);
+  // What the store said refused a call or a shared file's socket (`access.blocked`, docs/governance.md §9 14e): an
+  // org's gate, or the account-wide network restriction. Cleared when the orgs are read again (`orgs.changed`: an
+  // agreement, 2FA turned on, another account), which comes before a new refusal's event.
+  const [refused, setRefused] = useState<{ gates: Readonly<Record<string, OrgGate>>; network: boolean }>(NO_REFUSALS);
+  // Another org: a read of the last one still on its way is dropped (its refusal is not this org's; the page's
+  // `blockedOrg` keeps a gate to its own org, below).
+  useLayoutEffect(() => {
+    seq.current++;
+  }, [orgId]);
 
   const readShell = useCallback(async (): Promise<OrgShell | null> => {
     if (!org) return null;
@@ -154,7 +166,8 @@ export function useOrgData(org: OrgBackend | undefined, orgId: string | null, lo
   );
 
   // A gated org (its list entry says so, docs/governance.md §2.5) loads no page: every read would be refused.
-  const gated = !!effectiveGate(shell.orgs.find((o) => o.id === orgId)?.gate, agreed);
+  const eventGate = orgId ? (refused.gates[orgId] ?? null) : null;
+  const gated = !!effectiveGate(shell.orgs.find((o) => o.id === orgId)?.gate ?? eventGate, agreed);
   const loadPage = useCallback(async () => {
     if (!org || !orgId || !active || gated) return;
     const mine = ++seq.current;
@@ -165,7 +178,7 @@ export function useOrgData(org: OrgBackend | undefined, orgId: string | null, lo
       if (mine === seq.current) setPage({ ready: true, error: null, key, page: data, loadedAt: Date.now() });
     } catch (e) {
       const blocked = isNetworkRestricted(e) ? "network" : gateOfError(e);
-      if (mine === seq.current) setPage({ ready: true, error: message(e), key, page: { kind: "none" }, loadedAt: Date.now(), blocked });
+      if (mine === seq.current) setPage({ ready: true, error: message(e), key, page: { kind: "none" }, loadedAt: Date.now(), blocked, blockedOrg: orgId });
     }
   }, [org, orgId, active, gated]);
 
@@ -203,7 +216,13 @@ export function useOrgData(org: OrgBackend | undefined, orgId: string | null, lo
   useEffect(() => {
     if (!org) return;
     let timer: number | undefined;
-    const off = org.orgs.watch(() => {
+    const off = org.orgs.watch((e) => {
+      if (e.type === "access.blocked") {
+        if (e.code === "network_restricted") setRefused((r) => (r.network ? r : { ...r, network: true }));
+        else if (e.orgId && e.gate) setRefused((r) => ({ ...r, gates: { ...r.gates, [e.orgId!]: e.gate! } }));
+        return;
+      }
+      if (e.type === "orgs.changed") setRefused((r) => (r === NO_REFUSALS ? r : NO_REFUSALS));
       window.clearTimeout(timer);
       timer = window.setTimeout(reload, 16);
     });
@@ -213,5 +232,8 @@ export function useOrgData(org: OrgBackend | undefined, orgId: string | null, lo
     };
   }, [org, reload]);
 
-  return { shell, page, reload, openFolders };
+  const shown = useMemo(() => (refused.network && !shell.network ? { ...shell, network: true } : shell), [shell, refused.network]);
+  // No org A gate in org B (a gated B's page isn't read: its gate comes from the list)
+  const shownPage = useMemo(() => (page.blocked && page.blocked !== "network" && page.blockedOrg !== orgId ? { ...page, blocked: null } : page), [page, orgId]);
+  return { shell: shown, page: shownPage, reload, openFolders, eventGate };
 }

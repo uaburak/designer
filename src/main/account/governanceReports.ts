@@ -25,6 +25,11 @@ export interface ReportDeps {
   signedIn(): boolean;
   /** POST `path` with a JSON body; the session and server are the host's */
   post(path: string, body: unknown): Promise<void>;
+  /**
+   * Whether the org records Discovery (Governance+ with Discovery on), from what the store already caches (the org's
+   * settings); absent or unknown: true — the server drops prompts for orgs without it anyway.
+   */
+  discoveryOn?(orgId: string): Promise<boolean>;
   now?(): number;
   timers?: { setTimeout(fn: () => void, ms: number): unknown; clearTimeout(t: unknown): void };
 }
@@ -86,8 +91,10 @@ export class GovernanceReports {
     const at = this.now();
     this.track(
       this.orgOf(fileKey)
-        .then((org) => {
+        .then(async (org) => {
           if (!org) return;
+          // An org without Discovery: the prompt never leaves the computer.
+          if (this.deps.discoveryOn && !(await this.deps.discoveryOn(org).catch(() => true))) return;
           const body: AiPromptReport = { fileKey, text: text.slice(0, MAX_PROMPT_CHARS), feature, at };
           return this.deps.post(`/orgs/${encodeURIComponent(org)}/discovery/ai-prompt`, body);
         })
@@ -125,7 +132,10 @@ export class GovernanceReports {
   /** On quit: lets pending lookups settle, then flushes */
   async drain(): Promise<void> {
     await Promise.all([...this.inflight]);
-    await this.flush();
+    // Tracked, so a second drain (McpServer.stop() on before-quit, then finishQuit) waits for this one's posts.
+    const f = this.flush();
+    this.track(f);
+    await f;
   }
 }
 
@@ -136,3 +146,13 @@ export const setGovernanceReports = (r: GovernanceReports | null) => void (curre
 export const reportMcpCall = (fileKey: string | null, tool: string) => current?.mcpCall(fileKey, tool);
 export const reportAiPrompt = (fileKey: string | null, text: string, feature: string) => current?.aiPrompt(fileKey, text, feature);
 export const drainGovernanceReports = (): Promise<void> => current?.drain() ?? Promise.resolve();
+
+/** The longest quitting waits for the reports (finishQuit, before the store stops and the app exits). */
+export const QUIT_DRAIN_MS = 2_000;
+
+/** Drains the reports, or gives up after `ms` (a slow server never holds up quitting); never rejects. */
+export function drainGovernanceReportsWithin(ms = QUIT_DRAIN_MS): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => (timer = setTimeout(resolve, ms)));
+  return Promise.race([drainGovernanceReports().catch(() => undefined), timeout]).finally(() => clearTimeout(timer));
+}

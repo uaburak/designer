@@ -321,7 +321,9 @@ function GuestExpirationDialog({ guests, onClose }: { guests: AdminPerson[]; onC
   const valid = Number.isFinite(at) && at > now() && at <= now() + GUEST_EXPIRY_MAX_DAYS * 86_400_000;
   const ids = guests.map((g) => g.id);
   const who = guests.length === 1 ? first.name ?? first.email : `${guests.length} guests`;
-  const set = (expiresAt: number | null, done: string) => void run(() => store.governance!.setGuestExpiration(orgId, ids, expiresAt), done).then(onClose);
+  // Closes only when saved: `run` answers undefined after its error toast, and the dialog stays for another try.
+  const set = (expiresAt: number | null, done: string) =>
+    void run(async () => (await store.governance!.setGuestExpiration(orgId, ids, expiresAt), true as const), done).then((ok) => ok && onClose());
   return (
     <Dialog
       title={guests.length === 1 ? "Guest access expiration date" : "Set guest expiration date"} open size="medium" onClose={onClose}

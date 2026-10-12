@@ -3,7 +3,7 @@
  * captured). The shared pieces (sections, links, the dialogs' form rows) are Settings.module.css's.
  */
 @layer app {
-  .status { display: flex; flex-direction: column; align-items: flex-start; gap: var(--ds-space-1); margin-top: 12px; }
+  .status { display: flex; flex-direction: column; align-items: flex-start; gap: var(--ds-space-1); margin-top: var(--ds-space-3); }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-3); margin-top: var(--ds-space-1); }
   /* Scanners want dark modules on white: the two tokens that are white and near-black in both themes */
   .qr {

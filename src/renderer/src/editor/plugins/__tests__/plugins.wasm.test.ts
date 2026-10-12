@@ -15,6 +15,7 @@ import { parseManifest } from "@shared/plugins/manifest";
 import { allowedUrl, refusedMessage } from "@shared/plugins/network";
 import type { PluginFetchResponse } from "@shared/ipc";
 import { EditorController } from "../../controller";
+import { setExportAllowed } from "../../exporting";
 import { memoryDocumentSource } from "../../documentSource";
 import { PluginRun, type RunSpec } from "../host";
 import { createSandbox } from "../index";
@@ -421,6 +422,25 @@ describe("plugins: the sandbox", () => {
     );
     await untilEnded(r);
     expect(JSON.parse(rootData(engine, "result")!)).toEqual({ svg: true, bytes: true, mixed: true, range: [12, 24], chars: "Hello, world", group: ["GROUP", 2], ungroup: 2, clone: true, component: "COMPONENT", instance: ["INSTANCE", true] });
+  });
+
+  it("exportAsync is refused for a viewer the file's export setting restricts (governance §2.7)", async () => {
+    const { ed, engine } = await editor();
+    setExportAllowed(ed, false);
+    const { r } = await run(
+      ed,
+      inline(`
+        (async () => {
+          const rect = figma.createRectangle();
+          let msg = "";
+          try { await rect.exportAsync({ format: "PNG" }); msg = "exported"; } catch (e) { msg = String(e && e.message || e); }
+          figma.root.setPluginData("result", msg);
+          figma.closePlugin();
+        })();
+      `)
+    );
+    await untilEnded(r);
+    expect(rootData(engine, "result")).toContain("export is not allowed in this file");
   });
 
   it("a plugin's error is reported and the run ends", async () => {

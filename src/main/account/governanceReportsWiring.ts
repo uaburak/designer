@@ -1,4 +1,3 @@
-import { app } from "electron";
 import { mainFetch } from "../net";
 import { storeClient } from "../storeHost";
 import { desktopUserAgent, serverUrl, sessionToken } from "./index";
@@ -14,6 +13,12 @@ export function initGovernanceReports(): void {
       const f = await c.workspace.getFile(fileKey).catch(() => null);
       return f?.space?.orgId ?? null;
     },
+    // The store's org cache (OrgInfo.settings, readable by every member): no prompt goes to an org with Discovery off.
+    discoveryOn: async (orgId) => {
+      const info = await storeClient()?.orgs.get(orgId).catch(() => null);
+      if (!info) return true;
+      return info.governancePlus !== false && info.settings?.discovery !== false;
+    },
     post: async (path, body) => {
       const token = sessionToken();
       if (!token) return;
@@ -26,5 +31,5 @@ export function initGovernanceReports(): void {
     },
   });
   setGovernanceReports(r);
-  app.once("before-quit", () => void r.drain());
+  // On quit, window.ts finishQuit() awaits drainGovernanceReportsWithin() before the store stops and the app exits.
 }

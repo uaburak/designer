@@ -18,7 +18,7 @@ afterEach(() => {
 /** Lets the store's promises and Home's coalesced reload (16 ms) run. */
 const settle = () => act(async () => new Promise((r) => setTimeout(r, 40)));
 
-async function setup(initialLocation: Location = { kind: "drafts" }) {
+async function setup(initialLocation: Location = { kind: "drafts" }, extra: Partial<FilesBackend> = {}) {
   const ws = new MemoryWorkspace({ teamName: "Burak's team" });
   const brand = ws.seedFolder({ name: "Brand", color: "purple" });
   const icons = ws.seedFolder({ name: "Icons", parentId: brand.id });
@@ -31,7 +31,7 @@ async function setup(initialLocation: Location = { kind: "drafts" }) {
   await ws.setBrowsePrefs({ sort: "alphabetical" });
   const toasts: ToastOptions[] = [];
   const opened: { url: string; newTab: boolean }[] = [];
-  const backend: FilesBackend = { workspace: ws, source: "memory", thumbnailUrl: () => null, importFigBytes: (file, folderId) => (file.name.startsWith("bad") ? Promise.reject(new Error("This file uses a compression the browser can't read")) : ws.importFig(file.name, folderId)) };
+  const backend: FilesBackend = { workspace: ws, source: "memory", thumbnailUrl: () => null, importFigBytes: (file, folderId) => (file.name.startsWith("bad") ? Promise.reject(new Error("This file uses a compression the browser can't read")) : ws.importFig(file.name, folderId)), ...extra };
   const props: FileBrowserProps = { backend, initialLocation, toast: (t) => toasts.push(t), openDeps: { navigate: (url, newTab) => opened.push({ url, newTab }) } };
   m = mount(FileBrowser, props);
   await settle();
@@ -195,5 +195,36 @@ describe("FileBrowser", () => {
     const made = files.find((f) => f.name === "Untitled");
     expect(made).toBeTruthy();
     expect(opened.at(-1)?.url).toContain(made!.fileKey);
+  });
+
+  it("a shared file whose viewers may not export it: no Duplicate or Save local copy… (governance §2.7)", async () => {
+    let restricted = "";
+    const menuStates: Record<string, boolean>[] = [];
+    const commands: ((c: { id: string }) => void)[] = [];
+    (window as unknown as { designer?: unknown }).designer = { menu: { setState: (s: { enabled: Record<string, boolean> }) => menuStates.push(s.enabled), onCommand: (cb: (c: { id: string }) => void) => (commands.push(cb), () => {}) } };
+    try {
+      const { ws, b, toasts } = await setup({ kind: "drafts" }, { exportAccess: async (k) => k !== restricted });
+      restricted = b.fileKey;
+      mouse(card("Beta"), "contextmenu");
+      await settle();
+      expect(menuItem("Duplicate").getAttribute("aria-disabled")).toBe("true");
+      expect(menuStates.at(-1)).toMatchObject({ "file.duplicate": false, "file.save-local-copy": false });
+      key(document.body, "Escape");
+      mouse(card("Alpha"), "contextmenu");
+      await settle();
+      expect(menuItem("Duplicate").getAttribute("aria-disabled")).toBeNull();
+      expect(menuStates.at(-1)).toMatchObject({ "file.duplicate": true, "file.save-local-copy": true });
+      key(document.body, "Escape");
+      // The menu bar's File › Duplicate on the restricted file (asked again before it runs): nothing copied
+      click(card("Beta"));
+      await settle();
+      const before = (await ws.listFiles({ in: "drafts" })).length;
+      act(() => commands.forEach((cb) => cb({ id: "file.duplicate" })));
+      await settle();
+      expect((await ws.listFiles({ in: "drafts" })).length).toBe(before);
+      expect(toasts.at(-1)?.kind).toBe("error");
+    } finally {
+      delete (window as unknown as { designer?: unknown }).designer;
+    }
   });
 });

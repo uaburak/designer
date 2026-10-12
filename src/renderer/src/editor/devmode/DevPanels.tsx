@@ -21,12 +21,14 @@ import { editorDevData, setRound5, useRound5 } from "./round5";
 import { DevPluginsPanel } from "./PluginsPanel";
 import { commandItem } from "../menus";
 import { runEditorCommand } from "../commands";
+import { useExportAllowed } from "../exporting";
 
 /** Dev Mode's right sidebar: Inspect, and Plugins (docs/plugins.md §7). */
 const PLUGINS_TAB = { label: "Plugins", render: () => <DevPluginsPanel /> };
 
 /** The viewer's "preview" of the open file: its name and pages, Inspect and export on, images from the file. */
-function previewOf(ed: EditorController, fileName: string): LoadedPreview {
+/** The viewer's preview of the editor's file; `canExport` false hides Assets and Export (docs/governance.md §2.7). */
+export function previewOf(ed: EditorController, fileName: string, canExport: boolean): LoadedPreview {
   return {
     manifest: {
       format: PREVIEW_FORMAT,
@@ -49,7 +51,8 @@ function previewOf(ed: EditorController, fileName: string): LoadedPreview {
       documentFormatVersion: DOCUMENT_FORMAT_VERSION,
       derivedDataVersion: 0,
       images: [],
-      options: { inspect: true, export: true },
+      // Assets and Export download files: off for a viewer the file's export setting restricts (docs/governance.md §2.7).
+      options: { inspect: true, export: canExport },
     },
     message: new Uint8Array(),
     image: async (sha1) => (ed.source.images ? ed.source.images.get(sha1) : null),
@@ -92,6 +95,7 @@ function DevContext({ children }: { children: ReactNode }) {
   const ed = useEditor();
   const fileName = useUI((s) => s.fileName);
   const canEdit = useRound5(ed, selectCanEdit);
+  const canExport = useExportAllowed(ed);
   // Made again when the file's access is known (editorDevData reads it).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const dev = useMemo(() => editorDevData(ed), [ed, canEdit]);
@@ -102,7 +106,7 @@ function DevContext({ children }: { children: ReactNode }) {
       engine: ed.engine,
       store: ed.store,
       doc: new ViewerDoc(ed.engine),
-      preview: previewOf(ed, fileName),
+      preview: previewOf(ed, fileName, canExport),
       host: {
         subtitle: "Dev Mode",
         onCompare: (id) => ed.ui.set({ compare: { ref: id } }),
@@ -119,7 +123,7 @@ function DevContext({ children }: { children: ReactNode }) {
     }),
     // A new reader (and preview) per document version.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ed, fileName, version, dev]
+    [ed, fileName, version, dev, canExport]
   );
   return <ViewerContext.Provider value={state}>{children}</ViewerContext.Provider>;
 }

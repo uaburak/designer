@@ -36,6 +36,8 @@ export interface MenuContext {
   allStarred: boolean;
   /** The single folder's colour, when one folder is selected */
   color?: FolderColor;
+  /** A selected file is shared with the person as a viewer who may not export it (docs/governance.md §2.7): no Duplicate */
+  exportRestricted?: boolean;
 }
 
 const item = (id: MenuId, label: string, extra: Partial<Exclude<MenuEntry, "-" | { header: string }>> = {}): MenuEntry => ({ id, label, ...extra });
@@ -70,7 +72,7 @@ export function itemMenu(ctx: MenuContext): MenuEntry[] {
     "-",
     star,
     "-",
-    item("duplicate", "Duplicate", { disabled: !!ctx.folders }),
+    item("duplicate", "Duplicate", { disabled: !!ctx.folders || !!ctx.exportRestricted }),
     item("rename", "Rename", { disabled: !one }),
     item("move", "Move to folder…"),
     ...(ctx.location.kind === "recents" && !ctx.folders ? [item("remove-from-recents", "Remove from recents")] : []),

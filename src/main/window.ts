@@ -4,6 +4,7 @@ import { CAPTION_OVERLAY, DEFAULT_WINDOW_SIZE, MIN_WINDOW_SIZE, TABBAR_HEIGHT, T
 import { persistable, restoreTabs } from "../shared/tabs";
 import { flushSession, readSession, writeSession, type WindowBounds, type WindowSession } from "./session";
 import { stopStoreHost } from "./storeHost";
+import { drainGovernanceReportsWithin } from "./account/governanceReports";
 import { emit, TabManager } from "./tabs";
 import { backgroundOf, createView, destroyView } from "./views";
 
@@ -25,10 +26,13 @@ let finishing: Promise<void> | null = null;
  * a cancelled one is ignored on some paths (a SIGTERM's).
  */
 export function finishQuit(): Promise<void> {
-  finishing ??= stopStoreHost().finally(() => {
-    flushSession();
-    app.exit(0);
-  });
+  // Governance+ reports still waiting (MCP calls, AI prompts) go first: they read the store (a file's org); at most 2 s.
+  finishing ??= drainGovernanceReportsWithin()
+    .then(() => stopStoreHost())
+    .finally(() => {
+      flushSession();
+      app.exit(0);
+    });
   return finishing;
 }
 

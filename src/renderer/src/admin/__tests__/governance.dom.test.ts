@@ -11,6 +11,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { $, $$, click, mount, type, type Mounted } from "@/ds/__tests__/dom";
 import { AdminApp, createFakeAdminStore, type AdminAppProps, type FakeAdminStore } from "..";
 import { eventText } from "../labels";
+import { FakeIdentityError } from "../fake/fakeIdentity";
+import { enforceableAt, rangeStateOptions } from "../SettingsGovernance";
+import { NETWORK_TESTING_MIN_MS } from "@shared/org/governance";
 
 const NOW = Date.UTC(2026, 9, 11, 12, 0, 0);
 let m: Mounted | null = null;
@@ -241,6 +244,8 @@ describe("Admin › Governance+ (round 14h)", () => {
 
   it("Network access restrictions: too-wide ranges refused, new ranges in Testing with the shadow count, Enforced, Remove", async () => {
     const fake = await open();
+    // A range in Testing for a day already (Enforced is offered), added before the dialog opens
+    fake.governanceState.networkRanges.push({ id: "old", cidr: "203.0.113.0/24", createdAt: NOW - NETWORK_TESTING_MIN_MS - 3_600_000, createdBy: null, state: "testing", wouldBlock7d: 2 });
     await change("networkRanges", "Manage");
     typeArea(input("IP range"), "10.0.0.0/8");
     await settle();
@@ -251,14 +256,44 @@ describe("Admin › Governance+ (round 14h)", () => {
     click(button("Add range", dialog()));
     await settle();
     await settle();
-    const r = fake.governanceState.networkRanges[0];
+    const r = fake.governanceState.networkRanges.find((x) => x.cidr === "198.51.100.0/24")!;
     expect(r).toMatchObject({ cidr: "198.51.100.0/24", state: "testing" });
     expect($(`[data-row="${r.id}"]`).textContent).toContain(`accounts would have been blocked in the last 7 days`);
-    await choose("Status of 198.51.100.0/24", "Enforced", dialog());
+    // Just added: Enforced waits 24 hours in Testing (disabled, with when) — and the fake refuses as the server does
+    click($$('[role="combobox"]', dialog()).find((c) => c.getAttribute("aria-label") === "Status of 198.51.100.0/24")!);
     await settle();
-    expect(fake.governanceState.networkRanges[0].state).toBe("enforced");
+    const enforced = $$('[role="option"]').find((o) => o.textContent?.includes("Enforced"))!;
+    expect(enforced.getAttribute("aria-disabled")).toBe("true");
+    expect(enforced.textContent).toContain("Can be enforced after");
+    act(() => void document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await settle();
+    await expect(fake.governance.setNetworkRange(fake.state.orgId, r.id, "enforced")).rejects.toMatchObject({ code: "conflict", detail: { enforceableAt: r.createdAt + NETWORK_TESTING_MIN_MS } });
+    // The old range: Enforced
+    await choose("Status of 203.0.113.0/24", "Enforced", dialog());
+    await settle();
+    expect(fake.governanceState.networkRanges.find((x) => x.id === "old")!.state).toBe("enforced");
     expect(actions(fake).slice(0, 2)).toEqual(["ip_restriction_change", "network_access_restriction_range_update"]);
-    expect(sentences(fake)[1]).toBe("Set 198.51.100.0/24 to Enforced");
+    expect(sentences(fake)[1]).toBe("Set 203.0.113.0/24 to Enforced");
+    // A 409 that comes anyway (another admin set it back to Testing): shown, and Enforced waits for its time
+    m!.unmount();
+    m = null;
+    m = mount(AdminApp, { orgId: fake.state.orgId, store: fake, now: () => NOW, initial: { section: "settings" } });
+    await settle();
+    await settle();
+    fake.governanceState.networkRanges.find((x) => x.id === "old")!.state = "testing"; // as if another admin set it
+    const real = fake.governance.setNetworkRange;
+    fake.governance.setNetworkRange = async () => {
+      throw new FakeIdentityError("conflict", "a range is enforced after at least 24 hours in testing", { code: "conflict", enforceableAt: NOW + 3_600_000 });
+    };
+    await change("networkRanges", "Manage");
+    await choose("Status of 203.0.113.0/24", "Enforced", dialog());
+    await settle();
+    click($$('[role="combobox"]', dialog()).find((c) => c.getAttribute("aria-label") === "Status of 203.0.113.0/24")!);
+    await settle();
+    expect($$('[role="option"]').find((o) => o.textContent?.includes("Enforced"))!.getAttribute("aria-disabled")).toBe("true");
+    act(() => void document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await settle();
+    fake.governance.setNetworkRange = real;
     click($(`[data-row="${r.id}"] [aria-label^="More for"]`));
     await settle();
     click(menuItem("Remove"));
@@ -266,7 +301,21 @@ describe("Admin › Governance+ (round 14h)", () => {
     click(button("Remove", dialog()));
     await settle();
     await settle();
-    expect(fake.governanceState.networkRanges).toHaveLength(0);
+    expect(fake.governanceState.networkRanges.some((x) => x.id === r.id)).toBe(false);
+  });
+
+  it("Network ranges' Status options: Enforced from Testing after 24 hours, else disabled with why", () => {
+    const r = { id: "r", cidr: "192.0.2.0/24", createdAt: NOW, createdBy: null, state: "testing" as const, wouldBlock7d: 0 };
+    const enforced = (o: ReturnType<typeof rangeStateOptions>) => o.find((x) => x.value === "enforced")!;
+    expect(enforceableAt(r)).toBe(NOW + NETWORK_TESTING_MIN_MS);
+    expect(enforceableAt(r, NOW + 2 * NETWORK_TESTING_MIN_MS)).toBe(NOW + 2 * NETWORK_TESTING_MIN_MS);
+    expect(enforced(rangeStateOptions(r, enforceableAt(r), NOW))).toMatchObject({ disabled: true });
+    expect(enforced(rangeStateOptions(r, enforceableAt(r), NOW)).hint).toMatch(/^Can be enforced after /);
+    expect(enforced(rangeStateOptions(r, enforceableAt(r), NOW + NETWORK_TESTING_MIN_MS)).disabled).toBeUndefined();
+    const off = { ...r, state: "disabled" as const };
+    expect(enforced(rangeStateOptions(off, enforceableAt(off), NOW))).toMatchObject({ disabled: true, hint: "Set to Testing first" });
+    const on = { ...r, state: "enforced" as const };
+    expect(enforced(rangeStateOptions(on, enforceableAt(on), NOW)).disabled).toBeUndefined();
   });
 
   it("Other: Internal policies created (never edited), disabled and re-enabled with the agreed count; Discovery toggled", async () => {
@@ -350,6 +399,23 @@ describe("Admin › Governance+ (round 14h)", () => {
     expect(fake.state.people.find((p) => p.id === "g1")!.guestExpiresAt).toBeNull();
     expect(sentences(fake)[0]).toBe("Removed a guest's access expiration date");
 
+    // A refused save: the toast says why, the dialog stays for another try
+    const realSet = fake.governance.setGuestExpiration;
+    fake.governance.setGuestExpiration = async () => {
+      throw new Error("Expiration date is too far away");
+    };
+    click($('[data-row="g2"] [aria-label^="Guest access expiration date"]'));
+    await settle();
+    typeArea(input("Expiration date"), "2026-12-30");
+    await settle();
+    click(button("Save", dialog()));
+    await settle();
+    await settle();
+    expect($("[data-guest-expiry]")).not.toBeNull();
+    click(button("Cancel", dialog()));
+    await settle();
+    fake.governance.setGuestExpiration = realSet;
+
     // Bulk: only the guests among the checked rows
     for (const id of ["g3", "g4", "u2"]) click($(`[data-row="${id}"] input[type="checkbox"]`));
     await settle();
@@ -372,10 +438,16 @@ describe("Admin › Governance+ (round 14h)", () => {
     await settle();
     const rows = () => $$('[data-admin-table="Developer logs"] [data-row]');
     expect(rows()).toHaveLength(25);
+    // Two clicks while the page loads: one page added
+    const calls: unknown[] = [];
+    const realLogs = fake.governance.developerLogs;
+    fake.governance.developerLogs = (org, q) => (calls.push(q), realLogs(org, q));
+    click(button("Load more"));
     click(button("Load more"));
     await settle();
     await settle();
     expect(rows()).toHaveLength(50);
+    expect(calls.filter((q) => (q as { cursor?: string }).cursor)).toHaveLength(1);
     await choose("Source", "MCP server");
     expect(rows().length).toBeGreaterThan(0);
     expect(rows().every((r) => r.textContent?.includes("MCP server"))).toBe(true);
@@ -383,9 +455,17 @@ describe("Admin › Governance+ (round 14h)", () => {
     await choose("Date range", "Last 24 hours");
     expect(rows().length).toBeLessThan(5);
     await choose("Date range", "Last 30 days");
-    typeArea($$("input").find((i) => i.getAttribute("aria-label") === "IP address") as HTMLInputElement, "2001:db8");
+    // Typing asks once it pauses (300 ms), not per keystroke
+    calls.length = 0;
+    const ipField = $$("input").find((i) => i.getAttribute("aria-label") === "IP address") as HTMLInputElement;
+    typeArea(ipField, "2001");
+    typeArea(ipField, "2001:db8");
     await settle();
+    expect(calls).toHaveLength(0);
+    await act(async () => new Promise((r) => setTimeout(r, 350)));
     await settle();
+    expect(calls).toHaveLength(1);
+    fake.governance.developerLogs = realLogs;
     expect(rows().every((r) => r.textContent?.includes("2001:db8"))).toBe(true);
     expect(rows().length).toBe(Math.min(25, fake.governanceState.developerLogs.filter((d) => d.context.ip_address.startsWith("2001:db8")).length));
 

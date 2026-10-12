@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join } from "node:path";
 import { exportMime, planExportPaths, safeParts } from "../shared/exportFiles";
 import type { ExportAsset, ImportResult } from "../shared/ipc";
 import { readyStore } from "./storeHost";
+import { EXPORT_RESTRICTED_MESSAGE, mayExportFile } from "./exportAccess";
 
 /**
  * What needs a native dialog or a path (docs/desktop.md §10.2 "Files and
@@ -63,6 +64,8 @@ export async function exportPreview(
 /** The file as a .fig where the Save dialog says. */
 export async function saveLocalCopy(win: BaseWindow | null, fileKey: string): Promise<{ path: string } | { cancelled: true }> {
   const store = await readyStore();
+  // A viewer the file's export setting restricts (docs/governance.md §2.7) saves no copy, whichever view asked.
+  if (!(await mayExportFile(store.multiplayer, fileKey))) throw new Error(EXPORT_RESTRICTED_MESSAGE);
   const file = await store.workspace.getFile(fileKey);
   const safe = (file.name || "Untitled").replace(/[/\\:]/g, "-");
   const options = { title: "Save local copy", defaultPath: `${safe}.fig`, filters: [{ name: "Figma files", extensions: ["fig"] }] };

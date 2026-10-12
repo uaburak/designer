@@ -9,6 +9,7 @@ import { defaults as layerDefaults } from "../../agents/nodeSpec";
 import { newNodeGuid } from "../../variables";
 import { svgToMessage } from "../../model/svgImport";
 import { renderEngineExport } from "../../exportCore";
+import { exportAllowed } from "../../exporting";
 import { ApiError, MIXED } from "./codec";
 import { mustNode, readNode, ref, refOf, type ApiContext } from "./context";
 import { apiType, ENGINE_TYPE, fontNameFromApi, IDENTITY, letterSpacingFromApi, letterSpacingToApi, lineHeightFromApi, lineHeightToApi, paintsFromApi, paintToApi, weightOf } from "./convert";
@@ -396,6 +397,8 @@ export async function imageSizeOf(ctx: ApiContext, hash: string): Promise<{ widt
 
 export async function exportNode(ctx: ApiContext, id: Guid, settings: unknown): Promise<unknown> {
   mustNode(ctx, id);
+  // A viewer the file's export setting restricts (docs/governance.md §2.7): plugins don't export either (ours).
+  if (!exportAllowed(ctx.ed)) throw new ApiError("in exportAsync: export is not allowed in this file");
   const s = (settings ?? { format: "PNG" }) as Obj;
   const format = String(s.format ?? "PNG");
   if (format === "JSON_REST_V1") throw new ApiError("exportAsync with JSON_REST_V1 is not supported in DesignerV2 yet");

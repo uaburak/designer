@@ -9,6 +9,7 @@
  */
 import type { GovernanceRepository } from "@shared/org/repositories";
 import type * as G from "@shared/org/governance";
+import { NETWORK_TESTING_MIN_MS } from "@shared/org/governance";
 import { GUEST_EXPIRY_MAX_DAYS, POLICY_TEXT_MAX, POLICY_TITLE_MAX, normalizeCidr, validIdleHours } from "@shared/org/governance";
 import type * as I from "@shared/org/identity";
 import type * as O from "@shared/org/types";
@@ -93,6 +94,8 @@ export function seedGovernance(s: Seed, now: number, on = false): GovernanceStat
 export function fakeGovernance(s: Seed, st: GovernanceState, ident: FakeIdentity, me: string, log: Log, wait: <T>(v: T) => Promise<T>, now: () => number): GovernanceRepository {
   const org = () => ({ type: "org" as const, id: s.orgId, name: s.orgName });
   const fail = (code: string, message: string, detail?: unknown) => new FakeIdentityError(code, message, detail);
+  // When each network range last entered Testing (the server's `updated_at`): Enforced only NETWORK_TESTING_MIN_MS later
+  const testingSince = new Map<string, number>();
   const requireGp = () => {
     if (!st.governancePlus) throw fail("forbidden", "Requires Governance+", { code: "governance_plus_required" });
   };
@@ -190,7 +193,14 @@ export function fakeGovernance(s: Seed, st: GovernanceState, ident: FakeIdentity
       requireGp();
       const r = st.networkRanges.find((x) => x.id === id);
       if (!r) throw fail("not-found", "No such range");
+      // As the server (§2.2, ours): Enforced only from Testing, after 24 hours there — 409 with when it can be
+      if (state === "enforced" && r.state !== "enforced") {
+        const since = r.state === "testing" ? (testingSince.get(r.id) ?? r.createdAt) : null;
+        if (since === null || now() - since < NETWORK_TESTING_MIN_MS)
+          throw fail("conflict", "a range is enforced after at least 24 hours in testing", { code: "conflict", field: "state", enforceableAt: since === null ? null : since + NETWORK_TESTING_MIN_MS });
+      }
       if (r.state !== state) {
+        if (state === "testing") testingSince.set(r.id, now());
         const before = st.networkRanges.some((x) => x.state === "enforced");
         log("network_access_restriction_range_update", org(), { range: r.cidr, from: r.state, to: state });
         r.state = state;

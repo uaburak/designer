@@ -9,6 +9,18 @@
     border: 5px solid var(--peer);
     pointer-events: none;
   }
+  /* A file the server refuses (FileBlocked.tsx): the whole view, over the local copy */
+  .blocked {
+    position: fixed;
+    inset: 0;
+    z-index: var(--ds-z-scrim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--ds-space-8);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+  }
   .offer { position: absolute; top: 0; left: 0; right: 0; z-index: var(--ds-z-scrim); height: 0; }
   /* Ask to spotlight (live: 322×32 at 8 below the canvas's top, square corners, a darker shade of the asker's colour) */
   .bell.ask { top: 3px; gap: var(--ds-space-1); padding: 0 var(--ds-space-1); border-radius: 0; background: color-mix(in srgb, var(--peer) 82%, black); }

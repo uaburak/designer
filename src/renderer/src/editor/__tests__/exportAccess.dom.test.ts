@@ -2,10 +2,12 @@
 // Who may export (docs/governance.md §2.7): `FileAccess.canExport` read once for a shared file's viewer, cached on the
 // editor; Export…, Export frames to PDF…, Copy as PNG / SVG / code, Copy and Cut, File › Duplicate and Save local
 // copy… follow it, and the canvas's copy / cut events are stopped while it is off.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EditorController } from "../controller";
 import { COMMANDS } from "../commands";
-import { attachExportAccess, canExport, exportAllowed, loadExportAllowed, setExportAllowed } from "../exporting";
+import { attachExportAccess, canExport, exportAllowed, FOCUS_RELOAD_MS, loadExportAllowed, setExportAllowed } from "../exporting";
+import { presenceOf } from "../multiplayer/presence";
+import { previewOf } from "../devmode/DevPanels";
 import { canDuplicateFile, canSaveLocalCopy } from "../objectCommands";
 
 const settle = () => new Promise((r) => setTimeout(r, 10));
@@ -30,6 +32,7 @@ function store(role: "viewer" | "editor" | null, canExport: boolean | undefined)
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const c of cleanups.splice(0)) c();
   delete (window as unknown as { designer?: unknown }).designer;
 });
@@ -81,5 +84,38 @@ describe("export access", () => {
     expect(canDuplicateFile(ed)).toBe(true);
     document.body.dispatchEvent(new Event("copy", { bubbles: true, cancelable: true }));
     expect(heard).toBe(2);
+  });
+
+  it("asks again when the room pushes a new policy and on window focus, at most every 30 s (no polling)", async () => {
+    const ed = fakeEditor();
+    const st = store("viewer", true);
+    let now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    cleanups.push(attachExportAccess(ed, st));
+    await settle();
+    const asked = () => st.calls.filter((c) => c.startsWith("info:")).length;
+    expect(asked()).toBe(1);
+    // The org changed a setting: the room's policy arrives (presence)
+    (presenceOf(ed) as unknown as { set(p: object): void }).set({ policy: { cursorChat: true, audio: true, discovery: true } });
+    await settle();
+    expect(asked()).toBe(2);
+    // Focus right after: not again; after 30 s: again
+    window.dispatchEvent(new Event("focus"));
+    await settle();
+    expect(asked()).toBe(2);
+    now += FOCUS_RELOAD_MS;
+    window.dispatchEvent(new Event("focus"));
+    await settle();
+    expect(asked()).toBe(3);
+  });
+
+  it("Dev Mode's Assets and Export follow the answer (the preview's export option)", () => {
+    const ed = {
+      store: { pages: [] },
+      engine: { readNode: () => null },
+      source: {},
+    } as unknown as EditorController;
+    expect(previewOf(ed, "F", true).manifest.options).toEqual({ inspect: true, export: true });
+    expect(previewOf(ed, "F", false).manifest.options).toEqual({ inspect: true, export: false });
   });
 });

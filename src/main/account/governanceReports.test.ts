@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { McpServer } from "../agents/mcpServer";
-import { FLUSH_AT, FLUSH_MS, GovernanceReports, setGovernanceReports } from "./governanceReports";
+import { drainGovernanceReportsWithin, FLUSH_AT, FLUSH_MS, GovernanceReports, setGovernanceReports } from "./governanceReports";
 
 const setup = (orgs: Record<string, string | null>, signedIn = true) => {
   const posts: { path: string; body: { calls: unknown[] } }[] = [];
@@ -96,5 +96,52 @@ describe("governance reports", () => {
     await r.drain();
     expect(posts).toHaveLength(1);
     expect(posts[0].body.calls[0]).toMatchObject({ tool: "get_selection", fileKey: "f1" });
+  });
+
+  it("quitting waits for the reports' posts, at most the given time (finishQuit)", async () => {
+    let release: () => void = () => {};
+    const posts: string[] = [];
+    const slow = new GovernanceReports({
+      signedIn: () => true,
+      orgOf: async () => "o",
+      post: (path) => new Promise<void>((res) => (release = () => (posts.push(path), res()))),
+    });
+    setGovernanceReports(slow);
+    slow.mcpCall("a", "t");
+    await settle();
+    // A first drain (McpServer.stop() on before-quit) starts the POST; finishQuit's waits for it.
+    void slow.drain();
+    await settle();
+    let done = false;
+    const quitting = drainGovernanceReportsWithin(1000).then(() => (done = true));
+    await settle();
+    expect(done).toBe(false);
+    release();
+    await quitting;
+    expect(posts).toEqual(["/orgs/o/developer-logs/mcp"]);
+    // A server that never answers: quitting goes on after the timeout.
+    const hung = new GovernanceReports({ signedIn: () => true, orgOf: async () => "o", post: () => new Promise<void>(() => {}) });
+    setGovernanceReports(hung);
+    hung.mcpCall("a", "t");
+    await settle();
+    const t0 = Date.now();
+    await drainGovernanceReportsWithin(30);
+    expect(Date.now() - t0).toBeLessThan(1000);
+  });
+
+  it("sends no AI prompt to an org whose Discovery is off (the store's cached settings)", async () => {
+    const posts: string[] = [];
+    const on = new Map([["o1", true], ["o2", false]]);
+    const r = new GovernanceReports({
+      signedIn: () => true,
+      orgOf: async (k) => (k === "a" ? "o1" : k === "b" ? "o2" : "o3"),
+      discoveryOn: async (o) => (on.has(o) ? on.get(o)! : Promise.reject(new Error("no cache"))),
+      post: async (path) => void posts.push(path),
+    });
+    r.aiPrompt("a", "x", "f");
+    r.aiPrompt("b", "x", "f");
+    r.aiPrompt("c", "x", "f");
+    await r.drain();
+    expect(posts.sort()).toEqual(["/orgs/o1/discovery/ai-prompt", "/orgs/o3/discovery/ai-prompt"]);
   });
 });

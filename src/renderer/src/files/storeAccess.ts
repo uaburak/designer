@@ -14,6 +14,7 @@ import type { SharedFontsApi } from "@shared/desktop";
 import type { GovernanceRepository, IdentityRepository } from "@shared/org/repositories";
 import type { PluginsRepository } from "@shared/plugins/types";
 import type { SessionEnded } from "@shared/multiplayer/types";
+import { exportAllowedFor } from "./governance";
 
 /** The org spaces (StoreApi.orgs / teams / projects / admin) and the two calls Home adds around them. */
 export interface OrgBackend {
@@ -53,6 +54,11 @@ export interface FilesBackend {
   branches?: BranchesRepository;
   /** The server ended the session (`multiplayer.watchSession`, docs/multiplayer.md §15.18): Home signs out and says why */
   watchSession?: (listener: (e: SessionEnded) => void) => () => void;
+  /**
+   * Whether the person may duplicate or save a local copy of a file (docs/governance.md §2.7: false for a shared
+   * file's viewer the file's export setting restricts); absent: always
+   */
+  exportAccess?: (fileKey: FileKey) => Promise<boolean>;
 }
 
 /** The store's snapshot with its journal applied, as one kiwi Message (the editor hands the same to `multiplayer.share`). */
@@ -94,6 +100,7 @@ export function filesBackend(): Promise<FilesBackend> {
     },
     branches: client.branches,
     watchSession: (listener) => client.multiplayer.watchSession(listener),
+    exportAccess: (fileKey) => exportAllowedFor(client.multiplayer, fileKey),
   };
   return Promise.resolve(shared);
 }

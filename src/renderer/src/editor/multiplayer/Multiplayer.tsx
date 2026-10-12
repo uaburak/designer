@@ -23,6 +23,7 @@ import { useEditor } from "../controller";
 import { editorBridge } from "../desktop";
 import { applyIntent, openIntent } from "./links";
 import { presenceOf, usePresence, type Peer } from "./presence";
+import { FileBlocked } from "./FileBlocked";
 import styles from "./Multiplayer.module.css";
 
 /** Rendered once in the editor: presence runs while it is mounted. */
@@ -70,6 +71,7 @@ export function Multiplayer() {
       {asking && !followed && !offer && <AskSpotlight peer={asking} />}
       {state.audio.inCall && <AudioWidget />}
       {viewer && <ViewerBanner />}
+      {state.blocked && <FileBlocked fileKey={(ed.source as unknown as { fileKey?: string }).fileKey ?? null} blocked={state.blocked} />}
     </>
   );
 }

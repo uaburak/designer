@@ -59,7 +59,12 @@ export interface PresenceState {
   audio: AudioState;
   /** The org's room switches (Admin › Cursor chat, Audio — docs/multiplayer.md §15.9), live; null: everything allowed */
   policy: RoomPolicy | null;
+  /** Governance+ (docs/governance.md §9 14e): the server refuses this file — an org gate, the network restriction or an
+   *  unavailable encryption key; the link waits (FileBlocked.tsx shows why and what to do) */
+  blocked: FileShareState["blocked"] | null;
 }
+
+const sameBlocked = (a: PresenceState["blocked"], b: PresenceState["blocked"]) => a === b || JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 const SEND_EVERY_MS = 100;
 /** A spotlight is followed after this long unless declined (Figma: "a few seconds"; unverified) */
@@ -68,7 +73,7 @@ const SPOTLIGHT_WAIT_MS = 3000;
 const EASE = 0.3;
 
 const NO_AUDIO: AudioState = { inCall: false, muted: false, noMic: false, speaking: [] };
-const EMPTY: PresenceState = { shared: false, role: null, connection: "offline", peers: [], following: null, spotlighting: false, replacedBy: null, requests: 0, spotlightOffer: null, me: 0, askedBy: null, locked: false, audio: NO_AUDIO, policy: null };
+const EMPTY: PresenceState = { shared: false, role: null, connection: "offline", peers: [], following: null, spotlighting: false, replacedBy: null, requests: 0, spotlightOffer: null, me: 0, askedBy: null, locked: false, audio: NO_AUDIO, policy: null, blocked: null };
 /** A request to spotlight shows this long (Figma's bell stays until answered; ours goes after a while) */
 const ASK_SHOWS_MS = 30_000;
 
@@ -286,8 +291,8 @@ export class Presence {
     const wasShared = this.state.shared;
     const askedBy = this.state.askedBy !== null && peers.some((p) => p.id === this.state.askedBy) ? this.state.askedBy : null;
     const policy = s.policy ?? null;
-    const samePolicy = policy?.cursorChat === this.state.policy?.cursorChat && policy?.audio === this.state.policy?.audio;
-    this.set({ shared: s.shared, role: s.role, connection: s.connection, peers, following, requests: s.requests ?? 0, spotlightOffer: following !== null ? null : offer, me: s.me ?? 0, locked: s.locked === true, askedBy, ...(samePolicy ? {} : { policy }) });
+    const samePolicy = policy?.cursorChat === this.state.policy?.cursorChat && policy?.audio === this.state.policy?.audio && policy?.discovery === this.state.policy?.discovery;
+    this.set({ shared: s.shared, role: s.role, connection: s.connection, peers, following, requests: s.requests ?? 0, spotlightOffer: following !== null ? null : offer, me: s.me ?? 0, locked: s.locked === true, blocked: sameBlocked(s.blocked ?? null, this.state.blocked) ? this.state.blocked : (s.blocked ?? null), askedBy, ...(samePolicy ? {} : { policy }) });
     // The org turned a switch off while the file is open (§15.9): an open chat closes, an ongoing call is left.
     if (policy?.cursorChat === false && this.chat !== null) this.setChat(null);
     if (policy?.audio === false && this.state.audio.inCall) this.audio.leave();
