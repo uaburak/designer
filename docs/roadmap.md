@@ -337,12 +337,49 @@ Open questions for the owner (round 4):
 
 **Open questions**: `docs/ai.md` §10.
 
-### Round 7 — Draw complete, and editor types (P-0)
+### Round 7 — Draw complete — **contract written 2026-10-12** (`docs/draw.md`)
+
+**Contract:** `docs/draw.md` covers:
+- Figma's verified facts (§1) and what we already have (§2);
+- the decisions (§3);
+- the engine: schema, transform groups, dynamic strokes, text on a path, brushes, multi-edit, commands and export (§4);
+- the chrome (§5), the brush assets (§6), the plugin API and REST (§7), and `.fig` fidelity (§8);
+- the shared types (§9) and the open questions (§11).
+
+Old **7c "editor types" is dropped**: Draw is a mode of a Design file, and the other products are set aside. `EditorType` / `pageType` stay reserved.
+
+**Before the agents** (main session, one commit; it is the round's only schema editor):
+- `schema/document.kiwi`: §4.1, with Figma's numbers:
+  - `TEXT_PATH 41`, `TRANSFORM 48`;
+  - `TextPathStart`, `TransformModifier` and its enums;
+  - `rotationOrigin 424`, `vectorOperationVersion 425`, `textPathStart 432`, `transformModifiers 455`;
+  - `Glyph.rotation 9`.
+- Then `npm run engine:gen`, which regenerates the C++ and TS codecs (no wasm build).
+- `src/shared/draw/types.ts` verbatim (§9).
+- The `Engine.ts` stubs and `abi.ts` additions (CommandIds 310–321, tools BRUSH / TEXT_PATH, `DRAW_TOOL_SAMPLED`).
+- The §9 icons.
+- `npm run check` green.
+
 | Agent | Owns | Delivers |
 |---|---|---|
-| 7a engine Draw | `engine/`, `schema/document.kiwi` | TEXT_PATH (text on a path), TRANSFORM (repeat / radial), pattern fill, dynamic strokes (frequency, wiggle), custom brushes, multi-edit |
-| 7b Draw chrome | `src/renderer/src/editor/draw/` (new), `editor/tools/` | Draw mode's toolbar, illustration sidebar, thumbnail layers (per `research/figma/live/draw/`) |
-| 7c editor types | `src/shared/store/`, `src/store/`, `src/shared/fig/`, `src/renderer/src/files/` | `FileMeta.editorType` (Figma's EditorType), the + Create menu, icons, filters, templates shelf, `.jam` / `.deck` / `.buzz` / `.site` / `.make` import as their editor types |
+| 7a engine: model and render | `engine/src/geometry/` (new `DynamicStroke.*`, `Repeat.*`; `Brush.*`), `engine/src/text/` (new `TextPathLayout.*`), `engine/src/render/`, `engine/src/export/`, `engine/src/scene/`, `engine/src/layout/` (TRANSFORM bounds), `engine/src/hit/`, `engine/tests/unit/r7.draw.*` (model / render / export cases) | §4.2 evaluation, bounds, rendering and hit mapping; §4.3; §4.4 layout, glyph rotation and rendering; pattern strokes; §4.8 exports. Native tests only (`npm run engine:test`), **no wasm build** |
+| 7b engine: tools and editing | `engine/src/editor/`, `engine/src/tools/`, `engine/src/api/DrawApi.inc` (new) + its one line in `Api.cpp`, `engine/api/exports.txt`, `src/renderer/src/engine/` (fills the stubs), `engine/tests/unit/r7.draw_edit.test.cpp`, `src/renderer/src/engine/__tests__/draw.wasm.test.ts`, **the release wasm** (the round's only wasm build) | §4.2 commands, §4.4 tools / start handle / CREATE_TEXT_PATH, §4.5 install / tool / Create brush / clipboard / sampling / preview, §4.6 multi-edit, §4.7. **Starts after 7a merges** (one engine builder at a time) |
+| 7c Draw toolbar and tools chrome | `src/renderer/src/editor/draw/` except `draw/panels/` (new: `DrawToolSettings.tsx`, `BrushMenu.tsx`, `drawTools.ts`), `editor/canvas/BottomToolbar.tsx`, `editor/uiStore.ts` (`drawTools`), `editor/commands.ts`, `editor/menus.ts`, `editor/canvas/CanvasMenu.tsx`, `ds/components/EditorToolbar.tsx` (Draw's tool set; Text on path enabled), `ds/gallery/` (its demos) | §5.1, §5.2, §5.6, §5.7. Tests: the toolbar per mode, the settings sent to the engine (fake engine), the brush menu's sections |
+| 7d Draw panels and layers | `src/renderer/src/editor/draw/panels/` (new: `TransformSection.tsx`, Draw's section list), `editor/panels/RightPanel.tsx`, `panels/design/DesignPanel.tsx`, `Stroke.tsx`, `Typography.tsx`, `Effects.tsx` / `Paints.tsx` (sliders and previews only), `editor/panels/Layers.tsx`, `ds/components/LayerRow.*` (the thumbnail slot), `ds/components/Slider.tsx` + css (new) | §5.3, §5.4, §5.5, §5.8, §5.9. Tests: sections per mode, Stroke kinds and their commands, the Repeat popover, Flip, thumbnail caching (fake engine) |
+| 7e assets, plugin API, REST, `.fig` | `src/shared/draw/brushes/` (new), `scripts/brushes.mjs` (new), `src/renderer/src/editor/plugins/api/` + `plugins/runtime/figma.js`, `editor/rest/fileJson.ts`, `editor/devmode/` (TEXT_PATH / TRANSFORM inspection), `src/shared/fig/` tests (§8), `docs/plugins.md` (its Draw section) | §6, §7, §8. Tests: brush determinism / validity, the plugin surface on the wasm engine (after 7b), the `.fig` round trip |
+
+**Merge order**:
+1. The main session's commit.
+2. **7a**.
+3. **7e**: brush assets; its plugin wasm tests wait for 7b, so they are skipped until then.
+4. **7b**: builds the release wasm.
+5. **7c**.
+6. **7d**: uses 7c's `BrushMenu`.
+7. 7e's plugin wasm tests are switched on.
+
+7c, 7d and 7e work in parallel against the stubs from the start. 7b starts when 7a is merged. No migration, no server change.
+
+**Open questions**: `docs/draw.md` §11 (a Draw sample `.fig` and a signed-in capture; brush names; when brushes are installed; whether Text on path keeps the shape).
 
 ### Round 8 — Motion
 - **Engine** (`engine/`; schema KEYFRAME / KEYFRAME_TRACK / ANIMATION_PRESET_INSTANCE and their fields): the animation evaluator (time → derived overrides, never journaled), auto-keyframing.
@@ -350,7 +387,7 @@ Open questions for the owner (round 4):
 - **Export** (`editor/exportCore.ts`, `src/shared/exportFiles.ts`): MP4 / WebM through WebCodecs, GIF, animated SVG.
 - **Dev Mode** (`editor/devmode/`): the Motion tab.
 
-**Owner, 2026-10-11: not now** — FigJam, Slides, Buzz, Sites + Make and Weave (rounds 9–13) and round 6c's Weave tools are set aside (round 6's contract: docs/ai.md); Draw (7) and Motion (8) stay. The schema numbers stay reserved (docs/schema.md §15).
+**Owner, 2026-10-11: not now** — FigJam, Slides, Buzz, Sites + Make and Weave (rounds 9–13) and round 6c's Weave tools are set aside (round 6's contract: docs/ai.md); Draw (7) and Motion (8) stay. Round 7's old "editor types" item went with them (docs/draw.md, 2026-10-12). The schema numbers stay reserved (docs/schema.md §15).
 
 ### Rounds 9–13 — the other products (each split into engine / chrome / server, as above)
 - **9 FigJam**:

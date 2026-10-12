@@ -573,3 +573,21 @@ Acceptance (verified with `scripts/drive.mjs` on the built demo app): launch →
   - **Open**: the real models have not run — 6b's `ai:models` / downloads / `aimodel:` scheme must serve the files in `SEARCH_MODEL_FILES` (configs and tokenizers beside the ONNX files) and add `aimodel:` to `connect-src`; until then the view says "Local models aren't available in this version yet" and searches names only. 6a: add the Actions row "Find more like" → `findMoreLike()` (the button is wired). Both 6b and 6d add `@huggingface/transformers` — keep one exact version on merge. Community is left out.
   - Shared edits: `EditorApp.tsx` (mounts `<VisualSearchHost />`), `ActionsPanel.tsx` (the button's `onClick`), `localStore.ts` / `memoryStore.ts` (the search service and `fileDeleted`), `package.json` + lock.
   - Tests: `src/store/search/search.test.ts` (14), `src/renderer/src/store/memory/search.test.ts` (1), `src/renderer/src/editor/search/__tests__/search.wasm.test.ts` (13). `npm run check` green.
+- 2026-10-12 — **Phase 7 round 7 contract: Draw** (docs only). `docs/draw.md` holds:
+  - Figma Draw verified on help.figma.com and the plugin API (Update 123): the 25 built-in brush names, the ComplexStrokeProperties ranges, TextPathNode / TransformGroupNode / TransformModifier;
+  - what we already have, with file references;
+  - the engine model: TRANSFORM 48 repeats as derived instances, dynamic strokes, TEXT_PATH 41 layout along a path with `Glyph.rotation`, brush install / Brush tool / Create brush / clipboard, multi-edit in vector edit;
+  - CommandIds 310–321, tools BRUSH / TEXT_PATH, exports;
+  - Draw mode's chrome (toolbar, secondary toolbar, sidebar with sliders, Transform section, Stroke Dynamic / Brush, 48 px thumbnail Layers);
+  - our own procedural brushes under Figma's names;
+  - plugin API / REST / `.fig` fidelity;
+  - `src/shared/draw/types.ts` verbatim.
+
+  The roadmap's Round 7 is rewritten:
+  - 7a engine model and render, then 7b engine tools and the release wasm, one after the other;
+  - 7c toolbar and tools, 7d panels and layers, 7e assets / plugin / `.fig`, in parallel with the engine work;
+  - old 7c "editor types" dropped (Draw is a mode).
+
+  `docs/schema.md` §15.1: the Draw row decided; `multiEditGlueId 462` moved to Sites.
+  - **Next**: the main session's pre-round commit (schema §4.1 + `engine:gen`, shared types, Engine.ts stubs, abi.ts, icons), then the agents.
+  - **Open**: `docs/draw.md` §11. Above all, a Draw sample `.fig` and a signed-in capture to calibrate every [unverified] constant.
