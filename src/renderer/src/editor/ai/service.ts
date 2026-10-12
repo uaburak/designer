@@ -28,6 +28,7 @@ import { buildDraft, DEFAULT_STYLE, type DraftStyle } from "./draft/build";
 import { flatten, outlineBatches, readLayers, type Layer } from "./layers";
 import { aiMessage, type AiProblem } from "./messages";
 import { matchGroups, renameCandidates } from "./rename";
+import { guidString } from "../draw/panels/drawPanel";
 
 /** What the actions need of main (tests pass a fake). */
 export type AiRunApi = Pick<AiApi, "run" | "cancel" | "onEvent"> & Partial<Pick<AiApi, "settings">>;
@@ -188,7 +189,8 @@ export class AiActions {
         if (ev.kind !== "USER" || ev.actor || !/^Duplicate/.test(ev.label) || !this.state.enabled || this.state.run) return;
         const made = changes.filter((c) => (c as { phase?: string }).phase === "CREATED");
         if (!made.some((c) => c.type === "TEXT")) return;
-        const tops = ed.selection.filter((id) => made.some((c) => c.guid === id));
+        // DOCUMENT_CHANGED's guid arrives as {sessionID, localID} at runtime (the type says string): compare as "s:l".
+        const tops = ed.selection.filter((id) => made.some((c) => guidString(c.guid) === id));
         if (tops.length) this.set({ banner: { kind: "replace-content", refs: [...tops] } });
       })
     );
