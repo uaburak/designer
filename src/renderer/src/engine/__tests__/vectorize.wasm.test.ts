@@ -44,6 +44,19 @@ describe("vectorize (wasm, headless)", () => {
     engine.destroy();
   });
 
+  it("a 1024² flat logo keeps its colours (k-means samples spread over the whole picture in 32-bit wasm)", async () => {
+    // Found running Vectorize in the app (2026-10-12): s × pixel count overflowed wasm's 32-bit size_t, every sample
+    // came from the white top rows and the logo traced as one layer of its mean colour.
+    const engine = await Engine.create(null, { sessionID: 9 });
+    const logo = image(1024, 1024, (x, y) => {
+      const d = Math.hypot(x + 0.5 - 512, y + 0.5 - 512);
+      return d < 150 ? [251, 191, 36, 255] : d < 400 ? [30, 64, 175, 255] : [255, 255, 255, 255];
+    });
+    const r = engine.trace(logo, { mode: "FULL_COLOR", colors: 8 })!;
+    expect(r.layers.map((l) => l.color).sort()).toEqual(["#1E40AF", "#FBBF24", "#FFFFFF"]);
+    engine.destroy();
+  });
+
   it("previews, commits one undo step, undoes, cancels", async () => {
     const engine = await Engine.create(null, { sessionID: 9 });
     engine.load(SAMPLE_DOCUMENT);

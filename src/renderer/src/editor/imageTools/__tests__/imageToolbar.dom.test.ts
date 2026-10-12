@@ -125,6 +125,37 @@ describe("the image toolbar", () => {
     engine.destroy();
   });
 
+  it("the prompt card: typing enables Send, leaving the field doesn't send, Send and ⌘↵ do", async () => {
+    // Found in the app (2026-10-12): the field held its text as an uncommitted draft (onCommit), so Send stayed
+    // disabled whatever was typed, and clicking away would have sent the prompt.
+    const { ed, engine, tools, view } = await setup();
+    const sent: string[] = [];
+    tools.editWithPrompt = async (p: string) => (sent.push(p), true);
+    act(() => void engine.setSelection(["1:5"]));
+    act(() => imageRowHandler("edit-image")!.run(ed));
+    const card = document.querySelector<HTMLElement>("[data-image-prompt=edit]")!;
+    const field = card.querySelector("textarea")!;
+    const send = () => [...card.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim().startsWith("Send"))!;
+    expect(send().disabled).toBe(true);
+    act(() => {
+      field.focus();
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, "make the sky purple");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(send().disabled).toBe(false);
+    act(() => field.blur());
+    expect(sent).toEqual([]);
+    click(send());
+    expect(sent).toEqual(["make the sky purple"]);
+    act(() => {
+      field.focus();
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true }));
+    });
+    expect(sent).toEqual(["make the sky purple", "make the sky purple"]);
+    view.unmount();
+    engine.destroy();
+  });
+
   it("registers Actions' Image editing rows", async () => {
     const { ed, engine, view } = await setup();
     act(() => void engine.setSelection(["1:5"]));

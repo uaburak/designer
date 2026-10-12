@@ -17,8 +17,12 @@ env.allowRemoteModels = true;
 env.remoteHost = HOST;
 env.remotePathTemplate = "{model}/";
 env.useBrowserCache = false;
+/** onnxruntime's own runtime, bundled with the app: transformers.js pre-loads it through `env.fetch` too (refusing it
+ * only logged "Failed to pre-load WASM binary" and loaded it again — seen running search in the app, 2026-10-12). */
+const RUNTIME = new Set([ortMjs, ortWasm].map((u) => new URL(u, self.location.href).href));
 env.fetch = (input: string | URL, init?: RequestInit) => {
   const url = String(input);
+  if (RUNTIME.has(new URL(url, self.location.href).href)) return fetch(url, init);
   if (!url.startsWith(HOST)) return Promise.reject(new Error(`Visual search reads only its own models (${url})`));
   return fetch(`aimodel://${url.slice(HOST.length)}`, init);
 };

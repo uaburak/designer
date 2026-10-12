@@ -100,7 +100,7 @@ function PromptCard({ tools, kind }: { tools: ImageTools; kind: "make" | "edit" 
         {kind === "make" ? "Make an image" : "Edit with prompt"}
         <IconButton icon="24.close.small" label="Close" onClick={() => tools.close()} />
       </div>
-      <TextArea label="Prompt" value={prompt} placeholder={kind === "make" ? "Describe the image you want" : "Describe your edit"} minRows={2} maxRows={6} onChange={setPrompt} onCommit={(v) => send(v)} autoFocus />
+      <TextArea label="Prompt" value={prompt} placeholder={kind === "make" ? "Describe the image you want" : "Describe your edit"} minRows={2} maxRows={6} onChange={setPrompt} onExit={(r) => r === "enter" && send()} autoFocus />
       <div className={styles.cardFoot}>
         <IconButton icon="24.plus" label="Add a reference image" onClick={() => file.current?.click()} />
         <input ref={file} type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden onChange={(e) => void takeFile(e.currentTarget.files?.[0])} />

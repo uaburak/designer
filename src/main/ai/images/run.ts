@@ -115,7 +115,8 @@ export async function runImage(req: AiImageRequest, deps: ImageRunDeps, emit: Em
     } else throw new AiError("unsupported", "Pick an image provider in Settings › AI: Antigravity, OpenAI Images or the Gemini API.");
     if (local.signal.aborted) throw local.signal.reason;
     emit({ type: "image", data: answer.data.toString("base64"), mime: answer.mime, width: answer.width, height: answer.height });
-    emit({ type: "usage", usage: { input: 0, output: 0, images: 1, credits: creditsFor(req.action, { model: answer.model ?? route.model, megapixels: megapixels(answer) }) } });
+    const model = answer.model ?? route.model;
+    emit({ type: "usage", usage: { input: 0, output: 0, images: 1, credits: creditsFor(req.action, { model, megapixels: megapixels(answer) }), providerId: route.providerId, ...(model ? { model } : {}) } });
     emit({ type: "done" });
   } catch (err) {
     const reason = local.signal.aborted ? local.signal.reason : err;

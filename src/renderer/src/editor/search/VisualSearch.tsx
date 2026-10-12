@@ -39,7 +39,7 @@ const DESIGNS_FIRST = 6;
 export function VisualSearch({ ed, request, onClose }: { ed: EditorController; request: VisualSearchRequest; onClose: () => void }) {
   const [mode, setMode] = useState<Mode>(request.selection || request.image ? "image" : "text");
   const [text, setText] = useState("");
-  const [image, setImage] = useState<{ pixels: RgbaImage; url: string; label: string } | null>(null);
+  const [image, setImage] = useState<{ pixels: RgbaImage; url: string; label: string; from?: { fileKey: string; nodeId: string } } | null>(null);
   const [library, setLibrary] = useState("");
   const [sort, setSort] = useState<"relevance" | "modified">("relevance");
   const [owner, setOwner] = useState<Owner>("anyone");
@@ -71,12 +71,12 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
     };
   }, []);
 
-  const showImage = (pixels: RgbaImage, label: string) => {
+  const showImage = (pixels: RgbaImage, label: string, from?: { fileKey: string; nodeId: string }) => {
     const c = document.createElement("canvas");
     c.width = pixels.width;
     c.height = pixels.height;
     c.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(pixels.pixels), pixels.width, pixels.height), 0, 0);
-    setImage({ pixels, url: c.toDataURL(), label });
+    setImage({ pixels, url: c.toDataURL(), label, ...(from ? { from } : {}) });
   };
 
   // What opened the view: the selection ("Find more like"), or an image handed in
@@ -98,10 +98,10 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
     if (!px || px === "busy") return setError("The selection couldn't be drawn.");
     const name = (ed.engine.readNode(id, { fields: ["name"] }) as { name?: string } | null)?.name ?? "Selection";
     setMode("image");
-    showImage(px, name);
+    showImage(px, name, { fileKey: key, nodeId: id });
   }
 
-  const search = async (input: { text?: string; image?: RgbaImage }) => {
+  const search = async (input: { text?: string; image?: RgbaImage; exclude?: { fileKey: string; nodeId: string } }) => {
     const seq = ++searchSeq.current;
     setBusy(true);
     setError(null);
@@ -131,7 +131,8 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
   // An image from the selection or an opener: searched at once; an upload waits for "Search"
   useEffect(() => {
     if (mode !== "image" || !image || !(request.selection || request.image) || image.label === "Upload") return;
-    const t = setTimeout(() => void search({ image: image.pixels }), 0);
+    // "Find more like" leaves the layer itself out (found running it: it came first, a perfect match of itself).
+    const t = setTimeout(() => void search({ image: image.pixels, ...(image.from ? { exclude: image.from } : {}) }), 0);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- when the image arrives
   }, [image, sort, library]);
@@ -382,7 +383,7 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
                 Find more like
               </Button>
             )}
-            <Button variant="primary" disabled={!image || busy} onClick={() => image && void search({ image: image.pixels })}>
+            <Button variant="primary" disabled={!image || busy} onClick={() => image && void search({ image: image.pixels, ...(image.from ? { exclude: image.from } : {}) })}>
               Search
             </Button>
             <input

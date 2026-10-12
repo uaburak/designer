@@ -258,6 +258,10 @@ describe("the query", () => {
     expect(out.hits[0].doc.nodeId).toBe("1:10");
     expect(out.hits[0].score).toBeCloseTo(1, 2);
     expect(splitHits(out.hits).designs.length).toBe(out.hits.length);
+    // "Find more like" leaves its own layer out (it came first, scoring 1 against itself — found 2026-10-12).
+    const more = await runSearch(repo, { image: drawn("1:10"), exclude: { fileKey: out.hits[0].doc.fileKey, nodeId: "1:10" } }, fake);
+    expect(more.hits.map((h) => h.doc.nodeId)).not.toContain("1:10");
+    expect(more.hits.length).toBe(out.hits.length - 1);
   });
 
   it("without the models: names only for text, and an image needs them", async () => {

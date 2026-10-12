@@ -19,19 +19,25 @@ const f = (path: string, bytes: number, sha256: string) => ({ path, bytes, sha25
 const model = (m: Omit<AiModelInfo, "bytes">): AiModelInfo => ({ ...m, bytes: m.files.reduce((s, x) => s + x.bytes, 0) });
 
 export const AI_MODELS: readonly AiModelInfo[] = [
+  // ISNet (DIS, general use; weights Apache-2.0 at xuebinqin/DIS, the ONNX repo tagged MIT). Replaced BiRefNet lite
+  // (2026-10-12): its deformable-conv decoder needs > 4 GB at 1024² on wasm (std::bad_alloc) and a Concat of up to 64
+  // inputs on WebGPU (Apple adapters allow 10 storage buffers a stage), so it ran nowhere on the owner's Mac.
   model({
-    id: "birefnet-lite",
-    label: "BiRefNet lite",
+    id: "isnet",
+    label: "ISNet",
     use: "Remove background, Isolate",
-    license: "MIT",
-    repo: "onnx-community/BiRefNet_lite-ONNX",
-    revision: "de15b22ba131738a16dff04aab8bdf8dc32e3ac1",
+    license: "Apache-2.0",
+    repo: "imgly/isnet-general-onnx",
+    revision: "440dea96dd4a3b06bbbf5abec3e26569dd7ec49f",
     files: [
-      f("config.json", 81, "50acd2d700ee3d5facdcf3aab2312bb586372726dce8bdd5741bdae0ca6eb84f"),
-      f("preprocessor_config.json", 391, "447d9ccb2c4129ab0ca045fc293e7d79dbc45e293ac1e94818d865db77f65a54"),
-      f("onnx/model_fp16.onnx", 114_538_221, "d39b897ceb16ae654c1731f3dba0cf9b368d9cae74b5a57459b455cc8bfec402"),
+      f("config.json", 27, "d0b94ab052ace79177085c66a00a3f014a973edb09999cb0108bb01e65ded060"),
+      f("preprocessor_config.json", 339, "7f6ea1f0aa49cdc77487e172f3dd67820a842512b4a203b14ffadfb8bd027d40"),
+      f("onnx/model_fp16.onnx", 88_152_708, "2eb4b5dda7ec41c617e59706e5aafa1f978c9a5f983d2518d9f0ae4d6eb04f20"),
     ],
   }),
+  // Licence checked 2026-10-12: Apache-2.0 at mv-lab/swin2sr (LICENSE and README, commit 6f25d76) and on the base
+  // model's card (caidas/swin2SR-compressed-sr-x4-48). fp32, not the fp16 export: on onnxruntime-web's wasm the fp16
+  // graph fails at its first run ("Shape mismatch attempting to re-use buffer {1,3,128,128} != {1,3,512,512}").
   model({
     id: "swin2sr-x4",
     label: "Swin2SR x4",
@@ -42,7 +48,7 @@ export const AI_MODELS: readonly AiModelInfo[] = [
     files: [
       f("config.json", 830, "d8bbbbc19933e760c29fe49e98c18001a7ec208f21b47c4531abac75348060d9"),
       f("preprocessor_config.json", 152, "cbc36266fcc93d5bc1e9ca69bcc648ae9d268918ad14cd3507216740f129cc4d"),
-      f("onnx/model_fp16.onnx", 32_742_186, "1c47d2e3df273f6eec27073d489c54fc60e755aa036ef078dcf762f2a82c36b0"),
+      f("onnx/model.onnx", 55_046_351, "2038700d530bb756a29552d7c8ddbd4a8f734df6cc43162ed543360a7aeb02f7"),
     ],
   }),
   model({

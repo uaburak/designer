@@ -251,7 +251,8 @@ async function apiImage(env: ToolEnv, req: Omit<AiImageRequest, "runId">, signal
   const route = req.route;
   try {
     const { image, usage } = await imageRun(api, { ...req, runId: newRunId(req.action) }, signal);
-    env.hooks.record({ action: req.action, providerId: route?.providerId ?? "image", model: route?.model, images: 1, credits: usage?.credits ?? creditsFor(req.action, { model: route?.model }), local: false, ok: true });
+    // Who answered as main says (a run without a route — Expand — was recorded as "image"; found 2026-10-12)
+    env.hooks.record({ action: req.action, providerId: usage?.providerId ?? route?.providerId ?? "image", model: usage?.model ?? route?.model, images: 1, credits: usage?.credits ?? creditsFor(req.action, { model: route?.model }), local: false, ok: true });
     return decodeAnswer(fromB64(image.data));
   } catch (err) {
     if (!(err instanceof AiRunError && (err.code === "cancelled" || err.code === "over-limit" || err.code === "disabled"))) env.hooks.record({ action: req.action, providerId: route?.providerId ?? "image", model: route?.model, images: 0, credits: 0, local: false, ok: false });
@@ -322,7 +323,7 @@ export async function removeBackground(env: ToolEnv, targets: readonly ImageTarg
   const results: { t: ImageTarget; img: ImportedImage }[] = [];
   for (const t of targets) {
     const src = await env.io.read(t.hash);
-    const out = await local(env, "remove-background", "birefnet-lite", (src.width * src.height) / 1e6, () => runners.removeBackground(src));
+    const out = await local(env, "remove-background", "isnet", (src.width * src.height) / 1e6, () => runners.removeBackground(src));
     if (o.signal?.aborted) throw new AiRunError("cancelled", "Cancelled.");
     results.push({ t, img: await env.io.put(out, nameOf(t)) });
     o.onProgress?.(results.length / targets.length);
@@ -384,7 +385,7 @@ export async function eraseArea(env: ToolEnv, t: ImageTarget, lasso: readonly Po
 export async function isolateArea(env: ToolEnv, t: ImageTarget, lasso: readonly Point[]): Promise<Guid> {
   const { image, k } = await layerPicture(env, t);
   const mask = lassoMask(lasso, k, image.width, image.height);
-  const cut = await local(env, "isolate-object", "birefnet-lite", (image.width * image.height) / 1e6, () => runners.isolate(image, mask));
+  const cut = await local(env, "isolate-object", "isnet", (image.width * image.height) / 1e6, () => runners.isolate(image, mask));
   if (!cut) throw new AiRunError("unsupported", "Select an area on the image first.");
   const img = await env.io.put(cut.image, `${nameOf(t)} (isolated)`);
   let id = "" as Guid;

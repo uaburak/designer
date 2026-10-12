@@ -160,10 +160,10 @@ export function fromChw(t: ArrayLike<number>, width: number, height: number, sca
   return out;
 }
 
-/** Logits → a 0…255 matte (sigmoid). */
-export function matteFromLogits(t: ArrayLike<number>): Uint8Array {
+/** Probabilities (0…1) → a 0…255 matte. */
+export function matteFromProbabilities(t: ArrayLike<number>): Uint8Array {
   const out = new Uint8Array(t.length);
-  for (let i = 0; i < t.length; i++) out[i] = Math.round(255 / (1 + Math.exp(-t[i])));
+  for (let i = 0; i < t.length; i++) out[i] = Math.round(255 * Math.min(1, Math.max(0, t[i])));
   return out;
 }
 
@@ -319,8 +319,34 @@ export function expandCanvas(src: Rgba, pad: Insets): { canvas: Rgba; mask: Rgba
 export function recomposite(answer: Rgba, original: Rgba, canvasWidth: number, canvasHeight: number, at: Point): Rgba {
   const out = resize(answer, canvasWidth, canvasHeight);
   for (let i = 3; i < out.data.length; i += 4) out.data[i] = 255;
+  seamBand(out, original, at);
   paste(out, original, at.x, at.y);
   return out;
+}
+
+/**
+ * The new area next to the original fades into the original's edge colours over a narrow band (4 % of its short side,
+ * 4–64 px), outside it, so the original stays untouched. Run for real (2026-10-12), Antigravity's fill came in another
+ * tone than the original and left a hard seam along its edges.
+ */
+function seamBand(out: Rgba, original: Rgba, at: Point) {
+  const band = Math.max(4, Math.min(64, Math.round(0.04 * Math.min(original.width, original.height))));
+  const x0 = at.x, y0 = at.y, x1 = at.x + original.width, y1 = at.y + original.height;
+  for (let y = Math.max(0, y0 - band); y < Math.min(out.height, y1 + band); y++)
+    for (let x = Math.max(0, x0 - band); x < Math.min(out.width, x1 + band); x++) {
+      if (x >= x0 && x < x1 && y >= y0 && y < y1) continue;
+      const dx = x < x0 ? x0 - x : x >= x1 ? x - x1 + 1 : 0;
+      const dy = y < y0 ? y0 - y : y >= y1 ? y - y1 + 1 : 0;
+      const d = Math.hypot(dx, dy);
+      if (d > band) continue;
+      const t = 1 - d / (band + 1);
+      const w = t * t * (3 - 2 * t);
+      const sx = Math.min(original.width - 1, Math.max(0, x - x0)), sy = Math.min(original.height - 1, Math.max(0, y - y0));
+      const o = (y * out.width + x) * 4, s = (sy * original.width + sx) * 4;
+      // The original's edge pixel weighted by its own alpha (a transparent edge leaves the answer as it is)
+      const k = w * (original.data[s + 3] / 255);
+      for (let c = 0; c < 3; c++) out.data[o + c] = Math.round(out.data[o + c] * (1 - k) + original.data[s + c] * k);
+    }
 }
 
 /** The padding a target aspect needs around w × h (the least growth, centred), or none for freeform. */

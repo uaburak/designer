@@ -50,7 +50,15 @@ export interface AiImageRequest {
   size?: { width: number; height: number };
 }
 
-export interface AiUsage { input: number; output: number; images: number; credits: number }
+export interface AiUsage {
+  input: number;
+  output: number;
+  images: number;
+  credits: number;
+  /** Who answered (main fills them: with "Automatic" only main knows the provider it picked) */
+  providerId?: string;
+  model?: string;
+}
 
 export type AiRunEvent =
   | { type: "status"; text: string }
@@ -113,7 +121,7 @@ export interface Connector {
 }
 export interface ConnectorConsent { reqId: number; turnId: string; connectorId: string; connector: string; tool: string; args: unknown }
 
-export type AiModelId = "birefnet-lite" | "swin2sr-x4" | "lama" | "clip-vit-b32" | "minilm-l6";
+export type AiModelId = "isnet" | "swin2sr-x4" | "lama" | "clip-vit-b32" | "minilm-l6";
 export interface AiModelInfo { id: AiModelId; label: string; use: string; license: string; repo: string; revision: string; files: { path: string; bytes: number; sha256: string }[]; bytes: number }
 export interface AiModelState { id: AiModelId; state: "absent" | "downloading" | "ready" | "error"; received?: number; bytes: number; error?: string }
 
