@@ -59,9 +59,10 @@ import { AdminApp } from "@/admin";
 import type * as O from "@shared/org/types";
 import type { SpaceId } from "@shared/store/repositories";
 import { PLAN_BADGE, orgErrorText, orgIdOf, orgSpace, spaceMenu } from "./org";
+import { loadIcon, setIconLoader } from "./parts";
 import { OrgMain } from "./OrgMain";
 import { OrgSidebar } from "./OrgSidebar";
-import { CreateOrgDialog, DestinationDialog, type Destination, type DestinationSection } from "./orgDialogs";
+import { CreateOrgDialog, DestinationDialog, NameDialog, type Destination, type DestinationSection } from "./orgDialogs";
 import { orgDestinations, useOrgData } from "./useOrgData";
 import { effectiveGate, orgGateOf } from "./governance";
 import { GuestExpiryBanner, IpBlocked, NetworkRestricted, PolicyModal, TwoFactorRequired } from "../account/Gates";
@@ -84,7 +85,8 @@ type DialogState =
   | { kind: "move-spaces"; files: FileKey[]; sections: DestinationSection[]; title: string }
   | { kind: "delete-forever"; targets: act.Targets }
   | { kind: "empty-trash" }
-  | { kind: "create-org" };
+  | { kind: "create-org" }
+  | { kind: "rename-local-team" };
 /** Local locations an org's space has its own of (shown when the space is switched). */
 const LOCAL_ONLY = new Set<Location["kind"]>(["drafts", "folders", "folder", "trash"]);
 type MenuState = { at: { x: number; y: number }; entries: MenuEntry[]; run: (id: string) => void; className?: string };
@@ -234,6 +236,15 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
     if (fix) setNav((n) => ({ stack: [...n.stack.slice(0, n.index), fix], index: n.index }));
   }
   const [orgExpanded, setOrgExpanded] = useState<Set<string>>(() => new Set());
+  // Org and team icons (§14.16) come through the store (the page loads no network pictures); the switcher's ahead
+  useEffect(() => {
+    const org = backend.org;
+    setIconLoader(org ? (url) => org.orgs.iconData(url) : null);
+  }, [backend.org]);
+  const orgIconUrls = orgShell.orgs.map((o) => o.iconUrl ?? "").join(",");
+  useEffect(() => {
+    for (const url of orgIconUrls.split(",")) if (url) void loadIcon(url);
+  }, [orgIconUrls, backend.org]);
 
   // Recents and Starred show org files too, each card saying its team (§14.6): the teams of the orgs listed there.
   const [teamNames, setTeamNames] = useState<Record<string, string>>({});
@@ -514,6 +525,12 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
               if (failure) toast({ kind: "error", message: failure });
             }),
     });
+  };
+  /** The space row's right-click: the local team's Rename (help.figma.com: right-click the team name → Rename) */
+  const onSpaceContextMenu = (e: React.MouseEvent) => {
+    if (orgId) return;
+    e.preventDefault();
+    setMenu({ at: { x: e.clientX, y: e.clientY }, entries: [{ id: "rename", label: "Rename" }], run: (id) => id === "rename" && setDialog({ kind: "rename-local-team" }) });
   };
   const spaceEntries = () => spaceMenu({ local: workspaceName || "Drafts", orgs: orgShell.orgs, current: space, signedIn: !!account.state?.user });
   /** The space row's chevron: the switcher (1.png) */
@@ -837,6 +854,8 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
       <Sidebar
         onSpaceMenu={backend.org && (account.state?.user || orgShell.orgs.length) ? onSpaceMenu : undefined}
         spaceBadge={orgId ? PLAN_BADGE : undefined}
+        spaceIconUrl={orgId ? (orgShell.info?.iconUrl ?? orgSummary?.iconUrl ?? null) : null}
+        onSpaceContextMenu={orgId ? undefined : onSpaceContextMenu}
         spaceSection={
           orgId ? (
             <OrgSidebar
@@ -1072,6 +1091,19 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
       {branchSwitcher.element}
       {linkOpen && <OpenLinkDialog onClose={() => setLinkOpen(false)} onOpen={(fileKey, name, intent) => void openFile(fileKey, { ...(name ? { title: name } : {}), intent }, deps)} onError={(message) => toast({ kind: "error", message })} />}
       {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} className={menu.className} />}
+            {dialog?.kind === "rename-local-team" && (
+        <NameDialog
+          title="Rename team"
+          label="Team name"
+          confirm="Rename"
+          initial={workspaceName}
+          onClose={() => setDialog(null)}
+          onDone={(name) => {
+            setDialog(null);
+            repo.setTeamName(name).catch((e: unknown) => toast({ kind: "error", message: act.errorText(e) }));
+          }}
+        />
+      )}
       {dialog?.kind === "new-folder" && (
         <NewFolderDialog
           onClose={() => setDialog(null)}

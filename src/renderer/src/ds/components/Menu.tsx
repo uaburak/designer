@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cx } from "../util/cx";
+import { initials } from "../util/geometry";
 import { inTriangle, isItem, nextItem, shortcutKeys, tidy, toNativeTemplate, type MenuEntry, type NativeMenuItem } from "../util/menu";
 import { createTypeahead, typeahead } from "../util/typeahead";
 import { placeMenu } from "../overlay/position";
@@ -350,6 +351,11 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
               )}
               {entry.inlineIcon && entry.icon && <span className={cx(styles.icon, styles.inlineIcon)}><MenuIcon name={entry.icon} /></span>}
               {entry.swatch && <span className={styles.swatch} style={{ background: entry.swatch }} aria-hidden />}
+              {entry.avatar && (
+                <span className={styles.avatar} data-menu-avatar="" data-initial={entry.avatar.src ? undefined : initials(entry.avatar.name, 1)} aria-hidden>
+                  {entry.avatar.src && <img src={entry.avatar.src} alt="" />}
+                </span>
+              )}
               <span className={styles.label}>{entry.label}</span>
               {entry.trailingIcon && <span className={styles.icon}><MenuIcon name={entry.trailingIcon} /></span>}
               {entry.hint && <span className={styles.hint}>{hintParts(entry.hint)}</span>}

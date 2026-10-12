@@ -44,6 +44,10 @@ export interface SidebarProps {
   dnd: DropApi;
   /** The space row's chevron (1.png "Anex Softw… ⌄"): the space switcher; absent, a plain label */
   onSpaceMenu?: (e: React.MouseEvent) => void;
+  /** The space's icon (§14.16: the org's `iconUrl`); absent: its initial */
+  spaceIconUrl?: string | null;
+  /** The space row's context menu (the local team's Rename); absent: none */
+  onSpaceContextMenu?: (e: React.MouseEvent) => void;
   /** The plan badge at the space row's right (1.png "Professional") */
   spaceBadge?: string;
   /** An organization's entries (OrgSidebar), in place of the local Drafts / All folders / Trash */
@@ -118,7 +122,7 @@ function FolderTree({ parent, depth, props }: { parent: FolderId | null; depth: 
 }
 
 export function Sidebar(props: SidebarProps) {
-  const { ownerName, ownerPicture, onAccountMenu, accountAccessory, teamName, location, search, onSearch, onSearchExit, go, starredFolders, starredFiles, starredOpen, onStarredOpen, onOpenFile, onFolderMenu, onFileMenu, onAllFoldersMenu, onTrashMenu, dnd, onSpaceMenu, spaceBadge, spaceSection } = props;
+  const { ownerName, ownerPicture, onAccountMenu, accountAccessory, teamName, location, search, onSearch, onSearchExit, go, starredFolders, starredFiles, starredOpen, onStarredOpen, onOpenFile, onFolderMenu, onFileMenu, onAllFoldersMenu, onTrashMenu, dnd, onSpaceMenu, spaceBadge, spaceSection, spaceIconUrl, onSpaceContextMenu } = props;
   const is = (kind: Location["kind"]) => location.kind === kind;
   return (
     <nav className={styles.sidebar} aria-label="File browser">
@@ -144,10 +148,10 @@ export function Sidebar(props: SidebarProps) {
         <SidebarItem icon="24.recent" label="Recents" selected={is("recents")} onClick={() => go({ kind: "recents" })} />
       </div>
       <SidebarDivider />
-      <div className={styles.team}>
+      <div className={styles.team} onContextMenu={onSpaceContextMenu}>
         {onSpaceMenu ? (
           <button type="button" className={styles.spaceButton} aria-haspopup="menu" aria-label={`${teamName}, switch space`} onClick={onSpaceMenu}>
-            <TeamIcon name={teamName} />
+            <TeamIcon name={teamName} iconUrl={spaceIconUrl} />
             <span className={styles.teamName}>{teamName}</span>
             <Icon name="16.chevron.down" />
           </button>

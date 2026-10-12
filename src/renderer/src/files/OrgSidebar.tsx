@@ -80,7 +80,7 @@ export function OrgSidebar(props: OrgSidebarProps) {
           return (
             <div key={t.id} role="treeitem" aria-expanded={t.projectCount > 0 ? open : undefined} aria-level={1}>
               <div className={styles.treeRow}>
-                <SidebarItem icon={<TeamIcon name={t.name} src={t.icon} />} label={t.name} indent={0} selected={location.kind === "team" && location.teamId === t.id} onClick={() => go({ kind: "team", teamId: t.id })} onContextMenu={onTeamMenu ? (e) => onTeamMenu(e, t) : undefined} />
+                <SidebarItem icon={<TeamIcon name={t.name} src={t.icon} iconUrl={t.iconUrl} />} label={t.name} indent={0} selected={location.kind === "team" && location.teamId === t.id} onClick={() => go({ kind: "team", teamId: t.id })} onContextMenu={onTeamMenu ? (e) => onTeamMenu(e, t) : undefined} />
                 {t.projectCount > 0 && <Disclosure depth={1} open={open} onToggle={() => onToggle(k, t.id, null)} />}
               </div>
               {open && (

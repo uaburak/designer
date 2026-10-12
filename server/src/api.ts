@@ -142,6 +142,10 @@ async function route(req: Request, deps: Deps): Promise<Response> {
     return embedRoute(embed[1], embed[2], url, deps);
   }
 
+  // Organization and team icons (docs/multiplayer.md §14.16): public, immutable, by content hash
+  const icon = /^\/icons\/([0-9A-Za-z_-]{6,64})\/([0-9a-f]{40})$/.exec(path);
+  if (icon) return (await import("./org/icons")).publicIconRoute(req, deps, icon[1], icon[2]);
+
   const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
   const isSocket = (parts[0] === "files" && parts[2] === "ws" && parts.length === 3) || (parts[0] === "notifications" && parts[1] === "ws" && parts.length === 2);
   const caller = await authenticate(req, url, deps, isSocket);

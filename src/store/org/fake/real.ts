@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { handle, type Deps } from "../../../../server/src/api";
 import { Db, type D1Like } from "../../../../server/src/db";
 import { sqliteD1 } from "../../../../server/src/testing/sqliteD1";
+import { memoryFonts } from "../../../../server/src/testing/memoryLibraries";
 
 export class RealOrgServer {
   /** Requests answered so far, "METHOD /path" */
@@ -22,7 +23,8 @@ export class RealOrgServer {
   private clock = Date.UTC(2026, 9, 11);
   readonly deps: Deps = {
     db: new Db(this.d1),
-    env: { SESSION_SECRET: "s".repeat(40), DEV_AUTH: "1" },
+    // FONTS: the org's object, which keeps its fonts and its icons (§14.16)
+    env: { SESSION_SECRET: "s".repeat(40), DEV_AUTH: "1", FONTS: memoryFonts().binding } as Deps["env"],
     rooms: {
       fetch: async (key, path, init) => {
         if (path.startsWith("/room/snapshot")) {

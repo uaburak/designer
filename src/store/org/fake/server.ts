@@ -21,6 +21,8 @@ interface Member {
 interface Org {
   id: string;
   name: string;
+  /** §14.16: the icon's hash in `images` */
+  icon?: string | null;
   createdAt: number;
   settings: OrgSettings;
   members: Map<string, Member>;
@@ -29,6 +31,7 @@ interface Team {
   id: string;
   orgId: string;
   name: string;
+  icon?: string | null;
   description: string;
   ownerId: string;
   createdAt: number;
@@ -87,6 +90,8 @@ export class FakeOrgServer {
   readonly workspaces = new Map<string, { id: string; orgId: string; name: string; hidden: boolean; adminIds: string[]; createdAt: number }>();
   readonly billingGroups = new Map<string, { id: string; orgId: string; name: string; adminIds: string[] }>();
   readonly activity: ActivityLog[] = [];
+  /** Icons (§14.16) by `<orgId>/<hash>` */
+  readonly images = new Map<string, { bytes: Uint8Array; type: string }>();
   /** Requests answered so far, "METHOD /path" (tests look at what went to the server) */
   readonly log: string[] = [];
   /** Off: every request fails as a network error would */
@@ -130,6 +135,12 @@ export class FakeOrgServer {
     const p = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
     const m = req.method;
     this.log.push(`${m} ${url.pathname}`);
+    // Icons: public, before any session (server/src/org/icons.ts)
+    if (p[0] === "icons" && p.length === 3 && m === "GET") {
+      const img = this.images.get(`${p[1]}/${p[2]}`);
+      if (!img) throw new HttpError(404, "not_found", "no such icon");
+      return new Response(img.bytes.slice().buffer as ArrayBuffer, { headers: { "content-type": img.type, "cache-control": "public, max-age=31536000, immutable" } });
+    }
     const user = this.auth(req);
     const body = async <T>() => {
       const text = await req.text();
@@ -139,7 +150,7 @@ export class FakeOrgServer {
     if (p[0] === "me" && p.length === 1) return json(user);
     if (p[0] === "devices" && m === "POST") return json({ ordinal: 7 });
     if (p[0] === "orgs") return this.orgRoutes(req, url, p, user, body);
-    if (p[0] === "teams") return this.teamRoutes(url, p, m, user, body);
+    if (p[0] === "teams") return this.teamRoutes(url, p, m, user, body, req);
     if (p[0] === "projects") return this.projectRoutes(p, m, user, body);
     if (p[0] === "groups") return this.groupRoutes(p, m, user, body);
     if (p[0] === "files") return this.fileRoutes(req, url, p, m, user, body);
@@ -180,11 +191,29 @@ export class FakeOrgServer {
     return { id: u.id, email: u.email, name: u.name, picture: null, role: org.members.get(userId)?.role ?? "member" };
   }
 
+  /** An icon upload (§14.16): PNG / JPEG / WebP / GIF by its first bytes, ≤ 1 MB → its hash (not SHA-1: 40 hex all the same) */
+  private async putIcon(req: Request, orgId: string): Promise<string> {
+    const bytes = new Uint8Array(await req.arrayBuffer());
+    if (bytes.length > 1024 * 1024) throw new HttpError(413, "too_large", "the image is larger than 1 MB");
+    const type = bytes[0] === 0x89 && bytes[1] === 0x50 ? "image/png" : bytes[0] === 0xff && bytes[1] === 0xd8 ? "image/jpeg" : bytes[0] === 0x47 && bytes[1] === 0x49 ? "image/gif" : bytes[0] === 0x52 && bytes[8] === 0x57 ? "image/webp" : null;
+    if (!type) throw new HttpError(400, "invalid", "only PNG, JPEG, WebP and GIF images can be used as an icon");
+    let h = 0x811c9dc5;
+    for (const b of bytes) h = Math.imul(h ^ b, 0x01000193) >>> 0;
+    const hash = h.toString(16).padStart(8, "0").repeat(5);
+    this.images.set(`${orgId}/${hash}`, { bytes, type });
+    return hash;
+  }
+
+  private iconUrl(orgId: string, hash: string | null | undefined): string | null {
+    return hash ? `/icons/${orgId}/${hash}` : null;
+  }
+
   private orgInfo(org: Org, me: Member): OrgInfo {
     const members = [...org.members.values()];
     return {
       id: org.id,
       name: org.name,
+      iconUrl: this.iconUrl(org.id, org.icon),
       role: me.role,
       seat: me.seat,
       workspaceId: null,
@@ -219,6 +248,7 @@ export class FakeOrgServer {
       id: team.id,
       name: team.name,
       icon: null,
+      iconUrl: this.iconUrl(team.orgId, team.icon),
       workspaceId: null,
       visibility: team.visibility,
       orgAccess: team.orgAccess,
@@ -315,7 +345,7 @@ export class FakeOrgServer {
 
   private async orgRoutes(req: Request, url: URL, p: string[], user: User, body: <T>() => Promise<T>): Promise<Response> {
     const m = req.method;
-    if (p.length === 1 && m === "GET") return json({ orgs: [...this.orgs.values()].filter((o) => o.members.has(user.id)).map((o) => ({ id: o.id, name: o.name, role: o.members.get(user.id)!.role, seat: o.members.get(user.id)!.seat, workspaceId: null })) });
+    if (p.length === 1 && m === "GET") return json({ orgs: [...this.orgs.values()].filter((o) => o.members.has(user.id)).map((o) => ({ id: o.id, name: o.name, iconUrl: this.iconUrl(o.id, o.icon), role: o.members.get(user.id)!.role, seat: o.members.get(user.id)!.seat, workspaceId: null })) });
     if (p.length === 1 && m === "POST") {
       const b = await body<{ name?: string }>();
       if (!b.name?.trim()) throw new HttpError(400, "invalid", "name");
@@ -329,6 +359,21 @@ export class FakeOrgServer {
     const { org, me } = this.org(orgId, user);
     const sub = p[2];
     if (!sub && m === "GET") return json({ org: this.orgInfo(org, me) });
+    // Name and icon (§14.16): org admins
+    if ((!sub && m === "PATCH") || sub === "icon") {
+      if (me.role !== "admin") throw new HttpError(403, "forbidden", "only organization admins can do that", { code: "not_admin" });
+      if (!sub) {
+        const b = await body<{ name?: string }>();
+        if (!b.name?.trim()) throw new HttpError(400, "invalid", "name");
+        org.name = b.name.trim();
+        this.log_(org, user, "org_rename", { type: "org", id: org.id, name: org.name });
+      } else if (m === "PUT") {
+        org.icon = await this.putIcon(req, org.id);
+        this.log_(org, user, "org_icon_change", { type: "org", id: org.id, name: org.name });
+      } else if (m === "DELETE") org.icon = null;
+      else throw new HttpError(405, "invalid", "method not allowed");
+      return json({ org: this.orgInfo(org, me) });
+    }
     if (sub === "people" && m === "GET") {
       const text = (url.searchParams.get("text") ?? "").toLowerCase();
       const people = [...org.members.keys()].map((id) => this.person(id, org)).filter((x) => !text || x.email.includes(text) || (x.name ?? "").toLowerCase().includes(text));
@@ -419,9 +464,15 @@ export class FakeOrgServer {
 
   // --- /teams ---
 
-  private async teamRoutes(url: URL, p: string[], m: string, user: User, body: <T>() => Promise<T>): Promise<Response> {
+  private async teamRoutes(url: URL, p: string[], m: string, user: User, body: <T>() => Promise<T>, req: Request): Promise<Response> {
     const { team, org, me } = this.team(p[1], user);
     const sub = p[2];
+    if (sub === "icon" && (m === "PUT" || m === "DELETE")) {
+      this.teamAdmin(team, user, me);
+      team.icon = m === "PUT" ? await this.putIcon(req, team.orgId) : null;
+      this.log_(org, user, "team_icon_change", { type: "team", id: team.id, name: team.name }, team.id);
+      return json({ team: this.teamInfo(team, user) });
+    }
     if (!sub && m === "GET") return json({ team: this.teamInfo(team, user) });
     if (!sub && m === "PATCH") {
       this.teamAdmin(team, user, me);

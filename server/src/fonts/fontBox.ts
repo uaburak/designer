@@ -7,9 +7,16 @@
  *   GET    /font/:sha1  → bytes
  *   DELETE /font/:sha1  the bytes (no D1 row uses them any more)
  *   POST   /delete      everything (the org was deleted)
+ *
+ * And the org's icons (docs/multiplayer.md §14.16: the organization icon and its teams' icons), one row each:
+ *
+ *   PUT    /image        the bytes (≤ 1 MB, PNG / JPEG / WebP / GIF by magic) → {sha1, type, size}
+ *   GET    /image/:sha1  → the bytes with their type
+ *   DELETE /image/:sha1  (no org or team row uses them any more)
  */
 import type { SqlLike } from "../previews";
 import { concat, sha1Hex } from "../libraries/libraryBox";
+import { ICON_BAD_TYPE, ICON_TOO_LARGE, MAX_ICON_BYTES, iconType } from "../org/iconImage";
 
 const CHUNK = 1024 * 1024;
 /** As your uploaded fonts (desktop.md §14.2) */
@@ -37,6 +44,7 @@ export class FontBox {
 
   private ensure(): void {
     this.host.sql.exec(`CREATE TABLE IF NOT EXISTS fonts (sha1 TEXT NOT NULL, idx INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY (sha1, idx))`);
+    this.host.sql.exec(`CREATE TABLE IF NOT EXISTS images (sha1 TEXT PRIMARY KEY, type TEXT NOT NULL, bytes BLOB NOT NULL)`);
   }
 
   async fetch(req: Request): Promise<Response> {
@@ -60,6 +68,25 @@ export class FontBox {
         });
       }
       return json({ sha1, format, size: bytes.length });
+    }
+    if (path === "/image" && m === "PUT") {
+      const bytes = new Uint8Array(await req.arrayBuffer());
+      if (bytes.length > MAX_ICON_BYTES) return json({ error: ICON_TOO_LARGE, code: "too_large" }, 413);
+      const type = iconType(bytes);
+      if (!type) return json({ error: ICON_BAD_TYPE, code: "invalid" }, 400);
+      const sha1 = await sha1Hex(bytes);
+      this.host.sql.exec(`INSERT OR IGNORE INTO images (sha1, type, bytes) VALUES (?, ?, ?)`, sha1, type, bytes.slice().buffer);
+      return json({ sha1, type, size: bytes.length });
+    }
+    const image = /^\/image\/([0-9a-f]{40})$/.exec(path);
+    if (image && m === "GET") {
+      const row = this.host.sql.exec<{ type: string; bytes: ArrayBuffer }>(`SELECT type, bytes FROM images WHERE sha1 = ?`, image[1]).toArray()[0];
+      if (!row) return json({ error: "not found", code: "not_found" }, 404);
+      return new Response(new Uint8Array(row.bytes), { headers: { "content-type": row.type } });
+    }
+    if (image && m === "DELETE") {
+      this.host.sql.exec(`DELETE FROM images WHERE sha1 = ?`, image[1]);
+      return new Response(null, { status: 204 });
     }
     const one = /^\/font\/([0-9a-f]{40})$/.exec(path);
     if (one && m === "GET") {

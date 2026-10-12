@@ -316,6 +316,7 @@ export class StoreClient implements StoreApi {
   readonly workspace: WorkspaceRepository = {
     getWorkspace: () => this.call("workspace.getWorkspace", []),
     updateWorkspace: (patch) => this.call("workspace.updateWorkspace", [patch]),
+    setTeamName: (name) => this.call("workspace.setTeamName", [name]),
     getPrefs: () => this.call("workspace.getPrefs", []),
     setBrowsePrefs: (patch) => this.call("workspace.setBrowsePrefs", [patch]),
     listFolders: () => this.call("workspace.listFolders", []),
@@ -495,6 +496,10 @@ export class StoreClient implements StoreApi {
     setGroupMembers: (groupId, change) => this.call("orgs.setGroupMembers", [groupId, change]),
     deleteGroup: (groupId) => this.call("orgs.deleteGroup", [groupId]),
     leave: (orgId) => this.call("orgs.leave", [orgId]),
+    update: (orgId, patch) => this.call("orgs.update", [orgId, patch]),
+    setIcon: (orgId, image) => this.call("orgs.setIcon", [orgId, image]),
+    removeIcon: (orgId) => this.call("orgs.removeIcon", [orgId]),
+    iconData: (iconUrl) => this.call("orgs.iconData", [iconUrl]),
     watch: (listener) => this.orgEvents.add(listener),
   };
 
@@ -503,6 +508,8 @@ export class StoreClient implements StoreApi {
     get: (teamId) => this.call("teams.get", [teamId]),
     create: (orgId, input) => this.call("teams.create", [orgId, input]),
     update: (teamId, patch) => this.call("teams.update", [teamId, patch]),
+    setIcon: (teamId, image) => this.call("teams.setIcon", [teamId, image]),
+    removeIcon: (teamId) => this.call("teams.removeIcon", [teamId]),
     remove: (teamId) => this.call("teams.remove", [teamId]),
     restore: (teamId) => this.call("teams.restore", [teamId]),
     transfer: (teamId, userId) => this.call("teams.transfer", [teamId, userId]),

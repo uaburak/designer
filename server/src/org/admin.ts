@@ -19,6 +19,7 @@ import { resourceWorkspace } from "./orgs";
 import { FILE_EXPORTING_LABEL, GUEST_EXPIRY_MAX_DAYS, validIdleHours } from "../../../src/shared/org/governance";
 import { GOVERNANCE_SECTIONS } from "../governance/routes";
 import { guestExpiryOnJoin } from "../governance/guests";
+import { iconUrl } from "./icons";
 
 interface Scope {
   me: MemberRow;
@@ -500,6 +501,7 @@ async function teams(ctx: Ctx, orgId: string, scope: Scope): Promise<Response> {
     id: t.id,
     name: t.name,
     icon: t.icon,
+    iconUrl: iconUrl(t.org_id, t.icon_hash),
     workspaceId: t.workspace_id,
     visibility: t.visibility,
     orgAccess: t.org_access,

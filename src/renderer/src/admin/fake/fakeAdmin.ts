@@ -6,6 +6,7 @@
  */
 import type { AdminRepository, GovernanceRepository, IdentityRepository, OrgsRepository } from "@shared/org/repositories";
 import { GUEST_EXPIRY_MAX_DAYS } from "@shared/org/governance";
+import { bytesToDataUrl, iconMime } from "@shared/org/icons";
 import type * as O from "@shared/org/types";
 import { SEAT_LABEL, eventText, formatUtc, productOf, teamAccess, toCsv, userType } from "../labels";
 import { makeSeed, type Seed } from "./seed";
@@ -467,10 +468,10 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
     throw new Fail("invalid", `${name} isn't part of the Admin fake`);
   };
   const orgs: OrgsRepository = {
-    list: async () => wait([{ id: s.orgId, name: s.orgName, role: person(me).role, seat: person(me).seat, workspaceId: person(me).workspaceId }]),
+    list: async () => wait([{ id: s.orgId, name: s.orgName, iconUrl: s.orgIconUrl ?? null, role: person(me).role, seat: person(me).seat, workspaceId: person(me).workspaceId }]),
     get: async () => {
       const p = person(me);
-      return wait({ id: s.orgId, name: s.orgName, role: p.role, seat: p.seat, workspaceId: p.workspaceId, createdAt: now - 500 * 86_400_000, workspaceAdminOf: s.workspaces.filter((w) => w.admins.some((a) => a.id === me)).map((w) => w.id), billingGroupAdminOf: s.billingGroups.filter((b) => b.admins.some((a) => a.id === me)).map((b) => b.id), counts: { members: s.people.filter((x) => x.role !== "guest").length, guests: s.people.filter((x) => x.role === "guest").length, teams: s.teams.filter((t) => t.deletedAt === null).length }, settings: s.settings });
+      return wait({ id: s.orgId, name: s.orgName, iconUrl: s.orgIconUrl ?? null, role: p.role, seat: p.seat, workspaceId: p.workspaceId, createdAt: now - 500 * 86_400_000, workspaceAdminOf: s.workspaces.filter((w) => w.admins.some((a) => a.id === me)).map((w) => w.id), billingGroupAdminOf: s.billingGroups.filter((b) => b.admins.some((a) => a.id === me)).map((b) => b.id), counts: { members: s.people.filter((x) => x.role !== "guest").length, guests: s.people.filter((x) => x.role === "guest").length, teams: s.teams.filter((t) => t.deletedAt === null).length }, settings: s.settings });
     },
     create: unsupported("orgs.create"),
     people: async () => wait({ people: s.people.map((p) => ref(p.id)), groups: s.groups.map((g) => ({ id: g.id, name: g.name, memberCount: g.memberCount })) }),
@@ -518,6 +519,28 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
       return wait(undefined);
     },
     leave: unsupported("orgs.leave"),
+    async update(_orgId, patch) {
+      const name = patch.name.trim();
+      if (!name) throw new Fail("invalid", "a name");
+      if (name !== s.orgName) {
+        log("org_rename", { type: "org", id: s.orgId, name }, { old_name: s.orgName });
+        s.orgName = name;
+      }
+      return orgs.get(s.orgId);
+    },
+    async setIcon(_orgId, image) {
+      const mime = iconMime(image);
+      if (!mime) throw new Fail("invalid", "Only PNG, JPEG, WebP and GIF images can be used as an icon");
+      s.orgIconUrl = bytesToDataUrl(image, mime);
+      log("org_icon_change", { type: "org", id: s.orgId, name: s.orgName }, {});
+      return orgs.get(s.orgId);
+    },
+    async removeIcon() {
+      s.orgIconUrl = null;
+      log("org_icon_change", { type: "org", id: s.orgId, name: s.orgName }, {});
+      return orgs.get(s.orgId);
+    },
+    iconData: async (url) => (url.startsWith("data:image/") ? url : null),
     watch: () => () => {},
   };
 

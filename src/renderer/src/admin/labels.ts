@@ -48,8 +48,8 @@ export const EVENT_GROUPS: { name: string; actions: ActivityAction[] }[] = [
   { name: "Files", actions: ["fig_file_create", "fig_file_duplicate", "fig_file_move", "fig_file_rename", "fig_file_trash", "fig_file_restore", "fig_file_permanent_delete", "fig_file_member_add", "fig_file_member_permission_change", "fig_file_member_remove", "fig_file_link_access_change", "fig_file_link_expiration_change", "fig_file_proto_link_access_change", "fig_file_set_password", "fig_file_unset_password", "fig_file_viewer_access_change", "fig_file_view", "fig_file_view_external", "fig_file_view_prototype", "fig_file_export", "fig_file_save_as", "fig_file_region_move"] },
   { name: "Branches", actions: ["branch_create", "branch_archive", "branch_unarchive", "branch_delete", "branch_member_add", "branch_member_permission_change", "branch_member_remove", "repo_merge_to_source", "repo_merge_from_source"] },
   { name: "Folders", actions: ["project_create", "project_rename", "project_move", "project_trash", "project_restore", "project_delete", "project_member_add", "project_member_permission_change", "project_member_remove", "project_team_access_change"] },
-  { name: "Teams", actions: ["team_create", "team_rename", "team_delete", "team_restore", "team_member_add", "team_member_add_external", "team_member_permission_change", "team_member_remove", "team_member_remove_external", "team_org_access_change", "team_sharing_audience_control_change", "team_workspace_change", "team_license_group_change"] },
-  { name: "Organizations", actions: ["org_team_creation_controls", "org_team_csv_exported", "org_default_license_type_change", "org_guest_invite_setting_change", "public_link_setting_change", "idle_timeout_setting_change", "cursor_chat_setting_change", "open_sessions_setting_change", "external_collaboration_controls_setting_change", "autogen_password_controls_setting_change", "data_storage_localization_change", "org_ai_setting_change"] },
+  { name: "Teams", actions: ["team_create", "team_rename", "team_icon_change", "team_delete", "team_restore", "team_member_add", "team_member_add_external", "team_member_permission_change", "team_member_remove", "team_member_remove_external", "team_org_access_change", "team_sharing_audience_control_change", "team_workspace_change", "team_license_group_change"] },
+  { name: "Organizations", actions: ["org_team_creation_controls", "org_team_csv_exported", "org_default_license_type_change", "org_guest_invite_setting_change", "public_link_setting_change", "idle_timeout_setting_change", "cursor_chat_setting_change", "open_sessions_setting_change", "external_collaboration_controls_setting_change", "autogen_password_controls_setting_change", "data_storage_localization_change", "org_ai_setting_change", "org_rename", "org_icon_change"] },
   { name: "Seat changes", actions: ["org_user_account_type_change", "org_user_account_type_change_to_full", "org_user_account_type_upgrade_requested", "org_user_account_type_upgrade_approved", "org_user_account_type_upgrade_denied"] },
   { name: "Workspaces", actions: ["workspace_create", "workspace_rename", "workspace_delete", "workspace_member_add", "workspace_member_remove", "workspace_admins_add", "workspace_admins_remove", "workspace_visibility_setting_change", "workspace_public_link_setting_change", "workspace_team_csv_exported"] },
   { name: "Billing groups", actions: ["license_group_create", "license_group_rename", "license_group_delete", "license_group_admins_add", "license_group_admins_remove", "license_group_membership_change"] },
@@ -108,6 +108,7 @@ export const ACTION_LABEL: Record<ActivityAction, string> = {
   project_team_access_change: "Changed folder access",
   team_create: "Created team",
   team_rename: "Renamed team",
+  team_icon_change: "Changed the team's icon",
   team_delete: "Deleted team",
   team_restore: "Restored team",
   team_member_add: "Added team member",
@@ -219,6 +220,8 @@ export const ACTION_LABEL: Record<ActivityAction, string> = {
   code_connect_publish: "Published Code Connect",
   code_connect_unpublish: "Unpublished Code Connect",
   org_ai_setting_change: "Changed AI settings for the organization",
+  org_rename: "Renamed the organization",
+  org_icon_change: "Changed the organization's icon",
   // Round 4: identity and security (docs/multiplayer.md §15.11) — Figma's description of each action
   // (developers.figma.com activity-logs-action-types, read 2026-10-11) said as the column's past-tense phrase;
   // `eventText` adds the new value where the row's details carry it

@@ -70,6 +70,10 @@
   .item[aria-disabled="true"] { color: var(--ds-color-menu-text-disabled); }
   /* Live capture: a check column of 16 after the item's 8 — the label at 32 (16 without checks) */
   /* A coloured dot before the label (MenuItem `swatch`) */
+  /* A space's 16 square (the space switcher): its picture, else the initial in white on green (Home's team icon) */
+  .avatar { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-icon-16); height: var(--ds-size-icon-16); margin-right: var(--ds-space-2); overflow: hidden; border-radius: var(--ds-radius-small); background: var(--figma-color-bg-success); color: var(--figma-color-text-onsuccess); font: var(--ds-font-body-small); font-weight: 600; }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .avatar[data-initial]::before { content: attr(data-initial); }
   .swatch { flex: none; width: var(--ds-space-2); height: var(--ds-space-2); margin-right: var(--ds-space-2); border-radius: var(--ds-radius-full); }
   .check { display: flex; flex: none; width: 16px; margin-right: calc(var(--ds-space-2) * -1); }
   /* Live (boolean operations, individual strokes): a 24 glyph column, the label 4 after it (44 without checks, 60 with) */

@@ -81,6 +81,9 @@ export const DEFAULT_ORG_SETTINGS: OrgSettings = {
 
 export interface OrgSummary {
   id: string; name: string; role: OrgRole; seat: Seat; workspaceId: string | null;
+  /** §14.16: the organization icon, a route of the server's (`/icons/<orgId>/<sha1>`, immutable); null or absent: the
+   *  initial on a colour. The store's `orgs.iconData` turns it into a picture the views can show. */
+  iconUrl?: string | null;
   /** Round 14: what blocks the caller in this org (docs/governance.md §2.5); absent: nothing */
   gate?: OrgGate;
   /** Round 14: a guest's access ends then (ms) */
@@ -103,7 +106,8 @@ export interface GroupRef { id: string; name: string; memberCount: number }
 export interface UserGroup extends GroupRef { description: string; createdBy: string; external: boolean; members: PersonRef[]; canManage: boolean }
 
 export interface TeamSummary {
-  id: string; name: string; icon: string | null; workspaceId: string | null;
+  /** `icon`: a data: URL set before §14.16 (PATCH's `icon`); `iconUrl`: the uploaded icon (as OrgSummary.iconUrl) — it wins */
+  id: string; name: string; icon: string | null; iconUrl?: string | null; workspaceId: string | null;
   visibility: "visible" | "hidden"; orgAccess: Audience; workspaceAccess: Audience;
   /** The caller's place: null when they only see it (browse) */
   me: { role: GrantRole | null; admin: boolean; owner: boolean; requested: boolean } | null;
@@ -308,5 +312,9 @@ export type ActivityAction =
   | "code_connect_unpublish"
   // Round 6, ours (docs/ai.md §2.12): Admin › Settings › AI
   | "org_ai_setting_change"
+  // Ours (docs/multiplayer.md §14.16; Figma logs team_rename only): the org's name and icon, a team's icon
+  | "org_rename"
+  | "org_icon_change"
+  | "team_icon_change"
   | IdentityActivityAction
   | GovernanceActivityAction;

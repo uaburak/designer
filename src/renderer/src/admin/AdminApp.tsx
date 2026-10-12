@@ -20,6 +20,7 @@ import type { PluginRequest } from "@shared/plugins/types";
 import { AdminContext, useAdmin, useAdminState, useLoad, type AdminStore, type AdminWorkspaceScope } from "./context";
 import type { SharedFontsApi } from "@shared/desktop";
 import { styles } from "./parts";
+import { TeamIcon } from "@/files/parts";
 
 
 export type AdminSection = "dashboard" | "people" | "content" | "resources" | "activity" | "billing" | "settings" | "libraries" | "plugins";
@@ -135,12 +136,17 @@ function AdminLayout({ onBack, initial }: { onBack?: () => void; initial?: Admin
   );
 }
 
+/** The sidebar's head: the org's icon (§14.16) and name with "Admin" (a workspace admin: the workspace's name) */
 function OrgHeader() {
   const { orgId, store, workspace } = useAdmin();
-  const { data } = useLoad(() => (workspace ? Promise.resolve(workspace.name) : store.orgs ? store.orgs.get(orgId).then((o) => o.name) : Promise.resolve("Organization")), [orgId, store.orgs, workspace?.name]);
+  const { data } = useLoad(
+    () => (workspace ? Promise.resolve({ name: workspace.name, iconUrl: null }) : store.orgs ? store.orgs.get(orgId).then((o) => ({ name: o.name, iconUrl: o.iconUrl ?? null })) : Promise.resolve({ name: "Organization", iconUrl: null })),
+    [orgId, store.orgs, workspace?.name],
+  );
   return (
     <div className={styles.org}>
-      <span className={styles.orgName}>{data ?? ""}</span>
+      {data && !workspace && <TeamIcon name={data.name} iconUrl={data.iconUrl} size={24} />}
+      <span className={styles.orgName}>{data?.name ?? ""}</span>
       <span className={styles.orgTag}>Admin</span>
     </div>
   );

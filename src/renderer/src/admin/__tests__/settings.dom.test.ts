@@ -53,7 +53,7 @@ const actions = (fake: FakeAdminStore) => fake.state.activity.map((r) => r.actio
 describe("Admin › Settings (round 4)", () => {
   it("shows Figma's sections, every row live but the installer's Download", async () => {
     await open();
-    expect($$("[data-settings-group]").map((g) => g.getAttribute("data-settings-group"))).toEqual(["Login and provisioning", "External access", "Team management", "Content", "Communication", "Data", "Billing", "Extensions", "AI", "Plan access tokens", "Other"]);
+    expect($$("[data-settings-group]").map((g) => g.getAttribute("data-settings-group"))).toEqual(["Organization", "Login and provisioning", "External access", "Team management", "Content", "Communication", "Data", "Billing", "Extensions", "AI", "Plan access tokens", "Other"]);
     const disabled = $$("[data-setting]").filter((r) => $$("button", r).some((b) => (b as HTMLButtonElement).disabled)).map((r) => r.getAttribute("data-setting"));
     // SCIM waits for SAML (Figma: SCIM requires SAML); Access to external content waits for domain capture; the
     // Governance+ rows wait for the add-on (round 14)

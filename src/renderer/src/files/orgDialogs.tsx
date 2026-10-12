@@ -1,10 +1,11 @@
 /**
  * Home's modals for organizations (docs/multiplayer.md §14; wording in docs/research/figma/R20-home-org.md): Create
  * organization (with Import shared files, §14.8), a name (Create team, Create user group), Ask to upgrade, Transfer
- * ownership, and the destinations of "Move to…" across spaces and within an org.
+ * ownership, Change icon (§14.16), and the destinations of "Move to…" across spaces and within an org.
  */
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Button, Checkbox, Dialog, Icon, RadioGroup, SearchField, Select, TextInput } from "@/ds";
+import { ICON_ACCEPT, ICON_MAX_BYTES, ICON_SIZE, bytesToDataUrl, iconMime } from "@shared/org/icons";
 import type * as O from "@shared/org/types";
 import { searchKey } from "./model";
 import { SEAT_HINT, SEAT_LABEL } from "./org";
@@ -145,6 +146,112 @@ export function DestinationDialog({ title, sections, onMove, onClose }: { title:
           </div>
         ))}
         {!shown.length && <span className={styles.moveRow}>No results</span>}
+      </div>
+    </Dialog>
+  );
+}
+
+/** A picked image as a 256 × 256 PNG: the middle square, scaled (transparency kept, as Figma's icons allow). */
+export async function cropIcon(file: Blob): Promise<Uint8Array> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    if (!side) throw new Error("empty image");
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = ICON_SIZE;
+    canvas.getContext("2d")!.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, ICON_SIZE, ICON_SIZE);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) throw new Error("no PNG");
+    return new Uint8Array(await blob.arrayBuffer());
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/**
+ * "Change icon" (help.figma.com 14949911189399: the team's ⌄ menu → Change icon → upload an image; the same for the
+ * organization icon in Admin › Settings, docs/multiplayer.md §14.16): Upload image… picks a file, which is cropped to a
+ * square and shown as it will be (the page's square, the sidebar's circle); Save uploads it. Remove icon (ours) goes
+ * back to the initial.
+ */
+export function IconDialog({ title = "Change icon", name, iconUrl, src, onSave, onRemove, onClose, crop = cropIcon }: { title?: string; name: string; iconUrl?: string | null; src?: string | null; onSave: (image: Uint8Array) => Promise<unknown> | void; onRemove?: () => Promise<unknown> | void; onClose: () => void; crop?: (file: Blob) => Promise<Uint8Array> }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [picked, setPicked] = useState<{ bytes: Uint8Array; url: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const has = !!(iconUrl || src);
+  const pick = async (file: File | undefined) => {
+    if (!file) return;
+    setError(null);
+    try {
+      // A picture the page can't redraw (no decoder for it here) goes as it is when the server would take it; the
+      // icons show it cropped (object-fit: cover)
+      const bytes = await crop(file).catch(async () => new Uint8Array(await file.arrayBuffer()));
+      if (bytes.length > ICON_MAX_BYTES) throw new Error("too large");
+      const mime = iconMime(bytes);
+      if (!mime) throw new Error("not an image");
+      setPicked({ bytes, url: bytesToDataUrl(bytes, mime) });
+    } catch {
+      setError("Couldn’t read that image. Use a PNG, JPEG, WebP or GIF file.");
+    }
+  };
+  const run = async (fn: () => Promise<unknown> | void) => {
+    setBusy(true);
+    try {
+      await fn();
+    } finally {
+      setBusy(false);
+    }
+  };
+  const shownSrc = picked ? picked.url : src;
+  const shownUrl = picked ? null : iconUrl;
+  return (
+    <Dialog
+      open
+      title={title}
+      onClose={onClose}
+      footer={
+        <>
+          {onRemove && has && !picked && (
+            <Button variant="secondary" size="large" disabled={busy} onClick={() => void run(onRemove)}>
+              Remove icon
+            </Button>
+          )}
+          <Footer confirm="Save" ok={!!picked && !busy} onConfirm={() => picked && void run(() => onSave(picked.bytes))} onClose={onClose} />
+        </>
+      }
+    >
+      <div className={styles.dialogField} data-icon-dialog="">
+        <div className={styles.iconPreview} data-icon-preview={picked ? "picked" : has ? "current" : "initial"}>
+          <TeamIcon name={name} src={shownSrc} iconUrl={shownUrl} size={64} />
+          <TeamIcon name={name} src={shownSrc} iconUrl={shownUrl} size={16} />
+        </div>
+        <div className={styles.iconActions}>
+          <Button variant="secondary" onClick={() => input.current?.click()} disabled={busy}>
+            Upload image…
+          </Button>
+        </div>
+        <input
+          ref={input}
+          type="file"
+          accept={ICON_ACCEPT}
+          hidden
+          data-icon-input=""
+          onChange={(e) => {
+            const f = e.currentTarget.files?.[0];
+            e.currentTarget.value = "";
+            void pick(f);
+          }}
+        />
+        <p className={styles.dialogHint}>A PNG, JPEG, WebP or GIF image, cropped to a square. One at least 500 × 500 pixels looks sharpest.</p>
+        {error && (
+          <p className={styles.iconError} role="alert">
+            {error}
+          </p>
+        )}
       </div>
     </Dialog>
   );

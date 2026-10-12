@@ -71,6 +71,10 @@ interface Row {
   a_name: string | null;
   a_email: string;
   a_picture: string | null;
+  /** 0020: an org notification's place icon — its team's, else its org's (§14.16) */
+  org_id?: string | null;
+  t_icon?: string | null;
+  o_icon?: string | null;
   thread_id: string | null;
   comment_id: string | null;
   text: string | null;
@@ -100,10 +104,13 @@ const toItem = (r: Row): NotificationItem => ({
   createdAt: r.created_at,
   updatedAt: r.updated_at,
   read: r.read_at !== null,
+  // An org's notification (an invite to a team, a request): the team's icon, else the org's (§14.16)
+  ...(r.file_key === null && r.org_id && (r.t_icon || r.o_icon) ? { placeIconUrl: `/icons/${r.org_id}/${r.t_icon ?? r.o_icon}` } : {}),
 });
 
-const SELECT = `SELECT n.*, u.name AS a_name, u.email AS a_email, u.picture AS a_picture, f.name AS f_name
-  FROM notifications n JOIN users u ON u.id = n.actor_id LEFT JOIN files f ON f.key = n.file_key`;
+const SELECT = `SELECT n.*, u.name AS a_name, u.email AS a_email, u.picture AS a_picture, f.name AS f_name, t.icon_hash AS t_icon, o.icon_hash AS o_icon
+  FROM notifications n JOIN users u ON u.id = n.actor_id LEFT JOIN files f ON f.key = n.file_key
+  LEFT JOIN teams t ON t.id = n.team_id AND n.file_key IS NULL LEFT JOIN orgs o ON o.id = n.org_id AND n.file_key IS NULL`;
 
 /** The routes under /notifications (dispatched by one line in api.ts). `answer` is api.ts's Approve / Deny. */
 export async function notificationsRoute(

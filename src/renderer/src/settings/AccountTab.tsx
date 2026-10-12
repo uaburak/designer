@@ -13,7 +13,7 @@ import { ChangeEmailDialog, ChangeLanguageDialog, ChangeNameDialog, ChangeRoleDi
 import { useProfile } from "./useProfile";
 import styles from "./Settings.module.css";
 
-type DialogId = "name" | "email" | "role" | "language" | "view-history" | "delete" | "libraries" | null;
+type DialogId = "team" | "name" | "email" | "role" | "language" | "view-history" | "delete" | "libraries" | null;
 
 export function Section({ heading, children, ...data }: { heading?: string; children?: ReactNode } & Record<`data-${string}`, string | undefined>) {
   return (
@@ -69,11 +69,15 @@ export function AccountTab() {
   const [teamName, setTeamName] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    void getStoreClient()
-      .workspace.getWorkspace()
-      .then((w) => live && setTeamName(w.teamName), () => {});
+    const repo = getStoreClient().workspace;
+    void repo.getWorkspace().then((w) => live && setTeamName(w.teamName), () => {});
+    // Renamed here or in Home: the name follows
+    const off = repo.watch((e) => {
+      if (e.type === "workspace.updated" && live) setTeamName(e.workspace.teamName);
+    });
     return () => {
       live = false;
+      off();
     };
   }, []);
   const name = profile?.name ?? user?.name ?? user?.email ?? "";
@@ -155,6 +159,10 @@ export function AccountTab() {
                   <span>{teamName ?? "My team"}</span>
                   <span className={styles.muted}>Owner</span>
                   <span className={styles.spaceSeat}>Full seat</span>
+                  {/* Ours: the local team's Rename (Home: right-click the team's name) */}
+                  <Link tight onClick={() => setDialog("team")} data-rename-team="">
+                    Rename team
+                  </Link>
                 </div>
               </div>
               <p className={`${styles.text} ${styles.strong} ${styles.spaceNote}`}>
@@ -256,6 +264,15 @@ export function AccountTab() {
         )}
       </div>
 
+      {dialog === "team" && (
+        <ChangeNameDialog
+          title="Rename team"
+          label="Team name"
+          name={teamName ?? "My team"}
+          onSave={(n) => getStoreClient().workspace.setTeamName(n).then((w) => setTeamName(w.teamName), () => showToast({ kind: "error", message: "Couldn’t rename the team" }))}
+          onClose={() => setDialog(null)}
+        />
+      )}
       {dialog === "name" && <ChangeNameDialog name={name} onSave={(n) => save({ name: n })} onClose={() => setDialog(null)} />}
       {dialog === "email" && user && <ChangeEmailDialog email={user.email} provider={profile?.provider ?? "google"} onClose={() => setDialog(null)} />}
       {dialog === "role" && <ChangeRoleDialog role={profile?.role ?? null} onSave={(r) => save({ role: r })} onClose={() => setDialog(null)} />}

@@ -13,13 +13,13 @@ import styles from "./Settings.module.css";
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-export function ChangeNameDialog({ name, onSave, onClose }: { name: string; onSave: (name: string) => Promise<unknown>; onClose: () => void }) {
+export function ChangeNameDialog({ name, onSave, onClose, title = "Change name", label = "Name" }: { name: string; onSave: (name: string) => Promise<unknown>; onClose: () => void; /** Rename team (the local team, §14.16) */ title?: string; label?: string }) {
   const [value, setValue] = useState(name);
   const [busy, setBusy] = useState(false);
   const ok = value.trim().length > 0 && value.trim() !== name;
   return (
     <Dialog
-      title="Change name"
+      title={title}
       open
       onClose={onClose}
       footer={
@@ -32,8 +32,8 @@ export function ChangeNameDialog({ name, onSave, onClose }: { name: string; onSa
       }
     >
       <div className={styles.formRow}>
-        <span className={styles.formLabel}>Name</span>
-        <TextInput label="Name" value={value} onChange={setValue} autoFocus maxLength={100} />
+        <span className={styles.formLabel}>{label}</span>
+        <TextInput label={label} value={value} onChange={setValue} autoFocus maxLength={100} />
       </div>
     </Dialog>
   );

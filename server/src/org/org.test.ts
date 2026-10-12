@@ -94,7 +94,7 @@ describe("Create organization (§14.8)", () => {
     expect(r.status).toBe(201);
     const org = r.body.org;
     expect(org).toMatchObject({ name: "Acme", role: "admin", seat: "full", counts: { members: 3, guests: 0, teams: 1 } });
-    expect((await call("GET", "/orgs", alice.token)).body.orgs).toEqual([{ id: org.id, name: "Acme", role: "admin", seat: "full", workspaceId: null }]);
+    expect((await call("GET", "/orgs", alice.token)).body.orgs).toEqual([{ id: org.id, name: "Acme", iconUrl: null, role: "admin", seat: "full", workspaceId: null }]);
     const teams = (await call("GET", `/orgs/${org.id}/teams`, alice.token)).body.teams;
     expect(teams.map((t: Any) => [t.name, t.orgAccess, t.visibility, t.me.owner])).toEqual([["Acme", "none", "visible", true]]);
     const folders = (await call("GET", `/teams/${teams[0].id}/projects`, alice.token)).body.projects;

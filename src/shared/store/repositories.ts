@@ -71,6 +71,8 @@ export type WorkspaceEvent =
 export interface WorkspaceRepository {
   getWorkspace(): Promise<Workspace>;
   updateWorkspace(patch: Partial<Pick<Workspace, "teamName" | "defaultLibraries">>): Promise<Workspace>;
+  /** Renames the local team ("My team"; Home's space row, Settings › Account): trimmed, 1–100 characters */
+  setTeamName(name: string): Promise<Workspace>;
   getPrefs(): Promise<Prefs>;
   setBrowsePrefs(patch: Partial<Prefs["browse"]>): Promise<Prefs>;
 

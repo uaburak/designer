@@ -15,7 +15,9 @@ import { DATA_REGION_LABEL, IDLE_DEFAULT_HOURS, IDP_PROVIDER_LABEL } from "@shar
 import { SeatApprovalDialog } from "./Dashboard";
 import { useAdmin, useLoad } from "./context";
 import { AUTH_METHOD_SHORT, GUEST_MEMBERSHIP_LABEL, SEATS, SEAT_APPROVAL_LABEL, SEAT_DESCRIPTION, SEAT_LABEL, TEAM_CREATION_LABEL, formatHours } from "./labels";
-import { ChoiceDialog, ConfirmDialog, styles } from "./parts";
+import { ChoiceDialog, ConfirmDialog, NameDialog, styles } from "./parts";
+import { IconDialog } from "@/files/orgDialogs";
+import { TeamIcon } from "@/files/parts";
 import { AuthenticationDialog, DomainsDialog, IdleTimeoutDialog, SamlDialog, ScimDialog } from "./SettingsLogin";
 import { DataRegionDialog, PublicSharingDialog, sharingSummary } from "./SettingsContent";
 import { ApprovalDialog, PlanTokens, approvalSummary } from "./SettingsExtensions";
@@ -23,6 +25,7 @@ import { CreditLimitDialog, creditLimitSummary } from "./SettingsAi";
 import { FileExportingDialog, GuestExpiryDialog, GuestTwoFactorDialog, IdpsDialog, IpAllowlistDialog, KeyManagementDialog, NetworkRangesDialog, PoliciesDialog, ekmSummary, useGovernance } from "./SettingsGovernance";
 
 type Editing =
+  | "orgName" | "orgIcon"
   | "authentication" | "saml" | "scim" | "idle" | "domains"
   | "guestMembership" | "teamCreation" | "groupCreation"
   | "publicSharing" | "passwordMode" | "externalContent"
@@ -48,6 +51,8 @@ export function SettingsTab() {
   const { overview: gov, on: gp, available: govAvailable } = useGovernance();
   const governance = store.governance;
   const { data: idps } = useLoad(() => (governance && gp ? governance.idps(orgId) : Promise.resolve(null)), [orgId, governance, gp]);
+  const orgs = store.orgs;
+  const { data: org } = useLoad(() => (orgs ? orgs.get(orgId) : Promise.resolve(null)), [orgId, orgs]);
   if (!s) return null;
   /** A Governance+ row's value: "Unavailable" without the repository, "Requires Governance+" without the add-on */
   const gValue = (v: ReactNode) => (!govAvailable ? "Unavailable" : !gp ? REQUIRES_GOVERNANCE_PLUS : v);
@@ -64,6 +69,17 @@ export function SettingsTab() {
   const overrides = (workspaces ?? []).filter((w) => w.sharing && Object.keys(w.sharing).some((k) => k !== "fileExporting")).length;
   return (
     <>
+      {/* The organization's name and icon (docs/multiplayer.md §14.16; Figma: its avatar is changed in admin settings —
+          help.figma.com 4404108672663; the group and row names are ours) */}
+      <Group title="Organization">
+        <Row id="orgName" label="Organization name" description="Shown in the space switcher, on Home and in invitations." disabled={!orgs} value={orgs ? (org?.name ?? "") : "Unavailable"} onChange={() => setEditing("orgName")} />
+        <Row
+          id="orgIcon" label="Organization icon" description="Shown next to the organization's name. Use a square image; it's cropped to a square."
+          disabled={!orgs} value={org ? <TeamIcon name={org.name} iconUrl={org.iconUrl} size={24} /> : orgs ? "" : "Unavailable"}
+          onChange={() => setEditing("orgIcon")}
+        />
+      </Group>
+
       <Group title="Login and provisioning">
         <Row
           id="authentication" label="Authentication" description="Choose how members log in. Guests can always log in with Google SSO or email and password."
@@ -307,6 +323,23 @@ export function SettingsTab() {
           value={s[editing]}
           onSave={(v) => save({ [editing]: v as OrgSettings["teamCreation"] })}
           onClose={close}
+        />
+      )}
+      {editing === "orgName" && orgs && org && (
+        <NameDialog title="Organization name" label="Organization name" value={org.name} confirm="Save" onSave={(name) => void run(() => orgs.update(orgId, { name }), "Organization renamed")} onClose={close} />
+      )}
+      {editing === "orgIcon" && orgs && org && (
+        <IconDialog
+          title="Organization icon"
+          name={org.name}
+          iconUrl={org.iconUrl}
+          onClose={close}
+          onSave={async (image) => {
+            if (await run(() => orgs.setIcon(orgId, image), "Icon changed")) close();
+          }}
+          onRemove={async () => {
+            if (await run(() => orgs.removeIcon(orgId), "Icon removed")) close();
+          }}
         />
       )}
       {editing === "defaultSeat" && (

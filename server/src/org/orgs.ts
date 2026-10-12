@@ -28,6 +28,7 @@ import { emailDomain } from "../../../src/shared/org/identity";
 import { homeOrgOf, logExternal, requireInside } from "../policy/external";
 import { gateCols, gateFor, type GateRow } from "../governance/gate";
 import { guestExpiryOnJoin } from "../governance/guests";
+import { iconUrl } from "./icons";
 
 export const EDITOR_TYPES: readonly EditorType[] = ["design", "figjam", "slides", "buzz", "sites", "make"];
 export const SEATS: readonly Seat[] = ["full", "dev", "collab", "view"];
@@ -50,6 +51,8 @@ export async function orgsRoute(ctx: Ctx): Promise<Response> {
     throw new HttpError(405, "method not allowed");
   }
   const orgId = parts[1];
+  // Name and icon (docs/multiplayer.md §14.16): org admins
+  if ((parts.length === 2 && m === "PATCH") || parts[2] === "icon") return (await import("./icons")).orgSettingsRoute(ctx, orgId, orgInfo);
   if (parts[2] === "groups") return (await import("./groups")).orgGroupsRoute(ctx, orgId);
   if (parts[2] === "teams") return (await import("./teams")).orgTeamsRoute(ctx, orgId);
   if (parts[2] === "admin") return (await import("./admin")).adminRoute(ctx, orgId);
@@ -110,15 +113,15 @@ export async function orgsRoute(ctx: Ctx): Promise<Response> {
 export async function orgSummaries(deps: Deps, user: User, req: Request | null): Promise<OrgSummary[]> {
   const { results } = await deps.db.d1
     .prepare(
-      `SELECT o.id, o.name, o.settings, m.role, m.seat, m.workspace_id, m.expires_at, ${gateCols("?1")} FROM org_members m JOIN orgs o ON o.id = m.org_id
+      `SELECT o.id, o.name, o.settings, o.icon_hash, m.role, m.seat, m.workspace_id, m.expires_at, ${gateCols("?1")} FROM org_members m JOIN orgs o ON o.id = m.org_id
        WHERE m.user_id = ?1 AND (m.expires_at IS NULL OR o.governance_plus = 0 OR m.expires_at > ?2) ORDER BY o.name`,
     )
     .bind(user.id, deps.now())
-    .all<GateRow & { id: string; name: string; settings: string; role: OrgRole; seat: Seat; workspace_id: string | null; expires_at: number | null }>();
+    .all<GateRow & { id: string; name: string; settings: string; icon_hash: string | null; role: OrgRole; seat: Seat; workspace_id: string | null; expires_at: number | null }>();
   const out: OrgSummary[] = [];
   for (const r of results) {
     const gate = r.g_plus ? await gateFor(deps, { orgId: r.id, settings: r.settings, role: r.role, user, req, row: r }) : null;
-    out.push({ id: r.id, name: r.name, role: r.role, seat: r.seat, workspaceId: r.workspace_id, ...(gate ? { gate } : {}), ...(r.g_plus && r.role === "guest" ? { guestExpiresAt: r.expires_at ?? null } : {}) });
+    out.push({ id: r.id, name: r.name, iconUrl: iconUrl(r.id, r.icon_hash), role: r.role, seat: r.seat, workspaceId: r.workspace_id, ...(gate ? { gate } : {}), ...(r.g_plus && r.role === "guest" ? { guestExpiresAt: r.expires_at ?? null } : {}) });
   }
   return out;
 }
@@ -138,6 +141,7 @@ export async function orgInfo(acc: Access, orgId: string): Promise<OrgInfo> {
   const info: OrgInfo & { governancePlus: boolean } = {
     id: org.id,
     name: org.name,
+    iconUrl: iconUrl(org.id, org.icon_hash),
     role: me.role,
     seat: me.seat,
     workspaceId: me.workspace_id,

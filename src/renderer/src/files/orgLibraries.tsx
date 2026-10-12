@@ -7,7 +7,7 @@
  *   **View team's fonts** (Upload fonts with the rights checkbox, remove).
  */
 import { useEffect, useMemo, useState } from "react";
-import { Button, Checkbox, Dialog, EmptyState, IconButton, SearchField, Select, Spinner, type ToastOptions } from "@/ds";
+import { Button, Checkbox, Dialog, EmptyState, IconButton, SearchField, Select, Spinner, TextArea, type ToastOptions } from "@/ds";
 import type * as O from "@shared/org/types";
 import type { CollectionModes, OrgLibrariesAnalytics, TeamLibraryRow } from "@shared/libraries/orgTypes";
 import type { FontConflictChoice, FontUploadCandidate, FontConflict, SharedFontFace, SharedFontScope } from "@shared/fonts/sharedTypes";
@@ -101,10 +101,47 @@ export function OrgLibrariesDialog({ org, orgId, onOpenLibrary, onClose }: { org
 // ---- team › View settings -------------------------------------------------------------------------------------------
 
 /** A team's settings (help.figma.com: the team's ⌄ › View settings); its Shared section. */
-export function TeamSettingsDialog({ team, libraries, fonts, onLibraries, onFonts, onClose }: { team: O.TeamInfo; libraries: boolean; fonts: boolean; onLibraries: () => void; onFonts: () => void; onClose: () => void }) {
+export function TeamSettingsDialog({ team, libraries, fonts, onLibraries, onFonts, onClose, onDescription }: { team: O.TeamInfo; libraries: boolean; fonts: boolean; onLibraries: () => void; onFonts: () => void; onClose: () => void; /** The team's admins: "Add a description" / "Change about" (help.figma.com 14945606265623) */ onDescription?: (description: string) => Promise<unknown> }) {
+  const [about, setAbout] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    if (about === null || !onDescription) return;
+    setSaving(true);
+    try {
+      await onDescription(about.trim());
+      setAbout(null);
+    } finally {
+      setSaving(false);
+    }
+  };
   return (
     <Dialog open size="medium" title={`${team.name} settings`} onClose={onClose}>
-      <section aria-label="Shared" className={styles.dialogField}>
+      <section aria-label="About" className={styles.dialogField} data-team-about="">
+        <h2 className={styles.sectionTitle}>About</h2>
+        {about !== null ? (
+          <>
+            <TextArea label="Description" placeholder="Description" value={about} onChange={setAbout} maxRows={6} />
+            <div className={styles.iconActions}>
+              <Button variant="secondary" onClick={() => setAbout(null)} disabled={saving}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={() => void save()} disabled={saving}>
+                Save
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            {team.description ? <p className={styles.mutedText}>{team.description}</p> : !onDescription && <p className={styles.mutedText}>No description</p>}
+            {onDescription && (
+              <button type="button" className={styles.settingsLink} onClick={() => setAbout(team.description)}>
+                {team.description ? "Change about" : "Add a description"}
+              </button>
+            )}
+          </>
+        )}
+      </section>
+      {(libraries || fonts) && <section aria-label="Shared" className={styles.dialogField}>
         <h2 className={styles.sectionTitle}>Shared</h2>
         {libraries && (
           <button type="button" className={styles.settingsLink} onClick={onLibraries}>
@@ -116,7 +153,7 @@ export function TeamSettingsDialog({ team, libraries, fonts, onLibraries, onFont
             View team’s fonts
           </button>
         )}
-      </section>
+      </section>}
     </Dialog>
   );
 }
