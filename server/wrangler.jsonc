@@ -14,6 +14,11 @@
   "find_additional_modules": true,
   "rules": [{ "type": "ESModule", "globs": ["**/*.gen.mjs"], "fallthrough": false }],
   "workers_dev": true,
+  // Smart Placement (docs/multiplayer.md §17 "Placement"): the Worker's fetch handler runs near what it calls — D1 in
+  // Frankfurt — instead of near the caller, when that is faster; a Home page's few D1 round trips then cost ms, not
+  // a trip from Turkey each. Durable Objects stay where they are (placed on their own). Takes up to 15 minutes after a
+  // deploy to analyze; the `cf-placement` response header says where a request ran (remote-FRA / local-IST).
+  "placement": { "mode": "smart" },
   "durable_objects": {
     "bindings": [
       { "name": "ROOMS", "class_name": "FileRoom" },

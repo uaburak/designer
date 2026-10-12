@@ -64,6 +64,7 @@ import { OrgMain } from "./OrgMain";
 import { OrgSidebar } from "./OrgSidebar";
 import { CreateOrgDialog, DestinationDialog, NameDialog, type Destination, type DestinationSection } from "./orgDialogs";
 import { orgDestinations, useOrgData } from "./useOrgData";
+import { usePrefetcher } from "./prefetch";
 import { effectiveGate, orgGateOf } from "./governance";
 import { GuestExpiryBanner, IpBlocked, NetworkRestricted, PolicyModal, TwoFactorRequired } from "../account/Gates";
 import { isOrgLocation } from "./model";
@@ -221,6 +222,8 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   // Log out from the network restriction: hidden for that account (signed out, or the same one back) until another logs in
   const [loggedOutAs, setLoggedOutAs] = useState<string | null>(null);
   const orgView = useOrgData(backend.org, orgId, location, !!orgId, agreed);
+  // Teams and folders read ahead when the pointer rests on them (prefetch.ts)
+  const prefetcher = usePrefetcher(backend.org);
   const orgShell = orgView.shell;
   // Access to external content (§15.6): a restricted member creates nothing outside their home org.
   const homeOrg = useHomeOrg(backend.org, orgShell.orgs);
@@ -869,6 +872,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
               }}
               location={location}
               go={go}
+              intent={prefetcher.handlers}
             />
           ) : undefined
         }
@@ -907,6 +911,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
       {orgMain && backend.org && orgId ? (
         <OrgMain
           org={backend.org}
+          intent={prefetcher.handlers}
           orgId={orgId}
           info={orgShell.info}
           location={location}

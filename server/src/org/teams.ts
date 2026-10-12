@@ -287,6 +287,12 @@ export async function teamsRoute(ctx: Ctx): Promise<Response> {
       }
       break;
     }
+    // Home's team page in one request (docs/multiplayer.md §14.12 "Pages")
+    case "page": {
+      if (parts.length !== 3 || m !== "GET") break;
+      const { teamPage } = await import("./pages");
+      return json(await teamPage(ctx, team, rights));
+    }
     case "projects": {
       const { projectsOfTeamRoute } = await import("./projects");
       return projectsOfTeamRoute(ctx, team);
@@ -307,22 +313,20 @@ async function teamAdminIds(ctx: Ctx, t: TeamRow): Promise<string[]> {
   return [...new Set([t.owner_id, ...results.map((r) => r.user_id)])];
 }
 
-async function joinRequests(ctx: Ctx, t: TeamRow): Promise<JoinRequest[]> {
+export async function joinRequests(ctx: Ctx, t: TeamRow): Promise<JoinRequest[]> {
+  const q = Q.joinRequests(t.id, t.org_id);
   const { results } = await ctx.acc.d1
-    .prepare(`SELECT r.user_id, r.created_at, u.email, u.name, u.picture, m.role FROM team_requests r JOIN users u ON u.id = r.user_id LEFT JOIN org_members m ON m.user_id = r.user_id AND m.org_id = ?2 WHERE r.team_id = ?1 ORDER BY r.created_at`)
-    .bind(t.id, t.org_id)
+    .prepare(q.sql)
+    .bind(...q.args)
     .all<{ user_id: string; created_at: number; email: string; name: string | null; picture: string | null; role: OrgRole | null }>();
   return results.map((r) => ({ userId: r.user_id, createdAt: r.created_at, person: personRef({ id: r.user_id, email: r.email, name: r.name, picture: r.picture, role: r.role }) }));
 }
 
 export async function teamMembers(ctx: Ctx, t: TeamRow): Promise<TeamMember[]> {
-  const d1 = ctx.acc.d1;
-  const { results } = await d1
-    .prepare(
-      `SELECT tm.email, tm.user_id, tm.role, tm.admin, u.name, u.picture, m.role AS org_role FROM team_members tm LEFT JOIN users u ON u.id = tm.user_id
-       LEFT JOIN org_members m ON m.org_id = ?2 AND m.email = tm.email WHERE tm.team_id = ?1 ORDER BY tm.created_at`,
-    )
-    .bind(t.id, t.org_id)
+  const q = Q.teamMemberRows(t.id, t.org_id);
+  const { results } = await ctx.acc.d1
+    .prepare(q.sql)
+    .bind(...q.args)
     .all<{ email: string; user_id: string | null; role: GrantRole; admin: number; name: string | null; picture: string | null; org_role: OrgRole | null }>();
   const out: TeamMember[] = results.map((r) => ({
     principal: (r.user_id ? `u:${r.user_id}` : `e:${r.email}`) as Principal,
@@ -341,9 +345,10 @@ export async function teamMembers(ctx: Ctx, t: TeamRow): Promise<TeamMember[]> {
 }
 
 export async function groupMembers(ctx: Ctx, type: "team" | "project" | "file", id: string) {
+  const q = Q.grantedGroups(type, id);
   const { results } = await ctx.acc.d1
-    .prepare(`SELECT g.id, g.name, gg.role, (SELECT COUNT(*) FROM user_group_members x WHERE x.group_id = g.id) AS n FROM group_grants gg JOIN user_groups g ON g.id = gg.group_id WHERE gg.resource_type = ?1 AND gg.resource_id = ?2 ORDER BY g.name`)
-    .bind(type, id)
+    .prepare(q.sql)
+    .bind(...q.args)
     .all<{ id: string; name: string; role: GrantRole; n: number }>();
   return results.map((g) => ({ principal: `g:${g.id}` as Principal, person: null, group: { id: g.id, name: g.name, memberCount: g.n }, email: null, role: g.role, owner: false, pending: false, guest: false }));
 }

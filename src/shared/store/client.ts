@@ -506,6 +506,7 @@ export class StoreClient implements StoreApi {
   readonly teams: TeamsRepository = {
     list: (orgId, filter) => this.call("teams.list", [orgId, filter]),
     get: (teamId) => this.call("teams.get", [teamId]),
+    page: (teamId) => this.call("teams.page", [teamId]),
     create: (orgId, input) => this.call("teams.create", [orgId, input]),
     update: (teamId, patch) => this.call("teams.update", [teamId, patch]),
     setIcon: (teamId, image) => this.call("teams.setIcon", [teamId, image]),
@@ -526,6 +527,7 @@ export class StoreClient implements StoreApi {
   readonly projects: ProjectsRepository = {
     list: (teamId, parentId) => this.call("projects.list", [teamId, parentId ?? null]),
     get: (projectId) => this.call("projects.get", [projectId]),
+    page: (projectId) => this.call("projects.page", [projectId]),
     create: (teamId, input) => this.call("projects.create", [teamId, input]),
     update: (projectId, patch) => this.call("projects.update", [projectId, patch]),
     move: (projectId, to) => this.call("projects.move", [projectId, to]),

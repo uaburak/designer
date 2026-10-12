@@ -18,20 +18,30 @@ import type { OrgBackend } from "./storeAccess";
 import styles from "./Files.module.css";
 
 const number = (n: number) => n.toLocaleString("en-US");
+/** The last answers this session (by org, by team): a dialog opened again shows them at once while it reads again
+ *  (stale-while-revalidate, as the store's org cache does for Home's pages) */
+const lastOverview = new Map<string, OrgLibrariesAnalytics>();
+const lastTeamLibraries = new Map<string, TeamLibraryRow[]>();
+const remember = <T,>(map: Map<string, T>, key: string, v: T): T => {
+  map.delete(key);
+  map.set(key, v);
+  if (map.size > 50) map.delete(map.keys().next().value!);
+  return v;
+};
 const matches = (name: string, text: string) => name.toLowerCase().includes(text.trim().toLowerCase());
 
 // ---- All teams › Libraries ----------------------------------------------------------------------------------------
 
 /** The org-wide library analytics (help.figma.com 360039238353: "Click All teams, then click Libraries"). */
 export function OrgLibrariesDialog({ org, orgId, onOpenLibrary, onClose }: { org: OrgBackend; orgId: string; onOpenLibrary: (lib: { key: string; name: string }) => void; onClose: () => void }) {
-  const [data, setData] = useState<OrgLibrariesAnalytics | null>(null);
+  const [data, setData] = useState<OrgLibrariesAnalytics | null>(() => lastOverview.get(orgId) ?? null);
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState("");
   useEffect(() => {
     let live = true;
     org.analytics!.orgOverview(orgId).then(
-      (d) => live && setData(d),
-      (e) => live && setError(orgErrorText(e)),
+      (d) => live && setData(remember(lastOverview, orgId, d)),
+      (e) => live && !lastOverview.has(orgId) && setError(orgErrorText(e)),
     );
     return () => {
       live = false;
@@ -161,7 +171,7 @@ export function TeamSettingsDialog({ team, libraries, fonts, onLibraries, onFont
 /** "View team's libraries": each library the team can use, its Enabled by default and Default mode (§16.5). */
 export function TeamLibrariesDialog({ org, orgId, team, canManage, toast, onClose }: { org: OrgBackend; orgId: string; team: O.TeamInfo; canManage: boolean; toast: (o: ToastOptions) => void; onClose: () => void }) {
   const libs = org.orgLibraries!;
-  const [rows, setRows] = useState<TeamLibraryRow[] | null>(null);
+  const [rows, setRows] = useState<TeamLibraryRow[] | null>(() => lastTeamLibraries.get(team.id) ?? null);
   const [error, setError] = useState<string | null>(null);
   const [collections, setCollections] = useState<Record<string, CollectionModes[]>>({});
   const workspaceId = team.workspaceId;
@@ -169,8 +179,8 @@ export function TeamLibrariesDialog({ org, orgId, team, canManage, toast, onClos
   useEffect(() => {
     let live = true;
     libs.teamLibraries(team.id).then(
-      (r) => live && setRows(r),
-      (e) => live && setError(orgErrorText(e)),
+      (r) => live && setRows(remember(lastTeamLibraries, team.id, r)),
+      (e) => live && !lastTeamLibraries.has(team.id) && setError(orgErrorText(e)),
     );
     return () => {
       live = false;
@@ -194,7 +204,7 @@ export function TeamLibrariesDialog({ org, orgId, team, canManage, toast, onClos
   const save = async (row: TeamLibraryRow, input: Parameters<typeof libs.updateSettings>[2]) => {
     try {
       await libs.updateSettings(orgId, row.key, input);
-      setRows(await libs.teamLibraries(team.id));
+      setRows(remember(lastTeamLibraries, team.id, await libs.teamLibraries(team.id)));
     } catch (e) {
       toast({ kind: "error", message: orgErrorText(e) });
     }

@@ -57,6 +57,8 @@ class NoSocket {
 }
 
 let m: Mounted | null = null;
+/** The store's clock ahead of the wall's (ms): a later visit, past the cache's freshness */
+let skew = 0;
 const stores: MemoryStore[] = [];
 afterEach(() => {
   m?.unmount();
@@ -64,6 +66,7 @@ afterEach(() => {
   document.body.innerHTML = "";
   delete (window as unknown as { designer?: unknown }).designer;
   for (const s of stores.splice(0)) s.dispose();
+  skew = 0;
   vi.unstubAllGlobals();
 });
 
@@ -135,7 +138,7 @@ async function setup(initialLocation: Location) {
   const state: AccountState = { server: SERVER, user: { id: alice.user.id, email: alice.user.email, name: "Alice", picture: null }, signingIn: false };
   (window as unknown as { designer: unknown }).designer = { account: { get: async () => state, signIn: async () => ({ ok: true, state }), cancelSignIn: async () => state, signOut: async () => state, onChanged: () => () => {} } };
 
-  const store = await MemoryStore.open({ teamName: "Alice's team" });
+  const store = await MemoryStore.open({ teamName: "Alice's team", clock: { now: () => Date.now() + skew } });
   stores.push(store);
   const api = store.api();
   await api.multiplayer.setSession({ server: SERVER, token: alice.token });
@@ -245,11 +248,66 @@ describe("libraries and fonts in Home (docs/data.md §16–§17)", () => {
     expect(d.textContent).toContain("Design System");
   });
 
-  it("the team page reads /members and /requests once on open", async () => {
+  it("the team page is one request on open (was /teams/:id, /projects, /members and /requests, one after another)", async () => {
     const { srv } = await setup({ kind: "team", teamId: TEAM });
     expect($("main h1")?.textContent).toBe(TEAM);
-    expect(srv.log.filter((l) => l === `GET /teams/${TEAM}/members`)).toHaveLength(1);
-    expect(srv.log.filter((l) => l === `GET /teams/${TEAM}/requests`)).toHaveLength(1);
+    const teamReads = srv.log.filter((l) => l.startsWith(`GET /teams/${TEAM}`));
+    expect(teamReads.filter((l) => l === `GET /teams/${TEAM}/page`)).toHaveLength(1);
+    expect(teamReads.filter((l) => /\/(members|requests|projects)$/.test(l) || l === `GET /teams/${TEAM}`)).toEqual([]);
+  });
+
+  it("a second visit renders at once from the cache while the server is slow, and the refresh lands behind", async () => {
+    const { srv } = await setup({ kind: "team", teamId: TEAM });
+    expect($("main h1")?.textContent).toBe(TEAM);
+    click($$('nav [data-ds="SidebarItem"]').find((el) => el.textContent?.trim() === "Drafts")!);
+    await settleLong();
+    // Far from the server now: every request waits until released (as DESIGNER_FAKE_LATENCY_MS does in the app)
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const before = srv.log.length;
+    vi.stubGlobal("fetch", (async (input: RequestInfo | URL, init?: RequestInit) => {
+      await held;
+      return srv.fetch(input, init);
+    }) as typeof fetch);
+    await srv.d1.prepare(`UPDATE teams SET description = 'Renamed behind' WHERE id = ?1`).bind(TEAM).run();
+    skew += 60_000;
+    click($$('nav [data-ds="SidebarItem"]').find((el) => el.textContent?.trim() === TEAM)!);
+    await settle(20);
+    // Shown from the cache: the team's page, no spinner, nothing answered by the server yet
+    expect($("main h1")?.textContent).toBe(TEAM);
+    expect($('main [aria-busy="true"]')).toBeNull();
+    expect(srv.log.length).toBe(before);
+    release();
+    await settleLong();
+    // The refresh behind: one page request
+    expect(srv.log.slice(before).filter((l) => l === `GET /teams/${TEAM}/page`)).toHaveLength(1);
+  });
+
+  it("resting on a team in the sidebar for 150 ms reads its page ahead, once; leaving sooner reads nothing", async () => {
+    const { srv } = await setup({ kind: "org-drafts" });
+    const row = $$('nav [data-ds="SidebarItem"]').find((el) => el.textContent?.trim() === TEAM)!.closest("div")!;
+    const pageReads = () => srv.log.filter((l) => l === `GET /teams/${TEAM}/page`).length;
+    const enter = () => act(() => void row.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body })));
+    const leave = () => act(() => void row.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body })));
+    const n = pageReads();
+    enter();
+    await settle(50);
+    leave();
+    await settle(200);
+    expect(pageReads()).toBe(n);
+    enter();
+    await settle(200);
+    // Still resting, and again: no second read while one is on its way or fresh
+    leave();
+    enter();
+    await settle(200);
+    leave();
+    await settleLong();
+    expect(pageReads()).toBe(n + 1);
+    // The click shows it from the cache
+    click($$('nav [data-ds="SidebarItem"]').find((el) => el.textContent?.trim() === TEAM)!);
+    await settle(10);
+    expect($("main h1")?.textContent).toBe(TEAM);
   });
 
   it("View settings › View team's libraries: Enabled by default and Default mode write the team's row", async () => {

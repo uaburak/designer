@@ -60,6 +60,9 @@ export interface TeamsRepository {
   /** "mine": teams the user is in; "browse": also the Visible and audience-reachable teams of the org (members only) */
   list(orgId: string, filter?: "mine" | "browse"): Promise<O.TeamSummary[]>;
   get(teamId: string): Promise<O.TeamInfo>;
+  /** Home's team page — the team, its top-level folders, members and (admins) join requests — in one request, cached
+   *  like the parts (an answer at once when cached, refreshed behind). Optional: the dev fakes may not have it */
+  page?(teamId: string): Promise<O.TeamPage>;
   create(orgId: string, input: { name: string; workspaceId?: string | null }): Promise<O.TeamInfo>;
   update(teamId: string, patch: O.TeamPatch): Promise<O.TeamInfo>;
   /** "Change icon" (the team's admins): as OrgsRepository.setIcon */
@@ -87,6 +90,8 @@ export interface ProjectsRepository {
   /** Folders of a team at one level (parentId null: top level), with counts */
   list(teamId: string, parentId?: string | null): Promise<O.ProjectSummary[]>;
   get(projectId: string): Promise<O.ProjectInfo>;
+  /** Home's folder page — the folder, its team, subfolders, files and members — in one request, cached like `teams.page` */
+  page?(projectId: string): Promise<O.ProjectPage>;
   create(teamId: string, input: { name: string; parentId?: string | null; access?: O.InheritMode }): Promise<O.ProjectInfo>;
   update(projectId: string, patch: { name?: string; access?: O.InheritMode }): Promise<O.ProjectInfo>;
   /** Move within the org: another parent or another team (depth ≤ 10 kept, else `invalid`) */

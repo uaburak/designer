@@ -39,10 +39,13 @@ import { OrgLibrariesDialog, TeamFontsDialog, TeamLibrariesDialog, TeamSettingsD
 import { TeamIcon } from "./parts";
 import type { OrgBackend } from "./storeAccess";
 import { orgDestinations, type OrgPageState } from "./useOrgData";
+import type { IntentHandlers, PrefetchTarget } from "./prefetch";
 import styles from "./Files.module.css";
 
 export interface OrgMainProps {
   org: OrgBackend;
+  /** Prefetch on intent (prefetch.ts): a folder tile the pointer rests on or the keyboard focuses reads its page ahead */
+  intent?: (target: PrefetchTarget) => IntentHandlers;
   orgId: string;
   info: O.OrgInfo | null;
   location: Location;
@@ -235,6 +238,7 @@ export function OrgMain(props: OrgMainProps) {
           onSelect={() => setSelected(`folder:${p.id}`)}
           onOpen={() => (p.trashedAt === null ? go({ kind: "project", projectId: p.id }) : toast({ message: "Restore this folder to open it" }))}
           onContextMenu={(e) => folderMenu(e, p)}
+          {...(p.trashedAt === null ? props.intent?.({ kind: "project", projectId: p.id }) : undefined)}
         />
       ))}
       {files.map((f) => (
@@ -508,7 +512,7 @@ export function OrgMain(props: OrgMainProps) {
       } else if (page.error && page.key === key) {
         title = { items: [{ id: location.kind, label: "" }] };
         body = <EmptyState size="page" icon="24.warning" title="Couldn’t load this page" body={page.error} action={{ label: "Try again", onClick: reload }} />;
-      } else body = <Spinner size={24} />;
+      } else body = <div className={`${styles.center} ${styles.pending}`} aria-busy><Spinner size={24} /></div>;
       break;
   }
 
@@ -524,7 +528,7 @@ export function OrgMain(props: OrgMainProps) {
         <div className={styles.create}>{blocked ? null : actions}</div>
       </header>
       {banner}
-      {blocked ?? <div className={styles.orgContent}>{current || data.kind === "none" ? body : <div className={styles.center} aria-busy><Spinner size={24} /></div>}</div>}
+      {blocked ?? <div className={styles.orgContent}>{current || data.kind === "none" ? body : <div className={`${styles.center} ${styles.pending}`} aria-busy><Spinner size={24} /></div>}</div>}
       {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} />}
       {dialog?.kind === "ask-upgrade" && (
         <AskToUpgradeDialog

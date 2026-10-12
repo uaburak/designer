@@ -175,13 +175,57 @@ export const Q = {
     sql: `SELECT (SELECT COUNT(*) FROM files WHERE project_id = ?1 AND trashed_at IS NULL) AS files, (SELECT COUNT(*) FROM projects WHERE parent_id = ?1 AND trashed_at IS NULL) AS folders`,
     args: [projectId],
   }),
+  // Home's lists (teams.ts, projects.ts, pages.ts): the page routes prefetch them with the reads above
+  /** A team's live folders at one level (parent null: the top) */
+  teamFolders: (teamId: string, parent: string | null): Query => ({
+    sql: `SELECT * FROM projects WHERE team_id = ?1 AND parent_id ${parent ? "= ?2" : "IS NULL"} AND trashed_at IS NULL ORDER BY name`,
+    args: parent ? [teamId, parent] : [teamId],
+  }),
+  /** Files (with their owner's name and active branch count) of those `where` selects (accessibleFiles) */
+  fileList: (where: string, args: unknown[]): Query => ({
+    // Branches are listed under their main file (docs/data.md §15.7), not as files of their own.
+    // Home's file tiles show how many active branches a main file has (round 2d, help.figma.com "View and manage branches").
+    sql: `SELECT ${FILE_COLS}, u.name AS owner_name, u.email AS owner_email, (SELECT COUNT(*) FROM branches bc WHERE bc.main_key = f.key AND bc.status = 'active') AS branch_count FROM files f LEFT JOIN users u ON u.id = f.owner_id WHERE (${where}) AND NOT EXISTS (SELECT 1 FROM branches b WHERE b.key = f.key) ORDER BY f.updated_at DESC`,
+    args,
+  }),
+  /** A team's people (teams.ts teamMembers) */
+  teamMemberRows: (teamId: string, orgId: string): Query => ({
+    sql: `SELECT tm.email, tm.user_id, tm.role, tm.admin, u.name, u.picture, m.role AS org_role FROM team_members tm LEFT JOIN users u ON u.id = tm.user_id
+       LEFT JOIN org_members m ON m.org_id = ?2 AND m.email = tm.email WHERE tm.team_id = ?1 ORDER BY tm.created_at`,
+    args: [teamId, orgId],
+  }),
+  /** The groups granted on a team, folder or file (teams.ts groupMembers) */
+  grantedGroups: (type: "team" | "project" | "file", id: string): Query => ({
+    sql: `SELECT g.id, g.name, gg.role, (SELECT COUNT(*) FROM user_group_members x WHERE x.group_id = g.id) AS n FROM group_grants gg JOIN user_groups g ON g.id = gg.group_id WHERE gg.resource_type = ?1 AND gg.resource_id = ?2 ORDER BY g.name`,
+    args: [type, id],
+  }),
+  /** A team's join requests (teams.ts joinRequests) */
+  joinRequests: (teamId: string, orgId: string): Query => ({
+    sql: `SELECT r.user_id, r.created_at, u.email, u.name, u.picture, m.role FROM team_requests r JOIN users u ON u.id = r.user_id LEFT JOIN org_members m ON m.user_id = r.user_id AND m.org_id = ?2 WHERE r.team_id = ?1 ORDER BY r.created_at`,
+    args: [teamId, orgId],
+  }),
+  /** A folder's own people (projects.ts projectMembers) */
+  folderMemberRows: (projectId: string, orgId: string): Query => ({
+    sql: `SELECT pm.email, pm.user_id, pm.role, u.name, u.picture, m.role AS org_role FROM project_members pm LEFT JOIN users u ON u.id = pm.user_id LEFT JOIN org_members m ON m.org_id = ?2 AND m.email = pm.email WHERE pm.project_id = ?1 ORDER BY pm.created_at`,
+    args: [projectId, orgId],
+  }),
+  /** A folder's owner as a person of the org (projects.ts projectMembers) */
+  folderOwner: (ownerId: string, orgId: string): Query => ({
+    sql: `SELECT u.id, u.email, u.name, u.picture, m.role FROM users u LEFT JOIN org_members m ON m.org_id = ?2 AND m.user_id = u.id WHERE u.id = ?1`,
+    args: [ownerId, orgId],
+  }),
 };
+
+/** A folder's live files (`GET /projects/:id/files`, the folder's page) — accessibleFiles' `where` */
+export const FOLDER_FILES = `f.project_id = ?1 AND f.trashed_at IS NULL`;
 
 /** Reads of one row, or all rows, by a `Q` statement */
 export const readFirst = <T>(d1: D1Like, q: Query) => d1.prepare(q.sql).bind(...q.args).first<T>();
 
+export const readAll = async <T>(d1: D1Like, q: Query) => (await d1.prepare(q.sql).bind(...q.args).all<T>()).results;
+
 const first = readFirst;
-const all = async <T>(d1: D1Like, q: Query) => (await d1.prepare(q.sql).bind(...q.args).all<T>()).results;
+const all = readAll;
 
 /**
  * The caller's access, resolved with rows loaded once per request. Grants are loaded for the caller only (their own
@@ -408,6 +452,11 @@ export class Access {
 
   /** A list of files' `file(f)` reads (accessibleFiles), in one round trip */
   async prefetchFiles(rows: FileRow[]): Promise<void> {
+    await prefetch(this.d1, this.filesQueries(rows));
+  }
+
+  /** The reads `prefetchFiles` sends */
+  filesQueries(rows: FileRow[]): Query[] {
     const u = this.user;
     const seen = new Set<string>();
     const qs: Query[] = [];
@@ -424,7 +473,7 @@ export class Access {
       for (const q of [f.project_id && Q.chain(f.project_id), f.project_id && Q.folderPeople(f.project_id, u), f.project_id && Q.folderGroups(f.project_id, u.id), f.team_id && Q.team(f.team_id)]) add(q);
       for (const q of [f.team_id && Q.teamPeople(f.team_id, u), f.team_id && Q.groupGrants("team", f.team_id, u.id), org && Q.membership(org, u, this.now), org && Q.workspaceAdminOf(org, u.id), org && Q.groups(org, u.id), org && !f.project_id && Q.ownerInOrg(org, f.owner_id)]) add(q);
     }
-    await prefetch(this.d1, qs);
+    return qs;
   }
 
   /** Teams' tiles (teams.ts listTeams): the caller's rows and the counts of each, in one round trip */
@@ -435,8 +484,13 @@ export class Access {
 
   /** Folders' tiles (projects.ts projectSummaries): each one's chain, the caller's rows and its counts, in one round trip */
   async prefetchProjects(rows: ProjectRow[]): Promise<void> {
+    await prefetch(this.d1, this.projectsQueries(rows));
+  }
+
+  /** The reads `prefetchProjects` sends */
+  projectsQueries(rows: Pick<ProjectRow, "id">[]): Query[] {
     const u = this.user;
-    await prefetch(this.d1, rows.flatMap((p) => [Q.chain(p.id), Q.folderPeople(p.id, u), Q.folderGroups(p.id, u.id), Q.projectCounts(p.id)]));
+    return rows.flatMap((p) => [Q.chain(p.id), Q.folderPeople(p.id, u), Q.folderGroups(p.id, u.id), Q.projectCounts(p.id)]);
   }
 
   /** A team's rows (`requireTeam`, `teamRights`): the team, then its org's, in two round trips */
@@ -651,14 +705,7 @@ export function toOrgFile(f: FileRow & { owner_name?: string | null; owner_email
 
 /** Files (with their owner's name) the caller can open, of those `where` selects. */
 export async function accessibleFiles(acc: Access, where: string, args: unknown[], opts: { trashed?: boolean } = {}): Promise<OrgFile[]> {
-  const { results } = await acc.d1
-    // Branches are listed under their main file (docs/data.md §15.7), not as files of their own.
-    // Home's file tiles show how many active branches a main file has (round 2d, help.figma.com "View and manage branches").
-    .prepare(
-      `SELECT ${FILE_COLS}, u.name AS owner_name, u.email AS owner_email, (SELECT COUNT(*) FROM branches bc WHERE bc.main_key = f.key AND bc.status = 'active') AS branch_count FROM files f LEFT JOIN users u ON u.id = f.owner_id WHERE (${where}) AND NOT EXISTS (SELECT 1 FROM branches b WHERE b.key = f.key) ORDER BY f.updated_at DESC`,
-    )
-    .bind(...args)
-    .all<FileRow & { owner_name: string | null; owner_email: string | null; branch_count: number }>();
+  const results = await all<FileRow & { owner_name: string | null; owner_email: string | null; branch_count: number }>(acc.d1, Q.fileList(where, args));
   const out: OrgFile[] = [];
   // Each file's access reads, all in one round trip
   await acc.prefetchFiles(results);

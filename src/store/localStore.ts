@@ -66,6 +66,7 @@ import { DevModeService, type LocalDevRecord } from "./devmode/service";
 import { SearchService } from "./search/service";
 import { AiService } from "./ai/service";
 import { UsageReporter } from "./libraries/usage";
+import { withFakeLatency } from "./fakeLatency";
 
 export interface LocalStoreOptions {
   workspaceDir: string;
@@ -538,7 +539,7 @@ export class LocalStore {
       const libraries = new LocalLibraries({ dirs, workspace: ws, files, blobs, hlc, clock, log });
       await libraries.load();
       ws.sizeOf = (k) => files.cachedSize(k);
-      const store = new LocalStore(dirs, ws, files, blobs, libraries, deviceOrdinal, clock, log, opts.generation ?? 1, compactor, timers, hlc, opts.userDataDir ?? null, opts.fetch);
+      const store = new LocalStore(dirs, ws, files, blobs, libraries, deviceOrdinal, clock, log, opts.generation ?? 1, compactor, timers, hlc, opts.userDataDir ?? null, withFakeLatency(opts.fetch ?? ((...a: Parameters<typeof fetch>) => globalThis.fetch(...a)), process.env.DESIGNER_FAKE_LATENCY_MS));
       store.viewerTemplate = opts.viewerTemplate ?? null;
       late.store = store;
       void store.branches.load().catch((e) => log("warn", "loading branches failed", e));
