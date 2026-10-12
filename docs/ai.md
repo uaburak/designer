@@ -169,6 +169,35 @@ Prompt templates and schemas live in `src/shared/ai/prompts.ts` and `src/shared/
 
 Wasm: `vectorize.wasm.test.ts`.
 
+### As built (6e, 2026-10-12)
+
+**Code**: `engine/src/trace/` — `Bitmap.h` (the input brought to the pixel budget, masks), `Quantize.{h,cpp}` (the three modes, despeckle, ranking), `Potrace.{h,cpp}` (Selinger's method, written from the paper), `Trace.{h,cpp}` (options, stacking, the budget, SVG path data). ABI in `engine/src/api/TraceApi.inc` (one `#include` at the end of `Api.cpp`), `exports.txt`, `EngineExports.ts`, `Engine.ts`.
+
+**ABI** (what 6b's image toolbar calls; all through `Engine`):
+
+| C | `Engine` (TS) | Result |
+|---|---|---|
+| `engine_trace(rgbaPtr, len, w, h, optsPtr, optsLen)` | `trace(pixels, options): TraceResult \| null` | pure; `TraceResult` of `src/shared/ai/types.ts`: layers bottom first, `color` `"#RRGGBB"`, `area` in input pixels, `d` absolute SVG path data in the input's pixels (fill rule evenodd). E_INVALID (null) on bad sizes or over the budget; E_DECODE on an unknown mode. |
+| `engine_vectorize_begin(h, refsPtr, refsLen, rgbaPtr, len, w, h)` | `vectorizeBegin(ref, pixels)` | `{status: "ok", frame}` / `"busy"` / `"error"`. Opens the USER step "Vectorize" and puts an empty FRAME (the layer's name, transform, size, constraints and auto-layout child fields; no fill, no clip) just above the layer. The layer stays as it is underneath while previewing; in an auto-layout parent the frame is absolute until commit, so nothing reflows. |
+| `engine_vectorize_update(h, optsPtr, optsLen)` | `vectorizeUpdate(options): VectorizeStats \| null` | `{layers, segments, ms, width, height, exceeded}`; re-traces into the frame, reusing its vectors by index (one VECTOR per colour, bottom first, named by its hex without "#", e.g. `C81E1E` [unverified], a solid fill, no stroke, a vector network with fill rule ODD, scaled from the image's pixels to the layer's size). `exceeded`: the preview keeps what it showed. Nothing is emitted while previewing. |
+| `engine_vectorize_end(h, commit)` | `vectorizeEnd(commit): Guid \| null` | commit: the layer (and anything it holds) is removed, the frame takes its auto-layout positioning and is selected — one DOCUMENT_CHANGED "Vectorize", one undo step (⌘Z brings the image layer back). A commit without an update traces with the defaults. Cancel: rolled back, nothing emitted, no history. |
+
+The pixels for begin are the layer's contents as drawn (`exportNodes([id], {imageType: "PNG", contentsOnly: true, …})`). The caller debounces updates (120 ms) and calls them on the main thread: they are synchronous.
+
+**Algorithm, as built** (where it departs from or settles §5):
+- Pixel budget: inputs over 1024 px on the long side are box-filtered (premultiplied) down at begin; paths come back in the input's pixels.
+- FULL_COLOR: k-means in OKLab as specified (k-means++ with SplitMix64 seeded 1, ≤ 65,536 evenly strided samples, ≤ 16 Lloyd iterations); every pixel is then labelled through a 5-6-5 colour cache (each cell takes its middle colour's centre). A layer's colour is the mean sRGB of its pixels. GRAYSCALE: 1-D k-means over the luminance histogram, started at the quantiles. Unused colours are dropped, so a layer count can be below `colors`.
+- Ranking: by area, ties darker first.
+- Despeckle: 4-connected regions (union-find) under `speckle` px take the label of their largest neighbouring region, smallest first.
+- Path decomposition: an edge-marking walk with the set pixels on the right (each boundary edge walked once, linear time) rather than the paper's invert-and-repeat; the minority turn policy at diagonals (majority over 4×4 … 8×8 around the corner).
+- Optimal polygon: a segment (i, j) is possible when i … j is straight (the paper's §2.2.1 test: not all four directions, every point within ½ in L∞ of the line, points within 1 of the start unconstraining). The paper's i − 1 … j + 1 form leaves no segment out of a point next to a sharp corner, so it is not used. Each point's reach is made non-decreasing; the fewest segments then bound each vertex to a range and the least penalty is found over those ranges only. The cyclic problem is solved from up to 24 starts within the narrowest point's reach (any polygon has a vertex there).
+- Vertex adjustment, smoothing (α from the unit square; a corner when α > alphaMax, else α clamped to 0.55–1) and curve optimisation as specified; a joined curve keeps the run's ends, end tangents and area, every joint and segment middle within optTolerance, and every point within optTolerance + 0.5 px of the run (no overshoot); runs ≤ 32 segments and < 179°. The midpoint between two corners is dropped (a square is four points).
+- Budget: an update stops past 1.5 s (engine_trace 2 s) or 200,000 segments and reports `exceeded`. Measured: 1024², 8 colours, release wasm in Node on the owner's Mac (under load): 117–162 ms the trace, 126–177 ms the whole update — inside the 250 ms budget.
+
+**Tests**: `engine/tests/unit/trace.test.cpp` (12 cases: a square, a disk and a ring within 0.5 px of their outlines with the hole kept; decomposition orientation and the minority policy; stripes and a quantized gradient stacked with ≥ 99.5 % coverage; k-means determinism; the threshold's extremes; speckle merging; the pixel budget, the segment cap and layer counts; engine_trace's JSON; begin / update / end with commit, undo and cancel), `src/renderer/src/engine/__tests__/vectorize.wasm.test.ts` (trace, preview, the undo step, cancel, the 1024² bench; `VECTORIZE_BENCH=1` prints the times).
+
+**Not built here**: the image toolbar's Vectorize UI and its debounce (6b); an MCP tool over `engine_trace`; running the trace in a Worker (not needed within the budget).
+
 ## 6. Search (6d)
 
 - **What is indexed**: each page's top-level frames, components and component sets in files this computer has opened.

@@ -3168,3 +3168,4 @@ ENG_EXPORT int32_t engine_present_state(Handle h) {
   state += ",\"events\":" + w.take() + "}";
   return setResult(std::move(state));
 }
+#include "api/TraceApi.inc"

@@ -144,3 +144,7 @@ _engine_present_set_options
 _engine_present_state
 _engine_present_media
 _engine_present_media_frame
+_engine_trace
+_engine_vectorize_begin
+_engine_vectorize_update
+_engine_vectorize_end

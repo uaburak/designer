@@ -122,6 +122,7 @@ import {
 import type { EngineExports } from "./EngineExports";
 import { FACET_DECODERS, FACET_IDS, FACET_SLOTS, type FacetName } from "./facets.generated";
 import type { ExportSettings } from "../../../shared/schema/document.generated";
+import type { TraceOptions, TraceResult } from "../../../shared/ai/types";
 import { fonts } from "./fonts";
 import { keyCodeOf } from "./keyCodes";
 import { prepareGfx, recordWebGPUFallback, type GfxBackend, type GfxPreference } from "./gfx";
@@ -129,6 +130,20 @@ import { loadEngine } from "./loadEngine";
 
 /** The encoding of the engine's structured outputs (docs/engine-build.md "Figma parity round 3"). */
 export type WireFormat = "json" | "kiwi";
+
+/** Vectorize's begin (docs/ai.md §5): the preview's frame, or busy (a gesture or another step is open), or an error. */
+export type VectorizeBeginResult = { status: "ok"; frame: Guid } | { status: "busy" } | { status: "error"; code: number };
+
+/** One Vectorize update: the layers and segments made, the trace's time, the traced size; `exceeded`: over the budget
+ * (the preview kept what it showed). */
+export interface VectorizeStats {
+  layers: number;
+  segments: number;
+  ms: number;
+  width: number;
+  height: number;
+  exceeded: boolean;
+}
 /** DOCUMENT.documentColorProfile as the canvas uses it. */
 export type ColorProfile = "SRGB" | "DISPLAY_P3";
 
@@ -1378,6 +1393,41 @@ export class Engine {
   exportList(page?: Guid): ExportListEntry[] {
     const [s, l] = page ? page.split(":").map(Number) : [0xffffffff, 0xffffffff];
     return this.json(this.x.exportList(this.h, s >>> 0, l >>> 0), [] as ExportListEntry[]);
+  }
+
+  // ---- Vectorize (docs/ai.md §5) ------------------------------------------------------------------
+
+  /**
+   * Pure: straight RGBA pixels traced to stacked colour layers (bottom first; SVG path data in the image's pixels,
+   * fill rule evenodd). Null on bad input or over the tracer's budget.
+   */
+  trace(image: Pixels, options: TraceOptions): TraceResult | null {
+    const status = this.x.trace(image.pixels, image.width, image.height, encodeText(JSON.stringify(options)));
+    return status === Status.OK ? (JSON.parse(decodeText(this.x.result())) as TraceResult) : null;
+  }
+
+  /**
+   * Starts Vectorize's live preview on one image layer: `image` is its contents as drawn (`exportNodes` with
+   * `contentsOnly`; larger than 1024 px on the long side is scaled down). Opens the user step "Vectorize" and puts an
+   * empty frame just above the layer. "busy" while a gesture or another step is open (try again).
+   */
+  vectorizeBegin(ref: Guid, image: Pixels): VectorizeBeginResult {
+    const status = this.x.vectorizeBegin(this.h, encodeRefs([ref]), image.pixels, image.width, image.height);
+    if (status === Status.E_BUSY) return this.after({ status: "busy" });
+    if (status !== Status.OK) return this.after({ status: "error", code: status });
+    return this.after({ status: "ok", frame: (JSON.parse(decodeText(this.x.result())) as { frame: Guid }).frame });
+  }
+
+  /** Traces again into the preview (callers debounce, docs/ai.md §5 "Budget"). Null when no preview is open. */
+  vectorizeUpdate(options: TraceOptions): VectorizeStats | null {
+    return this.json(this.x.vectorizeUpdate(this.h, encodeText(JSON.stringify(options))), null);
+  }
+
+  /** ✓ (`commit`): the frame replaces the image layer as one undo step and is selected (its id); ✕: back as it was. */
+  vectorizeEnd(commit: boolean): Guid | null {
+    const status = this.x.vectorizeEnd(this.h, commit);
+    if (status !== Status.OK || !commit) return this.after(null);
+    return this.after((JSON.parse(decodeText(this.x.result())) as { frame: Guid }).frame);
   }
 
   // ---- Components (docs/engine-build.md "E6") -------------------------------------------------
