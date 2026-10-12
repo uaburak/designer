@@ -41,7 +41,10 @@ export type NotificationKind =
   | "plugin_request"
   | "plugin_request_answer"
   /** The server's spend guard (docs/multiplayer.md §17.1), to its operators: `text` says which metric and how far */
-  | "capacity_warning";
+  | "capacity_warning"
+  /** An admin deleted an organization you're in (docs/multiplayer.md §14.17): `fileName` is the org's name, `text` the
+   *  ISO date it is deleted for good */
+  | "org_deleted";
 
 export interface NotificationActor {
   id: string;
@@ -225,6 +228,8 @@ export function notificationAction(n: Pick<NotificationItem, "kind" | "count" | 
       return n.state === "denied" ? `Declined your request for ${n.text || "a plugin"}` : `Approved your request for ${n.text || "a plugin"}`;
     case "capacity_warning":
       return "Usage warning";
+    case "org_deleted":
+      return "Deleted the organization";
   }
 }
 
@@ -232,7 +237,7 @@ export function notificationAction(n: Pick<NotificationItem, "kind" | "count" | 
 export function desktopText(n: NotificationItem): { title: string; body: string } {
   const action = `${notificationAction(n)} · ${n.fileName}`;
   // Dev Mode and plugin rows carry their text in the action already
-  const own = isDevStatusKind(n.kind) || n.kind === "plugin_request" || n.kind === "plugin_request_answer";
+  const own = isDevStatusKind(n.kind) || n.kind === "plugin_request" || n.kind === "plugin_request_answer" || n.kind === "org_deleted";
   return { title: n.actor.name, body: n.text && n.count === 1 && !own ? `${action}\n${n.text}` : action };
 }
 

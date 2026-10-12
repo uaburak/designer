@@ -76,6 +76,17 @@ In a browser, a file opens as `?editor&file=<fileKey>`, and "Open in new tab" op
   - import results;
   - store errors (red).
 - **Empty states**: one per location, plus "Couldn't load files" with Try again, and a missing or trashed folder with Go to All folders.
+- **In an organization** (OrgMain.tsx; docs/multiplayer.md §14, §14.17; Designer 1.0.3):
+  - Drafts has **Design** and **Import**. A folder has **New folder**, **Design** and **Import**. A team page has **New folder** and **Import**, which asks for one of the team's folders, since files in a team live in its folders (help.figma.com 360041003114 names only folders and Drafts).
+  - Each page's blank area offers the same items on right-click (New design file, New folder, Import…).
+  - `.fig` files dropped on the page go into that place; dropped on a folder card, they go into that folder. Org file and folder cards drag onto a folder card to move there.
+  - Gating: a person who can't edit the folder or team sees none of these. A View seat is asked to upgrade.
+  - Import goes through FileBrowser's `doImport(at)` / `importFilesAt(files, at)`.
+  - The file menu: Open, Open in new tab | Copy link (`<server>/f/<key>`) | (Library analytics) | Rename, Move to… | Move to trash. In Trash: Restore | Delete forever (the owner and admins).
+  - ⌫ / Delete moves the selected card to the trash.
+  - Trash lists the person's trashed drafts first, then each team's trash.
+  - Right-clicking the space row gives **Leave organization…**.
+  - A deleted organization shows its admins **Restore organization**.
 
 ## Left to do
 

@@ -30,7 +30,7 @@ export function homeOrgQ(user: { id: string; email: string }): Query | null {
   return {
     sql: `SELECT o.id, o.name, o.settings FROM org_domains d JOIN orgs o ON o.id = d.org_id
        JOIN org_members m ON m.org_id = o.id AND m.user_id = ?1 AND m.role IN ('admin', 'member')
-       WHERE d.domain = ?2 AND d.verified_at IS NOT NULL`,
+       WHERE d.domain = ?2 AND d.verified_at IS NOT NULL AND o.deleted_at IS NULL`,
     args: [user.id, domain],
   };
 }

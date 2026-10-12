@@ -45,6 +45,15 @@ export interface OrgsRepository {
   setGroupMembers(groupId: string, change: { add?: string[]; remove?: string[] }): Promise<O.UserGroup>;
   deleteGroup(groupId: string): Promise<void>;
   leave(orgId: string): Promise<void>;
+  /**
+   * Admin › Settings › Delete organization (org admins; docs/multiplayer.md §14.17): `confirmName` is the org's name as
+   * typed. The org is hidden from its people and deleted for good 14 days later (`OrgInfo.purgeAt`); until then its
+   * admins still list it (`deletedAt`) and can `restore` it.
+   */
+  remove(orgId: string, confirmName: string): Promise<O.OrgInfo>;
+  restore(orgId: string): Promise<O.OrgInfo>;
+  /** The caller's drafts in the trash (Home's Trash: Restore, Delete forever) */
+  trashedDrafts(orgId: string): Promise<O.OrgFile[]>;
   /** Admin › Settings › Organization name (org admins; docs/multiplayer.md §14.16) */
   update(orgId: string, patch: { name: string }): Promise<O.OrgInfo>;
   /** Admin › Settings › Organization icon: a square PNG / JPEG / WebP / GIF ≤ 1 MB (the view crops it to 256 × 256) */
@@ -112,6 +121,8 @@ export interface ProjectsRepository {
   moveLocalFile(fileKey: FileKey, projectId: string, input: { snapshot: Uint8Array; headSeq: number }): Promise<O.OrgFile>;
   trashFiles(keys: string[]): Promise<void>;
   restoreFiles(keys: string[]): Promise<void>;
+  /** "Delete forever" for files in the trash (their owners, admins): gone with their rooms, comments and links */
+  deleteFilesForever(keys: string[]): Promise<void>;
   /** The team's trash (folders and files), for editors and admins */
   trashed(teamId: string): Promise<{ projects: O.ProjectSummary[]; files: O.OrgFile[] }>;
 }

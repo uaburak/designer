@@ -58,6 +58,26 @@ export function NameDialog({ title, label, confirm, initial = "", onDone, onClos
   );
 }
 
+/**
+ * Delete organization (docs/multiplayer.md §14.17; Figma's own goes through its support): the org's name typed to
+ * confirm, as Figma's Delete team asks for the team's name (help.figma.com 360039482174). The org and everything in it
+ * are deleted for good 14 days later; admins can restore it until then.
+ */
+export function DeleteOrgDialog({ name, onDelete, onClose }: { name: string; onDelete: () => void; onClose: () => void }) {
+  const [typed, setTyped] = useState("");
+  const ok = typed.trim() === name.trim();
+  return (
+    <Dialog open title={`Delete ${name}?`} onClose={onClose} footer={<Footer confirm="Delete organization" ok={ok} destructive onConfirm={onDelete} onClose={onClose} />}>
+      <div className={styles.dialogField}>
+        <p className={styles.dialogText}>
+          Everyone in {name} loses access to its teams, folders, files and libraries right away. After 14 days they’re deleted for good, with its drafts, fonts and activity log. Until then, admins can restore the organization.
+        </p>
+        <TextInput label={`Type “${name}” to confirm`} placeholder={name} size="large" value={typed} onChange={setTyped} autoFocus onExit={(r) => (r === "enter" ? ok && onDelete() : r === "escape" && onClose())} />
+      </div>
+    </Dialog>
+  );
+}
+
 /** "Ask to upgrade" (help.figma.com: a seat request with an optional note; admins answer it in Admin). */
 export function AskToUpgradeDialog({ orgName, current, onSend, onClose }: { orgName: string; current: O.Seat; onSend: (seat: Exclude<O.Seat, "view">, note: string) => void; onClose: () => void }) {
   const [seat, setSeat] = useState<Exclude<O.Seat, "view">>("full");
@@ -111,7 +131,7 @@ export interface DestinationSection {
 }
 
 /** "Move to…": every space's places, searchable (Figma's move dialog: search, pick, Move). */
-export function DestinationDialog({ title, sections, onMove, onClose }: { title: string; sections: DestinationSection[]; onMove: (dest: Destination) => void; onClose: () => void }) {
+export function DestinationDialog({ title, sections, onMove, onClose, confirm = "Move" }: { title: string; sections: DestinationSection[]; onMove: (dest: Destination) => void; onClose: () => void; confirm?: string }) {
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<Destination | null>(null);
   const shown = useMemo(() => {
@@ -121,7 +141,7 @@ export function DestinationDialog({ title, sections, onMove, onClose }: { title:
   }, [sections, query]);
   const can = !!picked && !picked.disabled && picked.kind !== "header";
   return (
-    <Dialog open size="medium" title={title} onClose={onClose} footer={<Footer confirm="Move" ok={can} onConfirm={() => picked && onMove(picked)} onClose={onClose} />}>
+    <Dialog open size="medium" title={title} onClose={onClose} footer={<Footer confirm={confirm} ok={can} onConfirm={() => picked && onMove(picked)} onClose={onClose} />}>
       <SearchField value={query} onChange={setQuery} placeholder="Search folders" size="large" autoFocus onExit={(r) => r === "escape" && onClose()} />
       <div role="listbox" aria-label="Destinations" className={styles.moveList}>
         {shown.map((s) => (

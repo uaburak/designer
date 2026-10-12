@@ -26,6 +26,9 @@ interface Org {
   createdAt: number;
   settings: OrgSettings;
   members: Map<string, Member>;
+  /** §14.17: Delete organization (soft) and when the sweep deletes it */
+  deletedAt?: number | null;
+  purgeAt?: number | null;
 }
 interface Team {
   id: string;
@@ -173,10 +176,12 @@ export class FakeOrgServer {
 
   // --- helpers ---
 
-  private org(orgId: string, user: User): { org: Org; me: Member } {
+  private org(orgId: string, user: User, opts: { deleted?: boolean } = {}): { org: Org; me: Member } {
     const org = this.orgs.get(orgId);
     const me = org?.members.get(user.id);
     if (!org || !me) throw new HttpError(404, "not_found", "no such organization");
+    // A deleted org (§14.17) is gone for its people; only its admins read it (to restore it)
+    if (org.deletedAt && !(opts.deleted && me.role === "admin")) throw new HttpError(404, "not_found", "no such organization");
     return { org, me };
   }
 
@@ -222,6 +227,7 @@ export class FakeOrgServer {
       billingGroupAdminOf: [],
       counts: { members: members.filter((x) => x.role !== "guest").length, guests: members.filter((x) => x.role === "guest").length, teams: [...this.teams.values()].filter((t) => t.orgId === org.id && !t.deletedAt).length },
       settings: { ...org.settings },
+      ...(org.deletedAt ? { deletedAt: org.deletedAt, purgeAt: org.purgeAt ?? null } : {}),
     };
   }
 
@@ -345,7 +351,12 @@ export class FakeOrgServer {
 
   private async orgRoutes(req: Request, url: URL, p: string[], user: User, body: <T>() => Promise<T>): Promise<Response> {
     const m = req.method;
-    if (p.length === 1 && m === "GET") return json({ orgs: [...this.orgs.values()].filter((o) => o.members.has(user.id)).map((o) => ({ id: o.id, name: o.name, iconUrl: this.iconUrl(o.id, o.icon), role: o.members.get(user.id)!.role, seat: o.members.get(user.id)!.seat, workspaceId: null })) });
+    if (p.length === 1 && m === "GET")
+      return json({
+        orgs: [...this.orgs.values()]
+          .filter((o) => o.members.has(user.id) && (!o.deletedAt || o.members.get(user.id)!.role === "admin"))
+          .map((o) => ({ id: o.id, name: o.name, iconUrl: this.iconUrl(o.id, o.icon), role: o.members.get(user.id)!.role, seat: o.members.get(user.id)!.seat, workspaceId: null, ...(o.deletedAt ? { deletedAt: o.deletedAt, purgeAt: o.purgeAt ?? null } : {}) })),
+      });
     if (p.length === 1 && m === "POST") {
       const b = await body<{ name?: string }>();
       if (!b.name?.trim()) throw new HttpError(400, "invalid", "name");
@@ -356,9 +367,27 @@ export class FakeOrgServer {
     }
     const orgId = p[1];
     if (p[2] === "admin") return this.adminRoutes(req, url, p.slice(3), orgId, user, body);
+    // Delete organization / Restore (§14.17): admins, the name typed
+    if ((p.length === 2 && m === "DELETE") || (p[2] === "restore" && m === "POST") || (p.length === 2 && m === "GET")) {
+      const { org, me } = this.org(orgId, user, { deleted: true });
+      if (m === "GET") return json({ org: this.orgInfo(org, me) });
+      if (me.role !== "admin") throw new HttpError(403, "forbidden", "only organization admins can do that", { code: "not_admin" });
+      if (m === "DELETE") {
+        if (org.deletedAt) throw new HttpError(409, "conflict", "this organization is already deleted");
+        const b = await body<{ confirmName?: string }>();
+        if ((b.confirmName ?? "").trim() !== org.name) throw new HttpError(400, "invalid", "type the organization’s name to delete it");
+        org.deletedAt = this.now();
+        org.purgeAt = org.deletedAt + 14 * 86_400_000;
+        this.log_(org, user, "org_delete", { type: "org", id: org.id, name: org.name });
+      } else {
+        if (!org.deletedAt) throw new HttpError(409, "conflict", "this organization isn’t deleted");
+        org.deletedAt = org.purgeAt = null;
+        this.log_(org, user, "org_restore", { type: "org", id: org.id, name: org.name });
+      }
+      return json({ org: this.orgInfo(org, me) });
+    }
     const { org, me } = this.org(orgId, user);
     const sub = p[2];
-    if (!sub && m === "GET") return json({ org: this.orgInfo(org, me) });
     // Name and icon (§14.16): org admins
     if ((!sub && m === "PATCH") || sub === "icon") {
       if (me.role !== "admin") throw new HttpError(403, "forbidden", "only organization admins can do that", { code: "not_admin" });
@@ -381,7 +410,10 @@ export class FakeOrgServer {
       const groups = [...this.groups.values()].filter((g) => g.orgId === org.id).map((g) => ({ id: g.id, name: g.name, memberCount: g.members.size }));
       return json({ people: people.slice(0, limit), groups });
     }
-    if (sub === "drafts" && m === "GET") return json({ files: [...this.files.values()].filter((f) => f.orgId === org.id && !f.projectId && f.ownerId === user.id && !f.trashedAt).map((f) => this.orgFile(f, user)) });
+    if (sub === "drafts" && m === "GET") {
+      const trashed = url.searchParams.get("trashed") === "1";
+      return json({ files: [...this.files.values()].filter((f) => f.orgId === org.id && !f.projectId && f.ownerId === user.id && !!f.trashedAt === trashed).map((f) => this.orgFile(f, user)) });
+    }
     if (sub === "drafts" && m === "POST") {
       const f = this.newFile(await body(), user, { orgId: org.id, teamId: null, projectId: null });
       this.log_(org, user, "fig_file_create", { type: "file", id: f.key, name: f.name });
@@ -661,6 +693,11 @@ export class FakeOrgServer {
     if (sub === "restore" && m === "POST") {
       f.trashedAt = null;
       return json({ file: this.orgFile(f, user) });
+    }
+    if (!sub && m === "DELETE") {
+      if (f.orgId && !f.trashedAt) throw new HttpError(409, "conflict", "move the file to the trash first");
+      this.files.delete(f.key);
+      return json({ ok: true });
     }
     throw new HttpError(404, "not_found", "not found");
   }

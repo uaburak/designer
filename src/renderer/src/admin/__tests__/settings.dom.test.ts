@@ -53,7 +53,7 @@ const actions = (fake: FakeAdminStore) => fake.state.activity.map((r) => r.actio
 describe("Admin › Settings (round 4)", () => {
   it("shows Figma's sections, every row live but the installer's Download", async () => {
     await open();
-    expect($$("[data-settings-group]").map((g) => g.getAttribute("data-settings-group"))).toEqual(["Organization", "Login and provisioning", "External access", "Team management", "Content", "Communication", "Data", "Billing", "Extensions", "AI", "Plan access tokens", "Other"]);
+    expect($$("[data-settings-group]").map((g) => g.getAttribute("data-settings-group"))).toEqual(["Organization", "Login and provisioning", "External access", "Team management", "Content", "Communication", "Data", "Billing", "Extensions", "AI", "Plan access tokens", "Other", "Danger zone"]);
     const disabled = $$("[data-setting]").filter((r) => $$("button", r).some((b) => (b as HTMLButtonElement).disabled)).map((r) => r.getAttribute("data-setting"));
     // SCIM waits for SAML (Figma: SCIM requires SAML); Access to external content waits for domain capture; the
     // Governance+ rows wait for the add-on (round 14)
@@ -261,6 +261,26 @@ describe("Admin › Settings (round 4)", () => {
     expect(text).toContain("Turned cursor chat off");
     expect(text).toContain("Turned audio off");
     expect(text).toContain("Turned FigJam open sessions off");
+  });
+
+  it("Delete organization (§14.17): the org's name typed before Delete organization is enabled", async () => {
+    const removed: [string, string][] = [];
+    const fake = await open({}, (f) => ({ ...f, orgs: { ...f.orgs, remove: async (orgId: string, name: string) => (removed.push([orgId, name]), f.orgs.get(orgId)) } }));
+    expect(setting("deleteOrg").textContent).toContain("Admins can restore it for 14 days");
+    click(button("Delete organization", setting("deleteOrg")));
+    await settle();
+    const name = fake.state.orgName;
+    expect(dialog().textContent).toContain(`Delete ${name}?`);
+    expect(button("Delete organization", dialog()).disabled).toBe(true);
+    type(input(`Type “${name}” to confirm`), "nope");
+    await settle();
+    expect(button("Delete organization", dialog()).disabled).toBe(true);
+    type(input(`Type “${name}” to confirm`), name);
+    await settle();
+    click(button("Delete organization", dialog()));
+    await settle();
+    expect(removed).toEqual([[fake.state.orgId, name]]);
+    expect(dialogs()).toHaveLength(0);
   });
 
   it("People: SCIM data columns; without IdentityRepository the login rows are unavailable", async () => {

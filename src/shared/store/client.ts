@@ -503,6 +503,9 @@ export class StoreClient implements StoreApi {
     setGroupMembers: (groupId, change) => this.call("orgs.setGroupMembers", [groupId, change]),
     deleteGroup: (groupId) => this.call("orgs.deleteGroup", [groupId]),
     leave: (orgId) => this.call("orgs.leave", [orgId]),
+    remove: (orgId, confirmName) => this.call("orgs.remove", [orgId, confirmName]),
+    restore: (orgId) => this.call("orgs.restore", [orgId]),
+    trashedDrafts: (orgId) => this.call("orgs.trashedDrafts", [orgId]),
     update: (orgId, patch) => this.call("orgs.update", [orgId, patch]),
     setIcon: (orgId, image) => this.call("orgs.setIcon", [orgId, image]),
     removeIcon: (orgId) => this.call("orgs.removeIcon", [orgId]),
@@ -550,6 +553,7 @@ export class StoreClient implements StoreApi {
     moveFiles: (keys, to) => this.call("projects.moveFiles", [keys, to]),
     moveLocalFile: (fileKey, projectId, input) => this.call("projects.moveLocalFile", [fileKey, projectId, input]),
     trashFiles: (keys) => this.call("projects.trashFiles", [keys]),
+    deleteFilesForever: (keys) => this.call("projects.deleteFilesForever", [keys]),
     restoreFiles: (keys) => this.call("projects.restoreFiles", [keys]),
     trashed: (teamId) => this.call("projects.trashed", [teamId]),
   };
