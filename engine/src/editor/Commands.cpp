@@ -98,6 +98,7 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
   if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::REMOVE_GUIDE) return selectionCommand(id, args);
   if (id >= CommandId::CONVERT_TO_SECTION && id <= CommandId::SET_SPELLING_MARKS) return arrangeCommand(id, args);
   if (id >= CommandId::SET_WIDTH_PROFILE && id <= CommandId::FLIP_WIDTH_POINTS) return widthCommand(id, args);
+  if (id >= CommandId::ADD_TRANSFORM_MODIFIER && id <= CommandId::SET_TEXT_PATH_START) return drawCommand(id, args);  // Draw (DrawCommands.cpp)
   if (id == CommandId::SELECT_GRID_TRACKS) return selectGridTracksCommand(args);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) {
     Status st = variableCommand(id, args);
@@ -213,6 +214,7 @@ uint32_t Editor::commandState(CommandId id) const {
   if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::REMOVE_GUIDE) return selectionCommandState(id);
   if (id >= CommandId::CONVERT_TO_SECTION && id <= CommandId::SET_SPELLING_MARKS) return arrangeCommandState(id);
   if (id >= CommandId::SET_WIDTH_PROFILE && id <= CommandId::FLIP_WIDTH_POINTS) return widthCommandState(id);
+  if (id >= CommandId::ADD_TRANSFORM_MODIFIER && id <= CommandId::SET_TEXT_PATH_START) return drawCommandState(id);
   if (id == CommandId::SELECT_GRID_TRACKS) return gridFrameSelected() != kNoGuid ? CMD_ENABLED : 0;
   bool derivedSelected = false;
   for (Guid s : selection_) derivedSelected |= s.isDerived();
@@ -1211,6 +1213,12 @@ bool Editor::copySelection(Clipboard& out, bool cut) const {
       if (copied.insert(g).second) extra.push_back(NodeChange::created(g, doc_.get(g)->props));
   }
   for (NodeChange& c : extra) out.nodes.push_back(std::move(c));
+  // Figma Draw (docs/draw.md §4.5): the BRUSH nodes the copied strokes use come along too.
+  {
+    std::vector<const NodeProps*> strokes;
+    for (const NodeChange& c : out.nodes) strokes.push_back(&c.props);
+    brushClipboard(out.nodes, strokes);
+  }
   // Each local asset with a key carries its versionHash, computed here (as a payload's do): a paste in another file
   // makes its library copy at exactly that version — the published one when it is unchanged since its publish —
   // whatever the clipboard carries of what it uses.
@@ -1416,6 +1424,9 @@ uint32_t Editor::pasteWith(const Clipboard& clip, uint32_t flags) {
 
   // From another file (R4 §8, docs/data.md §9.5): what the selection references comes in first — published assets
   // and library copies as library copies, unpublished ones as this file's own (mains on the internal canvas).
+  // Figma Draw: the clipboard's brushes - this file's own with the same artwork, else copied in (DrawCommands.cpp).
+  GuidMap brushMap;
+  brushPaste(clip.nodes, brushMap);
   GuidMap map;
   GuidSet asInstance;  // pasted mains that become instances of their library copy
   if (crossFile) {
@@ -1519,6 +1530,7 @@ uint32_t Editor::pasteWith(const Clipboard& clip, uint32_t flags) {
   auto create = [&](auto&& self, const NodeChange& src, Guid parent, const std::string& position, const Mat2x3& transform) -> void {
     NodeProps p = src.props;
     p.parentIndex = {parent, position};
+    if (!brushMap.empty()) remapStrokeBrush(p, brushMap);
     p.transform = transform;
     p.comp().isSoftDeleted = false;
     const Node* live = crossFile ? nullptr : doc_.get(src.guid);

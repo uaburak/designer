@@ -74,6 +74,11 @@ const LASSO_BODY = glyph([
   "M9.5 14.5c-1.4 0-2.5.9-2.5 2s1 2 2.2 2c.9 0 1.3.8.8 2",
 ]);
 
+// The Brush (round 7b): a round brush leaning right — its ferrule and handle — the bristles' tip at the bottom left.
+const BRUSH_BODY = glyph(["M14.5 9.5L20 4", "M13 8l3 3"], ["M3.5 20.5c0-3 1-5.5 3.5-6.5 1.8-.7 3.8.2 4.5 1.8.7 1.8-.2 3.6-2 4.3-2 .8-4 .6-6 .4z"]);
+// Text on path (round 7b): an I-beam over a curve.
+const TEXT_PATH_BODY = glyph(["M7 5.5h4M7 18.5h4M9 5.5v13", "M12.5 20.5c3-1 5.5-3.5 7-7"]);
+
 // The comment pin: a speech bubble with its tail (the hot spot) at the bottom left, a + inside.
 const COMMENT_BODY = haloed(`M3.5 20.5 V11.5 A8 8 0 1 1 11.5 19.5 H3.5 Z`, "#fff", 1.3) + plus(11.5, 11.5, 2.6);
 
@@ -106,6 +111,10 @@ const SVG_CURSORS: Partial<Record<CursorKind, string>> = {
   PAINT_BUCKET: svgCursor(PAINT_BUCKET_BODY, 19, 19, "crosshair"),
   CUT: svgCursor(CUT_BODY, 12, 10, "crosshair"),
   LASSO: svgCursor(LASSO_BODY, 10, 21, "crosshair"),
+  // Round 7b (Draw, docs/draw.md §4.7) [look ours]: the Brush — a round brush, its tip (the hot spot) at the bottom left;
+  // Text on path — an I-beam with the path it will follow curving under it.
+  BRUSH: svgCursor(BRUSH_BODY, 3, 21, "crosshair"),
+  TEXT_PATH: svgCursor(TEXT_PATH_BODY, 9, 12, "text"),
 };
 
 const penCache = new Map<string, string>();

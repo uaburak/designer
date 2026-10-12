@@ -1829,30 +1829,49 @@ export class Engine {
     return this.after(decodeStats(this.x.result()));
   }
 
-  // --- Draw (Phase 7 round 7, docs/draw.md §4.5, §4.7, §9): stubs until round 7b builds them. ---
+  // --- Draw (Phase 7 round 7, docs/draw.md §4.5, §4.7, §9; round 7b: engine/src/api/DrawApi.inc) ---
 
-  /** A brush's artwork installed as a BRUSH node on the internal canvas (ABI engine_install_brush); its GUID. */
-  installBrush(_input: InstallBrushInput): GuidString | null {
-    throw new Error("engine: installBrush not built (round 7b)");
+  /**
+   * A brush's artwork installed as a BRUSH node on the internal canvas (ABI engine_install_brush): the file's node with
+   * that name and type when it has one. Inside an open step it joins it; otherwise it is a system write (no undo step).
+   * Null when the artwork can't be read or the engine is busy.
+   */
+  installBrush(input: InstallBrushInput): GuidString | null {
+    if (!this.h) return null;
+    const status = this.x.installBrush(this.h, encodeText(JSON.stringify(input)));
+    return this.json<{ guid: GuidString } | null>(status, null)?.guid ?? null;
   }
 
   /** The file's BRUSH nodes (ABI engine_list_brushes). */
   listBrushes(): { guid: GuidString; name: string; type: BrushType }[] {
-    throw new Error("engine: listBrushes not built (round 7b)");
+    if (!this.h) return [];
+    return this.json(this.x.listBrushes(this.h), [] as { guid: GuidString; name: string; type: BrushType }[]);
   }
 
-  /** A stroke drawn with a brush, width × height device px at `weight` (ABI engine_brush_preview). */
-  brushPreview(_src: { brush: GuidString } | { artwork: BrushArtwork; type: BrushType }, _width: number, _height: number, _weight: number): Pixels | null {
-    throw new Error("engine: brushPreview not built (round 7b)");
+  /**
+   * A stroke drawn with a brush along a fixed S-curve, width × height device px at `weight` (ABI engine_brush_preview):
+   * straight RGBA, black with the coverage in alpha (the menus use it as a mask). Null when there is nothing to draw.
+   */
+  brushPreview(src: { brush: GuidString } | { artwork: BrushArtwork; type: BrushType }, width: number, height: number, weight: number): Pixels | null {
+    if (!this.h) return null;
+    const w = Math.max(1, Math.min(4096, Math.round(width)));
+    const hgt = Math.max(1, Math.min(4096, Math.round(height)));
+    const status = this.x.brushPreview(this.h, encodeText(JSON.stringify(src)), w, hgt, weight);
+    return this.after(status === Status.OK ? decodePixels(this.x.result()) : null);
   }
 
   /** The Pencil's and the Brush's settings from the secondary toolbar (ABI engine_set_draw_tool_settings). */
-  setDrawToolSettings(_s: DrawToolSettings): number {
-    throw new Error("engine: setDrawToolSettings not built (round 7b)");
+  setDrawToolSettings(s: DrawToolSettings): number {
+    if (!this.h) return Status.E_HANDLE;
+    return this.after(this.x.setDrawToolSettings(this.h, encodeText(JSON.stringify(s))));
   }
 
-  /** A Draw command (CommandId 310–321) with its typed args. */
-  runDrawCommand<K extends keyof DrawCommandArgs>(_id: K, _args: DrawCommandArgs[K]): number {
-    throw new Error("engine: runDrawCommand not built (round 7b)");
+  /**
+   * A Draw command (CommandId 310–321) with its typed args (`refs` / `ref` absent: the selection); one undo step with
+   * Figma's name. What it made (CREATE_TEXT_PATH's text path, CREATE_BRUSH's brush, ADD_TRANSFORM_MODIFIER's group) is
+   * `runCommand`'s `created`.
+   */
+  runDrawCommand<K extends keyof DrawCommandArgs>(id: K, args: DrawCommandArgs[K]): number {
+    return this.command(id, args as unknown as Readonly<Record<string, CommandArgValue>>);
   }
 }

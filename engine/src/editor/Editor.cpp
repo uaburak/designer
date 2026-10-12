@@ -52,7 +52,8 @@ const char* toolName(Tool t) {
 bool toolImplemented(Tool t) {
   return t == Tool::MOVE || t == Tool::HAND || t == Tool::FRAME || t == Tool::SECTION || t == Tool::RECTANGLE || t == Tool::ELLIPSE || t == Tool::TEXT ||
          t == Tool::LINE || t == Tool::ARROW || t == Tool::POLYGON || t == Tool::STAR || t == Tool::PEN || t == Tool::PENCIL ||
-         t == Tool::ANNOTATION || t == Tool::MEASUREMENT || t == Tool::SCALE || t == Tool::SLICE || t == Tool::COMMENT || t == Tool::EYEDROPPER;
+         t == Tool::ANNOTATION || t == Tool::MEASUREMENT || t == Tool::SCALE || t == Tool::SLICE || t == Tool::COMMENT || t == Tool::EYEDROPPER ||
+         t == Tool::BRUSH || t == Tool::TEXT_PATH;
 }
 
 const char* txnKindName(TxnKind k) {
@@ -68,7 +69,7 @@ const char* cursorName(CursorKind k) {
   static constexpr const char* kNames[] = {"DEFAULT", "HAND", "GRABBING", "CROSSHAIR", "PEN", "PEN_ADD", "PEN_REMOVE", "PEN_CLOSE",
                                            "IBEAM", "RESIZE", "ROTATE", "MOVE_DUPLICATE", "ZOOM_IN", "ZOOM_OUT", "EYEDROPPER",
                                            "NOT_ALLOWED", "COMMENT", "SCALE", "PENCIL", "BEND", "PAINT_BUCKET",
-                                           "CUT", "LASSO", "SPACING"};
+                                           "CUT", "LASSO", "SPACING", "BRUSH", "TEXT_PATH"};
   return kNames[static_cast<size_t>(k)];
 }
 
@@ -909,7 +910,10 @@ Overlay Editor::overlay() const {
     o.selection = {text_.node};
     o.handles = false;
     o.sizeBadge = false;
-    if (const text::TextLayout* L = const_cast<Editor*>(this)->textLayout(text_.node)) {
+    const text::TextLayout* PL = const_cast<Editor*>(this)->textLayout(text_.node);
+    if (PL && PL->path) {
+      textPathEditOverlay(o, *PL);  // text on a path: the caret and the selection turned along it (DrawTools.cpp)
+    } else if (const text::TextLayout* L = PL) {
       o.textSelection = L->selectionRects(textSelStart(), textSelEnd());
       // Text › Spell check (round 10): the misspelled words' lines.
       if (spellingNode_ == text_.node) {
@@ -927,6 +931,7 @@ Overlay Editor::overlay() const {
     }
   }
   if (vector_.node != kNoGuid) vectorOverlay(o);
+  textPathOverlay(o);  // Draw: a text path's start handle, the Text on path tool's edge
   if (paint_.node != kNoGuid) paintOverlay(o);
   if (proto_.on) protoOverlay(o);
   scrollbarOverlay(o);  // round 16
@@ -1818,7 +1823,7 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
     case KeyCode::NumpadEnter:
       if (selection_.empty()) return 0;
       // Enter on one text layer edits it, all its text selected (Figma).
-      if (!viewer_ && !shift && selection_.size() == 1 && doc_.get(selection_[0])->props.type == NodeType::TEXT &&
+      if (!viewer_ && !shift && selection_.size() == 1 && doc_.get(selection_[0])->props.isTextLike() &&
           !doc_.get(selection_[0])->props.locked) {
         startTextEdit(selection_[0], true);
         return K_HANDLED;

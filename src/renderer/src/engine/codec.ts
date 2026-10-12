@@ -827,7 +827,9 @@ export type CursorKind =
   // Round 15: the Pencil tool's pencil; vector edit's Bend (⌘), Paint, Cut and Lasso tools.
   | "PENCIL" | "BEND" | "PAINT_BUCKET" | "CUT" | "LASSO"
   // Round 15: auto layout's padding / gap handle (a double arrow across a bar, at the drag's angle).
-  | "SPACING";
+  | "SPACING"
+  // Phase 7 round 7 (Draw, docs/draw.md §4.7): the Brush tool; Text on path over a path's edge.
+  | "BRUSH" | "TEXT_PATH";
 
 /**
  * Engine → JS events (docs/engine.md §10.4), drained after every call.
@@ -895,6 +897,9 @@ export type EngineEvent =
       variableWidth?: boolean;
       widthPoints?: WidthPoint[];
       widthSelected?: number;
+      /** Round 7b, multi-edit (docs/draw.md §4.6): the held layers and each one's selected points and segments (the edited one first). */
+      nodes?: Guid[];
+      selection?: { node: Guid; vertices: number[]; segments: number[] }[];
     }
   /** Gradient (paint) edit mode: which paint's handles are on the canvas, and the selected stop. */
   | { type: "PAINT_EDIT"; active: boolean; ref: Guid | null; paints: "FILL" | "STROKE"; index: number; stop: number }

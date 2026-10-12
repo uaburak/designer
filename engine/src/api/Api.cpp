@@ -1,12 +1,12 @@
 // The engine's binding: a flat C ABI (no embind), numbers and pointers in and
-// out, every structured payload through memory (docs/engine.md §10).
+// out, every structured payload through memory (docs/engine.md Â§10).
 //
-// Interim (E1): payloads are JSON with the kiwi schema's names — the
+// Interim (E1): payloads are JSON with the kiwi schema's names â the
 // NodeChange/Message shapes of schema/document.kiwi and the event shapes of
-// §10.4 — through scene/CodecJson (and src/renderer/src/engine/codec.ts on the
+// Â§10.4 â through scene/CodecJson (and src/renderer/src/engine/codec.ts on the
 // TS side). When schemagen's codecs exist, only those two files change.
 //
-// Memory (§10.2): inputs are borrowed for the call; results go to the module's
+// Memory (Â§10.2): inputs are borrowed for the call; results go to the module's
 // result slot (engine_result_ptr/len), valid until the next call that writes
 // one; the events flag (engine_events_flag_ptr) is a u32 that is non-zero while
 // any engine has events queued, updated at the end of every call.
@@ -108,7 +108,7 @@ void setError(std::string text) {
 
 // Fonts arrived or went missing since the last relayout (engine_font_bind / _missing / set_fallback_fonts). The
 // relayout they cause waits for the next call that can observe it (any export but the font ones and the frame
-// queries), so a burst of fonts — the dozens a file asks for at open — costs one relayout, not one each.
+// queries), so a burst of fonts â the dozens a file asks for at open â costs one relayout, not one each.
 bool gFontsDirty = false;
 
 // A font arrived or went missing: every engine lays its text out again.
@@ -151,7 +151,7 @@ bool parse(Ptr ptr, uint32_t len, json::Value& v) {
   return false;
 }
 
-// NodeRefList: {"refs": ["1:2", …]} or a bare array.
+// NodeRefList: {"refs": ["1:2", â¦]} or a bare array.
 std::vector<Guid> readRefs(const json::Value& v) {
   const json::Value* list = v.isArray() ? &v : v.get("refs");
   std::vector<Guid> ids;
@@ -202,7 +202,7 @@ void writeEvents(json::Writer& w, Engine& e) {
     w.beginObject().key("type").string("DOCUMENT_CHANGED");
     w.key("kind").string(txnKindName(d.kind)).key("label").string(d.label);
     if (d.actor) w.key("actor").number(d.actor);
-    // The Message as kiwi bytes (what the store journals as it is), fetched with engine_attachment(payload) —
+    // The Message as kiwi bytes (what the store journals as it is), fetched with engine_attachment(payload) â
     // whatever the wire format; the JSON wire also carries it as JSON (`message`).
     w.key("payload").number(static_cast<double>(e.attachments.size()));
     e.attachments.push_back(codec::writeMessage(ed.sessionID(), d.changes));
@@ -312,6 +312,18 @@ void writeEvents(json::Writer& w, Engine& e) {
     w.key("layers").beginArray();
     for (Guid g : ed.vectorLayers()) w.string(g.toString());
     w.endArray();
+    // Round 7b, multi-edit (docs/draw.md §4.6): the held layers and each one's selected points and segments.
+    w.key("nodes").beginArray();
+    for (Guid g : ed.vectorLayers()) w.string(g.toString());
+    w.endArray().key("selection").beginArray();
+    for (const auto& h : ed.vectorSelections()) {
+      w.beginObject().key("node").string(h.node.toString()).key("vertices").beginArray();
+      for (uint32_t v : h.vertices) w.number(v);
+      w.endArray().key("segments").beginArray();
+      for (uint32_t s : h.segments) w.number(s);
+      w.endArray().endObject();
+    }
+    w.endArray();
     w.key("variableWidth").boolean(ed.vectorEditing() && ed.variableWidthAvailable());
     w.key("widthPoints").beginArray();
     if (ed.vectorEditing())
@@ -407,6 +419,8 @@ void writeEvents(json::Writer& w, Engine& e) {
     w.endObject();
   }
   for (const Vec2& p : ev.colorPicks) w.beginObject().key("type").string("COLOR_PICK").key("x").number(p.x).key("y").number(p.y).endObject();
+  // Round 7b (Draw): ⌘-click with the Pencil or the Brush (docs/draw.md §4.5): DrawToolSampled.
+  for (const std::string& s : ev.drawSampled) w.raw("{\"type\":\"DRAW_TOOL_SAMPLED\"," + s.substr(1));
   for (auto& r : ev.inlineEdits) {
     w.beginObject().key("type").string("REQUEST_INLINE_EDIT").key("ref").string(r.node.toString()).key("field").string(r.field);
     w.key("value").number(r.value);
@@ -470,7 +484,7 @@ ENG_EXPORT Handle engine_create(const char* selector, Ptr optsPtr, uint32_t opts
   }
   e->renderer = std::make_unique<Renderer>(*e->device);
   e->renderer->setTextLayouts(&e->editor);
-  // A canvas keeps its page's pixels between frames (the content cache, docs/engine.md §6.9).
+  // A canvas keeps its page's pixels between frames (the content cache, docs/engine.md Â§6.9).
   e->renderer->setContentCache(!e->selector.empty());
   if (hasOpts) {
     if (auto* s = opts.get("sessionID"); s && s->isNumber()) e->editor.setSessionID(static_cast<uint32_t>(s->number));
@@ -492,9 +506,9 @@ ENG_EXPORT void engine_destroy(Handle h) {
   delete e;
 }
 
-// The whole document as a Message — the store's snapshot bytes (kiwi), or the interim JSON
-// {"type":"NODE_CHANGES","sessionID":…,"nodeChanges":[…]} — and the page to show first ((0xffffffff, 0xffffffff): the
-// first page; JSON may name it as "currentPage"). Only that page is derived (docs/engine.md §3.4).
+// The whole document as a Message â the store's snapshot bytes (kiwi), or the interim JSON
+// {"type":"NODE_CHANGES","sessionID":â¦,"nodeChanges":[â¦]} â and the page to show first ((0xffffffff, 0xffffffff): the
+// first page; JSON may name it as "currentPage"). Only that page is derived (docs/engine.md Â§3.4).
 // What a snapshot stores as derived data, as it is read (blob indices resolve once the Message is read).
 struct DerivedCollector : codec::DerivedSink {
   std::vector<std::pair<Guid, std::vector<codec::DerivedSymbolEntry>>> symbols;
@@ -549,7 +563,7 @@ ENG_EXPORT int32_t engine_load_at(Handle h, Ptr ptr, uint32_t len, uint32_t page
     return E_DECODE;
   }
   Guid page{pageSessionID, pageLocalID};
-  // Derived data is trusted only when this engine wrote it (docs/schema.md §1.3: a reader ignores another stamp's), or
+  // Derived data is trusted only when this engine wrote it (docs/schema.md Â§1.3: a reader ignores another stamp's), or
   // when it is Figma's own, kept by a .fig import (Figma's layout is the one to match).
   if (m.derivedDataVersion == Editor::kDerivedDataVersion || m.derivedDataVersion == Editor::kFigmaDerivedDataVersion) {
     Editor::StoredDerived stored = derived.take(m.blobs);
@@ -574,14 +588,14 @@ ENG_EXPORT int32_t engine_apply_changes(Handle h, Ptr ptr, uint32_t len, uint32_
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
   codec::KiwiMessage m;
-  // Viewer mode: user edits refused (loads and remote changes — a live preview — still apply).
+  // Viewer mode: user edits refused (loads and remote changes â a live preview â still apply).
   if (e->editor.viewerMode() && (flags & APPLY_USER)) return E_READONLY;
   if (!readAnyMessage(ptr, len, m)) return E_DECODE;
   return e->editor.applyChanges(m.changes, flags);
 }
 
 // The full snapshot (DOCUMENT first, parents before children) in the engine's wire format. flags: ENCODE_DERIVED (1)
-// adds the derived data (derivedSymbolData, derivedTextData, Message.derivedDataVersion) — kiwi only.
+// adds the derived data (derivedSymbolData, derivedTextData, Message.derivedDataVersion) â kiwi only.
 ENG_EXPORT int32_t engine_encode_document(Handle h, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
@@ -632,7 +646,7 @@ ENG_EXPORT int32_t engine_set_current_page(Handle h, uint32_t sessionID, uint32_
   return e ? e->editor.setCurrentPage({sessionID, localID}) : E_HANDLE;
 }
 
-// {"pages":[{"guid","name"}…]} (the internal canvas excluded).
+// {"pages":[{"guid","name"}â¦]} (the internal canvas excluded).
 ENG_EXPORT int32_t engine_pages(Handle h) {
   Call call;
   Engine* e = engineOf(h);
@@ -670,7 +684,7 @@ ENG_EXPORT void engine_set_camera(Handle h, double x, double y, double zoom) {
   if (Engine* e = engineOf(h)) e->editor.setCamera({x, y, zoom});
 }
 
-// {"x","y","zoom"} — the camera now (CAMERA_CHANGED carries the same).
+// {"x","y","zoom"} â the camera now (CAMERA_CHANGED carries the same).
 ENG_EXPORT int32_t engine_get_camera(Handle h) {
   Call call;
   Engine* e = engineOf(h);
@@ -681,7 +695,7 @@ ENG_EXPORT int32_t engine_get_camera(Handle h) {
   return setResult(w.take());
 }
 
-// Round 18 (docs/engine.md §9.6): canvas CSS px → page coordinates under the camera now: {"x","y"}.
+// Round 18 (docs/engine.md Â§9.6): canvas CSS px â page coordinates under the camera now: {"x","y"}.
 ENG_EXPORT int32_t engine_screen_to_world(Handle h, double x, double y) {
   Call call;
   Engine* e = engineOf(h);
@@ -709,8 +723,8 @@ ENG_EXPORT int32_t engine_view_center(Handle h) {
   return setResult(out.take());
 }
 
-// Other people in the file (multiplayer presence), replacing the whole set: a JSON array (or {"peers": […]}) of
-// {"id", "name", "color": "#rrggbb", "cursor": {"x","y"} | null, "selection": ["s:l", …]} — page coordinates on the
+// Other people in the file (multiplayer presence), replacing the whole set: a JSON array (or {"peers": [â¦]}) of
+// {"id", "name", "color": "#rrggbb", "cursor": {"x","y"} | null, "selection": ["s:l", â¦]} â page coordinates on the
 // page shown. Malformed peers and GUIDs are skipped; [] clears.
 ENG_EXPORT int32_t engine_set_presence(Handle h, Ptr ptr, uint32_t len) {
   Call call;
@@ -762,7 +776,7 @@ ENG_EXPORT int32_t engine_set_presence(Handle h, Ptr ptr, uint32_t len) {
   return OK;
 }
 
-// The local user's cursor chat: {"text": string | null, "at": {"x","y"} | null} — page coordinates by their pointer;
+// The local user's cursor chat: {"text": string | null, "at": {"x","y"} | null} â page coordinates by their pointer;
 // a null text or point closes it, "" is open with nothing typed.
 ENG_EXPORT int32_t engine_set_local_chat(Handle h, Ptr ptr, uint32_t len) {
   Call call;
@@ -931,8 +945,8 @@ ENG_EXPORT void engine_gl_context_restored(Handle h) {
 }
 
 // The canvas's backend changes (Figma's dynamic fallback: a WebGPU device lost or failing its self test moves the
-// session to WebGL2). `selector` names the canvas to draw into from now on — a fresh one, as a canvas keeps the
-// context type it was first given. `backend`: 0 WebGL2, 1 WebGPU. Returns the backend in use (−1: none, the
+// session to WebGL2). `selector` names the canvas to draw into from now on â a fresh one, as a canvas keeps the
+// context type it was first given. `backend`: 0 WebGL2, 1 WebGPU. Returns the backend in use (â1: none, the
 // engine draws nothing until a restore).
 ENG_EXPORT int32_t engine_gfx_switch(Handle h, const char* selector, int32_t backend) {
   Call call;
@@ -966,7 +980,7 @@ ENG_EXPORT int32_t engine_gfx_switch(Handle h, const char* selector, int32_t bac
 
 // ---- Selection and reads -------------------------------------------------------
 
-// {"pageId":"0:1","refs":[…]}
+// {"pageId":"0:1","refs":[â¦]}
 ENG_EXPORT int32_t engine_get_selection(Handle h) {
   Call call;
   Engine* e = engineOf(h);
@@ -1024,9 +1038,9 @@ constexpr FieldMask kLayerRowFields = F_PARENT_INDEX | F_NAME | F_VISIBLE | F_LO
 // Past this many changed rows a delta is not worth it: the whole tree is given.
 constexpr size_t kMaxLayerDelta = 4096;
 
-// The Layers panel's tree of a page in one read: {"version", "nodes": [rows…]} (writeLayerRows). A page of tens of
+// The Layers panel's tree of a page in one read: {"version", "nodes": [rowsâ¦]} (writeLayerRows). A page of tens of
 // thousands of layers reads in milliseconds, where engine_read_nodes writes every field of each. `version` is the
-// document version the read is of — what engine_layer_changes takes. Derives the page first (its instance
+// document version the read is of â what engine_layer_changes takes. Derives the page first (its instance
 // sublayers are rows).
 ENG_EXPORT int32_t engine_layer_tree(Handle h, uint32_t pageSessionID, uint32_t pageLocalID) {
   Call call;
@@ -1043,8 +1057,8 @@ ENG_EXPORT int32_t engine_layer_tree(Handle h, uint32_t pageSessionID, uint32_t 
   return setResult(w.take());
 }
 
-// Pass 1 of Figma's two-pass Layers panel: only the outline of `page` — every row's place and kind, no names —
-// {"version", "ids": [guid…], "parents": [row index, -1 for the page], "kinds": [typeCode | flags << 8],
+// Pass 1 of Figma's two-pass Layers panel: only the outline of `page` â every row's place and kind, no names â
+// {"version", "ids": [guidâ¦], "parents": [row index, -1 for the page], "kinds": [typeCode | flags << 8],
 // "types": [type name by code]}; rows in pre-order, each node followed by its children bottom first (as
 // engine_layer_tree), hidden layers and instance sublayers included. Flags: 1 instance sublayer, 2 isStateGroup,
 // 4 resizeToFit. Derives the page first.
@@ -1161,7 +1175,7 @@ ENG_EXPORT int32_t engine_layer_changes(Handle h, uint32_t pageSessionID, uint32
 
 // The typed per-facet getter (Figma's generated facet bindings; facet_readers.h from fieldmeta.ts): `count` nodes as
 // (sessionID, localID) u32 pairs at `idsPtr` (a derived ref: 0xfffffffe and its engine_ref_id), the facets in `mask`
-// (bit 1 << facet id). Result: f64s — per node a presence slot (1 / 0), then each requested facet's record in id
+// (bit 1 << facet id). Result: f64s â per node a presence slot (1 / 0), then each requested facet's record in id
 // order (NaN for a node that isn't there). No JSON; nothing is derived (a read of what a panel already shows).
 ENG_EXPORT int32_t engine_read_facets(Handle h, Ptr idsPtr, uint32_t count, uint32_t mask) {
   Call call;
@@ -1188,8 +1202,8 @@ ENG_EXPORT int32_t engine_read_facets(Handle h, Ptr idsPtr, uint32_t count, uint
   return setResult(std::move(out));
 }
 
-// The generic getter: a Message with one NodeChange per ref that exists — every field, or only the schema keys in
-// the payload's "fields" (`{"refs": […], "fields": ["fillPaints", …]}`; unknown keys ignored; guid and type always);
+// The generic getter: a Message with one NodeChange per ref that exists â every field, or only the schema keys in
+// the payload's "fields" (`{"refs": [â¦], "fields": ["fillPaints", â¦]}`; unknown keys ignored; guid and type always);
 // flags: ReadFlags. Derives the pages of the refs first (an instance's sublayers are nodes).
 ENG_EXPORT int32_t engine_read_nodes(Handle h, Ptr ptr, uint32_t len, uint32_t flags) {
   Call call;
@@ -1205,11 +1219,11 @@ ENG_EXPORT int32_t engine_read_nodes(Handle h, Ptr ptr, uint32_t len, uint32_t f
     for (auto& f : fields->array)
       if (f.isString()) {
         FieldMask m = codec::fieldOfKey(f.string);
-        // A key the engine doesn't model (prototypeStartingPoint, exportSettings…): the unmodelled fields it keeps.
+        // A key the engine doesn't model (prototypeStartingPoint, exportSettingsâ¦): the unmodelled fields it keeps.
         mask |= m ? m : (codec::fieldIdOf("NodeChange", f.string) ? static_cast<FieldMask>(F_EXTRA) : 0);
       }
   }
-  // {"limit": n}: at most n rows (a reader that gives up past a size — Selection colors — asks for one more than it
+  // {"limit": n}: at most n rows (a reader that gives up past a size â Selection colors â asks for one more than it
   // takes, so a huge subtree costs n rows, not all of them).
   size_t limit = SIZE_MAX;
   if (const json::Value* l = v.isArray() ? nullptr : v.get("limit"); l && l->isNumber() && l->number >= 0) limit = static_cast<size_t>(l->number);
@@ -1264,7 +1278,7 @@ ENG_EXPORT int32_t engine_read_nodes(Handle h, Ptr ptr, uint32_t len, uint32_t f
   return setResult(w.take());
 }
 
-// {"refs":[…]}: what is under (x, y) in CSS px, innermost first (locked and hidden left out).
+// {"refs":[â¦]}: what is under (x, y) in CSS px, innermost first (locked and hidden left out).
 ENG_EXPORT int32_t engine_hit_test(Handle h, double x, double y, uint32_t /*flags*/) {
   Call call;
   Engine* e = engineOf(h);
@@ -1289,7 +1303,7 @@ ENG_EXPORT int32_t engine_set_props(Handle h, Ptr refsPtr, uint32_t refsLen, Ptr
   json::Value refs, change;
   if (!parse(refsPtr, refsLen, refs) || !parse(changePtr, changeLen, change)) return E_DECODE;
   if (e->editor.viewerMode()) {
-    // Viewer mode: read-only — but the editor's Dev Mode writes annotations, measurements, categories and statuses
+    // Viewer mode: read-only â but the editor's Dev Mode writes annotations, measurements, categories and statuses
     // (Figma's sectionStatusInfo and, with it, the owner's workflow status in pluginData: docs/editor.md "Frame status").
     bool dev = e->editor.devEdits() && change.isObject();
     if (dev)
@@ -1318,14 +1332,14 @@ ENG_EXPORT int32_t engine_txn_begin(Handle h, Ptr ptr, uint32_t len) {
   return e ? e->editor.txnBegin(std::string(bytes(ptr, len))) : E_HANDLE;
 }
 
-// A plugin's setRange* (docs/plugins.md §5): run fields of the next set_props go to UTF-16 [from, to) of a text that
+// A plugin's setRange* (docs/plugins.md Â§5): run fields of the next set_props go to UTF-16 [from, to) of a text that
 // isn't being edited; from = to = 0xFFFFFFFF clears it.
 ENG_EXPORT void engine_set_style_range(Handle h, uint32_t from, uint32_t to) {
   Call call;
   if (Engine* e = engineOf(h)) e->editor.setStyleRange(from, to);
 }
 
-// A plugin run's slice (docs/plugins.md §3.1): `join` = 1 folds it into the run's last step (Editor::txnBeginRun).
+// A plugin run's slice (docs/plugins.md Â§3.1): `join` = 1 folds it into the run's last step (Editor::txnBeginRun).
 ENG_EXPORT int32_t engine_txn_begin_run(Handle h, Ptr ptr, uint32_t len, uint32_t join) {
   Call call;
   Engine* e = engineOf(h);
@@ -1344,7 +1358,7 @@ ENG_EXPORT void engine_txn_cancel(Handle h) {
   if (Engine* e = engineOf(h)) e->editor.txnCancel();
 }
 
-// ---- Actors (docs/engine.md §9.5): per-actor undo and view state ------------------
+// ---- Actors (docs/engine.md Â§9.5): per-actor undo and view state ------------------
 
 // {"actor":7,"label":"Claude Code edit","refs":["1:2"],"page":"0:1","merge":true,"undoTo":7}: one write of `actor`
 // with its own selection and page (the user's set aside); `undoTo` (default `actor`; 0 the user's) the history its
@@ -1389,7 +1403,7 @@ ENG_EXPORT int32_t engine_actor_undo(Handle h, uint32_t actor, uint32_t redo) {
   return e->editor.actorUndo(actor, redo != 0) ? OK : E_INVALID;
 }
 
-// {"canUndo","canRedo","undoLabel","redoLabel","overwritten":["1:2",…],"idle"}
+// {"canUndo","canRedo","undoLabel","redoLabel","overwritten":["1:2",â¦],"idle"}
 ENG_EXPORT int32_t engine_actor_info(Handle h, uint32_t actor) {
   Call call;
   Engine* e = engineOf(h);
@@ -1418,7 +1432,7 @@ ENG_EXPORT int32_t engine_idle(Handle h) {
 // commandId from editor/Commands.h (commands.ts); args JSON or empty:
 // {"dx","dy"} for NUDGE; {"page":"0:3"} for DELETE_PAGE / DUPLICATE_PAGE (also
 // {"page":<localID>,"pageSession":<sessionID>} or {"sessionID","localID"}).
-// The commands viewer mode allows: selection and zoom (CommandId 10–16, 50–54).
+// The commands viewer mode allows: selection and zoom (CommandId 10â16, 50â54).
 static bool viewerCommand(uint32_t id) { return (id >= 10 && id <= 16) || (id >= 50 && id <= 54); }
 // What the editor's Dev Mode (viewer mode with Dev Mode's own edits) may run besides: undo, redo, measurements.
 static bool devCommand(uint32_t id) { return id == 1 || id == 2 || (id >= 220 && id <= 222); }
@@ -1493,7 +1507,7 @@ ENG_EXPORT int32_t engine_move_nodes(Handle h, Ptr refsPtr, uint32_t refsLen, ui
   return static_cast<int32_t>(e->editor.moveNodes(readRefs(v), {parentSessionID, parentLocalID}, index));
 }
 
-// The selection as a clipboard Message (docs/schema.md §4.1): the copied nodes
+// The selection as a clipboard Message (docs/schema.md Â§4.1): the copied nodes
 // as CREATED with their source GUIDs, parents first, plus "pastePageId" and
 // "clipboardSelectionRegions" [{parent, nodes, enclosingFrameOffset}]. E_NOT_FOUND
 // when nothing is selected.
@@ -1573,7 +1587,7 @@ ENG_EXPORT int32_t engine_paste(Handle h, Ptr ptr, uint32_t len, uint32_t flags)
 
 namespace {
 
-// Draws `page` through `camera` into an offscreen width × height target and sets the result: u32 width, u32 height
+// Draws `page` through `camera` into an offscreen width Ã height target and sets the result: u32 width, u32 height
 // (little endian), then straight RGBA8, rows top to bottom. `only`: one node's subtree (transparent around it).
 int32_t renderOffscreen(Engine* e, Guid page, const Camera& camera, int width, int height, const Overlay& overlay, Guid only = kNoGuid) {
   Editor& ed = e->editor;
@@ -1590,7 +1604,7 @@ int32_t renderOffscreen(Engine* e, Guid page, const Camera& camera, int width, i
   bool read = e->device->readPixels(target, {0, 0, width, height}, {px, out.size() - 8});
   e->device->destroyTarget(target);
   if (!read) return E_UNSUPPORTED;
-  // Premultiplied → straight (the page colour is opaque, so this only matters at transparent edges).
+  // Premultiplied â straight (the page colour is opaque, so this only matters at transparent edges).
   for (size_t i = 0; i + 3 < out.size() - 8; i += 4) {
     uint8_t a = px[i + 3];
     if (a == 0 || a == 255) continue;
@@ -1601,7 +1615,7 @@ int32_t renderOffscreen(Engine* e, Guid page, const Camera& camera, int width, i
 
 }  // namespace
 
-// A region of a page, world (x, y, w, h), drawn into width × height device px, the page colour behind it, no
+// A region of a page, world (x, y, w, h), drawn into width Ã height device px, the page colour behind it, no
 // overlays or frame titles: what Figma's file thumbnail shows (meta.json's render_coordinates drawn at its
 // thumbnail_size), for scripts/fig-fidelity.mjs. One zoom, width / w (the two aspects differ only by rounding).
 // Same result layout as engine_render_thumbnail. E_NOT_FOUND: no such page or an empty region; E_INVALID: larger
@@ -1628,10 +1642,10 @@ ENG_EXPORT int32_t engine_render_region(Handle h, uint32_t pageSessionID, uint32
 }
 
 // A thumbnail of a page: its content (the union of its visible layers' render
-// bounds) fitted into maxSize × maxSize device px — the content's own aspect, not
-// the canvas's — drawn without overlays into an offscreen target and read back.
+// bounds) fitted into maxSize Ã maxSize device px â the content's own aspect, not
+// the canvas's â drawn without overlays into an offscreen target and read back.
 // Page (sessionID, localID) = (0xffffffff, 0xffffffff): the current page.
-// Result: u32 width, u32 height (little endian), then width × height × 4 bytes of
+// Result: u32 width, u32 height (little endian), then width Ã height Ã 4 bytes of
 // straight RGBA8, rows top to bottom. E_NOT_FOUND: no such page, or nothing on it;
 // E_UNSUPPORTED: the device can't make the target (context lost).
 ENG_EXPORT int32_t engine_render_thumbnail(Handle h, uint32_t pageSessionID, uint32_t pageLocalID, uint32_t maxSize, uint32_t /*flags*/) {
@@ -1676,7 +1690,7 @@ ENG_EXPORT int32_t engine_render_thumbnail(Handle h, uint32_t pageSessionID, uin
   bool read = e->device->readPixels(target, {0, 0, width, height}, {px, out.size() - 8});
   e->device->destroyTarget(target);
   if (!read) return E_UNSUPPORTED;
-  // Premultiplied → straight (the page colour is opaque, so this only matters at transparent edges).
+  // Premultiplied â straight (the page colour is opaque, so this only matters at transparent edges).
   for (size_t i = 0; i + 3 < out.size() - 8; i += 4) {
     uint8_t a = px[i + 3];
     if (a == 0 || a == 255) continue;
@@ -1693,7 +1707,7 @@ ENG_EXPORT uint32_t engine_has_events(Handle h) {
   return e && (e->editor.hasEvents() || text::FontRegistry::get().hasRequests() || ImageRegistry::get().hasRequests()) ? 1 : 0;
 }
 
-// {"events":[{"type":"SELECTION_CHANGED",…}, …]} (docs/engine.md §10.4), draining the queue.
+// {"events":[{"type":"SELECTION_CHANGED",â¦}, â¦]} (docs/engine.md Â§10.4), draining the queue.
 ENG_EXPORT int32_t engine_take_events(Handle h) {
   Call call;
   Engine* e = engineOf(h);
@@ -1703,7 +1717,7 @@ ENG_EXPORT int32_t engine_take_events(Handle h) {
   return setResult(w.take());
 }
 
-// {"nodes","shapes","drawCalls","viewport":{…}}: the last frame and the view it was drawn for.
+// {"nodes","shapes","drawCalls","viewport":{â¦}}: the last frame and the view it was drawn for.
 ENG_EXPORT int32_t engine_stats(Handle h) {
   Call call;
   Engine* e = engineOf(h);
@@ -1739,10 +1753,10 @@ ENG_EXPORT int32_t engine_stats(Handle h) {
   return setResult(w.take());
 }
 
-// ---- Fonts (docs/engine.md §7.1) ------------------------------------------------------
+// ---- Fonts (docs/engine.md Â§7.1) ------------------------------------------------------
 
 // Takes an engine_alloc'd font file (TTF/OTF; TTC/OTC with `faceIndex`): the engine frees it.
-// Returns the face id (≥ 0), or E_DECODE when it isn't a font.
+// Returns the face id (â¥ 0), or E_DECODE when it isn't a font.
 ENG_EXPORT int32_t engine_font_add_take(Ptr ptr, uint32_t len, uint32_t faceIndex) {
   Call call(false);
   int32_t id = text::FontRegistry::get().addFace(reinterpret_cast<uint8_t*>(ptr), len, faceIndex);
@@ -1767,7 +1781,7 @@ ENG_EXPORT void engine_font_missing(Ptr familyPtr, uint32_t familyLen, Ptr style
   gFontsDirty = true;
 }
 
-// ["Apple Color Emoji", "PingFang SC", …]: tried in order for characters a text's font lacks.
+// ["Apple Color Emoji", "PingFang SC", â¦]: tried in order for characters a text's font lacks.
 ENG_EXPORT int32_t engine_set_fallback_fonts(Ptr ptr, uint32_t len) {
   Call call(false);
   json::Value v;
@@ -1836,7 +1850,7 @@ ENG_EXPORT int32_t engine_paint_edit_stop(Handle h, uint32_t index) {
   return e ? e->editor.setPaintStop(static_cast<int>(index)) : E_HANDLE;
 }
 
-// ---- Images (docs/engine.md §6.6) ----------------------------------------------------------
+// ---- Images (docs/engine.md Â§6.6) ----------------------------------------------------------
 
 namespace {
 
@@ -1855,7 +1869,7 @@ void imagesChanged() {
 }  // namespace
 
 // The image `hash` (40 hex digits, UTF-8) is the JavaScript ImageBitmap Module.engineBitmaps[bitmapId]
-// (decoded premultiplied, width × height): the GL backend uploads it with texImage2D.
+// (decoded premultiplied, width Ã height): the GL backend uploads it with texImage2D.
 ENG_EXPORT int32_t engine_image_add_bitmap(Ptr hashPtr, uint32_t bitmapId, uint32_t width, uint32_t height) {
   Call call;
   ImageHash h;
@@ -1866,7 +1880,7 @@ ENG_EXPORT int32_t engine_image_add_bitmap(Ptr hashPtr, uint32_t bitmapId, uint3
   return OK;
 }
 
-// The image `hash` as premultiplied RGBA8 pixels (width × height × 4 bytes, copied): headless and Node.
+// The image `hash` as premultiplied RGBA8 pixels (width Ã height Ã 4 bytes, copied): headless and Node.
 ENG_EXPORT int32_t engine_image_add_rgba(Ptr hashPtr, uint32_t width, uint32_t height, Ptr ptr, uint32_t len) {
   Call call;
   ImageHash h;
@@ -1888,7 +1902,7 @@ ENG_EXPORT int32_t engine_image_failed(Ptr hashPtr) {
   return OK;
 }
 
-// ---- Text (docs/engine.md §7.6) ----------------------------------------------------------
+// ---- Text (docs/engine.md Â§7.6) ----------------------------------------------------------
 
 // Starts editing a TEXT node. flags: 1 = select all its text (else the caret at the end).
 // E_INVALID for anything else or a locked layer; E_UNSUPPORTED when its font is missing.
@@ -2039,8 +2053,8 @@ ENG_EXPORT int32_t engine_font_info(Ptr familyPtr, uint32_t familyLen, Ptr style
   return setResult(w.take());
 }
 
-// Result: the tags (["cv05", "kern", …]) of the font's features that act on `text` (UTF-8): shaping it with the
-// feature on and off differs (Type settings › Details: the others read "Not applicable for selected text"; round 11).
+// Result: the tags (["cv05", "kern", â¦]) of the font's features that act on `text` (UTF-8): shaping it with the
+// feature on and off differs (Type settings âº Details: the others read "Not applicable for selected text"; round 11).
 // E_NOT_FOUND while the font isn't loaded or when it's missing.
 ENG_EXPORT int32_t engine_font_features_in(Ptr familyPtr, uint32_t familyLen, Ptr stylePtr, uint32_t styleLen, Ptr textPtr, uint32_t textLen) {
   Call call(false);
@@ -2116,7 +2130,7 @@ const char* kindName(ComponentInfo::Kind k) {
 
 }  // namespace
 
-// A ref string ("s:l" or a derived "I…;…") → the local id of its Guid in the derived session
+// A ref string ("s:l" or a derived "Iâ¦;â¦") â the local id of its Guid in the derived session
 // (0xFFFFFFFE), for the calls that take (sessionID, localID). 0 when it isn't a derived ref.
 ENG_EXPORT uint32_t engine_ref_id(Ptr ptr, uint32_t len) {
   Call call;
@@ -2194,7 +2208,7 @@ ENG_EXPORT int32_t engine_component_info(Handle h, Ptr refPtr, uint32_t refLen) 
   return setResult(w.take());
 }
 
-// A thumbnail of one node (its subtree alone, transparent around it) fitted into maxSize × maxSize device px; the
+// A thumbnail of one node (its subtree alone, transparent around it) fitted into maxSize Ã maxSize device px; the
 // same result layout as engine_render_thumbnail. For the Assets panel's grid.
 ENG_EXPORT int32_t engine_render_node_thumbnail(Handle h, Ptr refPtr, uint32_t refLen, uint32_t maxSize, uint32_t /*flags*/) {
   Call call;
@@ -2597,7 +2611,7 @@ ENG_EXPORT int32_t engine_styles(Handle h, uint32_t type, uint32_t flags) {
   return setResult(w.take());
 }
 
-// How many layers use a style (≥ 0), or a status.
+// How many layers use a style (â¥ 0), or a status.
 ENG_EXPORT int32_t engine_style_usage(Handle h, Ptr idPtr, uint32_t idLen) {
   Call call;
   Engine* e = engineOf(h);
@@ -2623,7 +2637,7 @@ ENG_EXPORT int32_t engine_document_fonts(Handle h) {
   return setResult(w.take());
 }
 
-// ---- Libraries (docs/data.md §9, docs/engine-build.md "E6 libraries") ---------------------------
+// ---- Libraries (docs/data.md Â§9, docs/engine-build.md "E6 libraries") ---------------------------
 
 namespace {
 
@@ -2679,8 +2693,8 @@ std::vector<std::vector<NodeChange>> readMessages(const json::Value& v) {
   return out;
 }
 
-// Library payloads: a kiwi message list (0x00, varuint count, count × (varuint length, Message)), one kiwi Message,
-// or the interim JSON ({"messages": […]}, an array, or one Message).
+// Library payloads: a kiwi message list (0x00, varuint count, count Ã (varuint length, Message)), one kiwi Message,
+// or the interim JSON ({"messages": [â¦]}, an array, or one Message).
 bool readLibraryMessages(Ptr ptr, uint32_t len, std::vector<std::vector<NodeChange>>& out) {
   std::string_view in = bytes(ptr, len);
   if (codec::isMessageList(in)) {
@@ -2899,8 +2913,8 @@ ENG_EXPORT void engine_set_viewer_mode(Handle h, uint32_t flags) {
   e->editor.setDevEdits((flags & 1) != 0 && (flags & 2) != 0);
 }
 
-// View options (round 7): 1 the pixel grid (View › Pixel grid, ⇧'), 2 outline mode (⇧⌘O), 4 layout guides (⇧G); round 8:
-// 8 rulers (⇧R: guides shown and dragged), 16 snap to pixel grid (⇧⌘′), 32 show slices, 64 pixel preview 1x, 128 2x;
+// View options (round 7): 1 the pixel grid (View âº Pixel grid, â§'), 2 outline mode (â§âO), 4 layout guides (â§G); round 8:
+// 8 rulers (â§R: guides shown and dragged), 16 snap to pixel grid (â§ââ²), 32 show slices, 64 pixel preview 1x, 128 2x;
 // round 9 (Preferences): 256 snap to geometry, 512 snap to objects, 1024 keep tool selected, 2048 show dimensions, 4096 flip
 // while resizing, 8192 keyboard zooms into selection, 16384 invert zoom, 32768 scroll wheel zoom, 65536 right-drag pans.
 ENG_EXPORT void engine_set_view_options(Handle h, uint32_t options) {
@@ -2909,7 +2923,7 @@ ENG_EXPORT void engine_set_view_options(Handle h, uint32_t options) {
   if (e) e->editor.setViewOptions(options & Editor::kViewOptionsAll);
 }
 
-// Preferences › Nudge amount… (round 8): the arrows' and ⇧ arrows' steps, page units (> 0; others ignored).
+// Preferences âº Nudge amountâ¦ (round 8): the arrows' and â§ arrows' steps, page units (> 0; others ignored).
 ENG_EXPORT void engine_set_nudge(Handle h, double small, double big) {
   Call call;
   Engine* e = engineOf(h);
@@ -2929,7 +2943,7 @@ ENG_EXPORT int32_t engine_start_guide(Handle h, uint32_t axis, double x, double 
 
 // ---- Dev Mode (editor/DevMode.cpp) ---------------------------------------------------------------------------------
 
-// View › Annotations: `show` labels, dots and measurements; `dots`: Dev Mode's dots.
+// View âº Annotations: `show` labels, dots and measurements; `dots`: Dev Mode's dots.
 ENG_EXPORT void engine_set_annotation_view(Handle h, uint32_t show, uint32_t dots) {
   Call call;
   Engine* e = engineOf(h);
@@ -3031,14 +3045,14 @@ ENG_EXPORT void engine_set_prototype_mode(Handle h, uint32_t on) {
   if (e) e->editor.setPrototypeMode(on != 0);
 }
 
-// Round 17: the connection open in Interaction details — node (sess, local), the interaction's index among its live
-// ones; index −1 for none. Drawn in the selection colour, the others quiet.
+// Round 17: the connection open in Interaction details â node (sess, local), the interaction's index among its live
+// ones; index â1 for none. Drawn in the selection colour, the others quiet.
 ENG_EXPORT void engine_set_prototype_selection(Handle h, uint32_t sess, uint32_t local, int32_t index) {
   Call call;
   if (Engine* e = engineOf(h)) e->editor.setPrototypeSelection(index < 0 ? kNoGuid : Guid{sess, local}, index);
 }
 
-// Starts the presentation view on page (pageSess, pageLocal) at node (nodeSess, nodeLocal) — a top-level frame or a
+// Starts the presentation view on page (pageSess, pageLocal) at node (nodeSess, nodeLocal) â a top-level frame or a
 // layer in one; (0xffffffff, 0xffffffff): the first flow's start, else the first frame.
 ENG_EXPORT int32_t engine_present_start(Handle h, uint32_t pageSessionID, uint32_t pageLocalID, uint32_t nodeSessionID, uint32_t nodeLocalID) {
   Call call;
@@ -3136,7 +3150,7 @@ ENG_EXPORT int32_t engine_present_media(Handle h) {
 }
 
 // A video's report: its time and length (seconds), flags 1 = ended, the last seek it made (`seekSerial`), and a new
-// frame — Module.engineBitmaps[bitmapId] is its <video> (0: no new frame), width × height its size. The frame is drawn
+// frame â Module.engineBitmaps[bitmapId] is its <video> (0: no new frame), width Ã height its size. The frame is drawn
 // in place of the poster; the time fires "When video hits" / "When video ends".
 ENG_EXPORT int32_t engine_present_media_frame(Handle h, uint32_t sessionID, uint32_t localID, uint32_t bitmapId, uint32_t width, uint32_t height,
                                               double time, double duration, uint32_t flags, uint32_t seekSerial) {
@@ -3147,7 +3161,7 @@ ENG_EXPORT int32_t engine_present_media_frame(Handle h, uint32_t sessionID, uint
   return OK;
 }
 
-// The presentation's state (stateJson) and the events since the last call: {…, "events": [{"type": "CHANGED"} |
+// The presentation's state (stateJson) and the events since the last call: {â¦, "events": [{"type": "CHANGED"} |
 // {"type": "OPEN_URL", "url", "newTab"}]}.
 ENG_EXPORT int32_t engine_present_state(Handle h) {
   Call call;
@@ -3169,3 +3183,4 @@ ENG_EXPORT int32_t engine_present_state(Handle h) {
   return setResult(std::move(state));
 }
 #include "api/TraceApi.inc"
+#include "api/DrawApi.inc"

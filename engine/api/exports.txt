@@ -148,3 +148,7 @@ _engine_trace
 _engine_vectorize_begin
 _engine_vectorize_update
 _engine_vectorize_end
+_engine_install_brush
+_engine_list_brushes
+_engine_brush_preview
+_engine_set_draw_tool_settings
