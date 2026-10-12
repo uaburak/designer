@@ -123,6 +123,7 @@ import type { EngineExports } from "./EngineExports";
 import { FACET_DECODERS, FACET_IDS, FACET_SLOTS, type FacetName } from "./facets.generated";
 import type { ExportSettings } from "../../../shared/schema/document.generated";
 import type { TraceOptions, TraceResult } from "../../../shared/ai/types";
+import type { BrushArtwork, BrushType, DrawCommandArgs, DrawToolSettings, GuidString, InstallBrushInput } from "../../../shared/draw/types";
 import { fonts } from "./fonts";
 import { keyCodeOf } from "./keyCodes";
 import { prepareGfx, recordWebGPUFallback, type GfxBackend, type GfxPreference } from "./gfx";
@@ -1824,5 +1825,32 @@ export class Engine {
   stats(): Record<string, number> {
     this.x.stats(this.h);
     return this.after(decodeStats(this.x.result()));
+  }
+
+  // --- Draw (Phase 7 round 7, docs/draw.md §4.5, §4.7, §9): stubs until round 7b builds them. ---
+
+  /** A brush's artwork installed as a BRUSH node on the internal canvas (ABI engine_install_brush); its GUID. */
+  installBrush(_input: InstallBrushInput): GuidString | null {
+    throw new Error("engine: installBrush not built (round 7b)");
+  }
+
+  /** The file's BRUSH nodes (ABI engine_list_brushes). */
+  listBrushes(): { guid: GuidString; name: string; type: BrushType }[] {
+    throw new Error("engine: listBrushes not built (round 7b)");
+  }
+
+  /** A stroke drawn with a brush, width × height device px at `weight` (ABI engine_brush_preview). */
+  brushPreview(_src: { brush: GuidString } | { artwork: BrushArtwork; type: BrushType }, _width: number, _height: number, _weight: number): Pixels | null {
+    throw new Error("engine: brushPreview not built (round 7b)");
+  }
+
+  /** The Pencil's and the Brush's settings from the secondary toolbar (ABI engine_set_draw_tool_settings). */
+  setDrawToolSettings(_s: DrawToolSettings): number {
+    throw new Error("engine: setDrawToolSettings not built (round 7b)");
+  }
+
+  /** A Draw command (CommandId 310–321) with its typed args. */
+  runDrawCommand<K extends keyof DrawCommandArgs>(_id: K, _args: DrawCommandArgs[K]): number {
+    throw new Error("engine: runDrawCommand not built (round 7b)");
   }
 }

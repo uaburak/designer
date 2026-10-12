@@ -164,6 +164,19 @@ enum class CommandId : uint32_t {
   // Round 12 (branch r12-vector-draw): Stroke settings' Width profile (tools/VariableWidthTool.cpp); 300-309.
   SET_WIDTH_PROFILE = 300,              // args {refs?, profile: "UNIFORM" | "WEDGE" | "TAPER" | "QUARTER_TAPER" | "EYE" | "MIRRORED_TAPER"}
   FLIP_WIDTH_POINTS = 301,              // args {refs?}: the width points mirrored along the path
+  // Phase 7 round 7 — Draw (docs/draw.md §4.7; args: DrawCommandArgs in src/shared/draw/types.ts); 310-329, 322-329 reserved.
+  ADD_TRANSFORM_MODIFIER = 310,
+  SET_TRANSFORM_MODIFIER = 311,
+  REMOVE_TRANSFORM_MODIFIER = 312,
+  MOVE_TRANSFORM_MODIFIER = 313,
+  APPLY_TRANSFORMS = 314,
+  SET_STROKE_KIND = 315,
+  SET_STROKE_BRUSH = 316,
+  SET_BRUSH_SETTINGS = 317,
+  CREATE_BRUSH = 318,
+  CREATE_TEXT_PATH = 319,
+  FLIP_TEXT_PATH = 320,
+  SET_TEXT_PATH_START = 321,
 };
 
 // engine_command_state bits.

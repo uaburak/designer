@@ -44,7 +44,7 @@ void dropStaleAuthoredColors(const NodeProps& before, NodeChange& c) {
 const char* toolName(Tool t) {
   static constexpr const char* kNames[] = {"MOVE", "SCALE", "HAND", "FRAME", "SECTION", "SLICE", "RECTANGLE", "LINE", "ARROW",
                                            "ELLIPSE", "POLYGON", "STAR", "IMAGE", "PEN", "PENCIL", "TEXT", "COMMENT",
-                                           "ANNOTATION", "MEASUREMENT", "EYEDROPPER"};
+                                           "ANNOTATION", "MEASUREMENT", "EYEDROPPER", "BRUSH", "TEXT_PATH"};
   auto i = static_cast<size_t>(t);
   return i < sizeof kNames / sizeof kNames[0] ? kNames[i] : "MOVE";
 }

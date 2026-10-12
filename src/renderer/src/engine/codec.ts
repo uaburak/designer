@@ -8,6 +8,8 @@
  * types below become the generated ones.
  */
 
+import type { DrawToolSampled } from "../../../shared/draw/types";
+
 /** A node's GUID, `"sessionID:localID"`. */
 export type Guid = string;
 
@@ -925,6 +927,8 @@ export type EngineEvent =
   | { type: "HAPTIC"; count: number }
   /** Round 8: the eyedropper clicked at (x, y), canvas CSS px — the editor reads the colour there (Engine.renderRegionPixels). */
   | { type: "COLOR_PICK"; x: number; y: number }
+  /** Round 7 Draw (docs/draw.md §4.5): ⌘-click on a stroke with the Pencil or the Brush — its settings, for the secondary toolbar. */
+  | ({ type: "DRAW_TOOL_SAMPLED" } & DrawToolSampled)
   /** Round 8: a selected auto-layout frame's padding or gap bar was clicked — its value edited in place over the rect (canvas CSS px). */
   | {
       type: "REQUEST_INLINE_EDIT";

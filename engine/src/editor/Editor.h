@@ -46,11 +46,13 @@ enum class Tool : uint8_t {
   POLYGON, STAR, IMAGE, PEN, PENCIL, TEXT, COMMENT,
   ANNOTATION, MEASUREMENT,
   EYEDROPPER,
+  BRUSH, TEXT_PATH,
   Count
 };
 // ANNOTATION and MEASUREMENT: Dev Mode's tools (⇧T, ⇧M), editor/DevMode.cpp. Round 8 (tools/CanvasTools.cpp): SCALE (K)
 // selects and moves as MOVE, its handles scale the layers with their properties; SLICE (S) draws slices; COMMENT (C) is
 // inert until multiplayer; EYEDROPPER (I, ⌃C "Pick color"): a click emits COLOR_PICK and the tool goes back to Move.
+// BRUSH and TEXT_PATH (Phase 7 round 7, docs/draw.md §4.7): not implemented until round 7b.
 const char* toolName(Tool t);
 bool toolImplemented(Tool t);
 

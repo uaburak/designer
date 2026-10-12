@@ -77,14 +77,18 @@ enum NodeType {
   VARIABLE = 28;
   VARIABLE_SET = 31;       // "Collection" in the UI; also an extended collection (its modes name their parent's)
   VARIABLE_OVERRIDE = 35;  // an extended collection's own values for one inherited variable (under the internal canvas)
+  TEXT_PATH = 41;          // Figma Draw: text laid along its own path (vectorData; textPathStart), docs/draw.md §4.4
   BRUSH = 46;              // Figma Draw: a brush's artwork (vectorData, fill), kept on the internal canvas 0:2
+  TRANSFORM = 48;          // Figma Draw: a transform group; its transformModifiers repeat its children (docs/draw.md §4.2)
   // Dropped: STICKY=17, SHAPE_WITH_TEXT=18, CONNECTOR=19, CODE_BLOCK=20, WIDGET=21, STAMP=22,
   // MEDIA=23, HIGHLIGHT=24, SECTION_OVERLAY=26, WASHI_TAPE=27, TABLE=29, TABLE_CELL=30, SLIDE=32,
   // ASSISTED_LAYOUT=33, INTERACTIVE_SLIDE_ELEMENT=34, MODULE=36,
-  // SLIDE_GRID=37, SLIDE_ROW=38, RESPONSIVE_SET=39, CODE_COMPONENT=40, TEXT_PATH=41,
+  // SLIDE_GRID=37, SLIDE_ROW=38, RESPONSIVE_SET=39, CODE_COMPONENT=40,
   // CODE_INSTANCE=42, CODE_LIBRARY=43, CODE_FILE=44, CODE_LAYER=45, MANAGED_STRING=47,
-  // TRANSFORM=48, CMS_RICH_TEXT=49, REPEATER=50, JSX=51, EMBEDDED_PROTOTYPE=52, REACT_FIBER=53,
-  // RESPONSIVE_NODE_SET=54, WEBPAGE=55, KEYFRAME=56, KEYFRAME_TRACK=57, ANIMATION_PRESET_INSTANCE=58.
+  // CMS_RICH_TEXT=49, REPEATER=50, JSX=51, EMBEDDED_PROTOTYPE=52, REACT_FIBER=53,
+  // RESPONSIVE_NODE_SET=54, WEBPAGE=55, KEYFRAME=56, KEYFRAME_TRACK=57, ANIMATION_PRESET_INSTANCE=58,
+  // CODE_EMBED=59, BINARY_FILE=60, SPEC_BLOCK=61, TOOL_INSTANCE=62, CUSTOM_EFFECT_INSTANCE=63,
+  // NATIVE_CODE_LAYER_INSTANCE=64.
 }
 
 struct GUID {
@@ -829,6 +833,8 @@ message Glyph {
   uint firstCharacter = 5;
   float advance = 6;
   uint[] emojiCodePoints = 7;
+  byte _r8 = 8 [deprecated];  // Figma's emojiImageSet (FigJam), a placeholder
+  float rotation = 9;         // a glyph's turn on a text path, radians clockwise [unit unverified, docs/draw.md §4.4]
 }
 
 message Decoration {
@@ -1790,6 +1796,53 @@ message DynamicStrokeSettings {
   float smoothen = 3;
 }
 
+// Figma Draw text on a path (TEXT_PATH): where the text starts on its path.
+message TextPathStart {
+  float tValue = 1;        // segment index + position on it (0–1) [unverified encoding, docs/draw.md §4.4]
+  bool forward = 2;        // false: the text runs the other way along the path (Flip)
+}
+
+// Figma Draw transform groups (TRANSFORM): the modifiers applied to the group's children, in order.
+enum TransformModifierType {
+  REPEAT = 0;
+  SYMMETRY = 1;
+  SKEW = 2;
+}
+
+enum RepeatType {
+  LINEAR = 0;
+  RADIAL = 1;
+}
+
+enum EffectAxis {
+  X = 0;
+  Y = 1;
+  X_AND_Y = 2;
+}
+
+enum UnitType {
+  PIXELS = 0;
+  RELATIVE = 1;
+}
+
+enum RepeatOrder {
+  FORWARD = 0;
+  REVERSE = 1;
+}
+
+message TransformModifier {
+  TransformModifierType type = 1;
+  Vector offset = 2;       // LINEAR: x = the gap along the axis (y used for X_AND_Y); RADIAL: x = the radius gap
+  bool visible = 3;
+  uint count = 4;
+  RepeatType repeatType = 5;
+  EffectAxis axis = 6;
+  UnitType unitType = 7;
+  RepeatOrder order = 8;
+  float skewX = 9;
+  float skewY = 10;
+}
+
 message VariableWidthPoint {
   float position = 1;
   float ascent = 2;
@@ -1987,6 +2040,10 @@ message NodeChange {
   ScatterStrokeSettings scatterStrokeSettings = 449;
   StretchStrokeSettings stretchStrokeSettings = 450;
   Matrix[] scatterBrushTransforms = 488;          // the scatter stamps' transforms as Figma placed them
+  TextPathStart textPathStart = 432;              // TEXT_PATH: where the text starts and which way it runs
+  TransformModifier[] transformModifiers = 455;   // TRANSFORM: the modifiers, in order
+  Vector rotationOrigin = 424;                    // kept for round trips; the ⌥R origin stays view state [unverified meaning]
+  uint vectorOperationVersion = 425;              // kept for round trips
   VideoPlayback videoPlayback = 300;              // Prototype › Video (autoplay, loop, sound)
 
   // --- components and instances ---
@@ -2094,10 +2151,10 @@ message NodeChange {
   byte _r397 = 397 [deprecated]; byte _r398 = 398 [deprecated]; byte _r399 = 399 [deprecated]; byte _r400 = 400 [deprecated]; byte _r401 = 401 [deprecated];
   byte _r402 = 402 [deprecated]; byte _r403 = 403 [deprecated]; byte _r404 = 404 [deprecated]; byte _r405 = 405 [deprecated]; byte _r406 = 406 [deprecated]; byte _r407 = 407 [deprecated];
   byte _r408 = 408 [deprecated]; byte _r409 = 409 [deprecated]; byte _r410 = 410 [deprecated]; byte _r414 = 414 [deprecated]; byte _r417 = 417 [deprecated]; byte _r418 = 418 [deprecated];
-  byte _r419 = 419 [deprecated]; byte _r420 = 420 [deprecated]; byte _r421 = 421 [deprecated]; byte _r422 = 422 [deprecated]; byte _r424 = 424 [deprecated];
-  byte _r425 = 425 [deprecated]; byte _r426 = 426 [deprecated]; byte _r427 = 427 [deprecated]; byte _r428 = 428 [deprecated]; byte _r429 = 429 [deprecated]; byte _r430 = 430 [deprecated];
-  byte _r431 = 431 [deprecated]; byte _r432 = 432 [deprecated]; byte _r433 = 433 [deprecated]; byte _r434 = 434 [deprecated]; byte _r443 = 443 [deprecated]; byte _r444 = 444 [deprecated];
-  byte _r451 = 451 [deprecated]; byte _r454 = 454 [deprecated]; byte _r455 = 455 [deprecated]; byte _r456 = 456 [deprecated]; byte _r457 = 457 [deprecated]; byte _r458 = 458 [deprecated];
+  byte _r419 = 419 [deprecated]; byte _r420 = 420 [deprecated]; byte _r421 = 421 [deprecated]; byte _r422 = 422 [deprecated];
+  byte _r426 = 426 [deprecated]; byte _r427 = 427 [deprecated]; byte _r428 = 428 [deprecated]; byte _r429 = 429 [deprecated]; byte _r430 = 430 [deprecated];
+  byte _r431 = 431 [deprecated]; byte _r433 = 433 [deprecated]; byte _r434 = 434 [deprecated]; byte _r443 = 443 [deprecated]; byte _r444 = 444 [deprecated];
+  byte _r451 = 451 [deprecated]; byte _r454 = 454 [deprecated]; byte _r456 = 456 [deprecated]; byte _r457 = 457 [deprecated]; byte _r458 = 458 [deprecated];
   byte _r459 = 459 [deprecated]; byte _r460 = 460 [deprecated]; byte _r461 = 461 [deprecated]; byte _r462 = 462 [deprecated]; byte _r465 = 465 [deprecated];
   byte _r467 = 467 [deprecated]; byte _r468 = 468 [deprecated]; byte _r469 = 469 [deprecated]; byte _r470 = 470 [deprecated]; byte _r471 = 471 [deprecated]; byte _r472 = 472 [deprecated];
   byte _r473 = 473 [deprecated]; byte _r478 = 478 [deprecated]; byte _r479 = 479 [deprecated]; byte _r480 = 480 [deprecated]; byte _r481 = 481 [deprecated];
