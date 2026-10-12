@@ -34,6 +34,7 @@ import { encodeChangesDown, type ChangesDown } from "../../src/shared/multiplaye
 import type { RoomStorage } from "../../src/shared/multiplayer/room";
 import type { SqlLike } from "./previews";
 import { dumpPage, loadPage } from "./policy/dump";
+import { fromHeaderText } from "./identityHeaders";
 import { PLAIN_CIPHER, SealError, type RoomCipher, type SealedTable } from "./ekm/cipher";
 import { openJoined, pageHasPlain, plainSizeSql, sealAll, sealChunks, sealWhere } from "./ekm/rows";
 
@@ -396,7 +397,7 @@ export class RoomBox {
     const path = url.pathname;
     const m = req.method;
     const userId = req.headers.get("x-user-id") || null;
-    const userName = req.headers.get("x-user-name") || null;
+    const userName = fromHeaderText(req.headers.get("x-user-name"));
     const st = this.storage;
     if (this.moving() && m !== "GET" && m !== "DELETE" && path !== "/room/unfreeze" && path !== "/room/freeze") throw new RoomError(503, "this file is moving to another region; try again in a moment", { code: "moving" });
     switch (`${m} ${path}`) {
@@ -422,7 +423,7 @@ export class RoomBox {
       }
       case "GET /room/snapshot": {
         const seq = st.meta("snapshotSeq");
-        if (seq < 0) return new Response("no snapshot yet", { status: 404 });
+        if (seq < 0) return json({ error: "no snapshot yet", code: "no_snapshot" }, 404);
         return this.bytesResponse(this.read(`SELECT bytes FROM snapshot ORDER BY idx`), "snapshot", { "x-seq": String(seq), "x-last-seq": String(st.lastSeq()) });
       }
       case "GET /room/frames": {

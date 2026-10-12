@@ -12,6 +12,7 @@ import { inlinePreviewHtml } from "../../shared/preview/html";
 import { buildPreviewPackage } from "../../shared/preview/package";
 import { StoreError } from "../../shared/store/protocol";
 import { ACCOUNT_SUSPENDED_TEXT, isQuotaRefusal, quotaText } from "../../shared/quota";
+import { busyError, fetchWithRetry, isErrorPage, READ_RETRY_DELAYS } from "../multiplayer/http";
 
 /** The refusal's fields besides `error` (`{code, kind, limit}`), or null */
 function parseDetail(text: string): Record<string, unknown> | null {
@@ -97,18 +98,24 @@ async function request(host: PreviewHost, session: PreviewSession, method: strin
   }
   let res: Response;
   try {
-    res = await host.fetch(new URL(path, session.server).toString(), { method, headers, body: payload });
+    // Reads try again when the server is busy or unreachable for a moment (multiplayer/http.ts)
+    const url = new URL(path, session.server).toString();
+    res = await fetchWithRetry(method, READ_RETRY_DELAYS, () => host.fetch(url, { method, headers, body: payload }));
   } catch {
     throw new StoreError("offline", "Couldn't reach the server. Check your connection and try again.");
   }
   if (res.ok) return res;
   const text = await res.text().catch(() => "");
   let message = text;
+  let json = false;
   try {
     message = (JSON.parse(text) as { error?: string }).error ?? text;
+    json = true;
   } catch {
     // plain text
   }
+  // Cloudflare's error pages (and any other page) are never shown: our words instead
+  if (!json && isErrorPage(res, text)) throw busyError(res.status, text, true);
   if (res.status === 401) throw new StoreError("forbidden", "Your session expired. Log in again.");
   // Public sign-up's limits (docs/multiplayer.md §17): the previews count, storage, uploads a day; a suspended account
   const detail = parseDetail(text);
@@ -116,6 +123,7 @@ async function request(host: PreviewHost, session: PreviewSession, method: strin
   if (detail?.code === "account_suspended") throw new StoreError("forbidden", ACCOUNT_SUSPENDED_TEXT, detail);
   if (detail?.code === "capacity_reached") throw new StoreError("unavailable", message, detail);
   if (res.status === 404) throw new StoreError("not-found", message || "No such preview");
+  if (res.status >= 500 || res.status === 429) throw busyError(res.status, text, false, detail?.code);
   throw new StoreError("invalid", message || `The server said ${res.status}`);
 }
 

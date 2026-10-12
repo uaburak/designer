@@ -12,6 +12,7 @@ import { parseRoomPolicy } from "../policy/roomPolicy";
 import { RoomBox } from "../roomBox";
 import { RestJobs } from "../rest/roomJobs";
 import { BROADCAST_KINDS } from "../roomBroadcast";
+import { setIdentityHeaders } from "../identityHeaders";
 import type { RestJob } from "../../../src/shared/rest/types";
 import { sqliteStorage } from "./memoryPreviews";
 
@@ -135,11 +136,7 @@ export function memoryRooms(now: () => number): MemoryRooms {
     async fetch(key, path, init) {
       calls.push({ key, path, method: init.method ?? "GET" });
       const headers = new Headers();
-      if (init.identity) {
-        headers.set("x-user-id", init.identity.userId);
-        headers.set("x-user-name", init.identity.name ?? "");
-        headers.set("x-role", init.identity.role);
-      }
+      if (init.identity) setIdentityHeaders(headers, init.identity);
       const url = new URL(`https://room${path}`);
       if (url.pathname.startsWith("/room/rest") || url.pathname === "/room/thumbnail") {
         const res = await get(key).rest.fetch(new Request(url, { method: init.method, headers, body: init.body as RequestInit["body"] }));
@@ -166,7 +163,7 @@ export function memoryRooms(now: () => number): MemoryRooms {
         get(key).room.setPolicy(p);
         return Response.json({ ok: true });
       }
-      const res = await get(key).box.fetch(new Request(url, { method: init.method, headers, body: init.body as RequestInit["body"] }));
+      const res = await get(key).box.fetch(new Request(url, { method: init.method, headers, body: init.body as RequestInit["body"], duplex: "half" } as RequestInit));
       return res ?? new Response("not found", { status: 404 });
     },
   };

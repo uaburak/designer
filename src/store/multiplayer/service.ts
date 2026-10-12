@@ -20,6 +20,7 @@ import { ACCOUNT_SUSPENDED_TEXT, isQuotaRefusal, quotaText } from "../../shared/
 import type { FileChange, Unsubscribe } from "../../shared/store/repositories";
 import type { FileKey, FileMeta, FileSpace } from "../../shared/store/types";
 import { touchedBy, withoutPending, type Touched } from "./conflict";
+import { busyError, fetchWithRetry, isErrorPage, READ_RETRY_DELAYS, STILL_UPLOADING_TEXT, UPLOAD_RETRY_DELAYS, withRetry } from "./http";
 
 /** What the store gives the service. */
 export interface MultiplayerHost {
@@ -70,6 +71,10 @@ export interface MultiplayerDeps {
   backoff?(attempt: number): number;
   /** Frames past the room's snapshot before a client compacts (default COMPACT_EVERY) */
   compactEvery?: number;
+  /** Milliseconds between a read's tries when the server is busy or unreachable (default READ_RETRY_DELAYS; [] never) */
+  retryDelays?: readonly number[];
+  /** Milliseconds between a share's upload tries — its images and snapshot (default UPLOAD_RETRY_DELAYS) */
+  uploadRetryDelays?: readonly number[];
 }
 
 interface LinkRecord {
@@ -80,6 +85,8 @@ interface LinkRecord {
   role: Role;
   /** The pass for a file's link password, when this user is in by the link alone and the file has one */
   pass?: string;
+  /** Shared from here, but its images and snapshot didn't all reach the room yet: the link uploads them before it joins */
+  pendingUpload?: true;
 }
 
 interface State {
@@ -363,13 +370,90 @@ export class MultiplayerService {
     this.needOrdinal();
     const room = key ?? roomKeyFor(fileKey, this.deps.random);
     const answer = await register(room, meta.name);
-    await this.uploadBlobs(room, imagesOf(input.snapshot));
-    await this.api("PUT", `/files/${room}/snapshot?seq=0`, input.snapshot);
-    st.links[fileKey] = { key: room, since: 0, acked: input.headSeq, sessions: [], role: "owner" };
+    // The file exists on the server from here: the link remembers its upload until the snapshot has landed, so a
+    // failure part-way (the 2026-10-12 incident: the row made, then the image check and the snapshot refused) is
+    // finished by the next start of the link instead of leaving a file with no snapshot behind.
+    const rec: LinkRecord = { key: room, since: 0, acked: input.headSeq, sessions: [], role: "owner", pendingUpload: true };
+    st.links[fileKey] = rec;
+    await this.persist(fileKey);
+    try {
+      await this.uploadContent(room, input.snapshot);
+    } catch (e) {
+      this.host.log("warn", `multiplayer ${fileKey}: the upload to ${room} didn't finish; it goes again when the file is next opened`, e);
+      // The link keeps trying in the background (with its backoff), as it would after a restart
+      this.startLink(fileKey);
+      const err = e instanceof StoreError ? e : new StoreError("offline", "Couldn't reach the server. Check your connection and try again.");
+      throw new StoreError(err.code, `“${meta.name}” didn't finish uploading. It will try again the next time it's opened.`, { code: "upload_incomplete", pendingUpload: true, fileKey, key: room, cause: err.message });
+    }
+    delete rec.pendingUpload;
     await this.persist(fileKey);
     this.startLink(fileKey);
     void this.uploadThumbnail(fileKey);
     return answer;
+  }
+
+  /** A shared file's first content in its room — its images, then its snapshot at seq 0 — tried again while the server
+   *  is busy or unreachable for a moment; resolves only once the snapshot has landed. */
+  private async uploadContent(room: string, snapshot: Uint8Array, alive: () => boolean = () => !this.closed): Promise<void> {
+    const delays = this.deps.uploadRetryDelays ?? UPLOAD_RETRY_DELAYS;
+    const step = <T>(run: () => Promise<T>) => () => {
+      if (!alive()) throw new StoreError("offline", "Stopped");
+      return run();
+    };
+    await withRetry(delays, step(() => this.uploadBlobs(room, imagesOf(snapshot))));
+    await withRetry(delays, step(() => this.api("PUT", `/files/${room}/snapshot?seq=0`, snapshot)));
+  }
+
+  /**
+   * @internal A link whose share didn't finish uploading (`pendingUpload`): its images and snapshot go now, from this
+   * copy's head, unless the room holds a snapshot already (an earlier try landed and only its answer was lost). True
+   * when the room has the file's content; false when it should try again later — or the file is gone (then unlinked).
+   */
+  async finishUpload(fileKey: FileKey): Promise<boolean> {
+    const rec = this.state?.links[fileKey];
+    if (!rec?.pendingUpload) return !!rec;
+    if (!this.host.getMeta(fileKey)) return false;
+    // Signed out, another session or the store closing meanwhile: this try stops (the next start goes again)
+    const session = this.session;
+    const alive = () => !this.closed && this.session === session && this.state?.links[fileKey] === rec;
+    try {
+      let has = true;
+      try {
+        const res = await this.raw("GET", `/files/${rec.key}/snapshot`);
+        await res.body?.cancel().catch(() => {});
+      } catch (e) {
+        if (!(e instanceof StoreError && (e.detail as { code?: unknown } | undefined)?.code === "no_snapshot")) throw e;
+        has = false;
+      }
+      if (!has) {
+        // The head's seq before its document: a frame journaled meanwhile is sent again rather than lost
+        const head = Math.max(0, ...(await this.host.backlog(fileKey, 0)).map((c) => c.seq));
+        await this.uploadContent(rec.key, await this.host.headSnapshot(fileKey), alive);
+        rec.acked = Math.max(rec.acked, head);
+      }
+      if (!alive()) return false;
+      delete rec.pendingUpload;
+      await this.persist(fileKey);
+      this.host.log("info", `multiplayer ${fileKey}: finished uploading to ${rec.key}`);
+      void this.uploadThumbnail(fileKey);
+      return true;
+    } catch (e) {
+      if (isGone(e)) await this.dropDead(fileKey, rec.key);
+      else this.host.log("warn", `multiplayer ${fileKey}: the upload to ${rec.key} didn't finish yet`, e);
+      return false;
+    }
+  }
+
+  /**
+   * @internal The server answered that a linked file doesn't exist (deleted, or no longer shared with this person): the
+   * link is dropped and the copy stays here as a local file — said once, not retried every 30 s forever.
+   */
+  async dropDead(fileKey: FileKey, key: string): Promise<void> {
+    if (!this.state?.links[fileKey]) return;
+    this.host.log("warn", `multiplayer ${fileKey}: ${key} is gone from the server; the copy stays here, unlinked`);
+    this.blocked.delete(fileKey);
+    this.locked.delete(fileKey);
+    await this.unlink(fileKey);
   }
 
   /** A fresh room key (an org file created on the server: docs/multiplayer.md §14.6) */
@@ -495,6 +579,12 @@ export class MultiplayerService {
       this.emitState(fileKey);
       return true;
     } catch (e) {
+      // Deleted on the server, or no longer shared with this person (our JSON 404 / 410 — not a busy page or no
+      // network, which keep reconnecting): the link is dropped, the copy stays as a local file
+      if (isGone(e)) {
+        await this.dropDead(fileKey, rec.key);
+        return true;
+      }
       // A Governance+ refusal (the file's org gate, the network): the link waits instead of retrying
       const code = e instanceof StoreError ? (e.detail as { code?: unknown } | undefined)?.code : undefined;
       if (isGovernanceCode(code)) {
@@ -735,7 +825,11 @@ export class MultiplayerService {
     return () => this.listeners.delete(listener);
   }
 
+  /** Closed (the store stops): uploads under way stop before their next step */
+  private closed = false;
+
   close(): void {
+    this.closed = true;
     this.off();
     this.blocked.clear();
     if (this.blockedTimer) clearTimeout(this.blockedTimer);
@@ -1019,6 +1113,7 @@ export class MultiplayerService {
       const r = v as Partial<LinkRecord> | null;
       if (!r || typeof r.key !== "string") continue;
       links[k] = { key: r.key, since: Number(r.since) || 0, acked: Number(r.acked) || 0, sessions: Array.isArray(r.sessions) ? r.sessions.filter(Number.isInteger) : [], role: r.role === "owner" || r.role === "viewer" ? r.role : "editor" };
+      if (r.pendingUpload === true) links[k].pendingUpload = true;
       if (typeof r.pass === "string") {
         links[k].pass = r.pass;
         this.passes.set(r.key, r.pass);
@@ -1054,7 +1149,9 @@ export class MultiplayerService {
     }
     let res: Response;
     try {
-      res = await this.deps.fetch(new URL(path, this.session.server).toString(), init);
+      // Reads try again when the server is busy or unreachable for a moment (Cloudflare's 1102 pages, 5xx, 429)
+      const url = new URL(path, this.session.server).toString();
+      res = await fetchWithRetry(method, this.deps.retryDelays ?? READ_RETRY_DELAYS, () => this.deps.fetch(url, init));
     } catch {
       throw new StoreError("offline", "Couldn't reach the server. Check your connection and try again.");
     }
@@ -1139,6 +1236,16 @@ export class MultiplayerService {
   }
 }
 
+/**
+ * The server said the file doesn't exist for this person: our own JSON 404 `not_found` or 410 `gone` (a room with no
+ * snapshot yet, `no_snapshot`, is not gone; Cloudflare's pages and no network are `unavailable` / `offline`).
+ */
+export function isGone(e: unknown): boolean {
+  if (!(e instanceof StoreError) || e.code !== "not-found") return false;
+  const code = (e.detail as { code?: unknown } | undefined)?.code;
+  return code === "not_found" || code === "gone";
+}
+
 /** `GET /files/:key` of an org file adds where it lives (docs/multiplayer.md §14.12) */
 type RemoteWithOrg = SharedFileInfo & { org?: { id: string; teamId: string | null; projectId: string | null } | null };
 
@@ -1155,8 +1262,10 @@ export async function httpError(res: Response): Promise<StoreError> {
   const text = await res.text().catch(() => "");
   let message = text;
   let detail: Record<string, unknown> | undefined;
+  let json = false;
   try {
     const body = JSON.parse(text) as { error?: string; code?: unknown };
+    json = !!body && typeof body === "object";
     message = body.error ?? text;
     if (typeof body.code === "string") {
       const { error: _e, ...rest } = body;
@@ -1165,6 +1274,11 @@ export async function httpError(res: Response): Promise<StoreError> {
   } catch {
     // plain text
   }
+  // A room's snapshot not uploaded yet (an earlier server said it in plain text): the file isn't gone, it's coming
+  if (res.status === 404 && (detail?.code === "no_snapshot" || (!json && text.trim() === "no snapshot yet"))) return new StoreError("unavailable", STILL_UPLOADING_TEXT, { ...(detail ?? {}), code: "no_snapshot" });
+  // Cloudflare's pages (1102, 1101, 1015, its 5xx) and any other page: never shown, our words instead (the 2026-10-12 incident)
+  if (!json && isErrorPage(res, text)) return busyError(res.status, text, true);
+  if (!json) message = message.length > 200 ? "" : message;
   // 401 `idle_timeout` (§15.8): detail.code says it; MultiplayerService has also said `SessionEnded` and dropped the session
   if (res.status === 401 && detail?.code === "idle_timeout") return new StoreError("forbidden", "You were logged out because you were inactive.", detail);
   if (res.status === 401) return new StoreError("forbidden", "Your session expired. Log in again.", detail);
@@ -1183,6 +1297,8 @@ export async function httpError(res: Response): Promise<StoreError> {
   if (res.status === 410) return new StoreError("not-found", message || "This link has expired", detail ?? { code: "gone" });
   if (res.status === 409) return new StoreError("conflict", message || "That changed meanwhile", detail);
   if (res.status === 413) return new StoreError("too-large", message || "That is too large", detail);
+  // The server's own trouble (5xx) or rate limiting: our words, not its internals
+  if (res.status >= 500 || res.status === 429) return busyError(res.status, text, false, detail?.code);
   return new StoreError("invalid", message || `The server said ${res.status}`, detail);
 }
 
@@ -1322,6 +1438,15 @@ class Link {
     this.connection = "connecting";
     this.ready = false;
     this.svc.emitState(this.fileKey);
+    // A share that didn't finish uploading: its images and snapshot first (the room has nothing to send without them)
+    if (rec.pendingUpload) {
+      void this.svc.finishUpload(this.fileKey).then((done) => {
+        if (this.stopped) return;
+        if (!done) return this.retry();
+        this.connect();
+      });
+      return;
+    }
     const ws = new this.svc.deps_.WebSocket(url);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
@@ -1370,11 +1495,14 @@ class Link {
       if (e.code === CLOSE_UNSHARED) return void this.svc.unlink(this.fileKey);
       // The room is moving to another region (§15.10): its copy answers once the Worker flipped the file — like 4003,
       // a reconnect without backoff, after a moment.
-      if (e.code === CLOSE_MOVING) return this.retry(MOVING_RETRY_MS);
+      // A move that keeps refusing falls back to the backoff (every loop here is bounded).
+      if (e.code === CLOSE_MOVING) return this.retry(this.attempt < 3 ? MOVING_RETRY_MS : undefined);
       // Refused before the socket opened (no welcome) or its access changed: a new link password stops the link until
-      // the person enters it (Figma: open sessions re-enter a changed password).
+      // the person enters it (Figma: open sessions re-enter a changed password); a file gone from the server (404 /
+      // 410) drops the link. Only the first 4003 reconnects at once: a room that keeps refusing gets the backoff.
       if (e.code === CLOSE_ACCESS || this.attempt >= 1) {
-        void this.svc.checkLocked(this.fileKey).then((locked) => !locked && this.retry(e.code === CLOSE_ACCESS ? 0 : undefined));
+        const now = e.code === CLOSE_ACCESS && this.attempt === 0;
+        void this.svc.checkLocked(this.fileKey).then((locked) => !locked && this.retry(now ? 0 : undefined));
         return;
       }
       this.retry();

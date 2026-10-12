@@ -12,6 +12,7 @@ import { deviceFromUserAgent } from "../../src/shared/account";
 import type { ActivityAction, ActivityEntityType, ActivityLog, ActivityPage, ActivityQuery } from "../../src/shared/org/types";
 import type { Deps } from "./api";
 import type { User } from "./db";
+import { rootD1 } from "./requestD1";
 
 export const RETENTION_MS = 365 * 86_400_000;
 /** fig_file_view at most once per person per file per hour (ours; Figma's rate is unpublished) */
@@ -87,6 +88,12 @@ export async function logForUserOrgs(deps: Deps, user: Pick<User, "id" | "email"
  */
 export async function logFileView(deps: Deps, f: FileEntitySource & { org_id: string; team_id: string | null }, user: Pick<User, "id" | "email" | "name">, opts: { prototype: boolean; req: Request; home?: { orgId: string } | null }): Promise<void> {
   const once = async (orgId: string, action: ActivityAction, details: Record<string, unknown> = {}) => {
+    // Reconnects of the same person to the same file: this isolate already knows it logged the view
+    const seenHere = viewsOf(deps);
+    const k = `${orgId} ${user.id} ${action} ${f.key}`;
+    if (deps.now() - (seenHere.get(k) ?? -Infinity) < VIEW_EVERY_MS) return;
+    if (seenHere.size >= 5_000) seenHere.clear();
+    seenHere.set(k, deps.now());
     try {
       const seen = await deps.db.d1
         .prepare(`SELECT 1 AS x FROM activity_log WHERE org_id = ?1 AND actor_id = ?2 AND at > ?3 AND action = ?4 AND entity_id = ?5 LIMIT 1`)
@@ -100,6 +107,15 @@ export async function logFileView(deps: Deps, f: FileEntitySource & { org_id: st
   };
   await once(f.org_id, opts.prototype ? "fig_file_view_prototype" : "fig_file_view");
   if (opts.home && opts.home.orgId !== f.org_id) await once(opts.home.orgId, opts.prototype ? "fig_file_view_prototype_external" : "fig_file_view_external", { external_org_id: f.org_id });
+}
+
+/** Views this isolate logged (or found logged), by D1 binding (each test world has its own) */
+const viewsByD1 = new WeakMap<object, Map<string, number>>();
+function viewsOf(deps: Deps): Map<string, number> {
+  const key = rootD1(deps.db.d1);
+  let m = viewsByD1.get(key);
+  if (!m) viewsByD1.set(key, (m = new Map()));
+  return m;
 }
 
 export interface FileEntitySource {

@@ -3,7 +3,7 @@
  * Worker fetches, or the XML pasted) or the three values by hand [F-adfs]; certificates checked with
  * `crypto.X509Certificate` (nodejs_compat). The D1 `CacheProvider` of node-saml (§15.3.4 step 5) lives here too.
  */
-import { X509Certificate, createHash, type CacheProvider, type XDocument } from "./lib.js";
+import { X509Certificate, createHash, loadSamlLib, type CacheProvider, type XDocument } from "./lib.js";
 import type { IdpCertificateInfo, IdpConfig, IdpConfigInput, IdpProvider } from "../../../../src/shared/org/identity";
 import type { D1Like } from "../../db";
 import { HttpError } from "../../org/http";
@@ -174,6 +174,7 @@ export async function fetchMetadata(url: string, fetchImpl: typeof fetch): Promi
 
 /** `IdpConfigInput` → the values to store (metadata URL, XML, or the three values by hand) */
 export async function resolveInput(input: IdpConfigInput, fetchImpl: typeof fetch, now: number): Promise<IdpValues & { provider: IdpProvider; metadataUrl: string | null; signing: IdpRow["signing"] }> {
+  await loadSamlLib();
   if (!input || !PROVIDERS.includes(input.provider)) throw new HttpError(400, "provider", "invalid", { field: "provider" });
   const signing = input.signing ?? "assertion";
   if (signing !== "assertion" && signing !== "assertion_or_response") throw new HttpError(400, "signing", "invalid", { field: "signing" });

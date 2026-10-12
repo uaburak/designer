@@ -7,7 +7,7 @@ import type { Audience, GrantRole, JoinRequest, OrgRole, Principal, TeamInfo, Te
 import { logActivity, teamEntity } from "../activity";
 import { normalizeEmail } from "../db";
 import { notifyOrg, orgNotice, settleOrg } from "../notifications";
-import { accessibleFiles, personRef, type MemberRow, type ProjectRow, type TeamRow } from "./db";
+import { accessibleFiles, personRef, Q, readFirst, type MemberRow, type ProjectRow, type TeamRow } from "./db";
 import { body, cleanName, EMAIL, HttpError, ID, json, noContent, randomId, type Ctx } from "./http";
 import { inviteEmail, orgAdminIds } from "./orgs";
 import { teamFileKeys, reauth } from "./reauth";
@@ -58,6 +58,8 @@ async function uniqueTeamName(ctx: Ctx, orgId: string, name: string, except: str
 export async function listTeams(ctx: Ctx, orgId: string, me: MemberRow, filter: "mine" | "browse"): Promise<TeamSummary[]> {
   const { results } = await ctx.acc.d1.prepare(`SELECT * FROM teams WHERE org_id = ?1 AND deleted_at IS NULL ORDER BY name`).bind(orgId).all<TeamRow>();
   const out: TeamSummary[] = [];
+  // Each team's rights and counts, all in one round trip
+  await ctx.acc.prefetchTeams(results.map((t) => t.id));
   for (const t of results) {
     const r = await ctx.acc.teamRights(t);
     if (filter === "mine" ? !r.inTeam : !r.canSee || (me.role === "guest" && !r.inTeam)) continue;
@@ -68,10 +70,7 @@ export async function listTeams(ctx: Ctx, orgId: string, me: MemberRow, filter: 
 
 async function teamSummary(ctx: Ctx, t: TeamRow): Promise<TeamSummary> {
   const r = await ctx.acc.teamRights(t);
-  const c = await ctx.acc.d1
-    .prepare(`SELECT (SELECT COUNT(*) FROM team_members WHERE team_id = ?1) AS members, (SELECT COUNT(*) FROM projects WHERE team_id = ?1 AND parent_id IS NULL AND trashed_at IS NULL) AS projects`)
-    .bind(t.id)
-    .first<{ members: number; projects: number }>();
+  const c = await readFirst<{ members: number; projects: number }>(ctx.acc.d1, Q.teamCounts(t.id));
   const summary: TeamSummary = {
     id: t.id,
     name: t.name,

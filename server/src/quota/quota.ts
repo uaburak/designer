@@ -18,6 +18,7 @@ import { normalizeEmail, parseOverrides, type D1Like, type User } from "../db";
 import { HttpError } from "../org/http";
 import { guardActive } from "../guard/state";
 import { serverStorageLimit } from "../guard/storageCap";
+import { prefetch, type Query } from "../requestD1";
 
 const MINUTE = 60_000;
 const DAY = 86_400_000;
@@ -77,10 +78,13 @@ export async function countFor(deps: Deps, user: Pick<User, "id" | "quotas">, ki
   await countAction(deps, user.id, kind, limitOf(overrides, kind), WINDOW[kind]!);
 }
 
+/** `requireFileSlot`'s count (prefetched by `POST /files`) */
+export const ownedFilesQ = (userId: string): Query => ({ sql: `SELECT COUNT(*) AS n FROM files WHERE owner_id = ?1`, args: [userId] });
+
 /** A new file owned by `user` (shared, in an org, a draft or a branch): 403 when they own the limit already */
 export async function requireFileSlot(deps: Deps, user: Pick<User, "id" | "quotas">): Promise<void> {
   const limit = limitOf(user.quotas ?? (await overridesOf(deps.db.d1, user.id)), "shared_files");
-  const r = await deps.db.d1.prepare(`SELECT COUNT(*) AS n FROM files WHERE owner_id = ?1`).bind(user.id).first<{ n: number }>();
+  const r = await one<{ n: number }>(deps.db.d1, ownedFilesQ(user.id));
   if ((r?.n ?? 0) >= limit) throw quotaError("shared_files", limit);
 }
 
@@ -101,8 +105,13 @@ export async function requirePreviewSlot(deps: Deps, d1: D1Like, userId: string)
 // ---- stored bytes ----------------------------------------------------------------------------------------------------
 
 /** The server's stored bytes (the running counter) */
+const serverBytesQ: Query = { sql: `SELECT n FROM quota_counters WHERE subject = ?1 AND kind = 'server_storage_bytes' AND window = 0`, args: [SERVER] };
+const ownerBytesQ = (ownerId: string): Query => ({ sql: `SELECT stored_bytes, quota_overrides FROM users WHERE id = ?1`, args: [ownerId] });
+const itemBytesQ = (item: string): Query => ({ sql: `SELECT bytes FROM stored_items WHERE item = ?1`, args: [item] });
+const one = <T>(d1: D1Like, q: Query) => d1.prepare(q.sql).bind(...q.args).first<T>();
+
 export async function serverStoredBytes(d1: D1Like): Promise<number> {
-  const r = await d1.prepare(`SELECT n FROM quota_counters WHERE subject = ?1 AND kind = 'server_storage_bytes' AND window = 0`).bind(SERVER).first<{ n: number }>();
+  const r = await one<{ n: number }>(d1, serverBytesQ);
   return r?.n ?? 0;
 }
 
@@ -120,8 +129,10 @@ export interface StorageReservation {
  */
 export async function reserveStorage(deps: Deps, ownerId: string, item: string, declared: number): Promise<StorageReservation> {
   const d1 = deps.db.d1;
-  const owner = await d1.prepare(`SELECT stored_bytes, quota_overrides FROM users WHERE id = ?1`).bind(ownerId).first<{ stored_bytes: number; quota_overrides: string }>();
-  const old = (await d1.prepare(`SELECT bytes FROM stored_items WHERE item = ?1`).bind(item).first<{ bytes: number }>())?.bytes ?? 0;
+  // The three reads in one round trip (requestD1.ts)
+  await prefetch(d1, [ownerBytesQ(ownerId), itemBytesQ(item), serverBytesQ]);
+  const owner = await one<{ stored_bytes: number; quota_overrides: string }>(d1, ownerBytesQ(ownerId));
+  const old = (await one<{ bytes: number }>(d1, itemBytesQ(item)))?.bytes ?? 0;
   const total = await serverStoredBytes(d1);
   const serverCap = await serverStorageLimit(d1);
   const limit = limitOf(parseOverrides(owner?.quota_overrides), "storage_bytes");
@@ -225,6 +236,25 @@ export async function moveStorage(deps: Deps, prefix: string, toOwner: string): 
  * size (before the body is read), the body read (refused past `max` without reading on, by its declared length), the
  * bytes checked again as read. → the body and the record to make once the upload is kept.
  */
+/**
+ * `guardedUpload` for a body the Worker only passes on (a file's snapshot and images, to its room): with a declared
+ * length, the body streams through untouched — the Worker never holds or copies the bytes (CPU, docs/multiplayer.md
+ * §17); the runtime holds the body to its content-length, so the declared size is the size. Without one, as
+ * `guardedUpload`.
+ */
+export async function guardedStream(deps: Deps, req: Request, uploader: Pick<User, "id" | "quotas">, charge: { ownerId: string; item: string } | null, max: number, tooLarge: string): Promise<{ body: ReadableStream | ArrayBuffer; size: number; commit(): Promise<void> }> {
+  const length = req.headers.get("content-length");
+  const declared = length !== null && /^\d+$/.test(length) ? Number(length) : NaN;
+  if (!req.body || !Number.isSafeInteger(declared)) {
+    const up = await guardedUpload(deps, req, uploader, charge, max, tooLarge);
+    return { ...up, size: up.body.byteLength };
+  }
+  if (declared > max) throw new HttpError(413, tooLarge);
+  await countFor(deps, uploader, "uploads_per_day");
+  const reservation = charge ? await reserveStorage(deps, charge.ownerId, charge.item, declared) : null;
+  return { body: req.body, size: declared, commit: async () => void (await reservation?.commit(declared)) };
+}
+
 export async function guardedUpload(deps: Deps, req: Request, uploader: Pick<User, "id" | "quotas">, charge: { ownerId: string; item: string } | null, max: number, tooLarge: string): Promise<{ body: ArrayBuffer; commit(): Promise<void> }> {
   const declared = Number(req.headers.get("content-length") ?? "0");
   if (declared > max) throw new HttpError(413, tooLarge);

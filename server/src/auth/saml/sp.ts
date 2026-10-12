@@ -6,7 +6,7 @@
  * URLs (Figma's shapes, decision 2): SP entity id and metadata `<origin>/saml/<tenantId>`, ACS `…/consume`, start
  * `…/start`.
  */
-import { DOMParser, SAML, ValidateInResponseTo, type CacheProvider, type Profile, type XDocument, type XElement, type XNode } from "./lib.js";
+import { DOMParser, SAML, ValidateInResponseTo, loadSamlLib, type CacheProvider, type Profile, type XDocument, type XElement, type XNode } from "./lib.js";
 
 export const NS = {
   saml: "urn:oasis:names:tc:SAML:2.0:assertion",
@@ -85,6 +85,7 @@ export function spMetadata(origin: string, cfg: Pick<SpConfig, "tenantId" | "sig
 
 /** The redirect to the IdP (§15.3.3): an unsigned AuthnRequest with this id, RelayState = the id */
 export async function authnRedirect(origin: string, cfg: SpConfig, requestId: string): Promise<string> {
+  await loadSamlLib();
   const noCache: CacheProvider = { saveAsync: async () => null, getAsync: async () => null, removeAsync: async () => null };
   const saml = samlFor(origin, cfg, { cache: noCache, inResponseTo: "never", requestId });
   return saml.getAuthorizeUrlAsync(requestId, undefined, {});
@@ -196,6 +197,7 @@ function textOf(n: XNode): string {
 
 /** node-saml's verification, then ours. `inResponseTo: "never"` on the unsolicited path. */
 export async function verifyResponse(origin: string, cfg: SpConfig, samlResponse: string, cache: CacheProvider, now: number): Promise<{ assertion: VerifiedAssertion; profile: Profile; raw: RawResponse }> {
+  await loadSamlLib();
   const raw = readRawResponse(samlResponse);
   const saml = samlFor(origin, cfg, { cache, inResponseTo: raw.solicited ? "always" : "never" });
   let profile: Profile | null;

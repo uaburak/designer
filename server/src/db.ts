@@ -155,6 +155,32 @@ export class Db {
       .first<SessionTouch>();
   }
 
+  /**
+   * `authenticate`'s reads for a session token, in one round trip: the user and `touchSession` — the touch only when the
+   * token still holds (the user isn't suspended and its token version is `tokenVersion`), as when the two ran one after
+   * the other.
+   */
+  async sessionAuth(userId: string, sid: string | null, tokenVersion: number, now: number, extra: { sql: string; args: unknown[] }[] = []): Promise<{ user: User | null; session: SessionTouch | null; extra: unknown[][] | null }> {
+    const userQ = this.d1.prepare(`SELECT id, email, name, picture, token_version, suspended_at, quota_overrides FROM users WHERE id = ?1`).bind(userId);
+    if (!sid || !this.d1.batch) {
+      const r = await userQ.first<UserRow>();
+      const user = r ? toUser(r) : null;
+      return { user, session: sid && user && user.suspendedAt == null && user.tokenVersion === tokenVersion ? await this.touchSession(sid, userId, now) : null, extra: null };
+    }
+    const touch = this.d1
+      .prepare(
+        `UPDATE sessions SET last_seen_at = CASE WHEN last_seen_at < ?3 - 300000 THEN ?3 ELSE last_seen_at END,
+           idle_limit_ms = CASE WHEN last_seen_at < ?3 - 300000 THEN ${idleLimitSql("?2")} ELSE idle_limit_ms END
+         WHERE id = ?1 AND user_id = ?2 AND EXISTS (SELECT 1 FROM users u WHERE u.id = ?2 AND u.token_version = ?4 AND u.suspended_at IS NULL)
+         RETURNING id, auth_method, active_at, last_seen_at, idle_limit_ms`,
+      )
+      .bind(sid, userId, now, tokenVersion);
+    // `extra`: other reads of the same moment, in the same round trip (the network ranges: governance/network.ts)
+    const [u, s, ...more] = (await this.d1.batch([userQ, touch, ...extra.map((q) => this.d1.prepare(q.sql).bind(...q.args))])) as { results?: unknown[] }[];
+    const r = (u?.results?.[0] as UserRow | undefined) ?? null;
+    return { user: r ? toUser(r) : null, session: (s?.results?.[0] as SessionTouch | undefined) ?? null, extra: more.map((x) => x?.results ?? []) };
+  }
+
   async user(id: string): Promise<User | null> {
     const r = await this.d1.prepare(`SELECT id, email, name, picture, token_version, suspended_at, quota_overrides FROM users WHERE id = ?1`).bind(id).first<UserRow>();
     return r ? toUser(r) : null;

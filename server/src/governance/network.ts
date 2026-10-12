@@ -17,6 +17,7 @@ import { emailDomain } from "../../../src/shared/org/identity";
 import { ipInCidr } from "../../../src/shared/org/governance";
 import type { Deps } from "../api";
 import type { D1Like, User } from "../db";
+import { rootD1, type Query } from "../requestD1";
 
 /** How long an isolate trusts its copy of the ranges (a range change reaches every isolate within this) */
 export const RANGES_TTL_MS = 60_000;
@@ -24,7 +25,7 @@ const ALLOWED_TTL_MS = 60_000;
 const DAY_MS = 86_400_000;
 const MAX_REMEMBERED = 5_000;
 
-interface LiveRange {
+export interface LiveRange {
   id: string;
   org_id: string;
   cidr: string;
@@ -45,13 +46,29 @@ const caches = new WeakMap<D1Like, Cache>();
 
 /** Forget the cached ranges (the admin routes call it after a change, so this isolate sees it at once) */
 export function forgetNetworkRanges(d1?: D1Like): void {
-  if (d1) caches.delete(d1);
+  if (d1) caches.delete(rootD1(d1));
 }
 
 function cacheOf(d1: D1Like): Cache {
-  let c = caches.get(d1);
-  if (!c) caches.set(d1, (c = { at: -Infinity, ranges: [], allowed: new Map(), shadowed: new Set() }));
+  let c = caches.get(rootD1(d1));
+  if (!c) caches.set(rootD1(d1), (c = { at: -Infinity, ranges: [], allowed: new Map(), shadowed: new Set() }));
   return c;
+}
+
+/** The live ranges' read */
+const RANGES_SQL = `SELECT r.id, r.org_id, r.cidr, r.state FROM org_ip_ranges r JOIN orgs o ON o.id = r.org_id
+       WHERE r.kind = 'network' AND r.state IN ('testing', 'enforced') AND o.governance_plus = 1`;
+
+/** The ranges' read when this isolate's copy is stale — `authenticate` sends it with its own reads (one round trip) */
+export function rangesQueryIfStale(deps: Deps): Query | null {
+  return deps.now() - cacheOf(deps.db.d1).at < RANGES_TTL_MS ? null : { sql: RANGES_SQL, args: [] };
+}
+
+/** The ranges as `rangesQueryIfStale`'s read found them */
+export function primeRanges(deps: Deps, rows: LiveRange[]): void {
+  const c = cacheOf(deps.db.d1);
+  c.at = deps.now();
+  c.ranges = rows;
 }
 
 async function liveRanges(deps: Deps): Promise<LiveRange[]> {
@@ -60,10 +77,7 @@ async function liveRanges(deps: Deps): Promise<LiveRange[]> {
   if (now - c.at < RANGES_TTL_MS) return c.ranges;
   c.at = now;
   c.ranges = deps.db.d1
-    .prepare(
-      `SELECT r.id, r.org_id, r.cidr, r.state FROM org_ip_ranges r JOIN orgs o ON o.id = r.org_id
-       WHERE r.kind = 'network' AND r.state IN ('testing', 'enforced') AND o.governance_plus = 1`,
-    )
+    .prepare(RANGES_SQL)
     .all<LiveRange>()
     .then((r) => r.results)
     .catch((e) => {

@@ -7,10 +7,13 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { ORIGIN, WEB, identityWorld, type IdentityWorld } from "../testing/identityWorld";
 import { IDP_ENTITY, buildResponse, idpMetadata, signAssertion, testKeys } from "../testing/samlIdp";
 import { checkCertificate, parseIdpMetadata } from "./saml/config";
+import { loadSamlLib } from "./saml/lib.js";
 import { txtValue } from "./domains";
 
 let w: IdentityWorld;
 beforeAll(() => void testKeys(), 30_000);
+// parseIdpMetadata (sync) is called directly below; the routes load the libraries themselves
+beforeAll(() => loadSamlLib());
 beforeEach(async () => {
   w = await identityWorld();
   vi.spyOn(console, "warn").mockImplementation(() => {});

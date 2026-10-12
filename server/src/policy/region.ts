@@ -23,6 +23,7 @@ import type { D1Like } from "../db";
 import { inJurisdiction, libraries, type ObjectNamespace } from "../libraries/db";
 import { body, HttpError, json, type Ctx } from "../org/http";
 import { encodeRoomPolicy } from "./roomPolicy";
+import { setIdentityHeaders } from "../identityHeaders";
 
 type Jurisdiction = "eu" | null;
 const jurisdictionOf = (region: DataRegion): Jurisdiction => (region === "eu" ? "eu" : null);
@@ -52,17 +53,16 @@ const stubOf = (ns: ObjectNamespace | undefined, j: Jurisdiction, name: string) 
 export function roomsOn(ns: ObjectNamespace, d1: D1Like): Rooms {
   return {
     async fetch(fileKey, path, init, original) {
-      const stub = stubOf(ns, await fileJurisdiction(d1, fileKey), fileKey);
+      // The caller's file row says it when it has one (`jurisdiction`); otherwise read now — never cached
+      const stub = stubOf(ns, init.jurisdiction !== undefined ? init.jurisdiction : await fileJurisdiction(d1, fileKey), fileKey);
       const headers = new Headers(original?.headers);
       headers.delete("authorization");
       headers.set("x-file-key", fileKey);
-      if (init.identity) {
-        headers.set("x-user-id", init.identity.userId);
-        headers.set("x-user-name", init.identity.name ?? "");
-        headers.set("x-role", init.identity.role);
-      }
+      // The name percent-encoded: header values are bytes (identityHeaders.ts)
+      if (init.identity) setIdentityHeaders(headers, init.identity);
       if (init.policy) headers.set("x-policy", encodeRoomPolicy(init.policy as RoomPolicy));
-      return stub.fetch(new Request(`https://room${path}`, { method: init.method, headers, body: init.body }));
+      // A stream body (an upload passed on: quota.ts guardedStream) needs `duplex` where fetch is Node's (tests)
+      return stub.fetch(new Request(`https://room${path}`, { method: init.method, headers, body: init.body, duplex: "half" } as RequestInit));
     },
   };
 }

@@ -8,10 +8,11 @@ import { DEFAULT_ORG_SETTINGS, type Audience, type EditorType, type FileAccess, 
 import type { Deps } from "../api";
 import type { D1Like, User } from "../db";
 import { branchAccess, type BranchRow } from "../branchAccess";
-import { HttpError, placeholders } from "./http";
+import { HttpError } from "./http";
 import { emailDomain, type FilePolicy } from "../../../src/shared/org/identity";
-import { homeOrgOf, type HomeOrg } from "../policy/external";
-import { policyOfFile } from "../policy/sharing";
+import { homeOrgOf, homeOrgQ, type HomeOrg } from "../policy/external";
+import { orgSettingsQ, policyOfFile, wsSharingQ } from "../policy/sharing";
+import { prefetch, requestTime, type Query } from "../requestD1";
 import type { OrgGate } from "../../../src/shared/org/governance";
 import { gateCols, gateError, gateFor, type GateRow } from "../governance/gate";
 
@@ -37,6 +38,8 @@ export interface FileRow {
   trashed_by: string | null;
   created_at: number;
   updated_at: number;
+  /** 0013: the room's jurisdiction ("eu"), null: the default — handed to `rooms.fetch` so it needn't read it again */
+  jurisdiction?: "eu" | null;
 }
 
 export interface TeamRow {
@@ -104,7 +107,7 @@ export interface OrgRow {
 }
 
 export const FILE_COLS = `f.key, f.name, f.owner_id, f.org_id, f.team_id, f.project_id, f.editor_type, f.access, f.link_access, f.org_link_access, f.proto_link_access, f.proto_org_link_access,
-  f.link_expires_at, f.viewers_can_copy, f.link_password, f.link_password_version, f.trashed_at, f.trashed_by, f.created_at, f.updated_at`;
+  f.link_expires_at, f.viewers_can_copy, f.link_password, f.link_password_version, f.trashed_at, f.trashed_by, f.created_at, f.updated_at, f.jurisdiction`;
 
 export function settingsOf(row: Pick<OrgRow, "settings"> | null): OrgSettings {
   let s: Partial<OrgSettings> = {};
@@ -119,6 +122,66 @@ export function settingsOf(row: Pick<OrgRow, "settings"> | null): OrgSettings {
 /** Rows of one principal kind into `Grant`s */
 const toGrants = (rows: { user_id?: string | null; email?: string | null; group_id?: string | null; role: GrantRole; admin?: number }[]): Grant[] =>
   rows.map((r) => ({ userId: r.user_id ?? null, email: r.email ?? null, groupId: r.group_id ?? null, role: r.role, ...(r.admin ? { admin: true } : {}) }));
+
+type Who = Pick<User, "id" | "email">;
+const CHAIN_CTE = `WITH RECURSIVE chain(id, n) AS (SELECT id, 0 FROM projects WHERE id = ?1
+         UNION ALL SELECT p.parent_id, c.n + 1 FROM chain c JOIN projects p ON p.id = c.id WHERE p.parent_id IS NOT NULL AND c.n < 11)`;
+
+/**
+ * Access's reads, as statements: the methods below read with them, and the prefetches (requestD1.ts) send the same ones
+ * ahead in one round trip — same builder, same SQL text.
+ */
+export const Q = {
+  file: (key: string): Query => ({ sql: `SELECT ${FILE_COLS} FROM files f WHERE f.key = ?1`, args: [key] }),
+  branch: (key: string): Query => ({ sql: `SELECT * FROM branches WHERE key = ?1`, args: [key] }),
+  org: (orgId: string): Query => ({ sql: `SELECT * FROM orgs WHERE id = ?1`, args: [orgId] }),
+  team: (teamId: string): Query => ({ sql: `SELECT * FROM teams WHERE id = ?1`, args: [teamId] }),
+  project: (id: string): Query => ({ sql: `SELECT * FROM projects WHERE id = ?1`, args: [id] }),
+  membership: (orgId: string, u: Who, now: number): Query => ({
+    sql: `SELECT m.* FROM org_members m JOIN orgs o ON o.id = m.org_id WHERE m.org_id = ?1 AND (m.user_id = ?2 OR (m.user_id IS NULL AND m.email = ?3))
+           AND (m.expires_at IS NULL OR o.governance_plus = 0 OR m.expires_at > ?4)`,
+    args: [orgId, u.id, u.email, now],
+  }),
+  gate: (orgId: string, userId: string): Query => ({ sql: `SELECT ${gateCols("?2")} FROM orgs o WHERE o.id = ?1`, args: [orgId, userId] }),
+  groups: (orgId: string, userId: string): Query => ({ sql: `SELECT m.group_id FROM user_group_members m JOIN user_groups g ON g.id = m.group_id WHERE m.user_id = ?1 AND g.org_id = ?2`, args: [userId, orgId] }),
+  workspaceAdminOf: (orgId: string, userId: string): Query => ({ sql: `SELECT a.workspace_id FROM workspace_admins a JOIN workspaces w ON w.id = a.workspace_id WHERE a.user_id = ?1 AND w.org_id = ?2`, args: [userId, orgId] }),
+  teamPeople: (teamId: string, u: Who): Query => ({ sql: `SELECT user_id, email, role, admin FROM team_members WHERE team_id = ?1 AND (user_id = ?2 OR (user_id IS NULL AND email = ?3))`, args: [teamId, u.id, u.email] }),
+  groupGrants: (type: "team" | "project" | "file", id: string, userId: string): Query => ({
+    sql: `SELECT group_id, role FROM group_grants WHERE resource_type = ?1 AND resource_id = ?2 AND group_id IN (SELECT group_id FROM user_group_members WHERE user_id = ?3)`,
+    args: [type, id, userId],
+  }),
+  teamRequested: (teamId: string, userId: string): Query => ({ sql: `SELECT 1 AS x FROM team_requests WHERE team_id = ?1 AND user_id = ?2`, args: [teamId, userId] }),
+  chain: (projectId: string): Query => ({ sql: `${CHAIN_CTE}\n       SELECT p.* FROM chain c JOIN projects p ON p.id = c.id ORDER BY c.n`, args: [projectId] }),
+  /** The caller's rows on a folder and its parents (the chain by its nearest folder) */
+  folderPeople: (projectId: string, u: Who): Query => ({
+    sql: `${CHAIN_CTE}\n       SELECT project_id, user_id, email, role FROM project_members WHERE project_id IN (SELECT id FROM chain) AND (user_id = ?2 OR (user_id IS NULL AND email = ?3))`,
+    args: [projectId, u.id, u.email],
+  }),
+  folderGroups: (projectId: string, userId: string): Query => ({
+    sql: `${CHAIN_CTE}\n       SELECT resource_id AS project_id, group_id, role FROM group_grants WHERE resource_type = 'project' AND resource_id IN (SELECT id FROM chain)
+           AND group_id IN (SELECT group_id FROM user_group_members WHERE user_id = ?2)`,
+    args: [projectId, userId],
+  }),
+  fileMembers: (key: string, u: Who): Query => ({ sql: `SELECT user_id, email, role FROM members WHERE file_key = ?1 AND (user_id = ?2 OR (user_id IS NULL AND email = ?3))`, args: [key, u.id, u.email] }),
+  prototypeMember: (key: string, u: Who): Query => ({ sql: `SELECT 1 AS x FROM prototype_members WHERE file_key = ?1 AND (user_id = ?2 OR email = ?3) LIMIT 1`, args: [key, u.id, u.email] }),
+  ownerInOrg: (orgId: string, userId: string): Query => ({ sql: `SELECT 1 AS x FROM org_members WHERE org_id = ?1 AND user_id = ?2`, args: [orgId, userId] }),
+  /** A team's tile counts (teams.ts teamSummary) */
+  teamCounts: (teamId: string): Query => ({
+    sql: `SELECT (SELECT COUNT(*) FROM team_members WHERE team_id = ?1) AS members, (SELECT COUNT(*) FROM projects WHERE team_id = ?1 AND parent_id IS NULL AND trashed_at IS NULL) AS projects`,
+    args: [teamId],
+  }),
+  /** A folder's tile counts (projects.ts projectSummaries) */
+  projectCounts: (projectId: string): Query => ({
+    sql: `SELECT (SELECT COUNT(*) FROM files WHERE project_id = ?1 AND trashed_at IS NULL) AS files, (SELECT COUNT(*) FROM projects WHERE parent_id = ?1 AND trashed_at IS NULL) AS folders`,
+    args: [projectId],
+  }),
+};
+
+/** Reads of one row, or all rows, by a `Q` statement */
+export const readFirst = <T>(d1: D1Like, q: Query) => d1.prepare(q.sql).bind(...q.args).first<T>();
+
+const first = readFirst;
+const all = async <T>(d1: D1Like, q: Query) => (await d1.prepare(q.sql).bind(...q.args).all<T>()).results;
 
 /**
  * The caller's access, resolved with rows loaded once per request. Grants are loaded for the caller only (their own
@@ -163,15 +226,12 @@ export class Access {
 
   /** The caller's row in the org. A guest whose access expired (with Governance+, docs/governance.md §2.13) has none. */
   membership(orgId: string): Promise<MemberRow | null> {
-    return this.once(`m:${orgId}`, () =>
-      this.d1
-        .prepare(
-          `SELECT m.* FROM org_members m JOIN orgs o ON o.id = m.org_id WHERE m.org_id = ?1 AND (m.user_id = ?2 OR (m.user_id IS NULL AND m.email = ?3))
-           AND (m.expires_at IS NULL OR o.governance_plus = 0 OR m.expires_at > ?4)`,
-        )
-        .bind(orgId, this.user.id, this.user.email, this.deps.now())
-        .first<MemberRow>(),
-    );
+    return this.once(`m:${orgId}`, () => first<MemberRow>(this.d1, Q.membership(orgId, this.user, this.now)));
+  }
+
+  /** The request's time (requestD1.ts): what reads bound to "now" use */
+  get now(): number {
+    return requestTime(this.d1, this.deps.now);
   }
 
   /**
@@ -187,7 +247,7 @@ export class Access {
           `SELECT 1 AS x FROM org_members m JOIN orgs o ON o.id = m.org_id WHERE m.org_id = ?1 AND (m.user_id = ?2 OR (m.user_id IS NULL AND m.email = ?3))
            AND m.role = 'guest' AND o.governance_plus = 1 AND m.expires_at IS NOT NULL AND m.expires_at <= ?4 LIMIT 1`,
         )
-        .bind(orgId, this.user.id, this.user.email, this.deps.now())
+        .bind(orgId, this.user.id, this.user.email, this.now)
         .first();
       return !!r;
     });
@@ -203,7 +263,7 @@ export class Access {
       if (!org?.governance_plus) return null;
       const m = await this.membership(orgId);
       if (!m) return null;
-      const row = await this.d1.prepare(`SELECT ${gateCols("?2")} FROM orgs o WHERE o.id = ?1`).bind(orgId, this.user.id).first<GateRow>();
+      const row = await first<GateRow>(this.d1, Q.gate(orgId, this.user.id));
       return row ? gateFor(this.deps, { orgId, settings: org.settings, role: m.role, user: this.user, req: this.req, row }) : null;
     });
   }
@@ -215,7 +275,7 @@ export class Access {
   }
 
   org(orgId: string): Promise<OrgRow | null> {
-    return this.once(`o:${orgId}`, () => this.d1.prepare(`SELECT * FROM orgs WHERE id = ?1`).bind(orgId).first<OrgRow>());
+    return this.once(`o:${orgId}`, () => first<OrgRow>(this.d1, Q.org(orgId)));
   }
 
   async settings(orgId: string): Promise<OrgSettings> {
@@ -223,17 +283,11 @@ export class Access {
   }
 
   groups(orgId: string): Promise<string[]> {
-    return this.once(`g:${orgId}`, async () => {
-      const { results } = await this.d1.prepare(`SELECT m.group_id FROM user_group_members m JOIN user_groups g ON g.id = m.group_id WHERE m.user_id = ?1 AND g.org_id = ?2`).bind(this.user.id, orgId).all<{ group_id: string }>();
-      return results.map((r) => r.group_id);
-    });
+    return this.once(`g:${orgId}`, async () => (await all<{ group_id: string }>(this.d1, Q.groups(orgId, this.user.id))).map((r) => r.group_id));
   }
 
   workspaceAdminOf(orgId: string): Promise<string[]> {
-    return this.once(`wa:${orgId}`, async () => {
-      const { results } = await this.d1.prepare(`SELECT a.workspace_id FROM workspace_admins a JOIN workspaces w ON w.id = a.workspace_id WHERE a.user_id = ?1 AND w.org_id = ?2`).bind(this.user.id, orgId).all<{ workspace_id: string }>();
-      return results.map((r) => r.workspace_id);
-    });
+    return this.once(`wa:${orgId}`, async () => (await all<{ workspace_id: string }>(this.d1, Q.workspaceAdminOf(orgId, this.user.id))).map((r) => r.workspace_id));
   }
 
   billingAdminOf(orgId: string): Promise<string[]> {
@@ -244,29 +298,22 @@ export class Access {
   }
 
   team(teamId: string): Promise<TeamRow | null> {
-    return this.once(`t:${teamId}`, () => this.d1.prepare(`SELECT * FROM teams WHERE id = ?1`).bind(teamId).first<TeamRow>());
+    return this.once(`t:${teamId}`, () => first<TeamRow>(this.d1, Q.team(teamId)));
   }
 
   teamGrants(teamId: string): Promise<Grant[]> {
     return this.once(`tg:${teamId}`, async () => {
-      const { results: people } = await this.d1
-        .prepare(`SELECT user_id, email, role, admin FROM team_members WHERE team_id = ?1 AND (user_id = ?2 OR (user_id IS NULL AND email = ?3))`)
-        .bind(teamId, this.user.id, this.user.email)
-        .all<{ user_id: string | null; email: string; role: GrantRole; admin: number }>();
+      const people = await all<{ user_id: string | null; email: string; role: GrantRole; admin: number }>(this.d1, Q.teamPeople(teamId, this.user));
       return [...toGrants(people), ...(await this.groupGrants("team", teamId))];
     });
   }
 
   private async groupGrants(type: "team" | "project" | "file", id: string): Promise<Grant[]> {
-    const { results } = await this.d1
-      .prepare(`SELECT group_id, role FROM group_grants WHERE resource_type = ?1 AND resource_id = ?2 AND group_id IN (SELECT group_id FROM user_group_members WHERE user_id = ?3)`)
-      .bind(type, id, this.user.id)
-      .all<{ group_id: string; role: GrantRole }>();
-    return toGrants(results);
+    return toGrants(await all<{ group_id: string; role: GrantRole }>(this.d1, Q.groupGrants(type, id, this.user.id)));
   }
 
   project(id: string): Promise<ProjectRow | null> {
-    return this.once(`p:${id}`, () => this.d1.prepare(`SELECT * FROM projects WHERE id = ?1`).bind(id).first<ProjectRow>());
+    return this.once(`p:${id}`, () => first<ProjectRow>(this.d1, Q.project(id)));
   }
 
   /** The folder and its parents, nearest first */
@@ -278,18 +325,9 @@ export class Access {
     return this.once(`cf:${projectId}`, async () => {
       const chain = await this.chain(projectId);
       if (!chain.length) return [];
-      const ids = chain.map((p) => p.id);
-      const { results: people } = await this.d1
-        .prepare(`SELECT project_id, user_id, email, role FROM project_members WHERE project_id IN (${placeholders(ids.length, 3)}) AND (user_id = ?1 OR (user_id IS NULL AND email = ?2))`)
-        .bind(this.user.id, this.user.email, ...ids)
-        .all<{ project_id: string; user_id: string | null; email: string; role: GrantRole }>();
-      const { results: groups } = await this.d1
-        .prepare(
-          `SELECT resource_id AS project_id, group_id, role FROM group_grants WHERE resource_type = 'project' AND resource_id IN (${placeholders(ids.length, 2)})
-           AND group_id IN (SELECT group_id FROM user_group_members WHERE user_id = ?1)`,
-        )
-        .bind(this.user.id, ...ids)
-        .all<{ project_id: string; group_id: string; role: GrantRole }>();
+      // By the nearest folder: the same chain, so the reads can be prefetched before the chain is known
+      const people = await all<{ project_id: string; user_id: string | null; email: string; role: GrantRole }>(this.d1, Q.folderPeople(projectId, this.user));
+      const groups = await all<{ project_id: string; group_id: string; role: GrantRole }>(this.d1, Q.folderGroups(projectId, this.user.id));
       return chain.map((p) => ({
         id: p.id,
         ownerId: p.owner_id,
@@ -300,25 +338,125 @@ export class Access {
   }
 
   fileRow(key: string): Promise<FileRow | null> {
-    return this.once(`f:${key}`, () => this.d1.prepare(`SELECT ${FILE_COLS} FROM files f WHERE f.key = ?1`).bind(key).first<FileRow>());
+    return this.once(`f:${key}`, () => first<FileRow>(this.d1, Q.file(key)));
   }
 
   private async fileGrants(f: FileRow): Promise<Grant[]> {
-    const { results } = await this.d1
-      .prepare(`SELECT user_id, email, role FROM members WHERE file_key = ?1 AND (user_id = ?2 OR (user_id IS NULL AND email = ?3))`)
-      .bind(f.key, this.user.id, this.user.email)
-      .all<{ user_id: string | null; email: string; role: GrantRole }>();
+    const results = await all<{ user_id: string | null; email: string; role: GrantRole }>(this.d1, Q.fileMembers(f.key, this.user));
     return [...toGrants(results), ...(f.org_id ? await this.groupGrants("file", f.key) : [])];
   }
 
   /** Invited from Share prototype (docs/editor.md D-6; 0015 prototype_members), by user id or email */
   private prototypeMember(key: string): Promise<boolean> {
-    return this.once(`pm:${key}`, async () => !!(await this.d1.prepare(`SELECT 1 AS x FROM prototype_members WHERE file_key = ?1 AND (user_id = ?2 OR email = ?3) LIMIT 1`).bind(key, this.user.id, this.user.email).first()));
+    return this.once(`pm:${key}`, async () => !!(await first(this.d1, Q.prototypeMember(key, this.user))));
   }
 
   /** Is someone (by id) in the org? Drafts of people removed are "Unassigned drafts" (§14.7). */
   ownerInOrg(orgId: string, userId: string): Promise<boolean> {
-    return this.once(`oi:${orgId}:${userId}`, async () => !!(await this.d1.prepare(`SELECT 1 AS x FROM org_members WHERE org_id = ?1 AND user_id = ?2`).bind(orgId, userId).first()));
+    return this.once(`oi:${orgId}:${userId}`, async () => !!(await first(this.d1, Q.ownerInOrg(orgId, userId))));
+  }
+
+  /**
+   * Everything `file(f)` (and a file route's policy, gate and place) will read for this file, sent ahead in one round
+   * trip (requestD1.ts) — twenty-odd reads become one. A branch resolves through its main file: not prefetched.
+   */
+  async prefetchFile(f: FileRow): Promise<void> {
+    const u = this.user;
+    const org = f.org_id;
+    await prefetch(this.d1, [
+      f.project_id && Q.chain(f.project_id),
+      f.project_id && Q.folderPeople(f.project_id, u),
+      f.project_id && Q.folderGroups(f.project_id, u.id),
+      f.team_id && Q.team(f.team_id),
+      org && Q.membership(org, u, this.now),
+      homeOrgQ(u),
+      Q.prototypeMember(f.key, u),
+      Q.fileMembers(f.key, u),
+      org && Q.groupGrants("file", f.key, u.id),
+      f.team_id && Q.teamPeople(f.team_id, u),
+      f.team_id && Q.groupGrants("team", f.team_id, u.id),
+      org && Q.workspaceAdminOf(org, u.id),
+      org && Q.groups(org, u.id),
+      org && orgSettingsQ(org),
+      org && f.team_id && wsSharingQ(f.team_id),
+      org && !f.project_id && Q.ownerInOrg(org, f.owner_id),
+      org && Q.org(org),
+      org && Q.gate(org, u.id),
+    ]);
+  }
+
+  /** `POST /files` into an org (orgs.ts createOrgFile): the org's rows, the folder's and its team's, in two round trips */
+  async prefetchNewFile(orgId: string, projectId: string | null, key: string, extra: Query[] = []): Promise<void> {
+    const u = this.user;
+    await prefetch(this.d1, [
+      Q.membership(orgId, u, this.now),
+      Q.org(orgId),
+      Q.gate(orgId, u.id),
+      Q.workspaceAdminOf(orgId, u.id),
+      Q.groups(orgId, u.id),
+      homeOrgQ(u),
+      Q.file(key),
+      projectId && Q.project(projectId),
+      projectId && Q.chain(projectId),
+      projectId && Q.folderPeople(projectId, u),
+      projectId && Q.folderGroups(projectId, u.id),
+      ...extra,
+    ]);
+    const p = projectId ? await this.project(projectId) : null;
+    if (p) await prefetch(this.d1, [Q.team(p.team_id), Q.teamPeople(p.team_id, u), Q.groupGrants("team", p.team_id, u.id)]);
+  }
+
+  /** A list of files' `file(f)` reads (accessibleFiles), in one round trip */
+  async prefetchFiles(rows: FileRow[]): Promise<void> {
+    const u = this.user;
+    const seen = new Set<string>();
+    const qs: Query[] = [];
+    const add = (q: Query | null | "" | false) => {
+      if (!q) return;
+      const k = `${q.sql}\u0000${JSON.stringify(q.args)}`;
+      if (seen.has(k)) return;
+      seen.add(k);
+      qs.push(q);
+    };
+    for (const f of rows) {
+      const org = f.org_id;
+      for (const q of [Q.branch(f.key), Q.prototypeMember(f.key, u), Q.fileMembers(f.key, u), org && Q.groupGrants("file", f.key, u.id), homeOrgQ(u), org && orgSettingsQ(org), org && f.team_id && wsSharingQ(f.team_id)]) add(q);
+      for (const q of [f.project_id && Q.chain(f.project_id), f.project_id && Q.folderPeople(f.project_id, u), f.project_id && Q.folderGroups(f.project_id, u.id), f.team_id && Q.team(f.team_id)]) add(q);
+      for (const q of [f.team_id && Q.teamPeople(f.team_id, u), f.team_id && Q.groupGrants("team", f.team_id, u.id), org && Q.membership(org, u, this.now), org && Q.workspaceAdminOf(org, u.id), org && Q.groups(org, u.id), org && !f.project_id && Q.ownerInOrg(org, f.owner_id)]) add(q);
+    }
+    await prefetch(this.d1, qs);
+  }
+
+  /** Teams' tiles (teams.ts listTeams): the caller's rows and the counts of each, in one round trip */
+  async prefetchTeams(teamIds: string[]): Promise<void> {
+    const u = this.user;
+    await prefetch(this.d1, teamIds.flatMap((id) => [Q.teamPeople(id, u), Q.groupGrants("team", id, u.id), Q.teamRequested(id, u.id), Q.teamCounts(id)]));
+  }
+
+  /** Folders' tiles (projects.ts projectSummaries): each one's chain, the caller's rows and its counts, in one round trip */
+  async prefetchProjects(rows: ProjectRow[]): Promise<void> {
+    const u = this.user;
+    await prefetch(this.d1, rows.flatMap((p) => [Q.chain(p.id), Q.folderPeople(p.id, u), Q.folderGroups(p.id, u.id), Q.projectCounts(p.id)]));
+  }
+
+  /** A team's rows (`requireTeam`, `teamRights`): the team, then its org's, in two round trips */
+  async prefetchTeam(teamId: string): Promise<void> {
+    await prefetch(this.d1, [Q.team(teamId), Q.teamPeople(teamId, this.user), Q.groupGrants("team", teamId, this.user.id), Q.teamRequested(teamId, this.user.id), Q.teamCounts(teamId)]);
+    const team = await this.team(teamId);
+    if (team) await this.prefetchOrg(team.org_id);
+  }
+
+  /** An org's rows for the caller (`requireMember`, the gate, admin rights) */
+  async prefetchOrg(orgId: string): Promise<void> {
+    await prefetch(this.d1, [Q.membership(orgId, this.user, this.now), Q.org(orgId), Q.gate(orgId, this.user.id), Q.workspaceAdminOf(orgId, this.user.id), Q.groups(orgId, this.user.id)]);
+  }
+
+  /** A folder's rows (`container`): the folder, its chain and grants, then its team's and org's */
+  async prefetchProject(projectId: string): Promise<void> {
+    const u = this.user;
+    await prefetch(this.d1, [Q.project(projectId), Q.chain(projectId), Q.folderPeople(projectId, u), Q.folderGroups(projectId, u.id), Q.projectCounts(projectId)]);
+    const p = await this.project(projectId);
+    if (p) await this.prefetchTeam(p.team_id);
   }
 
   async rowsFor(f: FileRow, opts: { viaLink: boolean; passOk: boolean }): Promise<AccessRows> {
@@ -370,7 +508,7 @@ export class Access {
 
   /** The file's `branches` row when it is a branch (docs/data.md §15.7), else null */
   branch(key: string): Promise<BranchRow | null> {
-    return this.once(`b:${key}`, () => this.d1.prepare(`SELECT * FROM branches WHERE key = ?1`).bind(key).first<BranchRow>());
+    return this.once(`b:${key}`, () => first<BranchRow>(this.d1, Q.branch(key)));
   }
 
   async file(f: FileRow, opts: { viaLink: boolean; passOk: boolean } = { viaLink: false, passOk: false }): Promise<AccessResult> {
@@ -455,7 +593,7 @@ export class Access {
     const inTeam = role !== null || owner;
     const canSee = !!m && (orgAdmin || (deleted ? owner : inTeam || wsAdmin || (memberLike && (team.visibility === "visible" || audience))));
     const admin = !deleted && (teamAdmin || owner || orgAdmin || wsAdmin);
-    const requested = !!(await this.d1.prepare(`SELECT 1 AS x FROM team_requests WHERE team_id = ?1 AND user_id = ?2`).bind(team.id, this.user.id).first());
+    const requested = !!(await first(this.d1, Q.teamRequested(team.id, this.user.id)));
     return { membership: m, role, teamAdmin, owner, orgAdmin, wsAdmin, admin, canSee, inTeam, audience, requested, editor: admin || role === "editor" };
   }
 
@@ -472,15 +610,7 @@ export class Access {
 
 /** A folder and its parents, nearest first. */
 export async function folderChain(d1: D1Like, projectId: string): Promise<ProjectRow[]> {
-  const { results } = await d1
-    .prepare(
-      `WITH RECURSIVE chain(id, n) AS (SELECT id, 0 FROM projects WHERE id = ?1
-         UNION ALL SELECT p.parent_id, c.n + 1 FROM chain c JOIN projects p ON p.id = c.id WHERE p.parent_id IS NOT NULL AND c.n < 11)
-       SELECT p.* FROM chain c JOIN projects p ON p.id = c.id ORDER BY c.n`,
-    )
-    .bind(projectId)
-    .all<ProjectRow>();
-  return results;
+  return all<ProjectRow>(d1, Q.chain(projectId));
 }
 
 /** Every folder under `projectId`, itself included. */
@@ -530,6 +660,8 @@ export async function accessibleFiles(acc: Access, where: string, args: unknown[
     .bind(...args)
     .all<FileRow & { owner_name: string | null; owner_email: string | null; branch_count: number }>();
   const out: OrgFile[] = [];
+  // Each file's access reads, all in one round trip
+  await acc.prefetchFiles(results);
   for (const f of results) {
     const a = await acc.file(f);
     // Prototype-only files aren't listed (they open from their link: docs/editor.md D-6)

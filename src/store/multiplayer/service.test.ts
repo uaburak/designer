@@ -38,7 +38,7 @@ const fakeRooms: Rooms = {
       r.storage.compact(seq);
       return Response.json({ ok: true });
     }
-    if (path === "/room/snapshot") return r.snapshot ? new Response(r.snapshot.bytes, { headers: { "x-seq": String(r.snapshot.seq) } }) : new Response("none", { status: 404 });
+    if (path === "/room/snapshot") return r.snapshot ? new Response(r.snapshot.bytes, { headers: { "x-seq": String(r.snapshot.seq) } }) : Response.json({ error: "no snapshot yet", code: "no_snapshot" }, { status: 404 });
     if (path === "/room/blobs/missing") return Response.json({ missing: (JSON.parse(String(init.body)).sha1s as string[]).filter((s) => !r.blobs.has(s)) });
     const blob = /^\/room\/blobs\/([0-9a-f]{40})$/.exec(path);
     if (blob && init.method === "PUT") {
@@ -517,5 +517,146 @@ describe("MultiplayerService", () => {
     await new Promise((r) => setTimeout(r, 30));
     await settle();
     expect((await b.svc.fileState(fb)).role).toBe("owner");
+  });
+});
+
+// --- the 2026-10-12 incident: Cloudflare's pages, files gone from the server, shares that didn't finish uploading ---
+
+/** Cloudflare's own page for a Worker over its limits (abridged) */
+const CF_1102 = `<!DOCTYPE html><html><head><title>Worker exceeded resource limits | example.com | Cloudflare</title></head><body><h1><span class="cf-error-type">Error</span> <span class="cf-error-code">1102</span></h1></body></html>`;
+const cfPage = (status = 503) => new Response(CF_1102, { status, headers: { "content-type": "text/html; charset=UTF-8", "cf-ray": "8d1f2a3b4c5d6e7f-AMS" } });
+
+/** An installation whose server calls go through `wrap` first (null: the real handler answers) */
+async function wrappedInstallation(email: string, wrap: (method: string, path: string) => Response | null | Promise<Response | null>, store = new FakeStore()) {
+  const calls: string[] = [];
+  const fetchVia: typeof fetch = async (input, init) => {
+    const u = new URL(String(input));
+    const method = init?.method ?? "GET";
+    calls.push(`${method} ${u.pathname}${u.search}`);
+    return (await wrap(method, u.pathname + u.search)) ?? serverFetch(input, init);
+  };
+  const svc = new MultiplayerService(store, { fetch: fetchVia, WebSocket: FakeSocket as any, random: Math.random, backoff: () => 5, retryDelays: [0, 0], uploadRetryDelays: [0, 0, 0] });
+  services.push(svc);
+  await svc.setSession({ server: SERVER, token: await signIn(email) });
+  return { store, svc, calls };
+}
+
+/** The refusal a call ends with (a call that resolves fails the test) */
+const refusal = (p: Promise<unknown>) =>
+  p.then(
+    () => {
+      throw new Error("expected a refusal");
+    },
+    (e: unknown) => e as { code: string; message: string; detail: any },
+  );
+
+const wait = async (ms: number) => {
+  await new Promise((r) => setTimeout(r, ms));
+  await settle();
+};
+
+const deleteOnServer = async (key: string) => (await serverFetch(`${SERVER}/files/${key}`, { method: "DELETE", headers: { authorization: `Bearer ${await signIn("a@x.co")}` } })).status;
+
+describe("MultiplayerService, when the server is gone or busy", () => {
+  it("drops the link of a file deleted on the server, keeping the copy as a local file, and stops reconnecting", async () => {
+    const { b, fb, key } = await sharedPair();
+    b.svc.close();
+    for (const s of [...sockets]) if (s.readyState === 1) s.close();
+    expect(await deleteOnServer(key)).toBe(200);
+    const states: boolean[] = [];
+    const b2 = await wrappedInstallation("b@x.co", () => null, b.store);
+    b2.svc.onFileState((f, s) => void (f === fb && states.push(s.shared)));
+    for (let i = 0; i < 200 && b.store.saved.links[fb]; i++) await wait(5);
+    await settle();
+    expect(b.store.saved.links[fb]).toBeUndefined();
+    expect((await b2.svc.fileState(fb)).shared).toBe(false);
+    expect(states.at(-1)).toBe(false);
+    expect(b.store.files.has(fb)).toBe(true);
+    const asked = b2.calls.filter((c) => c === `GET /files/${key}`).length;
+    expect(asked).toBe(1);
+    await wait(60);
+    expect(b2.calls.filter((c) => c === `GET /files/${key}`).length).toBe(asked);
+  });
+
+  it("keeps reconnecting (with its backoff) when the answer is a Cloudflare page or no network, not our 404", async () => {
+    const { b, fb, key } = await sharedPair();
+    b.svc.close();
+    for (const s of [...sockets]) if (s.readyState === 1) s.close();
+    await deleteOnServer(key);
+    let n = 0;
+    const b2 = await wrappedInstallation(
+      "b@x.co",
+      (m, path) => {
+        if (m !== "GET" || path !== `/files/${key}`) return null;
+        if (n++ % 2) throw new TypeError("fetch failed");
+        return new Response(CF_1102, { status: 404, headers: { "content-type": "text/html" } });
+      },
+      b.store,
+    );
+    for (let i = 0; i < 200 && n <= 2; i++) await wait(5);
+    expect(b.store.saved.links[fb]).toBeDefined();
+    expect((await b2.svc.fileState(fb)).shared).toBe(true);
+    expect(n).toBeGreaterThan(2);
+  });
+
+  it("finishes a share whose snapshot upload failed part-way: remembered in the link, uploaded on the next start", async () => {
+    let failing = true;
+    const a = await wrappedInstallation("a@x.co", (m, path) => (failing && m === "PUT" && /\/snapshot\?seq=/.test(path) ? cfPage(503) : null));
+    const fa = a.store.addFile("B2C Project", [node(0, { name: "Document" }), node(1, { name: "Page 1" })]);
+    const err = await refusal(a.svc.share(fa, { snapshot: msg([node(0, { name: "Document" }), node(1, { name: "Page 1" })]), headSeq: 0 }));
+    expect(err.code).toBe("unavailable");
+    expect(err.message).not.toMatch(/<|DOCTYPE/i);
+    expect(err.detail).toMatchObject({ code: "upload_incomplete", pendingUpload: true });
+    // Tried 1 + 3 times, then remembered
+    expect(a.calls.filter((c) => c.startsWith("PUT ") && c.includes("/snapshot")).length).toBeGreaterThanOrEqual(4);
+    const rec = a.store.saved.links[fa] as { key: string; pendingUpload?: boolean };
+    expect(rec.pendingUpload).toBe(true);
+    expect(rooms.get(rec.key)?.snapshot ?? null).toBeNull();
+
+    // Someone it's shared with, meanwhile: "still uploading", not an error page, and nothing linked
+    await a.svc.invite(fa, "b@x.co", "editor");
+    a.svc.close();
+    const b = await wrappedInstallation("b@x.co", () => null);
+    const opening = await refusal(b.svc.openShared(rec.key));
+    expect(opening.message).toBe("This file is still uploading. Try again in a moment.");
+    expect(opening.detail.code).toBe("no_snapshot");
+    expect(Object.keys(b.store.saved.links)).toEqual([]);
+
+    // The next start (the server well again) uploads it, then joins the room
+    failing = false;
+    a.store.edit(fa, [node(1, { name: "Edited offline" })]);
+    const a2 = await wrappedInstallation("a@x.co", () => null, a.store);
+    for (let i = 0; i < 200 && (await a2.svc.fileState(fa)).connection !== "live"; i++) await wait(5);
+    expect((a.store.saved.links[fa] as { pendingUpload?: boolean }).pendingUpload).toBeUndefined();
+    expect(rooms.get(rec.key)!.snapshot).not.toBeNull();
+    expect((await a2.svc.fileState(fa)).connection).toBe("live");
+    const { fileKey } = await b.svc.openShared(rec.key);
+    for (let i = 0; i < 200 && b.store.doc(fileKey)["0:1"].name !== "Edited offline"; i++) await wait(5);
+    expect(b.store.doc(fileKey)["0:1"].name).toBe("Edited offline");
+    // The edit is in the room's snapshot itself (uploaded from the copy's head), not only sent as a frame after it
+    expect(decodeMessage(rooms.get(rec.key)!.snapshot!.bytes).nodeChanges?.find((n) => n.guid?.localID === 1)?.name).toBe("Edited offline");
+  });
+
+  it("retries a share's upload through a busy moment and succeeds without a trace", async () => {
+    let refusals = 2;
+    const a = await wrappedInstallation("a@x.co", (m, path) => (m === "PUT" && /\/snapshot\?seq=/.test(path) && refusals-- > 0 ? new Response("error code: 1102", { status: 503, headers: { "cf-ray": "x-AMS" } }) : null));
+    const fa = a.store.addFile("Landing", [node(0, { name: "Document" })]);
+    const shared = await a.svc.share(fa, { snapshot: msg([node(0, { name: "Document" })]), headSeq: 0 });
+    expect(shared.shared).toBe(true);
+    expect((a.store.saved.links[fa] as { pendingUpload?: boolean }).pendingUpload).toBeUndefined();
+    expect(rooms.get(shared.key!)!.snapshot).not.toBeNull();
+  });
+
+  it("tries a read again through Cloudflare's pages and says our words when they persist; writes go once", async () => {
+    let pages = 2;
+    const a = await wrappedInstallation("a@x.co", (m, path) => (m === "GET" && path === "/files" && pages-- > 0 ? cfPage(503) : null));
+    expect(await a.svc.listRemote()).toEqual([]);
+    pages = 10;
+    const err = await refusal(a.svc.listRemote());
+    expect(err).toMatchObject({ code: "unavailable", message: "The server is busy. Try again in a moment." });
+    expect(err.detail).toMatchObject({ code: "server_busy", status: 503, cloudflare: 1102 });
+    const b = await wrappedInstallation("b@x.co", (m) => (m === "POST" ? cfPage(502) : null));
+    await expect(b.svc.call("POST", "/files", { key: "x_000000000000", name: "X" })).rejects.toMatchObject({ code: "unavailable" });
+    expect(b.calls.filter((c) => c === "POST /files").length).toBe(1);
   });
 });

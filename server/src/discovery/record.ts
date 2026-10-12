@@ -20,6 +20,7 @@ import { DISCOVERY_RETENTION_MS, DEVELOPER_LOGS_RETENTION_MS, type DiscoveryEven
 import type { DiscoveryCapture } from "../../../src/shared/multiplayer/room";
 import type { RestJobPart } from "../../../src/shared/rest/types";
 import type { D1Like } from "../db";
+import { rootD1 } from "../requestD1";
 import type { SqlLike } from "../previews";
 import { REST_TIMING, type JobAnswer } from "../rest/roomJobs";
 
@@ -49,13 +50,13 @@ const orgCaches = new WeakMap<D1Like, OrgsCache>();
 
 /** Forget the cached lists (a setting changed in this isolate; others see it within ORGS_TTL_MS) */
 export function forgetGovernanceOrgs(d1: D1Like): void {
-  orgCaches.delete(d1);
+  orgCaches.delete(rootD1(d1));
 }
 
 /** The Governance+ orgs, and those of them with Discovery on: one query per isolate per ORGS_TTL_MS */
 export async function governanceOrgs(d1: D1Like, now = Date.now()): Promise<{ gplus: Set<string>; discovery: Set<string> }> {
-  let c = orgCaches.get(d1);
-  if (!c) orgCaches.set(d1, (c = { at: -Infinity, value: null }));
+  let c = orgCaches.get(rootD1(d1));
+  if (!c) orgCaches.set(rootD1(d1), (c = { at: -Infinity, value: null }));
   if (c.value && now - c.at < ORGS_TTL_MS) return c.value;
   c.at = now;
   const entry = c;

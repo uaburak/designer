@@ -89,6 +89,9 @@ const summaryOf = (v: O.OrgInfo): O.OrgSummary => ({
   ...(v.gate ? { gate: clone(v.gate) } : {}),
   ...(v.guestExpiresAt !== undefined ? { guestExpiresAt: v.guestExpiresAt } : {}),
 });
+/** A share registered on the server whose content didn't finish uploading (MultiplayerService.shareTo's `upload_incomplete`) */
+const pendingUpload = (e: unknown): boolean => e instanceof StoreError && (e.detail as { pendingUpload?: unknown } | undefined)?.pendingUpload === true;
+
 const seg = (s: unknown, what: string): string => {
   if (typeof s !== "string" || !s || s.length > 256) throw new StoreError("invalid", `bad ${what}`);
   return encodeURIComponent(s);
@@ -804,6 +807,9 @@ export class OrgService {
       const snapshot = await this.host.headSnapshot(meta.fileKey);
       answer = await this.mp.shareTo(meta.fileKey, { snapshot, headSeq: 0 }, register, key);
     } catch (e) {
+      // Registered, but its content didn't finish uploading: the file is on the server, so its copy stays (and its link
+      // uploads the rest when it next starts) — removing the copy would leave the server's file empty for good.
+      if (pendingUpload(e)) throw e;
       await this.host.deleteLocalFile(meta.fileKey).catch((err) => this.host.log("warn", `org: removing the unregistered copy ${meta.fileKey} failed`, err));
       throw e;
     }
@@ -1087,7 +1093,17 @@ export class OrgService {
           answer = await this.call("POST", `/files/${seg(key, "file")}/move`, { projectId: id });
         } else {
           key = this.mp.newRoomKey(meta.fileKey);
-          answer = await this.mp.shareTo(meta.fileKey, input, (k, name) => this.call("POST", "/files", { key: k, name, orgId, projectId: id }), key);
+          try {
+            answer = await this.mp.shareTo(meta.fileKey, input, (k, name) => this.call("POST", "/files", { key: k, name, orgId, projectId: id }), key);
+          } catch (e) {
+            // In the folder on the server already, its content still uploading: the copy says where it lives now
+            if (pendingUpload(e)) {
+              await this.host.setFileSpace(meta.fileKey, { orgId, key, teamId, projectId: id });
+              this.drop(orgId, (c) => delete c.files[id]);
+              this.emit({ type: "files.changed", orgId, projectId: id });
+            }
+            throw e;
+          }
         }
         await this.host.setFileSpace(meta.fileKey, { orgId, key, teamId, projectId: id });
         this.drop(orgId, (c) => delete c.files[id]);

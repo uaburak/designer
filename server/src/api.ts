@@ -7,17 +7,19 @@ import type { FilePolicy, RoomPolicy, SessionAuth } from "../../src/shared/org/i
 import { deviceFromUserAgent } from "../../src/shared/account";
 import { patAllows, personalToken, requestPlace, touchOrgActivity, type Caller } from "./account";
 import { normalizeEmail, type Db, type User } from "./db";
+import { prefetch, RequestD1, rootD1 } from "./requestD1";
+import type { LiveRange } from "./governance/network";
 import type { ActivityAction, EditorType } from "../../src/shared/org/types";
 import { fileEntity, logActivity, logFileView, logForUserOrgs } from "./activity";
 import { seatNeeded } from "../../src/shared/org/access";
-import { Access, claimInvites, fileAccessOf, type FileRow } from "./org/db";
+import { Access, claimInvites, fileAccessOf, Q, type FileRow } from "./org/db";
 import { errorBody, HttpError, type Ctx } from "./org/http";
 import { reauth } from "./org/reauth";
 import { notificationsRoute, notifyEditRequest, notifyInvite, notifyOwnership, notifyRequestAnswered } from "./notifications";
 import { isPreviewPath, previews, viewerPage } from "./previews";
 import { checkPassword, hashPassword, sha256b64url, signToken, verifyToken } from "./tokens";
 import { SIGNUP_SIGN_IN_ERROR_TEXT } from "../../src/shared/quota";
-import { admitSignIn, countFor, guardedUpload, moveStorage, requireActive, requireFileSlot } from "./quota/quota";
+import { admitSignIn, countFor, guardedStream, moveStorage, ownedFilesQ, requireActive, requireFileSlot } from "./quota/quota";
 import { throttle } from "./quota/throttle";
 import { capacityGate, requireCapacity } from "./guard/state";
 
@@ -39,7 +41,7 @@ export interface Env {
 /** A file's room (the FileRoom Durable Object, in the file's jurisdiction — docs/multiplayer.md §15.10); `path` is one
  *  of `/room/…`. `policy`: the org's room policy, sent as `x-policy` with a socket upgrade (§15.9). */
 export interface Rooms {
-  fetch(fileKey: string, path: string, init: RequestInit & { identity?: { userId: string; name: string | null; role: Role }; policy?: RoomPolicy }, original?: Request): Promise<Response>;
+  fetch(fileKey: string, path: string, init: RequestInit & { identity?: { userId: string; name: string | null; role: Role }; policy?: RoomPolicy; jurisdiction?: "eu" | null }, original?: Request): Promise<Response>;
 }
 
 /** Each person's inbox (the Inbox Durable Object, docs/multiplayer.md §12): live notifications to their open apps. */
@@ -77,7 +79,9 @@ const json = (body: unknown, status = 200): Response => new Response(JSON.string
 const publicUser = (u: User) => ({ id: u.id, email: u.email, name: u.name, picture: u.picture });
 const FILE_KEY = /^[A-Za-z0-9_-]{6,64}$/;
 
-export async function handle(req: Request, deps: Deps): Promise<Response> {
+export async function handle(req: Request, isolateDeps: Deps): Promise<Response> {
+  // This request's D1: routes prefetch the reads they will make in one round trip (requestD1.ts)
+  const deps = forRequest(isolateDeps);
   // Figma's REST API (docs/multiplayer.md §16): its own auth, CORS for any origin, Figma's error shapes.
   if (/^\/v[12](\/|$)/.test(new URL(req.url).pathname)) return (await import("./rest")).restRoute(req, deps, (r) => authenticate(r, new URL(r.url), deps, false));
   const origin = req.headers.get("origin");
@@ -100,6 +104,13 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   const headers = new Headers(res.headers);
   for (const [k, v] of Object.entries(cors(origin, { "access-control-expose-headers": "x-seq, x-last-seq" }))) headers.set(k, v);
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+
+/** `deps` with this request's D1 (the same `Db` methods — a test's stand-ins too — over a `RequestD1`) */
+function forRequest(deps: Deps): Deps {
+  const db = Object.create(deps.db) as Db;
+  Object.defineProperty(db, "d1", { value: new RequestD1(rootD1(deps.db.d1), deps.now()) });
+  return { ...deps, db };
 }
 
 const webOrigins = (deps: Deps) => (deps.env.WEB_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -176,6 +187,11 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (parts[0] === "notifications") return notificationsRoute(req, deps, user, parts, (key, requesterId, approve) => answerEditRequest(deps, key, user, requesterId, approve));
   // Organizations (docs/multiplayer.md §14.12): one dispatch line each.
   const orgCtx = (): Ctx => ({ req, url, deps, user, parts, m, acc: new Access(deps, user, req) });
+  // What an org, team or folder route reads first (membership, the row, grants, the gate), in one or two round trips
+  if (parts[1] && (parts[0] === "orgs" || parts[0] === "teams" || parts[0] === "projects")) {
+    const pre = new Access(deps, user, req);
+    await (parts[0] === "orgs" ? pre.prefetchOrg(parts[1]) : parts[0] === "teams" ? pre.prefetchTeam(parts[1]) : pre.prefetchProject(parts[1]));
+  }
   // Libraries in organizations, library analytics, shared fonts (docs/data.md §16–§17, docs/desktop.md §14.3).
   if (parts[0] === "me") return (await import("./fonts/routes")).meFontsRoute(orgCtx());
   if (parts[0] === "orgs" && parts[2] === "libraries") return (await import("./libraries/routes")).orgLibrariesRoute(orgCtx());
@@ -205,6 +221,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       const body = await readJson<{ key?: string; name?: string; orgId?: unknown; projectId?: unknown; editorType?: unknown }>(req);
       // In an org: a file in a folder (projectId) or the caller's draft (no projectId) — §14.12 "Files".
       if (typeof body.orgId === "string") {
+        // What creating it reads first, in two round trips (requestD1.ts)
+        if (typeof body.key === "string") await new Access(deps, user, req).prefetchNewFile(body.orgId, typeof body.projectId === "string" ? body.projectId : null, body.key, [ownedFilesQ(user.id)]);
         const file = await (await import("./org/orgs")).createOrgFile(orgCtx(), { key: body.key, name: body.name, orgId: body.orgId, projectId: typeof body.projectId === "string" ? body.projectId : null, editorType: body.editorType });
         return json({ key: file.key, name: file.name, role: "owner", file }, 201);
       }
@@ -226,8 +244,11 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   // Who the caller is to this file (resolveAccess, §14.4). Naming the file by its key is opening it by its link: the
   // key is what the link carries (ours — `viaLink` is true on every /files/:key route, false in listings).
   const acc = new Access(deps, user, req);
+  // The file and its branch row, then everything its access reads, in two round trips (requestD1.ts)
+  await prefetch(deps.db.d1, [Q.file(key), Q.branch(key)]);
   const f = await acc.fileRow(key);
   if (!f) throw new HttpError(404, "no such file");
+  if (!(await acc.branch(key))) await acc.prefetchFile(f);
   const passOk = f.link_password !== null && (await validPass(req, url, deps, key, user.id, f.link_password_version));
   const access = await acc.file(f, { viaLink: true, passOk });
   // Governance+ gates (docs/governance.md §2.5) on every route of an org file, its socket upgrade included: 403
@@ -247,6 +268,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   const a = access.ok ? access : null;
   const role: Role = a ? a.roomRole : "viewer";
   const identity = { userId: user.id, name: user.name, role };
+  // The room's jurisdiction from the row already read (policy/region.ts reads it otherwise)
+  const where = { jurisdiction: f.jurisdiction === "eu" ? ("eu" as const) : null };
   const inOrg = f.org_id !== null;
   const need = (ok: boolean | undefined, message: string) => {
     if (!ok) {
@@ -430,15 +453,15 @@ async function route(req: Request, deps: Deps): Promise<Response> {
         // "Viewers can copy, save, and export" off (§14.12, R18 A-8): viewing still needs the snapshot; Save local copy
         // and Duplicate ask with ?purpose=export and are refused.
         if (url.searchParams.get("purpose") === "export" && !a?.canExport) throw new HttpError(403, "exporting is turned off for you in this file", "export_restricted");
-        return deps.rooms.fetch(key, "/room/snapshot", { method: "GET", identity });
+        return deps.rooms.fetch(key, "/room/snapshot", { method: "GET", identity, ...where });
       }
       if (m === "PUT") {
         need(a?.canEdit, "you can only view this file");
         const seq = Number(url.searchParams.get("seq"));
         if (!Number.isInteger(seq) || seq < 0) throw new HttpError(400, "bad seq");
         // The uploader's daily uploads and the owner's stored bytes (§17), before the body is read
-        const up = await guardedUpload(deps, req, user, { ownerId: f.owner_id, item: `f:${key}:snap` }, MAX_SNAPSHOT_BYTES, "snapshot too large");
-        const res = await deps.rooms.fetch(key, `/room/snapshot?seq=${seq}`, { method: "PUT", body: up.body, identity });
+        const up = await guardedStream(deps, req, user, { ownerId: f.owner_id, item: `f:${key}:snap` }, MAX_SNAPSHOT_BYTES, "snapshot too large");
+        const res = await deps.rooms.fetch(key, `/room/snapshot?seq=${seq}`, { method: "PUT", body: up.body, identity, ...where });
         if (res.ok) await up.commit();
         return res;
       }
@@ -471,14 +494,14 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       if (parts.length === 4 && parts[3] === "missing" && m === "POST") {
         const { sha1s } = await readJson<{ sha1s?: unknown }>(req);
         if (!Array.isArray(sha1s) || sha1s.length > 1000 || !sha1s.every((s) => typeof s === "string" && /^[0-9a-f]{40}$/.test(s))) throw new HttpError(400, "sha1s");
-        return deps.rooms.fetch(key, "/room/blobs/missing", { method: "POST", body: JSON.stringify({ sha1s }), identity });
+        return deps.rooms.fetch(key, "/room/blobs/missing", { method: "POST", body: JSON.stringify({ sha1s }), identity, ...where });
       }
       if (parts.length !== 4 || !/^[0-9a-f]{40}$/.test(parts[3])) break;
-      if (m === "GET") return deps.rooms.fetch(key, `/room/blobs/${parts[3]}`, { method: "GET", identity });
+      if (m === "GET") return deps.rooms.fetch(key, `/room/blobs/${parts[3]}`, { method: "GET", identity, ...where });
       if (m === "PUT") {
         need(a?.canEdit, "you can only view this file");
-        const up = await guardedUpload(deps, req, user, { ownerId: f.owner_id, item: `f:${key}:b:${parts[3]}` }, 40 * 1024 * 1024, "image too large");
-        const res = await deps.rooms.fetch(key, `/room/blobs/${parts[3]}`, { method: "PUT", body: up.body, identity });
+        const up = await guardedStream(deps, req, user, { ownerId: f.owner_id, item: `f:${key}:b:${parts[3]}` }, 40 * 1024 * 1024, "image too large");
+        const res = await deps.rooms.fetch(key, `/room/blobs/${parts[3]}`, { method: "PUT", body: up.body, identity, ...where });
         if (res.ok) await up.commit();
         return res;
       }
@@ -549,7 +572,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       const org = inOrg ? await acc.org(f.org_id!) : null;
       const discovery = !!org?.governance_plus && (await acc.settings(f.org_id!)).discovery;
       const roomPolicy = (await import("./policy/roomPolicy")).roomPolicyOf(policy, discovery);
-      return deps.rooms.fetch(key, "/room/ws", { method: "GET", identity, ...(roomPolicy ? { policy: roomPolicy } : {}) }, req);
+      return deps.rooms.fetch(key, "/room/ws", { method: "GET", identity, ...where, ...(roomPolicy ? { policy: roomPolicy } : {}) }, req);
     }
   }
   throw new HttpError(404, "not found");
@@ -693,14 +716,20 @@ async function authenticate(req: Request, url: URL, deps: Deps, allowQuery: bool
     return { user, sid: null, scopes: pat.scopes };
   }
   const p = await verifyToken<SessionPayload>(raw, secret(deps), seconds(deps));
-  const user = p && (await deps.db.user(p.uid));
+  // The user, the session's touch and (when this isolate's copy is stale) the network ranges in one round trip
+  // (docs/multiplayer.md §17, "CPU per request")
+  const net = await import("./governance/network");
+  const ranges = p ? net.rangesQueryIfStale(deps) : null;
+  const auth = p ? await deps.db.sessionAuth(p.uid, p.sid ?? null, p.tv, deps.now(), ranges ? [ranges] : []) : null;
+  if (ranges && auth?.extra) net.primeRanges(deps, auth.extra[0] as LiveRange[]);
+  const user = auth?.user ?? null;
   // Suspended by the operator (§17): said as such, though suspension also ended the sessions
   if (user) requireActive(user);
   if (!p || !user || user.tokenVersion !== p.tv) throw new HttpError(401, "session expired");
   // The spend guard (§17.1): past 95% of an included amount, only operators (503 capacity_reached; per-isolate state, no D1)
   await requireCapacity(deps, user);
   if (p.sid) {
-    const s = await deps.db.touchSession(p.sid, user.id, deps.now());
+    const s = auth!.session;
     if (!s) {
       // Ended by the idle timeout (perhaps on a socket upgrade, whose 401 no client reads): say so (§15.8).
       await (await import("./auth/idle")).refuseIfIdleEnded(deps, p.sid, user.id);

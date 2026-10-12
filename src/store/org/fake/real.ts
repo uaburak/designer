@@ -34,7 +34,7 @@ export class RealOrgServer {
             return Response.json({ ok: true, seq, lastSeq: seq });
           }
           const s = this.snapshots.get(key);
-          if (!s) return new Response("no snapshot yet", { status: 404 });
+          if (!s) return Response.json({ error: "no snapshot yet", code: "no_snapshot" }, { status: 404 });
           return new Response(s.bytes, { headers: { "x-seq": String(s.seq), "x-last-seq": String(s.seq) } });
         }
         if (path === "/room/blobs/missing") return Response.json({ missing: [] });
