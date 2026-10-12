@@ -8,7 +8,8 @@
  */
 import type { IdentityRepository } from "@shared/org/repositories";
 import type * as I from "@shared/org/identity";
-import { DATA_REGION_LABEL, DOMAIN_TXT_PREFIX, IDLE_MAX_HOURS, IDLE_MIN_HOURS, LINK_EXPIRY_MAX_HOURS, emailDomain, normalizeDomain } from "@shared/org/identity";
+import { DATA_REGION_LABEL, DOMAIN_TXT_PREFIX, LINK_EXPIRY_MAX_HOURS, emailDomain, normalizeDomain } from "@shared/org/identity";
+import { validIdleHours } from "@shared/org/governance";
 import type * as O from "@shared/org/types";
 import type { Seed } from "./seed";
 
@@ -88,9 +89,12 @@ export interface FakeIdentity {
   afterSettings(before: O.OrgSettings, next: O.OrgSettings): void;
   /** A successful SAML sign-in through the config (`idp_configs.tested_at`): the fake's Test */
   completeTest(): void;
+  /** Round 14's multiple IdPs (fakeGovernance): a configuration from the form, and a SCIM token */
+  makeIdp(input: I.IdpConfigInput, tenantId: string | null, prev: I.IdpConfig | null): I.IdpConfig;
+  newScimToken(): I.ScimTokenCreated;
 }
 
-export function fakeIdentity(s: Seed, st: IdentityState, me: string, log: Log, wait: <T>(v: T) => Promise<T>, now: () => number, options: { autoDns?: boolean; seed?: number } = {}): FakeIdentity {
+export function fakeIdentity(s: Seed, st: IdentityState, me: string, log: Log, wait: <T>(v: T) => Promise<T>, now: () => number, options: { autoDns?: boolean; seed?: number; /** Governance+ on (round 14: quarter-hour idle timeouts) */ governancePlus?: () => boolean } = {}): FakeIdentity {
   let r = (options.seed ?? 4) >>> 0;
   const rnd = () => {
     r = (r * 1664525 + 1013904223) >>> 0;
@@ -117,45 +121,61 @@ export function fakeIdentity(s: Seed, st: IdentityState, me: string, log: Log, w
   };
   const myDomain = () => emailDomain(s.people.find((p) => p.id === me)?.email ?? "");
 
+  /** An IdP configuration from the form (the metadata faked from its host), at `tenantId` */
+  const makeIdp = (input: I.IdpConfigInput, tenantId: string, prev: I.IdpConfig | null): I.IdpConfig => {
+    let idpEntityId: string, ssoUrl: string;
+    const metadataUrl = input.metadataUrl?.trim() || null;
+    if (metadataUrl !== null) {
+      if (!/^https:\/\/[^\s/]+\.[^\s]+$/.test(metadataUrl)) throw fail("invalid", "The metadata URL must start with https://");
+      const host = new URL(metadataUrl).host;
+      idpEntityId = `http://${host}/exk${hex(16, rnd)}`;
+      ssoUrl = `https://${host}/app/designerv2/exk${hex(16, rnd)}/sso/saml`;
+    } else if (input.metadataXml?.trim()) {
+      const xml = input.metadataXml;
+      if (/<!DOCTYPE/i.test(xml)) throw fail("invalid", "The metadata can't contain a DOCTYPE");
+      const entity = /entityID="([^"]+)"/.exec(xml)?.[1];
+      const sso = /SingleSignOnService[^>]*Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"[^>]*Location="([^"]+)"/.exec(xml)?.[1] ?? /SingleSignOnService[^>]*Location="([^"]+)"[^>]*Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"/.exec(xml)?.[1];
+      if (!entity) throw fail("invalid", "The metadata has no entityID");
+      if (!sso) throw fail("invalid", "The metadata has no SSO service with the HTTP-Redirect binding");
+      if (!/X509Certificate/.test(xml)) throw fail("invalid", "The metadata has no signing certificate");
+      idpEntityId = entity;
+      ssoUrl = sso;
+    } else {
+      if (!input.idpEntityId?.trim()) throw fail("invalid", "Enter the IdP Entity ID");
+      if (!input.ssoUrl?.trim() || !/^https:\/\//.test(input.ssoUrl.trim())) throw fail("invalid", "The IdP SSO Target URL must start with https://");
+      if (!input.certificate?.trim()) throw fail("invalid", "Add the signing certificate");
+      idpEntityId = input.idpEntityId.trim();
+      ssoUrl = input.ssoUrl.trim();
+    }
+    return {
+      tenantId, provider: input.provider, idpEntityId, ssoUrl,
+      certificates: [{ sha256: hex(64, rnd).toUpperCase().replace(/(..)(?!$)/g, "$1:"), subject: `CN=${new URL(ssoUrl).host}`, notAfter: now() + 3 * 365 * 86_400_000 }],
+      metadataUrl, signing: input.signing ?? "assertion",
+      spEntityId: `${FAKE_ORIGIN}/saml/${tenantId}`, spAcsUrl: `${FAKE_ORIGIN}/saml/${tenantId}/consume`, startUrl: `${FAKE_ORIGIN}/saml/${tenantId}/start`,
+      // A new IdP must be tested again before it can be required
+      testedAt: null, updatedAt: now(),
+      ...(prev?.name !== undefined || input.name !== undefined ? { name: input.name ?? prev?.name ?? "" } : {}),
+      ...(prev?.domains ? { domains: prev.domains } : {}),
+    };
+  };
+
+  const newScimToken = (): I.ScimTokenCreated => {
+    const p = s.people.find((x) => x.id === me)!;
+    const info: I.ScimTokenInfo = { id: `scim${hex(8, rnd)}`, createdAt: now(), createdBy: { id: p.id, email: p.email, name: p.name, picture: p.picture, role: p.role }, lastUsedAt: null };
+    let token = "dsgn_scim_";
+    const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    while (token.length < 10 + 43) token += abc[Math.floor(rnd() * 64)];
+    return { token, info };
+  };
+
   const identity: IdentityRepository = {
     async overview() {
       return wait(overview());
     },
     async saveIdp(_org, input) {
-      let idpEntityId: string, ssoUrl: string;
-      const metadataUrl = input.metadataUrl?.trim() || null;
-      if (metadataUrl !== null) {
-        if (!/^https:\/\/[^\s/]+\.[^\s]+$/.test(metadataUrl)) throw fail("invalid", "The metadata URL must start with https://");
-        const host = new URL(metadataUrl).host;
-        idpEntityId = `http://${host}/exk${hex(16, rnd)}`;
-        ssoUrl = `https://${host}/app/designerv2/exk${hex(16, rnd)}/sso/saml`;
-      } else if (input.metadataXml?.trim()) {
-        const xml = input.metadataXml;
-        if (/<!DOCTYPE/i.test(xml)) throw fail("invalid", "The metadata can't contain a DOCTYPE");
-        const entity = /entityID="([^"]+)"/.exec(xml)?.[1];
-        const sso = /SingleSignOnService[^>]*Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"[^>]*Location="([^"]+)"/.exec(xml)?.[1] ?? /SingleSignOnService[^>]*Location="([^"]+)"[^>]*Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"/.exec(xml)?.[1];
-        if (!entity) throw fail("invalid", "The metadata has no entityID");
-        if (!sso) throw fail("invalid", "The metadata has no SSO service with the HTTP-Redirect binding");
-        if (!/X509Certificate/.test(xml)) throw fail("invalid", "The metadata has no signing certificate");
-        idpEntityId = entity;
-        ssoUrl = sso;
-      } else {
-        if (!input.idpEntityId?.trim()) throw fail("invalid", "Enter the IdP Entity ID");
-        if (!input.ssoUrl?.trim() || !/^https:\/\//.test(input.ssoUrl.trim())) throw fail("invalid", "The IdP SSO Target URL must start with https://");
-        if (!input.certificate?.trim()) throw fail("invalid", "Add the signing certificate");
-        idpEntityId = input.idpEntityId.trim();
-        ssoUrl = input.ssoUrl.trim();
-      }
       const creating = st.idp === null;
-      const tenantId = st.idp?.tenantId ?? digits(18, rnd);
-      st.idp = {
-        tenantId, provider: input.provider, idpEntityId, ssoUrl,
-        certificates: [{ sha256: hex(64, rnd).toUpperCase().replace(/(..)(?!$)/g, "$1:"), subject: `CN=${new URL(ssoUrl).host}`, notAfter: now() + 3 * 365 * 86_400_000 }],
-        metadataUrl, signing: input.signing ?? "assertion",
-        spEntityId: `${FAKE_ORIGIN}/saml/${tenantId}`, spAcsUrl: `${FAKE_ORIGIN}/saml/${tenantId}/consume`, startUrl: `${FAKE_ORIGIN}/saml/${tenantId}/start`,
-        // A new IdP must be tested again before it can be required
-        testedAt: null, updatedAt: now(),
-      };
+      st.idp = makeIdp(input, st.idp?.tenantId ?? digits(18, rnd), st.idp);
+      const tenantId = st.idp.tenantId;
       log(creating ? "idp_config_create" : "idp_config_update", org(), { tenant_id: tenantId, provider: input.provider });
       return wait(st.idp);
     },
@@ -180,15 +200,11 @@ export function fakeIdentity(s: Seed, st: IdentityState, me: string, log: Log, w
     },
     async generateScimToken() {
       if (!st.idp) throw fail("conflict", "Set up SAML SSO first");
-      const p = s.people.find((x) => x.id === me)!;
-      const info: I.ScimTokenInfo = { id: `scim${hex(8, rnd)}`, createdAt: now(), createdBy: { id: p.id, email: p.email, name: p.name, picture: p.picture, role: p.role }, lastUsedAt: null };
+      const created = newScimToken();
       if (st.scimToken) log("scim_token_revoke", org(), { tenant_id: st.idp.tenantId });
-      st.scimToken = info;
+      st.scimToken = created.info;
       log("scim_token_generate", org(), { tenant_id: st.idp.tenantId });
-      let token = "dsgn_scim_";
-      const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-      while (token.length < 10 + 43) token += abc[Math.floor(rnd() * 64)];
-      return wait({ token, info });
+      return wait(created);
     },
     async revokeScimToken() {
       if (!st.scimToken) return wait(undefined);
@@ -265,7 +281,7 @@ export function fakeIdentity(s: Seed, st: IdentityState, me: string, log: Log, w
       if (st.idp.testedAt === null) throw fail("invalid", "Test SAML SSO first");
     }
     const h = patch.idleSessionTimeoutHours;
-    if (h !== undefined && h !== null && !(Number.isInteger(h) && h >= IDLE_MIN_HOURS && h <= IDLE_MAX_HOURS)) throw fail("invalid", "The idle session timeout must be between 12 hours and 14 days");
+    if (h !== undefined && !validIdleHours(h, options.governancePlus?.() ?? false)) throw fail("invalid", options.governancePlus?.() ? "The session timeout must be between 15 minutes and 14 days, in steps of 15 minutes" : "The idle session timeout must be between 12 hours and 14 days");
     const x = patch.linkExpiryMaxHours;
     if (x !== undefined && x !== null && !(Number.isInteger(x) && x >= 1 && x <= LINK_EXPIRY_MAX_HOURS)) throw fail("invalid", "Links must expire within 1 hour to 31 days");
     if (patch.domainCapture === true && !before.domainCapture) {
@@ -298,5 +314,5 @@ export function fakeIdentity(s: Seed, st: IdentityState, me: string, log: Log, w
   const completeTest = () => {
     if (st.idp && st.idp.testedAt === null) st.idp = { ...st.idp, testedAt: now() };
   };
-  return { identity, state: st, validateSettings, afterSettings, completeTest };
+  return { identity, state: st, validateSettings, afterSettings, completeTest, makeIdp: (input, tenantId, prev) => makeIdp(input, tenantId ?? digits(18, rnd), prev), newScimToken };
 }

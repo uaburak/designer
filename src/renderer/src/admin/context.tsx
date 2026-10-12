@@ -6,7 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import { showToast } from "@/ds";
 import type { SharedFontsApi } from "@shared/desktop";
 import type { OrgLibrariesRepository } from "@shared/libraries/orgTypes";
-import type { AdminRepository, IdentityRepository, OrgsRepository, TeamsRepository } from "@shared/org/repositories";
+import type { AdminRepository, GovernanceRepository, IdentityRepository, OrgsRepository, TeamsRepository } from "@shared/org/repositories";
 import type { PluginRequest, PluginsRepository } from "@shared/plugins/types";
 
 export type AdminTeamsApi = Pick<TeamsRepository, "restore" | "remove" | "update">;
@@ -22,6 +22,8 @@ export interface AdminStore {
   orgLibraries?: OrgLibrariesRepository;
   /** Admin › Settings › Login and provisioning and Data storage localization (docs/multiplayer.md §15.13); absent: those rows say they're unavailable */
   identity?: IdentityRepository;
+  /** Governance+ (docs/governance.md §5; round 14h): Settings' Governance+ rows, People's guest expiration, Activity › Developer logs; absent: those rows say they're unavailable and the Developer logs tab is hidden */
+  governance?: GovernanceRepository;
   /** Admin › Resources › Plugins / Widgets (docs/plugins.md §10); absent: those tabs say they're unavailable */
   plugins?: AdminPluginsApi;
 }

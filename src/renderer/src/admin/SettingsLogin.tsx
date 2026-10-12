@@ -7,7 +7,8 @@
 import { useState, type ReactNode } from "react";
 import { Badge, Banner, Button, Checkbox, CodeBlock, Dialog, IconButton, RadioGroup, Select, Switch, TextArea, TextInput, showToast } from "@/ds";
 import type { OrgSettings, PersonRef } from "@shared/org/types";
-import { IDLE_DEFAULT_HOURS, IDLE_MAX_HOURS, IDLE_MIN_HOURS, IDP_PROVIDER_LABEL, type IdpConfig, type IdpConfigInput, type IdpProvider, type OrgDomain, type ScimTokenCreated } from "@shared/org/identity";
+import { validIdleHours } from "@shared/org/governance";
+import { IDLE_DEFAULT_HOURS, IDP_PROVIDER_LABEL, type IdpConfig, type IdpConfigInput, type IdpProvider, type OrgDomain, type ScimTokenCreated } from "@shared/org/identity";
 import { useAdmin, useLoad } from "./context";
 import { AUTH_METHOD_LABEL, formatAgo, formatDate, formatHours } from "./labels";
 import { ConfirmDialog, Field, RowMenu, Table, Who, styles, type Column } from "./parts";
@@ -297,25 +298,35 @@ export function ScimDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ---- Idle session timeout ----------------------------------------------------------------------------------------
+// ---- Session timeout ---------------------------------------------------------------------------------------------
 
-/** hours → the dialog's number and unit (days when whole) */
-function splitHours(h: number): { n: string; unit: "hours" | "days" } {
+type IdleUnit = "minutes" | "hours" | "days";
+const IDLE_UNIT_HOURS: Record<IdleUnit, number> = { minutes: 1 / 60, hours: 1, days: 24 };
+
+/** hours → the dialog's number and unit (days when whole, minutes below a whole hour) */
+function splitHours(h: number): { n: string; unit: IdleUnit } {
+  if (!Number.isInteger(h)) return { n: String(Math.round(h * 60)), unit: "minutes" };
   return h % 24 === 0 ? { n: String(h / 24), unit: "days" } : { n: String(h), unit: "hours" };
 }
 
-export function IdleTimeoutDialog({ value, onSave, onClose }: { value: number | null; onSave: (h: number | null) => void; onClose: () => void }) {
+/**
+ * Login and provisioning › Session timeout [F-idle]: Default (21 days) or a Custom timeout — 12 hours to 14 days, or
+ * with Governance+ down to 15 minutes in quarter hours (docs/governance.md §2.8; `validIdleHours`).
+ */
+export function IdleTimeoutDialog({ value, governancePlus = false, onSave, onClose }: { value: number | null; governancePlus?: boolean; onSave: (h: number | null) => void; onClose: () => void }) {
   const [mode, setMode] = useState<"default" | "custom">(value === null ? "default" : "custom");
   const init = splitHours(value ?? 7 * 24);
   const [n, setN] = useState(init.n);
-  const [unit, setUnit] = useState<"hours" | "days">(init.unit);
+  const [unit, setUnit] = useState<IdleUnit>(init.unit);
   const num = Number(n.trim());
-  const hours = Number.isFinite(num) && n.trim() !== "" ? num * (unit === "days" ? 24 : 1) : NaN;
-  const valid = Number.isInteger(hours) && hours >= IDLE_MIN_HOURS && hours <= IDLE_MAX_HOURS;
+  // Minutes → hours exactly in quarter hours (15 min = 0.25 h)
+  const hours = Number.isFinite(num) && n.trim() !== "" ? (unit === "minutes" ? num / 60 : num * IDLE_UNIT_HOURS[unit]) : NaN;
+  const valid = !Number.isNaN(hours) && validIdleHours(hours, governancePlus);
   const next = mode === "default" ? null : hours;
+  const units: IdleUnit[] = governancePlus ? ["minutes", "hours", "days"] : ["hours", "days"];
   return (
     <Dialog
-      title="Idle session timeout" open size="medium" onClose={onClose}
+      title="Session timeout" open size="medium" onClose={onClose}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
@@ -325,14 +336,15 @@ export function IdleTimeoutDialog({ value, onSave, onClose }: { value: number | 
     >
       <div className={styles.form}>
         <div className={styles.note}>Members who are inactive this long are logged out on every device. A minute before, they can choose to stay logged in. Guests aren't affected.</div>
-        <RadioGroup label="Idle session timeout" value={mode} onChange={(v) => setMode(v as "default" | "custom")} options={[{ value: "default", label: `Default (${formatHours(IDLE_DEFAULT_HOURS)})` }, { value: "custom", label: "Custom timeout" }]} />
+        <RadioGroup label="Session timeout" value={mode} onChange={(v) => setMode(v as "default" | "custom")} options={[{ value: "default", label: `Default (${formatHours(IDLE_DEFAULT_HOURS)})` }, { value: "custom", label: "Custom timeout" }]} />
         {mode === "custom" && (
           <div className={styles.inlineRow}>
             <TextInput className={styles.numberField} label="Timeout" value={n} onChange={setN} variant="outlined" invalid={!valid} autoFocus />
-            <Select label="Unit" width={100} value={unit} options={[{ value: "hours", label: "Hours" }, { value: "days", label: "Days" }]} onChange={(v) => setUnit(v as "hours" | "days")} />
+            <Select label="Unit" width={100} value={units.includes(unit) ? unit : "hours"} options={units.map((u) => ({ value: u, label: u[0].toUpperCase() + u.slice(1) }))} onChange={(v) => setUnit(v as IdleUnit)} />
           </div>
         )}
-        {mode === "custom" && !valid && <div className={styles.error}>Choose between 12 hours and 14 days.</div>}
+        {mode === "custom" && !valid && <div className={styles.error}>{governancePlus ? "Choose between 15 minutes and 14 days, in steps of 15 minutes." : "Choose between 12 hours and 14 days."}</div>}
+        {!governancePlus && <div className={styles.note}>With Governance+, the timeout can be as short as 15 minutes.</div>}
         <div className={styles.note}>Saving resets inactivity for everyone in your organization.</div>
       </div>
     </Dialog>

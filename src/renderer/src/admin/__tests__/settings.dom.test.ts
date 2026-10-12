@@ -53,10 +53,13 @@ const actions = (fake: FakeAdminStore) => fake.state.activity.map((r) => r.actio
 describe("Admin › Settings (round 4)", () => {
   it("shows Figma's sections, every row live but the installer's Download", async () => {
     await open();
-    expect($$("[data-settings-group]").map((g) => g.getAttribute("data-settings-group"))).toEqual(["Login and provisioning", "Access", "Team management", "Content", "Communication", "Data", "Billing", "Extensions", "AI", "Plan access tokens", "Other"]);
+    expect($$("[data-settings-group]").map((g) => g.getAttribute("data-settings-group"))).toEqual(["Login and provisioning", "External access", "Team management", "Content", "Communication", "Data", "Billing", "Extensions", "AI", "Plan access tokens", "Other"]);
     const disabled = $$("[data-setting]").filter((r) => $$("button", r).some((b) => (b as HTMLButtonElement).disabled)).map((r) => r.getAttribute("data-setting"));
-    // SCIM waits for SAML (Figma: SCIM requires SAML); Access to external content waits for domain capture
-    expect(disabled.sort()).toEqual(["externalContent", "installer", "scim"]);
+    // SCIM waits for SAML (Figma: SCIM requires SAML); Access to external content waits for domain capture; the
+    // Governance+ rows wait for the add-on (round 14)
+    const governancePlus = ["discovery", "fileExporting", "guestExpiry", "guestTwoFactor", "idps", "ipAllowlist", "keyManagement", "networkRanges", "policies"];
+    expect(disabled.sort()).toEqual(["externalContent", "installer", "scim", ...governancePlus].sort());
+    for (const id of governancePlus) expect(setting(id).textContent).toContain("Requires Governance+");
     expect(button("Download", setting("installer")).disabled).toBe(true);
   });
 

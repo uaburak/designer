@@ -3,6 +3,9 @@
  * User type, Last active, Billing groups, Workspace), the table — name and email, Seat type, Workspace, Billing group,
  * Last active —, a row's menu, the bulk bar for the checked rows (Copy emails, Add to user group, Change seat / role /
  * workspace / billing group, Remove users from the organization), Add people and Get CSV. And › User groups.
+ * Governance+ (docs/governance.md §1, §5; round 14h): the guests' "Guest access expiration date" column, Change / Remove
+ * expiration date, the bulk "Set guest expiration date", and a "Blocked" badge on guests without 2FA while 2FA for
+ * Guests is on.
  */
 import { useMemo, useState } from "react";
 import { Badge, Button, Dialog, Icon, MenuButton, SearchField, Select, TextArea, showToast, type MenuEntry } from "@/ds";
@@ -10,12 +13,14 @@ import type { AdminPerson, BillingGroup, OrgRole, OrgWorkspace, PeopleQuery, Sea
 import { useAdmin, useLoad } from "./context";
 import { ROLE_LABEL, SEATS, SEAT_DESCRIPTION, SEAT_LABEL, formatAgo, formatDate } from "./labels";
 import { ChoiceDialog, ConfirmDialog, Field, NameDialog, PickDialog, RowMenu, Table, Who, byNumber, byText, personItem, styles, type Column } from "./parts";
+import { useGovernance } from "./SettingsGovernance";
+import { GUEST_EXPIRY_MAX_DAYS } from "@shared/org/governance";
 
 type UserTypeFilter = OrgRole | "pending";
 type LastActive = "3" | "6" | "12";
 interface Filters { seat?: Seat; type?: UserTypeFilter; lastActive?: LastActive; billingGroupId?: string; workspaceId?: string }
 type DialogState =
-  | { kind: "seat" | "role" | "workspace" | "billing" | "remove" | "group"; ids: string[] }
+  | { kind: "seat" | "role" | "workspace" | "billing" | "remove" | "group" | "expiry"; ids: string[] }
   | { kind: "add" }
   | null;
 
@@ -57,6 +62,9 @@ export function PeopleTab() {
   const { data: billing } = useLoad(() => store.admin.billingGroups(orgId), [orgId]);
   const { data: settings } = useLoad(() => store.admin.settings(orgId), [orgId]);
   const rows = useMemo(() => (page?.items ?? []).filter((p) => (filters.type === "pending" ? p.pending : true)), [page, filters.type]);
+  const { on: gp } = useGovernance();
+  /** Guests without 2FA while 2FA for Guests is on [G+] */
+  const blocked = (p: AdminPerson) => gp && Boolean(settings?.twoFactorForGuests) && p.role === "guest" && !p.pending && !p.twoFactor;
   const all = everyone?.items ?? [];
   const hasIdp = all.some((p) => p.idp);
   const [idpColumns, setIdpColumns] = useState<string[]>(["provisionedBy"]);
@@ -65,6 +73,7 @@ export function PeopleTab() {
   const bgName = (id: string | null) => (id ? billing?.find((b) => b.id === id)?.name ?? "" : "Unassigned");
   const shownSelection = new Set([...selection].filter((id) => rows.some((r) => r.id === id)));
   const ids = [...shownSelection];
+  const guestIds = ids.filter((id) => rows.find((r) => r.id === id)?.role === "guest");
   const update = (userIds: string[], patch: Omit<Parameters<typeof store.admin.updatePeople>[1], "userIds">, done: string) => run(() => store.admin.updatePeople(orgId, { userIds, ...patch }), done);
   const copyEmails = (list: string[]) => {
     const emails = all.filter((p) => list.includes(p.id)).map((p) => p.email).join(", ");
@@ -104,6 +113,8 @@ export function PeopleTab() {
     { id: "workspace", label: "Change workspace…" },
     { id: "billing", label: "Change billing group…" },
     "-",
+    ...(gp && p.role === "guest" ? [{ id: "expiry", label: "Change expiration date…" }, ...(p.guestExpiresAt ? [{ id: "expiryRemove", label: "Remove expiration date" }] : [])] : []),
+    "-",
     { id: "copy", label: "Copy email" },
     { id: "remove", label: "Remove from organization", danger: true },
   ];
@@ -113,13 +124,14 @@ export function PeopleTab() {
       return void update([p.id], { role }, `${p.name ?? p.email} is now ${role === "admin" ? "an admin" : `a ${role}`}`);
     }
     if (id === "copy") return copyEmails([p.id]);
-    setDialog({ kind: id as "seat" | "workspace" | "billing" | "remove", ids: [p.id] });
+    if (id === "expiryRemove") return void run(() => store.governance!.setGuestExpiration(orgId, [p.id], null), "Expiration date removed");
+    setDialog({ kind: id as "seat" | "workspace" | "billing" | "remove" | "expiry", ids: [p.id] });
   };
 
   const columns: Column<AdminPerson>[] = [
     {
       id: "name", label: "Name", width: "minmax(220px, 2fr)", compare: byText((p) => p.name ?? p.email),
-      render: (p) => <Who person={p} badge={<>{p.role === "admin" && <> <Badge>Admin</Badge></>}{p.role === "guest" && <> <Badge>Guest</Badge></>}{p.pending && <> <Badge tone="warning">Pending</Badge></>}</>} />,
+      render: (p) => <Who person={p} badge={<>{p.role === "admin" && <> <Badge>Admin</Badge></>}{p.role === "guest" && <> <Badge>Guest</Badge></>}{p.pending && <> <Badge tone="warning">Pending</Badge></>}{blocked(p) && <> <Badge tone="danger" data-blocked="">Blocked</Badge></>}</>} />,
     },
     {
       id: "seat", label: "Seat type", width: 110, compare: byNumber((p) => SEATS.indexOf(p.seat)),
@@ -148,6 +160,16 @@ export function PeopleTab() {
         </MenuButton>
       ),
     },
+    // Governance+: guests' access expiration date [G+]
+    ...(gp ? [{
+      id: "expires", label: "Guest access expiration date", width: 180, compare: byNumber<AdminPerson>((p) => (p.role === "guest" ? p.guestExpiresAt ?? Infinity : null)),
+      render: (p: AdminPerson) => (p.role !== "guest" ? null : (
+        <button type="button" className={styles.cellButton} aria-label={`Guest access expiration date: ${p.guestExpiresAt ? formatDate(p.guestExpiresAt) : "None"}`} onClick={() => setDialog({ kind: "expiry", ids: [p.id] })}>
+          <span className={p.guestExpiresAt ? undefined : styles.muted}>{p.guestExpiresAt ? formatDate(p.guestExpiresAt) : "No expiration date"}</span>
+          <Icon name="16.chevron.down" />
+        </button>
+      )),
+    }] : []),
     { id: "active", label: "Last active", width: 120, compare: byNumber((p) => p.lastActiveAt), render: (p) => <span className={styles.muted} title={`Joined ${formatDate(p.joinedAt)}`}>{p.pending ? "Invited" : formatAgo(p.lastActiveAt, now())}</span> },
     // SCIM / JIT metadata (Figma: "you can sort members based on your SCIM member data", 4420842863255) — the chosen ones
     ...IDP_COLUMNS.filter((c) => hasIdp && idpColumns.includes(c.id)).map((c): Column<AdminPerson> => ({
@@ -214,6 +236,7 @@ export function PeopleTab() {
           <Button variant="secondary" onClick={() => setDialog({ kind: "role", ids })}>Change role</Button>
           <Button variant="secondary" onClick={() => setDialog({ kind: "workspace", ids })}>Change workspace</Button>
           <Button variant="secondary" onClick={() => setDialog({ kind: "billing", ids })}>Change billing group</Button>
+          {gp && guestIds.length > 0 && <Button variant="secondary" onClick={() => setDialog({ kind: "expiry", ids: guestIds })}>Set guest expiration date</Button>}
           <Button variant="destructive-secondary" onClick={() => setDialog({ kind: "remove", ids })}>Remove users</Button>
           <IconClose onClick={() => setSelection(new Set())} />
         </div>
@@ -275,8 +298,50 @@ export function PeopleTab() {
         />
       )}
       {dialog?.kind === "group" && store.orgs && <AddToGroupDialog ids={dialog.ids} onClose={close} />}
+      {dialog?.kind === "expiry" && store.governance && <GuestExpirationDialog guests={current} onClose={close} />}
       {dialog?.kind === "add" && <AddPeopleDialog workspaces={workspaces ?? []} billing={billing ?? []} defaultSeat={settings?.defaultSeat ?? "view"} onClose={close} />}
     </>
+  );
+}
+
+/** "2026-12-31" ↔ the end of that local day in ms */
+const dayValue = (ms: number) => {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+const dayEnd = (day: string) => (/^\d{4}-\d{2}-\d{2}$/.test(day) ? new Date(`${day}T23:59:59`).getTime() : NaN);
+
+/** Change expiration date / Set guest expiration date [G+]: a date, or Remove expiration date */
+function GuestExpirationDialog({ guests, onClose }: { guests: AdminPerson[]; onClose: () => void }) {
+  const { orgId, store, run, now } = useAdmin();
+  const first = guests[0];
+  const shared = guests.every((g) => g.guestExpiresAt === first?.guestExpiresAt) ? first?.guestExpiresAt ?? null : null;
+  const [day, setDay] = useState(shared ? dayValue(shared) : "");
+  const at = dayEnd(day);
+  const valid = Number.isFinite(at) && at > now() && at <= now() + GUEST_EXPIRY_MAX_DAYS * 86_400_000;
+  const ids = guests.map((g) => g.id);
+  const who = guests.length === 1 ? first.name ?? first.email : `${guests.length} guests`;
+  const set = (expiresAt: number | null, done: string) => void run(() => store.governance!.setGuestExpiration(orgId, ids, expiresAt), done).then(onClose);
+  return (
+    <Dialog
+      title={guests.length === 1 ? "Guest access expiration date" : "Set guest expiration date"} open size="medium" onClose={onClose}
+      footer={
+        <>
+          {guests.some((g) => g.guestExpiresAt) && <Button variant="secondary" onClick={() => set(null, "Expiration date removed")}>Remove expiration date</Button>}
+          <span className={styles.spacer} />
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" disabled={!valid} onClick={() => set(at, "Expiration date saved")}>Save</Button>
+        </>
+      }
+    >
+      <div className={styles.form} data-guest-expiry={ids.join(",")}>
+        <div className={styles.note}>{who} lose{guests.length === 1 ? "s" : ""} access to the organization at the end of this day, and the seat is freed. A banner warns two weeks before.</div>
+        <Field title="Expiration date">
+          <input type="date" aria-label="Expiration date" className={styles.date} value={day} min={dayValue(now() + 86_400_000)} onChange={(e) => setDay(e.target.value)} />
+        </Field>
+        {day && !valid && <div className={styles.error}>Choose a date in the future, within 10 years.</div>}
+      </div>
+    </Dialog>
   );
 }
 

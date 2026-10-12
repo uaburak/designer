@@ -3,6 +3,7 @@
  * their groups, dates. Pure: the fake's CSV and the views share them.
  */
 import type { ActivityAction, ActivityLog, AdminPerson, AdminTeam, OrgRole, OrgSettings, Seat } from "@shared/org/types";
+import { FILE_EXPORTING_LABEL, type FileExporting, type NetworkRangeState } from "@shared/org/governance";
 
 export const SEATS: Seat[] = ["full", "dev", "collab", "view"];
 export const SEAT_LABEL: Record<Seat, string> = { full: "Full", dev: "Dev", collab: "Collab", view: "View" };
@@ -30,6 +31,8 @@ export const GUEST_MEMBERSHIP_LABEL: Record<OrgSettings["guestMembership"], stri
   approval: "External users can only join with admin approval",
   block: "No external users can join the organization",
 };
+/** Network access restrictions' range states (ours: Figma runs its shadow test through Support, §2.2) */
+export const NETWORK_STATE_LABEL: Record<NetworkRangeState, string> = { testing: "Testing", enforced: "Enforced", disabled: "Disabled" };
 export const TEAM_CREATION_LABEL: Record<OrgSettings["teamCreation"], string> = { anyone: "Anyone", admins: "Admins only" };
 
 /** A team's access as one word (the teams CSV's "access setting"): Open / Closed / Hidden — ours from the audience fields */
@@ -62,6 +65,12 @@ export const EVENT_GROUPS: { name: string; actions: ActivityAction[] }[] = [
   { name: "Plugins", actions: ["private_plugin_publish", "private_plugin_update", "private_plugin_delete", "plugin_approvelist_enable", "plugin_approvelist_disable", "plugin_approvelist_add", "plugin_approvelist_add_workspace", "plugin_approvelist_remove", "plugin_approvelist_remove_workspace", "plugin_approvelist_request_org", "plugin_approvelist_request_approve_org", "plugin_approvelist_request_reject_org", "plugin_approvelist_request_approve_workspace", "plugin_approvelist_request_reject_workspace"] },
   { name: "Widgets", actions: ["private_widget_publish", "private_widget_update", "private_widget_delete", "widgets_enabled", "widgets_disable", "widget_approvelist_add", "widget_approvelist_add_workspace", "widget_approvelist_remove", "widget_approvelist_remove_workspace", "widget_approvelist_request_org", "widget_approvelist_request_approve_org", "widget_approvelist_request_reject_org", "widget_approvelist_request_approve_workspace", "widget_approvelist_request_reject_workspace"] },
   { name: "Developer platform", actions: ["plan_access_token_create", "plan_access_token_delete", "webhook_create", "webhook_update", "webhook_delete", "file_variables_update", "dev_resource_create", "dev_resource_delete", "code_connect_publish", "code_connect_unpublish"] },
+  // Round 14 (docs/governance.md §1, §3): Figma publishes the actions, not the groups they're listed under — ours
+  { name: "Governance+", actions: ["governance_plus_enable", "governance_plus_disable", "mfa_required_setting_change", "file_export_controls_setting_change", "workspace_file_export_controls_setting_change", "org_guest_expiration_setting_change", "org_user_guest_expiration_change", "discovery_setting_change", "org_domain_idp_mapping_change", "user_two_factor_enable", "user_two_factor_disable"] },
+  { name: "IP allowlist", actions: ["ip_allowlist_setting_change", "ip_allowlist_range_create", "ip_allowlist_range_delete", "ip_allowlist_rejected"] },
+  { name: "Network access", actions: ["ip_restriction_change", "network_access_restriction_range_create", "network_access_restriction_range_update", "network_access_restriction_range_delete"] },
+  { name: "Internal policies", actions: ["policy_create", "policy_update", "policy_acknowledge"] },
+  { name: "Key management", actions: ["ekm_enable", "ekm_key_change", "ekm_key_unavailable", "fig_file_encrypt"] },
 ];
 
 /** A sentence per action for the Event column (ours: Figma's in-app wording per event is unpublished, R19 §7) */
@@ -245,17 +254,18 @@ export const ACTION_LABEL: Record<ActivityAction, string> = {
   audio_setting_change: "Changed audio for the organization",
   data_storage_localization_change: "Changed data storage localization",
   fig_file_region_move: "Moved file content to the data storage region",
-  // Round 14 (docs/governance.md §1, §3); 14h may refine the wording
-  mfa_required_setting_change: "Changed 2FA for guests",
-  ip_allowlist_setting_change: "Changed the IP allowlist",
-  ip_allowlist_range_create: "Added an IP allowlist range",
-  ip_allowlist_range_delete: "Removed an IP allowlist range",
-  ip_allowlist_rejected: "Was blocked by the IP allowlist",
+  // Round 14 (docs/governance.md §1, §3): Figma's description of each action [F-log] said as the column's phrase; the
+  // ones Figma doesn't publish (§3) are ours. `eventText` adds the new value where the row's details carry it.
+  mfa_required_setting_change: "Changed whether guests must use two-factor authentication",
+  ip_allowlist_setting_change: "Turned the IP allowlist on or off",
+  ip_allowlist_range_create: "Added an IP range to the IP allowlist",
+  ip_allowlist_range_delete: "Removed an IP range from the IP allowlist",
+  ip_allowlist_rejected: "Was denied access by the IP allowlist",
   ip_restriction_change: "Changed network access restrictions",
   network_access_restriction_range_create: "Added a network access restriction range",
   network_access_restriction_range_update: "Changed a network access restriction range",
   network_access_restriction_range_delete: "Removed a network access restriction range",
-  org_domain_idp_mapping_change: "Changed the identity provider of a domain",
+  org_domain_idp_mapping_change: "Changed which identity provider a domain uses",
   policy_create: "Created an internal policy",
   policy_update: "Changed an internal policy",
   policy_acknowledge: "Agreed to an internal policy",
@@ -270,8 +280,8 @@ export const ACTION_LABEL: Record<ActivityAction, string> = {
   ekm_enable: "Turned on key management",
   ekm_key_change: "Changed the encryption key",
   ekm_key_unavailable: "The encryption key became unavailable",
-  fig_file_encrypt: "Encrypted file content",
-  discovery_setting_change: "Changed Discovery",
+  fig_file_encrypt: "Encrypted a file's content with the organization's key",
+  discovery_setting_change: "Turned Discovery on or off",
 };
 
 // ---- Round 4: Settings' words (docs/multiplayer.md §15.1; help.figma.com, R19 §7) ----
@@ -284,8 +294,12 @@ export const AUTH_METHOD_LABEL: Record<OrgSettings["authMethod"], string> = {
 };
 export const AUTH_METHOD_SHORT: Record<OrgSettings["authMethod"], string> = { any: "Any method", google: "Google account", saml: "SAML SSO" };
 
-/** "21 days", "12 hours", "1 day" — whole days when the hours divide */
+/** "21 days", "12 hours", "1 day", "15 minutes" — whole days when the hours divide; minutes below a whole hour */
 export function formatHours(h: number): string {
+  if (!Number.isInteger(h)) {
+    const min = Math.round(h * 60);
+    return min === 1 ? "1 minute" : `${min} minutes`;
+  }
   if (h % 24 === 0) return h === 24 ? "1 day" : `${h / 24} days`;
   return h === 1 ? "1 hour" : `${h} hours`;
 }
@@ -335,6 +349,36 @@ export function eventText(row: Pick<ActivityLog, "action">): string {
     case "org_domain_remove": {
       const d = (details as { domain?: unknown }).domain;
       return typeof d === "string" ? `${ACTION_LABEL[type].replace(/^(\w+) domain/, `$1 ${d}`)}` : ACTION_LABEL[type];
+    }
+    // Round 14 (docs/governance.md §3): the server's details — `{setting, from, to}` for settings, `{range}` for ranges
+    case "mfa_required_setting_change": return has ? (to ? "Required guests to use two-factor authentication" : "Stopped requiring two-factor authentication for guests") : ACTION_LABEL[type];
+    case "ip_allowlist_setting_change": return has ? `Turned the IP allowlist ${onOff(to)}` : ACTION_LABEL[type];
+    case "ip_restriction_change": return has ? `Turned network access restrictions ${onOff(to)}` : ACTION_LABEL[type];
+    case "discovery_setting_change": return has ? `Turned Discovery ${onOff(to)}` : ACTION_LABEL[type];
+    case "ip_allowlist_range_create":
+    case "ip_allowlist_range_delete":
+    case "network_access_restriction_range_create":
+    case "network_access_restriction_range_delete": {
+      const range = (details as { range?: unknown }).range;
+      if (typeof range !== "string") return ACTION_LABEL[type];
+      const list = type.startsWith("ip_allowlist") ? "the IP allowlist" : "network access restrictions";
+      return type.endsWith("create") ? `Added ${range} to ${list}` : `Removed ${range} from ${list}`;
+    }
+    case "network_access_restriction_range_update": {
+      const range = (details as { range?: unknown }).range;
+      return typeof range === "string" && typeof to === "string" && to in NETWORK_STATE_LABEL ? `Set ${range} to ${NETWORK_STATE_LABEL[to as NetworkRangeState]}` : ACTION_LABEL[type];
+    }
+    case "file_export_controls_setting_change":
+    case "workspace_file_export_controls_setting_change": {
+      const ws = type.startsWith("workspace") ? " for a workspace" : "";
+      if (typeof to === "string" && to in FILE_EXPORTING_LABEL) return `Changed file exporting${ws} to “${FILE_EXPORTING_LABEL[to as FileExporting]}”`;
+      return ws && has && to === null ? "Made a workspace use the organization's file exporting" : ACTION_LABEL[type];
+    }
+    case "org_guest_expiration_setting_change": return has ? (typeof to === "number" ? `Set the default duration for guest access to ${to === 1 ? "1 day" : `${to} days`}` : "Removed the default duration for guest access") : ACTION_LABEL[type];
+    case "org_user_guest_expiration_change": return has ? (typeof to === "number" ? `Changed a guest's access expiration date to ${formatDate(to)}` : "Removed a guest's access expiration date") : ACTION_LABEL[type];
+    case "policy_update": {
+      const enabled = (details as { enabled?: unknown }).enabled;
+      return enabled === true ? "Enabled an internal policy" : enabled === false ? "Disabled an internal policy" : ACTION_LABEL[type];
     }
     default: return ACTION_LABEL[type] ?? type;
   }

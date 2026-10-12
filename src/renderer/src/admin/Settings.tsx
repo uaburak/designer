@@ -1,22 +1,26 @@
 /**
  * Admin › Settings (docs/multiplayer.md §15.6; research docs/research/figma/R19-admin.md §7, §10): Figma's sections —
- * Login and provisioning, Access, Team management, Content, Communication, Data, Billing, Other — each a list of rows
+ * Login and provisioning, External access, Team management, Content, Communication, Data, Billing, Other — each a list of rows
  * (the setting's name and description at the left, its value and Change — or a toggle — at the right). Every row is
  * live: the org's settings through `AdminRepository.updateSettings`, the login side, domains and the data region
- * through `IdentityRepository` (`store.identity`; absent, those rows say they're unavailable).
+ * through `IdentityRepository` (`store.identity`; absent, those rows say they're unavailable). Round 14h adds the
+ * Governance+ rows (docs/governance.md §5, `SettingsGovernance.tsx`) over `store.governance`: each disabled with
+ * "Requires Governance+" while the add-on is off, which Billing › Governance+ adds or removes.
  */
 import { useState, type ReactNode } from "react";
 import { Button, Switch } from "@/ds";
+import { FILE_EXPORTING_LABEL, REQUIRES_GOVERNANCE_PLUS } from "@shared/org/governance";
 import type { OrgSettings, Seat } from "@shared/org/types";
 import { DATA_REGION_LABEL, IDLE_DEFAULT_HOURS, IDP_PROVIDER_LABEL } from "@shared/org/identity";
 import { SeatApprovalDialog } from "./Dashboard";
 import { useAdmin, useLoad } from "./context";
 import { AUTH_METHOD_SHORT, GUEST_MEMBERSHIP_LABEL, SEATS, SEAT_APPROVAL_LABEL, SEAT_DESCRIPTION, SEAT_LABEL, TEAM_CREATION_LABEL, formatHours } from "./labels";
-import { ChoiceDialog, styles } from "./parts";
+import { ChoiceDialog, ConfirmDialog, styles } from "./parts";
 import { AuthenticationDialog, DomainsDialog, IdleTimeoutDialog, SamlDialog, ScimDialog } from "./SettingsLogin";
 import { DataRegionDialog, PublicSharingDialog, sharingSummary } from "./SettingsContent";
 import { ApprovalDialog, PlanTokens, approvalSummary } from "./SettingsExtensions";
 import { CreditLimitDialog, creditLimitSummary } from "./SettingsAi";
+import { FileExportingDialog, GuestExpiryDialog, GuestTwoFactorDialog, IdpsDialog, IpAllowlistDialog, KeyManagementDialog, NetworkRangesDialog, PoliciesDialog, ekmSummary, useGovernance } from "./SettingsGovernance";
 
 type Editing =
   | "authentication" | "saml" | "scim" | "idle" | "domains"
@@ -26,6 +30,8 @@ type Editing =
   | "defaultSeat" | "seatApproval"
   | "pluginApproval" | "widgetApproval"
   | "aiCreditLimit"
+  // Round 14h (Governance+)
+  | "idps" | "ipAllowlist" | "guestTwoFactor" | "guestExpiry" | "fileExporting" | "networkRanges" | "policies" | "keyManagement" | "removeGovernancePlus"
   | null;
 
 /** Enterprise installer › Download (docs/desktop.md §12.5): there is no hosted build */
@@ -39,20 +45,34 @@ export function SettingsTab() {
   const { data: region } = useLoad(() => (identity ? identity.dataRegion(orgId) : Promise.resolve(null)), [orgId, identity]);
   const { data: workspaces } = useLoad(() => store.admin.workspaces(orgId), [orgId]);
   const [editing, setEditing] = useState<Editing>(null);
+  const { overview: gov, on: gp, available: govAvailable } = useGovernance();
+  const governance = store.governance;
+  const { data: idps } = useLoad(() => (governance && gp ? governance.idps(orgId) : Promise.resolve(null)), [orgId, governance, gp]);
   if (!s) return null;
+  /** A Governance+ row's value: "Unavailable" without the repository, "Requires Governance+" without the add-on */
+  const gValue = (v: ReactNode) => (!govAvailable ? "Unavailable" : !gp ? REQUIRES_GOVERNANCE_PLUS : v);
+  const gOff = !govAvailable || !gp;
+  const exportOverrides = (workspaces ?? []).filter((w) => w.sharing?.fileExporting).length;
+  const enabledPolicies = (gov?.policies ?? []).filter((p) => p.enabledAt !== null && p.disabledAt === null).length;
+  const enforced = (gov?.networkRanges ?? []).filter((r) => r.state === "enforced").length;
   const save = (patch: Partial<OrgSettings>, done = "Settings saved") => run(() => store.admin.updateSettings(orgId, patch), done);
   const close = () => setEditing(null);
   const approval = (["full", "dev", "collab"] as const).map((k) => `${SEAT_LABEL[k]}: ${SEAT_APPROVAL_LABEL[s.seatApproval[k]]}`);
   const unavailable = !identity;
   const idp = ov?.idp ?? null;
   const verified = ov?.domains.filter((d) => d.verified).length ?? 0;
-  const overrides = (workspaces ?? []).filter((w) => w.sharing && Object.keys(w.sharing).length).length;
+  const overrides = (workspaces ?? []).filter((w) => w.sharing && Object.keys(w.sharing).some((k) => k !== "fileExporting")).length;
   return (
     <>
       <Group title="Login and provisioning">
         <Row
           id="authentication" label="Authentication" description="Choose how members log in. Guests can always log in with Google SSO or email and password."
           value={AUTH_METHOD_SHORT[s.authMethod]} onChange={() => setEditing("authentication")}
+        />
+        <Row
+          id="idps" label="Manage identity providers (IdP)" description="Connect several identity providers and choose the domains each one serves, each with its own SCIM provisioning."
+          disabled={gOff} value={gValue(idps ? (idps.length === 1 ? "1 identity provider" : `${idps.length} identity providers`) : "")}
+          action="Manage" onChange={() => setEditing("idps")}
         />
         <Row
           id="saml" label="SAML SSO" description="Let members log in through your identity provider."
@@ -66,7 +86,7 @@ export function SettingsTab() {
           value={unavailable ? "Unavailable" : ov?.scim?.token ? "On" : "Off"} onChange={() => setEditing("scim")}
         />
         <Row
-          id="idle" label="Idle session timeout" description="Log members out after a period of inactivity, on every device."
+          id="idle" label="Session timeout" description="Log members out after a period of inactivity, on every device."
           value={s.idleSessionTimeoutHours === null ? `${formatHours(IDLE_DEFAULT_HOURS)} (default)` : formatHours(s.idleSessionTimeoutHours)} onChange={() => setEditing("idle")}
         />
         <Row
@@ -75,11 +95,39 @@ export function SettingsTab() {
           value={unavailable ? "Unavailable" : ov ? `${ov.domains.length === 1 ? "1 domain" : `${ov.domains.length} domains`} · ${verified} verified${ov.domainCapture ? " · Domain capture on" : ""}` : ""}
           action="Manage" onChange={() => setEditing("domains")}
         />
+        <Row
+          id="ipAllowlist" label="IP allowlist" description="Only let members reach the organization's content from these IP addresses. Guests and admins aren't affected."
+          disabled={gOff} value={gValue(gov ? (gov.ipAllowlist.enabled ? `On · ${gov.ipAllowlist.ranges.length === 1 ? "1 address or range" : `${gov.ipAllowlist.ranges.length} addresses or ranges`}` : "Off") : "")}
+          onChange={() => setEditing("ipAllowlist")}
+        />
       </Group>
 
-      <Group title="Access">
-        <SubTitle>Guest access</SubTitle>
+      <Group title="External access">
+        <SubTitle>Guest membership</SubTitle>
         <Row id="guestMembership" label="Guest membership" description="Choose who can invite external users to files, folders and teams." value={GUEST_MEMBERSHIP_LABEL[s.guestMembership]} onChange={() => setEditing("guestMembership")} />
+        <Row
+          id="guestTwoFactor" label="2FA for Guests" description="Guests must use two-factor authentication to open the organization's content. Guests without it are blocked until they turn it on."
+          value={gOff ? gValue("") : undefined}
+          control={<Switch label="2FA for Guests" checked={!gOff && s.twoFactorForGuests} disabled={gOff} onChange={(on) => (on ? setEditing("guestTwoFactor") : void save({ twoFactorForGuests: false }, "2FA for guests turned off"))} />}
+        />
+        <Row
+          id="guestExpiry" label="Set default duration for guest access" description="Guests who join from now on lose access after this many days."
+          disabled={gOff} value={gValue(s.guestExpiryDays === null ? "No expiration" : s.guestExpiryDays === 1 ? "1 day" : `${s.guestExpiryDays} days`)}
+          onChange={() => setEditing("guestExpiry")}
+        />
+        <SubTitle>File exporting</SubTitle>
+        <Row
+          id="fileExporting" label="File exporting" description="Choose whether viewers can export, copy and save local copies of files. Editors can always export."
+          disabled={gOff}
+          value={gValue(<span className={styles.whoText}><span>{FILE_EXPORTING_LABEL[s.fileExporting]}</span>{exportOverrides > 0 && <span>{exportOverrides === 1 ? "1 workspace with custom settings" : `${exportOverrides} workspaces with custom settings`}</span>}</span>)}
+          onChange={() => setEditing("fileExporting")}
+        />
+        <SubTitle>Network access</SubTitle>
+        <Row
+          id="networkRanges" label="Network access restrictions" description="Restrict external account access on your networks: only the organization's accounts and guests can log in from these IP ranges."
+          disabled={gOff} value={gValue(gov ? (gov.networkRanges.length ? `${gov.networkRanges.length === 1 ? "1 range" : `${gov.networkRanges.length} ranges`} · ${enforced} enforced` : "Off") : "")}
+          action="Manage" onChange={() => setEditing("networkRanges")}
+        />
       </Group>
 
       <Group title="Team management">
@@ -122,11 +170,30 @@ export function SettingsTab() {
           value={unavailable ? "Unavailable" : region ? (region.available ? DATA_REGION_LABEL[region.region] : `${DATA_REGION_LABEL[region.region]} · Not available`) : ""}
           onChange={() => setEditing("dataRegion")}
         />
+        <Row
+          id="keyManagement" label="Key management" description="Encrypt the content of the organization's files with its own key."
+          disabled={gOff} value={gValue(gov ? ekmSummary(gov.ekm) : "")}
+          action={gov?.ekm.enabled ? "Manage" : "Turn on"} onChange={() => setEditing("keyManagement")}
+        />
       </Group>
 
       <Group title="Billing">
         <Row id="seatApproval" label="Seat approval settings" description="How requests for paid seats are approved." value={<span className={styles.whoText}>{approval.map((a) => <span key={a}>{a}</span>)}</span>} onChange={() => setEditing("seatApproval")} />
         <Row id="defaultSeat" label="Default seat" description="The seat new people get when they join." value={SEAT_LABEL[s.defaultSeat]} onChange={() => setEditing("defaultSeat")} />
+        {governance && (
+          <Row
+            id="governancePlus" label="Governance+"
+            description="The Enterprise add-on for security and compliance: IP allowlist, network access restrictions, 2FA for guests, multiple identity providers, internal policies, key management, Discovery, developer logs and guest expiration. There's no charge here."
+            value={gov ? (gp ? "Added" : "Not added") : ""}
+            control={
+              gp ? (
+                <Button variant="secondary" disabled={!gov || gov.ekm.enabled} tooltip={gov?.ekm.enabled ? "Key management can't be turned off" : undefined} onClick={() => setEditing("removeGovernancePlus")}>Remove</Button>
+              ) : (
+                <Button variant="primary" disabled={!gov} onClick={() => void run(() => governance.setGovernancePlus(orgId, true), "Governance+ added")}>Add</Button>
+              )
+            }
+          />
+        )}
       </Group>
 
       <Group title="Extensions">
@@ -154,6 +221,17 @@ export function SettingsTab() {
 
       <Group title="Other">
         <Row
+          id="policies" label="Internal policies" description="Ask people to agree to the organization's policies before they open its content."
+          disabled={gOff} value={gValue(enabledPolicies ? (enabledPolicies === 1 ? "1 policy enabled" : `${enabledPolicies} policies enabled`) : "Off")}
+          action="Manage" onChange={() => setEditing("policies")}
+        />
+        <Row
+          id="discovery" label="Discovery"
+          description="Let admins export everyone's text — file content, comments, cursor chat and AI prompts — through the Discovery API. While it's on, everyone's text in the organization is recorded."
+          value={gOff ? gValue("") : undefined}
+          control={<Switch label="Discovery" checked={!gOff && s.discovery} disabled={gOff} onChange={(on) => void save({ discovery: on }, on ? "Discovery turned on" : "Discovery turned off")} />}
+        />
+        <Row
           id="audio" label="Audio" description="Let members and guests talk in the organization's files."
           control={<Switch label="Audio" checked={s.audio} onChange={(on) => void save({ audio: on }, on ? "Audio turned on" : "Audio turned off")} />}
         />
@@ -166,7 +244,23 @@ export function SettingsTab() {
       {editing === "authentication" && <AuthenticationDialog value={s.authMethod} idp={idp} onSave={(v) => save({ authMethod: v }, "Authentication changed")} onClose={close} />}
       {editing === "saml" && <SamlDialog authMethod={s.authMethod} onClose={close} />}
       {editing === "scim" && <ScimDialog onClose={close} />}
-      {editing === "idle" && <IdleTimeoutDialog value={s.idleSessionTimeoutHours} onSave={(h) => save({ idleSessionTimeoutHours: h }, "Idle session timeout saved")} onClose={close} />}
+      {editing === "idle" && <IdleTimeoutDialog value={s.idleSessionTimeoutHours} governancePlus={gp} onSave={(h) => save({ idleSessionTimeoutHours: h }, "Session timeout saved")} onClose={close} />}
+      {editing === "idps" && <IdpsDialog authMethod={s.authMethod} onClose={close} />}
+      {editing === "ipAllowlist" && gov && <IpAllowlistDialog overview={gov} onClose={close} />}
+      {editing === "guestTwoFactor" && <GuestTwoFactorDialog blocked={gov?.guestsWithout2fa ?? 0} onSave={() => void save({ twoFactorForGuests: true }, "2FA for guests turned on")} onClose={close} />}
+      {editing === "guestExpiry" && <GuestExpiryDialog value={s.guestExpiryDays} onSave={(d) => void save({ guestExpiryDays: d }, "Default duration for guest access saved")} onClose={close} />}
+      {editing === "fileExporting" && <FileExportingDialog settings={s} onClose={close} />}
+      {editing === "networkRanges" && <NetworkRangesDialog onClose={close} />}
+      {editing === "policies" && <PoliciesDialog onClose={close} />}
+      {editing === "keyManagement" && <KeyManagementDialog onClose={close} />}
+      {editing === "removeGovernancePlus" && governance && (
+        <ConfirmDialog
+          title="Remove Governance+?" destructive confirm="Remove"
+          body="Its settings are kept but stop applying. A session timeout under 12 hours goes back to 12 hours."
+          onConfirm={() => void run(() => governance.setGovernancePlus(orgId, false), "Governance+ removed")}
+          onClose={close}
+        />
+      )}
       {editing === "domains" && <DomainsDialog onClose={close} />}
       {editing === "publicSharing" && <PublicSharingDialog settings={s} onClose={close} />}
       {editing === "dataRegion" && <DataRegionDialog onClose={close} />}
