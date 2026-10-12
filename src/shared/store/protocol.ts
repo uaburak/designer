@@ -6,8 +6,8 @@
 export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer" | "comments" | "notifications" | "orgs" | "teams" | "projects" | "admin" | "branches" | "orgLibraries" | "analytics" | "identity" | "governance" | "plugins" | "devMode" | "ai" | "search";
 export type StoreMethod = `${Repository}.${string}`;
 export type PortRole = "main" | "home" | "editor";
-/** `org`: OrgEvent (docs/multiplayer.md §14.6); `branches`: BranchEvent (docs/data.md §15.6); `fonts`: FontsEvent (docs/desktop.md §14.3); `session`: SessionEnded (docs/multiplayer.md §15.8); `plugins`: PluginsEvent (docs/plugins.md §10); `devmode`: DevModeEvent (docs/editor.md D-8) */
-export type EventTopic = "workspace" | "file.changes" | "library" | "multiplayer" | "comments" | "notifications" | "org" | "branches" | "fonts" | "session" | "plugins" | "devmode";
+/** `org`: OrgEvent (docs/multiplayer.md §14.6); `branches`: BranchEvent (docs/data.md §15.6); `fonts`: FontsEvent (docs/desktop.md §14.3); `session`: SessionEnded (docs/multiplayer.md §15.8); `plugins`: PluginsEvent (docs/plugins.md §10); `devmode`: DevModeEvent (docs/editor.md D-8); `uploads`: UploadEvent (docs/multiplayer.md §5.1) */
+export type EventTopic = "workspace" | "file.changes" | "library" | "multiplayer" | "comments" | "notifications" | "org" | "branches" | "fonts" | "session" | "plugins" | "devmode" | "uploads";
 
 export type RpcRequest = { t: "req"; id: number; m: StoreMethod; a: unknown[] };
 export type RpcResponse = { t: "res"; id: number; ok: true; v: unknown } | { t: "res"; id: number; ok: false; e: { code: StoreErrorCode; message: string; detail?: unknown } };
@@ -105,7 +105,7 @@ export const STORE_METHODS = {
   libraries: ["listAvailable", "getRecord", "getVersion", "previewPublish", "publish", "unpublish", "setEnabled", "getPayloads", "diff"],
   previews: ["status", "list", "publish", "stop", "exportHtml"],
   store: ["shutdown", "flushAll", "info", "collectGarbage"],
-  multiplayer: ["setSession", "status", "fileState", "share", "listRemote", "openShared", "members", "fileInfo", "setLinkAccess", "updateLink", "setViewersCanCopy", "requestEdit", "requests", "answerRequest", "invite", "removeMember", "presence", "takeOpenIntent", "unlockFile", "setLinkPassword", "transferOwnership", "signal", "restRender", "restAnswer"],
+  multiplayer: ["setSession", "status", "fileState", "share", "listRemote", "openShared", "members", "fileInfo", "setLinkAccess", "updateLink", "setViewersCanCopy", "requestEdit", "requests", "answerRequest", "invite", "removeMember", "presence", "takeOpenIntent", "unlockFile", "setLinkPassword", "transferOwnership", "signal", "restRender", "restAnswer", "uploads", "retryUpload", "cancelUpload"],
   comments: ["list", "add", "edit", "remove", "setResolved", "setRead", "react", "move", "mentionable"],
   notifications: ["list", "markRead", "prefs", "setPrefs", "answer"],
   // The org spaces (docs/multiplayer.md §14.6); `watch` is the `org` event topic
@@ -246,6 +246,7 @@ export const RETRY_SAFE = new Set<string>([
   "multiplayer.listRemote",
   "multiplayer.members",
   "multiplayer.fileInfo",
+  "multiplayer.uploads",
   "comments.list",
   "comments.mentionable",
   "notifications.list",

@@ -98,13 +98,15 @@ export async function fetchWithRetry(method: string, delays: readonly number[], 
   }
 }
 
-/** A step tried again after each of `delays` while it fails with momentary trouble (`isTransient`) */
-export async function withRetry<T>(delays: readonly number[], step: () => Promise<T>): Promise<T> {
+/** A step tried again after each of `delays` while it fails with momentary trouble (`isTransient`); `onRetry` hears
+ *  each new try (2 being the first retry) before its wait */
+export async function withRetry<T>(delays: readonly number[], step: () => Promise<T>, onRetry?: (attempt: number, e: unknown) => void): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
       return await step();
     } catch (e) {
       if (attempt >= delays.length || !isTransient(e)) throw e;
+      onRetry?.(attempt + 2, e);
       await sleep(delays[attempt]);
     }
   }

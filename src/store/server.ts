@@ -13,6 +13,7 @@ import type { OrgEvent } from "../shared/org/repositories";
 import type { BranchEvent } from "../shared/merge/branches";
 import type { PluginsEvent } from "../shared/plugins/types";
 import type { DevModeEvent } from "../shared/devmode/types";
+import type { UploadEvent } from "../shared/multiplayer/uploads";
 
 /**
  * What the server needs from a store: `LocalStore` (the utility process), or the browser's in-memory dev store
@@ -35,6 +36,8 @@ export interface ServableStore {
     onRestJob(listener: (fileKey: FileKey, req: RestJobRequest) => void): Unsubscribe;
     onRestWanted(listener: (fileKey: FileKey) => void): Unsubscribe;
     onSessionEnded(listener: (e: SessionEnded) => void): Unsubscribe;
+    /** Uploads' progress for the upload panel (docs/multiplayer.md §5.1), topic `uploads` */
+    onUploads?(listener: (e: UploadEvent) => void): Unsubscribe;
     /** A port closed: the REST renderers it registered end with it */
     releaseRenderersOf?(owner: object): void;
     fileState(fileKey: FileKey): Promise<FileShareState>;
@@ -169,6 +172,7 @@ export class StoreServer {
       this.offs.push(mp.onRestJob((fileKey, restJob) => void mp.fileState(fileKey).then((state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state, restJob } }))));
       this.offs.push(mp.onRestWanted((fileKey) => void mp.fileState(fileKey).then((state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state, restWanted: true } }))));
       this.offs.push(mp.onSessionEnded((d) => this.broadcast({ t: "evt", topic: "session", d })));
+      if (mp.onUploads) this.offs.push(mp.onUploads((d) => this.broadcast({ t: "evt", topic: "uploads", d })));
     }
     if (store.comments) this.offs.push(store.comments.onChange((fileKey) => this.broadcast({ t: "evt", topic: "comments", d: { fileKey } })));
     if (store.notifications) this.offs.push(store.notifications.onChange((d) => this.broadcast({ t: "evt", topic: "notifications", d })));

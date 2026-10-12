@@ -3,7 +3,9 @@ import type { WindowState } from "../shared/ipc";
 import { CAPTION_OVERLAY, DEFAULT_WINDOW_SIZE, MIN_WINDOW_SIZE, TABBAR_HEIGHT, TRAFFIC_LIGHT_POSITION } from "../shared/layout";
 import { emptyTabs, persistable, restoreTabs } from "../shared/tabs";
 import { flushSession, readSession, writeSession, type WindowBounds, type WindowSession } from "./session";
-import { flushStore, stopStoreHost } from "./storeHost";
+import { flushStore, stopStoreHost, storeClient } from "./storeHost";
+import { askQuitWithUploads } from "./dialogs";
+import { confirmQuitWithUploads } from "./uploadsQuit";
 import { drainGovernanceReportsWithin } from "./account/governanceReports";
 import { emit, TabManager } from "./tabs";
 import { exitForUpdate } from "./updater";
@@ -36,6 +38,11 @@ export function finishQuit(): Promise<void> {
       if (!exitForUpdate()) app.exit(0);
     });
   return finishing;
+}
+
+/** May the quit go on, with uploads in flight (uploadsQuit.ts)? */
+export function confirmQuit(win: BaseWindow | null): Promise<boolean> {
+  return confirmQuitWithUploads({ list: () => storeClient()?.multiplayer.uploads() ?? null, ask: (n) => askQuitWithUploads(win, n) });
 }
 
 export const controllers = new Map<string, WindowController>();
@@ -250,6 +257,11 @@ export class WindowController {
     if (this.closing) return;
     this.closing = true;
     try {
+      // Quitting while files upload: asked first (once per quit); they continue at the next start
+      if (lifecycle.quitting && !(await confirmQuit(this.win))) {
+        lifecycle.quitting = false;
+        return;
+      }
       const ok = await this.tabs.settleAll(lifecycle.quitting ? "quit" : "close");
       if (!ok) {
         lifecycle.quitting = false;

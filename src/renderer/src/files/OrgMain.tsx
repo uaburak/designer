@@ -63,6 +63,9 @@ export interface OrgMainProps {
   blocked?: ReactNode;
   /** Above the content: the guest's access ending soon (§2.13) */
   banner?: ReactNode;
+  /** Import (null: the picker) or .fig files dropped, into the org's Drafts (`projectId` null) or the folder shown;
+   *  absent: no Import here */
+  onImport?: (files: File[] | null, projectId: string | null) => void;
 }
 
 type Dialog =
@@ -89,7 +92,14 @@ type Menu = { at: { x: number; y: number }; entries: MenuEntry[]; run: (id: stri
 const pageKey = (loc: Location) => JSON.stringify(loc);
 
 export function OrgMain(props: OrgMainProps) {
-  const { org, orgId, info, location, page, reload, go, nav, openFile, onBranches, toast, now, noCreate = false, blocked, banner } = props;
+  const { org, orgId, info, location, page, reload, go, nav, openFile, onBranches, toast, now, noCreate = false, blocked, banner, onImport } = props;
+  /** Import's button, as the local Drafts' (Figma's "Import" next to "Design") */
+  const importButton = (projectId: string | null) =>
+    onImport && (
+      <Button variant="tinted" size="large" icon="24.plus.small" tooltip="Import .fig files" onClick={() => onImport(null, projectId)}>
+        Import
+      </Button>
+    );
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -271,9 +281,12 @@ export function OrgMain(props: OrgMainProps) {
     case "drafts":
       title = { items: [{ id: "drafts", label: "Drafts" }] };
       actions = noCreate ? null : (
-        <Button variant="tinted" size="large" icon="24.design" tooltip="New design file" onClick={() => void newDesignFile(null)}>
-          Design
-        </Button>
+        <>
+          <Button variant="tinted" size="large" icon="24.design" tooltip="New design file" onClick={() => void newDesignFile(null)}>
+            Design
+          </Button>
+          {importButton(null)}
+        </>
       );
       body = (
         <>
@@ -432,6 +445,7 @@ export function OrgMain(props: OrgMainProps) {
                 New folder
               </Button>
             )}
+            {importButton(p.id)}
             <Button variant="tinted" size="large" icon="24.design" tooltip="New design file" onClick={() => void newDesignFile(p.id)}>
               Design
             </Button>
@@ -512,9 +526,25 @@ export function OrgMain(props: OrgMainProps) {
       break;
   }
 
+  // .fig files dropped from Finder land in the org's Drafts or the folder shown (where the person may create files)
+  const dropPlace = !onImport || noCreate ? null : data.kind === "drafts" ? { projectId: null } : data.kind === "project" && canEditFolder(data.project, info) ? { projectId: data.project.id } : null;
   const moveDialog = dialog?.kind === "move" ? dialog : null;
   return (
-    <main className={styles.main} aria-label={title.items.at(-1)?.label || "Organization"}>
+    <main
+      className={styles.main}
+      aria-label={title.items.at(-1)?.label || "Organization"}
+      onDragOver={(e) => {
+        // .fig files from Finder: into the org's Drafts or the folder shown
+        if (!dropPlace || !e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+      }}
+      onDrop={(e) => {
+        if (!dropPlace || !e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        onImport!([...e.dataTransfer.files], dropPlace.projectId);
+      }}
+    >
       <header className={styles.topbar}>
         <div className={styles.nav}>
           <IconButton icon="24.arrow.left" label="Back" tone="secondary" disabled={!nav.canBack} onClick={nav.back} />

@@ -7,6 +7,7 @@ import type { GovernanceErrorCode, OrgGate } from "../org/governance";
 import type { FileKey } from "../store/types";
 import type { RestJob } from "../rest/types";
 import type { PeerInfo, Role } from "./protocol";
+import type { UploadEvent, UploadProgress } from "./uploads";
 
 export interface MultiplayerSession {
   server: string;
@@ -266,4 +267,13 @@ export interface MultiplayerRepository {
   restAnswer(fileKey: FileKey, id: string, answer: RestJobAnswer): Promise<void>;
   /** The server ended the session (event topic `session`): main and the web page sign out on `idle_timeout` */
   watchSession(listener: (e: SessionEnded) => void): () => void;
+  /** Uploads to the server — going, failed, done within the last minute — for the upload panel and main's quit
+   *  question (docs/multiplayer.md §5.1) */
+  uploads(): Promise<UploadProgress[]>;
+  /** The panel's Retry: a failed upload goes again now */
+  retryUpload(id: string): Promise<void>;
+  /** The panel's Cancel: the upload stops, the file stays here as a local file */
+  cancelUpload(id: string): Promise<void>;
+  /** Uploads' progress (event topic `uploads`), at most ~10 a second per upload */
+  watchUploads(listener: (e: UploadEvent) => void): () => void;
 }

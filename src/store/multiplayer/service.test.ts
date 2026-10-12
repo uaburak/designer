@@ -11,7 +11,9 @@ import { MemoryRoomStorage, Room, type Connection } from "../../shared/multiplay
 import { decodeMessage, encodeMessage, type NodeChange } from "../../shared/schema/codec";
 import type { FileChange } from "../../shared/store/repositories";
 import type { FileKey, FileMeta } from "../../shared/store/types";
-import { MultiplayerService, type MultiplayerHost } from "./service";
+import { MultiplayerService, type MultiplayerDeps, type MultiplayerHost } from "./service";
+import { multiplayerApi } from "./api";
+import type { UploadEvent, UploadProgress } from "../../shared/multiplayer/uploads";
 
 const SERVER = "https://mp.test";
 
@@ -658,5 +660,142 @@ describe("MultiplayerService, when the server is gone or busy", () => {
     const b = await wrappedInstallation("b@x.co", (m) => (m === "POST" ? cfPage(502) : null));
     await expect(b.svc.call("POST", "/files", { key: "x_000000000000", name: "X" })).rejects.toMatchObject({ code: "unavailable" });
     expect(b.calls.filter((c) => c === "POST /files").length).toBe(1);
+  });
+});
+
+// --- the upload panel (docs/multiplayer.md §5.1): progress, retries, Retry, Cancel, resumed uploads ---
+
+/** An installation whose uploads the test follows from its first start (events before the session) */
+async function watchedInstallation(email: string, wrap: (method: string, path: string, init: RequestInit) => Response | null | Promise<Response | null>, more: Partial<MultiplayerDeps> = {}, store = new FakeStore()) {
+  const calls: string[] = [];
+  const streamed: { path: string; declared: string | null; got: number }[] = [];
+  const fetchVia: typeof fetch = async (input, init = {}) => {
+    const u = new URL(String(input));
+    const method = init.method ?? "GET";
+    calls.push(`${method} ${u.pathname}${u.search}`);
+    let i = init;
+    // A streamed body read here as the network would (the in-process rooms keep bytes)
+    if (init.body instanceof ReadableStream) {
+      const bytes = new Uint8Array(await new Response(init.body).arrayBuffer());
+      streamed.push({ path: u.pathname, declared: (init.headers as Record<string, string>)["content-length"] ?? null, got: bytes.length });
+      // …and handed on whole (the in-process rooms read bytes, not a stream the Worker streams on)
+      const { duplex: _d, ...rest } = init as RequestInit & { duplex?: string };
+      const { "content-length": _l, ...headers } = init.headers as Record<string, string>;
+      i = { ...rest, headers, body: bytes as unknown as RequestInit["body"] };
+    }
+    return (await wrap(method, u.pathname + u.search, init)) ?? serverFetch(input, i);
+  };
+  const svc = new MultiplayerService(store, { fetch: fetchVia, WebSocket: FakeSocket as any, random: Math.random, backoff: () => 5, retryDelays: [0, 0], uploadRetryDelays: [0, 0, 0], ...more });
+  services.push(svc);
+  const events: UploadEvent[] = [];
+  svc.onUploads((e) => events.push(e));
+  await svc.setSession({ server: SERVER, token: await signIn(email) });
+  const uploads = () => events.filter((e): e is { upload: UploadProgress } => "upload" in e).map((e) => e.upload);
+  return { store, svc, calls, streamed, events, uploads, api: multiplayerApi(svc) };
+}
+
+/** A snapshot of about `bytes` (one long layer name) */
+const bigSnapshot = (bytes: number) => msg([node(0, { name: "Document" }), node(1, { name: "x".repeat(bytes) })]);
+
+/** A request that hangs until its signal aborts it, as a slow upload would */
+const hanging = (init: RequestInit) => new Promise<Response>((_, reject) => init.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError"))));
+
+const snapshotPut = (m: string, path: string) => m === "PUT" && /\/snapshot\?seq=/.test(path);
+
+describe("MultiplayerService, the upload panel", () => {
+  it("streams a share's snapshot with its length declared and reports its bytes as they go, then done", async () => {
+    const a = await watchedInstallation("a@x.co", () => null, { streamUploads: true });
+    Object.assign(a.store, { describeUpload: async () => "Anex Tour › Design › KOC" });
+    const snapshot = bigSnapshot(900_000);
+    const fa = a.store.addFile("Big file", [node(0, { name: "Document" })]);
+    const shared = await a.svc.share(fa, { snapshot, headSeq: 0 });
+    await settle();
+    const put = a.streamed.find((s) => s.path.endsWith("/snapshot"))!;
+    expect(put).toEqual({ path: `/files/${shared.key}/snapshot`, declared: String(snapshot.length), got: snapshot.length });
+    expect(rooms.get(shared.key!)!.snapshot!.bytes.length).toBe(snapshot.length);
+    const mine = a.uploads().filter((u) => u.fileKey === fa);
+    expect(mine[0]).toMatchObject({ state: "queued", name: "Big file", bytesSent: 0, retryable: true });
+    const sent = mine.filter((u) => u.state === "uploading").map((u) => u.bytesSent);
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent).toEqual([...sent].sort((x, y) => x - y));
+    expect(mine.at(-1)).toMatchObject({ state: "done", bytesSent: snapshot.length, bytesTotal: snapshot.length, destination: "Anex Tour › Design › KOC" });
+    expect(await a.api.uploads()).toHaveLength(1);
+  });
+
+  it("says each retry of a busy moment, falling back to the bytes landed, then finishes", async () => {
+    let refusals = 2;
+    const a = await watchedInstallation("a@x.co", (m, path) => (snapshotPut(m, path) && refusals-- > 0 ? cfPage(503) : null));
+    const fa = a.store.addFile("Landing", [node(0, { name: "Document" })]);
+    await a.svc.share(fa, { snapshot: msg([node(0, { name: "Document" })]), headSeq: 0 });
+    const states = a.uploads().map((u) => (u.state === "retrying" ? `retrying ${u.attempt} at ${u.bytesSent}` : u.state));
+    expect(states).toContain("retrying 2 at 0");
+    expect(states).toContain("retrying 3 at 0");
+    expect(states.at(-1)).toBe("done");
+  });
+
+  it("fails with the server's words and Retry, which uploads it now", async () => {
+    let failing = true;
+    // The link's own retries wait a minute: only Retry sends it again
+    const a = await watchedInstallation("a@x.co", (m, path) => (failing && snapshotPut(m, path) ? cfPage(503) : null), { backoff: () => 60_000 });
+    const fa = a.store.addFile("B2C Project", [node(0, { name: "Document" })]);
+    await expect(a.svc.share(fa, { snapshot: msg([node(0, { name: "Document" })]), headSeq: 0 })).rejects.toMatchObject({ detail: { code: "upload_incomplete" } });
+    await wait(30);
+    const failed = a.uploads().at(-1)!;
+    expect(failed).toMatchObject({ state: "failed", error: "The server is busy. Try again in a moment.", retryable: true });
+    failing = false;
+    await a.api.retryUpload(failed.id);
+    for (let i = 0; i < 200 && a.uploads().at(-1)!.state !== "done"; i++) await wait(5);
+    expect(a.uploads().at(-1)).toMatchObject({ id: failed.id, state: "done" });
+    expect((a.store.saved.links[fa] as { pendingUpload?: boolean }).pendingUpload).toBeUndefined();
+  });
+
+  it("cancels an upload under way: the request aborts, the file stays local and unlinked, the server's empty file goes", async () => {
+    const a = await watchedInstallation("a@x.co", (m, path, init) => (snapshotPut(m, path) ? hanging(init) : null));
+    const fa = a.store.addFile("Huge", [node(0, { name: "Document" })]);
+    const sharing = a.svc.share(fa, { snapshot: msg([node(0, { name: "Document" })]), headSeq: 0 });
+    for (let i = 0; i < 200 && !a.calls.some((c) => c.startsWith("PUT ") && c.includes("/snapshot")); i++) await wait(2);
+    const id = a.uploads().at(-1)!.id;
+    const key = (a.store.saved.links[fa] as { key: string }).key;
+    await a.api.cancelUpload(id);
+    await expect(sharing).rejects.toMatchObject({ code: "invalid", message: "Upload canceled", detail: { code: "upload_canceled" } });
+    await wait(20);
+    expect(a.store.saved.links[fa]).toBeUndefined();
+    expect((await a.svc.fileState(fa)).shared).toBe(false);
+    expect(a.store.files.has(fa)).toBe(true);
+    expect(a.events.at(-1)).toEqual({ removed: id });
+    expect(await a.api.uploads()).toEqual([]);
+    expect(a.calls).toContain(`DELETE /files/${key}`);
+    expect(await server.db.file(key)).toBeNull();
+  });
+
+  it("cancels one waiting to try again: unlinked at once, no upload left", async () => {
+    const a = await watchedInstallation("a@x.co", (m, path) => (snapshotPut(m, path) ? cfPage(503) : null), { backoff: () => 60_000 });
+    const fa = a.store.addFile("Waiting", [node(0, { name: "Document" })]);
+    await expect(a.svc.share(fa, { snapshot: msg([node(0, { name: "Document" })]), headSeq: 0 })).rejects.toBeDefined();
+    await wait(30);
+    const id = a.uploads().at(-1)!.id;
+    await a.api.cancelUpload(id);
+    await wait(10);
+    expect(a.store.saved.links[fa]).toBeUndefined();
+    expect(await a.api.uploads()).toEqual([]);
+    expect(a.calls.some((c) => c.startsWith("DELETE /files/"))).toBe(true);
+  });
+
+  it("reports an upload resumed at start-up from its first try", async () => {
+    let failing = true;
+    const a = await watchedInstallation("a@x.co", (m, path) => (failing && snapshotPut(m, path) ? cfPage(503) : null), { backoff: () => 60_000 });
+    const fa = a.store.addFile("Resumed", [node(0, { name: "Document" })]);
+    await expect(a.svc.share(fa, { snapshot: msg([node(0, { name: "Document" })]), headSeq: 0 })).rejects.toBeDefined();
+    await wait(30);
+    a.svc.close();
+    failing = false;
+    // The next start: the store's link finishes the upload, and the panel sees it from queued to done
+    const a2 = await watchedInstallation("a@x.co", () => null, {}, a.store);
+    for (let i = 0; i < 200 && a2.uploads().at(-1)?.state !== "done"; i++) await wait(5);
+    const states = a2.uploads().map((u) => u.state);
+    expect(states[0]).toBe("queued");
+    expect(states.at(-1)).toBe("done");
+    expect(a2.uploads().at(-1)).toMatchObject({ fileKey: fa, name: "Resumed" });
+    expect(a2.uploads().at(-1)!.bytesSent).toBeGreaterThan(0);
   });
 });

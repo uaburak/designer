@@ -8,6 +8,7 @@ import { Spinner, ToastHost, TooltipManager, useThemeRoot } from "@/ds";
 import { SettingsHost } from "../settings/SettingsModal";
 import { IdleWarning } from "../account/IdleWarning";
 import { FileBrowser } from "./FileBrowser";
+import { Uploads } from "../uploads/UploadPanel";
 import { filesBackend, type FilesBackend } from "./storeAccess";
 import type { AccountState } from "@shared/account";
 import { completeWebSignIn, webAccount } from "../store/webAccount";
@@ -88,6 +89,7 @@ function Home() {
       <IdleWarning />
       <TooltipManager />
       <ToastHost />
+      <Uploads source={backend?.uploads ?? null} />
     </>
   );
 }

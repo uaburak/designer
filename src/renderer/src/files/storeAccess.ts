@@ -7,7 +7,7 @@
 import { getStoreClient, mergedDocument, messageToKiwi, storeMode, thumbnailUrl } from "@/store";
 import { encodeMessage } from "@shared/schema/codec";
 import type { AdminRepository, FileRepository, OrgsRepository, ProjectsRepository, TeamsRepository, WorkspaceRepository } from "@shared/store/repositories";
-import type { FileKey, FileListItem, FileMeta, FolderId } from "@shared/store/types";
+import type { FileKey, FileListItem, FileMeta, FolderId, OrgImportPlace } from "@shared/store/types";
 import type { BranchesRepository } from "@shared/merge/branches";
 import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "@shared/libraries/orgTypes";
 import type { SharedFontsApi } from "@shared/desktop";
@@ -15,6 +15,7 @@ import type { GovernanceRepository, IdentityRepository } from "@shared/org/repos
 import type { PluginsRepository } from "@shared/plugins/types";
 import type { SessionEnded } from "@shared/multiplayer/types";
 import { exportAllowedFor } from "./governance";
+import type { UploadSource } from "../uploads/UploadPanel";
 
 /** The org spaces (StoreApi.orgs / teams / projects / admin) and the two calls Home adds around them. */
 export interface OrgBackend {
@@ -46,8 +47,9 @@ export interface FilesBackend {
   source: "store" | "dev" | "memory";
   /** The card's image, or null for an empty thumbnail */
   thumbnailUrl(file: FileListItem): string | null;
-  /** A `.fig` from a file input or a drop (bytes, no path): `files.importFigBytes` */
-  importFigBytes?: (file: File, folderId: FolderId | null) => Promise<FileMeta>;
+  /** A `.fig` from a file input or a drop (bytes, no path): `files.importFigBytes`; `org`: into that org's Drafts or
+   *  folder (an org file, uploaded with the upload panel showing it) instead of the local `folderId` */
+  importFigBytes?: (file: File, folderId: FolderId | null, org?: OrgImportPlace | null) => Promise<FileMeta>;
   /** Absent: no organizations (Home shows the local space only) */
   org?: OrgBackend;
   /** Branches (docs/data.md §15): the tiles' counts, their dropdown and the Branches modal; absent: none shown */
@@ -59,6 +61,8 @@ export interface FilesBackend {
    * file's viewer the file's export setting restricts); absent: always
    */
   exportAccess?: (fileKey: FileKey) => Promise<boolean>;
+  /** Uploads to the server, for the upload panel (`multiplayer.uploads` and its topic, docs/multiplayer.md §5.1); absent: no panel */
+  uploads?: UploadSource;
 }
 
 /** The store's snapshot with its journal applied, as one kiwi Message (the editor hands the same to `multiplayer.share`). */
@@ -83,7 +87,7 @@ export function filesBackend(): Promise<FilesBackend> {
     workspace: client.workspace,
     source: storeMode() === "desktop" ? "store" : "dev",
     thumbnailUrl: (f) => thumbnailUrl(f),
-    importFigBytes: async (file, folderId) => client.files.importFigBytes(new Uint8Array(await file.arrayBuffer()), file.name, folderId),
+    importFigBytes: async (file, folderId, org) => client.files.importFigBytes(new Uint8Array(await file.arrayBuffer()), file.name, folderId, org ?? null),
     org: {
       orgs: client.orgs,
       teams: client.teams,
@@ -101,6 +105,7 @@ export function filesBackend(): Promise<FilesBackend> {
     branches: client.branches,
     watchSession: (listener) => client.multiplayer.watchSession(listener),
     exportAccess: (fileKey) => exportAllowedFor(client.multiplayer, fileKey),
+    uploads: client.multiplayer,
   };
   return Promise.resolve(shared);
 }

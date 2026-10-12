@@ -1,4 +1,5 @@
 import { dialog, type BaseWindow, type MessageBoxOptions } from "electron";
+import { uploadsQuitText } from "./uploadsQuit";
 
 /**
  * The shell's questions, as native message boxes: a view's DOM can't cover
@@ -23,6 +24,13 @@ async function ask(win: BaseWindow | null, options: MessageBoxOptions & { button
   const answer = options.buttons[response] ?? options.buttons[options.cancelId ?? 0];
   if (process.env.DESIGNER_TEST === "1") asked.push({ message: options.message, buttons: options.buttons, answer });
   return answer;
+}
+
+/** Quitting while files upload (uploadsQuit.ts): true to quit — they continue at the next start. */
+export async function askQuitWithUploads(win: BaseWindow | null, count: number): Promise<boolean> {
+  const { message, detail } = uploadsQuitText(count);
+  const answer = await ask(win, { type: "warning", message, detail, buttons: ["Quit", "Cancel"], defaultId: 0, cancelId: 1 });
+  return answer === "Quit";
 }
 
 /** A tab's renderer process went away. */

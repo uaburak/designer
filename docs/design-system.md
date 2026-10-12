@@ -1150,6 +1150,13 @@ Port `components/admin/ContextMenu.tsx` (MenuPanel, `tidy`, `keys`) into `ds/com
 - **Behaviour**: one visible at a time; a new toast replaces the current one. Durations follow 1.12 and pause on hover. It enters and exits over `--ds-duration-medium`. `aria-live="polite"`.
 - **Tags**: K / G.
 
+### 4.22a Upload panel (src/renderer/src/uploads/UploadPanel.tsx)
+
+- **Look**: a card 360 wide, bottom-right 16 from the view's edges (in an editor: left of the properties panel, 8 from it and the bottom), bg `--figma-color-bg`, radius `--ds-radius-large`, `--ds-elevation-400-menu-panel`, `--ds-z-toast`, at most 420 high (rows scroll). Header 48: title `body-medium-strong`, then a 24 chevron `IconButton` (Collapse / Expand) and, when nothing is going, Close (`24.close.small`); a 1 px `--figma-color-border` line under it.
+- **Row**: padding 8 8 8 12; `24.file` in `icon-secondary`; the name, then the destination in `text-secondary`; a 4 px track (`bg-secondary`, fill `bg-brand`, radius full, `role="progressbar"`), then "12.4 MB of 340 MB" with the percentage at the right (`text-secondary`, tabular figures). Done: the size and a `24.check` in `icon-success`. Failed: the error in `text-danger` and a secondary **Retry**. Cancel (`24.close.small`, tooltip "Cancel") shows on hover while uploading, always beside Retry.
+- **Behaviour**: shown while there are uploads; hidden 4 s after they are all done; Close forgets what is shown; a new upload brings it back. Enters like the Toast (8 px up, `--ds-duration-medium`).
+- **Tags**: G (Figma's import panel's card, measured by eye; no published spec).
+
 ### 4.23 TabBar and Tab (lives in the tab bar WebContentsView)
 
 - **Bar**:

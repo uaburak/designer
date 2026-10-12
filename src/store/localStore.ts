@@ -45,6 +45,8 @@ import { previewService, type PreviewSession } from "./preview/previews";
 import { SerialQueue } from "./local/queue";
 import { multiplayerApi } from "./multiplayer/api";
 import { MultiplayerService } from "./multiplayer/service";
+import { uploadDestination } from "./multiplayer/uploads";
+import { cleanOrgPlace, importIntoOrg } from "./multiplayer/orgImport";
 import { CommentsService, commentsApi } from "./comments/service";
 import { NotificationsService, notificationsApi } from "./notifications/service";
 import { OrgService } from "./org/service";
@@ -151,6 +153,8 @@ export class LocalStore {
   /** The bell (docs/multiplayer.md §12): the person's inbox socket while a session is on */
   readonly notifications: NotificationsService;
   readonly multiplayer: MultiplayerService;
+  /** How the store reaches the server: the global fetch, or a test's handler */
+  readonly fetch: typeof globalThis.fetch;
 
   private constructor(
     readonly dirs: WorkspaceDirs,
@@ -168,8 +172,9 @@ export class LocalStore {
     /** Stamps journal frames and records */
     readonly hlc: HlcClock,
     private readonly userDataDir: string | null = null,
-    readonly fetch: typeof globalThis.fetch = (...a: Parameters<typeof globalThis.fetch>) => globalThis.fetch(...a),
+    fetchFn?: typeof globalThis.fetch,
   ) {
+    this.fetch = fetchFn ?? ((...a: Parameters<typeof globalThis.fetch>) => globalThis.fetch(...a));
     this.workspaceEvents = ws.events;
     // Local libraries' events and org libraries' (from the Inbox, src/store/libraries/org.ts) on one topic
     this.libraryEvents = new Emitter<LibraryEvent>();
@@ -203,8 +208,22 @@ export class LocalStore {
         putBlob: async (bytes) => void (await blobs.put(bytes)),
         headSnapshot: async (fileKey) => codec.encodeMessage(currentMessage(await readSnapshotFile((await files.compactedHead(fileKey)).path))),
         thumbnail: async (fileKey) => (ws.files.has(fileKey) && ws.getMeta(fileKey).thumbnail ? new Uint8Array(await fsp.readFile(join(dirs.files, fileKey, "thumbnail.png")).catch(() => new Uint8Array())) : null),
+        blobSizes: (sha1s) => Promise.all(sha1s.map((sha1) => fsp.stat(blobs.path(sha1)).then((st) => st.size, () => 0))),
+        // The upload panel's destination (docs/multiplayer.md §5.1): the org's, team's and folder's names from the org cache
+        describeUpload: (fileKey, place) =>
+          uploadDestination(place, {
+            orgName: async (id) => (await this.org.orgs.get(id)).name,
+            teamName: async (id) => (await this.org.teams.get(id)).name,
+            projectName: async (id) => (await this.org.projects.get(id)).name,
+            localFolder: () => {
+              const folderId = ws.files.has(fileKey) ? ws.getMeta(fileKey).folderId : null;
+              return (folderId && ws.folders.get(folderId)?.name) || null;
+            },
+          }),
       },
-      { fetch: this.fetch, WebSocket: globalThis.WebSocket as never, random: () => randomInt(0, 2 ** 32) / 2 ** 32 },
+      // Upload bodies stream so the upload panel sees their bytes go (Node's fetch streams a request with `duplex`); a
+      // test's in-process handler gets them whole
+      { fetch: this.fetch, WebSocket: globalThis.WebSocket as never, random: () => randomInt(0, 2 ** 32) / 2 ** 32, streamUploads: !fetchFn },
     );
     const commentsPath = (fileKey: FileKey) => {
       if (!ws.files.has(fileKey)) throw new StoreError("not-found", "No such file");
@@ -712,14 +731,30 @@ export class LocalStore {
   }
 
   /** `files.importFigBytes`: a `.fig` the page read itself (Home's Import, a file dropped from Finder). */
-  async importFigBytes(bytes: Uint8Array, name: string, folderId: FolderId | null = null): Promise<FileMeta> {
+  async importFigBytes(bytes: Uint8Array, name: string, folderId: FolderId | null = null, org?: unknown): Promise<FileMeta> {
     this.guard();
     if (!(bytes instanceof Uint8Array)) throw new StoreError("invalid", "importFigBytes needs the file's bytes");
+    const place = cleanOrgPlace(org);
+    const label = typeof name === "string" ? name : "";
+    // An org shown in Home: into its Drafts or folder, as an org file (docs/multiplayer.md §5.1)
+    if (place)
+      return importIntoOrg(
+        {
+          mp: this.multiplayer,
+          teamOf: async (projectId) => (await this.org.projects.get(projectId)).teamId,
+          importLocal: (space) => this.importFig(bytes, label, null, space),
+          headSnapshot: async (fileKey) => codec.encodeMessage(currentMessage(await readSnapshotFile((await this.files.compactedHead(fileKey)).path))),
+          deleteLocal: (fileKey) => this.deleteItems({ files: [fileKey], folders: [] }),
+          filesChanged: (orgId, projectId) => void this.org.notice({ t: "org", what: "files", orgId, ...(projectId ? { projectId } : {}) }),
+          log: this.log,
+        },
+        place,
+      );
     this.checkFolder(folderId ?? null);
-    return this.importFig(bytes, typeof name === "string" ? name : "", folderId ?? null);
+    return this.importFig(bytes, label, folderId ?? null);
   }
 
-  private async importFig(bytes: Uint8Array, name: string, folderId: FolderId | null): Promise<FileMeta> {
+  private async importFig(bytes: Uint8Array, name: string, folderId: FolderId | null, space?: FileSpace): Promise<FileMeta> {
     // The import keeps GUIDs below 2^20 and moves the rest to the new file's first session.
     const prepared = prepareFigImport(bytes, { name, sessionID: sessionIdFor(this.deviceOrdinal, 1) });
     for (const data of prepared.images.values()) await this.blobs.put(data);
@@ -728,6 +763,8 @@ export class LocalStore {
     await this.setNextLocal(key, 2);
     const meta = newMeta(key, prepared.name, folderId, this.clock.now());
     meta.importedFrom = { kind: "fig", name: prepared.name };
+    // An org file's copy from the start: never listed among the local Drafts
+    if (space) meta.space = { ...space };
     if (prepared.thumbnail) {
       const dims = pngSize(prepared.thumbnail);
       if (dims) {
@@ -902,7 +939,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     restoreDiff: (fileKey, id) => s.files.restoreDiff(fileKey, id),
     duplicateVersion: (fileKey, id) => s.duplicateVersion(fileKey, id),
     importLocalCopy: (path, folderId) => s.importLocalCopy(path, folderId ?? null),
-    importFigBytes: (bytes, name, folderId) => s.importFigBytes(bytes, name, folderId ?? null),
+    importFigBytes: (bytes, name, folderId, org) => s.importFigBytes(bytes, name, folderId ?? null, org),
     exportLocalCopy: (fileKey, path) => s.exportLocalCopy(fileKey, path),
   };
   const blobs: BlobStore = {

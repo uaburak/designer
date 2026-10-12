@@ -37,6 +37,9 @@ export interface LibraryServer {
   request(method: string, path: string, body?: unknown): Promise<Response>;
   /** Session changes (caches keyed by person follow them) */
   onSession?(listener: () => void): Unsubscribe;
+  /** PUTs of bytes shown in the upload panel as one upload of `fileKey` (a publish's payloads and images, §5.1 of
+   *  docs/multiplayer.md); absent: sent one by one, unseen */
+  upload?(fileKey: FileKey, parts: { path: string; bytes: Uint8Array }[]): Promise<void>;
 }
 
 export function libraryServerOf(mp: MultiplayerService): LibraryServer {
@@ -49,6 +52,7 @@ export function libraryServerOf(mp: MultiplayerService): LibraryServer {
     },
     request: (method, path, body) => mp.request(method, path, body),
     onSession: (listener) => mp.onSession(() => listener()),
+    upload: (fileKey, parts) => mp.uploadParts(fileKey, parts),
   };
 }
 
@@ -523,20 +527,24 @@ export class OrgLibraries {
     // 1. What the library's object lacks.
     const ask: LibraryMissing = { payloads: req.assets.map((a) => ({ key: a.key, versionHash: a.versionHash })), blobs: [...blobs].filter(isSha1) };
     const lacks = await this.call<LibraryMissing>("POST", `/libraries/${key}/missing`, ask);
-    // 2. Uploads (content-addressed and idempotent: a retry after a failure sends what is still missing).
+    // 2. Uploads (content-addressed and idempotent: a retry after a failure sends what is still missing), in the
+    // upload panel as one upload of the library's file when the server can show it.
+    const parts: { path: string; bytes: Uint8Array }[] = [];
     for (const p of lacks?.payloads ?? []) {
       const a = req.assets.find((x) => x.key === p.key && x.versionHash === p.versionHash);
       if (!a) continue;
       const bytes = containers.get(a.key) ?? (await this.host.cache.readBytes(CACHE.payload(key, a.key, a.versionHash)).catch(() => null));
       if (!bytes) throw new StoreError("invalid", `asset ${a.key} needs its payload`);
-      await this.send("PUT", `/libraries/${key}/payloads/${seg(a.key, "asset key")}/${seg(a.versionHash, "version hash")}`, bytes);
+      parts.push({ path: `/libraries/${key}/payloads/${seg(a.key, "asset key")}/${seg(a.versionHash, "version hash")}`, bytes });
     }
     for (const sha1 of lacks?.blobs ?? []) {
       if (!isSha1(sha1)) continue;
       const bytes = await this.host.blobs.get(sha1).catch(() => null);
       if (!bytes) throw new StoreError("invalid", `image ${sha1} isn't on this computer`);
-      await this.send("PUT", `/libraries/${key}/blobs/${sha1}`, bytes);
+      parts.push({ path: `/libraries/${key}/blobs/${sha1}`, bytes });
     }
+    if (parts.length && this.server.upload) await this.server.upload(copy.fileKey, parts);
+    else for (const p of parts) await this.send("PUT", p.path, p.bytes);
     // 3. The commit.
     const scope: LibraryScope = req.scope === "org" || req.scope === "team" ? req.scope : ((await this.cached<OrgLibraryRecord>(CACHE.record(key)))?.org?.scope ?? "team");
     const input: OrgPublishInput = {

@@ -44,6 +44,8 @@ import { KV_PREFIX, memoryStorage, parseWithBytes, stringifyWithBytes, type KeyV
 import { MemoryLibraries } from "./memoryLibraries";
 import { multiplayerApi } from "../../../../store/multiplayer/api";
 import { MultiplayerService } from "../../../../store/multiplayer/service";
+import { uploadDestination } from "../../../../store/multiplayer/uploads";
+import { cleanOrgPlace, importIntoOrg } from "../../../../store/multiplayer/orgImport";
 import { CommentsService, commentsApi } from "../../../../store/comments/service";
 import { NotificationsService, notificationsApi } from "../../../../store/notifications/service";
 import { OrgService } from "../../../../store/org/service";
@@ -364,6 +366,17 @@ export class MemoryStore {
           const t = this.ws.files.has(fileKey) ? this.fileData(fileKey).thumbnail : null;
           return t?.mime === "image/png" ? t.bytes : null;
         },
+        // The upload panel's destination (docs/multiplayer.md §5.1), as the desktop store names it
+        describeUpload: (fileKey, place) =>
+          uploadDestination(place, {
+            orgName: async (id) => (await this.org.orgs.get(id)).name,
+            teamName: async (id) => (await this.org.teams.get(id)).name,
+            projectName: async (id) => (await this.org.projects.get(id)).name,
+            localFolder: () => {
+              const folderId = this.ws.files.has(fileKey) ? this.ws.getMeta(fileKey).folderId : null;
+              return (folderId && this.ws.folders.get(folderId)?.name) || null;
+            },
+          }),
       },
       {
         fetch: (...a) => fetch(...a),
@@ -885,8 +898,28 @@ export class MemoryStore {
   }
 
   /** `files.importFigBytes` (docs/data.md §11.1): the shared import with the browser's codecs. */
-  async importFigBytes(bytes: Uint8Array, name: string, folderId: FolderId | null = null): Promise<FileMeta> {
+  async importFigBytes(bytes: Uint8Array, name: string, folderId: FolderId | null = null, org?: unknown, space?: FileSpace): Promise<FileMeta> {
     if (!(bytes instanceof Uint8Array)) throw new StoreError("invalid", "importFigBytes needs the file's bytes");
+    // An org shown in Home: into its Drafts or folder, as an org file (docs/multiplayer.md §5.1), as the desktop store
+    const place = cleanOrgPlace(org);
+    if (place)
+      return importIntoOrg(
+        {
+          mp: this.multiplayer,
+          teamOf: async (projectId) => (await this.org.projects.get(projectId)).teamId,
+          importLocal: (s) => this.importFigBytes(bytes, name, null, null, s),
+          headSnapshot: async (fileKey) => {
+            const d = this.fileData(fileKey);
+            this.compact(d);
+            this.saveData(fileKey, d);
+            return d.snapshot;
+          },
+          deleteLocal: (fileKey) => this.deleteItems({ files: [fileKey], folders: [] }),
+          filesChanged: (orgId, projectId) => void this.org.notice({ t: "org", what: "files", orgId, ...(projectId ? { projectId } : {}) }),
+          log: (level, message, detail) => this.log(level, message, detail),
+        },
+        place,
+      );
     this.checkFolder(folderId ?? null);
     const prepared = await prepareFigImportAsync(bytes, { name: typeof name === "string" ? name : "", sessionID: sessionIdFor(this.deviceOrdinal, 1) }, { inflateRaw, zstdDecompress: this.opts.zstdDecompress, sha1: sha1Hex });
     for (const data of prepared.images.values()) await this.putBlob(data);
@@ -899,6 +932,7 @@ export class MemoryStore {
       thumbnail: dims ? { bytes: prepared.thumbnail!, mime: "image/png" } : null,
       thumbSize: dims ?? undefined,
       importedFrom: { kind: "fig", name: prepared.name },
+      ...(space ? { space } : {}),
     });
     this.addVersion(meta.fileKey, { kind: "import", title: null, description: null, restoredFrom: null });
     return meta;
@@ -1261,7 +1295,7 @@ export class MemoryStore {
       importLocalCopy: async () => {
         throw new StoreError("forbidden", "Importing from a path needs the desktop app; use importFigBytes");
       },
-      importFigBytes: (bytes, name, folderId) => this.importFigBytes(bytes, name, folderId ?? null),
+      importFigBytes: (bytes, name, folderId, org) => this.importFigBytes(bytes, name, folderId ?? null, org),
       exportLocalCopy: async () => {
         throw new StoreError("forbidden", "Saving a local copy needs the desktop app");
       },

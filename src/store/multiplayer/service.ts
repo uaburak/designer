@@ -21,6 +21,8 @@ import type { FileChange, Unsubscribe } from "../../shared/store/repositories";
 import type { FileKey, FileMeta, FileSpace } from "../../shared/store/types";
 import { touchedBy, withoutPending, type Touched } from "./conflict";
 import { busyError, fetchWithRetry, isErrorPage, READ_RETRY_DELAYS, STILL_UPLOADING_TEXT, UPLOAD_RETRY_DELAYS, withRetry } from "./http";
+import { countingBody, UploadTracker, type UploadClock } from "./uploads";
+import { UPLOAD_CANCELED, UPLOAD_CANCELED_TEXT, type UploadEvent } from "../../shared/multiplayer/uploads";
 
 /** What the store gives the service. */
 export interface MultiplayerHost {
@@ -50,6 +52,18 @@ export interface MultiplayerHost {
   headSnapshot(fileKey: FileKey): Promise<Uint8Array>;
   /** The file's thumbnail PNG (Home's card), null when it has none: uploaded for the REST API's `thumbnailUrl` (§16.7) */
   thumbnail?(fileKey: FileKey): Promise<Uint8Array | null>;
+  /** Images' sizes in bytes (an upload's total before it starts); absent: each one's size is added as it is read */
+  blobSizes?(sha1s: string[]): Promise<number[]>;
+  /** Where an upload goes, in the upload panel's words ("Anex Tour › Design › KOC"); `place`: the org file's place, null
+   *  for a file shared outside any org (docs/multiplayer.md §5.1) */
+  describeUpload?(fileKey: FileKey, place: UploadPlace | null): Promise<string>;
+}
+
+/** An org file's place, as `POST /files` answers it and `FileMeta.space` keeps it */
+export interface UploadPlace {
+  orgId: string;
+  teamId: string | null;
+  projectId: string | null;
 }
 
 interface WebSocketLike {
@@ -75,7 +89,27 @@ export interface MultiplayerDeps {
   retryDelays?: readonly number[];
   /** Milliseconds between a share's upload tries — its images and snapshot (default UPLOAD_RETRY_DELAYS) */
   uploadRetryDelays?: readonly number[];
+  /** Upload bodies as streams read in slices, so the upload panel sees their bytes go (the desktop store; a browser's
+   *  fetch can't stream a request over HTTP/1.1): otherwise each part counts once it has gone */
+  streamUploads?: boolean;
+  /** The upload panel's clock (tests) */
+  uploadClock?: UploadClock;
 }
+
+/** An upload the panel follows: its entry and the signal that cancels it */
+interface Tracked {
+  id: string;
+  signal: AbortSignal;
+}
+
+/** A call's request body as it goes (uploads) and the signal that aborts it */
+interface CallOptions {
+  onSent?(bytes: number): void;
+  signal?: AbortSignal;
+}
+
+const canceledError = () => new StoreError("invalid", UPLOAD_CANCELED_TEXT, { code: UPLOAD_CANCELED });
+export const isCanceled = (e: unknown): boolean => e instanceof StoreError && (e.detail as { code?: unknown } | undefined)?.code === UPLOAD_CANCELED;
 
 interface LinkRecord {
   key: string;
@@ -159,11 +193,17 @@ export class MultiplayerService {
   private saving: Promise<void> = Promise.resolve();
   private off: Unsubscribe;
 
+  /** Uploads to the server as the upload panel shows them (topic `uploads`, docs/multiplayer.md §5.1) */
+  readonly uploads: UploadTracker;
+  /** The upload under way per file: aborting it cancels it */
+  private uploading = new Map<FileKey, AbortController>();
+
   constructor(
     private host: MultiplayerHost,
     private deps: MultiplayerDeps,
   ) {
     this.off = host.fileChanges.on((c) => this.live.get(c.fileKey)?.local(c));
+    this.uploads = new UploadTracker(deps.uploadClock);
   }
 
   /** Main (desktop) or the page (browser) hands the session over; null signs out (links stay, sockets close). */
@@ -369,7 +409,20 @@ export class MultiplayerService {
     if (!meta) throw new StoreError("not-found", "No such file");
     this.needOrdinal();
     const room = key ?? roomKeyFor(fileKey, this.deps.random);
-    const answer = await register(room, meta.name);
+    // The upload panel shows it from here (queued while the server registers it)
+    const ac = new AbortController();
+    this.uploading.set(fileKey, ac);
+    const id = this.uploads.begin({ fileKey, name: meta.name }, this.uploadControls(fileKey));
+    let answer: T;
+    try {
+      answer = await register(room, meta.name);
+    } catch (e) {
+      this.uploading.delete(fileKey);
+      this.uploads.remove(id);
+      throw e;
+    }
+    const place = placeOf(answer) ?? spacePlace(meta.space);
+    void this.describeUpload(id, fileKey, place);
     // The file exists on the server from here: the link remembers its upload until the snapshot has landed, so a
     // failure part-way (the 2026-10-12 incident: the row made, then the image check and the snapshot refused) is
     // finished by the next start of the link instead of leaving a file with no snapshot behind.
@@ -377,31 +430,156 @@ export class MultiplayerService {
     st.links[fileKey] = rec;
     await this.persist(fileKey);
     try {
-      await this.uploadContent(room, input.snapshot);
+      if (ac.signal.aborted) throw canceledError();
+      await this.uploadContent(room, input.snapshot, undefined, { id, signal: ac.signal });
     } catch (e) {
+      this.uploading.delete(fileKey);
+      if (isCanceled(e)) {
+        // Cancelled in the panel: the file stays here as it was, and the server's empty file goes
+        await this.abandonUpload(fileKey, id, room, { local: false, inOrg: !!place });
+        throw canceledError();
+      }
       this.host.log("warn", `multiplayer ${fileKey}: the upload to ${room} didn't finish; it goes again when the file is next opened`, e);
+      const err = e instanceof StoreError ? e : new StoreError("offline", "Couldn't reach the server. Check your connection and try again.");
+      this.uploads.failed(id, err.message);
       // The link keeps trying in the background (with its backoff), as it would after a restart
       this.startLink(fileKey);
-      const err = e instanceof StoreError ? e : new StoreError("offline", "Couldn't reach the server. Check your connection and try again.");
       throw new StoreError(err.code, `“${meta.name}” didn't finish uploading. It will try again the next time it's opened.`, { code: "upload_incomplete", pendingUpload: true, fileKey, key: room, cause: err.message });
     }
+    this.uploading.delete(fileKey);
     delete rec.pendingUpload;
     await this.persist(fileKey);
+    this.uploads.done(id);
     this.startLink(fileKey);
     void this.uploadThumbnail(fileKey);
     return answer;
   }
 
-  /** A shared file's first content in its room — its images, then its snapshot at seq 0 — tried again while the server
-   *  is busy or unreachable for a moment; resolves only once the snapshot has landed. */
-  private async uploadContent(room: string, snapshot: Uint8Array, alive: () => boolean = () => !this.closed): Promise<void> {
+  /** Uploads' progress for the upload panel (topic `uploads`) */
+  onUploads(listener: (e: UploadEvent) => void): Unsubscribe {
+    return this.uploads.on(listener);
+  }
+
+  /**
+   * Bytes PUT part by part as one upload of `fileKey` in the panel (a library publish's payloads and images, data.md
+   * §16.6): each part tried again through a busy moment; Cancel aborts it (the caller's call fails), no Retry — the
+   * person publishes again.
+   */
+  async uploadParts(fileKey: FileKey, parts: { path: string; bytes: Uint8Array }[]): Promise<void> {
+    const meta = this.host.getMeta(fileKey);
+    const ac = new AbortController();
+    const id = this.uploads.begin({ fileKey, name: meta?.name ?? "Library" }, { cancel: () => ac.abort() });
+    void this.describeUpload(id, fileKey, spacePlace(meta?.space));
+    const delays = this.deps.uploadRetryDelays ?? UPLOAD_RETRY_DELAYS;
+    this.uploads.setTotal(
+      id,
+      parts.reduce((n, p) => n + p.bytes.length, 0),
+    );
+    let landed = 0;
+    try {
+      for (const p of parts) {
+        const base = landed;
+        await withRetry(
+          delays,
+          () => {
+            if (ac.signal.aborted) throw canceledError();
+            return this.raw("PUT", p.path, p.bytes, { signal: ac.signal, onSent: (n) => this.uploads.progress(id, base + n) });
+          },
+          (attempt) => this.uploads.retrying(id, attempt, landed),
+        );
+        landed += p.bytes.length;
+      }
+    } catch (e) {
+      if (isCanceled(e)) this.uploads.remove(id);
+      else this.uploads.failed(id, e instanceof StoreError ? e.message : "Couldn't reach the server. Check your connection and try again.");
+      throw e;
+    }
+    this.uploads.done(id);
+  }
+
+  /** The panel's Retry and Cancel for a file's upload */
+  private uploadControls(fileKey: FileKey) {
+    return { retry: () => this.retryUpload(fileKey), cancel: () => void this.cancelUpload(fileKey) };
+  }
+
+  private async describeUpload(id: string, fileKey: FileKey, place: UploadPlace | null): Promise<void> {
+    if (!this.host.describeUpload) return;
+    try {
+      this.uploads.setDestination(id, await this.host.describeUpload(fileKey, place));
+    } catch (e) {
+      this.host.log("debug", `multiplayer ${fileKey}: the upload's destination couldn't be named`, e);
+    }
+  }
+
+  /** Retry in the panel: a waiting upload goes now (its link starts again at once) */
+  retryUpload(fileKey: FileKey): void {
+    if (this.uploading.has(fileKey) || !this.state?.links[fileKey]?.pendingUpload) return;
+    this.live.get(fileKey)?.stop();
+    this.live.delete(fileKey);
+    this.startLink(fileKey);
+  }
+
+  /**
+   * Cancel in the panel: the upload under way stops (its own catch tidies up); one waiting to try again is dropped now —
+   * the link goes, the file stays here as a local file, and the server's file without content is removed.
+   */
+  async cancelUpload(fileKey: FileKey): Promise<void> {
+    const running = this.uploading.get(fileKey);
+    if (running) return running.abort();
+    const id = this.uploads.of(fileKey);
+    const rec = this.state?.links[fileKey];
+    if (rec?.pendingUpload) await this.abandonUpload(fileKey, id, rec.key, { local: true, inOrg: !!this.host.getMeta(fileKey)?.space });
+    else if (id) this.uploads.remove(id);
+  }
+
+  /** A cancelled upload: unlinked (`pendingUpload` gone with the link), back to a local file when `local` (an org file's
+   *  copy leaves the org), and the server's empty file removed (an org's trashed first, as "Delete forever" asks) */
+  private async abandonUpload(fileKey: FileKey, id: string | null, room: string, o: { local: boolean; inOrg: boolean }): Promise<void> {
+    this.host.log("info", `multiplayer ${fileKey}: the upload to ${room} was cancelled; the file stays here`);
+    await this.unlink(fileKey);
+    if (o.local && this.host.getMeta(fileKey)?.space) await this.host.setFileSpace?.(fileKey, null);
+    if (id) this.uploads.remove(id);
+    void (async () => {
+      try {
+        if (o.inOrg) await this.api("POST", `/files/${room}/trash`);
+        await this.api("DELETE", `/files/${room}`);
+      } catch (e) {
+        this.host.log("warn", `multiplayer: the cancelled upload's file ${room} wasn't removed from the server`, e);
+      }
+    })();
+  }
+
+  /**
+   * A shared file's first content in its room — its images, then its snapshot at seq 0 — each part tried again while
+   * the server is busy or unreachable for a moment; resolves only once the snapshot has landed. `up`: the panel's entry
+   * (bytes as they go, retries) and its cancel.
+   */
+  private async uploadContent(room: string, snapshot: Uint8Array, alive: () => boolean = () => !this.closed, up?: Tracked): Promise<void> {
     const delays = this.deps.uploadRetryDelays ?? UPLOAD_RETRY_DELAYS;
     const step = <T>(run: () => Promise<T>) => () => {
-      if (!alive()) throw new StoreError("offline", "Stopped");
+      if (up?.signal.aborted) throw canceledError();
+      if (!alive()) throw new StoreError("offline", PAUSED_TEXT);
       return run();
     };
-    await withRetry(delays, step(() => this.uploadBlobs(room, imagesOf(snapshot))));
-    await withRetry(delays, step(() => this.api("PUT", `/files/${room}/snapshot?seq=0`, snapshot)));
+    // Bytes of the parts landed; a part's own count starts from it and falls back to it when the part goes again
+    let landed = 0;
+    let total = snapshot.length;
+    const onRetry = up && ((attempt: number) => this.uploads.retrying(up.id, attempt, landed));
+    const call = (base: number): CallOptions | undefined => up && { signal: up.signal, onSent: (n) => this.uploads.progress(up.id, base + n) };
+    const sha1s = imagesOf(snapshot);
+    const missing = sha1s.length ? await withRetry(delays, step(() => this.missingBlobs(room, sha1s)), onRetry) : [];
+    const sizes = up && missing.length && this.host.blobSizes ? await this.host.blobSizes(missing).catch(() => null) : null;
+    if (sizes) total += sizes.reduce((a, b) => a + b, 0);
+    if (up) this.uploads.setTotal(up.id, total);
+    for (let i = 0; i < missing.length; i++) {
+      const bytes = await this.host.getBlob(missing[i]);
+      if (up && !sizes) this.uploads.setTotal(up.id, (total += bytes.length));
+      const base = landed;
+      await withRetry(delays, step(() => this.raw("PUT", `/files/${room}/blobs/${missing[i]}`, bytes, call(base))), onRetry);
+      landed += bytes.length;
+    }
+    const base = landed;
+    await withRetry(delays, step(() => this.api("PUT", `/files/${room}/snapshot?seq=0`, snapshot, call(base))), onRetry);
   }
 
   /**
@@ -412,10 +590,16 @@ export class MultiplayerService {
   async finishUpload(fileKey: FileKey): Promise<boolean> {
     const rec = this.state?.links[fileKey];
     if (!rec?.pendingUpload) return !!rec;
-    if (!this.host.getMeta(fileKey)) return false;
+    const meta = this.host.getMeta(fileKey);
+    if (!meta || this.uploading.has(fileKey)) return false;
     // Signed out, another session or the store closing meanwhile: this try stops (the next start goes again)
     const session = this.session;
     const alive = () => !this.closed && this.session === session && this.state?.links[fileKey] === rec;
+    // The upload panel shows the resumed upload (continuing its entry when it has one)
+    const ac = new AbortController();
+    this.uploading.set(fileKey, ac);
+    const id = this.uploads.begin({ fileKey, name: meta.name }, this.uploadControls(fileKey));
+    void this.describeUpload(id, fileKey, spacePlace(meta.space));
     try {
       let has = true;
       try {
@@ -428,18 +612,28 @@ export class MultiplayerService {
       if (!has) {
         // The head's seq before its document: a frame journaled meanwhile is sent again rather than lost
         const head = Math.max(0, ...(await this.host.backlog(fileKey, 0)).map((c) => c.seq));
-        await this.uploadContent(rec.key, await this.host.headSnapshot(fileKey), alive);
+        await this.uploadContent(rec.key, await this.host.headSnapshot(fileKey), alive, { id, signal: ac.signal });
         rec.acked = Math.max(rec.acked, head);
       }
-      if (!alive()) return false;
+      if (ac.signal.aborted) throw canceledError();
+      if (!alive()) throw new StoreError("offline", PAUSED_TEXT);
+      this.uploading.delete(fileKey);
       delete rec.pendingUpload;
       await this.persist(fileKey);
+      this.uploads.done(id);
       this.host.log("info", `multiplayer ${fileKey}: finished uploading to ${rec.key}`);
       void this.uploadThumbnail(fileKey);
       return true;
     } catch (e) {
-      if (isGone(e)) await this.dropDead(fileKey, rec.key);
-      else this.host.log("warn", `multiplayer ${fileKey}: the upload to ${rec.key} didn't finish yet`, e);
+      this.uploading.delete(fileKey);
+      if (isCanceled(e)) await this.abandonUpload(fileKey, id, rec.key, { local: true, inOrg: !!meta.space });
+      else if (isGone(e)) {
+        this.uploads.remove(id);
+        await this.dropDead(fileKey, rec.key);
+      } else {
+        this.uploads.failed(id, e instanceof StoreError ? e.message : "Couldn't reach the server. Check your connection and try again.");
+        this.host.log("warn", `multiplayer ${fileKey}: the upload to ${rec.key} didn't finish yet`, e);
+      }
       return false;
     }
   }
@@ -643,11 +837,16 @@ export class MultiplayerService {
 
   /** @internal Images the room doesn't have yet, uploaded from the store (those the store has). */
   async uploadBlobs(key: string, sha1s: string[]): Promise<void> {
-    if (!sha1s.length) return;
+    for (const sha1 of await this.missingBlobs(key, sha1s)) await this.raw("PUT", `/files/${key}/blobs/${sha1}`, await this.host.getBlob(sha1));
+  }
+
+  /** The images the room lacks that the store has (those it never had can't go) */
+  private async missingBlobs(key: string, sha1s: string[]): Promise<string[]> {
+    if (!sha1s.length) return [];
     const { missing } = await this.api<{ missing: string[] }>("POST", `/files/${key}/blobs/missing`, { sha1s });
-    if (!missing.length) return;
+    if (!missing.length) return [];
     const have = await this.host.hasBlobs(missing);
-    for (let i = 0; i < missing.length; i++) if (have[i]) await this.raw("PUT", `/files/${key}/blobs/${missing[i]}`, await this.host.getBlob(missing[i]));
+    return missing.filter((_, i) => have[i]);
   }
 
   /** @internal Images the store doesn't have yet, downloaded from the room before the frame that uses them lands. */
@@ -831,6 +1030,7 @@ export class MultiplayerService {
   close(): void {
     this.closed = true;
     this.off();
+    this.uploads.close();
     this.blocked.clear();
     if (this.blockedTimer) clearTimeout(this.blockedTimer);
     this.blockedTimer = null;
@@ -1124,8 +1324,8 @@ export class MultiplayerService {
     return this.state;
   }
 
-  private async raw(method: string, path: string, body?: unknown): Promise<Response> {
-    const res = await this.request(method, path, body);
+  private async raw(method: string, path: string, body?: unknown, opts?: CallOptions): Promise<Response> {
+    const res = await this.request(method, path, body, opts);
     if (res.ok) return res;
     throw await httpError(res);
   }
@@ -1134,10 +1334,11 @@ export class MultiplayerService {
    * A call with the session whatever the answer's status (the libraries' analytics queue tells 4xx from 5xx, and
    * payloads answer bytes: src/store/libraries/org.ts); signed out or unreachable → `offline`.
    */
-  async request(method: string, path: string, body?: unknown): Promise<Response> {
+  async request(method: string, path: string, body?: unknown, opts?: CallOptions): Promise<Response> {
     if (!this.session) throw new StoreError("offline", "Log in to share files");
     const session = this.session;
     const init: RequestInit = { method, headers: { authorization: `Bearer ${session.token}` } };
+    if (opts?.signal) init.signal = opts.signal;
     const pass = this.passes.get(/^\/files\/([^/?]+)/.exec(path)?.[1] ?? "");
     if (pass) (init.headers as Record<string, string>)["x-file-pass"] = pass;
     if (body instanceof Uint8Array) {
@@ -1147,14 +1348,23 @@ export class MultiplayerService {
       init.body = JSON.stringify(body);
       (init.headers as Record<string, string>)["content-type"] = "application/json";
     }
+    // An upload the panel follows: its body read in slices as it goes (streamed, with its length declared so the server
+    // streams it on: quota.ts guardedStream), or counted whole once sent
+    const counted = opts?.onSent && body instanceof Uint8Array ? body : null;
+    const streamed = counted && this.deps.streamUploads;
+    if (streamed) (init.headers as Record<string, string>)["content-length"] = String(counted.length);
     let res: Response;
     try {
       // Reads try again when the server is busy or unreachable for a moment (Cloudflare's 1102 pages, 5xx, 429)
       const url = new URL(path, this.session.server).toString();
-      res = await fetchWithRetry(method, this.deps.retryDelays ?? READ_RETRY_DELAYS, () => this.deps.fetch(url, init));
+      res = await fetchWithRetry(method, this.deps.retryDelays ?? READ_RETRY_DELAYS, () =>
+        this.deps.fetch(url, streamed ? ({ ...init, body: countingBody(counted, opts!.onSent!), duplex: "half" } as RequestInit) : init),
+      );
     } catch {
+      if (opts?.signal?.aborted) throw canceledError();
       throw new StoreError("offline", "Couldn't reach the server. Check your connection and try again.");
     }
+    if (counted && !streamed && res.ok) opts!.onSent!(counted.length);
     if (res.status === 401) await this.sessionRefused(res, session);
     // Governance+'s refusals (403 gates and restrictions, 503 key_unavailable) are said once read (§2.5)
     if ((res.status === 403 || res.status === 503) && this.governanceListeners.size && this.session === session) void this.governanceAnswer(res.clone(), path);
@@ -1227,8 +1437,8 @@ export class MultiplayerService {
   devModeChanged(fileKey: FileKey, what: "resources" | "codeConnect"): void {
     for (const l of this.roomDevMode) l(fileKey, what);
   }
-  private async api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await this.raw(method, path, body);
+  private async api<T = unknown>(method: string, path: string, body?: unknown, opts?: CallOptions): Promise<T> {
+    const res = await this.raw(method, path, body, opts);
     // 204 (a delete, leaving): nothing to read
     if (res.status === 204) return undefined as T;
     const text = await res.text();
@@ -1245,6 +1455,20 @@ export function isGone(e: unknown): boolean {
   const code = (e.detail as { code?: unknown } | undefined)?.code;
   return code === "not_found" || code === "gone";
 }
+
+/** An upload stopped by the session or the store going away (it goes again with the next start) */
+const PAUSED_TEXT = "Upload paused. It will continue when Designer reconnects.";
+
+/** An org file's place in `register`'s answer (`POST /files` with an org, a folder's `POST …/files`: `{file}`) */
+function placeOf(answer: unknown): UploadPlace | null {
+  const f = answer && typeof answer === "object" ? (answer as { file?: unknown }).file : null;
+  if (!f || typeof f !== "object") return null;
+  const { orgId, teamId, projectId } = f as Partial<Record<keyof UploadPlace, unknown>>;
+  if (typeof orgId !== "string") return null;
+  return { orgId, teamId: typeof teamId === "string" ? teamId : null, projectId: typeof projectId === "string" ? projectId : null };
+}
+
+const spacePlace = (space: FileSpace | null | undefined): UploadPlace | null => (space ? { orgId: space.orgId, teamId: space.teamId ?? null, projectId: space.projectId ?? null } : null);
 
 /** `GET /files/:key` of an org file adds where it lives (docs/multiplayer.md §14.12) */
 type RemoteWithOrg = SharedFileInfo & { org?: { id: string; teamId: string | null; projectId: string | null } | null };
