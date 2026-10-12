@@ -165,6 +165,8 @@ export const RECOVERY_CODE_COUNT = 10;
 /** Sign-in failures before 429 (§4) */
 export const TWO_FACTOR_MAX_FAILURES = 5;
 export const TWO_FACTOR_FAILURE_WINDOW_MS = 10 * 60_000;
+/** A network range is enforced only after this long in testing, so its shadow hits are seen first (§2.2; ours) */
+export const NETWORK_TESTING_MIN_MS = 24 * 3_600_000;
 export const TWO_FACTOR_SETUP_TTL_MS = 10 * 60_000;
 
 const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -281,9 +283,12 @@ export interface EkmStatus {
   encrypting: string | null;
 }
 export interface EkmInput { source: KeySource }
-/** Each encrypted row: "DV2E" | version 1 | iv (12) | AES-256-GCM ciphertext + tag */
+/**
+ * Each encrypted row: "DV2E" | version | iv (12) | AES-256-GCM ciphertext + tag. Version 2 (written now) binds
+ * `fileKey|table` into the associated data; version 1 rows (the header alone) are still read.
+ */
 export const ENC_MAGIC = "DV2E";
-export const ENC_VERSION = 1;
+export const ENC_VERSION = 2;
 export const ENC_HEADER_BYTES = 4 + 1 + 12;
 /** The room re-unwraps the DEK this often */
 export const EKM_RECHECK_MS = 3_600_000;

@@ -25,7 +25,22 @@ export function sqliteD1(): D1Like {
       run: async () => stmt().run(...args),
     };
   };
-  return { prepare: (sql) => prepare(sql) };
+  return {
+    prepare: (sql) => prepare(sql),
+    // D1's batch: one transaction (node:sqlite runs synchronously, so nothing interleaves)
+    batch: async (stmts) => {
+      db.exec("BEGIN");
+      try {
+        const out: unknown[] = [];
+        for (const s of stmts) out.push(await s.run());
+        db.exec("COMMIT");
+        return out;
+      } catch (e) {
+        db.exec("ROLLBACK");
+        throw e;
+      }
+    },
+  };
 }
 
 /** D1 refuses a compound SELECT of more than 5 terms (its SQLITE_MAX_COMPOUND_SELECT; node:sqlite allows 500). Counted

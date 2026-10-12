@@ -77,7 +77,7 @@ export class RoomKey {
     if (!row?.org || !row.dek) return this.set(this.host.sealedBefore() ? "unavailable" : "none", PLAIN_CIPHER);
     // Unwrapped again on every check: that is the check that the root key still opens it (native; no subrequest).
     try {
-      const cipher = await orgCipher(this.host.rootKey(), row.org, row.dek);
+      const cipher = await orgCipher(this.host.rootKey(), row.org, row.dek, key);
       if (row.state === "unavailable") await this.flip(row.org, "ok");
       return this.set("ok", cipher);
     } catch (e) {

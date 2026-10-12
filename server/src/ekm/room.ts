@@ -90,6 +90,15 @@ export class RoomEkm {
   }
 
   /**
+   * A REST job's part (`rest_blobs`), opened — what the room reads itself (Discovery's `discovery_text` answer, sealed
+   * right after RestJobs stored it). Null when missing; throws SealError when it can't be opened.
+   */
+  async partBytes(sha1: string): Promise<Uint8Array | null> {
+    const rows = this.host.sql.exec<{ bytes: ArrayBuffer }>(`SELECT bytes FROM rest_blobs WHERE sha1 = ? ORDER BY idx`, sha1).toArray();
+    return rows.length ? openJoined(this.key.cipher, rows, "rest_blobs") : null;
+  }
+
+  /**
    * The REST tables' bytes: GET /room/rest-blob/:sha1 and GET /room/thumbnail are read here, opened; a part or a
    * thumbnail RestJobs stored is sealed right after. `rest` handles everything else.
    */
@@ -101,16 +110,20 @@ export class RoomEkm {
       const blob = /^\/room\/rest-blob\/([0-9a-f]{40})$/.exec(url.pathname);
       if (blob && m === "GET") {
         let rows = sql.exec<{ bytes: ArrayBuffer }>(`SELECT bytes FROM rest_blobs WHERE sha1 = ? ORDER BY idx`, blob[1]).toArray();
-        if (!rows.length) rows = sql.exec<{ bytes: ArrayBuffer }>(`SELECT bytes FROM blobs WHERE sha1 = ? ORDER BY idx`, blob[1]).toArray();
+        let table: "rest_blobs" | "blobs" = "rest_blobs";
+        if (!rows.length) {
+          rows = sql.exec<{ bytes: ArrayBuffer }>(`SELECT bytes FROM blobs WHERE sha1 = ? ORDER BY idx`, blob[1]).toArray();
+          table = "blobs";
+        }
         if (!rows.length) return new Response("no such blob", { status: 404 });
-        return new Response(await openJoined(cipher, rows), { headers: { "content-type": "application/octet-stream" } });
+        return new Response(await openJoined(cipher, rows, table), { headers: { "content-type": "application/octet-stream" } });
       }
       if (url.pathname === "/room/thumbnail" && m === "GET") {
         const t = sql.exec<{ parts: string }>(`SELECT parts FROM rest_cache WHERE job_key = 'thumbnail'`).toArray()[0];
         const sha1 = t ? (JSON.parse(t.parts) as { sha1: string }[])[0]?.sha1 : undefined;
         if (!sha1) return new Response("no thumbnail", { status: 404 });
         const rows = sql.exec<{ bytes: ArrayBuffer }>(`SELECT bytes FROM rest_blobs WHERE sha1 = ? ORDER BY idx`, sha1).toArray();
-        return new Response(await openJoined(cipher, rows), { headers: { "content-type": "image/png", "x-sha1": sha1 } });
+        return new Response(await openJoined(cipher, rows, "rest_blobs"), { headers: { "content-type": "image/png", "x-sha1": sha1 } });
       }
     } catch (e) {
       if (e instanceof SealError) return keyUnavailable();

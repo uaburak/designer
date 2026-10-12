@@ -28,13 +28,18 @@ export async function adminOrgOf(ctx: RestCtx, what: string): Promise<string> {
   }
   const { results } = await ctx.deps.db.d1.prepare(`SELECT org_id FROM org_members WHERE user_id = ?1 AND role = 'admin'`).bind(ctx.caller.user.id).all<{ org_id: string }>();
   const orgs = results.map((r) => r.org_id);
+  let org: string;
   if (asked) {
     if (!orgs.includes(asked)) throw new RestError(403, `Only organization admins can read ${what}`);
-    return asked;
+    org = asked;
+  } else {
+    if (!orgs.length) throw new RestError(403, `Only organization admins can read ${what}`);
+    if (orgs.length > 1) throw new RestError(400, "org_id is required: you administer more than one organization");
+    org = orgs[0];
   }
-  if (!orgs.length) throw new RestError(403, `Only organization admins can read ${what}`);
-  if (orgs.length > 1) throw new RestError(400, "org_id is required: you administer more than one organization");
-  return orgs[0];
+  // Governance+ gates (§2.5): an admin agrees to the org's policies first (admins are exempt from the IP allowlist)
+  await ctx.acc.checkGate(org);
+  return org;
 }
 
 export async function requireGovernancePlusRest(deps: Deps, orgId: string): Promise<void> {

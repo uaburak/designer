@@ -58,7 +58,7 @@ async function reportingFiles(ctx: Ctx, keys: string[]): Promise<Map<string, Fil
   const out = new Map<string, FilePlace>();
   for (const r of results) {
     const f = await ctx.acc.fileRow(r.key);
-    const a = f ? await ctx.acc.file(f, { viaLink: true, passOk: false }) : null;
+    const a = f ? await ctx.acc.openFile(f, { viaLink: true, passOk: false }) : null;
     if (a?.ok && a.canEdit && !a.trashed) out.set(r.key, r);
   }
   return out;
@@ -131,7 +131,7 @@ export async function fileUsageRoute(ctx: Ctx): Promise<Response> {
   if (!file) {
     // Not reporting (a draft, a branch, outside an org) or not editable: what the caller can't even open is 404.
     const f = await ctx.acc.fileRow(key);
-    const a = f ? await ctx.acc.file(f, { viaLink: true, passOk: false }) : null;
+    const a = f ? await ctx.acc.openFile(f, { viaLink: true, passOk: false }) : null;
     if (!a?.ok) throw new HttpError(404, "no such file");
     throw new HttpError(403, a.canEdit ? "this file doesn't report library usage" : "you can only view this file");
   }

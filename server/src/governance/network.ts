@@ -87,10 +87,11 @@ async function accountOfOrg(deps: Deps, c: Cache, orgId: string, user: Pick<User
   if (hit && now - hit.at < ALLOWED_TTL_MS) return hit.ok;
   const r = await deps.db.d1
     .prepare(
-      `SELECT EXISTS (SELECT 1 FROM org_members WHERE org_id = ?1 AND user_id = ?2)
+      // A guest whose access expired (Governance+, §2.13) no longer counts
+      `SELECT EXISTS (SELECT 1 FROM org_members WHERE org_id = ?1 AND user_id = ?2 AND (expires_at IS NULL OR expires_at > ?4))
            OR EXISTS (SELECT 1 FROM org_domains WHERE org_id = ?1 AND domain = ?3 AND verified_at IS NOT NULL) AS ok`,
     )
-    .bind(orgId, user.id, emailDomain(user.email) ?? "")
+    .bind(orgId, user.id, emailDomain(user.email) ?? "", now)
     .first<{ ok: number }>();
   const ok = !!r?.ok;
   if (c.allowed.size >= MAX_REMEMBERED) c.allowed.clear();

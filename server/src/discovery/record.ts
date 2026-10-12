@@ -184,8 +184,11 @@ export interface DiscoveryRoom {
   now(): number;
   /** The room's own D1 binding (absent: Discovery does nothing) */
   d1: D1Like | null;
-  /** The room's REST jobs (rest/roomJobs.ts) */
-  rest: { run(job: { kind: "discovery_text" }, waitMs: number, wanted: string[]): Promise<JobAnswer>; partBytes(sha1: string): Uint8Array | null; dropParts(parts: RestJobPart[]): void };
+  /**
+   * The room's REST jobs (rest/roomJobs.ts). `partBytes` answers the part **opened**: with key management on, FileRoom
+   * reads it through the room's cipher (`RoomEkm.partBytes`), since `rest_blobs` rows are sealed once stored.
+   */
+  rest: { run(job: { kind: "discovery_text" }, waitMs: number, wanted: string[]): Promise<JobAnswer>; partBytes(sha1: string): Uint8Array | null | Promise<Uint8Array | null>; dropParts(parts: RestJobPart[]): void };
 }
 
 /** The job runs at most this often; a first change after a run waits at least DISCOVERY_QUIET_MS (the person is typing) */
@@ -193,6 +196,11 @@ export const DISCOVERY_EVERY_MS = HOUR_MS;
 export const DISCOVERY_QUIET_MS = 10 * 60_000;
 /** The last writer is persisted at most this often (or when the writer changes) */
 const PERSIST_MS = 60_000;
+/**
+ * A job that fails (no client, no helper, an unreadable answer) is tried again after 1 h, 2 h, 4 h, 8 h, 16 h; after
+ * DISCOVERY_MAX_FAILS in a row the room stops asking until someone writes again (ours: helpers aren't woken forever).
+ */
+export const DISCOVERY_MAX_FAILS = 5;
 
 interface Ledger {
   loaded: boolean;
@@ -202,6 +210,8 @@ interface Ledger {
   persistedWriter: string | null;
   lastRun: number;
   due: number | null;
+  /** Failed runs in a row */
+  fails: number;
 }
 const ledgers = new WeakMap<SqlLike, Ledger>();
 
@@ -212,7 +222,7 @@ function tables(sql: SqlLike): void {
 
 function ledgerOf(room: DiscoveryRoom): Ledger {
   let l = ledgers.get(room.sql);
-  if (!l) ledgers.set(room.sql, (l = { loaded: false, writer: null, at: -1, persistedAt: -Infinity, persistedWriter: null, lastRun: -1, due: null }));
+  if (!l) ledgers.set(room.sql, (l = { loaded: false, writer: null, at: -1, persistedAt: -Infinity, persistedWriter: null, lastRun: -1, due: null, fails: 0 }));
   if (!l.loaded) {
     l.loaded = true;
     let rows: { k: string; v: unknown }[] | null = null;
@@ -230,6 +240,7 @@ function ledgerOf(room: DiscoveryRoom): Ledger {
       l.lastRun = Number(meta.get("last_run") ?? -1);
       const due = meta.get("due");
       l.due = due === null || due === undefined ? null : Number(due);
+      l.fails = Number(meta.get("fails") ?? 0) || 0;
     }
   }
   return l;
@@ -237,7 +248,7 @@ function ledgerOf(room: DiscoveryRoom): Ledger {
 
 function persist(room: DiscoveryRoom, l: Ledger): void {
   tables(room.sql);
-  for (const [k, v] of [["writer", l.writer], ["at", l.at], ["last_run", l.lastRun], ["due", l.due]] as const) room.sql.exec(`INSERT OR REPLACE INTO discovery_meta (k, v) VALUES (?, ?)`, k, v);
+  for (const [k, v] of [["writer", l.writer], ["at", l.at], ["last_run", l.lastRun], ["due", l.due], ["fails", l.fails]] as const) room.sql.exec(`INSERT OR REPLACE INTO discovery_meta (k, v) VALUES (?, ?)`, k, v);
   l.persistedAt = l.at;
   l.persistedWriter = l.writer;
 }
@@ -256,6 +267,20 @@ export function lastWrite(room: DiscoveryRoom): { at: number; userId: string } |
 /** When the room's alarm should ring for Discovery (null: nothing to do) */
 export function discoveryDue(room: DiscoveryRoom): number | null {
   return ledgerOf(room).due;
+}
+
+/**
+ * The room's one alarm is shared: whatever else sets it (RoomBox's autosave / FILE_UPDATE after `edited()`, from a
+ * socket or any other path) never pushes Discovery's stored due time later. → the time to set (null: none).
+ */
+export function sharedAlarm(room: DiscoveryRoom, at: number | null): number | null {
+  let due: number | null = null;
+  try {
+    due = discoveryDue(room);
+  } catch (e) {
+    console.error("discovery", e);
+  }
+  return at === null ? due : due === null ? at : Math.min(at, due);
 }
 
 /**
@@ -384,14 +409,19 @@ export async function discoveryAlarm(room: DiscoveryRoom): Promise<number | null
   }
   const answer = await room.rest.run({ kind: "discovery_text" }, REST_TIMING.waitMs, await wantedOf(room.d1!, key));
   const part = answer.ok ? answer.parts.find((p) => p.name === "json") : undefined;
-  const bytes = part ? room.rest.partBytes(part.sha1) : null;
+  // Opened through the room's cipher (a sealed part can't be parsed); a part that can't be opened is a failed run
+  const bytes = part ? await Promise.resolve(room.rest.partBytes(part.sha1)).catch((e) => (console.error("discovery: the part couldn't be read", e), null)) : null;
   if (answer.ok) room.rest.dropParts(answer.parts);
-  const items = bytes ? await readTextItems(bytes) : null;
+  const items = bytes ? await readTextItems(bytes).catch(() => null) : null;
   if (!items) {
-    l.due = room.now() + DISCOVERY_EVERY_MS;
+    // Backed off; given up after DISCOVERY_MAX_FAILS until the next write arms it again (discoveryTake)
+    l.fails++;
+    l.due = l.fails >= DISCOVERY_MAX_FAILS ? null : room.now() + DISCOVERY_EVERY_MS * 2 ** (l.fails - 1);
+    if (l.due === null) l.fails = 0;
     persist(room, l);
     return l.due;
   }
+  l.fails = 0;
   const changes = await diffTexts(room.sql, items);
   const at = Math.floor(room.now() / 1000);
   await recordDiscovery(

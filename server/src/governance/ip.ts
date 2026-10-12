@@ -4,7 +4,7 @@
  * ranges are `enforced`, off (kept) when they are `disabled`.
  */
 import { forgetNetworkRanges } from "./network";
-import { ipInCidr, normalizeCidr, type IpAllowlist, type IpRange, type NetworkRange, type NetworkRangeState } from "../../../src/shared/org/governance";
+import { ipInCidr, normalizeCidr, NETWORK_TESTING_MIN_MS, type IpAllowlist, type IpRange, type NetworkRange, type NetworkRangeState } from "../../../src/shared/org/governance";
 import type { Deps } from "../api";
 import type { User } from "../db";
 import { logActivity, logOncePer, orgEntity, userEntity } from "../activity";
@@ -148,6 +148,14 @@ export async function networkRangesRoute(ctx: Ctx, orgId: string, rest: string[]
     const b = await body<{ state?: unknown }>(ctx.req);
     const state = b.state as NetworkRangeState;
     if (!STATES.includes(state)) throw new HttpError(400, "state is testing, enforced or disabled", "invalid", { field: "state" });
+    // Enforced only from testing, after NETWORK_TESTING_MIN_MS there (`updated_at` is when it entered testing): the
+    // admin sees who it would block first (§2.2; ours)
+    if (state === "enforced" && range.state !== "enforced") {
+      const row = await d1.prepare(`SELECT updated_at FROM org_ip_ranges WHERE id = ?1`).bind(range.id).first<{ updated_at: number }>();
+      const since = range.state === "testing" && row ? row.updated_at : null;
+      if (since === null || deps.now() - since < NETWORK_TESTING_MIN_MS)
+        throw new HttpError(409, "a range is enforced after at least 24 hours in testing", "conflict", { field: "state", enforceableAt: since === null ? null : since + NETWORK_TESTING_MIN_MS });
+    }
     if (state !== range.state) {
       const before = await enforcedNetworkRanges(deps, orgId);
       await d1.prepare(`UPDATE org_ip_ranges SET state = ?2, updated_at = ?3 WHERE id = ?1`).bind(range.id, state, deps.now()).run();

@@ -8,6 +8,7 @@ import { LIB, T1, W1, WEB, world, type Any, type World } from "../testing/orgWor
 import { sweepExpiredGuests } from "./guests";
 import { orgGate } from "./gate";
 import { dayOf } from "./ip";
+import { NETWORK_TESTING_MIN_MS } from "../../../src/shared/org/governance";
 
 let w: World;
 const HOUR = 3_600_000;
@@ -141,6 +142,10 @@ describe("network ranges (§2.2, self-serve)", () => {
     for (const [u, d] of [["a", today], ["b", today - 3], ["a", today - 1], ["c", today - 9]] as const) await w.run(`INSERT INTO network_shadow_hits (range_id, user_id, day) VALUES (?1, ?2, ?3)`, id, u, d);
     expect((await admin("GET", "network-ranges")).body.ranges[0].wouldBlock7d).toBe(2);
     expect((await admin("PATCH", `network-ranges/${id}`, { state: "on" })).status).toBe(400);
+    // Enforced only after 24 h in testing (review fix): 409 before, with when it can be
+    const early = await admin("PATCH", `network-ranges/${id}`, { state: "enforced" });
+    expect(early).toMatchObject({ status: 409, body: { code: "conflict", enforceableAt: c.body.range.createdAt + NETWORK_TESTING_MIN_MS } });
+    w.now.t += NETWORK_TESTING_MIN_MS;
     expect((await admin("PATCH", `network-ranges/${id}`, { state: "enforced" })).body.range.state).toBe("enforced");
     expect((await admin("GET", "governance")).body.networkRanges).toHaveLength(1);
     expect((await admin("DELETE", `network-ranges/${id}`)).status).toBe(204);

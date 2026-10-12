@@ -19,6 +19,7 @@ import type { Deps } from "../api";
 import type { DevResource } from "../../../src/shared/rest/types";
 import { Access, type FileRow } from "../org/db";
 import { HttpError } from "../org/http";
+import { gateError } from "../governance/gate";
 import type { AccessResult } from "../../../src/shared/org/access";
 import { canReadDev, canWriteDev } from "./common";
 import { addResource, editResource, listResources, removeResource } from "./devResources";
@@ -40,8 +41,8 @@ async function readBody(req: Request): Promise<Record<string, unknown> | null> {
 
 type FileAt = { ok: true; f: FileRow; a: AccessResult } | { ok: false; error: string; status: number };
 
-function files(deps: Deps, caller: Caller) {
-  const acc = new Access(deps, caller.user);
+function files(deps: Deps, caller: Caller, req: Request) {
+  const acc = new Access(deps, caller.user, req);
   const cache = new Map<string, Promise<FileAt>>();
   return (key: string): Promise<FileAt> => {
     let p = cache.get(key);
@@ -52,6 +53,9 @@ function files(deps: Deps, caller: Caller) {
         if (await acc.branch(key)) return { ok: false, error: "Dev resources and Code Connect are on main files, not branches", status: 400 };
         const a = await acc.file(f, { viaLink: true, passOk: false });
         if (!a.ok) return { ok: false, error: "File not found", status: 404 };
+        // Governance+ gates (docs/governance.md §2.5) for the org's people
+        const gate = f.org_id ? await acc.gate(f.org_id) : null;
+        if (gate) return { ok: false, error: gateError(gate, (await acc.org(f.org_id!))?.name ?? "").message, status: 403 };
         return { ok: true, f, a };
       })();
       cache.set(key, p);
@@ -67,7 +71,7 @@ export async function devModeRestRoute(req: Request, url: URL, deps: Deps, calle
   try {
     // /v1/files/:key/dev_resources[/:id] · /v1/files/:key/code_connect
     if (p[0] === "files" && p.length >= 3 && (p[2] === "dev_resources" || p[2] === "code_connect")) {
-      const at = await files(deps, caller)(p[1]);
+      const at = await files(deps, caller, req)(p[1]);
       if (!at.ok) return err(at.status, at.error);
       if (p[2] === "code_connect") {
         if (p.length !== 3 || m !== "GET") return err(405, "Method not allowed");
@@ -95,7 +99,7 @@ export async function devModeRestRoute(req: Request, url: URL, deps: Deps, calle
       const b = await readBody(req);
       const list = b?.dev_resources;
       if (!Array.isArray(list) || list.length > 1000) return err(400, "dev_resources is a list (at most 1000)");
-      const at = files(deps, caller);
+      const at = files(deps, caller, req);
       if (m === "POST") {
         const links_created: DevResource[] = [];
         const errors: { file_key: string | null; node_id: string | null; error: string }[] = [];

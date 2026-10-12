@@ -72,7 +72,7 @@ export async function unwrapDek(secret: string | undefined, orgId: string, wrapp
   return key;
 }
 
-/** The org's row cipher */
-export async function orgCipher(secret: string | undefined, orgId: string, wrapped: string): Promise<RoomCipher> {
-  return aesCipher(await unwrapDek(secret, orgId, wrapped));
+/** The org's row cipher for one file's rows */
+export async function orgCipher(secret: string | undefined, orgId: string, wrapped: string, fileKey: string): Promise<RoomCipher> {
+  return aesCipher(await unwrapDek(secret, orgId, wrapped), fileKey);
 }

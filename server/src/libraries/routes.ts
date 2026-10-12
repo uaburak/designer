@@ -95,7 +95,7 @@ const chunks = <T>(list: T[], n = ROWS_PER_STATEMENT): T[][] => {
 async function editable(ctx: Ctx, key: string) {
   const f = await ctx.acc.fileRow(key);
   if (!f) throw new HttpError(404, "no such file");
-  const a = await ctx.acc.file(f, { viaLink: true, passOk: false });
+  const a = await ctx.acc.openFile(f, { viaLink: true, passOk: false });
   if (!a.ok) throw new HttpError(404, "no such file");
   if (!f.org_id) throw new HttpError(400, "only files in an organization publish organization libraries");
   if (a.trashed) throw new HttpError(403, "the file is in the trash");
@@ -113,6 +113,8 @@ async function usableLibrary(ctx: Ctx, key: string): Promise<{ lib: LibRow; via:
   const reach = await reachOf(ctx.acc, lib.org_id);
   const via = await canUseLibrary(ctx.acc, lib, reach);
   if (!via.length) throw new HttpError(404, "no such library");
+  // Governance+ gates (§2.5) for the org's people (a library is the org's; people outside it have no gate)
+  await ctx.acc.checkGate(lib.org_id);
   return { lib, via, reach };
 }
 
@@ -150,7 +152,7 @@ export async function librariesRoute(ctx: Ctx): Promise<Response> {
     const fileKey = url.searchParams.get("file") ?? "";
     if (!KEY.test(fileKey)) throw new HttpError(400, "file is a file's key");
     const f = await acc.fileRow(fileKey);
-    const a = f ? await acc.file(f, { viaLink: true, passOk: false }) : null;
+    const a = f ? await acc.openFile(f, { viaLink: true, passOk: false }) : null;
     if (!f || !a?.ok) throw new HttpError(404, "no such file");
     // Figma's rule (§16.2): org libraries are offered in that org's files only; a file outside any org lists none.
     const av = await availableIn(ctx, f);
@@ -414,7 +416,7 @@ async function setOrgLink(ctx: Ctx, f: FileRow, to: "none" | "viewer"): Promise<
 async function setScope(ctx: Ctx, key: string): Promise<Response> {
   const { acc, req } = ctx;
   const f = await acc.fileRow(key);
-  const a = f ? await acc.file(f, { viaLink: true, passOk: false }) : null;
+  const a = f ? await acc.openFile(f, { viaLink: true, passOk: false }) : null;
   if (!f || !a?.ok) throw new HttpError(404, "no such library");
   if (!(await libraryRow(acc.d1, key))) throw new HttpError(404, "no such library");
   if (a.trashed || !(a.canShare || a.canManage)) throw new HttpError(403, "only people who can share the file can change who can use the library");
@@ -431,7 +433,7 @@ export async function fileLibrariesRoute(ctx: Ctx): Promise<Response> {
   const { parts, m, acc, req, deps, user } = ctx;
   const key = parts[1];
   const f = await acc.fileRow(key);
-  const a = f ? await acc.file(f, { viaLink: true, passOk: false }) : null;
+  const a = f ? await acc.openFile(f, { viaLink: true, passOk: false }) : null;
   if (!f || !a?.ok) throw new HttpError(404, "no such file");
   if (parts.length === 3 && m === "GET") return json(await fileLibraries(ctx, f));
   if (parts.length === 4 && m === "PUT") {

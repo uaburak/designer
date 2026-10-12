@@ -16,7 +16,7 @@ export async function fileFor(ctx: RestCtx, key: string, need: "view" | "edit" |
   if (ctx.caller.kind === "plan") throw new RestError(403, "A plan access token can't read files");
   const f = await ctx.acc.fileRow(key);
   if (!f) throw new RestError(404, "Not found");
-  const a = await ctx.acc.file(f, { viaLink: true, passOk: false });
+  const a = await ctx.acc.openFile(f, { viaLink: true, passOk: false });
   if (!a.ok) {
     if (a.reason === "password_required") throw new RestError(403, "This file needs a password");
     if (a.reason === "gone") throw new RestError(404, "Not found");

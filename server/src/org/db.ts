@@ -359,6 +359,17 @@ export class Access {
     return resolveAccess(await this.rowsFor(f, opts));
   }
 
+  /**
+   * `file` for a route that serves this one file (by its key): once it opens, the org's Governance+ gates (§2.5) apply
+   * to the org's people — 403 `{error, code, gate}`. Link visitors from outside the org have no membership, so no gate;
+   * no query without the add-on. Listings keep `file` (a gated org's files aren't errors there).
+   */
+  async openFile(f: FileRow, opts: { viaLink: boolean; passOk: boolean } = { viaLink: true, passOk: false }): Promise<AccessResult> {
+    const a = await this.file(f, opts);
+    if (a.ok && f.org_id) await this.checkGate(f.org_id);
+    return a;
+  }
+
   /** A team's or a folder's access: an Inherited file with no rows of its own inside it. */
   async container(teamId: string, projectId: string | null): Promise<AccessResult> {
     const team = await this.team(teamId);

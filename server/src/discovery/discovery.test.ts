@@ -13,7 +13,7 @@ import { sqliteStorage } from "../testing/memoryPreviews";
 import { jsonPart, restWorld, type RestWorld } from "../testing/restWorld";
 import { adminDeveloperLogs, logDeveloperCall, pathPattern } from "../rest/devlog";
 import { DISCOVERY_FILE_ROWS } from "./rest";
-import { DISCOVERY_EVERY_MS, DISCOVERY_QUIET_MS, diffTexts, discoveryAlarm, discoveryTake, forgetGovernanceOrgs, recordDiscovery, sweepGovernanceLogs, type DiscoveryRoom } from "./record";
+import { DISCOVERY_EVERY_MS, DISCOVERY_MAX_FAILS, DISCOVERY_QUIET_MS, diffTexts, discoveryAlarm, discoveryDue, discoveryTake, forgetGovernanceOrgs, recordDiscovery, sharedAlarm, sweepGovernanceLogs, type DiscoveryRoom } from "./record";
 import { memberReportRoute } from "./routes";
 
 let w: RestWorld;
@@ -174,7 +174,7 @@ describe("the room's side (§2.11)", () => {
           room.jobs++;
           return rest.run(job, waitMs, wanted);
         },
-        partBytes: (sha1: string) => rest.partBytes(sha1),
+        partBytes: (sha1: string): Uint8Array | null | Promise<Uint8Array | null> => rest.partBytes(sha1),
         dropParts: (parts: Any) => rest.dropParts(parts),
       },
     };
@@ -246,6 +246,42 @@ describe("the room's side (§2.11)", () => {
     expect((await diffTexts(st.sql, [{ nodeId: "1:1", textType: "in_file", text: "a" }])).map((c) => c.action)).toEqual(["insert"]);
     expect(await diffTexts(st.sql, [{ nodeId: "1:1", textType: "in_file", text: "a" }])).toEqual([]);
     expect((await diffTexts(st.sql, [])).map((c) => c.action)).toEqual(["delete"]);
+  });
+
+  it("an unreadable part (e.g. sealed bytes) backs off 1, 2, 4, 8 h, then waits for the next write (review fix)", async () => {
+    await gPlus(true);
+    w.renderer(WEB, "alice", "editor", { answer: (job) => (job.kind === "discovery_text" ? { json: jsonPart([{ nodeId: "1:2", textType: "in_file", text: "Hello" }]) } : null) });
+    const room = roomOf();
+    // what the room read before the fix: the part as stored, i.e. ciphertext with key management on
+    room.rest.partBytes = async () => new Uint8Array([0x44, 0x56, 0x32, 0x45, 2, 9, 9, 9]);
+    await discoveryTake(room, { chat: [], wrote: { userId: w.people.bob.id, at: w.now.t } });
+    w.now.t += DISCOVERY_QUIET_MS;
+    const gaps: (number | null)[] = [];
+    for (let i = 0; i < DISCOVERY_MAX_FAILS; i++) {
+      const next = await discoveryAlarm(room);
+      gaps.push(next === null ? null : next - w.now.t);
+      if (next !== null) w.now.t = next;
+    }
+    expect(gaps).toEqual([HOUR, 2 * HOUR, 4 * HOUR, 8 * HOUR, null]);
+    expect(room.jobs).toBe(DISCOVERY_MAX_FAILS);
+    expect(discoveryDue(room)).toBeNull();
+    // the next write arms it again; read opened (as FileRoom's RoomEkm.partBytes does), it records
+    room.rest.partBytes = async (sha1: string) => w.mem.get(WEB).rest.partBytes(sha1);
+    expect(await discoveryTake(room, { chat: [], wrote: { userId: w.people.bob.id, at: w.now.t } })).not.toBeNull();
+    w.now.t = discoveryDue(room)!;
+    expect(await discoveryAlarm(room)).toBeNull();
+    expect((await events()).map((r: Any) => [r.action_type, r.text])).toEqual([["insert", "Hello"]]);
+  });
+
+  it("the shared alarm: whatever else sets it never pushes Discovery's due time later (review fix)", async () => {
+    await gPlus(true);
+    const room = roomOf();
+    expect(sharedAlarm(room, 5000)).toBe(5000);
+    expect(sharedAlarm(room, null)).toBeNull();
+    const due = (await discoveryTake(room, { chat: [], wrote: { userId: w.people.bob.id, at: w.now.t } }))!;
+    expect(sharedAlarm(room, due + 30 * 60_000)).toBe(due);
+    expect(sharedAlarm(room, due - 1)).toBe(due - 1);
+    expect(sharedAlarm(room, null)).toBe(due);
   });
 
   it("cursor chat: each message's final text as transient, only with the policy's discovery", async () => {

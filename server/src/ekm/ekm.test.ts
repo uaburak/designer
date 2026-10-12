@@ -13,8 +13,10 @@ import { moveObject, ROOM_PATHS } from "../policy/region";
 import { RestJobs } from "../rest/roomJobs";
 import { RoomBox } from "../roomBox";
 import { sqliteStorage } from "../testing/memoryPreviews";
-import { BRAND, sha1, WEB, world, type Any, type World } from "../testing/orgWorld";
-import { aesCipher, isSealed, PLAIN_CIPHER, SealError } from "./cipher";
+import { BRAND, DRAFT, sha1, WEB, world, type Any, type World } from "../testing/orgWorld";
+import { readTextItems } from "../discovery/record";
+import { sealWhere } from "./rows";
+import { aesCipher, ENC_PREFIX_V1, isSealed, PLAIN_CIPHER, SealError } from "./cipher";
 import { KeyUnavailable, newWrappedDek, unwrapDek } from "./keys";
 import { RoomEkm } from "./room";
 import { keyManagementRoute } from "./routes";
@@ -171,25 +173,42 @@ beforeEach(async () => {
 // ---- the cipher and the keys ------------------------------------------------------------------------------------------
 
 describe("the row cipher and managed keys", () => {
-  it("seals as DV2E | 1 | iv | ciphertext + tag, opens it, and reads rows without the header as plain", async () => {
+  it("seals as DV2E | 2 | iv | ciphertext + tag, opens it, and reads rows without the header as plain", async () => {
     const wrapped = await newWrappedDek(ROOT, "org1");
-    const c = aesCipher(await unwrapDek(ROOT, "org1", wrapped));
-    const sealed = await c.seal(bytes("hello"));
+    const c = aesCipher(await unwrapDek(ROOT, "org1", wrapped), WEB);
+    const sealed = await c.seal(bytes("hello"), "blobs");
     expect(str(sealed.subarray(0, 4))).toBe("DV2E");
-    expect(sealed[4]).toBe(1);
+    expect(sealed[4]).toBe(2);
     expect(sealed.length).toBe(ENC_HEADER_BYTES + 5 + 16);
     expect(isSealed(sealed)).toBe(true);
-    expect(str(await c.open(sealed))).toBe("hello");
+    expect(str(await c.open(sealed, "blobs"))).toBe("hello");
     // every seal has its own IV
-    expect(await c.seal(bytes("hello"))).not.toEqual(sealed);
-    expect(str(await c.open(bytes("plain row")))).toBe("plain row");
+    expect(await c.seal(bytes("hello"), "blobs")).not.toEqual(sealed);
+    expect(str(await c.open(bytes("plain row"), "blobs"))).toBe("plain row");
     // another DEK can't open it; a damaged row neither
-    const other = aesCipher(await unwrapDek(ROOT, "org1", await newWrappedDek(ROOT, "org1")));
-    await expect(other.open(sealed)).rejects.toBeInstanceOf(SealError);
+    const other = aesCipher(await unwrapDek(ROOT, "org1", await newWrappedDek(ROOT, "org1")), WEB);
+    await expect(other.open(sealed, "blobs")).rejects.toBeInstanceOf(SealError);
     const bad = sealed.slice();
     bad[bad.length - 1] ^= 1;
-    await expect(c.open(bad)).rejects.toBeInstanceOf(SealError);
-    expect(await PLAIN_CIPHER.seal(bytes("x"))).toEqual(bytes("x"));
+    await expect(c.open(bad, "blobs")).rejects.toBeInstanceOf(SealError);
+    expect(await PLAIN_CIPHER.seal(bytes("x"), "blobs")).toEqual(bytes("x"));
+  });
+
+  it("v2 binds the file and the table (review fix): another file's room or another table can't open the row; v1 rows still open", async () => {
+    const key = await unwrapDek(ROOT, "org1", await newWrappedDek(ROOT, "org1"));
+    const c = aesCipher(key, WEB);
+    const sealed = await c.seal(bytes("hello"), "blobs");
+    await expect(aesCipher(key, DRAFT).open(sealed, "blobs")).rejects.toBeInstanceOf(SealError);
+    await expect(c.open(sealed, "rest_blobs")).rejects.toBeInstanceOf(SealError);
+    // a version keeps the snapshot's rows as stored: snapshot and history_snapshots share one AAD name
+    expect(str(await c.open(await c.seal(bytes("snap"), "snapshot"), "history_snapshots"))).toBe("snap");
+    // a v1 row (the header alone as associated data), as sealed before the fix
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const v1 = new Uint8Array([...ENC_PREFIX_V1]);
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: v1 }, key, bytes("old row")));
+    const row = new Uint8Array([...v1, ...iv, ...ct]);
+    expect(isSealed(row)).toBe(true);
+    expect(str(await c.open(row, "snapshot"))).toBe("old row");
   });
 
   it("a wrong, missing or malformed root key, or another org's row, doesn't unwrap the DEK", async () => {
@@ -263,7 +282,7 @@ describe("a room's rows", () => {
     const o = await roomOf(WEB);
     const c = await populate(o);
     // the first chunk written back plain (as a row from before encryption would be)
-    const first = await o.ekm.key.cipher.open(rawRows(o, "snapshot")[0]);
+    const first = await o.ekm.key.cipher.open(rawRows(o, "snapshot")[0], "snapshot");
     o.storage.sql.exec(`UPDATE snapshot SET bytes = ? WHERE idx = 0`, first.slice().buffer);
     expect(isSealed(rawRows(o, "snapshot")[0])).toBe(false);
     expect(isSealed(rawRows(o, "snapshot")[1])).toBe(true);
@@ -303,12 +322,47 @@ describe("a room's rows", () => {
     const o = await roomOf(WEB);
     await populate(o);
     // what an eviction between the version's transaction and its sealing leaves behind
-    const plain = await o.ekm.key.cipher.open(rawRows(o, "history_frames", "message")[0]);
+    const plain = await o.ekm.key.cipher.open(rawRows(o, "history_frames", "message")[0], "history_frames");
     o.storage.sql.exec(`UPDATE history_frames SET message = ? WHERE seq = 1`, plain.slice().buffer);
     o.box.storage.setMeta("ekmDirty", 1);
     await o.wake();
     expectSealed(o, true);
     expect(o.box.storage.meta("ekmDirty")).toBe(-1);
+  });
+
+  it("a plain row that merely starts with the header is sealed by the first sweep (review fix); a row that doesn't open still answers key_unavailable", async () => {
+    const o = await roomOf(WEB);
+    const c = await populate(o);
+    // a blob from before key management whose bytes happen to start with "DV2E" | 1
+    const look = new Uint8Array([...ENC_PREFIX_V1, ...big(100, 1)]);
+    expect((await call(o, "PUT", `/room/blobs/${sha1(look)}`, look)).status).toBe(200);
+    expect(isSealed(rawRows(o, "blobs").at(-1)!)).toBe(true);
+    await enable();
+    await o.wake();
+    expectSealed(o, true);
+    expect(rawRows(o, "blobs").at(-1)![4]).toBe(2);
+    expect(sha1(new Uint8Array(await (await call(o, "GET", `/room/blobs/${sha1(look)}`)).arrayBuffer()))).toBe(sha1(look));
+    await expectContent(o, c);
+    // a sealed row damaged afterwards is never read as plain
+    const bad = rawRows(o, "blobs").at(-1)!.slice();
+    bad[bad.length - 1] ^= 1;
+    o.storage.sql.exec(`UPDATE blobs SET bytes = ? WHERE sha1 = ?`, bad.buffer, sha1(look));
+    const r = await call(o, "GET", `/room/blobs/${sha1(look)}`);
+    expect(r.status).toBe(503);
+    expect(((await r.json()) as Any).code).toBe("key_unavailable");
+  });
+
+  it("Discovery's part is read opened (review fix): RestJobs' bytes are sealed, RoomEkm.partBytes opens them", async () => {
+    await enable();
+    const o = await roomOf(WEB);
+    const json = bytes(JSON.stringify([{ nodeId: "1:2", textType: "in_file", text: "Hello" }]));
+    const sha = sha1(json);
+    // as RestJobs stores an uploaded part and RoomEkm.rest seals it right after
+    o.storage.sql.exec(`INSERT INTO rest_blobs (sha1, idx, bytes) VALUES (?, 0, ?)`, sha, json.slice().buffer);
+    expect(await sealWhere(o.storage.sql, o.ekm.key.cipher, "rest_blobs", "sha1 = ?", sha)).toBe(1);
+    expect(await readTextItems(o.rest.partBytes(sha)!)).toBeNull();
+    expect(await readTextItems((await o.ekm.partBytes(sha))!)).toEqual([{ nodeId: "1:2", textType: "in_file", text: "Hello" }]);
+    expect(await o.ekm.partBytes("0".repeat(40))).toBeNull();
   });
 
   it("REST parts and the thumbnail (rest_blobs) are sealed; image fills come back plain", async () => {

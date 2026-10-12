@@ -27,7 +27,7 @@ import { RestJobs } from "./rest/roomJobs";
 import { Db } from "./db";
 import { BROADCAST_KINDS } from "./roomBroadcast";
 import { RoomEkm, KEY_UNAVAILABLE } from "./ekm/room";
-import { discoveryAlarm, discoveryTake, forgetDiscoveryRoom, type DiscoveryRoom } from "./discovery/record";
+import { discoveryAlarm, discoveryTake, forgetDiscoveryRoom, sharedAlarm, type DiscoveryRoom } from "./discovery/record";
 
 export { MAX_BLOB_BYTES } from "./roomBox";
 /** Close codes the client reads: 4001 the file stopped being shared, 4003 access changed, 4009 a snapshot replaced history. */
@@ -61,7 +61,12 @@ export class FileRoom extends DurableObject {
       sql: ctx.storage.sql as unknown as SqlLike,
       transaction: (fn) => ctx.storage.transactionSync(fn),
       now: () => Date.now(),
-      setAlarm: (at) => void (at === null ? ctx.storage.deleteAlarm() : ctx.storage.setAlarm(at)),
+      // The one alarm is shared with Discovery: RoomBox's (after `edited()` or its own alarm) never pushes a stored
+      // Discovery due time later (record.ts `sharedAlarm`)
+      setAlarm: (at) => {
+        const next = this.discovery ? sharedAlarm(this.discovery, at) : at;
+        void (next === null ? ctx.storage.deleteAlarm() : ctx.storage.setAlarm(next));
+      },
       broadcast: (frame) => {
         for (const ws of ctx.getWebSockets()) if ((ws.deserializeAttachment() as MemberState | null)?.sessionID) ws.send(frame);
       },
@@ -100,7 +105,15 @@ export class FileRoom extends DurableObject {
         await Promise.all(userIds.map((u) => ns.get(ns.idFromName(u)).fetch(new Request("https://inbox/inbox/notify", { method: "POST", body })).catch(() => undefined)));
       },
     });
-    this.discovery = { fileKey: () => this.fileKey, sql: ctx.storage.sql as unknown as SqlLike, now: () => Date.now(), d1: (env as RoomEnv).DB ?? null, rest: this.rest };
+    // Discovery reads its job's part opened: rest_blobs rows are sealed once stored when key management is on
+    const rest = this.rest;
+    this.discovery = {
+      fileKey: () => this.fileKey,
+      sql: ctx.storage.sql as unknown as SqlLike,
+      now: () => Date.now(),
+      d1: (env as RoomEnv).DB ?? null,
+      rest: { run: (job, waitMs, wanted) => rest.run(job, waitMs, wanted), partBytes: (sha1) => this.ekm.partBytes(sha1), dropParts: (parts) => rest.dropParts(parts) },
+    };
     for (const ws of ctx.getWebSockets()) {
       const state = ws.deserializeAttachment() as MemberState | null;
       if (state) this.room.restore(ws, state);
@@ -269,8 +282,9 @@ export class FileRoom extends DurableObject {
   async alarm(): Promise<void> {
     // No autosave while the key is unavailable: the version's frames couldn't be sealed (the next edit sets the alarm again).
     if ((await this.ekm.check()) === "unavailable") return;
-    const { fileUpdate } = this.box.alarm();
+    // Discovery first: its due time moves on, so the box's alarm (set through `sharedAlarm`) doesn't ring again at once
     await this.armDiscovery(await discoveryAlarm(this.discovery).catch((e) => (console.error("discovery", e), null)));
+    const { fileUpdate } = this.box.alarm();
     await this.box.sealPending();
     const db = (this.env as RoomEnv).DB;
     if (!fileUpdate || !db || !this.fileKey) return;

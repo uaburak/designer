@@ -81,6 +81,7 @@ async function contextRights(ctx: RestCtx, context: Context, id: string): Promis
     if (caller.kind === "plan") return { ok: caller.orgId === team.org_id, orgId: team.org_id, teamId: team.id, entity: { type: "team", id: team.id, name: team.name } };
     const r = await acc.teamRights(team);
     if (!r.canSee) throw new RestError(404, "Team not found");
+    await acc.checkGate(team.org_id);
     return { ok: r.admin, orgId: team.org_id, teamId: team.id, entity: { type: "team", id: team.id, name: team.name } };
   }
   if (context === "project") {
@@ -91,13 +92,14 @@ async function contextRights(ctx: RestCtx, context: Context, id: string): Promis
     if (caller.kind === "plan") return { ok: caller.orgId === team.org_id, orgId: team.org_id, teamId: team.id, entity };
     const a = await acc.container(team.id, p.id);
     if (!a.ok) throw new RestError(404, "Project not found");
+    await acc.checkGate(team.org_id);
     return { ok: !a.trashed && (a.role === "owner" || a.role === "editor" || a.canManage), orgId: team.org_id, teamId: team.id, entity };
   }
   const f = await acc.fileRow(id);
   if (!f) throw new RestError(404, "File not found");
   const entity: Entity = { type: "file", id: f.key, name: f.name, key: f.key };
   if (caller.kind === "plan") return { ok: caller.orgId === f.org_id, orgId: f.org_id, teamId: f.team_id, entity };
-  const a = await acc.file(f, { viaLink: true, passOk: false });
+  const a = await acc.openFile(f, { viaLink: true, passOk: false });
   if (!a.ok) throw new RestError(404, "File not found");
   return { ok: a.canEdit && !a.trashed, orgId: f.org_id, teamId: f.team_id, entity };
 }
@@ -191,6 +193,7 @@ export async function webhooksRoute(ctx: RestCtx): Promise<Response> {
       if (!orgId) throw new RestError(400, "plan_api_id is organization-<id>");
       const allowed = caller.kind === "plan" ? caller.orgId === orgId : (await ctx.acc.membership(orgId))?.role === "admin";
       if (!allowed) throw new RestError(403, "Only organization admins can list the organization's webhooks");
+      if (caller.kind !== "plan") await ctx.acc.checkGate(orgId);
       rows = (await d1.prepare(`SELECT * FROM webhooks WHERE org_id = ?1 AND id > ?2 ORDER BY id LIMIT ?3`).bind(orgId, cursor, PAGE + 1).all<HookRow>()).results;
     } else {
       const context = url.searchParams.get("context")?.toLowerCase() as Context | undefined;
