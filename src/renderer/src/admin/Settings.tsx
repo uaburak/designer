@@ -16,6 +16,7 @@ import { ChoiceDialog, styles } from "./parts";
 import { AuthenticationDialog, DomainsDialog, IdleTimeoutDialog, SamlDialog, ScimDialog } from "./SettingsLogin";
 import { DataRegionDialog, PublicSharingDialog, sharingSummary } from "./SettingsContent";
 import { ApprovalDialog, PlanTokens, approvalSummary } from "./SettingsExtensions";
+import { CreditLimitDialog, creditLimitSummary } from "./SettingsAi";
 
 type Editing =
   | "authentication" | "saml" | "scim" | "idle" | "domains"
@@ -24,6 +25,7 @@ type Editing =
   | "dataRegion"
   | "defaultSeat" | "seatApproval"
   | "pluginApproval" | "widgetApproval"
+  | "aiCreditLimit"
   | null;
 
 /** Enterprise installer › Download (docs/desktop.md §12.5): there is no hosted build */
@@ -138,6 +140,14 @@ export function SettingsTab() {
         />
       </Group>
 
+      <Group title="AI">
+        <Row
+          id="aiEnabled" label="AI features" description="Let members use AI features — actions, image tools, visual search and agents — in the organization's files."
+          control={<Switch label="AI features" checked={s.aiEnabled} onChange={(on) => void save({ aiEnabled: on }, on ? "AI features turned on" : "AI features turned off")} />}
+        />
+        <Row id="aiCreditLimit" label="AI credit limit" description="The AI credits each member can use a month." value={creditLimitSummary(s)} disabled={!s.aiEnabled} onChange={() => setEditing("aiCreditLimit")} />
+      </Group>
+
       <Group title="Plan access tokens">
         <PlanTokens />
       </Group>
@@ -209,6 +219,7 @@ export function SettingsTab() {
         <ChoiceDialog title="Default seat" label="Default seat" choices={SEATS.map((v) => ({ value: v, label: SEAT_LABEL[v], description: SEAT_DESCRIPTION[v] }))} value={s.defaultSeat} onSave={(v) => save({ defaultSeat: v as Seat })} onClose={close} />
       )}
       {editing === "seatApproval" && <SeatApprovalDialog onClose={close} />}
+      {editing === "aiCreditLimit" && <CreditLimitDialog value={s.aiCreditLimit} onSave={(v) => void save({ aiCreditLimit: v }, "AI credit limit saved")} onClose={close} />}
       {(editing === "pluginApproval" || editing === "widgetApproval") && (
         <ApprovalDialog kind={editing === "widgetApproval" ? "widget" : "plugin"} settings={s} onSave={(patch) => void save(patch)} onClose={close} />
       )}

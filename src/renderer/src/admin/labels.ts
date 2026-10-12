@@ -46,7 +46,7 @@ export const EVENT_GROUPS: { name: string; actions: ActivityAction[] }[] = [
   { name: "Branches", actions: ["branch_create", "branch_archive", "branch_unarchive", "branch_delete", "branch_member_add", "branch_member_permission_change", "branch_member_remove", "repo_merge_to_source", "repo_merge_from_source"] },
   { name: "Folders", actions: ["project_create", "project_rename", "project_move", "project_trash", "project_restore", "project_delete", "project_member_add", "project_member_permission_change", "project_member_remove", "project_team_access_change"] },
   { name: "Teams", actions: ["team_create", "team_rename", "team_delete", "team_restore", "team_member_add", "team_member_add_external", "team_member_permission_change", "team_member_remove", "team_member_remove_external", "team_org_access_change", "team_sharing_audience_control_change", "team_workspace_change", "team_license_group_change"] },
-  { name: "Organizations", actions: ["org_team_creation_controls", "org_team_csv_exported", "org_default_license_type_change", "org_guest_invite_setting_change", "public_link_setting_change", "idle_timeout_setting_change", "cursor_chat_setting_change", "open_sessions_setting_change", "external_collaboration_controls_setting_change", "autogen_password_controls_setting_change", "data_storage_localization_change"] },
+  { name: "Organizations", actions: ["org_team_creation_controls", "org_team_csv_exported", "org_default_license_type_change", "org_guest_invite_setting_change", "public_link_setting_change", "idle_timeout_setting_change", "cursor_chat_setting_change", "open_sessions_setting_change", "external_collaboration_controls_setting_change", "autogen_password_controls_setting_change", "data_storage_localization_change", "org_ai_setting_change"] },
   { name: "Seat changes", actions: ["org_user_account_type_change", "org_user_account_type_change_to_full", "org_user_account_type_upgrade_requested", "org_user_account_type_upgrade_approved", "org_user_account_type_upgrade_denied"] },
   { name: "Workspaces", actions: ["workspace_create", "workspace_rename", "workspace_delete", "workspace_member_add", "workspace_member_remove", "workspace_admins_add", "workspace_admins_remove", "workspace_visibility_setting_change", "workspace_public_link_setting_change", "workspace_team_csv_exported"] },
   { name: "Billing groups", actions: ["license_group_create", "license_group_rename", "license_group_delete", "license_group_admins_add", "license_group_admins_remove", "license_group_membership_change"] },
@@ -209,6 +209,7 @@ export const ACTION_LABEL: Record<ActivityAction, string> = {
   dev_resource_delete: "Removed dev resource",
   code_connect_publish: "Published Code Connect",
   code_connect_unpublish: "Unpublished Code Connect",
+  org_ai_setting_change: "Changed AI settings for the organization",
   // Round 4: identity and security (docs/multiplayer.md §15.11) — Figma's description of each action
   // (developers.figma.com activity-logs-action-types, read 2026-10-11) said as the column's past-tense phrase;
   // `eventText` adds the new value where the row's details carry it
@@ -274,6 +275,12 @@ export function eventText(row: Pick<ActivityLog, "action">): string {
   switch (type) {
     case "cursor_chat_setting_change": return has ? `Turned cursor chat ${onOff(to)}` : ACTION_LABEL[type];
     case "audio_setting_change": return has ? `Turned audio ${onOff(to)}` : ACTION_LABEL[type];
+    case "org_ai_setting_change": {
+      const setting = (details as { setting?: unknown }).setting;
+      if (setting === "aiEnabled") return `Turned AI features ${onOff(to)}`;
+      if (setting === "aiCreditLimit") return to === null ? "Removed the AI credit limit" : typeof to === "number" ? `Set the AI credit limit to ${to.toLocaleString("en-US")} credits a month` : ACTION_LABEL[type];
+      return ACTION_LABEL[type];
+    }
     case "open_sessions_setting_change": return has ? `Turned FigJam open sessions ${onOff(to)}` : ACTION_LABEL[type];
     case "org_domain_capture_change": return has ? `Turned domain capture ${onOff(to)}` : ACTION_LABEL[type];
     case "idle_timeout_setting_change": return has ? `Changed the idle session timeout to ${formatHours(typeof to === "number" ? to : 504)}` : ACTION_LABEL[type];

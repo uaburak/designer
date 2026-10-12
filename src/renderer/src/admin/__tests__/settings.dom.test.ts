@@ -10,6 +10,7 @@ import { act } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { $, $$, click, mount, type, type Mounted } from "@/ds/__tests__/dom";
 import { AdminApp, createFakeAdminStore, type AdminAppProps, type FakeAdminStore } from "..";
+import { eventText } from "../labels";
 
 const NOW = Date.UTC(2026, 9, 11, 12, 0, 0);
 let m: Mounted | null = null;
@@ -52,7 +53,7 @@ const actions = (fake: FakeAdminStore) => fake.state.activity.map((r) => r.actio
 describe("Admin › Settings (round 4)", () => {
   it("shows Figma's sections, every row live but the installer's Download", async () => {
     await open();
-    expect($$("[data-settings-group]").map((g) => g.getAttribute("data-settings-group"))).toEqual(["Login and provisioning", "Access", "Team management", "Content", "Communication", "Data", "Billing", "Extensions", "Plan access tokens", "Other"]);
+    expect($$("[data-settings-group]").map((g) => g.getAttribute("data-settings-group"))).toEqual(["Login and provisioning", "Access", "Team management", "Content", "Communication", "Data", "Billing", "Extensions", "AI", "Plan access tokens", "Other"]);
     const disabled = $$("[data-setting]").filter((r) => $$("button", r).some((b) => (b as HTMLButtonElement).disabled)).map((r) => r.getAttribute("data-setting"));
     // SCIM waits for SAML (Figma: SCIM requires SAML); Access to external content waits for domain capture
     expect(disabled.sort()).toEqual(["externalContent", "installer", "scim"]);
@@ -269,5 +270,37 @@ describe("Admin › Settings (round 4)", () => {
     expect(setting("saml").textContent).toContain("Unavailable");
     expect(button("Configure SAML", setting("saml")).disabled).toBe(true);
     expect(setting("dataRegion").textContent).toContain("Unavailable");
+  });
+});
+
+describe("Admin › Settings › AI (round 6, docs/ai.md §2.12)", () => {
+  it("turns AI features off and sets a credit limit, each with its activity sentence", async () => {
+    const fake = await open();
+    expect(setting("aiCreditLimit").textContent).toContain("No limit");
+    click(toggle("AI features", setting("aiEnabled")));
+    await settle();
+    expect(fake.state.settings.aiEnabled).toBe(false);
+    // The limit waits for AI to be on
+    expect(button("Change", setting("aiCreditLimit")).disabled).toBe(true);
+    click(toggle("AI features", setting("aiEnabled")));
+    await settle();
+    await change("aiCreditLimit");
+    click(radio("Limit each member's credits a month"));
+    await settle();
+    type(input("Credits a month"), "1,000");
+    await settle();
+    click(button("Save", dialog()));
+    await settle();
+    expect(fake.state.settings.aiCreditLimit).toBe(1000);
+    expect(setting("aiCreditLimit").textContent).toContain("1,000 credits a month");
+    const ai = fake.state.activity.filter((r) => r.action.type === "org_ai_setting_change").map((r) => eventText(r));
+    expect(ai).toEqual(expect.arrayContaining(["Turned AI features off", "Turned AI features on", "Set the AI credit limit to 1,000 credits a month"]));
+    await change("aiCreditLimit");
+    click(radio("No limit"));
+    await settle();
+    click(button("Save", dialog()));
+    await settle();
+    expect(fake.state.settings.aiCreditLimit).toBeNull();
+    expect(fake.state.activity.map((r) => eventText(r))).toContain("Removed the AI credit limit");
   });
 });

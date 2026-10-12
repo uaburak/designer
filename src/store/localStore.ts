@@ -35,7 +35,7 @@ import { LocalBlobs, pngSize } from "./local/blobs";
 import { Emitter } from "./local/emitter";
 import { FileStore, type SessionOwner, type Timers } from "./local/fileStore";
 import { atomicWrite, ensureDir, readJsonOrNull, writeJsonAtomic } from "./local/fsutil";
-import { HlcClock, newFileKey, newFolderId, systemClock, type Clock } from "./local/ids";
+import { base62, HlcClock, newFileKey, newFolderId, systemClock, type Clock } from "./local/ids";
 import { LocalLibraries } from "./local/libraries";
 import { SchemaRegistry, currentMessage, readSnapshotFile } from "./local/snapshot";
 import { versionDateLabel } from "./local/versions";
@@ -62,7 +62,8 @@ import { AnalyticsQueue, analyticsRepository } from "./libraries/analyticsQueue"
 import { identityRepository } from "./org/identity";
 import { PluginsService } from "./plugins/service";
 import { DevModeService, type LocalDevRecord } from "./devmode/service";
-import { notImplementedAi, notImplementedSearch } from "./ai/stub";
+import { notImplementedSearch } from "./ai/stub";
+import { AiService } from "./ai/service";
 import { UsageReporter } from "./libraries/usage";
 
 export interface LocalStoreOptions {
@@ -370,7 +371,33 @@ export class LocalStore {
     });
     // Other people's dev resources / Code Connect changes, said by the file's room: open copies read them again.
     this.multiplayer.onDevMode((fileKey, what) => void this.multiplayer.roomKey(fileKey).then((room) => this.devMode.roomChanged(fileKey, room, what), () => this.devMode.roomChanged(fileKey, null, what)));
+
+    // AI (docs/ai.md §2.9, §2.10): the usage ledger, Skills and the org reports under Workspace/spaces/ai/
+    const aiRoot = join(spaces, "ai");
+    const aiPath = (name: string) => {
+      if (!/^[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)?$/.test(name) || name.includes("..")) throw new StoreError("invalid", `bad AI file name ${name}`);
+      return join(aiRoot, ...name.split("/"));
+    };
+    this.ai = new AiService({
+      read: (name) => fsp.readFile(aiPath(name), "utf8").catch((e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e))),
+      write: async (name, text) => {
+        await ensureDir(dirname(aiPath(name)));
+        await atomicWrite(dirs.tmp, aiPath(name), text);
+      },
+      remove: (name) => fsp.rm(aiPath(name), { force: true }),
+      list: (dir) => fsp.readdir(aiPath(dir)).catch(() => [] as string[]),
+      server: this.libraryServer,
+      getMeta: (fileKey) => ws.files.get(fileKey as FileKey) ?? null,
+      newId: () => base62(16),
+      now: () => clock.now(),
+      timers,
+      log,
+    });
+    this.multiplayer.onSession(() => void this.ai.flush());
   }
+
+  /** The AI usage ledger, Skills, the org reports (docs/ai.md §2.9) */
+  readonly ai: AiService;
 
   /** Saved / recents, private plugins and approvals (docs/plugins.md §10); events on topic `plugins` */
   readonly plugins: PluginsService;
@@ -745,6 +772,7 @@ export class LocalStore {
     if (this.gcTimer) this.timers.clearTimeout(this.gcTimer);
     this.comments.close();
     this.usage.close();
+    await this.ai.close().catch((e) => this.log("warn", "ai: the quit's send failed", e));
     await this.analytics.close().catch((e) => this.log("warn", "analytics: the quit's send failed", e));
     this.orgLibraries.close();
     this.plugins.close();
@@ -910,7 +938,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     identity: identityRepository(s.multiplayer, (orgId) => s.org.notice({ t: "org", what: "org", orgId })),
     plugins: s.plugins.repository(),
     devMode: s.devMode.repository(),
-    ai: notImplementedAi(),
+    ai: s.ai.repository(),
     search: notImplementedSearch(),
   };
 }

@@ -7,16 +7,18 @@ import { useSyncExternalStore } from "react";
 import type { AccountMethod } from "@shared/account";
 import type { UploadedFontsApi } from "@shared/desktop";
 import type { AgentSetupApi } from "@shared/agents/types";
+import type { AiSetupApi } from "@shared/ai/api";
 import { accountBridge } from "../files/account";
 
-export type SettingsTab = "account" | "community" | "notifications" | "security" | "agents";
+export type SettingsTab = "account" | "community" | "notifications" | "security" | "ai" | "agents";
 
-/** The tabs, Figma's four and ours (the owner's: our AIs' settings), in order. */
+/** The tabs, Figma's four and ours (AI: providers, credits, local models — docs/ai.md §7; Agents: our AIs' settings), in order. */
 export const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: "account", label: "Account" },
   { id: "community", label: "Community" },
   { id: "notifications", label: "Notifications" },
   { id: "security", label: "Security" },
+  { id: "ai", label: "AI" },
   { id: "agents", label: "Agents" },
 ];
 
@@ -75,6 +77,7 @@ export async function accountCall<T>(method: AccountMethod, path: string, body?:
 interface DesignerSettingsBits {
   fonts?: Partial<UploadedFontsApi> & { read?(id: string): Promise<Uint8Array> };
   agents?: AgentSetupApi;
+  ai?: AiSetupApi;
   openExternal?(url: string): void;
 }
 const designer = (): DesignerSettingsBits | undefined => (typeof window === "undefined" ? undefined : (window as unknown as { designer?: DesignerSettingsBits }).designer);
@@ -88,6 +91,11 @@ export function fontsBridge(): (UploadedFontsApi & { read(id: string): Promise<U
 /** The agents' setup: the desktop app's, or a test's / the editor-shot's stand-in. */
 export function agentSetupBridge(): AgentSetupApi | null {
   return designer()?.agents ?? (window as unknown as { __designerAgents?: AgentSetupApi }).__designerAgents ?? null;
+}
+
+/** Main's AI settings and local models (docs/ai.md §7): the desktop app's, or a test's stand-in; null in a browser. */
+export function aiSetupBridge(): AiSetupApi | null {
+  return designer()?.ai ?? (window as unknown as { __designerAi?: AiSetupApi }).__designerAi ?? null;
 }
 
 export function openLink(url: string): void {

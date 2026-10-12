@@ -1,0 +1,44 @@
+/*
+ * Settings › AI and the AI balance modal (ours, docs/ai.md §7): the Settings modal's sections (Settings.module.css)
+ * with rows of a name and caption at the left and the control at the right, a 4-high meter, the models' list and the
+ * usage history as the Sessions table is drawn.
+ */
+@layer app {
+  .row { display: flex; align-items: center; align-self: stretch; gap: var(--ds-space-4); margin-top: var(--ds-space-4); }
+  .rowText { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--ds-space-1); min-width: 0; }
+  .controls { display: flex; flex: none; align-items: center; gap: var(--ds-space-2); }
+  .caption { color: var(--figma-color-text-secondary); font: var(--ds-font-settings-caption); letter-spacing: var(--ds-tracking-settings-caption); }
+  .error { color: var(--figma-color-text-danger); font: var(--ds-font-settings-caption); letter-spacing: var(--ds-tracking-settings-caption); }
+  .muted { color: var(--figma-color-text-secondary); }
+  .gap { margin-top: var(--ds-space-3); }
+  .credits { width: 96px; flex: none; }
+  .key { width: 200px; }
+
+  .meter { display: flex; flex-direction: column; align-self: stretch; gap: var(--ds-space-2); }
+  .meterText { margin: 0; color: var(--figma-color-text); }
+  .meter .caption { margin: 0; }
+  .bar { height: var(--ds-space-1); overflow: hidden; border-radius: var(--ds-radius-full); background: var(--figma-color-bg-secondary); }
+  .fill { height: 100%; border-radius: inherit; background: var(--figma-color-bg-brand); }
+  .fill[data-full] { background: var(--figma-color-bg-danger); }
+
+  .overrides { align-self: stretch; margin-top: var(--ds-space-4); }
+  .overrides > summary { color: var(--figma-color-text-brand); cursor: default; }
+  .override { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-4); margin-top: var(--ds-space-2); padding-left: var(--ds-space-4); }
+
+  .models { display: flex; flex-direction: column; align-self: stretch; margin: var(--ds-space-3) 0 0; padding: 0; list-style: none; }
+  .model { display: flex; align-items: center; gap: var(--ds-space-4); padding: var(--ds-space-2) 0; border-top: 1px solid var(--figma-color-border); }
+
+  .balance { display: flex; flex-direction: column; align-items: flex-start; gap: var(--ds-space-4); }
+  .figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-self: stretch; gap: var(--ds-space-4); margin: 0; }
+  .figures dt { color: var(--figma-color-text-secondary); }
+  .figures dd { margin: var(--ds-space-1) 0 0; font: var(--ds-font-heading-medium); letter-spacing: var(--ds-tracking-heading-medium); }
+  .byAction { display: flex; flex-direction: column; align-self: stretch; gap: var(--ds-space-1); margin: 0; padding: 0; list-style: none; }
+  .byAction li { display: flex; justify-content: space-between; }
+  .subheading { margin: var(--ds-space-2) 0 0; font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .history { align-self: stretch; border-collapse: collapse; table-layout: fixed; }
+  .history th { padding: 0 var(--ds-space-2) var(--ds-space-2) 0; color: var(--figma-color-text-secondary); font: inherit; text-align: left; }
+  .history td { padding: var(--ds-space-1) var(--ds-space-2) var(--ds-space-1) 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .history tr:not([data-ok]) td { color: var(--figma-color-text-tertiary); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .history th.num { text-align: right; }
+}

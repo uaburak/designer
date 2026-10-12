@@ -63,7 +63,8 @@ import { AnalyticsQueue, analyticsRepository } from "../../../../store/libraries
 import { identityRepository } from "../../../../store/org/identity";
 import { PluginsService } from "../../../../store/plugins/service";
 import { DevModeService, type LocalDevRecord } from "../../../../store/devmode/service";
-import { notImplementedAi, notImplementedSearch } from "../../../../store/ai/stub";
+import { notImplementedSearch } from "../../../../store/ai/stub";
+import { AiService } from "../../../../store/ai/service";
 import { UsageReporter } from "../../../../store/libraries/usage";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -605,7 +606,28 @@ export class MemoryStore {
     });
     // Other people's dev resources / Code Connect changes, said by the file's room: open copies read them again.
     mp.onDevMode((fileKey, what) => void mp.roomKey(fileKey).then((room) => this.devMode.roomChanged(fileKey, room, what), () => this.devMode.roomChanged(fileKey, null, what)));
+
+    // AI (docs/ai.md §2.9, §2.10): the ledger's months, Skills and the org reports, one key per file
+    const aiKey = (name: string) => `${KV_PREFIX}ai.${name}`;
+    this.ai = new AiService({
+      read: async (name) => kv.get(aiKey(name)),
+      write: async (name, text) => {
+        if (!kv.set(aiKey(name), text)) throw new StoreError("invalid", "The browser's storage is full");
+      },
+      remove: async (name) => kv.remove(aiKey(name)),
+      list: async (dir) => kv.keys(aiKey(`${dir}/`)).map((k) => k.slice(aiKey(`${dir}/`).length)).filter((n) => !n.includes("/")),
+      server: this.libraryServer,
+      getMeta: (fileKey) => getMeta(fileKey as FileKey),
+      newId: () => base62(16),
+      now: () => this.clock.now(),
+      timers,
+      log: (level, message, detail) => this.log(level, message, detail),
+    });
+    mp.onSession(() => void this.ai.flush());
   }
+
+  /** The AI usage ledger, Skills, the org reports (docs/ai.md §2.9) */
+  readonly ai: AiService;
 
   /** Saved / recents, private plugins and approvals (docs/plugins.md §10); events on topic `plugins` */
   readonly plugins: PluginsService;
@@ -693,6 +715,7 @@ export class MemoryStore {
     this.offWatch?.();
     this.comments.close();
     this.usage.close();
+    void this.ai.close();
     void this.analytics.close();
     this.orgLibraries.close();
     this.plugins.close();
@@ -1291,7 +1314,7 @@ export class MemoryStore {
       identity: identityRepository(this.multiplayer, (orgId) => this.org.notice({ t: "org", what: "org", orgId })),
       plugins: this.plugins.repository(),
       devMode: this.devMode.repository(),
-      ai: notImplementedAi(),
+      ai: this.ai.repository(),
       search: notImplementedSearch(),
     };
   }

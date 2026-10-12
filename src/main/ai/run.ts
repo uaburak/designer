@@ -56,6 +56,8 @@ export const usageOf = (action: AiAction, t: { input: number; output: number }, 
 export function overLimitMessage(b: AiBalance): string {
   const d = new Date(b.resetsAt);
   const when = d.toLocaleDateString("en-US", { month: "long", day: "numeric" });
+  // An allowance of 0 (Settings › AI, or an organization's limit or AI turned off — 6g's ledger.ts)
+  if (b.allowance <= 0) return `You don't have any AI credits this month. They reset on ${when}.`;
   return `You've used all ${b.allowance.toLocaleString("en-US")} AI credits for this month. They reset on ${when}.`;
 }
 

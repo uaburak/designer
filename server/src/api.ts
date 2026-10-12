@@ -121,6 +121,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   const isSocket = (parts[0] === "files" && parts[2] === "ws" && parts.length === 3) || (parts[0] === "notifications" && parts[1] === "ws" && parts.length === 2);
   const caller = await authenticate(req, url, deps, isSocket);
   const user = caller.user;
+  // AI usage, daily totals from the people's apps (docs/ai.md §2.9) — sessions only, not personal access tokens.
+  if (parts[0] === "me" && parts[1] === "ai-usage" && !caller.scopes) return (await import("./ai/usage")).aiUsageRoute({ req, url, deps, user, parts, m, acc: new Access(deps, user) });
   if (parts[0] === "me" && parts[1] !== "fonts") return (await import("./account")).accountRoute(req, deps, caller, parts);
   // A personal access token reads files and comments, nothing else (account.ts patAllows).
   if (caller.scopes && !patAllows(caller.scopes, m, parts)) throw new HttpError(403, "a personal access token can't do that");

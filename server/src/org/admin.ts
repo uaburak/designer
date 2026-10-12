@@ -25,6 +25,8 @@ interface Scope {
 }
 
 const ROLES: readonly OrgRole[] = ["admin", "member", "guest"];
+/** Settings › AI's credit limit per member and month, at most (ours) */
+export const AI_CREDIT_LIMIT_MAX = 10_000_000;
 
 export async function adminRoute(ctx: Ctx, orgId: string): Promise<Response> {
   const { parts, m, acc, url } = ctx;
@@ -778,6 +780,9 @@ async function patchSettings(ctx: Ctx, orgId: string, patch: Partial<OrgSettings
   pick("pluginRequests", bool);
   pick("widgetApproval", (v) => v === "all" || v === "approved", " is all or approved");
   pick("widgetRequests", bool);
+  // Round 6 (docs/ai.md §2.12): Settings › AI
+  pick("aiEnabled", bool);
+  pick("aiCreditLimit", (v) => v === null || (typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= AI_CREDIT_LIMIT_MAX), ` is null or 0–${AI_CREDIT_LIMIT_MAX} credits`);
   if (patch.seatApproval !== undefined) {
     const s = patch.seatApproval as Record<string, unknown>;
     if (!s || typeof s !== "object") throw new HttpError(400, "seatApproval");
@@ -824,6 +829,9 @@ async function patchSettings(ctx: Ctx, orgId: string, patch: Partial<OrgSettings
     const keys = ([approval, requests] as const).filter(changed);
     if (keys.length) await log(next[approval] === "approved" ? on : off, [...keys]);
   }
+  // AI (docs/ai.md §2.12): ours — Figma's action for it is unpublished
+  const aiKeys = (["aiEnabled", "aiCreditLimit"] as const).filter(changed);
+  if (aiKeys.length) await log("org_ai_setting_change", [...aiKeys]);
   const sharingKeys = (["publicLinks", "passwordRequired", "linkExpiryMaxHours"] as const).filter(changed);
   if (sharingKeys.length) await log("public_link_setting_change", [...sharingKeys]);
   acc.reset();

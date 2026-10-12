@@ -378,6 +378,10 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
         const keys = ([approval, requests] as const).filter(changed);
         if (keys.length) log(next[approval] === "approved" ? on : off, org, keys.length === 1 ? one(keys[0]) : { settings: keys, from: Object.fromEntries(keys.map((k) => [k, before[k]])), to: Object.fromEntries(keys.map((k) => [k, next[k]])) });
       }
+      // Settings › AI (docs/ai.md §2.12): ours
+      const ai = (["aiEnabled", "aiCreditLimit"] as const).filter(changed);
+      if (ai.length === 1) log("org_ai_setting_change", org, one(ai[0]));
+      else if (ai.length) log("org_ai_setting_change", org, { settings: ai, from: Object.fromEntries(ai.map((k) => [k, before[k]])), to: Object.fromEntries(ai.map((k) => [k, next[k]])) });
       const sharing = (["publicLinks", "passwordRequired", "linkExpiryMaxHours"] as const).filter(changed);
       if (sharing.length === 1) log("public_link_setting_change", org, one(sharing[0]));
       else if (sharing.length) log("public_link_setting_change", org, { settings: sharing, from: Object.fromEntries(sharing.map((k) => [k, before[k]])), to: Object.fromEntries(sharing.map((k) => [k, next[k]])) });

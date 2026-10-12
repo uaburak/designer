@@ -1,7 +1,7 @@
 /**
  * Figma's Settings modal (help.figma.com 1500006061462; the owner's screenshots 3–9.png; docs/design-system.md
- * "Settings modal"): "Account | Community | Notifications | Security" — and ours, "Agents" (the settings of our own
- * AIs) — beside the close button, a scrolling body under them. Opened from Home's account menu (Settings) and the
+ * "Settings modal"): "Account | Community | Notifications | Security" — and ours, "AI" (providers, credits, local models;
+ * docs/ai.md §7) and "Agents" (the settings of our own AIs) — beside the close button, a scrolling body under them. Opened from Home's account menu (Settings) and the
  * editor's main menu (Help and account › Account settings); `SettingsHost` renders it in each view.
  */
 import { useRef } from "react";
@@ -9,6 +9,8 @@ import { IconButton, Portal } from "@/ds";
 import { useFocusScope } from "@/ds/overlay/FocusTrap";
 import { AccountTab } from "./AccountTab";
 import { AgentsTab } from "./AgentsTab";
+import { AiBalanceHost } from "./AiBalance";
+import { AiTab } from "./AiTab";
 import { closeSettings, setSettingsTab, SETTINGS_TABS, useSettingsState, type SettingsTab } from "./bridge";
 import { CommunityTab } from "./CommunityTab";
 import { NotificationsTab } from "./NotificationsTab";
@@ -80,6 +82,7 @@ export function SettingsModal({ tab, onTab, onClose }: SettingsModalProps) {
             {tab === "community" && <CommunityTab />}
             {tab === "notifications" && <NotificationsTab />}
             {tab === "security" && <SecurityTab />}
+            {tab === "ai" && <AiTab />}
             {tab === "agents" && <AgentsTab />}
           </div>
         </div>
@@ -91,6 +94,11 @@ export function SettingsModal({ tab, onTab, onClose }: SettingsModalProps) {
 /** The modal while it is open (`openSettings`), in the view that opened it. */
 export function SettingsHost() {
   const { open, tab } = useSettingsState();
-  if (!open) return null;
-  return <SettingsModal tab={tab} onTab={setSettingsTab} onClose={closeSettings} />;
+  return (
+    <>
+      {open && <SettingsModal tab={tab} onTab={setSettingsTab} onClose={closeSettings} />}
+      {/* "AI balance" (main menu, Settings › AI › See usage) — docs/ai.md §7 */}
+      <AiBalanceHost />
+    </>
+  );
 }

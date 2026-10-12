@@ -616,7 +616,7 @@ export class AgentsService implements AgentSetupHost {
     else this.updateChat(chatId, (c) => ({ ...c, connectors: next }));
   }
 
-  /** A finished turn in the usage ledger (docs/ai.md §2.9: chat turns from their usage events); ignored until 6g's store has it. */
+  /** A finished turn in the usage ledger (docs/ai.md §2.9: chat turns from their usage events); the store takes the org from the file (`orgId: null` = its space's). */
   private recordUsage(target: { chat: string; message: string; providerId: string; model?: string }) {
     const m = this.state.chats.find((c) => c.id === target.chat)?.messages.find((x) => x.id === target.message);
     const u = m?.usage;

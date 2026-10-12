@@ -287,4 +287,6 @@ export type ActivityAction =
   | "dev_resource_delete"
   | "code_connect_publish"
   | "code_connect_unpublish"
+  // Round 6, ours (docs/ai.md §2.12): Admin › Settings › AI
+  | "org_ai_setting_change"
   | IdentityActivityAction;

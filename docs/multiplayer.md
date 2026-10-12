@@ -2353,7 +2353,7 @@ The local answer's fields:
 | Route | Scope · tier · who | Answer |
 |---|---|---|
 | `GET /v1/activity_logs?events&start_time&end_time&limit&order&cursor&org_id` | `org:activity_log_read` · T3 · a plan token, or an org admin's PAT (`org_id` is required if they admin several orgs) | `{status: 200, error: false, i18n: null, meta: {activity_logs: ActivityLog[], cursor, next_page}}`: §14.10's rows. `limit` ≤ 1000 (default 1000); `order` defaults to asc; `start_time` defaults to a year ago |
-| `GET /v1/ai_usage/daily?start_date&end_date&user_email&limit&cursor` | `org:ai_metering_usage_read` · T3 · plan tokens only (403 otherwise, as Figma) | `{rows, next_cursor, has_next_page}` from `ai_usage_daily` (0015); row fields below |
+| `GET /v1/ai_usage/daily?start_date&end_date&user_email&limit&cursor` | `org:ai_metering_usage_read` · T3 · plan tokens only (403 otherwise, as Figma) | `{rows, next_cursor, has_next_page}` from `ai_usage_daily` (0015; filled by the apps' `POST /me/ai-usage`, docs/ai.md §8.2); row fields below |
 
 The AI usage rows have `{plan_id, user_id, user_email, day, editor_type, seat_credits_sum, plan_credits_sum, workspace_id, workspace_name, team_id, team_name, license_group_id, license_group_name, metering_period_start, metering_period_end}`. The table is **filled by round 6** (the agents' usage meter) and is empty until then.
 
