@@ -351,9 +351,9 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
               )}
               {entry.inlineIcon && entry.icon && <span className={cx(styles.icon, styles.inlineIcon)}><MenuIcon name={entry.icon} /></span>}
               {entry.swatch && <span className={styles.swatch} style={{ background: entry.swatch }} aria-hidden />}
-              {entry.avatar && (
-                <span className={styles.avatar} data-menu-avatar="" data-initial={entry.avatar.src ? undefined : initials(entry.avatar.name, 1)} aria-hidden>
-                  {entry.avatar.src && <img src={entry.avatar.src} alt="" />}
+              {entry.spaceAvatar && (
+                <span className={styles.avatar} data-menu-avatar="" data-initial={entry.spaceAvatar.src ? undefined : initials(entry.spaceAvatar.name, 1)} aria-hidden>
+                  {entry.spaceAvatar.src && <img src={entry.spaceAvatar.src} alt="" />}
                 </span>
               )}
               <span className={styles.label}>{entry.label}</span>

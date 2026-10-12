@@ -90,8 +90,8 @@ export const viewSeatNotice = (orgName: string) => `You have a View seat in ${or
 /** The space switcher (the org row's chevron, and the account menu): the local workspace, each org, Create organization… */
 export function spaceMenu(spaces: { local: string; orgs: readonly O.OrgSummary[]; current: SpaceId; signedIn: boolean }): MenuEntry[] {
   // Each space with its icon (§14.16): the org's picture once loaded (Home loads them ahead), else its initial
-  const out: MenuEntry[] = [{ id: "space:local", label: spaces.local, checked: spaces.current === "local", avatar: { name: spaces.local } }];
-  for (const o of spaces.orgs) out.push({ id: `space:org:${o.id}`, label: o.name, checked: spaces.current === `org:${o.id}`, avatar: { name: o.name, src: iconSrc(o.iconUrl) } });
+  const out: MenuEntry[] = [{ id: "space:local", label: spaces.local, checked: spaces.current === "local", spaceAvatar: { name: spaces.local } }];
+  for (const o of spaces.orgs) out.push({ id: `space:org:${o.id}`, label: o.name, checked: spaces.current === `org:${o.id}`, spaceAvatar: { name: o.name, src: iconSrc(o.iconUrl) } });
   out.push("-", { id: "create-org", label: "Create organization…", disabled: !spaces.signedIn });
   return out;
 }
