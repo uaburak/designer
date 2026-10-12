@@ -1,6 +1,8 @@
 import type { WebContents } from "electron";
 import { homedir } from "node:os";
 import type { AiImageRequest } from "../../../shared/ai/types";
+import { reportAiPrompt } from "../../account/governanceReports";
+import { viewOf } from "../../views";
 import { cliEnv, cliPath, spawnCli } from "../../agents/detect";
 import { cliSpec } from "../../agents/providers";
 import { aiRuns, sendAiEvent } from "../host";
@@ -36,6 +38,7 @@ export function startImageRun(sender: WebContents, req: AiImageRequest): void {
     watched.add(sender);
     sender.once("destroyed", () => aiRuns().cancelAll(sender.id));
   }
+  if (req.prompt) reportAiPrompt(viewOf(sender)?.fileKey ?? null, req.prompt, req.action);
   const emit = (e: Parameters<typeof sendAiEvent>[2]) => sendAiEvent(sender, req.runId, e);
   const { signal, end } = aiRuns().track(sender.id, req.runId, emit);
   void runImage(req, deps(), emit, signal).finally(end);

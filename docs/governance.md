@@ -479,3 +479,14 @@ Files: `server/src/discovery/record.ts` (filled), `rest.ts`, `routes.ts`, `disco
 - **Retention.** `sweepGovernanceLogs(d1, now)` in the daily cron.
 - **Tests:** `server/src/discovery/discovery.test.ts` (12). Server, shared and store suites: 84 files, 661 tests green.
 - **For the main session (files 14d may not edit):** the dispatch lines in `api.ts` and `org/admin.ts`, and the `FileRoom` lines (drain after `receive` / `leave`, `discoveryAlarm` in `alarm()`, `forgetDiscoveryRoom` on `DELETE /room`) — given in 14d's report. Until they land, nothing in the room records (the capture waits in memory, at most 100 chat messages).
+
+## §9 As built — 14f, desktop main reports (2026-10-12)
+
+Files: `src/main/account/governanceReports.ts` (Electron-free batching and reporting), `governanceReportsWiring.ts` (the app's session, server and store), `governanceReports.test.ts` (6 tests); `src/main/agents/mcpServer.ts`, `src/main/ai/host.ts`, `src/main/ai/images/index.ts`.
+
+- **MCP calls.** `McpServer.call` calls `reportMcpCall(fileKey, toolName)` (a no-op until wired, never throws, never awaited) on every tool call of a session's file. `GovernanceReports` batches per org in memory and posts `McpLogReport` to `/orgs/:org/developer-logs/mcp`: one POST per org when 50 calls are waiting, else 60 s after the first (one timer, unref'd), ≤ 100 calls per POST; on quit (`app.once("before-quit")` and `McpServer.stop()`) `drain()` lets pending org lookups settle and flushes. A failed POST drops its batch.
+- **AI prompts.** `startRun` (text runs, `req.prompt`, feature = the action) and `startImageRun` (`req.prompt`) call `reportAiPrompt(viewOf(sender).fileKey, …)` once per run; `AiPromptReport {fileKey, text, feature, at}` goes at once to `/orgs/:org/discovery/ai-prompt` (text capped at 20,000 characters).
+- **How main knows a file's org.** `storeClient().workspace.getFile(fileKey).space?.orgId` (`FileMeta.space`, the linked copy of an org file); cached per file for 60 s, a miss (local file) cached too. Signed out (`sessionToken() === null`) returns before any lookup. A view's file is `viewOf(sender).fileKey`.
+- **Requests.** `mainFetch` to `serverUrl()` with the session bearer and the desktop user agent, 10 s timeout, answer ignored.
+- **Wiring.** `initGovernanceReports()` runs when `src/main/ai/host.ts` loads (the ai IPC handlers import it at startup); `src/main/index.ts` was not edited.
+- **Deviations / not done.** Agents-tab chat prompts (the CLI agents' turns) are not reported — only `ai:run` / `ai:image` prompts; the Agents chat path lives in `src/main/agents/host.ts`, outside this agent's files. MCP calls from an outside client on a file not yet bound are reported only once `activeFileKey` resolves (as the call itself does).

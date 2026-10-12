@@ -1,6 +1,9 @@
 import type { WebContents } from "electron";
 import { homedir } from "node:os";
 import { AI_TEXT_DEFAULT_ORDER, type AiAction, type AiRoute, type AiRunEvent, type AiRunRequest } from "../../shared/ai/types";
+import { reportAiPrompt } from "../account/governanceReports";
+import { initGovernanceReports } from "../account/governanceReportsWiring";
+import { viewOf } from "../views";
 import { agentSettings, providers, serverRoute } from "../agents/host";
 import { cliSpec } from "../agents/providers";
 import { cliEnv, cliPath, spawnCli } from "../agents/detect";
@@ -66,6 +69,8 @@ export async function resolveRoute(action: AiAction, asked?: AiRoute): Promise<R
 }
 
 let runs: AiRuns | null = null;
+// The org reports (docs/governance.md §2.11, §2.12) are wired the first time this module loads (the ai IPC handlers import it at startup).
+initGovernanceReports();
 
 /** The app's runs (6b's image runs `track` themselves here so `ai:cancel` reaches them). */
 export function aiRuns(): AiRuns {
@@ -95,6 +100,8 @@ export function startRun(sender: WebContents, req: AiRunRequest): void {
     watched.add(sender);
     sender.once("destroyed", () => aiRuns().cancelAll(sender.id));
   }
+  // Client-reported to Discovery for an org file (docs/governance.md §2.11): once per run, fire-and-forget.
+  reportAiPrompt(viewOf(sender)?.fileKey ?? null, req.prompt, req.action);
   void aiRuns().start(sender.id, req, (e) => sendAiEvent(sender, req.runId, e));
 }
 
