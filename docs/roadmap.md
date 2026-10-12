@@ -455,7 +455,7 @@ Old **7c "editor types" is dropped**: Draw is a mode of a Design file, and the o
   - Sites' code layers run on the same runtime.
 - **13 Weave**: the node-graph canvas, model nodes through the owner's providers, the Figma node, publishing workflows as Weave tools.
 
-### Round 14 — Governance+ (add-on, last) — **contract drafted 2026-10-12** (`docs/governance.md`)
+### Round 14 — Governance+ (add-on, last) — **built 2026-10-12** (`docs/governance.md`; review fixes and the end-to-end run: handoff.md)
 
 **Scope:**
 - Identity: multiple IdPs, guest 2FA (our TOTP), guest expiration, the idle timeout down to 15 min.

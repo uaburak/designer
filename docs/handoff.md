@@ -2,6 +2,16 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-12 — Round 14 (Governance+) — READ THIS FIRST
+
+The owner answered Round 14's open questions with "free-tier and performance first; you decide" (docs/governance.md §8): our TOTP for guest 2FA, **managed keys only** (no AWS KMS), Discovery off by default, self-serve network ranges and policies, IPv4 + IPv6. Round 8 (Motion) stays deferred; rounds 9–13 stay set aside.
+
+All eight parts are merged on main (pre-commit 41775c0e, then 14a–14h; "§9 As built" sections at the end of docs/governance.md): server identity (2FA, multiple IdPs, network restrictions), org policy (the add-on switch, gates, IP allowlist, policies, guest expiry, file exporting), key management (AES-256-GCM rows, managed DEK), Discovery and developer logs, the store, desktop main reports, the clients (Settings › Security 2FA, Home gates, export gating) and Admin. Main-session fixes while merging: the room's one alarm is shared (autosave waits for `autosaveAt`), rooms learn their file key from `x-file-key`, range/discovery caches dropped on change.
+
+Two read-only reviews ran; their fixes were in flight at this writing (server: REST `/v1` gates and export restriction, 2FA lockout race, Discovery under EKM, library/branch/preview routes' gates, AAD binding; clients: Dev Mode / Home Duplicate / plugin `exportAsync` export bypasses, stale export permission, quit drain, `access.blocked` / `FileShareState.blocked` in Home and the editor). Check `git log` for "review fixes" commits; then an end-to-end run against `wrangler dev` (DEV_AUTH) like §15.9.1's.
+
+**Deploy (owner, at the very end):** `npm --prefix server run db:migrate` (pending remote migrations through 0018; 0017 is reserved for Motion and not present), `wrangler secret put EKM_ROOT_KEY` (32 random bytes, base64), `npm --prefix server run deploy`.
+
 ## Status 2026-10-07 (third session, sansato team account)
 
 Phases 3 and 4 are done and pushed: E3 text, E4 vectors, E5 paints / effects / images, E6 components and instances, local variables / modes / styles, and libraries (publish, Libraries modal, Assets sections, updates with Review, Move to this file, Restore component, cross-file paste). The libraries round got a four-lens review (24 confirmed findings) and two fix rounds, each finding re-verified by an independent agent (commits `25239de`, `a37b00e`). Green at `a37b00e`: `npm run check` 562 tests, `npm run engine:test` 236 cases, `engine:shot` 52/52, `editor-shot.mjs` 110/110. The workstream docs' status sections (`docs/engine-build.md` "Libraries — review fixes", `docs/editor.md`, `docs/data-impl.md`) list what is still open; small engine item: `clearedFields` for unmodelled fields.
