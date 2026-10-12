@@ -24,6 +24,22 @@ describe("workspace on disk (docs/data.md §3–§4)", () => {
     await expect(openTestStore({ dir: t.dir })).rejects.toMatchObject({ code: "io" });
   });
 
+  it("renames the local team (setTeamName): trimmed, 1–100 characters, kept on disk, announced", async () => {
+    t = await openTestStore();
+    const { workspace } = t.api;
+    const events: WorkspaceEvent[] = [];
+    workspace.watch((e) => events.push(e));
+    expect((await workspace.getWorkspace()).teamName).toBe("My team");
+    expect((await workspace.setTeamName("  Burak’s team ")).teamName).toBe("Burak’s team");
+    expect(events.filter((e) => e.type === "workspace.updated").map((e) => (e as { workspace: { teamName: string } }).workspace.teamName)).toEqual(["Burak’s team"]);
+    await expect(workspace.setTeamName("   ")).rejects.toMatchObject({ code: "invalid" });
+    await expect(workspace.setTeamName("x".repeat(101))).rejects.toMatchObject({ code: "invalid" });
+    expect(JSON.parse(readFileSync(join(t.dir, "Workspace", "workspace.json"), "utf8")).teamName).toBe("Burak’s team");
+    await t.close();
+    t = await t.reopen();
+    expect((await t.api.workspace.getWorkspace()).teamName).toBe("Burak’s team");
+  });
+
   it("creates files in Drafts and folders, renames, moves, lists and searches without case or diacritics", async () => {
     t = await openTestStore();
     const { workspace } = t.api;

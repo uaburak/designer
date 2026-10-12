@@ -15,6 +15,9 @@ export type MenuItem = {
   icon?: IconName;
   /** A filled dot before the label in this colour — a token, e.g. `var(--figma-color-bg-success)` (the frame status menu) */
   swatch?: string;
+  /** A space's 16 square before the label (the space switcher's orgs, docs/multiplayer.md §14.16): its picture
+   *  (a data: URL) or, without one, the name's initial on a colour */
+  avatar?: { name: string; src?: string | null };
   /** A glyph after the label (a locked layer's padlock in "Select layer ▸") */
   trailingIcon?: IconName;
   /** The check column appears when any item defines it */

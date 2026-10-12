@@ -46,6 +46,8 @@ export interface TeamRow {
   name: string;
   description: string;
   icon: string | null;
+  /** 0020: the uploaded icon's SHA-1 in the org's object (served at /icons/<orgId>/<sha1>); null: none */
+  icon_hash?: string | null;
   owner_id: string;
   org_access: Audience;
   workspace_access: Audience;
@@ -94,6 +96,8 @@ export interface OrgRow {
   data_region?: "default" | "eu";
   /** 0018 (docs/governance.md §2.1): the Governance+ add-on */
   governance_plus?: number;
+  /** 0020: the organization icon's SHA-1 (served at /icons/<orgId>/<sha1>); null: the initial */
+  icon_hash?: string | null;
   created_by: string;
   created_at: number;
   updated_at: number;

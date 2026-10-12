@@ -146,6 +146,57 @@ describe("Home in an organization", () => {
     expect(sidebarItem("All teams")).toBeFalsy();
   });
 
+  it("the team's menu: Rename and Change icon (§14.16); the icon shows on the page, in the sidebar; the org's in the space row and switcher", async () => {
+    const ctx = await setup();
+    const { orgId, team } = await acme(ctx);
+    const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 9, 9]);
+    const teamMenu = async (label: string) => {
+      press($('main button[aria-label="Team actions"]')!);
+      await settle();
+      click(menuItem(label)!);
+      await settle();
+    };
+    // Without an icon: the initial
+    expect($("main [data-team-icon]")?.getAttribute("data-initial")).toBe("D");
+    await teamMenu("Rename");
+    const input = $('[role="dialog"] input') as HTMLInputElement;
+    expect(input.value).toBe("Design");
+    type(input, "Product");
+    click(dialogButton("Rename"));
+    await settleLong();
+    expect($("main h1")?.textContent).toBe("Product");
+    expect(sidebarItem("Product")).toBeTruthy();
+
+    await teamMenu("Change icon");
+    const file = $('[role="dialog"] [data-icon-input]') as HTMLInputElement;
+    act(() => {
+      Object.defineProperty(file, "files", { value: [new File([PNG], "logo.png", { type: "image/png" })], configurable: true });
+      file.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await settle();
+    click(dialogButton("Save"));
+    await settleLong();
+    expect($$('[role="dialog"]')).toHaveLength(0);
+    expect((await ctx.a.api.teams.get(team.id)).iconUrl).toMatch(new RegExp(`^/icons/${orgId}/`));
+    const src = `data:image/png;base64,${Buffer.from(PNG).toString("base64")}`;
+    expect($("main [data-team-icon] img")?.getAttribute("src")).toBe(src);
+    expect(sidebarItem("Product")!.querySelector("[data-team-icon] img")?.getAttribute("src")).toBe(src);
+    expect(ctx.srv.log).toContain(`PUT /teams/${team.id}/icon`);
+    // Remove icon: the initial again
+    await teamMenu("Remove icon");
+    await settleLong();
+    expect($("main [data-team-icon]")?.getAttribute("data-initial")).toBe("P");
+
+    // The org's icon (Admin › Settings sets it): the space row and the switcher show it
+    await ctx.a.api.orgs.setIcon(orgId, PNG);
+    await settleLong();
+    expect($('nav button[aria-label$="switch space"] [data-team-icon] img')?.getAttribute("src")).toBe(src);
+    press($('nav button[aria-label$="switch space"]')!);
+    await settle();
+    expect(menuItem("Acme")!.querySelector("[data-menu-avatar] img")?.getAttribute("src")).toBe(src);
+    expect(menuItem("Burak's team")!.querySelector("[data-menu-avatar]")?.getAttribute("data-initial")).toBe("B");
+  });
+
   it("a folder: New design file makes the org file and opens it; Members lists the team; Admin opens the Admin app", async () => {
     const ctx = await setup();
     const { folder } = await acme(ctx);

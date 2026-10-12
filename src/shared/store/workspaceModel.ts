@@ -234,6 +234,15 @@ export class WorkspaceModel {
     return { ...this.workspace };
   }
 
+  /** The local team's name (as Figma's team names: ≤ 100 characters) */
+  async setTeamName(name: string): Promise<Workspace> {
+    const n = typeof name === "string" ? name.trim() : "";
+    if (!n) throw new StoreError("invalid", "a team name can't be empty");
+    if (n.length > 100) throw new StoreError("invalid", "a team name is at most 100 characters");
+    if (n === this.workspace.teamName) return { ...this.workspace };
+    return this.updateWorkspace({ teamName: n });
+  }
+
   async setOwnerUid(uid: string | null): Promise<void> {
     this.workspace.ownerUid = uid;
     this.stamp(this.workspace._clk, ["ownerUid"]);

@@ -72,6 +72,9 @@ export interface NotificationItem {
   /** The latest event folded into it (the list is newest first by this) */
   updatedAt: number;
   read: boolean;
+  /** An organization's notification (an invite to a team, a request): its team's icon, else its org's — a server
+   *  route as OrgSummary.iconUrl (docs/multiplayer.md §14.16); absent: none */
+  placeIconUrl?: string;
 }
 
 export type NotificationFilter = "all" | "requests" | "unread";

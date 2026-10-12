@@ -844,6 +844,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
   const workspace: WorkspaceRepository = {
     getWorkspace: async () => ({ ...ws.workspace }),
     updateWorkspace: (patch) => q(() => ws.updateWorkspace(patch ?? {})),
+    setTeamName: (name) => q(() => ws.setTeamName(name)),
     getPrefs: async () => structuredClone(ws.prefs),
     setBrowsePrefs: (patch) => q(() => ws.setBrowsePrefs(patch ?? {})),
     listFolders: async () => ws.listFolders(),

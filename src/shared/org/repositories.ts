@@ -45,6 +45,14 @@ export interface OrgsRepository {
   setGroupMembers(groupId: string, change: { add?: string[]; remove?: string[] }): Promise<O.UserGroup>;
   deleteGroup(groupId: string): Promise<void>;
   leave(orgId: string): Promise<void>;
+  /** Admin › Settings › Organization name (org admins; docs/multiplayer.md §14.16) */
+  update(orgId: string, patch: { name: string }): Promise<O.OrgInfo>;
+  /** Admin › Settings › Organization icon: a square PNG / JPEG / WebP / GIF ≤ 1 MB (the view crops it to 256 × 256) */
+  setIcon(orgId: string, image: Uint8Array): Promise<O.OrgInfo>;
+  removeIcon(orgId: string): Promise<O.OrgInfo>;
+  /** An org's or team's `iconUrl` as a data: URL the views can show (the page loads no network pictures); null when
+   *  it can't be had (offline, gone). Kept for the session: the URL names its bytes. */
+  iconData(iconUrl: string): Promise<string | null>;
   watch(listener: (e: OrgEvent) => void): Unsubscribe;
 }
 
@@ -54,6 +62,10 @@ export interface TeamsRepository {
   get(teamId: string): Promise<O.TeamInfo>;
   create(orgId: string, input: { name: string; workspaceId?: string | null }): Promise<O.TeamInfo>;
   update(teamId: string, patch: O.TeamPatch): Promise<O.TeamInfo>;
+  /** "Change icon" (the team's admins): as OrgsRepository.setIcon */
+  setIcon(teamId: string, image: Uint8Array): Promise<O.TeamInfo>;
+  /** "Remove icon" (ours): back to the initial */
+  removeIcon(teamId: string): Promise<O.TeamInfo>;
   /** Soft delete (admins and the owner); restore from Admin or by the owner within the sweep */
   remove(teamId: string): Promise<void>;
   restore(teamId: string): Promise<O.TeamInfo>;

@@ -8,6 +8,8 @@ import { DEFAULT_ORG_SETTINGS, type ActivityAction, type ActivityLog, type Admin
 export interface Seed {
   orgId: string;
   orgName: string;
+  /** §14.16: a data: URL in the fake (the store's iconData passes those through) */
+  orgIconUrl?: string | null;
   people: AdminPerson[];
   workspaces: OrgWorkspace[];
   billingGroups: BillingGroup[];

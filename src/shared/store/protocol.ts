@@ -60,6 +60,7 @@ export const STORE_METHODS = {
   workspace: [
     "getWorkspace",
     "updateWorkspace",
+    "setTeamName",
     "getPrefs",
     "setBrowsePrefs",
     "listFolders",
@@ -108,8 +109,8 @@ export const STORE_METHODS = {
   comments: ["list", "add", "edit", "remove", "setResolved", "setRead", "react", "move", "mentionable"],
   notifications: ["list", "markRead", "prefs", "setPrefs", "answer"],
   // The org spaces (docs/multiplayer.md §14.6); `watch` is the `org` event topic
-  orgs: ["list", "get", "create", "people", "drafts", "createDraft", "search", "requestSeat", "groups", "createGroup", "updateGroup", "setGroupMembers", "deleteGroup", "leave"],
-  teams: ["list", "get", "create", "update", "remove", "restore", "transfer", "members", "invite", "setMember", "removeMember", "join", "leave", "requests", "answerRequest"],
+  orgs: ["list", "get", "create", "people", "drafts", "createDraft", "search", "requestSeat", "groups", "createGroup", "updateGroup", "setGroupMembers", "deleteGroup", "leave", "update", "setIcon", "removeIcon", "iconData"],
+  teams: ["list", "get", "create", "update", "setIcon", "removeIcon", "remove", "restore", "transfer", "members", "invite", "setMember", "removeMember", "join", "leave", "requests", "answerRequest"],
   projects: [
     "list",
     "get",

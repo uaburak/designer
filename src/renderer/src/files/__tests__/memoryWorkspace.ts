@@ -141,6 +141,12 @@ export class MemoryWorkspace implements WorkspaceRepository, MemoryExtras {
     return structuredClone(this.workspace);
   }
 
+  async setTeamName(name: string) {
+    const n = name.trim();
+    if (!n) throw new Error("a team name can't be empty");
+    return this.updateWorkspace({ teamName: n });
+  }
+
   async getPrefs() {
     return structuredClone(this.prefs);
   }

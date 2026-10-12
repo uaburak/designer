@@ -33,7 +33,7 @@ import {
   viewSeatNotice,
   type TeamAccessChoice,
 } from "./org";
-import { AskToUpgradeDialog, DestinationDialog, NameDialog, TransferDialog, type Destination } from "./orgDialogs";
+import { AskToUpgradeDialog, DestinationDialog, IconDialog, NameDialog, TransferDialog, type Destination } from "./orgDialogs";
 import { LibraryAnalytics } from "./libraryAnalytics";
 import { OrgLibrariesDialog, TeamFontsDialog, TeamLibrariesDialog, TeamSettingsDialog } from "./orgLibraries";
 import { TeamIcon } from "./parts";
@@ -79,6 +79,8 @@ type Dialog =
   | { kind: "org-libraries" }
   | { kind: "library-analytics"; key: string; name: string }
   | { kind: "team-settings"; team: O.TeamInfo; canAdmin: boolean }
+  | { kind: "rename-team"; team: O.TeamInfo }
+  | { kind: "team-icon"; team: O.TeamInfo }
   | { kind: "team-libraries"; team: O.TeamInfo; canAdmin: boolean }
   | { kind: "team-fonts"; team: O.TeamInfo; canAdmin: boolean };
 
@@ -302,7 +304,7 @@ export function OrgMain(props: OrgMainProps) {
       const teamCard = (t: O.TeamSummary) => (
         <div key={t.id} className={styles.teamCard} data-team-card={t.name}>
           <button type="button" className={styles.teamCardMain} onClick={() => go({ kind: "team", teamId: t.id })}>
-            <TeamIcon name={t.name} src={t.icon} size={40} />
+            <TeamIcon name={t.name} src={t.icon} iconUrl={t.iconUrl} size={40} />
             <span className={styles.teamCardText}>
               <span className={styles.teamCardName}>{t.name}</span>
               <span className={styles.teamCardSub}>{teamSubtitle(t)}</span>
@@ -357,9 +359,11 @@ export function OrgMain(props: OrgMainProps) {
             New folder
           </Button>
         ) : null;
-      const hasSettings = !!org.orgLibraries || !!org.fonts;
+      // The team's ⌄ menu (help.figma.com 14949911189399: Rename, Change icon — admins; "View settings" with About)
       const teamMenu: MenuEntry[] = [
-        ...(hasSettings ? [{ id: "settings", label: "View settings" }, "-" as const] : []),
+        { id: "settings", label: "View settings" },
+        ...(canAdmin ? ["-" as const, { id: "rename", label: "Rename" }, { id: "icon", label: "Change icon" }, ...(t.iconUrl || t.icon ? [{ id: "remove-icon", label: "Remove icon" }] : [])] : []),
+        "-" as const,
         ...(t.me?.owner ? [{ id: "transfer", label: "Transfer ownership…" }] : []),
         ...(t.me && !t.me.owner ? [{ id: "leave", label: "Leave team" }] : []),
         ...(canAdmin ? ["-" as const, { id: "delete", label: "Delete team…" }] : []),
@@ -367,7 +371,7 @@ export function OrgMain(props: OrgMainProps) {
       body = (
         <>
           <div className={styles.teamHeader}>
-            <TeamIcon name={t.name} src={t.icon} size={40} />
+            <TeamIcon name={t.name} src={t.icon} iconUrl={t.iconUrl} size={40} />
             <div className={styles.teamHeaderText}>
               <h1 className={styles.teamTitle}>{t.name}</h1>
               <span className={styles.mutedText}>{teamAudience(t)}</span>
@@ -379,6 +383,9 @@ export function OrgMain(props: OrgMainProps) {
                 entries={teamMenu}
                 onSelect={(id) => {
                   if (id === "settings") setDialog({ kind: "team-settings", team: t, canAdmin });
+                  if (id === "rename") setDialog({ kind: "rename-team", team: t });
+                  if (id === "icon") setDialog({ kind: "team-icon", team: t });
+                  if (id === "remove-icon") void write(() => org.teams.removeIcon(t.id), "Icon removed");
                   if (id === "transfer") setDialog({ kind: "transfer", team: t, members: data.members });
                   if (id === "leave") setDialog({ kind: "leave-team", team: t });
                   if (id === "delete") setDialog({ kind: "delete-team", team: t });
@@ -475,7 +482,7 @@ export function OrgMain(props: OrgMainProps) {
                 <div className={styles.teamGrid}>
                   {r.teams.map((t) => (
                     <button key={t.id} type="button" className={styles.teamCardMain} onClick={() => go({ kind: "team", teamId: t.id })}>
-                      <TeamIcon name={t.name} src={t.icon} size={24} />
+                      <TeamIcon name={t.name} src={t.icon} iconUrl={t.iconUrl} size={24} />
                       <span className={styles.teamCardName}>{t.name}</span>
                     </button>
                   ))}
@@ -648,6 +655,38 @@ export function OrgMain(props: OrgMainProps) {
           onClose={() => setDialog(null)}
           onLibraries={() => setDialog({ ...dialog, kind: "team-libraries" })}
           onFonts={() => setDialog({ ...dialog, kind: "team-fonts" })}
+          onDescription={dialog.canAdmin ? async (description) => {
+            const team = await write(() => org.teams.update(dialog.team.id, { description }), "Description saved");
+            if (team) setDialog({ ...dialog, team });
+          } : undefined}
+        />
+      )}
+      {dialog?.kind === "rename-team" && (
+        <NameDialog
+          title="Rename team"
+          label="Team name"
+          confirm="Rename"
+          initial={dialog.team.name}
+          onClose={() => setDialog(null)}
+          onDone={(name) => {
+            const d = dialog;
+            setDialog(null);
+            void write(() => org.teams.update(d.team.id, { name }));
+          }}
+        />
+      )}
+      {dialog?.kind === "team-icon" && (
+        <IconDialog
+          name={dialog.team.name}
+          iconUrl={dialog.team.iconUrl}
+          src={dialog.team.icon}
+          onClose={() => setDialog(null)}
+          onSave={async (image) => {
+            if (await write(() => org.teams.setIcon(dialog.team.id, image), "Icon changed")) setDialog(null);
+          }}
+          onRemove={async () => {
+            if (await write(() => org.teams.removeIcon(dialog.team.id), "Icon removed")) setDialog(null);
+          }}
         />
       )}
       {dialog?.kind === "team-libraries" && org.orgLibraries && <TeamLibrariesDialog org={org} orgId={orgId} team={dialog.team} canManage={dialog.canAdmin} toast={toast} onClose={() => setDialog(null)} />}

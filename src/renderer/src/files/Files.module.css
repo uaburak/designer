@@ -229,7 +229,13 @@
   .teamIcon[data-size="16"] { width: var(--ds-size-icon-16); height: var(--ds-size-icon-16); border-radius: var(--ds-radius-full); }
   .teamIcon[data-size="24"] { width: var(--ds-size-icon-24); height: var(--ds-size-icon-24); }
   .teamIcon[data-size="40"] { width: var(--ds-space-10); height: var(--ds-space-10); font: var(--ds-font-heading-medium); letter-spacing: var(--ds-tracking-heading-medium); }
+  .teamIcon[data-size="32"] { width: var(--ds-space-8); height: var(--ds-space-8); }
+  .teamIcon[data-size="64"] { width: var(--ds-space-16); height: var(--ds-space-16); border-radius: var(--ds-radius-large); font: var(--ds-font-heading-large); letter-spacing: var(--ds-tracking-heading-large); }
   .teamIcon img { width: 100%; height: 100%; object-fit: cover; }
+  /* Change icon (§14.16): the crop as it will show — the page's square and the sidebar's circle */
+  .iconPreview { display: flex; align-items: center; gap: var(--ds-space-4); }
+  .iconActions { display: flex; flex-wrap: wrap; gap: var(--ds-space-2); }
+  .iconError { margin: 0; color: var(--figma-color-text-danger); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
   .teamIcon[data-initial]::before { content: attr(data-initial); }
 
   .orgContent { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--ds-space-6) var(--ds-space-8) var(--ds-space-12); }

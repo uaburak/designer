@@ -10,6 +10,7 @@ import { getStoreClient } from "@/store";
 import { PEER_COLORS } from "@shared/multiplayer/colors";
 import { isCommentKind, isDevStatusKind, notificationAction, notificationDate, type NotificationFilter, type NotificationItem, type NotificationPage } from "@shared/notifications";
 import styles from "./Notifications.module.css";
+import { TeamIcon } from "@/files/parts";
 
 /** Live (2.png): the panel's left edge 62 left of the bell's, 2 under it */
 const LEFT_OF_ANCHOR = 62;
@@ -189,7 +190,7 @@ function Row({ n, now, busy, onOpen, onAnswer }: { n: NotificationItem; now: num
   const request = n.kind === "edit-request";
   const dev = isDevStatusKind(n.kind);
   const plugin = n.kind === "plugin_request" || n.kind === "plugin_request_answer";
-  const badge = isCommentKind(n.kind) ? (n.kind === "reaction" ? (n.count === 1 && n.emoji ? <span className={styles.emoji}>{n.emoji}</span> : <Icon name="16.emoji" />) : <Icon name="24.comment" size={16} />) : dev ? <Icon name="24.dev-brackets" size={16} /> : plugin ? <Icon name="24.plugin" size={16} /> : null;
+  const badge = isCommentKind(n.kind) ? (n.kind === "reaction" ? (n.count === 1 && n.emoji ? <span className={styles.emoji}>{n.emoji}</span> : <Icon name="16.emoji" />) : <Icon name="24.comment" size={16} />) : dev ? <Icon name="24.dev-brackets" size={16} /> : plugin ? <Icon name="24.plugin" size={16} /> : n.placeIconUrl ? <TeamIcon name={n.fileName} iconUrl={n.placeIconUrl} /> : null;
   return (
     <div
       role="listitem"

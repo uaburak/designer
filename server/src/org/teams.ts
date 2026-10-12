@@ -12,6 +12,7 @@ import { body, cleanName, EMAIL, HttpError, ID, json, noContent, randomId, type 
 import { inviteEmail, orgAdminIds } from "./orgs";
 import { teamFileKeys, reauth } from "./reauth";
 import { logExternal, personById, requireInside } from "../policy/external";
+import { iconUrl, teamIconRoute } from "./icons";
 
 const AUDIENCES: readonly Audience[] = ["none", "viewer", "editor"];
 const audienceRank = (a: Audience) => AUDIENCES.indexOf(a);
@@ -75,6 +76,7 @@ async function teamSummary(ctx: Ctx, t: TeamRow): Promise<TeamSummary> {
     id: t.id,
     name: t.name,
     icon: t.icon,
+    iconUrl: iconUrl(t.org_id, t.icon_hash),
     workspaceId: t.workspace_id,
     visibility: t.visibility,
     orgAccess: t.org_access,
@@ -188,6 +190,13 @@ export async function teamsRoute(ctx: Ctx): Promise<Response> {
   }
 
   switch (parts[2]) {
+    // "Change icon" (help.figma.com 14949911189399: admins), docs/multiplayer.md §14.16
+    case "icon": {
+      if (parts.length !== 3) break;
+      live();
+      needAdmin();
+      return teamIconRoute(ctx, team, async () => teamInfo(ctx, (await acc.team(team.id))!), tell);
+    }
     case "restore": {
       if (parts.length !== 3 || m !== "POST") break;
       if (!rights.orgAdmin && !rights.owner) throw new HttpError(403, "only organization admins and the team's owner can restore it");

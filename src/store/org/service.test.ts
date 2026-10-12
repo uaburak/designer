@@ -178,7 +178,7 @@ describe("org spaces", () => {
   it("lists what the server has, in §14.12's shapes, and caches it per org", async () => {
     const { a, org, team, folder } = await acme();
     expect(org).toMatchObject({ name: "Acme", role: "admin", seat: "full", settings: { defaultSeat: "view" } });
-    expect(await a.org.orgs.list()).toEqual([{ id: org.id, name: "Acme", role: "admin", seat: "full", workspaceId: null }]);
+    expect(await a.org.orgs.list()).toEqual([{ id: org.id, name: "Acme", iconUrl: null, role: "admin", seat: "full", workspaceId: null }]);
     expect((await a.org.teams.list(org.id)).map((t) => t.name)).toEqual(["Design"]);
     expect((await a.org.projects.list(team.id)).map((p) => [p.name, p.teamId, p.parentId])).toEqual([["Web", team.id, null]]);
     const sub = await a.org.projects.create(team.id, { name: "Icons", parentId: folder.id });
@@ -495,5 +495,55 @@ describe("LocalStore's org spaces", () => {
       client.close();
       server.close();
     }
+  });
+});
+
+describe("names and icons (docs/multiplayer.md §14.16)", () => {
+  const png = (seed: string) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new TextEncoder().encode(seed)]);
+
+  it("an org admin renames the org and sets its icon: the cache, the list and the events follow; iconData gives a picture", async () => {
+    const { srv, a, org, team } = await acme();
+    a.events.length = 0;
+    const renamed = await a.org.orgs.update(org.id, { name: "Acme Inc" });
+    expect(renamed.name).toBe("Acme Inc");
+    expect(a.events).toEqual(expect.arrayContaining([{ type: "orgs.changed" }, { type: "org.updated", orgId: org.id }]));
+    expect((await a.org.orgs.list())[0].name).toBe("Acme Inc");
+
+    const icon = png("org icon");
+    const withIcon = await a.org.orgs.setIcon(org.id, icon);
+    expect(withIcon.iconUrl).toMatch(new RegExp(`^/icons/${org.id}/[0-9a-f]{40}$`));
+    expect((await a.org.orgs.list())[0].iconUrl).toBe(withIcon.iconUrl);
+    expect((await a.org.orgs.get(org.id)).iconUrl).toBe(withIcon.iconUrl);
+    await a.org.idle();
+    expect(a.host.caches.get(org.id)?.summary?.iconUrl).toBe(withIcon.iconUrl);
+    const data = await a.org.orgs.iconData(withIcon.iconUrl!);
+    expect(data).toBe(`data:image/png;base64,${Buffer.from(icon).toString("base64")}`);
+    // Kept for the session: asked once
+    const asked = srv.log.filter((l) => l.startsWith("GET /icons/")).length;
+    await a.org.orgs.iconData(withIcon.iconUrl!);
+    expect(srv.log.filter((l) => l.startsWith("GET /icons/")).length).toBe(asked);
+    expect(await a.org.orgs.iconData("https://elsewhere.example/x.png")).toBeNull();
+
+    expect((await a.org.orgs.removeIcon(org.id)).iconUrl).toBeNull();
+    // Checked before the server is asked
+    await expect(a.org.orgs.setIcon(org.id, new TextEncoder().encode("<svg/>"))).rejects.toMatchObject({ code: "invalid" });
+    await expect(a.org.orgs.setIcon(org.id, new Uint8Array(1024 * 1024 + 1).fill(0xff))).rejects.toMatchObject({ code: "invalid" });
+
+    // A team's icon: its admins
+    const t = await a.org.teams.setIcon(team.id, png("team icon"));
+    expect(t.iconUrl).toMatch(/^\/icons\//);
+    expect((await a.org.teams.list(org.id)).find((x) => x.id === team.id)?.iconUrl).toBe(t.iconUrl);
+    expect(a.events).toContainEqual({ type: "team.updated", teamId: team.id });
+    expect((await a.org.teams.removeIcon(team.id)).iconUrl).toBeNull();
+  });
+
+  it("a member can't: forbidden", async () => {
+    const { srv, a, org, team } = await acme();
+    const bobUser = await srv.addUser("bob@example.com", "Bob");
+    await a.org.teams.invite(team.id, { email: "bob@example.com", role: "editor" });
+    const b = await installation(srv, bobUser.token);
+    expect(await codeOf(b.org.orgs.update(org.id, { name: "Mine" }))).toBe("forbidden");
+    expect(await codeOf(b.org.orgs.setIcon(org.id, png("x")))).toBe("forbidden");
+    expect(await codeOf(b.org.teams.setIcon(team.id, png("x")))).toBe("forbidden");
   });
 });

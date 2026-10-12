@@ -19,6 +19,7 @@ import type * as O from "../../shared/org/types";
 import type { AccessTokenInfo } from "../../shared/account";
 import type { AdminRepository, OrgEvent, OrgsRepository, ProjectsRepository, TeamsRepository } from "../../shared/org/repositories";
 import { StoreError } from "../../shared/store/protocol";
+import { ICON_MAX_BYTES, ICON_URL, bytesToDataUrl, iconMime } from "../../shared/org/icons";
 import type { Unsubscribe } from "../../shared/store/repositories";
 import type { FileKey, FileMeta, FileSpace } from "../../shared/store/types";
 import type { MultiplayerService } from "../multiplayer/service";
@@ -81,6 +82,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 const summaryOf = (v: O.OrgInfo): O.OrgSummary => ({
   id: v.id,
   name: v.name,
+  ...(v.iconUrl !== undefined ? { iconUrl: v.iconUrl } : {}),
   role: v.role,
   seat: v.seat,
   workspaceId: v.workspaceId,
@@ -104,6 +106,13 @@ const query = (q: Record<string, unknown>): string => {
   }
   const s = p.toString();
   return s ? `?${s}` : "";
+};
+/** An icon upload as the server takes it (§14.16), checked here first */
+const iconBytes = (image: unknown): Uint8Array => {
+  if (!(image instanceof Uint8Array) || !image.length) throw new StoreError("invalid", "an icon is an image's bytes");
+  if (image.length > ICON_MAX_BYTES) throw new StoreError("invalid", "The image is larger than 1 MB");
+  if (!iconMime(image)) throw new StoreError("invalid", "Only PNG, JPEG, WebP and GIF images can be used as an icon");
+  return image;
 };
 const cleanName = (name: unknown, fallback: string | null, what: string): string => {
   const n = typeof name === "string" ? name.trim() : "";
@@ -132,6 +141,8 @@ export class OrgService {
   private freshAt = new Map<string, number>();
   private saving = new Map<string, Promise<void>>();
   private offs: Unsubscribe[] = [];
+  /** Icons fetched this session, by URL (the URL names its bytes: never stale) */
+  private icons = new Map<string, Promise<string | null>>();
 
   constructor(
     private mp: MultiplayerService,
@@ -717,8 +728,58 @@ export class OrgService {
         await this.save(id);
         this.emit({ type: "orgs.changed" });
       },
+      update: async (orgId, patch) => {
+        const id = String(orgId);
+        return this.orgChanged(pick<O.OrgInfo>(await this.call("PATCH", `/orgs/${seg(id, "org")}`, { name: cleanName(patch?.name, null, "organization") }), "org"));
+      },
+      setIcon: async (orgId, image) => {
+        const id = String(orgId);
+        return this.orgChanged(pick<O.OrgInfo>(await this.call("PUT", `/orgs/${seg(id, "org")}/icon`, iconBytes(image)), "org"));
+      },
+      removeIcon: async (orgId) => {
+        const id = String(orgId);
+        return this.orgChanged(pick<O.OrgInfo>(await this.call("DELETE", `/orgs/${seg(id, "org")}/icon`), "org"));
+      },
+      iconData: (iconUrl) => this.iconData(iconUrl),
       watch: (listener) => this.onEvent(listener),
     };
+  }
+
+  /** The org's new name or icon: its cached entry and list summary, then `orgs.changed` and `org.updated` */
+  private async orgChanged(org: O.OrgInfo): Promise<O.OrgInfo> {
+    await this.ensureLoaded();
+    const c = this.cacheOf(org.id);
+    c.info = clone(org);
+    c.summary = summaryOf(org);
+    this.freshAt.set(`${org.id}|info`, this.host.now());
+    await this.save(org.id);
+    this.emit({ type: "orgs.changed" });
+    this.emit({ type: "org.updated", orgId: org.id });
+    return org;
+  }
+
+  private iconData(iconUrl: unknown): Promise<string | null> {
+    if (typeof iconUrl !== "string") return Promise.resolve(null);
+    if (iconUrl.startsWith("data:image/")) return Promise.resolve(iconUrl);
+    if (!ICON_URL.test(iconUrl) || !this.mp.signedIn) return Promise.resolve(null);
+    let p = this.icons.get(iconUrl);
+    if (!p) {
+      p = this.mp.callBytes("GET", iconUrl).then(
+        ({ bytes, headers }) => {
+          const mime = iconMime(bytes) ?? headers.get("content-type");
+          return mime && mime.startsWith("image/") ? bytesToDataUrl(bytes, mime) : null;
+        },
+        () => {
+          // Offline or gone: asked again next time
+          this.icons.delete(iconUrl);
+          return null;
+        },
+      );
+      this.icons.set(iconUrl, p);
+      // A long session with many teams: the oldest go first
+      if (this.icons.size > 200) this.icons.delete(this.icons.keys().next().value!);
+    }
+    return p;
   }
 
   private groupsChanged(orgId: string | undefined): void {
@@ -792,6 +853,16 @@ export class OrgService {
       },
       update: async (teamId, patch) => {
         const team = pick<O.TeamInfo>(await this.call("PATCH", teamPath(teamId), patch ?? {}), "team");
+        await changed(String(teamId));
+        return team;
+      },
+      setIcon: async (teamId, image) => {
+        const team = pick<O.TeamInfo>(await this.call("PUT", `${teamPath(teamId)}/icon`, iconBytes(image)), "team");
+        await changed(String(teamId));
+        return team;
+      },
+      removeIcon: async (teamId) => {
+        const team = pick<O.TeamInfo>(await this.call("DELETE", `${teamPath(teamId)}/icon`), "team");
         await changed(String(teamId));
         return team;
       },
