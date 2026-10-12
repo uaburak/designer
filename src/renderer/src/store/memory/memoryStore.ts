@@ -1305,11 +1305,13 @@ export class MemoryStore {
       put: (bytes, hint) => this.putBlob(bytes, hint),
       has: async (sha1s) => (sha1s ?? []).map((s) => isSha1(s) && this.storage.get(K.blob(s)) !== null),
       get: async (sha1) => {
-        const b = this.blob(sha1);
+        // A shared file's image still coming down is waited for (docs/cloud.md §4.1)
+        const b = this.blob(sha1) ?? ((await this.multiplayer.wantBlob(sha1)) ? this.blob(sha1) : null);
         if (!b) throw new StoreError("not-found", `no blob ${sha1}`);
         return b.bytes;
       },
       url: (sha1) => `app://designer/_blob/${sha1}`,
+      watch: (listener) => this.multiplayer.onBlobsArrived(listener),
     };
     // Routed by key: local libraries (§9) and org libraries (§16.3); events: the local emitter carries both
     const registry: LibraryRegistry = this.libraries.registry();

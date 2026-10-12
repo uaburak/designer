@@ -246,6 +246,8 @@ export class LocalStore {
       },
       this.multiplayer,
     );
+    // A shared file's image still coming down is waited for by whoever reads it (docs/cloud.md §4.1)
+    blobs.whenMissing = (sha1) => this.multiplayer.wantBlob(sha1);
     this.notifications = new NotificationsService(this.multiplayer, { WebSocket: globalThis.WebSocket as never });
     this.personal = new PersonalService(this.multiplayer, this.personalHost(), this.notifications, { enabled: personalDrafts });
     const spacePath = (orgId: string) => {
@@ -1082,6 +1084,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     has: (sha1s) => s.blobs.has(sha1s ?? []),
     get: (sha1) => s.blobs.get(sha1),
     url: (sha1) => `app://designer/_blob/${sha1}`,
+    watch: (listener) => s.multiplayer.onBlobsArrived(listener),
   };
   // Routed by key: local libraries (§9) and org libraries (§16.3)
   const r = s.libraryRouter;

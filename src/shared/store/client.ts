@@ -17,6 +17,7 @@ import type {
   FileRepository,
   FontsEvent,
   LibraryEvent,
+  BlobsEvent,
   LibraryRegistry,
   OpenedFile,
   PreviewService,
@@ -102,6 +103,7 @@ export class StoreClient implements StoreApi {
   private readonly multiplayerEvents = new Listeners<MultiplayerEvent>();
   private readonly sessionEvents = new Listeners<SessionEnded>();
   private readonly uploadEvents = new Listeners<UploadEvent>();
+  private readonly blobsEvents = new Listeners<BlobsEvent>();
   private readonly commentsEvents = new Listeners<CommentsEvent>();
   private readonly notificationsEvents = new Listeners<NotificationsEvent>();
   private readonly orgEvents = new Listeners<OrgEvent>();
@@ -224,6 +226,7 @@ export class StoreClient implements StoreApi {
         else if (msg.topic === "plugins") this.pluginsEvents.emit(msg.d as PluginsEvent);
         else if (msg.topic === "devmode") this.devModeEvents.emit(msg.d as DevModeEvent);
         else if (msg.topic === "uploads") this.uploadEvents.emit(msg.d as UploadEvent);
+        else if (msg.topic === "blobs") this.blobsEvents.emit(msg.d as BlobsEvent);
         else if (msg.topic === "cloud") this.cloudEvents.emit(msg.d as CloudEvent);
         return;
     }
@@ -406,6 +409,7 @@ export class StoreClient implements StoreApi {
     has: (sha1s) => this.call("blobs.has", [sha1s]),
     get: (sha1) => this.call("blobs.get", [sha1]),
     url: (sha1) => (this.opts.blobUrl ? this.opts.blobUrl(sha1) : `app://designer/_blob/${sha1}`),
+    watch: (listener) => this.blobsEvents.add(listener),
   };
 
   readonly libraries: LibraryRegistry = {

@@ -39,6 +39,8 @@ export interface ServableStore {
     onSessionEnded(listener: (e: SessionEnded) => void): Unsubscribe;
     /** Uploads' progress for the upload panel (docs/multiplayer.md §5.1), topic `uploads` */
     onUploads?(listener: (e: UploadEvent) => void): Unsubscribe;
+    /** Images that came down after their file opened (docs/cloud.md §4.1), topic `blobs` */
+    onBlobsArrived?(listener: (e: { arrived: string[] }) => void): Unsubscribe;
     /** A port closed: the REST renderers it registered end with it */
     releaseRenderersOf?(owner: object): void;
     fileState(fileKey: FileKey): Promise<FileShareState>;
@@ -176,6 +178,7 @@ export class StoreServer {
       this.offs.push(mp.onRestWanted((fileKey) => void mp.fileState(fileKey).then((state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state, restWanted: true } }))));
       this.offs.push(mp.onSessionEnded((d) => this.broadcast({ t: "evt", topic: "session", d })));
       if (mp.onUploads) this.offs.push(mp.onUploads((d) => this.broadcast({ t: "evt", topic: "uploads", d })));
+      if (mp.onBlobsArrived) this.offs.push(mp.onBlobsArrived((d) => this.broadcast({ t: "evt", topic: "blobs", d })));
     }
     if (store.comments) this.offs.push(store.comments.onChange((fileKey) => this.broadcast({ t: "evt", topic: "comments", d: { fileKey } })));
     if (store.notifications) this.offs.push(store.notifications.onChange((d) => this.broadcast({ t: "evt", topic: "notifications", d })));

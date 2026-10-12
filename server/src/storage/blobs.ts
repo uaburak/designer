@@ -9,6 +9,8 @@
  *                                                             for an unmigrated file. Any other hash is missing: its
  *                                                             bytes are sent and checked (an object already in the
  *                                                             bucket isn't written again)
+ *   POST   /files/:key/blobs/sizes {sha1s}                  → {sizes}: the stored bytes of those the file refers to
+ *                                                             (the client's download total, Wecra 1.1.1)
  *   GET    /files/:key/blobs/:sha1                          the bytes from R2 (the file's reference), opened when
  *                                                             sealed; else the room (rows not migrated yet)
  *   PUT    /files/:key/blobs/:sha1                          ≤ 40 MB, SHA-1 checked, sealed for orgs with key management
@@ -77,6 +79,7 @@ export async function fileBlobsRoute(c: BlobCtx, rest: string[]): Promise<Respon
   if (!b) return null;
   const m = c.req.method;
   if (rest.length === 1 && rest[0] === "missing" && m === "POST") return missing(c, b);
+  if (rest.length === 1 && rest[0] === "sizes" && m === "POST") return sizes(c);
   const sha1 = rest[0];
   if (!sha1 || !SHA1.test(sha1)) throw new HttpError(404, "not found");
   if (rest.length === 1 && m === "GET") return (await readFileBlob(c.deps, c.f, sha1)) ?? c.room(`/room/blobs/${sha1}`, { method: "GET" });
@@ -146,6 +149,20 @@ async function missing(c: BlobCtx, b: { name: BucketName; store: ObjectStore }):
     if (res.ok) rest = ((await res.json()) as { missing: string[] }).missing;
   }
   return json({ missing: rest });
+}
+
+/**
+ * `POST …/blobs/sizes {sha1s}` → `{sizes: {sha1: bytes}}`: the stored size of each image the file refers to (others
+ * left out) — the client's "Downloading images" total before they come (Wecra 1.1.1, docs/cloud.md §4.1). Viewers too.
+ */
+async function sizes(c: BlobCtx): Promise<Response> {
+  const { sha1s } = (await c.req.json().catch(() => ({}))) as { sha1s?: unknown };
+  if (!Array.isArray(sha1s) || sha1s.length > 1000 || !sha1s.every((s) => typeof s === "string" && SHA1.test(s))) throw new HttpError(400, "sha1s");
+  const { results } = await c.deps.db.d1
+    .prepare(`SELECT r.sha1 AS sha1, o.bytes AS bytes FROM r2_refs r JOIN r2_objects o ON o.bucket = r.bucket AND o.key = r.key WHERE r.file_key = ?1 AND r.sha1 IN (SELECT value FROM json_each(?2))`)
+    .bind(c.f.key, JSON.stringify([...new Set(sha1s as string[])]))
+    .all<{ sha1: string; bytes: number }>();
+  return json({ sizes: Object.fromEntries(results.map((r) => [r.sha1, r.bytes])) });
 }
 
 /** A stream R2 can store: its length known (Workers' FixedLengthStream; Node's tests take any stream) */

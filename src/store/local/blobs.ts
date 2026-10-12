@@ -29,6 +29,13 @@ export function pngSize(b: Uint8Array): { width: number; height: number } | null
 export const BLOB_GRACE_MS = 24 * 60 * 60 * 1000;
 
 export class LocalBlobs {
+  /**
+   * An image not here that may be coming down (Wecra 1.1.1, docs/cloud.md §4.1: a shared file's images arrive after it
+   * opens): moved to the front of the queue and waited for; true once it is here. Every reader — the editors, exports,
+   * previews — waits rather than missing it.
+   */
+  whenMissing: ((sha1: string) => Promise<boolean>) | null = null;
+
   constructor(
     readonly dir: string,
     private readonly tmpDir: string,
@@ -62,8 +69,9 @@ export class LocalBlobs {
     try {
       return own(await fsp.readFile(this.path(sha1)));
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new StoreError("not-found", `no blob ${sha1}`);
-      throw e;
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+      if (this.whenMissing && (await this.whenMissing(sha1).catch(() => false))) return own(await fsp.readFile(this.path(sha1)));
+      throw new StoreError("not-found", `no blob ${sha1}`);
     }
   }
 

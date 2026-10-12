@@ -22,6 +22,7 @@ import type { FileKey, FileMeta, FileSpace } from "../../shared/store/types";
 import { touchedBy, withoutPending, type Touched } from "./conflict";
 import { busyError, fetchWithRetry, isErrorPage, READ_RETRY_DELAYS, STILL_UPLOADING_TEXT, UPLOAD_RETRY_DELAYS, withRetry } from "./http";
 import { countingBody, pool, sendBlobs, UploadTracker, BLOB_CONCURRENCY, type BlobSender, type MultipartStart, type UploadClock } from "./uploads";
+import { BlobDownloads, DOWNLOAD_CONCURRENCY, imageDownloadOrder, type BlobSource } from "./downloads";
 import { UPLOAD_CANCELED, UPLOAD_CANCELED_TEXT, type UploadEvent } from "../../shared/multiplayer/uploads";
 
 /** What the store gives the service. */
@@ -98,6 +99,10 @@ export interface MultiplayerDeps {
   streamUploads?: boolean;
   /** The upload panel's clock (tests) */
   uploadClock?: UploadClock;
+  /** Images coming down at once (default DOWNLOAD_CONCURRENCY) and the waits between an image's tries (tests) */
+  downloadConcurrency?: number;
+  downloadRetryDelays?: readonly number[];
+  sleep?(ms: number): Promise<void>;
 }
 
 /** An upload the panel follows: its entry and the signal that cancels it */
@@ -125,6 +130,9 @@ interface LinkRecord {
   pass?: string;
   /** Shared from here, but its images and snapshot didn't all reach the room yet: the link uploads them before it joins */
   pendingUpload?: true;
+  /** Wecra 1.1.1 (docs/cloud.md §4.1): images of the room's snapshot not downloaded yet when the copy opened, in the
+   *  order they come; the next start continues them (`resumeDownloads`). Cleared once all are here. */
+  images?: string[];
   /** The account (server user id) the link was made with (docs/cloud.md §2): another account signed in leaves it idle
    *  rather than joining with a session that can't open it. Absent on links made before 1.1: joined by any account. */
   uid?: string;
@@ -204,6 +212,8 @@ export class MultiplayerService {
   readonly uploads: UploadTracker;
   /** The upload under way per file: aborting it cancels it */
   private uploading = new Map<FileKey, AbortController>();
+  /** Images coming down after their file opened (docs/cloud.md §4.1): the transfers panel's "Downloading images" */
+  readonly downloads: BlobDownloads;
 
   constructor(
     private host: MultiplayerHost,
@@ -211,6 +221,11 @@ export class MultiplayerService {
   ) {
     this.off = host.fileChanges.on((c) => this.live.get(c.fileKey)?.local(c));
     this.uploads = new UploadTracker(deps.uploadClock);
+    this.downloads = new BlobDownloads(this.blobSource(), this.uploads, {
+      concurrency: deps.downloadConcurrency,
+      retryDelays: deps.downloadRetryDelays,
+      onFileDone: (fileKey) => void this.imagesDone(fileKey),
+    });
   }
 
   /** Main (desktop) or the page (browser) hands the session over; null signs out (links stay, sockets close). */
@@ -239,6 +254,7 @@ export class MultiplayerService {
       this.host.log("warn", "multiplayer: couldn't reach the server", e);
     }
     for (const fileKey of Object.keys(st.links)) this.startLink(fileKey);
+    void this.resumeDownloads();
     return this.status();
   }
 
@@ -848,13 +864,86 @@ export class MultiplayerService {
     const res = await this.raw("GET", `/files/${key}/snapshot`);
     const seq = Number(res.headers.get("x-seq") ?? "0");
     const snapshot = new Uint8Array(await res.arrayBuffer());
-    await this.downloadBlobs(key, imagesOf(snapshot));
+    // Opened as soon as the document is here; its images come down after (docs/cloud.md §4.1)
     const meta = await this.host.createSharedFile({ name, snapshot, ...(space ? { space } : {}) });
     const head = Math.max(0, ...(await this.host.backlog(meta.fileKey, 0)).map((c) => c.seq));
     st.links[meta.fileKey] = { key, since: seq, acked: head, sessions: [], role, ...this.uidField(), ...(this.passes.has(key) ? { pass: this.passes.get(key) } : {}) };
     await this.persist(meta.fileKey);
     this.startLink(meta.fileKey);
+    await this.queueImages(meta.fileKey, key, name, snapshot);
     return meta.fileKey;
+  }
+
+  /**
+   * A copy's images not in the store, queued to come down in the background (the page it opens on first) and kept
+   * with its link for the next start. Never fails the open: a queue that can't start is said in the log.
+   */
+  private async queueImages(fileKey: FileKey, key: string, name: string, snapshot: Uint8Array): Promise<void> {
+    try {
+      const { first, rest } = imageDownloadOrder(snapshot);
+      const missing = await this.downloads.add({ fileKey, key, name, first, rest });
+      const rec = this.state?.links[fileKey];
+      if (!missing.length || !rec) return;
+      rec.images = missing;
+      await this.persist(fileKey);
+    } catch (e) {
+      this.host.log("warn", `multiplayer ${fileKey}: couldn't queue its images`, e);
+    }
+  }
+
+  /** Every image of a copy came down (or isn't in its room): its link forgets them */
+  private async imagesDone(fileKey: FileKey): Promise<void> {
+    const rec = this.state?.links[fileKey];
+    if (!rec?.images) return;
+    delete rec.images;
+    await this.persist(fileKey).catch((e: unknown) => this.host.log("warn", `multiplayer ${fileKey}: couldn't save its link`, e));
+  }
+
+  /** The images copies were still waiting for when the store last stopped (or the session went), queued again */
+  private async resumeDownloads(): Promise<void> {
+    const st = this.state;
+    if (!st || !this.session) return;
+    for (const [fileKey, rec] of Object.entries(st.links)) {
+      if (!rec.images?.length || !this.ownLink(fileKey)) continue;
+      const meta = this.host.getMeta(fileKey);
+      if (!meta) continue;
+      try {
+        const missing = await this.downloads.add({ fileKey, key: rec.key, name: meta.name, rest: rec.images });
+        if (!missing.length) await this.imagesDone(fileKey);
+      } catch (e) {
+        this.host.log("warn", `multiplayer ${fileKey}: couldn't continue its images`, e);
+      }
+    }
+  }
+
+  /**
+   * An image something here needs now (an editor drawing it, an export): moved to the front of the download queue and
+   * waited for. True once it is in the store; false when nothing here is fetching it, or it can't come.
+   */
+  async wantBlob(sha1: string): Promise<boolean> {
+    return (await this.downloads.want(sha1)) ?? false;
+  }
+
+  /** Images that came down after their file opened (topic `blobs`) */
+  onBlobsArrived(listener: (e: { arrived: string[] }) => void): Unsubscribe {
+    return this.downloads.onArrived((arrived) => listener({ arrived }));
+  }
+
+  /** How the background downloads reach the server and the store */
+  private blobSource(): BlobSource {
+    return {
+      has: (sha1s) => this.host.hasBlobs(sha1s),
+      put: (bytes) => this.host.putBlob(bytes),
+      get: async (key, sha1, onReceived, onSize) => {
+        const res = await this.raw("GET", `/files/${key}/blobs/${sha1}`);
+        const length = Number(res.headers.get("content-length") ?? "");
+        if (length > 0) onSize(length);
+        return readCounting(res, onReceived);
+      },
+      sizes: async (key, sha1s) => (await this.api<{ sizes?: Record<string, number> }>("POST", `/files/${key}/blobs/sizes`, { sha1s })).sizes ?? {},
+      sleep: this.deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
+      log: (level, message, detail) => this.host.log(level, message, detail),
+    };
   }
 
   /** `{uid}` of the signed-in account for a new link record (nothing when the token says no one) */
@@ -892,12 +981,13 @@ export class MultiplayerService {
       snapshot = this.host.newDocument();
       pendingUpload = true;
     }
-    await this.downloadBlobs(key, imagesOf(snapshot));
+    // Opened as soon as the document is here; its images come down after (docs/cloud.md §4.1)
     await this.host.fillFile(fileKey, snapshot);
     const head = Math.max(0, ...(await this.host.backlog(fileKey, 0)).map((c) => c.seq));
     st.links[fileKey] = { key, since: seq, acked: head, sessions: [], role, ...this.uidField(), ...(pendingUpload ? { pendingUpload: true as const } : {}) };
     await this.persist(fileKey);
     this.startLink(fileKey);
+    if (!pendingUpload) await this.queueImages(fileKey, key, this.host.getMeta(fileKey)?.name ?? "Untitled", snapshot);
   }
 
   /** A link made before 1.1 becomes the signed-in account's (the 1.1 migration of the person's own files) */
@@ -956,20 +1046,26 @@ export class MultiplayerService {
     return missing.filter((_, i) => have[i]);
   }
 
-  /** @internal Images the store doesn't have yet, downloaded from the room before the frame that uses them lands. */
+  /**
+   * @internal Images the store doesn't have yet, downloaded from the room before the frame that uses them lands (a
+   * version's, a collaborator's new image), DOWNLOAD_CONCURRENCY at a time; one coming down in the background already
+   * is moved to the front and waited for rather than fetched twice.
+   */
   async downloadBlobs(key: string, sha1s: string[]): Promise<void> {
     if (!sha1s.length) return;
     const have = await this.host.hasBlobs(sha1s);
-    for (let i = 0; i < sha1s.length; i++) {
-      if (have[i]) continue;
+    const missing = sha1s.filter((_, i) => !have[i]);
+    await pool(missing, this.deps.downloadConcurrency ?? DOWNLOAD_CONCURRENCY, async (sha1) => {
       try {
-        const res = await this.raw("GET", `/files/${key}/blobs/${sha1s[i]}`);
+        const queued = this.downloads.want(sha1);
+        if (queued && (await queued)) return;
+        const res = await this.raw("GET", `/files/${key}/blobs/${sha1}`);
         await this.host.putBlob(new Uint8Array(await res.arrayBuffer()));
       } catch (e) {
         // An image the uploader never had: the layer shows its placeholder, as with a missing image anywhere.
-        this.host.log("warn", `multiplayer: image ${sha1s[i]} isn't in the room`, e);
+        this.host.log("warn", `multiplayer: image ${sha1} isn't in the room`, e);
       }
-    }
+    });
   }
 
   /** @internal The room's history compacted at `seq` from this copy's head. */
@@ -1138,6 +1234,7 @@ export class MultiplayerService {
     this.closed = true;
     this.off();
     this.uploads.close();
+    this.downloads.close();
     this.blocked.clear();
     if (this.blockedTimer) clearTimeout(this.blockedTimer);
     this.blockedTimer = null;
@@ -1422,6 +1519,10 @@ export class MultiplayerService {
       links[k] = { key: r.key, since: Number(r.since) || 0, acked: Number(r.acked) || 0, sessions: Array.isArray(r.sessions) ? r.sessions.filter(Number.isInteger) : [], role: r.role === "owner" || r.role === "viewer" ? r.role : "editor" };
       if (r.pendingUpload === true) links[k].pendingUpload = true;
       if (typeof r.uid === "string" && r.uid) links[k].uid = r.uid;
+      if (Array.isArray(r.images)) {
+        const images = r.images.filter((s): s is string => typeof s === "string" && /^[0-9a-f]{40}$/.test(s));
+        if (images.length) links[k].images = images;
+      }
       if (typeof r.pass === "string") {
         links[k].pass = r.pass;
         this.passes.set(r.key, r.pass);
@@ -1920,6 +2021,39 @@ class Link {
     rec.since = frame.seq;
     await this.svc.persist(this.fileKey);
     if (this.ready) this.maybeCompact(rec);
+  }
+}
+
+/** An answer's body read as it comes, `onReceived` told the bytes so far; a connection lost part-way is `offline` (the
+ *  download tries again) */
+async function readCounting(res: Response, onReceived: (n: number) => void): Promise<Uint8Array> {
+  const reader = res.body?.getReader();
+  try {
+    if (!reader) {
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      onReceived(bytes.length);
+      return bytes;
+    }
+    const chunks: Uint8Array[] = [];
+    let n = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      n += value.length;
+      onReceived(n);
+    }
+    if (chunks.length === 1) return chunks[0];
+    const out = new Uint8Array(n);
+    let at = 0;
+    for (const c of chunks) {
+      out.set(c, at);
+      at += c.length;
+    }
+    return out;
+  } catch (e) {
+    if (e instanceof StoreError) throw e;
+    throw new StoreError("offline", "Couldn't reach the server. Check your connection and try again.");
   }
 }
 

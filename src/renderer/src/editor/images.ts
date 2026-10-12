@@ -34,6 +34,11 @@ export interface ImageStore {
   put(bytes: Uint8Array, mime: string): Promise<string>;
   /** The bytes of a stored image, or null. */
   get(hash: string): Promise<Uint8Array | null>;
+  /**
+   * Images that arrived after the file opened (Wecra 1.1.1, docs/cloud.md §4.1: a shared file's images come down in the
+   * background): those answered null before are read again and drawn in place of their placeholder. Absent: none do.
+   */
+  watch?(listener: (hashes: string[]) => void): () => void;
 }
 
 /** Figma's import cap: an image larger than this on either side is scaled down (aspect kept). */
@@ -328,6 +333,10 @@ export class ImageService {
   private readonly releasedPromise = new Promise<void>((resolve) => (this.releaseResolve = resolve));
   /** Per image: what the engine has and what is on its way. */
   private readonly states = new Map<string, ImageState>();
+  /** Hashes whose bytes the store hadn't (read again when they arrive) */
+  private readonly absent = new Set<string>();
+  /** Images the engine was told failed (drawn with Figma's grey placeholder) — asked again when they arrive */
+  private readonly failedImages = new Set<string>();
   /** Image hash → its low-res copy's hash: from imports, from requests that name it, and from the page's paints. */
   private readonly tiers = new Map<string, string>();
 
@@ -351,6 +360,8 @@ export class ImageService {
   /** Starts answering the engine (E5). Returns the detach. */
   attach(): () => void {
     const engine = this.engine;
+    const store = this.store;
+    if (store?.watch) this.offs.push(store.watch((hashes) => this.arrived(hashes)));
     const addBitmap = engineMethod<(hash: string, bitmap: ImageBitmap) => number>(engine, "addImage", "addImageBitmap", "imageAdd");
     if (addBitmap && typeof createImageBitmap !== "undefined") {
       // The event path with this service's own scheduling: decode here, upload after the first paint, a few per frame.
@@ -483,10 +494,40 @@ export class ImageService {
     if (!p) {
       this.requests++;
       p = this.store ? this.store.get(hash).catch(() => null) : Promise.resolve(null);
+      const asked = p;
+      void asked.then((b) => {
+        if (!b && this.loading.get(hash) === asked) this.absent.add(hash);
+      });
       this.loading.set(hash, p);
       this.track(p);
     }
     return p;
+  }
+
+  /**
+   * Images now in the store that weren't when asked for (topic `blobs`): their cached absence forgotten, the panels'
+   * swatches told, and every image the engine drew as failed for want of them (itself, or its low-res tier) asked for
+   * again — the layer's placeholder gives way to the image without reopening the file.
+   */
+  arrived(hashes: readonly string[]): void {
+    if (this.engine.destroyed) return;
+    let forgot = false;
+    for (const raw of hashes) {
+      const hash = raw.toLowerCase();
+      if (this.absent.delete(hash)) {
+        this.loading.delete(hash);
+        forgot = true;
+      }
+      for (const image of [...this.failedImages]) {
+        if (image !== hash && this.tiers.get(image) !== hash) continue;
+        this.failedImages.delete(image);
+        this.track(this.answer({ type: "REQUEST_IMAGE", hash: image }));
+      }
+    }
+    if (forgot) {
+      this.version++;
+      this.listeners.forEach((l) => l());
+    }
   }
 
   /** Image loads and imports still in flight. */
@@ -601,7 +642,10 @@ export class ImageService {
       }
       if (level === FULL) bytes = await this.bytes(hash);
       if (engine.destroyed) return;
-      if (!bytes) return void failed?.(hash);
+      if (!bytes) {
+        this.failedImages.add(hash);
+        return void failed?.(hash);
+      }
       const addBitmap = engineMethod<(hash: string, bitmap: ImageBitmap) => number>(engine, "addImage", "addImageBitmap", "imageAdd");
       if (addBitmap && typeof createImageBitmap !== "undefined") {
         // Decoded off the main thread; the upload waits for the first paint and its turn (a few per frame).

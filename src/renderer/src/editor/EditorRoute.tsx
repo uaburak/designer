@@ -85,6 +85,8 @@ function storeImages(): ImageStore {
         return null;
       }
     },
+    // A shared file's images arriving after it opened (docs/cloud.md §4.1) are drawn in place of their placeholder
+    ...(blobs.watch ? { watch: (listener: (hashes: string[]) => void) => blobs.watch!((e) => listener(e.arrived)) } : {}),
   };
 }
 

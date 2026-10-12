@@ -127,6 +127,15 @@ describe("images on R2", () => {
     expect((await w.call("PUT", `/files/${WEB}/blobs/${s}`, w.people.dan.token, img)).status).toBe(404);
   });
 
+  it("sizes: the stored bytes of the images a file refers to, viewers too (Wecra 1.1.1's download total)", async () => {
+    const img = big(5000, 7);
+    const s = sha1(img);
+    const other = sha1(bytes("not in this file"));
+    expect((await w.call("PUT", `/files/${WEB}/blobs/${s}`, alice(), img, { "content-length": String(img.length) })).status).toBe(200);
+    expect((await w.call("POST", `/files/${WEB}/blobs/sizes`, w.people.carol.token, { sha1s: [s, other] })).body).toEqual({ sizes: { [s]: 5000 } });
+    expect((await w.call("POST", `/files/${WEB}/blobs/sizes`, alice(), { sha1s: ["nope"] })).status).toBe(400);
+  });
+
   it("another file using the same image refers to the object (no upload), its owner charged once", async () => {
     const img = big(4000, 9);
     const s = sha1(img);

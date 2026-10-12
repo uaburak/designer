@@ -393,6 +393,8 @@ describe("MultiplayerService", () => {
     const sha1 = [...a.store.blobs.keys()][0];
     const hash = Uint8Array.from(sha1.match(/../g)!.map((h) => parseInt(h, 16)));
     a.store.edit(fa, [node(9, { phase: "CREATED", name: "Photo", fillPaints: [{ type: "IMAGE", image: { hash } }] } as any, 2 * 2 ** 20 + 1)]);
+    // The frame waits for its image (downloaded in a pool now: a few more hops)
+    await settle();
     await settle();
     expect(b.store.blobs.get(sha1)).toEqual(png);
     expect(b.store.doc(fb)[`${2 * 2 ** 20 + 1}:9`].name).toBe("Photo");
@@ -851,5 +853,114 @@ describe("MultiplayerService, images to R2", () => {
     const done = a.uploads().at(-1)!;
     expect(done).toMatchObject({ state: "done", bytesTotal: snapshot.length + images.reduce((n, b) => n + b.length, 0) });
     expect(a.uploads().some((u) => u.state === "retrying")).toBe(true);
+  });
+});
+
+describe("MultiplayerService, images after the file opens (Wecra 1.1.1, docs/cloud.md §4.1)", () => {
+  const hashOf = (sha1: string) => Uint8Array.from(sha1.match(/../g)!.map((h) => parseInt(h, 16)));
+  const isBlobGet = (m: string, path: string) => m === "GET" && /\/blobs\/[0-9a-f]{40}$/.test(path);
+
+  /** Images' downloads that wait until the test opens the gate */
+  function gate() {
+    const g = { open: false, inFlight: 0, max: 0, order: [] as string[], waiters: [] as (() => void)[] };
+    const wrap = async (m: string, path: string) => {
+      if (!isBlobGet(m, path)) return null;
+      g.order.push(path.slice(-40));
+      g.inFlight++;
+      g.max = Math.max(g.max, g.inFlight);
+      if (!g.open) await new Promise<void>((r) => g.waiters.push(r));
+      g.inFlight--;
+      return null;
+    };
+    const release = async () => {
+      g.open = true;
+      for (const w of g.waiters.splice(0)) w();
+      await settle();
+    };
+    return { g, wrap, release };
+  }
+
+  /** `a` shares a file of `n` images on two pages (the first page's are the last two made), `b` is invited */
+  async function sharedWithImages(n: number) {
+    const a = await installation("a@x.co");
+    services.push(a.svc);
+    const sha1s: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const bytes = new TextEncoder().encode(`image ${i} `.repeat(40));
+      await a.store.putBlob(bytes);
+      sha1s.push([...a.store.blobs.keys()].at(-1)!);
+    }
+    const at = (localID: number, position: string) => ({ parentIndex: { guid: { sessionID: 0, localID }, position } });
+    const nodes = [
+      node(0, { type: "DOCUMENT", name: "Document" }),
+      node(1, { type: "CANVAS", name: "Cover", ...at(0, "a") }),
+      node(2, { type: "CANVAS", name: "Archive", ...at(0, "b") }),
+      ...sha1s.map((s, i) => node(10 + i, { type: "RECTANGLE", name: `Photo ${i}`, ...at(i >= n - 2 ? 1 : 2, String.fromCharCode(65 + i)), fillPaints: [{ type: "IMAGE", image: { hash: hashOf(s) } }] })),
+    ];
+    const fa = a.store.addFile("Photos", nodes);
+    const shared = await a.svc.share(fa, { snapshot: msg(nodes), headSeq: 0 });
+    await a.svc.invite(fa, "b@x.co", "editor");
+    return { a, fa, key: shared.key!, sha1s };
+  }
+
+  it("opens as soon as the snapshot is here; the images come after, the opened page's first, and are said", async () => {
+    const { key, sha1s } = await sharedWithImages(12);
+    const { g, wrap, release } = gate();
+    const b = await watchedInstallation("b@x.co", wrap, { retryDelays: [] });
+    const arrived: string[] = [];
+    b.svc.onBlobsArrived((e) => arrived.push(...e.arrived));
+    const { fileKey } = await b.svc.openShared(key);
+    // Opened with no image here yet, the queue kept with the link for the next start
+    expect(b.store.files.has(fileKey)).toBe(true);
+    expect(b.store.blobs.size).toBe(0);
+    expect((b.store.saved.links[fileKey] as { images?: string[] }).images).toHaveLength(12);
+    await settle();
+    // 8 at a time, the page it opens on first
+    expect(g.max).toBe(8);
+    expect(g.order.slice(0, 2).sort()).toEqual(sha1s.slice(-2).sort());
+    const row = b.uploads().filter((u) => u.direction === "download").at(-1)!;
+    expect(row).toMatchObject({ fileKey, name: "Photos", destination: "Downloading images" });
+    await release();
+    expect([...b.store.blobs.keys()].sort()).toEqual([...sha1s].sort());
+    expect(arrived.sort()).toEqual([...sha1s].sort());
+    expect((b.store.saved.links[fileKey] as { images?: string[] }).images).toBeUndefined();
+    expect(b.uploads().filter((u) => u.direction === "download").at(-1)!.state).toBe("done");
+  });
+
+  it("an image wanted now (an editor, an export) goes to the front and is waited for", async () => {
+    const { key, sha1s } = await sharedWithImages(12);
+    const { g, wrap, release } = gate();
+    const b = await watchedInstallation("b@x.co", wrap, { downloadConcurrency: 1 });
+    await b.svc.openShared(key);
+    await settle();
+    const late = sha1s[5];
+    const wanted = b.svc.wantBlob(late);
+    // The one going finishes, then the wanted one
+    g.waiters.shift()!();
+    await settle();
+    expect(g.order[1]).toBe(late);
+    await release();
+    expect(await wanted).toBe(true);
+    expect(b.store.blobs.has(late)).toBe(true);
+    // Nothing fetching it: false at once (the reader says not-found as before)
+    expect(await b.svc.wantBlob("f".repeat(40))).toBe(false);
+  });
+
+  it("continues at the next start for a copy whose images didn't all come", async () => {
+    const { key, sha1s } = await sharedWithImages(4);
+    const { wrap } = gate();
+    const store = new FakeStore();
+    const b = await watchedInstallation("b@x.co", wrap, {}, store);
+    const { fileKey } = await b.svc.openShared(key);
+    await settle();
+    b.svc.close();
+    expect(store.blobs.size).toBe(0);
+    expect((store.saved.links[fileKey] as { images?: string[] }).images).toHaveLength(4);
+    // The store starts again: the link's images come down
+    const again = await watchedInstallation("b@x.co", () => null, {}, store);
+    await settle();
+    expect([...store.blobs.keys()].sort()).toEqual([...sha1s].sort());
+    expect((store.saved.links[fileKey] as { images?: string[] }).images).toBeUndefined();
+    expect(again.uploads().filter((u) => u.direction === "download").at(-1)).toMatchObject({ fileKey, state: "done" });
   });
 });

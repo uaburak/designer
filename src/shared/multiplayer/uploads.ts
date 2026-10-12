@@ -31,12 +31,18 @@ export interface UploadProgress {
   endedAt?: number;
   /** The panel offers Retry when it fails (a share or move does; a library publish is published again instead) */
   retryable: boolean;
+  /** Wecra 1.1.1 (docs/cloud.md §4.1): a file's images coming down after it opened ("Downloading images"); absent: an
+   *  upload. `bytesSent` is then the bytes received. Not cancellable; they continue at the next start. */
+  direction?: "download";
 }
 
 /** The topic's events: an upload's latest state (the panel keeps the last per id), or one gone (cancelled) */
 export type UploadEvent = { upload: UploadProgress } | { removed: string };
 
-/** Still going: the panel's "Uploading", main's "Uploads in progress" */
+/** A file's images coming down (the transfers panel's "Downloading images" row) */
+export const isDownload = (u: Pick<UploadProgress, "direction">): boolean => u.direction === "download";
+
+/** Still going: the panel's "Uploading", main's "Uploads in progress" (main counts only uploads: `isDownload`) */
 export const uploadInFlight = (u: Pick<UploadProgress, "state">): boolean => u.state === "queued" || u.state === "uploading" || u.state === "retrying";
 
 /** The store says an upload was cancelled (`StoreError.detail.code`) */

@@ -156,3 +156,50 @@ describe("the speed line (docs/cloud.md §4)", () => {
     expect(speedText({ state: "retrying", bytesPerSecond: 820_000, secondsLeft: 3 })).toBeNull();
   });
 });
+
+describe("downloads in the panel (Wecra 1.1.1, docs/cloud.md §4.1)", () => {
+  const dn = (over: Partial<UploadProgress>) => up({ id: "d1", name: "Brand book", destination: "Downloading images", direction: "download", bytesTotal: 330 * MB, ...over });
+
+  it("a “Downloading images” row per file: how far, the speed and the time left; no Cancel; hidden once done", async () => {
+    vi.useFakeTimers();
+    const s = fakeSource();
+    m = mount(Uploads, { source: s.source });
+    await flush();
+    s.say({ upload: dn({ state: "queued", bytesSent: 0 }) });
+    expect(text()).toContain("Downloading 1 file");
+    expect(text()).toContain("Waiting to download…");
+    s.say({ upload: dn({ bytesSent: 120 * MB, bytesPerSecond: 4 * MB, secondsLeft: 52.5 }) });
+    expect(text()).toContain("Brand book");
+    expect(text()).toContain("Downloading images");
+    expect(text()).toContain("120 MB of 330 MB");
+    expect(panel()!.querySelector("[data-upload-speed]")!.textContent).toBe("4 MB/s · 53 seconds left");
+    expect(panel()!.getAttribute("aria-label")).toBe("Transfers");
+    expect(button("Cancel upload")).toBeNull();
+    // Both ways at once
+    s.say({ upload: up({ id: "u2" }) });
+    expect(text()).toContain("Transferring 2 files");
+    s.say({ upload: up({ id: "u2", state: "done" }) });
+    s.say({ upload: dn({ state: "done", bytesSent: 330 * MB }) });
+    expect(panel()!.querySelector('[aria-label="Downloaded"]')).not.toBeNull();
+    act(() => void vi.advanceTimersByTime(UPLOAD_PANEL_HIDE_MS));
+    expect(panel()).toBeNull();
+  });
+
+  it("a failed download offers Retry, which reaches the store", async () => {
+    const s = fakeSource();
+    m = mount(Uploads, { source: s.source });
+    await flush();
+    s.say({ upload: dn({ state: "failed", error: "3 images couldn’t download. Check your connection." }) });
+    expect(text()).toContain("Download failed");
+    expect(text()).toContain("3 images couldn’t download.");
+    click(buttonText("Retry")!);
+    await flush();
+    expect(s.did).toEqual(["retry d1"]);
+  });
+
+  it("titles downloads apart from uploads", () => {
+    expect(panelTitle([dn({ state: "failed" })])).toBe("Download failed");
+    expect(panelTitle([dn({ state: "done" }), dn({ id: "d2", state: "done" })])).toBe("Downloaded 2 files");
+    expect(panelTitle([dn({ state: "done" }), up({ state: "done" })])).toBe("Uploaded 2 files");
+  });
+});

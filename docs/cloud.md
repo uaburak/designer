@@ -63,6 +63,26 @@ Content-addressed, immutable, keyed by the SHA-1 already used everywhere (`blobs
 - Big blobs (> 8 MB) use R2 multipart through the Worker (`POST …/uploads`, `PUT …/parts/:n`, `POST …/complete`) so a
   failed part retries alone.
 
+### 4.1 Opening fast: images after the document (Wecra 1.1.1)
+
+Figma opens a file once its document is here and fetches images after, the page shown first. So do we:
+
+- `copyFromRoom` (a shared or org file), `linkInto` (a personal draft, a cache refill) create or fill the file right
+  after the snapshot; its images not in the store are queued in `src/store/multiplayer/downloads.ts` (`BlobDownloads`).
+- **8 at a time** (`DOWNLOAD_CONCURRENCY`), by priority: an image asked for now (`want`: an editor drawing it, an export,
+  a frame's image), then the first page's (`imageDownloadOrder`: its `imageThumbnail` tiers, its images, its instances'
+  main components'), then the rest. One download per SHA-1 across files. Busy/offline → again after 1 s, 4 s, 15 s; an
+  image the room hasn't is skipped (placeholder); others fail the row, whose **Retry** queues them again.
+- **Resumable:** the link record keeps what is left (`LinkRecord.images`); the next `setSession` continues it.
+- **Readers wait:** `LocalBlobs.get` (and the browser store's) asks `whenMissing` → `MultiplayerService.wantBlob`: the
+  image jumps the queue and the read resolves when it lands — editors, exports, previews alike.
+- **Editors redraw:** each arrival goes out on topic `blobs` (`{arrived}`); `ImageService.arrived` re-reads images it
+  had as absent and re-answers those the engine drew as failed (grey placeholder → image, no reopen; the engine's
+  `addImage` after `imageFailed` replaces the source, no engine change).
+- **Transfers panel:** one row per file, `direction: "download"`, "Downloading images", "120 MB of 330 MB", speed and
+  time left; no Cancel; hides when done; main's quit question counts only uploads. The total is the server's
+  `POST /files/:key/blobs/sizes {sha1s} → {sizes}` (R2 files; otherwise estimated from the sizes seen so far).
+
 ## 5. Work split (Wecra 1.1)
 
 | Agent | Owns |

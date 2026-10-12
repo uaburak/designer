@@ -4,7 +4,7 @@
  * quit, however many windows close; a cancelled quit asks again next time. Imports nothing from Electron (the window
  * and the store's client are handed in), so the decision is tested on its own.
  */
-import { uploadInFlight, type UploadProgress } from "../shared/multiplayer/uploads";
+import { isDownload, uploadInFlight, type UploadProgress } from "../shared/multiplayer/uploads";
 
 /** How long the quit waits for the store's answer before going on without asking */
 export const UPLOADS_ASK_TIMEOUT_MS = 1500;
@@ -17,8 +17,8 @@ export interface UploadsQuitDeps {
   timeoutMs?: number;
 }
 
-/** Uploads still going */
-export const uploadsInFlight = (list: readonly Pick<UploadProgress, "state">[]): number => list.filter(uploadInFlight).length;
+/** Uploads still going (images coming down don't hold a quit: they continue at the next start) */
+export const uploadsInFlight = (list: readonly Pick<UploadProgress, "state" | "direction">[]): number => list.filter((u) => uploadInFlight(u) && !isDownload(u)).length;
 
 /** The question's words (ours: Figma's desktop app has no such question) */
 export const uploadsQuitText = (count: number) => ({

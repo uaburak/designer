@@ -205,6 +205,66 @@ describe("ImageService", () => {
     expect(engine.uploads).toEqual([]);
   });
 
+  it("an image still coming down (Wecra 1.1.1): its placeholder first, the image once the store has it", async () => {
+    const inner = memoryImageStore();
+    const bytes = imageBytes(300, 200);
+    const hash = await sha1Hex(bytes);
+    // The store waits for the download (an on-demand bump) before answering
+    let arrive: () => void = () => {};
+    const coming = new Promise<void>((r) => (arrive = r));
+    const store: ImageStore = { put: (b, m) => inner.put(b, m), get: async (h) => (await coming, inner.get(h)) };
+    const engine = fakeEngine();
+    let failed = 0;
+    engine.imageFailed = (() => (failed++, 0)) as never;
+    const images = new ImageService(engine as never, store);
+    images.attach();
+    images.releaseUploads();
+    engine.request({ hash, thumbHash: Array.from(rgbaToThumbHash(2, 1, [9, 9, 9, 255, 9, 9, 9, 255])) });
+    await ticks(4);
+    expect(engine.placeholders.map((p) => p.hash)).toEqual([hash]);
+    expect(engine.uploads).toEqual([]);
+    await inner.put(bytes, "image/png");
+    arrive();
+    await ticks(4);
+    browser.frame();
+    expect(engine.uploads.map((u) => u.hash)).toEqual([hash]);
+    expect(failed).toBe(0);
+  });
+
+  it("an image drawn as failed is drawn when the store says it arrived, without reopening the file", async () => {
+    const inner = memoryImageStore();
+    const listeners = new Set<(hashes: string[]) => void>();
+    const store: ImageStore = { put: (b, m) => inner.put(b, m), get: (h) => inner.get(h), watch: (l) => (listeners.add(l), () => listeners.delete(l)) };
+    const bytes = imageBytes(120, 80, 3);
+    const hash = await sha1Hex(bytes);
+    const engine = fakeEngine();
+    const failed: string[] = [];
+    engine.imageFailed = ((h: string) => (failed.push(h), 0)) as never;
+    const images = new ImageService(engine as never, store);
+    const off = images.attach();
+    images.releaseUploads();
+    engine.request(hash);
+    expect(images.urlOf(hash)).toBeNull();
+    await ticks(4);
+    expect(failed).toEqual([hash]);
+    // The download lands; the store's `blobs` event reaches the editor
+    await inner.put(bytes, "image/png");
+    let told = 0;
+    images.subscribe(() => told++);
+    listeners.forEach((l) => l([hash]));
+    await ticks(4);
+    browser.frame();
+    expect(engine.uploads.map((u) => u.hash)).toEqual([hash]);
+    expect(images.levelOf(hash)).toBe("full");
+    expect(told).toBeGreaterThan(0);
+    // Arrivals it never missed change nothing
+    listeners.forEach((l) => l(["f".repeat(40)]));
+    await ticks(2);
+    expect(engine.uploads.length).toBe(1);
+    off();
+    expect(listeners.size).toBe(0);
+  });
+
   it("a request carrying the paint's thumbHash puts the placeholder in at once, before any bitmap", async () => {
     const store = memoryImageStore();
     const hash = await store.put(imageBytes(2048, 1024), "image/png");

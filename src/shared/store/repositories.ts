@@ -176,6 +176,14 @@ export interface BlobStore {
   get(sha1: string): Promise<Uint8Array>;
   /** Client-side helper, not an RPC */
   url(sha1: string): string;
+  /** Images that arrived after their file opened (Wecra 1.1.1, docs/cloud.md §4.1), topic `blobs`: an open editor draws
+   *  them in place of their placeholder. Absent where nothing downloads in the background. */
+  watch?(listener: (e: BlobsEvent) => void): Unsubscribe;
+}
+
+/** Topic `blobs`: images now in the store that weren't when their file opened (background downloads) */
+export interface BlobsEvent {
+  arrived: string[];
 }
 
 /** Topic `fonts` (docs/desktop.md §14.3): an organization's or team's shared fonts changed (the Inbox's `{t: "fonts"}`) */

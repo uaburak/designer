@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Icon, IconButton, Portal, cx } from "@/ds";
-import { uploadInFlight, type UploadEvent, type UploadProgress } from "@shared/multiplayer/uploads";
+import { isDownload, uploadInFlight, type UploadEvent, type UploadProgress } from "@shared/multiplayer/uploads";
 import styles from "./UploadPanel.module.css";
 
 /** The panel hides this long after the last upload finished (none failed) */
@@ -56,19 +56,26 @@ export const percentOf = (u: Pick<UploadProgress, "bytesSent" | "bytesTotal">): 
 
 const files = (n: number) => (n === 1 ? "1 file" : `${n} files`);
 
-/** The panel's title: "Uploading 2 files", "Upload failed", "Uploaded 3 files" */
+/**
+ * The panel's title: "Uploading 2 files", "Upload failed", "Uploaded 3 files"; Wecra 1.1.1, with files' images coming
+ * down (docs/cloud.md §4.1): "Downloading 1 file", "Download failed", "Downloaded 1 file", and with both going
+ * "Transferring 3 files" (ours)
+ */
 export function panelTitle(list: UploadProgress[]): string {
-  const going = list.filter(uploadInFlight).length;
-  if (going) return `Uploading ${files(going)}`;
-  if (list.some((u) => u.state === "failed")) return "Upload failed";
-  return `Uploaded ${files(list.length)}`;
+  const going = list.filter(uploadInFlight);
+  const down = going.filter(isDownload).length;
+  if (going.length) return down === going.length ? `Downloading ${files(down)}` : down ? `Transferring ${files(going.length)}` : `Uploading ${files(going.length)}`;
+  const failed = list.filter((u) => u.state === "failed");
+  if (failed.length) return failed.every(isDownload) ? "Download failed" : "Upload failed";
+  return list.every(isDownload) ? `Downloaded ${files(list.length)}` : `Uploaded ${files(list.length)}`;
 }
 
 /** The line under a row's bar */
 function statusText(u: UploadProgress): string {
-  if (u.state === "queued") return "Waiting to upload…";
+  const down = isDownload(u);
+  if (u.state === "queued") return down ? "Waiting to download…" : "Waiting to upload…";
   if (u.state === "retrying") return `Trying again (${u.attempt ?? 2})…`;
-  if (u.state === "done") return u.bytesTotal ? formatBytes(u.bytesTotal) : "Uploaded";
+  if (u.state === "done") return u.bytesTotal ? formatBytes(u.bytesTotal) : down ? "Downloaded" : "Uploaded";
   if (!u.bytesTotal) return "Preparing…";
   return `${formatBytes(u.bytesSent)} of ${formatBytes(u.bytesTotal)}`;
 }
@@ -90,7 +97,7 @@ export interface UploadPanelProps {
 export function UploadPanel({ uploads, collapsed, onToggle, onClose, onRetry, onCancel, placement = "home", inline = false }: UploadPanelProps) {
   const going = uploads.some(uploadInFlight);
   const panel = (
-    <section role="region" aria-label="Uploads" data-ds="UploadPanel" className={cx(styles.panel, placement === "editor" && styles.editor, inline && styles.inline)}>
+    <section role="region" aria-label={uploads.some(isDownload) ? "Transfers" : "Uploads"} data-ds="UploadPanel" className={cx(styles.panel, placement === "editor" && styles.editor, inline && styles.inline)}>
       <header className={styles.header}>
         <span className={styles.title} aria-live="polite">
           {panelTitle(uploads)}
@@ -115,6 +122,7 @@ function UploadRow({ u, onRetry, onCancel }: { u: UploadProgress; onRetry(id: st
   const failed = u.state === "failed";
   const done = u.state === "done";
   const speed = speedText(u);
+  const down = isDownload(u);
   return (
     <li className={cx(styles.row, failed && styles.failed)} data-state={u.state} aria-label={u.name}>
       <span className={styles.fileIcon}>
@@ -131,12 +139,12 @@ function UploadRow({ u, onRetry, onCancel }: { u: UploadProgress; onRetry(id: st
         )}
         {failed ? (
           <div className={styles.error} role="alert">
-            {u.error || "Couldn’t upload this file."}
+            {u.error || (down ? "Couldn’t download this file’s images." : "Couldn’t upload this file.")}
           </div>
         ) : (
           <>
             {!done && (
-              <div className={styles.track} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label={`Uploading ${u.name}`}>
+              <div className={styles.track} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label={`${down ? "Downloading images for" : "Uploading"} ${u.name}`}>
                 <div className={cx(styles.fill, (u.state === "queued" || !u.bytesTotal) && styles.waiting)} style={{ width: `${pct}%` }} />
               </div>
             )}
@@ -154,7 +162,7 @@ function UploadRow({ u, onRetry, onCancel }: { u: UploadProgress; onRetry(id: st
       </div>
       <div className={styles.end}>
         {done && (
-          <span className={styles.check} aria-label="Uploaded">
+          <span className={styles.check} aria-label={down ? "Downloaded" : "Uploaded"}>
             <Icon name="24.check" />
           </span>
         )}
@@ -163,7 +171,7 @@ function UploadRow({ u, onRetry, onCancel }: { u: UploadProgress; onRetry(id: st
             Retry
           </Button>
         )}
-        {!done && (
+        {!done && !down && (
           <span className={cx(styles.cancel, failed && styles.cancelShown)}>
             <IconButton icon="24.close.small" label="Cancel upload" tooltip="Cancel" onClick={() => onCancel(u.id)} />
           </span>

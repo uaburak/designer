@@ -36,6 +36,23 @@ describe("blob store (docs/data.md §10)", () => {
     expect(blobs.url(r.sha1)).toBe(`app://designer/_blob/${r.sha1}`);
   });
 
+  it("a blob still coming down (Wecra 1.1.1) is waited for by its reader; one nothing fetches is not-found", async () => {
+    t = await openTestStore();
+    const store = t.store;
+    // Wired to the multiplayer service's queue: nothing queued here, so not-found as before
+    await expect(t.api.blobs.get(sha1(PNG))).rejects.toMatchObject({ code: "not-found" });
+    const wanted: string[] = [];
+    store.blobs.whenMissing = async (s) => {
+      wanted.push(s);
+      if (s !== sha1(PNG)) return false;
+      await store.blobs.put(PNG); // the download lands
+      return true;
+    };
+    expect(await t.api.blobs.get(sha1(PNG))).toEqual(PNG);
+    await expect(t.api.blobs.get("0".repeat(40))).rejects.toMatchObject({ code: "not-found" });
+    expect(wanted).toEqual([sha1(PNG), "0".repeat(40)]);
+  });
+
   it("collects garbage by mark and sweep, with a 24 h grace for fresh puts", async () => {
     t = await openTestStore();
     const { workspace, files, blobs } = t.api;

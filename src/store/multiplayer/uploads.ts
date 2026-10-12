@@ -90,9 +90,9 @@ export class UploadTracker {
     return [...this.items.values()].map((e) => ({ ...e.p }));
   }
 
-  /** The upload of this file still going or failed (a resumed one continues its entry) */
-  of(fileKey: FileKey): string | null {
-    for (const [id, e] of this.items) if (e.p.fileKey === fileKey && e.p.state !== "done") return id;
+  /** The upload (or, `direction`, the download) of this file still going or failed (a resumed one continues its entry) */
+  of(fileKey: FileKey, direction?: "download"): string | null {
+    for (const [id, e] of this.items) if (e.p.fileKey === fileKey && e.p.state !== "done" && e.p.direction === direction) return id;
     return null;
   }
 
@@ -103,8 +103,8 @@ export class UploadTracker {
   }
 
   /** A file starts going up (queued); a file with an entry not done yet continues it from 0 */
-  begin(input: { fileKey: FileKey; name: string; destination?: string }, controls: UploadControls | null = null): string {
-    const existing = this.of(input.fileKey);
+  begin(input: { fileKey: FileKey; name: string; destination?: string; direction?: "download" }, controls: UploadControls | null = null): string {
+    const existing = this.of(input.fileKey, input.direction);
     if (existing) {
       const e = this.items.get(existing)!;
       e.p = { ...e.p, name: input.name || e.p.name, destination: input.destination || e.p.destination, bytesSent: 0, state: "queued" };
@@ -120,8 +120,8 @@ export class UploadTracker {
       this.flush(e);
       return existing;
     }
-    const id = `up_${this.clock.now().toString(36)}_${(++this.n).toString(36)}`;
-    const e: Entry = { p: { id, fileKey: input.fileKey, name: input.name, destination: input.destination ?? "", bytesSent: 0, bytesTotal: 0, state: "queued", startedAt: this.clock.now(), retryable: !!controls?.retry }, controls, lastEmit: 0, timer: null, samples: [] };
+    const id = `${input.direction ? "dn" : "up"}_${this.clock.now().toString(36)}_${(++this.n).toString(36)}`;
+    const e: Entry = { p: { id, fileKey: input.fileKey, name: input.name, destination: input.destination ?? "", bytesSent: 0, bytesTotal: 0, state: "queued", startedAt: this.clock.now(), retryable: !!controls?.retry, ...(input.direction ? { direction: input.direction } : {}) }, controls, lastEmit: 0, timer: null, samples: [] };
     this.items.set(id, e);
     this.flush(e);
     return id;
