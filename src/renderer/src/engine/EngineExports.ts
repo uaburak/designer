@@ -212,6 +212,16 @@ export class EngineExports {
   exportClearImages = (): void => void this.fn("export_clear_images")();
   exportList = (h: number, pageSessionID: number, pageLocalID: number): number => this.fn("export_list")(h, pageSessionID, pageLocalID);
 
+  // ---- Vectorize (docs/ai.md §5) ----
+  /** Pure: straight RGBA8 (`width` × `height`) and TraceOptions (JSON) → a TraceResult (JSON) in the result slot. */
+  trace = (rgba: Uint8Array, width: number, height: number, options: Uint8Array): number =>
+    this.withBytes([rgba, options], (p) => this.fn("trace")(p[0], p[1], width, height, p[2], p[3]));
+  /** `refs`: a NodeRefList of one image layer; `rgba`: its contents as drawn. Opens the "Vectorize" step. */
+  vectorizeBegin = (h: number, refs: Uint8Array, rgba: Uint8Array, width: number, height: number): number =>
+    this.withBytes([refs, rgba], (p) => this.fn("vectorize_begin")(h, p[0], p[1], p[2], p[3], width, height));
+  vectorizeUpdate = (h: number, options: Uint8Array): number => this.withBytes([options], (p) => this.fn("vectorize_update")(h, p[0], p[1]));
+  vectorizeEnd = (h: number, commit: boolean): number => this.fn("vectorize_end")(h, commit ? 1 : 0);
+
   // ---- Components ----
   /** A derived ref ("I…;…") → its localID in the derived session (0xFFFFFFFE); 0 for anything else. */
   refId = (ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("ref_id")(p[0], p[1]) >>> 0);
@@ -368,4 +378,5 @@ export const USED_EXPORTS = [
   "set_prototype_mode", "set_prototype_selection", "set_viewer_mode", "present_start", "present_stop", "present_pointer", "present_wheel", "present_key", "present_command",
   "present_set_options", "present_state", "present_media", "present_media_frame",
   "set_view_options", "set_nudge", "start_guide", "set_annotation_view", "set_edit_tracking", "set_focus", "select_measurement", "dev_info",
+  "trace", "vectorize_begin", "vectorize_update", "vectorize_end",
 ].map((name) => `engine_${name}`);
