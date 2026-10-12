@@ -15,6 +15,16 @@ import { BROADCAST_KINDS } from "../roomBroadcast";
 import { setIdentityHeaders } from "../identityHeaders";
 import type { RestJob } from "../../../src/shared/rest/types";
 import { sqliteStorage } from "./memoryPreviews";
+import { PLAIN_CIPHER } from "../ekm/cipher";
+import type { D1Like } from "../db";
+import { resolveR2, type StorageEnv } from "../storage/objects";
+import { noteRegion, roomObjectsHost } from "../storage/roomHost";
+
+/** R2 for the rooms (docs/cloud.md §1): the buckets (testing/memoryR2.ts) and D1 for blob references */
+export interface RoomStorageOptions {
+  env?: StorageEnv;
+  d1?: D1Like;
+}
 
 export interface MemoryMember extends Connection {
   userId: string;
@@ -55,7 +65,7 @@ export interface MemoryRooms {
   onWanted?: (key: string, userIds: string[]) => void;
 }
 
-export function memoryRooms(now: () => number): MemoryRooms {
+export function memoryRooms(now: () => number, opts: RoomStorageOptions = {}): MemoryRooms {
   const all = new Map<string, MemoryRoom>();
   const calls: MemoryRooms["calls"] = [];
   const wanted: MemoryRooms["wanted"] = [];
@@ -63,6 +73,7 @@ export function memoryRooms(now: () => number): MemoryRooms {
   const make = (key: string): MemoryRoom => {
     const storage = sqliteStorage();
     const made: MemoryRoom = { members: [], alarm: null } as unknown as MemoryRoom;
+    const objects = opts.env ? roomObjectsHost({ env: opts.env, d1: opts.d1 ?? null, storage: () => made.box.storage, fileKey: () => key, orgId: () => null, blobCipher: () => null, now }) : undefined;
     made.box = new RoomBox({
       sql: storage.sql,
       transaction: storage.transaction,
@@ -72,6 +83,7 @@ export function memoryRooms(now: () => number): MemoryRooms {
         for (const m of made.members) if (m.sessionID && m.closed === null) m.send(frame);
       },
       hasSession: (userId, sessionID) => made.members.some((m) => m.userId === userId && m.sessionID === sessionID && m.closed === null),
+      ...(objects ? { objects } : {}),
     });
     made.room = new Room(made.box.storage, () => {}, {
       now,
@@ -89,6 +101,7 @@ export function memoryRooms(now: () => number): MemoryRooms {
         wanted.push({ key, userIds });
         out.onWanted?.(key, userIds);
       },
+      ...(objects ? { objects: { ...objects, cipher: () => PLAIN_CIPHER, flush: () => made.box.objects.flush() } } : {}),
     });
     return made;
   };
@@ -139,8 +152,9 @@ export function memoryRooms(now: () => number): MemoryRooms {
       if (init.identity) setIdentityHeaders(headers, init.identity);
       const url = new URL(`https://room${path}`);
       if (url.pathname.startsWith("/room/rest") || url.pathname === "/room/thumbnail") {
+        noteRegion(get(key).box.storage, "default");
         const res = await get(key).rest.fetch(new Request(url, { method: init.method, headers, body: init.body as RequestInit["body"] }));
-        return res ?? new Response("not found", { status: 404 });
+        return resolveR2(res ?? new Response("not found", { status: 404 }), opts.env);
       }
       if (url.pathname === "/room/broadcast") {
         const msg = JSON.parse(String(init.body)) as { t: string };
@@ -149,6 +163,7 @@ export function memoryRooms(now: () => number): MemoryRooms {
         return Response.json({ ok: true });
       }
       if (url.pathname === "/room" && init.method === "DELETE") {
+        await all.get(key)?.box.objects.dropAll();
         all.delete(key);
         return Response.json({ ok: true });
       }
@@ -163,8 +178,10 @@ export function memoryRooms(now: () => number): MemoryRooms {
         get(key).room.setPolicy(p);
         return Response.json({ ok: true });
       }
+      // The Worker says the file's region on every call (policy/region.ts roomsOn); these rooms are all in the default one
+      noteRegion(get(key).box.storage, "default");
       const res = await get(key).box.fetch(new Request(url, { method: init.method, headers, body: init.body as RequestInit["body"], duplex: "half" } as RequestInit));
-      return res ?? new Response("not found", { status: 404 });
+      return resolveR2(res ?? new Response("not found", { status: 404 }), opts.env);
     },
   };
   Object.assign(out, { rooms, get, join, send, say, calls, wanted });
@@ -194,10 +211,10 @@ export interface MemoryRoomNamespace {
  * node:sqlite database, answering the routes `FileRoom` answers itself (policy, freeze closing sockets with 4012,
  * DELETE /room, reauth, revoke) and the box's for the rest. `jurisdiction("eu")` is a second, separate set of objects.
  */
-export function memoryRoomNamespace(now: () => number): MemoryRoomNamespace {
+export function memoryRoomNamespace(now: () => number, opts: RoomStorageOptions = {}): MemoryRoomNamespace {
   const objects: MemoryRoomNamespace["objects"] = { default: new Map(), eu: new Map() };
   const failing: string[] = [];
-  const make = (): MemoryRoomObject => {
+  const make = (name: string): MemoryRoomObject => {
     let storage = sqliteStorage();
     const o = { members: [], alarm: null } as unknown as MemoryRoomObject;
     const build = () => {
@@ -210,12 +227,14 @@ export function memoryRoomNamespace(now: () => number): MemoryRoomNamespace {
           for (const m of o.members) if (m.sessionID && m.closed === null) m.send(frame);
         },
         hasSession: (userId, sessionID) => o.members.some((m) => m.userId === userId && m.sessionID === sessionID && m.closed === null),
+        ...(opts.env ? { objects: roomObjectsHost({ env: opts.env, d1: opts.d1 ?? null, storage: () => o.box.storage, fileKey: () => name, orgId: () => null, blobCipher: () => null, now }) } : {}),
       });
       o.room = new Room(o.box.storage);
     };
     build();
     o.fetch = async (req) => {
       const url = new URL(req.url);
+      noteRegion(o.box.storage, req.headers.get("x-region"));
       const at = failing.indexOf(url.pathname);
       if (at >= 0) {
         failing.splice(at, 1);
@@ -234,6 +253,7 @@ export function memoryRoomNamespace(now: () => number): MemoryRoomNamespace {
           return res;
         }
         case "DELETE /room":
+          await o.box.objects.dropAll();
           o.room.closeAll(4001, "file no longer shared");
           storage = sqliteStorage();
           o.members = [];
@@ -257,7 +277,7 @@ export function memoryRoomNamespace(now: () => number): MemoryRoomNamespace {
     get: (id) => {
       const name = id as unknown as string;
       let o = objects[j].get(name);
-      if (!o) objects[j].set(name, (o = make()));
+      if (!o) objects[j].set(name, (o = make(name)));
       return o;
     },
     ...(j === "default" ? { jurisdiction: (name: "eu") => ns(name) } : {}),

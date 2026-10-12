@@ -141,7 +141,8 @@ export async function reserveStorage(deps: Deps, ownerId: string, item: string, 
     const delta = bytes - old;
     if (delta <= 0) return;
     if (stored + delta > limit) throw quotaError("storage_bytes", limit);
-    if (total + delta > serverCap) throw quotaError("server_storage_bytes", serverCap, 507);
+    // No server-wide cap unless the operator set one (docs/cloud.md §3: the spend guard decides)
+    if (Number.isFinite(serverCap) && total + delta > serverCap) throw quotaError("server_storage_bytes", serverCap, 507);
   };
   check(Number.isFinite(declared) && declared > 0 ? declared : 0);
   return {
@@ -156,6 +157,25 @@ export async function reserveStorage(deps: Deps, ownerId: string, item: string, 
 export async function chargeStored(deps: Deps, ownerId: string, item: string, bytes: number): Promise<void> {
   const old = (await deps.db.d1.prepare(`SELECT bytes FROM stored_items WHERE item = ?1`).bind(item).first<{ bytes: number }>())?.bytes ?? 0;
   await recordStorage(deps, ownerId, item, bytes, old);
+}
+
+/**
+ * Items not yet charged to `ownerId` charged now, in two round trips (a file's images found already in R2 for another
+ * of the owner's or someone else's files, docs/cloud.md §3: each owner pays a blob once). Items already recorded stay.
+ */
+export async function chargeNew(deps: Deps, ownerId: string, items: { item: string; bytes: number }[]): Promise<void> {
+  if (!items.length) return;
+  const d1 = deps.db.d1;
+  const { results } = await d1.prepare(`SELECT item FROM stored_items WHERE item IN (SELECT value FROM json_each(?1))`).bind(JSON.stringify(items.map((i) => i.item))).all<{ item: string }>();
+  const have = new Set(results.map((r) => r.item));
+  const fresh = items.filter((i) => !have.has(i.item));
+  if (!fresh.length) return;
+  const sum = fresh.reduce((n, i) => n + i.bytes, 0);
+  await runAll(d1, [
+    ...fresh.map((i) => d1.prepare(`INSERT INTO stored_items (item, owner_id, bytes) VALUES (?1, ?2, ?3) ON CONFLICT (item) DO NOTHING`).bind(i.item, ownerId, i.bytes)),
+    d1.prepare(`UPDATE users SET stored_bytes = MAX(0, stored_bytes + ?2) WHERE id = ?1`).bind(ownerId, sum),
+    serverDelta(d1, sum),
+  ]);
 }
 
 /** `item` now weighs `bytes` (it weighed `old`), charged to `ownerId`; the owner's and the server's totals moved */

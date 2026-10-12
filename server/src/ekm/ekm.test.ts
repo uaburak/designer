@@ -360,7 +360,7 @@ describe("a room's rows", () => {
     // as RestJobs stores an uploaded part and RoomEkm.rest seals it right after
     o.storage.sql.exec(`INSERT INTO rest_blobs (sha1, idx, bytes) VALUES (?, 0, ?)`, sha, json.slice().buffer);
     expect(await sealWhere(o.storage.sql, o.ekm.key.cipher, "rest_blobs", "sha1 = ?", sha)).toBe(1);
-    expect(await readTextItems(o.rest.partBytes(sha)!)).toBeNull();
+    expect(await readTextItems((await o.rest.partBytes(sha))!)).toBeNull();
     expect(await readTextItems((await o.ekm.partBytes(sha))!)).toEqual([{ nodeId: "1:2", textType: "in_file", text: "Hello" }]);
     expect(await o.ekm.partBytes("0".repeat(40))).toBeNull();
   });

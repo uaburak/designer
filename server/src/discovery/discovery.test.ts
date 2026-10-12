@@ -203,7 +203,7 @@ describe("the room's side (§2.11)", () => {
       ["insert", "dev_mode_annotation", "1:3", "Use 8px", "bob@x.co", Math.floor(w.now.t / 1000)],
     ]);
     // Never cached: the part is gone from the room
-    expect(w.mem.get(WEB).rest.partBytes("0".repeat(40))).toBeNull();
+    expect(await w.mem.get(WEB).rest.partBytes("0".repeat(40))).toBeNull();
     // A later window: one changed, one gone, one new — carol wrote last
     const t1 = w.now.t;
     items = [

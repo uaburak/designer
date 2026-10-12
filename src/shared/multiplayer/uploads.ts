@@ -17,6 +17,10 @@ export interface UploadProgress {
   bytesSent: number;
   /** 0 until the store knows (the images the room lacks are asked first) */
   bytesTotal: number;
+  /** While uploading: the speed, a moving average over the last few seconds (bytes a second); absent until known */
+  bytesPerSecond?: number;
+  /** While uploading: the time left at that speed (seconds); absent until known */
+  secondsLeft?: number;
   state: UploadStateKind;
   /** `retrying`: the try under way (2, 3, …) */
   attempt?: number;

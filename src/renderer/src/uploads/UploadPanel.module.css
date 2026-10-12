@@ -54,6 +54,8 @@
   .waiting { min-width: 8%; opacity: 0.4; }
   .meta { display: flex; gap: var(--ds-space-2); color: var(--figma-color-text-secondary); font-variant-numeric: tabular-nums; }
   .pct { margin-left: auto; }
+  /* The speed and the time left (docs/cloud.md §4) */
+  .speed { overflow: hidden; color: var(--figma-color-text-secondary); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 
   .end { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); min-height: 32px; }
   .check { display: flex; color: var(--figma-color-icon-success); }

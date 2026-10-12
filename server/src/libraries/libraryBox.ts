@@ -24,14 +24,25 @@
  *   POST /freeze · /unfreeze             a move to another region (docs/multiplayer.md §15.10): writes answer 503
  *                                        {code: "moving"} while frozen
  *   GET  /dump?after= · POST /load {rows} its tables paged out and into the copy (policy/dump.ts)
+ *   POST /relocate                       after a move's load: its R2 objects copied into its own region's bucket
+ *   POST /storage/migrate                old rows moved to R2 (the operator's loop; also one item per wake)
+ *
+ * On R2 (docs/cloud.md §1, storage/boxObjects.ts): with the env's buckets, payloads are `l/<libKey>/p/<key>/<hash>`
+ * and images `l/<libKey>/b/<sha1>` in the library's region's bucket (the Worker's `x-region`, kept in meta `region`);
+ * the rows above are what it stored before, read until moved.
  */
 import { diffAgainst, withDependencies } from "../../../src/shared/store/libraryRules";
 import type { LibraryAsset, LibraryVersion, Redirect } from "../../../src/shared/store/types";
 import type { SqlLike } from "../previews";
 import { dumpPage, loadPage } from "../policy/dump";
+import { BoxObjects, boxObjectsHost, type ChunkTable } from "../storage/boxObjects";
+import type { StorageEnv } from "../storage/objects";
 
 /** The object's tables, in the order a move copies them */
-export const LIBRARY_TABLES = ["meta", "manifests", "payloads", "blobs"] as const;
+export const LIBRARY_TABLES = ["meta", "manifests", "payloads", "blobs", "r2_index"] as const;
+
+const PAYLOADS: ChunkTable = { table: "payloads", cols: ["key", "hash"], name: ([k, h]) => `p/${k}/${h}` };
+const BLOBS: ChunkTable = { table: "blobs", cols: ["sha1"], name: ([s]) => `b/${s}` };
 
 const CHUNK = 1024 * 1024;
 /** A payload or an image (data.md §16.10) */
@@ -46,6 +57,9 @@ export interface LibraryBoxHost {
   transaction(fn: () => void): void;
   /** Deletes everything the object stores */
   deleteAll(): Promise<void>;
+  /** R2 (docs/cloud.md §1): the env's buckets and the library's key (the object's name); absent: rows only */
+  env?: StorageEnv;
+  name?(): string | null;
 }
 
 export interface CommitInput {
@@ -60,7 +74,17 @@ export interface CommitInput {
 const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8" } });
 
 export class LibraryBox {
-  constructor(private host: LibraryBoxHost) {}
+  readonly objects: BoxObjects;
+  private stepped = false;
+
+  constructor(private host: LibraryBoxHost) {
+    this.objects = new BoxObjects(host.sql, (fn) => host.transaction(fn), host.env ? boxObjectsHost(host.env, () => this.region(), () => (host.name?.() ? `l/${host.name()}/` : null)) : undefined);
+  }
+
+  private region(): "eu" | "default" | null {
+    const r = this.host.sql.exec<{ v: string }>(`SELECT v FROM meta WHERE k = 'region'`).toArray()[0];
+    return r?.v === "eu" ? "eu" : r?.v === "default" ? "default" : null;
+  }
 
   private ensure(): void {
     const sql = this.host.sql;
@@ -68,16 +92,36 @@ export class LibraryBox {
     sql.exec(`CREATE TABLE IF NOT EXISTS manifests (version INTEGER NOT NULL, idx INTEGER NOT NULL, json TEXT NOT NULL, PRIMARY KEY (version, idx))`);
     sql.exec(`CREATE TABLE IF NOT EXISTS payloads (key TEXT NOT NULL, hash TEXT NOT NULL, idx INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY (key, hash, idx))`);
     sql.exec(`CREATE TABLE IF NOT EXISTS blobs (sha1 TEXT NOT NULL, idx INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY (sha1, idx))`);
+    this.objects.ensure();
   }
 
   async fetch(req: Request): Promise<Response> {
     this.ensure();
+    const region = req.headers.get("x-region");
+    if ((region === "eu" || region === "default") && this.region() !== region) this.host.sql.exec(`INSERT OR REPLACE INTO meta (k, v) VALUES ('region', ?)`, region);
+    try {
+      return await this.route(req);
+    } finally {
+      await this.objects.flush();
+    }
+  }
+
+  private async route(req: Request): Promise<Response> {
     const path = new URL(req.url).pathname;
     const m = req.method;
+    // One old item moved to R2 per wake (docs/cloud.md §1), after this call's own work
+    const moving = () => this.host.sql.exec(`SELECT 1 AS x FROM meta WHERE k = 'moving'`).toArray().length > 0;
+    if (!this.stepped && path !== "/delete" && path !== "/dump" && path !== "/load" && path !== "/storage/migrate" && !moving()) {
+      this.stepped = true;
+      void this.objects.step([PAYLOADS, BLOBS]).catch((e) => console.error("r2: the library's migration step failed", e));
+    }
     if (path === "/delete" && m === "POST") {
+      await this.objects.dropAll();
       await this.host.deleteAll();
       return json({ ok: true });
     }
+    if (path === "/relocate" && m === "POST") return json(await this.objects.relocate());
+    if (path === "/storage/migrate" && m === "POST") return json(await this.objects.migrate([PAYLOADS, BLOBS]));
     // A move to another region (§15.10)
     if (path === "/freeze" && m === "POST") {
       this.host.sql.exec(`INSERT OR REPLACE INTO meta (k, v) VALUES ('moving', '1')`);
@@ -117,7 +161,7 @@ export class LibraryBox {
       const prelude = String.fromCharCode(...bytes.subarray(0, 8));
       if (bytes.length < 12 || !PRELUDES.includes(prelude)) return json({ error: "a payload is a fig-kiwi container", code: "invalid" }, 400);
       // Content-addressed by versionHash (the canonical payload's SHA-1, computed by the engine): written once.
-      if (!this.hasPayload(payload[1], payload[2])) this.put("payloads", ["key", "hash"], [payload[1], payload[2]], bytes);
+      if (!this.hasPayload(payload[1], payload[2])) await this.objects.put(PAYLOADS, [payload[1], payload[2]], bytes);
       return new Response(null, { status: 204 });
     }
     const blob = /^\/blob\/([0-9a-f]{40})$/.exec(path);
@@ -125,13 +169,11 @@ export class LibraryBox {
       const bytes = new Uint8Array(await req.arrayBuffer());
       if (bytes.length > MAX_LIBRARY_BYTES) return json({ error: "image too large", code: "too_large" }, 413);
       if ((await sha1Hex(bytes)) !== blob[1]) return json({ error: "the bytes don't match their SHA-1", code: "invalid" }, 400);
-      if (!this.hasBlob(blob[1])) this.put("blobs", ["sha1"], [blob[1]], bytes);
+      if (!this.hasBlob(blob[1])) await this.objects.put(BLOBS, [blob[1]], bytes);
       return new Response(null, { status: 204 });
     }
     if (blob && m === "GET") {
-      const bytes = this.read("blobs", ["sha1"], [blob[1]]);
-      if (!bytes) return json({ error: "not found", code: "not_found" }, 404);
-      return new Response(bytes, { headers: { "content-type": "application/octet-stream", "cache-control": "private, max-age=31536000, immutable" } });
+      return this.objects.response(BLOBS, [blob[1]], { "content-type": "application/octet-stream", "cache-control": "private, max-age=31536000, immutable" }) ?? json({ error: "not found", code: "not_found" }, 404);
     }
     if (path === "/commit" && m === "POST") return this.commit((await req.json()) as CommitInput);
     const version = /^\/version\/(latest|\d+)$/.exec(path);
@@ -190,7 +232,7 @@ export class LibraryBox {
     return json({ version }, 201);
   }
 
-  private payloads(wants: { key: string; versionHash: string }[], deps: boolean): Response {
+  private async payloads(wants: { key: string; versionHash: string }[], deps: boolean): Promise<Response> {
     let list = wants.filter((w) => SHA1.test(w.key) && SHA1.test(w.versionHash));
     if (deps) {
       // A dependency's version is the one in the manifest that holds the wanted asset at that version (§9.1).
@@ -213,7 +255,7 @@ export class LibraryBox {
     let count = 0;
     const enc = new TextEncoder();
     for (const w of list) {
-      const bytes = this.read("payloads", ["key", "hash"], [w.key, w.versionHash]);
+      const bytes = await this.objects.read(PAYLOADS, [w.key, w.versionHash]);
       if (!bytes) continue;
       const head = enc.encode(JSON.stringify({ key: w.key, versionHash: w.versionHash, size: bytes.length }));
       parts.push(u32(head.length), head, bytes);
@@ -231,28 +273,11 @@ export class LibraryBox {
   }
 
   private hasPayload(key: string, hash: string): boolean {
-    return this.host.sql.exec(`SELECT 1 FROM payloads WHERE key = ? AND hash = ? AND idx = 0`, key, hash).toArray().length > 0;
+    return this.objects.has(PAYLOADS, [key, hash]);
   }
 
   private hasBlob(sha1: string): boolean {
-    return SHA1.test(sha1) && this.host.sql.exec(`SELECT 1 FROM blobs WHERE sha1 = ? AND idx = 0`, sha1).toArray().length > 0;
-  }
-
-  private put(table: "payloads" | "blobs", cols: string[], ids: string[], bytes: Uint8Array): void {
-    this.host.transaction(() => {
-      const where = cols.map((c) => `${c} = ?`).join(" AND ");
-      this.host.sql.exec(`DELETE FROM ${table} WHERE ${where}`, ...ids);
-      for (let i = 0, idx = 0; i < bytes.length || idx === 0; i += CHUNK, idx++) {
-        this.host.sql.exec(`INSERT INTO ${table} (${cols.join(", ")}, idx, bytes) VALUES (${cols.map(() => "?").join(", ")}, ?, ?)`, ...ids, idx, bytes.slice(i, i + CHUNK).buffer);
-      }
-    });
-  }
-
-  private read(table: "payloads" | "blobs", cols: string[], ids: string[]): Uint8Array | null {
-    const where = cols.map((c) => `${c} = ?`).join(" AND ");
-    const rows = this.host.sql.exec<{ bytes: ArrayBuffer }>(`SELECT bytes FROM ${table} WHERE ${where} ORDER BY idx`, ...ids).toArray();
-    if (!rows.length) return null;
-    return concat(rows.map((r) => new Uint8Array(r.bytes)));
+    return SHA1.test(sha1) && this.objects.has(BLOBS, [sha1]);
   }
 }
 

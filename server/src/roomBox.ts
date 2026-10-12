@@ -29,6 +29,11 @@
  * A version is "the document at `seq`": a snapshot at `snapshot_seq` ≤ seq plus the frames (snapshot_seq, seq]. The room
  * never decodes kiwi, so it keeps what it has; a client may later replace a version's content with one snapshot at its
  * seq (PUT /room/versions/:id/snapshot), and what no version needs any more is dropped.
+ *
+ * Checkpoints on R2 (docs/cloud.md §1, Wecra 1.1; storage/roomObjects.ts): with the host's `objects` bound, every new
+ * snapshot, version snapshot and base is an R2 object indexed in `checkpoints`; `snapshot`, `history_snapshots` and
+ * `base_chunks` rows are only what a room wrote before (read as before, moved by the lazy migration —
+ * `POST /room/storage/migrate`). Images go to R2 through the Worker (storage/blobs.ts); `blobs` rows are the old ones.
  */
 import { encodeChangesDown, type ChangesDown } from "../../src/shared/multiplayer/protocol";
 import type { RoomStorage } from "../../src/shared/multiplayer/room";
@@ -37,9 +42,10 @@ import { dumpPage, loadPage } from "./policy/dump";
 import { fromHeaderText } from "./identityHeaders";
 import { PLAIN_CIPHER, SealError, type RoomCipher, type SealedTable } from "./ekm/cipher";
 import { openJoined, pageHasPlain, plainSizeSql, sealAll, sealChunks, sealWhere } from "./ekm/rows";
+import { RoomObjects, type RoomObjectsHost } from "./storage/roomObjects";
 
 /** The room's tables, in the order a move copies them (docs/multiplayer.md §15.10) */
-export const ROOM_TABLES = ["meta", "frames", "snapshot", "blobs", "base_chunks", "versions", "history_snapshots", "history_frames"] as const;
+export const ROOM_TABLES = ["meta", "frames", "snapshot", "blobs", "base_chunks", "versions", "history_snapshots", "history_frames", "checkpoints"] as const;
 
 /** SQLite values hold 2 MB; snapshots and images are stored in 1 MB rows (ekm/rows.ts sealChunks). */
 /** Frames kept before a snapshot, so a client away for a while still catches up from its own seq */
@@ -90,6 +96,8 @@ export interface RoomHost {
   hasSession(userId: string, sessionID: number): boolean;
   /** The org's row cipher (key management, ekm/roomKey.ts); absent: rows are plain */
   cipher?(): RoomCipher;
+  /** R2 for checkpoints (docs/cloud.md §1); absent: everything stays in rows */
+  objects?: RoomObjectsHost;
 }
 
 const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8" } });
@@ -291,11 +299,14 @@ const text = (v: unknown, max: number): string | null => (typeof v === "string" 
 
 export class RoomBox {
   readonly storage: SqlRoomStorage;
+  /** Checkpoints on R2 (storage/roomObjects.ts) */
+  readonly objects: RoomObjects;
   /** `history_frames` seqs a version copied in plain, sealed after its transaction */
   private pendingFrames = new Set<number>();
 
   constructor(private host: RoomHost) {
     this.storage = new SqlRoomStorage(host.sql);
+    this.objects = new RoomObjects(host.sql, (fn) => host.transaction(fn), this.storage, () => this.cipher, host.objects, () => host.now());
     this.reset();
   }
 
@@ -312,6 +323,7 @@ export class RoomBox {
       `CREATE INDEX IF NOT EXISTS versions_seq ON versions (seq)`,
       `CREATE TABLE IF NOT EXISTS history_snapshots (seq INTEGER NOT NULL, idx INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY (seq, idx))`,
       `CREATE TABLE IF NOT EXISTS history_frames (seq INTEGER PRIMARY KEY, session INTEGER NOT NULL, batch INTEGER NOT NULL, message BLOB NOT NULL)`,
+      ...RoomObjects.TABLES,
     ])
       this.host.sql.exec(s);
     this.storage.reload();
@@ -342,7 +354,7 @@ export class RoomBox {
     const first = st.meta("ekm") !== 1;
     if (!first && !force && st.meta("ekmDirty") !== 1) return { sealed: 0, first: false };
     // The first sweep also opens rows that merely look sealed: a plain row starting with the header is sealed too
-    const sealed = await sealAll(this.sql, c, first);
+    const sealed = (await sealAll(this.sql, c, first)) + (await this.objects.sealAll());
     this.pendingFrames.clear();
     st.setMeta("ekm", 1);
     st.clearMeta("ekmDirty");
@@ -389,6 +401,7 @@ export class RoomBox {
       throw e;
     } finally {
       await this.sealPending();
+      await this.objects.flush();
     }
   }
 
@@ -424,7 +437,10 @@ export class RoomBox {
       case "GET /room/snapshot": {
         const seq = st.meta("snapshotSeq");
         if (seq < 0) return json({ error: "no snapshot yet", code: "no_snapshot" }, 404);
-        return this.bytesResponse(this.read(`SELECT bytes FROM snapshot ORDER BY idx`), "snapshot", { "x-seq": String(seq), "x-last-seq": String(st.lastSeq()) });
+        const headers = { "x-seq": String(seq), "x-last-seq": String(st.lastSeq()) };
+        const cp = st.meta("snapR2") === 1 ? this.objects.row(String(seq)) : null;
+        if (cp) return this.objects.read(cp, "snapshot", headers);
+        return this.bytesResponse(this.read(`SELECT bytes FROM snapshot ORDER BY idx`), "snapshot", headers);
       }
       case "GET /room/frames": {
         // The frames after `since` (an embed's catch-up on the snapshot): [u32 length][changes-down frame] each.
@@ -433,17 +449,27 @@ export class RoomBox {
       }
       case "PUT /room/snapshot": {
         const seq = Number(url.searchParams.get("seq"));
-        // Sealed before the checks: nothing awaits between them and the transaction.
-        const parts = await sealChunks(this.cipher, new Uint8Array(await req.arrayBuffer()), "snapshot");
-        const current = st.meta("snapshotSeq");
         // A snapshot holds the document as of `seq`: it can only move forward, and not past what the room accepted.
-        if (!Number.isInteger(seq) || seq < Math.max(current, 0) || seq > st.lastSeq()) {
-          return json({ error: "snapshot seq out of range", snapshotSeq: current, lastSeq: st.lastSeq() }, 409);
+        const outOfRange = () => !Number.isInteger(seq) || seq < Math.max(st.meta("snapshotSeq"), 0) || seq > st.lastSeq();
+        const refuse = () => json({ error: "snapshot seq out of range", snapshotSeq: st.meta("snapshotSeq"), lastSeq: st.lastSeq() }, 409);
+        if (outOfRange()) return refuse();
+        const bytes = new Uint8Array(await req.arrayBuffer());
+        // On R2 when it's there (checked again after the write: the object goes to the trash if refused), else rows
+        // sealed before the checks: nothing awaits between them and the transaction.
+        const cp = await this.objects.put(String(seq), bytes, "snapshot");
+        const parts = cp ? [] : await sealChunks(this.cipher, bytes, "snapshot");
+        if (outOfRange()) {
+          this.host.transaction(() => this.objects.discard(cp));
+          return refuse();
         }
         const made: { id?: string } = {};
         this.host.transaction(() => {
           this.sql.exec(`DELETE FROM snapshot`);
           parts.forEach((part, idx) => this.sql.exec(`INSERT INTO snapshot (idx, bytes) VALUES (?, ?)`, idx, part));
+          if (cp) {
+            this.objects.record(cp);
+            st.setMeta("snapR2", 1);
+          } else st.clearMeta("snapR2");
           st.compact(seq);
           st.setMeta("snapshotSeq", seq);
           // A new branch's room: its first snapshot is "Branch created" (§15.5 step 3).
@@ -451,6 +477,7 @@ export class RoomBox {
             st.clearMeta("branchPending");
             made.id = this.take({ kind: "branch", seq, userId, userName }).id;
           }
+          this.objects.collect();
         });
         return json({ ok: true, seq, lastSeq: st.lastSeq(), ...(made.id ? { versionId: made.id } : {}) });
       }
@@ -485,19 +512,29 @@ export class RoomBox {
       case "GET /room/base": {
         const seq = st.meta("baseSeq");
         if (seq < 0) return new Response("no base yet", { status: 404 });
+        const cp = st.meta("baseR2") === 1 ? this.objects.row(`base-${seq}`) : null;
+        if (cp) return this.objects.read(cp, "base_chunks", { "x-seq": String(seq) });
         return this.bytesResponse(this.read(`SELECT bytes FROM base_chunks WHERE slot = 'base' ORDER BY idx`), "base_chunks", { "x-seq": String(seq) });
       }
       case "PUT /room/base": {
         // The first base is the base; later ones are staged until the update that absorbs them (POST /room/apply).
         const seq = Number(url.searchParams.get("seq"));
         if (!Number.isInteger(seq) || seq < 0) throw new RoomError(400, "bad seq");
-        const parts = await sealChunks(this.cipher, new Uint8Array(await req.arrayBuffer()), "base_chunks");
+        const bytes = new Uint8Array(await req.arrayBuffer());
+        const cp = await this.objects.put(`base-${seq}`, bytes, "base_chunks");
+        const parts = cp ? [] : await sealChunks(this.cipher, bytes, "base_chunks");
         const first = st.meta("baseSeq") < 0;
         const slot = first ? "base" : "next";
+        const flag = first ? "baseR2" : "nextR2";
         this.host.transaction(() => {
           this.sql.exec(`DELETE FROM base_chunks WHERE slot = ?`, slot);
           parts.forEach((part, idx) => this.sql.exec(`INSERT INTO base_chunks (slot, idx, bytes) VALUES (?, ?, ?)`, slot, idx, part));
           st.setMeta(first ? "baseSeq" : "baseNextSeq", seq);
+          if (cp) {
+            this.objects.record(cp);
+            st.setMeta(flag, 1);
+          } else st.clearMeta(flag);
+          this.objects.collect();
         });
         return json({ ok: true, seq, staged: !first });
       }
@@ -537,6 +574,23 @@ export class RoomBox {
         st.setMeta("frozen", 1);
         return json({ ok: true, lastSeq: st.lastSeq() });
       }
+      case "POST /room/storage/migrate": {
+        // The operator's loop (storage/migrate.ts): steps until done, or this call's budget (bytes, steps) is spent
+        let moved = 0;
+        let steps = 0;
+        let r = await this.objects.step();
+        while (!r.done && r.moved && steps < 64 && moved < 96 * 1024 * 1024) {
+          moved += r.bytes;
+          steps++;
+          r = await this.objects.step();
+        }
+        moved += r.bytes;
+        const left = (t: string) => this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM ${t}`).toArray()[0]?.n ?? 0;
+        return json({ done: r.done, enabled: this.objects.enabled(), moved, left: { snapshot: left("snapshot"), history: left("history_snapshots"), base: left("base_chunks"), blobs: left("blobs") } });
+      }
+      case "POST /room/storage/relocate":
+        // A region move's copy (policy/region.ts): checkpoints into this room's bucket before the old room goes
+        return json(await this.objects.relocate());
       case "POST /room/unfreeze": {
         const { moving } = (await req.json().catch(() => ({}))) as { moving?: boolean };
         st.clearMeta(moving === true ? "moving" : "frozen");
@@ -578,6 +632,10 @@ export class RoomBox {
         return json({ version: toVersion(this.versionRow(row.id)!) });
       }
       if (part === "snapshot" && m === "GET") {
+        const vh = { "x-seq": String(row.seq), "x-snapshot-seq": String(row.snapshot_seq) };
+        const inRows = this.sql.exec(`SELECT 1 AS x FROM history_snapshots WHERE seq = ? AND idx = 0`, row.snapshot_seq).toArray().length > 0;
+        const cp = inRows ? null : this.objects.row(String(row.snapshot_seq));
+        if (cp) return this.objects.read(cp, "history_snapshots", vh);
         return this.bytesResponse(this.read(`SELECT bytes FROM history_snapshots WHERE seq = ? ORDER BY idx`, row.snapshot_seq), "history_snapshots", { "x-seq": String(row.seq), "x-snapshot-seq": String(row.snapshot_seq) });
       }
       if (part === "frames" && m === "GET") {
@@ -593,10 +651,12 @@ export class RoomBox {
       if (part === "snapshot" && m === "PUT") {
         // The client's own snapshot of the version (its document at seq): the version needs no frames any more.
         const bytes = new Uint8Array(await req.arrayBuffer());
-        const parts = await sealChunks(this.cipher, bytes, "history_snapshots");
+        const cp = await this.objects.put(String(row.seq), bytes, "history_snapshots");
+        const parts = cp ? [] : await sealChunks(this.cipher, bytes, "history_snapshots");
         this.host.transaction(() => {
           this.sql.exec(`DELETE FROM history_snapshots WHERE seq = ?`, row.seq);
           parts.forEach((part, idx) => this.sql.exec(`INSERT INTO history_snapshots (seq, idx, bytes) VALUES (?, ?, ?)`, row.seq, idx, part));
+          if (cp) this.objects.record(cp);
           this.sql.exec(`UPDATE versions SET snapshot_seq = seq, size = ? WHERE seq = ?`, bytes.length, row.seq);
           this.collect();
         });
@@ -630,13 +690,15 @@ export class RoomBox {
     if (snap < 0) throw new RoomError(409, "the file has no snapshot yet");
     const seq = v.seq ?? st.lastSeq();
     if (!Number.isInteger(seq) || seq < snap || seq > st.lastSeq()) throw new RoomError(409, "version seq out of range", { snapshotSeq: snap, lastSeq: st.lastSeq() });
-    if (!this.sql.exec(`SELECT 1 AS x FROM history_snapshots WHERE seq = ? AND idx = 0`, snap).toArray().length) {
+    // The live snapshot on R2 is the version's too (the same object, kept while a version needs it); rows are copied
+    const onR2 = st.meta("snapR2") === 1 ? this.objects.row(String(snap)) : null;
+    if (!onR2 && !this.sql.exec(`SELECT 1 AS x FROM history_snapshots WHERE seq = ? AND idx = 0`, snap).toArray().length) {
       for (const r of this.sql.exec<{ idx: number; bytes: ArrayBuffer }>(`SELECT idx, bytes FROM snapshot ORDER BY idx`).toArray()) {
         this.sql.exec(`INSERT INTO history_snapshots (seq, idx, bytes) VALUES (?, ?, ?)`, snap, r.idx, r.bytes);
       }
     }
-    let size = 0;
-    for (const r of this.sql.exec<{ n: number | null }>(`SELECT ${plainSizeSql("bytes")} AS n FROM history_snapshots WHERE seq = ?`, snap).toArray()) size += r.n ?? 0;
+    let size = onR2?.size ?? 0;
+    if (!onR2) for (const r of this.sql.exec<{ n: number | null }>(`SELECT ${plainSizeSql("bytes")} AS n FROM history_snapshots WHERE seq = ?`, snap).toArray()) size += r.n ?? 0;
     const sealing = this.cipher.enabled;
     for (const f of this.sql.exec<{ seq: number; session: number; batch: number; message: ArrayBuffer }>(`SELECT seq, session, batch, message FROM frames WHERE seq > ? AND seq <= ? ORDER BY seq`, snap, seq).toArray()) {
       this.sql.exec(`INSERT OR IGNORE INTO history_frames (seq, session, batch, message) VALUES (?, ?, ?, ?)`, f.seq, f.session, f.batch, f.message);
@@ -679,6 +741,7 @@ export class RoomBox {
   private collect(): void {
     this.sql.exec(`DELETE FROM history_snapshots WHERE seq NOT IN (SELECT snapshot_seq FROM versions)`);
     this.sql.exec(`DELETE FROM history_frames WHERE NOT EXISTS (SELECT 1 FROM versions v WHERE history_frames.seq > v.snapshot_seq AND history_frames.seq <= v.seq)`);
+    this.objects.collect();
   }
 
   /**
@@ -710,6 +773,10 @@ export class RoomBox {
           this.sql.exec(`UPDATE base_chunks SET slot = 'base' WHERE slot = 'next'`);
           st.setMeta("baseSeq", meta.promoteBase);
           st.clearMeta("baseNextSeq");
+          if (st.meta("nextR2") === 1) st.setMeta("baseR2", 1);
+          else st.clearMeta("baseR2");
+          st.clearMeta("nextR2");
+          this.objects.collect();
         }
         out.version = this.take({ kind: meta.kind, title: text(meta.title, 200), description: text(meta.description, 5000), userId, userName });
       });

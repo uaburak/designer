@@ -21,7 +21,7 @@ import type { FileChange, Unsubscribe } from "../../shared/store/repositories";
 import type { FileKey, FileMeta, FileSpace } from "../../shared/store/types";
 import { touchedBy, withoutPending, type Touched } from "./conflict";
 import { busyError, fetchWithRetry, isErrorPage, READ_RETRY_DELAYS, STILL_UPLOADING_TEXT, UPLOAD_RETRY_DELAYS, withRetry } from "./http";
-import { countingBody, UploadTracker, type UploadClock } from "./uploads";
+import { countingBody, pool, sendBlobs, UploadTracker, BLOB_CONCURRENCY, type BlobSender, type MultipartStart, type UploadClock } from "./uploads";
 import { UPLOAD_CANCELED, UPLOAD_CANCELED_TEXT, type UploadEvent } from "../../shared/multiplayer/uploads";
 
 /** What the store gives the service. */
@@ -482,20 +482,31 @@ export class MultiplayerService {
       id,
       parts.reduce((n, p) => n + p.bytes.length, 0),
     );
+    // 4 at a time (docs/cloud.md §4); each part's bytes counted as it goes, falling back to what landed when it goes again
     let landed = 0;
+    const going = new Map<number, number>();
+    const say = () => this.uploads.progress(id, landed + [...going.values()].reduce((a, b) => a + b, 0));
     try {
-      for (const p of parts) {
-        const base = landed;
+      await pool(parts, BLOB_CONCURRENCY, async (p, i) => {
         await withRetry(
           delays,
           () => {
             if (ac.signal.aborted) throw canceledError();
-            return this.raw("PUT", p.path, p.bytes, { signal: ac.signal, onSent: (n) => this.uploads.progress(id, base + n) });
+            going.set(i, 0);
+            return this.raw("PUT", p.path, p.bytes, {
+              signal: ac.signal,
+              onSent: (n) => {
+                going.set(i, n);
+                say();
+              },
+            });
           },
           (attempt) => this.uploads.retrying(id, attempt, landed),
         );
+        going.delete(i);
         landed += p.bytes.length;
-      }
+        say();
+      });
     } catch (e) {
       if (isCanceled(e)) this.uploads.remove(id);
       else this.uploads.failed(id, e instanceof StoreError ? e.message : "Couldn't reach the server. Check your connection and try again.");
@@ -557,9 +568,9 @@ export class MultiplayerService {
   }
 
   /**
-   * A shared file's first content in its room — its images, then its snapshot at seq 0 — each part tried again while
-   * the server is busy or unreachable for a moment; resolves only once the snapshot has landed. `up`: the panel's entry
-   * (bytes as they go, retries) and its cancel.
+   * A shared file's first content in its room — its images (4 at a time, big ones in parts: docs/cloud.md §4), then its
+   * snapshot at seq 0 — each request tried again while the server is busy or unreachable for a moment; resolves only
+   * once the snapshot has landed. `up`: the panel's entry (bytes as they go, speed, retries) and its cancel.
    */
   private async uploadContent(room: string, snapshot: Uint8Array, alive: () => boolean = () => !this.closed, up?: Tracked): Promise<void> {
     const delays = this.deps.uploadRetryDelays ?? UPLOAD_RETRY_DELAYS;
@@ -568,25 +579,56 @@ export class MultiplayerService {
       if (!alive()) throw new StoreError("offline", PAUSED_TEXT);
       return run();
     };
-    // Bytes of the parts landed; a part's own count starts from it and falls back to it when the part goes again
+    // Bytes of the requests landed; one going again falls back to it
     let landed = 0;
     let total = snapshot.length;
     const onRetry = up && ((attempt: number) => this.uploads.retrying(up.id, attempt, landed));
-    const call = (base: number): CallOptions | undefined => up && { signal: up.signal, onSent: (n) => this.uploads.progress(up.id, base + n) };
     const sha1s = imagesOf(snapshot);
     const missing = sha1s.length ? await withRetry(delays, step(() => this.missingBlobs(room, sha1s)), onRetry) : [];
     const sizes = up && missing.length && this.host.blobSizes ? await this.host.blobSizes(missing).catch(() => null) : null;
     if (sizes) total += sizes.reduce((a, b) => a + b, 0);
     if (up) this.uploads.setTotal(up.id, total);
-    for (let i = 0; i < missing.length; i++) {
-      const bytes = await this.host.getBlob(missing[i]);
-      if (up && !sizes) this.uploads.setTotal(up.id, (total += bytes.length));
-      const base = landed;
-      await withRetry(delays, step(() => this.raw("PUT", `/files/${room}/blobs/${missing[i]}`, bytes, call(base))), onRetry);
-      landed += bytes.length;
-    }
+    await sendBlobs(missing, this.blobSender(room, { signal: up?.signal, retry: (run) => withRetry(delays, step(run), onRetry) }), {
+      signal: up?.signal,
+      onSize: (_sha1, size) => {
+        if (up && !sizes) this.uploads.setTotal(up.id, (total += size));
+      },
+      onProgress: (sent, done) => {
+        landed = done;
+        if (up) this.uploads.progress(up.id, sent);
+      },
+    });
     const base = landed;
-    await withRetry(delays, step(() => this.api("PUT", `/files/${room}/snapshot?seq=0`, snapshot, call(base))), onRetry);
+    const call: CallOptions | undefined = up && { signal: up.signal, onSent: (n) => this.uploads.progress(up.id, base + n) };
+    await withRetry(delays, step(() => this.api("PUT", `/files/${room}/snapshot?seq=0`, snapshot, call)), onRetry);
+  }
+
+  /**
+   * How a file's images reach its room (uploads.ts `sendBlobs`): one PUT each, or — over 8 MB, where the server takes it
+   * (docs/cloud.md §4) — a multipart upload whose parts go one by one. An older server (404) or an org whose images are
+   * sealed (409 `multipart_unavailable`) takes the one PUT.
+   */
+  private blobSender(room: string, o: { signal?: AbortSignal; retry<T>(run: () => Promise<T>): Promise<T> }): BlobSender {
+    const base = `/files/${room}/blobs`;
+    const opts = (onSent?: (n: number) => void): CallOptions => ({ ...(o.signal ? { signal: o.signal } : {}), ...(onSent ? { onSent } : {}) });
+    return {
+      bytes: (sha1) => this.host.getBlob(sha1),
+      put: async (sha1, bytes, onSent) => void (await this.raw("PUT", `${base}/${sha1}`, bytes, opts(onSent))),
+      start: async (sha1, size) => {
+        const res = await this.request("POST", `${base}/${sha1}/uploads`, { size }, opts());
+        if (res.status === 404 || res.status === 405) return null;
+        if (!res.ok) {
+          const e = await httpError(res);
+          if ((e.detail as { code?: unknown } | undefined)?.code === "multipart_unavailable") return null;
+          throw e;
+        }
+        return (await res.json()) as MultipartStart;
+      },
+      part: (sha1, id, n, bytes, onSent) => this.api("PUT", `${base}/${sha1}/uploads/${encodeURIComponent(id)}/parts/${n}`, bytes, opts(onSent)),
+      complete: async (sha1, id, parts) => void (await this.api("POST", `${base}/${sha1}/uploads/${encodeURIComponent(id)}/complete`, { parts }, opts())),
+      abort: async (sha1, id) => void (await this.request("DELETE", `${base}/${sha1}/uploads/${encodeURIComponent(id)}`)),
+      retry: (run) => o.retry(run),
+    };
   }
 
   /**
@@ -900,9 +942,9 @@ export class MultiplayerService {
     return () => this.replaced.delete(listener);
   }
 
-  /** @internal Images the room doesn't have yet, uploaded from the store (those the store has). */
+  /** @internal Images the room doesn't have yet, uploaded from the store (those the store has), 4 at a time. */
   async uploadBlobs(key: string, sha1s: string[]): Promise<void> {
-    for (const sha1 of await this.missingBlobs(key, sha1s)) await this.raw("PUT", `/files/${key}/blobs/${sha1}`, await this.host.getBlob(sha1));
+    await sendBlobs(await this.missingBlobs(key, sha1s), this.blobSender(key, { retry: (run) => run() }));
   }
 
   /** The images the room lacks that the store has (those it never had can't go) */

@@ -10,6 +10,7 @@ import type { Deps } from "../api";
 import type { D1Like } from "../db";
 import { HttpError } from "../org/http";
 import { libraryStatusNotice, librarySettingsNotice } from "./notices";
+import { resolveR2, type StorageEnv } from "../storage/objects";
 
 // ---- the Durable Object bindings ------------------------------------------------------------------------------------
 
@@ -36,10 +37,16 @@ export interface LibraryEnv {
   FONTS?: ObjectNamespace;
 }
 
-export function objectFetch(ns: ObjectNamespace | undefined, name: string, path: string, init: { method?: string; body?: ArrayBuffer | string | null } = {}): Promise<Response> {
+/**
+ * A call to a library's or an org's object. `at` (docs/cloud.md §1): the Worker's env, so an answer naming an R2 object
+ * (`x-r2-key`) is read here straight from R2, and the object's region (`x-region`, its bucket).
+ */
+export async function objectFetch(ns: ObjectNamespace | undefined, name: string, path: string, init: { method?: string; body?: ArrayBuffer | string | null } = {}, at?: { env?: unknown; region?: "eu" | null }): Promise<Response> {
   if (!ns) throw new HttpError(503, "libraries and fonts aren't available here");
   const stub = ns.get(ns.idFromName(name) as never);
-  return stub.fetch(new Request(`https://object${path}`, { method: init.method ?? "GET", body: init.body ?? null }));
+  const headers: Record<string, string> = at && at.region !== undefined ? { "x-region": at.region === "eu" ? "eu" : "default" } : {};
+  const res = await stub.fetch(new Request(`https://object${path}`, { method: init.method ?? "GET", body: init.body ?? null, headers }));
+  return resolveR2(res, at?.env as StorageEnv | undefined);
 }
 
 export const libraries = (deps: Deps) => (deps.env as LibraryEnv).LIBRARIES;
@@ -57,7 +64,8 @@ export async function libraryJurisdiction(d1: D1Like, key: string): Promise<"eu"
 
 /** `objectFetch` on a library's object in its jurisdiction (one D1 read per call, no cache — §15.10) */
 export async function libraryFetch(deps: Deps, key: string, path: string, init: { method?: string; body?: ArrayBuffer | string | null } = {}): Promise<Response> {
-  return objectFetch(inJurisdiction(libraries(deps), await libraryJurisdiction(deps.db.d1, key)), key, path, init);
+  const j = await libraryJurisdiction(deps.db.d1, key);
+  return objectFetch(inJurisdiction(libraries(deps), j), key, path, init, { env: deps.env, region: j });
 }
 export const fontObjects = (deps: Deps) => (deps.env as LibraryEnv).FONTS;
 

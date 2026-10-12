@@ -82,7 +82,13 @@ export async function signedRoute(deps: Deps, url: URL, parts: string[]): Promis
     if (!res.ok) throw new RestError(404, "Not found");
     return new Response(await res.arrayBuffer(), { headers: headers("image/png") });
   }
-  const res = await deps.rooms.fetch(parts[1], `/room/rest-blob/${m[1]}?fileKey=${parts[1]}`, { method: "GET" });
+  let res = await deps.rooms.fetch(parts[1], `/room/rest-blob/${m[1]}?fileKey=${parts[1]}`, { method: "GET" });
+  if (res.status === 404) {
+    // An image fill on R2 (docs/cloud.md §1): the file's reference
+    const f = await deps.db.d1.prepare(`SELECT key, owner_id, org_id, jurisdiction, storage_r2_at FROM files WHERE key = ?1`).bind(parts[1]).first<{ key: string; owner_id: string; org_id: string | null; jurisdiction: "eu" | null; storage_r2_at: number | null }>();
+    const fill = f ? await (await import("../storage/blobs")).readFileBlob(deps, f, m[1]) : null;
+    if (fill) res = fill;
+  }
   if (!res.ok) throw new RestError(404, "Not found");
   const bytes = new Uint8Array(await res.arrayBuffer());
   return new Response(bytes, { headers: headers(m[2] ? (TYPES[m[2]] ?? "application/octet-stream") : sniff(bytes)) });

@@ -11,6 +11,7 @@
  *   GET   /operator/settings                        OperatorSettings
  *   PATCH /operator/settings {signupMode?, allow?: email, disallow?: email}   OperatorSettings
  *   GET | PATCH /operator/spend-guard, POST /operator/spend-guard/check   the spend guard (guard/check.ts, §17.1)
+ *   GET /operator/storage, POST /operator/storage/migrate-next   old rows to R2 (storage/migrate.ts, docs/cloud.md §1)
  */
 import { ACCOUNT_QUOTA_KINDS, MAX_QUOTA_OVERRIDE, QUOTA_LIMITS, SIGNUP_MODES, isAccountQuotaKind, type OperatorAccount, type OperatorSettings, type SignupMode } from "../../../src/shared/quota";
 import type { Deps } from "../api";
@@ -43,6 +44,8 @@ export async function operatorRoute(req: Request, url: URL, deps: Deps, user: Us
   if (!isOperatorEmail(deps, user.email)) throw new HttpError(403, "Only the operator of this server can do this.", "forbidden");
   // The spend guard (docs/multiplayer.md §17.1): usage, mode, thresholds, the server's storage cap
   if (parts[1] === "spend-guard") return (await import("../guard/check")).spendGuardRoute(req, deps, user, parts);
+  // Moving old rows to R2 (docs/cloud.md §1): progress and the operator's loop
+  if (parts[1] === "storage") return (await import("../storage/migrate")).storageRoute(req, deps, user, parts);
   const d1 = deps.db.d1;
   const m = req.method;
   const toAccount = (r: AccountRow): OperatorAccount => ({

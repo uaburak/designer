@@ -166,7 +166,7 @@ export async function publicIconRoute(req: Request, deps: Deps, orgId: string, h
     .bind(orgId, hash)
     .first();
   if (!used) throw new HttpError(404, "no such icon");
-  const res = await objectFetch(fontObjects(deps), orgId, `/image/${hash}`);
+  const res = await objectFetch(fontObjects(deps), orgId, `/image/${hash}`, {}, { env: deps.env });
   if (!res.ok) throw new HttpError(404, "no such icon");
   const out = new Response(res.body, {
     headers: {

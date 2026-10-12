@@ -137,3 +137,49 @@ here (cards show none until opened); org copies in the cache bound.
 file, folder files renamed "Folder / File"; the upload panel lists them uploading one by one to "Drafts" (big files take
 a while; quitting resumes them next time). Nothing local is removed. The `shared_files` quota (200) and `uploads_per_day`
 apply to the migration — raise them for the account as operator first if the workspace holds more.
+
+## 6. As built — A, server storage (2026-10-12)
+
+- **Bindings** `FILES` (wecra-files) and `FILES_EU` (wecra-files-eu, jurisdiction eu) in `server/wrangler.jsonc`. Without
+  them (a server not yet given R2, most older tests) everything stays in SQLite as before — every path checks.
+- **Code**: `server/src/storage/` — `objects.ts` (the `ObjectStore` part of `R2Bucket`, keys, `r2Redirect` / `resolveR2`),
+  `refs.ts` (`r2_objects`, `r2_refs`, `sweepR2`), `blobs.ts` (the Worker's image routes), `sealing.ts` (the org's object
+  cipher in the Worker), `roomObjects.ts` + `roomHost.ts` (a room's checkpoints, trash, lazy step, relocation),
+  `boxObjects.ts` (libraries', fonts', icons' and previews' bytes), `relocate.ts` (a region move's images),
+  `migrate.ts` (the operator's loop). Tests: `storage/r2.test.ts`, `storage/boxes.test.ts`, with
+  `testing/memoryR2.ts` (an in-memory bucket counting Class A / B, multipart with R2's 5 MiB rule).
+- **Reads**: a Durable Object answers a plain object by name (`x-r2-key`, `x-r2-bucket`, no body) and the Worker's stub
+  wrappers (`roomsOn`, `objectFetch` / `libraryFetch`, previews' `box`) stream it from R2 — the bytes never pass through
+  the object. Sealed checkpoints and REST parts are opened by the room; sealed images by the Worker (`sealing.ts`).
+- **Region**: the Worker says each call's region (`x-region: eu | default`); a room or library keeps it in meta and
+  writes nothing to R2 until it knows (an EU object never writes into the default bucket). A region move copies the
+  copy's checkpoints into its bucket (`POST /room/storage/relocate`, `/relocate` for libraries) and re-homes the file's
+  images (`relocate.ts`) before the flip; the old room's objects go with it, old images are swept.
+- **Key management**: checkpoints and REST parts sealed with the room's cipher (AAD `<fileKey>|snapshot` etc., as the
+  rows were) under `e/<orgId>/c/…`, `e/<orgId>/r/…`; images under `e/<orgId>/b/<sha1>` sealed with AAD **`<orgId>|blobs`**
+  — not the file key: one image object is shared by the org's files. Turning key management on rewrites a room's plain
+  checkpoints sealed (`encryptAll`). Multipart isn't offered to such orgs (409 `multipart_unavailable`: the Worker seals a
+  whole image, ≤ 40 MB, in one PUT). Library payloads, fonts, icons and previews aren't sealed (they weren't before).
+- **Images**: `missing` refers a file to an existing object without its bytes **only** when a file of the same org
+  (outside orgs: of the same owner) that the caller owns or was invited to edit already uses it (`refs.ts reusableQ`;
+  the multipart start likewise) — a hash alone never claims another tenant's image. Otherwise it is missing: the bytes
+  are sent, their SHA-1 checked, then referenced, and an object already in the bucket isn't written again (the owner charged once:
+  `stored_items` `b:<ownerId>:<sha1>`), PUT streams with a declared length (hashed on the way with `DigestStream`, the
+  object dropped again if the hash lies), multipart assembles at `u/<fileKey>/<sha1>` and is checked before it becomes
+  `b/<sha1>`. Rows a room held before stay readable (the Worker asks the room when the file has no reference).
+- **Sweep** (daily cron): references of files deleted for good dropped (stored bytes released where it was the owner's
+  last use), unreferenced objects orphaned, orphans older than 7 days deleted; a new reference within the grace keeps one.
+- **Migration**: one step per wake in the background (`FileRoom.wakeStep`, the boxes likewise); `GET /operator/storage`
+  (progress) and `POST /operator/storage/migrate-next {after?}` → `{files, libraries, key, kind, done, moved, cursor,
+  finished}` (a big file takes several calls; a failing one is stepped past with `after: cursor`). Migrated images keep
+  their old `f:<key>:b:<sha1>` charge (no `owner_id` on their reference). `files.storage_r2_at` / `libraries.storage_r2_at`.
+- **Quotas**: `storage_bytes` 20 GB; `server_storage_bytes` enforced only when the operator sets it. Spend guard: three
+  more metrics (`r2_storage_bytes`, `r2_class_a`, `r2_class_b`; 10 GB, 1M, 10M).
+- **Client**: `src/store/multiplayer/uploads.ts` `sendBlobs` (4 at a time, > 8 MB in 8 MB parts, a part retried alone,
+  Cancel aborts the multipart upload; an older server's 404 or `multipart_unavailable` falls back to one PUT), the
+  snapshot after its images; library parts 4 at a time; the tracker's moving-average speed (5 s window, said after 1 s)
+  and time left; the panel's line "3.2 MB/s · About 2 minutes left" (ours).
+- **Owner steps**: `cd server && npx wrangler r2 bucket create wecra-files && npx wrangler r2 bucket create wecra-files-eu
+  --jurisdiction eu`; `npm run db:migrate` (0022); `npm run deploy`; then run the operator loop until `finished`. The spend
+  guard's token (Account Analytics: Read) should read R2's datasets too; if Settings › Operator says R2 usage is
+  unknown, add "Workers R2 Storage: Read" to it.

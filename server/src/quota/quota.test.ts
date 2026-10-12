@@ -137,11 +137,13 @@ describe("account quotas", () => {
     expect([await storedOf(a.id), await storedOf(b.id)]).toEqual([0, 50]);
   });
 
-  it("server_storage_bytes: the server's total stops uploads for everyone (507)", async () => {
+  it("server_storage_bytes: no cap by default (docs/cloud.md §3); the operator's stops uploads for everyone (507)", async () => {
     const a = await dev("a@x.co");
     await share(a.token, "file-1");
-    await d1.prepare(`INSERT INTO quota_counters (subject, kind, window, n) VALUES ('*', 'server_storage_bytes', 0, ?1)`).bind(QUOTA_LIMITS.server_storage_bytes - 10).run();
-    const r = await call("PUT", "/files/file-1/snapshot?seq=0", { token: a.token, body: new Uint8Array(20) });
+    await d1.prepare(`INSERT INTO quota_counters (subject, kind, window, n) VALUES ('*', 'server_storage_bytes', 0, ?1)`).bind(2 * 1024 * MB - 10).run();
+    expect((await call("PUT", "/files/file-1/snapshot?seq=0", { token: a.token, body: new Uint8Array(20) })).status).toBe(200);
+    await d1.prepare(`INSERT INTO server_settings (k, v, updated_at) VALUES ('server_storage_bytes', ?1, 0)`).bind(String(2 * 1024 * MB)).run();
+    const r = await call("PUT", "/files/file-1/snapshot?seq=0", { token: a.token, body: new Uint8Array(40) });
     expect(r.status).toBe(507);
     expect(await bodyOf(r)).toMatchObject({ code: "quota_exceeded", kind: "server_storage_bytes" });
   });
@@ -153,7 +155,7 @@ describe("account quotas", () => {
     await expect(guardedUpload(deps, req, { id: a.id }, { ownerId: a.id, item: "f:x:snap" }, 90 * MB, "snapshot too large")).rejects.toMatchObject({ status: 413 });
     // Declared within the size limit but past the storage quota: refused before reading too
     const big = { headers: new Headers({ "content-length": String(QUOTA_LIMITS.storage_bytes + 1) }), arrayBuffer: async () => ((read = true), new ArrayBuffer(0)) } as unknown as Request;
-    await expect(guardedUpload(deps, big, { id: a.id }, { ownerId: a.id, item: "f:x:snap" }, 1024 * MB, "too large")).rejects.toMatchObject({ status: 403, code: "quota_exceeded" });
+    await expect(guardedUpload(deps, big, { id: a.id }, { ownerId: a.id, item: "f:x:snap" }, 64 * 1024 * MB, "too large")).rejects.toMatchObject({ status: 403, code: "quota_exceeded" });
     expect(read).toBe(false);
   });
 

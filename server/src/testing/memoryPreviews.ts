@@ -1,6 +1,7 @@
 /** Previews' Durable Objects for Node tests: each preview's `PreviewBox` on its own node:sqlite database. */
 import { DatabaseSync } from "node:sqlite";
 import { PreviewBox, type PreviewEnv, type SqlLike } from "../previews";
+import type { StorageEnv } from "../storage/objects";
 
 /** A Durable Object's SQLite storage on node:sqlite (ArrayBuffers in and out, as Cloudflare's). */
 export function sqliteStorage(): { sql: SqlLike; transaction(fn: () => void): void; wipe(): void } {
@@ -26,7 +27,7 @@ export function sqliteStorage(): { sql: SqlLike; transaction(fn: () => void): vo
         throw e;
       }
     },
-    wipe: () => db.exec("DROP TABLE IF EXISTS meta; DROP TABLE IF EXISTS files;"),
+    wipe: () => db.exec("DROP TABLE IF EXISTS meta; DROP TABLE IF EXISTS files; DROP TABLE IF EXISTS r2_index; DROP TABLE IF EXISTS r2_trash;"),
   };
 }
 
@@ -37,7 +38,7 @@ export interface MemoryPreviewObject {
 }
 
 /** The `PREVIEWS` binding: one object per name, made on first use. */
-export function memoryPreviews(now: () => number): { binding: NonNullable<PreviewEnv["PREVIEWS"]>; objects: Map<string, MemoryPreviewObject> } {
+export function memoryPreviews(now: () => number, env?: StorageEnv): { binding: NonNullable<PreviewEnv["PREVIEWS"]>; objects: Map<string, MemoryPreviewObject> } {
   const objects = new Map<string, MemoryPreviewObject>();
   const binding: NonNullable<PreviewEnv["PREVIEWS"]> = {
     idFromName: (name) => name,
@@ -57,6 +58,7 @@ export function memoryPreviews(now: () => number): { binding: NonNullable<Previe
               made.alarm = null;
               storage.wipe();
             },
+            ...(env ? { env, name: () => name } : {}),
           }),
         };
         objects.set(name, (o = made));

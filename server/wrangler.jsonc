@@ -47,6 +47,13 @@
   // The developer preview viewer (npm run build:viewer → out/viewer/index.html), served by the Worker at /p/<id>
   // (server/src/previews.ts). The Worker runs first for every request, so the API keeps its routes.
   "assets": { "directory": "../out/viewer", "binding": "ASSETS", "run_worker_first": true, "html_handling": "none", "not_found_handling": "none" },
+  // Object storage (docs/cloud.md §1): checkpoints, images and blobs, REST parts, library payloads, previews, icons and
+  // shared fonts. Create once: npx wrangler r2 bucket create wecra-files; npx wrangler r2 bucket create wecra-files-eu
+  // --jurisdiction eu (orgs with the EU data region, docs/multiplayer.md §15.10)
+  "r2_buckets": [
+    { "binding": "FILES", "bucket_name": "wecra-files" },
+    { "binding": "FILES_EU", "bucket_name": "wecra-files-eu", "jurisdiction": "eu" }
+  ],
   "d1_databases": [{ "binding": "DB", "database_name": "designer", "database_id": "98f2c9e2-7272-4ab0-b1ec-ee6e27b66edd", "migrations_dir": "migrations" }],
   "vars": {
     "GOOGLE_CLIENT_ID": "511486232492-8fr5pqjmcfadd334nrl6abljrran7vhl.apps.googleusercontent.com",

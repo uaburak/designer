@@ -126,7 +126,9 @@ export async function filesRoute(ctx: RestCtx): Promise<Response> {
     const { f, a } = await fileFor(ctx, key);
     requireExport(a);
     const res = await deps.rooms.fetch(key, `/room/rest-images?fileKey=${key}`, { method: "GET" });
-    const { sha1s } = res.ok ? ((await res.json()) as { sha1s: string[] }) : { sha1s: [] };
+    const { sha1s: inRoom } = res.ok ? ((await res.json()) as { sha1s: string[] }) : { sha1s: [] };
+    // Image fills on R2 (docs/cloud.md §1) are the file's references in D1; the room lists the rows it still holds
+    const sha1s = [...new Set([...inRoom, ...(await (await import("../storage/refs")).fileRefSha1s(deps.db.d1, key))])].sort();
     const images: Record<string, string> = {};
     for (const s of sha1s) images[s] = await signPath(deps, url.origin, blobPath(f.key, s), FILL_URL_DAYS);
     return restJson({ error: false, status: 200, meta: { images } });

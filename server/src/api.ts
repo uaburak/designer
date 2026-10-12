@@ -496,7 +496,13 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       break;
     }
     case "blobs": {
-      // Images a shared file uses, by SHA-1, kept by its room (docs/multiplayer.md §4).
+      // Images a shared file uses, by SHA-1: on R2 (docs/cloud.md §1, storage/blobs.ts) where its bucket is bound;
+      // otherwise (and for rows not migrated yet) kept by its room (docs/multiplayer.md §4).
+      const onR2 = await (await import("./storage/blobs")).fileBlobsRoute(
+        { deps, req, user, f, canEdit: !!a?.canEdit, room: (p, init) => deps.rooms.fetch(key, p, { ...init, identity, ...where }) },
+        parts.slice(3),
+      );
+      if (onR2) return onR2;
       if (parts.length === 4 && parts[3] === "missing" && m === "POST") {
         const { sha1s } = await readJson<{ sha1s?: unknown }>(req);
         if (!Array.isArray(sha1s) || sha1s.length > 1000 || !sha1s.every((s) => typeof s === "string" && /^[0-9a-f]{40}$/.test(s))) throw new HttpError(400, "sha1s");
@@ -766,7 +772,12 @@ function sessionOnly(c: Caller): User {
  */
 async function embedRoute(key: string, part: string | undefined, url: URL, deps: Deps): Promise<Response> {
   const f = await deps.db.file(key);
-  const row = f ? await deps.db.d1.prepare(`SELECT link_expires_at, org_id, team_id, editor_type FROM files WHERE key = ?1`).bind(key).first<{ link_expires_at: number | null; org_id: string | null; team_id: string | null; editor_type: EditorType }>() : null;
+  const row = f
+    ? await deps.db.d1
+        .prepare(`SELECT link_expires_at, org_id, team_id, editor_type, owner_id, jurisdiction, storage_r2_at FROM files WHERE key = ?1`)
+        .bind(key)
+        .first<{ link_expires_at: number | null; org_id: string | null; team_id: string | null; editor_type: EditorType; owner_id: string; jurisdiction: "eu" | null; storage_r2_at: number | null }>()
+    : null;
   const expired = row?.link_expires_at != null && deps.now() >= row.link_expires_at;
   // An org's policy with public links off refuses embeds too (§15.6); passwords required means no embed without one,
   // and a file with a password is never embedded.
@@ -778,8 +789,11 @@ async function embedRoute(key: string, part: string | undefined, url: URL, deps:
   }
   if (!part) return viewerPage(url, deps.env as Parameters<typeof viewerPage>[1]);
   const identity = { userId: "embed", name: null, role: "viewer" as Role };
+  // Images from R2 when the file refers to them there (docs/cloud.md §1), else from the room's rows
+  const image = part.startsWith("images/") && row ? await (await import("./storage/blobs")).readFileBlob(deps, { key, ...row }, part.slice(7)) : null;
   const res =
-    part === "snapshot" ? await deps.rooms.fetch(key, "/room/snapshot", { method: "GET", identity }) : part === "frames" ? await deps.rooms.fetch(key, `/room/frames?since=${Number(url.searchParams.get("since")) || 0}`, { method: "GET", identity }) : await deps.rooms.fetch(key, `/room/${part.replace("images/", "blobs/")}`, { method: "GET", identity });
+    image ??
+    (part === "snapshot" ? await deps.rooms.fetch(key, "/room/snapshot", { method: "GET", identity }) : part === "frames" ? await deps.rooms.fetch(key, `/room/frames?since=${Number(url.searchParams.get("since")) || 0}`, { method: "GET", identity }) : await deps.rooms.fetch(key, `/room/${part.replace("images/", "blobs/")}`, { method: "GET", identity }));
   const headers = new Headers(res.headers);
   headers.set("access-control-allow-origin", "*");
   headers.set("access-control-expose-headers", "x-seq, x-file-name");

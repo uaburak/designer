@@ -16,6 +16,9 @@ export class LibraryObject extends DurableObject {
       sql: ctx.storage.sql as unknown as SqlLike,
       transaction: (fn) => ctx.storage.transactionSync(fn),
       deleteAll: () => ctx.storage.deleteAll(),
+      // R2 (docs/cloud.md §1): the buckets, and the object's name (the library key / the org id) for its prefix
+      env: env as never,
+      name: () => ctx.id.name ?? null,
     });
   }
 

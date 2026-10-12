@@ -94,7 +94,7 @@ export async function fontFileRoute(ctx: Ctx): Promise<Response> {
   if (parts.length !== 2 || m !== "GET" || !/^[0-9a-f]{40}$/.test(parts[1])) throw new HttpError(404, "not found");
   const row = await acc.d1.prepare(`${SELECT} WHERE sf.sha1 = ?2 AND ${USABLE} LIMIT 1`).bind(user.id, parts[1]).first<FaceRow>();
   if (!row) throw new HttpError(404, "no such font");
-  const res = await objectFetch(fontObjects(deps), row.org_id, `/font/${row.sha1}`);
+  const res = await objectFetch(fontObjects(deps), row.org_id, `/font/${row.sha1}`, {}, { env: deps.env });
   if (!res.ok) throw new HttpError(404, "no such font");
   return new Response(res.body, { headers: { "content-type": row.format === "otf" ? "font/otf" : "font/ttf", "cache-control": "private, max-age=31536000, immutable" } });
 }
