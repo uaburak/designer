@@ -55,6 +55,7 @@ export function roomsOn(ns: ObjectNamespace, d1: D1Like): Rooms {
       const stub = stubOf(ns, await fileJurisdiction(d1, fileKey), fileKey);
       const headers = new Headers(original?.headers);
       headers.delete("authorization");
+      headers.set("x-file-key", fileKey);
       if (init.identity) {
         headers.set("x-user-id", init.identity.userId);
         headers.set("x-user-name", init.identity.name ?? "");
