@@ -86,7 +86,8 @@ type DialogState =
   | { kind: "delete-forever"; targets: act.Targets }
   | { kind: "empty-trash" }
   | { kind: "create-org" }
-  | { kind: "rename-local-team" };
+  | { kind: "rename-local-team" }
+  | { kind: "leave-org"; orgId: string; name: string };
 /** Local locations an org's space has its own of (shown when the space is switched). */
 const LOCAL_ONLY = new Set<Location["kind"]>(["drafts", "folders", "folder", "trash"]);
 type MenuState = { at: { x: number; y: number }; entries: MenuEntry[]; run: (id: string) => void; className?: string };
@@ -352,8 +353,12 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
     if (done.length) toast({ kind: "success", message: done.length === 1 ? `Imported “${done[0]}”` : `Imported ${done.length} files` });
   };
 
-  const doImport = async () => {
-    const folderId = newFileFolder(location);
+  /** `.fig` files dropped on a place (Home's drop path; an org's Drafts or folder from OrgMain) */
+  const importFilesAt = (files: File[], at: Location) => importFiles(files, newFileFolder(at));
+
+  /** "Import": the file picker, into `at` (default: where Home is — a local folder or Drafts, an org's Drafts or folder) */
+  const doImport = async (at: Location = location) => {
+    const folderId = newFileFolder(at);
     try {
       const viaShell = await importWithShell(folderId);
       if (viaShell) {
@@ -528,7 +533,14 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   };
   /** The space row's right-click: the local team's Rename (help.figma.com: right-click the team name → Rename) */
   const onSpaceContextMenu = (e: React.MouseEvent) => {
-    if (orgId) return;
+    if (orgId) {
+      // An org's row: Leave organization (members and guests; the last admin is refused by the server)
+      const name = orgShell.info?.name ?? orgSummary?.name ?? "";
+      if (!backend.org || !name) return;
+      e.preventDefault();
+      setMenu({ at: { x: e.clientX, y: e.clientY }, entries: [{ id: "leave", label: "Leave organization…" }], run: (id) => id === "leave" && setDialog({ kind: "leave-org", orgId, name }) });
+      return;
+    }
     e.preventDefault();
     setMenu({ at: { x: e.clientX, y: e.clientY }, entries: [{ id: "rename", label: "Rename" }], run: (id) => id === "rename" && setDialog({ kind: "rename-local-team" }) });
   };
@@ -832,7 +844,8 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   );
 
   // Admin replaces the file browser (its own sidebar starts with "Back to files"); a gated org shows its gate instead
-  if (orgId && location.kind === "admin" && backend.org && !gate) {
+  // A deleted org (docs/multiplayer.md §14.17) has no Admin: OrgMain shows its admins Restore
+  if (orgId && location.kind === "admin" && backend.org && !gate && !orgShell.info?.deletedAt) {
     return (
       <>
         <AdminApp
@@ -855,7 +868,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
         onSpaceMenu={backend.org && (account.state?.user || orgShell.orgs.length) ? onSpaceMenu : undefined}
         spaceBadge={orgId ? PLAN_BADGE : undefined}
         spaceIconUrl={orgId ? (orgShell.info?.iconUrl ?? orgSummary?.iconUrl ?? null) : null}
-        onSpaceContextMenu={orgId ? undefined : onSpaceContextMenu}
+        onSpaceContextMenu={onSpaceContextMenu}
         spaceSection={
           orgId ? (
             <OrgSidebar
@@ -921,6 +934,10 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           noCreate={outsideHome}
           blocked={blockedContent}
           banner={<GuestExpiryBanner orgName={gateOrgName} expiresAt={orgSummary?.guestExpiresAt} now={now} />}
+          onImport={(at) => void doImport(at)}
+          onImportFiles={(files, at) => void importFilesAt(files, at)}
+          serverUrl={account.state?.server ?? null}
+          renameFile={(fileKey, name) => repo.renameFile(fileKey, name)}
         />
       ) : (
       <main
@@ -1091,6 +1108,25 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
       {branchSwitcher.element}
       {linkOpen && <OpenLinkDialog onClose={() => setLinkOpen(false)} onOpen={(fileKey, name, intent) => void openFile(fileKey, { ...(name ? { title: name } : {}), intent }, deps)} onError={(message) => toast({ kind: "error", message })} />}
       {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} className={menu.className} />}
+      {dialog?.kind === "leave-org" && backend.org && (
+        <ConfirmDialog
+          title={`Leave ${dialog.name}?`}
+          body="You’ll lose access to its teams, folders and files unless they’re shared with you some other way. Your drafts stay in the organization."
+          confirm="Leave organization"
+          onClose={() => setDialog(null)}
+          onConfirm={() => {
+            const d = dialog;
+            setDialog(null);
+            backend.org!.orgs.leave(d.orgId).then(
+              () => {
+                toast({ message: `You left ${d.name}` });
+                switchSpace("local");
+              },
+              (e: unknown) => toast({ kind: "error", message: orgErrorText(e) }),
+            );
+          }}
+        />
+      )}
             {dialog?.kind === "rename-local-team" && (
         <NameDialog
           title="Rename team"

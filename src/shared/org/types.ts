@@ -88,6 +88,12 @@ export interface OrgSummary {
   gate?: OrgGate;
   /** Round 14: a guest's access ends then (ms) */
   guestExpiresAt?: number | null;
+  /**
+   * §14.17 "Delete organization": set while the org is deleted and waiting to be deleted for good (only its admins
+   * still list it, to restore it); `purgeAt` is when the daily sweep deletes it and everything in it.
+   */
+  deletedAt?: number | null;
+  purgeAt?: number | null;
 }
 export interface OrgInfo extends OrgSummary {
   createdAt: number;
@@ -315,6 +321,9 @@ export type ActivityAction =
   // Ours (docs/multiplayer.md §14.16; Figma logs team_rename only): the org's name and icon, a team's icon
   | "org_rename"
   | "org_icon_change"
+  // Ours (docs/multiplayer.md §14.17; Figma deletes organizations through its support): Delete organization, Restore
+  | "org_delete"
+  | "org_restore"
   | "team_icon_change"
   | IdentityActivityAction
   | GovernanceActivityAction;

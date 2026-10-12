@@ -548,6 +548,15 @@ export async function notifyLibraryOverride(deps: Deps, n: { userIds: string[]; 
  * The spend guard's word to an operator (docs/multiplayer.md §17.1): a metric past its warning, or the guard engaged.
  * No file and no org; "Designer" stands where the file's name goes, the operator is their own actor.
  */
+/**
+ * "Delete organization" (docs/multiplayer.md §14.17): each person of the org but the admin who did it hears that it was
+ * deleted and when it goes for good. The row names no org (it outlives the org's rows); `fileName` is the org's name.
+ */
+export async function notifyOrgDeleted(deps: Deps, n: { userId: string; actorId: string; name: string; purgeAt: number }): Promise<void> {
+  if (n.userId === n.actorId) return;
+  await safely("an org deletion", () => deliver(deps, { userId: n.userId, kind: "org_deleted", fileKey: null, actorId: n.actorId, text: new Date(n.purgeAt).toISOString(), place: { orgId: null as unknown as string, teamId: null, name: n.name } }));
+}
+
 export async function notifyCapacity(deps: Deps, n: { userId: string; text: string }): Promise<void> {
   await safely("a capacity warning", () => deliver(deps, { userId: n.userId, kind: "capacity_warning", fileKey: null, actorId: n.userId, text: n.text, place: { orgId: null as unknown as string, teamId: null, name: "Designer" } }));
 }

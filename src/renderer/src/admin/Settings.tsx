@@ -16,7 +16,7 @@ import { SeatApprovalDialog } from "./Dashboard";
 import { useAdmin, useLoad } from "./context";
 import { AUTH_METHOD_SHORT, GUEST_MEMBERSHIP_LABEL, SEATS, SEAT_APPROVAL_LABEL, SEAT_DESCRIPTION, SEAT_LABEL, TEAM_CREATION_LABEL, formatHours } from "./labels";
 import { ChoiceDialog, ConfirmDialog, NameDialog, styles } from "./parts";
-import { IconDialog } from "@/files/orgDialogs";
+import { DeleteOrgDialog, IconDialog } from "@/files/orgDialogs";
 import { TeamIcon } from "@/files/parts";
 import { AuthenticationDialog, DomainsDialog, IdleTimeoutDialog, SamlDialog, ScimDialog } from "./SettingsLogin";
 import { DataRegionDialog, PublicSharingDialog, sharingSummary } from "./SettingsContent";
@@ -25,7 +25,7 @@ import { CreditLimitDialog, creditLimitSummary } from "./SettingsAi";
 import { FileExportingDialog, GuestExpiryDialog, GuestTwoFactorDialog, IdpsDialog, IpAllowlistDialog, KeyManagementDialog, NetworkRangesDialog, PoliciesDialog, ekmSummary, useGovernance } from "./SettingsGovernance";
 
 type Editing =
-  | "orgName" | "orgIcon"
+  | "orgName" | "orgIcon" | "deleteOrg"
   | "authentication" | "saml" | "scim" | "idle" | "domains"
   | "guestMembership" | "teamCreation" | "groupCreation"
   | "publicSharing" | "passwordMode" | "externalContent"
@@ -257,6 +257,16 @@ export function SettingsTab() {
         />
       </Group>
 
+      {/* Ours (docs/multiplayer.md §14.17): Figma deletes an organization through its support */}
+      <Group title="Danger zone">
+        <Row
+          id="deleteOrg" label="Delete organization"
+          description="Delete the organization with its teams, folders, files, libraries and fonts. Admins can restore it for 14 days; after that it's gone for good."
+          disabled={!orgs || !org}
+          control={<Button variant="destructive" disabled={!orgs || !org} onClick={() => setEditing("deleteOrg")}>Delete organization</Button>}
+        />
+      </Group>
+
       {editing === "authentication" && <AuthenticationDialog value={s.authMethod} idp={idp} onSave={(v) => save({ authMethod: v }, "Authentication changed")} onClose={close} />}
       {editing === "saml" && <SamlDialog authMethod={s.authMethod} onClose={close} />}
       {editing === "scim" && <ScimDialog onClose={close} />}
@@ -339,6 +349,17 @@ export function SettingsTab() {
           }}
           onRemove={async () => {
             if (await run(() => orgs.removeIcon(orgId), "Icon removed")) close();
+          }}
+        />
+      )}
+      {editing === "deleteOrg" && orgs && org && (
+        <DeleteOrgDialog
+          name={org.name}
+          onClose={close}
+          onDelete={() => {
+            close();
+            // Home leaves Admin for the deleted org's page (Restore) once the org reads as deleted
+            void run(() => orgs.remove(orgId, org.name), `${org.name} deleted`);
           }}
         />
       )}

@@ -249,7 +249,7 @@ async function deleteForever(ctx: Ctx, p: ProjectRow): Promise<void> {
 }
 
 /** A file deleted for good: its room, comments and rows (members, requests, notifications, group grants). */
-export async function deleteFileForever(ctx: Ctx, key: string): Promise<void> {
+export async function deleteFileForever(ctx: Pick<Ctx, "deps"> & { acc: Pick<Ctx["acc"], "d1"> }, key: string): Promise<void> {
   const { acc, deps } = ctx;
   // A library file deleted with its folder or team too: "Missing library" for its consumers (docs/data.md §16.6).
   await (await import("../libraries/db")).libraryFileStatus(deps, key, "delete");

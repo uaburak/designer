@@ -597,3 +597,41 @@ describe("names and icons (docs/multiplayer.md §14.16)", () => {
     expect(await codeOf(b.org.teams.setIcon(team.id, png("x")))).toBe("forbidden");
   });
 });
+
+describe("Delete organization (docs/multiplayer.md §14.17)", () => {
+  it("an admin deletes it with its name typed: hidden from members, kept for admins to restore; Restore brings it back", async () => {
+    const { srv, a, org, team } = await acme();
+    const bobUser = await srv.addUser("bob@example.com", "Bob");
+    await a.org.teams.invite(team.id, { email: "bob@example.com", role: "editor" });
+    const b = await installation(srv, bobUser.token);
+    expect((await b.org.orgs.list()).map((o) => o.id)).toEqual([org.id]);
+    expect(await codeOf(b.org.orgs.remove(org.id, "Acme"))).toBe("forbidden");
+    expect(await codeOf(a.org.orgs.remove(org.id, "Wrong"))).toBe("invalid");
+    a.events.length = 0;
+    const gone = await a.org.orgs.remove(org.id, "Acme");
+    expect(gone.deletedAt).toBeTypeOf("number");
+    expect(gone.purgeAt! - gone.deletedAt!).toBe(14 * 86_400_000);
+    expect(a.events).toContainEqual({ type: "orgs.changed" });
+    expect((await a.org.orgs.list()).map((o) => [o.id, !!o.deletedAt])).toEqual([[org.id, true]]);
+    // Bob's list, read again (his app hears the server's notice): the org is gone
+    b.notices.send({ what: "orgs" });
+    await b.org.idle();
+    expect(await b.org.orgs.list()).toEqual([]);
+    const back = await a.org.orgs.restore(org.id);
+    expect(back.deletedAt).toBeUndefined();
+    expect((await a.org.orgs.list())[0].deletedAt).toBeUndefined();
+    b.notices.send({ what: "orgs" });
+    await b.org.idle();
+    expect((await b.org.orgs.list()).map((o) => o.id)).toEqual([org.id]);
+  });
+
+  it("trashed drafts list in the trash and are deleted forever from there", async () => {
+    const { a, org } = await acme();
+    const { file } = await a.org.orgs.createDraft(org.id, { name: "Sketch" });
+    await a.org.projects.trashFiles([file.key]);
+    expect(await a.org.orgs.drafts(org.id)).toEqual([]);
+    expect((await a.org.orgs.trashedDrafts(org.id)).map((f) => f.key)).toEqual([file.key]);
+    await a.org.projects.deleteFilesForever([file.key]);
+    expect(await a.org.orgs.trashedDrafts(org.id)).toEqual([]);
+  });
+});

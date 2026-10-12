@@ -88,6 +88,7 @@ const summaryOf = (v: O.OrgInfo): O.OrgSummary => ({
   workspaceId: v.workspaceId,
   ...(v.gate ? { gate: clone(v.gate) } : {}),
   ...(v.guestExpiresAt !== undefined ? { guestExpiresAt: v.guestExpiresAt } : {}),
+  ...(v.deletedAt ? { deletedAt: v.deletedAt, purgeAt: v.purgeAt ?? null } : {}),
 });
 /** A share registered on the server whose content didn't finish uploading (MultiplayerService.shareTo's `upload_incomplete`) */
 const pendingUpload = (e: unknown): boolean => e instanceof StoreError && (e.detail as { pendingUpload?: unknown } | undefined)?.pendingUpload === true;
@@ -731,6 +732,20 @@ export class OrgService {
         await this.save(id);
         this.emit({ type: "orgs.changed" });
       },
+      remove: async (orgId, confirmName) => {
+        const id = String(orgId);
+        const org = pick<O.OrgInfo>(await this.call("DELETE", `/orgs/${seg(id, "org")}`, { confirmName: String(confirmName ?? "") }), "org");
+        // Its lists go: only the org's row stays (its admins still list it, to restore it)
+        this.caches.delete(id);
+        return this.orgChanged(org);
+      },
+      restore: async (orgId) => {
+        const id = String(orgId);
+        const org = pick<O.OrgInfo>(await this.call("POST", `/orgs/${seg(id, "org")}/restore`), "org");
+        this.caches.delete(id);
+        return this.orgChanged(org);
+      },
+      trashedDrafts: async (orgId) => this.withCopies(pick<O.OrgFile[]>(await this.call("GET", `/orgs/${seg(String(orgId), "org")}/drafts${query({ trashed: 1 })}`), "files")),
       update: async (orgId, patch) => {
         const id = String(orgId);
         return this.orgChanged(pick<O.OrgInfo>(await this.call("PATCH", `/orgs/${seg(id, "org")}`, { name: cleanName(patch?.name, null, "organization") }), "org"));
@@ -1128,6 +1143,11 @@ export class OrgService {
         await filesChanged(list);
         // A restored file's list wasn't cached while it was trashed: its team's lists go too.
         for (const c of this.caches.values()) this.drop(c.orgId, (x) => (x.files = {}));
+      },
+      deleteFilesForever: async (keys) => {
+        const list = Array.isArray(keys) ? keys.map(String) : [];
+        for (const key of list) await this.call("DELETE", `/files/${seg(key, "file")}`);
+        await filesChanged(list);
       },
       trashed: async (teamId) => {
         const r = await this.call<{ projects: O.ProjectSummary[]; files: O.OrgFile[] }>("GET", `/teams/${seg(teamId, "team")}/trash`);

@@ -36,7 +36,7 @@ export type OrgPageData =
   | { kind: "teams"; teams: O.TeamSummary[]; groups: O.UserGroup[] }
   | { kind: "team"; team: O.TeamInfo; folders: O.ProjectSummary[]; members: O.TeamMember[]; requests: O.JoinRequest[] }
   | { kind: "project"; project: O.ProjectInfo; team: O.TeamInfo | null; folders: O.ProjectSummary[]; files: O.OrgFile[]; members: O.ProjectMember[] }
-  | { kind: "trash"; teams: { team: O.TeamSummary; projects: O.ProjectSummary[]; files: O.OrgFile[] }[] }
+  | { kind: "trash"; drafts: O.OrgFile[]; teams: { team: O.TeamSummary; projects: O.ProjectSummary[]; files: O.OrgFile[] }[] }
   | { kind: "search"; text: string; result: O.OrgSearchResult };
 
 export interface OrgPageState {
@@ -86,8 +86,9 @@ export async function loadOrgPage(org: OrgBackend, orgId: string, loc: Location,
       return { kind: "project", project, team, folders, files, members };
     }
     case "org-trash": {
-      const out = await Promise.all(teams.map(async (team) => ({ team, ...(await quiet(org.projects.trashed(team.id), { projects: [], files: [] })) })));
-      return { kind: "trash", teams: out.filter((t) => t.projects.length || t.files.length) };
+      // The person's drafts in the trash first, then each team's trash (Figma's Trash lists what you deleted)
+      const [drafts, out] = await Promise.all([quiet(org.orgs.trashedDrafts(orgId), []), Promise.all(teams.map(async (team) => ({ team, ...(await quiet(org.projects.trashed(team.id), { projects: [], files: [] })) })))]);
+      return { kind: "trash", drafts, teams: out.filter((t) => t.projects.length || t.files.length) };
     }
     case "search":
       return loc.text.trim() ? { kind: "search", text: loc.text, result: await org.orgs.search(orgId, loc.text.trim()) } : { kind: "none" };

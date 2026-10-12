@@ -1225,6 +1225,28 @@ Figma: a team's ⌄ menu (or right-click its name in the sidebar) → **Rename**
 - **Store**: `orgs.update / setIcon / removeIcon / iconData(url)` (→ a data: URL, fetched with the session and kept for the session — the page loads no network pictures), `teams.setIcon / removeIcon`, `workspace.setTeamName(name)` (the local team, 1–100 characters, `workspace.updated`).
 - **Views**: `TeamIcon` (files/parts.tsx; the name's initial on green when there is no picture) in the space row, the switcher (`MenuItem.avatar`), the org sidebar's teams, the team page and All teams, Admin's sidebar head and the bell's org rows; the team's menu: View settings (About), Rename, Change icon, Remove icon (ours); Admin › Settings › **Organization** (Organization name, Organization icon — our group and row names); the local team: right-click the space row → Rename, and Settings › Account › Your spaces › Rename team (ours).
 
+### 14.17 Deleting and leaving an organization (Designer 1.0.3, 2026-10-12)
+
+Figma has no self-serve "delete organization": an Organization or Enterprise plan is cancelled through billing or Figma's support. A team is deleted from its ⌄ menu by typing its name, and the email lets it be restored for 28 days (help.figma.com 360039482174). **Ours**: org admins delete the organization from Admin › Settings › **Danger zone** › **Delete organization**, typing its name. Anyone but the last admin leaves from the space row's right-click › **Leave organization…** (`DELETE /orgs/:org/me`, unchanged).
+
+- **Soft delete** (`server/src/org/deletion.ts`):
+  - `DELETE /orgs/:org {confirmName}` → `{org}` with `deletedAt` and `purgeAt` (now + 14 days, ours). The org disappears from its members' and guests' `GET /orgs`, and every org route answers 404 (`Access.requireMember`, `container`, `requireTeam`).
+  - Its admins still list it, with `deletedAt` and `purgeAt`. `GET /orgs/:org` and `POST /orgs/:org/restore` stay open to them.
+  - Its files stay readable, read-only, to whoever could open them (`deletedOrgReadOnly`: viewer, no comments, sharing or managing). Open sockets are reauthorized.
+  - Logged `org_delete`. The other people of the org get the bell row `org_deleted` (no `org_id`, so it outlives the org) and an `orgs` notice.
+  - `POST /orgs/:org/restore` puts it back as it was (`org_restore`).
+- **Hard delete**: the daily cron's `purgeDeletedOrgs` (5 orgs a run) takes each org past its `purge_at`:
+  - every file of the org, drafts included: branches, room, comments and grants, its library (the object emptied, "Missing library" for its consumers) and its `f:` / `l:` stored bytes;
+  - the org's `FontObject` (fonts and icons) and the `o:<org>:` stored bytes, each person's and the server's quota totals released (§17);
+  - its `discovery_events` and `developer_logs`;
+  - the `orgs` row, which cascades to teams, folders, people, groups, workspaces, libraries' rows, plugins, tokens, settings and the activity log.
+
+  The org then no longer counts toward its creator's `orgs_created`.
+- **Migration** `0021_org_delete.sql`: `orgs.deleted_at`, `deleted_by`, `purge_at` (indexed).
+- **Types**: `OrgSummary.deletedAt?` and `purgeAt?`; the activity actions `org_delete` and `org_restore`; `NotificationKind` `org_deleted`.
+- **Store**: `orgs.remove(orgId, confirmName)`, `orgs.restore`, `orgs.trashedDrafts` (`GET /orgs/:org/drafts?trashed=1`, the caller's drafts in the trash) and `projects.deleteFilesForever` (`DELETE /files/:key` per file).
+- **Views**: Admin's Danger zone row and `DeleteOrgDialog` (files/orgDialogs.tsx). A deleted org shows its admins "‹Org› was deleted" with **Restore organization** instead of its pages; Admin is closed for it.
+
 ## 15. Identity and security (contract, Phase 7 round 4; written 2026-10-11)
 
 **Status: contract; server built in round 4a (§15.17) and 4b (§15.16), the store in 4c (§15.18).** Figma's Enterprise identity and security, on the server of §1–§14: SAML single sign-on per organization, the org's login method, JIT and SCIM provisioning, domains and domain capture, guest, sharing and external-content policies, the idle session timeout, the room switches (cursor chat, audio, open sessions) and data storage localization (EU). The research is `docs/research/figma/R18-enterprise.md` A-5, A-6; the SAML library choice is `server/spikes/saml/README.md` (round 1e). The plan: `docs/roadmap.md` Phase 7 "Round 4". The desktop side (sign-in, the idle prompt, MSI, deployment keys) is `docs/desktop.md` §12.5 and §18.

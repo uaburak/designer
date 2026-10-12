@@ -68,7 +68,7 @@ const toFace = (r: FaceRow): SharedFontFace => ({
 const SELECT = `SELECT sf.*, u.name AS uploader_name FROM shared_fonts sf LEFT JOIN users u ON u.id = sf.uploaded_by`;
 
 /** Faces `userId` may use: their orgs' org fonts (members and admins) and their teams' fonts */
-const USABLE = `((sf.team_id IS NULL AND sf.org_id IN (SELECT org_id FROM org_members WHERE user_id = ?1 AND role IN ('admin', 'member')))
+const USABLE = `((sf.team_id IS NULL AND sf.org_id IN (SELECT m.org_id FROM org_members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ?1 AND m.role IN ('admin', 'member') AND o.deleted_at IS NULL))
   OR sf.team_id IN (SELECT t.id FROM teams t WHERE t.deleted_at IS NULL AND (t.owner_id = ?1
     OR EXISTS (SELECT 1 FROM team_members m WHERE m.team_id = t.id AND m.user_id = ?1)
     OR EXISTS (SELECT 1 FROM group_grants g JOIN user_group_members gm ON gm.group_id = g.group_id WHERE g.resource_type = 'team' AND g.resource_id = t.id AND gm.user_id = ?1))))`;

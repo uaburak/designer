@@ -9,6 +9,9 @@
  *   GET    /orgs/:org/search?text=            OrgSearchResult
  *   POST   /orgs/:org/seat-requests           {seat, note?} → {request}  "Ask to upgrade"
  *   DELETE /orgs/:org/me                      leave (the last admin can't)
+ *   DELETE /orgs/:org {confirmName}           {org}  "Delete organization" (admins; deletion.ts, §14.17)
+ *   POST   /orgs/:org/restore                 {org}  within the grace period (admins)
+ *   GET    /orgs/:org/drafts?trashed=1        {files} the caller's drafts in the trash
  *   …/groups → groups.ts, …/teams → teams.ts, …/admin → admin.ts
  *
  * And what the other routes share: adding people (with workspaces' default teams), inviting an email into the org's
@@ -58,9 +61,11 @@ export async function orgsRoute(ctx: Ctx): Promise<Response> {
   if (parts[2] === "admin") return (await import("./admin")).adminRoute(ctx, orgId);
   // Internal policies' prompts and agreement (docs/governance.md §4): open while the caller is gated
   if (parts[2] === "policies") return (await import("../governance/policies")).memberPoliciesRoute(ctx, orgId);
+  // Delete organization and Restore (§14.17, deletion.ts): org admins
+  if ((parts.length === 2 && m === "DELETE") || (parts.length === 3 && parts[2] === "restore")) return (await import("./deletion")).orgDeletionRoute(ctx, orgId, orgInfo);
   if (parts.length === 2 && m === "GET") {
-    // Not gated: OrgInfo carries the gate (docs/governance.md §2.5), so Home can prompt
-    await acc.requireMember(orgId, { guests: true, gate: false });
+    // Not gated: OrgInfo carries the gate (docs/governance.md §2.5), so Home can prompt. A deleted org: its admins only.
+    await acc.requireMember(orgId, { guests: true, gate: false, deleted: true });
     return json({ org: await orgInfo(acc, orgId) });
   }
   switch (parts[2]) {
@@ -73,6 +78,8 @@ export async function orgsRoute(ctx: Ctx): Promise<Response> {
       if (parts.length !== 3) break;
       if (m === "GET") {
         await acc.requireMember(orgId, { guests: true });
+        // ?trashed=1: the caller's drafts in the trash (Home's Trash, where they're restored or deleted forever)
+        if (ctx.url.searchParams.get("trashed") === "1") return json({ files: await accessibleFiles(acc, `f.org_id = ?1 AND f.project_id IS NULL AND f.owner_id = ?2 AND f.trashed_at IS NOT NULL`, [orgId, user.id], { trashed: true }) });
         return json({ files: await accessibleFiles(acc, `f.org_id = ?1 AND f.project_id IS NULL AND f.owner_id = ?2 AND f.trashed_at IS NULL`, [orgId, user.id]) });
       }
       if (m === "POST") {
@@ -113,15 +120,20 @@ export async function orgsRoute(ctx: Ctx): Promise<Response> {
 export async function orgSummaries(deps: Deps, user: User, req: Request | null): Promise<OrgSummary[]> {
   const { results } = await deps.db.d1
     .prepare(
-      `SELECT o.id, o.name, o.settings, o.icon_hash, m.role, m.seat, m.workspace_id, m.expires_at, ${gateCols("?1")} FROM org_members m JOIN orgs o ON o.id = m.org_id
-       WHERE m.user_id = ?1 AND (m.expires_at IS NULL OR o.governance_plus = 0 OR m.expires_at > ?2) ORDER BY o.name`,
+      `SELECT o.id, o.name, o.settings, o.icon_hash, o.deleted_at, o.purge_at, m.role, m.seat, m.workspace_id, m.expires_at, ${gateCols("?1")} FROM org_members m JOIN orgs o ON o.id = m.org_id
+       WHERE m.user_id = ?1 AND (m.expires_at IS NULL OR o.governance_plus = 0 OR m.expires_at > ?2) AND (o.deleted_at IS NULL OR m.role = 'admin') ORDER BY o.name`,
     )
     .bind(user.id, deps.now())
-    .all<GateRow & { id: string; name: string; settings: string; icon_hash: string | null; role: OrgRole; seat: Seat; workspace_id: string | null; expires_at: number | null }>();
+    .all<GateRow & { id: string; name: string; settings: string; icon_hash: string | null; deleted_at: number | null; purge_at: number | null; role: OrgRole; seat: Seat; workspace_id: string | null; expires_at: number | null }>();
   const out: OrgSummary[] = [];
   for (const r of results) {
-    const gate = r.g_plus ? await gateFor(deps, { orgId: r.id, settings: r.settings, role: r.role, user, req, row: r }) : null;
-    out.push({ id: r.id, name: r.name, iconUrl: iconUrl(r.id, r.icon_hash), role: r.role, seat: r.seat, workspaceId: r.workspace_id, ...(gate ? { gate } : {}), ...(r.g_plus && r.role === "guest" ? { guestExpiresAt: r.expires_at ?? null } : {}) });
+    const gate = r.g_plus && !r.deleted_at ? await gateFor(deps, { orgId: r.id, settings: r.settings, role: r.role, user, req, row: r }) : null;
+    out.push({
+      id: r.id, name: r.name, iconUrl: iconUrl(r.id, r.icon_hash), role: r.role, seat: r.seat, workspaceId: r.workspace_id,
+      ...(gate ? { gate } : {}), ...(r.g_plus && r.role === "guest" ? { guestExpiresAt: r.expires_at ?? null } : {}),
+      // A deleted org (§14.17) lists for its admins only, to restore it
+      ...(r.deleted_at ? { deletedAt: r.deleted_at, purgeAt: r.purge_at } : {}),
+    });
   }
   return out;
 }
@@ -155,6 +167,7 @@ export async function orgInfo(acc: Access, orgId: string): Promise<OrgInfo> {
     governancePlus: !!org.governance_plus,
     ...(gate ? { gate } : {}),
     ...(org.governance_plus && me.role === "guest" ? { guestExpiresAt: me.expires_at ?? null } : {}),
+    ...(org.deleted_at ? { deletedAt: org.deleted_at, purgeAt: org.purge_at ?? null } : {}),
   };
   return info;
 }

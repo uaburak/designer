@@ -101,6 +101,10 @@ export interface OrgRow {
   governance_plus?: number;
   /** 0020: the organization icon's SHA-1 (served at /icons/<orgId>/<sha1>); null: the initial */
   icon_hash?: string | null;
+  /** 0021 (§14.17): "Delete organization" — soft-deleted then (ms), deleted for good at `purge_at`; null: live */
+  deleted_at?: number | null;
+  deleted_by?: string | null;
+  purge_at?: number | null;
   created_by: string;
   created_at: number;
   updated_at: number;
@@ -422,7 +426,7 @@ export class Access {
       const org = f.org_id;
       for (const q of [Q.branch(f.key), Q.prototypeMember(f.key, u), Q.fileMembers(f.key, u), org && Q.groupGrants("file", f.key, u.id), homeOrgQ(u), org && orgSettingsQ(org), org && f.team_id && wsSharingQ(f.team_id)]) add(q);
       for (const q of [f.project_id && Q.chain(f.project_id), f.project_id && Q.folderPeople(f.project_id, u), f.project_id && Q.folderGroups(f.project_id, u.id), f.team_id && Q.team(f.team_id)]) add(q);
-      for (const q of [f.team_id && Q.teamPeople(f.team_id, u), f.team_id && Q.groupGrants("team", f.team_id, u.id), org && Q.membership(org, u, this.now), org && Q.workspaceAdminOf(org, u.id), org && Q.groups(org, u.id), org && !f.project_id && Q.ownerInOrg(org, f.owner_id)]) add(q);
+      for (const q of [f.team_id && Q.teamPeople(f.team_id, u), f.team_id && Q.groupGrants("team", f.team_id, u.id), org && Q.membership(org, u, this.now), org && Q.workspaceAdminOf(org, u.id), org && Q.groups(org, u.id), org && !f.project_id && Q.ownerInOrg(org, f.owner_id), org && Q.org(org)]) add(q);
     }
     await prefetch(this.d1, qs);
   }
@@ -517,9 +521,9 @@ export class Access {
     if (b) {
       const main = await this.fileRow(b.main_key);
       if (!main) return { ok: false, reason: "none", role: null };
-      return branchAccess(resolveAccess(await this.rowsFor(main, opts)), b, this.user.id);
+      return deletedOrgReadOnly(branchAccess(resolveAccess(await this.rowsFor(main, opts)), b, this.user.id), main.org_id ? await this.org(main.org_id) : null);
     }
-    return resolveAccess(await this.rowsFor(f, opts));
+    return deletedOrgReadOnly(resolveAccess(await this.rowsFor(f, opts)), f.org_id ? await this.org(f.org_id) : null);
   }
 
   /**
@@ -537,6 +541,8 @@ export class Access {
   async container(teamId: string, projectId: string | null): Promise<AccessResult> {
     const team = await this.team(teamId);
     if (!team) return { ok: false, reason: "none", role: null };
+    // A deleted organization's teams and folders are gone for everyone (§14.17)
+    if ((await this.org(team.org_id))?.deleted_at) return { ok: false, reason: "none", role: null };
     const m = await this.membership(team.org_id);
     const expired = await this.expiredGuest(team.org_id);
     const chainTrashed = projectId ? (await this.chain(projectId)).some((p) => p.trashed_at !== null) : false;
@@ -560,9 +566,12 @@ export class Access {
 
   /** The caller's membership, or 404 (an org they aren't in doesn't exist for them). */
   /** The caller's membership, or 404; gated (§2.5) unless `gate: false` (the gate's own routes). */
-  async requireMember(orgId: string, opts: { guests?: boolean; gate?: boolean } = {}): Promise<MemberRow> {
+  async requireMember(orgId: string, opts: { guests?: boolean; gate?: boolean; deleted?: boolean } = {}): Promise<MemberRow> {
     const m = await this.membership(orgId);
-    if (!m || !(await this.org(orgId))) throw new HttpError(404, "no such organization");
+    const org = await this.org(orgId);
+    if (!m || !org) throw new HttpError(404, "no such organization");
+    // A deleted organization (§14.17) is gone for its people; only its admins' restore reads it (`deleted: true`)
+    if (org.deleted_at && !(opts.deleted && m.role === "admin")) throw new HttpError(404, "no such organization");
     if (opts.gate !== false) await this.checkGate(orgId);
     if (!opts.guests && m.role === "guest") throw new HttpError(403, "guests can't do that");
     return m;
@@ -600,12 +609,21 @@ export class Access {
   /** A team the caller can see, or 404 */
   async requireTeam(teamId: string) {
     const team = await this.team(teamId);
-    if (!team) throw new HttpError(404, "no such team");
+    if (!team || (await this.org(team.org_id))?.deleted_at) throw new HttpError(404, "no such team");
     const rights = await this.teamRights(team);
     if (!rights.canSee) throw new HttpError(404, "no such team");
     if (rights.membership) await this.checkGate(team.org_id);
     return { team, rights };
   }
+}
+
+/**
+ * A file of a deleted organization (§14.17) during its grace period: whoever could open it still can, read-only — no
+ * edits, comments, sharing or managing — until an admin restores the org or the sweep deletes it.
+ */
+export function deletedOrgReadOnly(a: AccessResult, org: Pick<OrgRow, "deleted_at"> | null): AccessResult {
+  if (!a.ok || !org?.deleted_at) return a;
+  return { ...a, role: "viewer", roomRole: "viewer", canEdit: false, canComment: false, canShare: false, canManage: false };
 }
 
 /** A folder and its parents, nearest first. */

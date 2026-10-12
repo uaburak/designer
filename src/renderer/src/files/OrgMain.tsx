@@ -4,6 +4,9 @@
  * to join, leave, transfer, delete / restore), a folder (Files / Members: Inherited or Limited, invite, create file /
  * folder, nested folders), the teams' trash, Resources, and search; libraries and fonts (orgLibraries.tsx: All teams ›
  * Libraries, a team's View settings, a library file's Library analytics) — over the store's `orgs` / `teams` / `projects`.
+ * Files come in as in the local space (help.figma.com 360041003114): Design and Import in Drafts and folders, Import into
+ * a chosen folder from a team page, `.fig` files dropped on the page or on a folder; cards drag onto folders to move.
+ * A deleted organization (§14.17) shows its admins Restore instead.
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { Avatar, Banner, Breadcrumb, Button, ContextMenu, EmptyState, FileCard, FolderCard, Icon, IconButton, MenuButton, Select, Spinner, Tabs, TextInput, type MenuEntry, type ToastOptions } from "@/ds";
@@ -63,7 +66,27 @@ export interface OrgMainProps {
   blocked?: ReactNode;
   /** Above the content: the guest's access ending soon (§2.13) */
   banner?: ReactNode;
+  /**
+   * Import (help.figma.com 360041003114: "Create new" › Import, or files dragged in): `.fig` files from the computer into
+   * the org's Drafts or a folder, through FileBrowser's import path. Absent: no Import.
+   */
+  onImport?: (at: OrgImportPlace) => void;
+  onImportFiles?: (files: File[], at: OrgImportPlace) => void;
+  /** The server's origin: a file's link is `<server>/f/<key>` (Copy link); absent: no Copy link */
+  serverUrl?: string | null;
+  /** Rename an org file through its local copy (the store renames it on the server too); absent: no Rename */
+  renameFile?: (fileKey: FileKey, name: string) => Promise<unknown>;
 }
+
+/** Where files can be added in an org: its Drafts or a folder (a team holds folders only) */
+export type OrgImportPlace = { kind: "org-drafts" } | { kind: "project"; projectId: string };
+
+/** An org card dragged in Home: files (by room key) or one folder */
+const ORG_DRAG = "application/x-designer-org-items";
+type Dragged = { files?: string[]; folder?: string };
+/** Files from the computer (not a card of ours) */
+const draggingFiles = (e: React.DragEvent) => e.dataTransfer.types.includes("Files") && !e.dataTransfer.types.includes(ORG_DRAG);
+const purgeDate = (at: number) => new Date(at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
 type Dialog =
   | { kind: "ask-upgrade" }
@@ -82,14 +105,17 @@ type Dialog =
   | { kind: "rename-team"; team: O.TeamInfo }
   | { kind: "team-icon"; team: O.TeamInfo }
   | { kind: "team-libraries"; team: O.TeamInfo; canAdmin: boolean }
-  | { kind: "team-fonts"; team: O.TeamInfo; canAdmin: boolean };
+  | { kind: "team-fonts"; team: O.TeamInfo; canAdmin: boolean }
+  | { kind: "import-to"; team: O.TeamInfo; rows: Destination[]; files?: File[] }
+  | { kind: "rename-file"; file: O.OrgFile }
+  | { kind: "delete-files"; files: O.OrgFile[] };
 
 type Menu = { at: { x: number; y: number }; entries: MenuEntry[]; run: (id: string) => void };
 
 const pageKey = (loc: Location) => JSON.stringify(loc);
 
 export function OrgMain(props: OrgMainProps) {
-  const { org, orgId, info, location, page, reload, go, nav, openFile, onBranches, toast, now, noCreate = false, blocked, banner } = props;
+  const { org, orgId, info, location, page, reload, go, nav, openFile, onBranches, toast, now, noCreate = false, blocked, banner, onImport, onImportFiles, serverUrl, renameFile } = props;
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -155,6 +181,104 @@ export function OrgMain(props: OrgMainProps) {
     if (made) openFile(made.fileKey, made.file.name);
   };
 
+  // --- Import and drops (help.figma.com 360041003114: a paid seat and "can edit" on the folder; anyone in their Drafts) ---
+
+  const mayImport = !!onImport && !noCreate;
+  /** `.fig` files into Drafts or a folder: picked (no `files`) or dropped. A View seat is asked to upgrade first. */
+  const importTo = (at: OrgImportPlace, files?: File[]) => {
+    if (!seatCanCreateDesign(seat)) {
+      setDialog({ kind: "ask-upgrade" });
+      return;
+    }
+    if (files) onImportFiles?.(files, at);
+    else onImport?.(at);
+  };
+  /** From a team page: files live in its folders, so Import asks which one (ours; Figma's article says only folders and Drafts) */
+  const importIntoTeam = async (t: O.TeamInfo, files?: File[]) => {
+    if (!seatCanCreateDesign(seat)) {
+      setDialog({ kind: "ask-upgrade" });
+      return;
+    }
+    const rows = (await orgDestinations(org, orgId, { forFolder: false, isAdmin }).catch(() => [] as Destination[])).filter((r) => r.kind === "folder" && r.teamId === t.id).map((r) => ({ ...r, depth: r.depth - 1 }));
+    if (!rows.some((r) => !r.disabled)) {
+      toast({ message: `Create a folder in ${t.name} first. Files in a team live in its folders.` });
+      return;
+    }
+    setDialog({ kind: "import-to", team: t, rows, files });
+  };
+  const [dropOn, setDropOn] = useState<string | null>(null);
+  const dragItem = (payload: Dragged) => ({
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      e.dataTransfer.setData(ORG_DRAG, JSON.stringify(payload));
+      e.dataTransfer.effectAllowed = "move";
+    },
+  });
+  /** A folder card takes `.fig` files (imported into it) and org cards (moved into it) */
+  const folderDrop = (p: O.ProjectSummary) => {
+    if (p.trashedAt !== null || !canEditFolder(p, info)) return {};
+    return {
+      onDragOver: (e: React.DragEvent) => {
+        const files = draggingFiles(e);
+        if (!(files ? mayImport : e.dataTransfer.types.includes(ORG_DRAG))) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = files ? "copy" : "move";
+        if (dropOn !== p.id) setDropOn(p.id);
+      },
+      onDragLeave: () => setDropOn((cur) => (cur === p.id ? null : cur)),
+      onDrop: (e: React.DragEvent) => {
+        setDropOn(null);
+        if (draggingFiles(e)) {
+          if (!mayImport) return;
+          e.preventDefault();
+          e.stopPropagation();
+          importTo({ kind: "project", projectId: p.id }, [...e.dataTransfer.files]);
+          return;
+        }
+        const raw = e.dataTransfer.getData(ORG_DRAG);
+        if (!raw) return;
+        e.preventDefault();
+        e.stopPropagation();
+        let it: Dragged;
+        try {
+          it = JSON.parse(raw) as Dragged;
+        } catch {
+          return;
+        }
+        if (it.files?.length) void write(() => org.projects.moveFiles(it.files!, { projectId: p.id }), `Moved to ${p.name}`);
+        else if (it.folder && it.folder !== p.id) void write(() => org.projects.move(it.folder!, { teamId: p.teamId, parentId: p.id }), `Moved to ${p.name}`);
+      },
+    };
+  };
+  /** The page's own drop: `.fig` files from the computer (null: none here) */
+  const pageDrop = (onFiles: ((files: File[]) => void) | null) =>
+    onFiles && mayImport
+      ? {
+          onDragOver: (e: React.DragEvent) => {
+            if (!draggingFiles(e)) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+          },
+          onDrop: (e: React.DragEvent) => {
+            if (!draggingFiles(e)) return;
+            e.preventDefault();
+            onFiles([...e.dataTransfer.files]);
+          },
+        }
+      : {};
+
+  const copyLink = (f: O.OrgFile) =>
+    void (async () => {
+      try {
+        if (!navigator.clipboard) throw new Error("no clipboard");
+        await navigator.clipboard.writeText(`${serverUrl!.replace(/\/+$/, "")}/f/${f.key}`);
+        toast({ message: "Link copied to clipboard" });
+      } catch {
+        toast({ kind: "error", message: "Couldn’t copy the link" });
+      }
+    })();
+
   const moveFiles = async (files: O.OrgFile[]) => {
     const rows = await orgDestinations(org, orgId, { forFolder: false, isAdmin }).catch(() => [] as Destination[]);
     const here = files.length === 1 ? (files[0].projectId ?? "drafts") : null;
@@ -173,13 +297,17 @@ export function OrgMain(props: OrgMainProps) {
     const may = f.access.canManage || f.access.canEdit;
     setMenu({
       at: { x: e.clientX, y: e.clientY },
+      // Figma's file menu (docs/home.md "Menus"): Open, Open in new tab, Copy link · Rename, Move to… · Move to trash;
+      // in the trash Restore and Delete forever (its owner and admins)
       entries: inTrash
-        ? [{ id: "restore", label: "Restore" }]
+        ? [{ id: "restore", label: "Restore", disabled: !may }, "-", { id: "delete-forever", label: "Delete forever", disabled: !f.access.canManage }]
         : [
             { id: "open", label: "Open" },
             { id: "open-new-tab", label: "Open in new tab" },
+            ...(serverUrl ? ["-" as const, { id: "copy-link", label: "Copy link" }] : []),
             ...(hasAnalytics && libraryKeys.has(f.key) ? ["-" as const, { id: "library-analytics", label: "Library analytics" }] : []),
             "-",
+            ...(renameFile ? [{ id: "rename", label: "Rename", disabled: !may }] : []),
             { id: "move", label: "Move to…", disabled: !may },
             "-",
             { id: "trash", label: "Move to trash", disabled: !may },
@@ -187,10 +315,13 @@ export function OrgMain(props: OrgMainProps) {
       run: (id) => {
         if (id === "open") void openOrgFile(f);
         if (id === "open-new-tab") void openOrgFile(f, true);
+        if (id === "copy-link") copyLink(f);
         if (id === "library-analytics") setDialog({ kind: "library-analytics", key: f.key, name: f.name });
+        if (id === "rename") setDialog({ kind: "rename-file", file: f });
         if (id === "move") void moveFiles([f]);
         if (id === "trash") void write(() => org.projects.trashFiles([f.key]), "File moved to trash");
         if (id === "restore") void write(() => org.projects.restoreFiles([f.key]), "File restored");
+        if (id === "delete-forever") setDialog({ kind: "delete-files", files: [f] });
       },
     });
   };
@@ -232,25 +363,41 @@ export function OrgMain(props: OrgMainProps) {
           title={p.name}
           subtitle={folderUpdated(p, now)}
           selected={selected === `folder:${p.id}`}
+          dropTarget={dropOn === p.id}
           onSelect={() => setSelected(`folder:${p.id}`)}
           onOpen={() => (p.trashedAt === null ? go({ kind: "project", projectId: p.id }) : toast({ message: "Restore this folder to open it" }))}
           onContextMenu={(e) => folderMenu(e, p)}
+          {...(p.trashedAt === null && canEditFolder(p, info) ? dragItem({ folder: p.id }) : {})}
+          {...folderDrop(p)}
         />
       ))}
       {files.map((f) => (
-        <FileCard
-          key={f.key}
-          id={`file:${f.key}`}
-          title={f.name}
-          subtitle={orgFileSubtitle(f, now)}
-          branches={f.branchCount && f.trashedAt === null && onBranches ? { count: f.branchCount, onMenu: (e) => onBranches(e, f) } : undefined}
-          selected={selected === `file:${f.key}`}
-          onSelect={() => setSelected(`file:${f.key}`)}
-          onOpen={() => (f.trashedAt === null ? void openOrgFile(f) : toast({ message: "Restore this file to open it" }))}
-          onContextMenu={(e) => fileMenu(e, f)}
-        />
+        <div key={f.key} className={styles.dragWrap} {...(f.trashedAt === null && (f.access.canEdit || f.access.canManage) ? dragItem({ files: [f.key] }) : {})}>
+          <FileCard
+            id={`file:${f.key}`}
+            title={f.name}
+            subtitle={orgFileSubtitle(f, now)}
+            branches={f.branchCount && f.trashedAt === null && onBranches ? { count: f.branchCount, onMenu: (e) => onBranches(e, f) } : undefined}
+            selected={selected === `file:${f.key}`}
+            onSelect={() => setSelected(`file:${f.key}`)}
+            onOpen={() => (f.trashedAt === null ? void openOrgFile(f) : toast({ message: "Restore this file to open it" }))}
+            onContextMenu={(e) => fileMenu(e, f)}
+          />
+        </div>
       ))}
     </div>
+  );
+
+  /** The page's blank area: its New / Import entries (as the local space's blankMenu) */
+  const blankMenu = (e: React.MouseEvent, entries: MenuEntry[], run: (id: string) => void) => {
+    if ((e.target as HTMLElement).closest('[data-ds="FileCard"], [data-ds="FolderCard"], button, input, a')) return;
+    e.preventDefault();
+    if (entries.length) setMenu({ at: { x: e.clientX, y: e.clientY }, entries, run });
+  };
+  const importButton = (onClick: () => void) => (
+    <Button variant="tinted" size="large" icon="24.plus.small" tooltip="Import .fig files" onClick={onClick}>
+      Import
+    </Button>
   );
 
   const seatBanner = seat === "view" && info ? (
@@ -264,24 +411,58 @@ export function OrgMain(props: OrgMainProps) {
   let title: { items: { id: string; label: string }[]; onNavigate?: (id: string) => void } = { items: [{ id: location.kind, label: "" }] };
   let actions: ReactNode = null;
   let body: ReactNode = null;
+  /** What the page's blank area does: a right-click menu and dropped `.fig` files */
+  let blank: { entries: MenuEntry[]; run: (id: string) => void; onFiles: ((files: File[]) => void) | null } = { entries: [], run: () => {}, onFiles: null };
+  /** Cards on the page, for the keyboard (⌫ moves the selected one to the trash) */
+  let shown: { folders: O.ProjectSummary[]; files: O.OrgFile[] } = { folders: [], files: [] };
 
   const tabs = (main: string) => <Tabs className={styles.orgTabs} label="Sections" value={tab} tabs={[{ value: "main", label: main }, { value: "members", label: "Members" }]} onChange={(v) => setTab(v as "main" | "members")} />;
 
-  switch (data.kind) {
-    case "drafts":
+  const deleted = info?.deletedAt ? info : null;
+  if (deleted) {
+    // A deleted organization (§14.17): only its admins still see it, to restore it before it's deleted for good
+    title = { items: [{ id: "deleted", label: orgName }] };
+    body = (
+      <EmptyState
+        size="page"
+        icon="24.trash.outline"
+        title={`${orgName} was deleted`}
+        body={`Its teams, folders and files will be deleted for good on ${purgeDate(deleted.purgeAt ?? deleted.deletedAt!)}. Until then, admins can restore it.`}
+        action={isAdmin ? { label: "Restore organization", onClick: () => void write(() => org.orgs.restore(orgId), `${orgName} restored`) } : undefined}
+      />
+    );
+  } else switch (data.kind) {
+    case "drafts": {
       title = { items: [{ id: "drafts", label: "Drafts" }] };
+      const drafts: OrgImportPlace = { kind: "org-drafts" };
       actions = noCreate ? null : (
-        <Button variant="tinted" size="large" icon="24.design" tooltip="New design file" onClick={() => void newDesignFile(null)}>
-          Design
-        </Button>
+        <>
+          <Button variant="tinted" size="large" icon="24.design" tooltip="New design file" onClick={() => void newDesignFile(null)}>
+            Design
+          </Button>
+          {mayImport && importButton(() => importTo(drafts))}
+        </>
       );
+      shown = { folders: [], files: data.files };
+      blank = noCreate
+        ? blank
+        : {
+            entries: [{ id: "new-file", label: "New design file" }, ...(mayImport ? ["-" as const, { id: "import", label: "Import…" }] : [])],
+            run: (id) => (id === "new-file" ? void newDesignFile(null) : id === "import" && importTo(drafts)),
+            onFiles: (files) => importTo(drafts, files),
+          };
       body = (
         <>
           {seatBanner}
-          {data.files.length ? grid([], data.files, "Files") : <EmptyState size="page" icon="24.file" title="No files in drafts" body={`Design files you create in ${orgName} show up here until you move them into a folder.`} action={noCreate ? undefined : { label: "New design file", onClick: () => void newDesignFile(null) }} />}
+          {data.files.length ? (
+            grid([], data.files, "Files")
+          ) : (
+            <EmptyState size="page" icon="24.file" title="No files in drafts" body={`Design files you create or import in ${orgName} show up here until you move them into a folder.`} action={noCreate ? undefined : { label: "New design file", onClick: () => void newDesignFile(null) }} />
+          )}
         </>
       );
       break;
+    }
     case "teams": {
       title = { items: [{ id: "teams", label: "All teams" }] };
       const canCreate = !noCreate && (isAdmin || info?.settings.teamCreation !== "admins");
@@ -353,12 +534,23 @@ export function OrgMain(props: OrgMainProps) {
       const canEdit = canEditTeam(t, info);
       const canAdmin = canAdminTeam(t, info);
       title = { items: [{ id: "teams", label: "All teams" }, { id: t.id, label: t.name }], onNavigate: (id) => id === "teams" && go({ kind: "teams" }) };
+      const creates = canEdit && !t.deletedAt && !noCreate;
       actions =
-        tab === "main" && canEdit && !t.deletedAt && !noCreate ? (
-          <Button variant="tinted" size="large" icon="24.plus.small" onClick={() => setDialog({ kind: "new-folder", teamId: t.id, parentId: null })}>
-            New folder
-          </Button>
+        tab === "main" && creates ? (
+          <>
+            <Button variant="tinted" size="large" icon="24.plus.small" onClick={() => setDialog({ kind: "new-folder", teamId: t.id, parentId: null })}>
+              New folder
+            </Button>
+            {mayImport && importButton(() => void importIntoTeam(t))}
+          </>
         ) : null;
+      if (tab === "main") shown = { folders: data.folders, files: [] };
+      if (tab === "main" && creates)
+        blank = {
+          entries: [{ id: "new-folder", label: "New folder" }, ...(mayImport ? ["-" as const, { id: "import", label: "Import…" }] : [])],
+          run: (id) => (id === "new-folder" ? setDialog({ kind: "new-folder", teamId: t.id, parentId: null }) : id === "import" && void importIntoTeam(t)),
+          onFiles: (files) => void importIntoTeam(t, files),
+        };
       // The team's ⌄ menu (help.figma.com 14949911189399: Rename, Change icon — admins; "View settings" with About)
       const teamMenu: MenuEntry[] = [
         { id: "settings", label: "View settings" },
@@ -407,7 +599,7 @@ export function OrgMain(props: OrgMainProps) {
             data.folders.length ? (
               grid(data.folders, [], "Folders")
             ) : (
-              <EmptyState size="page" icon="24.folder" title="No folders yet" body="Use folders to keep related files together." action={canEdit ? { label: "New folder", onClick: () => setDialog({ kind: "new-folder", teamId: t.id, parentId: null }) } : undefined} />
+              <EmptyState size="page" icon="24.folder" title="No folders yet" body="Use folders to keep related files together. Files you create or import in this team go into its folders." action={creates ? { label: "New folder", onClick: () => setDialog({ kind: "new-folder", teamId: t.id, parentId: null }) } : undefined} />
             )
           ) : (
             <TeamMembers team={t} members={data.members} requests={data.requests} orgName={orgName} canEdit={canEdit} canAdmin={canAdmin} write={write} org={org} />
@@ -435,8 +627,20 @@ export function OrgMain(props: OrgMainProps) {
             <Button variant="tinted" size="large" icon="24.design" tooltip="New design file" onClick={() => void newDesignFile(p.id)}>
               Design
             </Button>
+            {mayImport && importButton(() => importTo({ kind: "project", projectId: p.id }))}
           </>
         ) : null;
+      if (tab === "main") shown = { folders: data.folders, files: data.files };
+      if (tab === "main" && canEdit && !noCreate)
+        blank = {
+          entries: [{ id: "new-file", label: "New design file" }, ...(p.depth < 10 ? [{ id: "new-folder", label: "New folder" }] : []), ...(mayImport ? ["-" as const, { id: "import", label: "Import…" }] : [])],
+          run: (id) => {
+            if (id === "new-file") void newDesignFile(p.id);
+            if (id === "new-folder") setDialog({ kind: "new-folder", teamId: p.teamId, parentId: p.id });
+            if (id === "import") importTo({ kind: "project", projectId: p.id });
+          },
+          onFiles: (files) => importTo({ kind: "project", projectId: p.id }, files),
+        };
       const parentName = p.path.length > 1 ? p.path[p.path.length - 2].name : teamName;
       body = (
         <>
@@ -446,7 +650,7 @@ export function OrgMain(props: OrgMainProps) {
             data.folders.length || data.files.length ? (
               grid(data.folders, data.files, "Files")
             ) : (
-              <EmptyState size="page" icon="24.folder" title="This folder is empty" body="Create a design file here, or move files in." action={canEdit && !noCreate ? { label: "New design file", onClick: () => void newDesignFile(p.id) } : undefined} />
+              <EmptyState size="page" icon="24.folder" title="This folder is empty" body={mayImport && canEdit ? "Create a design file here, import .fig files or drag them in, or move files in." : "Create a design file here, or move files in."} action={canEdit && !noCreate ? { label: "New design file", onClick: () => void newDesignFile(p.id) } : undefined} />
             )
           ) : (
             <FolderMembers project={p} parentName={parentName} members={data.members} canEdit={canEdit} write={write} org={org} />
@@ -457,8 +661,15 @@ export function OrgMain(props: OrgMainProps) {
     }
     case "trash":
       title = { items: [{ id: "trash", label: "Trash" }] };
-      body = data.teams.length ? (
+      shown = { folders: data.teams.flatMap((g) => g.projects), files: [...data.drafts, ...data.teams.flatMap((g) => g.files)] };
+      body = data.teams.length || data.drafts.length ? (
         <div className={styles.orgSections}>
+          {data.drafts.length > 0 && (
+            <section aria-label="Drafts">
+              <h2 className={styles.sectionTitle}>Drafts</h2>
+              {grid([], data.drafts, "Drafts trash")}
+            </section>
+          )}
           {data.teams.map((g) => (
             <section key={g.team.id} aria-label={g.team.name}>
               <h2 className={styles.sectionTitle}>{g.team.name}</h2>
@@ -467,12 +678,13 @@ export function OrgMain(props: OrgMainProps) {
           ))}
         </div>
       ) : (
-        <EmptyState size="page" icon="24.trash.outline" title="Trash is empty" body="Folders and files deleted from your teams show up here. Restore them, or delete folders forever." />
+        <EmptyState size="page" icon="24.trash.outline" title="Trash is empty" body="Files deleted from your drafts and folders and files deleted from your teams show up here. Restore them, or delete them forever." />
       );
       break;
     case "search": {
       title = { items: [{ id: "search", label: `Results for “${data.text.trim()}”` }] };
       const r = data.result;
+      shown = { folders: r.projects, files: r.files };
       body =
         r.teams.length || r.projects.length || r.files.length ? (
           <div className={styles.orgSections}>
@@ -513,6 +725,21 @@ export function OrgMain(props: OrgMainProps) {
   }
 
   const moveDialog = dialog?.kind === "move" ? dialog : null;
+  /** ⌫ / Delete: the selected card to the trash (Home's keyboard, docs/home.md) */
+  const onKey = (e: React.KeyboardEvent) => {
+    if ((e.key !== "Backspace" && e.key !== "Delete") || !selected || dialog || menu) return;
+    if ((e.target as HTMLElement).closest("input, textarea, [contenteditable]")) return;
+    const f = shown.files.find((x) => `file:${x.key}` === selected);
+    const p = shown.folders.find((x) => `folder:${x.id}` === selected);
+    if (f && f.trashedAt === null && (f.access.canEdit || f.access.canManage)) {
+      e.preventDefault();
+      void write(() => org.projects.trashFiles([f.key]), "File moved to trash");
+    } else if (p && p.trashedAt === null && canEditFolder(p, info)) {
+      e.preventDefault();
+      void write(() => org.projects.trash(p.id), "Folder moved to trash");
+    }
+  };
+  const blankArea = blank;
   return (
     <main className={styles.main} aria-label={title.items.at(-1)?.label || "Organization"}>
       <header className={styles.topbar}>
@@ -524,7 +751,11 @@ export function OrgMain(props: OrgMainProps) {
         <div className={styles.create}>{blocked ? null : actions}</div>
       </header>
       {banner}
-      {blocked ?? <div className={styles.orgContent}>{current || data.kind === "none" ? body : <div className={styles.center} aria-busy><Spinner size={24} /></div>}</div>}
+      {blocked ?? (
+        <div className={styles.orgContent} onKeyDown={onKey} onContextMenu={(e) => blankMenu(e, blankArea.entries, blankArea.run)} {...pageDrop(blankArea.onFiles)}>
+          {current || data.kind === "none" || deleted ? body : <div className={styles.center} aria-busy><Spinner size={24} /></div>}
+        </div>
+      )}
       {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} />}
       {dialog?.kind === "ask-upgrade" && (
         <AskToUpgradeDialog
@@ -691,6 +922,46 @@ export function OrgMain(props: OrgMainProps) {
       )}
       {dialog?.kind === "team-libraries" && org.orgLibraries && <TeamLibrariesDialog org={org} orgId={orgId} team={dialog.team} canManage={dialog.canAdmin} toast={toast} onClose={() => setDialog(null)} />}
       {dialog?.kind === "team-fonts" && org.fonts && <TeamFontsDialog fonts={org.fonts} orgId={orgId} team={dialog.team} canManage={dialog.canAdmin} toast={toast} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "import-to" && (
+        <DestinationDialog
+          title={`Import to a folder in ${dialog.team.name}`}
+          confirm="Import"
+          sections={[{ title: dialog.team.name, rows: dialog.rows }]}
+          onClose={() => setDialog(null)}
+          onMove={(dest) => {
+            const d = dialog;
+            setDialog(null);
+            importTo({ kind: "project", projectId: dest.id }, d.files);
+          }}
+        />
+      )}
+      {dialog?.kind === "rename-file" && renameFile && (
+        <NameDialog
+          title="Rename file"
+          label="File name"
+          confirm="Rename"
+          initial={dialog.file.name}
+          onClose={() => setDialog(null)}
+          onDone={(name) => {
+            const f = dialog.file;
+            setDialog(null);
+            void write(async () => renameFile(f.fileKey ?? (await org.openShared(f.key)).fileKey, name), "File renamed");
+          }}
+        />
+      )}
+      {dialog?.kind === "delete-files" && (
+        <ConfirmDialog
+          title="Delete forever?"
+          body={dialog.files.length === 1 ? `“${dialog.files[0].name}” will be deleted forever for everyone it’s shared with. You can’t undo this.` : `${plural(dialog.files.length, "file")} will be deleted forever. You can’t undo this.`}
+          confirm="Delete forever"
+          onClose={() => setDialog(null)}
+          onConfirm={() => {
+            const d = dialog;
+            setDialog(null);
+            void write(() => org.projects.deleteFilesForever(d.files.map((f) => f.key)), d.files.length === 1 ? "File deleted" : "Files deleted");
+          }}
+        />
+      )}
       {moveDialog && (
         <DestinationDialog
           title={moveDialog.title}

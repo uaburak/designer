@@ -2,7 +2,8 @@
  * The `designer` Worker (docs/multiplayer.md): the API in api.ts over D1, one FileRoom Durable Object per file, one
  * Inbox per person for live notifications (§12), one LibraryObject per org library and one FontObject per org
  * (docs/data.md §16, docs/desktop.md §14.3). `scheduled()` tells its two crons apart by `event.cron`: "17 3 * * *" is
- * the daily roll-up of library analytics and the retention sweeps (docs/data.md §17.5; REST rate counters, §16.4);
+ * the daily roll-up of library analytics and the retention sweeps (docs/data.md §17.5; REST rate counters, §16.4;
+ * deleted organizations past their grace period, docs/multiplayer.md §14.17);
  * every five minutes, webhook retries (docs/multiplayer.md §16.9). Rooms and library objects of orgs whose data region is
  * the EU live in Cloudflare's `eu` jurisdiction (docs/multiplayer.md §15.10: `roomsOn`, `libraryFetch`).
  */
@@ -68,5 +69,7 @@ export default {
     await (await import("./discovery/record")).sweepGovernanceLogs(env.DB, controller.scheduledTime);
     // Quota counters of past days, expired previews' rows and stored bytes (docs/multiplayer.md §17)
     await (await import("./quota/quota")).sweepQuotas({ ...depsOf(env), now: () => controller.scheduledTime });
+    // Organizations deleted more than 14 days ago, deleted for good (docs/multiplayer.md §14.17)
+    await (await import("./org/deletion")).purgeDeletedOrgs({ ...depsOf(env), now: () => controller.scheduledTime });
   },
 } satisfies ExportedHandler<Env>;

@@ -109,7 +109,7 @@ export const STORE_METHODS = {
   comments: ["list", "add", "edit", "remove", "setResolved", "setRead", "react", "move", "mentionable"],
   notifications: ["list", "markRead", "prefs", "setPrefs", "answer"],
   // The org spaces (docs/multiplayer.md §14.6); `watch` is the `org` event topic
-  orgs: ["list", "get", "create", "people", "drafts", "createDraft", "search", "requestSeat", "groups", "createGroup", "updateGroup", "setGroupMembers", "deleteGroup", "leave", "update", "setIcon", "removeIcon", "iconData"],
+  orgs: ["list", "get", "create", "people", "drafts", "createDraft", "search", "requestSeat", "groups", "createGroup", "updateGroup", "setGroupMembers", "deleteGroup", "leave", "remove", "restore", "trashedDrafts", "update", "setIcon", "removeIcon", "iconData"],
   teams: ["list", "get", "create", "update", "setIcon", "removeIcon", "remove", "restore", "transfer", "members", "invite", "setMember", "removeMember", "join", "leave", "requests", "answerRequest"],
   projects: [
     "list",
@@ -130,6 +130,7 @@ export const STORE_METHODS = {
     "moveLocalFile",
     "trashFiles",
     "restoreFiles",
+    "deleteFilesForever",
     "trashed",
   ],
   admin: [
