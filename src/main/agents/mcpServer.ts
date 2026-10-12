@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { MCP_INSTRUCTIONS } from "../../shared/agents/prompts";
 import { MCP_SERVER_NAME, TOOL_BY_NAME, TOOLS, type ToolResult } from "../../shared/agents/tools";
 import type { McpConnection } from "../../shared/agents/types";
+import { drainGovernanceReports, reportMcpCall } from "../account/governanceReports";
 
 /**
  * The app's MCP server (docs/research/figma/R12-agents-mcp.md; MCP 2025-06-18 "Streamable HTTP"): JSON-RPC over
@@ -148,6 +149,7 @@ export class McpServer {
     const s = this.server;
     this.server = null;
     this.sessions.clear();
+    void drainGovernanceReports();
     if (s) await new Promise<void>((resolve) => s.close(() => resolve()));
   }
 
@@ -316,6 +318,12 @@ export class McpServer {
     const error = (text: string): ToolResult => ({ content: [{ type: "text", text }], isError: true });
     if (!fileKey) return error("No design file is open in DesignerV2. Open a file and try again.");
     if (!this.host.isOpen(fileKey)) return error("The file this session works on is closed. Open it again (or start a new session) and try again.");
+    // Client-reported to the org's developer logs (docs/governance.md §2.12): batched, fire-and-forget, a no-op for local files.
+    try {
+      reportMcpCall(fileKey, name);
+    } catch {
+      /* never fails a call */
+    }
     try {
       return await this.host.runTool(fileKey, { turnId: session.chat?.turnId ?? null, client: session.client, name, args });
     } catch (err) {
