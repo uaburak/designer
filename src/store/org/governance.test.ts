@@ -133,6 +133,9 @@ describe("governance (docs/governance.md §4, as built §9 14a–14d)", () => {
     // Wider than /16: refused by the server
     expect((await refusal(g.addNetworkRange(w.orgId, "10.0.0.0/8"))).code).toBe("invalid");
     expect((await refusal(g.addNetworkRange(w.orgId, "198.51.0.0/16"))).code).toBe("conflict");
+    // Enforcing needs 24 h in testing first (review fixes, §2.2)
+    expect((await refusal(g.setNetworkRange(w.orgId, r.id, "enforced"))).code).toBe("conflict");
+    clock.t += 24 * 3_600_000;
     expect(await g.setNetworkRange(w.orgId, r.id, "enforced")).toMatchObject({ id: r.id, state: "enforced" });
     expect((await g.overview(w.orgId)).networkRanges.map((x) => x.state)).toEqual(["enforced"]);
     await g.removeNetworkRange(w.orgId, r.id);
