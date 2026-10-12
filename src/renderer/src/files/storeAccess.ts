@@ -11,7 +11,7 @@ import type { FileKey, FileListItem, FileMeta, FolderId } from "@shared/store/ty
 import type { BranchesRepository } from "@shared/merge/branches";
 import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "@shared/libraries/orgTypes";
 import type { SharedFontsApi } from "@shared/desktop";
-import type { IdentityRepository } from "@shared/org/repositories";
+import type { GovernanceRepository, IdentityRepository } from "@shared/org/repositories";
 import type { PluginsRepository } from "@shared/plugins/types";
 import type { SessionEnded } from "@shared/multiplayer/types";
 
@@ -35,6 +35,8 @@ export interface OrgBackend {
   identity?: IdentityRepository;
   /** Admin › Settings › Extensions and Resources › Plugins / Widgets (docs/plugins.md §10); absent: unavailable */
   plugins?: PluginsRepository;
+  /** Governance+ (docs/governance.md §4): the members' policy calls Home's gates use; absent: policies can't be agreed to */
+  governance?: Pick<GovernanceRepository, "acknowledgePolicy">;
 }
 
 export interface FilesBackend {
@@ -88,6 +90,7 @@ export function filesBackend(): Promise<FilesBackend> {
       fonts: sharedFontsBridge(),
       identity: client.identity,
       plugins: client.plugins,
+      governance: client.governance,
     },
     branches: client.branches,
     watchSession: (listener) => client.multiplayer.watchSession(listener),

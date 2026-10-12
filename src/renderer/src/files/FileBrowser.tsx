@@ -63,6 +63,8 @@ import { OrgMain } from "./OrgMain";
 import { OrgSidebar } from "./OrgSidebar";
 import { CreateOrgDialog, DestinationDialog, type Destination, type DestinationSection } from "./orgDialogs";
 import { orgDestinations, useOrgData } from "./useOrgData";
+import { effectiveGate, orgGateOf } from "./governance";
+import { GuestExpiryBanner, IpBlocked, NetworkRestricted, PolicyModal, TwoFactorRequired } from "../account/Gates";
 import { isOrgLocation } from "./model";
 import { useWorkspaceData } from "./useWorkspaceData";
 import styles from "./Files.module.css";
@@ -188,7 +190,11 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
 
   const space: SpaceId = data.prefs?.browse.space ?? "local";
   const orgId = backend.org ? orgIdOf(space) : null;
-  const orgView = useOrgData(backend.org, orgId, location, !!orgId);
+  // Governance+ gates (docs/governance.md §2.5): the policies agreed to here (the org list may answer from its cache)
+  const [agreed, setAgreed] = useState<ReadonlySet<string>>(() => new Set());
+  // Log out from the network restriction: hidden for that account (signed out, or the same one back) until another logs in
+  const [loggedOutAs, setLoggedOutAs] = useState<string | null>(null);
+  const orgView = useOrgData(backend.org, orgId, location, !!orgId, agreed);
   const orgShell = orgView.shell;
   // Access to external content (§15.6): a restricted member creates nothing outside their home org.
   const homeOrg = useHomeOrg(backend.org, orgShell.orgs);
@@ -708,8 +714,44 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   const orgMain = !!orgId && (isOrgLocation(location) || location.kind === "search");
   const openTitled = (fileKey: FileKey, title: string, newTab = false) => void openFile(fileKey, { title, newTab }, deps).catch((e) => toast({ kind: "error", message: act.errorText(e) }));
 
-  // Admin replaces the file browser (its own sidebar starts with "Back to files")
-  if (orgId && location.kind === "admin" && backend.org) {
+  // Governance+ (docs/governance.md §2.5): the org's gate from its list entry or the last refused read — a policy to
+  // agree to (a modal; Cancel goes back to Drafts), 2FA for guests or the IP allowlist (in place of the content) — and
+  // the account-wide network restriction (the whole window). Read from what Home already loaded.
+  const blockedBy = orgView.page.blocked;
+  const gate = orgId ? orgGateOf(orgSummary, blockedBy && blockedBy !== "network" ? blockedBy : null, agreed) : null;
+  const me = account.state?.user?.id ?? null;
+  const networkRestricted = (loggedOutAs === null || (me !== null && me !== loggedOutAs)) && (!!orgShell.network || blockedBy === "network");
+  const gateOrgName = spaceName || "This organization";
+  const policy = gate?.kind === "policy" ? gate.policies[0] : null;
+  const agree = async (id: string) => {
+    if (!orgId || !backend.org?.governance) return void toast({ kind: "error", message: "Policies can’t be agreed to here" });
+    try {
+      await backend.org.governance.acknowledgePolicy(orgId, id);
+    } catch (e) {
+      return void toast({ kind: "error", message: orgErrorText(e) });
+    }
+    const next = new Set(agreed).add(id);
+    setAgreed(next);
+    if (!effectiveGate(gate, next)) orgView.reload();
+  };
+  const blockedContent =
+    gate?.kind === "two_factor" ? <TwoFactorRequired orgName={gateOrgName} onSetUp={() => openSettings("security")} /> : gate?.kind === "ip" ? <IpBlocked orgName={gateOrgName} ip={gate.ip} /> : gate?.kind === "policy" ? <div /> : undefined;
+  const gateLayers = (
+    <>
+      {policy && <PolicyModal key={policy.id} policy={policy} onAgree={() => agree(policy.id)} onCancel={() => switchSpace("local")} />}
+      {networkRestricted && (
+        <NetworkRestricted
+          onLogOut={() => {
+            setLoggedOutAs(me ?? "");
+            void accountBridge()?.signOut();
+          }}
+        />
+      )}
+    </>
+  );
+
+  // Admin replaces the file browser (its own sidebar starts with "Back to files"); a gated org shows its gate instead
+  if (orgId && location.kind === "admin" && backend.org && !gate) {
     return (
       <>
         <AdminApp
@@ -721,6 +763,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           onBack={() => (nav.index > 0 ? back() : go({ kind: "org-drafts" }))}
         />
         {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} />}
+        {gateLayers}
       </>
     );
   }
@@ -793,6 +836,8 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           toast={toast}
           now={Math.max(tick, orgView.page.loadedAt)}
           noCreate={outsideHome}
+          blocked={blockedContent}
+          banner={<GuestExpiryBanner orgName={gateOrgName} expiresAt={orgSummary?.guestExpiresAt} now={now} />}
         />
       ) : (
       <main
@@ -1045,6 +1090,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           }}
         />
       )}
+      {gateLayers}
     </div>
   );
 }

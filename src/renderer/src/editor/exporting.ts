@@ -9,12 +9,15 @@
  * several). Also Copy as PNG (⇧⌘C, 2x as Figma's), Copy as SVG, Copy as code
  * (CSS), Copy as text, and File › Export frames to PDF….
  */
+import { useSyncExternalStore } from "react";
 import { showToast } from "@/ds";
+import { getStoreClient } from "@/store";
 import type { Guid, NodeChange } from "@/engine/codec";
 import { exportMime, planExportPaths } from "../../../shared/exportFiles";
 import type { EditorController } from "./controller";
 import { editorBridge } from "./desktop";
 import { engineExports } from "./engineCompat";
+import { presenceOf } from "./multiplayer/presence";
 import { encodePixels, renderEngineExport } from "./exportCore";
 import {
   cssOf,
@@ -27,7 +30,100 @@ import {
 } from "./model/exports";
 
 /** Whether this engine build exports (the export ABI is there). */
-export const canExport = (ed: EditorController) => !ed.engine.destroyed && engineExports(ed.engine, "export");
+export const engineCanExport = (ed: EditorController) => !ed.engine.destroyed && engineExports(ed.engine, "export");
+
+// ---- Who may export (docs/governance.md §2.7) ----
+//
+// `FileAccess.canExport` (the server's: editors always; viewers when "Viewers can copy, share, and export from this
+// file" is on and the org's File exporting lets them). Read once when the editor opens and again when the person's
+// role in the room changes (presence), never on a hot path: commands and panels read the cached answer. Gated as
+// Figma hides or disables them: Export…, Export frames to PDF…, the Export panel, Copy as PNG / SVG / code, ⌘C of
+// layers, File › Duplicate and Save local copy….
+
+const allowed = new WeakMap<EditorController, boolean>();
+const listeners = new WeakMap<EditorController, Set<() => void>>();
+
+/** Whether the person may export, copy layers out of or duplicate this file (true until the server says otherwise). */
+export const exportAllowed = (ed: EditorController): boolean => allowed.get(ed) !== false;
+
+export function setExportAllowed(ed: EditorController, on: boolean): void {
+  if (exportAllowed(ed) === on) return;
+  allowed.set(ed, on);
+  for (const l of listeners.get(ed) ?? []) l();
+}
+
+/** Re-renders a panel when the answer changes (the Export panel hides). */
+export function useExportAllowed(ed: EditorController): boolean {
+  return useSyncExternalStore(
+    (l) => {
+      let set = listeners.get(ed);
+      if (!set) listeners.set(ed, (set = new Set()));
+      set.add(l);
+      return () => void set.delete(l);
+    },
+    () => exportAllowed(ed),
+  );
+}
+
+/** Whether this file can be exported here: the engine builds it and the person is allowed to. */
+export const canExport = (ed: EditorController) => engineCanExport(ed) && exportAllowed(ed);
+
+type AccessStore = { fileState(key: string): Promise<{ shared: boolean; role: string | null }>; fileInfo(key: string): Promise<{ access?: { canExport?: boolean } | null }> };
+
+/** The server's answer for a shared file: local files, owners and editors export; a viewer asks `fileInfo` once. */
+export async function loadExportAllowed(store: AccessStore, fileKey: string): Promise<boolean> {
+  const st = await store.fileState(fileKey).catch(() => null);
+  if (!st?.shared || st.role !== "viewer") return true;
+  const info = await store.fileInfo(fileKey).catch(() => null);
+  return info?.access?.canExport !== false;
+}
+
+/**
+ * EditorApp's one line: reads the access when the editor opens and when the room's role changes, and while
+ * restricted stops the document's copy and cut of layers (the canvas's ⌘C / ⌘X; text fields copy as ever).
+ */
+export function attachExportAccess(ed: EditorController, store?: AccessStore | null): () => void {
+  const fileKey = (ed.source as unknown as { fileKey?: unknown }).fileKey;
+  if (typeof fileKey !== "string" || !fileKey) return () => {};
+  let mp: AccessStore | null = store ?? null;
+  if (!mp) {
+    try {
+      mp = getStoreClient().multiplayer;
+    } catch {
+      return () => {};
+    }
+  }
+  let live = true;
+  let asked = 0;
+  const load = () => {
+    const mine = ++asked;
+    void loadExportAllowed(mp!, fileKey).then((on) => live && mine === asked && !ed.engine.destroyed && setExportAllowed(ed, on));
+  };
+  load();
+  const presence = presenceOf(ed);
+  let role = presence?.state.role ?? null;
+  const offPresence = presence?.subscribe(() => {
+    const next = presence.state.role;
+    if (next === role) return;
+    role = next;
+    load();
+  });
+  const block = (e: Event) => {
+    if (exportAllowed(ed) || !ed.selection.length) return;
+    const t = e.target;
+    if (t instanceof HTMLElement && (t.isContentEditable || t.closest("input, textarea, [contenteditable='true']"))) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  };
+  window.addEventListener("copy", block, true);
+  window.addEventListener("cut", block, true);
+  return () => {
+    live = false;
+    offPresence?.();
+    window.removeEventListener("copy", block, true);
+    window.removeEventListener("cut", block, true);
+  };
+}
 
 export interface ExportedFile {
   name: string;
@@ -39,7 +135,7 @@ export { encodePixels };
 
 /** One export of `refs` with `settings` as a file's bytes (PNG / JPEG encoded here), or an error message. */
 export async function renderExport(ed: EditorController, refs: readonly Guid[], settings: ExportSettings): Promise<{ bytes: Uint8Array } | { error: string }> {
-  if (!canExport(ed)) return { error: "Export needs a newer engine build" };
+  if (!engineCanExport(ed)) return { error: "Export needs a newer engine build" };
   const store = ed.images.store;
   return renderEngineExport(ed.engine, store ? (hash) => store.get(hash) : null, refs, settings);
 }
@@ -89,6 +185,7 @@ export async function saveFiles(ed: EditorController, files: readonly ExportedFi
 
 /** Renders and saves; toasts what failed. */
 export async function exportItems(ed: EditorController, items: readonly ExportItem[]): Promise<void> {
+  if (!exportAllowed(ed)) return;
   const { files, failed } = await renderItems(ed, items);
   if (failed.length) showToast({ message: failed.length === 1 ? `Couldn't export ${failed[0]}` : `Couldn't export ${failed.length} files` });
   if (files.length) await saveFiles(ed, files);
@@ -125,7 +222,7 @@ async function writeClipboard(items: Record<string, Blob>, text?: string): Promi
 /** Copy as PNG (⇧⌘C): the selection as one image at 2x. */
 export async function copyAsPng(ed: EditorController): Promise<void> {
   const refs = ed.selection;
-  if (!refs.length) return;
+  if (!refs.length || !exportAllowed(ed)) return;
   const r = await renderExport(ed, refs, { imageType: "PNG", constraint: { type: "CONTENT_SCALE", value: 2 }, contentsOnly: true });
   if ("error" in r) return void showToast({ message: "Couldn't copy as PNG" });
   const ok = await writeClipboard({ "image/png": new Blob([r.bytes as BlobPart], { type: "image/png" }) });
@@ -135,7 +232,7 @@ export async function copyAsPng(ed: EditorController): Promise<void> {
 /** Copy as SVG: the selection's SVG markup, as text. */
 export async function copyAsSvg(ed: EditorController): Promise<void> {
   const refs = ed.selection;
-  if (!refs.length) return;
+  if (!refs.length || !exportAllowed(ed)) return;
   const r = await renderExport(ed, refs, { imageType: "SVG", constraint: { type: "CONTENT_SCALE", value: 1 }, contentsOnly: true, svgOutlineText: true });
   if ("error" in r) return void showToast({ message: "Couldn't copy as SVG" });
   const text = new TextDecoder().decode(r.bytes);
@@ -145,6 +242,7 @@ export async function copyAsSvg(ed: EditorController): Promise<void> {
 
 /** Copy as code: the selection's CSS (Figma's "Copy as code › CSS"). */
 export async function copyAsCode(ed: EditorController): Promise<void> {
+  if (!exportAllowed(ed)) return;
   const nodes = ed.engine.readNodes(ed.selection).map(ed.withRealType);
   if (!nodes.length) return;
   const text = nodes.map((n) => cssOf(n as unknown as CssNode)).join("\n");
@@ -191,6 +289,7 @@ export function pageFrames(ed: EditorController): { ref: Guid; name: string }[] 
 }
 
 export async function exportFramesToPdf(ed: EditorController): Promise<void> {
+  if (!exportAllowed(ed)) return;
   const frames = pageFrames(ed);
   if (!frames.length) return void showToast({ message: "There are no frames on this page to export" });
   const r = await renderExport(

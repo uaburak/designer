@@ -27,6 +27,7 @@ import { useFocusScope } from "@/ds/overlay/FocusTrap";
 import { useCurrentPage } from "@/engine/hooks";
 import { getStoreClient } from "@/store";
 import { generateLinkPassword } from "@shared/org/identity";
+import { VIEWERS_CAN_EXPORT_LABEL } from "@shared/org/governance";
 import { linkWith, type AccessRequest, type FileMember, type FileShareState, type LinkAccess, type LinkSettingsPatch, type OpenIntent, type SharedFileInfo } from "@shared/multiplayer/types";
 import type { OrgInfo } from "@shared/org/types";
 import type { PreviewRecord } from "../../../shared/store/types";
@@ -851,7 +852,7 @@ function ShareSettings({ p, onDone }: { p: People; onDone: () => void }) {
           ))}
         <hr className={styles.divider} />
         <span className={styles.section}>Advanced</span>
-        <Checkbox label="Viewers can copy, save, and export from this file" checked={viewersCanCopy} onChange={(on) => setViewersCanCopy(on === true)} disabled={!p.canShare || !info} />
+        <Checkbox label={VIEWERS_CAN_EXPORT_LABEL} checked={viewersCanCopy} onChange={(on) => setViewersCanCopy(on === true)} disabled={!p.canShare || !info} />
         <p className={`${styles.caption} ${styles.indent}`}>
           This setting applies to anyone in the file with <strong>can view</strong> access
         </p>

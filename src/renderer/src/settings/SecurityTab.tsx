@@ -4,19 +4,27 @@
  * Revoke access) and Connected apps — here the MCP clients connected to this computer's agents' server
  * (src/main/agents/clients.ts), Revoke access taking our server out of their config.
  *
- * We log in with Google: the password and two-factor authentication are the Google account's, so Figma's two links
- * open Google's own pages for them ("Managed by Google", as Figma shows for SSO accounts).
+ * We log in with Google: the password is the Google account's, so Change password opens Google's page ("Managed by
+ * Google", as Figma shows for SSO accounts). Two-factor authentication is ours (docs/governance.md §2.4): TOTP on top
+ * of any sign-in — Enable two-factor authentication (a QR code and the key as text, the 6-digit code, then the
+ * recovery codes with Copy and Download), Regenerate recovery codes, and Turn off (a code required).
  */
-import { useEffect, useState } from "react";
-import { Button, Dialog, Icon, showToast } from "@/ds";
+import { useEffect, useMemo, useState } from "react";
+import qrcode from "qrcode-generator";
+import { Button, Dialog, Icon, Spinner, TextInput, showToast } from "@/ds";
+import { getStoreClient } from "@/store";
 import { accountBridge } from "../files/account";
 import { timeAgo, type AccessTokenInfo, type SessionInfo } from "@shared/account";
 import type { McpClientInfo } from "@shared/agents/types";
+import type { TwoFactorSetup, TwoFactorStatus } from "@shared/org/governance";
+import type { GovernanceRepository } from "@shared/org/repositories";
+import { isStoreError } from "@shared/store/protocol";
 import { Divider, Link, Section } from "./AccountTab";
 import { accountCall, agentSetupBridge, openLink } from "./bridge";
 import { GenerateTokenDialog } from "./SettingsDialogs";
 import { useProfile } from "./useProfile";
 import styles from "./Settings.module.css";
+import own from "./SecurityTab.module.css";
 
 /** "Now" for the "… ago" texts: when the tab was opened (a render stays pure). */
 const useNow = () => useState(() => Date.now())[0];
@@ -33,8 +41,8 @@ export function SecurityTab() {
     <div className={styles.page} data-settings-security="">
       <Section heading="Password" data-settings-section="password">
         <Link onClick={() => openLink("https://myaccount.google.com/signinoptions/password")}>Change password</Link>
-        <Link onClick={() => openLink("https://myaccount.google.com/signinoptions/twosv")}>Enable two-factor authentication</Link>
-        <p className={styles.note}>{profile?.provider === "dev" ? "A development account has no password." : "Managed by Google. You log in with your Google account, so its password and two-factor authentication are changed there."}</p>
+        {signedIn && <TwoFactor />}
+        <p className={styles.note}>{profile?.provider === "dev" ? "A development account has no password." : "Managed by Google. You log in with your Google account, so its password is changed there."}</p>
       </Section>
       <Divider />
       {signedIn ? <Sessions /> : <LogInFirst heading="Sessions" text="Log in to see where your account is logged in." />}
@@ -43,6 +51,259 @@ export function SecurityTab() {
       <Divider />
       <ConnectedApps />
     </div>
+  );
+}
+
+// ---- Two-factor authentication (docs/governance.md §2.4, §5 "Clients"; the wording is ours — unverified) ----
+
+/** The store's Governance+ door (the caller's own 2FA); null where no store answers */
+function governance(): GovernanceRepository | null {
+  try {
+    return getStoreClient().governance ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The server's refusals of a code in words (§4: 400 `two_factor_invalid`, 429 after five failures, 409 an expired setup) */
+export function twoFactorErrorText(e: unknown): string {
+  const detail = isStoreError(e) && e.detail && typeof e.detail === "object" ? (e.detail as { code?: string }).code : undefined;
+  if (detail === "two_factor_invalid" || (isStoreError(e) && e.code === "invalid")) return "That code didn't work. Try again.";
+  if (detail === "rate_limited") return "Too many tries. Try again in 10 minutes.";
+  if (isStoreError(e) && e.code === "conflict") return "This setup expired. Close this and start again.";
+  return errorText(e);
+}
+
+/** "abcd efgh …": the key in groups of four, as authenticator apps show it */
+export const groupKey = (secret: string) => secret.replace(/(.{4})(?=.)/g, "$1 ");
+
+function TwoFactor() {
+  const [gov] = useState(governance);
+  const [status, setStatus] = useState<TwoFactorStatus | null>(null);
+  const [dialog, setDialog] = useState<"enable" | "regenerate" | "disable" | null>(null);
+  const load = () => {
+    if (!gov) return;
+    void gov.twoFactor().then(setStatus, () => setStatus(null));
+  };
+  useEffect(load, [gov]);
+  const close = () => {
+    setDialog(null);
+    load();
+  };
+  return (
+    <>
+      {status?.enabled ? (
+        <div className={own.status} data-two-factor="on">
+          <p className={styles.value}>Two-factor authentication is on.</p>
+          <p className={`${styles.value} ${styles.muted}`}>{status.recoveryCodesLeft === 1 ? "1 recovery code left" : `${status.recoveryCodesLeft} recovery codes left`}</p>
+          <div className={own.actions}>
+            <Link tight onClick={() => setDialog("regenerate")} data-two-factor-regenerate="">
+              Regenerate recovery codes
+            </Link>
+            <Link tight danger onClick={() => setDialog("disable")} data-two-factor-disable="">
+              Turn off two-factor authentication
+            </Link>
+          </div>
+        </div>
+      ) : (
+        <Link onClick={() => setDialog("enable")} disabled={!gov} data-two-factor-enable="">
+          Enable two-factor authentication
+        </Link>
+      )}
+      {gov && dialog === "enable" && <EnableTwoFactorDialog gov={gov} onClose={close} />}
+      {gov && (dialog === "regenerate" || dialog === "disable") && <TwoFactorCodeDialog gov={gov} kind={dialog} onClose={close} />}
+    </>
+  );
+}
+
+/** The QR code of the `otpauth://` URL: dark modules on white in both themes (scanners want that), drawn as one path. */
+export function QrCode({ value }: { value: string }) {
+  const { d, size } = useMemo(() => {
+    const q = qrcode(0, "M");
+    q.addData(value);
+    q.make();
+    const n = q.getModuleCount();
+    const quiet = 4;
+    let path = "";
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) path += `M${c + quiet} ${r + quiet}h1v1h-1z`;
+    return { d: path, size: n + quiet * 2 };
+  }, [value]);
+  return (
+    <svg className={own.qr} viewBox={`0 0 ${size} ${size}`} shapeRendering="crispEdges" role="img" aria-label="QR code for your authenticator app" data-two-factor-qr="">
+      <path d={d} />
+    </svg>
+  );
+}
+
+function EnableTwoFactorDialog({ gov, onClose }: { gov: GovernanceRepository; onClose: () => void }) {
+  const [setup, setSetup] = useState<TwoFactorSetup | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [codes, setCodes] = useState<string[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    gov.setupTwoFactor().then(
+      (s) => live && setSetup(s),
+      (e: unknown) => live && setFailed(errorText(e)),
+    );
+    return () => {
+      live = false;
+    };
+  }, [gov]);
+  const verify = async () => {
+    if (code.length !== 6 || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setCodes((await gov.enableTwoFactor(code)).recoveryCodes);
+    } catch (e) {
+      setError(twoFactorErrorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (codes) return <RecoveryCodesDialog title="Save your recovery codes" codes={codes} onClose={onClose} />;
+  return (
+    <Dialog
+      title="Enable two-factor authentication"
+      size="medium"
+      open
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" loading={busy} disabled={!setup || code.length !== 6} onClick={() => void verify()} data-two-factor-verify="">
+            Verify
+          </Button>
+        </>
+      }
+    >
+      <div className={styles.form} data-two-factor-setup="">
+        {failed && <p className={styles.text}>{failed}</p>}
+        {!setup && !failed && <Spinner />}
+        {setup && (
+          <>
+            <p className={styles.text}>Scan this QR code with an authenticator app, such as Google Authenticator or 1Password.</p>
+            <QrCode value={setup.otpauthUrl} />
+            <div className={styles.formRow}>
+              <span className={styles.formLabel}>Can’t scan the code? Enter this key in the app instead:</span>
+              <code className={styles.tokenValue} data-two-factor-key="">{groupKey(setup.secret)}</code>
+            </div>
+            <div className={styles.formRow}>
+              <span className={styles.formLabel}>Enter the 6-digit code from your authenticator app</span>
+              <TextInput label="6-digit code" value={code} onChange={(v) => setCode(v.replace(/\D/g, "").slice(0, 6))} placeholder="123456" maxLength={6} variant="outlined" invalid={!!error} autoFocus data-two-factor-code="" />
+              {error && <span className={own.error} role="alert">{error}</span>}
+            </div>
+          </>
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
+/** Regenerate recovery codes / Turn off: both take a code from the app or an unused recovery code (§4, 14a). */
+function TwoFactorCodeDialog({ gov, kind, onClose }: { gov: GovernanceRepository; kind: "regenerate" | "disable"; onClose: () => void }) {
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [codes, setCodes] = useState<string[] | null>(null);
+  const off = kind === "disable";
+  const run = async () => {
+    if (!code.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (off) {
+        await gov.disableTwoFactor(code.trim());
+        showToast({ message: "Two-factor authentication is off" });
+        onClose();
+      } else setCodes((await gov.regenerateRecoveryCodes(code.trim())).recoveryCodes);
+    } catch (e) {
+      setError(twoFactorErrorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (codes) return <RecoveryCodesDialog title="Your new recovery codes" codes={codes} onClose={onClose} />;
+  return (
+    <Dialog
+      title={off ? "Turn off two-factor authentication?" : "Regenerate recovery codes"}
+      size="small"
+      open
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant={off ? "destructive" : "primary"} loading={busy} disabled={!code.trim()} onClick={() => void run()} data-two-factor-confirm="">
+            {off ? "Turn off" : "Regenerate"}
+          </Button>
+        </>
+      }
+    >
+      <div className={styles.form}>
+        <p className={styles.text}>{off ? "Logging in will no longer ask for a code from your authenticator app." : "Your current recovery codes will stop working."}</p>
+        <div className={styles.formRow}>
+          <span className={styles.formLabel}>Enter the 6-digit code from your authenticator app, or one of your recovery codes</span>
+          <TextInput label="Code" value={code} onChange={setCode} maxLength={20} variant="outlined" invalid={!!error} autoFocus data-two-factor-code="" />
+          {error && <span className={own.error} role="alert">{error}</span>}
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+const codesText = (codes: readonly string[]) => `DesignerV2 recovery codes\n\nEach code can be used once.\n\n${codes.join("\n")}\n`;
+
+/** Shown once: the codes, Copy, Download (a download link — Electron's will-download shows the Save dialog), Done. */
+function RecoveryCodesDialog({ title, codes, onClose }: { title: string; codes: string[]; onClose: () => void }) {
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([codesText(codes)], { type: "text/plain" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "designer-recovery-codes.txt";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const copy = () =>
+    void navigator.clipboard?.writeText(codes.join("\n")).then(
+      () => showToast({ message: "Copied to clipboard" }),
+      () => showToast({ kind: "error", message: "Couldn't copy" }),
+    );
+  return (
+    <Dialog
+      title={title}
+      size="small"
+      open
+      onClose={onClose}
+      footer={
+        <Button variant="primary" onClick={onClose} data-two-factor-done="">
+          Done
+        </Button>
+      }
+    >
+      <div className={styles.form}>
+        <p className={styles.text}>Keep these codes somewhere safe. If you lose your device, each code logs you in once. They won’t be shown again.</p>
+        <ul className={own.codes} data-recovery-codes="">
+          {codes.map((c) => (
+            <li key={c}>{c}</li>
+          ))}
+        </ul>
+        <div className={own.actions}>
+          <Button variant="secondary" onClick={copy} data-recovery-copy="">
+            Copy
+          </Button>
+          <Button variant="secondary" onClick={download} data-recovery-download="">
+            Download
+          </Button>
+        </div>
+      </div>
+    </Dialog>
   );
 }
 
