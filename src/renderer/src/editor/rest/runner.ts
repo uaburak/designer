@@ -7,10 +7,12 @@
  * - `file` / `nodes`: Figma's file JSON (fileJson.ts), part `json` — the answer without its opening `{`, gzipped;
  * - `images`: one part per id (images.ts);
  * - `variables_local`: part `json`, the gzipped answer (variablesJson.ts);
+ * - `discovery_text`: part `json`, the gzipped DiscoveryTextItem[] (discoveryText.ts; docs/governance.md §2.11);
  * - `variables_post`: one actor write (variablesPost.ts), then part `json`; a refusal answers `"400 <message>"`.
  *
  * A job with `version` reads that version in a scratch engine (the source's `openVersion`, as Compare changes does).
  */
+import { discoveryText } from "./discoveryText";
 import { Engine } from "@/engine/Engine";
 import type { Message } from "@/engine/codec";
 import type { MultiplayerEvent, MultiplayerRepository, RestJobAnswer, RestJobRequest } from "../../../../shared/multiplayer/types";
@@ -59,6 +61,8 @@ export async function runRestJob(host: RestRunnerHost, req: Pick<RestJobRequest,
         return { parts: [{ name: "json", bytes: await filePart(await nodesJson(engine, job.params, ctx)), contentType: "application/json" }] };
       case "images":
         return { parts: await renderImages(engine, host.images, job.params) };
+      case "discovery_text":
+        return { parts: [{ name: "json", bytes: await gzip(json(discoveryText(engine))), contentType: "application/json" }] };
       case "variables_local":
         return { parts: [{ name: "json", bytes: await gzip(json(variablesLocalJson(engine))), contentType: "application/json" }] };
       case "variables_post": {

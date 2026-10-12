@@ -35,8 +35,8 @@ export interface OrgBackend {
   identity?: IdentityRepository;
   /** Admin › Settings › Extensions and Resources › Plugins / Widgets (docs/plugins.md §10); absent: unavailable */
   plugins?: PluginsRepository;
-  /** Governance+ (docs/governance.md §4): the members' policy calls Home's gates use; absent: policies can't be agreed to */
-  governance?: Pick<GovernanceRepository, "acknowledgePolicy">;
+  /** Governance+ (docs/governance.md §4): Home's gates (acknowledgePolicy) and Admin; absent: policies can't be agreed to */
+  governance?: GovernanceRepository;
 }
 
 export interface FilesBackend {

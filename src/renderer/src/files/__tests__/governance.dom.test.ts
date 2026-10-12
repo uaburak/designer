@@ -107,6 +107,7 @@ async function setup(knobs: Knobs) {
       openShared: (k) => api.multiplayer.openShared(k),
       snapshotOf: (k) => localSnapshot(api.files, k),
       governance: {
+        ...api.governance,
         acknowledgePolicy: async (_org, id) => {
           acknowledged.push(id);
           if (knobs.gate?.kind === "policy") knobs.gate = effectiveGate(knobs.gate, new Set([id])) ?? undefined;

@@ -756,7 +756,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
       <>
         <AdminApp
           orgId={orgId}
-          store={{ admin: backend.org.admin, orgs: backend.org.orgs, teams: backend.org.teams, orgLibraries: backend.org.orgLibraries, identity: backend.org.identity, plugins: backend.org.plugins }}
+          store={{ admin: backend.org.admin, orgs: backend.org.orgs, teams: backend.org.teams, orgLibraries: backend.org.orgLibraries, identity: backend.org.identity, governance: backend.org.governance, plugins: backend.org.plugins }}
           fonts={backend.org.fonts}
           workspace={adminWorkspace ?? undefined}
           onTestSso={testSso}
