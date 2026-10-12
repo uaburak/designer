@@ -41,7 +41,6 @@
     "@eslint/js": "^9.39.5",
     "@figma/plugin-typings": "1.139.0",
     "@fontsource-variable/inter": "^5.3.0",
-    "@huggingface/transformers": "4.3.0",
     "@types/node": "^24.19.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -64,6 +63,7 @@
     "vitest": "4.1.11"
   },
   "dependencies": {
+    "@huggingface/transformers": "4.3.0",
     "@jitl/quickjs-wasmfile-release-asyncify": "0.32.0",
     "kiwi-schema": "0.5.0",
     "quickjs-emscripten-core": "0.32.0"

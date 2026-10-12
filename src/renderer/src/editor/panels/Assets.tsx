@@ -6,7 +6,8 @@
  * "Add more libraries". A card opens its library: Back, the path ("Created in this file / Capture"), its pages; a
  * page shows its components (96 tiles two to a row, or a list), grouped by the top-level frame they sit in. A search
  * lists the matches of every library (of the one open, "Search in this library"). A click inserts an instance in
- * the middle of the view; a drag drops one where it is let go. A set shows once and inserts its default variant (its
+ * the middle of the view; a drag drops one where it is let go. Under a search's matches, "Similar" lists the components
+ * visual search finds for it (docs/ai.md §6) — once its models are on this computer. A set shows once and inserts its default variant (its
  * tile counts its variants). A library component is inserted as an instance of its read-only copy. Right click on a
  * local component: Go to main component, Hide when publishing.
  */
@@ -23,6 +24,7 @@ import { assetLabel, groupAssets, searchAssets, type ComponentAsset } from "../m
 import { useComponentAssets } from "./design/ComponentPicker";
 import { ApprovedMark } from "./libraries/LibrariesDialog";
 import { RemoteThumb } from "./libraries/Thumbs";
+import { SimilarAssets, useSimilarComponents } from "../search/Similar";
 import { TabHeader } from "./TabHeader";
 import lstyles from "./libraries/Libraries.module.css";
 import styles from "./Assets.module.css";
@@ -92,6 +94,11 @@ export function Assets() {
     sections.push({ key: `lib:${lib}`, title: name, items, pages: [...new Set(items.map((i) => i.page))], library: lib });
   }
   const open = at ? sections.find((s) => s.key === at.section) : undefined;
+  // A search: the exact matches of every library (of the open one), then "Similar" (visual search, docs/ai.md §6)
+  const here = (ed.source as { fileKey?: string }).fileKey;
+  const found = query ? (open ? [open] : sections).map((s) => ({ s, list: searchAssets(s.items, query) as Item[] })).filter((x) => x.list.length) : [];
+  const listed = found.flatMap(({ list }) => list.map((a) => (a.remote && a.library ? { fileKey: a.library, nodeId: a.remote.guid } : { fileKey: here ?? "", nodeId: a.id })));
+  const similar = useSimilarComponents(query, listed, open ? (open.library ?? here) : undefined);
   const go = (next: { section: string; page?: string } | null) => {
     setQuery("");
     ed.ui.set({ assetsAt: next });
@@ -212,17 +219,16 @@ export function Assets() {
       />
     );
   } else if (query) {
-    const scope = open ? [open] : sections;
-    const found = scope.map((s) => ({ s, list: searchAssets(s.items, query) as Item[] })).filter((x) => x.list.length);
     body = (
       <div className={styles.scroll} role="tree" aria-label="Assets">
-        {!found.length && <div className={styles.none}>No results for “{query}”</div>}
+        {!found.length && !similar.length && <div className={styles.none}>No results for “{query}”</div>}
         {found.map(({ s, list }) => (
           <div key={s.key} role="group" aria-label={s.title} data-assets-section={s.title}>
             <div className={styles.heading}>{s.title}</div>
             {items(list, s)}
           </div>
         ))}
+        <SimilarAssets ed={ed} hits={similar} view={view} styles={styles} />
       </div>
     );
   } else if (!open) {
