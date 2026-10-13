@@ -442,7 +442,8 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
       if (it.stretch) {
         it.bc = clampSize(room, cp, C);
         setAxis(it.size, C, it.bc);
-        it.cpos = lineTop;
+        // Held below the line by its max (or past it by its min): placed by the frame's alignment (Figma).
+        it.cpos = lineTop + (room - it.bc) * alignFactor(p.stack().stackCounterAlignItems);
       } else {
         it.cpos = lineTop + (room - it.bc) * selfFactor(cp.stackChildAlignSelf, p.stack().stackCounterAlignItems);
       }

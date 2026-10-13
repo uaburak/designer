@@ -322,6 +322,27 @@ TEST_CASE("layout: a stretched child of a parent hugging that axis counts for it
   CHECK(at(e, rowsA[1].guid).y == doctest::Approx(32));
 }
 
+TEST_CASE("layout: a Fill child held by its max width is placed by the frame's alignment") {
+  // A vertical 1440 wide stack aligned centre holds a Fill-width (STRETCH) child with max W 1312: Figma centres it at
+  // 64; aligned left it stays at the padding.
+  const Guid V{9, 21}, C{9, 22};
+  NodeChange v = autoLayout(V, StackMode::VERTICAL, {0, 0, 1440, 400}, 0, 0);
+  v.props.stack().stackCounterAlignItems = StackAlign::CENTER;
+  NodeChange c = autoLayout(C, StackMode::VERTICAL, {0, 0, 100, 100}, 0, 0);
+  c.props.parentIndex.guid = V;
+  c.props.stackChildAlignSelf = StackCounterAlign::STRETCH;
+  c.props.rare().maxSize = {1312, 0};
+  Editor e = load({v, c});
+  touch(e, V, 0);
+  CHECK(e.document().get(C)->props.size.x == doctest::Approx(1312));
+  CHECK(at(e, C).x == doctest::Approx(64));
+  NodeChange m;
+  m.mask = F_STACK_COUNTER_ALIGN;
+  m.props.stack().stackCounterAlignItems = StackAlign::MAX;
+  REQUIRE(e.setProps({V}, m, 0) == OK);
+  CHECK(at(e, C).x == doctest::Approx(128));
+}
+
 TEST_CASE("layout: a Fill child on the primary axis of a parent hugging it keeps its own size") {
   // A vertical stack hugging its height holds a child set to Fill height (grow), fixed at 28, whose content is 40:
   // Figma measures it at its own 28, not its content.
