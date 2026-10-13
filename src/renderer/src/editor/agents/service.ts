@@ -26,7 +26,7 @@ import { getStoreClient } from "@/store";
 import { MANAGER_TOOLS, type ToolDef } from "@shared/agents/tools";
 import type { ManagerToolDef } from "@shared/agents/types";
 import { DEFAULT_MANAGER_SETTINGS, IMAGE_TASKS_AT_ONCE, brandsUnavailable, type BrandsRepository, type ManagerSettings, type StudioTask } from "@shared/studio/types";
-import type { AiRoute, ImageRouteInfo } from "@shared/ai/types";
+import type { ImageRouteInfo } from "@shared/ai/types";
 import { managerPrompt, managerReminder } from "@shared/studio/managerPrompt";
 import { LIBRARY_TOOLS, runLibraryTool } from "../studio/libraryTools";
 import { blurRegions, runStudioImage } from "../studio/images";

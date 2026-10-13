@@ -156,16 +156,23 @@ export class TaskQueue {
 
   /** Stop: a queued task never starts, a running one is aborted; either ends stopped (its dependants fail). */
   stop(id: string) {
+    if (this.halt(id)) this.pump();
+  }
+
+  private halt(id: string): boolean {
     const e = this.entries.get(id);
-    if (!e || isEnded(e.task)) return;
+    if (!e || isEnded(e.task)) return false;
     e.abort?.abort();
     this.update(e, { state: "stopped", endedAt: this.now() });
-    this.pump();
+    return true;
   }
 
   /** Every task that matches (a manager's answer's, a chat's) stopped. */
   stopWhere(match: (t: StudioTask) => boolean) {
-    for (const e of [...this.entries.values()]) if (match(e.task) && !isEnded(e.task)) this.stop(e.task.id);
+    // All of them stopped first (a dependant among them is stopped, not failed), then what can start starts.
+    let any = false;
+    for (const e of [...this.entries.values()]) if (match(e.task)) any = this.halt(e.task.id) || any;
+    if (any) this.pump();
   }
 
   /** The limits changed (the settings' At once): what can start now starts. */
