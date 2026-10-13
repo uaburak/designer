@@ -6,7 +6,7 @@
  * The backend is the editor view's preload (`window.designer.agents`); in a browser it is `window.__designerAgents`
  * when a page provides one (the editor shots' stand-in), else none — the panel then says agents need the desktop app.
  */
-import type { AgentSettings, AgentsApi, ChatEvent, ChatTurnMessage, McpClientInfo, McpState, ProviderInfo, TokenUsage, TurnEvent, UsageInfo } from "@shared/agents/types";
+import type { AgentSettings, AgentsApi, ChatEvent, ChatTurnMessage, McpClientInfo, McpState, ProviderInfo, TokenUsage, TurnEvent, TurnRequest, UsageInfo } from "@shared/agents/types";
 import { MAX_ATTACHMENTS, type Attachment, type AttachResult } from "@shared/agents/attachments";
 import { currentOf, type ResolvedModels } from "./models";
 import { addTokens } from "./usage";
@@ -200,7 +200,7 @@ export interface StudioDeps {
   runImage: typeof runStudioImage;
   blur: typeof blurRegions;
   imageRoutes(): Promise<ImageRouteInfo[]>;
-  record(e: { action: "agent" | "make-image" | "edit-image"; providerId: string; model?: string; input: number; output: number; images: number; credits: number; local: boolean; ok: boolean }, fileKey: string | null): void;
+  record(e: { action: "agent"; providerId: string; model?: string; input: number; output: number; images: number; credits: number; local: boolean; ok: boolean }, fileKey: string | null): void;
 }
 
 const studioDefaults = (): StudioDeps => ({
@@ -363,6 +363,9 @@ export class AgentsService implements AgentSetupHost {
   }
 
   dispose() {
+    // The file closes: its tasks stop, the cards stop waiting.
+    this.queue.stopWhere(() => true);
+    for (const id of [...this.waits.keys()]) this.settleCard(id, { cancelled: true });
     this.offs.forEach((off) => off());
     this.turns.dispose();
     this.placeholders.dispose();
@@ -410,7 +413,12 @@ export class AgentsService implements AgentSetupHost {
       const raw = localStorage.getItem(this.storageKey);
       const chats = raw ? (JSON.parse(raw) as Chat[]) : [];
       // A turn that was running when the file closed is over.
-      return chats.map((c) => ({ ...c, messages: c.messages.map((m) => (m.state === "running" ? { ...m, state: "stopped" as const, parts: m.parts && withoutCancelled(turnOver(m.parts, true)) } : m.parts ? { ...m, parts: withoutCancelled(m.parts) } : m)) }));
+      return chats.map((c) => ({
+        ...c,
+        messages: c.messages.map((m) => (m.state === "running" ? { ...m, state: "stopped" as const, parts: m.parts && withoutCancelled(turnOver(m.parts, true)) } : m.parts ? { ...m, parts: withoutCancelled(m.parts) } : m)),
+        // Tasks running when the file closed are over too (docs/studio.md §2.3).
+        ...(c.tasks ? { tasks: c.tasks.map(stoppedTask) } : {}),
+      }));
     } catch {
       return [];
     }
@@ -469,6 +477,7 @@ export class AgentsService implements AgentSetupHost {
   }
 
   deleteChat(id: string) {
+    this.queue.stopWhere((t) => t.chatId === id);
     // Its turns' histories go with it (their changes stay in the file).
     for (const m of this.state.chats.find((c) => c.id === id)?.messages ?? []) if (m.turnId) this.turns.forget(m.turnId);
     this.set({ chats: this.state.chats.filter((c) => c.id !== id), current: this.state.current === id ? null : this.state.current });
@@ -478,6 +487,7 @@ export class AgentsService implements AgentSetupHost {
   /** Every chat of this file (not a running one's turn: those are stopped first). */
   deleteAllChats() {
     for (const id of Object.keys(this.state.running)) this.stop(id);
+    this.queue.stopWhere(() => true);
     this.set({ chats: [], current: null, view: "chat" });
     this.save();
   }
@@ -635,7 +645,9 @@ export class AgentsService implements AgentSetupHost {
     const invoked = invokedSkill(text, skills);
     const enabled = skills.filter((s) => s.enabled).map((s) => ({ name: s.name, description: s.description }));
     if ((!text && !files.length) || !this.api) return;
-    const provider = this.activeProvider();
+    // With the manager on, every message is the manager's turn (docs/studio.md §2.2).
+    const manager = this.managerProvider();
+    const provider = manager ?? this.activeProvider();
     let chat = this.currentChat();
     if (!chat) {
       // The id its attachments were copied under.
@@ -647,9 +659,9 @@ export class AgentsService implements AgentSetupHost {
     const chatId = chat.id;
     if (this.state.running[chatId]) return;
     const user: ChatMessage = { id: uid(), role: "user", text, context, ...(files.length ? { attachments: files } : {}), ...(invoked ? { skill: invoked.skill.name } : {}) };
-    const answer: ChatMessage = { id: uid(), role: "assistant", parts: [], state: "running", startedAt: Date.now(), provider: provider?.label };
+    const answer: ChatMessage = { id: uid(), role: "assistant", parts: [], state: "running", startedAt: Date.now(), provider: manager ? "Manager" : provider?.label, ...(manager ? { manager: true } : {}) };
     // A picture asked for: where it will land, in the chat and on the canvas, from now on (over the selected layer it fills).
-    if (provider && asksForImage(text)) {
+    if (provider && !manager && asksForImage(text)) {
       const target = placeholderTarget({ ...this.placeholderEnv(), selection: (context ?? []).map((c) => c.id) });
       this.placeholders.start(answer.id, target);
       answer.parts = [{ kind: "image", id: `image:asked:${answer.id}`, state: "generating", aspect: targetAspect(target), asked: true, ...(target?.nodeId ? { fill: true } : {}) }];
@@ -663,29 +675,36 @@ export class AgentsService implements AgentSetupHost {
     const page = this.ed.store.page;
     const pageName = page ? (this.ed.engine.readNode(page, { fields: ["name"] })?.name ?? "") : "";
     try {
-      const model = this.modelOf(provider);
-      const effort = this.effortOf(provider);
+      const route = this.managerSettings().manager;
+      const model = manager ? (route.model ?? this.modelOf(provider)) : this.modelOf(provider);
+      const effort = manager ? (route.effort && provider.efforts?.includes(route.effort) ? route.effort : this.effortOf(provider)) : this.effortOf(provider);
+      const sessionKey = manager ? `manager:${provider.id}` : provider.id;
+      const resume = sessionOf(chat, sessionKey);
+      const said = (invoked ? invoked.prompt || `Run the Skill /${invoked.skill.name}.` : text) || (files.length === 1 ? "Look at the attached file." : "Look at the attached files.");
       const { turnId } = await this.api.turn({
         chatId,
         providerId: provider.id,
         model,
         ...(effort ? { effort } : {}),
-        prompt: (invoked ? invoked.prompt || `Run the Skill /${invoked.skill.name}.` : text) || (files.length === 1 ? "Look at the attached file." : "Look at the attached files."),
+        // The manager's instructions open its turn (its own session keeps them: a reminder after the first).
+        prompt: manager ? `${resume ? managerReminder(this.managerContext(chat)) : managerPrompt(this.managerContext(chat))}\n\n${said}` : said,
+        ...(manager ? { role: "manager" as const, managerTools: [...MANAGER_TOOLS, ...LIBRARY_TOOLS].map(managerDef) } : {}),
         ...(invoked ? { skill: { name: invoked.skill.name, instructions: invoked.skill.instructions } } : {}),
         ...(enabled.length ? { skills: enabled } : {}),
         ...(chat.connectors?.length ? { connectors: chat.connectors } : {}),
         history,
-        resume: sessionOf(chat, provider.id),
+        resume,
         context: { fileName: this.ed.ui.get().fileName, pageName, selection: context ?? [] },
         ...(files.length ? { attachments: files.map((f) => ({ path: f.path, name: f.name, mime: f.mime })) } : {}),
       });
       this.placeholders.rekey(answer.id, turnId);
       this.turns.start(turnId, provider.label);
       this.noteTurnStart(turnId);
-      this.turnTarget.set(turnId, { chat: chatId, message: answer.id, providerId: provider.id, providerLabel: provider.label, prompt: text || files.map((f) => f.name).join(", "), model });
+      this.turnTarget.set(turnId, { chat: chatId, message: answer.id, providerId: provider.id, providerLabel: provider.label, prompt: text || files.map((f) => f.name).join(", "), model, ...(manager ? { role: "manager" as const, sessionKey } : {}) });
+      if (manager) this.managerAborts.set(turnId, new AbortController());
       this.set({ running: { ...this.state.running, [chatId]: turnId } });
       this.updateMessage(chatId, answer.id, (m) => ({ ...m, turnId }));
-      if (chat.providerId !== provider.id) this.updateChat(chatId, (c) => ({ ...c, providerId: provider.id, model: this.modelOf(provider) }));
+      if (!manager && chat.providerId !== provider.id) this.updateChat(chatId, (c) => ({ ...c, providerId: provider.id, model: this.modelOf(provider) }));
     } catch (err) {
       this.placeholders.end(answer.id);
       this.updateMessage(chatId, answer.id, (m) => ({ ...m, state: "error", error: err instanceof Error ? err.message : String(err), parts: turnOver(m.parts ?? [], false) }));
@@ -734,16 +753,19 @@ export class AgentsService implements AgentSetupHost {
 
   stop(chatId: string) {
     const turnId = this.state.running[chatId];
+    if (turnId && this.turnTarget.get(turnId)?.role === "manager") this.endManager(turnId, true);
     if (turnId && this.api) void this.api.stop(turnId);
   }
 
   private onEvent({ turnId, event }: TurnEvent) {
+    const worker = this.workers.get(turnId);
+    if (worker) return this.onWorkerEvent(turnId, worker, event);
     const target = this.turnTarget.get(turnId);
     if (!target) return;
     const { chat, message } = target;
     if (event.type === "session") {
       // Valid up to the end of this turn (finish() sets upTo); another agent's turn after it makes it stale.
-      this.updateChat(chat, (c) => ({ ...c, sessions: { ...c.sessions, [target.providerId]: { id: event.resume, upTo: -1 } } }));
+      this.updateChat(chat, (c) => ({ ...c, sessions: { ...c.sessions, [target.sessionKey ?? target.providerId]: { id: event.resume, upTo: -1 } } }));
       if (event.model) this.resolve(target.providerId, target.model, event.model);
       return;
     }
@@ -777,6 +799,8 @@ export class AgentsService implements AgentSetupHost {
     const target = this.turnTarget.get(turnId);
     if (!target) return;
     const record = this.turns.finish(turnId);
+    // A manager's turn over: its cards stop waiting; stopped, its tasks stop too (docs/studio.md §2.3).
+    if (target.role === "manager") this.endManager(turnId, !!event.stopped);
     this.applyRequestedSelection(turnId);
     this.placeholders.end(turnId);
     const touched = this.touched.get(turnId)?.size ?? 0;
@@ -785,8 +809,9 @@ export class AgentsService implements AgentSetupHost {
     this.set({ running, consents: this.state.consents.filter((c) => c.turnId !== turnId) });
     this.recordUsage(target);
     this.updateChat(target.chat, (c) => {
-      const own = c.sessions?.[target.providerId];
-      return own ? { ...c, sessions: { ...c.sessions, [target.providerId]: { ...own, upTo: c.messages.length } } } : c;
+      const key = target.sessionKey ?? target.providerId;
+      const own = c.sessions?.[key];
+      return own ? { ...c, sessions: { ...c.sessions, [key]: { ...own, upTo: c.messages.length } } } : c;
     });
     this.updateMessage(target.chat, target.message, (m) => ({
       ...m,
@@ -818,6 +843,239 @@ export class AgentsService implements AgentSetupHost {
     const target = this.turnTarget.get(t.id);
     if (!target || t.state === "running") return;
     this.updateMessage(target.chat, target.message, (m) => (m.changes ? { ...m, changes: { ...m.changes, state: t.state, overwritten: t.overwritten.length || undefined } } : m));
+  }
+
+  // ---- The manager (docs/studio.md §2) ----
+
+  /** Agent settings › Manager (main's; its defaults until main says). */
+  managerSettings(): ManagerSettings {
+    return this.state.settings.manager ?? DEFAULT_MANAGER_SETTINGS;
+  }
+
+  /** The manager's agent when the manager is on and that agent can run; null: messages go to the picked agent. */
+  managerProvider(): ProviderInfo | null {
+    const m = this.managerSettings();
+    if (!m.enabled) return null;
+    return this.usable().find((p) => p.id === m.manager.providerId) ?? null;
+  }
+
+  /** Agent settings › Manager changed: kept by main; the queue's limits follow. */
+  async setManager(patch: Partial<ManagerSettings>) {
+    const next = { ...this.managerSettings(), ...patch };
+    this.set({ settings: { ...this.state.settings, manager: next } });
+    this.queue.refresh();
+    if (!this.api) return;
+    const settings = await this.api.setSettings({ manager: next });
+    this.set({ settings });
+    this.queue.refresh();
+  }
+
+  /** What the manager's instructions say about this chat: the settings, the agents it may use, the image model, its briefs. */
+  private managerContext(chat: Chat) {
+    const settings = this.managerSettings();
+    const agents = this.usable().filter((p) => !settings.allowed.length || settings.allowed.includes(p.id));
+    return { settings, agents: agents.map((p) => ({ id: p.id, label: p.label, models: p.models })), imageRoute: chat.imageRoute ?? settings.image, briefs: (chat.briefs ?? []).map((b) => ({ id: b.id, request: b.request })) };
+  }
+
+  /** A manager's turn ended (or was stopped): its cards stop waiting; stopped, its tasks stop. */
+  private endManager(turnId: string, stopped: boolean) {
+    const target = this.turnTarget.get(turnId);
+    this.managerAborts.get(turnId)?.abort();
+    this.managerAborts.delete(turnId);
+    for (const [id, w] of [...this.waits]) if (w.turnId === turnId) this.settleCard(id, { cancelled: true });
+    if (stopped && target) this.queue.stopWhere((t) => t.chatId === target.chat && t.messageId === target.message);
+  }
+
+  /** The environment of a manager's tool call: its chat and answer, the queue, the cards, the library, the images. */
+  managerEnv(turnId: string, target: { chat: string; message: string }): ManagerEnv {
+    const abort = this.managerAborts.get(turnId) ?? new AbortController();
+    this.managerAborts.set(turnId, abort);
+    const chatId = target.chat;
+    return {
+      chatId,
+      messageId: target.message,
+      signal: abort.signal,
+      settings: () => this.managerSettings(),
+      providers: () => this.state.providers,
+      queue: this.queue,
+      data: () => this.state.chats.find((c) => c.id === chatId) ?? {},
+      setData: (fn) => this.updateChat(chatId, (c) => ({ ...c, ...fn(c) })),
+      ask: (card) => this.ask(chatId, target.message, turnId, card),
+      noteTask: (taskId, extra) => this.patchTask(chatId, taskId, (t) => ({ ...t, ...extra })),
+      runWorker: (task, prompt, signal, attachments) => this.runWorker(task, prompt, signal, attachments),
+      brands: this.studio.brands(),
+      library: (name, args) => this.studio.library(this.ed, name, args),
+      runImage: (req, signal) => this.studio.runImage(this.ed, req, signal),
+      blur: (nodeId, boxes) => this.studio.blur(this.ed, nodeId, boxes),
+      imageRoutes: () => this.studio.imageRoutes(),
+      attach: async (files) => {
+        if (!this.api) return [];
+        const r = await this.api.attach(chatId, files);
+        return r.attachments.map((a) => ({ path: a.path, name: a.name, mime: a.mime }));
+      },
+      tool: (name, args) => this.runWhenIdle(this.studioToolEnv(), name, args),
+      page: () => this.ed.store.page,
+      read: (id) => this.readBox(id),
+      pictureOf: (id) => this.pictureOf(id),
+    };
+  }
+
+  private fileKey(): string | null {
+    return (this.ed.source as { fileKey?: string }).fileKey ?? null;
+  }
+
+  /** The studio's own canvas writes (a picture into its frame): each one step of the owner's history (⌘Z). */
+  private studioToolEnv(): ToolEnv {
+    return { ed: this.ed, write: <T>(label: string, fn: () => T, refs?: readonly Guid[]) => this.turns.writeAction(`Studio: ${label}`, fn, refs) };
+  }
+
+  /** A layer's name, type, place, size and children (make_posts' frames, their Picture layer). */
+  private readBox(id: string) {
+    const n = this.ed.engine.readNode(id, { childIds: true, fields: ["name", "type", "size", "transform"] });
+    if (!n) return null;
+    return { name: n.name ?? "", type: String(this.ed.withRealType(n).type), x: n.transform?.m02 ?? 0, y: n.transform?.m12 ?? 0, width: n.size?.x ?? 0, height: n.size?.y ?? 0, children: (n.childIds ?? []) as string[] };
+  }
+
+  /** The picture filling a layer, as base64 (Fix label edits it). */
+  private async pictureOf(id: string): Promise<string | null> {
+    const n = this.ed.engine.readNode(id, { fields: ["fillPaints"] });
+    const paints = (n?.fillPaints ?? []) as Parameters<typeof paintImageHash>[0][];
+    const hash = paints.map((p) => paintImageHash(p)).find((h): h is string => !!h);
+    const bytes = hash ? await this.ed.images.bytes(hash) : null;
+    return bytes ? toBase64(bytes) : null;
+  }
+
+  /** A layer's size (the review card scales its problems' boxes to the thumbnail). */
+  frameSize(nodeId: string): { width: number; height: number } | null {
+    const n = this.ed.engine.readNode(nodeId, { fields: ["size"] });
+    return n?.size ? { width: n.size.x, height: n.size.y } : null;
+  }
+
+  /** A frame's thumbnail for the review card (a PNG data URL), read once. */
+  thumbnail(nodeId: string): Promise<string | null> {
+    let p = this.thumbs.get(nodeId);
+    if (!p) {
+      p = runTool({ ed: this.ed, write: () => { throw new Error("read-only"); } }, "get_screenshot", { nodeId, maxSize: 480 }).then((r) => {
+        const img = r.content.find((c) => c.type === "image");
+        return img && img.type === "image" ? `data:${img.mimeType};base64,${img.data}` : null;
+      }, () => null);
+      this.thumbs.set(nodeId, p);
+    }
+    return p;
+  }
+
+  // ---- Cards that wait for the owner ----
+
+  private ask(chatId: string, messageId: string, turnId: string, card: ViewCard): Promise<CardAnswer> {
+    this.updateMessage(chatId, messageId, (m) => ({ ...m, cards: [...(m.cards ?? []), card] }));
+    return new Promise((resolve) => this.waits.set(card.id, { chat: chatId, message: messageId, turnId, resolve }));
+  }
+
+  /** A card still waiting for its answer (one kept from before the file closed isn't). */
+  cardOpen(cardId: string): boolean {
+    return this.waits.has(cardId);
+  }
+
+  /** The owner answered a card: it shows the answer, the manager's tool call gets it. */
+  answerCard(cardId: string, answer: CardAnswer) {
+    this.settleCard(cardId, answer);
+  }
+
+  private settleCard(cardId: string, answer: CardAnswer) {
+    const w = this.waits.get(cardId);
+    if (!w) return;
+    this.waits.delete(cardId);
+    this.updateMessage(w.chat, w.message, (m) => ({ ...m, cards: (m.cards ?? []).map((c) => (c.id === cardId ? ({ ...c, answer } as ViewCard) : c)) }));
+    w.resolve(answer);
+  }
+
+  // ---- Tasks ----
+
+  /** The chat's tasks of a manager's answer (its task cards). */
+  tasksOf(chat: Chat, messageId: string): ChatTask[] {
+    return (chat.tasks ?? []).filter((t) => t.messageId === messageId);
+  }
+
+  stopTask(taskId: string) {
+    this.queue.stop(taskId);
+  }
+
+  private taskChanged(t: StudioTask) {
+    this.updateChat(t.chatId, (c) => {
+      const list = c.tasks ?? [];
+      const i = list.findIndex((x) => x.id === t.id);
+      return { ...c, tasks: i < 0 ? [...list, t] : list.map((x, j) => (j === i ? { ...x, ...t } : x)) };
+    });
+  }
+
+  private patchTask(chatId: string, taskId: string, fn: (t: ChatTask) => ChatTask) {
+    this.updateChat(chatId, (c) => ({ ...c, tasks: (c.tasks ?? []).map((t) => (t.id === taskId ? fn(t) : t)) }));
+  }
+
+  /**
+   * An agent task as a worker's turn (docs/studio.md §2.2): its own CLI process or server call, folder, actor and undo
+   * step; `role: "worker"`, so main lists no manager tool for it. Resolves with its last answer; Stop stops the turn.
+   */
+  private runWorker(task: StudioTask, prompt: string, signal: AbortSignal, attachments?: { path: string; name: string; mime: string }[]): Promise<TaskResult> {
+    const api = this.api;
+    if (!api) return Promise.reject(new Error("Agents run in the desktop app."));
+    const p = this.state.providers.find((x) => x.id === task.route.providerId && x.available);
+    if (!p) return Promise.reject(new Error(`${task.route.providerId} isn't connected.`));
+    const model = task.route.model ?? this.state.settings.models[p.id] ?? p.models[0];
+    const effort = task.route.effort && p.efforts?.includes(task.route.effort) ? task.route.effort : undefined;
+    const page = this.ed.store.page;
+    const pageName = page ? (this.ed.engine.readNode(page, { fields: ["name"] })?.name ?? "") : "";
+    return new Promise<TaskResult>((resolve, reject) => {
+      let turnId: string | null = null;
+      const onAbort = () => {
+        if (turnId) void api.stop(turnId);
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      const end = (log: WorkerLog, stopped: boolean) => {
+        signal.removeEventListener("abort", onAbort);
+        if (signal.aborted || stopped) return reject(new Error("Stopped"));
+        if (log.state === "error") return reject(new Error(log.error ?? `${p.label} failed.`));
+        const said = log.parts.filter((x): x is Extract<MessagePart, { kind: "text" }> => x.kind === "text").map((x) => x.text).join("").trim();
+        const touched = turnId ? [...(this.touched.get(turnId) ?? [])] : [];
+        resolve({ summary: said.slice(-300) || "Done", ...(touched.length ? { nodeIds: touched.slice(0, 50) } : {}), ...(log.usage ? { credits: creditsFor("agent", log.usage) } : {}) });
+      };
+      api
+        .turn({ chatId: task.chatId, providerId: p.id, model, ...(effort ? { effort } : {}), prompt, history: [], context: { fileName: this.ed.ui.get().fileName, pageName, selection: [] }, role: "worker", ...(attachments?.length ? { attachments: attachments as TurnRequest["attachments"] } : {}) })
+        .then(({ turnId: id }) => {
+          turnId = id;
+          this.turns.start(id, p.label);
+          this.workers.set(id, { chat: task.chatId, taskId: task.id, providerId: p.id, model, end });
+          this.patchTask(task.chatId, task.id, (t) => ({ ...t, worker: { parts: [], state: "running", turnId: id, provider: p.label } }));
+          if (signal.aborted) void api.stop(id);
+        }, reject);
+    });
+  }
+
+  private onWorkerEvent(turnId: string, w: { chat: string; taskId: string; providerId: string; model?: string; end: (log: WorkerLog, stopped: boolean) => void }, event: ChatEvent) {
+    const log = (): WorkerLog => this.state.chats.find((c) => c.id === w.chat)?.tasks?.find((t) => t.id === w.taskId)?.worker ?? { parts: [], state: "running" };
+    const patch = (fn: (l: WorkerLog) => WorkerLog) => this.patchTask(w.chat, w.taskId, (t) => ({ ...t, worker: fn(t.worker ?? { parts: [], state: "running" }) }));
+    if (event.type === "session") return;
+    if (event.type === "usage") return patch((l) => ({ ...l, usage: addTokens(l.usage, event.usage) }));
+    if (event.type === "limits") {
+      const next: UsageInfo = { providerId: w.providerId, windows: event.windows, at: Date.now() };
+      return this.set({ usage: { ...this.state.usage, [w.providerId]: mergeUsage(this.state.usage[w.providerId], next) } });
+    }
+    if (event.type === "done") {
+      this.workers.delete(turnId);
+      this.turns.finish(turnId);
+      this.turnStarts.delete(turnId);
+      patch((l) => ({ ...l, state: l.state === "error" ? "error" : event.stopped ? "stopped" : "done", parts: turnOver(l.parts, !!event.stopped) }));
+      const done = log();
+      const u = done.usage;
+      // In the ledger like any agent turn (docs/studio.md §2.3).
+      if (u && (u.input || u.output)) this.studio.record({ action: "agent", providerId: w.providerId, model: w.model, input: u.input, output: u.output, images: 0, credits: creditsFor("agent", u), local: false, ok: done.state !== "error" }, this.fileKey());
+      w.end(done, !!event.stopped);
+      return;
+    }
+    patch((l) => {
+      const m = applyEvent({ id: "", role: "assistant", parts: l.parts, state: "running", ...(l.error ? { error: l.error } : {}) }, event);
+      return { ...l, ...(m.parts ? { parts: m.parts } : {}), ...(m.state === "error" ? { state: "error" as const, error: m.error } : {}) };
+    });
   }
 
   undoTurn(turnId: string) {
@@ -983,4 +1241,16 @@ export function attachAgents(ed: EditorController): () => void {
     s.dispose();
     services.delete(ed);
   };
+}
+
+/** A task kept from before the file closed: running or queued, it is over (stopped), its worker's log too. */
+function stoppedTask(t: ChatTask): ChatTask {
+  if (isEnded(t)) return t;
+  return { ...t, state: "stopped", endedAt: t.endedAt ?? Date.now(), ...(t.worker && t.worker.state === "running" ? { worker: { ...t.worker, state: "stopped", parts: turnOver(t.worker.parts, true) } } : {}) };
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
 }

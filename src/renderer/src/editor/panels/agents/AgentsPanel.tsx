@@ -22,6 +22,7 @@ import { elapsedLabel, segmentsOf, toolActiveLabel, type Segment, type ToolPart 
 import { REVEAL_MS } from "../../agents/imagePlaceholder";
 import { TabHeader } from "../TabHeader";
 import { AgentSettings } from "./AgentSettings";
+import { ManagerCard, TaskCard } from "./StudioCards";
 import styles from "./Agents.module.css";
 
 function useAgents(): [AgentsService, ReturnType<AgentsService["get"]>] {
@@ -281,10 +282,24 @@ function AgentMessage({ m, service }: { m: ChatMessage; service: AgentsService }
     <div className={styles.agent} data-message="assistant" data-state={m.state}>
       {m.provider && <span className={styles.agentName}>{m.provider}</span>}
       {segments.map((s) => (s.kind === "text" ? <div key={s.key} className={styles.agentText} data-agent-text="">{renderText(s.text)}</div> : <StepGroup key={s.key} seg={s} since={m.startedAt} />))}
+      {m.cards?.map((c) => <ManagerCard key={c.id} card={c} service={service} />)}
+      {m.manager && <ManagerTasks messageId={m.id} service={service} />}
       {m.error && <div className={styles.error} role="alert">{m.error}</div>}
       {m.state === "stopped" && <div className={styles.stopped}>Stopped</div>}
       {m.changes && m.turnId && <Changes turnId={m.turnId} changes={m.changes} service={service} />}
       {m.usage && m.state !== "running" && <Credits usage={m.usage} />}
+    </div>
+  );
+}
+
+/** The tasks a manager's answer started (docs/studio.md §2.3), one card each. */
+function ManagerTasks({ messageId, service }: { messageId: string; service: AgentsService }) {
+  const chat = service.currentChat();
+  const tasks = chat ? service.tasksOf(chat, messageId) : [];
+  if (!tasks.length) return null;
+  return (
+    <div className={styles.tasks} data-tasks="">
+      {tasks.map((t) => <TaskCard key={t.id} task={t} service={service} />)}
     </div>
   );
 }
@@ -781,7 +796,11 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
         </MenuButton>
         </span>
         <span className={styles.barGap} />
-        {provider ? (
+        {service.managerProvider() ? (
+          <button type="button" className={styles.noProvider} {...tooltipProps("Messages go to the manager (Agent settings › Manager)")} onClick={() => { service.setView("settings"); service.openSetting("manager"); }} data-manager-chip="">
+            Manager
+          </button>
+        ) : provider ? (
           <ModelMenus service={service} provider={provider} />
         ) : (
           <button type="button" className={styles.noProvider} onClick={() => service.setView("settings")}>

@@ -11,10 +11,13 @@ import type { ProviderInfo } from "@shared/agents/types";
 import type { AiRoute, ImageRouteInfo } from "@shared/ai/types";
 import { DEFAULT_FORMATS, IMAGE_TASKS_AT_ONCE, type AgentRoute, type Brand, type BrandsRepository, type ChatCard, type ImagePrompt, type ManagerSettings, type Product, type ProblemKind, type ReviewItem, type ReviewProblem, type ReviewReport, type SocialFormat, type StudioBrief, type StudioTask, type TaskKind } from "@shared/studio/types";
 import { missingFor } from "@shared/studio/library";
-import { buildFixLabelPrompt, buildImagePrompt } from "@shared/studio/prompt";
+import { buildFixLabelPrompt, buildImagePrompt, nearestAspectRatio } from "@shared/studio/prompt";
 import { LIBRARY_TOOLS } from "../studio/libraryTools";
 import type { StudioImage, StudioImageRequest } from "../studio/images";
 import type { TaskQueue, TaskResult, TaskRun } from "./tasks";
+import { imageRouteOptions, routeOfOption } from "./imageRoutes";
+
+export { imageRouteOptions, routeOfOption };
 
 /** A card in the chat: the shared shape, plus the choice options it greys out (an image route that can't run now). */
 export type ViewCard = ChatCard & { disabled?: string[] };
@@ -85,8 +88,6 @@ export interface ManagerEnv {
   read(id: string): { name: string; type: string; x: number; y: number; width: number; height: number; children: string[] } | null;
   /** The picture filling a layer, as base64 (Fix label edits it) */
   pictureOf(nodeId: string): Promise<string | null>;
-  /** The ledger (docs/ai.md §2.9): an image run */
-  record(e: { action: "make-image" | "edit-image"; providerId: string; model?: string; credits: number; ok: boolean }): void;
 }
 
 export const LIBRARY_TOOL_NAMES = (): Set<string> => new Set(LIBRARY_TOOLS.map((t) => t.name));
@@ -184,28 +185,6 @@ async function waitTasks(env: ManagerEnv, args: Record<string, unknown>): Promis
 }
 
 // ---- Cards --------------------------------------------------------------------------------------------------------------
-
-const ROUTE_SEP = "|";
-
-/** The image models as choice options (§2.4): a route's models each, a route without models once; unavailable greyed. */
-export function imageRouteOptions(routes: readonly ImageRouteInfo[]): { options: { id: string; label: string; detail?: string }[]; disabled: string[] } {
-  const options: { id: string; label: string; detail?: string }[] = [];
-  const disabled: string[] = [];
-  for (const r of routes) {
-    const models = r.models.length ? r.models : [{ id: "", label: r.label, detail: undefined }];
-    for (const m of models) {
-      const id = `${r.providerId}${ROUTE_SEP}${m.id}`;
-      options.push({ id, label: r.models.length ? `${r.label} › ${m.label}` : r.label, ...(!r.available ? { detail: r.reason ?? "Not available" } : m.detail ? { detail: m.detail } : {}) });
-      if (!r.available) disabled.push(id);
-    }
-  }
-  return { options, disabled };
-}
-
-export const routeOfOption = (id: string): AiRoute => {
-  const [providerId, model] = id.split(ROUTE_SEP);
-  return { providerId, ...(model ? { model } : {}) };
-};
 
 /** The chat's image model: kept for the chat, else the settings', else the choice card (and kept when the owner says so). */
 async function imageRouteFor(env: ManagerEnv): Promise<AiRoute | null> {
@@ -353,25 +332,18 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(s);
 }
 
-/** An image run with the prompt's references read from the library; recorded in the ledger. */
+/** An image run with the prompt's references read from the library (runStudioImage records it in the ledger itself). */
 async function runPicture(env: ManagerEnv, route: AiRoute, p: ImagePrompt, size: { width: number; height: number }, signal: AbortSignal, image?: string): Promise<StudioImage> {
   const references = await Promise.all(p.references.map(async (r) => ({ data: (await env.brands.image(r.brandId, r.imageId)).data, role: r.role })));
-  const action = image ? "edit-image" : "make-image";
-  try {
-    const out = await env.runImage({ route, prompt: p.prompt, references, aspectRatio: p.aspectRatio, size, ...(image ? { image } : {}) }, signal);
-    env.record({ action, providerId: route.providerId, model: route.model, credits: out.credits, ok: true });
-    return out;
-  } catch (err) {
-    if (!signal.aborted) env.record({ action, providerId: route.providerId, model: route.model, credits: 0, ok: false });
-    throw err;
-  }
+  return env.runImage({ route, prompt: p.prompt, references, aspectRatio: p.aspectRatio, size, ...(image ? { image } : {}) }, signal);
 }
 
 const imageTaskRoute = (r: AiRoute): AgentRoute => ({ providerId: r.providerId, ...(r.model ? { model: r.model } : {}) });
 
 /** The brand's first logo as a file in the chat's folder, for the frame workers (none: they write a wordmark). */
 async function logoFile(env: ManagerEnv, brand: Brand): Promise<{ path: string; name: string; mime: string } | undefined> {
-  const logo = brand.logos[0];
+  // Logos and style pictures share Brand.logos: the role tells them apart.
+  const logo = brand.logos.find((l) => l.role === "logo");
   if (!logo || brand.libraryFileKey) return undefined;
   try {
     const { data, mime } = await env.brands.image(brand.id, logo.id);
@@ -609,8 +581,10 @@ export async function dispatchFixes(env: ManagerEnv, report: ReviewReport, picke
       const wrong = [...regenerate, ...fixLabel].map((x) => x.detail).join("; ");
       replace(`Picture again: ${name}`, "make-image", { ...p, prompt: `${p.prompt}\n\nThe last picture went wrong: ${wrong}. Make sure that doesn't happen again.` }, { width: format.width, height: format.height });
     } else if (fixLabel.length) {
-      const p = buildFixLabelPrompt(brand!, products, fixLabel);
-      replace(`Fix label: ${name}`, "edit-image", p, { width: frame?.width ?? 1080, height: frame?.height ?? 1080 });
+      const size = { width: frame?.width ?? 1080, height: frame?.height ?? 1080 };
+      // The prompt doesn't know the picture's size: the edit keeps the frame's own ratio.
+      const p = { ...buildFixLabelPrompt(brand!, products, fixLabel), aspectRatio: nearestAspectRatio(size.width, size.height) };
+      replace(`Fix label: ${name}`, "edit-image", p, size);
     }
     if (blur.length && !regenerate.length) {
       const pic = await pictureLayer(env, item.nodeId);

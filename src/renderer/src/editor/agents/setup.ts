@@ -5,6 +5,7 @@
  * No editor or engine import: Home's bundle takes this file.
  */
 import type { AgentSettings, AgentSetupApi, McpClientInfo, McpState, ProviderInfo } from "@shared/agents/types";
+import { DEFAULT_MANAGER_SETTINGS, type ManagerSettings } from "@shared/studio/types";
 
 export interface AgentSetupState {
   /** The open page: null for the list, else an item ("provider:antigravity", "add-server", "mcp", "client:cursor") */
@@ -28,6 +29,9 @@ export interface AgentSetupHost {
   choose(providerId: string, model?: string): Promise<void>;
   /** The list's Back (the Agents tab: to its chats); absent where the list is the page (Settings › Agents) */
   leaveSettings?(): void;
+  /** Agent settings › Manager (docs/studio.md §2.1) */
+  managerSettings(): ManagerSettings;
+  setManager(patch: Partial<ManagerSettings>): Promise<void>;
 }
 
 const MODEL_LABEL: Record<string, string> = { default: "Default", auto: "Auto" };
@@ -90,5 +94,16 @@ export class AgentSetupService implements AgentSetupHost {
     if (!this.api) return;
     const settings = await this.api.setSettings({ providerId, ...(model ? { models: { [providerId]: model } } : {}) });
     this.set({ settings });
+  }
+
+  managerSettings(): ManagerSettings {
+    return this.state.settings.manager ?? DEFAULT_MANAGER_SETTINGS;
+  }
+
+  async setManager(patch: Partial<ManagerSettings>) {
+    const next = { ...this.managerSettings(), ...patch };
+    this.set({ settings: { ...this.state.settings, manager: next } });
+    if (!this.api) return;
+    this.set({ settings: await this.api.setSettings({ manager: next }) });
   }
 }

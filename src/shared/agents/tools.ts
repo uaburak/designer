@@ -469,7 +469,7 @@ export const MANAGER_TOOLS: ToolDef[] = [
 export const MANAGER_TOOL_NAMES: ReadonlySet<string> = new Set(MANAGER_TOOLS.map((t) => t.name));
 
 /** Tools that wait for the owner or for tasks: main gives them 30 minutes instead of 120 s (docs/studio.md §2.2). */
-export const WAITING_TOOLS: ReadonlySet<string> = new Set(["wait_tasks", "ask_choice", "show_form", "report_review", "make_posts"]);
+export const WAITING_TOOLS: ReadonlySet<string> = new Set(["wait_tasks", "ask_choice", "show_form", "report_review", "make_posts", "library_read_labels"]);
 export const WAITING_TOOL_MS = 30 * 60_000;
 
 /** Tools main answers itself (never sent to the editor view): `get_skill` (docs/ai.md §2.10). */

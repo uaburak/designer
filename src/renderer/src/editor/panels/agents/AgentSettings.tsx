@@ -11,6 +11,7 @@ import { modelLabel, type AgentSetupHost } from "../../agents/setup";
 import styles from "./Agents.module.css";
 import { Block, Field, Group, Row, errorText } from "./settingsParts";
 import { ConnectorsGroup, SkillsGroup, aiSettingsPage } from "./aiSettings";
+import { ManagerPage, managerStatus } from "./ManagerSettings";
 
 const openExternal = (url: string) => {
   const d = (window as unknown as { designer?: { openExternal?: (u: string) => void } }).designer;
@@ -90,6 +91,9 @@ function SettingsList({ service }: { service: AgentSetupHost }) {
         action={state.providersLoading ? <span className={styles.barSpinner}><Spinner size={16} /></span> : <IconButton icon="24.reset.instance.small" label="Look again" tone="secondary" onClick={() => void service.refreshProviders()} />}
       />
       <div className={styles.scroll}>
+        <Group title="Studio">
+          <Row icon="24.agents" label="Manager" status={managerStatus(service)} on={service.managerSettings().enabled} onClick={() => service.openSetting("manager")} data-settings-row="manager" />
+        </Group>
         <Group title="On this computer">
           {state.providersLoading && !local.length && <div className={styles.rowNote}><Spinner size={16} /> Looking for agents…</div>}
           {local.map((p) => {
@@ -154,6 +158,9 @@ function SettingsPage({ service, item }: { service: AgentSetupHost; item: string
   } else if (kind === "add-server") {
     title = "Add a server";
     body = <AddServer service={service} />;
+  } else if (kind === "manager") {
+    title = "Manager";
+    body = <ManagerPage service={service} />;
   } else if (kind === "mcp") {
     title = "MCP server";
     body = <McpPage service={service} />;
