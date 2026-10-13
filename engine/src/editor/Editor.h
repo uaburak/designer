@@ -197,7 +197,9 @@ class Editor : private LayoutHost, public TextLayouts {
   // in its slot (the fig-import-fidelity branch's 2, merged with round 4's 1); 1 named every frame on the way. Older
   // snapshots' stored data is re-derived; their override paths and slot content are converted at load
   // (normalizeOverridePaths, adoptSlotContent).
-  static constexpr uint32_t kDerivedDataVersion = 3;
+  // 4 (2026-10-13): a Fill child held by its max (or min) is placed by its frame's counter alignment — 3 put it at the
+  // start, and files it laid out keep that geometry until their pages are laid out again.
+  static constexpr uint32_t kDerivedDataVersion = 4;
   // Figma's own derived data, kept by a .fig import (src/shared/fig/convert.ts FIGMA_DERIVED_DATA_VERSION): the same
   // fields in the same shape, Figma's layout result. Read as this engine's own (a missing font's text draws Figma's
   // outlines, instances and auto layout open as Figma laid them out); never written.
