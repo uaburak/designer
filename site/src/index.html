@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!--#include head -->
+<title>Wecra: design, together, on your desktop</title>
+<meta name="description" content="Wecra is a design app for macOS and Windows: frames and auto layout, vectors, components and variables, prototypes, Dev Mode, libraries and AI." />
+<script type="module" src="/scripts/pages/home.ts"></script>
+</head>
+<body>
+<!--#include header -->
+<main id="main">
+  <section class="home-hero wrap">
+    <h1>Design, together.<br /><span class="gradient-text">On your desktop.</span></h1>
+    <p class="lede">Wecra is a design app for macOS and Windows. Frames and auto layout, vectors, components, prototypes and Dev Mode, with AI that runs on the tools you choose.</p>
+    <div class="dl-center"><!--#include download --></div>
+  </section>
+
+  <div class="wrap hero-stage">
+    <!--#include scenes/hero -->
+  </div>
+
+  <section class="wrap bands" aria-label="Highlights">
+    <div class="feature">
+      <div>
+        <span class="eyebrow">Vectors</span>
+        <h2>A pen that feels right.</h2>
+        <p>Click for corners, drag for curves. Vector networks, live booleans and every shape stays editable.</p>
+      </div>
+      <!--#include scenes/pen -->
+    </div>
+    <div class="feature flip">
+      <div>
+        <span class="eyebrow component">Components and variables</span>
+        <h2>Change it once.</h2>
+        <p>Edit the main component and every instance follows. Switch a variable mode and a whole frame goes from light to dark.</p>
+      </div>
+      <!--#include scenes/components -->
+    </div>
+    <div class="feature">
+      <div>
+        <span class="eyebrow">AI</span>
+        <h2>Images, made in place.</h2>
+        <p>Describe a picture and it appears in the selected layer. Remove its background or turn it into vectors without leaving the canvas.</p>
+      </div>
+      <!--#include scenes/ai-image -->
+    </div>
+    <p class="more"><a class="btn btn-secondary" href="/features/">See all features</a> <a class="btn btn-secondary" href="/ai/">AI and Studio</a></p>
+  </section>
+
+  <section class="wrap">
+    <div class="cta">
+      <img class="cta-logo" src="/logo-64.png" width="72" height="72" alt="" loading="lazy" />
+      <h2>Start designing.</h2>
+      <p>Your files live on your computer. Share one when you want to work on it together.</p>
+      <div class="dl-center"><!--#include download --></div>
+    </div>
+  </section>
+</main>
+<!--#include footer -->
+</body>
+</html>

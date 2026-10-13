@@ -1,0 +1,62 @@
+<div class="scene scene-wide" data-scene="components" role="img" aria-label="A main component's fill is changed and both of its instances follow; then a variable mode switches the frames to dark.">
+<svg viewBox="0 0 640 420" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="c-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d8ae9" /><stop offset=".55" stop-color="#6c5cf4" /><stop offset="1" stop-color="#9747ff" /></linearGradient>
+    <filter id="c-shadow" x="-20%" y="-40%" width="140%" height="200%"><feDropShadow dx="0" dy="2" stdDeviation="5" flood-color="#000" flood-opacity=".16" /></filter>
+    <g id="c-btn-base"><rect width="140" height="40" rx="10" fill="#1e1e1e" /></g>
+  </defs>
+  <g data-k="doc">
+    <!-- Main component -->
+    <use href="#i-component" x="52" y="160" width="20" height="20" class="icc" />
+    <text x="74" y="174" class="tx-strong cpt">Button</text>
+    <g transform="translate(56 186)">
+      <rect width="180" height="48" rx="12" fill="#1e1e1e" />
+      <rect data-k="mainNew" width="180" height="48" rx="12" fill="url(#c-grad)" />
+      <text x="90" y="29" text-anchor="middle" class="tx-m tx-strong tw">Get started</text>
+      <rect data-k="mainSel" x="-1" y="-1" width="182" height="50" fill="none" class="cps" stroke-width="1.5" />
+    </g>
+
+    <!-- Fill popover -->
+    <g data-k="pop" data-off>
+      <rect x="56" y="250" width="180" height="44" rx="10" class="bg" filter="url(#c-shadow)" />
+      <circle cx="82" cy="272" r="10" fill="#1e1e1e" /><circle cx="118" cy="272" r="10" fill="url(#c-grad)" />
+      <circle cx="154" cy="272" r="10" fill="#14ae5c" /><circle cx="190" cy="272" r="10" fill="#f24822" />
+      <g transform="translate(118 272)"><circle data-k="ring" r="13.5" fill="none" class="brs" stroke-width="2" /></g>
+    </g>
+
+    <!-- Variable mode -->
+    <text x="56" y="322" class="tx t2">Mode</text>
+    <rect x="56" y="330" width="180" height="32" rx="8" class="fd" />
+    <rect data-k="modeHi" x="148" y="333" width="85" height="26" rx="6" class="bg ln" />
+    <text x="101" y="350" text-anchor="middle" class="tx t1">Light</text>
+    <text x="190" y="350" text-anchor="middle" class="tx t1">Dark</text>
+
+    <!-- Frames with instances -->
+    <text x="300" y="56" class="tx t2">Sign up</text>
+    <g transform="translate(300 64)">
+      <rect width="284" height="136" fill="#fff" />
+      <rect x="20" y="22" width="120" height="12" rx="6" fill="#1e1e1e" /><rect x="20" y="46" width="208" height="8" rx="4" fill="#c9c9cf" /><rect x="20" y="62" width="160" height="8" rx="4" fill="#c9c9cf" />
+      <g data-k="darkA"><rect width="284" height="136" fill="#2c2c2c" /><rect x="20" y="22" width="120" height="12" rx="6" fill="#fff" /><rect x="20" y="46" width="208" height="8" rx="4" fill="#5c5c63" /><rect x="20" y="62" width="160" height="8" rx="4" fill="#5c5c63" /></g>
+      <g transform="translate(20 82)">
+        <use href="#c-btn-base" /><rect data-k="instA" width="140" height="40" rx="10" fill="url(#c-grad)" />
+        <text x="70" y="25" text-anchor="middle" class="tx-strong tw" font-size="12">Get started</text>
+        <rect data-k="rippleA" data-off x="-3" y="-3" width="146" height="46" rx="12" fill="none" class="cps" stroke-width="2" />
+      </g>
+    </g>
+    <text x="300" y="232" class="tx t2">Pricing</text>
+    <g transform="translate(300 240)">
+      <rect width="284" height="136" fill="#fff" />
+      <rect x="20" y="22" width="64" height="20" rx="6" fill="#1e1e1e" /><rect x="20" y="54" width="180" height="8" rx="4" fill="#c9c9cf" />
+      <g data-k="darkB"><rect width="284" height="136" fill="#2c2c2c" /><rect x="20" y="22" width="64" height="20" rx="6" fill="#fff" /><rect x="20" y="54" width="180" height="8" rx="4" fill="#5c5c63" /></g>
+      <g transform="translate(20 80)">
+        <use href="#c-btn-base" /><rect data-k="instB" width="140" height="40" rx="10" fill="url(#c-grad)" />
+        <text x="70" y="25" text-anchor="middle" class="tx-strong tw" font-size="12">Get started</text>
+        <rect data-k="rippleB" data-off x="-3" y="-3" width="146" height="46" rx="12" fill="none" class="cps" stroke-width="2" />
+      </g>
+    </g>
+  </g>
+  <g data-k="cur" style="transform: translate(200px, 352px)">
+    <use href="#i-cursor" x="-2.5" y="-2.2" width="20" height="22" fill="#1e1e1e" />
+  </g>
+</svg>
+</div>
