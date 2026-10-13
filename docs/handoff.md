@@ -2,6 +2,10 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-13 — opening big shared files
+
+The owner's B2C file (121k nodes, Message 82.6 MB raw, ~340 MB of images) opened far slower than Figma. Fixed on main: snapshots travel gzipped (`snapshotWire.ts`, ~12 MB; bare ones still read and repacked by the first editor who opens them), Home opens the tab at once and the editor shows Figma's loader while the document comes down (`openShared(…, {early: true})`, `MultiplayerEvent.opening`, `OpenLoader`), the copy is decoded once, and the load worker no longer converts each open to JSON. docs/multiplayer.md §4–5. **Every client must update** (1.1.1 can't read a packed snapshot): a release, and the server deploy for wecra.app. Also: a Fill child held by its max width is placed by its auto layout's counter alignment (was always at the start). Not done (measured small): the store reads the snapshot twice when a file's actor first loads; the REST runner's re-hello on every editor open; a view seat's `fileInfo` before the open.
+
 ## Status 2026-10-12 — Round 14 (Governance+) — READ THIS FIRST
 
 **Updates (2026-10-12):** the app updates itself (electron-updater over the GitHub releases of `uaburak/designer`; Developer ID + notarized; "Check for Updates…", the tab bar's "Restart to update") — docs/desktop.md §12.4, §12.6; release with `npm run release -- <version> [notes.md]`. The first release's DMG replaces the installed ad-hoc copy by hand once.
