@@ -1,0 +1,122 @@
+/* The animated scenes (scripts/anim): SVG drawn in the app's UI3 look. Colours come from the --ui-*
+   tokens so the scenes follow light and dark; what sits on a white design frame keeps fixed colours,
+   as frames do in the app. */
+
+.scene {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  background: var(--ui-canvas);
+  border: 1px solid var(--line);
+  isolation: isolate;
+}
+.scene > svg {
+  width: 100%;
+  height: auto;
+}
+.js .scene {
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+.js .scene.is-on {
+  opacity: 1;
+}
+/* If the page's script never runs, show the scenes' last frame anyway. */
+.js:not(.scenes-ready) .scene {
+  animation: scene-fallback 0.6s 2s forwards;
+}
+@keyframes scene-fallback {
+  to {
+    opacity: 1;
+  }
+}
+
+.scene-window {
+  border-radius: 14px;
+  background: var(--ui-bg);
+  box-shadow: var(--shadow-lg);
+}
+
+.scene [data-k] {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.scene .o0 {
+  transform-origin: 0 0;
+}
+.scene .ol {
+  transform-origin: left center;
+}
+.scene [data-off] {
+  opacity: 0;
+}
+
+/* Fills and strokes */
+.scene .bg { fill: var(--ui-bg); }
+.scene .cv { fill: var(--ui-canvas); }
+.scene .ch { fill: var(--ui-chrome); }
+.scene .fd { fill: var(--ui-field); }
+.scene .sel { fill: var(--ui-selected); }
+.scene .ln { stroke: var(--ui-line); }
+.scene .lnf { fill: var(--ui-line); }
+.scene .t1 { fill: var(--ui-text); }
+.scene .t2 { fill: var(--ui-text-2); }
+.scene .t3 { fill: var(--ui-text-3); }
+.scene .tw { fill: #fff; }
+.scene .br { fill: var(--brand); }
+.scene .brs { stroke: var(--brand); }
+.scene .brt { fill: var(--brand-text); }
+.scene .cp { fill: var(--component); }
+.scene .cps { stroke: var(--component); }
+.scene .cpt { fill: var(--component-text); }
+.scene .cpf { fill: var(--component); }
+.scene .ok { fill: var(--success); }
+.scene .oks { stroke: var(--success); }
+.scene .dg { fill: var(--danger); }
+.scene .dgs { stroke: var(--danger); }
+.scene .ink { fill: var(--ui-text); }
+.scene .ic1 { color: var(--ui-text); }
+.scene .ic2 { color: var(--ui-text-2); }
+.scene .icw { color: #fff; }
+.scene .icb { color: var(--brand); }
+.scene .icc { color: var(--component); }
+.scene .ico { color: var(--success); }
+.scene .nofill { fill: none; }
+
+/* On a design frame (always white, as in the app) */
+.scene .k-card { fill: #f1f1f4; }
+.scene .k-ink { fill: #1e1e1e; }
+.scene .k-mute { fill: #c9c9cf; }
+.scene .k-line { stroke: #e6e6e6; }
+
+/* Text */
+.scene text {
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 450;
+  letter-spacing: 0.005em;
+}
+.scene .tx-strong { font-weight: 600; }
+.scene .tx-s { font-size: 10px; }
+.scene .tx-m { font-size: 13px; }
+.scene .tx-l { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.scene .tx-xl { font-size: 22px; font-weight: 650; letter-spacing: -0.02em; }
+.scene .mono { font-family: var(--mono); font-size: 11px; }
+
+/* Shortcut chips: the keys being pressed */
+.scene .chip rect { fill: #1e1e1e; stroke: #ffffff2e; }
+.scene .chip text { fill: #fff; font-size: 12px; font-weight: 600; }
+
+/* Auto layout spacing, Figma's pink */
+.scene .gaps rect { fill: var(--spacing); fill-opacity: 0.16; }
+.scene .gaps path { stroke: var(--spacing); stroke-width: 1; }
+
+/* Dev Mode's measurements */
+.scene .red path { stroke: var(--danger); stroke-width: 1; }
+.scene .red rect { fill: var(--danger); }
+.scene .red text { fill: #fff; font-size: 10px; font-weight: 600; }
+
+/* Scenes in feature rows sit in a soft frame */
+.scene-wide {
+  aspect-ratio: 640 / 420;
+}

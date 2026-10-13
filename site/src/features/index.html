@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!--#include head -->
+<title>Features · Wecra</title>
+<meta name="description" content="The Wecra editor: frames and auto layout, the pen and vectors, components and variables, prototyping and presenting, Dev Mode and libraries." />
+<script type="module" src="/scripts/pages/features.ts"></script>
+</head>
+<body>
+<!--#include header -->
+<main id="main">
+  <section class="page-hero wrap">
+    <span class="eyebrow">Features</span>
+    <h1>Everything a design file needs.</h1>
+    <p class="lede">Wecra works the way Figma does: the same tools, the same panels, the same words. Here is the editor, one part at a time.</p>
+  </section>
+
+  <div class="wrap">
+    <section class="feature" id="auto-layout">
+      <div>
+        <span class="eyebrow">Frames and auto layout</span>
+        <h2>Layouts that adjust themselves.</h2>
+        <p>Draw a frame, press Shift A, and its children line up. Change direction, gap and padding; frames hug their content or fill their parent.</p>
+        <ul>
+          <li>Horizontal, vertical, wrap and grid</li>
+          <li>Hug, fill and fixed sizes, with min and max</li>
+          <li>Constraints, sections and groups</li>
+        </ul>
+      </div>
+      <!--#include scenes/autolayout -->
+    </section>
+
+    <section class="feature flip" id="vectors">
+      <div>
+        <span class="eyebrow">The pen and vectors</span>
+        <h2>Draw any shape.</h2>
+        <p>The pen draws vector networks with real handles. Booleans stay live, so you can still edit what you combined.</p>
+        <ul>
+          <li>Pen, pencil, polygon and star</li>
+          <li>Union, subtract, intersect and exclude</li>
+          <li>Flatten, masks, gradients and image fills</li>
+        </ul>
+      </div>
+      <!--#include scenes/pen -->
+    </section>
+
+    <section class="feature" id="components">
+      <div>
+        <span class="eyebrow component">Components and variables</span>
+        <h2>Build once, use everywhere.</h2>
+        <p>Components, variants and properties, with overrides that survive updates. Variables with modes switch a whole frame from light to dark.</p>
+        <ul>
+          <li>Boolean, text, instance swap and variant properties</li>
+          <li>Collections, modes, aliases and scopes</li>
+          <li>Color, text, effect and grid styles</li>
+        </ul>
+      </div>
+      <!--#include scenes/components -->
+    </section>
+
+    <section class="feature flip" id="prototyping">
+      <div>
+        <span class="eyebrow">Prototyping and presenting</span>
+        <h2>Click through it before you build it.</h2>
+        <p>Connect frames with interactions and play the flow in presentation view, the way it will feel on a phone.</p>
+        <ul>
+          <li>Flows with starting points</li>
+          <li>Interactions and transitions</li>
+          <li>Presentation view</li>
+        </ul>
+      </div>
+      <!--#include scenes/prototype -->
+    </section>
+
+    <section class="feature" id="dev-mode">
+      <div>
+        <span class="eyebrow dev">Dev Mode</span>
+        <h2>Hand off without the back and forth.</h2>
+        <p>Switch on Dev Mode and select any layer: its size, its spacing on the canvas and its CSS, ready to copy.</p>
+        <ul>
+          <li>Measurements between layers</li>
+          <li>Code for the selection</li>
+          <li>Developer previews you can share as a link</li>
+        </ul>
+      </div>
+      <!--#include scenes/devmode -->
+    </section>
+
+    <section class="feature flip" id="libraries">
+      <div>
+        <span class="eyebrow">Libraries</span>
+        <h2>One source for every file.</h2>
+        <p>Publish components, styles and variables from any file. Files that use them get the update and accept it when they're ready.</p>
+        <ul>
+          <li>Publish with a list of what changed</li>
+          <li>Review updates side by side</li>
+          <li>Update selected or all</li>
+        </ul>
+      </div>
+      <!--#include scenes/libraries -->
+    </section>
+  </div>
+
+  <section class="wrap">
+    <div class="cta">
+      <img class="cta-logo" src="/logo-64.png" width="72" height="72" alt="" loading="lazy" />
+      <h2>Try it on your own files.</h2>
+      <p>Wecra opens on macOS and Windows.</p>
+      <div class="dl-center"><!--#include download --></div>
+    </div>
+  </section>
+</main>
+<!--#include footer -->
+</body>
+</html>

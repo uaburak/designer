@@ -1,0 +1,19 @@
+{
+  "releases": [
+    {
+      "version": "1.2.0",
+      "date": "2026-10-20",
+      "notes": "## New\n- Updates now come from **get.wecra.app**.\n- Studio: the manager hands a post and a story to several agents at once.\n  - Each task shows its own card.\n\n## Fixed\n- A Fill child held by its max width follows its auto layout's alignment.\n- Big shared files open faster; see [the notes](https://get.wecra.app/changelog/).\n- `<script>` in notes is shown as text.",
+      "files": {
+        "mac": { "name": "Wecra-1.2.0-arm64.dmg", "size": 148234567 },
+        "windows": { "name": "Wecra-Setup-1.2.0.exe", "size": 121456789 }
+      }
+    },
+    {
+      "version": "1.1.2",
+      "date": "2026-10-13",
+      "notes": "## Fixed\n- Shared files open with a loader while the document comes down.",
+      "files": { "mac": { "name": "Wecra-1.1.2-arm64.dmg", "size": 147900000 } }
+    }
+  ]
+}

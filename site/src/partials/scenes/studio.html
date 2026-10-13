@@ -1,0 +1,73 @@
+<div class="scene scene-wide" data-scene="studio" role="img" aria-label="Studio: the manager splits a request into three tasks for different agents, a post and a story appear on the canvas, and the manager asks before fixing an issue.">
+<svg viewBox="0 0 640 420" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="st-bg" x1="0" y1="0" x2=".4" y2="1"><stop offset="0" stop-color="#3b2416" /><stop offset="1" stop-color="#8a5532" /></linearGradient>
+    <linearGradient id="st-cup" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#f3e3cc" /><stop offset="1" stop-color="#d9bf9c" /></linearGradient>
+    <filter id="st-shadow" x="-20%" y="-30%" width="140%" height="160%"><feDropShadow dx="0" dy="2" stdDeviation="5" flood-color="#000" flood-opacity=".14" /></filter>
+    <g id="st-art">
+      <rect width="140" height="140" fill="url(#st-bg)" />
+      <circle cx="104" cy="30" r="34" fill="#fff" fill-opacity=".08" />
+      <path d="M50 52h40l-5 62a6 6 0 0 1-6 5H61a6 6 0 0 1-6-5Z" fill="url(#st-cup)" />
+      <path d="M52 64h36l-1.4 14H53.4Z" fill="#5a3520" />
+      <rect x="66" y="36" width="5" height="22" rx="2.5" fill="#fff" fill-opacity=".85" transform="rotate(14 68 47)" />
+    </g>
+  </defs>
+  <g data-k="doc">
+    <!-- Manager -->
+    <rect x="16" y="16" width="268" height="388" rx="14" class="bg" filter="url(#st-shadow)" />
+    <use href="#i-sparkle" x="28" y="26" width="18" height="18" class="icc" /><text x="50" y="40" class="tx tx-strong t1">Manager</text><text x="272" y="40" text-anchor="end" class="tx t2">Studio</text>
+    <path d="M16 54.5h268" class="ln" />
+    <g data-k="ask">
+      <rect x="64" y="66" width="208" height="46" rx="12" class="fd" />
+      <text x="76" y="85" class="tx t1">Nova Coffee: a post and a story</text>
+      <text x="76" y="101" class="tx t1">for the cold brew launch</text>
+    </g>
+    <text data-k="plan" x="28" y="134" class="tx t1">Three tasks, from the brand's library:</text>
+    <path data-k="thread" d="M36 146v138M36 168h12M36 226h12M36 284h12" fill="none" class="ln" stroke-width="1.5" />
+    <g data-k="t1">
+      <rect x="48" y="146" width="224" height="46" rx="10" class="fd" />
+      <text x="60" y="164" class="tx tx-strong t1">Caption</text><text x="260" y="164" text-anchor="end" class="tx t2">Claude Code</text>
+      <rect x="60" y="176" width="200" height="4" rx="2" class="lnf" />
+      <rect data-k="b1" class="ol br" x="60" y="176" width="200" height="4" rx="2" />
+    </g>
+    <g data-k="t2">
+      <rect x="48" y="204" width="224" height="46" rx="10" class="fd" />
+      <text x="60" y="222" class="tx tx-strong t1">Post image · 1:1</text><text x="260" y="222" text-anchor="end" class="tx t2">Image route</text>
+      <rect x="60" y="234" width="200" height="4" rx="2" class="lnf" />
+      <rect data-k="b2" class="ol br" x="60" y="234" width="200" height="4" rx="2" />
+    </g>
+    <g data-k="t3">
+      <rect x="48" y="262" width="224" height="46" rx="10" class="fd" />
+      <text x="60" y="280" class="tx tx-strong t1">Story image · 9:16</text><text x="260" y="280" text-anchor="end" class="tx t2">Image route</text>
+      <rect x="60" y="292" width="200" height="4" rx="2" class="lnf" />
+      <rect data-k="b3" class="ol br" x="60" y="292" width="200" height="4" rx="2" />
+    </g>
+    <g data-k="review">
+      <text x="28" y="334" class="tx t1">1 issue: small text on the story.</text>
+      <text x="28" y="350" class="tx t1">Shall I fix this?</text>
+      <g transform="translate(28 362)"><g data-k="fixBtn">
+        <rect width="72" height="26" rx="6" class="br" /><text x="36" y="17" text-anchor="middle" class="tx tx-strong tw">Fix it</text>
+        <g data-k="fixed"><rect width="72" height="26" rx="6" class="ok" /><use href="#i-check" x="6" y="4" width="18" height="18" class="icw" /><text x="26" y="17" class="tx tx-strong tw">Fixed</text></g>
+      </g></g>
+    </g>
+
+    <!-- Results on the canvas -->
+    <text x="316" y="40" class="tx t2">Post</text><text x="480" y="40" class="tx t2">Story</text>
+    <rect x="316" y="48" width="148" height="148" class="fd" />
+    <rect x="480" y="48" width="120" height="213" class="fd" />
+    <g data-k="post">
+      <svg x="316" y="48" width="148" height="148" viewBox="0 0 140 140"><use href="#st-art" /></svg>
+      <g data-k="cap"><text x="328" y="174" class="tx-l" fill="#fff">Cold brew</text><rect x="328" y="182" width="64" height="6" rx="3" fill="#fff" fill-opacity=".8" /></g>
+    </g>
+    <g data-k="story">
+      <svg x="480" y="48" width="120" height="213" viewBox="0 -36 140 248" preserveAspectRatio="xMidYMid slice"><rect y="-36" width="140" height="248" fill="url(#st-bg)" /><use href="#st-art" /></svg>
+      <text x="492" y="228" class="tx-l" fill="#fff">Cold brew</text>
+      <rect x="492" y="238" width="60" height="8" rx="4" fill="#fff" fill-opacity=".75" data-k="storyText" />
+      <rect data-k="flag" data-off x="487" y="233" width="70" height="18" rx="4" fill="none" class="dgs" stroke-width="1.5" />
+    </g>
+  </g>
+  <g data-k="cur" style="transform: translate(200px, 400px)">
+    <use href="#i-cursor" x="-2.5" y="-2.2" width="20" height="22" fill="#1e1e1e" />
+  </g>
+</svg>
+</div>

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!--#include head -->
+<title>AI and Studio · Wecra</title>
+<meta name="description" content="AI in Wecra: image tools on the canvas, agents that build in your file, and Studio, a manager that hands a brand's posts to several agents at once." />
+<script type="module" src="/scripts/pages/ai.ts"></script>
+</head>
+<body>
+<!--#include header -->
+<main id="main">
+  <section class="page-hero wrap">
+    <span class="eyebrow component">AI and Studio</span>
+    <h1>AI where you design.</h1>
+    <p class="lede">Image tools, agents and Studio, running on the providers you choose: the coding agents already on your computer, a local model, or your own keys.</p>
+  </section>
+
+  <div class="wrap">
+    <section class="feature" id="image-tools">
+      <div>
+        <span class="eyebrow">AI tools</span>
+        <h2>Make and edit images in place.</h2>
+        <p>Describe a picture and it fills the selected layer. Then edit it with a prompt, remove its background or vectorize it, without leaving the canvas.</p>
+        <ul>
+          <li>Make an image, Edit with prompt</li>
+          <li>Remove background, Boost resolution, Expand</li>
+          <li>Vectorize in full color, grayscale or black and white</li>
+        </ul>
+      </div>
+      <!--#include scenes/ai-image -->
+    </section>
+
+    <section class="feature flip" id="agents">
+      <div>
+        <span class="eyebrow">Agents</span>
+        <h2>Agents that work on the canvas.</h2>
+        <p>Chat with Claude Code, Codex or a local model in the Agents panel. The agent reads your file and builds real frames, auto layout and styles, and you watch each step land.</p>
+        <ul>
+          <li>Your own CLI agents and local models</li>
+          <li>Skills and connectors you add</li>
+          <li>A monthly AI balance you set</li>
+        </ul>
+      </div>
+      <!--#include scenes/agents -->
+    </section>
+
+    <section class="feature" id="studio">
+      <div>
+        <span class="eyebrow component">Studio</span>
+        <h2>A manager for your brand's posts.</h2>
+        <p>Keep each brand's pictures and details in a library. Ask for a post and a story: the manager reads the library, hands the work to several agents at once, checks what comes back, and asks before it fixes anything.</p>
+        <ul>
+          <li>Brands and products with their pictures</li>
+          <li>Tasks running in parallel, each with its own card</li>
+          <li>A review of the results before you use them</li>
+        </ul>
+      </div>
+      <!--#include scenes/studio -->
+    </section>
+  </div>
+
+  <section class="wrap">
+    <div class="cta">
+      <img class="cta-logo" src="/logo-64.png" width="72" height="72" alt="" loading="lazy" />
+      <h2>Bring your own AI.</h2>
+      <p>Wecra connects to the tools on your computer. Nothing runs until you set it up.</p>
+      <div class="dl-center"><!--#include download --></div>
+    </div>
+  </section>
+</main>
+<!--#include footer -->
+</body>
+</html>

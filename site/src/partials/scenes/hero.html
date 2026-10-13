@@ -1,0 +1,162 @@
+<div class="scene scene-window" data-scene="hero" role="img" aria-label="The Wecra editor: a frame is drawn, cards line up in auto layout, and a collaborator recolours one and adds another.">
+<svg viewBox="0 0 1200 700" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="h-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d8ae9" /><stop offset=".55" stop-color="#6c5cf4" /><stop offset="1" stop-color="#9747ff" /></linearGradient>
+    <clipPath id="h-canvas"><rect x="241" y="41" width="718" height="659" /></clipPath>
+    <filter id="h-shadow" x="-20%" y="-40%" width="140%" height="200%"><feDropShadow dx="0" dy="2" stdDeviation="5" flood-color="#000" flood-opacity=".16" /></filter>
+  </defs>
+
+  <!-- Window and tab bar -->
+  <rect width="1200" height="700" class="bg" />
+  <rect width="1200" height="40" class="ch" />
+  <circle cx="20" cy="20" r="6" fill="#ff5f57" /><circle cx="40" cy="20" r="6" fill="#febc2e" /><circle cx="60" cy="20" r="6" fill="#28c840" />
+  <path d="M88 40V14a8 8 0 0 1 8-8h184a8 8 0 0 1 8 8v26Z" class="bg" />
+  <text x="104" y="28" class="tx t1">Landing page</text>
+  <path d="M0 40.5h1200" class="ln" />
+
+  <!-- Canvas -->
+  <rect x="241" y="41" width="718" height="659" class="cv" />
+
+  <!-- Left panel -->
+  <path d="M240.5 40v660" class="ln" />
+  <text x="16" y="72" class="tx tx-strong t1">Landing page</text>
+  <text x="16" y="90" class="tx t2">Drafts</text>
+  <path d="M0 108.5h240" class="ln" />
+  <text x="16" y="134" class="tx tx-strong t1">Pages</text>
+  <text x="32" y="162" class="tx t1">Page 1</text>
+  <text x="32" y="188" class="tx t2">Archive</text>
+  <path d="M0 204.5h240" class="ln" />
+  <text x="16" y="230" class="tx tx-strong t1">Layers</text>
+  <g data-k="layers">
+    <g data-k="rowFrame">
+      <rect x="8" y="240" width="224" height="30" rx="5" class="sel" />
+      <use href="#i-frame" x="12" y="243" width="24" height="24" class="ic1" />
+      <text x="40" y="259" class="tx t1">Frame 1</text>
+    </g>
+    <g data-k="row4"><use href="#i-rect" x="32" y="273" width="24" height="24" class="ic2" /><text x="60" y="289" class="tx t1">Card 4</text></g>
+    <g data-k="rowsBelow">
+      <g data-k="row3"><use href="#i-rect" x="32" y="303" width="24" height="24" class="ic2" /><text x="60" y="319" class="tx t1">Card 3</text></g>
+      <g data-k="row2"><use href="#i-rect" x="32" y="333" width="24" height="24" class="ic2" /><text x="60" y="349" class="tx t1">Card 2</text></g>
+      <g data-k="row1"><use href="#i-rect" x="32" y="363" width="24" height="24" class="ic2" /><text x="60" y="379" class="tx t1">Card 1</text></g>
+    </g>
+  </g>
+
+  <!-- Right panel -->
+  <path d="M959.5 40v660" class="ln" />
+  <circle cx="1004" cy="64" r="12" class="cp" /><text x="1004" y="68" text-anchor="middle" class="tx tx-strong tw">A</text>
+  <circle cx="982" cy="64" r="13" class="bg" /><circle cx="982" cy="64" r="12" class="br" /><text x="982" y="68" text-anchor="middle" class="tx tx-strong tw">B</text>
+  <rect x="1124" y="52" width="60" height="24" rx="5" class="br" /><text x="1154" y="68" text-anchor="middle" class="tx tx-strong tw">Share</text>
+  <path d="M960 88.5h240" class="ln" />
+  <text x="976" y="113" class="tx tx-strong t1">Design</text>
+  <text x="1036" y="113" class="tx t2">Prototype</text>
+  <path d="M960 128.5h240" class="ln" />
+  <g data-k="props">
+    <text x="976" y="152" class="tx tx-strong t1">Frame</text>
+    <rect x="976" y="164" width="104" height="24" rx="5" class="fd" /><text x="984" y="180" class="tx t3">X</text><text x="1000" y="180" class="tx t1">320</text>
+    <rect x="1088" y="164" width="104" height="24" rx="5" class="fd" /><text x="1096" y="180" class="tx t3">Y</text><text x="1112" y="180" class="tx t1">260</text>
+    <rect x="976" y="196" width="104" height="24" rx="5" class="fd" /><text x="984" y="212" class="tx t3">W</text>
+    <text x="1000" y="212" class="tx t1" data-k="w1" data-off>440</text><text x="1000" y="212" class="tx t1" data-k="w2" data-off>428</text><text x="1000" y="212" class="tx t1" data-k="w3">560</text>
+    <rect x="1088" y="196" width="104" height="24" rx="5" class="fd" /><text x="1096" y="212" class="tx t3">H</text>
+    <text x="1112" y="212" class="tx t1" data-k="h1" data-off>220</text><text x="1112" y="212" class="tx t1" data-k="h2">198</text>
+    <path d="M960 236.5h240" class="ln" />
+    <text x="976" y="260" class="tx tx-strong t1">Auto layout</text>
+    <use href="#i-plus" x="1164" y="244" width="24" height="24" class="ic2" data-k="alPlus" data-off />
+    <g data-k="alBody">
+      <rect x="976" y="272" width="96" height="24" rx="5" class="fd" />
+      <rect x="1008.5" y="272.5" width="31" height="23" rx="4.5" class="bg ln" />
+      <use href="#i-down" x="980" y="272" width="24" height="24" class="ic2" />
+      <use href="#i-right" x="1012" y="272" width="24" height="24" class="ic1" />
+      <use href="#i-wrap" x="1044" y="272" width="24" height="24" class="ic2" />
+      <rect x="1080" y="272" width="112" height="24" rx="5" class="fd" /><text x="1088" y="288" class="tx t3">Gap</text><text x="1118" y="288" class="tx t1">16</text>
+      <rect x="976" y="304" width="216" height="24" rx="5" class="fd" /><text x="984" y="320" class="tx t3">Padding</text><text x="1032" y="320" class="tx t1">24</text>
+    </g>
+    <g data-k="below">
+      <path d="M960 348.5h240" class="ln" />
+      <text x="976" y="372" class="tx tx-strong t1">Fill</text>
+      <rect x="976" y="384" width="216" height="24" rx="5" class="fd" />
+      <rect x="982.5" y="388.5" width="15" height="15" rx="3" fill="#fff" class="ln" />
+      <text x="1006" y="400" class="tx t1">FFFFFF</text><text x="1184" y="400" text-anchor="end" class="tx t2">100 %</text>
+      <path d="M960 420.5h240" class="ln" />
+      <text x="976" y="444" class="tx tx-strong t1">Stroke</text><use href="#i-plus" x="1164" y="428" width="24" height="24" class="ic2" />
+      <path d="M960 460.5h240" class="ln" />
+      <text x="976" y="484" class="tx tx-strong t1">Effects</text><use href="#i-plus" x="1164" y="468" width="24" height="24" class="ic2" />
+      <path d="M960 500.5h240" class="ln" />
+      <text x="976" y="524" class="tx tx-strong t1">Export</text><use href="#i-plus" x="1164" y="508" width="24" height="24" class="ic2" />
+    </g>
+  </g>
+
+  <!-- Canvas content -->
+  <g clip-path="url(#h-canvas)">
+    <g data-k="content">
+      <text x="320" y="251" class="tx t2" data-k="frameLabel">Frame 1</text>
+      <g data-k="frameG" class="o0">
+        <rect x="320" y="260" width="560" height="198" fill="#fff" />
+        <rect x="320" y="260" width="560" height="198" fill="none" class="brs" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+      </g>
+      <g data-k="gaps" data-off class="gaps">
+        <rect x="460" y="284" width="16" height="150" /><rect x="592" y="284" width="16" height="150" />
+        <path d="M468 284v150M600 284v150" />
+      </g>
+      <g transform="translate(344 284)"><g data-k="card1">
+        <rect width="116" height="150" rx="12" fill="#f1f1f4" /><circle cx="26" cy="28" r="12" fill="#0d99ff" />
+        <rect x="16" y="56" width="76" height="8" rx="4" fill="#1e1e1e" /><rect x="16" y="72" width="56" height="6" rx="3" fill="#c9c9cf" /><rect x="16" y="84" width="68" height="6" rx="3" fill="#c9c9cf" />
+        <rect x="16" y="116" width="56" height="20" rx="10" fill="#1e1e1e" />
+      </g></g>
+      <g transform="translate(476 284)"><g data-k="card2">
+        <rect width="116" height="150" rx="12" fill="#f1f1f4" /><circle cx="26" cy="28" r="12" fill="#9747ff" />
+        <rect x="16" y="56" width="76" height="8" rx="4" fill="#1e1e1e" /><rect x="16" y="72" width="56" height="6" rx="3" fill="#c9c9cf" /><rect x="16" y="84" width="68" height="6" rx="3" fill="#c9c9cf" />
+        <rect x="16" y="116" width="56" height="20" rx="10" fill="#1e1e1e" />
+        <g data-k="card2grad">
+          <rect width="116" height="150" rx="12" fill="url(#h-grad)" /><circle cx="26" cy="28" r="12" fill="#fff" fill-opacity=".9" />
+          <rect x="16" y="56" width="76" height="8" rx="4" fill="#fff" /><rect x="16" y="72" width="56" height="6" rx="3" fill="#fff" fill-opacity=".6" /><rect x="16" y="84" width="68" height="6" rx="3" fill="#fff" fill-opacity=".6" />
+          <rect x="16" y="116" width="56" height="20" rx="10" fill="#fff" />
+        </g>
+      </g></g>
+      <g transform="translate(608 284)"><g data-k="card3">
+        <rect width="116" height="150" rx="12" fill="#f1f1f4" /><circle cx="26" cy="28" r="12" fill="#14ae5c" />
+        <rect x="16" y="56" width="76" height="8" rx="4" fill="#1e1e1e" /><rect x="16" y="72" width="56" height="6" rx="3" fill="#c9c9cf" /><rect x="16" y="84" width="68" height="6" rx="3" fill="#c9c9cf" />
+        <rect x="16" y="116" width="56" height="20" rx="10" fill="#1e1e1e" />
+      </g></g>
+      <g transform="translate(740 284)"><g data-k="card4">
+        <rect width="116" height="150" rx="12" fill="#f1f1f4" /><circle cx="26" cy="28" r="12" fill="#ff8a3d" />
+        <rect x="16" y="56" width="76" height="8" rx="4" fill="#1e1e1e" /><rect x="16" y="72" width="56" height="6" rx="3" fill="#c9c9cf" /><rect x="16" y="84" width="68" height="6" rx="3" fill="#c9c9cf" />
+        <rect x="16" y="116" width="56" height="20" rx="10" fill="#1e1e1e" />
+      </g></g>
+      <g transform="translate(740 284)"><g data-k="adaSel"><rect x="-1" y="-1" width="118" height="152" fill="none" class="cps" stroke-width="2" /></g></g>
+      <g transform="translate(320 260)"><g data-k="hTL"><rect x="-4" y="-4" width="8" height="8" fill="#fff" class="brs" /></g></g>
+      <g transform="translate(880 260)"><g data-k="hTR"><rect x="-4" y="-4" width="8" height="8" fill="#fff" class="brs" /></g></g>
+      <g transform="translate(320 458)"><g data-k="hBL"><rect x="-4" y="-4" width="8" height="8" fill="#fff" class="brs" /></g></g>
+      <g transform="translate(880 458)"><g data-k="hBR"><rect x="-4" y="-4" width="8" height="8" fill="#fff" class="brs" /></g></g>
+      <g transform="translate(600 476)"><g data-k="badge">
+        <rect x="-38" y="-10" width="76" height="20" rx="4" class="br" />
+        <text y="4" text-anchor="middle" class="tx tx-strong tw" data-k="b1" data-off>440 × 220</text>
+        <text y="4" text-anchor="middle" class="tx tx-strong tw" data-k="b2" data-off>428 × 198</text>
+        <text y="4" text-anchor="middle" class="tx tx-strong tw" data-k="b3">560 × 198</text>
+      </g></g>
+      <g transform="translate(578 400)"><g data-k="chipV" data-off class="chip"><rect width="36" height="22" rx="6" /><text x="18" y="15" text-anchor="middle">⌘V</text></g></g>
+      <g transform="translate(608 420)"><g data-k="chipA" data-off class="chip"><rect width="36" height="22" rx="6" /><text x="18" y="15" text-anchor="middle">⇧A</text></g></g>
+    </g>
+
+    <!-- Toolbar -->
+    <rect x="484" y="636" width="232" height="48" rx="13" class="bg" filter="url(#h-shadow)" />
+    <rect x="492" y="644" width="32" height="32" rx="6" class="br" data-k="toolHi" />
+    <use href="#i-move" x="496" y="648" width="24" height="24" class="ic1" />
+    <use href="#i-frame" x="532" y="648" width="24" height="24" class="ic1" />
+    <use href="#i-rect" x="568" y="648" width="24" height="24" class="ic1" />
+    <use href="#i-pen" x="604" y="648" width="24" height="24" class="ic1" />
+    <use href="#i-text" x="640" y="648" width="24" height="24" class="ic1" />
+    <use href="#i-comment" x="676" y="648" width="24" height="24" class="ic1" />
+    <use href="#i-move" x="496" y="648" width="24" height="24" class="icw" data-k="toolMoveW" />
+    <use href="#i-frame" x="532" y="648" width="24" height="24" class="icw" data-k="toolFrameW" data-off />
+
+    <!-- Cursors -->
+    <g data-k="curB" style="transform: translate(842px, 560px)">
+      <use href="#i-cursor" x="-2.5" y="-2.2" width="20" height="22" class="cpf" />
+      <rect x="14" y="18" width="36" height="20" rx="5" class="cp" /><text x="32" y="32" text-anchor="middle" class="tx tx-strong tw">Ada</text>
+    </g>
+    <g data-k="curA" style="transform: translate(660px, 580px)">
+      <use href="#i-cursor" x="-2.5" y="-2.2" width="20" height="22" fill="#1e1e1e" />
+    </g>
+  </g>
+</svg>
+</div>

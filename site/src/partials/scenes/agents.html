@@ -1,0 +1,81 @@
+<div class="scene scene-wide" data-scene="agents" role="img" aria-label="In the Agents panel, Claude Code is asked for a pricing section; its tool calls run and the frame is built on the canvas.">
+<svg viewBox="0 0 640 420" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="ag-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d8ae9" /><stop offset=".55" stop-color="#6c5cf4" /><stop offset="1" stop-color="#9747ff" /></linearGradient>
+    <g id="ag-spin"><circle r="6" fill="none" style="stroke: var(--ui-line)" stroke-width="2" /><path d="M0-6a6 6 0 0 1 6 6" fill="none" style="stroke: var(--brand)" stroke-width="2" stroke-linecap="round" /></g>
+  </defs>
+  <g data-k="doc">
+    <!-- Agents panel -->
+    <rect width="250" height="420" class="bg" />
+    <path d="M250.5 0v420" class="ln" />
+    <text x="16" y="28" class="tx tx-strong t1">Agents</text>
+    <rect x="152" y="14" width="86" height="22" rx="6" class="fd" /><use href="#i-sparkle" x="157" y="17" width="16" height="16" class="icc" /><text x="176" y="29" class="tx t1">Claude Code</text>
+    <path d="M0 48.5h250" class="ln" />
+
+    <g data-k="msg">
+      <rect x="58" y="62" width="180" height="46" rx="12" class="fd" />
+      <text x="70" y="81" class="tx t1">Make a pricing section</text>
+      <text x="70" y="97" class="tx t1">with three plans</text>
+    </g>
+    <text data-k="reply" x="16" y="134" class="tx t1">Adding a Pricing frame with three plans.</text>
+    <g data-k="row1">
+      <rect x="12" y="146" width="226" height="28" rx="6" class="fd" />
+      <text x="34" y="164" class="mono t1">create_nodes</text><text x="232" y="164" text-anchor="end" class="tx t2">frame, 3 cards</text>
+    </g>
+    <g data-k="row2">
+      <rect x="12" y="180" width="226" height="28" rx="6" class="fd" />
+      <text x="34" y="198" class="mono t1">set_auto_layout</text><text x="232" y="198" text-anchor="end" class="tx t2">gap 12</text>
+    </g>
+    <g data-k="row3">
+      <rect x="12" y="214" width="226" height="28" rx="6" class="fd" />
+      <text x="34" y="232" class="mono t1">set_properties</text><text x="232" y="232" text-anchor="end" class="tx t2">fills, text</text>
+    </g>
+    <g transform="translate(23 160)"><g data-k="spin1" data-off><use href="#ag-spin" /></g></g>
+    <g transform="translate(23 194)"><g data-k="spin2" data-off><use href="#ag-spin" /></g></g>
+    <g transform="translate(23 228)"><g data-k="spin3" data-off><use href="#ag-spin" /></g></g>
+    <use data-k="ok1" href="#i-check" x="15" y="152" width="16" height="16" class="ico" />
+    <use data-k="ok2" href="#i-check" x="15" y="186" width="16" height="16" class="ico" />
+    <use data-k="ok3" href="#i-check" x="15" y="220" width="16" height="16" class="ico" />
+    <text data-k="done" x="16" y="268" class="tx t1">Done: three plans in an auto layout frame.</text>
+
+    <rect x="12.5" y="356.5" width="225" height="51" rx="10" class="bg ln" />
+    <text x="24" y="386" class="tx t3">Ask anything…</text>
+    <circle cx="216" cy="382" r="12" class="fd" /><use href="#i-send" x="206" y="372" width="20" height="20" class="ic2" />
+
+    <!-- Canvas -->
+    <text x="276" y="88" class="tx t2" data-k="label">Pricing</text>
+    <g data-k="frame">
+      <rect x="276" y="96" width="340" height="222" fill="#fff" />
+    </g>
+    <g data-k="head"><rect x="296" y="116" width="120" height="12" rx="6" fill="#1e1e1e" /><rect x="296" y="136" width="180" height="7" rx="3.5" fill="#c9c9cf" /></g>
+    <g data-k="gaps" class="gaps" data-off><rect x="392" y="160" width="12" height="138" /><rect x="500" y="160" width="12" height="138" /></g>
+    <g transform="translate(296 160)"><g data-k="p0">
+      <rect width="96" height="138" rx="10" fill="#f1f1f4" />
+      <rect x="12" y="14" width="36" height="6" rx="3" fill="#c9c9cf" />
+      <text x="12" y="48" class="tx-xl" fill="#1e1e1e" data-k="price">$0</text>
+      <rect x="12" y="62" width="64" height="5" rx="2.5" fill="#c9c9cf" /><rect x="12" y="73" width="52" height="5" rx="2.5" fill="#c9c9cf" />
+      <rect x="12" y="108" width="72" height="18" rx="9" fill="#1e1e1e" />
+    </g></g>
+    <g transform="translate(404 160)"><g data-k="p1">
+      <rect width="96" height="138" rx="10" fill="#f1f1f4" />
+      <rect x="12" y="14" width="36" height="6" rx="3" fill="#c9c9cf" />
+      <rect x="12" y="62" width="64" height="5" rx="2.5" fill="#c9c9cf" /><rect x="12" y="73" width="52" height="5" rx="2.5" fill="#c9c9cf" />
+      <rect x="12" y="108" width="72" height="18" rx="9" fill="#1e1e1e" />
+      <g data-k="hot">
+        <rect width="96" height="138" rx="10" fill="url(#ag-grad)" />
+        <rect x="12" y="14" width="36" height="6" rx="3" fill="#fff" fill-opacity=".7" />
+        <rect x="12" y="62" width="64" height="5" rx="2.5" fill="#fff" fill-opacity=".6" /><rect x="12" y="73" width="52" height="5" rx="2.5" fill="#fff" fill-opacity=".6" />
+        <rect x="12" y="108" width="72" height="18" rx="9" fill="#fff" />
+      </g>
+      <text x="12" y="48" class="tx-xl" fill="#fff" data-k="price">$12</text>
+    </g></g>
+    <g transform="translate(512 160)"><g data-k="p2">
+      <rect width="96" height="138" rx="10" fill="#f1f1f4" />
+      <rect x="12" y="14" width="36" height="6" rx="3" fill="#c9c9cf" />
+      <text x="12" y="48" class="tx-xl" fill="#1e1e1e" data-k="price">$24</text>
+      <rect x="12" y="62" width="64" height="5" rx="2.5" fill="#c9c9cf" /><rect x="12" y="73" width="52" height="5" rx="2.5" fill="#c9c9cf" />
+      <rect x="12" y="108" width="72" height="18" rx="9" fill="#1e1e1e" />
+    </g></g>
+  </g>
+</svg>
+</div>
