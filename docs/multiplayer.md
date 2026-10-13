@@ -18,7 +18,7 @@ Contract for roadmap Phase 6 (owner's decision 2026-10-10: Cloudflare instead of
 | REST API, webhooks, private plugins, Dev Mode's server side (contract, Phase 7 round 5) | D1 (migration 0015), a second Cron Trigger (webhook retries), render jobs answered by connected clients (no new Durable Object) | `server/src/rest/`, `server/src/webhooks/`, `server/src/devmode/`, `server/src/plugins/`, `src/shared/rest/` (§16, docs/plugins.md, docs/editor.md "Dev Mode — round 5") |
 | Wire format | — | `src/shared/multiplayer/protocol.ts` |
 
-Free plan limits that matter: 100k Worker requests a day (a WebSocket message counts 1/20 of a request), Durable Objects on SQLite storage, D1 5 GB, R2 10 GB. One person and a few friends stay far below them.
+**Plan (2026-10-13): the account is on Workers Paid ($5/month + usage: 10M requests a month included, up to 5 min CPU per request) with R2 Paid** — the free-plan limits below and the 10 ms budgets elsewhere in these docs are stricter than needed now, kept as they cost nothing. Free plan limits that mattered: 100k Worker requests a day (a WebSocket message counts 1/20 of a request), Durable Objects on SQLite storage, D1 5 GB, R2 10 GB. One person and a few friends stay far below them.
 
 ## 2. Sign-in (Google, the server holds the secret)
 
