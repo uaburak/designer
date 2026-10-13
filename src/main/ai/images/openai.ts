@@ -1,16 +1,18 @@
 import { AiError, classify } from "../oneShot";
-import { answerOf, type ImageAnswer, type ImageJob } from "./types";
+import { answerOf, ratioOf, referenceFile, type ImageAnswer, type ImageJob } from "./types";
 
 /**
  * OpenAI Images (docs/ai.md §2.5): `POST /v1/images/generations` for Make an image, `/v1/images/edits` (multipart:
  * `image[]` — the picture, then the reference — `mask` with transparent = change, `prompt`) for Edit, Expand and Erase.
- * The key is the owner's (Settings › AI, in the keychain); the model is the route's, else `gpt-image-1`.
+ * The key is the owner's (Settings › AI, in the keychain); the model is the route's, else `gpt-image-1`. Studio's
+ * references (docs/studio.md §5.3) make any request an edit, with them as `image[]` after the picture to edit.
  */
 
 export const OPENAI_IMAGE_MODEL = "gpt-image-1";
 
-/** The API's nearest size for a wanted aspect (it takes these three, or auto). */
-export function openAiSize(size?: { width: number; height: number }): string {
+/** The API's nearest size for a wanted aspect (it takes these three, or auto): the aspect ratio asked, else the size's. */
+export function openAiSize(size?: { width: number; height: number }, aspectRatio?: string): string {
+  if (aspectRatio) size = { width: ratioOf(aspectRatio), height: 1 };
   if (!size || !(size.width > 0) || !(size.height > 0)) return "auto";
   const r = size.width / size.height;
   return r > 1.2 ? "1536x1024" : r < 1 / 1.2 ? "1024x1536" : "1024x1024";
@@ -37,20 +39,24 @@ export async function openAiImage(job: ImageJob, o: { key: string; fetch?: typeo
   const headers = { Authorization: `Bearer ${o.key}` };
   let res: Response;
   try {
-    if (!job.image) {
+    const refs = job.references ?? [];
+    const size = openAiSize(job.size, job.aspectRatio);
+    if (!job.image && !refs.length) {
       res = await fetchFn(`${base}/images/generations`, {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ model, prompt: job.prompt, n: 1, size: openAiSize(job.size) }),
+        body: JSON.stringify({ model, prompt: job.prompt, n: 1, size }),
         signal: job.signal,
       });
     } else {
+      // Studio's references go as image[] too (generations takes none; edits takes several): the picture to edit first
       const form = new FormData();
       form.append("model", model);
-      form.append("prompt", job.prompt);
+      form.append("prompt", job.image && refs.length ? `${job.prompt}\nThe first picture is the one to edit; the references follow it in order (Image 1 is the second picture).` : job.prompt);
       form.append("n", "1");
-      form.append("size", openAiSize(job.size));
-      form.append("image[]", new Blob([new Uint8Array(job.image)], { type: "image/png" }), "image.png");
+      form.append("size", size);
+      if (job.image) form.append("image[]", new Blob([new Uint8Array(job.image)], { type: "image/png" }), "image.png");
+      refs.forEach((r, i) => form.append("image[]", new Blob([new Uint8Array(r.data)], { type: r.mime }), referenceFile(i, r.mime)));
       if (job.reference) form.append("image[]", new Blob([new Uint8Array(job.reference)], { type: "image/png" }), "reference.png");
       if (job.mask) form.append("mask", new Blob([new Uint8Array(job.mask)], { type: "image/png" }), "mask.png");
       res = await fetchFn(`${base}/images/edits`, { method: "POST", headers, body: form, signal: job.signal });

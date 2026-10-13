@@ -10,15 +10,16 @@ import { useEffect, useMemo, useState, type JSX } from "react";
 import { Button, Select, Switch, TextInput, showToast, type SelectEntry } from "@/ds";
 import type { ProviderInfo } from "@shared/agents/types";
 import { AI_ACTION_LABEL, AI_IMAGE_ACTIONS, AI_TEXT_ACTIONS, formatCredits } from "@shared/ai/labels";
-import type { AiAction, AiModelId, AiModelInfo, AiModelState, AiRoute, AiSettings } from "@shared/ai/types";
+import type { AiAction, AiModelId, AiModelInfo, AiModelState, AiRoute, AiSettings, ImageRouteInfo } from "@shared/ai/types";
 import { BalanceMeter, loadAiBalance, openAiBalance, type BalanceView } from "./AiBalance";
 import { agentSetupBridge, aiSetupBridge } from "./bridge";
 import base from "./Settings.module.css";
 import styles from "./AiTab.module.css";
 
-/** The image providers (docs/ai.md §2.5; Antigravity the default — §10.1) */
+/** The image providers (docs/ai.md §2.5; Antigravity the default — §10.1) until main's `ai:image-routes` answers (docs/studio.md §2.4: their models and whether each can run come from there) */
 const IMAGE_PROVIDERS: { id: string; label: string; key?: "openai" | "gemini" }[] = [
   { id: "antigravity", label: "Antigravity" },
+  { id: "gemini-cli", label: "Gemini CLI" },
   { id: "openai-images", label: "OpenAI Images", key: "openai" },
   { id: "gemini-images", label: "Gemini API", key: "gemini" },
 ];
@@ -60,6 +61,20 @@ export function AiTab(): JSX.Element {
     };
   }, [ai]);
 
+  // The image routes follow the keys (a Gemini key makes the Gemini API available)
+  const [imageRoutes, setImageRoutes] = useState<ImageRouteInfo[] | null>(null);
+  const keys = settings ? `${settings.imageKeys.openai}${settings.imageKeys.gemini}` : "";
+  useEffect(() => {
+    let live = true;
+    ai?.imageRoutes?.().then(
+      (r) => live && setImageRoutes(r),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [ai, keys]);
+
   // The balance follows the monthly credits
   const monthly = settings?.monthlyCredits;
   useEffect(() => {
@@ -95,7 +110,11 @@ export function AiTab(): JSX.Element {
   const textOptions: SelectEntry[] = [{ value: AUTO, label: "Automatic" }, "-", ...textProviders.map((p) => ({ value: p.id, label: p.label, hint: p.available ? undefined : "Not available", disabled: !p.available && settings.text?.providerId !== p.id }))];
   const textProvider = textProviders.find((p) => p.id === settings.text?.providerId);
   const modelOptions: SelectEntry[] = textProvider ? [{ value: AUTO, label: "Default" }, ...textProvider.models.map((m) => ({ value: m, label: textProvider.modelLabels?.[m] ?? m }))] : [];
-  const imageOptions: SelectEntry[] = IMAGE_PROVIDERS.map((p) => ({ value: p.id, label: p.label, hint: p.key && !settings.imageKeys[p.key] ? "Needs a key" : undefined }));
+  const imageOptions: SelectEntry[] = imageRoutes
+    ? imageRoutes.map((r) => ({ value: r.providerId, label: r.label, hint: r.available ? undefined : /key/i.test(r.reason ?? "") ? "Needs a key" : "Not available" }))
+    : IMAGE_PROVIDERS.map((p) => ({ value: p.id, label: p.label, hint: p.key && !settings.imageKeys[p.key] ? "Needs a key" : undefined }));
+  const imageRoute = imageRoutes?.find((r) => r.providerId === (settings.image?.providerId ?? "antigravity"));
+  const imageModelOptions: SelectEntry[] = imageRoute?.models.length ? [{ value: AUTO, label: "Default" }, ...imageRoute.models.map((m) => ({ value: m.id, label: m.label, hint: m.detail }))] : [];
   const route = (providerId: string, model?: string): AiRoute | null => (providerId ? { providerId, ...(model ? { model } : {}) } : null);
   const actionRoute = (a: AiAction, providerId: string) => {
     const actions = { ...settings.actions };
@@ -168,7 +187,10 @@ export function AiTab(): JSX.Element {
             <span>Images</span>
             <span className={styles.caption}>Make an image, Edit image with prompt and Expand.</span>
           </span>
-          <Select label="Image provider" value={settings.image?.providerId ?? "antigravity"} options={imageOptions} disabled={off} onChange={(v) => save({ image: v === "antigravity" ? null : route(v) })} width={160} data-ai-setting="image" />
+          <span className={styles.controls}>
+            <Select label="Image provider" value={settings.image?.providerId ?? "antigravity"} options={imageOptions} disabled={off} onChange={(v) => save({ image: v === "antigravity" ? null : route(v) })} width={160} data-ai-setting="image" />
+            {imageRoute && imageModelOptions.length > 1 && <Select label="Image model" value={settings.image?.model ?? AUTO} options={imageModelOptions} disabled={off} onChange={(v) => save({ image: route(imageRoute.providerId, v) })} width={160} data-ai-setting="imageModel" />}
+          </span>
         </div>
         <details className={styles.overrides}>
           <summary>Provider for each feature</summary>

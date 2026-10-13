@@ -1,7 +1,7 @@
 import { app, dialog, ipcMain, Menu, shell, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type WebContents } from "electron";
 import type { AiRunRequest, ConnectorToolPolicy } from "../shared/ai/types";
 import { cancelRun, startRun } from "./ai/host";
-import { cleanImageRequest, startImageRun } from "./ai/images";
+import { cleanImageRequest, imageRouteInfo, startImageRun } from "./ai/images";
 import { isModelId } from "./ai/models";
 import { modelStore } from "./ai/protocol";
 import { AI_ACTIONS, aiSettings, cleanRoute, setAiSettings, setImageKey } from "./ai/settings";
@@ -232,8 +232,8 @@ export function registerIpc() {
   onInvoke("ai:run", ({ sender }, req) => startRun(sender, aiRunRequest(req)));
   // Image runs (src/main/ai/images) and local models (src/main/ai/models.ts, served at aimodel:).
   onInvoke("ai:image", ({ sender }, req) => startImageRun(sender, cleanImageRequest(req)));
-  // Studio's model choice card (docs/studio.md §2.4): 15c fills it
-  onInvoke("ai:image-routes", () => []);
+  // Studio's model choice card (docs/studio.md §2.4): Gemini API, Gemini CLI, Antigravity, OpenAI Images
+  onInvoke("ai:image-routes", () => imageRouteInfo());
   onInvoke("ai:cancel", ({ sender }, p) => {
     const id = str(p?.runId, 100);
     if (id) cancelRun(sender, id);

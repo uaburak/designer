@@ -217,6 +217,16 @@ export class ImageTools {
     return ok;
   }
 
+  /** Blur (docs/studio.md §6.2): the lassoed area as a low-resolution print. */
+  async blur(): Promise<boolean> {
+    const t = this.targetImage();
+    const lasso = this.state.get().lasso;
+    if (!t || lasso.length < 3) return false;
+    const ok = await this.run("Blurring…", [t.id], () => tools.blurAreas(this.env, t, [lasso]));
+    if (ok) this.close();
+    return ok;
+  }
+
   async expand(prompt?: string): Promise<boolean> {
     const t = this.targetImage();
     const pad = this.state.get().pad;

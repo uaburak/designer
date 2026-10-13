@@ -111,14 +111,16 @@ describe("the image toolbar", () => {
     engine.destroy();
   });
 
-  it("Select area: Erase and Isolate wait for a lasso; Esc closes", async () => {
+  it("Select area: Erase, Isolate and Blur wait for a lasso; Esc closes", async () => {
     const { engine, tools, view } = await setup();
     act(() => void engine.setSelection(["1:5"]));
     click(button("Select area"));
     expect(toolbar()!.dataset.imageToolbar).toBe("select-area");
     expect(button("Erase")!.getAttribute("aria-disabled")).toBe("true");
+    expect(button("Blur")!.getAttribute("aria-disabled")).toBe("true");
     act(() => tools.state.set({ lasso: [{ x: 1, y: 1 }, { x: 50, y: 1 }, { x: 50, y: 50 }] }));
     expect(button("Erase")!.getAttribute("aria-disabled")).toBeNull();
+    expect(button("Blur")!.getAttribute("aria-disabled")).toBeNull();
     act(() => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
     expect(tools.state.get().mode).toBeNull();
     view.unmount();
