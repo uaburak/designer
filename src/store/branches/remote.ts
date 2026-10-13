@@ -8,6 +8,7 @@
  * change.
  */
 import type { BranchRecord, BranchReview, BranchStatus } from "../../shared/merge/branches";
+import { unpackSnapshot } from "../../shared/multiplayer/snapshotWire";
 import { decodeMessage } from "../../shared/schema/codec";
 import { messageImageHashes } from "../../shared/schema/patch";
 import { isStoreError, StoreError } from "../../shared/store/protocol";
@@ -227,7 +228,7 @@ export class RemoteBranches {
   /** A shared branch's base (`GET /branches/:key/base`): the snapshot Message the merge starts from */
   async base(branchKey: string): Promise<Uint8Array> {
     if (!this.d.callBytes) throw new StoreError("invalid", "This store can't read a branch's base");
-    return (await this.d.callBytes("GET", `/branches/${seg(branchKey)}/base`)).bytes;
+    return unpackSnapshot((await this.d.callBytes("GET", `/branches/${seg(branchKey)}/base`)).bytes);
   }
 
   private async uploadImages(roomKey: string, batch: Uint8Array): Promise<void> {

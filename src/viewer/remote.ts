@@ -9,6 +9,7 @@
  * Refusals come back as `PreviewError`s the viewer shows as they are (404 / 403: not available, 410: expired).
  */
 import { readCanvasChunks } from "@shared/fig/container";
+import { unpackSnapshot } from "@shared/multiplayer/snapshotWire";
 import { isZstd } from "@shared/fig/compression";
 import { isPreviewManifest, previewExpired, PREVIEW_FORMAT, type PreviewManifest } from "@shared/preview/format";
 import { previewPagesOf } from "@shared/preview/package";
@@ -130,7 +131,7 @@ export async function loadEmbed(server: string, key: string): Promise<LoadedPrev
   if (!res.ok) throw new PreviewError("This file isn't available", "Its owner may have stopped sharing it with anyone who has the link.");
   const seq = Number(res.headers.get("x-seq") ?? "0");
   const fileName = decodeURIComponent(res.headers.get("x-file-name") ?? "Untitled");
-  const snapshot = new Uint8Array(await res.arrayBuffer());
+  const snapshot = await unpackSnapshot(new Uint8Array(await res.arrayBuffer()));
   const framesBytes = await fetchBytes(`${base}/frames?since=${seq}`);
   const messages = [codec.decodeMessage(snapshot)];
   const view = new DataView(framesBytes.buffer, framesBytes.byteOffset, framesBytes.byteLength);

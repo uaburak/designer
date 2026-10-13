@@ -168,7 +168,8 @@ export function OrgMain(props: OrgMainProps) {
 
   const openOrgFile = async (f: O.OrgFile, newTab = false) => {
     try {
-      const fileKey = f.fileKey ?? (await org.openShared(f.key)).fileKey;
+      // Early (Figma): the tab opens at once and shows the document coming down
+      const fileKey = f.fileKey ?? (await org.openShared(f.key, { early: true })).fileKey;
       openFile(fileKey, f.name, newTab);
     } catch (e) {
       toast({ kind: "error", message: `Couldn’t open “${f.name}”: ${orgErrorText(e)}` });

@@ -17,7 +17,8 @@ interface Row extends RemoteFile {
 
 /** Opens a shared file (its local copy), asking for the link's password when it has one; null when that was cancelled. */
 export function openSharedFile(key: string, intent: OpenIntent = {}): Promise<{ fileKey: string } | null> {
-  return withLinkPassword((password) => getStoreClient().multiplayer.openShared(key, password, intent));
+  // Early: the file's tab opens at once and shows the document coming down (Figma's loader)
+  return withLinkPassword((password) => getStoreClient().multiplayer.openShared(key, password, intent, { early: true }));
 }
 
 export function SharedFilesView({ layout, onOpen, onError }: { layout: "grid" | "list"; onOpen: (fileKey: string, name: string, intent?: OpenIntent) => void; onError: (message: string) => void }) {

@@ -8,13 +8,17 @@ export function multiplayerApi(m: MultiplayerService, owner?: object): Multiplay
   return {
     setSession: (session) => m.setSession(session && typeof session.server === "string" && typeof session.token === "string" ? { server: session.server, token: session.token } : null),
     status: () => m.status(),
-    fileState: (fileKey) => m.fileState(fileKey),
+    // A copy opened early is known once it is made (its tab asks while the document comes down)
+    fileState: async (fileKey) => {
+      await m.whenCopied(fileKey).catch(() => {});
+      return m.fileState(fileKey);
+    },
     share: (fileKey, input) => {
       if (!(input?.snapshot instanceof Uint8Array) || !Number.isInteger(input.headSeq)) throw new StoreError("invalid", "share needs the file's snapshot and head seq");
       return m.share(fileKey, input);
     },
     listRemote: () => m.listRemote(),
-    openShared: (key, password, intent) => m.openShared(String(key), typeof password === "string" ? password : undefined, cleanIntent(intent)),
+    openShared: (key, password, intent, opts) => m.openShared(String(key), typeof password === "string" ? password : undefined, cleanIntent(intent), { early: (opts as { early?: unknown } | undefined)?.early === true }),
     takeOpenIntent: (fileKey) => m.takeOpenIntent(fileKey),
     unlockFile: (fileKey, password) => m.unlockFile(fileKey, String(password)),
     setLinkPassword: (fileKey, password) => m.setLinkPassword(fileKey, typeof password === "string" && password ? password : null),
@@ -39,6 +43,7 @@ export function multiplayerApi(m: MultiplayerService, owner?: object): Multiplay
       const e = m.onPolicy((fileKey, policy) => void m.fileState(fileKey).then((state) => listener({ fileKey, state, policy })));
       const f = m.onRestJob((fileKey, restJob) => void m.fileState(fileKey).then((state) => listener({ fileKey, state, restJob })));
       const g = m.onRestWanted((fileKey) => void m.fileState(fileKey).then((state) => listener({ fileKey, state, restWanted: true })));
+      const h = m.onOpening((fileKey, opening) => void m.fileState(fileKey).then((state) => listener({ fileKey, state, opening })));
       return () => {
         a();
         b();
@@ -47,6 +52,7 @@ export function multiplayerApi(m: MultiplayerService, owner?: object): Multiplay
         e();
         f();
         g();
+        h();
       };
     },
     restRender: (fileKey, on, opts, token) => m.restRender(fileKey, on === true, { helper: (opts as { helper?: unknown } | undefined)?.helper === true }, typeof token === "string" && token ? token : undefined, owner),

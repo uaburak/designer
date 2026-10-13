@@ -30,6 +30,8 @@ import { CAPTURE_DOCUMENT, CAPTURE_UI_STATE, COMPONENTS_DOCUMENT, EMPTY_DOCUMENT
 import { PresentationView } from "@/present/PresentationView";
 import { storePresentationSource } from "@/present/PresentRoute";
 import { SharePrototypeDialog } from "./SharePrototypeDialog";
+import { OpenLoader } from "./OpenLoader";
+import { downloadProgress, setOpenProgress } from "./openProgress";
 import styles from "./EditorApp.module.css";
 
 /**
@@ -122,18 +124,34 @@ function useStoreSource(fileKey: string | null, tabId: string | undefined): { so
   useEffect(() => {
     if (!fileKey) return;
     let live = true;
+    setOpenProgress(0.05, 0.3);
+    // A shared copy opened early (Home's open of an org or shared file): its document coming down fills the bar
+    let stopWatching = () => {};
+    try {
+      stopWatching = getStoreClient().multiplayer.watch((e) => {
+        if (e.fileKey !== fileKey || !e.opening) return;
+        if (e.opening.reading || e.opening.done) setOpenProgress(0.72, 0.78);
+        else if (e.opening.received !== undefined) downloadProgress(e.opening.received, e.opening.total ?? null);
+      });
+    } catch {
+      // no store (a sample document)
+    }
     acquire(fileKey, tabId)
       .then((source) => {
+        stopWatching();
         if (!live) return;
         mark("sourceOpened");
+        setOpenProgress(0.8, 0.86);
         if (source.recovery) showToast({ message: "This file was recovered after an unexpected quit" });
         setState({ source: withImages(source, storeImages), error: null });
       })
       .catch((e: unknown) => {
+        stopWatching();
         if (live) setState({ source: null, error: e instanceof Error ? e.message : String(e) });
       });
     return () => {
       live = false;
+      stopWatching();
       release(fileKey);
     };
   }, [fileKey, tabId]);
@@ -271,7 +289,9 @@ export default function EditorRoute() {
   );
   if (fileKey && prototypeOnly) return <PrototypeOnly fileKey={fileKey} />;
   if (!source) {
-    return <div className={styles.status}>{stored.error ? <span className={styles.error}>The file could not be opened: {stored.error}</span> : null}</div>;
+    if (stored.error) return <div className={styles.status}><span className={styles.error}>The file could not be opened: {stored.error}</span></div>;
+    // Figma's loader, alone on the page until the document is here (the panels' placeholders come with the editor)
+    return fileKey ? <OpenLoader /> : null;
   }
   // The reference screenshots show the page at 100% with "Frame 1" near the canvas's top left.
   return <EditorApp source={source} onReady={onReady} initialView={doc === "reference" && !fileKey ? { zoom: 1, at: { x: 120, y: 95 } } : "fit"} />;

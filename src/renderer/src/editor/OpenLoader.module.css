@@ -1,0 +1,28 @@
+@layer app {
+  /* Figma's: a 32 logo, 40 above a 240 × 4 bar, centred on the canvas */
+  .loader {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--ds-space-8);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+  .logo { color: var(--figma-color-icon); }
+  .track {
+    width: 240px;
+    height: 4px;
+    overflow: hidden;
+    border-radius: var(--ds-radius-full);
+    background: var(--figma-color-bg-tertiary);
+  }
+  .fill {
+    height: 100%;
+    border-radius: var(--ds-radius-full);
+    background: var(--figma-color-icon);
+    transition: width var(--ds-duration-medium) var(--ds-ease-out);
+  }
+}

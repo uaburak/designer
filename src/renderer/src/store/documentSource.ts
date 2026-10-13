@@ -161,10 +161,11 @@ const loads = new Map<number, { onFacts: (f: DocumentFacts) => void; resolve: (d
 /**
  * The wire form the engine in hand reads, as the editor found out (`setEngineWireFormat`, once its module is up):
  * what an eager `prepare()` — started as soon as the file is open, before any engine exists — asks the worker for.
- * "json" until told; a kiwi-reading engine still takes the store's bytes as they are (the worker's conversion is
- * then only wasted work, and only on the very first open of a process whose engine module wasn't warm).
+ * "kiwi" until told — every engine built since round 3 reads the store's bytes as they are; an interim JSON engine
+ * asks again for its form (the worker's facts are reused). Every editor tab is a process of its own, so a "json"
+ * default made each open convert the whole document to JSON for nothing.
  */
-let engineWireFormat: EngineWireFormat = "json";
+let engineWireFormat: EngineWireFormat = "kiwi";
 export function setEngineWireFormat(format: EngineWireFormat): void {
   engineWireFormat = format;
 }

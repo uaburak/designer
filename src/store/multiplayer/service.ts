@@ -11,9 +11,11 @@
 import type { RoomPolicy } from "../../shared/org/identity";
 import { GOVERNANCE_SIGN_IN_ERROR_TEXT, REQUIRES_GOVERNANCE_PLUS, type GovernanceErrorCode, type OrgGate } from "../../shared/org/governance";
 import { CLOSE_MOVING, encodeChangesUp, decodeChangesDown, type ClientControl, type PeerInfo, type Role, type ServerControl } from "../../shared/multiplayer/protocol";
-import type { AccessRequest, FileMember, FileShareState, LinkAccess, LinkSettingsPatch, MultiplayerNotice, MultiplayerSession, MultiplayerStatus, OpenIntent, RemoteFile, RestJobAnswer, RestJobRequest, SessionEnded, SharedFileInfo } from "../../shared/multiplayer/types";
+import type { AccessRequest, FileMember, FileShareState, LinkAccess, LinkSettingsPatch, MultiplayerNotice, MultiplayerSession, MultiplayerStatus, OpenIntent, OpeningProgress, RemoteFile, RestJobAnswer, RestJobRequest, SessionEnded, SharedFileInfo } from "../../shared/multiplayer/types";
 import type { RestJob, RestJobPart } from "../../shared/rest/types";
 import { decodeMessage } from "../../shared/schema/codec";
+import type { Message } from "../../shared/schema/document.generated";
+import { packSnapshot, unpackSnapshot } from "../../shared/multiplayer/snapshotWire";
 import { messageImageHashes } from "../../shared/schema/patch";
 import { StoreError } from "../../shared/store/protocol";
 import { ACCOUNT_SUSPENDED_TEXT, isQuotaRefusal, quotaText } from "../../shared/quota";
@@ -32,9 +34,12 @@ export interface MultiplayerHost {
   appendRemote(fileKey: FileKey, message: Uint8Array): Promise<{ seq: number }>;
   /** A new local file holding this snapshot as it is (no GUID remapping: the room's nodes keep their ids); `space`: the
    *  org file it copies (docs/multiplayer.md §14.6), so it never lists among local Drafts */
-  createSharedFile(input: { name: string; snapshot: Uint8Array; space?: FileSpace | null }): Promise<FileMeta>;
-  /** A record listed from the server with no document here (docs/cloud.md §2) gets the room's snapshot as it is */
-  fillFile?(fileKey: FileKey, snapshot: Uint8Array): Promise<void>;
+  createSharedFile(input: { name: string; snapshot: Uint8Array; space?: FileSpace | null; fileKey?: FileKey; message?: Message }): Promise<FileMeta>;
+  /** A record listed from the server with no document here (docs/cloud.md §2) gets the room's snapshot as it is
+   *  (`message`: the snapshot already decoded, so it isn't decoded twice) */
+  fillFile?(fileKey: FileKey, snapshot: Uint8Array, message?: Message): Promise<void>;
+  /** A key for a new file (a shared copy opened before its document is here: its tab opens on it at once) */
+  newFileKey?(): FileKey;
   /** A new file's document (a draft registered whose content never reached its room) */
   newDocument?(): Uint8Array;
   /** An org file's copy moved (or a local file moved into an org): its `FileMeta.space` */
@@ -597,9 +602,11 @@ export class MultiplayerService {
     };
     // Bytes of the requests landed; one going again falls back to it
     let landed = 0;
-    let total = snapshot.length;
-    const onRetry = up && ((attempt: number) => this.uploads.retrying(up.id, attempt, landed));
     const sha1s = imagesOf(snapshot);
+    // Gzipped for the wire (snapshotWire.ts): a large file's ~80 MB Message goes as ~12 MB
+    const packed = await packSnapshot(snapshot);
+    let total = packed.length;
+    const onRetry = up && ((attempt: number) => this.uploads.retrying(up.id, attempt, landed));
     const missing = sha1s.length ? await withRetry(delays, step(() => this.missingBlobs(room, sha1s)), onRetry) : [];
     const sizes = up && missing.length && this.host.blobSizes ? await this.host.blobSizes(missing).catch(() => null) : null;
     if (sizes) total += sizes.reduce((a, b) => a + b, 0);
@@ -616,7 +623,7 @@ export class MultiplayerService {
     });
     const base = landed;
     const call: CallOptions | undefined = up && { signal: up.signal, onSent: (n) => this.uploads.progress(up.id, base + n) };
-    await withRetry(delays, step(() => this.api("PUT", `/files/${room}/snapshot?seq=0`, snapshot, call)), onRetry);
+    await withRetry(delays, step(() => this.api("PUT", `/files/${room}/snapshot?seq=0`, packed, call)), onRetry);
   }
 
   /**
@@ -771,8 +778,8 @@ export class MultiplayerService {
   /** Opens a file shared with the user: its local copy, made from the room's snapshot the first time. A file whose link
    *  has a password (and the user isn't invited) needs `password`; without it the error's detail says
    *  `{passwordRequired: true}` (and `wrong: true` when the one given was wrong). */
-  async openShared(key: string, password?: string, intent?: OpenIntent): Promise<{ fileKey: FileKey }> {
-    const { fileKey } = await this.openSharedCopy(key, password);
+  async openShared(key: string, password?: string, intent?: OpenIntent, opts: { early?: boolean } = {}): Promise<{ fileKey: FileKey }> {
+    const { fileKey } = await this.openSharedCopy(key, password, opts.early === true);
     if (intent && (intent.nodeId || intent.mode)) this.intents.set(fileKey, intent);
     return { fileKey };
   }
@@ -784,18 +791,76 @@ export class MultiplayerService {
     return i;
   }
 
-  private async openSharedCopy(key: string, password?: string): Promise<{ fileKey: FileKey }> {
+  private async openSharedCopy(key: string, password: string | undefined, early: boolean): Promise<{ fileKey: FileKey }> {
     const st = await this.loadState();
     const had = Object.entries(st.links).find(([, l]) => l.key === key);
     if (had && this.host.getMeta(had[0])) return { fileKey: had[0] };
+    const going = [...this.copying.entries()].find(([, c]) => c.key === key);
+    if (going) {
+      if (!early) await going[1].done;
+      return { fileKey: going[0] };
+    }
     this.needOrdinal();
     // By invite or by the link: the server answers with the caller's role (404 when neither).
     const remote = await this.api<SharedFileInfo>("GET", `/files/${key}`).catch((e: unknown) => {
       throw e instanceof StoreError && e.code === "not-found" ? new StoreError("not-found", "This file isn't shared with you, or the link is off") : e;
     });
     if (remote.needsPassword) await this.unlock(key, password);
-    const fileKey = await this.copyFromRoom(key, remote.name, remote.role, spaceOf(key, (remote as RemoteWithOrg).org));
+    // The copy is made under a key known now: an early open hands it back at once, so the file's tab opens and shows
+    // the document coming down (Figma's progress bar) while `files.open` waits for it (`whenCopied`)
+    const fileKey = this.host.newFileKey?.() ?? null;
+    const space = spaceOf(key, (remote as RemoteWithOrg).org);
+    if (!fileKey) return { fileKey: await this.copyFromRoom(key, remote.name, remote.role, space) };
+    const done = this.copyFromRoom(key, remote.name, remote.role, space, fileKey)
+      .then(() => this.opening(fileKey, { done: true }))
+      .catch((e: unknown) => {
+        this.opening(fileKey, { error: e instanceof Error ? e.message : String(e) });
+        throw e;
+      })
+      .finally(() => this.copying.delete(fileKey));
+    const copied = done.then(() => undefined);
+    void copied.catch(() => {}); // said to whoever waits (the open, `whenCopied`); none may
+    this.copying.set(fileKey, { key, done: copied });
+    if (!early) await done;
     return { fileKey };
+  }
+
+  /** Shared copies being made (an early open's file key → its room and the copy) */
+  private copying = new Map<FileKey, { key: string; done: Promise<void> }>();
+  private openingListeners = new Set<(fileKey: FileKey, p: OpeningProgress) => void>();
+
+  /** Before a file opens: a shared copy still coming down is waited for (its tab opened early) */
+  async whenCopied(fileKey: FileKey): Promise<void> {
+    await this.copying.get(fileKey)?.done;
+  }
+
+  /** A copy's document coming down: bytes so far of `total` (null: not said), then done or failed */
+  onOpening(listener: (fileKey: FileKey, p: OpeningProgress) => void): Unsubscribe {
+    this.openingListeners.add(listener);
+    return () => this.openingListeners.delete(listener);
+  }
+
+  private opening(fileKey: FileKey, p: OpeningProgress): void {
+    for (const l of this.openingListeners) l(fileKey, p);
+  }
+
+  /**
+   * The room's snapshot, unpacked (snapshotWire.ts), its bytes said on topic `multiplayer` as they come for `fileKey`'s
+   * opening (at most ~10 a second).
+   */
+  private async roomSnapshot(key: string, fileKey?: FileKey): Promise<{ seq: number; snapshot: Uint8Array }> {
+    const res = await this.raw("GET", `/files/${key}/snapshot`);
+    const seq = Number(res.headers.get("x-seq") ?? "0");
+    const total = Number(res.headers.get("content-length") ?? "") || null;
+    let said = 0;
+    const bytes = await readCounting(res, (n) => {
+      const now = Date.now();
+      if (!fileKey || (now - said < 100 && n !== total)) return;
+      said = now;
+      this.opening(fileKey, { received: n, total });
+    });
+    if (fileKey) this.opening(fileKey, { received: bytes.length, total: bytes.length, reading: true });
+    return { seq, snapshot: await unpackSnapshot(bytes) };
   }
 
   /** The pass for a link password, kept for this room key (and with the file's link record once there is one). */
@@ -859,18 +924,17 @@ export class MultiplayerService {
   private locked = new Set<FileKey>();
 
   /** A local copy made from the room's snapshot (and its images), linked at the snapshot's seq. */
-  private async copyFromRoom(key: string, name: string, role: Role, space: FileSpace | null = null): Promise<FileKey> {
+  private async copyFromRoom(key: string, name: string, role: Role, space: FileSpace | null = null, fileKey?: FileKey): Promise<FileKey> {
     const st = await this.loadState();
-    const res = await this.raw("GET", `/files/${key}/snapshot`);
-    const seq = Number(res.headers.get("x-seq") ?? "0");
-    const snapshot = new Uint8Array(await res.arrayBuffer());
-    // Opened as soon as the document is here; its images come down after (docs/cloud.md §4.1)
-    const meta = await this.host.createSharedFile({ name, snapshot, ...(space ? { space } : {}) });
+    const { seq, snapshot } = await this.roomSnapshot(key, fileKey);
+    // Opened as soon as the document is here; its images come down after (docs/cloud.md §4.1). Decoded once here
+    const message = decodeMessage(snapshot);
+    const meta = await this.host.createSharedFile({ name, snapshot, message, ...(space ? { space } : {}), ...(fileKey ? { fileKey } : {}) });
     const head = Math.max(0, ...(await this.host.backlog(meta.fileKey, 0)).map((c) => c.seq));
     st.links[meta.fileKey] = { key, since: seq, acked: head, sessions: [], role, ...this.uidField(), ...(this.passes.has(key) ? { pass: this.passes.get(key) } : {}) };
     await this.persist(meta.fileKey);
     this.startLink(meta.fileKey);
-    await this.queueImages(meta.fileKey, key, name, snapshot);
+    await this.queueImages(meta.fileKey, key, name, message);
     return meta.fileKey;
   }
 
@@ -878,7 +942,7 @@ export class MultiplayerService {
    * A copy's images not in the store, queued to come down in the background (the page it opens on first) and kept
    * with its link for the next start. Never fails the open: a queue that can't start is said in the log.
    */
-  private async queueImages(fileKey: FileKey, key: string, name: string, snapshot: Uint8Array): Promise<void> {
+  private async queueImages(fileKey: FileKey, key: string, name: string, snapshot: Uint8Array | Message): Promise<void> {
     try {
       const { first, rest } = imageDownloadOrder(snapshot);
       const missing = await this.downloads.add({ fileKey, key, name, first, rest });
@@ -973,21 +1037,20 @@ export class MultiplayerService {
     let snapshot: Uint8Array;
     let pendingUpload = false;
     try {
-      const res = await this.raw("GET", `/files/${key}/snapshot`);
-      seq = Number(res.headers.get("x-seq") ?? "0");
-      snapshot = new Uint8Array(await res.arrayBuffer());
+      ({ seq, snapshot } = await this.roomSnapshot(key, fileKey));
     } catch (e) {
       if (!(e instanceof StoreError && (e.detail as { code?: unknown } | undefined)?.code === "no_snapshot")) throw e;
       snapshot = this.host.newDocument();
       pendingUpload = true;
     }
-    // Opened as soon as the document is here; its images come down after (docs/cloud.md §4.1)
-    await this.host.fillFile(fileKey, snapshot);
+    // Opened as soon as the document is here; its images come down after (docs/cloud.md §4.1). Decoded once here
+    const message = pendingUpload ? undefined : decodeMessage(snapshot);
+    await this.host.fillFile(fileKey, snapshot, message);
     const head = Math.max(0, ...(await this.host.backlog(fileKey, 0)).map((c) => c.seq));
     st.links[fileKey] = { key, since: seq, acked: head, sessions: [], role, ...this.uidField(), ...(pendingUpload ? { pendingUpload: true as const } : {}) };
     await this.persist(fileKey);
     this.startLink(fileKey);
-    if (!pendingUpload) await this.queueImages(fileKey, key, this.host.getMeta(fileKey)?.name ?? "Untitled", snapshot);
+    if (message) await this.queueImages(fileKey, key, this.host.getMeta(fileKey)?.name ?? "Untitled", message);
   }
 
   /** A link made before 1.1 becomes the signed-in account's (the 1.1 migration of the person's own files) */
@@ -1072,7 +1135,7 @@ export class MultiplayerService {
   async uploadSnapshot(fileKey: FileKey, key: string, seq: number): Promise<boolean> {
     const snapshot = await this.host.headSnapshot(fileKey);
     try {
-      await this.api("PUT", `/files/${key}/snapshot?seq=${seq}`, snapshot);
+      await this.api("PUT", `/files/${key}/snapshot?seq=${seq}`, await packSnapshot(snapshot));
       void this.uploadThumbnail(fileKey);
       return true;
     } catch (e) {

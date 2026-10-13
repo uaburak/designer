@@ -12,6 +12,7 @@
  * Pure (no Node, no DOM): the desktop store (LocalStore) and the browser's dev store (MemoryStore) both use it.
  */
 import { decodeChangesDown } from "../../shared/multiplayer/protocol";
+import { unpackSnapshot } from "../../shared/multiplayer/snapshotWire";
 import { decodeMessage, encodeMessage, SCHEMA_BINARY } from "../../shared/schema/codec";
 import { NodeTable } from "../../shared/schema/patch";
 import { restoreDiff, withNewAssetIdentity } from "../../shared/store/assetIdentity";
@@ -116,7 +117,7 @@ export class RoomVersions {
     const snap = await this.d.callBytes("GET", `/files/${seg(key)}/versions/${seg(id)}/snapshot`);
     let table: NodeTable;
     try {
-      table = NodeTable.fromMessage(decodeMessage(snap.bytes));
+      table = NodeTable.fromMessage(decodeMessage(await unpackSnapshot(snap.bytes)));
     } catch (e) {
       throw new StoreError("corrupt", `This version couldn't be read: ${(e as Error).message}`);
     }

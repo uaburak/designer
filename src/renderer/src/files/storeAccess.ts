@@ -25,7 +25,7 @@ export interface OrgBackend {
   projects: ProjectsRepository;
   admin: AdminRepository;
   /** An org file's local copy: made from its room the first time (`multiplayer.openShared`), linked after */
-  openShared(key: string): Promise<{ fileKey: FileKey }>;
+  openShared(key: string, opts?: { early?: boolean }): Promise<{ fileKey: FileKey }>;
   /** A local file's whole document and its head seq, for "Move to" a folder (§14.6: the snapshot goes up with it) */
   snapshotOf(fileKey: FileKey): Promise<{ snapshot: Uint8Array; headSeq: number }>;
   /** Libraries in the org (docs/data.md §16): the team's libraries, which files are libraries; absent: not shown */
@@ -97,7 +97,7 @@ export function filesBackend(): Promise<FilesBackend> {
       teams: client.teams,
       projects: client.projects,
       admin: client.admin,
-      openShared: (key) => client.multiplayer.openShared(key),
+      openShared: (key, opts) => client.multiplayer.openShared(key, undefined, undefined, opts),
       snapshotOf: (fileKey) => localSnapshot(client.files, fileKey),
       orgLibraries: client.orgLibraries,
       analytics: client.analytics,

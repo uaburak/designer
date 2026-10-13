@@ -16,7 +16,7 @@ import { SettingsHost } from "../settings/SettingsModal";
 import { Uploads, type UploadSource } from "../uploads/UploadPanel";
 import { getStoreClient } from "@/store";
 import { IdleWarning } from "../account/IdleWarning";
-import { currentTheme, HelpButton, ReturnFocusProvider, Spinner, ToastHost, TooltipManager, useThemeRoot, type ThemeName } from "@/ds";
+import { currentTheme, HelpButton, ReturnFocusProvider, ToastHost, TooltipManager, useThemeRoot, type ThemeName } from "@/ds";
 import { Status } from "@/engine/abi";
 import { CanvasController } from "@/engine/CanvasController";
 import { Engine } from "@/engine/Engine";
@@ -86,6 +86,8 @@ import { PlaygroundDialog } from "./devmode/Playground";
 import { CompareChanges } from "./devmode/CompareChanges";
 import { Branching } from "./branching/Branching";
 import { attachRestRunner } from "./rest";
+import { OpenLoader } from "./OpenLoader";
+import { setOpenProgress } from "./openProgress";
 import styles from "./EditorApp.module.css";
 
 export interface EditorAppProps {
@@ -159,6 +161,7 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       if (eager) {
         const created = await creating;
         if (disposed) return created.destroy();
+        setOpenProgress(0.86, 0.9);
         const format = engineWireFormat(created);
         setEngineWireFormat(format);
         // The kiwi wire for the engine's outputs too: changes come as the kiwi Message the journal keeps (`bytes`),
@@ -349,7 +352,7 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
             <CanvasLayers />
           ) : (
             <div className={styles.status} role="status">
-              {error ? <span className={styles.error}>The file could not be opened: {error}</span> : <Spinner size={24} />}
+              {error ? <span className={styles.error}>The file could not be opened: {error}</span> : <OpenLoader />}
             </div>
           )}
         </div>

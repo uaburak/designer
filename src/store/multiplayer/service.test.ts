@@ -14,6 +14,7 @@ import type { FileChange } from "../../shared/store/repositories";
 import type { FileKey, FileMeta } from "../../shared/store/types";
 import { MultiplayerService, type MultiplayerDeps, type MultiplayerHost } from "./service";
 import { multiplayerApi } from "./api";
+import { packSnapshot, unpackSnapshot } from "../../shared/multiplayer/snapshotWire";
 import type { UploadEvent, UploadProgress } from "../../shared/multiplayer/uploads";
 
 const SERVER = "https://mp.test";
@@ -142,8 +143,11 @@ class FakeStore implements MultiplayerHost {
   async appendRemote(fileKey: FileKey, message: Uint8Array) {
     return { seq: this.push(fileKey, { sessionID: 0, kind: "remote", message }).seq };
   }
-  async createSharedFile(input: { name: string; snapshot: Uint8Array }) {
-    const fileKey = `joined${++this.n}`;
+  newFileKey() {
+    return `joined${++this.n}`;
+  }
+  async createSharedFile(input: { name: string; snapshot: Uint8Array; fileKey?: FileKey }) {
+    const fileKey = input.fileKey ?? `joined${++this.n}`;
     const meta = { fileKey, name: input.name } as FileMeta;
     this.files.set(fileKey, { meta, snapshot: input.snapshot, frames: [] });
     return meta;
@@ -244,6 +248,36 @@ async function sharedPair() {
 }
 
 describe("MultiplayerService", () => {
+  it("opens a shared file early: its key at once, the document coming down said, then the copy made (Figma's loader)", async () => {
+    const a = await installation("a@x.co");
+    const b = await installation("b@x.co");
+    services.push(a.svc, b.svc);
+    const fa = a.store.addFile("Landing", [node(0, { name: "Document" }), node(1, { name: "Page 1" })]);
+    const shared = await a.svc.share(fa, { snapshot: msg([node(0, { name: "Document" }), node(1, { name: "Page 1" })]), headSeq: 0 });
+    await a.svc.invite(fa, "b@x.co", "editor");
+    const seen: { received?: number; reading?: true; done?: true }[] = [];
+    const off = b.svc.onOpening((_k, p) => seen.push(p));
+    const { fileKey } = await b.svc.openShared(shared.key!, undefined, undefined, { early: true });
+    // The tab can open on it now; its record comes with the document
+    expect(b.store.getMeta(fileKey)).toBeNull();
+    // A second open of the same room while it comes down: the same copy
+    expect((await b.svc.openShared(shared.key!)).fileKey).toBe(fileKey);
+    await b.svc.whenCopied(fileKey);
+    off();
+    expect(b.store.getMeta(fileKey)).toMatchObject({ name: "Landing" });
+    expect(b.store.doc(fileKey)["0:1"]).toEqual({ name: "Page 1" });
+    expect(seen.some((p) => p.reading)).toBe(true);
+    expect(seen.at(-1)).toEqual({ done: true });
+    expect((await b.svc.fileState(fileKey)).shared).toBe(true);
+  });
+
+  it("reads a room snapshot sent before snapshots were packed (a bare Message)", async () => {
+    const bare = msg([node(0, { name: "Document" })]);
+    expect(await unpackSnapshot(bare)).toBe(bare);
+    expect(await unpackSnapshot(await packSnapshot(bare))).toEqual(bare);
+    expect(await packSnapshot(await packSnapshot(bare))).toEqual(await packSnapshot(bare));
+  });
+
   it("gives each installation its own device ordinal from the server", async () => {
     const a = await installation("a@x.co");
     const b = await installation("b@x.co");
@@ -638,7 +672,7 @@ describe("MultiplayerService, when the server is gone or busy", () => {
     for (let i = 0; i < 200 && b.store.doc(fileKey)["0:1"].name !== "Edited offline"; i++) await wait(5);
     expect(b.store.doc(fileKey)["0:1"].name).toBe("Edited offline");
     // The edit is in the room's snapshot itself (uploaded from the copy's head), not only sent as a frame after it
-    expect(decodeMessage(rooms.get(rec.key)!.snapshot!.bytes).nodeChanges?.find((n) => n.guid?.localID === 1)?.name).toBe("Edited offline");
+    expect(decodeMessage(await unpackSnapshot(rooms.get(rec.key)!.snapshot!.bytes)).nodeChanges?.find((n) => n.guid?.localID === 1)?.name).toBe("Edited offline");
   });
 
   it("retries a share's upload through a busy moment and succeeds without a trace", async () => {
@@ -712,15 +746,18 @@ describe("MultiplayerService, the upload panel", () => {
     const fa = a.store.addFile("Big file", [node(0, { name: "Document" })]);
     const shared = await a.svc.share(fa, { snapshot, headSeq: 0 });
     await settle();
+    // Gzipped for the wire (snapshotWire.ts): the room keeps what came, the Message comes back out of it
+    const packed = await packSnapshot(snapshot);
+    expect(packed.length).toBeLessThan(snapshot.length / 10);
     const put = a.streamed.find((s) => s.path.endsWith("/snapshot"))!;
-    expect(put).toEqual({ path: `/files/${shared.key}/snapshot`, declared: String(snapshot.length), got: snapshot.length });
-    expect(rooms.get(shared.key!)!.snapshot!.bytes.length).toBe(snapshot.length);
+    expect(put).toEqual({ path: `/files/${shared.key}/snapshot`, declared: String(packed.length), got: packed.length });
+    expect(await unpackSnapshot(rooms.get(shared.key!)!.snapshot!.bytes)).toEqual(snapshot);
     const mine = a.uploads().filter((u) => u.fileKey === fa);
     expect(mine[0]).toMatchObject({ state: "queued", name: "Big file", bytesSent: 0, retryable: true });
     const sent = mine.filter((u) => u.state === "uploading").map((u) => u.bytesSent);
     expect(sent.length).toBeGreaterThan(0);
     expect(sent).toEqual([...sent].sort((x, y) => x - y));
-    expect(mine.at(-1)).toMatchObject({ state: "done", bytesSent: snapshot.length, bytesTotal: snapshot.length, destination: "Anex Tour › Design › KOC" });
+    expect(mine.at(-1)).toMatchObject({ state: "done", bytesSent: packed.length, bytesTotal: packed.length, destination: "Anex Tour › Design › KOC" });
     expect(await a.api.uploads()).toHaveLength(1);
   });
 
@@ -850,7 +887,7 @@ describe("MultiplayerService, images to R2", () => {
     expect(snapAt).toBeGreaterThan(lastBlob);
     expect([...r2.FILES.objects.keys()].filter((k) => k.startsWith("b/")).sort()).toEqual(hashes.map((h) => `b/${h}`).sort());
     const done = a.uploads().at(-1)!;
-    expect(done).toMatchObject({ state: "done", bytesTotal: snapshot.length + images.reduce((n, b) => n + b.length, 0) });
+    expect(done).toMatchObject({ state: "done", bytesTotal: (await packSnapshot(snapshot)).length + images.reduce((n, b) => n + b.length, 0) });
     expect(a.uploads().some((u) => u.state === "retrying")).toBe(true);
   });
 });

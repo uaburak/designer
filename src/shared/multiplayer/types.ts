@@ -89,6 +89,19 @@ export interface MultiplayerEvent {
   restJob?: RestJobRequest;
   /** The room has no client that can render (`{t: "rest-wanted"}` on the inbox): main's render helper may open the file */
   restWanted?: true;
+  /** A shared copy opened early (`openShared(…, {early: true})`): its document coming down, for the editor's loader */
+  opening?: OpeningProgress;
+}
+
+/** A shared copy's document coming down before its file opens: bytes so far, then `reading` (unpacked and stored), then
+ *  `done` or `error` */
+export interface OpeningProgress {
+  received?: number;
+  /** null: the answer didn't say its length */
+  total?: number | null;
+  reading?: true;
+  done?: true;
+  error?: string;
 }
 
 /** A REST render job as the store hands it to the editor that renders the file (docs/multiplayer.md §16.6) */
@@ -228,8 +241,10 @@ export interface MultiplayerRepository {
   share(fileKey: FileKey, input: { snapshot: Uint8Array; headSeq: number }): Promise<FileShareState>;
   listRemote(): Promise<RemoteFile[]>;
   /** The local copy of a file shared with the user — by invite or by its link (made from the room's snapshot the first
-   *  time). A link with a password needs `password` (the error's detail is `{passwordRequired: true, wrong?: true}`). */
-  openShared(key: string, password?: string, intent?: OpenIntent): Promise<{ fileKey: FileKey }>;
+   *  time). A link with a password needs `password` (the error's detail is `{passwordRequired: true, wrong?: true}`).
+   *  `early`: answers once the copy is started rather than made — the file's tab opens at once and `files.open` waits
+   *  for the document, said as `MultiplayerEvent.opening` (Figma's loader). */
+  openShared(key: string, password?: string, intent?: OpenIntent, opts?: { early?: boolean }): Promise<{ fileKey: FileKey }>;
   /** Where the link that opened this file asked to land (once; the editor reads it when it opens) */
   takeOpenIntent(fileKey: FileKey): Promise<OpenIntent | null>;
   /** A changed link password for an open shared file (`FileShareState.locked`) */

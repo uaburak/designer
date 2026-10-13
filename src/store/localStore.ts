@@ -7,7 +7,7 @@ import { randomInt } from "node:crypto";
 import { closeSync, openSync, promises as fsp, writeSync } from "node:fs";
 import { join } from "node:path";
 import { newDocumentMessage } from "../shared/schema/codec";
-import { codec } from "../shared/schema/document.generated";
+import { codec, type Message } from "../shared/schema/document.generated";
 import { sessionIdFor, splitSessionId } from "../shared/schema/guid";
 import { NodeTable } from "../shared/schema/patch";
 import { withNewAssetIdentity } from "../shared/store/assetIdentity";
@@ -194,7 +194,8 @@ export class LocalStore {
         backlog: (fileKey, fromSeq) => files.backlog(fileKey, fromSeq),
         appendRemote: (fileKey, message) => files.appendRemote(fileKey, message),
         createSharedFile: (input) => this.createSharedFile(input),
-        fillFile: (fileKey, snapshot) => this.fillCloudFile(fileKey, snapshot),
+        fillFile: (fileKey, snapshot, message) => this.fillCloudFile(fileKey, snapshot, message),
+        newFileKey: () => newFileKey(),
         newDocument: () => codec.encodeMessage(newDocumentMessage()),
         setFileSpace: async (fileKey, space) => void (await ws.queue.run(() => ws.setFileSpace(fileKey, space))),
         getMeta: (fileKey) => (ws.files.has(fileKey) ? ws.getMeta(fileKey) : null),
@@ -553,12 +554,12 @@ export class LocalStore {
   }
 
   /** A cloud file listed from the server gets its room's document (docs/cloud.md §2), as a shared file's copy does */
-  async fillCloudFile(fileKey: FileKey, snapshot: Uint8Array): Promise<void> {
+  async fillCloudFile(fileKey: FileKey, snapshot: Uint8Array, message?: Message): Promise<void> {
     this.guard();
     this.ws.getMeta(fileKey);
     let table: NodeTable;
     try {
-      table = NodeTable.fromMessage(codec.decodeMessage(snapshot));
+      table = NodeTable.fromMessage(message ?? codec.decodeMessage(snapshot));
     } catch (e) {
       throw new StoreError("corrupt", `The file couldn't be read: ${(e as Error).message}`);
     }
@@ -620,16 +621,16 @@ export class LocalStore {
   }
 
   /** A file shared with the user: the room's snapshot as it is — no GUID remapping, so its nodes keep the room's ids. */
-  async createSharedFile(input: { name: string; snapshot: Uint8Array; space?: FileSpace | null }): Promise<FileMeta> {
+  async createSharedFile(input: { name: string; snapshot: Uint8Array; space?: FileSpace | null; fileKey?: FileKey; message?: Message }): Promise<FileMeta> {
     this.guard();
     let table: NodeTable;
     try {
-      table = NodeTable.fromMessage(codec.decodeMessage(input.snapshot));
+      table = NodeTable.fromMessage(input.message ?? codec.decodeMessage(input.snapshot));
     } catch (e) {
       throw new StoreError("corrupt", `The shared file couldn't be read: ${(e as Error).message}`);
     }
     if (!table.get("0:0")) throw new StoreError("corrupt", "The shared file has no document");
-    const key = newFileKey();
+    const key = input.fileKey ?? newFileKey();
     await this.files.createFile(key, input.snapshot, [...table.imageHashes()].sort(), table.derivedDataVersion);
     const meta = newMeta(key, input.name.trim() || "Untitled", null, this.clock.now());
     if (input.space) meta.space = { ...input.space };
@@ -1022,6 +1023,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
       return Promise.all(list.map(async (f) => (f.sizeBytes ? f : { ...f, sizeBytes: await s.files.sizeOf(f.fileKey).catch(() => 0) })));
     },
     getFile: async (fileKey) => {
+      await s.multiplayer.whenCopied(fileKey).catch(() => {}); // a shared copy opened early (its tab asks its name)
       const f = ws.getFile(fileKey);
       return f.sizeBytes ? f : { ...f, sizeBytes: await s.files.sizeOf(fileKey).catch(() => 0) };
     },
@@ -1047,7 +1049,9 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
   const files: FileRepository = {
     // An archived or merged branch opens read-only (docs/data.md §15.5).
     // A draft whose document isn't here downloads it first (docs/cloud.md §2)
+    // A shared copy whose tab opened before its document came down (multiplayer.openShared early) waits for it
     open: async (fileKey, opts) => {
+      await s.multiplayer.whenCopied(fileKey);
       await s.personal.ensureLocal(fileKey);
       return s.files.open(fileKey, { mode: s.branches.openMode(fileKey, opts?.mode === "edit" ? "edit" : "view"), tabId: opts?.tabId }, owner);
     },
