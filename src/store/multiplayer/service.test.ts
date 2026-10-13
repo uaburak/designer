@@ -14,7 +14,7 @@ import type { FileChange } from "../../shared/store/repositories";
 import type { FileKey, FileMeta } from "../../shared/store/types";
 import { MultiplayerService, type MultiplayerDeps, type MultiplayerHost } from "./service";
 import { multiplayerApi } from "./api";
-import { packSnapshot, unpackSnapshot } from "../../shared/multiplayer/snapshotWire";
+import { isPackedSnapshot, packSnapshot, unpackSnapshot } from "../../shared/multiplayer/snapshotWire";
 import type { UploadEvent, UploadProgress } from "../../shared/multiplayer/uploads";
 
 const SERVER = "https://mp.test";
@@ -269,6 +269,23 @@ describe("MultiplayerService", () => {
     expect(seen.some((p) => p.reading)).toBe(true);
     expect(seen.at(-1)).toEqual({ done: true });
     expect((await b.svc.fileState(fileKey)).shared).toBe(true);
+  });
+
+  it("packs a room's bare snapshot at its seq when someone who may edit opens it", async () => {
+    const a = await installation("a@x.co");
+    const b = await installation("b@x.co");
+    services.push(a.svc, b.svc);
+    const fa = a.store.addFile("Landing", [node(0, { name: "Document" })]);
+    const bare = msg([node(0, { name: "Document" }), node(1, { name: "x".repeat(50_000) })]);
+    const shared = await a.svc.share(fa, { snapshot: bare, headSeq: 0 });
+    await a.svc.invite(fa, "b@x.co", "editor");
+    const room = rooms.get(shared.key!)!;
+    room.snapshot!.bytes = bare; // as an older client sent it
+    const { fileKey } = await b.svc.openShared(shared.key!);
+    await settle();
+    expect(b.store.doc(fileKey)["0:1"]).toBeDefined();
+    expect(isPackedSnapshot(rooms.get(shared.key!)!.snapshot!.bytes)).toBe(true);
+    expect(await unpackSnapshot(rooms.get(shared.key!)!.snapshot!.bytes)).toEqual(bare);
   });
 
   it("reads a room snapshot sent before snapshots were packed (a bare Message)", async () => {

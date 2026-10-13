@@ -15,7 +15,7 @@ import type { AccessRequest, FileMember, FileShareState, LinkAccess, LinkSetting
 import type { RestJob, RestJobPart } from "../../shared/rest/types";
 import { decodeMessage } from "../../shared/schema/codec";
 import type { Message } from "../../shared/schema/document.generated";
-import { packSnapshot, unpackSnapshot } from "../../shared/multiplayer/snapshotWire";
+import { isPackedSnapshot, packSnapshot, unpackSnapshot } from "../../shared/multiplayer/snapshotWire";
 import { messageImageHashes } from "../../shared/schema/patch";
 import { StoreError } from "../../shared/store/protocol";
 import { ACCOUNT_SUSPENDED_TEXT, isQuotaRefusal, quotaText } from "../../shared/quota";
@@ -848,7 +848,7 @@ export class MultiplayerService {
    * The room's snapshot, unpacked (snapshotWire.ts), its bytes said on topic `multiplayer` as they come for `fileKey`'s
    * opening (at most ~10 a second).
    */
-  private async roomSnapshot(key: string, fileKey?: FileKey): Promise<{ seq: number; snapshot: Uint8Array }> {
+  private async roomSnapshot(key: string, fileKey?: FileKey): Promise<{ seq: number; snapshot: Uint8Array; bare: boolean }> {
     const res = await this.raw("GET", `/files/${key}/snapshot`);
     const seq = Number(res.headers.get("x-seq") ?? "0");
     const total = Number(res.headers.get("content-length") ?? "") || null;
@@ -860,7 +860,23 @@ export class MultiplayerService {
       this.opening(fileKey, { received: n, total });
     });
     if (fileKey) this.opening(fileKey, { received: bytes.length, total: bytes.length, reading: true });
-    return { seq, snapshot: await unpackSnapshot(bytes) };
+    return { seq, snapshot: await unpackSnapshot(bytes), bare: !isPackedSnapshot(bytes) };
+  }
+
+  /**
+   * A room still holding a bare snapshot (sent before snapshots were packed) gets it packed at the same seq by someone
+   * who may edit it — the next opens download a fraction of it. The same document, so nothing else changes; a refusal
+   * (the room moved on meanwhile, a viewer) is left as it is.
+   */
+  private repack(key: string, seq: number, snapshot: Uint8Array, role: Role): void {
+    if (role === "viewer") return;
+    void (async () => {
+      try {
+        await this.api("PUT", `/files/${key}/snapshot?seq=${seq}`, await packSnapshot(snapshot));
+      } catch (e) {
+        this.host.log("debug", `multiplayer: ${key}'s snapshot stays bare`, e);
+      }
+    })();
   }
 
   /** The pass for a link password, kept for this room key (and with the file's link record once there is one). */
@@ -926,7 +942,8 @@ export class MultiplayerService {
   /** A local copy made from the room's snapshot (and its images), linked at the snapshot's seq. */
   private async copyFromRoom(key: string, name: string, role: Role, space: FileSpace | null = null, fileKey?: FileKey): Promise<FileKey> {
     const st = await this.loadState();
-    const { seq, snapshot } = await this.roomSnapshot(key, fileKey);
+    const { seq, snapshot, bare } = await this.roomSnapshot(key, fileKey);
+    if (bare) this.repack(key, seq, snapshot, role);
     // Opened as soon as the document is here; its images come down after (docs/cloud.md §4.1). Decoded once here
     const message = decodeMessage(snapshot);
     const meta = await this.host.createSharedFile({ name, snapshot, message, ...(space ? { space } : {}), ...(fileKey ? { fileKey } : {}) });
@@ -1037,7 +1054,9 @@ export class MultiplayerService {
     let snapshot: Uint8Array;
     let pendingUpload = false;
     try {
-      ({ seq, snapshot } = await this.roomSnapshot(key, fileKey));
+      let bare: boolean;
+      ({ seq, snapshot, bare } = await this.roomSnapshot(key, fileKey));
+      if (bare) this.repack(key, seq, snapshot, role);
     } catch (e) {
       if (!(e instanceof StoreError && (e.detail as { code?: unknown } | undefined)?.code === "no_snapshot")) throw e;
       snapshot = this.host.newDocument();
