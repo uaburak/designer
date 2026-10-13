@@ -1,0 +1,59 @@
+/* Agents: the chat (the app's Agents panel) beside the canvas the agent builds on; stacked on a phone. */
+.body { position: relative; display: flex; flex: 1 1 auto; min-height: 0; container: agentsbody / inline-size; }
+.chatPanel {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 360px;
+  min-height: 0;
+  border-right: 1px solid var(--figma-color-border);
+  background: var(--figma-color-bg);
+}
+.tabHeader { display: flex; flex: none; align-items: center; justify-content: space-between; height: 41px; padding: 0 var(--ds-space-2) 0 var(--ds-space-4); border-bottom: 1px solid var(--figma-color-border); }
+.tabTitle { font: var(--ds-font-body-medium-strong); }
+.canvas { flex: 1 1 auto; }
+.area { position: absolute; inset: 0; }
+.toolName { margin-left: auto; padding-left: var(--ds-space-2); color: var(--figma-color-text-tertiary); font: var(--ds-font-code); white-space: nowrap; }
+.empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--ds-space-2); color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); text-align: center; padding: var(--ds-space-6); }
+.emptyNote { font: var(--ds-font-body-small); }
+.flash { position: absolute; inset: 0; z-index: 9; background: #fff; pointer-events: none; animation: flash 420ms ease-out both; }
+@keyframes flash { from { opacity: 0.55; } to { opacity: 0; } }
+
+@container scene (max-width: 720px) {
+  .body { flex-direction: column-reverse; }
+  .chatPanel { width: 100%; height: 62%; border-right: 0; border-top: 1px solid var(--figma-color-border); }
+  .canvas { min-height: 38%; }
+  .toolName { display: none; }
+}
+
+/* The built frames (design content, Verda's own colours) */
+.phone, .desk { display: flex; flex-direction: column; background: #fbf8f1; color: #1f2a22; font-family: "Inter Variable", Inter, sans-serif; box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.1); animation: land 360ms var(--site-ease) both; }
+.phone { width: 390px; height: 760px; gap: 16px; padding: 56px 28px 32px; }
+.desk { width: 720px; height: 470px; gap: 22px; padding: 36px; }
+.phone > *, .desk > *, .plan, .product { transition: transform 600ms var(--site-ease), opacity 300ms ease, background-color 400ms ease, color 400ms ease; }
+@keyframes land { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: none; } }
+.phoneArt { display: grid; place-items: center; height: 220px; border-radius: 20px; }
+.phoneTitle { font-size: 32px; font-weight: 700; line-height: 1.1; letter-spacing: -0.03em; }
+.phoneText { color: #5d685f; font-size: 15px; line-height: 1.45; }
+.field { display: flex; align-items: center; height: 48px; padding: 0 16px; border: 1px solid #d9d6cc; border-radius: 12px; background: #fff; color: #8a9087; font-size: 15px; }
+.cta { display: grid; place-items: center; height: 52px; margin-top: auto; border-radius: 14px; color: #fff; font-size: 16px; font-weight: 600; }
+.rewritten { animation: ink 1200ms ease-out both; }
+@keyframes ink { 0% { opacity: 0.2; filter: blur(4px); } 60% { opacity: 1; filter: blur(0); } 100% { filter: none; } }
+.deskTitle { font-size: 30px; font-weight: 700; letter-spacing: -0.03em; }
+.plans, .products { display: grid; flex: 1 1 auto; gap: 16px; }
+.plans { grid-template-columns: repeat(3, 1fr); }
+.products { grid-template-columns: repeat(4, 1fr); }
+.plan { display: flex; flex-direction: column; gap: 8px; padding: 20px; border-radius: 16px; background: #fff; box-shadow: 0 0 0 1px #ebe7dc; }
+.planName { font-size: 14px; font-weight: 600; }
+.planPrice { font-size: 34px; font-weight: 700; letter-spacing: -0.03em; }
+.planPrice small { font-size: 13px; font-weight: 500; opacity: 0.6; }
+.planNote { font-size: 13px; opacity: 0.75; }
+.planButton { display: grid; place-items: center; height: 40px; margin-top: auto; border-radius: 10px; font-size: 14px; font-weight: 600; }
+.product { display: flex; flex-direction: column; gap: 6px; }
+.productArt { display: grid; flex: 1 1 auto; place-items: center; border-radius: 14px; }
+.productName { font-size: 15px; font-weight: 600; }
+.productPrice { font-size: 14px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .phone, .desk, .rewritten, .flash { animation: none; }
+}

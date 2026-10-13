@@ -1,5 +1,7 @@
 // Scenes are React islands in the static pages: `<div data-scene="name">` holds a still placeholder until its
-// module is loaded — when it comes within a screen of the viewport (`data-eager`: at once) — and rendered. The app's
+// module is loaded — when it comes within a screen of the viewport (`data-eager`: at once) — and rendered. Scenes are
+// watch-only animations (inert, hidden from assistive tech: the section's own text says what they show) except the
+// one marked `data-interactive`. The app's
 // tooltips (ds TooltipManager) and toasts get one host for the page.
 import { StrictMode, type ComponentType } from "react";
 import { createRoot } from "react-dom/client";
@@ -55,6 +57,11 @@ export function mountScenes(registry: SceneRegistry): void {
   for (const el of document.querySelectorAll<HTMLElement>("[data-scene]")) {
     const load = registry[el.dataset.scene ?? ""];
     if (!load) continue;
+    // Watch-only (docs/site.md §2.2): only a scene marked `data-interactive` (the home hero) takes the visitor's input
+    if (!el.hasAttribute("data-interactive")) {
+      el.inert = true;
+      el.setAttribute("aria-hidden", "true");
+    }
     const go = () =>
       void load()
         .then((mod) => render(el, mod))

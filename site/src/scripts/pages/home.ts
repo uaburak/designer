@@ -1,8 +1,11 @@
-// /: the live editor, then a full-screen scene per part of the app.
+// /: the live editor (it grows with the scroll and stays pinned while the visitor uses it), then a full-screen
+// animation per part of the app.
 import { initPage } from "../common";
+import { initHeroScroll } from "../heroScroll";
 import { mountScenes } from "../../scenes/runtime/mount";
 
 initPage();
+initHeroScroll();
 mountScenes({
   hero: () => import("../../scenes/hero/HeroScene"),
   autolayout: () => import("../../scenes/design/AutoLayoutScene"),

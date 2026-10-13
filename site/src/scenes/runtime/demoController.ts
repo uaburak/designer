@@ -1,6 +1,6 @@
-// A scene's guided demo (docs/site.md §2.2): a script that plays while the scene is on screen, yields the moment the
-// visitor touches the scene, and starts again from its beginning after the visitor has left it alone for a while.
-// No DOM here (useDemo.ts wires it to the page); the timers are injectable so the rules are tested
+// A scene's animation (docs/site.md §2.2): a script that plays while the scene is on screen, loops, stops when it
+// leaves the screen and starts over from its beginning when it comes back. Watch-only: nothing the visitor does
+// changes it. No DOM here (useDemo.ts wires it to the page); the timers are injectable so the rules are tested
 // (demoController.test.ts).
 
 export interface DemoTimers {
@@ -9,7 +9,7 @@ export interface DemoTimers {
 }
 
 export interface DemoRun {
-  /** Aborted when the visitor takes over or the scene leaves the screen. */
+  /** Aborted when the scene leaves the screen. */
   readonly signal: AbortSignal;
   /** Resolves after `ms`; rejects (an AbortError) as soon as the run is aborted. */
   wait(ms: number): Promise<void>;
@@ -17,11 +17,9 @@ export interface DemoRun {
 
 export type DemoScript = (run: DemoRun) => Promise<void>;
 
-export type DemoState = "off" | "starting" | "playing" | "between" | "yielded";
+export type DemoState = "off" | "starting" | "playing" | "between";
 
 export interface DemoOptions {
-  /** Quiet time after the visitor's last touch before the demo starts again */
-  idleMs?: number;
   /** Pause between two plays of the script */
   loopGapMs?: number;
   /** Delay between the scene coming on screen and the first step */
@@ -38,13 +36,12 @@ const browserTimers: DemoTimers = {
 export const isAbort = (e: unknown): boolean => e instanceof Error && e.name === "AbortError";
 
 function abortError(): Error {
-  const e = new Error("The demo yielded");
+  const e = new Error("The scene left the screen");
   e.name = "AbortError";
   return e;
 }
 
 export class DemoController {
-  private readonly idleMs: number;
   private readonly loopGapMs: number;
   private readonly startDelayMs: number;
   private readonly timers: DemoTimers;
@@ -60,7 +57,6 @@ export class DemoController {
     private readonly script: DemoScript,
     options: DemoOptions = {},
   ) {
-    this.idleMs = options.idleMs ?? 7000;
     this.loopGapMs = options.loopGapMs ?? 1600;
     this.startDelayMs = options.startDelayMs ?? 500;
     this.timers = options.timers ?? browserTimers;
@@ -82,24 +78,12 @@ export class DemoController {
     if (this.current === "off") this.schedule("starting", this.startDelayMs);
   }
 
-  /** Off for visitors who prefer reduced motion: the scene still answers their input. */
+  /** Off for visitors who prefer reduced motion: the scene stays on its first frame. */
   setEnabled(enabled: boolean): void {
     if (enabled === this.enabled) return;
     this.enabled = enabled;
     if (!enabled) this.stop("off");
     else if (this.visible) this.schedule("starting", this.startDelayMs);
-  }
-
-  /** The visitor touched the scene: the demo stops where it is and waits for them to leave it alone. */
-  interact(): void {
-    if (this.disposed || !this.enabled) return;
-    this.cancelRun();
-    this.schedule("yielded", this.idleMs);
-  }
-
-  /** The visitor is still around (the pointer moving over the scene): a yielded demo waits longer. */
-  poke(): void {
-    if (this.current === "yielded") this.schedule("yielded", this.idleMs);
   }
 
   dispose(): void {

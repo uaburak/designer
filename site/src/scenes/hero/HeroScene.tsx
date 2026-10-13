@@ -21,8 +21,7 @@ import { useCamera, useHover, useSelection, useTool } from "@/engine/hooks";
 import panels from "@/editor/panels/Panels.module.css";
 import { layerRows, withChildIds } from "../engine/layers";
 import { loadLive, type LiveEngine } from "../engine/loadLive";
-import { cancelWrite, write } from "../engine/write";
-import { DemoCursor, useDemo, type SceneRun } from "../runtime/useDemo";
+import { write } from "../engine/write";
 import { useSiteTheme } from "../runtime/theme";
 import { DesignPanel } from "./DesignPanel";
 import { heroDocument } from "./heroDocument";
@@ -90,12 +89,54 @@ export default function HeroScene() {
       if (!live) return;
       const s = new live.EngineStore(engine);
       placeCamera(engine, viewRef.current);
+      // EngineCanvas focuses the canvas; on a page the keys stay the page's (Space, arrows scroll) until the visitor clicks in
+      engine.canvasElement?.blur();
       setStore(s);
       (window as { __wecraHero?: Engine }).__wecraHero = engine;
     },
     [live],
   );
   const onError = useCallback(() => setFailed(true), []);
+
+  // The first view is placed again once the canvas has its layout size (the controller starts from the on-screen box,
+  // which the page's scroll scale shrinks), and on resizes — until the visitor has worked in the canvas.
+  useEffect(() => {
+    const engine = store?.engine;
+    const root = rootRef.current;
+    if (!engine || !root) return;
+    let touched = false;
+    const touch = () => (touched = true);
+    root.addEventListener("pointerdown", touch, { capture: true });
+    let queued = 0;
+    const place = () => {
+      if (touched || queued) return;
+      // After the engine has taken the canvas's new size (its ResizeObserver runs before this frame's paint)
+      queued = requestAnimationFrame(() => {
+        queued = 0;
+        if (!touched && !engine.destroyed) placeCamera(engine, viewRef.current);
+      });
+    };
+    addEventListener("resize", place);
+    place();
+    return () => {
+      cancelAnimationFrame(queued);
+      removeEventListener("resize", place);
+      root.removeEventListener("pointerdown", touch, { capture: true });
+    };
+  }, [store]);
+
+  // The panels fold away as the window narrows: what the engine fits and centres in follows (attachViewInsets)
+  useEffect(() => {
+    const view = viewRef.current;
+    const engine = store?.engine;
+    if (!view || !engine) return;
+    const ro = new ResizeObserver(() => {
+      const i = insetsOf(view);
+      engine.setViewportInsets(i.left, i.top, i.right, i.bottom);
+    });
+    ro.observe(view);
+    return () => ro.disconnect();
+  }, [store]);
   useEffect(() => () => store?.dispose(), [store]);
 
   // The theme: the engine's chrome (selection, guides) and the page's grey
@@ -106,27 +147,17 @@ export default function HeroScene() {
     if (import.meta.env.DEV && new URLSearchParams(location.search).has("still")) setTimeout(() => void saveStill(store.engine, theme), 2500);
   }, [store, theme]);
 
-  // Wheel over the canvas scrolls the page until the visitor works in the canvas (a press in it); pinch always zooms it.
-  const workingRef = useRef(false);
+  // The wheel scrolls the page, also over the canvas (the hero is pinned while the page scrolls past it); ⌘ / Ctrl-wheel
+  // and a pinch zoom the canvas.
   useEffect(() => {
-    const view = viewRef.current?.parentElement;
+    const view = rootRef.current;
     if (!view) return;
     const onWheel = (e: WheelEvent) => {
-      if (!workingRef.current && !e.ctrlKey && !e.metaKey) e.stopPropagation();
+      if (!e.ctrlKey && !e.metaKey) e.stopPropagation();
     };
-    const onDown = () => (workingRef.current = true);
-    const onLeave = () => (workingRef.current = false);
     view.addEventListener("wheel", onWheel, { capture: true, passive: true });
-    view.addEventListener("pointerdown", onDown, { capture: true });
-    view.addEventListener("pointerleave", onLeave);
-    return () => {
-      view.removeEventListener("wheel", onWheel, { capture: true });
-      view.removeEventListener("pointerdown", onDown, { capture: true });
-      view.removeEventListener("pointerleave", onLeave);
-    };
+    return () => view.removeEventListener("wheel", onWheel, { capture: true });
   }, []);
-
-  const { cursor } = useDemo(rootRef, (run) => heroDemo(run, store), { idleMs: 9000, loopGapMs: 2600, startDelayMs: 1800 });
 
   const ready = !!store;
   const pageColor = theme === "dark" ? "#1E1E1E" : "#F5F5F5";
@@ -208,7 +239,6 @@ export default function HeroScene() {
             </div>
           </aside>
         </div>
-        <DemoCursor cursor={cursor} />
       </div>
     </div>
   );
@@ -218,18 +248,25 @@ export default function HeroScene() {
 const STILL = { x: -40, y: -40, w: 1320, h: 640, scale: 2 };
 
 /** The first view: the Home frame centred in what the panels leave (the toolbar's room kept), as large as fits. */
-function firstView(view: DOMRect): { x: number; y: number; zoom: number } {
+/**
+ * What the panels leave of the canvas, from the layout (the page scales the whole window as it scrolls, so on-screen
+ * rects would be scaled too): the view sits in the chrome, which covers the canvas.
+ */
+function insetsOf(view: HTMLElement) {
+  const chrome = view.parentElement!;
+  return { left: view.offsetLeft, top: view.offsetTop, right: chrome.clientWidth - view.offsetLeft - view.offsetWidth, bottom: chrome.clientHeight - view.offsetTop - view.offsetHeight };
+}
+
+function firstView(view: { width: number; height: number }): { x: number; y: number; zoom: number } {
   const zoom = Math.max(0.18, Math.min(1, (view.width - 64) / 880, (view.height - 112) / 560));
   return { x: 440, y: 280 + 22 / zoom, zoom };
 }
 
 function placeCamera(engine: Engine, view: HTMLElement | null) {
-  const canvas = engine.canvasElement;
-  if (!view || !canvas) return engine.command("ZOOM_TO_FIT");
-  const c = canvas.getBoundingClientRect();
-  const v = view.getBoundingClientRect();
-  engine.setViewportInsets(v.left - c.left, v.top - c.top, c.right - v.right, c.bottom - v.bottom);
-  const at = firstView(v);
+  if (!view) return engine.command("ZOOM_TO_FIT");
+  const i = insetsOf(view);
+  engine.setViewportInsets(i.left, i.top, i.right, i.bottom);
+  const at = firstView({ width: view.offsetWidth, height: view.offsetHeight });
   engine.centerOn(at.x, at.y, at.zoom);
 }
 
@@ -244,11 +281,10 @@ function Still({ theme, viewRef }: { theme: "light" | "dark"; viewRef: React.Ref
     const area = view?.parentElement?.parentElement;
     if (!view || !area) return;
     const place = () => {
-      const v = view.getBoundingClientRect();
-      const a = area.getBoundingClientRect();
+      const v = { width: view.offsetWidth, height: view.offsetHeight };
       const at = firstView(v);
-      const cx = v.left - a.left + v.width / 2;
-      const cy = v.top - a.top + v.height / 2;
+      const cx = view.offsetLeft + v.width / 2;
+      const cy = view.offsetTop + v.height / 2;
       setBox({ left: cx + (STILL.x - at.x) * at.zoom, top: cy + (STILL.y - at.y) * at.zoom, width: STILL.w * at.zoom, height: STILL.h * at.zoom });
     };
     place();
@@ -437,94 +473,4 @@ function LiveRows({ store, expanded, toggle }: { store: EngineStore; expanded: S
   const hover = useHover(store);
   const selected = useMemo(() => new Set(selection.refs), [selection]);
   return <Rows nodes={nodes} expanded={expanded} toggle={toggle} selection={selected} hover={hover} store={store} />;
-}
-
-// ── The guided demo ───────────────────────────────────────────────────────────────────────────────────────────────
-
-/** Select the button and recolour it, open up the cards' gap, draw a frame — then undo, so the file is as it was. */
-async function heroDemo(run: SceneRun, store: EngineStore | null) {
-  if (!store) {
-    await run.wait(1500);
-    return;
-  }
-  const engine = store.engine;
-  const canvas = engine.canvasElement;
-  if (!canvas) return;
-  let steps = 0;
-  const undoAll = async () => {
-    for (; steps > 0; steps--) {
-      engine.command("UNDO");
-      await run.wait(260);
-    }
-  };
-  try {
-    engine.setSelection([]);
-    await run.wait(600);
-    // 1. The "Pre-order" button, from the Layers panel
-    const row = () => run.$(`[data-ds="LayerRow"][data-id="${DOC.buttons}"]`);
-    await run.click(row(), { dx: -20 });
-    engine.setSelection([DOC.buttons]);
-    await run.wait(500);
-    const primaryRow = run.$(`[data-ds="LayerRow"][data-id="${DOC.primary}"]`);
-    await run.click(primaryRow, { dx: -20 });
-    engine.setSelection([DOC.primary]);
-    await run.wait(700);
-    // 2. Its fill, typed in the panel
-    const fill = run.$('[data-paint="fillPaints"] input');
-    await run.click(fill);
-    await run.wait(250);
-    write(engine, [DOC.primary], { fillPaints: [{ type: "SOLID", color: { r: 0xff / 255, g: 0xa6 / 255, b: 0x29 / 255, a: 1 }, opacity: 1, visible: true }] }, "Fill");
-    steps++;
-    await run.wait(900);
-    // 3. The feature cards' gap, scrubbed
-    engine.setSelection([DOC.cards]);
-    await run.wait(500);
-    const gap = run.$('[data-field="gap"] [data-ds-scrub-handle], [data-field="gap"] svg');
-    await run.move(gap);
-    run.press(true);
-    engine.setSpacingHighlight(1);
-    for (let g = 16; g <= 40; g += 2) {
-      write(engine, [DOC.cards], { stackSpacing: g }, "Gap", { final: g === 40, source: "scrub" });
-      await run.move(run.at(gap, (g - 16) * 1.6), { ms: 40 });
-    }
-    steps++;
-    run.press(false);
-    await run.wait(900);
-    engine.setSpacingHighlight(0);
-    // 4. A frame, drawn on the canvas with the Frame tool
-    const tool = run.$('[data-tool="frame"], button[aria-label^="Frame"]');
-    await run.click(tool);
-    engine.setTool("FRAME");
-    const view = canvas.getBoundingClientRect();
-    const root = run.root.getBoundingClientRect();
-    const origin = engine.screenToWorld(0, 0);
-    const zoom = engine.getCamera().zoom;
-    const art = engine.readNode(DOC.art)?.transform;
-    const x0 = ((art?.m02 ?? 500) + 28 - origin.x) * zoom;
-    const y0 = ((art?.m12 ?? 96) + 150 - origin.y) * zoom;
-    const x1 = x0 + 120 * zoom;
-    const y1 = y0 + 96 * zoom;
-    const toScene = (x: number, y: number) => ({ x: x + view.left - root.left, y: y + view.top - root.top });
-    await run.move(toScene(x0, y0));
-    run.press(true);
-    engine.pointer(0, x0, y0, 0, 1, 0);
-    for (let i = 1; i <= 12; i++) {
-      const x = x0 + ((x1 - x0) * i) / 12;
-      const y = y0 + ((y1 - y0) * i) / 12;
-      engine.pointer(1, x, y, 0, 1, 0);
-      await run.move(toScene(x, y), { ms: 30 });
-    }
-    engine.pointer(2, x1, y1, 0, 0, 0);
-    run.press(false);
-    steps++;
-    await run.wait(1400);
-    run.hide();
-    await undoAll();
-    engine.setSelection([]);
-  } catch (e) {
-    cancelWrite(engine);
-    engine.setSpacingHighlight(0);
-    if (store.tool !== "MOVE") engine.setTool("MOVE");
-    throw e;
-  }
 }

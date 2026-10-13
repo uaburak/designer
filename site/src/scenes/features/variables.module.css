@@ -1,0 +1,119 @@
+/* Variables: the canvas and the Design panel on top, the Local variables table docked under them. */
+.window.window { min-height: 520px; }
+.body { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+.top { position: relative; display: flex; flex: 1 1 auto; min-height: 240px; }
+.canvas { display: flex; touch-action: manipulation; }
+.frames {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  padding: 36px 24px 20px;
+}
+.frameWrap { position: relative; }
+
+/* The app screen (design content: its colours are the variables' values) */
+.app {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 188px;
+  padding: 14px 14px 16px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter Variable", Inter, sans-serif;
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.1);
+  transition: background-color 260ms ease, color 260ms ease;
+  cursor: default;
+}
+.appTop { display: flex; align-items: center; justify-content: space-between; height: 18px; margin-bottom: 10px; }
+.appTime { font-size: 11px; font-weight: 600; }
+.badge {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  transition: background-color 260ms ease;
+}
+.greeting { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+.sub { margin-bottom: 8px; opacity: 0.6; font-size: 11px; }
+.surface {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--r);
+  background: var(--surface);
+  transition: background-color 260ms ease, border-radius 200ms ease;
+}
+.dot { width: 26px; height: 26px; flex: none; border-radius: 50%; background: var(--accent); transition: background-color 260ms ease; }
+.lines { display: flex; flex: 1 1 auto; flex-direction: column; gap: 6px; }
+.lines span { height: 5px; border-radius: 3px; background: currentColor; opacity: 0.22; }
+.lines span:last-child { width: 60%; }
+.cta {
+  display: grid;
+  place-items: center;
+  height: 34px;
+  margin-top: 10px;
+  border-radius: calc(var(--r) * 0.6);
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background-color 260ms ease, border-radius 200ms ease;
+}
+/* A layer bound to the variable whose row is selected: the engine's hover outline */
+[data-bound] { outline: 1.5px solid var(--figma-color-border-selected); outline-offset: 1px; }
+
+.boundFill {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  flex: 1 1 auto;
+  height: var(--ds-size-control);
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-medium);
+  background: var(--figma-color-bg-secondary);
+  font: var(--ds-font-body-medium);
+}
+.boundField { display: flex; align-items: center; gap: var(--ds-space-1); height: var(--ds-size-control); color: var(--figma-color-icon-secondary); }
+.boundPill {
+  padding: 2px 6px;
+  border-radius: var(--ds-radius-medium);
+  background: var(--figma-color-bg-secondary);
+  color: var(--figma-color-text);
+  font: var(--ds-font-body-medium);
+}
+.hint { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+
+/* The Local variables table, docked */
+.table { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; max-height: 62%; border-top: 1px solid var(--figma-color-border); background: var(--figma-color-bg); }
+.tableBar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1);
+  height: 40px;
+  padding: 0 var(--ds-space-4) 0 var(--ds-space-2);
+  border-bottom: 1px solid var(--figma-color-border);
+  color: var(--figma-color-icon);
+}
+.title.title { flex: 0 1 auto; color: var(--figma-color-text); }
+.count { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+.scroll { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+
+@container scene (max-width: 640px) {
+  .top { flex-direction: column; flex-basis: auto; }
+  .top > aside { display: none; }
+  .frames { gap: 16px; padding: 32px 12px 16px; }
+  .app { width: 148px; padding: 10px 10px 12px; }
+  .greeting { font-size: 14px; }
+  .table { max-height: 52%; }
+}
+.phoneMode { position: absolute; top: var(--ds-space-2); right: var(--ds-space-2); z-index: 6; display: none; width: 150px; }
+@container scene (max-width: 640px) {
+  .phoneMode { display: block; }
+}

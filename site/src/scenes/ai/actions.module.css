@@ -1,0 +1,153 @@
+/* The Actions scene: the Layers panel, the canvas with two frames, the palette beside (or under) them. */
+.layers { padding: var(--ds-space-2) 0; }
+.canvas { container: actions / inline-size; }
+.layout { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.area { position: relative; flex: 1 1 auto; min-height: 0; }
+.paletteSlot { display: flex; flex: none; justify-content: center; padding: 0 var(--ds-space-4) var(--ds-space-4); }
+
+/* The palette: Actions' own panel, placed in the scene instead of over the window's toolbar */
+.palette.palette {
+  position: relative;
+  z-index: 10;
+  width: 529px;
+  max-width: 100%;
+  height: 354px;
+}
+.palette input[aria-label="Search"] { right: calc(var(--ds-space-6) * 2 - var(--ds-space-1)); width: auto; }
+
+@container actions (min-width: 940px) {
+  .layout { flex-direction: row; }
+  .paletteSlot { align-items: center; padding: var(--ds-space-4) var(--ds-space-6) var(--ds-space-4) 0; }
+  .palette.palette { width: 420px; height: min(420px, calc(100% - var(--ds-space-8))); }
+}
+@container actions (min-width: 1080px) {
+  .palette.palette { width: 480px; }
+}
+@container actions (max-width: 560px) {
+  .paletteSlot { padding: 0 var(--ds-space-2) var(--ds-space-2); }
+  .palette.palette { width: 100%; height: 300px; }
+}
+/* No Layers panel on a narrow window */
+@container scene (max-width: 760px) {
+  [data-panel="left"] { display: none; }
+}
+
+/* The frames (design content: their own colours and type) */
+.frame {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 260px;
+  height: 384px;
+  padding: 18px;
+  overflow: hidden;
+  background: #fff;
+  color: #1a1a1a;
+  font-family: "Inter Variable", Inter, sans-serif;
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.08), 0 1px 3px rgb(0 0 0 / 0.06);
+}
+.frameLabel {
+  position: absolute;
+  z-index: 2;
+  color: var(--figma-color-text-secondary);
+  font: var(--ds-font-body-medium);
+  white-space: nowrap;
+  transform-origin: 0 100%;
+  pointer-events: none;
+}
+.frameLabel[data-selected] { color: var(--figma-color-text-brand); }
+.hero { flex: none; height: 132px; overflow: hidden; border-radius: 12px; }
+.title { font-size: 21px; font-weight: 680; line-height: 1.15; letter-spacing: -0.02em; }
+.body { color: #5c5c5c; font-size: 12.5px; line-height: 1.45; }
+.button {
+  display: grid;
+  place-items: center;
+  height: 40px;
+  margin-top: auto;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: #1a1a1a;
+  color: #fff;
+  font: 600 13px/1 "Inter Variable", Inter, sans-serif;
+}
+.back {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #f2f2f2;
+  color: #1a1a1a;
+}
+.member { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+.avatar { flex: none; width: 34px; height: 34px; border-radius: 50%; background: #e6e6e6; transition: background-color 400ms ease; }
+.avatar[data-filled] { background: linear-gradient(135deg, hsl(var(--hue) 80% 78%), hsl(calc(var(--hue) + 30) 70% 62%)); }
+.memberText { display: flex; flex-direction: column; min-width: 0; }
+.memberName { font-size: 13px; font-weight: 600; }
+.memberRole { color: #6b6b6b; font-size: 11.5px; }
+.hover { position: absolute; z-index: 4; outline: 1px solid var(--figma-color-border-selected); pointer-events: none; }
+
+/* First Draft's frame */
+.draft { display: flex; flex-direction: column; gap: 10px; height: 100%; padding: 12px 18px 18px; }
+.draftIn { animation: draft-in 520ms var(--site-ease) both; }
+@keyframes draft-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.status { display: flex; align-items: center; justify-content: space-between; height: 18px; font-size: 11px; font-weight: 600; }
+.statusIcons { width: 38px; height: 8px; border-radius: 2px; background: currentColor; opacity: 0.8; }
+.draftArt { flex: none; height: 96px; margin-top: 6px; }
+.draftTitle { font-size: 21px; font-weight: 700; line-height: 1.15; letter-spacing: -0.02em; }
+.draftText { font-size: 12px; line-height: 1.45; }
+.field { display: flex; align-items: center; height: 36px; padding: 0 12px; border: 1px solid; font-size: 12px; }
+.draftButton { display: grid; place-items: center; height: 40px; margin-top: auto; font-size: 13px; font-weight: 600; }
+.draftFoot { font-size: 11px; text-align: center; }
+
+/* Add interactions' noodles (the prototype blue) */
+.noodles { position: absolute; top: 0; left: 0; z-index: 3; overflow: visible; pointer-events: none; }
+.noodle {
+  fill: none;
+  stroke: var(--figma-color-bg-brand);
+  stroke-width: 2;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: draw 700ms var(--site-ease) forwards;
+}
+.arrow, .dot { fill: var(--figma-color-bg-brand); opacity: 0; animation: appear 200ms ease 560ms forwards; }
+.dot { stroke: #fff; stroke-width: 1.5; animation-delay: 0ms; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes appear { to { opacity: 1; } }
+
+/* Preview: the prototype inline over the canvas */
+.preview {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-3);
+  background: color-mix(in srgb, var(--ds-color-canvas-default) 86%, transparent);
+  backdrop-filter: blur(6px);
+}
+.previewBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 260px;
+  color: var(--figma-color-text-secondary);
+  font: var(--ds-font-body-medium-strong);
+}
+.previewFrame { position: relative; box-shadow: var(--ds-elevation-500-modal-window); animation: draft-in 260ms var(--site-ease) both; }
+.hot { cursor: pointer; box-shadow: 0 0 0 2px var(--figma-color-bg-brand); }
+
+@media (prefers-reduced-motion: reduce) {
+  .draftIn, .previewFrame { animation: none; }
+  .noodle { stroke-dashoffset: 0; animation: none; }
+  .arrow, .dot { opacity: 1; animation: none; }
+}

@@ -198,5 +198,6 @@ export default defineConfig({
   test: {
     root: here,
     include: ["src/**/*.test.ts"],
+    alias: { "@/": `${renderer}/`, "@shared/": `${shared}/` },
   },
 });

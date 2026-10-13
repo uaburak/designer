@@ -1,0 +1,13 @@
+/* Draw: the live engine's canvas under the ds toolbar, the Design panel at the right. */
+.window.window { min-height: 460px; }
+.canvas canvas { opacity: 0; transition: opacity 400ms ease; }
+.window[data-ready] .canvas canvas { opacity: 1; }
+.toolbar { z-index: 3; }
+.still { position: absolute; max-width: none; overflow: visible; pointer-events: none; }
+.stillLabel { fill: var(--figma-color-text-secondary); font-family: "Inter Variable", Inter, sans-serif; }
+.panelBody { flex: 1 1 auto; min-height: 0; overflow: hidden auto; }
+
+/* A phone's width: the canvas alone (the Design panel needs the room); the toolbar stays */
+@container scene (max-width: 640px) {
+  .window aside[data-panel] { display: none; }
+}

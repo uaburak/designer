@@ -2,70 +2,169 @@
 <html lang="en">
 <head>
 <!--#include head -->
-<title>AI and Studio · Wecra</title>
-<meta name="description" content="AI in Wecra: image tools on the canvas, agents that build in your file, and Studio, a manager that hands a brand's posts to several agents at once." />
+<title>AI · Wecra</title>
+<meta name="description" content="AI in Wecra, on the providers you choose: actions, image tools that run on your computer, visual search, agents that build on the canvas, and Studio, a manager that hands a brand's posts to several agents at once." />
 <script type="module" src="/scripts/pages/ai.ts"></script>
+<style>
+  /* The page's opening: the promise, then the six parts as a numbered index */
+  .ai-intro {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: clamp(32px, 6vh, 72px);
+    min-height: 100svh;
+    max-width: var(--site-max);
+    margin: 0 auto;
+    padding: calc(var(--site-header) + clamp(32px, 7vh, 88px)) var(--site-gutter) clamp(32px, 6vh, 64px);
+    scroll-snap-align: start;
+  }
+  .ai-intro-head { display: grid; gap: 24px 64px; }
+  .ai-intro h1 { font-size: clamp(44px, 6vw, 96px); }
+  .ai-intro h1 span {
+    background: linear-gradient(100deg, var(--ds-color-ai-1), var(--ds-color-ai-2) 45%, var(--ds-color-ai-3) 75%, var(--ds-color-ai-4));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .ai-intro-side { display: grid; gap: 16px; align-content: end; }
+  .ai-intro-side .fine { color: var(--figma-color-text-tertiary); font-size: 14px; }
+  .ai-index {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--figma-color-border);
+    list-style: none;
+    counter-reset: part;
+  }
+  .ai-index li { border-bottom: 1px solid var(--figma-color-border); counter-increment: part; }
+  .ai-index a {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: 4px 12px;
+    padding: 18px 4px;
+    color: inherit;
+    text-decoration: none;
+    transition: background-color 160ms ease;
+  }
+  .ai-index a::before { color: var(--figma-color-text-tertiary); font-size: 13px; font-variant-numeric: tabular-nums; content: counter(part, decimal-leading-zero); }
+  .ai-index a::after { color: var(--figma-color-text-tertiary); content: "↓"; transition: transform 200ms var(--site-ease), color 160ms ease; }
+  .ai-index a:hover::after { color: var(--figma-color-text); transform: translateY(2px); }
+  .ai-index strong { font-size: 18px; font-weight: 620; letter-spacing: -0.02em; }
+  .ai-index span { grid-column: 2; color: var(--figma-color-text-secondary); font-size: 14px; }
+  @media (min-width: 760px) {
+    .ai-index { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 40px; }
+  }
+  @media (min-width: 1000px) {
+    .ai-intro-head { grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr); align-items: end; }
+    .ai-index { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .ai-index a { padding: 22px 4px; }
+  }
+  /* The tall scenes: chat and canvas side by side, stacked on a phone */
+  @media (max-width: 999px) {
+    .scene[data-size="xl"] { min-height: 640px; }
+  }
+  .copy .fine { margin-top: 16px; color: var(--figma-color-text-tertiary); font-size: 14px; line-height: 1.5; max-width: 34em; }
+  .panel[data-wide] .copy .fine { grid-column: 1 / -1; margin-top: 0; }
+</style>
 </head>
 <body>
 <!--#include header -->
 <main id="main">
-  <section class="page-hero wrap">
-    <span class="eyebrow component">AI and Studio</span>
-    <h1>AI where you design.</h1>
-    <p class="lede">Image tools, agents and Studio, running on the providers you choose: the coding agents already on your computer, a local model, or your own keys.</p>
+  <section class="ai-intro" aria-labelledby="ai-title">
+    <div class="ai-intro-head">
+      <div>
+        <span class="eyebrow" data-tone="ai">AI in Wecra</span>
+        <h1 id="ai-title">AI where you design. <span>On your terms.</span></h1>
+      </div>
+      <div class="ai-intro-side">
+        <p class="lede">Actions, image tools, visual search, agents and Studio, running on the providers you choose: the coding agents already on your computer, a local model, or your own keys. Every scene below is drawn with the app’s own interface.</p>
+        <p class="fine">Wecra has no AI server of its own. Nothing runs until you set it up.</p>
+      </div>
+    </div>
+    <ol class="ai-index" aria-label="On this page">
+      <li><a href="#actions"><strong>AI actions</strong><span>Rename, rewrite, translate, fill and connect</span></a></li>
+      <li><a href="#image-tools"><strong>Image tools</strong><span>Make, edit, cut out, upscale, expand, vectorize</span></a></li>
+      <li><a href="#visual-search"><strong>Visual search</strong><span>Find designs by what they look like</span></a></li>
+      <li><a href="#agents"><strong>Agents and MCP</strong><span>Claude Code, Codex and local models on the canvas</span></a></li>
+      <li><a href="#studio"><strong>Studio</strong><span>One request, several agents at once</span></a></li>
+      <li><a href="#credits"><strong>Credits and privacy</strong><span>Your providers, your keys, your balance</span></a></li>
+    </ol>
   </section>
 
-  <div class="wrap">
-    <section class="feature" id="image-tools">
+  <section class="panel" id="actions" data-wide aria-labelledby="actions-title">
+    <div class="copy">
       <div>
-        <span class="eyebrow">AI tools</span>
-        <h2>Make and edit images in place.</h2>
-        <p>Describe a picture and it fills the selected layer. Then edit it with a prompt, remove its background or vectorize it, without leaving the canvas.</p>
-        <ul>
-          <li>Make an image, Edit with prompt</li>
-          <li>Remove background, Boost resolution, Expand</li>
-          <li>Vectorize in full color, grayscale or black and white</li>
-        </ul>
+        <span class="eyebrow" data-tone="ai">AI actions</span>
+        <h2 id="actions-title">Tidy, write and wire up, in one step each.</h2>
       </div>
-      <!--#include scenes/ai-image -->
-    </section>
-
-    <section class="feature flip" id="agents">
-      <div>
-        <span class="eyebrow">Agents</span>
-        <h2>Agents that work on the canvas.</h2>
-        <p>Chat with Claude Code, Codex or a local model in the Agents panel. The agent reads your file and builds real frames, auto layout and styles, and you watch each step land.</p>
-        <ul>
-          <li>Your own CLI agents and local models</li>
-          <li>Skills and connectors you add</li>
-          <li>A monthly AI balance you set</li>
-        </ul>
-      </div>
-      <!--#include scenes/agents -->
-    </section>
-
-    <section class="feature" id="studio">
-      <div>
-        <span class="eyebrow component">Studio</span>
-        <h2>A manager for your brand's posts.</h2>
-        <p>Keep each brand's pictures and details in a library. Ask for a post and a story: the manager reads the library, hands the work to several agents at once, checks what comes back, and asks before it fixes anything.</p>
-        <ul>
-          <li>Brands and products with their pictures</li>
-          <li>Tasks running in parallel, each with its own card</li>
-          <li>A review of the results before you use them</li>
-        </ul>
-      </div>
-      <!--#include scenes/studio -->
-    </section>
-  </div>
-
-  <section class="wrap">
-    <div class="cta">
-      <img class="cta-logo" src="/logo-64.png" width="72" height="72" alt="" loading="lazy" />
-      <h2>Bring your own AI.</h2>
-      <p>Wecra connects to the tools on your computer. Nothing runs until you set it up.</p>
-      <div class="dl-center"><!--#include download --></div>
+      <p class="lede">Press ⌘K for Actions. Rename layers turns “Frame 12” into names that mean something, Shorten, Rewrite and Translate change the selected text, Replace content fills placeholders with real copy, and Add interactions connects your frames. Every run is a single undo step.</p>
     </div>
+    <div class="stage"><div class="scene" data-scene="actions" data-size="xl" aria-label="The Actions panel over a file"><div class="placeholder"></div></div></div>
+  </section>
+
+  <section class="panel" id="image-tools" aria-labelledby="image-title">
+    <div class="copy">
+      <span class="eyebrow" data-tone="ai">Image tools</span>
+      <h2 id="image-title">Edit the picture where it sits.</h2>
+      <p class="lede">Select an image and its toolbar appears. Remove the background, boost the resolution, erase or isolate an area, and vectorize it, all on your own computer. Make an image, edit it with a prompt or expand it through the image route you picked.</p>
+      <p class="fine">Remove background (ISNet, 88 MB), Boost resolution (Swin2SR, 55 MB) and Erase (LaMa, 93 MB) download once, on first use. Vectorize is Wecra’s own tracer, in the engine.</p>
+    </div>
+    <div class="stage"><div class="scene" data-scene="image" data-size="tall" aria-label="An image layer with its tools"><div class="placeholder"></div></div></div>
+  </section>
+
+  <section class="panel" id="visual-search" data-flip aria-labelledby="search-title">
+    <div class="copy">
+      <span class="eyebrow" data-tone="ai">Visual search</span>
+      <h2 id="search-title">Find it by what it looks like.</h2>
+      <p class="lede">Search every frame and component in the files you’ve opened with a few words, a selected layer or a picture. Exact names come first, then what looks or reads the same.</p>
+      <p class="fine">Image vectors (CLIP) and text vectors (MiniLM) are computed on your computer while it’s idle. The index stays in your workspace.</p>
+    </div>
+    <div class="stage"><div class="scene" data-scene="search" data-size="tall" aria-label="Visual search"><div class="placeholder"></div></div></div>
+  </section>
+
+  <section class="panel" id="agents" data-wide aria-labelledby="agents-title">
+    <div class="copy">
+      <div>
+        <span class="eyebrow" data-tone="ai">Agents and MCP</span>
+        <h2 id="agents-title">Agents that build in your file.</h2>
+      </div>
+      <p class="lede">Chat with Claude Code, Codex, Antigravity, Cursor or a local model in Ollama or LM Studio. They read your file and make real layers through Wecra’s MCP tools, and you watch each step land. Add skills with /, and connectors that ask before they act.</p>
+    </div>
+    <div class="stage"><div class="scene" data-scene="agents" data-size="xl" aria-label="The Agents chat next to the canvas"><div class="placeholder"></div></div></div>
+  </section>
+
+  <section class="panel" id="studio" data-wide aria-labelledby="studio-title">
+    <div class="copy">
+      <div>
+        <span class="eyebrow" data-tone="ai">Studio</span>
+        <h2 id="studio-title">One request. Several agents at once.</h2>
+      </div>
+      <p class="lede">Keep each brand’s products and pictures in a library. Ask for a post and a story: the manager reads the library, asks which image model to use, hands the frames and pictures to several agents in parallel, then reviews what came back and asks before it fixes anything.</p>
+    </div>
+    <div class="stage"><div class="scene" data-scene="studio" data-size="xl" aria-label="Studio: the manager and its tasks"><div class="placeholder"></div></div></div>
+  </section>
+
+  <section class="panel" id="credits" data-flip aria-labelledby="credits-title">
+    <div class="copy">
+      <span class="eyebrow" data-tone="ai">Credits and privacy</span>
+      <h2 id="credits-title">Your providers. Your keys. Your balance.</h2>
+      <p class="lede">Text goes to the agent you pick, images to the route you pick, and local models stay on your computer. Keys live in your system keychain. A monthly AI balance counts every run, and stops when it runs out if you want it to.</p>
+      <p class="fine">Your prompts, files and pictures never reach Wecra. For files in an organization, only the daily credit totals are reported, so its admins can see the usage.</p>
+    </div>
+    <div class="stage"><div class="scene" data-scene="credits" data-size="tall" aria-label="Settings › AI and the AI balance"><div class="placeholder"></div></div></div>
+  </section>
+
+  <section class="panel closing" id="download" aria-labelledby="download-title">
+    <img class="closing-logo" src="/logo-64.png" width="88" height="88" alt="" loading="lazy" />
+    <h2 id="download-title">Bring your own AI.</h2>
+    <p class="lede">Wecra connects to the tools already on your computer. Nothing runs until you set it up.</p>
+    <!--#include download -->
+    <nav class="more-links" aria-label="More">
+      <a class="link-arrow" href="/features/">All features</a>
+      <a class="link-arrow" href="/changelog/">What’s new</a>
+    </nav>
   </section>
 </main>
 <!--#include footer -->

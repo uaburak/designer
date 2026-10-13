@@ -1,0 +1,38 @@
+/* Dev Mode: the card on the canvas (design content), the hover and measuring outlines, the bottom toolbar. */
+@media (max-width: 999px) {
+  .root { min-height: 760px; }
+}
+.world { position: absolute; left: 0; top: 0; width: 288px; height: 228px; transform-origin: 0 0; }
+.world > * { position: absolute; }
+
+/* Dev Mode's selection: green, no handles, the size in green under it */
+.canvas [data-tone="dev"] > span { background: var(--figma-color-bg-success); color: var(--figma-color-text-onsuccess, #fff); }
+
+/* The hovered layer: the hover outline, red while measuring from the selection */
+.hover {
+  position: absolute;
+  z-index: 5;
+  outline: 1px solid var(--figma-color-border-selected);
+  pointer-events: none;
+}
+.hover[data-measure] { outline-color: var(--figma-color-bg-danger); }
+
+.frameLabel { display: inline-flex; align-items: center; gap: var(--ds-space-2); }
+.ready { display: inline-flex; transform: scale(0.86); transform-origin: left center; }
+
+.toolbar { position: absolute; inset: auto 0 0; z-index: 7; height: 64px; }
+.toolbar > * { pointer-events: auto; }
+
+.inspect { display: flex; flex-direction: column; }
+.inspect :global([data-ds="CodeBlock"]) pre { font-size: 11px; line-height: 16px; }
+
+/* ---- The card's layers (design content: its own colours and type) ---- */
+.card { border-radius: 16px; background: #fff; box-shadow: 0 4px 16px rgb(0 0 0 / 0.08), 0 0 0 0.5px rgb(0 0 0 / 0.06); }
+.group { background: transparent; }
+.avatar { overflow: hidden; border-radius: 50%; background: #f4b9a2; }
+.avatar svg { display: block; }
+.name { color: #1e1e1e; font: 600 16px/20px "Inter Variable", Inter, sans-serif; white-space: nowrap; }
+.role { color: #7a7a7a; font: 400 13px/18px "Inter Variable", Inter, sans-serif; white-space: nowrap; }
+.bio { color: #4a4a4a; font: 400 14px/20px "Inter Variable", Inter, sans-serif; letter-spacing: -0.006em; }
+.button { border-radius: 8px; background: #5b5bd6; }
+.label { color: #fff; font: 600 14px/20px "Inter Variable", Inter, sans-serif; text-align: center; white-space: nowrap; }

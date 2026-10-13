@@ -1,6 +1,6 @@
-// The guided demo in a scene: DemoController wired to the page (on screen, the visitor's touches, reduced motion)
-// and a pointer that shows where the demo is acting. Steps change the scene through its own state; the pointer only
-// shows it — so a visitor's touch is any real event in the scene.
+// A scene's animation: DemoController wired to the page (on screen, reduced motion) and a pointer that shows where
+// the app is being used. Steps change the scene through its own state; the pointer only shows it. Watch-only: the
+// scene's container is inert (mount.tsx), the visitor's input never reaches it.
 import { useEffect, useMemo, useRef, useSyncExternalStore, type RefObject } from "react";
 import { DemoController, type DemoRun, type DemoState } from "./demoController";
 import styles from "./runtime.module.css";
@@ -47,7 +47,6 @@ export interface SceneRun extends DemoRun {
 }
 
 export interface UseDemoOptions {
-  idleMs?: number;
   loopGapMs?: number;
   startDelayMs?: number;
   /** Called as the demo starts each time (before the script): put the scene back to its first state */
@@ -113,7 +112,6 @@ export function useDemo(rootRef: RefObject<HTMLElement | null>, script: (run: Sc
         }
       },
       {
-        idleMs: options.idleMs,
         loopGapMs: options.loopGapMs,
         startDelayMs: options.startDelayMs,
         onState: (s) => {
@@ -139,20 +137,13 @@ export function useDemo(rootRef: RefObject<HTMLElement | null>, script: (run: Sc
     onMotion();
     motion.addEventListener("change", onMotion);
 
-    const touch = () => demo.interact();
-    const poke = () => demo.poke();
-    const touchEvents = ["pointerdown", "wheel", "keydown", "input"] as const;
-    for (const t of touchEvents) root.addEventListener(t, touch, { passive: true, capture: true });
-    root.addEventListener("pointermove", poke, { passive: true });
     return () => {
       io.disconnect();
       document.removeEventListener("visibilitychange", onVisibility);
       motion.removeEventListener("change", onMotion);
-      for (const t of touchEvents) root.removeEventListener(t, touch, { capture: true });
-      root.removeEventListener("pointermove", poke);
       demo.dispose();
     };
-  }, [rootRef, cursor, options.idleMs, options.loopGapMs, options.startDelayMs]);
+  }, [rootRef, cursor, options.loopGapMs, options.startDelayMs]);
 
   return { cursor, playing: () => stateRef.current === "playing" };
 }

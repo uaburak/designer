@@ -1,6 +1,6 @@
-// Auto layout: a frame of cards laid out by the same rules as the engine's (flow, gap, padding, alignment), edited
-// with the app's own Auto layout and Fill sections — the gap scrubbed in the panel or dragged on the canvas, the
-// direction switched, the fill picked in the real colour picker.
+// Auto layout (watch-only): a frame of cards laid out by the same rules as the engine's (flow, gap, padding,
+// alignment), edited in the app's own Auto layout and Fill sections — the gap scrubbed, the direction switched, the
+// fill picked in the real colour picker.
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { AlignmentMatrix, type Alignment } from "@/ds/components/AlignmentMatrix";
 import { IconButton } from "@/ds/components/Button";
@@ -10,8 +10,7 @@ import { NumericInput } from "@/ds/components/NumericInput";
 import { PanelSection } from "@/ds/components/PanelSection";
 import { PropertyGrid, PropertyRow } from "@/ds/components/PropertyGrid";
 import { SegmentedControl } from "@/ds/components/SegmentedControl";
-import type { ChangeInfo } from "@/ds/types";
-import { hexToRgba, rgbToHex } from "@/ds/util/color";
+import { hexToRgba } from "@/ds/util/color";
 import type { PickerPaint } from "@/ds/util/paint";
 import { boxIn, FrameLabel, Panel, SceneBody, SceneCanvas, SceneWindow, Selection, type Box } from "../kit/kit";
 import { DemoCursor, useDemo, type SceneRun } from "../runtime/useDemo";
@@ -37,6 +36,9 @@ const CARDS = [
   { name: "Team", price: "$24", note: "Libraries and sharing", tint: "#ffeedb", mark: "#ffa629" },
 ];
 
+/** The panel shows the state the animation sets; the scene is watch-only (its container is inert). */
+const noop = () => {};
+
 const css = (a: Alignment["primary"]) => (a === "MIN" ? "flex-start" : a === "MAX" ? "flex-end" : a === "CENTER" ? "center" : "space-between");
 
 export default function AutoLayoutScene() {
@@ -45,6 +47,8 @@ export default function AutoLayoutScene() {
   const frameRef = useRef<HTMLDivElement>(null);
   const [l, setL] = useState<Layout>(FIRST);
   const [box, setBox] = useState<Box | null>(null);
+  const [natural, setNatural] = useState({ w: 0, h: 0 });
+  const [scale, setScale] = useState(1);
   const [gaps, setGaps] = useState<Box[]>([]);
   const [showGap, setShowGap] = useState(false);
   const [picker, setPicker] = useState<DOMRect | null>(null);
@@ -56,6 +60,10 @@ export default function AutoLayoutScene() {
     const canvas = canvasRef.current;
     if (!frame || !canvas) return;
     const measure = () => {
+      // A phone: the frame shrinks to fit the canvas (the numbers stay the design's)
+      const fit = Math.min(1, (canvas.clientWidth - 40) / frame.offsetWidth, (canvas.clientHeight - 72) / frame.offsetHeight);
+      setScale(fit);
+      setNatural({ w: frame.offsetWidth, h: frame.offsetHeight });
       setBox(boxIn(frame, canvas));
       const kids = [...frame.children] as HTMLElement[];
       const out: Box[] = [];
@@ -72,27 +80,7 @@ export default function AutoLayoutScene() {
     ro.observe(frame);
     ro.observe(canvas);
     return () => ro.disconnect();
-  }, [l]);
-
-  // Dragging a gap on the canvas (Figma's spacing handles): along the flow, one px per px
-  const dragGap = (e: React.PointerEvent) => {
-    e.preventDefault();
-    const start = { x: e.clientX, y: e.clientY, gap: l.gap };
-    const el = e.currentTarget as HTMLElement;
-    el.setPointerCapture(e.pointerId);
-    setShowGap(true);
-    const move = (ev: PointerEvent) => {
-      const d = l.flow === "VERTICAL" ? ev.clientY - start.y : ev.clientX - start.x;
-      set({ gap: Math.max(0, Math.min(96, Math.round(start.gap + d))) });
-    };
-    const up = () => {
-      el.removeEventListener("pointermove", move);
-      el.removeEventListener("pointerup", up);
-      setShowGap(false);
-    };
-    el.addEventListener("pointermove", move);
-    el.addEventListener("pointerup", up);
-  };
+  }, [l, scale]);
 
   const { cursor } = useDemo(rootRef, (run) => demo(run, set, setShowGap, setPicker), { onStart: () => { setL(FIRST); setPicker(null); } });
 
@@ -109,7 +97,7 @@ export default function AutoLayoutScene() {
     borderRadius: l.radius,
   };
   const dir = l.flow === "VERTICAL" ? "vertical" : "horizontal";
-  const size = box ? `${Math.round(box.w)} × ${Math.round(box.h)}` : "";
+  const size = natural.w ? `${natural.w} × ${natural.h}` : "";
   const paint: PickerPaint = { type: "SOLID", color: { ...(hexToRgba(l.fill) ?? { r: 1, g: 1, b: 1, a: 1 }), a: 1 }, opacity: 1 };
 
   return (
@@ -117,7 +105,7 @@ export default function AutoLayoutScene() {
       <SceneBody>
         <SceneCanvas ref={canvasRef} className={styles.canvas}>
           <div className={styles.center}>
-            <div className={styles.frameWrap}>
+            <div className={styles.frameWrap} style={{ transform: scale < 1 ? `scale(${scale})` : undefined }}>
               <FrameLabel x={0} y={0} selected>
                 Plans
               </FrameLabel>
@@ -144,11 +132,10 @@ export default function AutoLayoutScene() {
               data-dir={dir}
               style={{ left: g.x, top: g.y, width: Math.max(g.w, l.flow === "VERTICAL" ? 0 : 1), height: Math.max(g.h, 1) }}
             >
-              <span className={styles.gapHandle} onPointerDown={dragGap} onPointerEnter={() => setShowGap(true)} onPointerLeave={(e) => e.buttons === 0 && setShowGap(false)} aria-label="Gap" role="slider" aria-valuenow={l.gap} />
+              <span className={styles.gapHandle} />
             </div>
           ))}
           <Selection box={box} label={size} />
-          <DemoCursor cursor={cursor} />
         </SceneCanvas>
         <Panel>
           <PanelSection title="Auto layout" actions={<IconButton icon="24.minus.small" label="Remove auto layout" tone="secondary" />}>
@@ -164,15 +151,15 @@ export default function AutoLayoutScene() {
                     { value: "HORIZONTAL", icon: "24.layout.horizontal", tooltip: "Horizontal" },
                     { value: "WRAP", icon: "24.layout.wrap", tooltip: "Wrap" },
                   ]}
-                  onChange={(v) => set({ flow: v as Flow })}
+                  onChange={noop}
                 />
               </PropertyRow>
               <PropertyRow label="Dimensions">
-                <NumericInput label="Width" prefix="W" value={box ? Math.round(box.w) : 0} modeLabel={l.flow === "WRAP" ? undefined : "Hug"} dimValue={l.flow !== "WRAP"} onChange={() => {}} />
-                <NumericInput label="Height" prefix="H" value={box ? Math.round(box.h) : 0} modeLabel="Hug" dimValue onChange={() => {}} />
+                <NumericInput label="Width" prefix="W" value={natural.w} modeLabel={l.flow === "WRAP" ? undefined : "Hug"} dimValue={l.flow !== "WRAP"} onChange={noop} />
+                <NumericInput label="Height" prefix="H" value={natural.h} modeLabel="Hug" dimValue onChange={noop} />
               </PropertyRow>
               <PropertyRow labels={["Alignment", "Gap"]}>
-                <AlignmentMatrix direction={dir} value={l.align} onChange={(align) => set({ align })} data-demo="align" />
+                <AlignmentMatrix direction={dir} value={l.align} onChange={noop} data-demo="align" />
                 <NumericInput
                   label="Gap"
                   data-demo="gap"
@@ -181,28 +168,27 @@ export default function AutoLayoutScene() {
                   max={200}
                   value={l.gap}
                   valueLabel={l.align.primary === "SPACE_BETWEEN" ? "Auto" : undefined}
-                  onChange={(gap) => set({ gap, ...(l.align.primary === "SPACE_BETWEEN" ? { align: { ...l.align, primary: "MIN" } } : {}) })}
-                  onFocusChange={setShowGap}
+                  onChange={noop}
                 />
               </PropertyRow>
               <PropertyRow label="Padding">
-                <NumericInput label="Horizontal padding" prefix="24.al.padding-horizontal" min={0} value={l.padH} onChange={(padH) => set({ padH })} />
-                <NumericInput label="Vertical padding" prefix="24.al.padding-vertical" min={0} value={l.padV} onChange={(padV) => set({ padV })} />
+                <NumericInput label="Horizontal padding" prefix="24.al.padding-horizontal" min={0} value={l.padH} onChange={noop} />
+                <NumericInput label="Vertical padding" prefix="24.al.padding-vertical" min={0} value={l.padV} onChange={noop} />
               </PropertyRow>
             </PropertyGrid>
           </PanelSection>
           <PanelSection title="Appearance">
             <PropertyGrid labels>
               <PropertyRow labels={["Opacity", "Corner radius"]}>
-                <NumericInput label="Opacity" prefix="24.opacity" unit="%" value={100} min={0} max={100} onChange={() => {}} />
-                <NumericInput label="Corner radius" prefix="24.corners" min={0} max={64} value={l.radius} onChange={(radius) => set({ radius })} />
+                <NumericInput label="Opacity" prefix="24.opacity" unit="%" value={100} min={0} max={100} onChange={noop} />
+                <NumericInput label="Corner radius" prefix="24.corners" min={0} max={64} value={l.radius} onChange={noop} />
               </PropertyRow>
             </PropertyGrid>
           </PanelSection>
           <PanelSection title="Fill" actions={<IconButton icon="24.plus.small" label="Add fill" tone="secondary" />}>
             <PropertyGrid>
               <PropertyRow span={2} action={<IconButton icon="24.minus.small" label="Remove fill" tone="secondary" />}>
-                <ColorInput label="Fill" data-demo="fill" color={l.fill} opacity={100} onColor={(hex) => set({ fill: hex })} onOpacity={() => {}} onSwatchClick={setPicker} />
+                <ColorInput label="Fill" data-demo="fill" color={l.fill} opacity={100} onColor={noop} onOpacity={noop} />
               </PropertyRow>
             </PropertyGrid>
           </PanelSection>
@@ -212,12 +198,13 @@ export default function AutoLayoutScene() {
               anchor={picker}
               paintTypes={["SOLID"]}
               documentColors={["#ffffff", "#1e1e1e", "#e5f4ff", "#f1e8ff", "#ffeedb", "#0d99ff"]}
-              onChange={(p: PickerPaint, _info: ChangeInfo) => p.color && set({ fill: rgbToHex(p.color) })}
-              onClose={() => setPicker(null)}
+              onChange={noop}
+              onClose={noop}
             />
           )}
         </Panel>
       </SceneBody>
+      <DemoCursor cursor={cursor} />
     </SceneWindow>
   );
 }

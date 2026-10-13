@@ -6,7 +6,7 @@
   height: 100%;
   overflow: hidden;
   border: 1px solid var(--ds-color-border-translucent);
-  border-radius: 12px;
+  border-radius: var(--hero-radius, 12px);
   background: var(--figma-color-bg);
   box-shadow: var(--ds-elevation-500-modal-window), 0 40px 80px -24px rgb(0 0 0 / 0.18);
   color: var(--figma-color-text);
@@ -64,7 +64,7 @@
   transform: translateX(-50%);
   cursor: pointer;
 }
-.engage { top: 50%; transform: translate(-50%, -50%); }
+.engage { bottom: calc(var(--ds-size-toolbar) + var(--ds-space-6)); }
 .release { top: var(--ds-space-3); padding: 0 var(--ds-space-4); background: var(--figma-color-bg-inverse, #1e1e1e); color: var(--figma-color-text-oninverse, #fff); }
 .status {
   position: absolute;

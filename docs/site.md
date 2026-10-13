@@ -28,7 +28,11 @@ The site and the update feed read the same files, so a release updates both with
 v1 (SVG scenes drawn after the app) is replaced. The owner's four rules:
 
 1. **Light by default**, with a theme toggle in the header (light ↔ dark). The choice is kept in `localStorage`, and the first visit is always light.
-2. **Every section is full screen** (100svh). Its scene fills the viewport, and **the scenes are interactive**: the visitor can drag, click, type and toggle, not only watch. Each scene also plays a short guided demo, which stops as soon as the visitor touches it and starts again after some idle time. Scroll moves between sections; snapping is gentle (`scroll-snap-type: y proximity`), never hijacked.
+2. **Every section is full screen** (100svh), and its scene fills it. (Owner, 2026-10-14, replacing the first wording.)
+   - **Only the home hero is interactive**: the live engine editor. Every other scene is a **watch-only animation**: no drag, click or typing, nothing that yields to the visitor; it plays (and loops) while it is in view, and starts over when it comes back. Its container is inert; the section's text says what it shows.
+   - **The hero grows with the scroll.** It starts as a framed window under the headline; as the visitor scrolls it scales up until it fills the viewport, then **stays pinned full screen** for about 170vh (a tall track with a sticky viewport) so the visitor can use it, and then scrolls away normally. It is driven by the scroll position (a rAF scroll handler writing transforms only: `site/src/scripts/heroScroll.ts`). The header steps aside while it is pinned.
+   - While pinned and full screen the visitor can select, move, resize and draw a frame. The wheel still scrolls the page, also over the canvas; ⌘ / Ctrl + wheel (and a pinch) zoom the canvas. Before it is full screen it takes no input. On a touch phone the canvas loads and takes touches only after "Tap to edit", so the page keeps scrolling.
+   - Scroll moves between sections; snapping is gentle (`scroll-snap-type: y proximity`, with a snap point where the hero is full screen), never hijacked.
 3. **AI is told in depth** on its own page, one full-screen section each:
    - the AI actions (Rename layers, Rewrite / Shorten / Translate, Replace content, Add interactions, First Draft);
    - the image tools (Make an image, Edit with prompt, Remove background, Boost resolution, Expand, Erase, Isolate, Vectorize — and which run locally on the visitor's machine);
@@ -45,7 +49,7 @@ v1 (SVG scenes drawn after the app) is replaced. The owner's four rules:
 
 Pages: `/` (hero = the real editor, then full-screen sections: design, prototype, Dev Mode, libraries and multiplayer, AI teaser, download), `/features/`, `/ai/`, `/download/`, `/changelog/`, `404`. The shared header (logo, Features, AI, Changelog, theme toggle, Download) and footer stay.
 
-Budgets: the page shell ≤ 150 KB gzipped of JS (React and the ds included), and the engine loaded only on demand. No third-party requests. `prefers-reduced-motion`: no guided demos and no snapping; the scenes still respond to the visitor's input. Phones: every scene works with touch, and no horizontal scroll at 360 px.
+Budgets: the page shell ≤ 150 KB gzipped of JS (React and the ds included), and the engine loaded only on demand. No third-party requests. `prefers-reduced-motion`: the scenes stay on their first frame, no snapping, and the hero goes from framed to full screen without the in-between. Phones: the hero works with touch, and no horizontal scroll at 360 px.
 
 ## 3. `releases.json`
 

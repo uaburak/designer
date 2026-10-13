@@ -306,29 +306,59 @@ main { display: block; }
   .panel[data-wide] .stage { height: auto; min-height: 0; }
 }
 
-/* ── The hero ─────────────────────────────────────────────────────────────────────────────────────────────────── */
+/* ── The hero: a tall track whose sticky viewport holds the copy and the editor; scripts/heroScroll.ts scales the
+   editor from its slot under the copy to the whole viewport, where it stays pinned for 170vh ─────────────────────── */
 
-.hero {
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: clamp(20px, 3.4vh, 40px);
-  padding-top: calc(var(--site-header) + clamp(20px, 5vh, 56px));
+.hero-track { position: relative; height: 360svh; }
+.hero-sticky {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100svh;
+  overflow: hidden;
 }
-.hero-copy { display: grid; gap: 20px; }
+.hero-copy {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 20px;
+  width: 100%;
+  max-width: var(--site-max);
+  margin: 0 auto;
+  padding: calc(var(--site-header) + clamp(20px, 5vh, 56px)) var(--site-gutter) 0;
+  will-change: opacity, transform;
+}
 .hero-copy h1 { font-size: clamp(40px, 5.2vw, 80px); }
 .hero-copy h1 span { color: var(--figma-color-text-tertiary); }
 .hero-copy .lede { margin-bottom: 20px; }
-.hero-copy .dl { margin-top: 4px; }
-.hero .stage { min-height: 480px; }
-.hero .scene { min-height: 480px; }
+.hero-slot {
+  flex: 1 1 auto;
+  min-height: 200px;
+  width: 100%;
+  max-width: var(--site-max);
+  margin: clamp(20px, 3.4vh, 40px) auto clamp(16px, 3vh, 32px);
+  padding: 0 var(--site-gutter);
+  background-clip: content-box;
+}
+.hero-window {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100svh;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.hero-window .scene { height: 100%; min-height: 0; }
+.hero-window .scene > .placeholder { border-radius: var(--hero-radius, 12px); }
+/* Only full screen is it the visitor's (pointer coordinates are the layout's then) */
+.hero-window:not([data-live]) .scene { pointer-events: none; }
+body[data-hero-full] .site-header { transform: translateY(-100%); }
+.site-header { transition: border-color 200ms ease, transform 300ms var(--site-ease); }
 @media (min-width: 1000px) {
-  .hero {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
-    align-items: stretch;
-    max-height: none;
-  }
   .hero-copy { grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr); align-items: end; gap: 24px 64px; }
-  .hero .stage { height: 100%; min-height: 520px; }
 }
 
 /* ── Closing CTA ──────────────────────────────────────────────────────────────────────────────────────────────── */
@@ -374,13 +404,14 @@ main { display: block; }
 .card .btn { align-self: flex-start; margin-top: 8px; }
 .card ol { margin: 0; padding-left: 20px; color: var(--figma-color-text-secondary); }
 .card li + li { margin-top: 6px; }
+.card[data-mine] { border-color: var(--figma-color-border-selected); box-shadow: 0 0 0 1px var(--figma-color-border-selected); }
 .os-icon { width: 36px; height: 36px; color: var(--figma-color-icon-secondary); }
 .cards + .cards { margin-top: 16px; }
 .note { margin-top: 48px; color: var(--figma-color-text-secondary); }
 .note a { color: var(--figma-color-text); }
 
 /* The changelog */
-.release { display: grid; gap: 16px; padding: 40px 0; border-top: 1px solid var(--figma-color-border); }
+.release { display: grid; gap: 16px; padding: 40px 0; border-top: 1px solid var(--figma-color-border); scroll-margin-top: calc(var(--site-header) + 16px); }
 @media (min-width: 860px) {
   .release { grid-template-columns: 240px minmax(0, 1fr); gap: 48px; }
 }
