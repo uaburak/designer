@@ -9,7 +9,7 @@
  */
 import type { AgentSettings, AuthState, ConnectResult, McpClientId, McpClientInfo, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnEvent, TurnRequest, UsageInfo } from "./agents/types";
 import type { AttachResult } from "./agents/attachments";
-import type { AiImageRequest, AiModelId, AiModelInfo, AiModelState, AiRunEventMsg, AiRunRequest, AiSettings, Connector, ConnectorConsent, ConnectorToolPolicy } from "./ai/types";
+import type { AiImageRequest, AiModelId, AiModelInfo, AiModelState, AiRunEventMsg, AiRunRequest, AiSettings, Connector, ConnectorConsent, ConnectorToolPolicy, ImageRouteInfo } from "./ai/types";
 import type { AccountMethod, AccountResponse, AccountState, SignInMethod, SignInResult } from "./account";
 import type { CommandId, MenuStatePatch } from "./commands";
 import type { SharedFontFace, SharedFontsChannels } from "./fonts/sharedTypes";
@@ -331,7 +331,7 @@ export interface IpcInvoke extends SharedFontsChannels {
   /** The AI tools on this computer (CLIs found, local model servers that answer) */
   "agents:providers": { args: []; result: ProviderInfo[] };
   "agents:settings": { args: []; result: AgentSettings };
-  "agents:set-settings": { args: [Partial<Pick<AgentSettings, "providerId" | "models">>]; result: AgentSettings };
+  "agents:set-settings": { args: [Partial<Pick<AgentSettings, "providerId" | "models" | "manager">>]; result: AgentSettings };
   /** An OpenAI-compatible server by base URL; its key (if any) goes to the OS keychain (safeStorage), never to disk in clear */
   "agents:add-server": { args: [{ label: string; baseUrl: string; apiKey?: string }]; result: AgentSettings };
   "agents:remove-server": { args: [{ id: string }]; result: AgentSettings };
@@ -417,6 +417,8 @@ export interface IpcInvoke extends SharedFontsChannels {
   "ai:run": { args: [AiRunRequest]; result: void };
   /** An image run (Make, Edit, Expand, Erase): events as `ai:event` */
   "ai:image": { args: [AiImageRequest]; result: void };
+  /** The image routes for the chat's model choice card (docs/studio.md §2.4) */
+  "ai:image-routes": { args: []; result: ImageRouteInfo[] };
   "ai:cancel": { args: [{ runId: string }]; result: void };
   /** The local models and what is on disk; downloads need the confirmation the Settings / tool shows with the size */
   "ai:models": { args: []; result: { info: AiModelInfo[]; state: AiModelState[] } };
@@ -603,6 +605,7 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "ai:set-image-key": ["home", "editor"],
   "ai:run": ["editor"],
   "ai:image": ["editor"],
+  "ai:image-routes": ["home", "editor"],
   "ai:cancel": ["editor"],
   "ai:models": ["home", "editor"],
   "ai:model-download": ["home", "editor"],

@@ -232,6 +232,8 @@ export function registerIpc() {
   onInvoke("ai:run", ({ sender }, req) => startRun(sender, aiRunRequest(req)));
   // Image runs (src/main/ai/images) and local models (src/main/ai/models.ts, served at aimodel:).
   onInvoke("ai:image", ({ sender }, req) => startImageRun(sender, cleanImageRequest(req)));
+  // Studio's model choice card (docs/studio.md §2.4): 15c fills it
+  onInvoke("ai:image-routes", () => []);
   onInvoke("ai:cancel", ({ sender }, p) => {
     const id = str(p?.runId, 100);
     if (id) cancelRun(sender, id);

@@ -40,6 +40,7 @@ import type { BranchesRepository } from "../merge/branches";
 import type { PluginsRepository } from "../plugins/types";
 import type { DevModeRepository } from "../devmode/types";
 import type { AiRepository, SearchRepository } from "../ai/types";
+import type { BrandsRepository } from "../studio/types";
 import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "../libraries/orgTypes";
 import type { CloudRepository } from "./cloud";
 
@@ -290,4 +291,6 @@ export interface StoreApi {
   search: SearchRepository;
   /** Personal Drafts in the cloud: the cache's status and bound (docs/cloud.md §2); events on `cloud` */
   cloud: CloudRepository;
+  /** The brand and product library (docs/studio.md §3; round 15); events on `brands` */
+  brands: BrandsRepository;
 }

@@ -3,11 +3,11 @@
  * are structured clones (Uint8Arrays are copied once, no JSON). The store sends `hello` first on every new port.
  */
 
-export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer" | "comments" | "notifications" | "orgs" | "teams" | "projects" | "admin" | "branches" | "orgLibraries" | "analytics" | "identity" | "governance" | "plugins" | "devMode" | "ai" | "search" | "cloud";
+export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer" | "comments" | "notifications" | "orgs" | "teams" | "projects" | "admin" | "branches" | "orgLibraries" | "analytics" | "identity" | "governance" | "plugins" | "devMode" | "ai" | "search" | "cloud" | "brands";
 export type StoreMethod = `${Repository}.${string}`;
 export type PortRole = "main" | "home" | "editor";
 /** `org`: OrgEvent (docs/multiplayer.md §14.6); `branches`: BranchEvent (docs/data.md §15.6); `fonts`: FontsEvent (docs/desktop.md §14.3); `session`: SessionEnded (docs/multiplayer.md §15.8); `plugins`: PluginsEvent (docs/plugins.md §10); `devmode`: DevModeEvent (docs/editor.md D-8); `uploads`: UploadEvent (docs/multiplayer.md §5.1); `cloud`: CloudEvent (docs/cloud.md §2) */
-export type EventTopic = "workspace" | "file.changes" | "library" | "multiplayer" | "comments" | "notifications" | "org" | "branches" | "fonts" | "session" | "plugins" | "devmode" | "uploads" | "cloud" | "blobs";
+export type EventTopic = "workspace" | "file.changes" | "library" | "multiplayer" | "comments" | "notifications" | "org" | "branches" | "fonts" | "session" | "plugins" | "devmode" | "uploads" | "cloud" | "blobs" | "brands";
 
 export type RpcRequest = { t: "req"; id: number; m: StoreMethod; a: unknown[] };
 export type RpcResponse = { t: "res"; id: number; ok: true; v: unknown } | { t: "res"; id: number; ok: false; e: { code: StoreErrorCode; message: string; detail?: unknown } };
@@ -181,6 +181,8 @@ export const STORE_METHODS = {
   // AI ledger and Skills (docs/ai.md §8, round 6g) and the search index (round 6d)
   ai: ["record", "balance", "history", "skills", "saveSkill", "removeSkill"],
   search: ["upsert", "remove", "versions", "query", "thumb", "stats", "clear"],
+  // The brand and product library (docs/studio.md §3, round 15); `brands` is also an event topic
+  brands: ["list", "get", "find", "saveBrand", "removeBrand", "saveProduct", "removeProduct", "addImage", "removeImage", "image"],
   // Personal Drafts in the cloud and the cache (docs/cloud.md §2); `cloud` is also an event topic
   cloud: ["status", "refresh", "cacheInfo", "setCacheLimit", "clearCache"],
 } as const satisfies Record<Repository, readonly string[]>;

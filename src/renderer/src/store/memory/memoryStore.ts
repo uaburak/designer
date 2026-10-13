@@ -73,6 +73,7 @@ import { PersonalService, type CloudState } from "../../../../store/personal/ser
 import { encodeFigmaCanvasAsync } from "../../../../shared/fig/figmaExport";
 import { writeFigFile, type FigMeta } from "../../../../shared/fig/figFile";
 import { UsageReporter } from "../../../../store/libraries/usage";
+import { brandsUnavailable } from "../../../../shared/studio/types";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Ids and clocks (docs/data.md §1)
@@ -1642,6 +1643,7 @@ export class MemoryStore {
       plugins: this.plugins.repository(),
       devMode: this.devMode.repository(),
       ai: this.ai.repository(),
+      brands: brandsUnavailable(),
       search: this.search.repository(),
       // The web app: the person's Drafts are the server's (docs/cloud.md §2, §7); the dev store keeps its files here
       cloud: this.opts.personalDrafts ? this.personal.repository() : localOnlyCloud(),

@@ -161,6 +161,7 @@ function aiApi(): AiApi {
     ...aiSetupApi(),
     run: (request) => invoke("ai:run", JSON.parse(JSON.stringify(request ?? null)) as AiRunRequest),
     image: (request) => invoke("ai:image", JSON.parse(JSON.stringify(request ?? null)) as AiImageRequest),
+    imageRoutes: () => invoke("ai:image-routes"),
     cancel: (runId) => invoke("ai:cancel", { runId: String(runId) }),
     onEvent: (cb) => on("ai:event", cb),
   };

@@ -6,6 +6,7 @@
 import type { ToolContent } from "./tools";
 import type { AttachResult, TurnAttachment } from "./attachments";
 import type { Connector, ConnectorConsent, ConnectorToolPolicy } from "../ai/types";
+import type { ManagerSettings } from "../studio/types";
 
 /** How a provider is driven: a CLI run headless with our MCP server, or an OpenAI-compatible chat API we bridge. */
 export type ProviderKind = "claude-code" | "antigravity" | "codex" | "cursor-agent" | "openai-compatible";
@@ -50,6 +51,8 @@ export interface AgentSettings {
   /** The model picked per provider */
   models: Record<string, string>;
   custom: CustomServer[];
+  /** Agent settings › Manager (docs/studio.md §2); absent: DEFAULT_MANAGER_SETTINGS */
+  manager?: ManagerSettings;
 }
 
 export interface ChatTurnMessage {

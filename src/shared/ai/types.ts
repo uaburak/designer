@@ -48,6 +48,24 @@ export interface AiImageRequest {
   mask?: string;
   reference?: string;
   size?: { width: number; height: number };
+  /** Studio (docs/studio.md §5): reference pictures in the order the prompt names them ("Image 1: …"), at most 8; PNG, JPEG or WebP base64 */
+  references?: { data: string; role: string }[];
+  /** "4:5", "9:16", "1:1", … — the nearest the model takes */
+  aspectRatio?: string;
+}
+
+/** An image route the chat's model choice card offers (docs/studio.md §2.4): `ai:image-routes`. */
+export interface ImageRouteInfo {
+  /** "gemini-images" | "gemini-cli" | "antigravity" | "openai-images" */
+  providerId: string;
+  /** "Gemini API", "Gemini CLI", "Antigravity", "OpenAI Images" */
+  label: string;
+  models: { id: string; label: string; detail?: string }[];
+  available: boolean;
+  /** Why not ("Add a Gemini API key in Settings › AI") */
+  reason?: string;
+  /** Takes reference pictures and edits (fix label, §6.2) */
+  references: boolean;
 }
 
 export interface AiUsage {

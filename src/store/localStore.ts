@@ -70,6 +70,7 @@ import { SearchService } from "./search/service";
 import { AiService } from "./ai/service";
 import { UsageReporter } from "./libraries/usage";
 import { withFakeLatency } from "./fakeLatency";
+import { brandsUnavailable } from "../shared/studio/types";
 
 export interface LocalStoreOptions {
   workspaceDir: string;
@@ -1160,6 +1161,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     ai: s.ai.repository(),
     search: s.search.repository(),
     cloud: s.personal.repository(),
+    brands: brandsUnavailable(),
   };
 }
 

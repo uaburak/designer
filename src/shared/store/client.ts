@@ -38,6 +38,7 @@ import type { PluginsEvent, PluginsRepository } from "../plugins/types";
 import type { DevModeEvent, DevModeRepository } from "../devmode/types";
 import type { UploadEvent } from "../multiplayer/uploads";
 import type { AiRepository, SearchRepository } from "../ai/types";
+import type { BrandsRepository } from "../studio/types";
 import type { CloudEvent, CloudRepository } from "./cloud";
 import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "../libraries/orgTypes";
 
@@ -112,6 +113,7 @@ export class StoreClient implements StoreApi {
   private readonly pluginsEvents = new Listeners<PluginsEvent>();
   private readonly devModeEvents = new Listeners<DevModeEvent>();
   private readonly cloudEvents = new Listeners<CloudEvent>();
+  private readonly brandsEvents = new Listeners<string>();
   private readonly connected = new Listeners<{ generation: number }>();
   /** Calls wait for this: the hello and the resync of a new port */
   private gate!: Promise<void>;
@@ -228,6 +230,7 @@ export class StoreClient implements StoreApi {
         else if (msg.topic === "uploads") this.uploadEvents.emit(msg.d as UploadEvent);
         else if (msg.topic === "blobs") this.blobsEvents.emit(msg.d as BlobsEvent);
         else if (msg.topic === "cloud") this.cloudEvents.emit(msg.d as CloudEvent);
+        else if (msg.topic === "brands") this.brandsEvents.emit(msg.d as string);
         return;
     }
   }
@@ -673,6 +676,20 @@ export class StoreClient implements StoreApi {
     skills: () => this.call("ai.skills", []),
     saveSkill: (s) => this.call("ai.saveSkill", [s]),
     removeSkill: (id) => this.call("ai.removeSkill", [id]),
+  };
+
+  readonly brands: BrandsRepository = {
+    list: () => this.call("brands.list", []),
+    get: (id) => this.call("brands.get", [id]),
+    find: (query) => this.call("brands.find", [query]),
+    saveBrand: (b) => this.call("brands.saveBrand", [b]),
+    removeBrand: (id) => this.call("brands.removeBrand", [id]),
+    saveProduct: (p) => this.call("brands.saveProduct", [p]),
+    removeProduct: (brandId, productId) => this.call("brands.removeProduct", [brandId, productId]),
+    addImage: (a) => this.call("brands.addImage", [a]),
+    removeImage: (brandId, imageId) => this.call("brands.removeImage", [brandId, imageId]),
+    image: (brandId, imageId) => this.call("brands.image", [brandId, imageId]),
+    watch: (listener) => this.brandsEvents.add(listener),
   };
 
   readonly cloud: CloudRepository = {

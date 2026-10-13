@@ -3,7 +3,7 @@
  * events, image runs and local models (6b's in main). `runOnce` turns a run's events into one promise — what the
  * editor's actions (6a) await.
  */
-import type { AiImageRequest, AiModelId, AiModelInfo, AiModelState, AiRunEvent, AiRunEventMsg, AiRunRequest, AiSettings, AiUsage, AiErrorCode } from "./types";
+import type { ImageRouteInfo, AiImageRequest, AiModelId, AiModelInfo, AiModelState, AiRunEvent, AiRunEventMsg, AiRunRequest, AiSettings, AiUsage, AiErrorCode } from "./types";
 
 export interface AiApi {
   settings(): Promise<AiSettings>;
@@ -13,6 +13,8 @@ export interface AiApi {
   run(request: AiRunRequest): Promise<void>;
   /** An image run (Make, Edit, Expand, Erase — 6b) */
   image(request: AiImageRequest): Promise<void>;
+  /** The image routes and whether each can run now (docs/studio.md §2.4) */
+  imageRoutes(): Promise<ImageRouteInfo[]>;
   cancel(runId: string): Promise<void>;
   onEvent(cb: (m: AiRunEventMsg) => void): () => void;
   models(): Promise<{ info: AiModelInfo[]; state: AiModelState[] }>;
