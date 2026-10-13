@@ -41,6 +41,15 @@
         "npx vite --config vite.web.config.ts --port 5199 --strictPort"
       ],
       "port": 5199
+    },
+    {
+      "name": "site",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd site && npx vite --port 5174 --strictPort"
+      ],
+      "port": 5174
     }
   ]
 }
