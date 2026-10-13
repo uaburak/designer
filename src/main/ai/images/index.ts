@@ -1,13 +1,17 @@
 import type { WebContents } from "electron";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import type { AiImageRequest } from "../../../shared/ai/types";
+import { join } from "node:path";
+import type { AiImageRequest, ImageRouteInfo } from "../../../shared/ai/types";
 import { reportAiPrompt } from "../../account/governanceReports";
 import { viewOf } from "../../views";
-import { cliEnv, cliPath, spawnCli } from "../../agents/detect";
+import { cliEnv, cliPath, spawnCli, which } from "../../agents/detect";
 import { cliSpec } from "../../agents/providers";
 import { aiRuns, sendAiEvent } from "../host";
 import { ledgerBalance } from "../ledger";
 import { aiSettings, aiWorkDir, imageKey } from "../settings";
+import { NANOBANANA } from "./geminiCli";
+import { imageRoutes } from "./routes";
 import { runImage, type ImageRunDeps } from "./run";
 
 /**
@@ -17,14 +21,23 @@ import { runImage, type ImageRunDeps } from "./run";
 
 export { cleanImageRequest } from "./run";
 
+/** `ai:image-routes` (docs/studio.md §2.4) */
+export function imageRouteInfo(): ImageRouteInfo[] {
+  return imageRoutes({ imageKey, agyPath, geminiPath, nanobanana: () => existsSync(join(homedir(), ".gemini", "extensions", NANOBANANA, "gemini-extension.json")) });
+}
+
+const agyPath = () => {
+  const spec = cliSpec("antigravity");
+  return spec ? cliPath(spec) : null;
+};
+const geminiPath = () => which("gemini");
+
 const deps = (): ImageRunDeps => ({
   settings: aiSettings,
   balance: ledgerBalance,
   imageKey,
-  agyPath: () => {
-    const spec = cliSpec("antigravity");
-    return spec ? cliPath(spec) : null;
-  },
+  agyPath,
+  geminiPath,
   spawn: (cmd, args, options) => spawnCli(cmd, args, options),
   env: () => cliEnv(),
   home: homedir(),

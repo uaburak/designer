@@ -4,7 +4,7 @@
 // (a Node script that saves a picture in its conversation's folder as generate_image does).
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -16,6 +16,7 @@ import type { SpawnFn } from "../../agents/providers/turns";
 import { AI_MODELS, ModelStore, safeJoin } from "../models";
 import { agyImagePrompt } from "./antigravity";
 import { openAiSize } from "./openai";
+import { imageRoutes } from "./routes";
 import { cleanImageRequest, imageRoute, runImage, type ImageRunDeps } from "./run";
 import { imageInfo, jobPrompt } from "./types";
 
@@ -373,5 +374,183 @@ out({ event: "result", result: { status: "SUCCESS", response: mode === "none" ? 
     expect((await run({ runId: "a3", action: "make-image", prompt: "x" }, agyDeps("none"))).find((e) => e.type === "error")).toMatchObject({ type: "error", code: "bad-output", message: "Antigravity didn't make a picture." });
     expect((await run({ runId: "a4", action: "make-image", prompt: "x" }, { ...agyDeps("hang"), timeoutMs: 400 })).find((e) => e.type === "error")).toMatchObject({ type: "error", code: "timeout" });
     expect((await run({ runId: "a5", action: "make-image", prompt: "x" }, agyDeps("hang"), 300)).filter((e) => e.type !== "status")).toEqual([{ type: "done", cancelled: true }]);
+  });
+
+  it("writes Studio's references in its workspace, named in the prompt's order", async () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10]);
+    const ev = await run({ runId: "a6", action: "make-image", prompt: "a post", references: [{ data: b64(png(2, 2)), role: "product reference — Liq Humus" }, { data: b64(jpeg), role: "label close-up" }], aspectRatio: "4:5" }, agyDeps("ok"));
+    expect(ev[1]).toMatchObject({ type: "image" });
+    const seen = JSON.parse(readFileSync(log, "utf8")) as { args: string[]; files: string[] };
+    expect(seen.files).toEqual(expect.arrayContaining(["image-1.png", "image-2.jpg"]));
+    expect(seen.args[1]).toMatch(/image-1\.png \(Image 1: product reference — Liq Humus\), image-2\.jpg \(Image 2: label close-up\)[\s\S]*4:5 aspect ratio/);
+  });
+});
+
+// ── Studio (docs/studio.md §2.4, §5.3) ──
+
+describe("Studio's image requests", () => {
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46]);
+  const webp = Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBPVP8 ")]);
+
+  it("check references (≤ 8, PNG / JPEG / WebP by their bytes, a role ≤ 200 characters) and the aspect ratio", () => {
+    const refs = [{ data: b64(png(1, 1)), role: "Image 1" }, { data: b64(jpeg), role: "label" }, { data: b64(webp), role: "" }];
+    expect(cleanImageRequest({ runId: "s1", action: "make-image", prompt: "p", references: refs, aspectRatio: "4:5" })).toEqual({ runId: "s1", action: "make-image", prompt: "p", references: refs, aspectRatio: "4:5" });
+    expect(() => cleanImageRequest({ runId: "s", action: "make-image", prompt: "p", references: Array(9).fill(refs[0]) })).toThrow(/at most 8/);
+    expect(() => cleanImageRequest({ runId: "s", action: "make-image", prompt: "p", references: [{ data: b64(Buffer.from("GIF89a....")), role: "x" }] })).toThrow(/reference 1 is not a PNG, JPEG or WebP/);
+    expect(() => cleanImageRequest({ runId: "s", action: "make-image", prompt: "p", references: [{ data: b64(png(1, 1)), role: "x".repeat(201) }] })).toThrow(/role/);
+    expect(() => cleanImageRequest({ runId: "s", action: "make-image", prompt: "p", references: "x" })).toThrow(/references/);
+    expect(() => cleanImageRequest({ runId: "s", action: "make-image", prompt: "p", aspectRatio: "7:5" })).toThrow(/aspectRatio/);
+    for (const a of ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"]) expect(cleanImageRequest({ runId: "s", action: "make-image", prompt: "p", aspectRatio: a }).aspectRatio).toBe(a);
+  });
+
+  it("offer the routes with their models and why one can't run", () => {
+    const all = imageRoutes({ imageKey: () => "k", agyPath: () => "/bin/agy", geminiPath: () => "/bin/gemini", nanobanana: () => true });
+    expect(all.map((r) => [r.providerId, r.available])).toEqual([["gemini-images", true], ["gemini-cli", true], ["antigravity", true], ["openai-images", true]]);
+    expect(all[0].models.map((m) => [m.id, m.label])).toEqual([["gemini-3-pro-image", "Nano Banana Pro"], ["gemini-3.1-flash-image", "Nano Banana 2"], ["gemini-2.5-flash-image", "Nano Banana"]]);
+    const none = imageRoutes({ imageKey: () => null, agyPath: () => null, geminiPath: () => null, nanobanana: () => false });
+    expect(none.every((r) => !r.available && !!r.reason)).toBe(true);
+    expect(none[0].reason).toBe("Add a Gemini API key in Settings › AI");
+    expect(none[1].reason).toBe("Install the Gemini CLI");
+    expect(imageRoutes({ imageKey: () => null, agyPath: () => null, geminiPath: () => "/bin/gemini", nanobanana: () => false })[1].reason).toMatch(/nanobanana extension/);
+  });
+
+  describe("on fake HTTP", () => {
+    let server: Server;
+    let base = "";
+    const seen: { url: string; body: Buffer }[] = [];
+    beforeAll(async () => {
+      ({ server, url: base } = await listen((req, res, body) => {
+        seen.push({ url: req.url ?? "", body });
+        const json = (v: unknown) => res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(v));
+        if (req.url?.startsWith("/gem/models/")) return json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: b64(png(4, 5)) } }] } }] });
+        if (req.url === "/v1/images/edits") return json({ data: [{ b64_json: b64(png(4, 5)) }] });
+        json({});
+      }));
+    });
+    afterAll(() => server.close());
+    const d = () => deps({ openaiBaseUrl: `${base}/v1`, geminiBaseUrl: `${base}/gem` });
+    const refs = [{ data: b64(png(1, 1, [1, 1, 1, 255])), role: "product reference — Liq Humus, front" }, { data: b64(jpeg), role: "label close-up" }];
+    type Part = { text?: string; inlineData?: { mimeType: string; data: string } };
+    const body = (prefix: string) => JSON.parse(seen.filter((s) => s.url.startsWith(prefix)).at(-1)!.body.toString()) as { contents: { parts: Part[] }[]; generationConfig: { imageConfig?: Record<string, string> } };
+
+    it("Gemini: the references as inlineData parts in order after the text, the aspect ratio, 2K on Nano Banana Pro", async () => {
+      const ev = await run({ runId: "sg1", action: "make-image", prompt: "Image 1: product… a post", references: refs, aspectRatio: "4:5", size: { width: 1080, height: 1920 }, route: { providerId: "gemini-images", model: "gemini-3-pro-image" } }, d());
+      expect(ev.map((e) => e.type)).toEqual(["status", "image", "usage", "done"]);
+      expect(ev[2]).toMatchObject({ usage: { credits: 16, model: "gemini-3-pro-image" } });
+      const b = body("/gem/models/gemini-3-pro-image:generateContent");
+      const parts = b.contents[0].parts;
+      expect(parts[0].text).toBe("Image 1: product… a post");
+      expect(parts.filter((p) => p.inlineData).map((p) => [p.inlineData!.mimeType, p.inlineData!.data])).toEqual([["image/png", refs[0].data], ["image/jpeg", refs[1].data]]);
+      expect(parts.map((p) => p.text ?? "·")).toEqual(["Image 1: product… a post", "Image 1: product reference — Liq Humus, front", "·", "Image 2: label close-up", "·"]);
+      // The request's aspect wins over the size's (9:16)
+      expect(b.generationConfig.imageConfig).toEqual({ aspectRatio: "4:5", imageSize: "2K" });
+      // Nano Banana takes no imageSize; with no aspect asked, the size's nearest
+      await run({ runId: "sg2", action: "make-image", prompt: "x", size: { width: 1080, height: 1350 }, route: { providerId: "gemini-images", model: "gemini-2.5-flash-image" } }, d());
+      expect(body("/gem/models/gemini-2.5-flash-image:generateContent").generationConfig.imageConfig).toEqual({ aspectRatio: "4:5" });
+    });
+
+    it("Gemini: Fix label sends the picture to edit last and says so", async () => {
+      const edit = b64(png(3, 3, [9, 9, 9, 255]));
+      await run({ runId: "sg3", action: "edit-image", image: edit, prompt: "fix the label", references: refs.slice(0, 1), aspectRatio: "9:16", route: { providerId: "gemini-images", model: "gemini-3.1-flash-image" } }, d());
+      const b = body("/gem/models/gemini-3.1-flash-image:generateContent");
+      const parts = b.contents[0].parts;
+      expect(parts[0].text).toMatch(/^fix the label\nThe last picture, after the reference, is the picture to edit\.$/);
+      expect(parts.filter((p) => p.inlineData).map((p) => p.inlineData!.data)).toEqual([refs[0].data, edit]);
+      expect(b.generationConfig.imageConfig).toEqual({ aspectRatio: "9:16", imageSize: "2K" });
+    });
+
+    it("OpenAI: references make an edit, as image[] in order after the picture", async () => {
+      await run({ runId: "so1", action: "make-image", prompt: "a post", references: refs, aspectRatio: "9:16", route: { providerId: "openai-images" } }, d());
+      const form = seen.filter((s) => s.url === "/v1/images/edits").at(-1)!.body.toString("latin1");
+      const images = [...form.matchAll(/name="image\[\]"; filename="([^"]+)"/g)].map((m) => m[1]);
+      expect(images).toEqual(["image-1.png", "image-2.jpg"]);
+      expect(form).toContain("1024x1536");
+      await run({ runId: "so2", action: "edit-image", image: b64(png(2, 2)), prompt: "fix", references: refs.slice(0, 1), route: { providerId: "openai-images" } }, d());
+      const edit = seen.filter((s) => s.url === "/v1/images/edits").at(-1)!.body.toString("latin1");
+      expect([...edit.matchAll(/name="image\[\]"; filename="([^"]+)"/g)].map((m) => m[1])).toEqual(["image.png", "image-1.png"]);
+    });
+  });
+});
+
+describe("the Gemini CLI's nanobanana extension (a stub gemini)", () => {
+  const STUB = join(work, "stub-gemini.cjs");
+  const PNG_B64 = b64(png(4, 5));
+  // Saves the picture in <cwd>/nanobanana-output as the extension does; prints the CLI's stream-json lines.
+  writeFileSync(
+    STUB,
+    `const fs = require("fs"), path = require("path");
+const args = process.argv.slice(2);
+const mode = process.env.STUB_MODE;
+const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
+const policy = args[args.indexOf("--policy") + 1];
+fs.writeFileSync(process.env.STUB_LOG, JSON.stringify({ args, files: fs.readdirSync(process.cwd()), policy: fs.readFileSync(policy, "utf8"), model: process.env.NANOBANANA_MODEL || null, key: process.env.NANOBANANA_API_KEY ? "set" : null, geminiKey: process.env.GEMINI_API_KEY ? "set" : null, settings: JSON.parse(fs.readFileSync(path.join(process.env.GEMINI_CLI_HOME, ".gemini", "settings.json"), "utf8")), extension: fs.existsSync(path.join(process.env.GEMINI_CLI_HOME, ".gemini", "extensions", "nanobanana", "gemini-extension.json")) }));
+out({ type: "init", session_id: "s1", model: "gemini-2.5-pro" });
+if (mode === "hang") { setTimeout(() => {}, 60000); return; }
+out({ type: "tool_use", tool_name: "edit_image", tool_id: "t1", parameters: {} });
+if (mode === "nokey") { out({ type: "tool_result", tool_id: "t1", status: "error", output: "ERROR: No valid API key found. Please set NANOBANANA_API_KEY environment variable." }); out({ type: "result", status: "success" }); return; }
+if (mode === "quota") { out({ type: "result", status: "error", error: { type: "api", message: "RESOURCE_EXHAUSTED: quota exceeded" } }); process.exit(1); }
+if (mode === "credits") { out({ type: "result", status: "error", error: { type: "unknown", message: "[API Error: {\\"error\\":{\\"code\\":402,\\"message\\":\\"Your prepayment credits are depleted.\\",\\"status\\":\\"RESOURCE_EXHAUSTED\\"}}]" } }); process.exit(1); }
+const dir = path.join(process.cwd(), "nanobanana-output");
+fs.mkdirSync(dir, { recursive: true });
+const file = path.join(dir, "liq_humus_post.png");
+if (mode !== "none") fs.writeFileSync(file, Buffer.from("${PNG_B64}", "base64"));
+out({ type: "tool_result", tool_id: "t1", status: "success", output: "Successfully edited image. Saved: nanobanana-output/liq_humus_post.png" });
+out({ type: "message", role: "assistant", content: mode === "none" ? "Done." : file, delta: true });
+out({ type: "result", status: "success", stats: {} });
+`
+  );
+  const log = join(work, "gemini-log.json");
+  const cliDeps = (mode: string, key: string | null = "sk-test") =>
+    deps({
+      geminiPath: () => "gemini",
+      imageKey: () => key,
+      spawn: ((_cmd, args, options) => spawn(process.execPath, [STUB, ...args], { ...options, env: { ...options.env, STUB_MODE: mode, STUB_LOG: log } })) as SpawnFn,
+    });
+  const logged = () => JSON.parse(readFileSync(log, "utf8")) as { args: string[]; files: string[]; policy: string; model: string | null; key: string | null; geminiKey: string | null; settings: unknown; extension: boolean };
+  // The owner's installed extension
+  mkdirSync(join(work, "home", ".gemini", "extensions", "nanobanana"), { recursive: true });
+  writeFileSync(join(work, "home", ".gemini", "extensions", "nanobanana", "gemini-extension.json"), "{}");
+
+  it("runs gemini headless with only nanobanana, the references in its folder, and reads the saved picture", async () => {
+    const ev = await run({ runId: "c1", action: "make-image", prompt: "Liq Humus in a greenhouse", references: [{ data: b64(png(2, 2)), role: "product reference — Liq Humus" }, { data: b64(png(1, 1)), role: "label close-up" }], aspectRatio: "4:5", route: { providerId: "gemini-cli", model: "gemini-3-pro-image" } }, cliDeps("ok"));
+    expect(ev.map((e) => e.type)).toEqual(["status", "image", "usage", "done"]);
+    expect(ev[0]).toEqual({ type: "status", text: "Asking the Gemini CLI…" });
+    expect(ev[1]).toMatchObject({ type: "image", mime: "image/png", width: 4, height: 5, data: PNG_B64 });
+    expect(ev[2]).toMatchObject({ usage: { providerId: "gemini-cli", model: "gemini-3-pro-image", credits: 16 } });
+    const seen = logged();
+    expect(seen.files).toEqual(expect.arrayContaining(["image-1.png", "image-2.png", "policy.toml"]));
+    expect(seen.args).toEqual(expect.arrayContaining(["--output-format", "stream-json", "-e", "nanobanana", "--allowed-mcp-server-names", "nanobanana", "--skip-trust"]));
+    expect(seen.args[0]).toBe("-p");
+    expect(seen.args[1]).toMatch(/nanobanana edit_image tool exactly once, with file "image-1\.png"[\s\S]*Use no other tool[\s\S]*<prompt>\nThe given picture is Image 1 \(product reference — Liq Humus\)[\s\S]*Liq Humus in a greenhouse[\s\S]*4:5 aspect ratio\.\n<\/prompt>/);
+    expect(seen.policy).toMatch(/mcpName = "nanobanana"\ntoolName = "generate_image"\ndecision = "allow"/);
+    expect(seen.policy).toMatch(/toolName = "\*"\ndecision = "deny"/);
+    expect(seen.model).toBe("gemini-3-pro-image");
+    expect(seen.key).toBe("set");
+    // A CLI home of the run's own: API-key auth (Google sign-in no longer runs headless), the extension linked in
+    expect(seen.geminiKey).toBe("set");
+    expect(seen.settings).toEqual({ security: { auth: { selectedType: "gemini-api-key" } } });
+    expect(seen.extension).toBe(true);
+    expect(existsSync(join(work, "home", ".gemini", "extensions", "nanobanana", "gemini-extension.json"))).toBe(true);
+  });
+
+  it("makes a picture from words with generate_image; Fix label edits image.png", async () => {
+    await run({ runId: "c2", action: "make-image", prompt: "a field", route: { providerId: "gemini-cli" } }, cliDeps("ok", null));
+    expect(logged().args[1]).toMatch(/generate_image tool exactly once, with outputCount 1/);
+    expect(logged().model).toBeNull();
+    expect(logged().key).toBeNull();
+    await run({ runId: "c3", action: "edit-image", image: b64(png(3, 3)), prompt: "fix the label", references: [{ data: b64(png(1, 1)), role: "label" }], route: { providerId: "gemini-cli" } }, cliDeps("ok"));
+    expect(logged().files).toEqual(expect.arrayContaining(["image.png", "image-1.png"]));
+    expect(logged().args[1]).toMatch(/with file "image\.png"/);
+  });
+
+  it("reports a missing key, a quota error, no picture, no CLI, a timeout and a cancel", async () => {
+    const err = async (mode: string, extra: Partial<ImageRunDeps> = {}, cancel?: number) => (await run({ runId: `c-${mode}`, action: "make-image", prompt: "x", route: { providerId: "gemini-cli" } }, { ...cliDeps(mode), ...extra }, cancel)).filter((e) => e.type !== "status");
+    expect((await err("nokey"))[0]).toMatchObject({ type: "error", code: "signed-out", message: expect.stringMatching(/needs a Gemini API key/) });
+    expect((await err("quota"))[0]).toMatchObject({ type: "error", code: "rate-limited" });
+    expect((await err("credits"))[0]).toMatchObject({ type: "error", code: "rate-limited", message: expect.stringMatching(/^Your Gemini API credits have run out/) });
+    expect((await err("none"))[0]).toMatchObject({ type: "error", code: "bad-output", message: "The Gemini CLI didn't make a picture." });
+    expect((await err("ok", { geminiPath: () => null }))[0]).toMatchObject({ type: "error", code: "no-provider" });
+    expect((await err("hang", { timeoutMs: 400 }))[0]).toMatchObject({ type: "error", code: "timeout" });
+    expect(await err("hang", {}, 300)).toEqual([{ type: "done", cancelled: true }]);
   });
 });

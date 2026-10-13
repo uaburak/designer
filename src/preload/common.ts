@@ -147,6 +147,7 @@ export function aiSetupApi(): AiSetupApi {
     modelDownload: (id) => invoke("ai:model-download", { id }),
     modelRemove: (id) => invoke("ai:model-remove", { id }),
     onModelState: (cb) => on("ai:model-state", cb),
+    imageRoutes: () => invoke("ai:image-routes"),
   };
 }
 

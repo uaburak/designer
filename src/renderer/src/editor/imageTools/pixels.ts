@@ -283,6 +283,132 @@ export function blendMasked(base: Rgba, over: Rgba, mask: Uint8Array, x: number,
   return out;
 }
 
+// ---- Blur (docs/studio.md §6.2) ---------------------------------------------------------------------------------------
+
+/** A Gaussian blur of σ px (separable, the kernel to 3σ, edges repeated), alpha weighted like `resize`. */
+export function gaussianBlur(src: Rgba, sigma: number): Rgba {
+  const { width, height } = src;
+  const r = Math.max(1, Math.ceil(sigma * 3));
+  const k = new Float32Array(2 * r + 1);
+  let total = 0;
+  for (let i = -r; i <= r; i++) total += k[i + r] = Math.exp(-(i * i) / (2 * sigma * sigma));
+  for (let i = 0; i < k.length; i++) k[i] /= total;
+  // Premultiplied, so transparent pixels don't darken their neighbours
+  const pre = new Float32Array(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    const a = src.data[i * 4 + 3] / 255;
+    pre[i * 4] = src.data[i * 4] * a;
+    pre[i * 4 + 1] = src.data[i * 4 + 1] * a;
+    pre[i * 4 + 2] = src.data[i * 4 + 2] * a;
+    pre[i * 4 + 3] = src.data[i * 4 + 3];
+  }
+  const pass = (from: Float32Array, horizontal: boolean) => {
+    const to = new Float32Array(from.length);
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
+        for (let i = -r; i <= r; i++) {
+          const j = horizontal ? y * width + clamp(x + i, 0, width - 1) : clamp(y + i, 0, height - 1) * width + x;
+          const w = k[i + r];
+          s0 += from[j * 4] * w;
+          s1 += from[j * 4 + 1] * w;
+          s2 += from[j * 4 + 2] * w;
+          s3 += from[j * 4 + 3] * w;
+        }
+        const o = (y * width + x) * 4;
+        to[o] = s0;
+        to[o + 1] = s1;
+        to[o + 2] = s2;
+        to[o + 3] = s3;
+      }
+    return to;
+  };
+  return unpremultiply(pass(pass(pre, true), false), width, height);
+}
+
+/** Each `block` × `block` square as its average (a lower-resolution print), alpha weighted. */
+export function pixelate(src: Rgba, block: number): Rgba {
+  const { width, height } = src;
+  const out = new Float32Array(width * height * 4);
+  for (let by = 0; by < height; by += block)
+    for (let bx = 0; bx < width; bx += block) {
+      const x1 = Math.min(width, bx + block), y1 = Math.min(height, by + block);
+      let s0 = 0, s1 = 0, s2 = 0, s3 = 0, n = 0;
+      for (let y = by; y < y1; y++)
+        for (let x = bx; x < x1; x++) {
+          const i = (y * width + x) * 4, a = src.data[i + 3] / 255;
+          s0 += src.data[i] * a;
+          s1 += src.data[i + 1] * a;
+          s2 += src.data[i + 2] * a;
+          s3 += src.data[i + 3];
+          n++;
+        }
+      for (let y = by; y < y1; y++)
+        for (let x = bx; x < x1; x++) {
+          const o = (y * width + x) * 4;
+          out[o] = s0 / n;
+          out[o + 1] = s1 / n;
+          out[o + 2] = s2 / n;
+          out[o + 3] = s3 / n;
+        }
+    }
+  return unpremultiply(out, width, height);
+}
+
+function unpremultiply(pre: Float32Array, width: number, height: number): Rgba {
+  const out = blank(width, height);
+  for (let i = 0; i < width * height; i++) {
+    const a = pre[i * 4 + 3];
+    const k = a > 0 ? 255 / a : 0;
+    out.data[i * 4] = clamp(Math.round(pre[i * 4] * k), 0, 255);
+    out.data[i * 4 + 1] = clamp(Math.round(pre[i * 4 + 1] * k), 0, 255);
+    out.data[i * 4 + 2] = clamp(Math.round(pre[i * 4 + 2] * k), 0, 255);
+    out.data[i * 4 + 3] = clamp(Math.round(a), 0, 255);
+  }
+  return out;
+}
+
+/** The pixelation's block: the area at a quarter of its resolution (§6.2's "4×"). */
+export const BLUR_BLOCK = 4;
+
+/** Blur's σ for an area: 1.5 % of its short side (px), at least half a pixel. */
+export const blurSigma = (r: Pick<Rect, "width" | "height">) => Math.max(0.5, 0.015 * Math.min(r.width, r.height));
+
+/**
+ * Blur (docs/studio.md §6.2): the area under `mask` (the picture's size, 0 / 255) as a low-resolution print — a Gaussian
+ * of σ (default: 1.5 % of the area's short side) mixed half and half with a 4× pixelation of it, put back through the
+ * mask with a soft edge that stays inside it. Every pixel outside the mask is left exactly as it was.
+ */
+export function blurArea(image: Rgba, mask: Uint8Array, sigma?: number): Rgba {
+  const bounds = maskBounds(mask, image.width, image.height);
+  if (!bounds) return { ...image, data: image.data.slice() };
+  const s = sigma ?? blurSigma(bounds);
+  const region = grow(bounds, Math.ceil(s * 3) + BLUR_BLOCK, image.width, image.height);
+  const blurred = gaussianBlur(crop(image, region), s);
+  const blocky = pixelate(blurred, BLUR_BLOCK);
+  const mixed = blank(region.width, region.height);
+  for (let i = 0; i < mixed.data.length; i++) mixed.data[i] = Math.round((blurred.data[i] + blocky.data[i]) / 2);
+  const sub = new Uint8Array(region.width * region.height);
+  for (let y = 0; y < region.height; y++) sub.set(mask.subarray((region.y + y) * image.width + region.x, (region.y + y) * image.width + region.x + region.width), y * region.width);
+  const soft = feather(sub, region.width, region.height, Math.max(1, Math.round(s)));
+  for (let i = 0; i < soft.length; i++) soft[i] = sub[i] ? Math.max(1, Math.min(soft[i], sub[i])) : 0;
+  return blendMasked(image, mixed, soft, region.x, region.y);
+}
+
+/** Blur on rectangles of the picture (px), each with its own σ. */
+export function blurRects(image: Rgba, rects: readonly Rect[]): Rgba {
+  let out = image;
+  for (const r of rects) {
+    const x0 = clamp(Math.floor(r.x), 0, image.width), y0 = clamp(Math.floor(r.y), 0, image.height);
+    const x1 = clamp(Math.ceil(r.x + r.width), 0, image.width), y1 = clamp(Math.ceil(r.y + r.height), 0, image.height);
+    if (x1 <= x0 || y1 <= y0) continue;
+    const mask = new Uint8Array(image.width * image.height);
+    for (let y = y0; y < y1; y++) mask.fill(255, y * image.width + x0, y * image.width + x1);
+    out = blurArea(out, mask, blurSigma({ width: x1 - x0, height: y1 - y0 }));
+  }
+  return out === image ? { ...image, data: image.data.slice() } : out;
+}
+
 // ---- Expand (docs/ai.md §2.6, owner §10.1) --------------------------------------------------------------------------
 
 export interface Insets {

@@ -24,7 +24,8 @@ export interface AiApi {
 }
 
 /** What Home's Settings › AI uses (no runs). */
-export type AiSetupApi = Pick<AiApi, "settings" | "setSettings" | "setImageKey" | "models" | "modelDownload" | "modelRemove" | "onModelState">;
+export type AiSetupApi = Pick<AiApi, "settings" | "setSettings" | "setImageKey" | "models" | "modelDownload" | "modelRemove" | "onModelState"> &
+  Partial<Pick<AiApi, "imageRoutes">>;
 
 /** A run's failure as the action shows it. */
 export class AiRunError extends Error {

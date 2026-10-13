@@ -2,7 +2,7 @@
 // tiling of Boost resolution (coverage, seams, the 4096 cap), the models' pre- and post-processing around a fake
 // runner, fp16.
 import { afterEach, describe, expect, it } from "vitest";
-import { blank, blendMasked, expandCanvas, feather, fromHalf, insetsForAspect, maskBounds, rasterizePolygon, recomposite, resize, toHalf, type Rgba } from "../pixels";
+import { blank, blendMasked, blurArea, blurRects, blurSigma, expandCanvas, feather, fromHalf, gaussianBlur, insetsForAspect, maskBounds, pixelate, rasterizePolygon, recomposite, resize, toHalf, type Rgba } from "../pixels";
 import { boostInputSize, tilePlan, upscaleTiled } from "../tiles";
 import { erase, foregroundMatte, inpaintRegion, isolate, upscaleTile } from "../runners";
 import { setModelRunner, type ModelInput } from "../worker";
@@ -186,6 +186,51 @@ describe("helpers", () => {
     expect(px(r, 2, 6)).toEqual([10, 200, 30, 255]);
     const edge = resize(fill(2, 1, (x) => (x ? [255, 0, 0, 255] : [0, 0, 0, 0])), 4, 1);
     expect(px(edge, 1, 0).slice(0, 3)).toEqual([255, 0, 0]);
+  });
+
+  it("Blur's parts: a Gaussian keeps flat colour and spreads a dot; pixelation averages 4 × 4 blocks; σ is 1.5 % of the short side", () => {
+    const flat = fill(9, 9, () => [10, 200, 30, 255]);
+    expect(gaussianBlur(flat, 2).data).toEqual(flat.data);
+    const dot = fill(9, 9, (x, y) => (x === 4 && y === 4 ? [255, 255, 255, 255] : [0, 0, 0, 255]));
+    const g = gaussianBlur(dot, 1);
+    expect(px(g, 4, 4)[0]).toBeLessThan(255);
+    expect(px(g, 5, 4)[0]).toBeGreaterThan(0);
+    expect(px(g, 5, 4)[0]).toBe(px(g, 3, 4)[0]);
+    const p = pixelate(fill(8, 4, (x) => (x % 2 ? [0, 0, 0, 255] : [200, 100, 40, 255])), 4);
+    expect(px(p, 0, 0)).toEqual([100, 50, 20, 255]);
+    expect(px(p, 7, 3)).toEqual([100, 50, 20, 255]);
+    // Transparent pixels don't darken a block
+    expect(px(pixelate(fill(2, 1, (x) => (x ? [0, 0, 0, 0] : [255, 0, 0, 255])), 2), 0, 0)).toEqual([255, 0, 0, 128]);
+    expect(blurSigma({ width: 400, height: 200 })).toBe(3);
+    expect(blurSigma({ width: 10, height: 10 })).toBe(0.5);
+  });
+
+  it("Blur: inside the box the fine print goes soft, the edge is feathered, outside is byte-identical", () => {
+    // 1 px stripes: small text's contrast
+    const src = fill(100, 80, (x) => (x % 2 ? [20, 20, 20, 255] : [240, 240, 240, 255]));
+    const box = { x: 20, y: 20, width: 60, height: 40 };
+    const out = blurRects(src, [box]);
+    const inside = (x: number, y: number) => x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height;
+    let changed = 0;
+    for (let y = 0; y < 80; y++)
+      for (let x = 0; x < 100; x++) {
+        if (!inside(x, y)) expect(px(out, x, y)).toEqual(px(src, x, y));
+        else if (px(out, x, y)[0] !== px(src, x, y)[0]) changed++;
+      }
+    expect(changed).toBe(60 * 40);
+    // Deep inside: the stripes' 220 levels of contrast down to a few dozen
+    expect(Math.abs(px(out, 50, 40)[0] - px(out, 51, 40)[0])).toBeLessThan(60);
+    // The edge: changed, but less than the middle (a white column, the box's top row against its middle)
+    const change = (x: number, y: number) => Math.abs(px(out, x, y)[0] - px(src, x, y)[0]);
+    expect(change(50, 20)).toBeGreaterThan(0);
+    expect(change(50, 20)).toBeLessThan(change(50, 40));
+    // Alpha untouched where the picture is opaque
+    expect(px(out, 50, 40)[3]).toBe(255);
+    // A lasso works the same; an empty mask changes nothing
+    const lasso = rasterizePolygon([{ x: 30, y: 30 }, { x: 70, y: 30 }, { x: 50, y: 70 }], 100, 80);
+    const l = blurArea(src, lasso);
+    for (let i = 0; i < lasso.length; i++) if (!lasso[i]) expect(Array.from(l.data.subarray(i * 4, i * 4 + 4))).toEqual(Array.from(src.data.subarray(i * 4, i * 4 + 4)));
+    expect(blurArea(src, new Uint8Array(100 * 80)).data).toEqual(src.data);
   });
 
   it("fp16 round-trips the models' range", () => {

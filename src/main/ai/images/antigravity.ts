@@ -5,7 +5,7 @@ import { friendlyApiError } from "../../../shared/agents/errors";
 import { AGY_DEFAULT_MODEL } from "../../agents/providers/antigravity";
 import { LineSplitter, type SpawnFn } from "../../agents/providers/turns";
 import { AiError, classify } from "../oneShot";
-import { answerOf, type ImageAnswer, type ImageJob } from "./types";
+import { answerOf, referenceFile, type ImageAnswer, type ImageJob } from "./types";
 
 /**
  * Antigravity's `generate_image` (docs/ai.md §2.5, owner §10.1): the owner's Google AI plan, no key. Make an image,
@@ -37,15 +37,22 @@ export function agyImageProject(workDir: string): string {
 const IMAGE_FILE = /\.(png|jpe?g|webp)$/i;
 
 /** The prompt for one run: which files to look at, what to make, and to answer with the saved path. */
-export function agyImagePrompt(job: Pick<ImageJob, "action" | "prompt" | "size" | "image" | "mask" | "reference">): string {
+export function agyImagePrompt(job: Pick<ImageJob, "action" | "prompt" | "size" | "image" | "mask" | "reference" | "references" | "aspectRatio">): string {
   const lines: string[] = [];
   const files: string[] = [];
   if (job.image) files.push("image.png (the picture to edit)");
   if (job.mask) files.push("mask.png (a mask: change only where it is transparent)");
   if (job.reference) files.push("reference.png (a reference for style and content)");
+  // Studio's references, named as the prompt numbers them (docs/studio.md §5.3)
+  (job.references ?? []).forEach((r, i) => files.push(`${referenceFile(i, r.mime)} (Image ${i + 1}${r.role ? `: ${r.role}` : ""})`));
   if (files.length) lines.push(`Look at these files in your workspace with view_file: ${files.join(", ")}.`);
+  if (job.references?.length) lines.push("Pass every one of these pictures to generate_image as its input images, in this order.");
   const verb = job.image ? "Use your generate_image tool once to make the edited picture" : "Use your generate_image tool once to make this picture";
-  const aspect = job.size ? ` Make it ${job.size.width} × ${job.size.height} px or the closest aspect ratio you can (${(job.size.width / job.size.height).toFixed(3)}:1).` : "";
+  const aspect = job.aspectRatio
+    ? ` Make it in the ${job.aspectRatio} aspect ratio.`
+    : job.size
+      ? ` Make it ${job.size.width} × ${job.size.height} px or the closest aspect ratio you can (${(job.size.width / job.size.height).toFixed(3)}:1).`
+      : "";
   lines.push(`${verb}.${aspect}`);
   if (job.image) lines.push("Keep the picture's framing: the same composition, size and position of everything that should not change.");
   lines.push(`The request: ${job.prompt}`);
@@ -89,6 +96,7 @@ export function antigravityImage(job: ImageJob, o: AgyImageOptions): Promise<Ima
   if (job.image) writeFileSync(join(o.cwd, "image.png"), job.image);
   if (job.mask) writeFileSync(join(o.cwd, "mask.png"), job.mask);
   if (job.reference) writeFileSync(join(o.cwd, "reference.png"), job.reference);
+  (job.references ?? []).forEach((r, i) => writeFileSync(join(o.cwd, referenceFile(i, r.mime)), r.data));
   const projectFile = join(o.home, ".gemini", "config", "projects", `${AGY_IMAGE_PROJECT}.json`);
   mkdirSync(dirname(projectFile), { recursive: true });
   writeFileSync(projectFile, agyImageProject(dirname(o.cwd)), { mode: 0o600 });
