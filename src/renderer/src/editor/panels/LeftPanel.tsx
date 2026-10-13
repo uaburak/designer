@@ -19,6 +19,7 @@ import { FindPanel } from "./Find";
 import { TabHeader } from "./TabHeader";
 import { NavStrip } from "./Rail";
 import { AgentsPanel } from "./agents/AgentsPanel";
+import { BrandsPanel } from "../studio/BrandsPanel";
 import { usePluginService, usePlugins } from "../plugins/service";
 import { pluginRows } from "../plugins/actions";
 import { isEnabled } from "../commands";
@@ -47,6 +48,8 @@ export function LeftPanel() {
         <Assets />
       ) : tab === "agents" ? (
         <AgentsPanel />
+      ) : tab === "brands" ? (
+        <BrandsPanel />
       ) : (
         <ToolsPanel />
       )}

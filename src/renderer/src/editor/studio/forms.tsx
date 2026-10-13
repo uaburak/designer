@@ -1,8 +1,222 @@
 /**
  * The brand and product forms (docs/studio.md §3.2, §4.1): one component each, used by the Brands panel and by the
- * chat's form cards. 15b fills them.
+ * chat's form cards. Pictures are staged in the form (dropped, pasted or picked) and written when it is saved, so
+ * Cancel leaves the library as it was.
  */
-import type { BrandSave, ProductSave } from "../../../../shared/studio/types";
+import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
+import { Button, Checkbox, Icon, IconButton, Select, Swatch, TextInput, normalizeHex } from "@/ds";
+import { getStoreClient } from "@/store";
+import { DEFAULT_FORMATS, type Brand, type BrandColor, type BrandImage, type BrandImageRole, type BrandSave, type BrandsRepository, type LabelTier, type Product, type ProductSave, type SocialFormat } from "../../../../shared/studio/types";
+import styles from "./BrandsPanel.module.css";
+
+// ── The library, as the views read it ─────────────────────────────────────────────────────────────────────────────
+
+let repoOverride: BrandsRepository | null = null;
+/** Tests give their own library. */
+export function setBrandsRepository(r: BrandsRepository | null): void {
+  repoOverride = r;
+}
+export const brandsRepo = (): BrandsRepository => repoOverride ?? getStoreClient().brands;
+
+/** The brands, kept current: they are read again when the store says one changed (topic `brands`). */
+export function useBrands(): { brands: Brand[] | null; error: string | null } {
+  const [state, setState] = useState<{ brands: Brand[] | null; error: string | null }>({ brands: null, error: null });
+  useEffect(() => {
+    const repo = brandsRepo();
+    let alive = true;
+    const load = () => repo.list().then((brands) => alive && setState({ brands, error: null }), (e: unknown) => alive && setState((s) => ({ ...s, error: e instanceof Error ? e.message : String(e) })));
+    void load();
+    const off = repo.watch(() => void load());
+    return () => {
+      alive = false;
+      off();
+    };
+  }, []);
+  return state;
+}
+
+const urls = new Map<string, Promise<string>>();
+/** A library picture as a data URL (kept: pictures don't change under their id). */
+export function useImageUrl(brandId: string, imageId: string): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    const key = `${brandId}/${imageId}`;
+    let p = urls.get(key);
+    if (!p) {
+      p = brandsRepo().image(brandId, imageId).then((i) => `data:${i.mime};base64,${i.data}`);
+      urls.set(key, p);
+      p.catch(() => urls.delete(key));
+    }
+    let alive = true;
+    p.then((u) => alive && setUrl(u), () => {});
+    return () => {
+      alive = false;
+    };
+  }, [brandId, imageId]);
+  return url;
+}
+
+export function StoredPicture({ brandId, image, onRemove }: { brandId: string; image: BrandImage; onRemove?: () => void }) {
+  const url = useImageUrl(brandId, image.id);
+  return (
+    <div className={styles.picture} data-picture={image.id}>
+      {url && <img src={url} alt={image.name} />}
+      {onRemove && <IconButton icon="16.close" label={`Remove ${image.name}`} className={styles.pictureRemove} onClick={onRemove} />}
+    </div>
+  );
+}
+
+// ── Pictures: drop, paste or a file picker ────────────────────────────────────────────────────────────────────────
+
+export interface StagedPicture {
+  key: string;
+  role: BrandImageRole;
+  name: string;
+  /** base64 */
+  data: string;
+  url: string;
+}
+
+const MAX_BYTES = 20 * 1024 * 1024;
+const TYPES = ["image/png", "image/jpeg", "image/webp"];
+
+let stageKey = 0;
+/** Files → staged pictures (PNG, JPEG, WebP; the store checks their bytes again). Returns what was refused too. */
+export async function stageFiles(files: Iterable<File>, role: BrandImageRole): Promise<{ staged: StagedPicture[]; refused: string[] }> {
+  const staged: StagedPicture[] = [];
+  const refused: string[] = [];
+  for (const f of files) {
+    if (!TYPES.includes(f.type)) {
+      refused.push(`${f.name || "That file"} isn't a PNG, JPEG or WebP picture`);
+      continue;
+    }
+    if (f.size > MAX_BYTES) {
+      refused.push(`${f.name || "That picture"} is over 20 MB`);
+      continue;
+    }
+    const url = await new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result));
+      r.onerror = () => reject(r.error ?? new Error("The file can't be read"));
+      r.readAsDataURL(f);
+    });
+    staged.push({ key: `s${++stageKey}`, role, name: f.name || `${role}.${f.type.slice(6)}`, data: url.slice(url.indexOf(",") + 1), url });
+  }
+  return { staged, refused };
+}
+
+export interface PicturesProps {
+  label: string;
+  role: BrandImageRole;
+  brandId?: string;
+  /** Saved pictures of this role */
+  stored: readonly BrandImage[];
+  removed: ReadonlySet<string>;
+  staged: readonly StagedPicture[];
+  onStage(p: StagedPicture[]): void;
+  onUnstage(key: string): void;
+  onRemoveStored(id: string): void;
+  onProblem(message: string | null): void;
+}
+
+/** One kind of picture: its thumbnails and a place to drop, paste into (click it first) or pick files with. */
+export function Pictures(p: PicturesProps) {
+  const input = useRef<HTMLInputElement>(null);
+  const [over, setOver] = useState(false);
+  const take = useCallback(
+    async (files: Iterable<File>) => {
+      const { staged, refused } = await stageFiles(files, p.role);
+      p.onProblem(refused[0] ?? null);
+      if (staged.length) p.onStage(staged);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [p.role, p.onStage, p.onProblem]
+  );
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault();
+    setOver(false);
+    void take(e.dataTransfer.files);
+  };
+  const onPaste = (e: ClipboardEvent) => {
+    const files = [...e.clipboardData.files];
+    if (!files.length) return;
+    e.preventDefault();
+    void take(files);
+  };
+  return (
+    <div className={styles.field} data-pictures={p.role}>
+      <span className={styles.fieldLabel}>{p.label}</span>
+      <div className={styles.pictures}>
+        {p.stored.filter((i) => !p.removed.has(i.id)).map((i) => p.brandId && <StoredPicture key={i.id} brandId={p.brandId} image={i} onRemove={() => p.onRemoveStored(i.id)} />)}
+        {p.staged.map((s) => (
+          <div key={s.key} className={styles.picture} data-picture="staged">
+            <img src={s.url} alt={s.name} />
+            <IconButton icon="16.close" label={`Remove ${s.name}`} className={styles.pictureRemove} onClick={() => p.onUnstage(s.key)} />
+          </div>
+        ))}
+      </div>
+      <div
+        className={styles.drop}
+        role="button"
+        tabIndex={0}
+        aria-label={`Add ${p.label.toLowerCase()}`}
+        data-over={over || undefined}
+        onClick={() => input.current?.click()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            input.current?.click();
+          }
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setOver(true);
+        }}
+        onDragLeave={() => setOver(false)}
+        onDrop={onDrop}
+        onPaste={onPaste}
+      >
+        <Icon name="24.image" />
+        Drop, paste or choose pictures
+      </div>
+      <input
+        ref={input}
+        className={styles.file}
+        type="file"
+        accept={TYPES.join(",")}
+        multiple
+        tabIndex={-1}
+        aria-hidden
+        data-file-input={p.role}
+        onChange={(e) => {
+          void take([...(e.currentTarget.files ?? [])]);
+          e.currentTarget.value = "";
+        }}
+      />
+    </div>
+  );
+}
+
+/** Staged pictures and removals of one form: written by `apply` after the item itself is saved. */
+function usePictureEdits() {
+  const [staged, setStaged] = useState<StagedPicture[]>([]);
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
+  return {
+    staged,
+    removed,
+    stage: (p: StagedPicture[]) => setStaged((s) => [...s, ...p]),
+    unstage: (key: string) => setStaged((s) => s.filter((x) => x.key !== key)),
+    removeStored: (id: string) => setRemoved((r) => new Set(r).add(id)),
+    async apply(repo: BrandsRepository, brandId: string, productId: string | null) {
+      for (const id of removed) await repo.removeImage(brandId, id);
+      for (const s of staged) await repo.addImage({ brandId, productId, role: s.role, name: s.name, data: s.data });
+    },
+  };
+}
+
+const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+// ── Brand ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export interface BrandFormProps {
   brandId?: string;
@@ -11,9 +225,164 @@ export interface BrandFormProps {
   onCancel(): void;
 }
 
-export function BrandForm(_p: BrandFormProps) {
-  return null;
+const newColor = (): BrandColor => ({ name: "", hex: "#" });
+
+export function BrandForm({ brandId, prefill, onDone, onCancel }: BrandFormProps) {
+  const [loaded, setLoaded] = useState<Brand | null>(null);
+  const [ready, setReady] = useState(!brandId);
+  const [name, setName] = useState(prefill?.name ?? "");
+  const [colors, setColors] = useState<BrandColor[]>(prefill?.colors ?? []);
+  const [fonts, setFonts] = useState((prefill?.fonts ?? []).join(", "));
+  const [tone, setTone] = useState(prefill?.tone ?? "");
+  const [formats, setFormats] = useState<SocialFormat[]>(prefill?.formats ?? DEFAULT_FORMATS.map((f) => ({ ...f })));
+  const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pics = usePictureEdits();
+  useEffect(() => {
+    if (!brandId) return;
+    let alive = true;
+    brandsRepo().get(brandId).then(
+      (b) => {
+        if (!alive) return;
+        if (b) {
+          setLoaded(b);
+          setName(prefill?.name ?? b.name);
+          setColors(prefill?.colors ?? b.colors);
+          setFonts((prefill?.fonts ?? b.fonts).join(", "));
+          setTone(prefill?.tone ?? b.tone);
+          setFormats(prefill?.formats ?? b.formats);
+        }
+        setReady(true);
+      },
+      (e: unknown) => alive && (setProblem(messageOf(e)), setReady(true))
+    );
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandId]);
+
+  const save = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const repo = brandsRepo();
+      const good = colors.filter((c) => c.hex.trim().length > 1).map((c) => ({ name: c.name.trim(), hex: normalizeHex(c.hex) ?? c.hex.trim() }));
+      const saved = await repo.saveBrand({
+        ...(brandId ? { id: brandId } : {}),
+        name,
+        colors: good,
+        fonts: fonts.split(",").map((f) => f.trim()).filter(Boolean),
+        tone,
+        formats: formats.filter((f) => f.width > 0 && f.height > 0),
+        ...(prefill?.libraryFileKey !== undefined ? { libraryFileKey: prefill.libraryFileKey } : {}),
+      });
+      await pics.apply(repo, saved.id, null);
+      onDone(saved.id);
+    } catch (e) {
+      setProblem(messageOf(e));
+      setBusy(false);
+    }
+  };
+
+  if (!ready) return null;
+  const setColor = (i: number, c: Partial<BrandColor>) => setColors((cs) => cs.map((x, k) => (k === i ? { ...x, ...c } : x)));
+  const setFormat = (i: number, f: Partial<SocialFormat>) => setFormats((fs) => fs.map((x, k) => (k === i ? { ...x, ...f } : x)));
+  return (
+    <form
+      className={styles.form}
+      data-brand-form={brandId ?? "new"}
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      <div className={styles.field}>
+        <span className={styles.fieldLabel}>Name</span>
+        <TextInput label="Brand name" value={name} placeholder="Partner Agro" autoFocus={!brandId} onChange={setName} data-field="name" />
+      </div>
+      <Pictures
+        label="Logos"
+        role="logo"
+        brandId={brandId}
+        stored={(loaded?.logos ?? []).filter((i) => i.role === "logo")}
+        removed={pics.removed}
+        staged={pics.staged.filter((s) => s.role === "logo")}
+        onStage={pics.stage}
+        onUnstage={pics.unstage}
+        onRemoveStored={pics.removeStored}
+        onProblem={setProblem}
+      />
+      <div className={styles.field} data-colors="">
+        <span className={styles.fieldLabel}>Colours</span>
+        <div className={styles.list}>
+          {colors.map((c, i) => (
+            <div key={i} className={styles.listRow}>
+              <TextInput label={`Colour ${i + 1} name`} value={c.name} placeholder="Name" onChange={(v) => setColor(i, { name: v })} />
+              <Swatch color={c.hex} size={16} shape="round" />
+              <TextInput label={`Colour ${i + 1} hex`} className={styles.hex} value={c.hex} placeholder="#1BA37A" maxLength={9} onChange={(v) => setColor(i, { hex: v })} />
+              <IconButton icon="16.close" label={`Remove colour ${i + 1}`} onClick={() => setColors((cs) => cs.filter((_, k) => k !== i))} />
+            </div>
+          ))}
+        </div>
+        <Button variant="ghost" icon="24.plus.small" onClick={() => setColors((cs) => [...cs, newColor()])}>
+          Add colour
+        </Button>
+      </div>
+      <div className={styles.field}>
+        <span className={styles.fieldLabel}>Fonts (comma separated)</span>
+        <TextInput label="Fonts" value={fonts} placeholder="Inter, Playfair Display" onChange={setFonts} />
+      </div>
+      <div className={styles.field}>
+        <span className={styles.fieldLabel}>Tone and look</span>
+        <textarea className={styles.textArea} aria-label="Tone and look" placeholder="Calm, honest, close to the farmer" value={tone} rows={3} onChange={(e) => setTone(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+      </div>
+      <div className={styles.field} data-formats="">
+        <span className={styles.fieldLabel}>Formats</span>
+        <div className={styles.list}>
+          {formats.map((f, i) => (
+            <div key={i} className={styles.listRow}>
+              <TextInput label={`Format ${i + 1} name`} value={f.name} placeholder="Post" onChange={(v) => setFormat(i, { name: v })} />
+              <TextInput label={`Format ${i + 1} width`} className={styles.num} value={String(f.width || "")} prefix="W" onChange={(v) => setFormat(i, { width: Number(v.replace(/\D/g, "")) || 0 })} />
+              <TextInput label={`Format ${i + 1} height`} className={styles.num} value={String(f.height || "")} prefix="H" onChange={(v) => setFormat(i, { height: Number(v.replace(/\D/g, "")) || 0 })} />
+              <IconButton icon="16.close" label={`Remove format ${i + 1}`} onClick={() => setFormats((fs) => fs.filter((_, k) => k !== i))} />
+            </div>
+          ))}
+        </div>
+        <Button variant="ghost" icon="24.plus.small" onClick={() => setFormats((fs) => [...fs, { id: `format-${fs.length + 1}`, name: "", width: 1080, height: 1080 }])}>
+          Add format
+        </Button>
+      </div>
+      <Pictures
+        label="Style pictures"
+        role="style"
+        brandId={brandId}
+        stored={(loaded?.logos ?? []).filter((i) => i.role === "style")}
+        removed={pics.removed}
+        staged={pics.staged.filter((s) => s.role === "style")}
+        onStage={pics.stage}
+        onUnstage={pics.unstage}
+        onRemoveStored={pics.removeStored}
+        onProblem={setProblem}
+      />
+      {problem && (
+        <div className={styles.problem} role="alert">
+          {problem}
+        </div>
+      )}
+      <div className={styles.footer}>
+        <Button variant="secondary" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+        <Button variant="primary" type="submit" disabled={busy || !name.trim()} data-save="">
+          {brandId ? "Save" : "Add brand"}
+        </Button>
+      </div>
+    </form>
+  );
 }
+
+// ── Product ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export interface ProductFormProps {
   brandId: string;
@@ -23,6 +392,144 @@ export interface ProductFormProps {
   onCancel(): void;
 }
 
-export function ProductForm(_p: ProductFormProps) {
-  return null;
+interface LabelRow {
+  id?: string;
+  text: string;
+  tier: LabelTier;
+}
+
+const TIERS = [
+  { value: "sharp", label: "Sharp" },
+  { value: "soft", label: "Soft" },
+];
+
+export function ProductForm({ brandId, productId, prefill, onDone, onCancel }: ProductFormProps) {
+  const [loaded, setLoaded] = useState<Product | null>(null);
+  const [ready, setReady] = useState(!productId);
+  const [name, setName] = useState(prefill?.name ?? "");
+  const [shape, setShape] = useState(prefill?.shape ?? "");
+  const [notes, setNotes] = useState(prefill?.notes ?? "");
+  const [labels, setLabels] = useState<LabelRow[]>(prefill?.labels ?? []);
+  const [confirmed, setConfirmed] = useState(prefill?.labelsConfirmed ?? false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pics = usePictureEdits();
+  useEffect(() => {
+    if (!productId) return;
+    let alive = true;
+    brandsRepo().get(brandId).then(
+      (b) => {
+        const p = b?.products.find((x) => x.id === productId) ?? null;
+        if (!alive) return;
+        if (p) {
+          setLoaded(p);
+          setName(prefill?.name ?? p.name);
+          setShape(prefill?.shape ?? p.shape);
+          setNotes(prefill?.notes ?? p.notes);
+          setLabels(prefill?.labels ?? p.labels);
+          setConfirmed(prefill?.labelsConfirmed ?? p.labelsConfirmed);
+        }
+        setReady(true);
+      },
+      (e: unknown) => alive && (setProblem(messageOf(e)), setReady(true))
+    );
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandId, productId]);
+
+  const save = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const repo = brandsRepo();
+      const rows = labels.filter((l) => l.text.trim());
+      const saved = await repo.saveProduct({ ...(productId ? { id: productId } : {}), brandId, name, shape, notes, labels: rows, labelsConfirmed: confirmed && rows.length > 0 });
+      await pics.apply(repo, brandId, saved.id);
+      onDone(saved.id);
+    } catch (e) {
+      setProblem(messageOf(e));
+      setBusy(false);
+    }
+  };
+
+  if (!ready) return null;
+  const setLabel = (i: number, l: Partial<LabelRow>) => {
+    setLabels((ls) => ls.map((x, k) => (k === i ? { ...x, ...l } : x)));
+    setConfirmed(false);
+  };
+  const of = (role: BrandImageRole) => ({
+    brandId,
+    stored: (loaded?.images ?? []).filter((i) => i.role === role),
+    removed: pics.removed,
+    staged: pics.staged.filter((s) => s.role === role),
+    onStage: pics.stage,
+    onUnstage: pics.unstage,
+    onRemoveStored: pics.removeStored,
+    onProblem: setProblem,
+  });
+  return (
+    <form
+      className={styles.form}
+      data-product-form={productId ?? "new"}
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      <div className={styles.field}>
+        <span className={styles.fieldLabel}>Name</span>
+        <TextInput label="Product name" value={name} placeholder="Liq Humus" autoFocus={!productId} onChange={setName} data-field="name" />
+      </div>
+      <Pictures label="Product photos" role="packshot" {...of("packshot")} />
+      <Pictures label="Label close-ups" role="label" {...of("label")} />
+      <div className={styles.field}>
+        <span className={styles.fieldLabel}>Shape</span>
+        <textarea className={styles.textArea} aria-label="Shape" placeholder="20 L white translucent jerrycan, handle top left, blue hexagon seal on the cap" value={shape} rows={3} onChange={(e) => setShape(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+      </div>
+      <div className={styles.field} data-labels="">
+        <span className={styles.fieldLabel}>Label texts</span>
+        <div className={styles.list}>
+          {labels.map((l, i) => (
+            <div key={l.id ?? `n${i}`} className={styles.listRow}>
+              <TextInput label={`Label text ${i + 1}`} value={l.text} placeholder="Exactly as printed" onChange={(v) => setLabel(i, { text: v })} />
+              <Select label={`Label text ${i + 1} tier`} className={styles.tier} value={l.tier} options={TIERS} onChange={(v) => setLabel(i, { tier: v as LabelTier })} />
+              <IconButton
+                icon="16.close"
+                label={`Remove label text ${i + 1}`}
+               
+                onClick={() => {
+                  setLabels((ls) => ls.filter((_, k) => k !== i));
+                  setConfirmed(false);
+                }}
+              />
+            </div>
+          ))}
+        </div>
+        <Button variant="ghost" icon="24.plus.small" onClick={() => setLabels((ls) => [...ls, { text: "", tier: "sharp" }])}>
+          Add text
+        </Button>
+        <span className={styles.muted}>Sharp texts are written exactly in pictures. Soft ones (small print) are left illegible.</span>
+        <Checkbox label="These texts are checked" checked={confirmed && labels.some((l) => l.text.trim())} onChange={setConfirmed} disabled={!labels.some((l) => l.text.trim())} />
+      </div>
+      <div className={styles.field}>
+        <span className={styles.fieldLabel}>Notes</span>
+        <textarea className={styles.textArea} aria-label="Notes" value={notes} rows={2} onChange={(e) => setNotes(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+      </div>
+      {problem && (
+        <div className={styles.problem} role="alert">
+          {problem}
+        </div>
+      )}
+      <div className={styles.footer}>
+        <Button variant="secondary" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+        <Button variant="primary" type="submit" disabled={busy || !name.trim()} data-save="">
+          {productId ? "Save" : "Add product"}
+        </Button>
+      </div>
+    </form>
+  );
 }
