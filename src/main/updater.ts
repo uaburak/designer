@@ -8,8 +8,9 @@ import { desktopPolicy, WIN_KEY } from "./policy";
 
 /**
  * The app's updates (docs/desktop.md §12.6), Figma's way: its desktop app updates itself through Squirrel; ours
- * through electron-updater (Squirrel.Mac underneath on a Mac, the NSIS installer on Windows) over the GitHub releases
- * of `uaburak/designer` (`latest-mac.yml` / `latest.yml` on the latest release; electron-builder.yml `publish`).
+ * through electron-updater (Squirrel.Mac underneath on a Mac, the NSIS installer on Windows) over a generic feed at
+ * get.wecra.app/updates (`latest-mac.yml` / `latest.yml` and the files they name, served from R2 by site/worker;
+ * electron-builder.yml `publish`, docs/site.md). Copies up to 1.1.2 read the GitHub releases of `uaburak/designer`.
  *
  * ~10 s after launch, then once a day (an hourly tick catches a day missed while the Mac slept, and so does waking
  * it). An update found downloads by itself; once it's in, the tab bar shows "Restart to update" and the app menu's

@@ -1,0 +1,26 @@
+// get.wecra.app (docs/site.md): the download site and the update channel. The pages are Vite's build (site/dist,
+// `npm run build`); the Worker (worker/index.ts) serves the R2 bucket's releases. Deploy from site/: npm run deploy.
+// Create the bucket once: npx wrangler r2 bucket create wecra-releases
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wecra-site",
+  "account_id": "dd8b9e757657d35f82adff075509b048",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-09-01",
+  // The owner's zone wecra.app (Cloudflare Registrar): the deploy makes get.wecra.app's DNS record and certificate
+  "routes": [{ "pattern": "get.wecra.app", "custom_domain": true }],
+  "workers_dev": false,
+  // The pages; the Worker runs first only for the channel's routes, every other path is a static file (a missing one:
+  // dist/404.html when the build has one)
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/updates/*", "/download/*", "/api/*"],
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  // updates/<file> (electron-builder's feeds, the installers and the blockmaps) and releases.json; written only by
+  // scripts/release.sh (wrangler r2 object put … --remote), never public
+  "r2_buckets": [{ "binding": "RELEASES", "bucket_name": "wecra-releases" }],
+  "observability": { "enabled": true }
+}
