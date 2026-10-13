@@ -10,7 +10,7 @@
   width: 240px;
   height: 480px;
   overflow: hidden;
-  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.1), 0 1px 3px rgb(0 0 0 / 0.06);
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.1);
 }
 
 /* The frame name over Product, with its flow starting point (Figma's blue "▶ Flow 1") */
@@ -65,7 +65,7 @@
   overflow: hidden;
   border-radius: var(--ds-radius-large);
   background: var(--figma-color-bg);
-  box-shadow: var(--ds-elevation-400-menu-panel);
+  box-shadow: none;
   transform: translateY(-50%);
 }
 .previewHead {
@@ -115,7 +115,7 @@
 .statusIcons { width: 34px; height: 9px; background: linear-gradient(90deg, #1e1e1e 0 13px, transparent 13px 16px, #1e1e1e 16px 22px, transparent 22px 25px) left/100% 100% no-repeat; border-radius: 2px; }
 .title { color: #1b1b1b; font: 700 24px/1 "Inter Variable", Inter, sans-serif; letter-spacing: -0.03em; white-space: nowrap; }
 .subtitle { color: #8a8178; font: 500 12px/1 "Inter Variable", Inter, sans-serif; white-space: nowrap; }
-.card { border-radius: 14px; background: #fff; box-shadow: 0 1px 2px rgb(60 40 20 / 0.06), 0 6px 18px -8px rgb(60 40 20 / 0.18); }
+.card { border-radius: 14px; background: #fff; box-shadow: none; }
 .name { color: #1b1b1b; font: 600 13px/1.2 "Inter Variable", Inter, sans-serif; white-space: nowrap; }
 .price { color: #8a8178; font: 500 12px/1.2 "Inter Variable", Inter, sans-serif; white-space: nowrap; }
 .rating { color: #8a6a2a; font: 600 11px/1.2 "Inter Variable", Inter, sans-serif; white-space: nowrap; }
@@ -126,7 +126,7 @@
   padding: 6px;
   border-radius: 12px;
   background: #fff;
-  box-shadow: 0 1px 2px rgb(60 40 20 / 0.06);
+  box-shadow: none;
 }
 .smallImage { display: block; height: 66px; padding: 8px 20px; border-radius: 8px; }
 .smallName { margin-top: 4px; color: #1b1b1b; font: 600 11px/1.2 "Inter Variable", Inter, sans-serif; white-space: nowrap; }
@@ -134,7 +134,7 @@
 .tabbar { display: flex; align-items: center; justify-content: space-around; padding: 0 20px 6px; border-top: 1px solid #ece7e1; background: #fffdfa; }
 .tabbar span { width: 18px; height: 18px; border-radius: 6px; background: #ddd5cc; }
 .tabbar span[data-on] { background: #c25f33; }
-.back { display: grid; place-items: center; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / 0.12); }
+.back { display: grid; place-items: center; border-radius: 50%; background: #fff; box-shadow: none; }
 .detailName { color: #1b1b1b; font: 700 20px/1.2 "Inter Variable", Inter, sans-serif; letter-spacing: -0.02em; white-space: nowrap; }
 .detailPrice { color: #c25f33; font: 600 15px/1.2 "Inter Variable", Inter, sans-serif; white-space: nowrap; }
 .description { color: #6f675f; font: 400 11.5px/1.5 "Inter Variable", Inter, sans-serif; }

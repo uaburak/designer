@@ -9,7 +9,7 @@
   border: 1px solid var(--ds-color-border-translucent);
   border-radius: 12px;
   background: var(--figma-color-bg);
-  box-shadow: var(--ds-elevation-500-modal-window), 0 40px 80px -24px rgb(0 0 0 / 0.16);
+  box-shadow: none;
   color: var(--figma-color-text);
   font: var(--ds-font-body-medium);
   letter-spacing: var(--ds-tracking-body-medium);

@@ -21,7 +21,7 @@
   border-radius: var(--ds-radius-large);
   background: var(--figma-color-bg);
   color: var(--figma-color-text);
-  box-shadow: var(--ds-elevation-400-menu-panel);
+  box-shadow: none;
   font: var(--ds-font-body-medium);
   letter-spacing: var(--ds-tracking-body-medium);
   white-space: nowrap;

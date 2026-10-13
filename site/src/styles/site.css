@@ -181,7 +181,7 @@ p { margin: 0; text-wrap: pretty; }
   border: 1px solid var(--figma-color-border);
   border-radius: 12px;
   background: var(--figma-color-bg);
-  box-shadow: var(--ds-elevation-400-menu-panel);
+  box-shadow: none;
 }
 .menu-panel a { padding: 10px 12px; font-size: 15px; }
 .header-download { display: none; }
@@ -238,25 +238,30 @@ p { margin: 0; text-wrap: pretty; }
 .dl[data-align="center"] { align-items: center; }
 .dl[data-align="center"] .dl-buttons { justify-content: center; }
 
-/* ── Full-screen sections ─────────────────────────────────────────────────────────────────────────────────────── */
+/* ── Full-screen sections (owner, 2026-10-14: edge to edge, no shadows): each section is one viewport. The copy
+   sits in a band at the top; the scene fills everything under it, touching the left, right and bottom edges ─────── */
 
 main { display: block; }
 .panel {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 28px;
+  grid-template-rows: auto minmax(520px, 1fr);
   min-height: 100svh;
+  scroll-snap-align: start;
+  border-top: 1px solid var(--figma-color-border);
+}
+.copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
   max-width: var(--site-max);
   margin: 0 auto;
-  padding: calc(var(--site-header) + 32px) var(--site-gutter) 32px;
-  scroll-snap-align: start;
+  padding: calc(var(--site-header) + clamp(16px, 3vh, 32px)) var(--site-gutter) clamp(20px, 3.5vh, 36px);
 }
-.panel + .panel { border-top: 0; }
-.copy { display: flex; flex-direction: column; align-items: flex-start; }
-.copy h2 + p { margin-top: 20px; }
-.copy .lede + .try, .copy .lede + .link-arrow { margin-top: 24px; }
+.copy h2 + p { margin-top: 16px; }
+.copy .lede + .try, .copy .lede + .link-arrow { margin-top: 20px; }
 .try {
   display: flex;
   flex-wrap: wrap;
@@ -276,34 +281,31 @@ main { display: block; }
   content: "";
 }
 .try + .link-arrow { margin-top: 20px; }
-.stage { position: relative; min-height: 0; display: flex; flex-direction: column; }
-.scene { position: relative; flex: 1 1 auto; min-height: 460px; }
-.scene[data-size="tall"] { min-height: 540px; }
+.stage { position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%; overflow: hidden; }
+.scene { position: relative; flex: 1 1 auto; min-height: 0; height: 100%; }
 
+@media (min-width: 1000px) and (min-height: 700px) {
+  /* A desktop window: exactly one viewport */
+  .panel { height: 100svh; grid-template-rows: auto minmax(0, 1fr); }
+}
 @media (min-width: 1000px) {
-  .panel {
-    grid-template-columns: minmax(300px, 0.78fr) minmax(0, 2fr);
-    grid-template-rows: minmax(0, 1fr);
-    gap: clamp(40px, 5vw, 88px);
-    align-items: center;
-    height: 100svh;
-    min-height: 700px;
-    max-height: 1100px;
-    padding-bottom: 40px;
-  }
-  .panel[data-flip] { grid-template-columns: minmax(0, 2fr) minmax(300px, 0.78fr); }
-  .panel[data-flip] .copy { order: 2; }
-  .stage { height: min(100%, 780px); }
-  .scene { min-height: 0; height: 100%; }
+  /* The copy as two columns: eyebrow and heading on the left, the words on the right */
+  .copy { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); column-gap: 64px; align-items: end; }
+  .copy > .eyebrow, .copy > h2, .copy > div:first-child { grid-column: 1; }
+  .copy > :not(.eyebrow):not(h2):not(div:first-child) { grid-column: 2; }
+  .copy > .lede { grid-row: 1 / span 3; align-self: end; margin-top: 0; }
 }
 
-/* A section with its copy over a full-width scene */
-.panel[data-wide] { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); align-items: stretch; }
-.panel[data-wide] .copy { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px 64px; }
-@media (min-width: 1000px) {
-  .panel[data-wide] .copy { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: end; }
-  .panel[data-wide] .copy .lede { margin-top: 0; }
-  .panel[data-wide] .stage { height: auto; min-height: 0; }
+/* The scenes' app windows fill their stage edge to edge: no frame, no corners */
+.panel .scene [class*="window"] { border: 0 !important; border-radius: 0 !important; min-height: 0 !important; }
+
+/* No shadows on the site: elevation is a hairline (menus and popovers in the scenes keep an edge) */
+:root, [data-theme="light"], [data-theme="dark"] {
+  --ds-elevation-100: 0 0 0 1px var(--figma-color-border);
+  --ds-elevation-200: 0 0 0 1px var(--figma-color-border);
+  --ds-elevation-400-menu-panel: 0 0 0 1px var(--figma-color-border);
+  --ds-elevation-500-modal-window: 0 0 0 1px var(--figma-color-border);
+  --ds-elevation-menu: 0 0 0 1px var(--figma-color-border);
 }
 
 /* ── The hero: a tall track whose sticky viewport holds the copy and the editor; scripts/heroScroll.ts scales the
@@ -372,7 +374,7 @@ body[data-hero-full] .site-header { transform: translateY(-100%); }
   text-align: center;
 }
 .closing .lede { margin: 0 auto; }
-.closing-logo { width: 88px; height: 88px; border-radius: 22px; box-shadow: var(--ds-elevation-200); }
+.closing-logo { width: 88px; height: 88px; border-radius: 22px; box-shadow: none; }
 @media (min-width: 1000px) {
   .closing { display: flex; }
 }

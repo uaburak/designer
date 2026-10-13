@@ -28,7 +28,7 @@
   background: var(--d-bg);
   color: var(--d-text);
   font-family: "Inter Variable", Inter, sans-serif;
-  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.12), 0 1px 3px rgb(0 0 0 / 0.06);
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.12);
   transform-origin: 0 0;
   transition: background-color 300ms ease, color 300ms ease, gap 240ms var(--site-ease), padding 240ms var(--site-ease);
 }

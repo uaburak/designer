@@ -27,7 +27,7 @@
 .inspect :global([data-ds="CodeBlock"]) pre { font-size: 11px; line-height: 16px; }
 
 /* ---- The card's layers (design content: its own colours and type) ---- */
-.card { border-radius: 16px; background: #fff; box-shadow: 0 4px 16px rgb(0 0 0 / 0.08), 0 0 0 0.5px rgb(0 0 0 / 0.06); }
+.card { border-radius: 16px; background: #fff; box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.06); }
 .group { background: transparent; }
 .avatar { overflow: hidden; border-radius: 50%; background: #f4b9a2; }
 .avatar svg { display: block; }

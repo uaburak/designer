@@ -28,7 +28,7 @@
   height: 500px;
   overflow: hidden;
   background: #fafafa;
-  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.1), 0 1px 3px rgb(0 0 0 / 0.06);
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.1);
 }
 
 /* Collaborators: Figma's arrow in their colour and the name pill beside it; cursor chat replaces the pill */
@@ -42,7 +42,7 @@
   transition-timing-function: cubic-bezier(0.45, 0.05, 0.25, 1);
   will-change: transform;
 }
-.cursor svg { display: block; filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.25)); }
+.cursor svg { display: block; }
 .pill, .bubble {
   position: absolute;
   left: 13px;
@@ -53,7 +53,7 @@
   color: #fff;
   font: var(--ds-font-body-medium-strong);
   white-space: nowrap;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.16);
+  box-shadow: none;
 }
 .cursor[data-flip] .pill, .cursor[data-flip] .bubble { left: auto; right: -2px; border-radius: 16px 4px 16px 16px; }
 .bubble {
@@ -141,7 +141,7 @@
   transition: border-radius 500ms var(--site-ease), box-shadow 500ms ease;
 }
 .card[data-v="1"] { border-radius: 6px; box-shadow: inset 0 0 0 1px #e3e3e3; }
-.card[data-v="2"] { border-radius: 14px; box-shadow: 0 1px 2px rgb(30 30 60 / 0.06), 0 6px 16px -6px rgb(30 30 60 / 0.16); }
+.card[data-v="2"] { border-radius: 14px; box-shadow: none; }
 
 .screen { display: flex; flex-direction: column; height: 100%; padding: 40px 16px 20px; color: #1e1e1e; font-family: "Inter Variable", Inter, sans-serif; }
 .h1 { font: 700 20px/1.1 "Inter Variable", Inter, sans-serif; letter-spacing: -0.02em; }

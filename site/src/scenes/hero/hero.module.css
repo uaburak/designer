@@ -8,7 +8,7 @@
   border: 1px solid var(--ds-color-border-translucent);
   border-radius: var(--hero-radius, 12px);
   background: var(--figma-color-bg);
-  box-shadow: var(--ds-elevation-500-modal-window), 0 40px 80px -24px rgb(0 0 0 / 0.18);
+  box-shadow: none;
   color: var(--figma-color-text);
   font: var(--ds-font-body-medium);
   letter-spacing: var(--ds-tracking-body-medium);
@@ -60,7 +60,7 @@
   background: var(--figma-color-bg-brand);
   color: var(--figma-color-text-onbrand);
   font: var(--ds-font-body-large-strong);
-  box-shadow: var(--ds-elevation-200);
+  box-shadow: none;
   transform: translateX(-50%);
   cursor: pointer;
 }
