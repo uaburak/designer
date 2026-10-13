@@ -63,6 +63,8 @@ export interface ServableStore {
   readonly devMode?: { onEvent(listener: (e: DevModeEvent) => void): Unsubscribe };
   /** Personal Drafts' sync and the cache (docs/cloud.md §2), topic `cloud` */
   readonly personal?: { readonly events: { on(listener: (e: CloudEvent) => void): Unsubscribe } };
+  /** The brand library changed (docs/studio.md §3.1), topic `brands`: the brand's id */
+  readonly brands?: { onEvent(listener: (brandId: string) => void): Unsubscribe };
   readonly files: {
     /** Frames after `fromSeq` for a subscriber catching up */
     backlog(fileKey: FileKey, fromSeq: number): Promise<FileChange[]>;
@@ -189,6 +191,7 @@ export class StoreServer {
     if (store.plugins) this.offs.push(store.plugins.onEvent((d) => this.broadcast({ t: "evt", topic: "plugins", d })));
     if (store.devMode) this.offs.push(store.devMode.onEvent((d) => this.broadcast({ t: "evt", topic: "devmode", d })));
     if (store.personal) this.offs.push(store.personal.events.on((d) => this.broadcast({ t: "evt", topic: "cloud", d })));
+    if (store.brands) this.offs.push(store.brands.onEvent((d) => this.broadcast({ t: "evt", topic: "brands", d })));
   }
 
   get size(): number {

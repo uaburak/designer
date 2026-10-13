@@ -70,7 +70,7 @@ import { SearchService } from "./search/service";
 import { AiService } from "./ai/service";
 import { UsageReporter } from "./libraries/usage";
 import { withFakeLatency } from "./fakeLatency";
-import { brandsUnavailable } from "../shared/studio/types";
+import { BrandsService } from "./brands/service";
 
 export interface LocalStoreOptions {
   workspaceDir: string;
@@ -436,6 +436,30 @@ export class LocalStore {
     });
     this.multiplayer.onSession(() => void this.ai.flush());
 
+    // The brand and product library (docs/studio.md §3.1): Workspace/spaces/brands/<brandId>/brand.json and images/
+    const brandsRoot = join(spaces, "brands");
+    const brandPath = (name: string) => {
+      if (!/^[A-Za-z0-9_-]{1,64}(\/(brand\.json|images\/[A-Za-z0-9_-]{1,64}\.(png|jpg|webp)))?$/.test(name)) throw new StoreError("invalid", `bad library file name ${name}`);
+      return join(brandsRoot, ...name.split("/"));
+    };
+    this.brands = new BrandsService({
+      read: (name) => fsp.readFile(brandPath(name), "utf8").catch((e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e))),
+      write: async (name, text) => {
+        await ensureDir(dirname(brandPath(name)));
+        await atomicWrite(dirs.tmp, brandPath(name), text);
+      },
+      readBytes: (name) => fsp.readFile(brandPath(name)).then((b) => new Uint8Array(b.buffer, b.byteOffset, b.byteLength), (e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e))),
+      writeBytes: async (name, bytes) => {
+        await ensureDir(dirname(brandPath(name)));
+        await atomicWrite(dirs.tmp, brandPath(name), bytes);
+      },
+      remove: (name) => fsp.rm(brandPath(name), { force: true, recursive: true }),
+      brandIds: () => fsp.readdir(brandsRoot, { withFileTypes: true }).then((es) => es.filter((e) => e.isDirectory()).map((e) => e.name), () => [] as string[]),
+      newId: () => base62(12),
+      now: () => clock.now(),
+      log,
+    });
+
     // Visual search (docs/ai.md §6): one index per file under Workspace/spaces/search/
     const searchRoot = join(spaces, "search");
     const searchPath = (name: string) => {
@@ -457,6 +481,8 @@ export class LocalStore {
 
   /** The AI usage ledger, Skills, the org reports (docs/ai.md §2.9) */
   readonly ai: AiService;
+  /** The brand and product library (docs/studio.md §3) */
+  readonly brands: BrandsService;
   /** The visual search index (docs/ai.md §6) */
   readonly search: SearchService;
 
@@ -1161,7 +1187,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     ai: s.ai.repository(),
     search: s.search.repository(),
     cloud: s.personal.repository(),
-    brands: brandsUnavailable(),
+    brands: s.brands.repository(),
   };
 }
 

@@ -24,10 +24,12 @@ type Open = { at: { x: number; y: number }; entries: MenuEntry[] } | null;
 /** The tabs' names under their icons: off unless View › Additional labels turned them on. */
 export const showsRailLabels = (s: { railLabels?: boolean }): boolean => s.railLabels === true;
 
-const TABS: { tab: RailTab; icon: "24.page" | "24.agents" | "24.assets" | "24.tools"; label: string; command: string }[] = [
+const TABS: { tab: RailTab; icon: "24.page" | "24.agents" | "24.assets" | "24.library" | "24.tools"; label: string; command?: string }[] = [
   { tab: "file", icon: "24.page", label: "File", command: "view.layers" },
   { tab: "agents", icon: "24.agents", label: "Agents", command: "view.agents" },
   { tab: "assets", icon: "24.assets", label: "Assets", command: "view.assets" },
+  // Studio (docs/studio.md §3.2) [ours]: the brand and product library
+  { tab: "brands", icon: "24.library", label: "Brands" },
   { tab: "tools", icon: "24.tools", label: "Tools", command: "view.tools" },
 ];
 
@@ -64,7 +66,7 @@ export function NavStrip() {
           key={t.tab}
           icon={t.icon}
           label={t.label}
-          shortcut={shortcutOf(command(t.command))}
+          shortcut={t.command ? shortcutOf(command(t.command)) : undefined}
           aria-expanded={tab === t.tab && !variables}
           className={tab === t.tab && !variables ? styles.navStripOn : undefined}
           data-rail-tab={t.tab}
@@ -115,7 +117,7 @@ export function Rail() {
             key={t.tab}
             icon={t.icon}
             label={t.label}
-            shortcut={shortcutOf(command(t.command))}
+            shortcut={t.command ? shortcutOf(command(t.command)) : undefined}
             active={tab === t.tab && !variables}
             data-rail-tab={t.tab}
             onClick={() => ed.ui.set({ railTab: t.tab, variablesOpen: false, find: t.tab === "file" ? ed.ui.get().find : null })}

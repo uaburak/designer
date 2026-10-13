@@ -73,7 +73,7 @@ import { PersonalService, type CloudState } from "../../../../store/personal/ser
 import { encodeFigmaCanvasAsync } from "../../../../shared/fig/figmaExport";
 import { writeFigFile, type FigMeta } from "../../../../shared/fig/figFile";
 import { UsageReporter } from "../../../../store/libraries/usage";
-import { brandsUnavailable } from "../../../../shared/studio/types";
+import { BrandsService } from "../../../../store/brands/service";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Ids and clocks (docs/data.md §1)
@@ -672,6 +672,30 @@ export class MemoryStore {
     });
     mp.onSession(() => void this.ai.flush());
 
+    // The brand and product library (docs/studio.md §3.1): one key per file, pictures as base64
+    const brandKey = (name: string) => `${KV_PREFIX}brands.${name}`;
+    this.brands = new BrandsService({
+      read: async (name) => kv.get(brandKey(name)),
+      write: async (name, text) => {
+        if (!kv.set(brandKey(name), text)) throw new StoreError("invalid", "The browser's storage is full");
+      },
+      readBytes: async (name) => {
+        const text = kv.get(brandKey(name));
+        return text === null ? null : fromBase64(text);
+      },
+      writeBytes: async (name, bytes) => {
+        if (!kv.set(brandKey(name), toBase64(bytes))) throw new StoreError("invalid", "The browser's storage is full");
+      },
+      remove: async (name) => {
+        kv.remove(brandKey(name));
+        for (const k of kv.keys(brandKey(`${name}/`))) kv.remove(k);
+      },
+      brandIds: async () => [...new Set(kv.keys(brandKey("")).map((k) => k.slice(brandKey("").length).split("/")[0]))],
+      newId: () => base62(12),
+      now: () => this.clock.now(),
+      log: (level, message, detail) => this.log(level, message, detail),
+    });
+
     // Visual search (docs/ai.md §6): one key per file's index, its bytes as base64
     const searchKey = (name: string) => `${KV_PREFIX}search.${name}`;
     this.search = new SearchService({
@@ -691,6 +715,8 @@ export class MemoryStore {
 
   /** The AI usage ledger, Skills, the org reports (docs/ai.md §2.9) */
   readonly ai: AiService;
+  /** The brand and product library (docs/studio.md §3) */
+  readonly brands: BrandsService;
   /** The visual search index (docs/ai.md §6) */
   readonly search: SearchService;
 
@@ -1643,7 +1669,7 @@ export class MemoryStore {
       plugins: this.plugins.repository(),
       devMode: this.devMode.repository(),
       ai: this.ai.repository(),
-      brands: brandsUnavailable(),
+      brands: this.brands.repository(),
       search: this.search.repository(),
       // The web app: the person's Drafts are the server's (docs/cloud.md §2, §7); the dev store keeps its files here
       cloud: this.opts.personalDrafts ? this.personal.repository() : localOnlyCloud(),

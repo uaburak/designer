@@ -21,7 +21,7 @@ export interface DrawToolsState {
 }
 
 /** The navigation bar's tabs (Figma 2026: File, Agents, Assets, Tools; Variables opens the variables view instead) */
-export type RailTab = "file" | "agents" | "assets" | "tools";
+export type RailTab = "file" | "agents" | "assets" | "brands" | "tools";
 export type Renaming = { kind: "layer" | "page" | "file"; id: Guid } | null;
 
 /** Find and replace (⌘F, the Pages header's Find): the query, where, which layer types, and the Replace row */
