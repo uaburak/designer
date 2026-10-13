@@ -13,6 +13,10 @@ export interface ImageJob {
   /** PNG, transparent = to change (OpenAI's convention) */
   mask?: Buffer;
   reference?: Buffer;
+  /** Studio's reference pictures (docs/studio.md §5.3), in the order the prompt names them ("Image 1: …") */
+  references?: { data: Buffer; mime: string; role: string }[];
+  /** "4:5", "9:16", … (the request's, else the nearest to `size`) */
+  aspectRatio?: string;
   /** The wanted size (Make: the layer's; Expand: the new canvas) */
   size?: { width: number; height: number };
   model?: string;
@@ -74,3 +78,23 @@ export function jobPrompt(action: ImageJob["action"], prompt: string | undefined
       return p;
   }
 }
+
+/** The aspect ratios the image models take (Gemini's imageConfig.aspectRatio): what `aspectRatio` may be. */
+export const ASPECT_RATIOS = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"] as const;
+
+/** An aspect ratio as a number (width / height). */
+export const ratioOf = (a: string): number => {
+  const [w, h] = a.split(":").map(Number);
+  return w / h;
+};
+
+/** A picture's type from its first bytes (PNG, JPEG, WebP), or null. */
+export function imageMime(b: Buffer): "image/png" | "image/jpeg" | "image/webp" | null {
+  if (b.length >= 8 && b.readUInt32BE(0) === 0x89504e47) return "image/png";
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b.length >= 12 && b.toString("ascii", 0, 4) === "RIFF" && b.toString("ascii", 8, 12) === "WEBP") return "image/webp";
+  return null;
+}
+
+/** A reference's file name in a CLI's workspace: image-1.png, image-2.jpg, … (the prompt's order). */
+export const referenceFile = (i: number, mime: string): string => `image-${i + 1}.${mime === "image/jpeg" ? "jpg" : mime === "image/webp" ? "webp" : "png"}`;

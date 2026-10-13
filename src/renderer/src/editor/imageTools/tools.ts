@@ -10,6 +10,7 @@
  * - Erase, Expand: the layer's picture as it shows (its scale mode applied) becomes a Fill-mode picture; Expand grows
  *   the layer in the dragged directions.
  * - Isolate: the lassoed object becomes a new image layer just above, the original kept [unverified].
+ * - Blur (docs/studio.md §6.2, ours): the picture swapped, the lassoed areas blurred as a low-resolution print.
  * - Make an image: the selected layer's fill, else a new image layer in the middle of the view.
  */
 import type { Guid, Message, NodeChange } from "@/engine/codec";
@@ -22,7 +23,7 @@ import { hashBytes, imagePaint, paintImageHash, progressivePaintFields, type Ful
 import { encodePng } from "../agents/png";
 import { viewCentre } from "../canvas/viewInsets";
 import { newNodeGuid } from "../variables";
-import { blank, expandCanvas, rasterizePolygon, recomposite, resize, type Insets, type Point, type Rect, type Rgba } from "./pixels";
+import { blank, blurArea, expandCanvas, rasterizePolygon, recomposite, resize, type Insets, type Point, type Rect, type Rgba } from "./pixels";
 import * as runners from "./runners";
 
 // ---- What is an image layer ------------------------------------------------------------------------------------------
@@ -395,6 +396,53 @@ export async function isolateArea(env: ToolEnv, t: ImageTarget, lasso: readonly 
   env.ed.engine.setSelection([id]);
   return id;
 }
+
+/**
+ * Blur (docs/studio.md §6.2): areas of the picture — lassos or boxes, in the layer's units — as a low-resolution print,
+ * local and free, one undo step. It works on the image itself (the areas mapped through the paint's scale mode), so the
+ * paint keeps its settings and every pixel outside the areas stays byte for byte; a Tile-mode picture is drawn as it
+ * shows first, as Erase does.
+ */
+export async function blurAreas(env: ToolEnv, t: ImageTarget, areas: readonly (readonly Point[])[]): Promise<void> {
+  let out: Rgba;
+  let paint: (img: ImportedImage) => FullPaint;
+  let masked = false;
+  if (t.paint.imageScaleMode === "TILE") {
+    const { image, k } = await layerPicture(env, t);
+    out = image;
+    for (const a of areas) {
+      const mask = lassoMask(a, k, image.width, image.height);
+      if (!mask.some((v) => v)) continue;
+      masked = true;
+      out = blurArea(out, mask);
+    }
+    paint = (img) => fillPicture(t.paint, img);
+  } else {
+    const src = await env.io.read(t.hash);
+    const size = t.node.size ?? { x: src.width, y: src.height };
+    const m = imageMatrix(t.paint, size.x, size.y, src.width, src.height);
+    const toPx = (p: Point): Point => ({ x: (m[0] * p.x + m[1] * p.y + m[2]) * src.width, y: (m[3] * p.x + m[4] * p.y + m[5]) * src.height });
+    out = src;
+    for (const a of areas) {
+      const mask = rasterizePolygon(a.map(toPx), src.width, src.height);
+      if (!mask.some((v) => v)) continue;
+      masked = true;
+      out = blurArea(out, mask);
+    }
+    paint = (img) => withPicture(t.paint, img);
+  }
+  if (!masked) throw new AiRunError("unsupported", "Select an area on the image first.");
+  const img = await env.io.put(out, nameOf(t));
+  writeStep(env.ed, "Blur", () => setFill(env.ed, t, paint(img)));
+}
+
+/** Blur on boxes in the layer's units (Studio's review, §6.2). */
+export const blurBoxes = (env: ToolEnv, t: ImageTarget, boxes: readonly Rect[]): Promise<void> =>
+  blurAreas(
+    env,
+    t,
+    boxes.map((b) => [{ x: b.x, y: b.y }, { x: b.x + b.width, y: b.y }, { x: b.x + b.width, y: b.y + b.height }, { x: b.x, y: b.y + b.height }])
+  );
 
 /** A new rectangle filled with `img`, just above `node` in its parent, at `rect` in node's own units. */
 export function insertImageLayerAbove(ed: EditorController, node: NodeChange, img: ImportedImage, rect: Rect): Guid {

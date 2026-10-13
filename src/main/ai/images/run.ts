@@ -6,20 +6,24 @@ import { AiError } from "../oneShot";
 import { overLimit, type Emit } from "../run";
 import { antigravityImage } from "./antigravity";
 import { geminiImage } from "./gemini";
+import { geminiCliImage } from "./geminiCli";
 import { openAiImage } from "./openai";
-import { jobPrompt, type ImageAnswer, type ImageJob } from "./types";
+import { ASPECT_RATIOS, imageMime, jobPrompt, type ImageAnswer, type ImageJob } from "./types";
 
 /**
  * One image run (`ai:image`, docs/ai.md §2.5–2.6): AI on → the credits stop → the route (the request's, the action's
- * override, Settings › AI's image route, else Antigravity — owner §10.1) → the client → events `status`, `image`,
+ * override, Settings › AI's image route, else Antigravity — owner §10.1) → the client (an API, Antigravity, or the Gemini
+ * CLI with its nanobanana extension — docs/studio.md §5.3) → events `status`, `image`,
  * `usage` (one image, Figma-like credits), `done`; a failure `error`, `done`; a cancel `done {cancelled}`. Electron-free:
  * keys, spawn and fetch are injected. The view records the run in the ledger (it knows the file).
  */
 
-export const IMAGE_PROVIDERS = ["antigravity", "openai-images", "gemini-images"] as const;
+export const IMAGE_PROVIDERS = ["antigravity", "openai-images", "gemini-images", "gemini-cli"] as const;
 export const IMAGE_ACTIONS: readonly AiImageRequest["action"][] = ["make-image", "edit-image", "expand-image", "erase-object"];
 /** Pictures in a request: base64 of at most this many bytes (≈ 20 MB decoded). */
 export const MAX_IMAGE_B64 = 28_000_000;
+/** Studio's reference pictures in one request (docs/studio.md §5.2) */
+export const MAX_REFERENCES = 8;
 
 export interface ImageRunDeps {
   settings(): AiSettings;
@@ -27,6 +31,8 @@ export interface ImageRunDeps {
   imageKey(provider: "openai" | "gemini"): string | null;
   /** Antigravity's binary, or null when it isn't installed */
   agyPath(): string | null;
+  /** The Gemini CLI's binary, or null when it isn't installed */
+  geminiPath?(): string | null;
   spawn: SpawnFn;
   env(): NodeJS.ProcessEnv;
   home: string;
@@ -64,10 +70,32 @@ export function cleanImageRequest(v: unknown): AiImageRequest {
     ...(b64(r.mask, "mask") ? { mask: r.mask as string } : {}),
     ...(b64(r.reference, "reference") ? { reference: r.reference as string } : {}),
     ...(size ? { size } : {}),
+    ...references(r.references),
+    ...(r.aspectRatio !== undefined && r.aspectRatio !== null ? { aspectRatio: aspect(r.aspectRatio) } : {}),
   };
   if (action !== "make-image" && !out.image) throw new Error("ai:image: this action needs the picture");
   if (action === "make-image" && !out.prompt?.trim()) throw new Error("ai:image: Make an image needs a prompt");
   return out;
+}
+
+/** Studio's references: at most 8, each a PNG, JPEG or WebP (read from its first bytes) with its role (≤ 200 characters). */
+function references(v: unknown): Pick<AiImageRequest, "references"> {
+  if (v === undefined || v === null) return {};
+  if (!Array.isArray(v) || v.length > MAX_REFERENCES) throw new Error(`ai:image: at most ${MAX_REFERENCES} references`);
+  return {
+    references: v.map((x: unknown, i) => {
+      const o = (x ?? {}) as { data?: unknown; role?: unknown };
+      if (typeof o.data !== "string" || !o.data || o.data.length > MAX_IMAGE_B64 || !/^[A-Za-z0-9+/=]*$/.test(o.data.slice(0, 200)) || !imageMime(Buffer.from(o.data.slice(0, 64), "base64")))
+        throw new Error(`ai:image: reference ${i + 1} is not a PNG, JPEG or WebP of at most 20 MB`);
+      if (typeof o.role !== "string" || o.role.length > 200) throw new Error(`ai:image: reference ${i + 1} needs a role of at most 200 characters`);
+      return { data: o.data, role: o.role };
+    }),
+  };
+}
+
+function aspect(v: unknown): string {
+  if (typeof v !== "string" || !(ASPECT_RATIOS as readonly string[]).includes(v)) throw new Error(`ai:image: aspectRatio is one of ${ASPECT_RATIOS.join(", ")}`);
+  return v;
 }
 
 /** The route of an image action: asked, the action's override, the image route, else Antigravity. */
@@ -97,6 +125,8 @@ export async function runImage(req: AiImageRequest, deps: ImageRunDeps, emit: Em
       ...(req.mask ? { mask: Buffer.from(req.mask, "base64") } : {}),
       ...(req.reference ? { reference: Buffer.from(req.reference, "base64") } : {}),
       ...(req.size ? { size: req.size } : {}),
+      ...(req.references?.length ? { references: req.references.map((x) => ({ data: Buffer.from(x.data, "base64"), mime: imageMime(Buffer.from(x.data.slice(0, 64), "base64")) ?? "image/png", role: x.role })) } : {}),
+      ...(req.aspectRatio ? { aspectRatio: req.aspectRatio } : {}),
       ...(route.model ? { model: route.model } : {}),
       signal: local.signal,
     };
@@ -106,13 +136,18 @@ export async function runImage(req: AiImageRequest, deps: ImageRunDeps, emit: Em
       if (!path) throw new AiError("no-provider", "Antigravity isn't installed on this computer. Set it up in Settings › Agents, or pick another image provider in Settings › AI.");
       emit({ type: "status", text: "Asking Antigravity…" });
       answer = await antigravityImage(job, { path, spawn: deps.spawn, env: deps.env(), home: deps.home, cwd });
+    } else if (route.providerId === "gemini-cli") {
+      const path = deps.geminiPath?.() ?? null;
+      if (!path) throw new AiError("no-provider", "The Gemini CLI isn't installed on this computer. Install it with its nanobanana extension, or pick another image provider in Settings › AI.");
+      emit({ type: "status", text: "Asking the Gemini CLI…" });
+      answer = await geminiCliImage(job, { path, spawn: deps.spawn, env: deps.env(), cwd, key: deps.imageKey("gemini"), home: deps.home });
     } else if (route.providerId === "openai-images" || route.providerId === "gemini-images") {
       const which = route.providerId === "openai-images" ? "openai" : "gemini";
       const key = deps.imageKey(which);
       if (!key) throw new AiError("no-provider", `Add your ${which === "openai" ? "OpenAI" : "Gemini"} API key in Settings › AI.`);
       emit({ type: "status", text: which === "openai" ? "Asking OpenAI…" : "Asking Gemini…" });
       answer = which === "openai" ? await openAiImage(job, { key, fetch: deps.fetch, baseUrl: deps.openaiBaseUrl }) : await geminiImage(job, { key, fetch: deps.fetch, baseUrl: deps.geminiBaseUrl });
-    } else throw new AiError("unsupported", "Pick an image provider in Settings › AI: Antigravity, OpenAI Images or the Gemini API.");
+    } else throw new AiError("unsupported", "Pick an image provider in Settings › AI: Antigravity, the Gemini CLI, OpenAI Images or the Gemini API.");
     if (local.signal.aborted) throw local.signal.reason;
     emit({ type: "image", data: answer.data.toString("base64"), mime: answer.mime, width: answer.width, height: answer.height });
     const model = answer.model ?? route.model;

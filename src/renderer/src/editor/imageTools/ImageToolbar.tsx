@@ -4,7 +4,7 @@
  * ("Expand", "Boost resolution", "Vectorize"). Each tool swaps the toolbar for its own controls:
  * - Edit with prompt / Make an image: the prompt card (prompt, the model dropdown, + reference — also paste or drop —
  *   "Send" or ⌘↵).
- * - Select area: draw a lasso on the image, then "Erase" or "Isolate".
+ * - Select area: draw a lasso on the image, then "Erase", "Isolate" or "Blur" (ours, docs/studio.md §6.2).
  * - Expand: drag the blue handles, an aspect ratio dropdown, the blue check.
  * - Vectorize: "Full color" / "Grayscale" / "Black and white" with its setting, a live preview, ✓ / ✕.
  * A run shows its sweep over the layers and "Cancel"; a model's first download asks first, with its size.
@@ -13,7 +13,7 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
 import { Button, ContextMenu, Dialog, IconButton, SegmentedControl, Select, Spinner, TextArea, Toolbar, ToolbarDivider, ToolTextButton } from "@/ds";
 import type { Guid } from "@/engine/codec";
-import type { AiRoute, AiSettings } from "../../../../shared/ai/types";
+import type { AiRoute, AiSettings, ImageRouteInfo } from "../../../../shared/ai/types";
 import { useEditor } from "../controller";
 import { useTopics } from "../hooks";
 import { useStoreSlice } from "../uiStore";
@@ -40,9 +40,13 @@ const MORE: { id: string; label: string }[] = [
   { id: "vectorize", label: "Vectorize" },
 ];
 
-/** The image providers for the model dropdown (Settings › AI's keys decide which are offered). */
-function routeOptions(s: AiSettings | null) {
+/** The image providers for the model dropdown: the routes that can run (`ai:image-routes`), else by Settings › AI's keys. */
+function routeOptions(s: AiSettings | null, routes: ImageRouteInfo[] | null) {
   const out = [{ value: "antigravity", label: "Antigravity (Google AI)" }];
+  if (routes) {
+    for (const r of routes) if (r.available && r.providerId !== "antigravity") out.push({ value: r.providerId, label: r.label });
+    return out;
+  }
   if (s?.imageKeys.openai) out.push({ value: "openai-images", label: "OpenAI Images" });
   if (s?.imageKeys.gemini) out.push({ value: "gemini-images", label: "Gemini API" });
   return out;
@@ -52,6 +56,7 @@ function PromptCard({ tools, kind }: { tools: ImageTools; kind: "make" | "edit" 
   const [prompt, setPrompt] = useState("");
   const [reference, setReference] = useState<{ image: Rgba; url: string } | null>(null);
   const [settings, setSettings] = useState<AiSettings | null>(null);
+  const [routes, setRoutes] = useState<ImageRouteInfo[] | null>(null);
   const [route, setRoute] = useState<string>("");
   const [over, setOver] = useState(false);
   const file = useRef<HTMLInputElement>(null);
@@ -64,6 +69,10 @@ function PromptCard({ tools, kind }: { tools: ImageTools; kind: "make" | "edit" 
         setRoute((r) => r || (s.actions[kind === "make" ? "make-image" : "edit-image"] ?? s.image)?.providerId || "antigravity");
       })
       .catch(() => {});
+    void editorAi()
+      ?.imageRoutes?.()
+      .then(setRoutes)
+      .catch(() => {});
   }, [kind]);
   const takeFile = async (f: File | null | undefined) => {
     if (!f || !/^image\//.test(f.type)) return;
@@ -73,7 +82,9 @@ function PromptCard({ tools, kind }: { tools: ImageTools; kind: "make" | "edit" 
   const send = (value = prompt) => {
     const text = value.trim();
     if (!text || busy) return;
-    const r: AiRoute | undefined = route ? { providerId: route } : undefined;
+    // Settings › AI's model rides along when its provider is the one picked
+    const set = settings?.actions[kind === "make" ? "make-image" : "edit-image"] ?? settings?.image;
+    const r: AiRoute | undefined = route ? { providerId: route, ...(set?.providerId === route && set.model ? { model: set.model } : {}) } : undefined;
     const o = { ...(reference ? { reference: reference.image } : {}), ...(r ? { route: r } : {}) };
     void (kind === "make" ? tools.makeImage(text, { ...o, target: tools.state.get().target }) : tools.editWithPrompt(text, o));
   };
@@ -110,7 +121,7 @@ function PromptCard({ tools, kind }: { tools: ImageTools; kind: "make" | "edit" 
           </span>
         )}
         <span className={styles.spacer} />
-        <Select label="Model" variant="ghost" value={route} options={routeOptions(settings)} onChange={setRoute} />
+        <Select label="Model" variant="ghost" value={route} options={routeOptions(settings, routes)} onChange={setRoute} />
         <Button variant="primary" disabled={!prompt.trim() || busy} loading={busy} shortcut="⌘↵" onClick={() => send()}>
           Send
         </Button>
@@ -255,6 +266,7 @@ export function ImageToolbar() {
         <ToolbarDivider />
         <ToolTextButton label="Erase" disabled={!lasso} onSelect={() => void tools.erase()} />
         <ToolTextButton label="Isolate" disabled={!lasso} onSelect={() => void tools.isolate()} />
+        <ToolTextButton label="Blur" disabled={!lasso} onSelect={() => void tools.blur()} />
         <ToolbarDivider />
         <IconButton icon="24.close.small" label="Close" onClick={() => tools.close()} />
       </>

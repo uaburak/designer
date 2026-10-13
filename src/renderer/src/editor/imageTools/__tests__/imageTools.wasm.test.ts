@@ -23,7 +23,8 @@ import type { Rgba } from "../pixels";
 import * as tools from "../tools";
 import { setModelRunner, type ModelInput, type OnnxTensor } from "../worker";
 import { VectorizeSession } from "../vectorize";
-import { ImageTools } from "../controller";
+import { ImageTools, imageToolsOf } from "../controller";
+import { blurRegions, runStudioImage } from "../../studio/images";
 
 const wasm = join(process.cwd(), "src/renderer/src/engine/wasm/engine.wasm");
 
@@ -349,6 +350,87 @@ describe("each tool is one undo step", () => {
     undo(s.engine);
     expect(s.engine.readNode(id!)).toBeNull();
     expect(s.recorded.map((r) => r.action)).toEqual(["make-image", "make-image"]);
+  });
+
+  it("Blur blurs the lassoed area of the picture itself (the rest byte for byte, the paint kept), free; ⌘Z brings it back", async () => {
+    // Fine stripes, so a blur shows
+    const s = await setup();
+    const stripes = fill(56, 32, (x) => (x % 2 ? [0, 0, 0, 255] : [255, 255, 255, 255]));
+    const pic = await s.io.put(stripes, "Stripes");
+    expect(s.engine.setProps(["1:5"], { fillPaints: [{ ...s.target().paint, image: { hash: pic.hash.match(/../g)!.map((h) => parseInt(h, 16)) } }] as never })).toBe(0);
+    // 280 × 160 over 56 × 32 (Fill, ×5): layer box (20, 20, 60 × 40) → picture (4, 4, 12 × 8)
+    await tools.blurBoxes(s.env, s.target(), [{ x: 20, y: 20, width: 60, height: 40 }]);
+    const t = s.target();
+    expect(t.paint.imageScaleMode).toBe("FILL");
+    const out = s.pixels.get(t.hash)!;
+    expect(out.width).toBe(56);
+    for (let y = 0; y < 32; y++)
+      for (let x = 0; x < 56; x++) {
+        const inBox = x >= 4 && x < 16 && y >= 4 && y < 12;
+        if (!inBox) expect(px(out, x, y)).toEqual(px(stripes, x, y));
+        else expect(px(out, x, y)).not.toEqual(px(stripes, x, y));
+      }
+    expect(s.labels.at(-1)).toBe("Blur");
+    expect(s.fake.requests).toHaveLength(0);
+    expect(s.recorded).toHaveLength(0);
+    undo(s.engine);
+    expect(s.target().hash).toBe(pic.hash);
+    await expect(tools.blurAreas(s.env, s.target(), [[{ x: 500, y: 500 }, { x: 600, y: 500 }, { x: 600, y: 600 }]])).rejects.toThrow(/Select an area/);
+  });
+
+  it("Blur from the toolbar runs on the lasso", async () => {
+    const s = await setup();
+    const ctl = new ImageTools(s.ed, { hooks: s.env.hooks, io: s.io });
+    s.engine.setSelection(["1:5"]);
+    ctl.open("select-area");
+    expect(await ctl.blur()).toBe(false);
+    ctl.state.set({ lasso: [{ x: 10, y: 10 }, { x: 200, y: 10 }, { x: 200, y: 100 }, { x: 10, y: 100 }] });
+    expect(await ctl.blur()).toBe(true);
+    expect(s.labels.at(-1)).toBe("Blur");
+    expect(ctl.state.get().mode).toBeNull();
+  });
+});
+
+describe("Studio's pictures (docs/studio.md §5.3, §6.2)", () => {
+  afterEach(() => {
+    delete (globalThis as { __designerAi?: unknown }).__designerAi;
+  });
+
+  it("runStudioImage sends make-image with the references and aspect, answers the bytes and credits, records the run", async () => {
+    const s = await setup({ answer: fill(4, 5, () => [1, 2, 3, 255]) });
+    (globalThis as { __designerAi?: unknown }).__designerAi = s.fake.api;
+    imageToolsOf(s.ed).hooks = s.env.hooks;
+    const refs = [{ data: "iVBORw0KGgo=", role: "product reference — Liq Humus" }];
+    const out = await runStudioImage(s.ed, { route: { providerId: "gemini-images", model: "gemini-3-pro-image" }, prompt: "a post", references: refs, aspectRatio: "4:5", size: { width: 1080, height: 1350 } }, new AbortController().signal);
+    expect(s.fake.requests[0]).toMatchObject({ action: "make-image", prompt: "a post", references: refs, aspectRatio: "4:5", size: { width: 1080, height: 1350 }, route: { providerId: "gemini-images", model: "gemini-3-pro-image" } });
+    expect(s.fake.requests[0].image).toBeUndefined();
+    expect(out).toMatchObject({ mime: "image/png", width: 4, height: 5, credits: 8 });
+    expect(decodePng(out.data)).toMatchObject({ width: 4, height: 5 });
+    expect(s.recorded.at(-1)).toMatchObject({ action: "make-image", providerId: "gemini-images", images: 1, credits: 8, ok: true });
+    // Fix label: an edit with the picture
+    await runStudioImage(s.ed, { route: { providerId: "gemini-images" }, prompt: "fix", references: [], aspectRatio: "4:5", size: { width: 4, height: 5 }, image: "iVBORw0KGgo=" }, new AbortController().signal);
+    expect(s.fake.requests[1]).toMatchObject({ action: "edit-image", image: "iVBORw0KGgo=" });
+    expect(s.fake.requests[1].references).toBeUndefined();
+    // An aborted signal cancels
+    const abort = new AbortController();
+    abort.abort();
+    await expect(runStudioImage(s.ed, { route: { providerId: "gemini-images" }, prompt: "x", references: [], aspectRatio: "1:1", size: { width: 1, height: 1 } }, abort.signal)).rejects.toMatchObject({ code: "cancelled" });
+  });
+
+  it("blurRegions blurs boxes of an image layer in one undo step", async () => {
+    const s = await setup();
+    imageToolsOf(s.ed).hooks = s.env.hooks;
+    imageToolsOf(s.ed).io = s.io;
+    // Two boxes across the picture's red / green edge (x = 140 in the layer)
+    await blurRegions(s.ed, "1:5", [{ x: 120, y: 10, width: 40, height: 50 }, { x: 110, y: 100, width: 60, height: 40 }]);
+    expect(s.labels).toEqual(["Blur"]);
+    const out = s.pixels.get(s.target().hash)!;
+    expect(px(out, 28, 5)).not.toEqual(px(ORIGINAL, 28, 5));
+    expect(px(out, 28, 15)).toEqual(px(ORIGINAL, 28, 15));
+    expect(s.target().hash).not.toBe(s.original.hash);
+    undo(s.engine);
+    expect(s.target().hash).toBe(s.original.hash);
+    await expect(blurRegions(s.ed, "1:6", [{ x: 0, y: 0, width: 1, height: 1 }])).rejects.toThrow(/no picture/);
   });
 });
 
