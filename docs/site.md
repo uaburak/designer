@@ -23,24 +23,29 @@ The site and the update feed read the same files, so a release updates both with
   - It uploads the files to R2 with `npx wrangler r2 object put wecra-releases/updates/<file> --file … --remote` (yml files last, so the feed never points at a missing file) and rewrites `releases.json` (newest first, with the notes' Markdown).
   - **Transition:** while `MIRROR_GITHUB=1` (the default until the owner turns it off), it also prints the `gh release create` as today. Installed copies of 1.1.x still read GitHub, so the first R2 release must also be on GitHub; they update to it and from then on read R2. Only then may the repository go private (§4).
 
-## 2. Pages (`site/src/`, a static Vite multi-page build, no framework; TypeScript + CSS)
+## 2. Pages — v2 (owner, 2026-10-14: "the animation ideas are right but it feels amateur")
 
-| Path | Content |
-|---|---|
-| `/` | Hero ("Design, together. On your desktop." [draft copy]), a large hero animation, the Download button (picks Mac or Windows from the visitor's OS, with "Also for Windows / macOS"), three feature bands with their own animations, and a closing CTA |
-| `/features` | The editor, one section with one animation each: frames and auto layout, the pen and vectors, components and variables, prototyping and presenting, Dev Mode, libraries |
-| `/ai` | AI and Studio: AI tools (make / edit image, remove background, vectorize), agents on the canvas, Studio (the manager handing work to several agents; brand posts and stories) |
-| `/download` | Both platforms' buttons, the version, its size and date (from `/api/releases`), system requirements (macOS 12+ Apple Silicon; Windows 10+ x64), and install notes |
-| `/changelog` | Every release from `/api/releases`, its notes rendered from Markdown (escaped, a small renderer: headings, lists, bold, code, links) |
+v1 (SVG scenes drawn after the app) is replaced. The owner's four rules:
 
-- **Animations are code**, not videos or screenshots: SVG and DOM animated with CSS and the Web Animations API, drawn in Wecra's UI3 look.
-  - Examples: a cursor drawing a frame that snaps into auto layout; the pen drawing a path; a component's instances updating together; prototype noodles connecting frames and a phone playing the flow; an image being generated in place; the Studio manager handing tasks to three agents whose cards fill up; multiplayer cursors.
-  - They start when scrolled into view (IntersectionObserver), pause off screen, and loop calmly.
-  - Under `prefers-reduced-motion` they show their final frame still.
-  - No animation library unless one is clearly needed. If it is, take one from npm, exact version, ≥ 2 weeks old, MIT.
-- **The look:** Wecra's own site, in the app's spirit: Inter (or the font the app uses), the app's colour tokens adapted for a marketing page, light and dark (`prefers-color-scheme`), generous type, a 16 px side gutter on phones, no horizontal scroll at 360 px. The logo is `build/icon.png` (copied into the site's assets, sized for the web). A shared header (logo, Features, AI, Changelog, Download) and footer (© Wecra, Changelog, Download) on every page.
-- **Speed:** each page's JS ≤ 50 KB gzipped; fonts self-hosted with `font-display: swap`; Lighthouse performance ≥ 95 on mobile; no third-party requests (no analytics, no CDNs).
-- **English** copy. Short, confident and plain. No claims the app can't back up.
+1. **Light by default**, with a theme toggle in the header (light ↔ dark). The choice is kept in `localStorage`, and the first visit is always light.
+2. **Every section is full screen** (100svh). Its scene fills the viewport, and **the scenes are interactive**: the visitor can drag, click, type and toggle, not only watch. Each scene also plays a short guided demo, which stops as soon as the visitor touches it and starts again after some idle time. Scroll moves between sections; snapping is gentle (`scroll-snap-type: y proximity`), never hijacked.
+3. **AI is told in depth** on its own page, one full-screen section each:
+   - the AI actions (Rename layers, Rewrite / Shorten / Translate, Replace content, Add interactions, First Draft);
+   - the image tools (Make an image, Edit with prompt, Remove background, Boost resolution, Expand, Erase, Isolate, Vectorize — and which run locally on the visitor's machine);
+   - visual search;
+   - Agents and MCP (Claude Code, Codex, Antigravity, Cursor, or a local model such as Ollama / LM Studio, working on the canvas with real tool names; Skills; connectors with consent);
+   - Studio (the manager handing a request to several agents at once; brands and products; posts and stories from product photos; the review and fix loop);
+   - credits and privacy (your own providers and keys, local models, nothing sent to us).
+   Read `docs/ai.md` and `docs/studio.md` so every claim is true.
+4. **The app is drawn with the app's own code, 1:1.**
+   - The site's scenes are React, built from `src/renderer/src/ds`: its components (Button, PanelSection, PropertyGrid, LayerRow, NumericInput, SegmentedControl, Menu, Rail, the toolbar, the icons) and its tokens (`tokens.css` and `global.css` in the scene scope), imported through a Vite alias. Do not copy them.
+   - Where the app's real panels can render with fake data, use them.
+   - **The canvas is the real engine** wherever a scene shows a canvas worth touching, as `?engine`'s Playground does (`src/renderer/src/engine/EngineCanvas.tsx`, `loadEngine.ts`, `sampleDocument.ts`): the hero is a real, editable canvas. The engine (~1.7 MB gzipped) loads after the first paint, with the scene's still frame shown until it is ready. Where a live engine is too heavy (several on one page, phones), draw that part with the same components over a canvas snapshot, and say so in the code.
+   - The site's own text, headings and marketing layout stay the site's, with a quiet, premium feel: large type, plenty of space, restrained colour from the tokens. It must not read like a template.
+
+Pages: `/` (hero = the real editor, then full-screen sections: design, prototype, Dev Mode, libraries and multiplayer, AI teaser, download), `/features/`, `/ai/`, `/download/`, `/changelog/`, `404`. The shared header (logo, Features, AI, Changelog, theme toggle, Download) and footer stay.
+
+Budgets: the page shell ≤ 150 KB gzipped of JS (React and the ds included), and the engine loaded only on demand. No third-party requests. `prefers-reduced-motion`: no guided demos and no snapping; the scenes still respond to the visitor's input. Phones: every scene works with touch, and no horizontal scroll at 360 px.
 
 ## 3. `releases.json`
 
@@ -62,7 +67,7 @@ Newest first. `windows` is absent for a Mac-only release; `/download/windows` th
 
 | Agent | Owns |
 |---|---|
-| site pages | `site/src/**`, `site/public/**`, `site/vite.config.ts`, `site/package.json` (its own deps) |
+| site pages | `site/src/**`, `site/public/**`, `site/vite.config.ts` (and the dependencies listed in its report, which the main session adds to `site/package.json`) |
 | channel | `site/worker/**`, `site/wrangler.jsonc`, `site/tsconfig*.json`, `scripts/release.sh`, `electron-builder.yml`, `src/main/updater.ts` (only if the generic feed needs a change), `docs/desktop.md` §12.6 (the release section) |
 
 The worker serves the pages' build output (`site/dist`) as its assets. `site/package.json` was written by the main session (scripts: `dev`, `build` → `site/dist`, `preview`, `deploy`, `test`). Neither agent edits it: a dependency either agent needs goes in its report and the main session adds it.
