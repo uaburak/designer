@@ -1,7 +1,6 @@
-// /ai: image tools, agents and Studio.
-import "../anim/ai-image";
-import "../anim/agents";
-import "../anim/studio";
+// /ai: a full-screen scene per AI feature.
 import { initPage } from "../common";
+import { mountScenes } from "../../scenes/runtime/mount";
 
 initPage();
+mountScenes({});

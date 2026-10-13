@@ -1,0 +1,68 @@
+// Scenes are React islands in the static pages: `<div data-scene="name">` holds a still placeholder until its
+// module is loaded — when it comes within a screen of the viewport (`data-eager`: at once) — and rendered. The app's
+// tooltips (ds TooltipManager) and toasts get one host for the page.
+import { StrictMode, type ComponentType } from "react";
+import { createRoot } from "react-dom/client";
+import { ToastHost } from "@/ds/components/Toast";
+import { TooltipManager } from "@/ds/overlay/TooltipManager";
+
+export type SceneModule = { default: ComponentType };
+export type SceneRegistry = Record<string, () => Promise<SceneModule>>;
+
+let hosted = false;
+function host(): void {
+  if (hosted) return;
+  hosted = true;
+  const el = document.createElement("div");
+  el.setAttribute("data-site-overlays", "");
+  document.body.appendChild(el);
+  createRoot(el).render(
+    <>
+      <TooltipManager />
+      <ToastHost />
+    </>,
+  );
+}
+
+function render(el: HTMLElement, mod: SceneModule): void {
+  host();
+  const Scene = mod.default;
+  createRoot(el).render(
+    <StrictMode>
+      <Scene />
+    </StrictMode>,
+  );
+  el.setAttribute("data-mounted", "");
+}
+
+export function mountScenes(registry: SceneRegistry): void {
+  const pending = new Map<Element, () => void>();
+  const io =
+    typeof IntersectionObserver === "function"
+      ? new IntersectionObserver(
+          (entries) => {
+            for (const e of entries) {
+              if (!e.isIntersecting) continue;
+              io?.unobserve(e.target);
+              pending.get(e.target)?.();
+              pending.delete(e.target);
+            }
+          },
+          { rootMargin: "120% 0px 120% 0px" },
+        )
+      : null;
+
+  for (const el of document.querySelectorAll<HTMLElement>("[data-scene]")) {
+    const load = registry[el.dataset.scene ?? ""];
+    if (!load) continue;
+    const go = () =>
+      void load()
+        .then((mod) => render(el, mod))
+        .catch((error: unknown) => console.warn(`[scene ${el.dataset.scene}]`, error));
+    if (el.hasAttribute("data-eager") || !io) go();
+    else {
+      pending.set(el, go);
+      io.observe(el);
+    }
+  }
+}

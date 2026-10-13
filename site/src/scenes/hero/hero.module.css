@@ -1,0 +1,90 @@
+/* The hero's editor window: the app's layout (EditorApp.module.css: the canvas under the chrome) in a window frame. */
+.window {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--ds-color-border-translucent);
+  border-radius: 12px;
+  background: var(--figma-color-bg);
+  box-shadow: var(--ds-elevation-500-modal-window), 0 40px 80px -24px rgb(0 0 0 / 0.18);
+  color: var(--figma-color-text);
+  font: var(--ds-font-body-medium);
+  letter-spacing: var(--ds-tracking-body-medium);
+  user-select: none;
+  container: editor / inline-size;
+  isolation: isolate;
+}
+
+/* The macOS window's lights, in the tab bar's 80px room */
+.tabbar { position: relative; flex: none; }
+.tabbar::before {
+  position: absolute;
+  top: 13px;
+  left: 14px;
+  z-index: 1;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow: 20px 0 0 #febc2e, 40px 0 0 #28c840;
+  content: "";
+}
+
+.body { position: relative; flex: 1 1 auto; min-height: 0; }
+.canvasArea { position: absolute; inset: 0; overflow: hidden; background: var(--ds-color-canvas-default); }
+.canvasArea canvas { opacity: 0; transition: opacity 400ms ease; }
+.window[data-ready] .canvasArea canvas { opacity: 1; }
+.still { position: absolute; max-width: none; pointer-events: none; }
+
+.chrome { position: absolute; inset: 0; z-index: 1; display: flex; pointer-events: none; }
+.chrome > * { pointer-events: auto; }
+.chrome > .view { position: relative; flex: 1 1 auto; min-width: 0; pointer-events: none; }
+.view > * { pointer-events: auto; }
+
+.rail { flex: none; }
+.left, .right { width: var(--ds-size-panel); flex: none; }
+.layerList { overflow: hidden; }
+
+.engage, .release {
+  position: absolute;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  height: 36px;
+  padding: 0 var(--ds-space-4) 0 var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-full);
+  background: var(--figma-color-bg-brand);
+  color: var(--figma-color-text-onbrand);
+  font: var(--ds-font-body-large-strong);
+  box-shadow: var(--ds-elevation-200);
+  transform: translateX(-50%);
+  cursor: pointer;
+}
+.engage { top: 50%; transform: translate(-50%, -50%); }
+.release { top: var(--ds-space-3); padding: 0 var(--ds-space-4); background: var(--figma-color-bg-inverse, #1e1e1e); color: var(--figma-color-text-oninverse, #fff); }
+.status {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin: 0;
+  color: var(--figma-color-text-secondary);
+  font: var(--ds-font-body-large);
+  text-align: center;
+  transform: translate(-50%, -50%);
+}
+
+/* Narrower windows: the panels fold away as Figma's do when there is no room — the right one last */
+@container editor (max-width: 1100px) {
+  .rail { display: none; }
+}
+@container editor (max-width: 940px) {
+  .left { display: none; }
+}
+@container editor (max-width: 620px) {
+  .right { display: none; }
+  .tabbar { display: none; }
+}

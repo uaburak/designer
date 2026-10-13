@@ -9,51 +9,95 @@
 <body>
 <!--#include header -->
 <main id="main">
-  <section class="home-hero wrap">
-    <h1>Design, together.<br /><span class="gradient-text">On your desktop.</span></h1>
-    <p class="lede">Wecra is a design app for macOS and Windows. Frames and auto layout, vectors, components, prototypes and Dev Mode, with AI that runs on the tools you choose.</p>
-    <div class="dl-center"><!--#include download --></div>
+  <section class="panel hero" aria-labelledby="hero-title">
+    <div class="hero-copy">
+      <h1 id="hero-title">Design, together.<br /><span>On your desktop.</span></h1>
+      <div>
+        <p class="lede">A design app for macOS and Windows: auto layout, components, variables, prototypes and Dev Mode, with AI on the tools you choose. The editor below is Wecra itself. Try it.</p>
+        <!--#include download -->
+      </div>
+    </div>
+    <div class="stage">
+      <div class="scene" data-scene="hero" data-eager aria-label="The Wecra editor, live"><div class="placeholder"></div></div>
+    </div>
   </section>
 
-  <div class="wrap hero-stage">
-    <!--#include scenes/hero -->
-  </div>
-
-  <section class="wrap bands" aria-label="Highlights">
-    <div class="feature">
-      <div>
-        <span class="eyebrow">Vectors</span>
-        <h2>A pen that feels right.</h2>
-        <p>Click for corners, drag for curves. Vector networks, live booleans and every shape stays editable.</p>
-      </div>
-      <!--#include scenes/pen -->
+  <section class="panel" id="design" aria-labelledby="design-title">
+    <div class="copy">
+      <span class="eyebrow">Auto layout</span>
+      <h2 id="design-title">Layouts that hold together.</h2>
+      <p class="lede">Stack, space and pad with auto layout, and the frame follows its content. Change the gap and every card moves with it. Pick a fill in the colour picker you already know.</p>
+      <ul class="try" aria-label="Try it">
+        <li>Drag the gap</li>
+        <li>Switch the direction</li>
+        <li>Change the fill</li>
+      </ul>
     </div>
-    <div class="feature flip">
-      <div>
-        <span class="eyebrow component">Components and variables</span>
-        <h2>Change it once.</h2>
-        <p>Edit the main component and every instance follows. Switch a variable mode and a whole frame goes from light to dark.</p>
-      </div>
-      <!--#include scenes/components -->
-    </div>
-    <div class="feature">
-      <div>
-        <span class="eyebrow">AI</span>
-        <h2>Images, made in place.</h2>
-        <p>Describe a picture and it appears in the selected layer. Remove its background or turn it into vectors without leaving the canvas.</p>
-      </div>
-      <!--#include scenes/ai-image -->
-    </div>
-    <p class="more"><a class="btn btn-secondary" href="/features/">See all features</a> <a class="btn btn-secondary" href="/ai/">AI and Studio</a></p>
+    <div class="stage"><div class="scene" data-scene="autolayout"><div class="placeholder"></div></div></div>
   </section>
 
-  <section class="wrap">
-    <div class="cta">
-      <img class="cta-logo" src="/logo-64.png" width="72" height="72" alt="" loading="lazy" />
-      <h2>Start designing.</h2>
-      <p>Your files live on your computer. Share one when you want to work on it together.</p>
-      <div class="dl-center"><!--#include download --></div>
+  <section class="panel" id="prototype" data-flip aria-labelledby="prototype-title">
+    <div class="copy">
+      <span class="eyebrow" data-tone="component">Prototype</span>
+      <h2 id="prototype-title">Make it move.</h2>
+      <p class="lede">Connect frames with a drag, pick the trigger and the animation, and press Play. Smart animate matches layers by name and moves them for you.</p>
+      <ul class="try" aria-label="Try it">
+        <li>Tap the phone</li>
+        <li>Pick an animation</li>
+        <li>Change the easing</li>
+      </ul>
     </div>
+    <div class="stage"><div class="scene" data-scene="prototype"><div class="placeholder"></div></div></div>
+  </section>
+
+  <section class="panel" id="dev-mode" aria-labelledby="dev-title">
+    <div class="copy">
+      <span class="eyebrow" data-tone="success">Dev Mode</span>
+      <h2 id="dev-title">From design to code.</h2>
+      <p class="lede">Developers get their own view: measurements between layers, CSS, SwiftUI and Compose for what they select, and a clear mark on what is ready for development.</p>
+      <ul class="try" aria-label="Try it">
+        <li>Select a layer</li>
+        <li>Hover another to measure</li>
+        <li>Switch the language</li>
+      </ul>
+    </div>
+    <div class="stage"><div class="scene" data-scene="devmode"><div class="placeholder"></div></div></div>
+  </section>
+
+  <section class="panel" id="together" data-flip aria-labelledby="together-title">
+    <div class="copy">
+      <span class="eyebrow" data-tone="warning">Libraries and multiplayer</span>
+      <h2 id="together-title">One system. Everyone in it.</h2>
+      <p class="lede">Publish components, styles and variables from any file and use them everywhere. When the library changes, review the update and accept it. Share a file and work in it together, live.</p>
+      <ul class="try" aria-label="Try it">
+        <li>Review the update</li>
+        <li>Accept it</li>
+        <li>Wave at the cursors</li>
+      </ul>
+    </div>
+    <div class="stage"><div class="scene" data-scene="together"><div class="placeholder"></div></div></div>
+  </section>
+
+  <section class="panel" id="ai" aria-labelledby="ai-title">
+    <div class="copy">
+      <span class="eyebrow" data-tone="ai">AI</span>
+      <h2 id="ai-title">Ask for a first draft.</h2>
+      <p class="lede">Describe a screen and First Draft lays it out with real layers you can edit. Agents like Claude Code and Codex work on the canvas with you, and image tools run on your own machine.</p>
+      <a class="link-arrow" href="/ai/">Everything AI can do in Wecra</a>
+    </div>
+    <div class="stage"><div class="scene" data-scene="firstdraft"><div class="placeholder"></div></div></div>
+  </section>
+
+  <section class="panel closing" id="download" aria-labelledby="download-title">
+    <img class="closing-logo" src="/logo-64.png" width="88" height="88" alt="" loading="lazy" />
+    <h2 id="download-title">Start designing.</h2>
+    <p class="lede">Your files live on your computer. Share one when you want to work on it together.</p>
+    <!--#include download -->
+    <nav class="more-links" aria-label="More">
+      <a class="link-arrow" href="/features/">All features</a>
+      <a class="link-arrow" href="/ai/">AI and Studio</a>
+      <a class="link-arrow" href="/changelog/">What’s new</a>
+    </nav>
   </section>
 </main>
 <!--#include footer -->

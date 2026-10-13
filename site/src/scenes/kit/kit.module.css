@@ -1,0 +1,131 @@
+/* The scenes' shared frame: an app window of the site holding the app's chrome at its own size. */
+.window {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: inherit;
+  overflow: hidden;
+  border: 1px solid var(--ds-color-border-translucent);
+  border-radius: 12px;
+  background: var(--figma-color-bg);
+  box-shadow: var(--ds-elevation-500-modal-window), 0 40px 80px -24px rgb(0 0 0 / 0.16);
+  color: var(--figma-color-text);
+  font: var(--ds-font-body-medium);
+  letter-spacing: var(--ds-tracking-body-medium);
+  user-select: none;
+  container: scene / inline-size;
+  isolation: isolate;
+}
+.titlebar {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: 38px;
+  border-bottom: 1px solid var(--figma-color-border);
+  background: var(--ds-color-tabbar-bg);
+  color: var(--ds-color-tabbar-text);
+  font: var(--ds-font-body-medium-strong);
+}
+.titlebar::before {
+  position: absolute;
+  top: 13px;
+  left: 14px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow: 20px 0 0 #febc2e, 40px 0 0 #28c840;
+  content: "";
+}
+.body { position: relative; display: flex; flex: 1 1 auto; min-height: 0; }
+
+/* The canvas, drawn by the page (DOM) where a live engine would be one too many: the app's canvas colour */
+.canvas {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--ds-color-canvas-default);
+}
+.frameLabel {
+  position: absolute;
+  color: var(--figma-color-text-secondary);
+  font: var(--ds-font-body-medium);
+  white-space: nowrap;
+  transform: translateY(-100%);
+  padding-bottom: 4px;
+}
+.frameLabel[data-selected] { color: var(--figma-color-text-brand); }
+
+/* Selection as the engine draws it: a 1px brand line, white square handles, the size pill under it */
+.selection {
+  position: absolute;
+  z-index: 5;
+  outline: 1px solid var(--figma-color-border-selected);
+  pointer-events: none;
+  transition: left 220ms var(--site-ease), top 220ms var(--site-ease), width 220ms var(--site-ease), height 220ms var(--site-ease);
+}
+.selection[data-instant] { transition: none; }
+.selection[data-tone="component"] { outline-color: var(--figma-color-border-component-strong, var(--figma-color-bg-component)); }
+.selection[data-tone="dev"] { outline-color: var(--figma-color-border-success-strong, var(--figma-color-bg-success)); }
+.handle {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--figma-color-border-selected);
+  border-radius: 1px;
+  background: #fff;
+}
+.handle:nth-child(1) { left: -4px; top: -4px; }
+.handle:nth-child(2) { right: -4px; top: -4px; }
+.handle:nth-child(3) { left: -4px; bottom: -4px; }
+.handle:nth-child(4) { right: -4px; bottom: -4px; }
+.sizePill {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: var(--figma-color-bg-brand);
+  color: var(--figma-color-text-onbrand);
+  font: var(--ds-font-body-medium-strong);
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+.selection[data-tone="component"] .sizePill { background: var(--figma-color-bg-component); }
+.selection[data-tone="component"] .handle { border-color: var(--figma-color-bg-component); }
+
+/* A panel column at the app's width */
+.panel {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: var(--ds-size-panel);
+  min-height: 0;
+  overflow: hidden auto;
+  border-left: 1px solid var(--figma-color-border);
+  background: var(--figma-color-bg);
+}
+.panel[data-side="left"] { border-left: 0; border-right: 1px solid var(--figma-color-border); }
+.panelTitle {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 41px;
+  padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-4);
+  border-bottom: 1px solid var(--figma-color-border);
+  font: var(--ds-font-body-medium-strong);
+}
+
+/* Narrow scenes stack: the canvas over the panel */
+@container scene (max-width: 640px) {
+  .body[data-stack] { flex-direction: column; }
+  .body[data-stack] > .panel { width: 100%; max-height: 52%; border-left: 0; border-top: 1px solid var(--figma-color-border); }
+  .body[data-stack] > .canvas { min-height: 46%; }
+  .titlebar { display: none; }
+}

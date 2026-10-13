@@ -1,7 +1,8 @@
-// What every page runs: the header's state, the Download blocks, and the scenes.
+// What every page runs: the app's design system stylesheet (Inter, the tokens), the site's own, the header (with the
+// theme toggle) and the Download blocks. Pages with scenes mount them on top (scenes/runtime/mount.tsx).
+import "@/ds/global.css";
 import "../styles/site.css";
-import "../styles/scenes.css";
-import { mountScenes } from "./anim/timeline";
+import { initThemeToggle } from "./theme";
 import { detectPlatform, formatDate, formatSize, loadReleases, offerFor, type Offer, type Platform } from "./releases";
 
 const NAME: Record<Platform, string> = { mac: "macOS", windows: "Windows" };
@@ -99,6 +100,6 @@ export async function initDownloads(): Promise<void> {
 
 export function initPage(): void {
   initHeader();
+  initThemeToggle();
   void initDownloads();
-  mountScenes();
 }

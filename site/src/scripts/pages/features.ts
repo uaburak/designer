@@ -1,10 +1,6 @@
-// /features: one scene per part of the editor.
-import "../anim/autolayout";
-import "../anim/pen";
-import "../anim/components";
-import "../anim/prototype";
-import "../anim/devmode";
-import "../anim/libraries";
+// /features: a full-screen scene per part of the editor.
 import { initPage } from "../common";
+import { mountScenes } from "../../scenes/runtime/mount";
 
 initPage();
+mountScenes({});
