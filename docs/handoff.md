@@ -2,6 +2,16 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-13 — Round 15 (Studio) merged, not run for real
+
+`docs/studio.md`: the manager agent (Agent settings › Studio › Manager; default Claude Code Haiku 5.5), parallel worker tasks in one chat, the Brands tab and library, `make_posts`, review and fixes (Fix label, Blur). 15b `89b29e85`, 15c `48adbbc1`, 15a `8e31668c` are merged on main. The affected suites pass (297 tests), and typecheck and lint are clean. **Nothing is pushed: the owner tries it locally first.**
+
+Open:
+- The UI has never been looked at on screen.
+- No real image run yet. The owner's Gemini CLI Google login is retired ("migrate to Antigravity"), and the Gemini API key he has is out of prepaid credits (402). Antigravity is the free route.
+- The nanobanana extension takes one input picture, so with the Gemini CLI only Image 1 is sent as a picture.
+- A task card shows its prompt but has no edit / run again yet (§5.2).
+
 ## Status 2026-10-13 — opening big shared files
 
 The owner's B2C file (121k nodes, Message 82.6 MB raw, ~340 MB of images) opened far slower than Figma. Fixed on main: snapshots travel gzipped (`snapshotWire.ts`, ~12 MB; bare ones still read and repacked by the first editor who opens them), Home opens the tab at once and the editor shows Figma's loader while the document comes down (`openShared(…, {early: true})`, `MultiplayerEvent.opening`, `OpenLoader`), the copy is decoded once, and the load worker no longer converts each open to JSON. docs/multiplayer.md §4–5. **Every client must update** (1.1.1 can't read a packed snapshot): a release, and the server deploy for wecra.app. Also: a Fill child held by its max width is placed by its auto layout's counter alignment (was always at the start). Not done (measured small): the store reads the snapshot twice when a file's actor first loads; the REST runner's re-hello on every editor open; a view seat's `fileInfo` before the open.
