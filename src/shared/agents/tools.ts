@@ -374,6 +374,104 @@ export const TOOLS: ToolDef[] = [
   },
 ];
 
+/**
+ * The manager's own tools (docs/studio.md §2.2, §5.4, §6): listed for a manager's turns only and refused for every
+ * other session — a worker, a chat without the manager, an outside client. Answered by the view's AgentsService
+ * (editor/agents/managerTools.ts). The library's tools (§3.3, editor/studio/libraryTools.ts) join them in the view.
+ */
+const box = { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, width: { type: "number" }, height: { type: "number" } } };
+export const MANAGER_TOOLS: ToolDef[] = [
+  {
+    name: "delegate_task",
+    title: "Delegate task",
+    description:
+      "Hands a piece of work to another agent as a task, returned at once ({taskId}); it runs as its own turn with the canvas tools (not yours), its own folder and its own undo step, beside the other tasks. `prompt` must say everything the worker needs (it doesn't see this chat). `agent`: a provider id (default: the general agent of the settings); `dependsOn`: task ids that must be done first (a failed one fails this task). Then wait_tasks.",
+    inputSchema: { type: "object", properties: { kind: { enum: ["agent"] }, title: { type: "string" }, prompt: { type: "string" }, agent: { type: "string" }, model: { type: "string" }, dependsOn: ids }, required: ["title", "prompt"] },
+    write: false,
+  },
+  {
+    name: "wait_tasks",
+    title: "Wait for tasks",
+    description: "Waits until the tasks have all ended (or `timeoutSec`, default 600) and returns each one's state (done / failed / stopped / still running), its summary or error, and the layers it made.",
+    inputSchema: { type: "object", properties: { taskIds: ids, timeoutSec: { type: "number" } }, required: ["taskIds"] },
+    write: false,
+  },
+  {
+    name: "stop_task",
+    title: "Stop task",
+    description: "Stops a task (queued or running).",
+    inputSchema: { type: "object", properties: { taskId: { type: "string" } }, required: ["taskId"] },
+    write: false,
+  },
+  {
+    name: "ask_choice",
+    title: "Ask a choice",
+    description:
+      "Shows the owner a choice card in the chat and waits for the click: {question, options: [{id, label, detail?}]} → the option picked. `imageRoute: true` instead lists the image models (Gemini API, Gemini CLI, Antigravity, OpenAI) with \"Use this for this chat\" — ask it when pictures are needed and no image model is set.",
+    inputSchema: { type: "object", properties: { question: { type: "string" }, options: { type: "array", items: { type: "object", properties: { id: { type: "string" }, label: { type: "string" }, detail: { type: "string" } }, required: ["id", "label"] } }, remember: { type: "boolean" }, imageRoute: { type: "boolean" } } },
+    write: false,
+  },
+  {
+    name: "show_form",
+    title: "Show form",
+    description: "Opens the brand or product form in the chat (prefilled with what the owner said) and waits: → the saved brandId / productId, or \"cancelled\".",
+    inputSchema: { type: "object", properties: { form: { enum: ["brand", "product"] }, brandId: { type: "string" }, productId: { type: "string" }, prefill: { type: "object" } }, required: ["form"] },
+    write: false,
+  },
+  {
+    name: "make_posts",
+    title: "Make posts",
+    description:
+      "Makes social posts from the library: for each format × variation an image task (the image model, the product references and the strict prompt) and a frame task (the general agent: the frame at the format's size, named \"‹Product› — ‹Format› v‹n›\", the brand's text and logo, a bottom layer \"Picture\"); the picture goes into its frame when both are done; a last review task waits for all. Call it only when library_missing is empty (or the owner said go anyway). Returns the brief and the task ids: wait_tasks on the review task, then review.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        briefId: { type: "string", description: "Run a brief again (its id); else a new brief from the fields below" },
+        brand: { type: "string", description: "Brand id" },
+        products: { ...ids, description: "Product ids" },
+        formats: { ...ids, description: "Format ids of the brand (default: post and story)" },
+        scene: { type: "string" },
+        variations: { type: "number", description: "Default 2" },
+        request: { type: "string", description: "The owner's words" },
+      },
+    },
+    write: false,
+  },
+  {
+    name: "review",
+    title: "Review",
+    description: "The frames' pictures (as images) with the brief's exact (sharp) and illegible (soft) label texts and the products' shapes, for you to check: every sharp text exact, shapes and colours as the references (library_image), nothing extra, nothing missing or cropped, soft areas not readable as wrong words, text and logo inside the safe area. Then report_review.",
+    inputSchema: { type: "object", properties: { nodeIds: ids, briefId: { type: "string" } }, required: ["nodeIds"] },
+    write: false,
+  },
+  {
+    name: "report_review",
+    title: "Report review",
+    description:
+      "Shows the review card (each frame ✓ or its problems; a problem: {id, kind: sharp-text | soft-text | shape | extra | missing | layout | brand, detail, box?: frame coordinates, fix: fix-label | blur | regenerate | relayout}) and waits for the owner: \"Fix selected\" starts the fixes and returns their task ids (wait_tasks, then review the changed frames again); \"Leave as is\" ends the loop.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        report: {
+          type: "object",
+          properties: {
+            briefId: { type: "string" },
+            items: { type: "array", items: { type: "object", properties: { nodeId: { type: "string" }, name: { type: "string" }, ok: { type: "boolean" }, problems: { type: "array", items: { type: "object", properties: { id: { type: "string" }, kind: { type: "string" }, detail: { type: "string" }, box, fix: { type: "string" } } } } } } },
+          },
+        },
+      },
+      required: ["report"],
+    },
+    write: false,
+  },
+];
+
+export const MANAGER_TOOL_NAMES: ReadonlySet<string> = new Set(MANAGER_TOOLS.map((t) => t.name));
+
+/** Tools that wait for the owner or for tasks: main gives them 30 minutes instead of 120 s (docs/studio.md §2.2). */
+export const WAITING_TOOLS: ReadonlySet<string> = new Set(["wait_tasks", "ask_choice", "show_form", "report_review", "make_posts"]);
+export const WAITING_TOOL_MS = 30 * 60_000;
+
 /** Tools main answers itself (never sent to the editor view): `get_skill` (docs/ai.md §2.10). */
 export const MAIN_TOOLS: ReadonlySet<string> = new Set(["get_skill"]);
 

@@ -364,7 +364,7 @@ const watched = new WeakSet<WebContents>();
 function registerAgentsIpc() {
   onInvoke("agents:providers", () => agents.providers());
   onInvoke("agents:settings", () => agents.agentSettings());
-  onInvoke("agents:set-settings", (_c, p) => agents.setAgentSettings({ providerId: p?.providerId === null ? null : (str(p?.providerId, 100) ?? undefined), models: p?.models && typeof p.models === "object" ? p.models : undefined }));
+  onInvoke("agents:set-settings", (_c, p) => agents.setAgentSettings({ providerId: p?.providerId === null ? null : (str(p?.providerId, 100) ?? undefined), models: p?.models && typeof p.models === "object" ? p.models : undefined, manager: p?.manager && typeof p.manager === "object" ? p.manager : undefined }));
   onInvoke("agents:add-server", (_c, p) => agents.addServer({ label: str(p?.label, 100) ?? "", baseUrl: str(p?.baseUrl, 2000) ?? "", apiKey: str(p?.apiKey, 4000) ?? undefined }));
   onInvoke("agents:remove-server", (_c, p) => agents.removeServer(str(p?.id, 100) ?? ""));
   onInvoke("agents:test", (_c, p) => agents.testProvider(str(p?.providerId, 100) ?? ""));
@@ -395,6 +395,8 @@ function registerAgentsIpc() {
       ...(str(req.skill?.name, 64) && str(req.skill?.instructions, 64 * 1024) !== null ? { skill: { name: req.skill!.name, instructions: req.skill!.instructions } } : {}),
       ...(Array.isArray(req.skills) ? { skills: req.skills.slice(0, 100).flatMap((k) => (str(k?.name, 64) ? [{ name: k.name, description: str(k.description, 1024) ?? "" }] : [])) } : {}),
       ...(Array.isArray(req.connectors) ? { connectors: req.connectors.slice(0, 50).flatMap((id) => (str(id, 64) ? [id] : [])) } : {}),
+      // Studio (docs/studio.md §2.2): a manager's or a worker's turn; the manager's tools are cleaned by the host.
+      ...(req.role === "manager" || req.role === "worker" ? { role: req.role, ...(req.role === "manager" ? { managerTools: req.managerTools } : {}) } : {}),
       context: {
         fileName: str(req.context?.fileName, 300) ?? "",
         pageName: str(req.context?.pageName, 300) ?? "",

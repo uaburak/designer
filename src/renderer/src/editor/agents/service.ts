@@ -23,6 +23,16 @@ import type { AgentSetupHost } from "./setup";
 import { creditsFor, type AiSkill, type ConnectorConsent } from "@shared/ai/types";
 import { invokedSkill } from "@shared/ai/skillFile";
 import { getStoreClient } from "@/store";
+import { MANAGER_TOOLS, type ToolDef } from "@shared/agents/tools";
+import type { ManagerToolDef } from "@shared/agents/types";
+import { DEFAULT_MANAGER_SETTINGS, IMAGE_TASKS_AT_ONCE, brandsUnavailable, type BrandsRepository, type ManagerSettings, type StudioTask } from "@shared/studio/types";
+import type { AiRoute, ImageRouteInfo } from "@shared/ai/types";
+import { managerPrompt, managerReminder } from "@shared/studio/managerPrompt";
+import { LIBRARY_TOOLS, runLibraryTool } from "../studio/libraryTools";
+import { blurRegions, runStudioImage } from "../studio/images";
+import { TaskQueue, isEnded, type TaskResult } from "./tasks";
+import { isManagerTool, runManagerTool, type CardAnswer, type ManagerEnv, type StudioChatData, type TaskExtra, type ViewCard } from "./managerTools";
+import { paintImageHash } from "../model/paints";
 
 /**
  * An image the agent makes: being made, made (about to be placed), on the canvas, or not placed (an error, Stop) — or
@@ -60,9 +70,25 @@ export interface ChatMessage {
   usage?: TokenUsage;
   /** user: the Skill it ran with /name */
   skill?: string;
+  /** assistant: the manager's answer (docs/studio.md §2.2): its task cards and the cards it waits on */
+  manager?: boolean;
+  cards?: ViewCard[];
 }
 
-export interface Chat {
+/** A worker's turn as its task card's disclosure draws it: its words and steps, the way an answer is drawn. */
+export interface WorkerLog {
+  parts: MessagePart[];
+  state: "running" | "done" | "stopped" | "error";
+  error?: string;
+  usage?: TokenUsage;
+  turnId?: string;
+  provider?: string;
+}
+
+/** A task the manager handed out, kept with its chat (docs/studio.md §2.3). */
+export type ChatTask = StudioTask & TaskExtra & { worker?: WorkerLog };
+
+export interface Chat extends StudioChatData {
   id: string;
   title: string;
   updatedAt: number;
@@ -80,6 +106,8 @@ export interface Chat {
   messages: ChatMessage[];
   /** The connectors turned on for this chat (docs/ai.md §2.11: enabled per chat) */
   connectors?: string[];
+  /** The manager's tasks (docs/studio.md §2.3), with their workers' logs */
+  tasks?: ChatTask[];
 }
 
 /** The agent and model last picked in this file (a new chat starts with it). */
@@ -145,12 +173,74 @@ const TOOL_LABEL: Record<string, string> = {
   set_selection: "Selected the result",
   place_image: "Placed an image",
   generate_image: "Made an image",
+  // The manager's (docs/studio.md §2.2) and the library's (§3.3)
+  delegate_task: "Handed out a task",
+  wait_tasks: "Waited for the tasks",
+  stop_task: "Stopped a task",
+  ask_choice: "Asked you",
+  show_form: "Opened a form",
+  make_posts: "Started the posts",
+  review: "Looked at the results",
+  report_review: "Reported the review",
+  library_find: "Searched the library",
+  library_get: "Read the library",
+  library_missing: "Checked what is missing",
+  library_save_brand: "Saved the brand",
+  library_save_product: "Saved the product",
+  library_add_image: "Added a picture to the library",
+  library_read_labels: "Read the labels",
+  library_image: "Looked at a library picture",
 };
 export const toolLabel = (name: string) => TOOL_LABEL[name] ?? name.replace(/_/g, " ");
+
+/** What the manager's tools use besides the editor (docs/studio.md): the library, the image runs, the ledger — fakes in tests. */
+export interface StudioDeps {
+  brands(): BrandsRepository;
+  library(ed: EditorController, name: string, args: Record<string, unknown>): Promise<ToolResult>;
+  runImage: typeof runStudioImage;
+  blur: typeof blurRegions;
+  imageRoutes(): Promise<ImageRouteInfo[]>;
+  record(e: { action: "agent" | "make-image" | "edit-image"; providerId: string; model?: string; input: number; output: number; images: number; credits: number; local: boolean; ok: boolean }, fileKey: string | null): void;
+}
+
+const studioDefaults = (): StudioDeps => ({
+  brands: () => {
+    try {
+      return getStoreClient().brands ?? brandsUnavailable();
+    } catch {
+      return brandsUnavailable();
+    }
+  },
+  library: runLibraryTool,
+  runImage: runStudioImage,
+  blur: blurRegions,
+  imageRoutes: async () => (await editorBridge()?.ai?.imageRoutes?.()) ?? [],
+  record: (e, fileKey) => {
+    try {
+      void getStoreClient().ai.record({ ...e, fileKey, orgId: null }).catch(() => {});
+    } catch {
+      /* no store here (a browser stand-in) */
+    }
+  },
+});
+
+/** A manager-only tool as the turn carries it to main. */
+const managerDef = (t: ToolDef): ManagerToolDef => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema });
 
 export class AgentsService implements AgentSetupHost {
   readonly api: AgentsApi | null;
   readonly turns: AgentTurns;
+  /** The manager's tasks in this file (docs/studio.md §2.3): several at once per chat, each its own turn or image run */
+  readonly queue: TaskQueue;
+  private studio: StudioDeps;
+  /** Workers' turns: their chat and task, and how their run ends */
+  private workers = new Map<string, { chat: string; taskId: string; providerId: string; model?: string; end: (log: WorkerLog, stopped: boolean) => void }>();
+  /** Cards waiting for the owner (ask_choice, show_form, report_review), by card id */
+  private waits = new Map<string, { chat: string; message: string; turnId: string; resolve: (a: CardAnswer) => void }>();
+  /** Each running manager turn's abort: its waits end with it */
+  private managerAborts = new Map<string, AbortController>();
+  /** The review card's thumbnails, by layer */
+  private thumbs = new Map<string, Promise<string | null>>();
   /** Images being made, shown where they will land on the canvas (canvas/AgentImagePlaceholders.tsx) */
   readonly placeholders = new ImagePlaceholders();
   private state: AgentsState;
@@ -158,7 +248,7 @@ export class AgentsService implements AgentSetupHost {
   private offs: (() => void)[] = [];
   private storageKey: string;
   /** Turn → its chat and assistant message */
-  private turnTarget = new Map<string, { chat: string; message: string; providerId: string; providerLabel: string; prompt: string; model?: string }>();
+  private turnTarget = new Map<string, { chat: string; message: string; providerId: string; providerLabel: string; prompt: string; model?: string; role?: "manager"; sessionKey?: string }>();
   private choiceKey: string;
   private choice: AgentChoice | null;
   private touched = new Map<string, Set<string>>();
@@ -172,20 +262,30 @@ export class AgentsService implements AgentSetupHost {
 
   constructor(
     private ed: EditorController,
-    api: AgentsApi | null = agentsBackend()
+    api: AgentsApi | null = agentsBackend(),
+    studio: Partial<StudioDeps> = {}
   ) {
     this.api = api;
     this.turns = new AgentTurns(ed);
+    this.studio = { ...studioDefaults(), ...studio };
+    this.queue = new TaskQueue({ limits: () => ({ cli: this.managerSettings().parallel, image: IMAGE_TASKS_AT_ONCE }), onChange: (t) => this.taskChanged(t) });
     const fileId = (ed.source as { fileKey?: string }).fileKey ?? ed.source.previews?.fileKey ?? ed.ui.get().fileName;
     this.storageKey = `designer.agents.chats.${fileId}`;
     this.choiceKey = `designer.agents.choice.${fileId}`;
     this.choice = this.loadChoice();
     this.state = { available: !!api, view: "list", settingsItem: null, chats: this.load(), current: null, providers: [], providersLoading: false, settings: EMPTY_SETTINGS, mcp: { running: false, url: null, connections: [] }, clients: [], running: {}, usage: {}, resolved: loadResolved(), consents: [], draftConnectors: [] };
     if (!this.state.chats.length) this.state.view = "chat";
+    this.queue.restore(this.state.chats.flatMap((c) => c.tasks ?? []));
     if (!api) return;
     this.offs.push(
       api.onEvent((e) => this.onEvent(e)),
       api.onToolCall(async (call) => {
+        // The manager's own tools (docs/studio.md §2.2): its turns only — a worker (or anyone else) is refused.
+        if (isManagerTool(call.name)) {
+          const target = call.turnId ? this.turnTarget.get(call.turnId) : undefined;
+          if (!call.turnId || target?.role !== "manager") return textResult(`${call.name} is the manager's tool: a task can't call it.`, true);
+          return runManagerTool(this.managerEnv(call.turnId, target), call.name, call.args ?? {});
+        }
         const env = this.toolEnv(call.turnId, call.client);
         // An image the chat is making lands where its placeholder is, unless the agent said where.
         const waiting = call.name === "place_image" && call.turnId ? this.placeholders.next(call.turnId) : undefined;

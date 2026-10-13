@@ -94,6 +94,22 @@ export interface TurnRequest {
   skills?: { name: string; description: string }[];
   /** The connectors (ids) this turn may use (docs/ai.md §2.11) */
   connectors?: string[];
+  /**
+   * Studio (docs/studio.md §2.2): a manager's turn (its own tools listed and answered by the view) or a worker's (a
+   * task the manager handed out: its own grant and folder; a manager tool from it is refused). Absent: a chat's turn
+   * as before round 15.
+   */
+  role?: "manager" | "worker";
+  /** A manager's turn: the manager-only tools the view answers (MANAGER_TOOLS and the library's) */
+  managerTools?: ManagerToolDef[];
+}
+
+/** A manager-only tool as a turn carries it to main (listed for that turn's sessions only). */
+export interface ManagerToolDef {
+  name: string;
+  title?: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
 }
 
 /** One of a plan's limits ("Current session", 5 % used, resets at …). */
@@ -205,7 +221,7 @@ export interface ConnectResult {
 export interface AgentsApi {
   providers(): Promise<ProviderInfo[]>;
   settings(): Promise<AgentSettings>;
-  setSettings(patch: Partial<Pick<AgentSettings, "providerId" | "models">>): Promise<AgentSettings>;
+  setSettings(patch: Partial<Pick<AgentSettings, "providerId" | "models" | "manager">>): Promise<AgentSettings>;
   addServer(server: { label: string; baseUrl: string; apiKey?: string }): Promise<AgentSettings>;
   removeServer(id: string): Promise<AgentSettings>;
   test(providerId: string): Promise<{ ok: boolean; models: string[]; error?: string; version?: string }>;

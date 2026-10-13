@@ -28,6 +28,19 @@ const TOOL_ACTIVE: Record<string, string> = {
   set_selection: "Selecting the result…",
   place_image: "Placing the image…",
   generate_image: "Making an image…",
+  // The manager's (docs/studio.md §2.2) and the library's (§3.3)
+  delegate_task: "Handing out a task…",
+  wait_tasks: "Waiting for the tasks…",
+  ask_choice: "Waiting for your answer…",
+  show_form: "Waiting for the form…",
+  make_posts: "Starting the posts…",
+  review: "Looking at the results…",
+  report_review: "Waiting for your answer…",
+  library_find: "Searching the library…",
+  library_get: "Reading the library…",
+  library_missing: "Checking what is missing…",
+  library_read_labels: "Reading the labels…",
+  library_image: "Looking at a library picture…",
 };
 
 export const toolActiveLabel = (name: string): string => {

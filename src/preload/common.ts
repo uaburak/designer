@@ -114,7 +114,8 @@ export function agentSetupApi(): AgentSetupApi {
   return {
     providers: () => invoke("agents:providers"),
     settings: () => invoke("agents:settings"),
-    setSettings: (patch) => invoke("agents:set-settings", { providerId: patch?.providerId === null ? null : patch?.providerId === undefined ? undefined : String(patch.providerId), models: patch?.models }),
+    // The manager's settings (docs/studio.md §2.1) as a plain copy; main cleans every field.
+    setSettings: (patch) => invoke("agents:set-settings", { providerId: patch?.providerId === null ? null : patch?.providerId === undefined ? undefined : String(patch.providerId), models: patch?.models, ...(patch?.manager ? { manager: plain(patch.manager) } : {}) }),
     addServer: (s) => invoke("agents:add-server", { label: String(s?.label ?? ""), baseUrl: String(s?.baseUrl ?? ""), apiKey: s?.apiKey === undefined ? undefined : String(s.apiKey) }),
     removeServer: (id) => invoke("agents:remove-server", { id: String(id) }),
     test: (providerId) => invoke("agents:test", { providerId: String(providerId) }),

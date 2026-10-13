@@ -7,14 +7,16 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFile
 import { homedir } from "node:os";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import type { ToolResult } from "../../shared/agents/tools";
-import { MCP_SERVER_NAME, textResult } from "../../shared/agents/tools";
+import { MANAGER_TOOL_NAMES, MCP_SERVER_NAME, WAITING_TOOL_MS, WAITING_TOOLS, textResult } from "../../shared/agents/tools";
+import { cleanManagerSettings, cleanManagerTools } from "../../shared/agents/manager";
+import type { ManagerSettings } from "../../shared/studio/types";
 import type { Connector, ConnectorConsent, ConnectorToolPolicy } from "../../shared/ai/types";
 import { ConnectorHub, type ConsentAnswer, type StoredConnector } from "./connectors";
 import { aiSettings } from "../ai/settings";
 import { ledgerBalance } from "../ai/ledger";
 import { overLimit } from "../ai/run";
 import { readyStore } from "../storeHost";
-import type { AgentSettings, ChatEvent, McpClientId, McpConnection, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnRequest, UsageInfo } from "../../shared/agents/types";
+import type { AgentSettings, ChatEvent, ManagerToolDef, McpClientId, McpConnection, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnRequest, UsageInfo } from "../../shared/agents/types";
 import { cliSpec, type CliSpec } from "./providers";
 import { runCliProcess, loginUrl, type AuthEnv, type CliModels, type RunResult } from "./providers/turns";
 import { ImagePathError, resolveImagePaths } from "./imageArgs";
@@ -48,6 +50,8 @@ interface Stored {
   port?: number;
   /** The outside clients' token: "enc:<base64>" (safeStorage) or "raw:<token>" */
   token?: string;
+  /** Agent settings › Manager (docs/studio.md §2.1); absent: DEFAULT_MANAGER_SETTINGS */
+  manager?: ManagerSettings;
 }
 
 const dir = () => join(app.getPath("userData"), "agents");
@@ -56,7 +60,7 @@ const file = (name: string) => join(dir(), name);
 function readStored(): Stored {
   try {
     const s = JSON.parse(readFileSync(file("settings.json"), "utf8")) as Partial<Stored>;
-    return { providerId: s.providerId ?? null, models: s.models ?? {}, custom: Array.isArray(s.custom) ? s.custom : [], port: s.port, token: s.token };
+    return { providerId: s.providerId ?? null, models: s.models ?? {}, custom: Array.isArray(s.custom) ? s.custom : [], port: s.port, token: s.token, ...(s.manager ? { manager: cleanManagerSettings(s.manager) } : {}) };
   } catch {
     return { providerId: null, models: {}, custom: [] };
   }
@@ -107,7 +111,7 @@ const keyOf = (id: string): string | undefined => {
 
 const publicSettings = (s: Stored): AgentSettings => {
   const keys = readKeys();
-  return { providerId: s.providerId, models: s.models, custom: s.custom.map((c) => ({ ...c, hasKey: !!keys[c.id] })) };
+  return { providerId: s.providerId, models: s.models, custom: s.custom.map((c) => ({ ...c, hasKey: !!keys[c.id] })), manager: cleanManagerSettings(s.manager) };
 };
 
 const clientEnv = (): ClientEnv => ({ home: homedir(), which: (b) => which(b), exists: (p) => existsSync(p) });
@@ -125,6 +129,12 @@ interface Turn {
   imageDirs: string[];
   /** The connectors this turn may use (enabled ones the chat turned on) */
   connectors: string[];
+  /** Studio (docs/studio.md §2.2): a manager's turn, a worker's (a task: its own grant and folder), or a chat's */
+  role?: "manager" | "worker";
+  /** A manager's turn: the manager-only tools the view answers */
+  managerTools: ManagerToolDef[];
+  /** Its CLI's working folder: the chat's own, or a worker's own inside it */
+  cwd: string;
 }
 
 let server: McpServer | null = null;
@@ -178,18 +188,26 @@ function runToolInView(fileKey: string, call0: Omit<ToolCall, "reqId">): Promise
   let call = call0;
   try {
     const t = call0.turnId ? turns.get(call0.turnId) : undefined;
-    const roots = t ? [chatDir(t.chatId), ...t.imageDirs] : [homedir()];
+    const roots = t ? [...new Set([chatDir(t.chatId), t.cwd]), ...t.imageDirs] : [homedir()];
     call = { ...call0, args: resolveImagePaths(call0.name, call0.args ?? {}, roots) };
+    // The manager's library_add_image of a file the owner attached in the chat (docs/studio.md §3.3): read here, sent as data.
+    if (t?.role === "manager" && call.name === "library_add_image" && typeof call.args.path === "string") {
+      const { path, ...rest } = call.args;
+      const read = resolveImagePaths("place_image", { path }, roots);
+      call = { ...call, args: { ...rest, data: read.data, ...(typeof rest.name === "string" ? {} : { name: read.name }) } };
+    }
   } catch (err) {
     if (err instanceof ImagePathError) return Promise.resolve({ content: [{ type: "text", text: err.message }], isError: true });
     throw err;
   }
   const reqId = ++reqSeq;
+  // The manager's waits (tasks, the owner's answer on a card) may take a while (docs/studio.md §2.2).
+  const ms = WAITING_TOOLS.has(call.name) ? WAITING_TOOL_MS : 120_000;
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       pending.delete(reqId);
-      resolve({ content: [{ type: "text", text: "The tool took too long (120 s)." }], isError: true });
-    }, 120_000);
+      resolve({ content: [{ type: "text", text: `The tool took too long (${ms >= 60_000 ? `${ms / 60_000} min` : `${ms / 1000} s`}).` }], isError: true });
+    }, ms);
     pending.set(reqId, { resolve, sender: wc.id, timer });
     wc.send("agents:tool-call", { reqId, ...call });
   });
@@ -203,8 +221,14 @@ async function runAnyTool(fileKey: string, call: Omit<ToolCall, "reqId">): Promi
   if (call.name === "get_skill") return getSkill(String(call.args?.name ?? ""));
   const t = call.turnId ? turns.get(call.turnId) : undefined;
   if (t && hub?.has(t.connectors, call.name)) return hub.call(t.connectors, call.name, call.args ?? {}, t.id);
+  // The manager's tools are for its own turns (docs/studio.md §2.2): a worker (or anyone else) is refused here too.
+  if (t?.role !== "manager" && (MANAGER_TOOL_NAMES.has(call.name) || isManagerOnly(call.name))) return textResult(`${call.name} is the manager's tool: a task can't call it.`, true);
   return runToolInView(fileKey, call);
 }
+
+/** Names a manager turn listed as its own (the library's tools, which main doesn't know by name). */
+const managerOnlyNames = new Set<string>();
+const isManagerOnly = (name: string) => managerOnlyNames.has(name);
 
 /** `get_skill {name}`: an enabled Skill's instructions, from the store (6g's skills; docs/ai.md §2.10). */
 async function getSkill(name: string): Promise<ToolResult> {
@@ -343,10 +367,12 @@ export async function stopAgents(): Promise<void> {
 
 export const agentSettings = (): AgentSettings => publicSettings(readStored());
 
-export function setAgentSettings(patch: Partial<Pick<AgentSettings, "providerId" | "models">>): AgentSettings {
+export function setAgentSettings(patch: Partial<Pick<AgentSettings, "providerId" | "models" | "manager">>): AgentSettings {
   const s = readStored();
   if (typeof patch.providerId === "string" || patch.providerId === null) s.providerId = patch.providerId;
   if (patch.models && typeof patch.models === "object") for (const [k, v] of Object.entries(patch.models)) if (typeof v === "string" && k.length < 100 && v.length < 300) s.models[k] = v;
+  // The manager's settings (docs/studio.md §2.1): a whole or partial ManagerSettings over what is kept, cleaned.
+  if (patch.manager && typeof patch.manager === "object") s.manager = cleanManagerSettings(patch.manager, cleanManagerSettings(s.manager));
   writeStored(s);
   return publicSettings(s);
 }
@@ -433,20 +459,29 @@ function finishTurn(t: Turn, event?: ChatEvent) {
   if (event) emit(t, event);
   emit(t, { type: "done", stopped: t.stopped || undefined });
   turns.delete(t.id);
-  if (t.grant) {
+  // A worker's grant was its own: it goes with the turn. A chat's stays for its next turn.
+  if (t.grant && t.role === "worker") server?.revokeChat(t.grant);
+  else if (t.grant) {
     server?.updateChat(t.grant, { turnId: null });
     server?.endChatSessions(t.grant);
   }
 }
 
-/** A chat's MCP token, bound to its file (made on its first turn). */
-function grantFor(fileKey: string, chatId: string, client: string, turnId: string, connectors: string[]): string {
-  const key = `${fileKey}/${chatId}`;
+/**
+ * A turn's MCP token, bound to its file: a chat's own (made on its first turn, kept for the next) — with the manager's
+ * tools listed while a manager's turn runs on it — or, for a worker, one of its own for this turn only, so a chat's
+ * tasks run at once beside its manager, each with its own turn (docs/studio.md §2.2).
+ */
+function grantFor(t: Turn, client: string): string {
+  const role = t.role;
+  const managerTools = role === "manager" ? t.managerTools : undefined;
+  if (role === "worker") return server!.grantChat({ fileKey: t.fileKey, turnId: t.id, client, connectors: t.connectors, role });
+  const key = `${t.fileKey}/${t.chatId}`;
   let token = chatTokens.get(key);
   if (!token) {
-    token = server!.grantChat({ fileKey, turnId, client, connectors });
+    token = server!.grantChat({ fileKey: t.fileKey, turnId: t.id, client, connectors: t.connectors, role, managerTools });
     chatTokens.set(key, token);
-  } else server!.updateChat(token, { turnId, client, connectors });
+  } else server!.updateChat(token, { turnId: t.id, client, connectors: t.connectors, role, managerTools });
   return token;
 }
 
@@ -464,7 +499,13 @@ export function startTurn(sender: WebContents, fileKey: string, req: TurnRequest
   const turnId = randomUUID();
   // The chat's connectors that exist and are on (docs/ai.md §2.11).
   const known = new Set(connectorHub().list().filter((c) => c.enabled).map((c) => c.id));
-  const t: Turn = { id: turnId, chatId: String(req.chatId).slice(0, 80), fileKey, sender, stopped: false, imageDirs: [], connectors: (req.connectors ?? []).filter((id) => known.has(id)) };
+  const chatId = String(req.chatId).slice(0, 80);
+  const role = req.role === "manager" || req.role === "worker" ? req.role : undefined;
+  // A worker works in a folder of its own inside its chat's (its own CLI session; pictures it saves stay apart).
+  const cwd = role === "worker" ? join(chatDir(chatId), "tasks", turnId) : chatDir(chatId);
+  const managerTools = role === "manager" ? cleanManagerTools(req.managerTools) : [];
+  for (const m of managerTools) managerOnlyNames.add(m.name);
+  const t: Turn = { id: turnId, chatId, fileKey, sender, stopped: false, imageDirs: [], connectors: (req.connectors ?? []).filter((id) => known.has(id)), role, managerTools, cwd };
   turns.set(turnId, t);
   // Client-reported to Discovery for an org file (docs/governance.md §2.11): once per turn, fire-and-forget.
   reportAiPrompt(fileKey, String(req.prompt ?? ""), "agents_chat");
@@ -493,13 +534,13 @@ export function startTurn(sender: WebContents, fileKey: string, req: TurnRequest
 function runCli(t: Turn, spec: CliSpec, req: TurnRequest) {
   const path = cliPath(spec);
   if (!path) return finishTurn(t, { type: "error", message: `${spec.label} isn't installed on this computer.` });
-  const token = grantFor(t.fileKey, t.chatId, spec.label, t.id, t.connectors);
+  const token = grantFor(t, spec.label);
   t.grant = token;
-  // Each chat gets its own empty folder (its CLI session's project), the turn's MCP config in it.
-  const cwd = chatDir(t.chatId);
+  // Each chat gets its own empty folder (its CLI session's project), the turn's MCP config in it; a worker its own.
+  const cwd = t.cwd;
   mkdirSync(cwd, { recursive: true });
   // Files attached in this chat (this message's or earlier ones') are readable by the agent in their folder.
-  const attached = attachmentsDirOf(cwd);
+  const attached = attachmentsDirOf(chatDir(t.chatId));
   const plan = spec.plan({ request: req, mcp: { url: server!.url!, token }, cwd, sessionId: randomUUID(), mcpConfigPath: join(cwd, "mcp.json"), home: homedir(), ...(existsSync(attached) ? { attachmentsDir: realpathSync(attached) } : {}) });
   // The agent's own picture folder for this chat's session (Antigravity: its conversation's), known now or from its start.
   const addImageDirs = (session: string) => {
@@ -533,7 +574,7 @@ async function runServer(t: Turn, srv: { id: string; label: string; baseUrl: str
   const model = req.model;
   if (!model) return finishTurn(t, { type: "error", message: `Pick a model of ${srv.label} first.` });
   emit(t, { type: "status", text: `Asking ${model} on ${srv.label}…` });
-  const extraTools = t.connectors.length ? await connectorHub().toolsFor(t.connectors) : [];
+  const extraTools = [...t.managerTools, ...(t.connectors.length ? await connectorHub().toolsFor(t.connectors) : [])];
   return runOpenAiTurn({
     baseUrl: srv.baseUrl,
     apiKey: keyOf(srv.id),

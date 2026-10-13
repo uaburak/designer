@@ -2,7 +2,7 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { MCP_INSTRUCTIONS } from "../../shared/agents/prompts";
-import { MCP_SERVER_NAME, TOOL_BY_NAME, TOOLS, type ToolResult } from "../../shared/agents/tools";
+import { MANAGER_TOOL_NAMES, MCP_SERVER_NAME, TOOL_BY_NAME, TOOLS, type ToolResult } from "../../shared/agents/tools";
 import type { McpConnection } from "../../shared/agents/types";
 import { drainGovernanceReports, reportMcpCall } from "../account/governanceReports";
 
@@ -30,11 +30,16 @@ export interface ChatGrant {
   client: string;
   /** The connectors this chat's turn may use (docs/ai.md §2.11): their tools are listed and proxied */
   connectors?: string[];
+  /** Studio (docs/studio.md §2.2): a manager's turn (its tools listed) or a worker's (a task's own grant) */
+  role?: "manager" | "worker";
+  /** A manager's turn: its manager-only tools, listed for it alone and answered by the view */
+  managerTools?: ExtraTool[];
 }
 
-/** A tool besides ours (a connector's, proxied — docs/ai.md §2.11). */
+/** A tool besides ours (a connector's, proxied — docs/ai.md §2.11; a manager's own — docs/studio.md §2.2). */
 export interface ExtraTool {
   name: string;
+  title?: string;
   description: string;
   inputSchema: Record<string, unknown>;
 }
@@ -283,6 +288,7 @@ export class McpServer {
         return ok({
           tools: [
             ...TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, readOnlyHint: !t.write, destructiveHint: t.name === "delete_nodes" } })),
+            ...managerTools(session).map((t) => ({ name: t.name, ...(t.title ? { title: t.title } : {}), description: t.description, inputSchema: t.inputSchema })),
             ...extra.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
           ],
         });
@@ -290,7 +296,10 @@ export class McpServer {
       case "tools/call": {
         const name = String(m.params?.name ?? "");
         const args = (m.params?.arguments ?? {}) as Record<string, unknown>;
-        if (!TOOL_BY_NAME.has(name) && !(await this.extraTools(session)).some((t) => t.name === name)) return rpcError(m.id, -32602, `Unknown tool: ${name}`);
+        // The manager's tools are the manager's alone (docs/studio.md §2.2): a worker, a plain chat or an outside client is refused.
+        const own = managerTools(session).some((t) => t.name === name);
+        if (!own && MANAGER_TOOL_NAMES.has(name)) return ok({ content: [{ type: "text", text: `${name} is the manager's tool: a task can't call it. Do the work you were given with the design tools.` }], isError: true });
+        if (!own && !TOOL_BY_NAME.has(name) && !(await this.extraTools(session)).some((t) => t.name === name)) return rpcError(m.id, -32602, `Unknown tool: ${name}`);
         if (typeof args !== "object" || Array.isArray(args)) return rpcError(m.id, -32602, "arguments must be an object");
         const result = await this.call(session, name, args);
         const { touched: _touched, ...wire } = result;
@@ -331,6 +340,9 @@ export class McpServer {
     }
   }
 }
+
+/** A session's manager-only tools: a manager's turn's, none for anyone else. */
+const managerTools = (session: McpSession): ExtraTool[] => (session.chat?.role === "manager" ? (session.chat.managerTools ?? []) : []);
 
 function readBody(req: IncomingMessage, limit: number): Promise<string> {
   return new Promise((resolve, reject) => {
