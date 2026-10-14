@@ -1,6 +1,6 @@
-/* The hero (docs/site.md §2.1, v4): the editor on the page. The canvas is the page itself; the frame and what lands in
-   it are the file's content (fixed colours, the same in both themes); the panels and the toolbar are the app's, on its
-   tokens. Motion is transform and opacity, ease-out; under reduced motion everything is simply there. */
+/* The hero (docs/site.md §2.1, v4): the editor on the page. The canvas is the page itself; the frames and what lands in
+   them are the file's content (fixed colours, the same in both themes); the panels and the toolbar are the app's, on
+   its tokens. Motion is transform and opacity, ease-out; under reduced motion everything is simply there. */
 
 .stage { color: var(--figma-color-text); }
 
@@ -28,12 +28,17 @@
   .caption { font-size: 22px; letter-spacing: 0.8px; }
 }
 
-/* ── The canvas ── */
+/* ── The canvas: faded out while it clears for the next round; the world inside zooms ── */
+
+.canvas { position: absolute; inset: 0; transition: opacity var(--dur-3) var(--ease-out); }
+.canvas[data-clearing] { opacity: 0; transition: opacity 400ms var(--ease-in); }
+.world { position: absolute; inset: 0; transform-origin: 0 0; }
+.named { position: absolute; top: 0; left: 0; z-index: 2; }
 
 .frameName { color: var(--figma-color-text-secondary); }
 .frameName[data-selected] { color: inherit; }
 
-/* The frame: grown from its top-left corner by the drag (a transform, the drag's own curve, set inline) */
+/* A frame: grown from its top-left corner by the drag (a transform on the drag's own curve, set inline) */
 .frame {
   position: absolute;
   background: #fff;
@@ -43,22 +48,31 @@
 }
 .frame[data-drawn] { transform: none; }
 
-.headline {
+/* Text layers, typed in place: a box in the typist's colour while they type */
+.text { position: absolute; z-index: 1; color: #1e1e1e; white-space: pre; }
+.text[data-editing] { outline: 1px solid var(--c); }
+.logo { min-width: 8px; font: 700 18px/24px Inter, sans-serif; letter-spacing: -0.4px; }
+.nav { min-width: 8px; color: #6b6b6b; font: 500 13px/20px Inter, sans-serif; }
+.headline { min-height: 38px; font: 700 34px/38px Inter, sans-serif; letter-spacing: -1px; white-space: normal; }
+.sub { min-width: 8px; color: #6b6b6b; font: 400 15px/22px Inter, sans-serif; }
+.logoDot {
   position: absolute;
   z-index: 1;
-  min-height: 38px;
-  color: #1e1e1e;
-  font: 700 34px/38px Inter, sans-serif;
-  letter-spacing: -1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #0d99ff;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-3) var(--ease-out);
 }
-/* Kerem's text box while he types: his colour, as Figma draws another person's selection */
-.headline[data-editing] { outline: 1px solid var(--c); }
+.logoDot[data-on] { opacity: 1; transform: none; }
 .caret {
   display: inline-block;
   width: 2px;
-  height: 32px;
+  height: 0.85em;
   margin-left: 1px;
-  vertical-align: -5px;
+  vertical-align: -0.08em;
   background: #1e1e1e;
   animation: blink 1060ms steps(1, end) infinite;
 }
@@ -67,7 +81,7 @@
 
 .image { position: absolute; z-index: 1; overflow: hidden; border-radius: 16px; }
 
-/* Ada's picture on its way in, under her cursor (placed by transform; moved with the Web Animations API) */
+/* Ada's banner on its way in, under her cursor (placed by transform; moved with the Web Animations API) */
 .thumb {
   position: absolute;
   top: 0;
@@ -103,7 +117,7 @@
 }
 .button[data-dark] > i { background: #1e1e1e; }
 .button[data-drawn] > i { transform: none; }
-.button > i[data-drawing] { outline: 1px solid var(--c); outline-offset: 0; }
+.button > i[data-drawing] { outline: 1px solid var(--c); }
 .button > span {
   position: relative;
   color: #1e1e1e;
@@ -114,45 +128,65 @@
 .button[data-dark] > span { color: #fff; }
 .button > span[data-on] { opacity: 1; transform: none; }
 
-.compName { display: inline-flex; align-items: center; gap: 2px; }
-.compName svg { margin-left: -2px; }
+/* ── The mobile page (on the canvas, and in the prototype viewer) ── */
 
-/* The marquee: grows with your drag (its fill and its line), gone on release */
-.marquee {
+.mobile { position: absolute; z-index: 1; }
+.mPage { position: relative; width: 100%; height: 100%; overflow: hidden; color: #1e1e1e; font-family: Inter, sans-serif; }
+.mPage > * {
   position: absolute;
-  z-index: 9;
-  border: 1px solid #0d99ff;
-  background: rgba(13, 153, 255, 0.08);
+  right: 16px;
+  left: 16px;
   opacity: 0;
-  transform: scale(0.001);
-  transform-origin: 0 0;
-  transition-property: none;
-  transition-timing-function: var(--ease-standard);
+  transform: translate3d(0, 6px, 0);
+  transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-3) var(--ease-out);
 }
-/* It grows on the drag's time; on release it's gone at once */
-.marquee[data-on] { opacity: 1; transform: none; transition-property: transform; }
+.mPage > [data-on] { opacity: 1; transform: none; }
+.mHeader { top: 14px; display: flex; align-items: center; justify-content: space-between; height: 24px; }
+.mLogo { display: flex; align-items: center; gap: 6px; font: 700 15px/1 Inter, sans-serif; letter-spacing: -0.3px; }
+.mLogo i { width: 12px; height: 12px; border-radius: 50%; background: #0d99ff; }
+.mMenu { display: grid; gap: 3px; }
+.mMenu i { display: block; width: 16px; height: 2px; border-radius: 1px; background: #1e1e1e; }
+.mBanner { top: 52px; height: 136px; overflow: hidden; border-radius: 12px; }
+.mText { top: 202px; display: grid; gap: 8px; }
+.mText strong { font: 700 22px/26px Inter, sans-serif; letter-spacing: -0.6px; }
+.mText span { color: #6b6b6b; font: 400 12px/16px Inter, sans-serif; }
+.mButtons { top: 296px; display: grid; gap: 8px; font: 600 13px/34px Inter, sans-serif; text-align: center; }
+.mButtons span { height: 34px; border-radius: 8px; background: #f0f0f0; }
+.mButtons span[data-dark] { background: #1e1e1e; color: #fff; }
 
-/* Dev Mode's distance: a red line and its number */
-.measure { position: absolute; z-index: 12; width: 1px; }
-.measure i { position: absolute; inset: 0; background: #f24822; transform-origin: 0 0; transition: transform var(--dur-2) var(--ease-out); }
-.measure[data-out] i { transform: scaleY(0); }
-.measure b {
-  position: absolute;
-  top: 50%;
-  left: 6px;
-  padding: 1px 4px;
-  border-radius: 2px;
-  background: #f24822;
+/* ── The prototype viewer ── */
+
+.viewer { overflow: hidden; border-radius: var(--site-piece-radius); background: #2c2c2c; }
+.viewerBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 44px;
+  padding: 0 8px 0 16px;
   color: #fff;
-  font: var(--ds-font-body-medium);
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
-  transform: translateY(-50%);
-  transition: opacity var(--dur-2) var(--ease-out) 120ms;
+  font: 500 12px/1 Inter, sans-serif;
 }
-.measure[data-out] b { opacity: 0; transition-delay: 0ms; }
+.viewerClose { display: grid; width: 28px; height: 28px; border-radius: 6px; color: #fff; place-items: center; }
+.viewerClose[data-hover] { background: rgba(255, 255, 255, 0.12); }
+.phone { position: absolute; overflow: hidden; border-radius: 18px; background: #fff; transform-origin: 0 0; }
+.screen { position: absolute; inset: 0; background: #fff; transition: transform 420ms var(--ease-out), opacity 420ms var(--ease-out); }
+.screen > .mPage > * { opacity: 1; transform: none; }
+.screen[data-out] { opacity: 0.4; transform: translate3d(-30%, 0, 0); }
+.screen[data-next] { transform: translate3d(100%, 0, 0); }
+.screen[data-next][data-on] { transform: none; }
+.nextBody { top: 64px; display: grid; gap: 10px; justify-items: start; }
+.nextBody strong { font: 700 22px/26px Inter, sans-serif; letter-spacing: -0.6px; }
+.nextBody > span:not(.nextButton) { color: #6b6b6b; font: 400 12px/16px Inter, sans-serif; }
+.nextIcon { width: 64px; height: 64px; overflow: hidden; border-radius: 16px; }
+.nextButton { margin-top: 8px; padding: 0 20px; border-radius: 17px; background: #1e1e1e; color: #fff; font: 600 13px/34px Inter, sans-serif; }
 
 /* ── The panels ── */
+
+.leftPiece { display: flex; }
+.leftPiece > nav, .leftPiece > [data-ds="Rail"] { height: 100%; }
+.leftCol { display: flex; flex: none; flex-direction: column; width: 240px; min-height: 0; background: var(--figma-color-bg); }
+.rightCol { display: flex; flex-direction: column; background: var(--figma-color-bg); }
+.rightCol > section:last-child { border-bottom: 0; }
 
 /* The facepile: each person's avatar in their colour; a newcomer comes in from a touch smaller */
 .pile { margin-right: 0; }
@@ -164,40 +198,9 @@
 .me { margin-left: -7px; }
 .pile > .me:first-child { margin-left: 0; }
 
-.code { padding: 0 8px 0 0; }
-
 .toolbarSlot { position: relative; width: 100%; height: 100%; }
 
 @media (prefers-reduced-motion: reduce) {
-  .caption, .frame, .button > i, .button > span, .marquee, .measure i, .measure b, .thumb { transition: none !important; }
+  .caption, .canvas, .world, .named, .frame, .logoDot, .button > i, .button > span, .mPage > *, .screen, .thumb { transition: none !important; }
   .face, .caret { animation: none !important; }
-}
-
-/* ── The loop: the canvas fades out, clears, and comes back empty ── */
-.canvas { position: absolute; inset: 0; transition: opacity var(--dur-3) var(--ease-out); }
-.canvas[data-clearing] { opacity: 0; transition: opacity 400ms var(--ease-in); }
-
-/* Claude Code's forecast cards: each lands where its cursor is */
-.card {
-  position: absolute;
-  z-index: 1;
-  display: grid;
-  box-sizing: border-box;
-  align-content: center;
-  gap: 2px;
-  padding: 0 12px;
-  border-radius: 8px;
-  background: #eef4fb;
-  color: #1e1e1e;
-  font: 500 12px/1.2 Inter, sans-serif;
-  opacity: 0;
-  transform: translate3d(0, 6px, 0) scale(0.97);
-  transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-3) var(--ease-out);
-}
-.card span { color: #6b6b6b; }
-.card strong { font: 700 18px/1 Inter, sans-serif; letter-spacing: -0.4px; }
-.card[data-on] { opacity: 1; transform: none; }
-.canvas[data-clearing] .card { transition: none; }
-@media (prefers-reduced-motion: reduce) {
-  .canvas, .card { transition: none !important; }
 }
