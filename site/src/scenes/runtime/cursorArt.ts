@@ -21,12 +21,18 @@ export function arrowSvg(color: string): string {
   return `<svg width="${SIZE}" height="${SIZE}" viewBox="0 0 ${SIZE} ${SIZE}" aria-hidden="true"><path d="${ARROW_EDGE}" fill="#fff"/><path d="${ARROW}" fill="${color}"/></svg>`;
 }
 
-/** The page's pointer: the arrow (black, or `color` over a tile) with its shadow as a CSS `cursor` value (hotspot at the
- *  tip; the system arrow after). */
-export function arrowCursor(color = "#000"): string {
+/** The pointer as a CSS `cursor` value: the arrow (black, or `color`) with its shadow and, with a `label`, the
+ *  multiplayer name pill at its tip (the UI3 kit's: 12 right and 13 below the tip, 1 × 4 padding, radius 2, 11 / 600)
+ *  drawn into the same image — so the name moves with the pointer itself, never a frame behind. Hotspot at the tip. */
+export function arrowCursor(color = "#000", label?: string): string {
   const pad = 2;
-  const box = SIZE + pad * 2;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${box}" height="${box}" viewBox="${-pad} ${-pad} ${box} ${box}"><defs><filter id="s" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.35"/></filter></defs><g filter="url(#s)"><path d="${ARROW_EDGE}" fill="#fff"/></g><path d="${ARROW}" fill="${color}"/></svg>`;
+  const pill = label ? { x: TIP[0] + 12, y: TIP[1] + 13, w: 8 + Math.ceil(label.length * 6.6), h: 18 } : null;
+  const w = Math.max(SIZE, pill ? pill.x + pill.w + 1 : 0) + pad * 2;
+  const h = Math.max(SIZE, pill ? pill.y + pill.h + 2 : 0) + pad * 2;
+  const name = pill
+    ? `<g filter="url(#p)"><rect x="${pill.x}" y="${pill.y}" width="${pill.w}" height="${pill.h}" rx="2" fill="${color}"/></g><text x="${pill.x + pill.w / 2}" y="${pill.y + 12.5}" text-anchor="middle" fill="#fff" font-family="Inter, -apple-system, system-ui, sans-serif" font-size="11" font-weight="600">${label}</text>`
+    : "";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${-pad} ${-pad} ${w} ${h}"><defs><filter id="s" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.35"/></filter><filter id="p" x="-20%" y="-30%" width="140%" height="160%"><feDropShadow dx="0" dy="1" stdDeviation="0.75" flood-opacity="0.1"/></filter></defs><g filter="url(#s)"><path d="${ARROW_EDGE}" fill="#fff"/></g><path d="${ARROW}" fill="${color}"/>${name}</svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${TIP[0] + pad} ${TIP[1] + pad}, auto`;
 }
 
