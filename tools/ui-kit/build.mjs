@@ -12,6 +12,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { connect } from "./mcp.mjs";
+import { guard } from "./guard.mjs";
 import * as C from "./convert.mjs";
 import { text as TEXT_STYLES, radius as RADIUS, space as SPACE, size as SIZE } from "../../src/renderer/src/ds/tokens.ts";
 
@@ -272,9 +273,7 @@ async function fillSlots(all, ids) {
       }
     }
     if (slot.icon) {
-      const ic = manifest.icons[slot.icon];
-      updates.push({ nodeId: `I${inst};${ic.color}`, fills: [occ.c.fg ?? "#000000e5"] });
-      addBind(`I${inst};${ic.color}`, "fills[0]", occ.c.fg, occ.cd?.fg, "icon");
+      iconColor(updates, inst, manifest.icons[slot.icon], occ.c.fg, occ.cd?.fg);
     } else {
       overrides(occ, manifest.components[slot.key], inst, updates, swaps);
     }
@@ -295,6 +294,29 @@ function fixedAxes(spec) {
   const h = spec.layoutSizingVertical ? spec.layoutSizingVertical === "FIXED" : spec.height != null && !["WIDTH_AND_HEIGHT", "HEIGHT"].includes(spec.textAutoResize);
   return (w ? "w" : "") + (h ? "h" : "") || null;
 }
+/**
+ * An icon instance's colour: an override on each of its vectors (stroke and / or fill, as icons.mjs made them),
+ * bound to the token; icons still in the old build (a colour layer over a mask) get it on that layer.
+ */
+function iconColor(updates, inst, ic, fg, fgDark) {
+  if (!ic) return;
+  const color = fg ?? "#000000e5";
+  const base = inst.startsWith("I") ? inst : `I${inst}`;
+  if (!ic.vectors) {
+    updates.push({ nodeId: `${base};${ic.color}`, fills: [color] });
+    addBind(`${base};${ic.color}`, "fills[0]", fg, fgDark, "icon");
+    return;
+  }
+  for (const v of ic.vectors.figma) {
+    const id = `${base};${v.id}`;
+    const u = { nodeId: id };
+    if (v.stroke) u.strokes = [v.toneOpacity != null ? { type: "SOLID", color, opacity: v.toneOpacity } : color];
+    if (v.fill) u.fills = [v.toneOpacity != null ? { type: "SOLID", color, opacity: v.toneOpacity } : color];
+    updates.push(u);
+    if (v.stroke) addBind(id, "strokes[0]", fg, fgDark, "icon");
+    if (v.fill) addBind(id, "fills[0]", fg, fgDark, "icon");
+  }
+}
 const I = (base) => (base.startsWith("I") ? base : `I${base}`);
 /** The overrides that turn an instance of `main` into the occurrence `occ` (same shape): texts, icons, colours. */
 function overrides(occ, mainRec, inst, updates, swaps) {
@@ -313,8 +335,7 @@ function overrides(occ, mainRec, inst, updates, swaps) {
         if (o.icon !== s.icon && manifest.icons[o.icon]) swaps.push({ ref: nb, main: manifest.icons[o.icon].id });
         const ic = manifest.icons[o.icon] ?? manifest.icons[s.icon];
         if (ic && (o.icon !== s.icon || (o.c?.fg ?? "") !== (s.c?.fg ?? ""))) {
-          updates.push({ nodeId: `${I(nb)};${ic.color}`, fills: [o.c?.fg ?? "#000000e5"] });
-          addBind(`${I(nb)};${ic.color}`, "fills[0]", o.c?.fg, o.cd?.fg, "icon");
+          iconColor(updates, nb, ic, o.c?.fg, o.cd?.fg);
         }
         if (Math.abs(o.w - s.w) > 0.5 || Math.abs(o.h - s.h) > 0.5) updates.push({ nodeId: nb, width: o.w, height: o.h });
         if ((o.rot ?? 0) !== (s.rot ?? 0)) updates.push({ nodeId: nb, rotation: -(o.rot ?? 0) });
@@ -576,6 +597,7 @@ async function buildComponents(model) {
     }
     await call("reparent_nodes", { nodeIds: seeds, parentId: await seedsFrame(), index: 0 }, { soft: true });
     await flushBinds();
+    for (const v of todo) await guard(mcp, manifest.components[v.key].id, { what: `${v.set} / ${manifest.components[v.key].name}` });
     done += todo.length;
     save();
     console.log(`components ${done} (depth ${dep})`);
@@ -589,6 +611,7 @@ async function buildComponents(model) {
     if (setId) {
       await call("update_nodes", { updates: [{ nodeId: setId, name: set }] }, { soft: true });
       manifest.sets[set] = { ...(manifest.sets[set] ?? {}), id: setId };
+      await guard(mcp, setId, { what: `set ${set}` });
     }
   }
   await layoutSections(sets, pageId);
@@ -639,6 +662,7 @@ async function layoutSections(sets, pageId) {
     if (target) await call("reparent_nodes", { nodeIds: [target], parentId: manifest.sets[n].section, index: 1 }, { soft: true });
   }
   save();
+  await guard(mcp, manifest.sectionsRoot, { max: 60000, top: true, what: "Wecra components" });
 }
 const isInside = (root, n) => {
   if (root === n) return true;
@@ -674,6 +698,7 @@ async function buildScreens(model) {
     await flushBinds();
     manifest.screens[sc.id] = { id: spec._id, title: sc.title, page: sc.page };
     save();
+    await guard(mcp, spec._id, { exact: { width: 1440, height: 900 }, top: true, what: sc.title });
     const shot = await mcp.call("get_screenshot", { nodeId: spec._id, maxSize: 1440 }, { soft: true });
     const img = Array.isArray(shot) ? shot.find((x) => x.image) : shot;
     if (img?.image) writeFileSync(join(OUT, "compare", `${sc.id}.png`), Buffer.from(img.image, "base64"));
@@ -713,6 +738,8 @@ function specUpdate(spec, id, isRoot) {
  * instances get their overrides again. Nothing is created or deleted, so instances stay linked to their mains.
  */
 async function updateInPlace(model) {
+  // --icons-only: the instances' overrides (icon colours and swaps among them) again, no layer's own properties
+  const iconsOnly = args.includes("--icons-only");
   const slotFor = (n) => {
     const v = model.variants.get(C.sig(n));
     const rec = v && manifest.components[v.key];
@@ -735,9 +762,7 @@ async function updateInPlace(model) {
         const inst = rec.slotPaths?.[path];
         if (!inst) continue;
         if (e.spec._.slot.icon) {
-          const ic = manifest.icons[e.spec._.slot.icon];
-          updates.push({ nodeId: `I${inst};${ic.color}`, fills: [src.c?.fg ?? "#000000e5"] });
-          addBind(`I${inst};${ic.color}`, "fills[0]", src.c?.fg, src.cd?.fg, "icon");
+          iconColor(updates, inst, manifest.icons[e.spec._.slot.icon], src.c?.fg, src.cd?.fg);
         } else overrides(src, manifest.components[e.spec._.slot.key], inst, updates, swaps);
         continue;
       }
@@ -747,7 +772,7 @@ async function updateInPlace(model) {
         continue;
       }
       e.spec._id = id;
-      updates.push(specUpdate(e.spec, id, e.spec === spec));
+      if (!iconsOnly) updates.push(specUpdate(e.spec, id, e.spec === spec));
     }
     collectBinds(entries.filter((e) => e.spec._id));
     mains++;
@@ -767,15 +792,15 @@ async function updateInPlace(model) {
         const slot = sp._.slot;
         const occ = sp._.src;
         if (slot.icon) {
-          const ic = manifest.icons[slot.icon];
-          updates.push({ nodeId: `I${mn.id};${ic.color}`, fills: [occ.c?.fg ?? "#000000e5"] });
-          addBind(`I${mn.id};${ic.color}`, "fills[0]", occ.c?.fg, occ.cd?.fg, "icon");
+          iconColor(updates, mn.id, manifest.icons[slot.icon], occ.c?.fg, occ.cd?.fg);
         } else overrides(occ, manifest.components[slot.key], mn.id, updates, swaps);
         return;
       }
+      // Only the layer the spec made: same kind and name (a screen edited since, or an outline out of step, is left alone)
+      if (!isRoot && (mn.type === "instance" || mn.name !== sp.name)) return void skipped++;
       sp._id = mn.id;
       done.push({ spec: sp });
-      updates.push(specUpdate(sp, mn.id, isRoot));
+      if (!iconsOnly) updates.push(specUpdate(sp, mn.id, isRoot));
       const kids = sp.children ?? [];
       if (kids.length !== mn.children.length) return void skipped++;
       kids.forEach((k, i) => align(k, mn.children[i], false));
@@ -787,6 +812,8 @@ async function updateInPlace(model) {
   for (const sw of swaps) await call("run_command", { engineCommand: "SWAP_INSTANCE", args: { main: sw.main, ref: sw.ref } }, { soft: true });
   for (let i = 0; i < updates.length; i += 300) await call("update_nodes", { updates: updates.slice(i, i + 300) }, { soft: true });
   await flushBinds();
+  for (const sc of model.screens) if (manifest.screens[sc.id]?.id && (!only || only.includes(sc.id))) await guard(mcp, manifest.screens[sc.id].id, { exact: { width: 1440, height: 900 }, top: true, what: sc.title });
+  if (manifest.sectionsRoot) await guard(mcp, manifest.sectionsRoot, { max: 60000, top: true, what: "Wecra components" });
   console.log(`updated in place: ${mains} mains, ${screens} screens, ${updates.length} layer updates, ${skipped} not matched`);
 }
 

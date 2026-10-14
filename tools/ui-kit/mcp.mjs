@@ -39,17 +39,61 @@ export async function connect() {
     }
   };
   /** A tool call: the parsed JSON of its text (or the text), images as {image}; throws on isError unless `soft`. */
-  const call = async (name, args = {}, { soft = false } = {}) => {
+  // Writes name their targets: a tool given no ids (or an empty list) acts on the user's selection — a script must
+  // never do that (an empty list once moved the owner's selected screen into an icon component).
+  const TARGETS = { reparent_nodes: ["nodeIds"], delete_nodes: ["nodeIds"], duplicate_nodes: ["nodeIds"], set_properties: ["nodeIds", "nodeId"], bind_variable: ["nodeIds", "nodeId"], apply_variable: ["nodeIds", "nodeId"], apply_style: ["nodeIds"], set_variable_mode: ["nodeIds", "nodeId"], set_auto_layout: ["nodeId"], create_nodes: ["parentId"], place_image: ["parentId", "nodeId"] };
+  const named = (name, args) => {
+    const keys = TARGETS[name];
+    if (name === "run_command" && args.command && !(Array.isArray(args.nodeIds) && args.nodeIds.length)) return false;
+    if (name === "run_command" && Array.isArray(args.nodeIds) && !args.nodeIds.length) return false;
+    if (!keys) return true;
+    return keys.some((k) => (Array.isArray(args[k]) ? args[k].length > 0 : typeof args[k] === "string" && args[k].length > 0));
+  };
+  /**
+   * The page a layer is on: each page's outline read in pieces (get_metadata trims a large answer, saying so), cached;
+   * read again once on a miss.
+   */
+  let pageIndex = null;
+  const outline = async (id) => String((await rpc("tools/call", { name: "get_metadata", arguments: { nodeId: id, depth: 40 } })).content[0].text);
+  const scanInto = async (id, page, depth = 0) => {
+    const xml = await outline(id);
+    for (const m of xml.matchAll(/ id="([^"]+)"/g)) pageIndex.set(m[1], page);
+    if (!/left out/.test(xml) || depth > 6) return;
+    // Trimmed: the direct children, each read on its own
+    const kids = [...String((await rpc("tools/call", { name: "get_metadata", arguments: { nodeId: id, depth: 1 } })).content[0].text).matchAll(/^ {2}<\w+ id="([^"]+)"/gm)].map((m) => m[1]);
+    for (const k of kids) if (!k.startsWith("I")) await scanInto(k, page, depth + 1);
+  };
+  const pageOf = async (id) => {
+    if (pageIndex?.has(id)) return pageIndex.get(id);
+    pageIndex = pageIndex ?? new Map();
+    const sel = await rpc("tools/call", { name: "get_selection", arguments: {} });
+    for (const p of JSON.parse(sel.content[0].text).pages) {
+      pageIndex.set(p.id, p.name);
+      await scanInto(p.id, p.name);
+      if (pageIndex.has(id)) break;
+    }
+    return pageIndex.get(id) ?? null;
+  };
+  const call = async (name, args = {}, { soft = false, page = null } = {}) => {
+    if (!READS.has(name) && !named(name, args)) throw new Error(`${name}: refused by the script's guard — a write must name its targets (no ids = the user's selection): ${JSON.stringify(args).slice(0, 200)}`);
+    if (page) {
+      for (const k of ["parentId", "nodeId"]) {
+        if (typeof args[k] !== "string") continue;
+        const on = await pageOf(args[k]);
+        if (on !== page && args[k] !== page) throw new Error(`${name}: refused by the script's guard — ${k} ${args[k]} is on "${on}", not "${page}"`);
+      }
+    }
     const gap = PACE - (Date.now() - last);
     if (gap > 0) await new Promise((r) => setTimeout(r, gap));
     if (!READS.has(name)) await healthy();
     last = Date.now();
     const r = await rpc("tools/call", { name, arguments: args });
     const out = r.content.map((c) => (c.type === "text" ? tryJson(c.text) : { image: c.data, mimeType: c.mimeType }));
+    if (page && pageIndex && !r.isError) for (const o of out) for (const n of o?.nodes ?? o?.copies ?? []) if (n?.nodeId || n?.id) pageIndex.set(n.nodeId ?? n.id, page);
     if (r.isError && !soft) throw new Error(`${name}: ${typeof out[0] === "string" ? out[0] : JSON.stringify(out[0]).slice(0, 2000)}`);
     return out.length === 1 ? out[0] : out;
   };
-  return { call, rpc, healthy };
+  return { call, rpc, healthy, pageOf };
 }
 
 const tryJson = (t) => {
