@@ -5,6 +5,8 @@ import { isWebApp, webRoute } from "@/app/webApp";
 import { installTextFieldKeys } from "@/app/textFieldKeys";
 import { initLocale } from "@/i18n";
 import { completeWebSignIn, currentWebSession } from "@/store/webAccount";
+// TEMPORARY dev tool: the design tokens panel (⌥⇧⌘D) — remove with src/renderer/src/devtools/
+import { TokenPanel } from "@/devtools/TokenPanel";
 
 const webSignedIn = () => currentWebSession() !== null;
 
@@ -71,6 +73,7 @@ void initLocale().finally(() =>
       <Suspense fallback={null}>
         <Page />
       </Suspense>
+      <TokenPanel />
     </StrictMode>
   )
 );
