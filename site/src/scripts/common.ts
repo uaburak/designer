@@ -2,7 +2,7 @@
 // theme toggle), the text's reveal and the Download blocks. Pages with scenes mount them on top (scenes/runtime/mount.tsx).
 import "@/ds/global.css";
 import "../styles/site.css";
-import { cssCursor } from "@/engine/cursors";
+import { arrowCursor } from "../scenes/runtime/cursorArt";
 import { installMotionTokens } from "../scenes/runtime/easing";
 import { initThemeToggle } from "./theme";
 import { detectPlatform, formatDate, formatSize, loadReleases, offerFor, type Offer, type Platform } from "./releases";
@@ -152,9 +152,9 @@ export function initReveal(): void {
   for (const el of units) io.observe(el);
 }
 
-/** The page's pointer is the app's own canvas arrow (Figma UI3's), in black with its white edge. */
+/** The page's pointer is Figma UI3's arrow (the UI3 kit's cursor-black: black, white edged, a soft shadow). */
 export function initCursor(): void {
-  document.documentElement.style.setProperty("--site-cursor", cssCursor("DEFAULT", 0));
+  document.documentElement.style.setProperty("--site-cursor", arrowCursor());
 }
 
 export function initPage(): void {

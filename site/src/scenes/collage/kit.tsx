@@ -7,7 +7,7 @@
 // glide along curved paths with the Web Animations API (usePointer + Cursor), a selection draws its outline in and
 // resizes by transforming its edges, and numbers count with the shared ticker (Dims, runtime/ticker.ts).
 import { forwardRef, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
-import { ARROW, CURSOR } from "../runtime/cursorArt";
+import { ARROW, ARROW_EDGE, CURSOR, SIZE } from "../runtime/cursorArt";
 import { BEZIER, css, cubicBezier, durationFor, SPRING, springEasing, type Bezier } from "../runtime/easing";
 import { useScene, type Run } from "../runtime/motion";
 import { arcPoints, bendFor, type Point } from "../runtime/path";
@@ -349,8 +349,9 @@ export function Cursor({ x, y, press, ms, bend, ease, path, color = CURSOR.ink, 
     >
       <span className={styles.cursorBody}>
         <i className={styles.ring} />
-        <svg className={styles.arrow} width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
-          <path d={ARROW} fill={color} stroke="#fff" strokeWidth="1.4" strokeLinejoin="round" />
+        <svg className={styles.arrow} width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
+          <path d={ARROW_EDGE} fill="#fff" />
+          <path d={ARROW} fill={color} />
         </svg>
         {name && <span className={styles.cursorName}>{name}</span>}
       </span>

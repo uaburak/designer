@@ -99,12 +99,14 @@
   transform: scale(0.85);
 }
 .stage[data-play] .cursor[data-out] .cursorBody { --d: 0ms; }
+/* Figma UI3's arrow (runtime/cursorArt.ts): its tip (4, 3) on the point, the kit's shadow */
 .arrow {
   position: absolute;
   top: -3px;
-  left: -5px;
+  left: -4px;
   display: block;
-  transform-origin: 5px 3px;
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.35));
+  transform-origin: 4px 3px;
   transition: scale var(--dur-spring-snap) var(--ease-spring-snap);
 }
 .cursor[data-press] .arrow {
@@ -129,15 +131,17 @@
   100% { opacity: 0; transform: scale(1.1); }
 }
 /* Figma's multiplayer name: a pill in the cursor's colour, below and right of the tip */
+/* The name, as the UI3 kit's cursor-multiplayer-*: 12 right and 13 below the tip, 1 × 4 padding, radius 2, 11 / 550 */
 .cursorName {
   position: absolute;
-  top: 15px;
-  left: 8px;
-  padding: 2px 7px;
-  border-radius: 999px;
+  top: 13px;
+  left: 12px;
+  padding: 1px 4px;
+  border-radius: 2px;
   background: var(--c);
+  box-shadow: 0 1px 1.5px rgba(0, 0, 0, 0.1);
   color: #fff;
-  font: 500 11px/16px var(--site-font, Inter, sans-serif);
+  font: 550 11px/16px var(--site-font, Inter, sans-serif);
   letter-spacing: 0.005em;
   white-space: nowrap;
 }

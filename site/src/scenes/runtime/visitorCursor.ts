@@ -4,7 +4,7 @@
 // click (pointer-events: none). It fades and scales in on enter and out on leave, and presses like the scene cursors.
 // Not on touch devices; under reduced motion it follows with no smoothing. The live "Try it" tile keeps the editor's
 // own cursors (its scene is `data-interactive`).
-import { arrowSvg, TIP, YOU } from "./cursorArt";
+import { arrowSvg, SHADOW, TIP, YOU } from "./cursorArt";
 import { follow, type Point } from "./path";
 import { prefersReduced } from "./reduced";
 import { onFrame } from "./ticker";
@@ -17,11 +17,11 @@ const CSS = `
 .you-cursor > span { position: absolute; top: 0; left: 0; display: block; opacity: 0; transform: scale(0.8); transform-origin: 0 0;
   transition: opacity 200ms var(--ease-out, ease-out), transform 360ms var(--ease-out, ease-out); }
 .you-cursor[data-on] > span { opacity: 1; transform: none; }
-.you-cursor svg { position: absolute; top: -${TIP[1]}px; left: -${TIP[0]}px; display: block; transform-origin: ${TIP[0]}px ${TIP[1]}px;
+.you-cursor svg { position: absolute; top: -${TIP[1]}px; left: -${TIP[0]}px; display: block; filter: ${SHADOW}; transform-origin: ${TIP[0]}px ${TIP[1]}px;
   transition: scale var(--dur-spring-snap, 300ms) var(--ease-spring-snap, ease-out); }
 .you-cursor[data-press] svg { scale: 0.92; transition: scale 90ms var(--ease-out, ease-out); }
-.you-cursor b { position: absolute; top: 15px; left: 8px; padding: 2px 7px; border-radius: 999px; background: ${YOU}; color: #fff;
-  font: 500 11px/16px var(--site-font, Inter, sans-serif); letter-spacing: 0.005em; white-space: nowrap; }
+.you-cursor b { position: absolute; top: 13px; left: 12px; padding: 1px 4px; border-radius: 2px; background: ${YOU}; color: #fff;
+  box-shadow: 0 1px 1.5px rgba(0, 0, 0, 0.1); font: 550 11px/16px var(--site-font, Inter, sans-serif); letter-spacing: 0.005em; white-space: nowrap; }
 [data-you-tile], [data-you-tile] * { cursor: none !important; }
 @media (prefers-reduced-motion: reduce) { .you-cursor > span, .you-cursor svg { transition: none !important; } }
 `;
