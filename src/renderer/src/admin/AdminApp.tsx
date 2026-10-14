@@ -21,6 +21,7 @@ import { AdminContext, useAdmin, useAdminState, useLoad, type AdminStore, type A
 import type { SharedFontsApi } from "@shared/desktop";
 import { styles } from "./parts";
 import { TeamIcon } from "@/files/parts";
+import { t, useT } from "@/i18n";
 
 
 export type AdminSection = "dashboard" | "people" | "content" | "resources" | "activity" | "billing" | "settings" | "libraries" | "plugins";
@@ -65,6 +66,7 @@ export interface AdminAppProps {
 }
 
 export function AdminApp({ orgId, store, onExportCsv, onBack, initial, now = Date.now, fonts, workspace, onTestSso, onTryPlugin }: AdminAppProps) {
+  useT();
   const ctx = useAdminState(orgId, store, onExportCsv, now, fonts, workspace, onTestSso, onTryPlugin);
   return (
     <AdminContext.Provider value={ctx}>
@@ -74,6 +76,7 @@ export function AdminApp({ orgId, store, onExportCsv, onBack, initial, now = Dat
 }
 
 function AdminLayout({ onBack, initial }: { onBack?: () => void; initial?: AdminAppProps["initial"] }) {
+  useT();
   const { workspace, store } = useAdmin();
   // Round 14h: with `store.governance`, Activity gains the Developer logs tab (docs/governance.md §5)
   const sections = workspace ? WORKSPACE_SECTIONS : store.governance ? SECTIONS.map((s) => (s.id === "activity" ? { ...s, tabs: ACTIVITY_TABS } : s)) : SECTIONS;
@@ -86,21 +89,21 @@ function AdminLayout({ onBack, initial }: { onBack?: () => void; initial?: Admin
     setSection(s);
     setDashView(null);
   };
-  const title = section === "dashboard" && dashView ? (dashView === "seatRequests" ? "Seat requests" : "Guest requests") : meta.label;
+  const title = section === "dashboard" && dashView ? (dashView === "seatRequests" ? t("Seat requests") : t("Guest requests")) : t(meta.label);
   return (
     <div className={styles.app} data-admin="">
-      <nav className={styles.sidebar} aria-label="Admin">
+      <nav className={styles.sidebar} aria-label={t("Admin")}>
         <OrgHeader />
-        {onBack && <SidebarItem icon="24.arrow.left" label="Back to files" onClick={onBack} />}
+        {onBack && <SidebarItem icon="24.arrow.left" label={t("Back to files")} onClick={onBack} />}
         {onBack && <SidebarDivider />}
         {sections.map((s) => (
-          <SidebarItem key={s.id} icon={s.icon} label={s.label} selected={s.id === section} onClick={() => go(s.id)} />
+          <SidebarItem key={s.id} icon={s.icon} label={t(s.label)} selected={s.id === section} onClick={() => go(s.id)} />
         ))}
       </nav>
       <main className={styles.main}>
         <header className={styles.header}>
           {section === "dashboard" && dashView && (
-            <button type="button" className={`${styles.sort} ${styles.back}`} aria-label="Back to Dashboard" onClick={() => setDashView(null)}>
+            <button type="button" className={`${styles.sort} ${styles.back}`} aria-label={t("Back to Dashboard")} onClick={() => setDashView(null)}>
               <Icon name="24.arrow.left" />
             </button>
           )}
@@ -108,7 +111,7 @@ function AdminLayout({ onBack, initial }: { onBack?: () => void; initial?: Admin
         </header>
         {meta.tabs && (
           <div className={styles.tabs}>
-            <Tabs label={meta.label} value={tab!} tabs={meta.tabs} onChange={(v) => setTabs((t) => ({ ...t, [section]: v }))} />
+            <Tabs label={t(meta.label)} value={tab!} tabs={meta.tabs.map((x) => ({ ...x, label: t(x.label) }))} onChange={(v) => setTabs((was) => ({ ...was, [section]: v }))} />
           </div>
         )}
         <div className={styles.body} data-admin-page={`${section}${tab ? `/${tab}` : ""}${dashView ? `/${dashView}` : ""}`}>
@@ -138,16 +141,17 @@ function AdminLayout({ onBack, initial }: { onBack?: () => void; initial?: Admin
 
 /** The sidebar's head: the org's icon (§14.16) and name with "Admin" (a workspace admin: the workspace's name) */
 function OrgHeader() {
+  useT();
   const { orgId, store, workspace } = useAdmin();
   const { data } = useLoad(
-    () => (workspace ? Promise.resolve({ name: workspace.name, iconUrl: null }) : store.orgs ? store.orgs.get(orgId).then((o) => ({ name: o.name, iconUrl: o.iconUrl ?? null })) : Promise.resolve({ name: "Organization", iconUrl: null })),
+    () => (workspace ? Promise.resolve({ name: workspace.name, iconUrl: null }) : store.orgs ? store.orgs.get(orgId).then((o) => ({ name: o.name, iconUrl: o.iconUrl ?? null })) : Promise.resolve({ name: t("Organization"), iconUrl: null })),
     [orgId, store.orgs, workspace?.name],
   );
   return (
     <div className={styles.org}>
       {data && !workspace && <TeamIcon name={data.name} iconUrl={data.iconUrl} size={24} />}
       <span className={styles.orgName}>{data?.name ?? ""}</span>
-      <span className={styles.orgTag}>Admin</span>
+      <span className={styles.orgTag}>{t("Admin")}</span>
     </div>
   );
 }

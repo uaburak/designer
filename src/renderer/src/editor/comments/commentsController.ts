@@ -6,6 +6,7 @@
  */
 import { useSyncExternalStore } from "react";
 import { showToast } from "@/ds";
+import { t } from "@/i18n";
 import { getStoreClient } from "@/store";
 import { mentionsIn, type CommentAnchor, type CommentsState, type CommentThread, type MentionCandidate } from "@shared/comments";
 import type { Guid, NodeChange } from "@/engine/codec";
@@ -123,7 +124,7 @@ export class CommentsController {
         return data;
       },
       (e: unknown) => {
-        showToast({ message: e instanceof Error && e.message ? e.message : onError, kind: "error" });
+        showToast({ message: e instanceof Error && e.message ? e.message : t(onError), kind: "error" });
         return null;
       },
     );
@@ -162,7 +163,7 @@ export class CommentsController {
     this.set({ draft: null });
     if (!toldAboutReplies) {
       toldAboutReplies = true;
-      showToast({ message: "You will be notified about replies" });
+      showToast({ message: t("You will be notified about replies") });
     }
     return true;
   }
@@ -186,7 +187,7 @@ export class CommentsController {
     if (!data || !resolved) return;
     // Live: resolving closes the thread, "Comment resolved" · Undo.
     if (this.view.open === threadId) this.set({ open: null });
-    showToast({ message: "Comment resolved", action: { label: "Undo", onAction: () => void this.resolve(threadId, false) } });
+    showToast({ message: t("Comment resolved"), action: { label: t("Undo"), onAction: () => void this.resolve(threadId, false) } });
   }
 
   async markRead(threadIds: string[], read: boolean): Promise<void> {
@@ -223,11 +224,11 @@ export class CommentsController {
   }
 
   copyLink(threadId: string): void {
-    const t = this.view.data?.threads.find((x) => x.id === threadId);
+    const thread = this.view.data?.threads.find((x) => x.id === threadId);
     const url = new URL(location.href);
-    url.hash = `comment-${t?.id ?? threadId}`;
+    url.hash = `comment-${thread?.id ?? threadId}`;
     void navigator.clipboard?.writeText(url.toString()).then(
-      () => showToast({ message: "Copied link to clipboard" }),
+      () => showToast({ message: t("Copied link to clipboard") }),
       () => {},
     );
   }

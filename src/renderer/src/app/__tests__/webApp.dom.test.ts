@@ -104,16 +104,16 @@ describe("the web app: welcome → Home", () => {
     sessionStorage.setItem("designer.web.signin", JSON.stringify({ state: "st", verifier: "v" }));
     history.replaceState(null, "", "/?auth_code=code&auth_state=st");
     const root = await mountFiles();
-    await vi.waitFor(() => expect(text()).toContain("Drafts"), { timeout: 3000 });
-    // Home opens on Recents; the person's Drafts list the draft made elsewhere
-    const drafts = [...document.querySelectorAll<HTMLElement>("button, a, [role=treeitem], [role=link], [role=button]")].find((e) => e.textContent?.trim() === "Drafts")!;
+    await vi.waitFor(() => expect(text()).toContain("All projects"), { timeout: 3000 });
+    // Home opens on All projects (the person's Drafts outside an org): they list the draft made elsewhere
+    const drafts = [...document.querySelectorAll<HTMLElement>("button, a, [role=treeitem], [role=link], [role=button]")].find((e) => e.textContent?.trim() === "All projects")!;
     expect(drafts).toBeTruthy();
     act(() => void drafts.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     await vi.waitFor(() => expect(text()).toContain("Poster"), { timeout: 3000 });
     expect(location.search).toBe("");
     expect(text()).not.toContain("Welcome to Wecra");
     expect(text()).toContain("Alice");
-    expect(text()).toContain("Drafts");
+    expect(text()).toContain("All projects");
     expect(text()).not.toContain("My team");
     // The account's own cache
     expect(idb.names()).toEqual([`wecra.cache.${alice.user.id}`]);

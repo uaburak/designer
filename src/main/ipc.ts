@@ -24,7 +24,10 @@ import { isAppUrl } from "./protocol";
 import { workspaceDir } from "./storeHost";
 import { setShortcutSettings, shortcutSettings } from "./shortcuts";
 import { setContrast, setThemePreference, themeState } from "./theme";
+import { setLocalePreference } from "./locale";
+import { parseLocale, t } from "../shared/i18n";
 import { removeUploadedFont, uploadFonts, uploadedFonts } from "./uploadedFonts";
+import { figmaConnection } from "./figma";
 import { checkForUpdates, onUpdaterChange, restartToUpdate, updaterStatus } from "./updater";
 import { emit, settleFlush } from "./tabs";
 import { viewOf, type ViewInfo } from "./views";
@@ -300,6 +303,15 @@ export function registerIpc() {
     return setThemePreference(preference);
   });
   onInvoke("theme:set-contrast", (_c, on) => setContrast(on === true));
+  onInvoke("locale:set", (_c, locale) => setLocalePreference(parseLocale(locale)));
+  // ── The Figma connection (docs/desktop.md §13 "Images from Figma"): the token is sealed here, never sent back ──
+  onInvoke("figma:status", () => figmaConnection().status());
+  onInvoke("figma:connect", (_c, p) => figmaConnection().connect(str(p?.token, 1024) ?? ""));
+  onInvoke("figma:disconnect", () => figmaConnection().disconnect());
+  onInvoke("figma:images", (_c, p) => {
+    const hashes = Array.isArray(p?.hashes) ? p.hashes.slice(0, 2000).flatMap((h) => (str(h, 40) ? [h] : [])) : [];
+    return figmaConnection().images(str(p?.fileKey, 128) ?? "", hashes);
+  });
   // ── Settings › Account › Your uploaded fonts ──
   onInvoke("fonts:uploaded", () => uploadedFonts());
   onInvoke("fonts:upload", ({ ctl }) => uploadFonts(ctl.win));
@@ -312,7 +324,7 @@ export function registerIpc() {
   onInvoke("fonts:shared-list", (_c, p) => sharedFonts.listScopeFonts(sharedFonts.checkScope(p?.scope)));
   onInvoke("fonts:shared-pick", async ({ ctl }, p) => {
     const scope = sharedFonts.checkScope(p?.scope);
-    const r = await dialog.showOpenDialog(ctl.win, { title: "Upload fonts", buttonLabel: "Open", properties: ["openFile", "multiSelections"], filters: [{ name: "Fonts", extensions: ["ttf", "otf"] }] });
+    const r = await dialog.showOpenDialog(ctl.win, { title: t("Upload fonts"), buttonLabel: t("Open"), properties: ["openFile", "multiSelections"], filters: [{ name: t("Fonts"), extensions: ["ttf", "otf"] }] });
     if (r.canceled || !r.filePaths.length) return { cancelled: true as const };
     return sharedFonts.prepareUpload(scope, r.filePaths.slice(0, 200));
   });

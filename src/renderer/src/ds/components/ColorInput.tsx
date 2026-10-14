@@ -5,6 +5,7 @@ import { selectAllOnClick } from "../util/selectAll";
 import { useReturnFocus } from "../util/returnFocus";
 import { isMixed, type ChangeInfo, type Mixed } from "../types";
 import { STRINGS } from "../strings";
+import { t, useT } from "@/i18n";
 import { NumericInput } from "./NumericInput";
 import { Swatch } from "./Swatch";
 import styles from "./Field.module.css";
@@ -39,6 +40,7 @@ export interface ColorInputProps extends Omit<HTMLAttributes<HTMLDivElement>, "c
  * else reverts), a line in the panel colour, the opacity with its %.
  */
 export function ColorInput({ label, color, opacity, onColor, onOpacity, onSwatchClick, swatchLabel, swatch, valueLabel, disabled, className, ...rest }: ColorInputProps) {
+  useT();
   const [draft, setDraft] = useState<string | null>(null);
   const cancelled = useRef(false);
   const mixedColor = isMixed(color);
@@ -76,7 +78,7 @@ export function ColorInput({ label, color, opacity, onColor, onOpacity, onSwatch
         aria-label={label}
         disabled={disabled}
         value={draft ?? (mixedColor ? "" : hexDigits(color))}
-        placeholder={mixedColor ? STRINGS.mixed : undefined}
+        placeholder={mixedColor ? t(STRINGS.mixed) : undefined}
         spellCheck={false}
         {...selectAllOnClick}
         onFocus={(e) => e.currentTarget.select()}

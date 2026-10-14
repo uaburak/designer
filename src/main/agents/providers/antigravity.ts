@@ -5,6 +5,7 @@ import { SYSTEM_PROMPT } from "../../../shared/agents/prompts";
 import { MCP_SERVER_NAME } from "../../../shared/agents/tools";
 import { friendlyApiError } from "../../../shared/agents/errors";
 import { oneShotText, promptWithContext, promptWithHistory, text, tokenUsage, type AuthEnv, type CliModels, type CliSpec, type OneShotInput, type OneShotPlan, type RunResult } from "./turns";
+import { t as tr } from "../../../shared/i18n";
 
 /**
  * Google Antigravity's CLI (`agy`, antigravity.google/docs/cli): how a Google AI Pro / Ultra plan reaches the chat
@@ -255,9 +256,9 @@ export const antigravity: CliSpec = {
         if (usage) out.push({ type: "usage", usage });
         if (r.status && r.status !== "SUCCESS") {
           const why = typeof r.error === "string" ? r.error : text((r.error as { message?: string } | undefined)?.message);
-          out.push({ type: "error", message: r.status === "CANCELED" || r.status === "INTERRUPTED" ? "Antigravity stopped." : friendlyApiError(why) || `Antigravity stopped (${r.status}).` });
+          out.push({ type: "error", message: r.status === "CANCELED" || r.status === "INTERRUPTED" ? tr("Antigravity stopped.") : friendlyApiError(why) || tr("Antigravity stopped ({status}).", { status: r.status }) });
         } else if (!text(r.response).trim() && r.denied_actions?.length)
-          out.push({ type: "error", message: `Antigravity wasn’t allowed to ${[...new Set(r.denied_actions.map((d) => d.display_name || d.action))].join(", ")} here.` });
+          out.push({ type: "error", message: tr("Antigravity wasn’t allowed to {actions} here.", { actions: [...new Set(r.denied_actions.map((d) => d.display_name || d.action))].join(", ") }) });
         break;
       }
     }

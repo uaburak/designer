@@ -452,6 +452,11 @@ export interface ConvertOptions {
    * a paste or an old snapshot of ours drops them).
    */
   keepDerived?: boolean;
+  /**
+   * A clipboard Message (paste from Figma): the copied layers keep their own parent, which the clipboard doesn't carry —
+   * nodes whose parent is a `clipboardSelectionRegions` parent are kept.
+   */
+  clipboard?: boolean;
 }
 
 /**
@@ -515,8 +520,9 @@ export function convertFigMessage(message: any, theirs: SchemaModel, ours: Schem
 
   nodes = adoptSlotContent(nodes, report);
 
-  // Drop nodes whose parent is gone (the subtree of a dropped node), repeatedly.
+  // Drop nodes whose parent is gone (the subtree of a dropped node), repeatedly. A clipboard's region parents stay.
   const keys = new Set(nodes.filter((n) => n.guid).map((n) => guidKey(n.guid!)));
+  if (opts.clipboard) for (const r of projected.clipboardSelectionRegions ?? []) if (r.parent) keys.add(guidKey(r.parent));
   for (;;) {
     const before = nodes.length;
     nodes = nodes.filter((n) => {

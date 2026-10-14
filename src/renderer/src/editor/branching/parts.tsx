@@ -5,6 +5,7 @@
  */
 import type { ReactNode } from "react";
 import { Badge, Button, FocusTrap, IconButton, MenuButton, Portal, ScrollArea, Icon } from "@/ds";
+import { t, useT } from "@/i18n";
 import type { MergePreview } from "../../../../shared/merge/branches";
 import type { DiffChunk, Resolutions, Side } from "../../../../shared/merge/types";
 import { ChunkCompare, type SideDocs } from "./ChunkCompare";
@@ -12,16 +13,18 @@ import { badgeTone, changeTag, conflictChunks, groupChunks, pickAll, pickOf, wit
 import styles from "./Branching.module.css";
 
 export function BranchBadge({ kind }: { kind: BadgeKind | null }) {
+  useT();
   if (!kind) return null;
   return (
     <Badge tone={badgeTone(kind)} data-branch-badge={kind}>
-      {kind}
+      {t(kind)}
     </Badge>
   );
 }
 
 /** The scrim and window of a full-size branching modal, with its header (back, title, extra, ×). */
 export function BranchWindow({ label, title, onClose, onBack, extra, children, footer }: { label: string; title: ReactNode; onClose: () => void; onBack?: () => void; extra?: ReactNode; children: ReactNode; footer?: ReactNode }) {
+  useT();
   return (
     <Portal>
       <div className={styles.scrim} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -29,7 +32,7 @@ export function BranchWindow({ label, title, onClose, onBack, extra, children, f
           <div
             role="dialog"
             aria-modal="true"
-            aria-label={label}
+            aria-label={t(label)}
             className={styles.window}
             data-branch-window={label}
             onKeyDown={(e) => {
@@ -40,11 +43,11 @@ export function BranchWindow({ label, title, onClose, onBack, extra, children, f
             }}
           >
             <header className={styles.header}>
-              {onBack && <IconButton icon="24.arrow.left" label="Back" onClick={onBack} />}
+              {onBack && <IconButton icon="24.arrow.left" label={t("Back")} onClick={onBack} />}
               <span className={styles.title}>{title}</span>
               {extra}
               <span className={styles.grow} />
-              <IconButton icon="24.close.small" label="Close" onClick={onClose} />
+              <IconButton icon="24.close.small" label={t("Close")} onClick={onClose} />
             </header>
             {children}
             {footer && <footer className={styles.footer}>{footer}</footer>}
@@ -57,8 +60,9 @@ export function BranchWindow({ label, title, onClose, onBack, extra, children, f
 
 /** The changes, by page then top-level layer, each tagged Added / Edited / Removed; conflicting ones flagged. */
 export function ChangeList({ chunks, selected, onSelect }: { chunks: readonly DiffChunk[]; selected: number | null; onSelect: (index: number) => void }) {
+  useT();
   const groups = groupChunks(chunks);
-  if (!groups.length) return <div className={styles.hint}>No changes</div>;
+  if (!groups.length) return <div className={styles.hint}>{t("No changes")}</div>;
   return (
     <div className={styles.changes} data-change-list="">
       {groups.map((g) => (
@@ -69,7 +73,7 @@ export function ChangeList({ chunks, selected, onSelect }: { chunks: readonly Di
               <span className={styles.grow}>{c.displayName || c.displayType}</span>
               {c.conflicts.length > 0 && <Icon name="24.warning" />}
               <span className={styles.tag} data-tag={changeTag(c)}>
-                {changeTag(c)}
+                {t(changeTag(c))}
               </span>
             </button>
           ))}
@@ -84,6 +88,7 @@ export function ChangeList({ chunks, selected, onSelect }: { chunks: readonly Di
  * one with main on the left and the branch on the right, and its two picks; Resolve all; Next once all are picked.
  */
 export function Conflicts({ preview, picks, onPicks, docs, selected, onSelect, onNext }: { preview: MergePreview; picks: Resolutions; onPicks: (p: Resolutions) => void; docs: SideDocs; selected: number | null; onSelect: (i: number) => void; onNext: () => void }) {
+  useT();
   const list = conflictChunks(preview);
   const chunk = list.find((c) => c.index === selected) ?? list[0] ?? null;
   const pick = (side: Side) => chunk && onPicks(withPick(picks, chunk, side));
@@ -91,18 +96,18 @@ export function Conflicts({ preview, picks, onPicks, docs, selected, onSelect, o
     <div className={styles.body} data-conflicts="">
       <nav className={styles.sidebar}>
         <div className={styles.sidebarHead}>
-          <span className={styles.sectionTitle}>Conflicts</span>
+          <span className={styles.sectionTitle}>{t("Conflicts")}</span>
           <span className={styles.grow} />
           <MenuButton
-            label="Resolve all"
+            label={t("Resolve all")}
             entries={[
-              { id: "main", label: "Pick main file" },
-              { id: "branch", label: "Pick branch" },
+              { id: "main", label: t("Pick main file") },
+              { id: "branch", label: t("Pick branch") },
             ]}
             onSelect={(id) => onPicks(pickAll(id as Side))}
             className={styles.menuTrigger}
           >
-            <span>Resolve all</span>
+            <span>{t("Resolve all")}</span>
             <Icon name="16.chevron.down" />
           </MenuButton>
         </div>
@@ -113,11 +118,11 @@ export function Conflicts({ preview, picks, onPicks, docs, selected, onSelect, o
               <button key={c.index} type="button" className={styles.row} aria-current={c.index === chunk?.index || undefined} data-conflict-chunk={c.index} onClick={() => onSelect(c.index)}>
                 <span className={styles.grow}>
                   <span className={styles.rowName}>{c.displayName || c.displayType}</span>
-                  <span className={styles.hint}>{c.canvasIsInternal ? "Assets" : c.canvasName}</span>
+                  <span className={styles.hint}>{c.canvasIsInternal ? t("Assets") : c.canvasName}</span>
                 </span>
                 {p && (
                   <Badge tone={p === "main" ? "default" : "brand"} data-pick={p}>
-                    {p}
+                    {p === "main" ? t("main") : t("branch")}
                   </Badge>
                 )}
               </button>
@@ -134,20 +139,20 @@ export function Conflicts({ preview, picks, onPicks, docs, selected, onSelect, o
               chunk={chunk}
               modes={false}
               sides={[
-                { side: "main", caption: "Main file" },
-                { side: "branch", caption: "Branch" },
+                { side: "main", caption: t("Main file") },
+                { side: "branch", caption: t("Branch") },
               ]}
             />
             <div className={styles.picks}>
               <Button variant={pickOf(picks, chunk) === "main" ? "primary" : "secondary"} onClick={() => pick("main")} data-keep="main">
-                Keep main
+                {t("Keep main")}
               </Button>
               <Button variant={pickOf(picks, chunk) === "branch" ? "primary" : "secondary"} onClick={() => pick("branch")} data-keep="branch">
-                Keep branch
+                {t("Keep branch")}
               </Button>
               <span className={styles.grow} />
               <Button variant="primary" disabled={!allPicked(picks, preview)} onClick={onNext}>
-                Next
+                {t("Next")}
               </Button>
             </div>
           </>

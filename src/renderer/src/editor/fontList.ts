@@ -4,6 +4,7 @@
  * their named instances, Google Fonts, and the open file's organization and team fonts (docs/desktop.md §14.3) —
  * with each family's own styles. Read once per process and again when the list changes.
  */
+import { t } from "@/i18n";
 import { useEffect, useState } from "react";
 import { fonts, type FontFamily, type FontScope } from "@/engine/fonts";
 
@@ -92,7 +93,7 @@ export type FontFilter = (typeof FONT_FILTERS)[number]["value"];
  */
 export function fontFilterMenu(orgName: string | null = null, opts: { local?: boolean } = {}): ({ value: FontFilter; label: string } | "-")[] {
   const [all, file, popular, google, variable, org, uploaded, installed] = FONT_FILTERS;
-  const used = orgName !== null ? [{ value: org.value, label: `Used at ${orgName}` }] : [];
+  const used = orgName !== null ? [{ value: org.value, label: t("Used at {org}", { org: orgName }) }] : [];
   const local = opts.local === false ? [] : [uploaded, installed];
   const last = [...used, ...local];
   return [all, "-", file, "-", popular, google, variable, ...(last.length ? ["-" as const, ...last] : [])];

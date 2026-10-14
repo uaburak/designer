@@ -6,6 +6,7 @@
  */
 import type { Guid, NodeChange } from "@/engine/codec";
 import { dismissToast, showToast } from "@/ds";
+import { t } from "@/i18n";
 import { Status } from "@/engine/abi";
 import type { PluginManifest } from "@shared/plugins/types";
 import { allowedUrl, refusedMessage, uiCsp } from "@shared/plugins/network";
@@ -182,7 +183,7 @@ export class PluginRun {
 
   private reportError(e: unknown): void {
     if (e instanceof VmError && /took too long/.test(e.message) && this.state !== "closed") {
-      showToast({ message: `${this.spec.name} took too long and was stopped`, kind: "error" });
+      showToast({ message: t("{name} took too long and was stopped", { name: this.spec.name }), kind: "error" });
       queueMicrotask(() => void this.end());
     }
     const msg = e instanceof VmError ? (e.vmStack ? `${e.message}\n${e.vmStack}` : e.message) : e instanceof Error ? e.message : String(e);
@@ -230,7 +231,7 @@ export class PluginRun {
     } catch (e) {
       this.commit();
       this.reportError(e);
-      showToast({ message: `${this.spec.name} failed: ${firstLine(e instanceof Error ? e.message : String(e))}`, kind: "error" });
+      showToast({ message: t("{name} failed: {error}", { name: this.spec.name, error: firstLine(e instanceof Error ? e.message : String(e)) }), kind: "error" });
       await this.close(null);
       return;
     }

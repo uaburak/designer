@@ -11,6 +11,7 @@ import { useGovernance } from "./SettingsGovernance";
 import { useAdmin, useLoad } from "./context";
 import { ACTION_LABEL, EVENT_GROUPS, eventText, formatUtc, productOf } from "./labels";
 import { Table, styles, type Column } from "./parts";
+import { intlLocale, t, useT } from "@/i18n";
 
 type Range = "1" | "7" | "30" | "90" | "365" | "custom";
 const RANGE_LABEL: Record<Range, string> = { "1": "Last 24 hours", "7": "Last 7 days", "30": "Last 30 days", "90": "Last 90 days", "365": "Last year", custom: "Custom" };
@@ -24,6 +25,7 @@ function dayToSeconds(day: string, end: boolean): number | undefined {
 }
 
 export function ActivityTab() {
+  useT();
   const { orgId, store, run, exportCsv, now } = useAdmin();
   const [email, setEmail] = useState("");
   const [range, setRange] = useState<Range>("30");
@@ -53,16 +55,16 @@ export function ActivityTab() {
     if (page) setMore({ key, rows: [...(more?.key === key ? more.rows : []), ...page.activity_logs], cursor: page.cursor });
   };
   const teamName = (id: string | null) => (id ? teams?.items.find((t) => t.id === id)?.name ?? "" : "");
-  const events: SelectEntry[] = [{ value: "all", label: "All events" }];
+  const events: SelectEntry[] = [{ value: "all", label: t("All events") }];
   for (const g of EVENT_GROUPS) {
-    events.push("-", { header: g.name }, { value: `group:${g.name}`, label: `All ${g.name.toLowerCase()} events` });
-    for (const a of g.actions) events.push({ value: a, label: ACTION_LABEL[a] });
+    events.push("-", { header: t(g.name) }, { value: `group:${g.name}`, label: t("All {group} events", { group: t(g.name).toLocaleLowerCase(intlLocale()) }) });
+    for (const a of g.actions) events.push({ value: a, label: t(ACTION_LABEL[a]) });
   }
   const columns: Column<ActivityLog>[] = [
     { id: "date", label: "Date (UTC)", width: 150, render: (r) => <span className={styles.muted}>{formatUtc(r.timestamp)}</span> },
     {
       id: "member", label: "Team member", width: "minmax(180px, 1.5fr)",
-      render: (r) => (r.actor ? <span className={styles.whoText}><span className={styles.whoName}>{r.actor.name}</span><span className={styles.whoEmail}>{r.actor.email}</span></span> : <span className={styles.muted}>Figma</span>),
+      render: (r) => (r.actor ? <span className={styles.whoText}><span className={styles.whoName}>{r.actor.name}</span><span className={styles.whoEmail}>{r.actor.email}</span></span> : <span className={styles.muted}>{t("Figma")}</span>),
     },
     {
       id: "event", label: "Event", width: "minmax(220px, 2fr)",
@@ -75,24 +77,24 @@ export function ActivityTab() {
   return (
     <>
       <div className={styles.toolbar}>
-        <TextInput className={styles.search} label="Member" value={email} onChange={setEmail} placeholder="Member email" variant="outlined" prefix="24.search.small" />
-        <Select label="Date" width={140} value={range} options={(Object.keys(RANGE_LABEL) as Range[]).map((r) => ({ value: r, label: RANGE_LABEL[r] }))} onChange={(v) => setRange(v as Range)} />
+        <TextInput className={styles.search} label={t("Member")} value={email} onChange={setEmail} placeholder={t("Member email")} variant="outlined" prefix="24.search.small" />
+        <Select label={t("Date")} width={140} value={range} options={(Object.keys(RANGE_LABEL) as Range[]).map((r) => ({ value: r, label: t(RANGE_LABEL[r]) }))} onChange={(v) => setRange(v as Range)} />
         {range === "custom" && (
           <span className={styles.dateRow}>
-            <input type="date" aria-label="Start date" className={styles.date} value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} />
-            <span className={styles.muted}>to</span>
-            <input type="date" aria-label="End date" className={styles.date} value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} />
+            <input type="date" aria-label={t("Start date")} className={styles.date} value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} />
+            <span className={styles.muted}>{t("to")}</span>
+            <input type="date" aria-label={t("End date")} className={styles.date} value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} />
           </span>
         )}
-        <Select label="Events" width={200} value={event} options={events} onChange={setEvent} menuWidth={280} />
-        <Select label="Team" width={160} value={teamId} options={[{ value: "all", label: "All teams" }, ...(teams?.items ?? []).map((t) => ({ value: t.id, label: t.name }))]} onChange={setTeamId} />
+        <Select label={t("Events")} width={200} value={event} options={events} onChange={setEvent} menuWidth={280} />
+        <Select label={t("Team")} width={160} value={teamId} options={[{ value: "all", label: t("All teams") }, ...(teams?.items ?? []).map((t) => ({ value: t.id, label: t.name }))]} onChange={setTeamId} />
         <span className={styles.spacer} />
-        <Button variant="secondary" onClick={() => exportCsv("activity", { startTime: query.startTime, endTime: query.endTime })}>Get CSV</Button>
+        <Button variant="secondary" onClick={() => exportCsv("activity", { startTime: query.startTime, endTime: query.endTime })}>{t("Get CSV")}</Button>
       </div>
-      <Table label="Activity" rows={rows} columns={columns} rowKey={(r) => r.id} empty="No activity matches these filters" />
+      <Table label={t("Activity")} rows={rows} columns={columns} rowKey={(r) => r.id} empty={t("No activity matches these filters")} />
       {cursor && (
         <div className={styles.loadMore}>
-          <Button variant="secondary" onClick={() => void loadMore()}>Load more</Button>
+          <Button variant="secondary" onClick={() => void loadMore()}>{t("Load more")}</Button>
         </div>
       )}
     </>
@@ -125,6 +127,7 @@ function useDebounced<T>(value: T, ms: number): T {
  * 25 rows and Load more; Governance+ only.
  */
 export function DeveloperLogsTab() {
+  useT();
   const { orgId, store, run } = useAdmin();
   const g = store.governance;
   const { on, overview } = useGovernance();
@@ -155,8 +158,8 @@ export function DeveloperLogsTab() {
   const first = loaded?.page;
   const fresh = loaded?.key === key;
   const [more, setMore] = useState<{ key: string; rows: DeveloperLogItem[]; cursor: string | null } | null>(null);
-  if (!g) return <div className={styles.empty}>Developer logs aren't available here.</div>;
-  if (overview && !on) return <div className={styles.empty} data-requires-gplus="">{REQUIRES_GOVERNANCE_PLUS}</div>;
+  if (!g) return <div className={styles.empty}>{t("Developer logs aren't available here.")}</div>;
+  if (overview && !on) return <div className={styles.empty} data-requires-gplus="">{t(REQUIRES_GOVERNANCE_PLUS)}</div>;
   const rows = [...(first?.items ?? []), ...(fresh && more?.key === key ? more.rows : [])];
   const cursor = !fresh ? null : more?.key === key ? more.cursor : first?.has_more ? first.cursor : null;
   const loadMore = async () => {
@@ -176,10 +179,10 @@ export function DeveloperLogsTab() {
     { id: "date", label: "Date (UTC)", width: 150, render: (r) => <span className={styles.muted}>{formatUtc(Date.parse(r.timestamp) / 1000)}</span> },
     {
       id: "user", label: "User", width: "minmax(170px, 1.5fr)",
-      render: (r) => (r.actor.user_email ? <span className={styles.whoText}><span className={styles.whoName}>{r.actor.user_name ?? r.actor.user_email}</span><span className={styles.whoEmail}>{r.actor.user_email}</span></span> : <span className={styles.muted}>Plan access token</span>),
+      render: (r) => (r.actor.user_email ? <span className={styles.whoText}><span className={styles.whoName}>{r.actor.user_name ?? r.actor.user_email}</span><span className={styles.whoEmail}>{r.actor.user_email}</span></span> : <span className={styles.muted}>{t("Plan access token")}</span>),
     },
-    { id: "token", label: "Token", width: "minmax(150px, 1.2fr)", render: (r) => <span className={styles.whoText}><span className={styles.whoName}>{r.actor.token_name ?? "—"}</span><span className={styles.whoEmail}>{ITEM_TOKEN_LABEL[r.actor.token_type]}</span></span> },
-    { id: "event", label: "Event", width: "minmax(180px, 1.5fr)", render: (r) => <span className={styles.whoText}><span className={styles.whoName}>{r.action.event_name}</span><span className={styles.whoEmail}>{r.action.event_source === "mcp_server" ? "MCP server" : "REST API"}</span></span> },
+    { id: "token", label: "Token", width: "minmax(150px, 1.2fr)", render: (r) => <span className={styles.whoText}><span className={styles.whoName}>{r.actor.token_name ?? "—"}</span><span className={styles.whoEmail}>{t(ITEM_TOKEN_LABEL[r.actor.token_type])}</span></span> },
+    { id: "event", label: "Event", width: "minmax(180px, 1.5fr)", render: (r) => <span className={styles.whoText}><span className={styles.whoName}>{r.action.event_name}</span><span className={styles.whoEmail}>{r.action.event_source === "mcp_server" ? t("MCP server") : "REST API"}</span></span> },
     { id: "resource", label: "Resource", width: "minmax(120px, 1fr)", render: (r) => <span className={styles.muted}>{r.resource.name ?? r.resource.id_or_key ?? ""}</span> },
     {
       id: "ip", label: "IP address", width: "minmax(140px, 1fr)",
@@ -189,21 +192,21 @@ export function DeveloperLogsTab() {
   return (
     <>
       <div className={styles.toolbar}>
-        <TextInput className={styles.search} label="Token name" value={tokenName} onChange={setTokenName} placeholder="Token name" variant="outlined" />
-        <TextInput className={styles.search} label="User email" value={email} onChange={setEmail} placeholder="User email" variant="outlined" />
-        <TextInput className={styles.search} label="IP address" value={ip} onChange={setIp} placeholder="IP address" variant="outlined" />
+        <TextInput className={styles.search} label={t("Token name")} value={tokenName} onChange={setTokenName} placeholder={t("Token name")} variant="outlined" />
+        <TextInput className={styles.search} label={t("User email")} value={email} onChange={setEmail} placeholder={t("User email")} variant="outlined" />
+        <TextInput className={styles.search} label={t("IP address")} value={ip} onChange={setIp} placeholder={t("IP address")} variant="outlined" />
       </div>
       <div className={styles.toolbar}>
-        <Select label="Token type" width={190} value={tokenType} options={[{ value: "all", label: "All token types" }, ...(Object.keys(TOKEN_TYPE_LABEL) as DeveloperTokenType[]).map((t) => ({ value: t, label: TOKEN_TYPE_LABEL[t] }))]} onChange={(v) => setTokenType(v as DeveloperTokenType | "all")} />
-        <Select label="Source" width={150} value={source} options={[{ value: "all", label: "All sources" }, ...(Object.keys(SOURCE_LABEL) as DeveloperEventSource[]).map((t) => ({ value: t, label: SOURCE_LABEL[t] }))]} onChange={(v) => setSource(v as DeveloperEventSource | "all")} />
-        <Select label="Date range" width={150} value={range} options={(Object.keys(DATE_RANGE_LABEL) as DeveloperDateRange[]).map((t) => ({ value: t, label: DATE_RANGE_LABEL[t] }))} onChange={(v) => setRange(v as DeveloperDateRange)} />
+        <Select label={t("Token type")} width={190} value={tokenType} options={[{ value: "all", label: t("All token types") }, ...(Object.keys(TOKEN_TYPE_LABEL) as DeveloperTokenType[]).map((k) => ({ value: k, label: t(TOKEN_TYPE_LABEL[k]) }))]} onChange={(v) => setTokenType(v as DeveloperTokenType | "all")} />
+        <Select label={t("Source")} width={150} value={source} options={[{ value: "all", label: t("All sources") }, ...(Object.keys(SOURCE_LABEL) as DeveloperEventSource[]).map((k) => ({ value: k, label: t(SOURCE_LABEL[k]) }))]} onChange={(v) => setSource(v as DeveloperEventSource | "all")} />
+        <Select label={t("Date range")} width={150} value={range} options={(Object.keys(DATE_RANGE_LABEL) as DeveloperDateRange[]).map((k) => ({ value: k, label: t(DATE_RANGE_LABEL[k]) }))} onChange={(v) => setRange(v as DeveloperDateRange)} />
         <span className={styles.spacer} />
-        <span className={styles.muted}>Calls with tokens to the REST API and the MCP server, kept 30 days.</span>
+        <span className={styles.muted}>{t("Calls with tokens to the REST API and the MCP server, kept 30 days.")}</span>
       </div>
-      <Table label="Developer logs" rows={rows} columns={columns} rowKey={(r) => r.uuid} empty="No calls match these filters" />
+      <Table label={t("Developer logs")} rows={rows} columns={columns} rowKey={(r) => r.uuid} empty={t("No calls match these filters")} />
       {cursor && (
         <div className={styles.loadMore}>
-          <Button variant="secondary" disabled={busy} onClick={() => void loadMore()}>Load more</Button>
+          <Button variant="secondary" disabled={busy} onClick={() => void loadMore()}>{t("Load more")}</Button>
         </div>
       )}
     </>

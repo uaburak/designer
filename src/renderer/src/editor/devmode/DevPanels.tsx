@@ -19,12 +19,13 @@ import { useUI } from "../hooks";
 import { openFocus } from "./devMode";
 import { editorDevData, setRound5, useRound5 } from "./round5";
 import { DevPluginsPanel } from "./PluginsPanel";
+import { t, useLocale } from "@/i18n";
 import { commandItem } from "../menus";
 import { runEditorCommand } from "../commands";
 import { useExportAllowed } from "../exporting";
 
 /** Dev Mode's right sidebar: Inspect, and Plugins (docs/plugins.md §7). */
-const PLUGINS_TAB = { label: "Plugins", render: () => <DevPluginsPanel /> };
+const renderPlugins = () => <DevPluginsPanel />;
 
 /** The viewer's "preview" of the open file: its name and pages, Inspect and export on, images from the file. */
 /** The viewer's preview of the editor's file; `canExport` false hides Assets and Export (docs/governance.md §2.7). */
@@ -115,7 +116,7 @@ function DevContext({ children }: { children: ReactNode }) {
         onReadyView: () => setRound5(ed, { ready: true }),
         // Dev Mode's file name menu (docs/editor.md D-1: Library ▸ Connect components to code)
         fileMenu: {
-          entries: () => [commandItem(ed, "file.save-version"), commandItem(ed, "file.version-history"), "-", { id: "library", label: "Library", items: [commandItem(ed, "dev.connect-components"), commandItem(ed, "file.library-analytics")] }],
+          entries: () => [commandItem(ed, "file.save-version"), commandItem(ed, "file.version-history"), "-", { id: "library", label: t("Library"), items: [commandItem(ed, "dev.connect-components"), commandItem(ed, "file.library-analytics")] }],
           onSelect: (id) => runEditorCommand(ed, id),
         },
         ...(dev ? { dev } : {}),
@@ -137,9 +138,12 @@ export function DevLeftPanel() {
 }
 
 export function DevRightPanel() {
+  const locale = useLocale();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const pluginsTab = useMemo(() => ({ label: t("Plugins"), render: renderPlugins }), [locale]);
   return (
     <DevContext>
-      <InspectPanel extraTab={PLUGINS_TAB} />
+      <InspectPanel extraTab={pluginsTab} />
     </DevContext>
   );
 }

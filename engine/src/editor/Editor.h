@@ -753,6 +753,9 @@ class Editor : private LayoutHost, public TextLayouts {
   bool acceptsChildren(Guid id) const;
   // The real main component (SYMBOL) an instance (real or derived) shows now; kNoGuid when it has none.
   Guid mainOf(Guid instance) const;
+  // The interactions a layer plays (editor/PrototypeEditing.cpp): an instance's are its main's with its own changes and
+  // additions (proto::instanceInteractions); any other layer's, its own. `ownIndex`: as proto::instanceInteractions.
+  std::vector<proto::Interaction> playedInteractions(Guid id, std::vector<int>* ownIndex = nullptr) const;
 
   // ---- Variables, modes and styles (editor/Variables.cpp, editor/VariableCommands.cpp; docs/schema.md §6) ----
   // A resolved variable value.

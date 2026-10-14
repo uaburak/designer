@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { Connector, ConnectorConsent, ConnectorToolPolicy } from "../../shared/ai/types";
 import { CONNECTOR_TOOL_SEP, type ToolResult } from "../../shared/agents/tools";
 import type { SpawnFn } from "./providers/turns";
+import { t as tr } from "../../shared/i18n";
 
 /**
  * Connectors (docs/ai.md §2.11): MCP servers the owner adds — Streamable HTTP with an optional bearer key, or a stdio
@@ -96,17 +97,17 @@ export class HttpMcpClient implements McpClient {
       const res = await this.doFetch(this.url, { method: "POST", headers: this.headers(), body: JSON.stringify({ jsonrpc: "2.0", id, method, params }), signal: ctl.signal });
       const sid = res.headers.get("mcp-session-id");
       if (sid) this.session = sid;
-      if (!res.ok) throw new Error(res.status === 401 || res.status === 403 ? `${res.status}: the server wants a key (or this one isn't valid)` : `${res.status} ${res.statusText}`);
+      if (!res.ok) throw new Error(res.status === 401 || res.status === 403 ? tr("{status}: the server wants a key (or this one isn’t valid)", { status: res.status }) : `${res.status} ${res.statusText}`);
       const type = res.headers.get("content-type") ?? "";
       const text = await res.text();
       const reply = type.includes("text/event-stream") ? sseReply(text, id) : (JSON.parse(text) as Rpc | Rpc[]);
       const msg = Array.isArray(reply) ? reply.find((r) => r.id === id) : reply;
-      if (!msg) throw new Error("The server didn't answer.");
+      if (!msg) throw new Error(tr("The server didn’t answer."));
       if (msg.error) throw new Error(msg.error.message || `Error ${msg.error.code}`);
       if (method === "initialize") this.protocol = String((msg.result as { protocolVersion?: string } | undefined)?.protocolVersion ?? MCP_CLIENT_PROTOCOL);
       return msg.result;
     } catch (err) {
-      if (ctl.signal.aborted) throw new Error(`No answer in ${Math.round(timeoutMs / 1000)} s.`);
+      if (ctl.signal.aborted) throw new Error(tr("No answer in {s} s.", { s: Math.round(timeoutMs / 1000) }));
       throw err;
     } finally {
       clearTimeout(timer);
@@ -200,7 +201,7 @@ export class StdioMcpClient implements McpClient {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`No answer in ${Math.round(timeoutMs / 1000)} s.`));
+        reject(new Error(tr("No answer in {s} s.", { s: Math.round(timeoutMs / 1000) })));
       }, timeoutMs);
       this.pending.set(id, { resolve: (v) => (clearTimeout(timer), resolve(v)), reject: (e) => (clearTimeout(timer), reject(e)) });
       child.stdin?.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
@@ -268,18 +269,18 @@ export class ConnectorHub {
 
   add(p: { name: string; transport: { kind: "http"; url: string; key?: string } | { kind: "stdio"; command: string; args: string[] } }): Connector[] {
     const name = String(p?.name ?? "").trim().slice(0, 60);
-    if (!name) throw new Error("A connector needs a name.");
+    if (!name) throw new Error(tr("A connector needs a name."));
     const t = p.transport;
     let transport: StoredConnector["transport"];
     if (t?.kind === "http") {
       const url = String(t.url ?? "").trim();
-      if (!/^https?:\/\/\S+$/i.test(url)) throw new Error("A server URL like https://example.com/mcp");
+      if (!/^https?:\/\/\S+$/i.test(url)) throw new Error(tr("A server URL like {example}", { example: "https://example.com/mcp" }));
       transport = { kind: "http", url };
     } else if (t?.kind === "stdio") {
       const command = String(t.command ?? "").trim();
-      if (!command) throw new Error("A command to start the server.");
+      if (!command) throw new Error(tr("A command to start the server."));
       transport = { kind: "stdio", command: command.slice(0, 2000), args: (Array.isArray(t.args) ? t.args : []).slice(0, 50).map((a) => String(a).slice(0, 2000)) };
-    } else throw new Error("A server URL or a command.");
+    } else throw new Error(tr("A server URL or a command."));
     const list = this.o.storage.read();
     const id = `con_${randomUUID().slice(0, 8)}`;
     list.push({ id, name, transport, enabled: true, tools: [], policies: {} });
@@ -290,7 +291,7 @@ export class ConnectorHub {
   update(p: { id: string; enabled?: boolean; policies?: Record<string, ConnectorToolPolicy> }): Connector[] {
     const list = this.o.storage.read();
     const c = list.find((x) => x.id === p?.id);
-    if (!c) throw new Error("No such connector.");
+    if (!c) throw new Error(tr("No such connector."));
     if (typeof p.enabled === "boolean") c.enabled = p.enabled;
     for (const [tool, policy] of Object.entries(p.policies ?? {})) if ((policy === "allow" || policy === "ask" || policy === "off") && tool.length <= 200) c.policies[tool] = policy;
     if (!c.enabled) this.disconnect(c.id);
@@ -309,7 +310,7 @@ export class ConnectorHub {
     this.disconnect(id);
     await this.refresh(id);
     const c = this.o.storage.read().find((x) => x.id === id);
-    if (!c) throw new Error("No such connector.");
+    if (!c) throw new Error(tr("No such connector."));
     return this.view(c);
   }
 

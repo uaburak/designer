@@ -4,6 +4,7 @@
  * history itself — autosaves and named versions, newest first, each with
  * Restore (non-destructive: the version comes back as one undoable edit).
  */
+import { intlLocale, t, useT } from "@/i18n";
 import { useEffect, useState } from "react";
 import { Button, Dialog, EmptyState, Spinner, TextArea, TextInput, showToast } from "@/ds";
 import { useEditor } from "./controller";
@@ -22,6 +23,7 @@ export function VersionDialogs() {
 }
 
 function SaveVersion() {
+  useT();
   const ed = useEditor();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -36,41 +38,42 @@ function SaveVersion() {
     try {
       await ed.source.flush();
       await ed.source.saveVersion({ title: title.trim() || undefined, description: description.trim() || undefined });
-      showToast({ message: "Version saved" });
+      showToast({ message: t("Version saved") });
       close();
     } catch {
       setBusy(false);
-      showToast({ message: "The version couldn't be saved", kind: "error" });
+      showToast({ message: t("The version couldn't be saved"), kind: "error" });
     }
   };
   return (
     <Dialog
-      title="Save to version history"
+      title={t("Save to version history")}
       open
       onClose={close}
       footer={
         <>
           <Button variant="secondary" onClick={close}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button variant="primary" loading={busy} onClick={() => void save()}>
-            Save
+            {t("Save")}
           </Button>
         </>
       }
     >
       <div className={styles.form}>
-        <TextInput label="Title" placeholder="Title" value={title} onChange={setTitle} autoFocus />
-        <TextArea label="Describe what changed" placeholder="Describe what changed" value={description} onChange={setDescription} />
+        <TextInput label={t("Title")} placeholder={t("Title")} value={title} onChange={setTitle} autoFocus />
+        <TextArea label={t("Describe what changed")} placeholder={t("Describe what changed")} value={description} onChange={setDescription} />
       </div>
     </Dialog>
   );
 }
 
-const when = (t: number) => new Date(t).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const when = (ms: number) => new Date(ms).toLocaleString(intlLocale(), { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const KIND_TITLE: Record<VersionInfo["kind"], string> = { autosave: "Autosave", named: "Version", restore: "Restored version", publish: "Library published", import: "Imported", branch: "Branch created", update: "Updated from main", merge: "Branch merged" };
 
 function History() {
+  useT();
   const ed = useEditor();
   const [versions, setVersions] = useState<VersionInfo[] | null>(null);
   const close = () => {
@@ -101,33 +104,33 @@ function History() {
       );
       // Assets the version brings back carry the bookkeeping they had then: checked against the latest publish.
       void ed.libraries.reconcile();
-      showToast({ message: "Version restored" });
+      showToast({ message: t("Version restored") });
       close();
     } catch {
-      showToast({ message: "The version couldn't be restored", kind: "error" });
+      showToast({ message: t("The version couldn't be restored"), kind: "error" });
     }
   };
   return (
-    <Dialog title="Version history" size="medium" open onClose={close}>
+    <Dialog title={t("Version history")} size="medium" open onClose={close}>
       {versions === null ? (
         <div className={styles.loading}>
           <Spinner size={24} />
         </div>
       ) : versions.length === 0 ? (
-        <EmptyState icon="24.recent" title="No versions yet" body={`Versions are saved as you work, and with Save to version history (${shortcutOf(command("file.save-version"))}).`} />
+        <EmptyState icon="24.recent" title={t("No versions yet")} body={t("Versions are saved as you work, and with Save to version history ({keys}).", { keys: shortcutOf(command("file.save-version")) ?? "" })} />
       ) : (
         <ul className={styles.list}>
           {versions.map((v) => (
             <li key={v.id} className={styles.row}>
               <span className={styles.text}>
-                <span className={styles.title}>{v.title || KIND_TITLE[v.kind]}</span>
+                <span className={styles.title}>{v.title || t(KIND_TITLE[v.kind])}</span>
                 <span className={styles.meta}>
                   {when(v.createdAt)}
                   {v.description ? ` · ${v.description}` : ""}
                 </span>
               </span>
               <Button variant="secondary" onClick={() => void restore(v)}>
-                Restore
+                {t("Restore")}
               </Button>
             </li>
           ))}

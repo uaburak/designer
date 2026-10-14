@@ -6,9 +6,14 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",
-        "web:demo"
+        "web",
+        "--",
+        "--mode",
+        "demo",
+        "--port",
+        "5201"
       ],
-      "port": 5199
+      "port": 5201
     },
     {
       "name": "server",

@@ -23,12 +23,13 @@ import type * as O from "../../shared/org/types";
 import type { AccessTokenInfo } from "../../shared/account";
 import type { AdminRepository, OrgEvent, OrgsRepository, ProjectsRepository, TeamsRepository } from "../../shared/org/repositories";
 import { StoreError } from "../../shared/store/protocol";
-import { ICON_MAX_BYTES, ICON_URL, bytesToDataUrl, iconMime } from "../../shared/org/icons";
+import { ICON_MAX_BYTES, ICON_URL, THUMBNAIL_URL, bytesToDataUrl, iconMime } from "../../shared/org/icons";
 import type { Unsubscribe } from "../../shared/store/repositories";
 import type { FileKey, FileMeta, FileSpace } from "../../shared/store/types";
 import { isGovernanceCode, type MultiplayerService } from "../multiplayer/service";
 import type { OrgGate } from "../../shared/org/governance";
 import type { OrgNotice } from "../notifications/service";
+import { t as tr } from "../../shared/i18n";
 
 /** What the store gives the service. */
 export interface OrgHost {
@@ -141,8 +142,8 @@ const query = (q: Record<string, unknown>): string => {
 /** An icon upload as the server takes it (§14.16), checked here first */
 const iconBytes = (image: unknown): Uint8Array => {
   if (!(image instanceof Uint8Array) || !image.length) throw new StoreError("invalid", "an icon is an image's bytes");
-  if (image.length > ICON_MAX_BYTES) throw new StoreError("invalid", "The image is larger than 1 MB");
-  if (!iconMime(image)) throw new StoreError("invalid", "Only PNG, JPEG, WebP and GIF images can be used as an icon");
+  if (image.length > ICON_MAX_BYTES) throw new StoreError("invalid", tr("The image is larger than 1 MB"));
+  if (!iconMime(image)) throw new StoreError("invalid", tr("Only PNG, JPEG, WebP and GIF images can be used as an icon"));
   return image;
 };
 const cleanName = (name: unknown, fallback: string | null, what: string): string => {
@@ -235,7 +236,7 @@ export class OrgService {
   }
 
   private requireSession(): void {
-    if (!this.mp.signedIn) throw new StoreError("offline", "Log in to see your organizations");
+    if (!this.mp.signedIn) throw new StoreError("offline", tr("Log in to see your organizations"));
   }
 
   private async ensureLoaded(): Promise<void> {
@@ -432,7 +433,7 @@ export class OrgService {
         if (teams.some((t) => t.id === teamId)) return org.id;
       }
     }
-    throw new StoreError("not-found", "No such team");
+    throw new StoreError("not-found", tr("No such team"));
   }
 
   private async teamOfProject(projectId: string): Promise<string> {
@@ -445,7 +446,7 @@ export class OrgService {
     const known = index.get(id);
     if (known) return known;
     for (const org of await this.orgs.list()) if ((await list(org.id).catch(() => [])).some((x) => x.id === id)) return org.id;
-    throw new StoreError("not-found", "Not found");
+    throw new StoreError("not-found", tr("Not found"));
   }
 
   /** Fills each file's local copy (`fileKey`) and keeps the copies' `space` where the server says they are */
@@ -887,6 +888,7 @@ export class OrgService {
         this.emit({ type: "files.changed", orgId: id, projectId: null });
         return r;
       },
+      files: async (orgId) => this.withCopies(pick<O.OrgFile[]>(await this.call("GET", `/orgs/${seg(String(orgId), "org")}/files`), "files")),
       search: async (orgId, text) => {
         const r = await this.call<O.OrgSearchResult>("GET", `/orgs/${seg(String(orgId), "org")}/search${query({ text: String(text ?? "") })}`);
         return { ...r, files: await this.withCopies(r.files ?? []) };
@@ -1001,7 +1003,9 @@ export class OrgService {
   private iconData(iconUrl: unknown): Promise<string | null> {
     if (typeof iconUrl !== "string") return Promise.resolve(null);
     if (iconUrl.startsWith("data:image/")) return Promise.resolve(iconUrl);
-    if (!ICON_URL.test(iconUrl) || !this.mp.signedIn) return Promise.resolve(null);
+    // An org file's thumbnail (OrgFile.thumbnailUrl) comes the same way: the views load no network pictures
+    const thumbnail = THUMBNAIL_URL.test(iconUrl);
+    if ((!ICON_URL.test(iconUrl) && !thumbnail) || !this.mp.signedIn) return Promise.resolve(null);
     let p = this.icons.get(iconUrl);
     if (!p) {
       p = this.mp.callBytes("GET", iconUrl).then(
@@ -1009,9 +1013,9 @@ export class OrgService {
           const mime = iconMime(bytes) ?? headers.get("content-type");
           return mime && mime.startsWith("image/") ? bytesToDataUrl(bytes, mime) : null;
         },
-        () => {
-          // Offline or gone: asked again next time
-          this.icons.delete(iconUrl);
+        (e) => {
+          // Offline: asked again next time. A file without a thumbnail yet stays without one until its URL changes.
+          if (!(thumbnail && e instanceof StoreError && e.code === "not-found")) this.icons.delete(iconUrl);
           return null;
         },
       );
@@ -1172,7 +1176,7 @@ export class OrgService {
       },
       leave: async (teamId) => {
         const uid = this.mp.userId;
-        if (!uid) throw new StoreError("offline", "Log in to leave a team");
+        if (!uid) throw new StoreError("offline", tr("Log in to leave a team"));
         await this.call("DELETE", `${teamPath(teamId)}/members/${seg(`u:${uid}`, "member")}`);
         await changed(String(teamId), null, { left: true });
       },
@@ -1384,8 +1388,8 @@ export class OrgService {
       moveLocalFile: async (fileKey, projectId, input) => {
         if (!(input?.snapshot instanceof Uint8Array) || !Number.isInteger(input.headSeq)) throw new StoreError("invalid", "moving a file needs its snapshot and head seq");
         const meta = this.host.getMeta(String(fileKey));
-        if (!meta) throw new StoreError("not-found", "No such file");
-        if (meta.space) throw new StoreError("invalid", "This file is in an organization already");
+        if (!meta) throw new StoreError("not-found", tr("No such file"));
+        if (meta.space) throw new StoreError("invalid", tr("This file is in an organization already"));
         const id = String(projectId);
         const teamId = await this.teamOfProject(id);
         const orgId = await this.orgOfTeam(teamId);
@@ -1420,7 +1424,7 @@ export class OrgService {
           const files = pick<O.OrgFile[]>(await this.call("GET", `${projectPath(id)}/files`), "files");
           file = files.find((f) => f.key === key);
         }
-        if (!file) throw new StoreError("not-found", "The moved file isn't in the folder");
+        if (!file) throw new StoreError("not-found", tr("The moved file isn't in the folder"));
         return { ...file, fileKey: meta.fileKey };
       },
       trashFiles: async (keys) => {

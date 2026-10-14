@@ -21,6 +21,7 @@
  * imports) get them written back as a "system" change once their images are
  * decoded, for the page shown, a few paints per idle slice.
  */
+import { t } from "@/i18n";
 import { Status } from "@/engine/abi";
 import type { Guid, Message, NodeChange, Paint } from "@/engine/codec";
 import type { Engine } from "@/engine/Engine";
@@ -176,7 +177,7 @@ export async function videoPoster(file: Blob): Promise<{ blob: Blob; width: numb
 
 /** A video file into the store: its bytes (`video`), and its poster frame as an image (the rest of the result). */
 export async function importVideo(file: Blob & { name?: string }, store: ImageStore): Promise<ImportedImage> {
-  if (file.size > MAX_VIDEO_BYTES) throw new Error("Videos can be up to 300 MB");
+  if (file.size > MAX_VIDEO_BYTES) throw new Error(t("Videos can be up to 300 MB"));
   const bytes = new Uint8Array(await file.arrayBuffer());
   const poster = await videoPoster(file);
   const image = await importImage(Object.assign(poster.blob, { name: file.name }), store);

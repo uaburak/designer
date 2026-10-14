@@ -11,6 +11,7 @@ import { useEditor } from "../../controller";
 import { formatExpression, parseExpression, type ExpressionVariable } from "../../model/expressions";
 import type { VariableDataJson } from "../../model/prototype";
 import styles from "./Prototype.module.css";
+import { t, useT } from "@/i18n";
 
 const OPERATORS = ["==", "!=", "<", ">", "<=", ">=", "and", "or", "not", "+", "-", "*", "/"];
 
@@ -25,6 +26,7 @@ export function ExpressionField({
   vars: readonly { id: Guid; name: string; collectionId?: Guid | null }[];
   onCommit: (d: VariableDataJson) => void;
 }) {
+  useT();
   const ed = useEditor();
   // Each variable with its collection's modes (`name:mode`).
   const withModes = useMemo<ExpressionVariable[]>(() => {
@@ -37,14 +39,14 @@ export function ExpressionField({
   const stored = formatExpression(data, nameOf, (id) => modeNames.get(id) ?? null);
   const [draft, setDraft] = useState<{ text: string; error: string | null } | null>(null);
   const text = draft?.text ?? stored;
-  const commit = (t: string) => {
-    if (!t.trim()) {
+  const commit = (input: string) => {
+    if (!input.trim()) {
       setDraft(null);
       return;
     }
-    const r = parseExpression(t, withModes);
+    const r = parseExpression(input, withModes);
     if (!r.ok) {
-      setDraft({ text: t, error: r.error });
+      setDraft({ text: input, error: r.error });
       return;
     }
     setDraft(null);
@@ -55,10 +57,10 @@ export function ExpressionField({
     setDraft({ text: base ? `${base} ${piece}` : piece, error: null });
   };
   const entries: MenuEntry[] = [
-    { header: "Variables" },
-    ...(vars.length ? vars.map((v) => ({ id: `v:${v.id}`, label: v.name })) : [{ id: "none", label: "No variables", disabled: true }]),
+    { header: t("Variables") },
+    ...(vars.length ? vars.map((v) => ({ id: `v:${v.id}`, label: v.name })) : [{ id: "none", label: t("No variables"), disabled: true }]),
     "-",
-    { header: "Operators" },
+    { header: t("Operators") },
     ...OPERATORS.map((o) => ({ id: `o:${o}`, label: o })),
   ];
   return (
@@ -69,14 +71,14 @@ export function ExpressionField({
           label={label}
           className={styles.grow}
           value={text}
-          placeholder="Expression"
+          placeholder={t("Expression")}
           invalid={!!draft?.error}
           selectAllOnFocus={false}
           onCommit={commit}
           data-expression=""
         />
         <MenuButton
-          label="Suggestions"
+          label={t("Suggestions")}
           entries={entries}
           className={styles.iconMenu}
           onSelect={(id) => {
@@ -89,7 +91,7 @@ export function ExpressionField({
       </div>
       {draft?.error && (
         <div className={styles.expressionError} role="alert">
-          {draft.error}
+          {t(draft.error)}
         </div>
       )}
     </div>

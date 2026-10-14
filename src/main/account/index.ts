@@ -20,6 +20,7 @@ import { IdleTimer, type IdleState } from "./idle";
 import { authSheet } from "./authSheet";
 import { AccountList, accountAdded, accountDropped, decodeAccounts, logOut, logOutAll, MAX_ACCOUNTS, switchAccount, type AccountFlowDeps } from "./accounts";
 import { SheetUnavailable, signInFlow, signInWithBrowser, signInWithSheet, SignInError, TENANT_ID, type Session, type SignInMethod, type SignInOptions } from "./signIn";
+import { t } from "../../shared/i18n";
 
 /** DESIGNER_SERVER (development) unless the deployment keys' AllowedOriginHosts leave it out (docs/desktop.md §12.5) */
 export const serverUrl = (): string =>
@@ -30,7 +31,7 @@ const file = () => join(dir(), "sessions.json");
 /** Before several accounts: the one session (read once, then replaced by sessions.json) */
 const legacyFile = () => join(dir(), "session.json");
 
-const FULL_TEXT = `You can be logged in to a maximum of ${MAX_ACCOUNTS} accounts at a time.`;
+const fullText = () => t("You can be logged in to a maximum of {n} accounts at a time.", { n: MAX_ACCOUNTS });
 
 let list = new AccountList();
 /** The current account's session */
@@ -167,7 +168,7 @@ export async function accountRequest(r: { method: AccountMethod; path: string; b
   if (!["GET", "POST", "PATCH", "DELETE"].includes(r?.method) || typeof r.path !== "string" || !ACCOUNT_PATH.test(r.path)) throw new Error("account:request: not an account path");
   const token = sessionToken();
   const s = current();
-  if (!token || !s) return { status: 401, body: { error: "Log in first" } };
+  if (!token || !s) return { status: 401, body: { error: t("Log in first") } };
   let res: Response;
   try {
     res = await mainFetch(`${s.server}${r.path}`, {
@@ -177,7 +178,7 @@ export async function accountRequest(r: { method: AccountMethod; path: string; b
       signal: AbortSignal.timeout(20_000),
     });
   } catch {
-    return { status: 0, body: { error: "You're offline" } };
+    return { status: 0, body: { error: t("You're offline") } };
   }
   const body = (await res.json().catch(() => null)) as unknown;
   if (res.status === 401) dropSession(body, s.user.id);
@@ -326,7 +327,7 @@ const sheetWindow = (): BaseWindow | null => BaseWindow.getFocusedWindow() ?? Ba
 export async function signIn(opts?: { tenant?: string; method?: SignInMethod }): Promise<SignInResult> {
   const tenant = typeof opts?.tenant === "string" ? opts.tenant : undefined;
   const method = opts?.method === "google" || opts?.method === "sso" ? opts.method : undefined;
-  if (tenant !== undefined && !TENANT_ID.test(tenant)) return { ok: false, error: "failed", message: "Not an organization's single sign-on.", state: accountState() };
+  if (tenant !== undefined && !TENANT_ID.test(tenant)) return { ok: false, error: "failed", message: t("Not an organization's single sign-on."), state: accountState() };
   pending?.abort();
   const ac = new AbortController();
   pending = ac;
@@ -347,7 +348,7 @@ export async function signIn(opts?: { tenant?: string; method?: SignInMethod }):
     } else s = await signInWithBrowser(base);
     if (pending === ac) pending = null;
     const r = await flow((d) => accountAdded(d, s));
-    if (r === "full") throw new SignInError("failed", FULL_TEXT);
+    if (r === "full") throw new SignInError("failed", fullText());
     app.focus({ steal: true });
     return { ok: true, state: accountState() };
   } catch (e) {
@@ -491,7 +492,7 @@ function notifyIdle(n: IdleNotice): void {
   target?.send("account:idle", n);
   if (focused) return;
   if (Notification.isSupported()) {
-    const note = new Notification({ title: "You'll be logged out soon", body: "For your security, you'll be logged out because you've been inactive." });
+    const note = new Notification({ title: t("You'll be logged out soon"), body: t("For your security, you'll be logged out because you've been inactive.") });
     shownNotices.add(note);
     note.on("close", () => shownNotices.delete(note));
     note.on("click", () => {

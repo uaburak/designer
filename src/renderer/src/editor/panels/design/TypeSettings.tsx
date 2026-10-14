@@ -19,6 +19,7 @@ import { useEditor } from "../../controller";
 import { AXIS_LABELS, featureName, withAxis, type TextSummary } from "../../model/text";
 import { exitToCanvas } from "./Sections";
 import { fields, type ExtraFields, type PanelNode } from "./shared";
+import { t, useT } from "@/i18n";
 import styles from "./Design.module.css";
 import type { FontInfo } from "@/engine/codec";
 
@@ -40,22 +41,23 @@ export function useFontInfo(summary: TextSummary | null): FontInfo | null {
 }
 
 export function TypeSettings({ nodes, summary, anchor, onClose }: { nodes: PanelNode[]; summary: TextSummary | null; anchor: HTMLElement; onClose: () => void }) {
+  useT();
   const info = useFontInfo(summary);
   const axes = (info?.axes ?? []).filter((a) => !a.hidden);
   const [tab, setTab] = useState<Tab>("basics");
   const shown: Tab = tab === "variable" && !axes.length ? "basics" : tab;
   const tabs = [
-    { value: "basics", label: "Basics" },
-    { value: "details", label: "Details" },
-    ...(axes.length ? [{ value: "variable", label: "Variable" }] : []),
+    { value: "basics", label: t("Basics") },
+    { value: "details", label: t("Details") },
+    ...(axes.length ? [{ value: "variable", label: t("Variable") }] : []),
   ];
   return (
     <Popover
       anchor={anchor}
-      label="Type settings"
+      label={t("Type settings")}
       width={240}
       onClose={onClose}
-      header={<Tabs label="Type settings" value={shown} tabs={tabs} onChange={(v) => setTab(v as Tab)} />}
+      header={<Tabs label={t("Type settings")} value={shown} tabs={tabs} onChange={(v) => setTab(v as Tab)} />}
     >
       <TypePreview nodes={nodes} summary={summary} />
       <div className={styles.typeSettingsBody}>
@@ -72,6 +74,7 @@ export function TypeSettings({ nodes, summary, anchor, onClose }: { nodes: Panel
  * with its case and decoration (what Figma draws in it beyond the word is not captured).
  */
 function TypePreview({ nodes, summary }: { nodes: PanelNode[]; summary: TextSummary | null }) {
+  useT();
   const family = valueOf<string>(summary, "fontFamily", nodes[0]?.fontName?.family ?? "Inter");
   const style = valueOf<string>(summary, "fontStyle", nodes[0]?.fontName?.style ?? "Regular");
   const decoration = valueOf<string>(summary, "textDecoration", "NONE");
@@ -87,7 +90,7 @@ function TypePreview({ nodes, summary }: { nodes: PanelNode[]; summary: TextSumm
   return (
     <div className={styles.typePreview} aria-hidden="true" data-type-preview="">
       <div className={styles.typePreviewBox}>
-        <span style={css}>Preview</span>
+        <span style={css}>{t("Preview")}</span>
       </div>
     </div>
   );
@@ -117,6 +120,7 @@ function nodeValue<T>(nodes: PanelNode[], read: (n: PanelNode) => T): T | typeof
 const field = <T,>(v: T | typeof MIXED, mixedAs: T): T => (v === MIXED ? mixedAs : v);
 
 function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSummary | null; info: FontInfo | null }) {
+  useT();
   const ed = useEditor();
   const [underlineOpen, setUnderlineOpen] = useState(false);
   const write = useWrite(nodes);
@@ -140,8 +144,8 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
     ed.batch(type === "NONE" ? "Remove list" : type === "ORDERED" ? "Numbered list" : "Bulleted list", () =>
       refs.forEach((r) => {
         // NONE: the engine's toggle — the type the paragraphs have, applied again, removes it.
-        const t = type !== "NONE" ? type : lineType === "ORDERED_LIST" ? "ORDERED" : "UNORDERED";
-        ed.engine.setTextList(r, t);
+        const kind = type !== "NONE" ? type : lineType === "ORDERED_LIST" ? "ORDERED" : "UNORDERED";
+        ed.engine.setTextList(r, kind);
       })
     );
   // Figma's live Basics tab (popovers/type-settings.txt): each control right-aligned at its own width — Alignment
@@ -150,29 +154,29 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
   const smallCaps = !info || info.features.some((f) => f.tag === "smcp");
   return (
     <div className={`${styles.settings} ${styles.settingsEnd}`}>
-      <span className={styles.settingsLabel}>Alignment</span>
+      <span className={styles.settingsLabel}>{t("Alignment")}</span>
       <SegmentedControl
         className={styles.typeSeg}
-        label="Alignment"
+        label={t("Alignment")}
         value={field(align, "")}
         options={[
-          { value: "LEFT", icon: "24.text.align-left", tooltip: "Text align left" },
-          { value: "CENTER", icon: "24.text.align-center", tooltip: "Text align center" },
-          { value: "RIGHT", icon: "24.text.align-right", tooltip: "Text align right" },
-          { value: "JUSTIFIED", icon: "24.text.align-justified", tooltip: "Text align justified" },
+          { value: "LEFT", icon: "24.text.align-left", tooltip: t("Text align left") },
+          { value: "CENTER", icon: "24.text.align-center", tooltip: t("Text align center") },
+          { value: "RIGHT", icon: "24.text.align-right", tooltip: t("Text align right") },
+          { value: "JUSTIFIED", icon: "24.text.align-justified", tooltip: t("Text align justified") },
         ]}
         onChange={(v) => write("Text alignment", { textAlignHorizontal: v as ExtraFields["textAlignHorizontal"] })}
       />
-      <span className={styles.settingsLabel}>Decoration</span>
+      <span className={styles.settingsLabel}>{t("Decoration")}</span>
       <div className={styles.settingsInline}>
         <SegmentedControl
           className={styles.typeSeg}
-          label="Decoration"
+          label={t("Decoration")}
           value={field(decoration, "")}
           options={[
-            { value: "NONE", icon: "24.minus.small", tooltip: "None" },
-            { value: "UNDERLINE", icon: "24.text.underline", tooltip: "Underline" },
-            { value: "STRIKETHROUGH", icon: "24.text.strikethrough", tooltip: "Strikethrough" },
+            { value: "NONE", icon: "24.minus.small", tooltip: t("None") },
+            { value: "UNDERLINE", icon: "24.text.underline", tooltip: t("Underline") },
+            { value: "STRIKETHROUGH", icon: "24.text.strikethrough", tooltip: t("Strikethrough") },
           ]}
           onChange={(v) => write("Text decoration", { textDecoration: v as ExtraFields["textDecoration"] })}
         />
@@ -180,7 +184,7 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
             it, so its style, thickness and offset apply (unverified: live's capture did not open it) */}
         <IconButton
           icon="16.chevron.down"
-          label="Underline details"
+          label={t("Underline details")}
           tone="secondary"
           aria-expanded={underlineOpen && decoration === "UNDERLINE"}
           onClick={() => {
@@ -192,108 +196,108 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
       </div>
       {decoration === "UNDERLINE" && underlineOpen && (
         <>
-          <span className={styles.settingsLabel}>Style</span>
+          <span className={styles.settingsLabel}>{t("Style")}</span>
           <Select
-            label="Underline style"
+            label={t("Underline style")}
             value={field(decoStyle, MIXED as unknown as string)}
             options={[
-              { value: "SOLID", label: "Solid" },
-              { value: "DOTTED", label: "Dotted" },
-              { value: "WAVY", label: "Wavy" },
+              { value: "SOLID", label: t("Solid") },
+              { value: "DOTTED", label: t("Dotted") },
+              { value: "WAVY", label: t("Wavy") },
             ]}
             onChange={(v) => write("Underline style", { textDecorationStyle: v as ExtraFields["textDecorationStyle"] })}
           />
-          <span className={styles.settingsLabel}>Thickness</span>
+          <span className={styles.settingsLabel}>{t("Thickness")}</span>
           <NumericInput
             scrubHandle="previous"
-            label="Underline thickness"
+            label={t("Underline thickness")}
             value={px(thickness)}
-            placeholder="Auto"
+            placeholder={t("Auto")}
             min={0}
             onChange={(v, info) => write("Underline thickness", { textDecorationThickness: { value: v, units: "PIXELS" } }, info)}
             onClear={() => write("Underline thickness", { textDecorationThickness: null })}
             onCancel={() => ed.cancelEdit()}
           />
-          <span className={styles.settingsLabel}>Offset</span>
+          <span className={styles.settingsLabel}>{t("Offset")}</span>
           <NumericInput
             scrubHandle="previous"
-            label="Underline offset"
+            label={t("Underline offset")}
             value={px(offset)}
-            placeholder="Auto"
+            placeholder={t("Auto")}
             onChange={(v, info) => write("Underline offset", { textUnderlineOffset: { value: v, units: "PIXELS" } }, info)}
             onClear={() => write("Underline offset", { textUnderlineOffset: null })}
             onCancel={() => ed.cancelEdit()}
           />
-          <span className={styles.settingsLabel}>Skip ink</span>
-          <Checkbox label="Skip ink" hideLabel checked={skipInk === MIXED ? false : !!skipInk} onChange={(on) => write("Skip ink", { textDecorationSkipInk: on })} />
+          <span className={styles.settingsLabel}>{t("Skip ink")}</span>
+          <Checkbox label={t("Skip ink")} hideLabel checked={skipInk === MIXED ? false : !!skipInk} onChange={(on) => write("Skip ink", { textDecorationSkipInk: on })} />
         </>
       )}
-      <span className={styles.settingsLabel}>Case</span>
+      <span className={styles.settingsLabel}>{t("Case")}</span>
       <SegmentedControl
         className={styles.typeSeg}
-        label="Case"
+        label={t("Case")}
         value={field(textCase, "")}
         options={[
-          { value: "ORIGINAL", icon: "24.minus.small", tooltip: "As typed" },
-          { value: "UPPER", label: "AG", tooltip: "Uppercase" },
-          { value: "LOWER", label: "ag", tooltip: "Lowercase" },
-          { value: "TITLE", label: "Ag", tooltip: "Title case" },
-          { value: "SMALL_CAPS", label: "ᴀɢ", tooltip: smallCaps ? "Small caps" : "Font doesn't support small caps", disabled: !smallCaps },
+          { value: "ORIGINAL", icon: "24.minus.small", tooltip: t("As typed") },
+          { value: "UPPER", label: "AG", tooltip: t("Uppercase") },
+          { value: "LOWER", label: "ag", tooltip: t("Lowercase") },
+          { value: "TITLE", label: "Ag", tooltip: t("Title case") },
+          { value: "SMALL_CAPS", label: "ᴀɢ", tooltip: smallCaps ? t("Small caps") : t("Font doesn't support small caps"), disabled: !smallCaps },
         ]}
         onChange={(v) => write("Text case", { textCase: v as ExtraFields["textCase"] })}
       />
       {/* Live: 21 more after Case (the trim / list / spacing group starts at 305, not 284) */}
       <span className={styles.settingsGroupGap} />
       <span className={styles.settingsGroupGap} />
-      <span className={styles.settingsLabel}>Vertical trim</span>
+      <span className={styles.settingsLabel}>{t("Vertical trim")}</span>
       <SegmentedControl
         className={styles.typeSeg}
-        label="Vertical trim"
+        label={t("Vertical trim")}
         value={field(trim, "")}
         options={[
-          { value: "NONE", icon: "24.text.trim-standard", tooltip: "Standard" },
-          { value: "CAP_HEIGHT", icon: "24.text.trim-cap", tooltip: "Cap height to baseline" },
+          { value: "NONE", icon: "24.text.trim-standard", tooltip: t("Standard") },
+          { value: "CAP_HEIGHT", icon: "24.text.trim-cap", tooltip: t("Cap height to baseline") },
         ]}
         onChange={(v) => write("Vertical trim", { leadingTrim: v as ExtraFields["leadingTrim"] })}
       />
-      <span className={styles.settingsLabel}>List style</span>
+      <span className={styles.settingsLabel}>{t("List style")}</span>
       <SegmentedControl
         className={styles.typeSeg}
-        label="List style"
+        label={t("List style")}
         value={lineType === MIXED ? "" : lineType === "ORDERED_LIST" ? "ORDERED" : lineType === "UNORDERED_LIST" ? "UNORDERED" : "NONE"}
         options={[
-          { value: "NONE", icon: "24.minus.small", tooltip: "No list" },
-          { value: "UNORDERED", icon: "24.list-view", tooltip: "Bulleted list" },
-          { value: "ORDERED", icon: "24.text.list-numbered", tooltip: "Numbered list" },
+          { value: "NONE", icon: "24.minus.small", tooltip: t("No list") },
+          { value: "UNORDERED", icon: "24.list-view", tooltip: t("Bulleted list") },
+          { value: "ORDERED", icon: "24.text.list-numbered", tooltip: t("Numbered list") },
         ]}
         onChange={(v) => list(v as "NONE" | "ORDERED" | "UNORDERED")}
       />
-      <span className={styles.settingsLabel}>Paragraph spacing</span>
-      <NumericInput className={styles.settingsField} scrubHandle="previous" label="Paragraph spacing" value={paragraph} min={0} onChange={(v, info) => write("Paragraph spacing", { paragraphSpacing: v }, info)} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
+      <span className={styles.settingsLabel}>{t("Paragraph spacing")}</span>
+      <NumericInput className={styles.settingsField} scrubHandle="previous" label={t("Paragraph spacing")} value={paragraph} min={0} onChange={(v, info) => write("Paragraph spacing", { paragraphSpacing: v }, info)} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
       {lineType !== "PLAIN" && (
         <>
-          <span className={styles.settingsLabel}>List spacing</span>
-          <NumericInput className={styles.settingsField} scrubHandle="previous" label="List spacing" value={listSpacing} min={0} onChange={(v, info) => write("List spacing", { listSpacing: v }, info)} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
+          <span className={styles.settingsLabel}>{t("List spacing")}</span>
+          <NumericInput className={styles.settingsField} scrubHandle="previous" label={t("List spacing")} value={listSpacing} min={0} onChange={(v, info) => write("List spacing", { listSpacing: v }, info)} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
         </>
       )}
-      <span className={styles.settingsLabel}>Truncate text</span>
+      <span className={styles.settingsLabel}>{t("Truncate text")}</span>
       <SegmentedControl
         className={styles.typeSeg}
-        label="Truncate text"
+        label={t("Truncate text")}
         value={truncate === MIXED ? "" : truncate ? "ENDING" : "DISABLED"}
         options={[
-          { value: "DISABLED", icon: "24.text.truncate-off", tooltip: "No truncation" },
-          { value: "ENDING", icon: "24.text.truncate-on", tooltip: "Truncation enabled" },
+          { value: "DISABLED", icon: "24.text.truncate-off", tooltip: t("No truncation") },
+          { value: "ENDING", icon: "24.text.truncate-on", tooltip: t("Truncation enabled") },
         ]}
         onChange={(v) => write("Truncate text", { textTruncation: v as "ENDING" | "DISABLED" })}
       />
       {truncate === true && (
         <>
-          <span className={styles.settingsLabel}>Max lines</span>
+          <span className={styles.settingsLabel}>{t("Max lines")}</span>
           <NumericInput
             className={styles.settingsField}
             scrubHandle="previous"
-            label="Max lines"
+            label={t("Max lines")}
             value={maxLines === 0 ? null : maxLines}
             placeholder="—"
             min={1}
@@ -304,15 +308,15 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
           />
         </>
       )}
-      <span className={styles.settingsLabel}>Wrap style</span>
+      <span className={styles.settingsLabel}>{t("Wrap style")}</span>
       <Select
-        label="Wrap style"
+        label={t("Wrap style")}
         width={96}
         value={field(wrap, MIXED as unknown as string)}
         options={[
-          { value: "AUTO", label: "Auto" },
-          { value: "BALANCE", label: "Balance" },
-          { value: "PRETTY", label: "Pretty" },
+          { value: "AUTO", label: t("Auto") },
+          { value: "BALANCE", label: t("Balance") },
+          { value: "PRETTY", label: t("Pretty") },
         ]}
         onChange={(v) => write("Wrap style", { textWrapStyle: v as ExtraFields["textWrapStyle"] })}
       />
@@ -364,6 +368,7 @@ export function moreFeatures(features: readonly { tag: string; name?: string }[]
  * its control at 944, the next row's at 984).
  */
 function FeatureLabel({ label, applicable, why }: { label: string; applicable: boolean; why: boolean }) {
+  useT();
   const ref = useRef<HTMLSpanElement>(null);
   const [wrapped, setWrapped] = useState(false);
   useLayoutEffect(() => {
@@ -374,7 +379,7 @@ function FeatureLabel({ label, applicable, why }: { label: string; applicable: b
       ref={ref}
       data-wrapped={wrapped || undefined}
       className={cx(styles.settingsLabel, styles.featureLabel, !applicable && styles.settingsLabelDisabled, !applicable && why && styles.featureNotApplicable)}
-      {...(!applicable && why ? tooltipProps("Not applicable for selected text") : {})}
+      {...(!applicable && why ? tooltipProps(t("Not applicable for selected text")) : {})}
     >
       {label}
     </span>
@@ -406,6 +411,7 @@ export function detailsApplicable(text: string, fontHas: (tag: string) => boolea
 }
 
 function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSummary | null; info: FontInfo | null }) {
+  useT();
   const ed = useEditor();
   const write = useWrite(nodes);
   const has = (tag: string) => !info || info.features.some((f) => f.tag === tag);
@@ -426,8 +432,8 @@ function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSu
   const toggled = (tag: string, byDefault: boolean) => (onList.includes(featureName(tag)) ? true : offList.includes(featureName(tag)) ? false : byDefault);
   const toggle = (tag: string, value: boolean, byDefault: boolean, label: string) => {
     const name = featureName(tag);
-    const nextOn = onList.filter((t) => t !== name);
-    const nextOff = offList.filter((t) => t !== name);
+    const nextOn = onList.filter((x) => x !== name);
+    const nextOff = offList.filter((x) => x !== name);
     if (value !== byDefault) (value ? nextOn : nextOff).push(name);
     write(label, { toggledOnOTFeatures: nextOn.length ? nextOn : null, toggledOffOTFeatures: nextOff.length ? nextOff : null });
   };
@@ -451,14 +457,14 @@ function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSu
   // 144 wide "Not applicable for selected text" box —, its control enabled all the same.
   const toggle2 = (label: string, checked: boolean, applicable: boolean, onChange: (v: boolean) => void, why = true) => (
     <>
-      <FeatureLabel label={label} applicable={applicable} why={why} />
+      <FeatureLabel label={t(label)} applicable={applicable} why={why} />
       <SegmentedControl
         className={styles.typeSeg}
-        label={label}
+        label={t(label)}
         value={checked ? "ON" : "OFF"}
         options={[
-          { value: "OFF", icon: "24.minus.small", tooltip: "Disabled" },
-          { value: "ON", icon: "24.check", tooltip: "Enabled" },
+          { value: "OFF", icon: "24.minus.small", tooltip: t("Disabled") },
+          { value: "ON", icon: "24.check", tooltip: t("Enabled") },
         ]}
         onChange={(v) => onChange(v === "ON")}
       />
@@ -472,7 +478,7 @@ function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSu
           <span className={styles.settingsGroupGap} />
         </>
       )}
-      <span className={styles.settingsHeading}>{title}</span>
+      <span className={styles.settingsHeading}>{t(title)}</span>
       <span />
     </>
   );
@@ -480,11 +486,11 @@ function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSu
   const smallCaps = has("smcp");
   const oldstyle = has("onum");
   const numberOptions = [
-    { value: "default", icon: "24.minus.small" as const, tooltip: "Font default" },
-    { value: "PROPORTIONAL/LINING", label: "P", tooltip: "Proportional uppercase/lining" },
-    ...(oldstyle ? [{ value: "PROPORTIONAL/OLDSTYLE", label: "p", tooltip: "Proportional lowercase/oldstyle" }] : []),
-    { value: "TABULAR/LINING", label: "M", tooltip: "Monospace uppercase/lining" },
-    ...(oldstyle ? [{ value: "TABULAR/OLDSTYLE", label: "m", tooltip: "Monospace lowercase/oldstyle" }] : []),
+    { value: "default", icon: "24.minus.small" as const, tooltip: t("Font default") },
+    { value: "PROPORTIONAL/LINING", label: "P", tooltip: t("Proportional uppercase/lining") },
+    ...(oldstyle ? [{ value: "PROPORTIONAL/OLDSTYLE", label: "p", tooltip: t("Proportional lowercase/oldstyle") }] : []),
+    { value: "TABULAR/LINING", label: "M", tooltip: t("Monospace uppercase/lining") },
+    ...(oldstyle ? [{ value: "TABULAR/OLDSTYLE", label: "m", tooltip: t("Monospace lowercase/oldstyle") }] : []),
   ];
   const more = moreFeatures(info?.features ?? []);
   return (
@@ -492,20 +498,20 @@ function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSu
       {heading("Indentation", true)}
       {toggle2("Hanging punctuation", hanging === true, applies.hanging, (v) => write("Hanging punctuation", { hangingPunctuation: v }), false)}
       {toggle2("Hanging lists", hangingList === true, applies.hangingList, (v) => write("Hanging lists", { hangingList: v }), false)}
-      <span className={styles.settingsLabel}>Paragraph indent</span>
-      <NumericInput className={styles.settingsField} scrubHandle="previous" label="Paragraph indent" value={indent} min={0} onChange={(v, i) => write("Paragraph indent", { paragraphIndent: v }, i)} onCancel={() => ed.cancelEdit()} />
+      <span className={styles.settingsLabel}>{t("Paragraph indent")}</span>
+      <NumericInput className={styles.settingsField} scrubHandle="previous" label={t("Paragraph indent")} value={indent} min={0} onChange={(v, i) => write("Paragraph indent", { paragraphIndent: v }, i)} onCancel={() => ed.cancelEdit()} />
       {heading("Letter case")}
-      <span className={styles.settingsLabel}>Case</span>
+      <span className={styles.settingsLabel}>{t("Case")}</span>
       <SegmentedControl
         className={styles.typeSeg}
-        label="Case"
+        label={t("Case")}
         value={field(textCase, "")}
         options={[
-          { value: "ORIGINAL", icon: "24.minus.small", tooltip: "As typed" },
-          { value: "UPPER", label: "AG", tooltip: "Uppercase" },
-          { value: "LOWER", label: "ag", tooltip: "Lowercase" },
-          { value: "TITLE", label: "Ag", tooltip: "Title case" },
-          { value: "SMALL_CAPS", label: "ᴀɢ", tooltip: smallCaps ? "Small caps" : "Font doesn't support small caps", disabled: !smallCaps },
+          { value: "ORIGINAL", icon: "24.minus.small", tooltip: t("As typed") },
+          { value: "UPPER", label: "AG", tooltip: t("Uppercase") },
+          { value: "LOWER", label: "ag", tooltip: t("Lowercase") },
+          { value: "TITLE", label: "Ag", tooltip: t("Title case") },
+          { value: "SMALL_CAPS", label: "ᴀɢ", tooltip: smallCaps ? t("Small caps") : t("Font doesn't support small caps"), disabled: !smallCaps },
         ]}
         onChange={(v) => write("Text case", { textCase: v as ExtraFields["textCase"] })}
       />
@@ -515,13 +521,13 @@ function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSu
       {/* Live: "Style" not applicable without digits, in its "Not applicable for selected text" box (64 wide) */}
       <span
         className={cx(styles.settingsLabel, !(applies.numbers && (has("lnum") || has("tnum") || has("pnum"))) && styles.settingsLabelDisabled)}
-        {...(!(applies.numbers && (has("lnum") || has("tnum") || has("pnum"))) ? tooltipProps("Not applicable for selected text") : {})}
+        {...(!(applies.numbers && (has("lnum") || has("tnum") || has("pnum"))) ? tooltipProps(t("Not applicable for selected text")) : {})}
       >
-        Style
+        {t("Style")}
       </span>
       <SegmentedControl
         className={styles.typeSeg}
-        label="Number style"
+        label={t("Number style")}
         value={numberStyle as string}
         options={numberOptions}
         onChange={(v) => {
@@ -529,15 +535,15 @@ function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSu
           write("Number style", { fontVariantNumericSpacing: st.spacing, fontVariantNumericFigure: st.figure });
         }}
       />
-      <span className={styles.settingsLabel}>Position</span>
+      <span className={styles.settingsLabel}>{t("Position")}</span>
       <SegmentedControl
         className={styles.typeSeg}
-        label="Position"
+        label={t("Position")}
         value={field(position, "")}
         options={[
-          { value: "SUB", label: "x₂", tooltip: "Subscript" },
-          { value: "NORMAL", icon: "24.minus.small", tooltip: "Normal" },
-          { value: "SUPER", label: "x²", tooltip: "Superscript" },
+          { value: "SUB", label: "x₂", tooltip: t("Subscript") },
+          { value: "NORMAL", icon: "24.minus.small", tooltip: t("Normal") },
+          { value: "SUPER", label: "x²", tooltip: t("Superscript") },
         ]}
         onChange={(v) => write("Position", { fontVariantPosition: v as ExtraFields["fontVariantPosition"] })}
       />
@@ -550,11 +556,11 @@ function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSu
       {heading("Stylistic sets")}
       {toggle2("Stylistic alternates", toggled("salt", false), applies.feature("salt"), (v) => toggle("salt", v, false, "Stylistic alternates"))}
       {sets.map((f) => (
-        <Fragment key={f.tag}>{toggle2(f.name || `Stylistic set ${Number(f.tag.slice(2))}`, toggled(f.tag, false), applies.feature(f.tag), (v) => toggle(f.tag, v, false, "Stylistic set"))}</Fragment>
+        <Fragment key={f.tag}>{toggle2(f.name || t("Stylistic set {n}", { n: Number(f.tag.slice(2)) }), toggled(f.tag, false), applies.feature(f.tag), (v) => toggle(f.tag, v, false, "Stylistic set"))}</Fragment>
       ))}
       {variants.length > 0 && heading("Character variants")}
       {variants.map((f) => (
-        <Fragment key={f.tag}>{toggle2(f.name || `Character variant ${Number(f.tag.slice(2))}`, toggled(f.tag, false), applies.feature(f.tag), (v) => toggle(f.tag, v, false, "Character variant"))}</Fragment>
+        <Fragment key={f.tag}>{toggle2(f.name || t("Character variant {n}", { n: Number(f.tag.slice(2)) }), toggled(f.tag, false), applies.feature(f.tag), (v) => toggle(f.tag, v, false, "Character variant"))}</Fragment>
       ))}
       {heading("Horizontal spacing")}
       {toggle2("Kerning pairs", toggled("kern", true), applies.feature("kern"), (v) => toggle("kern", v, true, "Kerning pairs"))}
@@ -585,6 +591,7 @@ export function axisOrder<T extends { tag: string; name: string }>(axes: readonl
 }
 
 function Variable({ nodes, summary, axes }: { nodes: PanelNode[]; summary: TextSummary | null; axes: FontInfo["axes"] }) {
+  useT();
   const ed = useEditor();
   const write = useWrite(nodes);
   const axisValue = (tag: string, fallback: number) =>
@@ -603,10 +610,10 @@ function Variable({ nodes, summary, axes }: { nodes: PanelNode[]; summary: TextS
         const span = a.max - a.min || 1;
         return (
           <div key={a.tag} className={styles.axis}>
-            <span className={styles.settingsLabel}>{name}</span>
+            <span className={styles.settingsLabel}>{t(name)}</span>
             <NumericInput
               className={styles.axisField}
-              label={`${name} value`}
+              label={t("{name} value", { name: t(name) })}
               value={value}
               min={a.min}
               max={a.max}
@@ -619,7 +626,7 @@ function Variable({ nodes, summary, axes }: { nodes: PanelNode[]; summary: TextS
               ))}
               <input
                 type="range"
-                aria-label={name}
+                aria-label={t(name)}
                 className={styles.axisSlider}
                 min={a.min}
                 max={a.max}

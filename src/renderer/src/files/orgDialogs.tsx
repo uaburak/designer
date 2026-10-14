@@ -5,18 +5,20 @@
  */
 import { useMemo, useRef, useState } from "react";
 import { Button, Checkbox, Dialog, Icon, RadioGroup, SearchField, Select, TextInput } from "@/ds";
+import { t, useT } from "@/i18n";
 import { ICON_ACCEPT, ICON_MAX_BYTES, ICON_SIZE, bytesToDataUrl, iconMime } from "@shared/org/icons";
 import type * as O from "@shared/org/types";
 import { searchKey } from "./model";
-import { SEAT_HINT, SEAT_LABEL } from "./org";
+import { SEAT_HINT, seatLabel } from "./org";
 import { FolderGlyph, TeamIcon } from "./parts";
 import styles from "./Files.module.css";
 
 function Footer({ confirm, ok, onConfirm, onClose, destructive }: { confirm: string; ok: boolean; onConfirm: () => void; onClose: () => void; destructive?: boolean }) {
+  useT();
   return (
     <>
       <Button variant="secondary" size="large" onClick={onClose}>
-        Cancel
+        {t("Cancel")}
       </Button>
       <Button variant={destructive ? "destructive" : "primary"} size="large" disabled={!ok} onClick={() => ok && onConfirm()}>
         {confirm}
@@ -27,16 +29,17 @@ function Footer({ confirm, ok, onConfirm, onClose, destructive }: { confirm: str
 
 /** "Create organization": its name, and whether the files shared so far move into it (§14.8). */
 export function CreateOrgDialog({ onCreate, onClose }: { onCreate: (input: { name: string; importSharedFiles: boolean }) => void; onClose: () => void }) {
+  useT();
   const [name, setName] = useState("");
   const [importShared, setImportShared] = useState(false);
   const ok = name.trim().length > 0;
   const create = () => ok && onCreate({ name: name.trim(), importSharedFiles: importShared });
   return (
-    <Dialog open title="Create organization" onClose={onClose} footer={<Footer confirm="Create organization" ok={ok} onConfirm={create} onClose={onClose} />}>
+    <Dialog open title={t("Create organization")} onClose={onClose} footer={<Footer confirm={t("Create organization")} ok={ok} onConfirm={create} onClose={onClose} />}>
       <div className={styles.dialogField}>
-        <TextInput label="Organization name" placeholder="Organization name" size="large" value={name} onChange={setName} autoFocus onExit={(r) => (r === "enter" ? create() : r === "escape" && onClose())} />
-        <Checkbox label="Import shared files" checked={importShared} onChange={setImportShared} />
-        <p className={styles.dialogHint}>Files you’ve shared move into a team of the new organization, and the people you shared them with join it as members.</p>
+        <TextInput label={t("Organization name")} placeholder={t("Organization name")} size="large" value={name} onChange={setName} autoFocus onExit={(r) => (r === "enter" ? create() : r === "escape" && onClose())} />
+        <Checkbox label={t("Import shared files")} checked={importShared} onChange={setImportShared} />
+        <p className={styles.dialogHint}>{t("Files you’ve shared move into a team of the new organization, and the people you shared them with join it as members.")}</p>
       </div>
     </Dialog>
   );
@@ -44,6 +47,7 @@ export function CreateOrgDialog({ onCreate, onClose }: { onCreate: (input: { nam
 
 /** One name: Create team, Create user group, Rename team. */
 export function NameDialog({ title, label, confirm, initial = "", onDone, onClose, description }: { title: string; label: string; confirm: string; initial?: string; description?: boolean; onDone: (name: string, description: string) => void; onClose: () => void }) {
+  useT();
   const [name, setName] = useState(initial);
   const [about, setAbout] = useState("");
   const ok = name.trim().length > 0 && name.trim() !== initial;
@@ -52,7 +56,7 @@ export function NameDialog({ title, label, confirm, initial = "", onDone, onClos
     <Dialog open title={title} onClose={onClose} footer={<Footer confirm={confirm} ok={ok} onConfirm={done} onClose={onClose} />}>
       <div className={styles.dialogField}>
         <TextInput label={label} placeholder={label} size="large" value={name} onChange={setName} autoFocus onExit={(r) => (r === "enter" ? done() : r === "escape" && onClose())} />
-        {description && <TextInput label="Description" placeholder="Description (optional)" size="large" value={about} onChange={setAbout} />}
+        {description && <TextInput label={t("Description")} placeholder={t("Description (optional)")} size="large" value={about} onChange={setAbout} />}
       </div>
     </Dialog>
   );
@@ -64,15 +68,16 @@ export function NameDialog({ title, label, confirm, initial = "", onDone, onClos
  * are deleted for good 14 days later; admins can restore it until then.
  */
 export function DeleteOrgDialog({ name, onDelete, onClose }: { name: string; onDelete: () => void; onClose: () => void }) {
+  useT();
   const [typed, setTyped] = useState("");
   const ok = typed.trim() === name.trim();
   return (
-    <Dialog open title={`Delete ${name}?`} onClose={onClose} footer={<Footer confirm="Delete organization" ok={ok} destructive onConfirm={onDelete} onClose={onClose} />}>
+    <Dialog open title={t("Delete {name}?", { name })} onClose={onClose} footer={<Footer confirm={t("Delete organization")} ok={ok} destructive onConfirm={onDelete} onClose={onClose} />}>
       <div className={styles.dialogField}>
         <p className={styles.dialogText}>
-          Everyone in {name} loses access to its teams, folders, files and libraries right away. After 14 days they’re deleted for good, with its drafts, fonts and activity log. Until then, admins can restore the organization.
+          {t("Everyone in {name} loses access to its teams, folders, files and libraries right away. After 14 days they’re deleted for good, with its drafts, fonts and activity log. Until then, admins can restore the organization.", { name })}
         </p>
-        <TextInput label={`Type “${name}” to confirm`} placeholder={name} size="large" value={typed} onChange={setTyped} autoFocus onExit={(r) => (r === "enter" ? ok && onDelete() : r === "escape" && onClose())} />
+        <TextInput label={t("Type “{name}” to confirm", { name })} placeholder={name} size="large" value={typed} onChange={setTyped} autoFocus onExit={(r) => (r === "enter" ? ok && onDelete() : r === "escape" && onClose())} />
       </div>
     </Dialog>
   );
@@ -80,21 +85,22 @@ export function DeleteOrgDialog({ name, onDelete, onClose }: { name: string; onD
 
 /** "Ask to upgrade" (help.figma.com: a seat request with an optional note; admins answer it in Admin). */
 export function AskToUpgradeDialog({ orgName, current, onSend, onClose }: { orgName: string; current: O.Seat; onSend: (seat: Exclude<O.Seat, "view">, note: string) => void; onClose: () => void }) {
+  useT();
   const [seat, setSeat] = useState<Exclude<O.Seat, "view">>("full");
   const [note, setNote] = useState("");
   return (
-    <Dialog open title="Ask to upgrade" onClose={onClose} footer={<Footer confirm="Send request" ok={seat !== current} onConfirm={() => onSend(seat, note.trim())} onClose={onClose} />}>
+    <Dialog open title={t("Ask to upgrade")} onClose={onClose} footer={<Footer confirm={t("Send request")} ok={seat !== current} onConfirm={() => onSend(seat, note.trim())} onClose={onClose} />}>
       <div className={styles.dialogField}>
         <p className={styles.dialogText}>
-          You have a {SEAT_LABEL[current]} seat in {orgName}. Ask an admin for a seat that can edit.
+          {t("You have a {seat} seat in {org}. Ask an admin for a seat that can edit.", { seat: seatLabel(current), org: orgName })}
         </p>
         <RadioGroup
-          label="Seat"
+          label={t("Seat")}
           value={seat}
-          options={(["full", "dev", "collab"] as const).map((s) => ({ value: s, label: `${SEAT_LABEL[s]} — ${SEAT_HINT[s]}`, disabled: s === current }))}
+          options={(["full", "dev", "collab"] as const).map((s) => ({ value: s, label: `${seatLabel(s)} — ${t(SEAT_HINT[s])}`, disabled: s === current }))}
           onChange={(v) => setSeat(v as Exclude<O.Seat, "view">)}
         />
-        <TextInput label="Note" placeholder="Add a note (optional)" size="large" value={note} onChange={setNote} />
+        <TextInput label={t("Note")} placeholder={t("Add a note (optional)")} size="large" value={note} onChange={setNote} />
       </div>
     </Dialog>
   );
@@ -104,11 +110,12 @@ export function AskToUpgradeDialog({ orgName, current, onSend, onClose }: { orgN
 export function TransferDialog({ team, members, onTransfer, onClose }: { team: string; members: O.TeamMember[]; onTransfer: (userId: string) => void; onClose: () => void }) {
   const people = members.filter((m) => m.person && !m.owner && !m.pending);
   const [who, setWho] = useState(people[0]?.person?.id ?? "");
+  useT();
   return (
-    <Dialog open title="Transfer ownership" onClose={onClose} footer={<Footer confirm="Transfer ownership" ok={!!who} onConfirm={() => onTransfer(who)} onClose={onClose} destructive />}>
+    <Dialog open title={t("Transfer ownership")} onClose={onClose} footer={<Footer confirm={t("Transfer ownership")} ok={!!who} onConfirm={() => onTransfer(who)} onClose={onClose} destructive />}>
       <div className={styles.dialogField}>
-        <p className={styles.dialogText}>Make someone else the owner of {team}. You’ll stay on the team as a team admin. You can’t undo this.</p>
-        {people.length ? <Select label="New owner" value={who} options={people.map((m) => ({ value: m.person!.id, label: m.person!.name ?? m.person!.email }))} onChange={setWho} /> : <p className={styles.dialogText}>Invite someone to the team first.</p>}
+        <p className={styles.dialogText}>{t("Make someone else the owner of {team}. You’ll stay on the team as a team admin. You can’t undo this.", { team })}</p>
+        {people.length ? <Select label={t("New owner")} value={who} options={people.map((m) => ({ value: m.person!.id, label: m.person!.name ?? m.person!.email }))} onChange={setWho} /> : <p className={styles.dialogText}>{t("Invite someone to the team first.")}</p>}
       </div>
     </Dialog>
   );
@@ -131,7 +138,8 @@ export interface DestinationSection {
 }
 
 /** "Move to…": every space's places, searchable (Figma's move dialog: search, pick, Move). */
-export function DestinationDialog({ title, sections, onMove, onClose, confirm = "Move" }: { title: string; sections: DestinationSection[]; onMove: (dest: Destination) => void; onClose: () => void; confirm?: string }) {
+export function DestinationDialog({ title, sections, onMove, onClose, confirm = t("Move") }: { title: string; sections: DestinationSection[]; onMove: (dest: Destination) => void; onClose: () => void; confirm?: string }) {
+  useT();
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<Destination | null>(null);
   const shown = useMemo(() => {
@@ -142,8 +150,8 @@ export function DestinationDialog({ title, sections, onMove, onClose, confirm = 
   const can = !!picked && !picked.disabled && picked.kind !== "header";
   return (
     <Dialog open size="medium" title={title} onClose={onClose} footer={<Footer confirm={confirm} ok={can} onConfirm={() => picked && onMove(picked)} onClose={onClose} />}>
-      <SearchField value={query} onChange={setQuery} placeholder="Search folders" size="large" autoFocus onExit={(r) => r === "escape" && onClose()} />
-      <div role="listbox" aria-label="Destinations" className={styles.moveList}>
+      <SearchField value={query} onChange={setQuery} placeholder={t("Search folders")} size="large" autoFocus onExit={(r) => r === "escape" && onClose()} />
+      <div role="listbox" aria-label={t("Destinations")} className={styles.moveList}>
         {shown.map((s) => (
           <div key={s.title} role="group" aria-label={s.title}>
             {sections.length > 1 && <div className={styles.moveSection}>{s.title}</div>}
@@ -165,7 +173,7 @@ export function DestinationDialog({ title, sections, onMove, onClose, confirm = 
             ))}
           </div>
         ))}
-        {!shown.length && <span className={styles.moveRow}>No results</span>}
+        {!shown.length && <span className={styles.moveRow}>{t("No results")}</span>}
       </div>
     </Dialog>
   );
@@ -197,7 +205,8 @@ export async function cropIcon(file: Blob): Promise<Uint8Array> {
  * square and shown as it will be (the page's square, the sidebar's circle); Save uploads it. Remove icon (ours) goes
  * back to the initial.
  */
-export function IconDialog({ title = "Change icon", name, iconUrl, src, onSave, onRemove, onClose, crop = cropIcon }: { title?: string; name: string; iconUrl?: string | null; src?: string | null; onSave: (image: Uint8Array) => Promise<unknown> | void; onRemove?: () => Promise<unknown> | void; onClose: () => void; crop?: (file: Blob) => Promise<Uint8Array> }) {
+export function IconDialog({ title = t("Change icon"), name, iconUrl, src, onSave, onRemove, onClose, crop = cropIcon }: { title?: string; name: string; iconUrl?: string | null; src?: string | null; onSave: (image: Uint8Array) => Promise<unknown> | void; onRemove?: () => Promise<unknown> | void; onClose: () => void; crop?: (file: Blob) => Promise<Uint8Array> }) {
+  useT();
   const input = useRef<HTMLInputElement>(null);
   const [picked, setPicked] = useState<{ bytes: Uint8Array; url: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -215,7 +224,7 @@ export function IconDialog({ title = "Change icon", name, iconUrl, src, onSave, 
       if (!mime) throw new Error("not an image");
       setPicked({ bytes, url: bytesToDataUrl(bytes, mime) });
     } catch {
-      setError("Couldn’t read that image. Use a PNG, JPEG, WebP or GIF file.");
+      setError(t("Couldn’t read that image. Use a PNG, JPEG, WebP or GIF file."));
     }
   };
   const run = async (fn: () => Promise<unknown> | void) => {
@@ -237,10 +246,10 @@ export function IconDialog({ title = "Change icon", name, iconUrl, src, onSave, 
         <>
           {onRemove && has && !picked && (
             <Button variant="secondary" size="large" disabled={busy} onClick={() => void run(onRemove)}>
-              Remove icon
+              {t("Remove icon")}
             </Button>
           )}
-          <Footer confirm="Save" ok={!!picked && !busy} onConfirm={() => picked && void run(() => onSave(picked.bytes))} onClose={onClose} />
+          <Footer confirm={t("Save")} ok={!!picked && !busy} onConfirm={() => picked && void run(() => onSave(picked.bytes))} onClose={onClose} />
         </>
       }
     >
@@ -251,7 +260,7 @@ export function IconDialog({ title = "Change icon", name, iconUrl, src, onSave, 
         </div>
         <div className={styles.iconActions}>
           <Button variant="secondary" onClick={() => input.current?.click()} disabled={busy}>
-            Upload image…
+            {t("Upload image…")}
           </Button>
         </div>
         <input
@@ -266,7 +275,7 @@ export function IconDialog({ title = "Change icon", name, iconUrl, src, onSave, 
             void pick(f);
           }}
         />
-        <p className={styles.dialogHint}>A PNG, JPEG, WebP or GIF image, cropped to a square. One at least 500 × 500 pixels looks sharpest.</p>
+        <p className={styles.dialogHint}>{t("A PNG, JPEG, WebP or GIF image, cropped to a square. One at least 500 × 500 pixels looks sharpest.")}</p>
         {error && (
           <p className={styles.iconError} role="alert">
             {error}

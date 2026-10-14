@@ -3,6 +3,7 @@
  * editor import: Home's Settings › Agents takes this file too.
  */
 import type { AiRoute, ImageRouteInfo } from "@shared/ai/types";
+import { t } from "@/i18n";
 
 const ROUTE_SEP = "|";
 
@@ -14,7 +15,7 @@ export function imageRouteOptions(routes: readonly ImageRouteInfo[]): { options:
     const models = r.models.length ? r.models : [{ id: "", label: r.label, detail: undefined }];
     for (const m of models) {
       const id = `${r.providerId}${ROUTE_SEP}${m.id}`;
-      options.push({ id, label: r.models.length ? `${r.label} › ${m.label}` : r.label, ...(!r.available ? { detail: r.reason ?? "Not available" } : m.detail ? { detail: m.detail } : {}) });
+      options.push({ id, label: r.models.length ? `${r.label} › ${m.label}` : r.label, ...(!r.available ? { detail: r.reason ?? t("Not available") } : m.detail ? { detail: m.detail } : {}) });
       if (!r.available) disabled.push(id);
     }
   }

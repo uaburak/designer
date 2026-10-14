@@ -38,6 +38,7 @@ import { ApplyModeButton, ModeRows } from "./Variables";
 import { GridPanel } from "./Grid";
 import { LocalStylesSection } from "./Styles";
 import { McpSection } from "../agents/McpSection";
+import { t, useT } from "@/i18n";
 import styles from "./Design.module.css";
 
 /** The engine draws Figma's default page colour (#F5F5F5) as #1E1E1E in the dark theme. */
@@ -45,6 +46,7 @@ const DEFAULT_PAGE = hexToColor("#f5f5f5");
 const DEFAULT_PAGE_DARK = hexToColor("#1e1e1e");
 
 export function DesignPanel() {
+  useT();
   const { nodes } = useSelectedNodes();
   const paintNodes = usePaintTargets(nodes);
   const [picker, setPicker] = useState<PickerTarget | null>(null);
@@ -61,9 +63,9 @@ export function DesignPanel() {
     setPicker(null);
     setPickerKey(key);
   }
-  const open = (t: PickerTarget) => {
+  const open = (target: PickerTarget) => {
     setPickerKey(key);
-    setPicker(t);
+    setPicker(target);
   };
   // Live (grid/row-track-selected-panel.txt): tracks selected on the canvas replace the Design panel with "Grid".
   const tracks = useUI((s) => s.gridTracks);
@@ -84,12 +86,12 @@ export function DesignPanel() {
       {nodes.length === 0 ? (
         <>
           <RelaunchButtons refs={[page, "0:0"]} />
-          <PanelSection title="Page" actions={<ApplyModeButton refs={[page]} />}>
+          <PanelSection title={t("Page")} actions={<ApplyModeButton refs={[page]} />}>
             <div className={`${styles.paintRow} ${styles.pageRow}`}>
               <ColorInput
                 className={styles.paintField}
-                label="Color"
-                swatchLabel={`Solid color hex: ${colorToHex(shownPageColor).slice(1).toUpperCase()}`}
+                label={t("Color")}
+                swatchLabel={t("Solid color hex: {hex}", { hex: colorToHex(shownPageColor).slice(1).toUpperCase() })}
                 color={colorToHex(shownPageColor)}
                 opacity={toPercent(shownPageColor.a ?? 1)}
                 onColor={(hex, info) => ed.edit("Page colour", info, () => void ed.engine.setProps([page], { backgroundColor: hexToColor(hex, pageColor.a ?? 1) }))}
@@ -98,7 +100,7 @@ export function DesignPanel() {
               />
               <ToggleIconButton
                 icon={pageNode?.backgroundEnabled === false ? "24.hidden.small" : "24.eye.small"}
-                label="Toggle visibility"
+                label={t("Toggle visibility")}
                 tone="secondary"
                 pressed={false}
                 onPressedChange={() => ed.setProps([page], { backgroundEnabled: pageNode?.backgroundEnabled === false }, "Page colour")}
@@ -118,7 +120,7 @@ export function DesignPanel() {
   );
 }
 
-function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNodes: PanelNode[]; onPick: (t: PickerTarget) => void }) {
+function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNodes: PanelNode[]; onPick: (target: PickerTarget) => void }) {
   const ed = useEditor();
   // The sections by mode (docs/draw.md §5.3): Draw's reduced list, Design's (with Transform for transform groups).
   const mode = useUI((s) => s.mode ?? "design");

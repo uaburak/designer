@@ -4,6 +4,7 @@
  * rate_limit_event during a turn), and this chat's tokens. An agent that reports no limits shows the tokens only.
  */
 import type { TokenUsage, UsageInfo, UsageWindow } from "@shared/agents/types";
+import { t, tp } from "@/i18n";
 
 export type RingState = "none" | "ok" | "warn" | "full";
 
@@ -34,17 +35,17 @@ export function formatTokens(n: number): string {
 export function resetLabel(w: UsageWindow, now = Date.now()): string | null {
   if (w.resetsAt) {
     const min = Math.max(0, Math.round((w.resetsAt - now) / 60_000));
-    if (min < 60) return `Resets in ${min} min`;
+    if (min < 60) return t("Resets in {n} min", { n: min });
     const h = Math.floor(min / 60);
-    if (h < 24) return `Resets in ${h} h${min % 60 ? ` ${min % 60} min` : ""}`;
+    if (h < 24) return min % 60 ? t("Resets in {h} h {m} min", { h, m: min % 60 }) : t("Resets in {h} h", { h });
     const d = Math.round(h / 24);
-    return `Resets in ${d} ${d === 1 ? "day" : "days"}`;
+    return tp(d, "Resets in {n} day", "Resets in {n} days");
   }
-  return w.resetText ? `Resets ${w.resetText}` : null;
+  return w.resetText ? t("Resets {when}", { when: w.resetText }) : null;
 }
 
 /** "Used 5%" */
-export const usedLabel = (w: UsageWindow) => `${Math.round(w.usedPct)}% used`;
+export const usedLabel = (w: UsageWindow) => t("{pct}% used", { pct: Math.round(w.usedPct) });
 
 /** A chat's tokens so far, plus a turn's. */
 export const addTokens = (a: TokenUsage | undefined, b: TokenUsage): TokenUsage => ({ input: (a?.input ?? 0) + b.input, output: (a?.output ?? 0) + b.output });

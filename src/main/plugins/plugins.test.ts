@@ -222,10 +222,10 @@ describe("development plugins", () => {
   });
 
   it("reads only inside the plugin's folder, after symlinks", async () => {
-    await expect(insideFolder(join(root, "p"), "escape.js")).rejects.toThrow(/isn't inside/);
-    await expect(insideFolder(join(root, "p"), "../secret.txt")).rejects.toThrow(/isn't inside/);
+    await expect(insideFolder(join(root, "p"), "escape.js")).rejects.toThrow(/isn.t inside/);
+    await expect(insideFolder(join(root, "p"), "../secret.txt")).rejects.toThrow(/isn.t inside/);
     await writeFile(join(root, "p", "manifest.json"), JSON.stringify({ name: "P", api: "1.0.0", main: "escape.js" }));
-    await expect(new DevelopmentPlugins(join(root, "userData2")).add(join(root, "p", "manifest.json"))).rejects.toThrow(/isn't inside/);
+    await expect(new DevelopmentPlugins(join(root, "userData2")).add(join(root, "p", "manifest.json"))).rejects.toThrow(/isn.t inside/);
   });
 });
 

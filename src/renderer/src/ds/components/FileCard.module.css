@@ -18,10 +18,14 @@
   .card:focus-visible, .card[data-focus-visible] { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
   .thumb { position: relative; flex: none; height: var(--ds-size-card-thumb); overflow: hidden; background: var(--figma-color-bg-secondary); }
   .thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
-  .star { position: absolute; top: var(--ds-space-1); right: var(--ds-space-1); visibility: hidden; }
-  .card:hover .star, .card[data-hover] .star, .star[data-on] { visibility: visible; }
+  /* Star at the top right, always there (the owner's Home, 2026-10-14): outlined until starred */
+  .star { position: absolute; top: var(--ds-space-1); right: var(--ds-space-1); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); box-shadow: 0 0 0 1px var(--figma-color-border); }
+  .star[data-on] button { color: var(--figma-color-icon-warning); }
   .stateBadge { position: absolute; bottom: var(--ds-space-2); left: var(--ds-space-2); padding: 0 var(--ds-space-2); border-radius: var(--ds-radius-small); background: var(--figma-color-bg); box-shadow: 0 0 0 1px var(--figma-color-border); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); white-space: nowrap; }
-  .branchIcon { position: absolute; top: var(--ds-space-2); left: var(--ds-space-2); display: inline-flex; align-items: center; justify-content: center; border-radius: var(--ds-radius-small); background: var(--figma-color-bg); box-shadow: 0 0 0 1px var(--figma-color-border); color: var(--figma-color-icon); }
+  /* The top left: the branch icon, then where the file lives (its team) */
+  .topLeft { position: absolute; top: var(--ds-space-2); left: var(--ds-space-2); right: calc(var(--ds-size-control) + var(--ds-space-2)); display: flex; align-items: center; gap: var(--ds-space-1); min-width: 0; }
+  .place { min-width: 0; height: var(--ds-size-checkbox); padding: 0 var(--ds-space-1-5); overflow: hidden; border-radius: var(--ds-radius-small); background: var(--figma-color-bg); box-shadow: 0 0 0 1px var(--figma-color-border); color: var(--figma-color-text); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); line-height: var(--ds-size-checkbox); text-overflow: ellipsis; white-space: nowrap; }
+  .branchIcon { display: inline-flex; flex: none; align-items: center; justify-content: center; border-radius: var(--ds-radius-small); background: var(--figma-color-bg); box-shadow: 0 0 0 1px var(--figma-color-border); color: var(--figma-color-icon); }
   .branches { display: inline-flex; align-self: flex-start; align-items: center; max-width: 100%; margin: 0; padding: 0; border: 0; border-radius: var(--ds-radius-small); background: none; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); white-space: nowrap; cursor: default; }
   .branches:hover { color: var(--figma-color-text); }
   .branches:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }

@@ -9,6 +9,7 @@
  * several). Also Copy as PNG (⇧⌘C, 2x as Figma's), Copy as SVG, Copy as code
  * (CSS), Copy as text, and File › Export frames to PDF….
  */
+import { t } from "@/i18n";
 import { useSyncExternalStore } from "react";
 import { showToast } from "@/ds";
 import { getStoreClient } from "@/store";
@@ -200,7 +201,7 @@ export async function saveFiles(ed: EditorController, files: readonly ExportedFi
 export async function exportItems(ed: EditorController, items: readonly ExportItem[]): Promise<void> {
   if (!exportAllowed(ed)) return;
   const { files, failed } = await renderItems(ed, items);
-  if (failed.length) showToast({ message: failed.length === 1 ? `Couldn't export ${failed[0]}` : `Couldn't export ${failed.length} files` });
+  if (failed.length) showToast({ message: failed.length === 1 ? t("Couldn't export {name}", { name: failed[0] }) : t("Couldn't export {n} files", { n: failed.length }) });
   if (files.length) await saveFiles(ed, files);
 }
 
@@ -237,9 +238,9 @@ export async function copyAsPng(ed: EditorController): Promise<void> {
   const refs = ed.selection;
   if (!refs.length || !exportAllowed(ed)) return;
   const r = await renderExport(ed, refs, { imageType: "PNG", constraint: { type: "CONTENT_SCALE", value: 2 }, contentsOnly: true });
-  if ("error" in r) return void showToast({ message: "Couldn't copy as PNG" });
+  if ("error" in r) return void showToast({ message: t("Couldn't copy as PNG") });
   const ok = await writeClipboard({ "image/png": new Blob([r.bytes as BlobPart], { type: "image/png" }) });
-  showToast({ message: ok ? "Copied as PNG" : "Couldn't copy as PNG" });
+  showToast({ message: ok ? t("Copied as PNG") : t("Couldn't copy as PNG") });
 }
 
 /** Copy as SVG: the selection's SVG markup, as text. */
@@ -247,10 +248,10 @@ export async function copyAsSvg(ed: EditorController): Promise<void> {
   const refs = ed.selection;
   if (!refs.length || !exportAllowed(ed)) return;
   const r = await renderExport(ed, refs, { imageType: "SVG", constraint: { type: "CONTENT_SCALE", value: 1 }, contentsOnly: true, svgOutlineText: true });
-  if ("error" in r) return void showToast({ message: "Couldn't copy as SVG" });
+  if ("error" in r) return void showToast({ message: t("Couldn't copy as SVG") });
   const text = new TextDecoder().decode(r.bytes);
   const ok = await writeClipboard({ "text/plain": new Blob([text], { type: "text/plain" }) }, text);
-  showToast({ message: ok ? "Copied as SVG" : "Couldn't copy as SVG" });
+  showToast({ message: ok ? t("Copied as SVG") : t("Couldn't copy as SVG") });
 }
 
 /** Copy as code: the selection's CSS (Figma's "Copy as code › CSS"). */
@@ -260,7 +261,7 @@ export async function copyAsCode(ed: EditorController): Promise<void> {
   if (!nodes.length) return;
   const text = nodes.map((n) => cssOf(n as unknown as CssNode)).join("\n");
   const ok = await writeClipboard({ "text/plain": new Blob([text], { type: "text/plain" }) }, text);
-  showToast({ message: ok ? "Copied to clipboard" : "Couldn't copy" });
+  showToast({ message: ok ? t("Copied to clipboard") : t("Couldn't copy") });
 }
 
 /** The selected text layers' characters (Copy as text), or "" when none is a text layer. */
@@ -283,7 +284,7 @@ export async function copyAsText(ed: EditorController): Promise<void> {
   const text = selectionText(ed);
   if (!text) return;
   const ok = await writeClipboard({ "text/plain": new Blob([text], { type: "text/plain" }) }, text);
-  showToast({ message: ok ? "Copied to clipboard" : "Couldn't copy" });
+  showToast({ message: ok ? t("Copied to clipboard") : t("Couldn't copy") });
 }
 
 // ---- File › Export frames to PDF… ----
@@ -304,13 +305,13 @@ export function pageFrames(ed: EditorController): { ref: Guid; name: string }[] 
 export async function exportFramesToPdf(ed: EditorController): Promise<void> {
   if (!exportAllowed(ed)) return;
   const frames = pageFrames(ed);
-  if (!frames.length) return void showToast({ message: "There are no frames on this page to export" });
+  if (!frames.length) return void showToast({ message: t("There are no frames on this page to export") });
   const r = await renderExport(
     ed,
     frames.map((f) => f.ref),
     { imageType: "PDF", constraint: { type: "CONTENT_SCALE", value: 1 }, contentsOnly: true }
   );
-  if ("error" in r) return void showToast({ message: "Couldn't export frames to PDF" });
+  if ("error" in r) return void showToast({ message: t("Couldn't export frames to PDF") });
   const pageName = ed.store.pages.find((p) => p.guid === ed.store.page)?.name ?? "Page";
   await saveFiles(ed, [{ name: `${ed.ui.get().fileName || pageName}.pdf`, bytes: r.bytes }]);
 }

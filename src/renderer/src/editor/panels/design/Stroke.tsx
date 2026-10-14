@@ -28,6 +28,7 @@ import { brushSections } from "../../draw/drawTools";
 import { DYNAMIC_FIELDS, SCATTER_FIELDS, dynamicOf, pickStrokeBrush, scatterOf, setDynamic, setScatter, setStretch, setStrokeKind, stretchOf, strokeBrushOf, strokeKindOf } from "../../draw/panels/drawPanel";
 import { DrawSlider, SLIDER_RANGE, SliderRow, useDrawMode, type SliderSpec } from "../../draw/panels/DrawSliders";
 import draw from "../../draw/panels/DrawPanels.module.css";
+import { t, useT } from "@/i18n";
 import styles from "./Design.module.css";
 
 export type StrokeSide = "ALL" | "TOP" | "BOTTOM" | "LEFT" | "RIGHT" | "CUSTOM";
@@ -76,6 +77,7 @@ const SIDE_ITEMS: { id: StrokeSide; label: string; icon: IconName }[] = [
 ];
 
 export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: boolean }) {
+  useT();
   const ed = useEditor();
   const sidesKept = useKeeps("borderStrokeWeightsIndependent");
   const refs = nodes.map((n) => n.guid);
@@ -94,19 +96,19 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
     ed.edit("Stroke weight", info, () => {
       for (const n of nodes) ed.engine.setProps([n.guid], singleField ? fields({ [singleField]: v, strokeWeight: v }) : { strokeWeight: v });
     });
-  const sideMenu: MenuEntry[] = SIDE_ITEMS.flatMap((s): MenuEntry[] => [...(s.id === "CUSTOM" ? ["-" as const] : []), { id: s.id, label: s.label, icon: s.icon, checked: side === s.id, radio: true }]);
+  const sideMenu: MenuEntry[] = SIDE_ITEMS.flatMap((s): MenuEntry[] => [...(s.id === "CUSTOM" ? ["-" as const] : []), { id: s.id, label: t(s.label), icon: s.icon, checked: side === s.id, radio: true }]);
   // Draw (docs/draw.md §5.3): the weight's slider under its field.
   const drawMode = useDrawMode();
   return (
     <PropertyGrid labels={labels}>
       <PropertyRow
         // Figma's live panel: "Position" (76) and "Weight" (72), "Advanced stroke settings" at 180, Individual strokes at 208.
-        labels={["Position", "Weight"]}
+        labels={[t("Position"), t("Weight")]}
         columns="minmax(0, 76fr) minmax(0, 72fr)"
         action2={<StrokeSettingsButton nodes={nodes} />}
         action={
           perSide ? (
-            <MenuButton label="Individual strokes" entries={sideMenu} className={styles.iconMenu} gap={PANEL_MENU_GAP} flip named menuClassName={styles.panelMenu} onSelect={(id) => {
+            <MenuButton label={t("Individual strokes")} entries={sideMenu} className={styles.iconMenu} gap={PANEL_MENU_GAP} flip named menuClassName={styles.panelMenu} onSelect={(id) => {
                 setCustomFor(id === "CUSTOM" ? key : null);
                 ed.batch("Individual strokes", () => nodes.forEach((n) => ed.engine.setProps([n.guid], strokeSideFields(n, id as StrokeSide))));
               }}
@@ -120,19 +122,19 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
           // Live: an outlined dropdown on the panel's colour (#2c2c2c), its value 9 in
           variant="outlined"
           className={styles.outlinedSelect}
-          label="Stroke align"
+          label={t("Stroke align")}
           value={align ?? "INSIDE"}
           // Live order (popovers/stroke-position-menu.txt): Center, Inside, Outside.
           options={[
-            { value: "CENTER", label: "Center" },
-            { value: "INSIDE", label: "Inside" },
-            { value: "OUTSIDE", label: "Outside" },
+            { value: "CENTER", label: t("Center") },
+            { value: "INSIDE", label: t("Inside") },
+            { value: "OUTSIDE", label: t("Outside") },
           ]}
           onChange={(v) => ed.setProps(refs, { strokeAlign: v as StrokeAlign }, "Stroke position")}
         />
         <VariableField nodes={nodes} fields={["STROKE_WEIGHT"]} prefix="24.stroke-weight" disabled={side === "CUSTOM"}>
         <NumericInput
-          label="Stroke weight"
+          label={t("Stroke weight")}
           prefix="24.stroke-weight"
           min={0}
           value={side === "CUSTOM" ? MIXED : fieldValue(weight)}
@@ -160,7 +162,7 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
         </VariableField>
       </PropertyRow>
       {drawMode && side !== "CUSTOM" && (
-        <SliderRow sliders={[null, { label: "Stroke weight", value: weight, min: SLIDER_RANGE.strokeWeight[0], max: SLIDER_RANGE.strokeWeight[1], step: 0.5, onChange: writeWeight, onCancel: () => ed.cancelEdit() }]} />
+        <SliderRow sliders={[null, { label: t("Stroke weight"), value: weight, min: SLIDER_RANGE.strokeWeight[0], max: SLIDER_RANGE.strokeWeight[1], step: 0.5, onChange: writeWeight, onCancel: () => ed.cancelEdit() }]} />
       )}
       <EndPointsRow nodes={nodes} />
       {perSide && side === "CUSTOM" && (
@@ -169,11 +171,11 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
             ["Top", "Bottom"],
             ["Left", "Right"],
           ].map((pair) => (
-            <PropertyRow key={pair[0]} label={`${pair[0]} and ${pair[1].toLowerCase()} stroke`}>
+            <PropertyRow key={pair[0]} label={pair[0] === "Top" ? t("Top and bottom stroke") : t("Left and right stroke")}>
               {(pair as (typeof SIDES)[number][]).map((s) => (
                 <VariableField key={s} nodes={nodes} fields={[`BORDER_${s.toUpperCase()}_WEIGHT` as "BORDER_TOP_WEIGHT"]} prefix={`24.al.padding-${s.toLowerCase()}` as "24.al.padding-top"}>
                 <NumericInput
-                  label={`${s} stroke`}
+                  label={t("{side} stroke", { side: t(s) })}
                   prefix={`24.al.padding-${s.toLowerCase()}` as "24.al.padding-top"}
                   min={0}
                   value={fieldValue(mixedNumber(nodes.map((n) => n[sideField(s)] ?? n.strokeWeight ?? 1)))}
@@ -212,24 +214,25 @@ export const END_POINTS: { value: StrokeCap; label: string; icon: IconName }[] =
  * — a 200 wide preview clipped to the button, the cap at the start's left or the end's right — and a chevron.
  */
 function EndPointsRow({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const ends = nodes.every(isOpenPath) ? nodes.map((n) => ed.engine.endCaps(n.guid)) : [];
   if (!ends.length || ends.some((e) => !e)) return null;
   const start = mixed(ends.map((e) => e!.start));
   const end = mixed(ends.map((e) => e!.end));
   const entries = (value: StrokeCap | typeof MIXED | undefined): MenuEntry[] => [
-    ...END_POINTS.slice(0, 3).map((p) => ({ id: p.value, label: p.label, icon: p.icon, checked: value === p.value })),
+    ...END_POINTS.slice(0, 3).map((p) => ({ id: p.value, label: t(p.label), icon: p.icon, checked: value === p.value })),
     "-",
-    ...END_POINTS.slice(3).map((p) => ({ id: p.value, label: p.label, icon: p.icon, checked: value === p.value })),
+    ...END_POINTS.slice(3).map((p) => ({ id: p.value, label: t(p.label), icon: p.icon, checked: value === p.value })),
   ];
   const write = (which: "start" | "end", v: string) => runEngineCommand(ed.engine, "SET_END_CAPS", { [which]: v });
   return (
-    <PropertyRow labels={["Start point", "End point"]} columns="minmax(0, 76fr) minmax(0, 72fr)" action2={null} data-end-points="">
-      <MenuButton label="Start point" entries={entries(start)} className={styles.endPoint} onSelect={(id) => write("start", id)}>
+    <PropertyRow labels={[t("Start point"), t("End point")]} columns="minmax(0, 76fr) minmax(0, 72fr)" action2={null} data-end-points="">
+      <MenuButton label={t("Start point")} entries={entries(start)} className={styles.endPoint} onSelect={(id) => write("start", id)}>
         <EndPointPreview value={start} side="start" />
         <Icon name="16.chevron.down" className={styles.endPointChevron} />
       </MenuButton>
-      <MenuButton label="End point" entries={entries(end)} className={styles.endPoint} onSelect={(id) => write("end", id)}>
+      <MenuButton label={t("End point")} entries={entries(end)} className={styles.endPoint} onSelect={(id) => write("end", id)}>
         <EndPointPreview value={end} side="end" />
         <Icon name="16.chevron.down" className={styles.endPointChevron} />
       </MenuButton>
@@ -239,11 +242,12 @@ function EndPointsRow({ nodes }: { nodes: PanelNode[] }) {
 
 /** One end of the line as live draws it: the stem (3 thick under the plain caps, 1 under arrowheads) and the cap. */
 function EndPointPreview({ value, side }: { value: StrokeCap | typeof MIXED | undefined; side: "start" | "end" }) {
+  useT();
   const point = END_POINTS.find((p) => p.value === value) ?? END_POINTS[0];
   const plain = point.value === "NONE" || point.value === "ROUND" || point.value === "SQUARE";
   return (
     <span className={styles.endPointClip}>
-      <span role="img" aria-label={value === MIXED ? "Mixed" : point.label} className={cx(styles.endPointLine, side === "start" && styles.endPointStart)} data-value={value === MIXED ? "MIXED" : (value ?? "NONE")}>
+      <span role="img" aria-label={value === MIXED ? t("Mixed") : t(point.label)} className={cx(styles.endPointLine, side === "start" && styles.endPointStart)} data-value={value === MIXED ? "MIXED" : (value ?? "NONE")}>
         <span className={cx(styles.endPointStem, plain && styles.endPointStemThick)} />
         <Icon name={point.icon} />
       </span>
@@ -279,11 +283,12 @@ export function dashOf(pattern: readonly number[] | undefined): { dashed: boolea
 }
 
 export function StrokeSettingsButton({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const kept = useKeeps("dashPattern");
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   return (
     <>
-      <IconButton icon="24.adjust.small" label="Advanced stroke settings" tone="secondary" disabled={!kept} aria-expanded={!!anchor} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)} />
+      <IconButton icon="24.adjust.small" label={t("Advanced stroke settings")} tone="secondary" disabled={!kept} aria-expanded={!!anchor} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)} />
       {anchor && <StrokeSettings nodes={nodes} anchor={anchor} onClose={() => setAnchor(null)} />}
     </>
   );
@@ -318,6 +323,7 @@ function ProfileImage({ points }: { points: readonly WidthPoint[] }) {
  * strokes, nor on branching paths — the dropdown is disabled there.
  */
 function WidthProfileRow({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const lists = nodes.map((n) => readWidthPoints(n.variableWidthPoints));
@@ -326,18 +332,18 @@ function WidthProfileRow({ nodes }: { nodes: PanelNode[] }) {
   const value = same ? profiles[0] ?? "UNIFORM" : MIXED;
   // Figma: no width profile on dynamic, brush or dashed strokes (docs/draw.md §5.4).
   const allowed = ed.engine.commandState("SET_WIDTH_PROFILE") !== 0 && nodes.every((n) => strokeKindOf(n) === "BASIC" && !n.dashPattern?.length);
-  const options: SelectOption[] = WIDTH_PROFILES.map((p) => ({ value: p.value, label: p.label, image: <ProfileImage points={presetOf(p.value)} /> }));
-  if (value === "CUSTOM") options.push({ value: "CUSTOM", label: "Custom", image: <ProfileImage points={lists[0]} />, disabled: true });
+  const options: SelectOption[] = WIDTH_PROFILES.map((p) => ({ value: p.value, label: t(p.label), image: <ProfileImage points={presetOf(p.value)} /> }));
+  if (value === "CUSTOM") options.push({ value: "CUSTOM", label: t("Custom"), image: <ProfileImage points={lists[0]} />, disabled: true });
   return (
     <>
-      <span className={styles.settingsLabel}>Width profile</span>
+      <span className={styles.settingsLabel}>{t("Width profile")}</span>
       <span className={styles.widthProfile}>
         <Select
-          label="Width profile"
+          label={t("Width profile")}
           variant="ghost"
           width={96}
           value={value}
-          placeholder="Mixed"
+          placeholder={t("Mixed")}
           options={options}
           disabled={!allowed}
           onChange={(v) => {
@@ -346,7 +352,7 @@ function WidthProfileRow({ nodes }: { nodes: PanelNode[] }) {
         />
         <IconButton
           icon="24.flip.horizontal.small"
-          label="Flip width points"
+          label={t("Flip width points")}
           disabled={!lists.some((l) => l.length > 0) || !allowed}
           onClick={() => runEngineCommand(ed.engine, "FLIP_WIDTH_POINTS", { refs })}
         />
@@ -363,6 +369,7 @@ function WidthProfileRow({ nodes }: { nodes: PanelNode[] }) {
  * Round as segments, 128), Miter angle — and, for open paths or dashes, the cap.
  */
 function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor: HTMLElement; onClose: () => void }) {
+  useT();
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const dashes = mixed(nodes.map((n) => n.dashPattern ?? []), sameData);
@@ -383,17 +390,17 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
     else set("Stroke style", fields({ dashPattern: pattern && pattern.length > 2 ? pattern : [d.dash, d.gap, d.dash, d.gap * 2] }));
   };
   return (
-    <Popover anchor={anchor} title="Stroke settings" width={240} onClose={onClose} label="Stroke settings">
+    <Popover anchor={anchor} title={t("Stroke settings")} width={240} onClose={onClose} label={t("Stroke settings")}>
       <div className={`${styles.settings} ${styles.settingsEnd} ${styles.strokeSettings}`}>
         <div className={cx(styles.settingsWide, styles.strokeType)}>
           <SegmentedControl
-            label="Stroke Type"
+            label={t("Stroke Type")}
             fullWidth
             value={kind === undefined ? "BASIC" : kind === MIXED ? MIXED : kind}
             options={[
-              { value: "BASIC", label: "Basic" },
-              { value: "DYNAMIC", label: "Dynamic" },
-              { value: "BRUSH", label: "Brush" },
+              { value: "BASIC", label: t("Basic") },
+              { value: "DYNAMIC", label: t("Dynamic") },
+              { value: "BRUSH", label: t("Brush") },
             ]}
             onChange={(v) => setStrokeKind(ed, refs, v as StrokeKind)}
           />
@@ -404,36 +411,36 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
         {kind === "BRUSH" && <BrushRows nodes={nodes} />}
         {kind === "BASIC" && (
           <>
-        <span className={styles.settingsLabel}>Style</span>
+        <span className={styles.settingsLabel}>{t("Style")}</span>
         <Select
-          label="Style"
+          label={t("Style")}
           variant="ghost"
           className={styles.strokeStyle}
           prefix={style === "DASHED" ? "24.stroke.dashed" : style === "CUSTOM" ? "24.stroke.custom" : "24.stroke.solid"}
           width={128}
           value={style === MIXED || style === undefined ? "" : style}
-          placeholder="Mixed"
+          placeholder={t("Mixed")}
           options={[
-            { value: "SOLID", label: "Solid" },
-            { value: "DASHED", label: "Dashed" },
-            { value: "CUSTOM", label: "Custom" },
+            { value: "SOLID", label: t("Solid") },
+            { value: "DASHED", label: t("Dashed") },
+            { value: "CUSTOM", label: t("Custom") },
           ]}
           onChange={pickStyle}
         />
         {style === "DASHED" && (
           <>
-            <span className={styles.settingsLabel}>Dash</span>
-            <NumericInput className={styles.settingsWideField} scrubHandle="previous" label="Dash" min={0} value={d.dash} onChange={(v, info) => setDash(v, d.gap, info)} onCancel={() => ed.cancelEdit()} />
-            <span className={styles.settingsLabel}>Gap</span>
-            <NumericInput className={styles.settingsWideField} scrubHandle="previous" label="Gap" min={0} value={d.gap} onChange={(v, info) => setDash(d.dash, v, info)} onCancel={() => ed.cancelEdit()} />
+            <span className={styles.settingsLabel}>{t("Dash")}</span>
+            <NumericInput className={styles.settingsWideField} scrubHandle="previous" label={t("Dash")} min={0} value={d.dash} onChange={(v, info) => setDash(v, d.gap, info)} onCancel={() => ed.cancelEdit()} />
+            <span className={styles.settingsLabel}>{t("Gap")}</span>
+            <NumericInput className={styles.settingsWideField} scrubHandle="previous" label={t("Gap")} min={0} value={d.gap} onChange={(v, info) => setDash(d.dash, v, info)} onCancel={() => ed.cancelEdit()} />
           </>
         )}
         {style === "CUSTOM" && (
           <>
-            <span className={styles.settingsLabel}>Dashes</span>
+            <span className={styles.settingsLabel}>{t("Dashes")}</span>
             <TextInput
               className={styles.settingsWideField}
-              label="Dashes"
+              label={t("Dashes")}
               value={(pattern ?? []).join(", ")}
               onCommit={(raw) => {
                 const list = parseDashes(raw);
@@ -444,13 +451,13 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
         )}
         {!open && (style === "DASHED" || style === "CUSTOM") && (
           <>
-            <span className={styles.settingsLabel}>Dash cap</span>
+            <span className={styles.settingsLabel}>{t("Dash cap")}</span>
             <Select
-              label="Dash cap"
+              label={t("Dash cap")}
               width={128}
               value={cap === MIXED || cap === undefined ? "" : cap}
-              placeholder="Mixed"
-              options={CAPS.filter((c) => !c.open)}
+              placeholder={t("Mixed")}
+              options={CAPS.filter((c) => !c.open).map((c) => ({ ...c, label: t(c.label) }))}
               onChange={(v) => set("Stroke cap", fields({ strokeCap: v as PanelNode["strokeCap"] }))}
             />
           </>
@@ -458,26 +465,26 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
           </>
         )}
         <WidthProfileRow nodes={nodes} />
-        <span className={styles.settingsLabel}>Join</span>
+        <span className={styles.settingsLabel}>{t("Join")}</span>
         <SegmentedControl
-          label="Join"
+          label={t("Join")}
           className={styles.settingsWideField}
           fullWidth
           value={join === MIXED || join === undefined ? "" : join}
           options={[
-            { value: "MITER", icon: "24.join.miter", tooltip: "Miter" },
-            { value: "BEVEL", icon: "24.join.bevel", tooltip: "Bevel" },
-            { value: "ROUND", icon: "24.join.round", tooltip: "Round" },
+            { value: "MITER", icon: "24.join.miter", tooltip: t("Miter") },
+            { value: "BEVEL", icon: "24.join.bevel", tooltip: t("Bevel") },
+            { value: "ROUND", icon: "24.join.round", tooltip: t("Round") },
           ]}
           onChange={(v) => set("Stroke join", fields({ strokeJoin: v as PanelNode["strokeJoin"] }))}
         />
         {join === "MITER" && (
           <>
-            <span className={styles.settingsLabel}>Miter angle</span>
+            <span className={styles.settingsLabel}>{t("Miter angle")}</span>
             <NumericInput
               className={cx(styles.settingsWideField, styles.popNumber)}
               scrubHandle="previous"
-              label="Miter angle"
+              label={t("Miter angle")}
               boxLabel
               prefix="24.radius.top.left"
               unit="°"
@@ -510,6 +517,7 @@ function FieldWithSlider({ field, slider }: { field: ReactNode; slider: SliderSp
 
 /** Dynamic: Frequency, Wiggle, Smoothen — each clamped to the plugin API's range; a scrub or a drag is one step. */
 function DynamicRows({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const drawMode = useDrawMode();
   const refs = nodes.map((n) => n.guid);
@@ -521,12 +529,12 @@ function DynamicRows({ nodes }: { nodes: PanelNode[] }) {
         const write = (v: number, info: ChangeInfo) => setDynamic(ed, refs, f.id, v, info);
         return [
           <span key={`${f.id}-label`} className={styles.settingsLabel}>
-            {f.label}
+            {t(f.label)}
           </span>,
           <FieldWithSlider
             key={f.id}
-            field={<NumericInput className={drawMode ? undefined : styles.settingsWideField} scrubHandle="previous" label={f.label} min={min} max={max} step={f.step} bigStep={f.step * 10} precision={2} value={value} onChange={write} onCancel={() => ed.cancelEdit()} data-dynamic-field={f.id} />}
-            slider={drawMode ? { label: f.label, value, min, max: f.id === "wiggle" ? 10 : max, step: f.step, onChange: write, onCancel: () => ed.cancelEdit() } : null}
+            field={<NumericInput className={drawMode ? undefined : styles.settingsWideField} scrubHandle="previous" label={t(f.label)} min={min} max={max} step={f.step} bigStep={f.step * 10} precision={2} value={value} onChange={write} onCancel={() => ed.cancelEdit()} data-dynamic-field={f.id} />}
+            slider={drawMode ? { label: t(f.label), value, min, max: f.id === "wiggle" ? 10 : max, step: f.step, onChange: write, onCancel: () => ed.cancelEdit() } : null}
           />,
         ];
       })}
@@ -541,6 +549,7 @@ function brushEntryOf(sections: ReturnType<typeof brushSections>, guid: string):
 
 /** Brush: the Brush picker (7c's Brush styles menu beside the panel), then Direction (stretch) or Scatter's fields. */
 function BrushRows({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const drawMode = useDrawMode();
   const refs = nodes.map((n) => n.guid);
@@ -550,10 +559,10 @@ function BrushRows({ nodes }: { nodes: PanelNode[] }) {
   const direction = mixed(nodes.map((n) => stretchOf(n).direction));
   return (
     <>
-      <span className={styles.settingsLabel}>Brush</span>
-      <button type="button" className={cx(styles.settingsWideField, draw.brushPicker)} aria-label="Brush" aria-haspopup="listbox" aria-expanded={!!anchor} data-stroke-brush={entry?.guid ?? "mixed"} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}>
+      <span className={styles.settingsLabel}>{t("Brush")}</span>
+      <button type="button" className={cx(styles.settingsWideField, draw.brushPicker)} aria-label={t("Brush")} aria-haspopup="listbox" aria-expanded={!!anchor} data-stroke-brush={entry?.guid ?? "mixed"} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}>
         {entry ? <BrushPreview entry={entry} className={draw.brushPreview} /> : <span />}
-        <span>{entry ? entry.name : "Mixed"}</span>
+        <span>{entry ? entry.name : t("Mixed")}</span>
         <Icon name="16.chevron.down" />
       </button>
       {anchor && (
@@ -570,15 +579,15 @@ function BrushRows({ nodes }: { nodes: PanelNode[] }) {
       )}
       {entry?.type === "STRETCH" && (
         <>
-          <span className={styles.settingsLabel}>Direction</span>
+          <span className={styles.settingsLabel}>{t("Direction")}</span>
           <SegmentedControl
-            label="Direction"
+            label={t("Direction")}
             className={styles.settingsWideField}
             fullWidth
             value={direction === undefined ? "FORWARD" : direction}
             options={[
-              { value: "FORWARD", label: "Forward" },
-              { value: "BACKWARD", label: "Backward" },
+              { value: "FORWARD", label: t("Forward") },
+              { value: "BACKWARD", label: t("Backward") },
             ]}
             onChange={(v) => setStretch(ed, refs, v as "FORWARD" | "BACKWARD")}
           />
@@ -591,12 +600,12 @@ function BrushRows({ nodes }: { nodes: PanelNode[] }) {
           const write = (v: number, info: ChangeInfo) => setScatter(ed, refs, f.id, v, info);
           return [
             <span key={`${f.id}-label`} className={styles.settingsLabel}>
-              {f.label}
+              {t(f.label)}
             </span>,
             <FieldWithSlider
               key={f.id}
-              field={<NumericInput className={drawMode ? undefined : styles.settingsWideField} scrubHandle="previous" label={f.label} unit={f.unit} min={min} max={max} step={f.step} bigStep={f.step * 10} precision={2} value={value} onChange={write} onCancel={() => ed.cancelEdit()} data-scatter-field={f.id} />}
-              slider={drawMode ? { label: f.label, value, min, max, step: f.step, onChange: write, onCancel: () => ed.cancelEdit() } : null}
+              field={<NumericInput className={drawMode ? undefined : styles.settingsWideField} scrubHandle="previous" label={t(f.label)} unit={f.unit} min={min} max={max} step={f.step} bigStep={f.step * 10} precision={2} value={value} onChange={write} onCancel={() => ed.cancelEdit()} data-scatter-field={f.id} />}
+              slider={drawMode ? { label: t(f.label), value, min, max, step: f.step, onChange: write, onCancel: () => ed.cancelEdit() } : null}
             />,
           ];
         })}

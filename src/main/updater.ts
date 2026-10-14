@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { UpdateState, UpdaterStatus } from "../shared/ipc";
 import { desktopPolicy, WIN_KEY } from "./policy";
+import { t } from "../shared/i18n";
 
 /**
  * The app's updates (docs/desktop.md §12.6), Figma's way: its desktop app updates itself through Squirrel; ours
@@ -242,11 +243,11 @@ async function announce(s: UpdaterStatus): Promise<void> {
   const box = (o: Electron.MessageBoxOptions) => (win ? dialog.showMessageBox(win, o) : dialog.showMessageBox(o));
   const name = app.getName();
   if (s.state.kind === "upToDate") {
-    await box({ type: "info", message: "You’re up to date", detail: `${name} ${s.current} is the latest version.`, buttons: ["OK"] });
+    await box({ type: "info", message: t("You’re up to date"), detail: t("{name} {version} is the latest version.", { name, version: s.current }), buttons: [t("OK")] });
   } else if (s.state.kind === "error") {
-    await box({ type: "warning", message: "Couldn’t check for updates", detail: `Check your internet connection and try again.\n\n${s.state.message}`, buttons: ["OK"] });
+    await box({ type: "warning", message: t("Couldn’t check for updates"), detail: `${t("Check your internet connection and try again.")}\n\n${s.state.message}`, buttons: [t("OK")] });
   } else if (s.state.kind === "ready") {
-    const { response } = await box({ type: "info", message: `${name} ${s.state.version} is ready to install`, detail: "Restart to update now, or it installs the next time you quit.", buttons: ["Restart to Update", "Later"], defaultId: 0, cancelId: 1 });
+    const { response } = await box({ type: "info", message: t("{name} {version} is ready to install", { name, version: s.state.version }), detail: t("Restart to update now, or it installs the next time you quit."), buttons: [t("Restart to Update"), t("Later")], defaultId: 0, cancelId: 1 });
     if (response === 0) restartToUpdate();
   }
 }

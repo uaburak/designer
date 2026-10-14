@@ -105,7 +105,8 @@ describe("the store-backed DocumentSource", () => {
     const s = src.sessionID;
 
     const doc = await src.load();
-    expect(doc.nodeChanges.map((n) => n.guid)).toEqual(["0:0", "0:1", "0:2"]);
+    // A new design file: the document, Page 1, its Thumbnail page and frame (codec.ts newDocumentNodes), Internal Only
+    expect(doc.nodeChanges.map((n) => n.guid)).toEqual(["0:0", "0:1", "0:3", "0:4", "0:2"]);
     expect(doc.nodeChanges[0].type).toBe("DOCUMENT");
 
     src.onChanges(msg(s, [rect(s, 1), rect(s, 2)]), { kind: "USER", label: "Create" });

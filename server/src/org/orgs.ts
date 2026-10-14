@@ -88,6 +88,12 @@ export async function orgsRoute(ctx: Ctx): Promise<Response> {
       }
       break;
     }
+    case "files": {
+      // Home's All projects: every file in the org the caller can open — their drafts and every team's folders
+      if (parts.length !== 3 || m !== "GET") break;
+      await acc.requireMember(orgId, { guests: true });
+      return json({ files: await accessibleFiles(acc, `f.org_id = ?1 AND f.trashed_at IS NULL AND (f.project_id IS NOT NULL OR f.owner_id = ?2)`, [orgId, user.id]) });
+    }
     case "search": {
       if (parts.length !== 3 || m !== "GET") break;
       const me = await acc.requireMember(orgId, { guests: true });

@@ -6,7 +6,8 @@
 import type { ToastOptions } from "@/ds/components/Toast";
 import type { WorkspaceRepository } from "@shared/store/repositories";
 import type { FileKey, FileListItem, FolderColor, FolderId } from "@shared/store/types";
-import { cleanName, countLabel, type FolderIndex } from "./model";
+import { t as tr, tp } from "@/i18n";
+import { cleanName, countMessage, type FolderIndex } from "./model";
 
 export interface Targets {
   files: FileKey[];
@@ -21,11 +22,9 @@ export interface ActionContext {
   toast: (o: ToastOptions) => void;
 }
 
-const UNDO = "Undo";
-
 export const errorText = (e: unknown) => {
   const m = e instanceof Error ? e.message : typeof e === "string" ? e : "";
-  return m || "Something went wrong";
+  return m || tr("Something went wrong");
 };
 
 async function attempt<T>(ctx: ActionContext, run: () => Promise<T>): Promise<T | undefined> {
@@ -48,8 +47,8 @@ export async function moveToTrash(ctx: ActionContext, t: Targets): Promise<boole
   });
   if (!done) return false;
   ctx.toast({
-    message: `${countLabel(t).subject} moved to trash`,
-    action: { label: UNDO, onAction: () => void attempt(ctx, () => ctx.repo.restore(t)) },
+    message: countMessage(t, "trash"),
+    action: { label: tr("Undo"), onAction: () => void attempt(ctx, () => ctx.repo.restore(t)) },
   });
   return true;
 }
@@ -60,7 +59,7 @@ export async function restore(ctx: ActionContext, t: Targets): Promise<boolean> 
     await ctx.repo.restore(t);
     return true;
   });
-  if (done) ctx.toast({ message: `${countLabel(t).subject} restored` });
+  if (done) ctx.toast({ message: countMessage(t, "restore") });
   return !!done;
 }
 
@@ -71,7 +70,7 @@ export async function deleteForever(ctx: ActionContext, t: Targets): Promise<boo
     await ctx.repo.deleteForever(t);
     return true;
   });
-  if (done) ctx.toast({ message: `${countLabel(t).subject} deleted forever` });
+  if (done) ctx.toast({ message: countMessage(t, "delete") });
   return !!done;
 }
 
@@ -80,7 +79,7 @@ export async function emptyTrash(ctx: ActionContext): Promise<boolean> {
     await ctx.repo.emptyTrash();
     return true;
   });
-  if (done) ctx.toast({ message: "Trash emptied" });
+  if (done) ctx.toast({ message: tr("Trash emptied") });
   return !!done;
 }
 
@@ -91,7 +90,7 @@ export async function duplicate(ctx: ActionContext, files: FileKey[]): Promise<F
     const meta = await attempt(ctx, () => ctx.repo.duplicateFile(k));
     if (meta) out.push(meta.fileKey);
   }
-  if (out.length) ctx.toast({ message: out.length === 1 ? "File duplicated" : `${out.length} files duplicated` });
+  if (out.length) ctx.toast({ message: tp(out.length, "File duplicated", "{n} files duplicated") });
   return out;
 }
 
@@ -142,7 +141,7 @@ export async function removeFromRecents(ctx: ActionContext, files: FileKey[]): P
 }
 
 /** The name of a destination: "Drafts" for files, "All folders" (the top level) for folders. */
-export const destinationName = (folders: FolderIndex, dest: FolderId | null, forFolders: boolean) => (dest === null ? (forFolders ? "All folders" : "Drafts") : (folders.get(dest)?.name ?? "folder"));
+export const destinationName = (folders: FolderIndex, dest: FolderId | null, forFolders: boolean) => (dest === null ? (forFolders ? tr("All folders") : tr("Drafts")) : (folders.get(dest)?.name ?? tr("folder")));
 
 /**
  * Files into a folder (or Drafts), folders under a folder (or the top level), with Undo putting each back where it
@@ -164,9 +163,9 @@ export async function moveTo(ctx: ActionContext, t: Targets, dest: FolderId | nu
   });
   if (!moved) return false;
   ctx.toast({
-    message: `Moved to ${destinationName(ctx.folders, dest, !t.files.length)}`,
+    message: tr("Moved to {place}", { place: destinationName(ctx.folders, dest, !t.files.length) }),
     action: {
-      label: UNDO,
+      label: tr("Undo"),
       onAction: () =>
         void attempt(ctx, async () => {
           for (const [from, keys] of fileFrom) await ctx.repo.moveFiles(keys, from);

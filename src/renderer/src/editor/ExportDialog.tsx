@@ -6,6 +6,7 @@
  * checked; "Export" exports the checked ones (one file through the Save
  * dialog, several into a folder).
  */
+import { t, useT } from "@/i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Checkbox, Dialog } from "@/ds";
 import type { ExportListEntry, Guid } from "@/engine/codec";
@@ -21,6 +22,7 @@ export function ExportDialog() {
 }
 
 function ExportDialogBody() {
+  useT();
   const ed = useEditor();
   const version = useDocumentVersion(~3);
   const page = ed.store.page;
@@ -48,25 +50,25 @@ function ExportDialogBody() {
   const files = checked.reduce((n, e) => n + e.exportSettings.length, 0);
   return (
     <Dialog
-      title="Export"
+      title={t("Export")}
       size="medium"
       open
       onClose={close}
       footer={
         <>
           <Button variant="secondary" onClick={close}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button variant="primary" loading={busy} disabled={!files} onClick={() => void run()} data-export-dialog-run="">
-            Export
+            {t("Export")}
           </Button>
         </>
       }
     >
       {entries.length === 0 ? (
         <div className={styles.empty} data-export-dialog-empty="">
-          <p>There's nothing to export on this page.</p>
-          <p className={styles.hint}>Add export settings to layers in the Design panel to export them from here.</p>
+          <p>{t("There's nothing to export on this page.")}</p>
+          <p className={styles.hint}>{t("Add export settings to layers in the Design panel to export them from here.")}</p>
         </div>
       ) : (
         <ul className={styles.list} data-export-dialog-list="">
@@ -98,6 +100,7 @@ function ExportDialogBody() {
 const THUMB = 32;
 
 function ExportRow({ entry, checked, onCheck, onLocate }: { entry: ExportListEntry; checked: boolean; onCheck: (on: boolean) => void; onLocate: () => void }) {
+  useT();
   const ed = useEditor();
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -114,8 +117,8 @@ function ExportRow({ entry, checked, onCheck, onLocate }: { entry: ExportListEnt
   const names = entry.exportSettings.map((s) => exportFileName(entry.name, s)).join("\n");
   return (
     <li className={styles.row} data-export-dialog-row={entry.guid}>
-      <Checkbox label={`Export ${entry.name}`} hideLabel checked={checked} onChange={onCheck} />
-      <button type="button" className={styles.thumb} title="Find on canvas" onClick={onLocate}>
+      <Checkbox label={t("Export {name}", { name: entry.name })} hideLabel checked={checked} onChange={onCheck} />
+      <button type="button" className={styles.thumb} title={t("Find on canvas")} onClick={onLocate}>
         <canvas ref={canvas} />
       </button>
       <div className={styles.text} title={names}>

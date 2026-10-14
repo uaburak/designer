@@ -107,18 +107,16 @@ async function acme(ctx: Awaited<ReturnType<typeof setup>>) {
   type($('[role="dialog"] input') as HTMLInputElement, "Design");
   click(dialogButton("Create team"));
   await settleLong();
-  click(buttonNamed("New folder")!);
-  type($('[role="dialog"] input') as HTMLInputElement, "Web");
-  click(dialogButton("Create folder"));
-  await settleLong();
+  // A team page lists projects, not folders (the owner's Home): the folder its projects go into is made through the store
   const orgId = (await ctx.a.api.orgs.list())[0].id;
   const team = (await ctx.a.api.teams.list(orgId))[0];
-  const folder = (await ctx.a.api.projects.list(team.id))[0];
+  const folder = await act(async () => ctx.a.api.projects.create(team.id, { name: "Web" }));
+  await settleLong();
   return { orgId, team, folder };
 }
 
 describe("Home in an organization", () => {
-  it("Create organization switches the space: the org row with its badge, Drafts / All teams / Resources / Trash / Admin", async () => {
+  it("Create organization switches the space: the org row with its badge, All projects / All teams / Resources / Trash / Admin — no teams listed", async () => {
     const ctx = await setup();
     expect($("nav")!.textContent).toContain("Burak's team");
     const { orgId, team, folder } = await acme(ctx);
@@ -127,16 +125,15 @@ describe("Home in an organization", () => {
     expect(nav).toContain("Acme");
     expect(nav).toContain("Enterprise"); // the plan's name, as Figma's badge (1.png "Professional")
     expect(nav).not.toContain("Organization");
-    for (const label of ["Drafts", "All teams", "Design", "Resources", "Trash", "Admin"]) expect(sidebarItem(label), label).toBeTruthy();
-    // The team page: its name, the folder made, Folders / Members
+    for (const label of ["All projects", "All teams", "Resources", "Trash", "Admin"]) expect(sidebarItem(label), label).toBeTruthy();
+    // Recents and Drafts are gone; the teams are on All teams, not in the sidebar
+    for (const label of ["Recents", "Drafts", "Design"]) expect(sidebarItem(label), label).toBeFalsy();
+    // The team page: its name, Projects / Members, no folders
     expect($("main h1")?.textContent).toBe("Design");
-    expect($$('[data-ds="FolderCard"]').map((el) => el.getAttribute("aria-label"))).toEqual(["Web"]);
+    expect($$('main [role="tab"]').map((el) => (el.textContent?.startsWith("Projects") ? "Projects" : el.textContent?.startsWith("Members") ? "Members" : el.textContent))).toEqual(["Projects", "Members"]);
+    expect($$('[data-ds="FolderCard"]')).toHaveLength(0);
     expect(team.name).toBe("Design");
     expect(folder.name).toBe("Web");
-    // The sidebar opens the team to its folders
-    click($('nav [role="treeitem"] button[aria-label="Expand"]')!);
-    await settleLong();
-    expect(sidebarItem("Web")).toBeTruthy();
     // The switcher lists both spaces; back to the local one
     press($('nav button[aria-label$="switch space"]')!);
     expect($$('#ds-overlays [role^="menuitem"]').map((el) => el.textContent?.trim())).toEqual(expect.arrayContaining(["Burak's team", "Acme", "Create organization…"]));
@@ -151,7 +148,7 @@ describe("Home in an organization", () => {
     const { orgId, team } = await acme(ctx);
     const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 9, 9]);
     const teamMenu = async (label: string) => {
-      press($('main button[aria-label="Team actions"]')!);
+      press($('main button[aria-label="Team settings"]')!);
       await settle();
       click(menuItem(label)!);
       await settle();
@@ -165,7 +162,14 @@ describe("Home in an organization", () => {
     click(dialogButton("Rename"));
     await settleLong();
     expect($("main h1")?.textContent).toBe("Product");
-    expect(sidebarItem("Product")).toBeTruthy();
+    // A double-click on the name renames it in place (the owner's Home): the team's, then the org's on All teams
+    await act(async () => void $('main h1 [data-ds="InlineEdit"] > span')!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    const inline = $("main h1 input") as HTMLInputElement;
+    type(inline, "Brand");
+    await act(async () => void inline.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    await settleLong();
+    expect((await ctx.a.api.teams.get(team.id)).name).toBe("Brand");
+    expect($("main h1")?.textContent).toBe("Brand");
 
     await teamMenu("Change icon");
     const file = $('[role="dialog"] [data-icon-input]') as HTMLInputElement;
@@ -180,12 +184,11 @@ describe("Home in an organization", () => {
     expect((await ctx.a.api.teams.get(team.id)).iconUrl).toMatch(new RegExp(`^/icons/${orgId}/`));
     const src = `data:image/png;base64,${Buffer.from(PNG).toString("base64")}`;
     expect($("main [data-team-icon] img")?.getAttribute("src")).toBe(src);
-    expect(sidebarItem("Product")!.querySelector("[data-team-icon] img")?.getAttribute("src")).toBe(src);
     expect(ctx.srv.log).toContain(`PUT /teams/${team.id}/icon`);
     // Remove icon: the initial again
     await teamMenu("Remove icon");
     await settleLong();
-    expect($("main [data-team-icon]")?.getAttribute("data-initial")).toBe("P");
+    expect($("main [data-team-icon]")?.getAttribute("data-initial")).toBe("B");
 
     // The org's icon (Admin › Settings sets it): the space row and the switcher show it
     await ctx.a.api.orgs.setIcon(orgId, PNG);
@@ -197,25 +200,18 @@ describe("Home in an organization", () => {
     expect(menuItem("Burak's team")!.querySelector("[data-menu-avatar]")?.getAttribute("data-initial")).toBe("B");
   });
 
-  it("a folder: New design file makes the org file and opens it; Members lists the team; Admin opens the Admin app", async () => {
+  it("a team: Design makes a project in it (its folder) and opens it; Members lists the team; Admin opens the Admin app", async () => {
     const ctx = await setup();
     const { folder } = await acme(ctx);
-    await press($$('[data-ds="FolderCard"]')[0]);
-    await act(async () => {
-      $$('[data-ds="FolderCard"]')[0].dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
-    });
-    await settleLong();
-    expect($('main [data-ds="Breadcrumb"]')?.textContent).toContain("Web");
     click($$("main header button").find((el) => el.textContent?.trim() === "Design" && !el.closest('[data-ds="Breadcrumb"]'))!);
     await settleLong();
     const files = await ctx.a.api.projects.files(folder.id);
     expect(files.map((f) => f.name)).toEqual(["Untitled"]);
     expect(ctx.opened.at(-1)).toContain(files[0].fileKey!);
     expect($$('[data-ds="FileCard"]').map((el) => el.getAttribute("aria-label"))).toEqual(["Untitled"]);
-    // Members: Inherited, the team's people
+    // Members: the team's people
     click($$('[role="tab"]').find((t) => t.textContent?.startsWith("Members"))!);
     await settle();
-    expect($("main")!.textContent).toContain("Anyone in Design can access");
     expect($('ul[aria-label="Members"]')?.textContent).toContain("Alice");
     // Admin
     click(sidebarItem("Admin")!);
@@ -226,7 +222,7 @@ describe("Home in an organization", () => {
     expect(sidebarItem("Admin")).toBeTruthy();
   });
 
-  it("Move to… takes a local file into a team folder; Recents says its team", async () => {
+  it("Move to… takes a local file into a team folder; All projects lists it", async () => {
     const ctx = await setup();
     const { folder } = await acme(ctx);
     const local = await act(async () => ctx.a.api.workspace.createFile({ name: "Poster", folderId: null }));
@@ -246,9 +242,17 @@ describe("Home in an organization", () => {
     expect(ctx.toasts.map((t) => t.message)).toContain("Moved to Web");
     expect((await ctx.a.api.workspace.listFiles({ in: "drafts" })).map((f) => f.name)).not.toContain("Poster");
     expect((await ctx.a.api.projects.files(folder.id)).map((f) => f.name)).toContain("Poster");
-    click(sidebarItem("Recents")!);
+    press($('nav button[aria-label$="switch space"]')!);
+    click(menuItem("Acme")!);
     await settleLong();
-    expect($('[data-ds="FileCard"][aria-label="Poster"]')?.textContent).toContain("· Design");
+    click(sidebarItem("All projects")!);
+    await settleLong();
+    const poster = $('[data-ds="FileCard"][aria-label="Poster"]')!;
+    // Its team at the top left, the star at the top right: starring it puts it in Starred
+    expect(poster.querySelector("[data-card-place]")?.textContent).toBe("Design");
+    click(poster.querySelector('button[aria-label="Star"]')!);
+    await settleLong();
+    expect($('[data-ds="FileCard"][aria-label="Poster"] button[aria-label="Unstar"]')).toBeTruthy();
   });
 
   it("All teams: another member joins a Visible team from its card; user groups at the right; the owner deletes and restores it", async () => {
@@ -274,7 +278,6 @@ describe("Home in an organization", () => {
     click([...card.querySelectorAll("button")].find((x) => x.textContent?.trim() === "Ask to join")!);
     await settleLong();
     expect(toasts.map((t) => t.message)).toContain("You joined Design");
-    expect(sidebarItem("Design")).toBeTruthy();
     expect((await a.api.teams.members(team.id)).map((x) => x.person?.email).sort()).toEqual(["alice@example.com", "bob@example.com"]);
     // The owner: Delete team…, then Restore from the team's page
     m!.unmount();
@@ -282,14 +285,14 @@ describe("Home in an organization", () => {
     await a.api.workspace.setBrowsePrefs({ space: `org:${org.id}` });
     m = mount(FileBrowser, { backend: a.backend, initialLocation: { kind: "team", teamId: team.id }, toast: (t: ToastOptions) => toasts.push(t) });
     await settleLong();
-    press($('main [aria-label="Team actions"]')!);
+    press($('main [aria-label="Team settings"]')!);
     click(menuItem("Delete team…")!);
     click(dialogButton("Delete team"));
     await settleLong();
     expect((await a.api.teams.list(org.id)).map((t) => t.name)).toEqual([]);
     await a.api.teams.restore(team.id);
     await settleLong();
-    expect(sidebarItem("Design")).toBeTruthy();
+    expect((await a.api.teams.list(org.id)).map((t) => t.name)).toEqual(["Design"]);
   });
 
   it("a View seat: Design asks to upgrade; the request reaches the admins", async () => {
@@ -385,20 +388,14 @@ describe("Adding files in an organization (help.figma.com 360041003114)", () => 
     expect(ctx.imported).toEqual(["Logo.fig"]);
   });
 
-  it("a team page: Import asks which folder; files dropped on a folder's card go into it", async () => {
+  it("a team page: Design and Import add projects to the team directly; files dropped on the page go in", async () => {
     const ctx = await org("bob", (ids) => ({ kind: "team", teamId: ids.teamId }));
-    expect(header()).toEqual(["New folder", "Import"]);
-    click(headerButton("Import"));
-    await settleLong();
-    expect($('[role="dialog"]')?.textContent).toContain("Import to a folder in Design");
-    expect(dialogButton("Import").hasAttribute("disabled")).toBe(true);
-    click($$('[role="dialog"] [role="option"]').find((o) => o.textContent?.includes("Web"))!);
-    click(dialogButton("Import"));
-    await settleLong();
-    expect(ctx.shellImport).not.toHaveBeenCalled(); // into an org the page reads the .fig itself (the upload panel path), not main's dialog
-    dropFiles($$('[data-ds="FolderCard"]').find((c) => c.getAttribute("aria-label") === "Web")!, ["Icons.fig"]);
+    expect(header()).toEqual(["Design", "Import"]);
+    expect($$('[data-ds="FolderCard"]')).toHaveLength(0);
+    dropFiles($('main [role="listbox"][aria-label="Projects"], main [data-ds="EmptyState"]')!, ["Icons.fig"]);
     await settleLong();
     expect(ctx.imported).toEqual(["Icons.fig"]);
+    expect(ctx.shellImport).not.toHaveBeenCalled(); // into an org the page reads the .fig itself (the upload panel path), not main's dialog
   });
 
   it("gated by the caller's role and seat: a team viewer gets no New / Import; a View seat is asked to upgrade", async () => {

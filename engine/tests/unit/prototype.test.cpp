@@ -1050,3 +1050,127 @@ TEST_CASE("prototype.player: After delay and a duration bound to number variable
   f.advance(300);
   CHECK_FALSE(f.player.animating());
 }
+
+TEST_CASE("prototype.variants: each instance inherits the hover connection of the variant it shows, and plays it") {
+  // The owner's "popular-card": four base variants, each While hovering → Change to its own hover variant; instances of
+  // each in another frame. Variants made with Add variant are copies (their layers keep the copied keys). Figma's files
+  // (and the owner's, 2026-10-14) store on each instance a copy of its main's interactions under their ids — here all
+  // four instances hold the FIRST variant's, left from before their variant was switched — and the last one has an
+  // interaction of its own besides.
+  for (bool copies : {false, true}) {
+    CAPTURE(copies);
+    auto nodes = baseChanges();
+    const Guid OWN_DEST{3, 99};
+    const Guid SET{3, 1}, SCREEN{3, 100};
+    Guid base[4], hover[4], inst[4];
+    NodeChange set = make(SET, NodeType::FRAME, kPage, "~", {0, 1000, 1000, 300}, "popular-card");
+    set.props.comp().isStateGroup = true;
+    nodes.push_back(set);
+    const Guid KEY_BASE{3, 2}, KEY_HOVER{3, 3}, KEY_BG{3, 4};
+    for (int i = 0; i < 4; i++) {
+      base[i] = Guid{3, static_cast<uint32_t>(10 + i)};
+      hover[i] = Guid{3, static_cast<uint32_t>(20 + i)};
+      inst[i] = Guid{3, static_cast<uint32_t>(30 + i)};
+      std::string n = std::to_string(i + 1);
+      NodeChange b = make(base[i], NodeType::SYMBOL, SET, std::string(1, static_cast<char>('A' + i)), {20.0 + 200 * i, 20, 100, 40},
+                          "Card=" + n + ", State=Default");
+      b.props.overrideKey = KEY_BASE;
+      b.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(hover[i], "ON_HOVER", "SWAP_STATE", "INSTANT_TRANSITION", 0));
+      nodes.push_back(b);
+      NodeChange bg = make(Guid{3, static_cast<uint32_t>(40 + i)}, NodeType::RECTANGLE, base[i], "!", {0, 0, 100, 40}, "Bg");
+      bg.props.overrideKey = KEY_BG;
+      nodes.push_back(bg);
+      NodeChange h = make(hover[i], NodeType::SYMBOL, SET, std::string(1, static_cast<char>('a' + i)), {20.0 + 200 * i, 150, 100, 40},
+                          "Card=" + n + ", State=Hover");
+      h.props.overrideKey = KEY_HOVER;
+      nodes.push_back(h);
+      NodeChange hbg = make(Guid{3, static_cast<uint32_t>(50 + i)}, NodeType::RECTANGLE, hover[i], "!", {0, 0, 100, 40}, "Bg");
+      hbg.props.overrideKey = KEY_BG;
+      nodes.push_back(hbg);
+    }
+    nodes.push_back(make(SCREEN, NodeType::FRAME, kPage, "!", {0, 0, 375, 812}, "Frame 5025"));
+    for (int i = 0; i < 4; i++) {
+      NodeChange in = make(inst[i], NodeType::INSTANCE, SCREEN, std::string(1, static_cast<char>('A' + i)), {20, 20.0 + 100 * i, 100, 40}, "popular-card");
+      in.props.comp().symbolData.symbolID = base[i];
+      in.props.fillPaints.clear();
+      if (copies) {
+        std::string list = nav(hover[0], "ON_HOVER", "SWAP_STATE", "INSTANT_TRANSITION", 0);
+        if (i == 3) list = list.substr(0, list.size() - 1) + "," + nav(OWN_DEST, "ON_CLICK").substr(1);
+        in.props.extra["prototypeInteractions"] = extra("prototypeInteractions", list);
+      }
+      nodes.push_back(in);
+    }
+    nodes.push_back(make(OWN_DEST, NodeType::FRAME, kPage, "#", {2000, 0, 375, 812}, "Details"));
+
+    // The canvas: a selected instance's inherited connection ends at its own variant's hover variant.
+    {
+      Editor ed;
+      ed.setSessionID(1);
+      ed.setViewport(1600, 1000, 1, 1600, 1000);
+      ed.loadDocument(nodes, kNoGuid);
+      Camera cam;
+      cam.zoom = 1;
+      ed.setCamera(cam);
+      ed.setPrototypeMode(true);
+      // The page's connections: the variants' four, and the one the last instance added — never the copies.
+      ed.setSelection({});
+      size_t before = ed.overlay().prototype.links.size();
+      CHECK(before == (copies ? 5u : 4u));
+      for (int i = 0; i < 4; i++) {
+        CAPTURE(i);
+        ed.setSelection({inst[i]});
+        const auto& links = ed.overlay().prototype.links;
+        REQUIRE(links.size() == before + 1);
+        Rect want = ed.document().worldBounds(hover[i]);
+        Rect from = ed.document().worldBounds(inst[i]);
+        CHECK(links.back().source.x == from.x);
+        CHECK(links.back().source.y == from.y);
+        CHECK(links.back().dest.x == want.x);
+        CHECK(links.back().dest.y == want.y);
+        CHECK(links.back().changeTo);
+      }
+    }
+
+    // Presenting: hovering each instance changes it to its own variant's hover variant, and back.
+    Fixture f(nodes);
+    REQUIRE(f.player.start(kPage, SCREEN));
+    for (int i = 0; i < 4; i++) {
+      CAPTURE(i);
+      CHECK(f.ed.mainOf(inst[i]) == base[i]);
+      f.player.pointer(PointerEvent::MOVE, 40, 40.0 + 100 * i, 0, 0);
+      CHECK(f.ed.mainOf(inst[i]) == hover[i]);
+      f.player.pointer(PointerEvent::MOVE, 300, 700, 0, 0);
+      CHECK(f.ed.mainOf(inst[i]) == base[i]);
+    }
+  }
+}
+
+TEST_CASE("prototype.variants: an instance's own copies, changes and additions of its main's interactions") {
+  // Ids as Figma's: the main's interaction "9:2" (to B); its sibling variant's "9:3" (to C).
+  NodeProps main, sibling, own;
+  main.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(B));
+  sibling.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(C));
+  std::vector<const NodeProps*> variants{&main, &sibling};
+  std::vector<int> index;
+  // None of its own: the main's.
+  auto list = proto::instanceInteractions(own, &main, variants, &index);
+  REQUIRE(list.size() == 1);
+  CHECK(list[0].actions[0].dest == B);
+  CHECK(index == std::vector<int>{-1});
+  // A copy of the main's and a stale copy of the sibling's: the main's alone.
+  std::string both = nav(B);
+  both = both.substr(0, both.size() - 1) + "," + nav(C).substr(1);
+  own.extra["prototypeInteractions"] = extra("prototypeInteractions", both);
+  list = proto::instanceInteractions(own, &main, variants, &index);
+  REQUIRE(list.size() == 1);
+  CHECK(list[0].actions[0].dest == B);
+  // The main's changed on the instance (same id, another destination): the instance's; an addition after it.
+  std::string changed = nav(B, "ON_HOVER");
+  changed = changed.substr(0, changed.size() - 1) + "," + nav(A, "ON_CLICK").substr(1);
+  own.extra["prototypeInteractions"] = extra("prototypeInteractions", changed);
+  list = proto::instanceInteractions(own, &main, variants, &index);
+  REQUIRE(list.size() == 2);
+  CHECK(list[0].trigger == proto::Trigger::ON_HOVER);
+  CHECK(list[1].actions[0].dest == A);
+  CHECK(index == std::vector<int>{0, 1});
+}

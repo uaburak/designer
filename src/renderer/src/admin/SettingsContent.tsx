@@ -12,21 +12,23 @@ import { useAdmin, useLoad } from "./context";
 import { formatHours } from "./labels";
 import { ConfirmDialog, Field, styles } from "./parts";
 import { errorParts } from "./SettingsLogin";
+import { t, tp, useT } from "@/i18n";
 
 /** The Public sharing row's value lines */
 export function sharingSummary(s: Pick<OrgSettings, "publicLinks" | "passwordRequired" | "linkExpiryMaxHours">): string[] {
-  if (!s.publicLinks) return ["Public links off"];
-  const out = [s.passwordRequired ? "Public links with a password" : "Public links on"];
-  if (s.linkExpiryMaxHours !== null) out.push(`Links expire within ${formatHours(s.linkExpiryMaxHours)}`);
+  if (!s.publicLinks) return [t("Public links off")];
+  const out = [s.passwordRequired ? t("Public links with a password") : t("Public links on")];
+  if (s.linkExpiryMaxHours !== null) out.push(t("Links expire within {time}", { time: formatHours(s.linkExpiryMaxHours) }));
   return out;
 }
 
 /** A link expiry maximum as a number and a unit, and back (1 hour … 31 days) */
 function ExpiryField({ n, unit, onChange, disabled }: { n: string; unit: "hours" | "days"; onChange: (n: string, unit: "hours" | "days") => void; disabled?: boolean }) {
+  useT();
   return (
     <div className={styles.inlineRow}>
-      <TextInput className={styles.numberField} label="Maximum" value={n} onChange={(v) => onChange(v, unit)} variant="outlined" disabled={disabled} invalid={!disabled && expiryHours(n, unit) === null} />
-      <Select label="Unit" width={100} value={unit} disabled={disabled} options={[{ value: "hours", label: "Hours" }, { value: "days", label: "Days" }]} onChange={(v) => onChange(n, v as "hours" | "days")} />
+      <TextInput className={styles.numberField} label={t("Maximum")} value={n} onChange={(v) => onChange(v, unit)} variant="outlined" disabled={disabled} invalid={!disabled && expiryHours(n, unit) === null} />
+      <Select label={t("Unit")} width={100} value={unit} disabled={disabled} options={[{ value: "hours", label: t("Hours") }, { value: "days", label: t("Days") }]} onChange={(v) => onChange(n, v as "hours" | "days")} />
     </div>
   );
 }
@@ -42,6 +44,7 @@ function splitExpiry(h: number | null | undefined): { n: string; unit: "hours" |
 }
 
 export function PublicSharingDialog({ settings, onClose }: { settings: OrgSettings; onClose: () => void }) {
+  useT();
   const { orgId, store, run } = useAdmin();
   const { data: workspaces } = useLoad(() => store.admin.workspaces(orgId), [orgId]);
   const [publicLinks, setPublicLinks] = useState(settings.publicLinks);
@@ -66,50 +69,50 @@ export function PublicSharingDialog({ settings, onClose }: { settings: OrgSettin
   return (
     <>
       <Dialog
-        title="Public sharing" open size="large" onClose={onClose}
+        title={t("Public sharing")} open size="large" onClose={onClose}
         footer={
           <>
-            <Button variant="secondary" onClick={onClose}>Cancel</Button>
-            <Button variant="primary" disabled={!valid} onClick={save}>Save</Button>
+            <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
+            <Button variant="primary" disabled={!valid} onClick={save}>{t("Save")}</Button>
           </>
         }
       >
         <div className={styles.form}>
           <div className={styles.switchRow} data-sharing="publicLinks">
             <span className={styles.settingText}>
-              <span className={styles.settingLabel}>Public link sharing</span>
-              <span className={styles.settingDescription}>Off, files in the organization are private: only members and people invited to them can open them.</span>
+              <span className={styles.settingLabel}>{t("Public link sharing")}</span>
+              <span className={styles.settingDescription}>{t("Off, files in the organization are private: only members and people invited to them can open them.")}</span>
             </span>
-            <Switch label="Public link sharing" checked={publicLinks} onChange={setPublicLinks} />
+            <Switch label={t("Public link sharing")} checked={publicLinks} onChange={setPublicLinks} />
           </div>
           <div className={styles.option} data-sharing="passwordRequired">
-            <Checkbox label="Require passwords" checked={passwordRequired} disabled={!publicLinks} onChange={setPasswordRequired} />
-            <span className={styles.optionDescription}>Removes “Anyone with the link”: public links need a password.</span>
+            <Checkbox label={t("Require passwords")} checked={passwordRequired} disabled={!publicLinks} onChange={setPasswordRequired} />
+            <span className={styles.optionDescription}>{t("Removes “Anyone with the link”: public links need a password.")}</span>
           </div>
           <div className={styles.option} data-sharing="linkExpiry">
-            <Checkbox label="Require design file links to expire" checked={expires} disabled={!publicLinks} onChange={setExpires} />
-            <span className={styles.optionDescription}>Public links turn private after at most this long (1 hour to 31 days). This also turns public links off in FigJam.</span>
+            <Checkbox label={t("Require design file links to expire")} checked={expires} disabled={!publicLinks} onChange={setExpires} />
+            <span className={styles.optionDescription}>{t("Public links turn private after at most this long (1 hour to 31 days). This also turns public links off in FigJam.")}</span>
             {expires && publicLinks && (
               <div className={styles.optionDescription}>
                 <ExpiryField n={expiry.n} unit={expiry.unit} onChange={(n, unit) => setExpiry({ n, unit })} />
-                {!valid && <div className={styles.error}>Choose between 1 hour and 31 days.</div>}
+                {!valid && <div className={styles.error}>{t("Choose between 1 hour and 31 days.")}</div>}
               </div>
             )}
           </div>
           <div className={styles.form} data-sharing="workspaces">
             <div className={styles.sectionHeader}>
-              <h3 className={styles.settingsSubTitle}>Custom settings for workspaces</h3>
-              <Button variant="secondary" disabled={others.length === 0} onClick={() => setAdding(true)}>Add workspace</Button>
+              <h3 className={styles.settingsSubTitle}>{t("Custom settings for workspaces")}</h3>
+              <Button variant="secondary" disabled={others.length === 0} onClick={() => setAdding(true)}>{t("Add workspace")}</Button>
             </div>
-            <div className={styles.note}>Override these settings for files in a workspace's teams. Drafts and teams outside workspaces use the organization's.</div>
+            <div className={styles.note}>{t("Override these settings for files in a workspace's teams. Drafts and teams outside workspaces use the organization's.")}</div>
             {custom.map((w) => (
               <div key={w.id} className={styles.settingRow} data-workspace-sharing={w.id}>
                 <span className={styles.settingText}>
                   <span className={styles.settingLabel}>{w.name}</span>
                   <span className={styles.settingDescription}>{workspaceSummary(w.sharing!)}</span>
                 </span>
-                <Button variant="secondary" onClick={() => setEditing(w)}>Edit</Button>
-                <Button variant="secondary" onClick={() => void run(() => store.admin.updateWorkspace(w.id, { sharing: w.sharing?.fileExporting ? { fileExporting: w.sharing.fileExporting } : null }), "Custom settings removed")}>Remove</Button>
+                <Button variant="secondary" onClick={() => setEditing(w)}>{t("Edit")}</Button>
+                <Button variant="secondary" onClick={() => void run(() => store.admin.updateWorkspace(w.id, { sharing: w.sharing?.fileExporting ? { fileExporting: w.sharing.fileExporting } : null }), "Custom settings removed")}>{t("Remove")}</Button>
               </div>
             ))}
           </div>
@@ -123,26 +126,27 @@ export function PublicSharingDialog({ settings, onClose }: { settings: OrgSettin
 
 function workspaceSummary(w: WorkspaceSharingSettings): string {
   const parts: string[] = [];
-  if (w.publicLinks !== undefined) parts.push(w.publicLinks ? "Public links on" : "Public links off");
-  if (w.passwordRequired !== undefined) parts.push(w.passwordRequired ? "Passwords required" : "Passwords not required");
-  if (w.linkExpiryMaxHours !== undefined) parts.push(w.linkExpiryMaxHours === null ? "Links don't have to expire" : `Links expire within ${formatHours(w.linkExpiryMaxHours)}`);
-  return parts.join(" · ") || "Organization settings";
+  if (w.publicLinks !== undefined) parts.push(w.publicLinks ? t("Public links on") : t("Public links off"));
+  if (w.passwordRequired !== undefined) parts.push(w.passwordRequired ? t("Passwords required") : t("Passwords not required"));
+  if (w.linkExpiryMaxHours !== undefined) parts.push(w.linkExpiryMaxHours === null ? t("Links don't have to expire") : t("Links expire within {time}", { time: formatHours(w.linkExpiryMaxHours) }));
+  return parts.join(" · ") || t("Organization settings");
 }
 
 function AddWorkspaceDialog({ workspaces, onPick, onClose }: { workspaces: OrgWorkspace[]; onPick: (w: OrgWorkspace) => void; onClose: () => void }) {
+  useT();
   const [id, setId] = useState(workspaces[0]?.id ?? "");
   return (
     <Dialog
-      title="Add workspace" open onClose={onClose}
+      title={t("Add workspace")} open onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={!id} onClick={() => onPick(workspaces.find((w) => w.id === id)!)}>Next</Button>
+          <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
+          <Button variant="primary" disabled={!id} onClick={() => onPick(workspaces.find((w) => w.id === id)!)}>{t("Next")}</Button>
         </>
       }
     >
-      <Field title="Workspace">
-        <Select label="Workspace" value={id} options={workspaces.map((w) => ({ value: w.id, label: w.name }))} onChange={setId} />
+      <Field title={t("Workspace")}>
+        <Select label={t("Workspace")} value={id} options={workspaces.map((w) => ({ value: w.id, label: w.name }))} onChange={setId} />
       </Field>
     </Dialog>
   );
@@ -150,6 +154,7 @@ function AddWorkspaceDialog({ workspaces, onPick, onClose }: { workspaces: OrgWo
 
 type Tri = "org" | "on" | "off";
 function WorkspaceSharingDialog({ workspace, org, onClose }: { workspace: OrgWorkspace; org: OrgSettings; onClose: () => void }) {
+  useT();
   const { store, run } = useAdmin();
   const w = workspace.sharing ?? {};
   const [links, setLinks] = useState<Tri>(w.publicLinks === undefined ? "org" : w.publicLinks ? "on" : "off");
@@ -158,7 +163,7 @@ function WorkspaceSharingDialog({ workspace, org, onClose }: { workspace: OrgWor
   const [expiry, setExpiry] = useState(splitExpiry(w.linkExpiryMaxHours ?? org.linkExpiryMaxHours));
   const hours = exp === "on" ? expiryHours(expiry.n, expiry.unit) : null;
   const valid = exp !== "on" || hours !== null;
-  const orgSetting = (on: boolean) => `Organization setting (${on ? "On" : "Off"})`;
+  const orgSetting = (on: boolean) => (on ? t("Organization setting (On)") : t("Organization setting (Off)"));
   const save = () => {
     const sharing: WorkspaceSharingSettings = w.fileExporting ? { fileExporting: w.fileExporting } : {};
     if (links !== "org") sharing.publicLinks = links === "on";
@@ -169,26 +174,26 @@ function WorkspaceSharingDialog({ workspace, org, onClose }: { workspace: OrgWor
   };
   return (
     <Dialog
-      title={`Custom settings for ${workspace.name}`} open size="medium" onClose={onClose}
+      title={t("Custom settings for {name}", { name: workspace.name })} open size="medium" onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={!valid} onClick={save}>Save</Button>
+          <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
+          <Button variant="primary" disabled={!valid} onClick={save}>{t("Save")}</Button>
         </>
       }
     >
       <div className={styles.form}>
-        <Field title="Public link sharing">
-          <Select label="Public link sharing" value={links} onChange={(v) => setLinks(v as Tri)} options={[{ value: "org", label: orgSetting(org.publicLinks) }, { value: "on", label: "On" }, { value: "off", label: "Off" }]} />
+        <Field title={t("Public link sharing")}>
+          <Select label={t("Public link sharing")} value={links} onChange={(v) => setLinks(v as Tri)} options={[{ value: "org", label: orgSetting(org.publicLinks) }, { value: "on", label: t("On") }, { value: "off", label: t("Off") }]} />
         </Field>
-        <Field title="Require passwords">
-          <Select label="Require passwords" value={pw} onChange={(v) => setPw(v as Tri)} options={[{ value: "org", label: orgSetting(org.passwordRequired) }, { value: "on", label: "Required" }, { value: "off", label: "Not required" }]} />
+        <Field title={t("Require passwords")}>
+          <Select label={t("Require passwords")} value={pw} onChange={(v) => setPw(v as Tri)} options={[{ value: "org", label: orgSetting(org.passwordRequired) }, { value: "on", label: t("Required") }, { value: "off", label: t("Not required") }]} />
         </Field>
-        <Field title="Require design file links to expire">
-          <Select label="Require design file links to expire" value={exp} onChange={(v) => setExp(v as Tri)} options={[{ value: "org", label: orgSetting(org.linkExpiryMaxHours !== null) }, { value: "on", label: "Required" }, { value: "off", label: "Not required" }]} />
+        <Field title={t("Require design file links to expire")}>
+          <Select label={t("Require design file links to expire")} value={exp} onChange={(v) => setExp(v as Tri)} options={[{ value: "org", label: orgSetting(org.linkExpiryMaxHours !== null) }, { value: "on", label: t("Required") }, { value: "off", label: t("Not required") }]} />
         </Field>
         {exp === "on" && <ExpiryField n={expiry.n} unit={expiry.unit} onChange={(n, unit) => setExpiry({ n, unit })} />}
-        {!valid && <div className={styles.error}>Choose between 1 hour and 31 days.</div>}
+        {!valid && <div className={styles.error}>{t("Choose between 1 hour and 31 days.")}</div>}
       </div>
     </Dialog>
   );
@@ -200,6 +205,7 @@ const REGIONS = Object.keys(DATA_REGION_LABEL) as DataRegion[];
 const left = (st: DataRegionStatus) => st.files.total - st.files.moved + st.libraries.total - st.libraries.moved;
 
 export function DataRegionDialog({ onClose }: { onClose: () => void }) {
+  useT();
   const { orgId, store, changed } = useAdmin();
   const identity = store.identity!;
   const { data: loaded } = useLoad(() => identity.dataRegion(orgId), [orgId]);
@@ -235,7 +241,7 @@ export function DataRegionDialog({ onClose }: { onClose: () => void }) {
         if (s.moving === null) break;
       }
       changed();
-      showToast({ message: left(s) === 0 ? `Files moved to ${DATA_REGION_LABEL[s.region]}` : "Some files couldn't be moved" });
+      showToast({ message: left(s) === 0 ? t("Files moved to {region}", { region: t(DATA_REGION_LABEL[s.region]) }) : t("Some files couldn't be moved") });
     } catch (e) {
       if (alive.current) showToast({ message: errorParts(e).message, kind: "error" });
     } finally {
@@ -248,43 +254,43 @@ export function DataRegionDialog({ onClose }: { onClose: () => void }) {
   return (
     <>
       <Dialog
-        title="Data storage localization" open size="medium" onClose={onClose}
+        title={t("Data storage localization")} open size="medium" onClose={onClose}
         footer={
           moving ? (
-            <Button variant="secondary" onClick={onClose}>Close</Button>
+            <Button variant="secondary" onClick={onClose}>{t("Close")}</Button>
           ) : (
             <>
-              {pending > 0 && <Button variant="secondary" onClick={() => void move()}>Resume moving</Button>}
+              {pending > 0 && <Button variant="secondary" onClick={() => void move()}>{t("Resume moving")}</Button>}
               <span className={styles.spacer} />
-              <Button variant="secondary" onClick={onClose}>Cancel</Button>
-              <Button variant="primary" disabled={!st.available || target === st.region} onClick={() => setConfirming(true)}>Change</Button>
+              <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
+              <Button variant="primary" disabled={!st.available || target === st.region} onClick={() => setConfirming(true)}>{t("Change")}</Button>
             </>
           )
         }
       >
         <div className={styles.form}>
           <div className={styles.note}>
-            The content of the organization's files and libraries — shapes, text, frames, components, images and video — is stored in this region. Comments, file names, fonts, thumbnails, activity logs and other metadata aren't localized.
+            {t("The content of the organization's files and libraries — shapes, text, frames, components, images and video — is stored in this region. Comments, file names, fonts, thumbnails, activity logs and other metadata aren't localized.")}
           </div>
-          {!st.available && <Banner tone="warning">The European Union region isn't available on this server.</Banner>}
-          <Field title="Region">
-            <Select label="Region" value={target} disabled={moving || !st.available} options={REGIONS.map((r) => ({ value: r, label: DATA_REGION_LABEL[r] }))} onChange={(v) => setPick(v as DataRegion)} />
+          {!st.available && <Banner tone="warning">{t("The European Union region isn't available on this server.")}</Banner>}
+          <Field title={t("Region")}>
+            <Select label={t("Region")} value={target} disabled={moving || !st.available} options={REGIONS.map((r) => ({ value: r, label: t(DATA_REGION_LABEL[r]) }))} onChange={(v) => setPick(v as DataRegion)} />
           </Field>
           {(moving || pending > 0) && (
             <div className={styles.form} data-region-progress="">
-              <div className={styles.progress} role="progressbar" aria-label="Moving files" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}>
+              <div className={styles.progress} role="progressbar" aria-label={t("Moving files")} aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}>
                 <span className={styles.progressBar} style={{ width: `${total ? (done / total) * 100 : 100}%` }} />
               </div>
-              <div className={styles.note}>{moving ? `Moving files… ${done} of ${total}` : `${pending === 1 ? "1 file is" : `${pending} files are`} still in the previous region.`}</div>
+              <div className={styles.note}>{moving ? t("Moving files… {done} of {total}", { done, total }) : tp(pending, "{n} file is still in the previous region.", "{n} files are still in the previous region.")}</div>
             </div>
           )}
-          {moving && <div className={styles.note}>Files being moved can't be edited for a few seconds each. Closing this stops the move; it can be resumed.</div>}
+          {moving && <div className={styles.note}>{t("Files being moved can't be edited for a few seconds each. Closing this stops the move; it can be resumed.")}</div>}
         </div>
       </Dialog>
       {confirming && (
         <ConfirmDialog
-          title={`Move files to ${DATA_REGION_LABEL[target]}?`} confirm="Change"
-          body={`New files are stored in ${DATA_REGION_LABEL[target]} at once. ${total === 1 ? "The existing file is" : `The ${total} existing files and libraries are`} moved one by one; each is read-only for a few seconds while it moves.`}
+          title={t("Move files to {region}?", { region: t(DATA_REGION_LABEL[target]) })} confirm="Change"
+          body={total === 1 ? t("New files are stored in {region} at once. The existing file is moved one by one; each is read-only for a few seconds while it moves.", { region: t(DATA_REGION_LABEL[target]) }) : t("New files are stored in {region} at once. The {n} existing files and libraries are moved one by one; each is read-only for a few seconds while it moves.", { region: t(DATA_REGION_LABEL[target]), n: total })}
           onConfirm={() => void move(target)}
           onClose={() => setConfirming(false)}
         />

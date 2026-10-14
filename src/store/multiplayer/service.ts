@@ -11,14 +11,15 @@
 import type { RoomPolicy } from "../../shared/org/identity";
 import { GOVERNANCE_SIGN_IN_ERROR_TEXT, REQUIRES_GOVERNANCE_PLUS, type GovernanceErrorCode, type OrgGate } from "../../shared/org/governance";
 import { CLOSE_MOVING, encodeChangesUp, decodeChangesDown, type ClientControl, type PeerInfo, type Role, type ServerControl } from "../../shared/multiplayer/protocol";
-import type { AccessRequest, FileMember, FileShareState, LinkAccess, LinkSettingsPatch, MultiplayerNotice, MultiplayerSession, MultiplayerStatus, OpenIntent, OpeningProgress, RemoteFile, RestJobAnswer, RestJobRequest, SessionEnded, SharedFileInfo } from "../../shared/multiplayer/types";
+import type { AccessRequest, FileMember, FileShareState, InheritedPerson, LinkAccess, LinkSettingsPatch, MultiplayerNotice, MultiplayerSession, MultiplayerStatus, OpenIntent, OpeningProgress, RemoteFile, RestJobAnswer, RestJobRequest, SessionEnded, SharedFileInfo } from "../../shared/multiplayer/types";
 import type { RestJob, RestJobPart } from "../../shared/rest/types";
 import { decodeMessage } from "../../shared/schema/codec";
 import type { Message } from "../../shared/schema/document.generated";
 import { isPackedSnapshot, packSnapshot, unpackSnapshot } from "../../shared/multiplayer/snapshotWire";
 import { messageImageHashes } from "../../shared/schema/patch";
 import { StoreError } from "../../shared/store/protocol";
-import { ACCOUNT_SUSPENDED_TEXT, isQuotaRefusal, quotaText } from "../../shared/quota";
+import { isQuotaRefusal } from "../../shared/quota";
+import { accountSuspendedMessage, quotaMessage } from "../i18n";
 import type { FileChange, Unsubscribe } from "../../shared/store/repositories";
 import type { FileKey, FileMeta, FileSpace } from "../../shared/store/types";
 import { touchedBy, withoutPending, type Touched } from "./conflict";
@@ -26,6 +27,7 @@ import { busyError, fetchWithRetry, isErrorPage, READ_RETRY_DELAYS, STILL_UPLOAD
 import { countingBody, pool, sendBlobs, UploadTracker, BLOB_CONCURRENCY, type BlobSender, type MultipartStart, type UploadClock } from "./uploads";
 import { BlobDownloads, DOWNLOAD_CONCURRENCY, imageDownloadOrder, type BlobSource } from "./downloads";
 import { UPLOAD_CANCELED, UPLOAD_CANCELED_TEXT, type UploadEvent } from "../../shared/multiplayer/uploads";
+import { t as tr } from "../../shared/i18n";
 
 /** What the store gives the service. */
 export interface MultiplayerHost {
@@ -122,7 +124,7 @@ interface CallOptions {
   signal?: AbortSignal;
 }
 
-const canceledError = () => new StoreError("invalid", UPLOAD_CANCELED_TEXT, { code: UPLOAD_CANCELED });
+const canceledError = () => new StoreError("invalid", tr(UPLOAD_CANCELED_TEXT), { code: UPLOAD_CANCELED });
 export const isCanceled = (e: unknown): boolean => e instanceof StoreError && (e.detail as { code?: unknown } | undefined)?.code === UPLOAD_CANCELED;
 
 interface LinkRecord {
@@ -432,9 +434,9 @@ export class MultiplayerService {
    */
   async shareTo<T>(fileKey: FileKey, input: { snapshot: Uint8Array; headSeq: number }, register: (key: string, name: string) => Promise<T>, key?: string): Promise<T> {
     const st = await this.loadState();
-    if (st.links[fileKey]) throw new StoreError("invalid", "This file is shared already");
+    if (st.links[fileKey]) throw new StoreError("invalid", tr("This file is shared already"));
     const meta = this.host.getMeta(fileKey);
-    if (!meta) throw new StoreError("not-found", "No such file");
+    if (!meta) throw new StoreError("not-found", tr("No such file"));
     this.needOrdinal();
     const room = key ?? roomKeyFor(fileKey, this.deps.random);
     // The upload panel shows it from here (queued while the server registers it)
@@ -468,11 +470,11 @@ export class MultiplayerService {
         throw canceledError();
       }
       this.host.log("warn", `multiplayer ${fileKey}: the upload to ${room} didn't finish; it goes again when the file is next opened`, e);
-      const err = e instanceof StoreError ? e : new StoreError("offline", "Couldn't reach the server. Check your connection and try again.");
+      const err = e instanceof StoreError ? e : new StoreError("offline", tr("Couldn't reach the server. Check your connection and try again."));
       this.uploads.failed(id, err.message);
       // The link keeps trying in the background (with its backoff), as it would after a restart
       this.startLink(fileKey);
-      throw new StoreError(err.code, `“${meta.name}” didn't finish uploading. It will try again the next time it's opened.`, { code: "upload_incomplete", pendingUpload: true, fileKey, key: room, cause: err.message });
+      throw new StoreError(err.code, tr("“{name}” didn't finish uploading. It will try again the next time it's opened.", { name: meta.name }), { code: "upload_incomplete", pendingUpload: true, fileKey, key: room, cause: err.message });
     }
     this.uploading.delete(fileKey);
     delete rec.pendingUpload;
@@ -530,7 +532,7 @@ export class MultiplayerService {
       });
     } catch (e) {
       if (isCanceled(e)) this.uploads.remove(id);
-      else this.uploads.failed(id, e instanceof StoreError ? e.message : "Couldn't reach the server. Check your connection and try again.");
+      else this.uploads.failed(id, e instanceof StoreError ? e.message : tr("Couldn't reach the server. Check your connection and try again."));
       throw e;
     }
     this.uploads.done(id);
@@ -597,7 +599,7 @@ export class MultiplayerService {
     const delays = this.deps.uploadRetryDelays ?? UPLOAD_RETRY_DELAYS;
     const step = <T>(run: () => Promise<T>) => () => {
       if (up?.signal.aborted) throw canceledError();
-      if (!alive()) throw new StoreError("offline", PAUSED_TEXT);
+      if (!alive()) throw new StoreError("offline", tr(PAUSED_TEXT));
       return run();
     };
     // Bytes of the requests landed; one going again falls back to it
@@ -688,7 +690,7 @@ export class MultiplayerService {
         rec.acked = Math.max(rec.acked, head);
       }
       if (ac.signal.aborted) throw canceledError();
-      if (!alive()) throw new StoreError("offline", PAUSED_TEXT);
+      if (!alive()) throw new StoreError("offline", tr(PAUSED_TEXT));
       this.uploading.delete(fileKey);
       delete rec.pendingUpload;
       await this.persist(fileKey);
@@ -703,7 +705,7 @@ export class MultiplayerService {
         this.uploads.remove(id);
         await this.dropDead(fileKey, rec.key);
       } else {
-        this.uploads.failed(id, e instanceof StoreError ? e.message : "Couldn't reach the server. Check your connection and try again.");
+        this.uploads.failed(id, e instanceof StoreError ? e.message : tr("Couldn't reach the server. Check your connection and try again."));
         this.host.log("warn", `multiplayer ${fileKey}: the upload to ${rec.key} didn't finish yet`, e);
       }
       return false;
@@ -803,7 +805,7 @@ export class MultiplayerService {
     this.needOrdinal();
     // By invite or by the link: the server answers with the caller's role (404 when neither).
     const remote = await this.api<SharedFileInfo>("GET", `/files/${key}`).catch((e: unknown) => {
-      throw e instanceof StoreError && e.code === "not-found" ? new StoreError("not-found", "This file isn't shared with you, or the link is off") : e;
+      throw e instanceof StoreError && e.code === "not-found" ? new StoreError("not-found", tr("This file isn't shared with you, or the link is off")) : e;
     });
     if (remote.needsPassword) await this.unlock(key, password);
     // The copy is made under a key known now: an early open hands it back at once, so the file's tab opens and shows
@@ -881,9 +883,9 @@ export class MultiplayerService {
 
   /** The pass for a link password, kept for this room key (and with the file's link record once there is one). */
   private async unlock(key: string, password: string | undefined): Promise<void> {
-    if (!password) throw new StoreError("forbidden", "This file is password protected", { passwordRequired: true });
+    if (!password) throw new StoreError("forbidden", tr("This file is password protected"), { passwordRequired: true });
     const { pass } = await this.api<{ pass: string | null }>("POST", `/files/${key}/unlock`, { password }).catch((e: unknown) => {
-      throw e instanceof StoreError && e.code === "forbidden" ? new StoreError("forbidden", "Incorrect password", { passwordRequired: true, wrong: true }) : e;
+      throw e instanceof StoreError && e.code === "forbidden" ? new StoreError("forbidden", tr("Incorrect password"), { passwordRequired: true, wrong: true }) : e;
     });
     if (pass) this.passes.set(key, pass);
     else this.passes.delete(key);
@@ -892,7 +894,7 @@ export class MultiplayerService {
   /** An open shared file whose link password changed: the new password, then the link carries on. */
   async unlockFile(fileKey: FileKey, password: string): Promise<FileShareState> {
     const rec = (await this.loadState()).links[fileKey];
-    if (!rec) throw new StoreError("invalid", "This file isn't shared");
+    if (!rec) throw new StoreError("invalid", tr("This file isn't shared"));
     await this.unlock(rec.key, password);
     rec.pass = this.passes.get(rec.key);
     await this.persist(fileKey);
@@ -1265,6 +1267,24 @@ export class MultiplayerService {
     return this.members(fileKey, true);
   }
 
+  /** A team file's people through its team, with whose access to this file is taken away (file_exclusions) */
+  async exclusions(fileKey: FileKey): Promise<InheritedPerson[]> {
+    const { people } = await this.api<{ people: InheritedPerson[] }>("GET", `/files/${await this.keyOf(fileKey)}/exclusions`);
+    return people;
+  }
+
+  async exclude(fileKey: FileKey, userId: string): Promise<InheritedPerson[]> {
+    await this.api("PUT", `/files/${await this.keyOf(fileKey)}/exclusions`, { userId });
+    this.reads.delete(`members:${fileKey}`);
+    return this.exclusions(fileKey);
+  }
+
+  async include(fileKey: FileKey, userId: string): Promise<InheritedPerson[]> {
+    await this.api("DELETE", `/files/${await this.keyOf(fileKey)}/exclusions/${encodeURIComponent(userId)}`);
+    this.reads.delete(`members:${fileKey}`);
+    return this.exclusions(fileKey);
+  }
+
   /** "Transfer ownership" to an invited member (owner only; can't be undone). */
   async transferOwnership(fileKey: FileKey, email: string): Promise<FileMember[]> {
     await this.api("POST", `/files/${await this.keyOf(fileKey)}/transfer`, { email });
@@ -1415,7 +1435,7 @@ export class MultiplayerService {
   async restAnswer(fileKey: FileKey, id: string, answer: RestJobAnswer): Promise<void> {
     const rec = (await this.loadState()).links[fileKey];
     const link = this.live.get(fileKey);
-    if (!rec || !link) throw new StoreError("invalid", "This file isn't shared");
+    if (!rec || !link) throw new StoreError("invalid", tr("This file isn't shared"));
     if ("err" in answer) return link.say({ t: "rest-job-failed", id, err: String(answer.err).slice(0, 1000) });
     const parts: RestJobPart[] = [];
     try {
@@ -1581,12 +1601,12 @@ export class MultiplayerService {
   }
 
   private needOrdinal(): void {
-    if (this.host.deviceOrdinal <= 1) throw new StoreError("offline", "Couldn't reach the server. Check your connection and try again.");
+    if (this.host.deviceOrdinal <= 1) throw new StoreError("offline", tr("Couldn't reach the server. Check your connection and try again."));
   }
 
   private async keyOf(fileKey: FileKey): Promise<string> {
     const rec = (await this.loadState()).links[fileKey];
-    if (!rec) throw new StoreError("invalid", "This file isn't shared");
+    if (!rec) throw new StoreError("invalid", tr("This file isn't shared"));
     return rec.key;
   }
 
@@ -1626,7 +1646,7 @@ export class MultiplayerService {
    * payloads answer bytes: src/store/libraries/org.ts); signed out or unreachable → `offline`.
    */
   async request(method: string, path: string, body?: unknown, opts?: CallOptions): Promise<Response> {
-    if (!this.session) throw new StoreError("offline", "Log in to share files");
+    if (!this.session) throw new StoreError("offline", tr("Log in to share files"));
     const session = this.session;
     const init: RequestInit = { method, headers: { authorization: `Bearer ${session.token}` } };
     if (opts?.signal) init.signal = opts.signal;
@@ -1653,7 +1673,7 @@ export class MultiplayerService {
       );
     } catch {
       if (opts?.signal?.aborted) throw canceledError();
-      throw new StoreError("offline", "Couldn't reach the server. Check your connection and try again.");
+      throw new StoreError("offline", tr("Couldn't reach the server. Check your connection and try again."));
     }
     if (counted && !streamed && res.ok) opts!.onSent!(counted.length);
     if (res.status === 401) await this.sessionRefused(res, session);
@@ -1790,31 +1810,31 @@ export async function httpError(res: Response): Promise<StoreError> {
     // plain text
   }
   // A room's snapshot not uploaded yet (an earlier server said it in plain text): the file isn't gone, it's coming
-  if (res.status === 404 && (detail?.code === "no_snapshot" || (!json && text.trim() === "no snapshot yet"))) return new StoreError("unavailable", STILL_UPLOADING_TEXT, { ...(detail ?? {}), code: "no_snapshot" });
+  if (res.status === 404 && (detail?.code === "no_snapshot" || (!json && text.trim() === "no snapshot yet"))) return new StoreError("unavailable", tr(STILL_UPLOADING_TEXT), { ...(detail ?? {}), code: "no_snapshot" });
   // Cloudflare's pages (1102, 1101, 1015, its 5xx) and any other page: never shown, our words instead (the 2026-10-12 incident)
   if (!json && isErrorPage(res, text)) return busyError(res.status, text, true);
   if (!json) message = message.length > 200 ? "" : message;
   // 401 `idle_timeout` (§15.8): detail.code says it; MultiplayerService has also said `SessionEnded` and dropped the session
-  if (res.status === 401 && detail?.code === "idle_timeout") return new StoreError("forbidden", "You were logged out because you were inactive.", detail);
-  if (res.status === 401) return new StoreError("forbidden", "Your session expired. Log in again.", detail);
+  if (res.status === 401 && detail?.code === "idle_timeout") return new StoreError("forbidden", tr("You were logged out because you were inactive."), detail);
+  if (res.status === 401) return new StoreError("forbidden", tr("Your session expired. Log in again."), detail);
   // Public sign-up's limits (docs/multiplayer.md §17): `detail` keeps `{code, kind, limit}`; the words are the shared ones
-  if (isQuotaRefusal(detail)) return new StoreError(res.status === 413 ? "too-large" : "forbidden", quotaText(detail.kind, detail.limit), detail);
-  if (detail?.code === "account_suspended") return new StoreError("forbidden", ACCOUNT_SUSPENDED_TEXT, detail);
+  if (isQuotaRefusal(detail)) return new StoreError(res.status === 413 ? "too-large" : "forbidden", quotaMessage(detail.kind, detail.limit), detail);
+  if (detail?.code === "account_suspended") return new StoreError("forbidden", accountSuspendedMessage(), detail);
   // The server's spend guard (§17.1): 503 `capacity_reached`, its message says it ("…Try again on the 1st.")
   if (detail?.code === "capacity_reached") return new StoreError("unavailable", message, detail);
   // Governance+ (docs/governance.md §2.5, §2.10): `detail` keeps `{code, gate}`; the org's encryption key → unavailable
   const gcode = detail?.code;
   if ((res.status === 403 || res.status === 503) && isGovernanceCode(gcode)) {
-    return new StoreError(gcode === "key_unavailable" ? "unavailable" : "forbidden", GOVERNANCE_REFUSAL_TEXT[gcode] ?? (message || "You don't have access"), detail);
+    return new StoreError(gcode === "key_unavailable" ? "unavailable" : "forbidden", (GOVERNANCE_REFUSAL_TEXT[gcode] ? tr(GOVERNANCE_REFUSAL_TEXT[gcode]) : message || tr("You don't have access")), detail);
   }
-  if (res.status === 403) return new StoreError("forbidden", message || "You don't have access", detail);
-  if (res.status === 404) return new StoreError("not-found", message || "Not found", detail);
-  if (res.status === 410) return new StoreError("not-found", message || "This link has expired", detail ?? { code: "gone" });
-  if (res.status === 409) return new StoreError("conflict", message || "That changed meanwhile", detail);
-  if (res.status === 413) return new StoreError("too-large", message || "That is too large", detail);
+  if (res.status === 403) return new StoreError("forbidden", message || tr("You don't have access"), detail);
+  if (res.status === 404) return new StoreError("not-found", message || tr("Not found"), detail);
+  if (res.status === 410) return new StoreError("not-found", message || tr("This link has expired"), detail ?? { code: "gone" });
+  if (res.status === 409) return new StoreError("conflict", message || tr("That changed meanwhile"), detail);
+  if (res.status === 413) return new StoreError("too-large", message || tr("That is too large"), detail);
   // The server's own trouble (5xx) or rate limiting: our words, not its internals
   if (res.status >= 500 || res.status === 429) return busyError(res.status, text, false, detail?.code);
-  return new StoreError("invalid", message || `The server said ${res.status}`, detail);
+  return new StoreError("invalid", message || tr("The server said {status}", { status: res.status }), detail);
 }
 
 /** One shared file's socket. */
@@ -2135,7 +2155,7 @@ async function readCounting(res: Response, onReceived: (n: number) => void): Pro
     return out;
   } catch (e) {
     if (e instanceof StoreError) throw e;
-    throw new StoreError("offline", "Couldn't reach the server. Check your connection and try again.");
+    throw new StoreError("offline", tr("Couldn't reach the server. Check your connection and try again."));
   }
 }
 

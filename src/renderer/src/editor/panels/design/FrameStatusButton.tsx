@@ -8,6 +8,7 @@ import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { usePresence } from "../../multiplayer/presence";
 import { FRAME_STATUS_COLOR, FRAME_STATUSES, frameStatusLabel, frameStatusOf, frameStatusTargets, setFrameStatus, type FrameStatus } from "../../frameStatus";
+import { t, useT } from "@/i18n";
 import styles from "./FrameStatus.module.css";
 
 export const NO_STATUS = "none";
@@ -16,9 +17,9 @@ export const NO_STATUS = "none";
 export function frameStatusMenu(current: FrameStatus | null, opts: { disabled?: boolean } = {}): MenuEntry[] {
   const disabled = opts.disabled || undefined;
   return [
-    ...FRAME_STATUSES.map((s) => ({ id: s.id, label: s.label, swatch: FRAME_STATUS_COLOR[s.id], checked: s.id === current, disabled })),
+    ...FRAME_STATUSES.map((s) => ({ id: s.id, label: t(s.label), swatch: FRAME_STATUS_COLOR[s.id], checked: s.id === current, disabled })),
     "-",
-    { id: NO_STATUS, label: "No status", checked: current === null, disabled },
+    { id: NO_STATUS, label: t("No status"), checked: current === null, disabled },
   ];
 }
 
@@ -41,6 +42,7 @@ function Face({ status, text }: { status: FrameStatus | null; text: string }) {
 
 /** The Design panel header's status button (a frame or section's header): the current status, the menu under it. */
 export function FrameStatusButton() {
+  useT();
   const ed = useEditor();
   const p = usePresence(ed);
   const viewer = p.shared && p.role === "viewer";
@@ -49,7 +51,7 @@ export function FrameStatusButton() {
   const list = targets.map((id) => frameStatusOf(ed, id));
   const mixed = !list.every((s) => s === list[0]);
   const status = mixed ? null : list[0];
-  const text = mixed ? "Mixed" : status ? frameStatusLabel(status) : "Status";
+  const text = mixed ? t("Mixed") : status ? t(frameStatusLabel(status)) : t("Status");
   const chip = (
     <span className={styles.face} data-frame-status={mixed || !status ? NO_STATUS : status}>
       <Face status={status} text={text} />
@@ -57,7 +59,7 @@ export function FrameStatusButton() {
   );
   if (viewer) return chip;
   return (
-    <MenuButton label="Status" entries={() => frameStatusMenu(status)} className={styles.headerButton} onSelect={(id) => pickFrameStatus(ed, targets, id)}>
+    <MenuButton label={t("Status")} entries={() => frameStatusMenu(status)} className={styles.headerButton} onSelect={(id) => pickFrameStatus(ed, targets, id)}>
       {chip}
     </MenuButton>
   );

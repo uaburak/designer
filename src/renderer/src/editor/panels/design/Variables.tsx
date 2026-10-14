@@ -19,6 +19,7 @@ import { bindPaint, bindVariable, modesAt, resolveAt, setExplicitMode } from "..
 import { OpenVariablesButton, VariablePicker } from "../variables/VariablePicker";
 import vstyles from "../variables/Variables.module.css";
 import type { PanelNode } from "./shared";
+import { t, useT } from "@/i18n";
 import styles from "./Design.module.css";
 
 /** The variable every node binds every one of `fields` to; null when none is bound, "mixed" when they differ. */
@@ -43,20 +44,21 @@ function useVariableName(id: Guid | null): { variable: Variable | null; name: st
   const v = a.lookup.variable(id) ?? null;
   if (v) return { variable: v, name: splitName(v.name).leaf, missing: false };
   const n = ed.engine.readNode(id) as { name?: string } | null;
-  return { variable: null, name: n?.name ? splitName(n.name).leaf : "Missing variable", missing: true };
+  return { variable: null, name: n?.name ? splitName(n.name).leaf : t("Missing variable"), missing: true };
 }
 
 /** The pill of a bound field / paint: its glyph or swatch, the variable's name (a click opens the picker), Detach on hover. */
 export function BoundPill({ id, prefix, swatch, label, onOpen, onDetach }: { id: Guid; prefix?: IconName | string; swatch?: ReactNode; label: string; onOpen: (anchor: HTMLElement) => void; onDetach: () => void }) {
+  useT();
   const { variable, name, missing } = useVariableName(id);
   return (
     <div className={vstyles.bound} data-bound-variable={variable?.name ?? name}>
       {prefix && <FieldPrefix prefix={prefix} className={vstyles.boundPrefix} />}
       {swatch}
-      <button type="button" className={vstyles.pill} aria-label={`${label}: ${variable?.name ?? name}`} {...tooltipProps(variable?.name ?? name)} onClick={(e) => onOpen(e.currentTarget)}>
+      <button type="button" className={vstyles.pill} aria-label={`${t(label)}: ${variable?.name ?? name}`} {...tooltipProps(variable?.name ?? name)} onClick={(e) => onOpen(e.currentTarget)}>
         <span className={cx(vstyles.pillText, missing && vstyles.pillMissing)}>{name}</span>
       </button>
-      <button type="button" className={vstyles.detach} aria-label="Detach variable" {...tooltipProps("Detach variable")} onClick={onDetach}>
+      <button type="button" className={vstyles.detach} aria-label={t("Detach variable")} {...tooltipProps(t("Detach variable"))} onClick={onDetach}>
         <Icon name="24.detach.small" />
       </button>
     </div>
@@ -69,6 +71,7 @@ export function BoundPill({ id, prefix, swatch, label, onOpen, onDetach }: { id:
  * stop (Tab goes field to field, round 17): ⌥↓ in the field opens it (`data-field-menu`, NumericInput).
  */
 export function VariableField({ nodes, fields, prefix, children, disabled, button = true, open: openFrom, onOpenChange }: { nodes: readonly PanelNode[]; fields: readonly BindField[]; prefix?: IconName | string; children: ReactNode; disabled?: boolean; /** the hover button (W / H open the picker from their menu instead) */ button?: boolean; open?: HTMLElement | null; onOpenChange?: (anchor: HTMLElement | null) => void }) {
+  useT();
   const ed = useEditor();
   const [ownOpen, setOwnOpen] = useState<HTMLElement | null>(null);
   const open = openFrom !== undefined ? openFrom : ownOpen;
@@ -102,7 +105,7 @@ export function VariableField({ nodes, fields, prefix, children, disabled, butto
     <div className={vstyles.bindWrap} data-bind-field={fields.join(",")}>
       {children}
       {button && (
-        <button type="button" className={vstyles.applyButton} aria-label="Apply variable" aria-expanded={!!open} tabIndex={-1} data-field-menu="" {...tooltipProps("Apply variable")} onClick={(e) => setOpen(e.currentTarget)}>
+        <button type="button" className={vstyles.applyButton} aria-label={t("Apply variable")} aria-expanded={!!open} tabIndex={-1} data-field-menu="" {...tooltipProps(t("Apply variable"))} onClick={(e) => setOpen(e.currentTarget)}>
           <Icon name="24.variable.small" />
         </button>
       )}
@@ -158,6 +161,7 @@ export function paintScope(nodes: readonly PanelNode[], field: "fillPaints" | "s
 
 /** "Apply variable mode": per collection with modes, Auto (the inherited mode) or one of its modes. */
 export function ApplyModeButton({ refs }: { refs: readonly Guid[] }) {
+  useT();
   const ed = useEditor();
   const a = useLocalAssets();
   const version = useDocumentVersion(~GEOMETRY_GROUPS); // modes never change with a move or a resize
@@ -176,7 +180,7 @@ export function ApplyModeButton({ refs }: { refs: readonly Guid[] }) {
       id: `submenu:${c.id}`,
       label: c.name,
       items: [
-        { id: `${c.id}|auto`, label: `Auto (${inherited})`, checked: !m?.explicit },
+        { id: `${c.id}|auto`, label: t("Auto ({mode})", { mode: inherited ?? "" }), checked: !m?.explicit },
         "-",
         ...c.modes.map((x) => ({ id: `${c.id}|${x.id}`, label: x.name, checked: !!m?.explicit && m.mode === x.id })),
       ],
@@ -184,7 +188,7 @@ export function ApplyModeButton({ refs }: { refs: readonly Guid[] }) {
   });
   return (
     <MenuButton
-      label="Apply variable mode"
+      label={t("Apply variable mode")}
       entries={entries}
       className={styles.iconMenu}
       onSelect={(id) => {
@@ -199,6 +203,7 @@ export function ApplyModeButton({ refs }: { refs: readonly Guid[] }) {
 
 /** The modes set on the layers (or the page): a row per collection with its mode (Auto clears it). */
 export function ModeRows({ refs }: { refs: readonly Guid[] }) {
+  useT();
   const ed = useEditor();
   const a = useLocalAssets();
   const version = useDocumentVersion(~GEOMETRY_GROUPS);
@@ -233,10 +238,10 @@ export function ModeRows({ refs }: { refs: readonly Guid[] }) {
               </span>
               <span className={vstyles.modeName}>{c.name}</span>
               <Select
-                label={`${c.name} mode`}
+                label={t("{name} mode", { name: c.name })}
                 variant="ghost"
                 value={same ? modes[0] : "mixed"}
-                options={[{ value: "auto", label: `Auto (${inherited})` }, "-", ...c.modes.map((m) => ({ value: m.id, label: m.name })), ...(same ? [] : [{ value: "mixed", label: "Mixed", disabled: true }])]}
+                options={[{ value: "auto", label: t("Auto ({mode})", { mode: inherited ?? "" }) }, "-", ...c.modes.map((m) => ({ value: m.id, label: m.name })), ...(same ? [] : [{ value: "mixed", label: t("Mixed"), disabled: true }])]}
                 onChange={(v) => setExplicitMode(ed, refs, c.id, v === "auto" ? null : v)}
               />
             </div>

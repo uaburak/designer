@@ -8,16 +8,17 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Button, Checkbox, Dialog, EmptyState, IconButton, SearchField, Select, Spinner, TextArea, type ToastOptions } from "@/ds";
+import { intlLocale, t, tp, useT } from "@/i18n";
 import type * as O from "@shared/org/types";
 import type { CollectionModes, OrgLibrariesAnalytics, TeamLibraryRow } from "@shared/libraries/orgTypes";
 import type { FontConflictChoice, FontUploadCandidate, FontConflict, SharedFontFace, SharedFontScope } from "@shared/fonts/sharedTypes";
 import type { SharedFontsApi } from "@shared/desktop";
 import { DEFAULT_CHOICES, DEFAULT_CHOICE_LABEL, defaultChoice, defaultsFor, effectiveTypes, type DefaultChoice } from "./libraryDefaults";
-import { orgErrorText, plural } from "./org";
+import { orgErrorText } from "./org";
 import type { OrgBackend } from "./storeAccess";
 import styles from "./Files.module.css";
 
-const number = (n: number) => n.toLocaleString("en-US");
+const number = (n: number) => n.toLocaleString(intlLocale());
 /** The last answers this session (by org, by team): a dialog opened again shows them at once while it reads again
  *  (stale-while-revalidate, as the store's org cache does for Home's pages) */
 const lastOverview = new Map<string, OrgLibrariesAnalytics>();
@@ -34,6 +35,7 @@ const matches = (name: string, text: string) => name.toLowerCase().includes(text
 
 /** The org-wide library analytics (help.figma.com 360039238353: "Click All teams, then click Libraries"). */
 export function OrgLibrariesDialog({ org, orgId, onOpenLibrary, onClose }: { org: OrgBackend; orgId: string; onOpenLibrary: (lib: { key: string; name: string }) => void; onClose: () => void }) {
+  useT();
   const [data, setData] = useState<OrgLibrariesAnalytics | null>(() => lastOverview.get(orgId) ?? null);
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -50,24 +52,24 @@ export function OrgLibrariesDialog({ org, orgId, onOpenLibrary, onClose }: { org
   const rows = data ? data.libraries.filter((l) => !text.trim() || matches(l.name, text) || (l.teamName != null && matches(l.teamName, text))) : [];
   const totals = data
     ? [
-        ["Total teams", data.totals.teams],
-        ["Teams with libraries", data.totals.teamsWithLibraries],
-        ["Total libraries", data.totals.libraries],
-        ["Total components", data.totals.components],
-        ["Total styles", data.totals.styles],
+        [t("Total teams"), data.totals.teams],
+        [t("Teams with libraries"), data.totals.teamsWithLibraries],
+        [t("Total libraries"), data.totals.libraries],
+        [t("Total components"), data.totals.components],
+        [t("Total styles"), data.totals.styles],
       ]
     : [];
   return (
-    <Dialog open size="large" title="Libraries" onClose={onClose}>
+    <Dialog open size="large" title={t("Libraries")} onClose={onClose}>
       {error ? (
-        <EmptyState icon="24.warning" title="Couldn’t load library analytics" body={error} />
+        <EmptyState icon="24.warning" title={t("Couldn’t load library analytics")} body={error} />
       ) : !data ? (
         <div className={styles.center} aria-busy>
           <Spinner size={24} />
         </div>
       ) : (
         <div className={styles.libsPane}>
-          <dl className={styles.libsTotals} aria-label="Totals">
+          <dl className={styles.libsTotals} aria-label={t("Totals")}>
             {totals.map(([label, n]) => (
               <div key={label} className={styles.libsTotal}>
                 <dt className={styles.mutedText}>{label}</dt>
@@ -75,14 +77,14 @@ export function OrgLibrariesDialog({ org, orgId, onOpenLibrary, onClose }: { org
               </div>
             ))}
           </dl>
-          <SearchField label="Search" placeholder="Search" size="large" value={text} onChange={setText} />
-          <table className={styles.libsTable} aria-label="Libraries">
+          <SearchField label={t("Search")} placeholder={t("Search")} size="large" value={text} onChange={setText} />
+          <table className={styles.libsTable} aria-label={t("Libraries")}>
             <thead>
               <tr>
-                <th scope="col">Library</th>
-                <th scope="col"># of components</th>
-                <th scope="col"># of styles</th>
-                <th scope="col">Inserts last week</th>
+                <th scope="col">{t("Library")}</th>
+                <th scope="col">{t("# of components")}</th>
+                <th scope="col">{t("# of styles")}</th>
+                <th scope="col">{t("Inserts last week")}</th>
               </tr>
             </thead>
             <tbody>
@@ -101,7 +103,7 @@ export function OrgLibrariesDialog({ org, orgId, onOpenLibrary, onClose }: { org
               ))}
             </tbody>
           </table>
-          {!rows.length && <p className={styles.mutedText}>{text.trim() ? `No libraries match “${text.trim()}”.` : "No libraries have been published in this organization yet."}</p>}
+          {!rows.length && <p className={styles.mutedText}>{text.trim() ? t("No libraries match “{text}”.", { text: text.trim() }) : t("No libraries have been published in this organization yet.")}</p>}
         </div>
       )}
     </Dialog>
@@ -112,6 +114,7 @@ export function OrgLibrariesDialog({ org, orgId, onOpenLibrary, onClose }: { org
 
 /** A team's settings (help.figma.com: the team's ⌄ › View settings); its Shared section. */
 export function TeamSettingsDialog({ team, libraries, fonts, onLibraries, onFonts, onClose, onDescription }: { team: O.TeamInfo; libraries: boolean; fonts: boolean; onLibraries: () => void; onFonts: () => void; onClose: () => void; /** The team's admins: "Add a description" / "Change about" (help.figma.com 14945606265623) */ onDescription?: (description: string) => Promise<unknown> }) {
+  useT();
   const [about, setAbout] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const save = async () => {
@@ -125,42 +128,42 @@ export function TeamSettingsDialog({ team, libraries, fonts, onLibraries, onFont
     }
   };
   return (
-    <Dialog open size="medium" title={`${team.name} settings`} onClose={onClose}>
-      <section aria-label="About" className={styles.dialogField} data-team-about="">
-        <h2 className={styles.sectionTitle}>About</h2>
+    <Dialog open size="medium" title={t("{name} settings", { name: team.name })} onClose={onClose}>
+      <section aria-label={t("About")} className={styles.dialogField} data-team-about="">
+        <h2 className={styles.sectionTitle}>{t("About")}</h2>
         {about !== null ? (
           <>
-            <TextArea label="Description" placeholder="Description" value={about} onChange={setAbout} maxRows={6} />
+            <TextArea label={t("Description")} placeholder={t("Description")} value={about} onChange={setAbout} maxRows={6} />
             <div className={styles.iconActions}>
               <Button variant="secondary" onClick={() => setAbout(null)} disabled={saving}>
-                Cancel
+                {t("Cancel")}
               </Button>
               <Button variant="primary" onClick={() => void save()} disabled={saving}>
-                Save
+                {t("Save")}
               </Button>
             </div>
           </>
         ) : (
           <>
-            {team.description ? <p className={styles.mutedText}>{team.description}</p> : !onDescription && <p className={styles.mutedText}>No description</p>}
+            {team.description ? <p className={styles.mutedText}>{team.description}</p> : !onDescription && <p className={styles.mutedText}>{t("No description")}</p>}
             {onDescription && (
               <button type="button" className={styles.settingsLink} onClick={() => setAbout(team.description)}>
-                {team.description ? "Change about" : "Add a description"}
+                {team.description ? t("Change about") : t("Add a description")}
               </button>
             )}
           </>
         )}
       </section>
-      {(libraries || fonts) && <section aria-label="Shared" className={styles.dialogField}>
-        <h2 className={styles.sectionTitle}>Shared</h2>
+      {(libraries || fonts) && <section aria-label={t("Shared")} className={styles.dialogField}>
+        <h2 className={styles.sectionTitle}>{t("Shared")}</h2>
         {libraries && (
           <button type="button" className={styles.settingsLink} onClick={onLibraries}>
-            View team’s libraries
+            {t("View team’s libraries")}
           </button>
         )}
         {fonts && (
           <button type="button" className={styles.settingsLink} onClick={onFonts}>
-            View team’s fonts
+            {t("View team’s fonts")}
           </button>
         )}
       </section>}
@@ -170,6 +173,7 @@ export function TeamSettingsDialog({ team, libraries, fonts, onLibraries, onFont
 
 /** "View team's libraries": each library the team can use, its Enabled by default and Default mode (§16.5). */
 export function TeamLibrariesDialog({ org, orgId, team, canManage, toast, onClose }: { org: OrgBackend; orgId: string; team: O.TeamInfo; canManage: boolean; toast: (o: ToastOptions) => void; onClose: () => void }) {
+  useT();
   const libs = org.orgLibraries!;
   const [rows, setRows] = useState<TeamLibraryRow[] | null>(() => lastTeamLibraries.get(team.id) ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -211,22 +215,22 @@ export function TeamLibrariesDialog({ org, orgId, team, canManage, toast, onClos
   };
 
   return (
-    <Dialog open size="large" title="Libraries" onClose={onClose}>
+    <Dialog open size="large" title={t("Libraries")} onClose={onClose}>
       {error ? (
-        <EmptyState icon="24.warning" title="Couldn’t load the team’s libraries" body={error} />
+        <EmptyState icon="24.warning" title={t("Couldn’t load the team’s libraries")} body={error} />
       ) : !rows ? (
         <div className={styles.center} aria-busy>
           <Spinner size={24} />
         </div>
       ) : !rows.length ? (
-        <EmptyState icon="24.library" title="No libraries" body="Libraries published in this team, or shared with the organization, show up here." />
+        <EmptyState icon="24.library" title={t("No libraries")} body={t("Libraries published in this team, or shared with the organization, show up here.")} />
       ) : (
-        <table className={styles.libsTable} aria-label={`${team.name} libraries`}>
+        <table className={styles.libsTable} aria-label={t("{name} libraries", { name: team.name })}>
           <thead>
             <tr>
-              <th scope="col">Library</th>
-              <th scope="col">Enabled by default</th>
-              <th scope="col">Default mode</th>
+              <th scope="col">{t("Library")}</th>
+              <th scope="col">{t("Enabled by default")}</th>
+              <th scope="col">{t("Default mode")}</th>
             </tr>
           </thead>
           <tbody>
@@ -240,12 +244,12 @@ export function TeamLibrariesDialog({ org, orgId, team, canManage, toast, onClos
                   <td>
                     <span className={styles.libsName}>
                       <span className={styles.memberName}>{r.name}</span>
-                      <span className={styles.mutedText}>{r.teamName ?? "Organization"}</span>
+                      <span className={styles.mutedText}>{r.teamName ?? t("Organization")}</span>
                     </span>
                   </td>
                   <td>
                     <Select
-                      label={`${r.name}: Enabled by default`}
+                      label={t("{name}: Enabled by default", { name: r.name })}
                       variant="ghost"
                       width="hug"
                       disabled={!canManage}
@@ -260,7 +264,7 @@ export function TeamLibrariesDialog({ org, orgId, team, canManage, toast, onClos
                         {multi.map((c) => (
                           <Select
                             key={c.collectionKey}
-                            label={`${r.name}: ${c.name} default mode`}
+                            label={t("{name}: {collection} default mode", { name: r.name, collection: c.name })}
                             prefix={multi.length > 1 ? c.name : undefined}
                             variant="ghost"
                             width="hug"
@@ -291,6 +295,7 @@ type Picked = { candidates: FontUploadCandidate[]; conflicts: FontConflict[]; fa
 
 /** "View team's fonts": the team's fonts by family, Upload fonts (main's Open dialog, the rights checkbox), Remove. */
 export function TeamFontsDialog({ fonts, orgId, team, canManage, toast, onClose }: { fonts: SharedFontsApi; orgId: string; team: O.TeamInfo; canManage: boolean; toast: (o: ToastOptions) => void; onClose: () => void }) {
+  useT();
   const scope: SharedFontScope = useMemo(() => ({ type: "team", orgId, teamId: team.id }), [orgId, team.id]);
   const [faces, setFaces] = useState<SharedFontFace[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -319,7 +324,7 @@ export function TeamFontsDialog({ fonts, orgId, team, canManage, toast, onClose 
       const r = await fonts.sharedPick(scope);
       if ("cancelled" in r) return;
       if (!r.candidates.length) {
-        toast({ kind: "error", message: r.failed.length ? `Couldn’t upload ${r.failed.map((f) => f.fileName).join(", ")}: ${r.failed[0].reason}` : "No fonts to upload" });
+        toast({ kind: "error", message: r.failed.length ? t("Couldn’t upload {files}: {error}", { files: r.failed.map((f) => f.fileName).join(", "), error: r.failed[0].reason }) : t("No fonts to upload") });
         return;
       }
       setPicked(r);
@@ -331,7 +336,7 @@ export function TeamFontsDialog({ fonts, orgId, team, canManage, toast, onClose 
   const remove = async (family: string) => {
     try {
       setFaces((await fonts.sharedRemove({ scope, family })).faces);
-      toast({ message: `Removed ${family}` });
+      toast({ message: t("Removed {name}", { name: family }) });
     } catch (e) {
       toast({ kind: "error", message: orgErrorText(e) });
     }
@@ -350,8 +355,8 @@ export function TeamFontsDialog({ fonts, orgId, team, canManage, toast, onClose 
             setFaces((await fonts.sharedList(scope)).faces);
             setPicked(null);
             const n = r.uploaded.length;
-            if (r.failed.length) toast({ kind: "error", message: `Couldn’t upload ${r.failed.map((f) => f.fileName).join(", ")}: ${r.failed[0].reason}` });
-            else toast({ message: n ? `Uploaded ${plural(n, "font")}` : "No fonts uploaded" });
+            if (r.failed.length) toast({ kind: "error", message: t("Couldn’t upload {files}: {error}", { files: r.failed.map((f) => f.fileName).join(", "), error: r.failed[0].reason }) });
+            else toast({ message: n ? tp(n, "Uploaded {n} font", "Uploaded {n} fonts") : t("No fonts uploaded") });
           } catch (e) {
             toast({ kind: "error", message: orgErrorText(e) });
           } finally {
@@ -366,34 +371,34 @@ export function TeamFontsDialog({ fonts, orgId, team, canManage, toast, onClose 
     <Dialog
       open
       size="medium"
-      title="Fonts"
+      title={t("Fonts")}
       onClose={onClose}
       footer={
         canManage ? (
           <Button variant="primary" size="large" onClick={() => void pick()}>
-            Upload fonts
+            {t("Upload fonts")}
           </Button>
         ) : undefined
       }
     >
       {error ? (
-        <EmptyState icon="24.warning" title="Couldn’t load the team’s fonts" body={error} />
+        <EmptyState icon="24.warning" title={t("Couldn’t load the team’s fonts")} body={error} />
       ) : !faces ? (
         <div className={styles.center} aria-busy>
           <Spinner size={24} />
         </div>
       ) : !families.length ? (
-        <p className={styles.mutedText}>No fonts have been uploaded to {team.name} yet. Fonts uploaded here show up in the font picker for the team’s files.</p>
+        <p className={styles.mutedText}>{t("No fonts have been uploaded to {name} yet. Fonts uploaded here show up in the font picker for the team’s files.", { name: team.name })}</p>
       ) : (
-        <ul className={styles.memberList} aria-label={`${team.name} fonts`}>
+        <ul className={styles.memberList} aria-label={t("{name} fonts", { name: team.name })}>
           {families.map(([family, list]) => (
             <li key={family} className={styles.memberRow} data-family={family}>
               <span className={styles.memberText}>
                 <span className={styles.memberName}>{family}</span>
-                <span className={styles.mutedText}>{plural(list.length, "style")}</span>
+                <span className={styles.mutedText}>{tp(list.length, "{n} style", "{n} styles")}</span>
               </span>
               <span className={styles.spacer} />
-              {canManage && <IconButton icon="24.trash.outline" label={`Remove ${family}`} onClick={() => void remove(family)} />}
+              {canManage && <IconButton icon="24.trash.outline" label={t("Remove {name}", { name: family })} onClick={() => void remove(family)} />}
             </li>
           ))}
         </ul>
@@ -404,27 +409,28 @@ export function TeamFontsDialog({ fonts, orgId, team, canManage, toast, onClose 
 
 /** After the Open dialog: the files, Skip / Replace for families already there, the rights checkbox, Upload. */
 function UploadFontsDialog({ picked, busy, onUpload, onClose }: { picked: Picked; busy: boolean; onUpload: (choices: Record<string, FontConflictChoice>) => void; onClose: () => void }) {
+  useT();
   const [confirmed, setConfirmed] = useState(false);
   const [choices, setChoices] = useState<Record<string, FontConflictChoice>>(() => Object.fromEntries(picked.conflicts.map((c) => [c.family, "skip" as const])));
   return (
     <Dialog
       open
       size="medium"
-      title="Upload fonts"
+      title={t("Upload fonts")}
       onClose={onClose}
       footer={
         <>
           <Button variant="secondary" size="large" onClick={onClose}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button variant="primary" size="large" disabled={!confirmed} loading={busy} onClick={() => confirmed && onUpload(choices)}>
-            Upload
+            {t("Upload")}
           </Button>
         </>
       }
     >
       <div className={styles.dialogField}>
-        <ul className={styles.memberList} aria-label="Fonts to upload">
+        <ul className={styles.memberList} aria-label={t("Fonts to upload")}>
           {picked.candidates.map((c) => (
             <li key={c.token} className={styles.memberRow}>
               <span className={styles.memberText}>
@@ -436,14 +442,14 @@ function UploadFontsDialog({ picked, busy, onUpload, onClose }: { picked: Picked
         </ul>
         {picked.conflicts.map((c) => (
           <div key={c.family} className={styles.accessRow}>
-            <span className={styles.accessLabel}>{`${c.family} is already uploaded (${plural(c.existing, "style")})`}</span>
+            <span className={styles.accessLabel}>{t("{name} is already uploaded ({styles})", { name: c.family, styles: tp(c.existing, "{n} style", "{n} styles") })}</span>
             <Select
-              label={`${c.family}: Skip or Replace`}
+              label={t("{name}: Skip or Replace", { name: c.family })}
               width="hug"
               value={choices[c.family]}
               options={[
-                { value: "skip", label: "Skip" },
-                { value: "replace", label: "Replace" },
+                { value: "skip", label: t("Skip") },
+                { value: "replace", label: t("Replace") },
               ]}
               onChange={(v) => setChoices((s) => ({ ...s, [c.family]: v as FontConflictChoice }))}
             />
@@ -452,7 +458,7 @@ function UploadFontsDialog({ picked, busy, onUpload, onClose }: { picked: Picked
         {picked.failed.map((f) => (
           <p key={f.fileName} className={styles.passwordError}>{`${f.fileName}: ${f.reason}`}</p>
         ))}
-        <Checkbox label="I have the necessary rights and licenses to use the font(s)" checked={confirmed} onChange={setConfirmed} />
+        <Checkbox label={t("I have the necessary rights and licenses to use the font(s)")} checked={confirmed} onChange={setConfirmed} />
       </div>
     </Dialog>
   );

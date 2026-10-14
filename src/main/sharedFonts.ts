@@ -32,6 +32,7 @@ import type {
 } from "../shared/fonts/sharedTypes";
 import type { FontFaceInfo } from "../shared/ipc";
 import { mainFetch } from "./net";
+import { t } from "../shared/i18n";
 
 // ---- Seams (the app's account and fetch; tests put a fake server here) ------------------------
 
@@ -116,12 +117,12 @@ async function json<T>(method: string, path: string, init: Parameters<typeof req
   try {
     res = await request(method, path, init);
   } catch {
-    throw new SharedFontsError("You're offline", 0, null);
+    throw new SharedFontsError(t("You're offline"), 0, null);
   }
-  if (!res) throw new SharedFontsError("Log in first", 401, null);
+  if (!res) throw new SharedFontsError(t("Log in first"), 401, null);
   const body = (await res.json().catch(() => null)) as unknown;
   if (!res.ok) {
-    const msg = body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string" ? (body as { error: string }).error : `The server answered ${res.status}`;
+    const msg = body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string" ? (body as { error: string }).error : t("The server answered {status}", { status: res.status });
     throw new SharedFontsError(msg, res.status, body);
   }
   return body as T;
@@ -332,24 +333,24 @@ const toInput = (f: FontFaceInfo): SharedFontFaceInput => ({
 export async function readCandidate(path: string): Promise<FontUploadCandidate | { fileName: string; reason: string }> {
   const fileName = basename(path);
   const ext = extname(path).toLowerCase();
-  if (ext !== ".ttf" && ext !== ".otf") return { fileName, reason: "Only .TTF and .OTF files can be uploaded" };
+  if (ext !== ".ttf" && ext !== ".otf") return { fileName, reason: t("Only .TTF and .OTF files can be uploaded") };
   let bytes: Uint8Array;
   try {
     const s = await stat(path);
-    if (s.size > MAX_SHARED_FONT_BYTES) return { fileName, reason: "The file is larger than 50 MB" };
+    if (s.size > MAX_SHARED_FONT_BYTES) return { fileName, reason: t("The file is larger than 50 MB") };
     bytes = new Uint8Array(await readFile(path));
   } catch {
-    return { fileName, reason: "The file can't be read" };
+    return { fileName, reason: t("The file can't be read") };
   }
   const format = sfntFormat(bytes);
-  if (!format) return { fileName, reason: magic(bytes) === 0x74746366 ? "Font collections (.TTC) can't be uploaded" : "Not a font file" };
+  if (!format) return { fileName, reason: magic(bytes) === 0x74746366 ? t("Font collections (.TTC) can't be uploaded") : t("Not a font file") };
   let faces: FontFaceInfo[] = [];
   try {
     faces = parse ? await parse(path, "user") : [];
   } catch {
     faces = [];
   }
-  if (!faces.length) return { fileName, reason: "No font in it" };
+  if (!faces.length) return { fileName, reason: t("No font in it") };
   return { token: randomUUID(), fileName, format, size: bytes.length, sha1: sha1(bytes), faces: faces.map(toInput) };
 }
 
@@ -394,7 +395,7 @@ export async function uploadPicked(scope: SharedFontScope, tokens: string[], cho
   for (const token of tokens) {
     const p = picked.get(token);
     if (!p || p.scope !== scopeKey(scope)) {
-      result.failed.push({ fileName: p?.candidate.fileName ?? "", reason: "The file was picked too long ago. Pick it again." });
+      result.failed.push({ fileName: p?.candidate.fileName ?? "", reason: t("The file was picked too long ago. Pick it again.") });
       continue;
     }
     picked.delete(token);
@@ -409,11 +410,11 @@ export async function uploadPicked(scope: SharedFontScope, tokens: string[], cho
     try {
       bytes = new Uint8Array(await readFile(p.path));
     } catch {
-      result.failed.push({ fileName: c.fileName, reason: "The file can't be read" });
+      result.failed.push({ fileName: c.fileName, reason: t("The file can't be read") });
       continue;
     }
     if (sha1(bytes) !== c.sha1) {
-      result.failed.push({ fileName: c.fileName, reason: "The file changed since it was picked. Pick it again." });
+      result.failed.push({ fileName: c.fileName, reason: t("The file changed since it was picked. Pick it again.") });
       continue;
     }
     const onConflict = chosen.includes("replace") ? "replace" : chosen.length ? "skip" : null;

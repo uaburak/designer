@@ -1,7 +1,8 @@
-import type { HTMLAttributes } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 import { cx } from "../util/cx";
 import { Icon } from "../icons/Icon";
 import { STRINGS } from "../strings";
+import { t, useT } from "@/i18n";
 import { IconButton } from "./Button";
 import { InlineEdit } from "./InlineEdit";
 import styles from "./FolderCard.module.css";
@@ -15,6 +16,8 @@ export interface FolderCardProps extends Omit<HTMLAttributes<HTMLDivElement>, "o
   thumbnails?: string[];
   /** The folder's own colour (user data: any CSS colour); default the secondary icon colour */
   color?: string;
+  /** In the folder glyph's places (a team shown as a folder: its icon): the large one in the middle, the small one at the footer */
+  glyph?: { large: ReactNode; small: ReactNode };
   starred?: boolean;
   selected?: boolean;
   renaming?: boolean;
@@ -41,7 +44,8 @@ export function FolderGlyph({ color, size = 24 }: { color?: string; size?: 16 | 
  * and "N files". Double-click or Enter opens, Space selects; a drop target
  * gets the selection ring. `renaming` swaps the name for an InlineEdit.
  */
-export function FolderCard({ id, title, subtitle, thumbnails = [], color, starred, selected, renaming, dropTarget, onOpen, onSelect, onContextMenu, onRename, onStar, forceHover, className, ...rest }: FolderCardProps) {
+export function FolderCard({ id, title, subtitle, thumbnails = [], color, glyph, starred, selected, renaming, dropTarget, onOpen, onSelect, onContextMenu, onRename, onStar, forceHover, className, ...rest }: FolderCardProps) {
+  useT();
   const shown = thumbnails.slice(0, 4);
   return (
     <div
@@ -78,18 +82,18 @@ export function FolderCard({ id, title, subtitle, thumbnails = [], color, starre
             ))}
           </div>
         ) : (
-          <FolderGlyph color={color} size={48} />
+          (glyph?.large ?? <FolderGlyph color={color} size={48} />)
         )}
         {onStar && (
           <span className={styles.star} data-on={starred || undefined}>
-            <IconButton icon={starred ? "24.star" : "24.star.outline"} label={starred ? "Unstar" : "Star"} tooltip={false} onClick={(e) => { e.stopPropagation(); onStar(!starred); }} />
+            <IconButton icon={starred ? "24.star" : "24.star.outline"} label={starred ? t("Unstar") : t("Star")} tooltip={false} onClick={(e) => { e.stopPropagation(); onStar(!starred); }} />
           </span>
         )}
       </div>
       <div className={styles.footer}>
-        <FolderGlyph color={color} />
+        {glyph?.small ?? <FolderGlyph color={color} />}
         <span className={styles.meta}>
-          <InlineEdit className={styles.title} label={STRINGS.rename} value={title} editing={Boolean(renaming)} onCommit={(n) => onRename?.(n)} onCancel={() => onRename?.(null)} />
+          <InlineEdit className={styles.title} label={t(STRINGS.rename)} value={title} editing={Boolean(renaming)} onCommit={(n) => onRename?.(n)} onCancel={() => onRename?.(null)} />
           <span className={styles.subtitle}>{subtitle}</span>
         </span>
       </div>

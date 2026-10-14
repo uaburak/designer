@@ -50,7 +50,7 @@ describe("the compactor worker (docs/data.md §5.5)", () => {
       }
     }
     expect(results[0]).toEqual(results[1]);
-    expect(results[0]).toHaveLength(4); // DOCUMENT, Page 1, the kept rectangle, the internal canvas
+    expect(results[0]).toHaveLength(6); // DOCUMENT, Page 1, the Thumbnail page and frame, the kept rectangle, the internal canvas
     expect(results[0].filter((n) => n.endsWith(" Kept"))).toHaveLength(1);
   });
 

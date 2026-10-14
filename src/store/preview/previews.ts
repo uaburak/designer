@@ -11,7 +11,8 @@ import type { PreviewDevData, PreviewPackage } from "../../shared/preview/format
 import { inlinePreviewHtml } from "../../shared/preview/html";
 import { buildPreviewPackage } from "../../shared/preview/package";
 import { StoreError } from "../../shared/store/protocol";
-import { ACCOUNT_SUSPENDED_TEXT, isQuotaRefusal, quotaText } from "../../shared/quota";
+import { isQuotaRefusal } from "../../shared/quota";
+import { accountSuspendedMessage, quotaMessage } from "../i18n";
 import { busyError, fetchWithRetry, isErrorPage, READ_RETRY_DELAYS } from "../multiplayer/http";
 
 /** The refusal's fields besides `error` (`{code, kind, limit}`), or null */
@@ -29,6 +30,7 @@ import { writeFileAtomically } from "../export/fig";
 import { nodeCodecs } from "../kiwi/codecs";
 import { readJsonOrNull, writeJsonAtomic } from "../local/fsutil";
 import { newPreviewId } from "../local/ids";
+import { t as tr } from "../../shared/i18n";
 
 export const PREVIEWS_FILE = "previews.json";
 export const LOG_IN_TO_PUBLISH = "Log in to publish";
@@ -69,7 +71,7 @@ export function validPreviewOptions(o: Partial<PreviewOptions> | undefined): Pre
 }
 
 function checkSnapshot(snapshot: unknown): Uint8Array {
-  if (!(snapshot instanceof Uint8Array) || snapshot.length === 0) throw new StoreError("invalid", "A preview needs the file's snapshot");
+  if (!(snapshot instanceof Uint8Array) || snapshot.length === 0) throw new StoreError("invalid", tr("A preview needs the file's snapshot"));
   return snapshot;
 }
 
@@ -81,7 +83,7 @@ async function packageFor(host: PreviewHost, fileKey: FileKey, snapshot: Uint8Ar
       nodeCodecs,
     );
   } catch (e) {
-    throw new StoreError("invalid", `The preview couldn't be made: ${(e as Error).message}`);
+    throw new StoreError("invalid", tr("The preview couldn't be made: {reason}", { reason: (e as Error).message }));
   }
 }
 
@@ -102,7 +104,7 @@ async function request(host: PreviewHost, session: PreviewSession, method: strin
     const url = new URL(path, session.server).toString();
     res = await fetchWithRetry(method, READ_RETRY_DELAYS, () => host.fetch(url, { method, headers, body: payload }));
   } catch {
-    throw new StoreError("offline", "Couldn't reach the server. Check your connection and try again.");
+    throw new StoreError("offline", tr("Couldn't reach the server. Check your connection and try again."));
   }
   if (res.ok) return res;
   const text = await res.text().catch(() => "");
@@ -116,15 +118,15 @@ async function request(host: PreviewHost, session: PreviewSession, method: strin
   }
   // Cloudflare's error pages (and any other page) are never shown: our words instead
   if (!json && isErrorPage(res, text)) throw busyError(res.status, text, true);
-  if (res.status === 401) throw new StoreError("forbidden", "Your session expired. Log in again.");
+  if (res.status === 401) throw new StoreError("forbidden", tr("Your session expired. Log in again."));
   // Public sign-up's limits (docs/multiplayer.md §17): the previews count, storage, uploads a day; a suspended account
   const detail = parseDetail(text);
-  if (isQuotaRefusal(detail)) throw new StoreError("forbidden", quotaText(detail.kind, detail.limit), detail);
-  if (detail?.code === "account_suspended") throw new StoreError("forbidden", ACCOUNT_SUSPENDED_TEXT, detail);
+  if (isQuotaRefusal(detail)) throw new StoreError("forbidden", quotaMessage(detail.kind, detail.limit), detail);
+  if (detail?.code === "account_suspended") throw new StoreError("forbidden", accountSuspendedMessage(), detail);
   if (detail?.code === "capacity_reached") throw new StoreError("unavailable", message, detail);
-  if (res.status === 404) throw new StoreError("not-found", message || "No such preview");
+  if (res.status === 404) throw new StoreError("not-found", message || tr("No such preview"));
   if (res.status >= 500 || res.status === 429) throw busyError(res.status, text, false, detail?.code);
-  throw new StoreError("invalid", message || `The server said ${res.status}`);
+  throw new StoreError("invalid", message || tr("The server said {status}", { status: res.status }));
 }
 
 /**
@@ -159,7 +161,7 @@ export function previewService(host: PreviewHost): PreviewService & {
   const write = (records: PreviewRecord[]) => writeJsonAtomic(host.tmpDir, file, records);
   const signedIn = () => {
     const session = host.session();
-    if (!session) throw new StoreError("offline", LOG_IN_TO_PUBLISH);
+    if (!session) throw new StoreError("offline", tr(LOG_IN_TO_PUBLISH));
     return session;
   };
   const unpublish = async (session: PreviewSession, previewId: string) => {
@@ -172,7 +174,7 @@ export function previewService(host: PreviewHost): PreviewService & {
   };
   return {
     async status() {
-      return host.session() ? { publish: true, reason: null } : { publish: false, reason: LOG_IN_TO_PUBLISH };
+      return host.session() ? { publish: true, reason: null } : { publish: false, reason: tr(LOG_IN_TO_PUBLISH) };
     },
 
     async list(fileKey) {
@@ -212,7 +214,7 @@ export function previewService(host: PreviewHost): PreviewService & {
       const session = signedIn();
       return host.run(async () => {
         const records = await read();
-        if (!records.some((r) => r.previewId === previewId)) throw new StoreError("not-found", "No such preview");
+        if (!records.some((r) => r.previewId === previewId)) throw new StoreError("not-found", tr("No such preview"));
         await unpublish(session, previewId);
         await write(records.filter((r) => r.previewId !== previewId));
       });
@@ -249,7 +251,7 @@ export function previewService(host: PreviewHost): PreviewService & {
       if (!isFileKey(fileKey)) throw new StoreError("invalid", "Not a file key");
       if (typeof path !== "string" || !path) throw new StoreError("invalid", "exportHtml needs a path");
       const snapshot = checkSnapshot(input?.snapshot);
-      if (!host.viewerTemplate) throw new StoreError("io", "The preview viewer isn't part of this build");
+      if (!host.viewerTemplate) throw new StoreError("io", tr("The preview viewer isn't part of this build"));
       const template = await fsp.readFile(host.viewerTemplate, "utf8").catch(() => {
         throw new StoreError("io", "The preview viewer isn't built (npm run build:viewer)");
       });

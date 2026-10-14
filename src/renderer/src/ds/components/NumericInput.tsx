@@ -9,6 +9,7 @@ import { useReturnFocus } from "../util/returnFocus";
 import { isMixed, type ChangeInfo, type ExitReason, type Mixed } from "../types";
 import type { IconName } from "../icons/Icon";
 import { STRINGS } from "../strings";
+import { t, useT } from "@/i18n";
 import { FieldPrefix } from "./TextInput";
 import styles from "./Field.module.css";
 
@@ -103,6 +104,7 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
  * focuses the field.
  */
 export function NumericInput({ label, prefix, prefixTone, value, onChange, onCancel, onClear, onStep, onExpression, onScrubBy, keywords, onKeyword, onText, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, scrubHandle, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, valueLabel, displayText, modeLabel, dimValue, boxLabel, className, ...rest }: NumericInputProps) {
+  useT();
   const mixed = isMixed(value);
   const current = mixed ? null : value;
   const base = current ?? 0;
@@ -119,7 +121,7 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
   const returnFocus = useReturnFocus();
   // Figma writes the unit in the field's text ("100%", "0°"); a bare field (the colour row's opacity) puts it after the number.
   const unitInside = !!unit && !bare;
-  const shown = displayText !== undefined ? displayText : valueLabel !== undefined && !focused && !scrubbing ? valueLabel : mixed ? STRINGS.mixed : current === null ? "" : formatNumber(current, precision) + (unitInside ? unit : "");
+  const shown = displayText !== undefined ? displayText : valueLabel !== undefined && !focused && !scrubbing ? valueLabel : mixed ? t(STRINGS.mixed) : current === null ? "" : formatNumber(current, precision) + (unitInside ? unit : "");
   const unitAfter = !!unit && !unitInside;
   const text = draft ?? shown;
   // "Mixed" in the field (secondary, and "Mixed+100" typed after it) — not a list shown in its place.

@@ -18,7 +18,7 @@ describe("a preview of a synthetic file (engine, headless)", () => {
   it("carries every page's derived text and instance layout, its image, pages and frames", async () => {
     const { snapshot, image } = await syntheticPreview();
     const message = decodeMessage(snapshot);
-    expect(message.derivedDataVersion).toBe(3);  // the engine's stamp (Editor::kDerivedDataVersion)
+    expect(message.derivedDataVersion).toBe(4);  // the engine's stamp (Editor::kDerivedDataVersion)
     const byName = (name: string) => message.nodeChanges!.find((n) => n.name === name && n.type !== "VARIABLE")!;
     // Text outlines for both texts (the viewer draws the italic one from them: it ships the upright Inter only).
     expect(byName("Title").derivedTextData?.glyphs?.length).toBeGreaterThan(5);

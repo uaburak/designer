@@ -482,6 +482,41 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       }
       break;
     }
+    case "exclusions": {
+      // A team file's people through the team, each one's access to this file kept or taken away (the owner's Home,
+      // 2026-10-14): GET lists them; PUT {userId} takes it away; DELETE /:userId gives it back. Sharers only.
+      if (!inOrg || !f.team_id) throw new HttpError(404, "not a team file");
+      const canShare = !!a && !a.trashed && (a.canShare || a.canManage);
+      if (parts.length === 3 && m === "GET") {
+        need(canShare, "only people who can edit the file can share it");
+        const { results } = await deps.db.d1
+          .prepare(
+            `SELECT u.id, u.email, u.name, u.picture, tm.role, (SELECT 1 FROM file_exclusions x WHERE x.file_key = ?2 AND x.user_id = u.id) AS excluded
+             FROM team_members tm JOIN users u ON u.id = tm.user_id WHERE tm.team_id = ?1 ORDER BY COALESCE(u.name, u.email)`,
+          )
+          .bind(f.team_id, key)
+          .all<{ id: string; email: string; name: string | null; picture: string | null; role: string; excluded: number | null }>();
+        return json({ people: results.map((r) => ({ userId: r.id, email: r.email, name: r.name, picture: r.picture, role: r.role, owner: r.id === f.owner_id, excluded: !!r.excluded })) });
+      }
+      if (parts.length === 3 && m === "PUT") {
+        need(canShare, "only people who can edit the file can share it");
+        const { userId } = await readJson<{ userId?: unknown }>(req);
+        if (typeof userId !== "string" || !userId) throw new HttpError(400, "userId");
+        if (userId === f.owner_id) throw new HttpError(400, "the file's owner keeps their access");
+        await deps.db.d1.prepare(`INSERT INTO file_exclusions (file_key, user_id, created_by, created_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING`).bind(key, userId, user.id, deps.now()).run();
+        // Their open sessions on the file reconnect without it
+        await deps.rooms.fetch(key, "/room/revoke", { method: "POST", body: JSON.stringify({ userId }) });
+        await log("fig_file_member_remove", { user_id: userId, inherited: true });
+        return json({ ok: true });
+      }
+      if (parts.length === 4 && m === "DELETE") {
+        need(canShare, "only people who can edit the file can share it");
+        await deps.db.d1.prepare(`DELETE FROM file_exclusions WHERE file_key = ?1 AND user_id = ?2`).bind(key, parts[3]).run();
+        await log("fig_file_member_add", { user_id: parts[3], inherited: true });
+        return json({ ok: true });
+      }
+      break;
+    }
     case "requests": {
       // "Ask to edit": a viewer asks; editors see the requests (live, through the room) and approve or deny.
       if (parts.length === 3 && m === "POST") {

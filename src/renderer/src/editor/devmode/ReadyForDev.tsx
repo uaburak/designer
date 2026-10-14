@@ -10,7 +10,8 @@ import { useEffect, useMemo, useState } from "react";
 import { IconButton, ScrollArea, Select } from "@/ds";
 import type { Guid, NodeChange } from "@/engine/codec";
 import { ViewerDoc } from "../../../../viewer/viewerDoc";
-import { editedAgo, type DevStatus } from "../../../../viewer/inspect/devMode";
+import type { DevStatus } from "../../../../viewer/inspect/devMode";
+import { t, tp, useT } from "@/i18n";
 import { useEditor, type EditorController } from "../controller";
 import { useUI } from "../hooks";
 import { frameStatusLabel, statusIn, type FrameStatus, type PluginDataEntry } from "../workflowStatus";
@@ -21,6 +22,20 @@ import { setRound5, useRound5, type Round5State } from "./round5";
 import styles from "./DevMode.module.css";
 
 const thumbs = new Map<string, string | null>();
+
+/** "Edited 3 days ago" (as the viewer's editedAgo), in the UI's language. */
+function editedAgo(unixSeconds: number | undefined | null, now = Date.now()): string | null {
+  if (!unixSeconds) return null;
+  const s = Math.max(0, Math.round(now / 1000 - unixSeconds));
+  if (s < 60) return t("Edited just now");
+  const n = (unit: number) => Math.floor(s / unit);
+  if (s < 3600) return tp(n(60), "Edited {n} minute ago", "Edited {n} minutes ago");
+  if (s < 86400) return tp(n(3600), "Edited {n} hour ago", "Edited {n} hours ago");
+  if (s < 604800) return tp(n(86400), "Edited {n} day ago", "Edited {n} days ago");
+  if (s < 2629800) return tp(n(604800), "Edited {n} week ago", "Edited {n} weeks ago");
+  if (s < 31557600) return tp(n(2629800), "Edited {n} month ago", "Edited {n} months ago");
+  return tp(n(31557600), "Edited {n} year ago", "Edited {n} years ago");
+}
 
 function thumbnail(ed: EditorController, item: ReadyItem): string | null {
   const key = `${item.id}@${item.editedAt}`;
@@ -100,6 +115,7 @@ export function ReadyForDev() {
 }
 
 function ReadyView({ ed, filter, sort }: { ed: EditorController; filter: Round5State["readyFilter"]; sort: Round5State["readySort"] }) {
+  useT();
   const all = useReadyItems(ed);
   const shown = useMemo(() => sortReady(filterReady(all, filter), sort), [all, filter, sort]);
   const close = () => setRound5(ed, { ready: false });
@@ -112,7 +128,7 @@ function ReadyView({ ed, filter, sort }: { ed: EditorController; filter: Round5S
     <div
       className={styles.ready}
       role="region"
-      aria-label="Ready for dev"
+      aria-label={t("Ready for dev")}
       data-ready-for-dev=""
       onKeyDown={(e) => {
         if (e.key === "Escape") {
@@ -122,19 +138,19 @@ function ReadyView({ ed, filter, sort }: { ed: EditorController; filter: Round5S
       }}
     >
       <header className={styles.readyHeader}>
-        <span className={styles.readyTitle}>Ready for dev</span>
+        <span className={styles.readyTitle}>{t("Ready for dev")}</span>
         <span className={styles.hint} data-ready-count="">
           {all.length}
         </span>
         <span className={styles.grow} />
-        <Select label="Filter" value={filter} options={FILTERS} onChange={(v) => setRound5(ed, { readyFilter: v as Round5State["readyFilter"] })} variant="ghost" width="hug" />
-        <Select label="Sort" value={sort} options={SORTS} onChange={(v) => setRound5(ed, { readySort: v as Round5State["readySort"] })} variant="ghost" width="hug" />
-        <IconButton icon="24.close.small" label="Close" onClick={close} />
+        <Select label={t("Filter")} value={filter} options={FILTERS.map((o) => ({ ...o, label: t(o.label) }))} onChange={(v) => setRound5(ed, { readyFilter: v as Round5State["readyFilter"] })} variant="ghost" width="hug" />
+        <Select label={t("Sort")} value={sort} options={SORTS.map((o) => ({ ...o, label: t(o.label) }))} onChange={(v) => setRound5(ed, { readySort: v as Round5State["readySort"] })} variant="ghost" width="hug" />
+        <IconButton icon="24.close.small" label={t("Close")} onClick={close} />
       </header>
       <ScrollArea>
         {shown.length === 0 ? (
           <div className={styles.readyHeader}>
-            <span className={styles.hint}>{filter === "all" ? "No designs have a status." : `No designs are marked “${frameStatusLabel(filter)}”.`}</span>
+            <span className={styles.hint}>{filter === "all" ? t("No designs have a status.") : t("No designs are marked “{status}”.", { status: t(frameStatusLabel(filter)) })}</span>
           </div>
         ) : (
           <div className={styles.readyGrid}>
@@ -149,11 +165,12 @@ function ReadyView({ ed, filter, sort }: { ed: EditorController; filter: Round5S
 }
 
 function ReadyCard({ ed, item, onOpen }: { ed: EditorController; item: ReadyItem; onOpen: () => void }) {
+  useT();
   const [src, setSrc] = useState<string | null>(() => thumbs.get(`${item.id}@${item.editedAt}`) ?? null);
   useEffect(() => {
     // Drawn after the view: a thumbnail is a small offscreen render.
-    const t = setTimeout(() => setSrc(thumbnail(ed, item)), 0);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setSrc(thumbnail(ed, item)), 0);
+    return () => clearTimeout(timer);
   }, [ed, item]);
   const ago = editedAgo(item.editedAt || item.statusAt);
   return (

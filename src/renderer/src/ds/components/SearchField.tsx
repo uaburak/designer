@@ -3,6 +3,7 @@ import { cx } from "../util/cx";
 import { Icon } from "../icons/Icon";
 import type { ControlSize, ExitReason } from "../types";
 import { STRINGS } from "../strings";
+import { t, useT } from "@/i18n";
 import styles from "./Field.module.css";
 
 export interface SearchFieldProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChange" | "onSubmit"> {
@@ -22,7 +23,8 @@ export interface SearchFieldProps extends Omit<HTMLAttributes<HTMLDivElement>, "
 }
 
 /** A search box (contract §4.28): the magnifier, the query, × while there is text. Esc clears, a second Esc leaves; ↓ hands focus to the list. */
-export function SearchField({ value, onChange, placeholder = STRINGS.search, size = "default", autoFocus, onSubmit, onExit, label = STRINGS.search, selectOnFocus, expanded, className, ...rest }: SearchFieldProps) {
+export function SearchField({ value, onChange, placeholder = t(STRINGS.search), size = "default", autoFocus, onSubmit, onExit, label = t(STRINGS.search), selectOnFocus, expanded, className, ...rest }: SearchFieldProps) {
+  useT();
   const input = useRef<HTMLInputElement>(null);
   return (
     <div data-ds="SearchField" role="search" className={cx(styles.field, size === "large" && styles.large, className)} {...rest}>
@@ -58,7 +60,7 @@ export function SearchField({ value, onChange, placeholder = STRINGS.search, siz
         className={cx(styles.input, !value && styles.padEnd)}
       />
       {value && (
-        <button type="button" aria-label={STRINGS.clear} className={styles.clear} onClick={() => { onChange(""); input.current?.focus(); }}>
+        <button type="button" aria-label={t(STRINGS.clear)} className={styles.clear} onClick={() => { onChange(""); input.current?.focus(); }}>
           <Icon name="24.close.small" />
         </button>
       )}

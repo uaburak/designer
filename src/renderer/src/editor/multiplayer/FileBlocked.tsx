@@ -8,6 +8,7 @@
  */
 import { useEffect, useState } from "react";
 import { EmptyState } from "@/ds";
+import { t, useT } from "@/i18n";
 import { getStoreClient } from "@/store";
 import type { FileShareState } from "@shared/multiplayer/types";
 import { IpBlocked, NetworkRestricted, PolicyModal, TwoFactorRequired } from "../../account/Gates";
@@ -41,6 +42,7 @@ const storeDeps: FileBlockedDeps = {
 };
 
 export function FileBlocked({ fileKey, blocked, deps = storeDeps }: { fileKey: string | null; blocked: NonNullable<FileShareState["blocked"]>; deps?: FileBlockedDeps }) {
+  useT();
   const [org, setOrg] = useState<{ id: string; name: string } | null>(null);
   const [agreed, setAgreed] = useState<ReadonlySet<string>>(() => new Set());
   const [reviewing, setReviewing] = useState(true);
@@ -54,7 +56,7 @@ export function FileBlocked({ fileKey, blocked, deps = storeDeps }: { fileKey: s
     };
   }, [fileKey, deps]);
 
-  const orgName = org?.name || "This organization";
+  const orgName = org?.name || t("This organization");
   const gate = blocked.gate;
 
   if (blocked.code === "network_restricted") return <NetworkRestricted onLogOut={deps.signOut} />;
@@ -62,7 +64,7 @@ export function FileBlocked({ fileKey, blocked, deps = storeDeps }: { fileKey: s
   let content: React.ReactNode = null;
   let modal: React.ReactNode = null;
   if (blocked.code === "key_unavailable") {
-    content = <EmptyState size="page" icon="24.lock.small" title={KEY_UNAVAILABLE_TEXT} body="Your copy stays on this computer. It opens again once your organization’s key can be reached." />;
+    content = <EmptyState size="page" icon="24.lock.small" title={t(KEY_UNAVAILABLE_TEXT)} body={t("Your copy stays on this computer. It opens again once your organization’s key can be reached.")} />;
   } else if (gate?.kind === "two_factor") {
     content = <TwoFactorRequired orgName={orgName} onSetUp={deps.openSecurity} />;
   } else if (gate?.kind === "ip") {
@@ -73,9 +75,9 @@ export function FileBlocked({ fileKey, blocked, deps = storeDeps }: { fileKey: s
       <EmptyState
         size="page"
         icon="24.lock.small"
-        title={`Agree to ${orgName === "This organization" ? "your organization’s" : `${orgName}’s`} policies to open this file.`}
-        body={error ?? (policy ? undefined : "Opening the file…")}
-        action={policy && !reviewing ? { label: "Review policies", onClick: () => setReviewing(true) } : undefined}
+        title={org?.name ? t("Agree to {org}’s policies to open this file.", { org: org.name }) : t("Agree to your organization’s policies to open this file.")}
+        body={error ?? (policy ? undefined : t("Opening the file…"))}
+        action={policy && !reviewing ? { label: t("Review policies"), onClick: () => setReviewing(true) } : undefined}
       />
     );
     if (policy && reviewing)
@@ -85,7 +87,7 @@ export function FileBlocked({ fileKey, blocked, deps = storeDeps }: { fileKey: s
           policy={policy}
           onCancel={() => setReviewing(false)}
           onAgree={async () => {
-            if (!org) return void setError("This file’s organization isn’t known yet. Try again in a moment.");
+            if (!org) return void setError(t("This file’s organization isn’t known yet. Try again in a moment."));
             try {
               await deps.acknowledgePolicy(org.id, policy.id);
               setError(null);

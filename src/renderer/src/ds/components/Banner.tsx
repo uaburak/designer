@@ -2,6 +2,7 @@ import type { HTMLAttributes, ReactNode } from "react";
 import { cx } from "../util/cx";
 import { Icon, type IconName } from "../icons/Icon";
 import { STRINGS } from "../strings";
+import { t, useT } from "@/i18n";
 import { Button, IconButton } from "./Button";
 import styles from "./Banner.module.css";
 
@@ -25,13 +26,14 @@ export interface BannerProps extends HTMLAttributes<HTMLDivElement> {
  * `role="status"` (danger: `alert`).
  */
 export function Banner({ tone = "default", icon, children, action, onDismiss, className, ...rest }: BannerProps) {
+  useT();
   const glyph = icon === null ? null : icon ?? (tone === "warning" || tone === "danger" ? "24.warning" : "24.info");
   return (
     <div data-ds="Banner" data-tone={tone} role={tone === "danger" ? "alert" : "status"} className={cx(styles.banner, styles[tone], className)} {...rest}>
       {glyph && <span className={styles.icon}><Icon name={glyph} /></span>}
       <span className={styles.text}>{children}</span>
       {action && <Button variant="ghost" className={styles.action} onClick={action.onClick}>{action.label}</Button>}
-      {onDismiss && <IconButton icon="24.close.small" label={STRINGS.dismiss} tooltip={false} onClick={onDismiss} />}
+      {onDismiss && <IconButton icon="24.close.small" label={t(STRINGS.dismiss)} tooltip={false} onClick={onDismiss} />}
     </div>
   );
 }

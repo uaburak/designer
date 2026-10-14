@@ -5,6 +5,7 @@
  * developer preview viewer lists ("Ready for development") and shows in Inspect. Figma offers it on the canvas label
  * and the toolbar; here it is in the canvas menu (unverified placement).
  */
+import { t } from "@/i18n";
 import type { Guid, NodeChange, NodeFields } from "@/engine/codec";
 import { getStoreClient } from "@/store";
 import type { DevModeRepository, DevStatusReport } from "@shared/devmode/types";
@@ -94,7 +95,7 @@ export function setDevStatusOf(
   // (unverified: whether Figma saves one, or keeps its own snapshot).
   if (status === "BUILD" && ed.source.saveVersion) {
     const names = ids.map((id) => ed.engine.readNode(id, { fields: ["name"] })?.name ?? "").filter(Boolean);
-    void ed.source.saveVersion({ title: `${names.length === 1 ? `“${names[0]}”` : `${names.length} designs`} marked ready for dev` }).catch(() => {});
+    void ed.source.saveVersion({ title: names.length === 1 ? t("“{name}” marked ready for dev", { name: names[0] }) : t("{n} designs marked ready for dev", { n: names.length }) }).catch(() => {});
   }
 }
 

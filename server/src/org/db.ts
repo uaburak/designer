@@ -38,6 +38,8 @@ export interface FileRow {
   trashed_by: string | null;
   created_at: number;
   updated_at: number;
+  /** 0025: the last thumbnail upload; null or absent: none yet */
+  thumbnail_at?: number | null;
   /** 0013: the room's jurisdiction ("eu"), null: the default — handed to `rooms.fetch` so it needn't read it again */
   jurisdiction?: "eu" | null;
   /** 0023 (docs/cloud.md §2): "personal" — in its owner's Drafts; null elsewhere */
@@ -115,7 +117,7 @@ export interface OrgRow {
 }
 
 export const FILE_COLS = `f.key, f.name, f.owner_id, f.org_id, f.team_id, f.project_id, f.editor_type, f.access, f.link_access, f.org_link_access, f.proto_link_access, f.proto_org_link_access,
-  f.link_expires_at, f.viewers_can_copy, f.link_password, f.link_password_version, f.trashed_at, f.trashed_by, f.created_at, f.updated_at, f.jurisdiction, f.space, f.storage_r2_at`;
+  f.link_expires_at, f.viewers_can_copy, f.link_password, f.link_password_version, f.trashed_at, f.trashed_by, f.created_at, f.updated_at, f.jurisdiction, f.space, f.storage_r2_at, f.thumbnail_at`;
 
 export function settingsOf(row: Pick<OrgRow, "settings"> | null): OrgSettings {
   let s: Partial<OrgSettings> = {};
@@ -171,6 +173,7 @@ export const Q = {
     args: [projectId, userId],
   }),
   fileMembers: (key: string, u: Who): Query => ({ sql: `SELECT user_id, email, role FROM members WHERE file_key = ?1 AND (user_id = ?2 OR (user_id IS NULL AND email = ?3))`, args: [key, u.id, u.email] }),
+  excluded: (key: string, userId: string): Query => ({ sql: `SELECT 1 AS x FROM file_exclusions WHERE file_key = ?1 AND user_id = ?2`, args: [key, userId] }),
   prototypeMember: (key: string, u: Who): Query => ({ sql: `SELECT 1 AS x FROM prototype_members WHERE file_key = ?1 AND (user_id = ?2 OR email = ?3) LIMIT 1`, args: [key, u.id, u.email] }),
   ownerInOrg: (orgId: string, userId: string): Query => ({ sql: `SELECT 1 AS x FROM org_members WHERE org_id = ?1 AND user_id = ?2`, args: [orgId, userId] }),
   /** A team's tile counts (teams.ts teamSummary) */
@@ -398,6 +401,11 @@ export class Access {
     return [...toGrants(results), ...(f.org_id ? await this.groupGrants("file", f.key) : [])];
   }
 
+  /** Is the caller's inherited access to this file taken away (`file_exclusions`)? */
+  private excluded(key: string): Promise<boolean> {
+    return this.once(`ex:${key}`, async () => !!(await first(this.d1, Q.excluded(key, this.user.id))));
+  }
+
   /** Invited from Share prototype (docs/editor.md D-6; 0015 prototype_members), by user id or email */
   private prototypeMember(key: string): Promise<boolean> {
     return this.once(`pm:${key}`, async () => !!(await first(this.d1, Q.prototypeMember(key, this.user))));
@@ -423,6 +431,7 @@ export class Access {
       org && Q.membership(org, u, this.now),
       homeOrgQ(u),
       Q.prototypeMember(f.key, u),
+      Q.excluded(f.key, u.id),
       Q.fileMembers(f.key, u),
       org && Q.groupGrants("file", f.key, u.id),
       f.team_id && Q.teamPeople(f.team_id, u),
@@ -477,7 +486,7 @@ export class Access {
     };
     for (const f of rows) {
       const org = f.org_id;
-      for (const q of [Q.branch(f.key), Q.prototypeMember(f.key, u), Q.fileMembers(f.key, u), org && Q.groupGrants("file", f.key, u.id), homeOrgQ(u), org && orgSettingsQ(org), org && f.team_id && wsSharingQ(f.team_id)]) add(q);
+      for (const q of [Q.branch(f.key), Q.prototypeMember(f.key, u), Q.excluded(f.key, u.id), Q.fileMembers(f.key, u), org && Q.groupGrants("file", f.key, u.id), homeOrgQ(u), org && orgSettingsQ(org), org && f.team_id && wsSharingQ(f.team_id)]) add(q);
       for (const q of [f.project_id && Q.chain(f.project_id), f.project_id && Q.folderPeople(f.project_id, u), f.project_id && Q.folderGroups(f.project_id, u.id), f.team_id && Q.team(f.team_id)]) add(q);
       for (const q of [f.team_id && Q.teamPeople(f.team_id, u), f.team_id && Q.groupGrants("team", f.team_id, u.id), org && Q.membership(org, u, this.now), org && Q.workspaceAdminOf(org, u.id), org && Q.groups(org, u.id), org && !f.project_id && Q.ownerInOrg(org, f.owner_id), org && Q.org(org)]) add(q);
     }
@@ -553,6 +562,7 @@ export class Access {
       },
       prototypeMember: !expired && (await this.prototypeMember(f.key)),
       fileGrants: expired ? [] : await this.fileGrants(f),
+      excluded: await this.excluded(f.key),
       folders: expired ? folders.map((p) => ({ ...p, grants: [] })) : folders,
       team: team ? { id: team.id, ownerId: team.owner_id, workspaceId: team.workspace_id, orgAccess: team.org_access, workspaceAccess: team.workspace_access, visibility: team.visibility, deletedAt: team.deleted_at, grants: expired ? [] : await this.teamGrants(team.id) } : null,
       membership: m ? { role: m.role, seat: m.seat, workspaceId: m.workspace_id } : null,
@@ -719,7 +729,9 @@ export function toOrgFile(f: FileRow & { owner_name?: string | null; owner_email
     updatedAt: f.updated_at,
     createdAt: f.created_at,
     trashedAt: f.trashed_at,
-    thumbnailUrl: null,
+    // The thumbnail editors upload (GET /files/:key/thumbnail); `v` is its upload time (rest/uploads.ts stamps
+    // thumbnail_at), so a cached picture is asked for again after each one; none uploaded yet: no picture to ask for
+    thumbnailUrl: f.thumbnail_at ? `/files/${f.key}/thumbnail?v=${f.thumbnail_at}` : null,
     access: fileAccessOf(a),
     fileKey: null,
   };

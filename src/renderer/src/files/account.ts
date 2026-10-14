@@ -8,6 +8,7 @@ import type { AccountMethod, AccountResponse, AccountState, SignInMethod, SignIn
 import type { IdleNotice } from "@shared/ipc";
 import { SIGN_IN_ERROR_TEXT } from "@shared/org/identity";
 import { setThemePreference, type MenuEntry, type ThemePreference } from "@/ds";
+import { t } from "@/i18n";
 import { storeMode } from "../store";
 import { webAccount } from "../store/webAccount";
 
@@ -72,13 +73,13 @@ const THEMES: { id: ThemePreference; label: string }[] = [
  * `multi`: several accounts can be signed in (the desktop app).
  */
 export function accountMenu(state: AccountState | null, o: { theme: ThemePreference; multi?: boolean } = { theme: "system" }): MenuEntry[] {
-  const theme: MenuEntry = { id: "theme", label: "Change theme", icon: "24.window.layout", items: THEMES.map((t) => ({ id: `theme:${t.id}`, label: t.label, checked: o.theme === t.id })) };
-  const settings: MenuEntry = { id: "settings", label: "Settings", icon: "24.sliders" };
+  const theme: MenuEntry = { id: "theme", label: t("Change theme"), icon: "24.window.layout", items: THEMES.map((x) => ({ id: `theme:${x.id}`, label: t(x.label), checked: o.theme === x.id })) };
+  const settings: MenuEntry = { id: "settings", label: t("Settings"), icon: "24.sliders" };
   if (!state) return [theme, settings];
   const user = state.user;
   if (!user) {
-    if (state.signingIn) return [{ id: "waiting", label: "Waiting for the browser…", disabled: true }, { id: "cancel-log-in", label: "Cancel" }, "-", theme, settings];
-    return [{ id: "log-in", label: "Log in with Google…" }, "-", theme, settings];
+    if (state.signingIn) return [{ id: "waiting", label: t("Waiting for the browser…"), disabled: true }, { id: "cancel-log-in", label: t("Cancel") }, "-", theme, settings];
+    return [{ id: "log-in", label: t("Log in with Google…") }, "-", theme, settings];
   }
   const accounts = (state.accounts ?? []).length ? state.accounts! : [user];
   const several = !!o.multi && accounts.length > 1;
@@ -91,9 +92,9 @@ export function accountMenu(state: AccountState | null, o: { theme: ThemePrefere
     ...(several
       ? accounts.map((a): MenuEntry => ({ id: `account:${a.id}`, label: a.name || a.email, ...(a.name ? { hint: a.email } : {}), avatar: { name: a.name || a.email, ...(a.picture ? { picture: a.picture } : {}) }, checked: a.id === user.id, checkEnd: true }))
       : []),
-    ...(o.multi ? [{ id: "add-account", label: "Add account", icon: "24.plus" } as const] : []),
-    { id: "log-out", label: "Log out", icon: "24.log-out" },
-    ...(several ? [{ id: "log-out-all", label: "Log out of all accounts" }] : []),
+    ...(o.multi ? [{ id: "add-account", label: t("Add account"), icon: "24.plus" } as const] : []),
+    { id: "log-out", label: t("Log out"), icon: "24.log-out" },
+    ...(several ? [{ id: "log-out-all", label: t("Log out of all accounts") }] : []),
   ];
 }
 
@@ -102,8 +103,8 @@ const SSO_TEXTS = new Set<string>(Object.values(SIGN_IN_ERROR_TEXT));
 /** Sign-in failures worth a toast (a cancel isn't one); single sign-on's own refusals say why (docs/desktop.md §18.1). */
 export function signInFailure(r: SignInResult): string | null {
   if (r.ok || r.error === "cancelled") return null;
-  if (r.error === "failed" && r.message && SSO_TEXTS.has(r.message)) return r.message;
-  return r.error === "timeout" ? "Log in timed out. Try again." : "Couldn’t log in. Try again.";
+  if (r.error === "failed" && r.message && SSO_TEXTS.has(r.message)) return t(r.message);
+  return r.error === "timeout" ? t("Log in timed out. Try again.") : t("Couldn’t log in. Try again.");
 }
 
 export function useAccount() {

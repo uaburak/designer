@@ -693,6 +693,10 @@ class Source implements StoreDocumentSource {
     return this.store.files.saveThumbnail(this.fileKey, png, size);
   }
 
+  get hasThumbnail(): boolean {
+    return !!this.meta.thumbnail;
+  }
+
   setUiState(patch: Partial<FileUiState>): void {
     if (this.closed) return;
     this.uiPatch = { ...(this.uiPatch ?? {}), ...patch };

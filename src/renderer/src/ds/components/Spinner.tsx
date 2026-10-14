@@ -1,9 +1,11 @@
 import { cx } from "../util/cx";
 import { STRINGS } from "../strings";
+import { t, useT } from "@/i18n";
 import styles from "./Spinner.module.css";
 
 /** A ring with a turning 90° arc (contract §4.31): 2px stroke (1.5 at 16), the track at 25%. */
-export function Spinner({ size = 16, tone = "default", label = STRINGS.loading, className }: { size?: 16 | 24 | 32; tone?: "default" | "onbrand"; label?: string; className?: string }) {
+export function Spinner({ size = 16, tone = "default", label = t(STRINGS.loading), className }: { size?: 16 | 24 | 32; tone?: "default" | "onbrand"; label?: string; className?: string }) {
+  useT();
   const w = size === 16 ? 1.5 : 2;
   const r = size / 2 - w / 2 - 1;
   const c = size / 2;

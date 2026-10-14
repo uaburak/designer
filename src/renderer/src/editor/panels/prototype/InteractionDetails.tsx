@@ -57,6 +57,10 @@ import {
 import { ancestorsOf, protoFields, usePageFrames, type ProtoNode } from "./PrototypePanel";
 import { ExpressionField } from "./ExpressionField";
 import styles from "./Prototype.module.css";
+import { t, useT } from "@/i18n";
+
+/** Menu options with their labels in the UI language. */
+const translated = <T extends { label: string }>(options: readonly (T | "-")[]): (T | "-")[] => options.map((o) => (o === "-" ? o : { ...o, label: t(o.label) }));
 
 /** A layer with a visible VIDEO fill (a video, help: "videos are a type of fill"). */
 export const hasVideoFill = (n: { fillPaints?: { type?: string; visible?: boolean }[] } | null | undefined): boolean =>
@@ -102,6 +106,7 @@ export function InteractionDetails({
   /** `bottom`: how far under the anchor (live: 30 under a pressed point on the line, 11 under a label chip). */
   gap?: number;
 }) {
+  useT();
   const ed = useEditor();
   const [n] = useNodes([node]) as (ProtoNode | null)[];
   const list = liveInteractions(n?.prototypeInteractions);
@@ -131,12 +136,12 @@ export function InteractionDetails({
       placement={placement}
       arrow={placement === "bottom"}
       gap={gap}
-      title="Interaction"
+      title={t("Interaction")}
       titleInset={24}
       onClose={onClose}
       width={242}
       headerActions={
-        <IconButton icon="24.plus.small" label="Add action" tooltip={false} onClick={() => write({ ...interaction, actions: [...actions, actionOfKind("NONE")] }, "Add action")} />
+        <IconButton icon="24.plus.small" label={t("Add action")} tooltip={false} onClick={() => write({ ...interaction, actions: [...actions, actionOfKind("NONE")] }, "Add action")} />
       }
     >
       <div className={styles.details} data-interaction-details>
@@ -154,14 +159,14 @@ export function InteractionDetails({
         {actions.length === 0 && (
           <>
             <div className={styles.divider} />
-            <Labelled label="Action">
+            <Labelled label={t("Action")}>
               <Select
-                label="Action"
+                label={t("Action")}
                 variant="outlined"
                 className={styles.iconField}
                 prefix={ACTION_ICON.NONE}
                 value="NONE"
-                options={actionMenu({ changeTo: variantsFor(ed, node).length > 0, conditional: true, video: false })}
+                options={translated(actionMenu({ changeTo: variantsFor(ed, node).length > 0, conditional: true, video: false }))}
                 onChange={(v) => write({ ...interaction, actions: [actionOfKind(v as ActionKind)] }, "Edit action")}
               />
             </Labelled>
@@ -173,26 +178,27 @@ export function InteractionDetails({
 }
 
 function TriggerRow({ interaction, video, onChange }: { interaction: PrototypeInteraction; video: boolean; onChange: (i: PrototypeInteraction, label?: string, info?: ChangeInfo) => void }) {
-  const t = interaction.event?.interactionType ?? "ON_CLICK";
+  useT();
+  const type = interaction.event?.interactionType ?? "ON_CLICK";
   const recorder = useRef<HTMLButtonElement>(null);
-  const videoTrigger = t === "ON_MEDIA_HIT" || t === "ON_MEDIA_END";
+  const videoTrigger = type === "ON_MEDIA_HIT" || type === "ON_MEDIA_END";
   return (
     <>
-      <Labelled label="Trigger">
+      <Labelled label={t("Trigger")}>
         <Select
-          label="Trigger"
+          label={t("Trigger")}
           variant="outlined"
           className={styles.iconField}
-          prefix={TRIGGER_ICON[t]}
-          value={t === "MOUSE_IN" ? "MOUSE_ENTER" : t === "MOUSE_OUT" ? "MOUSE_LEAVE" : t}
-          options={triggerMenu(video || videoTrigger)}
+          prefix={TRIGGER_ICON[type]}
+          value={type === "MOUSE_IN" ? "MOUSE_ENTER" : type === "MOUSE_OUT" ? "MOUSE_LEAVE" : type}
+          options={translated(triggerMenu(video || videoTrigger))}
           onChange={(v) => onChange(withTrigger(interaction, v as InteractionType), "Edit trigger")}
         />
       </Labelled>
-      {t === "ON_MEDIA_HIT" && (
-        <Labelled label="Time">
+      {type === "ON_MEDIA_HIT" && (
+        <Labelled label={t("Time")}>
           <TextInput
-            label="Time"
+            label={t("Time")}
             variant="outlined"
             value={formatMediaTime(interaction.event?.mediaHitTime)}
             onCommit={(text) => {
@@ -202,10 +208,10 @@ function TriggerRow({ interaction, video, onChange }: { interaction: PrototypeIn
           />
         </Labelled>
       )}
-      {t === "AFTER_TIMEOUT" && (
-        <Labelled label="Delay">
+      {type === "AFTER_TIMEOUT" && (
+        <Labelled label={t("Delay")}>
           <NumericInput
-            label="Delay"
+            label={t("Delay")}
             value={Math.round((interaction.event?.transitionTimeout ?? 0.8) * 1000)}
             unit="ms"
             min={1}
@@ -215,13 +221,13 @@ function TriggerRow({ interaction, video, onChange }: { interaction: PrototypeIn
           />
         </Labelled>
       )}
-      {t === "ON_KEY_DOWN" && (
-        <Labelled label="Key">
+      {type === "ON_KEY_DOWN" && (
+        <Labelled label={t("Key")}>
           <button
             ref={recorder}
             type="button"
             className={styles.keyRecorder}
-            aria-label="Key"
+            aria-label={t("Key")}
             onKeyDown={(e) => {
               if (e.key === "Tab") return;
               e.preventDefault();
@@ -230,7 +236,7 @@ function TriggerRow({ interaction, video, onChange }: { interaction: PrototypeIn
               onChange({ ...interaction, event: { ...interaction.event, keyTrigger: { keyCodes: keyTriggerOf(e.nativeEvent), triggerDevice: "KEYBOARD" } } }, "Edit key");
             }}
           >
-            {keyTriggerLabel(interaction.event?.keyTrigger?.keyCodes) || "Type a key"}
+            {keyTriggerLabel(interaction.event?.keyTrigger?.keyCodes) || t("Type a key")}
           </button>
         </Labelled>
       )}
@@ -303,6 +309,7 @@ function ActionEditor({
   onChange: (a: PrototypeAction, label?: string, info?: ChangeInfo) => void;
   onRemove?: () => void;
 }) {
+  useT();
   const ed = useEditor();
   const kind = actionKind(action);
   const dests = useDestinations(source, kind);
@@ -316,14 +323,14 @@ function ActionEditor({
   return (
     <div className={styles.actionBlock} data-action={kind}>
       <div className={styles.divider} />
-      <Labelled label="Action" action={onRemove && <IconButton icon="24.minus.small" label="Remove action" tone="secondary" onClick={onRemove} />}>
+      <Labelled label={t("Action")} action={onRemove && <IconButton icon="24.minus.small" label={t("Remove action")} tone="secondary" onClick={onRemove} />}>
         <Select
-          label="Action"
+          label={t("Action")}
           variant="outlined"
           className={styles.iconField}
           prefix={ACTION_ICON[kind]}
           value={kind}
-          options={actionOptions}
+          options={translated(actionOptions)}
           onChange={(v) => {
             if (v === "ANIMATION_PLAY" || v === "ANIMATION_PLAYHEAD") return;
             onChange(actionOfKind(v as ActionKind, action), "Edit action");
@@ -332,13 +339,13 @@ function ActionEditor({
       </Labelled>
       {takesDestination(kind) && (
         // Live: "Destination"; Change to's is "State" (the variant).
-        <Labelled label={kind === "CHANGE_TO" ? "State" : "Destination"}>
+        <Labelled label={kind === "CHANGE_TO" ? t("State") : t("Destination")}>
           <Select
-            label="Destination"
+            label={t("Destination")}
             variant="outlined"
             className={styles.field}
             value={dest ?? "NONE"}
-            options={[{ value: "NONE", label: "None" }, ...(dests.length ? ["-" as const] : []), ...dests]}
+            options={[{ value: "NONE", label: t("None") }, ...(dests.length ? ["-" as const] : []), ...dests]}
             onChange={(v) => {
               const next = { ...action };
               if (v === "NONE") delete next.transitionNodeID;
@@ -350,13 +357,13 @@ function ActionEditor({
       )}
       {isVideoAction(kind) && (
         <>
-          <Labelled label="Video">
+          <Labelled label={t("Video")}>
             <Select
-              label="Video"
+              label={t("Video")}
               variant="outlined"
               className={styles.field}
               value={dest ?? "NONE"}
-              options={[{ value: "NONE", label: "Choose video" }, ...(dests.length ? ["-" as const] : []), ...dests]}
+              options={[{ value: "NONE", label: t("Choose video") }, ...(dests.length ? ["-" as const] : []), ...dests]}
               onChange={(v) => {
                 const next = { ...action };
                 if (v === "NONE") delete next.transitionNodeID;
@@ -368,16 +375,16 @@ function ActionEditor({
           {MEDIA_CHOICES[kind] && (
             <div className={styles.row}>
               <Select
-                label={kind === "VIDEO_JUMP" ? "Direction" : "Video action"}
+                label={kind === "VIDEO_JUMP" ? t("Direction") : t("Video action")}
                 variant="outlined"
                 className={styles.grow}
                 value={action.mediaAction ?? "PLAY"}
-                options={MEDIA_CHOICES[kind]!}
+                options={translated(MEDIA_CHOICES[kind]!)}
                 onChange={(v) => onChange({ ...action, mediaAction: v as MediaAction }, "Edit action")}
               />
               {kind === "VIDEO_JUMP" && (
                 <NumericInput
-                  label="Seconds"
+                  label={t("Seconds")}
                   className={styles.duration}
                   value={action.mediaSkipByAmount ?? 0}
                   unit="s"
@@ -390,9 +397,9 @@ function ActionEditor({
           )}
           {kind === "VIDEO_SET_TIME" && (
             <div className={styles.labelled}>
-              <span className={styles.label}>Time</span>
+              <span className={styles.label}>{t("Time")}</span>
               <TextInput
-                label="Time"
+                label={t("Time")}
                 className={styles.grow}
                 value={formatMediaTime(action.mediaSkipToTime)}
                 onCommit={(text) => {
@@ -407,9 +414,9 @@ function ActionEditor({
       {kind === "SCROLL_TO" && (
         // Scroll to's offset (extraScrollOffset): how far past the destination's top-left the frame scrolls.
         <div className={styles.offsets}>
-          <span className={styles.fieldLabel}>Offset</span>
+          <span className={styles.fieldLabel}>{t("Offset")}</span>
           <NumericInput
-            label="X offset"
+            label={t("X offset")}
             prefix="X"
             className={styles.grow}
             value={action.extraScrollOffset?.x ?? 0}
@@ -417,7 +424,7 @@ function ActionEditor({
             onChange={(v, info) => onChange({ ...action, extraScrollOffset: { x: v, y: action.extraScrollOffset?.y ?? 0 } }, "Edit offset", info)}
           />
           <NumericInput
-            label="Y offset"
+            label={t("Y offset")}
             prefix="Y"
             className={styles.grow}
             value={action.extraScrollOffset?.y ?? 0}
@@ -430,10 +437,10 @@ function ActionEditor({
       {kind === "URL" && (
         <>
           <div className={styles.row}>
-            <TextInput label="Link" className={styles.grow} placeholder="https://" value={action.connectionURL ?? ""} onCommit={(url) => onChange({ ...action, connectionURL: url.trim() }, "Edit link")} />
+            <TextInput label={t("Link")} className={styles.grow} placeholder="https://" value={action.connectionURL ?? ""} onCommit={(url) => onChange({ ...action, connectionURL: url.trim() }, "Edit link")} />
           </div>
           <div className={styles.checkRow}>
-            <Checkbox label="Open in new tab" checked={action.openUrlInNewTab !== false} onChange={(c) => onChange({ ...action, openUrlInNewTab: c }, "Edit link")} />
+            <Checkbox label={t("Open in new tab")} checked={action.openUrlInNewTab !== false} onChange={(c) => onChange({ ...action, openUrlInNewTab: c }, "Edit link")} />
           </div>
         </>
       )}
@@ -447,16 +454,16 @@ function ActionEditor({
         // video state for a destination with a video.
         <StateSection>
           <div className={styles.checkRow}>
-            <Checkbox label="Reset scroll position" checked={!!action.transitionResetScrollPosition} onChange={(c) => onChange({ ...action, transitionResetScrollPosition: c }, "Edit interaction")} />
+            <Checkbox label={t("Reset scroll position")} checked={!!action.transitionResetScrollPosition} onChange={(c) => onChange({ ...action, transitionResetScrollPosition: c }, "Edit interaction")} />
           </div>
           {action.transitionResetInteractiveComponents && (
             <div className={styles.checkRow}>
-              <Checkbox label="Reset component state" checked onChange={(c) => onChange({ ...action, transitionResetInteractiveComponents: c }, "Edit interaction")} />
+              <Checkbox label={t("Reset component state")} checked onChange={(c) => onChange({ ...action, transitionResetInteractiveComponents: c }, "Edit interaction")} />
             </div>
           )}
           {(destHasVideo || action.transitionResetVideoPosition) && (
             <div className={styles.checkRow}>
-              <Checkbox label="Reset video state" checked={!!action.transitionResetVideoPosition} onChange={(c) => onChange({ ...action, transitionResetVideoPosition: c }, "Edit interaction")} />
+              <Checkbox label={t("Reset video state")} checked={!!action.transitionResetVideoPosition} onChange={(c) => onChange({ ...action, transitionResetVideoPosition: c }, "Edit interaction")} />
             </div>
           )}
         </StateSection>
@@ -478,13 +485,14 @@ function Labelled({ label, children, action }: { label: string; children: ReactN
 
 /** Interaction details' last group: "State", collapsed until its row is clicked (live: remembered while open). */
 function StateSection({ children }: { children: ReactNode }) {
+  useT();
   const [open, setOpen] = useState(false);
   return (
     <>
       <div className={styles.divider} />
       <button type="button" className={styles.disclosure} aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <Icon name={open ? "16.chevron.down" : "16.chevron.right"} />
-        <span>State</span>
+        <span>{t("State")}</span>
       </button>
       {open && children}
     </>
@@ -492,6 +500,7 @@ function StateSection({ children }: { children: ReactNode }) {
 }
 
 function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; kind: ActionKind; onChange: (a: PrototypeAction, label?: string, info?: ChangeInfo) => void }) {
+  useT();
   const { animation, direction } = animationOf(action.transitionType);
   const easing = action.easingType ?? "OUT_CUBIC";
   const spring = isSpring(easing);
@@ -512,22 +521,22 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
   return (
     <>
       <div className={styles.divider} />
-      <Labelled label="Animation">
-        <Select label="Animation" variant="outlined" className={styles.field} value={shown} options={options.map(label)} onChange={(v) => setAnimation(v as Animation)} />
+      <Labelled label={t("Animation")}>
+        <Select label={t("Animation")} variant="outlined" className={styles.field} value={shown} options={translated(options.map(label))} onChange={(v) => setAnimation(v as Animation)} />
       </Labelled>
       {isDirectional(animation) && (
         <>
           <div className={styles.row}>
             <SegmentedControl
-              label="Direction"
+              label={t("Direction")}
               fullWidth
               value={direction}
-              options={DIRECTIONS.map((d) => ({ value: d.value, icon: DIRECTION_ICON[d.value], tooltip: d.label }))}
+              options={DIRECTIONS.map((d) => ({ value: d.value, icon: DIRECTION_ICON[d.value], tooltip: t(d.label) }))}
               onChange={(v) => setAnimation(animation, v as Direction)}
             />
           </div>
           <div className={styles.checkRow}>
-            <Checkbox label="Animate matching layers" checked={!!action.transitionShouldSmartAnimate} onChange={(c) => onChange({ ...action, transitionShouldSmartAnimate: c }, "Edit animation")} />
+            <Checkbox label={t("Animate matching layers")} checked={!!action.transitionShouldSmartAnimate} onChange={(c) => onChange({ ...action, transitionShouldSmartAnimate: c }, "Edit animation")} />
           </div>
         </>
       )}
@@ -535,11 +544,11 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
         <>
           <div className={styles.row}>
             <Select
-              label="Curve"
+              label={t("Curve")}
               variant="outlined"
               className={styles.grow}
               value={easing === "SPRING" ? "GENTLE_SPRING" : easing === "EASE_IN" ? "IN_CUBIC" : easing}
-              options={EASINGS}
+              options={translated(EASINGS)}
               onChange={(v) => {
                 const e = v as EasingType;
                 const next: PrototypeAction = { ...action, easingType: e };
@@ -551,7 +560,7 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
             />
             {!spring && (
               <NumericInput
-                label="Duration"
+                label={t("Duration")}
                 className={styles.duration}
                 value={Math.round((action.transitionDuration ?? 0.3) * 1000)}
                 unit="ms"
@@ -572,7 +581,7 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
           {easing === "CUSTOM_SPRING" && (
             <div className={styles.quad}>
               {["Mass", "Stiffness", "Damping"].map((p, i) => (
-                <NumericInput key={p} label={p} prefix={p[0]} value={fn[i] ?? [1, 100, 15][i]} min={i === 2 ? 0 : 0.01} step={i === 0 ? 0.1 : 1} precision={i === 0 ? 2 : 0} onChange={(v, info) => setFn(i, v, info)} />
+                <NumericInput key={p} label={t(p)} prefix={p[0]} value={fn[i] ?? [1, 100, 15][i]} min={i === 2 ? 0 : 0.01} step={i === 0 ? 0.1 : 1} precision={i === 0 ? 2 : 0} onChange={(v, info) => setFn(i, v, info)} />
               ))}
             </div>
           )}
@@ -584,6 +593,7 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
 
 /** Open / Swap overlay: the destination frame's own overlay settings (shared by every interaction that opens it). */
 function OverlaySettings({ frame }: { frame: Guid }) {
+  useT();
   const ed = useEditor();
   const [n] = useNodes([frame]) as (ProtoNode | null)[];
   if (!n) return null;
@@ -592,27 +602,27 @@ function OverlaySettings({ frame }: { frame: Guid }) {
   const color = bg?.backgroundColor ?? { r: 0, g: 0, b: 0, a: 0.25 };
   return (
     <div className={styles.group}>
-      <div className={styles.groupTitle}>Overlay</div>
+      <div className={styles.groupTitle}>{t("Overlay")}</div>
       <div className={styles.labelled}>
-        <span className={styles.label}>Position</span>
+        <span className={styles.label}>{t("Position")}</span>
         <Select
-          label="Overlay position"
+          label={t("Overlay position")}
           className={styles.grow}
           value={n.overlayPositionType ?? "CENTER"}
-          options={OVERLAY_POSITIONS}
+          options={translated(OVERLAY_POSITIONS)}
           onChange={(v) => ed.setProps([frame], protoFields({ overlayPositionType: v as OverlayPositionType }), "Overlay position")}
         />
       </div>
       <div className={styles.checkRow}>
         <Checkbox
-          label="Close when clicking outside"
+          label={t("Close when clicking outside")}
           checked={n.overlayBackgroundInteraction === "CLOSE_ON_CLICK_OUTSIDE"}
           onChange={(c) => ed.setProps([frame], protoFields({ overlayBackgroundInteraction: c ? "CLOSE_ON_CLICK_OUTSIDE" : null }), "Overlay settings")}
         />
       </div>
       <div className={styles.checkRow}>
         <Checkbox
-          label="Add background behind overlay"
+          label={t("Add background behind overlay")}
           checked={on}
           onChange={(c) =>
             ed.setProps([frame], protoFields({ overlayBackgroundAppearance: c ? { backgroundType: "SOLID_COLOR", backgroundColor: color } : null }), "Overlay settings")
@@ -623,7 +633,7 @@ function OverlaySettings({ frame }: { frame: Guid }) {
         <div className={styles.row}>
           <ColorInput
             className={styles.grow}
-            label="Overlay background"
+            label={t("Overlay background")}
             color={colorToHex(color)}
             opacity={toPercent(color.a ?? 1)}
             onColor={(hex, info) =>
@@ -644,6 +654,7 @@ function variableRef(id: Guid) {
 }
 
 function SetVariable({ action, onChange }: { action: PrototypeAction; onChange: (a: PrototypeAction, label?: string, info?: ChangeInfo) => void }) {
+  useT();
   const ed = useEditor();
   const vars = useMemo(() => (ed.engine.destroyed ? [] : ed.engine.variables()), [ed]);
   const current = guidOf(action.targetVariable?.id?.guid ?? null);
@@ -653,10 +664,10 @@ function SetVariable({ action, onChange }: { action: PrototypeAction; onChange: 
     <>
       <div className={styles.row}>
         <Select
-          label="Variable"
+          label={t("Variable")}
           className={styles.grow}
           value={current ?? "NONE"}
-          options={[{ value: "NONE", label: "Choose variable" }, ...(vars.length ? ["-" as const] : []), ...vars.map((x) => ({ value: x.id, label: x.name, hint: x.resolvedType.toLowerCase() }))]}
+          options={[{ value: "NONE", label: t("Choose variable") }, ...(vars.length ? ["-" as const] : []), ...vars.map((x) => ({ value: x.id, label: x.name, hint: t(x.resolvedType.toLowerCase()) }))]}
           onChange={(id) => {
             const chosen = vars.find((x) => x.id === id);
             if (!chosen) return;
@@ -672,12 +683,12 @@ function SetVariable({ action, onChange }: { action: PrototypeAction; onChange: 
       {v && v.resolvedType === "BOOLEAN" && (
         <div className={styles.row}>
           <SegmentedControl
-            label="Value"
+            label={t("Value")}
             fullWidth
             value={value.boolValue ? "true" : "false"}
             options={[
-              { value: "true", label: "True" },
-              { value: "false", label: "False" },
+              { value: "true", label: t("True") },
+              { value: "false", label: t("False") },
             ]}
             onChange={(b) => onChange({ ...action, targetVariableData: { value: { boolValue: b === "true" }, dataType: "BOOLEAN" } }, "Set variable")}
           />
@@ -685,18 +696,18 @@ function SetVariable({ action, onChange }: { action: PrototypeAction; onChange: 
       )}
       {v && v.resolvedType === "FLOAT" && (
         <div className={styles.row}>
-          <NumericInput label="Value" className={styles.grow} value={value.floatValue ?? 0} onChange={(f, info) => onChange({ ...action, targetVariableData: { value: { floatValue: f }, dataType: "FLOAT" } }, "Set variable", info)} />
+          <NumericInput label={t("Value")} className={styles.grow} value={value.floatValue ?? 0} onChange={(f, info) => onChange({ ...action, targetVariableData: { value: { floatValue: f }, dataType: "FLOAT" } }, "Set variable", info)} />
         </div>
       )}
       {v && v.resolvedType === "STRING" && (
         <div className={styles.row}>
-          <TextInput label="Value" className={styles.grow} value={value.textValue ?? ""} onCommit={(t) => onChange({ ...action, targetVariableData: { value: { textValue: t }, dataType: "STRING" } }, "Set variable")} />
+          <TextInput label={t("Value")} className={styles.grow} value={value.textValue ?? ""} onCommit={(text) => onChange({ ...action, targetVariableData: { value: { textValue: text }, dataType: "STRING" } }, "Set variable")} />
         </div>
       )}
       {v && v.resolvedType === "COLOR" && (
         <div className={styles.row}>
           <ColorInput
-            label="Value"
+            label={t("Value")}
             className={styles.grow}
             color={colorToHex(value.colorValue ?? { r: 0, g: 0, b: 0, a: 1 })}
             opacity={toPercent(value.colorValue?.a ?? 1)}
@@ -710,6 +721,7 @@ function SetVariable({ action, onChange }: { action: PrototypeAction; onChange: 
 }
 
 function SetVariableMode({ action, onChange }: { action: PrototypeAction; onChange: (a: PrototypeAction, label?: string, info?: ChangeInfo) => void }) {
+  useT();
   const ed = useEditor();
   const collections = useMemo(() => (ed.engine.destroyed ? [] : ed.engine.variableCollections()), [ed]);
   const current = guidOf(action.targetVariableSetID?.guid ?? null);
@@ -719,10 +731,10 @@ function SetVariableMode({ action, onChange }: { action: PrototypeAction; onChan
     <>
       <div className={styles.row}>
         <Select
-          label="Collection"
+          label={t("Collection")}
           className={styles.grow}
           value={current ?? "NONE"}
-          options={[{ value: "NONE", label: "Choose collection" }, ...(collections.length ? ["-" as const] : []), ...collections.map((x) => ({ value: x.id, label: x.name }))]}
+          options={[{ value: "NONE", label: t("Choose collection") }, ...(collections.length ? ["-" as const] : []), ...collections.map((x) => ({ value: x.id, label: x.name }))]}
           onChange={(id) => {
             const chosen = collections.find((x) => x.id === id);
             if (!chosen) return;
@@ -734,7 +746,7 @@ function SetVariableMode({ action, onChange }: { action: PrototypeAction; onChan
       {c && (
         <div className={styles.row}>
           <Select
-            label="Mode"
+            label={t("Mode")}
             className={styles.grow}
             value={mode ?? "NONE"}
             options={c.modes.map((m) => ({ value: m.modeId, label: m.name }))}
@@ -753,6 +765,7 @@ function SetVariableMode({ action, onChange }: { action: PrototypeAction; onChan
  * condition after the first (else-if blocks a file may hold) show as "Else if".
  */
 function Conditional({ source, action, depth, onChange }: { source: Guid; action: PrototypeAction; depth: number; onChange: (a: PrototypeAction, label?: string, info?: ChangeInfo) => void }) {
+  useT();
   const ed = useEditor();
   const vars = useMemo(() => (ed.engine.destroyed ? [] : ed.engine.variables()), [ed]);
   const stored = action.conditionalActions?.length ? action.conditionalActions : [{ actions: [] }, { actions: [] }];
@@ -769,11 +782,11 @@ function Conditional({ source, action, depth, onChange }: { source: Guid; action
         <div key={k} className={styles.branch}>
           {k < branches.length - 1 ? (
             <div className={styles.labelled}>
-              <span className={styles.label}>{k === 0 ? "If" : "Else if"}</span>
-              <ExpressionField label="Condition" data={b.condition} vars={vars} onCommit={(data) => setBranch(k, { ...b, condition: data })} />
+              <span className={styles.label}>{k === 0 ? t("If") : t("Else if")}</span>
+              <ExpressionField label={t("Condition")} data={b.condition} vars={vars} onCommit={(data) => setBranch(k, { ...b, condition: data })} />
             </div>
           ) : (
-            <div className={styles.groupTitle}>Else</div>
+            <div className={styles.groupTitle}>{t("Else")}</div>
           )}
           {(b.actions ?? []).map((a, j) => (
             <ActionEditor
@@ -791,7 +804,7 @@ function Conditional({ source, action, depth, onChange }: { source: Guid; action
           ))}
           <div className={styles.row}>
             <Button variant="ghost" icon="24.plus.small" onClick={() => setBranch(k, { ...b, actions: [...(b.actions ?? []), actionOfKind("NAVIGATE")] })}>
-              Add action
+              {t("Add action")}
             </Button>
           </div>
         </div>

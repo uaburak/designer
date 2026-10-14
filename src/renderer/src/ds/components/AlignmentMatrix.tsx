@@ -1,6 +1,7 @@
 import { useRef, useState, type HTMLAttributes } from "react";
 import { cx } from "../util/cx";
 import styles from "./AlignmentMatrix.module.css";
+import { t, useT } from "@/i18n";
 
 /** Figma's names (kiwi `stackPrimaryAlignItems` / `stackCounterAlignItems`). */
 export type AxisAlign = "MIN" | "CENTER" | "MAX";
@@ -61,7 +62,8 @@ export interface AlignmentMatrixProps extends Omit<HTMLAttributes<HTMLDivElement
  * is chosen and only the counter-axis alignment changes. Keys: arrows move
  * the choice (one tab stop).
  */
-export function AlignmentMatrix({ direction, value, onChange, disabled, label = "Alignment", className, ...rest }: AlignmentMatrixProps) {
+export function AlignmentMatrix({ direction, value, onChange, disabled, label = t("Alignment"), className, ...rest }: AlignmentMatrixProps) {
+  useT();
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const [hover, setHover] = useState<[number, number] | null>(null);
   const spaced = value.primary === "SPACE_BETWEEN";
@@ -75,7 +77,7 @@ export function AlignmentMatrix({ direction, value, onChange, disabled, label = 
     const vertical = v === "SPACE_BETWEEN" ? "spaced" : NAMES[v][0];
     const horizontal = h === "SPACE_BETWEEN" ? "spaced" : NAMES[h][1];
     // Figma's live names: "Align top left" … the middle row "Align left", "Align center", "Align right".
-    return vertical === "center" ? `Align ${horizontal}` : `Align ${vertical} ${horizontal}`;
+    return t(vertical === "center" ? `Align ${horizontal}` : `Align ${vertical} ${horizontal}`);
   };
   return (
     <div role="radiogroup" aria-label={label} data-ds="AlignmentMatrix" data-disabled={disabled || undefined} className={cx(styles.matrix, className)} onPointerLeave={() => setHover(null)} {...rest}>

@@ -4,6 +4,7 @@
  * UI3 wording for triggers, actions, animations and easings, and the conversions between the panel's choices
  * (an animation and a direction) and the schema's single TransitionType.
  */
+import { t as tr } from "@/i18n";
 import type { Color, Guid } from "@/engine/codec";
 import type { IconName } from "@/ds";
 
@@ -347,9 +348,9 @@ export const isVideoAction = (k: ActionKind): boolean => k === "VIDEO_PLAY" || k
 /** The label of a video action's choice ("Play video", "Jump forward 5s", "Set to 0:10"). */
 export function mediaChoiceLabel(a: PrototypeAction): string {
   const k = mediaKind(a.mediaAction);
-  if (k === "VIDEO_SET_TIME") return `Set to ${formatMediaTime(a.mediaSkipToTime)}`;
+  if (k === "VIDEO_SET_TIME") return tr("Set to {time}", { time: formatMediaTime(a.mediaSkipToTime) });
   const label = MEDIA_CHOICES[k]?.find((c) => c.value === (a.mediaAction ?? "PLAY"))?.label ?? "Play video";
-  return k === "VIDEO_JUMP" ? `${label} ${a.mediaSkipByAmount ?? 0}s` : label;
+  return k === "VIDEO_JUMP" ? `${tr(label)} ${a.mediaSkipByAmount ?? 0}s` : label;
 }
 
 export function actionKind(a: PrototypeAction | undefined): ActionKind {
@@ -615,18 +616,18 @@ export function withTrigger(i: PrototypeInteraction, t: InteractionType): Protot
 export function triggerShortLabel(i: PrototypeInteraction): string {
   const t = i.event?.interactionType ?? "ON_CLICK";
   switch (t) {
-    case "ON_CLICK": return "Click";
-    case "DRAG": return "Drag";
-    case "ON_HOVER": return "Hover";
-    case "ON_PRESS": return "Press";
+    case "ON_CLICK": return tr("Click");
+    case "DRAG": return tr("Drag");
+    case "ON_HOVER": return tr("Hover");
+    case "ON_PRESS": return tr("Press");
     case "ON_KEY_DOWN": {
       const key = keyTriggerLabel(i.event?.keyTrigger?.keyCodes);
-      return key ? `Key (${key})` : "Key";
+      return key ? tr("Key ({key})", { key }) : tr("Key");
     }
-    case "AFTER_TIMEOUT": return "Delay";
-    case "NONE": return "None";
-    case "ON_MEDIA_HIT": return `Video hits ${formatMediaTime(i.event?.mediaHitTime)}`;
-    case "ON_MEDIA_END": return "Video ends";
+    case "AFTER_TIMEOUT": return tr("Delay");
+    case "NONE": return tr("None");
+    case "ON_MEDIA_HIT": return tr("Video hits {time}", { time: formatMediaTime(i.event?.mediaHitTime) });
+    case "ON_MEDIA_END": return tr("Video ends");
     default: return triggerLabel(t);
   }
 }
@@ -768,7 +769,7 @@ export function deviceLabel(d: PrototypeDevice | undefined): string {
   if (d.type === "PRESENTATION") return "Presentation";
   const p = devicePreset(d.presetIdentifier);
   if (p) return p[1];
-  return d.size ? `Custom size ${Math.round(d.size.x)}×${Math.round(d.size.y)}` : "Custom size";
+  return d.size ? tr("Custom size {w}×{h}", { w: Math.round(d.size.x), h: Math.round(d.size.y) }) : tr("Custom size");
 }
 
 export const OVERLAY_POSITIONS: { value: OverlayPositionType; label: string }[] = [

@@ -56,8 +56,10 @@ export interface DocumentSource {
   readonly uiState?: EditorUiState | null;
   /** The UI state changed (the source debounces and keeps it). Optional. */
   setUiState?(patch: Partial<EditorUiState>): void;
-  /** A PNG of the file's first page (≤ 800 × 600) for Home's card. Optional. */
+  /** A PNG of the file's thumbnail frame or first page (≤ 800 × 600) for Home's card. Optional. */
   saveThumbnail?(png: Uint8Array, size: { width: number; height: number }): Promise<void>;
+  /** Whether Home's card has a picture already; false: the editor makes one soon after the open. Optional. */
+  readonly hasThumbnail?: boolean;
   /** Version history (docs/data.md §6). Optional: absent, the File menu's version items are disabled. */
   listVersions?(): Promise<VersionInfo[]>;
   saveVersion?(input?: { title?: string; description?: string }): Promise<VersionInfo>;

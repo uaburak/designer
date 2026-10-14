@@ -9,10 +9,12 @@
 import { useState } from "react";
 import { Banner, Button, Dialog, EmptyState } from "@/ds";
 import { GOVERNANCE_SIGN_IN_ERROR_TEXT, GUEST_EXPIRY_WARNING_MS, type PolicyPrompt } from "@shared/org/governance";
+import { t, tp, useT } from "@/i18n";
 import styles from "./Gates.module.css";
 
 /** An internal policy (§2.6): its title, its text, Cancel (back to Drafts) and Agree. Unverified labels. */
 export function PolicyModal({ policy, onAgree, onCancel }: { policy: PolicyPrompt; onAgree: () => Promise<void>; onCancel: () => void }) {
+  useT();
   const [busy, setBusy] = useState(false);
   const agree = async () => {
     setBusy(true);
@@ -32,10 +34,10 @@ export function PolicyModal({ policy, onAgree, onCancel }: { policy: PolicyPromp
       footer={
         <>
           <Button variant="secondary" onClick={onCancel} data-policy-cancel="">
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button variant="primary" loading={busy} onClick={() => void agree()} data-policy-agree="">
-            Agree
+            {t("Agree")}
           </Button>
         </>
       }
@@ -49,33 +51,36 @@ export function PolicyModal({ policy, onAgree, onCancel }: { policy: PolicyPromp
 
 /** "2FA for Guests" is on and this guest has none (§2.4): the org's content waits until they set it up. Unverified. */
 export function TwoFactorRequired({ orgName, onSetUp }: { orgName: string; onSetUp: () => void }) {
+  useT();
   return (
     <div className={styles.gate} data-gate="two_factor">
-      <EmptyState size="page" icon="24.lock.small" title={`${orgName} requires two-factor authentication for guests.`} body="Turn it on in Settings › Security, then come back here." action={{ label: "Set up two-factor authentication", onClick: onSetUp }} />
+      <EmptyState size="page" icon="24.lock.small" title={t("{org} requires two-factor authentication for guests.", { org: orgName })} body={t("Turn it on in Settings › Security, then come back here.")} action={{ label: t("Set up two-factor authentication"), onClick: onSetUp }} />
     </div>
   );
 }
 
 /** The org's IP allowlist doesn't include this network (§2.3). Unverified. */
 export function IpBlocked({ orgName, ip }: { orgName: string; ip: string }) {
+  useT();
   return (
     <div className={styles.gate} data-gate="ip">
-      <EmptyState size="page" icon="24.globe" title={`${orgName} only allows access from approved networks.`} body={`Switch to an approved network, or log in with another account.${ip ? ` Your IP address: ${ip}` : ""}`} />
+      <EmptyState size="page" icon="24.globe" title={t("{org} only allows access from approved networks.", { org: orgName })} body={`${t("Switch to an approved network, or log in with another account.")}${ip ? ` ${t("Your IP address: {ip}", { ip })}` : ""}`} />
     </div>
   );
 }
 
 /** A network that only allows its org's accounts (§2.5, account-wide): the whole window, Log out. Unverified title. */
 export function NetworkRestricted({ onLogOut }: { onLogOut: () => void }) {
+  useT();
   return (
     <div className={styles.window} role="alertdialog" aria-modal="true" aria-labelledby="network-restricted-title" data-gate="network">
       <div className={styles.windowBody}>
         <h2 id="network-restricted-title" className={styles.windowTitle}>
-          Switch to your work account
+          {t("Switch to your work account")}
         </h2>
-        <p className={styles.windowText}>{GOVERNANCE_SIGN_IN_ERROR_TEXT.network_restricted}</p>
+        <p className={styles.windowText}>{t(GOVERNANCE_SIGN_IN_ERROR_TEXT.network_restricted)}</p>
         <Button variant="primary" size="large" onClick={onLogOut} data-network-log-out="">
-          Log out
+          {t("Log out")}
         </Button>
       </div>
     </div>
@@ -92,11 +97,12 @@ export function guestDaysLeft(expiresAt: number | null | undefined, now: number)
 
 /** "Your guest access to ‹org› ends in ‹N› days." (ours, unverified) */
 export function GuestExpiryBanner({ orgName, expiresAt, now }: { orgName: string; expiresAt: number | null | undefined; now: number }) {
+  useT();
   const days = guestDaysLeft(expiresAt, now);
   if (days === null) return null;
   return (
     <Banner tone="warning" className={styles.banner} data-guest-expiry={days}>
-      {`Your guest access to ${orgName} ends in ${days === 1 ? "1 day" : `${days} days`}.`}
+      {tp(days, "Your guest access to {org} ends in 1 day.", "Your guest access to {org} ends in {n} days.", { org: orgName })}
     </Banner>
   );
 }

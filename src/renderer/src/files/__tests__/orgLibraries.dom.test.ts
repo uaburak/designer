@@ -191,7 +191,7 @@ async function setup(initialLocation: Location) {
 }
 
 const teamMenu = async (label: string) => {
-  press($('[aria-label="Team actions"]')!);
+  press($('[aria-label="Team settings"]')!);
   await settle(10);
   click(menuItem(label)!);
   await settleLong();
@@ -259,7 +259,7 @@ describe("libraries and fonts in Home (docs/data.md §16–§17)", () => {
   it("a second visit renders at once from the cache while the server is slow, and the refresh lands behind", async () => {
     const { srv } = await setup({ kind: "team", teamId: TEAM });
     expect($("main h1")?.textContent).toBe(TEAM);
-    click($$('nav [data-ds="SidebarItem"]').find((el) => el.textContent?.trim() === "Drafts")!);
+    click($$('nav [data-ds="SidebarItem"]').find((el) => el.textContent?.trim() === "All projects")!);
     await settleLong();
     // Far from the server now: every request waits until released (as DESIGNER_FAKE_LATENCY_MS does in the app)
     let release!: () => void;
@@ -271,7 +271,7 @@ describe("libraries and fonts in Home (docs/data.md §16–§17)", () => {
     }) as typeof fetch);
     await srv.d1.prepare(`UPDATE teams SET description = 'Renamed behind' WHERE id = ?1`).bind(TEAM).run();
     skew += 60_000;
-    click($$('nav [data-ds="SidebarItem"]').find((el) => el.textContent?.trim() === TEAM)!);
+    click($('main button[aria-label="Back"]')!);
     await settle(20);
     // Shown from the cache: the team's page, no spinner, nothing answered by the server yet
     expect($("main h1")?.textContent).toBe(TEAM);
@@ -283,9 +283,9 @@ describe("libraries and fonts in Home (docs/data.md §16–§17)", () => {
     expect(srv.log.slice(before).filter((l) => l === `GET /teams/${TEAM}/page`)).toHaveLength(1);
   });
 
-  it("resting on a team in the sidebar for 150 ms reads its page ahead, once; leaving sooner reads nothing", async () => {
-    const { srv } = await setup({ kind: "org-drafts" });
-    const row = $$('nav [data-ds="SidebarItem"]').find((el) => el.textContent?.trim() === TEAM)!.closest("div")!;
+  it("resting on a team's card in All teams for 150 ms reads its page ahead, once; leaving sooner reads nothing", async () => {
+    const { srv } = await setup({ kind: "teams" });
+    const row = $(`[data-team-card="${TEAM}"]`)!;
     const pageReads = () => srv.log.filter((l) => l === `GET /teams/${TEAM}/page`).length;
     const enter = () => act(() => void row.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body })));
     const leave = () => act(() => void row.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body })));
@@ -305,7 +305,7 @@ describe("libraries and fonts in Home (docs/data.md §16–§17)", () => {
     await settleLong();
     expect(pageReads()).toBe(n + 1);
     // The click shows it from the cache
-    click($$('nav [data-ds="SidebarItem"]').find((el) => el.textContent?.trim() === TEAM)!);
+    act(() => void row.querySelector('[data-ds="FolderCard"]')!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
     await settle(10);
     expect($("main h1")?.textContent).toBe(TEAM);
   });

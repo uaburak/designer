@@ -9,15 +9,17 @@ import { IconButton, PanelSection, tooltipProps } from "@/ds";
 import { useEditor } from "../../controller";
 import { agentsOf } from "../../agents/service";
 import styles from "./Agents.module.css";
+import { t, tp, useT } from "@/i18n";
 
 export function McpSection() {
+  useT();
   const ed = useEditor();
   const service = agentsOf(ed);
   const state = useSyncExternalStore(service.subscribe, service.get);
   if (!state.available) return null;
   const n = state.mcp.connections.length;
   const clients = [...new Set(state.mcp.connections.map((c) => c.client))];
-  const tip = clients.length ? clients.map((c) => `MCP in ${c}`).join(", ") : state.mcp.url ? `MCP server at ${state.mcp.url}` : "The MCP server isn't running";
+  const tip = clients.length ? clients.map((c) => t("MCP in {client}", { client: c })).join(", ") : state.mcp.url ? t("MCP server at {url}", { url: state.mcp.url }) : t("The MCP server isn't running");
   return (
     <PanelSection
       title="MCP"
@@ -26,11 +28,11 @@ export function McpSection() {
       actions={
         <>
           <span className={styles.mcpCount} {...tooltipProps(tip)} data-mcp-connections={n}>
-            {n === 1 ? "1 connection" : `${n} connections`}
+            {tp(n, "{n} connection", "{n} connections")}
           </span>
           <IconButton
           icon="24.agents"
-          label="Set up agents for MCP"
+          label={t("Set up agents for MCP")}
           tone="secondary"
           onClick={() => {
             ed.ui.set({ railTab: "agents", uiHidden: false, uiMinimized: false });

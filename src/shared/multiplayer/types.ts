@@ -39,6 +39,8 @@ export interface FileMember {
   email: string;
   userId: string | null;
   name: string | null;
+  /** The account's photo (Google's, or one uploaded in Settings); null: initials */
+  picture?: string | null;
   role: Role;
   /** Invited by email; no account signed in with it yet */
   pending: boolean;
@@ -66,10 +68,24 @@ export interface FileShareState {
   blocked?: { code: GovernanceErrorCode; gate?: OrgGate } | null;
 }
 
+/** Someone with access to a team file through its team (the Share dialog's "People in <team>"): the person sharing it
+ *  takes one person's access to this one file away (`excluded`) and gives it back; the file's owner keeps theirs. */
+export interface InheritedPerson {
+  userId: string;
+  email: string;
+  name: string | null;
+  picture?: string | null;
+  /** Their role in the team */
+  role: string;
+  owner: boolean;
+  excluded: boolean;
+}
+
 export interface AccessRequest {
   userId: string;
   email: string;
   name: string | null;
+  picture?: string | null;
   createdAt: number;
 }
 
@@ -269,6 +285,12 @@ export interface MultiplayerRepository {
   answerRequest(fileKey: FileKey, userId: string, approve: boolean): Promise<AccessRequest[]>;
   invite(fileKey: FileKey, email: string, role: "editor" | "viewer"): Promise<FileMember[]>;
   removeMember(fileKey: FileKey, email: string): Promise<FileMember[]>;
+  /** A team file's people through its team, each one's access to this file kept or taken away (sharers only) */
+  exclusions(fileKey: FileKey): Promise<InheritedPerson[]>;
+  /** "Remove access": one team member loses this file (not the team's other files) */
+  exclude(fileKey: FileKey, userId: string): Promise<InheritedPerson[]>;
+  /** "Give access back" */
+  include(fileKey: FileKey, userId: string): Promise<InheritedPerson[]>;
   /** Cursor, selection, page … for the file's other people (not stored) */
   presence(fileKey: FileKey, data: unknown): Promise<void>;
   watch(listener: (e: MultiplayerEvent) => void): () => void;

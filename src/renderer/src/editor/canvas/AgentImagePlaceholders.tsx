@@ -6,6 +6,7 @@
  * placer: never a layer of the document, never in undo or the file. Positioned straight from the camera (no React
  * render per camera change).
  */
+import { t, useT } from "@/i18n";
 import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { useEditor } from "../controller";
 import { agentsOf } from "../agents/service";
@@ -15,6 +16,7 @@ import styles from "./AgentImagePlaceholders.module.css";
 const CAPTION_MIN = 120;
 
 export function AgentImagePlaceholders() {
+  useT();
   const ed = useEditor();
   const placeholders = agentsOf(ed).placeholders;
   const items = useSyncExternalStore(placeholders.subscribe, placeholders.list);
@@ -49,7 +51,7 @@ export function AgentImagePlaceholders() {
     <div ref={layer} className={styles.layer} aria-hidden>
       {items.map((p) => (
         <div key={p.id} className={styles.placeholder} data-placeholder={p.id} data-agent-image-placeholder={p.state} data-fills={p.target.nodeId ? "" : undefined}>
-          <span className={styles.caption}>Making an image…</span>
+          <span className={styles.caption}>{t("Making an image…")}</span>
         </div>
       ))}
     </div>

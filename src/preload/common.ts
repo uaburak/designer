@@ -4,6 +4,7 @@ import type { FilesApi, NavApi, SharedFontsApi, ViewMenuApi } from "../shared/de
 import type { AccountMethod, SignInMethod } from "../shared/account";
 import type { AgentSetupApi, McpClientId } from "../shared/agents/types";
 import type { AiSetupApi } from "../shared/ai/api";
+import type { Locale } from "../shared/i18n";
 
 /**
  * What every role's preload shares (each preload is bundled on its own —
@@ -67,6 +68,9 @@ export function common<R extends Role>(role: R) {
     setTheme: (preference: ThemePreference) => invoke("theme:set", preference),
     setContrast: (on: boolean) => invoke("theme:set-contrast", on === true),
     onThemeChanged: (cb: (t: ThemeState) => void) => on("theme:changed", cb),
+    locale: (arg("designer-locale") === "tr" ? "tr" : "en") as Locale,
+    setLocale: (locale: Locale) => invoke("locale:set", locale === "tr" ? "tr" : "en"),
+    onLocaleChanged: (cb: (l: Locale) => void) => on("locale:changed", cb),
     onWindowState: (cb: (s: IpcEvents["window:state"]) => void) => on("window:state", cb),
     onFullScreen: (cb: (fullScreen: boolean) => void) => on("window:state", (s) => cb(s.fullScreen)),
     haptics: { tick: () => send("haptics:tick") },
@@ -92,6 +96,13 @@ export function common<R extends Role>(role: R) {
 }
 
 export const openExternal = (url: string) => send("shell:open-external", { url: String(url) });
+
+/** Settings › Account › Figma connection (Home and editors): the token goes to main once, sealed there. */
+export const figmaConnectionApi = {
+  status: () => invoke("figma:status"),
+  connect: (token: string) => invoke("figma:connect", { token: String(token ?? "") }),
+  disconnect: () => invoke("figma:disconnect"),
+};
 
 /** Settings › Account › Your uploaded fonts (Home and editors). */
 export const uploadedFonts = {

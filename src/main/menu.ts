@@ -1,6 +1,7 @@
 import { app, Menu, nativeTheme, webContents, type KeyboardEvent, type MenuItemConstructorOptions } from "electron";
 import { command, layoutCommands, MENU_LAYOUT, registersAccelerator, runsFromMenuBar, type CommandId, type MenuEntry } from "../shared/commands";
 import { acceleratorFor, type KeyCombo } from "../shared/shortcuts";
+import { getLocale, t, tx } from "../shared/i18n";
 import { readSettings } from "./session";
 import { checkForUpdates, onUpdaterChange, restartToUpdate, updaterStatus } from "./updater";
 import type { WindowController } from "./window";
@@ -30,7 +31,7 @@ export function appMenu(current: () => WindowController | null, dev: boolean, bi
     const accelerator = acceleratorFor(id, spec.accelerator, bindings);
     return {
       id,
-      label: spec.label,
+      label: t(spec.label),
       accelerator,
       // Keys without ⌘ or ⌃ are the page's own (a registered ⇧R would eat the R typed into a field): shown only.
       registerAccelerator: registersAccelerator(accelerator),
@@ -55,8 +56,8 @@ export function appMenu(current: () => WindowController | null, dev: boolean, bi
     list.map((e): MenuItemConstructorOptions => {
       if (e === "-") return { type: "separator" };
       if (typeof e === "string") return e === "view.reload-tab" && dev ? item(e, { accelerator: "CmdOrCtrl+Shift+R", registerAccelerator: true }) : item(e);
-      if ("role" in e) return { role: e.role };
-      return { label: e.submenu, submenu: entries(e.items) };
+      if ("role" in e) return roleItem(e.role);
+      return { label: t(e.submenu), submenu: entries(e.items) };
     });
 
   const theme = (["app.theme-light", "app.theme-dark", "app.theme-system"] as const).map((id) => item(id, { checked: nativeTheme.themeSource === id.slice("app.theme-".length) }));
@@ -65,34 +66,56 @@ export function appMenu(current: () => WindowController | null, dev: boolean, bi
   // menu; "Restart to Update" once an update is in. Left out when the updater is off (development, DisableUpdater, MSI).
   const updates = updaterStatus();
   const update: MenuItemConstructorOptions[] = updates.enabled
-    ? [updates.state.kind === "ready" ? { id: "app.restart-to-update", label: "Restart to Update", click: () => restartToUpdate() } : { id: "app.check-for-updates", label: "Check for Updates…", click: () => checkForUpdates() }]
+    ? [updates.state.kind === "ready" ? { id: "app.restart-to-update", label: t("Restart to Update"), click: () => restartToUpdate() } : { id: "app.check-for-updates", label: t("Check for Updates…"), click: () => checkForUpdates() }]
     : [];
 
   const appSubmenu: MenuItemConstructorOptions[] = [
-    { role: "about" },
+    roleItem("about"),
     ...update,
     { type: "separator" },
-    { label: "Theme", submenu: theme },
+    { label: t("Theme"), submenu: theme },
     { type: "separator" },
-    { role: "services" },
+    roleItem("services"),
     { type: "separator" },
-    { role: "hide" },
-    { role: "hideOthers" },
-    { role: "unhide" },
+    roleItem("hide"),
+    roleItem("hideOthers"),
+    roleItem("unhide"),
     { type: "separator" },
-    { role: "quit" },
+    roleItem("quit"),
   ];
 
   const template: MenuItemConstructorOptions[] = [
     ...(mac ? [{ label: app.name, submenu: appSubmenu }] : []),
     ...Object.entries(MENU_LAYOUT).map(([label, list]): MenuItemConstructorOptions => {
       const submenu = entries(list);
-      if (label === "File" && !mac) submenu.push({ type: "separator" }, { label: "Theme", submenu: theme }, { type: "separator" }, { role: "quit" });
+      if (label === "File" && !mac) submenu.push({ type: "separator" }, { label: t("Theme"), submenu: theme }, { type: "separator" }, roleItem("quit"));
       if (label === "Help" && !mac && update.length) submenu.push({ type: "separator" }, ...update);
-      return label === "Help" ? { role: "help", submenu } : { label, submenu };
+      return label === "Help" ? { role: "help", label: t("Help"), submenu } : { label: t(label), submenu };
     }),
   ];
   return Menu.buildFromTemplate(template);
+}
+
+/** A role's item: Electron's own English label, or the language's (src/shared/i18n) when the UI isn't in English. */
+const ROLE_LABELS: Partial<Record<NonNullable<MenuItemConstructorOptions["role"]>, string>> = {
+  about: "About {app}",
+  services: "Services",
+  hide: "Hide {app}",
+  hideOthers: "Hide Others",
+  unhide: "Show All",
+  quit: "Quit {app}",
+  copy: "Copy",
+  cut: "Cut",
+  paste: "Paste",
+  togglefullscreen: "Toggle Full Screen",
+  minimize: "Minimize",
+  zoom: "Zoom",
+  front: "Bring All to Front",
+};
+
+function roleItem(role: NonNullable<MenuItemConstructorOptions["role"]>): MenuItemConstructorOptions {
+  const label = ROLE_LABELS[role];
+  return getLocale() === "en" || !label ? { role } : { role, label: tx("role", label, { app: app.name }) };
 }
 
 let built: { current: () => WindowController | null; dev: boolean } | null = null;

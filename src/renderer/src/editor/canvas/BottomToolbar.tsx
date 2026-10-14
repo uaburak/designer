@@ -11,6 +11,7 @@
  * Draw mode (docs/draw.md §5.1, §5.2; round 7c): the toolbar's Draw tool set (Move ▾, Shape ▾, Pen, Pencil, Brush,
  * Type ▾, Comment ▾), and with the Pencil or the Brush the secondary toolbar of their settings (draw/DrawToolSettings).
  */
+import { getLocale, t, useT } from "@/i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ContextMenu, EditorToolbar, groupOf, IconButton, showToast, Toolbar, ToolbarDivider, ToolTextButton, type IconName, type MenuEntry, type ToolGroupId, type ToolId } from "@/ds";
 import type { ToolName } from "@/engine/abi";
@@ -69,6 +70,7 @@ const isAvailable = (ed: ReturnType<typeof useEditor>, t: ToolId) => {
 };
 
 export function BottomToolbar() {
+  useT();
   const ed = useEditor();
   const vectorEditing = useStoreSlice(ed.vector.state, (s) => s.active);
   const placing = useUI((s) => !!s.placingImages?.length);
@@ -125,7 +127,7 @@ export function BottomToolbar() {
       onMode={(m) => {
         if (m === "dev" || m === "design") setMode(ed, m);
         else if (m === "draw") runEditorCommand(ed, "view.switch-to-draw");
-        else showToast({ message: "Motion comes later" });
+        else showToast({ message: t("Motion comes later") });
       }}
       disabledModes={["motion"]}
       shortcuts={shortcuts}
@@ -164,13 +166,16 @@ const VECTOR_TOOL_WIDTH: Record<string, number> = { Move: 60.3, Lasso: 62.4, Pai
  */
 export function vectorMoreTools(tool: VectorTool, variableWidth: boolean): MenuEntry[] {
   return [
-    { id: "SHAPE_BUILDER", label: "Shape builder", icon: "24.shape-builder", shortcut: "M", checked: tool === "SHAPE_BUILDER", radio: true },
-    { id: "VARIABLE_WIDTH", label: "Variable width", icon: "24.variable-width", shortcut: "⇧W", checked: tool === "VARIABLE_WIDTH", radio: true, disabled: !variableWidth },
+    { id: "SHAPE_BUILDER", label: t("Shape builder"), icon: "24.shape-builder", shortcut: "M", checked: tool === "SHAPE_BUILDER", radio: true },
+    { id: "VARIABLE_WIDTH", label: t("Variable width"), icon: "24.variable-width", shortcut: "⇧W", checked: tool === "VARIABLE_WIDTH", radio: true, disabled: !variableWidth },
   ];
 }
 
 /** Figma UI3's vector edit toolbar: 529 × 40, 8 over the bottom toolbar (live 455, 792 at 1440 × 900). */
 function VectorEditToolbar() {
+  useT();
+  // Live's widths fit the English names; another language's take their own.
+  const english = getLocale() === "en";
   const ed = useEditor();
   const tool = useStoreSlice(ed.vector.state, (s) => s.tool);
   const variableWidth = useStoreSlice(ed.vector.state, (s) => s.variableWidth);
@@ -181,20 +186,20 @@ function VectorEditToolbar() {
     ed.focusCanvas();
   };
   return (
-    <Toolbar floating secondary label="Vector edit tools" data-vector-toolbar="">
+    <Toolbar floating secondary label={t("Vector edit tools")} data-vector-toolbar="">
       {VECTOR_TOOL_GROUPS.map((group, g) => (
         <div key={g} style={{ display: "contents" }}>
           {g > 0 && <ToolbarDivider />}
-          {group.map((t) => (
-            <ToolTextButton key={t.id} icon={t.icon} label={t.label} active={t.id === tool} disabled={!ed.vector.hasTool(t.id)} width={VECTOR_TOOL_WIDTH[t.label]} onSelect={() => pick(t.id)} />
+          {group.map((vt) => (
+            <ToolTextButton key={vt.id} icon={vt.icon} label={t(vt.label)} active={vt.id === tool} disabled={!ed.vector.hasTool(vt.id)} width={english ? VECTOR_TOOL_WIDTH[vt.label] : undefined} onSelect={() => pick(vt.id)} />
           ))}
         </div>
       ))}
       <ToolbarDivider />
       <div ref={more} style={{ display: "contents" }}>
         <ToolTextButton
-          label="More"
-          width={VECTOR_TOOL_WIDTH.More}
+          label={t("More")}
+          width={english ? VECTOR_TOOL_WIDTH.More : undefined}
           chevron
           active={tool === "SHAPE_BUILDER" || tool === "VARIABLE_WIDTH"}
           aria-haspopup="menu"
@@ -212,7 +217,7 @@ function VectorEditToolbar() {
           at={menuAt}
           above
           flush
-          label="Vector editing tools"
+          label={t("Vector editing tools")}
           width={189}
           entries={vectorMoreTools(tool, variableWidth && ed.vector.hasTool("VARIABLE_WIDTH"))}
           ignore={more}
@@ -226,7 +231,7 @@ function VectorEditToolbar() {
       <ToolbarDivider />
       <IconButton
         icon="24.close.small"
-        label="Close"
+        label={t("Close")}
         onClick={() => {
           ed.vector.end();
           ed.focusCanvas();

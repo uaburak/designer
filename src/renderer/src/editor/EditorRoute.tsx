@@ -13,6 +13,7 @@
  * (tools/editor-shot.mjs) and the console; the open's timing marks on `window.__designerOpen`
  * (scripts/drive.mjs `open-timing`).
  */
+import { t, useT } from "@/i18n";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { EditorApi } from "@shared/desktop";
 import { showToast } from "@/ds";
@@ -142,7 +143,7 @@ function useStoreSource(fileKey: string | null, tabId: string | undefined): { so
         if (!live) return;
         mark("sourceOpened");
         setOpenProgress(0.8, 0.86);
-        if (source.recovery) showToast({ message: "This file was recovered after an unexpected quit" });
+        if (source.recovery) showToast({ message: t("This file was recovered after an unexpected quit") });
         setState({ source: withImages(source, storeImages), error: null });
       })
       .catch((e: unknown) => {
@@ -259,6 +260,7 @@ function useAdoption(spare: boolean): Adoption | null {
 }
 
 export default function EditorRoute() {
+  useT();
   const params = useMemo(() => new URLSearchParams(location.search), []);
   const doc = params.get("doc");
   const urlFile = params.get("file");
@@ -289,7 +291,7 @@ export default function EditorRoute() {
   );
   if (fileKey && prototypeOnly) return <PrototypeOnly fileKey={fileKey} />;
   if (!source) {
-    if (stored.error) return <div className={styles.status}><span className={styles.error}>The file could not be opened: {stored.error}</span></div>;
+    if (stored.error) return <div className={styles.status}><span className={styles.error}>{t("The file could not be opened: {error}", { error: stored.error })}</span></div>;
     // Figma's loader, alone on the page until the document is here (the panels' placeholders come with the editor)
     return fileKey ? <OpenLoader /> : null;
   }

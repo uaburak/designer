@@ -6,6 +6,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button, ContextMenu, Dialog, EmptyState, Icon, MenuButton, ScrollArea, Spinner, Tabs, TextInput, type MenuEntry, type ToastOptions } from "@/ds";
+import { t, useT } from "@/i18n";
 import type { BranchesRepository, BranchRecord } from "@shared/merge/branches";
 import type { WorkspaceRepository } from "@shared/store/repositories";
 import type { FileKey, FileListItem } from "@shared/store/types";
@@ -105,7 +106,7 @@ export function useBranchSwitcher(deps: BranchSwitcherDeps): { open: (e: React.M
   const localKey = useCallback(async (main: MainRef): Promise<FileKey> => {
     if (main.fileKey) return main.fileKey;
     const d = depsRef.current;
-    if (!main.key || !d.openShared) throw new Error("This file isn’t on this computer");
+    if (!main.key || !d.openShared) throw new Error(t("This file isn’t on this computer"));
     return (await d.openShared(main.key)).fileKey;
   }, []);
 
@@ -116,14 +117,14 @@ export function useBranchSwitcher(deps: BranchSwitcherDeps): { open: (e: React.M
       try {
         let fileKey = b.branchFileKey;
         if (!fileKey) {
-          if (!b.branchKey || !d.openShared) throw new Error("This branch isn’t on this computer");
+          if (!b.branchKey || !d.openShared) throw new Error(t("This branch isn’t on this computer"));
           fileKey = (await d.openShared(b.branchKey)).fileKey;
           // The branches' list takes the new copy in as a branch (its record and base) before it opens.
           await d.branches?.list(mainFileKey, b.status === "active" ? "active" : "archived").catch(() => []);
         }
         d.openFile(fileKey, b.name, newTab);
       } catch (e) {
-        d.toast({ kind: "error", message: `Couldn’t open “${b.name}”: ${errorText(e)}` });
+        d.toast({ kind: "error", message: t("Couldn’t open “{name}”: {error}", { name: b.name, error: errorText(e) }) });
       }
     },
     [],
@@ -155,7 +156,7 @@ export function useBranchSwitcher(deps: BranchSwitcherDeps): { open: (e: React.M
             },
           });
         } catch (err) {
-          d.toast({ kind: "error", message: `Couldn’t list the branches: ${errorText(err)}` });
+          d.toast({ kind: "error", message: t("Couldn’t list the branches: {error}", { error: errorText(err) }) });
         }
       })();
     },
@@ -169,14 +170,14 @@ export function useBranchSwitcher(deps: BranchSwitcherDeps): { open: (e: React.M
       const made = await d.branches!.create(main.fileKey!, name);
       d.openFile(made.branchFileKey, made.name);
     } catch (e) {
-      d.toast({ kind: "error", message: `Couldn’t create the branch: ${errorText(e)}` });
+      d.toast({ kind: "error", message: t("Couldn’t create the branch: {error}", { error: errorText(e) }) });
     }
   };
 
   const element = (
     <>
       {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} />}
-      {dialog?.kind === "create" && <NameDialog title="Create branch" label="Branch name" confirm="Create" onClose={() => setDialog(null)} onDone={(name) => void create(dialog.main, name)} />}
+      {dialog?.kind === "create" && <NameDialog title={t("Create branch")} label={t("Branch name")} confirm={t("Create")} onClose={() => setDialog(null)} onDone={(name) => void create(dialog.main, name)} />}
       {dialog?.kind === "all" && deps.branches && (
         <HomeBranchesDialog
           branches={deps.branches}
@@ -197,6 +198,7 @@ export function useBranchSwitcher(deps: BranchSwitcherDeps): { open: (e: React.M
 
 /** The Branches modal in Home (R21 [manage]): as the editor's (editor/branching/BranchesDialog.tsx), for any main file. */
 export function HomeBranchesDialog({ branches, mainFileKey, mainName, onOpen, onClose, toast, initialTab = "active" }: { branches: BranchesRepository; mainFileKey: FileKey; mainName: string; onOpen: (b: BranchRecord) => void; onClose: () => void; toast: (o: ToastOptions) => void; initialTab?: BranchTab }) {
+  useT();
   const [tab, setTab] = useState<BranchTab>(initialTab);
   const [rows, setRows] = useState<BranchRecord[] | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -208,7 +210,7 @@ export function HomeBranchesDialog({ branches, mainFileKey, mainName, onOpen, on
       (e) => {
         if (!live) return;
         setRows([]);
-        toast({ kind: "error", message: `Couldn’t list the branches: ${errorText(e)}` });
+        toast({ kind: "error", message: t("Couldn’t list the branches: {error}", { error: errorText(e) }) });
       },
     );
     const off = branches.watch((e) => e.type !== "branch.main-changed" && e.branch.mainFileKey === mainFileKey && setVersion((v) => v + 1));
@@ -218,46 +220,46 @@ export function HomeBranchesDialog({ branches, mainFileKey, mainName, onOpen, on
     };
   }, [branches, mainFileKey, tab, version, toast]);
 
-  const act = async (what: string, run: () => Promise<unknown>, done?: string) => {
+  const act = async (failed: (error: string) => string, run: () => Promise<unknown>, done?: string) => {
     try {
       await run();
       if (done) toast({ message: done });
       setVersion((v) => v + 1);
     } catch (e) {
-      toast({ kind: "error", message: `Couldn’t ${what}: ${errorText(e)}` });
+      toast({ kind: "error", message: failed(errorText(e)) });
     }
   };
   const rowKey = (b: BranchRecord) => b.branchFileKey || b.branchKey || b.name;
   const menu = (b: BranchRecord): MenuEntry[] => [
-    { id: "copy-link", label: "Copy link", disabled: !b.branchFileKey },
-    { id: "rename", label: "Rename", disabled: b.status === "merged" || !b.branchFileKey },
-    b.status === "active" ? { id: "archive", label: "Archive", disabled: !b.branchFileKey } : { id: "restore", label: "Restore", disabled: b.status === "merged" || !b.branchFileKey },
+    { id: "copy-link", label: t("Copy link"), disabled: !b.branchFileKey },
+    { id: "rename", label: t("Rename"), disabled: b.status === "merged" || !b.branchFileKey },
+    b.status === "active" ? { id: "archive", label: t("Archive"), disabled: !b.branchFileKey } : { id: "restore", label: t("Restore"), disabled: b.status === "merged" || !b.branchFileKey },
   ];
   const onMenu = (b: BranchRecord, id: string) => {
     if (id === "rename") setRenaming(rowKey(b));
-    else if (id === "archive") void act("archive the branch", () => branches.archive(b.branchFileKey), "Branch archived");
-    else if (id === "restore") void act("restore the branch", () => branches.restore(b.branchFileKey), "Branch restored");
+    else if (id === "archive") void act((error) => t("Couldn’t archive the branch: {error}", { error }), () => branches.archive(b.branchFileKey), t("Branch archived"));
+    else if (id === "restore") void act((error) => t("Couldn’t restore the branch: {error}", { error }), () => branches.restore(b.branchFileKey), t("Branch restored"));
     else if (id === "copy-link")
       void act(
-        "copy the link",
+        (error) => t("Couldn’t copy the link: {error}", { error }),
         async () => {
-          if (!navigator.clipboard) throw new Error("the clipboard isn’t available");
+          if (!navigator.clipboard) throw new Error(t("the clipboard isn’t available"));
           await navigator.clipboard.writeText(`designerv2://file/${b.branchFileKey}`);
         },
-        "Link copied to clipboard",
+        t("Link copied to clipboard"),
       );
   };
-  const empty = useMemo(() => (tab === "active" ? "No active branches" : tab === "archived" ? "No archived branches" : "You haven’t created any branches"), [tab]);
+  const empty = tab === "active" ? t("No active branches") : tab === "archived" ? t("No archived branches") : t("You haven’t created any branches");
   return (
-    <Dialog title="Branches" size="medium" open onClose={onClose}>
-      <div className={styles.branchDialog} data-home-branches={mainFileKey} aria-label={`Branches of ${mainName}`}>
+    <Dialog title={t("Branches")} size="medium" open onClose={onClose}>
+      <div className={styles.branchDialog} data-home-branches={mainFileKey} aria-label={t("Branches of {name}", { name: mainName })}>
         <Tabs
-          label="Branches"
+          label={t("Branches")}
           value={tab}
           tabs={[
-            { value: "active", label: "Active" },
-            { value: "archived", label: "Archived" },
-            { value: "yours", label: "Yours" },
+            { value: "active", label: t("Active") },
+            { value: "archived", label: t("Archived") },
+            { value: "yours", label: t("Yours") },
           ]}
           onChange={(v) => {
             setRows(null);
@@ -275,12 +277,12 @@ export function HomeBranchesDialog({ branches, mainFileKey, mainName, onOpen, on
                 <span className={styles.branchText}>
                   {renaming === rowKey(b) ? (
                     <TextInput
-                      label="Branch name"
+                      label={t("Branch name")}
                       value={b.name}
                       autoFocus
                       onCommit={(name) => {
                         const n = name.trim();
-                        if (n && n !== b.name) void act("rename the branch", () => branches.rename(b.branchFileKey, n));
+                        if (n && n !== b.name) void act((error) => t("Couldn’t rename the branch: {error}", { error }), () => branches.rename(b.branchFileKey, n));
                       }}
                       onExit={() => setRenaming(null)}
                     />
@@ -293,9 +295,9 @@ export function HomeBranchesDialog({ branches, mainFileKey, mainName, onOpen, on
                 </span>
                 <BranchBadge kind={branchBadge(b)} />
                 <Button variant="secondary" className={styles.branchOpen} onClick={() => onOpen(b)} data-open-branch="">
-                  Open
+                  {t("Open")}
                 </Button>
-                <MenuButton label="Branch actions" entries={() => menu(b)} onSelect={(id) => onMenu(b, id)} align="end">
+                <MenuButton label={t("Branch actions")} entries={() => menu(b)} onSelect={(id) => onMenu(b, id)} align="end">
                   <Icon name="24.more" />
                 </MenuButton>
               </div>

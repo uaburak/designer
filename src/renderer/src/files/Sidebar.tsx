@@ -5,6 +5,7 @@
  */
 import { useState, type ReactNode } from "react";
 import { Avatar, Badge, FileKindIcon, Icon, SearchField, SidebarDivider, SidebarHeader, SidebarItem } from "@/ds";
+import { t, useT } from "@/i18n";
 import type { FileKey, FileListItem, Folder, FolderId } from "@shared/store/types";
 import type { FolderIndex, Location } from "./model";
 import { FolderGlyph, TeamIcon } from "./parts";
@@ -58,6 +59,9 @@ export interface SidebarProps {
    * — no folders (personal Drafts are flat). Absent: the local workspace's team with its folders (signed out).
    */
   personal?: { picture?: string };
+  /** All projects (in Recents' place): an org's every file the person can open (`all-projects`); outside an org the
+   *  person's own files (Drafts). */
+  allProjects: Location;
 }
 
 /** A sidebar entry that takes dropped files/folders. */
@@ -85,6 +89,7 @@ function DropTarget({ dest, dnd, children }: { dest: FolderId | null; dnd: DropA
 }
 
 function FolderTree({ parent, depth, props }: { parent: FolderId | null; depth: number; props: SidebarProps }) {
+  useT();
   const { folders, expanded, onToggle, location, go, onFolderMenu, dnd } = props;
   return (
     <>
@@ -102,7 +107,7 @@ function FolderTree({ parent, depth, props }: { parent: FolderId | null; depth: 
                       type="button"
                       className={styles.disclosure}
                       style={{ left: `calc(var(--ds-size-row-inset) + ${depth - 1} * var(--ds-space-4) + var(--ds-space-2))` }}
-                      aria-label={open ? "Collapse" : "Expand"}
+                      aria-label={open ? t("Collapse") : t("Expand")}
                       aria-expanded={open}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -128,37 +133,40 @@ function FolderTree({ parent, depth, props }: { parent: FolderId | null; depth: 
 }
 
 export function Sidebar(props: SidebarProps) {
+  useT();
   const { ownerName, ownerPicture, onAccountMenu, accountAccessory, teamName, location, search, onSearch, onSearchExit, go, starredFolders, starredFiles, starredOpen, onStarredOpen, onOpenFile, onFolderMenu, onFileMenu, onAllFoldersMenu, onTrashMenu, dnd, onSpaceMenu, spaceBadge, spaceSection, spaceIconUrl, onSpaceContextMenu, personal } = props;
   // The person's space shows their photo; an org its icon (spaceSection set), the local team its initial
   const spaceIcon = personal && !spaceSection ? <Avatar name={teamName} src={personal.picture} size={16} /> : <TeamIcon name={teamName} iconUrl={spaceIconUrl} />;
   const is = (kind: Location["kind"]) => location.kind === kind;
   return (
-    <nav className={styles.sidebar} aria-label="File browser">
+    <nav className={styles.sidebar} aria-label={t("File browser")}>
       <div className={styles.accountRow}>
         {onAccountMenu ? (
-          <button type="button" className={styles.account} aria-haspopup="menu" aria-label={`${ownerName}, account`} onClick={onAccountMenu}>
+          <button type="button" className={styles.account} aria-haspopup="menu" aria-label={t("{name}, account", { name: ownerName })} onClick={onAccountMenu}>
             <Avatar name={ownerName} src={ownerPicture} />
             <span className={styles.accountName}>{ownerName}</span>
             <Icon name="16.chevron.down" />
           </button>
         ) : (
           <div className={styles.account}>
-            <Avatar name={ownerName} />
+            <Avatar name={ownerName} src={ownerPicture} />
             <span className={styles.accountName}>{ownerName}</span>
           </div>
         )}
         {accountAccessory}
       </div>
       <div className={styles.search}>
-        <SearchField value={search} onChange={onSearch} size="large" placeholder="Search" onExit={(r) => r === "escape" && onSearchExit()} />
+        <SearchField value={search} onChange={onSearch} size="large" className={styles.searchPill} placeholder={t("Search")} onExit={(r) => r === "escape" && onSearchExit()} />
       </div>
       <div className={styles.navGroup}>
-        <SidebarItem icon="24.recent" label="Recents" selected={is("recents")} onClick={() => go({ kind: "recents" })} />
+        <DropTarget dest={null} dnd={dnd}>
+          {(over) => <SidebarItem icon="24.file" label={t("All projects")} selected={location.kind === props.allProjects.kind} dropTarget={over} onClick={() => go(props.allProjects)} />}
+        </DropTarget>
       </div>
       <SidebarDivider />
       <div className={styles.team} onContextMenu={onSpaceContextMenu}>
         {onSpaceMenu ? (
-          <button type="button" className={styles.spaceButton} aria-haspopup="menu" aria-label={`${teamName}, switch space`} onClick={onSpaceMenu}>
+          <button type="button" className={styles.spaceButton} aria-haspopup="menu" aria-label={t("{name}, switch space", { name: teamName })} onClick={onSpaceMenu}>
             {spaceIcon}
             <span className={styles.teamName}>{teamName}</span>
             <Icon name="16.chevron.down" />
@@ -171,28 +179,25 @@ export function Sidebar(props: SidebarProps) {
         )}
         {spaceBadge && (
           <Badge tone="brand" className={styles.planBadge}>
-            {spaceBadge}
+            {t(spaceBadge)}
           </Badge>
         )}
       </div>
       {spaceSection ?? (
       <div className={styles.navGroup}>
-        <DropTarget dest={null} dnd={dnd}>
-          {(over) => <SidebarItem icon="24.file" label="Drafts" selected={is("drafts")} dropTarget={over} onClick={() => go({ kind: "drafts" })} />}
-        </DropTarget>
         {!personal && (
           <>
-            <SidebarItem icon="24.view.grid" label="All folders" selected={is("folders")} onClick={() => go({ kind: "folders" })} onContextMenu={onAllFoldersMenu} />
-            <div role="tree" aria-label="Folders">
+            <SidebarItem icon="24.view.grid" label={t("All folders")} selected={is("folders")} onClick={() => go({ kind: "folders" })} onContextMenu={onAllFoldersMenu} />
+            <div role="tree" aria-label={t("Folders")}>
               <FolderTree parent={null} depth={1} props={props} />
             </div>
           </>
         )}
-        <SidebarItem icon="24.trash.outline" label="Trash" selected={is("trash")} onClick={() => go({ kind: "trash" })} onContextMenu={onTrashMenu} />
+        <SidebarItem icon="24.trash.outline" label={t("Trash")} selected={is("trash")} onClick={() => go({ kind: "trash" })} onContextMenu={onTrashMenu} />
       </div>
       )}
       <SidebarDivider />
-      <SidebarHeader title="Starred" open={starredOpen} onOpenChange={onStarredOpen} />
+      <SidebarHeader title={t("Starred")} open={starredOpen} onOpenChange={onStarredOpen} />
       {starredOpen && (
         <div className={styles.navGroup}>
           {starredFolders.map((f) => (

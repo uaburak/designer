@@ -122,13 +122,6 @@ describe("branches in Home", () => {
     expect(opened.at(-1)?.url).toContain(tokens.branchFileKey);
     expect($("[data-home-branches]")).toBeNull();
   });
-
-  it("Recents lists a branch as ‹file› / ‹branch› with the branch icon", async () => {
-    await setup({ kind: "recents" });
-    const tile = card("Design system / Nav");
-    expect(tile).not.toBeNull();
-    expect(tile!.querySelector("[data-branch-icon]")).not.toBeNull();
-  });
 });
 
 describe("branches in Home, the pure part", () => {

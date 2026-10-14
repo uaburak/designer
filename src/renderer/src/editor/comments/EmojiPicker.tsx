@@ -4,6 +4,7 @@
  */
 import { useRef, useState } from "react";
 import { Portal, useDismiss } from "@/ds";
+import { t, useT } from "@/i18n";
 import { CATEGORIES, emojiName, FREQUENT, searchEmoji } from "./emoji";
 import styles from "./Comments.module.css";
 
@@ -11,6 +12,7 @@ const WIDTH = 330;
 const HEIGHT = 320;
 
 export function EmojiPicker({ anchor, onPick, onClose }: { anchor: Element | null; onPick(emoji: string): void; onClose(): void }) {
+  useT();
   const panel = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
@@ -34,25 +36,25 @@ export function EmojiPicker({ anchor, onPick, onClose }: { anchor: Element | nul
   );
   return (
     <Portal anchor={anchor}>
-      <div ref={panel} className={styles.emojiPicker} role="dialog" aria-label="Emoji picker" style={at} onPointerDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === "Escape" && (e.stopPropagation(), onClose())}>
+      <div ref={panel} className={styles.emojiPicker} role="dialog" aria-label={t("Emoji picker")} style={at} onPointerDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === "Escape" && (e.stopPropagation(), onClose())}>
         <div className={styles.emojiTabs}>
           {CATEGORIES.map((c) => (
-            <button key={c.id} type="button" className={styles.emojiTab} aria-label={c.label} title={c.label} onClick={() => body.current?.querySelector(`[data-cat="${c.id}"]`)?.scrollIntoView({ block: "start" })}>
+            <button key={c.id} type="button" className={styles.emojiTab} aria-label={t(c.label)} title={t(c.label)} onClick={() => body.current?.querySelector(`[data-cat="${c.id}"]`)?.scrollIntoView({ block: "start" })}>
               {c.icon}
             </button>
           ))}
         </div>
-        <input className={styles.emojiSearch} placeholder="Search" aria-label="Search emoji" value={query} autoFocus onChange={(e) => setQuery(e.target.value)} />
+        <input className={styles.emojiSearch} placeholder={t("Search")} aria-label={t("Search emoji")} value={query} autoFocus onChange={(e) => setQuery(e.target.value)} />
         <div ref={body} className={styles.emojiBody}>
           {query.trim() ? (
-            found.length ? grid(found) : <p className={styles.emojiNone}>No emoji found</p>
+            found.length ? grid(found) : <p className={styles.emojiNone}>{t("No emoji found")}</p>
           ) : (
             <>
-              <h3 className={styles.emojiHeading}>Frequently used</h3>
+              <h3 className={styles.emojiHeading}>{t("Frequently used")}</h3>
               {grid(FREQUENT)}
               {CATEGORIES.map((c) => (
                 <section key={c.id} data-cat={c.id}>
-                  <h3 className={styles.emojiHeading}>{c.label}</h3>
+                  <h3 className={styles.emojiHeading}>{t(c.label)}</h3>
                   {grid(c.emoji.map(([e]) => e))}
                 </section>
               ))}

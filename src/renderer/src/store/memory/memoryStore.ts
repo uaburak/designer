@@ -439,7 +439,7 @@ export class MemoryStore {
           if (!kv.set(K.space(orgId), JSON.stringify(cache))) this.log("warn", `the browser's storage is full; ${orgId}'s cache wasn't kept`);
         },
         cachedOrgIds: async () => kv.keys(K.space("")).map((k) => k.slice(K.space("").length)),
-        createOrgFile: (input) => this.addFile({ name: input.name.trim() || "Untitled", folderId: null, snapshot: encodeMessage(newDocumentMessage()), space: input.space }),
+        createOrgFile: (input) => this.addFile({ name: input.name.trim() || "Untitled", folderId: null, snapshot: encodeMessage(newDocumentMessage({ thumbnail: true })), space: input.space }),
         deleteLocalFile: (fileKey) => this.deleteItems({ files: [fileKey], folders: [] }),
         setFileSpace: async (fileKey, space) => void (await this.ws.queue.run(() => this.ws.setFileSpace(fileKey, space))),
         getMeta: (fileKey) => (this.ws.files.has(fileKey) ? this.ws.getMeta(fileKey) : null),
@@ -1198,7 +1198,7 @@ export class MemoryStore {
     const folderId = input?.folderId ?? null;
     this.checkFolder(folderId);
     const name = typeof input?.name === "string" && input.name.trim() ? input.name.trim() : "Untitled";
-    return this.addFile({ name, folderId, snapshot: encodeMessage(newDocumentMessage()), draft: true });
+    return this.addFile({ name, folderId, snapshot: encodeMessage(newDocumentMessage({ thumbnail: true })), draft: true });
   }
 
   async duplicateFile(fileKey: FileKey): Promise<FileMeta> {

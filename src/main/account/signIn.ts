@@ -9,6 +9,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AccountUser, SignInMethod } from "../../shared/account";
 import { SIGN_IN_ERROR_TEXT, type SignInError as SignInErrorCode } from "../../shared/org/identity";
+import { t } from "../../shared/i18n";
 
 export interface Session {
   server: string;
@@ -199,17 +200,17 @@ export async function signInWithBrowser(opts: SignInOptions): Promise<Session> {
     if (url.pathname !== "/callback") return void res.writeHead(404).end();
     if (!sameState(url.searchParams.get("state") ?? "", state)) {
       // Not our sign-in (a stale tab): leave the real one waiting.
-      return void page(res, 400, "This sign-in link is out of date. Start again from Wecra.");
+      return void page(res, 400, t("This sign-in link is out of date. Start again from Wecra."));
     }
     const error = url.searchParams.get("error");
     const code = url.searchParams.get("code");
     if (error || !code) {
       const err = loopbackError(error);
       // An SSO refusal says why (its text is ours, no markup); anything else reads as a cancel.
-      page(res, 200, err.code === "failed" && error && Object.hasOwn(SIGN_IN_ERROR_TEXT, error) ? `${err.message} You can close this tab.` : "Sign-in was cancelled. You can close this tab.");
+      page(res, 200, err.code === "failed" && error && Object.hasOwn(SIGN_IN_ERROR_TEXT, error) ? `${t(err.message)} ${t("You can close this tab.")}` : t("Sign-in was cancelled. You can close this tab."));
       return settle({ error: err });
     }
-    page(res, 200, "You're signed in. You can close this tab and go back to Wecra.");
+    page(res, 200, t("You're signed in. You can close this tab and go back to Wecra."));
     settle({ code });
   });
   await new Promise<void>((res, rej) => http.once("error", rej).listen(0, "127.0.0.1", () => res()));

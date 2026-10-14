@@ -11,6 +11,7 @@ import type { IdleNotice } from "@shared/ipc";
 import { SIGN_IN_ERROR_TEXT, type SignInError } from "@shared/org/identity";
 import type { MemoryStore } from "./memory/memoryStore";
 import { isWebApp } from "../app/webApp";
+import { t } from "@/i18n";
 
 interface WebSession {
   server: string;
@@ -209,12 +210,12 @@ export const webAccount = {
   request: async (r: { method: AccountMethod; path: string; body?: unknown }): Promise<AccountResponse> => {
     if (!ACCOUNT_PATH.test(r.path)) throw new Error("not an account path");
     const s = readSession();
-    if (!s) return { status: 401, body: { error: "Log in first" } };
+    if (!s) return { status: 401, body: { error: t("Log in first") } };
     let res: Response;
     try {
       res = await fetch(new URL(r.path, s.server), { method: r.method, headers: { authorization: `Bearer ${s.token}`, ...(r.body !== undefined ? { "content-type": "application/json" } : {}) }, body: r.body === undefined ? undefined : JSON.stringify(r.body) });
     } catch {
-      return { status: 0, body: { error: "You're offline" } };
+      return { status: 0, body: { error: t("You're offline") } };
     }
     const body = (await res.json().catch(() => null)) as unknown;
     const drop = res.status === 401 || (res.ok && r.method === "DELETE" && r.path === "/me");

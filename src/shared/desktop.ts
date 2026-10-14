@@ -41,6 +41,7 @@ import type { AiApi, AiSetupApi } from "./ai/api";
 import type { SharedFontScope } from "./fonts/sharedTypes";
 import type { ShortcutSettings } from "./shortcuts";
 import type { TabReport } from "./tabs";
+import type { Locale } from "./i18n";
 
 export type Unsubscribe = () => void;
 
@@ -57,6 +58,10 @@ interface DesktopCommon {
   /** Settings › Account › Enhance contrast (Home and editors) */
   setContrast(on: boolean): Promise<ThemeState>;
   onThemeChanged(cb: (t: ThemeState) => void): Unsubscribe;
+  /** The UI's language when the view was made (`--designer-locale`); onLocaleChanged after (src/shared/i18n) */
+  locale: Locale;
+  setLocale(locale: Locale): Promise<Locale>;
+  onLocaleChanged(cb: (l: Locale) => void): Unsubscribe;
   onWindowState(cb: (s: WindowState) => void): Unsubscribe;
   onFullScreen(cb: (fullScreen: boolean) => void): Unsubscribe;
   /** The trackpad's haptic tick (a scrub's step; macOS, throttled by main — docs/desktop.md §10.2 "Haptics") */
@@ -171,6 +176,15 @@ export interface HomeApi extends DesktopCommon {
   agents: AgentSetupApi;
   /** Settings › AI (src/main/ai, docs/ai.md §7): the settings, image keys, local models (no runs) */
   ai: AiSetupApi;
+  /** Settings › Account › Figma connection */
+  figma: FigmaConnectionApi;
+}
+
+/** The Figma connection (docs/desktop.md §13 "Images from Figma"): the token is sealed in main and never comes back. */
+export interface FigmaConnectionApi {
+  status(): Promise<IpcInvoke["figma:status"]["result"]>;
+  connect(token: string): Promise<IpcInvoke["figma:connect"]["result"]>;
+  disconnect(): Promise<IpcInvoke["figma:disconnect"]["result"]>;
 }
 
 /** "Your uploaded fonts" (docs/desktop.md §14.2) */
@@ -245,6 +259,10 @@ export interface EditorApi extends DesktopCommon {
   agents: AgentsApi;
   /** AI (src/main/ai, docs/ai.md §2.2, §8): one-shot runs and their events, image runs, settings, local models */
   ai: AiApi;
+  /** The Figma connection, and a paste's images fetched with it (docs/desktop.md §13 "Images from Figma") */
+  figma: FigmaConnectionApi & {
+    images(fileKey: string, hashes: string[]): Promise<IpcInvoke["figma:images"]["result"]>;
+  };
   /** The system clipboard's flavours a paste event can't see (docs/desktop.md §13 "Vector paste") */
   clipboard: {
     /** Vector artwork as SVG (Illustrator's SVG or PDF, any SVG), or null */

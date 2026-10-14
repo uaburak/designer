@@ -5,17 +5,18 @@
  */
 import { useRef, useState } from "react";
 import { Avatar, Button, ContextMenu, Dialog, Icon, timeAgo, type MenuEntry } from "@/ds";
+import { intlLocale, t, tp, useT } from "@/i18n";
 import type { Comment, CommentsState, CommentThread, MentionCandidate } from "@shared/comments";
 import type { CommentsController } from "./commentsController";
 import { Composer } from "./Composer";
 import { EmojiPicker } from "./EmojiPicker";
 import styles from "./Comments.module.css";
 
-export const fullDate = (t: number) => new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(t);
+export const fullDate = (at: number) => new Intl.DateTimeFormat(intlLocale(), { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(at);
 /** "Just now", "2 minutes ago" (the thread's capitalised form of Figma's relative time) */
-export const sinceCap = (t: number) => {
-  const s = timeAgo(t);
-  return s.charAt(0).toUpperCase() + s.slice(1);
+export const sinceCap = (at: number) => {
+  const s = timeAgo(at);
+  return s.charAt(0).toLocaleUpperCase(intlLocale()) + s.slice(1);
 };
 
 /** Text with @mentions in the brand colour */
@@ -38,13 +39,14 @@ export function MessageText({ text, people, mentions }: { text: string; people: 
   );
 }
 
-export function canResolve(data: CommentsState, t: CommentThread): boolean {
-  return data.canResolveAny || t.comments[0]?.user.id === data.me.id;
+export function canResolve(data: CommentsState, thread: CommentThread): boolean {
+  return data.canResolveAny || thread.comments[0]?.user.id === data.me.id;
 }
 
 type Confirm = { commentId: string } | null;
 
 export function ThreadCard({ c, data, thread, people, style }: { c: CommentsController; data: CommentsState; thread: CommentThread; people: MentionCandidate[]; style: React.CSSProperties }) {
+  useT();
   const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[]; comment: Comment | null } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm>(null);
@@ -58,9 +60,9 @@ export function ThreadCard({ c, data, thread, people, style }: { c: CommentsCont
     setMenu({ x: r.left, y: r.bottom + 4, entries, comment });
   };
   const threadEntries: MenuEntry[] = [
-    { id: "unread", label: "Mark as unread" },
-    { id: "link", label: "Copy link" },
-    ...(first && mine(first) ? [{ id: "delete-thread", label: "Delete thread..." }] : []),
+    { id: "unread", label: t("Mark as unread") },
+    { id: "link", label: t("Copy link") },
+    ...(first && mine(first) ? [{ id: "delete-thread", label: t("Delete thread...") }] : []),
   ];
   const onMenu = (id: string) => {
     const target = menu?.comment;
@@ -80,7 +82,7 @@ export function ThreadCard({ c, data, thread, people, style }: { c: CommentsCont
       className={styles.thread}
       style={style}
       role="dialog"
-      aria-label="Currently expanded comment thread. Close this dialog to return to the board."
+      aria-label={t("Currently expanded comment thread. Close this dialog to return to the board.")}
       data-comment-thread={thread.id}
       onPointerDown={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
@@ -91,17 +93,17 @@ export function ThreadCard({ c, data, thread, people, style }: { c: CommentsCont
       }}
     >
       <header className={styles.threadHeader}>
-        <span className={styles.threadTitle}>Comment</span>
+        <span className={styles.threadTitle}>{t("Comment")}</span>
         <span className={styles.grow} />
-        <button type="button" className={styles.iconButton} aria-label="Thread actions" data-open={menu?.comment === null || undefined} onClick={(e) => openMenu(e, threadEntries, null)}>
+        <button type="button" className={styles.iconButton} aria-label={t("Thread actions")} data-open={menu?.comment === null || undefined} onClick={(e) => openMenu(e, threadEntries, null)}>
           <Icon name="24.more" />
         </button>
         {resolvable && (
-          <button type="button" className={styles.iconButton} aria-label={thread.resolvedAt ? "Mark as unresolved" : "Mark as resolved"} data-resolved={thread.resolvedAt ? "" : undefined} onClick={() => void c.resolve(thread.id, !thread.resolvedAt)}>
+          <button type="button" className={styles.iconButton} aria-label={thread.resolvedAt ? t("Mark as unresolved") : t("Mark as resolved")} data-resolved={thread.resolvedAt ? "" : undefined} onClick={() => void c.resolve(thread.id, !thread.resolvedAt)}>
             <ResolveGlyph done={!!thread.resolvedAt} />
           </button>
         )}
-        <button type="button" className={styles.iconButton} aria-label="Close comment" onClick={() => c.openThread(null)}>
+        <button type="button" className={styles.iconButton} aria-label={t("Close comment")} onClick={() => c.openThread(null)}>
           <Icon name="24.close.small" />
         </button>
       </header>
@@ -115,15 +117,15 @@ export function ThreadCard({ c, data, thread, people, style }: { c: CommentsCont
             people={people}
             editing={editing === x.id}
             onStopEditing={() => setEditing(null)}
-            onMenu={mine(x) ? (e) => openMenu(e, x.parentId === null ? [{ id: "edit", label: "Edit" }] : [{ id: "edit", label: "Edit" }, { id: "delete", label: "Delete comment" }], x) : undefined}
+            onMenu={mine(x) ? (e) => openMenu(e, x.parentId === null ? [{ id: "edit", label: t("Edit") }] : [{ id: "edit", label: t("Edit") }, { id: "delete", label: t("Delete comment") }], x) : undefined}
           />
         ))}
       </div>
       <div className={styles.replyRow}>
         <Avatar name={data.me.name} src={data.me.picture ?? undefined} size={24} />
-        <Composer key={thread.id} variant="reply" placeholder="Reply" label={`Reply to comment with ${first?.user.name ?? ""}`} people={people} me={data.me.id} onSubmit={(text) => c.reply(thread.id, text)} onCancel={() => c.openThread(null)} autoFocus />
+        <Composer key={thread.id} variant="reply" placeholder={t("Reply")} label={t("Reply to comment with {name}", { name: first?.user.name ?? "" })} people={people} me={data.me.id} onSubmit={(text) => c.reply(thread.id, text)} onCancel={() => c.openThread(null)} autoFocus />
       </div>
-      {menu && <ContextMenu at={{ x: menu.x, y: menu.y }} entries={menu.entries} onSelect={onMenu} onClose={() => setMenu(null)} label={menu.comment ? "Comment actions" : "Thread actions"} />}
+      {menu && <ContextMenu at={{ x: menu.x, y: menu.y }} entries={menu.entries} onSelect={onMenu} onClose={() => setMenu(null)} label={menu.comment ? t("Comment actions") : t("Thread actions")} />}
       <DeleteCommentDialog
         open={!!confirm}
         onClose={() => setConfirm(null)}
@@ -139,23 +141,24 @@ export function ThreadCard({ c, data, thread, people, style }: { c: CommentsCont
 
 /** Live: 320 × 128, "Delete comment", the warning, Cancel · Delete (red) */
 export function DeleteCommentDialog({ open, onClose, onDelete }: { open: boolean; onClose(): void; onDelete(): void }) {
+  useT();
   return (
     <Dialog
-      title="Delete comment"
+      title={t("Delete comment")}
       open={open}
       onClose={onClose}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button variant="destructive" onClick={onDelete}>
-            Delete
+            {t("Delete")}
           </Button>
         </>
       }
     >
-      <p className={styles.confirmText}>Are you sure you want to delete this comment? This action cannot be undone.</p>
+      <p className={styles.confirmText}>{t("Are you sure you want to delete this comment? This action cannot be undone.")}</p>
     </Dialog>
   );
 }
@@ -170,6 +173,7 @@ export function ResolveGlyph({ done }: { done: boolean }) {
 }
 
 function CommentRow({ c, comment, me, people, editing, onStopEditing, onMenu }: { c: CommentsController; comment: Comment; me: string; people: MentionCandidate[]; editing: boolean; onStopEditing(): void; onMenu?: (e: React.MouseEvent) => void }) {
+  useT();
   const [picker, setPicker] = useState<HTMLElement | null>(null);
   const reacted = (users: { id: string }[]) => users.some((u) => u.id === me);
   return (
@@ -183,7 +187,7 @@ function CommentRow({ c, comment, me, people, editing, onStopEditing, onMenu }: 
           </time>
           <span className={styles.grow} />
           {onMenu && (
-            <button type="button" className={styles.iconButton} aria-label="Comment actions" onClick={onMenu}>
+            <button type="button" className={styles.iconButton} aria-label={t("Comment actions")} onClick={onMenu}>
               <Icon name="24.more" />
             </button>
           )}
@@ -191,7 +195,7 @@ function CommentRow({ c, comment, me, people, editing, onStopEditing, onMenu }: 
         {editing ? (
           <Composer
             variant="edit"
-            placeholder="Edit comment"
+            placeholder={t("Edit comment")}
             people={people}
             me={me}
             initial={comment.message}
@@ -207,10 +211,10 @@ function CommentRow({ c, comment, me, people, editing, onStopEditing, onMenu }: 
           <div className={styles.commentTextRow}>
             <p className={styles.commentText}>
               <MessageText text={comment.message} people={people} mentions={comment.mentions} />
-              {comment.editedAt ? <span className={styles.edited}> (edited)</span> : null}
+              {comment.editedAt ? <span className={styles.edited}> {t("(edited)")}</span> : null}
             </p>
             {!comment.reactions.length && (
-              <button type="button" className={styles.iconButton} aria-label="Add reaction" onClick={(e) => setPicker(e.currentTarget)}>
+              <button type="button" className={styles.iconButton} aria-label={t("Add reaction")} onClick={(e) => setPicker(e.currentTarget)}>
                 <SmileyGlyph />
               </button>
             )}
@@ -226,7 +230,7 @@ function CommentRow({ c, comment, me, people, editing, onStopEditing, onMenu }: 
                   type="button"
                   className={styles.reaction}
                   data-on={on || undefined}
-                  aria-label={`${r.users.length} user${r.users.length === 1 ? "" : "s"} reacted with ["${r.emoji}"], clicking will ${on ? "remove your" : "add your"} reaction`}
+                  aria-label={t(on ? "{users} reacted with [\"{emoji}\"], clicking will remove your reaction" : "{users} reacted with [\"{emoji}\"], clicking will add your reaction", { users: tp(r.users.length, "{n} user", "{n} users"), emoji: r.emoji })}
                   title={r.users.map((u) => u.name).join(", ")}
                   onClick={() => void c.react(comment.id, r.emoji, !on)}
                 >
@@ -235,7 +239,7 @@ function CommentRow({ c, comment, me, people, editing, onStopEditing, onMenu }: 
                 </button>
               );
             })}
-            <button type="button" className={styles.reactionAdd} aria-label="Add reaction" onClick={(e) => setPicker(e.currentTarget)}>
+            <button type="button" className={styles.reactionAdd} aria-label={t("Add reaction")} onClick={(e) => setPicker(e.currentTarget)}>
               <SmileyGlyph />
             </button>
           </div>

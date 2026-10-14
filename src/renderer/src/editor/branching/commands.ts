@@ -4,6 +4,7 @@
  */
 import type { MenuEntry } from "@/ds";
 import { showToast } from "@/ds";
+import { t } from "@/i18n";
 import type { EditorCommand } from "../commands";
 import type { EditorController } from "../controller";
 import { fileOps } from "../objectCommands";
@@ -45,9 +46,9 @@ async function archiveThisBranch(ed: EditorController): Promise<void> {
   try {
     await backend.branches.archive(b.branchFileKey);
     await refreshBranch(ed);
-    showToast({ message: "Branch archived" });
+    showToast({ message: t("Branch archived") });
   } catch (e) {
-    showToast({ kind: "error", message: `Couldn’t archive the branch: ${e instanceof Error ? e.message : String(e)}` });
+    showToast({ kind: "error", message: t("Couldn’t archive the branch: {error}", { error: e instanceof Error ? e.message : String(e) }) });
   }
 }
 

@@ -1,14 +1,17 @@
 // @vitest-environment happy-dom
 import { act } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AccountProfile, AccountState, SessionInfo } from "@shared/account";
 import type { UploadedFont } from "@shared/ipc";
 import { $, $$, mount, type Mounted } from "@/ds/__tests__/dom";
+import { applyLocale } from "@/i18n";
 import { closeSettings, openSettings } from "../bridge";
 import { SettingsHost } from "../SettingsModal";
 
 let m: Mounted | null = null;
-afterEach(() => {
+afterEach(async () => {
+  await applyLocale("en");
+  localStorage.removeItem("designer-locale");
   act(() => closeSettings());
   m?.unmount();
   m = null;
@@ -93,6 +96,24 @@ async function open(tab?: Parameters<typeof openSettings>[0]) {
 }
 
 describe("Settings", () => {
+  it("Account › Language: Türkçe switches the open UI to Turkish at once, main is told, and English comes back", async () => {
+    await open();
+    const asked: string[] = [];
+    (window as unknown as { designer: { setLocale: (l: string) => Promise<string> } }).designer.setLocale = async (l) => (asked.push(l), l);
+    expect($("[data-settings-section='language'] h3")?.textContent).toBe("Language");
+    expect($("[role='tab'][aria-selected='true']")?.textContent).toBe("Account");
+    await click($("[data-language-select] [role='combobox']")!);
+    await settle();
+    await click($$("[role='option']").find((o) => o.textContent?.trim() === "Türkçe")!);
+    // Turkish's dictionary is a chunk of its own, loaded on the first switch
+    await act(() => vi.waitFor(() => expect(asked).toEqual(["tr"]), { timeout: 5000 }));
+    expect($("[data-settings-section='language'] h3")?.textContent).toBe("Dil");
+    expect($("[role='tab'][aria-selected='true']")?.textContent).toBe("Hesap");
+    expect(document.documentElement.lang).toBe("tr");
+    await act(() => applyLocale("en"));
+    expect($("[data-settings-section='language'] h3")?.textContent).toBe("Language");
+  });
+
   it("has Figma's tabs and ours, AI and Agents after Security, and closes on Escape", async () => {
     await open();
     expect($$("[role='tab']").map((t) => t.textContent)).toEqual(["Account", "Notifications", "Security", "AI", "Agents"]);

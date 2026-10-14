@@ -6,6 +6,7 @@
  * (a worker turn, an image run), so the tests drive it with fakes.
  */
 import type { StudioTask, TaskKind } from "@shared/studio/types";
+import { t } from "@/i18n";
 
 export interface TaskResult {
   /** What it did, in a line (a worker's last answer, shortened) */
@@ -116,7 +117,7 @@ export class TaskQueue {
         const deps = e.task.dependsOn.map((id) => ({ id, t: this.entries.get(id)?.task }));
         const bad = deps.find((d) => !d.t || d.t.state === "failed" || d.t.state === "stopped");
         if (bad) {
-          const why = !bad.t ? `It depends on a task that doesn't exist (${bad.id}).` : `“${bad.t.title}” ${bad.t.state === "stopped" ? "was stopped" : "failed"}.`;
+          const why = !bad.t ? t("It depends on a task that doesn't exist ({id}).", { id: bad.id }) : bad.t.state === "stopped" ? t("“{title}” was stopped.", { title: bad.t.title }) : t("“{title}” failed.", { title: bad.t.title });
           this.update(e, { state: "failed", error: why, endedAt: this.now() });
           // Its own dependants fail in turn.
           again = true;

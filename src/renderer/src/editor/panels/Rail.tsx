@@ -18,6 +18,7 @@ import type { RailTab } from "../uiStore";
 import { MissingFontsButton } from "./MissingFonts";
 import styles from "./Panels.module.css";
 import { isWebApp } from "@/app/webApp";
+import { t, useT } from "@/i18n";
 
 type Open = { at: { x: number; y: number }; entries: MenuEntry[] } | null;
 
@@ -34,7 +35,7 @@ const TABS: { tab: RailTab; icon: "24.page" | "24.agents" | "24.assets" | "24.li
 ];
 
 /** The tabs shown: the web app has no Agents (they run on the computer: CLI agents, the MCP server — docs/cloud.md §7) */
-const railTabs = () => (isWebApp() ? TABS.filter((t) => t.tab !== "agents") : TABS);
+const railTabs = () => (isWebApp() ? TABS.filter((x) => x.tab !== "agents") : TABS);
 
 /**
  * View › Minimize left navigation bar (round 10; unverified look — help "Navigate the left sidebar" names the option
@@ -42,17 +43,18 @@ const railTabs = () => (isWebApp() ? TABS.filter((t) => t.tab !== "agents") : TA
  * Agents, Assets, Tools, Variables as 32 × 32 buttons.
  */
 export function NavStrip() {
+  useT();
   const ed = useEditor();
   const tab = useUI((s) => s.railTab);
   const variables = useUI((s) => s.variablesOpen);
   const [menu, setMenu] = useState<Open>(null);
   const figma = useRef<HTMLDivElement>(null);
   return (
-    <div className={styles.navStrip} role="toolbar" aria-label="Navigation" data-nav-strip="">
+    <div className={styles.navStrip} role="toolbar" aria-label={t("Navigation")} data-nav-strip="">
       <div ref={figma} style={{ display: "contents" }}>
         <IconButton
           icon="24.figma"
-          label="Main menu"
+          label={t("Main menu")}
           aria-expanded={!!menu}
           onClick={(e) => {
             if (menu) return setMenu(null);
@@ -61,24 +63,24 @@ export function NavStrip() {
           }}
         />
       </div>
-      {railTabs().map((t) => (
+      {railTabs().map((item) => (
         <IconButton
-          key={t.tab}
-          icon={t.icon}
-          label={t.label}
-          shortcut={t.command ? shortcutOf(command(t.command)) : undefined}
-          aria-expanded={tab === t.tab && !variables}
-          className={tab === t.tab && !variables ? styles.navStripOn : undefined}
-          data-rail-tab={t.tab}
-          onClick={() => ed.ui.set({ railTab: t.tab, variablesOpen: false, find: t.tab === "file" ? ed.ui.get().find : null })}
+          key={item.tab}
+          icon={item.icon}
+          label={t(item.label)}
+          shortcut={item.command ? shortcutOf(command(item.command)) : undefined}
+          aria-expanded={tab === item.tab && !variables}
+          className={tab === item.tab && !variables ? styles.navStripOn : undefined}
+          data-rail-tab={item.tab}
+          onClick={() => ed.ui.set({ railTab: item.tab, variablesOpen: false, find: item.tab === "file" ? ed.ui.get().find : null })}
         />
       ))}
-      <IconButton icon="24.variables" label="Variables" aria-expanded={variables} className={variables ? styles.navStripOn : undefined} data-rail-tab="variables" onClick={() => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen }))} />
+      <IconButton icon="24.variables" label={t("Variables")} aria-expanded={variables} className={variables ? styles.navStripOn : undefined} data-rail-tab="variables" onClick={() => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen }))} />
       {menu && (
         <ContextMenu
           at={menu.at}
           entries={menu.entries}
-          label="Main menu"
+          label={t("Main menu")}
           minWidth={MAIN_MENU_WIDTH}
           ignore={figma}
           onSelect={(id) => {
@@ -92,6 +94,7 @@ export function NavStrip() {
 }
 
 export function Rail() {
+  useT();
   const ed = useEditor();
   const tab = useUI((s) => s.railTab);
   const labels = useUI(showsRailLabels);
@@ -107,24 +110,24 @@ export function Rail() {
   };
   return (
     <>
-      <DSRail label="Navigation" labels={labels}>
+      <DSRail label={t("Navigation")} labels={labels}>
         <div ref={figma} style={{ display: "contents" }}>
-          <RailItem compact icon="24.figma" label="Main menu" active={!!menu} onClick={openMain} />
+          <RailItem compact icon="24.figma" label={t("Main menu")} active={!!menu} onClick={openMain} />
         </div>
         <RailSeparator />
-        {railTabs().map((t) => (
+        {railTabs().map((item) => (
           <RailItem
-            key={t.tab}
-            icon={t.icon}
-            label={t.label}
-            shortcut={t.command ? shortcutOf(command(t.command)) : undefined}
-            active={tab === t.tab && !variables}
-            data-rail-tab={t.tab}
-            onClick={() => ed.ui.set({ railTab: t.tab, variablesOpen: false, find: t.tab === "file" ? ed.ui.get().find : null })}
+            key={item.tab}
+            icon={item.icon}
+            label={t(item.label)}
+            shortcut={item.command ? shortcutOf(command(item.command)) : undefined}
+            active={tab === item.tab && !variables}
+            data-rail-tab={item.tab}
+            onClick={() => ed.ui.set({ railTab: item.tab, variablesOpen: false, find: item.tab === "file" ? ed.ui.get().find : null })}
           />
         ))}
         <RailSeparator />
-        <RailItem icon="24.variables" label="Variables" active={variables} data-rail-tab="variables" onClick={() => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen }))} />
+        <RailItem icon="24.variables" label={t("Variables")} active={variables} data-rail-tab="variables" onClick={() => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen }))} />
         <RailSpacer />
         <MissingFontsButton />
         {pending > 0 && (
@@ -132,7 +135,7 @@ export function Rail() {
             compact
             badge
             icon="24.library"
-            label="Review library updates"
+            label={t("Review library updates")}
             active={false}
             data-library-updates={pending}
             onClick={() => ed.ui.set({ librariesDialog: { tab: "updates" } })}
@@ -143,7 +146,7 @@ export function Rail() {
         <ContextMenu
           at={menu.at}
           entries={menu.entries}
-          label="Main menu"
+          label={t("Main menu")}
           minWidth={MAIN_MENU_WIDTH}
           ignore={figma}
           onSelect={(id) => {

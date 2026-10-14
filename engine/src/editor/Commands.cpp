@@ -1558,7 +1558,10 @@ uint32_t Editor::pasteWith(const Clipboard& clip, uint32_t flags) {
     Guid sameKey = !crossFile && !live && component && !src.props.asset().key.empty() ? localAssetByKey(src.props.asset().key) : kNoGuid;
     if (sameKey != kNoGuid && doc_.get(sameKey)->props.comp().isSoftDeleted) sameKey = kNoGuid;
     Guid mainHere = live && live->props.type == NodeType::SYMBOL && !live->props.comp().isSoftDeleted ? src.guid : sameKey;
-    if (root && src.props.type == NodeType::SYMBOL && mainHere != kNoGuid && doc_.get(mainHere)->props.type == NodeType::SYMBOL) {
+    // (Pasted into a component set, a variant is a new variant of it: a set holds no instances.)
+    const Node* into = doc_.get(parent);
+    const bool intoSet = into && into->props.isComponentSet();
+    if (root && !intoSet && src.props.type == NodeType::SYMBOL && mainHere != kNoGuid && doc_.get(mainHere)->props.type == NodeType::SYMBOL) {
       Guid inst = createInstance(mainHere, parent, position, transform);
       if (inst != kNoGuid) {
         pasted.push_back(inst);

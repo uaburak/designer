@@ -16,6 +16,7 @@ import { LIBRARY_TOOLS } from "../studio/libraryTools";
 import type { StudioImage, StudioImageRequest } from "../studio/images";
 import type { TaskQueue, TaskResult, TaskRun } from "./tasks";
 import { imageRouteOptions, routeOfOption } from "./imageRoutes";
+import { t } from "@/i18n";
 
 export { imageRouteOptions, routeOfOption };
 
@@ -197,7 +198,7 @@ async function askImageRoute(env: ManagerEnv): Promise<AiRoute | null> {
   const routes = await env.imageRoutes().catch(() => [] as ImageRouteInfo[]);
   const { options, disabled } = imageRouteOptions(routes);
   if (!options.length || options.every((o) => disabled.includes(o.id))) throw new Error("No image model can run: add a Gemini API key in Settings › AI, or install the Gemini CLI or Antigravity.");
-  const answer = await env.ask({ kind: "choice", id: `card-${uid()}`, question: "Which image model should make the pictures?", options, remember: true, disabled });
+  const answer = await env.ask({ kind: "choice", id: `card-${uid()}`, question: t("Which image model should make the pictures?"), options, remember: true, disabled });
   if ("cancelled" in answer || !("optionId" in answer)) return null;
   const route = routeOfOption(answer.optionId);
   if (answer.remember) env.setData((d) => ({ ...d, imageRoute: route }));
@@ -392,7 +393,7 @@ async function makePosts(env: ManagerEnv, args: Record<string, unknown>): Promis
       x += format.width + GAP;
       rowHeight = Math.max(rowHeight, format.height);
       const prompt = buildImagePrompt(b, brand, products, format, v);
-      const frameTask = addTask(env, "agent", `Frame: ${name}`, general, [], async (signal) => {
+      const frameTask = addTask(env, "agent", t("Frame: {name}", { name }), general, [], async (signal) => {
         const r = await env.runWorker(env.queue.get(frameTask.id)!, `${WORKER_NOTE}\n\n${framePrompt({ brand, products, format, name, ...at, pageId, request: b.request, logo: logo?.path })}`, signal, logo ? [logo] : undefined);
         const id = findFrame(env, pageId, name);
         if (!id) throw new Error(`The frame “${name}” wasn't made.`);
@@ -400,9 +401,9 @@ async function makePosts(env: ManagerEnv, args: Record<string, unknown>): Promis
         return { ...r, nodeIds: [id] };
       });
       let picture: StudioImage | null = null;
-      const imageTask = addTask(env, "image", `Picture: ${name}`, imageTaskRoute(b.imageRoute), [], async (signal) => {
+      const imageTask = addTask(env, "image", t("Picture: {name}", { name }), imageTaskRoute(b.imageRoute), [], async (signal) => {
         picture = await runPicture(env, b.imageRoute, prompt, { width: format.width, height: format.height }, signal);
-        return { summary: `A ${picture.width} × ${picture.height} picture`, credits: picture.credits };
+        return { summary: t("A {width} × {height} picture", { width: picture.width, height: picture.height }), credits: picture.credits };
       });
       env.noteTask(frameTask.id, { prompt: framePrompt({ brand, products, format, name, ...at, pageId, request: b.request, logo: logo?.path }) });
       env.noteTask(imageTask.id, { prompt: prompt.prompt, post: name });
@@ -421,7 +422,7 @@ async function makePosts(env: ManagerEnv, args: Record<string, unknown>): Promis
   }
   env.setData((d) => ({ ...d, posts: [...(d.posts ?? []), ...posts], rows: { pageId: pageId ?? "", x: start.x, nextY: start.y + rowHeight + ROW_GAP } }));
   // The last task: the review, once every frame has its picture (§5.4 step 3).
-  const reviewTask = addTask(env, "review", `Review: ${products.map((p) => p.name).join(" + ")}`, env.settings().manager, started.map((t) => t.id), async () => {
+  const reviewTask = addTask(env, "review", t("Review: {names}", { names: products.map((p) => p.name).join(" + ") }), env.settings().manager, started.map((t) => t.id), async () => {
     const results = await Promise.allSettled(placements);
     const failed = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
     if (failed.length) throw new Error(`A picture couldn't go into its frame: ${errorText(failed[0].reason)}`);
@@ -564,27 +565,27 @@ export async function dispatchFixes(env: ManagerEnv, report: ReviewReport, picke
     const blur = by("blur").filter((p) => p.box);
     if ((regenerate.length || fixLabel.length) && (!brief || !brand)) throw new Error("The brief of these frames isn't in this chat: make_posts again.");
     const replace = (title: string, kind: "make-image" | "edit-image", prompt: ImagePrompt, size: { width: number; height: number }) => {
-      const t = addTask(env, "image", title, imageTaskRoute(brief!.imageRoute), [], async (signal) => {
+      const task = addTask(env, "image", title, imageTaskRoute(brief!.imageRoute), [], async (signal) => {
         const image = kind === "edit-image" ? await env.pictureOf(await pictureLayer(env, item.nodeId)) : undefined;
         if (kind === "edit-image" && !image) throw new Error("The frame's picture isn't there to fix.");
         const out = await runPicture(env, brief!.imageRoute, prompt, size, signal, image ?? undefined);
         const pic = await placePicture(env, item.nodeId, out);
-        return { summary: `${kind === "edit-image" ? "Fixed the label" : "Made the picture again"} (${out.width} × ${out.height})`, credits: out.credits, nodeIds: [pic] };
+        return { summary: kind === "edit-image" ? t("Fixed the label ({width} × {height})", { width: out.width, height: out.height }) : t("Made the picture again ({width} × {height})", { width: out.width, height: out.height }), credits: out.credits, nodeIds: [pic] };
       });
-      env.noteTask(t.id, { prompt: prompt.prompt, post: name });
-      tasks.push(t);
+      env.noteTask(task.id, { prompt: prompt.prompt, post: name });
+      tasks.push(task);
       changed.add(item.nodeId);
     };
     if (regenerate.length) {
       const { format, variation } = postFor(env, item.nodeId, brief!);
       const p = buildImagePrompt(brief!, brand!, products, format, variation);
       const wrong = [...regenerate, ...fixLabel].map((x) => x.detail).join("; ");
-      replace(`Picture again: ${name}`, "make-image", { ...p, prompt: `${p.prompt}\n\nThe last picture went wrong: ${wrong}. Make sure that doesn't happen again.` }, { width: format.width, height: format.height });
+      replace(t("Picture again: {name}", { name }), "make-image", { ...p, prompt: `${p.prompt}\n\nThe last picture went wrong: ${wrong}. Make sure that doesn't happen again.` }, { width: format.width, height: format.height });
     } else if (fixLabel.length) {
       const size = { width: frame?.width ?? 1080, height: frame?.height ?? 1080 };
       // The prompt doesn't know the picture's size: the edit keeps the frame's own ratio.
       const p = { ...buildFixLabelPrompt(brand!, products, fixLabel), aspectRatio: nearestAspectRatio(size.width, size.height) };
-      replace(`Fix label: ${name}`, "edit-image", p, size);
+      replace(t("Fix label: {name}", { name }), "edit-image", p, size);
     }
     if (blur.length && !regenerate.length) {
       const pic = await pictureLayer(env, item.nodeId);
@@ -598,9 +599,9 @@ export async function dispatchFixes(env: ManagerEnv, report: ReviewReport, picke
     if (relayout.length) {
       const general = env.settings().general;
       const prompt = `Fix the frame “${name}” (${item.nodeId}): ${relayout.map((p) => `${p.detail}${p.box ? ` (around x ${Math.round(p.box.x)}, y ${Math.round(p.box.y)}, ${Math.round(p.box.width)} × ${Math.round(p.box.height)})` : ""}`).join("; ")}.${brand ? ` The brand: ${brand.name}; colours ${brand.colors.map((c) => c.hex).join(", ") || "as on the frame"}; fonts ${brand.fonts.join(", ") || "as on the frame"}.` : ""} Keep the “Picture” layer as it is; move or restyle only the text and logo, inside the format's safe area.`;
-      const t = addTask(env, "agent", `Relayout: ${name}`, general, [], (signal) => env.runWorker(env.queue.get(t.id)!, `${WORKER_NOTE}\n\n${prompt}`, signal));
-      env.noteTask(t.id, { prompt });
-      tasks.push(t);
+      const task = addTask(env, "agent", t("Relayout: {name}", { name }), general, [], (signal) => env.runWorker(env.queue.get(task.id)!, `${WORKER_NOTE}\n\n${prompt}`, signal));
+      env.noteTask(task.id, { prompt });
+      tasks.push(task);
       changed.add(item.nodeId);
     }
   }

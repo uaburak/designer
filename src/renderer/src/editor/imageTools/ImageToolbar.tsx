@@ -10,6 +10,7 @@
  * A run shows its sweep over the layers and "Cancel"; a model's first download asks first, with its size.
  * Several selected images: Remove background and Boost resolution work on all of them (one step).
  */
+import { t, useT } from "@/i18n";
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
 import { Button, ContextMenu, Dialog, IconButton, SegmentedControl, Select, Spinner, TextArea, Toolbar, ToolbarDivider, ToolTextButton } from "@/ds";
 import type { Guid } from "@/engine/codec";
@@ -53,6 +54,7 @@ function routeOptions(s: AiSettings | null, routes: ImageRouteInfo[] | null) {
 }
 
 function PromptCard({ tools, kind }: { tools: ImageTools; kind: "make" | "edit" }) {
+  useT();
   const [prompt, setPrompt] = useState("");
   const [reference, setReference] = useState<{ image: Rgba; url: string } | null>(null);
   const [settings, setSettings] = useState<AiSettings | null>(null);
@@ -92,7 +94,7 @@ function PromptCard({ tools, kind }: { tools: ImageTools; kind: "make" | "edit" 
     <div
       className={styles.card}
       role="dialog"
-      aria-label={kind === "make" ? "Make an image" : "Edit with prompt"}
+      aria-label={kind === "make" ? t("Make an image") : t("Edit with prompt")}
       data-image-prompt={kind}
       data-drop={over || undefined}
       onPaste={(e: ClipboardEvent) => void takeFile(Array.from(e.clipboardData.files)[0])}
@@ -108,22 +110,22 @@ function PromptCard({ tools, kind }: { tools: ImageTools; kind: "make" | "edit" 
       }}
     >
       <div className={styles.cardHead}>
-        {kind === "make" ? "Make an image" : "Edit with prompt"}
-        <IconButton icon="24.close.small" label="Close" onClick={() => tools.close()} />
+        {kind === "make" ? t("Make an image") : t("Edit with prompt")}
+        <IconButton icon="24.close.small" label={t("Close")} onClick={() => tools.close()} />
       </div>
-      <TextArea label="Prompt" value={prompt} placeholder={kind === "make" ? "Describe the image you want" : "Describe your edit"} minRows={2} maxRows={6} onChange={setPrompt} onExit={(r) => r === "enter" && send()} autoFocus />
+      <TextArea label={t("Prompt")} value={prompt} placeholder={kind === "make" ? t("Describe the image you want") : t("Describe your edit")} minRows={2} maxRows={6} onChange={setPrompt} onExit={(r) => r === "enter" && send()} autoFocus />
       <div className={styles.cardFoot}>
-        <IconButton icon="24.plus" label="Add a reference image" onClick={() => file.current?.click()} />
+        <IconButton icon="24.plus" label={t("Add a reference image")} onClick={() => file.current?.click()} />
         <input ref={file} type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden onChange={(e) => void takeFile(e.currentTarget.files?.[0])} />
         {reference && (
-          <span className={styles.reference} title="Reference image">
-            <img src={reference.url} alt="Reference image" />
+          <span className={styles.reference} title={t("Reference image")}>
+            <img src={reference.url} alt={t("Reference image")} />
           </span>
         )}
         <span className={styles.spacer} />
-        <Select label="Model" variant="ghost" value={route} options={routeOptions(settings, routes)} onChange={setRoute} />
+        <Select label={t("Model")} variant="ghost" value={route} options={routeOptions(settings, routes)} onChange={setRoute} />
         <Button variant="primary" disabled={!prompt.trim() || busy} loading={busy} shortcut="⌘↵" onClick={() => send()}>
-          Send
+          {t("Send")}
         </Button>
       </div>
     </div>
@@ -131,6 +133,7 @@ function PromptCard({ tools, kind }: { tools: ImageTools; kind: "make" | "edit" 
 }
 
 function VectorizeControls({ tools }: { tools: ImageTools }) {
+  useT();
   const session = useStoreSlice(tools.state, (s) => s.vectorize);
   const [, setTick] = useState(0);
   useEffect(() => session?.subscribe(() => setTick((t) => t + 1)), [session]);
@@ -138,41 +141,42 @@ function VectorizeControls({ tools }: { tools: ImageTools }) {
     return (
       <span className={styles.busyLabel}>
         <Spinner size={16} />
-        Vectorizing…
+        {t("Vectorizing…")}
       </span>
     );
   const s = session.settings;
   const mode = VECTORIZE_MODES.find((m) => m.id === s.mode)!;
   return (
     <>
-      <SegmentedControl label="Mode" tone="toolbar" value={s.mode} options={VECTORIZE_MODES.map((m) => ({ value: m.id, label: m.label }))} onChange={(v) => session.set({ mode: v as VectorizeMode })} />
+      <SegmentedControl label={t("Mode")} tone="toolbar" value={s.mode} options={VECTORIZE_MODES.map((m) => ({ value: m.id, label: t(m.label) }))} onChange={(v) => session.set({ mode: v as VectorizeMode })} />
       <ToolbarDivider />
       <label className={styles.setting}>
-        {mode.settingLabel}
-        <input type="range" min={mode.min} max={mode.max} step={1} value={s[mode.setting]} aria-label={mode.settingLabel} onChange={(e) => session.set({ [mode.setting]: Number(e.currentTarget.value) })} />
+        {t(mode.settingLabel)}
+        <input type="range" min={mode.min} max={mode.max} step={1} value={s[mode.setting]} aria-label={t(mode.settingLabel)} onChange={(e) => session.set({ [mode.setting]: Number(e.currentTarget.value) })} />
         <span className={styles.value}>{s[mode.setting]}</span>
       </label>
-      {session.stats?.exceeded && <span className={styles.stats}>Too detailed to preview</span>}
+      {session.stats?.exceeded && <span className={styles.stats}>{t("Too detailed to preview")}</span>}
       <ToolbarDivider />
-      <IconButton icon="24.check" label="Apply" onClick={() => tools.applyVectorize()} />
-      <IconButton icon="24.close.small" label="Cancel" onClick={() => tools.cancelVectorize()} />
+      <IconButton icon="24.check" label={t("Apply")} onClick={() => tools.applyVectorize()} />
+      <IconButton icon="24.close.small" label={t("Cancel")} onClick={() => tools.cancelVectorize()} />
     </>
   );
 }
 
 function DownloadDialog({ tools }: { tools: ImageTools }) {
+  useT();
   const confirm = useStoreSlice(tools.state, (s) => s.confirm);
   if (!confirm) return null;
   const { info } = confirm;
   return (
     <Dialog
-      title="Download AI model?"
+      title={t("Download AI model?")}
       open
       onClose={() => tools.answerDownload(false)}
       footer={
         <>
           <Button variant="secondary" onClick={() => tools.answerDownload(false)}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button variant="primary" onClick={() => tools.answerDownload(true)}>
             Download ({formatSize(info.bytes)})
@@ -181,7 +185,7 @@ function DownloadDialog({ tools }: { tools: ImageTools }) {
       }
     >
       <p data-model-download={info.id}>
-        {info.use} runs on this computer with {info.label} ({info.license}). It downloads once ({formatSize(info.bytes)}) and is kept for next time. You can remove it in Settings › AI.
+        {t("{use} runs on this computer with {model} ({license}). It downloads once ({size}) and is kept for next time. You can remove it in Settings › AI.", { use: t(info.use), model: info.label, license: info.license, size: formatSize(info.bytes) })}
       </p>
     </Dialog>
   );
@@ -189,6 +193,7 @@ function DownloadDialog({ tools }: { tools: ImageTools }) {
 
 /** The image toolbar, its overlays and dialogs; nothing when no image is selected and no tool is open. */
 export function ImageToolbar() {
+  useT();
   const ed = useEditor();
   const tools = imageToolsOf(ed);
   useTopics(ed.store, ["selection", "undo"]);
@@ -253,22 +258,22 @@ export function ImageToolbar() {
       <>
         <span className={styles.busyLabel} data-image-busy="">
           <Spinner size={16} />
-          {download && !busy?.progress ? `Downloading ${download.label}… ${Math.round(download.share * 100)}%` : (busy?.label ?? "Working…")}
+          {download && !busy?.progress ? t("Downloading {name}… {percent}%", { name: download.label, percent: Math.round(download.share * 100) }) : t(busy?.label ?? "Working…")}
         </span>
         <ToolbarDivider />
-        <ToolTextButton label="Cancel" onSelect={() => tools.cancel()} />
+        <ToolTextButton label={t("Cancel")} onSelect={() => tools.cancel()} />
       </>
     );
   } else if (mode === "select-area") {
     body = (
       <>
-        <span className={styles.busyLabel}>{lasso ? "Area selected" : "Draw around an area"}</span>
+        <span className={styles.busyLabel}>{lasso ? t("Area selected") : t("Draw around an area")}</span>
         <ToolbarDivider />
-        <ToolTextButton label="Erase" disabled={!lasso} onSelect={() => void tools.erase()} />
-        <ToolTextButton label="Isolate" disabled={!lasso} onSelect={() => void tools.isolate()} />
-        <ToolTextButton label="Blur" disabled={!lasso} onSelect={() => void tools.blur()} />
+        <ToolTextButton label={t("Erase")} disabled={!lasso} onSelect={() => void tools.erase()} />
+        <ToolTextButton label={t("Isolate")} disabled={!lasso} onSelect={() => void tools.isolate()} />
+        <ToolTextButton label={t("Blur")} disabled={!lasso} onSelect={() => void tools.blur()} />
         <ToolbarDivider />
-        <IconButton icon="24.close.small" label="Close" onClick={() => tools.close()} />
+        <IconButton icon="24.close.small" label={t("Close")} onClick={() => tools.close()} />
       </>
     );
   } else if (mode === "expand") {
@@ -277,15 +282,15 @@ export function ImageToolbar() {
     body = (
       <>
         <Select
-          label="Aspect ratio"
+          label={t("Aspect ratio")}
           variant="ghost"
           value={aspect}
-          options={EXPAND_ASPECTS.map((a) => ({ value: a.value, label: a.label }))}
+          options={EXPAND_ASPECTS.map((a) => ({ value: a.value, label: t(a.label) }))}
           onChange={(v) => tools.state.set({ aspect: v, pad: node?.size ? padForAspect(node.size, v) : pad })}
         />
         <ToolbarDivider />
-        <IconButton icon="24.check" label="Expand" disabled={!grown} onClick={() => void tools.expand()} />
-        <IconButton icon="24.close.small" label="Cancel" onClick={() => tools.close()} />
+        <IconButton icon="24.check" label={t("Expand")} disabled={!grown} onClick={() => void tools.expand()} />
+        <IconButton icon="24.close.small" label={t("Cancel")} onClick={() => tools.close()} />
       </>
     );
   } else if (mode === "vectorize") {
@@ -293,13 +298,13 @@ export function ImageToolbar() {
   } else {
     body = (
       <>
-        <ToolTextButton label="Edit with prompt" active={mode === "edit"} disabled={!one} onSelect={() => tools.open(mode === "edit" ? null : "edit")} />
-        <ToolTextButton label="Remove background" onSelect={() => void tools.removeBackground()} />
-        <ToolTextButton label="Select area" disabled={!one} onSelect={() => tools.open("select-area")} />
+        <ToolTextButton label={t("Edit with prompt")} active={mode === "edit"} disabled={!one} onSelect={() => tools.open(mode === "edit" ? null : "edit")} />
+        <ToolTextButton label={t("Remove background")} onSelect={() => void tools.removeBackground()} />
+        <ToolTextButton label={t("Select area")} disabled={!one} onSelect={() => tools.open("select-area")} />
         <ToolbarDivider />
         <div ref={more} className={styles.row}>
           <ToolTextButton
-            label="More"
+            label={t("More")}
             chevron
             aria-haspopup="menu"
             aria-expanded={!!menuAt}
@@ -315,9 +320,9 @@ export function ImageToolbar() {
             at={menuAt}
             above
             flush
-            label="More image tools"
+            label={t("More image tools")}
             width={189}
-            entries={MORE.map((m) => ({ ...m, disabled: m.id !== "boost" && !one }))}
+            entries={MORE.map((m) => ({ ...m, label: t(m.label), disabled: m.id !== "boost" && !one }))}
             ignore={more}
             onSelect={(id) => {
               setMenuAt(null);
@@ -333,7 +338,7 @@ export function ImageToolbar() {
   }
   return (
     <>
-      <Toolbar floating secondary label="Image tools" data-image-toolbar={mode ?? ""}>
+      <Toolbar floating secondary label={t("Image tools")} data-image-toolbar={mode ?? ""}>
         {body}
       </Toolbar>
       {overlays}

@@ -18,6 +18,7 @@ import type { CodeConnectMapping, DevModeRepository } from "@shared/devmode/type
 import type { CodegenHost, CodegenLanguage, DevData } from "../../../../viewer/context";
 import type { EditorController } from "../controller";
 import type { FrameStatus } from "../workflowStatus";
+import { t } from "@/i18n";
 
 /** The Ready for dev view's filter: All, or one of the owner's statuses (docs/editor.md "Frame status (ours)"). */
 export type ReadyFilter = "all" | FrameStatus;
@@ -158,7 +159,7 @@ class Codegen implements CodegenHost {
       this.stop();
       run = await this.start(lang.pluginId);
     }
-    if (!run) return { blocks: [], error: `${lang.pluginName} couldn't be started` };
+    if (!run) return { blocks: [], error: t("{name} couldn't be started", { name: lang.pluginName }) };
     const r = await run.generate(nodeId, lang.value);
     if (r.error) return { blocks: [], error: r.error };
     const list = Array.isArray(r.result) ? (r.result as { title?: unknown; code?: unknown; language?: unknown }[]) : [];

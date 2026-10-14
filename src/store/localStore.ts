@@ -71,6 +71,7 @@ import { AiService } from "./ai/service";
 import { UsageReporter } from "./libraries/usage";
 import { withFakeLatency } from "./fakeLatency";
 import { BrandsService } from "./brands/service";
+import { t as tr } from "../shared/i18n";
 
 export interface LocalStoreOptions {
   workspaceDir: string;
@@ -128,11 +129,11 @@ async function acquireLock(dirs: WorkspaceDirs, now: number, log: Log): Promise<
         alive = (e as NodeJS.ErrnoException).code === "EPERM";
       }
     } else if (held?.pid === process.pid) alive = LOCKED_HERE.has(dirs.root);
-    if (alive) throw new StoreError("io", `The workspace is in use by another process (pid ${held?.pid})`);
+    if (alive) throw new StoreError("io", tr("The workspace is in use by another process (pid {pid})", { pid: String(held?.pid) }));
     log("warn", `taking over a stale workspace lock (pid ${held?.pid ?? "?"})`);
     await fsp.rm(path, { force: true });
   }
-  throw new StoreError("io", "Couldn't lock the workspace");
+  throw new StoreError("io", tr("Couldn't lock the workspace"));
 }
 
 export class LocalStore {
@@ -236,7 +237,7 @@ export class LocalStore {
       { fetch: this.fetch, WebSocket: globalThis.WebSocket as never, random: () => randomInt(0, 2 ** 32) / 2 ** 32, streamUploads: !fetchFn },
     );
     const commentsPath = (fileKey: FileKey) => {
-      if (!ws.files.has(fileKey)) throw new StoreError("not-found", "No such file");
+      if (!ws.files.has(fileKey)) throw new StoreError("not-found", tr("No such file"));
       return join(dirs.files, fileKey, "comments.json");
     };
     this.comments = new CommentsService(
@@ -588,9 +589,9 @@ export class LocalStore {
     try {
       table = NodeTable.fromMessage(message ?? codec.decodeMessage(snapshot));
     } catch (e) {
-      throw new StoreError("corrupt", `The file couldn't be read: ${(e as Error).message}`);
+      throw new StoreError("corrupt", tr("The file couldn't be read: {reason}", { reason: (e as Error).message }));
     }
-    if (!table.get("0:0")) throw new StoreError("corrupt", "The file has no document");
+    if (!table.get("0:0")) throw new StoreError("corrupt", tr("The file has no document"));
     await this.files.createFile(fileKey, snapshot, [...table.imageHashes()].sort(), table.derivedDataVersion);
     // New edit sessions here never reuse one of this device's earlier sessions of the file (its GUIDs are in the room):
     // past the counter kept when it was evicted and past every session of this device the snapshot holds
@@ -620,7 +621,7 @@ export class LocalStore {
   async createOrgFile(input: { name: string; space: FileSpace }): Promise<FileMeta> {
     this.guard();
     const fileKey = newFileKey();
-    await this.files.createFile(fileKey, codec.encodeMessage(newDocumentMessage()), []);
+    await this.files.createFile(fileKey, codec.encodeMessage(newDocumentMessage({ thumbnail: true })), []);
     const meta = newMeta(fileKey, input.name.trim() || "Untitled", null, this.clock.now());
     meta.space = { ...input.space };
     return this.ws.queue.run(() => this.ws.addFile(meta));
@@ -654,9 +655,9 @@ export class LocalStore {
     try {
       table = NodeTable.fromMessage(input.message ?? codec.decodeMessage(input.snapshot));
     } catch (e) {
-      throw new StoreError("corrupt", `The shared file couldn't be read: ${(e as Error).message}`);
+      throw new StoreError("corrupt", tr("The shared file couldn't be read: {reason}", { reason: (e as Error).message }));
     }
-    if (!table.get("0:0")) throw new StoreError("corrupt", "The shared file has no document");
+    if (!table.get("0:0")) throw new StoreError("corrupt", tr("The shared file has no document"));
     const key = input.fileKey ?? newFileKey();
     await this.files.createFile(key, input.snapshot, [...table.imageHashes()].sort(), table.derivedDataVersion);
     const meta = newMeta(key, input.name.trim() || "Untitled", null, this.clock.now());
@@ -731,7 +732,7 @@ export class LocalStore {
   }
 
   private guard(): void {
-    if (this.closed) throw new StoreError("shutting-down", "The store is shutting down");
+    if (this.closed) throw new StoreError("shutting-down", tr("The store is shutting down"));
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -741,7 +742,7 @@ export class LocalStore {
   private checkFolder(folderId: FolderId | null): void {
     if (folderId === null) return;
     this.ws.getFolder(folderId);
-    if (this.ws.isFolderTrashed(folderId)) throw new StoreError("trashed", "That folder is in Trash");
+    if (this.ws.isFolderTrashed(folderId)) throw new StoreError("trashed", tr("That folder is in Trash"));
   }
 
   async createFile(input: { name?: string; folderId: FolderId | null }): Promise<FileMeta> {
@@ -751,7 +752,7 @@ export class LocalStore {
     const name = typeof input?.name === "string" && input.name.trim() ? input.name.trim() : "Untitled";
     const libs = this.ws.workspace.defaultLibraries.filter((k) => this.libraries.getRecord(k)?.status === "published" && this.ws.files.has(k));
     const fileKey = newFileKey();
-    const doc = newDocumentMessage({ libraries: libs.map((k) => ({ libraryKey: k, name: this.ws.files.get(k)!.name })) });
+    const doc = newDocumentMessage({ libraries: libs.map((k) => ({ libraryKey: k, name: this.ws.files.get(k)!.name })), thumbnail: true });
     await this.files.createFile(fileKey, codec.encodeMessage(doc), []);
     const meta = newMeta(fileKey, name, folderId, this.clock.now());
     meta.enabledLibraries = libs;

@@ -7,6 +7,7 @@
  */
 import { useSyncExternalStore } from "react";
 import { showToast } from "@/ds";
+import { t } from "@/i18n";
 import type { DevelopmentPlugin } from "@shared/ipc";
 import { notRunnableReason, parseManifest, runnableIn } from "@shared/plugins/manifest";
 import type { PluginBundle, PluginManifest, PluginMenuItem, PluginRef, PluginsRepository, PrivatePlugin } from "@shared/plugins/types";
@@ -174,14 +175,14 @@ export class PluginService {
   // ---- Development plugins (main) ---------------------------------------------------------------------------------------
 
   async importManifest(): Promise<void> {
-    if (!this.desktop) return void showToast({ message: "Developing plugins needs the desktop app" });
+    if (!this.desktop) return void showToast({ message: t("Developing plugins needs the desktop app") });
     try {
       const r = await this.desktop.importManifest();
       if ("cancelled" in r) return;
       this.manifests.set(r.plugin.id, r.manifest);
       await this.refresh();
     } catch (e) {
-      showToast({ message: e instanceof Error ? e.message : String(e), kind: "error" });
+      showToast({ message: e instanceof Error ? t(e.message) : String(e), kind: "error" });
     }
   }
 
@@ -200,7 +201,7 @@ export class PluginService {
       await this.refresh();
       return true;
     } catch (e) {
-      showToast({ message: e instanceof Error ? e.message : String(e), kind: "error" });
+      showToast({ message: e instanceof Error ? t(e.message) : String(e), kind: "error" });
       return false;
     }
   }
@@ -224,10 +225,10 @@ export class PluginService {
 
   private async bundleOf(ref: PluginRef): Promise<PluginBundle> {
     if (ref.source.type === "development") {
-      if (!this.desktop) throw new Error("Developing plugins needs the desktop app");
+      if (!this.desktop) throw new Error(t("Developing plugins needs the desktop app"));
       return this.desktop.read(ref.id);
     }
-    if (!this.store) throw new Error("Private plugins need the workspace");
+    if (!this.store) throw new Error(t("Private plugins need the workspace"));
     return this.store.bundle(ref.id, ref.source.version);
   }
 
@@ -237,7 +238,7 @@ export class PluginService {
     if (this.store) {
       const allowed = await this.store.allowed(fileKey, ref).catch(() => ({ ok: true }) as const);
       if (!allowed.ok) {
-        showToast({ message: allowed.reason === "guest" ? "Guests can't run this organization's plugins" : "Your organization only allows approved plugins", kind: "error" });
+        showToast({ message: allowed.reason === "guest" ? t("Guests can't run this organization's plugins") : t("Your organization only allows approved plugins"), kind: "error" });
         return null;
       }
     }
@@ -245,7 +246,7 @@ export class PluginService {
     try {
       bundle = await this.bundleOf(ref);
     } catch (e) {
-      showToast({ message: `Couldn't load ${ref.name}: ${e instanceof Error ? e.message : String(e)}`, kind: "error" });
+      showToast({ message: t("Couldn't load {name}: {error}", { name: ref.name, error: e instanceof Error ? e.message : String(e) }), kind: "error" });
       return null;
     }
     const parsed = parseManifest(bundle.manifest, { development: ref.source.type === "development", path: ref.source.type === "development" ? ref.source.path : undefined });
@@ -256,13 +257,13 @@ export class PluginService {
     const manifest = parsed.manifest;
     const why = notRunnableReason(manifest);
     if (why) {
-      showToast({ message: why, kind: "error" });
+      showToast({ message: t(why), kind: "error" });
       return null;
     }
     this.manifests.set(ref.id, manifest);
     // Figma's first run of a plugin without dynamic-page access loads every page (ours are loaded already).
     const pages = this.ed.engine.pages().length;
-    if (!manifest.documentAccess && pages > 1) showToast({ message: `Loading ${pages} pages`, duration: 1200 });
+    if (!manifest.documentAccess && pages > 1) showToast({ message: t("Loading {n} pages", { n: pages }), duration: 1200 });
     const spec: RunSpec = {
       pluginId: manifest.id,
       name: manifest.name,

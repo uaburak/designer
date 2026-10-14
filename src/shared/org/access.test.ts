@@ -44,6 +44,14 @@ describe("resolveAccess (docs/multiplayer.md §14.4, the 22 cases)", () => {
     expect(r).toMatchObject({ role: "viewer", canEdit: false, via: ["team"] });
   });
 
+  it("3b: a team member taken off one file (excluded): no access through the team, folder or audience; a direct invite or admin still counts", () => {
+    const team = { ...rows().team!, grants: [user("editor")], orgAccess: "viewer" as const };
+    expect(ok(resolveAccess(rows({ team }))).role).toBe("editor");
+    expect(resolveAccess(rows({ team, excluded: true, folders: [{ id: "p1", ownerId: "x", access: "inherited", grants: [user("editor")] }] }))).toEqual({ ok: false, reason: "none", role: null });
+    expect(ok(resolveAccess(rows({ team, excluded: true, fileGrants: [user("viewer")] }))).role).toBe("viewer");
+    expect(ok(resolveAccess(rows({ team, excluded: true, membership: { role: "admin", seat: "full", workspaceId: null } }))).role).toBe("editor");
+  });
+
   it("4: team can view, folder grant can edit → editor via folder", () => {
     const r = ok(resolveAccess(rows({ team: { ...rows().team!, grants: [user("viewer")] }, folders: [{ id: "p1", ownerId: "x", access: "inherited", grants: [user("editor")] }] })));
     expect(r.role).toBe("editor");

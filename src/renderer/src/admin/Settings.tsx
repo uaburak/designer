@@ -23,6 +23,7 @@ import { DataRegionDialog, PublicSharingDialog, sharingSummary } from "./Setting
 import { ApprovalDialog, PlanTokens, approvalSummary } from "./SettingsExtensions";
 import { CreditLimitDialog, creditLimitSummary } from "./SettingsAi";
 import { FileExportingDialog, GuestExpiryDialog, GuestTwoFactorDialog, IdpsDialog, IpAllowlistDialog, KeyManagementDialog, NetworkRangesDialog, PoliciesDialog, ekmSummary, useGovernance } from "./SettingsGovernance";
+import { t, tp, useT } from "@/i18n";
 
 type Editing =
   | "orgName" | "orgIcon" | "deleteOrg"
@@ -41,6 +42,7 @@ type Editing =
 export const INSTALLER_TOOLTIP = "Built with npm run dist:msi";
 
 export function SettingsTab() {
+  useT();
   const { orgId, store, run } = useAdmin();
   const { data: s } = useLoad(() => store.admin.settings(orgId), [orgId]);
   const identity = store.identity;
@@ -55,14 +57,14 @@ export function SettingsTab() {
   const { data: org } = useLoad(() => (orgs ? orgs.get(orgId) : Promise.resolve(null)), [orgId, orgs]);
   if (!s) return null;
   /** A Governance+ row's value: "Unavailable" without the repository, "Requires Governance+" without the add-on */
-  const gValue = (v: ReactNode) => (!govAvailable ? "Unavailable" : !gp ? REQUIRES_GOVERNANCE_PLUS : v);
+  const gValue = (v: ReactNode) => (!govAvailable ? t("Unavailable") : !gp ? t(REQUIRES_GOVERNANCE_PLUS) : v);
   const gOff = !govAvailable || !gp;
   const exportOverrides = (workspaces ?? []).filter((w) => w.sharing?.fileExporting).length;
   const enabledPolicies = (gov?.policies ?? []).filter((p) => p.enabledAt !== null && p.disabledAt === null).length;
   const enforced = (gov?.networkRanges ?? []).filter((r) => r.state === "enforced").length;
   const save = (patch: Partial<OrgSettings>, done = "Settings saved") => run(() => store.admin.updateSettings(orgId, patch), done);
   const close = () => setEditing(null);
-  const approval = (["full", "dev", "collab"] as const).map((k) => `${SEAT_LABEL[k]}: ${SEAT_APPROVAL_LABEL[s.seatApproval[k]]}`);
+  const approval = (["full", "dev", "collab"] as const).map((k) => `${t(SEAT_LABEL[k])}: ${t(SEAT_APPROVAL_LABEL[s.seatApproval[k]])}`);
   const unavailable = !identity;
   const idp = ov?.idp ?? null;
   const verified = ov?.domains.filter((d) => d.verified).length ?? 0;
@@ -71,199 +73,199 @@ export function SettingsTab() {
     <>
       {/* The organization's name and icon (docs/multiplayer.md §14.16; Figma: its avatar is changed in admin settings —
           help.figma.com 4404108672663; the group and row names are ours) */}
-      <Group title="Organization">
-        <Row id="orgName" label="Organization name" description="Shown in the space switcher, on Home and in invitations." disabled={!orgs} value={orgs ? (org?.name ?? "") : "Unavailable"} onChange={() => setEditing("orgName")} />
+      <Group title={t("Organization")}>
+        <Row id="orgName" label={t("Organization name")} description={t("Shown in the space switcher, on Home and in invitations.")} disabled={!orgs} value={orgs ? (org?.name ?? "") : "Unavailable"} onChange={() => setEditing("orgName")} />
         <Row
-          id="orgIcon" label="Organization icon" description="Shown next to the organization's name. Use a square image; it's cropped to a square."
+          id="orgIcon" label={t("Organization icon")} description={t("Shown next to the organization's name. Use a square image; it's cropped to a square.")}
           disabled={!orgs} value={org ? <TeamIcon name={org.name} iconUrl={org.iconUrl} size={24} /> : orgs ? "" : "Unavailable"}
           onChange={() => setEditing("orgIcon")}
         />
       </Group>
 
-      <Group title="Login and provisioning">
+      <Group title={t("Login and provisioning")}>
         <Row
-          id="authentication" label="Authentication" description="Choose how members log in. Guests can always log in with Google SSO or email and password."
+          id="authentication" label={t("Authentication")} description={t("Choose how members log in. Guests can always log in with Google SSO or email and password.")}
           value={AUTH_METHOD_SHORT[s.authMethod]} onChange={() => setEditing("authentication")}
         />
         <Row
-          id="idps" label="Manage identity providers (IdP)" description="Connect several identity providers and choose the domains each one serves, each with its own SCIM provisioning."
-          disabled={gOff} value={gValue(idps ? (idps.length === 1 ? "1 identity provider" : `${idps.length} identity providers`) : "")}
+          id="idps" label={t("Manage identity providers (IdP)")} description={t("Connect several identity providers and choose the domains each one serves, each with its own SCIM provisioning.")}
+          disabled={gOff} value={gValue(idps ? tp(idps.length, "{n} identity provider", "{n} identity providers") : "")}
           action="Manage" onChange={() => setEditing("idps")}
         />
         <Row
-          id="saml" label="SAML SSO" description="Let members log in through your identity provider."
+          id="saml" label="SAML SSO" description={t("Let members log in through your identity provider.")}
           disabled={unavailable}
-          value={unavailable ? "Unavailable" : idp ? `${IDP_PROVIDER_LABEL[idp.provider]} · ${idp.testedAt ? "Tested" : "Not tested"}` : "Off"}
+          value={unavailable ? "Unavailable" : idp ? `${t(IDP_PROVIDER_LABEL[idp.provider])} · ${idp.testedAt ? t("Tested") : t("Not tested")}` : "Off"}
           action={idp ? "Manage" : "Configure SAML"} onChange={() => setEditing("saml")}
         />
         <Row
-          id="scim" label="SCIM provisioning" description={idp || unavailable ? "Provision and deprovision members from your identity provider." : "Set up SAML SSO before SCIM provisioning."}
+          id="scim" label={t("SCIM provisioning")} description={idp || unavailable ? t("Provision and deprovision members from your identity provider.") : t("Set up SAML SSO before SCIM provisioning.")}
           disabled={unavailable || !idp}
           value={unavailable ? "Unavailable" : ov?.scim?.token ? "On" : "Off"} onChange={() => setEditing("scim")}
         />
         <Row
-          id="idle" label="Session timeout" description="Log members out after a period of inactivity, on every device."
-          value={s.idleSessionTimeoutHours === null ? `${formatHours(IDLE_DEFAULT_HOURS)} (default)` : formatHours(s.idleSessionTimeoutHours)} onChange={() => setEditing("idle")}
+          id="idle" label={t("Session timeout")} description={t("Log members out after a period of inactivity, on every device.")}
+          value={s.idleSessionTimeoutHours === null ? t("{time} (default)", { time: formatHours(IDLE_DEFAULT_HOURS) }) : formatHours(s.idleSessionTimeoutHours)} onChange={() => setEditing("idle")}
         />
         <Row
-          id="domains" label="Manage domains" description="Add and verify the domains your organization owns, and turn on domain capture."
+          id="domains" label={t("Manage domains")} description={t("Add and verify the domains your organization owns, and turn on domain capture.")}
           disabled={unavailable}
-          value={unavailable ? "Unavailable" : ov ? `${ov.domains.length === 1 ? "1 domain" : `${ov.domains.length} domains`} · ${verified} verified${ov.domainCapture ? " · Domain capture on" : ""}` : ""}
+          value={unavailable ? "Unavailable" : ov ? [tp(ov.domains.length, "{n} domain", "{n} domains"), t("{n} verified", { n: verified }), ...(ov.domainCapture ? [t("Domain capture on")] : [])].join(" · ") : ""}
           action="Manage" onChange={() => setEditing("domains")}
         />
         <Row
-          id="ipAllowlist" label="IP allowlist" description="Only let members reach the organization's content from these IP addresses. Guests and admins aren't affected."
-          disabled={gOff} value={gValue(gov ? (gov.ipAllowlist.enabled ? `On · ${gov.ipAllowlist.ranges.length === 1 ? "1 address or range" : `${gov.ipAllowlist.ranges.length} addresses or ranges`}` : "Off") : "")}
+          id="ipAllowlist" label={t("IP allowlist")} description={t("Only let members reach the organization's content from these IP addresses. Guests and admins aren't affected.")}
+          disabled={gOff} value={gValue(gov ? (gov.ipAllowlist.enabled ? `${t("On")} · ${tp(gov.ipAllowlist.ranges.length, "{n} address or range", "{n} addresses or ranges")}` : t("Off")) : "")}
           onChange={() => setEditing("ipAllowlist")}
         />
       </Group>
 
-      <Group title="External access">
-        <SubTitle>Guest membership</SubTitle>
-        <Row id="guestMembership" label="Guest membership" description="Choose who can invite external users to files, folders and teams." value={GUEST_MEMBERSHIP_LABEL[s.guestMembership]} onChange={() => setEditing("guestMembership")} />
+      <Group title={t("External access")}>
+        <SubTitle>{t("Guest membership")}</SubTitle>
+        <Row id="guestMembership" label={t("Guest membership")} description={t("Choose who can invite external users to files, folders and teams.")} value={t(GUEST_MEMBERSHIP_LABEL[s.guestMembership])} onChange={() => setEditing("guestMembership")} />
         <Row
-          id="guestTwoFactor" label="2FA for Guests" description="Guests must use two-factor authentication to open the organization's content. Guests without it are blocked until they turn it on."
+          id="guestTwoFactor" label={t("2FA for Guests")} description={t("Guests must use two-factor authentication to open the organization's content. Guests without it are blocked until they turn it on.")}
           value={gOff ? gValue("") : undefined}
-          control={<Switch label="2FA for Guests" checked={!gOff && s.twoFactorForGuests} disabled={gOff} onChange={(on) => (on ? setEditing("guestTwoFactor") : void save({ twoFactorForGuests: false }, "2FA for guests turned off"))} />}
+          control={<Switch label={t("2FA for Guests")} checked={!gOff && s.twoFactorForGuests} disabled={gOff} onChange={(on) => (on ? setEditing("guestTwoFactor") : void save({ twoFactorForGuests: false }, "2FA for guests turned off"))} />}
         />
         <Row
-          id="guestExpiry" label="Set default duration for guest access" description="Guests who join from now on lose access after this many days."
-          disabled={gOff} value={gValue(s.guestExpiryDays === null ? "No expiration" : s.guestExpiryDays === 1 ? "1 day" : `${s.guestExpiryDays} days`)}
+          id="guestExpiry" label={t("Set default duration for guest access")} description={t("Guests who join from now on lose access after this many days.")}
+          disabled={gOff} value={gValue(s.guestExpiryDays === null ? t("No expiration") : tp(s.guestExpiryDays, "{n} day", "{n} days"))}
           onChange={() => setEditing("guestExpiry")}
         />
-        <SubTitle>File exporting</SubTitle>
+        <SubTitle>{t("File exporting")}</SubTitle>
         <Row
-          id="fileExporting" label="File exporting" description="Choose whether viewers can export, copy and save local copies of files. Editors can always export."
+          id="fileExporting" label={t("File exporting")} description={t("Choose whether viewers can export, copy and save local copies of files. Editors can always export.")}
           disabled={gOff}
-          value={gValue(<span className={styles.whoText}><span>{FILE_EXPORTING_LABEL[s.fileExporting]}</span>{exportOverrides > 0 && <span>{exportOverrides === 1 ? "1 workspace with custom settings" : `${exportOverrides} workspaces with custom settings`}</span>}</span>)}
+          value={gValue(<span className={styles.whoText}><span>{t(FILE_EXPORTING_LABEL[s.fileExporting])}</span>{exportOverrides > 0 && <span>{tp(exportOverrides, "{n} workspace with custom settings", "{n} workspaces with custom settings")}</span>}</span>)}
           onChange={() => setEditing("fileExporting")}
         />
-        <SubTitle>Network access</SubTitle>
+        <SubTitle>{t("Network access")}</SubTitle>
         <Row
-          id="networkRanges" label="Network access restrictions" description="Restrict external account access on your networks: only the organization's accounts and guests can log in from these IP ranges."
-          disabled={gOff} value={gValue(gov ? (gov.networkRanges.length ? `${gov.networkRanges.length === 1 ? "1 range" : `${gov.networkRanges.length} ranges`} · ${enforced} enforced` : "Off") : "")}
+          id="networkRanges" label={t("Network access restrictions")} description={t("Restrict external account access on your networks: only the organization's accounts and guests can log in from these IP ranges.")}
+          disabled={gOff} value={gValue(gov ? (gov.networkRanges.length ? `${tp(gov.networkRanges.length, "{n} range", "{n} ranges")} · ${t("{n} enforced", { n: enforced })}` : t("Off")) : "")}
           action="Manage" onChange={() => setEditing("networkRanges")}
         />
       </Group>
 
-      <Group title="Team management">
-        <Row id="teamCreation" label="Creating teams" description="Who can create teams in the organization." value={TEAM_CREATION_LABEL[s.teamCreation]} onChange={() => setEditing("teamCreation")} />
-        <Row id="groupCreation" label="Creating user groups" description="Who can create user groups in the organization." value={TEAM_CREATION_LABEL[s.groupCreation]} onChange={() => setEditing("groupCreation")} />
+      <Group title={t("Team management")}>
+        <Row id="teamCreation" label={t("Creating teams")} description={t("Who can create teams in the organization.")} value={t(TEAM_CREATION_LABEL[s.teamCreation])} onChange={() => setEditing("teamCreation")} />
+        <Row id="groupCreation" label={t("Creating user groups")} description={t("Who can create user groups in the organization.")} value={t(TEAM_CREATION_LABEL[s.groupCreation])} onChange={() => setEditing("groupCreation")} />
       </Group>
 
-      <Group title="Content">
-        <SubTitle>Sharing and publishing</SubTitle>
+      <Group title={t("Content")}>
+        <SubTitle>{t("Sharing and publishing")}</SubTitle>
         <Row
-          id="publicSharing" label="Public sharing" description="Control public links, passwords and link expiration for files in the organization."
-          value={<span className={styles.whoText}>{sharingSummary(s).map((t) => <span key={t}>{t}</span>)}{overrides > 0 && <span>{overrides === 1 ? "1 workspace with custom settings" : `${overrides} workspaces with custom settings`}</span>}</span>}
+          id="publicSharing" label={t("Public sharing")} description={t("Control public links, passwords and link expiration for files in the organization.")}
+          value={<span className={styles.whoText}>{sharingSummary(s).map((line) => <span key={line}>{line}</span>)}{overrides > 0 && <span>{tp(overrides, "{n} workspace with custom settings", "{n} workspaces with custom settings")}</span>}</span>}
           onChange={() => setEditing("publicSharing")}
         />
-        <Row id="passwordMode" label="Password protection options" description="Choose what type of passwords can be added to files." value={s.passwordMode === "autogenerated" ? "Autogenerated passwords only" : "Any password"} onChange={() => setEditing("passwordMode")} />
+        <Row id="passwordMode" label={t("Password protection options")} description={t("Choose what type of passwords can be added to files.")} value={s.passwordMode === "autogenerated" ? "Autogenerated passwords only" : "Any password"} onChange={() => setEditing("passwordMode")} />
         <Row
-          id="openSessions" label="FigJam open sessions" description="Let anyone with the link join FigJam boards to edit them for 24 hours."
-          control={<Switch label="FigJam open sessions" checked={s.openSessions} onChange={(on) => void save({ openSessions: on }, on ? "FigJam open sessions turned on" : "FigJam open sessions turned off")} />}
+          id="openSessions" label={t("FigJam open sessions")} description={t("Let anyone with the link join FigJam boards to edit them for 24 hours.")}
+          control={<Switch label={t("FigJam open sessions")} checked={s.openSessions} onChange={(on) => void save({ openSessions: on }, on ? "FigJam open sessions turned on" : "FigJam open sessions turned off")} />}
         />
-        <SubTitle>Content access</SubTitle>
+        <SubTitle>{t("Content access")}</SubTitle>
         <Row
-          id="externalContent" label="Access to external content"
-          description={s.domainCapture ? "Choose whether members can create, edit and comment on content outside the organization." : "Turn on domain capture to restrict access to external content."}
+          id="externalContent" label={t("Access to external content")}
+          description={s.domainCapture ? t("Choose whether members can create, edit and comment on content outside the organization.") : t("Turn on domain capture to restrict access to external content.")}
           disabled={!s.domainCapture && s.externalContent === "allowed"}
           value={s.externalContent === "restricted" ? "Restricted" : "Allowed"} onChange={() => setEditing("externalContent")}
         />
       </Group>
 
-      <Group title="Communication">
+      <Group title={t("Communication")}>
         <Row
-          id="cursorChat" label="Cursor chat" description="Let people send messages with their cursor in Figma Design and FigJam files."
-          control={<Switch label="Cursor chat" checked={s.cursorChat} onChange={(on) => void save({ cursorChat: on }, on ? "Cursor chat turned on" : "Cursor chat turned off")} />}
+          id="cursorChat" label={t("Cursor chat")} description={t("Let people send messages with their cursor in Figma Design and FigJam files.")}
+          control={<Switch label={t("Cursor chat")} checked={s.cursorChat} onChange={(on) => void save({ cursorChat: on }, on ? "Cursor chat turned on" : "Cursor chat turned off")} />}
         />
       </Group>
 
-      <Group title="Data">
+      <Group title={t("Data")}>
         <Row
-          id="dataRegion" label="Data storage localization" description="Where the content of the organization's files is stored."
+          id="dataRegion" label={t("Data storage localization")} description={t("Where the content of the organization's files is stored.")}
           disabled={unavailable}
-          value={unavailable ? "Unavailable" : region ? (region.available ? DATA_REGION_LABEL[region.region] : `${DATA_REGION_LABEL[region.region]} · Not available`) : ""}
+          value={unavailable ? "Unavailable" : region ? (region.available ? t(DATA_REGION_LABEL[region.region]) : `${t(DATA_REGION_LABEL[region.region])} · ${t("Not available")}`) : ""}
           onChange={() => setEditing("dataRegion")}
         />
         <Row
-          id="keyManagement" label="Key management" description="Encrypt the content of the organization's files with its own key."
+          id="keyManagement" label={t("Key management")} description={t("Encrypt the content of the organization's files with its own key.")}
           disabled={gOff} value={gValue(gov ? ekmSummary(gov.ekm) : "")}
           action={gov?.ekm.enabled ? "Manage" : "Turn on"} onChange={() => setEditing("keyManagement")}
         />
       </Group>
 
-      <Group title="Billing">
-        <Row id="seatApproval" label="Seat approval settings" description="How requests for paid seats are approved." value={<span className={styles.whoText}>{approval.map((a) => <span key={a}>{a}</span>)}</span>} onChange={() => setEditing("seatApproval")} />
-        <Row id="defaultSeat" label="Default seat" description="The seat new people get when they join." value={SEAT_LABEL[s.defaultSeat]} onChange={() => setEditing("defaultSeat")} />
+      <Group title={t("Billing")}>
+        <Row id="seatApproval" label={t("Seat approval settings")} description={t("How requests for paid seats are approved.")} value={<span className={styles.whoText}>{approval.map((a) => <span key={a}>{a}</span>)}</span>} onChange={() => setEditing("seatApproval")} />
+        <Row id="defaultSeat" label={t("Default seat")} description={t("The seat new people get when they join.")} value={t(SEAT_LABEL[s.defaultSeat])} onChange={() => setEditing("defaultSeat")} />
         {governance && (
           <Row
-            id="governancePlus" label="Governance+"
-            description="The Enterprise add-on for security and compliance: IP allowlist, network access restrictions, 2FA for guests, multiple identity providers, internal policies, key management, Discovery, developer logs and guest expiration. There's no charge here."
+            id="governancePlus" label={t("Governance+")}
+            description={t("The Enterprise add-on for security and compliance: IP allowlist, network access restrictions, 2FA for guests, multiple identity providers, internal policies, key management, Discovery, developer logs and guest expiration. There's no charge here.")}
             value={gov ? (gp ? "Added" : "Not added") : ""}
             control={
               gp ? (
-                <Button variant="secondary" disabled={!gov || gov.ekm.enabled} tooltip={gov?.ekm.enabled ? "Key management can't be turned off" : undefined} onClick={() => setEditing("removeGovernancePlus")}>Remove</Button>
+                <Button variant="secondary" disabled={!gov || gov.ekm.enabled} tooltip={gov?.ekm.enabled ? t("Key management can't be turned off") : undefined} onClick={() => setEditing("removeGovernancePlus")}>{t("Remove")}</Button>
               ) : (
-                <Button variant="primary" disabled={!gov} onClick={() => void run(() => governance.setGovernancePlus(orgId, true), "Governance+ added")}>Add</Button>
+                <Button variant="primary" disabled={!gov} onClick={() => void run(() => governance.setGovernancePlus(orgId, true), "Governance+ added")}>{t("Add")}</Button>
               )
             }
           />
         )}
       </Group>
 
-      <Group title="Extensions">
+      <Group title={t("Extensions")}>
         <Row
-          id="pluginApproval" label="Plugin approval" description="Choose which plugins members can use in the organization's files."
-          value={<span className={styles.whoText}>{approvalSummary(s, "plugin").map((t) => <span key={t}>{t}</span>)}</span>} onChange={() => setEditing("pluginApproval")}
+          id="pluginApproval" label={t("Plugin approval")} description={t("Choose which plugins members can use in the organization's files.")}
+          value={<span className={styles.whoText}>{approvalSummary(s, "plugin").map((line) => <span key={line}>{line}</span>)}</span>} onChange={() => setEditing("pluginApproval")}
         />
         <Row
-          id="widgetApproval" label="Widget approval" description="Choose which widgets members can use in the organization's files."
-          value={<span className={styles.whoText}>{approvalSummary(s, "widget").map((t) => <span key={t}>{t}</span>)}</span>} onChange={() => setEditing("widgetApproval")}
+          id="widgetApproval" label={t("Widget approval")} description={t("Choose which widgets members can use in the organization's files.")}
+          value={<span className={styles.whoText}>{approvalSummary(s, "widget").map((line) => <span key={line}>{line}</span>)}</span>} onChange={() => setEditing("widgetApproval")}
         />
       </Group>
 
       <Group title="AI">
         <Row
-          id="aiEnabled" label="AI features" description="Let members use AI features — actions, image tools, visual search and agents — in the organization's files."
-          control={<Switch label="AI features" checked={s.aiEnabled} onChange={(on) => void save({ aiEnabled: on }, on ? "AI features turned on" : "AI features turned off")} />}
+          id="aiEnabled" label={t("AI features")} description={t("Let members use AI features — actions, image tools, visual search and agents — in the organization's files.")}
+          control={<Switch label={t("AI features")} checked={s.aiEnabled} onChange={(on) => void save({ aiEnabled: on }, on ? "AI features turned on" : "AI features turned off")} />}
         />
-        <Row id="aiCreditLimit" label="AI credit limit" description="The AI credits each member can use a month." value={creditLimitSummary(s)} disabled={!s.aiEnabled} onChange={() => setEditing("aiCreditLimit")} />
+        <Row id="aiCreditLimit" label={t("AI credit limit")} description={t("The AI credits each member can use a month.")} value={creditLimitSummary(s)} disabled={!s.aiEnabled} onChange={() => setEditing("aiCreditLimit")} />
       </Group>
 
-      <Group title="Plan access tokens">
+      <Group title={t("Plan access tokens")}>
         <PlanTokens />
       </Group>
 
-      <Group title="Other">
+      <Group title={t("Other")}>
         <Row
-          id="policies" label="Internal policies" description="Ask people to agree to the organization's policies before they open its content."
-          disabled={gOff} value={gValue(enabledPolicies ? (enabledPolicies === 1 ? "1 policy enabled" : `${enabledPolicies} policies enabled`) : "Off")}
+          id="policies" label={t("Internal policies")} description={t("Ask people to agree to the organization's policies before they open its content.")}
+          disabled={gOff} value={gValue(enabledPolicies ? tp(enabledPolicies, "{n} policy enabled", "{n} policies enabled") : t("Off"))}
           action="Manage" onChange={() => setEditing("policies")}
         />
         <Row
-          id="discovery" label="Discovery"
-          description="Let admins export everyone's text — file content, comments, cursor chat and AI prompts — through the Discovery API. While it's on, everyone's text in the organization is recorded."
+          id="discovery" label={t("Discovery")}
+          description={t("Let admins export everyone's text — file content, comments, cursor chat and AI prompts — through the Discovery API. While it's on, everyone's text in the organization is recorded.")}
           value={gOff ? gValue("") : undefined}
-          control={<Switch label="Discovery" checked={!gOff && s.discovery} disabled={gOff} onChange={(on) => void save({ discovery: on }, on ? "Discovery turned on" : "Discovery turned off")} />}
+          control={<Switch label={t("Discovery")} checked={!gOff && s.discovery} disabled={gOff} onChange={(on) => void save({ discovery: on }, on ? "Discovery turned on" : "Discovery turned off")} />}
         />
         <Row
-          id="audio" label="Audio" description="Let members and guests talk in the organization's files."
-          control={<Switch label="Audio" checked={s.audio} onChange={(on) => void save({ audio: on }, on ? "Audio turned on" : "Audio turned off")} />}
+          id="audio" label={t("Audio")} description={t("Let members and guests talk in the organization's files.")}
+          control={<Switch label={t("Audio")} checked={s.audio} onChange={(on) => void save({ audio: on }, on ? "Audio turned on" : "Audio turned off")} />}
         />
         <Row
-          id="installer" label="Enterprise installer" description="An MSI installer that installs the desktop app for every user of a Windows computer."
-          control={<Button variant="secondary" disabled tooltip={INSTALLER_TOOLTIP}>Download</Button>}
+          id="installer" label={t("Enterprise installer")} description={t("An MSI installer that installs the desktop app for every user of a Windows computer.")}
+          control={<Button variant="secondary" disabled tooltip={INSTALLER_TOOLTIP}>{t("Download")}</Button>}
         />
       </Group>
 
       {/* Ours (docs/multiplayer.md §14.17): Figma deletes an organization through its support */}
-      <Group title="Danger zone">
+      <Group title={t("Danger zone")}>
         <Row
-          id="deleteOrg" label="Delete organization"
-          description="Delete the organization with its teams, folders, files, libraries and fonts. Admins can restore it for 14 days; after that it's gone for good."
+          id="deleteOrg" label={t("Delete organization")}
+          description={t("Delete the organization with its teams, folders, files, libraries and fonts. Admins can restore it for 14 days; after that it's gone for good.")}
           disabled={!orgs || !org}
-          control={<Button variant="destructive" disabled={!orgs || !org} onClick={() => setEditing("deleteOrg")}>Delete organization</Button>}
+          control={<Button variant="destructive" disabled={!orgs || !org} onClick={() => setEditing("deleteOrg")}>{t("Delete organization")}</Button>}
         />
       </Group>
 
@@ -281,8 +283,8 @@ export function SettingsTab() {
       {editing === "keyManagement" && <KeyManagementDialog onClose={close} />}
       {editing === "removeGovernancePlus" && governance && (
         <ConfirmDialog
-          title="Remove Governance+?" destructive confirm="Remove"
-          body="Its settings are kept but stop applying. A session timeout under 12 hours goes back to 12 hours."
+          title={t("Remove Governance+?")} destructive confirm="Remove"
+          body={t("Its settings are kept but stop applying. A session timeout under 12 hours goes back to 12 hours.")}
           onConfirm={() => void run(() => governance.setGovernancePlus(orgId, false), "Governance+ removed")}
           onClose={close}
         />
@@ -292,7 +294,7 @@ export function SettingsTab() {
       {editing === "dataRegion" && <DataRegionDialog onClose={close} />}
       {editing === "passwordMode" && (
         <ChoiceDialog
-          title="Password protection options" label="Password protection options" intro="Choose what type of passwords can be added to files."
+          title={t("Password protection options")} label={t("Password protection options")} intro="Choose what type of passwords can be added to files."
           choices={[
             { value: "any", label: "Any password", description: "People can type a password or generate one." },
             { value: "autogenerated", label: "Autogenerated passwords only", description: "Passwords are four random words generated by the app." },
@@ -302,7 +304,7 @@ export function SettingsTab() {
       )}
       {editing === "externalContent" && (
         <ChoiceDialog
-          title="Access to external content" label="Access to external content"
+          title={t("Access to external content")} label={t("Access to external content")}
           intro="Members on your verified domains can be kept to the organization's own files. Guests and drafts inside the organization aren't affected."
           choices={[
             { value: "allowed", label: "Allow access to external content", description: "Members can create, edit and comment on files outside the organization." },
@@ -313,10 +315,10 @@ export function SettingsTab() {
       )}
       {editing === "guestMembership" && (
         <ChoiceDialog
-          title="Guest membership"
-          label="Guest membership"
+          title={t("Guest membership")}
+          label={t("Guest membership")}
           intro="Choose who can invite external users to files, folders and teams."
-          choices={(Object.keys(GUEST_MEMBERSHIP_LABEL) as OrgSettings["guestMembership"][]).map((v) => ({ value: v, label: v === "allow" ? `${GUEST_MEMBERSHIP_LABEL[v]} (default)` : GUEST_MEMBERSHIP_LABEL[v], description: GUEST_MEMBERSHIP_DESCRIPTION[v] }))}
+          choices={(Object.keys(GUEST_MEMBERSHIP_LABEL) as OrgSettings["guestMembership"][]).map((v) => ({ value: v, label: v === "allow" ? t("{label} (default)", { label: t(GUEST_MEMBERSHIP_LABEL[v]) }) : GUEST_MEMBERSHIP_LABEL[v], description: GUEST_MEMBERSHIP_DESCRIPTION[v] }))}
           value={s.guestMembership}
           onSave={(v) => save({ guestMembership: v as OrgSettings["guestMembership"] })}
           onClose={close}
@@ -336,11 +338,11 @@ export function SettingsTab() {
         />
       )}
       {editing === "orgName" && orgs && org && (
-        <NameDialog title="Organization name" label="Organization name" value={org.name} confirm="Save" onSave={(name) => void run(() => orgs.update(orgId, { name }), "Organization renamed")} onClose={close} />
+        <NameDialog title={t("Organization name")} label={t("Organization name")} value={org.name} confirm="Save" onSave={(name) => void run(() => orgs.update(orgId, { name }), "Organization renamed")} onClose={close} />
       )}
       {editing === "orgIcon" && orgs && org && (
         <IconDialog
-          title="Organization icon"
+          title={t("Organization icon")}
           name={org.name}
           iconUrl={org.iconUrl}
           onClose={close}
@@ -359,12 +361,12 @@ export function SettingsTab() {
           onDelete={() => {
             close();
             // Home leaves Admin for the deleted org's page (Restore) once the org reads as deleted
-            void run(() => orgs.remove(orgId, org.name), `${org.name} deleted`);
+            void run(() => orgs.remove(orgId, org.name), t("{name} deleted", { name: org.name }));
           }}
         />
       )}
       {editing === "defaultSeat" && (
-        <ChoiceDialog title="Default seat" label="Default seat" choices={SEATS.map((v) => ({ value: v, label: SEAT_LABEL[v], description: SEAT_DESCRIPTION[v] }))} value={s.defaultSeat} onSave={(v) => save({ defaultSeat: v as Seat })} onClose={close} />
+        <ChoiceDialog title={t("Default seat")} label={t("Default seat")} choices={SEATS.map((v) => ({ value: v, label: SEAT_LABEL[v], description: SEAT_DESCRIPTION[v] }))} value={s.defaultSeat} onSave={(v) => save({ defaultSeat: v as Seat })} onClose={close} />
       )}
       {editing === "seatApproval" && <SeatApprovalDialog onClose={close} />}
       {editing === "aiCreditLimit" && <CreditLimitDialog value={s.aiCreditLimit} onSave={(v) => void save({ aiCreditLimit: v }, "AI credit limit saved")} onClose={close} />}
@@ -383,6 +385,7 @@ const GUEST_MEMBERSHIP_DESCRIPTION: Record<OrgSettings["guestMembership"], strin
 };
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
+  useT();
   return (
     <section className={styles.settingsGroup} data-settings-group={title}>
       <h2 className={styles.settingsGroupTitle}>{title}</h2>
@@ -392,18 +395,20 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function SubTitle({ children }: { children: ReactNode }) {
+  useT();
   return <h3 className={styles.settingsSubTitle}>{children}</h3>;
 }
 
 function Row({ id, label, description, value, onChange, action = "Change", control, disabled }: { id: string; label: string; description: string; value?: ReactNode; onChange?: () => void; action?: string; control?: ReactNode; disabled?: boolean }) {
+  useT();
   return (
     <div className={styles.settingRow} data-setting={id} data-disabled={disabled || undefined}>
       <span className={styles.settingText}>
-        <span className={styles.settingLabel}>{label}</span>
-        <span className={styles.settingDescription}>{description}</span>
+        <span className={styles.settingLabel}>{t(label)}</span>
+        <span className={styles.settingDescription}>{t(description)}</span>
       </span>
-      {value !== undefined && <span className={styles.settingValue}>{value}</span>}
-      {control ?? <Button variant="secondary" disabled={disabled || !onChange} onClick={onChange}>{action}</Button>}
+      {value !== undefined && <span className={styles.settingValue}>{typeof value === "string" ? t(value) : value}</span>}
+      {control ?? <Button variant="secondary" disabled={disabled || !onChange} onClick={onChange}>{t(action)}</Button>}
     </div>
   );
 }

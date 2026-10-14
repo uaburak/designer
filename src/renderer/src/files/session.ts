@@ -10,6 +10,7 @@
  */
 import { useEffect } from "react";
 import type { ToastOptions } from "@/ds";
+import { t } from "@/i18n";
 import { toastIdleLoggedOut } from "../account/IdleWarning";
 import { webSignInResult } from "../store/webAccount";
 import { accountBridge, signInFailure } from "./account";
@@ -26,7 +27,7 @@ export function useSessionNotices(backend: Pick<FilesBackend, "watchSession" | "
       if (!live) return;
       void accountBridge()?.signOut();
       if (e.reason === "idle_timeout") toastIdleLoggedOut(toast);
-      else toast({ message: SESSION_ENDED_TEXT });
+      else toast({ message: t(SESSION_ENDED_TEXT) });
     });
     if (source === "dev")
       void webSignInResult().then((r) => {

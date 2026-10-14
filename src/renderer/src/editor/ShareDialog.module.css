@@ -144,6 +144,8 @@
   .online { color: var(--figma-color-text-success); }
   .role { flex: none; color: var(--figma-color-text); }
   .chevron { flex: none; color: var(--figma-color-icon-secondary); }
+  /* A team member taken off this file: dimmed, "No access" */
+  .removed .name, .removed .secondary { color: var(--figma-color-text-disabled); }
 
   /* Card 2: rows 464×36 inside an 8 inset */
   .rows { padding: var(--ds-space-2); }

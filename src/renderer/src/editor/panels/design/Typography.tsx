@@ -35,9 +35,11 @@ export const isTextPath = (n: PanelNode): boolean => typeOf(n) === "TEXT_PATH";
 
 /** Flip (docs/draw.md §5.8; tooltip wording [unverified], forum): the text to the path's other side — FLIP_TEXT_PATH. */
 export function FlipTextPathButton({ refs }: { refs: readonly string[] }) {
+  useT();
   const ed = useEditor();
-  return <IconButton icon="24.text-path-flip" label="Flip text orientation" tone="secondary" data-flip-text-path="" onClick={() => runDraw(ed, "FLIP_TEXT_PATH", { refs: [...refs] })} />;
+  return <IconButton icon="24.text-path-flip" label={t("Flip text orientation")} tone="secondary" data-flip-text-path="" onClick={() => runDraw(ed, "FLIP_TEXT_PATH", { refs: [...refs] })} />;
 }
+import { t, useT } from "@/i18n";
 import styles from "./Design.module.css";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
 import { VariableField } from "./Variables";
@@ -89,6 +91,7 @@ export function lineHeightView(lh: NumberValue | undefined): { value: number | n
 }
 
 export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const labels = useUI((s) => s.propertyLabels);
   const kept = useSupports("fontSize");
@@ -132,7 +135,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
 
   return (
     <PanelSection
-      title="Typography"
+      title={t("Typography")}
       actions={
         <>
           {nodes.length === 1 && <BindButton layer={nodes[0]} field="TEXT_DATA" type="TEXT" />}
@@ -158,7 +161,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
         </PropertyRow>
         <PropertyRow>
           <Select
-            label="Font style"
+            label={t("Font style")}
             variant="ghost"
             menuWidth={167}
             value={style}
@@ -167,16 +170,16 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
               ...styleGroups.upright.map((s) => ({ value: s, label: s })),
               ...(styleGroups.upright.length && styleGroups.italic.length ? ["-" as const] : []),
               ...styleGroups.italic.map((s) => ({ value: s, label: s })),
-              ...(variable ? ["-" as const, { value: VARIABLE_AXES, label: "Variable font axes…" }] : []),
+              ...(variable ? ["-" as const, { value: VARIABLE_AXES, label: t("Variable font axes…") }] : []),
             ]}
-            onChange={(s) => (s === VARIABLE_AXES ? setDetails(document.querySelector<HTMLElement>('[aria-label="Type settings"]')) : write("Font style", { fontName: { family: isMixed(family) ? "Inter" : family, style: s, postscript: "" } }))}
+            onChange={(s) => (s === VARIABLE_AXES ? setDetails(document.querySelector<HTMLElement>(`[aria-label="${t("Type settings")}"]`)) : write("Font style", { fontName: { family: isMixed(family) ? "Inter" : family, style: s, postscript: "" } }))}
           />
           <span data-font-size="" style={{ display: "contents" }}>
           {/* Live (design/text.txt): one 88 field, its list's chevron on hover — no hover Apply variable (unverified where Figma
               offers the font size's variable: not in the captured panel) */}
           <VariableField nodes={nodes} fields={["FONT_SIZE"]} prefix="24.text.font-size" button={false} open={sizePicker} onOpenChange={setSizePicker}>
           <NumericInput
-            label="Font size"
+            label={t("Font size")}
             className={styles.fontSizeField}
             value={fieldValue(size)}
             min={1}
@@ -189,7 +192,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
             suffix={
               kept ? (
                 <MenuButton
-                  label="Font sizes"
+                  label={t("Font sizes")}
                   entries={sizeEntries}
                   overField='[data-ds="NumericInput"]'
                   // Live (popovers/font-size-menu.txt: 96 wide at 1312,455): the current size's row level with the field
@@ -206,17 +209,17 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
           </VariableField>
           </span>
         </PropertyRow>
-        <PropertyRow labels={paths ? ["Letter spacing"] : ["Line height", "Letter spacing"]}>
+        <PropertyRow labels={paths ? [t("Letter spacing")] : [t("Line height"), t("Letter spacing")]}>
           {!paths && (
           <VariableField nodes={nodes} fields={["LINE_HEIGHT"]} prefix="24.text.line-height" disabled={!lhKept}>
           <NumericInput
             className={styles.typeMetric}
-            label="Line height"
+            label={t("Line height")}
             prefix="24.text.line-height"
             value={lh === undefined ? null : isMixed(lh) ? MIXED : lhView!.value}
-            valueLabel={lhView?.label}
+            valueLabel={lhView?.label && t(lhView.label)}
             unit={lhView?.unit}
-            placeholder="Auto"
+            placeholder={t("Auto")}
             min={0}
             disabled={!lhKept}
             onChange={(v, info) => write("Line height", { lineHeight: lhView?.unit === "%" ? { value: v / 100, units: "RAW" } : { value: v, units: "PIXELS" } }, info)}
@@ -229,7 +232,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
           <VariableField nodes={nodes} fields={["LETTER_SPACING"]} prefix="24.text.letter-spacing" disabled={!lsKept}>
           <NumericInput
             className={styles.typeMetric}
-            label="Letter spacing"
+            label={t("Letter spacing")}
             prefix="24.text.letter-spacing"
             value={lsValue}
             unit={lsUnit}
@@ -243,37 +246,37 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
           </>
         )}
         <PropertyRow
-          label="Alignment"
+          label={t("Alignment")}
           action={
             paths ? (
               <FlipTextPathButton refs={refs} />
             ) : (
-              <IconButton icon="24.adjust.small" label="Type settings" tone="secondary" aria-expanded={!!details} onClick={(e) => setDetails(details ? null : e.currentTarget)} />
+              <IconButton icon="24.adjust.small" label={t("Type settings")} tone="secondary" aria-expanded={!!details} onClick={(e) => setDetails(details ? null : e.currentTarget)} />
             )
           }
         >
           <SegmentedControl
-            label="Text align horizontal"
+            label={t("Text align horizontal")}
             fullWidth
             disabled={!alignKept}
             value={align === undefined ? "LEFT" : align}
             options={[
-              { value: "LEFT", icon: "24.text.align-left", tooltip: "Align left" },
-              { value: "CENTER", icon: "24.text.align-center", tooltip: "Align center" },
-              { value: "RIGHT", icon: "24.text.align-right", tooltip: "Align right" },
-              ...(paths ? [{ value: "JUSTIFIED", icon: "24.text.align-justified" as const, tooltip: "Justify" }] : []),
+              { value: "LEFT", icon: "24.text.align-left", tooltip: t("Align left") },
+              { value: "CENTER", icon: "24.text.align-center", tooltip: t("Align center") },
+              { value: "RIGHT", icon: "24.text.align-right", tooltip: t("Align right") },
+              ...(paths ? [{ value: "JUSTIFIED", icon: "24.text.align-justified" as const, tooltip: t("Justify") }] : []),
             ]}
             onChange={(v) => write("Text alignment", { textAlignHorizontal: v as ExtraFields["textAlignHorizontal"] })}
           />
           <SegmentedControl
-            label="Text align vertical"
+            label={t("Text align vertical")}
             fullWidth
             disabled={!valignKept}
             value={valign === undefined ? "TOP" : valign}
             options={[
-              { value: "TOP", icon: "24.text.align-top", tooltip: "Align top" },
-              { value: "CENTER", icon: "24.text.align-middle", tooltip: "Align middle" },
-              { value: "BOTTOM", icon: "24.text.align-bottom", tooltip: "Align bottom" },
+              { value: "TOP", icon: "24.text.align-top", tooltip: t("Align top") },
+              { value: "CENTER", icon: "24.text.align-middle", tooltip: t("Align middle") },
+              { value: "BOTTOM", icon: "24.text.align-bottom", tooltip: t("Align bottom") },
             ]}
             onChange={(v) => write("Text alignment", { textAlignVertical: v as ExtraFields["textAlignVertical"] })}
           />

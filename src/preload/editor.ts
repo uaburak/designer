@@ -5,7 +5,7 @@ import type { AgentsApi, ToolCallResult } from "../shared/agents/types";
 import type { ShortcutSettings } from "../shared/shortcuts";
 import type { AiApi } from "../shared/ai/api";
 import type { AiImageRequest, AiRunRequest } from "../shared/ai/types";
-import { agentSetupApi, aiSetupApi, common, files, forwardStorePort, invoke, nav, on, openExternal, send, sharedFontsApi, uploadedFonts, viewMenu } from "./common";
+import { agentSetupApi, figmaConnectionApi, aiSetupApi, common, files, forwardStorePort, invoke, nav, on, openExternal, send, sharedFontsApi, uploadedFonts, viewMenu } from "./common";
 
 /**
  * A file tab's view (`?editor&file=<fileKey>`), or the spare editor (`?editor`
@@ -97,6 +97,7 @@ const api: EditorApi = {
   },
   // Text › Spell check: the view's own spell checker (webPreferences.spellcheck, src/main/views.ts), at most 2000 words a call.
   agents: agentsApi(),
+  figma: { ...figmaConnectionApi, images: (fileKey, hashes) => invoke("figma:images", { fileKey: String(fileKey), hashes: Array.isArray(hashes) ? hashes.map(String) : [] }) },
   ai: aiApi(),
   clipboard: {
     readVector: () => invoke("clipboard:read-vector"),

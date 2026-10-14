@@ -3,6 +3,7 @@
  * and Figma's words for each. No React, no store calls: FilesApp feeds it the store's records.
  */
 import { timeAgo } from "@/ds/util/time";
+import { t, tp } from "@/i18n";
 import type { FileQuery } from "@shared/store/repositories";
 import type { FileKey, FileListItem, Folder, FolderId, Prefs } from "@shared/store/types";
 
@@ -23,6 +24,7 @@ export type Location =
   | OrgLocation;
 
 export type OrgLocation =
+  | { kind: "all-projects" }
   | { kind: "org-drafts" }
   | { kind: "teams" }
   | { kind: "team"; teamId: string; tab?: "folders" | "members" }
@@ -31,7 +33,7 @@ export type OrgLocation =
   | { kind: "resources" }
   | { kind: "admin" };
 
-const ORG_KINDS = new Set<Location["kind"]>(["org-drafts", "teams", "team", "project", "org-trash", "resources", "admin"]);
+const ORG_KINDS = new Set<Location["kind"]>(["all-projects", "org-drafts", "teams", "team", "project", "org-trash", "resources", "admin"]);
 export const isOrgLocation = (loc: Location): loc is OrgLocation => ORG_KINDS.has(loc.kind);
 
 export const sameLocation = (a: Location, b: Location): boolean => JSON.stringify(a) === JSON.stringify(b);
@@ -62,33 +64,35 @@ export function fileQuery(loc: Location): FileQuery | null {
 export function locationTitle(loc: Location, folders: readonly Folder[]): string {
   switch (loc.kind) {
     case "recents":
-      return "Recents";
+      return t("Recents");
     case "drafts":
-      return "Drafts";
+      return t("Drafts");
     case "folders":
-      return "All folders";
+      return t("All folders");
     case "folder":
-      return folders.find((f) => f.id === loc.folderId)?.name ?? "Folder";
+      return folders.find((f) => f.id === loc.folderId)?.name ?? t("Folder");
     case "starred":
-      return "Starred";
+      return t("Starred");
     case "trash":
-      return "Trash";
+      return t("Trash");
     case "search":
-      return `Results for “${loc.text.trim()}”`;
+      return t("Results for “{text}”", { text: loc.text.trim() });
+    case "all-projects":
+      return t("All projects");
     case "org-drafts":
-      return "Drafts";
+      return t("Drafts");
     case "teams":
-      return "All teams";
+      return t("All teams");
     case "team":
-      return "Team";
+      return t("Team");
     case "project":
-      return "Folder";
+      return t("Folder");
     case "org-trash":
-      return "Trash";
+      return t("Trash");
     case "resources":
-      return "Resources";
+      return t("Resources");
     case "admin":
-      return "Admin";
+      return t("Admin");
   }
 }
 
@@ -316,14 +320,14 @@ export function listItems({ location, folders, files, counts = {}, starredFolder
 
 /** A card's second line: "Edited 3 hours ago" ("Deleted 2 days ago" in Trash). */
 export function fileSubtitle(f: FileListItem, now = Date.now()): string {
-  if (f.trashedAt !== null) return `Deleted ${timeAgo(f.trashedAt, now)}`;
-  return `Edited ${timeAgo(f.updatedAt, now)}`;
+  if (f.trashedAt !== null) return t("Deleted {time}", { time: timeAgo(f.trashedAt, now) });
+  return t("Edited {time}", { time: timeAgo(f.updatedAt, now) });
 }
 
 export function folderSubtitle(item: FolderItem, now = Date.now()): string {
-  if (item.folder.trashedAt !== null) return `Deleted ${timeAgo(item.folder.trashedAt, now)}`;
+  if (item.folder.trashedAt !== null) return t("Deleted {time}", { time: timeAgo(item.folder.trashedAt, now) });
   if (item.fileCount === null) return "";
-  return plural(item.fileCount, "file");
+  return tp(item.fileCount, "{n} file", "{n} files");
 }
 
 /** The list view's date column for the chosen sort. */
@@ -426,6 +430,22 @@ export function selectedTargets(ids: readonly string[]): { files: FileKey[]; fol
     else if (p?.kind === "folder") folders.push(p.folderId);
   }
   return { files, folders };
+}
+
+/** The toasts' counts, per action: [one, other] for files only, folders only, and a mix (translated where shown). */
+const COUNT_MESSAGES = {
+  trash: { file: ["File moved to trash", "{n} files moved to trash"], folder: ["Folder moved to trash", "{n} folders moved to trash"], item: ["{n} item moved to trash", "{n} items moved to trash"] },
+  restore: { file: ["File restored", "{n} files restored"], folder: ["Folder restored", "{n} folders restored"], item: ["{n} item restored", "{n} items restored"] },
+  delete: { file: ["File deleted forever", "{n} files deleted forever"], folder: ["Folder deleted forever", "{n} folders deleted forever"], item: ["{n} item deleted forever", "{n} items deleted forever"] },
+  /** The confirmation's subject, lower case ("3 files") */
+  subject: { file: ["{n} file", "{n} files"], folder: ["{n} folder", "{n} folders"], item: ["{n} item", "{n} items"] },
+} as const;
+
+/** "File moved to trash", "3 files moved to trash", "2 items moved to trash" — in the current language. */
+export function countMessage(x: { files: readonly unknown[]; folders: readonly unknown[] }, action: keyof typeof COUNT_MESSAGES): string {
+  const n = x.files.length + x.folders.length;
+  const [one, other] = COUNT_MESSAGES[action][!x.folders.length ? "file" : !x.files.length ? "folder" : "item"];
+  return tp(n, one, other);
 }
 
 /** "File moved to trash", "3 files moved to trash", "2 items moved to trash". */

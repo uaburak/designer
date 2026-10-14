@@ -19,6 +19,7 @@ import { StoreError } from "../../shared/store/protocol";
 import type { Unsubscribe } from "../../shared/store/repositories";
 import type { FileKey } from "../../shared/store/types";
 import type { MultiplayerService } from "../multiplayer/service";
+import { t as tr } from "../../shared/i18n";
 
 export interface CommentsHost {
   /** The file's local comments record (null when it has none) */
@@ -113,14 +114,14 @@ export class CommentsService {
     const message = cleanMessage(input?.message);
     const mentions = cleanMentions(input?.mentions);
     const threadId = typeof input?.threadId === "string" && input.threadId ? input.threadId : null;
-    if (!threadId && !validAnchor(input?.anchor)) throw new StoreError("invalid", "A new comment needs its place");
+    if (!threadId && !validAnchor(input?.anchor)) throw new StoreError("invalid", tr("A new comment needs its place"));
     return this.write(fileKey, {
       server: (key) => this.mp.call("POST", `/files/${key}/comments`, { id: this.newId(), threadId, message, mentions, anchor: input.anchor }),
       local: (rec, me) => {
         const now = this.host.now();
         const id = this.newId();
         if (threadId) {
-          if (!rec.comments.some((c) => c.id === threadId && c.parentId === null)) throw new StoreError("not-found", "No such thread");
+          if (!rec.comments.some((c) => c.id === threadId && c.parentId === null)) throw new StoreError("not-found", tr("No such thread"));
           rec.comments.push({ id, threadId, parentId: threadId, user: me, message, mentions, createdAt: now, editedAt: null, reactions: [] });
           rec.reads[threadId] = now;
         } else {
@@ -320,13 +321,13 @@ function strip(c: StoredComment): Comment {
 
 function find(rec: LocalComments, id: string): StoredComment {
   const c = rec.comments.find((x) => x.id === id);
-  if (!c) throw new StoreError("not-found", "No such comment");
+  if (!c) throw new StoreError("not-found", tr("No such comment"));
   return c;
 }
 
 function cleanMessage(v: unknown): string {
   const t = typeof v === "string" ? v.trim() : "";
-  if (!t || t.length > MAX_COMMENT_LENGTH) throw new StoreError("invalid", "A comment needs some text");
+  if (!t || t.length > MAX_COMMENT_LENGTH) throw new StoreError("invalid", tr("A comment needs some text"));
   return t;
 }
 

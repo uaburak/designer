@@ -13,6 +13,7 @@ import { SerialQueue } from "../../shared/store/queue";
 import { foldName, nameScore } from "../../shared/studio/library";
 import { DEFAULT_FORMATS, type Brand, type BrandColor, type BrandImage, type BrandImageAdd, type BrandImageRole, type BrandSave, type BrandsRepository, type LabelText, type Product, type ProductSave, type SocialFormat } from "../../shared/studio/types";
 import { EXTENSION, MAX_BRAND_IMAGE_BYTES, readBrandImage, type BrandMime } from "./imageInfo";
+import { t as tr } from "../../shared/i18n";
 
 export interface BrandsHost {
   /** A text file under the library ("<brandId>/brand.json"); null: none */
@@ -63,7 +64,7 @@ function cleanFormats(v: unknown): SocialFormat[] {
     const { id, name, width, height } = f as SocialFormat;
     const w = Math.round(Number(width));
     const h = Math.round(Number(height));
-    if (!(w >= 16 && w <= 8192 && h >= 16 && h <= 8192)) throw bad(`Format "${clip(name, 40)}" needs a width and a height between 16 and 8192`);
+    if (!(w >= 16 && w <= 8192 && h >= 16 && h <= 8192)) throw bad(tr("Format \"{name}\" needs a width and a height between 16 and 8192", { name: clip(name, 40) }));
     out.push({ id: clip(id, 40) || foldName(clip(name, 40)).replace(/[^a-z0-9]+/g, "-") || "format", name: clip(name, 60) || `${w} × ${h}`, width: w, height: h });
   }
   return out;
@@ -118,7 +119,7 @@ export class BrandsService {
 
   private brandOf(all: Map<string, Brand>, id: string): Brand {
     const b = all.get(id);
-    if (!b) throw new StoreError("not-found", "That brand isn't in the library");
+    if (!b) throw new StoreError("not-found", tr("That brand isn't in the library"));
     return b;
   }
 
@@ -161,9 +162,9 @@ export class BrandsService {
     return this.queue.run(async () => {
       const all = await this.load();
       const name = clip(s?.name, 120);
-      if (!name) throw bad("A brand needs a name");
+      if (!name) throw bad(tr("A brand needs a name"));
       const old = s.id ? this.brandOf(all, s.id) : null;
-      if ([...all.values()].some((b) => b.id !== old?.id && foldName(b.name) === foldName(name))) throw bad(`There is already a brand named ${name}`);
+      if ([...all.values()].some((b) => b.id !== old?.id && foldName(b.name) === foldName(name))) throw bad(tr("There is already a brand named {name}", { name }));
       const now = this.host.now();
       const brand: Brand = old
         ? { ...old }
@@ -194,9 +195,9 @@ export class BrandsService {
       const all = await this.load();
       const brand = this.brandOf(all, s?.brandId);
       const name = clip(s.name, 120);
-      if (!name) throw bad("A product needs a name");
+      if (!name) throw bad(tr("A product needs a name"));
       const old = s.id ? brand.products.find((p) => p.id === s.id) : undefined;
-      if (s.id && !old) throw new StoreError("not-found", "That product isn't in the library");
+      if (s.id && !old) throw new StoreError("not-found", tr("That product isn't in the library"));
       if (brand.products.some((p) => p.id !== old?.id && foldName(p.name) === foldName(name))) throw bad(`${brand.name} already has a product named ${name}`);
       const now = this.host.now();
       const next: Product = old ? { ...old } : { id: this.newUniqueId((id) => brand.products.some((p) => p.id === id)), brandId: brand.id, name, shape: "", images: [], labels: [], labelsConfirmed: false, notes: "", created: now, updated: now };
@@ -245,16 +246,16 @@ export class BrandsService {
       if (!ROLES.includes(a.role)) throw bad(`A picture's role is one of ${ROLES.join(", ")}`);
       const brandLevel = a.role === "logo" || a.role === "style";
       const product = a.productId ? brand.products.find((p) => p.id === a.productId) : null;
-      if (a.productId && !product) throw new StoreError("not-found", "That product isn't in the library");
+      if (a.productId && !product) throw new StoreError("not-found", tr("That product isn't in the library"));
       if (!brandLevel && !product) throw bad(`A ${a.role === "packshot" ? "product photo" : "label close-up"} belongs to a product`);
       if (brandLevel && product) throw bad(`A ${a.role} picture belongs to the brand, not to a product`);
       const bytes = typeof a.data === "string" ? base64Bytes(a.data) : null;
-      if (!bytes) throw bad("The picture isn't base64");
-      if (bytes.length > MAX_BRAND_IMAGE_BYTES) throw bad("Pictures are at most 20 MB");
+      if (!bytes) throw bad(tr("The picture isn't base64"));
+      if (bytes.length > MAX_BRAND_IMAGE_BYTES) throw bad(tr("Pictures are at most 20 MB"));
       const info = readBrandImage(bytes);
-      if (!info) throw bad("Only PNG, JPEG and WebP pictures can be added");
+      if (!info) throw bad(tr("Only PNG, JPEG and WebP pictures can be added"));
       const list = product ? product.images : brand.logos;
-      if (list.length >= MAX_IMAGES) throw bad(`At most ${MAX_IMAGES} pictures here`);
+      if (list.length >= MAX_IMAGES) throw bad(tr("At most {n} pictures here", { n: MAX_IMAGES }));
       const image: BrandImage = { id: this.newUniqueId(() => false), role: a.role, name: clip(a.name, 120) || `${a.role}.${EXTENSION[info.mime]}`, mime: info.mime, width: info.width, height: info.height };
       await this.host.writeBytes(imageFile(brand.id, image), bytes);
       list.push(image);
@@ -281,9 +282,9 @@ export class BrandsService {
     return this.queue.run(async () => {
       const brand = this.brandOf(await this.load(), brandId);
       const image = [...brand.logos, ...brand.products.flatMap((p) => p.images)].find((i) => i.id === imageId);
-      if (!image) throw new StoreError("not-found", "That picture isn't in the library");
+      if (!image) throw new StoreError("not-found", tr("That picture isn't in the library"));
       const bytes = await this.host.readBytes(imageFile(brand.id, image));
-      if (!bytes) throw new StoreError("not-found", "That picture's file is missing");
+      if (!bytes) throw new StoreError("not-found", tr("That picture's file is missing"));
       return { data: toBase64(bytes), mime: image.mime };
     });
   }

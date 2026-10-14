@@ -11,6 +11,7 @@ import { tooltipProps } from "../overlay/TooltipManager";
 import { Avatar } from "./Misc";
 import { timing } from "../tokens";
 import styles from "./Menu.module.css";
+import { t, useT } from "@/i18n";
 
 export type { MenuEntry, MenuItem, MenuHeader, NativeMenuItem } from "../util/menu";
 export { toNativeTemplate, tidy } from "../util/menu";
@@ -92,6 +93,7 @@ export type MenuOver = { rect: DOMRect; align?: "left" | "right"; dy?: number };
 const SUBMENU_EDGES = { top: 6, bottom: 8 };
 
 function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over, dropdown, minWidth, width: fixedWidth, submenu, edgeBottom, flush, className, flipY, extend: extendProp }: PanelProps) {
+  useT();
   const panel = useRef<HTMLDivElement>(null);
   // Live (menus/main-object.txt): a submenu taller than the window isn't clamped to it — 185 × 1050 at 210, 6 in a 900 high
   // window; it is an extended menu then (the rows past the window's bottom move up on the wheel or on the bar).
@@ -360,7 +362,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
               {entry.trailingIcon && <span className={styles.icon}><MenuIcon name={entry.trailingIcon} /></span>}
               {entry.hint && <span className={styles.hint}>{hintParts(entry.hint)}</span>}
               {entry.badge && (
-                <span className={styles.badge} aria-label={`${entry.badge}, Learn more`}>
+                <span className={styles.badge} aria-label={t("{badge}, Learn more", { badge: entry.badge })}>
                   {entry.badge}
                 </span>
               )}

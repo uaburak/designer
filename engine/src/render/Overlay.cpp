@@ -68,6 +68,17 @@ void Renderer::drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color
          Pass::Shape);
   };
   Vec2 c{box.x + box.w / 2, box.y + box.h / 2};
+  if (icon == TitleIcon::Thumbnail) {
+    // Figma's thumbnail glyph: a card (a 1 px outline inside its edge, slightly rounded) wider than tall, a bar filling its bottom.
+    const double w = box.w, h = std::round(box.w * 0.8);
+    const double x = box.x, y = c.y - h / 2;
+    const double r = 1.5;
+    emit(makeShape(place * Mat2x3::translate(x, y), {w, h}, ShapeKind::Rect, {r, r, r, r}, color, 0, color, color.a, 1, 0),
+         Pass::Shape);
+    const double bar = std::max(2.0, std::round(h * 0.3));
+    emit(makeShape(place * Mat2x3::translate(x, y + h - bar), {w, bar}, ShapeKind::Rect, {0, 0, r, r}, color, color.a, color, 0, 0, 0), Pass::Shape);
+    return;
+  }
   if (icon == TitleIcon::Instance) {
     diamond(c, box.w - 1, false);
   } else {

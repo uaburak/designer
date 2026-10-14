@@ -8,6 +8,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { getStoreClient } from "@/store";
 import type { AiSkill, Connector } from "@shared/ai/types";
 import type { AgentSetupApi } from "@shared/agents/types";
+import { t } from "@/i18n";
 
 interface Loaded<T> {
   list: T[];
@@ -54,7 +55,7 @@ export const skillsBox = new Box<AiSkill>(async () => {
   try {
     return (await skillsRepo().skills()).sort((a, b) => a.name.localeCompare(b.name));
   } catch (err) {
-    throw new Error(/implemented yet|not built/i.test(errorText(err)) ? "Skills aren’t available in this version yet." : errorText(err));
+    throw new Error(/implemented yet|not built/i.test(errorText(err)) ? t("Skills aren’t available in this version yet.") : errorText(err));
   }
 });
 
@@ -78,7 +79,7 @@ export async function removeSkill(id: string): Promise<void> {
 
 let connectorsApi: AgentSetupApi | null = null;
 export const connectorsBox = new Box<Connector>(async () => {
-  if (!connectorsApi?.connectors) throw new Error("Connectors work in the desktop app.");
+  if (!connectorsApi?.connectors) throw new Error(t("Connectors work in the desktop app."));
   return connectorsApi.connectors();
 });
 

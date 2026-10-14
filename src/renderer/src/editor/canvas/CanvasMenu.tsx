@@ -5,6 +5,7 @@
  * with every layer under the point (`hits`, topmost first, each path
  * innermost first) — "Select layer ▸" lists them.
  */
+import { t, useT } from "@/i18n";
 import { ContextMenu } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../controller";
@@ -54,6 +55,7 @@ export function attachGridTracks(ed: EditorController, canvas: HTMLCanvasElement
 }
 
 export function CanvasMenu() {
+  useT();
   const ed = useEditor();
   const at = useUI((s) => s.contextMenu);
   if (!at) return null;
@@ -77,7 +79,7 @@ export function CanvasMenu() {
       at={{ x: at.x, y: at.y }}
       entries={entries}
       width={canvasMenuWidth(entries)}
-      label="Canvas"
+      label={t("Canvas")}
       context
       onSelect={(id) => void runMenuItem(ed, id)}
       onClose={() => {

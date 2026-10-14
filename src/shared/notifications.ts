@@ -5,6 +5,7 @@
  * tells the person's inbox (a per-user Durable Object) at once; the store's `notifications` repository reads them, and
  * main shows the desktop ones. Types and pure helpers shared by the server, the store, main and the views.
  */
+import { getLocale, intlLocale, t, tp } from "./i18n";
 
 export type NotificationKind =
   /** A new thread on a file you're in (owner, or someone who commented twice on it — Figma's rule) */
@@ -193,23 +194,23 @@ export function notificationAction(n: Pick<NotificationItem, "kind" | "count" | 
   const many = n.count > 1;
   switch (n.kind) {
     case "comment":
-      return many ? `${n.count} comments` : "Commented";
+      return many ? tp(n.count, "{n} comment", "{n} comments") : t("Commented");
     case "reply":
-      return many ? `${n.count} comments` : "Replied";
+      return many ? tp(n.count, "{n} comment", "{n} comments") : t("Replied");
     case "mention":
-      return many ? `${n.count} comments` : "Mentioned you";
+      return many ? tp(n.count, "{n} comment", "{n} comments") : t("Mentioned you");
     case "reaction":
-      return many ? `${n.count} reactions` : "Reacted";
+      return many ? tp(n.count, "{n} reaction", "{n} reactions") : t("Reacted");
     case "invite":
-      return n.role === "viewer" ? "Invited you to view" : "Invited you to edit";
+      return n.role === "viewer" ? t("Invited you to view") : t("Invited you to edit");
     case "edit-request":
-      return "Requested to edit";
+      return t("Requested to edit");
     case "request-approved":
-      return "Approved your request to edit";
+      return t("Approved your request to edit");
     case "request-denied":
-      return "Denied your request to edit";
+      return t("Denied your request to edit");
     case "ownership":
-      return "Made you the owner";
+      return t("Made you the owner");
     // Round 5's kinds (docs/editor.md D-4, docs/plugins.md §10.3). Figma's own bell text isn't published: these say
     // Figma's actions in the past tense — its buttons "Mark as ready for dev", "Mark as completed", "Done with changes"
     // (help.figma.com 26781702258583) and "Request approval" / Approve / Decline (4404228724759, 17882120337815).
@@ -217,19 +218,19 @@ export function notificationAction(n: Pick<NotificationItem, "kind" | "count" | 
     case "dev_completed":
     case "dev_changed": {
       const { design, reason } = devStatusText(n.text ?? null);
-      const what = design || "a design";
-      if (n.kind === "dev_ready") return many ? `Marked ${n.count} designs as ready for dev` : `Marked ${what} as ready for dev`;
-      if (n.kind === "dev_completed") return many ? `Marked ${n.count} designs as completed` : `Marked ${what} as completed`;
-      return many ? `Marked ${n.count} designs as ready for dev after changes` : `Marked ${what} as ready for dev after changes${reason ? `: ${reason}` : ""}`;
+      const what = design || t("a design");
+      if (n.kind === "dev_ready") return many ? t("Marked {n} designs as ready for dev", { n: n.count }) : t("Marked {what} as ready for dev", { what });
+      if (n.kind === "dev_completed") return many ? t("Marked {n} designs as completed", { n: n.count }) : t("Marked {what} as completed", { what });
+      return many ? t("Marked {n} designs as ready for dev after changes", { n: n.count }) : `${t("Marked {what} as ready for dev after changes", { what })}${reason ? `: ${reason}` : ""}`;
     }
     case "plugin_request":
-      return `Requested approval for ${n.text || "a plugin"}`;
+      return t("Requested approval for {plugin}", { plugin: n.text || t("a plugin") });
     case "plugin_request_answer":
-      return n.state === "denied" ? `Declined your request for ${n.text || "a plugin"}` : `Approved your request for ${n.text || "a plugin"}`;
+      return n.state === "denied" ? t("Declined your request for {plugin}", { plugin: n.text || t("a plugin") }) : t("Approved your request for {plugin}", { plugin: n.text || t("a plugin") });
     case "capacity_warning":
-      return "Usage warning";
+      return t("Usage warning");
     case "org_deleted":
-      return "Deleted the organization";
+      return t("Deleted the organization");
   }
 }
 
@@ -263,6 +264,11 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 export function notificationDate(at: number, now: number): string {
   const d = new Date(at);
   const n = new Date(now);
+  if (getLocale() !== "en") {
+    const today = d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
+    const opts: Intl.DateTimeFormatOptions = today ? { hour: "2-digit", minute: "2-digit" } : { month: "short", day: "numeric", ...(d.getFullYear() === n.getFullYear() ? {} : { year: "numeric" }) };
+    return new Intl.DateTimeFormat(intlLocale(), opts).format(d);
+  }
   if (d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate()) {
     const h = d.getHours();
     return `${h % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;

@@ -15,7 +15,8 @@
 import { MessageChannelMain, utilityProcess, type UtilityProcess, type WebContents } from "electron";
 import { StoreClient } from "../shared/store/client";
 import { portTransport } from "../shared/store/protocol";
-import type { StoreChildMessage, StoreInitMessage } from "./index";
+import type { StoreChildMessage, StoreInitMessage, StoreParentMessage } from "./index";
+import { getLocale, t as tr, type Locale } from "../shared/i18n";
 
 export interface StartStoreOptions {
   /** The built store entry: electron-vite's main-side `store` input (out/main/store.js) */
@@ -43,6 +44,8 @@ export interface StoreHandle {
   readonly client: StoreClient;
   /** Brokers a port for a Home or editor view: one end to the store with the role, the other to the page */
   connectView(webContents: WebContents, role: "home" | "editor"): void;
+  /** The UI's language changed (the store's own messages follow) */
+  setLocale(locale: Locale): void;
   /** `store.shutdown` (fsync, release the lock), waits for the exit, kills it after the timeout */
   shutdown(timeoutMs?: number): Promise<void>;
   onExit(listener: (code: number) => void): () => void;
@@ -70,14 +73,15 @@ export function startStore(opts: StartStoreOptions): StoreHandle {
     teamName: opts.teamName,
     seedFigs: opts.seedFigs,
     requireSession: opts.requireSession,
+    locale: getLocale(),
   };
   child.postMessage(init, [mainChannel.port1]);
   const ready = new Promise<{ wid: string }>((resolve, reject) => {
     child.on("message", (m: StoreChildMessage) => {
       if (m?.type === "ready") resolve({ wid: m.wid });
-      else if (m?.type === "error") reject(new Error(`The store couldn't start: ${m.message}`));
+      else if (m?.type === "error") reject(new Error(tr("The store couldn't start: {reason}", { reason: m.message })));
     });
-    child.once("exit", (code) => reject(new Error(`The store exited (${code}) before it was ready`)));
+    child.once("exit", (code) => reject(new Error(tr("The store exited ({code}) before it was ready", { code: String(code) }))));
   });
   ready.catch(() => {}); // observed by callers; no unhandled rejection when nobody awaits it
   return {
@@ -85,6 +89,9 @@ export function startStore(opts: StartStoreOptions): StoreHandle {
     generation,
     ready,
     client,
+    setLocale(locale) {
+      if (!exited) child.postMessage({ type: "locale", locale } satisfies StoreParentMessage);
+    },
     connectView(webContents, role) {
       if (exited) return;
       const { port1, port2 } = new MessageChannelMain();

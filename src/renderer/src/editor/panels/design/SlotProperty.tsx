@@ -18,6 +18,7 @@ import { createSlotProperty, newSlotName, readC, slotLayerOf, updateProperty, up
 import { assetLabel, guidStr, isPreferred, preferredKey, type BindableField, type CNode, type ComponentPropDef } from "../../model/components";
 import { ComponentPicker, useComponentAssets } from "./ComponentPicker";
 import { RichTextField } from "./ComponentConfiguration";
+import { t, useT } from "@/i18n";
 import styles from "./SlotProperty.module.css";
 
 /** "Learn more" beside Preferred instances (help.figma.com "Create and use slots"). */
@@ -46,6 +47,7 @@ export function SlotPropertyEditor({
   anchor: HTMLElement | null;
   onClose: () => void;
 }) {
+  useT();
   const ed = useEditor();
   const assets = useComponentAssets();
   const creating = !def;
@@ -91,10 +93,10 @@ export function SlotPropertyEditor({
   };
   const limit = (key: "minChildren" | "maxChildren", label: string) => (
     <>
-      <span className={styles.fieldLabel}>{label}</span>
+      <span className={styles.fieldLabel}>{t(label)}</span>
       <NumericInput
         className={styles.limit}
-        label={label}
+        label={t(label)}
         value={form[key]}
         min={0}
         max={999}
@@ -107,22 +109,22 @@ export function SlotPropertyEditor({
   );
   const preferredLabel = (key: string) => {
     const a = assets.find((x) => isPreferred(x, key));
-    return a ? assetLabel(a.name) : "Missing component";
+    return a ? assetLabel(a.name) : t("Missing component");
   };
-  const title = creating ? "Create property" : "Edit property";
+  const title = creating ? t("Create property") : t("Edit property");
   return (
     <Popover anchor={anchor} title={title} width={304} offsetY={-4} onClose={() => (flushDescription.current(), onClose())} label={title}>
       <div className={styles.form} data-property-editor="SLOT" data-slot-form={creating ? "create" : "edit"}>
-        <span className={styles.label}>Name</span>
+        <span className={styles.label}>{t("Name")}</span>
         <NameField value={form.name} onCommit={(v) => change({ name: v })} />
-        <span className={cx(styles.label, styles.gap)}>Description</span>
-        <RichTextField value={form.description} placeholder="How to use this slot" flushRef={flushDescription} onCommit={(md) => change({ description: md })} />
-        <span className={cx(styles.label, styles.settings)}>Settings</span>
+        <span className={cx(styles.label, styles.gap)}>{t("Description")}</span>
+        <RichTextField value={form.description} placeholder={t("How to use this slot")} flushRef={flushDescription} onCommit={(md) => change({ description: md })} />
+        <span className={cx(styles.label, styles.settings)}>{t("Settings")}</span>
         <div className={styles.rows}>
           {limit("minChildren", "Minimum layers")}
           {limit("maxChildren", "Maximum layers")}
           <div className={styles.check}>
-            <Checkbox tone="panel" label="Only allow preferred instances" checked={form.allowPreferredValuesOnly} onChange={(on) => change({ allowPreferredValuesOnly: on })} />
+            <Checkbox tone="panel" label={t("Only allow preferred instances")} checked={form.allowPreferredValuesOnly} onChange={(on) => change({ allowPreferredValuesOnly: on })} />
           </div>
           {!creating && form.allowPreferredValuesOnly && form.preferred.length > 0 && (
             <div className={styles.check}>
@@ -134,38 +136,38 @@ export function SlotPropertyEditor({
                   if (ids.length) ed.engine.setSelection(ids);
                 }}
               >
-                View layers
+                {t("View layers")}
               </Button>
             </div>
           )}
           <div className={styles.check}>
-            <Checkbox tone="panel" label="By default, display empty slot" checked={form.displayByDefault} onChange={(on) => change({ displayByDefault: on })} />
+            <Checkbox tone="panel" label={t("By default, display empty slot")} checked={form.displayByDefault} onChange={(on) => change({ displayByDefault: on })} />
           </div>
-          <div className={styles.check} {...(canStretch ? {} : tooltipProps("Slot must have auto layout"))} data-slot-counter-axis={canStretch ? "" : "disabled"}>
-            <Checkbox tone="panel" label="By default, fill items on slot's counter axis" disabled={!canStretch} checked={canStretch && form.stretchChildOnInsert} onChange={(on) => change({ stretchChildOnInsert: on })} />
-            <span className={styles.info} role="img" aria-label={COUNTER_AXIS_INFO} {...tooltipProps(COUNTER_AXIS_INFO)}>
+          <div className={styles.check} {...(canStretch ? {} : tooltipProps(t("Slot must have auto layout")))} data-slot-counter-axis={canStretch ? "" : "disabled"}>
+            <Checkbox tone="panel" label={t("By default, fill items on slot's counter axis")} disabled={!canStretch} checked={canStretch && form.stretchChildOnInsert} onChange={(on) => change({ stretchChildOnInsert: on })} />
+            <span className={styles.info} role="img" aria-label={t(COUNTER_AXIS_INFO)} {...tooltipProps(t(COUNTER_AXIS_INFO))}>
               <Icon name="16.info" />
             </span>
           </div>
         </div>
         <div className={styles.preferredHeader}>
-          <span className={styles.preferredTitle}>Preferred instances</span>
+          <span className={styles.preferredTitle}>{t("Preferred instances")}</span>
           <a className={styles.learnMore} href={SLOT_LEARN_MORE} target="_blank" rel="noreferrer">
-            Learn more
+            {t("Learn more")}
           </a>
-          <IconButton icon="24.plus.small" label="Select preferred values" tone="secondary" className={styles.add} aria-expanded={!!picker} onClick={(e) => setPicker(picker ? null : e.currentTarget)} />
+          <IconButton icon="24.plus.small" label={t("Select preferred values")} tone="secondary" className={styles.add} aria-expanded={!!picker} onClick={(e) => setPicker(picker ? null : e.currentTarget)} />
         </div>
         {form.preferred.map((p) => (
           <div key={p.key} className={styles.preferredRow} data-slot-preferred={p.key}>
             <Icon name={p.type === "STATE_GROUP" ? "16.component.set" : "16.component"} className={styles.purple} />
             <span className={styles.preferredName}>{preferredLabel(p.key)}</span>
-            <IconButton icon="24.minus.small" label="Remove preferred instance" tone="secondary" onClick={() => change({ preferred: form.preferred.filter((x) => x.key !== p.key) })} />
+            <IconButton icon="24.minus.small" label={t("Remove preferred instance")} tone="secondary" onClick={() => change({ preferred: form.preferred.filter((x) => x.key !== p.key) })} />
           </div>
         ))}
         {creating && (
           <div className={styles.footer}>
             <Button variant="primary" onClick={create}>
-              Create property
+              {t("Create property")}
             </Button>
           </div>
         )}
@@ -173,7 +175,7 @@ export function SlotPropertyEditor({
       {picker && (
         <ComponentPicker
           anchor={picker}
-          title="Preferred instances"
+          title={t("Preferred instances")}
           onPick={(a) => {
             if (form.preferred.some((p) => isPreferred(a, p.key))) return;
             change({ preferred: [...form.preferred, { type: a.kind === "set" ? "STATE_GROUP" : "COMPONENT", key: preferredKey(a) }] });
@@ -190,6 +192,7 @@ export function SlotPropertyEditor({
  * on open; Enter or leaving it commits, Esc puts it back (a second Esc reaches the popover: it closes).
  */
 function NameField({ value, onCommit }: { value: string; onCommit: (v: string) => void }) {
+  useT();
   const [draft, setDraft] = useState(value);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -200,7 +203,7 @@ function NameField({ value, onCommit }: { value: string; onCommit: (v: string) =
     <input
       ref={input}
       className={styles.name}
-      aria-label="Name"
+      aria-label={t("Name")}
       value={draft}
       spellCheck={false}
       onChange={(e) => setDraft(e.target.value)}

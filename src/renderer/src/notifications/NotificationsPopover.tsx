@@ -6,6 +6,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button, ContextMenu, Icon, IconButton, Portal, useDismiss, useFocusScope, type MenuEntry } from "@/ds";
+import { t, useT } from "@/i18n";
 import { getStoreClient } from "@/store";
 import { PEER_COLORS } from "@shared/multiplayer/colors";
 import { isCommentKind, isDevStatusKind, notificationAction, notificationDate, type NotificationFilter, type NotificationItem, type NotificationPage } from "@shared/notifications";
@@ -40,6 +41,7 @@ const TABS: { id: NotificationFilter; label: string }[] = [
 ];
 
 export function NotificationsPopover({ anchor, onClose, onOpen, onOpenSettings }: NotificationsPopoverProps) {
+  useT();
   const panel = useRef<HTMLDivElement>(null);
   const filterButton = useRef<HTMLButtonElement>(null);
   const [tab, setTab] = useState<NotificationFilter>("all");
@@ -121,14 +123,14 @@ export function NotificationsPopover({ anchor, onClose, onOpen, onOpenSettings }
   };
 
   const files = page?.files ?? [];
-  const filterLabel = fileKey ? (files.find((f) => f.key === fileKey)?.name ?? "All notifications") : "All notifications";
-  const menuEntries: MenuEntry[] = [{ id: "all", label: "All notifications", checked: fileKey === null }, ...(files.length ? (["-"] as MenuEntry[]) : []), ...files.map((f) => ({ id: `file:${f.key}`, label: f.name || "Untitled", checked: fileKey === f.key }))];
+  const filterLabel = fileKey ? (files.find((f) => f.key === fileKey)?.name ?? t("All notifications")) : t("All notifications");
+  const menuEntries: MenuEntry[] = [{ id: "all", label: t("All notifications"), checked: fileKey === null }, ...(files.length ? (["-"] as MenuEntry[]) : []), ...files.map((f) => ({ id: `file:${f.key}`, label: f.name || t("Untitled"), checked: fileKey === f.key }))];
   const unread = page?.unread ?? 0;
   const items = page?.items ?? [];
 
   return (
     <Portal anchor={anchor}>
-      <div ref={panel} role="dialog" aria-label="Notifications" tabIndex={-1} className={styles.popover} onKeyDown={(e) => e.key === "Escape" && !menu && (e.stopPropagation(), onClose())}>
+      <div ref={panel} role="dialog" aria-label={t("Notifications")} tabIndex={-1} className={styles.popover} onKeyDown={(e) => e.key === "Escape" && !menu && (e.stopPropagation(), onClose())}>
         <div className={styles.header}>
           <button
             ref={filterButton}
@@ -144,18 +146,18 @@ export function NotificationsPopover({ anchor, onClose, onOpen, onOpenSettings }
             <span className={styles.filterLabel}>{filterLabel}</span>
             <Icon name="16.chevron.down" />
           </button>
-          <IconButton icon="24.settings.small" label="Notification settings" onClick={onOpenSettings} />
+          <IconButton icon="24.settings.small" label={t("Notification settings")} onClick={onOpenSettings} />
         </div>
         <div className={styles.tabs}>
-          <div role="tablist" aria-label="Notifications" className={styles.tabList}>
-            {TABS.map((t) => (
-              <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} className={styles.tab} onClick={() => setTab(t.id)}>
-                {t.id === "unread" && unread > 0 ? `Unread (${unread})` : t.label}
+          <div role="tablist" aria-label={t("Notifications")} className={styles.tabList}>
+            {TABS.map((x) => (
+              <button key={x.id} type="button" role="tab" aria-selected={tab === x.id} className={styles.tab} onClick={() => setTab(x.id)}>
+                {x.id === "unread" && unread > 0 ? t("Unread ({n})", { n: unread }) : t(x.label)}
               </button>
             ))}
           </div>
           <button type="button" className={styles.markAll} disabled={unread === 0} onClick={markAll}>
-            Mark all as read
+            {t("Mark all as read")}
           </button>
         </div>
         <div
@@ -167,7 +169,7 @@ export function NotificationsPopover({ anchor, onClose, onOpen, onOpenSettings }
           }}
         >
           {page === null && !error ? null : items.length === 0 ? (
-            <div className={styles.empty}>{error ? "Couldn’t load notifications. Check your connection and try again." : tab === "requests" ? "No requests" : tab === "unread" ? "No unread notifications" : "No notifications yet"}</div>
+            <div className={styles.empty}>{error ? t("Couldn’t load notifications. Check your connection and try again.") : tab === "requests" ? t("No requests") : tab === "unread" ? t("No unread notifications") : t("No notifications yet")}</div>
           ) : (
             items.map((n) => <Row key={n.id} n={n} now={now} busy={busy === n.id} onOpen={() => open(n)} onAnswer={(approve) => answer(n, approve)} />)
           )}
@@ -187,6 +189,7 @@ export function NotificationsPopover({ anchor, onClose, onOpen, onOpenSettings }
 }
 
 function Row({ n, now, busy, onOpen, onAnswer }: { n: NotificationItem; now: number; busy: boolean; onOpen: () => void; onAnswer: (approve: boolean) => void }) {
+  useT();
   const request = n.kind === "edit-request";
   const dev = isDevStatusKind(n.kind);
   const plugin = n.kind === "plugin_request" || n.kind === "plugin_request_answer";
@@ -210,33 +213,33 @@ function Row({ n, now, busy, onOpen, onAnswer }: { n: NotificationItem; now: num
         <span className={styles.top}>
           <span className={styles.name}>{n.actor.name}</span>
           <span className={styles.date}>{notificationDate(n.updatedAt, now)}</span>
-          <span className={styles.dotSlot}>{!n.read && <span className={styles.dot} aria-label="Unread" />}</span>
+          <span className={styles.dotSlot}>{!n.read && <span className={styles.dot} aria-label={t("Unread")} />}</span>
         </span>
         <span className={styles.action}>
-          {notificationAction(n)} · {n.fileName || "Untitled"}
+          {notificationAction(n)} · {n.fileName || t("Untitled")}
         </span>
         {n.text && n.count === 1 && !dev && !plugin && <span className={styles.text}>{n.text}</span>}
         {/* Figma's status emails link "Inspect in Dev Mode" to the file's ready-for-dev view (help.figma.com 26781702258583) */}
         {dev && n.fileKey && (
           <span className={styles.actions}>
             <Button variant="secondary" onClick={onOpen} data-notification="inspect">
-              Inspect in Dev Mode
+              {t("Inspect in Dev Mode")}
             </Button>
           </span>
         )}
-        {n.kind === "plugin_request" && n.state && <span className={styles.answered} data-notification="plugin-request">{n.state === "pending" ? "Review it in Admin › Resources" : n.state === "approved" ? "Approved" : "Declined"}</span>}
+        {n.kind === "plugin_request" && n.state && <span className={styles.answered} data-notification="plugin-request">{n.state === "pending" ? t("Review it in Admin › Resources") : n.state === "approved" ? t("Approved") : t("Declined")}</span>}
         {request &&
           (n.state === "pending" ? (
             <span className={styles.actions}>
               <Button variant="secondary" disabled={busy} onClick={() => onAnswer(false)}>
-                Deny
+                {t("Deny")}
               </Button>
               <Button variant="primary" disabled={busy} onClick={() => onAnswer(true)}>
-                Approve
+                {t("Approve")}
               </Button>
             </span>
           ) : (
-            <span className={styles.answered}>{n.state === "approved" ? "Approved" : "Denied"}</span>
+            <span className={styles.answered}>{n.state === "approved" ? t("Approved") : t("Denied")}</span>
           ))}
       </span>
     </div>

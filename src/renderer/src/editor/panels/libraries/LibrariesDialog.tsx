@@ -16,6 +16,7 @@ import type { LibraryEntry } from "../../documentSource";
 import { NodeThumb, RemoteThumb, kindGlyph } from "./Thumbs";
 import styles from "./Libraries.module.css";
 import { EditorLibraryAnalytics } from "../../analytics/EditorAnalytics";
+import { t, tp, useT } from "@/i18n";
 
 export function LibrariesDialog() {
   const open = useUI((s) => s.librariesDialog);
@@ -28,11 +29,12 @@ export function LibrariesDialog() {
 }
 
 const countsText = (c: { components: number; styles: number; variables: number }) => {
-  const parts = [c.components && `${c.components} ${c.components === 1 ? "component" : "components"}`, c.styles && `${c.styles} ${c.styles === 1 ? "style" : "styles"}`, c.variables && `${c.variables} ${c.variables === 1 ? "variable" : "variables"}`].filter(Boolean);
-  return parts.length ? parts.join(" · ") : "No assets";
+  const parts = [c.components && tp(c.components, "{n} component", "{n} components"), c.styles && tp(c.styles, "{n} style", "{n} styles"), c.variables && tp(c.variables, "{n} variable", "{n} variables")].filter(Boolean);
+  return parts.length ? parts.join(" · ") : t("No assets");
 };
 
 function Libraries() {
+  useT();
   const ed = useEditor();
   const view = useUI((s) => s.librariesDialog)!;
   const state = useLibraries();
@@ -49,19 +51,19 @@ function Libraries() {
     if (box && !box.contains(document.activeElement)) box.focus({ preventScroll: true });
   }, [view.tab, view.library, view.update]);
   return (
-    <Dialog title="Libraries" size="large" open onClose={close}>
+    <Dialog title={t("Libraries")} size="large" open onClose={close}>
       <div ref={body} className={styles.libraries} data-libraries-dialog="">
         <Tabs
-          label="Libraries"
+          label={t("Libraries")}
           value={view.tab}
           tabs={[
-            { value: "libraries", label: "Libraries" },
-            { value: "updates", label: "Updates", badge: pending || undefined },
+            { value: "libraries", label: t("Libraries") },
+            { value: "updates", label: t("Updates"), badge: pending || undefined },
           ]}
           onChange={(tab) => set({ tab: tab as "libraries" | "updates", library: null, update: null })}
         />
         {!state.on ? (
-          <EmptyState icon="24.library" title="Libraries aren't available here" body="Open a file from your workspace to publish and use libraries." />
+          <EmptyState icon="24.library" title={t("Libraries aren't available here")} body={t("Open a file from your workspace to publish and use libraries.")} />
         ) : view.tab === "updates" ? (
           view.update ? <ReviewUpdate id={view.update} onBack={() => set({ update: null })} /> : <Updates onOpen={(id) => set({ update: id })} />
         ) : view.library ? (
@@ -75,6 +77,7 @@ function Libraries() {
 }
 
 function LibraryList({ onOpen, onPublish }: { onOpen: (lib: string) => void; onPublish: () => void }) {
+  useT();
   const ed = useEditor();
   const state = useLibraries();
   const [query, setQuery] = useState("");
@@ -82,16 +85,16 @@ function LibraryList({ onOpen, onPublish }: { onOpen: (lib: string) => void; onP
   const q = query.trim().toLowerCase();
   const match = (name: string) => !q || name.toLowerCase().includes(q);
   const byKey = new Map(state.available.map((e) => [e.fileKey, e]));
-  const added = pinApproved(state.enabled.map((lib) => byKey.get(lib) ?? { fileKey: lib, name: state.names.get(lib) ?? "Missing library", location: "", record: null }).filter((e) => match(e.name)) as LibraryEntry[]);
+  const added = pinApproved(state.enabled.map((lib) => byKey.get(lib) ?? { fileKey: lib, name: state.names.get(lib) ?? t("Missing library"), location: "", record: null }).filter((e) => match(e.name)) as LibraryEntry[]);
   const others = state.available.filter((e) => !state.enabled.includes(e.fileKey) && match(e.name));
   const sections = otherSections(others, state.org?.orgName ?? null);
   const toggle = async (lib: string, on: boolean, name: string) => {
     setBusy(lib);
     try {
       await setLibraryEnabled(ed, lib, on);
-      showToast({ message: on ? `Added ${name} to this file` : `Removed ${name} from this file` });
+      showToast({ message: on ? t("Added {name} to this file", { name }) : t("Removed {name} from this file", { name }) });
     } catch {
-      showToast({ message: on ? "The library couldn't be added" : "The library couldn't be removed", kind: "error" });
+      showToast({ message: on ? t("The library couldn't be added") : t("The library couldn't be removed"), kind: "error" });
     } finally {
       setBusy(null);
     }
@@ -100,32 +103,32 @@ function LibraryList({ onOpen, onPublish }: { onOpen: (lib: string) => void; onP
   const fileName = useUI((s) => s.fileName);
   return (
     <div className={styles.listBody}>
-      <SearchField value={query} onChange={setQuery} placeholder="Search libraries" autoFocus />
+      <SearchField value={query} onChange={setQuery} placeholder={t("Search libraries")} autoFocus />
       {state.loading && (
         <div className={styles.loading}>
-          <Spinner /> Loading libraries…
+          <Spinner /> {t("Loading libraries…")}
         </div>
       )}
-      <section aria-label="Current file">
-        <div className={styles.sectionTitle}>Current file</div>
+      <section aria-label={t("Current file")}>
+        <div className={styles.sectionTitle}>{t("Current file")}</div>
         <div className={styles.libRow} data-library-row="current">
           <LibIcon />
           <div className={styles.libText}>
             <span className={styles.libName}>{fileName}</span>
-            <span className={styles.meta}>{state.inDrafts ? "In Drafts · Move to a folder to publish" : own ? `${countsText(own.counts)} · Version ${own.latestVersion}` : "Not published"}</span>
+            <span className={styles.meta}>{state.inDrafts ? t("In Drafts · Move to a folder to publish") : own ? t("{counts} · Version {version}", { counts: countsText(own.counts), version: own.latestVersion }) : t("Not published")}</span>
           </div>
-          <Button variant="secondary" disabled={state.inDrafts} tooltip={state.inDrafts ? "Move to a folder to publish" : undefined} onClick={onPublish}>
-            {own ? "Publish changes…" : "Publish…"}
+          <Button variant="secondary" disabled={state.inDrafts} tooltip={state.inDrafts ? t("Move to a folder to publish") : undefined} onClick={onPublish}>
+            {own ? t("Publish changes…") : t("Publish…")}
           </Button>
         </div>
       </section>
-      <section aria-label="Added to this file">
-        <div className={styles.sectionTitle}>Added to this file</div>
-        {added.length === 0 && <div className={styles.none}>{q ? `No results for “${query}”` : "No libraries added to this file"}</div>}
+      <section aria-label={t("Added to this file")}>
+        <div className={styles.sectionTitle}>{t("Added to this file")}</div>
+        {added.length === 0 && <div className={styles.none}>{q ? t("No results for “{query}”", { query }) : t("No libraries added to this file")}</div>}
         {added.map((e) => (
           <LibraryRow key={e.fileKey} entry={e} orgName={state.org?.orgName ?? null} missing={!byKey.has(e.fileKey)} onOpen={byKey.has(e.fileKey) ? () => onOpen(e.fileKey) : undefined}>
             <Button variant="secondary" loading={busy === e.fileKey} onClick={() => void toggle(e.fileKey, false, e.name)}>
-              Remove from file
+              {t("Remove from file")}
             </Button>
           </LibraryRow>
         ))}
@@ -133,11 +136,11 @@ function LibraryList({ onOpen, onPublish }: { onOpen: (lib: string) => void; onP
       {sections.map((s, i) => (
         <section key={s.title} aria-label={s.title}>
           <div className={styles.sectionTitle}>{s.title}</div>
-          {i === 0 && others.length === 0 && <div className={styles.none}>{q ? `No results for “${query}”` : state.available.length ? "Every library is added to this file" : "No other files are published as libraries yet"}</div>}
+          {i === 0 && others.length === 0 && <div className={styles.none}>{q ? t("No results for “{query}”", { query }) : state.available.length ? t("Every library is added to this file") : t("No other files are published as libraries yet")}</div>}
           {s.entries.map((e) => (
             <LibraryRow key={e.fileKey} entry={e} orgName={state.org?.orgName ?? null} onOpen={() => onOpen(e.fileKey)}>
               <Button variant="primary" loading={busy === e.fileKey} onClick={() => void toggle(e.fileKey, true, e.name)}>
-                Add to file
+                {t("Add to file")}
               </Button>
             </LibraryRow>
           ))}
@@ -167,7 +170,7 @@ export function pinApproved(list: readonly LibraryEntry[]): LibraryEntry[] {
  */
 export function otherSections(others: readonly LibraryEntry[], orgName: string | null): { title: string; entries: LibraryEntry[] }[] {
   // An org file (its org known) keeps its org heading even when every library is added (no entry left to tell).
-  if (orgName === null && !others.some((e) => e.org)) return [{ title: "Libraries in this workspace", entries: [...others] }];
+  if (orgName === null && !others.some((e) => e.org)) return [{ title: t("Libraries in this workspace"), entries: [...others] }];
   const teams = new Map<string, LibraryEntry[]>();
   const org: LibraryEntry[] = [];
   for (const e of others) {
@@ -176,16 +179,17 @@ export function otherSections(others: readonly LibraryEntry[], orgName: string |
     else org.push(e);
   }
   const out = [...teams].sort(([a], [b]) => a.localeCompare(b)).map(([title, entries]) => ({ title, entries: pinApproved(entries) }));
-  out.push({ title: orgName ?? "Organization", entries: pinApproved(org) });
+  out.push({ title: orgName ?? t("Organization"), entries: pinApproved(org) });
   return out.filter((s, i) => i === 0 || s.entries.length);
 }
 
 /** An approved library's check mark and its tooltip ("Approved by ‹org› admin", the help's screenshot) */
 export function ApprovedMark({ entry, orgName }: { entry: LibraryEntry | undefined; orgName: string | null }) {
+  useT();
   const approved = entry?.org?.approved;
   if (!approved) return null;
   // The workspace's wording is ours (unverified): Figma's article shows only the organization's.
-  const text = approved === "org" ? `Approved by ${orgName ?? "organization"} admin` : "Approved by workspace admin";
+  const text = approved === "org" ? (orgName ? t("Approved by {org} admin", { org: orgName }) : t("Approved by organization admin")) : t("Approved by workspace admin");
   return (
     <span className={styles.approved} data-approved={approved} aria-label={text} {...tooltipProps(text)}>
       <Icon name="16.check" />
@@ -194,15 +198,16 @@ export function ApprovedMark({ entry, orgName }: { entry: LibraryEntry | undefin
 }
 
 function LibraryRow({ entry, orgName = null, missing, onOpen, children }: { entry: LibraryEntry; orgName?: string | null; missing?: boolean; onOpen?: () => void; children: React.ReactNode }) {
+  useT();
   return (
     <div className={styles.libRow} data-library-row={entry.name}>
       <LibIcon />
-      <button type="button" className={styles.libOpen} onClick={onOpen} disabled={!onOpen} aria-label={`Preview ${entry.name}`}>
+      <button type="button" className={styles.libOpen} onClick={onOpen} disabled={!onOpen} aria-label={t("Preview {name}", { name: entry.name })}>
         <span className={styles.libNameRow}>
           <span className={styles.libName}>{entry.name}</span>
           <ApprovedMark entry={entry} orgName={orgName} />
         </span>
-        <span className={styles.meta}>{missing ? "Missing library · assets used here keep working" : [entry.location, countsText(entry.record.counts)].filter(Boolean).join(" · ")}</span>
+        <span className={styles.meta}>{missing ? t("Missing library · assets used here keep working") : [entry.location, countsText(entry.record.counts)].filter(Boolean).join(" · ")}</span>
       </button>
       {children}
     </div>
@@ -211,6 +216,7 @@ function LibraryRow({ entry, orgName = null, missing, onOpen, children }: { entr
 
 /** A library's components (thumbnails), styles and variables, with Add to file / Remove from file. */
 function LibraryPreview({ lib, onBack }: { lib: string; onBack: () => void }) {
+  useT();
   const ed = useEditor();
   const state = useLibraries();
   const entry = state.available.find((e) => e.fileKey === lib);
@@ -236,7 +242,7 @@ function LibraryPreview({ lib, onBack }: { lib: string; onBack: () => void }) {
     try {
       await setLibraryEnabled(ed, lib, !enabled);
     } catch {
-      showToast({ message: enabled ? "The library couldn't be removed" : "The library couldn't be added", kind: "error" });
+      showToast({ message: enabled ? t("The library couldn't be removed") : t("The library couldn't be added"), kind: "error" });
     } finally {
       setBusy(false);
     }
@@ -244,25 +250,25 @@ function LibraryPreview({ lib, onBack }: { lib: string; onBack: () => void }) {
   return (
     <div className={styles.listBody} data-library-preview={entry?.name ?? ""}>
       <div className={styles.previewHeader}>
-        <IconButton icon="24.arrow.left" label="Back to libraries" onClick={onBack} />
+        <IconButton icon="24.arrow.left" label={t("Back to libraries")} onClick={onBack} />
         <div className={styles.libText}>
-          <span className={styles.libName}>{entry?.name ?? state.names.get(lib) ?? "Library"}</span>
+          <span className={styles.libName}>{entry?.name ?? state.names.get(lib) ?? t("Library")}</span>
           <span className={styles.meta}>{entry ? `${entry.location} · ${countsText(entry.record.counts)}` : ""}</span>
         </div>
         <Button variant={enabled ? "secondary" : "primary"} loading={busy} onClick={() => void toggle()}>
-          {enabled ? "Remove from file" : "Add to file"}
+          {enabled ? t("Remove from file") : t("Add to file")}
         </Button>
       </div>
-      <SearchField value={query} onChange={setQuery} placeholder="Search assets" />
+      <SearchField value={query} onChange={setQuery} placeholder={t("Search assets")} />
       {!manifest && (
         <div className={styles.loading}>
-          <Spinner /> Loading…
+          <Spinner /> {t("Loading…")}
         </div>
       )}
-      {manifest && manifest.description && <div className={styles.meta}>Version {manifest.version}: {manifest.description}</div>}
+      {manifest && manifest.description && <div className={styles.meta}>{t("Version {version}: {description}", { version: manifest.version, description: manifest.description })}</div>}
       {components.length > 0 && (
-        <section aria-label="Components">
-          <div className={styles.sectionTitle}>Components</div>
+        <section aria-label={t("Components")}>
+          <div className={styles.sectionTitle}>{t("Components")}</div>
           <div className={styles.previewGrid}>
             {components.map((a) => (
               <div key={a.key} className={styles.previewTile} title={a.description ? `${a.name}\n${a.description}` : a.name}>
@@ -274,20 +280,20 @@ function LibraryPreview({ lib, onBack }: { lib: string; onBack: () => void }) {
         </section>
       )}
       {styleAssets.length > 0 && (
-        <section aria-label="Styles">
-          <div className={styles.sectionTitle}>Styles</div>
+        <section aria-label={t("Styles")}>
+          <div className={styles.sectionTitle}>{t("Styles")}</div>
           {styleAssets.map((a) => (
             <div key={a.key} className={styles.assetRow}>
               <Icon name={kindGlyph(a.kind, a)} className={styles.thumbGlyph} />
               <span className={styles.changeName}>{a.name}</span>
-              <span className={styles.meta}>{a.styleType === "FILL" ? "Color" : a.styleType === "TEXT" ? "Text" : a.styleType === "EFFECT" ? "Effect" : "Layout guide"}</span>
+              <span className={styles.meta}>{a.styleType === "FILL" ? t("Color") : a.styleType === "TEXT" ? t("Text") : a.styleType === "EFFECT" ? t("Effect") : t("Layout guide")}</span>
             </div>
           ))}
         </section>
       )}
       {variables.length > 0 && (
-        <section aria-label="Variables">
-          <div className={styles.sectionTitle}>Variables</div>
+        <section aria-label={t("Variables")}>
+          <div className={styles.sectionTitle}>{t("Variables")}</div>
           {variables.map((a) => (
             <div key={a.key} className={styles.assetRow}>
               <Icon name={kindGlyph(a.kind, a)} className={styles.thumbGlyph} />
@@ -297,16 +303,17 @@ function LibraryPreview({ lib, onBack }: { lib: string; onBack: () => void }) {
           ))}
         </section>
       )}
-      {manifest && !listed.length && <div className={styles.none}>{q ? `No results for “${query}”` : "This library has no assets"}</div>}
+      {manifest && !listed.length && <div className={styles.none}>{q ? t("No results for “{query}”", { query }) : t("This library has no assets")}</div>}
     </div>
   );
 }
 
 const KIND_TEXT: Record<UpdateItem["kind"], string> = { modified: "Modified", removed: "Removed from library", moved: "Moved" };
 
-const instancesText = (n: number) => (n ? ` · ${n} ${n === 1 ? "instance" : "instances"}` : "");
+const instancesText = (n: number) => (n ? ` · ${tp(n, "{n} instance", "{n} instances")}` : "");
 
 function Updates({ onOpen }: { onOpen: (id: string) => void }) {
+  useT();
   const ed = useEditor();
   useLibraries();
   useDocumentVersion();
@@ -319,18 +326,18 @@ function Updates({ onOpen }: { onOpen: (id: string) => void }) {
     setBusy(true);
     try {
       const n = await acceptUpdates(ed, acceptable);
-      if (n) showToast({ message: n === 1 ? "Updated 1 asset" : `Updated ${n} assets`, kind: "success" });
+      if (n) showToast({ message: tp(n, "Updated {n} asset", "Updated {n} assets"), kind: "success" });
     } finally {
       setBusy(false);
     }
   };
-  if (!updates.length) return <EmptyState icon="24.library" title="You're up to date" body="Updates to the libraries this file uses show up here." />;
+  if (!updates.length) return <EmptyState icon="24.library" title={t("You're up to date")} body={t("Updates to the libraries this file uses show up here.")} />;
   return (
     <div className={styles.listBody} data-updates="">
       <div className={styles.updatesHeader}>
-        <span className={styles.meta}>{acceptable.length === 1 ? "1 update available" : `${acceptable.length} updates available`}</span>
+        <span className={styles.meta}>{tp(acceptable.length, "{n} update available", "{n} updates available")}</span>
         <Button variant="primary" loading={busy} disabled={!acceptable.length} onClick={() => void all()}>
-          Update all
+          {t("Update all")}
         </Button>
       </div>
       {[...byLib].map(([lib, list]) => (
@@ -342,7 +349,7 @@ function Updates({ onOpen }: { onOpen: (id: string) => void }) {
               <span className={styles.libText}>
                 <span className={styles.libName}>{u.copy.name}</span>
                 <span className={styles.meta}>
-                  {u.kind === "moved" ? `Moved to ${u.redirect?.toLibraryFileKey ? (ed.libraries.get().names.get(u.redirect.toLibraryFileKey) ?? "another library") : "another library"}` : KIND_TEXT[u.kind]}
+                  {u.kind === "moved" ? t("Moved to {name}", { name: u.redirect?.toLibraryFileKey ? (ed.libraries.get().names.get(u.redirect.toLibraryFileKey) ?? t("another library")) : t("another library") }) : t(KIND_TEXT[u.kind])}
                   {instancesText(ed.libraries.usageOf(u))}
                 </span>
               </span>
@@ -357,6 +364,7 @@ function Updates({ onOpen }: { onOpen: (id: string) => void }) {
 
 /** One update: before (the copy here) and after (the published thumbnail), side by side or overlaid; its actions. */
 function ReviewUpdate({ id, onBack }: { id: string; onBack: () => void }) {
+  useT();
   const ed = useEditor();
   useLibraries();
   useDocumentVersion();
@@ -368,10 +376,10 @@ function ReviewUpdate({ id, onBack }: { id: string; onBack: () => void }) {
     return (
       <div className={styles.listBody}>
         <div className={styles.previewHeader}>
-          <IconButton icon="24.arrow.left" label="Back to updates" onClick={onBack} />
-          <span className={styles.libName}>Updated</span>
+          <IconButton icon="24.arrow.left" label={t("Back to updates")} onClick={onBack} />
+          <span className={styles.libName}>{t("Updated")}</span>
         </div>
-        <EmptyState icon="24.check" title="This asset is up to date" />
+        <EmptyState icon="24.check" title={t("This asset is up to date")} />
       </div>
     );
   }
@@ -390,45 +398,45 @@ function ReviewUpdate({ id, onBack }: { id: string; onBack: () => void }) {
   return (
     <div className={styles.listBody} data-review-update={u.copy.name}>
       <div className={styles.previewHeader}>
-        <IconButton icon="24.arrow.left" label="Back to updates" onClick={onBack} />
+        <IconButton icon="24.arrow.left" label={t("Back to updates")} onClick={onBack} />
         <div className={styles.libText}>
           <span className={styles.libName}>{u.copy.name}</span>
           <span className={styles.meta}>
-            {u.libraryName} · {u.kind === "modified" ? "Modified" : u.kind === "removed" ? "Removed from library" : "Moved"}
-            {usage ? ` · ${usage} ${usage === 1 ? "instance" : "instances"} in this file` : ""}
+            {u.libraryName} · {u.kind === "modified" ? t("Modified") : u.kind === "removed" ? t("Removed from library") : t("Moved")}
+            {usage ? ` · ${tp(usage, "{n} instance in this file", "{n} instances in this file")}` : ""}
           </span>
         </div>
-        {u.kind === "modified" && isComponent && <SegmentedControl label="Compare" value={mode} options={[{ value: "side", label: "Side by side" }, { value: "overlay", label: "Overlay" }]} onChange={(v) => setMode(v as "side" | "overlay")} />}
+        {u.kind === "modified" && isComponent && <SegmentedControl label={t("Compare")} value={mode} options={[{ value: "side", label: t("Side by side") }, { value: "overlay", label: t("Overlay") }]} onChange={(v) => setMode(v as "side" | "overlay")} />}
       </div>
       {u.kind === "modified" && (
         <div className={cx(styles.compare, mode === "overlay" && styles.compareOverlay)} data-compare={mode}>
           <figure className={styles.compareSide}>
             <NodeThumb node={u.copy.guid} kind={u.copy.kind} size={200} className={styles.compareThumb} />
-            <figcaption className={styles.meta}>Current</figcaption>
+            <figcaption className={styles.meta}>{t("Current")}</figcaption>
           </figure>
           <figure className={styles.compareSide}>
             <RemoteThumb asset={u.asset as LibraryAsset} size={200} className={styles.compareThumb} />
-            <figcaption className={styles.meta}>Updated</figcaption>
+            <figcaption className={styles.meta}>{t("Updated")}</figcaption>
           </figure>
         </div>
       )}
       {u.kind === "removed" && (
         <div className={styles.notice}>
-          This {isComponent ? "component" : "asset"} was removed from {u.libraryName}. What uses it here keeps working.
-          {isComponent ? " Restore it to keep it as a component of this file." : ""}
+          {isComponent ? t("This component was removed from {library}. What uses it here keeps working.", { library: u.libraryName }) : t("This asset was removed from {library}. What uses it here keeps working.", { library: u.libraryName })}
+          {isComponent ? ` ${t("Restore it to keep it as a component of this file.")}` : ""}
         </div>
       )}
-      {u.kind === "moved" && <div className={styles.notice}>This component moved to {ed.libraries.get().names.get(u.redirect!.toLibraryFileKey) ?? "another library"}. Accepting keeps every instance linked and adds that library to this file.</div>}
+      {u.kind === "moved" && <div className={styles.notice}>{t("This component moved to {library}. Accepting keeps every instance linked and adds that library to this file.", { library: ed.libraries.get().names.get(u.redirect!.toLibraryFileKey) ?? t("another library") })}</div>}
       {u.asset?.description && <div className={styles.meta}>{u.asset.description}</div>}
       <div className={styles.reviewActions}>
         {u.kind === "modified" && isComponent && (
-          <Button variant="secondary" disabled={busy || !selected.length} tooltip={selected.length ? undefined : "Select instances of this component on the canvas"} onClick={() => void run(() => updateSelectedInstances(ed, u), (n) => (n === 1 ? "Updated 1 instance" : n ? `Updated ${n} instances` : null))}>
-            {selected.length > 1 ? `Update ${selected.length} selected instances` : "Update selected instance"}
+          <Button variant="secondary" disabled={busy || !selected.length} tooltip={selected.length ? undefined : t("Select instances of this component on the canvas")} onClick={() => void run(() => updateSelectedInstances(ed, u), (n) => (n ? tp(n, "Updated {n} instance", "Updated {n} instances") : null))}>
+            {selected.length > 1 ? t("Update {n} selected instances", { n: selected.length }) : t("Update selected instance")}
           </Button>
         )}
         {u.kind !== "removed" && (
-          <Button variant="primary" loading={busy} onClick={() => void run(() => acceptUpdates(ed, [u]), (n) => (!n ? null : u.kind === "moved" ? "Moved to the new library" : "Updated"), true)}>
-            {u.kind === "moved" ? "Accept" : "Update"}
+          <Button variant="primary" loading={busy} onClick={() => void run(() => acceptUpdates(ed, [u]), (n) => (!n ? null : u.kind === "moved" ? t("Moved to the new library") : t("Updated")), true)}>
+            {u.kind === "moved" ? t("Accept") : t("Update")}
           </Button>
         )}
         {u.kind === "removed" && isComponent && (
@@ -436,12 +444,12 @@ function ReviewUpdate({ id, onBack }: { id: string; onBack: () => void }) {
             variant="secondary"
             onClick={() => {
               if (restoreRemovedComponent(ed, u.copy.guid)) {
-                showToast({ message: "Component restored" });
+                showToast({ message: t("Component restored") });
                 ed.ui.set({ librariesDialog: null });
               }
             }}
           >
-            Restore component
+            {t("Restore component")}
           </Button>
         )}
       </div>

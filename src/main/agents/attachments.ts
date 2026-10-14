@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { closeSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { ATTACHMENTS_DIR, MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES, attachmentProblem, safeFileName, sniffAttachment, type Attachment, type AttachResult, type TurnAttachment } from "../../shared/agents/attachments";
+import { t } from "../../shared/i18n";
 
 /**
  * The files a chat message carries (src/shared/agents/attachments.ts), on main's side: bytes from the view (a drop, a
@@ -58,7 +59,7 @@ export async function saveAttachments(chatDir: string, files: { name: string; by
   for (const f of files) {
     const name = String(f.name || "file").slice(0, 200);
     if (attachments.length >= MAX_ATTACHMENTS) {
-      errors.push(`Up to ${MAX_ATTACHMENTS} files a message`);
+      errors.push(t("Up to {n} files a message", { n: MAX_ATTACHMENTS }));
       break;
     }
     const problem = attachmentProblem(name, f.bytes);

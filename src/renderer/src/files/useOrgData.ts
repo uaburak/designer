@@ -5,6 +5,7 @@
  * refreshes behind and says so).
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { t } from "@/i18n";
 import type * as O from "@shared/org/types";
 import type { OrgGate } from "@shared/org/governance";
 import { effectiveGate, gateOfError, isNetworkRestricted } from "./governance";
@@ -33,8 +34,11 @@ export interface OrgShell {
 export type OrgPageData =
   | { kind: "none" }
   | { kind: "drafts"; files: O.OrgFile[] }
+  /** `teamNames`: each team's name by id (a card says its team) */
+  | { kind: "all-projects"; files: O.OrgFile[]; teamNames: Record<string, string> }
   | { kind: "teams"; teams: O.TeamSummary[]; groups: O.UserGroup[] }
-  | { kind: "team"; team: O.TeamInfo; folders: O.ProjectSummary[]; members: O.TeamMember[]; requests: O.JoinRequest[] }
+  /** `files`: the team's projects — every file in its folders (Home shows a team's projects, not its folders) */
+  | { kind: "team"; team: O.TeamInfo; folders: O.ProjectSummary[]; members: O.TeamMember[]; requests: O.JoinRequest[]; files: O.OrgFile[] }
   | { kind: "project"; project: O.ProjectInfo; team: O.TeamInfo | null; folders: O.ProjectSummary[]; files: O.OrgFile[]; members: O.ProjectMember[] }
   | { kind: "trash"; drafts: O.OrgFile[]; teams: { team: O.TeamSummary; projects: O.ProjectSummary[]; files: O.OrgFile[] }[] }
   | { kind: "search"; text: string; result: O.OrgSearchResult };
@@ -60,6 +64,24 @@ const NO_AGREED: ReadonlySet<string> = new Set();
 
 export async function loadOrgPage(org: OrgBackend, orgId: string, loc: Location, teams: readonly O.TeamSummary[]): Promise<OrgPageData> {
   switch (loc.kind) {
+    case "all-projects": {
+      // The org shown (the space chosen): every project the person can open in it — their drafts and every team's
+      // folders, all levels — from the server's one listing; a server without that route (before its deploy) is read
+      // team by team, folder by folder
+      const teams = await quiet(org.teams.list(orgId, "browse"), []);
+      const teamNames = Object.fromEntries(teams.map((t) => [t.id, t.name]));
+      const files = await org.orgs.files(orgId).catch(async () => {
+        const drafts = await quiet(org.orgs.drafts(orgId), []);
+        const filesIn = async (teamId: string, parentId: string | null): Promise<O.OrgFile[]> => {
+          const folders = (await quiet(org.projects.list(teamId, parentId), [])).filter((f) => f.trashedAt === null);
+          const lists = await Promise.all(folders.map(async (f) => [...(await quiet(org.projects.files(f.id), [])), ...(f.folderCount > 0 ? await filesIn(teamId, f.id) : [])]));
+          return lists.flat();
+        };
+        return [...drafts, ...(await Promise.all(teams.map((t) => filesIn(t.id, null)))).flat()];
+      });
+      const seen = new Set<string>();
+      return { kind: "all-projects", files: files.filter((f) => f.trashedAt === null && !seen.has(f.key) && seen.add(f.key)), teamNames };
+    }
     case "org-drafts":
       return { kind: "drafts", files: await org.orgs.drafts(orgId) };
     case "teams": {
@@ -68,14 +90,18 @@ export async function loadOrgPage(org: OrgBackend, orgId: string, loc: Location,
     }
     case "team": {
       // One request (`GET /teams/:id/page`), answered from the store's cache at once when it has the page
-      if (org.teams.page) return { kind: "team", ...(await org.teams.page(loc.teamId)) };
+      const filesOf = async (folders: readonly O.ProjectSummary[]) => (await Promise.all(folders.filter((f) => f.trashedAt === null).map((f) => quiet(org.projects.files(f.id), [])))).flat();
+      if (org.teams.page) {
+        const page = await org.teams.page(loc.teamId);
+        return { kind: "team", ...page, files: await filesOf(page.folders) };
+      }
       const team = await org.teams.get(loc.teamId);
       const [folders, members, requests] = await Promise.all([
         quiet(org.projects.list(team.id, null), []),
         quiet(org.teams.members(team.id), []),
         team.me?.admin || team.me?.owner ? quiet(org.teams.requests(team.id), []) : Promise.resolve([]),
       ]);
-      return { kind: "team", team, folders, members, requests };
+      return { kind: "team", team, folders, members, requests, files: await filesOf(folders) };
     }
     case "project": {
       if (org.projects.page) return { kind: "project", ...(await org.projects.page(loc.projectId)) };
@@ -107,7 +133,7 @@ export async function loadOrgPage(org: OrgBackend, orgId: string, loc: Location,
  */
 export async function orgDestinations(org: OrgBackend, orgId: string, input: { forFolder: boolean; exclude?: string | null; isAdmin: boolean }): Promise<Destination[]> {
   const teams = (await org.teams.list(orgId, "mine")).filter((t) => input.isAdmin || t.me?.role === "editor" || t.me?.admin || t.me?.owner);
-  const out: Destination[] = input.forFolder ? [] : [{ id: "drafts", label: "Drafts", depth: 1, kind: "drafts" }];
+  const out: Destination[] = input.forFolder ? [] : [{ id: "drafts", label: t("Drafts"), depth: 1, kind: "drafts" }];
   for (const t of [...teams].sort((a, b) => a.name.localeCompare(b.name))) {
     out.push({ id: `team:${t.id}`, label: t.name, depth: 1, kind: input.forFolder ? "team" : "header", teamId: t.id });
     const walk = async (parentId: string | null, depth: number): Promise<void> => {

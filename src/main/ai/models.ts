@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { createWriteStream, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, normalize, sep } from "node:path";
 import type { AiModelId, AiModelInfo, AiModelState } from "../../shared/ai/types";
+import { t } from "../../shared/i18n";
 
 /**
  * The local models (docs/ai.md §2.4): downloaded on first use — after the view's confirmation with the size — from
@@ -205,7 +206,7 @@ export class ModelStore {
 
   remove(id: AiModelId): AiModelState {
     this.infoOf(id);
-    if (this.downloads.has(id)) throw new Error("The model is downloading");
+    if (this.downloads.has(id)) throw new Error(t("The model is downloading"));
     rmSync(this.folder(id), { recursive: true, force: true });
     rmSync(`${this.folder(id)}.partial`, { recursive: true, force: true });
     this.errors.delete(id);

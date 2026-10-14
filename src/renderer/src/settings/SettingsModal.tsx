@@ -16,6 +16,7 @@ import { NotificationsTab } from "./NotificationsTab";
 import { OperatorTab, useIsOperator } from "./OperatorTab";
 import { SecurityTab } from "./SecurityTab";
 import { isWebApp } from "@/app/webApp";
+import { t, useT } from "@/i18n";
 import styles from "./Settings.module.css";
 
 export interface SettingsModalProps {
@@ -25,14 +26,15 @@ export interface SettingsModalProps {
 }
 
 export function SettingsModal({ tab, onTab, onClose }: SettingsModalProps) {
+  useT();
   const panel = useRef<HTMLDivElement>(null);
   useFocusScope(panel, { trap: true, enabled: true });
   // Operator: only for the server's operators (docs/multiplayer.md §17)
   const operator = useIsOperator();
   // The web app has no Agents tab: agents run on the computer (CLI agents, the MCP server — docs/cloud.md §7)
-  const tabs = SETTINGS_TABS.filter((t) => (t.id !== "operator" || operator) && (t.id !== "agents" || !isWebApp()));
+  const tabs = SETTINGS_TABS.filter((s) => (s.id !== "operator" || operator) && (s.id !== "agents" || !isWebApp()));
   const move = (dir: 1 | -1) => {
-    const i = tabs.findIndex((t) => t.id === tab);
+    const i = tabs.findIndex((s) => s.id === tab);
     const next = tabs[(i + dir + tabs.length) % tabs.length];
     onTab(next.id);
     panel.current?.querySelector<HTMLElement>(`[data-settings-tab="${next.id}"]`)?.focus();
@@ -44,7 +46,7 @@ export function SettingsModal({ tab, onTab, onClose }: SettingsModalProps) {
           ref={panel}
           role="dialog"
           aria-modal
-          aria-label="Settings"
+          aria-label={t("Settings")}
           tabIndex={-1}
           className={styles.modal}
           data-settings-modal=""
@@ -56,19 +58,19 @@ export function SettingsModal({ tab, onTab, onClose }: SettingsModalProps) {
           }}
         >
           <div className={styles.header}>
-            <div role="tablist" aria-label="Settings" className={styles.tabs}>
-              {tabs.map((t) => (
+            <div role="tablist" aria-label={t("Settings")} className={styles.tabs}>
+              {tabs.map((s) => (
                 <button
-                  key={t.id}
+                  key={s.id}
                   type="button"
                   role="tab"
-                  id={`settings-tab-${t.id}`}
-                  aria-selected={t.id === tab}
+                  id={`settings-tab-${s.id}`}
+                  aria-selected={s.id === tab}
                   aria-controls="settings-panel"
-                  tabIndex={t.id === tab ? 0 : -1}
+                  tabIndex={s.id === tab ? 0 : -1}
                   className={styles.tab}
-                  data-settings-tab={t.id}
-                  onClick={() => onTab(t.id)}
+                  data-settings-tab={s.id}
+                  onClick={() => onTab(s.id)}
                   onKeyDown={(e) => {
                     if (e.key === "ArrowRight") move(1);
                     else if (e.key === "ArrowLeft") move(-1);
@@ -76,11 +78,11 @@ export function SettingsModal({ tab, onTab, onClose }: SettingsModalProps) {
                     e.preventDefault();
                   }}
                 >
-                  {t.label}
+                  {t(s.label)}
                 </button>
               ))}
             </div>
-            <IconButton icon="24.close.small" label="Close" tooltip={false} onClick={onClose} data-settings-close="" />
+            <IconButton icon="24.close.small" label={t("Close")} tooltip={false} onClick={onClose} data-settings-close="" />
           </div>
           <div className={styles.body} role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${tab}`} data-settings-panel={tab}>
             {tab === "account" && <AccountTab />}

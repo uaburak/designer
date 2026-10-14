@@ -103,6 +103,7 @@ import { VariablePicker } from "../variables/VariablePicker";
 import { PANEL_MENU_GAP, type PanelNode } from "./shared";
 import styles from "./Component.module.css";
 import hstyles from "./Header.module.css";
+import { t, tp, useLocale, useT } from "@/i18n";
 
 export const PROPERTY_ICON: Record<ComponentPropType, IconName> = {
   VARIANT: "16.variant",
@@ -138,7 +139,7 @@ export function componentSelection(ed: EditorController, nodes: readonly PanelNo
 /** The name an instance's header shows: its main's, or its set's for a variant (live variant-instance: "Chip"). */
 export function instanceTitle(ed: EditorController, instance: CNode): string {
   const main = mainOf(ed, instance);
-  if (!main) return "Missing component";
+  if (!main) return t("Missing component");
   return (setOf(ed, main) ?? main).name ?? "";
 }
 
@@ -163,8 +164,8 @@ export function instanceMoreMenu(ed: EditorController, instance: CNode): MenuEnt
   const pushable = instanceChanges(ed, instance).some((g) => g.fields.some((f) => f !== "name"));
   const push = pushable && isEnabled(ed, command("object.push-changes")) ? [actionItem(ed, "object.push-changes")] : [];
   const groups: MenuEntry[][] = [
-    statusTargets(ed).length ? [{ id: "ready-for-dev", label: "Toggle ready for dev status", icon: ACTION_ICON["ready-for-dev"] }] : [],
-    [actionItem(ed, "object.create-component"), actionItem(ed, "object.detach-instance"), { ...reset, disabled: reset.disabled && !renamed }, ...(renamed ? [{ id: "reset-name", label: "Reset name", icon: ACTION_ICON["reset-name"] }] : []), ...push],
+    statusTargets(ed).length ? [{ id: "ready-for-dev", label: t("Toggle ready for dev status"), icon: ACTION_ICON["ready-for-dev"] }] : [],
+    [actionItem(ed, "object.create-component"), actionItem(ed, "object.detach-instance"), { ...reset, disabled: reset.disabled && !renamed }, ...(renamed ? [{ id: "reset-name", label: t("Reset name"), icon: ACTION_ICON["reset-name"] }] : []), ...push],
     [actionItem(ed, "object.use-as-mask")],
     // Flatten (live, enabled on an instance): the engine detaches it, then flattens it (round 11).
     booleanActions(ed),
@@ -188,6 +189,8 @@ function resetName(ed: EditorController, instance: CNode): void {
 
 /** The instance's top: its main's name (the swap menu), More actions, Go to main component, then its properties. */
 export function InstanceHeader({ instance }: { instance: CNode }) {
+  useT();
+  const locale = useLocale();
   const ed = useEditor();
   const version = useDocVersion();
   const topics = useTopics(ed.store, ["selection", "undo"]);
@@ -195,7 +198,7 @@ export function InstanceHeader({ instance }: { instance: CNode }) {
   // A library's component: its library's name under the instance, as Figma shows it ("From this file" for local mains)
   const libs = useLibraries();
   const library = main ? libraryOfMain(ed, main.guid) : null;
-  const from = library ? (libs.names.get(library) ?? libs.available.find((e) => e.fileKey === library)?.name ?? "Library") : "From this file";
+  const from = library ? (libs.names.get(library) ?? libs.available.find((e) => e.fileKey === library)?.name ?? t("Library")) : t("From this file");
   const [picker, togglePicker, closePicker] = usePopoverToggle<HTMLElement>();
   const goTo = command("object.go-to-main-component");
   // The ⋯ menu's entries change with the document and the selection, not with every re-render of the panel (a drag
@@ -203,8 +206,9 @@ export function InstanceHeader({ instance }: { instance: CNode }) {
   const more = useMemo<MenuEntry[]>(() => {
     void version;
     void topics;
+    void locale;
     return instanceMoreMenu(ed, instance);
-  }, [ed, instance, version, topics]);
+  }, [ed, instance, version, topics, locale]);
   const name = instanceTitle(ed, instance);
   const onMore = (id: string) => {
     if (id === "ready-for-dev") {
@@ -243,16 +247,16 @@ export function InstanceHeader({ instance }: { instance: CNode }) {
         </div>
         <div className={styles.headerActions}>
           {bound && <BindButton layer={instance} field="OVERRIDDEN_SYMBOL_ID" type="INSTANCE_SWAP" />}
-          <MenuButton label="More actions" entries={more} className={styles.iconMenu} align="end" gap={PANEL_MENU_GAP} flush menuClassName={hstyles.actionsMenu} onSelect={onMore}>
+          <MenuButton label={t("More actions")} entries={more} className={styles.iconMenu} align="end" gap={PANEL_MENU_GAP} flush menuClassName={hstyles.actionsMenu} onSelect={onMore}>
             <Icon name="24.more" />
           </MenuButton>
         </div>
       </div>
-      <button type="button" className={styles.fromRow} aria-label={goTo.label} {...tooltipProps(goTo.label)} disabled={!isEnabled(ed, goTo)} onClick={() => runEditorCommand(ed, goTo.id)}>
-        <span className={styles.fromText}>{main ? from : "Missing component"}</span>
+      <button type="button" className={styles.fromRow} aria-label={t(goTo.label)} {...tooltipProps(t(goTo.label))} disabled={!isEnabled(ed, goTo)} onClick={() => runEditorCommand(ed, goTo.id)}>
+        <span className={styles.fromText}>{main ? from : t("Missing component")}</span>
       </button>
       <InstanceProperties instance={instance} />
-      {picker && <ComponentPicker anchor={picker} title="Swap instance" current={main?.guid ?? null} onPick={(a) => swapTo(ed, [instance.guid], a, main)} onClose={closePicker} />}
+      {picker && <ComponentPicker anchor={picker} title={t("Swap instance")} current={main?.guid ?? null} onPick={(a) => swapTo(ed, [instance.guid], a, main)} onClose={closePicker} />}
     </div>
   );
 }
@@ -311,9 +315,10 @@ const APPLY_TYPES: Partial<Record<ComponentPropType, ("BOOLEAN" | "STRING" | "FL
 };
 
 /** The 208 button's label (live instance.txt / variant-instance.txt). */
-export const applyLabel = (def: Pick<ComponentPropDef, "type" | "name">): string => (def.type === "VARIANT" ? "Apply variable" : `Apply variable/property to ${def.name}`);
+export const applyLabel = (def: Pick<ComponentPropDef, "type" | "name">): string => (def.type === "VARIANT" ? t("Apply variable") : t("Apply variable/property to {name}", { name: def.name }));
 
 function InstancePropertyRow({ info, row }: { info: InstanceInfo; row: PropertyRowData }) {
+  useT();
   const ed = useEditor();
   const { def } = row;
   const labelId = useId();
@@ -349,12 +354,12 @@ function InstancePropertyRow({ info, row }: { info: InstanceInfo; row: PropertyR
           <>
             <button type="button" className={styles.swapField} aria-labelledby={labelId} data-swap-property={def.name} aria-expanded={!!picker} onClick={(e) => togglePicker(e.currentTarget)}>
               <Icon name="16.instance" className={styles.swapIcon} />
-              <span className={styles.headerText}>{current ? assetLabel(current.name ?? "") : "None"}</span>
+              <span className={styles.headerText}>{current ? assetLabel(current.name ?? "") : t("None")}</span>
             </button>
             {picker && (
               <ComponentPicker
                 anchor={picker}
-                title="Choose instance"
+                title={t("Choose instance")}
                 current={current?.guid ?? null}
                 preferredKeys={def.preferredValues?.instanceSwapValues?.map((p) => p.key)}
                 onPick={(a) => setPropertyValue(ed, fresh(), def, { guidValue: guidVal(a.target) })}
@@ -378,7 +383,7 @@ function InstancePropertyRow({ info, row }: { info: InstanceInfo; row: PropertyR
       {assign && types && (
         <VariablePicker
           anchor={assign}
-          title="Apply variable"
+          title={t("Apply variable")}
           types={types}
           current={row.variable ?? null}
           consumer={instance.guid.startsWith("I") ? null : instance.guid}
@@ -438,6 +443,7 @@ function PropertyText({ value, labelledBy, onCommit }: { value: string; labelled
  * block).
  */
 function SlotControl({ row }: { row: PropertyRowData }) {
+  useT();
   const ed = useEditor();
   const version = useDocVersion();
   const [picker, togglePicker, closePicker] = usePopoverToggle<HTMLElement>();
@@ -452,48 +458,59 @@ function SlotControl({ row }: { row: PropertyRowData }) {
   const wasOver = useRef(over);
   useEffect(() => {
     // The warning at the bottom of the screen when the slot goes over its limit.
-    if (over && !wasOver.current) showToast({ message: `“${row.def.name}” has more than ${slotMax(config)} ${slotMax(config) === 1 ? "layer" : "layers"}` });
+    if (over && !wasOver.current) showToast({ message: tp(slotMax(config) ?? 0, "“{name}” has more than {n} layer", "“{name}” has more than {n} layers", { name: row.def.name }) });
     wasOver.current = over;
   }, [over, row.def.name, config]);
-  if (!state) return <span className={styles.muted}>Slot</span>;
+  if (!state) return <span className={styles.muted}>{t("Slot")}</span>;
   const preferredKeys = row.def.preferredValues?.instanceSwapValues?.map((p) => p.key);
   const showLimits = hasSlotLimits(config, state.preferredCount);
   const more: MenuEntry[] = [
-    { id: "reset", label: "Reset slot" },
-    { id: "clear", label: "Delete contents", disabled: state.children.length === 0 },
+    { id: "reset", label: t("Reset slot") },
+    { id: "clear", label: t("Delete contents"), disabled: state.children.length === 0 },
   ];
   return (
     <div className={styles.slotControl} data-slot-control={row.def.name} data-slot-count={state.children.length} data-slot-violations={violations.join(" ") || undefined}>
       {showLimits ? (
         <button type="button" className={cx(styles.limits, violations.length > 0 && styles.limitsWarning)} aria-expanded={!!limits} data-slot-limits="" onClick={(e) => setLimits(limits ? null : e.currentTarget)}>
           {violations.length > 0 && <Icon name="16.warning" />}
-          Limits
+          {t("Limits")}
         </button>
       ) : (
-        <span className={styles.slotCount}>{state.children.length === 1 ? "1 layer" : `${state.children.length} layers`}</span>
+        <span className={styles.slotCount}>{tp(state.children.length, "{n} layer", "{n} layers")}</span>
       )}
-      <IconButton icon="24.plus.small" label="Add instances" tone="secondary" aria-expanded={!!picker} onClick={(e) => togglePicker(e.currentTarget)} />
-      <MenuButton label="More actions" entries={more} className={styles.iconMenu} onSelect={(id) => (id === "reset" ? resetSlot(ed, state.ref) : clearSlot(ed, state.ref))}>
+      <IconButton icon="24.plus.small" label={t("Add instances")} tone="secondary" aria-expanded={!!picker} onClick={(e) => togglePicker(e.currentTarget)} />
+      <MenuButton label={t("More actions")} entries={more} className={styles.iconMenu} onSelect={(id) => (id === "reset" ? resetSlot(ed, state.ref) : clearSlot(ed, state.ref))}>
         <Icon name="24.more" />
       </MenuButton>
       {picker && (
-        <ComponentPicker anchor={picker} title="Add instances" preferredKeys={preferredKeys} preferredFilter onPick={(a) => addInstanceToSlot(ed, state.ref, a, config)} onClose={closePicker} />
+        <ComponentPicker anchor={picker} title={t("Add instances")} preferredKeys={preferredKeys} preferredFilter onPick={(a) => addInstanceToSlot(ed, state.ref, a, config)} onClose={closePicker} />
       )}
       {limits && (
-        <Popover anchor={limits} title="Limits" width={240} onClose={() => setLimits(null)} label="Limits">
+        <Popover anchor={limits} title={t("Limits")} width={240} onClose={() => setLimits(null)} label={t("Limits")}>
           <div className={styles.limitsList} data-slot-guidelines="">
             {slotGuidelines(config, state.children, state.preferredCount).map((g) => (
               <div key={g.text} className={styles.guideline} data-ok={g.ok}>
                 <Icon name={g.ok ? "16.check" : "16.warning"} className={g.ok ? styles.guidelineOk : styles.guidelineWarning} />
-                <span>{g.text}</span>
+                <span>{guidelineText(g.text)}</span>
               </div>
             ))}
-            <div className={styles.muted}>{state.children.length === 1 ? "1 layer in this slot" : `${state.children.length} layers in this slot`}</div>
+            <div className={styles.muted}>{tp(state.children.length, "{n} layer in this slot", "{n} layers in this slot")}</div>
           </div>
         </Popover>
       )}
     </div>
   );
+}
+
+/** A slot guideline's text (model/components.ts slotGuidelines, English) in the UI's language. */
+function guidelineText(text: string): string {
+  let m = /^(\d+)–(\d+) layers?$/.exec(text);
+  if (m) return tp(Number(m[2]), "{min}–{n} layer", "{min}–{n} layers", { min: m[1] });
+  m = /^At least (\d+) layers?$/.exec(text);
+  if (m) return tp(Number(m[1]), "At least {n} layer", "At least {n} layers");
+  m = /^Up to (\d+) layers?$/.exec(text);
+  if (m) return tp(Number(m[1]), "Up to {n} layer", "Up to {n} layers");
+  return t(text);
 }
 
 // ---- Main component, set, variant ----------------------------------------------------------------------------------
@@ -513,7 +530,7 @@ export const COMPONENT_HEADER_ACTIONS: Record<Exclude<ComponentSelection["kind"]
  */
 export function componentMoreMenu(ed: EditorController): MenuEntry[] {
   const groups: MenuEntry[][] = [
-    statusTargets(ed).length ? [{ id: "ready-for-dev", label: "Toggle ready for dev status", icon: ACTION_ICON["ready-for-dev"] }] : [],
+    statusTargets(ed).length ? [{ id: "ready-for-dev", label: t("Toggle ready for dev status"), icon: ACTION_ICON["ready-for-dev"] }] : [],
     [actionItem(ed, "object.use-as-mask")],
     booleanActions(ed),
   ];
@@ -559,6 +576,7 @@ function NameField({ node }: { node: CNode }) {
  * variant for a variant) as one block, the line under it (live: Position's title at 195 after three properties).
  */
 export function ComponentBlock({ sel }: { sel: ComponentSelection }) {
+  useT();
   const ed = useEditor();
   useTopics(ed.store, ["selection", "undo", "structure"]);
   const version = useDocVersion();
@@ -575,13 +593,13 @@ export function ComponentBlock({ sel }: { sel: ComponentSelection }) {
   const action = (a: ComponentHeaderAction) => {
     switch (a) {
       case "multi-edit":
-        return <ToggleIconButton key={a} icon="24.multi-edit.small" label="Multi-edit variants" tone="secondary" pressed={multi} disabled={!set} onPressedChange={(on) => set && setMultiEdit(set.guid, on)} />;
+        return <ToggleIconButton key={a} icon="24.multi-edit.small" label={t("Multi-edit variants")} tone="secondary" pressed={multi} disabled={!set} onPressedChange={(on) => set && setMultiEdit(set.guid, on)} />;
       case "add-variant":
-        return <IconButton key={a} icon="24.add-variant.small" label={add.label} tone="secondary" disabled={!isEnabled(ed, add)} onClick={() => runEditorCommand(ed, add.id)} />;
+        return <IconButton key={a} icon="24.add-variant.small" label={t(add.label)} tone="secondary" disabled={!isEnabled(ed, add)} onClick={() => runEditorCommand(ed, add.id)} />;
       case "matching":
-        return <IconButton key={a} icon="24.select-matching.small" label={matching.label} shortcut={shortcutOf(matching)} tone="secondary" disabled={!isEnabled(ed, matching)} onClick={() => runEditorCommand(ed, matching.id)} />;
+        return <IconButton key={a} icon="24.select-matching.small" label={t(matching.label)} shortcut={shortcutOf(matching)} tone="secondary" disabled={!isEnabled(ed, matching)} onClick={() => runEditorCommand(ed, matching.id)} />;
       case "configuration":
-        return <IconButton key={a} icon="24.adjust.small" label="Component configuration" tone="secondary" aria-expanded={!!config} onClick={(e) => toggleConfig(e.currentTarget)} />;
+        return <IconButton key={a} icon="24.adjust.small" label={t("Component configuration")} tone="secondary" aria-expanded={!!config} onClick={(e) => toggleConfig(e.currentTarget)} />;
       case "more":
         return <ComponentMore key={a} />;
     }
@@ -600,12 +618,13 @@ export function ComponentBlock({ sel }: { sel: ComponentSelection }) {
 }
 
 function ComponentMore() {
+  useT();
   const ed = useEditor();
   const entries = componentMoreMenu(ed);
   return (
     <MenuButton
-      label="More actions"
-      entries={entries.length ? entries : [{ id: "none", label: "No actions", disabled: true }]}
+      label={t("More actions")}
+      entries={entries.length ? entries : [{ id: "none", label: t("No actions"), disabled: true }]}
       className={styles.iconMenu}
       align="end"
       gap={PANEL_MENU_GAP}
@@ -629,18 +648,18 @@ type EditorTarget = { mode: "create"; type: ComponentPropType; bind?: { layer: C
  */
 export function createPropertyMenu(ed: EditorController, owner: CNode, nested: readonly CNode[]): MenuEntry[] {
   return [
-    { header: "Create property" },
-    ...ADD_TYPES.map((t) => ({ id: t, label: PROPERTY_TYPE_LABEL[t], icon: PROPERTY_ICON[t], disabled: !canAddProperty(ed, owner, t) })),
+    { header: t("Create property") },
+    ...ADD_TYPES.map((type) => ({ id: type, label: t(PROPERTY_TYPE_LABEL[type]), icon: PROPERTY_ICON[type], disabled: !canAddProperty(ed, owner, type) })),
     "-",
-    { header: "Expose properties from" },
-    { id: "submenu:nested", label: "Nested instances", icon: "16.instance" as IconName, disabled: !nested.length, items: nested.map((n) => ({ id: `expose:${n.guid}`, label: n.name ?? "", checked: n.propsAreBubbled === true })) },
+    { header: t("Expose properties from") },
+    { id: "submenu:nested", label: t("Nested instances"), icon: "16.instance" as IconName, disabled: !nested.length, items: nested.map((n) => ({ id: `expose:${n.guid}`, label: n.name ?? "", checked: n.propsAreBubbled === true })) },
   ];
 }
 
 /** A property row's summary after its name (live: "Show icon ・ True", "State ・ Default, Hover, Pressed"). */
 function propertySummary(ed: EditorController, d: ComponentPropDef, variantProps: { name: string; values: string[] }[]): string {
   if (d.type === "VARIANT") return variantProps.find((p) => p.name === d.name)?.values.join(", ") ?? "";
-  if (d.type === "BOOL") return d.initialValue?.boolValue === false ? "False" : "True";
+  if (d.type === "BOOL") return d.initialValue?.boolValue === false ? t("False") : t("True");
   if (d.type === "TEXT") return d.initialValue?.textValue?.characters ?? "";
   if (d.type === "INSTANCE_SWAP") {
     const c = d.initialValue?.guidValue ? readC(ed, guidStr(d.initialValue.guidValue)) : null;
@@ -661,6 +680,7 @@ function BlockTitle({ title, children }: { title: string; children?: React.React
 
 /** Properties of a main component or a set: Create property, then a row per property and per exposed instance. */
 export function PropertiesSection({ owner }: { owner: CNode }) {
+  useT();
   const ed = useEditor();
   const version = useDocVersion();
   // Keyed by the owner's id, not its object: a drag of the set re-reads the selected node every frame (its
@@ -692,9 +712,9 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
   };
   return (
     <div className={styles.properties} data-properties-section="">
-      <BlockTitle title="Properties">
+      <BlockTitle title={t("Properties")}>
         <span ref={addRef} className={styles.contents}>
-          <MenuButton label="Create property" entries={() => createPropertyMenu(ed, fresh, nestedInstances)}className={styles.iconMenu} align="end" gap={PANEL_MENU_GAP} flush menuClassName={styles.createPropertyMenu} menuWidth={156} alignOffset={1} onSelect={onAdd}>
+          <MenuButton label={t("Create property")} entries={() => createPropertyMenu(ed, fresh, nestedInstances)} className={styles.iconMenu} align="end" gap={PANEL_MENU_GAP} flush menuClassName={styles.createPropertyMenu} menuWidth={156} alignOffset={1} onSelect={onAdd}>
             <Icon name="24.plus.small" />
           </MenuButton>
         </span>
@@ -759,7 +779,7 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
                   }
                 }}
               >
-                <span className={styles.defIcon} role="img" aria-label={`${PROPERTY_TYPE_LABEL[d.type]} property`}>
+                <span className={styles.defIcon} role="img" aria-label={t("{type} property", { type: t(PROPERTY_TYPE_LABEL[d.type]) })}>
                   <Icon name={PROPERTY_ICON[d.type]} />
                 </span>
                 {renaming === id ? (
@@ -781,7 +801,7 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
                 )}
               </button>
               {!used.has(id) && (
-                <IconButton icon="24.warning" label="Not used within component" tone="secondary" className={styles.defUnused} data-property-unused={d.name} onClick={(e) => setEditing({ target: { mode: "edit", def: d }, anchor: e.currentTarget })} />
+                <IconButton icon="24.warning" label={t("Not used within component")} tone="secondary" className={styles.defUnused} data-property-unused={d.name} onClick={(e) => setEditing({ target: { mode: "edit", def: d }, anchor: e.currentTarget })} />
               )}
             </div>
           );
@@ -797,7 +817,7 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
                 setMenu({ x: e.clientX, y: e.clientY, exposed: n });
               }}
             >
-              <span className={styles.defIcon} role="img" aria-label="Nested instance">
+              <span className={styles.defIcon} role="img" aria-label={t("Nested instance")}>
                 <Icon name="16.instance" />
               </span>
               <span className={styles.defName}>{n.name}</span>
@@ -809,7 +829,7 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
         <ContextMenu
           at={{ x: menu.x, y: menu.y }}
           context
-          entries={menu.def ? [{ id: "delete", label: "Delete property", disabled: lastVariant(menu.def) }] : [{ id: "unexpose", label: "Stop exposing" }]}
+          entries={menu.def ? [{ id: "delete", label: t("Delete property"), disabled: lastVariant(menu.def) }] : [{ id: "unexpose", label: t("Stop exposing") }]}
           onSelect={(id) => {
             if (id === "delete" && menu.def) deleteProperty(ed, fresh, menu.def);
             if (id === "unexpose" && menu.exposed) setExposed(ed, menu.exposed, false);
@@ -824,6 +844,7 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
 
 /** An in-place rename (Enter / leaving keeps it, Esc drops it). */
 function RenameInput({ value, onDone, label }: { value: string; onDone: (value: string | null) => void; label?: string }) {
+  useT();
   const [draft, setDraft] = useState(value);
   const done = useRef(false);
   const finish = (v: string | null) => {
@@ -834,7 +855,7 @@ function RenameInput({ value, onDone, label }: { value: string; onDone: (value: 
   return (
     <input
       className={styles.renameInput}
-      aria-label={label ?? "Property name"}
+      aria-label={label ?? t("Property name")}
       value={draft}
       autoFocus
       spellCheck={false}
@@ -857,6 +878,7 @@ function RenameInput({ value, onDone, label }: { value: string; onDone: (value: 
  * or Rename… renames this value in every variant).
  */
 export function CurrentVariantSection({ variant }: { variant: CNode }) {
+  useT();
   const ed = useEditor();
   const version = useDocVersion();
   const data = useMemo(() => {
@@ -870,8 +892,8 @@ export function CurrentVariantSection({ variant }: { variant: CNode }) {
   if (!data) return null;
   return (
     <div className={styles.properties}>
-      <BlockTitle title="Current variant">
-        <IconButton icon="24.component.small" label="Select component" tone="secondary" onClick={() => ed.engine.setSelection([data.set.guid])} />
+      <BlockTitle title={t("Current variant")}>
+        <IconButton icon="24.component.small" label={t("Select component")} tone="secondary" onClick={() => ed.engine.setSelection([data.set.guid])} />
       </BlockTitle>
       <div className={styles.variantRows} data-current-variant="">
         {data.props.map((p) => (
@@ -883,6 +905,7 @@ export function CurrentVariantSection({ variant }: { variant: CNode }) {
 }
 
 function VariantRow({ set, variant, name, values, value }: { set: CNode; variant: CNode; name: string; values: string[]; value: string }) {
+  useT();
   const ed = useEditor();
   const [renamingName, setRenamingName] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
@@ -904,7 +927,7 @@ function VariantRow({ set, variant, name, values, value }: { set: CNode; variant
         <span className={styles.variantName}>
           <RenameInput
             value={name}
-            label={`Property name for ${name}`}
+            label={t("Property name for {name}", { name })}
             onDone={(next) => {
               setRenamingName(false);
               if (next && def && next !== name) updateProperty(ed, set, def, { name: next }, "Rename property");
@@ -912,17 +935,17 @@ function VariantRow({ set, variant, name, values, value }: { set: CNode; variant
           />
         </span>
       ) : (
-        <button type="button" className={styles.variantName} aria-label={`Edit property name for ${name}`} onClick={() => setRenamingName(true)}>
+        <button type="button" className={styles.variantName} aria-label={t("Edit property name for {name}", { name })} onClick={() => setRenamingName(true)}>
           {name}
         </button>
       )}
       {/* Live (design/variant.txt): a listbox 92 × 32 around the 24 box, the value 68 wide, its chevron part of the box (no button) */}
-      <div role="listbox" className={styles.variantValue} aria-label={`Edit property value for ${name}`}>
+      <div role="listbox" className={styles.variantValue} aria-label={t("Edit property value for {name}", { name })}>
         <div ref={field} className={styles.variantField}>
           <input
             ref={input}
             className={styles.variantInput}
-            aria-label={`Edit property value for ${name}`}
+            aria-label={t("Edit property value for {name}", { name })}
             value={draft ?? value}
             spellCheck={false}
             onFocus={(e) => e.currentTarget.select()}
@@ -955,7 +978,7 @@ function VariantRow({ set, variant, name, values, value }: { set: CNode; variant
         <ContextMenu
           at={{ x: list.left, y: list.bottom + 4 }}
           over={{ rect: list, align: "left" }}
-          entries={[...values.map((v) => ({ id: `value:${v}`, label: v, checked: v === value })), { id: "rename", label: "Rename…", checked: false }]}
+          entries={[...values.map((v) => ({ id: `value:${v}`, label: v, checked: v === value })), { id: "rename", label: t("Rename…"), checked: false }]}
           onSelect={(id) => {
             if (id === "rename") {
               setRenameValue(true);
@@ -981,6 +1004,7 @@ function PropertyEditor(props: { owner: CNode; target: EditorTarget; anchor: HTM
 }
 
 function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; target: EditorTarget; anchor: HTMLElement | null; onClose: () => void }) {
+  useT();
   const ed = useEditor();
   const assets = useComponentAssets();
   const type = target.mode === "create" ? target.type : target.def.type;
@@ -997,7 +1021,8 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
   const varValue = def?.varValue as { dataType?: string; value?: { alias?: { guid?: GuidValue } } } | undefined;
   const boundDefault = varValue?.dataType === "ALIAS" && varValue.value?.alias?.guid ? guidStr(varValue.value.alias.guid) : null;
   const preferred = def?.preferredValues?.instanceSwapValues ?? [];
-  const title = target.mode === "create" ? `Create ${PROPERTY_TYPE_LABEL[type].toLowerCase()} property` : `Edit ${PROPERTY_TYPE_LABEL[type].toLowerCase()} property`;
+  const typeName = t(PROPERTY_TYPE_LABEL[type]).toLowerCase();
+  const title = target.mode === "create" ? t("Create {type} property", { type: typeName }) : t("Edit {type} property", { type: typeName });
   const editValue = (v: ComponentPropValue) => {
     setValue(v);
     if (def) updateProperty(ed, owner, def, { initialValue: v }, "Edit property");
@@ -1007,11 +1032,11 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
   return (
     <Popover anchor={anchor} title={title} width={240} onClose={onClose} label={title}>
       <div className={styles.editor} data-property-editor={type}>
-        <span className={styles.editorLabel}>Name</span>
+        <span className={styles.editorLabel}>{t("Name")}</span>
         <TextInput
-          label="Name"
+          label={t("Name")}
           value={name}
-          placeholder={type === "VARIANT" ? "Property" : "Property 1"}
+          placeholder={type === "VARIANT" ? t("Property") : t("Property 1")}
           autoFocus
           onCommit={(v) => {
             setName(v);
@@ -1020,19 +1045,19 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
         />
         {type === "BOOL" && boundDefault && def && (
           <>
-            <span className={styles.editorLabel}>Value</span>
-            <BoundPill id={boundDefault} label="Value" onOpen={setApplying} onDetach={() => bindPropertyVariable(ed, owner.guid, def.name, null)} />
+            <span className={styles.editorLabel}>{t("Value")}</span>
+            <BoundPill id={boundDefault} label={t("Value")} onOpen={setApplying} onDetach={() => bindPropertyVariable(ed, owner.guid, def.name, null)} />
           </>
         )}
         {type === "BOOL" && !boundDefault && (
           <>
-            <span className={styles.editorLabel}>Value</span>
+            <span className={styles.editorLabel}>{t("Value")}</span>
             <Select
-              label="Value"
+              label={t("Value")}
               value={value?.boolValue === false ? "false" : "true"}
               options={[
-                { value: "true", label: "True" },
-                { value: "false", label: "False" },
+                { value: "true", label: t("True") },
+                { value: "false", label: t("False") },
               ]}
               onChange={(v) => editValue({ boolValue: v === "true" })}
             />
@@ -1040,22 +1065,22 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
         )}
         {type === "TEXT" && boundDefault && def && (
           <>
-            <span className={styles.editorLabel}>Value</span>
-            <BoundPill id={boundDefault} label="Value" onOpen={setApplying} onDetach={() => bindPropertyVariable(ed, owner.guid, def.name, null)} />
+            <span className={styles.editorLabel}>{t("Value")}</span>
+            <BoundPill id={boundDefault} label={t("Value")} onOpen={setApplying} onDetach={() => bindPropertyVariable(ed, owner.guid, def.name, null)} />
           </>
         )}
         {type === "TEXT" && !boundDefault && (
           <>
-            <span className={styles.editorLabel}>Value</span>
-            <TextInput label="Value" value={value?.textValue?.characters ?? ""} onCommit={(v) => editValue({ textValue: { characters: v } })} />
+            <span className={styles.editorLabel}>{t("Value")}</span>
+            <TextInput label={t("Value")} value={value?.textValue?.characters ?? ""} onCommit={(v) => editValue({ textValue: { characters: v } })} />
           </>
         )}
         {(type === "BOOL" || type === "TEXT") && def && !boundDefault && (
           // "Apply variable" (help: a boolean variable for a boolean property's default, a string one for a text one).
           <span className={cx(styles.editorWide, styles.editorFooterStart)}>
-            <Button variant="secondary" onClick={(e) => setApplying(e.currentTarget)} {...tooltipProps("Apply variable")}>
+            <Button variant="secondary" onClick={(e) => setApplying(e.currentTarget)} {...tooltipProps(t("Apply variable"))}>
               <Icon name="24.variable.small" />
-              Apply variable
+              {t("Apply variable")}
             </Button>
           </span>
         )}
@@ -1070,13 +1095,13 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
         )}
         {type === "VARIANT" && !def && (
           <>
-            <span className={styles.editorLabel}>Value</span>
-            <TextInput label="Value" value={value?.textValue?.characters ?? ""} onCommit={(v) => setValue({ textValue: { characters: v } })} />
+            <span className={styles.editorLabel}>{t("Value")}</span>
+            <TextInput label={t("Value")} value={value?.textValue?.characters ?? ""} onCommit={(v) => setValue({ textValue: { characters: v } })} />
           </>
         )}
         {type === "VARIANT" && variants && (
           <>
-            <span className={cx(styles.editorLabel, styles.editorWide)}>Values</span>
+            <span className={cx(styles.editorLabel, styles.editorWide)}>{t("Values")}</span>
             {variants.values.map((v, i) => (
               // Hover a value to reveal its handle; drag to reorder (help "Create and use variants").
               <div
@@ -1098,7 +1123,7 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
                 <span
                   className={styles.valueHandle}
                   draggable
-                  aria-label={`Reorder ${v}`}
+                  aria-label={t("Reorder {value}", { value: v })}
                   onDragStart={(e) => {
                     setValueDrag(i);
                     e.dataTransfer.effectAllowed = "move";
@@ -1110,17 +1135,17 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
                 >
                   <Icon name="16.drag" />
                 </span>
-                <TextInput label={`Value ${v}`} value={v} onCommit={(next) => next.trim() && next !== v && renameVariantValue(ed, owner, variants.name, v, next.trim())} />
+                <TextInput label={t("Value {value}", { value: v })} value={v} onCommit={(next) => next.trim() && next !== v && renameVariantValue(ed, owner, variants.name, v, next.trim())} />
               </div>
             ))}
           </>
         )}
         {type === "INSTANCE_SWAP" && (
           <>
-            <span className={styles.editorLabel}>Value</span>
-            <button type="button" className={styles.swapField} aria-label={`Value: ${swapName ?? "None"}`} onClick={(e) => setPicker({ kind: "value", anchor: e.currentTarget })}>
+            <span className={styles.editorLabel}>{t("Value")}</span>
+            <button type="button" className={styles.swapField} aria-label={t("Value: {value}", { value: swapName ?? t("None") })} onClick={(e) => setPicker({ kind: "value", anchor: e.currentTarget })}>
               <Icon name="16.instance" className={styles.purpleIcon} />
-              <span className={styles.headerText}>{swapName ? assetLabel(swapName) : "Choose a component"}</span>
+              <span className={styles.headerText}>{swapName ? assetLabel(swapName) : t("Choose a component")}</span>
               <Icon name="16.chevron.down" className={styles.chevron} />
             </button>
           </>
@@ -1128,19 +1153,19 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
         {type === "INSTANCE_SWAP" && def && (
           <>
             <span className={cx(styles.editorLabel, styles.editorWide, styles.editorHeader)}>
-              Preferred instances
-              <IconButton icon="24.plus.small" label="Add preferred instances" tone="secondary" onClick={(e) => setPicker({ kind: "preferred", anchor: e.currentTarget })} />
+              {t("Preferred instances")}
+              <IconButton icon="24.plus.small" label={t("Add preferred instances")} tone="secondary" onClick={(e) => setPicker({ kind: "preferred", anchor: e.currentTarget })} />
             </span>
-            {preferred.length === 0 && <span className={cx(styles.muted, styles.editorWide)}>None</span>}
+            {preferred.length === 0 && <span className={cx(styles.muted, styles.editorWide)}>{t("None")}</span>}
             {preferred.map((p) => {
               const a = assets.find((x) => isPreferred(x, p.key));
               return (
                 <div key={p.key} className={cx(styles.editorWide, styles.preferredRow)}>
                   <Icon name={a?.kind === "set" ? "16.component.set" : "16.component"} className={styles.purpleIcon} />
-                  <span className={styles.headerText}>{a ? assetLabel(a.name) : "Missing component"}</span>
+                  <span className={styles.headerText}>{a ? assetLabel(a.name) : t("Missing component")}</span>
                   <IconButton
                     icon="24.minus.small"
-                    label="Remove preferred instance"
+                    label={t("Remove preferred instance")}
                     tone="secondary"
                     onClick={() => updateProperty(ed, owner, def, { preferredValues: { ...def.preferredValues, instanceSwapValues: preferred.filter((x) => x.key !== p.key) } }, "Edit preferred values")}
                   />
@@ -1158,7 +1183,7 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
                 onClose();
               }}
             >
-              Create property
+              {t("Create property")}
             </Button>
           </div>
         )}
@@ -1166,7 +1191,7 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
       {picker && (
         <ComponentPicker
           anchor={picker.anchor}
-          title={picker.kind === "value" ? "Value" : "Preferred instances"}
+          title={picker.kind === "value" ? t("Value") : t("Preferred instances")}
           current={picker.kind === "value" && value?.guidValue ? guidStr(value.guidValue) : null}
           onPick={(a) => {
             if (picker.kind === "value") editValue({ guidValue: guidVal(a.target) });
@@ -1188,6 +1213,7 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
  * Bound, it shows as the property's purple pill. Renders nothing outside components.
  */
 export function BindButton({ layer, field, type }: { layer: Pick<CNode, "guid"> & Partial<CNode>; field: BindableField; type: Exclude<ComponentPropType, "VARIANT"> }) {
+  useT();
   const ed = useEditor();
   const version = useDocVersion();
   const [creating, setCreating] = useState<HTMLElement | null>(null);
@@ -1202,13 +1228,14 @@ export function BindButton({ layer, field, type }: { layer: Pick<CNode, "guid"> 
     return { node, owner, defs, bound: boundProperty(node, field, owner.definer.componentPropDefs ?? []) };
   }, [ed, layer.guid, field, type, version]);
   if (!data) return null;
-  const label = `Apply ${PROPERTY_TYPE_LABEL[type].toLowerCase()} property`;
+  const typeName = t(PROPERTY_TYPE_LABEL[type]).toLowerCase();
+  const label = t("Apply {type} property", { type: typeName });
   const entries: MenuEntry[] = [
     { header: label },
     ...data.defs.map((d) => ({ id: guidStr(d.id), label: d.name, checked: !!data.bound && guidStr(data.bound.id) === guidStr(d.id) })),
     ...(data.defs.length ? ["-" as const] : []),
-    { id: "create", label: `Create ${PROPERTY_TYPE_LABEL[type].toLowerCase()} property…` },
-    ...(data.bound ? ["-" as const, { id: "detach", label: "Detach property" }] : []),
+    { id: "create", label: t("Create {type} property…", { type: typeName }) },
+    ...(data.bound ? ["-" as const, { id: "detach", label: t("Detach property") }] : []),
   ];
   const pick = (id: string) => {
     if (id === "create") return setCreating(wrap.current);
@@ -1219,7 +1246,7 @@ export function BindButton({ layer, field, type }: { layer: Pick<CNode, "guid"> 
   return (
     <span ref={wrap} className={styles.bindWrap} data-bind={field}>
       {data.bound && (
-        <span className={styles.pill} title={`${PROPERTY_TYPE_LABEL[type]} property`}>
+        <span className={styles.pill} title={t("{type} property", { type: t(PROPERTY_TYPE_LABEL[type]) })}>
           <Icon name={PROPERTY_ICON[type]} />
           <span className={styles.pillText}>{data.bound.name}</span>
         </span>

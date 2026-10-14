@@ -6,6 +6,7 @@
  */
 import type { AgentSettings, AgentSetupApi, McpClientInfo, McpState, ProviderInfo } from "@shared/agents/types";
 import { DEFAULT_MANAGER_SETTINGS, type ManagerSettings } from "@shared/studio/types";
+import { t } from "@/i18n";
 
 export interface AgentSetupState {
   /** The open page: null for the list, else an item ("provider:antigravity", "add-server", "mcp", "client:cursor") */
@@ -35,7 +36,7 @@ export interface AgentSetupHost {
 }
 
 const MODEL_LABEL: Record<string, string> = { default: "Default", auto: "Auto" };
-export const modelLabel = (m: string, p?: Pick<ProviderInfo, "modelLabels">) => p?.modelLabels?.[m] ?? MODEL_LABEL[m] ?? m;
+export const modelLabel = (m: string, p?: Pick<ProviderInfo, "modelLabels">) => p?.modelLabels?.[m] ?? (MODEL_LABEL[m] ? t(MODEL_LABEL[m]) : m);
 
 export const EMPTY_AGENT_SETTINGS: AgentSettings = { providerId: null, models: {}, custom: [] };
 

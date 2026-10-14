@@ -26,6 +26,7 @@ import { isAssetKey, isSha1, type AssetPayload, type FileKey, type FileMeta, typ
 import { isLocalLibraryKey, type CollectionModes, type FileLibraries, type LibraryKey, type LibraryMissing, type LibraryScope, type OrgLibraryRecord, type OrgPublishInput } from "../../shared/libraries/orgTypes";
 import type { LibraryNotice, OrgNotice } from "../notifications/service";
 import { httpError, type MultiplayerService } from "../multiplayer/service";
+import { t as tr } from "../../shared/i18n";
 
 // ---- the server ----------------------------------------------------------------------------------------------------
 
@@ -96,7 +97,7 @@ export function seg(s: unknown, what: string): string {
  */
 export function parsePayloadFrames(bytes: Uint8Array): { key: string; versionHash: string; bytes: Uint8Array }[] {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const bad = () => new StoreError("corrupt", "The library's payloads couldn't be read");
+  const bad = () => new StoreError("corrupt", tr("The library's payloads couldn't be read"));
   if (bytes.length < 4) throw bad();
   const n = view.getUint32(0, true);
   let at = 4;
@@ -267,8 +268,8 @@ export class OrgLibraries {
 
   private orgCopy(fileKey: FileKey): FileMeta & { space: NonNullable<FileMeta["space"]> } {
     const meta = this.host.getMeta(fileKey);
-    if (!meta) throw new StoreError("not-found", "No such file");
-    if (!meta.space) throw new StoreError("invalid", "This file isn't in an organization");
+    if (!meta) throw new StoreError("not-found", tr("No such file"));
+    if (!meta.space) throw new StoreError("invalid", tr("This file isn't in an organization"));
     return meta as FileMeta & { space: NonNullable<FileMeta["space"]> };
   }
 
@@ -488,13 +489,13 @@ export class OrgLibraries {
     this.unpublished.delete(req.libraryFileKey);
     const key = seg(req?.libraryFileKey, "library key");
     const copy = this.host.copyOf(key);
-    if (!copy) throw new StoreError("not-found", "This file isn't open here");
+    if (!copy) throw new StoreError("not-found", tr("This file isn't open here"));
     validatePublishAssets(req.assets);
     for (const m of req.moves ?? []) {
       if (!req.assets.some((a) => a.key === m.key)) throw new StoreError("invalid", `moved asset ${m.key} is not in this publish`);
       if (typeof m.fromLibraryFileKey !== "string" || !isAssetKey(m.fromKey) || (m.mode !== "move" && m.mode !== "copy")) throw new StoreError("invalid", "bad move");
     }
-    if (!this.server.signedIn) throw new StoreError("offline", "Log in to publish");
+    if (!this.server.signedIn) throw new StoreError("offline", tr("Log in to publish"));
     const prev = await this.latest(key);
     const preview = previewAgainst(prev, req.assets, []);
     // Manifest entries; thumbnails into the blob store (their sha1 names them in the manifest).
@@ -610,7 +611,7 @@ export class OrgLibraries {
   async setEnabled(fileKey: FileKey, key: LibraryKey, enabled: boolean | null): Promise<FileMeta> {
     const meta = this.orgCopy(fileKey);
     seg(key, "library key");
-    if (key === meta.space.key) throw new StoreError("invalid", "A file can't use itself as a library");
+    if (key === meta.space.key) throw new StoreError("invalid", tr("A file can't use itself as a library"));
     const answer = await this.call<FileLibraries>("PUT", `/files/${encodeURIComponent(meta.space.key)}/libraries/${key}`, { enabled });
     return this.adoptEnabled(this.host.getMeta(fileKey) ?? meta, answer);
   }

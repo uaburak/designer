@@ -12,6 +12,7 @@ import type { AgentSetupHost } from "../../agents/setup";
 import { changeConnectors, removeSkill, saveSkill, testConnector, useConnectors, useSkills } from "./aiData";
 import { Block, Field, Group, Row, errorText } from "./settingsParts";
 import styles from "./Agents.module.css";
+import { t, useT } from "@/i18n";
 
 const POLICY_OPTIONS = [
   { value: "allow", label: "Allow" },
@@ -19,44 +20,46 @@ const POLICY_OPTIONS = [
   { value: "off", label: "Off" },
 ];
 
-const connectorStatus = (c: Connector) => (!c.enabled ? "Off" : c.state === "connected" ? "Connected" : c.state === "error" ? "Can’t connect" : "Not tested");
+const connectorStatus = (c: Connector) => (!c.enabled ? t("Off") : c.state === "connected" ? t("Connected") : c.state === "error" ? t("Can’t connect") : t("Not tested"));
 
 // ---- The list's groups ----
 
 export function SkillsGroup({ service }: { service: AgentSetupHost }) {
+  useT();
   const { list, loading, error } = useSkills();
   return (
-    <Group title="Skills">
-      {loading && <div className={styles.rowNote}><Spinner size={16} /> Reading skills…</div>}
+    <Group title={t("Skills")}>
+      {loading && <div className={styles.rowNote}><Spinner size={16} /> {t("Reading skills…")}</div>}
       {error && <div className={styles.rowNote} data-skills-error="">{error}</div>}
       {list.map((s) => (
-        <Row key={s.id} icon="24.agents" label={`/${s.name}`} status={s.enabled ? "On" : "Off"} on={s.enabled} dim={!s.enabled} onClick={() => service.openSetting(`skill:${s.id}`)} data-skill={s.name} />
+        <Row key={s.id} icon="24.agents" label={`/${s.name}`} status={s.enabled ? t("On") : t("Off")} on={s.enabled} dim={!s.enabled} onClick={() => service.openSetting(`skill:${s.id}`)} data-skill={s.name} />
       ))}
-      {!error && <Row icon="24.plus" label="Add skill" onClick={() => service.openSetting("add-skill")} data-settings-row="add-skill" />}
+      {!error && <Row icon="24.plus" label={t("Add skill")} onClick={() => service.openSetting("add-skill")} data-settings-row="add-skill" />}
     </Group>
   );
 }
 
 export function ConnectorsGroup({ service }: { service: AgentSetupHost }) {
+  useT();
   const { list, error } = useConnectors(service.api);
   if (!service.api?.connectors) return null;
   return (
-    <Group title="Connectors">
+    <Group title={t("Connectors")}>
       {error && <div className={styles.rowNote}>{error}</div>}
       {list.map((c) => (
         <Row key={c.id} icon="24.link" label={c.name} status={connectorStatus(c)} on={c.enabled && c.state === "connected"} dim={!c.enabled} onClick={() => service.openSetting(`connector:${c.id}`)} data-connector={c.id} />
       ))}
-      <Row icon="24.plus" label="Add connector" onClick={() => service.openSetting("add-connector")} data-settings-row="add-connector" />
+      <Row icon="24.plus" label={t("Add connector")} onClick={() => service.openSetting("add-connector")} data-settings-row="add-connector" />
     </Group>
   );
 }
 
 /** A Skills or Connectors page of Agent settings, or null when `kind` is another's. */
 export function aiSettingsPage(kind: string, id: string, service: AgentSetupHost): { title: string; body: ReactNode } | null {
-  if (kind === "add-skill") return { title: "Add skill", body: <SkillPage service={service} /> };
-  if (kind === "skill") return { title: "Skill", body: <SkillPage service={service} id={id} /> };
-  if (kind === "add-connector") return { title: "Add connector", body: <AddConnector service={service} /> };
-  if (kind === "connector") return { title: "Connector", body: <ConnectorPage service={service} id={id} /> };
+  if (kind === "add-skill") return { title: t("Add skill"), body: <SkillPage service={service} /> };
+  if (kind === "skill") return { title: t("Skill"), body: <SkillPage service={service} id={id} /> };
+  if (kind === "add-connector") return { title: t("Add connector"), body: <AddConnector service={service} /> };
+  if (kind === "connector") return { title: t("Connector"), body: <ConnectorPage service={service} id={id} /> };
   return null;
 }
 
@@ -72,13 +75,15 @@ function download(name: string, text: string) {
 }
 
 function SkillPage({ service, id }: { service: AgentSetupHost; id?: string }) {
+  useT();
   const { list } = useSkills();
   const skill = id ? list.find((s) => s.id === id) : undefined;
-  if (id && !skill) return <p className={styles.pageText}>This skill isn’t listed any more.</p>;
+  if (id && !skill) return <p className={styles.pageText}>{t("This skill isn’t listed any more.")}</p>;
   return <SkillEditor key={skill?.id ?? "new"} service={service} skill={skill} />;
 }
 
 function SkillEditor({ service, skill }: { service: AgentSetupHost; skill?: AiSkill }) {
+  useT();
   const [draft, setDraft] = useState<SkillDraft>(skill ? { name: skill.name, description: skill.description, instructions: skill.instructions } : { name: "", description: "", instructions: "" });
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -97,7 +102,7 @@ function SkillEditor({ service, skill }: { service: AgentSetupHost; skill?: AiSk
     setBusy(true);
     try {
       const saved = await saveSkill({ ...(skill ? { id: skill.id } : {}), ...clean, enabled: patch.enabled ?? skill?.enabled ?? true });
-      showToast({ message: skill ? "Skill saved" : `Skill added — type /${saved.name} in a message to use it` });
+      showToast({ message: skill ? t("Skill saved") : t("Skill added — type /{name} in a message to use it", { name: saved.name }) });
       service.openSetting(`skill:${saved.id}`);
     } catch (err) {
       setProblem(errorText(err));
@@ -109,29 +114,29 @@ function SkillEditor({ service, skill }: { service: AgentSetupHost; skill?: AiSk
     <div className={styles.pageBody} data-skill-editor="">
       {!skill && (
         <Block>
-          <p className={styles.pageText}>A skill is a set of instructions agents follow when you type its name with a /, or when its description fits the task.</p>
+          <p className={styles.pageText}>{t("A skill is a set of instructions agents follow when you type its name with a /, or when its description fits the task.")}</p>
           <div className={styles.actions}>
             <Button variant="secondary" onClick={() => file.current?.click()} data-skill-upload="">
-              Upload a file
+              {t("Upload a file")}
             </Button>
             <input ref={file} type="file" accept=".md,text/markdown" hidden onChange={(e) => void upload(e.target.files?.[0]).finally(() => (e.target.value = ""))} />
           </div>
         </Block>
       )}
-      <Block title={skill ? undefined : "Start from scratch"}>
-        <TextInput label="Name" placeholder="brand-voice" value={draft.name} maxLength={SKILL_LIMITS.name} onChange={(v) => setDraft({ ...draft, name: v.toLowerCase().replace(/[^a-z0-9-]+/g, "-") })} data-skill-name="" />
-        <TextInput label="Description" placeholder="When to use it" value={draft.description} maxLength={SKILL_LIMITS.description} onChange={(v) => setDraft({ ...draft, description: v })} data-skill-description="" />
-        <textarea className={styles.textArea} aria-label="Instructions" placeholder="Instructions" value={draft.instructions} rows={8} onChange={(e) => setDraft({ ...draft, instructions: e.target.value })} onKeyDown={(e) => e.stopPropagation()} data-skill-instructions="" />
+      <Block title={skill ? undefined : t("Start from scratch")}>
+        <TextInput label={t("Name")} placeholder="brand-voice" value={draft.name} maxLength={SKILL_LIMITS.name} onChange={(v) => setDraft({ ...draft, name: v.toLowerCase().replace(/[^a-z0-9-]+/g, "-") })} data-skill-name="" />
+        <TextInput label={t("Description")} placeholder={t("When to use it")} value={draft.description} maxLength={SKILL_LIMITS.description} onChange={(v) => setDraft({ ...draft, description: v })} data-skill-description="" />
+        <textarea className={styles.textArea} aria-label={t("Instructions")} placeholder={t("Instructions")} value={draft.instructions} rows={8} onChange={(e) => setDraft({ ...draft, instructions: e.target.value })} onKeyDown={(e) => e.stopPropagation()} data-skill-instructions="" />
         {problem && <div className={styles.attachProblem} role="alert">{problem}</div>}
         <div className={styles.actions}>
           <Button variant="primary" disabled={busy} onClick={() => void save()} data-skill-save="">
-            {skill ? "Save" : "Add skill"}
+            {skill ? t("Save") : t("Add skill")}
           </Button>
           {skill && (
             <>
-              <Button variant="secondary" onClick={() => download(`${skill.name}.md`, skillFileText(draft))}>Export</Button>
+              <Button variant="secondary" onClick={() => download(`${skill.name}.md`, skillFileText(draft))}>{t("Export")}</Button>
               <Button variant="secondary" disabled={busy} onClick={() => void save({ enabled: !skill.enabled })} data-skill-toggle="">
-                {skill.enabled ? "Disable skill" : "Enable skill"}
+                {skill.enabled ? t("Disable skill") : t("Enable skill")}
               </Button>
               <Button
                 variant="secondary"
@@ -146,7 +151,7 @@ function SkillEditor({ service, skill }: { service: AgentSetupHost; skill?: AiSk
                 }}
                 data-skill-delete=""
               >
-                Delete
+                {t("Delete")}
               </Button>
             </>
           )}
@@ -164,6 +169,7 @@ export function splitCommand(line: string): string[] {
 }
 
 function AddConnector({ service }: { service: AgentSetupHost }) {
+  useT();
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"http" | "stdio">("http");
   const [url, setUrl] = useState("");
@@ -175,23 +181,23 @@ function AddConnector({ service }: { service: AgentSetupHost }) {
   return (
     <div className={styles.pageBody}>
       <Block>
-        <TextInput label="Name" placeholder="Name" value={name} onChange={setName} data-connector-name="" />
+        <TextInput label={t("Name")} placeholder={t("Name")} value={name} onChange={setName} data-connector-name="" />
         <Select
-          label="Connection"
+          label={t("Connection")}
           value={kind}
           options={[
-            { value: "http", label: "Server URL" },
-            { value: "stdio", label: "Command on this computer" },
+            { value: "http", label: t("Server URL") },
+            { value: "stdio", label: t("Command on this computer") },
           ]}
           onChange={(v) => setKind(v as "http" | "stdio")}
         />
         {kind === "http" ? (
           <>
-            <TextInput label="Server URL" placeholder="https://example.com/mcp" value={url} onChange={setUrl} data-connector-url="" />
-            <TextInput label="API key (optional)" placeholder="API key (optional)" secret value={key} onChange={setKey} />
+            <TextInput label={t("Server URL")} placeholder="https://example.com/mcp" value={url} onChange={setUrl} data-connector-url="" />
+            <TextInput label={t("API key (optional)")} placeholder={t("API key (optional)")} secret value={key} onChange={setKey} />
           </>
         ) : (
-          <TextInput label="Command" placeholder="npx -y @example/mcp-server" value={command} onChange={setCommand} data-connector-command="" />
+          <TextInput label={t("Command")} placeholder="npx -y @example/mcp-server" value={command} onChange={setCommand} data-connector-command="" />
         )}
         <div className={styles.actions}>
           <Button
@@ -217,29 +223,30 @@ function AddConnector({ service }: { service: AgentSetupHost }) {
             }}
             data-add-connector=""
           >
-            Add connector
+            {t("Add connector")}
           </Button>
         </div>
       </Block>
       <Block>
-        <p className={styles.pageText}>An MCP server your agents can use in chats where you turn it on. Agents reach it through this app: each tool asks before it runs unless you allow it. Keys are kept in your keychain.</p>
+        <p className={styles.pageText}>{t("An MCP server your agents can use in chats where you turn it on. Agents reach it through this app: each tool asks before it runs unless you allow it. Keys are kept in your keychain.")}</p>
       </Block>
     </div>
   );
 }
 
 function ConnectorPage({ service, id }: { service: AgentSetupHost; id: string }) {
+  useT();
   const { list } = useConnectors(service.api);
   const c = list.find((x) => x.id === id);
   const [testing, setTesting] = useState(false);
   const api = service.api;
-  if (!c || !api?.updateConnector) return <p className={styles.pageText}>This connector isn’t listed any more.</p>;
+  if (!c || !api?.updateConnector) return <p className={styles.pageText}>{t("This connector isn’t listed any more.")}</p>;
   const update = (p: { enabled?: boolean; policies?: Record<string, ConnectorToolPolicy> }) => void changeConnectors(api.updateConnector!({ id: c.id, ...p })).catch((err) => showToast({ message: errorText(err), kind: "error" }));
   const test = async () => {
     setTesting(true);
     try {
       const r = await testConnector(api, c.id);
-      showToast(r.state === "connected" ? { message: `${r.name} is connected` } : { message: r.error ?? "Can’t connect", kind: "error" });
+      showToast(r.state === "connected" ? { message: t("{name} is connected", { name: r.name }) } : { message: r.error ?? t("Can’t connect"), kind: "error" });
     } catch (err) {
       showToast({ message: errorText(err), kind: "error" });
     } finally {
@@ -249,34 +256,34 @@ function ConnectorPage({ service, id }: { service: AgentSetupHost; id: string })
   return (
     <div className={styles.pageBody} data-connector-page={c.id}>
       <Block>
-        <Field label="Name">{c.name}</Field>
-        <Field label="Status" data-connector-state={c.state}>
+        <Field label={t("Name")}>{c.name}</Field>
+        <Field label={t("Status")} data-connector-state={c.state}>
           {connectorStatus(c)}
         </Field>
         {c.error && <p className={styles.attachProblem}>{c.error}</p>}
-        <Field label={c.transport.kind === "http" ? "Server URL" : "Command"}>
+        <Field label={c.transport.kind === "http" ? t("Server URL") : t("Command")}>
           <span className={styles.mono}>{c.transport.kind === "http" ? c.transport.url : [c.transport.command, ...c.transport.args].join(" ")}</span>
         </Field>
-        <Field label="On">
-          <Switch label="Connector on" checked={c.enabled} onChange={(on) => update({ enabled: on })} />
+        <Field label={t("On")}>
+          <Switch label={t("Connector on")} checked={c.enabled} onChange={(on) => update({ enabled: on })} />
         </Field>
         <div className={styles.actions}>
           <Button variant="secondary" disabled={testing} onClick={() => void test()} data-connector-test="">
-            {testing ? "Testing…" : "Test connection"}
+            {testing ? t("Testing…") : t("Test connection")}
           </Button>
         </div>
       </Block>
-      <Block title="Tools">
-        {!c.tools.length && <p className={styles.pageText}>Test the connection to list its tools.</p>}
-        {c.tools.map((t) => (
-          <div key={t.name} className={styles.toolPolicy} data-connector-tool={t.name}>
-            <span className={styles.toolPolicyName} title={t.description}>
-              {t.name}
+      <Block title={t("Tools")}>
+        {!c.tools.length && <p className={styles.pageText}>{t("Test the connection to list its tools.")}</p>}
+        {c.tools.map((tool) => (
+          <div key={tool.name} className={styles.toolPolicy} data-connector-tool={tool.name}>
+            <span className={styles.toolPolicyName} title={tool.description}>
+              {tool.name}
             </span>
-            <Select label={`${t.name} permission`} variant="ghost" width="hug" value={t.policy} options={POLICY_OPTIONS} onChange={(v) => update({ policies: { [t.name]: v as ConnectorToolPolicy } })} />
+            <Select label={t("{name} permission", { name: tool.name })} variant="ghost" width="hug" value={tool.policy} options={POLICY_OPTIONS.map((o) => ({ ...o, label: t(o.label) }))} onChange={(v) => update({ policies: { [tool.name]: v as ConnectorToolPolicy } })} />
           </div>
         ))}
-        {c.tools.length > 0 && <p className={styles.pageText}>Allow runs the tool; Ask shows a card in the chat first; Off hides it from agents.</p>}
+        {c.tools.length > 0 && <p className={styles.pageText}>{t("Allow runs the tool; Ask shows a card in the chat first; Off hides it from agents.")}</p>}
       </Block>
       <Block>
         <div className={styles.actions}>
@@ -292,7 +299,7 @@ function ConnectorPage({ service, id }: { service: AgentSetupHost; id: string })
             }}
             data-connector-remove=""
           >
-            Remove connector
+            {t("Remove connector")}
           </Button>
         </div>
       </Block>

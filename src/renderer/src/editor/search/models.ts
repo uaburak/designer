@@ -2,6 +2,7 @@
  * Visual search's two local models through main (`ai:models`, `ai:model-download`, `ai:model-state` — 6b's downloads,
  * docs/ai.md §2.4, §10.2): whether they are on this computer, their size for the confirmation, and the download.
  */
+import { t } from "@/i18n";
 import type { AiSetupApi } from "../../../../shared/ai/api";
 import type { AiModelId, AiModelState, AiSettings } from "../../../../shared/ai/types";
 import { DEFAULT_AI_SETTINGS } from "../../../../shared/ai/types";
@@ -37,7 +38,7 @@ export function combine(states: readonly AiModelState[]): SearchModels {
   const bytes = states.reduce((n, s) => n + s.bytes, 0);
   const missing = states.filter((s) => s.state !== "ready").map((s) => s.id);
   const error = states.find((s) => s.state === "error");
-  if (error) return { state: "error", bytes, missing, error: error.error ?? "The download didn't finish." };
+  if (error) return { state: "error", bytes, missing, error: error.error ?? t("The download didn't finish.") };
   if (states.some((s) => s.state === "downloading")) {
     return { state: "downloading", bytes, missing, received: states.reduce((n, s) => n + (s.state === "ready" ? s.bytes : (s.received ?? 0)), 0) };
   }
@@ -48,7 +49,7 @@ export function combine(states: readonly AiModelState[]): SearchModels {
 export async function downloadSearchModels(api: ModelsApi, onProgress?: (m: SearchModels) => void): Promise<void> {
   const latest = new Map<AiModelId, AiModelState>();
   const first = await searchModels(api);
-  if (first.state === "unavailable") throw new Error("Local models aren't available in this version yet.");
+  if (first.state === "unavailable") throw new Error(t("Local models aren't available in this version yet."));
   const listed = await api.models();
   for (const id of SEARCH_MODELS) {
     const s = listed.state.find((x) => x.id === id);
@@ -66,7 +67,7 @@ export async function downloadSearchModels(api: ModelsApi, onProgress?: (m: Sear
       const done = await api.modelDownload(id);
       latest.set(id, done);
       report();
-      if (done.state === "error") throw new Error(done.error ?? "The download didn't finish.");
+      if (done.state === "error") throw new Error(done.error ?? t("The download didn't finish."));
     }
   } finally {
     off();

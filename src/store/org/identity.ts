@@ -27,6 +27,7 @@ import { IDP_PROVIDER_LABEL, normalizeDomain } from "../../shared/org/identity";
 import type { IdentityRepository } from "../../shared/org/repositories";
 import type * as O from "../../shared/org/types";
 import { StoreError } from "../../shared/store/protocol";
+import { t as tr } from "../../shared/i18n";
 
 /** What the repository needs: the session's JSON calls (the store's MultiplayerService) */
 export interface IdentityHost {
@@ -41,7 +42,7 @@ const seg = (s: unknown, what: string): string => {
 
 const domainSeg = (d: unknown): string => {
   const n = typeof d === "string" ? normalizeDomain(d) : null;
-  if (!n) throw new StoreError("invalid", "Enter a domain like acme.com", { code: "invalid", field: "domain" });
+  if (!n) throw new StoreError("invalid", tr("Enter a domain like acme.com"), { code: "invalid", field: "domain" });
   return encodeURIComponent(n);
 };
 
@@ -51,7 +52,7 @@ const str = (v: unknown, max: number): string | undefined => (typeof v === "stri
 function cleanIdpInput(input: unknown): I.IdpConfigInput {
   const i = (input && typeof input === "object" ? input : {}) as Partial<Record<keyof I.IdpConfigInput, unknown>>;
   const provider = typeof i.provider === "string" && i.provider in IDP_PROVIDER_LABEL ? (i.provider as I.IdpProvider) : null;
-  if (!provider) throw new StoreError("invalid", "Choose an identity provider", { code: "invalid", field: "provider" });
+  if (!provider) throw new StoreError("invalid", tr("Choose an identity provider"), { code: "invalid", field: "provider" });
   const out: I.IdpConfigInput = { provider };
   const metadataUrl = str(i.metadataUrl, 2048);
   const metadataXml = str(i.metadataXml, 1_000_000);
@@ -75,7 +76,7 @@ function cleanIdpInput(input: unknown): I.IdpConfigInput {
 export function identityRepository(host: IdentityHost, onChanged?: (orgId: string) => void | Promise<void>): IdentityRepository {
   const base = (orgId: unknown) => `/orgs/${seg(orgId, "org")}/admin`;
   const call = <T>(method: string, path: string, body?: unknown): Promise<T> => {
-    if (!host.signedIn) return Promise.reject(new StoreError("offline", "Log in to manage your organization"));
+    if (!host.signedIn) return Promise.reject(new StoreError("offline", tr("Log in to manage your organization")));
     return host.call<T>(method, path, body);
   };
   const changed = async (orgId: unknown) => {
@@ -101,7 +102,7 @@ export function identityRepository(host: IdentityHost, onChanged?: (orgId: strin
     revokeScimToken: async (orgId) => void (await call("DELETE", `${base(orgId)}/identity/scim-token`)),
     addDomain: async (orgId, domain) => {
       const n = typeof domain === "string" ? normalizeDomain(domain) : null;
-      if (!n) throw new StoreError("invalid", "Enter a domain like acme.com", { code: "invalid", field: "domain" });
+      if (!n) throw new StoreError("invalid", tr("Enter a domain like acme.com"), { code: "invalid", field: "domain" });
       return (await call<{ domain: I.OrgDomain }>("POST", `${base(orgId)}/domains`, { domain: n })).domain;
     },
     verifyDomain: async (orgId, domain) => {

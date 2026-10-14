@@ -15,12 +15,13 @@ import { useLibraries, useUI } from "../../hooks";
 import { draftPublish, publishLibrary, publishPlan, type PublishDraft, type PublishItem } from "../../libraries";
 import { NodeThumb, RemoteThumb } from "./Thumbs";
 import styles from "./Libraries.module.css";
+import { intlLocale, t, tp, useT } from "@/i18n";
 
 type Row = { key: string; name: string; kind: LibraryAsset["kind"]; status: "created" | "modified" | "removed"; item?: PublishItem; removed?: LibraryAsset };
 
 /** "Used by Button", "Used by Button and Chip", "Used by Button and 2 others". */
 export const usedByText = (names: readonly string[]): string =>
-  names.length <= 1 ? `Used by ${names[0] ?? ""}` : names.length === 2 ? `Used by ${names[0]} and ${names[1]}` : `Used by ${names[0]} and ${names.length - 1} others`;
+  names.length <= 1 ? t("Used by {name}", { name: names[0] ?? "" }) : names.length === 2 ? t("Used by {a} and {b}", { a: names[0], b: names[1] }) : tp(names.length - 1, "Used by {name} and {n} other", "Used by {name} and {n} others", { name: names[0] });
 
 const STATUS_LABEL: Record<Row["status"], string> = { created: "New", modified: "Modified", removed: "Removed" };
 const GROUPS: { title: string; kinds: LibraryAsset["kind"][] }[] = [
@@ -33,12 +34,12 @@ const GROUPS: { title: string; kinds: LibraryAsset["kind"][] }[] = [
 export function publishErrorText(e: unknown): string {
   const code = (e as { code?: string }).code;
   const detail = ((e as { detail?: { code?: string } }).detail ?? {}).code;
-  if (code === "draft-cannot-publish" || detail === "draft_cannot_publish") return "Move this file to a folder to publish it";
-  if (code === "branch-cannot-publish" || detail === "branch_cannot_publish") return "Libraries can only be published from the main file";
-  if (detail === "seat_required") return "You need a Full seat to publish a library";
-  if (code === "conflict") return "Someone else published this library. Review the changes and publish again";
-  if (code === "offline") return "You're offline. Publish again when you're back online";
-  return "The library couldn't be published";
+  if (code === "draft-cannot-publish" || detail === "draft_cannot_publish") return t("Move this file to a folder to publish it");
+  if (code === "branch-cannot-publish" || detail === "branch_cannot_publish") return t("Libraries can only be published from the main file");
+  if (detail === "seat_required") return t("You need a Full seat to publish a library");
+  if (code === "conflict") return t("Someone else published this library. Review the changes and publish again");
+  if (code === "offline") return t("You're offline. Publish again when you're back online");
+  return t("The library couldn't be published");
 }
 
 export function PublishDialog() {
@@ -47,6 +48,7 @@ export function PublishDialog() {
 }
 
 function Publish() {
+  useT();
   const ed = useEditor();
   const state = useLibraries();
   const [draft, setDraft] = useState<PublishDraft | null>(null);
@@ -109,7 +111,7 @@ function Publish() {
     try {
       const published = await publishLibrary(ed, draft, { description: description.trim(), selected, moveModes, ...(org?.canShare ? { scope: orgChecked ? ("org" as const) : ("team" as const) } : {}) }, (done, total) => setProgress({ done, total }));
       // Published; should this file not have recorded it on its assets yet (an edit kept the engine busy), it says so.
-      showToast(published.recorded ? { message: "Library published", kind: "success" } : { message: "Library published, but this file couldn't record it yet", kind: "error" });
+      showToast(published.recorded ? { message: t("Library published"), kind: "success" } : { message: t("Library published, but this file couldn't record it yet"), kind: "error" });
       close();
     } catch (e) {
       setProgress(null);
@@ -125,9 +127,9 @@ function Publish() {
 
   if (inDrafts) {
     return (
-      <Dialog title="Publish library" size="medium" open onClose={close} footer={<Button variant="secondary" onClick={close}>Close</Button>}>
+      <Dialog title={t("Publish library")} size="medium" open onClose={close} footer={<Button variant="secondary" onClick={close}>{t("Close")}</Button>}>
         <div className={styles.publishEmpty} data-publish-drafts="">
-          <EmptyState icon="24.library" title="Move to a folder to publish" body="Files in Drafts can't be published as libraries. Move this file to a folder, then publish its components, styles and variables for your team's files." />
+          <EmptyState icon="24.library" title={t("Move to a folder to publish")} body={t("Files in Drafts can't be published as libraries. Move this file to a folder, then publish its components, styles and variables for your team's files.")} />
         </div>
       </Dialog>
     );
@@ -135,7 +137,7 @@ function Publish() {
 
   return (
     <Dialog
-      title="Publish library"
+      title={t("Publish library")}
       size="medium"
       open
       onClose={close}
@@ -143,14 +145,14 @@ function Publish() {
         <>
           {progress && (
             <span className={styles.progress} role="status">
-              <Spinner /> Publishing… {progress.done}/{progress.total}
+              <Spinner /> {t("Publishing… {done}/{total}", { done: progress.done, total: progress.total })}
             </span>
           )}
           <Button variant="secondary" onClick={close} disabled={!!progress}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button variant="primary" loading={!!progress} disabled={!draft || (count === 0 && !draft.moves.length && !movedOut.length)} onClick={() => void publish()}>
-            Publish
+            {t("Publish")}
           </Button>
         </>
       }
@@ -160,27 +162,27 @@ function Publish() {
           <Icon name="24.library" className={styles.publishFileIcon} />
           <div className={styles.publishFileText}>
             <span className={styles.publishFileName}>{ed.ui.get().fileName}</span>
-            <span className={styles.meta}>{firstPublish ? "Not published yet" : `Version ${state.own!.latestVersion} · published ${new Date(state.own!.lastPublishedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}</span>
+            <span className={styles.meta}>{firstPublish ? t("Not published yet") : t("Version {version} · published {date}", { version: state.own!.latestVersion, date: new Date(state.own!.lastPublishedAt).toLocaleDateString(intlLocale(), { month: "short", day: "numeric" }) })}</span>
           </div>
         </div>
-        <TextArea label="Description" placeholder="Describe what changed (optional)" value={description} onChange={setDescription} />
+        <TextArea label={t("Description")} placeholder={t("Describe what changed (optional)")} value={description} onChange={setDescription} />
         {org && (
           <div className={styles.orgScope} data-publish-org-scope="">
-            <Checkbox label={`Allow any member of ${org.orgName} to access the file`} checked={orgChecked} disabled={!org.canShare || !!progress} onChange={setToOrg} />
-            {!org.canShare && <span className={styles.orgScopeHint}>Only people who can share this file can change who can access it</span>}
+            <Checkbox label={t("Allow any member of {org} to access the file", { org: org.orgName })} checked={orgChecked} disabled={!org.canShare || !!progress} onChange={setToOrg} />
+            {!org.canShare && <span className={styles.orgScopeHint}>{t("Only people who can share this file can change who can access it")}</span>}
           </div>
         )}
         {error && <div className={styles.error}>{error}</div>}
         {!draft && !error && (
           <div className={styles.loading}>
-            <Spinner /> Looking for changes…
+            <Spinner /> {t("Looking for changes…")}
           </div>
         )}
-        {nothing && <div className={styles.none}>No changes to publish</div>}
+        {nothing && <div className={styles.none}>{t("No changes to publish")}</div>}
         {draft && rows.length > 0 && (
-          <div className={styles.changes} role="group" aria-label="Changes">
+          <div className={styles.changes} role="group" aria-label={t("Changes")}>
             <div className={styles.changesHeader}>
-              <Checkbox label={`${count} of ${rows.length} ${rows.length === 1 ? "change" : "changes"} selected`} checked={count === rows.length ? true : count === 0 ? false : MIXED} onChange={(on) => toggle(rows.map((r) => r.key), on)} />
+              <Checkbox label={tp(rows.length, "{count} of {n} change selected", "{count} of {n} changes selected", { count })} checked={count === rows.length ? true : count === 0 ? false : MIXED} onChange={(on) => toggle(rows.map((r) => r.key), on)} />
             </div>
             {GROUPS.map((g) => {
               const list = rows.filter((r) => g.kinds.includes(r.kind));
@@ -188,7 +190,7 @@ function Publish() {
               return (
                 <div key={g.title} className={styles.changeGroup}>
                   <div className={styles.changeGroupTitle}>
-                    {g.title} <span className={styles.meta}>{list.length}</span>
+                    {t(g.title)} <span className={styles.meta}>{list.length}</span>
                   </div>
                   {list.map((r) => {
                     const users = plan?.usedBy.get(r.key);
@@ -200,7 +202,7 @@ function Publish() {
                           <span className={styles.changeName}>{r.name}</span>
                           {users?.length ? <span className={styles.meta}>{usedByText(users)}</span> : null}
                         </span>
-                        <span className={styles[`status_${r.status}`]}>{STATUS_LABEL[r.status]}</span>
+                        <span className={styles[`status_${r.status}`]}>{t(STATUS_LABEL[r.status])}</span>
                       </label>
                     );
                   })}
@@ -210,14 +212,14 @@ function Publish() {
           </div>
         )}
         {draft && (draft.moves.length > 0 || movedOut.length > 0) && (
-          <div className={styles.changeGroup} role="group" aria-label="Moved components">
-            <div className={styles.changeGroupTitle}>Moved components</div>
+          <div className={styles.changeGroup} role="group" aria-label={t("Moved components")}>
+            <div className={styles.changeGroupTitle}>{t("Moved components")}</div>
             {movedOut.map((m) => (
               <div key={m.key} className={styles.moveRow} data-moved-out={m.name}>
                 <RemoteThumb asset={m.asset ?? { kind: m.kind, thumbnail: null }} size={32} />
                 <div className={styles.moveText}>
                   <span className={styles.changeName}>{m.name}</span>
-                  <span className={styles.meta}>Moved to {m.toName}</span>
+                  <span className={styles.meta}>{t("Moved to {name}", { name: m.toName })}</span>
                 </div>
               </div>
             ))}
@@ -226,15 +228,15 @@ function Publish() {
                 <NodeThumb node={m.item.asset.guid} kind={m.item.asset.kind} size={32} />
                 <div className={styles.moveText}>
                   <span className={styles.changeName}>{m.item.asset.name}</span>
-                  <span className={styles.meta}>From {m.fromName}</span>
+                  <span className={styles.meta}>{t("From {name}", { name: m.fromName })}</span>
                 </div>
                 <Select
                   width="hug"
-                  label={`${m.item.asset.name}: move or copy`}
+                  label={t("{name}: move or copy", { name: m.item.asset.name })}
                   value={moveModes.get(m.fromKey) ?? "move"}
                   options={[
-                    { value: "move", label: "Move to this file" },
-                    { value: "copy", label: "Publish as a copy" },
+                    { value: "move", label: t("Move to this file") },
+                    { value: "copy", label: t("Publish as a copy") },
                   ]}
                   onChange={(v) => setMoveModes((x) => new Map(x).set(m.fromKey, v as "move" | "copy"))}
                 />
@@ -242,7 +244,7 @@ function Publish() {
             ))}
           </div>
         )}
-        {hiddenCount > 0 && <div className={styles.meta}>{hiddenCount === 1 ? "1 asset is hidden when publishing" : `${hiddenCount} assets are hidden when publishing`}</div>}
+        {hiddenCount > 0 && <div className={styles.meta}>{tp(hiddenCount, "{n} asset is hidden when publishing", "{n} assets are hidden when publishing")}</div>}
       </div>
     </Dialog>
   );

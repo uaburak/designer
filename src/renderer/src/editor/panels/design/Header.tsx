@@ -36,6 +36,7 @@ import { convertFrameKind, frameKindOf, offeredKinds, type FrameKind } from "./f
 import { PANEL_MENU_GAP, isFrameNode, typeLabel, typeOf, useParents, useTextEditRef, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 import hstyles from "./Header.module.css";
+import { t, useT } from "@/i18n";
 
 /**
  * Figma's frame presets (the "Frame ▾" menu and the Frame tool's list), by category in its order — the live menu
@@ -165,9 +166,9 @@ export const FRAME_PRESETS: { header: string; items: [string, number, number][] 
  */
 export function frameMenu(kind: FrameKind, offered: Record<FrameKind, boolean> = { Section: true, Frame: true, Group: true }): MenuEntry[] {
   return [
-    { header: "Frame Layout Options" },
-    ...(["Section", "Frame", "Group"] as const).map((k) => ({ id: `kind:${k}`, label: k, checked: kind === k, disabled: kind !== k && !offered[k] })),
-    ...FRAME_PRESETS.flatMap((g): MenuEntry[] => ["-", { header: g.header }, ...g.items.map(([name, w, h]) => ({ id: `${w}x${h}:${name}`, label: name, hint: `${w}×${h}` }))]),
+    { header: t("Frame Layout Options") },
+    ...(["Section", "Frame", "Group"] as const).map((k) => ({ id: `kind:${k}`, label: t(k), checked: kind === k, disabled: kind !== k && !offered[k] })),
+    ...FRAME_PRESETS.flatMap((g): MenuEntry[] => ["-", { header: t(g.header) }, ...g.items.map(([name, w, h]) => ({ id: `${w}x${h}:${name}`, label: t(name), hint: `${w}×${h}` }))]),
   ];
 }
 
@@ -201,7 +202,7 @@ export const ACTION_ICON: Record<string, IconName> = {
 /** A command as a header-menu item: its glyph, never a check column (live labels at 44). */
 export function actionItem(ed: EditorController, id: string, label?: string): MenuItem {
   const item = commandItem(ed, id, label);
-  return { id: item.id, label: item.label, shortcut: item.shortcut, disabled: item.disabled, icon: ACTION_ICON[id.startsWith("reset-changes:") ? "reset-name" : id] ?? "24.component.small" };
+  return { id: item.id, label: t(item.label), shortcut: item.shortcut, disabled: item.disabled, icon: ACTION_ICON[id.startsWith("reset-changes:") ? "reset-name" : id] ?? "24.component.small" };
 }
 
 /** The boolean group's items in More actions (Union … Exclude, then Flatten), live's labels. */
@@ -245,11 +246,11 @@ export function headerKind(nodes: readonly PanelNode[], inFrame = false, editing
   if (kind === "Group") return "group";
   if (kind === "Section") return "section";
   if (kind === "Frame") return "frame";
-  const t = typeOf(n);
-  if (t === "TEXT") return "text";
-  if (t === "BOOLEAN_OPERATION") return "boolean";
-  if (inFrame && SHAPES.has(t)) return "nested";
-  if (t === "RECTANGLE" || t === "ROUNDED_RECTANGLE" || t === "ELLIPSE") return "rect";
+  const ty = typeOf(n);
+  if (ty === "TEXT") return "text";
+  if (ty === "BOOLEAN_OPERATION") return "boolean";
+  if (inFrame && SHAPES.has(ty)) return "nested";
+  if (ty === "RECTANGLE" || ty === "ROUNDED_RECTANGLE" || ty === "ELLIPSE") return "rect";
   return "shape";
 }
 
@@ -257,12 +258,13 @@ export function headerKind(nodes: readonly PanelNode[], inFrame = false, editing
 export function headerTitle(nodes: readonly PanelNode[]): string {
   if (nodes.length > 1) return `${nodes.length} selected`;
   const n = nodes[0];
-  const t = typeOf(n);
-  if ((t === "RECTANGLE" || t === "ROUNDED_RECTANGLE") && (n.fillPaints ?? []).some((p) => p.visible !== false && (p.type === "IMAGE" || (p.type as string) === "VIDEO"))) return "Image";
+  const ty = typeOf(n);
+  if ((ty === "RECTANGLE" || ty === "ROUNDED_RECTANGLE") && (n.fillPaints ?? []).some((p) => p.visible !== false && (p.type === "IMAGE" || (p.type as string) === "VIDEO"))) return "Image";
   return typeLabel(nodes);
 }
 
 export function TypeHeader({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   // Command states change with the selection and the document.
   useTopics(ed.store, ["selection", "undo", "structure"]);
@@ -271,12 +273,14 @@ export function TypeHeader({ nodes }: { nodes: PanelNode[] }) {
   const editing = useTextEditRef();
   const kind = headerKind(nodes, inFrame, editing);
   const title = headerTitle(nodes);
+  // (`title` stays English: it names the frame kind the presets menu checks.)
+  const shownTitle = nodes.length > 1 ? t("{n} selected", { n: nodes.length }) : t(title);
   const presets = kind === "frame" || kind === "group" || kind === "section";
   return (
     <div className={styles.typeHeader} data-type-header={kind}>
       {presets ? (
         <MenuButton
-          label={`${title}, Frame Dimension Presets`}
+          label={t("{type}, Frame Dimension Presets", { type: shownTitle })}
           entries={frameMenu(title as FrameKind, offeredKinds(ed, nodes))}
           className={styles.typeButton}
           // Live (popovers/frame-presets-menu.txt: 222 × 1887 at 1208,125): 8 under the button, its rows at the button's
@@ -287,11 +291,11 @@ export function TypeHeader({ nodes }: { nodes: PanelNode[] }) {
           menuClassName={hstyles.presetsMenu}
           onSelect={(id) => pickPreset(ed, nodes, id)}
         >
-          <span>{title}</span>
+          <span>{shownTitle}</span>
           <Icon name="16.chevron.down" />
         </MenuButton>
       ) : (
-        <span className={styles.typeLabel}>{title}</span>
+        <span className={styles.typeLabel}>{shownTitle}</span>
       )}
       <div className={styles.headerActions}>
         {presets && <FrameStatusButton />}
@@ -322,6 +326,7 @@ const IN_ROW: Partial<Record<HeaderAction, string[]>> = {
 };
 
 function HeaderActions({ nodes, kind }: { nodes: PanelNode[]; kind: HeaderKind }) {
+  useT();
   const ed = useEditor();
   const row = HEADER_ACTIONS[kind];
   const create = command("object.create-component");
@@ -334,17 +339,17 @@ function HeaderActions({ nodes, kind }: { nodes: PanelNode[]; kind: HeaderKind }
   const render = (a: HeaderAction) => {
     switch (a) {
       case "slot":
-        return isEnabled(ed, toSlot) ? <IconButton key={a} icon="24.slot" label={toSlot.label} shortcut={shortcutOf(toSlot)} tone="secondary" onClick={() => runEditorCommand(ed, toSlot.id)} /> : null;
+        return isEnabled(ed, toSlot) ? <IconButton key={a} icon="24.slot" label={t(toSlot.label)} shortcut={shortcutOf(toSlot)} tone="secondary" onClick={() => runEditorCommand(ed, toSlot.id)} /> : null;
       case "ready":
         return <ReadyForDevToggle key={a} />;
       case "create":
-        return <IconButton key={a} icon="24.component.small" label={create.label} shortcut={shortcutOf(create)} tone="secondary" disabled={!isEnabled(ed, create)} onClick={() => runEditorCommand(ed, create.id)} />;
+        return <IconButton key={a} icon="24.component.small" label={t(create.label)} shortcut={shortcutOf(create)} tone="secondary" disabled={!isEnabled(ed, create)} onClick={() => runEditorCommand(ed, create.id)} />;
       case "mask":
         return (
           <ToggleIconButton
             key={a}
             icon="24.mask"
-            label={mask.label}
+            label={t(mask.label)}
             shortcut={shortcutOf(mask)}
             tone="secondary"
             disabled={!isEnabled(ed, mask)}
@@ -355,11 +360,11 @@ function HeaderActions({ nodes, kind }: { nodes: PanelNode[]; kind: HeaderKind }
       case "boolean":
         return <BooleanGroup key={a} nodes={nodes} />;
       case "edit":
-        return <IconButton key={a} icon="24.pen" label="Edit object" shortcut={keys(["enter"])} tone="secondary" disabled={!editable} onClick={() => ed.vector.start(nodes[0].guid)} />;
+        return <IconButton key={a} icon="24.pen" label={t("Edit object")} shortcut={keys(["enter"])} tone="secondary" disabled={!editable} onClick={() => ed.vector.start(nodes[0].guid)} />;
       case "matching":
         // Several shapes alone have nothing to match (live multi-two-shapes): the row starts at Use as mask.
         return kind === "multi" && shapesOnly ? null : (
-          <IconButton key={a} icon="24.select-matching.small" label={matching.label} shortcut={shortcutOf(matching)} tone="secondary" disabled={!isEnabled(ed, matching)} onClick={() => runEditorCommand(ed, matching.id)} />
+          <IconButton key={a} icon="24.select-matching.small" label={t(matching.label)} shortcut={shortcutOf(matching)} tone="secondary" disabled={!isEnabled(ed, matching)} onClick={() => runEditorCommand(ed, matching.id)} />
         );
       case "link":
         return <CreateLinkToggle key={a} nodes={nodes} />;
@@ -374,13 +379,14 @@ function HeaderActions({ nodes, kind }: { nodes: PanelNode[]; kind: HeaderKind }
 
 /** "Toggle ready for dev status": on while every target is Ready for dev (Dev Mode's statuses). */
 function ReadyForDevToggle() {
+  useT();
   const ed = useEditor();
   const targets = statusTargets(ed);
   const status = statusOfTargets(ed, targets);
   return (
     <ToggleIconButton
       icon="24.dev-brackets"
-      label="Toggle ready for dev status"
+      label={t("Toggle ready for dev status")}
       tone="secondary"
       disabled={!targets.length}
       pressed={status === "BUILD"}
@@ -392,14 +398,16 @@ function ReadyForDevToggle() {
 
 /** A text's "Create link" (⇧⌘U): on while the text carries a link. */
 function CreateLinkToggle({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const c = command("text.create-link");
   const linked = nodes.length > 0 && nodes.every((n) => !!n.hyperlink?.url || !!n.hyperlink?.guid);
-  return <ToggleIconButton icon="24.link" label={c.label} shortcut={shortcutOf(c)} tone="secondary" pressed={linked} disabled={!isEnabled(ed, c) && !linked} onPressedChange={() => runEditorCommand(ed, c.id)} />;
+  return <ToggleIconButton icon="24.link" label={t(c.label)} shortcut={shortcutOf(c)} tone="secondary" pressed={linked} disabled={!isEnabled(ed, c) && !linked} onPressedChange={() => runEditorCommand(ed, c.id)} />;
 }
 
 /** A text's "Apply variable": its content bound to a string variable (the picker; a bound text detaches from it). */
 function TextVariableButton({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const [open, setOpen] = useState<HTMLElement | null>(null);
   const refs = nodes.map((n) => n.guid).filter((id) => !id.startsWith("I"));
@@ -409,7 +417,7 @@ function TextVariableButton({ nodes }: { nodes: PanelNode[] }) {
     <>
       <ToggleIconButton
         icon="24.variable.small"
-        label="Apply variable"
+        label={t("Apply variable")}
         tone="secondary"
         disabled={!refs.length}
         pressed={!!bound && bound !== "mixed"}
@@ -441,7 +449,7 @@ export function booleanMenu(ed: EditorController, booleans: boolean): MenuItem[]
   return [
     ...BOOLEAN_ITEMS.map((b) => {
       const c = command(b.id);
-      return { id: b.id, label: c.label.replace(" selection", ""), icon: b.icon, shortcut: shortcutOf(c), disabled: !(booleans || isEnabled(ed, c)) };
+      return { id: b.id, label: t(c.label.replace(" selection", "")), icon: b.icon, shortcut: shortcutOf(c), disabled: !(booleans || isEnabled(ed, c)) };
     }),
     actionItem(ed, "vector.flatten"),
   ];
@@ -452,6 +460,7 @@ export function booleanMenu(ed: EditorController, booleans: boolean): MenuItem[]
  * the menu right-aligned with the chevron, 12 under it, its rows from its top (live 151 × 120 at 1253, 129).
  */
 function BooleanGroup({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const booleans = nodes.length > 0 && nodes.every((n) => typeOf(n) === "BOOLEAN_OPERATION");
   const current = booleans && nodes.every((n) => n.booleanOperation === nodes[0].booleanOperation) ? (nodes[0].booleanOperation ?? "UNION") : null;
@@ -460,17 +469,17 @@ function BooleanGroup({ nodes }: { nodes: PanelNode[] }) {
   const firstCommand = command(first.id);
   const any = entries.some((e) => !e.disabled);
   return (
-    <div className={styles.splitButton} role="group" aria-label="Boolean operations">
+    <div className={styles.splitButton} role="group" aria-label={t("Boolean operations")}>
       <IconButton
         icon={first.icon}
-        label={firstCommand.label.replace(" selection", "")}
+        label={t(firstCommand.label.replace(" selection", ""))}
         shortcut={shortcutOf(firstCommand)}
         tone="secondary"
         className={styles.splitMain}
         disabled={!(booleans || isEnabled(ed, firstCommand))}
         onClick={() => pickBoolean(ed, nodes, first.id, booleans)}
       />
-      <MenuButton label="Boolean operations" entries={entries} className={styles.splitChevron} disabled={!any} align="end" gap={PANEL_MENU_GAP} flush menuClassName={hstyles.actionsMenu} onSelect={(id) => pickBoolean(ed, nodes, id, booleans)}>
+      <MenuButton label={t("Boolean operations")} entries={entries} className={styles.splitChevron} disabled={!any} align="end" gap={PANEL_MENU_GAP} flush menuClassName={hstyles.actionsMenu} onSelect={(id) => pickBoolean(ed, nodes, id, booleans)}>
         <Icon name="16.chevron.down" />
       </MenuButton>
     </div>
@@ -500,7 +509,7 @@ function pickBoolean(ed: EditorController, nodes: PanelNode[], id: string, boole
 export function moreActionsMenu(ed: EditorController, nodes: readonly PanelNode[], omit: readonly string[]): MenuEntry[] {
   const editable = nodes.length === 1 && EDITABLE.has(typeOf(nodes[0])) && ed.vector.available;
   const groups: MenuItem[][] = [
-    editable ? [{ id: "edit-object", label: "Edit object", shortcut: keys(["enter"]), icon: ACTION_ICON["edit-object"] }] : [],
+    editable ? [{ id: "edit-object", label: t("Edit object"), shortcut: keys(["enter"]), icon: ACTION_ICON["edit-object"] }] : [],
     [actionItem(ed, "object.create-component"), actionItem(ed, "object.create-multiple-components")],
     [actionItem(ed, "object.use-as-mask")],
     booleanActions(ed),
@@ -512,16 +521,17 @@ export function moreActionsMenu(ed: EditorController, nodes: readonly PanelNode[
 }
 
 function MoreActions({ nodes, omit }: { nodes: PanelNode[]; omit: string[] }) {
+  useT();
   const ed = useEditor();
   // Built when the menu opens: each item asks its command whether it can run (over the whole selection), which a
   // selection of hundreds of layers would otherwise pay on every panel render.
   const entries = (): MenuEntry[] => {
     const list = moreActionsMenu(ed, nodes, omit);
-    return list.length ? list : [{ id: "none", label: "No actions", disabled: true }];
+    return list.length ? list : [{ id: "none", label: t("No actions"), disabled: true }];
   };
   return (
     <MenuButton
-      label="More actions"
+      label={t("More actions")}
       entries={entries}
       className={styles.iconMenu}
       align="end"

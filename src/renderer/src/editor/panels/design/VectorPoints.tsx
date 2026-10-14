@@ -14,6 +14,7 @@ import { useStoreSlice } from "../../uiStore";
 import { command, shortcutOf } from "../../commands";
 import { hasCommand, runEngineCommand } from "../../engineCompat";
 import { pointsSummary, type Mirroring } from "../../vectorEdit";
+import { t, useT } from "@/i18n";
 import styles from "./Design.module.css";
 
 export const MIRRORING_OPTIONS: { value: Mirroring; label: string; icon: IconName }[] = [
@@ -35,6 +36,7 @@ const ALIGN = [
 const POINT_ALIGN = "VECTOR_ALIGN_POINTS";
 
 export function VectorEditPanel() {
+  useT();
   const ed = useEditor();
   const labels = useUI((s) => s.propertyLabels);
   const state = useStoreSlice(ed.vector.state, (s) => s);
@@ -48,19 +50,19 @@ export function VectorEditPanel() {
   const alignButton = (i: number) => {
     const [id, icon, how] = ALIGN[i];
     const c = command(id);
-    return <IconButton key={id} icon={icon} label={c.label} shortcut={shortcutOf(c)} className={styles.groupButton} onClick={() => hasCommand(POINT_ALIGN) && some && runEngineCommand(ed.engine, POINT_ALIGN, { align: how })} />;
+    return <IconButton key={id} icon={icon} label={t(c.label)} shortcut={shortcutOf(c)} className={styles.groupButton} onClick={() => hasCommand(POINT_ALIGN) && some && runEngineCommand(ed.engine, POINT_ALIGN, { align: how })} />;
   };
-  const more = ["arrange.distribute-horizontal", "arrange.distribute-vertical", "arrange.tidy-up"].map((id) => ({ id, label: command(id).label, shortcut: shortcutOf(command(id)), disabled: true }));
+  const more = ["arrange.distribute-horizontal", "arrange.distribute-vertical", "arrange.tidy-up"].map((id) => ({ id, label: t(command(id).label), shortcut: shortcutOf(command(id)), disabled: true }));
   return (
-    <section className={styles.vectorEdit} aria-label="Vector" data-vector-points="">
+    <section className={styles.vectorEdit} aria-label={t("Vector")} data-vector-points="">
       <div className={styles.vectorEditTitle}>
-        <span className={styles.typeLabel}>Vector</span>
+        <span className={styles.typeLabel}>{t("Vector")}</span>
       </div>
       <PropertyGrid labels={labels}>
         <PropertyRow
-          label="Alignment"
+          label={t("Alignment")}
           action={
-            <MenuButton label="More actions" tooltip entries={more} className={styles.iconMenu} onSelect={() => undefined}>
+            <MenuButton label={t("More actions")} tooltip entries={more} className={styles.iconMenu} onSelect={() => undefined}>
               <Icon name="24.more" />
             </MenuButton>
           }
@@ -68,24 +70,24 @@ export function VectorEditPanel() {
           <div className={styles.buttonGroup}>{[0, 1, 2].map(alignButton)}</div>
           <div className={styles.buttonGroup}>{[3, 4, 5].map(alignButton)}</div>
         </PropertyRow>
-        <PropertyRow label="Position">
-          <NumericInput label="X-position" prefix="X" prefixTone="primary" disabled={!sum} className={styles.plainDisabled} value={sum ? Math.round(sum.x * 100) / 100 : null} onChange={(v, info) => setPoints({ x: v }, info)} onCancel={() => ed.cancelEdit()} />
-          <NumericInput label="Y-position" prefix="Y" prefixTone="primary" disabled={!sum} className={styles.plainDisabled} value={sum ? Math.round(sum.y * 100) / 100 : null} onChange={(v, info) => setPoints({ y: v }, info)} onCancel={() => ed.cancelEdit()} />
+        <PropertyRow label={t("Position")}>
+          <NumericInput label={t("X-position")} prefix="X" prefixTone="primary" disabled={!sum} className={styles.plainDisabled} value={sum ? Math.round(sum.x * 100) / 100 : null} onChange={(v, info) => setPoints({ x: v }, info)} onCancel={() => ed.cancelEdit()} />
+          <NumericInput label={t("Y-position")} prefix="Y" prefixTone="primary" disabled={!sum} className={styles.plainDisabled} value={sum ? Math.round(sum.y * 100) / 100 : null} onChange={(v, info) => setPoints({ y: v }, info)} onCancel={() => ed.cancelEdit()} />
         </PropertyRow>
-        <PropertyRow span={2} label="Mirroring">
+        <PropertyRow span={2} label={t("Mirroring")}>
           <div className={styles.vectorMirroring}>
-          <span className={styles.vectorLegend}>Mirroring</span>
+          <span className={styles.vectorLegend}>{t("Mirroring")}</span>
           <SegmentedControl
-            label="Mirroring"
+            label={t("Mirroring")}
             fullWidth
             value={mirroring}
-            options={MIRRORING_OPTIONS.map((o) => ({ value: o.value, icon: o.icon, tooltip: o.label }))}
+            options={MIRRORING_OPTIONS.map((o) => ({ value: o.value, icon: o.icon, tooltip: t(o.label) }))}
             onChange={(v) => some && ed.vector.canSetMirroring && ed.vector.setMirroring(v as Mirroring)}
           />
           </div>
         </PropertyRow>
-        <PropertyRow label="Corner radius">
-          <NumericInput label="Corner radius" prefix="24.corners" min={0} value={sum ? (sum.radius ?? MIXED) : 0} onChange={(v, info) => setPoints({ cornerRadius: v }, info)} onCancel={() => ed.cancelEdit()} />
+        <PropertyRow label={t("Corner radius")}>
+          <NumericInput label={t("Corner radius")} prefix="24.corners" min={0} value={sum ? (sum.radius ?? MIXED) : 0} onChange={(v, info) => setPoints({ cornerRadius: v }, info)} onCancel={() => ed.cancelEdit()} />
           <span />
         </PropertyRow>
       </PropertyGrid>

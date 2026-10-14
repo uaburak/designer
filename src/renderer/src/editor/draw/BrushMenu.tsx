@@ -4,6 +4,7 @@
  * and Custom (this file's BRUSH nodes that aren't built-ins; shown when there are any) [section names unverified]. The
  * current brush is ticked. ↑ ↓ move, Enter or a click picks, Esc closes.
  */
+import { t, useT } from "@/i18n";
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Icon, Popover, type PopoverPlacement } from "@/ds";
 import type { BrushEntry, BrushType, BuiltinBrushName, GuidString } from "@shared/draw/types";
@@ -43,6 +44,7 @@ export function BrushPreview({ entry, className }: { entry: BrushEntry; classNam
 }
 
 export function BrushMenu({ anchor, placement = "top", current, type, onPick, onClose }: BrushMenuProps) {
+  useT();
   const ed = useEditor();
   const sections = useMemo(() => brushSections(ed), [ed]);
   const shown = SECTIONS.filter((s) => (!type || (s.id === "stretch" ? type === "STRETCH" : s.id === "scatter" ? type === "SCATTER" : true)) && sections[s.id].length > 0).map((s) => ({
@@ -70,12 +72,12 @@ export function BrushMenu({ anchor, placement = "top", current, type, onPick, on
   };
   let index = -1;
   return (
-    <Popover anchor={anchor} placement={placement} label="Brush styles" onClose={onClose}>
-      <div role="listbox" aria-label="Brush styles" className={styles.brushList} data-brush-menu="" onKeyDown={onKey}>
+    <Popover anchor={anchor} placement={placement} label={t("Brush styles")} onClose={onClose}>
+      <div role="listbox" aria-label={t("Brush styles")} className={styles.brushList} data-brush-menu="" onKeyDown={onKey}>
         {shown.map((s) => (
-          <div key={s.id} role="group" aria-label={s.label} data-brush-section={s.id}>
+          <div key={s.id} role="group" aria-label={t(s.label)} data-brush-section={s.id}>
             <div role="presentation" className={styles.brushHeader}>
-              {s.label}
+              {t(s.label)}
             </div>
             {s.entries.map((entry) => {
               const i = ++index;

@@ -12,6 +12,11 @@ import { portTransport, type PortRole } from "../shared/store/protocol";
 import { COMPACTOR_ROLE, runCompactorWorker, workerCompactor } from "./compactor";
 import { LocalStore } from "./localStore";
 import { StoreServer } from "./server";
+import { parseLocale, registerDictionary, setLocale, type Locale } from "../shared/i18n";
+import { TR } from "../shared/i18n/tr";
+
+// The UI's language for the messages the store words itself (errors shown in a toast): main's, at init and on a change
+registerDictionary("tr", TR);
 
 export interface StoreInitMessage {
   type: "init";
@@ -27,9 +32,11 @@ export interface StoreInitMessage {
   requireSession?: boolean;
   /** The preview viewer's built page; default: out/viewer/index.html next to this bundle's out/main */
   viewerTemplate?: string;
+  /** The UI's language (src/shared/i18n); `{ type: "locale" }` after a change */
+  locale?: Locale;
 }
 
-export type StoreParentMessage = StoreInitMessage | { type: "port"; role: PortRole };
+export type StoreParentMessage = StoreInitMessage | { type: "port"; role: PortRole } | { type: "locale"; locale: Locale };
 export type StoreChildMessage = { type: "ready"; wid: string; generation: number } | { type: "error"; message: string; code?: string };
 
 /** What Electron's utility process gives us (typed here so this file needs no electron import). */
@@ -51,8 +58,10 @@ function runStoreProcess(parent: ParentPortLike): void {
       else early.push({ port, role: msg.role });
       return;
     }
+    if (msg?.type === "locale") return void setLocale(parseLocale(msg.locale));
     if (msg?.type !== "init" || starting) return;
     starting = true;
+    setLocale(parseLocale(msg.locale));
     const mainPort = e.ports[0];
     void LocalStore.open({
       workspaceDir: msg.workspaceDir,

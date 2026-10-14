@@ -14,6 +14,7 @@
  * moves) is never an undo step: `applyChanges(…, "system")` and `markPublished`. Libraries are on when the source has
  * a registry and the engine in hand exports these calls (`libraryEngine`).
  */
+import { t, tp } from "@/i18n";
 import { showToast } from "@/ds";
 import { Status } from "@/engine/abi";
 import type { EncodedAsset, Guid, LibraryAssetUsage, LocalAssetInfo, Message, Pixels } from "@/engine/codec";
@@ -267,7 +268,7 @@ export class LibraryIndex {
           const names = new Map(this.state.names);
           for (const e of available) names.set(e.fileKey, e.name);
           for (const lib of libs) {
-            if (!names.has(lib)) names.set(lib, (await access.fileName(lib).catch(() => null)) ?? "Missing library");
+            if (!names.has(lib)) names.set(lib, (await access.fileName(lib).catch(() => null)) ?? t("Missing library"));
             const v = await access.version(lib).catch(() => null);
             if (v) manifests.set(lib, v);
             const have = copiesHave(copies, lib);
@@ -380,7 +381,7 @@ export class LibraryIndex {
     const out: UpdateItem[] = [];
     const copies = this.copies();
     for (const [lib, d] of this.state.diffs) {
-      const libraryName = this.state.names.get(lib) ?? "Library";
+      const libraryName = this.state.names.get(lib) ?? t("Library");
       const byKey = new Map<string, LibraryCopy[]>();
       for (const c of copies) if (c.library === lib) byKey.set(c.key, [...(byKey.get(c.key) ?? []), c]);
       const seen = new Set<string>();
@@ -407,7 +408,7 @@ export class LibraryIndex {
     const n = this.pendingCount();
     if (!n) return;
     this.toasted = true;
-    showToast({ message: n === 1 ? "1 library update available" : `${n} library updates available`, action: { label: "Review", onAction: () => this.ed.ui.set({ librariesDialog: { tab: "updates" } }) }, duration: 8000 });
+    showToast({ message: tp(n, "{n} library update available", "{n} library updates available"), action: { label: t("Review"), onAction: () => this.ed.ui.set({ librariesDialog: { tab: "updates" } }) }, duration: 8000 });
   }
 
   /**
@@ -506,9 +507,9 @@ export class LibraryIndex {
  * used here have updates, "Review unpublished changes" when this file has unpublished changes, else "Libraries".
  */
 export function librariesButtonLabel(ed: EditorController): string {
-  if (ed.libraries.pendingCount() > 0) return "Review library updates";
-  if (ed.libraries.unpublishedChanges()) return "Review unpublished changes";
-  return "Libraries";
+  if (ed.libraries.pendingCount() > 0) return t("Review library updates");
+  if (ed.libraries.unpublishedChanges()) return t("Review unpublished changes");
+  return t("Libraries");
 }
 
 // ---- Publishing --------------------------------------------------------------------------------------------------------
@@ -618,7 +619,7 @@ function draftItems(ed: EditorController): { items: PublishItem[]; hiddenCount: 
 /** What publishing would change (the Publish library modal's lists). */
 export async function draftPublish(ed: EditorController): Promise<PublishDraft> {
   const access = ed.source.libraries;
-  if (!access || !libraryEngine(ed)) throw new Error("Libraries aren't available here");
+  if (!access || !libraryEngine(ed)) throw new Error(t("Libraries aren't available here"));
   const { items, hiddenCount } = draftItems(ed);
   const previous = await access.version(access.libraryKey).catch(() => null);
   const preview = await access.previewPublish(items.map((i) => toPublishAsset(i, false)));
@@ -741,7 +742,7 @@ export type PublishedLibrary = LibraryVersion & { recorded: boolean };
  */
 export async function publishLibrary(ed: EditorController, draft: PublishDraft, choices: PublishChoices, onProgress?: (done: number, total: number) => void): Promise<PublishedLibrary> {
   const access = ed.source.libraries;
-  if (!access || !libraryEngine(ed)) throw new Error("Libraries aren't available here");
+  if (!access || !libraryEngine(ed)) throw new Error(t("Libraries aren't available here"));
   const plan = publishPlan(draft, choices.selected);
   const prevByKey = new Map((draft.previous?.assets ?? []).map((a) => [a.key, a]));
   const removedKeys = new Set(draft.removed.map((r) => r.key));
@@ -844,7 +845,7 @@ export async function setLibraryEnabled(ed: EditorController, lib: string, enabl
     });
     if (status !== Status.OK && !ed.engine.destroyed) {
       await access.setEnabled(lib, !enabled).catch(() => {});
-      throw new Error(enabled ? "The library couldn't be added" : "The library couldn't be removed");
+      throw new Error(enabled ? t("The library couldn't be added") : t("The library couldn't be removed"));
     }
   }
   if (opts.refresh !== false) await ed.libraries.refresh();

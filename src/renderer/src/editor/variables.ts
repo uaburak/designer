@@ -15,6 +15,7 @@
  * field, a paint's colour, a styled layer's fields) in the same step, and
  * again after any change a value, a mode or a style depends on.
  */
+import { intlLocale, t } from "@/i18n";
 import { showToast } from "@/ds";
 import { Status } from "@/engine/abi";
 import type { Color, Guid, Message, NodeChange, NodeFields, Paint } from "@/engine/codec";
@@ -480,7 +481,7 @@ export function addMode(ed: EditorController, collection: Guid, copyFrom?: Guid,
   const c = a.lookup.collection(collection);
   if (!c) return null;
   if (c.modes.length >= LIMITS.modes) {
-    showToast({ message: `Limited to ${LIMITS.modes} modes only`, kind: "error" });
+    showToast({ message: t("Limited to {n} modes only", { n: LIMITS.modes }), kind: "error" });
     return null;
   }
   const modeName = (name ?? nextModeName(c)).slice(0, LIMITS.modeName);
@@ -563,7 +564,7 @@ export function createVariable(ed: EditorController, collection: Guid, type: Var
   if (!c) return null;
   const inCollection = a.variables.filter((v) => v.collection === collection);
   if (inCollection.length >= LIMITS.variables) {
-    showToast({ message: `A collection can have up to ${LIMITS.variables.toLocaleString("en-US")} variables`, kind: "error" });
+    showToast({ message: t("A collection can have up to {n} variables", { n: LIMITS.variables.toLocaleString(intlLocale()) }), kind: "error" });
     return null;
   }
   const name = (group ? `${group}/` : "") + nextName(VAR_TYPE_LABEL[type], inCollection.filter((v) => splitName(v.name).group === group).map((v) => splitName(v.name).leaf));
@@ -614,7 +615,7 @@ export function renameVariable(ed: EditorController, id: Guid, name: string): bo
   if (!v || !clean || /[.{}]/.test(clean)) return false;
   if (clean === v.name) return true;
   if (a.variables.some((x) => x.collection === v.collection && x.id !== id && x.name === clean)) {
-    showToast({ message: `A variable named “${clean}” already exists`, kind: "error" });
+    showToast({ message: t("A variable named “{name}” already exists", { name: clean }), kind: "error" });
     return false;
   }
   if (engineDid(ed, VARIABLE_COMMAND.renameVariable, { variable: id, name: clean })) return true;
@@ -630,7 +631,7 @@ export function setVariableValue(ed: EditorController, id: Guid, mode: Guid, val
   if (value.kind === "alias") {
     const target = a.lookup.variable(value.id);
     if (!target || target.type !== v.type || aliasMakesCycle(id, value.id, a.lookup)) {
-      showToast({ message: "This would create a circular reference", kind: "error" });
+      showToast({ message: t("This would create a circular reference"), kind: "error" });
       return false;
     }
   }
@@ -810,7 +811,7 @@ export function moveGroup(ed: EditorController, collection: Guid, from: string, 
   const to = parent ? `${parent}/${leaf}` : leaf;
   if (target === from || target.startsWith(`${from}/`) || (where === "into" && to === from && parent === parentOf(from))) return where !== "into" && to === from ? reorderGroup() : false;
   if (assets(ed).variables.some((v) => v.collection === collection && (v.name.startsWith(`${to}/`) || v.name === to)) && to !== from) {
-    showToast({ message: `A group named “${leaf}” already exists there`, kind: "error" });
+    showToast({ message: t("A group named “{name}” already exists there", { name: leaf }), kind: "error" });
     return false;
   }
   ed.batch("Move group", () => {
@@ -973,7 +974,7 @@ export function extendCollection(ed: EditorController, collection: Guid): Guid |
   // Chains: C extends B extends A — at most 16 deep (docs/data.md §16.8, ours).
   const c = assets(ed).lookup.collection(collection);
   if (c && extensionDepth(c) + 1 > LIMITS.extensionDepth) {
-    showToast({ message: "Can't extend further", kind: "error" });
+    showToast({ message: t("Can't extend further"), kind: "error" });
     return null;
   }
   const r = engineRun(ed, VARIABLE_COMMAND.extendCollection, { collection });

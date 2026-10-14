@@ -4,6 +4,7 @@ import { Icon, type IconName } from "../icons/Icon";
 import { tooltipProps } from "../overlay/TooltipManager";
 import type { ExitReason } from "../types";
 import { STRINGS } from "../strings";
+import { t, useT } from "@/i18n";
 import { size, space } from "../tokens";
 import { textWidth } from "../util/textWidth";
 import { TextInput } from "./TextInput";
@@ -57,7 +58,8 @@ export const LAYER_ROW_LARGE = 48;
 export const LAYER_THUMB = 32;
 
 /** The inline rename: a ghost field; reports the new name (null when unchanged or cancelled) and how it was left. */
-function RenameField({ value, onDone, className, label = STRINGS.rename }: { value: string; onDone: (name: string | null, exit: ExitReason) => void; className?: string; label?: string }) {
+function RenameField({ value, onDone, className, label = t(STRINGS.rename) }: { value: string; onDone: (name: string | null, exit: ExitReason) => void; className?: string; label?: string }) {
+  useT();
   const committed = useRef<string | null>(null);
   return (
     <TextInput
@@ -76,13 +78,14 @@ function RenameField({ value, onDone, className, label = STRINGS.rename }: { val
 
 /** A lock / eye cell (Figma's labels): acts on press, so a drag from it goes on over other rows; never takes the focus. */
 function Cell({ kind, on, onPress }: { kind: "lock" | "visible"; on: boolean; onPress: (e: React.PointerEvent<HTMLButtonElement>) => void }) {
+  useT();
   return (
     <button
       type="button"
       tabIndex={-1}
       className={styles.cell}
       data-cell={kind}
-      aria-label={kind === "lock" ? STRINGS.toggleLocking : STRINGS.toggleVisibility}
+      aria-label={kind === "lock" ? t(STRINGS.toggleLocking) : t(STRINGS.toggleVisibility)}
       aria-pressed={on}
       data-on={on || undefined}
       onPointerDown={(e) => {
@@ -146,6 +149,7 @@ export function layerListWidth(rows: readonly { depth: number; name: string | nu
  * belongs to the list (select the children), not the row.
  */
 export function LayerRow({ id, depth, name, icon, iconLabel, kind = "default", tone = "default", expanded, selected, selectedAncestor, hovered, locked, hidden, strong, renaming, run, drop, onToggleExpand, onToggleLock, onToggleVisible, onRename, onPointerDown, onDoubleClick, thumbnail, className, style, ...rest }: LayerRowProps) {
+  useT();
   const large = thumbnail !== undefined;
   const cells = renaming ? { rest: 0, hover: 0 } : tailCells({ locked, hidden, lock: !!onToggleLock, visible: !!onToggleVisible });
   return (
@@ -173,7 +177,7 @@ export function LayerRow({ id, depth, name, icon, iconLabel, kind = "default", t
         {expanded === undefined ? (
           <span className={styles.leaf} />
         ) : (
-          <button type="button" tabIndex={-1} aria-label={expanded ? STRINGS.collapse : STRINGS.expand} aria-expanded={expanded} className={styles.chevron} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onToggleExpand?.(e.altKey); }}>
+          <button type="button" tabIndex={-1} aria-label={expanded ? t(STRINGS.collapse) : t(STRINGS.expand)} aria-expanded={expanded} className={styles.chevron} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onToggleExpand?.(e.altKey); }}>
             <Icon name="16.chevron.down" />
           </button>
         )}
@@ -218,6 +222,7 @@ export interface PageRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onSe
  * bg-secondary and its name 550; double click renames.
  */
 export function PageRow({ id, name, current, renaming, divider, onRename, onSelect, trailing, hovered, className, ...rest }: PageRowProps) {
+  useT();
   return (
     <div
       role="button"
@@ -240,7 +245,7 @@ export function PageRow({ id, name, current, renaming, divider, onRename, onSele
       {divider && !renaming ? (
         <span className={styles.divider} aria-label={name} />
       ) : renaming ? (
-        <RenameField className={styles.rename} label="Page name" value={name} onDone={(n) => onRename?.(n)} />
+        <RenameField className={styles.rename} label={t("Page name")} value={name} onDone={(n) => onRename?.(n)} />
       ) : (
         <span className={styles.name}>{name}</span>
       )}

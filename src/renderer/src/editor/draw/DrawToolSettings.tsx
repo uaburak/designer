@@ -8,6 +8,7 @@
  *   Brush styles menu (the current brush's preview and name).
  * Every change goes to the engine with setDrawToolSettings (drawTools.ts); the settings last the session.
  */
+import { t, useT } from "@/i18n";
 import { useState, type MouseEvent } from "react";
 import { ColorPicker, hexToRgba, Icon, IconButton, NumericInput, Popover, rgbToHex, SegmentedControl, Slider, Swatch, Toolbar, ToolbarDivider, type PickerPaint } from "@/ds";
 import { DRAW_WEIGHT_RANGE, DYNAMIC_RANGE, type DynamicSettings } from "@shared/draw/types";
@@ -30,6 +31,7 @@ const DYNAMIC_FIELDS: { id: keyof DynamicSettings; label: string; step: number; 
 ];
 
 export function DrawToolSettings({ tool }: { tool: DrawTool }) {
+  useT();
   const ed = useEditor();
   const state = useUI((s) => s.drawTools) ?? DRAW_TOOLS_DEFAULT;
   const settings = tool === "PENCIL" ? state.settings.pencil : state.settings.brush;
@@ -44,8 +46,8 @@ export function DrawToolSettings({ tool }: { tool: DrawTool }) {
   const close = () => setPopover(null);
   const paint: PickerPaint = { type: "SOLID", color: { ...(hexToRgba(settings.color) ?? { r: 0, g: 0, b: 0 }), a: 1 }, opacity: settings.opacity };
   return (
-    <Toolbar floating secondary label={tool === "PENCIL" ? "Pencil settings" : "Brush settings"} data-draw-toolbar={tool}>
-      <button type="button" aria-label="Color" aria-haspopup="dialog" aria-expanded={open === "color"} className={styles.swatchButton} onClick={toggle("color")}>
+    <Toolbar floating secondary label={tool === "PENCIL" ? t("Pencil settings") : t("Brush settings")} data-draw-toolbar={tool}>
+      <button type="button" aria-label={t("Color")} aria-haspopup="dialog" aria-expanded={open === "color"} className={styles.swatchButton} onClick={toggle("color")}>
         <Swatch color={settings.color} opacity={Math.round(settings.opacity * 100)} shape="round" size={16} />
       </button>
       {open === "color" && (
@@ -61,7 +63,7 @@ export function DrawToolSettings({ tool }: { tool: DrawTool }) {
       <ToolbarDivider />
       <NumericInput
         className={styles.weight}
-        label="Weight"
+        label={t("Weight")}
         prefix="24.stroke-weight"
         value={settings.weight}
         min={DRAW_WEIGHT_RANGE[0]}
@@ -69,12 +71,12 @@ export function DrawToolSettings({ tool }: { tool: DrawTool }) {
         step={1}
         precision={1}
         onChange={(v) => set({ weight: v })}
-        suffix={<IconButton icon="16.chevron.down" label="Weight slider" aria-expanded={open === "weight"} className={styles.weightMore} onClick={toggle("weight")} />}
+        suffix={<IconButton icon="16.chevron.down" label={t("Weight slider")} aria-expanded={open === "weight"} className={styles.weightMore} onClick={toggle("weight")} />}
       />
       {open === "weight" && (
-        <Popover anchor={popover!.anchor} placement="top" label="Weight" onClose={close}>
+        <Popover anchor={popover!.anchor} placement="top" label={t("Weight")} onClose={close}>
           <div className={styles.weightSlider}>
-            <Slider label="Weight" value={settings.weight} min={DRAW_WEIGHT_RANGE[0]} max={DRAW_WEIGHT_RANGE[1]} step={0.5} onChange={(v) => set({ weight: v })} />
+            <Slider label={t("Weight")} value={settings.weight} min={DRAW_WEIGHT_RANGE[0]} max={DRAW_WEIGHT_RANGE[1]} step={0.5} onChange={(v) => set({ weight: v })} />
           </div>
         </Popover>
       )}
@@ -83,25 +85,25 @@ export function DrawToolSettings({ tool }: { tool: DrawTool }) {
         <div className={styles.group}>
           <SegmentedControl
             className={styles.style}
-            label="Style"
+            label={t("Style")}
             value={state.settings.pencil.kind}
             options={[
-              { value: "BASIC", label: "Basic" },
-              { value: "DYNAMIC", label: "Dynamic" },
+              { value: "BASIC", label: t("Basic") },
+              { value: "DYNAMIC", label: t("Dynamic") },
             ]}
             onChange={(v) => setPencil(ed, { kind: v as "BASIC" | "DYNAMIC" })}
           />
           {state.settings.pencil.kind === "DYNAMIC" && (
-            <IconButton icon="24.dynamic-stroke" label="Dynamic stroke settings" onClick={toggle("dynamic")} />
+            <IconButton icon="24.dynamic-stroke" label={t("Dynamic stroke settings")} onClick={toggle("dynamic")} />
           )}
           {open === "dynamic" && (
-            <Popover anchor={popover!.anchor} placement="top" title="Dynamic stroke" onClose={close}>
+            <Popover anchor={popover!.anchor} placement="top" title={t("Dynamic stroke")} onClose={close}>
               <div className={styles.settings} data-dynamic-settings="">
                 {DYNAMIC_FIELDS.map((f) => (
                   <label key={f.id} style={{ display: "contents" }}>
-                    <span className={styles.settingLabel}>{f.label}</span>
+                    <span className={styles.settingLabel}>{t(f.label)}</span>
                     <NumericInput
-                      label={f.label}
+                      label={t(f.label)}
                       value={state.settings.pencil.dynamic[f.id]}
                       min={DYNAMIC_RANGE[f.id][0]}
                       max={DYNAMIC_RANGE[f.id][1]}
@@ -118,7 +120,7 @@ export function DrawToolSettings({ tool }: { tool: DrawTool }) {
         </div>
       ) : (
         <>
-          <button type="button" aria-label="Brush styles" aria-haspopup="listbox" aria-expanded={open === "brush"} className={styles.brushButton} data-brush-current={state.brush.builtin ?? state.brush.guid ?? ""} onClick={toggle("brush")}>
+          <button type="button" aria-label={t("Brush styles")} aria-haspopup="listbox" aria-expanded={open === "brush"} className={styles.brushButton} data-brush-current={state.brush.builtin ?? state.brush.guid ?? ""} onClick={toggle("brush")}>
             <BrushPreview entry={state.brush} className={styles.preview} />
             <span>{state.brush.name}</span>
             <Icon name="16.chevron.down" />

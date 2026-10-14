@@ -34,7 +34,7 @@ describe("sessions and the write path (docs/data.md §5.4, §5.6)", () => {
     expect(o.sessionID).toBe(sessionIdFor(1, 1));
     expect(o.snapshotSeq).toBe(0);
     expect(o.headSeq).toBe(0);
-    expect(decodeMessage(o.snapshot).nodeChanges!.map((n) => n.name)).toEqual(["Document", "Page 1", "Internal Only Canvas"]);
+    expect(decodeMessage(o.snapshot).nodeChanges!.map((n) => n.name)).toEqual(["Document", "Page 1", "Internal Only Canvas", "Thumbnail", "Thumbnail"]);
     await expect(files.open(f.fileKey, { mode: "edit" })).rejects.toMatchObject({ code: "already-open", detail: { tabId: "tab-1" } });
     const view = await files.open(f.fileKey, { mode: "view" });
     expect(view.sessionID).toBe(0);
@@ -101,7 +101,7 @@ describe("sessions and the write path (docs/data.md §5.4, §5.6)", () => {
     expect(r.recovery).toMatchObject({ droppedFrames: 0, fellBackTo: null });
     expect(r.recovery!.truncatedBytes).toBeGreaterThan(0);
     expect(r.headSeq).toBe(4);
-    expect(tableOf(r).size).toBe(3 + 4);
+    expect(tableOf(r).size).toBe(5 + 4); // a new file's five nodes (its Thumbnail page and frame) and four rectangles
     // The client resends batch 5 after reattaching; the store accepts it as the next seq.
     const ack = await t.api.files.append(f.fileKey, batch(r.sessionID, 1, [rect(s, 5, "&")]));
     expect(ack.seq).toBe(5);

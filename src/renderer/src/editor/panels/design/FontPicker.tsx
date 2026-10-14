@@ -13,6 +13,7 @@ import { Icon, Popover, SearchField, Select, VirtualList, type Mixed, isMixed } 
 import { closestStyle, desktopFonts, type FontFamily } from "@/engine/fonts";
 import { filterFamilies, fontFilterMenu, hasStyle, useFontScope, type FontFilter } from "../../fontList";
 import { useFontPreview } from "../../fontPreview";
+import { t, useT } from "@/i18n";
 import styles from "./FontPicker.module.css";
 
 /** Live (popovers/font-picker.txt): rows 28 high, the name 12 in. */
@@ -37,6 +38,7 @@ export interface FontFieldProps {
 
 /** The Font family field and its picker. */
 export function FontField({ family, style, list, fileFamilies, disabled, onPreview, onPick }: FontFieldProps) {
+  useT();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   // What the text had when the picker opened (a preview changes the live value; the tick stays on the original).
   const [opened, setOpened] = useState<{ family: string | null; style: string | null }>({ family: null, style: null });
@@ -52,7 +54,7 @@ export function FontField({ family, style, list, fileFamilies, disabled, onPrevi
       <button
         type="button"
         className={styles.field}
-        aria-label="Font family"
+        aria-label={t("Font family")}
         aria-haspopup="dialog"
         aria-expanded={!!anchor}
         data-font-field=""
@@ -66,11 +68,11 @@ export function FontField({ family, style, list, fileFamilies, disabled, onPrevi
         }}
       >
         {missing && (
-          <span className={styles.missingIcon} title="Missing font" data-missing-font="">
+          <span className={styles.missingIcon} title={t("Missing font")} data-missing-font="">
             <Icon name="24.warning" />
           </span>
         )}
-        <span className={isMixed(family) ? `${styles.fieldValue} ${styles.fieldMixed}` : styles.fieldValue}>{isMixed(family) ? "Mixed" : family}</span>
+        <span className={isMixed(family) ? `${styles.fieldValue} ${styles.fieldMixed}` : styles.fieldValue}>{isMixed(family) ? t("Mixed") : family}</span>
         <span className={styles.fieldChevron}>
           <Icon name="16.chevron.down" />
         </span>
@@ -109,6 +111,7 @@ export interface FontPickerProps {
 }
 
 export function FontPicker({ anchor, family, style, list, fileFamilies, onPreview, onPick, onClose }: FontPickerProps) {
+  useT();
   // Live: the search opens with the current family in it (selected; typing replaces it) and every font listed.
   const [typed, setTyped] = useState<string | null>(null);
   const query = typed ?? "";
@@ -188,26 +191,26 @@ export function FontPicker({ anchor, family, style, list, fileFamilies, onPrevie
   };
 
   return (
-    <Popover anchor={anchor} title="Fonts" draggable={false} width={240} onClose={onClose}>
+    <Popover anchor={anchor} title={t("Fonts")} draggable={false} width={240} onClose={onClose}>
       <div className={styles.picker} data-font-picker="" onKeyDown={onKey} onMouseLeave={() => preview(null, 0)}>
         <div className={styles.search}>
-          <SearchField value={typed ?? family ?? ""} onChange={setQuery} placeholder="Search fonts" label="Search fonts" autoFocus selectOnFocus onExit={(r) => r === "escape" && onClose()} />
+          <SearchField value={typed ?? family ?? ""} onChange={setQuery} placeholder={t("Search fonts")} label={t("Search fonts")} autoFocus selectOnFocus onExit={(r) => r === "escape" && onClose()} />
         </div>
         <div className={styles.filter}>
-          <Select label="Font filter" variant="ghost" value={filter} options={filterMenu.map((f) => (f === "-" ? f : { value: f.value, label: f.label }))} onChange={(v) => setFilter(v as FontFilter)} data-font-filter="" />
+          <Select label={t("Font filter")} variant="ghost" value={filter} options={filterMenu.map((f) => (f === "-" ? f : { value: f.value, label: f.value === "org" ? t("Used at {organization}", { organization: scope?.orgName ?? t("your organization") }) : t(f.label) }))} onChange={(v) => setFilter(v as FontFilter)} data-font-filter="" />
         </div>
-        <div className={styles.list} role="listbox" aria-label="Fonts">
+        <div className={styles.list} role="listbox" aria-label={t("Fonts")}>
           {list === null ? (
-            <div className={styles.empty}>Loading fonts…</div>
+            <div className={styles.empty}>{t("Loading fonts…")}</div>
           ) : shown.length === 0 ? (
-            <div className={styles.empty}>{query ? `No fonts match “${query}”` : filter === "file" ? "No fonts in this file" : filter === "uploaded" ? "No uploaded fonts" : filter === "org" ? "No organization fonts" : "No fonts"}</div>
+            <div className={styles.empty}>{query ? t("No fonts match “{query}”", { query }) : filter === "file" ? t("No fonts in this file") : filter === "uploaded" ? t("No uploaded fonts") : filter === "org" ? t("No organization fonts") : t("No fonts")}</div>
           ) : (
             <VirtualList
               count={shown.length}
               rowHeight={ROW}
               overscan={4}
               scrollToIndex={scrollTo}
-              label="Fonts"
+              label={t("Fonts")}
               renderRow={(i) => (
                 <FontRow
                   family={shown[i]}
@@ -249,6 +252,7 @@ function FontRow({ family, current, active, stylesOpen, onHover, onPick, onStyle
   onPick: () => void;
   onStyles: (anchor: HTMLElement) => void;
 }) {
+  useT();
   const face = useFontPreview(family);
   return (
     <div
@@ -273,7 +277,7 @@ function FontRow({ family, current, active, stylesOpen, onHover, onPick, onStyle
         <button
           type="button"
           className={styles.stylesButton}
-          aria-label={`${family.family} styles`}
+          aria-label={t("{family} styles", { family: family.family })}
           aria-expanded={stylesOpen}
           tabIndex={-1}
           onClick={(e) => {
@@ -297,6 +301,7 @@ function StylesMenu({ family, anchor, current, onHover, onPick, onClose }: {
   onPick: (style: string) => void;
   onClose: () => void;
 }) {
+  useT();
   const menu = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const face = useFontPreview(family);
@@ -322,7 +327,7 @@ function StylesMenu({ family, anchor, current, onHover, onPick, onClose }: {
         ref={menu}
         className={styles.styles}
         role="menu"
-        aria-label={`${family.family} styles`}
+        aria-label={t("{family} styles", { family: family.family })}
         data-font-styles={family.family}
         style={pos ? { left: pos.left, top: pos.top } : { visibility: "hidden" }}
         onKeyDown={(e) => {

@@ -13,6 +13,7 @@ import { decodeMessage } from "../../shared/schema/codec";
 import { messageImageHashes } from "../../shared/schema/patch";
 import { isStoreError, StoreError } from "../../shared/store/protocol";
 import type { FileKey, VersionRecord } from "../../shared/store/types";
+import { t as tr } from "../../shared/i18n";
 
 /** The server's `branch` (§15.7.1): BranchRecord with the room's fields */
 export interface BranchRow {
@@ -109,7 +110,7 @@ async function staleAware<T>(p: Promise<T>): Promise<T> {
   try {
     return await p;
   } catch (e) {
-    if (isStoreError(e) && (e.detail as { code?: unknown } | undefined)?.code === "stale") throw new StoreError("stale", "The files changed since the preview. Review the changes again.", e.detail);
+    if (isStoreError(e) && (e.detail as { code?: unknown } | undefined)?.code === "stale") throw new StoreError("stale", tr("The files changed since the preview. Review the changes again."), e.detail);
     throw e;
   }
 }
@@ -124,8 +125,8 @@ export class RemoteBranches {
 
   private async link(fileKey: FileKey): Promise<SyncState> {
     const s = await this.d.syncState(fileKey);
-    if (!s) throw new StoreError("invalid", "This file isn't shared");
-    if (!this.d.signedIn()) throw new StoreError("offline", "Log in to work with this file's branches");
+    if (!s) throw new StoreError("invalid", tr("This file isn't shared"));
+    if (!this.d.signedIn()) throw new StoreError("offline", tr("Log in to work with this file's branches"));
     return s;
   }
 
@@ -156,7 +157,7 @@ export class RemoteBranches {
       while (!(await this.caughtUp(fileKey))) {
         if (now() >= until) {
           const s = await this.d.syncState(fileKey);
-          throw new StoreError("offline", s?.connection === "live" ? "Changes to this file are still being saved. Try again in a moment." : "Couldn’t reach this file’s room. Check your connection and try again.", { fileKey, connection: s?.connection ?? "offline", pending: s?.pending ?? 0 });
+          throw new StoreError("offline", s?.connection === "live" ? tr("Changes to this file are still being saved. Try again in a moment.") : tr("Couldn’t reach this file’s room. Check your connection and try again."), { fileKey, connection: s?.connection ?? "offline", pending: s?.pending ?? 0 });
         }
         await sleep(50);
       }
@@ -181,7 +182,7 @@ export class RemoteBranches {
       },
       this.d.newRoomKey(input.branchFileKey),
     );
-    if (!answer) throw new StoreError("invalid", "The server didn't make the branch");
+    if (!answer) throw new StoreError("invalid", tr("The server didn't make the branch"));
     const made = answer as { branch: BranchRow; mainVersionId?: string };
     await this.d.call("PUT", `/branches/${seg(made.branch.branchKey)}/base?seq=${baseSeq}`, input.snapshot);
     return { record: recordOf(made.branch, input.branchFileKey, input.mainFileKey), mainVersionId: made.mainVersionId ?? null };
@@ -249,7 +250,7 @@ export class RemoteBranches {
   }
 
   async answerReview(r: BranchRecord, verdict: "approved" | "changes-suggested", comment: string): Promise<BranchReview> {
-    if (!r.review) throw new StoreError("invalid", "No review was requested");
+    if (!r.review) throw new StoreError("invalid", tr("No review was requested"));
     const { review } = await this.d.call<{ review: BranchReview }>("POST", `/branches/${seg(r.branchKey!)}/reviews/${seg(r.review.id)}/verdict`, { verdict, ...(comment ? { comment } : {}) });
     return review;
   }

@@ -33,6 +33,7 @@ import { SerialQueue } from "./queue";
 import { currentMessage, currentMessageBytes, encodeSnapshot, readSnapshotFile, type ReadSnapshot, type SchemaRegistry } from "./snapshot";
 import { CHECKPOINT_INTERVAL_MS, CHECKPOINT_MAX_WAIT_MS, CHECKPOINT_QUIET_MS, thinVersions } from "./versions";
 import type { LocalWorkspace, Log, WorkspaceDirs } from "./workspace";
+import { t as tr } from "../../shared/i18n";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // store.json
@@ -244,7 +245,7 @@ export class FileStore {
     return a.queue.run(async () => {
       const h = await this.loaded(a);
       const start = h.state.sessions.nextLocal;
-      if (start + size >= RESERVED_SESSION_LIMIT) throw new StoreError("io", "This file has run out of session ids");
+      if (start + size >= RESERVED_SESSION_LIMIT) throw new StoreError("io", tr("This file has run out of session ids"));
       h.state.sessions.nextLocal = start + size;
       await this.saveState(a, h);
       return start;
@@ -345,7 +346,7 @@ export class FileStore {
         break;
       }
     }
-    if (!snapOk) throw new StoreError("corrupt", "This file couldn't be read");
+    if (!snapOk) throw new StoreError("corrupt", tr("This file couldn't be read"));
 
     // 2. Adopt segments written but not yet listed (a crash between creating a segment and saving store.json).
     const listed = new Set(gen.segments);
@@ -500,9 +501,9 @@ export class FileStore {
   // -------------------------------------------------------------------------------------------------------------------
 
   async open(fileKey: FileKey, opts: { mode: "edit" | "view"; tabId?: string }, owner: SessionOwner): Promise<OpenedFile> {
-    if (this.closing) throw new StoreError("shutting-down", "The store is shutting down");
+    if (this.closing) throw new StoreError("shutting-down", tr("The store is shutting down"));
     const meta = this.d.workspace.getMeta(fileKey);
-    if (opts.mode === "edit" && this.d.workspace.isFileTrashed(meta)) throw new StoreError("trashed", "This file is in Trash");
+    if (opts.mode === "edit" && this.d.workspace.isFileTrashed(meta)) throw new StoreError("trashed", tr("This file is in Trash"));
     const a = this.actor(fileKey);
     let h: Head;
     try {
@@ -516,17 +517,17 @@ export class FileStore {
       let sessionID = 0;
       if (opts.mode === "edit") {
         const live = [...a.sessions.values()][0];
-        if (live) throw new StoreError("already-open", "This file is already open for editing", { tabId: live.tabId ?? null });
+        if (live) throw new StoreError("already-open", tr("This file is already open for editing"), { tabId: live.tabId ?? null });
         let n = h.state.sessions.nextLocal;
         const end = h.state.sessions.blockEnd;
         if (end && n >= end) {
           // A branch at the end of its GUID block: the next block comes from its main file.
           const next = await this.d.nextSessionBlock?.(fileKey);
-          if (!next) throw new StoreError("io", "This branch has run out of session ids");
+          if (!next) throw new StoreError("io", tr("This branch has run out of session ids"));
           h.state.sessions.nextLocal = n = next.start;
           h.state.sessions.blockEnd = next.end;
         }
-        if (n >= RESERVED_SESSION_LIMIT) throw new StoreError("io", "This file has run out of session ids");
+        if (n >= RESERVED_SESSION_LIMIT) throw new StoreError("io", tr("This file has run out of session ids"));
         sessionID = sessionIdFor(this.d.deviceOrdinal, n);
         h.state.sessions.nextLocal = n + 1;
         await this.saveState(a, h); // persisted before replying (§5.6 step 5)
@@ -565,7 +566,7 @@ export class FileStore {
         /* try older */
       }
     }
-    throw new StoreError("corrupt", "This file couldn't be read");
+    throw new StoreError("corrupt", tr("This file couldn't be read"));
   }
 
   /** Frames with seq > fromSeq, as current-schema messages (converted when a segment used another schema). */
@@ -594,7 +595,7 @@ export class FileStore {
   }
 
   async reattach(fileKey: FileKey, sessionID: number, lastAckedBatchSeq: number, owner: SessionOwner): Promise<{ headSeq: number }> {
-    if (this.closing) throw new StoreError("shutting-down", "The store is shutting down");
+    if (this.closing) throw new StoreError("shutting-down", tr("The store is shutting down"));
     const a = this.actor(fileKey);
     return a.queue.run(async () => {
       const h = await this.loaded(a);
@@ -602,7 +603,7 @@ export class FileStore {
       // A session opened under the ordinal this installation had before the server gave it its own stays valid.
       if (deviceOrdinal < 1 || n < 1 || n >= h.state.sessions.nextLocal) throw new StoreError("invalid", `session ${sessionID} was never opened for this file`);
       const live = [...a.sessions.entries()].find(([sid]) => sid !== sessionID);
-      if (live) throw new StoreError("already-open", "This file is already open for editing", { tabId: live[1].tabId ?? null });
+      if (live) throw new StoreError("already-open", tr("This file is already open for editing"), { tabId: live[1].tabId ?? null });
       const prev = a.sessions.get(sessionID);
       a.sessions.set(sessionID, { owner, tabId: prev?.tabId });
       if ((h.lastBatchSeq.get(sessionID) ?? 0) < lastAckedBatchSeq) this.d.log("warn", `${fileKey}: session ${sessionID} acked batch ${lastAckedBatchSeq} the journal lacks`);
@@ -612,16 +613,16 @@ export class FileStore {
 
   /** Appends one batch (§5.4): dedupe, seq + HLC, one write, ack; fsync within 1 s; broadcast; triggers. */
   async append(fileKey: FileKey, batch: ChangeBatch, owner: SessionOwner): Promise<AppendAck> {
-    if (this.closing) throw new StoreError("shutting-down", "The store is shutting down");
+    if (this.closing) throw new StoreError("shutting-down", tr("The store is shutting down"));
     if (!batch || !(batch.message instanceof Uint8Array)) throw new StoreError("invalid", "a batch needs a message");
-    if (batch.message.length > MAX_BATCH_BYTES) throw new StoreError("too-large", "This change is too large to save");
+    if (batch.message.length > MAX_BATCH_BYTES) throw new StoreError("too-large", tr("This change is too large to save"));
     if (!Number.isInteger(batch.batchSeq) || batch.batchSeq < 1) throw new StoreError("invalid", `bad batchSeq ${batch.batchSeq}`);
     const a = this.actor(fileKey);
     return a.queue.run(async () => {
       const h = await this.loaded(a);
       const session = a.sessions.get(batch.sessionID);
-      if (!session) throw new StoreError("read-only", "This file isn't open for editing in this session");
-      if (session.owner !== owner) throw new StoreError("forbidden", "This session belongs to another view");
+      if (!session) throw new StoreError("read-only", tr("This file isn't open for editing in this session"));
+      if (session.owner !== owner) throw new StoreError("forbidden", tr("This session belongs to another view"));
       const last = h.lastBatchSeq.get(batch.sessionID) ?? 0;
       if (batch.batchSeq <= last) {
         const ack = h.acks.get(`${batch.sessionID}:${batch.batchSeq}`) ?? h.lastAckOf.get(batch.sessionID);
@@ -796,12 +797,12 @@ export class FileStore {
    * checkpoint and the shared file's link (it is sent to the room); a remote frame is neither.
    */
   async appendSystem(fileKey: FileKey, message: Uint8Array, opts: { kind: "remote" | "merge" | "update"; label?: string; expectSeq?: number; blobRefsAdded?: string[] }): Promise<AppendAck> {
-    if (this.closing) throw new StoreError("shutting-down", "The store is shutting down");
-    if (message.length > MAX_BATCH_BYTES) throw new StoreError("too-large", "This change is too large to save");
+    if (this.closing) throw new StoreError("shutting-down", tr("The store is shutting down"));
+    if (message.length > MAX_BATCH_BYTES) throw new StoreError("too-large", tr("This change is too large to save"));
     const a = this.actor(fileKey);
     return a.queue.run(async () => {
       const h = await this.loaded(a);
-      if (opts.expectSeq !== undefined && h.lastSeq !== opts.expectSeq) throw new StoreError("stale", "The file changed meanwhile");
+      if (opts.expectSeq !== undefined && h.lastSeq !== opts.expectSeq) throw new StoreError("stale", tr("The file changed meanwhile"));
       const seq = h.lastSeq + 1;
       const hlc = this.d.hlc.now();
       if (!h.writer) await this.openSegment(a, h, seq);
@@ -925,9 +926,9 @@ export class FileStore {
    * Only an edit session's owner may send one. The journal frames up to the head fold into it, like a compaction.
    */
   async saveSnapshot(fileKey: FileKey, save: SnapshotSave, owner: SessionOwner): Promise<SnapshotSaved> {
-    if (this.closing) throw new StoreError("shutting-down", "The store is shutting down");
+    if (this.closing) throw new StoreError("shutting-down", tr("The store is shutting down"));
     if (!save || !(save.message instanceof Uint8Array) || !save.message.length) throw new StoreError("invalid", "a snapshot needs a message");
-    if (save.message.length > MAX_SNAPSHOT_BYTES) throw new StoreError("too-large", "This snapshot is too large to save");
+    if (save.message.length > MAX_SNAPSHOT_BYTES) throw new StoreError("too-large", tr("This snapshot is too large to save"));
     if (!Number.isInteger(save.headSeq) || save.headSeq < 0) throw new StoreError("invalid", `bad headSeq ${save.headSeq}`);
     const a = this.actor(fileKey);
     // A compaction in flight would race the generations: it finishes first (its result is then replaced).
@@ -935,8 +936,8 @@ export class FileStore {
     return a.queue.run(async () => {
       const h = await this.loaded(a);
       const session = a.sessions.get(save.sessionID);
-      if (!session) throw new StoreError("read-only", "This file isn't open for editing in this session");
-      if (session.owner !== owner) throw new StoreError("forbidden", "This session belongs to another view");
+      if (!session) throw new StoreError("read-only", tr("This file isn't open for editing in this session"));
+      if (session.owner !== owner) throw new StoreError("forbidden", tr("This session belongs to another view"));
       if (h.lastSeq !== save.headSeq) return { adopted: false, seq: h.lastSeq };
       // Refused before anything is written: what doesn't decode, or isn't a whole document, can't become the head.
       let message;
@@ -1193,7 +1194,7 @@ export class FileStore {
   async dropDocument(fileKey: FileKey): Promise<void> {
     const a = this.actor(fileKey);
     await a.queue.run(async () => {
-      if (a.sessions.size) throw new StoreError("invalid", "The file is open");
+      if (a.sessions.size) throw new StoreError("invalid", tr("The file is open"));
       for (const t of [a.syncTimer, a.updatedAtTimer, a.checkpointTimer]) if (t) this.timers.clearTimeout(t);
       await a.head?.writer?.close().catch(() => {});
       // This device's next session counter outlives the document: a download later never reuses a session (and its GUIDs)

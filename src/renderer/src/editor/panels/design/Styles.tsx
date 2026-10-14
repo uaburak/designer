@@ -22,9 +22,12 @@ import { OpenVariablesButton, StyleGlyph, VariableList, VariablePicker } from ".
 import vstyles from "../variables/Variables.module.css";
 import { paintScope } from "./Variables";
 import type { PanelNode } from "./shared";
+import { t, useT } from "@/i18n";
 import styles from "./Design.module.css";
 
-const SLOT_LABEL: Record<StyleSlot, string> = { fill: "Fill", stroke: "Stroke", text: "Text", effect: "Effect", grid: "Layout guide" };
+/** "<slot> styles" and its empty state, whole (translated where they render). */
+const SLOT_STYLES: Record<StyleSlot, string> = { fill: "Fill styles", stroke: "Stroke styles", text: "Text styles", effect: "Effect styles", grid: "Layout guide styles" };
+const SLOT_EMPTY: Record<StyleSlot, string> = { fill: "No fill styles.", stroke: "No stroke styles.", text: "No text styles.", effect: "No effect styles.", grid: "No layout guide styles." };
 /** The section each slot's button sits in (Figma's names: "Fill, Apply styles and variables", "Effects, Apply styles"). */
 const SECTION_TITLE: Record<StyleSlot, string> = { fill: "Fill", stroke: "Stroke", text: "Typography", effect: "Effects", grid: "Layout guide" };
 
@@ -54,21 +57,22 @@ export const TEXT_STYLES_RESERVE = 457;
 
 /** The section header's "Apply styles" (four dots): the style picker, with colour variables for Fill and Stroke. */
 export function StylesButton({ nodes, slot, mixed, onOpenPicker }: { nodes: readonly PanelNode[]; slot: StyleSlot; /** Mixed paints: Figma names the button "Style" */ mixed?: boolean; /** Fill / Stroke: the colour picker's Libraries tab instead */ onOpenPicker?: (anchor: DOMRect) => void }) {
+  useT();
   const ed = useEditor();
   const [open, setOpen] = useState<HTMLElement | null>(null);
   const [create, setCreate] = useState<HTMLElement | DOMRect | null>(null);
   const refs = nodes.map((n) => n.guid);
   const kind = STYLE_SLOT[slot].kind;
   const paints = slot === "fill" || slot === "stroke";
-  const label = paints ? "Apply styles and variables" : "Apply styles";
+  const label = paints ? t("Apply styles and variables") : t("Apply styles");
   const current = sharedStyle(nodes, slot);
   return (
     <>
-      <IconButton icon="24.styles" label={mixed ? "Style" : `${SECTION_TITLE[slot]}, ${label}`} tooltip={mixed ? "Style" : label} tone="secondary" aria-expanded={!!open} data-styles-button={slot} onClick={(e) => (onOpenPicker ? onOpenPicker(sectionTop(e.currentTarget)) : setOpen(open ? null : e.currentTarget))} />
+      <IconButton icon="24.styles" label={mixed ? t("Style") : `${t(SECTION_TITLE[slot])}, ${label}`} tooltip={mixed ? t("Style") : label} tone="secondary" aria-expanded={!!open} data-styles-button={slot} onClick={(e) => (onOpenPicker ? onOpenPicker(sectionTop(e.currentTarget)) : setOpen(open ? null : e.currentTarget))} />
       {open && paints && (
         <VariablePicker
           anchor={open}
-          title="Libraries"
+          title={t("Libraries")}
           types={["COLOR"]}
           scope={paintScope(nodes, slot === "fill" ? "fillPaints" : "strokePaints")}
           consumer={refs[0] ?? null}
@@ -80,7 +84,7 @@ export function StylesButton({ nodes, slot, mixed, onOpenPicker }: { nodes: read
             <>
               <IconButton
                 icon="24.plus.small"
-                label="Create style"
+                label={t("Create style")}
                 onClick={(e) => {
                   setCreate(e.currentTarget.getBoundingClientRect());
                   setOpen(null);
@@ -97,16 +101,16 @@ export function StylesButton({ nodes, slot, mixed, onOpenPicker }: { nodes: read
         // with Create style (+) before ×, the search across, the styles — or "No … styles." and "Browse libraries…".
         <Popover
           anchor={open}
-          title={`${SLOT_LABEL[slot]} styles`}
+          title={t(SLOT_STYLES[slot])}
           width={216}
           // Live (popovers/typography-styles.txt): Text styles at 427 from its button at 586 (see reserveHeight)
           reserveHeight={slot === "text" ? TEXT_STYLES_RESERVE : 0}
-          label={`${SLOT_LABEL[slot]} styles`}
+          label={t(SLOT_STYLES[slot])}
           onClose={() => setOpen(null)}
           headerActions={
             <IconButton
               icon="24.plus.small"
-              label="Create style"
+              label={t("Create style")}
               onClick={(e) => {
                 setCreate(e.currentTarget.getBoundingClientRect());
                 setOpen(null);
@@ -121,8 +125,8 @@ export function StylesButton({ nodes, slot, mixed, onOpenPicker }: { nodes: read
             currentStyle={current === "mixed" ? null : current}
             onPickStyle={(s) => applyStyle(ed, refs, slot, s.id)}
             onPick={() => undefined}
-            label={`${SLOT_LABEL[slot]} styles`}
-            stylesTab={`No ${SLOT_LABEL[slot].toLowerCase()} styles.`}
+            label={t(SLOT_STYLES[slot])}
+            stylesTab={t(SLOT_EMPTY[slot])}
             onBrowse={() => {
               ed.ui.set({ librariesDialog: { tab: "libraries" } });
               setOpen(null);
@@ -138,6 +142,7 @@ export function StylesButton({ nodes, slot, mixed, onOpenPicker }: { nodes: read
 
 /** The style a section's layers share: its glyph and name (Edit style), Detach style. */
 export function AppliedStyle({ nodes, slot }: { nodes: readonly PanelNode[]; slot: StyleSlot }) {
+  useT();
   const ed = useEditor();
   const a = useLocalAssets();
   const [edit, setEdit] = useState<HTMLElement | null>(null);
@@ -145,16 +150,16 @@ export function AppliedStyle({ nodes, slot }: { nodes: readonly PanelNode[]; slo
   if (!id || id === "mixed") return null;
   const style = a.style(id);
   const refs = nodes.map((n) => n.guid);
-  const name = style ? styleLeaf(style.name) : "Missing style";
+  const name = style ? styleLeaf(style.name) : t("Missing style");
   return (
     <div className={vstyles.styleRow} data-applied-style={style?.name ?? ""}>
-      <button type="button" className={vstyles.styleBox} aria-label={`${STYLE_KIND_SINGULAR[STYLE_SLOT[slot].kind]}: ${style?.name ?? name}`} {...tooltipProps(style?.name ?? name)} onClick={(e) => setEdit(e.currentTarget)}>
+      <button type="button" className={vstyles.styleBox} aria-label={`${t(STYLE_KIND_SINGULAR[STYLE_SLOT[slot].kind])}: ${style?.name ?? name}`} {...tooltipProps(style?.name ?? name)} onClick={(e) => setEdit(e.currentTarget)}>
         {style && <StyleGlyph style={style} />}
         <span className={vstyles.styleName}>{name}</span>
         {style?.kind === "TEXT" && <span className={vstyles.styleMeta}>{textStyleSummary(style.node)}</span>}
       </button>
       <span className={vstyles.styleActions}>
-        <IconButton icon="24.detach.small" label="Detach style" tone="secondary" onClick={() => applyStyle(ed, refs, slot, null)} />
+        <IconButton icon="24.detach.small" label={t("Detach style")} tone="secondary" onClick={() => applyStyle(ed, refs, slot, null)} />
       </span>
       {edit && style && <EditStylePopover id={style.id} anchor={edit} onClose={() => setEdit(null)} />}
     </div>
@@ -165,13 +170,14 @@ export function AppliedStyle({ nodes, slot }: { nodes: readonly PanelNode[]; slo
 
 /** "Local variables": opens the Local variables window. */
 export function LocalVariablesSection() {
+  useT();
   const ed = useEditor();
   const a = useLocalAssets();
   return (
-    <PanelSection title="Local variables">
+    <PanelSection title={t("Local variables")}>
       <button type="button" className={vstyles.openVariables} data-open-variables="" onClick={() => ed.ui.set({ variablesOpen: true })}>
         <Icon name="24.variable.small" />
-        <span>Open variables</span>
+        <span>{t("Open variables")}</span>
         {a.variables.length > 0 && <span className={vstyles.styleMeta}>{a.variables.length}</span>}
       </button>
     </PanelSection>
@@ -179,6 +185,7 @@ export function LocalVariablesSection() {
 }
 
 export function LocalStylesSection() {
+  useT();
   const ed = useEditor();
   const a = useLocalAssets();
   const closed = useUI((s) => s.stylesClosed);
@@ -187,7 +194,7 @@ export function LocalStylesSection() {
   const [menu, setMenu] = useState<{ style: Style; x: number; y: number; anchor: HTMLElement } | null>(null);
   const [renaming, setRenaming] = useState<Guid | null>(null);
   const plus = useRef<HTMLSpanElement>(null);
-  const add: MenuEntry[] = STYLE_KINDS.map((k) => ({ id: k, label: STYLE_KIND_SINGULAR[k] }));
+  const add: MenuEntry[] = STYLE_KINDS.map((k) => ({ id: k, label: t(STYLE_KIND_SINGULAR[k]) }));
   const toggle = (key: string) =>
     ed.ui.set((s) => {
       const next = new Set(s.stylesClosed);
@@ -215,7 +222,7 @@ export function LocalStylesSection() {
     >
       <StyleGlyph style={s} />
       <InlineEdit
-        label="Rename style"
+        label={t("Rename style")}
         value={styleLeaf(s.name)}
         editing={renaming === s.id}
         onEditingChange={(on) => setRenaming(on ? s.id : null)}
@@ -228,7 +235,7 @@ export function LocalStylesSection() {
         className={vstyles.styleName}
       />
       {s.kind === "TEXT" && <span className={vstyles.styleMeta}>{textStyleSummary(s.node)}</span>}
-      <IconButton className={vstyles.itemEdit} icon="24.adjust.small" label="Edit style" tone="secondary" onClick={(e) => setEdit({ id: s.id, anchor: e.currentTarget })} />
+      <IconButton className={vstyles.itemEdit} icon="24.adjust.small" label={t("Edit style")} tone="secondary" onClick={(e) => setEdit({ id: s.id, anchor: e.currentTarget })} />
     </div>
   );
 
@@ -258,21 +265,21 @@ export function LocalStylesSection() {
 
   const menuEntries: MenuEntry[] = menu
     ? [
-        { id: "edit", label: "Edit style" },
-        { id: "rename", label: "Rename" },
-        { id: "duplicate", label: "Duplicate style" },
+        { id: "edit", label: t("Edit style") },
+        { id: "rename", label: t("Rename") },
+        { id: "duplicate", label: t("Duplicate style") },
         "-",
-        { id: "delete", label: "Delete style" },
+        { id: "delete", label: t("Delete style") },
       ]
     : [];
 
   const empty = a.styles.length === 0;
   return (
     <PanelSection
-      title="Styles"
+      title={t("Styles")}
       actions={
         <span ref={plus} style={{ display: "contents" }}>
-          <MenuButton label="Create style" entries={add} className={styles.iconMenu} onSelect={(k) => setCreate({ kind: k as StyleKind, anchor: (plus.current?.firstElementChild ?? document.body).getBoundingClientRect() })}>
+          <MenuButton label={t("Create style")} entries={add} className={styles.iconMenu} onSelect={(k) => setCreate({ kind: k as StyleKind, anchor: (plus.current?.firstElementChild ?? document.body).getBoundingClientRect() })}>
             <Icon name="24.plus.small" />
           </MenuButton>
         </span>
@@ -285,7 +292,7 @@ export function LocalStylesSection() {
             if (!list.length) return null;
             return (
               <div key={kind}>
-                <div className={vstyles.styleKind}>{STYLE_KIND_LABEL[kind]}</div>
+                <div className={vstyles.styleKind}>{t(STYLE_KIND_LABEL[kind])}</div>
                 {level(kind, list, "", groupTree(list.map((s) => s.name)), 0)}
               </div>
             );

@@ -10,6 +10,7 @@ import { useEditor } from "../../controller";
 import { mixed } from "../../model/mixed";
 import { CONSTRAINT_ICONS, CONSTRAINT_OPTIONS, clickConstraint, normalizeConstraint, selectedSides, type ConstraintAxis, type ConstraintSide } from "../../model/constraints";
 import { useUI } from "../../hooks";
+import { t, useT } from "@/i18n";
 import type { PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
@@ -20,6 +21,7 @@ const FIELD: Record<ConstraintAxis, "horizontalConstraint" | "verticalConstraint
  * label, the horizontal and vertical dropdowns stacked in the first column (8 apart), the widget (88 × 57) in the second.
  */
 export function ConstraintsRow({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const h = mixed(nodes.map((n) => normalizeConstraint(n.horizontalConstraint)));
@@ -33,10 +35,10 @@ export function ConstraintsRow({ nodes }: { nodes: PanelNode[] }) {
   // Live (design/frame-child-constraints-expanded.txt): "Constraints" 2 lower than a one-label row (191), the dropdowns
   // at 207 and 239 — outlined 88 × 24 on the panel's colour, the glyph then the value at 33 in — the widget beside.
   return (
-    <PropertyRow labels={["Constraints", undefined]} data-constraints-row="">
+    <PropertyRow labels={[t("Constraints"), undefined]} data-constraints-row="">
       <div className={styles.constraintSelects}>
-        <Select className={styles.constraintSelect} variant="outlined" prefix={prefix("horizontal", h)} menuWidth={126} label="Horizontal constraints" value={h ?? MIXED} options={CONSTRAINT_OPTIONS.horizontal} onChange={(c) => set("horizontal", c as ConstraintType)} />
-        <Select className={styles.constraintSelect} variant="outlined" prefix={prefix("vertical", v)} menuWidth={136} label="Vertical constraints" value={v ?? MIXED} options={CONSTRAINT_OPTIONS.vertical} onChange={(c) => set("vertical", c as ConstraintType)} />
+        <Select className={styles.constraintSelect} variant="outlined" prefix={prefix("horizontal", h)} menuWidth={126} label={t("Horizontal constraints")} value={h ?? MIXED} options={CONSTRAINT_OPTIONS.horizontal.map((o) => ({ ...o, label: t(o.label) }))} onChange={(c) => set("horizontal", c as ConstraintType)} />
+        <Select className={styles.constraintSelect} variant="outlined" prefix={prefix("vertical", v)} menuWidth={136} label={t("Vertical constraints")} value={v ?? MIXED} options={CONSTRAINT_OPTIONS.vertical.map((o) => ({ ...o, label: t(o.label) }))} onChange={(c) => set("vertical", c as ConstraintType)} />
       </div>
       <ConstraintsWidget horizontal={h ?? "MIN"} vertical={v ?? "MIN"} onClick={click} />
     </PropertyRow>
@@ -45,13 +47,15 @@ export function ConstraintsRow({ nodes }: { nodes: PanelNode[] }) {
 
 /** Position's "Constraints" toggle (a layer in a frame): shows or hides the inline row, for every selection after. */
 export function ConstraintsToggle() {
+  useT();
   const ed = useEditor();
   const open = useUI((s) => !!s.constraintsOpen);
-  return <ToggleIconButton icon="24.constraints" label="Constraints" tone="secondary" className={styles.constraintsToggle} pressed={open} aria-expanded={open} onPressedChange={(on) => ed.ui.set({ constraintsOpen: on })} />;
+  return <ToggleIconButton icon="24.constraints" label={t("Constraints")} tone="secondary" className={styles.constraintsToggle} pressed={open} aria-expanded={open} onPressedChange={(on) => ed.ui.set({ constraintsOpen: on })} />;
 }
 
 /** The widget: 4 edge lines and the middle cross, each a button (blue when on). */
 export function ConstraintsWidget({ horizontal, vertical, onClick }: { horizontal: Mixed<ConstraintType>; vertical: Mixed<ConstraintType>; onClick: (axis: ConstraintAxis, side: ConstraintSide, shift: boolean) => void }) {
+  useT();
   const hs = isMixed(horizontal) ? [] : selectedSides(horizontal);
   const vs = isMixed(vertical) ? [] : selectedSides(vertical);
   // Figma's live widget: 88 × 57 on the field colour, a line in from each edge (10 long, 3 in), a cross in the middle
@@ -66,11 +70,11 @@ export function ConstraintsWidget({ horizontal, vertical, onClick }: { horizonta
   ];
   const on = (axis: ConstraintAxis, side: ConstraintSide) => (axis === "horizontal" ? hs : vs).includes(side);
   return (
-    <svg data-ds-editor="ConstraintsWidget" className={styles.constraintWidget} viewBox="0 0 88 57" width="88" height="57" role="group" aria-label="Constraint widget">
+    <svg data-ds-editor="ConstraintsWidget" className={styles.constraintWidget} viewBox="0 0 88 57" width="88" height="57" role="group" aria-label={t("Constraint widget")}>
       <rect className={styles.constraintBox} x="0" y="0" width="88" height="57" rx="5" />
       <rect className={styles.constraintInner} x="20.5" y="16.5" width="47" height="24" rx="2" />
       {lines.map((l) => (
-        <g key={l.label} role="button" aria-label={l.label} aria-pressed={on(l.axis, l.side)} className={styles.constraintLine} data-on={on(l.axis, l.side) || undefined} onPointerDown={(e) => e.preventDefault()} onClick={(e) => onClick(l.axis, l.side, e.shiftKey)}>
+        <g key={l.label} role="button" aria-label={t(l.label)} aria-pressed={on(l.axis, l.side)} className={styles.constraintLine} data-on={on(l.axis, l.side) || undefined} onPointerDown={(e) => e.preventDefault()} onClick={(e) => onClick(l.axis, l.side, e.shiftKey)}>
           <rect x={l.hit[0]} y={l.hit[1]} width={l.hit[2]} height={l.hit[3]} fill="transparent" />
           <path d={l.d} />
         </g>

@@ -5,6 +5,7 @@
  */
 import { CollectionView, FileCard, FileKindIcon, FolderCard, folderColor, Icon, InlineEdit, ListHeader, ListRow, type ListColumn, type ListSort } from "@/ds";
 import { timeAgo } from "@/ds/util/time";
+import { t, useT } from "@/i18n";
 import type { FileListItem, FolderId } from "@shared/store/types";
 import { branchCountLabel, branchTileSubtitle, branchTileTitle } from "./branchesModel";
 import { dateColumn, folderSubtitle, type FolderIndex, type Item, type Layout, type Location, type SortKey, type SortOrder } from "./model";
@@ -55,6 +56,7 @@ export interface ItemsViewProps {
 const ITEM = "[data-collection-item]";
 
 export function ItemsView(props: ItemsViewProps) {
+  useT();
   const { items, layout, location, sort, order, folders, selected, renaming, now, previews, starredFolders, thumbnailUrl, onItemClick, onOpen, onItemMenu, onBlankMenu, onNavigate, onSelectAll, onClearSelection, onDelete, onMarquee, onRename, onStar, onSortColumn, onDragItems, dropOn, folderDrop, placeOf, branchCounts = {}, onBranches, mainNames = {}, badgeOf } = props;
   const branchesOf = (f: FileListItem) => (!f.branch && f.trashedAt === null && onBranches ? (branchCounts[f.fileKey] ?? 0) : 0);
   // A branch reads "‹file› / ‹branch›"; renaming edits its own name.
@@ -62,22 +64,22 @@ export function ItemsView(props: ItemsViewProps) {
   const orgPlace = (f: FileListItem) => (f.space ? (placeOf?.(f) ?? null) : null);
   const inTrash = location.kind === "trash";
   const drag = (item: Item) => (inTrash || renaming === item.id ? {} : { draggable: true, onDragStart: (e: React.DragEvent) => onDragItems(e, item) });
-  const place = (folderId: FolderId | null) => (folderId === null ? "Drafts" : (folders.get(folderId)?.name ?? ""));
+  const place = (folderId: FolderId | null) => (folderId === null ? t("Drafts") : (folders.get(folderId)?.name ?? ""));
   const date = dateColumn(sort);
 
   const columns: ListColumn[] = [
-    { id: "name", label: "Name", sortable: !inTrash },
-    { id: "date", label: inTrash ? "Deleted" : date.label, width: "minmax(0, var(--ds-size-panel))", sortable: !inTrash },
-    { id: "place", label: "Location", width: "minmax(0, var(--ds-size-panel))" },
+    { id: "name", label: t("Name"), sortable: !inTrash },
+    { id: "date", label: inTrash ? t("Deleted") : t(date.label), width: "minmax(0, var(--ds-size-panel))", sortable: !inTrash },
+    { id: "place", label: t("Location"), width: "minmax(0, var(--ds-size-panel))" },
   ];
   const listSort: ListSort | null = inTrash ? null : sort === "alphabetical" ? { column: "name", direction: order === "default" ? "ascending" : "descending" } : { column: "date", direction: order === "default" ? "descending" : "ascending" };
 
   const nameCell = (item: Item, name: string, icon: React.ReactNode, starred: boolean) => (
     <span className={styles.rowName}>
       {icon}
-      <InlineEdit className={styles.rowTitle} label="Rename" value={name} editing={renaming === item.id} onCommit={(n) => onRename(item, n)} onCancel={() => onRename(item, null)} />
+      <InlineEdit className={styles.rowTitle} label={t("Rename")} value={name} editing={renaming === item.id} onCommit={(n) => onRename(item, n)} onCancel={() => onRename(item, null)} />
       {starred && (
-        <span className={styles.rowStar} aria-label="Starred">
+        <span className={styles.rowStar} aria-label={t("Starred")}>
           <Icon name="24.star" />
         </span>
       )}
@@ -100,7 +102,7 @@ export function ItemsView(props: ItemsViewProps) {
             key={item.id}
             id={item.id}
             columns={columns}
-            cells={{ name: nameCell(item, f.name, <FolderGlyph color={f.color} />, starred), date: inTrash && f.trashedAt ? timeAgo(f.trashedAt, now) : folderSubtitle(item, now), place: f.parentId ? place(f.parentId) : "All folders" }}
+            cells={{ name: nameCell(item, f.name, <FolderGlyph color={f.color} />, starred), date: inTrash && f.trashedAt ? timeAgo(f.trashedAt, now) : folderSubtitle(item, now), place: f.parentId ? place(f.parentId) : t("All folders") }}
             dropTarget={dropOn === f.id}
             {...events}
             {...drag(item)}
@@ -131,7 +133,7 @@ export function ItemsView(props: ItemsViewProps) {
     const nBranches = branchesOf(f);
     const subtitle = branchTileSubtitle(f, now);
     if (layout === "list") {
-      const t = inTrash ? f.trashedAt : date.value(f);
+      const at = inTrash ? f.trashedAt : date.value(f);
       const name = (
         <span className={styles.rowName}>
           {nameCell(item, titleOf(item, f), <span className={styles.kindCell}>{f.branch ? <Icon name="16.branch" /> : <FileKindIcon />}</span>, f.starred)}
@@ -145,7 +147,7 @@ export function ItemsView(props: ItemsViewProps) {
       );
       const badge = badgeOf?.(f);
       const where = orgPlace(f) ?? place(f.folderId);
-      return <ListRow key={item.id} id={item.id} columns={columns} cells={{ name, date: t ? timeAgo(t, now) : "—", place: badge ? `${where} · ${badge}` : where }} {...events} {...drag(item)} />;
+      return <ListRow key={item.id} id={item.id} columns={columns} cells={{ name, date: at ? timeAgo(at, now) : "—", place: badge ? `${where} · ${badge}` : where }} {...events} {...drag(item)} />;
     }
     return (
       <div key={item.id} className={styles.dragWrap} {...drag(item)}>
@@ -178,7 +180,7 @@ export function ItemsView(props: ItemsViewProps) {
       <CollectionView
         className={styles.collection}
         layout={layout}
-        label={location.kind === "folders" ? "Folders" : "Files"}
+        label={location.kind === "folders" ? t("Folders") : t("Files")}
         header={layout === "list" ? <ListHeader columns={columns} sort={listSort} onSort={onSortColumn ? (c) => onSortColumn(c as "name" | "date") : undefined} /> : undefined}
         onNavigate={onNavigate}
         onSelectAll={onSelectAll}

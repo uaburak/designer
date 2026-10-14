@@ -2,6 +2,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { cx } from "../util/cx";
 import { Icon } from "../icons/Icon";
 import { STRINGS } from "../strings";
+import { t, useT } from "@/i18n";
 import { dropIndex } from "../util/geometry";
 import { Button } from "./Button";
 import { Spinner } from "./Spinner";
@@ -45,6 +46,7 @@ export { dropIndex };
  * DOM tooltip can leave a 38px view.
  */
 export function TabBar({ tabs, active, onActivate, onClose, onMove, onContextMenu, onNew, trailing, notice, fullScreen, windows, onMainMenu, hoverId }: TabBarProps) {
+  useT();
   const strip = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ id: string; dx: number; from: number; to: number; width: number } | null>(null);
 
@@ -88,8 +90,8 @@ export function TabBar({ tabs, active, onActivate, onClose, onMove, onContextMen
       {windows && (
         <button
           type="button"
-          aria-label={STRINGS.mainMenu}
-          title={STRINGS.mainMenu}
+          aria-label={t(STRINGS.mainMenu)}
+          title={t(STRINGS.mainMenu)}
           className={styles.mainMenu}
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
@@ -102,7 +104,7 @@ export function TabBar({ tabs, active, onActivate, onClose, onMove, onContextMen
       <div
         ref={strip}
         role="tablist"
-        aria-label="Tabs"
+        aria-label={t("Tabs")}
         className={styles.strip}
         onKeyDown={(e) => {
           // ← → move between Home and the tabs, bringing each forward
@@ -119,8 +121,8 @@ export function TabBar({ tabs, active, onActivate, onClose, onMove, onContextMen
         <div
           role="tab"
           aria-selected={active === "home"}
-          aria-label={STRINGS.home}
-          title={STRINGS.home}
+          aria-label={t(STRINGS.home)}
+          title={t(STRINGS.home)}
           tabIndex={active === "home" ? 0 : -1}
           data-hover={hoverId === "home" || undefined}
           className={cx(styles.tab, styles.home)}
@@ -145,7 +147,7 @@ export function TabBar({ tabs, active, onActivate, onClose, onMove, onContextMen
         ))}
       </div>
       {onNew && (
-        <button type="button" aria-label={STRINGS.newDesignFile} title={STRINGS.newDesignFile} className={styles.add} onClick={onNew}>
+        <button type="button" aria-label={t(STRINGS.newDesignFile)} title={t(STRINGS.newDesignFile)} className={styles.add} onClick={onNew}>
           <Icon name="24.plus" />
         </button>
       )}
@@ -163,17 +165,18 @@ export type TabBarUpdateState = { kind: "checking" } | { kind: "downloading"; pe
  * downloaded — never forced, quitting installs it too. While "Check for Updates…" runs, its progress in the same place.
  */
 export function TabBarUpdate({ state, onRestart }: { state: TabBarUpdateState; onRestart: () => void }) {
+  useT();
   if (state.kind === "ready") {
     return (
-      <Button variant="primary" className={styles.update} title={`Version ${state.version} is ready to install`} onClick={onRestart}>
-        {STRINGS.restartToUpdate}
+      <Button variant="primary" className={styles.update} title={t("Version {version} is ready to install", { version: state.version })} onClick={onRestart}>
+        {t(STRINGS.restartToUpdate)}
       </Button>
     );
   }
   return (
     <span data-ds="TabBarUpdate" role="status" className={styles.updateStatus}>
       <Spinner size={16} />
-      {state.kind === "checking" ? STRINGS.checkingForUpdates : `${STRINGS.downloadingUpdate} ${state.percent}%`}
+      {state.kind === "checking" ? t(STRINGS.checkingForUpdates) : `${t(STRINGS.downloadingUpdate)} ${state.percent}%`}
     </span>
   );
 }
@@ -194,6 +197,7 @@ export interface TabProps {
 
 /** One file's tab (contract §4.23): glyph, title, then × — or the unsaved dot, swapped for × on hover. Middle click closes. */
 export function Tab({ tab, active, onActivate, onClose, onContextMenu, onPointerDown, shift = 0, dragging, hover }: TabProps) {
+  useT();
   return (
     <div
       data-ds="Tab"
@@ -220,8 +224,8 @@ export function Tab({ tab, active, onActivate, onClose, onContextMenu, onPointer
       <span className={styles.glyph}><Icon name={tab.kind === "prototype" ? "16.play" : "16.design"} /></span>
       <span className={styles.title}>{tab.title}</span>
       <span className={styles.slot}>
-        {tab.dirty && <span className={styles.dot} aria-label={STRINGS.unsaved} />}
-        <button type="button" tabIndex={-1} aria-label={`${STRINGS.close} ${tab.title}`} className={styles.close} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onClose(); }}>
+        {tab.dirty && <span className={styles.dot} aria-label={t(STRINGS.unsaved)} />}
+        <button type="button" tabIndex={-1} aria-label={t("Close {title}", { title: tab.title })} className={styles.close} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onClose(); }}>
           <Icon name="24.close.small" />
         </button>
       </span>

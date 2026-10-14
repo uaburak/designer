@@ -3,6 +3,7 @@
  * that goes back — the instance's page, the view there, the instance
  * selected. × (or Esc while it has focus) dismisses it.
  */
+import { t, useT } from "@/i18n";
 import { Icon, IconButton } from "@/ds";
 import { useEditor } from "../controller";
 import { returnToInstance } from "../components";
@@ -10,6 +11,7 @@ import { useUI } from "../hooks";
 import styles from "./ReturnToInstance.module.css";
 
 export function ReturnToInstance() {
+  useT();
   const ed = useEditor();
   const back = useUI((s) => s.returnToInstance);
   if (!back) return null;
@@ -17,9 +19,9 @@ export function ReturnToInstance() {
     <div className={styles.pill} role="status" data-return-to-instance="">
       <button type="button" className={styles.action} onClick={() => returnToInstance(ed)}>
         <Icon name="16.instance" />
-        <span>Return to instance</span>
+        <span>{t("Return to instance")}</span>
       </button>
-      <IconButton icon="24.close.small" label="Dismiss" className={styles.close} onClick={() => ed.ui.set({ returnToInstance: null })} />
+      <IconButton icon="24.close.small" label={t("Dismiss")} className={styles.close} onClick={() => ed.ui.set({ returnToInstance: null })} />
     </div>
   );
 }

@@ -144,6 +144,8 @@ Commands:
   | `0:1` | CANVAS "Page 1", position `"!"` | `backgroundColor {0.9607843, 0.9607843, 0.9607843, 1}` (#F5F5F5, Figma's default), `backgroundOpacity 1`, `backgroundEnabled true` |
   | `0:2` | CANVAS "Internal Only Canvas", position `"~"` | `internalOnly true`, `visible false` |
 
+  A design file made from Home or the editor (ours, not imports) also has a second page `0:3` CANVAS "Thumbnail" (position `"P"`) holding `0:4` FRAME "Thumbnail", 1920 × 1080, filled with one of `THUMBNAIL_BACKGROUNDS` (codec.ts, a random one per file), and `0:0.thumbnailInfo.nodeID = 0:4`. Home's card shows the thumbnail frame (else the first page's first top-level frame, else the first page's content), rendered by the editor at 800 × 450 to cover the card's 16:9 area; the engine draws the thumbnail glyph before that frame's title.
+
 - **The Internal Only Canvas `0:2`** (Figma's name and layout, observed in every sample) holds what is not on a page: local styles, variable collections and variables, read-only library copies, and soft-deleted main components. The UI never lists or draws it. Its children are ordered by `parentIndex.position` like any other, but the UI orders styles, collections and variables by their `sortPosition` (§10.5).
 - Page dividers are CANVAS nodes named `---` with `isPageDivider true`.
 

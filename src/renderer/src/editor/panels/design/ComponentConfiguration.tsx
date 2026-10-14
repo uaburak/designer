@@ -12,6 +12,7 @@ import { useEditor, type EditorController } from "../../controller";
 import { setDescription } from "../../components";
 import type { CNode } from "../../model/components";
 import { htmlToMarkdown, markdownToHtml } from "./richText";
+import { t, useT } from "@/i18n";
 import styles from "./ComponentConfiguration.module.css";
 
 type Mark = "bold" | "italic" | "strike" | "h1" | "ul" | "ol" | "link" | "code" | "pre";
@@ -47,6 +48,7 @@ function panelTop(anchor: HTMLElement): DOMRect {
 }
 
 export function ComponentConfiguration({ owner, anchor, onClose }: { owner: CNode; anchor: HTMLElement; onClose: () => void }) {
+  useT();
   const ed = useEditor();
   const [rect] = useState(() => panelTop(anchor));
   const [link, setLink] = useState(documentationLink(owner));
@@ -64,9 +66,9 @@ export function ComponentConfiguration({ owner, anchor, onClose }: { owner: CNod
   return (
     <Popover
       anchor={rect}
-      title="Component configuration"
+      title={t("Component configuration")}
       width={320}
-      label="Component configuration"
+      label={t("Component configuration")}
       onClose={() => {
         flushDescription.current();
         saveLink();
@@ -74,13 +76,13 @@ export function ComponentConfiguration({ owner, anchor, onClose }: { owner: CNod
       }}
     >
       <div className={styles.body} data-component-configuration={owner.guid}>
-        <span className={styles.label}>Description</span>
-        <RichTextField value={owner.description ?? ""} placeholder="How to use this component" flushRef={flushDescription} onCommit={(md) => setDescription(ed, owner, md)} />
-        <span className={styles.label}>Link</span>
+        <span className={styles.label}>{t("Description")}</span>
+        <RichTextField value={owner.description ?? ""} placeholder={t("How to use this component")} flushRef={flushDescription} onCommit={(md) => setDescription(ed, owner, md)} />
+        <span className={styles.label}>{t("Link")}</span>
         <input
           className={styles.link}
-          aria-label="Link to documentation"
-          placeholder="Link to documentation"
+          aria-label={t("Link to documentation")}
+          placeholder={t("Link to documentation")}
           value={link}
           spellCheck={false}
           onChange={(e) => setLink(e.target.value)}
@@ -143,6 +145,7 @@ const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
 
 /** The description's editor: contentEditable over the panel's field look, the toolbar along its bottom. */
 export function RichTextField({ value, placeholder, onCommit, flushRef }: { value: string; placeholder: string; onCommit: (markdown: string) => void; flushRef: { current: () => void } }) {
+  useT();
   const editor = useRef<HTMLDivElement>(null);
   const [empty, setEmpty] = useState(!value.trim());
   const [marks, setMarks] = useState<Set<Mark>>(new Set());
@@ -239,7 +242,7 @@ export function RichTextField({ value, placeholder, onCommit, flushRef }: { valu
     saved.current = null;
     changed();
   };
-  const shortcut = (t: (typeof DESCRIPTION_TOOLS)[number]) => (t.mac && IS_MAC ? t.mac : t.keys ? keys(t.keys) : undefined);
+  const shortcut = (tool: (typeof DESCRIPTION_TOOLS)[number]) => (tool.mac && IS_MAC ? tool.mac : tool.keys ? keys(tool.keys) : undefined);
   return (
     <div className={styles.field} data-description-editor="">
       <div className={styles.editorWrap}>
@@ -251,7 +254,7 @@ export function RichTextField({ value, placeholder, onCommit, flushRef }: { valu
           suppressContentEditableWarning
           role="textbox"
           aria-multiline="true"
-          aria-label="Description"
+          aria-label={t("Description")}
           spellCheck={false}
           onInput={changed}
           onBlur={(e) => {
@@ -276,8 +279,8 @@ export function RichTextField({ value, placeholder, onCommit, flushRef }: { valu
         <div className={styles.toolbar}>
           <input
             className={styles.linkDraft}
-            aria-label="Paste a link"
-            placeholder="Paste a link"
+            aria-label={t("Paste a link")}
+            placeholder={t("Paste a link")}
             autoFocus
             value={linking}
             onChange={(e) => setLinking(e.target.value)}
@@ -290,17 +293,17 @@ export function RichTextField({ value, placeholder, onCommit, flushRef }: { valu
           />
         </div>
       ) : (
-        <div className={styles.toolbar} role="toolbar" aria-label="Formatting">
-          {DESCRIPTION_TOOLS.map((t) => (
+        <div className={styles.toolbar} role="toolbar" aria-label={t("Formatting")}>
+          {DESCRIPTION_TOOLS.map((tool) => (
             <ToggleIconButton
-              key={t.mark}
-              icon={t.icon}
-              label={t.label}
-              shortcut={shortcut(t)}
+              key={tool.mark}
+              icon={tool.icon}
+              label={t(tool.label)}
+              shortcut={shortcut(tool)}
               tone="secondary"
-              pressed={marks.has(t.mark)}
+              pressed={marks.has(tool.mark)}
               onMouseDown={(e) => e.preventDefault()}
-              onPressedChange={() => apply(t.mark)}
+              onPressedChange={() => apply(tool.mark)}
             />
           ))}
         </div>

@@ -22,7 +22,7 @@ describe("the store port protocol (docs/data.md §8.3)", () => {
     expect((await home.workspace.listFiles({ in: "drafts" })).map((x) => x.name)).toEqual(["Over the wire"]);
     const opened = await home.files.open(f.fileKey, { mode: "edit", tabId: "t1" });
     expect(opened.snapshot).toBeInstanceOf(Uint8Array);
-    expect(decodeMessage(opened.snapshot).nodeChanges).toHaveLength(3);
+    expect(decodeMessage(opened.snapshot).nodeChanges).toHaveLength(5); // a new file, with its Thumbnail page and frame
     const ack = await home.files.append(f.fileKey, batch(opened.sessionID, 1, [rect(opened.sessionID, 1, "!")]));
     expect(ack.seq).toBe(1);
     const put = await home.blobs.put(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10]));

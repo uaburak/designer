@@ -17,6 +17,7 @@ import { openFind } from "../find";
 import { pageMenu, runPageMenuItem } from "../menus";
 import { usePages, useUI } from "../hooks";
 import styles from "./Panels.module.css";
+import { t, useT } from "@/i18n";
 
 const PAGE_PITCH = 32;
 /** The list's height before it scrolls, until the divider is dragged (Figma lets the Pages list grow with its pages up to a cap) */
@@ -26,7 +27,7 @@ const DEFAULT_CAP = 0.4;
 export function createPage(ed: EditorController): void {
   const before = new Set(ed.engine.pages().map((p) => p.guid));
   if (ed.engine.command("CREATE_PAGE") === Status.E_UNSUPPORTED) {
-    showToast({ message: "Adding pages needs the engine's page commands" });
+    showToast({ message: t("Adding pages needs the engine's page commands") });
     return;
   }
   const made = ed.engine.pages().find((p) => !before.has(p.guid));
@@ -40,6 +41,7 @@ export function isDividerName(name: string): boolean {
 }
 
 export function Pages() {
+  useT();
   const ed = useEditor();
   const pages = usePages();
   const current = useCurrentPage(ed.store);
@@ -92,15 +94,15 @@ export function Pages() {
   return (
     <PanelSection
       className={styles.pages}
-      title="Pages"
+      title={t("Pages")}
       collapsible
       open={open}
       onOpenChange={(o) => setOpen(o)}
       pad="none"
       actions={
         <span className={styles.pageActions}>
-          <IconButton icon="24.search.small" label={find.label} shortcut={shortcutOf(find)} tone="secondary" data-open-find="" onClick={() => openFind(ed)} />
-          <IconButton icon="24.plus.small" label="Add new page" tone="secondary" onClick={() => createPage(ed)} />
+          <IconButton icon="24.search.small" label={t(find.label)} shortcut={shortcutOf(find)} tone="secondary" data-open-find="" onClick={() => openFind(ed)} />
+          <IconButton icon="24.plus.small" label={t("Add new page")} tone="secondary" onClick={() => createPage(ed)} />
         </span>
       }
     >
@@ -140,7 +142,7 @@ export function Pages() {
           onChange={(px, info) => ed.ui.set({ pagesHeight: info.final && px === Math.min(natural, Math.round(window.innerHeight * DEFAULT_CAP)) ? null : px })}
         />
       )}
-      {menu && <ContextMenu at={menu.at} entries={pageMenu(ed, menu.page)} label="Page" context onSelect={(id) => void runPageMenuItem(ed, menu.page, id)} onClose={() => setMenu(null)} />}
+      {menu && <ContextMenu at={menu.at} entries={pageMenu(ed, menu.page)} label={t("Page")} context onSelect={(id) => void runPageMenuItem(ed, menu.page, id)} onClose={() => setMenu(null)} />}
     </PanelSection>
   );
 }

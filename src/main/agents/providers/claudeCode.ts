@@ -2,6 +2,7 @@ import type { AuthState, ChatEvent, UsageWindow } from "../../../shared/agents/t
 import { SYSTEM_PROMPT } from "../../../shared/agents/prompts";
 import { MCP_SERVER_NAME } from "../../../shared/agents/tools";
 import { effortArg, mcpServerEntry, modelArg, promptWithContext, promptWithHistory, shortToolName, summarize, text, tokenUsage, type CliSpec, type OneShotInput, type OneShotPlan, type RunResult } from "./turns";
+import { t as tr } from "../../../shared/i18n";
 
 /**
  * Claude Code (`claude -p --output-format stream-json`, docs.claude.com "CLI reference" / "Headless mode"): no
@@ -50,7 +51,7 @@ export function parseClaudeStatus(stdout: string): AuthState {
     const plan = s.subscriptionType ? `Claude ${s.subscriptionType.charAt(0).toUpperCase()}${s.subscriptionType.slice(1)}` : s.authMethod;
     return { state: "connected", account: s.email, plan: [plan, s.orgName].filter(Boolean).join(" · ") || undefined };
   } catch {
-    return { state: "signed-out", detail: "Couldn't read “claude auth status”" };
+    return { state: "signed-out", detail: tr("Couldn't read “{command}”", { command: "claude auth status" }) };
   }
 }
 
@@ -148,7 +149,7 @@ export const claudeCode: CliSpec = {
           if (typeof line.session_id === "string") out.push({ type: "session", resume: line.session_id, model: text(line.model) || undefined });
           const servers = Array.isArray(line.mcp_servers) ? (line.mcp_servers as { name?: string; status?: string }[]) : [];
           const ours = servers.find((s) => s.name === MCP_SERVER_NAME);
-          if (ours && ours.status !== "connected") out.push({ type: "error", message: `Claude Code couldn't connect to the design tools (${ours.status}).` });
+          if (ours && ours.status !== "connected") out.push({ type: "error", message: tr("Claude Code couldn't connect to the design tools ({status}).", { status: String(ours.status) }) });
         }
         break;
       case "stream_event": {
@@ -189,7 +190,7 @@ export const claudeCode: CliSpec = {
         if (usage) out.push({ type: "usage", usage });
         if (line.is_error || (typeof line.subtype === "string" && line.subtype.startsWith("error"))) {
           const why = text(line.result);
-          out.push({ type: "error", message: /not logged in|\/login/i.test(why) ? "Claude Code isn’t signed in on this computer. Sign in from Agent settings, then try again." : why || `Claude Code stopped (${String(line.subtype)}).` });
+          out.push({ type: "error", message: /not logged in|\/login/i.test(why) ? tr("Claude Code isn’t signed in on this computer. Sign in from Agent settings, then try again.") : why || tr("Claude Code stopped ({reason}).", { reason: String(line.subtype) }) });
         }
         break;
       }

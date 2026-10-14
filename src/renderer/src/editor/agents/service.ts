@@ -23,6 +23,7 @@ import type { AgentSetupHost } from "./setup";
 import { creditsFor, type AiSkill, type ConnectorConsent } from "@shared/ai/types";
 import { invokedSkill } from "@shared/ai/skillFile";
 import { getStoreClient } from "@/store";
+import { t } from "@/i18n";
 import { MANAGER_TOOLS, type ToolDef } from "@shared/agents/tools";
 import type { ManagerToolDef } from "@shared/agents/types";
 import { DEFAULT_MANAGER_SETTINGS, IMAGE_TASKS_AT_ONCE, brandsUnavailable, type BrandsRepository, type ManagerSettings, type StudioTask } from "@shared/studio/types";
@@ -191,7 +192,7 @@ const TOOL_LABEL: Record<string, string> = {
   library_read_labels: "Read the labels",
   library_image: "Looked at a library picture",
 };
-export const toolLabel = (name: string) => TOOL_LABEL[name] ?? name.replace(/_/g, " ");
+export const toolLabel = (name: string) => (TOOL_LABEL[name] ? t(TOOL_LABEL[name]) : name.replace(/_/g, " "));
 
 /** What the manager's tools use besides the editor (docs/studio.md): the library, the image runs, the ledger — fakes in tests. */
 export interface StudioDeps {
@@ -669,7 +670,7 @@ export class AgentsService implements AgentSetupHost {
     const history: ChatTurnMessage[] = chat.messages.map((m) => (m.role === "user" ? { role: "user", text: `${m.text ?? ""}${m.attachments?.length ? ` [attached: ${m.attachments.map((a) => a.path).join(", ")}]` : ""}` } : { role: "assistant", text: (m.parts ?? []).filter((p) => p.kind === "text").map((p) => (p as { text: string }).text).join("") }));
     this.updateChat(chatId, (c) => ({ ...c, messages: [...c.messages, user, answer] }));
     if (!provider) {
-      this.updateMessage(chatId, answer.id, (m) => ({ ...m, state: "error", error: "No agent is connected. Open Agent settings to install or sign in to one — Claude Code, Antigravity, Codex, Cursor — or start Ollama or LM Studio." }));
+      this.updateMessage(chatId, answer.id, (m) => ({ ...m, state: "error", error: t("No agent is connected. Open Agent settings to install or sign in to one — Claude Code, Antigravity, Codex, Cursor — or start Ollama or LM Studio.") }));
       return;
     }
     const page = this.ed.store.page;
@@ -1018,7 +1019,7 @@ export class AgentsService implements AgentSetupHost {
    */
   private runWorker(task: StudioTask, prompt: string, signal: AbortSignal, attachments?: { path: string; name: string; mime: string }[]): Promise<TaskResult> {
     const api = this.api;
-    if (!api) return Promise.reject(new Error("Agents run in the desktop app."));
+    if (!api) return Promise.reject(new Error(t("Agents run in the desktop app.")));
     const p = this.state.providers.find((x) => x.id === task.route.providerId && x.available);
     if (!p) return Promise.reject(new Error(`${task.route.providerId} isn't connected.`));
     const model = task.route.model ?? this.state.settings.models[p.id] ?? p.models[0];

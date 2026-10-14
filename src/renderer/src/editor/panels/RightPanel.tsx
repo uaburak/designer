@@ -20,10 +20,12 @@ import { present } from "../present";
 import { useAccount } from "../../files/account";
 import { ConnectionDot, Facepile, useFacepile } from "../multiplayer/Multiplayer";
 import { usePresence } from "../multiplayer/presence";
+import { t, useT } from "@/i18n";
 import styles from "./Panels.module.css";
 
 /** `floating`: Minimize UI with a selection — the panel over the canvas, a card at the right (help "Navigate the left sidebar"). */
 export function RightPanel({ floating }: { floating?: boolean } = {}) {
+  useT();
   const ed = useEditor();
   const width = useUI((s) => s.rightWidth);
   // Draw has no Prototype tab (docs/draw.md §5.3 [unverified]): the Design tab shows; Design mode gets the chosen one back.
@@ -38,19 +40,19 @@ export function RightPanel({ floating }: { floating?: boolean } = {}) {
     if (!ed.engine.destroyed && typeof ed.engine.setPrototypeMode === "function") ed.engine.setPrototypeMode(tab === "prototype");
   }, [ed, tab]);
   return (
-    <aside className={floating ? `${styles.right} ${styles.rightFloating}` : styles.right} style={{ width }} aria-label="Properties panel" data-panel="right" data-floating={floating || undefined}>
+    <aside className={floating ? `${styles.right} ${styles.rightFloating}` : styles.right} style={{ width }} aria-label={t("Properties panel")} data-panel="right" data-floating={floating || undefined}>
       <RightHeader />
       {viewer ? (
         // "can view" (live multiplayer README): Comments | Properties instead of Design | Prototype
         <>
           <div className={styles.rightTabs}>
             <Tabs
-              label="Properties"
+              label={t("Properties")}
               idBase="editor-right"
               value={viewerTab}
               tabs={[
-                { value: "comments", label: "Comments", width: 74 },
-                { value: "properties", label: "Properties", width: 72 },
+                { value: "comments", label: t("Comments"), width: 74 },
+                { value: "properties", label: t("Properties"), width: 72 },
               ]}
               onChange={(v) => setViewerTab(v as "comments" | "properties")}
             />
@@ -69,13 +71,13 @@ export function RightPanel({ floating }: { floating?: boolean } = {}) {
         <>
           <div className={styles.rightTabs}>
             <Tabs
-              label="Properties"
+              label={t("Properties")}
               idBase="editor-right"
               value={tab}
               tabs={[
                 // Live (left/rail-assets.txt): 53 × 24 at 1208 and 69 × 24 at 1265
-                { value: "design", label: "Design", width: 53 },
-                ...(rightPanelTabs(drawMode ? "draw" : "design").includes("prototype") ? [{ value: "prototype", label: "Prototype", width: 69 }] : []),
+                { value: "design", label: t("Design"), width: 53 },
+                ...(rightPanelTabs(drawMode ? "draw" : "design").includes("prototype") ? [{ value: "prototype", label: t("Prototype"), width: 69 }] : []),
               ]}
               onChange={(v) => ed.ui.set({ rightTab: v as "design" | "prototype" })}
             />
@@ -92,12 +94,13 @@ export function RightPanel({ floating }: { floating?: boolean } = {}) {
 }
 
 export function RightHeader({ compact }: { compact?: boolean }) {
+  useT();
   const ed = useEditor();
   const me = useAccount().state?.user;
   const presence = usePresence(ed);
   // With other people in the file the facepile takes the account avatar's place (live Figma: your avatar is Multiplayer tools).
   const facepile = useFacepile();
-  const account: MenuEntry[] = [{ header: "Theme" }, commandItem(ed, "theme.light"), commandItem(ed, "theme.dark"), commandItem(ed, "theme.system"), "-", commandItem(ed, "help.shortcuts"), commandItem(ed, "file.back-to-files")];
+  const account: MenuEntry[] = [{ header: t("Theme") }, commandItem(ed, "theme.light"), commandItem(ed, "theme.dark"), commandItem(ed, "theme.system"), "-", commandItem(ed, "help.shortcuts"), commandItem(ed, "file.back-to-files")];
   const onAccount = (id: string) => runEditorCommand(ed, id);
   const presentEntries: MenuEntry[] = [
     commandItem(ed, "view.present"),
@@ -110,21 +113,21 @@ export function RightHeader({ compact }: { compact?: boolean }) {
       {facepile ? (
         <Facepile />
       ) : (
-        <MenuButton label="Account" entries={account} onSelect={onAccount} className={styles.account}>
-          <Avatar name={me?.name || me?.email || "Burak Koç"} size={28} />
+        <MenuButton label={t("Account")} entries={account} onSelect={onAccount} className={styles.account}>
+          <Avatar name={me?.name || me?.email || "Burak Koç"} src={me?.picture ?? undefined} size={28} />
           <span className={styles.accountMore}><Icon name="16.chevron.down" /></span>
         </MenuButton>
       )}
       <span className={styles.grow} />
       <ConnectionDot />
       <span className={styles.present}>
-        <IconButton icon="24.play" label="Present" shortcut="⌥⌘↩" size="large" onClick={() => present(ed)} />
-        <MenuButton label="Present options" entries={presentEntries} onSelect={(id) => runEditorCommand(ed, id)} className={`${styles.chip} ${styles.presentChevron}`}>
+        <IconButton icon="24.play" label={t("Present")} shortcut="⌥⌘↩" size="large" onClick={() => present(ed)} />
+        <MenuButton label={t("Present options")} entries={presentEntries} onSelect={(id) => runEditorCommand(ed, id)} className={`${styles.chip} ${styles.presentChevron}`}>
           <Icon name="16.chevron.down" />
         </MenuButton>
       </span>
       <Button variant="primary" size="large" className={styles.share} onClick={() => runEditorCommand(ed, "file.share-preview")} data-requests={presence.requests || undefined}>
-        Share
+        {t("Share")}
       </Button>
     </div>
   );
@@ -132,6 +135,7 @@ export function RightHeader({ compact }: { compact?: boolean }) {
 
 /** "100% ⌄": the zoom (re-rendered on every camera change, so kept small) and its menu. */
 export function ZoomMenu() {
+  useT();
   const ed = useEditor();
   const camera = useCamera(ed.store);
   const entries: MenuEntry[] = [
@@ -152,7 +156,7 @@ export function ZoomMenu() {
   ];
   return (
     <MenuButton
-      label="Zoom"
+      label={t("Zoom")}
       entries={entries}
       onSelect={(id) => {
         runEditorCommand(ed, id);

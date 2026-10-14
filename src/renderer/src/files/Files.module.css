@@ -70,6 +70,9 @@
   .sharedRole { color: var(--figma-color-text-secondary); }
   .accountName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .search { flex: none; padding: 0 var(--ds-space-4) var(--ds-space-2); }
+  /* Search as the page's tinted buttons (New folder, Import): a pill on the secondary fill, darker on hover */
+  .searchPill { border-radius: var(--ds-radius-full); }
+  .searchPill:hover:not(:focus-within) { --field-ring: transparent; background: var(--figma-color-bg-tertiary); }
   .team {
     display: flex;
     flex: none;
@@ -271,6 +274,26 @@
   .teamHeaderText { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
   .teamTitle { margin: 0; overflow: hidden; font: var(--ds-font-heading-large); letter-spacing: var(--ds-tracking-heading-large); text-overflow: ellipsis; white-space: nowrap; }
   .moreButton { display: inline-flex; color: var(--figma-color-icon); }
+  /* A team's folder card, its Ask to join under it */
+  /* All teams' header: the plan's badge after the name (Figma's "Professional" beside the team's name) */
+  .headerTitleRow { display: flex; flex: 1 1 auto; align-items: center; gap: var(--ds-space-3); min-width: 0; }
+  /* The header's settings: an icon button's box (as the sidebar's bell), its menu under it */
+  .headerIcon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); padding: 0; border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-icon); outline: none; cursor: default; }
+  .headerIcon:hover, .headerIcon[data-open] { background: var(--figma-color-bg-hover); }
+  .headerIcon:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .headerBadge { flex: none; }
+  /* A page header's icon (an org's, a team's): 32, round (Figma's folder header: a small glyph before the name) */
+  .roundIcon { display: inline-flex; flex: none; }
+  .roundIcon [data-team-icon] { border-radius: var(--ds-radius-full); }
+  /* The header's right: filter, sort, view (as the local pages') */
+  .pageControls { display: flex; flex: none; align-items: center; gap: var(--ds-space-2); margin-left: auto; }
+  .orgList { display: flex; flex-direction: column; min-width: 0; }
+  .teamTile { display: flex; flex-direction: column; gap: var(--ds-space-2); min-width: 0; }
+  /* A team's Settings (its settings, members and access, icon, rename, transfer, delete): as the page's tinted buttons */
+  .teamSettings { display: inline-flex; flex: none; align-items: center; margin-left: auto; border: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); outline: none; cursor: default; gap: var(--ds-space-half); height: var(--ds-size-control-large); padding: 0 var(--ds-space-3) 0 var(--ds-space-1); border-radius: var(--ds-radius-full); background: var(--figma-color-bg-secondary); }
+  .teamSettings:hover, .teamSettings[data-open] { background: var(--figma-color-bg-tertiary); }
+  .teamSettings svg { color: var(--figma-color-icon); }
+  .teamSettings:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
 
   /* All teams: the teams, and the user groups at the right */
   .withAside { display: grid; grid-template-columns: minmax(0, 1fr) var(--ds-size-panel); gap: var(--ds-space-8); }

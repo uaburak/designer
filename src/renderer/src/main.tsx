@@ -2,6 +2,8 @@ import { lazy, StrictMode, Suspense, type ComponentType } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import "@/ds/global.css";
 import { isWebApp, webRoute } from "@/app/webApp";
+import { installTextFieldKeys } from "@/app/textFieldKeys";
+import { initLocale } from "@/i18n";
 import { completeWebSignIn, currentWebSession } from "@/store/webAccount";
 
 const webSignedIn = () => currentWebSession() !== null;
@@ -51,15 +53,24 @@ const Page = page();
  * renders into the root it made before instead of calling createRoot on the same container again, which React refuses
  * ("createRoot() on a container that has already been passed"). A full reload starts afresh as before.
  */
+// ⌘A / ⌘Z / ⇧⌘Z in a focused text field act on the field, in every view (app/textFieldKeys.ts); once per page
+if (!(window as { __textFieldKeys?: boolean }).__textFieldKeys) {
+  (window as { __textFieldKeys?: boolean }).__textFieldKeys = true;
+  installTextFieldKeys();
+}
+
 const container = document.getElementById("root")! as HTMLElement & { __designerRoot?: Root };
 const root = (import.meta.hot?.data?.root as Root | undefined) ?? container.__designerRoot ?? createRoot(container);
 container.__designerRoot = root;
 if (import.meta.hot?.data) import.meta.hot.data.root = root;
 
-root.render(
-  <StrictMode>
-    <Suspense fallback={null}>
-      <Page />
-    </Suspense>
-  </StrictMode>
+// The UI's language (src/renderer/src/i18n) before the first render: Turkish's dictionary loads only when it is on
+void initLocale().finally(() =>
+  root.render(
+    <StrictMode>
+      <Suspense fallback={null}>
+        <Page />
+      </Suspense>
+    </StrictMode>
+  )
 );

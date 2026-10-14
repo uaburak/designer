@@ -4,6 +4,7 @@
  * it starts ("Starting Antigravity…"), else "Thinking…"; the seconds it has taken, after 5 s. And the answer cut into
  * its words and its groups of steps (segmentsOf). Pure: the chat renders it, the tests read it.
  */
+import { t } from "@/i18n";
 import { toolLabel, type ChatMessage, type ImagePart, type MessagePart } from "./service";
 
 /** A step while it runs, in the present tense (its finished label is service.ts's toolLabel). */
@@ -45,9 +46,9 @@ const TOOL_ACTIVE: Record<string, string> = {
 
 export const toolActiveLabel = (name: string): string => {
   const known = TOOL_ACTIVE[name];
-  if (known) return known;
+  if (known) return t(known);
   const words = name.replace(/_/g, " ").trim();
-  return words ? `${words[0].toUpperCase()}${words.slice(1)}…` : "Working…";
+  return words ? `${words[0].toUpperCase()}${words.slice(1)}…` : t("Working…");
 };
 
 export const THINKING = "Thinking…";
@@ -61,7 +62,7 @@ export function activityOf(m: Pick<ChatMessage, "state" | "parts">): string | nu
     if (p.kind === "tool" && p.state === "running") return toolActiveLabel(p.name);
   }
   // An image made but not on the canvas yet: the agent is about to place it.
-  if (parts.some((p) => p.kind === "image" && p.state === "ready")) return TOOL_ACTIVE.place_image;
+  if (parts.some((p) => p.kind === "image" && p.state === "ready")) return t(TOOL_ACTIVE.place_image);
   const status = parts.find((p) => p.kind === "status");
   // The CLI's start line until the agent says or does something (an image card put up for the prompt aside).
   if (status && status.kind === "status" && parts.every((p) => p.kind === "status" || p.kind === "image")) return status.text;
@@ -69,7 +70,7 @@ export function activityOf(m: Pick<ChatMessage, "state" | "parts">): string | nu
   // is about ("Read the design"), until it writes words — only then, or before any step, "Thinking…".
   const last = parts[parts.length - 1];
   if (last?.kind === "tool") return toolLabel(last.name);
-  return THINKING;
+  return t(THINKING);
 }
 
 // ---- An answer as text and groups of steps -------------------------------------------------------------------------
@@ -94,7 +95,7 @@ type ImageSeg = Extract<Segment, { kind: "image" }>;
 /** A finished group of steps reads as its last step does inside it ("Read the design"), not "Thinking". */
 export function stepsSummary(steps: readonly ToolPart[]): string {
   const last = steps[steps.length - 1];
-  return last ? toolLabel(last.name) : "Thinking";
+  return last ? toolLabel(last.name) : t("Thinking");
 }
 
 /**
@@ -116,7 +117,7 @@ export function segmentsOf(m: Pick<ChatMessage, "state" | "parts">): Segment[] {
   const waitingImage = () => toPlace.find((s) => s.steps.some((t) => t.name === "generate_image" && t.state !== "error"));
   let open: StepsSeg | null = null;
   const imageSeg = (key: string): ImageSeg => {
-    const s: ImageSeg = { kind: "image", key, steps: [], active: false, label: GENERATE_IMAGE };
+    const s: ImageSeg = { kind: "image", key, steps: [], active: false, label: t(GENERATE_IMAGE) };
     segs.push(s);
     open = null;
     return s;
@@ -167,7 +168,7 @@ export function segmentsOf(m: Pick<ChatMessage, "state" | "parts">): Segment[] {
   for (const s of segs) {
     if (s.kind === "steps") s.label = stepsSummary(s.steps);
     // A picture the agent had (an attached one), only placed: "Place image".
-    else if (s.kind === "image" && !s.image?.asked && !s.steps.some((t) => t.name === "generate_image")) s.label = PLACE_IMAGE;
+    else if (s.kind === "image" && !s.image?.asked && !s.steps.some((t) => t.name === "generate_image")) s.label = t(PLACE_IMAGE);
   }
   if (m.state !== "running") return segs;
   // The one group the turn is in now.
@@ -182,7 +183,7 @@ export function segmentsOf(m: Pick<ChatMessage, "state" | "parts">): Segment[] {
   if (!active && lastSeg?.kind === "steps") active = lastSeg;
   if (!active) segs.push((active = { kind: "steps", key: `steps:${parts.length}`, steps: [], active: false, label: "" }));
   active.active = true;
-  active.label = activityOf(m) ?? THINKING;
+  active.label = activityOf(m) ?? t(THINKING);
   return segs;
 }
 

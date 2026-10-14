@@ -5,6 +5,7 @@
  */
 import { useEffect, useState } from "react";
 import { Button, Dialog, IconButton, TextInput, showToast } from "@/ds";
+import { t, useT } from "@/i18n";
 import { useEditor } from "../controller";
 import { useUI } from "../hooks";
 import { createBranch } from "../objectCommands";
@@ -36,6 +37,7 @@ export function Branching() {
 
 /** File › Create branch…: the branch's name; Create makes it from main and opens it (R21 [guide]). */
 function CreateBranch() {
+  useT();
   const ed = useEditor();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -62,28 +64,28 @@ function CreateBranch() {
       await backend.openFile(b.branchFileKey);
     } catch (e) {
       setBusy(false);
-      showToast({ kind: "error", message: `Couldn’t create the branch: ${errorText(e)}` });
+      showToast({ kind: "error", message: t("Couldn’t create the branch: {error}", { error: errorText(e) }) });
     }
   };
   return (
     <Dialog
-      title="Create branch"
+      title={t("Create branch")}
       open
       onClose={close}
       footer={
         <>
           <Button variant="secondary" onClick={close}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button variant="primary" disabled={!name.trim()} loading={busy} onClick={() => void create()}>
-            Create
+            {t("Create")}
           </Button>
         </>
       }
     >
       {/* TextInput keeps Enter to itself (stopPropagation): Return submits through onExit, as Create team's dialog. */}
       <div data-create-branch="">
-        <TextInput label="Branch name" placeholder="Branch name" value={name} onChange={setName} autoFocus onExit={(r) => (r === "enter" ? void create() : r === "escape" ? close() : undefined)} />
+        <TextInput label={t("Branch name")} placeholder={t("Branch name")} value={name} onChange={setName} autoFocus onExit={(r) => (r === "enter" ? void create() : r === "escape" ? close() : undefined)} />
       </div>
     </Dialog>
   );
@@ -91,17 +93,18 @@ function CreateBranch() {
 
 /** Main changed since the branch's base: a notice at the bottom right with Update (R21 [update]; wording unverified). */
 function MainChangedNotice() {
+  useT();
   const ed = useEditor();
   const shown = useBranching(ed, (s) => s.record?.status === "active" && s.mainChanged && !s.noticeDismissed && s.window === null);
   const key = useBranching(ed, (s) => s.record?.branchFileKey ?? null);
   if (!shown || !key) return null;
   return (
     <div className={styles.notice} role="status" data-main-changed="">
-      <span className={styles.grow}>There are updates from the main file</span>
+      <span className={styles.grow}>{t("There are updates from the main file")}</span>
       <Button variant="primary" onClick={() => openBranchWindow(ed, { kind: "update", branchFileKey: key })}>
-        Update
+        {t("Update")}
       </Button>
-      <IconButton icon="24.close.small" label="Dismiss" onClick={() => setBranching(ed, { noticeDismissed: true })} />
+      <IconButton icon="24.close.small" label={t("Dismiss")} onClick={() => setBranching(ed, { noticeDismissed: true })} />
     </div>
   );
 }
@@ -111,13 +114,14 @@ function MainChangedNotice() {
  * suggested, Archived, Merged); on main the name alone.
  */
 export function BranchTitle({ name }: { name: string }) {
+  useT();
   const ed = useEditor();
   const record = useBranching(ed, (s) => s.record);
   const mainName = useBranching(ed, (s) => s.mainName);
   if (!record) return <span>{name}</span>;
   return (
     <span className={styles.titleRow} data-branch-title="">
-      <span className={styles.mainName}>{mainName ?? "Main file"}</span>
+      <span className={styles.mainName}>{mainName ?? t("Main file")}</span>
       <span className={styles.slash}>/</span>
       <span className={styles.branchName}>{record.name}</span>
       <BranchBadge kind={branchBadge(record)} />

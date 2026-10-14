@@ -16,6 +16,7 @@ import { StoreError } from "../../shared/store/protocol";
 import type { FileChange, OpenedFile, Unsubscribe, WorkspaceEvent } from "../../shared/store/repositories";
 import type { FileBranch, FileKey, FileMeta, VersionId, VersionRecord } from "../../shared/store/types";
 import type { RemoteBranches } from "./remote";
+import { t as tr } from "../../shared/i18n";
 
 /** Session numbers a branch reserves on its main file at a time (docs/data.md §15.2) */
 export const SESSION_BLOCK = 4096;
@@ -103,8 +104,8 @@ function wireConflict(c: Conflict): Conflict {
 
 const cleanName = (name: unknown): string => {
   const n = typeof name === "string" ? name.trim() : "";
-  if (!n) throw new StoreError("invalid", "A branch needs a name");
-  if (n.length > 256) throw new StoreError("invalid", "That name is too long");
+  if (!n) throw new StoreError("invalid", tr("A branch needs a name"));
+  if (n.length > 256) throw new StoreError("invalid", tr("That name is too long"));
   return n;
 };
 
@@ -181,7 +182,7 @@ export class BranchService {
   private async record(branchFileKey: FileKey): Promise<BranchRecord> {
     await this.load();
     const r = this.records.get(branchFileKey);
-    if (!r) throw new StoreError("not-found", "No such branch");
+    if (!r) throw new StoreError("not-found", tr("No such branch"));
     return r;
   }
 
@@ -198,7 +199,7 @@ export class BranchService {
 
   private mainMeta(fileKey: FileKey): FileMeta {
     const m = this.host.getMeta(fileKey);
-    if (!m) throw new StoreError("not-found", "No such file");
+    if (!m) throw new StoreError("not-found", tr("No such file"));
     return m;
   }
 
@@ -250,8 +251,8 @@ export class BranchService {
     const n = cleanName(name);
     await this.load();
     const main = this.mainMeta(mainFileKey);
-    if (main.branch) throw new StoreError("invalid", "A branch can't have branches of its own");
-    if (main.trashedAt !== null) throw new StoreError("trashed", "This file is in Trash");
+    if (main.branch) throw new StoreError("invalid", tr("A branch can't have branches of its own"));
+    if (main.trashedAt !== null) throw new StoreError("trashed", tr("This file is in Trash"));
     const remote = this.host.remote;
     if (remote && (await remote.isShared(mainFileKey))) return this.createShared(mainFileKey, n);
     return this.serial(mainFileKey, async () => {
@@ -402,7 +403,7 @@ export class BranchService {
     return this.patch(
       branchFileKey,
       (r) => {
-        if (r.status === "merged") throw new StoreError("invalid", "A merged branch can't be restored. Duplicate it instead.");
+        if (r.status === "merged") throw new StoreError("invalid", tr("A merged branch can't be restored. Duplicate it instead."));
         return { ...r, status: "active", archivedAt: null };
       },
       { status: "active" },
@@ -421,7 +422,7 @@ export class BranchService {
   }
 
   private active(r: BranchRecord): void {
-    if (r.status !== "active") throw new StoreError("invalid", r.status === "merged" ? "This branch was merged" : "This branch is archived");
+    if (r.status !== "active") throw new StoreError("invalid", r.status === "merged" ? tr("This branch was merged") : tr("This branch is archived"));
   }
 
   /** The three tables of a merge now: base, main's head, the branch's head (both flushed). */
@@ -519,7 +520,7 @@ export class BranchService {
   private cached(previewId: string): CachedPreview {
     this.sweepPreviews();
     const p = this.previews.get(previewId);
-    if (!p) throw new StoreError("stale", "This preview has expired. Review the changes again.");
+    if (!p) throw new StoreError("stale", tr("This preview has expired. Review the changes again."));
     return p;
   }
 
@@ -557,17 +558,17 @@ export class BranchService {
   /** The preview's merge again, with the final resolutions, after checking that neither head moved. */
   private async final(branchFileKey: FileKey, previewId: string, direction: "merge" | "update", resolutions: Resolutions) {
     const p = this.cached(previewId);
-    if (p.branchFileKey !== branchFileKey || p.direction !== direction) throw new StoreError("stale", "This preview is for another change. Review the changes again.");
+    if (p.branchFileKey !== branchFileKey || p.direction !== direction) throw new StoreError("stale", tr("This preview is for another change. Review the changes again."));
     const r = await this.record(branchFileKey);
     this.active(r);
     await Promise.all([this.host.flush(r.mainFileKey), this.host.flush(r.branchFileKey)]);
     const [mainSeq, branchSeq] = await Promise.all([this.host.headSeq(r.mainFileKey), this.host.headSeq(r.branchFileKey)]);
     if (mainSeq !== p.mainHeadSeq || branchSeq !== p.branchHeadSeq) {
       this.previews.delete(previewId);
-      throw new StoreError("stale", "The files changed since the preview. Review the changes again.");
+      throw new StoreError("stale", tr("The files changed since the preview. Review the changes again."));
     }
     const out = this.run(p, checkResolutions(resolutions));
-    if (out.result.unresolved.length) throw new StoreError("invalid", "Resolve every conflict first", { unresolved: out.result.unresolved });
+    if (out.result.unresolved.length) throw new StoreError("invalid", tr("Resolve every conflict first"), { unresolved: out.result.unresolved });
     return { p, r, result: out.result };
   }
 
@@ -642,12 +643,12 @@ export class BranchService {
    */
   private async roomSeqs(r: BranchRecord, p: CachedPreview): Promise<{ mainSeq: number; branchSeq: number }> {
     const remote = this.host.remote!;
-    if (!(await remote.caughtUp(r.mainFileKey)) || !(await remote.caughtUp(r.branchFileKey))) throw new StoreError("offline", "Couldn’t reach this file’s room. Check your connection and try again.");
+    if (!(await remote.caughtUp(r.mainFileKey)) || !(await remote.caughtUp(r.branchFileKey))) throw new StoreError("offline", tr("Couldn’t reach this file’s room. Check your connection and try again."));
     const seqs = { mainSeq: await remote.roomSeq(r.mainFileKey), branchSeq: await remote.roomSeq(r.branchFileKey) };
     const [mainHead, branchHead] = await Promise.all([this.host.headSeq(r.mainFileKey), this.host.headSeq(r.branchFileKey)]);
     if (mainHead !== p.mainHeadSeq || branchHead !== p.branchHeadSeq) {
       this.previews.delete(p.previewId);
-      throw new StoreError("stale", "The files changed since the preview. Review the changes again.");
+      throw new StoreError("stale", tr("The files changed since the preview. Review the changes again."));
     }
     return seqs;
   }
@@ -716,7 +717,7 @@ export class BranchService {
     const comment = typeof input?.comment === "string" ? input.comment.trim() : "";
     return this.serial(branchFileKey, async () => {
       const r = await this.record(branchFileKey);
-      if (!r.review || r.review.state === "closed") throw new StoreError("invalid", "No review was requested");
+      if (!r.review || r.review.state === "closed") throw new StoreError("invalid", tr("No review was requested"));
       let review: BranchReview;
       if (r.branchKey && this.host.remote) review = await this.host.remote.answerReview(r, verdict, comment);
       else {
@@ -747,7 +748,7 @@ export class BranchService {
 
   /** Publishing is main's (docs/data.md §15.5). */
   checkCanPublish(fileKey: FileKey): void {
-    if (this.host.getMeta(fileKey)?.branch) throw new StoreError("branch-cannot-publish", "Libraries are published from the main file. Merge this branch first.");
+    if (this.host.getMeta(fileKey)?.branch) throw new StoreError("branch-cannot-publish", tr("Libraries are published from the main file. Merge this branch first."));
   }
 
   /** Archived and merged branches open read-only. */

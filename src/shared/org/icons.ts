@@ -13,6 +13,9 @@ export const ICON_ACCEPT = "image/png,image/jpeg,image/webp,image/gif";
 /** `/icons/<orgId>/<sha1>`: the server's icon route (OrgSummary.iconUrl, TeamSummary.iconUrl) */
 export const ICON_URL = /^\/icons\/[0-9A-Za-z_-]{1,64}\/[0-9a-f]{40}$/;
 
+/** `/files/<key>/thumbnail?v=<n>`: an org file's thumbnail (OrgFile.thumbnailUrl; `v` changes with each upload) */
+export const THUMBNAIL_URL = /^\/files\/[0-9A-Za-z_-]{1,64}\/thumbnail(\?v=\d{1,16})?$/;
+
 /** The picture's type from its first bytes; null for anything else */
 export function iconMime(b: Uint8Array): "image/png" | "image/jpeg" | "image/webp" | "image/gif" | null {
   if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";

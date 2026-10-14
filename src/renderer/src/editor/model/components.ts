@@ -9,6 +9,7 @@
  * property rows, the "Reset ▸" list, and local components grouped by page and
  * frame for Assets and the instance menu.
  */
+import { t, tp } from "@/i18n";
 import type { Guid, NodeChange } from "@/engine/codec";
 
 // ---- Schema shapes (the facade doesn't type them yet) -----------------------------------------------------------
@@ -545,11 +546,10 @@ export function slotGuidelines(c: SlotConfig | undefined, children: readonly { p
   const min = slotMin(c);
   const max = slotMax(c);
   const v = slotViolations(c, children, preferredCount);
-  const layers = (n: number) => `${n} ${n === 1 ? "layer" : "layers"}`;
-  if (min !== null && max !== null) out.push({ text: `${min}–${layers(max)}`, ok: !v.includes("BELOW_MIN") && !v.includes("ABOVE_MAX") });
-  else if (min !== null) out.push({ text: `At least ${layers(min)}`, ok: !v.includes("BELOW_MIN") });
-  else if (max !== null) out.push({ text: `Up to ${layers(max)}`, ok: !v.includes("ABOVE_MAX") });
-  if (c?.allowPreferredValuesOnly && preferredCount > 0) out.push({ text: "Preferred instances only", ok: !v.includes("HAS_NON_PREFERRED") });
+  if (min !== null && max !== null) out.push({ text: tp(max, "{min}–{n} layer", "{min}–{n} layers", { min }), ok: !v.includes("BELOW_MIN") && !v.includes("ABOVE_MAX") });
+  else if (min !== null) out.push({ text: tp(min, "At least {n} layer", "At least {n} layers"), ok: !v.includes("BELOW_MIN") });
+  else if (max !== null) out.push({ text: tp(max, "Up to {n} layer", "Up to {n} layers"), ok: !v.includes("ABOVE_MAX") });
+  if (c?.allowPreferredValuesOnly && preferredCount > 0) out.push({ text: t("Preferred instances only"), ok: !v.includes("HAS_NON_PREFERRED") });
   return out;
 }
 

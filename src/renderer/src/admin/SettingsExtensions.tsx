@@ -14,6 +14,7 @@ import { PLAN_TOKEN_SCOPES } from "@shared/rest/types";
 import { useAdmin, useLoad } from "./context";
 import { formatAgo, formatDate } from "./labels";
 import { ConfirmDialog, Field, RowMenu, Table, byNumber, byText, styles, type Column } from "./parts";
+import { t, tp, useT } from "@/i18n";
 
 const KEYS: Record<PluginKind, { approval: "pluginApproval" | "widgetApproval"; requests: "pluginRequests" | "widgetRequests"; many: string; title: string }> = {
   plugin: { approval: "pluginApproval", requests: "pluginRequests", many: "plugins", title: "Plugin approval" },
@@ -23,24 +24,29 @@ const KEYS: Record<PluginKind, { approval: "pluginApproval" | "widgetApproval"; 
 /** The row's value: "All plugins", or "Only admin-approved plugins" and whether members may request */
 export function approvalSummary(s: OrgSettings, kind: PluginKind): string[] {
   const k = KEYS[kind];
-  if (s[k.approval] === "all") return [`All ${k.many}`];
-  return [`Only admin-approved ${k.many}`, s[k.requests] ? `Members can request ${k.many}` : `Members can't request ${k.many}`];
+  const plugins = kind === "plugin";
+  if (s[k.approval] === "all") return [plugins ? t("All plugins") : t("All widgets")];
+  return [
+    plugins ? t("Only admin-approved plugins") : t("Only admin-approved widgets"),
+    s[k.requests] ? (plugins ? t("Members can request plugins") : t("Members can request widgets")) : plugins ? t("Members can't request plugins") : t("Members can't request widgets"),
+  ];
 }
 
 /** Plugin approval / Widget approval: any, or only admin-approved — and whether members may request them */
 export function ApprovalDialog({ kind, settings, onSave, onClose }: { kind: PluginKind; settings: OrgSettings; onSave: (patch: Partial<OrgSettings>) => void; onClose: () => void }) {
+  useT();
   const k = KEYS[kind];
   const [approval, setApproval] = useState(settings[k.approval]);
   const [requests, setRequests] = useState(settings[k.requests]);
   return (
     <Dialog
-      title={k.title}
+      title={t(k.title)}
       open
       size="medium"
       onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
           <Button
             variant="primary"
             onClick={() => {
@@ -48,28 +54,28 @@ export function ApprovalDialog({ kind, settings, onSave, onClose }: { kind: Plug
               onClose();
             }}
           >
-            Save
+            {t("Save")}
           </Button>
         </>
       }
     >
       <div className={styles.form} data-approval-dialog={kind}>
         <RadioGroup
-          label={k.title}
+          label={t(k.title)}
           value={approval}
           options={[
-            { value: "all", label: `Allow all ${k.many}` },
-            { value: "approved", label: `Only admin-approved ${k.many}.` },
+            { value: "all", label: kind === "widget" ? t("Allow all widgets") : t("Allow all plugins") },
+            { value: "approved", label: kind === "widget" ? t("Only admin-approved widgets.") : t("Only admin-approved plugins.") },
           ]}
           onChange={(v) => setApproval(v === "approved" ? "approved" : "all")}
         />
         <div className={styles.option}>
-          <Checkbox label={`Allow members to request ${k.many}`} checked={requests} disabled={approval !== "approved"} onChange={setRequests} />
+          <Checkbox label={kind === "widget" ? t("Allow members to request widgets") : t("Allow members to request plugins")} checked={requests} disabled={approval !== "approved"} onChange={setRequests} />
           <span className={styles.optionDescription}>
-            {`All organization admins get notified when someone sends a request. Approved ${k.many} are listed in Resources › ${kind === "widget" ? "Widgets" : "Plugins"}.`}
+            {kind === "widget" ? t("All organization admins get notified when someone sends a request. Approved widgets are listed in Resources › Widgets.") : t("All organization admins get notified when someone sends a request. Approved plugins are listed in Resources › Plugins.")}
           </span>
         </div>
-        <span className={styles.note}>{`Private ${k.many} published by members of the organization don't need approval.`}</span>
+        <span className={styles.note}>{kind === "widget" ? t("Private widgets published by members of the organization don't need approval.") : t("Private plugins published by members of the organization don't need approval.")}</span>
       </div>
     </Dialog>
   );
@@ -87,34 +93,35 @@ const SCOPE_LABEL = new Map<string, string>(TOKEN_SCOPES.map((s) => [s.id, s.lab
 
 /** Settings › Plan access tokens: the list, Generate new token, Revoke */
 export function PlanTokens() {
+  useT();
   const { orgId, store, run, now } = useAdmin();
   const { data, error } = useLoad(() => store.admin.planTokens(orgId), [orgId]);
   const [generating, setGenerating] = useState(false);
   const [revoking, setRevoking] = useState<AccessTokenInfo | null>(null);
   const columns: Column<AccessTokenInfo>[] = [
-    { id: "name", label: "Name", width: "minmax(160px, 1.4fr)", compare: byText((t) => t.description), render: (t) => <span className={styles.whoName}>{t.description}</span> },
-    { id: "scopes", label: "Scopes", width: "minmax(180px, 2fr)", render: (t) => <span className={styles.muted}>{t.scopes.join(", ")}</span> },
-    { id: "created", label: "Created", width: 110, compare: byNumber((t) => t.createdAt), render: (t) => <span className={styles.muted}>{formatDate(t.createdAt)}</span> },
-    { id: "expires", label: "Expires", width: 110, compare: byNumber((t) => t.expiresAt), render: (t) => <span className={t.expiresAt !== null && t.expiresAt <= now() ? styles.danger : styles.muted}>{t.expiresAt === null ? "Never" : t.expiresAt <= now() ? "Expired" : formatDate(t.expiresAt)}</span> },
-    { id: "used", label: "Last used", width: 110, compare: byNumber((t) => t.lastUsedAt), render: (t) => <span className={styles.muted}>{formatAgo(t.lastUsedAt, now())}</span> },
-    { id: "menu", label: "", width: 32, align: "end", render: (t) => <RowMenu label={`Actions for ${t.description}`} entries={[{ id: "revoke", label: "Revoke token", danger: true }]} onSelect={() => setRevoking(t)} /> },
+    { id: "name", label: "Name", width: "minmax(160px, 1.4fr)", compare: byText((tok) => tok.description), render: (tok) => <span className={styles.whoName}>{tok.description}</span> },
+    { id: "scopes", label: "Scopes", width: "minmax(180px, 2fr)", render: (tok) => <span className={styles.muted}>{tok.scopes.join(", ")}</span> },
+    { id: "created", label: "Created", width: 110, compare: byNumber((tok) => tok.createdAt), render: (tok) => <span className={styles.muted}>{formatDate(tok.createdAt)}</span> },
+    { id: "expires", label: "Expires", width: 110, compare: byNumber((tok) => tok.expiresAt), render: (tok) => <span className={tok.expiresAt !== null && tok.expiresAt <= now() ? styles.danger : styles.muted}>{tok.expiresAt === null ? t("Never") : tok.expiresAt <= now() ? t("Expired") : formatDate(tok.expiresAt)}</span> },
+    { id: "used", label: "Last used", width: 110, compare: byNumber((tok) => tok.lastUsedAt), render: (tok) => <span className={styles.muted}>{formatAgo(tok.lastUsedAt, now())}</span> },
+    { id: "menu", label: "", width: 32, align: "end", render: (tok) => <RowMenu label={t("Actions for {name}", { name: tok.description })} entries={[{ id: "revoke", label: "Revoke token", danger: true }]} onSelect={() => setRevoking(tok)} /> },
   ];
   return (
     <>
       <div className={styles.settingRow} data-setting="planTokens">
         <span className={styles.settingText}>
-          <span className={styles.settingLabel}>Plan access tokens</span>
-          <span className={styles.settingDescription}>REST API tokens that belong to the organization, not to a person. They read activity logs, AI usage and library analytics, and manage webhooks. They last up to a year.</span>
+          <span className={styles.settingLabel}>{t("Plan access tokens")}</span>
+          <span className={styles.settingDescription}>{t("REST API tokens that belong to the organization, not to a person. They read activity logs, AI usage and library analytics, and manage webhooks. They last up to a year.")}</span>
         </span>
-        <Button variant="secondary" onClick={() => setGenerating(true)} data-plan-tokens="generate">Generate new token</Button>
+        <Button variant="secondary" onClick={() => setGenerating(true)} data-plan-tokens="generate">{t("Generate new token")}</Button>
       </div>
       {error && <p className={styles.danger}>{error}</p>}
-      <Table label="Plan access tokens" rows={data ?? []} columns={columns} rowKey={(t) => t.id} empty={data === undefined ? "Loading…" : "No plan access tokens"} />
+      <Table label={t("Plan access tokens")} rows={data ?? []} columns={columns} rowKey={(tok) => tok.id} empty={data === undefined ? t("Loading…") : t("No plan access tokens")} />
       {generating && <GeneratePlanToken onClose={() => setGenerating(false)} />}
       {revoking && (
         <ConfirmDialog
-          title="Revoke token?"
-          body={`Anything using “${revoking.description}” will no longer be able to reach the organization's data through the API.`}
+          title={t("Revoke token?")}
+          body={t("Anything using “{name}” will no longer be able to reach the organization's data through the API.", { name: revoking.description })}
           confirm="Revoke token"
           destructive
           onConfirm={() => void run(() => store.admin.revokePlanToken(orgId, revoking.id), "Token revoked")}
@@ -126,6 +133,7 @@ export function PlanTokens() {
 }
 
 function GeneratePlanToken({ onClose }: { onClose: () => void }) {
+  useT();
   const { orgId, store, run } = useAdmin();
   const [name, setName] = useState("");
   const [days, setDays] = useState("90");
@@ -135,19 +143,19 @@ function GeneratePlanToken({ onClose }: { onClose: () => void }) {
   if (token)
     return (
       <Dialog
-        title="Copy your token"
+        title={t("Copy your token")}
         open
         size="medium"
         onClose={onClose}
         footer={
           <>
-            <Button variant="secondary" onClick={() => void navigator.clipboard?.writeText(token).then(() => showToast({ message: "Copied to clipboard" }))}>Copy</Button>
-            <Button variant="primary" onClick={onClose}>Done</Button>
+            <Button variant="secondary" onClick={() => void navigator.clipboard?.writeText(token).then(() => showToast({ message: t("Copied to clipboard") }))}>{t("Copy")}</Button>
+            <Button variant="primary" onClick={onClose}>{t("Done")}</Button>
           </>
         }
       >
         <div className={styles.form}>
-          <p className={styles.note}>This is the only time your token secret is displayed.</p>
+          <p className={styles.note}>{t("This is the only time your token secret is displayed.")}</p>
           <div className={styles.kvList}>
             <div className={styles.kv} data-new-plan-token="">
               <span className={styles.kvLabel}>{name.trim()}</span>
@@ -155,7 +163,7 @@ function GeneratePlanToken({ onClose }: { onClose: () => void }) {
               <span />
             </div>
           </div>
-          <p className={`${styles.note} ${styles.muted}`}>Send it in the X-Figma-Token header.</p>
+          <p className={`${styles.note} ${styles.muted}`}>{t("Send it in the X-Figma-Token header.")}</p>
         </div>
       </Dialog>
     );
@@ -167,25 +175,25 @@ function GeneratePlanToken({ onClose }: { onClose: () => void }) {
   };
   return (
     <Dialog
-      title="Generate new token"
+      title={t("Generate new token")}
       open
       size="medium"
       onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={!name.trim() || !scopes.size} loading={busy} onClick={() => void generate()} data-plan-tokens="create">Generate token</Button>
+          <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
+          <Button variant="primary" disabled={!name.trim() || !scopes.size} loading={busy} onClick={() => void generate()} data-plan-tokens="create">{t("Generate token")}</Button>
         </>
       }
     >
       <div className={styles.form}>
-        <Field title="Token name">
-          <TextInput label="Token name" value={name} onChange={setName} placeholder="Token name" autoFocus maxLength={100} variant="outlined" />
+        <Field title={t("Token name")}>
+          <TextInput label={t("Token name")} value={name} onChange={setName} placeholder={t("Token name")} autoFocus maxLength={100} variant="outlined" />
         </Field>
-        <Field title="Expiration">
-          <Select label="Expiration" value={days} options={PLAN_EXPIRATIONS.map((e) => ({ value: String(e.days), label: e.label }))} onChange={setDays} />
+        <Field title={t("Expiration")}>
+          <Select label={t("Expiration")} value={days} options={PLAN_EXPIRATIONS.map((e) => ({ value: String(e.days), label: e.days === 365 ? t("1 year") : tp(e.days, "{n} day", "{n} days") }))} onChange={setDays} />
         </Field>
-        <Field title="Scopes">
+        <Field title={t("Scopes")}>
           <div className={styles.form}>
             {PLAN_TOKEN_SCOPES.map((id) => (
               <div key={id} className={styles.option} data-plan-scope={id}>
@@ -201,7 +209,7 @@ function GeneratePlanToken({ onClose }: { onClose: () => void }) {
                     })
                   }
                 />
-                <span className={styles.optionDescription}>{SCOPE_LABEL.get(id) ?? ""}</span>
+                <span className={styles.optionDescription}>{t(SCOPE_LABEL.get(id) ?? "")}</span>
               </div>
             ))}
           </div>

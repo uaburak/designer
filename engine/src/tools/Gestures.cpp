@@ -2327,6 +2327,38 @@ void Editor::finishMove() {
     const Node* p = doc_.get(doc_.parentOf(t.id));
     if (p && p->props.isAutoLayout()) layoutDirty_.insert(doc_.parentOf(t.id));
   }
+  // ⌥-dragged copies of variants (R4 §2, help.figma.com "Create and use variants"): one dropped in its set is a new
+  // variant; one dropped out of it is an instance of the variant it copied.
+  if (duplicating_) {
+    std::vector<Guid> sel = selection_;
+    bool changed = false;
+    for (size_t i = 0; i < targets_.size() && i < originals_.size(); i++) {
+      Guid copy = targets_[i].id, original = originals_[i];
+      const Node* on = doc_.get(original);
+      const Node* cn = doc_.get(copy);
+      Guid set = on && on->props.type == NodeType::SYMBOL ? setOf(original) : kNoGuid;
+      if (!cn || cn->props.type != NodeType::SYMBOL || set == kNoGuid || doc_.parentOf(copy) == set) continue;
+      Guid parent = doc_.parentOf(copy);
+      std::string position = cn->props.parentIndex.position;
+      Mat2x3 transform = cn->props.transform;
+      std::vector<Guid> order;
+      auto collect = [&](auto&& self, Guid id) -> void {
+        for (Guid c : std::vector<Guid>(doc_.children(id)))
+          if (!c.isDerived()) self(self, c);
+        order.push_back(id);
+      };
+      collect(collect, copy);
+      for (Guid id : order) write(NodeChange::removed(id));
+      Guid inst = createInstance(original, parent, position, transform);
+      std::replace(sel.begin(), sel.end(), copy, inst);
+      targets_[i].id = inst;
+      changed = true;
+    }
+    if (changed) {
+      sel.erase(std::remove(sel.begin(), sel.end(), kNoGuid), sel.end());
+      changeSelection(std::move(sel));
+    }
+  }
   excluded_.clear();
   pinned_.clear();
   commit();

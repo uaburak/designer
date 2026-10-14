@@ -4,6 +4,7 @@
  * quit, however many windows close; a cancelled quit asks again next time. Imports nothing from Electron (the window
  * and the store's client are handed in), so the decision is tested on its own.
  */
+import { t, tp } from "../shared/i18n";
 import { isDownload, uploadInFlight, type UploadProgress } from "../shared/multiplayer/uploads";
 
 /** How long the quit waits for the store's answer before going on without asking */
@@ -22,8 +23,8 @@ export const uploadsInFlight = (list: readonly Pick<UploadProgress, "state" | "d
 
 /** The question's words (ours: Figma's desktop app has no such question) */
 export const uploadsQuitText = (count: number) => ({
-  message: "Uploads in progress",
-  detail: `Wecra is still uploading ${count === 1 ? "1 file" : `${count} files`}. If you quit, they’ll continue next time you open Wecra.`,
+  message: t("Uploads in progress"),
+  detail: tp(count, "Wecra is still uploading 1 file. If you quit, it’ll continue next time you open Wecra.", "Wecra is still uploading {n} files. If you quit, they’ll continue next time you open Wecra."),
 });
 
 let decided: Promise<boolean> | null = null;

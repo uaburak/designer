@@ -3,6 +3,7 @@
  * DS Slider under each number field it belongs to — the field and the slider show the same value and write through
  * the same handlers, so a drag is one undo step as a scrub is. Only in Draw mode.
  */
+import {  useT, t } from "@/i18n";
 import { MIXED, PropertyRow, Slider, type ChangeInfo, type Mixed } from "@/ds";
 import { useUI } from "../../hooks";
 
@@ -22,8 +23,9 @@ export interface SliderSpec {
 
 /** A slider bound to a number field's value (undefined = the field's absence value: shown as `min`). */
 export function DrawSlider({ spec }: { spec: SliderSpec }) {
+  useT();
   const value = spec.value === undefined ? spec.min : spec.value;
-  return <Slider label={`${spec.label} slider`} value={value === MIXED ? MIXED : value} min={spec.min} max={spec.max} step={spec.step} disabled={spec.disabled} onChange={spec.onChange} onCancel={spec.onCancel} data-draw-slider={spec.label} />;
+  return <Slider label={t("{name} slider", { name: t(spec.label) })} value={value === MIXED ? MIXED : value} min={spec.min} max={spec.max} step={spec.step} disabled={spec.disabled} onChange={spec.onChange} onCancel={spec.onCancel} data-draw-slider={spec.label} />;
 }
 
 /** A row of sliders, one per field column of the row above (null: an empty column). */

@@ -10,6 +10,7 @@
  * change to source.onChanges → keyboard, clipboard, desktop hooks → the
  * first view (zoom to fit, or a given camera).
  */
+import { t, useT } from "@/i18n";
 import "@/ds/global.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SettingsHost } from "../settings/SettingsModal";
@@ -65,6 +66,7 @@ import { RenameLayersDialog } from "./panels/RenameLayers";
 import { LibrariesDialog } from "./panels/libraries/LibrariesDialog";
 import { PublishDialog } from "./panels/libraries/PublishDialog";
 import { ExportDialog } from "./ExportDialog";
+import { FigmaImagesHost } from "../figma/FigmaImagesHost";
 import { VisualSearchHost } from "./search";
 import { LinkEditor } from "./canvas/LinkEditor";
 import { PresentationView } from "@/present/PresentationView";
@@ -115,6 +117,7 @@ const FONT_WAIT_MS = 300;
 const fontsSettledWithin = (ms: number) => Promise.race([fonts.settled(), new Promise<void>((r) => setTimeout(r, ms))]);
 
 export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" }: EditorAppProps) {
+  useT();
   const theme = useThemeRoot();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // The canvas between the panels (they sit over the canvas, which spans the editor): the engine fits and centres in it.
@@ -347,12 +350,12 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       <div className={styles.editor} data-editor="">
         {/* The canvas spans the editor; the panels and the canvas's chrome sit over it (styles.chrome). */}
         <div className={styles.canvasArea} data-canvas-area="">
-          <canvas ref={canvasRef} id="engine-canvas" className={styles.canvas} aria-label="Canvas" />
+          <canvas ref={canvasRef} id="engine-canvas" className={styles.canvas} aria-label={t("Canvas")} />
           {ed ? (
             <CanvasLayers />
           ) : (
             <div className={styles.status} role="status">
-              {error ? <span className={styles.error}>The file could not be opened: {error}</span> : <OpenLoader />}
+              {error ? <span className={styles.error}>{t("The file could not be opened: {error}", { error })}</span> : <OpenLoader />}
             </div>
           )}
         </div>
@@ -470,6 +473,7 @@ function Overlays() {
       <LibrariesDialog />
       <PublishDialog />
       <ExportDialog />
+      <FigmaImagesHost />
       <Presenting />
       <InlinePreview />
       <ShareDialog />

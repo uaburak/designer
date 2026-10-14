@@ -164,19 +164,17 @@ const NodeProps* Player::props(Guid id) const {
 bool Player::hasIx(Guid id) const {
   const NodeProps* p = props(id);
   if (!p) return false;
-  if (hasInteractions(*p)) return true;
-  if (p->type != NodeType::INSTANCE) return false;
+  if (p->type != NodeType::INSTANCE) return hasInteractions(*p);
   const NodeProps* m = props(ed_.mainOf(id));
-  return m && hasInteractions(*m);
+  if (!hasInteractions(*p) && !(m && hasInteractions(*m))) return false;
+  return !ed_.playedInteractions(id).empty();
 }
 
 std::vector<Interaction> Player::ix(Guid id) const {
   const NodeProps* p = props(id);
   if (!p) return {};
-  std::vector<Interaction> list;
-  if (hasInteractions(*p)) list = interactions(*p);
-  else if (p->type == NodeType::INSTANCE)
-    if (const NodeProps* m = props(ed_.mainOf(id))) list = interactions(*m);
+  // An instance plays its main's (the variant it shows now) with its own changes and additions.
+  std::vector<Interaction> list = ed_.playedInteractions(id);
   // A delay or a duration bound to a number variable (Figma's transitionTimeoutVar / transitionDurationVar): its value
   // in the hotspot's modes, else the literal stored next to it.
   auto seconds = [&](const json::Value& var, double& out) {

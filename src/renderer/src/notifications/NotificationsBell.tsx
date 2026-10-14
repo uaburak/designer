@@ -4,6 +4,7 @@
  */
 import { useState } from "react";
 import { Icon, tooltipProps } from "@/ds";
+import { t, useT } from "@/i18n";
 import type { NotificationItem } from "@shared/notifications";
 import { NotificationsPopover } from "./NotificationsPopover";
 import { useNotificationsBell } from "./useNotifications";
@@ -17,6 +18,7 @@ export interface NotificationsBellProps {
 }
 
 export function NotificationsBell({ userId, onOpen, onOpenSettings }: NotificationsBellProps) {
+  useT();
   /** The bell while the notifications are open */
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const bell = useNotificationsBell(userId);
@@ -29,10 +31,10 @@ export function NotificationsBell({ userId, onOpen, onOpenSettings }: Notificati
       <button
         type="button"
         className={styles.bell}
-        aria-label={bell.unread ? `Notifications, ${bell.unread} unread` : "Notifications"}
+        aria-label={bell.unread ? t("Notifications, {n} unread", { n: bell.unread }) : t("Notifications")}
         aria-haspopup="dialog"
         aria-expanded={!!anchor}
-        {...(anchor ? {} : tooltipProps("Notifications"))}
+        {...(anchor ? {} : tooltipProps(t("Notifications")))}
         onClick={(e) => {
           if (anchor) return close();
           bell.markSeen();

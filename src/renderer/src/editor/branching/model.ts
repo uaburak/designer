@@ -3,6 +3,7 @@
  * lists it (page, then top-level layer — DiffChunk's display node), the change tags, the review badges, the picks of
  * Resolve conflicts as `Resolutions`, and the branches modal's rows. Wording: docs/research/figma/R21-branching-ui.md.
  */
+import { t, tp } from "@/i18n";
 import type { BranchRecord, BranchReview, MergePreview } from "../../../../shared/merge/branches";
 import type { DiffChunk, Resolutions, Side } from "../../../../shared/merge/types";
 
@@ -27,11 +28,11 @@ export function groupChunks(chunks: readonly DiffChunk[]): ChunkGroup[] {
   let assets: ChunkGroup | null = null;
   for (const c of chunks) {
     if (c.canvasIsInternal || !c.canvasId) {
-      (assets ??= { id: "assets", name: "Assets", chunks: [] }).chunks.push(c);
+      (assets ??= { id: "assets", name: t("Assets"), chunks: [] }).chunks.push(c);
       continue;
     }
     let g = pages.get(c.canvasId);
-    if (!g) pages.set(c.canvasId, (g = { id: c.canvasId, name: c.canvasName || "Page", chunks: [] }));
+    if (!g) pages.set(c.canvasId, (g = { id: c.canvasId, name: c.canvasName || t("Page"), chunks: [] }));
     g.chunks.push(c);
   }
   return [...pages.values(), ...(assets ? [assets] : [])];
@@ -95,22 +96,22 @@ export function reviewRole(b: Pick<BranchRecord, "createdBy" | "review">, me: { 
 }
 
 /** "Send to 1 reviewer" / "Send to 3 reviewers" (R21 [request]: the alt text and the button). */
-export const sendLabel = (n: number) => (n === 1 ? "Send to 1 reviewer" : `Send to ${n} reviewers`);
+export const sendLabel = (n: number) => tp(n, "Send to {n} reviewer", "Send to {n} reviewers");
 
 /** A branches-modal row's line under the name: "‹author› · ‹when›". */
 export function branchMeta(b: Pick<BranchRecord, "createdBy" | "createdAt">, now = Date.now()): string {
-  return `${b.createdBy.id === null ? "You" : (b.createdBy.name ?? "Someone")} · ${ago(b.createdAt, now)}`;
+  return `${b.createdBy.id === null ? t("You") : (b.createdBy.name ?? t("Someone"))} · ${ago(b.createdAt, now)}`;
 }
 
 function ago(at: number, now: number): string {
   const s = Math.max(0, Math.round((now - at) / 1000));
-  if (s < 60) return "Just now";
+  if (s < 60) return t("Just now");
   const m = Math.round(s / 60);
-  if (m < 60) return `${m} minute${m === 1 ? "" : "s"} ago`;
+  if (m < 60) return tp(m, "{n} minute ago", "{n} minutes ago");
   const h = Math.round(m / 60);
-  if (h < 24) return `${h} hour${h === 1 ? "" : "s"} ago`;
+  if (h < 24) return tp(h, "{n} hour ago", "{n} hours ago");
   const d = Math.round(h / 24);
-  return `${d} day${d === 1 ? "" : "s"} ago`;
+  return tp(d, "{n} day ago", "{n} days ago");
 }
 
 /** A branch's link: main's link with `/branch/<key>` (docs/data.md §15.1 Access); local branches have none. */

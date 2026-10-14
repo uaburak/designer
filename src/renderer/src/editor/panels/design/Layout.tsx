@@ -32,6 +32,7 @@ import { canResizeToFit, resizeToFit, spacingItems, writeSpacing } from "./layou
 import { cancelScrub, editEach, exitToCanvas, perLayer, scrubEach, stepInfo } from "./Sections";
 import { fields, isFrameNode, isGroupNode, isInstanceSublayer, isTextNode, typeOf, useParents, useSupports, type PanelNode } from "./shared";
 import { useDrawMode } from "../../draw/panels/DrawSliders";
+import { t, useT } from "@/i18n";
 import styles from "./Design.module.css";
 
 type Flow = "NONE" | "VERTICAL" | "HORIZONTAL" | "GRID";
@@ -50,6 +51,7 @@ export function instanceFlow(nodes: readonly PanelNode[]): "hidden" | "locked" |
 }
 
 export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const labels = useUI((s) => s.propertyLabels);
   // Draw (docs/draw.md §5.3): "Dimensions" — W / H only, no auto layout, no min / max.
@@ -88,27 +90,27 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   const removeCommand = command("object.remove-auto-layout");
   const actions = auto ? (
     instances ? undefined : (
-      <ToggleIconButton icon="24.autolayout-add-vertical" label="Remove auto layout" tooltip="Toggle auto layout" shortcut={shortcutOf(removeCommand)} tone="secondary" pressed onPressedChange={removeAutoLayout} />
+      <ToggleIconButton icon="24.autolayout-add-vertical" label={t("Remove auto layout")} tooltip={t("Toggle auto layout")} shortcut={shortcutOf(removeCommand)} tone="secondary" pressed onPressedChange={removeAutoLayout} />
     )
   ) : (
     <>
-      {canResizeToFit(nodes) && <IconButton icon="24.resize-to-fit.small" label="Resize to fit" shortcut="⌥⇧⌘R" tone="secondary" onClick={() => resizeToFit(ed, refs)} />}
+      {canResizeToFit(nodes) && <IconButton icon="24.resize-to-fit.small" label={t("Resize to fit")} shortcut="⌥⇧⌘R" tone="secondary" onClick={() => resizeToFit(ed, refs)} />}
       {(flowable || nodes.length > 1) && !sections && !instanceFlowState && (
-        <ToggleIconButton icon="24.autolayout-add-vertical" label="Use auto layout" tooltip="Toggle auto layout" shortcut={shortcutOf(addCommand)} tone="secondary" pressed={false} onPressedChange={addAutoLayout} />
+        <ToggleIconButton icon="24.autolayout-add-vertical" label={t("Use auto layout")} tooltip={t("Toggle auto layout")} shortcut={shortcutOf(addCommand)} tone="secondary" pressed={false} onPressedChange={addAutoLayout} />
       )}
     </>
   );
 
   return (
-    <PanelSection title={drawMode ? "Dimensions" : auto ? "Auto layout" : "Layout"} actions={drawMode ? undefined : actions}>
+    <PanelSection title={drawMode ? t("Dimensions") : auto ? t("Auto layout") : t("Layout")} actions={drawMode ? undefined : actions}>
       <PropertyGrid labels={labels}>
         {flowable && <FlowRow nodes={nodes} disabled={flowLocked} onAdd={addAutoLayout} onRemove={removeAutoLayout} />}
         {texts.length > 0 && <TextResizingRow nodes={texts} />}
         <PropertyRow
-          label={sizes.row}
+          label={t(sizes.row)}
           action={
             constrainKept && !lines ? (
-              <ToggleIconButton icon="24.constrain-proportions" label="Lock aspect ratio" tone="secondary" disabled={locked} pressed={constrained ?? false} onPressedChange={(on) => ed.setProps(refs, fields({ proportionsConstrained: on }), "Lock aspect ratio")} />
+              <ToggleIconButton icon="24.constrain-proportions" label={t("Lock aspect ratio")} tone="secondary" disabled={locked} pressed={constrained ?? false} onPressedChange={(on) => ed.setProps(refs, fields({ proportionsConstrained: on }), "Lock aspect ratio")} />
             ) : undefined
           }
         >
@@ -125,7 +127,7 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
       {/* Live (design/mixed-multi.txt): shown when a frame is among the layers (Rect + Ellipse + Text + F_frame), for the frames */}
       {clipFrames.length > 0 && !sections && !groups && (
         <div className={styles.checkRow}>
-          <Checkbox tone="panel" label="Clip content" checked={mixed(clipFrames.map((n) => n.frameMaskDisabled !== true)) ?? true} onChange={(on) => ed.setProps(clipFrames.map((n) => n.guid), { frameMaskDisabled: !on }, "Clip content")} />
+          <Checkbox tone="panel" label={t("Clip content")} checked={mixed(clipFrames.map((n) => n.frameMaskDisabled !== true)) ?? true} onChange={(on) => ed.setProps(clipFrames.map((n) => n.guid), { frameMaskDisabled: !on }, "Clip content")} />
         </div>
       )}
     </PanelSection>
@@ -134,6 +136,7 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
 
 /** Flow: Freeform (no auto layout) / Vertical / Horizontal / Grid; the action column holds Wrap or automatic positioning. */
 function FlowRow({ nodes, disabled, onAdd, onRemove }: { nodes: PanelNode[]; disabled?: boolean; onAdd: () => void; onRemove: () => void }) {
+  useT();
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const flow = mixed(nodes.map(flowOf));
@@ -158,7 +161,7 @@ function FlowRow({ nodes, disabled, onAdd, onRemove }: { nodes: PanelNode[]; dis
     auto && flow === "GRID" ? (
       <ToggleIconButton
         icon="24.layout-tidy-up-grid"
-        label="Toggle automatic positioning"
+        label={t("Toggle automatic positioning")}
         tone="secondary"
         disabled={disabled}
         pressed={reflow ?? false}
@@ -168,7 +171,7 @@ function FlowRow({ nodes, disabled, onAdd, onRemove }: { nodes: PanelNode[]; dis
     ) : auto ? (
       <ToggleIconButton
         icon="24.al.layout-wrap"
-        label="Wrap"
+        label={t("Wrap")}
         tone="secondary"
         disabled={disabled}
         pressed={wrap ?? false}
@@ -177,17 +180,17 @@ function FlowRow({ nodes, disabled, onAdd, onRemove }: { nodes: PanelNode[]; dis
       />
     ) : undefined;
   return (
-    <PropertyRow label="Flow" span={2} action={action}>
+    <PropertyRow label={t("Flow")} span={2} action={action}>
       <SegmentedControl
-        label="Layout"
+        label={t("Layout")}
         fullWidth
         disabled={disabled}
         value={flow ?? MIXED}
         options={[
-          { value: "NONE", icon: "24.layout.freeform", tooltip: "Freeform" },
-          { value: "VERTICAL", icon: "24.layout.vertical", tooltip: "Vertical" },
-          { value: "HORIZONTAL", icon: "24.layout.horizontal", tooltip: "Horizontal" },
-          { value: "GRID", icon: "24.layout.grid", tooltip: "Grid" },
+          { value: "NONE", icon: "24.layout.freeform", tooltip: t("Freeform") },
+          { value: "VERTICAL", icon: "24.layout.vertical", tooltip: t("Vertical") },
+          { value: "HORIZONTAL", icon: "24.layout.horizontal", tooltip: t("Horizontal") },
+          { value: "GRID", icon: "24.layout.grid", tooltip: t("Grid") },
         ]}
         onChange={pick}
       />
@@ -201,13 +204,14 @@ function FlowRow({ nodes, disabled, onAdd, onRemove }: { nodes: PanelNode[]; dis
  * the sizing — "Hug" — at 25, both 11 / 450; the box on the panel's colour). Its options aren't offered (unverified).
  */
 function LockedSize({ axis, nodes, parents }: { axis: "x" | "y"; nodes: PanelNode[]; parents: (PanelNode | null)[] }) {
+  useT();
   const sizing = mixed(nodes.map((n, i) => sizingOf(n, parents[i], axis)));
   const value = mixedNumber(nodes.map((n) => roundPanel(n.size?.[axis] ?? 0)));
-  const text = sizing === "HUG" ? "Hug" : sizing === "FILL" ? "Fill" : isMixed(value) || value === undefined ? "Mixed" : String(value);
+  const text = sizing === "HUG" ? t("Hug") : sizing === "FILL" ? t("Fill") : isMixed(value) || value === undefined ? t("Mixed") : String(value);
   return (
     // (Live: a "Horizontal / Vertical resizing" box around the list, the list itself not disabled.)
-    <div aria-label={axis === "x" ? "Horizontal resizing" : "Vertical resizing"} className={styles.lockedSize} data-locked-size={axis}>
-      <div role="listbox" aria-label="Advanced auto layout settings" className={styles.lockedSizeList}>
+    <div aria-label={axis === "x" ? t("Horizontal resizing") : t("Vertical resizing")} className={styles.lockedSize} data-locked-size={axis}>
+      <div role="listbox" aria-label={t("Advanced auto layout settings")} className={styles.lockedSizeList}>
         <div className={styles.lockedSizeBox}>
           <span className={styles.lockedSizeAxis}>{axis === "x" ? "W" : "H"}</span>
           <span className={styles.lockedSizeValue}>{text}</span>
@@ -219,19 +223,20 @@ function LockedSize({ axis, nodes, parents }: { axis: "x" | "y"; nodes: PanelNod
 
 /** A text's Resizing (Figma's live panel puts it in Layout): Auto width / Auto height / Fixed size. */
 function TextResizingRow({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const value = mixed(nodes.map((n) => n.textAutoResize ?? "NONE"));
   return (
-    <PropertyRow label="Resizing" span={2}>
+    <PropertyRow label={t("Resizing")} span={2}>
       <SegmentedControl
-        label="Resizing"
+        label={t("Resizing")}
         fullWidth
         value={value ?? MIXED}
         options={[
-          { value: "WIDTH_AND_HEIGHT", icon: "24.text.resize-width", tooltip: "Auto width" },
-          { value: "HEIGHT", icon: "24.text.resize-height", tooltip: "Auto height" },
-          { value: "NONE", icon: "24.text.resize-fixed", tooltip: "Fixed size" },
+          { value: "WIDTH_AND_HEIGHT", icon: "24.text.resize-width", tooltip: t("Auto width") },
+          { value: "HEIGHT", icon: "24.text.resize-height", tooltip: t("Auto height") },
+          { value: "NONE", icon: "24.text.resize-fixed", tooltip: t("Fixed size") },
         ]}
         onChange={(v) => ed.setProps(refs, fields({ textAutoResize: v as "NONE" | "WIDTH_AND_HEIGHT" | "HEIGHT" }), "Resizing")}
       />
@@ -241,6 +246,7 @@ function TextResizingRow({ nodes }: { nodes: PanelNode[] }) {
 
 /** Several layers or a group's children: the gap between them along the axis (or axes) they line up on. */
 function SpacingRow({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const items = spacingItems(ed, nodes);
   const axes = spacingAxes(items);
@@ -250,7 +256,7 @@ function SpacingRow({ nodes }: { nodes: PanelNode[] }) {
     return (
       <NumericInput
         key={axis}
-        label={axis === "x" ? "Horizontal spacing" : "Vertical spacing"}
+        label={axis === "x" ? t("Horizontal spacing") : t("Vertical spacing")}
         prefix={axis === "x" ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"}
         value={v === "mixed" ? MIXED : v}
         onChange={(g, info) => writeSpacing(ed, nodes, axis, g, info)}
@@ -264,7 +270,7 @@ function SpacingRow({ nodes }: { nodes: PanelNode[] }) {
     );
   };
   return (
-    <PropertyRow label="Spacing">
+    <PropertyRow label={t("Spacing")}>
       {axes.includes("x") ? field("x") : <span />}
       {axes.includes("y") ? field("y") : <span />}
     </PropertyRow>
@@ -280,6 +286,7 @@ const AUTO_SPACING = [
 const isAutoGap = (v: string | undefined) => isSpaceBetween(v) || v === "SPACE_EVENLY_CSS" || v === "SPACE_AROUND";
 
 function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const flow = mixed(nodes.map(flowOf));
@@ -313,10 +320,10 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
         <PaddingRows nodes={nodes} highlight={highlight} />
       </>
     );
-  const gapLabel = (what: string) => `${horizontal ? "Horizontal" : "Vertical"} gap between ${what}`;
+  const gapLabel = () => (horizontal ? t("Horizontal gap between objects") : t("Vertical gap between objects"));
   return (
     <>
-      <PropertyRow labels={["Alignment", "Gap"]} action={<AutoLayoutSettingsButton nodes={nodes} />} className={styles.alignRow}>
+      <PropertyRow labels={[t("Alignment"), t("Gap")]} action={<AutoLayoutSettingsButton nodes={nodes} />} className={styles.alignRow}>
         <div className={styles.matrix}>
           <AlignmentMatrix
             direction={horizontal ? "horizontal" : "vertical"}
@@ -328,25 +335,25 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
           {/* Live: the gap field's hover chevron at its right edge (its list) — the hover Apply variable left out there */}
           <VariableField nodes={nodes} fields={["STACK_SPACING"]} prefix={horizontal ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"} button={false}>
             <NumericInput
-              label={gapLabel("objects")}
+              label={gapLabel()}
               prefix={horizontal ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"}
               className={styles.hoverMenuField}
               value={fieldValue(gap)}
               min={0}
-              valueLabel={autoGap ? "Auto" : undefined}
+              valueLabel={autoGap ? t("Auto") : undefined}
               keywords={["Auto"]}
               onKeyword={() => editEach(ed, "Gap", stepInfo, refs, (n) => fields({ stackPrimaryAlignItems: autoMode(n) }))}
               suffix={
                 // Live (popovers/gap-menu.txt): the hover chevron lists the gap's number and Auto, the current one checked.
                 <MenuButton
-                  label="Gap sizing"
+                  label={t("Gap sizing")}
                   className={styles.hoverMenu}
                   overField='[data-ds="NumericInput"]'
                   overAlign="right"
                   overOffset={SIZING_LIST_DY}
                   entries={[
-                    { id: "value", label: isMixed(gap) || gap === undefined ? "Mixed" : String(gap), checked: !autoGap },
-                    { id: "auto", label: "Auto", checked: !!autoGap },
+                    { id: "value", label: isMixed(gap) || gap === undefined ? t("Mixed") : String(gap), checked: !autoGap },
+                    { id: "auto", label: t("Auto"), checked: !!autoGap },
                   ]}
                   onSelect={(id) =>
                     id === "auto"
@@ -364,11 +371,11 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
           {wrap && (
             <VariableField nodes={nodes} fields={["STACK_COUNTER_SPACING"]} prefix="24.al.spacing-vertical">
               <NumericInput
-                label="Vertical gap between rows"
+                label={t("Vertical gap between rows")}
                 prefix="24.al.spacing-vertical"
                 value={fieldValue(rowGap)}
                 min={0}
-                valueLabel={autoRowGap ? "Auto" : undefined}
+                valueLabel={autoRowGap ? t("Auto") : undefined}
                 keywords={["Auto"]}
                 onKeyword={() => ed.setProps(refs, fields({ stackCounterAlignContent: "SPACE_BETWEEN" }), "Gap between rows")}
                 {...rowGapHandlers}
@@ -456,6 +463,7 @@ function paddingHandlers(ed: ReturnType<typeof useEditor>, refs: readonly string
  * (vertical, horizontal; three: top, horizontal, bottom; four: top, right, bottom, left) — model/padding.ts.
  */
 function PaddingRows({ nodes, highlight }: { nodes: PanelNode[]; highlight: Highlight }) {
+  useT();
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const pads = nodes.map((n) => paddingOf(n));
@@ -482,7 +490,7 @@ function PaddingRows({ nodes, highlight }: { nodes: PanelNode[]; highlight: High
   const toggle = (
     <ToggleIconButton
       icon="24.al.padding-sides"
-      label="Individual padding"
+      label={t("Individual padding")}
       tone="secondary"
       pressed={individual && !merged}
       onPressedChange={() => undefined}
@@ -531,7 +539,7 @@ function PaddingRows({ nodes, highlight }: { nodes: PanelNode[]; highlight: High
             : {})}
         >
           <NumericInput
-            label={label}
+            label={t(label)}
             prefix={prefix}
             value={"value" in shown ? shown.value : MIXED}
             displayText={"text" in shown ? shown.text : undefined}
@@ -546,21 +554,21 @@ function PaddingRows({ nodes, highlight }: { nodes: PanelNode[]; highlight: High
   };
   if (merged)
     return (
-      <PropertyRow labels={["Padding", undefined]} span={2} action={toggle}>
+      <PropertyRow labels={[t("Padding"), undefined]} span={2} action={toggle}>
         {field("Padding", "24.al.padding-sides", ALL_SIDES, ALL_BINDS, true)}
       </PropertyRow>
     );
   if (individual)
     return (
       <>
-        <PropertyRow labels={["Padding", undefined]} action={toggle}>
+        <PropertyRow labels={[t("Padding"), undefined]} action={toggle}>
           {SIDES.slice(0, 2).map(([side, icon, label, bind]) => field(label, icon, [side], [bind]))}
         </PropertyRow>
         <PropertyRow>{SIDES.slice(2).map(([side, icon, label, bind]) => field(label, icon, [side], [bind]))}</PropertyRow>
       </>
     );
   return (
-    <PropertyRow labels={["Padding", undefined]} action={toggle}>
+    <PropertyRow labels={[t("Padding"), undefined]} action={toggle}>
       {field("Horizontal padding", "24.al.padding-horizontal", ["left", "right"], ["STACK_PADDING_LEFT", "STACK_PADDING_RIGHT"])}
       {field("Vertical padding", "24.al.padding-vertical", ["top", "bottom"], ["STACK_PADDING_TOP", "STACK_PADDING_BOTTOM"])}
     </PropertyRow>
@@ -574,16 +582,18 @@ export const SETTINGS_WIDTH = 300;
 
 /** The "Auto layout settings" button and its popover. */
 export function AutoLayoutSettingsButton({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   return (
     <>
-      <IconButton icon="24.adjust.small" label="Auto layout settings" tone="secondary" aria-expanded={!!anchor} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)} />
+      <IconButton icon="24.adjust.small" label={t("Auto layout settings")} tone="secondary" aria-expanded={!!anchor} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)} />
       {anchor && <AutoLayoutSettings nodes={nodes} anchor={anchor} onClose={() => setAnchor(null)} />}
     </>
   );
 }
 
 function AutoLayoutSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor: HTMLElement; onClose: () => void }) {
+  useT();
   const ed = useEditor();
   const al = nodes.filter((n) => isAutoLayout(n));
   const refs = al.map((n) => n.guid);
@@ -600,68 +610,68 @@ function AutoLayoutSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; an
   // Layout only.
   return (
     // Live: the auto layout one opens 4 above its button (960,481 for the button at 404 + 81), the grid's level with it (960,485)
-    <Popover anchor={anchor} title="Auto layout settings" width={240} offsetY={grid ? 0 : -4} onClose={onClose} label="Auto layout settings">
-      <div className={styles.alPreview} aria-hidden="true">Preview</div>
+    <Popover anchor={anchor} title={t("Auto layout settings")} width={240} offsetY={grid ? 0 : -4} onClose={onClose} label={t("Auto layout settings")}>
+      <div className={styles.alPreview} aria-hidden="true">{t("Preview")}</div>
       <div className={cx(styles.settings, styles.alSettings)}>
-        <span className={styles.settingsLabel}>Inside stroke</span>
+        <span className={styles.settingsLabel}>{t("Inside stroke")}</span>
         <Select
-          label="Inside stroke"
+          label={t("Inside stroke")}
           variant="ghost"
           value={strokes ?? MIXED}
           options={[
-            { value: "INCLUDED", label: "Included" },
-            { value: "EXCLUDED", label: "Excluded" },
+            { value: "INCLUDED", label: t("Included") },
+            { value: "EXCLUDED", label: t("Excluded") },
           ]}
           onChange={(v) => ed.setProps(refs, fields({ bordersTakeSpace: v === "INCLUDED" }), "Inside stroke")}
         />
         {!grid && (
           <>
-            <span className={styles.settingsLabel}>Canvas stacking</span>
+            <span className={styles.settingsLabel}>{t("Canvas stacking")}</span>
             <Select
-              label="Canvas stacking"
+              label={t("Canvas stacking")}
               variant="ghost"
               value={stacking ?? MIXED}
               options={[
-                { value: "LAST", label: "Last on top" },
-                { value: "FIRST", label: "First on top" },
+                { value: "LAST", label: t("Last on top") },
+                { value: "FIRST", label: t("First on top") },
               ]}
               onChange={(v) => ed.setProps(refs, fields({ stackReverseZIndex: v === "FIRST" }), "Canvas stacking")}
             />
-            <span className={styles.settingsLabel}>Align text baseline</span>
+            <span className={styles.settingsLabel}>{t("Align text baseline")}</span>
             <span className={cx(styles.alEnd, styles.alLegended)}>
               {/* (Live: the control's "Align text baseline" legend 7 above it at −1, clipped from view) */}
-              <span className={styles.alLegend}>Align text baseline</span>
+              <span className={styles.alLegend}>{t("Align text baseline")}</span>
               <SegmentedControl
                 className={styles.typeSeg}
-                label="Align text baseline"
+                label={t("Align text baseline")}
                 disabled={!horizontal}
                 value={baseline === undefined ? "OFF" : isMixed(baseline) ? MIXED : baseline ? "ON" : "OFF"}
                 options={[
-                  { value: "OFF", icon: "24.minus.small", tooltip: "Disabled" },
-                  { value: "ON", icon: "24.check", tooltip: "Enabled" },
+                  { value: "OFF", icon: "24.minus.small", tooltip: t("Disabled") },
+                  { value: "ON", icon: "24.check", tooltip: t("Enabled") },
                 ]}
                 onChange={(v) => ed.setProps(refs, fields({ stackCounterAlignItems: v === "ON" ? "BASELINE" : "MIN" }), "Align text baseline")}
               />
             </span>
-            <span className={cx(styles.settingsLabel, !autoGap && styles.settingsLabelDisabled)} {...(!autoGap ? tooltipProps("Only applicable for Auto gap") : {})}>Auto spacing</span>
+            <span className={cx(styles.settingsLabel, !autoGap && styles.settingsLabelDisabled)} {...(!autoGap ? tooltipProps(t("Only applicable for Auto gap")) : {})}>{t("Auto spacing")}</span>
             <Select
-              label="Auto spacing"
+              label={t("Auto spacing")}
               variant="ghost"
               disabled={!autoGap}
               value={spacing ?? MIXED}
-              options={AUTO_SPACING.map((o) => ({ ...o }))}
+              options={AUTO_SPACING.map((o) => ({ ...o, label: t(o.label) }))}
               // Picking one makes the gap Auto with that spacing (help 31289464393751).
               onChange={(v) => ed.setProps(refs, fields({ stackPrimaryAlignItems: v as never }), "Auto spacing")}
             />
           </>
         )}
         <span className={cx(styles.settingsLabel, styles.alLayoutLabel)}>
-          Layout
-          <button type="button" aria-label="More info" className={styles.alInfo} {...tooltipProps("Updated: Figma's current auto layout rules")}>
+          {t("Layout")}
+          <button type="button" aria-label={t("More info")} className={styles.alInfo} {...tooltipProps(t("Updated: Figma's current auto layout rules"))}>
             <Icon name="24.info" style={{ margin: -4 }} />
           </button>
         </span>
-        <Select label="Layout" variant="ghost" value="UPDATED" options={[{ value: "UPDATED", label: "Updated" }]} onChange={() => {}} />
+        <Select label={t("Layout")} variant="ghost" value="UPDATED" options={[{ value: "UPDATED", label: t("Updated") }]} onChange={() => {}} />
       </div>
     </Popover>
   );

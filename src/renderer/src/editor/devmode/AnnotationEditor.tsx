@@ -7,11 +7,12 @@
 import { useMemo, useState } from "react";
 import { Button, IconButton, MenuButton, Popover, Select, TextArea, type MenuEntry, type SelectOption } from "@/ds";
 import type { NodeChange } from "@/engine/codec";
+import { t, useT } from "@/i18n";
 import { annotationProperty } from "../../../../viewer/inspect/devMode";
 import { useEditor } from "../controller";
 import { useUI } from "../hooks";
 import type { UIState } from "../uiStore";
-import { CATEGORY_HEX, PROPERTY_LABEL, propertiesFor, type Note, type PropertyType } from "./annotations";
+import { CATEGORY_COLOR_LABEL, CATEGORY_HEX, PROPERTY_LABEL, propertiesFor, type Note, type PropertyType } from "./annotations";
 import { ensureCategoryId, readCategories, readNotes, writeNotes } from "./devMode";
 import styles from "./DevMode.module.css";
 
@@ -25,6 +26,7 @@ export function AnnotationEditor() {
 }
 
 function Editor({ at }: { at: NonNullable<UIState["annotationEditor"]> }) {
+  useT();
   const ed = useEditor();
   // The note's index once it exists (a new one is written at its first change).
   const [index, setIndex] = useState(at.index);
@@ -59,22 +61,22 @@ function Editor({ at }: { at: NonNullable<UIState["annotationEditor"]> }) {
   };
 
   const categoryOptions: (SelectOption | "-")[] = [
-    { value: NONE, label: "No category" },
-    ...categories.map((c, i) => ({ value: String(i), label: c.label, hint: c.color.toLowerCase() })),
+    { value: NONE, label: t("No category") },
+    ...categories.map((c, i) => ({ value: String(i), label: c.label, hint: (CATEGORY_COLOR_LABEL[c.color] ? t(CATEGORY_COLOR_LABEL[c.color]) : c.color).toLocaleLowerCase() })),
     "-",
-    { value: EDIT_CATEGORIES, label: "Edit categories…" },
+    { value: EDIT_CATEGORIES, label: t("Edit categories…") },
   ];
   const catIndex = categories.findIndex((c) => c.id && c.id === note.categoryId);
   const current = categories[catIndex];
-  const propEntries: MenuEntry[] = offered.filter((p) => !note.properties.includes(p)).map((p) => ({ id: p, label: PROPERTY_LABEL[p] }));
+  const propEntries: MenuEntry[] = offered.filter((p) => !note.properties.includes(p)).map((p) => ({ id: p, label: t(PROPERTY_LABEL[p]) }));
   const anchor = new DOMRect(at.x, at.y, at.width, at.height);
   return (
-    <Popover anchor={anchor} placement="right" onClose={close} label="Annotation" width={280} title={node?.name ?? "Annotation"}>
+    <Popover anchor={anchor} placement="right" onClose={close} label={t("Annotation")} width={280} title={node?.name ?? t("Annotation")}>
       <div className={styles.noteEditor} data-annotation-editor="">
         <div className={styles.noteRow}>
           <span className={styles.categoryDot} style={{ background: current ? CATEGORY_HEX[current.color] : "var(--figma-color-bg-success)" }} />
           <Select
-            label="Category"
+            label={t("Category")}
             value={catIndex >= 0 ? String(catIndex) : NONE}
             options={categoryOptions}
             onChange={(v) => {
@@ -85,9 +87,9 @@ function Editor({ at }: { at: NonNullable<UIState["annotationEditor"]> }) {
           />
         </div>
         <TextArea
-          label="Note"
+          label={t("Note")}
           value={note.markdown}
-          placeholder="Add a note"
+          placeholder={t("Add a note")}
           autoFocus
           minRows={3}
           onCommit={(v) => save({ ...note, markdown: v }, index < 0 ? "Add annotation" : "Edit annotation")}
@@ -97,11 +99,11 @@ function Editor({ at }: { at: NonNullable<UIState["annotationEditor"]> }) {
           <div className={styles.pinned} data-pinned="">
             {note.properties.map((p) => (
               <div key={p} className={styles.pinnedRow}>
-                <span className={styles.pinnedLabel}>{PROPERTY_LABEL[p]}</span>
+                <span className={styles.pinnedLabel}>{t(PROPERTY_LABEL[p])}</span>
                 <span className={styles.pinnedValue}>{node ? annotationProperty(p, node).value : "—"}</span>
                 <IconButton
                   icon="24.minus.small"
-                  label={`Remove ${PROPERTY_LABEL[p]}`}
+                  label={t("Remove {name}", { name: t(PROPERTY_LABEL[p]) })}
                   onClick={() => save({ ...note, properties: note.properties.filter((x) => x !== p) }, "Edit annotation")}
                 />
               </div>
@@ -109,17 +111,17 @@ function Editor({ at }: { at: NonNullable<UIState["annotationEditor"]> }) {
           </div>
         )}
         <div className={styles.noteActions}>
-          <MenuButton entries={propEntries} label="Property" onSelect={(id) => save({ ...note, properties: [...note.properties, id as PropertyType] }, index < 0 ? "Add annotation" : "Edit annotation")} className={styles.addProperty}>
-            + Property
+          <MenuButton entries={propEntries} label={t("Property")} onSelect={(id) => save({ ...note, properties: [...note.properties, id as PropertyType] }, index < 0 ? "Add annotation" : "Edit annotation")} className={styles.addProperty}>
+            {t("+ Property")}
           </MenuButton>
           <span className={styles.grow} />
           {index >= 0 && (
             <Button variant="secondary" onClick={remove}>
-              Delete
+              {t("Delete")}
             </Button>
           )}
           <Button variant="primary" onClick={close}>
-            Done
+            {t("Done")}
           </Button>
         </div>
       </div>

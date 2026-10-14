@@ -11,10 +11,11 @@ import { useMemo, useState } from "react";
 import { Badge, Button, Dialog, Icon, MenuButton, SearchField, Select, TextArea, showToast, type MenuEntry } from "@/ds";
 import type { AdminPerson, BillingGroup, OrgRole, OrgWorkspace, PeopleQuery, Seat, UserGroup } from "@shared/org/types";
 import { useAdmin, useLoad } from "./context";
-import { ROLE_LABEL, SEATS, SEAT_DESCRIPTION, SEAT_LABEL, formatAgo, formatDate } from "./labels";
+import { ROLE_LABEL, SEATS, SEAT_DESCRIPTION, seatLabel, formatAgo, formatDate } from "./labels";
 import { ChoiceDialog, ConfirmDialog, Field, NameDialog, PickDialog, RowMenu, Table, Who, byNumber, byText, personItem, styles, type Column } from "./parts";
 import { useGovernance } from "./SettingsGovernance";
 import { GUEST_EXPIRY_MAX_DAYS } from "@shared/org/governance";
+import { t, tp, useT } from "@/i18n";
 
 type UserTypeFilter = OrgRole | "pending";
 type LastActive = "3" | "6" | "12";
@@ -42,6 +43,7 @@ const IDP_COLUMNS: { id: string; label: string; get: (p: AdminPerson) => string 
 ];
 
 export function PeopleTab() {
+  useT();
   const { orgId, store, run, exportCsv, now } = useAdmin();
   const [text, setText] = useState("");
   const [filters, setFilters] = useState<Filters>({});
@@ -69,8 +71,8 @@ export function PeopleTab() {
   const hasIdp = all.some((p) => p.idp);
   const [idpColumns, setIdpColumns] = useState<string[]>(["provisionedBy"]);
   const seatCounts = SEATS.map((s) => [s, all.filter((p) => p.seat === s && !p.pending).length] as const);
-  const wsName = (id: string | null) => (id ? workspaces?.find((w) => w.id === id)?.name ?? "" : "Unassigned");
-  const bgName = (id: string | null) => (id ? billing?.find((b) => b.id === id)?.name ?? "" : "Unassigned");
+  const wsName = (id: string | null) => (id ? workspaces?.find((w) => w.id === id)?.name ?? "" : t("Unassigned"));
+  const bgName = (id: string | null) => (id ? billing?.find((b) => b.id === id)?.name ?? "" : t("Unassigned"));
   const shownSelection = new Set([...selection].filter((id) => rows.some((r) => r.id === id)));
   const ids = [...shownSelection];
   const guestIds = ids.filter((id) => rows.find((r) => r.id === id)?.role === "guest");
@@ -78,15 +80,15 @@ export function PeopleTab() {
   const copyEmails = (list: string[]) => {
     const emails = all.filter((p) => list.includes(p.id)).map((p) => p.email).join(", ");
     void navigator.clipboard?.writeText(emails).catch(() => {});
-    showToast({ message: list.length === 1 ? "Copied email" : `Copied ${list.length} emails` });
+    showToast({ message: list.length === 1 ? t("Copied email") : t("Copied {n} emails", { n: list.length }) });
   };
 
   const filterEntries = (): MenuEntry[] => [
-    { id: "seat", label: "Seat type", items: SEATS.map((s) => ({ id: `seat:${s}`, label: SEAT_LABEL[s], checked: filters.seat === s })) },
-    { id: "type", label: "User type", items: (Object.keys(TYPE_LABEL) as UserTypeFilter[]).map((t) => ({ id: `type:${t}`, label: TYPE_LABEL[t], checked: filters.type === t })) },
-    { id: "active", label: "Last active", items: [{ id: "active:all", label: "All time", checked: !filters.lastActive }, ...(Object.keys(LAST_ACTIVE_LABEL) as LastActive[]).map((m) => ({ id: `active:${m}`, label: LAST_ACTIVE_LABEL[m], checked: filters.lastActive === m }))] },
-    { id: "bg", label: "Billing groups", items: [...(billing ?? []).map((b) => ({ id: `bg:${b.id}`, label: b.name, checked: filters.billingGroupId === b.id })), "-", { id: "bg:none", label: "Unassigned", checked: filters.billingGroupId === "none" }] },
-    { id: "ws", label: "Workspace", items: [...(workspaces ?? []).map((w) => ({ id: `ws:${w.id}`, label: w.name, checked: filters.workspaceId === w.id })), "-", { id: "ws:none", label: "Unassigned", checked: filters.workspaceId === "none" }] },
+    { id: "seat", label: t("Seat type"), items: SEATS.map((s) => ({ id: `seat:${s}`, label: seatLabel(s), checked: filters.seat === s })) },
+    { id: "type", label: t("User type"), items: (Object.keys(TYPE_LABEL) as UserTypeFilter[]).map((k) => ({ id: `type:${k}`, label: t(TYPE_LABEL[k]), checked: filters.type === k })) },
+    { id: "active", label: t("Last active"), items: [{ id: "active:all", label: t("All time"), checked: !filters.lastActive }, ...(Object.keys(LAST_ACTIVE_LABEL) as LastActive[]).map((m) => ({ id: `active:${m}`, label: t(LAST_ACTIVE_LABEL[m]), checked: filters.lastActive === m }))] },
+    { id: "bg", label: t("Billing groups"), items: [...(billing ?? []).map((b) => ({ id: `bg:${b.id}`, label: b.name, checked: filters.billingGroupId === b.id })), "-", { id: "bg:none", label: t("Unassigned"), checked: filters.billingGroupId === "none" }] },
+    { id: "ws", label: t("Workspace"), items: [...(workspaces ?? []).map((w) => ({ id: `ws:${w.id}`, label: w.name, checked: filters.workspaceId === w.id })), "-", { id: "ws:none", label: t("Unassigned"), checked: filters.workspaceId === "none" }] },
   ];
   const pickFilter = (id: string) => {
     const [k, v] = id.split(":") as [string, string];
@@ -101,15 +103,15 @@ export function PeopleTab() {
     });
   };
   const chips: { label: string; clear: () => void }[] = [];
-  if (filters.seat) chips.push({ label: `Seat type: ${SEAT_LABEL[filters.seat]}`, clear: () => setFilters((f) => ({ ...f, seat: undefined })) });
-  if (filters.type) chips.push({ label: `User type: ${TYPE_LABEL[filters.type]}`, clear: () => setFilters((f) => ({ ...f, type: undefined })) });
-  if (filters.lastActive) chips.push({ label: `Last active: ${LAST_ACTIVE_LABEL[filters.lastActive]}`, clear: () => setFilters((f) => ({ ...f, lastActive: undefined })) });
-  if (filters.billingGroupId) chips.push({ label: `Billing group: ${bgName(filters.billingGroupId === "none" ? null : filters.billingGroupId)}`, clear: () => setFilters((f) => ({ ...f, billingGroupId: undefined })) });
-  if (filters.workspaceId) chips.push({ label: `Workspace: ${wsName(filters.workspaceId === "none" ? null : filters.workspaceId)}`, clear: () => setFilters((f) => ({ ...f, workspaceId: undefined })) });
+  if (filters.seat) chips.push({ label: t("Seat type: {value}", { value: seatLabel(filters.seat) }), clear: () => setFilters((f) => ({ ...f, seat: undefined })) });
+  if (filters.type) chips.push({ label: t("User type: {value}", { value: t(TYPE_LABEL[filters.type]) }), clear: () => setFilters((f) => ({ ...f, type: undefined })) });
+  if (filters.lastActive) chips.push({ label: t("Last active: {value}", { value: t(LAST_ACTIVE_LABEL[filters.lastActive]) }), clear: () => setFilters((f) => ({ ...f, lastActive: undefined })) });
+  if (filters.billingGroupId) chips.push({ label: t("Billing group: {value}", { value: bgName(filters.billingGroupId === "none" ? null : filters.billingGroupId) }), clear: () => setFilters((f) => ({ ...f, billingGroupId: undefined })) });
+  if (filters.workspaceId) chips.push({ label: t("Workspace: {value}", { value: wsName(filters.workspaceId === "none" ? null : filters.workspaceId) }), clear: () => setFilters((f) => ({ ...f, workspaceId: undefined })) });
 
   const rowMenu = (p: AdminPerson): MenuEntry[] => [
     { id: "seat", label: "Change seat…" },
-    { id: "role", label: "Change role", items: (["admin", "member", "guest"] as OrgRole[]).map((r) => ({ id: `role:${r}`, label: ROLE_LABEL[r], checked: p.role === r })) },
+    { id: "role", label: "Change role", items: (["admin", "member", "guest"] as OrgRole[]).map((r) => ({ id: `role:${r}`, label: t(ROLE_LABEL[r]), checked: p.role === r })) },
     { id: "workspace", label: "Change workspace…" },
     { id: "billing", label: "Change billing group…" },
     "-",
@@ -121,7 +123,8 @@ export function PeopleTab() {
   const onRowMenu = (p: AdminPerson, id: string) => {
     if (id.startsWith("role:")) {
       const role = id.slice(5) as OrgRole;
-      return void update([p.id], { role }, `${p.name ?? p.email} is now ${role === "admin" ? "an admin" : `a ${role}`}`);
+      const name = p.name ?? p.email;
+      return void update([p.id], { role }, role === "admin" ? t("{name} is now an admin", { name }) : role === "guest" ? t("{name} is now a guest", { name }) : t("{name} is now a member", { name }));
     }
     if (id === "copy") return copyEmails([p.id]);
     if (id === "expiryRemove") return void run(() => store.governance!.setGuestExpiration(orgId, [p.id], null), "Expiration date removed");
@@ -131,13 +134,13 @@ export function PeopleTab() {
   const columns: Column<AdminPerson>[] = [
     {
       id: "name", label: "Name", width: "minmax(220px, 2fr)", compare: byText((p) => p.name ?? p.email),
-      render: (p) => <Who person={p} badge={<>{p.role === "admin" && <> <Badge>Admin</Badge></>}{p.role === "guest" && <> <Badge>Guest</Badge></>}{p.pending && <> <Badge tone="warning">Pending</Badge></>}{blocked(p) && <> <Badge tone="danger" data-blocked="">Blocked</Badge></>}</>} />,
+      render: (p) => <Who person={p} badge={<>{p.role === "admin" && <> <Badge>{t("Admin")}</Badge></>}{p.role === "guest" && <> <Badge>{t("Guest")}</Badge></>}{p.pending && <> <Badge tone="warning">{t("Pending")}</Badge></>}{blocked(p) && <> <Badge tone="danger" data-blocked="">{t("Blocked")}</Badge></>}</>} />,
     },
     {
       id: "seat", label: "Seat type", width: 110, compare: byNumber((p) => SEATS.indexOf(p.seat)),
       render: (p) => (
-        <button type="button" className={styles.cellButton} aria-label={`Seat type: ${SEAT_LABEL[p.seat]}`} onClick={() => setDialog({ kind: "seat", ids: [p.id] })}>
-          {SEAT_LABEL[p.seat]}
+        <button type="button" className={styles.cellButton} aria-label={t("Seat type: {value}", { value: seatLabel(p.seat) })} onClick={() => setDialog({ kind: "seat", ids: [p.id] })}>
+          {seatLabel(p.seat)}
           <Icon name="16.chevron.down" />
         </button>
       ),
@@ -145,7 +148,7 @@ export function PeopleTab() {
     {
       id: "workspace", label: "Workspace", compare: byText((p) => wsName(p.workspaceId)),
       render: (p) => (
-        <MenuButton label={`Workspace: ${wsName(p.workspaceId)}`} className={styles.cellButton} tooltip={false} entries={() => [...(workspaces ?? []).map((w) => ({ id: w.id, label: w.name, checked: p.workspaceId === w.id })), "-", { id: "none", label: "Unassigned", checked: p.workspaceId === null }]} onSelect={(id) => update([p.id], { workspaceId: id === "none" ? null : id }, "Workspace changed")}>
+        <MenuButton label={t("Workspace: {value}", { value: wsName(p.workspaceId) })} className={styles.cellButton} tooltip={false} entries={() => [...(workspaces ?? []).map((w) => ({ id: w.id, label: w.name, checked: p.workspaceId === w.id })), "-", { id: "none", label: t("Unassigned"), checked: p.workspaceId === null }]} onSelect={(id) => update([p.id], { workspaceId: id === "none" ? null : id }, "Workspace changed")}>
           <span className={p.workspaceId ? undefined : styles.muted}>{wsName(p.workspaceId)}</span>
           <Icon name="16.chevron.down" />
         </MenuButton>
@@ -154,7 +157,7 @@ export function PeopleTab() {
     {
       id: "billing", label: "Billing group", compare: byText((p) => bgName(p.billingGroupId)),
       render: (p) => (
-        <MenuButton label={`Billing group: ${bgName(p.billingGroupId)}`} className={styles.cellButton} tooltip={false} entries={() => [...(billing ?? []).map((b) => ({ id: b.id, label: b.name, checked: p.billingGroupId === b.id })), "-", { id: "none", label: "Unassigned", checked: p.billingGroupId === null }]} onSelect={(id) => update([p.id], { billingGroupId: id === "none" ? null : id }, "Billing group changed")}>
+        <MenuButton label={t("Billing group: {value}", { value: bgName(p.billingGroupId) })} className={styles.cellButton} tooltip={false} entries={() => [...(billing ?? []).map((b) => ({ id: b.id, label: b.name, checked: p.billingGroupId === b.id })), "-", { id: "none", label: t("Unassigned"), checked: p.billingGroupId === null }]} onSelect={(id) => update([p.id], { billingGroupId: id === "none" ? null : id }, "Billing group changed")}>
           <span className={p.billingGroupId ? undefined : styles.muted}>{bgName(p.billingGroupId)}</span>
           <Icon name="16.chevron.down" />
         </MenuButton>
@@ -164,99 +167,99 @@ export function PeopleTab() {
     ...(gp ? [{
       id: "expires", label: "Guest access expiration date", width: 180, compare: byNumber<AdminPerson>((p) => (p.role === "guest" ? p.guestExpiresAt ?? Infinity : null)),
       render: (p: AdminPerson) => (p.role !== "guest" ? null : (
-        <button type="button" className={styles.cellButton} aria-label={`Guest access expiration date: ${p.guestExpiresAt ? formatDate(p.guestExpiresAt) : "None"}`} onClick={() => setDialog({ kind: "expiry", ids: [p.id] })}>
-          <span className={p.guestExpiresAt ? undefined : styles.muted}>{p.guestExpiresAt ? formatDate(p.guestExpiresAt) : "No expiration date"}</span>
+        <button type="button" className={styles.cellButton} aria-label={t("Guest access expiration date: {date}", { date: p.guestExpiresAt ? formatDate(p.guestExpiresAt) : t("None") })} onClick={() => setDialog({ kind: "expiry", ids: [p.id] })}>
+          <span className={p.guestExpiresAt ? undefined : styles.muted}>{p.guestExpiresAt ? formatDate(p.guestExpiresAt) : t("No expiration date")}</span>
           <Icon name="16.chevron.down" />
         </button>
       )),
     }] : []),
-    { id: "active", label: "Last active", width: 120, compare: byNumber((p) => p.lastActiveAt), render: (p) => <span className={styles.muted} title={`Joined ${formatDate(p.joinedAt)}`}>{p.pending ? "Invited" : formatAgo(p.lastActiveAt, now())}</span> },
+    { id: "active", label: "Last active", width: 120, compare: byNumber((p) => p.lastActiveAt), render: (p) => <span className={styles.muted} title={t("Joined {date}", { date: formatDate(p.joinedAt) })}>{p.pending ? t("Invited") : formatAgo(p.lastActiveAt, now())}</span> },
     // SCIM / JIT metadata (Figma: "you can sort members based on your SCIM member data", 4420842863255) — the chosen ones
     ...IDP_COLUMNS.filter((c) => hasIdp && idpColumns.includes(c.id)).map((c): Column<AdminPerson> => ({
       id: `idp:${c.id}`, label: c.label, width: "minmax(100px, 1fr)", compare: byText((p) => c.get(p)),
       render: (p) => <span className={styles.muted}>{c.get(p)}</span>,
     })),
-    { id: "menu", label: "", width: 32, align: "end", render: (p) => <RowMenu label={`Actions for ${p.name ?? p.email}`} entries={rowMenu(p)} onSelect={(id) => onRowMenu(p, id)} /> },
+    { id: "menu", label: "", width: 32, align: "end", render: (p) => <RowMenu label={t("Actions for {name}", { name: p.name ?? p.email })} entries={rowMenu(p)} onSelect={(id) => onRowMenu(p, id)} /> },
   ];
 
-  const names = (list: string[]) => (list.length === 1 ? all.find((p) => p.id === list[0])?.name ?? all.find((p) => p.id === list[0])?.email ?? "1 person" : `${list.length} people`);
+  const names = (list: string[]) => (list.length === 1 ? all.find((p) => p.id === list[0])?.name ?? all.find((p) => p.id === list[0])?.email ?? tp(1, "{n} person", "{n} people") : tp(list.length, "{n} person", "{n} people"));
   const current = dialog && "ids" in dialog ? all.filter((p) => dialog.ids.includes(p.id)) : [];
   const same = <T,>(get: (p: AdminPerson) => T): T | null => (current.length && current.every((p) => get(p) === get(current[0])) ? get(current[0]) : null);
   const close = () => setDialog(null);
 
   return (
     <>
-      <div className={styles.seatCounts} role="group" aria-label="Seats">
+      <div className={styles.seatCounts} role="group" aria-label={t("Seats")}>
         {seatCounts.map(([s, n]) => (
           <button key={s} type="button" className={styles.seatCount} aria-pressed={filters.seat === s} data-seat={s} onClick={() => setFilters((f) => ({ ...f, seat: f.seat === s ? undefined : s }))}>
             <span className={styles.seatCountValue}>{n}</span>
-            <span className={styles.muted}>{SEAT_LABEL[s]}</span>
+            <span className={styles.muted}>{seatLabel(s)}</span>
           </button>
         ))}
       </div>
       <div className={styles.toolbar}>
-        <SearchField className={styles.search} value={text} onChange={setText} placeholder="Search by name or email" />
-        <MenuButton label="Filter" entries={filterEntries} onSelect={pickFilter} tooltip={false}>
+        <SearchField className={styles.search} value={text} onChange={setText} placeholder={t("Search by name or email")} />
+        <MenuButton label={t("Filter")} entries={filterEntries} onSelect={pickFilter} tooltip={false}>
           <Icon name="24.filter" />
-          <span>Filter</span>
+          <span>{t("Filter")}</span>
         </MenuButton>
         {hasIdp && (
           <MenuButton
-            label="SCIM data" tooltip={false}
-            entries={() => IDP_COLUMNS.map((c) => ({ id: c.id, label: c.label, checked: idpColumns.includes(c.id) }))}
+            label={t("SCIM data")} tooltip={false}
+            entries={() => IDP_COLUMNS.map((c) => ({ id: c.id, label: t(c.label), checked: idpColumns.includes(c.id) }))}
             onSelect={(id) => setIdpColumns((cols) => (cols.includes(id) ? cols.filter((x) => x !== id) : [...cols, id]))}
           >
-            <span>SCIM data</span>
+            <span>{t("SCIM data")}</span>
             <Icon name="16.chevron.down" />
           </MenuButton>
         )}
         <span className={styles.spacer} />
-        <span className={styles.muted}>{rows.length === all.length ? `${all.length} people` : `${rows.length} of ${all.length} people`}</span>
-        <Button variant="secondary" onClick={() => exportCsv("people", query)}>Get CSV</Button>
-        <Button variant="primary" onClick={() => setDialog({ kind: "add" })}>Add people</Button>
+        <span className={styles.muted}>{rows.length === all.length ? tp(all.length, "{n} person", "{n} people") : t("{shown} of {n} people", { shown: rows.length, n: all.length })}</span>
+        <Button variant="secondary" onClick={() => exportCsv("people", query)}>{t("Get CSV")}</Button>
+        <Button variant="primary" onClick={() => setDialog({ kind: "add" })}>{t("Add people")}</Button>
       </div>
       {chips.length > 0 && (
         <div className={styles.chips}>
           {chips.map((c) => (
             <span key={c.label} className={styles.chip}>
               {c.label}
-              <button type="button" className={styles.sort} aria-label={`Clear ${c.label}`} onClick={c.clear}><Icon name="24.close.small" /></button>
+              <button type="button" className={styles.sort} aria-label={t("Clear {filter}", { filter: c.label })} onClick={c.clear}><Icon name="24.close.small" /></button>
             </span>
           ))}
-          <Button variant="ghost" onClick={() => setFilters({})}>Clear all</Button>
+          <Button variant="ghost" onClick={() => setFilters({})}>{t("Clear all")}</Button>
         </div>
       )}
-      <Table label="People" rows={rows} columns={columns} rowKey={(p) => p.id} selection={shownSelection} onSelectionChange={setSelection} muted={(p) => p.pending} initialSort={{ column: "name", direction: "ascending" }} empty="No people match these filters" />
+      <Table label={t("People")} rows={rows} columns={columns} rowKey={(p) => p.id} selection={shownSelection} onSelectionChange={setSelection} muted={(p) => p.pending} initialSort={{ column: "name", direction: "ascending" }} empty={t("No people match these filters")} />
       {ids.length > 0 && (
-        <div className={styles.bulk} role="toolbar" aria-label="Selected people">
-          <span className={styles.bulkCount}>{ids.length} selected</span>
-          <Button variant="secondary" onClick={() => copyEmails(ids)}>Copy emails</Button>
-          {store.orgs && <Button variant="secondary" onClick={() => setDialog({ kind: "group", ids })}>Add to user group</Button>}
-          <Button variant="secondary" onClick={() => setDialog({ kind: "seat", ids })}>Change seat</Button>
-          <Button variant="secondary" onClick={() => setDialog({ kind: "role", ids })}>Change role</Button>
-          <Button variant="secondary" onClick={() => setDialog({ kind: "workspace", ids })}>Change workspace</Button>
-          <Button variant="secondary" onClick={() => setDialog({ kind: "billing", ids })}>Change billing group</Button>
-          {gp && guestIds.length > 0 && <Button variant="secondary" onClick={() => setDialog({ kind: "expiry", ids: guestIds })}>Set guest expiration date</Button>}
-          <Button variant="destructive-secondary" onClick={() => setDialog({ kind: "remove", ids })}>Remove users</Button>
+        <div className={styles.bulk} role="toolbar" aria-label={t("Selected people")}>
+          <span className={styles.bulkCount}>{t("{n} selected", { n: ids.length })}</span>
+          <Button variant="secondary" onClick={() => copyEmails(ids)}>{t("Copy emails")}</Button>
+          {store.orgs && <Button variant="secondary" onClick={() => setDialog({ kind: "group", ids })}>{t("Add to user group")}</Button>}
+          <Button variant="secondary" onClick={() => setDialog({ kind: "seat", ids })}>{t("Change seat")}</Button>
+          <Button variant="secondary" onClick={() => setDialog({ kind: "role", ids })}>{t("Change role")}</Button>
+          <Button variant="secondary" onClick={() => setDialog({ kind: "workspace", ids })}>{t("Change workspace")}</Button>
+          <Button variant="secondary" onClick={() => setDialog({ kind: "billing", ids })}>{t("Change billing group")}</Button>
+          {gp && guestIds.length > 0 && <Button variant="secondary" onClick={() => setDialog({ kind: "expiry", ids: guestIds })}>{t("Set guest expiration date")}</Button>}
+          <Button variant="destructive-secondary" onClick={() => setDialog({ kind: "remove", ids })}>{t("Remove users")}</Button>
           <IconClose onClick={() => setSelection(new Set())} />
         </div>
       )}
 
       {dialog?.kind === "seat" && (
         <ChoiceDialog
-          title={dialog.ids.length === 1 ? `Change seat for ${names(dialog.ids)}` : `Change seat for ${dialog.ids.length} people`}
-          label="Seat type"
-          choices={SEATS.map((s) => ({ value: s, label: SEAT_LABEL[s], description: SEAT_DESCRIPTION[s] }))}
+          title={dialog.ids.length === 1 ? t("Change seat for {name}", { name: names(dialog.ids) }) : t("Change seat for {n} people", { n: dialog.ids.length })}
+          label={t("Seat type")}
+          choices={SEATS.map((s) => ({ value: s, label: seatLabel(s), description: SEAT_DESCRIPTION[s] }))}
           value={same((p) => p.seat)}
           confirm="Change seat"
-          onSave={(v) => update(dialog.ids, { seat: v as Seat }, `Changed seat to ${SEAT_LABEL[v as Seat]}`)}
+          onSave={(v) => update(dialog.ids, { seat: v as Seat }, t("Changed seat to {seat}", { seat: seatLabel(v as Seat) }))}
           onClose={close}
         />
       )}
       {dialog?.kind === "role" && (
         <ChoiceDialog
-          title={`Change role for ${names(dialog.ids)}`}
-          label="Role"
+          title={t("Change role for {name}", { name: names(dialog.ids) })}
+          label={t("Role")}
           choices={[{ value: "admin", label: "Admin", description: "Manages the organization's people, teams, settings and billing" }, { value: "member", label: "Member", description: "Can see every visible team and use the organization's libraries" }, { value: "guest", label: "Guest", description: "Can only open the teams, folders and files they're invited to" }]}
           value={same((p) => p.role)}
           confirm="Change role"
@@ -266,8 +269,8 @@ export function PeopleTab() {
       )}
       {dialog?.kind === "workspace" && (
         <ChoiceDialog
-          title={`Change workspace for ${names(dialog.ids)}`}
-          label="Workspace"
+          title={t("Change workspace for {name}", { name: names(dialog.ids) })}
+          label={t("Workspace")}
           intro="A person belongs to one workspace, but can still join teams in others."
           choices={[...(workspaces ?? []).map((w) => ({ value: w.id, label: w.name })), { value: "none", label: "Unassigned" }]}
           value={same((p) => p.workspaceId ?? "none")}
@@ -278,8 +281,8 @@ export function PeopleTab() {
       )}
       {dialog?.kind === "billing" && (
         <ChoiceDialog
-          title={`Change billing group for ${names(dialog.ids)}`}
-          label="Billing group"
+          title={t("Change billing group for {name}", { name: names(dialog.ids) })}
+          label={t("Billing group")}
           choices={[...(billing ?? []).map((b) => ({ value: b.id, label: b.name })), { value: "none", label: "Unassigned" }]}
           value={same((p) => p.billingGroupId ?? "none")}
           confirm="Change billing group"
@@ -289,11 +292,11 @@ export function PeopleTab() {
       )}
       {dialog?.kind === "remove" && (
         <ConfirmDialog
-          title={`Remove ${names(dialog.ids)} from the organization?`}
-          body="They'll lose access to the organization's teams, folders and files. Their drafts move to Admin › Content › Unassigned drafts."
+          title={t("Remove {name} from the organization?", { name: names(dialog.ids) })}
+          body={t("They'll lose access to the organization's teams, folders and files. Their drafts move to Admin › Content › Unassigned drafts.")}
           confirm="Remove"
           destructive
-          onConfirm={() => run(() => store.admin.removePeople(orgId, dialog.ids), `Removed ${names(dialog.ids)}`).then(() => setSelection(new Set()))}
+          onConfirm={() => run(() => store.admin.removePeople(orgId, dialog.ids), t("Removed {name}", { name: names(dialog.ids) })).then(() => setSelection(new Set()))}
           onClose={close}
         />
       )}
@@ -313,6 +316,7 @@ const dayEnd = (day: string) => (/^\d{4}-\d{2}-\d{2}$/.test(day) ? new Date(`${d
 
 /** Change expiration date / Set guest expiration date [G+]: a date, or Remove expiration date */
 function GuestExpirationDialog({ guests, onClose }: { guests: AdminPerson[]; onClose: () => void }) {
+  useT();
   const { orgId, store, run, now } = useAdmin();
   const first = guests[0];
   const shared = guests.every((g) => g.guestExpiresAt === first?.guestExpiresAt) ? first?.guestExpiresAt ?? null : null;
@@ -320,42 +324,44 @@ function GuestExpirationDialog({ guests, onClose }: { guests: AdminPerson[]; onC
   const at = dayEnd(day);
   const valid = Number.isFinite(at) && at > now() && at <= now() + GUEST_EXPIRY_MAX_DAYS * 86_400_000;
   const ids = guests.map((g) => g.id);
-  const who = guests.length === 1 ? first.name ?? first.email : `${guests.length} guests`;
+  const who = guests.length === 1 ? first.name ?? first.email : tp(guests.length, "{n} guest", "{n} guests");
   // Closes only when saved: `run` answers undefined after its error toast, and the dialog stays for another try.
   const set = (expiresAt: number | null, done: string) =>
     void run(async () => (await store.governance!.setGuestExpiration(orgId, ids, expiresAt), true as const), done).then((ok) => ok && onClose());
   return (
     <Dialog
-      title={guests.length === 1 ? "Guest access expiration date" : "Set guest expiration date"} open size="medium" onClose={onClose}
+      title={guests.length === 1 ? t("Guest access expiration date") : t("Set guest expiration date")} open size="medium" onClose={onClose}
       footer={
         <>
-          {guests.some((g) => g.guestExpiresAt) && <Button variant="secondary" onClick={() => set(null, "Expiration date removed")}>Remove expiration date</Button>}
+          {guests.some((g) => g.guestExpiresAt) && <Button variant="secondary" onClick={() => set(null, "Expiration date removed")}>{t("Remove expiration date")}</Button>}
           <span className={styles.spacer} />
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={!valid} onClick={() => set(at, "Expiration date saved")}>Save</Button>
+          <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
+          <Button variant="primary" disabled={!valid} onClick={() => set(at, "Expiration date saved")}>{t("Save")}</Button>
         </>
       }
     >
       <div className={styles.form} data-guest-expiry={ids.join(",")}>
-        <div className={styles.note}>{who} lose{guests.length === 1 ? "s" : ""} access to the organization at the end of this day, and the seat is freed. A banner warns two weeks before.</div>
-        <Field title="Expiration date">
-          <input type="date" aria-label="Expiration date" className={styles.date} value={day} min={dayValue(now() + 86_400_000)} onChange={(e) => setDay(e.target.value)} />
+        <div className={styles.note}>{guests.length === 1 ? t("{who} loses access to the organization at the end of this day, and the seat is freed. A banner warns two weeks before.", { who }) : t("{who} lose access to the organization at the end of this day, and the seat is freed. A banner warns two weeks before.", { who })}</div>
+        <Field title={t("Expiration date")}>
+          <input type="date" aria-label={t("Expiration date")} className={styles.date} value={day} min={dayValue(now() + 86_400_000)} onChange={(e) => setDay(e.target.value)} />
         </Field>
-        {day && !valid && <div className={styles.error}>Choose a date in the future, within 10 years.</div>}
+        {day && !valid && <div className={styles.error}>{t("Choose a date in the future, within 10 years.")}</div>}
       </div>
     </Dialog>
   );
 }
 
 function IconClose({ onClick }: { onClick: () => void }) {
+  useT();
   return (
-    <button type="button" className={styles.sort} aria-label="Clear selection" onClick={onClick}>
+    <button type="button" className={styles.sort} aria-label={t("Clear selection")} onClick={onClick}>
       <Icon name="24.close.small" />
     </button>
   );
 }
 
 function AddPeopleDialog({ workspaces, billing, defaultSeat, onClose }: { workspaces: OrgWorkspace[]; billing: BillingGroup[]; defaultSeat: Seat; onClose: () => void }) {
+  useT();
   const { orgId, store, run } = useAdmin();
   const [emails, setEmails] = useState("");
   const [role, setRole] = useState<OrgRole>("member");
@@ -364,37 +370,37 @@ function AddPeopleDialog({ workspaces, billing, defaultSeat, onClose }: { worksp
   const [billingGroupId, setBillingGroupId] = useState("none");
   const list = emails.split(/[\s,;]+/).map((e) => e.trim()).filter(Boolean);
   const add = async () => {
-    const out = await run(() => store.admin.addPeople(orgId, { emails: list, role, seat, workspaceId: workspaceId === "none" ? null : workspaceId, billingGroupId: billingGroupId === "none" ? null : billingGroupId }), list.length === 1 ? `Invited ${list[0]}` : `Invited ${list.length} people`);
+    const out = await run(() => store.admin.addPeople(orgId, { emails: list, role, seat, workspaceId: workspaceId === "none" ? null : workspaceId, billingGroupId: billingGroupId === "none" ? null : billingGroupId }), list.length === 1 ? t("Invited {name}", { name: list[0] }) : t("Invited {n} people", { n: list.length }));
     if (out) onClose();
   };
   return (
     <Dialog
-      title="Add people"
+      title={t("Add people")}
       open
       size="medium"
       onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={list.length === 0} onClick={() => void add()}>Add people</Button>
+          <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
+          <Button variant="primary" disabled={list.length === 0} onClick={() => void add()}>{t("Add people")}</Button>
         </>
       }
     >
       <div className={styles.form}>
-        <Field title="Emails">
-          <TextArea label="Emails" value={emails} onChange={setEmails} placeholder="Add emails, separated by commas" minRows={3} />
+        <Field title={t("Emails")}>
+          <TextArea label={t("Emails")} value={emails} onChange={setEmails} placeholder={t("Add emails, separated by commas")} minRows={3} />
         </Field>
-        <Field title="Role">
-          <Select label="Role" variant="outlined" value={role} options={[{ value: "member", label: "Member" }, { value: "admin", label: "Admin" }, { value: "guest", label: "Guest" }]} onChange={(v) => setRole(v as OrgRole)} />
+        <Field title={t("Role")}>
+          <Select label={t("Role")} variant="outlined" value={role} options={[{ value: "member", label: t("Member") }, { value: "admin", label: t("Admin") }, { value: "guest", label: t("Guest") }]} onChange={(v) => setRole(v as OrgRole)} />
         </Field>
-        <Field title="Seat type">
-          <Select label="Seat type" variant="outlined" value={seat} options={SEATS.map((s) => ({ value: s, label: SEAT_LABEL[s] }))} onChange={(v) => setSeat(v as Seat)} />
+        <Field title={t("Seat type")}>
+          <Select label={t("Seat type")} variant="outlined" value={seat} options={SEATS.map((s) => ({ value: s, label: seatLabel(s) }))} onChange={(v) => setSeat(v as Seat)} />
         </Field>
-        <Field title="Workspace">
-          <Select label="Workspace" variant="outlined" value={workspaceId} options={[...workspaces.map((w) => ({ value: w.id, label: w.name })), { value: "none", label: "Unassigned" }]} onChange={setWorkspaceId} />
+        <Field title={t("Workspace")}>
+          <Select label={t("Workspace")} variant="outlined" value={workspaceId} options={[...workspaces.map((w) => ({ value: w.id, label: w.name })), { value: "none", label: t("Unassigned") }]} onChange={setWorkspaceId} />
         </Field>
-        <Field title="Billing group">
-          <Select label="Billing group" variant="outlined" value={billingGroupId} options={[...billing.map((b) => ({ value: b.id, label: b.name })), { value: "none", label: "Unassigned" }]} onChange={setBillingGroupId} />
+        <Field title={t("Billing group")}>
+          <Select label={t("Billing group")} variant="outlined" value={billingGroupId} options={[...billing.map((b) => ({ value: b.id, label: b.name })), { value: "none", label: t("Unassigned") }]} onChange={setBillingGroupId} />
         </Field>
       </div>
     </Dialog>
@@ -402,17 +408,18 @@ function AddPeopleDialog({ workspaces, billing, defaultSeat, onClose }: { worksp
 }
 
 function AddToGroupDialog({ ids, onClose }: { ids: string[]; onClose: () => void }) {
+  useT();
   const { orgId, store, run } = useAdmin();
   const { data: groups } = useLoad(() => store.orgs!.groups(orgId), [orgId]);
   if (!groups) return null;
   return (
     <ChoiceDialog
-      title={`Add ${ids.length === 1 ? "1 person" : `${ids.length} people`} to a user group`}
-      label="User group"
-      choices={groups.map((g) => ({ value: g.id, label: g.name, description: `${g.memberCount} members` }))}
+      title={tp(ids.length, "Add {n} person to a user group", "Add {n} people to a user group")}
+      label={t("User group")}
+      choices={groups.map((g) => ({ value: g.id, label: g.name, description: tp(g.memberCount, "{n} member", "{n} members") }))}
       value={null}
       confirm="Add to group"
-      onSave={(id) => run(() => store.orgs!.setGroupMembers(id, { add: ids }), `Added to ${groups.find((g) => g.id === id)?.name}`)}
+      onSave={(id) => run(() => store.orgs!.setGroupMembers(id, { add: ids }), t("Added to {name}", { name: groups.find((g) => g.id === id)?.name ?? "" }))}
       onClose={onClose}
     />
   );
@@ -420,6 +427,7 @@ function AddToGroupDialog({ ids, onClose }: { ids: string[]; onClose: () => void
 
 /** Admin › People › User groups (help.figma.com 38020006913943) */
 export function UserGroupsTab() {
+  useT();
   const { orgId, store, run } = useAdmin();
   const orgs = store.orgs;
   const { data: groups } = useLoad(() => (orgs ? orgs.groups(orgId) : Promise.resolve([] as UserGroup[])), [orgId, orgs]);
@@ -427,7 +435,7 @@ export function UserGroupsTab() {
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [text, setText] = useState("");
-  if (!orgs) return <div className={styles.empty}>User groups aren't available here.</div>;
+  if (!orgs) return <div className={styles.empty}>{t("User groups aren't available here.")}</div>;
   const all = people?.items ?? [];
   const nameOf = (id: string) => all.find((p) => p.id === id)?.name ?? all.find((p) => p.id === id)?.email ?? "";
   const q = text.trim().toLowerCase();
@@ -441,24 +449,25 @@ export function UserGroupsTab() {
   return (
     <>
       <div className={styles.toolbar}>
-        <SearchField className={styles.search} value={text} onChange={setText} placeholder="Search user groups" />
+        <SearchField className={styles.search} value={text} onChange={setText} placeholder={t("Search user groups")} />
         <span className={styles.spacer} />
-        <Button variant="primary" onClick={() => setCreating(true)}>Create user group</Button>
+        <Button variant="primary" onClick={() => setCreating(true)}>{t("Create user group")}</Button>
       </div>
-      <Table label="User groups" rows={rows} columns={columns} rowKey={(g) => g.id} onRowClick={(g) => setOpen(g.id)} initialSort={{ column: "name", direction: "ascending" }} empty="No user groups yet" />
-      {creating && <NameDialog title="Create user group" label="Group name" confirm="Create group" onSave={(name) => run(() => orgs.createGroup(orgId, { name }), `Created ${name}`)} onClose={() => setCreating(false)} />}
+      <Table label={t("User groups")} rows={rows} columns={columns} rowKey={(g) => g.id} onRowClick={(g) => setOpen(g.id)} initialSort={{ column: "name", direction: "ascending" }} empty={t("No user groups yet")} />
+      {creating && <NameDialog title={t("Create user group")} label={t("Group name")} confirm="Create group" onSave={(name) => run(() => orgs.createGroup(orgId, { name }), t("Created {name}", { name }))} onClose={() => setCreating(false)} />}
       {group && <GroupDialog group={group} people={all} onClose={() => setOpen(null)} />}
     </>
   );
 }
 
 function GroupDialog({ group, people, onClose }: { group: UserGroup; people: AdminPerson[]; onClose: () => void }) {
+  useT();
   const { store, run } = useAdmin();
   const orgs = store.orgs!;
   const [sub, setSub] = useState<"rename" | "add" | "delete" | null>(null);
   const columns: Column<UserGroup["members"][number]>[] = [
     { id: "name", label: "Name", compare: byText((p) => p.name ?? p.email), render: (p) => <Who person={p} /> },
-    { id: "remove", label: "", width: 90, align: "end", render: (p) => <Button variant="ghost" onClick={() => run(() => orgs.setGroupMembers(group.id, { remove: [p.id] }), "Removed from group")}>Remove</Button> },
+    { id: "remove", label: "", width: 90, align: "end", render: (p) => <Button variant="ghost" onClick={() => run(() => orgs.setGroupMembers(group.id, { remove: [p.id] }), "Removed from group")}>{t("Remove")}</Button> },
   ];
   return (
     <>
@@ -469,21 +478,21 @@ function GroupDialog({ group, people, onClose }: { group: UserGroup; people: Adm
         onClose={onClose}
         footer={
           <>
-            <Button variant="destructive-secondary" onClick={() => setSub("delete")}>Delete group</Button>
+            <Button variant="destructive-secondary" onClick={() => setSub("delete")}>{t("Delete group")}</Button>
             <span className={styles.spacer} />
-            <Button variant="secondary" onClick={() => setSub("rename")}>Rename</Button>
-            <Button variant="primary" onClick={() => setSub("add")}>Add people</Button>
+            <Button variant="secondary" onClick={() => setSub("rename")}>{t("Rename")}</Button>
+            <Button variant="primary" onClick={() => setSub("add")}>{t("Add people")}</Button>
           </>
         }
       >
         <div className={styles.form}>
           {group.description && <span className={styles.note}>{group.description}</span>}
-          <Table label="Group members" rows={group.members} columns={columns} rowKey={(p) => p.id} initialSort={{ column: "name", direction: "ascending" }} empty="No members yet" />
+          <Table label={t("Group members")} rows={group.members} columns={columns} rowKey={(p) => p.id} initialSort={{ column: "name", direction: "ascending" }} empty={t("No members yet")} />
         </div>
       </Dialog>
-      {sub === "rename" && <NameDialog title="Rename user group" label="Group name" value={group.name} confirm="Save" onSave={(name) => run(() => orgs.updateGroup(group.id, { name }))} onClose={() => setSub(null)} />}
-      {sub === "add" && <PickDialog title={`Add people to ${group.name}`} items={people.filter((p) => !p.pending && !group.members.some((m) => m.id === p.id)).map(personItem)} confirm="Add" min={1} onSave={(ids) => run(() => orgs.setGroupMembers(group.id, { add: ids }), "Added to group")} onClose={() => setSub(null)} />}
-      {sub === "delete" && <ConfirmDialog title={`Delete ${group.name}?`} body="People in the group keep their own access; access given through the group is removed." confirm="Delete group" destructive onConfirm={() => run(() => orgs.deleteGroup(group.id), "Group deleted").then(onClose)} onClose={() => setSub(null)} />}
+      {sub === "rename" && <NameDialog title={t("Rename user group")} label={t("Group name")} value={group.name} confirm="Save" onSave={(name) => run(() => orgs.updateGroup(group.id, { name }))} onClose={() => setSub(null)} />}
+      {sub === "add" && <PickDialog title={t("Add people to {name}", { name: group.name })} items={people.filter((p) => !p.pending && !group.members.some((m) => m.id === p.id)).map(personItem)} confirm="Add" min={1} onSave={(ids) => run(() => orgs.setGroupMembers(group.id, { add: ids }), "Added to group")} onClose={() => setSub(null)} />}
+      {sub === "delete" && <ConfirmDialog title={t("Delete {name}?", { name: group.name })} body={t("People in the group keep their own access; access given through the group is removed.")} confirm="Delete group" destructive onConfirm={() => run(() => orgs.deleteGroup(group.id), "Group deleted").then(onClose)} onClose={() => setSub(null)} />}
     </>
   );
 }

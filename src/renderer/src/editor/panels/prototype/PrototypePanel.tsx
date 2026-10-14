@@ -23,6 +23,7 @@ import { useDocumentVersion, useNodes, GEOMETRY_GROUPS } from "../../hooks";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import {
   ACTION_ICON,
+  actionLabel,
   DEVICE_MODELS,
   DEVICE_PRESETS,
   OVERFLOWS,
@@ -45,6 +46,7 @@ import { present } from "../../present";
 import { InteractionDetails, hasVideoFill } from "./InteractionDetails";
 import { AddInteractionsButton } from "./AddInteractions";
 import styles from "./Prototype.module.css";
+import { t, useT } from "@/i18n";
 
 export type ProtoNode = PanelNode & PrototypeFields;
 
@@ -152,6 +154,7 @@ export function PrototypePanel() {
 // ── Nothing selected: Device, Background, Flows ──────────────────────────────
 
 function NothingSelected() {
+  useT();
   const ed = useEditor();
   const page = useCurrentPage(ed.store);
   const [pageNode] = useNodes([page]) as (ProtoNode | null)[];
@@ -160,12 +163,12 @@ function NothingSelected() {
   const deviceValue = !device || !device.type || device.type === "NONE" ? "NONE" : device.type === "PRESET" && preset ? preset[0] : device.type === "PRESENTATION" ? "PRESENTATION" : "CUSTOM";
   // "No device" (help.figma.com 360040318013: "set to No device or Presentation").
   const options = [
-    { value: "NONE", label: "No device" },
+    { value: "NONE", label: t("No device") },
     "-" as const,
     ...DEVICE_PRESETS.flatMap((g, i) => [...(i ? ["-" as const] : []), ...g.items.map(([id, label, w, h]) => ({ value: id, label, hint: `${w}×${h}` }))]),
     "-" as const,
-    { value: "PRESENTATION", label: "Presentation" },
-    ...(deviceValue === "CUSTOM" ? [{ value: "CUSTOM", label: "Custom size" }] : []),
+    { value: "PRESENTATION", label: t("Presentation") },
+    ...(deviceValue === "CUSTOM" ? [{ value: "CUSTOM", label: t("Custom size") }] : []),
   ];
   const setDevice = (v: string) => {
     if (v === "NONE") return void ed.setProps([page], protoFields({ prototypeDevice: null }), "Prototype device");
@@ -186,19 +189,19 @@ function NothingSelected() {
   const flows = frames.filter((f) => f.flow).sort((a, b) => ((a.flow?.position ?? "") < (b.flow?.position ?? "") ? -1 : 1));
   return (
     <>
-      <PanelSection title="Device">
+      <PanelSection title={t("Device")}>
         <div className={styles.row}>
-          <Select label="Device" value={deviceValue} options={options} onChange={setDevice} className={styles.grow} />
+          <Select label={t("Device")} value={deviceValue} options={options} onChange={setDevice} className={styles.grow} />
         </div>
         {device?.type === "PRESET" && (
           <div className={styles.row}>
             <SegmentedControl
-              label="Orientation"
+              label={t("Orientation")}
               fullWidth
               value={device.rotation === "CCW_90" ? "LANDSCAPE" : "PORTRAIT"}
               options={[
-                { value: "PORTRAIT", label: "Portrait" },
-                { value: "LANDSCAPE", label: "Landscape" },
+                { value: "PORTRAIT", label: t("Portrait") },
+                { value: "LANDSCAPE", label: t("Landscape") },
               ]}
               onChange={(v) => ed.setProps([page], protoFields({ prototypeDevice: { ...device, rotation: v === "LANDSCAPE" ? "CCW_90" : "NONE" } }), "Prototype device")}
             />
@@ -206,15 +209,15 @@ function NothingSelected() {
         )}
         {current && models.length > 1 && (
           <div className={styles.row}>
-            <Select label="Model" value={current.model} options={models.map(([value, label]) => ({ value, label }))} onChange={setModel} className={styles.grow} />
+            <Select label={t("Model")} value={current.model} options={models.map(([value, label]) => ({ value, label: t(label) }))} onChange={setModel} className={styles.grow} />
           </div>
         )}
       </PanelSection>
-      <PanelSection title="Background">
+      <PanelSection title={t("Background")}>
         <div className={styles.row}>
           <ColorInput
             className={styles.grow}
-            label="Prototype background"
+            label={t("Prototype background")}
             color={colorToHex(background)}
             opacity={toPercent(background.a ?? 1)}
             onColor={(hex, info) => ed.edit("Prototype background", info, () => void ed.engine.setProps([page], protoFields({ prototypeBackgroundColor: hexToColor(hex, background.a ?? 1) })))}
@@ -222,7 +225,7 @@ function NothingSelected() {
           />
         </div>
       </PanelSection>
-      <PanelSection title="Flows" empty={flows.length === 0}>
+      <PanelSection title={t("Flows")} empty={flows.length === 0}>
         {flows.map((f) => (
           <div key={f.guid} className={styles.flowRow} data-flow={f.guid}>
             <button
@@ -234,9 +237,9 @@ function NothingSelected() {
               }}
             >
               <Icon name="16.play" />
-              <span>{f.flow?.name || "Flow"}</span>
+              <span>{f.flow?.name || t("Flow")}</span>
             </button>
-            <IconButton icon="24.play.small" label="Present flow" tone="secondary" onClick={() => present(ed, { node: f.guid })} />
+            <IconButton icon="24.play.small" label={t("Present flow")} tone="secondary" onClick={() => present(ed, { node: f.guid })} />
           </div>
         ))}
       </PanelSection>
@@ -272,6 +275,7 @@ function Selected({
 }
 
 function FlowSection({ frame, frames }: { frame: ProtoNode; frames: PageFrame[] }) {
+  useT();
   const ed = useEditor();
   const flow = frame.prototypeStartingPoint;
   const add = () => {
@@ -281,27 +285,27 @@ function FlowSection({ frame, frames }: { frame: ProtoNode; frames: PageFrame[] 
   };
   return (
     <PanelSection
-      title="Flow starting point"
+      title={t("Flow starting point")}
       empty={!flow}
-      actions={flow ? undefined : <IconButton icon="24.plus.small" label="Add starting point" tone="secondary" onClick={add} />}
+      actions={flow ? undefined : <IconButton icon="24.plus.small" label={t("Add starting point")} tone="secondary" onClick={add} />}
     >
       {flow && (
         <>
           <div className={styles.row}>
             <TextInput
               className={styles.grow}
-              label="Flow name"
+              label={t("Flow name")}
               prefix="16.play"
               value={flow.name ?? ""}
               onCommit={(name) => ed.setProps([frame.guid], protoFields({ prototypeStartingPoint: { ...flow, name: name.trim() || flow.name } }), "Rename flow")}
             />
-            <IconButton icon="24.minus.small" label="Remove starting point" tone="secondary" onClick={() => ed.setProps([frame.guid], protoFields({ prototypeStartingPoint: null }), "Remove starting point")} />
+            <IconButton icon="24.minus.small" label={t("Remove starting point")} tone="secondary" onClick={() => ed.setProps([frame.guid], protoFields({ prototypeStartingPoint: null }), "Remove starting point")} />
           </div>
           <div className={styles.row}>
             <TextInput
               className={styles.grow}
-              label="Description"
-              placeholder="Add description"
+              label={t("Description")}
+              placeholder={t("Add description")}
               value={flow.description ?? ""}
               onCommit={(description) => ed.setProps([frame.guid], protoFields({ prototypeStartingPoint: { ...flow, description } }), "Edit flow description")}
             />
@@ -326,6 +330,7 @@ function InteractionsSection({
   /** Two or more top-level frames: "Add interactions" (AI) connects them */
   screens?: boolean;
 }) {
+  useT();
   const ed = useEditor();
   const one = nodes.length === 1 ? nodes[0] : null;
   const list = one ? liveInteractions(one.prototypeInteractions) : [];
@@ -350,9 +355,9 @@ function InteractionsSection({
     if (one) onOpen(one.guid, list.length, anchor);
   };
   return (
-    <PanelSection title="Interactions" empty={list.length === 0 && !mixed && !screens} actions={<IconButton icon="24.plus.small" label="Add interaction" tone="secondary" onClick={add} />}>
+    <PanelSection title={t("Interactions")} empty={list.length === 0 && !mixed && !screens} actions={<IconButton icon="24.plus.small" label={t("Add interaction")} tone="secondary" onClick={add} />}>
       {screens && <AddInteractionsButton />}
-      {mixed && <div className={styles.note}>Click + to replace mixed interactions</div>}
+      {mixed && <div className={styles.note}>{t("Click + to replace mixed interactions")}</div>}
       {one &&
         // Live (2026-10-10): the newest interaction on top; each row "Hover → 1" — the short trigger, the first
         // action's glyph, where it goes — in a 184 × 26 outlined button; "−" while the row is hovered; the open one's
@@ -366,13 +371,13 @@ function InteractionsSection({
             return (
               <div key={index} className={cx(styles.interaction, isOpen && styles.interactionOpen)} data-interaction={index}>
                 <button type="button" className={styles.interactionButton} aria-haspopup="dialog" aria-expanded={isOpen} onClick={(e) => onOpen(one.guid, index, e.currentTarget)}>
-                  <span className={styles.trigger}>{s.trigger}</span>
+                  <span className={styles.trigger}>{t(s.trigger)}</span>
                   <Icon name={ACTION_ICON[s.kind]} className={styles.actionIcon} />
-                  <span className={styles.target}>{s.action}</span>
+                  <span className={styles.target}>{s.action === actionLabel(s.kind) || s.action === "None" ? t(s.action) : s.action}</span>
                 </button>
                 <IconButton
                   icon="24.minus.small"
-                  label="Remove interaction"
+                  label={t("Remove interaction")}
                   tone="secondary"
                   className={styles.remove}
                   onClick={() => write(one, list.filter((_, k) => k !== index), "Remove interaction")}
@@ -386,6 +391,7 @@ function InteractionsSection({
 
 /** Prototype › Video: what the video does when its frame is shown (Autoplay, Loop, the sound). */
 function VideoSection({ nodes }: { nodes: ProtoNode[] }) {
+  useT();
   const ed = useEditor();
   const all = (f: (n: ProtoNode) => boolean): boolean | typeof MIXED => {
     const v = new Set(nodes.map(f));
@@ -399,13 +405,13 @@ function VideoSection({ nodes }: { nodes: ProtoNode[] }) {
       for (const n of nodes) ed.engine.setProps([n.guid], protoFields({ videoPlayback: { ...(n.videoPlayback ?? {}), ...patch } }));
     });
   return (
-    <PanelSection title="Video">
+    <PanelSection title={t("Video")}>
       <div className={styles.videoRow} data-video-settings>
-        <Checkbox label="Autoplay" checked={autoplay} onChange={(c) => set({ autoplay: c }, "Video autoplay")} className={styles.grow} />
-        <ToggleIconButton icon="24.loop" label="Loop" pressed={loop} onPressedChange={(on) => set({ mediaLoop: on }, "Video loop")} />
+        <Checkbox label={t("Autoplay")} checked={autoplay} onChange={(c) => set({ autoplay: c }, "Video autoplay")} className={styles.grow} />
+        <ToggleIconButton icon="24.loop" label={t("Loop")} pressed={loop} onPressedChange={(on) => set({ mediaLoop: on }, "Video loop")} />
         <ToggleIconButton
           icon={muted === true ? "24.sound.off" : "24.sound"}
-          label={muted === true ? "Sound off" : "Sound on"}
+          label={muted === true ? t("Sound off") : t("Sound on")}
           pressed={muted === MIXED ? MIXED : !muted}
           onPressedChange={(on) => set({ muted: !on }, "Video sound")}
         />
@@ -415,6 +421,7 @@ function VideoSection({ nodes }: { nodes: ProtoNode[] }) {
 }
 
 function ScrollSection({ nodes, topLevel, isFrame }: { nodes: ProtoNode[]; topLevel: boolean; isFrame: boolean }) {
+  useT();
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const same = <T,>(f: (n: ProtoNode) => T): T | "mixed" => {
@@ -424,27 +431,27 @@ function ScrollSection({ nodes, topLevel, isFrame }: { nodes: ProtoNode[]; topLe
   const overflow = same((n) => n.scrollDirection ?? "NONE");
   const position = same((n) => n.scrollBehavior ?? "SCROLLS");
   return (
-    <PanelSection title="Scroll behavior">
+    <PanelSection title={t("Scroll behavior")}>
       {!topLevel && (
         <div className={styles.labelled}>
-          <span className={styles.label}>Position</span>
+          <span className={styles.label}>{t("Position")}</span>
           <Select
-            label="Position"
+            label={t("Position")}
             className={styles.grow}
             value={position === "mixed" ? MIXED : (position as string)}
-            options={SCROLL_POSITIONS}
+            options={SCROLL_POSITIONS.map((o) => ({ ...o, label: t(o.label) }))}
             onChange={(v) => ed.setProps(refs, protoFields({ scrollBehavior: v === "SCROLLS" ? null : (v as ScrollBehavior) }), "Scroll position")}
           />
         </div>
       )}
       {isFrame && (
         <div className={styles.labelled}>
-          <span className={styles.label}>Overflow</span>
+          <span className={styles.label}>{t("Overflow")}</span>
           <Select
-            label="Overflow"
+            label={t("Overflow")}
             className={styles.grow}
             value={overflow === "mixed" ? MIXED : (overflow as string)}
-            options={OVERFLOWS}
+            options={OVERFLOWS.map((o) => ({ ...o, label: t(o.label) }))}
             onChange={(v) => ed.setProps(refs, protoFields({ scrollDirection: v === "NONE" ? null : (v as ScrollDirection) }), "Overflow")}
           />
         </div>

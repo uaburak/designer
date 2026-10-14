@@ -130,6 +130,15 @@ struct Flow {
 // Reads. Absent fields read as their schema defaults; unreadable bytes as absent.
 std::vector<Interaction> interactions(const NodeProps& p);
 bool hasInteractions(const NodeProps& p);
+// An instance's interactions as they play (Figma's model, as its files show it: an instance stores copies of its main's
+// interactions under their ids, plus those added on the instance). An entry with the id of one of its main's stands for
+// that one — the main's as it is now, unless the instance changed it (an override: equal to no variant's entry of that
+// id); an entry with the id of another variant's of its set is a copy left from before a variant switch and goes; any
+// other is the instance's own, after the main's. `main`: its main's props (null: unknown — its own list as it is);
+// `variants`: every variant of the main's set (the main among them), or just the main. `ownIndex` (optional): for each
+// entry, its index in the instance's own interactions(), −1 for one inherited from the main.
+std::vector<Interaction> instanceInteractions(const NodeProps& own, const NodeProps* main, const std::vector<const NodeProps*>& variants,
+                                              std::vector<int>* ownIndex = nullptr);
 Overflow overflow(const NodeProps& p);
 ScrollBehavior scrollBehavior(const NodeProps& p);
 OverlaySettings overlaySettings(const NodeProps& p);

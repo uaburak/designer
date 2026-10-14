@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "kiwi.h"
+
 namespace eng {
 
 LabelFrame labelFrame(const Mat2x3& toScreen, Vec2 size) {
@@ -35,6 +37,29 @@ LabelFrame labelFrame(const Mat2x3& toScreen, Vec2 size) {
   return f;
 }
 
+Guid thumbnailNode(const Document& doc) {
+  const Node* root = doc.get(Guid{0, 0});
+  if (!root) return kNoGuid;
+  auto it = root->props.extra.find("thumbnailInfo");
+  if (it == root->props.extra.end() || it->second.empty()) return kNoGuid;
+  // NodeChange.thumbnailInfo = 466: ThumbnailInfo { GUID nodeID = 1; string thumbnailVersion = 2; }
+  constexpr uint32_t kThumbnailInfoField = 466;
+  kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(it->second.data()), it->second.size());
+  uint32_t field = 0;
+  if (!bb.readVarUint(field) || field != kThumbnailInfoField) return kNoGuid;
+  for (;;) {
+    uint32_t f = 0;
+    if (!bb.readVarUint(f) || f == 0) return kNoGuid;
+    if (f == 1) {
+      Guid g;
+      if (!bb.readVarUint(g.sessionID) || !bb.readVarUint(g.localID)) return kNoGuid;
+      return doc.get(g) ? g : kNoGuid;
+    }
+    const char* text = nullptr;
+    if (f != 2 || !bb.readString(text)) return kNoGuid;
+  }
+}
+
 bool showsTitle(const Document& doc, Guid id) {
   const Node* n = doc.get(id);
   if (!n || !n->props.isFrameLike()) return false;
@@ -45,6 +70,7 @@ bool showsTitle(const Document& doc, Guid id) {
 std::vector<FrameTitle> frameTitles(const Document& doc, Guid page, const Mat2x3& view, const Rect& screen, const OverlayStyle& style,
                                     const std::function<double(const std::string&, bool)>& measure, Guid focus) {
   std::vector<FrameTitle> out;
+  const Guid thumbnail = thumbnailNode(doc);
   Rect near{screen.x - 200, screen.y - 40, screen.w + 400, screen.h + 80};
   auto visit = [&](auto&& self, Guid parent) -> void {
     for (Guid c : doc.children(parent)) {
@@ -78,7 +104,8 @@ std::vector<FrameTitle> frameTitles(const Document& doc, Guid page, const Mat2x3
           // selected or not (live Figma round 11: canvas-instance-selected; menu-context-main-component and
           // menu-context-multi-and-smart-selection show the unselected "Button instance" and "Chip instance" bare under
           // the main component's "❖ Button").
-          t.icon = n->props.isComponentish() ? TitleIcon::Component : TitleIcon::None;
+          // The file's thumbnail shows Figma's thumbnail glyph before its name (a component's too: the glyph says more).
+          t.icon = c == thumbnail ? TitleIcon::Thumbnail : n->props.isComponentish() ? TitleIcon::Component : TitleIcon::None;
           double x = b.x;
           t.baseline = b.y - style.titleBaselineGap;
           if (t.icon != TitleIcon::None) {

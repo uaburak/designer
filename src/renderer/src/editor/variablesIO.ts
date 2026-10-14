@@ -11,6 +11,7 @@
  *   (modes matched by name, else the default mode's value; aliases to variables the file lacks take their resolved
  *   values).
  */
+import { t, tp } from "@/i18n";
 import { showToast } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import type { EditorController } from "./controller";
@@ -63,7 +64,7 @@ function parseAll(files: readonly { name: string; text: string }[]): { name: str
     try {
       out.push({ name: f.name, file: parseTokens(f.text) });
     } catch {
-      showToast({ message: `Couldn't import “${f.name}”: it isn't a design tokens JSON file`, kind: "error" });
+      showToast({ message: t("Couldn't import “{name}”: it isn't a design tokens JSON file", { name: f.name }), kind: "error" });
       return null;
     }
   }
@@ -95,7 +96,7 @@ export function importIntoMode(ed: EditorController, collection: Guid, mode: Gui
       if (value && setVariableValue(ed, v.id, mode, value)) updated++;
     }
   });
-  showToast({ message: `Imported ${updated} of ${tokens.length} ${tokens.length === 1 ? "variable" : "variables"}` });
+  showToast({ message: tp(tokens.length, "Imported {updated} of {n} variable", "Imported {updated} of {n} variables", { updated }) });
   return updated;
 }
 
@@ -153,7 +154,7 @@ export function importModes(ed: EditorController, collection: Guid, files: reado
       }
     });
   });
-  showToast({ message: `Imported ${types.size} ${types.size === 1 ? "variable" : "variables"} in ${parsed.length} ${parsed.length === 1 ? "mode" : "modes"}` });
+  showToast({ message: t("Imported {variables} in {modes}", { variables: tp(types.size, "{n} variable", "{n} variables"), modes: tp(parsed.length, "{n} mode", "{n} modes") }) });
   return created;
 }
 

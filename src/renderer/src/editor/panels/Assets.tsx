@@ -28,6 +28,7 @@ import { SimilarAssets, useSimilarComponents } from "../search/Similar";
 import { TabHeader } from "./TabHeader";
 import lstyles from "./libraries/Libraries.module.css";
 import styles from "./Assets.module.css";
+import { t, tp, useT } from "@/i18n";
 
 /** A grid tile (live: 96 × 96) */
 const TILE = 96;
@@ -68,9 +69,8 @@ function remoteItems(lib: string, libName: string, assets: readonly LibraryAsset
     });
 }
 
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
-
 export function Assets() {
+  useT();
   const ed = useEditor();
   const local = useComponentAssets();
   const libs = useLibraries();
@@ -84,11 +84,11 @@ export function Assets() {
   const pending = libs.on ? ed.libraries.pendingCount() : 0;
 
   const sections: Section[] = [];
-  if (local.length) sections.push({ key: "local", title: "Created in this file", items: local, pages: ed.store.pages.map((p) => p.guid) });
+  if (local.length) sections.push({ key: "local", title: t("Created in this file"), items: local, pages: ed.store.pages.map((p) => p.guid) });
   for (const lib of libs.enabled) {
     const manifest = libs.manifests.get(lib);
     if (!manifest) continue;
-    const name = libs.names.get(lib) ?? "Library";
+    const name = libs.names.get(lib) ?? t("Library");
     const items = remoteItems(lib, name, manifest.assets);
     if (!items.length) continue; // a library of styles and variables only: nothing to list here
     sections.push({ key: `lib:${lib}`, title: name, items, pages: [...new Set(items.map((i) => i.page))], library: lib });
@@ -108,14 +108,14 @@ export function Assets() {
     if (a.library && a.remote) {
       void insertLibraryComponent(ed, a.library, a.remote, point)
         .then((made) => {
-          if (!made) showToast({ message: "The instance couldn't be inserted" });
+          if (!made) showToast({ message: t("The instance couldn't be inserted") });
           else ed.focusCanvas();
         })
-        .catch(() => showToast({ message: "The library component couldn't be loaded", kind: "error" }));
+        .catch(() => showToast({ message: t("The library component couldn't be loaded"), kind: "error" }));
       return;
     }
     const made = insertInstance(ed, a.target, point);
-    if (!made) showToast({ message: "The instance couldn't be inserted" });
+    if (!made) showToast({ message: t("The instance couldn't be inserted") });
     else ed.focusCanvas();
   };
 
@@ -172,14 +172,14 @@ export function Assets() {
           <span className={styles.tileBox}>
             {a.remote ? <RemoteThumb asset={a.remote} size={TILE} className={styles.remoteThumb} /> : <Thumb asset={a} size={TILE} />}
             {a.kind === "set" && (a.variantCount ?? 0) > 0 && (
-              <span className={styles.variants} aria-label={`Includes ${a.variantCount} variants`}>
+              <span className={styles.variants} aria-label={tp(a.variantCount ?? 0, "Includes {n} variant", "Includes {n} variants")}>
                 {a.variantCount}
               </span>
             )}
           </span>
           <span className={styles.tileName}>{assetLabel(a.name)}</span>
           {/* Live: each tile's hint for assistive tech (its "view details" half isn't built here) */}
-          <span className={styles.srOnly}>Press Enter or Space to insert.</span>
+          <span className={styles.srOnly}>{t("Press Enter or Space to insert.")}</span>
         </>
       ) : (
         <>
@@ -202,10 +202,10 @@ export function Assets() {
     );
 
   const settingsEntries: MenuEntry[] = [
-    { id: "grid", label: "Grid", checked: view === "grid" },
-    { id: "list", label: "List", checked: view === "list" },
+    { id: "grid", label: t("Grid"), checked: view === "grid" },
+    { id: "list", label: t("List"), checked: view === "list" },
     "-",
-    { id: "libraries", label: "Manage libraries…", disabled: !libs.on },
+    { id: "libraries", label: t("Manage libraries…"), disabled: !libs.on },
   ];
 
   let body: React.ReactNode;
@@ -213,15 +213,15 @@ export function Assets() {
     body = (
       <EmptyState
         icon="24.component"
-        title="No components yet"
-        body={libs.on ? "Components you create in this file and the libraries you add show up here. Select layers and press ⌥⌘K." : "Components you create in this file show up here. Select layers and press ⌥⌘K."}
-        action={libs.on ? { label: "Browse libraries", onClick: () => openLibraries() } : undefined}
+        title={t("No components yet")}
+        body={libs.on ? t("Components you create in this file and the libraries you add show up here. Select layers and press ⌥⌘K.") : t("Components you create in this file show up here. Select layers and press ⌥⌘K.")}
+        action={libs.on ? { label: t("Browse libraries"), onClick: () => openLibraries() } : undefined}
       />
     );
   } else if (query) {
     body = (
-      <div className={styles.scroll} role="tree" aria-label="Assets">
-        {!found.length && !similar.length && <div className={styles.none}>No results for “{query}”</div>}
+      <div className={styles.scroll} role="tree" aria-label={t("Assets")}>
+        {!found.length && !similar.length && <div className={styles.none}>{t("No results for “{query}”", { query })}</div>}
         {found.map(({ s, list }) => (
           <div key={s.key} role="group" aria-label={s.title} data-assets-section={s.title}>
             <div className={styles.heading}>{s.title}</div>
@@ -234,7 +234,7 @@ export function Assets() {
   } else if (!open) {
     body = (
       <div className={styles.scroll} data-all-libraries="">
-        <div className={styles.allHeading}>All libraries</div>
+        <div className={styles.allHeading}>{t("All libraries")}</div>
         {sections.map((s) => (
           <button key={s.key} type="button" className={styles.card} data-library-card={s.title} onClick={() => go({ section: s.key })}>
             <span className={styles.cardThumb}>
@@ -245,12 +245,12 @@ export function Assets() {
               {/* "An approved library shows a check mark next to its name … in the Assets panel" (help, §16.1) */}
               {s.library && <ApprovedMark entry={libs.available.find((e) => e.fileKey === s.library)} orgName={libs.org?.orgName ?? null} />}
             </span>
-            <span className={styles.cardCount}>{plural(s.items.length, "component")}</span>
+            <span className={styles.cardCount}>{tp(s.items.length, "{n} component", "{n} components")}</span>
           </button>
         ))}
         {/* Live: always offered (the Libraries modal says what this file can add) */}
         <button type="button" className={styles.addMore} onClick={() => openLibraries()}>
-          Add more libraries
+          {t("Add more libraries")}
         </button>
       </div>
     );
@@ -260,7 +260,7 @@ export function Assets() {
     body = (
       <div className={styles.scroll} role="tree" aria-label={open.title} data-assets-section={open.title}>
         <div className={styles.path}>
-          <IconButton icon="24.arrow.left" label="Back" tone="secondary" onClick={() => go(page ? { section: open.key } : null)} />
+          <IconButton icon="24.arrow.left" label={t("Back")} tone="secondary" onClick={() => go(page ? { section: open.key } : null)} />
           <button type="button" className={styles.crumb} onClick={() => go({ section: open.key })}>
             {open.title}
           </button>
@@ -289,21 +289,21 @@ export function Assets() {
   return (
     <div className={styles.assets} data-assets="">
       <TabHeader
-        title="Assets"
+        title={t("Assets")}
         actions={
           // Live (rail-assets.txt): Libraries at 204, 12 — its blue dot while an enabled library has updates.
           <span className={lstyles.libButton}>
-            <IconButton icon="24.library" label={librariesButtonLabel(ed)} tone="secondary" data-libraries-button="" onClick={() => openLibraries(pending ? "updates" : "libraries")} />
+            <IconButton icon="24.library" label={t(librariesButtonLabel(ed))} tone="secondary" data-libraries-button="" onClick={() => openLibraries(pending ? "updates" : "libraries")} />
             {pending > 0 && <span className={lstyles.badge} data-updates-badge="" aria-hidden />}
           </span>
         }
       />
       <div className={styles.toolbar}>
-        <SearchField data-assets-search="" className={styles.search} value={query} onChange={setQuery} placeholder={open ? "Search in this library" : "Search all libraries"} label={open ? "Search in this library" : "Search all libraries"} />
+        <SearchField data-assets-search="" className={styles.search} value={query} onChange={setQuery} placeholder={open ? t("Search in this library") : t("Search all libraries")} label={open ? t("Search in this library") : t("Search all libraries")} />
         <div ref={settingsButton} style={{ display: "contents" }}>
           <IconButton
             icon="24.adjust.small"
-            label="Libraries and settings"
+            label={t("Libraries and settings")}
             tone="secondary"
             onClick={(e) => {
               if (settings) return setSettings(null);
@@ -314,8 +314,8 @@ export function Assets() {
         </div>
       </div>
       {pending > 0 && (
-        <Banner tone="brand" icon="24.library" className={lstyles.updatesBanner} action={{ label: "Review", onClick: () => openLibraries("updates") }}>
-          {pending === 1 ? "1 library update available" : `${pending} library updates available`}
+        <Banner tone="brand" icon="24.library" className={lstyles.updatesBanner} action={{ label: t("Review"), onClick: () => openLibraries("updates") }}>
+          {tp(pending, "{n} library update available", "{n} library updates available")}
         </Banner>
       )}
       {body}
@@ -330,7 +330,7 @@ export function Assets() {
         <ContextMenu
           at={settings}
           entries={settingsEntries}
-          label="Libraries and settings"
+          label={t("Libraries and settings")}
           ignore={settingsButton}
           onSelect={(id) => {
             if (id === "grid" || id === "list") ed.ui.set({ assetsView: id });
@@ -345,6 +345,7 @@ export function Assets() {
 
 /** Right click on a local component: Go to main component, Hide when publishing (Figma's, R5). */
 function AssetMenu({ ed, at, asset, onClose }: { ed: EditorController; at: { x: number; y: number }; asset: Item; onClose: () => void }) {
+  useT();
   const hidden = isHiddenWhenPublishing(ed, asset.id);
   const byName = /^[._]/.test(asset.name);
   return (
@@ -352,9 +353,9 @@ function AssetMenu({ ed, at, asset, onClose }: { ed: EditorController; at: { x: 
       at={at}
       label={asset.name}
       entries={[
-        { id: "go", label: "Go to main component" },
+        { id: "go", label: t("Go to main component") },
         "-",
-        { id: "hide", label: "Hide when publishing", checked: hidden || byName, disabled: byName || !ed.libraries.get().on, hint: byName ? "Name starts with _ or ." : undefined },
+        { id: "hide", label: t("Hide when publishing"), checked: hidden || byName, disabled: byName || !ed.libraries.get().on, hint: byName ? t("Name starts with _ or .") : undefined },
       ]}
       onSelect={(id) => {
         if (id === "go") {

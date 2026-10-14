@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CodeBlock, EmptyState, FocusTrap, IconButton, Portal, ScrollArea, SegmentedControl, Spinner } from "@/ds";
 import { Engine } from "@/engine/Engine";
+import { intlLocale, t, tp, useT } from "@/i18n";
 import type { Guid, Message, NodeChange } from "@/engine/codec";
 import { cssText } from "../../../../viewer/inspect/css";
 import { ViewerDoc } from "../../../../viewer/viewerDoc";
@@ -30,10 +31,16 @@ const KIND_ORDER: Record<string, number> = { Edited: 0, Added: 1, Deleted: 2 };
 
 function versionTitle(v: VersionInfo): string {
   if (v.title) return v.title;
-  return v.kind === "autosave" ? "Autosave" : v.kind === "publish" ? "Library published" : v.kind === "restore" ? "Restored version" : v.kind === "import" ? "Imported" : "Version";
+  return v.kind === "autosave" ? t("Autosave") : v.kind === "publish" ? t("Library published") : v.kind === "restore" ? t("Restored version") : v.kind === "import" ? t("Imported") : t("Version");
 }
 
-const when = (ms: number) => new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const COUNT_TEXT: Record<string, (n: number) => string> = {
+  Edited: (n) => tp(n, "{n} edited", "{n} edited"),
+  Added: (n) => tp(n, "{n} added", "{n} added"),
+  Deleted: (n) => tp(n, "{n} deleted", "{n} deleted"),
+};
+
+const when = (ms: number) => new Date(ms).toLocaleString(intlLocale(), { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 /** A design's PNG from an engine, scaled to fit 1200 px, as an object URL. */
 async function snapshot(engine: Engine, images: ((h: string) => Promise<Uint8Array | null>) | null, ref: Guid): Promise<string | null> {
@@ -52,6 +59,7 @@ interface Side {
 }
 
 function Compare({ root }: { root: Guid }) {
+  useT();
   const ed = useEditor();
   const canvas = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
@@ -151,7 +159,7 @@ function Compare({ root }: { root: Guid }) {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Compare changes"
+        aria-label={t("Compare changes")}
         className={styles.compareWindow}
         onKeyDown={(e) => {
           if (e.key === "Escape") {
@@ -161,20 +169,20 @@ function Compare({ root }: { root: Guid }) {
         }}
       >
       <header className={styles.compareHeader}>
-        <span className={styles.compareTitle}>Compare changes</span>
+        <span className={styles.compareTitle}>{t("Compare changes")}</span>
         <span className={styles.hint}>{name}</span>
         <span className={styles.grow} />
-        <IconButton icon="24.close.small" label="Close" onClick={close} />
+        <IconButton icon="24.close.small" label={t("Close")} onClick={close} />
       </header>
       <canvas ref={canvas} id="compare-canvas" className={styles.hiddenCanvas} aria-hidden />
       <div className={styles.compare} data-compare="">
         <nav className={styles.compareNav}>
-          <div className={styles.compareHeading}>Version history</div>
+          <div className={styles.compareHeading}>{t("Version history")}</div>
           <ScrollArea className={styles.compareVersions}>
             {versions === null ? (
               <Spinner size={16} />
             ) : versions.length === 0 ? (
-              <div className={styles.hint}>No saved versions yet. Save one with Save to version history (⌥⌘S).</div>
+              <div className={styles.hint}>{t("No saved versions yet. Save one with Save to version history (⌥⌘S).")}</div>
             ) : (
               [...versions]
                 .sort((a, b) => b.createdAt - a.createdAt)
@@ -186,16 +194,16 @@ function Compare({ root }: { root: Guid }) {
                 ))
             )}
           </ScrollArea>
-          <div className={styles.compareHeading}>Layers</div>
+          <div className={styles.compareHeading}>{t("Layers")}</div>
           <ScrollArea className={styles.compareLayers}>
-            {before && after && !changes.length && <div className={styles.hint}>No changes since this version.</div>}
+            {before && after && !changes.length && <div className={styles.hint}>{t("No changes since this version.")}</div>}
             {[...changes]
               .sort((a, b) => (a.depth === 0 ? -1 : b.depth === 0 ? 1 : 0) || 0)
               .map((c) => (
                 <button key={c.id} type="button" className={styles.compareLayer} style={{ paddingLeft: 8 + c.depth * 12 }} aria-current={c.id === chosen?.id || undefined} data-change={c.kind} onClick={() => setLayer(c.id)}>
                   <span className={styles.grow}>{c.name || c.type}</span>
                   <span className={styles.changeTag} data-kind={c.kind}>
-                    {c.kind}
+                    {t(c.kind)}
                   </span>
                 </button>
               ))}
@@ -204,29 +212,29 @@ function Compare({ root }: { root: Guid }) {
         <section className={styles.compareMain}>
           <div className={styles.compareToolbar}>
             <SegmentedControl
-              label="View"
+              label={t("View")}
               value={view}
               options={[
-                { value: "side", label: "Side by side" },
-                { value: "overlay", label: "Overlay" },
+                { value: "side", label: t("Side by side") },
+                { value: "overlay", label: t("Overlay") },
               ]}
               onChange={(x) => setView(x as "side" | "overlay")}
             />
             {view === "overlay" && (
-              <input type="range" min={0} max={100} value={opacity} aria-label="Current version opacity" onChange={(e) => setOpacity(Number(e.target.value))} className={styles.overlaySlider} />
+              <input type="range" min={0} max={100} value={opacity} aria-label={t("Current version opacity")} onChange={(e) => setOpacity(Number(e.target.value))} className={styles.overlaySlider} />
             )}
             <span className={styles.grow} />
             <span className={styles.hint} data-change-counts="">
               {Object.keys(counts)
                 .sort((a, b) => KIND_ORDER[a] - KIND_ORDER[b])
-                .map((k) => `${counts[k]} ${k.toLowerCase()}`)
+                .map((k) => (COUNT_TEXT[k] ? COUNT_TEXT[k](counts[k]) : `${counts[k]} ${k.toLowerCase()}`))
                 .join(" · ")}
             </span>
           </div>
           {error ? (
-            <EmptyState icon="24.warning" title="This version can't be opened" body={error} />
+            <EmptyState icon="24.warning" title={t("This version can't be opened")} body={error} />
           ) : !ed.source.openVersion ? (
-            <EmptyState icon="24.info" title="Version history isn't available for this file" />
+            <EmptyState icon="24.info" title={t("Version history isn't available for this file")} />
           ) : loading || !after ? (
             <div className={styles.compareLoading}>
               <Spinner size={24} />
@@ -234,18 +242,18 @@ function Compare({ root }: { root: Guid }) {
           ) : view === "side" ? (
             <div className={styles.sideBySide}>
               <figure className={styles.compareFigure}>
-                <figcaption>{v ? `${versionTitle(v)} · ${when(v.createdAt)}` : "Previous version"}</figcaption>
-                {before?.image ? <img src={before.image} alt="Previous version" data-before="" /> : <div className={styles.hint}>Not in this version</div>}
+                <figcaption>{v ? `${versionTitle(v)} · ${when(v.createdAt)}` : t("Previous version")}</figcaption>
+                {before?.image ? <img src={before.image} alt={t("Previous version")} data-before="" /> : <div className={styles.hint}>{t("Not in this version")}</div>}
               </figure>
               <figure className={styles.compareFigure}>
-                <figcaption>Current version</figcaption>
-                {after.image && <img src={after.image} alt="Current version" data-after="" />}
+                <figcaption>{t("Current version")}</figcaption>
+                {after.image && <img src={after.image} alt={t("Current version")} data-after="" />}
               </figure>
             </div>
           ) : (
             <div className={styles.overlay} onClick={() => setOpacity((o) => (o > 0 ? 0 : 100))}>
-              {before?.image && <img src={before.image} alt="Previous version" />}
-              {after.image && <img src={after.image} alt="Current version" style={{ opacity: opacity / 100 }} />}
+              {before?.image && <img src={before.image} alt={t("Previous version")} />}
+              {after.image && <img src={after.image} alt={t("Current version")} style={{ opacity: opacity / 100 }} />}
             </div>
           )}
         </section>
@@ -253,11 +261,11 @@ function Compare({ root }: { root: Guid }) {
           {chosen ? (
             <>
               <SegmentedControl
-                label="Details"
+                label={t("Details")}
                 value={detail}
                 options={[
-                  { value: "properties", label: "Compare properties" },
-                  { value: "code", label: "Compare code" },
+                  { value: "properties", label: t("Compare properties") },
+                  { value: "code", label: t("Compare code") },
                 ]}
                 onChange={(x) => setDetail(x as "properties" | "code")}
               />
@@ -267,21 +275,21 @@ function Compare({ root }: { root: Guid }) {
                   <div className={styles.propDiff} data-properties="">
                     {chosen.changes.map((p) => (
                       <div key={p.field} className={styles.propRow} data-field={p.field}>
-                        <span className={styles.propLabel}>{p.label}</span>
-                        <span className={styles.propBefore}>{p.before}</span>
-                        <span className={styles.propAfter}>{p.after}</span>
+                        <span className={styles.propLabel}>{t(p.label)}</span>
+                        <span className={styles.propBefore}>{t(p.before)}</span>
+                        <span className={styles.propAfter}>{t(p.after)}</span>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className={styles.hint}>{chosen.kind === "Added" ? "This layer was added." : "This layer was deleted."}</div>
+                  <div className={styles.hint}>{chosen.kind === "Added" ? t("This layer was added.") : t("This layer was deleted.")}</div>
                 )
               ) : (
                 <CodeCompare ed={ed} id={chosen.id} before={before} after={after} />
               )}
             </>
           ) : (
-            <div className={styles.hint}>Select an edited layer to compare its properties and code.</div>
+            <div className={styles.hint}>{t("Select an edited layer to compare its properties and code.")}</div>
           )}
         </aside>
       </div>
@@ -297,12 +305,13 @@ function CodeCompare({ id, before, after }: { ed: EditorController; id: Guid; be
     const input = side?.doc.inspect(id);
     return input ? cssText(input) : "";
   };
+  useT();
   const diff = codeDiff(code(before), code(after));
   return (
     <div className={styles.codeDiff} data-code-diff="">
-      <div className={styles.compareHeading}>Previous</div>
+      <div className={styles.compareHeading}>{t("Previous")}</div>
       <CodeBlock code={diff.before.map((l) => (l.changed ? `- ${l.text}` : `  ${l.text}`)).join("\n")} />
-      <div className={styles.compareHeading}>Current</div>
+      <div className={styles.compareHeading}>{t("Current")}</div>
       <CodeBlock code={diff.after.map((l) => (l.changed ? `+ ${l.text}` : `  ${l.text}`)).join("\n")} />
     </div>
   );

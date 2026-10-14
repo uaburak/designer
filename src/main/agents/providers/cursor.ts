@@ -2,6 +2,7 @@ import type { AuthState, ChatEvent } from "../../../shared/agents/types";
 import { SYSTEM_PROMPT } from "../../../shared/agents/prompts";
 import { MCP_SERVER_NAME } from "../../../shared/agents/tools";
 import { emailIn, mcpServerEntry, modelArg, oneShotText, promptWithHistory, shortToolName, summarize, text, tokenUsage, type CliSpec, type RunResult } from "./turns";
+import { t as tr } from "../../../shared/i18n";
 
 /**
  * Cursor's CLI agent, print mode (`cursor-agent -p --output-format stream-json`, cursor.com/docs/cli "Output format":
@@ -81,8 +82,8 @@ export const cursorAgent: CliSpec = {
       }
     }
     if (line.type === "result" && line.is_error) {
-      const why = text(line.result) || "Cursor's agent failed.";
-      out.push({ type: "error", message: /not (?:logged|signed) in|authenticat|login/i.test(why) ? `Cursor Agent isn’t signed in on this computer (${why}). Sign in from Agent settings.` : why });
+      const why = text(line.result) || tr("Cursor's agent failed.");
+      out.push({ type: "error", message: /not (?:logged|signed) in|authenticat|login/i.test(why) ? tr("{agent} isn’t signed in on this computer ({why}). Sign in from Agent settings.", { agent: "Cursor Agent", why }) : why });
     }
     return out;
   },
@@ -113,7 +114,7 @@ export const cursorAgent: CliSpec = {
           return streamed ? {} : { delta: content };
         }
         if (line.type === "result") {
-          if (line.is_error) return { error: text(line.result) || "Cursor's agent failed." };
+          if (line.is_error) return { error: text(line.result) || tr("Cursor's agent failed.") };
           return { result: text(line.result), usage: tokenUsage(line.usage) ?? undefined };
         }
         return {};

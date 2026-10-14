@@ -1,4 +1,5 @@
 import { themeArg } from "./theme";
+import { localeArg } from "./locale";
 import { app, Menu, nativeTheme, shell, WebContentsView, type MenuItemConstructorOptions, type WebContents } from "electron";
 import { join } from "node:path";
 import type { Role } from "../shared/ipc";
@@ -6,6 +7,7 @@ import { VIEW_BACKGROUND } from "../shared/layout";
 import { guardPluginFrames } from "./plugins/protocol";
 import { DEV_URL, isAppUrl, pageUrl } from "./protocol";
 import { connectStoreView } from "./storeHost";
+import { getLocale, t } from "../shared/i18n";
 
 /**
  * Every view of a window is made here (docs/desktop.md §3): its own
@@ -63,7 +65,7 @@ export function createView(role: Role, windowId: string, tabId: string | null, q
       ...(role === "editor" ? { autoplayPolicy: "no-user-gesture-required" as const } : {}),
       v8CacheOptions: "bypassHeatCheck",
       // The theme before the first paint (boot.js reads it from the preload): preference and what it resolves to.
-      additionalArguments: [`--designer-role=${role}`, `--designer-version=${app.getVersion()}`, `--designer-theme=${themeArg()}`],
+      additionalArguments: [`--designer-role=${role}`, `--designer-version=${app.getVersion()}`, `--designer-theme=${themeArg()}`, `--designer-locale=${localeArg()}`],
     },
   });
   view.setBackgroundColor(backgroundOf(role));
@@ -99,10 +101,12 @@ function harden(contents: WebContents) {
   contents.on("context-menu", (_e, params) => {
     if (!params.isEditable && !params.selectionText) return;
     const items: MenuItemConstructorOptions[] = params.dictionarySuggestions.map((word) => ({ label: word, click: () => contents.replaceMisspelling(word) }));
-    if (params.misspelledWord) items.push({ label: "Add to Dictionary", click: () => contents.session.addWordToSpellCheckerDictionary(params.misspelledWord) }, { type: "separator" });
+    if (params.misspelledWord) items.push({ label: t("Add to Dictionary"), click: () => contents.session.addWordToSpellCheckerDictionary(params.misspelledWord) }, { type: "separator" });
     else if (items.length) items.push({ type: "separator" });
-    if (params.isEditable) items.push({ role: "cut", enabled: params.editFlags.canCut }, { role: "copy", enabled: params.editFlags.canCopy }, { role: "paste", enabled: params.editFlags.canPaste }, { type: "separator" }, { role: "selectAll" });
-    else items.push({ role: "copy", enabled: params.editFlags.canCopy });
+    // Electron's role items are English: another language names them itself.
+    const role = (r: "cut" | "copy" | "paste" | "selectAll", label: string, enabled?: boolean): MenuItemConstructorOptions => ({ role: r, ...(getLocale() === "en" ? {} : { label: t(label) }), ...(enabled === undefined ? {} : { enabled }) });
+    if (params.isEditable) items.push(role("cut", "Cut", params.editFlags.canCut), role("copy", "Copy", params.editFlags.canCopy), role("paste", "Paste", params.editFlags.canPaste), { type: "separator" }, role("selectAll", "Select All"));
+    else items.push(role("copy", "Copy", params.editFlags.canCopy));
     Menu.buildFromTemplate(items).popup();
   });
 

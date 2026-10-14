@@ -52,9 +52,9 @@ describe("the chats list's layout", () => {
   });
   it("puts the search, the filter menu and the more menu on top, the composer (no chat) at the bottom", () => {
     const list = tsx.slice(tsx.indexOf("function ChatList("), tsx.indexOf("function Highlighted("));
-    expect(list).toContain('placeholder="Search chats"');
-    expect(list).toContain('label="Filter chats"');
-    expect(list).toContain('label="More"');
+    expect(list).toContain('placeholder={t("Search chats")}');
+    expect(list).toContain('label={t("Filter chats")}');
+    expect(list).toContain('label={t("More")}');
     expect(list).toContain("Delete all chats…");
     expect(list).toContain("<Composer service={service} chat={null}");
     expect(list.indexOf("Search chats")).toBeLessThan(list.indexOf("<Composer"));

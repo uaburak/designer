@@ -10,6 +10,7 @@
  * - **Admin for workspace admins**: an org member who administers a workspace gets Admin › ‹workspace› (its Libraries).
  */
 import { useEffect, useMemo, useState } from "react";
+import { t } from "@/i18n";
 import type * as O from "@shared/org/types";
 import type { OrgBackend } from "./storeAccess";
 
@@ -55,7 +56,7 @@ export function useAdminWorkspace(org: OrgBackend | undefined, orgId: string | n
       live = false;
     };
   }, [org, orgId, first]);
-  const name = (names?.orgId === orgId && first ? names.names[first] : undefined) ?? "Workspace";
+  const name = (names?.orgId === orgId && first ? names.names[first] : undefined) ?? t("Workspace");
   const on = !!org && !!orgId && !!first;
   return useMemo(() => (on && first ? { id: first, name } : null), [on, first, name]);
 }

@@ -38,6 +38,7 @@ import { Button, IconButton, ToggleIconButton } from "./Button";
 import { MenuButton, type MenuEntry } from "./Menu";
 import { EmptyState } from "./Misc";
 import { selectAllOnClick } from "../util/selectAll";
+import { t, useT } from "@/i18n";
 import field from "./Field.module.css";
 import buttons from "./Button.module.css";
 import styles from "./ColorPicker.module.css";
@@ -217,6 +218,7 @@ export interface ColorPickerProps<P extends PickerPaint> {
  * page". Controlled: `value` in, `onChange(next, { final })` out.
  */
 export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
+  useT();
   const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, documentColors = [], libraries, initialTab = "custom", imageUrl, onChooseImage, onMakeImage, onRotateGradient, contrastBackground, imageControls, imageAction, pattern, onShaders, shader, offsetX = -1, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
   const [tab, setTab] = useState(initialTab);
   const [contrast, setContrast] = useState(false);
@@ -343,8 +345,8 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
 
   // The tabs with at least one type offered; Gradient keeps the gradient's own type (or Linear for a new one).
   const offered = (t: PaintType) => !paintTypes || paintTypes.includes(t);
-  const gradientTypes = GRADIENT_TYPES.filter((g) => offered(g.value));
-  const typeOptions = PAINT_TABS.filter((t) => (t.value === "GRADIENT" ? gradientTypes.length > 0 : offered(t.value))).map((t) => ({ value: t.value, icon: t.icon as IconName, tooltip: t.label }));
+  const gradientTypes = GRADIENT_TYPES.filter((g) => offered(g.value)).map((g) => ({ ...g, label: t(g.label) }));
+  const typeOptions = PAINT_TABS.filter((p) => (p.value === "GRADIENT" ? gradientTypes.length > 0 : offered(p.value))).map((p) => ({ value: p.value, icon: p.icon as IconName, tooltip: t(p.label) }));
   const pickTab = (tab: PaintTab) => {
     const type: PaintType = tab === "GRADIENT" ? (isGradient(value.type) ? value.type : (gradientTypes[0]?.value ?? "GRADIENT_LINEAR")) : tab;
     // (A shader fill: any type tab leaves it, its own included.)
@@ -352,15 +354,15 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
     setLocalHsv(null);
     onChange(convertPaint(value, type), { final: true, source: "pick" });
   };
-  const blendEntries: MenuEntry[] = BLEND_MODES.map((m) => (m === "-" ? "-" : { id: m, label: BLEND_LABEL[m], checked: (value.blendMode ?? "NORMAL") === m }));
+  const blendEntries: MenuEntry[] = BLEND_MODES.map((m) => (m === "-" ? "-" : { id: m, label: t(BLEND_LABEL[m]), checked: (value.blendMode ?? "NORMAL") === m }));
   const opacityPart = (
     <span className={cx(styles.part, styles.partOpacity)}>
-      <NumericInput bare label="Opacity" value={pct(target.a)} min={0} max={100} precision={0} unit="%" onChange={(v, info) => setColor({ ...target, a: v / 100 }, info, hsv)} />
+      <NumericInput bare label={t("Opacity")} value={pct(target.a)} min={0} max={100} precision={0} unit="%" onChange={(v, info) => setColor({ ...target, a: v / 100 }, info, hsv)} />
     </span>
   );
   const channel = (label: string, v: number, max: number, apply: (n: number) => RGBA, nextHsv?: (n: number) => HSV) => (
     <span className={styles.part}>
-      <NumericInput bare label={label} value={v} min={0} max={max} precision={0} onChange={(n, info) => setColor(apply(n), info, nextHsv?.(n))} />
+      <NumericInput bare label={t(label)} value={v} min={0} max={max} precision={0} onChange={(n, info) => setColor(apply(n), info, nextHsv?.(n))} />
     </span>
   );
   const hsl = rgbToHsl(target);
@@ -396,7 +398,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
       case "css":
         return (
           <span className={styles.part}>
-            <CommitText label="CSS color" value={rgbaToCss(target)} onCommit={(raw) => { const c = parseCssColor(raw); if (c) setColor(c, { final: true, source: "type" }); }} />
+            <CommitText label={t("CSS color")} value={rgbaToCss(target)} onCommit={(raw) => { const c = parseCssColor(raw); if (c) setColor(c, { final: true, source: "type" }); }} />
           </span>
         );
       default:
@@ -404,7 +406,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
           <>
             <span className={styles.part}>
               <CommitText
-                label="Color"
+                label={t("Color")}
                 upper
                 value={hexDigits(rgbToHex(target))}
                 onCommit={(raw) => {
@@ -475,8 +477,8 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
     <div
       className={styles.sv}
       role="slider"
-      aria-label="Color picker reticle"
-      aria-valuetext={`Saturation ${Math.round(hsv.s * 100)}%, brightness ${Math.round(hsv.v * 100)}%`}
+      aria-label={t("Color picker reticle")}
+      aria-valuetext={t("Saturation {s}%, brightness {v}%", { s: Math.round(hsv.s * 100), v: Math.round(hsv.v * 100) })}
       aria-valuenow={Math.round(hsv.s * 100)}
       tabIndex={0}
       data-autofocus=""
@@ -489,12 +491,12 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
   );
   const sliders = (
     <div className={styles.sliders}>
-      <IconButton icon="24.eyedropper.small" label="Sample color" disabled={!eyedropper} onClick={() => void pickFromScreen()} />
+      <IconButton icon="24.eyedropper.small" label={t("Sample color")} disabled={!eyedropper} onClick={() => void pickFromScreen()} />
       <div className={styles.sliderStack}>
         <div
           className={styles.slider}
           role="slider"
-          aria-label="Hue"
+          aria-label={t("Hue")}
           aria-valuemin={0}
           aria-valuemax={360}
           aria-valuenow={Math.round(hsv.h)}
@@ -508,7 +510,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
         <div
           className={styles.slider}
           role="slider"
-          aria-label="Opacity"
+          aria-label={t("Opacity")}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={pct(target.a)}
@@ -526,7 +528,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
   );
   const modelRow = (
     <div className={styles.modelRow}>
-      <Select label="Color format" variant="ghost" value={model} options={MODELS} width={55} onChange={(m) => { setOwnModel(m as ColorModel); onColorModelChange?.(m as ColorModel); }} />
+      <Select label={t("Color format")} variant="ghost" value={model} options={MODELS} width={55} onChange={(m) => { setOwnModel(m as ColorModel); onColorModelChange?.(m as ColorModel); }} />
       <div className={cx(field.field, styles.joined)}>{modelFields}</div>
     </div>
   );
@@ -537,8 +539,8 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
           const ratio = contrastRatio(target, contrastBackground!);
           const shown = Math.floor(ratio * 100) / 100;
           return (
-            <div className={styles.contrastRow} role="status" aria-label="Contrast">
-              <span>Contrast</span>
+            <div className={styles.contrastRow} role="status" aria-label={t("Contrast")}>
+              <span>{t("Contrast")}</span>
               <span className={styles.contrastValue}>{shown}:1</span>
               <span className={styles.contrastBadge} data-pass={ratio >= 4.5 || undefined}>AA</span>
               <span className={styles.contrastBadge} data-pass={ratio >= 7 || undefined}>AAA</span>
@@ -548,7 +550,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
       : null;
   const swatchSection = (
     <div className={styles.swatchSection}>
-      <Select label="Color swatch set selector" variant="ghost" value="page" options={[{ value: "page", label: "On this page" }]} width={208} onChange={() => {}} />
+      <Select label={t("Color swatch set selector")} variant="ghost" value="page" options={[{ value: "page", label: t("On this page") }]} width={208} onChange={() => {}} />
       {documentColors.length ? (
         <div className={styles.swatches}>
           {documentColors.map((c) => {
@@ -558,7 +560,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
               <button
                 key={c}
                 type="button"
-                aria-label={`Solid color hex: ${hex}`}
+                aria-label={t("Solid color hex: {hex}", { hex })}
                 className={styles.swatchButton}
                 {...tooltipProps(hex)}
                 onClick={() => { if (rgba) setColor(rgba, { final: true, source: "pick" }); }}
@@ -569,7 +571,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
           })}
         </div>
       ) : (
-        <span className={styles.empty}>No colors on this page yet</span>
+        <span className={styles.empty}>{t("No colors on this page yet")}</span>
       )}
     </div>
   );
@@ -579,12 +581,12 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
     <>
       <div className={styles.gradientTypeRow}>
         {/* Live (popovers/fill-picker-gradient_linear.txt): a 96 × 32 "Paint type" box around the 24-high dropdown */}
-        <div role="group" aria-label="Paint type" className={styles.paintType}>
-          <Select label="Paint type" variant="ghost" width={96} value={value.type} options={gradientTypes} onChange={(t) => { setLocalHsv(null); onChange(convertPaint(value, t as PaintType), { final: true, source: "pick" }); }} />
+        <div role="group" aria-label={t("Paint type")} className={styles.paintType}>
+          <Select label={t("Paint type")} variant="ghost" width={96} value={value.type} options={gradientTypes} onChange={(t) => { setLocalHsv(null); onChange(convertPaint(value, t as PaintType), { final: true, source: "pick" }); }} />
         </div>
         <span className={styles.gradientActions}>
-          <IconButton icon="24.flip.horizontal.small" label="Flip gradient" onClick={() => setStops(flipStops(value.stops ?? []) as NonNullable<P["stops"]>, { final: true, source: "pick" })} />
-          {onRotateGradient && <IconButton icon="24.rotate" label="Rotate gradient" onClick={onRotateGradient} />}
+          <IconButton icon="24.flip.horizontal.small" label={t("Flip gradient")} onClick={() => setStops(flipStops(value.stops ?? []) as NonNullable<P["stops"]>, { final: true, source: "pick" })} />
+          {onRotateGradient && <IconButton icon="24.rotate" label={t("Rotate gradient")} onClick={onRotateGradient} />}
         </span>
       </div>
       <div className={styles.gradientRow}>
@@ -595,7 +597,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
               key={i}
               type="button"
               role="slider"
-              aria-label={`Stop ${i + 1}`}
+              aria-label={t("Stop {n}", { n: i + 1 })}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={pct(s.position)}
@@ -625,10 +627,10 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
       </div>
       <div className={styles.stopsSection}>
         <div className={styles.stopsHeader}>
-          <span>Stops</span>
+          <span>{t("Stops")}</span>
           <IconButton
             icon="24.plus.small"
-            label="Add gradient stop"
+            label={t("Add gradient stop")}
             tone="secondary"
             onClick={() => {
               const s = sortStops(value.stops ?? []);
@@ -644,12 +646,12 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
         {sorted.map((s) => (
           <div key={s.i} className={styles.stopRow} aria-selected={s.i === stop} onPointerDown={() => s.i !== stop && selectStop(s.i)}>
             <span className={styles.stopPosition}>
-              <NumericInput label="Gradient stop position" value={pct(s.position)} min={0} max={100} precision={0} unit="%" onChange={(v, info) => setStops(moveStop(value.stops ?? [], s.i, v / 100) as NonNullable<P["stops"]>, info)} />
+              <NumericInput label={t("Gradient stop position")} value={pct(s.position)} min={0} max={100} precision={0} unit="%" onChange={(v, info) => setStops(moveStop(value.stops ?? [], s.i, v / 100) as NonNullable<P["stops"]>, info)} />
             </span>
             <span className={styles.stopColor}>
               <ColorInput
-                label="Gradient Stop Color"
-                swatchLabel={`Solid color hex: ${hexDigits(rgbToHex(s.color)).toUpperCase()}`}
+                label={t("Gradient Stop Color")}
+                swatchLabel={t("Solid color hex: {hex}", { hex: hexDigits(rgbToHex(s.color)).toUpperCase() })}
                 color={rgbToHex(s.color)}
                 opacity={pct(s.color.a)}
                 onSwatchClick={() => {
@@ -663,7 +665,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
             {/* Live: enabled with two stops too; a gradient keeps two, so it removes nothing then (unverified) */}
             <IconButton
               icon="24.minus.small"
-              label="Delete gradient stop"
+              label={t("Delete gradient stop")}
               tone="secondary"
               onClick={() => {
                 if (stopCount <= 2) return;
@@ -681,22 +683,22 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
   const mediaBody = isMedia(value.type) && (
     <>
       <div className={styles.mediaRow}>
-        <Select label="Image scale mode" variant="ghost" width={96} value={value.imageScaleMode ?? "FILL"} options={SCALE_MODES} onChange={(m) => onChange({ ...value, imageScaleMode: m as ImageScaleMode }, { final: true, source: "pick" })} />
+        <Select label={t("Image scale mode")} variant="ghost" width={96} value={value.imageScaleMode ?? "FILL"} options={SCALE_MODES.map((o) => ({ ...o, label: t(o.label) }))} onChange={(m) => onChange({ ...value, imageScaleMode: m as ImageScaleMode }, { final: true, source: "pick" })} />
         {imageAction}
       </div>
       <div
         className={cx(styles.image, value.type === "VIDEO" && !imageControls && styles.media)}
         role="img"
-        aria-label={imageUrl ? "Image preview" : "No image"}
+        aria-label={imageUrl ? t("Image preview") : t("No image")}
         data-empty={!imageUrl || undefined}
         style={imageUrl ? { backgroundImage: `url("${imageUrl}")`, backgroundSize: value.imageScaleMode === "FIT" ? "contain" : value.imageScaleMode === "TILE" ? "auto" : "cover", backgroundRepeat: value.imageScaleMode === "TILE" ? "repeat" : "no-repeat" } : undefined}
       >
         <div className={styles.imageOverlay}>
-          <Button variant="primary" className={value.type === "VIDEO" ? styles.uploadVideo : styles.upload} disabled={!onChooseImage} onClick={onChooseImage}>Upload from computer</Button>
+          <Button variant="primary" className={value.type === "VIDEO" ? styles.uploadVideo : styles.upload} disabled={!onChooseImage} onClick={onChooseImage}>{t("Upload from computer")}</Button>
           {value.type === "IMAGE" && (
-            <Button variant="secondary" className={cx(styles.upload, styles.makeImage)} {...(onMakeImage && !imageUrl ? { onClick: onMakeImage } : { "aria-disabled": true, tooltip: "Current selection has a fill", onClick: (e: { preventDefault(): void }) => e.preventDefault() })}>
+            <Button variant="secondary" className={cx(styles.upload, styles.makeImage)} {...(onMakeImage && !imageUrl ? { onClick: onMakeImage } : { "aria-disabled": true, tooltip: t("Current selection has a fill"), onClick: (e: { preventDefault(): void }) => e.preventDefault() })}>
               <Icon name="16.sparkle" />
-              Make an image
+              {t("Make an image")}
             </Button>
           )}
         </div>
@@ -714,35 +716,35 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
   const spacing = value.patternSpacing ?? { x: 0, y: 0 };
   const patternBody = value.type === "PATTERN" && (
     <>
-      <div className={styles.patternPreview} data-empty={!pattern?.previewUrl || undefined} role="img" aria-label={pattern?.source ? `Pattern source: ${pattern.source}` : "No pattern source"} style={pattern?.previewUrl ? { backgroundImage: `url("${pattern.previewUrl}")` } : undefined}>
+      <div className={styles.patternPreview} data-empty={!pattern?.previewUrl || undefined} role="img" aria-label={pattern?.source ? t("Pattern source: {source}", { source: pattern.source }) : t("No pattern source")} style={pattern?.previewUrl ? { backgroundImage: `url("${pattern.previewUrl}")` } : undefined}>
         <div className={styles.patternShade}>
           {/* Live (popovers/fill-picker-pattern.txt): 117 wide, the label at 28 — a 24 glyph first (which one is unverified) */}
           <Button variant="secondary" icon="24.move" className={styles.selectSource} aria-pressed={pattern?.selecting || undefined} disabled={!pattern} onClick={pattern?.onSelectSource}>
-            {pattern?.selecting ? "Click a layer…" : pattern?.source ? pattern.source : "Select source…"}
+            {pattern?.selecting ? t("Click a layer…") : pattern?.source ? pattern.source : t("Select source…")}
           </Button>
         </div>
       </div>
       <div className={styles.patternGrid}>
-        <span className={styles.patternLabel}>Tile type</span>
+        <span className={styles.patternLabel}>{t("Tile type")}</span>
         <SegmentedControl
-          label="Tile type"
+          label={t("Tile type")}
           fullWidth
           value={value.patternTileType === "RECTANGULAR" || !value.patternTileType ? "RECTANGULAR" : "HEXAGONAL"}
-          options={[{ value: "RECTANGULAR", icon: "24.tile.rectangular", tooltip: "Rectangular" }, { value: "HEXAGONAL", icon: "24.tile.hexagonal", tooltip: "Hexagonal" }]}
+          options={[{ value: "RECTANGULAR", icon: "24.tile.rectangular", tooltip: t("Rectangular") }, { value: "HEXAGONAL", icon: "24.tile.hexagonal", tooltip: t("Hexagonal") }]}
           onChange={(t) => onChange({ ...value, patternTileType: t === "RECTANGULAR" ? "RECTANGULAR" : "HORIZONTAL_HEXAGONAL" }, { final: true, source: "pick" })}
         />
-        <span className={styles.patternLabel}>Scale</span>
-        <NumericInput scrubHandle="previous" label="Scale" prefix="24.scale" value={Math.round((value.scale ?? 1) * 100)} min={1} max={10000} precision={0} unit="%" onChange={(v, info) => onChange({ ...value, scale: v / 100 }, info)} />
-        <span className={styles.patternLabel}>Spacing</span>
-        <NumericInput scrubHandle="previous" label="Spacing X" prefix="X" value={Math.round(spacing.x * 100)} min={-100} max={10000} precision={0} unit="%" onChange={(v, info) => onChange({ ...value, patternSpacing: { x: v / 100, y: spacing.y } }, info)} />
+        <span className={styles.patternLabel}>{t("Scale")}</span>
+        <NumericInput scrubHandle="previous" label={t("Scale")} prefix="24.scale" value={Math.round((value.scale ?? 1) * 100)} min={1} max={10000} precision={0} unit="%" onChange={(v, info) => onChange({ ...value, scale: v / 100 }, info)} />
+        <span className={styles.patternLabel}>{t("Spacing")}</span>
+        <NumericInput scrubHandle="previous" label={t("Spacing X")} prefix="X" value={Math.round(spacing.x * 100)} min={-100} max={10000} precision={0} unit="%" onChange={(v, info) => onChange({ ...value, patternSpacing: { x: v / 100, y: spacing.y } }, info)} />
         <span />
-        <NumericInput label="Spacing Y" prefix="Y" value={Math.round(spacing.y * 100)} min={-100} max={10000} precision={0} unit="%" onChange={(v, info) => onChange({ ...value, patternSpacing: { x: spacing.x, y: v / 100 } }, info)} />
-        <span className={cx(styles.patternLabel, styles.patternLabelTop)}>Alignment</span>
-        <div role="radiogroup" aria-label="Anchor point" className={styles.anchor}>
+        <NumericInput label={t("Spacing Y")} prefix="Y" value={Math.round(spacing.y * 100)} min={-100} max={10000} precision={0} unit="%" onChange={(v, info) => onChange({ ...value, patternSpacing: { x: spacing.x, y: v / 100 } }, info)} />
+        <span className={cx(styles.patternLabel, styles.patternLabelTop)}>{t("Alignment")}</span>
+        <div role="radiogroup" aria-label={t("Anchor point")} className={styles.anchor}>
           {anchorCells.map(([h, v, name]) => {
             const on = (value.horizontalAlignment ?? "START") === h && (value.verticalAlignment ?? "START") === v;
             return (
-              <button key={name} type="button" role="radio" aria-checked={on} aria-label={name} className={styles.anchorCell} onClick={() => onChange({ ...value, horizontalAlignment: h, verticalAlignment: v }, { final: true, source: "pick" })}>
+              <button key={name} type="button" role="radio" aria-checked={on} aria-label={t(name)} className={styles.anchorCell} onClick={() => onChange({ ...value, horizontalAlignment: h, verticalAlignment: v }, { final: true, source: "pick" })}>
                 <span className={on ? styles.anchorOn : styles.anchorDot} />
               </button>
             );
@@ -760,30 +762,30 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
       static={isStatic}
       width={240}
       offsetX={offsetX}
-      label="Color picker"
-      header={<Tabs label="Color source" value={tab} onChange={(t) => setTab(t as "custom" | "libraries")} tabs={[{ value: "custom", label: "Custom" }, { value: "libraries", label: "Libraries" }]} />}
+      label={t("Color picker")}
+      header={<Tabs label={t("Color source")} value={tab} onChange={(v) => setTab(v as "custom" | "libraries")} tabs={[{ value: "custom", label: t("Custom") }, { value: "libraries", label: t("Libraries") }]} />}
       headerActions={headerActions && <span className={styles.headerActions}>{headerActions}</span>}
     >
       <div ref={pickerBox} data-ds="ColorPicker" className={styles.body}>
         {tab === "libraries" ? (
-          <div className={styles.libraries}>{libraries ?? <EmptyState icon="24.library" title="No libraries" body="Colors and styles from your libraries show here." />}</div>
+          <div className={styles.libraries}>{libraries ?? <EmptyState icon="24.library" title={t("No libraries")} body={t("Colors and styles from your libraries show here.")} />}</div>
         ) : (
           <>
             <div className={styles.typeRow}>
-              <div role="radiogroup" aria-label="Fill type" className={styles.typeTabs}>
+              <div role="radiogroup" aria-label={t("Fill type")} className={styles.typeTabs}>
                 {typeTabs}
                 {onShaders && (
-                  <button type="button" role="radio" aria-checked={!!shader} aria-label="Shader" tabIndex={shader ? 0 : -1} className={styles.typeTab} {...tooltipProps("Shader (Beta)")} onClick={(e) => onShaders(e.currentTarget.closest<HTMLElement>('[data-ds="Popover"]') ?? e.currentTarget)}>
+                  <button type="button" role="radio" aria-checked={!!shader} aria-label={t("Shader")} tabIndex={shader ? 0 : -1} className={styles.typeTab} {...tooltipProps(t("Shader (Beta)"))} onClick={(e) => onShaders(e.currentTarget.closest<HTMLElement>('[data-ds="Popover"]') ?? e.currentTarget)}>
                     <Icon name="24.shader.small" />
                   </button>
                 )}
               </div>
               <span className={styles.typeActions}>
-                <MenuButton label="Blend mode" className={buttons.icon} entries={blendEntries} onSelect={(id) => onChange({ ...value, blendMode: id as P["blendMode"] }, { final: true, source: "pick" })}>
+                <MenuButton label={t("Blend mode")} className={buttons.icon} entries={blendEntries} onSelect={(id) => onChange({ ...value, blendMode: id as P["blendMode"] }, { final: true, source: "pick" })}>
                   <Icon name={(value.blendMode ?? "NORMAL") === "NORMAL" ? "24.blendmode.small" : "24.blendmode.active.small"} />
                 </MenuButton>
                 {/* Figma's live picker: "Check color contrast" at 208, the blend mode before it (Solid) */}
-                {showContrast && <ToggleIconButton icon="24.contrast" label="Check color contrast" pressed={contrast} onPressedChange={setContrast} />}
+                {showContrast && <ToggleIconButton icon="24.contrast" label={t("Check color contrast")} pressed={contrast} onPressedChange={setContrast} />}
               </span>
             </div>
             {shader}

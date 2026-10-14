@@ -7,16 +7,18 @@ import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { AgentSettings } from "../editor/panels/agents/AgentSettings";
 import { AgentSetupService } from "../editor/agents/setup";
 import { agentSetupBridge } from "./bridge";
+import { t, useT } from "@/i18n";
 import styles from "./Settings.module.css";
 
 export function AgentsTab() {
+  useT();
   const service = useMemo(() => new AgentSetupService(agentSetupBridge()), []);
   useSyncExternalStore(service.subscribe, service.get);
   useEffect(() => service.start(), [service]);
   if (!service.api)
     return (
       <div className={styles.page}>
-        <p className={`${styles.text} ${styles.muted}`}>Agents run in the desktop app.</p>
+        <p className={`${styles.text} ${styles.muted}`}>{t("Agents run in the desktop app.")}</p>
       </div>
     );
   return (

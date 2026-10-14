@@ -5,6 +5,7 @@
  * their fonts arrive, so the viewer draws each text exactly as here without the fonts. The store (the only writer)
  * packages it with the file's images: `previews.publish` (the multiplayer server) or main's `file:export-preview` (an HTML file).
  */
+import { t } from "@/i18n";
 import { fonts } from "@/engine/fonts";
 import type { Engine } from "@/engine/Engine";
 import type { PreviewOptions, PreviewRecord } from "../../../shared/store/types";
@@ -50,12 +51,12 @@ export function shareAccess(ed: EditorController): ShareAccess {
     status: async () => (previews ? previews.status() : { publish: false, reason: "Sharing previews needs a file in the workspace" }),
     current: async () => (previews ? ((await previews.list())[0] ?? null) : null),
     publish: async (options) => {
-      if (!previews) throw new Error("Sharing previews needs a file in the workspace");
+      if (!previews) throw new Error(t("Sharing previews needs a file in the workspace"));
       const snapshot = await previewSnapshot(ed.engine, options.pageIds);
       return previews.publish(snapshot, options);
     },
     stop: async (id) => {
-      if (!previews) throw new Error("Sharing previews needs a file in the workspace");
+      if (!previews) throw new Error(t("Sharing previews needs a file in the workspace"));
       await previews.stop(id);
     },
     exportHtml:

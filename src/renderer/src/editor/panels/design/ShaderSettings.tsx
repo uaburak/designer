@@ -9,6 +9,7 @@ import { Checkbox, ColorInput, Icon, NumericInput, Select, cx, type ChangeInfo }
 import type { Color } from "@/engine/codec";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { presetOf, shaderValue, withShaderValue, type ShaderFields, type ShaderParam, type ShaderValue } from "../../model/shaders";
+import { t, useT } from "@/i18n";
 import styles from "./ShaderSettings.module.css";
 
 const pick: ChangeInfo = { final: true, source: "pick" };
@@ -25,6 +26,7 @@ export function ShaderParams<T extends ShaderFields>({
   /** The preset's button: the browser, to pick another */
   onChoose?: (anchor: HTMLElement) => void;
 }) {
+  useT();
   const preset = presetOf(target);
   const set = (p: ShaderParam, v: ShaderValue, info: ChangeInfo) => onChange(withShaderValue(target, p, v), info);
   const row = (p: ShaderParam) => {
@@ -41,7 +43,7 @@ export function ShaderParams<T extends ShaderFields>({
       control = (
         <ColorInput
           label={p.name}
-          swatchLabel={`Solid color hex: ${colorToHex(c).replace("#", "").toUpperCase()}`}
+          swatchLabel={t("Solid color hex: {hex}", { hex: colorToHex(c).replace("#", "").toUpperCase() })}
           color={colorToHex(c)}
           opacity={toPercent(c.a ?? 1)}
           onColor={(hex, info, o) => set(p, hexToColor(hex, o !== undefined ? o / 100 : (c.a ?? 1)), info)}
@@ -77,10 +79,10 @@ export function ShaderParams<T extends ShaderFields>({
   };
   return (
     <div className={styles.grid} data-shader-settings={preset?.key ?? ""}>
-      <span className={styles.label}>Shader</span>
-      <button type="button" className={cx(styles.preset, !onChoose && styles.presetStatic)} aria-label={`Shader: ${preset?.name ?? "Unknown"}`} disabled={!onChoose} onClick={(e) => onChoose?.(e.currentTarget)}>
+      <span className={styles.label}>{t("Shader")}</span>
+      <button type="button" className={cx(styles.preset, !onChoose && styles.presetStatic)} aria-label={t("Shader: {name}", { name: preset?.name ?? t("Unknown") })} disabled={!onChoose} onClick={(e) => onChoose?.(e.currentTarget)}>
         <Icon name="24.shader.small" />
-        <span className={styles.presetName}>{preset?.name ?? "Unknown shader"}</span>
+        <span className={styles.presetName}>{preset?.name ?? t("Unknown shader")}</span>
         {onChoose && <Icon name="16.chevron.down" className={styles.chevron} />}
       </button>
       {(preset?.params ?? []).map(row)}

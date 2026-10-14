@@ -13,6 +13,7 @@
  * - Blur (docs/studio.md §6.2, ours): the picture swapped, the lassoed areas blurred as a low-resolution print.
  * - Make an image: the selected layer's fill, else a new image layer in the middle of the view.
  */
+import { t as tr } from "@/i18n";
 import type { Guid, Message, NodeChange } from "@/engine/codec";
 import { keyBetween } from "@shared/schema/fractionalIndex";
 import { AiRunError, type AiApi } from "../../../../shared/ai/api";
@@ -141,13 +142,13 @@ export function browserImageIO(ed: EditorController): ImageIO {
   return {
     async read(hash) {
       const bytes = await ed.images.bytes(hash);
-      if (!bytes) throw new AiRunError("unsupported", "This image isn't available on this computer.");
+      if (!bytes) throw new AiRunError("unsupported", tr("This image isn't available on this computer."));
       return decodeImage(bytes);
     },
     async put(image, name) {
       const png = await encodePng(image.width, image.height, image.data);
       const [img] = await ed.images.import([new File([png as BlobPart], `${name}.png`, { type: "image/png" })]);
-      if (!img) throw new AiRunError("bad-output", "The new picture couldn't be added to the file.");
+      if (!img) throw new AiRunError("bad-output", tr("The new picture couldn't be added to the file."));
       return { ...img, name };
     },
   };
@@ -175,16 +176,16 @@ export interface ToolEnv {
 
 /** Ready to run locally: downloaded already, or downloaded now after the confirmation. False: declined. */
 export async function ensureModel(hooks: ToolHooks, id: AiModelId): Promise<boolean> {
-  if (!hooks.api) throw new AiRunError("unsupported", "Local AI models run in the desktop app.");
+  if (!hooks.api) throw new AiRunError("unsupported", tr("Local AI models run in the desktop app."));
   const { info, state } = await hooks.api.models();
   const s = state.find((x) => x.id === id);
   if (s?.state === "ready") return true;
   const m = info.find((x) => x.id === id);
-  if (!m) throw new AiRunError("no-model", "This model isn't available.");
+  if (!m) throw new AiRunError("no-model", tr("This model isn't available."));
   if (!(await hooks.confirmDownload(m))) return false;
   hooks.onDownload?.(id, 0);
   const done = await hooks.api.modelDownload(id);
-  if (done.state !== "ready") throw new AiRunError("no-model", done.error ?? "The model couldn't be downloaded.");
+  if (done.state !== "ready") throw new AiRunError("no-model", done.error ?? tr("The model couldn't be downloaded."));
   return true;
 }
 
@@ -205,7 +206,7 @@ export function imageRun(api: Pick<AiApi, "image" | "cancel" | "onEvent">, req: 
         off();
         signal?.removeEventListener("abort", onAbort);
         if (event.cancelled) reject(new AiRunError("cancelled", "Cancelled."));
-        else if (error || !image) reject(error ?? new AiRunError("bad-output", "No picture came back."));
+        else if (error || !image) reject(error ?? new AiRunError("bad-output", tr("No picture came back.")));
         else resolve({ image, ...(usage ? { usage } : {}) });
       }
     });
@@ -248,7 +249,7 @@ const newRunId = (action: string) => `img-${action}-${Date.now().toString(36)}-$
 /** One API image run, recorded in the ledger whatever its outcome. */
 async function apiImage(env: ToolEnv, req: Omit<AiImageRequest, "runId">, signal?: AbortSignal): Promise<Rgba> {
   const api = env.hooks.api;
-  if (!api) throw new AiRunError("unsupported", "AI images are made in the desktop app.");
+  if (!api) throw new AiRunError("unsupported", tr("AI images are made in the desktop app."));
   const route = req.route;
   try {
     const { image, usage } = await imageRun(api, { ...req, runId: newRunId(req.action) }, signal);
@@ -280,7 +281,7 @@ async function local<T>(env: ToolEnv, action: AiAction, model: AiModelId, megapi
 /** `fn`'s writes as one undo step labelled `label`. */
 export function writeStep(ed: EditorController, label: string, fn: () => void): void {
   const status = ed.engine.txnBegin(label);
-  if (status !== 0) throw new AiRunError("unsupported", "Finish what you're doing on the canvas first, then try again.");
+  if (status !== 0) throw new AiRunError("unsupported", tr("Finish what you're doing on the canvas first, then try again."));
   try {
     fn();
   } catch (err) {
@@ -307,7 +308,7 @@ function setFill(ed: EditorController, t: ImageTarget, paint: FullPaint, extra: 
   const fills = [...((ed.engine.readNode(t.id)?.fillPaints ?? t.node.fillPaints ?? []) as FullPaint[])];
   fills[t.index] = paint;
   const status = ed.engine.setProps([t.id], { fillPaints: fills as never, ...(extra as object) });
-  if (status !== 0) throw new AiRunError("unsupported", `This layer can't be changed (status ${status}).`);
+  if (status !== 0) throw new AiRunError("unsupported", tr("This layer can't be changed (status {status}).", { status }));
 }
 
 const nameOf = (t: ImageTarget) => (t.node.name || "Image").slice(0, 100);
@@ -365,7 +366,7 @@ export const lassoMask = (lasso: readonly Point[], k: number, width: number, hei
 export async function eraseArea(env: ToolEnv, t: ImageTarget, lasso: readonly Point[], o: RunOptions & { route?: AiRoute } = {}): Promise<void> {
   const { image, k } = await layerPicture(env, t);
   const mask = lassoMask(lasso, k, image.width, image.height);
-  if (!mask.some((v) => v)) throw new AiRunError("unsupported", "Select an area on the image first.");
+  if (!mask.some((v) => v)) throw new AiRunError("unsupported", tr("Select an area on the image first."));
   let out: Rgba;
   await env.hooks.checkCredits("erase-object");
   if (await ensureModel(env.hooks, "lama").catch(() => false)) {
@@ -387,7 +388,7 @@ export async function isolateArea(env: ToolEnv, t: ImageTarget, lasso: readonly 
   const { image, k } = await layerPicture(env, t);
   const mask = lassoMask(lasso, k, image.width, image.height);
   const cut = await local(env, "isolate-object", "isnet", (image.width * image.height) / 1e6, () => runners.isolate(image, mask));
-  if (!cut) throw new AiRunError("unsupported", "Select an area on the image first.");
+  if (!cut) throw new AiRunError("unsupported", tr("Select an area on the image first."));
   const img = await env.io.put(cut.image, `${nameOf(t)} (isolated)`);
   let id = "" as Guid;
   writeStep(env.ed, "Isolate", () => {
@@ -431,7 +432,7 @@ export async function blurAreas(env: ToolEnv, t: ImageTarget, areas: readonly (r
     }
     paint = (img) => withPicture(t.paint, img);
   }
-  if (!masked) throw new AiRunError("unsupported", "Select an area on the image first.");
+  if (!masked) throw new AiRunError("unsupported", tr("Select an area on the image first."));
   const img = await env.io.put(out, nameOf(t));
   writeStep(env.ed, "Blur", () => setFill(env.ed, t, paint(img)));
 }
@@ -447,7 +448,7 @@ export const blurBoxes = (env: ToolEnv, t: ImageTarget, boxes: readonly Rect[]):
 /** A new rectangle filled with `img`, just above `node` in its parent, at `rect` in node's own units. */
 export function insertImageLayerAbove(ed: EditorController, node: NodeChange, img: ImportedImage, rect: Rect): Guid {
   const parent = node.parentIndex?.guid;
-  if (!parent) throw new AiRunError("unsupported", "This layer has no parent.");
+  if (!parent) throw new AiRunError("unsupported", tr("This layer has no parent."));
   const siblings = (ed.engine.readNode(parent, { childIds: true })?.childIds ?? []).map((c) => ed.engine.readNode(c)).filter((n): n is NodeChange => !!n);
   const mine = node.parentIndex!.position;
   const above = siblings.map((s) => s.parentIndex?.position ?? "").filter((p) => p > mine).sort()[0] ?? null;
@@ -474,7 +475,7 @@ function insertImageLayer(ed: EditorController, parent: Guid, position: string, 
   } as NodeChange;
   const message: Message = { type: "NODE_CHANGES", sessionID: ed.source.sessionID ?? 1, nodeChanges: [change] };
   const status = ed.engine.applyChanges(message, "user");
-  if (status !== 0) throw new AiRunError("unsupported", `The new layer couldn't be added (status ${status}).`);
+  if (status !== 0) throw new AiRunError("unsupported", tr("The new layer couldn't be added (status {status}).", { status }));
   return guid;
 }
 
@@ -527,7 +528,7 @@ export async function makeImage(env: ToolEnv, prompt: string, o: RunOptions & { 
   if (fill) {
     writeStep(env.ed, "Make an image", () => {
       const status = env.ed.engine.setProps([fill.guid], { fillPaints: [imagePaint(img.hash, img, name)] as never });
-      if (status !== 0) throw new AiRunError("unsupported", `This layer can't take the picture (status ${status}).`);
+      if (status !== 0) throw new AiRunError("unsupported", tr("This layer can't take the picture (status {status}).", { status }));
     });
     return fill.guid;
   }

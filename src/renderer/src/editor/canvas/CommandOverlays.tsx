@@ -5,6 +5,7 @@
  * vector path") and Offset vector (Amount, Join, ✓, "Offset a vector path"). Their looks are unverified (no live
  * capture); they use the DS's own parts.
  */
+import { t, useT } from "@/i18n";
 import { presenceOf } from "../multiplayer/presence";
 import { useEffect, useRef, useState } from "react";
 import { Button, Dialog, IconButton, NumericInput, RadioGroup, SegmentedControl, showToast } from "@/ds";
@@ -46,6 +47,7 @@ export function CommandOverlays() {
 
 /** File › Move to folder…: Drafts and the workspace's folders; the file moves to the one picked. */
 function MoveFileDialog() {
+  useT();
   const ed = useEditor();
   const ops = fileOps(ed);
   const [places, setPlaces] = useState<{ id: string | null; name: string }[] | null>(null);
@@ -64,13 +66,13 @@ function MoveFileDialog() {
   const value = (id: string | null) => id ?? "drafts";
   return (
     <Dialog
-      title="Move to folder"
+      title={t("Move to folder")}
       open
       onClose={close}
       footer={
         <>
           <Button variant="secondary" onClick={close}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button
             variant="primary"
@@ -78,17 +80,17 @@ function MoveFileDialog() {
             onClick={() => {
               const place = places?.find((p) => value(p.id) === to);
               if (!ops || !place) return;
-              void ops.moveTo(place.id).then(() => showToast({ message: `Moved to ${place.name}` }));
+              void ops.moveTo(place.id).then(() => showToast({ message: t("Moved to {name}", { name: place.name }) }));
               close();
             }}
           >
-            Move
+            {t("Move")}
           </Button>
         </>
       }
     >
       <div className={styles.places} data-move-file="">
-        {places ? <RadioGroup label="Folders" value={to} options={places.map((p) => ({ value: value(p.id), label: p.name }))} onChange={setTo} /> : null}
+        {places ? <RadioGroup label={t("Folders")} value={to} options={places.map((p) => ({ value: value(p.id), label: p.name }))} onChange={setTo} /> : null}
       </div>
     </Dialog>
   );
@@ -99,6 +101,7 @@ function MoveFileDialog() {
  *  5 s after you stop typing; Esc, a click or leaving the field closes it. The engine draws the bubbles (setLocalChat; the
  *  others' through presence). */
 function CursorChat({ at }: { at: { x: number; y: number } }) {
+  useT();
   const ed = useEditor();
   const engine = ed.engine as unknown as { setLocalChat?(text: string | null, at: { x: number; y: number } | null): void; screenToWorld?(x: number, y: number): { x: number; y: number } };
   const [text, setText] = useState("");
@@ -142,8 +145,8 @@ function CursorChat({ at }: { at: { x: number; y: number } }) {
       ref={input}
       className={engine.setLocalChat ? styles.chatHidden : styles.chatInput}
       style={{ left: shown.x + 12, top: shown.y + 18 }}
-      aria-label="Cursor chat"
-      placeholder="Say something"
+      aria-label={t("Cursor chat")}
+      placeholder={t("Say something")}
       value={text}
       maxLength={52}
       data-cursor-chat=""
@@ -163,6 +166,7 @@ function CursorChat({ at }: { at: { x: number; y: number } }) {
 
 /** View › Memory usage: the engine's memory and the page's JS heap, at the canvas's bottom left, every second. */
 function MemoryUsage() {
+  useT();
   const ed = useEditor();
   const read = () => {
     const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0;
@@ -178,7 +182,7 @@ function MemoryUsage() {
   const r = ed.canvas?.getBoundingClientRect();
   return (
     <div className={styles.memory} style={r ? { left: r.left + 12, top: r.bottom - 36 } : undefined} role="status" data-memory-usage="">
-      <span className={styles.memoryLabel}>Memory usage</span>
+      <span className={styles.memoryLabel}>{t("Memory usage")}</span>
       <span>{Math.round(bytes / (1024 * 1024))} MB</span>
     </div>
   );
@@ -186,6 +190,7 @@ function MemoryUsage() {
 
 /** Simplify vector (a slider, 0–100) / Offset vector (Amount, Join): ✓ or Enter applies (one undo step), Esc closes. */
 function VectorOperation({ op }: { op: "simplify" | "offset" }) {
+  useT();
   const ed = useEditor();
   const [amount, setAmount] = useState(op === "simplify" ? 50 : 10);
   const [join, setJoin] = useState<"MITER" | "ROUND">("MITER");
@@ -203,7 +208,7 @@ function VectorOperation({ op }: { op: "simplify" | "offset" }) {
     <div
       className={styles.vectorOp}
       role="dialog"
-      aria-label={op === "simplify" ? "Simplify vector" : "Offset vector"}
+      aria-label={op === "simplify" ? t("Simplify vector") : t("Offset vector")}
       data-vector-op={op}
       style={r ? { left: r.left + r.width / 2, top: r.bottom - 76 } : undefined}
       onKeyDown={(e) => {
@@ -214,27 +219,27 @@ function VectorOperation({ op }: { op: "simplify" | "offset" }) {
     >
       {op === "simplify" ? (
         <label className={styles.slider}>
-          <span className={styles.caption}>Simplify</span>
-          <input type="range" min={0} max={100} value={amount} aria-label="Simplify" autoFocus onChange={(e) => setAmount(Number(e.target.value))} />
+          <span className={styles.caption}>{t("Simplify")}</span>
+          <input type="range" min={0} max={100} value={amount} aria-label={t("Simplify")} autoFocus onChange={(e) => setAmount(Number(e.target.value))} />
         </label>
       ) : (
         <>
-          <span className={styles.caption}>Amount</span>
-          <NumericInput label="Amount" value={amount} min={-1000} max={1000} onChange={(v) => setAmount(v)} className={styles.amount} />
-          <span className={styles.caption}>Join:</span>
+          <span className={styles.caption}>{t("Amount")}</span>
+          <NumericInput label={t("Amount")} value={amount} min={-1000} max={1000} onChange={(v) => setAmount(v)} className={styles.amount} />
+          <span className={styles.caption}>{t("Join:")}</span>
           <SegmentedControl
-            label="Join"
+            label={t("Join")}
             value={join}
             options={[
-              { value: "MITER", icon: "24.join.miter", tooltip: "Square" },
-              { value: "ROUND", icon: "24.join.round", tooltip: "Round" },
+              { value: "MITER", icon: "24.join.miter", tooltip: t("Square") },
+              { value: "ROUND", icon: "24.join.round", tooltip: t("Round") },
             ]}
             onChange={(v) => setJoin(v as "MITER" | "ROUND")}
           />
         </>
       )}
-      <IconButton icon="24.check" label="Apply" onClick={apply} />
-      <IconButton icon="24.close.small" label="Close" onClick={close} />
+      <IconButton icon="24.check" label={t("Apply")} onClick={apply} />
+      <IconButton icon="24.close.small" label={t("Close")} onClick={close} />
     </div>
   );
 }

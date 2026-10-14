@@ -43,6 +43,7 @@ import { paintSwatch } from "../../model/paints";
 import { resolveAt } from "../../variables";
 import { pickRemote, remoteDefaultValue, useRemoteAssets, type RemoteStyle, type RemoteVariable } from "../libraries/remoteAssets";
 import styles from "./Variables.module.css";
+import { t, useT } from "@/i18n";
 
 export interface VariablePickerProps {
   anchor: HTMLElement | DOMRect | null;
@@ -150,16 +151,17 @@ export function VariablePicker({
   onClose,
   ...list
 }: VariablePickerProps) {
+  useT();
   return (
     <Popover
       anchor={anchor}
-      title={title}
+      title={t(title)}
       width={240}
       placement={placement}
       onClose={onClose}
-      label={title}
+      label={t(title)}
     >
-      <VariableList {...list} label={title} onDone={onClose} />
+      <VariableList {...list} label={t(title)} onDone={onClose} />
     </Popover>
   );
 }
@@ -187,10 +189,11 @@ export function VariableList({
   stylesTab,
   onBrowse,
 }: VariableListProps) {
+  useT();
   const [grid, setGrid] = useState(false);
   const ed = useEditor();
   const onClose = () => onDone?.();
-  const title = label;
+  const title = t(label);
   const a = useLocalAssets();
   const [query, setQuery] = useState("");
   const offered = useMemo(
@@ -339,8 +342,8 @@ export function VariableList({
   const localCollections = showLocal ? byCollection : [];
   const nothing = !localCollections.length && !localStyles.length && !libraries.length;
   const sources = [
-    { value: "all", label: "All libraries" },
-    { value: "local", label: "Created in this file" },
+    { value: "all", label: t("All libraries") },
+    { value: "local", label: t("Created in this file") },
     ...remote.map((lib) => ({ value: lib.library, label: lib.name })),
   ];
   return (
@@ -349,7 +352,7 @@ export function VariableList({
         <SearchField
           value={query}
           onChange={setQuery}
-          placeholder="Search"
+          placeholder={t("Search")}
           autoFocus
           // Live (popovers/effect-styles.txt, typography-styles, layout-guide-styles): the styles' search is expanded
           expanded={!!stylesTab || undefined}
@@ -358,7 +361,7 @@ export function VariableList({
       {(libraryState.on || colorTab) && (
         <div className={styles.pickSource}>
           <Select
-            label={colorTab ? "Variable set" : "Library"}
+            label={colorTab ? t("Variable set") : t("Library")}
             variant={colorTab ? "ghost" : "outlined"}
             width="hug"
             value={sources.some((o) => o.value === source) ? source : "all"}
@@ -366,16 +369,16 @@ export function VariableList({
             onChange={setSource}
             data-picker-source=""
           />
-          {colorTab && <ToggleIconButton icon="24.view.grid" label="Show as grid" tone="secondary" pressed={grid} onPressedChange={setGrid} />}
+          {colorTab && <ToggleIconButton icon="24.view.grid" label={t("Show as grid")} tone="secondary" pressed={grid} onPressedChange={setGrid} />}
         </div>
       )}
       <div className={cx(styles.pickList, grid && styles.pickGrid)} role="menu" aria-label={title}>
         {source === "all" && libraries.length > 0 && (localStyles.length > 0 || localCollections.length > 0) && (
-          <div className={styles.pickSection}>Created in this file</div>
+          <div className={styles.pickSection}>{t("Created in this file")}</div>
         )}
         {localStyles.length > 0 && (
           <>
-            <div className={styles.pickHeader}>Styles</div>
+            <div className={styles.pickHeader}>{t("Styles")}</div>
             {styleFolders().map((f) => (
               <div key={f.folder || "root"}>
                 {f.folder && (
@@ -427,23 +430,23 @@ export function VariableList({
         {nothing && (
           stylesTab && !query ? (
             <div className={styles.stylesEmpty}>
-              <span>{stylesTab}</span>
+              <span>{t(stylesTab)}</span>
               {/* Live: 129 wide at 43, its label at 71 — a 24 glyph before it (which glyph is unverified: the library) */}
-              {onBrowse && <Button variant="secondary" icon="24.library" aria-label="Browse libraries…" onClick={onBrowse}>Browse libraries…</Button>}
+              {onBrowse && <Button variant="secondary" icon="24.library" aria-label={t("Browse libraries…")} onClick={onBrowse}>{t("Browse libraries…")}</Button>}
             </div>
           ) : (
           <div className={cx(styles.pickEmpty, colorTab && styles.pickEmptyCentered)}>
             {colorTab && !query
-              ? "No colors available"
+              ? t("No colors available")
               : query
-              ? `No results for “${query}”`
+              ? t("No results for “{query}”", { query })
               : a.variables.length || a.styles.length
                 ? styleKind
-                  ? "No styles or variables for this property"
-                  : "No variables for this property"
+                  ? t("No styles or variables for this property")
+                  : t("No variables for this property")
                 : styleKind
-                  ? "No styles or variables in this file"
-                  : "No variables in this file"}
+                  ? t("No styles or variables in this file")
+                  : t("No variables in this file")}
           </div>
           )
         )}
@@ -455,6 +458,7 @@ export function VariableList({
 
 /** "Open variables" as the picker's footer when there is nothing to pick (Figma's empty picker). */
 export function OpenVariablesButton({ onDone }: { onDone?: () => void }) {
+  useT();
   const ed = useEditor();
   return (
     <Button
@@ -465,7 +469,7 @@ export function OpenVariablesButton({ onDone }: { onDone?: () => void }) {
         onDone?.();
       }}
     >
-      Open variables
+      {t("Open variables")}
     </Button>
   );
 }

@@ -19,6 +19,9 @@ export const NONE_ID = 4294967295;
 export const DOCUMENT_GUID: GUID = { sessionID: 0, localID: 0 };
 export const FIRST_PAGE_GUID: GUID = { sessionID: 0, localID: 1 };
 export const INTERNAL_CANVAS_GUID: GUID = { sessionID: 0, localID: 2 };
+/** A new design file's "Thumbnail" page and its frame (codec.ts newDocumentNodes `thumbnail`, docs/schema.md §3.1) */
+export const THUMBNAIL_PAGE_GUID: GUID = { sessionID: 0, localID: 3 };
+export const THUMBNAIL_FRAME_GUID: GUID = { sessionID: 0, localID: 4 };
 
 export const guidKey = (g: GUID): string => `${g.sessionID}:${g.localID}`;
 export const guidUrl = (g: GUID): string => `${g.sessionID}-${g.localID}`;

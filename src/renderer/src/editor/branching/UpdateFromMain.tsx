@@ -5,6 +5,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { Banner, Button, EmptyState, ScrollArea, Spinner, showToast } from "@/ds";
+import { t, tp, useT } from "@/i18n";
 import type { MergePreview } from "../../../../shared/merge/branches";
 import type { Resolutions } from "../../../../shared/merge/types";
 import type { FileKey } from "../../../../shared/store/types";
@@ -17,6 +18,7 @@ import { openBranchWindow, refreshBranch, setBranching } from "./state";
 import styles from "./Branching.module.css";
 
 export function UpdateFromMain({ backend, branchFileKey }: { backend: BranchingBackend; branchFileKey: FileKey }) {
+  useT();
   const ed = useEditor();
   const [preview, setPreview] = useState<MergePreview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -59,14 +61,14 @@ export function UpdateFromMain({ backend, branchFileKey }: { backend: BranchingB
       await backend.branches.applyUpdate(branchFileKey, { previewId: p.previewId, resolutions: picks });
       setBranching(ed, { mainChanged: false, noticeDismissed: false });
       await refreshBranch(ed);
-      showToast({ message: "Updated from main" });
+      showToast({ message: t("Updated from main") });
       close();
     } catch (e) {
       setBusy(false);
       if (codeOf(e) === "stale") {
-        showToast({ message: "The main file changed. Review the updates again." });
+        showToast({ message: t("The main file changed. Review the updates again.") });
         void load(picks);
-      } else showToast({ kind: "error", message: `Couldn’t apply the changes: ${errorText(e)}` });
+      } else showToast({ kind: "error", message: t("Couldn’t apply the changes: {error}", { error: errorText(e) }) });
     }
   };
 
@@ -76,7 +78,7 @@ export function UpdateFromMain({ backend, branchFileKey }: { backend: BranchingB
   return (
     <BranchWindow
       label="Update from main file"
-      title="Update from main file"
+      title={t("Update from main file")}
       onClose={close}
       onBack={step === "conflicts" ? () => setStep("changes") : undefined}
       footer={
@@ -84,17 +86,17 @@ export function UpdateFromMain({ backend, branchFileKey }: { backend: BranchingB
           <>
             <span className={styles.grow} />
             <Button variant="secondary" onClick={close}>
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button variant="primary" disabled={!ready || busy} loading={busy} onClick={() => void apply()} data-apply="">
-              Apply changes
+              {t("Apply changes")}
             </Button>
           </>
         ) : undefined
       }
     >
       {error ? (
-        <EmptyState icon="24.warning" title="The updates couldn’t be loaded" body={error} />
+        <EmptyState icon="24.warning" title={t("The updates couldn’t be loaded")} body={error} />
       ) : !preview ? (
         <div className={styles.loading}>
           <Spinner size={24} />
@@ -105,20 +107,20 @@ export function UpdateFromMain({ backend, branchFileKey }: { backend: BranchingB
         <div className={styles.body}>
           <nav className={styles.sidebar}>
             {conflicts && (
-              <Banner tone="warning" action={{ label: "Resolve conflicts", onClick: () => setStep("conflicts") }} data-conflict-banner="">
-                {allPicked(picks, preview) ? "Conflicts resolved" : `${preview.conflicts.length === 1 ? "1 conflict" : `${preview.conflicts.length} conflicts`} with your branch`}
+              <Banner tone="warning" action={{ label: t("Resolve conflicts"), onClick: () => setStep("conflicts") }} data-conflict-banner="">
+                {allPicked(picks, preview) ? t("Conflicts resolved") : tp(preview.conflicts.length, "{n} conflict with your branch", "{n} conflicts with your branch")}
               </Banner>
             )}
-            <div className={styles.sectionTitle}>Changes</div>
+            <div className={styles.sectionTitle}>{t("Changes")}</div>
             <ScrollArea className={styles.scroll}>
               <ChangeList chunks={preview.chunks} selected={selected} onSelect={setSelected} />
             </ScrollArea>
           </nav>
           <section className={styles.main}>
             {chunk ? (
-              <ChunkCompare docs={docs} previewId={preview.previewId} chunk={chunk} sides={[{ side: "main", caption: "Main file" }]} modes={false} />
+              <ChunkCompare docs={docs} previewId={preview.previewId} chunk={chunk} sides={[{ side: "main", caption: t("Main file") }]} modes={false} />
             ) : (
-              <EmptyState icon="24.check" title="No updates" body="The branch has every change from the main file." />
+              <EmptyState icon="24.check" title={t("No updates")} body={t("The branch has every change from the main file.")} />
             )}
           </section>
         </div>

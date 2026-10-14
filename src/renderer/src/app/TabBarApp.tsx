@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TabsSnapshot, UpdaterStatus, WindowState } from "@shared/ipc";
 import { TabBar, TabBarUpdate, useThemeRoot, type TabBarUpdateState } from "@/ds";
 import { desktopAs } from "./native";
+import { t, useLocale } from "@/i18n";
 
 /**
  * The tab bar's own view (`?tabbar`, 38px at the window's top): the design
@@ -11,6 +12,7 @@ import { desktopAs } from "./native";
  */
 export default function TabBarApp() {
   useThemeRoot();
+  const locale = useLocale();
   const api = desktopAs.tabbar();
   const [snapshot, setSnapshot] = useState<TabsSnapshot | null>(null);
   const [win, setWin] = useState<WindowState>({ fullScreen: false, focused: true });
@@ -41,9 +43,10 @@ export default function TabBarApp() {
   const tabs = useMemo(
     () =>
       (snapshot?.tabs ?? [])
-        .filter((t) => t.kind !== "home")
-        .map((t) => ({ id: t.id, kind: t.kind === "prototype" ? ("prototype" as const) : ("design" as const), title: t.status === "crashed" ? `${t.title} — crashed` : t.status === "unresponsive" ? `${t.title} — not responding` : t.title })),
-    [snapshot]
+        .filter((tab) => tab.kind !== "home")
+        .map((tab) => ({ id: tab.id, kind: tab.kind === "prototype" ? ("prototype" as const) : ("design" as const), title: tab.status === "crashed" ? t("{title} — crashed", { title: tab.title }) : tab.status === "unresponsive" ? t("{title} — not responding", { title: tab.title }) : tab.title })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the titles follow the language
+    [snapshot, locale]
   );
 
   const onActivate = useCallback((id: string) => api?.tabs.activate(id), [api]);

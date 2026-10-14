@@ -88,6 +88,8 @@ export class FakeOrgServer {
   readonly teams = new Map<string, Team>();
   readonly projects = new Map<string, Project>();
   readonly files = new Map<string, File>();
+  /** A team file's people taken off it (`file_exclusions`), as `<fileKey> <userId>` */
+  readonly exclusions = new Set<string>();
   readonly groups = new Map<string, { id: string; orgId: string; name: string; description: string; createdBy: string; members: Set<string> }>();
   readonly seatRequests: SeatRequest[] = [];
   readonly workspaces = new Map<string, { id: string; orgId: string; name: string; hidden: boolean; adminIds: string[]; createdAt: number }>();
@@ -302,6 +304,11 @@ export class FakeOrgServer {
     };
   }
 
+  /** The caller's access through the team taken away from this one file (the owner keeps theirs) */
+  private excluded(f: File, user: User): boolean {
+    return f.ownerId !== user.id && this.exclusions.has(`${f.key} ${user.id}`);
+  }
+
   private orgFile(f: File, user: User): OrgFile {
     const owner = this.users.get(f.ownerId);
     const team = f.teamId ? this.teams.get(f.teamId) : undefined;
@@ -419,9 +426,13 @@ export class FakeOrgServer {
       this.log_(org, user, "fig_file_create", { type: "file", id: f.key, name: f.name });
       return json({ file: this.orgFile(f, user) }, 201);
     }
+    if (sub === "files" && m === "GET") {
+      // All projects: the caller's drafts and every team file (the fake's team files are all open to members)
+      return json({ files: [...this.files.values()].filter((f) => f.orgId === org.id && !f.trashedAt && (f.projectId || f.ownerId === user.id) && !this.excluded(f, user)).map((f) => this.orgFile(f, user)) });
+    }
     if (sub === "search" && m === "GET") {
       const text = (url.searchParams.get("text") ?? "").toLowerCase();
-      const files = [...this.files.values()].filter((f) => f.orgId === org.id && !f.trashedAt && f.name.toLowerCase().includes(text)).map((f) => this.orgFile(f, user));
+      const files = [...this.files.values()].filter((f) => f.orgId === org.id && !f.trashedAt && f.name.toLowerCase().includes(text) && !this.excluded(f, user)).map((f) => this.orgFile(f, user));
       return json({ files, projects: [], teams: [], people: [] });
     }
     if (sub === "seat-requests" && m === "POST") {
@@ -623,7 +634,7 @@ export class FakeOrgServer {
       const members: ProjectMember[] = this.teamMembers(team, org).map(({ admin: _a, ...x }) => ({ ...x, inherited: true }));
       return json({ members });
     }
-    if (sub === "files" && m === "GET") return json({ files: [...this.files.values()].filter((f) => f.projectId === project.id && !f.trashedAt).map((f) => this.orgFile(f, user)) });
+    if (sub === "files" && m === "GET") return json({ files: [...this.files.values()].filter((f) => f.projectId === project.id && !f.trashedAt && !this.excluded(f, user)).map((f) => this.orgFile(f, user)) });
     if (sub === "files" && m === "POST") {
       this.teamWriter(team, user, me);
       if (me.seat === "view") throw new HttpError(403, "seat_required", "your seat can't create design files", { seat: "full" });
@@ -652,8 +663,24 @@ export class FakeOrgServer {
     const f = this.files.get(p[1]);
     if (!f) throw new HttpError(404, "not_found", "no such file");
     const orgMember = f.orgId ? this.orgs.get(f.orgId)?.members.get(user.id) : undefined;
-    if (f.ownerId !== user.id && !orgMember) throw new HttpError(404, "not_found", "no such file");
+    if ((f.ownerId !== user.id && !orgMember) || this.excluded(f, user)) throw new HttpError(404, "not_found", "no such file");
     const sub = p[2];
+    if (sub === "exclusions") {
+      const team = f.teamId ? this.teams.get(f.teamId) : undefined;
+      if (!team) throw new HttpError(404, "not_found", "not a team file");
+      if (f.ownerId !== user.id && team.members.get(user.id)?.role !== "editor") throw new HttpError(403, "forbidden", "only people who can edit the file can share it");
+      if (m === "PUT") {
+        const { userId } = await body<{ userId: string }>();
+        if (userId === f.ownerId) throw new HttpError(400, "invalid", "the file's owner keeps their access");
+        this.exclusions.add(`${f.key} ${userId}`);
+      } else if (m === "DELETE" && p[3]) this.exclusions.delete(`${f.key} ${decodeURIComponent(p[3])}`);
+      else if (m !== "GET") throw new HttpError(405, "invalid", "method not allowed");
+      const people = [...team.members].map(([id, t]) => {
+        const u = this.users.get(id)!;
+        return { userId: id, email: u.email, name: u.name, picture: null, role: t.role, owner: id === f.ownerId, excluded: this.exclusions.has(`${f.key} ${id}`) };
+      });
+      return json(m === "GET" ? { people } : { ok: true });
+    }
     if (!sub && m === "GET") {
       const of = f.orgId ? this.orgFile(f, user) : null;
       const team = f.teamId ? this.teams.get(f.teamId) : undefined;

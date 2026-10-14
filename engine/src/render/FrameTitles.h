@@ -27,8 +27,9 @@ struct LabelFrame {
 };
 LabelFrame labelFrame(const Mat2x3& toScreen, Vec2 size);
 
-// Figma's icon before a component's (and a component set's) or an instance's title.
-enum class TitleIcon : uint8_t { None, Component, Instance };
+// Figma's icon before a component's (and a component set's) or an instance's title; Thumbnail: the frame that is the
+// file's thumbnail (the document's thumbnailInfo, "Set as thumbnail"): a small card with a bar along its bottom.
+enum class TitleIcon : uint8_t { None, Component, Instance, Thumbnail };
 
 // The rects and the baseline below are label-local (`place` maps them to the screen; the identity for an upright frame,
 // so they are screen CSS px then).
@@ -49,6 +50,9 @@ struct FrameTitle {
     return upright ? r : transformedBounds(place * Mat2x3::translate(r.x, r.y), r.w, r.h);
   }
 };
+
+// The layer the document's thumbnailInfo names ("Set as thumbnail"; DOCUMENT 0:0's extra), else kNoGuid.
+Guid thumbnailNode(const Document& doc);
 
 // Whether `id` shows a title: a frame (component, instance, set — not a group) that is a direct child of the page or
 // of a section (Figma: "top-level" frames, including those inside sections), or a section.

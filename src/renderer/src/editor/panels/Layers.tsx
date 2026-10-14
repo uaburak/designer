@@ -20,6 +20,7 @@ import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../controller";
 import { writeOn } from "../components";
 import { command, shortcutOf } from "../commands";
+import { thumbnailNode } from "../objectCommands";
 import { parseDerivedId } from "../model/components";
 import { useLayerTree, useUI } from "../hooks";
 import {
@@ -39,6 +40,7 @@ import {
   type TreeNode,
 } from "../model/layerTree";
 import styles from "./Panels.module.css";
+import { t, useT } from "@/i18n";
 
 /** The live capture's pitch (rows 32 apart, a 24 highlight). */
 const ROW = 32;
@@ -198,6 +200,7 @@ function syncClip(v: HTMLElement | null): void {
 type CellDrag = { kind: "lock" | "visible"; value: boolean; done: Set<Guid> };
 
 export function Layers() {
+  useT();
   const ed = useEditor();
   const tree = useLayerTree();
   const expanded = useUI((s) => s.expanded);
@@ -211,6 +214,8 @@ export function Layers() {
   // Draw (docs/draw.md §5.9): 48 px rows, each with the layer's preview in the glyph's place.
   const drawMode = useUI((s) => s.mode === "draw");
   const thumbs = drawMode && !ed.engine.destroyed ? layerThumbnails(ed) : null;
+  // The file's thumbnail frame ("Set as thumbnail"): Figma's thumbnail glyph in its row, as before its name on the canvas
+  const thumbnailFrame = ed.engine.destroyed ? null : thumbnailNode(ed);
   const rowHeight = drawMode ? LAYER_ROW_LARGE : ROW;
   const nameLeft = NAME_LEFT + (drawMode ? LAYER_THUMB - 16 : 0);
 
@@ -347,7 +352,7 @@ export function Layers() {
         const target = targetAt(ev.clientX, ev.clientY, p.dragging);
         if (!target) return;
         if (ed.engine.moveNodes(p.dragging, target.parent, target.index) <= 0) {
-          showToast({ message: "The layers can't go there" });
+          showToast({ message: t("The layers can't go there") });
           return;
         }
         if (target.position === "inside") ed.ui.set((s) => ({ expanded: new Set([...s.expanded, target.parent]) }));
@@ -445,14 +450,14 @@ export function Layers() {
   return (
     <PanelSection
       className={styles.layers}
-      title="Layers"
+      title={t("Layers")}
       pad="none"
-      actions={anyExpanded ? <IconButton icon="24.collapse-layers.small" label={collapse.label} shortcut={shortcutOf(collapse)} tone="secondary" data-collapse-layers="" onClick={() => collapseLayers(ed, tree)} /> : undefined}
+      actions={anyExpanded ? <IconButton icon="24.collapse-layers.small" label={t(collapse.label)} shortcut={shortcutOf(collapse)} tone="secondary" data-collapse-layers="" onClick={() => collapseLayers(ed, tree)} /> : undefined}
     >
       <div
         className={styles.layerList}
         role="tree"
-        aria-label="Layers"
+        aria-label={t("Layers")}
         aria-multiselectable
         data-layer-list=""
         onPointerLeave={() => {
@@ -467,14 +472,14 @@ export function Layers() {
           // Scrolled sideways, the names fade at the new visible edge (CSS only: no render).
           onScroll={(e) => syncClip(e.currentTarget)}
           scrollToIndex={firstSelected >= 0 ? firstSelected : undefined}
-          label="Layers"
+          label={t("Layers")}
           renderRow={(i) => {
             const row = rows[i];
             const node = tree.nodes.get(row.id)!;
             // Pass 2 (Figma's two-pass panel): the row's name, eye, lock and icon are computed only now, for the rows
             // the list draws; a row without them in hand brings its whole window in one engine read.
             if (!tree.details.has(row.id)) tree.details.prefetch(detailsWindow(rows, i));
-            const icon = layerIcon(node, node.parent ? tree.nodes.get(node.parent) : null);
+            const icon: IconName = row.id === thumbnailFrame ? "16.thumbnail" : layerIcon(node, node.parent ? tree.nodes.get(node.parent) : null);
             return (
               <LayerRow
                 id={row.id}
@@ -482,7 +487,7 @@ export function Layers() {
                 name={node.name}
                 icon={icon}
                 thumbnail={thumbs ? <LayerThumb thumbs={thumbs} node={row.id} icon={icon} /> : undefined}
-                iconLabel={layerKind(node, node.parent ? tree.nodes.get(node.parent) : null)}
+                iconLabel={t(layerKind(node, node.parent ? tree.nodes.get(node.parent) : null))}
                 kind={node.type === "SYMBOL" || node.stateGroup ? "component" : node.type === "INSTANCE" ? "instance" : "default"}
                 tone={componentRows.has(row.id) ? "component" : "default"}
                 expanded={row.expandable ? row.expanded : undefined}

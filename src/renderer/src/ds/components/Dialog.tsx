@@ -3,6 +3,7 @@ import { cx } from "../util/cx";
 import { Portal } from "../overlay/Portal";
 import { useFocusScope } from "../overlay/FocusTrap";
 import { STRINGS } from "../strings";
+import { t, useT } from "@/i18n";
 import { IconButton } from "./Button";
 import styles from "./Dialog.module.css";
 
@@ -29,6 +30,7 @@ export interface DialogProps {
  * button (not from a text area or a menu). No open animation.
  */
 export function Dialog({ title, size = "small", open, onClose, footer, children, initialFocus, closeOnScrim = true, static: isStatic }: DialogProps) {
+  useT();
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
   useFocusScope(panel, { trap: true, initialFocus, enabled: open && !isStatic });
@@ -57,7 +59,7 @@ export function Dialog({ title, size = "small", open, onClose, footer, children,
     >
       <div className={styles.header}>
         <h2 id={titleId} className={styles.title}>{title}</h2>
-        <IconButton icon="24.close.small" label={STRINGS.close} tooltip={false} onClick={onClose} />
+        <IconButton icon="24.close.small" label={t(STRINGS.close)} tooltip={false} onClick={onClose} />
       </div>
       {children !== undefined && <div className={styles.body}>{children}</div>}
       {footer && <div className={styles.footer}>{footer}</div>}

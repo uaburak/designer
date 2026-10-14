@@ -24,6 +24,7 @@ import { SerialQueue } from "../../shared/store/queue";
 import type { FileMeta } from "../../shared/store/types";
 import type { EditorType } from "../../shared/org/types";
 import { isOffline, type LibraryServer } from "../libraries/org";
+import { t as tr } from "../../shared/i18n";
 
 export interface AiTimers {
   setTimeout(fn: () => void, ms: number): unknown;
@@ -267,7 +268,7 @@ export class AiService {
     return this.queue.run(async () => {
       const all = await this.allSkills();
       const existing = s.id ? all.find((x) => x.id === s.id) : undefined;
-      if (s.id && !existing) throw new StoreError("not-found", "That skill was deleted.");
+      if (s.id && !existing) throw new StoreError("not-found", tr("That skill was deleted."));
       if (all.some((x) => x.name === draft.name && x.id !== s.id)) throw new StoreError("conflict", `A skill named “${draft.name}” already exists.`);
       const now = this.host.now();
       const id = existing?.id ?? this.host.newId();

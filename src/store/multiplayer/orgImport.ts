@@ -10,6 +10,7 @@
 import { StoreError } from "../../shared/store/protocol";
 import type { FileKey, FileMeta, FileSpace, OrgImportPlace } from "../../shared/store/types";
 import type { MultiplayerService } from "./service";
+import { t as tr } from "../../shared/i18n";
 
 export interface OrgImportDeps {
   mp: Pick<MultiplayerService, "newRoomKey" | "shareTo" | "call" | "signedIn">;
@@ -36,7 +37,7 @@ export function cleanOrgPlace(v: unknown): OrgImportPlace | null {
 }
 
 export async function importIntoOrg(d: OrgImportDeps, place: OrgImportPlace): Promise<FileMeta> {
-  if (!d.mp.signedIn) throw new StoreError("offline", "Log in to import into an organization");
+  if (!d.mp.signedIn) throw new StoreError("offline", tr("Log in to import into an organization"));
   const { orgId, projectId } = place;
   const teamId = projectId ? await d.teamOf(projectId) : null;
   const key = d.mp.newRoomKey("file");

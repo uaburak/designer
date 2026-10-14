@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { DevelopmentPlugin } from "../../shared/ipc";
 import type { PluginBundle, PluginManifest } from "../../shared/plugins/types";
 import { parseManifest } from "../../shared/plugins/manifest";
+import { t } from "../../shared/i18n";
 
 /**
  * Development plugins (docs/plugins.md §3.3): "Import new plugin from manifest…" keeps `{path, id, name, addedAt}`
@@ -21,16 +22,16 @@ export const developmentId = (manifest: PluginManifest, manifestPath: string) =>
 
 /** A file the manifest names, resolved inside `dir` after symlinks; refused outside it. */
 export async function insideFolder(dir: string, rel: string): Promise<string> {
-  if (isAbsolute(rel) || rel.includes("\0")) throw new PluginFileError(`"${rel}" isn't inside the plugin's folder`);
+  if (isAbsolute(rel) || rel.includes("\0")) throw new PluginFileError(t("“{file}” isn’t inside the plugin’s folder", { file: rel }));
   const root = await realpath(dir);
   let file: string;
   try {
     file = await realpath(resolve(root, rel));
   } catch {
-    throw new PluginFileError(`Couldn't find "${rel}" in the plugin's folder`);
+    throw new PluginFileError(t("Couldn’t find “{file}” in the plugin’s folder", { file: rel }));
   }
   const r = relative(root, file);
-  if (!r || r.startsWith("..") || isAbsolute(r) || r.split(sep).includes("..")) throw new PluginFileError(`"${rel}" isn't inside the plugin's folder`);
+  if (!r || r.startsWith("..") || isAbsolute(r) || r.split(sep).includes("..")) throw new PluginFileError(t("“{file}” isn’t inside the plugin’s folder", { file: rel }));
   return file;
 }
 
@@ -39,7 +40,7 @@ export async function readCapped(file: string, max = MAX_PLUGIN_FILE_BYTES): Pro
   const handle = await open(file, "r");
   try {
     const { size } = await handle.stat();
-    if (size > max) throw new PluginFileError(`"${file}" is larger than ${Math.round(max / 1024 / 1024)} MB`);
+    if (size > max) throw new PluginFileError(t("“{file}” is larger than {mb} MB", { file, mb: Math.round(max / 1024 / 1024) }));
     const buf = Buffer.alloc(size);
     const { bytesRead } = await handle.read(buf, 0, size, 0);
     return buf.subarray(0, bytesRead).toString("utf8");
@@ -55,16 +56,16 @@ export async function loadManifest(manifestPath: string): Promise<{ manifest: Pl
     text = await readCapped(manifestPath, MAX_MANIFEST_BYTES);
   } catch (err) {
     if (err instanceof PluginFileError) throw err;
-    throw new PluginFileError(`Couldn't read ${manifestPath}`);
+    throw new PluginFileError(t("Couldn’t read {path}", { path: manifestPath }));
   }
   let json: unknown;
   try {
     json = JSON.parse(text);
   } catch {
-    throw new PluginFileError("The manifest isn't valid JSON");
+    throw new PluginFileError(t("The manifest isn’t valid JSON"));
   }
   const r = parseManifest(json, { development: true });
-  if ("errors" in r) throw new PluginFileError(`The manifest has errors:\n${r.errors.join("\n")}`);
+  if ("errors" in r) throw new PluginFileError(`${t("The manifest has errors:")}\n${r.errors.join("\n")}`);
   const manifest = { ...r.manifest, id: developmentId(r.manifest, manifestPath) };
   return { manifest, warnings: r.warnings };
 }
@@ -150,7 +151,7 @@ export class DevelopmentPlugins {
   /** A listed plugin's bundle; its name is refreshed when the manifest's changed. */
   async read(id: string): Promise<PluginBundle> {
     const entry = await this.get(id);
-    if (!entry) throw new PluginFileError("This development plugin isn't imported");
+    if (!entry) throw new PluginFileError(t("This development plugin isn’t imported"));
     const bundle = await readBundle(entry.path);
     if (bundle.manifest.name !== entry.name) {
       const list = await this.list();

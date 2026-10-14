@@ -7,6 +7,7 @@ import { useFocusScope } from "../overlay/FocusTrap";
 import { EDGE, place } from "../overlay/position";
 import { size } from "../tokens";
 import { STRINGS } from "../strings";
+import { t, useT } from "@/i18n";
 
 /** Live capture: popovers keep 16 from the window's bottom (they all end at 884 of 900). */
 const BOTTOM = 16;
@@ -68,6 +69,7 @@ export interface PopoverProps {
  * first field (not trapped: the canvas stays clickable).
  */
 export function Popover({ anchor, placement = "left-of-panel", title, header, headerActions, onClose, draggable, width = size.popover, static: isStatic, children, label, offsetX = 0, offsetY = 0, reserveHeight = 0, arrow = false, gap = 8, titleInset }: PopoverProps) {
+  useT();
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const dragged = useRef(false);
@@ -172,7 +174,7 @@ export function Popover({ anchor, placement = "left-of-panel", title, header, he
         >
           {header ? <div className={styles.headerContent}>{header}</div> : <h2 id={titleId} className={styles.title}>{title}</h2>}
           {headerActions}
-          <IconButton icon="24.close.small" label={STRINGS.close} tooltip={false} onClick={onClose} />
+          <IconButton icon="24.close.small" label={t(STRINGS.close)} tooltip={false} onClick={onClose} />
         </div>
       )}
       {arrow && <div className={styles.arrow} aria-hidden="true" />}

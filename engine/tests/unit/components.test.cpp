@@ -1213,3 +1213,81 @@ TEST_CASE("components: a nested instance keeps its own size, swapped or not; its
   CHECK(props(f, sub(I2, {NI, SHAPE2})).size.x == doctest::Approx(8));
   CHECK(props(f, sub(I2, {NI, SHAPE2})).transform.m02 == doctest::Approx(4));
 }
+
+TEST_CASE("components: a variant pasted, ⌘D'd and ⌥-dragged — in its set a new variant, out of it an instance") {
+  // Figma (help.figma.com "Create and use variants", R4 §2): duplicating a variant in its set adds a variant; a copy
+  // that lands outside the set is an instance of that variant, as a main component's copies are.
+  const Guid SET{2, 1}, V1{2, 2}, V2{2, 3}, BG1{2, 4}, BG2{2, 5}, FR{2, 10};
+  auto nodes = baseChanges();
+  NodeChange set = make(SET, NodeType::FRAME, kPage, "!", {300, 0, 400, 200}, "Card");
+  set.props.comp().isStateGroup = true;
+  nodes.push_back(set);
+  nodes.push_back(make(V1, NodeType::SYMBOL, SET, "!", {20, 20, 100, 40}, "State=Default"));
+  nodes.push_back(make(BG1, NodeType::RECTANGLE, V1, "!", {0, 0, 100, 40}, "Bg"));
+  nodes.push_back(make(V2, NodeType::SYMBOL, SET, "\"", {140, 20, 100, 40}, "State=Hover"));
+  nodes.push_back(make(BG2, NodeType::RECTANGLE, V2, "!", {0, 0, 100, 40}, "Bg"));
+  nodes.push_back(make(FR, NodeType::FRAME, kPage, "\"", {0, 300, 400, 200}, "Frame 5025"));
+  Editor e = load(nodes);
+  auto down = [&](double x, double y, uint32_t mods) { e.pointer(PointerEvent::DOWN, x, y, 0, 1, mods); };
+  auto drag = [&](Vec2 from, Vec2 to, uint32_t mods) {
+    down(from.x, from.y, mods);
+    for (int i = 1; i <= 8; i++) e.pointer(PointerEvent::MOVE, from.x + (to.x - from.x) * i / 8, from.y + (to.y - from.y) * i / 8, 0, 1, mods);
+    e.pointer(PointerEvent::UP, to.x, to.y, 0, 0, mods);
+  };
+
+  // Copy / paste (nothing selected): an instance of the variant.
+  e.setSelection({V1});
+  Clipboard clip;
+  REQUIRE(e.copySelection(clip));
+  e.setSelection({});
+  REQUIRE(e.paste(clip, true) == 1);
+  Guid pasted = e.selection()[0];
+  CHECK(props(e, pasted).type == NodeType::INSTANCE);
+  CHECK(e.mainOf(pasted) == V1);
+  CHECK(e.document().parentOf(pasted) != SET);
+  e.command(CommandId::UNDO);
+  // Pasted into its set: a new variant.
+  e.setSelection({SET});
+  REQUIRE(e.paste(clip, false) == 1);
+  Guid inSet = e.selection()[0];
+  CHECK(e.document().parentOf(inSet) == SET);
+  CHECK(props(e, inSet).type == NodeType::SYMBOL);
+  e.command(CommandId::UNDO);
+
+  // ⌘D in its set: a new variant.
+  e.setSelection({V1});
+  e.command(CommandId::DUPLICATE);
+  Guid dup = e.selection()[0];
+  CHECK(props(e, dup).type == NodeType::SYMBOL);
+  CHECK(e.document().parentOf(dup) == SET);
+  e.command(CommandId::UNDO);
+
+  // ⌥-drag within the set: a new variant.
+  size_t variants = e.document().children(SET).size();
+  e.setSelection({V1});
+  drag({350, 50}, {350, 120}, MOD_ALT);
+  REQUIRE(e.selection().size() == 1);
+  Guid inside = e.selection()[0];
+  CHECK(inside != V1);
+  CHECK(props(e, inside).type == NodeType::SYMBOL);
+  CHECK(e.document().parentOf(inside) == SET);
+  CHECK(e.document().children(SET).size() == variants + 1);
+  e.command(CommandId::UNDO);
+  CHECK(e.document().children(SET).size() == variants);
+
+  // ⌥-drag out of the set into a frame: an instance of that variant, the variant where it was; one undo step.
+  e.setSelection({V2});
+  drag({470, 50}, {100, 380}, MOD_ALT);
+  REQUIRE(e.selection().size() == 1);
+  Guid out = e.selection()[0];
+  CHECK(props(e, out).type == NodeType::INSTANCE);
+  CHECK(e.mainOf(out) == V2);
+  CHECK(e.document().parentOf(out) == FR);
+  CHECK(e.document().parentOf(V2) == SET);
+  CHECK(e.document().worldBounds(V2) == Rect{440, 20, 100, 40});
+  CHECK(e.document().children(SET).size() == variants);
+  CHECK(e.document().worldBounds(out).w == 100);
+  e.command(CommandId::UNDO);
+  CHECK(!e.document().has(out));
+  CHECK(e.document().children(FR).empty());
+}

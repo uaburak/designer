@@ -6,18 +6,19 @@
 import type { MenuEntry } from "@/ds/util/menu";
 import type { BranchRecord } from "@shared/merge/branches";
 import type { FileListItem } from "@shared/store/types";
-import { fileSubtitle, plural } from "./model";
+import { t, tp } from "@/i18n";
+import { fileSubtitle } from "./model";
 
 /** The tile's dropdown: the main file, its active branches (newest first), then Create branch… and See all branches. */
 export function branchSwitchMenu(rows: readonly BranchRecord[], opts: { canCreate: boolean }): MenuEntry[] {
   const branches = [...rows].filter((b) => b.status === "active").sort((a, b) => b.createdAt - a.createdAt);
   return [
-    { id: "main", label: "Main file", checked: true },
-    ...(branches.length ? (["-", { header: "Branches" }] as MenuEntry[]) : []),
+    { id: "main", label: t("Main file"), checked: true },
+    ...(branches.length ? (["-", { header: t("Branches") }] as MenuEntry[]) : []),
     ...branches.map((b): MenuEntry => ({ id: `branch:${b.branchFileKey || b.branchKey}`, label: b.name })),
     "-",
-    { id: "create", label: "Create branch…", disabled: !opts.canCreate },
-    { id: "see-all", label: "See all branches" },
+    { id: "create", label: t("Create branch…"), disabled: !opts.canCreate },
+    { id: "see-all", label: t("See all branches") },
   ];
 }
 
@@ -28,7 +29,7 @@ export const branchOf = (rows: readonly BranchRecord[], id: string): BranchRecor
 };
 
 /** "3 branches" (the count under the name) */
-export const branchCountLabel = (n: number) => plural(n, "branch").replace(/branchs$/, "branches");
+export const branchCountLabel = (n: number) => tp(n, "{n} branch", "{n} branches");
 
 /** A branch's tile: "‹file› / ‹branch›" (R21 [guide]); its main's name unknown → the branch's name alone */
 export function branchTileTitle(f: Pick<FileListItem, "name" | "branch">, mainName: string | null | undefined): string {
@@ -40,7 +41,7 @@ export function branchTileTitle(f: Pick<FileListItem, "name" | "branch">, mainNa
 export function branchTileSubtitle(f: FileListItem, now = Date.now()): string {
   const base = fileSubtitle(f, now);
   if (!f.branch || f.branch.status === "active" || f.trashedAt !== null) return base;
-  return `${f.branch.status === "merged" ? "Merged" : "Archived"} · ${base}`;
+  return `${f.branch.status === "merged" ? t("Merged") : t("Archived")} · ${base}`;
 }
 
 /** The main files of a listing whose branches Home counts: not branches, not in Trash. */

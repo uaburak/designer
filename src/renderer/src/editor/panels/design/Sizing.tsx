@@ -17,6 +17,7 @@ import { exitToCanvas } from "./Sections";
 import { VariableField } from "./Variables";
 import { scaleGroupTo } from "./layoutActions";
 import { isGroupNode, type PanelNode } from "./shared";
+import { t, useT } from "@/i18n";
 import styles from "./Design.module.css";
 
 const AXIS_WORD: Record<Axis, string> = { x: "width", y: "height" };
@@ -69,6 +70,7 @@ function resizeOne(ed: EditorController, n: PanelNode, parent: PanelNode | null,
 
 /** The W or H field with its sizing menu. */
 export function SizeField({ axis, nodes, parents, onAddLimit, disabled }: { axis: Axis; nodes: PanelNode[]; parents: (PanelNode | null)[]; onAddLimit: (axis: Axis) => void; disabled?: boolean }) {
+  useT();
   const ed = useEditor();
   const [picker, setPicker] = useState<HTMLElement | null>(null);
   const field = useRef<HTMLDivElement>(null);
@@ -90,22 +92,23 @@ export function SizeField({ axis, nodes, parents, onAddLimit, disabled }: { axis
   const stepSize = (d: number) => ed.edit("Resize", stepInfo, () => read().forEach((n, i) => resizeOne(ed, n, parents[i], axis, Math.max(0.01, (n.size?.[axis] ?? 0) + d))));
   const eachSize = (each: (x: number) => number, info: ChangeInfo) => ed.edit("Resize", info, () => read().forEach((n, i) => resizeOne(ed, n, parents[i], axis, Math.max(0.01, each(n.size?.[axis] ?? 0)))));
 
-  const fixedLabel = `Fixed ${word}${isMixed(value) || value === undefined ? "" : ` (${value})`}`;
+  const known = !(isMixed(value) || value === undefined);
+  const fixedLabel = axis === "x" ? (known ? t("Fixed width ({value})", { value: String(value) }) : t("Fixed width")) : known ? t("Fixed height ({value})", { value: String(value) }) : t("Fixed height");
   // Live (popovers/width-sizing-menu.txt, height-sizing-menu.txt, autolayout-child-width-menu.txt): Fixed (n), Hug contents,
   // Fill container, then Add min / max — each with its glyph; no "Apply variable" (W / H take one from the hover button).
   const glyph = (k: "fixed" | "hug" | "fill" | "min" | "max"): IconName => `24.al.${axis === "x" ? "width" : "height"}-${k}` as IconName;
   const entries: MenuEntry[] = [
     { id: "FIXED", label: fixedLabel, checked: sizing === "FIXED", icon: glyph("fixed") },
-    ...(hug ? [{ id: "HUG", label: "Hug contents", checked: sizing === "HUG", disabled: !nodes.every(hugs), icon: glyph("hug") }] : []),
-    ...(fill ? [{ id: "FILL", label: "Fill container", checked: sizing === "FILL", disabled: !nodes.every((n, i) => canFill(n, parents[i])), icon: glyph("fill") }] : []),
+    ...(hug ? [{ id: "HUG", label: t("Hug contents"), checked: sizing === "HUG", disabled: !nodes.every(hugs), icon: glyph("hug") }] : []),
+    ...(fill ? [{ id: "FILL", label: t("Fill container"), checked: sizing === "FILL", disabled: !nodes.every((n, i) => canFill(n, parents[i])), icon: glyph("fill") }] : []),
     ...(limits
       ? [
           "-" as const,
           ...(limited
-            ? [{ id: "remove-limits", label: "Remove min and max" }]
+            ? [{ id: "remove-limits", label: t("Remove min and max") }]
             : [
-                { id: "add-min", label: `Add min ${word}…`, icon: glyph("min") },
-                { id: "add-max", label: `Add max ${word}…`, icon: glyph("max") },
+                { id: "add-min", label: axis === "x" ? t("Add min width…") : t("Add min height…"), icon: glyph("min") },
+                { id: "add-max", label: axis === "x" ? t("Add max width…") : t("Add max height…"), icon: glyph("max") },
               ]),
         ]
       : []),
@@ -121,8 +124,8 @@ export function SizeField({ axis, nodes, parents, onAddLimit, disabled }: { axis
     }
     ed.focusCanvas();
   };
-  const mode = sizing === "HUG" ? "Hug" : sizing === "FILL" ? "Fill" : undefined;
-  const label = axis === "x" ? names.x : names.y;
+  const mode = sizing === "HUG" ? t("Hug") : sizing === "FILL" ? t("Fill") : undefined;
+  const label = t(axis === "x" ? names.x : names.y);
   return (
     <div ref={field} style={{ display: "contents" }}>
       <VariableField nodes={nodes} fields={[axis === "x" ? "WIDTH" : "HEIGHT"]} prefix={axis === "x" ? "W" : "H"} button={false} open={picker} onOpenChange={setPicker}>
@@ -146,7 +149,7 @@ export function SizeField({ axis, nodes, parents, onAddLimit, disabled }: { axis
               // The owner's live Figma (docs/research/panel17): Fixed → the chevron, hovered or not; Hug / Fill → the mode's
               // word in its place, the number grey, and the chevron instead of the word while the field is hovered (the
               // owner's correction). Either opens the sizing list.
-              <MenuButton label={`${label} sizing`} entries={entries} onSelect={onMenu} className={mode ? styles.sizeMode : styles.sizeMenu} overField='[data-ds="NumericInput"]' overAlign="right" overOffset={hug ? SIZING_LIST_DY : SIZING_LIST_DY_CHILD}>
+              <MenuButton label={t("{label} sizing", { label })} entries={entries} onSelect={onMenu} className={mode ? styles.sizeMode : styles.sizeMenu} overField='[data-ds="NumericInput"]' overAlign="right" overOffset={hug ? SIZING_LIST_DY : SIZING_LIST_DY_CHILD}>
                 {mode ? (
                   <>
                     <span className={styles.sizeModeWord}>{mode}</span>
@@ -168,6 +171,7 @@ export function SizeField({ axis, nodes, parents, onAddLimit, disabled }: { axis
 
 /** The min / max fields of one axis (shown once a limit exists, or right after "Add min …"). */
 export function LimitRow({ axis, nodes }: { axis: Axis; nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const word = AXIS_WORD[axis];
   const value = (which: Limit) => {
@@ -182,9 +186,9 @@ export function LimitRow({ axis, nodes }: { axis: Axis; nodes: PanelNode[] }) {
   const field = (which: Limit) => (
     <VariableField nodes={nodes} fields={[`${which.toUpperCase()}_${axis === "x" ? "WIDTH" : "HEIGHT"}` as "MIN_WIDTH"]} prefix={`24.al.${word}-${which}` as "24.al.width-min"}>
       <NumericInput
-        label={`${which === "min" ? "Min" : "Max"} ${word}`}
+        label={axis === "x" ? (which === "min" ? t("Min width") : t("Max width")) : which === "min" ? t("Min height") : t("Max height")}
         prefix={`24.al.${word}-${which}` as "24.al.width-min"}
-        placeholder={`${which === "min" ? "Min" : "Max"} ${axis === "x" ? "W" : "H"}`}
+        placeholder={axis === "x" ? (which === "min" ? t("Min W") : t("Max W")) : which === "min" ? t("Min H") : t("Max H")}
         value={value(which)}
         min={0}
         onChange={(v, info) => set(which, v, info)}
@@ -196,8 +200,8 @@ export function LimitRow({ axis, nodes }: { axis: Axis; nodes: PanelNode[] }) {
   );
   return (
     <PropertyRow
-      label={`Min and max ${word}`}
-      action={<IconButton icon="24.minus.small" label={`Remove min and max ${word}`} tone="secondary" onClick={() => ed.batch(`Remove min and max ${word}`, () => nodes.forEach((n) => ed.engine.setProps([n.guid], withoutLimits(n, axis))))} />}
+      label={axis === "x" ? t("Min and max width") : t("Min and max height")}
+      action={<IconButton icon="24.minus.small" label={axis === "x" ? t("Remove min and max width") : t("Remove min and max height")} tone="secondary" onClick={() => ed.batch(`Remove min and max ${word}`, () => nodes.forEach((n) => ed.engine.setProps([n.guid], withoutLimits(n, axis))))} />}
     >
       {field("min")}
       {field("max")}

@@ -18,6 +18,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button, Dialog, EmptyState, IconButton, Select, Spinner, Tabs, cx, showToast } from "@/ds";
 import type { AnalyticsAssetType, AnalyticsRange, AssetStatsRow, AssetUsage, LibraryActions, LibraryAnalyticsRepository, LibraryKey, LibraryOverview, ModeUsageRow, OrgLibrariesRepository } from "../../../../shared/libraries/orgTypes";
 import type { LibraryRecord } from "../../../../shared/store/types";
+import { intlLocale, t, tp, useT } from "@/i18n";
 import { InsertionsGraph } from "./InsertionsGraph";
 import { COLUMNS, MODE_COLUMNS, RANGE_OPTIONS, TYPE_OPTIONS, canDownloadCsv, count, csvFileName, percent, shortDate, sortRows, variantsFromCsv, type Column, type SortDir } from "./model";
 import styles from "./Analytics.module.css";
@@ -44,6 +45,7 @@ export interface LibraryAnalyticsModalProps {
 type View = { tab: "overview" | "analytics"; asset: AssetStatsRow | null; back: AssetStatsRow[] };
 
 export function LibraryAnalyticsModal({ store, libraryKey, name: libraryName, orgId, onClose, today }: LibraryAnalyticsModalProps) {
+  useT();
   const [open, setOpen] = useState(true);
   const close = () => {
     setOpen(false);
@@ -72,7 +74,7 @@ export function LibraryAnalyticsModal({ store, libraryKey, name: libraryName, or
   const back = () => setView((v) => ({ ...v, asset: v.back[v.back.length - 1] ?? null, back: v.back.slice(0, -1) }));
   if (!open) return null;
   return (
-    <Dialog title="Library analytics" size="large" open onClose={close}>
+    <Dialog title={t("Library analytics")} size="large" open onClose={close}>
       <div className={styles.modal} data-library-analytics={libraryKey}>
         {name && <div className={styles.libraryName} data-library-name="">{name}</div>}
         {view.asset ? (
@@ -80,15 +82,15 @@ export function LibraryAnalyticsModal({ store, libraryKey, name: libraryName, or
         ) : (
           <>
             <Tabs
-              label="Library analytics"
+              label={t("Library analytics")}
               value={view.tab}
               tabs={[
-                { value: "overview", label: "Overview" },
-                { value: "analytics", label: "Analytics" },
+                { value: "overview", label: t("Overview") },
+                { value: "analytics", label: t("Analytics") },
               ]}
               onChange={(tab) => setView({ tab: tab as View["tab"], asset: null, back: [] })}
             />
-            {view.tab === "overview" ? <Overview store={store} libraryKey={libraryKey} onOpen={openAsset} /> : <AnalyticsTab store={store} libraryKey={libraryKey} libraryName={name ?? "Library"} orgId={org} onOpen={openAsset} today={today} />}
+            {view.tab === "overview" ? <Overview store={store} libraryKey={libraryKey} onOpen={openAsset} /> : <AnalyticsTab store={store} libraryKey={libraryKey} libraryName={name ?? t("Library")} orgId={org} onOpen={openAsset} today={today} />}
           </>
         )}
       </div>
@@ -121,10 +123,11 @@ function errorText(e: unknown): string {
 }
 
 function Loading({ error }: { error: string | null }) {
-  if (error) return <EmptyState icon="24.library" title={error} />;
+  useT();
+  if (error) return <EmptyState icon="24.library" title={t(error)} />;
   return (
     <div className={styles.loading}>
-      <Spinner /> Loading…
+      <Spinner /> {t("Loading…")}
     </div>
   );
 }
@@ -141,6 +144,7 @@ function Stat({ label, value, id }: { label: string; value: React.ReactNode; id:
 // ---- Overview ---------------------------------------------------------------------------------------------------------
 
 function Overview({ store, libraryKey, onOpen }: { store: AnalyticsStore; libraryKey: LibraryKey; onOpen: (a: AssetStatsRow) => void }) {
+  useT();
   const { data, error } = useRead<LibraryOverview>(() => store.analytics.overview(libraryKey), [store, libraryKey]);
   if (!data) return <Loading error={error} />;
   const components = data.rows.filter((r) => r.type === "component" && !r.componentSetKey);
@@ -149,7 +153,7 @@ function Overview({ store, libraryKey, onOpen }: { store: AnalyticsStore; librar
   for (const r of data.rows) {
     if (r.type !== "variable") continue;
     const k = r.collectionKey ?? r.collectionName ?? "";
-    const c = collections.get(k) ?? { name: r.collectionName ?? "Collection", variables: 0, instances: 0 };
+    const c = collections.get(k) ?? { name: r.collectionName ?? t("Collection"), variables: 0, instances: 0 };
     c.variables++;
     c.instances += r.instances;
     collections.set(k, c);
@@ -157,42 +161,43 @@ function Overview({ store, libraryKey, onOpen }: { store: AnalyticsStore; librar
   return (
     <div className={styles.body} data-analytics-overview="">
       <div className={styles.stats}>
-        <Stat id="teams" label="Teams using the library" value={count(data.teamsUsing)} />
-        <Stat id="components" label="Total components" value={count(data.counts.components)} />
-        <Stat id="styles" label="Total styles" value={count(data.counts.styles)} />
-        <Stat id="variables" label="Total variables" value={count(data.counts.variables)} />
+        <Stat id="teams" label={t("Teams using the library")} value={count(data.teamsUsing)} />
+        <Stat id="components" label={t("Total components")} value={count(data.counts.components)} />
+        <Stat id="styles" label={t("Total styles")} value={count(data.counts.styles)} />
+        <Stat id="variables" label={t("Total variables")} value={count(data.counts.variables)} />
         <Stat
           id="week"
-          label="Activity this week"
+          label={t("Activity this week")}
           value={
             <>
-              {count(data.thisWeek.insertions)} {data.thisWeek.insertions === 1 ? "insertion" : "insertions"} · {count(data.thisWeek.detachments)} {data.thisWeek.detachments === 1 ? "detachment" : "detachments"}
+              {tp(data.thisWeek.insertions, "{count} insertion", "{count} insertions", { count: count(data.thisWeek.insertions) })} · {tp(data.thisWeek.detachments, "{count} detachment", "{count} detachments", { count: count(data.thisWeek.detachments) })}
             </>
           }
         />
       </div>
-      <AssetList title="Components" rows={components} onOpen={onOpen} />
-      <AssetList title="Styles" rows={styleRows} onOpen={onOpen} />
+      <AssetList title={t("Components")} rows={components} onOpen={onOpen} />
+      <AssetList title={t("Styles")} rows={styleRows} onOpen={onOpen} />
       {collections.size > 0 && (
-        <section aria-label="Variable collections" className={styles.section}>
-          <div className={styles.sectionTitle}>Variable collections</div>
+        <section aria-label={t("Variable collections")} className={styles.section}>
+          <div className={styles.sectionTitle}>{t("Variable collections")}</div>
           {[...collections].map(([k, c]) => (
             <div key={k} className={styles.listRow} data-collection={c.name}>
               <span className={styles.name}>{c.name}</span>
               <span className={styles.meta}>
-                {count(c.variables)} {c.variables === 1 ? "variable" : "variables"} · {count(c.instances)} {c.instances === 1 ? "instance" : "instances"}
+                {tp(c.variables, "{count} variable", "{count} variables", { count: count(c.variables) })} · {tp(c.instances, "{count} instance", "{count} instances", { count: count(c.instances) })}
               </span>
             </div>
           ))}
         </section>
       )}
-      {!data.rows.length && <EmptyState icon="24.library" title="Nothing published yet" body="Components, styles and variables published from this file show up here." />}
+      {!data.rows.length && <EmptyState icon="24.library" title={t("Nothing published yet")} body={t("Components, styles and variables published from this file show up here.")} />}
       <Freshness throughDay={data.throughDay} />
     </div>
   );
 }
 
 function AssetList({ title, rows, onOpen }: { title: string; rows: AssetStatsRow[]; onOpen: (a: AssetStatsRow) => void }) {
+  useT();
   if (!rows.length) return null;
   return (
     <section aria-label={title} className={styles.section}>
@@ -203,7 +208,7 @@ function AssetList({ title, rows, onOpen }: { title: string; rows: AssetStatsRow
           <button key={r.key} type="button" className={styles.listRow} data-asset={r.name} onClick={() => onOpen(r)}>
             <span className={styles.name}>{r.name}</span>
             <span className={styles.meta}>
-              {count(r.instances)} {r.instances === 1 ? "instance" : "instances"}
+              {tp(r.instances, "{count} instance", "{count} instances", { count: count(r.instances) })}
             </span>
           </button>
         ))}
@@ -213,12 +218,14 @@ function AssetList({ title, rows, onOpen }: { title: string; rows: AssetStatsRow
 
 /** "Analytics are updated daily": the last day included. */
 function Freshness({ throughDay }: { throughDay: string }) {
-  return <div className={styles.freshness}>Updated daily · data through {shortDate(throughDay)}</div>;
+  useT();
+  return <div className={styles.freshness}>{t("Updated daily · data through {date}", { date: shortDate(throughDay) })}</div>;
 }
 
 // ---- Analytics --------------------------------------------------------------------------------------------------------
 
 function AnalyticsTab({ store, libraryKey, libraryName, orgId, onOpen, today }: { store: AnalyticsStore; libraryKey: LibraryKey; libraryName: string; orgId: string | null; onOpen: (a: AssetStatsRow) => void; today?: string }) {
+  useT();
   const [type, setType] = useState<AnalyticsAssetType>("component");
   const [range, setRange] = useState<AnalyticsRange>(30);
   const [compareWith, setCompareWith] = useState<string>("");
@@ -231,28 +238,28 @@ function AnalyticsTab({ store, libraryKey, libraryName, orgId, onOpen, today }: 
       const text = await store.analytics.csv(libraryKey, { type, range });
       saveText(csvFileName(libraryName, type), text);
     } catch (e) {
-      showToast({ message: errorText(e), kind: "error" });
+      showToast({ message: t(errorText(e)), kind: "error" });
     }
   };
   const collections = useMemo(() => [...new Map((data?.rows ?? []).filter((r) => r.type === "variable").map((r) => [r.collectionKey ?? "", r.collectionName ?? ""])).entries()], [data]);
   return (
     <div className={styles.body} data-analytics-tab="">
       <div className={styles.controls}>
-        <Select label="Type" width="hug" value={type} options={TYPE_OPTIONS} onChange={(v) => setType(v as AnalyticsAssetType)} />
-        <Select label="Duration" width="hug" value={String(range)} options={RANGE_OPTIONS.map((r) => ({ value: String(r.value), label: r.label }))} onChange={(v) => setRange(Number(v) as AnalyticsRange)} />
+        <Select label={t("Type")} width="hug" value={type} options={TYPE_OPTIONS.map((o) => ({ ...o, label: t(o.label) }))} onChange={(v) => setType(v as AnalyticsAssetType)} />
+        <Select label={t("Duration")} width="hug" value={String(range)} options={RANGE_OPTIONS.map((r) => ({ value: String(r.value), label: t(r.label) }))} onChange={(v) => setRange(Number(v) as AnalyticsRange)} />
         <Select
-          label="Compare with"
+          label={t("Compare with")}
           width="hug"
-          placeholder="Compare with"
+          placeholder={t("Compare with")}
           value={compareWith}
-          options={[{ value: "", label: "No comparison" }, ...(others.data ?? []).map((l) => ({ value: l.key, label: l.name }))]}
+          options={[{ value: "", label: t("No comparison") }, ...(others.data ?? []).map((l) => ({ value: l.key, label: l.name }))]}
           disabled={!others.data?.length}
           onChange={setCompareWith}
         />
         <span className={styles.spacer} />
         {data && canDownloadCsv(data.teamsUsing) && (
           <Button variant="secondary" onClick={() => void download()} data-download-csv="">
-            Download CSV
+            {t("Download CSV")}
           </Button>
         )}
       </div>
@@ -265,16 +272,16 @@ function AnalyticsTab({ store, libraryKey, libraryName, orgId, onOpen, today }: 
           {type === "variable" && (
             <div className={styles.controls}>
               <Tabs
-                label="Variables and modes"
+                label={t("Variables and modes")}
                 value={variablesTab}
                 tabs={[
-                  { value: "variables", label: "Variables" },
-                  { value: "modes", label: "Modes" },
+                  { value: "variables", label: t("Variables") },
+                  { value: "modes", label: t("Modes") },
                 ]}
-                onChange={(t) => setVariablesTab(t as "variables" | "modes")}
+                onChange={(tab) => setVariablesTab(tab as "variables" | "modes")}
               />
               <span className={styles.spacer} />
-              <Select label="Collection" width="hug" value={collection} options={[{ value: "", label: "All collections" }, ...collections.map(([k, n]) => ({ value: k, label: n }))]} onChange={setCollection} />
+              <Select label={t("Collection")} width="hug" value={collection} options={[{ value: "", label: t("All collections") }, ...collections.map(([k, n]) => ({ value: k, label: n }))]} onChange={setCollection} />
             </div>
           )}
           {type === "variable" && variablesTab === "modes" ? (
@@ -301,15 +308,16 @@ function saveText(fileName: string, text: string): void {
 }
 
 function TopTeams({ rows }: { rows: LibraryActions["topTeams"] }) {
+  useT();
   return (
-    <section aria-label="Top teams" className={styles.section}>
-      <div className={styles.sectionTitle}>Top teams</div>
-      {!rows.length && <div className={styles.none}>No insertions in this period</div>}
-      {rows.slice(0, 5).map((t, i) => (
-        <div key={`${t.teamId ?? "hidden"}-${i}`} className={styles.listRow} data-team={t.teamName}>
-          <span className={styles.name}>{t.teamName}</span>
+    <section aria-label={t("Top teams")} className={styles.section}>
+      <div className={styles.sectionTitle}>{t("Top teams")}</div>
+      {!rows.length && <div className={styles.none}>{t("No insertions in this period")}</div>}
+      {rows.slice(0, 5).map((team, i) => (
+        <div key={`${team.teamId ?? "hidden"}-${i}`} className={styles.listRow} data-team={team.teamName}>
+          <span className={styles.name}>{team.teamName}</span>
           <span className={styles.meta}>
-            {count(t.insertions)} {t.insertions === 1 ? "insertion" : "insertions"} · {percent(t.share)}
+            {tp(team.insertions, "{count} insertion", "{count} insertions", { count: count(team.insertions) })} · {percent(team.share)}
           </span>
         </div>
       ))}
@@ -335,6 +343,7 @@ function useSort(initial: string) {
 }
 
 function StatsTable({ type, rows, onOpen }: { type: AnalyticsAssetType; rows: AssetStatsRow[]; onOpen: (a: AssetStatsRow) => void }) {
+  useT();
   const columns = COLUMNS[type];
   const { sort, toggle } = useSort("inserts");
   const column: Column = columns.find((c) => c.id === sort.col) ?? columns[0];
@@ -345,7 +354,7 @@ function StatsTable({ type, rows, onOpen }: { type: AnalyticsAssetType; rows: As
         <thead>
           <tr>
             {columns.map((c) => (
-              <SortHeader key={c.id} label={c.label} numeric={c.numeric} active={c.id === column.id} dir={sort.dir} onSort={() => toggle(c.id, c.numeric)} />
+              <SortHeader key={c.id} label={t(c.label)} numeric={c.numeric} active={c.id === column.id} dir={sort.dir} onSort={() => toggle(c.id, c.numeric)} />
             ))}
           </tr>
         </thead>
@@ -361,12 +370,13 @@ function StatsTable({ type, rows, onOpen }: { type: AnalyticsAssetType; rows: As
           ))}
         </tbody>
       </table>
-      {!rows.length && <div className={styles.none}>Nothing to show</div>}
+      {!rows.length && <div className={styles.none}>{t("Nothing to show")}</div>}
     </div>
   );
 }
 
 function ModesTable({ store, libraryKey, collection }: { store: AnalyticsStore; libraryKey: LibraryKey; collection: string }) {
+  useT();
   const { data, error } = useRead<ModeUsageRow[]>(() => store.analytics.modes(libraryKey, collection || undefined), [store, libraryKey, collection]);
   const { sort, toggle } = useSort("instances");
   if (!data) return <Loading error={error} />;
@@ -384,7 +394,7 @@ function ModesTable({ store, libraryKey, collection }: { store: AnalyticsStore; 
         <thead>
           <tr>
             {MODE_COLUMNS.map((c) => (
-              <SortHeader key={c.id} label={c.label} numeric={c.numeric} active={c.id === column.id} dir={sort.dir} onSort={() => toggle(c.id, c.numeric)} />
+              <SortHeader key={c.id} label={t(c.label)} numeric={c.numeric} active={c.id === column.id} dir={sort.dir} onSort={() => toggle(c.id, c.numeric)} />
             ))}
           </tr>
         </thead>
@@ -400,7 +410,7 @@ function ModesTable({ store, libraryKey, collection }: { store: AnalyticsStore; 
           ))}
         </tbody>
       </table>
-      {!data.length && <div className={styles.none}>No modes set in files yet</div>}
+      {!data.length && <div className={styles.none}>{t("No modes set in files yet")}</div>}
     </div>
   );
 }
@@ -408,6 +418,7 @@ function ModesTable({ store, libraryKey, collection }: { store: AnalyticsStore; 
 // ---- Usage view -------------------------------------------------------------------------------------------------------
 
 function UsageView({ store, libraryKey, asset, onBack, onOpen }: { store: AnalyticsStore; libraryKey: LibraryKey; asset: AssetStatsRow; onBack: () => void; onOpen: (a: AssetStatsRow) => void }) {
+  useT();
   const { data, error } = useRead<AssetUsage>(() => store.analytics.usage(libraryKey, asset.key), [store, libraryKey, asset.key]);
   const isSet = asset.type === "component" && (asset.variants ?? 0) > 0;
   const variants = useRead<AssetStatsRow[]>(async () => (isSet ? variantsFromCsv(await store.analytics.csv(libraryKey, { type: "component", range: 30 }), asset.key) : []), [store, libraryKey, asset.key, isSet]);
@@ -415,7 +426,7 @@ function UsageView({ store, libraryKey, asset, onBack, onOpen }: { store: Analyt
   return (
     <div className={styles.body} data-usage-view={asset.name}>
       <div className={styles.usageHeader}>
-        <IconButton icon="24.arrow.left" label="Back" onClick={onBack} />
+        <IconButton icon="24.arrow.left" label={t("Back")} onClick={onBack} />
         <span className={styles.usageTitle}>{asset.name}</span>
       </div>
       {!data ? (
@@ -424,18 +435,18 @@ function UsageView({ store, libraryKey, asset, onBack, onOpen }: { store: Analyt
         <>
           <div className={styles.usageFields}>
             <div className={styles.field}>
-              <span className={styles.statLabel}>Description</span>
-              <span>{row.description || "No description"}</span>
+              <span className={styles.statLabel}>{t("Description")}</span>
+              <span>{row.description || t("No description")}</span>
             </div>
           </div>
           <div className={styles.stats}>
-            <Stat id="total" label="Total" value={`${count(row.instances)} ${row.instances === 1 ? "instance" : "instances"}`} />
-            <Stat id="used-by" label="Used by" value={`${count(row.teamsUsing)} ${row.teamsUsing === 1 ? "team" : "teams"}`} />
-            <Stat id="used-in" label="Used in" value={`${count(row.filesUsing)} ${row.filesUsing === 1 ? "file" : "files"}`} />
+            <Stat id="total" label={t("Total")} value={tp(row.instances, "{count} instance", "{count} instances", { count: count(row.instances) })} />
+            <Stat id="used-by" label={t("Used by")} value={tp(row.teamsUsing, "{count} team", "{count} teams", { count: count(row.teamsUsing) })} />
+            <Stat id="used-in" label={t("Used in")} value={tp(row.filesUsing, "{count} file", "{count} files", { count: count(row.filesUsing) })} />
           </div>
           {isSet && (
-            <section aria-label="Variants" className={styles.section}>
-              <div className={styles.sectionTitle}>Variants</div>
+            <section aria-label={t("Variants")} className={styles.section}>
+              <div className={styles.sectionTitle}>{t("Variants")}</div>
               {!variants.data ? (
                 <Loading error={variants.error} />
               ) : (
@@ -443,10 +454,10 @@ function UsageView({ store, libraryKey, asset, onBack, onOpen }: { store: Analyt
                   <table className={styles.table} data-variants-table="">
                     <thead>
                       <tr>
-                        <th scope="col" className={styles.th}>Variant</th>
-                        <th scope="col" className={cx(styles.th, styles.num)}>Instances</th>
-                        <th scope="col" className={cx(styles.th, styles.num)}>Inserts</th>
-                        <th scope="col" className={cx(styles.th, styles.num)}>Detaches</th>
+                        <th scope="col" className={styles.th}>{t("Variant")}</th>
+                        <th scope="col" className={cx(styles.th, styles.num)}>{t("Instances")}</th>
+                        <th scope="col" className={cx(styles.th, styles.num)}>{t("Inserts")}</th>
+                        <th scope="col" className={cx(styles.th, styles.num)}>{t("Detaches")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -464,16 +475,16 @@ function UsageView({ store, libraryKey, asset, onBack, onOpen }: { store: Analyt
               )}
             </section>
           )}
-          <section aria-label="Files" className={styles.section}>
-            <div className={styles.sectionTitle}>Files</div>
+          <section aria-label={t("Files")} className={styles.section}>
+            <div className={styles.sectionTitle}>{t("Files")}</div>
             <div className={styles.tableBox}>
               <table className={styles.table} data-files-table="">
                 <thead>
                   <tr>
-                    <th scope="col" className={styles.th}>File</th>
-                    <th scope="col" className={styles.th}>Team</th>
-                    <th scope="col" className={cx(styles.th, styles.num)}>Instances</th>
-                    <th scope="col" className={cx(styles.th, styles.num)}>Last modified</th>
+                    <th scope="col" className={styles.th}>{t("File")}</th>
+                    <th scope="col" className={styles.th}>{t("Team")}</th>
+                    <th scope="col" className={cx(styles.th, styles.num)}>{t("Instances")}</th>
+                    <th scope="col" className={cx(styles.th, styles.num)}>{t("Last modified")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -482,12 +493,12 @@ function UsageView({ store, libraryKey, asset, onBack, onOpen }: { store: Analyt
                       <td className={cx(styles.td, !f.fileKey && styles.hidden)}>{f.fileName}</td>
                       <td className={styles.td}>{f.teamName ?? ""}</td>
                       <td className={cx(styles.td, styles.num)}>{count(f.instances)}</td>
-                      <td className={cx(styles.td, styles.num)}>{f.lastModified ? new Date(f.lastModified).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : ""}</td>
+                      <td className={cx(styles.td, styles.num)}>{f.lastModified ? new Date(f.lastModified).toLocaleDateString(intlLocale(), { month: "short", day: "numeric", year: "numeric" }) : ""}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              {!data.files.length && <div className={styles.none}>Not used in any file yet</div>}
+              {!data.files.length && <div className={styles.none}>{t("Not used in any file yet")}</div>}
             </div>
           </section>
         </>

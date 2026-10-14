@@ -2,6 +2,7 @@ import { useRef, type HTMLAttributes, type KeyboardEvent, type PointerEvent } fr
 import { cx } from "../util/cx";
 import { MIXED, type ChangeInfo, type Mixed } from "../types";
 import { STRINGS } from "../strings";
+import { t, useT } from "@/i18n";
 import styles from "./Slider.module.css";
 
 export interface SliderProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChange"> {
@@ -39,6 +40,7 @@ export const sliderFraction = (v: number, min: number, max: number): number => (
  * dragging cancels. ← ↓ / → ↑ step, ⇧ ten steps, Home / End the ends. `role="slider"`; disabled at 40 %.
  */
 export function Slider({ label, value, min, max, step = 1, onChange, onCancel, disabled, className, style, ...rest }: SliderProps) {
+  useT();
   const root = useRef<HTMLDivElement>(null);
   const drag = useRef<{ last: number; id: number } | null>(null);
   const mixed = value === MIXED;
@@ -82,7 +84,7 @@ export function Slider({ label, value, min, max, step = 1, onChange, onCancel, d
       aria-valuemin={min}
       aria-valuemax={max}
       aria-valuenow={v ?? undefined}
-      aria-valuetext={mixed ? STRINGS.mixed : undefined}
+      aria-valuetext={mixed ? t(STRINGS.mixed) : undefined}
       aria-disabled={disabled || undefined}
       data-mixed={mixed || undefined}
       tabIndex={disabled ? -1 : 0}

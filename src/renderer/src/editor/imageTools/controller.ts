@@ -5,6 +5,7 @@
  * readable form. The app's hooks: main's AI (`window.designer.ai`), Settings › AI and the ledger for the credits stop,
  * `store.ai.record` with the file's key.
  */
+import { intlLocale, t } from "@/i18n";
 import type { Guid } from "@/engine/codec";
 import { showToast } from "@/ds";
 import { readableError } from "@shared/agents/errors";
@@ -57,12 +58,12 @@ export function appHooks(ed: EditorController, state: Store<ImageToolsState>): t
     async checkCredits(action: AiAction) {
       const api = editorAi();
       const s = (await api?.settings().catch(() => null)) ?? DEFAULT_AI_SETTINGS;
-      if (!s.enabled) throw new AiRunError("disabled", "AI is turned off in Settings › AI.");
+      if (!s.enabled) throw new AiRunError("disabled", t("AI is turned off in Settings › AI."));
       if (!s.stopAtLimit || creditsFor(action, { input: 1, output: 1, megapixels: 1, colors: 2 }) === 0) return;
       const view = await loadAiBalance(s.monthlyCredits).catch(() => null);
       if (view && view.balance.remaining <= 0) {
         const when = resetDate(view.balance.resetsAt);
-        throw new AiRunError("over-limit", view.balance.allowance <= 0 ? `You don't have any AI credits this month. They reset on ${when}.` : `You've used all ${view.balance.allowance.toLocaleString("en-US")} AI credits for this month. They reset on ${when}.`);
+        throw new AiRunError("over-limit", view.balance.allowance <= 0 ? t("You don't have any AI credits this month. They reset on {when}.", { when }) : t("You've used all {n} AI credits for this month. They reset on {when}.", { n: view.balance.allowance.toLocaleString(intlLocale()), when }));
       }
     },
     record(e) {
@@ -96,7 +97,7 @@ export function showToolError(err: unknown): void {
     if (err.code === "cancelled") return;
     const message = RUN_CODES.has(err.code) ? aiMessage(err.code, err.message) : readableError(err.message);
     if (err.code === "over-limit") openAiBalance();
-    showToast({ message, kind: "error", ...(err.code === "over-limit" ? { action: { label: "AI balance", onAction: openAiBalance } } : {}) });
+    showToast({ message, kind: "error", ...(err.code === "over-limit" ? { action: { label: t("AI balance"), onAction: openAiBalance } } : {}) });
     return;
   }
   showToast({ message: readableError(err instanceof Error ? err.message : String(err)), kind: "error" });

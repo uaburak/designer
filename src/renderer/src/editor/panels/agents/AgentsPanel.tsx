@@ -24,6 +24,7 @@ import { TabHeader } from "../TabHeader";
 import { AgentSettings } from "./AgentSettings";
 import { ManagerCard, TaskCard } from "./StudioCards";
 import styles from "./Agents.module.css";
+import { intlLocale, t, tp, useT } from "@/i18n";
 
 function useAgents(): [AgentsService, ReturnType<AgentsService["get"]>] {
   const ed = useEditor();
@@ -41,6 +42,7 @@ function useSelectionContext(service: AgentsService) {
 }
 
 export function AgentsPanel() {
+  useT();
   const [service, state] = useAgents();
   useEffect(() => {
     if (state.available && !state.providers.length && !state.providersLoading) void service.refreshProviders();
@@ -49,15 +51,15 @@ export function AgentsPanel() {
   }, [service]);
   const actions = (
     <>
-      <IconButton icon="24.settings.small" label="Agent settings" tone="secondary" disabled={!state.available} onClick={() => service.setView(state.view === "settings" ? "chat" : "settings")} data-agents-settings="" />
-      <IconButton icon="24.plus.small" label="New chat" tone="secondary" disabled={!state.available} onClick={() => service.newChat()} />
+      <IconButton icon="24.settings.small" label={t("Agent settings")} tone="secondary" disabled={!state.available} onClick={() => service.setView(state.view === "settings" ? "chat" : "settings")} data-agents-settings="" />
+      <IconButton icon="24.plus.small" label={t("New chat")} tone="secondary" disabled={!state.available} onClick={() => service.newChat()} />
     </>
   );
   return (
     <div className={styles.panel} data-agents="" data-view={state.view}>
-      <TabHeader title="Agents" actions={actions} />
+      <TabHeader title={t("Agents")} actions={actions} />
       {!state.available ? (
-        <EmptyState icon="24.agents" title="Agents run in the desktop app" body="Open this file in Wecra to chat with the AI tools on your computer." />
+        <EmptyState icon="24.agents" title={t("Agents run in the desktop app")} body={t("Open this file in Wecra to chat with the AI tools on your computer.")} />
       ) : state.view === "settings" ? (
         <AgentSettings service={service} />
       ) : state.view === "list" && state.chats.length ? (
@@ -76,6 +78,7 @@ export function AgentsPanel() {
  * bottom, the list fading into the panel under it — the composer: a message sent here starts a new chat and opens it.
  */
 function ChatList({ service, chats }: { service: AgentsService; chats: Chat[] }) {
+  useT();
   const state = service.get();
   const [filter, setFilter] = useState<ChatFilter>(NO_FILTER);
   const [confirmAll, setConfirmAll] = useState(false);
@@ -88,37 +91,37 @@ function ChatList({ service, chats }: { service: AgentsService; chats: Chat[] })
   return (
     <div className={styles.chats} data-chats="">
       <div className={styles.listBar} data-chats-bar="">
-        <SearchField className={styles.listSearch} value={filter.query} onChange={(query) => setFilter({ ...filter, query })} placeholder="Search chats" label="Search chats" data-chats-search="" />
+        <SearchField className={styles.listSearch} value={filter.query} onChange={(query) => setFilter({ ...filter, query })} placeholder={t("Search chats")} label={t("Search chats")} data-chats-search="" />
         <MenuButton
-          label="Filter chats"
+          label={t("Filter chats")}
           tooltip
           className={cx(styles.barButton, (filter.agent || filter.sort !== "recent") && styles.barButtonOn)}
           align="end"
           entries={[
-            { header: "Agent" },
-            { id: "agent:", label: "All agents", checked: !filter.agent },
+            { header: t("Agent") },
+            { id: "agent:", label: t("All agents"), checked: !filter.agent },
             ...agents.map((a) => ({ id: `agent:${a.id}`, label: a.label, checked: filter.agent === a.id })),
             "-",
-            { header: "Sort by" },
-            { id: "sort:recent", label: "Recent", checked: filter.sort === "recent" },
-            { id: "sort:oldest", label: "Oldest", checked: filter.sort === "oldest" },
+            { header: t("Sort by") },
+            { id: "sort:recent", label: t("Recent"), checked: filter.sort === "recent" },
+            { id: "sort:oldest", label: t("Oldest"), checked: filter.sort === "oldest" },
           ]}
           onSelect={(id) => (id.startsWith("agent:") ? setFilter({ ...filter, agent: id.slice(6) || null }) : setFilter({ ...filter, sort: id.slice(5) as ChatSort }))}
         >
           <Icon name="24.filter" />
         </MenuButton>
         <MenuButton
-          label="More"
+          label={t("More")}
           tooltip
           className={styles.barButton}
           align="end"
-          entries={[{ id: "new", label: "New chat" }, { id: "settings", label: "Agent settings" }, "-", { id: "delete-all", label: "Delete all chats…" }]}
+          entries={[{ id: "new", label: t("New chat") }, { id: "settings", label: t("Agent settings") }, "-", { id: "delete-all", label: t("Delete all chats…") }]}
           onSelect={(id) => (id === "new" ? service.newChat() : id === "settings" ? service.setView("settings") : setConfirmAll(true))}
         >
           <Icon name="24.more" />
         </MenuButton>
       </div>
-      <div className={styles.scroll} role="list" aria-label="Chats" data-chats-list="">
+      <div className={styles.scroll} role="list" aria-label={t("Chats")} data-chats-list="">
         {shown.map((c) => {
           const last = [...c.messages].reverse().find((m) => m.role === "assistant");
           const found = searching && splitMatches(c.title, filter.query).length < 2 ? matchSnippet(c, filter.query) : null;
@@ -130,23 +133,23 @@ function ChatList({ service, chats }: { service: AgentsService; chats: Chat[] })
                 <span className={styles.chatPreview}><Highlighted text={preview} query={filter.query} /></span>
                 <span className={styles.chatTime}>{timeAgo(c.updatedAt)}</span>
               </button>
-              <IconButton icon="24.trash.outline" label="Delete chat" tone="secondary" className={styles.chatDelete} onClick={() => service.deleteChat(c.id)} />
+              <IconButton icon="24.trash.outline" label={t("Delete chat")} tone="secondary" className={styles.chatDelete} onClick={() => service.deleteChat(c.id)} />
             </div>
           );
         })}
-        {!shown.length && <p className={styles.noChats} data-no-chats="">No chats found</p>}
+        {!shown.length && <p className={styles.noChats} data-no-chats="">{t("No chats found")}</p>}
       </div>
       <div className={styles.listFoot} data-chats-foot="">
         <Composer service={service} chat={null} running={false} />
       </div>
       <Dialog
-        title="Delete all chats?"
+        title={t("Delete all chats?")}
         open={confirmAll}
         onClose={() => setConfirmAll(false)}
         footer={
           <>
             <Button variant="secondary" size="large" onClick={() => setConfirmAll(false)}>
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -157,12 +160,12 @@ function ChatList({ service, chats }: { service: AgentsService; chats: Chat[] })
               }}
               data-delete-all=""
             >
-              Delete all
+              {t("Delete all")}
             </Button>
           </>
         }
       >
-        <p className={styles.confirmText}>{chats.length === 1 ? "The chat in this file will be deleted. This can’t be undone." : `The ${chats.length} chats in this file will be deleted. This can’t be undone.`}</p>
+        <p className={styles.confirmText}>{tp(chats.length, "The chat in this file will be deleted. This can’t be undone.", "The {n} chats in this file will be deleted. This can’t be undone.")}</p>
       </Dialog>
     </div>
   );
@@ -181,6 +184,7 @@ const SUGGESTIONS_WITH_SELECTION = ["Make the mobile version of this", "Make thi
 const SUGGESTIONS = ["Design a login screen for a mobile app", "What's on this page?"];
 
 function ChatView({ service, chat }: { service: AgentsService; chat: Chat | null }) {
+  useT();
   const state = service.get();
   const running = chat ? !!state.running[chat.id] : false;
   const scroller = useRef<HTMLDivElement>(null);
@@ -195,20 +199,20 @@ function ChatView({ service, chat }: { service: AgentsService; chat: Chat | null
     <div className={styles.chat}>
       {state.chats.length > 0 && (
         <div className={styles.chatBar}>
-          <IconButton icon="24.arrow.left" label="Back" tone="secondary" onClick={() => service.setView("list")} />
-          <span className={styles.chatBarTitle}>{chat?.title ?? "New chat"}</span>
+          <IconButton icon="24.arrow.left" label={t("Back")} tone="secondary" onClick={() => service.setView("list")} />
+          <span className={styles.chatBarTitle}>{chat?.title ?? t("New chat")}</span>
         </div>
       )}
       <div ref={scroller} className={styles.scroll} data-messages="">
         {!chat || !chat.messages.length ? (
           <div className={styles.intro}>
             <span className={styles.introIcon}><Icon name="24.agents" /></span>
-            <p className={styles.introTitle}>What should we design?</p>
-            <p className={styles.introBody}>Agents on this computer read and edit this file. Select a frame and ask — every reply’s changes are one undo step.</p>
+            <p className={styles.introTitle}>{t("What should we design?")}</p>
+            <p className={styles.introBody}>{t("Agents on this computer read and edit this file. Select a frame and ask — every reply’s changes are one undo step.")}</p>
             <div className={styles.suggestions}>
               {(selection?.length ? SUGGESTIONS_WITH_SELECTION : SUGGESTIONS).map((s) => (
-                <button key={s} type="button" className={styles.suggestion} onClick={() => void service.send(s)} data-suggestion="">
-                  {s}
+                <button key={s} type="button" className={styles.suggestion} onClick={() => void service.send(t(s))} data-suggestion="">
+                  {t(s)}
                 </button>
               ))}
             </div>
@@ -226,12 +230,13 @@ function ChatView({ service, chat }: { service: AgentsService; chat: Chat | null
 const TYPE_ICON: Record<string, IconName> = { FRAME: "16.frame", TEXT: "16.text", RECTANGLE: "16.rectangle", COMPONENT: "16.component", SYMBOL: "16.component", INSTANCE: "16.instance", IMAGE: "16.image" };
 
 function ContextChip({ item, onRemove }: { item: NonNullable<ChatMessage["context"]>[number]; onRemove?: () => void }) {
+  useT();
   return (
     <span className={styles.chip} data-context-chip="" {...tooltipProps(`${Math.round(item.width)} × ${Math.round(item.height)}`)}>
       <Icon name={TYPE_ICON[item.type] ?? "16.frame"} />
       <span className={styles.chipName}>{item.name || item.type.toLowerCase()}</span>
       {onRemove && (
-        <button type="button" className={styles.chipRemove} aria-label="Remove from context" onClick={onRemove}>
+        <button type="button" className={styles.chipRemove} aria-label={t("Remove from context")} onClick={onRemove}>
           <Icon name="16.close" />
         </button>
       )}
@@ -241,13 +246,14 @@ function ContextChip({ item, onRemove }: { item: NonNullable<ChatMessage["contex
 
 /** A file attached to a message: its picture (or a document glyph), its name, and ✕ while it is in the composer. */
 function AttachmentChip({ a, onRemove }: { a: Attachment; onRemove?: () => void }) {
+  useT();
   const kind = a.mime === "application/pdf" ? "PDF" : a.mime.replace("image/", "").toUpperCase().replace("JPEG", "JPG");
   return (
     <span className={cx(styles.chip, styles.fileChip)} data-attachment-chip={a.mime} {...tooltipProps(`${a.name} · ${kind} · ${fileSize(a.size)}`)}>
       {a.thumb ? <img className={styles.fileThumb} src={a.thumb} alt="" draggable={false} /> : <Icon name={isImageMime(a.mime) ? "16.image" : "16.document"} />}
       <span className={styles.chipName}>{a.name}</span>
       {onRemove && (
-        <button type="button" className={styles.chipRemove} aria-label={`Remove ${a.name}`} onClick={onRemove} data-attachment-remove="">
+        <button type="button" className={styles.chipRemove} aria-label={t("Remove {name}", { name: a.name })} onClick={onRemove} data-attachment-remove="">
           <Icon name="16.close" />
         </button>
       )}
@@ -277,6 +283,7 @@ function UserMessage({ m }: { m: ChatMessage }) {
 }
 
 function AgentMessage({ m, service }: { m: ChatMessage; service: AgentsService }) {
+  useT();
   const segments = segmentsOf(m);
   return (
     <div className={styles.agent} data-message="assistant" data-state={m.state}>
@@ -285,7 +292,7 @@ function AgentMessage({ m, service }: { m: ChatMessage; service: AgentsService }
       {m.cards?.map((c) => <ManagerCard key={c.id} card={c} service={service} />)}
       {m.manager && <ManagerTasks messageId={m.id} service={service} />}
       {m.error && <div className={styles.error} role="alert">{m.error}</div>}
-      {m.state === "stopped" && <div className={styles.stopped}>Stopped</div>}
+      {m.state === "stopped" && <div className={styles.stopped}>{t("Stopped")}</div>}
       {m.changes && m.turnId && <Changes turnId={m.turnId} changes={m.changes} service={service} />}
       {m.usage && m.state !== "running" && <Credits usage={m.usage} />}
     </div>
@@ -306,8 +313,9 @@ function ManagerTasks({ messageId, service }: { messageId: string; service: Agen
 
 /** A finished reply's AI credits icon: the turn's credits on hover (docs/ai.md §7, Figma's agent prompt). */
 function Credits({ usage }: { usage: NonNullable<ChatMessage["usage"]> }) {
+  useT();
   const credits = creditsFor("agent", usage);
-  const label = `${credits.toLocaleString("en-US")} AI ${credits === 1 ? "credit" : "credits"} · ${formatTokens(usage.input + usage.output)} tokens`;
+  const label = `${tp(credits, "{count} AI credit", "{count} AI credits", { count: credits.toLocaleString(intlLocale()) })} · ${t("{tokens} tokens", { tokens: formatTokens(usage.input + usage.output) })}`;
   return (
     <span className={styles.credits} aria-label={label} {...tooltipProps(label)} data-credits={credits}>
       <Icon name="16.sparkle" />
@@ -317,22 +325,23 @@ function Credits({ usage }: { usage: NonNullable<ChatMessage["usage"]> }) {
 
 /** A connector's tool asks to run (its policy is Ask): "Allow once", "Always allow", "Deny" (docs/ai.md §2.11). */
 function ConsentCard({ c, service }: { c: ConnectorConsent; service: AgentsService }) {
+  useT();
   const args = JSON.stringify(c.args ?? {}, null, 1);
   return (
-    <div className={styles.consent} role="alertdialog" aria-label={`${c.connector} wants to use ${c.tool}`} data-consent={c.reqId}>
+    <div className={styles.consent} role="alertdialog" aria-label={t("{connector} wants to use {tool}", { connector: c.connector, tool: c.tool })} data-consent={c.reqId}>
       <p className={styles.consentTitle}>
-        {c.connector} wants to use {c.tool}
+        {t("{connector} wants to use {tool}", { connector: c.connector, tool: c.tool })}
       </p>
       {args !== "{}" && <pre className={styles.consentArgs}>{args.slice(0, 2000)}</pre>}
       <div className={styles.actions}>
         <Button variant="primary" onClick={() => service.answerConsent(c.reqId, true)} data-consent-once="">
-          Allow once
+          {t("Allow once")}
         </Button>
         <Button variant="secondary" onClick={() => service.answerConsent(c.reqId, true, true)} data-consent-always="">
-          Always allow
+          {t("Always allow")}
         </Button>
         <Button variant="secondary" onClick={() => service.answerConsent(c.reqId, false)} data-consent-deny="">
-          Deny
+          {t("Deny")}
         </Button>
       </div>
     </div>
@@ -453,6 +462,7 @@ const REVEAL_WAIT_MS = 3000;
  * blurred to sharp); a card put up for a picture the prompt asked for, that never came, fades out.
  */
 function ImageCard({ p }: { p: ImagePart }) {
+  useT();
   const busy = p.state === "generating" || p.state === "ready";
   const url = useImageUrl(p.state === "placed" ? p.hash : undefined);
   // "wait": the picture came, its bytes are loading under the grey; "play": the reveal.
@@ -465,10 +475,10 @@ function ImageCard({ p }: { p: ImagePart }) {
   useEffect(() => {
     if (reveal === "none") return;
     // Played (or the bytes never came): the picture alone.
-    const t = setTimeout(() => setReveal("none"), reveal === "play" ? REVEAL_MS : REVEAL_WAIT_MS);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setReveal("none"), reveal === "play" ? REVEAL_MS : REVEAL_WAIT_MS);
+    return () => clearTimeout(timer);
   }, [reveal]);
-  const caption = p.state === "generating" || p.state === "cancelled" ? "Making an image…" : p.state === "ready" || reveal !== "none" ? "Placing the image…" : p.state === "failed" ? "Image not placed" : null;
+  const caption = p.state === "generating" || p.state === "cancelled" ? t("Making an image…") : p.state === "ready" || reveal !== "none" ? t("Placing the image…") : p.state === "failed" ? t("Image not placed") : null;
   return (
     <div className={styles.imageCard} data-image-card={p.state} data-reveal={reveal === "none" ? undefined : reveal} style={{ "--aspect": Math.max(0.25, Math.min(4, p.aspect || 1)) } as CSSProperties}>
       {p.state === "placed" && (url ? <img className={styles.imageCardImg} src={url} alt="" draggable={false} onLoad={() => setReveal((r) => (r === "wait" ? "play" : r))} /> : <span className={styles.imageCardFill} />)}
@@ -502,24 +512,25 @@ function ToolRow({ p }: { p: ToolPart }) {
 }
 
 function Changes({ turnId, changes, service }: { turnId: string; changes: NonNullable<ChatMessage["changes"]>; service: AgentsService }) {
-  const label = changes.count === 1 ? "Changed 1 layer" : changes.count ? `Changed ${changes.count} layers` : "Changed the file";
+  useT();
+  const label = changes.count ? tp(changes.count, "Changed {n} layer", "Changed {n} layers") : t("Changed the file");
   return (
     <div className={styles.changes} data-changes={changes.state}>
-      <span className={styles.changesLabel}>{changes.state === "undone" ? "Undone" : label}</span>
+      <span className={styles.changesLabel}>{changes.state === "undone" ? t("Undone") : label}</span>
       {changes.state === "applied" && (
         <Button variant="secondary" onClick={() => service.undoTurn(turnId)} data-turn-undo="">
-          Undo
+          {t("Undo")}
         </Button>
       )}
       {changes.state === "undone" && (
         <Button variant="secondary" onClick={() => service.applyTurn(turnId)} data-turn-apply="">
-          Apply
+          {t("Apply")}
         </Button>
       )}
-      {changes.state === "stale" && <span className={styles.changesHint} {...tooltipProps("Everything it changed was changed again since: nothing left to undo")}>Edited since</span>}
+      {changes.state === "stale" && <span className={styles.changesHint} {...tooltipProps(t("Everything it changed was changed again since: nothing left to undo"))}>{t("Edited since")}</span>}
       {changes.state !== "stale" && !!changes.overwritten && (
-        <span className={styles.changesHint} data-changes-overwritten="" {...tooltipProps(`${changes.overwritten === 1 ? "1 layer it changed was" : `${changes.overwritten} layers it changed were`} changed again since (by you or another chat). Undo leaves those changes as they are.`)}>
-          Partly edited since
+        <span className={styles.changesHint} data-changes-overwritten="" {...tooltipProps(tp(changes.overwritten, "{n} layer it changed was changed again since (by you or another chat). Undo leaves those changes as they are.", "{n} layers it changed were changed again since (by you or another chat). Undo leaves those changes as they are."))}>
+          {t("Partly edited since")}
         </span>
       )}
     </div>
@@ -551,6 +562,7 @@ function inline(s: string): ReactNode[] {
  * come from "+" (main's dialog), a drop, or ⌘V (a screenshot, a copied picture, files copied in Finder).
  */
 function Composer({ service, chat, running }: { service: AgentsService; chat: Chat | null; running: boolean }) {
+  useT();
   const [text, setText] = useState("");
   const [dropped, setDropped] = useState<string[]>([]);
   const [files, setFiles] = useState<Attachment[]>([]);
@@ -661,7 +673,7 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
     if (!data || !hasFiles(data)) return;
     e.preventDefault();
     e.stopPropagation();
-    if (full) return setProblems([`Up to ${MAX_ATTACHMENTS} files a message`]);
+    if (full) return setProblems([t("Up to {n} files a message", { n: MAX_ATTACHMENTS })]);
     add(service.attachPasted([...data.files]));
   };
   const onDragOver = (e: DragEvent<HTMLDivElement>) => {
@@ -676,7 +688,7 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
     e.preventDefault();
     e.stopPropagation();
     setDragging(false);
-    if (full) return setProblems([`Up to ${MAX_ATTACHMENTS} files a message`]);
+    if (full) return setProblems([t("Up to {n} files a message", { n: MAX_ATTACHMENTS })]);
     add(service.attachFiles([...e.dataTransfer.files]));
   };
   return (
@@ -694,10 +706,10 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
       {(context.length > 0 || files.length > 0 || adding > 0 || chatConnectors.length > 0) && (
         <div className={styles.chips}>
           {chatConnectors.map((c) => (
-            <span key={c.id} className={cx(styles.chip, styles.connectorChip)} data-connector-chip={c.id} {...tooltipProps(`${c.name} is on for this chat`)}>
+            <span key={c.id} className={cx(styles.chip, styles.connectorChip)} data-connector-chip={c.id} {...tooltipProps(t("{name} is on for this chat", { name: c.name }))}>
               <Icon name="16.slot" />
               <span className={styles.chipName}>{c.name}</span>
-              <button type="button" className={styles.chipRemove} aria-label={`Turn off ${c.name}`} onClick={() => service.toggleConnector(chatId, c.id)}>
+              <button type="button" className={styles.chipRemove} aria-label={t("Turn off {name}", { name: c.name })} onClick={() => service.toggleConnector(chatId, c.id)}>
                 <Icon name="16.close" />
               </button>
             </span>
@@ -708,7 +720,7 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
           {adding > 0 && (
             <span className={cx(styles.chip, styles.fileChip)} data-attachment-adding="">
               <Spinner size={16} />
-              <span className={styles.chipName}>Adding…</span>
+              <span className={styles.chipName}>{t("Adding…")}</span>
             </span>
           )}
         </div>
@@ -719,7 +731,7 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
         </div>
       )}
       {slashMatches.length > 0 && (
-        <div className={styles.slashList} role="listbox" aria-label="Skills" data-slash-list="">
+        <div className={styles.slashList} role="listbox" aria-label={t("Skills")} data-slash-list="">
           {slashMatches.map((s, i) => (
             <button
               key={s.id}
@@ -743,8 +755,8 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
         className={styles.input}
         value={text}
         rows={2}
-        placeholder={chat?.messages.length ? "Reply…" : "Describe a design or a change"}
-        aria-label="Message"
+        placeholder={chat?.messages.length ? t("Reply…") : t("Describe a design or a change")}
+        aria-label={t("Message")}
         onChange={(e) => {
           setText(e.target.value);
           setCaret(e.target.selectionStart ?? e.target.value.length);
@@ -758,33 +770,33 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
       <div className={styles.composerBar}>
         <span className={styles.plus} data-attach="">
         <MenuButton
-          label="Add"
-          tooltip="Add files, skills and connectors"
+          label={t("Add")}
+          tooltip={t("Add files, skills and connectors")}
           placement="top"
           className={styles.barButton}
           disabled={!state.available}
           entries={() => [
-            { id: "files", label: "Add files and photos", disabled: full },
+            { id: "files", label: t("Add files and photos"), disabled: full },
             {
               id: "skills",
-              label: "Skills",
+              label: t("Skills"),
               items: [
                 ...skills.filter((s) => s.enabled).map((s) => ({ id: `skill:${s.name}`, label: `/${s.name}` })),
                 ...(skills.some((s) => s.enabled) ? ["-" as const] : []),
-                { id: "add-skill", label: "Add skill" },
-                { id: "manage-skills", label: "Manage skills" },
+                { id: "add-skill", label: t("Add skill") },
+                { id: "manage-skills", label: t("Manage skills") },
               ],
             },
             ...(service.api?.connectors
               ? [
                   {
                     id: "connectors",
-                    label: "Connectors",
+                    label: t("Connectors"),
                     items: [
                       ...allConnectors.filter((c) => c.enabled).map((c) => ({ id: `connector:${c.id}`, label: c.name, checked: on.includes(c.id) })),
                       ...(allConnectors.some((c) => c.enabled) ? ["-" as const] : []),
-                      { id: "add-connector", label: "Add connector" },
-                      { id: "manage-connectors", label: "Manage connectors" },
+                      { id: "add-connector", label: t("Add connector") },
+                      { id: "manage-connectors", label: t("Manage connectors") },
                     ],
                   },
                 ]
@@ -797,23 +809,23 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
         </span>
         <span className={styles.barGap} />
         {service.managerProvider() ? (
-          <button type="button" className={styles.noProvider} {...tooltipProps("Messages go to the manager (Agent settings › Manager)")} onClick={() => { service.setView("settings"); service.openSetting("manager"); }} data-manager-chip="">
-            Manager
+          <button type="button" className={styles.noProvider} {...tooltipProps(t("Messages go to the manager (Agent settings › Manager)"))} onClick={() => { service.setView("settings"); service.openSetting("manager"); }} data-manager-chip="">
+            {t("Manager")}
           </button>
         ) : provider ? (
           <ModelMenus service={service} provider={provider} />
         ) : (
           <button type="button" className={styles.noProvider} onClick={() => service.setView("settings")}>
-            {state.providersLoading ? "Looking for agents…" : "Connect an agent"}
+            {state.providersLoading ? t("Looking for agents…") : t("Connect an agent")}
           </button>
         )}
         {provider && <UsageRing service={service} provider={provider} chat={chat} />}
         {running ? (
-          <button type="button" className={cx(styles.send, styles.stop)} aria-label="Stop" {...tooltipProps("Stop")} onClick={() => chat && service.stop(chat.id)} data-agents-stop="">
+          <button type="button" className={cx(styles.send, styles.stop)} aria-label={t("Stop")} {...tooltipProps(t("Stop"))} onClick={() => chat && service.stop(chat.id)} data-agents-stop="">
             <span className={styles.stopGlyph} />
           </button>
         ) : (
-          <button type="button" className={styles.send} aria-label="Send" {...tooltipProps("Send", "↩")} disabled={!canSend} onClick={send} data-agents-send="">
+          <button type="button" className={styles.send} aria-label={t("Send")} {...tooltipProps(t("Send"), "↩")} disabled={!canSend} onClick={send} data-agents-send="">
             <Icon name="16.arrow.up" />
           </button>
         )}
@@ -827,13 +839,14 @@ const hasFiles = (d: DataTransfer) => d.types.includes("Files") || [...d.items].
 
 /** The model by its short name (the agents as headings in its menu) and, when the agent has one, its effort. */
 function ModelMenus({ service, provider }: { service: AgentsService; provider: ProviderInfo }) {
+  useT();
   const state = service.get();
   const { option, effort } = service.current(provider);
   const efforts = effortMenu(option);
   return (
     <>
       <Select
-        label="Model"
+        label={t("Model")}
         variant="ghost"
         width="hug"
         value={`${provider.id}${MODEL_SEP}${option?.key ?? ""}`}
@@ -850,7 +863,7 @@ function ModelMenus({ service, provider }: { service: AgentsService; provider: P
       />
       {efforts.length > 0 && option && (
         <Select
-          label="Effort"
+          label={t("Effort")}
           variant="ghost"
           width="hug"
           value={effort?.id ?? ""}
@@ -872,6 +885,7 @@ function ModelMenus({ service, provider }: { service: AgentsService; provider: P
  * hover (pinned by a click) — each limit, when it resets, and this chat's tokens. Nothing reported: the tokens only.
  */
 function UsageRing({ service, provider, chat }: { service: AgentsService; provider: ProviderInfo; chat: Chat | null }) {
+  useT();
   const state = service.get();
   const info = state.usage[provider.id];
   const windows = relevantWindows(info, service.modelOf(provider));
@@ -910,7 +924,7 @@ function UsageRing({ service, provider, chat }: { service: AgentsService; provid
         type="button"
         className={styles.usage}
         data-usage={ring.state}
-        aria-label={top ? `Usage: ${top.label} ${usedLabel(top)}` : "Usage"}
+        aria-label={top ? t("Usage: {label} {used}", { label: top.label, used: usedLabel(top) }) : t("Usage")}
         aria-expanded={!!open}
         onClick={() => setOpen((o) => (o === "pinned" ? null : "pinned"))}
         onMouseEnter={() => hover(true)}
@@ -923,7 +937,7 @@ function UsageRing({ service, provider, chat }: { service: AgentsService; provid
       </button>
       {open && (
         <Portal anchor={button}>
-          <div ref={card} className={styles.usageCard} role="dialog" aria-label="Usage" data-usage-card="" onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}>
+          <div ref={card} className={styles.usageCard} role="dialog" aria-label={t("Usage")} data-usage-card="" onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}>
             <div className={styles.usageHead}>
               <span className={styles.usageTitle}>{provider.label}</span>
               {provider.auth?.plan && <span className={styles.usagePlan} data-usage-plan="">{provider.auth.plan}</span>}
@@ -940,10 +954,10 @@ function UsageRing({ service, provider, chat }: { service: AgentsService; provid
                 {resetLabel(w) && <span className={styles.usageReset}>{resetLabel(w)}</span>}
               </div>
             ))}
-            {!windows.length && <p className={styles.usageNote}>{info === undefined ? "Reading the plan’s limits…" : `${provider.label} doesn’t report its plan’s limits here.`}</p>}
+            {!windows.length && <p className={styles.usageNote}>{info === undefined ? t("Reading the plan’s limits…") : t("{name} doesn’t report its plan’s limits here.", { name: provider.label })}</p>}
             <div className={styles.usageTokens} data-usage-tokens="">
-              <span>This chat</span>
-              <span>{tokens ? `${formatTokens(tokens.input + tokens.output)} tokens` : "No tokens yet"}</span>
+              <span>{t("This chat")}</span>
+              <span>{tokens ? t("{tokens} tokens", { tokens: formatTokens(tokens.input + tokens.output) }) : t("No tokens yet")}</span>
             </div>
           </div>
         </Portal>

@@ -8,6 +8,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Avatar, Banner, Button, Dialog, EmptyState, RadioGroup, ScrollArea, SearchField, Spinner, TextArea, TextInput, showToast } from "@/ds";
+import { t, tp, useT } from "@/i18n";
 import type { BranchRecord, MergePreview } from "../../../../shared/merge/branches";
 import type { Resolutions } from "../../../../shared/merge/types";
 import type { FileKey } from "../../../../shared/store/types";
@@ -22,6 +23,7 @@ import styles from "./Branching.module.css";
 type Step = "summary" | "conflicts" | "reviewers" | "describe" | "merge";
 
 export function BranchReview({ backend, branchFileKey }: { backend: BranchingBackend; branchFileKey: FileKey }) {
+  useT();
   const ed = useEditor();
   const own = useBranching(ed, (s) => (s.record?.branchFileKey === branchFileKey ? s.record : null));
   const [fetched, setRecord] = useState<BranchRecord | null>(null);
@@ -79,8 +81,8 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
 
   if (!record) {
     return (
-      <BranchWindow label="Branch review" title="Branch review" onClose={close}>
-        <div className={styles.loading}>{error ? <EmptyState icon="24.warning" title="The branch couldn’t be loaded" body={error} /> : <Spinner size={24} />}</div>
+      <BranchWindow label="Branch review" title={t("Branch review")} onClose={close}>
+        <div className={styles.loading}>{error ? <EmptyState icon="24.warning" title={t("The branch couldn’t be loaded")} body={error} /> : <Spinner size={24} />}</div>
       </BranchWindow>
     );
   }
@@ -98,27 +100,27 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
     if (role === "reviewer")
       out.push(
         <Button key="review" variant="primary" onClick={() => setFinishing(true)} data-add-review="">
-          {mine && mine.verdict !== "pending" ? "Review again" : "Add your review"}
+          {mine && mine.verdict !== "pending" ? t("Review again") : t("Add your review")}
         </Button>
       );
     if (role === "author") {
       if (!review || review.state === "closed")
         out.push(
           <Button key="request" variant="secondary" onClick={() => setStep("reviewers")}>
-            Request review
+            {t("Request review")}
           </Button>
         );
       else if (review.state !== "in-review")
         out.push(
           <Button key="again" variant="secondary" onClick={() => setStep("reviewers")}>
-            Request another review
+            {t("Request another review")}
           </Button>
         );
     }
     if (role !== "reviewer" || canMerge)
       out.push(
         <Button key="merge" variant="primary" disabled={!canMerge || !picked || record.status !== "active"} onClick={() => setStep("merge")} data-merge-branch="">
-          Merge branch
+          {t("Merge branch")}
         </Button>
       );
     return <>{out}</>;
@@ -154,16 +156,16 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
             try {
               const p = Object.keys(picks).length ? await backend.branches.preview(branchFileKey, "merge", picks) : preview;
               await backend.branches.merge(branchFileKey, { previewId: p.previewId, resolutions: picks, title: title || undefined, description: description || undefined });
-              showToast({ message: "Branch merged" });
+              showToast({ message: t("Branch merged") });
               close();
               await refreshBranch(ed);
               await backend.openFile(record.mainFileKey);
             } catch (e) {
               if (codeOf(e) === "stale") {
-                showToast({ message: "The files changed. Review the changes again." });
+                showToast({ message: t("The files changed. Review the changes again.") });
                 setStep("summary");
                 void load(picks);
-              } else showToast({ kind: "error", message: `Couldn’t merge the branch: ${errorText(e)}` });
+              } else showToast({ kind: "error", message: t("Couldn’t merge the branch: {error}", { error: errorText(e) }) });
             }
           }}
         />
@@ -172,7 +174,7 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
           <nav className={styles.sidebar}>
             {review && review.state !== "closed" && (
               <section className={styles.section} data-review-request="">
-                <div className={styles.sectionTitle}>Review request</div>
+                <div className={styles.sectionTitle}>{t("Review request")}</div>
                 {review.description && <p className={styles.description}>{review.description}</p>}
                 {review.reviewers.map((r) => (
                   <div key={r.userId} className={styles.person} data-reviewer={r.userId}>
@@ -182,18 +184,18 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
                       {r.comment && <span className={styles.hint}>{r.comment}</span>}
                     </span>
                     <span className={styles.hint} data-verdict={r.verdict}>
-                      {r.verdict === "approved" ? "Approved" : r.verdict === "changes-suggested" ? "Changes suggested" : "Pending"}
+                      {r.verdict === "approved" ? t("Approved") : r.verdict === "changes-suggested" ? t("Changes suggested") : t("Pending")}
                     </span>
                   </div>
                 ))}
               </section>
             )}
             {conflicts && preview && (
-              <Banner tone="warning" action={{ label: "Resolve conflicts", onClick: () => setStep("conflicts") }} data-conflict-banner="">
-                {allPicked(picks, preview) ? "Conflicts resolved" : `${preview.conflicts.length === 1 ? "1 conflict" : `${preview.conflicts.length} conflicts`} with the main file`}
+              <Banner tone="warning" action={{ label: t("Resolve conflicts"), onClick: () => setStep("conflicts") }} data-conflict-banner="">
+                {allPicked(picks, preview) ? t("Conflicts resolved") : tp(preview.conflicts.length, "{n} conflict with the main file", "{n} conflicts with the main file")}
               </Banner>
             )}
-            <div className={styles.sectionTitle}>Changes</div>
+            <div className={styles.sectionTitle}>{t("Changes")}</div>
             <ScrollArea className={styles.scroll}>
               {error ? <div className={styles.hint}>{error}</div> : !preview ? <Spinner size={16} /> : <ChangeList chunks={preview.chunks} selected={selected} onSelect={setSelected} />}
             </ScrollArea>
@@ -205,12 +207,12 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
                 previewId={preview.previewId}
                 chunk={chunk}
                 sides={[
-                  { side: "main", caption: "Main file" },
+                  { side: "main", caption: t("Main file") },
                   { side: "branch", caption: record.name },
                 ]}
               />
             ) : preview ? (
-              <EmptyState icon="24.check" title="No changes" body="This branch has no changes to merge." />
+              <EmptyState icon="24.check" title={t("No changes")} body={t("This branch has no changes to merge.")} />
             ) : null}
           </section>
         </div>
@@ -224,7 +226,7 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
               setRecord(await backend.branches.get(branchFileKey));
               setFinishing(false);
             } catch (e) {
-              showToast({ kind: "error", message: `Couldn’t submit the review: ${errorText(e)}` });
+              showToast({ kind: "error", message: t("Couldn’t submit the review: {error}", { error: errorText(e) }) });
             }
           }}
         />
@@ -235,6 +237,7 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
 
 /** Request review: reviewers (suggested: people who can edit main, each with Add; Search), then the description. */
 function RequestReview({ backend, record, step, onNext, onSent }: { backend: BranchingBackend; record: BranchRecord; step: "reviewers" | "describe"; onNext: () => void; onSent: (r: BranchRecord) => void }) {
+  useT();
   const [people, setPeople] = useState<Reviewer[] | null>(null);
   const [query, setQuery] = useState("");
   const [added, setAdded] = useState<string[]>(() => record.review?.reviewers.map((r) => r.userId) ?? []);
@@ -260,14 +263,14 @@ function RequestReview({ backend, record, step, onNext, onSent }: { backend: Bra
       if (r) onSent(r);
     } catch (e) {
       setBusy(false);
-      showToast({ kind: "error", message: `Couldn’t request the review: ${errorText(e)}` });
+      showToast({ kind: "error", message: t("Couldn’t request the review: {error}", { error: errorText(e) }) });
     }
   };
   if (step === "describe") {
     return (
       <div className={styles.form} data-review-describe="">
-        <div className={styles.sectionTitle}>Request review</div>
-        <TextArea label="Description" placeholder="Add a description of your changes" value={description} onChange={setDescription} minRows={4} />
+        <div className={styles.sectionTitle}>{t("Request review")}</div>
+        <TextArea label={t("Description")} placeholder={t("Add a description of your changes")} value={description} onChange={setDescription} minRows={4} />
         <div className={styles.formActions}>
           <Button variant="primary" disabled={!added.length || busy} loading={busy} onClick={() => void send()} data-send-review="">
             {sendLabel(added.length)}
@@ -278,25 +281,25 @@ function RequestReview({ backend, record, step, onNext, onSent }: { backend: Bra
   }
   return (
     <div className={styles.form} data-review-reviewers="">
-      <div className={styles.sectionTitle}>Reviewers</div>
-      <SearchField value={query} onChange={setQuery} placeholder="Search" />
+      <div className={styles.sectionTitle}>{t("Reviewers")}</div>
+      <SearchField value={query} onChange={setQuery} placeholder={t("Search")} />
       {people === null ? (
         <Spinner size={16} />
       ) : !people.length ? (
-        <div className={styles.hint}>No one else can edit the main file. Share it to invite reviewers.</div>
+        <div className={styles.hint}>{t("No one else can edit the main file. Share it to invite reviewers.")}</div>
       ) : (
         <ScrollArea className={styles.people}>
           {shown.map((p) => {
             const on = added.includes(p.userId);
             return (
               <div key={p.userId} className={styles.person} data-person={p.userId}>
-                <Avatar name={p.name ?? p.email} size={24} />
+                <Avatar name={p.name ?? p.email} src={p.picture ?? undefined} size={24} />
                 <span className={styles.grow}>
                   <span className={styles.rowName}>{p.name ?? p.email}</span>
                   <span className={styles.hint}>{p.email}</span>
                 </span>
                 <Button variant={on ? "secondary" : "tinted"} onClick={() => setAdded((a) => (on ? a.filter((x) => x !== p.userId) : [...a, p.userId]))}>
-                  {on ? "Remove" : "Add"}
+                  {on ? t("Remove") : t("Add")}
                 </Button>
               </div>
             );
@@ -305,7 +308,7 @@ function RequestReview({ backend, record, step, onNext, onSent }: { backend: Bra
       )}
       <div className={styles.formActions}>
         <Button variant="primary" disabled={!added.length} onClick={onNext} data-request-review="">
-          Request review
+          {t("Request review")}
         </Button>
       </div>
     </div>
@@ -314,15 +317,16 @@ function RequestReview({ backend, record, step, onNext, onSent }: { backend: Bra
 
 /** Merge branch: the merge description (Name, Description — main's version history) and Merge. */
 function MergeStep({ record, onMerge }: { record: BranchRecord; onMerge: (title: string, description: string) => Promise<void> }) {
+  useT();
   const [name, setName] = useState(record.name);
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
   return (
     <div className={styles.form} data-merge-step="">
-      <div className={styles.sectionTitle}>Merge branch</div>
-      <p className={styles.hint}>The name and description go into the main file’s version history.</p>
-      <TextInput label="Name" value={name} onChange={setName} />
-      <TextArea label="Description" placeholder="Description" value={description} onChange={setDescription} />
+      <div className={styles.sectionTitle}>{t("Merge branch")}</div>
+      <p className={styles.hint}>{t("The name and description go into the main file’s version history.")}</p>
+      <TextInput label={t("Name")} value={name} onChange={setName} />
+      <TextArea label={t("Description")} placeholder={t("Description")} value={description} onChange={setDescription} />
       <div className={styles.formActions}>
         <Button
           variant="primary"
@@ -334,7 +338,7 @@ function MergeStep({ record, onMerge }: { record: BranchRecord; onMerge: (title:
           }}
           data-merge=""
         >
-          Merge
+          {t("Merge")}
         </Button>
       </div>
     </div>
@@ -343,18 +347,19 @@ function MergeStep({ record, onMerge }: { record: BranchRecord; onMerge: (title:
 
 /** "Finish your review": Approve or Suggest changes, an optional comment, Submit (R21 [review]). */
 function FinishReview({ onClose, onSubmit }: { onClose: () => void; onSubmit: (verdict: "approved" | "changes-suggested", comment: string) => Promise<void> }) {
+  useT();
   const [verdict, setVerdict] = useState<"approved" | "changes-suggested">("approved");
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
   return (
     <Dialog
-      title="Finish your review"
+      title={t("Finish your review")}
       open
       onClose={onClose}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button
             variant="primary"
@@ -365,23 +370,23 @@ function FinishReview({ onClose, onSubmit }: { onClose: () => void; onSubmit: (v
             }}
             data-submit-review=""
           >
-            Submit
+            {t("Submit")}
           </Button>
         </>
       }
     >
       <div className={styles.dialogBody} data-finish-review="">
         <RadioGroup
-          label="Review"
+          label={t("Review")}
           value={verdict}
           options={[
-            { value: "approved", label: "Approve" },
-            { value: "changes-suggested", label: "Suggest changes" },
+            { value: "approved", label: t("Approve") },
+            { value: "changes-suggested", label: t("Suggest changes") },
           ]}
           onChange={(v) => setVerdict(v as "approved" | "changes-suggested")}
         />
-        <p className={styles.hint}>{verdict === "approved" ? "Add any comments you want to make (optional)." : "Add any general comments you want to make (optional)."}</p>
-        <TextArea label="Comment" value={comment} onChange={setComment} />
+        <p className={styles.hint}>{verdict === "approved" ? t("Add any comments you want to make (optional).") : t("Add any general comments you want to make (optional).")}</p>
+        <TextArea label={t("Comment")} value={comment} onChange={setComment} />
       </div>
     </Dialog>
   );

@@ -75,13 +75,16 @@ export function evaluateWith(raw: string, x: number | undefined): number {
   return at === src.length && Number.isFinite(v) ? v : NaN;
 }
 
+/** "Mixed" as the field shows it in each UI language (English, Turkish "Karışık"). */
+const MIXED_WORD = /mixed|karışık/gi;
+
 /** Commas as decimal points, no spaces, × ÷ − as * / -, "Mixed" as the one-letter variable `m`. */
 function normalize(raw: string): string {
-  return raw.replace(/,/g, ".").replace(/\s+/g, "").replace(/×/g, "*").replace(/÷/g, "/").replace(/−/g, "-").replace(/mixed/gi, "m");
+  return raw.replace(/,/g, ".").replace(/\s+/g, "").replace(/×/g, "*").replace(/÷/g, "/").replace(/−/g, "-").replace(MIXED_WORD, "m");
 }
 
 /** Does the text refer to each layer's own value ("Mixed")? */
-export const usesMixed = (raw: string): boolean => /mixed/i.test(raw);
+export const usesMixed = (raw: string): boolean => new RegExp(MIXED_WORD.source, "i").test(raw);
 
 /**
  * What typed text means: a number, or — when it uses "Mixed" — a function of each layer's value; null when it isn't

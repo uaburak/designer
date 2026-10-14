@@ -16,6 +16,7 @@
  * to main component" falls back to navigating itself (page, selection, zoom).
  * Reads prefer `engine.componentInfo(ref)`.
  */
+import { t } from "@/i18n";
 import { showToast } from "@/ds";
 import { Status } from "@/engine/abi";
 import type { Guid, Message, NodeChange, NodeFields } from "@/engine/codec";
@@ -998,24 +999,24 @@ export function goToMainComponent(ed: EditorController, instanceRef: Guid = ed.s
   if (!instance || !isInstance(instance)) return false;
   const main = mainOf(ed, instance);
   if (!main) {
-    showToast({ message: "The main component isn't in this file" });
+    showToast({ message: t("The main component isn't in this file") });
     return false;
   }
   // A library instance: its main lives in the library file (Figma opens that file).
   const lib = libraryOfMain(ed, main.guid);
   if (lib) {
     const name = ed.libraries.get().names.get(lib);
-    void openLibraryFile(lib, name).catch(() => showToast({ message: `The main component is in ${name ?? "a library"}` }));
+    void openLibraryFile(lib, name).catch(() => showToast({ message: name ? t("The main component is in {name}", { name }) : t("The main component is in a library") }));
     return true;
   }
   const page = pageOf(ed, main.guid);
   if (page && !main.isSoftDeleted && (ed.engine.readNode(page) as { internalOnly?: boolean } | null)?.internalOnly) {
     // A main copied in from another file (kept on the internal canvas): nothing to show here.
-    showToast({ message: "The main component is in another file" });
+    showToast({ message: t("The main component is in another file") });
     return false;
   }
   if (!page || main.isSoftDeleted) {
-    showToast({ message: "The main component was deleted", action: hasCommand(COMPONENT_COMMAND.restore) ? { label: "Restore component", onAction: () => void runEngineCommand(ed.engine, COMPONENT_COMMAND.restore, { ref: instanceRef }) } : undefined });
+    showToast({ message: t("The main component was deleted"), action: hasCommand(COMPONENT_COMMAND.restore) ? { label: t("Restore component"), onAction: () => void runEngineCommand(ed.engine, COMPONENT_COMMAND.restore, { ref: instanceRef }) } : undefined });
     return false;
   }
   const from = { instance: instanceRef, page: ed.store.page, camera: ed.engine.getCamera() };

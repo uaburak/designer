@@ -6,6 +6,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { IconButton, Portal, Toast } from "@/ds";
+import { t, useT } from "@/i18n";
 import { getStoreClient } from "@/store";
 import { useEditor } from "../../controller";
 import { attachPlugins, usePluginService, usePlugins, type PluginServiceOptions } from "../service";
@@ -77,6 +78,7 @@ export function PluginFrame({ w, ui, className }: { w: PluginWindowState; ui: Pl
 }
 
 function PluginWindow({ w, ui }: { w: PluginWindowState; ui: PluginUiStore }) {
+  useT();
   const [dragging, setDragging] = useState(false);
   const at = w.position ?? savedPosition(w.pluginId) ?? { x: Math.max(8, window.innerWidth - w.width - 256), y: 56 };
 
@@ -107,7 +109,7 @@ function PluginWindow({ w, ui }: { w: PluginWindowState; ui: PluginUiStore }) {
     >
       <div className={styles.titleBar} onPointerDown={startDrag}>
         <span className={styles.title}>{w.title}</span>
-        <IconButton icon="24.close.small" label="Close" onClick={() => ui.handlers.get(w.runId)?.close()} />
+        <IconButton icon="24.close.small" label={t("Close")} onClick={() => ui.handlers.get(w.runId)?.close()} />
       </div>
       <PluginFrame w={w} ui={ui} />
     </div>
@@ -115,6 +117,7 @@ function PluginWindow({ w, ui }: { w: PluginWindowState; ui: PluginUiStore }) {
 }
 
 function Windows({ ui }: { ui: PluginUiStore }) {
+  useT();
   const snap = usePluginUi(ui);
   // Docked windows (Dev Mode's inspect plugins) are drawn by the Plugins panel.
   const floating = snap.windows.filter((w) => !w.docked);
@@ -127,7 +130,7 @@ function Windows({ ui }: { ui: PluginUiStore }) {
       {snap.running.length > 0 && (
         <div className={styles.running}>
           {snap.running.map((r) => (
-            <Toast key={r.runId} static message={`Running ${r.name}`} onClose={() => ui.stoppers.get(r.runId)?.()} />
+            <Toast key={r.runId} static message={t("Running {name}", { name: r.name })} onClose={() => ui.stoppers.get(r.runId)?.()} />
           ))}
         </div>
       )}

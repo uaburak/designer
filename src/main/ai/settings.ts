@@ -2,6 +2,7 @@ import { app, safeStorage } from "electron";
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DEFAULT_AI_SETTINGS, type AiAction, type AiRoute, type AiSettings } from "../../shared/ai/types";
+import { t } from "../../shared/i18n";
 
 /**
  * Settings › AI (docs/ai.md §2.1, §7): kept by main in userData/ai/settings.json; the image APIs' keys (OpenAI,
@@ -111,7 +112,7 @@ export function setImageKey(p: { provider: "openai" | "gemini"; key: string | nu
   const key = typeof p.key === "string" ? p.key.trim() : "";
   if (key) {
     if (key.length > 4000) throw new Error("ai:set-image-key: the key is too long");
-    if (!canEncrypt()) throw new Error("This computer's keychain isn't available: the key wasn't kept");
+    if (!canEncrypt()) throw new Error(t("This computer's keychain isn't available: the key wasn't kept"));
     keys[p.provider] = `enc:${safeStorage.encryptString(key).toString("base64")}`;
   } else delete keys[p.provider];
   writePrivate(file("keys.json"), JSON.stringify(keys));

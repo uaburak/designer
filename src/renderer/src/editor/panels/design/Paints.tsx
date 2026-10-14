@@ -41,6 +41,7 @@ import { VariableList } from "../variables/VariablePicker";
 import { paintVariable } from "../../model/variables";
 import { applyStyle, bindPaint, createCollection, createVariable } from "../../variables";
 import { CreateStylePopover } from "../variables/EditStyle";
+import { t, useT } from "@/i18n";
 import styles from "./Design.module.css";
 
 type PaintField = "fillPaints" | "strokePaints";
@@ -72,6 +73,7 @@ function useImageUrls(ed: EditorController): void {
 
 /** One paint row: swatch + hex (or the type's name) + opacity (Figma's names: "Solid color hex: D9D9D9", "Color"). */
 export function PaintRow({ paint, label, onColor, onOpacity, onPick, className }: { paint: FullPaint; label: string; onColor: (hex: string, info: ChangeInfo, opacity?: number) => void; onOpacity: (o: number, info: ChangeInfo) => void; onPick: (anchor: DOMRect) => void; className?: string }) {
+  useT();
   const ed = useEditor();
   useImageUrls(ed);
   const solid = paint.type === "SOLID";
@@ -80,10 +82,10 @@ export function PaintRow({ paint, label, onColor, onOpacity, onPick, className }
   return (
     <ColorInput
       className={className}
-      label={label}
-      swatchLabel={solid ? `Solid color hex: ${hex.slice(1).toUpperCase()}` : paintLabel(paint)}
+      label={t(label)}
+      swatchLabel={solid ? t("Solid color hex: {hex}", { hex: hex.slice(1).toUpperCase() }) : t(paintLabel(paint))}
       color={solid ? hex : paintSwatch(paint, url)}
-      valueLabel={solid ? undefined : paintLabel(paint)}
+      valueLabel={solid ? undefined : t(paintLabel(paint))}
       opacity={toPercent(paint.opacity ?? 1)}
       onColor={onColor}
       onOpacity={onOpacity}
@@ -93,6 +95,7 @@ export function PaintRow({ paint, label, onColor, onOpacity, onPick, className }
 }
 
 export function PaintsSection({ title, field, nodes, onPick, className }: { title: "Fill" | "Stroke"; field: PaintField; nodes: PanelNode[]; onPick: (t: PickerTarget) => void; /** Draw: larger previews (docs/draw.md §5.3) */ className?: string }) {
+  useT();
   const ed = useEditor();
   const labels = useUI((s) => s.propertyLabels);
   const refs = nodes.map((n) => n.guid);
@@ -120,7 +123,7 @@ export function PaintsSection({ title, field, nodes, onPick, className }: { titl
   const { container: reorderRef, grip, dragging, line: dropLine } = useReorder((from, to) => ed.setProps(refs, { [field]: moved(paints, n - 1 - from, n - 1 - to) }, `Reorder ${word}s`));
   return (
     <PanelSection
-      title={title}
+      title={t(title)}
       empty={empty}
       className={className}
       actions={
@@ -133,12 +136,12 @@ export function PaintsSection({ title, field, nodes, onPick, className }: { titl
             onOpenPicker={paints.length && !hasStyle ? (anchor) => onPick({ kind: "paint", field, index: paints.length - 1, anchor, tab: "libraries" }) : undefined}
           />
           {/* Figma's live panel: "Add stroke fill" once a stroke exists, "Add stroke" / "Add fill" otherwise */}
-          {!hasStyle && <IconButton icon="24.plus.small" label={field === "strokePaints" && !empty ? "Add stroke fill" : `Add ${word}`} tone="secondary" onClick={add} />}
+          {!hasStyle && <IconButton icon="24.plus.small" label={field === "strokePaints" && !empty ? t("Add stroke fill") : field === "strokePaints" ? t("Add stroke") : t("Add fill")} tone="secondary" onClick={add} />}
         </>
       }
     >
       {hasStyle && <AppliedStyle nodes={nodes} slot={slot} />}
-      {!hasStyle && isMixed(shared) && <div className={styles.note}>Click + to replace mixed content</div>}
+      {!hasStyle && isMixed(shared) && <div className={styles.note}>{t("Click + to replace mixed content")}</div>}
       {!hasStyle && n > 0 && (
         <div ref={reorderRef} className={styles.reorderList}>
           {paints
@@ -161,12 +164,12 @@ export function PaintsSection({ title, field, nodes, onPick, className }: { titl
                 )}
                 <IconButton
                   icon={p.visible === false ? "24.hidden.small" : "24.eye.small"}
-                  label="Toggle visibility"
+                  label={t("Toggle visibility")}
                   data-paint-visibility={p.visible === false ? "hidden" : "visible"}
                   tone="secondary"
                   onClick={() => ed.setProps(refs, { [field]: paints.map((q, j) => (j === i ? { ...q, visible: q.visible === false } : q)) }, p.visible === false ? `Show ${word}` : `Hide ${word}`)}
                 />
-                <IconButton icon="24.minus.small" label="Remove" tone="secondary" onClick={() => ed.setProps(refs, { [field]: paints.filter((_, j) => j !== i) }, `Remove ${word}`)} />
+                <IconButton icon="24.minus.small" label={t("Remove")} tone="secondary" onClick={() => ed.setProps(refs, { [field]: paints.filter((_, j) => j !== i) }, `Remove ${word}`)} />
               </div>
             ))}
           {dropLine !== null && <div className={styles.dropLine} style={{ top: dropLine }} />}
@@ -197,6 +200,7 @@ async function chooseImageFor(ed: EditorController, apply: (p: Partial<FullPaint
  * stored.
  */
 function VideoPreview({ hash }: { hash: string }) {
+  useT();
   const ed = useEditor();
   const video = useRef<HTMLVideoElement>(null);
   const [url, setUrl] = useState<string | null>(null);
@@ -239,10 +243,10 @@ function VideoPreview({ hash }: { hash: string }) {
         />
       )}
       <div className={styles.videoPreviewBar}>
-        <IconButton icon={playing ? "24.pause" : "24.play"} label={playing ? "Pause" : "Play"} onClick={toggle} disabled={!url} />
+        <IconButton icon={playing ? "24.pause" : "24.play"} label={playing ? t("Pause") : t("Play")} onClick={toggle} disabled={!url} />
         <input
           type="range"
-          aria-label="Scrub video"
+          aria-label={t("Scrub video")}
           className={styles.slider}
           min={0}
           max={duration || 1}
@@ -250,9 +254,9 @@ function VideoPreview({ hash }: { hash: string }) {
           value={time}
           style={{ ["--fill" as string]: `${duration ? (time / duration) * 100 : 0}%` }}
           onChange={(e) => {
-            const t = Number(e.currentTarget.value);
-            setTime(t);
-            if (video.current) video.current.currentTime = t;
+            const at = Number(e.currentTarget.value);
+            setTime(at);
+            if (video.current) video.current.currentTime = at;
           }}
         />
         <span className={styles.videoPreviewTime}>{`${formatMediaTime(Math.floor(time))} / ${formatMediaTime(Math.round(duration))}`}</span>
@@ -274,13 +278,14 @@ function ImageControls({ paint, onChange }: { paint: FullPaint; onChange: (next:
 
 /** One adjustment: its name, a slider from −100 to 100 (a drag is one undo step), double-click resets. */
 function AdjustmentSlider({ label, value, onChange }: { label: string; value: number; onChange: (v: number, info: ChangeInfo) => void }) {
+  useT();
   const dragging = useRef(false);
   return (
     <label className={styles.adjustment}>
-      <span className={styles.adjustmentLabel}>{label}</span>
+      <span className={styles.adjustmentLabel}>{t(label)}</span>
       <input
         type="range"
-        aria-label={label}
+        aria-label={t(label)}
         className={styles.slider}
         min={-100}
         max={100}
@@ -332,6 +337,7 @@ function useGradientHandles(ed: EditorController, refs: readonly Guid[], field: 
 
 /** The one colour picker of the Design panel, for a paint of the selection, a Selection colors row, or the page. */
 export function PaintPicker({ target, nodes, pageColor, onClose }: { target: PickerTarget; nodes: PanelNode[]; pageColor: Color | null; onClose: () => void }) {
+  useT();
   const ed = useEditor();
   const [model, setModel] = useState<ColorModel>("hex");
   useImageUrls(ed);
@@ -401,11 +407,11 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
   };
   const headerActions = (
     <MenuButton
-      label="New style or variable"
+      label={t("New style or variable")}
       className={styles.iconMenu}
       entries={[
-        { id: "style", label: "Create style" },
-        { id: "variable", label: "Create variable", disabled: paint.type !== "SOLID" },
+        { id: "style", label: t("Create style") },
+        { id: "variable", label: t("Create variable"), disabled: paint.type !== "SOLID" },
       ]}
       onSelect={(id) => (id === "style" ? setCreatingStyle(true) : newVariable())}
     >
@@ -429,7 +435,7 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
           styleKind="FILL"
           onPick={(v) => bindPaint(ed, refs, field, index, v.id)}
           onPickStyle={(st) => applyStyle(ed, refs, slot, st.id)}
-          label="Libraries"
+          label={t("Libraries")}
           colorTab
           onDone={onClose}
         />
@@ -452,7 +458,7 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
               })
           : undefined
       }
-      imageAction={isImageLike(paint) ? <IconButton icon="24.rotate" label="Rotate 90º" onClick={() => write(rotated90(paint), { final: true, source: "pick" }, "Rotate image")} /> : undefined}
+      imageAction={isImageLike(paint) ? <IconButton icon="24.rotate" label={t("Rotate 90º")} onClick={() => write(rotated90(paint), { final: true, source: "pick" }, "Rotate image")} /> : undefined}
       imageControls={
         // Live (popovers/fill-picker-image / -video): an image's adjustments; a video has none (its preview plays it).
         paint.type === "VIDEO" ? (
@@ -498,7 +504,7 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
       <ShaderEffects
         anchor={shaders}
         placement="left"
-        title="Shader fills"
+        title={t("Shader fills")}
         list={SHADER_FILLS}
         onboarding={false}
         onPick={(preset) => {

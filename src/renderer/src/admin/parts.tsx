@@ -6,6 +6,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Avatar, Button, Checkbox, Dialog, Icon, MenuButton, MIXED, RadioGroup, SearchField, TextInput, type MenuEntry } from "@/ds";
 import type { PersonRef } from "@shared/org/types";
 import styles from "./Admin.module.css";
+import { t, useT } from "@/i18n";
 
 export { styles };
 
@@ -35,7 +36,12 @@ export interface TableProps<T> {
   empty?: string;
 }
 
-export function Table<T>({ label, rows, columns, rowKey, selection, onSelectionChange, onRowClick, muted, initialSort, empty = "Nothing to show" }: TableProps<T>) {
+/**
+ * Admin's own words are translated where these blocks render them (`src/shared/i18n/tr/admin.ts`): column labels, row
+ * menu entries, choices, dialog titles and buttons, field titles — callers pass English (or already-translated) text.
+ */
+export function Table<T>({ label, rows, columns, rowKey, selection, onSelectionChange, onRowClick, muted, initialSort, empty = t("Nothing to show") }: TableProps<T>) {
+  useT();
   const [sort, setSort] = useState<SortState | null>(initialSort ?? null);
   const sorted = useMemo(() => {
     const col = sort && columns.find((c) => c.id === sort.column);
@@ -54,11 +60,11 @@ export function Table<T>({ label, rows, columns, rowKey, selection, onSelectionC
     onSelectionChange!(next);
   };
   return (
-    <div role="table" aria-label={label} className={styles.table} data-admin-table={label}>
+    <div role="table" aria-label={t(label)} className={styles.table} data-admin-table={label}>
       <div role="row" className={styles.thead} style={{ gridTemplateColumns: template }}>
         {selectable && (
           <div role="columnheader" className={styles.th}>
-            <Checkbox label="Select all" hideLabel checked={chosen === 0 ? false : chosen === keys.length ? true : MIXED} onChange={(on) => onSelectionChange!(on ? new Set(keys) : new Set())} />
+            <Checkbox label={t("Select all")} hideLabel checked={chosen === 0 ? false : chosen === keys.length ? true : MIXED} onChange={(on) => onSelectionChange!(on ? new Set(keys) : new Set())} />
           </div>
         )}
         {columns.map((c) => {
@@ -67,17 +73,17 @@ export function Table<T>({ label, rows, columns, rowKey, selection, onSelectionC
             <div key={c.id} role="columnheader" aria-sort={active ? sort!.direction : c.compare ? "none" : undefined} className={`${styles.th} ${c.align === "end" ? styles.end : ""}`}>
               {c.compare ? (
                 <button type="button" className={styles.sort} data-active={active || undefined} onClick={() => setSort(active ? { column: c.id, direction: sort!.direction === "ascending" ? "descending" : "ascending" } : { column: c.id, direction: "ascending" })}>
-                  {c.label}
+                  {t(c.label)}
                   {active && <Icon name={sort!.direction === "ascending" ? "16.arrow.up" : "16.arrow.down"} />}
                 </button>
               ) : (
-                c.label
+                t(c.label)
               )}
             </div>
           );
         })}
       </div>
-      {sorted.length === 0 && <div className={styles.empty}>{empty}</div>}
+      {sorted.length === 0 && <div className={styles.empty}>{t(empty)}</div>}
       {sorted.map((row) => {
         const k = rowKey(row);
         const on = selectable && selection!.has(k);
@@ -95,7 +101,7 @@ export function Table<T>({ label, rows, columns, rowKey, selection, onSelectionC
           >
             {selectable && (
               <div role="cell" className={styles.td}>
-                <Checkbox label="Select" hideLabel checked={on} onChange={() => toggle(k)} />
+                <Checkbox label={t("Select")} hideLabel checked={on} onChange={() => toggle(k)} />
               </div>
             )}
             {columns.map((c) => (
@@ -115,6 +121,7 @@ export const byNumber = <T,>(get: (r: T) => number | null | undefined) => (a: T,
 
 /** A person: the 24 avatar, the name over the email (a pending invite shows its email alone) */
 export function Who({ person, badge }: { person: Pick<PersonRef, "name" | "email" | "picture">; badge?: ReactNode }) {
+  useT();
   return (
     <span className={styles.who}>
       <Avatar name={person.name ?? person.email} src={person.picture ?? undefined} size={24} />
@@ -131,9 +138,10 @@ export function Who({ person, badge }: { person: Pick<PersonRef, "name" | "email
 
 /** The row's "…" menu */
 export function RowMenu({ label, entries, onSelect }: { label: string; entries: MenuEntry[]; onSelect: (id: string) => void }) {
+  useT();
   return (
     <span className={styles.hoverOnly}>
-      <MenuButton label={label} entries={entries} onSelect={onSelect} align="end" tooltip={false}>
+      <MenuButton label={t(label)} entries={entries.map((e) => (typeof e === "object" && "label" in e && typeof e.label === "string" ? { ...e, label: t(e.label) } : e))} onSelect={onSelect} align="end" tooltip={false}>
         <Icon name="24.more" />
       </MenuButton>
     </span>
@@ -141,19 +149,20 @@ export function RowMenu({ label, entries, onSelect }: { label: string; entries: 
 }
 
 export function ConfirmDialog({ title, body, confirm, destructive, onConfirm, onClose }: { title: string; body: ReactNode; confirm: string; destructive?: boolean; onConfirm: () => void; onClose: () => void }) {
+  useT();
   return (
     <Dialog
-      title={title}
+      title={t(title)}
       open
       onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant={destructive ? "destructive" : "primary"} onClick={() => { onConfirm(); onClose(); }}>{confirm}</Button>
+          <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
+          <Button variant={destructive ? "destructive" : "primary"} onClick={() => { onConfirm(); onClose(); }}>{t(confirm)}</Button>
         </>
       }
     >
-      <div className={styles.note}>{body}</div>
+      <div className={styles.note}>{typeof body === "string" ? t(body) : body}</div>
     </Dialog>
   );
 }
@@ -161,25 +170,26 @@ export function ConfirmDialog({ title, body, confirm, destructive, onConfirm, on
 export type Choice = { value: string; label: string; description?: string; disabled?: boolean };
 
 /** One of a few options (a seat, a role, a setting), then Save */
-export function ChoiceDialog({ title, label, intro, choices, value, confirm = "Save", onSave, onClose }: { title: string; label: string; intro?: ReactNode; choices: Choice[]; value: string | null; confirm?: string; onSave: (v: string) => void; onClose: () => void }) {
+export function ChoiceDialog({ title, label, intro, choices, value, confirm = t("Save"), onSave, onClose }: { title: string; label: string; intro?: ReactNode; choices: Choice[]; value: string | null; confirm?: string; onSave: (v: string) => void; onClose: () => void }) {
+  useT();
   const [v, setV] = useState<string | null>(value);
   return (
     <Dialog
-      title={title}
+      title={t(title)}
       open
       size="medium"
       onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={v === null} onClick={() => { onSave(v!); onClose(); }}>{confirm}</Button>
+          <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
+          <Button variant="primary" disabled={v === null} onClick={() => { onSave(v!); onClose(); }}>{t(confirm)}</Button>
         </>
       }
     >
       <div className={styles.form}>
-        {intro && <div className={styles.note}>{intro}</div>}
-        <RadioGroup label={label} value={v ?? MIXED} options={choices.map((c) => ({ value: c.value, label: c.label, disabled: c.disabled }))} onChange={setV} />
-        {choices.find((c) => c.value === v)?.description && <div className={styles.note}>{choices.find((c) => c.value === v)!.description}</div>}
+        {intro && <div className={styles.note}>{typeof intro === "string" ? t(intro) : intro}</div>}
+        <RadioGroup label={t(label)} value={v ?? MIXED} options={choices.map((c) => ({ value: c.value, label: t(c.label), disabled: c.disabled }))} onChange={setV} />
+        {choices.find((c) => c.value === v)?.description && <div className={styles.note}>{t(choices.find((c) => c.value === v)!.description!)}</div>}
       </div>
     </Dialog>
   );
@@ -187,20 +197,21 @@ export function ChoiceDialog({ title, label, intro, choices, value, confirm = "S
 
 /** A name (Rename…, a new billing group) */
 export function NameDialog({ title, label, value = "", confirm, onSave, onClose }: { title: string; label: string; value?: string; confirm: string; onSave: (name: string) => void; onClose: () => void }) {
+  useT();
   const [name, setName] = useState(value);
   return (
     <Dialog
-      title={title}
+      title={t(title)}
       open
       onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={!name.trim()} onClick={() => { onSave(name.trim()); onClose(); }}>{confirm}</Button>
+          <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
+          <Button variant="primary" disabled={!name.trim()} onClick={() => { onSave(name.trim()); onClose(); }}>{t(confirm)}</Button>
         </>
       }
     >
-      <TextInput label={label} value={name} onChange={setName} placeholder={label} autoFocus variant="outlined" />
+      <TextInput label={t(label)} value={name} onChange={setName} placeholder={t(label)} autoFocus variant="outlined" />
     </Dialog>
   );
 }
@@ -209,27 +220,28 @@ export type PickItem = { id: string; label: string; sub?: string; person?: Pick<
 
 /** Picks several from a searchable list (workspace admins, members, teams) */
 export function PickDialog({ title, items, initial = [], confirm, min = 0, onSave, onClose }: { title: string; items: PickItem[]; initial?: string[]; confirm: string; min?: number; onSave: (ids: string[]) => void; onClose: () => void }) {
+  useT();
   const [chosen, setChosen] = useState(() => new Set(initial));
   const [text, setText] = useState("");
   const q = text.trim().toLowerCase();
   const shown = items.filter((i) => !q || i.label.toLowerCase().includes(q) || i.sub?.toLowerCase().includes(q));
   return (
     <Dialog
-      title={title}
+      title={t(title)}
       open
       size="medium"
       onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={chosen.size < min} onClick={() => { onSave([...chosen]); onClose(); }}>{confirm}</Button>
+          <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
+          <Button variant="primary" disabled={chosen.size < min} onClick={() => { onSave([...chosen]); onClose(); }}>{t(confirm)}</Button>
         </>
       }
     >
       <div className={styles.form}>
-        <SearchField value={text} onChange={setText} placeholder="Search" autoFocus />
+        <SearchField value={text} onChange={setText} placeholder={t("Search")} autoFocus />
         <div className={styles.pickList} role="list">
-          {shown.length === 0 && <div className={styles.empty}>No results</div>}
+          {shown.length === 0 && <div className={styles.empty}>{t("No results")}</div>}
           {shown.map((i) => (
             <div key={i.id} role="listitem" className={styles.pickRow} data-pick={i.id}>
               <Checkbox
@@ -258,9 +270,10 @@ export function personItem(p: PersonRef): PickItem {
 
 /** A label above a control in a dialog */
 export function Field({ title, children }: { title: string; children: ReactNode }) {
+  useT();
   return (
     <div className={styles.fieldLabel}>
-      <span className={styles.fieldTitle}>{title}</span>
+      <span className={styles.fieldTitle}>{t(title)}</span>
       {children}
     </div>
   );

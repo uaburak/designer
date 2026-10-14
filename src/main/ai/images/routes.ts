@@ -1,6 +1,7 @@
 import type { ImageRouteInfo } from "../../../shared/ai/types";
 import { NANO_BANANA, NANO_BANANA_2, NANO_BANANA_PRO } from "./gemini";
 import { OPENAI_IMAGE_MODEL } from "./openai";
+import { t } from "../../../shared/i18n";
 
 /**
  * The image routes and whether each can run now (`ai:image-routes`, docs/studio.md §2.4): what the chat's model choice
@@ -33,7 +34,7 @@ export function imageRoutes(d: ImageRouteDeps): ImageRouteInfo[] {
       label: "Gemini API",
       models: NANO_BANANAS,
       available: gemini,
-      ...(gemini ? {} : { reason: "Add a Gemini API key in Settings › AI" }),
+      ...(gemini ? {} : { reason: t("Add a Gemini API key in Settings › AI") }),
       references: true,
     },
     {
@@ -42,7 +43,7 @@ export function imageRoutes(d: ImageRouteDeps): ImageRouteInfo[] {
       // The extension's tools take one input picture (geminiCli.ts)
       models: NANO_BANANAS,
       available: nano,
-      ...(!cli ? { reason: "Install the Gemini CLI" } : !nano ? { reason: "Install the nanobanana extension: gemini extensions install https://github.com/gemini-cli-extensions/nanobanana" } : {}),
+      ...(!cli ? { reason: t("Install the Gemini CLI") } : !nano ? { reason: t("Install the nanobanana extension: {command}", { command: "gemini extensions install https://github.com/gemini-cli-extensions/nanobanana" }) } : {}),
       references: true,
     },
     {
@@ -50,7 +51,7 @@ export function imageRoutes(d: ImageRouteDeps): ImageRouteInfo[] {
       label: "Antigravity",
       models: [],
       available: !!d.agyPath(),
-      ...(d.agyPath() ? {} : { reason: "Set up Antigravity in Settings › Agents" }),
+      ...(d.agyPath() ? {} : { reason: t("Set up Antigravity in Settings › Agents") }),
       references: true,
     },
     {
@@ -58,7 +59,7 @@ export function imageRoutes(d: ImageRouteDeps): ImageRouteInfo[] {
       label: "OpenAI Images",
       models: [{ id: OPENAI_IMAGE_MODEL, label: "GPT Image 1" }],
       available: !!d.imageKey("openai"),
-      ...(d.imageKey("openai") ? {} : { reason: "Add an OpenAI API key in Settings › AI" }),
+      ...(d.imageKey("openai") ? {} : { reason: t("Add an OpenAI API key in Settings › AI") }),
       references: true,
     },
   ];

@@ -69,6 +69,9 @@ export interface AccessRows {
   prototypeMember?: boolean;
   /** members rows (user or pending email) + group_grants on the file */
   fileGrants: Grant[];
+  /** The person's access through the file's folders, team and the org's audience is taken away for this file
+   *  (`file_exclusions`; the owner's Home, 2026-10-14). The file's own grants, its owner and admins are kept. */
+  excluded?: boolean;
   /** Nearest first, to the top */
   folders: { id: string; ownerId: string; access: InheritMode; grants: Grant[] }[];
   team: { id: string; ownerId: string; workspaceId: string | null; orgAccess: Audience; workspaceAccess: Audience; visibility: "visible" | "hidden"; deletedAt: number | null; grants: Grant[] } | null;
@@ -261,7 +264,7 @@ function org(r: AccessRows): AccessResult {
     role = maxLevel(role, fg.role);
     add("file");
   }
-  for (const f of r.folders) {
+  for (const f of r.excluded ? [] : r.folders) {
     const g = grantOf(f.grants, user, r.userGroups);
     const own = user !== null && f.ownerId === user.id ? "editor" : null;
     const got = maxLevel(own, g.role);
@@ -270,7 +273,7 @@ function org(r: AccessRows): AccessResult {
       add("folder");
     }
   }
-  if (r.team && !teamGone) {
+  if (r.team && !teamGone && !r.excluded) {
     const t = grantOf(r.team.grants, user, r.userGroups);
     teamAdmin = t.admin || (user !== null && r.team.ownerId === user.id);
     const got = maxLevel(t.role, teamAdmin ? "editor" : null);
@@ -296,7 +299,7 @@ function org(r: AccessRows): AccessResult {
     }
   }
   // 3. audience (members only; stops at the first Limited level, the file's own counted)
-  if (membership && (membership.role === "admin" || membership.role === "member") && !teamGone) {
+  if (membership && (membership.role === "admin" || membership.role === "member") && !teamGone && !r.excluded) {
     let a: Level | null = r.viaLink && linkLive(r) ? maxLevel(null, file.orgLinkAccess) : null;
     if (file.access === "inherited" && r.folders.every((f) => f.access === "inherited") && r.team) {
       if (r.team.orgAccess !== "none") a = maxLevel(a, r.team.orgAccess);

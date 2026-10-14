@@ -12,6 +12,7 @@ import { pluginRuns } from "./runs";
 import { ClientStorage } from "./storage";
 import { TEMPLATE_EDITOR, TEMPLATE_IDS, templateFiles, type TemplateId } from "./templates";
 import { PluginWatcher } from "./watch";
+import { t } from "../../shared/i18n";
 
 /**
  * Main's side of plugins (docs/plugins.md §3.3), behind the `plugins:*` channels (src/main/ipc.ts): development
@@ -63,7 +64,7 @@ async function addDevelopment(manifestPath: string): Promise<{ plugin: Developme
 
 /** "Import new plugin from manifest…" */
 export async function importManifest(win: BaseWindow): Promise<IpcInvoke["plugins:import-manifest"]["result"]> {
-  const r = await dialog.showOpenDialog(win, { title: "Import new plugin from manifest", buttonLabel: "Open", properties: ["openFile"], filters: [{ name: "Plugin manifest", extensions: ["json"] }] });
+  const r = await dialog.showOpenDialog(win, { title: t("Import new plugin from manifest"), buttonLabel: t("Open"), properties: ["openFile"], filters: [{ name: t("Plugin manifest"), extensions: ["json"] }] });
   if (r.canceled || !r.filePaths[0]) return { cancelled: true };
   return addDevelopment(r.filePaths[0]);
 }
@@ -82,12 +83,12 @@ export async function newPlugin(win: BaseWindow, input: { name: unknown; templat
   if (!name) throw new Error("plugins:new-plugin: a name");
   if (!TEMPLATE_IDS.includes(input.template as TemplateId)) throw new Error("plugins:new-plugin: an unknown template");
   const template = input.template as TemplateId;
-  const r = await dialog.showSaveDialog(win, { title: "Save plugin as", buttonLabel: "Save", defaultPath: join(app.getPath("documents"), name.replace(/[/\\:*?"<>|]/g, "-")), properties: ["createDirectory", "showOverwriteConfirmation"] });
+  const r = await dialog.showSaveDialog(win, { title: t("Save plugin as"), buttonLabel: t("Save"), defaultPath: join(app.getPath("documents"), name.replace(/[/\\:*?"<>|]/g, "-")), properties: ["createDirectory", "showOverwriteConfirmation"] });
   if (r.canceled || !r.filePath) return { cancelled: true };
   const folder = r.filePath;
   // A new folder, or an empty one: nothing of the person's is overwritten.
   const existing = await stat(folder).catch(() => null);
-  if (existing && (!existing.isDirectory() || (await readdir(folder)).some((f) => f !== ".DS_Store"))) throw new Error(`"${basename(folder)}" already exists and isn't an empty folder`);
+  if (existing && (!existing.isDirectory() || (await readdir(folder)).some((f) => f !== ".DS_Store"))) throw new Error(t("“{name}” already exists and isn’t an empty folder", { name: basename(folder) }));
   await mkdir(folder, { recursive: true });
   for (const [file, text] of Object.entries(templateFiles(template, name))) await writeFile(join(folder, file), text, { flag: "wx" });
   return { ...(await addDevelopment(join(folder, "manifest.json"))), editorType: TEMPLATE_EDITOR[template] };

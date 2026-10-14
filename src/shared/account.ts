@@ -4,6 +4,7 @@
  */
 
 import type { RestScope } from "./rest/types";
+import { t, tp } from "./i18n";
 
 export interface AccountUser {
   id: string;
@@ -64,21 +65,9 @@ export function sameServer(stored: unknown, current: string): boolean {
 /** Figma's work roles (Settings › Account › Role; the onboarding's "What kind of work do you do?"). */
 export const ROLES = ["Design", "Development", "Product management", "User research", "Marketing", "Data analytics", "Education", "Student", "Other"] as const;
 
-/** Figma's languages (Settings › Account › Change language). Only English is built; the others are listed, disabled. */
-export const LANGUAGES: readonly { id: string; label: string; available: boolean }[] = [
-  { id: "en", label: "English", available: true },
-  { id: "es-es", label: "Español (España)", available: false },
-  { id: "es-la", label: "Español (Latinoamérica)", available: false },
-  { id: "fr", label: "Français", available: false },
-  { id: "de", label: "Deutsch", available: false },
-  { id: "ja", label: "日本語", available: false },
-  { id: "ko", label: "한국어", available: false },
-  { id: "pt-br", label: "Português (Brasil)", available: false },
-];
-
 /** Settings kept with the account (Figma keeps them per account, not per machine). */
 export interface AccountPrefs {
-  /** "Language" (only "en" is built) */
+  /** Unused: the UI's language is the machine's (settings.json, src/shared/i18n), so it reaches the signed-out window */
   language?: string;
   /** New features › Closed captions: "Enable closed captioning when using audio inside your files." */
   closedCaptions?: boolean;
@@ -209,17 +198,16 @@ export interface AccountResponse<T = unknown> {
 /** Figma's "Last accessed" / "Created …" / "Connected …" wording: "Just now", "16 hours ago", "2 months ago". */
 export function timeAgo(then: number, now: number): string {
   const s = Math.max(0, Math.round((now - then) / 1000));
-  if (s < 60) return "Just now";
-  const unit = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"} ago`;
+  if (s < 60) return t("Just now");
   const m = Math.floor(s / 60);
-  if (m < 60) return unit(m, "minute");
+  if (m < 60) return tp(m, "{n} minute ago", "{n} minutes ago");
   const h = Math.floor(m / 60);
-  if (h < 24) return unit(h, "hour");
+  if (h < 24) return tp(h, "{n} hour ago", "{n} hours ago");
   const d = Math.floor(h / 24);
-  if (d < 30) return unit(d, "day");
+  if (d < 30) return tp(d, "{n} day ago", "{n} days ago");
   const mo = Math.floor(d / 30);
-  if (mo < 12) return unit(mo, "month");
-  return unit(Math.floor(d / 365), "year");
+  if (mo < 12) return tp(mo, "{n} month ago", "{n} months ago");
+  return tp(Math.floor(d / 365), "{n} year ago", "{n} years ago");
 }
 
 /** Parses a User-Agent for Sessions' "OS & Browser" (the desktop app sends `DesignerV2-Desktop/<version> (<os>)`). */

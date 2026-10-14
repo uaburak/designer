@@ -20,6 +20,7 @@
  * The first invite (or Copy link) shares the file: the editor's snapshot of it goes to the room at the journal seq it
  * stands at; the store keeps it in step with the room from then on (docs/multiplayer.md §5).
  */
+import { t, tp, tx, intlLocale, useT } from "@/i18n";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Avatar, Banner, Button, Checkbox, Dialog, Icon, IconButton, RadioGroup, Select, Spinner, TextInput, showToast } from "@/ds";
 import { Portal } from "@/ds/overlay/Portal";
@@ -28,7 +29,7 @@ import { useCurrentPage } from "@/engine/hooks";
 import { getStoreClient } from "@/store";
 import { generateLinkPassword } from "@shared/org/identity";
 import { VIEWERS_CAN_EXPORT_LABEL } from "@shared/org/governance";
-import { linkWith, type AccessRequest, type FileMember, type FileShareState, type LinkAccess, type LinkSettingsPatch, type OpenIntent, type SharedFileInfo } from "@shared/multiplayer/types";
+import { linkWith, type AccessRequest, type FileMember, type FileShareState, type InheritedPerson, type LinkAccess, type LinkSettingsPatch, type OpenIntent, type SharedFileInfo } from "@shared/multiplayer/types";
 import type { OrgInfo } from "@shared/org/types";
 import type { PreviewRecord } from "../../../shared/store/types";
 import { useAccount } from "../files/account";
@@ -50,6 +51,15 @@ const ROLES = [
   { value: "editor", label: "can edit" },
   { value: "viewer", label: "can view" },
 ];
+/** The role choices in the UI's language */
+const roles = () => ROLES.map((r) => ({ ...r, label: t(r.label) }));
+/** A translated sentence split around one `{var}` (to put JSX there): [before, after] */
+const around = (text: string, name: string): [string, string] => {
+  const i = text.indexOf(`{${name}}`);
+  return i < 0 ? [text, ""] : [text.slice(0, i), text.slice(i + name.length + 2)];
+};
+/** One email, or "N people" */
+const whoOf = (list: string[]) => (list.length === 1 ? list[0] : tp(list.length, "{n} person", "{n} people"));
 
 interface SharingSource {
   fileKey: string;
@@ -80,6 +90,7 @@ function useCopied(): [boolean, () => void] {
 }
 
 function Share() {
+  useT();
   const ed = useEditor();
   const [view, setView] = useState<View>("main");
   const modal = useRef<HTMLDivElement>(null);
@@ -108,7 +119,7 @@ function Share() {
           className={styles.modal}
           role="dialog"
           aria-modal="true"
-          aria-label="Share this file"
+          aria-label={t("Share this file")}
           tabIndex={-1}
           onKeyDown={(e) => {
             if (e.key !== "Escape" || (e.target as Element).closest("[role=listbox],[role=menu]")) return;
@@ -121,21 +132,21 @@ function Share() {
             <>
               <section className={styles.card}>
                 <header className={styles.head}>
-                  <span className={styles.title}>Share this file</span>
+                  <span className={styles.title}>{t("Share this file")}</span>
                   <span className={styles.grow} />
                   {people.canShare && (
                     <button type="button" className={styles.link} onClick={() => void people.copyLink({}).then((ok) => ok && markCopied())} data-share="copy-link">
                       {copied ? (
-                        "Link copied!"
+                        t("Link copied!")
                       ) : (
                         <>
                           <Icon name="24.link" className={styles.linkIcon} />
-                          Copy link
+                          {t("Copy link")}
                         </>
                       )}
                     </button>
                   )}
-                  <IconButton icon="24.close.small" label="Close" tooltip={false} onClick={close} />
+                  <IconButton icon="24.close.small" label={t("Close")} tooltip={false} onClick={close} />
                 </header>
                 <PeopleBody p={people} onSettings={() => setView("settings")} />
               </section>
@@ -144,40 +155,40 @@ function Share() {
                   <>
                     <button type="button" className={styles.row} onClick={() => void people.copyLink({ mode: "dev" }).then((ok) => ok && markDevCopied())} data-share="copy-dev-link">
                       <Icon name="24.dev-brackets" />
-                      <span className={styles.grow}>Copy Dev Mode link</span>
-                      {devCopied && <span className={styles.rowNote}>Link copied!</span>}
+                      <span className={styles.grow}>{t("Copy Dev Mode link")}</span>
+                      {devCopied && <span className={styles.rowNote}>{t("Link copied!")}</span>}
                     </button>
                     {more ? (
                       <>
                         <button type="button" className={styles.row} onClick={() => void people.copyLink({ mode: "proto" }).then((ok) => ok && markProtoCopied())} data-share="copy-prototype-link">
                           <Icon name="24.play" />
-                          <span className={styles.grow}>Copy prototype link</span>
-                          {protoCopied && <span className={styles.rowNote}>Link copied!</span>}
+                          <span className={styles.grow}>{t("Copy prototype link")}</span>
+                          {protoCopied && <span className={styles.rowNote}>{t("Link copied!")}</span>}
                         </button>
                         {people.state?.shared && (
                           <button type="button" className={styles.row} onClick={() => setProtoShare(true)} data-share="share-prototype">
                             <Icon name="24.play" />
-                            <span className={styles.grow}>Share prototype</span>
+                            <span className={styles.grow}>{t("Share prototype")}</span>
                             <Icon name="16.chevron.right" className={styles.chevron} />
                           </button>
                         )}
                         <button type="button" className={styles.row} onClick={() => setView("embed")} data-share="embed">
                           <Icon name="24.text.code-block" />
-                          <span className={styles.grow}>Get embed code</span>
+                          <span className={styles.grow}>{t("Get embed code")}</span>
                           <Icon name="16.chevron.right" className={styles.chevron} />
                         </button>
                       </>
                     ) : (
                       <button type="button" className={styles.row} onClick={() => setMore(true)} data-share="more">
                         <Icon name="24.more" />
-                        <span>More</span>
+                        <span>{t("More")}</span>
                       </button>
                     )}
                   </>
                 )}
                 <button type="button" className={styles.row} onClick={() => setView("preview")} data-share="preview">
                   <Icon name="24.text.code" />
-                  <span>Developer preview</span>
+                  <span>{t("Developer preview")}</span>
                 </button>
               </section>
             </>
@@ -185,8 +196,8 @@ function Share() {
           {view === "settings" && (
             <section className={styles.card}>
               <header className={styles.head}>
-                <IconButton icon="24.arrow.left" label="Back" tooltip={false} onClick={() => setView("main")} />
-                <span className={styles.title}>Share settings</span>
+                <IconButton icon="24.arrow.left" label={t("Back")} tooltip={false} onClick={() => setView("main")} />
+                <span className={styles.title}>{t("Share settings")}</span>
               </header>
               <ShareSettings p={people} onDone={() => setView("main")} />
             </section>
@@ -194,10 +205,10 @@ function Share() {
           {view === "embed" && (
             <section className={styles.card}>
               <header className={styles.head}>
-                <IconButton icon="24.arrow.left" label="Back" tooltip={false} onClick={() => setView("main")} />
-                <span className={styles.title}>Copy public embed code</span>
+                <IconButton icon="24.arrow.left" label={t("Back")} tooltip={false} onClick={() => setView("main")} />
+                <span className={styles.title}>{t("Copy public embed code")}</span>
                 <span className={styles.grow} />
-                <IconButton icon="24.close.small" label="Close" tooltip={false} onClick={close} />
+                <IconButton icon="24.close.small" label={t("Close")} tooltip={false} onClick={close} />
               </header>
               <EmbedView p={people} onCancel={() => setView("main")} />
             </section>
@@ -205,8 +216,8 @@ function Share() {
           {view === "preview" && (
             <section className={styles.card}>
               <header className={styles.head}>
-                <IconButton icon="24.arrow.left" label="Back" tooltip={false} onClick={() => setView("main")} />
-                <span className={styles.title}>Developer preview</span>
+                <IconButton icon="24.arrow.left" label={t("Back")} tooltip={false} onClick={() => setView("main")} />
+                <span className={styles.title}>{t("Developer preview")}</span>
               </header>
               <PreviewView />
             </section>
@@ -231,6 +242,8 @@ function usePeople(ed: EditorController) {
   const [members, setMembers] = useState<FileMember[]>([]);
   const [info, setInfo] = useState<SharedFileInfo | null>(null);
   const [requests, setRequests] = useState<AccessRequest[]>([]);
+  // A team file's people through its team, each one's access to this file kept or taken away (sharers only)
+  const [inherited, setInherited] = useState<InheritedPerson[]>([]);
   // The file's org (Guest membership, the caller's role there): null outside orgs
   const [orgInfo, setOrgInfo] = useState<OrgInfo | null>(null);
   const orgId = info?.org?.id ?? null;
@@ -255,6 +268,7 @@ function usePeople(ed: EditorController) {
     setMembers(m);
     setInfo(i);
     if (st.role !== "viewer") setRequests(await store.multiplayer.requests(fileKey).catch(() => []));
+    setInherited(st.role !== "viewer" && i?.org?.teamId ? await store.multiplayer.exclusions(fileKey).catch(() => []) : []);
   };
 
   useEffect(() => {
@@ -277,7 +291,7 @@ function usePeople(ed: EditorController) {
 
   /** Shares the file first if it isn't: the snapshot and its seq, read in one task after everything reached the store. */
   const ensureShared = async (): Promise<FileShareState> => {
-    if (!fileKey || !source) throw new Error("This file isn't in your workspace");
+    if (!fileKey || !source) throw new Error(t("This file isn't in your workspace"));
     if (state?.shared) return state;
     await source.flush();
     const snapshot = ed.engine.encodeDocumentKiwi();
@@ -321,6 +335,17 @@ function usePeople(ed: EditorController) {
         showToast({ kind: "error", message: message(e) });
       }
     },
+    inherited,
+    teamName: info?.org?.teamName ?? null,
+    /** "Remove access" / "Give access back" for one of the team's people, on this file only */
+    async setInheritedAccess(x: InheritedPerson, keep: boolean) {
+      try {
+        setInherited(keep ? await store.multiplayer.include(fileKey!, x.userId) : await store.multiplayer.exclude(fileKey!, x.userId));
+        setMembers(await store.multiplayer.members(fileKey!).catch(() => members));
+      } catch (e) {
+        showToast({ kind: "error", message: message(e) });
+      }
+    },
     async setViewersCanCopy(on: boolean) {
       try {
         setInfo(await store.multiplayer.setViewersCanCopy(fileKey!, on));
@@ -345,7 +370,7 @@ function usePeople(ed: EditorController) {
         await navigator.clipboard?.writeText(linkWith(i.link, { nodeId: linkNode(ed), ...intent }));
         return true;
       } catch (e) {
-        showToast({ kind: "error", message: `Couldn’t copy the link: ${message(e)}` });
+        showToast({ kind: "error", message: t("Couldn’t copy the link: {error}", { error: message(e) }) });
         return false;
       }
     },
@@ -353,9 +378,9 @@ function usePeople(ed: EditorController) {
       try {
         setMembers(await store.multiplayer.transferOwnership(fileKey!, m.email));
         setState(await store.multiplayer.fileState(fileKey!));
-        showToast({ message: `${m.name || m.email} now owns this file` });
+        showToast({ message: t("{name} now owns this file", { name: m.name || m.email }) });
       } catch (e) {
-        showToast({ kind: "error", message: `Couldn’t transfer ownership: ${message(e)}` });
+        showToast({ kind: "error", message: t("Couldn’t transfer ownership: {error}", { error: message(e) }) });
       }
     },
     /** The file's org (null outside orgs, or until it is read) and its sharing policy */
@@ -399,15 +424,16 @@ function usePeople(ed: EditorController) {
 type People = ReturnType<typeof usePeople>;
 
 function PeopleBody({ p, onSettings }: { p: People; onSettings: () => void }) {
-  if (!p.fileKey) return <p className={styles.note}>Sharing needs a file in your workspace.</p>;
-  if (!p.account.available) return <p className={styles.note}>Sharing needs the desktop app or a signed-in browser.</p>;
+  useT();
+  if (!p.fileKey) return <p className={styles.note}>{t("Sharing needs a file in your workspace.")}</p>;
+  if (!p.account.available) return <p className={styles.note}>{t("Sharing needs the desktop app or a signed-in browser.")}</p>;
   if (!p.signedIn)
     return (
       <div className={styles.body}>
-        <p className={styles.note}>Log in to invite people to this file and work on it together.</p>
+        <p className={styles.note}>{t("Log in to invite people to this file and work on it together.")}</p>
         <div>
           <Button variant="primary" onClick={() => void p.account.run("log-in")} data-share="log-in">
-            Log in with Google…
+            {t("Log in with Google…")}
           </Button>
         </div>
       </div>
@@ -416,33 +442,45 @@ function PeopleBody({ p, onSettings }: { p: People; onSettings: () => void }) {
     <div className={styles.body}>
       {p.info?.access?.capped === "external" && (
         <Banner tone="warning" data-share-notice="external">
-          Your organization only allows you to view this file.
+          {t("Your organization only allows you to view this file.")}
         </Banner>
       )}
       {p.canShare && <InviteBar p={p} />}
-      <span className={styles.heading}>Who has access</span>
+      <span className={styles.heading}>{t("Who has access")}</span>
       <ul className={styles.people}>
         <LinkRow p={p} onClick={onSettings} />
         {(p.members.length ? p.members : [{ email: p.meEmail ?? "", userId: null, name: p.account.state?.user?.name ?? null, role: "owner" as const, pending: false }]).map((m) => (
           <MemberRow key={m.email} p={p} m={m} />
         ))}
       </ul>
+      {p.inherited.some((x) => !p.members.some((m) => m.email.toLowerCase() === x.email.toLowerCase())) && (
+        <>
+          <span className={styles.heading}>{p.teamName ? t("People in {team}", { team: p.teamName }) : t("People in this team")}</span>
+          <ul className={styles.people} data-share-team="">
+            {p.inherited
+              .filter((x) => !p.members.some((m) => m.email.toLowerCase() === x.email.toLowerCase()))
+              .map((x) => (
+                <TeamPersonRow key={x.userId} p={p} x={x} />
+              ))}
+          </ul>
+        </>
+      )}
       {p.requests.length > 0 && (
         <>
-          <span className={styles.heading}>Requests</span>
+          <span className={styles.heading}>{t("Requests")}</span>
           <ul className={styles.people}>
             {p.requests.map((r) => (
               <li key={r.userId} className={styles.person} data-request={r.email}>
-                <Avatar name={r.name || r.email} />
+                <Avatar name={r.name || r.email} src={r.picture ?? undefined} />
                 <span className={styles.who}>
                   <span className={styles.name}>{r.name || r.email}</span>
-                  <span className={styles.secondary}> wants to edit</span>
+                  <span className={styles.secondary}> {t("wants to edit")}</span>
                 </span>
                 <Button variant="secondary" onClick={() => void p.answer(r, false)}>
-                  Deny
+                  {t("Deny")}
                 </Button>
                 <Button variant="primary" onClick={() => void p.answer(r, true)}>
-                  Approve
+                  {t("Approve")}
                 </Button>
               </li>
             ))}
@@ -460,6 +498,7 @@ function PeopleBody({ p, onSettings }: { p: People; onSettings: () => void }) {
  * waits until they're removed.
  */
 function InviteBar({ p }: { p: People }) {
+  useT();
   const [chips, setChips] = useState<string[]>([]);
   const [text, setText] = useState("");
   const [role, setRole] = useState<"editor" | "viewer">("viewer");
@@ -495,16 +534,16 @@ function InviteBar({ p }: { p: People }) {
       showToast({
         message: asked.length
           ? added
-            ? `Invited ${added === 1 ? emails.find((e) => !asked.includes(e)) : `${added} people`}. Asked an admin to approve ${asked.length === 1 ? asked[0] : `${asked.length} people`}.`
-            : `Asked an admin to approve ${asked.length === 1 ? asked[0] : `${asked.length} people`}`
+            ? t("Invited {who}. Asked an admin to approve {asked}.", { who: whoOf(emails.filter((e) => !asked.includes(e))), asked: whoOf(asked) })
+            : t("Asked an admin to approve {who}", { who: whoOf(asked) })
           : emails.length === 1
-            ? `Invited ${emails[0]}`
-            : `Invited ${emails.length} people`,
+            ? t("Invited {email}", { email: emails[0] })
+            : t("Invited {n} people", { n: emails.length }),
       });
       setChips([]);
       setText("");
     } catch (e) {
-      showToast({ kind: "error", message: `Couldn’t invite: ${message(e)}` });
+      showToast({ kind: "error", message: t("Couldn’t invite: {error}", { error: message(e) }) });
     } finally {
       setBusy(false);
     }
@@ -521,15 +560,15 @@ function InviteBar({ p }: { p: People }) {
   };
   const active = chips.length > 0 || text.trim().length > 0;
   const approval = guestRule === "approval" ? outside.filter((e) => pending.includes(e)) : [];
-  const orgName = p.orgName ?? "your organization";
+  const orgName = p.orgName ?? t("your organization");
   return (
     <>
       <div className={styles.inviteBar}>
         <div className={styles.field} onPointerDown={(e) => e.target === e.currentTarget && input.current?.focus()}>
           {chips.map((c) => (
-            <span key={c} className={styles.chip} aria-label={`Remove ${c}`} data-outside={outside.includes(c) || undefined}>
+            <span key={c} className={styles.chip} aria-label={t("Remove {email}", { email: c })} data-outside={outside.includes(c) || undefined}>
               <span>{c}</span>
-              <button type="button" aria-label="Remove" onClick={() => setChips((x) => x.filter((y) => y !== c))}>
+              <button type="button" aria-label={t("Remove")} onClick={() => setChips((x) => x.filter((y) => y !== c))}>
                 <Icon name="16.close" />
               </button>
             </span>
@@ -537,8 +576,8 @@ function InviteBar({ p }: { p: People }) {
           <input
             ref={input}
             className={styles.input}
-            placeholder={chips.length ? "" : "Add comma separated emails to invite"}
-            aria-label="Add comma separated emails to invite"
+            placeholder={chips.length ? "" : t("Add comma separated emails to invite")}
+            aria-label={t("Add comma separated emails to invite")}
             value={text}
             data-share="emails"
             onChange={(e) => setText(/[,\s]$/.test(e.target.value) ? take(e.target.value) : e.target.value)}
@@ -551,32 +590,32 @@ function InviteBar({ p }: { p: People }) {
             }}
             onBlur={() => text.trim() && setText(take(text))}
           />
-          {active && <Select label="Permission Level" value={role} options={ROLES} onChange={(v) => setRole(v === "editor" ? "editor" : "viewer")} variant="outlined" width="hug" className={styles.roleSelect} />}
+          {active && <Select label={t("Permission Level")} value={role} options={roles()} onChange={(v) => setRole(v === "editor" ? "editor" : "viewer")} variant="outlined" width="hug" className={styles.roleSelect} />}
         </div>
         <Button variant="primary" size="large" className={styles.invite} loading={busy} disabled={busy || !pending.length || blocked.length > 0} onClick={() => void invite()} data-share="invite">
-          Invite
+          {t("Invite")}
         </Button>
       </div>
       {blocked.length > 0 && (
         <Banner tone="danger" data-share-notice="guest-blocked">
-          {`Sharing with external users is disabled. ${orgName} doesn’t allow people outside it to join.${blocked.length < pending.length ? ` Remove ${blocked.length === 1 ? blocked[0] : `${blocked.length} people`} to invite the others.` : ""}`}
+          {`${t("Sharing with external users is disabled. {org} doesn’t allow people outside it to join.", { org: orgName })}${blocked.length < pending.length ? ` ${t("Remove {who} to invite the others.", { who: whoOf(blocked) })}` : ""}`}
         </Banner>
       )}
       {approval.length > 0 && (
         <Banner tone="warning" data-share-notice="guest-approval">
-          {`Admin approval is required to share with people outside ${orgName}. ${approval.length === 1 ? approval[0] : `${approval.length} people`} will get access once an admin approves.`}
+          {t("Admin approval is required to share with people outside {org}. {who} will get access once an admin approves.", { org: orgName, who: whoOf(approval) })}
         </Banner>
       )}
       {confirm && (
         <Dialog
-          title="Share outside your organization?"
+          title={t("Share outside your organization?")}
           size="small"
           open
           onClose={() => setConfirm(null)}
           footer={
             <>
               <Button variant="secondary" onClick={() => setConfirm(null)}>
-                Cancel
+                {t("Cancel")}
               </Button>
               <Button
                 variant="primary"
@@ -586,13 +625,15 @@ function InviteBar({ p }: { p: People }) {
                 }}
                 data-share="confirm-guests"
               >
-                Share
+                {t("Share")}
               </Button>
             </>
           }
         >
           <p className={styles.caption} data-share-confirm="">
-            {`${confirm.length === 1 ? `${confirm[0]} isn’t` : `${confirm.join(", ")} aren’t`} in ${orgName}. ${confirm.length === 1 ? "They’ll" : "They’ll each"} join ${orgName} as a guest and get access to this file.`}
+            {confirm.length === 1
+              ? t("{who} isn’t in {org}. They’ll join {org} as a guest and get access to this file.", { who: confirm[0], org: orgName })
+              : t("{who} aren’t in {org}. They’ll each join {org} as a guest and get access to this file.", { who: confirm.join(", "), org: orgName })}
           </p>
         </Dialog>
       )}
@@ -611,9 +652,10 @@ function audienceOf(info: SharedFileInfo | null): { audience: Audience; role: Li
 }
 
 function LinkRow({ p, onClick }: { p: People; onClick: () => void }) {
+  useT();
   const { audience, role } = audienceOf(p.info);
-  const label = audience === "anyone" ? "Anyone" : audience === "org" ? `Anyone at ${p.orgName}` : "People invited to file";
-  const right = role === "editor" ? "can edit" : role === "viewer" ? "can view" : null;
+  const label = audience === "anyone" ? t("Anyone") : audience === "org" ? t("Anyone at {org}", { org: p.orgName ?? "" }) : t("People invited to file");
+  const right = role === "editor" ? t("can edit") : role === "viewer" ? t("can view") : null;
   const editable = p.canShare;
   const content: ReactNode = (
     <>
@@ -640,27 +682,56 @@ function LinkRow({ p, onClick }: { p: People; onClick: () => void }) {
   );
 }
 
+/** One of the team's people: their team role on this file, or "No access" once taken off it (the owner keeps theirs) */
+function TeamPersonRow({ p, x }: { p: People; x: InheritedPerson }) {
+  useT();
+  const me = x.email === p.meEmail;
+  const roleText = x.owner ? t("owner") : x.excluded ? t("No access") : x.role === "viewer" ? t("can view") : t("can edit");
+  return (
+    <li className={`${styles.person} ${x.excluded ? styles.removed : ""}`} data-team-person={x.email} data-excluded={x.excluded || undefined}>
+      <Avatar name={x.name || x.email} src={x.picture ?? undefined} />
+      <span className={styles.who}>
+        <span className={styles.name}>{x.name || x.email}</span>
+        {me && <span className={styles.secondary}> {t("(you)")}</span>}
+      </span>
+      {x.owner || me || !p.canShare ? (
+        <span className={styles.role}>{roleText}</span>
+      ) : (
+        <Select
+          label={t("{email} access", { email: x.email })}
+          value={x.excluded ? "none" : "kept"}
+          options={x.excluded ? [{ value: "none", label: t("No access") }, "-", { value: "restore", label: t("Give access back") }] : [{ value: "kept", label: roleText }, "-", { value: "remove", label: t("Remove access") }]}
+          onChange={(v) => void p.setInheritedAccess(x, v === "restore")}
+          variant="ghost"
+          width="hug"
+        />
+      )}
+    </li>
+  );
+}
+
 function MemberRow({ p, m }: { p: People; m: FileMember }) {
+  useT();
   const [transfer, setTransfer] = useState(false);
   const me = m.email === p.meEmail;
   const online = p.state?.peers.some((x) => x.userId === m.userId) ?? false;
-  const roleText = m.role === "owner" ? "owner" : m.role === "editor" ? "can edit" : "can view";
+  const roleText = m.role === "owner" ? t("owner") : m.role === "editor" ? t("can edit") : t("can view");
   return (
     <li className={styles.person} data-member={m.email}>
-      <Avatar name={m.name || m.email} />
+      <Avatar name={m.name || m.email} src={m.picture ?? undefined} />
       <span className={styles.who}>
         <span className={styles.name}>{m.name || m.email}</span>
-        {me && <span className={styles.secondary}> (you)</span>}
-        {m.pending && <span className={styles.secondary}> · invited</span>}
-        {online && !me && <span className={styles.online}> · in this file</span>}
+        {me && <span className={styles.secondary}> {t("(you)")}</span>}
+        {m.pending && <span className={styles.secondary}> · {t("invited")}</span>}
+        {online && !me && <span className={styles.online}> · {t("in this file")}</span>}
       </span>
       {m.role === "owner" || !p.canShare || me ? (
         <span className={styles.role}>{roleText}</span>
       ) : (
         <Select
-          label={`${m.email} role`}
+          label={t("{email} role", { email: m.email })}
           value={m.role}
-          options={[...(p.role === "owner" && !m.pending ? [{ value: "owner", label: "Owner" }] : []), ...ROLES, "-", { value: "remove", label: "Remove" }]}
+          options={[...(p.role === "owner" && !m.pending ? [{ value: "owner", label: t("Owner") }] : []), ...roles(), "-", { value: "remove", label: t("Remove") }]}
           onChange={(v) => (v === "owner" ? setTransfer(true) : void p.setRole(m, v))}
           variant="ghost"
           width="hug"
@@ -668,14 +739,14 @@ function MemberRow({ p, m }: { p: People; m: FileMember }) {
       )}
       {transfer && (
         <Dialog
-          title="Transfer ownership"
+          title={t("Transfer ownership")}
           size="small"
           open
           onClose={() => setTransfer(false)}
           footer={
             <>
               <Button variant="secondary" onClick={() => setTransfer(false)}>
-                Cancel
+                {t("Cancel")}
               </Button>
               <Button
                 variant="primary"
@@ -685,13 +756,13 @@ function MemberRow({ p, m }: { p: People; m: FileMember }) {
                 }}
                 data-share="transfer"
               >
-                Transfer ownership
+                {t("Transfer ownership")}
               </Button>
             </>
           }
         >
           <p className={styles.caption}>
-            {`${m.name || m.email} will become the owner of this file, and you’ll have can edit access. You can’t undo this action.`}
+            {t("{name} will become the owner of this file, and you’ll have can edit access. You can’t undo this action.", { name: m.name || m.email })}
           </p>
         </Dialog>
       )}
@@ -706,14 +777,15 @@ function MemberRow({ p, m }: { p: People; m: FileMember }) {
 const HOUR = 3_600_000;
 /** The expiry picker's choices (hours); an org's maximum is added when it isn't one of them */
 const EXPIRY_HOURS = [1, 24, 168, 336, 720, 744];
-const hoursLabel = (h: number) => (h === 1 ? "1 hour" : h < 24 || h % 24 ? `${h} hours` : h === 24 ? "1 day" : `${h / 24} days`);
-const dateLabel = (at: number) => new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const hoursLabel = (h: number) => (h < 24 || h % 24 ? tp(h, "{n} hour", "{n} hours") : tp(h / 24, "{n} day", "{n} days"));
+const dateLabel = (at: number) => new Date(at).toLocaleString(intlLocale(), { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 function ShareSettings({ p, onDone }: { p: People; onDone: () => void }) {
+  useT();
   const info = p.info;
   const policy = p.policy;
   const isOrg = !!info?.org;
-  const orgName = p.orgName ?? "your organization";
+  const orgName = p.orgName ?? t("your organization");
   const saved = audienceOf(info);
   const [audience, setAudience] = useState<Audience>(saved.audience);
   const [role, setRole] = useState<"viewer" | "editor">(saved.role === "editor" ? "editor" : "viewer");
@@ -737,9 +809,9 @@ function ShareSettings({ p, onDone }: { p: People; onDone: () => void }) {
   const [expiry, setExpiry] = useState<string>(keepable ? "keep" : maxHours !== null ? String(maxHours) : "never");
   const showExpiry = isOrg && anyone;
   const expiryOptions = [
-    ...(keepable ? [{ value: "keep", label: `On ${dateLabel(savedExpiry!)}` }] : []),
-    ...(maxHours === null ? [{ value: "never", label: "Never" }] : []),
-    ...expiryChoices.map((h) => ({ value: String(h), label: `In ${hoursLabel(h)}` })),
+    ...(keepable ? [{ value: "keep", label: t("On {date}", { date: dateLabel(savedExpiry!) }) }] : []),
+    ...(maxHours === null ? [{ value: "never", label: tx("share", "Never") }] : []),
+    ...expiryChoices.map((h) => ({ value: String(h), label: t("In {duration}", { duration: hoursLabel(h) }) })),
   ];
   // Undefined: the password stays as it is; null: off; a string: the new one.
   const nextPassword = !passwordOn ? (protectedNow ? null : undefined) : password ? password : undefined;
@@ -762,25 +834,26 @@ function ShareSettings({ p, onDone }: { p: People; onDone: () => void }) {
     if (ok) onDone();
   };
   const audiences = [
-    { value: "invited", label: "People invited to file" },
-    ...(isOrg ? [{ value: "org", label: `Anyone at ${orgName}` }] : []),
+    { value: "invited", label: t("People invited to file") },
+    ...(isOrg ? [{ value: "org", label: t("Anyone at {org}", { org: orgName }) }] : []),
     // Public link sharing off: "Anyone" is missing (help.figma.com 360040531773).
-    ...(policy?.publicLinks === false ? [] : [{ value: "anyone", label: "Anyone" }]),
+    ...(policy?.publicLinks === false ? [] : [{ value: "anyone", label: t("Anyone") }]),
   ];
   const caption =
     audience === "anyone"
       ? isOrg
-        ? "Anyone, even those outside your organization, will be able to access this file."
-        : "Anyone with the link who is logged in will be able to access this file."
+        ? t("Anyone, even those outside your organization, will be able to access this file.")
+        : t("Anyone with the link who is logged in will be able to access this file.")
       : audience === "org"
-        ? `Anyone at ${orgName} with the link will be able to access this file.`
-        : "Only people invited to this file can access it.";
+        ? t("Anyone at {org} with the link will be able to access this file.", { org: orgName })
+        : t("Only people invited to this file can access it.");
+  const [beforeRole, afterRole] = around(t("This setting applies to anyone in the file with {role} access"), "role");
   return (
     <>
       <div className={styles.body} data-share-settings="">
-        <span className={styles.section}>Who can access</span>
+        <span className={styles.section}>{t("Who can access")}</span>
         <Select
-          label="Audience"
+          label={t("Audience")}
           value={audience}
           options={audiences}
           prefix={audience === "invited" ? "24.lock.small" : audience === "org" ? "16.group" : "24.globe"}
@@ -793,39 +866,39 @@ function ShareSettings({ p, onDone }: { p: People; onDone: () => void }) {
         <p className={styles.caption}>{caption}</p>
         {audience !== "invited" && (
           <>
-            <span className={styles.heading}>What can they do</span>
+            <span className={styles.heading}>{t("What can they do")}</span>
             <RadioGroup
-              label="What can they do"
+              label={t("What can they do")}
               value={role}
               options={[
-                { value: "viewer", label: "View" },
-                { value: "editor", label: "Edit" },
+                { value: "viewer", label: tx("share", "View") },
+                { value: "editor", label: tx("share", "Edit") },
               ]}
               onChange={(v) => setRole(v === "editor" ? "editor" : "viewer")}
               disabled={!p.canShare}
             />
-            <p className={styles.caption}>{role === "editor" ? "Can view, comment and edit this file." : "Can view and comment on this file."}</p>
+            <p className={styles.caption}>{role === "editor" ? t("Can view, comment and edit this file.") : t("Can view and comment on this file.")}</p>
           </>
         )}
         {showExpiry && (
           <>
-            <span className={styles.heading}>Link expires</span>
-            <Select label="Link expires" value={expiry} options={expiryOptions} onChange={setExpiry} variant="outlined" size="large" disabled={!p.canShare} data-share="expiry" />
-            {maxHours !== null && <p className={styles.caption} data-share-notice="expiry">{`${orgName} requires links anyone can open to expire within ${hoursLabel(maxHours)}. After that, only people invited to the file can open it.`}</p>}
+            <span className={styles.heading}>{t("Link expires")}</span>
+            <Select label={t("Link expires")} value={expiry} options={expiryOptions} onChange={setExpiry} variant="outlined" size="large" disabled={!p.canShare} data-share="expiry" />
+            {maxHours !== null && <p className={styles.caption} data-share-notice="expiry">{t("{org} requires links anyone can open to expire within {duration}. After that, only people invited to the file can open it.", { org: orgName, duration: hoursLabel(maxHours) })}</p>}
           </>
         )}
         <hr className={styles.divider} />
-        <span className={styles.section}>Additional security</span>
+        <span className={styles.section}>{t("Additional security")}</span>
         <div className={styles.passwordRow}>
-          <Checkbox label="Password required" checked={passwordOn} onChange={(on) => setPasswordOn(on === true)} disabled={!p.canShare || passwordRequired} />
+          <Checkbox label={t("Password required")} checked={passwordOn} onChange={(on) => setPasswordOn(on === true)} disabled={!p.canShare || passwordRequired} />
           {passwordOn && (
-            <button type="button" className={styles.generate} onClick={() => setPassword(generateLinkPassword())} aria-label="Generate password" data-share="generate-password">
+            <button type="button" className={styles.generate} onClick={() => setPassword(generateLinkPassword())} aria-label={t("Generate password")} data-share="generate-password">
               <Icon name="24.rotate" />
-              Generate
+              {t("Generate")}
             </button>
           )}
         </div>
-        {passwordRequired && <p className={`${styles.caption} ${styles.indent}`} data-share-notice="password-required">{`${orgName} requires a password for links anyone can open.`}</p>}
+        {passwordRequired && <p className={`${styles.caption} ${styles.indent}`} data-share-notice="password-required">{t("{org} requires a password for links anyone can open.", { org: orgName })}</p>}
         {passwordOn &&
           (autogenerated ? (
             <>
@@ -834,14 +907,14 @@ function ShareSettings({ p, onDone }: { p: People; onDone: () => void }) {
                   {password}
                 </span>
               ) : (
-                <p className={`${styles.caption} ${styles.indent}`}>{protectedNow ? "Generate a new password to change it." : "Generate a password for this file."}</p>
+                <p className={`${styles.caption} ${styles.indent}`}>{protectedNow ? t("Generate a new password to change it.") : t("Generate a password for this file.")}</p>
               )}
-              <p className={`${styles.caption} ${styles.indent}`} data-share-notice="autogenerated">{`${orgName} only allows autogenerated passwords.`}</p>
+              <p className={`${styles.caption} ${styles.indent}`} data-share-notice="autogenerated">{t("{org} only allows autogenerated passwords.", { org: orgName })}</p>
             </>
           ) : (
             <TextInput
-              label="Add a password"
-              placeholder={protectedNow ? "Enter a new password to change it" : "Add a password"}
+              label={t("Add a password")}
+              placeholder={protectedNow ? t("Enter a new password to change it") : t("Add a password")}
               value={password}
               onChange={setPassword}
               variant="outlined"
@@ -851,18 +924,20 @@ function ShareSettings({ p, onDone }: { p: People; onDone: () => void }) {
             />
           ))}
         <hr className={styles.divider} />
-        <span className={styles.section}>Advanced</span>
-        <Checkbox label={VIEWERS_CAN_EXPORT_LABEL} checked={viewersCanCopy} onChange={(on) => setViewersCanCopy(on === true)} disabled={!p.canShare || !info} />
+        <span className={styles.section}>{t("Advanced")}</span>
+        <Checkbox label={t(VIEWERS_CAN_EXPORT_LABEL)} checked={viewersCanCopy} onChange={(on) => setViewersCanCopy(on === true)} disabled={!p.canShare || !info} />
         <p className={`${styles.caption} ${styles.indent}`}>
-          This setting applies to anyone in the file with <strong>can view</strong> access
+          {beforeRole}
+          <strong>{t("can view")}</strong>
+          {afterRole}
         </p>
       </div>
       <footer className={styles.foot}>
         <Button variant="secondary" onClick={onDone}>
-          Cancel
+          {t("Cancel")}
         </Button>
         <Button variant="primary" disabled={!changed || missingPassword || busy || !p.canShare} loading={busy} onClick={() => void save()} data-share="save-settings">
-          Save
+          {t("Save")}
         </Button>
       </footer>
     </>
@@ -871,9 +946,11 @@ function ShareSettings({ p, onDone }: { p: People; onDone: () => void }) {
 
 /** "Copy public embed code" (live: the code selected in a read-only field, "Embed <page> in your webpage", Cancel, Copy). */
 function EmbedView({ p, onCancel }: { p: People; onCancel: () => void }) {
+  useT();
   const ed = useEditor();
   const page = useCurrentPage(ed.store);
-  const pageName = ed.store.pages.find((x) => x.guid === page)?.name ?? "this page";
+  const pageName = ed.store.pages.find((x) => x.guid === page)?.name ?? t("this page");
+  const [beforePage, afterPage] = around(t("Embed {page} in your webpage"), "page");
   const field = useRef<HTMLTextAreaElement>(null);
   const [copied, markCopied] = useCopied();
   const key = p.info?.key ?? p.state?.key ?? null;
@@ -885,23 +962,25 @@ function EmbedView({ p, onCancel }: { p: People; onCancel: () => void }) {
     <>
       <div className={styles.body}>
         {!key ? (
-          <p className={styles.note}>Share the file first (Copy link or an invite) to get its embed code.</p>
+          <p className={styles.note}>{t("Share the file first (Copy link or an invite) to get its embed code.")}</p>
         ) : (
           <>
-            <textarea ref={field} className={styles.embed} readOnly value={code} aria-label="Copy public embed code" data-share="embed-code" onFocus={(e) => e.currentTarget.select()} />
-            {!open && <p className={styles.caption}>Only files anyone with the link can view, without a password, show in an embed. Change it in Share settings.</p>}
+            <textarea ref={field} className={styles.embed} readOnly value={code} aria-label={t("Copy public embed code")} data-share="embed-code" onFocus={(e) => e.currentTarget.select()} />
+            {!open && <p className={styles.caption}>{t("Only files anyone with the link can view, without a password, show in an embed. Change it in Share settings.")}</p>}
           </>
         )}
       </div>
       <footer className={styles.foot}>
         <span className={`${styles.caption} ${styles.grow}`}>
-          Embed <strong className={styles.embedPage}>{pageName}</strong> in your webpage
+          {beforePage}
+          <strong className={styles.embedPage}>{pageName}</strong>
+          {afterPage}
         </span>
         <Button variant="secondary" onClick={onCancel}>
-          Cancel
+          {t("Cancel")}
         </Button>
         <Button variant="primary" disabled={!code} onClick={() => void navigator.clipboard?.writeText(code).then(markCopied)} data-share="copy-embed">
-          {copied ? "Copied" : "Copy"}
+          {copied ? t("Copied") : t("Copy")}
         </Button>
       </footer>
     </>
@@ -919,6 +998,7 @@ const EXPIRY = [
 ];
 
 function PreviewView() {
+  useT();
   const ed = useEditor();
   const page = useCurrentPage(ed.store);
   const pages = ed.engine.pages();
@@ -945,7 +1025,7 @@ function PreviewView() {
           setWhich(r.options.pageIds === "all" ? "all" : "page");
         }
       },
-      () => live && setStatus({ publish: false, reason: "The store couldn't be reached" }),
+      () => live && setStatus({ publish: false, reason: t("The store couldn't be reached") }),
     );
     return () => {
       live = false;
@@ -953,7 +1033,7 @@ function PreviewView() {
   }, [access]);
 
   const options = (): SharePreviewOptions => ({ pageIds: which === "all" ? "all" : [page], inspect, export: allowExport, expiresInDays: expiry === "7" ? 7 : expiry === "30" ? 30 : null });
-  const copy = (url: string) => void navigator.clipboard?.writeText(url).then(() => showToast({ message: "Link copied to clipboard" }), () => showToast({ message: "Couldn't copy the link" }));
+  const copy = (url: string) => void navigator.clipboard?.writeText(url).then(() => showToast({ message: t("Link copied to clipboard") }), () => showToast({ message: t("Couldn't copy the link") }));
   const run = async (kind: "publish" | "export" | "stop") => {
     setBusy(kind);
     try {
@@ -964,67 +1044,68 @@ function PreviewView() {
       } else if (kind === "stop" && record) {
         await access.stop(record.previewId);
         setRecord(null);
-        showToast({ message: "Preview unpublished" });
+        showToast({ message: t("Preview unpublished") });
       } else if (kind === "export" && access.exportHtml) {
         const r = await access.exportHtml(options());
-        if (!("cancelled" in r)) showToast({ message: `Preview exported (${(r.bytes / 1_000_000).toFixed(1)} MB)` });
+        if (!("cancelled" in r)) showToast({ message: t("Preview exported ({size} MB)", { size: (r.bytes / 1_000_000).toFixed(1) }) });
       }
     } catch (e) {
-      showToast({ message: `Couldn't ${kind === "export" ? "export" : kind === "stop" ? "unpublish" : "publish"} the preview: ${message(e)}` });
+      const error = message(e);
+      showToast({ message: kind === "export" ? t("Couldn't export the preview: {error}", { error }) : kind === "stop" ? t("Couldn't unpublish the preview: {error}", { error }) : t("Couldn't publish the preview: {error}", { error }) });
     } finally {
       setBusy(null);
     }
   };
-  const currentName = pages.find((x) => x.guid === page)?.name ?? "This page";
+  const currentName = pages.find((x) => x.guid === page)?.name ?? t("This page");
   const canPublish = !!status?.publish;
   return (
     <div className={styles.body}>
-      <p className={styles.caption}>Developers see the file as it looks now, with Inspect for each layer&apos;s properties and code. They can&apos;t edit it or see your other files.</p>
+      <p className={styles.caption}>{t("Developers see the file as it looks now, with Inspect for each layer's properties and code. They can't edit it or see your other files.")}</p>
       <div className={styles.field2}>
-        <span className={styles.secondary}>Pages</span>
+        <span className={styles.secondary}>{t("Pages")}</span>
         <Select
-          label="Pages"
+          label={t("Pages")}
           value={which}
           options={[
-            { value: "all", label: pages.length === 1 ? "All pages" : `All pages (${pages.length})` },
-            { value: "page", label: `Only “${currentName}”` },
+            { value: "all", label: pages.length === 1 ? t("All pages") : t("All pages ({n})", { n: pages.length }) },
+            { value: "page", label: t("Only “{name}”", { name: currentName }) },
           ]}
           onChange={(v) => setWhich(v as "all" | "page")}
         />
       </div>
-      <Checkbox label="Inspect" checked={inspect} onChange={setInspect} />
-      <Checkbox label="Allow exporting assets" checked={allowExport} onChange={setAllowExport} />
+      <Checkbox label={t("Inspect")} checked={inspect} onChange={setInspect} />
+      <Checkbox label={t("Allow exporting assets")} checked={allowExport} onChange={setAllowExport} />
       <div className={styles.field2}>
-        <span className={styles.secondary}>Link expires</span>
-        <Select label="Link expires" value={expiry} options={EXPIRY} onChange={setExpiry} disabled={!canPublish} />
+        <span className={styles.secondary}>{t("Link expires")}</span>
+        <Select label={t("Link expires")} value={expiry} options={EXPIRY.map((o) => ({ ...o, label: o.value === "never" ? tx("share", o.label) : t(o.label) }))} onChange={setExpiry} disabled={!canPublish} />
       </div>
-      {!status ? <Spinner size={16} /> : !record && !canPublish ? <p className={styles.caption}>{`${status.reason ?? "Publishing links isn't available"}. ${access.exportHtml ? "Export the preview as an HTML file to send it instead." : "Exporting it as an HTML file needs the desktop app."}`}</p> : null}
+      {!status ? <Spinner size={16} /> : !record && !canPublish ? <p className={styles.caption}>{`${status.reason ?? t("Publishing links isn't available")}. ${access.exportHtml ? t("Export the preview as an HTML file to send it instead.") : t("Exporting it as an HTML file needs the desktop app.")}`}</p> : null}
       {record && (
         <div className={styles.previewLink}>
           <span className={styles.previewUrl} title={record.url} data-share="preview-url">
             {record.url}
           </span>
           <button type="button" className={styles.link} onClick={() => copy(record.url)} data-share="copy-preview-link">
-            Copy link
+            {t("Copy link")}
           </button>
         </div>
       )}
       <div className={styles.actions}>
         {access.exportHtml && (
           <Button variant="secondary" loading={busy === "export"} disabled={!!busy} onClick={() => void run("export")} data-share="export">
-            Export as HTML…
+            {t("Export as HTML…")}
           </Button>
         )}
         {record && (
           <Button variant="destructive-secondary" loading={busy === "stop"} disabled={!!busy || !canPublish} onClick={() => void run("stop")} data-share="unpublish">
-            Unpublish
+            {t("Unpublish")}
           </Button>
         )}
         <Button variant="primary" loading={busy === "publish"} disabled={!!busy || !canPublish} onClick={() => void run("publish")} data-share="publish">
-          {record ? "Update preview" : "Publish preview"}
+          {record ? t("Update preview") : t("Publish preview")}
         </Button>
       </div>
-      {busy && busy !== "stop" && <p className={styles.caption}>Preparing the preview… every page is laid out with its fonts first.</p>}
+      {busy && busy !== "stop" && <p className={styles.caption}>{t("Preparing the preview… every page is laid out with its fonts first.")}</p>}
     </div>
   );
 }

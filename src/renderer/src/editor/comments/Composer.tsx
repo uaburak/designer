@@ -6,6 +6,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Avatar, cx, Icon } from "@/ds";
+import { t, useT } from "@/i18n";
 import type { MentionCandidate } from "@shared/comments";
 import { EmojiPicker } from "./EmojiPicker";
 import styles from "./Comments.module.css";
@@ -28,6 +29,7 @@ export interface ComposerProps {
 }
 
 export function Composer({ placeholder, label, people: everyone, me, initial = "", autoFocus, onSubmit, onCancel, onChange, variant = "new" }: ComposerProps) {
+  useT();
   const people = everyone.filter((p) => p.id !== me);
   const [text, setText] = useState(initial);
   const [caret, setCaret] = useState(initial.length);
@@ -123,20 +125,20 @@ export function Composer({ placeholder, label, people: everyone, me, initial = "
       </div>
       {expanded && (
         <div className={styles.composerTools}>
-          <button type="button" className={styles.toolButton} aria-label="Add emoji" onClick={(e) => setEmoji(emoji ? null : e.currentTarget)}>
+          <button type="button" className={styles.toolButton} aria-label={t("Add emoji")} onClick={(e) => setEmoji(emoji ? null : e.currentTarget)}>
             <span aria-hidden>☺</span>
           </button>
-          <button type="button" className={styles.toolButton} aria-label="Add mention" disabled={!people.length} onClick={() => insert("@")}>
+          <button type="button" className={styles.toolButton} aria-label={t("Add mention")} disabled={!people.length} onClick={() => insert("@")}>
             <span aria-hidden>@</span>
           </button>
           <span className={styles.grow} />
           {variant === "edit" ? (
             <>
               <button type="button" className={styles.textButton} onClick={() => onCancel?.()}>
-                Cancel
+                {t("Cancel")}
               </button>
               <button type="button" className={styles.saveButton} disabled={empty || busy} onClick={() => void submit()}>
-                Save
+                {t("Save")}
               </button>
             </>
           ) : (
@@ -145,7 +147,7 @@ export function Composer({ placeholder, label, people: everyone, me, initial = "
         </div>
       )}
       {matches.length > 0 && (
-        <div className={styles.mentions} role="listbox" aria-label="People">
+        <div className={styles.mentions} role="listbox" aria-label={t("People")}>
           {matches.map((p, i) => (
             <button
               key={p.id}
@@ -157,7 +159,7 @@ export function Composer({ placeholder, label, people: everyone, me, initial = "
               onPointerDown={(e) => e.preventDefault()}
               onClick={() => mention(p)}
             >
-              <Avatar name={p.name} size={16} />
+              <Avatar name={p.name} src={p.picture ?? undefined} size={16} />
               <span className={styles.mentionName}>{p.name}</span>
               <span className={styles.mentionEmail}>{p.email}</span>
             </button>
@@ -179,8 +181,9 @@ export function Composer({ placeholder, label, people: everyone, me, initial = "
 }
 
 function SendButton({ disabled, onClick }: { disabled: boolean; onClick(): void }) {
+  useT();
   return (
-    <button type="button" className={styles.send} aria-label="Send" disabled={disabled} onPointerDown={(e) => e.preventDefault()} onClick={onClick}>
+    <button type="button" className={styles.send} aria-label={t("Send")} disabled={disabled} onPointerDown={(e) => e.preventDefault()} onClick={onClick}>
       <Icon name="16.arrow.up" />
     </button>
   );

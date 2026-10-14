@@ -19,6 +19,7 @@ import type { FileKey, FileMeta } from "../../../shared/store/types";
 import { storeClient, type StoreClient } from "./client";
 import { createDevStore, type DevStore } from "./devStore";
 import { openStoreDocument, type StoreDocumentSource, type StoreDocumentSourceOptions } from "./documentSource";
+import { t } from "@/i18n";
 
 export { connectStore, storeClient, StoreClient, STORE_PORT_MESSAGE, STORE_PORT_WANTED, type StoreClientOptions } from "./client";
 export { createDevStore, resetDevStore, type DevStore, type DevStoreOptions } from "./devStore";
@@ -53,6 +54,8 @@ export function getStoreClient(): StoreClient {
     currentCacheOwner = uid ?? null;
     dev = createDevStore({
       role: params.has("editor") ? "editor" : "home",
+      // Newer Figma files compress their data with zstd, which browsers can't inflate: fzstd (pure JS), loaded on the first such import
+      zstdDecompress: async (data) => (await import("fzstd")).decompress(data),
       ...(isWebApp()
         ? {
             seed: false,
@@ -120,7 +123,7 @@ export async function flushWebStore(): Promise<void> {
 /** The web app's Save local copy…: the file as a `.fig` download (the desktop app's is main's Save dialog) */
 export async function downloadFig(fileKey: FileKey): Promise<void> {
   const files = getStoreClient().files;
-  if (!files.exportFigBytes) throw new Error("Saving a local copy isn't available here");
+  if (!files.exportFigBytes) throw new Error(t("Saving a local copy isn't available here"));
   const [bytes, meta] = await Promise.all([files.exportFigBytes(fileKey), getStoreClient().workspace.getFile(fileKey)]);
   downloadBytes(bytes, figFileName(meta.name));
 }

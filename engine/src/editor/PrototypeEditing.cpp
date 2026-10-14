@@ -70,6 +70,29 @@ json::Value* actionAt(json::Value& interaction, const std::vector<size_t>& path)
 
 }  // namespace
 
+std::vector<proto::Interaction> Editor::playedInteractions(Guid id, std::vector<int>* ownIndex) const {
+  const Node* n = doc_.get(id);
+  if (ownIndex) ownIndex->clear();
+  if (!n) return {};
+  const Node* m = n->props.type == NodeType::INSTANCE ? doc_.get(mainOf(id)) : nullptr;
+  if (!m) {
+    auto list = proto::hasInteractions(n->props) ? proto::interactions(n->props) : std::vector<proto::Interaction>{};
+    if (ownIndex)
+      for (size_t i = 0; i < list.size(); i++) ownIndex->push_back(static_cast<int>(i));
+    return list;
+  }
+  // Every variant of its main's set: an entry copied from another one is left from before a variant switch.
+  std::vector<const NodeProps*> variants;
+  Guid main = mainOf(id);
+  if (Guid set = setOf(main); set != kNoGuid) {
+    for (Guid v : doc_.children(set))
+      if (const Node* vn = doc_.get(v); vn && vn->props.type == NodeType::SYMBOL) variants.push_back(&vn->props);
+  } else {
+    variants.push_back(&m->props);
+  }
+  return proto::instanceInteractions(n->props, &m->props, variants, ownIndex);
+}
+
 void Editor::setPrototypeMode(bool on) {
   if (proto_.on == on) return;
   proto_.on = on;
@@ -90,8 +113,16 @@ const std::vector<Editor::ProtoLink>& Editor::protoLinks() {
     const Node* n = doc_.get(id);
     if (!n) return;
     if (n->props.type != NodeType::CANVAS && proto::hasInteractions(n->props)) {
+      // An instance's own (changed or added on it) are its connections; the copies of its main's it stores (Figma's
+      // files) are inherited ones, drawn when it is selected (protoOverlay).
+      std::vector<int> own;
+      auto played = n->props.type == NodeType::INSTANCE ? playedInteractions(id, &own) : std::vector<proto::Interaction>{};
       auto list = proto::interactions(n->props);
+      std::vector<bool> mine(list.size(), n->props.type != NodeType::INSTANCE);
+      for (size_t k = 0; k < own.size(); k++)
+        if (own[k] >= 0 && static_cast<size_t>(own[k]) < mine.size()) mine[static_cast<size_t>(own[k])] = true;
       for (size_t i = 0; i < list.size(); i++) {
+        if (!mine[i]) continue;
         std::function<void(const std::vector<proto::Action>&, std::vector<size_t>)> actions = [&](const std::vector<proto::Action>& acts,
                                                                                                   std::vector<size_t> prefix) {
           for (size_t k = 0; k < acts.size(); k++) {
@@ -776,14 +807,13 @@ void Editor::protoOverlay(Overlay& o) const {
     std::function<void(Guid, bool)> inherited = [&](Guid id, bool root) {
       const Node* n = doc_.get(id);
       if (!n || !n->props.visible || !drawn.insert(id).second) return;
-      std::vector<proto::Interaction> list;
-      // Its own (a real instance's own are among the page's connections already), else its main's.
-      if (proto::hasInteractions(n->props)) {
-        if (!root || id.isDerived()) list = proto::interactions(n->props);
-      } else if (n->props.type == NodeType::INSTANCE) {
-        if (const Node* m = doc_.get(mainOf(id)); m && proto::hasInteractions(m->props)) list = proto::interactions(m->props);
-      }
-      for (const proto::Interaction& i : list)
+      // What it plays: an instance's main's (as the variant it shows now has them) with its own changes and additions —
+      // a real instance's own are among the page's connections already.
+      std::vector<int> own;
+      std::vector<proto::Interaction> list = playedInteractions(id, &own);
+      for (size_t k = 0; k < list.size(); k++) {
+        if (root && !id.isDerived() && k < own.size() && own[k] >= 0) continue;
+        const proto::Interaction& i = list[k];
         for (const proto::Action& a : i.actions) {
           std::vector<std::pair<proto::Navigation, Guid>> dests;
           proto::destinations(a, dests);
@@ -800,6 +830,7 @@ void Editor::protoOverlay(Overlay& o) const {
             po.links.push_back(pl);
           }
         }
+      }
       for (Guid c : doc_.children(id)) inherited(c, false);
     };
     for (Guid g : selection_) {

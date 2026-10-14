@@ -98,7 +98,7 @@ describe("Settings › Operator", () => {
     expect($("[data-operator-signup-mode]")?.textContent).toContain("Open to everyone");
     const row = $(`[data-operator-account='${alice.id}']`)!;
     expect(row.textContent).toContain("Alice · alice@x.co");
-    expect(row.textContent).toContain("3 files · 5 MB · 1 previews");
+    expect(row.textContent).toContain("3 files · 5 MB · 1 preview ·");
     await click(row.querySelector("[data-operator-suspend]")!);
     await click($("[data-operator-suspend-confirm]")!);
     await settle();

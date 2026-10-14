@@ -8,6 +8,7 @@
 import { useMemo, useState } from "react";
 import { Button, ContextMenu, Dialog, IconButton, Popover, Select, TextInput, type MenuEntry } from "@/ds";
 import type { Guid } from "@/engine/codec";
+import { t, useT } from "@/i18n";
 import { useEditor, type EditorController } from "../controller";
 import { useDocumentVersion, useUI } from "../hooks";
 import { setDevStatusOf } from "../devStatus";
@@ -27,20 +28,21 @@ export function CategoriesDialog() {
 }
 
 function Categories() {
+  useT();
   const ed = useEditor();
   const [list, setList] = useState<Category[]>(() => readCategories(ed));
   const close = () => ed.ui.set({ categoriesOpen: false });
   const change = (i: number, patch: Partial<Category>) => setList((l) => l.map((c, k) => (k === i ? { ...c, ...patch, custom: true } : c)));
   return (
     <Dialog
-      title="Edit categories"
+      title={t("Edit categories")}
       size="medium"
       open
       onClose={close}
       footer={
         <>
           <Button variant="secondary" onClick={() => setList((l) => [...l, { id: null, preset: null, label: "New category", color: unusedColor(l), custom: true }])}>
-            Add category
+            {t("Add category")}
           </Button>
           <Button
             variant="primary"
@@ -49,7 +51,7 @@ function Categories() {
               close();
             }}
           >
-            Done
+            {t("Done")}
           </Button>
         </>
       }
@@ -59,14 +61,14 @@ function Categories() {
           <div key={c.id ?? `new-${i}`} className={styles.categoryRow} data-category={c.label}>
             <span className={styles.categoryDot} style={{ background: CATEGORY_HEX[c.color] }} />
             <Select
-              label="Color"
+              label={t("Color")}
               value={c.color}
               width={120}
-              options={CATEGORY_COLORS.map((k) => ({ value: k, label: CATEGORY_COLOR_LABEL[k] }))}
+              options={CATEGORY_COLORS.map((k) => ({ value: k, label: t(CATEGORY_COLOR_LABEL[k]) }))}
               onChange={(v) => change(i, { color: v as CategoryColor })}
             />
-            <TextInput label="Category name" value={c.label} onCommit={(v) => change(i, { label: v.trim() || c.label })} className={styles.grow} />
-            <IconButton icon="24.minus.small" label={`Delete ${c.label}`} onClick={() => setList((l) => l.filter((_, k) => k !== i))} />
+            <TextInput label={t("Category name")} value={c.label} onCommit={(v) => change(i, { label: v.trim() || c.label })} className={styles.grow} />
+            <IconButton icon="24.minus.small" label={t("Delete {name}", { name: c.label })} onClick={() => setList((l) => l.filter((_, k) => k !== i))} />
           </div>
         ))}
       </div>
@@ -81,6 +83,7 @@ function unusedColor(list: readonly Category[]): CategoryColor {
 // ---- A measurement's custom text -------------------------------------------------------------------------------------
 
 export function MeasurementText() {
+  useT();
   const ed = useEditor();
   const at = useUI((s) => s.measurementEditor);
   if (!at) return null;
@@ -89,9 +92,9 @@ export function MeasurementText() {
     ed.focusCanvas();
   };
   return (
-    <Popover anchor={new DOMRect(at.x, at.y, at.width, at.height)} placement="bottom" onClose={close} label="Measurement" width={220}>
+    <Popover anchor={new DOMRect(at.x, at.y, at.width, at.height)} placement="bottom" onClose={close} label={t("Measurement")} width={220}>
       <TextInput
-        label="Measurement text"
+        label={t("Measurement text")}
         value={at.text}
         autoFocus
         onCommit={(v) => {
@@ -121,6 +124,7 @@ export function statusOf(ed: EditorController, ref: Guid): "READY" | "COMPLETED"
  * to Dev design edited since): Figma's reason and "Done with changes".
  */
 export function StatusMenu() {
+  useT();
   const ed = useEditor();
   const at = useUI((s) => s.statusMenu);
   if (!at) return null;
@@ -131,15 +135,15 @@ export function StatusMenu() {
   const inDev = modeOf(ed) === "dev";
   const figma: MenuEntry[] =
     !inDev && current === "ready-to-dev"
-      ? [{ id: "dev", label: "Open in Dev Mode" }, { id: "link", label: "Copy link", disabled: true }, "-"]
+      ? [{ id: "dev", label: t("Open in Dev Mode") }, { id: "link", label: t("Copy link"), disabled: true }, "-"]
       : inDev && dev
-        ? [{ id: "focus", label: "Show in focus view" }, { id: "compare", label: "Compare changes" }, "-"]
+        ? [{ id: "focus", label: t("Show in focus view") }, { id: "compare", label: t("Compare changes") }, "-"]
         : [];
   return (
     <ContextMenu
       at={{ x: at.x, y: at.y + at.height + 4 }}
       entries={[...figma, ...frameStatusMenu(current, { disabled: !canSetStatus(ed) })]}
-      label="Status"
+      label={t("Status")}
       onClose={close}
       onSelect={(id) => {
         close();
@@ -156,13 +160,14 @@ export function StatusMenu() {
 
 /** "Changed": optionally a reason, then "Done with changes" (back to Ready for dev). */
 function DoneWithChanges({ at, onClose }: { at: { ref: Guid; x: number; y: number; width: number; height: number }; onClose: () => void }) {
+  useT();
   const ed = useEditor();
   const [reason, setReason] = useState("");
   return (
-    <Popover anchor={new DOMRect(at.x, at.y, at.width, at.height)} placement="bottom-start" onClose={onClose} label="Changed" width={260} title="Changed">
+    <Popover anchor={new DOMRect(at.x, at.y, at.width, at.height)} placement="bottom-start" onClose={onClose} label={t("Changed")} width={260} title={t("Changed")}>
       <div className={styles.doneWithChanges} data-done-with-changes="">
-        <div className={styles.hint}>This design was edited after it was marked ready for dev.</div>
-        <TextInput label="Reason" value={reason} placeholder="Add a reason (optional)" onChange={setReason} />
+        <div className={styles.hint}>{t("This design was edited after it was marked ready for dev.")}</div>
+        <TextInput label={t("Reason")} value={reason} placeholder={t("Add a reason (optional)")} onChange={setReason} />
         <div className={styles.noteActions}>
           <Button
             variant="secondary"
@@ -171,7 +176,7 @@ function DoneWithChanges({ at, onClose }: { at: { ref: Guid; x: number; y: numbe
               ed.ui.set({ compare: { ref: at.ref } });
             }}
           >
-            Compare changes
+            {t("Compare changes")}
           </Button>
           <span className={styles.grow} />
           <Button
@@ -181,7 +186,7 @@ function DoneWithChanges({ at, onClose }: { at: { ref: Guid; x: number; y: numbe
               onClose();
             }}
           >
-            Done with changes
+            {t("Done with changes")}
           </Button>
         </div>
       </div>
@@ -192,6 +197,7 @@ function DoneWithChanges({ at, onClose }: { at: { ref: Guid; x: number; y: numbe
 // ---- Focus view ----------------------------------------------------------------------------------------------------
 
 export function FocusBar() {
+  useT();
   const ed = useEditor();
   const focus = useUI((s) => s.focus ?? null);
   useDocumentVersion();
@@ -202,7 +208,7 @@ export function FocusBar() {
   return (
     <div className={styles.focusBar} data-focus-bar="">
       <Button variant="secondary" onClick={() => closeFocus(ed)}>
-        See all ready for dev
+        {t("See all ready for dev")}
       </Button>
       <span className={styles.focusName}>{name}</span>
       {workflow && (
@@ -218,14 +224,14 @@ export function FocusBar() {
       )}
       <span className={styles.grow} />
       <Button variant="secondary" onClick={() => closeFocus(ed, { inspectOnPage: true })}>
-        Inspect on page
+        {t("Inspect on page")}
       </Button>
       {status === "READY" && (
         <Button variant="primary" onClick={() => setDevStatusOf(ed, [focus], "COMPLETED")}>
-          Mark as completed
+          {t("Mark as completed")}
         </Button>
       )}
-      <IconButton icon="24.close.small" label="Close focus view" onClick={() => closeFocus(ed)} />
+      <IconButton icon="24.close.small" label={t("Close focus view")} onClick={() => closeFocus(ed)} />
     </div>
   );
 }

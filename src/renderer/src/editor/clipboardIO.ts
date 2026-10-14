@@ -11,10 +11,12 @@
  * pasteboard — Illustrator's SVG, or its PDF converted to SVG — becomes editable layers (model/svgImport.ts) in
  * the middle of the view; only when there is none does a picture on the clipboard become an image.
  */
+import { t, tp } from "@/i18n";
 import type { Message } from "@/engine/codec";
 import type { PasteOptions } from "@/engine/Engine";
 import { messageToEngine } from "@/store/engineMessage";
 import { decodeAnySchema } from "../../../shared/fig/importFig";
+import { decodeFigmaClipboard, isOwnMeta, type FigmaPasteReport } from "../../../shared/fig/figmaClipboard";
 import { decodeMessage } from "../../../shared/schema/codec";
 import type { EditorController } from "./controller";
 import { engineCall } from "./engineCompat";
@@ -23,6 +25,8 @@ import { isEditable } from "./keyboard";
 import { isMediaFile } from "./images";
 import { frameAt, placeImages, toPage } from "./placeImages";
 import { looksLikeSvg, svgToMessage } from "./model/svgImport";
+import { pastableText, textToMessage } from "./model/textPaste";
+import { bringPastedFigmaImages } from "./figmaImages";
 import { viewCentre } from "./canvas/viewInsets";
 import { editorBridge } from "./desktop";
 import { movedAmong } from "./libraries";
@@ -55,28 +59,59 @@ async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
+/** zstd (Figma's newer clipboard archives compress their data chunk with it): fzstd, loaded on the first such paste. */
+async function zstdDecompress(data: Uint8Array): Promise<Uint8Array> {
+  return (await import("fzstd")).decompress(data);
+}
+
 /**
  * A clipboard payload pasted: an archive's kiwi Message to the engine as it is (`pasteKiwi`; Figma's converted as a
- * `.fig` import is), the interim JSON as before. "Paste here" moves the Message first, so it goes through the JSON.
+ * `.fig` import is, then made ready for a cross-file paste — `decodeFigmaClipboard`), the interim JSON as before.
+ * "Paste here" moves the Message first, so it goes through the JSON.
  */
 async function pastePayload(ed: EditorController, payload: ClipboardPayload, mode: EditorController["pendingPaste"]): Promise<void> {
   if (payload.kind === "json") return pasteMessage(ed, payload.message, mode);
-  const bytes = await archiveMessage(payload.archive, { inflate: typeof DecompressionStream === "function" ? inflateRaw : undefined, convert: (schema, message) => decodeAnySchema(schema, message).message });
+  const figma: { report: FigmaPasteReport | null } = { report: null };
+  const bytes = await archiveMessage(payload.archive, {
+    inflate: typeof DecompressionStream === "function" ? inflateRaw : undefined,
+    zstd: zstdDecompress,
+    convert: (schema, message) => {
+      // An archive of ours written with an older schema: converted, nothing else. Figma's: ready for the paste.
+      if (isOwnMeta(payload.meta)) return decodeAnySchema(schema, message).message;
+      const decoded = decodeFigmaClipboard(schema, message, payload.meta);
+      figma.report = decoded.report;
+      return decoded.message;
+    },
+  });
   if (!bytes || ed.engine.destroyed) return;
   const pasteKiwi = engineCall<(b: Uint8Array, o: PasteOptions) => number>(ed.engine, "pasteKiwi", "set_wire_format");
-  if (!pasteKiwi || mode?.mode === "point") return pasteMessage(ed, messageToEngine(decodeMessage(bytes)), mode);
-  const fileKey = ed.source.libraries?.libraryKey ?? null;
-  const from = decodeMessage(bytes).pasteFileKey;
-  pasteKiwi(bytes, pasteOptions(mode));
-  ed.focusCanvas();
-  movedToast(ed, fileKey && from && from !== fileKey ? movedAmong(ed, ed.selection) : 0);
+  if (!pasteKiwi || mode?.mode === "point") {
+    pasteMessage(ed, messageToEngine(decodeMessage(bytes)), mode);
+  } else {
+    const fileKey = ed.source.libraries?.libraryKey ?? null;
+    const from = decodeMessage(bytes).pasteFileKey;
+    pasteKiwi(bytes, pasteOptions(mode));
+    ed.focusCanvas();
+    movedToast(ed, fileKey && from && from !== fileKey ? movedAmong(ed, ed.selection) : 0);
+  }
+  if (figma.report) void figmaPasteToast(ed, figma.report);
+}
+
+/**
+ * After a paste from Figma: what couldn't come along. Images travel by hash (Figma keeps the bytes on its servers):
+ * those this file doesn't have are brought with the person's Figma token, or the dialog explains how to make one
+ * (figmaImages.ts); instances whose main wasn't copied became frames.
+ */
+async function figmaPasteToast(ed: EditorController, report: FigmaPasteReport): Promise<void> {
+  if (report.detached) showToast({ message: tp(report.detached, "An instance was pasted as a frame: its main component wasn't copied.", "{n} instances were pasted as frames: their main components weren't copied.") });
+  if (report.images.length) await bringPastedFigmaImages(ed, report.fileKey, report.images);
 }
 
 function movedToast(ed: EditorController, moved: number): void {
   if (!moved) return;
   showToast({
-    message: moved === 1 ? "Pasted a published component. Publish this file to move it here." : `Pasted ${moved} published components. Publish this file to move them here.`,
-    action: ed.source.libraries?.inDrafts() ? undefined : { label: "Publish…", onAction: () => ed.ui.set({ publishOpen: true }) },
+    message: tp(moved, "Pasted a published component. Publish this file to move it here.", "Pasted {n} published components. Publish this file to move them here."),
+    action: ed.source.libraries?.inDrafts() ? undefined : { label: t("Publish…"), onAction: () => ed.ui.set({ publishOpen: true }) },
   });
 }
 
@@ -131,12 +166,29 @@ export function pasteSvg(ed: EditorController, svg: string, mode: EditorControll
   if (text || images) {
     showToast({
       message: text
-        ? `Text was left out. In Illustrator, use Type › Create Outlines before copying to paste it as vectors.`
-        : images === 1
-          ? "An image in the artwork was left out."
-          : `${images} images in the artwork were left out.`,
+        ? t("Text was left out. In Illustrator, use Type › Create Outlines before copying to paste it as vectors.")
+        : tp(images, "An image in the artwork was left out.", "{n} images in the artwork were left out."),
     });
   }
+  return true;
+}
+
+/**
+ * Plain text pasted as a new text layer (Figma's "Copy as text", a text editor's copy): in the middle of the view, or
+ * into the selected frame / at the pointer / over the selection as any paste. One undo step (the engine's paste).
+ */
+export function pasteText(ed: EditorController, text: string, mode: EditorController["pendingPaste"]): boolean {
+  const chars = pastableText(text);
+  if (!chars || ed.engine.destroyed) return false;
+  const message = textToMessage(chars);
+  if (mode?.mode !== "point") {
+    const top = message.nodeChanges[0];
+    const mid = viewCentre(ed.canvas);
+    const centre = toPage(ed, mid.x, mid.y);
+    const size = top.size ?? { x: 0, y: 0 };
+    top.transform = { m00: 1, m01: 0, m02: Math.round(centre.x - size.x / 2), m10: 0, m11: 1, m12: Math.round(centre.y - size.y / 2) };
+  }
+  pasteInto(ed, message, mode);
   return true;
 }
 
@@ -152,12 +204,15 @@ function svgInTransfer(data: DataTransfer): string | null {
  * Not our own payload: SVG text, else main's vector flavours (Illustrator), else the clipboard's pictures. `files`
  * are taken from the event before it ends (the DataTransfer empties afterwards).
  */
-async function pasteForeign(ed: EditorController, svgText: string | null, files: File[], mode: EditorController["pendingPaste"]): Promise<void> {
+async function pasteForeign(ed: EditorController, svgText: string | null, files: File[], mode: EditorController["pendingPaste"], text: string | null = null): Promise<void> {
   if (svgText && pasteSvg(ed, svgText, mode)) return;
   const vector = await editorBridge()?.clipboard?.readVector().catch(() => null);
   if (ed.engine.destroyed) return;
   if (vector && pasteSvg(ed, vector.svg, mode, vector.skipped)) return;
-  if (!files.length) return;
+  if (!files.length) {
+    if (text) pasteText(ed, text, mode);
+    return;
+  }
   const images = await ed.images.import(files);
   if (images.length && !ed.engine.destroyed) placeImages(ed, images);
   ed.focusCanvas();
@@ -188,9 +243,10 @@ export function attachClipboard(ed: EditorController): () => void {
       // screenshot, a copied file) placed like a paste (desktop.md §13 steps 3–4).
       const files = [...data.files].filter(isMediaFile);
       const svg = svgInTransfer(data);
-      if (!svg && !files.length && !editorBridge()) return;
+      const text = svg ? null : pastableText(data.getData("text/plain"));
+      if (!svg && !files.length && !text && !editorBridge()) return;
       e.preventDefault();
-      void pasteForeign(ed, svg, files, mode);
+      void pasteForeign(ed, svg, files, mode, text);
       return;
     }
     e.preventDefault();
@@ -227,7 +283,10 @@ export function pasteFromMenu(ed: EditorController, mode: EditorController["pend
   void readSystemClipboard().then((payload) => {
     const m = payload ?? (ed.lastCopy ? readClipboard((t) => ed.lastCopy?.[t]) : null);
     if (m) void pastePayload(ed, m, mode);
-    else void pasteForeign(ed, null, [], mode);
+    else
+      void (navigator.clipboard?.readText() ?? Promise.resolve(""))
+        .catch(() => "")
+        .then((text) => pasteForeign(ed, null, [], mode, pastableText(text)));
   });
 }
 

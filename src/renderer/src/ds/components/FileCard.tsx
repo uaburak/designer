@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { Icon } from "../icons/Icon";
 import { STRINGS } from "../strings";
+import { t, useT } from "@/i18n";
 import { IconButton } from "./Button";
 import { TextInput } from "./TextInput";
 import styles from "./FileCard.module.css";
@@ -30,11 +31,14 @@ export interface FileCardProps {
   branch?: boolean;
   /** A short state at the thumbnail's bottom left (Home offline: "Available offline", docs/cloud.md §2) */
   badge?: string;
+  /** Where it lives, at the thumbnail's top left (All projects: its team, or "Drafts") */
+  place?: string;
 }
 
 function CardRename({ value, onDone }: { value: string; onDone: (name: string | null) => void }) {
+  useT();
   const committed = useRef<string | null>(null);
-  return <TextInput label={STRINGS.rename} value={value} autoFocus onCommit={(v) => (committed.current = v.trim() ? v : null)} onExit={(r) => onDone(r === "escape" ? null : committed.current)} />;
+  return <TextInput label={t(STRINGS.rename)} value={value} autoFocus onCommit={(v) => (committed.current = v.trim() ? v : null)} onExit={(r) => onDone(r === "escape" ? null : committed.current)} />;
 }
 
 /** A file's kind as Figma marks it in Home (cards, rows, the sidebar): a 16px brand square with the design glyph in white. */
@@ -52,7 +56,8 @@ export function FileKindIcon({ size = 16 }: { size?: 16 | 20 | 24 }) {
  * then — 12px on — the title (11/550) over when it was edited (11, secondary;
  * `formatEdited`). Enter opens, Space selects.
  */
-export function FileCard({ id, title, subtitle, thumbnail, starred, selected, renaming, onOpen, onSelect, onContextMenu, onRename, onStar, forceHover, branches, branch, badge }: FileCardProps) {
+export function FileCard({ id, title, subtitle, thumbnail, starred, selected, renaming, onOpen, onSelect, onContextMenu, onRename, onStar, forceHover, branches, branch, badge, place }: FileCardProps) {
+  useT();
   const hasBranches = !!branches && branches.count > 0;
   return (
     <div
@@ -86,14 +91,23 @@ export function FileCard({ id, title, subtitle, thumbnail, starred, selected, re
             {badge}
           </span>
         )}
-        {(hasBranches || branch) && (
-          <span className={styles.branchIcon} data-branch-icon="" aria-hidden>
-            <Icon name="16.branch" />
+        {(hasBranches || branch || place) && (
+          <span className={styles.topLeft}>
+            {(hasBranches || branch) && (
+              <span className={styles.branchIcon} data-branch-icon="" aria-hidden>
+                <Icon name="16.branch" />
+              </span>
+            )}
+            {place && (
+              <span className={styles.place} data-card-place="">
+                {place}
+              </span>
+            )}
           </span>
         )}
         {onStar && (
           <span className={styles.star} data-on={starred || undefined}>
-            <IconButton icon={starred ? "24.star" : "24.star.outline"} label={starred ? "Unstar" : "Star"} tooltip={false} onClick={(e) => { e.stopPropagation(); onStar(!starred); }} />
+            <IconButton icon={starred ? "24.star" : "24.star.outline"} label={starred ? t("Unstar") : t("Star")} tooltip={false} onClick={(e) => { e.stopPropagation(); onStar(!starred); }} />
           </span>
         )}
       </div>

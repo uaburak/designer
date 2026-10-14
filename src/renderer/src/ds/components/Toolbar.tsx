@@ -4,6 +4,7 @@ import { Icon, type IconName } from "../icons/Icon";
 import { tooltipProps } from "../overlay/TooltipManager";
 import { ContextMenu, type MenuEntry } from "./Menu";
 import styles from "./Toolbar.module.css";
+import { t, useT } from "@/i18n";
 
 export interface ToolbarProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
@@ -20,7 +21,8 @@ export interface ToolbarProps extends HTMLAttributes<HTMLDivElement> {
 }
 
 /** The bottom toolbar (contract §4.24): 48px, radius 13, elevation 100, 8 padding, 8 between groups. */
-export function Toolbar({ children, floating, secondary, offset = 0, label = "Tools", className, style, ...rest }: ToolbarProps) {
+export function Toolbar({ children, floating, secondary, offset = 0, label = t("Tools"), className, style, ...rest }: ToolbarProps) {
+  useT();
   return (
     <div role="toolbar" aria-label={label} data-ds="Toolbar" className={cx(styles.toolbar, floating && styles.floating, secondary && styles.secondary, className)} style={{ ...style, ["--ds-toolbar-offset" as string]: `${offset}px` }} {...rest}>
       {children}
@@ -60,6 +62,7 @@ export interface ToolButtonProps {
 
 /** A 32px tool; active, the brand fill with the white glyph; tooltip above with its key. */
 export function ToolButton({ icon, label, shortcut, active, onSelect, menu, onMenuSelect, menuLabel, menuWidth, disabled, menuDisabled = disabled, forceHover, forceOpen }: ToolButtonProps) {
+  useT();
   const chevron = useRef<HTMLButtonElement>(null);
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
   // Live (toolbar/*-tools-menu.txt): the menu's left edge at the chevron's, its bottom 12 over the tool's top (4 over
@@ -81,7 +84,7 @@ export function ToolButton({ icon, label, shortcut, active, onSelect, menu, onMe
           <button
             ref={chevron}
             type="button"
-            aria-label={menuLabel ?? `${label} options`}
+            aria-label={menuLabel ?? t("{label} options", { label })}
             aria-haspopup="menu"
             aria-expanded={Boolean(at) || Boolean(forceOpen)}
             data-open={at || forceOpen ? "" : undefined}
@@ -97,7 +100,7 @@ export function ToolButton({ icon, label, shortcut, active, onSelect, menu, onMe
               above
               dropdown
               width={menuWidth}
-              label={menuLabel ?? `${label} options`}
+              label={menuLabel ?? t("{label} options", { label })}
               entries={menu}
               ignore={chevron}
               onSelect={(id) => onMenuSelect?.(id)}
@@ -160,7 +163,8 @@ export function ToolTextButton({ icon, label, shortcut, active, disabled, chevro
 }
 
 /** The 32px "?" circle at the canvas's bottom right (contract §4.24). */
-export function HelpButton({ onClick, inline, label = "Help and resources" }: { onClick?: () => void; inline?: boolean; label?: string }) {
+export function HelpButton({ onClick, inline, label = t("Help and resources") }: { onClick?: () => void; inline?: boolean; label?: string }) {
+  useT();
   return (
     <button type="button" data-ds="HelpButton" aria-label={label} className={cx(styles.help, inline && styles.inline)} onClick={onClick} {...tooltipProps(label, undefined, "top", "end")}>
       <Icon name="24.help" />

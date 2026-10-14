@@ -12,6 +12,7 @@ import styles from "./Agents.module.css";
 import { Block, Field, Group, Row, errorText } from "./settingsParts";
 import { ConnectorsGroup, SkillsGroup, aiSettingsPage } from "./aiSettings";
 import { ManagerPage, managerStatus } from "./ManagerSettings";
+import { t, tp, useT } from "@/i18n";
 
 const openExternal = (url: string) => {
   const d = (window as unknown as { designer?: { openExternal?: (u: string) => void } }).designer;
@@ -54,6 +55,7 @@ const KIND_ICON = (p: ProviderInfo): IconName => (isCustom(p) ? "24.globe" : isS
  * the modal's own look — no bar on the list, the modal's spacing).
  */
 export function AgentSettings({ service, embedded }: { service: AgentSetupHost; embedded?: boolean }) {
+  useT();
   const state = service.get();
   useEffect(() => {
     void service.refreshSetup();
@@ -67,9 +69,10 @@ export function AgentSettings({ service, embedded }: { service: AgentSetupHost; 
 }
 
 function Bar({ title, onBack, action }: { title: string; onBack?: () => void; action?: ReactNode }) {
+  useT();
   return (
     <div className={styles.chatBar}>
-      {onBack && <IconButton icon="24.arrow.left" label="Back" tone="secondary" onClick={onBack} />}
+      {onBack && <IconButton icon="24.arrow.left" label={t("Back")} tone="secondary" onClick={onBack} />}
       <span className={styles.chatBarTitle}>{title}</span>
       {action}
     </div>
@@ -79,6 +82,7 @@ function Bar({ title, onBack, action }: { title: string; onBack?: () => void; ac
 // ---- The list -------------------------------------------------------------------------------------------------------
 
 function SettingsList({ service }: { service: AgentSetupHost }) {
+  useT();
   const state = service.get();
   const local = state.providers.filter((p) => !isCustom(p));
   const custom = state.providers.filter(isCustom);
@@ -86,16 +90,16 @@ function SettingsList({ service }: { service: AgentSetupHost }) {
   return (
     <>
       <Bar
-        title="Agent settings"
+        title={t("Agent settings")}
         onBack={service.leaveSettings && (() => service.leaveSettings!())}
-        action={state.providersLoading ? <span className={styles.barSpinner}><Spinner size={16} /></span> : <IconButton icon="24.reset.instance.small" label="Look again" tone="secondary" onClick={() => void service.refreshProviders()} />}
+        action={state.providersLoading ? <span className={styles.barSpinner}><Spinner size={16} /></span> : <IconButton icon="24.reset.instance.small" label={t("Look again")} tone="secondary" onClick={() => void service.refreshProviders()} />}
       />
       <div className={styles.scroll}>
-        <Group title="Studio">
-          <Row icon="24.agents" label="Manager" status={managerStatus(service)} on={service.managerSettings().enabled} onClick={() => service.openSetting("manager")} data-settings-row="manager" />
+        <Group title={t("Studio")}>
+          <Row icon="24.agents" label={t("Manager")} status={managerStatus(service)} on={service.managerSettings().enabled} onClick={() => service.openSetting("manager")} data-settings-row="manager" />
         </Group>
-        <Group title="On this computer">
-          {state.providersLoading && !local.length && <div className={styles.rowNote}><Spinner size={16} /> Looking for agents…</div>}
+        <Group title={t("On this computer")}>
+          {state.providersLoading && !local.length && <div className={styles.rowNote}><Spinner size={16} /> {t("Looking for agents…")}</div>}
           {local.map((p) => {
             const status = stateText(p);
             const on = status === "Connected";
@@ -104,7 +108,7 @@ function SettingsList({ service }: { service: AgentSetupHost }) {
                 key={p.id}
                 icon={KIND_ICON(p)}
                 label={p.label}
-                status={status}
+                status={t(status)}
                 on={on}
                 dim={status === "Not installed" || status === "Not running"}
                 onClick={() => service.openSetting(`provider:${p.id}`)}
@@ -116,21 +120,21 @@ function SettingsList({ service }: { service: AgentSetupHost }) {
             );
           })}
         </Group>
-        <Group title="Servers">
+        <Group title={t("Servers")}>
           {custom.map((p) => (
-            <Row key={p.id} icon={KIND_ICON(p)} label={p.label} status={stateText(p)} on={p.available} dim={!p.available} onClick={() => service.openSetting(`provider:${p.id}`)} statusProps={{ "data-provider-state": "" }} data-provider={p.id} data-available={p.available ? "" : undefined} />
+            <Row key={p.id} icon={KIND_ICON(p)} label={p.label} status={t(stateText(p))} on={p.available} dim={!p.available} onClick={() => service.openSetting(`provider:${p.id}`)} statusProps={{ "data-provider-state": "" }} data-provider={p.id} data-available={p.available ? "" : undefined} />
           ))}
-          <Row icon="24.plus" label="Add a server" onClick={() => service.openSetting("add-server")} data-settings-row="add-server" />
+          <Row icon="24.plus" label={t("Add a server")} onClick={() => service.openSetting("add-server")} data-settings-row="add-server" />
         </Group>
         <SkillsGroup service={service} />
         <ConnectorsGroup service={service} />
-        <Group title="Connect other apps">
-          <Row icon="24.link" label="MCP server" status={!state.mcp.url ? "Not running" : n === 1 ? "1 connection" : `${n} connections`} on={n > 0} onClick={() => service.openSetting("mcp")} data-settings-row="mcp" />
+        <Group title={t("Connect other apps")}>
+          <Row icon="24.link" label={t("MCP server")} status={!state.mcp.url ? t("Not running") : tp(n, "{n} connection", "{n} connections")} on={n > 0} onClick={() => service.openSetting("mcp")} data-settings-row="mcp" />
           {state.clients.map((c) => (
-            <Row key={c.id} icon="24.plugin" label={c.label} status={c.connected ? "Connected" : c.installed ? "Not connected" : "Not installed"} on={c.connected} dim={!c.installed} onClick={() => service.openSetting(`client:${c.id}`)} data-client={c.id} data-connected={c.connected ? "" : undefined} />
+            <Row key={c.id} icon="24.plugin" label={c.label} status={c.connected ? t("Connected") : c.installed ? t("Not connected") : t("Not installed")} on={c.connected} dim={!c.installed} onClick={() => service.openSetting(`client:${c.id}`)} data-client={c.id} data-connected={c.connected ? "" : undefined} />
           ))}
         </Group>
-        <p className={styles.footnote}>Connected agents show up in the chat’s agent menu.</p>
+        <p className={styles.footnote}>{t("Connected agents show up in the chat’s agent menu.")}</p>
       </div>
     </>
   );
@@ -139,6 +143,7 @@ function SettingsList({ service }: { service: AgentSetupHost }) {
 // ---- An item's page -------------------------------------------------------------------------------------------------
 
 function SettingsPage({ service, item }: { service: AgentSetupHost; item: string }) {
+  useT();
   const state = service.get();
   const back = () => {
     service.openSetting(null);
@@ -149,20 +154,20 @@ function SettingsPage({ service, item }: { service: AgentSetupHost; item: string
   let body: ReactNode = null;
   if (kind === "provider") {
     const p = state.providers.find((x) => x.id === id);
-    title = p?.label ?? "Agent";
-    body = p ? <ProviderPage p={p} service={service} /> : <p className={styles.pageText}>This agent isn’t listed any more.</p>;
+    title = p?.label ?? t("Agent");
+    body = p ? <ProviderPage p={p} service={service} /> : <p className={styles.pageText}>{t("This agent isn’t listed any more.")}</p>;
   } else if (kind === "client") {
     const c = state.clients.find((x) => x.id === id);
-    title = c?.label ?? "App";
+    title = c?.label ?? t("App");
     body = c ? <ClientPage c={c} service={service} /> : null;
   } else if (kind === "add-server") {
-    title = "Add a server";
+    title = t("Add a server");
     body = <AddServer service={service} />;
   } else if (kind === "manager") {
-    title = "Manager";
+    title = t("Manager");
     body = <ManagerPage service={service} />;
   } else if (kind === "mcp") {
-    title = "MCP server";
+    title = t("MCP server");
     body = <McpPage service={service} />;
   } else {
     // Skills and connectors (docs/ai.md §2.10–2.11): aiSettings.tsx
@@ -178,13 +183,14 @@ function SettingsPage({ service, item }: { service: AgentSetupHost; item: string
 }
 
 function About({ text, page, label }: { text?: string; page?: string; label: string }) {
+  useT();
   if (!text && !page) return null;
   return (
     <Block>
-      {text && <p className={styles.pageText}>{text}</p>}
+      {text && <p className={styles.pageText}>{t(text)}</p>}
       {page && (
         <button type="button" className={styles.link} onClick={() => openExternal(page)}>
-          {`Learn more about ${label}`}
+          {t("Learn more about {name}", { name: label })}
         </button>
       )}
     </Block>
@@ -193,6 +199,7 @@ function About({ text, page, label }: { text?: string; page?: string; label: str
 
 /** One agent: its state and account, Install / Sign in / Sign out, its model, Test connection; Gemini's images and key. */
 function ProviderPage({ p, service }: { p: ProviderInfo; service: AgentSetupHost }) {
+  useT();
   const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   // What Sign in / Sign out / the polling said, until the providers' next report (p.auth) replaces it.
@@ -232,9 +239,9 @@ function ProviderPage({ p, service }: { p: ProviderInfo; service: AgentSetupHost
   const install = () =>
     run("install", async () => {
       const r = await api!.install(p.id);
-      if (!r.ok) showToast({ message: r.error ?? `Couldn't install ${p.label}`, kind: "error" });
+      if (!r.ok) showToast({ message: r.error ?? t("Couldn't install {name}", { name: p.label }), kind: "error" });
       else {
-        showToast({ message: r.opened === "installed" ? `${p.label} installed` : `Opened ${p.label}’s download page` });
+        showToast({ message: r.opened === "installed" ? t("{name} installed", { name: p.label }) : t("Opened {name}’s download page", { name: p.label }) });
         if (r.opened === "installed") void service.refreshProviders();
       }
     });
@@ -245,48 +252,48 @@ function ProviderPage({ p, service }: { p: ProviderInfo; service: AgentSetupHost
   return (
     <div className={styles.pageBody} data-provider={p.id} data-available={p.available || undefined} data-state={cli ? auth?.state : p.available ? "connected" : "not-running"}>
       <Block>
-        <Field label="Status">
+        <Field label={t("Status")}>
           <span className={cx(styles.dot, on && styles.dotOn)} />
-          <span data-provider-state="">{state}</span>
+          <span data-provider-state="">{t(state)}</span>
         </Field>
-        {account && <Field label="Account">{account}</Field>}
-        {where && <Field label={cli ? "Location" : "Address"}><span className={styles.mono}>{where}</span></Field>}
+        {account && <Field label={t("Account")}>{account}</Field>}
+        {where && <Field label={cli ? t("Location") : t("Address")}><span className={styles.mono}>{where}</span></Field>}
         {auth?.state === "signing-in" && (
           <div className={styles.pageText}>
-            <Spinner size={16} /> Waiting for the sign-in to finish…{" "}
+            <Spinner size={16} /> {t("Waiting for the sign-in to finish…")}{" "}
             {auth.url && (
               <button type="button" className={styles.link} onClick={() => openExternal(auth.url!)}>
-                Open the sign-in page
+                {t("Open the sign-in page")}
               </button>
             )}
           </div>
         )}
         {notInstalled && p.install?.command && <code className={styles.command}>{p.install.command}</code>}
-        {!cli && !p.available && !custom && <p className={styles.pageText}>{`Start ${p.label} and load a model, then Look again.`}</p>}
+        {!cli && !p.available && !custom && <p className={styles.pageText}>{t("Start {name} and load a model, then Look again.", { name: p.label })}</p>}
         {p.available && p.models.length > 1 && (
-          <Field label="Model">
-            <Select label="Model" className={styles.fieldSelect} value={service.modelOf(p) ?? ""} options={p.models.map((m) => ({ value: m, label: modelLabel(m, p) }))} onChange={(m) => void service.choose(p.id, m)} />
+          <Field label={t("Model")}>
+            <Select label={t("Model")} className={styles.fieldSelect} value={service.modelOf(p) ?? ""} options={p.models.map((m) => ({ value: m, label: modelLabel(m, p) }))} onChange={(m) => void service.choose(p.id, m)} />
           </Field>
         )}
         <div className={styles.actions}>
           {notInstalled && (
             <Button variant="primary" loading={busy === "install"} onClick={() => void install()} data-install="">
-              Install
+              {t("Install")}
             </Button>
           )}
           {cli && auth?.state === "signed-out" && (
             <Button variant="primary" loading={busy === "sign-in"} onClick={() => void run("sign-in", async () => setAuth(await api!.signIn(p.id)))} data-sign-in="">
-              Sign in
+              {t("Sign in")}
             </Button>
           )}
           {!cli && !p.available && !custom && p.install && (
             <Button variant="secondary" loading={busy === "install"} onClick={() => void install()} data-install="">
-              Install
+              {t("Install")}
             </Button>
           )}
           {!cli && !p.available && (
             <Button variant="secondary" loading={busy === "look"} onClick={() => void run("look", () => service.refreshProviders())}>
-              Look again
+              {t("Look again")}
             </Button>
           )}
           {(p.available || (cli && auth?.state === "signed-out")) && (
@@ -296,23 +303,23 @@ function ProviderPage({ p, service }: { p: ProviderInfo; service: AgentSetupHost
               onClick={() =>
                 void run("test", async () => {
                   const r = await api!.test(p.id).catch((err: unknown) => ({ ok: false, models: [] as string[], error: String(err), version: undefined }));
-                  setTest({ ok: r.ok, text: r.ok ? (cli ? `Ready${r.version ? ` · ${r.version}` : ""}` : `Connected · ${r.models.length} models`) : (r.error ?? "Failed") });
+                  setTest({ ok: r.ok, text: r.ok ? (cli ? `${t("Ready")}${r.version ? ` · ${r.version}` : ""}` : tp(r.models.length, "Connected · {n} model", "Connected · {n} models")) : (r.error ?? t("Failed")) });
                   void service.refreshProviders();
                 })
               }
               data-test-connection=""
             >
-              Test connection
+              {t("Test connection")}
             </Button>
           )}
           {cli && auth?.state === "connected" && (
             <Button variant="secondary" loading={busy === "sign-out"} onClick={() => void run("sign-out", async () => { setAuth(await api!.signOut(p.id)); await service.refreshProviders(); })} data-sign-out="">
-              Sign out
+              {t("Sign out")}
             </Button>
           )}
           {custom && (
             <Button variant="secondary" onClick={() => void api?.removeServer(p.id).then(() => { service.openSetting(null); return service.refreshProviders(); })} data-remove-server="">
-              Remove server
+              {t("Remove server")}
             </Button>
           )}
         </div>
@@ -324,15 +331,16 @@ function ProviderPage({ p, service }: { p: ProviderInfo; service: AgentSetupHost
 }
 
 function AddServer({ service }: { service: AgentSetupHost }) {
+  useT();
   const [label, setLabel] = useState("");
   const [url, setUrl] = useState("");
   const [key, setKey] = useState("");
   return (
     <div className={styles.pageBody}>
       <Block>
-        <TextInput label="Name" placeholder="Name" value={label} onChange={setLabel} />
-        <TextInput label="Base URL" placeholder="http://localhost:8080/v1" value={url} onChange={setUrl} />
-        <TextInput label="API key (optional)" placeholder="API key (optional)" secret value={key} onChange={setKey} />
+        <TextInput label={t("Name")} placeholder={t("Name")} value={label} onChange={setLabel} />
+        <TextInput label={t("Base URL")} placeholder="http://localhost:8080/v1" value={url} onChange={setUrl} />
+        <TextInput label={t("API key (optional)")} placeholder={t("API key (optional)")} secret value={key} onChange={setKey} />
         <div className={styles.actions}>
           <Button
             variant="primary"
@@ -348,7 +356,7 @@ function AddServer({ service }: { service: AgentSetupHost }) {
             }}
             data-add-server=""
           >
-            Add server
+            {t("Add server")}
           </Button>
         </div>
       </Block>
@@ -359,16 +367,17 @@ function AddServer({ service }: { service: AgentSetupHost }) {
 
 /** The MCP server this app runs: its address and who is connected. */
 function McpPage({ service }: { service: AgentSetupHost }) {
+  useT();
   const { mcp } = service.get();
   const n = mcp.connections.length;
   return (
     <div className={styles.pageBody}>
       <Block>
-        <Field label="Address" data-mcp-url="">
-          <span className={styles.mono}>{mcp.url ?? "Not running"}</span>
-          {mcp.url && <IconButton icon="24.copy.small" label="Copy URL" tone="secondary" onClick={() => void navigator.clipboard.writeText(mcp.url!).then(() => showToast({ message: "Copied to clipboard" }))} />}
+        <Field label={t("Address")} data-mcp-url="">
+          <span className={styles.mono}>{mcp.url ?? t("Not running")}</span>
+          {mcp.url && <IconButton icon="24.copy.small" label={t("Copy URL")} tone="secondary" onClick={() => void navigator.clipboard.writeText(mcp.url!).then(() => showToast({ message: t("Copied to clipboard") }))} />}
         </Field>
-        <Field label="Connections">{n === 0 ? "None" : [...new Set(mcp.connections.map((c) => c.client))].join(", ")}</Field>
+        <Field label={t("Connections")}>{n === 0 ? t("None") : [...new Set(mcp.connections.map((c) => c.client))].join(", ")}</Field>
       </Block>
       <About text="Apps on this computer that have its token can read and edit the file in front. Connect them from the list." label="MCP" />
     </div>
@@ -377,23 +386,24 @@ function McpPage({ service }: { service: AgentSetupHost }) {
 
 /** An MCP client: Connect (writes its config file) / Disconnect, and its config to copy. */
 function ClientPage({ c, service }: { c: McpClientInfo; service: AgentSetupHost }) {
+  useT();
   const copy = async () => {
     const cfg = await service.api!.clientConfig(c.id);
     await navigator.clipboard.writeText(cfg.text);
-    showToast({ message: `Copied — paste it into ${cfg.path.replace(/^\/Users\/[^/]+/, "~")}` });
+    showToast({ message: t("Copied — paste it into {path}", { path: cfg.path.replace(/^\/Users\/[^/]+/, "~") }) });
   };
   return (
     <div className={styles.pageBody} data-client={c.id} data-connected={c.connected || undefined}>
       <Block>
-        <Field label="Status">
+        <Field label={t("Status")}>
           <span className={cx(styles.dot, c.connected && styles.dotOn)} />
-          {c.connected ? "Connected" : c.installed ? "Not connected" : "Not installed"}
+          {c.connected ? t("Connected") : c.installed ? t("Not connected") : t("Not installed")}
         </Field>
-        <Field label="Config"><span className={styles.mono}>{c.configPath}</span></Field>
+        <Field label={t("Config")}><span className={styles.mono}>{c.configPath}</span></Field>
         <div className={styles.actions}>
           {c.connected ? (
             <Button variant="secondary" onClick={async () => { const r = await service.api!.disconnect(c.id); if (!r.ok && r.error) showToast({ message: r.error, kind: "error" }); await service.refreshSetup(); }}>
-              Disconnect
+              {t("Disconnect")}
             </Button>
           ) : (
             <Button
@@ -401,20 +411,20 @@ function ClientPage({ c, service }: { c: McpClientInfo; service: AgentSetupHost 
               disabled={!c.installed}
               onClick={async () => {
                 const r = await service.api!.connect(c.id);
-                if (r.ok) showToast({ message: `Connected ${c.label}${r.backup ? " (the old config was kept as a backup)" : ""}. Restart it if it was open.` });
+                if (r.ok) showToast({ message: r.backup ? t("Connected {name} (the old config was kept as a backup). Restart it if it was open.", { name: c.label }) : t("Connected {name}. Restart it if it was open.", { name: c.label }) });
                 else if (r.error) showToast({ message: r.error, kind: "error" });
                 await service.refreshSetup();
               }}
             >
-              {`Connect to ${c.label}`}
+              {t("Connect to {name}", { name: c.label })}
             </Button>
           )}
           <Button variant="secondary" onClick={() => void copy()}>
-            Copy config
+            {t("Copy config")}
           </Button>
         </div>
       </Block>
-      <About text={`Connect adds this app’s MCP server to ${c.label}’s config, so ${c.label} can read and edit the file in front. Restart ${c.label} after connecting.`} label="MCP" />
+      <About text={t("Connect adds this app’s MCP server to {name}’s config, so {name} can read and edit the file in front. Restart {name} after connecting.", { name: c.label })} label="MCP" />
     </div>
   );
 }

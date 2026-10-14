@@ -20,6 +20,7 @@ import { StoreError } from "../../shared/store/protocol";
 import type { FileRepository, OpenedFile } from "../../shared/store/repositories";
 import type { FileKey, FileMeta, VersionId, VersionRecord } from "../../shared/store/types";
 import { versionDateLabel } from "./versions";
+import { t as tr } from "../../shared/i18n";
 
 /** The room's `version` (§15.7.1) */
 export interface RoomVersion {
@@ -119,7 +120,7 @@ export class RoomVersions {
     try {
       table = NodeTable.fromMessage(decodeMessage(await unpackSnapshot(snap.bytes)));
     } catch (e) {
-      throw new StoreError("corrupt", `This version couldn't be read: ${(e as Error).message}`);
+      throw new StoreError("corrupt", tr("This version couldn't be read: {reason}", { reason: (e as Error).message }));
     }
     const snapshotSeq = Number(snap.headers.get("x-snapshot-seq") ?? record.seq);
     if (snapshotSeq < record.seq) {
@@ -128,7 +129,7 @@ export class RoomVersions {
         try {
           table.apply(decodeMessage(m));
         } catch (e) {
-          throw new StoreError("corrupt", `This version couldn't be read: ${(e as Error).message}`);
+          throw new StoreError("corrupt", tr("This version couldn't be read: {reason}", { reason: (e as Error).message }));
         }
       }
     }
@@ -165,9 +166,9 @@ export class RoomVersions {
     const until = this.d.now() + ACK_WAIT_MS;
     for (;;) {
       const s = await this.d.syncState(fileKey);
-      if (!s) throw new StoreError("invalid", "This file isn't shared");
+      if (!s) throw new StoreError("invalid", tr("This file isn't shared"));
       if (s.pending === 0 && (s.unsent !== undefined ? s.unsent === 0 : s.acked >= head)) return;
-      if (this.d.now() >= until) throw new StoreError("offline", "This file isn't up to date with its room. Try again when you're online.");
+      if (this.d.now() >= until) throw new StoreError("offline", tr("This file isn't up to date with its room. Try again when you're online."));
       await this.d.sleep(POLL_MS);
     }
   }

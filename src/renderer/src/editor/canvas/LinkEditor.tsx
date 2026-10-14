@@ -3,6 +3,7 @@
  * whole layers). Enter links the selected text (a run's `hyperlink`, underlined as Figma styles links); an emptied
  * field removes the link; Esc closes. Links open in presentation (the engine's player follows them).
  */
+import { t, useT } from "@/i18n";
 import { Popover, TextInput } from "@/ds";
 import { useEditor } from "../controller";
 import { useUI } from "../hooks";
@@ -11,6 +12,7 @@ import { normalizeLink, textSummary } from "../model/text";
 import { fields } from "../panels/design/shared";
 
 export function LinkEditor() {
+  useT();
   const ed = useEditor();
   const at = useUI((s) => s.linkEditor);
   if (!at) return null;
@@ -33,11 +35,11 @@ export function LinkEditor() {
   };
   const anchor = new DOMRect(at.x, at.y, at.width, at.height);
   return (
-    <Popover anchor={anchor} placement="top" onClose={close} label="Link" width={280}>
+    <Popover anchor={anchor} placement="top" onClose={close} label={t("Link")} width={280}>
       <TextInput
-        label="Link"
+        label={t("Link")}
         value={current?.url ?? ""}
-        placeholder="Paste or type a link"
+        placeholder={t("Paste or type a link")}
         autoFocus
         onCommit={apply}
         onExit={(r) => (r === "escape" ? close() : undefined)}

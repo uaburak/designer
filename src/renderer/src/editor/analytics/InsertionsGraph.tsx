@@ -4,6 +4,7 @@
  * the current week. A legend names each line; hovering a week shows its numbers.
  */
 import { useState } from "react";
+import { t, tp, useT } from "@/i18n";
 import type { AnalyticsAssetType, LibraryActions } from "../../../../shared/libraries/orgTypes";
 import { count, formatDay, graphWeeks, shortDate, type GraphWeek } from "./model";
 import styles from "./Analytics.module.css";
@@ -26,6 +27,7 @@ function segments(weeks: readonly GraphWeek[], value: (w: GraphWeek) => number |
 }
 
 export function InsertionsGraph({ type, data, libraryName, today }: { type: AnalyticsAssetType; data: LibraryActions; libraryName: string; today?: string }) {
+  useT();
   const [hover, setHover] = useState<number | null>(null);
   const [now] = useState(() => today ?? formatDay(Date.now()));
   const weeks = graphWeeks(type, data.series, data.compare?.series ?? null, data.throughDay, today ?? now);
@@ -41,9 +43,9 @@ export function InsertionsGraph({ type, data, libraryName, today }: { type: Anal
   const unavailable = weeks.some((w) => w.unavailable);
   const incomplete = weeks.some((w) => w.incomplete);
   return (
-    <section aria-label="Insertions" className={styles.graph} data-insertions-graph="">
+    <section aria-label={t("Insertions")} className={styles.graph} data-insertions-graph="">
       <div className={styles.graphHead}>
-        <span className={styles.sectionTitle}>Insertions</span>
+        <span className={styles.sectionTitle}>{t("Insertions")}</span>
         <div className={styles.legend}>
           <span className={styles.legendItem} data-legend="current">
             <span className={styles.swatchCurrent} />
@@ -58,24 +60,24 @@ export function InsertionsGraph({ type, data, libraryName, today }: { type: Anal
           {unavailable && (
             <span className={styles.legendItem} data-legend="unavailable">
               <span className={styles.swatchUnavailable} />
-              Unavailable
+              {t("Unavailable")}
             </span>
           )}
           {incomplete && (
             <span className={styles.legendItem} data-legend="incomplete">
               <span className={styles.swatchIncomplete} />
-              Incomplete week
+              {t("Incomplete week")}
             </span>
           )}
         </div>
       </div>
       <div className={styles.plot}>
-        <svg viewBox={`0 0 ${W} ${H}`} className={styles.svg} role="img" aria-label={`Insertions per week, ${weeks.length} weeks`} onMouseLeave={() => setHover(null)}>
-          {ticks.map((t) => (
-            <g key={t}>
-              <line x1={PAD.left} x2={W - PAD.right} y1={y(t)} y2={y(t)} className={styles.grid} />
-              <text x={PAD.left - 6} y={y(t) + 3} className={styles.axis} textAnchor="end">
-                {count(t)}
+        <svg viewBox={`0 0 ${W} ${H}`} className={styles.svg} role="img" aria-label={tp(weeks.length, "Insertions per week, {n} week", "Insertions per week, {n} weeks")} onMouseLeave={() => setHover(null)}>
+          {ticks.map((tick) => (
+            <g key={tick}>
+              <line x1={PAD.left} x2={W - PAD.right} y1={y(tick)} y2={y(tick)} className={styles.grid} />
+              <text x={PAD.left - 6} y={y(tick) + 3} className={styles.axis} textAnchor="end">
+                {count(tick)}
               </text>
             </g>
           ))}
@@ -100,8 +102,8 @@ export function InsertionsGraph({ type, data, libraryName, today }: { type: Anal
         </svg>
         {h && (
           <div className={styles.tooltip} style={{ left: `${(x(hover!) / W) * 100}%` }} role="status" data-graph-tooltip="">
-            <div className={styles.tooltipTitle}>Week of {shortDate(h.week)}</div>
-            <div>{h.insertions === null ? "No data yet" : `${count(h.insertions)} ${h.insertions === 1 ? "insertion" : "insertions"}`}</div>
+            <div className={styles.tooltipTitle}>{t("Week of {date}", { date: shortDate(h.week) })}</div>
+            <div>{h.insertions === null ? t("No data yet") : tp(h.insertions, "{count} insertion", "{count} insertions", { count: count(h.insertions) })}</div>
             {data.compare && h.compare !== null && (
               <div className={styles.meta}>
                 {data.compare.name}: {count(h.compare)}

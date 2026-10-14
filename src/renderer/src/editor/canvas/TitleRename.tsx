@@ -3,6 +3,7 @@
  * REQUEST_RENAME with the title's box (canvas CSS px); the name is edited in place over it, Figma's way — Enter, Tab
  * or leaving keeps it, Esc puts it back.
  */
+import { t, useT } from "@/i18n";
 import { InlineEdit } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../controller";
@@ -31,6 +32,7 @@ export function renameNode(ed: EditorController, ref: Guid, name: string) {
 }
 
 export function TitleRename() {
+  useT();
   const ed = useEditor();
   const at = useUI((s) => s.titleRename);
   if (!at) return null;
@@ -41,7 +43,7 @@ export function TitleRename() {
   return (
     <div className={styles.root} style={{ left: at.x, top: at.y, width: at.width, height: at.height }} data-title-rename={at.ref}>
       <InlineEdit
-        label="Rename"
+        label={t("Rename")}
         value={at.name}
         editing
         onCommit={(v) => renameNode(ed, at.ref, v)}

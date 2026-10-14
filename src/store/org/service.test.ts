@@ -316,6 +316,31 @@ describe("org spaces", () => {
     expect(b.host.getMeta(fileKey)?.space).toMatchObject({ teamId: team.id, projectId: other.id });
   });
 
+  it("the sharer takes one team member off one file and gives them back: the team's other files stay theirs", async () => {
+    const { srv, a, org, team, folder } = await acme();
+    const { fileKey, file } = await a.org.projects.createFile(folder.id, { name: "Spec" });
+    const { file: other } = await a.org.projects.createFile(folder.id, { name: "Other" });
+    const bobUser = await srv.addUser("bob@example.com", "Bob");
+    await a.org.teams.invite(team.id, { email: "bob@example.com", role: "editor" });
+    const b = await installation(srv, bobUser.token);
+    const keys = async () => (await b.org.projects.files(folder.id)).map((f) => f.key).sort();
+    expect(await keys()).toEqual([file.key, other.key].sort());
+    const people = await a.mp.exclusions(fileKey);
+    expect(people.find((p) => p.email === "bob@example.com")).toMatchObject({ userId: bobUser.user.id, excluded: false, owner: false });
+    expect(people.find((p) => p.email === "alice@example.com")).toMatchObject({ owner: true });
+
+    expect((await a.mp.exclude(fileKey, bobUser.user.id)).find((p) => p.userId === bobUser.user.id)?.excluded).toBe(true);
+    b.host.t += 10_000;
+    expect(await keys()).toEqual([other.key]);
+    expect((await b.org.orgs.files(org.id)).map((f) => f.key)).toEqual([other.key]);
+    expect(await codeOf(b.mp.openShared(file.key))).not.toBe("resolved");
+    expect(await codeOf(a.mp.exclude(fileKey, a.mp.userId!))).toBe("invalid");
+
+    expect((await a.mp.include(fileKey, bobUser.user.id)).find((p) => p.userId === bobUser.user.id)?.excluded).toBe(false);
+    b.host.t += 10_000;
+    expect(await keys()).toEqual([file.key, other.key].sort());
+  });
+
   it("answers from the cache offline (cache.stale), refuses writes, and leaves no copy of a file it couldn't create", async () => {
     const { srv, alice, a, org, team, folder } = await acme();
     await a.org.projects.createFile(folder.id, { name: "Spec" });

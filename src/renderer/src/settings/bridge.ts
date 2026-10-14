@@ -9,6 +9,7 @@ import type { UploadedFontsApi } from "@shared/desktop";
 import type { AgentSetupApi } from "@shared/agents/types";
 import type { AiSetupApi } from "@shared/ai/api";
 import { accountBridge } from "../files/account";
+import { t } from "@/i18n";
 
 export type SettingsTab = "account" | "notifications" | "security" | "ai" | "agents" | "operator";
 
@@ -66,10 +67,10 @@ export class AccountRequestError extends Error {
 /** A `/me…` request; its JSON, or an AccountRequestError with the server's message. */
 export async function accountCall<T>(method: AccountMethod, path: string, body?: unknown): Promise<T> {
   const b = accountBridge();
-  if (!b) throw new AccountRequestError(401, "Log in first");
+  if (!b) throw new AccountRequestError(401, t("Log in first"));
   const r = await b.request({ method, path, body });
   if (r.status >= 200 && r.status < 300) return r.body as T;
-  const message = (r.body as { error?: string } | null)?.error ?? "Something went wrong. Try again.";
+  const message = (r.body as { error?: string } | null)?.error ?? t("Something went wrong. Try again.");
   throw new AccountRequestError(r.status, message.charAt(0).toUpperCase() + message.slice(1));
 }
 

@@ -108,6 +108,10 @@ describe("signed URLs (decision 10)", () => {
     const t = new URL(await signPath(w.deps, "https://x", `/v1/files/${LIB}/thumbnail`, 30));
     const thumb = await w.call("GET", t.pathname + t.search);
     expect([thumb.status, thumb.bytes.length]).toEqual([200, png("thumb").length]);
+    // …and anyone who can open the file reads it on the private API (Home's org cards, through the store)
+    const own = await w.call("GET", `/files/${LIB}/thumbnail`, w.people.gus.token);
+    expect([own.status, own.headers.get("content-type"), own.bytes.length]).toEqual([200, "image/png", png("thumb").length]);
+    expect((await w.call("GET", `/files/${WEB}/thumbnail`, w.people.alice.token)).status).toBe(404);
   });
 });
 

@@ -4,6 +4,7 @@ import { cx } from "../util/cx";
 import { size } from "../tokens";
 import type { ChangeInfo } from "../types";
 import styles from "./ResizeHandle.module.css";
+import { t, useT } from "@/i18n";
 
 export interface ResizeHandleProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChange"> {
   /** Which edge of its (position: relative) panel; "bottom": a section's lower edge (the Pages list), dragged up and down */
@@ -24,6 +25,7 @@ export interface ResizeHandleProps extends Omit<HTMLAttributes<HTMLDivElement>, 
  * Figma's.
  */
 export function ResizeHandle({ side, value, min = size["panel-min"], max = size["panel-max"], defaultValue = size.panel, onChange, className, ...rest }: ResizeHandleProps) {
+  useT();
   const drag = useRef<{ x: number; start: number; last: number } | null>(null);
   const sign = side === "left" ? -1 : 1;
   const vertical = side === "bottom";
@@ -43,7 +45,7 @@ export function ResizeHandle({ side, value, min = size["panel-min"], max = size[
       data-ds="ResizeHandle"
       // Live (left/rail-assets.txt, layers-row-hover.txt): "slider [Resize handle]", 8 across the panel's edge.
       role="slider"
-      aria-label="Resize handle"
+      aria-label={t("Resize handle")}
       aria-orientation={vertical ? "vertical" : "horizontal"}
       aria-valuenow={value}
       aria-valuemin={min}

@@ -28,6 +28,7 @@ import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
 import { IDENTITY, panelPosition, roundPanel, rotateTo, rotationOf, withPanelPosition } from "../../model/geometry";
 import { PANEL_MENU_GAP, fields, hasCorners, isFrameNode, isGroupNode, isInstanceSublayer, typeOf, useKeeps, useParents, useSupports, useTextEditRef, type BlendModeName, type PanelNode } from "./shared";
 import { SLIDER_RANGE, SliderRow, useDrawMode } from "../../draw/panels/DrawSliders";
+import { t, useT } from "@/i18n";
 import styles from "./Design.module.css";
 
 type Fields = Parameters<EditorController["engine"]["setProps"]>[1];
@@ -95,13 +96,14 @@ const ALIGN_COMMANDS: Record<string, CommandName> = {
 };
 
 function GroupButton({ id, icon, disabled, run }: { id: string; icon: Parameters<typeof IconButton>[0]["icon"]; disabled?: boolean; run?: () => void }) {
+  useT();
   const ed = useEditor();
   const c = command(id);
   const engineCommand = ALIGN_COMMANDS[id];
   return (
     <IconButton
       icon={icon}
-      label={c.label}
+      label={t(c.label)}
       shortcut={shortcutOf(c)}
       className={styles.groupButton}
       disabled={disabled ?? !isEnabled(ed, c)}
@@ -140,14 +142,15 @@ function constraintChain(ed: EditorController, n: PanelNode): ConstraintHost[] {
 
 /** Several layers, or one container whose children can be spread: the Alignment row's "More actions". */
 function AlignmentMore({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const entries = ["arrange.distribute-horizontal", "arrange.distribute-vertical", "arrange.tidy-up"].map((id) => {
     const c = command(id);
-    return { id, label: c.label, shortcut: shortcutOf(c), disabled: nodes.length > 1 ? !isEnabled(ed, c) : false };
+    return { id, label: t(c.label), shortcut: shortcutOf(c), disabled: nodes.length > 1 ? !isEnabled(ed, c) : false };
   });
   return (
     <MenuButton
-      label="More actions"
+      label={t("More actions")}
       tooltip
       entries={entries}
       className={styles.iconMenu}
@@ -179,6 +182,7 @@ const GRID_V = [
 ] as const;
 
 export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const labels = useUI((s) => s.propertyLabels);
   // The ancestors can change (a reparent, auto layout added above): re-read on structure changes, not per frame.
@@ -230,12 +234,12 @@ export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
   const gridV = mixed(nodes.map((n) => (n as { gridChildVerticalAlign?: string }).gridChildVerticalAlign ?? "MIN"));
   return (
     <PanelSection
-      title="Position"
+      title={t("Position")}
       actions={
         inAutoLayout ? (
           <ToggleIconButton
             icon="24.al.absolute-position"
-            label="Ignore auto layout"
+            label={t("Ignore auto layout")}
             tone="secondary"
             disabled={locked}
             pressed={absolute ?? false}
@@ -247,12 +251,12 @@ export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
       <PropertyGrid labels={labels}>
         {inGrid ? (
           // A layer in a grid: where it sits in its cell (gridChildHorizontalAlign / gridChildVerticalAlign).
-          <PropertyRow label="Alignment">
-            <SegmentedControl label="Horizontal alignment in cell" fullWidth value={gridH ?? MIXED} options={GRID_H.map((o) => ({ ...o }))} onChange={(v) => ed.setProps(refs, fields({ gridChildHorizontalAlign: v } as never), "Alignment")} />
-            <SegmentedControl label="Vertical alignment in cell" fullWidth value={gridV ?? MIXED} options={GRID_V.map((o) => ({ ...o }))} onChange={(v) => ed.setProps(refs, fields({ gridChildVerticalAlign: v } as never), "Alignment")} />
+          <PropertyRow label={t("Alignment")}>
+            <SegmentedControl label={t("Horizontal alignment in cell")} fullWidth value={gridH ?? MIXED} options={GRID_H.map((o) => ({ ...o, tooltip: t(o.tooltip) }))} onChange={(v) => ed.setProps(refs, fields({ gridChildHorizontalAlign: v } as never), "Alignment")} />
+            <SegmentedControl label={t("Vertical alignment in cell")} fullWidth value={gridV ?? MIXED} options={GRID_V.map((o) => ({ ...o, tooltip: t(o.tooltip) }))} onChange={(v) => ed.setProps(refs, fields({ gridChildVerticalAlign: v } as never), "Alignment")} />
           </PropertyRow>
         ) : (
-          <PropertyRow label="Alignment" action={nodes.length > 1 || container ? <AlignmentMore nodes={nodes} /> : undefined}>
+          <PropertyRow label={t("Alignment")} action={nodes.length > 1 || container ? <AlignmentMore nodes={nodes} /> : undefined}>
             <div className={styles.buttonGroup}>
               <GroupButton id="arrange.align-left" disabled={alignDisabled("arrange.align-left")} run={alignRun("arrange.align-left")} icon="24.layout-align-left" />
               <GroupButton id="arrange.align-horizontal-center" disabled={alignDisabled("arrange.align-horizontal-center")} run={alignRun("arrange.align-horizontal-center")} icon="24.layout-align-horizontal-center" />
@@ -265,14 +269,14 @@ export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
             </div>
           </PropertyRow>
         )}
-        <PropertyRow label="Position" action={constraints && !section ? <ConstraintsToggle /> : undefined}>
-          <NumericInput label="X-position" prefix="X" prefixTone="primary" disabled={placeLocked} className={styles.plainDisabled} value={fieldValue(x)} {...axis("x")} />
-          <NumericInput label="Y-position" prefix="Y" prefixTone="primary" disabled={placeLocked} className={styles.plainDisabled} value={fieldValue(y)} {...axis("y")} />
+        <PropertyRow label={t("Position")} action={constraints && !section ? <ConstraintsToggle /> : undefined}>
+          <NumericInput label={t("X-position")} prefix="X" prefixTone="primary" disabled={placeLocked} className={styles.plainDisabled} value={fieldValue(x)} {...axis("x")} />
+          <NumericInput label={t("Y-position")} prefix="Y" prefixTone="primary" disabled={placeLocked} className={styles.plainDisabled} value={fieldValue(y)} {...axis("y")} />
         </PropertyRow>
         {constraints && !section && constraintsOpen && <ConstraintsRow nodes={nodes} />}
         {!section && (
-          <PropertyRow label="Rotation">
-            <NumericInput label="Rotation" prefix="24.rotation" unit="°" disabled={locked} className={styles.plainDisabled} value={fieldValue(rotation)} min={-360} max={360} {...rotate} />
+          <PropertyRow label={t("Rotation")}>
+            <NumericInput label={t("Rotation")} prefix="24.rotation" unit="°" disabled={locked} className={styles.plainDisabled} value={fieldValue(rotation)} min={-360} max={360} {...rotate} />
             <div className={styles.buttonGroup}>
               <GroupButton id="object.rotate-90-right" icon="24.rotate" disabled={locked || editingText || undefined} />
               <GroupButton id="object.flip-horizontal" icon="24.flip.horizontal.small" disabled={locked || editingText || undefined} />
@@ -335,6 +339,7 @@ const PLAIN_RADIUS = new Set(["TEXT", "LINE", "ELLIPSE"]);
 export const IOS_SMOOTHING = 60;
 
 export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const labels = useUI((s) => s.propertyLabels);
   const blendKept = useKeeps("blendMode");
@@ -348,10 +353,10 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
   const blend = mixed(nodes.map((n) => n.blendMode ?? "PASS_THROUGH"));
   const blendSet = nodes.some((n) => !isDefaultBlend(n));
   const blendEntries = [
-    { id: "PASS_THROUGH", label: "Pass through", checked: blend === "PASS_THROUGH" },
-    ...BLEND_MODES.map((m) => (m === "-" ? ("-" as const) : { id: m, label: BLEND_LABEL[m], checked: blend === m })),
+    { id: "PASS_THROUGH", label: t("Pass through"), checked: blend === "PASS_THROUGH" },
+    ...BLEND_MODES.map((m) => (m === "-" ? ("-" as const) : { id: m, label: t(BLEND_LABEL[m]), checked: blend === m })),
   ];
-  const blendOptions = [{ value: "PASS_THROUGH", label: "Pass through" }, ...BLEND_MODES.filter((m): m is Exclude<(typeof BLEND_MODES)[number], "-"> => m !== "-").map((m) => ({ value: m, label: BLEND_LABEL[m] }))];
+  const blendOptions = [{ value: "PASS_THROUGH", label: t("Pass through") }, ...BLEND_MODES.filter((m): m is Exclude<(typeof BLEND_MODES)[number], "-"> => m !== "-").map((m) => ({ value: m, label: t(BLEND_LABEL[m]) }))];
   const polygons = nodes.filter((n) => typeOf(n) === "REGULAR_POLYGON" || typeOf(n) === "STAR");
   const stars = polygons.length > 0 && polygons.every((n) => typeOf(n) === "STAR");
   const countKept = useKeeps("count");
@@ -400,25 +405,25 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
       };
     };
   const setCorner = (f: CornerField, v: number, info: ChangeInfo) => editEach(ed, "Corner radius", info, refs, (n) => cornerFields(n, f, v));
-  const blendLabel = (b: Mixed<string> | undefined) => (b === undefined || b === MIXED ? "Mixed" : b === "PASS_THROUGH" ? "Pass through" : BLEND_LABEL[b as keyof typeof BLEND_LABEL] ?? b);
+  const blendLabel = (b: Mixed<string> | undefined) => (b === undefined || b === MIXED ? t("Mixed") : b === "PASS_THROUGH" ? t("Pass through") : t(BLEND_LABEL[b as keyof typeof BLEND_LABEL] ?? b));
   // Draw (docs/draw.md §5.3): sliders under Opacity and Corner radius; no variable modes.
   const drawMode = useDrawMode();
 
   return (
     <PanelSection
-      title="Appearance"
+      title={t("Appearance")}
       actions={
         <>
           {!drawMode && <ApplyModeButton refs={refs} />}
           {nodes.length === 1 && <BindButton layer={nodes[0]} field="VISIBLE" type="BOOL" />}
           <IconButton
             icon={visible === false ? "24.hidden.small" : "24.eye.small"}
-            label={visible === false ? "Show" : "Hide"}
+            label={visible === false ? t("Show") : t("Hide")}
             shortcut={shortcutOf(command("object.toggle-visible"))}
             tone="secondary"
             onClick={() => ed.setProps(refs, { visible: visible === false }, visible === false ? "Show" : "Hide")}
           />
-          <MenuButton label="Apply blend mode" tooltip disabled={!blendKept} entries={blendEntries} className={styles.iconMenu} gap={PANEL_MENU_GAP} flush extend align="end" alignOffset={1} menuWidth={118} onSelect={(id) => ed.setProps(refs, fields({ blendMode: id as BlendModeName }), "Blend mode")}>
+          <MenuButton label={t("Apply blend mode")} tooltip disabled={!blendKept} entries={blendEntries} className={styles.iconMenu} gap={PANEL_MENU_GAP} flush extend align="end" alignOffset={1} menuWidth={118} onSelect={(id) => ed.setProps(refs, fields({ blendMode: id as BlendModeName }), "Blend mode")}>
             <Icon name={blendSet ? "24.blendmode.active.small" : "24.blendmode.small"} />
           </MenuButton>
         </>
@@ -428,35 +433,35 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
         {blendSet && (
           // A blend mode set: its row, its menu, and the minus that puts the default back.
           <PropertyRow
-            label="Blend mode"
+            label={t("Blend mode")}
             span={2}
-            action={<IconButton icon="24.minus.small" label="Remove blend mode" tone="secondary" onClick={() => ed.setProps(refs, fields({ blendMode: "PASS_THROUGH" }), "Blend mode")} />}
+            action={<IconButton icon="24.minus.small" label={t("Remove blend mode")} tone="secondary" onClick={() => ed.setProps(refs, fields({ blendMode: "PASS_THROUGH" }), "Blend mode")} />}
           >
-            <Select label="Blend mode" value={blend ?? MIXED} placeholder={blendLabel(blend)} options={blendOptions} onChange={(v) => ed.setProps(refs, fields({ blendMode: v as BlendModeName }), "Blend mode")} />
+            <Select label={t("Blend mode")} value={blend ?? MIXED} placeholder={blendLabel(blend)} options={blendOptions} onChange={(v) => ed.setProps(refs, fields({ blendMode: v as BlendModeName }), "Blend mode")} />
           </PropertyRow>
         )}
         <PropertyRow
-          labels={["Opacity", "Corner radius"]}
+          labels={[t("Opacity"), t("Corner radius")]}
           action={
             plainOnly ? undefined : smoothOnly ? (
               <CornerSmoothingButton nodes={nodes} />
             ) : (
-              <ToggleIconButton icon="24.corners.independent" label="Individual corners" tone="secondary" pressed={independent} onPressedChange={setIndependentOpen} />
+              <ToggleIconButton icon="24.corners.independent" label={t("Individual corners")} tone="secondary" pressed={independent} onPressedChange={setIndependentOpen} />
             )
           }
         >
           <VariableField nodes={nodes} fields={["OPACITY"]} prefix="24.opacity">
-            <NumericInput label="Opacity" prefix="24.opacity" unit="%" precision={0} min={0} max={100} value={fieldValue(opacity)} {...opacityHandlers} />
+            <NumericInput label={t("Opacity")} prefix="24.opacity" unit="%" precision={0} min={0} max={100} value={fieldValue(opacity)} {...opacityHandlers} />
           </VariableField>
           <VariableField nodes={nodes} fields={["CORNER_RADIUS"]} prefix="24.corners" disabled={independentNow}>
-            <NumericInput label="Corner radius" prefix="24.corners" min={signedOk ? undefined : 0} disabled={plainOnly} value={independentNow ? MIXED : fieldValue(radius)} {...radiusHandlers} />
+            <NumericInput label={t("Corner radius")} prefix="24.corners" min={signedOk ? undefined : 0} disabled={plainOnly} value={independentNow ? MIXED : fieldValue(radius)} {...radiusHandlers} />
           </VariableField>
         </PropertyRow>
         {drawMode && (
           <SliderRow
             sliders={[
-              { label: "Opacity", value: fieldValue(opacity), min: SLIDER_RANGE.opacity[0], max: SLIDER_RANGE.opacity[1], onChange: opacityHandlers.onChange, onCancel: opacityHandlers.onCancel },
-              plainOnly ? null : { label: "Corner radius", value: independentNow ? MIXED : fieldValue(radius), min: SLIDER_RANGE.cornerRadius[0], max: SLIDER_RANGE.cornerRadius[1], onChange: radiusHandlers.onChange, onCancel: radiusHandlers.onCancel },
+              { label: t("Opacity"), value: fieldValue(opacity), min: SLIDER_RANGE.opacity[0], max: SLIDER_RANGE.opacity[1], onChange: opacityHandlers.onChange, onCancel: opacityHandlers.onCancel },
+              plainOnly ? null : { label: t("Corner radius"), value: independentNow ? MIXED : fieldValue(radius), min: SLIDER_RANGE.cornerRadius[0], max: SLIDER_RANGE.cornerRadius[1], onChange: radiusHandlers.onChange, onCancel: radiusHandlers.onCancel },
             ]}
           />
         )}
@@ -467,7 +472,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
               <PropertyRow key={i} data-corner-row={i === 0 ? "top" : "bottom"} action={i === 1 ? <CornerSmoothingButton nodes={nodes} /> : undefined}>
                 {pair.map(([f, icon, label]) => (
                   <VariableField key={f} nodes={nodes} fields={[CORNER_FIELD[f]]} prefix={icon}>
-                    <NumericInput label={label} prefix={icon} min={signedOk ? undefined : 0} value={fieldValue(corner(f))} onChange={(v, info) => setCorner(f, v, info)} onStep={(d) => editEach(ed, "Corner radius", stepInfo, refs, (n) => cornerFields(n, f, hasCorners(n) ? signedCorner(n, f) + d : Math.max(0, (n[f] ?? n.cornerRadius ?? 0) + d)))} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
+                    <NumericInput label={t(label)} prefix={icon} min={signedOk ? undefined : 0} value={fieldValue(corner(f))} onChange={(v, info) => setCorner(f, v, info)} onStep={(d) => editEach(ed, "Corner radius", stepInfo, refs, (n) => cornerFields(n, f, hasCorners(n) ? signedCorner(n, f) + d : Math.max(0, (n[f] ?? n.cornerRadius ?? 0) + d)))} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
                   </VariableField>
                 ))}
               </PropertyRow>
@@ -483,14 +488,15 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
 
 /** Polygons: "Count"; stars: "Count" and "Ratio" (Figma's live panel; the ratio with one decimal: 38.2%). */
 function CountRow({ nodes, stars }: { nodes: PanelNode[]; stars: boolean }) {
+  useT();
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const count = perLayer(ed, "Count", refs, (n) => n.count ?? (typeOf(n) === "STAR" ? 5 : 3), (_, v) => fields({ count: Math.max(3, Math.min(60, Math.round(v))) }), (v) => Math.max(3, Math.min(60, v)));
   const ratio = perLayer(ed, "Ratio", refs, (n) => (n.starInnerScale ?? 0.382) * 100, (_, v) => fields({ starInnerScale: Math.max(0, Math.min(100, v)) / 100 }), (v) => Math.max(0, Math.min(100, v)));
   return (
-    <PropertyRow labels={stars ? ["Count", "Ratio"] : undefined} label={stars ? undefined : "Count"}>
-      <NumericInput label="Count" prefix="24.polygon" min={3} max={60} precision={0} value={fieldValue(mixedNumber(nodes.map((n) => n.count ?? (typeOf(n) === "STAR" ? 5 : 3))))} {...count} />
-      {stars ? <NumericInput label="Ratio" prefix="24.star.outline" unit="%" min={0} max={100} precision={1} value={fieldValue(mixedNumber(nodes.map((n) => Math.round((n.starInnerScale ?? 0.382) * 1000) / 10)))} {...ratio} /> : <span />}
+    <PropertyRow labels={stars ? [t("Count"), t("Ratio")] : undefined} label={stars ? undefined : t("Count")}>
+      <NumericInput label={t("Count")} prefix="24.polygon" min={3} max={60} precision={0} value={fieldValue(mixedNumber(nodes.map((n) => n.count ?? (typeOf(n) === "STAR" ? 5 : 3))))} {...count} />
+      {stars ? <NumericInput label={t("Ratio")} prefix="24.star.outline" unit="%" min={0} max={100} precision={1} value={fieldValue(mixedNumber(nodes.map((n) => Math.round((n.starInnerScale ?? 0.382) * 1000) / 10)))} {...ratio} /> : <span />}
     </PropertyRow>
   );
 }
@@ -500,6 +506,7 @@ function CountRow({ nodes, stars }: { nodes: PanelNode[]; stars: boolean }) {
  * The engine draws smoothed rectangles and frames (cornerSmoothing); other layers keep the value.
  */
 export function CornerSmoothingButton({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const refs = nodes.map((n) => n.guid);
@@ -509,14 +516,14 @@ export function CornerSmoothingButton({ nodes }: { nodes: PanelNode[] }) {
   const slider = typeof value === "number" ? value : 0;
   return (
     <>
-      <ToggleIconButton icon="24.corner-smoothing" label="Corner smoothing" tone="secondary" pressed={on} aria-expanded={!!anchor} onPressedChange={() => undefined} onClick={(e) => (e.preventDefault(), setAnchor(anchor ? null : e.currentTarget))} />
+      <ToggleIconButton icon="24.corner-smoothing" label={t("Corner smoothing")} tone="secondary" pressed={on} aria-expanded={!!anchor} onPressedChange={() => undefined} onClick={(e) => (e.preventDefault(), setAnchor(anchor ? null : e.currentTarget))} />
       {anchor && (
-        <Popover anchor={anchor} title="Corner smoothing" width={240} onClose={() => setAnchor(null)} label="Corner smoothing">
+        <Popover anchor={anchor} title={t("Corner smoothing")} width={240} onClose={() => setAnchor(null)} label={t("Corner smoothing")}>
           <div className={styles.smoothing} data-corner-smoothing="">
             <div className={styles.smoothingTrack}>
               <input
                 type="range"
-                aria-label="Corner smoothing"
+                aria-label={t("Corner smoothing")}
                 className={styles.slider}
                 min={0}
                 max={100}
@@ -527,11 +534,11 @@ export function CornerSmoothingButton({ nodes }: { nodes: PanelNode[] }) {
                 onPointerUp={(e) => handlers.onChange(Number(e.currentTarget.value), { final: true, source: "drag" })}
                 onKeyUp={(e) => handlers.onChange(Number(e.currentTarget.value), { final: true, source: "step" })}
               />
-              <button type="button" className={cx(styles.iosMark, slider === IOS_SMOOTHING && styles.iosOn)} style={{ left: `${IOS_SMOOTHING}%` }} aria-label="iOS corner smoothing (60%)" onClick={() => handlers.onChange(IOS_SMOOTHING, { final: true, source: "pick" })}>
+              <button type="button" className={cx(styles.iosMark, slider === IOS_SMOOTHING && styles.iosOn)} style={{ left: `${IOS_SMOOTHING}%` }} aria-label={t("iOS corner smoothing (60%)")} onClick={() => handlers.onChange(IOS_SMOOTHING, { final: true, source: "pick" })}>
                 iOS
               </button>
             </div>
-            <NumericInput label="Corner smoothing value" unit="%" precision={0} min={0} max={100} value={fieldValue(value)} {...handlers} />
+            <NumericInput label={t("Corner smoothing value")} unit="%" precision={0} min={0} max={100} value={fieldValue(value)} {...handlers} />
           </div>
         </Popover>
       )}

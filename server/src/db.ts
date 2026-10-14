@@ -340,12 +340,12 @@ export class Db {
     await this.d1.prepare(`INSERT INTO access_requests (file_key, user_id, created_at) VALUES (?1, ?2, ?3) ON CONFLICT DO NOTHING`).bind(key, userId, now).run();
   }
 
-  async requests(key: string): Promise<{ userId: string; email: string; name: string | null; createdAt: number }[]> {
+  async requests(key: string): Promise<{ userId: string; email: string; name: string | null; picture: string | null; createdAt: number }[]> {
     const { results } = await this.d1
-      .prepare(`SELECT r.user_id, u.email, u.name, r.created_at FROM access_requests r JOIN users u ON u.id = r.user_id WHERE r.file_key = ?1 ORDER BY r.created_at`)
+      .prepare(`SELECT r.user_id, u.email, u.name, u.picture, r.created_at FROM access_requests r JOIN users u ON u.id = r.user_id WHERE r.file_key = ?1 ORDER BY r.created_at`)
       .bind(key)
-      .all<{ user_id: string; email: string; name: string | null; created_at: number }>();
-    return results.map((r) => ({ userId: r.user_id, email: r.email, name: r.name, createdAt: r.created_at }));
+      .all<{ user_id: string; email: string; name: string | null; picture: string | null; created_at: number }>();
+    return results.map((r) => ({ userId: r.user_id, email: r.email, name: r.name, picture: r.picture, createdAt: r.created_at }));
   }
 
   /** The request, removed as it is answered; null when there was none */

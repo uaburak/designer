@@ -25,6 +25,7 @@ import type { FileKey } from "../../shared/store/types";
 import type { Unsubscribe } from "../../shared/store/repositories";
 import { isTransient } from "./http";
 import type { UploadTracker } from "./uploads";
+import { t as tr } from "../../shared/i18n";
 
 /** Images coming down at once */
 export const DOWNLOAD_CONCURRENCY = 8;
@@ -182,12 +183,12 @@ export class BlobDownloads {
     const firstSet = new Set(input.first ?? []);
     let f = this.files.get(input.fileKey);
     if (!f) {
-      const id = this.tracker.begin({ fileKey: input.fileKey, name: input.name, destination: "Downloading images", direction: "download" }, { retry: () => this.retry(input.fileKey), cancel: () => undefined });
+      const id = this.tracker.begin({ fileKey: input.fileKey, name: input.name, destination: tr("Downloading images"), direction: "download" }, { retry: () => this.retry(input.fileKey), cancel: () => undefined });
       f = { fileKey: input.fileKey, name: input.name, id, left: new Set(), failed: new Set(), key: input.key, sizes: new Map(), landed: 0, count: 0 };
       this.files.set(input.fileKey, f);
     } else if (f.failed.size) {
       // Its row failed: going again (the session back, a resume)
-      this.tracker.begin({ fileKey: input.fileKey, name: f.name, destination: "Downloading images", direction: "download" });
+      this.tracker.begin({ fileKey: input.fileKey, name: f.name, destination: tr("Downloading images"), direction: "download" });
     }
     for (const sha1 of missing) {
       if (f.left.has(sha1)) continue;
@@ -247,7 +248,7 @@ export class BlobDownloads {
   retry(fileKey: FileKey): void {
     const f = this.files.get(fileKey);
     if (!f || !f.failed.size) return;
-    this.tracker.begin({ fileKey, name: f.name, destination: "Downloading images", direction: "download" });
+    this.tracker.begin({ fileKey, name: f.name, destination: tr("Downloading images"), direction: "download" });
     for (const sha1 of f.failed) {
       f.left.add(sha1);
       this.queue(sha1, f.key, fileKey, REST);

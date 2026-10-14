@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { keys } from "../util/keys";
+import { t, useT } from "@/i18n";
 import { rovingTarget } from "../util/rovingFocus";
 import { Icon, type IconName } from "../icons/Icon";
 import { tooltipProps } from "../overlay/TooltipManager";
@@ -146,6 +147,7 @@ export interface EditorToolbarProps {
  * switch. The keys themselves are the editor's (see `toolForKey`).
  */
 export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActive, mode, onMode, disabledModes = [], disabledTools = [], floating, offset, shortcuts }: EditorToolbarProps) {
+  useT();
   const shortcutOf = (id: ToolId | "actions", own: string | undefined) => (shortcuts && id in shortcuts ? (shortcuts[id] ?? undefined) : own);
   const modeRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const current = groupOf(tool, mode);
@@ -155,28 +157,28 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
         const shown = TOOLS[g.id === current ? tool : groupTools?.[g.id] ?? g.tools[0]];
         // A quick-access slot (Draw's Pen, Pencil, Brush): the tool alone, no chevron
         if (g.tools.length === 1)
-          return <ToolButton key={g.id} icon={shown.icon} label={shown.label} shortcut={shortcutOf(shown.id, shown.shortcut)} active={g.id === current} onSelect={() => onTool(shown.id)} disabled={disabledTools.includes(shown.id)} />;
+          return <ToolButton key={g.id} icon={shown.icon} label={t(shown.label)} shortcut={shortcutOf(shown.id, shown.shortcut)} active={g.id === current} onSelect={() => onTool(shown.id)} disabled={disabledTools.includes(shown.id)} />;
         return (
           <ToolButton
             key={g.id}
             icon={shown.icon}
-            label={shown.label}
+            label={t(shown.label)}
             shortcut={shortcutOf(shown.id, shown.shortcut)}
             active={g.id === current}
             onSelect={() => onTool(shown.id)}
             disabled={disabledTools.includes(shown.id)}
             menuDisabled={g.tools.every((id) => disabledTools.includes(id))}
-            menuLabel={g.label}
+            menuLabel={t(g.label)}
             menuWidth={g.menuWidth}
             // Live (toolbar/*-tools-menu.txt): the slot's own tool is the lit row, whichever tool is active
-            menu={g.tools.map((id) => ({ id, label: TOOLS[id].label, shortcut: shortcutOf(id, TOOLS[id].shortcut), icon: TOOLS[id].icon, checked: id === shown.id, radio: true, disabled: disabledTools.includes(id) }))}
+            menu={g.tools.map((id) => ({ id, label: t(TOOLS[id].label), shortcut: shortcutOf(id, TOOLS[id].shortcut), icon: TOOLS[id].icon, checked: id === shown.id, radio: true, disabled: disabledTools.includes(id) }))}
             onMenuSelect={(id) => !disabledTools.includes(id as ToolId) && onTool(id as ToolId)}
           />
         );
       })}
-      <ToolButton icon="24.actions" label="Actions" shortcut={shortcutOf("actions", keys(["mod", "k"]))} active={Boolean(actionsActive)} onSelect={() => onActions?.()} />
+      <ToolButton icon="24.actions" label={t("Actions")} shortcut={shortcutOf("actions", keys(["mod", "k"]))} active={Boolean(actionsActive)} onSelect={() => onActions?.()} />
       <ToolbarDivider />
-      <div role="radiogroup" aria-label="Mode" className={styles.modes} data-ds="ModeSwitch">
+      <div role="radiogroup" aria-label={t("Mode")} className={styles.modes} data-ds="ModeSwitch">
         {EDITOR_MODES.map((m, i) => {
           const enabled = (k: number) => !disabledModes.includes(EDITOR_MODES[k].id);
           return (
@@ -188,7 +190,7 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
               type="button"
               role="radio"
               aria-checked={m.id === mode}
-              aria-label={m.label}
+              aria-label={t(m.label)}
               aria-disabled={!enabled(i) || undefined}
               tabIndex={m.id === mode ? 0 : -1}
               className={styles.mode}
@@ -200,7 +202,7 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
                 modeRefs.current[next]?.focus();
                 onMode(EDITOR_MODES[next].id);
               }}
-              {...tooltipProps(m.label, m.shortcut, "top")}
+              {...tooltipProps(t(m.label), m.shortcut, "top")}
             >
               <Icon name={m.icon} />
             </button>

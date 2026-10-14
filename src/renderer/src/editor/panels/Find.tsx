@@ -20,12 +20,13 @@ import { layerIcon, layerKind } from "./Layers";
 import type { FindState } from "../uiStore";
 import type { TreeNode } from "../model/layerTree";
 import styles from "./Find.module.css";
+import { t, tp, useT } from "@/i18n";
 
 /** A result's glyph, as the Layers row draws it. */
 const rowOf = (r: FindResult) => ({ type: r.type, group: r.type === "GROUP", stateGroup: r.filter === "component" && r.type === "FRAME", media: r.filter === "image" ? "IMAGE" : undefined }) as unknown as TreeNode;
 const glyph = (r: FindResult) => layerIcon(rowOf(r));
 /** The glyph's name (live: img [Frame], [Text]…, as in Layers) */
-const glyphLabel = (r: FindResult) => layerKind(rowOf(r));
+const glyphLabel = (r: FindResult) => t(layerKind(rowOf(r)));
 
 /** The label with its matches marked; a long text starts a little before its first match. */
 function Marked({ r }: { r: FindResult }) {
@@ -55,6 +56,7 @@ const FILTER_ICONS: Record<FindFilter, IconName> = {
 };
 
 export function FindPanel() {
+  useT();
   const ed = useEditor();
   const f = useUI((s) => s.find) ?? EMPTY_FIND;
   const pages = usePages();
@@ -93,21 +95,21 @@ export function FindPanel() {
 
   const count = (id: string) => (counts[id] ? String(counts[id]) : undefined);
   const settings: MenuEntry[] = [
-    { id: "mode:find", label: "Find", checked: !f.replace },
-    { id: "mode:replace", label: "Replace", checked: f.replace },
+    { id: "mode:find", label: t("Find"), checked: !f.replace },
+    { id: "mode:replace", label: t("Replace"), checked: f.replace },
     "-",
-    { id: "type:all", label: "All", icon: "24.select-matching.small", checked: f.types.length === 0, hint: count("all") },
-    ...FIND_FILTERS.map((t) => ({ id: `type:${t.id}`, label: t.label, icon: FILTER_ICONS[t.id], checked: f.types.includes(t.id), hint: count(t.id) })),
+    { id: "type:all", label: t("All"), icon: "24.select-matching.small", checked: f.types.length === 0, hint: count("all") },
+    ...FIND_FILTERS.map((ft) => ({ id: `type:${ft.id}`, label: t(ft.label), icon: FILTER_ICONS[ft.id], checked: f.types.includes(ft.id), hint: count(ft.id) })),
     "-",
-    { id: "matchCase", label: "Match case", checked: f.matchCase },
-    { id: "wholeWords", label: "Whole words", checked: f.wholeWords },
+    { id: "matchCase", label: t("Match case"), checked: f.matchCase },
+    { id: "wholeWords", label: t("Whole words"), checked: f.wholeWords },
   ];
   const onSetting = (id: string) => {
     if (id === "mode:find" || id === "mode:replace") return set({ replace: id === "mode:replace" });
     if (id === "type:all") return set({ types: [], at: -1 });
     if (id.startsWith("type:")) {
-      const t = id.slice(5);
-      return set({ types: f.types.includes(t) ? f.types.filter((x) => x !== t) : [...f.types, t], at: -1 });
+      const type = id.slice(5);
+      return set({ types: f.types.includes(type) ? f.types.filter((x) => x !== type) : [...f.types, type], at: -1 });
     }
     if (id === "matchCase" || id === "wholeWords") set({ [id]: !f[id], at: -1 } as Partial<FindState>);
   };
@@ -116,19 +118,19 @@ export function FindPanel() {
   const replaceTargets = textResults.filter((r) => selected.has(r.id));
   const replace = (all: boolean) => {
     const n = replaceInLayers(ed, f, all ? textResults : replaceTargets);
-    if (!n) showToast({ message: "No text layers to replace" });
+    if (!n) showToast({ message: t("No text layers to replace") });
   };
   const current = f.at >= 0 ? results[f.at] : undefined;
 
   return (
-    <section className={styles.find} aria-label="Find" data-find="">
+    <section className={styles.find} aria-label={t("Find")} data-find="">
       <div className={styles.top}>
         <label className={styles.field} data-find-query="">
           <Icon name="24.search.small" className={styles.fieldIcon} />
           <input
             className={styles.input}
-            aria-label="Find…"
-            placeholder="Find…"
+            aria-label={t("Find…")}
+            placeholder={t("Find…")}
             value={f.query}
             autoFocus
             spellCheck={false}
@@ -148,7 +150,7 @@ export function FindPanel() {
         <div ref={settingsButton} style={{ display: "contents" }}>
           <IconButton
             icon="24.adjust.small"
-            label="Settings"
+            label={t("Settings")}
             tone="secondary"
             aria-expanded={!!menu}
             aria-pressed={!!menu}
@@ -160,17 +162,17 @@ export function FindPanel() {
             }}
           />
         </div>
-        <IconButton icon="24.close.small" label="Close" tone="secondary" onClick={() => closeFind(ed)} />
+        <IconButton icon="24.close.small" label={t("Close")} tone="secondary" onClick={() => closeFind(ed)} />
       </div>
       {f.replace && (
         <div className={styles.replaceRow}>
-          <TextInput label="Replace with" placeholder="Replace with…" value={f.replaceWith} selectAllOnFocus={false} onChange={(replaceWith) => set({ replaceWith })} onCommit={(replaceWith) => set({ replaceWith })} data-find-replace="" />
+          <TextInput label={t("Replace with")} placeholder={t("Replace with…")} value={f.replaceWith} selectAllOnFocus={false} onChange={(replaceWith) => set({ replaceWith })} onCommit={(replaceWith) => set({ replaceWith })} data-find-replace="" />
           <div className={styles.replaceButtons}>
             <Button variant="secondary" disabled={!replaceTargets.length} onClick={() => replace(false)}>
-              Replace
+              {t("Replace")}
             </Button>
             <Button variant="secondary" disabled={!textResults.length} onClick={() => replace(true)}>
-              Replace all
+              {t("Replace all")}
             </Button>
           </div>
         </div>
@@ -179,7 +181,7 @@ export function FindPanel() {
         {f.query && (
           <>
             <span className={styles.count} data-find-count={results.length}>
-              {results.length === 1 ? "1 result" : `${results.length} results`}
+              {tp(results.length, "{n} result", "{n} results")}
             </span>
             <span className={styles.dot} aria-hidden>
               ·
@@ -187,28 +189,28 @@ export function FindPanel() {
           </>
         )}
         <Select
-          label={`Search scope set to ${f.scope === "all" ? "All pages" : "This page"}`}
+          label={t("Search scope set to {scope}", { scope: f.scope === "all" ? t("All pages") : t("This page") })}
           className={styles.scope}
           variant="ghost"
           width="hug"
           value={f.scope}
           options={[
-            { value: "page", label: "This page" },
-            { value: "all", label: "All pages" },
+            { value: "page", label: t("This page") },
+            { value: "all", label: t("All pages") },
           ]}
           onChange={(v) => set({ scope: v as "page" | "all", at: -1 })}
         />
         <span className={styles.grow} />
         {current && (
           <span className={styles.srOnly} aria-live="polite">
-            {current.label}, result {f.at + 1} of {results.length}
+            {t("{label}, result {at} of {count}", { label: current.label, at: f.at + 1, count: results.length })}
           </span>
         )}
-        <IconButton icon="16.arrow.up" label="Previous result" shortcut={shortcutOf(command("edit.find-previous"))} tone="secondary" disabled={!results.length} onClick={() => stepFind(ed, -1)} />
-        <IconButton icon="16.arrow.down" label="Next result" shortcut={shortcutOf(command("edit.find-next"))} tone="secondary" disabled={!results.length} onClick={() => stepFind(ed, 1)} />
+        <IconButton icon="16.arrow.up" label={t("Previous result")} shortcut={shortcutOf(command("edit.find-previous"))} tone="secondary" disabled={!results.length} onClick={() => stepFind(ed, -1)} />
+        <IconButton icon="16.arrow.down" label={t("Next result")} shortcut={shortcutOf(command("edit.find-next"))} tone="secondary" disabled={!results.length} onClick={() => stepFind(ed, 1)} />
       </div>
-      <div className={styles.results} role="listbox" aria-label="Search results" aria-multiselectable data-find-results="" data-keys="panel">
-        {f.query && !results.length && <div className={styles.none}>No results for “{f.query}”</div>}
+      <div className={styles.results} role="listbox" aria-label={t("Search results")} aria-multiselectable data-find-results="" data-keys="panel">
+        {f.query && !results.length && <div className={styles.none}>{t("No results for “{query}”", { query: f.query })}</div>}
         {results.map((r, index) => {
           const page = f.scope === "all" && (index === 0 || results[index - 1].page !== r.page) ? pages.find((p) => p.guid === r.page)?.name : undefined;
           const on = selected.has(r.id) && r.page === ed.store.page;
@@ -238,7 +240,7 @@ export function FindPanel() {
           );
         })}
       </div>
-      {menu && <ContextMenu at={menu} entries={settings} label="Settings" ignore={settingsButton} onSelect={onSetting} onClose={() => setMenu(null)} />}
+      {menu && <ContextMenu at={menu} entries={settings} label={t("Settings")} ignore={settingsButton} onSelect={onSetting} onClose={() => setMenu(null)} />}
     </section>
   );
 }

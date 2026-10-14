@@ -12,6 +12,7 @@
  *   stored as VAR_MODE_LOOKUP [ALIAS the variable, STRING the mode's id] (the argument encoding is ours; the engine
  *   evaluates the same).
  */
+import { t as tr } from "@/i18n";
 import type { Guid } from "@/engine/codec";
 import { guidJson, guidOf, type VariableDataJson } from "./prototype";
 
@@ -85,7 +86,7 @@ function tokenize(text: string, vars: readonly ExpressionVariable[]): Token[] | 
       const w = word[0];
       if (w === "true" || w === "false") out.push({ kind: "bool", value: w === "true", at: i });
       else if (WORDS[w.toLowerCase()]) out.push({ kind: "op", value: WORDS[w.toLowerCase()], at: i });
-      else return { error: `No variable named “${w}”`, at: i };
+      else return { error: tr("No variable named “{name}”", { name: w }), at: i };
       i += w.length;
       continue;
     }
@@ -95,7 +96,7 @@ function tokenize(text: string, vars: readonly ExpressionVariable[]): Token[] | 
       i += op.length;
       continue;
     }
-    return { error: `Unexpected “${c}”`, at: i };
+    return { error: tr("Unexpected “{text}”", { text: c }), at: i };
   }
   return out;
 }
@@ -124,7 +125,7 @@ const expr = (fn: string, args: VariableDataJson[]): VariableDataJson => ({
 export function parseExpression(text: string, vars: readonly ExpressionVariable[]): ParseResult {
   const toks = tokenize(text, vars);
   if (!Array.isArray(toks)) return { ok: false, ...toks };
-  if (!toks.length) return { ok: false, error: "Type an expression", at: 0 };
+  if (!toks.length) return { ok: false, error: tr("Type an expression"), at: 0 };
   let p = 0;
   const peek = () => toks[p];
   const isOp = (...ops: string[]) => {
@@ -152,7 +153,7 @@ export function parseExpression(text: string, vars: readonly ExpressionVariable[
   };
   const primary = (): VariableDataJson => {
     const t = toks[p++];
-    if (!t) throw new Fail("The expression isn't finished", text.length);
+    if (!t) throw new Fail(tr("The expression isn't finished"), text.length);
     switch (t.kind) {
       case "num":
         return { value: { floatValue: t.value }, dataType: "FLOAT" };
@@ -170,11 +171,11 @@ export function parseExpression(text: string, vars: readonly ExpressionVariable[
       case "(": {
         const inner = or();
         const close = toks[p++];
-        if (!close || close.kind !== ")") throw new Fail("A “(” isn't closed", t.at);
+        if (!close || close.kind !== ")") throw new Fail(tr("A “(” isn't closed"), t.at);
         return inner;
       }
       default:
-        throw new Fail(`Unexpected “${t.kind === "op" ? t.value : t.kind}”`, t.at);
+        throw new Fail(tr("Unexpected “{text}”", { text: t.kind === "op" ? t.value : t.kind }), t.at);
     }
   };
   const unary = (): VariableDataJson => {
@@ -199,7 +200,7 @@ export function parseExpression(text: string, vars: readonly ExpressionVariable[
     const data = or();
     if (p < toks.length) {
       const t = toks[p];
-      return { ok: false, error: "Unexpected text after the expression", at: t.at };
+      return { ok: false, error: tr("Unexpected text after the expression"), at: t.at };
     }
     return { ok: true, data };
   } catch (e) {

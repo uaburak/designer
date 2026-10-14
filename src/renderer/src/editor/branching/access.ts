@@ -16,6 +16,7 @@ export interface Reviewer {
   userId: string;
   name: string | null;
   email: string;
+  picture?: string | null;
 }
 
 export interface BranchingBackend {
@@ -67,7 +68,7 @@ function storeBackend(): BranchingBackend | null {
       const [me, members] = await Promise.all([meOf(), store.multiplayer.members(mainFileKey).catch(() => [])]);
       return members
         .filter((m) => m.userId && !m.pending && m.userId !== me.id && (m.role === "owner" || m.role === "editor"))
-        .map((m) => ({ userId: m.userId!, name: m.name, email: m.email }));
+        .map((m) => ({ userId: m.userId!, name: m.name, email: m.email, picture: m.picture ?? null }));
     },
     me: meOf,
     canEditMain: async (mainFileKey) => {

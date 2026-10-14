@@ -15,6 +15,7 @@ import styles from "./Grid.module.css";
 import { VariableField } from "./Variables";
 import { PANEL_MENU_GAP, type PanelNode } from "./shared";
 import dstyles from "./Design.module.css";
+import { t, useT } from "@/i18n";
 
 const asFields = (f: Record<string, unknown>) => f as unknown as NodeFields;
 const sessionOf = (guid: Guid) => Number(String(guid).replace(/^I/, "").split(":")[0]) || 1;
@@ -73,6 +74,7 @@ function setCounts(ed: EditorController, refs: readonly Guid[], label: string, i
  * the row's action is "Auto layout settings". (Each track's size is edited on the canvas, its pill.)
  */
 export function GridDimensionsRow({ nodes, action }: { nodes: PanelNode[]; action?: ReactNode }) {
+  useT();
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const grids = nodes as (PanelNode & GridNode)[];
@@ -88,11 +90,11 @@ export function GridDimensionsRow({ nodes, action }: { nodes: PanelNode[]; actio
   return (
     <>
       {/* Live: "Auto layout settings" level with the first gap field (208, 404), not centred on the 56 high row */}
-      <PropertyRow labels={["Grid", "Gap"]} action={action} className={styles.topRow}>
+      <PropertyRow labels={[t("Grid"), t("Gap")]} action={action} className={styles.topRow}>
         <button
           type="button"
           className={styles.dimensions}
-          aria-label={`Open grid dimensions picker. Current grid dimensions: ${cols} columns and ${rowsAuto ? "auto" : rows} rows`}
+          aria-label={t("Open grid dimensions picker. Current grid dimensions: {columns} columns and {rows} rows", { columns: cols, rows: rowsAuto ? t("auto") : rows })}
           aria-expanded={!!picker}
           data-grid-dimensions={`${cols}x${rows}`}
           style={{ ["--cols" as string]: shownCols, ["--rows" as string]: shownRows }}
@@ -104,13 +106,13 @@ export function GridDimensionsRow({ nodes, action }: { nodes: PanelNode[]; actio
           <span className={styles.dimensionsText}>
             {cols}
             <span className={styles.dimensionsTimes}>×</span>
-            {rowsAuto ? "Auto" : rows}
+            {rowsAuto ? t("Auto") : rows}
           </span>
         </button>
         <div className={styles.gapStack}>
           <VariableField nodes={nodes} fields={["GRID_COLUMN_GAP"]} prefix="24.al.spacing-horizontal">
             <NumericInput
-              label="Gap between columns"
+              label={t("Gap between columns")}
               prefix="24.al.spacing-horizontal"
               value={fieldValue(colGap)}
               min={0}
@@ -122,7 +124,7 @@ export function GridDimensionsRow({ nodes, action }: { nodes: PanelNode[]; actio
           </VariableField>
           <VariableField nodes={nodes} fields={["GRID_ROW_GAP"]} prefix="24.al.spacing-vertical">
             <NumericInput
-              label="Gap between rows"
+              label={t("Gap between rows")}
               prefix="24.al.spacing-vertical"
               value={fieldValue(rowGap)}
               min={0}
@@ -144,6 +146,7 @@ export function GridDimensionsRow({ nodes, action }: { nodes: PanelNode[]; actio
  * 117 with "×" between; rows a number or "Auto", its chevron at 178 — the chevron's entries are unverified).
  */
 function CountFields({ refs, grids }: { refs: Guid[]; grids: (PanelNode & GridNode)[] }) {
+  useT();
   const ed = useEditor();
   const cols = mixedNumber(grids.map((n) => tracksOf(n, "columns").length));
   const rows = mixed(grids.map((n) => rowCountLabel(n)));
@@ -158,7 +161,7 @@ function CountFields({ refs, grids }: { refs: Guid[]; grids: (PanelNode & GridNo
     <div className={styles.pickerFields}>
       <NumericInput
         className={styles.pickerField}
-        label="Number of columns"
+        label={t("Number of columns")}
         prefix="24.grid-column"
         value={fieldValue(cols)}
         min={1}
@@ -170,18 +173,18 @@ function CountFields({ refs, grids }: { refs: Guid[]; grids: (PanelNode & GridNo
       <span className={styles.pickerTimes}>×</span>
       <TextInput
         className={styles.pickerField}
-        label="Number of rows"
+        label={t("Number of rows")}
         prefix="24.grid-row"
         value={rows === MIXED ? MIXED : (rows ?? "")}
         onCommit={setRows}
         suffix={
           <MenuButton
-            label="Number of rows"
+            label={t("Number of rows")}
             className={styles.pickerRowsMenu}
             tooltip={false}
             entries={[
-              { id: "FIXED", label: "Fixed", checked: !auto },
-              { id: "AUTO", label: "Auto", checked: auto },
+              { id: "FIXED", label: t("Fixed"), checked: !auto },
+              { id: "AUTO", label: t("Auto"), checked: auto },
             ]}
             onSelect={(id) => {
               const first = grids[0];
@@ -215,6 +218,7 @@ export function gridPickerOrigin(button: { left: number; top: number }): { x: nu
  * rows (rows no longer Auto).
  */
 function GridPicker({ anchor, refs, grids, onClose }: { anchor: HTMLElement; refs: Guid[]; grids: (PanelNode & GridNode)[]; onClose: () => void }) {
+  useT();
   const ed = useEditor();
   const [hover, setHover] = useState<{ c: number; r: number } | null>(null);
   const first = grids[0];
@@ -251,12 +255,12 @@ function GridPicker({ anchor, refs, grids, onClose }: { anchor: HTMLElement; ref
       );
     }
   return (
-    <Popover anchor={at} placement="left" width={PICKER_WIDTH} onClose={onClose} label="Grid dimensions picker">
+    <Popover anchor={at} placement="left" width={PICKER_WIDTH} onClose={onClose} label={t("Grid dimensions picker")}>
       <div className={styles.picker} data-grid-picker="" data-hover={hover ? `${hover.c}x${hover.r}` : undefined}>
         <CountFields refs={refs} grids={grids} />
-        <div role="radiogroup" aria-label="Grid dimensions" className={styles.board} onPointerLeave={() => setHover(null)}>
+        <div role="radiogroup" aria-label={t("Grid dimensions")} className={styles.board} onPointerLeave={() => setHover(null)}>
           {/* Live: the board's legend, kept for assistive tech and clipped from view */}
-          <span className={styles.boardLegend}>Grid dimensions</span>
+          <span className={styles.boardLegend}>{t("Grid dimensions")}</span>
           {cells}
         </div>
         <button
@@ -267,7 +271,7 @@ function GridPicker({ anchor, refs, grids, onClose }: { anchor: HTMLElement; ref
             if (first) ed.ui.set({ gridSettings: first.guid });
           }}
         >
-          Open grid settings
+          {t("Open grid settings")}
         </button>
       </div>
     </Popover>
@@ -285,6 +289,7 @@ function GridPicker({ anchor, refs, grids, onClose }: { anchor: HTMLElement; ref
  * applies to every selected track.
  */
 export function GridTrackEditor() {
+  useT();
   const ed = useEditor();
   const at = useUI((s) => s.gridTrackEditor);
   const sel = useUI((s) => s.gridTracks);
@@ -308,7 +313,6 @@ export function GridTrackEditor() {
     ed.ui.set({ gridTrackEditor: null });
     ed.focusCanvas();
   };
-  const name = axis === "columns" ? "Column" : "Row";
   return (
     <>
       <div
@@ -326,7 +330,7 @@ export function GridTrackEditor() {
       >
         <TextInput
           data-theme="light"
-          label={`${name} size`}
+          label={axis === "columns" ? t("Column size") : t("Row size")}
           value={tracksLabel(node, axis, sel.tracks)}
           onCommit={(text) => {
             const s = parseTrackInput(text);
@@ -339,7 +343,7 @@ export function GridTrackEditor() {
         at={{ x: at.x - TRACK_MENU.inset, y: at.y + at.height + TRACK_MENU.below }}
         entries={trackMenu(node, axis, index)}
         ignore={field}
-        label={`${name} sizing`}
+        label={axis === "columns" ? t("Column sizing") : t("Row sizing")}
         className={cx(dstyles.panelMenu, dstyles.trackMenu, styles.pillMenu)}
         onSelect={(id) => writeTrackSizing(ed, sel.frame, axis, sel.tracks, pickedSizing(node, axis, index, id as TrackType))}
         onClose={close}
@@ -367,6 +371,7 @@ export function pickedSizing(node: GridNode & { size?: { x: number; y: number } 
 
 /** For layers in a grid: how many columns and rows each spans (Figma: "Column span" / "Row span"). */
 export function GridSpanRow({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const items = nodes as (PanelNode & GridItemNode)[];
@@ -376,9 +381,9 @@ export function GridSpanRow({ nodes }: { nodes: PanelNode[] }) {
   return (
     // Live (design/grid-child.txt): "Column span" (16,340) and "Row span" (112,340) over the fields at 356 — 2 lower
     // than a plain row under Dimensions (a row with a label per column).
-    <PropertyRow labels={["Column span", "Row span"]}>
-      <NumericInput label="Column span" prefix="24.grid-column" value={fieldValue(colSpan)} min={1} max={1000} precision={0} onChange={(v, info) => set("gridColumnSpan", v, info)} onCancel={() => ed.cancelEdit()} />
-      <NumericInput label="Row span" prefix="24.grid-row" value={fieldValue(rowSpan)} min={1} max={1000} precision={0} onChange={(v, info) => set("gridRowSpan", v, info)} onCancel={() => ed.cancelEdit()} />
+    <PropertyRow labels={[t("Column span"), t("Row span")]}>
+      <NumericInput label={t("Column span")} prefix="24.grid-column" value={fieldValue(colSpan)} min={1} max={1000} precision={0} onChange={(v, info) => set("gridColumnSpan", v, info)} onCancel={() => ed.cancelEdit()} />
+      <NumericInput label={t("Row span")} prefix="24.grid-row" value={fieldValue(rowSpan)} min={1} max={1000} precision={0} onChange={(v, info) => set("gridRowSpan", v, info)} onCancel={() => ed.cancelEdit()} />
     </PropertyRow>
   );
 }
@@ -417,15 +422,17 @@ export function trackSize(node: GridNode & { size?: { x: number; y: number } }, 
  * sizing, Hug contents, "Fill container (1fr)" — each with its glyph, the current one checked.
  */
 export function trackMenu(node: GridNode & { size?: { x: number; y: number } }, axis: GridAxis, index: number): MenuEntry[] {
-  const t = tracksOf(node, axis)[index];
-  if (!t) return [];
+  const track = tracksOf(node, axis)[index];
+  if (!track) return [];
   const word = axis === "columns" ? "width" : "height";
   const glyph = (k: "fixed" | "hug" | "fill"): IconName => `24.al.${word}-${k}` as IconName;
   const size = trackSize(node, axis, index);
+  const fixed =
+    axis === "columns" ? (size === null ? t("Fixed width") : t("Fixed width ({size})", { size })) : size === null ? t("Fixed height") : t("Fixed height ({size})", { size });
   return [
-    { id: "FIXED", label: `Fixed ${word}${size === null ? "" : ` (${size})`}`, checked: t.sizing.type === "FIXED", radio: true, icon: glyph("fixed") },
-    { id: "HUG", label: "Hug contents", checked: t.sizing.type === "HUG", radio: true, icon: glyph("hug") },
-    { id: "FLEX", label: `Fill container (${t.sizing.type === "FLEX" ? trackLabel(t.sizing) : "1fr"})`, checked: t.sizing.type === "FLEX", radio: true, icon: glyph("fill") },
+    { id: "FIXED", label: fixed, checked: track.sizing.type === "FIXED", radio: true, icon: glyph("fixed") },
+    { id: "HUG", label: t("Hug contents"), checked: track.sizing.type === "HUG", radio: true, icon: glyph("hug") },
+    { id: "FLEX", label: t("Fill container ({value})", { value: track.sizing.type === "FLEX" ? trackLabel(track.sizing) : "1fr" }), checked: track.sizing.type === "FLEX", radio: true, icon: glyph("fill") },
   ];
 }
 
@@ -436,6 +443,7 @@ export function trackMenu(node: GridNode & { size?: { x: number; y: number } }, 
  * selected tracks' rows are highlighted. The value's own list (live: a combobox) is the pill menu's choices.
  */
 export function GridPanel({ frame }: { frame: Guid }) {
+  useT();
   const ed = useEditor();
   const sel = useUI((s) => s.gridTracks);
   const node = ed.engine.readNodes([frame])[0] as unknown as (GridNode & { guid: Guid }) | undefined;
@@ -469,23 +477,24 @@ export function GridPanel({ frame }: { frame: Guid }) {
   const section = (axis: GridAxis) => {
     const tracks = tracksOf(node, axis);
     const selected = sel && sel.frame === frame && (sel.axis === "COLUMNS") === (axis === "columns") ? sel.tracks : [];
-    const word = axis === "columns" ? "column" : "row";
+    const cols = axis === "columns";
     return (
       <div className={styles.gpSection} data-grid-panel-axis={axis}>
         <div className={styles.gpHeader}>
-          <span>{axis === "columns" ? "Columns" : "Rows"}</span>
-          <IconButton icon="24.plus.small" label={`Add ${word}`} tone="secondary" onClick={() => add(axis)} />
+          <span>{cols ? t("Columns") : t("Rows")}</span>
+          <IconButton icon="24.plus.small" label={cols ? t("Add column") : t("Add row")} tone="secondary" onClick={() => add(axis)} />
         </div>
-        {tracks.map((t, i) => {
+        {tracks.map((track, i) => {
           const on = selected.includes(i);
-          const name = `Grid ${word} ${i + 1} of ${tracks.length}`;
+          const vars = { i: i + 1, n: tracks.length };
+          const name = cols ? t("Grid column {i} of {n}", vars) : t("Grid row {i} of {n}", vars);
           const size = (sizing: { type: TrackType; value: number }) => writeTrackSizing(ed, frame, axis, on ? selected : [i], sizing);
           return (
-            <div key={`${t.id.sessionID}:${t.id.localID}`} className={cx(styles.gpRow, on && styles.gpRowOn)} role="row" aria-selected={on}>
+            <div key={`${track.id.sessionID}:${track.id.localID}`} className={cx(styles.gpRow, on && styles.gpRowOn)} role="row" aria-selected={on}>
               <button
                 type="button"
                 className={styles.gpIndex}
-                aria-label={`${name}, ${on ? "selected" : "not selected"}`}
+                aria-label={on ? t("{name}, selected", { name }) : t("{name}, not selected", { name })}
                 onClick={(e) => {
                   const extend = e.shiftKey || e.metaKey || e.ctrlKey;
                   select(axis, extend ? (on ? selected.filter((x) => x !== i) : [...selected, i]) : [i]);
@@ -494,24 +503,24 @@ export function GridPanel({ frame }: { frame: Guid }) {
                 {i + 1}
               </button>
               <Select
-                label="Track sizing"
+                label={t("Track sizing")}
                 variant="ghost"
                 width={76}
-                value={t.sizing.type}
-                options={PANEL_TYPES}
-                onChange={(v) => size({ type: v as TrackType, value: v === "FIXED" ? Math.round(t.sizing.type === "FIXED" ? t.sizing.value : 100) : 1 })}
+                value={track.sizing.type}
+                options={PANEL_TYPES.map((o) => ({ ...o, label: t(o.label) }))}
+                onChange={(v) => size({ type: v as TrackType, value: v === "FIXED" ? Math.round(track.sizing.type === "FIXED" ? track.sizing.value : 100) : 1 })}
               />
               <span className={styles.gpValue}>
                 <TextInput
-                  label={axis === "columns" ? "Column width" : "Row height"}
-                  value={trackLabel(t.sizing)}
+                  label={cols ? t("Column width") : t("Row height")}
+                  value={trackLabel(track.sizing)}
                   onCommit={(text) => {
                     const s = parseTrackInput(text);
                     if (s) size(s);
                   }}
                 />
                 <MenuButton
-                  label={`${axis === "columns" ? "Column" : "Row"} ${i + 1} sizing`}
+                  label={cols ? t("Column {i} sizing", vars) : t("Row {i} sizing", vars)}
                   className={styles.gpValueMenu}
                   gap={PANEL_MENU_GAP}
                   menuClassName={cx(dstyles.panelMenu, dstyles.trackMenu)}
@@ -521,7 +530,7 @@ export function GridPanel({ frame }: { frame: Guid }) {
                   <Icon name="16.chevron.down" />
                 </MenuButton>
               </span>
-              <IconButton icon="24.minus.small" label={`Remove ${word} ${i + 1} of ${tracks.length}`} tone="secondary" disabled={tracks.length <= 1} onClick={() => remove(axis, i)} />
+              <IconButton icon="24.minus.small" label={cols ? t("Remove column {i} of {n}", vars) : t("Remove row {i} of {n}", vars)} tone="secondary" disabled={tracks.length <= 1} onClick={() => remove(axis, i)} />
             </div>
           );
         })}
@@ -531,8 +540,8 @@ export function GridPanel({ frame }: { frame: Guid }) {
   return (
     <div className={styles.gridPanel} data-grid-panel="">
       <div className={styles.gpTitle}>
-        <span>Grid</span>
-        <IconButton icon="24.close.small" label="Close" onClick={close} />
+        <span>{t("Grid")}</span>
+        <IconButton icon="24.close.small" label={t("Close")} onClick={close} />
       </div>
       {section("columns")}
       {section("rows")}

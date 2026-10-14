@@ -11,6 +11,7 @@ import { ensureCopy } from "../../libraries";
 import { payloadRoot } from "../../model/libraries";
 import { byPosition, readCollection, readVariable, type Collection, type Variable, type VNode } from "../../model/variables";
 import { isStyleNode, readStyle, type Style, type StyleNode } from "../../model/styles";
+import { t } from "@/i18n";
 
 export interface RemoteRef {
   library: string;
@@ -51,7 +52,7 @@ export function useRemoteAssets(): RemoteLibraryAssets[] {
     for (const lib of state.enabled) {
       const manifest = state.manifests.get(lib);
       if (!manifest) continue;
-      const name = state.names.get(lib) ?? "Library";
+      const name = state.names.get(lib) ?? t("Library");
       const ref = (key: string, imported: boolean): RemoteRef => ({ library: lib, libraryName: name, key, imported });
       const copyKey = (node: unknown) => {
         const n = node as { sourceLibraryKey?: string; key?: string };

@@ -5,6 +5,7 @@
  * places one (a drag sizes it, aspect kept); Esc drops the rest. Files dropped
  * on the canvas are placed at the drop point, in the frame there.
  */
+import { t } from "@/i18n";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { showToast } from "@/ds";
 import type { Paint } from "@/engine/codec";
@@ -44,11 +45,11 @@ const fillable = (ed: EditorController) =>
 
 /** ⇧⌘K: choose images; fill the selected layers with them, then place the rest by clicking. */
 export async function chooseAndPlaceImages(ed: EditorController): Promise<void> {
-  if (!ed.images.store) return void showToast({ message: "Images can't be added to this file" });
+  if (!ed.images.store) return void showToast({ message: t("Images can't be added to this file") });
   const files = await pickImageFiles();
   if (!files.length || ed.engine.destroyed) return;
   const images = await ed.images.import(files);
-  if (!images.length) return void showToast({ message: "Couldn't read that file" });
+  if (!images.length) return void showToast({ message: t("Couldn't read that file") });
   const targets = fillable(ed);
   const fills = Math.min(targets.length, images.length);
   if (fills) {

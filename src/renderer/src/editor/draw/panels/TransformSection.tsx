@@ -6,6 +6,7 @@
  * and a grip to reorder; "Apply transforms to selection" under the rows when transform groups are selected.
  * Title "Transform" [unverified]; Order's place in the popover [unverified].
  */
+import { t, useT } from "@/i18n";
 import { useState } from "react";
 import { Button, Icon, IconButton, MenuButton, NumericInput, PanelSection, Popover, SegmentedControl, cx, type ChangeInfo, type MenuEntry } from "@/ds";
 import { REPEAT_COUNT_RANGE, type RepeatKind, type RepeatModifierInput } from "@shared/draw/types";
@@ -25,6 +26,7 @@ export const TRANSFORM_MENU: MenuEntry[] = [
 ];
 
 export function TransformSection({ nodes }: { nodes: PanelNode[] }) {
+  useT();
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const groups = nodes.filter(isTransformGroup);
@@ -36,11 +38,11 @@ export function TransformSection({ nodes }: { nodes: PanelNode[] }) {
   const shown = open && repeats.find((r) => r.index === open.index);
   return (
     <PanelSection
-      title="Transform"
+      title={t("Transform")}
       empty={repeats.length === 0}
       data-transform-section=""
       actions={
-        <MenuButton label="Additional transform modifier" tooltip entries={TRANSFORM_MENU} className={design.iconMenu} gap={PANEL_MENU_GAP} align="end" onSelect={(id) => addRepeat(ed, refs, id as RepeatKind)}>
+        <MenuButton label={t("Additional transform modifier")} tooltip entries={TRANSFORM_MENU} className={design.iconMenu} gap={PANEL_MENU_GAP} align="end" onSelect={(id) => addRepeat(ed, refs, id as RepeatKind)}>
           <Icon name="24.plus.small" />
         </MenuButton>
       }
@@ -50,14 +52,14 @@ export function TransformSection({ nodes }: { nodes: PanelNode[] }) {
           {repeats.map(({ index, modifier }, d) => (
             <div key={index} className={cx(design.paintRow, !modifier.visible && design.rowHidden, dragging === d && design.rowDragging)} data-repeat-row={modifier.repeatType} data-reorder-row="">
               {repeats.length > 1 && <Grip {...grip(d)} />}
-              <button type="button" className={cx(design.effectField, styles.repeatField)} aria-label={`${repeatLabel(modifier.repeatType)} settings`} aria-expanded={open?.index === index} onClick={(e) => setOpen(open?.index === index ? null : { index, anchor: e.currentTarget })}>
+              <button type="button" className={cx(design.effectField, styles.repeatField)} aria-label={t("{name} settings", { name: t(repeatLabel(modifier.repeatType)) })} aria-expanded={open?.index === index} onClick={(e) => setOpen(open?.index === index ? null : { index, anchor: e.currentTarget })}>
                 <span className={styles.repeatGlyph}>
                   <Icon name={REPEAT_ICON[modifier.repeatType]} />
                 </span>
-                <span className={cx(design.effectLabel, design.effectName)}>{repeatLabel(modifier.repeatType)}</span>
+                <span className={cx(design.effectLabel, design.effectName)}>{t(repeatLabel(modifier.repeatType))}</span>
               </button>
-              <IconButton icon={modifier.visible ? "24.eye.small" : "24.hidden.small"} label="Toggle visibility" tone="secondary" onClick={() => setRepeat(ed, group!.guid, index, { visible: !modifier.visible })} />
-              <IconButton icon="24.minus.small" label="Remove" tone="secondary" onClick={() => removeRepeat(ed, group!.guid, index)} />
+              <IconButton icon={modifier.visible ? "24.eye.small" : "24.hidden.small"} label={t("Toggle visibility")} tone="secondary" onClick={() => setRepeat(ed, group!.guid, index, { visible: !modifier.visible })} />
+              <IconButton icon="24.minus.small" label={t("Remove")} tone="secondary" onClick={() => removeRepeat(ed, group!.guid, index)} />
             </div>
           ))}
           {line !== null && <div className={design.dropLine} style={{ top: line }} />}
@@ -66,7 +68,7 @@ export function TransformSection({ nodes }: { nodes: PanelNode[] }) {
       {groups.length > 0 && (
         <div className={styles.applyRow}>
           <Button variant="secondary" className={styles.applyButton} onClick={() => applyTransforms(ed)} data-apply-transforms="">
-            Apply transforms to selection
+            {t("Apply transforms to selection")}
           </Button>
         </div>
       )}
@@ -99,18 +101,19 @@ export function RepeatSettings({
   onClose: () => void;
   static?: boolean;
 }) {
+  useT();
   const pick: ChangeInfo = { final: true, source: "pick" };
   const relative = modifier.unitType === "RELATIVE";
   return (
-    <Popover anchor={anchor} title="Repeat" width={240} onClose={onClose} label="Repeat" static={isStatic}>
+    <Popover anchor={anchor} title={t("Repeat")} width={240} onClose={onClose} label={t("Repeat")} static={isStatic}>
       <div className={design.settings} data-repeat-settings={modifier.repeatType}>
-        <span className={design.settingsLabel}>Count</span>
-        <NumericInput scrubHandle="previous" label="Count" min={REPEAT_COUNT_RANGE[0]} max={REPEAT_COUNT_RANGE[1]} precision={0} value={modifier.count} onChange={(v, info) => onChange({ count: v }, info)} onCancel={onCancel} />
-        <span className={design.settingsLabel}>Gap</span>
+        <span className={design.settingsLabel}>{t("Count")}</span>
+        <NumericInput scrubHandle="previous" label={t("Count")} min={REPEAT_COUNT_RANGE[0]} max={REPEAT_COUNT_RANGE[1]} precision={0} value={modifier.count} onChange={(v, info) => onChange({ count: v }, info)} onCancel={onCancel} />
+        <span className={design.settingsLabel}>{t("Gap")}</span>
         <span className={styles.gapField}>
           <NumericInput
             scrubHandle="previous"
-            label="Gap"
+            label={t("Gap")}
             unit={relative ? "%" : undefined}
             min={modifier.repeatType === "RADIAL" ? 0 : undefined}
             value={gapShown(modifier)}
@@ -118,38 +121,38 @@ export function RepeatSettings({
             onCancel={onCancel}
           />
           <SegmentedControl
-            label="Gap unit"
+            label={t("Gap unit")}
             value={modifier.unitType}
             options={[
-              { value: "PIXELS", label: "px", tooltip: "Pixels" },
-              { value: "RELATIVE", label: "%", tooltip: "Percent of the content's size" },
+              { value: "PIXELS", label: "px", tooltip: t("Pixels") },
+              { value: "RELATIVE", label: "%", tooltip: t("Percent of the content's size") },
             ]}
             onChange={(v) => v !== modifier.unitType && onChange({ unitType: v as RepeatModifierInput["unitType"], offset: gapStored(gapShown(modifier), v as RepeatModifierInput["unitType"]) }, pick)}
           />
         </span>
         {modifier.repeatType === "LINEAR" && (
           <>
-            <span className={design.settingsLabel}>Axis</span>
+            <span className={design.settingsLabel}>{t("Axis")}</span>
             <SegmentedControl
-              label="Axis"
+              label={t("Axis")}
               fullWidth
               value={modifier.axis === "Y" ? "Y" : modifier.axis === "X" ? "X" : ""}
               options={[
-                { value: "X", label: "Horizontal" },
-                { value: "Y", label: "Vertical" },
+                { value: "X", label: t("Horizontal") },
+                { value: "Y", label: t("Vertical") },
               ]}
               onChange={(v) => onChange({ axis: v as "X" | "Y" }, pick)}
             />
           </>
         )}
-        <span className={design.settingsLabel}>Order</span>
+        <span className={design.settingsLabel}>{t("Order")}</span>
         <SegmentedControl
-          label="Order"
+          label={t("Order")}
           fullWidth
           value={modifier.order}
           options={[
-            { value: "FORWARD", label: "Forward" },
-            { value: "REVERSE", label: "Reverse" },
+            { value: "FORWARD", label: t("Forward") },
+            { value: "REVERSE", label: t("Reverse") },
           ]}
           onChange={(v) => onChange({ order: v as RepeatModifierInput["order"] }, pick)}
         />

@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, FocusTrap, IconButton, Portal, Select, Spinner, Switch, TextInput } from "@/ds";
 import type { ComponentProperty, Guid } from "@/engine/codec";
+import { t, useT } from "@/i18n";
 import { renderEngineExport } from "../exportCore";
 import { useEditor, type EditorController } from "../controller";
 import { ViewerDoc } from "../../../../viewer/viewerDoc";
@@ -33,6 +34,7 @@ async function previewOf(s: Scratch, images: ((h: string) => Promise<Uint8Array 
 }
 
 function Playground({ ed, id, onClose }: { ed: EditorController; id: Guid; onClose: () => void }) {
+  useT();
   const canvas = useRef<HTMLCanvasElement>(null);
   const [scratch, setScratch] = useState<Scratch | null>(null);
   const [failed, setFailed] = useState(false);
@@ -108,7 +110,7 @@ function Playground({ ed, id, onClose }: { ed: EditorController; id: Guid; onClo
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="Explore component behavior"
+            aria-label={t("Explore component behavior")}
             className={styles.compareWindow}
             data-playground-window=""
             onKeyDown={(e) => {
@@ -120,7 +122,7 @@ function Playground({ ed, id, onClose }: { ed: EditorController; id: Guid; onClo
           >
             <header className={styles.compareHeader}>
               <span className={styles.compareTitle}>{name}</span>
-              <span className={styles.hint}>Explore component behavior</span>
+              <span className={styles.hint}>{t("Explore component behavior")}</span>
               <span className={styles.grow} />
               <Button
                 variant="secondary"
@@ -129,14 +131,14 @@ function Playground({ ed, id, onClose }: { ed: EditorController; id: Guid; onClo
                   setReset((r) => r + 1);
                 }}
               >
-                Reset
+                {t("Reset")}
               </Button>
-              <IconButton icon="24.close.small" label="Close" onClick={onClose} />
+              <IconButton icon="24.close.small" label={t("Close")} onClick={onClose} />
             </header>
             <canvas ref={canvas} id="playground-canvas" className={styles.hiddenCanvas} aria-hidden />
             <div className={styles.playground}>
               <div className={styles.playgroundPreview} data-playground-preview="">
-                {failed ? <span className={styles.hint}>This component can't be previewed.</span> : image ? <img src={image} alt={name} /> : <Spinner size={16} />}
+                {failed ? <span className={styles.hint}>{t("This component can't be previewed.")}</span> : image ? <img src={image} alt={name} /> : <Spinner size={16} />}
               </div>
               <div className={styles.playgroundControls}>
                 {info?.properties.map((p) => (
@@ -151,7 +153,7 @@ function Playground({ ed, id, onClose }: { ed: EditorController; id: Guid; onClo
                     ) : p.type === "INSTANCE_SWAP" ? (
                       <Select label={p.name} value={String(p.value ?? "")} options={[...new Set([String(p.value ?? ""), ...p.preferredValues])].filter(Boolean).map((v) => ({ value: v, label: nameOf(v) }))} onChange={(v) => change(p, v)} />
                     ) : (
-                      <span className={styles.hint}>Slot</span>
+                      <span className={styles.hint}>{t("Slot")}</span>
                     )}
                   </label>
                 ))}
@@ -161,7 +163,7 @@ function Playground({ ed, id, onClose }: { ed: EditorController; id: Guid; onClo
                     <Select
                       label={c.name}
                       value={modes[c.id] ?? ""}
-                      options={[{ value: "", label: "Auto" }, ...c.modes.map((m) => ({ value: m.modeId, label: m.name }))]}
+                      options={[{ value: "", label: t("Auto") }, ...c.modes.map((m) => ({ value: m.modeId, label: m.name }))]}
                       onChange={(v) => {
                         if (scratch && setScratchMode(scratch, c.id, v)) {
                           setModes((m) => ({ ...m, [c.id]: v }));

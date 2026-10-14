@@ -3,23 +3,28 @@
  * (docs/data.md §5.7), when the source offers it: the per-file UI state
  * (current page, each page's camera and selection, panel widths) restored
  * on open and written as it changes, and the thumbnail Home shows — the
- * first page rendered offscreen by the engine, 800 × 600, written a few
- * seconds after the last change and before the tab flushes (closes, quits,
- * hides).
+ * file's thumbnail frame (else the first page) rendered offscreen by the
+ * engine, 800 × 450, written a few seconds after the last change and before
+ * the tab flushes (closes, quits, hides).
  */
 import { currentTheme } from "@/ds";
 import { Status } from "@/engine/abi";
+import type { Guid, Pixels } from "@/engine/codec";
 import type { EditorController } from "./controller";
 import type { EditorUiState } from "./documentSource";
 import { encodeDocumentBytes, engineDerivedDataVersion } from "./engineCompat";
 import { colorToHex, hexToColor, sameColor } from "./model/color";
+import { thumbnailNode } from "./objectCommands";
 
 /**
- * The card's image: 4:3 (the store's 800 × 600 limit), the content fitted inside a margin on the page's colour. Home's
- * card shows about the middle 16:9 band of it (object-fit: cover), so the content stays within 600 × 340.
+ * The card's image: 16:9, as Home's card shows it (FileCard's thumbnail area; the store takes up to 800 × 600). The
+ * file's thumbnail frame fills it (cover, centred); a first page without frames shows its content fitted within a
+ * margin on the page's colour.
  */
-const THUMB_SIZE = { width: 800, height: 600 };
+const THUMB_SIZE = { width: 800, height: 450 };
 const THUMB_CONTENT = { width: 600, height: 340 };
+/** The frame's render is at most this long on its longer side (a very tall frame is cropped to its middle). */
+const THUMB_MAX_RENDER = 4096;
 const THUMB_DELAY_MS = 4000;
 /** No thumbnail within this long of the open: the card already shows the file; the first seconds are the user's. */
 const OPEN_QUIET_MS = 10000;
@@ -92,18 +97,58 @@ function pageColor(ed: EditorController, page: string): string {
 }
 
 /**
- * The file's first page (Figma's cover) as an 800 × 600 PNG: its content, rendered offscreen by the engine
- * (`renderThumbnail`, no overlays, the canvas untouched), fitted within 600 × 340 and centred on the page's colour.
- * Without the margin a single shape filled the whole card with one colour, and the card looked empty. An empty page
- * gives null (Home shows its blank card).
+ * The frame Home's card shows (Figma): the one set with "Set as thumbnail" (the document's thumbnailInfo), else the
+ * first page's first top-level frame (or component); null when there is none (the page's content is shown instead).
+ */
+export function thumbnailFrame(ed: EditorController): Guid | null {
+  const set = thumbnailNode(ed);
+  if (set) return set;
+  const first = ed.store.pages[0];
+  if (!first) return null;
+  const kids = (ed.engine.readNode(first.guid, { childIds: true }) as { childIds?: Guid[] } | null)?.childIds ?? [];
+  for (const k of kids) {
+    const n = ed.engine.readNode(k, { fields: ["type", "resizeToFit", "visible"] }) as { type?: string; resizeToFit?: boolean; visible?: boolean } | null;
+    if (n && n.visible !== false && (n.type === "FRAME" || n.type === "SYMBOL" || n.type === "INSTANCE") && !n.resizeToFit) return k;
+  }
+  return null;
+}
+
+/** The page a layer is on. */
+function pageOf(ed: EditorController, id: Guid): Guid | null {
+  let cur: Guid | undefined = id;
+  for (let i = 0; cur && i < 256; i++) {
+    const n = ed.engine.readNode(cur, { fields: ["type", "parentIndex"] }) as { type?: string; parentIndex?: { guid: Guid } } | null;
+    if (!n) return null;
+    if (n.type === "CANVAS") return cur;
+    cur = n.parentIndex?.guid;
+  }
+  return null;
+}
+
+/**
+ * Home's card image (16:9, 800 × 450 PNG), rendered offscreen by the engine (no overlays, the canvas untouched): the
+ * file's thumbnail frame (`thumbnailFrame`) filling it — cover, centred, rendered at the card's resolution or finer
+ * — on its page's colour; without one, the first page's content fitted within 600 × 340 and centred on the page's
+ * colour (without the margin a single shape filled the whole card with one colour, and the card looked empty). An
+ * empty file gives null (Home shows its blank card).
  */
 export async function captureThumbnail(ed: EditorController): Promise<{ png: Uint8Array; width: number; height: number } | null> {
-  const first = ed.store.pages[0];
-  if (!first || ed.engine.destroyed) return null;
-  // maxSize bounds the longer side: content taller than 4:3 is rendered smaller so it stays within the height.
-  const render = () => {
-    const wide = ed.engine.renderThumbnailPixels({ page: first.guid, maxSize: THUMB_CONTENT.width });
-    return wide && wide.height > THUMB_CONTENT.height ? ed.engine.renderThumbnailPixels({ page: first.guid, maxSize: Math.floor((THUMB_CONTENT.width * THUMB_CONTENT.height) / wide.height) }) : wide;
+  const firstPage = ed.store.pages[0];
+  if (!firstPage || ed.engine.destroyed) return null;
+  const frame = thumbnailFrame(ed);
+  const page = (frame && pageOf(ed, frame)) || firstPage.guid;
+  const render = (): Pixels | null => {
+    if (frame) {
+      const size = (ed.engine.readNode(frame, { fields: ["size"] }) as { size?: { x: number; y: number } } | null)?.size;
+      const w = Math.max(1, size?.x ?? 1);
+      const h = Math.max(1, size?.y ?? 1);
+      // The longer side at which the frame covers the card at 1:1 (its shorter side matches the card's)
+      const cover = Math.max(THUMB_SIZE.width / w, THUMB_SIZE.height / h) * Math.max(w, h);
+      return ed.engine.renderNodeThumbnailPixels({ node: frame, maxSize: Math.min(THUMB_MAX_RENDER, Math.ceil(cover)) });
+    }
+    // maxSize bounds the longer side: content taller than the band is rendered smaller so it stays within the height.
+    const wide = ed.engine.renderThumbnailPixels({ page: firstPage.guid, maxSize: THUMB_CONTENT.width });
+    return wide && wide.height > THUMB_CONTENT.height ? ed.engine.renderThumbnailPixels({ page: firstPage.guid, maxSize: Math.floor((THUMB_CONTENT.width * THUMB_CONTENT.height) / wide.height) }) : wide;
   };
   // Taken at once (on close the engine goes right after); if that render asked for images it didn't have yet,
   // once they are in it is taken again, so the card shows them.
@@ -124,9 +169,19 @@ export async function captureThumbnail(ed: EditorController): Promise<{ png: Uin
   out.height = THUMB_SIZE.height;
   const g = out.getContext("2d");
   if (!g) return null;
-  g.fillStyle = pageColor(ed, first.guid);
+  g.fillStyle = pageColor(ed, page);
   g.fillRect(0, 0, out.width, out.height);
-  g.drawImage(content, Math.round((out.width - image.width) / 2), Math.round((out.height - image.height) / 2));
+  if (frame) {
+    // Cover, centred: the frame fills the card, what is past its sides cropped.
+    const scale = Math.max(out.width / image.width, out.height / image.height);
+    const w = image.width * scale;
+    const h = image.height * scale;
+    g.imageSmoothingEnabled = true;
+    g.imageSmoothingQuality = "high";
+    g.drawImage(content, (out.width - w) / 2, (out.height - h) / 2, w, h);
+  } else {
+    g.drawImage(content, Math.round((out.width - image.width) / 2), Math.round((out.height - image.height) / 2));
+  }
   const blob = await new Promise<Blob | null>((resolve) => out.toBlob(resolve, "image/png"));
   return blob ? { png: new Uint8Array(await blob.arrayBuffer()), width: out.width, height: out.height } : null;
 }
@@ -141,8 +196,9 @@ function trackThumbnail(ed: EditorController): () => void {
   const opened = performance.now();
   let timer = 0;
   let idle = 0;
-  let stale = false;
   let writing: Promise<void> = Promise.resolve();
+  // A file whose card has no picture yet (a new file, its Thumbnail frame) gets one without waiting for an edit.
+  let stale = ed.source.hasThumbnail === false;
   const cancelIdle = () => {
     if (idle && typeof cancelIdleCallback === "function") cancelIdleCallback(idle);
     idle = 0;
@@ -177,6 +233,7 @@ function trackThumbnail(ed: EditorController): () => void {
     schedule();
   });
   ed.beforeFlush.add(write);
+  if (stale) schedule();
   return () => {
     off();
     ed.beforeFlush.delete(write);
@@ -232,11 +289,12 @@ function trackSnapshot(ed: EditorController): () => void {
   if (!save || !engineDerivedDataVersion(ed.engine)) return () => {};
   let timer = 0;
   let idle = 0;
-  let stale = false;
   let supported = true;
   let lastCostMs = 0;
   let lastSavedAt = -Infinity;
   let writing: Promise<void> = Promise.resolve();
+  // A file whose card has no picture yet (a new file, its Thumbnail frame) gets one without waiting for an edit.
+  let stale = ed.source.hasThumbnail === false;
   const cancelIdle = () => {
     if (idle && typeof cancelIdleCallback === "function") cancelIdleCallback(idle);
     idle = 0;

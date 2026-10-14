@@ -5,6 +5,7 @@
  */
 import { useState } from "react";
 import { Button, Dialog, SegmentedControl, Select, TextInput } from "@/ds";
+import { t, useT } from "@/i18n";
 import type { PluginService } from "../service";
 
 type Template = "default" | "run-once" | "custom-ui" | "inspect" | "codegen";
@@ -19,15 +20,16 @@ const DEV: { value: Template; label: string }[] = [
 ];
 
 export function NewPluginDialog({ service, onClose }: { service: PluginService; onClose: () => void }) {
+  useT();
   const [editor, setEditor] = useState<"figma" | "dev">("figma");
   const [name, setName] = useState("");
   const [template, setTemplate] = useState<Template>("default");
   const [busy, setBusy] = useState(false);
-  const templates = editor === "figma" ? DESIGN : DEV;
+  const templates = (editor === "figma" ? DESIGN : DEV).map((o) => ({ ...o, label: t(o.label) }));
   return (
     <Dialog
       open
-      title="Create a plugin"
+      title={t("Create a plugin")}
       onClose={onClose}
       footer={
         <Button
@@ -38,25 +40,25 @@ export function NewPluginDialog({ service, onClose }: { service: PluginService; 
             void service.newPlugin(name.trim(), template).then((made) => (made ? onClose() : setBusy(false)));
           }}
         >
-          Save as
+          {t("Save as")}
         </Button>
       }
     >
       <SegmentedControl
-        label="Editor"
+        label={t("Editor")}
         value={editor}
         fullWidth
         options={[
-          { value: "figma", label: "Figma design" },
-          { value: "dev", label: "Dev Mode" },
+          { value: "figma", label: t("Figma design") },
+          { value: "dev", label: t("Dev Mode") },
         ]}
         onChange={(v) => {
           setEditor(v as "figma" | "dev");
           setTemplate(v === "dev" ? "inspect" : "default");
         }}
       />
-      <TextInput label="Name your plugin" placeholder="Name your plugin" value={name} onChange={setName} autoFocus />
-      <Select label="Template" value={template} options={templates} onChange={(v) => setTemplate(v as Template)} />
+      <TextInput label={t("Name your plugin")} placeholder={t("Name your plugin")} value={name} onChange={setName} autoFocus />
+      <Select label={t("Template")} value={template} options={templates} onChange={(v) => setTemplate(v as Template)} />
     </Dialog>
   );
 }

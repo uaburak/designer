@@ -13,6 +13,7 @@
  */
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, IS_MAC, Icon, IconButton, KeyCap, Popover, Select, Tabs, radius, size, space } from "@/ds";
+import { t, useT } from "@/i18n";
 import { KEYBOARD_LAYOUTS, type KeyCombo, type KeyboardLayoutId } from "@shared/shortcuts";
 import { useEditor } from "../controller";
 import { useUI } from "../hooks";
@@ -50,6 +51,7 @@ export function ShortcutsPanel() {
 }
 
 function Panel() {
+  useT();
   const ed = useEditor();
   const tabId = useUI((s) => s.shortcutsTab ?? "essential");
   const settings = useShortcutSettings();
@@ -108,7 +110,7 @@ function Panel() {
     };
   }, [recording]);
 
-  const tab = SHORTCUT_TABS.find((t) => t.id === tabId) ?? SHORTCUT_TABS[0];
+  const tab = SHORTCUT_TABS.find((x) => x.id === tabId) ?? SHORTCUT_TABS[0];
   const used = new Set(settings.used);
   const legend = layoutMap(settings.layout).label;
   const identity = settings.layout === "generic" || settings.layout === "us";
@@ -135,7 +137,7 @@ function Panel() {
           else anchors.current.delete(key);
         }}
         className={styles.capsButton}
-        aria-label={`Change shortcut: ${label}`}
+        aria-label={t("Change shortcut: {name}", { name: t(label) })}
         data-shortcut-caps={command}
         data-shortcut-recording={isRecording ? "" : undefined}
         onClick={() => start(command, key)}
@@ -143,7 +145,7 @@ function Panel() {
         {isRecording ? (
           <>
             {held && comboCaps({ code: "", ...held }).slice(0, -1).map((c, i) => <KeyCap key={i}>{c.text}</KeyCap>)}
-            <KeyCap recording>Press keys…</KeyCap>
+            <KeyCap recording>{t("Press keys…")}</KeyCap>
           </>
         ) : caps.length ? (
           caps.map((c, i) => (
@@ -152,7 +154,7 @@ function Panel() {
             </KeyCap>
           ))
         ) : (
-          <span className={styles.none}>None</span>
+          <span className={styles.none}>{t("None")}</span>
         )}
       </button>
     );
@@ -162,7 +164,7 @@ function Panel() {
     commands.some((c) => isCustom(c, settings.bindings)) ? (
       <IconButton
         icon="24.reset.instance.small"
-        label="Reset to default"
+        label={t("Reset to default")}
         tone="secondary"
         className={styles.reset}
         data-shortcut-reset={commands[0]}
@@ -175,7 +177,7 @@ function Panel() {
     ) : null;
 
   const renderRow = (row: ShortcutRow, i: number): ReactNode => {
-    if (row.kind === "heading") return <div key={i} className={row.tone === "strong" ? styles.heading : styles.hint}>{row.text}</div>;
+    if (row.kind === "heading") return <div key={i} className={row.tone === "strong" ? styles.heading : styles.hint}>{t(row.text)}</div>;
     const lit = usageIds(row).some((u) => used.has(u));
     let keys: ReactNode;
     if (row.kind === "fixed") {
@@ -183,7 +185,7 @@ function Panel() {
         <span className={styles.caps}>
           {fixedCaps(row.caps).map((c, j) => (
             <KeyCap key={j} lit={lit} icon={c.icon}>
-              {c.text}
+              {c.text && t(c.text)}
             </KeyCap>
           ))}
         </span>
@@ -195,7 +197,7 @@ function Panel() {
           {resetButton(row.parts.map((p) => p.command))}
           {groups.map((g, j) => (
             <Fragment key={j}>
-              {j > 0 && <span className={styles.and}>and</span>}
+              {j > 0 && <span className={styles.and}>{t("and")}</span>}
               {capsButton(row.parts[g.part].command, `${row.id}:${g.part}`, g.caps, lit, row.parts.length > 1 ? commandName(row.parts[g.part].command) : row.label)}
             </Fragment>
           ))}
@@ -205,22 +207,22 @@ function Panel() {
     return (
       <div key={i} className={styles.row} data-shortcut-row={row.id} data-lit={lit ? "" : undefined}>
         {row.icon && <Icon name={row.icon} className={styles.icon} />}
-        <span className={styles.label}>{row.label}</span>
+        <span className={styles.label}>{t(row.label)}</span>
         {keys}
       </div>
     );
   };
 
-  const tabs = SHORTCUT_TABS.map((t: ShortcutTab) => {
-    const ids = tabUsageIds(t);
-    return { value: t.id, label: t.label, lit: ids.length > 0 && ids.every((u) => used.has(u)) };
+  const tabs = SHORTCUT_TABS.map((tb: ShortcutTab) => {
+    const ids = tabUsageIds(tb);
+    return { value: tb.id, label: t(tb.label), lit: ids.length > 0 && ids.every((u) => used.has(u)) };
   });
 
   let body: ReactNode;
   if (tab.id === "essential") {
     body = (
       <div className={styles.essential}>
-        <div className={styles.essentialTitle}>Essential keyboard shortcuts</div>
+        <div className={styles.essentialTitle}>{t("Essential keyboard shortcuts")}</div>
         <div className={styles.grid}>
           {ESSENTIALS.map((item, i) => {
             const lit = used.has(item.command);
@@ -229,13 +231,13 @@ function Panel() {
               <div key={item.command} className={styles.essentialItem} data-shortcut-row={item.command} data-lit={lit ? "" : undefined}>
                 <span className={styles.number}>{i + 1}</span>
                 <div className={styles.row}>
-                  <span className={styles.essentialName}>{item.title}</span>
+                  <span className={styles.essentialName}>{t(item.title)}</span>
                   <span className={styles.caps}>
                     {resetButton([item.command])}
                     {capsButton(item.command, `essential:${item.command}`, first ? comboCaps(first, undefined, identity ? undefined : legend) : [], lit, item.title)}
                   </span>
                 </div>
-                <p className={styles.description}>{item.description}</p>
+                <p className={styles.description}>{t(item.description)}</p>
               </div>
             );
           })}
@@ -257,30 +259,30 @@ function Panel() {
   }
 
   return (
-    <section data-shortcuts-panel="" data-theme="dark" className={styles.panel} aria-label="Keyboard shortcuts">
+    <section data-shortcuts-panel="" data-theme="dark" className={styles.panel} aria-label={t("Keyboard shortcuts")}>
       <div className={styles.tabRow}>
-        <Tabs label="Keyboard shortcuts" variant="card" className={styles.tabs} value={tab.id} tabs={tabs} onChange={(v) => ed.ui.set({ shortcutsTab: v })} />
+        <Tabs label={t("Keyboard shortcuts")} variant="card" className={styles.tabs} value={tab.id} tabs={tabs} onChange={(v) => ed.ui.set({ shortcutsTab: v })} />
         <div className={styles.actions}>
           {anyCustom && (
             <Button variant="ghost" data-shortcut-reset-all="" onClick={() => shortcutPrefs.update({ bindings: {} })}>
-              Reset all
+              {t("Reset all")}
             </Button>
           )}
-          <IconButton icon="24.close.small" label="Close" tone="secondary" onClick={close} />
+          <IconButton icon="24.close.small" label={t("Close")} tone="secondary" onClick={close} />
         </div>
       </div>
       <div className={styles.body}>{body}</div>
       {pending && (
-        <Popover anchor={pending.anchor} placement="top" width={240} label="Shortcut already in use" onClose={() => setPending(null)}>
+        <Popover anchor={pending.anchor} placement="top" width={240} label={t("Shortcut already in use")} onClose={() => setPending(null)}>
           <div className={styles.conflict}>
             <p>
               {pending.conflicts[0].id === null
-                ? `${comboText(pending.combo)} is used for ${pending.conflicts[0].label} and can't be changed.`
-                : `${comboText(pending.combo)} is already used for ${pending.conflicts.map((c) => c.label).join(", ")}.`}
+                ? t("{keys} is used for {name} and can't be changed.", { keys: comboText(pending.combo), name: t(pending.conflicts[0].label) })
+                : t("{keys} is already used for {names}.", { keys: comboText(pending.combo), names: pending.conflicts.map((c) => t(c.label)).join(", ") })}
             </p>
             <div className={styles.conflictActions}>
               <Button variant="secondary" onClick={() => setPending(null)}>
-                Cancel
+                {t("Cancel")}
               </Button>
               {pending.conflicts[0].id !== null && (
                 <Button
@@ -291,7 +293,7 @@ function Panel() {
                     setPending(null);
                   }}
                 >
-                  Replace
+                  {t("Replace")}
                 </Button>
               )}
             </div>
@@ -329,25 +331,26 @@ function TallKeyShape({ top, lower }: { top: number; lower: number }) {
 
 /** The Layout tab: "Keyboard layout:" and the keyboard drawn with the layout's legends. */
 function LayoutTab({ layout }: { layout: KeyboardLayoutId }) {
+  useT();
   const shown = layout;
   return (
     <div className={styles.layout}>
       <div className={styles.layoutSide}>
         <label className={styles.layoutField}>
-          <span className={styles.layoutLabel}>Keyboard layout:</span>
+          <span className={styles.layoutLabel}>{t("Keyboard layout:")}</span>
           <Select
-            label="Keyboard layout"
+            label={t("Keyboard layout")}
             value={layout}
             width={179}
-            options={[...KEYBOARD_LAYOUTS.slice(1), KEYBOARD_LAYOUTS[0]].map((l) => ({ value: l.id, label: l.label }))}
+            options={[...KEYBOARD_LAYOUTS.slice(1), KEYBOARD_LAYOUTS[0]].map((l) => ({ value: l.id, label: t(l.label) }))}
             onChange={(v) => shortcutPrefs.update({ layout: v as KeyboardLayoutId })}
           />
         </label>
         <Button variant="link" className={styles.learnMore} onClick={() => window.open(LAYOUT_HELP, "_blank", "noopener")}>
-          Learn more
+          {t("Learn more")}
         </Button>
       </div>
-      <div className={styles.keyboard} role="img" aria-label={`${KEYBOARD_LAYOUTS.find((l) => l.id === shown)?.label} keyboard`} data-keyboard={shown}>
+      <div className={styles.keyboard} role="img" aria-label={t("{layout} keyboard", { layout: t(KEYBOARD_LAYOUTS.find((l) => l.id === shown)?.label ?? "") })} data-keyboard={shown}>
         {drawnKeyboard(shown).map((row, r) => (
           <div key={r} className={styles.keyboardRow}>
             {row.map((k) =>

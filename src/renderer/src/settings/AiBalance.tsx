@@ -13,6 +13,7 @@ import { allowanceOf, policyOf, type OrgAiPolicy } from "@shared/ai/orgPolicy";
 import { DEFAULT_AI_SETTINGS, type AiBalance, type AiUsageEntry } from "@shared/ai/types";
 import { aiSetupBridge } from "./bridge";
 import styles from "./AiTab.module.css";
+import { intlLocale, t, useT } from "@/i18n";
 
 // ---- open / closed ----
 
@@ -60,25 +61,26 @@ export async function loadAiBalance(own?: number): Promise<BalanceView> {
   return { balance, own: monthly, policy };
 }
 
-export const resetDate = (t: number) => new Date(t).toLocaleDateString("en-US", { month: "long", day: "numeric" });
+export const resetDate = (at: number) => new Date(at).toLocaleDateString(intlLocale(), { month: "long", day: "numeric" });
 
 /** "X of 4,250 credits used this month", the bar, and the org's word when it limits */
 export function BalanceMeter({ view }: { view: BalanceView }) {
+  useT();
   const { balance: b, own, policy } = view;
   const share = b.allowance > 0 ? Math.min(1, b.used / b.allowance) : 1;
   return (
     <div className={styles.meter} data-ai-meter="">
       <p className={styles.meterText}>
-        <span data-ai-used="">{`${formatCredits(b.used)} of ${formatCredits(b.allowance)} credits used this month`}</span>
+        <span data-ai-used="">{t("{used} of {allowance} credits used this month", { used: formatCredits(b.used), allowance: formatCredits(b.allowance) })}</span>
       </p>
-      <div className={styles.bar} role="meter" aria-label="AI credits used" aria-valuemin={0} aria-valuemax={b.allowance} aria-valuenow={Math.min(b.used, b.allowance)}>
+      <div className={styles.bar} role="meter" aria-label={t("AI credits used")} aria-valuemin={0} aria-valuemax={b.allowance} aria-valuenow={Math.min(b.used, b.allowance)}>
         <div className={styles.fill} data-full={b.remaining <= 0 || undefined} style={{ width: `${share * 100}%` }} />
       </div>
-      <p className={styles.caption}>{`${formatCredits(b.remaining)} credits remaining · Resets ${resetDate(b.resetsAt)}`}</p>
+      <p className={styles.caption}>{t("{credits} credits remaining · Resets {date}", { credits: formatCredits(b.remaining), date: resetDate(b.resetsAt) })}</p>
       {policy.disabled ? (
-        <p className={styles.caption} data-ai-org="">Your organization has turned off AI features.</p>
+        <p className={styles.caption} data-ai-org="">{t("Your organization has turned off AI features.")}</p>
       ) : policy.limit !== null && policy.limit < own ? (
-        <p className={styles.caption} data-ai-org="">{`Your organization allows ${formatCredits(policy.limit)} credits a month.`}</p>
+        <p className={styles.caption} data-ai-org="">{t("Your organization allows {credits} credits a month.", { credits: formatCredits(policy.limit) })}</p>
       ) : null}
     </div>
   );
@@ -91,6 +93,7 @@ export function AiBalanceHost() {
 }
 
 export function AiBalanceDialog({ onClose }: { onClose: () => void }) {
+  useT();
   const [view, setView] = useState<BalanceView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<AiUsageEntry[]>([]);
@@ -99,7 +102,7 @@ export function AiBalanceDialog({ onClose }: { onClose: () => void }) {
     let live = true;
     loadAiBalance().then(
       (v) => live && setView(v),
-      () => live && setError("The AI balance isn't available right now."),
+      () => live && setError(t("The AI balance isn't available right now.")),
     );
     getStoreClient()
       .ai.history({ limit: 50 })
@@ -124,33 +127,33 @@ export function AiBalanceDialog({ onClose }: { onClose: () => void }) {
       });
   const b = view?.balance;
   return (
-    <Dialog title="AI balance" open size="medium" onClose={onClose} footer={<Button variant="secondary" size="large" onClick={onClose}>Done</Button>}>
+    <Dialog title={t("AI balance")} open size="medium" onClose={onClose} footer={<Button variant="secondary" size="large" onClick={onClose}>{t("Done")}</Button>}>
       <div className={styles.balance} data-ai-balance="">
         {error && <p className={styles.caption}>{error}</p>}
         {b && view && (
           <>
             <dl className={styles.figures}>
               <div>
-                <dt>Credits used</dt>
+                <dt>{t("Credits used")}</dt>
                 <dd data-ai-figure="used">{formatCredits(b.used)}</dd>
               </div>
               <div>
-                <dt>Credits remaining</dt>
+                <dt>{t("Credits remaining")}</dt>
                 <dd data-ai-figure="remaining">{formatCredits(b.remaining)}</dd>
               </div>
               <div>
-                <dt>{`Resets ${resetDate(b.resetsAt)}`}</dt>
-                <dd data-ai-figure="allowance">{`${formatCredits(b.allowance)} a month`}</dd>
+                <dt>{t("Resets {date}", { date: resetDate(b.resetsAt) })}</dt>
+                <dd data-ai-figure="allowance">{t("{credits} a month", { credits: formatCredits(b.allowance) })}</dd>
               </div>
             </dl>
             <BalanceMeter view={view} />
             {Object.keys(b.byAction).length > 0 && (
-              <ul className={styles.byAction} aria-label="Credits by feature">
+              <ul className={styles.byAction} aria-label={t("Credits by feature")}>
                 {Object.entries(b.byAction)
                   .sort((x, y) => (y[1] ?? 0) - (x[1] ?? 0))
                   .map(([a, n]) => (
                     <li key={a}>
-                      <span>{AI_ACTION_LABEL[a as keyof typeof AI_ACTION_LABEL] ?? a}</span>
+                      <span>{t(AI_ACTION_LABEL[a as keyof typeof AI_ACTION_LABEL] ?? a)}</span>
                       <span className={styles.num}>{formatCredits(n ?? 0)}</span>
                     </li>
                   ))}
@@ -158,24 +161,24 @@ export function AiBalanceDialog({ onClose }: { onClose: () => void }) {
             )}
           </>
         )}
-        <h3 className={styles.subheading}>Usage history</h3>
+        <h3 className={styles.subheading}>{t("Usage history")}</h3>
         {history.length === 0 ? (
-          <p className={styles.caption}>No AI used this month.</p>
+          <p className={styles.caption}>{t("No AI used this month.")}</p>
         ) : (
           <table className={styles.history} data-ai-history="">
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Feature</th>
-                <th>Model</th>
-                <th className={styles.num}>Credits</th>
+                <th>{t("Date")}</th>
+                <th>{t("Feature")}</th>
+                <th>{t("Model")}</th>
+                <th className={styles.num}>{t("Credits")}</th>
               </tr>
             </thead>
             <tbody>
               {history.map((e) => (
                 <tr key={e.id} data-ok={e.ok || undefined}>
-                  <td>{new Date(e.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</td>
-                  <td>{AI_ACTION_LABEL[e.action] ?? e.action}</td>
+                  <td>{new Date(e.at).toLocaleString(intlLocale(), { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</td>
+                  <td>{t(AI_ACTION_LABEL[e.action] ?? e.action)}</td>
                   <td className={styles.muted}>{e.model ?? e.providerId}</td>
                   <td className={styles.num}>{formatCredits(e.credits)}</td>
                 </tr>
@@ -185,7 +188,7 @@ export function AiBalanceDialog({ onClose }: { onClose: () => void }) {
         )}
         {cursor && (
           <Button variant="secondary" onClick={more}>
-            Show more
+            {t("Show more")}
           </Button>
         )}
       </div>

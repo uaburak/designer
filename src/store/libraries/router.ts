@@ -14,6 +14,7 @@ import { StoreError } from "../../shared/store/protocol";
 import type { LibraryEvent, LibraryRegistry, Unsubscribe } from "../../shared/store/repositories";
 import type { FileKey, FileMeta, LibraryDiff, LibraryVersion, PublishRequest, Redirect } from "../../shared/store/types";
 import type { OrgLibraries } from "./org";
+import { t as tr } from "../../shared/i18n";
 
 /** What the router needs besides the two registries */
 export interface LibraryRouterHost {
@@ -84,11 +85,11 @@ export class LibraryRouter implements LibraryRegistry {
     if (isLocalLibraryKey(key)) return this.local.setEnabled(fileKey, key, !!enabled);
     // An org library in a local file: only the one a library it uses moved to (§16.9), swapping the key.
     const meta = this.host.getMeta(fileKey);
-    if (!meta) throw new StoreError("not-found", "No such file");
+    if (!meta) throw new StoreError("not-found", tr("No such file"));
     const has = meta.enabledLibraries.includes(key);
     if (!enabled) return has ? this.host.patchFile(fileKey, { enabledLibraries: meta.enabledLibraries.filter((k) => k !== key) }) : { ...meta };
     const from = this.host.moved.movedFrom(key);
-    if (!from.length) throw new StoreError("forbidden", "Organization libraries can be used only in files of that organization", { code: "org_library_local_file" });
+    if (!from.length) throw new StoreError("forbidden", tr("Organization libraries can be used only in files of that organization"), { code: "org_library_local_file" });
     if (has && !from.some((k) => meta.enabledLibraries.includes(k))) return { ...meta };
     const next = [...meta.enabledLibraries.filter((k) => !from.includes(k)), ...(has ? [] : [key])];
     return this.host.patchFile(fileKey, { enabledLibraries: next });

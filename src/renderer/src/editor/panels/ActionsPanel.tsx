@@ -33,6 +33,7 @@ import { AI_ROW_BY_ID, AI_ROWS, imageRowHandler, type AiRowDef } from "../ai/act
 import { AiBadge, AiPanelView, showsAiView, useAiState } from "../ai/AiPanel";
 import { openVisualSearch } from "../search";
 import styles from "./ActionsPanel.module.css";
+import { t, tp, useT } from "@/i18n";
 
 /** Live: 529 × 354, 8 above the toolbar */
 const WIDTH = 529;
@@ -101,7 +102,7 @@ function score(label: string, query: string): number {
  * matches, best first, by section.
  */
 export function actionRows(items: readonly ActionItem[], query: string, recents: readonly string[], run: (id: string) => boolean): Row[] {
-  const row = (a: ActionItem, section = a.section): Row => ({ key: `${section}:${a.id}`, label: a.label, section, shortcut: a.shortcut, icon: AI_ROW_BY_ID.get(a.id)?.icon ?? toolIcon(a.id), disabled: a.disabled, run: () => run(a.id), ...(AI_ROW_BY_ID.has(a.id) ? { ai: true } : {}) });
+  const row = (a: ActionItem, section = a.section): Row => ({ key: `${section}:${a.id}`, label: t(a.label), section, shortcut: a.shortcut, icon: AI_ROW_BY_ID.get(a.id)?.icon ?? toolIcon(a.id), disabled: a.disabled, run: () => run(a.id), ...(AI_ROW_BY_ID.has(a.id) ? { ai: true } : {}) });
   const q = query.trim();
   if (!q) {
     const byId = new Map(items.map((a) => [a.id, a]));
@@ -109,7 +110,7 @@ export function actionRows(items: readonly ActionItem[], query: string, recents:
     // (live: Recents, then the AI sections — no list of every command)
     return [...recent.map((a) => row(a, "Recents")), ...items.filter((a) => AI_ROW_BY_ID.has(a.id)).map((a) => row(a))];
   }
-  const scored = items.map((a) => ({ a, s: score(a.label, q) })).filter((x) => x.s > 0);
+  const scored = items.map((a) => ({ a, s: Math.max(score(t(a.label), q), score(a.label, q)) })).filter((x) => x.s > 0);
   // Sections in the order of their best match; within one, best first (the menu's order breaks ties).
   const best = new Map<string, number>();
   for (const { a, s } of scored) best.set(a.section, Math.max(best.get(a.section) ?? 0, s));
@@ -150,6 +151,7 @@ function aiItems(ed: EditorController, enabled: boolean): ActionItem[] {
 }
 
 function Actions() {
+  useT();
   const ed = useEditor();
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -299,7 +301,7 @@ function Actions() {
       <div
         ref={root}
         role="dialog"
-        aria-label="Actions"
+        aria-label={t("Actions")}
         data-actions-panel=""
         className={styles.panel}
         style={{ left: at.left, top: at.top, width: WIDTH, height: HEIGHT }}
@@ -351,8 +353,8 @@ function Actions() {
           <input
             ref={input}
             type="text"
-            aria-label="Search"
-            placeholder={prompt ? (prompt.defs[prompt.index].description ?? prompt.defs[prompt.index].name) : "Search actions"}
+            aria-label={t("Search")}
+            placeholder={prompt ? (prompt.defs[prompt.index].description ?? prompt.defs[prompt.index].name) : t("Search actions")}
             spellCheck={false}
             autoComplete="off"
             value={query}
@@ -370,7 +372,7 @@ function Actions() {
           {/* Live: "Visual search (AI beta)" at 491, 12 — opens visual search (docs/ai.md §6) */}
           <IconButton
             icon="24.image"
-            label="Visual search (AI beta)"
+            label={t("Visual search (AI beta)")}
             className={styles.visualSearch}
             disabled={!aiState.enabled}
             onClick={() => {
@@ -381,35 +383,35 @@ function Actions() {
         </div>
         {/* Live: both lines are there for assistive tech — "Results will update as you type." at -1, 3 and "11 results available." at -1, 27 */}
         <div role="status" className={styles.srOnly}>
-          Results will update as you type.
+          {t("Results will update as you type.")}
         </div>
         <div role="status" className={styles.srOnly} style={{ top: 24 }}>
-          {`${rows.length} results available.`}
+          {tp(rows.length, "{n} result available.", "{n} results available.")}
         </div>
-        <Tabs label="Action kinds" className={styles.tabs} value={tab} tabs={TABS} onChange={(v) => {
+        <Tabs label={t("Action kinds")} className={styles.tabs} value={tab} tabs={TABS.map((x) => ({ ...x, label: t(x.label) }))} onChange={(v) => {
             setTab(v as Tab);
             setActiveKey(undefined);
           }} />
-        <div ref={list} id="actions-results" role="listbox" aria-label="Results" className={styles.list}>
+        <div ref={list} id="actions-results" role="listbox" aria-label={t("Results")} className={styles.list}>
           {prompt && (prompt.error || prompt.loading || !rows.length) && (
             <div role="presentation" className={styles.header}>
               {`${prompt.ref.name} › ${prompt.defs[prompt.index].name}`}
               {prompt.error ? ` — ${prompt.error}` : prompt.loading ? ` — ${prompt.loading}` : ""}
             </div>
           )}
-          {!prompt && tab === "plugins" && !rows.length && <p className={styles.empty}>{query ? "No plugins match" : plugins ? "No plugins yet. Import one from its manifest below" : "Plugins aren’t available here"}</p>}
-          {tab === "assets" && !rows.length && <p className={styles.empty}>{query ? "No components match" : "No components in this file"}</p>}
-          {tab === "all" && allEmpty.kind === "no-results" && <p className={styles.empty}>No results for “{allEmpty.query}”</p>}
+          {!prompt && tab === "plugins" && !rows.length && <p className={styles.empty}>{query ? t("No plugins match") : plugins ? t("No plugins yet. Import one from its manifest below") : t("Plugins aren’t available here")}</p>}
+          {tab === "assets" && !rows.length && <p className={styles.empty}>{query ? t("No components match") : t("No components in this file")}</p>}
+          {tab === "all" && allEmpty.kind === "no-results" && <p className={styles.empty}>{t("No results for “{query}”", { query: allEmpty.query })}</p>}
           {tab === "all" && allEmpty.kind === "recents" && (
             <div role="presentation" className={styles.header}>
-              Recents
+              {t("Recents")}
             </div>
           )}
           {rows.map((r, i) => (
             <div key={r.key} style={{ display: "contents" }}>
               {(i === 0 || rows[i - 1].section !== r.section) && (
                 <div role="presentation" className={styles.header}>
-                  {r.section}
+                  {tab === "assets" || prompt ? r.section : t(r.section)}
                 </div>
               )}
               <div
@@ -429,7 +431,7 @@ function Actions() {
                 {r.shortcut && <span className={styles.shortcut}>{r.shortcut}</span>}
                 {r.plugin && plugins && (
                   <span className={styles.more} onClick={(e) => e.stopPropagation()}>
-                    <MenuButton label="More" entries={() => pluginRowMenu(plugins, r.plugin!.ref)} onSelect={(id) => pluginRowAction(plugins, r.plugin!.ref, id)}>
+                    <MenuButton label={t("More")} entries={() => pluginRowMenu(plugins, r.plugin!.ref)} onSelect={(id) => pluginRowAction(plugins, r.plugin!.ref, id)}>
                       <Icon name="24.more" />
                     </MenuButton>
                   </span>
@@ -444,7 +446,7 @@ function Actions() {
             <span className={styles.glyph}>
               <Icon name="24.plus" />
             </span>
-            <span className={styles.label}>Import new plugin from manifest…</span>
+            <span className={styles.label}>{t("Import new plugin from manifest…")}</span>
           </button>
         )}
         </>
@@ -468,8 +470,8 @@ interface ParameterPrompt {
 
 /** A plugin row's ⋯: Save / Remove from saved; development plugins: Open console, Remove. */
 function pluginRowMenu(s: PluginService, ref: PluginRef): MenuEntry[] {
-  const out: MenuEntry[] = [{ id: "save", label: s.isSaved(ref) ? "Remove from saved" : "Save" }];
-  if (ref.source.type === "development") out.push("-", { id: "console", label: "Open console" }, { id: "remove", label: "Remove" });
+  const out: MenuEntry[] = [{ id: "save", label: s.isSaved(ref) ? t("Remove from saved") : t("Save") }];
+  if (ref.source.type === "development") out.push("-", { id: "console", label: t("Open console") }, { id: "remove", label: t("Remove") });
   return out;
 }
 

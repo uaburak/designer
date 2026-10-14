@@ -53,6 +53,7 @@ import type { Unsubscribe } from "../../shared/store/emitter";
 import { StoreError } from "../../shared/store/protocol";
 import type { GovernanceRefusal } from "../multiplayer/service";
 import type { IdentityHost } from "./identity";
+import { t as tr } from "../../shared/i18n";
 
 /** What the repository needs: the session's JSON calls (the store's MultiplayerService) */
 export type GovernanceHost = IdentityHost;
@@ -71,7 +72,7 @@ const seg = (s: unknown, what: string): string => {
 
 const domainSeg = (d: unknown): string => {
   const n = typeof d === "string" ? normalizeDomain(d) : null;
-  if (!n) throw new StoreError("invalid", "Enter a domain like acme.com", { code: "invalid", field: "domain" });
+  if (!n) throw new StoreError("invalid", tr("Enter a domain like acme.com"), { code: "invalid", field: "domain" });
   return encodeURIComponent(n);
 };
 
@@ -80,7 +81,7 @@ const str = (v: unknown, max: number): string | undefined => (typeof v === "stri
 /** A 6-digit code or a recovery code; the server checks it (and counts failures) */
 const codeOf = (code: unknown): { code: string } => {
   const c = typeof code === "string" ? code.trim() : "";
-  if (!c || c.length > 32) throw new StoreError("invalid", "Enter the 6-digit code from your authenticator app", { code: "invalid", field: "code" });
+  if (!c || c.length > 32) throw new StoreError("invalid", tr("Enter the 6-digit code from your authenticator app"), { code: "invalid", field: "code" });
   return { code: c };
 };
 
@@ -90,7 +91,7 @@ function cleanIdpInput(input: unknown, renaming: boolean): Partial<I.IdpConfigIn
   const name = typeof i.name === "string" ? i.name.trim().slice(0, 100) : undefined;
   if (renaming && i.provider === undefined && name !== undefined) return { name };
   const provider = typeof i.provider === "string" && i.provider in IDP_PROVIDER_LABEL ? (i.provider as I.IdpProvider) : null;
-  if (!provider) throw new StoreError("invalid", "Choose an identity provider", { code: "invalid", field: "provider" });
+  if (!provider) throw new StoreError("invalid", tr("Choose an identity provider"), { code: "invalid", field: "provider" });
   const out: I.IdpConfigInput = { provider };
   const metadataUrl = str(i.metadataUrl, 2048);
   const metadataXml = str(i.metadataXml, 1_000_000);
@@ -111,10 +112,10 @@ function cleanPolicy(input: unknown): G.InternalPolicyInput {
   const i = (input && typeof input === "object" ? input : {}) as Partial<Record<keyof G.InternalPolicyInput, unknown>>;
   const title = typeof i.title === "string" ? i.title.trim() : "";
   const text = typeof i.text === "string" ? i.text.trim() : "";
-  if (!title || title.length > POLICY_TITLE_MAX) throw new StoreError("invalid", "Enter a title", { code: "invalid", field: "title" });
-  if (!text || text.length > POLICY_TEXT_MAX) throw new StoreError("invalid", "Enter the policy's text", { code: "invalid", field: "text" });
-  if (typeof i.audience !== "string" || !(i.audience in POLICY_AUDIENCE_LABEL)) throw new StoreError("invalid", "Choose who must agree", { code: "invalid", field: "audience" });
-  if (typeof i.cadence !== "string" || !(i.cadence in POLICY_CADENCE_LABEL)) throw new StoreError("invalid", "Choose how often", { code: "invalid", field: "cadence" });
+  if (!title || title.length > POLICY_TITLE_MAX) throw new StoreError("invalid", tr("Enter a title"), { code: "invalid", field: "title" });
+  if (!text || text.length > POLICY_TEXT_MAX) throw new StoreError("invalid", tr("Enter the policy's text"), { code: "invalid", field: "text" });
+  if (typeof i.audience !== "string" || !(i.audience in POLICY_AUDIENCE_LABEL)) throw new StoreError("invalid", tr("Choose who must agree"), { code: "invalid", field: "audience" });
+  if (typeof i.cadence !== "string" || !(i.cadence in POLICY_CADENCE_LABEL)) throw new StoreError("invalid", tr("Choose how often"), { code: "invalid", field: "cadence" });
   return { title, text, audience: i.audience as G.PolicyAudience, cadence: i.cadence as G.PolicyCadence };
 }
 
@@ -132,7 +133,7 @@ function logQuery(q: unknown): string {
 export function governanceRepository(host: GovernanceHost, hooks: GovernanceHooks = {}): GovernanceRepository {
   const admin = (orgId: unknown) => `/orgs/${seg(orgId, "org")}/admin`;
   const call = <T>(method: string, path: string, body?: unknown): Promise<T> => {
-    if (!host.signedIn) return Promise.reject(new StoreError("offline", "Log in to manage your organization"));
+    if (!host.signedIn) return Promise.reject(new StoreError("offline", tr("Log in to manage your organization")));
     return host.call<T>(method, path, body);
   };
   const changed = async (orgId: string | null) => {
@@ -158,7 +159,7 @@ export function governanceRepository(host: GovernanceHost, hooks: GovernanceHook
       return list;
     },
     addNetworkRange: async (orgId, cidr) => {
-      if (typeof cidr !== "string" || !cidr.trim()) throw new StoreError("invalid", "Enter an IP range like 203.0.113.0/24", { code: "invalid", field: "cidr" });
+      if (typeof cidr !== "string" || !cidr.trim()) throw new StoreError("invalid", tr("Enter an IP range like 203.0.113.0/24"), { code: "invalid", field: "cidr" });
       return (await call<{ range: G.NetworkRange }>("POST", `${admin(orgId)}/network-ranges`, { cidr: cidr.trim() })).range;
     },
     setNetworkRange: async (orgId, rangeId, state) => {
@@ -180,8 +181,8 @@ export function governanceRepository(host: GovernanceHost, hooks: GovernanceHook
     },
     setGuestExpiration: async (orgId, userIds, expiresAt) => {
       const ids = Array.isArray(userIds) ? [...new Set(userIds.filter((u): u is string => typeof u === "string" && !!u))] : [];
-      if (!ids.length) throw new StoreError("invalid", "Choose the guests", { code: "invalid", field: "userIds" });
-      if (expiresAt !== null && (typeof expiresAt !== "number" || !Number.isFinite(expiresAt))) throw new StoreError("invalid", "Choose a date", { code: "invalid", field: "expiresAt" });
+      if (!ids.length) throw new StoreError("invalid", tr("Choose the guests"), { code: "invalid", field: "userIds" });
+      if (expiresAt !== null && (typeof expiresAt !== "number" || !Number.isFinite(expiresAt))) throw new StoreError("invalid", tr("Choose a date"), { code: "invalid", field: "expiresAt" });
       await call("PUT", `${admin(orgId)}/guests/expiration`, { userIds: ids, expiresAt });
     },
     ekm: async (orgId) => call<G.EkmStatus>("GET", `${admin(orgId)}/key-management`),
@@ -209,7 +210,7 @@ export function governanceRepository(host: GovernanceHost, hooks: GovernanceHook
     generateIdpScimToken: async (orgId, tenantId) => call<I.ScimTokenCreated>("POST", `${admin(orgId)}/identity/idps/${seg(tenantId, "tenantId")}/scim-token`),
     revokeIdpScimToken: async (orgId, tenantId) => void (await call("DELETE", `${admin(orgId)}/identity/idps/${seg(tenantId, "tenantId")}/scim-token`)),
     mapDomain: async (orgId, domain, tenantId) => {
-      if (tenantId !== null && (typeof tenantId !== "string" || !tenantId)) throw new StoreError("invalid", "Choose an identity provider", { code: "invalid", field: "tenantId" });
+      if (tenantId !== null && (typeof tenantId !== "string" || !tenantId)) throw new StoreError("invalid", tr("Choose an identity provider"), { code: "invalid", field: "tenantId" });
       const r = await call<{ domain: I.OrgDomain; tenantId: string | null }>("PUT", `${admin(orgId)}/domains/${domainSeg(domain)}/idp`, { tenantId });
       await changed(orgId);
       // The domain as Admin lists it, with the IdP it now maps to (`tenantId`, ours beside OrgDomain's fields)

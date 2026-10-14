@@ -15,6 +15,7 @@ import type { PluginsEvent } from "../shared/plugins/types";
 import type { DevModeEvent } from "../shared/devmode/types";
 import type { UploadEvent } from "../shared/multiplayer/uploads";
 import type { CloudEvent } from "../shared/store/cloud";
+import { t as tr } from "../shared/i18n";
 
 /**
  * What the server needs from a store: `LocalStore` (the utility process), or the browser's in-memory dev store
@@ -251,7 +252,7 @@ export class StoreServer {
       await Promise.race([gate.known, new Promise<void>((r) => (timer = setTimeout(r, gate.waitMs ?? 15_000)))]);
       clearTimeout(timer);
     }
-    if (!gate.signedIn()) throw new StoreError("forbidden", LOG_IN_FIRST);
+    if (!gate.signedIn()) throw new StoreError("forbidden", tr(LOG_IN_FIRST));
   }
 
   private async dispatch(conn: Connection, m: string, a: any[]): Promise<unknown> {

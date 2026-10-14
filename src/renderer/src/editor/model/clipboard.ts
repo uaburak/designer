@@ -16,7 +16,8 @@
  * engine without kiwi, written.
  */
 import type { Guid, Message, Vector } from "@/engine/codec";
-import { deflateRawStored, inflateRawStored, type FigCodecs } from "../../../../shared/fig/compression";
+import { deflateRawStored, isZstd, inflateRawStored, type FigCodecs } from "../../../../shared/fig/compression";
+import { figmaMetaOf, type FigmaClipboardMeta } from "../../../../shared/fig/figmaClipboard";
 import { decodeCanvas, figContainer, readCanvasChunks } from "../../../../shared/fig/container";
 import { decodeMessage, DOCUMENT_FORMAT_VERSION, encodeMessage, SCHEMA_BINARY, type Message as KiwiMessage } from "../../../../shared/schema/codec";
 import { guidKey } from "../../../../shared/schema/guid";
@@ -179,8 +180,11 @@ export function encodeClipboardKiwi(bytes: Uint8Array, meta: { fileKey?: string 
   };
 }
 
-/** What a clipboard holds of ours or Figma's: our interim JSON Message, or a fig-kiwi archive. */
-export type ClipboardPayload = { kind: "json"; message: Message } | { kind: "archive"; archive: Uint8Array };
+/**
+ * What a clipboard holds of ours or Figma's: our interim JSON Message, or a fig-kiwi archive with its `(figmeta)`
+ * metadata (`app: "designerv2"` on ours; Figma's has none).
+ */
+export type ClipboardPayload = { kind: "json"; message: Message } | { kind: "archive"; archive: Uint8Array; meta: FigmaClipboardMeta | null };
 
 /** The clipboard's payload, from whichever format decodes first (an archive before the JSON); null when none is there. */
 export function readClipboard(read: (type: string) => string | null | undefined): ClipboardPayload | null {
@@ -195,12 +199,12 @@ export function readClipboard(read: (type: string) => string | null | undefined)
   };
   const own = read(CLIPBOARD_TYPE);
   const ownArchive = archiveOf(own);
-  if (ownArchive) return { kind: "archive", archive: ownArchive };
+  if (ownArchive) return { kind: "archive", archive: ownArchive, meta: { app: "designerv2" } };
   for (const type of ["text/html", "text/plain"]) {
     const text = read(type);
     const m = text ? FIG_ENVELOPE.exec(text) : null;
     const archive = archiveOf(m?.[1]);
-    if (archive) return { kind: "archive", archive };
+    if (archive) return { kind: "archive", archive, meta: figmaMetaOf(text) };
   }
   const message = decodeClipboard(read);
   return message ? { kind: "json", message } : null;
@@ -208,22 +212,34 @@ export function readClipboard(read: (type: string) => string | null | undefined)
 
 /**
  * A fig-kiwi archive → our kiwi Message bytes: ours as they are; Figma's (another schema) converted as a `.fig`
- * import is (`convert`, given by the caller: `src/shared/fig/importFig.ts decodeAnySchema`). Stored-deflate chunks
- * (ours) inflate synchronously; compressed ones (Figma's) through `inflate` (a `DecompressionStream`).
+ * import is (`convert`, given by the caller: `src/shared/fig/figmaClipboard.ts decodeFigmaClipboard`). Stored-deflate
+ * chunks (ours) inflate synchronously; compressed ones (Figma's) through `inflate` (a `DecompressionStream`), a zstd
+ * data chunk (Figma's newer archives) through `zstd` (fzstd).
  */
 export async function archiveMessage(
   archive: Uint8Array,
-  options: { inflate?: (data: Uint8Array) => Promise<Uint8Array>; convert?: (schema: Uint8Array, message: Uint8Array) => KiwiMessage } = {}
+  options: {
+    inflate?: (data: Uint8Array) => Promise<Uint8Array>;
+    zstd?: (data: Uint8Array) => Promise<Uint8Array> | Uint8Array;
+    convert?: (schema: Uint8Array, message: Uint8Array) => KiwiMessage;
+  } = {}
 ): Promise<Uint8Array | null> {
   let canvas;
   try {
     canvas = decodeCanvas(archive, STORED);
   } catch {
     if (!options.inflate) return null;
-    // Compressed chunks (Figma's): inflated with the given codec.
+    // Compressed chunks (Figma's): inflated with the given codec, zstd ones with the zstd decoder.
     try {
       const c = readCanvasChunks(archive);
-      const [schema, message] = await Promise.all(c.chunks.slice(0, 2).map((ch) => options.inflate!(ch)));
+      if (c.chunks.length < 2) return null;
+      const [schema, message] = await Promise.all(
+        c.chunks.slice(0, 2).map(async (ch) => {
+          if (!isZstd(ch)) return options.inflate!(ch);
+          if (!options.zstd) throw new Error("no zstd decoder");
+          return options.zstd(ch);
+        })
+      );
       canvas = { schema, message };
     } catch {
       return null;

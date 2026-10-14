@@ -2,6 +2,7 @@ import { app } from "electron";
 import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ThemePreference } from "../shared/ipc";
+import type { Locale } from "../shared/i18n";
 import type { ClosedTab, TabRecord } from "../shared/tabs";
 import { sanitizeShortcutSettings, type ShortcutSettings } from "../shared/shortcuts";
 
@@ -41,6 +42,8 @@ export interface Settings {
   shortcuts?: ShortcutSettings;
   /** Settings › Account › Enhance contrast */
   contrast?: boolean;
+  /** Settings › Account › Language (src/shared/i18n): absent = English */
+  locale?: Locale;
 }
 
 const file = (name: string) => join(app.getPath("userData"), name);
@@ -114,7 +117,7 @@ const isTheme = (t: unknown): t is ThemePreference => t === "system" || t === "l
 
 export function readSettings(): Settings {
   const saved = readJson("settings.json") as Partial<Settings> | null;
-  if (saved && isTheme(saved.theme)) return { theme: saved.theme, ...(saved.shortcuts ? { shortcuts: sanitizeShortcutSettings(saved.shortcuts) } : {}), ...(saved.contrast === true ? { contrast: true } : {}) };
+  if (saved && isTheme(saved.theme)) return { theme: saved.theme, ...(saved.shortcuts ? { shortcuts: sanitizeShortcutSettings(saved.shortcuts) } : {}), ...(saved.contrast === true ? { contrast: true } : {}), ...(saved.locale === "tr" ? { locale: "tr" as const } : {}) };
   const old = readJson("window.json") as { theme?: unknown } | null;
   return { theme: isTheme(old?.theme) ? old.theme : "system" };
 }

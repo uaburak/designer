@@ -5,6 +5,7 @@
  * Imports nothing from Node or the DOM (the desktop store and the browser's dev store both run it).
  */
 import { StoreError } from "../../shared/store/protocol";
+import { t as tr } from "../../shared/i18n";
 
 export const SERVER_BUSY_TEXT = "The server is busy. Try again in a moment.";
 export const RATE_LIMITED_TEXT = "Too many requests. Try again in a moment.";
@@ -49,7 +50,7 @@ export function busyError(status: number, text: string, page: boolean, serverCod
   const detail: Record<string, unknown> = { code: (limited ? "rate_limited" : "server_busy") satisfies TransientCode, status };
   if (cf !== null) detail.cloudflare = cf;
   if (typeof serverCode === "string") detail.serverCode = serverCode;
-  return new StoreError("unavailable", limited ? RATE_LIMITED_TEXT : SERVER_BUSY_TEXT, detail);
+  return new StoreError("unavailable", tr(limited ? RATE_LIMITED_TEXT : SERVER_BUSY_TEXT), detail);
 }
 
 /** Momentary trouble worth another try: no connection, the server busy or rate limiting */

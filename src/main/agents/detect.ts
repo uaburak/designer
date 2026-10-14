@@ -6,6 +6,7 @@ import type { AuthState, CustomServer, ProviderInfo } from "../../shared/agents/
 import { CLI_SPECS, LOCAL_SERVERS, type CliSpec } from "./providers";
 import type { CliModels } from "./providers/turns";
 import { listModels } from "./openaiBridge";
+import { t as tr } from "../../shared/i18n";
 
 /**
  * What the Agents tab can talk to on this computer: the CLIs on PATH — an app started from the Dock has launchd's
@@ -90,14 +91,14 @@ export async function detectProviders(
   const clis: ProviderInfo[] = await Promise.all(
     CLI_SPECS.map(async (s): Promise<ProviderInfo> => {
       const path = cliPath(s, find);
-      const auth: AuthState = !path ? { state: "not-installed" } : options.authOf ? await options.authOf(s, path).catch((): AuthState => ({ state: "signed-out", detail: "Couldn't read its sign-in" })) : { state: "connected" };
+      const auth: AuthState = !path ? { state: "not-installed" } : options.authOf ? await options.authOf(s, path).catch((): AuthState => ({ state: "signed-out", detail: tr("Couldn't read its sign-in") })) : { state: "connected" };
       const connected = auth.state === "connected";
       const own = options.modelsOf?.(s);
       return {
         id: s.id,
         kind: s.id,
         label: s.label,
-        note: s.note,
+        note: s.note && tr(s.note),
         available: !!path && connected,
         detail: path ?? undefined,
         models: own?.models ?? s.models,

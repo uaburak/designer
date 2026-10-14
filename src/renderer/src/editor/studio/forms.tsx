@@ -5,6 +5,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
 import { Button, Checkbox, Icon, IconButton, Select, Swatch, TextInput, normalizeHex } from "@/ds";
+import { t, useT } from "@/i18n";
 import { getStoreClient } from "@/store";
 import { DEFAULT_FORMATS, type Brand, type BrandColor, type BrandImage, type BrandImageRole, type BrandSave, type BrandsRepository, type LabelTier, type Product, type ProductSave, type SocialFormat } from "../../../../shared/studio/types";
 import styles from "./BrandsPanel.module.css";
@@ -57,11 +58,12 @@ export function useImageUrl(brandId: string, imageId: string): string | null {
 }
 
 export function StoredPicture({ brandId, image, onRemove }: { brandId: string; image: BrandImage; onRemove?: () => void }) {
+  useT();
   const url = useImageUrl(brandId, image.id);
   return (
     <div className={styles.picture} data-picture={image.id}>
       {url && <img src={url} alt={image.name} />}
-      {onRemove && <IconButton icon="16.close" label={`Remove ${image.name}`} className={styles.pictureRemove} onClick={onRemove} />}
+      {onRemove && <IconButton icon="16.close" label={t("Remove {name}", { name: image.name })} className={styles.pictureRemove} onClick={onRemove} />}
     </div>
   );
 }
@@ -87,17 +89,17 @@ export async function stageFiles(files: Iterable<File>, role: BrandImageRole): P
   const refused: string[] = [];
   for (const f of files) {
     if (!TYPES.includes(f.type)) {
-      refused.push(`${f.name || "That file"} isn't a PNG, JPEG or WebP picture`);
+      refused.push(f.name ? t("{name} isn't a PNG, JPEG or WebP picture", { name: f.name }) : t("That file isn't a PNG, JPEG or WebP picture"));
       continue;
     }
     if (f.size > MAX_BYTES) {
-      refused.push(`${f.name || "That picture"} is over 20 MB`);
+      refused.push(f.name ? t("{name} is over 20 MB", { name: f.name }) : t("That picture is over 20 MB"));
       continue;
     }
     const url = await new Promise<string>((resolve, reject) => {
       const r = new FileReader();
       r.onload = () => resolve(String(r.result));
-      r.onerror = () => reject(r.error ?? new Error("The file can't be read"));
+      r.onerror = () => reject(r.error ?? new Error(t("The file can't be read")));
       r.readAsDataURL(f);
     });
     staged.push({ key: `s${++stageKey}`, role, name: f.name || `${role}.${f.type.slice(6)}`, data: url.slice(url.indexOf(",") + 1), url });
@@ -121,6 +123,7 @@ export interface PicturesProps {
 
 /** One kind of picture: its thumbnails and a place to drop, paste into (click it first) or pick files with. */
 export function Pictures(p: PicturesProps) {
+  useT();
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const take = useCallback(
@@ -151,7 +154,7 @@ export function Pictures(p: PicturesProps) {
         {p.staged.map((s) => (
           <div key={s.key} className={styles.picture} data-picture="staged">
             <img src={s.url} alt={s.name} />
-            <IconButton icon="16.close" label={`Remove ${s.name}`} className={styles.pictureRemove} onClick={() => p.onUnstage(s.key)} />
+            <IconButton icon="16.close" label={t("Remove {name}", { name: s.name })} className={styles.pictureRemove} onClick={() => p.onUnstage(s.key)} />
           </div>
         ))}
       </div>
@@ -159,7 +162,7 @@ export function Pictures(p: PicturesProps) {
         className={styles.drop}
         role="button"
         tabIndex={0}
-        aria-label={`Add ${p.label.toLowerCase()}`}
+        aria-label={t("Add {what}", { what: p.label.toLocaleLowerCase() })}
         data-over={over || undefined}
         onClick={() => input.current?.click()}
         onKeyDown={(e) => {
@@ -177,7 +180,7 @@ export function Pictures(p: PicturesProps) {
         onPaste={onPaste}
       >
         <Icon name="24.image" />
-        Drop, paste or choose pictures
+        {t("Drop, paste or choose pictures")}
       </div>
       <input
         ref={input}
@@ -228,6 +231,7 @@ export interface BrandFormProps {
 const newColor = (): BrandColor => ({ name: "", hex: "#" });
 
 export function BrandForm({ brandId, prefill, onDone, onCancel }: BrandFormProps) {
+  useT();
   const [loaded, setLoaded] = useState<Brand | null>(null);
   const [ready, setReady] = useState(!brandId);
   const [name, setName] = useState(prefill?.name ?? "");
@@ -298,11 +302,11 @@ export function BrandForm({ brandId, prefill, onDone, onCancel }: BrandFormProps
       }}
     >
       <div className={styles.field}>
-        <span className={styles.fieldLabel}>Name</span>
-        <TextInput label="Brand name" value={name} placeholder="Partner Agro" autoFocus={!brandId} onChange={setName} data-field="name" />
+        <span className={styles.fieldLabel}>{t("Name")}</span>
+        <TextInput label={t("Brand name")} value={name} placeholder="Partner Agro" autoFocus={!brandId} onChange={setName} data-field="name" />
       </div>
       <Pictures
-        label="Logos"
+        label={t("Logos")}
         role="logo"
         brandId={brandId}
         stored={(loaded?.logos ?? []).filter((i) => i.role === "logo")}
@@ -314,47 +318,47 @@ export function BrandForm({ brandId, prefill, onDone, onCancel }: BrandFormProps
         onProblem={setProblem}
       />
       <div className={styles.field} data-colors="">
-        <span className={styles.fieldLabel}>Colours</span>
+        <span className={styles.fieldLabel}>{t("Colours")}</span>
         <div className={styles.list}>
           {colors.map((c, i) => (
             <div key={i} className={styles.listRow}>
-              <TextInput label={`Colour ${i + 1} name`} value={c.name} placeholder="Name" onChange={(v) => setColor(i, { name: v })} />
+              <TextInput label={t("Colour {n} name", { n: i + 1 })} value={c.name} placeholder={t("Name")} onChange={(v) => setColor(i, { name: v })} />
               <Swatch color={c.hex} size={16} shape="round" />
-              <TextInput label={`Colour ${i + 1} hex`} className={styles.hex} value={c.hex} placeholder="#1BA37A" maxLength={9} onChange={(v) => setColor(i, { hex: v })} />
-              <IconButton icon="16.close" label={`Remove colour ${i + 1}`} onClick={() => setColors((cs) => cs.filter((_, k) => k !== i))} />
+              <TextInput label={t("Colour {n} hex", { n: i + 1 })} className={styles.hex} value={c.hex} placeholder="#1BA37A" maxLength={9} onChange={(v) => setColor(i, { hex: v })} />
+              <IconButton icon="16.close" label={t("Remove colour {n}", { n: i + 1 })} onClick={() => setColors((cs) => cs.filter((_, k) => k !== i))} />
             </div>
           ))}
         </div>
         <Button variant="ghost" icon="24.plus.small" onClick={() => setColors((cs) => [...cs, newColor()])}>
-          Add colour
+          {t("Add colour")}
         </Button>
       </div>
       <div className={styles.field}>
-        <span className={styles.fieldLabel}>Fonts (comma separated)</span>
-        <TextInput label="Fonts" value={fonts} placeholder="Inter, Playfair Display" onChange={setFonts} />
+        <span className={styles.fieldLabel}>{t("Fonts (comma separated)")}</span>
+        <TextInput label={t("Fonts")} value={fonts} placeholder="Inter, Playfair Display" onChange={setFonts} />
       </div>
       <div className={styles.field}>
-        <span className={styles.fieldLabel}>Tone and look</span>
-        <textarea className={styles.textArea} aria-label="Tone and look" placeholder="Calm, honest, close to the farmer" value={tone} rows={3} onChange={(e) => setTone(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+        <span className={styles.fieldLabel}>{t("Tone and look")}</span>
+        <textarea className={styles.textArea} aria-label={t("Tone and look")} placeholder={t("Calm, honest, close to the farmer")} value={tone} rows={3} onChange={(e) => setTone(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
       </div>
       <div className={styles.field} data-formats="">
-        <span className={styles.fieldLabel}>Formats</span>
+        <span className={styles.fieldLabel}>{t("Formats")}</span>
         <div className={styles.list}>
           {formats.map((f, i) => (
             <div key={i} className={styles.listRow}>
-              <TextInput label={`Format ${i + 1} name`} value={f.name} placeholder="Post" onChange={(v) => setFormat(i, { name: v })} />
-              <TextInput label={`Format ${i + 1} width`} className={styles.num} value={String(f.width || "")} prefix="W" onChange={(v) => setFormat(i, { width: Number(v.replace(/\D/g, "")) || 0 })} />
-              <TextInput label={`Format ${i + 1} height`} className={styles.num} value={String(f.height || "")} prefix="H" onChange={(v) => setFormat(i, { height: Number(v.replace(/\D/g, "")) || 0 })} />
-              <IconButton icon="16.close" label={`Remove format ${i + 1}`} onClick={() => setFormats((fs) => fs.filter((_, k) => k !== i))} />
+              <TextInput label={t("Format {n} name", { n: i + 1 })} value={f.name} placeholder={t("Post")} onChange={(v) => setFormat(i, { name: v })} />
+              <TextInput label={t("Format {n} width", { n: i + 1 })} className={styles.num} value={String(f.width || "")} prefix="W" onChange={(v) => setFormat(i, { width: Number(v.replace(/\D/g, "")) || 0 })} />
+              <TextInput label={t("Format {n} height", { n: i + 1 })} className={styles.num} value={String(f.height || "")} prefix="H" onChange={(v) => setFormat(i, { height: Number(v.replace(/\D/g, "")) || 0 })} />
+              <IconButton icon="16.close" label={t("Remove format {n}", { n: i + 1 })} onClick={() => setFormats((fs) => fs.filter((_, k) => k !== i))} />
             </div>
           ))}
         </div>
         <Button variant="ghost" icon="24.plus.small" onClick={() => setFormats((fs) => [...fs, { id: `format-${fs.length + 1}`, name: "", width: 1080, height: 1080 }])}>
-          Add format
+          {t("Add format")}
         </Button>
       </div>
       <Pictures
-        label="Style pictures"
+        label={t("Style pictures")}
         role="style"
         brandId={brandId}
         stored={(loaded?.logos ?? []).filter((i) => i.role === "style")}
@@ -372,10 +376,10 @@ export function BrandForm({ brandId, prefill, onDone, onCancel }: BrandFormProps
       )}
       <div className={styles.footer}>
         <Button variant="secondary" onClick={onCancel} disabled={busy}>
-          Cancel
+          {t("Cancel")}
         </Button>
         <Button variant="primary" type="submit" disabled={busy || !name.trim()} data-save="">
-          {brandId ? "Save" : "Add brand"}
+          {brandId ? t("Save") : t("Add brand")}
         </Button>
       </div>
     </form>
@@ -404,6 +408,7 @@ const TIERS = [
 ];
 
 export function ProductForm({ brandId, productId, prefill, onDone, onCancel }: ProductFormProps) {
+  useT();
   const [loaded, setLoaded] = useState<Product | null>(null);
   const [ready, setReady] = useState(!productId);
   const [name, setName] = useState(prefill?.name ?? "");
@@ -479,25 +484,25 @@ export function ProductForm({ brandId, productId, prefill, onDone, onCancel }: P
       }}
     >
       <div className={styles.field}>
-        <span className={styles.fieldLabel}>Name</span>
-        <TextInput label="Product name" value={name} placeholder="Liq Humus" autoFocus={!productId} onChange={setName} data-field="name" />
+        <span className={styles.fieldLabel}>{t("Name")}</span>
+        <TextInput label={t("Product name")} value={name} placeholder="Liq Humus" autoFocus={!productId} onChange={setName} data-field="name" />
       </div>
-      <Pictures label="Product photos" role="packshot" {...of("packshot")} />
-      <Pictures label="Label close-ups" role="label" {...of("label")} />
+      <Pictures label={t("Product photos")} role="packshot" {...of("packshot")} />
+      <Pictures label={t("Label close-ups")} role="label" {...of("label")} />
       <div className={styles.field}>
-        <span className={styles.fieldLabel}>Shape</span>
-        <textarea className={styles.textArea} aria-label="Shape" placeholder="20 L white translucent jerrycan, handle top left, blue hexagon seal on the cap" value={shape} rows={3} onChange={(e) => setShape(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+        <span className={styles.fieldLabel}>{t("Shape")}</span>
+        <textarea className={styles.textArea} aria-label={t("Shape")} placeholder={t("20 L white translucent jerrycan, handle top left, blue hexagon seal on the cap")} value={shape} rows={3} onChange={(e) => setShape(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
       </div>
       <div className={styles.field} data-labels="">
-        <span className={styles.fieldLabel}>Label texts</span>
+        <span className={styles.fieldLabel}>{t("Label texts")}</span>
         <div className={styles.list}>
           {labels.map((l, i) => (
             <div key={l.id ?? `n${i}`} className={styles.listRow}>
-              <TextInput label={`Label text ${i + 1}`} value={l.text} placeholder="Exactly as printed" onChange={(v) => setLabel(i, { text: v })} />
-              <Select label={`Label text ${i + 1} tier`} className={styles.tier} value={l.tier} options={TIERS} onChange={(v) => setLabel(i, { tier: v as LabelTier })} />
+              <TextInput label={t("Label text {n}", { n: i + 1 })} value={l.text} placeholder={t("Exactly as printed")} onChange={(v) => setLabel(i, { text: v })} />
+              <Select label={t("Label text {n} tier", { n: i + 1 })} className={styles.tier} value={l.tier} options={TIERS.map((o) => ({ ...o, label: t(o.label) }))} onChange={(v) => setLabel(i, { tier: v as LabelTier })} />
               <IconButton
                 icon="16.close"
-                label={`Remove label text ${i + 1}`}
+                label={t("Remove label text {n}", { n: i + 1 })}
                
                 onClick={() => {
                   setLabels((ls) => ls.filter((_, k) => k !== i));
@@ -508,14 +513,14 @@ export function ProductForm({ brandId, productId, prefill, onDone, onCancel }: P
           ))}
         </div>
         <Button variant="ghost" icon="24.plus.small" onClick={() => setLabels((ls) => [...ls, { text: "", tier: "sharp" }])}>
-          Add text
+          {t("Add text")}
         </Button>
-        <span className={styles.muted}>Sharp texts are written exactly in pictures. Soft ones (small print) are left illegible.</span>
-        <Checkbox label="These texts are checked" checked={confirmed && labels.some((l) => l.text.trim())} onChange={setConfirmed} disabled={!labels.some((l) => l.text.trim())} />
+        <span className={styles.muted}>{t("Sharp texts are written exactly in pictures. Soft ones (small print) are left illegible.")}</span>
+        <Checkbox label={t("These texts are checked")} checked={confirmed && labels.some((l) => l.text.trim())} onChange={setConfirmed} disabled={!labels.some((l) => l.text.trim())} />
       </div>
       <div className={styles.field}>
-        <span className={styles.fieldLabel}>Notes</span>
-        <textarea className={styles.textArea} aria-label="Notes" value={notes} rows={2} onChange={(e) => setNotes(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+        <span className={styles.fieldLabel}>{t("Notes")}</span>
+        <textarea className={styles.textArea} aria-label={t("Notes")} value={notes} rows={2} onChange={(e) => setNotes(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
       </div>
       {problem && (
         <div className={styles.problem} role="alert">
@@ -524,10 +529,10 @@ export function ProductForm({ brandId, productId, prefill, onDone, onCancel }: P
       )}
       <div className={styles.footer}>
         <Button variant="secondary" onClick={onCancel} disabled={busy}>
-          Cancel
+          {t("Cancel")}
         </Button>
         <Button variant="primary" type="submit" disabled={busy || !name.trim()} data-save="">
-          {productId ? "Save" : "Add product"}
+          {productId ? t("Save") : t("Add product")}
         </Button>
       </div>
     </form>

@@ -18,6 +18,7 @@ import { useAdmin, useLoad } from "./context";
 import { NETWORK_STATE_LABEL, formatAgo, formatDate } from "./labels";
 import { ConfirmDialog, Field, RowMenu, Table, styles, type Column } from "./parts";
 import { CopyRow, errorParts } from "./SettingsLogin";
+import { intlLocale, t, tp, tx, useT } from "@/i18n";
 
 /** The overview (`GET admin/governance`) — null while loading or without `store.governance` */
 export function useGovernance(): { overview: GovernanceOverview | null; on: boolean; available: boolean } {
@@ -29,11 +30,12 @@ export function useGovernance(): { overview: GovernanceOverview | null; on: bool
 
 /** The server's per-IdP SCIM row (ours, not in the shared type: docs/governance.md §9 14a) */
 type IdpWithScim = IdpConfig & { scim?: { baseUrl: string; token: ScimTokenInfo | null } };
-const idpName = (i: IdpConfig) => i.name?.trim() || IDP_PROVIDER_LABEL[i.provider];
+const idpName = (i: IdpConfig) => i.name?.trim() || t(IDP_PROVIDER_LABEL[i.provider]);
 
 // ---- Manage identity providers (IdP) -----------------------------------------------------------------------------
 
 export function IdpsDialog({ authMethod, onClose }: { authMethod: OrgSettings["authMethod"]; onClose: () => void }) {
+  useT();
   const { orgId, store, run, changed, onTestSso } = useAdmin();
   const g = store.governance!;
   const { data: idps } = useLoad(() => g.idps(orgId), [orgId]);
@@ -47,21 +49,21 @@ export function IdpsDialog({ authMethod, onClose }: { authMethod: OrgSettings["a
       await onTestSso(i.tenantId);
       const after = (await g.idps(orgId)).find((x) => x.tenantId === i.tenantId);
       changed();
-      showToast(after?.testedAt ? { message: `${idpName(i)} works` } : { message: "The test sign-in didn't finish", kind: "error" });
+      showToast(after?.testedAt ? { message: t("{name} works", { name: idpName(i) }) } : { message: t("The test sign-in didn't finish"), kind: "error" });
     } catch (e) {
       showToast({ message: errorParts(e).message, kind: "error" });
     }
   };
   const columns: Column<IdpWithScim>[] = [
-    { id: "name", label: "Name", width: "minmax(160px, 1.5fr)", render: (i) => <span className={styles.whoText}><span className={styles.whoName}>{idpName(i)}</span><span className={styles.whoEmail}>{IDP_PROVIDER_LABEL[i.provider]}</span></span> },
-    { id: "domains", label: "Domains", width: "minmax(140px, 1.5fr)", render: (i) => <span className={styles.muted}>{i.domains?.length ? i.domains.join(", ") : "No domains"}</span> },
-    { id: "status", label: "Status", width: 110, render: (i) => (i.testedAt ? <Badge tone="success">Tested</Badge> : <Badge tone="warning">Not tested</Badge>) },
-    { id: "scim", label: "SCIM", width: 64, render: (i) => <span className={styles.muted}>{i.scim?.token ? "On" : "Off"}</span> },
+    { id: "name", label: "Name", width: "minmax(160px, 1.5fr)", render: (i) => <span className={styles.whoText}><span className={styles.whoName}>{idpName(i)}</span><span className={styles.whoEmail}>{t(IDP_PROVIDER_LABEL[i.provider])}</span></span> },
+    { id: "domains", label: "Domains", width: "minmax(140px, 1.5fr)", render: (i) => <span className={styles.muted}>{i.domains?.length ? i.domains.join(", ") : t("No domains")}</span> },
+    { id: "status", label: "Status", width: 110, render: (i) => (i.testedAt ? <Badge tone="success">{t("Tested")}</Badge> : <Badge tone="warning">{t("Not tested")}</Badge>) },
+    { id: "scim", label: "SCIM", width: 64, render: (i) => <span className={styles.muted}>{i.scim?.token ? t("On") : t("Off")}</span> },
     {
       id: "menu", label: "", width: 32, align: "end",
       render: (i) => (
         <RowMenu
-          label={`More for ${idpName(i)}`}
+          label={t("More for {name}", { name: idpName(i) })}
           entries={[
             { id: "edit", label: "Edit configuration" },
             { id: "test", label: "Test", disabled: !onTestSso },
@@ -84,25 +86,25 @@ export function IdpsDialog({ authMethod, onClose }: { authMethod: OrgSettings["a
   const scimIdp = list.find((i) => i.tenantId === scimOf);
   return (
     <>
-      <Dialog title="Manage identity providers (IdP)" open={!editing && !scimOf} size="large" onClose={onClose} footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
+      <Dialog title={t("Manage identity providers (IdP)")} open={!editing && !scimOf} size="large" onClose={onClose} footer={<Button variant="primary" onClick={onClose}>{t("Done")}</Button>}>
         <div className={styles.form} data-idps="">
-          <div className={styles.note}>Each domain uses one identity provider; an identity provider can serve several domains. Members on domains without one log in with the organization's other allowed methods.</div>
+          <div className={styles.note}>{t("Each domain uses one identity provider; an identity provider can serve several domains. Members on domains without one log in with the organization's other allowed methods.")}</div>
           <div className={styles.toolbar}>
             <span className={styles.spacer} />
-            <Button variant="secondary" icon="24.plus.small" onClick={() => setEditing("new")}>Add IDP</Button>
+            <Button variant="secondary" icon="24.plus.small" onClick={() => setEditing("new")}>{t("Add IDP")}</Button>
           </div>
           <div className={styles.inDialog}>
-            <Table label="Identity providers" rows={list} columns={columns} rowKey={(i) => i.tenantId} empty="No identity providers yet" />
+            <Table label={t("Identity providers")} rows={list} columns={columns} rowKey={(i) => i.tenantId} empty="No identity providers yet" />
           </div>
-          {authMethod === "saml" && <div className={styles.note}>Members must log in with SAML SSO: an identity provider with domains, or the only one, can't be changed or removed until they don't.</div>}
+          {authMethod === "saml" && <div className={styles.note}>{t("Members must log in with SAML SSO: an identity provider with domains, or the only one, can't be changed or removed until they don't.")}</div>}
         </div>
       </Dialog>
       {editing && <IdpEditDialog idp={editing === "new" ? null : editing} idps={list} onClose={() => setEditing(null)} />}
       {scimIdp && <IdpScimDialog idp={scimIdp} onClose={() => setScimOf(null)} />}
       {removing && (
         <ConfirmDialog
-          title={`Remove ${idpName(removing)}?`} destructive confirm="Remove"
-          body="Its domains stop using it for SAML SSO, and its SCIM token is revoked."
+          title={t("Remove {name}?", { name: idpName(removing) })} destructive confirm="Remove"
+          body={t("Its domains stop using it for SAML SSO, and its SCIM token is revoked.")}
           onConfirm={() => void run(() => g.removeIdp(orgId, removing.tenantId), `${idpName(removing)} removed`)}
           onClose={() => setRemoving(null)}
         />
@@ -115,6 +117,7 @@ type Conn = "keep" | "url" | "xml" | "manual";
 
 /** + Add IDP / Edit configuration: name, provider, the metadata (or keep it), the domains it serves */
 function IdpEditDialog({ idp, idps, onClose }: { idp: IdpWithScim | null; idps: IdpWithScim[]; onClose: () => void }) {
+  useT();
   const { orgId, store, run } = useAdmin();
   const g = store.governance!;
   const { data: ov } = useLoad(() => (store.identity ? store.identity.overview(orgId) : Promise.resolve(null)), [orgId, store.identity]);
@@ -151,44 +154,44 @@ function IdpEditDialog({ idp, idps, onClose }: { idp: IdpWithScim | null; idps: 
   };
   return (
     <Dialog
-      title={idp ? "Edit configuration" : "Add IDP"} open size="large" onClose={onClose}
+      title={idp ? t("Edit configuration") : t("Add IDP")} open size="large" onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={!ready} onClick={() => void save()}>{idp ? "Save" : "Add IDP"}</Button>
+          <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
+          <Button variant="primary" disabled={!ready} onClick={() => void save()}>{idp ? t("Save") : t("Add IDP")}</Button>
         </>
       }
     >
       <div className={styles.form} data-idp-edit={idp?.tenantId ?? "new"}>
-        <Field title="Name">
-          <TextInput label="Name" value={name} onChange={setName} placeholder="Okta (Europe)" variant="outlined" autoFocus />
+        <Field title={t("Name")}>
+          <TextInput label={t("Name")} value={name} onChange={setName} placeholder={t("Okta (Europe)")} variant="outlined" autoFocus />
         </Field>
-        <Field title="Identity provider">
-          <Select label="Identity provider" value={provider} disabled={conn === "keep"} options={(Object.keys(IDP_PROVIDER_LABEL) as IdpProvider[]).map((p) => ({ value: p, label: IDP_PROVIDER_LABEL[p] }))} onChange={(v) => setProvider(v as IdpProvider)} />
+        <Field title={t("Identity provider")}>
+          <Select label={t("Identity provider")} value={provider} disabled={conn === "keep"} options={(Object.keys(IDP_PROVIDER_LABEL) as IdpProvider[]).map((p) => ({ value: p, label: t(IDP_PROVIDER_LABEL[p]) }))} onChange={(v) => setProvider(v as IdpProvider)} />
         </Field>
         <RadioGroup
-          label="How to connect" value={conn} onChange={(v) => setConn(v as Conn)}
-          options={[...(idp ? [{ value: "keep", label: "Keep the current configuration" }] : []), { value: "url", label: "IdP metadata URL" }, { value: "xml", label: "IdP metadata XML" }, { value: "manual", label: "Enter the IdP's values" }]}
+          label={t("How to connect")} value={conn} onChange={(v) => setConn(v as Conn)}
+          options={[...(idp ? [{ value: "keep", label: t("Keep the current configuration") }] : []), { value: "url", label: t("IdP metadata URL") }, { value: "xml", label: t("IdP metadata XML") }, { value: "manual", label: t("Enter the IdP's values") }]}
         />
-        {conn === "url" && <Field title="IdP metadata URL"><TextInput label="IdP metadata URL" value={url} onChange={setUrl} placeholder="https://" variant="outlined" /></Field>}
-        {conn === "xml" && <Field title="IdP metadata XML"><TextArea label="IdP metadata XML" value={xml} onChange={setXml} placeholder="<EntityDescriptor …>" minRows={4} maxRows={8} /></Field>}
+        {conn === "url" && <Field title={t("IdP metadata URL")}><TextInput label={t("IdP metadata URL")} value={url} onChange={setUrl} placeholder="https://" variant="outlined" /></Field>}
+        {conn === "xml" && <Field title={t("IdP metadata XML")}><TextArea label={t("IdP metadata XML")} value={xml} onChange={setXml} placeholder="<EntityDescriptor …>" minRows={4} maxRows={8} /></Field>}
         {conn === "manual" && (
           <>
-            <Field title="IdP Entity ID"><TextInput label="IdP Entity ID" value={entityId} onChange={setEntityId} variant="outlined" /></Field>
-            <Field title="IdP SSO Target URL"><TextInput label="IdP SSO Target URL" value={ssoUrl} onChange={setSsoUrl} placeholder="https://" variant="outlined" /></Field>
-            <Field title="Signing Certificate"><TextArea label="Signing Certificate" value={certificate} onChange={setCertificate} placeholder="-----BEGIN CERTIFICATE-----" minRows={3} maxRows={6} /></Field>
+            <Field title={t("IdP Entity ID")}><TextInput label={t("IdP Entity ID")} value={entityId} onChange={setEntityId} variant="outlined" /></Field>
+            <Field title={t("IdP SSO Target URL")}><TextInput label={t("IdP SSO Target URL")} value={ssoUrl} onChange={setSsoUrl} placeholder="https://" variant="outlined" /></Field>
+            <Field title={t("Signing Certificate")}><TextArea label={t("Signing Certificate")} value={certificate} onChange={setCertificate} placeholder="-----BEGIN CERTIFICATE-----" minRows={3} maxRows={6} /></Field>
           </>
         )}
-        {idp && conn !== "keep" && <div className={styles.note}>A changed configuration has to be tested again before members must log in with it.</div>}
-        <Field title="Domains">
+        {idp && conn !== "keep" && <div className={styles.note}>{t("A changed configuration has to be tested again before members must log in with it.")}</div>}
+        <Field title={t("Domains")}>
           <div className={styles.form} data-idp-domains="">
-            {verified.length === 0 && <div className={styles.note}>Verify a domain in Manage domains first.</div>}
+            {verified.length === 0 && <div className={styles.note}>{t("Verify a domain in Manage domains first.")}</div>}
             {verified.map((d) => {
               const other = owner(d);
               return (
                 <div key={d} className={styles.option}>
                   <Checkbox label={d} checked={domains.has(d)} onChange={(on) => setDomains((s) => { const n = new Set(s); if (on) n.add(d); else n.delete(d); return n; })} />
-                  {other && <span className={styles.optionDescription}>Uses {idpName(other)} now; checking it moves it here.</span>}
+                  {other && <span className={styles.optionDescription}>{t("Uses {name} now; checking it moves it here.", { name: idpName(other) })}</span>}
                 </div>
               );
             })}
@@ -201,6 +204,7 @@ function IdpEditDialog({ idp, idps, onClose }: { idp: IdpWithScim | null; idps: 
 
 /** SCIM provisioning for one IdP: its base URL, the token shown once, Revoke */
 function IdpScimDialog({ idp, onClose }: { idp: IdpWithScim; onClose: () => void }) {
+  useT();
   const { orgId, store, run, now } = useAdmin();
   const g = store.governance!;
   const [created, setCreated] = useState<ScimTokenCreated | null>(null);
@@ -212,38 +216,38 @@ function IdpScimDialog({ idp, onClose }: { idp: IdpWithScim; onClose: () => void
   };
   return (
     <>
-      <Dialog title={`SCIM provisioning · ${idpName(idp)}`} open={!confirm} size="large" onClose={onClose} footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
+      <Dialog title={`${t("SCIM provisioning")} · ${idpName(idp)}`} open={!confirm} size="large" onClose={onClose} footer={<Button variant="primary" onClick={onClose}>{t("Done")}</Button>}>
         <div className={styles.form} data-idp-scim={idp.tenantId}>
-          <div className={styles.note}>This identity provider adds, updates and removes the members on its domains. SCIM never changes guests.</div>
+          <div className={styles.note}>{t("This identity provider adds, updates and removes the members on its domains. SCIM never changes guests.")}</div>
           <div className={styles.kvList}>
-            {idp.scim && <CopyRow label="SCIM base URL" value={idp.scim.baseUrl} />}
-            <CopyRow label="Tenant ID" value={idp.tenantId} />
+            {idp.scim && <CopyRow label={t("SCIM base URL")} value={idp.scim.baseUrl} />}
+            <CopyRow label={t("Tenant ID")} value={idp.tenantId} />
           </div>
           {created ? (
             <div className={styles.form} data-scim-token="">
-              <Field title="API token"><CodeBlock code={created.token} /></Field>
-              <Banner tone="warning">Copy this token now. You won't be able to see it again.</Banner>
+              <Field title={t("API token")}><CodeBlock code={created.token} /></Field>
+              <Banner tone="warning">{t("Copy this token now. You won't be able to see it again.")}</Banner>
             </div>
           ) : token ? (
             <div className={styles.kvList}>
-              <CopyRow label="API token" value={`Generated ${formatDate(token.createdAt)}${token.createdBy ? ` by ${token.createdBy.name ?? token.createdBy.email}` : ""}`} copy={false} />
-              <CopyRow label="Last used" value={token.lastUsedAt ? formatAgo(token.lastUsedAt, now()) : "Never"} copy={false} />
+              <CopyRow label={t("API token")} value={token.createdBy ? t("Generated {date} by {name}", { date: formatDate(token.createdAt), name: token.createdBy.name ?? token.createdBy.email }) : t("Generated {date}", { date: formatDate(token.createdAt) })} copy={false} />
+              <CopyRow label={t("Last used")} value={token.lastUsedAt ? formatAgo(token.lastUsedAt, now()) : t("Never")} copy={false} />
             </div>
           ) : null}
           <div className={styles.buttonRow}>
             {token || created ? (
               <>
-                <Button variant="secondary" onClick={() => setConfirm("regenerate")}>Generate new token</Button>
-                <Button variant="destructive" onClick={() => setConfirm("revoke")}>Revoke</Button>
+                <Button variant="secondary" onClick={() => setConfirm("regenerate")}>{t("Generate new token")}</Button>
+                <Button variant="destructive" onClick={() => setConfirm("revoke")}>{t("Revoke")}</Button>
               </>
             ) : (
-              <Button variant="primary" onClick={() => void generate()}>Generate API token</Button>
+              <Button variant="primary" onClick={() => void generate()}>{t("Generate API token")}</Button>
             )}
           </div>
         </div>
       </Dialog>
-      {confirm === "regenerate" && <ConfirmDialog title="Generate a new API token?" confirm="Generate API token" body="The current token stops working at once. Paste the new one into your identity provider." onConfirm={() => void generate()} onClose={() => setConfirm(null)} />}
-      {confirm === "revoke" && <ConfirmDialog title="Revoke the API token?" destructive confirm="Revoke" body="This identity provider can't provision members until you generate a new token." onConfirm={() => void run(() => g.revokeIdpScimToken(orgId, idp.tenantId), "API token revoked").then(() => setCreated(null))} onClose={() => setConfirm(null)} />}
+      {confirm === "regenerate" && <ConfirmDialog title={t("Generate a new API token?")} confirm="Generate API token" body={t("The current token stops working at once. Paste the new one into your identity provider.")} onConfirm={() => void generate()} onClose={() => setConfirm(null)} />}
+      {confirm === "revoke" && <ConfirmDialog title={t("Revoke the API token?")} destructive confirm="Revoke" body={t("This identity provider can't provision members until you generate a new token.")} onConfirm={() => void run(() => g.revokeIdpScimToken(orgId, idp.tenantId), "API token revoked").then(() => setCreated(null))} onClose={() => setConfirm(null)} />}
     </>
   );
 }
@@ -254,6 +258,7 @@ function IdpScimDialog({ idp, onClose }: { idp: IdpWithScim; onClose: () => void
 const entriesOf = (text: string) => text.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean);
 
 export function IpAllowlistDialog({ overview, onClose }: { overview: GovernanceOverview; onClose: () => void }) {
+  useT();
   const { orgId, store, run } = useAdmin();
   const g = store.governance!;
   const [enabled, setEnabled] = useState(overview.ipAllowlist.enabled);
@@ -269,34 +274,34 @@ export function IpAllowlistDialog({ overview, onClose }: { overview: GovernanceO
   };
   return (
     <Dialog
-      title="IP allowlist" open size="medium" onClose={onClose}
+      title={t("IP allowlist")} open size="medium" onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={!valid} onClick={() => void save()}>Save</Button>
+          <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
+          <Button variant="primary" disabled={!valid} onClick={() => void save()}>{t("Save")}</Button>
         </>
       }
     >
       <div className={styles.form} data-ip-allowlist="">
         <div className={styles.switchRow}>
           <span className={styles.settingText}>
-            <span className={styles.settingLabel}>Turn on IP allowlist</span>
-            <span className={styles.settingDescription}>Members can only reach the organization's content from these addresses. Guests and admins aren't affected. Every domain of the organization must be verified.</span>
+            <span className={styles.settingLabel}>{t("Turn on IP allowlist")}</span>
+            <span className={styles.settingDescription}>{t("Members can only reach the organization's content from these addresses. Guests and admins aren't affected. Every domain of the organization must be verified.")}</span>
           </span>
-          <Switch label="Turn on IP allowlist" checked={enabled} onChange={setEnabled} />
+          <Switch label={t("Turn on IP allowlist")} checked={enabled} onChange={setEnabled} />
         </div>
-        <Field title="IP addresses">
-          <TextArea label="IP addresses" value={text} onChange={setText} placeholder="192.0.2.0/24, 198.51.100.7" minRows={3} maxRows={8} />
+        <Field title={t("IP addresses")}>
+          <TextArea label={t("IP addresses")} value={text} onChange={setText} placeholder="192.0.2.0/24, 198.51.100.7" minRows={3} maxRows={8} />
         </Field>
-        <div className={styles.note}>IPv4 or IPv6 addresses and CIDR ranges, separated by commas.</div>
+        <div className={styles.note}>{t("IPv4 or IPv6 addresses and CIDR ranges, separated by commas.")}</div>
         {bad.map((b) => <div key={b} className={styles.error}>“{b}” isn't an IP address or range.</div>)}
-        {enabled && entries.length === 0 && <div className={styles.error}>Add at least one IP address or range.</div>}
+        {enabled && entries.length === 0 && <div className={styles.error}>{t("Add at least one IP address or range.")}</div>}
         <div className={styles.kvList}>
-          <CopyRow label="Your IP address" value={overview.callerIp} />
+          <CopyRow label={t("Your IP address")} value={overview.callerIp} />
         </div>
         {bad.length === 0 && ranges.length > 0 && (
           <div className={styles.note} data-caller-ip={inList ? "in" : "out"}>
-            {inList ? "Your IP address is in the list." : "Your IP address isn't in the list. You're an admin, so you can still reach the organization from here."}
+            {inList ? t("Your IP address is in the list.") : t("Your IP address isn't in the list. You're an admin, so you can still reach the organization from here.")}
           </div>
         )}
       </div>
@@ -308,12 +313,13 @@ export function IpAllowlistDialog({ overview, onClose }: { overview: GovernanceO
 
 /** "‹N› guests will be blocked" before 2FA for Guests is saved [G+] */
 export function GuestTwoFactorDialog({ blocked, onSave, onClose }: { blocked: number; onSave: () => void; onClose: () => void }) {
+  useT();
   return (
     <ConfirmDialog
-      title="Require 2FA for guests?" confirm="Save"
+      title={t("Require 2FA for guests?")} confirm="Save"
       body={
         <span data-guests-blocked={blocked}>
-          {blocked === 0 ? "No guests will be blocked: every guest uses two-factor authentication." : `${blocked === 1 ? "1 guest" : `${blocked} guests`} will be blocked. Guests without two-factor authentication lose access to the organization's content until they turn it on.`}
+          {blocked === 0 ? t("No guests will be blocked: every guest uses two-factor authentication.") : tp(blocked, "{n} guest will be blocked. Guests without two-factor authentication lose access to the organization's content until they turn it on.", "{n} guests will be blocked. Guests without two-factor authentication lose access to the organization's content until they turn it on.")}
         </span>
       }
       onConfirm={onSave}
@@ -323,6 +329,7 @@ export function GuestTwoFactorDialog({ blocked, onSave, onClose }: { blocked: nu
 }
 
 export function GuestExpiryDialog({ value, onSave, onClose }: { value: number | null; onSave: (days: number | null) => void; onClose: () => void }) {
+  useT();
   const [mode, setMode] = useState<"none" | "days">(value === null ? "none" : "days");
   const [n, setN] = useState(String(value ?? 90));
   const days = Number(n.trim());
@@ -330,24 +337,24 @@ export function GuestExpiryDialog({ value, onSave, onClose }: { value: number | 
   const next = mode === "none" ? null : days;
   return (
     <Dialog
-      title="Set default duration for guest access" open size="medium" onClose={onClose}
+      title={t("Set default duration for guest access")} open size="medium" onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={!valid} onClick={() => { if (next !== value) onSave(next); onClose(); }}>Save</Button>
+          <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
+          <Button variant="primary" disabled={!valid} onClick={() => { if (next !== value) onSave(next); onClose(); }}>{t("Save")}</Button>
         </>
       }
     >
       <div className={styles.form}>
-        <div className={styles.note}>Guests who join from now on lose access after this many days, and their seat is freed. Change a guest's date in People.</div>
-        <RadioGroup label="Default duration for guest access" value={mode} onChange={(v) => setMode(v as "none" | "days")} options={[{ value: "none", label: "No expiration (default)" }, { value: "days", label: "Guest access expires after" }]} />
+        <div className={styles.note}>{t("Guests who join from now on lose access after this many days, and their seat is freed. Change a guest's date in People.")}</div>
+        <RadioGroup label={t("Default duration for guest access")} value={mode} onChange={(v) => setMode(v as "none" | "days")} options={[{ value: "none", label: t("No expiration (default)") }, { value: "days", label: t("Guest access expires after") }]} />
         {mode === "days" && (
           <div className={styles.inlineRow}>
-            <TextInput className={styles.numberField} label="Days" value={n} onChange={setN} variant="outlined" invalid={!valid} autoFocus />
-            <span className={styles.muted}>days</span>
+            <TextInput className={styles.numberField} label={t("Days")} value={n} onChange={setN} variant="outlined" invalid={!valid} autoFocus />
+            <span className={styles.muted}>{t("days")}</span>
           </div>
         )}
-        {!valid && <div className={styles.error}>Choose between 1 and {GUEST_EXPIRY_MAX_DAYS.toLocaleString("en-US")} days.</div>}
+        {!valid && <div className={styles.error}>{t("Choose between 1 and {max} days.", { max: GUEST_EXPIRY_MAX_DAYS.toLocaleString(intlLocale()) })}</div>}
       </div>
     </Dialog>
   );
@@ -358,6 +365,7 @@ export function GuestExpiryDialog({ value, onSave, onClose }: { value: number | 
 const EXPORTING = Object.keys(FILE_EXPORTING_LABEL) as FileExporting[];
 
 export function FileExportingDialog({ settings, onClose }: { settings: OrgSettings; onClose: () => void }) {
+  useT();
   const { orgId, store, run } = useAdmin();
   const { data: workspaces } = useLoad(() => store.admin.workspaces(orgId), [orgId]);
   const [value, setValue] = useState<FileExporting>(settings.fileExporting);
@@ -378,27 +386,27 @@ export function FileExportingDialog({ settings, onClose }: { settings: OrgSettin
   };
   return (
     <Dialog
-      title="File exporting" open size="medium" onClose={onClose}
+      title={t("File exporting")} open size="medium" onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={() => void save()}>Save</Button>
+          <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
+          <Button variant="primary" onClick={() => void save()}>{t("Save")}</Button>
         </>
       }
     >
       <div className={styles.form}>
-        <RadioGroup label="File exporting" value={value} onChange={(v) => setValue(v as FileExporting)} options={EXPORTING.map((e) => ({ value: e, label: e === "all" ? `${FILE_EXPORTING_LABEL[e]} (default)` : FILE_EXPORTING_LABEL[e] }))} />
-        <div className={styles.note}>Editors can always export. Viewers who can't export can't copy layers, duplicate the file, download assets or save a local copy.</div>
+        <RadioGroup label={t("File exporting")} value={value} onChange={(v) => setValue(v as FileExporting)} options={EXPORTING.map((e) => ({ value: e, label: e === "all" ? t("{label} (default)", { label: t(FILE_EXPORTING_LABEL[e]) }) : t(FILE_EXPORTING_LABEL[e]) }))} />
+        <div className={styles.note}>{t("Editors can always export. Viewers who can't export can't copy layers, duplicate the file, download assets or save a local copy.")}</div>
         {(workspaces ?? []).length > 0 && (
           <div className={styles.form} data-exporting="workspaces">
-            <h3 className={styles.settingsSubTitle}>Custom settings for workspaces</h3>
-            <div className={styles.note}>A workspace's setting overrides the organization's for files in its teams.</div>
+            <h3 className={styles.settingsSubTitle}>{t("Custom settings for workspaces")}</h3>
+            <div className={styles.note}>{t("A workspace's setting overrides the organization's for files in its teams.")}</div>
             {(workspaces ?? []).map((w) => (
               <div key={w.id} className={styles.settingRow} data-workspace-exporting={w.id}>
                 <span className={styles.settingText}><span className={styles.settingLabel}>{w.name}</span></span>
                 <Select
-                  label={`File exporting for ${w.name}`} width={260} value={wsValue(w)}
-                  options={[{ value: "org", label: `Organization setting (${FILE_EXPORTING_LABEL[value]})` }, ...EXPORTING.map((e) => ({ value: e, label: FILE_EXPORTING_LABEL[e] }))]}
+                  label={t("File exporting for {name}", { name: w.name })} width={260} value={wsValue(w)}
+                  options={[{ value: "org", label: t("Organization setting ({value})", { value: t(FILE_EXPORTING_LABEL[value]) }) }, ...EXPORTING.map((e) => ({ value: e, label: t(FILE_EXPORTING_LABEL[e]) }))]}
                   onChange={(v) => setWs((s) => ({ ...s, [w.id]: v as FileExporting | "org" }))}
                 />
               </div>
@@ -413,7 +421,7 @@ export function FileExportingDialog({ settings, onClose }: { settings: OrgSettin
 // ---- Network access restrictions ---------------------------------------------------------------------------------
 
 const STATES = Object.keys(NETWORK_STATE_LABEL) as NetworkRangeState[];
-export const wouldBlockText = (n: number) => `${n === 1 ? "1 account" : `${n} accounts`} would have been blocked in the last 7 days`;
+export const wouldBlockText = (n: number) => tp(n, "{n} account would have been blocked in the last 7 days", "{n} accounts would have been blocked in the last 7 days");
 
 /** A range's earliest Enforced (ms): Testing for NETWORK_TESTING_MIN_MS — since it was added, or later when known */
 export const enforceableAt = (r: NetworkRange, known?: number): number | null =>
@@ -422,15 +430,16 @@ export const enforceableAt = (r: NetworkRange, known?: number): number | null =>
 /** The Status options of a range: Enforced only from Testing, 24 hours in (§2.2; the server refuses earlier with 409) */
 export function rangeStateOptions(r: NetworkRange, at: number | null, now: number): SelectOption[] {
   return STATES.map((s) => {
-    if (s !== "enforced" || r.state === "enforced") return { value: s, label: NETWORK_STATE_LABEL[s] };
-    if (at === null) return { value: s, label: NETWORK_STATE_LABEL[s], disabled: true, hint: "Set to Testing first" };
-    return at > now ? { value: s, label: NETWORK_STATE_LABEL[s], disabled: true, hint: `Can be enforced after ${formatDateTime(at)}` } : { value: s, label: NETWORK_STATE_LABEL[s] };
+    if (s !== "enforced" || r.state === "enforced") return { value: s, label: t(NETWORK_STATE_LABEL[s]) };
+    if (at === null) return { value: s, label: t(NETWORK_STATE_LABEL[s]), disabled: true, hint: t("Set to Testing first") };
+    return at > now ? { value: s, label: t(NETWORK_STATE_LABEL[s]), disabled: true, hint: t("Can be enforced after {date}", { date: formatDateTime(at) }) } : { value: s, label: t(NETWORK_STATE_LABEL[s]) };
   });
 }
 
-const formatDateTime = (ms: number) => new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const formatDateTime = (ms: number) => new Date(ms).toLocaleString(intlLocale(), { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 export function NetworkRangesDialog({ onClose }: { onClose: () => void }) {
+  useT();
   const { orgId, store, run, now } = useAdmin();
   const g = store.governance!;
   const { overview } = useGovernance();
@@ -447,42 +456,42 @@ export function NetworkRangesDialog({ onClose }: { onClose: () => void }) {
       return;
     }
     if (state === "testing") setKnown((k) => ({ ...k, [r.id]: now() + NETWORK_TESTING_MIN_MS }));
-    await run(async () => undefined, `${r.cidr}: ${NETWORK_STATE_LABEL[state]}`);
+    await run(async () => undefined, `${r.cidr}: ${t(NETWORK_STATE_LABEL[state])}`);
   };
   const [cidr, setCidr] = useState("");
   const [removing, setRemoving] = useState<NetworkRange | null>(null);
   const normalized = cidr.trim() ? normalizeCidr(cidr, "network") : null;
   const add = async () => {
     if (!normalized) return;
-    const out = await run(() => g.addNetworkRange(orgId, cidr.trim()), `${normalized} added in Testing`);
+    const out = await run(() => g.addNetworkRange(orgId, cidr.trim()), t("{range} added in Testing", { range: normalized }));
     if (out) setCidr("");
   };
   const columns: Column<NetworkRange>[] = [
     { id: "range", label: "IP range", width: "minmax(200px, 2fr)", render: (r) => <span className={styles.whoText}><span className={styles.whoName}>{r.cidr}</span><span className={styles.whoEmail} data-would-block={r.wouldBlock7d}>{wouldBlockText(r.wouldBlock7d)}</span></span> },
     {
       id: "state", label: "Status", width: 140,
-      render: (r) => <Select label={`Status of ${r.cidr}`} width={124} value={r.state} options={rangeStateOptions(r, enforceableAt(r, known[r.id]), now())} onChange={(v) => void setState(r, v as NetworkRangeState)} />,
+      render: (r) => <Select label={t("Status of {range}", { range: r.cidr })} width={124} value={r.state} options={rangeStateOptions(r, enforceableAt(r, known[r.id]), now())} onChange={(v) => void setState(r, v as NetworkRangeState)} />,
     },
     { id: "added", label: "Added", width: 110, render: (r) => <span className={styles.muted}>{formatDate(r.createdAt)}</span> },
-    { id: "menu", label: "", width: 32, align: "end", render: (r) => <RowMenu label={`More for ${r.cidr}`} entries={[{ id: "remove", label: "Remove", danger: true }]} onSelect={() => setRemoving(r)} /> },
+    { id: "menu", label: "", width: 32, align: "end", render: (r) => <RowMenu label={t("More for {name}", { name: r.cidr })} entries={[{ id: "remove", label: "Remove", danger: true }]} onSelect={() => setRemoving(r)} /> },
   ];
   return (
     <>
-      <Dialog title="Network access restrictions" open size="large" onClose={onClose} footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
+      <Dialog title={t("Network access restrictions")} open size="large" onClose={onClose} footer={<Button variant="primary" onClick={onClose}>{t("Done")}</Button>}>
         <div className={styles.form} data-network="">
-          <div className={styles.note}>Restrict external account access on this network: from these IP ranges, only accounts on the organization's domains and its guests can log in. Everyone else is asked to switch to their work account, and invites can't be accepted.</div>
-          <div className={styles.note}>A new range starts in Testing: nobody is blocked, and the count shows who would have been. Ranges are IPv4 /16 or narrower, or IPv6 /32 or narrower.</div>
+          <div className={styles.note}>{t("Restrict external account access on this network: from these IP ranges, only accounts on the organization's domains and its guests can log in. Everyone else is asked to switch to their work account, and invites can't be accepted.")}</div>
+          <div className={styles.note}>{t("A new range starts in Testing: nobody is blocked, and the count shows who would have been. Ranges are IPv4 /16 or narrower, or IPv6 /32 or narrower.")}</div>
           <div className={styles.toolbar}>
-            <TextInput className={styles.search} label="IP range" value={cidr} onChange={setCidr} placeholder="192.0.2.0/24" variant="outlined" invalid={cidr.trim() !== "" && !normalized} onExit={(r) => (r === "enter" ? void add() : undefined)} />
-            <Button variant="secondary" disabled={!normalized} onClick={() => void add()}>Add range</Button>
+            <TextInput className={styles.search} label={t("IP range")} value={cidr} onChange={setCidr} placeholder="192.0.2.0/24" variant="outlined" invalid={cidr.trim() !== "" && !normalized} onExit={(r) => (r === "enter" ? void add() : undefined)} />
+            <Button variant="secondary" disabled={!normalized} onClick={() => void add()}>{t("Add range")}</Button>
           </div>
-          {cidr.trim() !== "" && !normalized && <div className={styles.error}>Use an IPv4 range of /16 or narrower, or an IPv6 range of /32 or narrower.</div>}
+          {cidr.trim() !== "" && !normalized && <div className={styles.error}>{t("Use an IPv4 range of /16 or narrower, or an IPv6 range of /32 or narrower.")}</div>}
           <div className={styles.inDialog}>
-            <Table label="Network ranges" rows={overview?.networkRanges ?? []} columns={columns} rowKey={(r) => r.id} empty="No ranges yet" />
+            <Table label={t("Network ranges")} rows={overview?.networkRanges ?? []} columns={columns} rowKey={(r) => r.id} empty="No ranges yet" />
           </div>
         </div>
       </Dialog>
-      {removing && <ConfirmDialog title={`Remove ${removing.cidr}?`} destructive confirm="Remove" body="People on this range are no longer restricted." onConfirm={() => void run(() => g.removeNetworkRange(orgId, removing.id), `${removing.cidr} removed`)} onClose={() => setRemoving(null)} />}
+      {removing && <ConfirmDialog title={t("Remove {name}?", { name: removing.cidr })} destructive confirm="Remove" body={t("People on this range are no longer restricted.")} onConfirm={() => void run(() => g.removeNetworkRange(orgId, removing.id), t("{name} removed", { name: removing.cidr }))} onClose={() => setRemoving(null)} />}
     </>
   );
 }
@@ -492,39 +501,40 @@ export function NetworkRangesDialog({ onClose }: { onClose: () => void }) {
 const enabledNow = (p: InternalPolicy) => p.enabledAt !== null && p.disabledAt === null;
 
 export function PoliciesDialog({ onClose }: { onClose: () => void }) {
+  useT();
   const { orgId, store, run } = useAdmin();
   const g = store.governance!;
   const { data: policies } = useLoad(() => g.policies(orgId), [orgId]);
   const [creating, setCreating] = useState(false);
   const [viewing, setViewing] = useState<InternalPolicy | null>(null);
   const columns: Column<InternalPolicy>[] = [
-    { id: "title", label: "Policy", width: "minmax(200px, 2fr)", render: (p) => <span className={styles.whoText}><span className={styles.whoName}>{p.title}</span><span className={styles.whoEmail}>{POLICY_AUDIENCE_LABEL[p.audience]} · {POLICY_CADENCE_LABEL[p.cadence]}</span></span> },
+    { id: "title", label: "Policy", width: "minmax(200px, 2fr)", render: (p) => <span className={styles.whoText}><span className={styles.whoName}>{p.title}</span><span className={styles.whoEmail}>{t(POLICY_AUDIENCE_LABEL[p.audience])} · {t(POLICY_CADENCE_LABEL[p.cadence])}</span></span> },
     { id: "agreed", label: "Agreed", width: 80, render: (p) => <span data-acknowledged={p.acknowledgedCount}>{p.acknowledgedCount}</span> },
-    { id: "status", label: "Status", width: 100, render: (p) => (enabledNow(p) ? <Badge tone="success">Enabled</Badge> : <Badge>Disabled</Badge>) },
+    { id: "status", label: "Status", width: 100, render: (p) => (enabledNow(p) ? <Badge tone="success">{t("Enabled")}</Badge> : <Badge>{t("Disabled")}</Badge>) },
     {
       id: "action", label: "", width: 96, align: "end",
-      render: (p) => <Button variant="secondary" onClick={() => void run(() => g.setPolicyEnabled(orgId, p.id, !enabledNow(p)), enabledNow(p) ? "Policy disabled" : "Policy enabled")}>{enabledNow(p) ? "Disable" : "Enable"}</Button>,
+      render: (p) => <Button variant="secondary" onClick={() => void run(() => g.setPolicyEnabled(orgId, p.id, !enabledNow(p)), enabledNow(p) ? "Policy disabled" : "Policy enabled")}>{enabledNow(p) ? t("Disable") : t("Enable")}</Button>,
     },
   ];
   return (
     <>
-      <Dialog title="Internal policies" open={!creating && !viewing} size="large" onClose={onClose} footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
+      <Dialog title={t("Internal policies")} open={!creating && !viewing} size="large" onClose={onClose} footer={<Button variant="primary" onClick={onClose}>{t("Done")}</Button>}>
         <div className={styles.form} data-policies="">
-          <div className={styles.note}>The next time someone opens the organization's content, they see each enabled policy that applies to them and must agree to it.</div>
+          <div className={styles.note}>{t("The next time someone opens the organization's content, they see each enabled policy that applies to them and must agree to it.")}</div>
           <div className={styles.toolbar}>
             <span className={styles.spacer} />
-            <Button variant="secondary" icon="24.plus.small" onClick={() => setCreating(true)}>New policy</Button>
+            <Button variant="secondary" icon="24.plus.small" onClick={() => setCreating(true)}>{t("New policy")}</Button>
           </div>
           <div className={styles.inDialog}>
-            <Table label="Internal policies" rows={policies ?? []} columns={columns} rowKey={(p) => p.id} onRowClick={setViewing} empty="No policies yet" />
+            <Table label={t("Internal policies")} rows={policies ?? []} columns={columns} rowKey={(p) => p.id} onRowClick={setViewing} empty="No policies yet" />
           </div>
         </div>
       </Dialog>
       {creating && <NewPolicyDialog onClose={() => setCreating(false)} />}
       {viewing && (
-        <Dialog title={viewing.title} open size="medium" onClose={() => setViewing(null)} footer={<Button variant="primary" onClick={() => setViewing(null)}>Done</Button>}>
+        <Dialog title={viewing.title} open size="medium" onClose={() => setViewing(null)} footer={<Button variant="primary" onClick={() => setViewing(null)}>{t("Done")}</Button>}>
           <div className={styles.form}>
-            <div className={styles.note}>{POLICY_AUDIENCE_LABEL[viewing.audience]} · {POLICY_CADENCE_LABEL[viewing.cadence]} · Created {formatDate(viewing.createdAt)}{viewing.createdBy ? ` by ${viewing.createdBy.name ?? viewing.createdBy.email}` : ""}</div>
+            <div className={styles.note}>{t(POLICY_AUDIENCE_LABEL[viewing.audience])} · {t(POLICY_CADENCE_LABEL[viewing.cadence])} · {viewing.createdBy ? t("Created {date} by {name}", { date: formatDate(viewing.createdAt), name: viewing.createdBy.name ?? viewing.createdBy.email }) : t("Created {date}", { date: formatDate(viewing.createdAt) })}</div>
             <div className={styles.policyText}>{viewing.text}</div>
           </div>
         </Dialog>
@@ -534,6 +544,7 @@ export function PoliciesDialog({ onClose }: { onClose: () => void }) {
 }
 
 function NewPolicyDialog({ onClose }: { onClose: () => void }) {
+  useT();
   const { orgId, store, run } = useAdmin();
   const g = store.governance!;
   const [title, setTitle] = useState("");
@@ -547,27 +558,27 @@ function NewPolicyDialog({ onClose }: { onClose: () => void }) {
   };
   return (
     <Dialog
-      title="New policy" open size="large" onClose={onClose}
+      title={t("New policy")} open size="large" onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={!valid} onClick={() => void create()}>Create policy</Button>
+          <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
+          <Button variant="primary" disabled={!valid} onClick={() => void create()}>{t("Create policy")}</Button>
         </>
       }
     >
       <div className={styles.form}>
-        <Field title="Title"><TextInput label="Title" value={title} onChange={setTitle} maxLength={POLICY_TITLE_MAX} variant="outlined" autoFocus /></Field>
-        <Field title="Policy text"><TextArea label="Policy text" value={text} onChange={setText} minRows={6} maxRows={14} /></Field>
+        <Field title={t("Title")}><TextInput label={t("Title")} value={title} onChange={setTitle} maxLength={POLICY_TITLE_MAX} variant="outlined" autoFocus /></Field>
+        <Field title={t("Policy text")}><TextArea label={t("Policy text")} value={text} onChange={setText} minRows={6} maxRows={14} /></Field>
         <div className={styles.inlineRow}>
-          <Field title="Audience">
-            <Select label="Audience" width={160} value={audience} options={(Object.keys(POLICY_AUDIENCE_LABEL) as PolicyAudience[]).map((a) => ({ value: a, label: POLICY_AUDIENCE_LABEL[a] }))} onChange={(v) => setAudience(v as PolicyAudience)} />
+          <Field title={t("Audience")}>
+            <Select label={t("Audience")} width={160} value={audience} options={(Object.keys(POLICY_AUDIENCE_LABEL) as PolicyAudience[]).map((a) => ({ value: a, label: t(POLICY_AUDIENCE_LABEL[a]) }))} onChange={(v) => setAudience(v as PolicyAudience)} />
           </Field>
-          <Field title="Ask to agree">
-            <Select label="Ask to agree" width={160} value={cadence} options={(Object.keys(POLICY_CADENCE_LABEL) as PolicyCadence[]).map((c) => ({ value: c, label: POLICY_CADENCE_LABEL[c] }))} onChange={(v) => setCadence(v as PolicyCadence)} />
+          <Field title={t("Ask to agree")}>
+            <Select label={t("Ask to agree")} width={160} value={cadence} options={(Object.keys(POLICY_CADENCE_LABEL) as PolicyCadence[]).map((c) => ({ value: c, label: t(POLICY_CADENCE_LABEL[c]) }))} onChange={(v) => setCadence(v as PolicyCadence)} />
           </Field>
         </div>
-        {text.length > POLICY_TEXT_MAX && <div className={styles.error}>The text can be at most {POLICY_TEXT_MAX.toLocaleString("en-US")} characters.</div>}
-        <div className={styles.note}>A policy can't be edited once it's created. To change one, disable it and create a new one: everyone agrees again.</div>
+        {text.length > POLICY_TEXT_MAX && <div className={styles.error}>{t("The text can be at most {max} characters.", { max: POLICY_TEXT_MAX.toLocaleString(intlLocale()) })}</div>}
+        <div className={styles.note}>{t("A policy can't be edited once it's created. To change one, disable it and create a new one: everyone agrees again.")}</div>
       </div>
     </Dialog>
   );
@@ -576,9 +587,10 @@ function NewPolicyDialog({ onClose }: { onClose: () => void }) {
 // ---- Key management ----------------------------------------------------------------------------------------------
 
 export const ekmSummary = (e: EkmStatus): string =>
-  !e.enabled ? "Off" : e.state === "unavailable" ? "Key unavailable" : e.files.encrypted < e.files.total ? `On · ${e.files.encrypted} of ${e.files.total} files encrypted` : "On";
+  !e.enabled ? t("Off") : e.state === "unavailable" ? t("Key unavailable") : e.files.encrypted < e.files.total ? `${t("On")} · ${t("{done} of {total} files encrypted", { done: e.files.encrypted, total: e.files.total })}` : t("On");
 
 export function KeyManagementDialog({ onClose }: { onClose: () => void }) {
+  useT();
   const { orgId, store, run, changed } = useAdmin();
   const g = store.governance!;
   const { data: loaded } = useLoad(() => g.ekm(orgId), [orgId]);
@@ -606,7 +618,7 @@ export function KeyManagementDialog({ onClose }: { onClose: () => void }) {
         if (s.encrypting === null) break;
       }
       changed();
-      showToast({ message: s.files.encrypted === s.files.total ? "Every file is encrypted" : "Some files couldn't be encrypted" });
+      showToast({ message: s.files.encrypted === s.files.total ? t("Every file is encrypted") : t("Some files couldn't be encrypted") });
     } catch (e) {
       if (alive.current) showToast({ message: errorParts(e).message, kind: "error" });
     } finally {
@@ -622,51 +634,51 @@ export function KeyManagementDialog({ onClose }: { onClose: () => void }) {
   return (
     <>
       <Dialog
-        title="Key management" open={!confirming} size="medium" onClose={onClose}
+        title={t("Key management")} open={!confirming} size="medium" onClose={onClose}
         footer={
           encrypting ? (
-            <Button variant="secondary" onClick={onClose}>Close</Button>
+            <Button variant="secondary" onClick={onClose}>{t("Close")}</Button>
           ) : st.enabled ? (
             <>
-              {encrypted < total && <Button variant="secondary" onClick={() => void encryptAll()}>Encrypt existing files</Button>}
+              {encrypted < total && <Button variant="secondary" onClick={() => void encryptAll()}>{t("Encrypt existing files")}</Button>}
               <span className={styles.spacer} />
-              <Button variant="primary" onClick={onClose}>Done</Button>
+              <Button variant="primary" onClick={onClose}>{t("Done")}</Button>
             </>
           ) : (
             <>
-              <Button variant="secondary" onClick={onClose}>Cancel</Button>
-              <Button variant="primary" onClick={() => setConfirming(true)}>Turn on</Button>
+              <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
+              <Button variant="primary" onClick={() => setConfirming(true)}>{t("Turn on")}</Button>
             </>
           )
         }
       >
         <div className={styles.form} data-ekm={st.enabled ? "on" : "off"}>
-          <div className={styles.note}>File content — checkpoints, version history, images and video — is encrypted with the organization's own key. Comments, file names and other metadata aren't. New files are encrypted at once; existing files one by one.</div>
+          <div className={styles.note}>{t("File content — checkpoints, version history, images and video — is encrypted with the organization's own key. Comments, file names and other metadata aren't. New files are encrypted at once; existing files one by one.")}</div>
           {/* ours: the managed key's limit, said plainly (docs/governance.md §2.10) */}
-          <div className={styles.note} data-ekm-note="">Managed keys protect the organization's stored data, but not against the server's operator, who holds the key that wraps it.</div>
+          <div className={styles.note} data-ekm-note="">{t("Managed keys protect the organization's stored data, but not against the server's operator, who holds the key that wraps it.")}</div>
           {st.enabled && (
             <div className={styles.kvList}>
-              <CopyRow label="Key" value="Managed key" copy={false} />
-              <CopyRow label="Status" value={st.state === "unavailable" ? "Unavailable: the organization's files can't be opened" : "Available"} copy={false} />
+              <CopyRow label={tx("encryption", "Key")} value={t("Managed key")} copy={false} />
+              <CopyRow label={t("Status")} value={st.state === "unavailable" ? t("Unavailable: the organization's files can't be opened") : t("Available")} copy={false} />
             </div>
           )}
           {st.enabled && (encrypting || encrypted < total) && (
             <div className={styles.form} data-ekm-progress="">
-              <div className={styles.progress} role="progressbar" aria-label="Encrypting files" aria-valuemin={0} aria-valuemax={total} aria-valuenow={encrypted}>
+              <div className={styles.progress} role="progressbar" aria-label={t("Encrypting files")} aria-valuemin={0} aria-valuemax={total} aria-valuenow={encrypted}>
                 <span className={styles.progressBar} style={{ width: `${total ? (encrypted / total) * 100 : 100}%` }} />
               </div>
-              <div className={styles.note}>{encrypting ? `Encrypting files… ${encrypted} of ${total}` : `${total - encrypted === 1 ? "1 file isn't" : `${total - encrypted} files aren't`} encrypted yet. Each is also encrypted the next time it's opened.`}</div>
+              <div className={styles.note}>{encrypting ? t("Encrypting files… {done} of {total}", { done: encrypted, total }) : tp(total - encrypted, "{n} file isn't encrypted yet. Each is also encrypted the next time it's opened.", "{n} files aren't encrypted yet. Each is also encrypted the next time it's opened.")}</div>
             </div>
           )}
-          {st.enabled && !encrypting && encrypted === total && <div className={styles.note}>Every file is encrypted.</div>}
-          {encrypting && <div className={styles.note}>Closing this stops encrypting existing files; it can be resumed.</div>}
-          {!st.enabled && <Banner tone="warning">Key management can't be turned off. While it's on, Governance+ can't be removed.</Banner>}
+          {st.enabled && !encrypting && encrypted === total && <div className={styles.note}>{t("Every file is encrypted.")}</div>}
+          {encrypting && <div className={styles.note}>{t("Closing this stops encrypting existing files; it can be resumed.")}</div>}
+          {!st.enabled && <Banner tone="warning">{t("Key management can't be turned off. While it's on, Governance+ can't be removed.")}</Banner>}
         </div>
       </Dialog>
       {confirming && (
         <ConfirmDialog
-          title="Turn on key management?" confirm="Turn on"
-          body="This can't be undone: key management can't be turned off, and Governance+ can't be removed while it's on. Existing files are encrypted next."
+          title={t("Turn on key management?")} confirm="Turn on"
+          body={t("This can't be undone: key management can't be turned off, and Governance+ can't be removed while it's on. Existing files are encrypted next.")}
           onConfirm={() => void turnOn()}
           onClose={() => setConfirming(false)}
         />

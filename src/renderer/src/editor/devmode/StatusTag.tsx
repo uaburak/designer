@@ -5,6 +5,7 @@
  * (src/viewer: Dev Mode's panels and developer previews).
  */
 import type { CSSProperties, MouseEvent } from "react";
+import { t, useT } from "@/i18n";
 import { statusShown, type FrameStatus } from "../workflowStatus";
 import styles from "./StatusTag.module.css";
 
@@ -18,10 +19,12 @@ export interface StatusTagProps {
 }
 
 export function StatusTag({ workflow, dev, variant, onClick }: StatusTagProps) {
-  const s = statusShown(workflow, dev);
+  useT();
+  const shown = statusShown(workflow, dev);
+  const s = { ...shown, label: t(shown.label) };
   const changed = s.changed && (
     <span className={variant === "chip" ? styles.changedChip : styles.changed} data-status-changed="">
-      Changed
+      {t("Changed")}
     </span>
   );
   if (variant === "dot")

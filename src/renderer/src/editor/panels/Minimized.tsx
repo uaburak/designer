@@ -6,6 +6,7 @@
  * right panel minimizes again."
  */
 import { useRef, useState } from "react";
+import { t, useT } from "@/i18n";
 import { ContextMenu, IconButton } from "@/ds";
 import { useSelection } from "@/engine/hooks";
 import { useEditor } from "../controller";
@@ -16,6 +17,7 @@ import { RightHeader, RightPanel, ZoomMenu } from "./RightPanel";
 import styles from "./Panels.module.css";
 
 export function MinimizedPanels() {
+  useT();
   const ed = useEditor();
   const name = useUI((s) => s.fileName);
   const rulers = useUI((s) => s.rulers);
@@ -29,7 +31,7 @@ export function MinimizedPanels() {
         <div ref={button} style={{ display: "contents" }}>
           <IconButton
             icon="24.figma"
-            label="Main menu"
+            label={t("Main menu")}
             size="large"
             onClick={(e) => {
               if (menu) return setMenu(null);
@@ -39,7 +41,7 @@ export function MinimizedPanels() {
           />
         </div>
         <span className={styles.cardName}>{name}</span>
-        <IconButton icon="24.sidebar.closed" label="Expand UI" shortcut={shortcutOf(command("view.minimize-ui"))} size="large" onClick={() => runEditorCommand(ed, "view.minimize-ui")} />
+        <IconButton icon="24.sidebar.closed" label={t("Expand UI")} shortcut={shortcutOf(command("view.minimize-ui"))} size="large" onClick={() => runEditorCommand(ed, "view.minimize-ui")} />
       </div>
       {selected ? (
         <RightPanel floating />
@@ -49,7 +51,7 @@ export function MinimizedPanels() {
           <ZoomMenu />
         </div>
       )}
-      {menu && <ContextMenu at={menu} entries={mainMenu(ed)} label="Main menu" minWidth={MAIN_MENU_WIDTH} ignore={button} onSelect={(id) => runMenuItem(ed, id)} onClose={() => setMenu(null)} />}
+      {menu && <ContextMenu at={menu} entries={mainMenu(ed)} label={t("Main menu")} minWidth={MAIN_MENU_WIDTH} ignore={button} onSelect={(id) => runMenuItem(ed, id)} onClose={() => setMenu(null)} />}
     </>
   );
 }

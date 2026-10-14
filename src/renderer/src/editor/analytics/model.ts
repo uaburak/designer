@@ -2,6 +2,7 @@
  * The Library analytics modal's pure parts (docs/data.md §17, docs/research/figma/R22-library-analytics.md): its
  * choices in Figma's words, the statistics table's columns and sorting, the insertions graph's weeks, the CSV rule.
  */
+import { intlLocale } from "@/i18n";
 import type { AnalyticsAssetType, AnalyticsRange, AssetStatsRow, ModeUsageRow, WeeklyActions } from "../../../../shared/libraries/orgTypes";
 
 export const TYPE_OPTIONS: { value: AnalyticsAssetType; label: string }[] = [
@@ -106,10 +107,10 @@ export function graphWeeks(type: AnalyticsAssetType, series: readonly WeeklyActi
 }
 
 /** "Oct 5" */
-export const shortDate = (day: string): string => new Date(parseDay(day)).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+export const shortDate = (day: string): string => new Date(parseDay(day)).toLocaleDateString(intlLocale(), { month: "short", day: "numeric", timeZone: "UTC" });
 
 /** 1,234 */
-export const count = (n: number): string => n.toLocaleString("en-US");
+export const count = (n: number): string => n.toLocaleString(intlLocale());
 
 /** 0.425 → "43%" */
 export const percent = (share: number): string => `${Math.round(share * 100)}%`;

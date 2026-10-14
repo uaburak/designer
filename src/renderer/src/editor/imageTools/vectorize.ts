@@ -5,6 +5,7 @@
  * (nothing in the history). Figma's modes and settings: "Full color" (Number of colors), "Grayscale" (Number of
  * grays), "Black and white" (Threshold) — ranges and defaults are ours [unverified].
  */
+import { t } from "@/i18n";
 import type { Guid, Pixels } from "@/engine/codec";
 import type { VectorizeStats } from "@/engine/Engine";
 import { AiRunError } from "../../../../shared/ai/api";
@@ -42,10 +43,10 @@ export async function contentsPixels(ed: EditorController, id: Guid, tries = 20)
   for (let i = 0; i < tries; i++) {
     const out = ed.engine.exportNodes([id], { imageType: "PNG", contentsOnly: true, constraint: { type: "CONTENT_SCALE", value: scale } }, { allowPending: i === tries - 1 });
     if (out.status === "ok" && "pixels" in out) return out.pixels;
-    if (out.status === "error") throw new AiRunError("unsupported", "This layer couldn't be read.");
+    if (out.status === "error") throw new AiRunError("unsupported", t("This layer couldn't be read."));
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new AiRunError("unsupported", "This layer's image hasn't loaded yet.");
+  throw new AiRunError("unsupported", t("This layer's image hasn't loaded yet."));
 }
 
 export class VectorizeSession {
@@ -68,8 +69,8 @@ export class VectorizeSession {
     await hooks.checkCredits("vectorize");
     const pixels = o.pixels ?? (await contentsPixels(ed, layer));
     const begun = ed.engine.vectorizeBegin(layer, pixels);
-    if (begun.status === "busy") throw new AiRunError("unsupported", "Finish what you're doing on the canvas first, then try again.");
-    if (begun.status !== "ok") throw new AiRunError("unsupported", "This layer can't be vectorized.");
+    if (begun.status === "busy") throw new AiRunError("unsupported", t("Finish what you're doing on the canvas first, then try again."));
+    if (begun.status !== "ok") throw new AiRunError("unsupported", t("This layer can't be vectorized."));
     const s = new VectorizeSession(ed, hooks, layer, begun.frame, o.debounceMs ?? VECTORIZE_DEBOUNCE_MS);
     s.trace();
     return s;

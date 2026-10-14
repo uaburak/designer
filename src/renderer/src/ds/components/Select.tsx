@@ -7,6 +7,7 @@ import { useDismiss } from "../overlay/useDismiss";
 import { Icon, type IconName } from "../icons/Icon";
 import { isMixed, type ControlSize, type Mixed } from "../types";
 import { STRINGS } from "../strings";
+import { t, useT } from "@/i18n";
 import { FieldPrefix } from "./TextInput";
 import { MenuIcon, scrollWithin } from "./Menu";
 import field from "./Field.module.css";
@@ -60,6 +61,7 @@ export interface SelectProps extends Omit<HTMLAttributes<HTMLDivElement>, "onCha
  * on the trigger). Never a native <select>.
  */
 export function Select({ label, value, options, onChange, variant = "filled", size = "default", prefix, width, disabled, placeholder = "", static: isStatic, noCheck, below, menuWidth, className, style, ...rest }: SelectProps) {
+  useT();
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const id = useId();
@@ -105,7 +107,7 @@ export function Select({ label, value, options, onChange, variant = "filled", si
             </span>
           </span>
         ) : (
-          <span className={cx(styles.value, (mixed || !current) && styles.placeholder)}>{mixed ? STRINGS.mixed : current?.valueLabel ?? current?.label ?? placeholder}</span>
+          <span className={cx(styles.value, (mixed || !current) && styles.placeholder)}>{mixed ? t(STRINGS.mixed) : current?.valueLabel ?? current?.label ?? placeholder}</span>
         )}
         <Icon name="16.chevron.down" className={styles.chevron} />
       </button>

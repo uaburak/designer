@@ -12,6 +12,7 @@
  * The models download on first use after a confirmation with their size (docs/ai.md §10.2); without them the text
  * search matches names only.
  */
+import { t, useT } from "@/i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Banner, Button, ContextMenu, Dialog, EmptyState, IconButton, SearchField, Select, Spinner, Tabs, showToast, type SelectEntry } from "@/ds";
 import type { SearchHit } from "../../../../shared/ai/types";
@@ -37,6 +38,7 @@ type Owner = "anyone" | "you" | "others";
 const DESIGNS_FIRST = 6;
 
 export function VisualSearch({ ed, request, onClose }: { ed: EditorController; request: VisualSearchRequest; onClose: () => void }) {
+  useT();
   const [mode, setMode] = useState<Mode>(request.selection || request.image ? "image" : "text");
   const [text, setText] = useState("");
   const [image, setImage] = useState<{ pixels: RgbaImage; url: string; label: string; from?: { fileKey: string; nodeId: string } } | null>(null);
@@ -84,7 +86,7 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
     if (request.image) {
       void decodeImage(new Blob([request.image as BlobPart])).then(
         (px) => showImage(px, "Image"),
-        () => setError("The image couldn't be read."),
+        () => setError(t("The image couldn't be read.")),
       );
     } else if (request.selection) takeSelection();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per request
@@ -93,10 +95,10 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
   function takeSelection() {
     const id = ed.selection[0];
     const key = fileKeyOf(ed) ?? "";
-    if (!id) return setError("Select a layer to find more like it.");
+    if (!id) return setError(t("Select a layer to find more like it."));
     const px = editorSearchSource(ed, key).pixels(id, THUMB_SIZE, true);
-    if (!px || px === "busy") return setError("The selection couldn't be drawn.");
-    const name = (ed.engine.readNode(id, { fields: ["name"] }) as { name?: string } | null)?.name ?? "Selection";
+    if (!px || px === "busy") return setError(t("The selection couldn't be drawn."));
+    const name = (ed.engine.readNode(id, { fields: ["name"] }) as { name?: string } | null)?.name ?? t("Selection");
     setMode("image");
     showImage(px, name, { fileKey: key, nodeId: id });
   }
@@ -114,7 +116,7 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
     } catch (err) {
       if (seq !== searchSeq.current) return;
       setHits(null);
-      setError(err instanceof NoModelsError ? "Download the models to search with an image." : err instanceof Error ? err.message : String(err));
+      setError(err instanceof NoModelsError ? t("Download the models to search with an image.") : err instanceof Error ? err.message : String(err));
     } finally {
       if (seq === searchSeq.current) setBusy(false);
     }
@@ -163,7 +165,7 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
         showImage(px, "Pasted image");
         void search({ image: px });
       },
-      () => setError("The image couldn't be read."),
+      () => setError(t("The image couldn't be read.")),
     );
   };
 
@@ -183,10 +185,10 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
   const insert = async (hit: SearchHit) => {
     try {
       const made = await insertHit(ed, hit);
-      if (!made) return showToast({ message: "It couldn't be inserted" });
+      if (!made) return showToast({ message: t("It couldn't be inserted") });
       onClose();
     } catch {
-      showToast({ message: "The file couldn't be read", kind: "error" });
+      showToast({ message: t("The file couldn't be read"), kind: "error" });
     }
   };
 
@@ -197,7 +199,7 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
     for (const [k, f] of files) {
       if (!f) continue;
       const id = spaceOf(files, k);
-      out.set(id, id === "drafts" ? "Drafts" : id.startsWith("org:") ? "Organization" : (folders.get(f.folderId ?? "") ?? "Folder"));
+      out.set(id, id === "drafts" ? t("Drafts") : id.startsWith("org:") ? t("Organization") : (folders.get(f.folderId ?? "") ?? t("Folder")));
     }
     return out;
   }, [files, folders]);
@@ -208,9 +210,9 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
   const shownDesigns = designs.filter((h) => (owner === "anyone" || ownerOf(files, h.doc.fileKey) === owner) && (!space || spaceOf(files, h.doc.fileKey) === space));
 
   const libraries = ed.libraries.get();
-  const libraryOptions: SelectEntry[] = [{ value: "", label: "All libraries" }, ...libraries.available.map((l) => ({ value: l.fileKey, label: l.name }))];
+  const libraryOptions: SelectEntry[] = [{ value: "", label: t("All libraries") }, ...libraries.available.map((l) => ({ value: l.fileKey, label: l.name }))];
   const here = fileKeyOf(ed);
-  if (here && !libraries.available.some((l) => l.fileKey === here)) libraryOptions.splice(1, 0, { value: here, label: "Created in this file" });
+  if (here && !libraries.available.some((l) => l.fileKey === here)) libraryOptions.splice(1, 0, { value: here, label: t("Created in this file") });
 
   // ---- the body ----
 
@@ -225,7 +227,7 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
         setMenu({ x: e.clientX, y: e.clientY, hit: h });
       }}
     >
-      <button type="button" className={styles.thumbButton} aria-label={`Preview ${h.doc.name}`} onClick={() => setPreview(h)}>
+      <button type="button" className={styles.thumbButton} aria-label={t("Preview {name}", { name: h.doc.name })} onClick={() => setPreview(h)}>
         <Thumb hit={h} />
       </button>
       <div className={styles.meta}>
@@ -239,7 +241,7 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
       {/* On hover: Insert; a click previews (Open the file, Insert); right click: all three */}
       <div className={styles.actions}>
         <Button variant="primary" onClick={() => void insert(h)}>
-          Insert
+          {t("Insert")}
         </Button>
       </div>
     </div>
@@ -250,7 +252,7 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
     body = (
       <div className={styles.preview} data-search-preview="">
         <div className={styles.previewBar}>
-          <IconButton icon="24.arrow.left" label="Back" tone="secondary" onClick={() => setPreview(null)} />
+          <IconButton icon="24.arrow.left" label={t("Back")} tone="secondary" onClick={() => setPreview(null)} />
           <span className={styles.name}>{preview.doc.name}</span>
           <span className={styles.file}>{`${preview.doc.fileName} · ${preview.doc.pageName}`}</span>
         </div>
@@ -259,10 +261,10 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
         </div>
         <div className={styles.previewActions}>
           <Button variant="secondary" size="large" onClick={() => void openHitFile(preview)}>
-            Open the file
+            {t("Open the file")}
           </Button>
           <Button variant="primary" size="large" onClick={() => void insert(preview)}>
-            Insert
+            {t("Insert")}
           </Button>
         </div>
       </div>
@@ -276,51 +278,51 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
       </div>
     );
   } else if (!hits) {
-    body = <EmptyState icon="24.search" title="Find similar designs" body="Search with keywords, a description, a selected layer or an image." />;
+    body = <EmptyState icon="24.search" title={t("Find similar designs")} body={t("Search with keywords, a description, a selected layer or an image.")} />;
   } else if (!hits.length) {
-    body = <div className={styles.note}>{mode === "text" ? `No results for “${text.trim()}”` : "No similar designs found"}</div>;
+    body = <div className={styles.note}>{mode === "text" ? t("No results for “{query}”", { query: text.trim() }) : t("No similar designs found")}</div>;
   } else {
     body = (
       <div className={styles.results} data-search-results="">
         {components.length > 0 && (
           <section>
-            <div className={styles.heading}>Components</div>
+            <div className={styles.heading}>{t("Components")}</div>
             <div className={styles.grid}>{components.map(tile)}</div>
           </section>
         )}
         {designs.length > 0 && !library && (
           <section>
             <div className={styles.heading}>
-              <span>Other designs</span>
+              <span>{t("Other designs")}</span>
               {!seeMore && designs.length > DESIGNS_FIRST && (
                 <Button variant="ghost" onClick={() => setSeeMore(true)}>
-                  See more
+                  {t("See more")}
                 </Button>
               )}
             </div>
             {seeMore && (
               <div className={styles.filters} data-search-filters="">
                 <Select
-                  label="Filter by file owner"
+                  label={t("Filter by file owner")}
                   value={owner}
                   width="hug"
                   variant="ghost"
                   options={[
-                    { value: "anyone", label: "Anyone" },
-                    { value: "you", label: "You" },
-                    { value: "others", label: "Others" },
+                    { value: "anyone", label: t("Anyone") },
+                    { value: "you", label: t("You") },
+                    { value: "others", label: t("Others") },
                   ]}
                   onChange={(v) => setOwner(v as Owner)}
                 />
-                <Select label="Filter by space" value={space} width="hug" variant="ghost" options={[{ value: "", label: "All spaces" }, ...[...spaces].map(([value, label]) => ({ value, label }))]} onChange={setSpace} />
+                <Select label={t("Filter by space")} value={space} width="hug" variant="ghost" options={[{ value: "", label: t("All spaces") }, ...[...spaces].map(([value, label]) => ({ value, label }))]} onChange={setSpace} />
                 <Select
-                  label="Sort"
+                  label={t("Sort")}
                   value={sort}
                   width="hug"
                   variant="ghost"
                   options={[
-                    { value: "relevance", label: "Sort by relevance" },
-                    { value: "modified", label: "Sort by last modified" },
+                    { value: "relevance", label: t("Sort by relevance") },
+                    { value: "modified", label: t("Sort by last modified") },
                   ]}
                   onChange={(v) => setSort(v as "relevance" | "modified")}
                 />
@@ -335,34 +337,34 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
 
   const modelsBanner =
     models?.state === "absent" || models?.state === "error" ? (
-      <Banner tone="brand" icon="24.image" action={{ label: models.state === "error" ? "Try again" : "Download", onClick: () => void download() }}>
-        {models.state === "error" ? `The models didn't download: ${models.error}` : `Visual search needs two models on this computer (${formatBytes(models.bytes)}). They download once.`}
+      <Banner tone="brand" icon="24.image" action={{ label: models.state === "error" ? t("Try again") : t("Download"), onClick: () => void download() }}>
+        {models.state === "error" ? t("The models didn't download: {error}", { error: models.error ?? "" }) : t("Visual search needs two models on this computer ({size}). They download once.", { size: formatBytes(models.bytes) })}
       </Banner>
     ) : models?.state === "downloading" ? (
       <Banner tone="brand" icon="24.image">
-        {`Downloading the models… ${models.bytes ? Math.round(((models.received ?? 0) / models.bytes) * 100) : 0}%`}
+        {t("Downloading the models… {percent}%", { percent: models.bytes ? Math.round(((models.received ?? 0) / models.bytes) * 100) : 0 })}
       </Banner>
     ) : models?.state === "unavailable" ? (
-      <Banner icon="24.image">Local models aren't available in this version yet. Search matches names only.</Banner>
+      <Banner icon="24.image">{t("Local models aren't available in this version yet. Search matches names only.")}</Banner>
     ) : !indexing ? (
-      <Banner icon="24.image">Indexing is off in Settings › AI, so new designs aren't added.</Banner>
+      <Banner icon="24.image">{t("Indexing is off in Settings › AI, so new designs aren't added.")}</Banner>
     ) : null;
 
   return (
-    <Dialog title="Visual search" size="large" open onClose={onClose}>
+    <Dialog title={t("Visual search")} size="large" open onClose={onClose}>
       <div className={styles.view} onPaste={onPaste} data-visual-search="">
         <div className={styles.bar}>
           {mode === "text" ? (
-            <SearchField className={styles.field} value={text} onChange={setText} autoFocus placeholder="Search by keywords" label="Search by keywords" />
+            <SearchField className={styles.field} value={text} onChange={setText} autoFocus placeholder={t("Search by keywords")} label={t("Search by keywords")} />
           ) : (
             <div className={styles.imageQuery} data-image-query="">
-              {image ? <img src={image.url} alt="" className={styles.queryImage} /> : <span className={styles.file}>Select a layer, upload an image or paste one</span>}
-              {image && <span className={styles.name}>{image.label}</span>}
+              {image ? <img src={image.url} alt="" className={styles.queryImage} /> : <span className={styles.file}>{t("Select a layer, upload an image or paste one")}</span>}
+              {image && <span className={styles.name}>{image.from ? image.label : t(image.label)}</span>}
             </div>
           )}
           <IconButton
             icon={mode === "text" ? "24.image" : "24.search.small"}
-            label={mode === "text" ? "Search with image or selection" : "Search by keywords"}
+            label={mode === "text" ? t("Search with image or selection") : t("Search by keywords")}
             onClick={() => {
               setHits(null);
               setError(null);
@@ -376,15 +378,15 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
         {mode === "image" && (
           <div className={styles.imageActions}>
             <Button variant="secondary" onClick={() => upload.current?.click()}>
-              Upload
+              {t("Upload")}
             </Button>
             {ed.selection.length > 0 && (
               <Button variant="secondary" onClick={takeSelection}>
-                Find more like
+                {t("Find more like")}
               </Button>
             )}
             <Button variant="primary" disabled={!image || busy} onClick={() => image && void search({ image: image.pixels, ...(image.from ? { exclude: image.from } : {}) })}>
-              Search
+              {t("Search")}
             </Button>
             <input
               ref={upload}
@@ -394,26 +396,26 @@ export function VisualSearch({ ed, request, onClose }: { ed: EditorController; r
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 e.target.value = "";
-                if (f) void decodeImage(f).then((px) => showImage(px, "Upload"), () => setError("The image couldn't be read."));
+                if (f) void decodeImage(f).then((px) => showImage(px, "Upload"), () => setError(t("The image couldn't be read.")));
               }}
             />
           </div>
         )}
         {modelsBanner}
         <div className={styles.tabs}>
-          <Tabs label="Results" value="figma" tabs={[{ value: "figma", label: "Figma" }]} onChange={() => undefined} />
-          <Select label="Library" value={library} width="hug" variant="ghost" options={libraryOptions} onChange={setLibrary} />
+          <Tabs label={t("Results")} value="figma" tabs={[{ value: "figma", label: "Figma" }]} onChange={() => undefined} />
+          <Select label={t("Library")} value={library} width="hug" variant="ghost" options={libraryOptions} onChange={setLibrary} />
         </div>
-        {!semantic && hits && hits.length > 0 && <div className={styles.hint}>Matching names only.</div>}
+        {!semantic && hits && hits.length > 0 && <div className={styles.hint}>{t("Matching names only.")}</div>}
         <div className={styles.body}>{body}</div>
         {menu && (
           <ContextMenu
             at={menu}
             label={menu.hit.doc.name}
             entries={[
-              { id: "open", label: "Open the file" },
-              { id: "preview", label: "Preview" },
-              { id: "insert", label: "Insert" },
+              { id: "open", label: t("Open the file") },
+              { id: "preview", label: t("Preview") },
+              { id: "insert", label: t("Insert") },
             ]}
             onSelect={(id) => {
               if (id === "open") void openHitFile(menu.hit);

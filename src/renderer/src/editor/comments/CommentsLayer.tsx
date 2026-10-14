@@ -7,6 +7,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Avatar, Portal, timeAgo } from "@/ds";
+import { t, tp, useT } from "@/i18n";
 import { useCamera, useCurrentPage, useTool } from "@/engine/hooks";
 import type { Camera } from "@/engine/codec";
 import type { CommentAnchor, CommentThread } from "@shared/comments";
@@ -36,6 +37,7 @@ export function CommentsLayer() {
 }
 
 function Pins({ c }: { c: CommentsController }) {
+  useT();
   const ed = useEditor();
   const v = useComments(ed);
   const cam = useCamera(ed.store);
@@ -82,10 +84,10 @@ function Pins({ c }: { c: CommentsController }) {
   }, [c, commenting]);
 
   const data = v.data;
-  const threads = (data?.threads ?? []).filter((t) => t.anchor.pageId === page && (!t.resolvedAt || v.showResolved || v.open === t.id));
+  const threads = (data?.threads ?? []).filter((th) => th.anchor.pageId === page && (!th.resolvedAt || v.showResolved || v.open === th.id));
   const at = (a: CommentAnchor) => toCanvas(cam, c.pagePoint(a));
   const draftAt = v.draft && v.draft.pageId === page ? at(v.draft) : null;
-  const open = data?.threads.find((t) => t.id === v.open) ?? null;
+  const open = data?.threads.find((th) => th.id === v.open) ?? null;
   const openAt = open && open.anchor.pageId === page ? at(open.anchor) : null;
   const canvasRect = ed.canvas?.getBoundingClientRect() ?? new DOMRect();
 
@@ -93,9 +95,9 @@ function Pins({ c }: { c: CommentsController }) {
     <>
       <div className={styles.pins} data-comment-pins="">
         {(shown || commenting) &&
-          threads.map((t) => {
-            const p = at(t.anchor);
-            return <Pin key={t.id} c={c} thread={t} x={p.x} y={p.y} open={t.id === v.open} movable={!!data && canResolve(data, t)} people={v.people} />;
+          threads.map((th) => {
+            const p = at(th.anchor);
+            return <Pin key={th.id} c={c} thread={th} x={p.x} y={p.y} open={th.id === v.open} movable={!!data && canResolve(data, th)} people={v.people} />;
           })}
         {draftAt && <div className={styles.draftPin} style={{ left: draftAt.x, top: draftAt.y - PIN }} aria-hidden />}
       </div>
@@ -105,11 +107,11 @@ function Pins({ c }: { c: CommentsController }) {
             {(style) => (
               <div className={styles.newComment} style={style} onPointerDown={(e) => e.stopPropagation()} data-comment-composer="">
                 <Composer
-                  placeholder="Add a comment"
+                  placeholder={t("Add a comment")}
                   people={v.people}
                   me={data.me.id}
                   autoFocus
-                  onChange={(t) => (c.draftText = t)}
+                  onChange={(text) => (c.draftText = text)}
                   onSubmit={async (text) => {
                     const ok = await c.post(text);
                     if (ok) c.draftText = "";
@@ -156,6 +158,7 @@ function Card({ left, top, width, children }: { left: number; top: number; width
 }
 
 function Pin({ c, thread, x, y, open, movable, people }: { c: CommentsController; thread: CommentThread; x: number; y: number; open: boolean; movable: boolean; people: { id: string; name: string; email: string }[] }) {
+  useT();
   const ed = useEditor();
   const [hover, setHover] = useState(false);
   const [drag, setDrag] = useState<{ dx: number; dy: number } | null>(null);
@@ -202,7 +205,7 @@ function Pin({ c, thread, x, y, open, movable, people }: { c: CommentsController
       data-unread={thread.unread || undefined}
       data-resolved={thread.resolvedAt ? "" : undefined}
       data-hover={(hover && !open && !drag) || undefined}
-      aria-label={`Comment by ${first?.user.name ?? ""}: ${first?.message ?? ""}`}
+      aria-label={t("Comment by {name}: {message}", { name: first?.user.name ?? "", message: first?.message ?? "" })}
       onPointerEnter={() => setHover(true)}
       onPointerLeave={() => setHover(false)}
       onPointerDown={onPointerDown}
@@ -219,7 +222,7 @@ function Pin({ c, thread, x, y, open, movable, people }: { c: CommentsController
             <span className={styles.previewText}>
               <MessageText text={first.message} people={people} mentions={first.mentions} />
             </span>
-            {replies > 0 && <span className={styles.previewReplies}>{replies === 1 ? "1 reply" : `${replies} replies`}</span>}
+            {replies > 0 && <span className={styles.previewReplies}>{tp(replies, "{n} reply", "{n} replies")}</span>}
           </span>
         </span>
       ) : (

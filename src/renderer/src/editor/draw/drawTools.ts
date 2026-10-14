@@ -7,6 +7,7 @@
  * The engine side is round 7b's: until it lands, Engine.ts's Draw calls are stubs that throw "not built" — every call
  * here goes through `drawCall`, which reads that as "nothing yet" (the chrome keeps working on its own state).
  */
+import { t } from "@/i18n";
 import { showToast } from "@/ds";
 import { CMD_ENABLED, Status } from "@/engine/abi";
 import type { Pixels } from "@/engine/codec";
@@ -240,7 +241,7 @@ export function createBrush(ed: EditorController, brushType: BrushType): number 
   if (!ref) return Status.E_INVALID;
   const status = runDraw(ed, "CREATE_BRUSH", { ref, brushType });
   // [wording ours] (docs/draw.md §4.5): Figma's help says only closed vector paths can be sources.
-  if (status === Status.E_INVALID) showToast({ message: "Only closed paths can be used as brushes" });
+  if (status === Status.E_INVALID) showToast({ message: t("Only closed paths can be used as brushes") });
   return status;
 }
 

@@ -7,6 +7,7 @@
 import { useMemo, useState } from "react";
 import { EmptyState, Icon, IconButton, MenuButton } from "@/ds";
 import { runnableIn } from "@shared/plugins/manifest";
+import { t, useT } from "@/i18n";
 import { useEditor } from "../controller";
 import { usePluginService, usePlugins, type PluginEntry } from "../plugins/service";
 import { PluginFrame } from "../plugins/ui/PluginLayer";
@@ -35,6 +36,7 @@ export function devPlugins(entries: readonly PluginEntry[], pinned: readonly str
 }
 
 export function DevPluginsPanel() {
+  useT();
   const ed = useEditor();
   const service = usePluginService(ed);
   const snap = usePlugins(service);
@@ -58,7 +60,7 @@ export function DevPluginsPanel() {
         <section key={w.runId} className={styles.dockedPlugin} data-docked-plugin={w.pluginId}>
           <header className={styles.dockedHeader}>
             <span className={styles.grow}>{w.title}</span>
-            <IconButton icon="24.close.small" label="Close" onClick={() => service.ui.handlers.get(w.runId)?.close()} />
+            <IconButton icon="24.close.small" label={t("Close")} onClick={() => service.ui.handlers.get(w.runId)?.close()} />
           </header>
           <div className={styles.dockedBody} style={{ height: w.height }} hidden={!w.visible}>
             <PluginFrame w={w} ui={service.ui} className={styles.dockedFrame} />
@@ -66,7 +68,7 @@ export function DevPluginsPanel() {
         </section>
       ))}
       {list.length === 0 ? (
-        <EmptyState icon="24.plugin" title="No plugins for Dev Mode" body="Plugins made for Dev Mode (editorType “dev”) show up here." />
+        <EmptyState icon="24.plugin" title={t("No plugins for Dev Mode")} body={t("Plugins made for Dev Mode (editorType “dev”) show up here.")} />
       ) : (
         list.map((e) => {
           const isPinned = pinned.includes(e.ref.id);
@@ -74,12 +76,12 @@ export function DevPluginsPanel() {
           const codegen = !!e.manifest?.capabilities?.includes("codegen");
           return (
             <div key={`${e.ref.source.type}:${e.ref.id}`} className={styles.pluginRow} data-dev-plugin={e.ref.id}>
-              <button type="button" className={styles.pluginRun} disabled={!!e.disabled || (codegen && !inspect)} title={e.disabled ?? (codegen && !inspect ? "Choose its language in Inspect › Code" : undefined)} onClick={() => void service.run(e.ref, "", { mode: inspect ? "inspect" : "default" })}>
+              <button type="button" className={styles.pluginRun} disabled={!!e.disabled || (codegen && !inspect)} title={e.disabled ? t(e.disabled) : codegen && !inspect ? t("Choose its language in Inspect › Code") : undefined} onClick={() => void service.run(e.ref, "", { mode: inspect ? "inspect" : "default" })}>
                 <Icon name="24.plugin" />
                 <span className={styles.grow}>{e.ref.name}</span>
-                {isPinned && <span className={styles.hint}>Pinned</span>}
+                {isPinned && <span className={styles.hint}>{t("Pinned")}</span>}
               </button>
-              <MenuButton label="More" entries={[{ id: "pin", label: isPinned ? "Unpin" : "Pin to top" }]} onSelect={() => pin(e.ref.id, !isPinned)}>
+              <MenuButton label={t("More")} entries={[{ id: "pin", label: isPinned ? t("Unpin") : t("Pin to top") }]} onSelect={() => pin(e.ref.id, !isPinned)}>
                 <Icon name="24.more" />
               </MenuButton>
             </div>

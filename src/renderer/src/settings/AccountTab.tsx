@@ -5,18 +5,20 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, ContextMenu, IconButton, Select, showToast, Switch, setContrast, setThemePreference, useTheme, type ThemePreference } from "@/ds";
-import { LANGUAGES, type AccountPrefs } from "@shared/account";
+import type { AccountPrefs } from "@shared/account";
+import { LOCALES, setLocalePreference, t, useLocale, useT, type Locale } from "@/i18n";
 import type { UploadedFont } from "@shared/ipc";
 import { getStoreClient } from "@/store";
 import { fontsBridge, openLink } from "./bridge";
-import { ChangeEmailDialog, ChangeLanguageDialog, ChangeNameDialog, ChangeRoleDialog, DeleteAccountDialog, DraftLibrariesDialog, ViewHistoryDialog } from "./SettingsDialogs";
+import { ChangeEmailDialog, ChangeNameDialog, ChangeRoleDialog, DeleteAccountDialog, DraftLibrariesDialog, ViewHistoryDialog } from "./SettingsDialogs";
 import { useProfile } from "./useProfile";
 import { OfflineCache } from "./OfflineCache";
+import { FigmaConnection } from "./FigmaConnection";
 import { useCloud } from "../files/useCloud";
 import type { CloudRepository } from "@shared/store/cloud";
 import styles from "./Settings.module.css";
 
-type DialogId = "team" | "name" | "email" | "role" | "language" | "view-history" | "delete" | "libraries" | null;
+type DialogId = "team" | "name" | "email" | "role" | "view-history" | "delete" | "libraries" | null;
 
 export function Section({ heading, children, ...data }: { heading?: string; children?: ReactNode } & Record<`data-${string}`, string | undefined>) {
   return (
@@ -63,6 +65,7 @@ async function squarePhoto(file: File): Promise<string> {
 }
 
 export function AccountTab() {
+  useT();
   const { account, profile, save } = useProfile();
   const user = account.state?.user ?? null;
   const [dialog, setDialog] = useState<DialogId>(null);
@@ -90,7 +93,10 @@ export function AccountTab() {
   const name = profile?.name ?? user?.name ?? user?.email ?? "";
   const prefs: AccountPrefs = profile?.prefs ?? {};
   const savePrefs = (p: AccountPrefs) => save({ prefs: p });
-  const language = LANGUAGES.find((l) => l.id === (prefs.language ?? "en"))?.label ?? "English";
+  const locale = useLocale();
+  // A sentence around a link, the link's place in it per language
+  const seatNote = t("{link} what products are included in each seat.").split("{link}");
+  const librariesNote = t("{link} for all files in your drafts").split("{link}");
 
   return (
     <div className={styles.accountPage} data-settings-account="">
@@ -108,7 +114,7 @@ export function AccountTab() {
               }}
               data-photo-edit=""
             >
-              Edit
+              {t("Edit")}
             </button>
             <input
               ref={fileInput}
@@ -122,14 +128,14 @@ export function AccountTab() {
                 try {
                   await save({ picture: await squarePhoto(f) });
                 } catch {
-                  showToast({ kind: "error", message: "Couldn’t read that image" });
+                  showToast({ kind: "error", message: t("Couldn’t read that image") });
                 }
               }}
             />
             {photoMenu && (
               <ContextMenu
                 at={photoMenu}
-                entries={[{ id: "upload", label: "Upload photo…" }, ...(user.picture ? [{ id: "remove", label: "Remove photo" }] : [])]}
+                entries={[{ id: "upload", label: t("Upload photo…") }, ...(user.picture ? [{ id: "remove", label: t("Remove photo") }] : [])]}
                 onSelect={(id) => {
                   setPhotoMenu(null);
                   if (id === "upload") fileInput.current?.click();
@@ -144,21 +150,21 @@ export function AccountTab() {
       <div className={styles.content}>
         {user ? (
           <>
-            <Section heading="Name" data-settings-section="name">
+            <Section heading={t("Name")} data-settings-section="name">
               <p className={styles.value} data-settings-value="">{name}</p>
-              <Link onClick={() => setDialog("name")}>Change name</Link>
+              <Link onClick={() => setDialog("name")}>{t("Change name")}</Link>
             </Section>
-            <Section heading="Email" data-settings-section="email">
+            <Section heading={t("Email")} data-settings-section="email">
               <p className={styles.value}>{user.email}</p>
-              <Link onClick={() => setDialog("email")}>Change email</Link>
+              <Link onClick={() => setDialog("email")}>{t("Change email")}</Link>
             </Section>
-            <Section heading="Role" data-settings-section="role">
-              <p className={styles.value}>{profile?.role ?? "None"}</p>
-              <Link onClick={() => setDialog("role")}>Change role</Link>
+            <Section heading={t("Role")} data-settings-section="role">
+              <p className={styles.value}>{t(profile?.role ?? "None")}</p>
+              <Link onClick={() => setDialog("role")}>{t("Change role")}</Link>
             </Section>
             <Divider />
             <section className={styles.section} data-settings-section="spaces">
-              <h3 className={styles.title}>Your spaces</h3>
+              <h3 className={styles.title}>{t("Your spaces")}</h3>
               {/* Our one space is this computer's workspace (its team name); organisations come with Phase 7 (Enterprise). */}
               {personal ? (
                 // The person's own space: their Drafts on the server (docs/cloud.md §2), named after them
@@ -166,80 +172,89 @@ export function AccountTab() {
                   <span className={styles.spaceAvatar} aria-hidden>{(name || "M").charAt(0).toUpperCase()}</span>
                   <div className={styles.spaceLines}>
                     <span>{name}</span>
-                    <span className={styles.muted}>Owner</span>
-                    <span className={styles.spaceSeat}>Full seat</span>
+                    <span className={styles.muted}>{t("Owner")}</span>
+                    <span className={styles.spaceSeat}>{t("Full seat")}</span>
                   </div>
                 </div>
               ) : (
                 <div className={styles.space}>
                   <span className={styles.spaceAvatar} aria-hidden>{(teamName ?? "M").charAt(0).toUpperCase()}</span>
                   <div className={styles.spaceLines}>
-                    <span>{teamName ?? "My team"}</span>
-                    <span className={styles.muted}>Owner</span>
-                    <span className={styles.spaceSeat}>Full seat</span>
+                    <span>{teamName ?? t("My team")}</span>
+                    <span className={styles.muted}>{t("Owner")}</span>
+                    <span className={styles.spaceSeat}>{t("Full seat")}</span>
                     {/* Ours: the local team's Rename (Home: right-click the team's name) */}
                     <Link tight onClick={() => setDialog("team")} data-rename-team="">
-                      Rename team
+                      {t("Rename team")}
                     </Link>
                   </div>
                 </div>
               )}
               <p className={`${styles.text} ${styles.strong} ${styles.spaceNote}`}>
-                <Link onClick={() => openLink("https://help.figma.com/hc/en-us/articles/27468498501527")}>Learn</Link> what products are included in each seat.
+                {seatNote[0]}
+                <Link onClick={() => openLink("https://help.figma.com/hc/en-us/articles/27468498501527")}>{t("Learn")}</Link>
+                {seatNote[1]}
               </p>
             </section>
           </>
         ) : (
-          <Section heading="Account" data-settings-section="log-in">
+          <Section heading={t("Account")} data-settings-section="log-in">
             <div className={styles.signedOut}>
-              <p className={styles.text}>Log in to change your name, photo and role, see your sessions and make personal access tokens.</p>
+              <p className={styles.text}>{t("Log in to change your name, photo and role, see your sessions and make personal access tokens.")}</p>
               <Button
                 variant="primary"
                 disabled={!account.available || !!account.state?.signingIn}
                 onClick={() => void account.run("log-in").then((f) => f && showToast({ kind: "error", message: f }))}
               >
-                {account.state?.signingIn ? "Waiting for the browser…" : "Log in with Google…"}
+                {account.state?.signingIn ? t("Waiting for the browser…") : t("Log in with Google…")}
               </Button>
             </div>
           </Section>
         )}
         <Divider />
-        <Section heading="Language" data-settings-section="language">
-          <p className={styles.value}>{language}</p>
-          <Link onClick={() => setDialog("language")}>Change language</Link>
+        <Section heading={t("Language")} data-settings-section="language">
+          <Select
+            label={t("Language")}
+            className={styles.themeSelect}
+            variant="outlined"
+            value={locale}
+            options={LOCALES.map((l) => ({ value: l.id, label: l.label }))}
+            onChange={(v) => void setLocalePreference(v as Locale)}
+            data-language-select=""
+          />
         </Section>
         <Divider />
-        <Section heading="Theme" data-settings-section="theme">
+        <Section heading={t("Theme")} data-settings-section="theme">
           <Select
-            label="Theme"
+            label={t("Theme")}
             className={styles.themeSelect}
             variant="outlined"
             value={theme.preference}
             options={[
-              { value: "light", label: "Light" },
-              { value: "dark", label: "Dark" },
-              { value: "system", label: "System" },
+              { value: "light", label: t("Light") },
+              { value: "dark", label: t("Dark") },
+              { value: "system", label: t("System") },
             ]}
             onChange={(v) => setThemePreference(v as ThemePreference)}
           />
           <div className={styles.switchRow}>
-            <Switch label="Enhance contrast" size="large" checked={theme.contrast} onChange={setContrast} data-enhance-contrast="" />
+            <Switch label={t("Enhance contrast")} size="large" checked={theme.contrast} onChange={setContrast} data-enhance-contrast="" />
             <div className={styles.switchText}>
-              <span>Enhance contrast</span>
-              <span className={styles.muted}>When enabled, contrast between text and controls and their backgrounds will be increased</span>
+              <span>{t("Enhance contrast")}</span>
+              <span className={styles.muted}>{t("When enabled, contrast between text and controls and their backgrounds will be increased")}</span>
             </div>
           </div>
         </Section>
         {user && (
           <>
             <Divider />
-            <Section heading="New features" data-settings-section="new-features">
+            <Section heading={t("New features")} data-settings-section="new-features">
               <div className={styles.feature}>
-                Closed captions <span className={styles.beta}>Beta</span>
+                {t("Closed captions")} <span className={styles.beta}>{t("Beta")}</span>
               </div>
               <div className={`${styles.switchRow} ${styles.featureSwitch}`}>
-                <Switch label="Closed captions" size="large" checked={prefs.closedCaptions === true} onChange={(c) => void savePrefs({ closedCaptions: c })} data-closed-captions="" />
-                <span>Enable closed captioning when using audio inside your files.</span>
+                <Switch label={t("Closed captions")} size="large" checked={prefs.closedCaptions === true} onChange={(c) => void savePrefs({ closedCaptions: c })} data-closed-captions="" />
+                <span>{t("Enable closed captioning when using audio inside your files.")}</span>
               </div>
             </Section>
           </>
@@ -247,10 +262,10 @@ export function AccountTab() {
         {user && fontsBridge() && (
           <>
             <Divider />
-            <Section heading="API requests" data-settings-section="rest-helper">
+            <Section heading={t("API requests")} data-settings-section="rest-helper">
               <div className={styles.switchRow}>
-                <Switch label="Answer API requests for my files" size="large" checked={prefs.restHelper !== false} onChange={(c) => void savePrefs({ restHelper: c })} data-rest-helper="" />
-                <span>Answer API requests for my files while Wecra is open. When no one has a file open, Wecra opens it in the background to answer.</span>
+                <Switch label={t("Answer API requests for my files")} size="large" checked={prefs.restHelper !== false} onChange={(c) => void savePrefs({ restHelper: c })} data-rest-helper="" />
+                <span>{t("Answer API requests for my files while Wecra is open. When no one has a file open, Wecra opens it in the background to answer.")}</span>
               </div>
             </Section>
           </>
@@ -269,25 +284,29 @@ export function AccountTab() {
           </>
         )}
         <Divider />
-        <Section heading="Library" data-settings-section="library">
+        <FigmaConnection />
+        <Divider />
+        <Section heading={t("Library")} data-settings-section="library">
           <p className={styles.text}>
-            <Link onClick={() => setDialog("libraries")}>Enable libraries</Link> for all files in your drafts
+            {librariesNote[0]}
+            <Link onClick={() => setDialog("libraries")}>{t("Enable libraries")}</Link>
+            {librariesNote[1]}
           </p>
         </Section>
         {user && (
           <>
             <Divider />
-            <Section heading="View history" data-settings-section="view-history">
+            <Section heading={t("View history")} data-settings-section="view-history">
               <p className={styles.text}>
-                {prefs.viewHistory === false ? "Your view history is off: teammates don’t see when you view their files, and you don’t see theirs. " : "You can currently see teammates’ view history in your files, and they can see yours. "}
-                <Link onClick={() => openLink("https://help.figma.com/hc/en-us/articles/29638316371479")}>Learn more</Link>
+                {prefs.viewHistory === false ? t("Your view history is off: teammates don’t see when you view their files, and you don’t see theirs.") : t("You can currently see teammates’ view history in your files, and they can see yours.")}{" "}
+                <Link onClick={() => openLink("https://help.figma.com/hc/en-us/articles/29638316371479")}>{t("Learn more")}</Link>
               </p>
-              <Link onClick={() => setDialog("view-history")}>Change preference</Link>
+              <Link onClick={() => setDialog("view-history")}>{t("Change preference")}</Link>
             </Section>
             <Divider />
-            <Section heading="Account" data-settings-section="account">
+            <Section heading={t("Account")} data-settings-section="account">
               <Link danger onClick={() => setDialog("delete")} data-delete-account="">
-                Delete account
+                {t("Delete account")}
               </Link>
             </Section>
           </>
@@ -296,17 +315,16 @@ export function AccountTab() {
 
       {dialog === "team" && (
         <ChangeNameDialog
-          title="Rename team"
-          label="Team name"
-          name={teamName ?? "My team"}
-          onSave={(n) => getStoreClient().workspace.setTeamName(n).then((w) => setTeamName(w.teamName), () => showToast({ kind: "error", message: "Couldn’t rename the team" }))}
+          title={t("Rename team")}
+          label={t("Team name")}
+          name={teamName ?? t("My team")}
+          onSave={(n) => getStoreClient().workspace.setTeamName(n).then((w) => setTeamName(w.teamName), () => showToast({ kind: "error", message: t("Couldn’t rename the team") }))}
           onClose={() => setDialog(null)}
         />
       )}
       {dialog === "name" && <ChangeNameDialog name={name} onSave={(n) => save({ name: n })} onClose={() => setDialog(null)} />}
       {dialog === "email" && user && <ChangeEmailDialog email={user.email} provider={profile?.provider ?? "google"} onClose={() => setDialog(null)} />}
       {dialog === "role" && <ChangeRoleDialog role={profile?.role ?? null} onSave={(r) => save({ role: r })} onClose={() => setDialog(null)} />}
-      {dialog === "language" && <ChangeLanguageDialog language={prefs.language ?? "en"} onSave={(l) => savePrefs({ language: l })} onClose={() => setDialog(null)} />}
       {dialog === "view-history" && <ViewHistoryDialog on={prefs.viewHistory !== false} onSave={(on) => savePrefs({ viewHistory: on })} onClose={() => setDialog(null)} />}
       {dialog === "libraries" && <DraftLibrariesDialog onClose={() => setDialog(null)} />}
       {dialog === "delete" && user && (
@@ -315,7 +333,7 @@ export function AccountTab() {
           onClose={() => setDialog(null)}
           onDeleted={() => {
             setDialog(null);
-            showToast({ message: "Your account was deleted" });
+            showToast({ message: t("Your account was deleted") });
           }}
         />
       )}
@@ -350,6 +368,7 @@ function useFaces(fonts: UploadedFont[], read: ((id: string) => Promise<Uint8Arr
 
 /** "Your uploaded fonts": Upload font (main's Open dialog), each face's row with "Rag 123" in it and its trash button. */
 function UploadedFonts() {
+  useT();
   const api = fontsBridge();
   const [fonts, setFonts] = useState<UploadedFont[]>([]);
   const [busy, setBusy] = useState(false);
@@ -363,8 +382,8 @@ function UploadedFonts() {
   }, [api]);
   const loaded = useFaces(fonts, api ? api.read : null);
   return (
-    <Section heading="Your uploaded fonts" data-settings-section="fonts">
-      <p className={styles.text}>Upload fonts for your personal use. These fonts will be available across the files you view or edit.</p>
+    <Section heading={t("Your uploaded fonts")} data-settings-section="fonts">
+      <p className={styles.text}>{t("Upload fonts for your personal use. These fonts will be available across the files you view or edit.")}</p>
       <Button
         variant="primary"
         className={styles.fontsButton}
@@ -378,16 +397,16 @@ function UploadedFonts() {
             const r = await api.upload();
             if ("cancelled" in r) return;
             setFonts(r.fonts);
-            if (r.failed.length) showToast({ kind: "error", message: `Couldn’t upload ${r.failed.join(", ")}: not a font file we can read` });
+            if (r.failed.length) showToast({ kind: "error", message: t("Couldn’t upload {files}: not a font file we can read", { files: r.failed.join(", ") }) });
           } finally {
             setBusy(false);
           }
         }}
       >
-        Upload font
+        {t("Upload font")}
       </Button>
       {fonts.length > 0 && (
-        <div className={styles.fonts} role="list" aria-label="Your uploaded fonts">
+        <div className={styles.fonts} role="list" aria-label={t("Your uploaded fonts")}>
           {fonts.map((f) => (
             <div key={`${f.id}:${f.style}`} role="listitem" className={styles.fontRow} data-uploaded-font={f.family}>
               <span className={styles.fontNames}>
@@ -403,7 +422,7 @@ function UploadedFonts() {
               </span>
               <IconButton
                 icon="24.trash"
-                label={`Remove ${f.family} ${f.style}`}
+                label={t("Remove {font}", { font: `${f.family} ${f.style}` })}
                 tooltip={false}
                 onClick={async () => {
                   if (!api) return;

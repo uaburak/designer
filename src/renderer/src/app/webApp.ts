@@ -8,6 +8,7 @@
  * presentation); desktop-only features stay hidden (local fonts, CLI agents / MCP, haptics, the macOS sign-in sheet),
  * Save local copy… is a download and Import is the file picker.
  */
+import { t } from "@/i18n";
 
 /** True in the web app's build, in a browser (never under the desktop app's preload). */
 export function isWebApp(): boolean {
@@ -54,4 +55,4 @@ export const figFileName = (name: string) =>
     .map((c) => (c.charCodeAt(0) < 32 ? " " : c))
     .join("")
     .replace(/[\\/:*?"<>|]+/g, " ")
-    .trim() || "Untitled"}.fig`;
+    .trim() || t("Untitled")}.fig`;

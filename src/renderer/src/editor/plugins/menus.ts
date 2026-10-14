@@ -5,6 +5,7 @@
  */
 import type { MenuEntry, MenuItem } from "@/ds";
 import type { PluginMenuItem, PluginRef } from "@shared/plugins/types";
+import { t } from "@/i18n";
 import type { EditorController } from "../controller";
 import { pluginsOf, type PluginService } from "./service";
 
@@ -16,7 +17,7 @@ const itemId = (ref: PluginRef, command: string) => `${PLUGIN_ITEM}${ref.source.
 function pluginEntry(s: PluginService, ref: PluginRef, disabled: string | null = null): MenuItem {
   const manifest = s.manifestOf(ref.id);
   const menu = manifest?.menu;
-  if (!menu?.length || disabled) return { id: itemId(ref, ""), label: ref.name, disabled: !!disabled, ...(disabled ? { hint: disabled } : {}) };
+  if (!menu?.length || disabled) return { id: itemId(ref, ""), label: ref.name, disabled: !!disabled, ...(disabled ? { hint: t(disabled) } : {}) };
   const build = (items: readonly PluginMenuItem[], path: string): MenuEntry[] =>
     items.map((m, i): MenuEntry => {
       if ("separator" in m) return "-";
@@ -29,9 +30,9 @@ function pluginEntry(s: PluginService, ref: PluginRef, disabled: string | null =
 /** Saved plugins ▸, then the plugins run here (recents), as the menu's run section. */
 function runSection(s: PluginService): MenuEntry[] {
   const snap = s.get();
-  const saved: MenuEntry[] = snap.saved.length ? snap.saved.map((r) => pluginEntry(s, r)) : [{ id: "plugins.none", label: "No saved plugins", disabled: true }];
+  const saved: MenuEntry[] = snap.saved.length ? snap.saved.map((r) => pluginEntry(s, r)) : [{ id: "plugins.none", label: t("No saved plugins"), disabled: true }];
   const recents = snap.recents.map((r) => pluginEntry(s, r));
-  return [{ id: "submenu:plugins.saved", label: "Saved plugins", items: saved }, ...(recents.length ? ["-" as const, ...recents] : [])];
+  return [{ id: "submenu:plugins.saved", label: t("Saved plugins"), items: saved }, ...(recents.length ? ["-" as const, ...recents] : [])];
 }
 
 /** Development ▸ */
@@ -40,7 +41,7 @@ function development(s: PluginService, item: (id: string, label?: string) => Men
   const plugins = snap.development.map((e) => pluginEntry(s, e.ref, e.disabled));
   return {
     id: "submenu:plugins.development",
-    label: "Development",
+    label: t("Development"),
     items: [
       item("plugins.new"),
       item("plugins.import"),
@@ -56,11 +57,11 @@ function development(s: PluginService, item: (id: string, label?: string) => Men
 /** The Figma menu's Plugins ▸ (its items from the command registry through `item`). */
 export function pluginsMenu(ed: EditorController, item: (id: string, label?: string) => MenuItem): MenuItem {
   const s = pluginsOf(ed);
-  if (!s) return { id: "submenu:plugins", label: "Plugins", width: 181, items: [item("plugins.run-last"), "-", { id: "submenu:plugins.saved", label: "Saved plugins", items: [item("plugins.none")] }, "-", item("plugins.manage")] };
+  if (!s) return { id: "submenu:plugins", label: t("Plugins"), width: 181, items: [item("plugins.run-last"), "-", { id: "submenu:plugins.saved", label: t("Saved plugins"), items: [item("plugins.none")] }, "-", item("plugins.manage")] };
   const org = s.get().organization;
   return {
     id: "submenu:plugins",
-    label: "Plugins",
+    label: t("Plugins"),
     width: 181,
     items: [
       item("plugins.run-last"),
@@ -68,7 +69,7 @@ export function pluginsMenu(ed: EditorController, item: (id: string, label?: str
       ...runSection(s),
       "-",
       development(s, item),
-      ...(org.length ? [{ id: "submenu:plugins.org", label: `From ${s.get().orgName ?? "your organization"}`, items: org.map((e) => pluginEntry(s, e.ref, e.disabled)) } as MenuItem] : []),
+      ...(org.length ? [{ id: "submenu:plugins.org", label: s.get().orgName ? t("From {name}", { name: s.get().orgName! }) : t("From your organization"), items: org.map((e) => pluginEntry(s, e.ref, e.disabled)) } as MenuItem] : []),
       "-",
       item("plugins.manage"),
     ],
@@ -78,12 +79,12 @@ export function pluginsMenu(ed: EditorController, item: (id: string, label?: str
 /** The canvas menu's Plugins ▸: the run section and Manage plugins…. */
 export function canvasPluginsMenu(ed: EditorController, item: (id: string, label?: string) => MenuItem): MenuItem {
   const s = pluginsOf(ed);
-  if (!s) return { id: "submenu:canvas.plugins", label: "Plugins", items: [item("plugins.run-last"), "-", { id: "submenu:plugins.saved", label: "Saved plugins", items: [item("plugins.none")] }, "-", item("plugins.manage")] };
+  if (!s) return { id: "submenu:canvas.plugins", label: t("Plugins"), items: [item("plugins.run-last"), "-", { id: "submenu:plugins.saved", label: t("Saved plugins"), items: [item("plugins.none")] }, "-", item("plugins.manage")] };
   const dev = s.get().development.map((e) => pluginEntry(s, e.ref, e.disabled));
   return {
     id: "submenu:canvas.plugins",
-    label: "Plugins",
-    items: [item("plugins.run-last"), "-", ...runSection(s), ...(dev.length ? ["-" as const, { id: "submenu:canvas.plugins.development", label: "Development", items: dev } as MenuItem] : []), "-", item("plugins.manage")],
+    label: t("Plugins"),
+    items: [item("plugins.run-last"), "-", ...runSection(s), ...(dev.length ? ["-" as const, { id: "submenu:canvas.plugins.development", label: t("Development"), items: dev } as MenuItem] : []), "-", item("plugins.manage")],
   };
 }
 

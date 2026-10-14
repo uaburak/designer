@@ -37,6 +37,7 @@ import { fields, useKeeps } from "./shared";
 import { Grip, moved, useReorder } from "./reorder";
 import styles from "./Design.module.css";
 import own from "./Export.module.css";
+import { t, tp, useT } from "@/i18n";
 
 /** A layer (or the page) the section exports. */
 /** Live's name for the scale field and its group. */
@@ -60,6 +61,7 @@ export function ExportSection(props: { targets: ExportTarget[]; page: boolean })
 }
 
 function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: boolean }) {
+  useT();
   const ed = useEditor();
   const kept = useKeeps("exportSettings");
   const refs = targets.map((t) => t.guid);
@@ -76,7 +78,7 @@ function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: b
   const items: ExportItem[] = targets
     .map((t) => ({ ref: page ? null : t.guid, name: t.name ?? "", settings: exportSettingsOf(t) }))
     .filter((i) => i.settings.length > 0);
-  const label = targets.length === 1 ? `Export ${targets[0].name ?? ""}` : `Export ${targets.length} layers`;
+  const label = targets.length === 1 ? t("Export {name}", { name: targets[0].name ?? "" }) : tp(targets.length, "Export {n} layer", "Export {n} layers");
   // Rows in list order (the first setting on top); a grip drags one to another place (help 360040028114).
   const { container: reorderRef, grip, dragging, line: dropLine } = useReorder((from, to) => writeSettings(ed, refs, moved(list, from, to), "Reorder export settings"));
   const run = async () => {
@@ -88,8 +90,8 @@ function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: b
     }
   };
   return (
-    <PanelSection title="Export" empty={empty} actions={<IconButton icon="24.plus.small" label="Add export settings" tone="secondary" disabled={!kept} onClick={add} />}>
-      {isMixed && <div className={styles.note}>Click + to replace mixed export settings</div>}
+    <PanelSection title={t("Export")} empty={empty} actions={<IconButton icon="24.plus.small" label={t("Add export settings")} tone="secondary" disabled={!kept} onClick={add} />}>
+      {isMixed && <div className={styles.note}>{t("Click + to replace mixed export settings")}</div>}
       {list.length > 0 && (
         <div ref={reorderRef} className={styles.reorderList}>
       {list.map((s, i) => {
@@ -102,10 +104,10 @@ function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: b
                 scale or width/height dimensions" / "Select an option"), "Export file type" (74, outlined), "Advanced export
                 settings" and "Remove". */}
             <div className={own.fields}>
-              <div role="group" aria-label={SCALE_LABEL} className={own.scaleGroup}>
+              <div role="group" aria-label={t(SCALE_LABEL)} className={own.scaleGroup}>
                 <TextInput
                   className={own.scale}
-                  label={SCALE_LABEL}
+                  label={t(SCALE_LABEL)}
                   value={scaleLabel(s)}
                   disabled={vector}
                   onCommit={(v) => {
@@ -114,7 +116,7 @@ function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: b
                   }}
                 />
                 <MenuButton
-                  label="Select an option"
+                  label={t("Select an option")}
                   disabled={vector}
                   entries={SCALE_PRESETS.map((p) => ({ id: p, label: p, checked: p === scaleLabel(s) }))}
                   onSelect={(p) => {
@@ -128,12 +130,12 @@ function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: b
               </div>
               <span className={own.formatSlot}>
               {/* Live: the field's label, kept for assistive tech and clipped from view (97,800 "Export file type") */}
-              <span className={own.formatLegend}>Export file type</span>
+              <span className={own.formatLegend}>{t("Export file type")}</span>
               <Select
                 className={own.format}
                 variant="outlined"
                 below
-                label="Export file type"
+                label={t("Export file type")}
                 value={format}
                 options={EXPORT_FORMATS.map((f) => ({ value: f.value, label: f.label }))}
                 onChange={(v) => set(i, withFormat(s, v as ExportFormat), "Export format")}
@@ -142,12 +144,12 @@ function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: b
             </div>
             <IconButton
               icon="24.adjust.small"
-              label="Advanced export settings"
+              label={t("Advanced export settings")}
               tone="secondary"
               aria-expanded={open?.index === i}
               onClick={(ev) => setOpen(open?.index === i ? null : { index: i, anchor: ev.currentTarget })}
             />
-            <IconButton icon="24.minus.small" label="Remove" tone="secondary" onClick={() => writeSettings(ed, refs, list.filter((_, j) => j !== i), "Remove export settings")} />
+            <IconButton icon="24.minus.small" label={t("Remove")} tone="secondary" onClick={() => writeSettings(ed, refs, list.filter((_, j) => j !== i), "Remove export settings")} />
           </div>
         );
       })}
@@ -165,7 +167,7 @@ function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: b
         <>
           <button type="button" className={own.disclosure} aria-expanded={preview} onClick={() => setPreview(!preview)}>
             <Icon name={preview ? "16.chevron.down" : "16.chevron.right"} />
-            <span>Preview</span>
+            <span>{t("Preview")}</span>
           </button>
           {preview && targets.length === 1 && list[0] && <ExportPreview refs={page ? [] : [targets[0].guid]} setting={list[0]} />}
         </>
@@ -179,30 +181,31 @@ function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: b
 
 /** The "…" popover: the setting's details, by format. */
 export function ExportSettingsPopover({ setting, anchor, onChange, onClose }: { setting: ExportSettings; anchor: HTMLElement; onChange: (s: ExportSettings) => void; onClose: () => void }) {
+  useT();
   const format = formatOf(setting);
   const raster = format === "PNG" || format === "JPEG";
   const quality = QUALITY_LEVELS.reduce((best, q) => (Math.abs(q.quality - qualityOf(setting)) < Math.abs(best.quality - qualityOf(setting)) ? q : best));
   const check = (label: string, value: boolean, next: (v: boolean) => ExportSettings) => (
     <div className={styles.settingsWide} data-export-check="">
-      <Checkbox label={label} checked={value} onChange={(v) => onChange(next(v))} />
+      <Checkbox label={t(label)} checked={value} onChange={(v) => onChange(next(v))} />
     </div>
   );
   return (
     // Live (popovers/export-advanced-settings.txt): "Export", rows from 52 every 32 — labels 16, fields 100 wide at 124
     // (Suffix "None", Color profile "sRGB (same as file)", Image resampling "Detailed"), Ignore overlapping layers.
-    <Popover anchor={anchor} title="Export" width={240} onClose={onClose} label="Export settings">
+    <Popover anchor={anchor} title={t("Export")} width={240} onClose={onClose} label={t("Export settings")}>
       <div className={cx(styles.settings, own.exportSettings)} data-export-settings="">
-        <span className={styles.settingsLabel}>Suffix</span>
-        <TextInput label="Suffix" placeholder="None" value={setting.suffix ?? ""} onCommit={(v) => onChange({ ...setting, suffix: v })} />
+        <span className={styles.settingsLabel}>{t("Suffix")}</span>
+        <TextInput label={t("Suffix")} placeholder={t("None")} value={setting.suffix ?? ""} onCommit={(v) => onChange({ ...setting, suffix: v })} />
         {raster && (
           <>
-            <span className={styles.settingsLabel}>Color profile</span>
+            <span className={styles.settingsLabel}>{t("Color profile")}</span>
             <Select
-              label="Color profile"
+              label={t("Color profile")}
               variant="ghost"
               value={setting.colorProfile ?? "DOCUMENT"}
               options={[
-                { value: "DOCUMENT", label: "sRGB (same as file)" },
+                { value: "DOCUMENT", label: t("sRGB (same as file)") },
                 { value: "SRGB", label: "sRGB" },
                 { value: "DISPLAY_P3_V4", label: "Display P3" },
               ]}
@@ -212,20 +215,20 @@ export function ExportSettingsPopover({ setting, anchor, onChange, onClose }: { 
         )}
         {(format === "JPEG" || format === "PDF") && (
           <>
-            <span className={styles.settingsLabel}>Image quality</span>
-            <Select label="Image quality" variant="ghost" value={quality.value} options={QUALITY_LEVELS.map((q) => ({ value: q.value, label: q.label }))} onChange={(v) => onChange({ ...setting, quality: QUALITY_LEVELS.find((q) => q.value === v)?.quality })} />
+            <span className={styles.settingsLabel}>{t("Image quality")}</span>
+            <Select label={t("Image quality")} variant="ghost" value={quality.value} options={QUALITY_LEVELS.map((q) => ({ value: q.value, label: t(q.label) }))} onChange={(v) => onChange({ ...setting, quality: QUALITY_LEVELS.find((q) => q.value === v)?.quality })} />
           </>
         )}
         {format !== "SVG" && (
           <>
-            <span className={styles.settingsLabel}>Image resampling</span>
+            <span className={styles.settingsLabel}>{t("Image resampling")}</span>
             <Select
-              label="Image resampling"
+              label={t("Image resampling")}
               variant="ghost"
               value={setting.useBicubicSampler === false ? "basic" : "detailed"}
               options={[
-                { value: "detailed", label: "Detailed" },
-                { value: "basic", label: "Basic" },
+                { value: "detailed", label: t("Detailed") },
+                { value: "basic", label: t("Basic") },
               ]}
               onChange={(v) => onChange({ ...setting, useBicubicSampler: v !== "basic" })}
             />
@@ -244,6 +247,7 @@ export function ExportSettingsPopover({ setting, anchor, onChange, onClose }: { 
 
 /** The first setting's image, drawn again when the document changes (a moment after). */
 function ExportPreview({ refs, setting }: { refs: Guid[]; setting: ExportSettings }) {
+  useT();
   const ed = useEditor();
   const version = useDocumentVersion();
   const [url, setUrl] = useState<string | null>(null);
@@ -268,7 +272,7 @@ function ExportPreview({ refs, setting }: { refs: Guid[]; setting: ExportSetting
   }, [ed, key, shown, version]);
   return (
     <div className={own.preview} data-export-preview="">
-      {url ? <img src={url} alt="Export preview" /> : null}
+      {url ? <img src={url} alt={t("Export preview")} /> : null}
     </div>
   );
 }

@@ -5,6 +5,7 @@
  * Preview / Keep it (panels/prototype/AddInteractions.tsx) and the Replace content suggestion after a duplicate.
  */
 import { Button, IconButton, Portal, Spinner } from "@/ds";
+import { t, useT } from "@/i18n";
 import { useEditor } from "../controller";
 import { AddInteractionsBanner } from "../panels/prototype/AddInteractions";
 import { useAiState } from "./AiPanel";
@@ -12,6 +13,7 @@ import { aiOf } from "./service";
 import styles from "./AiHost.module.css";
 
 export function AiHost() {
+  useT();
   const ed = useEditor();
   const ai = aiOf(ed);
   const s = useAiState(ai);
@@ -21,10 +23,10 @@ export function AiHost() {
       {s.run && !s.run.fromPanel && (
         <Portal>
           <div role="status" className={styles.pill} data-ai-run={s.run.action}>
-            <Spinner size={16} label={s.run.label} />
-            <span>{s.run.label}</span>
+            <Spinner size={16} label={t(s.run.label)} />
+            <span>{t(s.run.label)}</span>
             <Button variant="secondary" onClick={() => ai.stop()}>
-              Stop
+              {t("Stop")}
             </Button>
           </div>
         </Portal>
@@ -33,11 +35,11 @@ export function AiHost() {
       {banner?.kind === "replace-content" && !s.run && (
         <Portal>
           <div role="status" className={styles.pill} data-ai-banner="replace-content">
-            <span>Replace placeholder content in the copies?</span>
+            <span>{t("Replace placeholder content in the copies?")}</span>
             <Button variant="primary" onClick={() => void ai.replaceContent("", { refs: banner.refs })}>
-              Replace content
+              {t("Replace content")}
             </Button>
-            <IconButton icon="24.close.small" label="Dismiss" tone="secondary" onClick={() => ai.closeBanner()} />
+            <IconButton icon="24.close.small" label={t("Dismiss")} tone="secondary" onClick={() => ai.closeBanner()} />
           </div>
         </Portal>
       )}

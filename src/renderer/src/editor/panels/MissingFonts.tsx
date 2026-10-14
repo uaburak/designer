@@ -14,6 +14,7 @@ import { missingFonts, useDocumentFonts, useFontFamilies, type DocumentFontUse }
 import { FontField } from "./design/FontPicker";
 import { documentFamilies } from "./design/Typography";
 import styles from "./Panels.module.css";
+import { t, tp, useT } from "@/i18n";
 
 const subscribeMissing = (cb: () => void) => fonts.onMissingChange(cb);
 let missingVersion = 0;
@@ -42,12 +43,13 @@ export function useMissingFonts(): DocumentFontUse[] {
  * only while some font is missing; it opens the dialog.
  */
 export function MissingFontsButton() {
+  useT();
   const missing = useMissingFonts();
   const [open, setOpen] = useState(false);
   if (!missing.length) return null;
   return (
     <>
-      <RailItem compact icon="24.missing-fonts" label="Missing fonts" active={open} data-missing-fonts={missing.length} onClick={() => setOpen(true)} />
+      <RailItem compact icon="24.missing-fonts" label={t("Missing fonts")} active={open} data-missing-fonts={missing.length} onClick={() => setOpen(true)} />
       {open && <MissingFontsDialog missing={missing} onClose={() => setOpen(false)} />}
     </>
   );
@@ -65,6 +67,7 @@ function defaultReplacement(list: readonly FontFamily[] | null, m: DocumentFontU
 }
 
 export function MissingFontsDialog({ missing, onClose }: { missing: DocumentFontUse[]; onClose: () => void }) {
+  useT();
   const ed = useEditor();
   const list = useFontFamilies();
   const [choice, setChoice] = useState<Record<string, Replacement>>({});
@@ -80,21 +83,21 @@ export function MissingFontsDialog({ missing, onClose }: { missing: DocumentFont
   };
   return (
     <Dialog
-      title="Missing fonts"
+      title={t("Missing fonts")}
       size="medium"
       open
       onClose={onClose}
       footer={
         <Button variant="primary" size="large" onClick={replace} data-replace-fonts="">
-          Replace fonts
+          {t("Replace fonts")}
         </Button>
       }
     >
       <div className={styles.missingFonts} data-missing-fonts-dialog="">
-        <p className={styles.missingIntro}>Some fonts used in this file aren’t available. Replace them with fonts you have; every layer in the file that uses them changes.</p>
+        <p className={styles.missingIntro}>{t("Some fonts used in this file aren’t available. Replace them with fonts you have; every layer in the file that uses them changes.")}</p>
         <div className={styles.missingHead}>
-          <span>Missing font</span>
-          <span>Replacement</span>
+          <span>{t("Missing font")}</span>
+          <span>{t("Replacement")}</span>
         </div>
         {missing.map((m) => {
           const r = replacementOf(m);
@@ -104,7 +107,7 @@ export function MissingFontsDialog({ missing, onClose }: { missing: DocumentFont
               <div className={styles.missingName}>
                 <span>{m.family}</span>
                 <span className={styles.missingStyle}>
-                  {m.style} · {m.uses === 1 ? "1 layer" : `${m.uses} layers`}
+                  {m.style} · {tp(m.uses, "{n} layer", "{n} layers")}
                 </span>
               </div>
               <div className={styles.missingPick}>
@@ -116,7 +119,7 @@ export function MissingFontsDialog({ missing, onClose }: { missing: DocumentFont
                   onPick={(f) => setChoice({ ...choice, [key(m)]: { family: f.family, style: closestStyle(list?.find((x) => x.family === f.family)?.styles ?? [f.style], m.style) } })}
                 />
                 <Select
-                  label="Replacement style"
+                  label={t("Replacement style")}
                   value={r.style}
                   options={(fam?.styles ?? [r.style]).map((s) => ({ value: s, label: s }))}
                   onChange={(s) => setChoice({ ...choice, [key(m)]: { family: r.family, style: s } })}

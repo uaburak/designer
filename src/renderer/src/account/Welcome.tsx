@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { welcomeScreen, type AccountState, type SignInMethod, type SignInResult } from "@shared/account";
 import { Banner, Button, Icon, Spinner } from "@/ds";
 import { signInFailure } from "../files/account";
+import { t, useT } from "@/i18n";
 import styles from "./Welcome.module.css";
 
 export const WELCOME_TEXT = {
@@ -36,6 +37,7 @@ export interface WelcomeProps {
 }
 
 export function Welcome({ state, method, error, version, onSignIn, onCancel }: WelcomeProps) {
+  useT();
   const screen = welcomeScreen(state);
   return (
     <main className={styles.page} data-welcome={screen}>
@@ -47,31 +49,32 @@ export function Welcome({ state, method, error, version, onSignIn, onCancel }: W
         {screen !== "splash" && (
           <>
             <span className={styles.wordmark}>Wecra</span>
-            <h1 className={styles.title}>{WELCOME_TEXT.title}</h1>
+            <h1 className={styles.title}>{t(WELCOME_TEXT.title)}</h1>
             {screen === "welcome" ? (
               <>
-                <p className={styles.line}>{WELCOME_TEXT.line}</p>
+                <p className={styles.line}>{t(WELCOME_TEXT.line)}</p>
                 <div className={styles.actions}>
                   <Button variant="primary" size="large" fullWidth onClick={() => onSignIn("google")} data-welcome-google="">
-                    {WELCOME_TEXT.google}
+                    {t(WELCOME_TEXT.google)}
                   </Button>
                   <Button variant="link" onClick={() => onSignIn("sso")} data-welcome-sso="">
-                    {WELCOME_TEXT.sso}
+                    {t(WELCOME_TEXT.sso)}
                   </Button>
                 </div>
                 {error && (
                   <Banner tone="danger" className={styles.error} data-welcome-error="">
-                    {error}
+                    {/* English in state (the failure texts are compared); shown in the UI's language */}
+                    {t(error)}
                   </Banner>
                 )}
               </>
             ) : (
               <div className={styles.waiting} data-welcome-waiting="">
                 <Spinner size={24} />
-                <p className={styles.line}>{method === "sso" ? WELCOME_TEXT.waitingSso : WELCOME_TEXT.waitingGoogle}</p>
-                <p className={styles.note}>{WELCOME_TEXT.waitingNote}</p>
+                <p className={styles.line}>{t(method === "sso" ? WELCOME_TEXT.waitingSso : WELCOME_TEXT.waitingGoogle)}</p>
+                <p className={styles.note}>{t(WELCOME_TEXT.waitingNote)}</p>
                 <Button variant="secondary" size="large" onClick={onCancel} data-welcome-cancel="">
-                  {WELCOME_TEXT.cancel}
+                  {t(WELCOME_TEXT.cancel)}
                 </Button>
               </div>
             )}

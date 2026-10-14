@@ -6,6 +6,7 @@
  * the document source can do them. What live does beyond its menus' labels is from
  * help.figma.com or, where noted, unverified.
  */
+import { t } from "@/i18n";
 import { showToast } from "@/ds";
 import { isWebApp } from "@/app/webApp";
 import type { Guid, NodeChange } from "@/engine/codec";
@@ -65,7 +66,7 @@ export function copyProperties(ed: EditorController): void {
   if (!n) return;
   const pick = (keys: readonly string[]) => Object.fromEntries(keys.filter((k) => n[k] !== undefined).map((k) => [k, n[k]]));
   copied.set(ed, { fields: pick(SHAPE_PROPERTIES), text: n.type === "TEXT" ? pick(TEXT_PROPERTIES) : null });
-  showToast({ message: "Properties copied" });
+  showToast({ message: t("Properties copied") });
 }
 
 export function canPasteProperties(ed: EditorController): boolean {
@@ -130,7 +131,7 @@ export function canSetThumbnail(ed: EditorController): boolean {
 
 export function setThumbnail(ed: EditorController, ref: Guid | null): void {
   ed.setProps(["0:0"], { thumbnailInfo: ref ? { nodeID: ref, thumbnailVersion: "" } : null } as never, ref ? "Set as thumbnail" : "Restore default thumbnail");
-  showToast({ message: ref ? "Thumbnail set" : "Default thumbnail restored" });
+  showToast({ message: ref ? t("Thumbnail set") : t("Default thumbnail restored") });
 }
 
 // ---- Find previous / next frame ---------------------------------------------------------------------------------------
@@ -232,7 +233,7 @@ export async function duplicateFile(ed: EditorController): Promise<void> {
   if (open) await open(copy.fileKey);
   // The web app: the copy in a new browser tab, as Figma's web app opens it
   else if (isWebApp()) window.open(`${location.pathname}?editor&file=${encodeURIComponent(copy.fileKey)}`, "_blank", "noopener");
-  else showToast({ message: `Duplicated as “${copy.name}”` });
+  else showToast({ message: t("Duplicated as “{name}”", { name: copy.name }) });
 }
 
 /** File › Create branch…: the branch's copy, opened in a new tab (the desktop app; else a toast says where it is). */
@@ -243,7 +244,7 @@ export async function createBranch(ed: EditorController, name: string): Promise<
   const copy = await ops.branch(name.trim());
   const open = desktop()?.nav?.openFile;
   if (open) await open(copy.fileKey);
-  else showToast({ message: `Created branch “${copy.name}”` });
+  else showToast({ message: t("Created branch “{name}”", { name: copy.name }) });
 }
 
 export function canSaveLocalCopy(ed: EditorController): boolean {
@@ -264,5 +265,5 @@ export async function saveLocalCopy(ed: EditorController): Promise<void> {
   }
   await ed.source.flush();
   const r = await save(ops.fileKey);
-  if ("path" in r) showToast({ message: "Saved a local copy" });
+  if ("path" in r) showToast({ message: t("Saved a local copy") });
 }

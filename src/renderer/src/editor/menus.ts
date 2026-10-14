@@ -5,6 +5,7 @@
  * Arrange submenus, and the canvas context menu.
  */
 import type { IconName, MenuEntry, MenuItem } from "@/ds";
+import { intlLocale, t } from "@/i18n";
 import { CMD_ENABLED, Status } from "@/engine/abi";
 import type { Guid } from "@/engine/codec";
 import type { EditorController } from "./controller";
@@ -21,8 +22,8 @@ const isFrameLike = (n: { type?: string; resizeToFit?: boolean }) => ["FRAME", "
 /** A command as a menu item: its label and first shortcut, disabled when it can't run now, checked when it toggles. */
 export function commandItem(ed: EditorController, id: string, label?: string): MenuItem {
   const c = COMMAND_BY_ID.get(id);
-  if (!c) return { id, label: label ?? id, disabled: true };
-  return { id, label: label ?? c.label, shortcut: shortcutOf(c), disabled: !isEnabled(ed, c), checked: c.checked ? c.checked(ed) : undefined };
+  if (!c) return { id, label: t(label ?? id), disabled: true };
+  return { id, label: t(label ?? c.label), shortcut: shortcutOf(c), disabled: !isEnabled(ed, c), checked: c.checked ? c.checked(ed) : undefined };
 }
 
 /** A command under another label, with a glyph before its label, or with keys shown that the registry doesn't bind. */
@@ -57,7 +58,7 @@ function build(ed: EditorController, specs: Spec[], prefix: string, checks = fal
       return [{ ...(checks ? item : withoutCheck(item)), ...(s.icon ? { icon: s.icon, inlineIcon: true } : {}), ...(s.shortcut ? { shortcut: s.shortcut } : {}) }];
     }
     const items = build(ed, s.items, `${prefix}${i}.`, s.checks ?? false);
-    return [{ id: `submenu:${prefix}${i}`, label: s.label, items, ...(s.minWidth ? { minWidth: s.minWidth } : {}), ...(s.width ? { width: s.width } : {}), ...(s.edgeBottom !== undefined ? { edgeBottom: s.edgeBottom } : {}) }];
+    return [{ id: `submenu:${prefix}${i}`, label: t(s.label), items, ...(s.minWidth ? { minWidth: s.minWidth } : {}), ...(s.width ? { width: s.width } : {}), ...(s.edgeBottom !== undefined ? { edgeBottom: s.edgeBottom } : {}) }];
   });
 }
 
@@ -80,14 +81,14 @@ export function resetSubmenu(ed: EditorController): MenuItem | null {
   if (!inst) return null;
   const groups = instanceChanges(ed, inst);
   const items: MenuEntry[] = [withoutCheck(commandItem(ed, "object.reset-all-changes"))];
-  if (groups.length) items.push("-", ...groups.map((g) => ({ id: `${RESET_PREFIX}${g.fields.join(",")}`, label: `Reset ${g.label.toLowerCase()}` })));
-  return { id: "submenu:reset", label: "Reset", items, disabled: !groups.length };
+  if (groups.length) items.push("-", ...groups.map((g) => ({ id: `${RESET_PREFIX}${g.fields.join(",")}`, label: t("Reset {group}", { group: t(g.label).toLocaleLowerCase(intlLocale()) }) })));
+  return { id: "submenu:reset", label: t("Reset"), items, disabled: !groups.length };
 }
 
 /** Object › Reset instance (live: listed, disabled, when no instance is selected). */
 const resetInstance = (ed: EditorController): MenuEntry => {
   const r = resetSubmenu(ed);
-  return r ? { ...r, label: "Reset instance" } : { id: "submenu:reset", label: "Reset instance", disabled: true };
+  return r ? { ...r, label: t("Reset instance") } : { id: "submenu:reset", label: t("Reset instance"), disabled: true };
 };
 
 /** Runs a menu pick: a registry command, or a dynamic item (Reset ▸ group, Select layer ▸). True when it ran. */
@@ -119,7 +120,7 @@ function componentEntries(ed: EditorController): Spec[] {
   const nodes = selectionNodes(ed);
   // An instance (live Figma): Create component, Reset instance, Detach instance, Go to main component.
   if (nodes.some(isInstance))
-    return ["object.create-component", (e) => { const r = resetSubmenu(e); return r ? { ...r, label: "Reset instance" } : null; }, "object.detach-instance", "object.go-to-main-component"];
+    return ["object.create-component", (e) => { const r = resetSubmenu(e); return r ? { ...r, label: t("Reset instance") } : null; }, "object.detach-instance", "object.go-to-main-component"];
   const out: Spec[] = [];
   const mains = nodes.length > 0 && nodes.every((n) => isComponent(n) || isComponentSet(n));
   // Live (context-multi.txt): a multi-selection gets Create component only (no "Create multiple components").
@@ -235,7 +236,7 @@ export const MAIN_MENU: Spec[] = [
       "view.multiplayer-cursors",
       "view.switch-to-draw",
       // Live: "Switch to Dev Mode ⇧D", no check.
-      (ed) => ({ ...withoutCheck(commandItem(ed, "view.dev-mode")), label: "Switch to Dev Mode" }),
+      (ed) => ({ ...withoutCheck(commandItem(ed, "view.dev-mode")), label: t("Switch to Dev Mode") }),
       {
         label: "Panels",
         items: [
@@ -459,7 +460,7 @@ export function mainMenu(ed: EditorController): MenuEntry[] {
 function moveToPage(ed: EditorController): MenuEntry | null {
   const pages = ed.store.pages.filter((p) => p.guid !== ed.store.page);
   const items: MenuEntry[] = pages.map((p) => ({ id: `${MOVE_TO_PAGE}${p.guid}`, label: p.name }));
-  return { id: "submenu:move-to-page", label: "Move to page", items, disabled: !items.length };
+  return { id: "submenu:move-to-page", label: t("Move to page"), items, disabled: !items.length };
 }
 
 /** Plugins ▸ in the canvas menu (plugins/menus.ts); Widgets ▸ open, its items disabled (widgets aren't built). */
@@ -564,7 +565,7 @@ export function canvasMenuWidth(entries: readonly MenuEntry[]): number | undefin
 function selectLayerSubmenu(ed: EditorController, layers: { id: Guid; name: string; locked?: boolean; icon?: IconName }[]): MenuEntry {
   return {
     id: "submenu:select-layer",
-    label: "Select layer",
+    label: t("Select layer"),
     items: layers.map((l) => ({
       id: `select-layer:${l.id}`,
       label: l.name || l.id,
@@ -585,18 +586,18 @@ export function pageMenu(ed: EditorController, page: Guid): MenuEntry[] {
   const at = pages.findIndex((p) => p.guid === page);
   const can = (name: "DELETE_PAGE" | "DUPLICATE_PAGE") => (ed.engine.commandState(name) & CMD_ENABLED) !== 0;
   const moves: MenuEntry[] = [
-    ...(at > 0 ? [{ id: "page:move-up", label: "Move up" }] : []),
-    ...(at >= 0 && at < pages.length - 1 ? [{ id: "page:move-down", label: "Move down" }] : []),
+    ...(at > 0 ? [{ id: "page:move-up", label: t("Move up") }] : []),
+    ...(at >= 0 && at < pages.length - 1 ? [{ id: "page:move-down", label: t("Move down") }] : []),
   ];
   return [
-    { id: "page:copy-link", label: "Copy link to page", disabled: true },
+    { id: "page:copy-link", label: t("Copy link to page"), disabled: true },
     "-",
-    { id: "page:rename", label: "Rename page" },
-    { id: "page:duplicate", label: "Duplicate page", disabled: !can("DUPLICATE_PAGE") },
+    { id: "page:rename", label: t("Rename page") },
+    { id: "page:duplicate", label: t("Duplicate page"), disabled: !can("DUPLICATE_PAGE") },
     "-",
     ...moves,
     "-",
-    { id: "page:delete", label: "Delete page", disabled: pages.length < 2 || !can("DELETE_PAGE") },
+    { id: "page:delete", label: t("Delete page"), disabled: pages.length < 2 || !can("DELETE_PAGE") },
   ];
 }
 

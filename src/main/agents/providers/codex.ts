@@ -2,6 +2,7 @@ import type { AuthState, ChatEvent } from "../../../shared/agents/types";
 import { SYSTEM_PROMPT } from "../../../shared/agents/prompts";
 import { MCP_SERVER_NAME } from "../../../shared/agents/tools";
 import { effortArg, modelArg, promptWithHistory, shortToolName, summarize, text, tokenUsage, type CliSpec, type RunResult } from "./turns";
+import { t as tr } from "../../../shared/i18n";
 
 /**
  * OpenAI's Codex CLI, non-interactive (`codex exec --json -`, learn.chatgpt.com "Non-interactive mode"): JSON Lines
@@ -76,8 +77,8 @@ export const codex: CliSpec = {
       if (usage) out.push({ type: "usage", usage });
     }
     if (line.type === "turn.failed" || line.type === "error") {
-      const why = text((line.error as { message?: string } | undefined)?.message) || text(line.message) || "Codex failed.";
-      out.push({ type: "error", message: /not logged in|login|401|unauthorized/i.test(why) ? `Codex isn’t signed in on this computer (${why}). Sign in from Agent settings.` : why });
+      const why = text((line.error as { message?: string } | undefined)?.message) || text(line.message) || tr("Codex failed.");
+      out.push({ type: "error", message: /not logged in|login|401|unauthorized/i.test(why) ? tr("{agent} isn’t signed in on this computer ({why}). Sign in from Agent settings.", { agent: "Codex", why }) : why });
     }
     return out;
   },
@@ -114,7 +115,7 @@ export const codex: CliSpec = {
         const item = line.item as { type?: string; text?: string } | undefined;
         if (line.type === "item.completed" && item?.type === "agent_message" && item.text) return { delta: item.text, result: item.text };
         if (line.type === "turn.completed") return { usage: tokenUsage(line.usage) ?? undefined };
-        if (line.type === "turn.failed" || line.type === "error") return { error: text((line.error as { message?: string } | undefined)?.message) || text(line.message) || "Codex failed." };
+        if (line.type === "turn.failed" || line.type === "error") return { error: text((line.error as { message?: string } | undefined)?.message) || text(line.message) || tr("Codex failed.") };
         return {};
       },
     };

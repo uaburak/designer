@@ -4,6 +4,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { showToast } from "@/ds";
+import { t } from "@/i18n";
 import type { SharedFontsApi } from "@shared/desktop";
 import type { OrgLibrariesRepository } from "@shared/libraries/orgTypes";
 import type { AdminRepository, GovernanceRepository, IdentityRepository, OrgsRepository, TeamsRepository } from "@shared/org/repositories";
@@ -80,7 +81,8 @@ export function useAdminState(orgId: string, store: AdminStore, onExportCsv: ((f
     try {
       const out = await write();
       changed();
-      if (done) showToast({ message: done });
+      // Callers pass English (translated here) or text already in the UI's language
+      if (done) showToast({ message: t(done) });
       return out;
     } catch (e) {
       showToast({ message: e instanceof Error ? e.message : String(e), kind: "error" });

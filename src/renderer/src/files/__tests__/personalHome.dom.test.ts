@@ -72,10 +72,10 @@ const sidebarLabels = () => $$('nav [data-ds="SidebarItem"]').map((el) => el.tex
 const buttonNamed = (label: string) => $$("button").find((el) => el.textContent?.trim() === label);
 
 describe("Home's personal space (docs/cloud.md §2)", () => {
-  it("signed in: Drafts and Trash, no folders or New folder; the store lists the Drafts again when Home shows", async () => {
+  it("signed in: All projects (the Drafts) and Trash, no folders or New folder; the store lists the Drafts again when Home shows", async () => {
     const cloud = fakeCloud(ONLINE);
     await setup(cloud);
-    expect(sidebarLabels()).toEqual(expect.arrayContaining(["Recents", "Drafts", "Trash"]));
+    expect(sidebarLabels()).toEqual(["All projects", "Trash"]);
     expect(sidebarLabels()).not.toContain("All folders");
     expect(sidebarLabels()).not.toContain("KOC");
     expect(buttonNamed("New folder")).toBeUndefined();

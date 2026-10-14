@@ -1,5 +1,6 @@
 import { dialog, type BaseWindow, type MessageBoxOptions } from "electron";
 import { uploadsQuitText } from "./uploadsQuit";
+import { t } from "../shared/i18n";
 
 /**
  * The shell's questions, as native message boxes: a view's DOM can't cover
@@ -20,7 +21,9 @@ async function ask(win: BaseWindow | null, options: MessageBoxOptions & { button
     console.log(`[dialog] ${options.message} → ${answer}`);
     return answer;
   }
-  const { response } = win && !win.isDestroyed() ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
+  // Buttons stay English in code (the answer is compared): the box shows them in the UI's language.
+  const shown = { ...options, buttons: options.buttons.map((b) => t(b)) };
+  const { response } = win && !win.isDestroyed() ? await dialog.showMessageBox(win, shown) : await dialog.showMessageBox(shown);
   const answer = options.buttons[response] ?? options.buttons[options.cancelId ?? 0];
   if (process.env.DESIGNER_TEST === "1") asked.push({ message: options.message, buttons: options.buttons, answer });
   return answer;
@@ -37,8 +40,8 @@ export async function askQuitWithUploads(win: BaseWindow | null, count: number):
 export async function askCrashed(win: BaseWindow | null, title: string): Promise<"reload" | "close"> {
   const answer = await ask(win, {
     type: "error",
-    message: `“${title}” crashed.`,
-    detail: "Your work is saved up to the moment the tab stopped. Your other tabs are fine.",
+    message: t("“{title}” crashed.", { title }),
+    detail: t("Your work is saved up to the moment the tab stopped. Your other tabs are fine."),
     buttons: ["Reload", "Close Tab"],
     defaultId: 0,
     cancelId: 0,
@@ -50,8 +53,8 @@ export async function askCrashed(win: BaseWindow | null, title: string): Promise
 export async function askUnresponsive(win: BaseWindow | null, title: string, signal: AbortSignal): Promise<"wait" | "reload"> {
   const answer = await ask(win, {
     type: "warning",
-    message: `“${title}” isn’t responding.`,
-    detail: "You can wait for it or reload the tab. Changes from the last few seconds may not be saved.",
+    message: t("“{title}” isn’t responding.", { title }),
+    detail: t("You can wait for it or reload the tab. Changes from the last few seconds may not be saved."),
     buttons: ["Wait", "Reload Tab"],
     defaultId: 0,
     cancelId: 0,
@@ -68,7 +71,7 @@ export async function askFlushFailed(win: BaseWindow | null, title: string, reas
   const go = action === "quit" ? "Quit Anyway" : "Close Anyway";
   const answer = await ask(win, {
     type: "warning",
-    message: `Your recent changes to “${title}” couldn’t be saved.`,
+    message: t("Your recent changes to “{title}” couldn’t be saved.", { title }),
     detail: reason,
     buttons: ["Try Again", go, "Cancel"],
     defaultId: 0,
@@ -82,8 +85,8 @@ export async function askFlushTimeout(win: BaseWindow | null, title: string, act
   const go = action === "quit" ? "Quit Anyway" : "Close Tab";
   const answer = await ask(win, {
     type: "warning",
-    message: `“${title}” isn’t responding.`,
-    detail: "Changes from the last few seconds may not be saved.",
+    message: t("“{title}” isn’t responding.", { title }),
+    detail: t("Changes from the last few seconds may not be saved."),
     buttons: ["Wait", go],
     defaultId: 0,
     cancelId: 0,
@@ -95,8 +98,8 @@ export async function askFlushTimeout(win: BaseWindow | null, title: string, act
 export async function askStoreGone(): Promise<"retry" | "quit"> {
   const answer = await ask(null, {
     type: "error",
-    message: "Wecra can’t save changes right now.",
-    detail: "The part of Wecra that saves your files stopped several times. Changes made since then may not be saved.",
+    message: t("Wecra can’t save changes right now."),
+    detail: t("The part of Wecra that saves your files stopped several times. Changes made since then may not be saved."),
     buttons: ["Try Again", "Quit"],
     defaultId: 0,
     cancelId: 0,

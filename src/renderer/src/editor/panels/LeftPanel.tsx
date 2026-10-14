@@ -24,15 +24,17 @@ import { usePluginService, usePlugins } from "../plugins/service";
 import { pluginRows } from "../plugins/actions";
 import { isEnabled } from "../commands";
 import styles from "./Panels.module.css";
+import { t, useT } from "@/i18n";
 
 export function LeftPanel() {
+  useT();
   const ed = useEditor();
   const width = useUI((s) => s.leftWidth);
   const tab = useUI((s) => s.railTab);
   const finding = useUI((s) => !!s.find);
   const navMinimized = useUI((s) => !!s.navMinimized);
   return (
-    <aside className={styles.left} style={{ width: width + 1 /* live: 240 and the 1px line */ }} aria-label="Layers panel" data-panel="left" data-tab={tab}>
+    <aside className={styles.left} style={{ width: width + 1 /* live: 240 and the 1px line */ }} aria-label={t("Layers panel")} data-panel="left" data-tab={tab}>
       {navMinimized && <NavStrip />}
       {tab === "file" && <FileHeader />}
       {tab === "file" ? (
@@ -85,6 +87,7 @@ const TOOLS_CATEGORIES = [
 ];
 
 function ToolsPanel() {
+  useT();
   const ed = useEditor();
   const [query, setQuery] = useState("");
   const [source, setSource] = useState("source");
@@ -94,26 +97,26 @@ function ToolsPanel() {
     <div className={styles.placeholderTab} data-tools="">
       {/* Live: "Create" as text (11 / 450, primary) at 173, 18 — New plugin… */}
       <TabHeader
-        title="Tools"
+        title={t("Tools")}
         actions={
           <button
             type="button"
             className={styles.toolsCreate}
             onClick={() => {
               if (isEnabled(ed, command("plugins.new"))) runEditorCommand(ed, "plugins.new");
-              else showToast({ message: "Developing plugins needs the desktop app" });
+              else showToast({ message: t("Developing plugins needs the desktop app") });
             }}
           >
-            Create
+            {t("Create")}
           </button>
         }
       />
       <div className={styles.toolsSearch}>
-        <SearchField value={query} onChange={setQuery} placeholder="Search all tools" label="Search all tools" />
+        <SearchField value={query} onChange={setQuery} placeholder={t("Search all tools")} label={t("Search all tools")} />
         {/* Live: enabled (rail-tools.txt). Its menu — price, then type — isn't captured (help "Find tools": free / paid, plugins / widgets / shaders): unverified */}
         <MenuButton
-          label="Filter by price and type"
-          entries={TOOLS_FILTER.map((e) => (typeof e === "string" ? e : { ...e, checked: filter[e.group] === e.id }))}
+          label={t("Filter by price and type")}
+          entries={TOOLS_FILTER.map((e) => (typeof e === "string" ? e : { ...e, label: t(e.label), checked: filter[e.group] === e.id }))}
           onSelect={(id) => {
             const e = TOOLS_FILTER.find((x) => typeof x !== "string" && x.id === id);
             if (e && typeof e !== "string") setFilter({ ...filter, [e.group]: e.id });
@@ -125,8 +128,8 @@ function ToolsPanel() {
       </div>
       <div className={styles.toolsFilters}>
         {/* Live (rail-tools.txt): enabled, 79 / 91 wide, the label after a 24 glyph (which glyphs and which lists: unverified; the list itself stays "No tools") */}
-        <Select label="Filter by source" variant="ghost" width="hug" prefix="24.globe" className={styles.toolsFilter} value={source} options={TOOLS_SOURCES} onChange={setSource} />
-        <Select label="Filter by category" variant="ghost" width="hug" prefix="24.filter" className={styles.toolsFilter} value={category} options={TOOLS_CATEGORIES} onChange={setCategory} />
+        <Select label={t("Filter by source")} variant="ghost" width="hug" prefix="24.globe" className={styles.toolsFilter} value={source} options={TOOLS_SOURCES.map((o) => ({ ...o, label: t(o.label) }))} onChange={setSource} />
+        <Select label={t("Filter by category")} variant="ghost" width="hug" prefix="24.filter" className={styles.toolsFilter} value={category} options={TOOLS_CATEGORIES.map((o) => ({ ...o, label: t(o.label) }))} onChange={setCategory} />
       </div>
       <ToolsList query={query} source={source} type={filter.type} />
     </div>
@@ -135,20 +138,21 @@ function ToolsPanel() {
 
 /** The plugins as rows (widgets aren't built: the Widgets type lists none). */
 function ToolsList({ query, source, type }: { query: string; source: string; type: string }) {
+  useT();
   const ed = useEditor();
   const plugins = usePluginService(ed);
   usePlugins(plugins);
-  if (!plugins || type === "type-widgets" || type === "type-shaders") return <EmptyState icon="24.tools" title="No tools" body={plugins ? "Widgets and shaders aren’t built in this app yet." : "Plugins aren’t available here."} />;
+  if (!plugins || type === "type-widgets" || type === "type-shaders") return <EmptyState icon="24.tools" title={t("No tools")} body={plugins ? t("Widgets and shaders aren’t built in this app yet.") : t("Plugins aren’t available here.")} />;
   const rows = pluginRows(plugins, query).filter((r) => (source === "development" ? r.ref.source.type === "development" : source === "organization" ? r.ref.source.type === "private" : true));
   // Recents and Saved repeat the plugins listed by source: by source only here.
   const shown = rows.filter((r, i) => (r.section !== "Recents" && r.section !== "Saved") || !rows.some((x, j) => j !== i && x.ref.id === r.ref.id && x.section !== r.section));
   const unique = shown.filter((r, i) => shown.findIndex((x) => x.key === r.key || (x.ref.id === r.ref.id && x.command === r.command)) === i);
-  if (!unique.length) return <EmptyState icon="24.tools" title="No tools" body={query ? "No plugins match." : "Import a plugin from Plugins › Development › Import new plugin from manifest…"} />;
+  if (!unique.length) return <EmptyState icon="24.tools" title={t("No tools")} body={query ? t("No plugins match.") : t("Import a plugin from Plugins › Development › Import new plugin from manifest…")} />;
   return (
-    <div className={styles.toolsList} role="list" aria-label="Plugins">
+    <div className={styles.toolsList} role="list" aria-label={t("Plugins")}>
       {unique.map((r, i) => (
         <div key={r.key} style={{ display: "contents" }}>
-          {(i === 0 || unique[i - 1].section !== r.section) && <div className={styles.toolsSection}>{r.section}</div>}
+          {(i === 0 || unique[i - 1].section !== r.section) && <div className={styles.toolsSection}>{t(r.section)}</div>}
           <button type="button" role="listitem" className={styles.toolsRow} disabled={!!r.disabled} title={r.disabled ?? undefined} onClick={() => void plugins.run(r.ref, r.command)}>
             <Icon name="24.plugin" />
             <span className={styles.toolsRowLabel}>{r.label}</span>
@@ -160,6 +164,7 @@ function ToolsList({ query, source, type }: { query: string; source: string; typ
 }
 
 function FileHeader() {
+  useT();
   const ed = useEditor();
   const name = useUI((s) => s.fileName);
   const renaming = useUI((s) => s.renaming?.kind === "file");
@@ -190,32 +195,33 @@ function FileHeader() {
         {renaming ? (
           <RenameFile name={name} />
         ) : (
-          <MenuButton label="Edit file" entries={entries} onSelect={(id) => runEditorCommand(ed, id)} className={styles.fileButton}>
+          <MenuButton label={t("Edit file")} entries={entries} onSelect={(id) => runEditorCommand(ed, id)} className={styles.fileButton}>
             <BranchTitle name={name} />
             <Icon name="16.chevron.down" />
           </MenuButton>
         )}
         <span className={styles.fileLocation}>{location}</span>
       </div>
-      <IconButton icon="24.sidebar.closed" label="Minimize UI" shortcut={shortcutOf(command("view.minimize-ui"))} onClick={() => runEditorCommand(ed, "view.minimize-ui")} />
+      <IconButton icon="24.sidebar.closed" label={t("Minimize UI")} shortcut={shortcutOf(command("view.minimize-ui"))} onClick={() => runEditorCommand(ed, "view.minimize-ui")} />
     </div>
   );
 }
 
 function RenameFile({ name }: { name: string }) {
+  useT();
   const ed = useEditor();
   const [value] = useState(name);
   return (
     <div className={styles.fileRename}>
       <TextInput
-        label="File name"
+        label={t("File name")}
         value={value}
         autoFocus
         onCommit={(next) => {
           const trimmed = next.trim();
           if (!trimmed || trimmed === name) return;
           ed.ui.set({ fileName: trimmed });
-          void Promise.resolve(ed.source.rename?.(trimmed)).catch(() => showToast({ message: "The file couldn't be renamed", kind: "error" }));
+          void Promise.resolve(ed.source.rename?.(trimmed)).catch(() => showToast({ message: t("The file couldn't be renamed"), kind: "error" }));
         }}
         onExit={(reason) => {
           ed.ui.set({ renaming: null });

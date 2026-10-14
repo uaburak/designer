@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState, IconButton, SegmentedControl, Spinner } from "@/ds";
 import { Engine } from "@/engine/Engine";
+import { t, useT } from "@/i18n";
 import type { Message } from "@/engine/codec";
 import { mergedDocument } from "@/store/documentSource";
 import type { DiffChunk } from "../../../../shared/merge/types";
@@ -122,6 +123,7 @@ function useShot(docs: SideDocs, previewId: string, side: PreviewSide, ref: stri
 }
 
 export function ChunkCompare({ docs, previewId, chunk, sides, modes = true }: { docs: SideDocs; previewId: string; chunk: DiffChunk; sides: SideSpec[]; modes?: boolean }) {
+  useT();
   const [view, setView] = useState<"side" | "overlay">("side");
   const [opacity, setOpacity] = useState(50);
   const [zoom, setZoom] = useState(1);
@@ -136,11 +138,11 @@ export function ChunkCompare({ docs, previewId, chunk, sides, modes = true }: { 
         {shot.state === "loading" ? (
           <Spinner size={16} />
         ) : shot.state === "error" ? (
-          <span className={styles.hint}>Preview unavailable</span>
+          <span className={styles.hint}>{t("Preview unavailable")}</span>
         ) : shot.url ? (
           <img src={shot.url} alt={spec.caption} style={{ transform: `scale(${zoom})` }} />
         ) : (
-          <span className={styles.hint}>Not in this version</span>
+          <span className={styles.hint}>{t("Not in this version")}</span>
         )}
       </div>
     </figure>
@@ -150,28 +152,28 @@ export function ChunkCompare({ docs, previewId, chunk, sides, modes = true }: { 
       <div className={styles.compareBar}>
         {modes && sides.length > 1 && (
           <SegmentedControl
-            label="View"
+            label={t("View")}
             value={view}
             options={[
-              { value: "side", label: "Side by side" },
-              { value: "overlay", label: "Overlay" },
+              { value: "side", label: t("Side by side") },
+              { value: "overlay", label: t("Overlay") },
             ]}
             onChange={(v) => setView(v as "side" | "overlay")}
           />
         )}
-        {view === "overlay" && sides.length > 1 && <input type="range" min={0} max={100} value={opacity} aria-label="Opacity" className={styles.slider} onChange={(e) => setOpacity(Number(e.target.value))} />}
+        {view === "overlay" && sides.length > 1 && <input type="range" min={0} max={100} value={opacity} aria-label={t("Opacity")} className={styles.slider} onChange={(e) => setOpacity(Number(e.target.value))} />}
         <span className={styles.grow} />
-        <IconButton icon="24.minus.small" label="Zoom out" onClick={() => setZoom((z) => Math.max(0.25, z / 1.5))} />
+        <IconButton icon="24.minus.small" label={t("Zoom out")} onClick={() => setZoom((z) => Math.max(0.25, z / 1.5))} />
         <button type="button" className={styles.fit} onClick={() => setZoom(1)}>
-          Fit
+          {t("Fit")}
         </button>
-        <IconButton icon="24.plus" label="Zoom in" onClick={() => setZoom((z) => Math.min(4, z * 1.5))} />
+        <IconButton icon="24.plus" label={t("Zoom in")} onClick={() => setZoom((z) => Math.min(4, z * 1.5))} />
       </div>
       <div ref={stage} className={view === "side" || sides.length === 1 ? styles.sideBySide : styles.overlay}>
         {view === "side" || sides.length === 1 ? (
           shots.map((s, i) => figure(s, sides[i]))
         ) : left.state === "error" && right.state === "error" ? (
-          <EmptyState icon="24.warning" title="Preview unavailable" body={left.message} />
+          <EmptyState icon="24.warning" title={t("Preview unavailable")} body={left.message} />
         ) : (
           <>
             {left.state === "ready" && left.url && <img src={left.url} alt={sides[0].caption} style={{ transform: `scale(${zoom})` }} />}

@@ -13,14 +13,16 @@ import { SCOPE_OPTIONS, scopeChecked, toggleScope } from "../../model/variables"
 import { moveCollection, sortCollections, updateVariables } from "../../variables";
 import styles from "./Variables.module.css";
 import tableStyles from "./LocalVariables.module.css";
+import { t, tp, useT } from "@/i18n";
 
 export function ReorderCollectionsPopover({ anchor, onClose }: { anchor: HTMLElement | null; onClose: () => void }) {
+  useT();
   const ed = useEditor();
   const a = useLocalAssets();
   const [drag, setDrag] = useState<{ id: Guid; over: number } | null>(null);
   const list = a.collections;
   return (
-    <Popover anchor={anchor} title="Reorder collections" width={260} placement="bottom-start" onClose={onClose} label="Reorder collections">
+    <Popover anchor={anchor} title={t("Reorder collections")} width={260} placement="bottom-start" onClose={onClose} label={t("Reorder collections")}>
       <div className={styles.form} data-reorder-collections="">
         {list.map((c, i) => (
           <div
@@ -41,12 +43,12 @@ export function ReorderCollectionsPopover({ anchor, onClose }: { anchor: HTMLEle
             onDragEnd={() => setDrag(null)}
           >
             <span className={tableStyles.reorderName}>{c.name}</span>
-            <IconButton icon="16.arrow.up" label={`Move ${c.name} up`} tone="secondary" disabled={i === 0} onClick={() => moveCollection(ed, c.id, i - 1)} />
-            <IconButton icon="16.arrow.down" label={`Move ${c.name} down`} tone="secondary" disabled={i === list.length - 1} onClick={() => moveCollection(ed, c.id, i + 1)} />
+            <IconButton icon="16.arrow.up" label={t("Move {name} up", { name: c.name })} tone="secondary" disabled={i === 0} onClick={() => moveCollection(ed, c.id, i - 1)} />
+            <IconButton icon="16.arrow.down" label={t("Move {name} down", { name: c.name })} tone="secondary" disabled={i === list.length - 1} onClick={() => moveCollection(ed, c.id, i + 1)} />
           </div>
         ))}
         <Button variant="secondary" onClick={() => sortCollections(ed)}>
-          Sort A to Z
+          {t("Sort A to Z")}
         </Button>
       </div>
     </Popover>
@@ -54,6 +56,7 @@ export function ReorderCollectionsPopover({ anchor, onClose }: { anchor: HTMLEle
 }
 
 export function EditVariablesPopover({ ids, anchor, onClose }: { ids: readonly Guid[]; anchor: HTMLElement | DOMRect | null; onClose: () => void }) {
+  useT();
   const ed = useEditor();
   const a = useLocalAssets();
   const vars = ids.map((id) => a.lookup.variable(id)).filter((v) => !!v);
@@ -65,28 +68,28 @@ export function EditVariablesPopover({ ids, anchor, onClose }: { ids: readonly G
   const setScope = (scope: string) => (on: boolean) => type && updateVariables(ed, ids, { scopes: toggleScope(type, scopes, scope, on) });
   const hidden = vars.every((v) => v.hidden);
   return (
-    <Popover anchor={anchor} title={`Edit ${vars.length} variables`} width={280} placement="bottom-start" onClose={onClose} label="Edit variables">
+    <Popover anchor={anchor} title={tp(vars.length, "Edit {n} variable", "Edit {n} variables")} width={280} placement="bottom-start" onClose={onClose} label={t("Edit variables")}>
       <div className={styles.form} data-edit-variables={vars.length}>
         {options.length > 0 ? (
           <>
-            <div className={styles.formSection}>Scoping</div>
-            <Checkbox label="Show in all supported properties" checked={all} onChange={setScope("ALL_SCOPES")} />
+            <div className={styles.formSection}>{t("Scoping")}</div>
+            <Checkbox label={t("Show in all supported properties")} checked={all} onChange={setScope("ALL_SCOPES")} />
             {options.map((o) => (
               <div key={o.scope}>
-                <Checkbox label={o.label} checked={scopeChecked(scopes, o.scope)} onChange={setScope(o.scope)} />
+                <Checkbox label={t(o.label)} checked={scopeChecked(scopes, o.scope)} onChange={setScope(o.scope)} />
                 {o.children?.map((ch) => (
                   <div key={ch.scope} className={styles.formIndent}>
-                    <Checkbox label={ch.label} checked={scopeChecked(scopes, ch.scope)} onChange={setScope(ch.scope)} />
+                    <Checkbox label={t(ch.label)} checked={scopeChecked(scopes, ch.scope)} onChange={setScope(ch.scope)} />
                   </div>
                 ))}
               </div>
             ))}
           </>
         ) : (
-          type === null && <span className={tableStyles.muted}>Scoping is available for variables of one type</span>
+          type === null && <span className={tableStyles.muted}>{t("Scoping is available for variables of one type")}</span>
         )}
-        <div className={styles.formSection}>Publishing</div>
-        <Checkbox label="Hide from publishing" checked={hidden} onChange={(on) => updateVariables(ed, ids, { hidden: on })} />
+        <div className={styles.formSection}>{t("Publishing")}</div>
+        <Checkbox label={t("Hide from publishing")} checked={hidden} onChange={(on) => updateVariables(ed, ids, { hidden: on })} />
       </div>
     </Popover>
   );

@@ -22,6 +22,7 @@ import { StoreError } from "../../shared/store/protocol";
 import type { Unsubscribe } from "../../shared/store/repositories";
 import type { FileKey, FileMeta } from "../../shared/store/types";
 import { callJson, seg, type LibraryServer } from "../libraries/org";
+import { t as tr } from "../../shared/i18n";
 
 export type LocalDevRecord = "dev-resources" | "code-connect";
 
@@ -201,7 +202,7 @@ export class DevModeService {
 
   /** Writing a local file's records needs the file itself */
   private requireLocalFile(key: FileKey): void {
-    if (!this.host.getMeta(key)) throw new StoreError("not-found", "This file isn't on this computer");
+    if (!this.host.getMeta(key)) throw new StoreError("not-found", tr("This file isn't on this computer"));
   }
 
   private changeResources<T>(key: FileKey, change: (list: DevResourceRecord[]) => { list: DevResourceRecord[]; out: T }): Promise<T> {
@@ -249,8 +250,8 @@ export class DevModeService {
         else {
           out = await this.changeResources(t.key, (list) => {
             const onNode = list.filter((r) => r.nodeId === node);
-            if (onNode.length >= DEV_RESOURCE_LIMIT) throw new StoreError("invalid", TOO_MANY);
-            if (onNode.some((r) => r.url === url)) throw new StoreError("conflict", DUPLICATE);
+            if (onNode.length >= DEV_RESOURCE_LIMIT) throw new StoreError("invalid", tr("You can add up to {n} links to a layer.", { n: DEV_RESOURCE_LIMIT }));
+            if (onNode.some((r) => r.url === url)) throw new StoreError("conflict", tr(DUPLICATE));
             const now = this.host.now();
             const rec: DevResourceRecord = { id: randomId(), fileKey: t.key, nodeId: node, name: nameFor(input?.name, url), url, createdBy: this.host.server.userId, createdAt: now, updatedAt: now };
             return { list: [...list, rec], out: rec };
@@ -273,7 +274,7 @@ export class DevModeService {
             if (at < 0) throw new StoreError("not-found", "no such dev resource");
             const cur = list[at];
             const url = p.url ?? cur.url;
-            if (url !== cur.url && list.some((r) => r.nodeId === cur.nodeId && r.id !== id && r.url === url)) throw new StoreError("conflict", DUPLICATE);
+            if (url !== cur.url && list.some((r) => r.nodeId === cur.nodeId && r.id !== id && r.url === url)) throw new StoreError("conflict", tr(DUPLICATE));
             const name = p.name !== undefined ? nameFor(p.name, url) : cur.name;
             const rec: DevResourceRecord = { ...cur, url, name, updatedAt: this.host.now() };
             const next = list.slice();
@@ -360,12 +361,12 @@ export class DevModeService {
       },
       invitePrototype: async (fileKey, email) => {
         const room = await this.roomOf(fileKey);
-        if (!room) throw new StoreError("invalid", "Share this file to invite people to its prototype");
+        if (!room) throw new StoreError("invalid", tr("Share this file to invite people to its prototype"));
         await this.call("PUT", `/files/${seg(room, "file key")}/prototype-members`, { email: cleanEmail(email) });
       },
       removePrototype: async (fileKey, email) => {
         const room = await this.roomOf(fileKey);
-        if (!room) throw new StoreError("invalid", "This file isn't shared");
+        if (!room) throw new StoreError("invalid", tr("This file isn't shared"));
         await this.call("DELETE", `/files/${seg(room, "file key")}/prototype-members/${encodeURIComponent(cleanEmail(email))}`);
       },
       watch: (listener) => this.onEvent(listener),
@@ -375,7 +376,7 @@ export class DevModeService {
 
 function cleanEmail(v: unknown): string {
   const s = typeof v === "string" ? v.trim().toLowerCase() : "";
-  if (!/^[^\s@]{1,64}@[^\s@]{1,255}$/.test(s)) throw new StoreError("invalid", "Enter an email address");
+  if (!/^[^\s@]{1,64}@[^\s@]{1,255}$/.test(s)) throw new StoreError("invalid", tr("Enter an email address"));
   return s;
 }
 

@@ -30,6 +30,7 @@ import { STDIO_BRIDGE_SOURCE } from "./stdioBridge";
 import type { AuthState } from "../../shared/agents/types";
 import { allViews } from "../views";
 import { controllers } from "../window";
+import { t as tr } from "../../shared/i18n";
 
 /**
  * Main's side of Agents (docs/research/figma/R12-agents-mcp.md): the MCP server (started with the app, on
@@ -265,7 +266,7 @@ function connectorHub(): ConnectorHub {
       setKey: (id, key) => {
         const keys = readKeys();
         if (key) {
-          if (!canEncrypt()) throw new Error("This computer's keychain isn't available: the key wasn't kept");
+          if (!canEncrypt()) throw new Error(tr("This computer's keychain isn't available: the key wasn't kept"));
           keys[`connector:${id}`] = seal(key);
         } else delete keys[`connector:${id}`];
         writePrivate(file("keys.json"), JSON.stringify(keys));
@@ -379,13 +380,13 @@ export function setAgentSettings(patch: Partial<Pick<AgentSettings, "providerId"
 
 export function addServer(p: { label: string; baseUrl: string; apiKey?: string }): AgentSettings {
   const base = trimBase(String(p.baseUrl ?? ""));
-  if (!/^https?:\/\/[^\s]+$/i.test(base)) throw new Error("A base URL like http://localhost:8080/v1");
+  if (!/^https?:\/\/[^\s]+$/i.test(base)) throw new Error(tr("A base URL like {example}", { example: "http://localhost:8080/v1" }));
   const s = readStored();
   const id = `custom:${randomUUID().slice(0, 8)}`;
   s.custom.push({ id, label: String(p.label || new URL(base).host).slice(0, 80), baseUrl: base });
   writeStored(s);
   if (p.apiKey) {
-    if (!canEncrypt()) throw new Error("This Mac's keychain isn't available: the key wasn't kept");
+    if (!canEncrypt()) throw new Error(tr("This Mac's keychain isn't available: the key wasn't kept"));
     const keys = readKeys();
     keys[id] = seal(String(p.apiKey));
     writePrivate(file("keys.json"), JSON.stringify(keys));
@@ -438,11 +439,11 @@ export async function testProvider(id: string): Promise<{ ok: boolean; models: s
     return { ok: true, models: cliModels.get(spec.id)?.models ?? spec.models, version };
   }
   const srv = serverOf(id);
-  if (!srv) return { ok: false, models: [], error: "Unknown provider" };
+  if (!srv) return { ok: false, models: [], error: tr("Unknown provider") };
   try {
     const models = await listModels(srv.baseUrl, { apiKey: keyOf(id), timeoutMs: 3000 });
     providerCache = null;
-    return models.length ? { ok: true, models } : { ok: false, models, error: "The server answers but has no models loaded" };
+    return models.length ? { ok: true, models } : { ok: false, models, error: tr("The server answers but has no models loaded") };
   } catch (err) {
     return { ok: false, models: [], error: `${srv.baseUrl}: ${err instanceof Error ? err.message : String(err)}` };
   }
@@ -495,7 +496,7 @@ export function forgetFile(fileKey: string) {
 }
 
 export function startTurn(sender: WebContents, fileKey: string, req: TurnRequest): { turnId: string } {
-  if (!server?.url) throw new Error("The agents' server isn't running");
+  if (!server?.url) throw new Error(tr("The agents' server isn't running"));
   const turnId = randomUUID();
   // The chat's connectors that exist and are on (docs/ai.md §2.11).
   const known = new Set(connectorHub().list().filter((c) => c.enabled).map((c) => c.id));
@@ -517,14 +518,14 @@ export function startTurn(sender: WebContents, fileKey: string, req: TurnRequest
   void (async () => {
     // The credits stop (docs/ai.md §2.9): AI off, or the month's credits used up, refuses the turn.
     const ai = aiSettings();
-    if (!ai.enabled) return finishTurn(t, { type: "error", message: "AI is turned off in Settings › AI." });
+    if (!ai.enabled) return finishTurn(t, { type: "error", message: tr("AI is turned off in Settings › AI.") });
     const over = await overLimit({ settings: () => ai, balance: ledgerBalance }, "agent");
     if (over) return finishTurn(t, { type: "error", message: over.message });
     if (t.stopped) return finishTurn(t);
     if (spec) runCli(t, spec, request);
     else {
       const srv = serverOf(providerId);
-      if (!srv) return finishTurn(t, { type: "error", message: "Pick an agent first (the model menu under the message box)." });
+      if (!srv) return finishTurn(t, { type: "error", message: tr("Pick an agent first (the model menu under the message box).") });
       await runServer(t, srv, request);
     }
   })().catch((err) => finishTurn(t, { type: "error", message: err instanceof Error ? err.message : String(err) }));
@@ -533,7 +534,7 @@ export function startTurn(sender: WebContents, fileKey: string, req: TurnRequest
 
 function runCli(t: Turn, spec: CliSpec, req: TurnRequest) {
   const path = cliPath(spec);
-  if (!path) return finishTurn(t, { type: "error", message: `${spec.label} isn't installed on this computer.` });
+  if (!path) return finishTurn(t, { type: "error", message: tr("{agent} isn't installed on this computer.", { agent: spec.label }) });
   const token = grantFor(t, spec.label);
   t.grant = token;
   // Each chat gets its own empty folder (its CLI session's project), the turn's MCP config in it; a worker its own.
@@ -572,7 +573,7 @@ async function runServer(t: Turn, srv: { id: string; label: string; baseUrl: str
   const abort = new AbortController();
   t.abort = abort;
   const model = req.model;
-  if (!model) return finishTurn(t, { type: "error", message: `Pick a model of ${srv.label} first.` });
+  if (!model) return finishTurn(t, { type: "error", message: tr("Pick a model of {agent} first.", { agent: srv.label }) });
   emit(t, { type: "status", text: `Asking ${model} on ${srv.label}…` });
   const extraTools = [...t.managerTools, ...(t.connectors.length ? await connectorHub().toolsFor(t.connectors) : [])];
   return runOpenAiTurn({
@@ -641,7 +642,7 @@ const windowOf = (sender: WebContents) => [...controllers.values()].find((c) => 
 /** The composer's "+": the files the user picks in main's dialog. */
 export async function pickAttachments(sender: WebContents, chatId: string): Promise<AttachResult> {
   const win = windowOf(sender);
-  const options: Electron.OpenDialogOptions = { title: "Add files and photos", buttonLabel: "Add", properties: ["openFile", "multiSelections"], filters: [{ name: "Images and PDFs", extensions: ["pdf", "png", "jpg", "jpeg", "webp", "gif"] }] };
+  const options: Electron.OpenDialogOptions = { title: tr("Add files and photos"), buttonLabel: tr("Add"), properties: ["openFile", "multiSelections"], filters: [{ name: tr("Images and PDFs"), extensions: ["pdf", "png", "jpg", "jpeg", "webp", "gif"] }] };
   const picked = win ? await dialog.showOpenDialog(win as unknown as Electron.BrowserWindow, options) : await dialog.showOpenDialog(options);
   if (picked.canceled || !picked.filePaths.length) return { attachments: [], errors: [] };
   const { files, errors } = readFiles(picked.filePaths);
@@ -767,15 +768,15 @@ async function cliAuthStatus(spec: CliSpec, path: string): Promise<AuthState> {
     return s;
   }
   const waiting = l && (l.child ? l.child.exitCode === null : Date.now() - l.at < 10 * 60_000);
-  if (l && waiting) return { state: "signing-in", detail: l.note ?? "Waiting for sign-in in your browser…", url: loginUrl(l.out) ?? undefined };
+  if (l && waiting) return { state: "signing-in", detail: tr(l.note ?? "Waiting for sign-in in your browser…"), url: loginUrl(l.out) ?? undefined };
   return s;
 }
 
 export async function authStatus(providerId: string): Promise<AuthState> {
   const spec = cliSpec(providerId);
-  if (!spec) return { state: "not-installed", detail: "Not a CLI agent" };
+  if (!spec) return { state: "not-installed", detail: tr("Not a CLI agent") };
   const path = cliPath(spec);
-  if (!path) return { state: "not-installed", detail: `Looked for “${spec.bins[0]}” on PATH and in ~/.local/bin, /opt/homebrew/bin, /usr/local/bin` };
+  if (!path) return { state: "not-installed", detail: tr("Looked for “{bin}” on PATH and in {dirs}", { bin: spec.bins[0], dirs: "~/.local/bin, /opt/homebrew/bin, /usr/local/bin" }) };
   return cliAuthStatus(spec, path);
 }
 
@@ -813,12 +814,12 @@ export async function signIn(providerId: string): Promise<AuthState> {
       setTimeout(() => child.exitCode === null && child.kill(), 10 * 60_000);
       logins.set(spec.id, entry);
     }
-    return { state: "signing-in", detail: "Waiting for sign-in in your browser…" };
+    return { state: "signing-in", detail: tr("Waiting for sign-in in your browser…") };
   }
   const err = await openInTerminal(`${spec.id}-sign-in`, [`echo ${shq(login.note)}`, "echo", [shq(path), ...login.args.map(shq)].join(" ")]);
-  if (err) return { state: "signed-out", detail: `Couldn't open Terminal: ${err}` };
+  if (err) return { state: "signed-out", detail: tr("Couldn't open Terminal: {error}", { error: err }) };
   logins.set(spec.id, { out: "", at: Date.now(), note: login.note });
-  return { state: "signing-in", detail: login.note };
+  return { state: "signing-in", detail: tr(login.note) };
 }
 
 export async function signOut(providerId: string): Promise<AuthState> {
@@ -834,7 +835,7 @@ export async function signOut(providerId: string): Promise<AuthState> {
   }
   const err = await openInTerminal(`${spec.id}-sign-out`, [`echo ${shq(out.note)}`, "echo", [shq(path), ...out.args.map(shq)].join(" ")]);
   const s = await authStatus(providerId);
-  return { ...s, detail: err ? `Couldn't open Terminal: ${err}` : out.note };
+  return { ...s, detail: err ? tr("Couldn't open Terminal: {error}", { error: err }) : tr(out.note) };
 }
 
 /**
@@ -854,7 +855,7 @@ export async function install(providerId: string): Promise<{ ok: boolean; opened
   const srv = LOCAL_SERVERS.find((x) => x.id === providerId);
   const what: { label: string; command?: string; page: string } | null =
     spec ? { label: spec.label, ...spec.install } : srv ? { label: srv.label, ...srv.install } : null;
-  if (!what) return { ok: false, error: "Unknown agent" };
+  if (!what) return { ok: false, error: tr("Unknown agent") };
   // Windows: a Unix installer line (curl … | bash) can't run here — the download page instead.
   if (!what.command || (process.platform === "win32" && /\b(curl|bash|sh|brew)\b/.test(what.command))) {
     await shell.openExternal(what.page);
@@ -873,12 +874,12 @@ export async function install(providerId: string): Promise<{ ok: boolean; opened
     child.stdout?.on("data", (d) => (out = (out + d).slice(-4000)));
     child.stderr?.on("data", (d) => (out = (out + d).slice(-4000)));
     const timer = setTimeout(() => child.kill(), 10 * 60_000);
-    child.on("error", (e) => { clearTimeout(timer); resolve({ ok: false, error: `Couldn't install ${what.label}: ${e.message}` }); });
+    child.on("error", (e) => { clearTimeout(timer); resolve({ ok: false, error: tr("Couldn't install {agent}: {error}", { agent: what.label, error: e.message }) }); });
     child.on("close", (code) => {
       clearTimeout(timer);
       providerCache = null;
       const last = out.trim().split("\n").slice(-3).join(" ");
-      resolve(code === 0 ? { ok: true, opened: "installed" } : { ok: false, error: `Couldn't install ${what.label}${last ? `: ${last}` : ""}` });
+      resolve(code === 0 ? { ok: true, opened: "installed" } : { ok: false, error: last ? tr("Couldn't install {agent}: {error}", { agent: what.label, error: last }) : tr("Couldn't install {agent}", { agent: what.label }) });
     });
   }).finally(() => installing.delete(key));
   installing.set(key, job);
@@ -905,24 +906,24 @@ function stdioSnippet(): string {
 }
 
 export function clientConfig(client: McpClientId) {
-  if (!server?.url) throw new Error("The MCP server isn't running");
+  if (!server?.url) throw new Error(tr("The MCP server isn't running"));
   const { path, text } = configText(client, { url: server.url, token: server.token }, clientEnv());
   return { path, text, stdio: stdioSnippet() };
 }
 
 export async function connect(sender: WebContents, client: McpClientId) {
-  if (!server?.url) throw new Error("The MCP server isn't running");
+  if (!server?.url) throw new Error(tr("The MCP server isn't running"));
   const spec = CLIENTS.find((c) => c.id === client);
   if (!spec) throw new Error("Unknown client");
   const { path } = configText(client, { url: server.url, token: server.token }, clientEnv());
   const win = [...controllers.values()].find((c) => c.tabs.contentViews().some((v) => v.webContents === sender))?.win;
   const options = {
     type: "question" as const,
-    buttons: ["Connect", "Cancel"],
+    buttons: [tr("Connect"), tr("Cancel")],
     defaultId: 0,
     cancelId: 1,
-    message: `Connect ${spec.label} to this app's MCP server?`,
-    detail: `This adds a “${MCP_SERVER_NAME}” server (${server.url}, with its access token) to ${path.replace(homedir(), "~")}. Nothing else in the file changes, and a copy of it is kept next to it. ${spec.label} can then read and edit the file you have open here.`,
+    message: tr("Connect {client} to this app's MCP server?", { client: spec.label }),
+    detail: tr("This adds a “{server}” server ({url}, with its access token) to {path}. Nothing else in the file changes, and a copy of it is kept next to it. {client} can then read and edit the file you have open here.", { server: MCP_SERVER_NAME, url: server.url, path: path.replace(homedir(), "~"), client: spec.label }),
   };
   const answer = win ? await dialog.showMessageBox(win as unknown as Electron.BrowserWindow, options) : await dialog.showMessageBox(options);
   if (answer.response !== 0) return { ok: false, path };

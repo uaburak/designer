@@ -32,6 +32,7 @@ import type { Unsubscribe } from "../../shared/store/repositories";
 import type { FileKey, FileMeta } from "../../shared/store/types";
 import { DEFAULT_CACHE_LIMIT_BYTES, type CacheInfo, type CloudEvent, type CloudFile, type CloudRepository, type CloudStatus, type PersonalFile } from "../../shared/store/cloud";
 import { isCanceled, isGone, type MultiplayerService } from "../multiplayer/service";
+import { t as tr } from "../../shared/i18n";
 
 /** What the store gives the service. */
 export interface PersonalHost {
@@ -510,7 +511,7 @@ export class PersonalService {
   }
 
   async setCacheLimit(bytes: number): Promise<CacheInfo> {
-    if (!Number.isFinite(bytes) || bytes < MIN_CACHE_LIMIT_BYTES) throw new StoreError("invalid", "The cache is at least 256 MB");
+    if (!Number.isFinite(bytes) || bytes < MIN_CACHE_LIMIT_BYTES) throw new StoreError("invalid", tr("The cache is at least 256 MB"));
     const st = await this.loadState();
     st.limitBytes = Math.floor(bytes);
     await this.host.save({ ...st });

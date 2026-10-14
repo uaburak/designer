@@ -21,6 +21,7 @@ import { StoreError } from "../../shared/store/protocol";
 import type { Unsubscribe } from "../../shared/store/repositories";
 import type { FileKey, FileMeta } from "../../shared/store/types";
 import { callBytes, callJson, isOffline, seg, type LibraryCacheStore, type LibraryServer } from "../libraries/org";
+import { t as tr } from "../../shared/i18n";
 
 /** Figma's Recents list in Actions › Plugins & widgets */
 export const MAX_RECENTS = 10;
@@ -319,7 +320,7 @@ export class PluginsService {
         let manifest = await cache.readJson<PluginManifest>(manifestName).catch(() => null);
         if (!manifest) {
           const { plugin } = await this.call<{ plugin: PrivatePlugin }>("GET", `/plugins/${pluginId}`);
-          if (plugin.version !== version) throw new StoreError("conflict", `Version ${version} of ${plugin.name} isn't the current one`, { current: plugin.version });
+          if (plugin.version !== version) throw new StoreError("conflict", tr("Version {version} of {name} isn't the current one", { version, name: plugin.name }), { current: plugin.version });
           manifest = plugin.manifest;
         }
         const ui: Record<string, string> = {};
@@ -348,7 +349,7 @@ export class PluginsService {
         const encoded = await Promise.all(
           parts.map(async (p) => {
             const bytes = enc.encode(p.text);
-            if (bytes.byteLength > MAX_PART_BYTES) throw new StoreError("too-large", `${p.name === "code" ? "The plugin's code" : "Its UI"} is larger than 10 MB`);
+            if (bytes.byteLength > MAX_PART_BYTES) throw new StoreError("too-large", p.name === "code" ? tr("The plugin's code is larger than 10 MB") : tr("Its UI is larger than 10 MB"));
             return { name: p.name, bytes, sha1: await sha1Hex(bytes) };
           }),
         );

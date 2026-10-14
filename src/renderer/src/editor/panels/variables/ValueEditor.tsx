@@ -16,6 +16,7 @@ import { aliasMakesCycle, formatLiteral, resolveVariable, valueIn, type Collecti
 import { isOverridden, resetOverride, setVariableValue } from "../../variables";
 import { VariableGlyph, VariablePicker } from "./VariablePicker";
 import styles from "./LocalVariables.module.css";
+import { t, useT } from "@/i18n";
 
 /** "0D99FF", "#0d99ff", "0D99FF 50%" → a colour (null: not a colour). */
 export function parseColorText(text: string, alpha = 1): Color | null {
@@ -26,6 +27,7 @@ export function parseColorText(text: string, alpha = 1): Color | null {
 }
 
 export function ValueEditor({ variable, mode, collection, className }: { variable: Variable; mode: Guid; collection: Collection; className?: string }) {
+  useT();
   const ed = useEditor();
   const a = useLocalAssets();
   const [picker, setPicker] = useState<HTMLElement | null>(null);
@@ -36,15 +38,15 @@ export function ValueEditor({ variable, mode, collection, className }: { variabl
   const overridden = !!collection.parent && isOverridden(collection, variable.id, mode);
   const set = (v: Literal, info?: { final: boolean; source?: string }) => setVariableValue(ed, variable.id, mode, { kind: "literal", value: v }, info);
   const exclude = useMemo(() => new Set(a.variables.filter((v) => v.type === variable.type && (v.id === variable.id || aliasMakesCycle(variable.id, v.id, a.lookup))).map((v) => v.id)), [a, variable]);
-  const label = `${variable.name} in ${collection.modes.find((m) => m.id === mode)?.name ?? "mode"}`;
+  const label = t("{name} in {mode}", { name: variable.name, mode: collection.modes.find((m) => m.id === mode)?.name ?? t("mode") });
 
   let body;
   if (value.kind === "alias") {
     const target = a.lookup.variable(value.id);
     body = (
-      <button type="button" className={styles.alias} aria-label={`${label}: ${target?.name ?? "Missing variable"}`} {...tooltipProps(target?.name ?? "Missing variable")} onClick={(e) => setPicker(e.currentTarget)}>
+      <button type="button" className={styles.alias} aria-label={`${label}: ${target?.name ?? t("Missing variable")}`} {...tooltipProps(target?.name ?? t("Missing variable"))} onClick={(e) => setPicker(e.currentTarget)}>
         <VariableGlyph type={variable.type} value={resolved} />
-        <span className={styles.aliasText}>{target?.name ?? "Missing variable"}</span>
+        <span className={styles.aliasText}>{target?.name ?? t("Missing variable")}</span>
       </button>
     );
   } else {
@@ -53,7 +55,7 @@ export function ValueEditor({ variable, mode, collection, className }: { variabl
         const c = value.value as Color;
         body = (
           <>
-            <button type="button" className={styles.swatchButton} aria-label={`${label}: colour`} onClick={(e) => setColor(e.currentTarget.getBoundingClientRect())}>
+            <button type="button" className={styles.swatchButton} aria-label={`${label}: ${t("colour")}`} onClick={(e) => setColor(e.currentTarget.getBoundingClientRect())}>
               <Swatch color={colorToHex(c)} opacity={toPercent(c.a ?? 1)} size={14} />
             </button>
             <TextInput
@@ -73,10 +75,10 @@ export function ValueEditor({ variable, mode, collection, className }: { variabl
         body = <NumericInput label={label} variant="ghost" value={Number(value.value)} min={-1e6} max={1e6} onChange={(v, info) => set(v, info)} onCancel={() => ed.cancelEdit()} scrub={false} />;
         break;
       case "STRING":
-        body = <TextInput label={label} variant="ghost" value={String(value.value)} placeholder="Empty" onCommit={(v) => set(v)} />;
+        body = <TextInput label={label} variant="ghost" value={String(value.value)} placeholder={t("Empty")} onCommit={(v) => set(v)} />;
         break;
       case "BOOLEAN":
-        body = <Checkbox label={value.value === true ? "true" : "false"} checked={value.value === true} onChange={(on) => set(on)} aria-label={label} />;
+        body = <Checkbox label={value.value === true ? t("true") : t("false")} checked={value.value === true} onChange={(on) => set(on)} aria-label={label} />;
         break;
     }
   }
@@ -89,7 +91,7 @@ export function ValueEditor({ variable, mode, collection, className }: { variabl
     >
       {body}
       {overridden && (
-        <button type="button" className={styles.cellButton} aria-label="Reset change" {...tooltipProps("Reset change")} onClick={() => resetOverride(ed, collection.id, variable.id, mode)}>
+        <button type="button" className={styles.cellButton} aria-label={t("Reset change")} {...tooltipProps(t("Reset change"))} onClick={() => resetOverride(ed, collection.id, variable.id, mode)}>
           <Icon name="24.reset.instance.small" />
         </button>
       )}
@@ -97,8 +99,8 @@ export function ValueEditor({ variable, mode, collection, className }: { variabl
         <button
           type="button"
           className={styles.cellButton}
-          aria-label="Detach variable"
-          {...tooltipProps("Detach variable")}
+          aria-label={t("Detach variable")}
+          {...tooltipProps(t("Detach variable"))}
           onClick={() => {
             if (resolved !== null) set(resolved);
           }}
@@ -106,7 +108,7 @@ export function ValueEditor({ variable, mode, collection, className }: { variabl
           <Icon name="24.detach.small" />
         </button>
       ) : (
-        <button type="button" className={styles.cellButton} aria-label="Apply variable" aria-expanded={!!picker} {...tooltipProps("Apply variable")} onClick={(e) => setPicker(e.currentTarget)}>
+        <button type="button" className={styles.cellButton} aria-label={t("Apply variable")} aria-expanded={!!picker} {...tooltipProps(t("Apply variable"))} onClick={(e) => setPicker(e.currentTarget)}>
           <Icon name="24.variable.small" />
         </button>
       )}

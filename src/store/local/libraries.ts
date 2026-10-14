@@ -41,6 +41,7 @@ import type { Clock, HlcClock } from "./ids";
 import { SerialQueue } from "./queue";
 import { encodeSnapshot } from "./snapshot";
 import type { LocalWorkspace, Log, WorkspaceDirs } from "./workspace";
+import { t as tr } from "../../shared/i18n";
 
 export interface LibrariesDeps {
   dirs: WorkspaceDirs;
@@ -177,8 +178,8 @@ export class LocalLibraries {
   async publish(req: PublishRequest): Promise<LibraryVersion> {
     const lib = req.libraryFileKey;
     const meta = this.d.workspace.getMeta(lib);
-    if (this.d.workspace.isFileTrashed(meta)) throw new StoreError("trashed", "This file is in Trash");
-    if (meta.folderId === null) throw new StoreError("draft-cannot-publish", "Move this file to a folder to publish it as a library");
+    if (this.d.workspace.isFileTrashed(meta)) throw new StoreError("trashed", tr("This file is in Trash"));
+    if (meta.folderId === null) throw new StoreError("draft-cannot-publish", tr("Move this file to a folder to publish it as a library"));
     this.validateAssets(req.assets);
     for (const m of req.moves ?? []) {
       if (!req.assets.some((a) => a.key === m.key)) throw new StoreError("invalid", `moved asset ${m.key} is not in this publish`);
@@ -269,10 +270,10 @@ export class LocalLibraries {
   async setEnabled(fileKey: FileKey, lib: FileKey, enabled: boolean): Promise<FileMeta> {
     const ws = this.d.workspace;
     const meta = ws.getMeta(fileKey);
-    if (fileKey === lib) throw new StoreError("invalid", "A file can't use itself as a library");
+    if (fileKey === lib) throw new StoreError("invalid", tr("A file can't use itself as a library"));
     if (enabled) {
       const r = this.records.get(lib);
-      if (!r || r.status !== "published") throw new StoreError("not-found", "That library isn't published");
+      if (!r || r.status !== "published") throw new StoreError("not-found", tr("That library isn't published"));
     }
     const has = meta.enabledLibraries.includes(lib);
     if (has === enabled) return { ...meta };

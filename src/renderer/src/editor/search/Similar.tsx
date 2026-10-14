@@ -5,6 +5,7 @@
  * texts), leaving out those already listed. Nothing shows without the models ("Without AI, it matches only the exact
  * keywords in names or descriptions").
  */
+import { t, useT } from "@/i18n";
 import { useEffect, useState } from "react";
 import { showToast } from "@/ds";
 import type { SearchHit } from "../../../../shared/ai/types";
@@ -52,15 +53,16 @@ export function useSimilarComponents(query: string, listed: readonly ListedAsset
 
 /** The "Similar" group: tiles (or rows) that insert an instance on click */
 export function SimilarAssets({ ed, hits, view, styles }: { ed: EditorController; hits: readonly SearchHit[]; view: "grid" | "list"; styles: Record<string, string> }) {
+  useT();
   if (!hits.length) return null;
   const insert = (h: SearchHit) =>
     void insertHit(ed, h).then(
-      (made) => (made ? ed.focusCanvas() : showToast({ message: "The instance couldn't be inserted" })),
-      () => showToast({ message: "The library component couldn't be loaded", kind: "error" }),
+      (made) => (made ? ed.focusCanvas() : showToast({ message: t("The instance couldn't be inserted") })),
+      () => showToast({ message: t("The library component couldn't be loaded"), kind: "error" }),
     );
   return (
-    <div role="group" aria-label="Similar" data-assets-similar="">
-      <div className={styles.heading}>Similar</div>
+    <div role="group" aria-label={t("Similar")} data-assets-similar="">
+      <div className={styles.heading}>{t("Similar")}</div>
       <div className={view === "grid" ? styles.grid : styles.list}>
         {hits.map((h) => (
           <button key={`${h.doc.fileKey}/${h.doc.nodeId}`} type="button" role="treeitem" data-similar-asset={h.doc.name} className={view === "grid" ? styles.tile : styles.row} aria-label={h.doc.name} title={`${h.doc.name}\n${h.doc.fileName}`} onClick={() => insert(h)}>

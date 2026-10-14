@@ -4,6 +4,7 @@ import { exitKey, selectAllOnClick } from "../util/selectAll";
 import { Icon, ICON_NAMES, type IconName } from "../icons/Icon";
 import { isMixed, type ControlSize, type ExitReason, type Mixed } from "../types";
 import { STRINGS } from "../strings";
+import { t, useT } from "@/i18n";
 import styles from "./Field.module.css";
 
 /** A field prefix: a kit glyph by name, or one or two letters (W, H, X…). */
@@ -42,6 +43,7 @@ export interface TextInputProps extends Omit<HTMLAttributes<HTMLDivElement>, "on
 
 /** Figma's one-line field (contract §4.4). */
 export function TextInput({ label, value, onCommit, onChange, placeholder, prefix, suffix, variant = "filled", size = "default", autoFocus, selectAllOnFocus = true, maxLength, secret, disabled, invalid, onExit, className, ...rest }: TextInputProps) {
+  useT();
   const [draft, setDraft] = useState<string | null>(null);
   const cancelled = useRef(false);
   const exitBy = useRef<ExitReason>("blur");
@@ -71,7 +73,7 @@ export function TextInput({ label, value, onCommit, onChange, placeholder, prefi
         maxLength={maxLength}
         {...(secret ? { type: "password", autoComplete: "off", spellCheck: false } : null)}
         value={shown}
-        placeholder={mixed ? STRINGS.mixed : placeholder}
+        placeholder={mixed ? t(STRINGS.mixed) : placeholder}
         spellCheck={false}
         {...(selectAllOnFocus ? selectAllOnClick : {})}
         onFocus={(e) => selectAllOnFocus && e.currentTarget.select()}

@@ -6,6 +6,7 @@ import { exportMime, planExportPaths, safeParts } from "../shared/exportFiles";
 import type { ExportAsset, ImportResult } from "../shared/ipc";
 import { readyStore } from "./storeHost";
 import { EXPORT_RESTRICTED_MESSAGE, mayExportFile } from "./exportAccess";
+import { t } from "../shared/i18n";
 
 /**
  * What needs a native dialog or a path (docs/desktop.md §10.2 "Files and
@@ -20,7 +21,7 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 export async function importFiles(win: BaseWindow | null, folderId: string | null, paths?: string[]): Promise<ImportResult> {
   let list = paths;
   if (!list) {
-    const options = { title: "Import", filters: [{ name: "Figma files", extensions: ["fig"] }], properties: ["openFile", "multiSelections"] as Array<"openFile" | "multiSelections"> };
+    const options = { title: t("Import"), filters: [{ name: t("Figma files"), extensions: ["fig"] }], properties: ["openFile", "multiSelections"] as Array<"openFile" | "multiSelections"> };
     const picked = win && !win.isDestroyed() ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
     if (picked.canceled) return { files: [], failed: [] };
     list = picked.filePaths;
@@ -31,7 +32,7 @@ export async function importFiles(win: BaseWindow | null, folderId: string | nul
   const store = await readyStore();
   for (const path of usable) {
     if (!path.toLowerCase().endsWith(".fig")) {
-      result.failed.push({ path, error: "Only .fig files can be imported." });
+      result.failed.push({ path, error: t("Only .fig files can be imported.") });
       continue;
     }
     try {
@@ -54,7 +55,7 @@ export async function exportPreview(
   const store = await readyStore();
   const file = await store.workspace.getFile(fileKey);
   const safe = (file.name || "Untitled").replace(/[/\\:]/g, "-");
-  const dialogOptions = { title: "Export preview as HTML", defaultPath: `${safe}.html`, filters: [{ name: "Web page", extensions: ["html"] }] };
+  const dialogOptions = { title: t("Export preview as HTML"), defaultPath: `${safe}.html`, filters: [{ name: t("Web page"), extensions: ["html"] }] };
   const picked = win && !win.isDestroyed() ? await dialog.showSaveDialog(win, dialogOptions) : await dialog.showSaveDialog(dialogOptions);
   if (picked.canceled || !picked.filePath) return { cancelled: true };
   const r = await store.previews.exportHtml(fileKey, { snapshot, options: { ...options, expiresInDays: null } }, picked.filePath);
@@ -65,10 +66,10 @@ export async function exportPreview(
 export async function saveLocalCopy(win: BaseWindow | null, fileKey: string): Promise<{ path: string } | { cancelled: true }> {
   const store = await readyStore();
   // A viewer the file's export setting restricts (docs/governance.md §2.7) saves no copy, whichever view asked.
-  if (!(await mayExportFile(store.multiplayer, fileKey))) throw new Error(EXPORT_RESTRICTED_MESSAGE);
+  if (!(await mayExportFile(store.multiplayer, fileKey))) throw new Error(t(EXPORT_RESTRICTED_MESSAGE));
   const file = await store.workspace.getFile(fileKey);
   const safe = (file.name || "Untitled").replace(/[/\\:]/g, "-");
-  const options = { title: "Save local copy", defaultPath: `${safe}.fig`, filters: [{ name: "Figma files", extensions: ["fig"] }] };
+  const options = { title: t("Save local copy"), defaultPath: `${safe}.fig`, filters: [{ name: t("Figma files"), extensions: ["fig"] }] };
   const picked = win && !win.isDestroyed() ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
   if (picked.canceled || !picked.filePath) return { cancelled: true };
   await store.files.exportLocalCopy(fileKey, picked.filePath);
@@ -89,13 +90,13 @@ export async function exportAssets(win: BaseWindow | null, files: ExportAsset[])
     const file = parts[parts.length - 1];
     const ext = file.includes(".") ? file.slice(file.lastIndexOf(".") + 1) : "";
     const format = FORMATS[exportMime(file)];
-    const options = { title: "Export", defaultPath: file, filters: format ? [{ name: format, extensions: [ext] }] : [] };
+    const options = { title: t("Export"), defaultPath: file, filters: format ? [{ name: format, extensions: [ext] }] : [] };
     const picked = parent ? await dialog.showSaveDialog(parent, options) : await dialog.showSaveDialog(options);
     if (picked.canceled || !picked.filePath) return { cancelled: true };
     await writeFile(picked.filePath, files[0].bytes);
     return { paths: [picked.filePath] };
   }
-  const options = { title: "Export", buttonLabel: "Export", properties: ["openDirectory", "createDirectory"] as Array<"openDirectory" | "createDirectory"> };
+  const options = { title: t("Export"), buttonLabel: t("Export"), properties: ["openDirectory", "createDirectory"] as Array<"openDirectory" | "createDirectory"> };
   const picked = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
   if (picked.canceled || !picked.filePaths[0]) return { cancelled: true };
   const folder = picked.filePaths[0];

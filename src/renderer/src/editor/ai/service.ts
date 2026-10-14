@@ -7,6 +7,7 @@
  * store taking the org from the file). One run at a time per file.
  */
 import { showToast } from "@/ds";
+import { t } from "@/i18n";
 import type { Guid, NodeChange } from "@/engine/codec";
 import { fonts } from "@/engine/fonts";
 import { getStoreClient } from "@/store";
@@ -271,7 +272,7 @@ export class AiActions {
       if (failure) {
         if (failure.code === "over-limit") openAiBalance();
         if (!fromPanel) {
-          showToast({ message: failure.message, kind: "error", ...(failure.code === "over-limit" ? { action: { label: "AI balance", onAction: openAiBalance } } : {}) });
+          showToast({ message: t(failure.message), kind: "error", ...(failure.code === "over-limit" ? { action: { label: t("AI balance"), onAction: openAiBalance } } : {}) });
           this.set({ error: null });
         }
       }
@@ -365,7 +366,7 @@ export class AiActions {
     const roots = readLayers(this.ed, refs);
     const candidates = renameCandidates(roots, !!o.anyway);
     if (!candidates.length) {
-      showToast({ message: "No layers need renaming", action: { label: "Rename anyway", onAction: () => void this.renameLayers({ refs, anyway: true }) } });
+      showToast({ message: t("No layers need renaming"), action: { label: t("Rename anyway"), onAction: () => void this.renameLayers({ refs, anyway: true }) } });
       return Promise.resolve(0);
     }
     return this.execute("rename-layers", !!o.fromPanel, async (signal) => {

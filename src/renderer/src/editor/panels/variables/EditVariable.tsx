@@ -14,8 +14,10 @@ import { renameVariable, updateVariable } from "../../variables";
 import { ValueEditor } from "./ValueEditor";
 import styles from "./Variables.module.css";
 import tableStyles from "./LocalVariables.module.css";
+import { t, useT } from "@/i18n";
 
 export function EditVariablePopover({ id, anchor, placement = "bottom-start", onClose }: { id: Guid; anchor: HTMLElement | DOMRect | null; placement?: PopoverPlacement; onClose: () => void }) {
+  useT();
   const ed = useEditor();
   const a = useLocalAssets();
   const [adding, setAdding] = useState<ReadonlySet<string>>(new Set());
@@ -34,18 +36,18 @@ export function EditVariablePopover({ id, anchor, placement = "bottom-start", on
   const shown = (platform: string) => !!syntax(platform as CodeSyntaxEntry["platform"]) || adding.has(platform);
   const missing = CODE_PLATFORMS.filter((p) => !shown(p.platform));
   return (
-    <Popover anchor={anchor} title="Edit variable" width={280} placement={placement} onClose={onClose} label="Edit variable">
+    <Popover anchor={anchor} title={t("Edit variable")} width={280} placement={placement} onClose={onClose} label={t("Edit variable")}>
       <div className={styles.form} data-edit-variable={v.name}>
         <div className={styles.formRow}>
-          <span className={styles.formLabel}>Name</span>
-          <TextInput label="Name" value={v.name} onCommit={(name) => renameVariable(ed, id, name)} autoFocus />
+          <span className={styles.formLabel}>{t("Name")}</span>
+          <TextInput label={t("Name")} value={v.name} onCommit={(name) => renameVariable(ed, id, name)} autoFocus />
         </div>
         <div className={styles.formRow}>
-          <span className={styles.formLabel}>Type</span>
-          <span>{VAR_TYPE_LABEL[v.type]}</span>
+          <span className={styles.formLabel}>{t("Type")}</span>
+          <span>{t(VAR_TYPE_LABEL[v.type])}</span>
         </div>
-        <TextArea label="Description" value={v.description} placeholder="Description" minRows={2} onCommit={(description) => updateVariable(ed, id, { description }, "Edit variable description")} />
-        <div className={styles.formSection}>Values</div>
+        <TextArea label={t("Description")} value={v.description} placeholder={t("Description")} minRows={2} onCommit={(description) => updateVariable(ed, id, { description }, "Edit variable description")} />
+        <div className={styles.formSection}>{t("Values")}</div>
         {c.modes.map((m) => (
           <div key={m.id} className={styles.formRow}>
             <span className={styles.formLabel}>{m.name}</span>
@@ -54,14 +56,14 @@ export function EditVariablePopover({ id, anchor, placement = "bottom-start", on
         ))}
         {options.length > 0 && (
           <>
-            <div className={styles.formSection}>Scoping</div>
-            <Checkbox label="Show in all supported properties" checked={all} onChange={(on) => setScope("ALL_SCOPES", on)} />
+            <div className={styles.formSection}>{t("Scoping")}</div>
+            <Checkbox label={t("Show in all supported properties")} checked={all} onChange={(on) => setScope("ALL_SCOPES", on)} />
             {options.map((o) => (
               <div key={o.scope}>
-                <Checkbox label={o.label} checked={scopeChecked(scopes, o.scope)} onChange={(on) => setScope(o.scope, on)} />
+                <Checkbox label={t(o.label)} checked={scopeChecked(scopes, o.scope)} onChange={(on) => setScope(o.scope, on)} />
                 {o.children?.map((ch) => (
                   <div key={ch.scope} className={styles.formIndent}>
-                    <Checkbox label={ch.label} checked={scopeChecked(scopes, ch.scope)} onChange={(on) => setScope(ch.scope, on)} />
+                    <Checkbox label={t(ch.label)} checked={scopeChecked(scopes, ch.scope)} onChange={(on) => setScope(ch.scope, on)} />
                   </div>
                 ))}
               </div>
@@ -69,9 +71,9 @@ export function EditVariablePopover({ id, anchor, placement = "bottom-start", on
           </>
         )}
         <div className={styles.formSection}>
-          <span>Code syntax</span>
+          <span>{t("Code syntax")}</span>
           {missing.length > 0 && (
-            <MenuButton label="Add code syntax" entries={missing.map((p) => ({ id: p.platform, label: p.label }))} onSelect={(p) => setAdding(new Set([...adding, p]))}>
+            <MenuButton label={t("Add code syntax")} entries={missing.map((p) => ({ id: p.platform, label: p.label }))} onSelect={(p) => setAdding(new Set([...adding, p]))}>
               <Icon name="24.plus.small" />
             </MenuButton>
           )}
@@ -79,15 +81,15 @@ export function EditVariablePopover({ id, anchor, placement = "bottom-start", on
         {CODE_PLATFORMS.filter((p) => shown(p.platform)).map((p) => (
           <div key={p.platform} className={styles.codeRow}>
             <span className={styles.formLabel}>{p.label}</span>
-            <TextInput label={`${p.label} code syntax`} value={syntax(p.platform)?.value ?? ""} placeholder={p.platform === "WEB" ? "var(--name)" : "name"} onCommit={(value) => setSyntax(p.platform, value)} />
-            <IconButton icon="24.minus.small" label={`Remove ${p.label} code syntax`} tone="secondary" onClick={() => {
+            <TextInput label={t("{platform} code syntax", { platform: p.label })} value={syntax(p.platform)?.value ?? ""} placeholder={p.platform === "WEB" ? "var(--name)" : "name"} onCommit={(value) => setSyntax(p.platform, value)} />
+            <IconButton icon="24.minus.small" label={t("Remove {platform} code syntax", { platform: p.label })} tone="secondary" onClick={() => {
                 setAdding(new Set([...adding].filter((x) => x !== p.platform)));
                 setSyntax(p.platform, null);
               }} />
           </div>
         ))}
-        <div className={styles.formSection}>Publishing</div>
-        <Checkbox label="Hide from publishing" checked={v.hidden} onChange={(hidden) => updateVariable(ed, id, { hidden }, "Hide from publishing")} />
+        <div className={styles.formSection}>{t("Publishing")}</div>
+        <Checkbox label={t("Hide from publishing")} checked={v.hidden} onChange={(hidden) => updateVariable(ed, id, { hidden }, "Hide from publishing")} />
       </div>
     </Popover>
   );

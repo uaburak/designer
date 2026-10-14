@@ -478,6 +478,7 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
     drafts: unsupported("orgs.drafts"),
     createDraft: unsupported("orgs.createDraft"),
     search: unsupported("orgs.search"),
+    files: unsupported("orgs.files"),
     requestSeat: unsupported("orgs.requestSeat"),
     groups: async () => wait(s.groups),
     createGroup: async (_org, input) => {

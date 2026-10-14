@@ -19,6 +19,7 @@ import { paintLabel, paintSwatch } from "../../model/paints";
 import { SELECTION_COLORS_MAX_NODES, SELECTION_COLORS_SHOWN, collectColors, collectSelectionColors, recolor, showSelectionColors, type PaintUse, type SelectionColor } from "../../model/selectionColors";
 import type { PickerTarget } from "./Paints";
 import type { PanelNode } from "./shared";
+import { t, tp, useT } from "@/i18n";
 import styles from "./Design.module.css";
 
 /** What Selection colors reads of a layer (docs/engine-build.md "Performance round 2": a paints-only read). */
@@ -127,6 +128,7 @@ export function writeSelectionColor(ed: EditorController, uses: readonly PaintUs
 }
 
 export function SelectionColorsSection({ nodes, onPick }: { nodes: PanelNode[]; onPick: (t: PickerTarget) => void }) {
+  useT();
   const ed = useEditor();
   // The subtree is read again only when a paint, a visibility or the layers inside changed — a move or a resize
   // re-renders the panel each frame but leaves the colours as they were (engine.md §10.4's groups).
@@ -139,16 +141,16 @@ export function SelectionColorsSection({ nodes, onPick }: { nodes: PanelNode[]; 
   const expanded = all.key === key && all.on;
   const shown = expanded ? colors : colors.slice(0, SELECTION_COLORS_SHOWN);
   return (
-    <PanelSection title="Selection colors">
+    <PanelSection title={t("Selection colors")}>
       {/* Keyed by place: a scrub changes the colour's identity and must not remount its field */}
       {shown.map((c, i) => (
         <div key={i} className={`${styles.paintRow} ${styles.colorRow}`}>
           <ColorInput
             className={styles.paintField}
-            label="Color"
-            swatchLabel={c.gradient ? paintLabel(c.gradient) : `Solid color hex: ${colorToHex(c.color).slice(1).toUpperCase()}`}
+            label={t("Color")}
+            swatchLabel={c.gradient ? t(paintLabel(c.gradient)) : t("Solid color hex: {hex}", { hex: colorToHex(c.color).slice(1).toUpperCase() })}
             color={c.gradient ? paintSwatch(c.gradient) : colorToHex(c.color)}
-            valueLabel={c.gradient ? paintLabel(c.gradient) : undefined}
+            valueLabel={c.gradient ? t(paintLabel(c.gradient)) : undefined}
             opacity={toPercent(c.opacity)}
             onColor={(hex, info, o) => writeSelectionColor(ed, c.uses, { color: hexToColor(hex), ...(o !== undefined ? { opacity: o / 100 } : {}) }, info)}
             onOpacity={(o, info) => writeSelectionColor(ed, c.uses, { opacity: o / 100 }, info)}
@@ -156,13 +158,13 @@ export function SelectionColorsSection({ nodes, onPick }: { nodes: PanelNode[]; 
           />
           {/* Figma's live panel: the field as wide as a fill's (156), the target button only on hover */}
           <span className={styles.colorRowSlot} />
-          <IconButton className={styles.colorRowAction} icon="24.select-matching.small" label="Select matching layers" tone="secondary" onClick={() => ed.engine.setSelection([...new Set(c.uses.map((u) => u.guid))])} />
+          <IconButton className={styles.colorRowAction} icon="24.select-matching.small" label={t("Select matching layers")} tone="secondary" onClick={() => ed.engine.setSelection([...new Set(c.uses.map((u) => u.guid))])} />
         </div>
       ))}
       {colors.length > SELECTION_COLORS_SHOWN && (
         <div className={styles.seeAll}>
           <Button variant="link" onClick={() => setAll({ key, on: !expanded })}>
-            {expanded ? "Show less" : `See all ${colors.length} colors`}
+            {expanded ? t("Show less") : tp(colors.length, "See all {n} color", "See all {n} colors")}
           </Button>
         </div>
       )}

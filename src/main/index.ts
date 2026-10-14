@@ -21,6 +21,7 @@ import { installAppMenu } from "./menu";
 import { DEV_URL, handleScheme, isAppUrl, registerScheme } from "./protocol";
 import { flushStore, retryStoreHost, startStoreHost, storeClient, storeDebug } from "./storeHost";
 import { initTheme } from "./theme";
+import { initLocale } from "./locale";
 import { initUpdater } from "./updater";
 import { PRODUCT_NAME } from "./identity";
 import { confirmQuit, controllers, finishQuit, lifecycle, type WindowController } from "./window";
@@ -115,6 +116,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     app.setAboutPanelOptions({ applicationName: PRODUCT_NAME, applicationVersion: app.getVersion(), copyright: "Burak Koç" });
     initTheme();
+    initLocale();
     handleScheme();
     handlePluginScheme();
     handleAimodelScheme();

@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Button, Dialog, TextInput } from "@/ds";
+import { t, useT } from "@/i18n";
 import { isStoreError } from "@shared/store/protocol";
 import styles from "./Files.module.css";
 
@@ -56,26 +57,27 @@ function promptPassword(wrong: boolean): Promise<string | null> {
 }
 
 function PasswordDialog({ wrong, onDone }: { wrong: boolean; onDone: (v: string | null) => void }) {
+  useT();
   const [value, setValue] = useState("");
   return (
     <Dialog
-      title="This file is password protected"
+      title={t("This file is password protected")}
       size="small"
       open
       onClose={() => onDone(null)}
       footer={
         <>
           <Button variant="secondary" onClick={() => onDone(null)}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button variant="primary" disabled={!value} onClick={() => onDone(value)} data-link-password="continue">
-            Continue
+            {t("Continue")}
           </Button>
         </>
       }
     >
-      <TextInput label="Password" placeholder="Enter password" value={value} onChange={setValue} secret autoFocus invalid={wrong && !value} data-link-password="" />
-      {wrong && <p className={styles.passwordError}>Incorrect password. Try again.</p>}
+      <TextInput label={t("Password")} placeholder={t("Enter password")} value={value} onChange={setValue} secret autoFocus invalid={wrong && !value} data-link-password="" />
+      {wrong && <p className={styles.passwordError}>{t("Incorrect password. Try again.")}</p>}
     </Dialog>
   );
 }

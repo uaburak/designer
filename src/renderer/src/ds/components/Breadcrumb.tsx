@@ -3,6 +3,7 @@ import { cx } from "../util/cx";
 import { Icon, ICON_NAMES, type IconName } from "../icons/Icon";
 import { MenuButton, type MenuEntry } from "./Menu";
 import styles from "./Breadcrumb.module.css";
+import { t, useT } from "@/i18n";
 
 export type Crumb = {
   id: string;
@@ -36,7 +37,8 @@ function CrumbIcon({ icon }: { icon: IconName | ReactNode }) {
  * place is primary and, with `menu`, opens its own menu. Long paths fold
  * their middle into "…". The last crumb carries `aria-current="page"`.
  */
-export function Breadcrumb({ items, onNavigate, menu, onMenuSelect, maxItems = 4, size = "large", label = "Breadcrumb", className, ...rest }: BreadcrumbProps) {
+export function Breadcrumb({ items, onNavigate, menu, onMenuSelect, maxItems = 4, size = "large", label = t("Breadcrumb"), className, ...rest }: BreadcrumbProps) {
+  useT();
   const fold = items.length > Math.max(3, maxItems);
   const hidden = fold ? items.slice(1, items.length - 2) : [];
   const shown: (Crumb | "…")[] = fold ? [items[0], "…", ...items.slice(-2)] : items;
@@ -50,7 +52,7 @@ export function Breadcrumb({ items, onNavigate, menu, onMenuSelect, maxItems = 4
               {i > 0 && <li aria-hidden className={styles.separator}>/</li>}
               <li className={cx(styles.item, last && styles.currentItem)}>
                 {c === "…" ? (
-                  <MenuButton label="Show path" className={styles.crumb} entries={hidden.map((h) => ({ id: h.id, label: h.label }))} onSelect={onNavigate}>
+                  <MenuButton label={t("Show path")} className={styles.crumb} entries={hidden.map((h) => ({ id: h.id, label: h.label }))} onSelect={onNavigate}>
                     …
                   </MenuButton>
                 ) : last ? (

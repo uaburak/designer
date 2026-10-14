@@ -16,6 +16,8 @@ import type { SharedFontFace, SharedFontsChannels } from "./fonts/sharedTypes";
 import type { PluginBundle, PluginManifest } from "./plugins/types";
 import type { ShortcutSettings } from "./shortcuts";
 import type { TabKind, TabReport, TabStatus } from "./tabs";
+import type { Locale } from "./i18n";
+import type { FigmaImage, FigmaResult, FigmaUser } from "./figmaApi";
 
 /** What a view is (each its own WebContentsView, renderer process and preload). */
 /** `welcome`: the signed-out window's one view (docs/desktop.md §18.6) — the splash, then the welcome page */
@@ -189,6 +191,15 @@ export interface FontFaceInfo {
   variable?: boolean;
 }
 
+/** The Figma connection (docs/desktop.md §13 "Images from Figma"): the token itself never leaves main. */
+export interface FigmaConnection {
+  connected: boolean;
+  /** The token's account; null when unknown (a token without the "Current user" scope) */
+  user: FigmaUser | null;
+}
+
+export type FigmaImagesResult = FigmaResult<{ images: FigmaImage[]; missing: string[] }>;
+
 /** Settings › Account › "Your uploaded fonts" (docs/desktop.md §14.2): a face of a font file the user uploaded. */
 export interface UploadedFont {
   /** The face's id in the font index (`fonts:read` gives its bytes) */
@@ -305,6 +316,8 @@ export interface IpcInvoke extends SharedFontsChannels {
   "theme:set": { args: [ThemePreference]; result: ThemeState };
   /** "Enhance contrast" on or off: main keeps it (settings.json) and tells every view (`theme:changed`) */
   "theme:set-contrast": { args: [boolean]; result: ThemeState };
+  /** The UI's language (Settings › Account › Language): main keeps it (settings.json), tells every view (`locale:changed`) and rebuilds the menu bar */
+  "locale:set": { args: [Locale]; result: Locale };
   /** The updater's state (docs/desktop.md §12.6), for the tab bar */
   "updater:get": { args: []; result: UpdaterStatus };
   /** The user's keyboard shortcuts (settings.json; src/shared/shortcuts.ts) */
@@ -327,6 +340,13 @@ export interface IpcInvoke extends SharedFontsChannels {
   "fonts:remove-uploaded": { args: [{ id: string }]; result: UploadedFont[] };
   /** Paste: the pasteboard's vector artwork (Illustrator's SVG, any SVG, Illustrator's PDF as SVG), read by main (§13) */
   "clipboard:read-vector": { args: []; result: VectorClipboard | null };
+  /** Settings › Account › Figma connection: whether a Figma token is kept (sealed in main) and whose it is */
+  "figma:status": { args: []; result: FigmaConnection };
+  /** Connect: the token checked with Figma (GET /v1/me), then kept sealed; Figma's refusal as an error */
+  "figma:connect": { args: [{ token: string }]; result: FigmaResult<FigmaConnection> };
+  "figma:disconnect": { args: []; result: FigmaConnection };
+  /** Paste from Figma: the images (by imageRef) a paste needs, downloaded from the file it came from (§13) */
+  "figma:images": { args: [{ fileKey: string; hashes: string[] }]; result: FigmaImagesResult };
   // ── Agents (src/main/agents; docs/research/figma/R12-agents-mcp.md) ──
   /** The AI tools on this computer (CLIs found, local model servers that answer) */
   "agents:providers": { args: []; result: ProviderInfo[] };
@@ -502,6 +522,8 @@ export interface IpcEvents {
   "store:port": { generation: number };
   /** The theme changed (a choice, or the system's appearance while the preference is "system") */
   "theme:changed": ThemeState;
+  /** The UI's language changed (src/shared/i18n) */
+  "locale:changed": Locale;
   /** The keyboard shortcuts changed (in this or another editor) */
   "shortcuts:changed": ShortcutSettings;
   /** Fonts were installed or removed (or the Google Fonts catalog changed): read `fonts:list` again */
@@ -542,6 +564,7 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "file:export-preview": ["editor"],
   "theme:set": ["tabbar", "home", "editor", "welcome"],
   "theme:set-contrast": ["home", "editor"],
+  "locale:set": ["tabbar", "home", "editor", "welcome"],
   "updater:get": ["tabbar"],
   "shortcuts:get": ["editor"],
   "shortcuts:set": ["editor"],
@@ -552,6 +575,10 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "fonts:upload": ["home", "editor"],
   "fonts:remove-uploaded": ["home", "editor"],
   "fonts:preview": ["editor"],
+  "figma:status": ["home", "editor"],
+  "figma:connect": ["home", "editor"],
+  "figma:disconnect": ["home", "editor"],
+  "figma:images": ["editor"],
   "fonts:shared-list": ["home", "editor"],
   "fonts:shared-pick": ["home", "editor"],
   "fonts:shared-upload": ["home", "editor"],

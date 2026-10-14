@@ -4,9 +4,12 @@
  */
 import type { ActivityAction, ActivityLog, AdminPerson, AdminTeam, OrgRole, OrgSettings, Seat } from "@shared/org/types";
 import { FILE_EXPORTING_LABEL, type FileExporting, type NetworkRangeState } from "@shared/org/governance";
+import { intlLocale, t, tp, tx } from "@/i18n";
 
 export const SEATS: Seat[] = ["full", "dev", "collab", "view"];
 export const SEAT_LABEL: Record<Seat, string> = { full: "Full", dev: "Dev", collab: "Collab", view: "View" };
+/** A seat's name in the UI's language ("View" the seat, not the menu: `seat|View`). */
+export const seatLabel = (s: Seat): string => tx("seat", SEAT_LABEL[s]);
 /** [F-seat] what each seat is for (help.figma.com 360039960434) */
 export const SEAT_DESCRIPTION: Record<Seat, string> = {
   full: "Access to all Figma products, including Figma Design, Dev Mode, FigJam, Figma Slides and Figma Buzz",
@@ -18,7 +21,7 @@ export const ROLE_LABEL: Record<OrgRole, string> = { admin: "Admin", member: "Me
 
 /** The People table's "User type" (Figma's filter: Admin, Member, Guest, Pending) */
 export function userType(p: Pick<AdminPerson, "role" | "pending">): string {
-  return p.pending ? "Pending" : ROLE_LABEL[p.role];
+  return p.pending ? t("Pending") : t(ROLE_LABEL[p.role]);
 }
 
 export const SEAT_APPROVAL_LABEL: Record<OrgSettings["seatApproval"]["full"], string> = {
@@ -36,10 +39,10 @@ export const NETWORK_STATE_LABEL: Record<NetworkRangeState, string> = { testing:
 export const TEAM_CREATION_LABEL: Record<OrgSettings["teamCreation"], string> = { anyone: "Anyone", admins: "Admins only" };
 
 /** A team's access as one word (the teams CSV's "access setting"): Open / Closed / Hidden — ours from the audience fields */
-export function teamAccess(t: Pick<AdminTeam, "visibility" | "orgAccess" | "workspaceAccess">): string {
-  if (t.visibility === "hidden") return "Hidden";
-  if (t.orgAccess !== "none" || t.workspaceAccess !== "none") return "Open";
-  return "Closed";
+export function teamAccess(team: Pick<AdminTeam, "visibility" | "orgAccess" | "workspaceAccess">): string {
+  if (team.visibility === "hidden") return t("Hidden");
+  if (team.orgAccess !== "none" || team.workspaceAccess !== "none") return tx("access", "Open");
+  return t("Closed");
 }
 
 /** Figma's Activity event groups (help.figma.com 360040449533) with the actions round 1 writes, in its order. */
@@ -301,126 +304,129 @@ export const AUTH_METHOD_SHORT: Record<OrgSettings["authMethod"], string> = { an
 
 /** "21 days", "12 hours", "1 day", "15 minutes" — whole days when the hours divide; minutes below a whole hour */
 export function formatHours(h: number): string {
-  if (!Number.isInteger(h)) {
-    const min = Math.round(h * 60);
-    return min === 1 ? "1 minute" : `${min} minutes`;
-  }
-  if (h % 24 === 0) return h === 24 ? "1 day" : `${h / 24} days`;
-  return h === 1 ? "1 hour" : `${h} hours`;
+  if (!Number.isInteger(h)) return tp(Math.round(h * 60), "{n} minute", "{n} minutes");
+  if (h % 24 === 0) return tp(h / 24, "{n} day", "{n} days");
+  return tp(h, "{n} hour", "{n} hours");
 }
-const onOff = (v: unknown) => (v ? "on" : "off");
 
 /**
  * The Event column's sentence: the action's phrase, or — for a setting whose details carry the new value — what it
- * was changed to ("Turned cursor chat off", "Changed the idle session timeout to 7 days").
+ * was changed to ("Turned cursor chat off", "Changed the idle session timeout to 7 days"). In the UI's language.
  */
 export function eventText(row: Pick<ActivityLog, "action">): string {
   const { type, details } = row.action;
   const to = (details as { to?: unknown }).to;
   const has = "to" in details;
+  const fallback = t(ACTION_LABEL[type] ?? type);
   switch (type) {
-    case "cursor_chat_setting_change": return has ? `Turned cursor chat ${onOff(to)}` : ACTION_LABEL[type];
-    case "audio_setting_change": return has ? `Turned audio ${onOff(to)}` : ACTION_LABEL[type];
+    case "cursor_chat_setting_change": return has ? (to ? t("Turned cursor chat on") : t("Turned cursor chat off")) : fallback;
+    case "audio_setting_change": return has ? (to ? t("Turned audio on") : t("Turned audio off")) : fallback;
     case "org_ai_setting_change": {
       const setting = (details as { setting?: unknown }).setting;
-      if (setting === "aiEnabled") return `Turned AI features ${onOff(to)}`;
-      if (setting === "aiCreditLimit") return to === null ? "Removed the AI credit limit" : typeof to === "number" ? `Set the AI credit limit to ${to.toLocaleString("en-US")} credits a month` : ACTION_LABEL[type];
-      return ACTION_LABEL[type];
+      if (setting === "aiEnabled") return to ? t("Turned AI features on") : t("Turned AI features off");
+      if (setting === "aiCreditLimit") return to === null ? t("Removed the AI credit limit") : typeof to === "number" ? t("Set the AI credit limit to {credits} credits a month", { credits: to.toLocaleString(intlLocale()) }) : fallback;
+      return fallback;
     }
-    case "open_sessions_setting_change": return has ? `Turned FigJam open sessions ${onOff(to)}` : ACTION_LABEL[type];
-    case "org_domain_capture_change": return has ? `Turned domain capture ${onOff(to)}` : ACTION_LABEL[type];
-    case "idle_timeout_setting_change": return has ? `Changed the idle session timeout to ${formatHours(typeof to === "number" ? to : 504)}` : ACTION_LABEL[type];
+    case "open_sessions_setting_change": return has ? (to ? t("Turned FigJam open sessions on") : t("Turned FigJam open sessions off")) : fallback;
+    case "org_domain_capture_change": return has ? (to ? t("Turned domain capture on") : t("Turned domain capture off")) : fallback;
+    case "idle_timeout_setting_change": return has ? t("Changed the idle session timeout to {time}", { time: formatHours(typeof to === "number" ? to : 504) }) : fallback;
     case "google_sso_auth_change":
     case "saml_sso_auth_change":
-      return to === "any" ? "Let members log in with any method" : to === "google" ? "Required members to log in with a Google account" : to === "saml" ? "Required members to log in with SAML SSO" : ACTION_LABEL[type];
-    case "external_collaboration_controls_setting_change": return to === "restricted" ? "Restricted access to external content" : to === "allowed" ? "Allowed access to external content" : ACTION_LABEL[type];
-    case "autogen_password_controls_setting_change": return to === "autogenerated" ? "Allowed only autogenerated passwords on files" : to === "any" ? "Allowed any password on files" : ACTION_LABEL[type];
+      return to === "any" ? t("Let members log in with any method") : to === "google" ? t("Required members to log in with a Google account") : to === "saml" ? t("Required members to log in with SAML SSO") : fallback;
+    case "external_collaboration_controls_setting_change": return to === "restricted" ? t("Restricted access to external content") : to === "allowed" ? t("Allowed access to external content") : fallback;
+    case "autogen_password_controls_setting_change": return to === "autogenerated" ? t("Allowed only autogenerated passwords on files") : to === "any" ? t("Allowed any password on files") : fallback;
     // Settings › Extensions: a change of the request switch alone is logged under its kind's approval action (§10.3a)
     case "plugin_approvelist_enable":
     case "plugin_approvelist_disable":
     case "widgets_enabled":
     case "widgets_disable": {
       const setting = (details as { setting?: unknown }).setting;
-      const many = type.startsWith("plugin") ? "plugins" : "widgets";
-      if (setting === "pluginRequests" || setting === "widgetRequests") return to ? `Allowed members to request ${many}` : `Stopped members from requesting ${many}`;
-      return ACTION_LABEL[type];
+      const plugins = type.startsWith("plugin");
+      if (setting === "pluginRequests" || setting === "widgetRequests")
+        return to ? (plugins ? t("Allowed members to request plugins") : t("Allowed members to request widgets")) : plugins ? t("Stopped members from requesting plugins") : t("Stopped members from requesting widgets");
+      return fallback;
     }
     case "data_storage_localization_change": {
       const label = (details as { to_label?: unknown }).to_label;
-      return typeof label === "string" ? `Changed data storage localization to ${label}` : ACTION_LABEL[type];
+      return typeof label === "string" ? t("Changed data storage localization to {region}", { region: label }) : fallback;
     }
     case "org_domain_add":
     case "org_domain_verify":
     case "org_domain_remove": {
-      const d = (details as { domain?: unknown }).domain;
-      return typeof d === "string" ? `${ACTION_LABEL[type].replace(/^(\w+) domain/, `$1 ${d}`)}` : ACTION_LABEL[type];
+      const domain = (details as { domain?: unknown }).domain;
+      if (typeof domain !== "string") return fallback;
+      return type === "org_domain_add" ? t("Added {domain} to the organization", { domain }) : type === "org_domain_verify" ? t("Verified {domain}", { domain }) : t("Removed {domain} from the organization", { domain });
     }
     // Round 14 (docs/governance.md §3): the server's details — `{setting, from, to}` for settings, `{range}` for ranges
-    case "mfa_required_setting_change": return has ? (to ? "Required guests to use two-factor authentication" : "Stopped requiring two-factor authentication for guests") : ACTION_LABEL[type];
-    case "ip_allowlist_setting_change": return has ? `Turned the IP allowlist ${onOff(to)}` : ACTION_LABEL[type];
-    case "ip_restriction_change": return has ? `Turned network access restrictions ${onOff(to)}` : ACTION_LABEL[type];
-    case "discovery_setting_change": return has ? `Turned Discovery ${onOff(to)}` : ACTION_LABEL[type];
+    case "mfa_required_setting_change": return has ? (to ? t("Required guests to use two-factor authentication") : t("Stopped requiring two-factor authentication for guests")) : fallback;
+    case "ip_allowlist_setting_change": return has ? (to ? t("Turned the IP allowlist on") : t("Turned the IP allowlist off")) : fallback;
+    case "ip_restriction_change": return has ? (to ? t("Turned network access restrictions on") : t("Turned network access restrictions off")) : fallback;
+    case "discovery_setting_change": return has ? (to ? t("Turned Discovery on") : t("Turned Discovery off")) : fallback;
     case "ip_allowlist_range_create":
     case "ip_allowlist_range_delete":
     case "network_access_restriction_range_create":
     case "network_access_restriction_range_delete": {
       const range = (details as { range?: unknown }).range;
-      if (typeof range !== "string") return ACTION_LABEL[type];
-      const list = type.startsWith("ip_allowlist") ? "the IP allowlist" : "network access restrictions";
-      return type.endsWith("create") ? `Added ${range} to ${list}` : `Removed ${range} from ${list}`;
+      if (typeof range !== "string") return fallback;
+      const allowlist = type.startsWith("ip_allowlist");
+      if (type.endsWith("create")) return allowlist ? t("Added {range} to the IP allowlist", { range }) : t("Added {range} to network access restrictions", { range });
+      return allowlist ? t("Removed {range} from the IP allowlist", { range }) : t("Removed {range} from network access restrictions", { range });
     }
     case "network_access_restriction_range_update": {
       const range = (details as { range?: unknown }).range;
-      return typeof range === "string" && typeof to === "string" && to in NETWORK_STATE_LABEL ? `Set ${range} to ${NETWORK_STATE_LABEL[to as NetworkRangeState]}` : ACTION_LABEL[type];
+      return typeof range === "string" && typeof to === "string" && to in NETWORK_STATE_LABEL ? t("Set {range} to {state}", { range, state: t(NETWORK_STATE_LABEL[to as NetworkRangeState]) }) : fallback;
     }
     case "file_export_controls_setting_change":
     case "workspace_file_export_controls_setting_change": {
-      const ws = type.startsWith("workspace") ? " for a workspace" : "";
-      if (typeof to === "string" && to in FILE_EXPORTING_LABEL) return `Changed file exporting${ws} to “${FILE_EXPORTING_LABEL[to as FileExporting]}”`;
-      return ws && has && to === null ? "Made a workspace use the organization's file exporting" : ACTION_LABEL[type];
+      const ws = type.startsWith("workspace");
+      if (typeof to === "string" && to in FILE_EXPORTING_LABEL) {
+        const choice = t(FILE_EXPORTING_LABEL[to as FileExporting]);
+        return ws ? t("Changed file exporting for a workspace to “{choice}”", { choice }) : t("Changed file exporting to “{choice}”", { choice });
+      }
+      return ws && has && to === null ? t("Made a workspace use the organization's file exporting") : fallback;
     }
-    case "org_guest_expiration_setting_change": return has ? (typeof to === "number" ? `Set the default duration for guest access to ${to === 1 ? "1 day" : `${to} days`}` : "Removed the default duration for guest access") : ACTION_LABEL[type];
-    case "org_user_guest_expiration_change": return has ? (typeof to === "number" ? `Changed a guest's access expiration date to ${formatDate(to)}` : "Removed a guest's access expiration date") : ACTION_LABEL[type];
+    case "org_guest_expiration_setting_change": return has ? (typeof to === "number" ? t("Set the default duration for guest access to {time}", { time: tp(to, "{n} day", "{n} days") }) : t("Removed the default duration for guest access")) : fallback;
+    case "org_user_guest_expiration_change": return has ? (typeof to === "number" ? t("Changed a guest's access expiration date to {date}", { date: formatDate(to) }) : t("Removed a guest's access expiration date")) : fallback;
     case "policy_update": {
       const enabled = (details as { enabled?: unknown }).enabled;
-      return enabled === true ? "Enabled an internal policy" : enabled === false ? "Disabled an internal policy" : ACTION_LABEL[type];
+      return enabled === true ? t("Enabled an internal policy") : enabled === false ? t("Disabled an internal policy") : fallback;
     }
-    default: return ACTION_LABEL[type] ?? type;
+    default: return fallback;
   }
 }
 
 /** The Product column: the file's editor type for file events, else empty (Figma: "the related product, when applicable") */
 const PRODUCT_LABEL: Record<string, string> = { design: "Figma Design", figjam: "FigJam", slides: "Figma Slides", buzz: "Figma Buzz", sites: "Figma Sites", make: "Figma Make" };
 export function productOf(row: ActivityLog): string {
-  const t = row.entity.editor_type;
-  return t ? PRODUCT_LABEL[t] ?? "" : "";
+  const editor = row.entity.editor_type;
+  return editor ? PRODUCT_LABEL[editor] ?? "" : "";
 }
 
 /** "Oct 11, 2026, 14:05" in UTC (the Activity page shows UTC) */
 export function formatUtc(seconds: number): string {
   const d = new Date(seconds * 1000);
-  const month = d.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+  const date = d.toLocaleDateString(intlLocale(), { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
   const hh = String(d.getUTCHours()).padStart(2, "0");
   const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  return `${month} ${d.getUTCDate()}, ${d.getUTCFullYear()}, ${hh}:${mm}`;
+  return `${date}, ${hh}:${mm}`;
 }
 
 /** "Oct 11, 2026" (local) */
 export function formatDate(ms: number): string {
-  return new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return new Date(ms).toLocaleDateString(intlLocale(), { month: "short", day: "numeric", year: "numeric" });
 }
 
 /** Last active: "Today", "Yesterday", "3 days ago", "2 months ago", "Never" */
 export function formatAgo(ms: number | null, now = Date.now()): string {
-  if (ms === null) return "Never";
+  if (ms === null) return t("Never");
   const days = Math.floor((now - ms) / 86_400_000);
-  if (days <= 0) return "Today";
-  if (days === 1) return "Yesterday";
-  if (days < 30) return `${days} days ago`;
+  if (days <= 0) return t("Today");
+  if (days === 1) return t("Yesterday");
+  if (days < 30) return tp(days, "{n} day ago", "{n} days ago");
   const months = Math.floor(days / 30);
-  if (months < 12) return months === 1 ? "1 month ago" : `${months} months ago`;
+  if (months < 12) return tp(months, "{n} month ago", "{n} months ago");
   const years = Math.floor(days / 365);
-  return years <= 1 ? "1 year ago" : `${years} years ago`;
+  return tp(Math.max(1, years), "{n} year ago", "{n} years ago");
 }
 
 /** One CSV field (RFC 4180) */

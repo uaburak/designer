@@ -9,6 +9,7 @@
  *
  * Standalone (a `fileKey`, the store): the presentation view's tab has no editor.
  */
+import { t, useT } from "@/i18n";
 import { useEffect, useRef, useState } from "react";
 import { Avatar, Button, Checkbox, Icon, IconButton, Select, showToast } from "@/ds";
 import { Portal } from "@/ds/overlay/Portal";
@@ -46,9 +47,11 @@ interface Member {
   email: string;
   userId: string | null;
   name: string | null;
+  picture?: string | null;
 }
 
 export function SharePrototypeDialog({ fileKey, nodeId, onClose }: SharePrototypeDialogProps) {
+  useT();
   const store = getStoreClient();
   const modal = useRef<HTMLDivElement>(null);
   useFocusScope(modal, { trap: true });
@@ -102,9 +105,9 @@ export function SharePrototypeDialog({ fileKey, nodeId, onClose }: SharePrototyp
       for (const e of emails) await store.devMode.invitePrototype(fileKey, e);
       setMembers(await store.devMode.prototypeMembers(fileKey));
       setText("");
-      showToast({ message: emails.length === 1 ? `Invited ${emails[0]}` : `Invited ${emails.length} people` });
+      showToast({ message: emails.length === 1 ? t("Invited {email}", { email: emails[0] }) : t("Invited {n} people", { n: emails.length }) });
     } catch (e) {
-      showToast({ kind: "error", message: `Couldn’t invite: ${message(e)}` });
+      showToast({ kind: "error", message: t("Couldn’t invite: {error}", { error: message(e) }) });
     } finally {
       setBusy(false);
     }
@@ -124,13 +127,13 @@ export function SharePrototypeDialog({ fileKey, nodeId, onClose }: SharePrototyp
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch (e) {
-      showToast({ kind: "error", message: `Couldn’t copy the link: ${message(e)}` });
+      showToast({ kind: "error", message: t("Couldn’t copy the link: {error}", { error: message(e) }) });
     }
   };
   const options = [
-    ...(publicOff ? [] : [{ value: "anyone", label: "Anyone with the link" }]),
-    ...(inOrg ? [{ value: "org", label: `Anyone at ${info!.org!.name}` }] : []),
-    { value: "invited", label: "Only invited people" },
+    ...(publicOff ? [] : [{ value: "anyone", label: t("Anyone with the link") }]),
+    ...(inOrg ? [{ value: "org", label: t("Anyone at {org}", { org: info!.org!.name }) }] : []),
+    { value: "invited", label: t("Only invited people") },
   ];
   return (
     <Portal>
@@ -140,7 +143,7 @@ export function SharePrototypeDialog({ fileKey, nodeId, onClose }: SharePrototyp
           className={styles.modal}
           role="dialog"
           aria-modal="true"
-          aria-label="Share prototype"
+          aria-label={t("Share prototype")}
           tabIndex={-1}
           onKeyDown={(e) => {
             if (e.key !== "Escape" || (e.target as Element).closest("[role=listbox],[role=menu]")) return;
@@ -150,25 +153,25 @@ export function SharePrototypeDialog({ fileKey, nodeId, onClose }: SharePrototyp
         >
           <section className={styles.card}>
             <header className={styles.head}>
-              <span className={styles.title}>Share prototype</span>
+              <span className={styles.title}>{t("Share prototype")}</span>
               <span className={styles.grow} />
               {info && (
                 <button type="button" className={styles.link} onClick={() => void copyLink()} data-share-prototype="copy-link">
                   {copied ? (
-                    "Link copied!"
+                    t("Link copied!")
                   ) : (
                     <>
                       <Icon name="24.link" className={styles.linkIcon} />
-                      Copy link
+                      {t("Copy link")}
                     </>
                   )}
                 </button>
               )}
-              <IconButton icon="24.close.small" label="Close" tooltip={false} onClick={onClose} />
+              <IconButton icon="24.close.small" label={t("Close")} tooltip={false} onClick={onClose} />
             </header>
             {shared === false ? (
               <div className={styles.body}>
-                <p className={styles.note}>Share this file first: its prototype is shared with the file’s link and people.</p>
+                <p className={styles.note}>{t("Share this file first: its prototype is shared with the file’s link and people.")}</p>
               </div>
             ) : (
               <div className={styles.body}>
@@ -177,8 +180,8 @@ export function SharePrototypeDialog({ fileKey, nodeId, onClose }: SharePrototyp
                     <div className={styles.field}>
                       <input
                         className={styles.input}
-                        placeholder="Add comma separated emails to invite"
-                        aria-label="Add comma separated emails to invite"
+                        placeholder={t("Add comma separated emails to invite")}
+                        aria-label={t("Add comma separated emails to invite")}
                         value={text}
                         data-share-prototype="emails"
                         onChange={(e) => setText(e.target.value)}
@@ -186,44 +189,44 @@ export function SharePrototypeDialog({ fileKey, nodeId, onClose }: SharePrototyp
                       />
                     </div>
                     <Button variant="primary" size="large" className={styles.invite} loading={busy} disabled={busy || !emails.length} onClick={() => void invite()} data-share-prototype="invite">
-                      Invite
+                      {t("Invite")}
                     </Button>
                   </div>
                 )}
-                <span className={styles.heading}>Who has access</span>
+                <span className={styles.heading}>{t("Who has access")}</span>
                 <ul className={styles.people}>
                   <li className={styles.person} data-prototype-link={audience}>
                     <span className={styles.glyph}>
                       <Icon name={audience === "invited" ? "24.lock.small" : audience === "org" ? "16.group" : "24.globe"} />
                     </span>
                     {canManage && info ? (
-                      <Select label="Who can view the prototype" value={audience} options={options} onChange={(v) => void setAudience(v as PrototypeAudience)} variant="ghost" width="hug" />
+                      <Select label={t("Who can view the prototype")} value={audience} options={options} onChange={(v) => void setAudience(v as PrototypeAudience)} variant="ghost" width="hug" />
                     ) : (
                       <span className={styles.who}>
-                        <span className={styles.name}>{audience === "anyone" ? "Anyone with the link" : audience === "org" ? `Anyone at ${info?.org?.name ?? ""}` : "Only invited people"}</span>
+                        <span className={styles.name}>{audience === "anyone" ? t("Anyone with the link") : audience === "org" ? t("Anyone at {org}", { org: info?.org?.name ?? "" }) : t("Only invited people")}</span>
                       </span>
                     )}
                     <span className={styles.grow} />
-                    <span className={styles.role}>can view prototype</span>
+                    <span className={styles.role}>{t("can view prototype")}</span>
                   </li>
                   {members.map((m) => (
                     <li key={m.email} className={styles.person} data-prototype-member={m.email}>
-                      <Avatar name={m.name || m.email} />
+                      <Avatar name={m.name || m.email} src={m.picture ?? undefined} />
                       <span className={styles.who}>
                         <span className={styles.name}>{m.name || m.email}</span>
-                        {!m.userId && <span className={styles.secondary}> · invited</span>}
+                        {!m.userId && <span className={styles.secondary}> · {t("invited")}</span>}
                       </span>
                       {canShare ? (
-                        <Select label={`${m.email} access`} value="viewer" options={[{ value: "viewer", label: "can view prototype" }, "-", { value: "remove", label: "Remove" }]} onChange={(v) => v === "remove" && void remove(m.email)} variant="ghost" width="hug" />
+                        <Select label={t("{email} access", { email: m.email })} value="viewer" options={[{ value: "viewer", label: t("can view prototype") }, "-", { value: "remove", label: t("Remove") }]} onChange={(v) => v === "remove" && void remove(m.email)} variant="ghost" width="hug" />
                       ) : (
-                        <span className={styles.role}>can view prototype</span>
+                        <span className={styles.role}>{t("can view prototype")}</span>
                       )}
                     </li>
                   ))}
                 </ul>
-                <span className={styles.heading}>Advanced</span>
-                <Checkbox label="Allow viewers to copy, share, and export" checked={info?.viewersCanCopy ?? true} disabled={!canShare || !info} onChange={(on) => void setCopy(on === true)} />
-                <p className={styles.note}>People with prototype access see the presentation view only — not the design file, its layers or Dev Mode.</p>
+                <span className={styles.heading}>{t("Advanced")}</span>
+                <Checkbox label={t("Allow viewers to copy, share, and export")} checked={info?.viewersCanCopy ?? true} disabled={!canShare || !info} onChange={(on) => void setCopy(on === true)} />
+                <p className={styles.note}>{t("People with prototype access see the presentation view only — not the design file, its layers or Dev Mode.")}</p>
               </div>
             )}
           </section>

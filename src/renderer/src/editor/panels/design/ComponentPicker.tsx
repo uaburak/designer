@@ -14,6 +14,7 @@ import type { Guid, Pixels } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { engineMethod } from "../../engineCompat";
 import { assetLabel, isPreferred, searchAssets, type ComponentAsset } from "../../model/components";
+import { t, useT } from "@/i18n";
 import styles from "./ComponentPicker.module.css";
 
 export interface ComponentPickerProps {
@@ -133,7 +134,9 @@ function placeOf(anchor: HTMLElement | DOMRect | null): DOMRect | HTMLElement | 
   return new DOMRect(right, r.bottom, 0, 0);
 }
 
-export function ComponentPicker({ anchor, title = "Swap instance", current, preferredKeys, preferredFilter, exclude, onPick, onClose }: ComponentPickerProps) {
+export function ComponentPicker({ anchor, title: titleProp, current, preferredKeys, preferredFilter, exclude, onPick, onClose }: ComponentPickerProps) {
+  useT();
+  const title = titleProp ?? t("Swap instance");
   const ed = useEditor();
   const assets = useComponentAssets();
   const [place] = useState(() => placeOf(anchor));
@@ -179,10 +182,10 @@ export function ComponentPicker({ anchor, title = "Swap instance", current, pref
     </button>
   );
   const settings: MenuEntry[] = [
-    { id: "list", label: "List", checked: mode === "list" },
-    { id: "grid", label: "Grid", checked: mode === "grid" },
+    { id: "list", label: t("List"), checked: mode === "list" },
+    { id: "grid", label: t("Grid"), checked: mode === "grid" },
   ];
-  const library: MenuEntry[] = [{ id: "local", label: "Created in this file", checked: true }];
+  const library: MenuEntry[] = [{ id: "local", label: t("Created in this file"), checked: true }];
   const list = (items: ComponentAsset[]) => <div className={cx(mode === "grid" && styles.grid)}>{items.map(item)}</div>;
   return (
     <Popover anchor={place} placement={place instanceof DOMRect ? "left" : "left-of-panel"} title={title} width={240} onClose={onClose} label={title}>
@@ -191,8 +194,8 @@ export function ComponentPicker({ anchor, title = "Swap instance", current, pref
           <Icon name="24.search.small" className={styles.searchIcon} />
           <input
             className={styles.searchInput}
-            aria-label="Search in this library"
-            placeholder="Search in this library"
+            aria-label={t("Search in this library")}
+            placeholder={t("Search in this library")}
             value={query}
             autoFocus
             spellCheck={false}
@@ -204,14 +207,14 @@ export function ComponentPicker({ anchor, title = "Swap instance", current, pref
           />
         </div>
         <div className={styles.libraryRow}>
-          <span className={styles.hidden}>Swap instance</span>
+          <span className={styles.hidden}>{t("Swap instance")}</span>
           {/* (Named by its text, as live: no label of its own) */}
           <MenuButton label="" entries={library} className={styles.library} onSelect={() => setLevel(startLevel(offered, null))}>
-            <span className={styles.libraryName}>Created in this file</span>
+            <span className={styles.libraryName}>{t("Created in this file")}</span>
             <Icon name="16.chevron.down" />
           </MenuButton>
           <MenuButton
-            label="Settings"
+            label={t("Settings")}
             entries={settings}
             className={styles.settings}
             align="end"
@@ -226,11 +229,11 @@ export function ComponentPicker({ anchor, title = "Swap instance", current, pref
         {filterable && (
           <div className={styles.filter}>
             <Select
-              label="Filter"
+              label={t("Filter")}
               value={onlyPreferred ? "preferred" : "all"}
               options={[
-                { value: "preferred", label: "Preferred" },
-                { value: "all", label: "All components" },
+                { value: "preferred", label: t("Preferred") },
+                { value: "all", label: t("All components") },
               ]}
               onChange={(v) => setOnlyPreferred(v === "preferred")}
             />
@@ -238,13 +241,13 @@ export function ComponentPicker({ anchor, title = "Swap instance", current, pref
         )}
         <div className={styles.list} role="menu">
           {found ? (
-            found.length ? list(found) : <div className={styles.empty}>{`No results for “${query.trim()}”`}</div>
+            found.length ? list(found) : <div className={styles.empty}>{t("No results for “{query}”", { query: query.trim() })}</div>
           ) : (
             <>
               {preferred.length > 0 && (
                 <>
                   <div className={styles.heading}>
-                    <span className={styles.headingName}>Preferred</span>
+                    <span className={styles.headingName}>{t("Preferred")}</span>
                   </div>
                   {list(preferred)}
                 </>
@@ -260,7 +263,7 @@ export function ComponentPicker({ anchor, title = "Swap instance", current, pref
                   )}
                   {list(contents.items)}
                   {contents.folders.length > 0 && <div className={styles.folders}>{contents.folders.map(folder)}</div>}
-                  {!contents.items.length && !contents.folders.length && <div className={styles.empty}>No components in this file</div>}
+                  {!contents.items.length && !contents.folders.length && <div className={styles.empty}>{t("No components in this file")}</div>}
                 </>
               )}
             </>

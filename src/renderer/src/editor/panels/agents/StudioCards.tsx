@@ -17,6 +17,7 @@ import { toolLabel, type AgentsService, type ChatTask } from "../../agents/servi
 import type { ViewCard } from "../../agents/managerTools";
 import { BrandForm, ProductForm } from "../../studio/forms";
 import styles from "./Agents.module.css";
+import { t, tp, useT } from "@/i18n";
 
 const STATE_LABEL: Record<TaskState, string> = { queued: "Queued", running: "Running", done: "Done", failed: "Failed", stopped: "Stopped" };
 
@@ -30,7 +31,7 @@ function shortModel(m: string, p?: ProviderInfo): string {
 /** "Claude Code · Sonnet 5.5", "Gemini API · Nano Banana Pro" (an image route's names as main reports them). */
 export function routeText(task: Pick<ChatTask, "kind" | "route">, providers: readonly ProviderInfo[], images: readonly ImageRouteInfo[] = []): string {
   const p = providers.find((x) => x.id === task.route.providerId);
-  if (task.kind === "review") return "Manager";
+  if (task.kind === "review") return t("Manager");
   if (task.kind === "image") {
     const r = images.find((x) => x.providerId === task.route.providerId);
     const model = task.route.model ? (r?.models.find((m) => m.id === task.route.model)?.label ?? task.route.model) : null;
@@ -45,13 +46,14 @@ function useNow(on: boolean): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!on) return;
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
   }, [on]);
   return now;
 }
 
 export function TaskCard({ task, service }: { task: ChatTask; service: AgentsService }) {
+  useT();
   const [open, setOpen] = useState(false);
   const images = useImageRoutes();
   const running = task.state === "running";
@@ -70,16 +72,16 @@ export function TaskCard({ task, service }: { task: ChatTask; service: AgentsSer
           <span className={styles.taskText}>
             <span className={styles.taskTitle}>{task.title}</span>
             <span className={styles.taskMeta}>
-              {routeText(task, service.get().providers, images)} · <span data-task-state-label="">{STATE_LABEL[task.state]}</span>
+              {routeText(task, service.get().providers, images)} · <span data-task-state-label="">{t(STATE_LABEL[task.state])}</span>
               {time && ` ${time}`}
-              {!!task.credits && ` · ${task.credits} ${task.credits === 1 ? "credit" : "credits"}`}
+              {!!task.credits && ` · ${tp(task.credits, "{n} credit", "{n} credits")}`}
             </span>
           </span>
           <span className={cx(styles.groupChevron, open && styles.groupChevronOpen)}>
             <Icon name="16.chevron.down" />
           </span>
         </button>
-        {!ended && <IconButton icon="24.close.small" label="Stop" tone="secondary" onClick={() => service.stopTask(task.id)} data-task-stop="" />}
+        {!ended && <IconButton icon="24.close.small" label={t("Stop")} tone="secondary" onClick={() => service.stopTask(task.id)} data-task-stop="" />}
       </div>
       {task.error && <div className={styles.taskError}>{task.error}</div>}
       {open && (
@@ -89,10 +91,10 @@ export function TaskCard({ task, service }: { task: ChatTask; service: AgentsSer
             s.kind === "text" ? (
               <p key={s.key} className={styles.taskSummary}>{s.text}</p>
             ) : (
-              s.steps.map((t) => (
-                <div key={t.id} className={styles.tool} data-tool={t.name} data-tool-state={t.state} {...tooltipProps(t.summary)}>
-                  <span className={styles.toolIcon}>{t.state === "running" ? <Spinner size={16} /> : t.state === "error" ? <Icon name="16.warning" /> : <Icon name="16.check" />}</span>
-                  <span className={styles.toolLabel}>{toolLabel(t.name)}</span>
+              s.steps.map((step) => (
+                <div key={step.id} className={styles.tool} data-tool={step.name} data-tool-state={step.state} {...tooltipProps(step.summary)}>
+                  <span className={styles.toolIcon}>{step.state === "running" ? <Spinner size={16} /> : step.state === "error" ? <Icon name="16.warning" /> : <Icon name="16.check" />}</span>
+                  <span className={styles.toolLabel}>{toolLabel(step.name)}</span>
                 </div>
               ))
             )
@@ -100,7 +102,7 @@ export function TaskCard({ task, service }: { task: ChatTask; service: AgentsSer
           {log?.error && <div className={styles.taskError}>{log.error}</div>}
           {task.prompt && (
             <details className={styles.taskPrompt}>
-              <summary>Prompt</summary>
+              <summary>{t("Prompt")}</summary>
               <pre className={styles.consentArgs}>{task.prompt}</pre>
             </details>
           )}
@@ -112,13 +114,14 @@ export function TaskCard({ task, service }: { task: ChatTask; service: AgentsSer
 
 /** A card the manager waits on. */
 export function ManagerCard({ card, service }: { card: ViewCard; service: AgentsService }) {
+  useT();
   const open = service.cardOpen(card.id) && !card.answer;
   if (card.kind === "choice") return <ChoiceCard card={card} open={open} service={service} />;
   if (card.kind === "review") return <ReviewCard card={card} open={open} service={service} />;
-  const answered = card.answer ? ("cancelled" in card.answer ? "Cancelled" : "Saved") : open ? null : "Not answered";
+  const answered = card.answer ? ("cancelled" in card.answer ? t("Cancelled") : t("Saved")) : open ? null : t("Not answered");
   return (
     <div className={styles.consent} data-card={card.kind} data-card-open={open || undefined}>
-      <p className={styles.consentTitle}>{card.kind === "brand-form" ? (card.brandId ? "Edit brand" : "New brand") : card.productId ? "Edit product" : "New product"}</p>
+      <p className={styles.consentTitle}>{card.kind === "brand-form" ? (card.brandId ? t("Edit brand") : t("New brand")) : card.productId ? t("Edit product") : t("New product")}</p>
       {open && card.kind === "brand-form" && <BrandForm brandId={card.brandId} prefill={card.prefill} onDone={(brandId) => service.answerCard(card.id, { brandId })} onCancel={() => service.answerCard(card.id, { cancelled: true })} />}
       {open && card.kind === "product-form" && <ProductForm brandId={card.brandId} productId={card.productId} prefill={card.prefill} onDone={(productId) => service.answerCard(card.id, { productId })} onCancel={() => service.answerCard(card.id, { cancelled: true })} />}
       {answered && <span className={styles.cardAnswer}>{answered}</span>}
@@ -127,6 +130,7 @@ export function ManagerCard({ card, service }: { card: ViewCard; service: Agents
 }
 
 function ChoiceCard({ card, open, service }: { card: Extract<ViewCard, { kind: "choice" }>; open: boolean; service: AgentsService }) {
+  useT();
   const [remember, setRemember] = useState(!!card.remember);
   const picked = card.answer && "optionId" in card.answer ? card.answer.optionId : null;
   return (
@@ -143,8 +147,8 @@ function ChoiceCard({ card, open, service }: { card: Extract<ViewCard, { kind: "
           );
         })}
       </div>
-      {card.remember && open && <Checkbox label="Use this for this chat" checked={remember} onChange={setRemember} data-choice-remember="" />}
-      {!open && !picked && <span className={styles.cardAnswer}>Not answered</span>}
+      {card.remember && open && <Checkbox label={t("Use this for this chat")} checked={remember} onChange={setRemember} data-choice-remember="" />}
+      {!open && !picked && <span className={styles.cardAnswer}>{t("Not answered")}</span>}
     </div>
   );
 }
@@ -174,13 +178,14 @@ function Thumb({ nodeId, size, boxes, service }: { nodeId: string; size: { width
 const KIND_LABEL: Record<string, string> = { "sharp-text": "Label text", "soft-text": "Small print", shape: "Shape", extra: "Extra", missing: "Missing", layout: "Layout", brand: "Brand" };
 
 function ReviewCard({ card, open, service }: { card: Extract<ViewCard, { kind: "review" }>; open: boolean; service: AgentsService }) {
+  useT();
   const report: ReviewReport = card.report;
   const all = report.items.flatMap((i) => i.problems.map((p) => p.id));
   const [checked, setChecked] = useState<string[]>(all);
   const answer = card.answer;
   return (
     <div className={styles.consent} data-card="review" data-card-open={open || undefined}>
-      <p className={styles.consentTitle}>Review</p>
+      <p className={styles.consentTitle}>{t("Review")}</p>
       {report.items.map((it) => {
         const size = service.frameSize(it.nodeId);
         return (
@@ -192,9 +197,9 @@ function ReviewCard({ card, open, service }: { card: Extract<ViewCard, { kind: "
               </span>
               {it.problems.map((p) =>
                 open ? (
-                  <Checkbox key={p.id} label={`${KIND_LABEL[p.kind] ?? p.kind}: ${p.detail}`} checked={checked.includes(p.id)} onChange={(on) => setChecked(on ? [...checked, p.id] : checked.filter((x) => x !== p.id))} data-problem={p.id} />
+                  <Checkbox key={p.id} label={`${t(KIND_LABEL[p.kind] ?? p.kind)}: ${p.detail}`} checked={checked.includes(p.id)} onChange={(on) => setChecked(on ? [...checked, p.id] : checked.filter((x) => x !== p.id))} data-problem={p.id} />
                 ) : (
-                  <span key={p.id} className={styles.taskMeta}>{`${KIND_LABEL[p.kind] ?? p.kind}: ${p.detail}`}</span>
+                  <span key={p.id} className={styles.taskMeta}>{`${t(KIND_LABEL[p.kind] ?? p.kind)}: ${p.detail}`}</span>
                 )
               )}
             </div>
@@ -204,14 +209,14 @@ function ReviewCard({ card, open, service }: { card: Extract<ViewCard, { kind: "
       {open && all.length > 0 && (
         <div className={styles.actions}>
           <Button variant="primary" disabled={!checked.length} onClick={() => service.answerCard(card.id, { fix: checked })} data-review-fix="">
-            Fix selected
+            {t("Fix selected")}
           </Button>
           <Button variant="secondary" onClick={() => service.answerCard(card.id, { cancelled: true })} data-review-leave="">
-            Leave as is
+            {t("Leave as is")}
           </Button>
         </div>
       )}
-      {answer && <span className={styles.cardAnswer}>{"fix" in answer ? `Fixing ${answer.fix.length} ${answer.fix.length === 1 ? "problem" : "problems"}` : "Left as is"}</span>}
+      {answer && <span className={styles.cardAnswer}>{"fix" in answer ? tp(answer.fix.length, "Fixing {n} problem", "Fixing {n} problems") : t("Left as is")}</span>}
     </div>
   );
 }

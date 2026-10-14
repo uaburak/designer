@@ -7,23 +7,25 @@ import { useState } from "react";
 import { Button, Dialog, RadioGroup, TextInput } from "@/ds";
 import type { OrgSettings } from "@shared/org/types";
 import { styles } from "./parts";
+import { intlLocale, t, useT } from "@/i18n";
 
-export const creditLimitSummary = (s: Pick<OrgSettings, "aiCreditLimit">) => (s.aiCreditLimit === null ? "No limit" : `${s.aiCreditLimit.toLocaleString("en-US")} credits a month`);
+export const creditLimitSummary = (s: Pick<OrgSettings, "aiCreditLimit">) => (s.aiCreditLimit === null ? t("No limit") : t("{credits} credits a month", { credits: s.aiCreditLimit.toLocaleString(intlLocale()) }));
 
 export function CreditLimitDialog({ value, onSave, onClose }: { value: number | null; onSave: (v: number | null) => void; onClose: () => void }) {
+  useT();
   const [mode, setMode] = useState<"none" | "limit">(value === null ? "none" : "limit");
   const [text, setText] = useState(value === null ? "4250" : String(value));
   const n = Math.round(Number(text.replace(/[,\s]/g, "")));
   const valid = mode === "none" || (text.trim() !== "" && Number.isFinite(n) && n >= 0 && n <= 10_000_000);
   return (
     <Dialog
-      title="AI credit limit"
+      title={t("AI credit limit")}
       open
       size="medium"
       onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" onClick={onClose}>{t("Cancel")}</Button>
           <Button
             variant="primary"
             disabled={!valid}
@@ -32,23 +34,23 @@ export function CreditLimitDialog({ value, onSave, onClose }: { value: number | 
               onClose();
             }}
           >
-            Save
+            {t("Save")}
           </Button>
         </>
       }
     >
       <div className={styles.form} data-ai-limit-dialog="">
         <RadioGroup
-          label="AI credit limit"
+          label={t("AI credit limit")}
           value={mode}
           options={[
-            { value: "none", label: "No limit" },
-            { value: "limit", label: "Limit each member's credits a month" },
+            { value: "none", label: t("No limit") },
+            { value: "limit", label: t("Limit each member's credits a month") },
           ]}
           onChange={(v) => setMode(v === "limit" ? "limit" : "none")}
         />
-        <TextInput label="Credits a month" value={text} disabled={mode !== "limit"} invalid={!valid} onChange={setText} data-ai-limit-input="" />
-        <span className={styles.note}>Members whose credits run out can't use AI features until their credits reset on the 1st of the month.</span>
+        <TextInput label={t("Credits a month")} value={text} disabled={mode !== "limit"} invalid={!valid} onChange={setText} data-ai-limit-input="" />
+        <span className={styles.note}>{t("Members whose credits run out can't use AI features until their credits reset on the 1st of the month.")}</span>
       </div>
     </Dialog>
   );

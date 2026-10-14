@@ -3,6 +3,7 @@
  * (REQUEST_INLINE_EDIT), the eyedropper's card (the canvas's pixels under the pointer, magnified, the colour's swatch
  * and hex, "Click to sample"), and Preferences › Nudge amount….
  */
+import { t, useT } from "@/i18n";
 import { useEffect, useRef, useState } from "react";
 import { Button, Dialog, evaluate, Icon, Swatch, TextInput } from "@/ds";
 import { useTool } from "@/engine/hooks";
@@ -13,6 +14,7 @@ import styles from "./CanvasTools.module.css";
 
 /** The padding or gap value typed over its pill (Enter or leaving keeps it, Esc puts it back). */
 export function InlineValueEdit() {
+  useT();
   const ed = useEditor();
   const at = useUI((s) => s.inlineValueEdit);
   if (!at) return null;
@@ -23,7 +25,7 @@ export function InlineValueEdit() {
   return (
     <div className={styles.inline} style={{ left: at.x, top: at.y, width: at.width, height: at.height }} data-inline-value={at.field}>
       <TextInput
-        label={at.field === "GAP" ? "Gap" : "Padding"}
+        label={at.field === "GAP" ? t("Gap") : t("Padding")}
         value={String(Math.round(at.value * 100) / 100)}
         autoFocus
         onCommit={(v) => {
@@ -56,6 +58,7 @@ export function EyedropperLoupe() {
 }
 
 function Loupe() {
+  useT();
   const ed = useEditor();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [at, setAt] = useState<{ left: number; top: number; hex: string } | null>(null);
@@ -126,7 +129,7 @@ function Loupe() {
           <span className={styles.loupeLead}>
             <Icon name="24.interaction.click.small" className={styles.loupeIcon} />
           </span>
-          <span className={styles.loupeHint}>Click to sample</span>
+          <span className={styles.loupeHint}>{t("Click to sample")}</span>
         </div>
       </div>
     </div>
@@ -140,6 +143,7 @@ export function NudgeDialog() {
 }
 
 function NudgeForm() {
+  useT();
   const ed = useEditor();
   const current = useUI((s) => s.nudge) ?? DEFAULT_NUDGE;
   const [small, setSmall] = useState(String(current.small));
@@ -152,13 +156,13 @@ function NudgeForm() {
   const valid = Number.isFinite(s) && s > 0 && Number.isFinite(b) && b > 0;
   return (
     <Dialog
-      title="Nudge amount"
+      title={t("Nudge amount")}
       open
       onClose={close}
       footer={
         <>
           <Button variant="secondary" onClick={close}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button
             variant="primary"
@@ -168,19 +172,19 @@ function NudgeForm() {
               close();
             }}
           >
-            Save
+            {t("Save")}
           </Button>
         </>
       }
     >
       <div className={styles.form}>
         <div className={styles.row}>
-          <span className={styles.rowLabel}>Small nudge</span>
-          <TextInput label="Small nudge" value={small} onChange={setSmall} autoFocus />
+          <span className={styles.rowLabel}>{t("Small nudge")}</span>
+          <TextInput label={t("Small nudge")} value={small} onChange={setSmall} autoFocus />
         </div>
         <div className={styles.row}>
-          <span className={styles.rowLabel}>Big nudge</span>
-          <TextInput label="Big nudge" value={big} onChange={setBig} />
+          <span className={styles.rowLabel}>{t("Big nudge")}</span>
+          <TextInput label={t("Big nudge")} value={big} onChange={setBig} />
         </div>
       </div>
     </Dialog>

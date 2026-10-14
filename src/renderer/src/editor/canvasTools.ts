@@ -5,6 +5,7 @@
  * pointer becomes the selection's fill), an auto-layout bar's value edited in place (REQUEST_INLINE_EDIT), and the
  * text size / weight / spacing keys. (The Comment tool's clicks are editor/comments/CommentsLayer.tsx's.)
  */
+import { t } from "@/i18n";
 import { showToast } from "@/ds";
 import { hapticTick } from "@/ds/util/haptics";
 import type { Guid, NodeChange, NodeFields } from "@/engine/codec";
@@ -106,7 +107,7 @@ export function applyPickedColor(ed: EditorController, color: { r: number; g: nu
   const hex = `#${[color.r, color.g, color.b].map((c) => Math.round(c * 255).toString(16).padStart(2, "0")).join("").toUpperCase()}`;
   if (!nodes.length) {
     // Nothing selected: the colour is noted (Figma shows it in the picker; here a toast with its hex).
-    showToast({ message: `Picked ${hex}` });
+    showToast({ message: t("Picked {hex}", { hex }) });
     return;
   }
   ed.batch("Pick color", () => {

@@ -6,6 +6,7 @@
  */
 import { useEffect, useState } from "react";
 import { Button, Dialog, EmptyState, FileCard, Spinner, TextInput } from "@/ds";
+import { t, useT } from "@/i18n";
 import { getStoreClient, thumbnailUrl } from "@/store";
 import { intentFromLink, keyFromLink, type OpenIntent, type RemoteFile } from "@shared/multiplayer/types";
 import { withLinkPassword } from "./LinkPassword";
@@ -22,6 +23,7 @@ export function openSharedFile(key: string, intent: OpenIntent = {}): Promise<{ 
 }
 
 export function SharedFilesView({ layout, onOpen, onError }: { layout: "grid" | "list"; onOpen: (fileKey: string, name: string, intent?: OpenIntent) => void; onError: (message: string) => void }) {
+  useT();
   const [rows, setRows] = useState<Row[] | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -54,25 +56,25 @@ export function SharedFilesView({ layout, onOpen, onError }: { layout: "grid" | 
       const r = await openSharedFile(f.key);
       if (r) onOpen(r.fileKey, f.name);
     } catch (e) {
-      onError(`Couldn’t open “${f.name}”: ${e instanceof Error ? e.message : String(e)}`);
+      onError(t("Couldn’t open “{name}”: {error}", { name: f.name, error: e instanceof Error ? e.message : String(e) }));
     } finally {
       setOpening(null);
     }
   };
 
-  if (failed) return <EmptyState size="page" icon="24.person" title="Couldn’t load shared files" body={failed} />;
+  if (failed) return <EmptyState size="page" icon="24.person" title={t("Couldn’t load shared files")} body={failed} />;
   if (!rows)
     return (
       <div className={styles.center} aria-busy>
         <Spinner size={24} />
       </div>
     );
-  if (!rows.length) return <EmptyState size="page" icon="24.person" title="No shared files" body="Files people share with you show up here." />;
+  if (!rows.length) return <EmptyState size="page" icon="24.person" title={t("No shared files")} body={t("Files people share with you show up here.")} />;
   return (
-    <div className={layout === "grid" ? styles.sharedGrid : styles.sharedListView} role="list" aria-label="Shared files" data-shared-files="">
+    <div className={layout === "grid" ? styles.sharedGrid : styles.sharedListView} role="list" aria-label={t("Shared files")} data-shared-files="">
       {rows.map((f) => (
         <div key={f.key} role="listitem" data-shared-file={f.key} aria-busy={opening === f.key || undefined}>
-          <FileCard id={f.key} title={f.name} subtitle={f.ownerName ? `From ${f.ownerName}` : "Shared with you"} thumbnail={f.thumb ?? undefined} selected={selected === f.key} onSelect={() => setSelected(f.key)} onOpen={() => void open(f)} />
+          <FileCard id={f.key} title={f.name} subtitle={f.ownerName ? t("From {name}", { name: f.ownerName }) : t("Shared with you")} thumbnail={f.thumb ?? undefined} selected={selected === f.key} onSelect={() => setSelected(f.key)} onOpen={() => void open(f)} />
         </div>
       ))}
     </div>
@@ -81,6 +83,7 @@ export function SharedFilesView({ layout, onOpen, onError }: { layout: "grid" | 
 
 /** Opens a shared file by its link (or key): the browser's paste, or a link that didn't come through designer://. */
 export function OpenLinkDialog({ onClose, onOpen, onError }: { onClose: () => void; onOpen: (fileKey: string, name: string, intent?: OpenIntent) => void; onError: (message: string) => void }) {
+  useT();
   const [link, setLink] = useState("");
   const [busy, setBusy] = useState(false);
   const key = keyFromLink(link);
@@ -94,24 +97,24 @@ export function OpenLinkDialog({ onClose, onOpen, onError }: { onClose: () => vo
       onOpen(r.fileKey, "", intent);
       onClose();
     } catch (e) {
-      onError(`Couldn’t open the link: ${e instanceof Error ? e.message : String(e)}`);
+      onError(t("Couldn’t open the link: {error}", { error: e instanceof Error ? e.message : String(e) }));
     } finally {
       setBusy(false);
     }
   };
   return (
     <Dialog
-      title="Open link"
+      title={t("Open link")}
       size="small"
       open
       onClose={onClose}
       footer={
         <Button variant="primary" disabled={!key || busy} loading={busy} onClick={() => void open()}>
-          Open
+          {t("Open")}
         </Button>
       }
     >
-      <TextInput label="File link" placeholder="Paste a file’s link" value={link} onChange={setLink} onCommit={setLink} autoFocus data-shared-link="" />
+      <TextInput label={t("File link")} placeholder={t("Paste a file’s link")} value={link} onChange={setLink} onCommit={setLink} autoFocus data-shared-link="" />
     </Dialog>
   );
 }

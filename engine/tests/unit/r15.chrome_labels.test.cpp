@@ -12,6 +12,7 @@
 #include "gfx/null/NullDevice.h"
 #include "render/FrameTitles.h"
 #include "render/Renderer.h"
+#include "kiwi.h"
 #include "text/Fonts.h"
 
 using namespace eng;
@@ -235,4 +236,53 @@ TEST_CASE("r15 an upright frame's labels are where they were; a turned one's `</
   auto ev = turned.e.takeEvents();
   REQUIRE(ev.statusClicks.size() == 1);
   CHECK(ev.statusClicks[0].action == "mark");
+}
+
+TEST_CASE("the file's thumbnail frame (the document's thumbnailInfo) shows the thumbnail glyph before its name") {
+  Fonts fonts;
+  Editor e;
+  gfx::NullDevice device;
+  Renderer r{device};
+  auto nodes = baseChanges();
+  const Guid G{1, 2};
+  nodes.push_back(make(F, NodeType::FRAME, kPage, "!", {0, 0, 400, 300}, "Cover"));
+  nodes.push_back(make(G, NodeType::FRAME, kPage, "\"", {500, 0, 400, 300}, "Other"));
+  // DOCUMENT.thumbnailInfo = 466 { nodeID = 1: GUID 1:1; thumbnailVersion = 2: "" }, as the editor's setProps writes it
+  kiwi::ByteBuffer bb;
+  bb.writeVarUint(466);
+  bb.writeVarUint(1);
+  bb.writeVarUint(F.sessionID);
+  bb.writeVarUint(F.localID);
+  bb.writeVarUint(2);
+  bb.writeString("");
+  bb.writeVarUint(0);
+  nodes[0].props.extra["thumbnailInfo"] = std::string(reinterpret_cast<const char*>(bb.data()), bb.size());
+  e.setSessionID(1);
+  e.setViewport(1400, 900, 1, 1400, 900);
+  e.loadDocument(nodes, kNoGuid);
+  e.setCamera({100, 100, 1});
+  CHECK(thumbnailNode(e.document()) == F);
+  const OverlayStyle style = OverlayStyle::of(Theme::Dark);
+  FrameTitle cover, other;
+  for (const FrameTitle& t : e.titles()) (t.id == F ? cover : other) = t;
+  REQUIRE(cover.id == F);
+  REQUIRE(other.id == G);
+  CHECK(cover.icon == TitleIcon::Thumbnail);
+  CHECK(other.icon == TitleIcon::None);
+  // The glyph at the frame's left edge, the name after it.
+  CHECK(cover.iconBox.x == doctest::Approx(cover.frame.x));
+  CHECK(cover.text.x == doctest::Approx(cover.frame.x + style.titleIconSize + style.titleIconGap));
+  CHECK(other.text.x == doctest::Approx(other.frame.x));
+  // Drawn: the card's outline and its bottom bar, in the title's colour.
+  r.setTextLayouts(&e);
+  device.draws.clear();
+  r.render(e.document(), e.page(), e.camera(), e.viewport(), e.overlay(), style);
+  int glyph = 0;
+  for (size_t i = 0; i < device.draws.size(); i++)
+    for (const DrawInstance& q : device.instancesOf<DrawInstance>(i)) {
+      if (std::fabs(q.origin[0] - cover.iconBox.x) < 0.01 && q.origin[2] == doctest::Approx(style.titleIconSize) && q.origin[1] >= cover.iconBox.y - 2 &&
+          q.origin[1] <= cover.iconBox.bottom() + 2)
+        glyph++;
+    }
+  CHECK(glyph == 2);
 }

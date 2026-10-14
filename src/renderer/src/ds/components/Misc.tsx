@@ -5,6 +5,7 @@ import { Icon, type IconName } from "../icons/Icon";
 import { Button, IconButton } from "./Button";
 import { showToast } from "./Toast";
 import styles from "./Misc.module.css";
+import { t, useT } from "@/i18n";
 
 export type BadgeTone = "default" | "brand" | "component" | "danger" | "warning" | "success";
 
@@ -64,7 +65,8 @@ export function KeyCap({ children, icon, lit, recording, size = "default", class
 }
 
 /** Code to inspect and copy (contract §4.34). */
-export function CodeBlock({ code, label = "Copy" }: { code: string; label?: string }) {
+export function CodeBlock({ code, label = t("Copy") }: { code: string; label?: string }) {
+  useT();
   return (
     <div data-ds="CodeBlock" className={styles.codeWrap}>
       <pre className={styles.code}>{code}</pre>
@@ -73,7 +75,7 @@ export function CodeBlock({ code, label = "Copy" }: { code: string; label?: stri
           icon="24.copy.small"
           label={label}
           onClick={() => {
-            void navigator.clipboard?.writeText(code).then(() => showToast({ message: "Copied to clipboard" }));
+            void navigator.clipboard?.writeText(code).then(() => showToast({ message: t("Copied to clipboard") }));
           }}
         />
       </span>

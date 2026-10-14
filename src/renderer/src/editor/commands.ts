@@ -5,6 +5,7 @@
  * engine doesn't implement yet reads as disabled (its commandState).
  */
 import { CMD_ENABLED, type CommandName, type ToolName } from "@/engine/abi";
+import { t } from "@/i18n";
 import { currentTheme, IS_MAC, keys as keyText, setThemePreference, showToast, type ThemePreference } from "@/ds";
 import type { EditorController } from "./controller";
 import { rotateSelection, zoomTo } from "./actions";
@@ -310,9 +311,9 @@ export function setViewOption(
 ): void {
   ed.ui.set(patch);
   syncViewOptions(ed);
-  if (patch.outlines !== undefined) showToast({ message: patch.outlines ? "Outlines visible" : "Outlines hidden" });
+  if (patch.outlines !== undefined) showToast({ message: patch.outlines ? t("Outlines visible") : t("Outlines hidden") });
   // Live Figma's toasts (behaviour/keys.md: ⌃P).
-  if (patch.pixelPreview !== undefined) showToast({ message: patch.pixelPreview ? `Pixel preview enabled (${patch.pixelPreview}x)` : "Pixel preview disabled" });
+  if (patch.pixelPreview !== undefined) showToast({ message: patch.pixelPreview ? t("Pixel preview enabled ({n}x)", { n: patch.pixelPreview }) : t("Pixel preview disabled") });
 }
 
 /** Cursor chat (/): the bubble opens where the pointer last was over the canvas (else the canvas's middle). */
@@ -436,7 +437,7 @@ export const COMMANDS: EditorCommand[] = [
   // Round 10: the selected layer's look for new layers of its type, this session (the engine's; live's toast).
   engine("edit.set-default-properties", "Set default properties", "SET_DEFAULT_PROPERTIES", undefined, {
     run: (ed) => {
-      if (ed.engine.command("SET_DEFAULT_PROPERTIES") === 0) showToast({ message: "Default properties set" });
+      if (ed.engine.command("SET_DEFAULT_PROPERTIES") === 0) showToast({ message: t("Default properties set") });
     },
   }),
   // The eyedropper (live Edit menu "Pick color ⌃C"; I): a click on the canvas sets the selection's fill to that colour.
@@ -844,7 +845,7 @@ export const COMMANDS: EditorCommand[] = [
       const nav = designerNav();
       if (ed.backToFiles) ed.backToFiles();
       else if (nav?.goHome) nav.goHome();
-      else showToast({ message: "Files open in the desktop app's Home" });
+      else showToast({ message: t("Files open in the desktop app's Home") });
     },
   },
   theme("theme.light", "Light", "light"),

@@ -34,6 +34,9 @@ export function multiplayerApi(m: MultiplayerService, owner?: object): Multiplay
     updateLink: (fileKey, patch) => m.updateLink(fileKey, cleanLinkPatch(patch)),
     invite: (fileKey, email, role) => m.invite(fileKey, String(email), role === "viewer" ? "viewer" : "editor"),
     removeMember: (fileKey, email) => m.removeMember(fileKey, String(email)),
+    exclusions: (fileKey) => m.exclusions(fileKey),
+    exclude: (fileKey, userId) => m.exclude(fileKey, String(userId)),
+    include: (fileKey, userId) => m.include(fileKey, String(userId)),
     presence: (fileKey, data) => m.presence(fileKey, data),
     watch: (listener) => {
       const a = m.onFileState((fileKey, state) => listener({ fileKey, state }));

@@ -2,6 +2,7 @@ import { SYSTEM_PROMPT } from "../../shared/agents/prompts";
 import { TOOLS, type ToolResult } from "../../shared/agents/tools";
 import type { ChatEvent, TurnRequest } from "../../shared/agents/types";
 import { promptWithContext } from "./providers/turns";
+import { t as tr } from "../../shared/i18n";
 
 /**
  * Local models behind an OpenAI-compatible chat API (Ollama at localhost:11434/v1, LM Studio at localhost:1234/v1,
@@ -118,7 +119,7 @@ export async function runOpenAiTurn(t: OpenAiTurn): Promise<void> {
       messages.push({ role: "tool", tool_call_id: c.id, content: content.slice(0, 60_000) });
     }
   }
-  t.emit({ type: "error", message: "The model kept calling tools without answering; stopped." });
+  t.emit({ type: "error", message: tr("The model kept calling tools without answering; stopped.") });
 }
 
 /** The models a server offers (`/models`, OpenAI's shape; Ollama's `/api/tags` as a fallback). */

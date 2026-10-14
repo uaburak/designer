@@ -4,13 +4,14 @@
  * to, and the smallest row that gives a choice — a type the org already turns on stays null (inherit), one it turns
  * on that the team doesn't want is an explicit off (Figma: lower levels override higher ones). Pure.
  */
+import { t as tr } from "@/i18n";
 import { LIBRARY_EDITOR_TYPES, type LibraryEditorType, type TeamLibraryRow } from "@shared/libraries/orgTypes";
 
 export type DefaultChoice = "off" | "all" | LibraryEditorType;
 
 /** Figma's names in the team's dropdown */
 export const EDITOR_TYPE_LABEL: Record<LibraryEditorType, string> = { design: "Design files", figjam: "FigJam boards", slides: "Slide decks", buzz: "Buzz files" };
-export const DEFAULT_CHOICE_LABEL = (c: DefaultChoice): string => (c === "off" ? "Off" : c === "all" ? "All files" : EDITOR_TYPE_LABEL[c]);
+export const DEFAULT_CHOICE_LABEL = (c: DefaultChoice): string => (c === "off" ? tr("Off") : c === "all" ? tr("All files") : tr(EDITOR_TYPE_LABEL[c]));
 export const DEFAULT_CHOICES: readonly DefaultChoice[] = ["off", "all", ...LIBRARY_EDITOR_TYPES];
 
 /** On by default above the team (the org's row; a workspace's says no type, read as Design files — ours) */
@@ -28,7 +29,7 @@ export function defaultChoice(types: readonly LibraryEditorType[]): DefaultChoic
   if (!types.length) return "off";
   if (types.length === LIBRARY_EDITOR_TYPES.length) return "all";
   if (types.length === 1) return types[0];
-  return types.map((t) => EDITOR_TYPE_LABEL[t]).join(", ");
+  return types.map((t) => tr(EDITOR_TYPE_LABEL[t])).join(", ");
 }
 
 /** The team row's `defaults` for a choice */

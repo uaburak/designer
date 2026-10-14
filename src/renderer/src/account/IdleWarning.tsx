@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { Button, Dialog, showToast, type ToastOptions } from "@/ds";
 import type { IdleNotice } from "@shared/ipc";
 import { accountBridge } from "../files/account";
+import { t, tp, useT } from "@/i18n";
 import styles from "./IdleWarning.module.css";
 
 /** The toast after an idle logout (docs/desktop.md §18.2) */
@@ -20,15 +21,16 @@ export function toastIdleLoggedOut(toast: (o: ToastOptions) => void = showToast)
   const now = Date.now();
   if (now - lastLoggedOutToast < 5000) return;
   lastLoggedOutToast = now;
-  toast({ message: IDLE_LOGGED_OUT_TEXT });
+  toast({ message: t(IDLE_LOGGED_OUT_TEXT) });
 }
 
 /** "in 42 seconds" / "in 1 second" */
 export function idleWarningText(seconds: number): string {
-  return `For your security, you’ll be logged out in ${seconds} ${seconds === 1 ? "second" : "seconds"} because you’ve been inactive.`;
+  return tp(seconds, "For your security, you’ll be logged out in {n} second because you’ve been inactive.", "For your security, you’ll be logged out in {n} seconds because you’ve been inactive.");
 }
 
 export function IdleWarning({ toast = showToast }: { toast?: (o: ToastOptions) => void } = {}) {
+  useT();
   const [logoutAt, setLogoutAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
@@ -48,8 +50,8 @@ export function IdleWarning({ toast = showToast }: { toast?: (o: ToastOptions) =
 
   useEffect(() => {
     if (logoutAt === null) return;
-    const t = window.setInterval(() => setNow(Date.now()), 250);
-    return () => window.clearInterval(t);
+    const timer = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(timer);
   }, [logoutAt]);
 
   if (logoutAt === null) return null;
@@ -64,7 +66,7 @@ export function IdleWarning({ toast = showToast }: { toast?: (o: ToastOptions) =
   };
   return (
     <Dialog
-      title="Are you still there?"
+      title={t("Are you still there?")}
       size="small"
       open
       // Esc or a click outside is someone here: staying.
@@ -72,10 +74,10 @@ export function IdleWarning({ toast = showToast }: { toast?: (o: ToastOptions) =
       footer={
         <>
           <Button variant="secondary" onClick={logOut} data-idle="log-out">
-            Log out
+            {t("Log out")}
           </Button>
           <Button variant="primary" onClick={stay} data-idle="stay" data-autofocus="">
-            Stay logged in
+            {t("Stay logged in")}
           </Button>
         </>
       }

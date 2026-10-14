@@ -19,6 +19,7 @@
  * at 100%, Show device frame. The `inline` variant is the editor's inline preview (InlinePreview.tsx): its own bar of
  * ← →, Restart, the overflow menu, open in presentation view and ×.
  */
+import { t, useT } from "@/i18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Dialog, Icon, IconButton, MenuButton, Spinner, ToggleIconButton, showToast, type MenuEntry } from "@/ds";
 import { MOD_ALT, MOD_CTRL, MOD_META, MOD_SHIFT, Status } from "@/engine/abi";
@@ -101,23 +102,23 @@ export function presentOptions(state: PresentState | null, view: ViewOptions = {
   const device = !!state?.device;
   const scale = state?.scale;
   const recommended = recommendedScales(state);
-  const scaleEntry = (v: PresentScale) => ({ id: `scale:${v}`, label: SCALES.find((s) => s.value === v)!.label, checked: scale === v });
+  const scaleEntry = (v: PresentScale) => ({ id: `scale:${v}`, label: t(SCALES.find((s) => s.value === v)!.label), checked: scale === v });
   return [
-    { id: "shortcuts", label: "Enable Figma shortcuts", checked: view.shortcuts },
-    { id: "hints", label: "Show hints on click", checked: state?.hints !== false },
-    { id: "sidebar", label: "Show sidebar", checked: view.sidebar },
-    { id: "hide-ui", label: "Hide UI", checked: view.hideUi },
+    { id: "shortcuts", label: t("Enable Figma shortcuts"), checked: view.shortcuts },
+    { id: "hints", label: t("Show hints on click"), checked: state?.hints !== false },
+    { id: "sidebar", label: t("Show sidebar"), checked: view.sidebar },
+    { id: "hide-ui", label: t("Hide UI"), checked: view.hideUi },
     "-",
     ...(device
-      ? [{ id: "responsive:on", label: "Responsive", checked: !!state?.responsive }, { id: "responsive:off", label: "Fixed size", checked: !state?.responsive }]
+      ? [{ id: "responsive:on", label: t("Responsive"), checked: !!state?.responsive }, { id: "responsive:off", label: t("Fixed size"), checked: !state?.responsive }]
       : [
-          { header: "Recommended" },
+          { header: t("Recommended") },
           ...recommended.map(scaleEntry),
-          { header: "Other" },
+          { header: t("Other") },
           ...SCALES.filter((s) => !recommended.includes(s.value)).map((s) => scaleEntry(s.value)),
         ]),
     "-",
-    { id: "keys", label: "Keyboard shortcuts", shortcut: "?" },
+    { id: "keys", label: t("Keyboard shortcuts"), shortcut: "?" },
   ];
 }
 
@@ -125,8 +126,8 @@ export function presentOptions(state: PresentState | null, view: ViewOptions = {
 export function deviceOptions(state: PresentState | null): MenuEntry[] {
   const scale = state?.scale;
   return [
-    ...DEVICE_SCALES.map((s) => ({ id: `scale:${s.value}`, label: s.label, checked: scale === s.value || (s.value === "FIT" && (scale === "FIT_WIDTH" || scale === "RESPONSIVE")) })),
-    ...(state?.hasDeviceFrame ? ["-" as const, { id: "frame", label: "Show device frame", checked: state.deviceFrame !== false }] : []),
+    ...DEVICE_SCALES.map((s) => ({ id: `scale:${s.value}`, label: t(s.label), checked: scale === s.value || (s.value === "FIT" && (scale === "FIT_WIDTH" || scale === "RESPONSIVE")) })),
+    ...(state?.hasDeviceFrame ? ["-" as const, { id: "frame", label: t("Show device frame"), checked: state.deviceFrame !== false }] : []),
   ];
 }
 
@@ -143,7 +144,7 @@ export const PRESENT_SHORTCUTS: { label: string; keys: string[] }[] = [
 
 /** A device preset's name as the bottom bar shows it ("IPHONE_15_PRO" → "iPhone 15 Pro"). */
 export function deviceName(preset: string | undefined): string {
-  if (!preset) return "Device";
+  if (!preset) return t("Device");
   const words = preset.split("_").map((w) => {
     const l = w.toLowerCase();
     if (l === "iphone") return "iPhone";
@@ -194,6 +195,7 @@ const readSidebar = (): boolean => {
 };
 
 export function PresentationView({ source, page, node, onClose, onReady, onShare, canvasId = "present-canvas", variant = "full", extraOptions, onExtraOption, onRestart, onOpenFull, onState }: PresentationViewProps) {
+  useT();
   const inline = variant === "inline";
   const onStateRef = useRef(onState);
   useEffect(() => {
@@ -265,7 +267,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       engine.setViewport(Math.max(1, r.width), Math.max(1, r.height), dpr, Math.max(1, Math.round(r.width * dpr)), Math.max(1, Math.round(r.height * dpr)));
       const status = engine.presentStart({ ...(page ? { page } : {}), ...(node ? { node } : {}) });
       if (status !== Status.OK) {
-        setError("This page has no frames to present");
+        setError(t("This page has no frames to present"));
         return;
       }
       if (source.subscribe) cleanups.push(source.subscribe((bytes) => engine && !engine.destroyed && engine.applyChangesKiwi(bytes, "remote")));
@@ -329,7 +331,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       } else if (e.code === "KeyC" && shortcuts) {
         // Comments: there is no multiplayer to comment with.
         e.preventDefault();
-        showToast({ message: "Comments aren't available in this app" });
+        showToast({ message: t("Comments aren't available in this app") });
       }
     };
     // The inline preview takes keys only while it has the focus (the editor keeps its own).
@@ -380,8 +382,8 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
   };
   const flows = state?.flows ?? [];
   const flowMenu: MenuEntry[] = flows.length
-    ? flows.map((f) => ({ id: f.node, label: f.name || "Flow", checked: state?.flow === f.node }))
-    : [{ id: "none", label: "No flows on this page", disabled: true }];
+    ? flows.map((f) => ({ id: f.node, label: f.name || t("Flow"), checked: state?.flow === f.node }))
+    : [{ id: "none", label: t("No flows on this page"), disabled: true }];
   const options: MenuEntry[] = inline ? (extraOptions ?? []) : presentOptions(state, { shortcuts: state?.shortcuts !== false, sidebar, hideUi });
   const onOption = (id: string) => {
     const engine = engineRef.current;
@@ -392,7 +394,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       const next = !hideUi;
       setHideUi(next);
       // Figma: "Remind you how to restore the toolbar and footer."
-      if (next) showToast({ message: "UI hidden. Use the options button in the corner to show it again." });
+      if (next) showToast({ message: t("UI hidden. Use the options button in the corner to show it again.") });
     } else if (id === "keys") setKeysOpen(true);
     else applyPresentOption(engine, state, id);
     readState();
@@ -403,8 +405,8 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     const url = new URL(window.location.href);
     if (state?.screen) url.searchParams.set("node", state.screen);
     void navigator.clipboard?.writeText(url.toString()).then(
-      () => showToast({ message: "Link copied to clipboard" }),
-      () => showToast({ message: "The link couldn't be copied", kind: "error" }),
+      () => showToast({ message: t("Link copied to clipboard") }),
+      () => showToast({ message: t("The link couldn't be copied"), kind: "error" }),
     );
   };
   const restart = () => {
@@ -433,7 +435,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       id={canvasId}
       className={styles.canvas}
       tabIndex={0}
-      aria-label="Prototype"
+      aria-label={t("Prototype")}
       style={{ cursor: state?.scrubbing ? "grabbing" : state?.hotspot ? "pointer" : "default" }}
       onPointerDown={onPointer}
       onPointerMove={onPointer}
@@ -447,15 +449,15 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     return (
       <div className={styles.inline} data-presentation="inline">
         <header className={styles.inlineBar}>
-          <IconButton icon="24.arrow.left" label="Back" disabled={!state?.canBack && !state?.canPrevious} onClick={() => command(state?.canBack ? "back" : "previous")} />
-          <IconButton icon="24.arrow.right" label="Forward" disabled={!state?.canNext} onClick={() => command("next")} />
-          <IconButton icon="24.rotate" label="Restart" shortcut="R" onClick={restart} />
+          <IconButton icon="24.arrow.left" label={t("Back")} disabled={!state?.canBack && !state?.canPrevious} onClick={() => command(state?.canBack ? "back" : "previous")} />
+          <IconButton icon="24.arrow.right" label={t("Forward")} disabled={!state?.canNext} onClick={() => command("next")} />
+          <IconButton icon="24.rotate" label={t("Restart")} shortcut="R" onClick={restart} />
           <span className={styles.inlineTitle}>{state?.screenName ?? ""}</span>
-          <MenuButton label="Preview options" entries={options} onSelect={onOption} className={styles.chip}>
+          <MenuButton label={t("Preview options")} entries={options} onSelect={onOption} className={styles.chip}>
             <Icon name="24.more" />
           </MenuButton>
-          {onOpenFull && <IconButton icon="24.new.tab" label="Open in presentation view" onClick={onOpenFull} />}
-          {onClose && <IconButton icon="24.close.small" label="Close preview" onClick={onClose} />}
+          {onOpenFull && <IconButton icon="24.new.tab" label={t("Open in presentation view")} onClick={onOpenFull} />}
+          {onClose && <IconButton icon="24.close.small" label={t("Close preview")} onClick={onClose} />}
         </header>
         <div className={styles.stage}>
           {canvas}
@@ -471,7 +473,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     );
 
   const optionsButton = (
-    <MenuButton label="Options" entries={options} onSelect={onOption} className={styles.chip}>
+    <MenuButton label={t("Options")} entries={options} onSelect={onOption} className={styles.chip}>
       <Icon name="24.settings.small" />
       <Icon name="16.chevron.down" />
     </MenuButton>
@@ -480,10 +482,10 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     <div className={styles.root} data-presentation data-hide-ui={hideUi || undefined}>
       {!hideUi && (
         <header className={styles.top}>
-          <ToggleIconButton icon="24.sidebar.closed" label={sidebar ? "Hide sidebar" : "Show sidebar"} pressed={sidebar} onPressedChange={setSidebar} />
+          <ToggleIconButton icon="24.sidebar.closed" label={sidebar ? t("Hide sidebar") : t("Show sidebar")} pressed={sidebar} onPressedChange={setSidebar} />
           {/* Comments need other people (multiplayer): shown as Figma has it, not available here. */}
-          <IconButton icon="24.comment" label="Comments aren't available in this app" shortcut="C" disabled />
-          <MenuButton label="Flows" entries={flowMenu} onSelect={startFlow} className={styles.flowButton}>
+          <IconButton icon="24.comment" label={t("Comments aren't available in this app")} shortcut="C" disabled />
+          <MenuButton label={t("Flows")} entries={flowMenu} onSelect={startFlow} className={styles.flowButton}>
             <span className={styles.title}>
               <span className={styles.file}>{source.fileName}</span>
               {state?.flowName ? <span className={styles.flow}>{state.flowName}</span> : null}
@@ -494,18 +496,18 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
           <span className={styles.screen}>{state?.screenName ?? ""}</span>
           <span className={styles.grow} />
           <Button variant="primary" onClick={share}>
-            Share prototype
+            {t("Share prototype")}
           </Button>
           {optionsButton}
-          <IconButton icon="24.expand" label="Full screen" shortcut="F" onClick={toggleFullscreen} />
-          {onClose && <IconButton icon="24.close.small" label="Close presentation" onClick={onClose} />}
+          <IconButton icon="24.expand" label={t("Full screen")} shortcut="F" onClick={toggleFullscreen} />
+          {onClose && <IconButton icon="24.close.small" label={t("Close presentation")} onClick={onClose} />}
         </header>
       )}
       <div className={styles.body}>
         {sidebar && !hideUi && (
-          <aside className={styles.sidebar} aria-label="Flows">
-            <div className={styles.sidebarHeader}>Flows</div>
-            {flows.length === 0 && <p className={styles.sidebarEmpty}>No flows on this page</p>}
+          <aside className={styles.sidebar} aria-label={t("Flows")}>
+            <div className={styles.sidebarHeader}>{t("Flows")}</div>
+            {flows.length === 0 && <p className={styles.sidebarEmpty}>{t("No flows on this page")}</p>}
             <ul className={styles.flowList}>
               {flows.map((f) => {
                 const current = state?.flow === f.node;
@@ -513,7 +515,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
                   <li key={f.node}>
                     <button type="button" className={styles.flowRow} aria-current={current || undefined} data-flow={f.node} onClick={() => startFlow(f.node)}>
                       <Icon name="24.play.small" />
-                      <span className={styles.flowName}>{f.name || "Flow"}</span>
+                      <span className={styles.flowName}>{f.name || t("Flow")}</span>
                     </button>
                     {current && f.description ? <p className={styles.flowDescription}>{f.description}</p> : null}
                   </li>
@@ -537,26 +539,26 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       {!hideUi && (
         <footer className={styles.bottom}>
           <span className={styles.grow} />
-          <IconButton icon="24.arrow.left" label="Previous frame" shortcut="←" disabled={!state?.canPrevious} onClick={() => command("previous")} />
-          <IconButton icon="24.arrow.right" label="Next frame" shortcut="→" disabled={!state?.canNext} onClick={() => command("next")} />
+          <IconButton icon="24.arrow.left" label={t("Previous frame")} shortcut="←" disabled={!state?.canPrevious} onClick={() => command("previous")} />
+          <IconButton icon="24.arrow.right" label={t("Next frame")} shortcut="→" disabled={!state?.canNext} onClick={() => command("next")} />
           <span className={styles.grow} />
           {state?.device && (
-            <MenuButton label="Device" entries={deviceOptions(state)} onSelect={onOption} placement="top" className={styles.chip}>
+            <MenuButton label={t("Device")} entries={deviceOptions(state)} onSelect={onOption} placement="top" className={styles.chip}>
               <span>{deviceName(state.devicePreset)}</span>
               <Icon name="16.chevron.down" />
             </MenuButton>
           )}
           <button type="button" className={styles.restart} onClick={restart}>
-            Restart
+            {t("Restart")}
           </button>
         </footer>
       )}
-      <Dialog title="Keyboard shortcuts" open={keysOpen} onClose={() => setKeysOpen(false)}>
+      <Dialog title={t("Keyboard shortcuts")} open={keysOpen} onClose={() => setKeysOpen(false)}>
         <table className={styles.keys}>
           <tbody>
             {PRESENT_SHORTCUTS.map((k) => (
               <tr key={k.label}>
-                <td>{k.label}</td>
+                <td>{t(k.label)}</td>
                 <td className={styles.keyCaps}>
                   {k.keys.map((key) => (
                     <kbd key={key}>{key}</kbd>
@@ -566,7 +568,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
             ))}
           </tbody>
         </table>
-        {state?.shortcuts === false && <p className={styles.keysNote}>Turn on Enable Figma shortcuts in the options to use these keys.</p>}
+        {state?.shortcuts === false && <p className={styles.keysNote}>{t("Turn on Enable Figma shortcuts in the options to use these keys.")}</p>}
       </Dialog>
     </div>
   );

@@ -12,6 +12,7 @@ import { ledgerBalance } from "./ledger";
 import { AiError } from "./oneShot";
 import { AiRuns, type ResolvedRoute } from "./run";
 import { aiSettings, aiWorkDir } from "./settings";
+import { t } from "../../shared/i18n";
 
 /**
  * Main's AI runs wired to the app (docs/ai.md §2.1–2.2): Settings › AI's routes over the Agents tab's providers, the
@@ -46,25 +47,25 @@ export async function resolveRoute(action: AiAction, asked?: AiRoute): Promise<R
   if (!route) {
     const list = await providers();
     const first = AI_TEXT_DEFAULT_ORDER.map((id) => list.find((p) => p.id === id && p.available)).find(Boolean);
-    if (!first) throw new AiError("no-provider", "No AI provider is connected. Pick one in Settings › AI, or set up an agent in Settings › Agents.");
+    if (!first) throw new AiError("no-provider", t("No AI provider is connected. Pick one in Settings › AI, or set up an agent in Settings › Agents."));
     route = { providerId: first.id };
   }
   const saved = agentSettings().models[route.providerId];
   const spec = cliSpec(route.providerId);
   if (spec) {
-    if (!spec.oneShot) throw new AiError("unsupported", `${spec.label} can't run AI actions.`);
+    if (!spec.oneShot) throw new AiError("unsupported", t("{agent} can't run AI actions.", { agent: spec.label }));
     const path = cliPath(spec);
-    if (!path) throw new AiError("no-provider", `${spec.label} isn't installed on this computer.`);
+    if (!path) throw new AiError("no-provider", t("{agent} isn't installed on this computer.", { agent: spec.label }));
     return { kind: "cli", providerId: spec.id, spec, path, model: route.model ?? saved, effort: route.effort };
   }
   const srv = serverRoute(route.providerId);
-  if (!srv) throw new AiError(route.providerId === "local" ? "unsupported" : "no-provider", route.providerId === "local" ? "Text actions need a model provider, not a local model." : "That AI provider isn't set up any more. Pick one in Settings › AI.");
+  if (!srv) throw new AiError(route.providerId === "local" ? "unsupported" : "no-provider", route.providerId === "local" ? t("Text actions need a model provider, not a local model.") : t("That AI provider isn't set up any more. Pick one in Settings › AI."));
   let model = route.model ?? saved;
   if (!model) {
     const models = await listModels(srv.baseUrl, { apiKey: srv.apiKey, timeoutMs: 3000 }).catch(() => [] as string[]);
     model = models[0];
   }
-  if (!model) throw new AiError("no-model", `${srv.label} has no model loaded.`);
+  if (!model) throw new AiError("no-model", t("{agent} has no model loaded.", { agent: srv.label }));
   return { kind: "server", providerId: srv.id, label: srv.label, baseUrl: srv.baseUrl, apiKey: srv.apiKey, model };
 }
 

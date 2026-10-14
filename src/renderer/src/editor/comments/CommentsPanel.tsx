@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { Avatar, ContextMenu, Icon, MenuButton, SearchField, timeAgo, type MenuEntry } from "@/ds";
 import { useCurrentPage } from "@/engine/hooks";
+import { t, tp, useT } from "@/i18n";
 import type { CommentThread } from "@shared/comments";
 import { runEditorCommand } from "../commands";
 import { useEditor } from "../controller";
@@ -16,6 +17,7 @@ import { canResolve, DeleteCommentDialog, MessageText, ResolveGlyph } from "./Th
 import styles from "./Comments.module.css";
 
 export function CommentsPanel() {
+  useT();
   const ed = useEditor();
   const c = commentsOf(ed);
   const v = useComments(ed);
@@ -23,34 +25,34 @@ export function CommentsPanel() {
   const shown = useUI((s) => s.comments !== false);
   if (!c) return null;
   const list = listedThreads(v, page);
-  const unread = (v.data?.threads ?? []).some((t) => t.unread);
+  const unread = (v.data?.threads ?? []).some((th) => th.unread);
   const filtering = v.sort !== "date" || v.showResolved || v.onlyMine || v.onlyPage;
   const sortFilter: MenuEntry[] = [
-    { header: "Sort" },
-    { id: "sort-date", label: "Sort by date", checked: v.sort === "date" },
-    { id: "sort-unread", label: "Sort by unread", checked: v.sort === "unread" },
+    { header: t("Sort") },
+    { id: "sort-date", label: t("Sort by date"), checked: v.sort === "date" },
+    { id: "sort-unread", label: t("Sort by unread"), checked: v.sort === "unread" },
     "-",
-    { id: "showResolved", label: "Show resolved comments", checked: v.showResolved },
-    { id: "onlyMine", label: "Only your threads", checked: v.onlyMine },
-    { id: "onlyPage", label: "Only current page", checked: v.onlyPage },
+    { id: "showResolved", label: t("Show resolved comments"), checked: v.showResolved },
+    { id: "onlyMine", label: t("Only your threads"), checked: v.onlyMine },
+    { id: "onlyPage", label: t("Only current page"), checked: v.onlyPage },
   ];
   const settings: MenuEntry[] = [
-    { id: "hide", label: shown ? "Hide comments" : "Show comments", shortcut: "⇧C" },
+    { id: "hide", label: shown ? t("Hide comments") : t("Show comments"), shortcut: "⇧C" },
     "-",
-    { header: "Comment notifications" },
-    { id: "n-everything", label: "Everything", checked: v.notifications === "everything" },
-    { id: "n-mentions", label: "Just mentions and replies", checked: v.notifications === "mentions" },
-    { id: "n-nothing", label: "Nothing", checked: v.notifications === "nothing" },
+    { header: t("Comment notifications") },
+    { id: "n-everything", label: t("Everything"), checked: v.notifications === "everything" },
+    { id: "n-mentions", label: t("Just mentions and replies"), checked: v.notifications === "mentions" },
+    { id: "n-nothing", label: t("Nothing"), checked: v.notifications === "nothing" },
     "-",
-    { id: "read-all", label: "Mark all as read", disabled: !unread },
+    { id: "read-all", label: t("Mark all as read"), disabled: !unread },
   ];
   const pageName = (id: string) => ed.store.pages.find((p) => p.guid === id)?.name ?? "";
   return (
-    <div className={styles.panel} role="dialog" aria-label="Comments panel" data-comments-panel="">
+    <div className={styles.panel} role="dialog" aria-label={t("Comments panel")} data-comments-panel="">
       <div className={styles.panelHeader}>
-        <SearchField className={styles.search} size="default" value={v.search} onChange={(s) => c.setSearch(s)} placeholder="Search" label="Search for comments" />
+        <SearchField className={styles.search} size="default" value={v.search} onChange={(s) => c.setSearch(s)} placeholder={t("Search")} label={t("Search for comments")} />
         <MenuButton
-          label="Sort/Filter"
+          label={t("Sort/Filter")}
           entries={sortFilter}
           className={styles.headerButton}
           align="end"
@@ -65,7 +67,7 @@ export function CommentsPanel() {
           </span>
         </MenuButton>
         <MenuButton
-          label="Settings"
+          label={t("Settings")}
           entries={settings}
           className={styles.headerButton}
           align="end"
@@ -85,13 +87,13 @@ export function CommentsPanel() {
             <Icon name="24.comment" />
           </span>
           <p className={styles.emptyText}>
-            {v.search.trim() ? "No comments match" : "Give feedback, ask a question, or just leave a note of appreciation. Click anywhere in the file to leave a comment."}
+            {v.search.trim() ? t("No comments match") : t("Give feedback, ask a question, or just leave a note of appreciation. Click anywhere in the file to leave a comment.")}
           </p>
         </div>
       ) : (
         <div className={styles.list} role="list">
-          {list.map((t) => (
-            <Row key={t.id} c={c} thread={t} selected={v.open === t.id} pageName={pageName(t.anchor.pageId)} people={v.people} />
+          {list.map((th) => (
+            <Row key={th.id} c={c} thread={th} selected={v.open === th.id} pageName={pageName(th.anchor.pageId)} people={v.people} />
           ))}
         </div>
       )}
@@ -100,6 +102,7 @@ export function CommentsPanel() {
 }
 
 function Row({ c, thread, selected, pageName, people }: { c: CommentsController; thread: CommentThread; selected: boolean; pageName: string; people: { id: string; name: string; email: string }[] }) {
+  useT();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirming, setConfirming] = useState(false);
   const data = c.view.data!;
@@ -107,9 +110,9 @@ function Row({ c, thread, selected, pageName, people }: { c: CommentsController;
   const replies = thread.comments.length - 1;
   const last = thread.comments[thread.comments.length - 1];
   const entries: MenuEntry[] = [
-    { id: "unread", label: thread.unread ? "Mark as read" : "Mark as unread" },
-    { id: "link", label: "Copy link" },
-    ...(first?.user.id === data.me.id ? [{ id: "delete", label: "Delete thread..." }] : []),
+    { id: "unread", label: thread.unread ? t("Mark as read") : t("Mark as unread") },
+    { id: "link", label: t("Copy link") },
+    ...(first?.user.id === data.me.id ? [{ id: "delete", label: t("Delete thread...") }] : []),
   ];
   return (
     <div
@@ -119,19 +122,19 @@ function Row({ c, thread, selected, pageName, people }: { c: CommentsController;
       data-selected={selected || undefined}
       data-unread={thread.unread || undefined}
       data-thread-row={thread.id}
-      aria-label={`Select comment by ${first?.user.name}, ${first?.message}, ${replies} ${replies === 1 ? "reply" : "replies"}`}
+      aria-label={t("Select comment by {name}, {message}, {replies}", { name: first?.user.name ?? "", message: first?.message ?? "", replies: tp(replies, "{n} reply", "{n} replies") })}
       onClick={() => c.openThread(thread.id, true)}
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), c.openThread(thread.id, true))}
     >
       <div className={styles.rowBox}>
         <div className={styles.rowTop}>
-          {thread.unread && <span className={styles.unreadDot} aria-label="Unread" />}
+          {thread.unread && <span className={styles.unreadDot} aria-label={t("Unread")} />}
           <Avatar name={first?.user.name ?? "?"} src={first?.user.picture ?? undefined} size={24} />
           <span className={styles.grow} />
           <button
             type="button"
             className={styles.iconButton}
-            aria-label="More Actions"
+            aria-label={t("More Actions")}
             onClick={(e) => {
               e.stopPropagation();
               const r = e.currentTarget.getBoundingClientRect();
@@ -144,7 +147,7 @@ function Row({ c, thread, selected, pageName, people }: { c: CommentsController;
             <button
               type="button"
               className={styles.iconButton}
-              aria-label={thread.resolvedAt ? "Mark as unresolved" : "Mark as resolved"}
+              aria-label={thread.resolvedAt ? t("Mark as unresolved") : t("Mark as resolved")}
               onClick={(e) => {
                 e.stopPropagation();
                 void c.resolve(thread.id, !thread.resolvedAt);
@@ -161,13 +164,13 @@ function Row({ c, thread, selected, pageName, people }: { c: CommentsController;
           <span className={styles.rowName}>{first?.user.name}</span> <span className={styles.rowTime}>{last ? timeAgo(last.createdAt) : ""}</span>
         </div>
         <p className={styles.rowText}>{first && <MessageText text={first.message} people={people} mentions={first.mentions} />}</p>
-        {replies > 0 && <div className={styles.rowReplies}>{replies === 1 ? "1 reply" : `${replies} replies`}</div>}
+        {replies > 0 && <div className={styles.rowReplies}>{tp(replies, "{n} reply", "{n} replies")}</div>}
       </div>
       {menu && (
         <ContextMenu
           at={menu}
           entries={entries}
-          label="More Actions"
+          label={t("More Actions")}
           onClose={() => setMenu(null)}
           onSelect={(id) => {
             setMenu(null);

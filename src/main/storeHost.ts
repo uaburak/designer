@@ -4,8 +4,10 @@ import { join } from "node:path";
 import type { WorkspaceEvent } from "../shared/store/repositories";
 import type { StoreClient } from "../shared/store/client";
 import { startStore, type StoreHandle } from "../store/host";
+import type { Locale } from "../shared/i18n";
 import { desktopPolicy, storeProxyEnv } from "./policy";
 import { loginBypassed } from "./gateRules";
+import { t } from "../shared/i18n";
 
 /**
  * The store (docs/desktop.md §1, §9; docs/data.md §7): the utility process
@@ -123,13 +125,18 @@ export function retryStoreHost(): void {
   spawn();
 }
 
+/** The UI's language changed (src/main/locale.ts): the store's own messages follow; a store started later gets it at init. */
+export function storeLocaleChanged(locale: Locale): void {
+  store?.setLocale(locale);
+}
+
 /** Main's own client (role "main"), or null while there is no store. */
 export const storeClient = (): StoreClient | null => store?.client ?? null;
 
 /** Main's client once the store holds the workspace (rejects if this start failed). */
 export async function readyStore(): Promise<StoreClient> {
   const s = store;
-  if (!s) throw new Error("Wecra can’t reach its files right now.");
+  if (!s) throw new Error(t("Wecra can’t reach its files right now."));
   await s.ready;
   return s.client;
 }

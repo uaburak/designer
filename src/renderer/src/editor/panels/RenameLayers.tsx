@@ -13,6 +13,7 @@ import { useUI } from "../hooks";
 import { inPanelOrder } from "../model/layerTree";
 import { renameAll } from "../model/rename";
 import styles from "./RenameLayers.module.css";
+import { t, tp, useT } from "@/i18n";
 
 /** "Learn more" (help.figma.com "Rename layers") */
 const LEARN_MORE = "https://help.figma.com/hc/en-us/search?query=rename%20layers";
@@ -24,6 +25,7 @@ export function RenameLayersDialog() {
 }
 
 function RenameLayers({ refs }: { refs: string[] }) {
+  useT();
   const ed = useEditor();
   const tree = ed.getTree();
   const ordered = useMemo(() => inPanelOrder(tree, refs), [tree, refs]);
@@ -61,27 +63,27 @@ function RenameLayers({ refs }: { refs: string[] }) {
 
   return (
     <Dialog
-      title={`Rename ${refs.length} layers`}
+      title={tp(refs.length, "Rename {n} layer", "Rename {n} layers")}
       size="medium"
       open
       onClose={close}
       footer={
         <div className={styles.footer}>
           <a className={styles.learn} href={LEARN_MORE} target="_blank" rel="noreferrer">
-            Learn more
+            {t("Learn more")}
           </a>
           <Button variant="secondary" onClick={close}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button variant="primary" onClick={apply} data-rename-apply="">
-            Rename
+            {t("Rename")}
           </Button>
         </div>
       }
     >
       <div className={styles.body} data-rename-layers="">
-        <div className={styles.preview} aria-label="Preview">
-          <div className={styles.previewTitle}>Preview</div>
+        <div className={styles.preview} aria-label={t("Preview")}>
+          <div className={styles.previewTitle}>{t("Preview")}</div>
           <div className={styles.previewList}>
             {names.map((n, i) => (
               <div key={ordered[i]} className={styles.previewRow} title={next[i] !== n ? `${n} → ${next[i]}` : n} data-rename-preview={next[i]}>
@@ -91,25 +93,25 @@ function RenameLayers({ refs }: { refs: string[] }) {
           </div>
         </div>
         <div className={styles.fields}>
-          <TextInput label="Match (optional)" placeholder="Match (optional)" value={match} selectAllOnFocus={false} onChange={setMatch} onCommit={setMatch} data-rename-match="" />
+          <TextInput label={t("Match (optional)")} placeholder={t("Match (optional)")} value={match} selectAllOnFocus={false} onChange={setMatch} onCommit={setMatch} data-rename-match="" />
           <div ref={field}>
-            <TextInput label="Rename to" placeholder="Rename to" value={renameTo} autoFocus onChange={setRenameTo} onCommit={setRenameTo} onExit={(r) => r === "enter" && apply()} data-rename-to="" />
+            <TextInput label={t("Rename to")} placeholder={t("Rename to")} value={renameTo} autoFocus onChange={setRenameTo} onCommit={setRenameTo} onExit={(r) => r === "enter" && apply()} data-rename-to="" />
           </div>
           <div className={styles.tokens}>
             <Button variant="secondary" onClick={() => insert("$&")}>
-              Current name
+              {t("Current name")}
             </Button>
             <Button variant="secondary" onClick={() => insert("$nn")}>
-              Number ↑
+              {t("Number ↑")}
             </Button>
             <Button variant="secondary" onClick={() => insert("$NN")}>
-              Number ↓
+              {t("Number ↓")}
             </Button>
           </div>
           <label className={styles.start}>
-            <span>Start ascending from</span>
+            <span>{t("Start ascending from")}</span>
             <span className={styles.startField}>
-              <NumericInput label="Start ascending from" value={start} min={0} step={1} onChange={(v) => setStart(Math.max(0, Math.round(Number(v) || 0)))} />
+              <NumericInput label={t("Start ascending from")} value={start} min={0} step={1} onChange={(v) => setStart(Math.max(0, Math.round(Number(v) || 0)))} />
             </span>
           </label>
         </div>

@@ -11,6 +11,7 @@
  *   position follow the preview's frame), Resize window/device to 100%, Respect aspect ratio (No device only), Show
  *   device frame.
  */
+import { t, useT } from "@/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MenuEntry } from "@/ds";
 import type { Engine, PresentState } from "@/engine/Engine";
@@ -52,6 +53,7 @@ export function InlinePreview() {
 }
 
 function PreviewWindow({ page, node }: { page: Guid; node: Guid | null }) {
+  useT();
   const ed = useEditor();
   const source = useMemo(() => editorPresentationSource(ed), [ed]);
   const [box, setBox] = useState<Box>(() => firstBox(ed, node));
@@ -126,12 +128,12 @@ function PreviewWindow({ page, node }: { page: Guid; node: Guid | null }) {
   const device = !!state?.device;
   const presentationDevice = state?.deviceType === "PRESENTATION";
   const options: MenuEntry[] = [
-    ...(!device || presentationDevice ? [{ id: "fit-width", label: "Fit width", checked: state?.scale === "FIT_WIDTH" }] : []),
-    { id: "responsive", label: "Responsive", checked: device ? !!state?.responsive : state?.scale === "RESPONSIVE" },
-    { id: "follow", label: "Follow prototype", checked: follow },
-    { id: "actual", label: device ? "Resize device to 100%" : "Resize window to 100%" },
-    ...(!device ? [{ id: "aspect", label: "Respect aspect ratio", checked: aspect }] : []),
-    ...(state?.hasDeviceFrame ? [{ id: "frame", label: "Show device frame", checked: state.deviceFrame !== false }] : []),
+    ...(!device || presentationDevice ? [{ id: "fit-width", label: t("Fit width"), checked: state?.scale === "FIT_WIDTH" }] : []),
+    { id: "responsive", label: t("Responsive"), checked: device ? !!state?.responsive : state?.scale === "RESPONSIVE" },
+    { id: "follow", label: t("Follow prototype"), checked: follow },
+    { id: "actual", label: device ? t("Resize device to 100%") : t("Resize window to 100%") },
+    ...(!device ? [{ id: "aspect", label: t("Respect aspect ratio"), checked: aspect }] : []),
+    ...(state?.hasDeviceFrame ? [{ id: "frame", label: t("Show device frame"), checked: state.deviceFrame !== false }] : []),
   ];
   const onOption = (id: string) => {
     const engine = engineRef.current;
@@ -185,7 +187,7 @@ function PreviewWindow({ page, node }: { page: Guid; node: Guid | null }) {
   };
 
   return (
-    <div className={styles.window} style={{ right: box.right, top: box.top, width: box.w, height: box.h }} data-inline-preview="" role="dialog" aria-label="Preview">
+    <div className={styles.window} style={{ right: box.right, top: box.top, width: box.w, height: box.h }} data-inline-preview="" role="dialog" aria-label={t("Preview")}>
       <PresentationView
         source={source}
         page={page}

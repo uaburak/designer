@@ -12,6 +12,7 @@ import { basename, extname, join } from "node:path";
 import { app, dialog, type BaseWindow } from "electron";
 import type { FontFaceInfo, UploadedFont } from "../shared/ipc";
 import { parseFile, registerFaces, setUploadedFontsDir } from "./fonts";
+import { t } from "../shared/i18n";
 
 const EXT = /\.(ttf|otf|ttc|otc)$/i;
 /** Figma's limit for a font file is unpublished; a font past 50 MB is surely not one */
@@ -78,7 +79,7 @@ export async function addFontFiles(paths: string[], folder = dir()): Promise<{ a
 
 /** The Upload font button: main's Open dialog, then the files copied in. */
 export async function uploadFonts(win: BaseWindow): Promise<{ fonts: UploadedFont[]; failed: string[] } | { cancelled: true }> {
-  const r = await dialog.showOpenDialog(win, { title: "Upload font", buttonLabel: "Upload", properties: ["openFile", "multiSelections"], filters: [{ name: "Fonts", extensions: ["ttf", "otf", "ttc", "otc"] }] });
+  const r = await dialog.showOpenDialog(win, { title: t("Upload font"), buttonLabel: t("Upload"), properties: ["openFile", "multiSelections"], filters: [{ name: t("Fonts"), extensions: ["ttf", "otf", "ttc", "otc"] }] });
   if (r.canceled || !r.filePaths.length) return { cancelled: true };
   const { failed } = await addFontFiles(r.filePaths);
   return { fonts: await uploadedFonts(), failed };

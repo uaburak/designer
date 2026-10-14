@@ -36,6 +36,8 @@ export interface OrgsRepository {
   drafts(orgId: string): Promise<O.OrgFile[]>;
   createDraft(orgId: string, input?: { name?: string; editorType?: O.EditorType }): Promise<{ fileKey: FileKey; file: O.OrgFile }>;
   search(orgId: string, text: string): Promise<O.OrgSearchResult>;
+  /** Every file in the org the caller can open (their drafts, every team's folders), newest first: Home's All projects */
+  files(orgId: string): Promise<O.OrgFile[]>;
   /** "Ask to upgrade" */
   requestSeat(orgId: string, seat: Exclude<O.Seat, "view">, note?: string): Promise<O.SeatRequest>;
   /** User groups (any member may create unless OrgSettings.groupCreation is "admins") */

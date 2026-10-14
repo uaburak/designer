@@ -4,6 +4,7 @@
  * loaded from its snapshot and journal, and kept current through the store's change feed — an edit in the editor
  * shows in the prototype. Nothing is ever written from here.
  */
+import { t, useT } from "@/i18n";
 import "@/ds/global.css";
 import { useMemo, useState } from "react";
 import { ToastHost, TooltipManager, useThemeRoot } from "@/ds";
@@ -43,6 +44,7 @@ export function storePresentationSource(fileKey: string): PresentationSource {
 }
 
 export default function PresentRoute() {
+  useT();
   useThemeRoot();
   const fileKey = params.get("file");
   const source = useMemo(() => (fileKey ? storePresentationSource(fileKey) : null), [fileKey]);
@@ -50,7 +52,7 @@ export default function PresentRoute() {
   const [sharing, setSharing] = useState<{ node: string | null } | null>(null);
   return (
     <>
-      {source ? <PresentationView source={source} page={params.get("page")} node={params.get("node")} onShare={(screen) => setSharing({ node: screen })} /> : <p>No file to present.</p>}
+      {source ? <PresentationView source={source} page={params.get("page")} node={params.get("node")} onShare={(screen) => setSharing({ node: screen })} /> : <p>{t("No file to present.")}</p>}
       {sharing && fileKey && <SharePrototypeDialog fileKey={fileKey} nodeId={sharing.node} onClose={() => setSharing(null)} />}
       <TooltipManager />
       <ToastHost />

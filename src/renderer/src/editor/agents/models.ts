@@ -6,6 +6,7 @@
  */
 import type { SelectEntry, SelectOption } from "@/ds";
 import type { ProviderInfo } from "@shared/agents/types";
+import { t } from "@/i18n";
 
 export interface EffortOption {
   id: string;
@@ -26,7 +27,7 @@ export interface ModelOption {
 
 const EFFORT_ORDER = ["minimal", "low", "medium", "high", "xhigh", "max"];
 const EFFORT_LABEL: Record<string, string> = { minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
-export const effortLabel = (e: string) => EFFORT_LABEL[e] ?? e.charAt(0).toUpperCase() + e.slice(1);
+export const effortLabel = (e: string) => (EFFORT_LABEL[e] ? t(EFFORT_LABEL[e]) : e.charAt(0).toUpperCase() + e.slice(1));
 const byEffort = (a: { id: string }, b: { id: string }) => EFFORT_ORDER.indexOf(a.id) - EFFORT_ORDER.indexOf(b.id);
 
 const VENDOR = /^(?:gemini|claude|google|anthropic)\b[\s-]*/i;
@@ -83,7 +84,7 @@ export function modelOptions(p: ProviderInfo, resolved: ResolvedModels = {}): Mo
   const efforts = [...(p.efforts ?? [])].sort((a, b) => byEffort({ id: a }, { id: b }));
   return models.map((m) => {
     const real = resolved[p.id]?.[m || "default"];
-    const label = real ? shortModelName(real) : m ? (p.modelLabels?.[m] ? shortModelName(p.modelLabels[m]) : (ALIAS_LABEL[m] ?? (p.kind === "openai-compatible" ? m : m.charAt(0).toUpperCase() + m.slice(1)))) : p.label;
+    const label = real ? shortModelName(real) : m ? (p.modelLabels?.[m] ? shortModelName(p.modelLabels[m]) : (ALIAS_LABEL[m] ? t(ALIAS_LABEL[m]) : (p.kind === "openai-compatible" ? m : m.charAt(0).toUpperCase() + m.slice(1)))) : p.label;
     return { key: m, label, efforts: efforts.map((e) => ({ id: e, label: effortLabel(e), model: m })), inSlug: false };
   });
 }

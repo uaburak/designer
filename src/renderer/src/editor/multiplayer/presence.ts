@@ -8,6 +8,7 @@
  * eased towards their last position every animation frame and handed to the engine, which draws them (setPresence).
  */
 import { useSyncExternalStore } from "react";
+import { t } from "@/i18n";
 import { getStoreClient } from "@/store";
 import { peerColor } from "@shared/multiplayer/colors";
 import type { PeerInfo, Role } from "@shared/multiplayer/protocol";
@@ -272,7 +273,7 @@ export class Presence {
   }
 
   private apply(s: FileShareState): void {
-    const peers: Peer[] = s.peers.map((p: PeerInfo) => ({ id: p.sessionID, userId: p.userId, name: p.name || "Anonymous", role: p.role, color: peerColor(p.sessionID), presence: (p.presence as PresenceData | undefined) ?? null }));
+    const peers: Peer[] = s.peers.map((p: PeerInfo) => ({ id: p.sessionID, userId: p.userId, name: p.name || t("Anonymous"), role: p.role, color: peerColor(p.sessionID), presence: (p.presence as PresenceData | undefined) ?? null }));
     let following = this.state.following;
     if (following !== null && !peers.some((p) => p.id === following)) following = null;
     // Someone spotlighting: follow them (unless this editor stopped following that spotlight, or is spotlighting itself).

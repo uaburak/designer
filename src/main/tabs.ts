@@ -12,6 +12,7 @@ import { menuSignedOut } from "./menu";
 import { setThemePreference } from "./theme";
 import { adoptView, createView, destroyView, viewOf } from "./views";
 import type { WindowController } from "./window";
+import { t, tp } from "../shared/i18n";
 
 /**
  * The window's tabs, kept by main (docs/desktop.md §4–6): the state (the
@@ -81,7 +82,7 @@ function askFlush(contents: WebContents, reason: FlushReason, timeoutMs = FLUSH_
       sender: contents.id,
       resolve: (r) => {
         clearTimeout(timer);
-        resolve(r.ok ? { ok: true } : { ok: false, error: r.error || "The file couldn’t be saved." });
+        resolve(r.ok ? { ok: true } : { ok: false, error: r.error || t("The file couldn’t be saved.") });
       },
     });
     emit(contents, "tab:flush", { reqId, reason });
@@ -518,8 +519,8 @@ export class TabManager {
       result = { files: [], failed: [{ path: "", error: err instanceof Error ? err.message : String(err) }] };
     }
     if (result.failed.length) {
-      const names = result.failed.map((f) => `${f.path.split("/").pop() || "The file"}: ${f.error}`).join("\n");
-      void tellFileError(this.ctl.win, result.failed.length === 1 ? "The file couldn’t be imported." : `${result.failed.length} files couldn’t be imported.`, names);
+      const names = result.failed.map((f) => `${f.path.split("/").pop() || t("The file")}: ${f.error}`).join("\n");
+      void tellFileError(this.ctl.win, tp(result.failed.length, "The file couldn’t be imported.", "{n} files couldn’t be imported."), names);
     }
     return result;
   }
@@ -536,7 +537,7 @@ export class TabManager {
     try {
       return await saveLocalCopy(this.ctl.win, fileKey);
     } catch (err) {
-      await tellFileError(this.ctl.win, "The local copy couldn’t be saved.", err instanceof Error ? err.message : String(err));
+      await tellFileError(this.ctl.win, t("The local copy couldn’t be saved."), err instanceof Error ? err.message : String(err));
       throw err;
     }
   }
@@ -622,17 +623,17 @@ export class TabManager {
     const { tabs, closed } = this.state;
     const at = tabs.findIndex((t) => t.id === id);
     const tab = tabs[at];
-    const reopen = { label: "Reopen closed tab", accelerator: "CmdOrCtrl+Shift+T", enabled: closed.length > 0, click: () => void this.reopen() };
+    const reopen = { label: t("Reopen closed tab"), accelerator: "CmdOrCtrl+Shift+T", enabled: closed.length > 0, click: () => void this.reopen() };
     const items: MenuItemConstructorOptions[] = !tab
       ? [reopen]
       : [
-          { label: "Close tab", accelerator: "CmdOrCtrl+W", click: () => void this.close([id]) },
-          { label: "Close other tabs", enabled: tabs.length > 1, click: () => void this.close(tabs.filter((t) => t.id !== id).map((t) => t.id)) },
-          { label: "Close tabs to the right", enabled: at < tabs.length - 1, click: () => void this.close(tabs.slice(at + 1).map((t) => t.id)) },
+          { label: t("Close tab"), accelerator: "CmdOrCtrl+W", click: () => void this.close([id]) },
+          { label: t("Close other tabs"), enabled: tabs.length > 1, click: () => void this.close(tabs.filter((t) => t.id !== id).map((t) => t.id)) },
+          { label: t("Close tabs to the right"), enabled: at < tabs.length - 1, click: () => void this.close(tabs.slice(at + 1).map((t) => t.id)) },
           { type: "separator" },
           // A file's link needs deep links (docs/desktop.md §15), not built yet.
-          { label: "Copy link", enabled: false },
-          { label: "Show in file browser", click: () => this.goHome(tab.fileKey) },
+          { label: t("Copy link"), enabled: false },
+          { label: t("Show in file browser"), click: () => this.goHome(tab.fileKey) },
           { type: "separator" },
           reopen,
         ];

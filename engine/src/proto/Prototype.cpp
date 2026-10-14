@@ -467,6 +467,79 @@ json::Value toJson(const Interaction& i) {
   return v;
 }
 
+namespace {
+
+// Each live entry of prototypeInteractions (the ones interactions() lists, in its order): its id and its JSON without
+// the bookkeeping fields Figma adds to copies (isDeleted, stateManagementVersion).
+std::vector<std::pair<Guid, std::string>> liveEntries(const NodeProps& p) {
+  std::vector<std::pair<Guid, std::string>> out;
+  json::Value v;
+  if (!extraJson(p, "prototypeInteractions", v) || !v.isArray()) return out;
+  for (const json::Value& x : v.array) {
+    if (!x.isObject() || flag(x.get("isDeleted"))) continue;
+    json::Value c = x;
+    c.object.erase(std::remove_if(c.object.begin(), c.object.end(),
+                                  [](const auto& kv) { return kv.first == "isDeleted" || kv.first == "stateManagementVersion"; }),
+                   c.object.end());
+    out.emplace_back(guidOf(x.get("id")), json::encode(c));
+  }
+  return out;
+}
+
+}  // namespace
+
+std::vector<Interaction> instanceInteractions(const NodeProps& own, const NodeProps* main, const std::vector<const NodeProps*>& variants,
+                                              std::vector<int>* ownIndex) {
+  std::vector<Interaction> ownList = hasInteractions(own) ? interactions(own) : std::vector<Interaction>{};
+  if (!main) {
+    if (ownIndex) {
+      ownIndex->clear();
+      for (size_t i = 0; i < ownList.size(); i++) ownIndex->push_back(static_cast<int>(i));
+    }
+    return ownList;
+  }
+  std::vector<Interaction> mainList = hasInteractions(*main) ? interactions(*main) : std::vector<Interaction>{};
+  std::vector<Interaction> out = mainList;
+  std::vector<int> index(mainList.size(), -1);
+  if (!ownList.empty()) {
+    auto ownEntries = liveEntries(own);
+    std::vector<std::vector<std::pair<Guid, std::string>>> variantEntries;
+    for (const NodeProps* v : variants)
+      if (v) variantEntries.push_back(liveEntries(*v));
+    auto copyOf = [&](Guid id, const std::string& body) {
+      for (const auto& list : variantEntries)
+        for (const auto& [vid, vbody] : list)
+          if (vid == id && vbody == body) return true;
+      return false;
+    };
+    auto otherVariants = [&](Guid id) {
+      for (const auto& list : variantEntries)
+        for (const auto& e : list)
+          if (e.first == id) return true;
+      return false;
+    };
+    for (size_t k = 0; k < ownList.size() && k < ownEntries.size(); k++) {
+      Guid id = ownList[k].id;
+      const std::string& body = ownEntries[k].second;
+      size_t at = mainList.size();
+      if (id != kNoGuid)
+        for (size_t m = 0; m < mainList.size(); m++)
+          if (mainList[m].id == id) at = m;
+      if (at < mainList.size()) {
+        if (copyOf(id, body)) continue;  // the main's, copied: the main's as it is now
+        out[at] = ownList[k];            // changed on the instance
+        index[at] = static_cast<int>(k);
+        continue;
+      }
+      if (id != kNoGuid && otherVariants(id)) continue;  // another variant's, from before a variant switch
+      out.push_back(ownList[k]);
+      index.push_back(static_cast<int>(k));
+    }
+  }
+  if (ownIndex) *ownIndex = std::move(index);
+  return out;
+}
+
 std::string encodeField(const char* key, const json::Value& v) { return codec::extraFromJson("NodeChange", key, v); }
 
 std::string encodeInteractions(const std::vector<Interaction>& list) {

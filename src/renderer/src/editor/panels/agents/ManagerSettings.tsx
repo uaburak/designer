@@ -12,6 +12,7 @@ import { modelLabel, type AgentSetupHost } from "../../agents/setup";
 import { imageRouteOptions, routeOfOption } from "../../agents/imageRoutes";
 import { Block, Field } from "./settingsParts";
 import styles from "./Agents.module.css";
+import { t, useT } from "@/i18n";
 
 /** The routes as last read (asked again after 30 s): every task card reads them. */
 let routesRead: { at: number; routes: Promise<ImageRouteInfo[]> } | null = null;
@@ -36,12 +37,13 @@ export function useImageRoutes(): ImageRouteInfo[] {
 }
 
 /** "On" / "Off" for the settings list's row. */
-export const managerStatus = (service: AgentSetupHost) => (service.managerSettings().enabled ? "On" : "Off");
+export const managerStatus = (service: AgentSetupHost) => (service.managerSettings().enabled ? t("On") : t("Off"));
 
 const ASK = "ask";
 
 /** An agent and its model (and effort, when it has one) as one route's fields. */
 function RouteFields({ label, route, providers, onChange, withEffort }: { label: string; route: AgentRoute; providers: ProviderInfo[]; onChange: (r: AgentRoute) => void; withEffort?: boolean }) {
+  useT();
   const p = providers.find((x) => x.id === route.providerId);
   const agents: SelectEntry[] = providers.map((x) => ({ value: x.id, label: x.label, disabled: !x.available }));
   if (!p) agents.push({ value: route.providerId, label: route.providerId, disabled: true });
@@ -53,13 +55,13 @@ function RouteFields({ label, route, providers, onChange, withEffort }: { label:
         <Select label={label} className={styles.fieldSelect} value={route.providerId} options={agents} onChange={(id) => onChange({ providerId: id })} data-manager-agent={label} />
       </Field>
       {(models.length > 0 || route.model) && (
-        <Field label="Model">
-          <Select label={`${label} model`} className={styles.fieldSelect} value={model} options={[...new Set([...models, ...(route.model ? [route.model] : [])])].map((m) => ({ value: m, label: p ? modelLabel(m, p) : m }))} onChange={(m) => onChange({ ...route, model: m })} />
+        <Field label={t("Model")}>
+          <Select label={t("{label} model", { label })} className={styles.fieldSelect} value={model} options={[...new Set([...models, ...(route.model ? [route.model] : [])])].map((m) => ({ value: m, label: p ? modelLabel(m, p) : m }))} onChange={(m) => onChange({ ...route, model: m })} />
         </Field>
       )}
       {withEffort && !!p?.efforts?.length && (
-        <Field label="Effort">
-          <Select label={`${label} effort`} className={styles.fieldSelect} value={route.effort && p.efforts.includes(route.effort) ? route.effort : p.efforts[0]} options={p.efforts.map((e) => ({ value: e, label: e[0].toUpperCase() + e.slice(1) }))} onChange={(e) => onChange({ ...route, effort: e })} />
+        <Field label={t("Effort")}>
+          <Select label={t("{label} effort", { label })} className={styles.fieldSelect} value={route.effort && p.efforts.includes(route.effort) ? route.effort : p.efforts[0]} options={p.efforts.map((e) => ({ value: e, label: t(e[0].toUpperCase() + e.slice(1)) }))} onChange={(e) => onChange({ ...route, effort: e })} />
         </Field>
       )}
     </>
@@ -67,35 +69,36 @@ function RouteFields({ label, route, providers, onChange, withEffort }: { label:
 }
 
 export function ManagerPage({ service }: { service: AgentSetupHost }) {
+  useT();
   const m = service.managerSettings();
   const providers = service.get().providers;
   const routes = useImageRoutes();
   const set = (patch: Parameters<AgentSetupHost["setManager"]>[0]) => void service.setManager(patch);
   const { options, disabled } = imageRouteOptions(routes);
   const imageValue = m.image ? `${m.image.providerId}|${m.image.model ?? ""}` : ASK;
-  const images: SelectEntry[] = [{ value: ASK, label: "Ask each time" }, "-", ...options.map((o) => ({ value: o.id, label: o.label, disabled: disabled.includes(o.id), ...(o.detail ? { hint: o.detail } : {}) }))];
+  const images: SelectEntry[] = [{ value: ASK, label: t("Ask each time") }, "-", ...options.map((o) => ({ value: o.id, label: o.label, disabled: disabled.includes(o.id), ...(o.detail ? { hint: o.detail } : {}) }))];
   if (m.image && !options.some((o) => o.id === imageValue)) images.push({ value: imageValue, label: m.image.model ?? m.image.providerId });
   const connected = providers.filter((p) => p.available);
   return (
     <div className={styles.pageBody} data-manager-settings="">
       <Block>
-        <Field label="Manager">
-          <Switch label="Manager" checked={m.enabled} onChange={(enabled) => set({ enabled })} data-manager-on="" />
+        <Field label={t("Manager")}>
+          <Switch label={t("Manager")} checked={m.enabled} onChange={(enabled) => set({ enabled })} data-manager-on="" />
         </Field>
-        <p className={styles.pageText}>The manager reads your message, finds the brand and products in the library, hands the work to other agents at the same time and reviews what lands on the canvas. Off, the chat talks to the agent you pick.</p>
+        <p className={styles.pageText}>{t("The manager reads your message, finds the brand and products in the library, hands the work to other agents at the same time and reviews what lands on the canvas. Off, the chat talks to the agent you pick.")}</p>
       </Block>
-      <Block title="Manager">
-        <RouteFields label="Agent" route={m.manager} providers={providers} withEffort onChange={(manager) => set({ manager })} />
+      <Block title={t("Manager")}>
+        <RouteFields label={t("Agent")} route={m.manager} providers={providers} withEffort onChange={(manager) => set({ manager })} />
       </Block>
-      <Block title="General work">
-        <RouteFields label="General agent" route={m.general} providers={providers} onChange={(general) => set({ general })} />
+      <Block title={t("General work")}>
+        <RouteFields label={t("General agent")} route={m.general} providers={providers} onChange={(general) => set({ general })} />
       </Block>
-      <Block title="Images">
-        <Field label="Image model">
-          <Select label="Image model" className={styles.fieldSelect} value={imageValue} options={images} onChange={(v) => set({ image: v === ASK ? null : routeOfOption(v) })} data-manager-image="" />
+      <Block title={t("Images")}>
+        <Field label={t("Image model")}>
+          <Select label={t("Image model")} className={styles.fieldSelect} value={imageValue} options={images} onChange={(v) => set({ image: v === ASK ? null : routeOfOption(v) })} data-manager-image="" />
         </Field>
       </Block>
-      <Block title="Agents it may use">
+      <Block title={t("Agents it may use")}>
         {connected.map((p) => (
           <Checkbox
             key={p.id}
@@ -110,13 +113,13 @@ export function ManagerPage({ service }: { service: AgentSetupHost }) {
             data-manager-allowed={p.id}
           />
         ))}
-        {!connected.length && <p className={styles.pageText}>No agent is connected.</p>}
+        {!connected.length && <p className={styles.pageText}>{t("No agent is connected.")}</p>}
       </Block>
-      <Block title="At once">
-        <Field label="Tasks at once">
-          <Select label="Tasks at once" className={styles.fieldSelect} value={String(m.parallel)} options={[1, 2, 3, 4].map((n) => ({ value: String(n), label: String(n) }))} onChange={(v) => set({ parallel: Number(v) })} data-manager-parallel="" />
+      <Block title={t("At once")}>
+        <Field label={t("Tasks at once")}>
+          <Select label={t("Tasks at once")} className={styles.fieldSelect} value={String(m.parallel)} options={[1, 2, 3, 4].map((n) => ({ value: String(n), label: String(n) }))} onChange={(v) => set({ parallel: Number(v) })} data-manager-parallel="" />
         </Field>
-        <p className={styles.pageText}>{`Agent tasks running together (each is its own process). Pictures run up to ${IMAGE_TASKS_AT_ONCE} at once.`}</p>
+        <p className={styles.pageText}>{t("Agent tasks running together (each is its own process). Pictures run up to {n} at once.", { n: IMAGE_TASKS_AT_ONCE })}</p>
       </Block>
     </div>
   );

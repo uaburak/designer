@@ -4,13 +4,15 @@ import { rovingTarget } from "../util/rovingFocus";
 import { Icon, type IconName } from "../icons/Icon";
 import { tooltipProps } from "../overlay/TooltipManager";
 import styles from "./Rail.module.css";
+import { t, useT } from "@/i18n";
 
 /**
  * The editor's navigation bar (contract §4.25, Figma 2026, measured live): 56 wide and a 1px line; the Figma menu
  * (a 32 tile at 12, 8), then tabs as 56 × 56 buttons — a 32 tile and, with View › Additional labels, the tab's
  * name under it (9/14) —, 16 separators with a 24 line; notifications at the bottom. ↑ ↓ move focus.
  */
-export function Rail({ children, label = "Navigation", labels = true, className, ...rest }: { children: ReactNode; label?: string; labels?: boolean } & HTMLAttributes<HTMLElement>) {
+export function Rail({ children, label = t("Navigation"), labels = true, className, ...rest }: { children: ReactNode; label?: string; labels?: boolean } & HTMLAttributes<HTMLElement>) {
+  useT();
   return (
     <nav
       aria-label={label}
