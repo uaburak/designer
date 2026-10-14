@@ -3,8 +3,9 @@
 <meta name="theme-color" content="#ffffff" />
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<link rel="preload" href="/fonts/jetbrains-mono-latin-400.woff2" as="font" type="font/woff2" crossorigin />
 <script>
-  /* Light on the first visit; the header's toggle keeps the choice (docs/site.md §2.1). Before the first paint. */
+  /* Light on the first visit; the header's toggle keeps the choice (docs/site.md §2). Before the first paint. */
   (function () {
     var t = null;
     try { t = localStorage.getItem("wecra-site-theme"); } catch (e) {}

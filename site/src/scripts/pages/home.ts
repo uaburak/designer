@@ -1,16 +1,16 @@
-// /: the live editor (it grows with the scroll and stays pinned while the visitor uses it), then a full-screen
-// animation per part of the app.
+// /: the hero's collage, three small tiles, Design, Prototype, Dev Mode, AI and Studio, then the live canvas.
 import { initPage } from "../common";
-import { initHeroScroll } from "../heroScroll";
 import { mountScenes } from "../../scenes/runtime/mount";
 
 initPage();
-initHeroScroll();
 mountScenes({
-  hero: () => import("../../scenes/hero/HeroScene"),
-  autolayout: () => import("../../scenes/design/AutoLayoutScene"),
-  prototype: () => import("../../scenes/home/PrototypeScene"),
-  devmode: () => import("../../scenes/home/DevModeScene"),
-  together: () => import("../../scenes/home/TogetherScene"),
-  firstdraft: () => import("../../scenes/home/FirstDraftScene"),
+  hero: () => import("../../scenes/home/HeroCollage"),
+  components: () => import("../../scenes/features/ComponentsCollage"),
+  variables: () => import("../../scenes/features/VariablesCollage"),
+  comments: () => import("../../scenes/features/CommentsCollage"),
+  design: () => import("../../scenes/home/DesignCollage"),
+  prototype: () => import("../../scenes/home/PrototypeCollage"),
+  devmode: () => import("../../scenes/home/DevModeCollage"),
+  studio: () => import("../../scenes/ai/StudioCollage"),
+  try: () => import("../../scenes/try/TryScene"),
 });

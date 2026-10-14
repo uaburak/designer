@@ -13,6 +13,7 @@ export function renderInline(text: string): string {
   const slots: string[] = [];
   const keep = (html: string) => `\u0000${slots.push(html) - 1}\u0000`;
   // NUL marks our placeholders, so none may come from the input.
+  // eslint-disable-next-line no-control-regex -- NUL is the placeholder mark
   let s = text.replace(/\u0000/g, "");
   s = s.replace(/`([^`]+)`/g, (_, code: string) => keep(`<code>${escapeHtml(code)}</code>`));
   s = escapeHtml(s);
@@ -23,6 +24,7 @@ export function renderInline(text: string): string {
   });
   s = s.replace(/\*\*(?=\S)(.+?)\*\*/g, "<strong>$1</strong>").replace(/__(?=\S)(.+?)__/g, "<strong>$1</strong>");
   // Placeholders may nest (a code span inside a link label), so restore until none are left.
+  // eslint-disable-next-line no-control-regex -- NUL is the placeholder mark
   for (let i = 0; i < 4 && s.includes("\u0000"); i++) s = s.replace(/\u0000(\d+)\u0000/g, (_, n: string) => slots[Number(n)]);
   return s;
 }

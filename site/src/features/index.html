@@ -3,136 +3,93 @@
 <head>
 <!--#include head -->
 <title>Features · Wecra</title>
-<meta name="description" content="The Wecra editor, one part at a time: the pen and shapes, Home and your files, components and variants, variables and modes, comments." />
+<meta name="description" content="The pen and shapes, Home and your files, components and variants, variables and modes, comments, libraries: Wecra works the way Figma does." />
 <script type="module" src="/scripts/pages/features.ts"></script>
-<style>
-  /* The page's intro: a compact band over the first scene, its parts as anchors */
-  .intro {
-    display: grid;
-    gap: 20px 64px;
-    max-width: var(--site-max);
-    margin: 0 auto;
-    padding: calc(var(--site-header) + clamp(40px, 9vh, 104px)) var(--site-gutter) clamp(8px, 3vh, 32px);
-  }
-  .intro h1 { font-size: clamp(40px, 5.2vw, 80px); }
-  .intro h1 span { color: var(--figma-color-text-tertiary); }
-  .intro-side { display: grid; gap: 24px; align-content: end; }
-  .intro-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
-  .intro-nav a {
-    display: inline-flex;
-    align-items: center;
-    height: 32px;
-    padding: 0 14px;
-    border: 1px solid var(--figma-color-border);
-    border-radius: 999px;
-    color: var(--figma-color-text);
-    font-size: 14px;
-    font-weight: 500;
-    text-decoration: none;
-    transition: background-color 160ms ease, border-color 160ms ease;
-  }
-  .intro-nav a:hover { border-color: var(--figma-color-border-strong); background: var(--figma-color-bg-hover); }
-  @media (min-width: 1000px) {
-    .intro { grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr); align-items: end; }
-  }
-</style>
 </head>
 <body>
 <!--#include header -->
 <main id="main">
-  <section class="intro" aria-labelledby="features-title">
-    <h1 id="features-title">Everything a design file needs.<br /><span>One part at a time.</span></h1>
-    <div class="intro-side">
-      <p class="lede">Wecra works the way Figma does: the same tools, the same panels, the same words. Each part below is the app itself, drawn with its own components, at work.</p>
-      <ul class="intro-nav" aria-label="On this page">
-        <li><a href="#draw">Draw</a></li>
-        <li><a href="#files">Files</a></li>
-        <li><a href="#components">Components</a></li>
-        <li><a href="#variables">Variables</a></li>
-        <li><a href="#comments">Comments</a></li>
-      </ul>
+  <section class="hero" aria-labelledby="features-title">
+    <div class="wrap">
+      <div class="grid hero-top">
+        <h1 class="display" id="features-title" data-reveal>Everything a design file needs.</h1>
+        <div class="hero-side" data-reveal style="--reveal-delay: 120ms">
+          <p class="lede muted">Wecra works the way Figma does: the same tools, the same panels, the same words. Each tile below is the app itself, drawn with its own components.</p>
+        </div>
+      </div>
     </div>
   </section>
 
-  <section class="panel" id="draw" aria-labelledby="draw-title">
-    <div class="copy">
-      <span class="eyebrow">The pen and shapes</span>
-      <h2 id="draw-title">A pen that feels right.</h2>
-      <p class="lede">Click for corners, drag for curves, and the pen draws real vector paths with handles. Sketch with the pencil, drop a star, then give it a fill and a stroke. The canvas here is the Wecra engine itself.</p>
-      <ul class="try" aria-label="In this scene">
-        <li>Corners and curves with the pen</li>
-        <li>A star, dragged out</li>
-        <li>Fill and stroke from the panel</li>
-      </ul>
+  <section class="section" id="draw" aria-labelledby="draw-title">
+    <div class="wrap">
+      <div class="head" data-reveal>
+        <p class="label muted">The pen and shapes</p>
+        <h2 class="title" id="draw-title">A pen that feels right.</h2>
+        <p class="lede muted">Click for corners, drag for curves, and the pen draws real vector paths with handles. Then give the shape a fill and a stroke.</p>
+      </div>
+      <div class="tile tile-wide" data-tone="lavender"><div class="scene" data-scene="draw"></div></div>
     </div>
-    <div class="stage"><div class="scene" data-scene="draw" aria-label="The Wecra canvas, live"><div class="placeholder"></div></div></div>
   </section>
 
-  <section class="panel" id="files" data-flip aria-labelledby="files-title">
-    <div class="copy">
-      <span class="eyebrow" data-tone="warning">Home</span>
-      <h2 id="files-title">Your files, in order.</h2>
-      <p class="lede">Drafts, folders, Recents, Starred and Trash, like the file browser you know. Files live on your computer, with a thumbnail of their first page, and search finds them as you type.</p>
-      <ul class="try" aria-label="In this scene">
-        <li>Search as you type</li>
-        <li>Star a file</li>
-        <li>Grid or list</li>
-      </ul>
+  <section class="section" id="files" aria-labelledby="files-title">
+    <div class="wrap">
+      <div class="head" data-reveal>
+        <p class="label muted">Home</p>
+        <h2 class="title" id="files-title">Your files, in order.</h2>
+        <p class="lede muted">Drafts, folders, Recents, Starred and Trash, like the file browser you know. Files live on your computer, and search finds them as you type.</p>
+      </div>
+      <div class="tile tile-wide" data-tone="sand"><div class="scene" data-scene="files"></div></div>
     </div>
-    <div class="stage"><div class="scene" data-scene="files"><div class="placeholder"></div></div></div>
   </section>
 
-  <section class="panel" id="components" aria-labelledby="components-title">
-    <div class="copy">
-      <span class="eyebrow" data-tone="component">Components and variants</span>
-      <h2 id="components-title">Build it once.</h2>
-      <p class="lede">Make a component, add variants for each state and size, and expose its label and icon as properties. Change the main component and every instance follows.</p>
-      <ul class="try" aria-label="In this scene">
-        <li>Swap a variant</li>
-        <li>Retype the label</li>
-        <li>Recolour the set</li>
-      </ul>
+  <section class="section" aria-label="Components and variables">
+    <div class="wrap cards" data-count="2">
+      <article id="components">
+        <div class="tile tile-half" data-tone="coral"><div class="scene" data-scene="components"></div></div>
+        <div class="card-text" data-reveal>
+          <p class="label muted">Components and variants</p>
+          <h3 class="subtitle">Build it once.</h3>
+          <p class="muted">Make a component, add variants for each state, and expose its label and icon as properties. Change the main component and every instance follows.</p>
+        </div>
+      </article>
+      <article id="variables">
+        <div class="tile tile-half" data-tone="sky"><div class="scene" data-scene="variables"></div></div>
+        <div class="card-text" data-reveal style="--reveal-delay: 80ms">
+          <p class="label muted">Variables and modes</p>
+          <h3 class="subtitle">One value, every mode.</h3>
+          <p class="muted">Keep colours, numbers, strings and booleans as variables, with a value for each mode. Switch a frame to Dark and everything bound to them updates.</p>
+        </div>
+      </article>
     </div>
-    <div class="stage"><div class="scene" data-scene="components"><div class="placeholder"></div></div></div>
   </section>
 
-  <section class="panel" id="variables" data-flip aria-labelledby="variables-title">
-    <div class="copy">
-      <span class="eyebrow" data-tone="success">Variables and modes</span>
-      <h2 id="variables-title">One value, every mode.</h2>
-      <p class="lede">Keep colours, numbers, strings and booleans as variables, with a value for each mode. Bind them to your layers, switch a frame to Dark, and everything bound to them updates.</p>
-      <ul class="try" aria-label="In this scene">
-        <li>A frame switched to Dark</li>
-        <li>A value edited once</li>
-        <li>A boolean turned off</li>
-      </ul>
+  <section class="section" aria-label="Comments and libraries">
+    <div class="wrap cards" data-count="2">
+      <article id="comments">
+        <div class="tile tile-half" data-tone="mint"><div class="scene" data-scene="comments"></div></div>
+        <div class="card-text" data-reveal>
+          <p class="label muted">Comments</p>
+          <h3 class="subtitle">Feedback, in place.</h3>
+          <p class="muted">Pin a comment to the exact spot, reply in a thread, and resolve it when it’s done. Everyone who opens the file sees the same conversation.</p>
+        </div>
+      </article>
+      <article id="libraries">
+        <div class="tile tile-half" data-tone="lavender"><div class="scene" data-scene="libraries"></div></div>
+        <div class="card-text" data-reveal style="--reveal-delay: 80ms">
+          <p class="label muted">Libraries</p>
+          <h3 class="subtitle">One system, every file.</h3>
+          <p class="muted">Publish components, styles and variables from any file and use them everywhere. When the library changes, review the update and accept it.</p>
+        </div>
+      </article>
     </div>
-    <div class="stage"><div class="scene" data-scene="variables"><div class="placeholder"></div></div></div>
   </section>
 
-  <section class="panel" id="comments" aria-labelledby="comments-title">
-    <div class="copy">
-      <span class="eyebrow">Comments</span>
-      <h2 id="comments-title">Feedback, in place.</h2>
-      <p class="lede">Pin a comment to the exact spot, reply in a thread, mention a teammate, and resolve it when it’s done. Everyone who opens the file sees the same conversation.</p>
-      <ul class="try" aria-label="In this scene">
-        <li>A thread and its replies</li>
-        <li>Resolved when done</li>
-        <li>A new pin with C</li>
-      </ul>
+  <section class="band" id="download" aria-labelledby="download-title">
+    <div class="wrap band-inner" data-reveal>
+      <h2 class="title" id="download-title">Start designing.</h2>
+      <p class="lede muted">Your files live on your computer. Share one when you want to work on it together.</p>
+      <!--#include download -->
     </div>
-    <div class="stage"><div class="scene" data-scene="comments"><div class="placeholder"></div></div></div>
-  </section>
-
-  <section class="panel closing" id="download" aria-labelledby="download-title">
-    <img class="closing-logo" src="/logo-64.png" width="88" height="88" alt="" loading="lazy" />
-    <h2 id="download-title">Start designing.</h2>
-    <p class="lede">Your files live on your computer. Share one when you want to work on it together.</p>
-    <!--#include download -->
-    <nav class="more-links" aria-label="More">
-      <a class="link-arrow" href="/ai/">AI and Studio</a>
-      <a class="link-arrow" href="/changelog/">What’s new</a>
-    </nav>
   </section>
 </main>
 <!--#include footer -->

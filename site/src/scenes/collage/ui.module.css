@@ -1,0 +1,22 @@
+.column {
+  display: flex;
+  flex-direction: column;
+  width: var(--ds-size-panel);
+  background: var(--figma-color-bg);
+}
+.column > section:last-child { border-bottom: 0; }
+
+.layers { border-bottom: 0; }
+.rows { display: grid; padding: 4px 0 8px; }
+/* A row the script adds grows in: the rows under it slide down (grid rows: 0fr → 1fr) */
+.row {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition: grid-template-rows 500ms var(--site-ease), opacity 400ms ease 120ms;
+}
+.row > * { min-height: 0; overflow: hidden; }
+.row[data-out] { grid-template-rows: 0fr; opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .row { transition: none; }
+}

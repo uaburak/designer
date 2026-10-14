@@ -1,0 +1,213 @@
+/* The AI collages: the Agents panel's frame around the app's own chat styles, and the designs the agents make
+   (fixed colours: they are the files' content). */
+
+/* ── The chat ── */
+
+.chatPiece { display: flex; flex-direction: column; }
+.chatPanel { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; height: 100%; }
+.tabHeader {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  height: 41px;
+  padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--figma-color-border);
+  font: var(--ds-font-body-medium-strong);
+  letter-spacing: var(--ds-tracking-body-medium-strong);
+}
+.tabHeader svg { color: var(--figma-color-icon-secondary); }
+/* The newest line at the bottom: older ones leave at the top */
+.chatBody { display: flex; flex: 1 1 auto; flex-direction: column; justify-content: flex-end; min-height: 0; overflow: hidden; -webkit-mask-image: linear-gradient(transparent, #000 40px); mask-image: linear-gradient(transparent, #000 40px); }
+.chatInner { padding: 12px 12px 8px 16px; }
+.toolName { margin-left: auto; padding-left: 8px; color: var(--figma-color-text-tertiary); font: var(--ds-font-code); white-space: nowrap; }
+.composerText { color: var(--figma-color-text-tertiary); }
+.composerFoot { display: flex; align-items: center; justify-content: space-between; }
+.composerAgent { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
+.send {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--figma-color-bg-brand);
+  color: #fff;
+  place-items: center;
+}
+
+/* ── Studio's post and story ── */
+
+.post {
+  position: absolute;
+  overflow: hidden;
+  background: #eef2ea;
+  color: #1f2a22;
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 500ms ease, transform 800ms var(--site-ease);
+}
+.post[data-stage="1"], .post[data-stage="2"] { opacity: 1; transform: none; }
+.postPicture { position: absolute; inset: 0; opacity: 0; transform: scale(1.05); transition: opacity 900ms ease, transform 1400ms var(--site-ease); }
+.postPicture[data-on] { opacity: 1; transform: none; }
+.postHead { position: absolute; top: 18px; left: 18px; font: 700 22px/1.05 Inter, sans-serif; letter-spacing: -0.6px; }
+.postSub { position: absolute; top: 46px; left: 18px; width: 70%; color: #4c5a50; font: 400 10px/1.35 Inter, sans-serif; }
+.postLogo { position: absolute; bottom: 14px; left: 18px; font: 800 13px/1 Inter, sans-serif; letter-spacing: -0.4px; }
+
+/* Something the script adds: it fades and slides in */
+.appear { transition: opacity 400ms ease, transform 600ms var(--site-ease); }
+
+/* ── Actions ── */
+
+.renaming [data-ds="LayerRow"] span { transition: opacity 200ms ease; }
+.actions { padding-bottom: 8px; }
+.actionsSearch { padding: 12px 12px 4px; }
+.actionsGroup { display: grid; padding: 4px 8px; }
+.actionsHeading { padding: 8px 8px 4px; color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
+.actionRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px 0 2px;
+  border-radius: var(--ds-radius-medium);
+  color: var(--figma-color-text);
+  transition: background-color 200ms ease;
+}
+.actionRow svg { flex: none; color: var(--figma-color-icon-secondary); }
+.actionRow > :last-child:not(svg) { margin-left: auto; }
+.actionRow[data-hover] { background: var(--figma-color-bg-selected); }
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px 0 10px;
+  border: 1px solid var(--site-piece-line);
+  border-radius: 8px;
+  background: var(--figma-color-bg);
+  color: var(--figma-color-text);
+}
+
+/* ── Image tools ── */
+
+.image { overflow: hidden; }
+.checker {
+  position: absolute;
+  inset: 0;
+  background: repeating-conic-gradient(#ececec 0 25%, #fff 0 50%) 0 0 / 16px 16px;
+}
+.imageBg, .imageCut { position: absolute; inset: 0; transition: opacity 700ms ease; }
+.imageBg[data-out] { opacity: 0; }
+.imageCut { opacity: 0; }
+.imageCut[data-on] { opacity: 1; }
+/* While a model works on the picture: a soft band passes over it */
+.scan { position: absolute; inset: 0; overflow: hidden; opacity: 0; transition: opacity 300ms ease; }
+.scan::before {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 30%;
+  background: rgba(13, 153, 255, 0.16);
+  content: "";
+  transform: translateY(-100%);
+}
+.scan[data-on] { opacity: 1; }
+.scan[data-on]::before { animation: scan 1400ms cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+@keyframes scan { from { transform: translateY(-100%); } to { transform: translateY(340%); } }
+.imageToolbar { position: relative; width: 100%; height: 100%; }
+/* The toolbar's More menu (the ds menu's look: the dark menu surface in both themes) */
+.menu {
+  display: grid;
+  box-sizing: border-box;
+  padding: var(--ds-size-menu-pad);
+  border-radius: var(--ds-radius-large);
+  background: var(--ds-color-menu-bg);
+  color: var(--ds-color-menu-text, #fff);
+  font: var(--ds-font-menu);
+  letter-spacing: var(--ds-tracking-menu);
+}
+.menu span { height: var(--ds-size-menu-item); padding: 0 8px 0 24px; border-radius: var(--ds-radius-medium); line-height: var(--ds-size-menu-item); }
+.menu span[data-hover] { background: var(--ds-color-menu-highlight); }
+.busyLabel { display: inline-flex; align-items: center; gap: 8px; padding: 0 8px; color: var(--figma-color-text); white-space: nowrap; }
+
+/* ── Visual search ── */
+
+.searchHead { padding: 12px 12px 8px; border-bottom: 1px solid var(--figma-color-border); }
+.results { display: grid; padding: 4px 8px; }
+.resultsHeading { display: block; padding: 10px 8px 6px; color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
+.result {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: var(--ds-radius-medium);
+  transition: background-color 250ms ease;
+}
+.result img { width: 96px; height: 60px; border-radius: 4px; object-fit: cover; }
+.result span { display: grid; gap: 2px; }
+.result small { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
+.result[data-hover] { background: var(--figma-color-bg-selected); }
+.result, .resultsHeading { transition: opacity 400ms ease, transform 600ms var(--site-ease), background-color 250ms ease; }
+.result[data-out], .resultsHeading[data-out] { opacity: 0; transform: translateY(8px); }
+.preview { overflow: hidden; background: #f5f5f5; }
+.preview img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 500ms ease; }
+.preview img[data-on] { opacity: 1; }
+
+/* ── Agents: the screen the agent builds ── */
+
+.build {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 240px;
+  height: 440px;
+  padding: 28px 22px;
+  gap: 4px;
+  background: #fff;
+  color: #1e1e1e;
+  font: 400 13px/1.4 Inter, sans-serif;
+  letter-spacing: 0;
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 500ms ease, transform 700ms var(--site-ease), gap 600ms var(--site-ease);
+}
+.build[data-on] { opacity: 1; transform: none; }
+.build[data-auto] { gap: 14px; }
+.buildTitle { font: 800 15px/1 Inter, sans-serif; letter-spacing: -0.3px; transition: color 500ms ease; }
+.buildHead { margin: 28px 0 8px; font: 700 24px/1.1 Inter, sans-serif; letter-spacing: -0.6px; }
+.buildField { height: 40px; padding: 0 12px; border: 1px solid #e0e0e0; border-radius: 10px; color: #8c8c8c; line-height: 40px; }
+.buildButton { margin-top: auto; padding: 12px 0; border-radius: 10px; background: #1e1e1e; color: #fff; font-weight: 600; text-align: center; transition: background-color 500ms ease; }
+
+/* ── Credits ── */
+
+.settings { padding: 8px 0 12px; }
+.settingsHead { padding: 16px 24px 8px; font: var(--ds-font-body-large-strong); letter-spacing: var(--ds-tracking-body-large-strong); }
+.settingsRow { display: flex; align-items: center; justify-content: space-between; min-height: 40px; padding: 0 24px; }
+.settingsField { flex: none; width: 120px; }
+.meter { display: grid; gap: 8px; padding: 8px 24px 12px; }
+.meterBar { position: relative; height: 6px; overflow: hidden; border-radius: 3px; background: var(--figma-color-bg-secondary); }
+.meterBar i { position: absolute; inset: 0; background: var(--figma-color-bg-brand); transform-origin: 0 50%; }
+.meterText { color: var(--figma-color-text-secondary); font-variant-numeric: tabular-nums; }
+.runs { display: grid; margin: 0 24px 8px; border-top: 1px solid var(--figma-color-border); }
+.runRow, .provider {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  height: 32px;
+  border-bottom: 1px solid var(--figma-color-border);
+  transition: opacity 400ms ease, transform 600ms var(--site-ease);
+}
+.runRow[data-out] { opacity: 0; transform: translateY(6px); }
+.runRoute { color: var(--figma-color-text-secondary); }
+.runCredits { min-width: 72px; text-align: right; font-variant-numeric: tabular-nums; }
+.provider { grid-template-columns: 24px 1fr auto; margin: 0 24px; }
+.provider:last-child { border-bottom: 0; }
+.providerIcon { display: grid; width: 24px; height: 24px; color: var(--figma-color-icon-success, #14ae5c); place-items: center; }
+.providerIcon[data-kind="key"], .providerIcon[data-kind="local"] { color: var(--figma-color-icon-secondary); }
+
+@media (prefers-reduced-motion: reduce) {
+  .post, .postPicture, .imageBg, .imageCut, .scan, .result, .resultsHeading, .preview img, .build, .buildTitle, .buildButton, .runRow, .actionRow { transition: none; }
+  .scan[data-on]::before { animation: none; }
+}

@@ -9,10 +9,11 @@ function releaseHtml(r: Release, newest: boolean): string {
   const id = `v${r.version.replace(/[^\w]+/g, "-")}`;
   const platforms = [r.files.mac && "macOS", r.files.windows && "Windows"].filter(Boolean).join(" and ");
   const notes = r.notes.trim() ? renderMarkdown(r.notes) : "<p>No notes for this release.</p>";
-  return `<article class="release" id="${escapeHtml(id)}">
-  <header>
-    <h2><a href="#${escapeHtml(id)}">Wecra ${escapeHtml(r.version)}</a>${newest ? '<span class="badge">Latest</span>' : ""}</h2>
-    <p class="release-meta"><time datetime="${escapeHtml(r.date)}">${escapeHtml(formatDate(r.date))}</time>${platforms ? ` · ${platforms}` : ""}</p>
+  return `<article class="release grid" id="${escapeHtml(id)}">
+  <header class="release-head">
+    <p class="label muted"><time datetime="${escapeHtml(r.date)}">${escapeHtml(formatDate(r.date))}</time>${platforms ? ` · ${platforms}` : ""}</p>
+    <h2 class="subtitle"><a href="#${escapeHtml(id)}">Wecra ${escapeHtml(r.version)}</a></h2>
+    ${newest ? '<span class="badge">Latest</span>' : ""}
   </header>
   <div class="notes">${notes}</div>
 </article>`;

@@ -3,55 +3,70 @@
 <head>
 <!--#include head -->
 <title>Download · Wecra</title>
-<meta name="description" content="Download Wecra for macOS (Apple Silicon) or Windows. The newest version, its size and date, and how to install it." />
+<meta name="description" content="Download Wecra for macOS and Windows. The newest version, and Wecra keeps itself up to date." />
 <script type="module" src="/scripts/pages/download.ts"></script>
 </head>
 <body>
 <!--#include header -->
-<main id="main" class="page">
-  <header class="page-head">
-    <span class="eyebrow">Download</span>
-    <h1>Get Wecra.</h1>
-    <p class="lede">The newest version for macOS and Windows. Once it’s installed, Wecra keeps itself up to date.</p>
-  </header>
-
-  <section class="cards" aria-label="Downloads">
-    <div class="card" data-platform-card="mac">
-      <svg class="os-icon" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="6" width="24" height="16" rx="2.5" /><path d="M2.5 26h27" stroke-linecap="round" /></svg>
-      <h2>macOS</h2>
-      <p class="muted">macOS 12 or later, Apple Silicon (M1 or newer).</p>
-      <p class="dl-meta" data-offer="mac">&nbsp;</p>
-      <a class="btn btn-primary btn-lg" href="/download/mac" data-get="mac"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2.5v9M5.5 8 9 11.5 12.5 8M3 15h12" /></svg>Download for macOS</a>
-    </div>
-    <div class="card" data-platform-card="windows">
-      <svg class="os-icon" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="25" height="18" rx="2.5" /><path d="M11 27h10M16 23v4" stroke-linecap="round" /></svg>
-      <h2>Windows</h2>
-      <p class="muted">Windows 10 or later, 64-bit (x64).</p>
-      <p class="dl-meta" data-offer="windows">&nbsp;</p>
-      <a class="btn btn-primary btn-lg" href="/download/windows" data-get="windows"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2.5v9M5.5 8 9 11.5 12.5 8M3 15h12" /></svg>Download for Windows</a>
-    </div>
-  </section>
-
-  <section class="cards" aria-label="Installing">
-    <div class="card">
-      <h3>Install on a Mac</h3>
-      <ol>
-        <li>Open the downloaded .dmg file.</li>
-        <li>Drag Wecra into Applications.</li>
-        <li>Open Wecra from Applications or Launchpad.</li>
-      </ol>
-    </div>
-    <div class="card">
-      <h3>Install on Windows</h3>
-      <ol>
-        <li>Run the downloaded Setup .exe file.</li>
-        <li>Follow the installer.</li>
-        <li>Open Wecra from the Start menu.</li>
-      </ol>
+<main id="main">
+  <section class="hero" aria-labelledby="download-title">
+    <div class="wrap">
+      <div class="grid hero-top">
+        <h1 class="display" id="download-title" data-reveal>Get Wecra.</h1>
+        <div class="hero-side" data-reveal style="--reveal-delay: 120ms">
+          <p class="lede muted">The newest version for macOS and Windows. Once it’s installed, Wecra keeps itself up to date.</p>
+        </div>
+      </div>
+      <div class="platforms">
+        <article class="platform" data-tone="lavender" data-platform-card="mac">
+          <div>
+            <p class="label">macOS</p>
+            <h2 class="title">For Mac</h2>
+            <p>macOS 12 or later, Apple Silicon (M1 or newer).</p>
+          </div>
+          <div class="platform-foot">
+            <a class="btn btn-primary btn-lg" href="/download/mac" data-get="mac">Download for macOS</a>
+            <p class="dl-meta" data-offer="mac">&nbsp;</p>
+          </div>
+        </article>
+        <article class="platform" data-tone="sky" data-platform-card="windows">
+          <div>
+            <p class="label">Windows</p>
+            <h2 class="title">For Windows</h2>
+            <p>Windows 10 or later, 64-bit (x64).</p>
+          </div>
+          <div class="platform-foot">
+            <a class="btn btn-primary btn-lg" href="/download/windows" data-get="windows">Download for Windows</a>
+            <p class="dl-meta" data-offer="windows">&nbsp;</p>
+          </div>
+        </article>
+      </div>
     </div>
   </section>
 
-  <p class="note">Wecra downloads new versions by itself. Choose Restart to update when it offers, or the update installs the next time you quit. What changed in each release is in the <a href="/changelog/">changelog</a>.</p>
+  <section class="section" aria-label="Install">
+    <div class="wrap">
+      <div class="steps">
+        <div data-reveal>
+          <h2 class="subtitle">Install on a Mac</h2>
+          <ol>
+            <li>Open the downloaded .dmg file.</li>
+            <li>Drag Wecra into Applications.</li>
+            <li>Open Wecra from Applications or Launchpad.</li>
+          </ol>
+        </div>
+        <div data-reveal style="--reveal-delay: 80ms">
+          <h2 class="subtitle">Install on Windows</h2>
+          <ol>
+            <li>Run the downloaded Setup .exe file.</li>
+            <li>Follow the installer.</li>
+            <li>Open Wecra from the Start menu.</li>
+          </ol>
+        </div>
+      </div>
+      <p class="under muted" data-reveal>Wecra downloads new versions by itself. Choose Restart to update when it offers, or the update installs the next time you quit. What changed in each release is in the <a href="/changelog/">changelog</a>.</p>
+    </div>
+  </section>
 </main>
 <!--#include footer -->
 </body>

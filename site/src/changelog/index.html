@@ -8,15 +8,18 @@
 </head>
 <body>
 <!--#include header -->
-<main id="main" class="page">
-  <header class="page-head">
-    <span class="eyebrow">Changelog</span>
-    <h1>What’s new.</h1>
-    <p class="lede">Every release of Wecra, newest first.</p>
-  </header>
-  <section aria-label="Releases">
-    <div data-releases aria-busy="true">
-      <p class="state">Loading releases…</p>
+<main id="main">
+  <section class="hero" aria-labelledby="changelog-title">
+    <div class="wrap">
+      <div class="grid hero-top">
+        <h1 class="display" id="changelog-title" data-reveal>What’s new.</h1>
+        <div class="hero-side" data-reveal style="--reveal-delay: 120ms">
+          <p class="lede muted">Every release of Wecra, newest first. Installed copies update themselves.</p>
+        </div>
+      </div>
+      <div data-releases aria-busy="true">
+        <p class="state">Loading releases…</p>
+      </div>
     </div>
   </section>
 </main>

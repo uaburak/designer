@@ -1,0 +1,140 @@
+/* The collage kit: the stage on its tile, the pieces settling in, cursors, the engine's selection. Motion is transform
+   and opacity only, ease-out, staggered by --d; under reduced motion everything is simply there. */
+
+.root {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  color: var(--figma-color-text);
+  font: var(--ds-font-body-medium);
+  letter-spacing: var(--ds-tracking-body-medium);
+  user-select: none;
+}
+
+.stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+/* ── Pieces ── */
+
+.piece {
+  position: absolute;
+  opacity: 0;
+  transform: translate3d(0, 28px, 0);
+  transition:
+    opacity 600ms var(--site-ease) var(--d, 0ms),
+    transform 900ms var(--site-ease) var(--d, 0ms);
+}
+.piece[data-from="down"] { transform: translate3d(0, -28px, 0); }
+.piece[data-from="left"] { transform: translate3d(-40px, 0, 0); }
+.piece[data-from="right"] { transform: translate3d(40px, 0, 0); }
+.piece[data-from="scale"] { transform: scale(0.96); }
+.piece[data-from="fade"] { transform: none; }
+.stage[data-play] .piece:not([data-out]) {
+  opacity: 1;
+  transform: none;
+}
+/* Shown later by the script: the delay is only for the first entrance */
+.stage[data-play] .piece[data-out] { --d: 0ms; }
+
+.surface {
+  overflow: hidden;
+  border: 1px solid var(--site-piece-line);
+  border-radius: var(--site-piece-radius);
+  background: var(--figma-color-bg);
+}
+
+/* ── Cursors ── */
+
+.cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  transition: transform 1100ms cubic-bezier(0.45, 0, 0.2, 1);
+}
+.cursor[data-instant] { transition: none; }
+.cursor > * {
+  transition: opacity 400ms ease var(--d, 0ms);
+}
+.cursor svg { display: block; transition: transform 160ms ease; transform-origin: 2px 2px; }
+.cursor[data-press] svg { transform: scale(0.88); }
+.stage:not([data-play]) .cursor > *,
+.cursor[data-out] > * { opacity: 0; }
+.cursorName {
+  position: absolute;
+  top: 18px;
+  left: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--c);
+  color: #fff;
+  font: var(--ds-font-body-medium);
+  letter-spacing: var(--ds-tracking-body-medium);
+  white-space: nowrap;
+}
+
+/* ── The engine's selection ── */
+
+.selection {
+  --sel: #0d99ff;
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--sel);
+  pointer-events: none;
+  transition: opacity 300ms ease;
+}
+.selection[data-tone="component"] { --sel: #9747ff; }
+.selection[data-tone="dev"] { --sel: #14ae5c; }
+.selection[data-out] { opacity: 0; }
+.stage:not([data-play]) .selection { opacity: 0; }
+.selection > i {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--sel);
+  background: #fff;
+}
+.selection > i:nth-child(1) { top: -4px; left: -4px; }
+.selection > i:nth-child(2) { top: -4px; right: -4px; }
+.selection > i:nth-child(3) { bottom: -4px; left: -4px; }
+.selection > i:nth-child(4) { right: -4px; bottom: -4px; }
+.size {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  padding: 1px 4px;
+  border-radius: 2px;
+  background: var(--sel);
+  color: #fff;
+  font: var(--ds-font-body-medium);
+  letter-spacing: var(--ds-tracking-body-medium);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.frameName {
+  position: absolute;
+  color: rgba(0, 0, 0, 0.5);
+  font: var(--ds-font-body-medium);
+  letter-spacing: var(--ds-tracking-body-medium);
+  white-space: nowrap;
+  transition: opacity 400ms ease;
+}
+.frameName[data-selected] { color: #0d99ff; }
+.frameName[data-tone="component"] { color: #9747ff; }
+.frameName[data-out],
+.stage:not([data-play]) .frameName { opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .piece,
+  .cursor,
+  .cursor > *,
+  .selection,
+  .frameName { transition: none !important; }
+}

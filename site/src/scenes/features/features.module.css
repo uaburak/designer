@@ -1,0 +1,254 @@
+/* The feature collages: the designs on the canvas (fixed colours, they are the file's content) and the app pieces'
+   small additions (a variables table, a comment thread) in the app's tokens. */
+
+.fade { transition: opacity 500ms ease, transform 700ms var(--site-ease); }
+
+/* ── Components ── */
+
+.compName { display: inline-flex; align-items: center; gap: 2px; }
+.compName svg { color: #9747ff; }
+.compSet {
+  box-sizing: border-box;
+  border: 1px dashed #9747ff;
+  border-radius: 5px;
+}
+.btn {
+  position: absolute;
+  left: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 156px;
+  height: 40px;
+  border-radius: 8px;
+  background: #1e1e1e;
+  color: #fff;
+  font: 600 13px/1 Inter, sans-serif;
+  letter-spacing: 0;
+  transition: background-color 400ms ease;
+}
+.btn[data-hover] { background: #9747ff; }
+.btnIcon {
+  display: inline-flex;
+  width: 16px;
+  margin-right: -8px;
+  overflow: hidden;
+  transition: opacity 300ms ease, width 400ms var(--site-ease);
+}
+.btnIcon[data-out] { width: 0; opacity: 0; }
+.btnIcon svg { flex: none; margin: -4px; }
+.switchRow { display: flex; align-items: center; height: var(--ds-size-control); }
+
+/* ── Variables ── */
+
+.varTable { padding: 4px 0 8px; }
+.varHead, .varRow {
+  display: grid;
+  grid-template-columns: 1fr 76px 76px;
+  align-items: center;
+  height: 32px;
+  padding: 0 8px 0 12px;
+}
+.varHead { color: var(--figma-color-text-secondary); border-bottom: 1px solid var(--figma-color-border); }
+.varRow > span { display: flex; align-items: center; gap: 6px; }
+.varName { color: var(--figma-color-text); }
+.varName svg { color: var(--figma-color-icon-secondary); }
+.varHead > [data-col], .varRow > [data-col] {
+  height: 100%;
+  margin: 0 -2px;
+  padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+  transition: background-color 400ms ease;
+}
+.varTable[data-mode="Light"] [data-col="Light"],
+.varTable[data-mode="Dark"] [data-col="Dark"] { background: var(--figma-color-bg-selected); }
+.varCard {
+  display: grid;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 20px;
+  border-radius: 14px;
+  align-content: start;
+  gap: 4px;
+  font: 400 13px/1.4 Inter, sans-serif;
+  letter-spacing: 0;
+  transition: background-color 500ms ease, color 500ms ease;
+}
+.varCard strong { margin-top: 12px; font-size: 17px; font-weight: 650; letter-spacing: -0.3px; }
+.varCard span { transition: color 500ms ease, background-color 500ms ease; }
+.varDot { width: 14px; height: 14px; border-radius: 50%; }
+.varBar { width: 100%; height: 6px; margin-top: 18px; border-radius: 3px; }
+
+/* ── Comments ── */
+
+.cmtCard {
+  display: grid;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 20px;
+  border-radius: 14px;
+  background: #fff;
+  align-content: start;
+  gap: 10px;
+  color: #1e1e1e;
+}
+.cmtTitle { width: 150px; font: 650 17px/1.15 Inter, sans-serif; letter-spacing: -0.3px; }
+.cmtLine { height: 6px; border-radius: 3px; background: #e6e6e6; }
+.cmtButton { justify-self: start; margin-top: 4px; padding: 7px 12px; border-radius: 6px; background: #14ae5c; color: #fff; font: 600 12px/1 Inter, sans-serif; }
+
+.pin {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  box-sizing: border-box;
+  width: 36px;
+  height: 36px;
+  padding: 5px;
+  border-radius: 50% 50% 50% 0;
+  background: #fff;
+  color: #fff;
+  place-items: center;
+  transform-origin: 0 100%;
+  transition: opacity 300ms ease, transform 500ms var(--site-ease), background-color 300ms ease;
+}
+.pin[data-out] { opacity: 0; transform: scale(0.4); }
+.pin[data-resolved] { background: #14ae5c; }
+.stagePlaceholder { display: none; }
+
+.thread { font: var(--ds-font-body-medium); }
+.threadHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--figma-color-border);
+  font: var(--ds-font-body-medium-strong);
+  letter-spacing: var(--ds-tracking-body-medium-strong);
+}
+.threadResolve {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  padding: 0 8px 0 4px;
+  border-radius: var(--ds-radius-medium);
+  color: var(--figma-color-text-secondary);
+  font: var(--ds-font-body-medium);
+  transition: color 300ms ease, background-color 300ms ease;
+}
+.threadResolve[data-on] { background: var(--figma-color-bg-success); color: #fff; }
+.msg {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 8px;
+  max-height: 80px;
+  padding: 12px 16px 4px;
+  overflow: hidden;
+  transition: opacity 400ms ease, max-height 500ms var(--site-ease), padding 500ms var(--site-ease);
+}
+.msg[data-out] { max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; }
+.msg p { color: var(--figma-color-text); }
+.msgMeta { margin-bottom: 2px; color: var(--figma-color-text-secondary) !important; }
+.msgMeta strong { margin-right: 4px; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
+.reply {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-height: 60px;
+  padding: 12px 16px 12px;
+  overflow: hidden;
+  transition: opacity 400ms ease, max-height 500ms var(--site-ease), padding 500ms var(--site-ease);
+}
+.reply[data-out] { max-height: 0; padding-top: 0; padding-bottom: 8px; opacity: 0; }
+.replyField {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  overflow: hidden;
+  border-radius: var(--ds-radius-medium);
+  background: var(--figma-color-bg-secondary);
+  line-height: 32px;
+  white-space: nowrap;
+}
+.placeholder { color: var(--figma-color-text-tertiary); }
+.caret {
+  display: inline-block;
+  width: 1px;
+  height: 14px;
+  margin-left: 1px;
+  background: var(--figma-color-text);
+  vertical-align: -2px;
+}
+
+/* ── Draw: the pen's path ── */
+
+.toolbarSlot { position: relative; width: 100%; height: 100%; }
+.logoFrame { background: #fff; }
+.pen { position: absolute; top: 0; left: 0; z-index: 2; overflow: visible; pointer-events: none; }
+.penFill { fill: #14ae5c; opacity: 0; transition: opacity 700ms ease; }
+.penFill[data-on] { opacity: 1; }
+.penStroke { fill: none; stroke: #0d99ff; stroke-width: 1.5; transition: stroke-dashoffset 600ms var(--site-ease), stroke 500ms ease, stroke-width 500ms ease; }
+.penStroke[data-filled] { stroke: #1e1e1e; stroke-width: 2; }
+.penHandles { transition: opacity 300ms ease; }
+.penHandles line { stroke: #0d99ff; stroke-width: 1; }
+.penHandles circle { fill: #fff; stroke: #0d99ff; stroke-width: 1; }
+.penAnchor { fill: #fff; stroke: #0d99ff; stroke-width: 1; }
+.penAnchor[data-active] { fill: #0d99ff; }
+
+/* ── Home: the file browser ── */
+
+.home { display: flex; height: 100%; }
+.homeSide { flex: none; width: 240px; padding: 8px 0; border-right: 1px solid var(--figma-color-border); }
+.homeMain { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+.homeHead {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 56px;
+  padding: 0 16px 0 24px;
+  border-bottom: 1px solid var(--figma-color-border);
+  font: var(--ds-font-heading-medium);
+}
+.homeHead > :last-child { width: 240px; margin-left: auto; }
+.homeGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px 16px; padding: 24px; align-content: start; }
+.homeCard { transition: opacity 400ms ease, transform 600ms var(--site-ease); }
+.homeCard[data-out] { opacity: 0; transform: scale(0.97); }
+
+/* ── Libraries ── */
+
+.libRow {
+  display: grid;
+  grid-template-columns: 40px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+}
+.libThumb { display: grid; width: 40px; height: 40px; border-radius: 6px; background: var(--figma-color-bg-secondary); place-items: center; }
+.libSwatches { display: flex; align-items: center; gap: 4px; color: var(--figma-color-text-secondary); }
+.libName { display: grid; }
+.libName small { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
+.libFoot { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 16px 12px; }
+.libChip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 140px;
+  height: 40px;
+  border-radius: 8px;
+  color: #fff;
+  font: 600 13px/1 Inter, sans-serif;
+  letter-spacing: 0;
+  transition: background-color 600ms ease;
+}
+.libBanner { overflow: hidden; border: 1px solid var(--site-piece-line); border-radius: var(--site-piece-radius); background: var(--figma-color-bg); }
+.libBanner > * { border-radius: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn, .btnIcon, .varCard, .varCard span, .pin, .msg, .reply, .threadResolve, .penFill, .penStroke, .homeCard, .libChip { transition: none; }
+}

@@ -1,13 +1,13 @@
-// /features: a short intro, then a full-screen scene per part of the app — the pen on the live engine, Home, components,
-// variables and comments.
+// /features: the pen, Home, components, variables, comments and libraries, each a tile with the app at work.
 import { initPage } from "../common";
 import { mountScenes } from "../../scenes/runtime/mount";
 
 initPage();
 mountScenes({
-  draw: () => import("../../scenes/features/DrawScene"),
-  files: () => import("../../scenes/features/FilesScene"),
-  components: () => import("../../scenes/features/ComponentsScene"),
-  variables: () => import("../../scenes/features/VariablesScene"),
-  comments: () => import("../../scenes/features/CommentsScene"),
+  draw: () => import("../../scenes/features/DrawCollage"),
+  files: () => import("../../scenes/features/FilesCollage"),
+  components: () => import("../../scenes/features/ComponentsCollage"),
+  variables: () => import("../../scenes/features/VariablesCollage"),
+  comments: () => import("../../scenes/features/CommentsCollage"),
+  libraries: () => import("../../scenes/features/LibrariesCollage"),
 });

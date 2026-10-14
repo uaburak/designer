@@ -1,13 +1,13 @@
-// /ai: the intro, then a full-screen scene per AI part of the app (docs/site.md §2.3).
+// /ai: one tile per AI part of the app — actions, image tools, visual search, agents and MCP, Studio, credits.
 import { initPage } from "../common";
 import { mountScenes } from "../../scenes/runtime/mount";
 
 initPage();
 mountScenes({
-  actions: () => import("../../scenes/ai/ActionsScene"),
-  image: () => import("../../scenes/ai/ImageToolsScene"),
-  search: () => import("../../scenes/ai/VisualSearchScene"),
-  agents: () => import("../../scenes/ai/AgentsScene"),
-  studio: () => import("../../scenes/ai/StudioScene"),
-  credits: () => import("../../scenes/ai/CreditsScene"),
+  actions: () => import("../../scenes/ai/ActionsCollage"),
+  image: () => import("../../scenes/ai/ImageCollage"),
+  search: () => import("../../scenes/ai/SearchCollage"),
+  agents: () => import("../../scenes/ai/AgentsCollage"),
+  studio: () => import("../../scenes/ai/StudioCollage"),
+  credits: () => import("../../scenes/ai/CreditsCollage"),
 });

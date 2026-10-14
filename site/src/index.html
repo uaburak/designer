@@ -3,84 +3,122 @@
 <head>
 <!--#include head -->
 <title>Wecra: design, together, on your desktop</title>
-<meta name="description" content="Wecra is a design app for macOS and Windows: frames and auto layout, vectors, components and variables, prototypes, Dev Mode, libraries and AI." />
+<meta name="description" content="Wecra is a design app for macOS and Windows: frames and auto layout, components and variables, prototypes, Dev Mode, libraries and AI." />
 <script type="module" src="/scripts/pages/home.ts"></script>
 </head>
 <body>
 <!--#include header -->
 <main id="main">
-  <section class="hero-track" aria-labelledby="hero-title">
-    <div class="hero-sticky">
-      <div class="hero-copy" data-hero-copy>
-        <h1 id="hero-title">Design, together.<br /><span>On your desktop.</span></h1>
-        <div>
-          <p class="lede">A design app for macOS and Windows: auto layout, components, variables, prototypes and Dev Mode, with AI on the tools you choose. Scroll, and the editor below is yours to try.</p>
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="wrap">
+      <div class="grid hero-top">
+        <h1 class="display" id="hero-title" data-reveal>Design, together, on&nbsp;your desktop.</h1>
+        <div class="hero-side" data-reveal style="--reveal-delay: 120ms">
+          <p class="lede muted">A design app for macOS and Windows: auto layout, components, variables, prototypes and Dev Mode, with AI on the tools you choose.</p>
           <!--#include download -->
         </div>
       </div>
-      <div class="hero-slot" data-hero-slot aria-hidden="true"></div>
-      <div class="hero-window" data-hero-window>
-        <div class="scene" data-scene="hero" data-eager data-interactive aria-label="The Wecra editor, live"><div class="placeholder"></div></div>
+      <div class="tile tile-hero" data-tone="lavender">
+        <div class="scene" data-scene="hero" data-eager aria-label="A frame drawn in the Wecra editor"></div>
       </div>
     </div>
   </section>
 
-  <section class="panel" id="design" aria-labelledby="design-title">
-    <div class="copy">
-      <span class="eyebrow">Auto layout</span>
-      <h2 id="design-title">Layouts that hold together.</h2>
-      <p class="lede">Stack, space and pad with auto layout, and the frame follows its content. Change the gap and every card moves with it. Pick a fill in the colour picker you already know.</p>
+  <section class="section" aria-label="Highlights">
+    <div class="wrap cards">
+      <article>
+        <div class="tile tile-square" data-tone="coral"><div class="scene" data-scene="components"></div></div>
+        <div class="card-text" data-reveal>
+          <h3>Build it once</h3>
+          <p class="muted">Components with variants and properties. Change the main one and every instance follows.</p>
+        </div>
+      </article>
+      <article>
+        <div class="tile tile-square" data-tone="sky"><div class="scene" data-scene="variables"></div></div>
+        <div class="card-text" data-reveal style="--reveal-delay: 80ms">
+          <h3>One value, every mode</h3>
+          <p class="muted">Colours, numbers and strings as variables, with a value for Light and for Dark.</p>
+        </div>
+      </article>
+      <article>
+        <div class="tile tile-square" data-tone="mint"><div class="scene" data-scene="comments"></div></div>
+        <div class="card-text" data-reveal style="--reveal-delay: 160ms">
+          <h3>Feedback in place</h3>
+          <p class="muted">Pin a comment to the spot, reply in a thread, and resolve it when it’s done.</p>
+        </div>
+      </article>
     </div>
-    <div class="stage"><div class="scene" data-scene="autolayout"><div class="placeholder"></div></div></div>
   </section>
 
-  <section class="panel" id="prototype" data-flip aria-labelledby="prototype-title">
-    <div class="copy">
-      <span class="eyebrow" data-tone="component">Prototype</span>
-      <h2 id="prototype-title">Make it move.</h2>
-      <p class="lede">Connect frames with a drag, pick the trigger and the animation, and press Play. Smart animate matches layers by name and moves them for you.</p>
+  <section class="section" id="design" aria-labelledby="design-title">
+    <div class="wrap">
+      <div class="head" data-reveal>
+        <p class="label muted">Design</p>
+        <h2 class="title" id="design-title">Layouts that hold together.</h2>
+        <p class="lede muted">Stack, space and pad with auto layout, and the frame follows its content. Change the gap once and every card moves with it.</p>
+      </div>
+      <div class="tile tile-wide" data-tone="sand"><div class="scene" data-scene="design"></div></div>
     </div>
-    <div class="stage"><div class="scene" data-scene="prototype"><div class="placeholder"></div></div></div>
   </section>
 
-  <section class="panel" id="dev-mode" aria-labelledby="dev-title">
-    <div class="copy">
-      <span class="eyebrow" data-tone="success">Dev Mode</span>
-      <h2 id="dev-title">From design to code.</h2>
-      <p class="lede">Developers get their own view: measurements between layers, CSS, SwiftUI and Compose for what they select, and a clear mark on what is ready for development.</p>
+  <section class="section" id="prototype" aria-labelledby="prototype-title">
+    <div class="wrap">
+      <div class="head" data-reveal>
+        <p class="label muted">Prototype</p>
+        <h2 class="title" id="prototype-title">Make it move.</h2>
+        <p class="lede muted">Connect frames with a drag, choose the trigger and the animation, and press Play. Smart animate matches layers by name and moves them for you.</p>
+      </div>
+      <div class="tile tile-wide" data-tone="sky"><div class="scene" data-scene="prototype"></div></div>
     </div>
-    <div class="stage"><div class="scene" data-scene="devmode"><div class="placeholder"></div></div></div>
   </section>
 
-  <section class="panel" id="together" data-flip aria-labelledby="together-title">
-    <div class="copy">
-      <span class="eyebrow" data-tone="warning">Libraries and multiplayer</span>
-      <h2 id="together-title">One system. Everyone in it.</h2>
-      <p class="lede">Publish components, styles and variables from any file and use them everywhere. When the library changes, review the update and accept it. Share a file and work in it together, live.</p>
+  <section class="section" id="dev-mode" aria-labelledby="dev-title">
+    <div class="wrap">
+      <div class="head" data-reveal>
+        <p class="label muted">Dev Mode</p>
+        <h2 class="title" id="dev-title">From design to code.</h2>
+        <p class="lede muted">Developers get their own view: the distances between layers, code for what they select, and a clear mark on what is ready for development.</p>
+      </div>
+      <div class="tile tile-wide" data-tone="mint"><div class="scene" data-scene="devmode"></div></div>
     </div>
-    <div class="stage"><div class="scene" data-scene="together"><div class="placeholder"></div></div></div>
   </section>
 
-  <section class="panel" id="ai" aria-labelledby="ai-title">
-    <div class="copy">
-      <span class="eyebrow" data-tone="ai">AI</span>
-      <h2 id="ai-title">Ask for a first draft.</h2>
-      <p class="lede">Describe a screen and First Draft lays it out with real layers you can edit. Agents like Claude Code and Codex work on the canvas with you, and image tools run on your own machine.</p>
-      <a class="link-arrow" href="/ai/">Everything AI can do in Wecra</a>
+  <section class="section" id="ai" aria-labelledby="ai-title">
+    <div class="wrap">
+      <div class="head" data-reveal>
+        <p class="label muted">AI and Studio</p>
+        <h2 class="title" id="ai-title">Bring your own AI.</h2>
+        <p class="lede muted">Claude Code, Codex or a local model builds in your file with real layers. Studio hands one request to several agents at once.</p>
+      </div>
+      <div class="tile tile-wide" data-tone="coral"><div class="scene" data-scene="studio"></div></div>
+      <div class="under">
+        <p class="muted">Text goes to the agent you pick, pictures to the image route you pick. Wecra has no AI server of its own.</p>
+        <a class="link" href="/ai/">Everything AI can do in Wecra</a>
+      </div>
     </div>
-    <div class="stage"><div class="scene" data-scene="firstdraft"><div class="placeholder"></div></div></div>
   </section>
 
-  <section class="panel closing" id="download" aria-labelledby="download-title">
-    <img class="closing-logo" src="/apple-touch-icon.png" width="88" height="88" alt="" loading="lazy" />
-    <h2 id="download-title">Start designing.</h2>
-    <p class="lede">Your files live on your computer. Share one when you want to work on it together.</p>
-    <!--#include download -->
-    <nav class="more-links" aria-label="More">
-      <a class="link-arrow" href="/features/">All features</a>
-      <a class="link-arrow" href="/ai/">AI and Studio</a>
-      <a class="link-arrow" href="/changelog/">What’s new</a>
-    </nav>
+  <section class="section" id="try" aria-labelledby="try-title">
+    <div class="wrap">
+      <div class="head" data-reveal>
+        <p class="label muted">Try it</p>
+        <h2 class="title" id="try-title">This is the real canvas.</h2>
+        <p class="lede muted">Wecra’s own engine, running in this page. Select a layer, move it, resize it, or draw something new.</p>
+      </div>
+      <div class="tile tile-wide" data-tone="canvas"><div class="scene" data-scene="try" data-interactive aria-label="The Wecra canvas, live"></div></div>
+      <div class="try-note label muted">
+        <span>The engine is C++, compiled to WebAssembly</span>
+        <span>Drawn on one WebGL2 canvas</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="download" aria-labelledby="download-title">
+    <div class="wrap band-inner" data-reveal>
+      <h2 class="title" id="download-title">Start designing.</h2>
+      <p class="lede muted">Your files live on your computer. Share one when you want to work on it together.</p>
+      <!--#include download -->
+    </div>
   </section>
 </main>
 <!--#include footer -->

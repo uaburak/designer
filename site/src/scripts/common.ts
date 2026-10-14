@@ -1,5 +1,5 @@
 // What every page runs: the app's design system stylesheet (Inter, the tokens), the site's own, the header (with the
-// theme toggle) and the Download blocks. Pages with scenes mount them on top (scenes/runtime/mount.tsx).
+// theme toggle), the text's reveal and the Download blocks. Pages with scenes mount them on top (scenes/runtime/mount.tsx).
 import "@/ds/global.css";
 import "../styles/site.css";
 import { initThemeToggle } from "./theme";
@@ -8,12 +8,6 @@ import { detectPlatform, formatDate, formatSize, loadReleases, offerFor, type Of
 const NAME: Record<Platform, string> = { mac: "macOS", windows: "Windows" };
 
 export function initHeader(): void {
-  const header = document.querySelector("[data-header]");
-  if (header) {
-    const onScroll = () => header.classList.toggle("is-scrolled", scrollY > 4);
-    addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-  }
   // Close the phone menu after a choice or a click outside.
   const menu = document.querySelector<HTMLDetailsElement>(".menu");
   if (menu) {
@@ -98,8 +92,29 @@ export async function initDownloads(): Promise<void> {
   }
 }
 
+/** Text marked `data-reveal` fades up once as it comes into view (site.css; nothing moves under reduced motion). */
+export function initReveal(): void {
+  const els = [...document.querySelectorAll<HTMLElement>("[data-reveal]")];
+  if (typeof IntersectionObserver !== "function") {
+    for (const el of els) el.setAttribute("data-shown", "");
+    return;
+  }
+  const io = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        e.target.setAttribute("data-shown", "");
+        io.unobserve(e.target);
+      }
+    },
+    { rootMargin: "0px 0px -8% 0px" },
+  );
+  for (const el of els) io.observe(el);
+}
+
 export function initPage(): void {
   initHeader();
+  initReveal();
   initThemeToggle();
   void initDownloads();
 }

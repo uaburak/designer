@@ -1,0 +1,30 @@
+.root {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  color: var(--figma-color-text);
+  font: var(--ds-font-body-medium);
+  letter-spacing: var(--ds-tracking-body-medium);
+  user-select: none;
+  touch-action: pan-y;
+}
+.root[data-ready] { touch-action: none; }
+.still { position: absolute; max-width: none; pointer-events: none; }
+.toolbar { position: absolute; right: 0; bottom: 0; left: 0; height: 64px; pointer-events: none; }
+.toolbar > * { pointer-events: auto; }
+.engage {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  height: 40px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 8px;
+  background: #000;
+  color: #fff;
+  font: 400 15px/40px var(--site-font);
+  white-space: nowrap;
+  transform: translateX(-50%);
+  cursor: pointer;
+}
