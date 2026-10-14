@@ -1,13 +1,13 @@
-// Studio (docs/studio.md §1–§2): "Verda's Root Tonic needs a post and a story". The manager reads the library, asks
-// which image model to use (the app's ManagerCard), hands the frames and the pictures to several agents at once (the
-// app's TaskCards: Queued, Running, Done, with their routes and credits), and the post and the story land on the
-// canvas. The cards render with a scripted stand-in for the chat's service (vite.config.ts SHIMS). Verda and Root
-// Tonic are fictional.
+// Studio (docs/studio.md §1–§2): one request, several agents at once. "Verda's Root Tonic needs a post and a story":
+// the manager reads the brand's library, then hands the two frames and their two pictures to four agents together
+// (the app's TaskCards: Running, then Done with their routes and credits), and the post and the story land on the
+// canvas as their tasks end — the frame first, then its picture. The cards render with a scripted stand-in for the
+// chat's service (vite.config.ts SHIMS). Verda and Root Tonic are fictional.
 import { useMemo, useState } from "react";
 import type { ProviderInfo } from "@shared/agents/types";
-import type { ChatCard, TaskState } from "@shared/studio/types";
+import type { TaskState } from "@shared/studio/types";
 import type { AgentsService, ChatTask } from "@/editor/agents/service";
-import { ManagerCard, TaskCard } from "@/editor/panels/agents/StudioCards";
+import { TaskCard } from "@/editor/panels/agents/StudioCards";
 import { Collage, FrameName, Piece, Reveal } from "../collage/kit";
 import { Bottle } from "../home/art";
 import type { Run } from "../runtime/motion";
@@ -17,19 +17,6 @@ import styles from "./ai.module.css";
 const PROVIDERS = [{ id: "claude-code", kind: "claude-code", label: "Claude Code", available: true, models: ["sonnet"] }] as ProviderInfo[];
 const CLAUDE = { providerId: "claude-code", model: "claude-sonnet-5-5" };
 const PRO = { providerId: "gemini-images", model: "gemini-3-pro-image-preview" };
-
-const CHOICE = {
-  kind: "choice",
-  id: "card-model",
-  question: "Which image model should make the pictures?",
-  remember: true,
-  options: [
-    { id: "gemini-images|gemini-3-pro-image-preview", label: "Gemini API › Nano Banana Pro", detail: "Best text and detail" },
-    { id: "gemini-images|gemini-2.5-flash-image", label: "Gemini API › Nano Banana", detail: "Quick" },
-    { id: "gemini-cli|", label: "Gemini CLI" },
-  ],
-} as ChatCard;
-const ANSWERED = { ...CHOICE, answer: { optionId: "gemini-images|gemini-3-pro-image-preview", remember: true } } as ChatCard;
 
 const task = (id: string, kind: ChatTask["kind"], title: string, route: ChatTask["route"]): ChatTask => ({ id, chatId: "c", messageId: "m", kind, title, route, state: "queued", dependsOn: [] });
 const TASKS: ChatTask[] = [
@@ -42,14 +29,13 @@ const TASKS: ChatTask[] = [
 interface Chat {
   asked: boolean;
   steps: Step[];
-  card: ChatCard | null;
   tasks: ChatTask[];
   frames: { post: number; story: number };
   done: boolean;
 }
 
 export default function StudioCollage() {
-  const [chat, setChat] = useState<Chat>({ asked: false, steps: [], card: null, tasks: [], frames: { post: 0, story: 0 }, done: false });
+  const [chat, setChat] = useState<Chat>({ asked: false, steps: [], tasks: [], frames: { post: 0, story: 0 }, done: false });
   const set = (fn: (c: Chat) => Chat) => setChat(fn);
 
   const service = useMemo(
@@ -74,31 +60,26 @@ export default function StudioCollage() {
       set((c) => ({ ...c, tasks: c.tasks.map((t) => (t.id === id ? { ...t, state: s, ...(s === "running" ? { startedAt: Date.now() - 4000 } : {}), ...extra } : t)) }));
     const frame = (k: "post" | "story", v: number) => set((c) => ({ ...c, frames: { ...c.frames, [k]: v } }));
 
-    await w(600);
+    await w(800);
     set((c) => ({ ...c, asked: true }));
-    await w(700);
-    await step("library_find", 500);
-    await step("library_read_labels", 500);
-    set((c) => ({ ...c, card: CHOICE }));
-    await w(1400);
-    set((c) => ({ ...c, card: ANSWERED }));
-    await w(600);
-    set((c) => ({ ...c, tasks: TASKS }));
-    await w(500);
-    for (const id of ["t1", "t2", "t3", "t4"]) state(id, "running");
-    await w(1400);
+    await w(900);
+    await step("library_find", 900);
+    await w(300);
+    // The four tasks start together
+    set((c) => ({ ...c, tasks: TASKS.map((t) => ({ ...t, state: "running" as TaskState, startedAt: Date.now() - 2000 })) }));
+    await w(1800);
     state("t1", "done", { credits: 6 });
     frame("post", 1);
-    await w(600);
+    await w(700);
     state("t3", "done", { credits: 5 });
     frame("story", 1);
-    await w(1200);
+    await w(1300);
     state("t2", "done", { credits: 16 });
     frame("post", 2);
-    await w(700);
+    await w(800);
     state("t4", "done", { credits: 16 });
     frame("story", 2);
-    await w(500);
+    await w(700);
     set((c) => ({ ...c, done: true }));
   };
 
@@ -111,7 +92,6 @@ export default function StudioCollage() {
             <div className={agents.agent}>
               <span className={agents.agentName}>Manager</span>
               <Steps steps={chat.steps} />
-              {chat.card && <ManagerCard card={chat.card} service={service} />}
               {chat.tasks.length > 0 && (
                 <div className={agents.tasks}>
                   {chat.tasks.map((t) => (

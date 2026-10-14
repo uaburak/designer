@@ -1,15 +1,23 @@
-// AI actions (docs/ai.md §3): ⌘K opens Actions with the app's own rows (editor/ai/actionRows.ts: their labels,
-// sections and icons); "Rename layers" is chosen, and the layers' default names turn into names that mean something,
-// one after another, as one undo step.
-import { useState } from "react";
-import { SearchField } from "@/ds/components/SearchField";
+// AI actions (docs/ai.md §3): the bottom toolbar's Actions opens the palette over it (editor/panels/ActionsPanel.tsx,
+// its own CSS module: the search, All / Assets / Plugins & widgets, the AI rows of editor/ai/actionRows.ts with their
+// "AI" badge). "Rename layers" is clicked; the palette shows the run in its place (the app's AiPanel view: the
+// action's name, "Renaming layers…", Stop), the selected screen's default layer names turn into names that mean
+// something, one after another, in Layers, and the palette closes when it's done.
+import { useRef, useState } from "react";
+import { Button, IconButton } from "@/ds/components/Button";
+import { EditorToolbar } from "@/ds/components/EditorToolbar";
+import { Badge } from "@/ds/components/Misc";
 import { Spinner } from "@/ds/components/Spinner";
+import { Tabs } from "@/ds/components/Tabs";
 import { Icon } from "@/ds/icons/Icon";
 import { AI_ROWS } from "@/editor/ai/actionRows";
-import { around, Collage, CURSOR, Cursor, FrameName, Piece, Selection, usePointer } from "../collage/kit";
-import { BEZIER } from "../runtime/easing";
+import aiPanel from "@/editor/ai/AiPanel.module.css";
+import palette from "@/editor/panels/ActionsPanel.module.css";
+import { Collage, CURSOR, Cursor, FrameName, Piece, Selection, usePointer } from "../collage/kit";
 import { FileHeader, Layers, noop, type Row } from "../collage/ui";
+import { BEZIER } from "../runtime/easing";
 import type { Run } from "../runtime/motion";
+import { pointOf } from "../together/pick";
 import styles from "./ai.module.css";
 
 const NAMES: [string, string, Row["icon"], number][] = [
@@ -23,102 +31,115 @@ const NAMES: [string, string, Row["icon"], number][] = [
   ["Frame 10", "Create account", "16.autolayout.horizontal", 2],
 ];
 
-const SECTIONS = ["Design tools", "Riffing and writing"] as const;
-
-const RENAME: [number, number] = [516, 175];
+const ROWS = AI_ROWS.filter((r) => r.section === "Design tools");
+const FRAME = { x: 600, y: 64, w: 208, h: 364 };
 
 export default function ActionsCollage() {
   const [open, setOpen] = useState(false);
-  const [hover, setHover] = useState<string | null>(null);
+  const [active, setActive] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [renamed, setRenamed] = useState(0);
-  const me = usePointer([700, 520]);
+  const me = usePointer([760, 520]);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const script = async (run: Run) => {
-    await run.wait(900);
+    await run.wait(1100);
+    const actions = pointOf(toolbarRef.current?.querySelector('button[aria-label^="Actions"]'), [0.5, 0.5]);
+    if (actions) await me.click(run, actions, { beat: 260 });
     setOpen(true);
-    await run.wait(500);
-    await me.to(run, [RENAME[0] + 30, RENAME[1] + 30], { ms: 800 });
-    setHover("ai.replace-content");
-    await run.wait(200);
-    await me.to(run, RENAME, { ms: 520, ease: BEZIER.standard });
-    setHover("ai.rename-layers");
-    await me.click(run, undefined, { beat: 260 });
+    await run.wait(650);
+    const row = pointOf(listRef.current?.querySelector("[data-row='ai.rename-layers']"), [0.3, 0.55]);
+    if (row) await me.to(run, row, { ms: 700, ease: BEZIER.standard });
+    setActive("ai.rename-layers");
+    await me.click(run, undefined, { beat: 320 });
     setRunning(true);
-    await run.wait(600);
-    setOpen(false);
+    await run.wait(700);
     for (let i = 1; i <= NAMES.length; i++) {
-      await run.wait(i === 1 ? 300 : 170 + (i % 3) * 30);
       setRenamed(i);
+      await run.wait(220);
     }
+    await run.wait(500);
+    setOpen(false);
     setRunning(false);
-    await me.to(run, [640, 470], { ms: 900, ease: BEZIER.standard });
-    await me.idle(run, around([640, 470], 16));
   };
 
   const rows: Row[] = NAMES.map(([from, to, icon, depth], i) => ({ id: from, name: i < renamed ? to : from, icon, depth, expanded: depth < 2 && icon !== "16.ellipse" ? true : undefined, strong: depth === 0, selected: i === 0 }));
-  const actions = AI_ROWS.filter((r) => (SECTIONS as readonly string[]).includes(r.section));
 
   return (
-    <Collage size={[860, 560]} focus={[0.47, 0.5]} safe={680} script={script}>
-      <Piece surface x={72} y={48} w={240} d={0} from="left">
+    <Collage size={[860, 560]} focus={[0.48, 0.5]} safe={800} script={script}>
+      <Piece surface x={32} y={32} w={240} d={0} from="left">
         <FileHeader name="Bloom — App" />
         <div className={styles.renaming}>
           <Layers rows={rows} />
         </div>
       </Piece>
 
-      {/* The file's screen on the canvas, under the Actions menu */}
-      <FrameName x={500} y={72} selected>
+      {/* The selected screen on the canvas */}
+      <FrameName x={FRAME.x} y={FRAME.y} selected>
         {renamed ? "Sign up" : "Frame 12"}
       </FrameName>
-      <div className={styles.build} data-on="" data-auto="" style={{ left: 500, top: 72, height: 420 }}>
-        <span className={styles.buildTitle} style={{ color: "#2F7D4F" }}>
-          Bloom
+      <div className={styles.build} data-on="" data-auto="" data-colored="" style={{ left: FRAME.x, top: FRAME.y, width: FRAME.w, height: FRAME.h }}>
+        <span className={styles.buildTitle}>
+          <span>Bloom</span>
+          <span data-brand="">Bloom</span>
         </span>
         <span className={styles.buildHead}>Create your account</span>
         <span className={styles.buildField}>Email</span>
         <span className={styles.buildField}>Password</span>
-        <span className={styles.buildButton} style={{ background: "#2F7D4F" }}>
-          Create account
+        <span className={styles.buildButton}>
+          <i />
+          <span>Create account</span>
         </span>
       </div>
-      <Selection box={{ x: 500, y: 72, w: 240, h: 420 }} />
+      <Selection box={FRAME} />
 
-      <Piece surface x={372} y={88} w={320} show={open} from="scale" origin="50% 0" z={20} className={styles.actions}>
-        <div className={styles.actionsSearch}>
-          <SearchField value="" onChange={noop} placeholder="Search actions" />
-        </div>
-        {SECTIONS.map((section) => (
-          <div key={section} className={styles.actionsGroup}>
-            <span className={styles.actionsHeading}>{section}</span>
-            {actions
-              .filter((r) => r.section === section)
-              .map((r) => (
-                <span key={r.id} className={styles.actionRow} data-hover={hover === r.id || undefined} data-pressable="">
-                  <Icon name={r.icon} />
-                  {r.label}
-                  {r.id === "ai.rename-layers" && running && <Spinner size={16} />}
-                </span>
-              ))}
+      {/* Actions, 8 over the toolbar, its left edge at the toolbar's */}
+      <Piece surface x={300} y={212} w={420} h={240} show={open} from="scale" origin="0 100%" z={20} className={styles.palette}>
+        {running ? (
+          <div className={aiPanel.view}>
+            <div className={aiPanel.header}>
+              <IconButton icon="24.arrow.left" label="Back" tone="secondary" disabled tooltip={false} />
+              <span className={aiPanel.title}>Rename layers</span>
+              <Badge>AI</Badge>
+            </div>
+            <div className={aiPanel.body}>
+              <div className={aiPanel.running}>
+                <Spinner size={24} />
+                <span>Renaming layers…</span>
+                <Button variant="secondary">Stop</Button>
+              </div>
+            </div>
           </div>
-        ))}
+        ) : (
+          <>
+            <div className={palette.search}>
+              <span className={palette.searchIcon}>
+                <Icon name="24.search.small" />
+              </span>
+              <input className={`${palette.input} ${styles.paletteInput}`} placeholder="Search actions" readOnly tabIndex={-1} />
+            </div>
+            <Tabs label="Action kinds" className={palette.tabs} value="all" tabs={[{ value: "all", label: "All" }, { value: "assets", label: "Assets" }, { value: "plugins", label: "Plugins & widgets" }]} onChange={noop} />
+            <div ref={listRef} className={palette.list}>
+              <div className={palette.header}>Design tools</div>
+              {ROWS.map((r) => (
+                <div key={r.id} className={palette.row} data-row={r.id} data-active={active === r.id || undefined}>
+                  <span className={palette.glyph}>
+                    <Icon name={r.icon} />
+                  </span>
+                  <span className={palette.label}>{r.label}</span>
+                  <span className={aiPanel.badge}>AI</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </Piece>
-      <Piece x={72} y={490} w={240} show={running || renamed > 0} from="up">
-        <span className={styles.status}>
-          <span className={styles.swap}>
-            <span data-out={renamed >= NAMES.length || undefined}>
-              <Spinner size={16} />
-            </span>
-            <span data-out={renamed < NAMES.length || undefined}>
-              <Icon name="16.check" />
-            </span>
-          </span>
-          <span className={styles.swap}>
-            <span data-out={renamed >= NAMES.length || undefined}>Renaming layers…</span>
-            <span data-out={renamed < NAMES.length || undefined}>Renamed {NAMES.length} layers</span>
-          </span>
-        </span>
+
+      <Piece x={300} y={464} w={528} h={64} d={160} z={10}>
+        <div ref={toolbarRef} className={styles.toolbarSlot}>
+          <EditorToolbar floating tool="move" mode="design" actionsActive={open} onMode={noop} onTool={noop} />
+        </div>
       </Piece>
       <Cursor {...me.state} color={CURSOR.ink} d={300} z={30} />
     </Collage>

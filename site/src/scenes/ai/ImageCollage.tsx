@@ -1,50 +1,35 @@
-// Image tools (docs/ai.md §4): a selected picture and the image toolbar, with the app's own labels (ImageToolbar.tsx:
-// Edit with prompt, Remove background, Select area, More › Expand, Boost resolution, Vectorize) on the ds Toolbar and
-// ToolTextButton. Remove background runs on this computer (the toolbar shows the work), the background goes and the
-// plant stays on the checkerboard; then More › Boost resolution doubles it.
+// Image tools (docs/ai.md §4): a selected picture and its toolbar, with the app's own labels (ImageToolbar.tsx: Edit
+// with prompt, Remove background, Select area, More) on the ds Toolbar and ToolTextButton. One action: Remove
+// background is clicked; the toolbar shows the run ("Removing background…", Cancel) while its sweep passes over the
+// picture, on this computer; the background goes and the plant stays, on the checkerboard.
 import { useRef, useState } from "react";
 import { Spinner } from "@/ds/components/Spinner";
 import { Toolbar, ToolbarDivider, ToolTextButton } from "@/ds/components/Toolbar";
-import { around, Collage, CURSOR, Cursor, Dims, FrameName, Piece, Selection, usePointer } from "../collage/kit";
-import { BEZIER, DURATION, ease } from "../runtime/easing";
+import { Collage, CURSOR, Cursor, FrameName, Piece, Selection, usePointer } from "../collage/kit";
+import { BEZIER } from "../runtime/easing";
 import type { Run } from "../runtime/motion";
 import { Plant } from "../home/art";
+import { pointOf } from "../together/pick";
 import styles from "./ai.module.css";
 
-const IMG = { x: 270, y: 64, w: 320, h: 320 };
-const REMOVE: [number, number] = [407, 442];
-const MORE: [number, number] = [585, 442];
-const BOOST: [number, number] = [620, 374];
+const IMG = { x: 270, y: 84, w: 320, h: 320 };
 
 export default function ImageCollage() {
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [cut, setCut] = useState(false);
-  const [menu, setMenu] = useState(false);
-  const [boosted, setBoosted] = useState(false);
-  const me = usePointer([720, 520]);
-  const lastBusy = useRef("");
-  if (busy) lastBusy.current = busy;
+  const me = usePointer([700, 500]);
+  const bar = useRef<HTMLDivElement>(null);
 
   const script = async (run: Run) => {
-    await run.wait(1000);
-    await me.click(run, REMOVE);
-    setBusy("Removing background…");
-    await me.to(run, [REMOVE[0] + 40, REMOVE[1] + 40], { ms: 900, ease: BEZIER.standard, wait: false });
-    await run.wait(1700);
-    setBusy(null);
+    await run.wait(1200);
+    const remove = pointOf([...(bar.current?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.includes("Remove background")), [0.5, 0.55]);
+    if (remove) await me.click(run, remove, { beat: 260 });
+    setBusy(true);
+    // The hand steps off the toolbar, so the work can be seen
+    if (remove) void me.to(run, [remove[0] + 28, remove[1] + 34], { ms: 700, ease: BEZIER.standard, wait: false });
+    await run.wait(2200);
+    setBusy(false);
     setCut(true);
-    await run.wait(1300);
-    await me.click(run, MORE);
-    setMenu(true);
-    await run.wait(200);
-    await me.click(run, BOOST, { ms: 520, ease: BEZIER.standard });
-    setMenu(false);
-    setBusy("Boosting resolution…");
-    await me.to(run, [720, 520], { ms: 1000, ease: BEZIER.standard, wait: false });
-    await run.wait(1400);
-    setBusy(null);
-    setBoosted(true);
-    await me.idle(run, around([720, 520], 16));
   };
 
   return (
@@ -60,32 +45,26 @@ export default function ImageCollage() {
         <div className={styles.imageBg} data-out={cut || undefined}>
           <Plant ground="#F3E6CF" />
         </div>
-        <div className={styles.scan} data-on={!!busy || undefined} />
-        <div className={styles.shine} data-on={boosted || undefined} />
+        <div className={styles.scan} data-on={busy || undefined} />
       </Piece>
-      <Selection box={IMG} size={<Dims w={boosted ? 640 : 320} h={boosted ? 640 : 320} ms={DURATION.xl} ease={ease.standard} />} />
+      <Selection box={IMG} size="320 × 320" />
 
-      <Piece x={MORE[0] - 40} y={BOOST[1] - 44} w={189} show={menu} from="scale" origin="40px 100%" className={styles.menu}>
-        <span>Expand</span>
-        <span data-pressable="">Boost resolution</span>
-        <span>Vectorize</span>
-      </Piece>
-      <Piece x={IMG.x - 70} y={470} w={460} h={60} d={120}>
-        {/* The tools and the work in progress are two toolbars in one place: one hands over to the other */}
-        <div className={styles.imageToolbar} data-out={!!busy || undefined}>
+      <Piece x={IMG.x - 70} y={440} w={460} h={60} d={120} className={styles.imageTools}>
+        {/* The tools and the run in progress take turns in one place */}
+        <div ref={bar} className={styles.imageToolbar} data-out={busy || undefined}>
           <Toolbar floating secondary label="Image tools">
             <ToolTextButton label="Edit with prompt" onSelect={() => {}} />
             <ToolTextButton label="Remove background" onSelect={() => {}} />
             <ToolTextButton label="Select area" onSelect={() => {}} />
             <ToolbarDivider />
-            <ToolTextButton label="More" chevron active={menu} onSelect={() => {}} />
+            <ToolTextButton label="More" chevron onSelect={() => {}} />
           </Toolbar>
         </div>
         <div className={styles.imageToolbar} data-out={!busy || undefined}>
           <Toolbar floating secondary label="Working">
             <span className={styles.busyLabel}>
               <Spinner size={16} />
-              {busy ?? lastBusy.current}
+              Removing background…
             </span>
             <ToolbarDivider />
             <ToolTextButton label="Cancel" onSelect={() => {}} />

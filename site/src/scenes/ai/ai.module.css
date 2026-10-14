@@ -61,57 +61,17 @@
 .postSub { position: absolute; top: 46px; left: 18px; width: 70%; color: #4c5a50; font: 400 10px/1.35 Inter, sans-serif; }
 .postLogo { position: absolute; bottom: 14px; left: 18px; font: 800 13px/1 Inter, sans-serif; letter-spacing: -0.4px; }
 
-/* Something the script adds: it fades and slides in */
-.appear { transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-4) var(--ease-out); }
-/* Two things in one place: the new one rises in as the old one leaves */
-.swap { display: inline-grid; align-items: center; }
-.swap > * { display: inline-flex; grid-area: 1 / 1; transition: opacity var(--dur-1) var(--ease-standard), transform var(--dur-2) var(--ease-out); }
-.swap > [data-out] { opacity: 0; transform: translate3d(0, -4px, 0); }
-.swap > :last-child[data-out] { transform: translate3d(0, 4px, 0); }
+/* ── Actions: the palette over the toolbar (its own module; flat on the stage: no shadow) ── */
 
-/* ── Actions ── */
-
-
-.actions { padding-bottom: 8px; }
-.actionsSearch { padding: 12px 12px 4px; }
-.actionsGroup { display: grid; padding: 4px 8px; }
-.actionsHeading { padding: 8px 8px 4px; color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
-.actionRow {
-  position: relative;
+.palette {
   display: flex;
-  isolation: isolate;
-  align-items: center;
-  gap: 4px;
-  height: 28px;
-  padding: 0 8px 0 2px;
-  border-radius: var(--ds-radius-medium);
+  flex-direction: column;
   color: var(--figma-color-text);
+  font: var(--ds-font-body-medium);
+  letter-spacing: var(--ds-tracking-body-medium);
 }
-/* The hover's wash fades in and out (opacity only) */
-.actionRow::before {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  background: var(--figma-color-bg-selected);
-  content: "";
-  opacity: 0;
-  transition: opacity var(--dur-1) var(--ease-standard);
-}
-.actionRow[data-hover]::before { opacity: 1; }
-.actionRow svg { flex: none; color: var(--figma-color-icon-secondary); }
-.actionRow > :last-child:not(svg) { margin-left: auto; }
-.status {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 14px 0 10px;
-  border: 1px solid var(--site-piece-line);
-  border-radius: 8px;
-  background: var(--figma-color-bg);
-  color: var(--figma-color-text);
-}
+.paletteInput { width: calc(100% - 52px); }
+.toolbarSlot { position: relative; width: 100%; height: 100%; }
 
 /* ── Image tools ── */
 
@@ -126,24 +86,6 @@
 .imageBg, .imageCut { position: absolute; inset: 0; }
 .imageBg { clip-path: inset(0 0 0 0); transition: clip-path var(--dur-5) var(--ease-standard); }
 .imageBg[data-out] { clip-path: inset(100% 0 0 0); }
-/* Boost resolution: a light passes over the picture once */
-.shine { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
-.shine::before {
-  position: absolute;
-  top: -20%;
-  bottom: -20%;
-  left: 0;
-  width: 40%;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0));
-  content: "";
-  opacity: 0;
-  transform: translate3d(-120%, 0, 0) skewX(-12deg);
-}
-.shine[data-on]::before { animation: shine 1100ms var(--ease-standard) both; }
-@keyframes shine {
-  0% { opacity: 1; transform: translate3d(-120%, 0, 0) skewX(-12deg); }
-  100% { opacity: 1; transform: translate3d(300%, 0, 0) skewX(-12deg); }
-}
 /* While a model works on the picture: a soft band passes over it */
 .scan { position: absolute; inset: 0; overflow: hidden; opacity: 0; transition: opacity var(--dur-2) var(--ease-standard); }
 .scan::before {
@@ -158,60 +100,31 @@
 .scan[data-on] { opacity: 1; }
 .scan[data-on]::before { animation: scan 1400ms cubic-bezier(0.45, 0, 0.55, 1) infinite; }
 @keyframes scan { from { transform: translateY(-100%); } to { transform: translateY(340%); } }
-.imageToolbar { position: absolute; inset: 0; transition: opacity var(--dur-2) var(--ease-standard) 80ms, transform var(--dur-4) var(--ease-spring) 80ms; }
+/* The image toolbar without the bottom toolbar under it: it sits at the slot's foot */
+.imageTools { --ds-toolbar-lift: calc(-1 * (var(--ds-size-toolbar) + var(--ds-space-2))); }
+.imageToolbar { position: absolute; inset: 0; transition: opacity var(--dur-2) var(--ease-standard) 80ms, transform var(--dur-4) var(--ease-out) 80ms; }
 .imageToolbar[data-out] { opacity: 0; transform: translate3d(0, 6px, 0) scale(0.97); transition: opacity var(--dur-1) var(--ease-in), transform var(--dur-1) var(--ease-in); pointer-events: none; }
-/* The toolbar's More menu (the ds menu's look: the dark menu surface in both themes) */
-.menu {
-  display: grid;
-  box-sizing: border-box;
-  padding: var(--ds-size-menu-pad);
-  border-radius: var(--ds-radius-large);
-  background: var(--ds-color-menu-bg);
-  color: var(--ds-color-menu-text, #fff);
-  font: var(--ds-font-menu);
-  letter-spacing: var(--ds-tracking-menu);
-}
-.menu span { position: relative; height: var(--ds-size-menu-item); padding: 0 8px 0 24px; border-radius: var(--ds-radius-medium); line-height: var(--ds-size-menu-item); isolation: isolate; }
-.menu span::before { position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--ds-color-menu-highlight); content: ""; opacity: 0; transition: opacity var(--dur-1) var(--ease-standard); }
-.menu span[data-hover]::before { opacity: 1; }
 .busyLabel { display: inline-flex; align-items: center; gap: 8px; padding: 0 8px; color: var(--figma-color-text); white-space: nowrap; }
 
-/* ── Visual search ── */
+/* ── Visual search: the dialog drawn flat on the stage, its results cut to two rows ── */
 
-.searchHead { position: relative; padding: 12px 12px 8px; border-bottom: 1px solid var(--figma-color-border); }
-.results { position: relative; display: grid; padding: 4px 8px; }
-/* The hover: one wash that glides from result to result */
-.resultsHover {
-  position: absolute;
-  top: 0;
-  right: 8px;
-  left: 8px;
-  height: 72px;
-  border-radius: var(--ds-radius-medium);
-  background: var(--figma-color-bg-selected);
-  opacity: 0;
-  transition: transform var(--dur-4) var(--ease-spring), opacity var(--dur-1) var(--ease-standard);
-}
-.resultsHover[data-on] { opacity: 1; }
-.resultsHeading { display: block; padding: 10px 8px 6px; color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
-.result {
-  display: grid;
-  grid-template-columns: 96px 1fr;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 8px;
-  border-radius: var(--ds-radius-medium);
-}
-.result img { width: 96px; height: 60px; border-radius: 4px; object-fit: cover; }
-.result span { display: grid; gap: 2px; }
-.result small { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
-.result { position: relative; }
-.result, .resultsHeading { transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-4) var(--ease-out); }
-.result[data-out], .resultsHeading[data-out] { opacity: 0; transform: translate3d(0, 8px, 0); }
-.preview { overflow: hidden; background: #f5f5f5; }
-/* The canvas follows the pointer: the next frame cross-fades in, settling from a touch larger */
-.preview img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transform: scale(1.03); transition: opacity var(--dur-3) var(--ease-standard), transform var(--dur-5) var(--ease-out); }
-.preview img[data-on] { opacity: 1; transform: none; }
+.searchDialog [data-ds="Dialog"] { box-shadow: none; border: 1px solid var(--site-piece-line); }
+.searchDialog [data-ds="Dialog"] > div:nth-child(2) { padding: 0; }
+.searchView { min-height: 0; max-height: none; }
+.searchField { position: relative; }
+/* Three across, a shorter thumbnail (the app's are 128 high) */
+.grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.thumb { height: 92px; }
+.thumbLarge { min-height: 0; height: 262px; }
+.thumb img, .thumbLarge img { width: 100%; max-width: none; height: 100%; max-height: none; object-fit: cover; }
+/* Results arrive a group at a time */
+.resultGroup { display: flex; flex-direction: column; gap: var(--ds-space-1); transition: opacity var(--dur-3) var(--ease-out), transform var(--dur-4) var(--ease-out); }
+.resultGroup[data-out] { opacity: 0; transform: translate3d(0, 8px, 0); }
+/* The result under the pointer: the thumbnail's ring and Insert (the app's :hover) */
+.tileHover > button > span { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+.tileHover > div:last-child { display: flex; }
+.appear { animation: appear var(--dur-3) var(--ease-out) both; }
+@keyframes appear { from { opacity: 0; transform: translate3d(0, 6px, 0); } }
 
 /* ── Agents: the screen the agent builds ── */
 
@@ -246,46 +159,15 @@
 .buildButton > i { position: absolute; inset: 0; z-index: -1; background: #2f7d4f; opacity: 0; transition: opacity var(--dur-4) var(--ease-standard); }
 .build[data-colored] .buildButton > i { opacity: 1; }
 
-/* ── Credits ── */
+/* ── Credits: Settings › AI (the settings modal's page, cut to the balance and the providers) ── */
 
-.settings { padding: 8px 0 12px; }
-.settingsHead { padding: 16px 24px 8px; font: var(--ds-font-body-large-strong); letter-spacing: var(--ds-tracking-body-large-strong); }
-.settingsRow { display: flex; align-items: center; justify-content: space-between; min-height: 40px; padding: 0 24px; }
-.settingsField { flex: none; width: 120px; }
-.meter { display: grid; gap: 8px; padding: 8px 24px 12px; }
-.meterBar { position: relative; height: 6px; overflow: hidden; border-radius: 3px; background: var(--figma-color-bg-secondary); }
-.meterBar i { position: absolute; inset: 0; background: var(--figma-color-bg-brand); transform-origin: 0 50%; transition: transform var(--dur-5) var(--ease-standard); }
-.meterText { color: var(--figma-color-text-secondary); font-variant-numeric: tabular-nums; }
-.runs { display: grid; margin: 0 24px 8px; border-top: 1px solid var(--figma-color-border); }
-.runRow, .provider {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  align-items: center;
-  gap: 12px;
-  height: 32px;
-  border-bottom: 1px solid var(--figma-color-border);
-  transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-4) var(--ease-out);
+.settings {
+  padding: 28px 32px 32px;
+  color: var(--figma-color-text);
+  font: var(--ds-font-body-large);
+  letter-spacing: var(--ds-tracking-body-large);
 }
-.runRow[data-out] { opacity: 0; transform: translate3d(0, 6px, 0); }
-/* At rest a pointer wanders over the list: the row under it washes softly */
-.runRow::before, .provider::before {
-  position: absolute;
-  inset: 0 -8px;
-  z-index: -1;
-  border-radius: var(--ds-radius-medium);
-  background: var(--figma-color-bg-hover);
-  content: "";
-  opacity: 0;
-  transition: opacity var(--dur-2) var(--ease-standard);
-}
-.runRow[data-hover]::before, .provider[data-hover]::before { opacity: 1; }
-.runs, .settings { isolation: isolate; }
-.runRoute { color: var(--figma-color-text-secondary); }
-.runCredits { min-width: 72px; text-align: right; font-variant-numeric: tabular-nums; }
-.provider { grid-template-columns: 24px 1fr auto; margin: 0 24px; }
-.provider:last-child { border-bottom: 0; }
-.providerIcon { display: grid; width: 24px; height: 24px; color: var(--figma-color-icon-success, #14ae5c); place-items: center; }
-.providerIcon[data-kind="key"], .providerIcon[data-kind="local"] { color: var(--figma-color-icon-secondary); }
+.settingsDivider { margin: 20px 0; }
+.providerRow { position: relative; z-index: 2; }
 
-.searchField { position: relative; }
+

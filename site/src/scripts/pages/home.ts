@@ -8,6 +8,7 @@ mountScenes({
   components: () => import("../../scenes/features/ComponentsCollage"),
   variables: () => import("../../scenes/features/VariablesCollage"),
   comments: () => import("../../scenes/features/CommentsCollage"),
+  together: () => import("../../scenes/together/TogetherCollage"),
   design: () => import("../../scenes/home/DesignCollage"),
   prototype: () => import("../../scenes/home/PrototypeCollage"),
   devmode: () => import("../../scenes/home/DevModeCollage"),

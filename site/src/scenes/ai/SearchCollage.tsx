@@ -1,97 +1,142 @@
-// Visual search (docs/ai.md §6): a few words typed into search, and the frames of the opened files come back: exact
-// names first, then what looks or reads the same. The canvas follows the result under the pointer.
-import { useLayoutEffect, useRef, useState } from "react";
+// Visual search (docs/ai.md §6): the app's "Visual search" dialog (the ds Dialog, drawn in place, with
+// editor/search/VisualSearch.module.css): a few words typed into "Search by keywords", and the frames and components
+// of the files opened on this computer come back — components first, then "Other designs", what reads or looks the
+// same. A result that shares no word with the search, "Garden store", is clicked and previews larger, with "Open the
+// file" and "Insert".
+import { useRef, useState } from "react";
+import { Button, IconButton } from "@/ds/components/Button";
+import { Dialog } from "@/ds/components/Dialog";
 import { SearchField } from "@/ds/components/SearchField";
-import { Collage, CURSOR, Cursor, FieldCaret, FrameName, Piece, Selection, usePointer } from "../collage/kit";
-import { BEZIER } from "../runtime/easing";
+import { Select } from "@/ds/components/Select";
+import { Tabs } from "@/ds/components/Tabs";
+import vs from "@/editor/search/VisualSearch.module.css";
+import { Collage, CURSOR, Cursor, FieldCaret, Piece, usePointer } from "../collage/kit";
 import { noop } from "../collage/ui";
 import { THUMBS } from "../collage/thumbs";
 import type { Run } from "../runtime/motion";
+import { pointOf } from "../together/pick";
 import styles from "./ai.module.css";
 
 const QUERY = "plant shop";
-const RESULTS: { name: string; file: string; thumb: string; kind: "name" | "like" }[] = [
-  { name: "Plant shop — Home", file: "Bloom — App", thumb: THUMBS.mobile, kind: "name" },
-  { name: "Plant shop — Landing", file: "Bloom — Landing", thumb: THUMBS.landing, kind: "name" },
-  { name: "Garden store", file: "Explorations", thumb: THUMBS.wireframes, kind: "like" },
-  { name: "Florist — Story", file: "Social", thumb: THUMBS.moodboard, kind: "like" },
+interface Hit {
+  name: string;
+  file: string;
+  thumb: string;
+}
+const COMPONENTS: Hit[] = [
+  { name: "Plant card", file: "Bloom — Design system", thumb: THUMBS.system },
+  { name: "Shop header", file: "Bloom — Design system", thumb: THUMBS.brand },
 ];
+const DESIGNS: Hit[] = [
+  { name: "Plant shop — Home", file: "Bloom — App", thumb: THUMBS.mobile },
+  { name: "Garden store", file: "Explorations", thumb: THUMBS.launch },
+  { name: "Florist — Story", file: "Social", thumb: THUMBS.moodboard },
+];
+const PICK = 1;
 
 export default function SearchCollage() {
   const [typed, setTyped] = useState("");
   const [typing, setTyping] = useState(false);
   const [shown, setShown] = useState(0);
-  const [hover, setHover] = useState(-1);
-  const me = usePointer([560, 500]);
+  const [hover, setHover] = useState(false);
+  const [preview, setPreview] = useState(false);
+  const me = usePointer([720, 520]);
   const fieldRef = useRef<HTMLDivElement>(null);
-  const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const [rowTops, setRowTops] = useState<number[]>([]);
-  useLayoutEffect(() => setRowTops(rowRefs.current.map((r) => r?.offsetTop ?? 0)), []);
+  const pickRef = useRef<HTMLDivElement>(null);
 
   const script = async (run: Run) => {
-    await run.wait(800);
+    await run.wait(900);
     setTyping(true);
     await run.type(QUERY, setTyped, 11);
     setTyping(false);
-    await run.wait(240);
-    for (let i = 1; i <= RESULTS.length; i++) {
-      setShown(i);
-      await run.wait(70);
-    }
-    await run.wait(700);
-    // Idle: the pointer wanders down the results, the canvas following each one
-    for (let i = 0; !run.reduced; i = (i + 1) % RESULTS.length) {
-      const y = 41 + (fieldRef.current?.offsetHeight ?? 52) + (rowRefs.current[i]?.offsetTop ?? i * 92) + 40;
-      await me.to(run, [300 + (i % 2) * 18, y], { ms: 900, ease: BEZIER.standard, bend: 0.08 });
-      setHover(i);
-      await run.wait(2000);
-    }
-    setHover(0);
+    await run.wait(400);
+    setShown(1);
+    await run.wait(160);
+    setShown(2);
+    await run.wait(1400);
+    const at = pointOf(pickRef.current?.querySelector("button"), [0.42, 0.55]);
+    if (at) await me.to(run, at, { ms: 900 });
+    setHover(true);
+    await me.click(run, undefined, { beat: 420 });
+    setHover(false);
+    setPreview(true);
   };
 
-  const at = Math.max(0, hover);
+  const tile = (h: Hit, i: number, designs?: boolean) => {
+    const picked = designs && i === PICK;
+    return (
+      <div key={h.name} ref={picked ? pickRef : undefined} className={`${vs.tile} ${picked && hover ? styles.tileHover : ""}`}>
+        <button type="button" className={vs.thumbButton} tabIndex={-1}>
+          <span className={`${vs.thumb} ${styles.thumb}`}>
+            <img src={h.thumb} alt="" />
+          </span>
+        </button>
+        <div className={vs.meta}>
+          <span className={vs.name}>{h.name}</span>
+          <span className={vs.file}>{h.file}</span>
+        </div>
+        <div className={vs.actions}>
+          <Button variant="primary">Insert</Button>
+        </div>
+      </div>
+    );
+  };
+
+  const pick = DESIGNS[PICK];
   return (
-    <Collage size={[860, 560]} focus={[0.47, 0.5]} safe={760} script={script}>
-      <Piece surface x={56} y={40} w={300} h={480} d={0} from="left">
-        <div ref={fieldRef} className={styles.searchHead}>
-          <SearchField value={typed} onChange={noop} placeholder="Search" />
-          <FieldCaret host={fieldRef} text={typed} show={typing || (typed.length > 0 && hover < 0)} typing={typing} />
-        </div>
-        <div className={styles.results}>
-          <span className={styles.resultsHover} data-on={hover >= 0 || undefined} style={{ transform: `translate3d(0, ${rowTops[at] ?? 0}px, 0)` }} />
-          {RESULTS.map((r, i) => (
-            <div key={r.name}>
-              {(i === 0 || r.kind !== RESULTS[i - 1].kind) && (
-                <span className={styles.resultsHeading} data-out={shown <= i || undefined}>
-                  {r.kind === "name" ? "Names" : "Looks similar"}
-                </span>
-              )}
-              <div ref={(el) => void (rowRefs.current[i] = el)} className={styles.result} data-out={shown <= i || undefined}>
-                <img src={r.thumb} alt="" />
-                <span>
-                  {r.name}
-                  <small>{r.file}</small>
-                </span>
+    <Collage size={[860, 560]} focus={[0.5, 0.5]} safe={640} script={script}>
+      <Piece x={110} y={36} w={640} d={0} from="up" className={styles.searchDialog}>
+        <Dialog title="Visual search" size="large" open static onClose={noop}>
+          <div className={`${vs.view} ${styles.searchView}`}>
+            <div className={vs.bar}>
+              <div ref={fieldRef} className={`${vs.field} ${styles.searchField}`}>
+                <SearchField value={typed} onChange={noop} placeholder="Search by keywords" label="Search by keywords" />
+                <FieldCaret host={fieldRef} text={typed} show={!preview} typing={typing} />
               </div>
+              <IconButton icon="24.image" label="Search with image or selection" tooltip={false} />
             </div>
-          ))}
-        </div>
+            <div className={vs.tabs}>
+              <Tabs label="Results" value="figma" tabs={[{ value: "figma", label: "Figma" }]} onChange={noop} />
+              <Select label="Library" value="" width="hug" variant="ghost" options={[{ value: "", label: "All libraries" }]} onChange={noop} />
+            </div>
+            <div className={vs.body}>
+              {preview ? (
+                <div className={`${vs.preview} ${styles.appear}`}>
+                  <div className={vs.previewBar}>
+                    <IconButton icon="24.arrow.left" label="Back" tone="secondary" tooltip={false} />
+                    <span className={vs.name}>{pick.name}</span>
+                    <span className={vs.file}>{pick.file} · Page 1</span>
+                  </div>
+                  <div className={vs.previewBox}>
+                    <span className={`${vs.thumbLarge} ${styles.thumbLarge}`}>
+                      <img src={pick.thumb} alt="" />
+                    </span>
+                  </div>
+                  <div className={vs.previewActions}>
+                    <Button variant="secondary" size="large">
+                      Open the file
+                    </Button>
+                    <Button variant="primary" size="large">
+                      Insert
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className={vs.results}>
+                  <div className={styles.resultGroup} data-out={shown < 1 || undefined}>
+                    <div className={vs.heading}>Components</div>
+                    <div className={`${vs.grid} ${styles.grid}`}>{COMPONENTS.map((h, i) => tile(h, i))}</div>
+                  </div>
+                  <div className={styles.resultGroup} data-out={shown < 2 || undefined}>
+                    <div className={vs.heading}>Other designs</div>
+                    <div className={`${vs.grid} ${styles.grid}`}>{DESIGNS.map((h, i) => tile(h, i, true))}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </Dialog>
       </Piece>
-      <FrameName x={420} y={88}>
-        <span className={styles.swap}>
-          {RESULTS.map((r, i) => (
-            <span key={r.name} data-out={at !== i || undefined}>
-              {r.name}
-            </span>
-          ))}
-        </span>
-      </FrameName>
-      <Piece x={420} y={88} w={380} h={238} d={120} from="fade" className={styles.preview}>
-        {RESULTS.map((r, i) => (
-          <img key={r.name} src={r.thumb} alt="" data-on={at === i || undefined} />
-        ))}
-      </Piece>
-      <Selection box={{ x: 420, y: 88, w: 380, h: 238 }} show={hover >= 0} />
       <Cursor {...me.state} color={CURSOR.ink} d={300} z={30} />
     </Collage>
   );

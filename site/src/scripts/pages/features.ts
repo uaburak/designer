@@ -6,6 +6,7 @@ initPage();
 mountScenes({
   draw: () => import("../../scenes/features/DrawCollage"),
   files: () => import("../../scenes/features/FilesCollage"),
+  workspace: () => import("../../scenes/together/WorkspaceCollage"),
   components: () => import("../../scenes/features/ComponentsCollage"),
   variables: () => import("../../scenes/features/VariablesCollage"),
   comments: () => import("../../scenes/features/CommentsCollage"),

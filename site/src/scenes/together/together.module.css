@@ -1,0 +1,102 @@
+/* Working together: the Share dialog and the header's facepile (the app's own modules, placed on the stage), the
+   file's page on the canvas (fixed colours: it is the file's content), Home's team page and Admin's settings. */
+
+/* ── Together ── */
+
+/* The dialog's card: the share modal's radius (13), no shadow (pieces are flat) */
+.dialog { border-radius: 13px; }
+.shareBody { overflow: visible; }
+.field { position: relative; }
+/* Focused, as the app draws it (:focus-within can't happen: the scene is inert) */
+.field[data-focus] { border-color: var(--figma-color-border-selected); }
+
+.panel { display: flex; }
+
+/* Two things in one place: the new one fades in as the old one leaves */
+.swap { display: inline-grid; align-items: center; }
+.swap > * { grid-area: 1 / 1; transition: opacity var(--dur-2) var(--ease-standard), transform var(--dur-3) var(--ease-out); }
+.swap > [data-out] { opacity: 0; transform: translate3d(4px, 0, 0); pointer-events: none; }
+.newFace { margin-left: 0; }
+
+/* Someone added under "Who has access": the row fades in at its place */
+.added, .online { transition: opacity var(--dur-3) var(--ease-out), transform var(--dur-4) var(--ease-out); }
+.added[data-out] { opacity: 0; transform: translate3d(0, 6px, 0); }
+.online[data-out] { opacity: 0; }
+
+/* The file's page */
+.site {
+  overflow: hidden;
+  background: #fff;
+  color: #14161a;
+  font: 400 13px/1.4 Inter, sans-serif;
+  letter-spacing: 0;
+}
+.siteNav { position: absolute; top: 24px; right: 32px; left: 32px; display: flex; gap: 22px; align-items: center; color: #5b6170; }
+.siteLogo { margin-right: auto; color: #14161a; font: 800 17px/1 Inter, sans-serif; letter-spacing: -0.5px; }
+.siteHero { position: absolute; top: 112px; left: 32px; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; width: 300px; }
+.siteTitle { position: relative; min-height: 37px; font: 700 34px/1.08 Inter, sans-serif; letter-spacing: -1px; }
+.siteSub { color: #5b6170; font-size: 14px; }
+.siteButton { margin-top: 10px; padding: 10px 16px; border-radius: 8px; background: #4b3ff2; color: #fff; font-weight: 600; }
+.siteArt { position: absolute; top: 96px; right: 32px; width: 220px; height: 240px; border-radius: 14px; background: #eeecff; }
+.siteArt > i { position: absolute; left: 22px; height: 30px; border-radius: 8px; background: #fff; }
+.siteArt > i:nth-child(1) { top: 28px; width: 150px; }
+.siteArt > i:nth-child(2) { top: 72px; width: 176px; }
+.siteArt > i:nth-child(3) { top: 116px; width: 120px; background: #c9c4ff; }
+
+/* Another person's selection and caret: in their colour */
+.peerSelection {
+  position: absolute;
+  inset: -3px -4px;
+  border: 1px solid var(--c);
+  opacity: 0;
+  transition: opacity 80ms linear;
+  pointer-events: none;
+}
+.peerSelection[data-on] { opacity: 1; }
+.peerCaret {
+  display: inline-block;
+  width: 2px;
+  height: 34px;
+  margin-left: 1px;
+  vertical-align: -6px;
+  background: var(--c);
+  animation: blink 1060ms steps(1, end) infinite;
+}
+.peerCaret[data-typing] { animation: none; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* ── Workspace ── */
+
+/* Home, cut to the sidebar and a team's page (the app's grid, the window's full height) */
+.home {
+  display: grid;
+  grid-template-columns: var(--ds-size-home-sidebar) minmax(0, 1fr);
+  height: 100%;
+  overflow: hidden;
+  background: var(--figma-color-bg);
+  color: var(--figma-color-text);
+  font: var(--ds-font-body-large);
+  letter-spacing: var(--ds-tracking-body-large);
+}
+.home nav { overflow: hidden; }
+.content { padding: var(--ds-space-6) var(--ds-space-6) 0; overflow: visible; }
+/* A member's role, its list open over the rows under it */
+.memberRow { position: relative; }
+.memberRow[data-open] { z-index: 2; }
+
+/* Admin › Settings, a glance */
+.admin { padding: var(--ds-space-5) var(--ds-space-5) var(--ds-space-2); }
+.adminHead { display: flex; align-items: center; gap: var(--ds-space-2); margin-bottom: var(--ds-space-4); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+.adminHead strong { color: var(--figma-color-text); font: var(--ds-font-body-large-strong); letter-spacing: var(--ds-tracking-body-large-strong); }
+.admin section { max-width: none; margin-bottom: var(--ds-space-3); }
+.admin section:last-child { margin-bottom: 0; }
+.admin section > div:last-child { border-bottom: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .swap > *, .added, .online, .peerSelection { transition: none; }
+  .peerCaret { animation: none; }
+}
+
+/* A Select's list open over its field, the chosen option on the field (the ds lays it there when it opens; drawn
+   `static` it would hang under the field). --over: how far above the field the list starts. */
+.overField [role="listbox"] { top: calc(-1 * var(--over, 0px)) !important; right: -8px; left: auto !important; margin-top: 0 !important; }

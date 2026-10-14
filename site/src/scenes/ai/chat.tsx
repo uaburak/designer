@@ -5,7 +5,7 @@ import { Icon } from "@/ds/icons/Icon";
 import { cx } from "@/ds/util/cx";
 import agents from "@/editor/panels/agents/Agents.module.css";
 import { toolLabel } from "@/editor/agents/service";
-import { BEZIER, css, SPRING, springEasing } from "../runtime/easing";
+import { BEZIER, css } from "../runtime/easing";
 import { prefersReduced } from "../runtime/reduced";
 import styles from "./ai.module.css";
 
@@ -13,13 +13,13 @@ export { agents };
 
 /**
  * The chat's motion: what's added rises in (each new block, once), and the conversation, anchored at the bottom, slides
- * up to make room instead of jumping (FLIP on the inner column: its layout moves once, a transform eases it there).
+ * up to make room instead of jumping (FLIP on the inner column: its layout moves once, a transform eases it there,
+ * without overshoot).
  */
 function useChatMotion(inner: { current: HTMLDivElement | null }) {
   useEffect(() => {
     const el = inner.current;
     if (!el || prefersReduced() || typeof el.animate !== "function") return;
-    const spring = springEasing(SPRING.gentle);
     let top = el.offsetTop;
     let slide: Animation | null = null;
     const ro = new ResizeObserver(() => {
@@ -31,7 +31,7 @@ function useChatMotion(inner: { current: HTMLDivElement | null }) {
         slide.cancel();
       }
       if (Math.abs(dy) < 0.5) return;
-      slide = el.animate([{ translate: `0 ${dy}px` }, { translate: "0 0" }], { duration: spring.duration, easing: spring.easing });
+      slide = el.animate([{ translate: `0 ${dy}px` }, { translate: "0 0" }], { duration: 560, easing: css(BEZIER.out) });
     });
     ro.observe(el);
     const mo = new MutationObserver((records) => {
