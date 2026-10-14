@@ -102,6 +102,7 @@ Each AI row has an "AI" badge (Learn more). The "Visual search (AI beta)" button
     - Every provider reaches them **through our MCP server as a proxy** (tools named `‹connector›__‹tool›`), so consent works the same for every CLI.
     - Each tool has a policy, Allow / Ask / Off. Ask shows a consent card in the chat: "Allow once", "Always allow", "Deny".
     - Connectors are enabled per chat. The MCP client is hand-written, like `mcpServer.ts`. No OAuth this round (open question 5).
+    - Agents' own reach — the web, GitHub, local files and local apps, with the same Allow / Ask / Off consent per capability — is `docs/agents-reach.md` (round 16 [ours]).
 12. **Org policy.** `OrgSettings` gains `aiEnabled` (default true) and `aiCreditLimit` (per person per month, null = none), set in Admin › Settings › AI. When AI is off for the file's org, the AI rows are disabled.
 
 ## 3. Actions: prompts, schemas, apply (6a)
