@@ -197,6 +197,29 @@ TEST_CASE("stroker: caps, joins, dashes") {
   s.cap = StrokeCap::NONE;
   s.dashes = {10, 10};
   CHECK(std::fabs(test::sampledArea(strokePath(line, s, 0.05), false, 0.1) - 500) < 3);
+  // A dashed contour far too long to dash (a component set 2.2e9 px tall, grown in an auto-layout flow): drawn
+  // solid at once instead of tessellating ~3e8 dashes (the editor ran out of memory opening such a file).
+  {
+    Path huge;
+    huge.moveTo({0, 0});
+    huge.lineTo({160, 0});
+    huge.lineTo({160, 2.2401e9});
+    huge.lineTo({0, 2.2401e9});
+    huge.close();
+    StrokeStyle d;
+    d.width = 1;
+    d.dashes = {10, 5};
+    for (bool fit : {true, false}) {
+      d.fitDashes = fit;
+      Path out = strokePath(huge, d, 0.25);
+      CHECK(out.verbs.size() < 100);
+    }
+    Path longLine;
+    longLine.moveTo({0, 0});
+    longLine.lineTo({0, 1e10});
+    Path out = strokePath(longLine, d, 0.25);
+    CHECK(out.verbs.size() < 100);
+  }
   s.dashes.clear();
   // A right-angle corner: miter fills the corner square, bevel cuts half of it, round a quarter circle.
   Path corner;

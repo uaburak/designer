@@ -79,12 +79,26 @@ std::vector<Line> flattenWithCorners(const Path& path, double tol) {
   return out;
 }
 
+// More dashes than this on one contour are drawn as a solid stroke: a layer millions of px long (a component set an
+// auto-layout flow kept growing, say) would otherwise tessellate a dash per pattern period — billions of them, the
+// tab's memory gone before the first frame. At any zoom where such a contour fits the view its dashes are far below
+// a pixel, so solid is what shows anyway.
+constexpr double kMaxDashesPerContour = 100000;
+
+double contourLength(const Line& line) {
+  double len = 0;
+  for (size_t i = 1; i < line.pts.size(); i++) len += (line.pts[i] - line.pts[i - 1]).length();
+  if (line.closed && line.pts.size() > 1) len += (line.pts.front() - line.pts.back()).length();
+  return len;
+}
+
 // The dashes of a contour as open lines (by arc length; the pattern restarts at each contour).
 std::vector<Line> dash(const Line& line, const std::vector<double>& pattern) {
   std::vector<Line> out;
   double total = 0;
   for (double d : pattern) total += std::max(0.0, d);
   if (pattern.empty() || total <= 0) return {line};
+  if (!(contourLength(line) / total <= kMaxDashesPerContour)) return {line};
   std::vector<Vec2> pts = line.pts;
   std::vector<bool> corner = line.corner;
   if (line.closed && !pts.empty()) {
@@ -170,6 +184,7 @@ std::vector<Line> fittedDash(const Line& line, const std::vector<double>& patter
   for (double d : pattern) period += std::max(0.0, d);
   size_t n = line.pts.size();
   if (pattern.empty() || period <= 0 || n < 2) return {line};
+  if (!(contourLength(line) / period <= kMaxDashesPerContour)) return {line};
   if (!line.closed) {
     // A straight open line (Figma's exports of dashed lines): the pattern fitted to its length the same way, half a
     // dash at each end. Other open paths dash continuously from their start (unverified).
