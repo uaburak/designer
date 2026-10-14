@@ -10,20 +10,27 @@ import { prefersReduced } from "./reduced";
 import { onFrame } from "./ticker";
 
 /** How far the drawn cursor closes on the pointer per 60 Hz frame. */
-export const FOLLOW = 0.32;
+export const FOLLOW = 0.5;
 
 const CSS = `
 .you-cursor { position: fixed; top: 0; left: 0; z-index: 60; width: 0; height: 0; pointer-events: none; }
-.you-cursor > span { position: absolute; top: 0; left: 0; display: block; opacity: 0; transform: scale(0.8); transform-origin: 0 0;
-  transition: opacity 200ms var(--ease-out, ease-out), transform 360ms var(--ease-out, ease-out); }
-.you-cursor[data-on] > span { opacity: 1; transform: none; }
+/* The hand-off is seamless: the drawn arrow shows at once, on the pointer, as the page's own black arrow (the same art,
+   tip and shadow), then turns the visitor's colour while the "You" pill slides out; leaving, it hides at once and the
+   identical system arrow is there — no blink, no second cursor */
+.you-cursor > span { position: absolute; top: 0; left: 0; display: block; visibility: hidden; }
+.you-cursor[data-on] > span { visibility: visible; }
 .you-cursor svg { position: absolute; top: -${TIP[1]}px; left: -${TIP[0]}px; display: block; filter: ${SHADOW}; transform-origin: ${TIP[0]}px ${TIP[1]}px;
   transition: scale var(--dur-spring-snap, 300ms) var(--ease-spring-snap, ease-out); }
+.you-cursor svg .fill { fill: #000; transition: fill 0s; }
+.you-cursor[data-on] svg .fill { fill: ${YOU}; transition: fill 260ms var(--ease-out, ease-out) 40ms; }
 .you-cursor[data-press] svg { scale: 0.92; transition: scale 90ms var(--ease-out, ease-out); }
 .you-cursor b { position: absolute; top: 13px; left: 12px; padding: 1px 4px; border-radius: 2px; background: ${YOU}; color: #fff;
-  box-shadow: 0 1px 1.5px rgba(0, 0, 0, 0.1); font: 550 11px/16px var(--site-font, Inter, sans-serif); letter-spacing: 0.005em; white-space: nowrap; }
+  box-shadow: 0 1px 1.5px rgba(0, 0, 0, 0.1); font: 550 11px/16px var(--site-font, Inter, sans-serif); letter-spacing: 0.005em; white-space: nowrap;
+  opacity: 0; transform: translate(-4px, -4px) scale(0.6); transform-origin: 0 0; transition: none; }
+.you-cursor[data-on] b { opacity: 1; transform: none;
+  transition: opacity 180ms var(--ease-out, ease-out) 60ms, transform 360ms var(--ease-spring-snap, cubic-bezier(0.34, 1.4, 0.64, 1)) 60ms; }
 [data-you-tile], [data-you-tile] * { cursor: none !important; }
-@media (prefers-reduced-motion: reduce) { .you-cursor > span, .you-cursor svg { transition: none !important; } }
+@media (prefers-reduced-motion: reduce) { .you-cursor svg, .you-cursor svg .fill, .you-cursor b { transition: none !important; } }
 `;
 
 /** Shows the "You" cursor over every tile in `tiles`. Returns a function that removes it. */
@@ -36,7 +43,8 @@ export function initVisitorCursor(tiles: Iterable<HTMLElement>): () => void {
   const el = document.createElement("div");
   el.className = "you-cursor";
   el.setAttribute("aria-hidden", "true");
-  el.innerHTML = `<span>${arrowSvg(YOU)}<b>You</b></span>`;
+  // The fill is CSS's (black, then the visitor's colour): the same art as the page's pointer
+  el.innerHTML = `<span>${arrowSvg(YOU).replace(`fill="${YOU}"`, 'class="fill"')}<b>You</b></span>`;
   document.body.appendChild(el);
 
   let pos: Point = [0, 0];
