@@ -314,9 +314,9 @@ export class McpServer {
     }
   }
 
-  /** A chat session's connectors' tools (none for outside clients); a failing host lists none. */
+  /** A chat session's connectors' and reach tools (none for outside clients); a failing host lists none. */
   private async extraTools(session: McpSession): Promise<ExtraTool[]> {
-    if (!session.chat?.connectors?.length || !this.host.extraTools) return [];
+    if (!session.chat || !this.host.extraTools) return [];
     return this.host.extraTools(session).catch(() => []);
   }
 

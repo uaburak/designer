@@ -220,7 +220,7 @@ function ChatView({ service, chat }: { service: AgentsService; chat: Chat | null
         ) : (
           chat.messages.map((m) => (m.role === "user" ? <UserMessage key={m.id} m={m} /> : <AgentMessage key={m.id} m={m} service={service} />))
         )}
-        {running && chat && state.consents.filter((c) => c.turnId === state.running[chat.id]).map((c) => <ConsentCard key={c.reqId} c={c} service={service} />)}
+        {running && chat && state.consents.filter((c) => (c.chatId ? c.chatId === chat.id : c.turnId === state.running[chat.id])).map((c) => (c.access ? <AccessCard key={c.reqId} c={c} service={service} /> : <ConsentCard key={c.reqId} c={c} service={service} />))}
       </div>
       <Composer service={service} chat={chat} running={running} />
     </div>
@@ -344,6 +344,53 @@ function ConsentCard({ c, service }: { c: ConnectorConsent; service: AgentsServi
           {t("Deny")}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Agents' reach asks first (docs/agents-reach.md §3): "Agent wants to open a web page", the target, "Allow once",
+ * "Always allow", "Deny" — or, for Local apps, the window picker: the owner's click on a window is the consent.
+ */
+function AccessCard({ c, service }: { c: ConnectorConsent; service: AgentsService }) {
+  useT();
+  const a = c.access!;
+  const title = t("Agent wants to {action}", { action: t(a.action) });
+  return (
+    <div className={styles.consent} role="alertdialog" aria-label={title} data-consent={c.reqId} data-access-consent={a.capability}>
+      <p className={styles.consentTitle}>{title}</p>
+      <span className={styles.consentMeta}>{c.connector} · {c.tool}</span>
+      {a.target && <pre className={styles.consentArgs}>{a.target}</pre>}
+      {a.windows ? (
+        <>
+          {!a.windows.length && <p className={styles.consentMeta}>{t("No windows to pick: open the app and ask again.")}</p>}
+          <div className={styles.windowGrid}>
+            {a.windows.map((w) => (
+              <button key={w.id} type="button" className={styles.windowTile} onClick={() => service.answerConsent(c.reqId, true, false, w.id)} data-window-pick={w.id}>
+                <img className={styles.windowThumb} src={w.thumb} alt="" />
+                <span className={styles.windowName}>{w.name}</span>
+              </button>
+            ))}
+          </div>
+          <div className={styles.actions}>
+            <Button variant="secondary" onClick={() => service.answerConsent(c.reqId, false)} data-consent-deny="">
+              {t("Deny")}
+            </Button>
+          </div>
+        </>
+      ) : (
+        <div className={styles.actions}>
+          <Button variant="primary" onClick={() => service.answerConsent(c.reqId, true)} data-consent-once="">
+            {t("Allow once")}
+          </Button>
+          <Button variant="secondary" onClick={() => service.answerConsent(c.reqId, true, true)} data-consent-always="">
+            {t("Always allow")}
+          </Button>
+          <Button variant="secondary" onClick={() => service.answerConsent(c.reqId, false)} data-consent-deny="">
+            {t("Deny")}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

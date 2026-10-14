@@ -4,7 +4,7 @@ The owner, 2026-10-15: "When I say 'go look at this site and make its design', i
 
 Figma's agents reach outside the file only through MCP connectors (docs/ai.md §2.11) and Figma Make's own fetch; Figma has no settings page that lets its agents browse, read a repository or look at another app. **Everything in this contract is [ours]** unless a line says otherwise. The words follow Figma's connectors (Allow / Ask / Off, the consent card's "Allow once", "Always allow", "Deny").
 
-Shared types and the rules that decide: `src/shared/agents/reach.ts` (capabilities, policies, settings, tools, the untrusted-data wrapper, limits), `src/shared/agents/reachNet.ts` (the URL and address rules), `src/shared/agents/reachPaths.ts` (the path rules). Main's side: `src/main/agents/reach/`.
+Shared types and the rules that decide: `src/shared/agents/reach.ts` (capabilities, policies, settings, tools, the untrusted-data wrapper, limits), `src/shared/agents/reachNet.ts` (the URL and address rules), `src/main/agents/reach/paths.ts` (the path rules). Main's side: `src/main/agents/reach/`.
 
 ## 1. Capabilities
 
@@ -77,7 +77,7 @@ Each call opens its own hidden window (`BrowserWindow`, `show: false`, offscreen
 `checkWebUrl(url, allowedHosts)` (reachNet.ts), then main resolves the host (`dns.lookup`, all addresses) and checks every address again:
 - schemes: `http:` and `https:` for pages; a page's own `data:` and `blob:` subresources are allowed; `file:`, `chrome:`, `devtools:`, `javascript:`, `about:` (but `about:blank`), `view-source:` and everything else refused;
 - refused hosts and addresses unless allowed: `localhost` and `*.localhost`, `*.local`, `*.internal`; IPv4 `0.0.0.0/8`, `10/8`, `100.64/10`, `127/8`, `169.254/16` (cloud metadata), `172.16/12`, `192.0.0/24`, `192.168/16`, `198.18/15`, `224/4` and above; IPv6 `::`, `::1`, `fc00::/7`, `fe80::/10`, `ff00::/8` and IPv4-mapped / -compatible forms of the IPv4 ranges; numeric host tricks (decimal, octal, hex IPv4) read as the address they are;
-- **Allowed local addresses** (§2) are matched as `host` or `host:port`, exactly; an allowed host's other ports stay refused;
+- **Allowed local addresses** (§2) are matched exactly: `host` allows any port of that host, `host:port` only that port;
 - user info in the URL (`https://a:b@host`) is refused; ports are any.
 
 What is left: a host whose DNS answer changes between our check and Chromium's own lookup (DNS rebinding in the gap). Requests are checked again as they are made, each host's answer kept for the call; the gap is a few milliseconds and the page gets no cookies or secrets. Accepted.
@@ -134,7 +134,7 @@ Each reach call — run, denied, refused or failed — is one line: `{at, capabi
 
 ### 10.2 Every path
 
-`resolveGrantedPath(path, grants)` (reachPaths.ts) and main's check: the path (absolute, or relative to the only grant) is made real (`realpathSync`, so `..` and symlinks resolve) and must be inside a granted folder's real path; then the **deny list**, on every part of the real path: `.ssh`, `.gnupg`, `.aws`, `.azure`, `.kube`, `.docker`, `.config/gh`, `.netrc`, `.npmrc`, `.pypirc`, `.git-credentials`, `Keychains`, `.password-store`, browser profiles (`Library/Application Support/Google/Chrome`, `…/Firefox`, `…/BraveSoftware`, `…/Microsoft Edge`, `Library/Safari`, `Library/Cookies`), `.env` and `.env.*`, names containing `credential`, `secret` or `password`, `id_rsa*`, `id_ed25519*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.keystore`, `*.kdbx`, and `.git` internals. A denied path answers "This path is off limits" — never its content or whether it exists.
+`resolveGrantedPath(path, grants)` (`src/main/agents/reach/paths.ts`) and main's check: the path (absolute, or relative to the only grant) is made real (`realpathSync`, so `..` and symlinks resolve) and must be inside a granted folder's real path; then the **deny list**, on every part of the real path: `.ssh`, `.gnupg`, `.aws`, `.azure`, `.kube`, `.docker`, `.config/gh`, `.netrc`, `.npmrc`, `.pypirc`, `.git-credentials`, `Keychains`, `.password-store`, browser profiles (`Library/Application Support/Google/Chrome`, `…/Firefox`, `…/BraveSoftware`, `…/Microsoft Edge`, `Library/Safari`, `Library/Cookies`), `.env` and `.env.*`, names containing `credential`, `secret` or `password`, `id_rsa*`, `id_ed25519*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.keystore`, `*.kdbx`, and `.git` internals. A denied path answers "This path is off limits" — never its content or whether it exists.
 
 ### 10.3 The tools
 

@@ -126,7 +126,7 @@ export function settingsOf(row: Pick<OrgRow, "settings"> | null): OrgSettings {
   } catch {
     // defaults
   }
-  return { ...DEFAULT_ORG_SETTINGS, ...s, seatApproval: { ...DEFAULT_ORG_SETTINGS.seatApproval, ...(s.seatApproval ?? {}) } };
+  return { ...DEFAULT_ORG_SETTINGS, ...s, seatApproval: { ...DEFAULT_ORG_SETTINGS.seatApproval, ...(s.seatApproval ?? {}) }, agentAccess: { ...DEFAULT_ORG_SETTINGS.agentAccess, ...(s.agentAccess ?? {}) } };
 }
 
 /** Rows of one principal kind into `Grant`s */

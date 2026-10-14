@@ -2,7 +2,7 @@
  * Admin (docs/multiplayer.md §14.12 "Admin"; `/orgs/:org/admin/…`): org admins; workspace admins for their
  * workspaces' people and teams; billing group admins for their groups' people and seat requests.
  */
-import type { AddPeopleInput, AdminDashboard, AdminPerson, AdminTeam, BillingGroup, GuestRequest, OrgRole, OrgSettings, OrgWorkspace, Seat, UnassignedDrafts, UpdatePeopleInput, WorkspacePatch } from "../../../src/shared/org/types";
+import { DEFAULT_ORG_SETTINGS, type AddPeopleInput, type AdminDashboard, type AdminPerson, type AdminTeam, type BillingGroup, type GuestRequest, type OrgRole, type OrgSettings, type OrgWorkspace, type Seat, type UnassignedDrafts, type UpdatePeopleInput, type WorkspacePatch } from "../../../src/shared/org/types";
 import { ACTIVITY_CSV_HEADER, activityCsvRows, activityPage, fileEntity, logActivity, projectEntity, teamEntity, userEntity, workspaceEntity, type Entity } from "../activity";
 import { normalizeEmail } from "../db";
 import { notifyOrg, orgNotice, settleOrg } from "../notifications";
@@ -815,6 +815,12 @@ async function patchSettings(ctx: Ctx, orgId: string, patch: Partial<OrgSettings
   // Round 6 (docs/ai.md §2.12): Settings › AI
   pick("aiEnabled", bool);
   pick("aiCreditLimit", (v) => v === null || (typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= AI_CREDIT_LIMIT_MAX), ` is null or 0–${AI_CREDIT_LIMIT_MAX} credits`);
+  // Round 16 [ours] (docs/agents-reach.md §3): agent access switches, any of the four, merged over what is set
+  if (patch.agentAccess !== undefined) {
+    const a = patch.agentAccess as unknown;
+    if (!a || typeof a !== "object" || Array.isArray(a) || Object.entries(a).some(([k, v]) => !["web", "github", "files", "apps"].includes(k) || typeof v !== "boolean")) throw new HttpError(400, "agentAccess is {web, github, files, apps} switches");
+    next.agentAccess = { ...DEFAULT_ORG_SETTINGS.agentAccess, ...before.agentAccess, ...(a as Partial<OrgSettings["agentAccess"]>) };
+  }
   // Round 14 (docs/governance.md §2.4, §2.7, §2.11, §2.13): Governance+'s settings
   pick("twoFactorForGuests", bool);
   pick("guestExpiryDays", (v) => v === null || (typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= GUEST_EXPIRY_MAX_DAYS), ` is null or 1–${GUEST_EXPIRY_MAX_DAYS} days`);
@@ -875,7 +881,7 @@ async function patchSettings(ctx: Ctx, orgId: string, patch: Partial<OrgSettings
     if (keys.length) await log(next[approval] === "approved" ? on : off, [...keys]);
   }
   // AI (docs/ai.md §2.12): ours — Figma's action for it is unpublished
-  const aiKeys = (["aiEnabled", "aiCreditLimit"] as const).filter(changed);
+  const aiKeys = (["aiEnabled", "aiCreditLimit", "agentAccess"] as const).filter(changed);
   if (aiKeys.length) await log("org_ai_setting_change", [...aiKeys]);
   const sharingKeys = (["publicLinks", "passwordRequired", "linkExpiryMaxHours"] as const).filter(changed);
   if (sharingKeys.length) await log("public_link_setting_change", [...sharingKeys]);

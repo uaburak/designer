@@ -41,6 +41,14 @@ type Editing =
 /** Enterprise installer › Download (docs/desktop.md §12.5): there is no hosted build */
 export const INSTALLER_TOOLTIP = "Built with npm run dist:msi";
 
+/** Admin › Settings › AI's agent access switches (docs/agents-reach.md §3): a switch off forces it off for members. */
+const AGENT_ACCESS_ROWS: [keyof OrgSettings["agentAccess"], string, string][] = [
+  ["web", "Agents can open web pages", "Members' agents may open public web pages and capture their design."],
+  ["github", "Agents can read GitHub", "Members' agents may read the GitHub repositories each member picks."],
+  ["files", "Agents can read local files", "Members' agents may read the folders each member grants on their computer."],
+  ["apps", "Agents can see app windows", "Members' agents may see a window of another app that the member picks."],
+];
+
 export function SettingsTab() {
   useT();
   const { orgId, store, run } = useAdmin();
@@ -231,6 +239,13 @@ export function SettingsTab() {
           control={<Switch label={t("AI features")} checked={s.aiEnabled} onChange={(on) => void save({ aiEnabled: on }, on ? "AI features turned on" : "AI features turned off")} />}
         />
         <Row id="aiCreditLimit" label={t("AI credit limit")} description={t("The AI credits each member can use a month.")} value={creditLimitSummary(s)} disabled={!s.aiEnabled} onChange={() => setEditing("aiCreditLimit")} />
+        {/* Round 16 [ours] (docs/agents-reach.md §3): what members' agents may reach outside the file */}
+        {AGENT_ACCESS_ROWS.map(([cap, label, description]) => (
+          <Row
+            key={cap} id={`agentAccess.${cap}`} label={label} description={description} disabled={!s.aiEnabled}
+            control={<Switch label={t(label)} checked={s.agentAccess?.[cap] !== false} disabled={!s.aiEnabled} onChange={(on) => void save({ agentAccess: { ...s.agentAccess, [cap]: on } }, on ? "Agent access turned on" : "Agent access turned off")} />}
+          />
+        ))}
       </Group>
 
       <Group title={t("Plan access tokens")}>

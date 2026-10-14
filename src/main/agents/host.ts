@@ -12,6 +12,12 @@ import { cleanManagerSettings, cleanManagerTools } from "../../shared/agents/man
 import type { ManagerSettings } from "../../shared/studio/types";
 import type { Connector, ConnectorConsent, ConnectorToolPolicy } from "../../shared/ai/types";
 import { ConnectorHub, type ConsentAnswer, type StoredConnector } from "./connectors";
+import { ReachHub, type ReachConsentRequest, type ReachRunner } from "./reach/hub";
+import { ReachStore } from "./reach/store";
+import { orgForcedOff } from "./reach/org";
+import { grantProblem, isDeniedPath } from "./reach/paths";
+import { REACH_NOTE, REACH_SKILLS, isReachPolicy, isRepoName, type AccessLogEntry, type ReachCapability, type ReachPatch, type ReachView } from "../../shared/agents/reach";
+import { normalizeAllowedHost } from "../../shared/agents/reachNet";
 import { aiSettings } from "../ai/settings";
 import { ledgerBalance } from "../ai/ledger";
 import { overLimit } from "../ai/run";
@@ -221,6 +227,11 @@ function runToolInView(fileKey: string, call0: Omit<ToolCall, "reqId">): Promise
 async function runAnyTool(fileKey: string, call: Omit<ToolCall, "reqId">): Promise<ToolResult> {
   if (call.name === "get_skill") return getSkill(String(call.args?.name ?? ""));
   const t = call.turnId ? turns.get(call.turnId) : undefined;
+  // Agents' reach (docs/agents-reach.md): through the gate, for the Agents tab's chats only.
+  if (reachHub().has(call.name)) {
+    if (!t) return textResult(`${call.name} works only in Wecra's Agents chats.`, true);
+    return reachHub().call({ turnId: t.id, chatId: t.chatId, fileKey: t.fileKey, agent: call.client }, call.name, call.args ?? {});
+  }
   if (t && hub?.has(t.connectors, call.name)) return hub.call(t.connectors, call.name, call.args ?? {}, t.id);
   // The manager's tools are for its own turns (docs/studio.md §2.2): a worker (or anyone else) is refused here too.
   if (t?.role !== "manager" && (MANAGER_TOOL_NAMES.has(call.name) || isManagerOnly(call.name))) return textResult(`${call.name} is the manager's tool: a task can't call it.`, true);
@@ -234,6 +245,12 @@ const isManagerOnly = (name: string) => managerOnlyNames.has(name);
 /** `get_skill {name}`: an enabled Skill's instructions, from the store (6g's skills; docs/ai.md §2.10). */
 async function getSkill(name: string): Promise<ToolResult> {
   const wanted = name.trim().replace(/^\//, "").toLowerCase();
+  // The built-in skills of agents' reach (docs/agents-reach.md §6.3), while their capability is on.
+  const builtIn = REACH_SKILLS.find((s) => s.name === wanted);
+  if (builtIn) {
+    const on = await reachHub().on();
+    if (builtIn.capabilities.some((c) => on.includes(c))) return textResult(`<skill name="${builtIn.name}">\n${builtIn.instructions}\n</skill>`);
+  }
   try {
     const skills = await (await readyStore()).ai.skills();
     const s = skills.find((k) => k.enabled && k.name === wanted);
@@ -288,9 +305,80 @@ function askConsent(c: Omit<ConnectorConsent, "reqId">): Promise<ConsentAnswer> 
   return new Promise((resolve) => {
     const timer = setTimeout(() => settleConsent(reqId, { allow: false }), 5 * 60_000);
     consents.set(reqId, { resolve, sender: t.sender.id, turnId: t.id, timer });
-    t.sender.send("agents:consent", { reqId, ...c } satisfies ConnectorConsent);
+    t.sender.send("agents:consent", { reqId, chatId: t.chatId, ...c } satisfies ConnectorConsent);
   });
 }
+
+// ── Agents' reach (docs/agents-reach.md): Agent settings › Access, the gate, the runners ──
+
+const CAPABILITY_LABEL: Record<ReachCapability, string> = { web: "Web", github: "GitHub", files: "Local files", apps: "Local apps" };
+let reachStore: ReachStore | null = null;
+const reachStoreOf = () => (reachStore ??= new ReachStore(dir()));
+/** The capabilities' runners, each phase's (web.ts, github.ts, files.ts, apps.ts): a capability without one isn't listed */
+const reachRunners: Partial<Record<ReachCapability, ReachRunner>> = {};
+let reach: ReachHub | null = null;
+
+function reachHub(): ReachHub {
+  reach ??= new ReachHub({
+    settings: () => reachStoreOf().settings(),
+    setPolicy: (cap, policy) => {
+      const s = reachStoreOf().settings();
+      s.policies[cap] = policy;
+      reachStoreOf().saveSettings(s);
+    },
+    forcedOff: () => orgForcedOff(),
+    ask: (req) => askAccess(req),
+    log: (e) => reachStoreOf().append(e),
+    runners: reachRunners,
+  });
+  return reach;
+}
+
+/** A reach capability's consent card (or, for Local apps, its window picker) in the turn's chat. */
+function askAccess(req: ReachConsentRequest): Promise<ConsentAnswer> {
+  return askConsent({ turnId: req.turnId, connectorId: `access:${req.access.capability}`, connector: tr(CAPABILITY_LABEL[req.access.capability]), tool: req.tool, args: req.args, access: req.access });
+}
+
+/** Phase-specific parts of the Access page's view (GitHub's connection, the Screen Recording permission). */
+const reachExtras: { github?: () => Promise<ReachView["github"]>; screen?: () => ReachView["screenPermission"] } = {};
+
+export async function accessView(): Promise<ReachView> {
+  return {
+    settings: reachStoreOf().settings(),
+    forcedOff: await orgForcedOff().catch(() => []),
+    github: (await reachExtras.github?.().catch(() => null)) ?? { connected: false, login: null, via: null, deviceFlow: false },
+    screenPermission: reachExtras.screen?.() ?? "unknown",
+  };
+}
+
+/** A change from Agent settings › Access, checked here again; folders only shrink (they are added with the picker). */
+export function setAccess(patch: ReachPatch): Promise<ReachView> {
+  const s = reachStoreOf().settings();
+  for (const [cap, p] of Object.entries(patch?.policies ?? {})) if (cap in s.policies && isReachPolicy(p)) s.policies[cap as ReachCapability] = p;
+  if (Array.isArray(patch?.allowedHosts)) s.web.allowedHosts = [...new Set(patch.allowedHosts.flatMap((h) => normalizeAllowedHost(String(h)) ?? []))];
+  if (Array.isArray(patch?.repos)) s.github.repos = [...new Set(patch.repos.filter(isRepoName))];
+  if (Array.isArray(patch?.folders)) s.files.folders = s.files.folders.filter((f) => patch.folders!.includes(f));
+  reachStoreOf().saveSettings(s);
+  return accessView();
+}
+
+/** Add folder…: main's picker, the folder's real path granted (read-only) unless it is too wide or may hold secrets. */
+export async function addAccessFolder(sender: WebContents): Promise<ReachView> {
+  const win = windowOf(sender);
+  const options: Electron.OpenDialogOptions = { title: tr("Add a folder agents can read"), buttonLabel: tr("Add folder"), properties: ["openDirectory"] };
+  const picked = win ? await dialog.showOpenDialog(win as unknown as Electron.BrowserWindow, options) : await dialog.showOpenDialog(options);
+  if (picked.canceled || !picked.filePaths[0]) return accessView();
+  const real = realpathSync(picked.filePaths[0]);
+  const problem = grantProblem(real) ?? (isDeniedPath(real) ? "That folder may hold secrets and can't be granted." : null);
+  if (problem) throw new Error(tr(problem));
+  const s = reachStoreOf().settings();
+  if (!s.files.folders.includes(real)) s.files.folders.push(real);
+  reachStoreOf().saveSettings(s);
+  return accessView();
+}
+
+export const accessLog = (): AccessLogEntry[] => reachStoreOf().entries();
+export const clearAccessLog = () => reachStoreOf().clearLog();
 
 function settleConsent(reqId: number, a: ConsentAnswer) {
   const p = consents.get(reqId);
@@ -301,10 +389,10 @@ function settleConsent(reqId: number, a: ConsentAnswer) {
 }
 
 /** `agents:consent-answer` from a view: only the view the card went to may answer it. */
-export function answerConsent(sender: WebContents, a: { reqId: number; allow: boolean; remember?: boolean }) {
+export function answerConsent(sender: WebContents, a: { reqId: number; allow: boolean; remember?: boolean; windowId?: string }) {
   const p = consents.get(a?.reqId);
   if (!p || p.sender !== sender.id) return;
-  settleConsent(a.reqId, { allow: a.allow === true, remember: a.allow === true && a.remember === true });
+  settleConsent(a.reqId, { allow: a.allow === true, remember: a.allow === true && a.remember === true, ...(a.allow === true && typeof a.windowId === "string" ? { windowId: a.windowId.slice(0, 200) } : {}) });
 }
 
 const denyConsents = (match: (p: { sender: number; turnId: string }) => boolean) => {
@@ -342,7 +430,8 @@ export async function startAgents(): Promise<void> {
       activeFileKey,
       isOpen: (k) => !!viewFor(k),
       runTool: (fileKey, call) => runAnyTool(fileKey, call),
-      extraTools: (session) => connectorHub().toolsFor(session.chat?.connectors ?? []),
+      // A chat's connectors' tools, then the reach tools that are on (outside clients get none: mcpServer.ts).
+      extraTools: async (session) => [...(await connectorHub().toolsFor(session.chat?.connectors ?? [])), ...(await reachHub().tools())],
       onConnections: (list) => broadcast(mcpState(list)),
       version: app.getVersion(),
     },
@@ -460,6 +549,7 @@ function finishTurn(t: Turn, event?: ChatEvent) {
   if (event) emit(t, event);
   emit(t, { type: "done", stopped: t.stopped || undefined });
   turns.delete(t.id);
+  reach?.forgetTurn(t.id);
   // A worker's grant was its own: it goes with the turn. A chat's stays for its next turn.
   if (t.grant && t.role === "worker") server?.revokeChat(t.grant);
   else if (t.grant) {
@@ -522,6 +612,12 @@ export function startTurn(sender: WebContents, fileKey: string, req: TurnRequest
     const over = await overLimit({ settings: () => ai, balance: ledgerBalance }, "agent");
     if (over) return finishTurn(t, { type: "error", message: over.message });
     if (t.stopped) return finishTurn(t);
+    // Agents' reach on (docs/agents-reach.md §4.4, §6.3): the untrusted-data note once, and the built-in skills listed.
+    const on = await reachHub().on().catch(() => [] as ReachCapability[]);
+    if (on.length) {
+      request.prompt = `${REACH_NOTE}\n\n${request.prompt}`;
+      request.skills = [...(request.skills ?? []), ...REACH_SKILLS.filter((k) => k.capabilities.some((c) => on.includes(c))).map(({ name, description }) => ({ name, description }))];
+    }
     if (spec) runCli(t, spec, request);
     else {
       const srv = serverOf(providerId);
@@ -575,7 +671,7 @@ async function runServer(t: Turn, srv: { id: string; label: string; baseUrl: str
   const model = req.model;
   if (!model) return finishTurn(t, { type: "error", message: tr("Pick a model of {agent} first.", { agent: srv.label }) });
   emit(t, { type: "status", text: `Asking ${model} on ${srv.label}…` });
-  const extraTools = [...t.managerTools, ...(t.connectors.length ? await connectorHub().toolsFor(t.connectors) : [])];
+  const extraTools = [...t.managerTools, ...(t.connectors.length ? await connectorHub().toolsFor(t.connectors) : []), ...(await reachHub().tools())];
   return runOpenAiTurn({
     baseUrl: srv.baseUrl,
     apiKey: keyOf(srv.id),
