@@ -146,3 +146,59 @@
 .more { display: grid; height: 24px; margin: 0 4px 0 -2px; padding: 0 5px; border-radius: 12px; background: var(--figma-color-bg-secondary); color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); place-items: center; }
 .gradSwatch { display: block; width: 100%; height: 100%; border-radius: 2px; background: linear-gradient(90deg, #ffd1e6, #c9d4ff 60%, #ffe1b0); }
 .fxType { display: block; flex: 1; }
+
+/* The toolbar ⇄ dock morph: one box at the bottom centre; its look cross-fades from the toolbar's (the app's panel
+   colour, its shadow) to the dock's (the page's colour, a hairline) as --m goes 0 → 1, its width set by the scene */
+.surface { position: absolute; bottom: 24px; z-index: 4; display: none; height: 48px; pointer-events: none; }
+.surface > i, .surface > b { position: absolute; inset: 0; box-sizing: border-box; }
+.surface > i { border-radius: var(--ds-radius-large); background: var(--figma-color-bg); box-shadow: var(--ds-elevation-100); opacity: calc(1 - var(--m, 0)); }
+.surface > b { border: 1px solid var(--site-faint); border-radius: 14px; background: var(--site-bg); opacity: var(--m, 0); }
+.bar[data-morph] [data-ds="EditorToolbar"] { background: transparent !important; box-shadow: none !important; }
+.bar { transform: translateX(-50%); }
+
+/* Oğuz's comments: the app's pin (his initials in a teardrop) and a small thread bubble beside it */
+.cpin {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  border: 2px solid #fff;
+  border-radius: 50% 50% 50% 0;
+  background: var(--c);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  color: #fff;
+  font: 600 8px/1 var(--site-font, Inter, sans-serif);
+  place-items: center;
+  opacity: 0;
+  transform-origin: 0 100%;
+  transition: opacity 160ms var(--ease-out);
+}
+.bubble {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 7;
+  display: grid;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 230px;
+  padding: 10px 12px;
+  border: 1px solid var(--site-piece-line);
+  border-radius: 12px;
+  background: var(--figma-color-bg);
+  box-shadow: var(--ds-elevation-200, 0 4px 14px rgba(0, 0, 0, 0.12));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms var(--ease-out);
+}
+.msg { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: start; }
+.msg b { display: block; font: var(--ds-font-body-medium-strong); }
+.msg p { min-height: 16px; margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium); }
+.av { display: grid; width: 22px; height: 22px; border-radius: 50%; color: #fff; font: 600 8px/1 var(--site-font, Inter, sans-serif); place-items: center; }
+@media (max-width: 639px) {
+  .bubble { width: 170px; padding: 8px 10px; }
+  .msg p { font-size: 10px; }
+}

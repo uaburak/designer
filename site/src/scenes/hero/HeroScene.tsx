@@ -1,16 +1,17 @@
 // The home page's top (docs/site.md §2.1): the editor around a frame, and in the frame this page's own poster — a
-// grainy gradient card, vector shapes, the headline, Try it — as real DOM laid out at the page's width (index.html,
-// `[data-hero-frame]`; the frame is that page-top at a smaller scale). Burak draws the frame and the card and sets its
-// fill (the app's ColorPicker, a gradient) and grain (Effects › Noise) in the Design panel; six teammates make the
-// rest under their own cursors at once (pen and shape tools, typing); then Burak asks the agent in the Agents panel,
-// and as its steps tick the shapes come alive — a slow idle drift, and they lean, swell, spin and bend toward the
-// cursors near them (the teammates' while they work, the visitor's own mouse from then on). Scrolling opens the frame into
-// the page (the panels slide away, its transform goes to none, the toolbar becomes the dock) — and back.
+// grainy gradient card, a dozen grainy vector shapes, the headline, Try it — as real DOM laid out at the page's width
+// (index.html, `[data-hero-frame]`; the frame is that page-top at a smaller scale). Burak draws the frame and the card
+// and sets its fill (the app's ColorPicker, a gradient) and grain (Effects › Noise) in the Design panel; six
+// teammates make the rest at once under their own cursors (pen and shape tools, typing), each drawing a second shape
+// and nudging things after their first job. Then Burak asks the agent to make the shapes react, and from then on they
+// are physical: they drift, and cursors push them (the teammates', then the visitor's own mouse), they collide with
+// each other, the poster's edges and the text, and settle back home. Scrolling opens the frame into the page (the
+// panels slide away, its transform goes to none, the toolbar becomes the dock) — and back.
 //
-// Everything is a function of two numbers, so scroll scrubs it both ways:
-//   t  the build, s: it plays by itself while the visitor doesn't scroll, and scrolling moves it — down pushes it on,
-//      up rewinds it (t = scroll's share + what played by itself; going up spends what played first)
-//   r  the reveal, 0…1: the scroll through the track's second part, both ways
+// Everything but the physics is a function of two numbers, so scroll scrubs it both ways:
+//   t  the build, s: it plays by itself while the visitor doesn't scroll; scrolling nudges it on (gently: the build
+//      range of the track adds only part of it) or back, and it never races (t moves at most RATE s per second)
+//   r  the reveal, 0…1: the scroll through the track's second part, both ways, once the build is done
 // Under reduced motion nothing of this runs: the poster is simply the page's top.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, IconButton, ToggleIconButton } from "@/ds/components/Button";
@@ -32,15 +33,20 @@ import ai from "../ai/ai.module.css";
 import { FileHeader, FillSection, Layers, noop, Num, type Row } from "../collage/ui";
 import { ARROW, ARROW_EDGE, CURSOR, SIZE, TOOL_ART, type CursorTool } from "../runtime/cursorArt";
 import { prefersReduced } from "../runtime/reduced";
+import { SHAPES, type ShapeDef } from "./shapes";
 import styles from "./hero.module.css";
 
 // ── The timeline ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 const T_BUILD = 18;
-/** The track (scroll progress 0…1): [0, BUILD_P] moves the build, [REVEAL_P0, REVEAL_P1] the reveal. */
-const BUILD_P = 0.45;
-const REVEAL_P0 = 0.5;
-const REVEAL_P1 = 0.92;
+/** The track (scroll progress 0…1): [0, BUILD_P] nudges the build by up to T_SCROLL s; [REVEAL_P0, REVEAL_P1] the reveal. */
+const BUILD_P = 0.5;
+const T_SCROLL = 7;
+const REVEAL_P0 = 0.56;
+const REVEAL_P1 = 0.93;
+/** The build never moves faster than this (s per s), the reveal than R_RATE per s: scrolling helps, never races. */
+const RATE = 3;
+const R_RATE = 1.6;
 
 const ASK = "Make the shapes react to the cursor";
 const AGENT = { ask: 11.6, send: 13.45, steps: [13.7, 14.3, 15.1], done: 16.1, back: 16.75 };
@@ -48,31 +54,18 @@ const PICKER = { open: 5.85, linear: 6.4, drag: [6.75, 7.2] as const, close: 7.7
 const FX = { add: 8.35, noise: 9.05 };
 const TAB_AGENTS = 10.85;
 
-/** The vector parts, in the art's 600 × 600 user space. */
-const BLOB = [
-  [150, 150],
-  [330, 105],
-  [440, 250],
-  [320, 370],
-  [150, 320],
-] as const;
-const WAVE = { p: [[40, 540], [320, 530], [570, 540]] as const, h: [[140, 450], [410, 450], [640, 600]] as const };
-
-type PartId = "card" | "gradient" | "grain" | "blob" | "ring" | "star" | "wave" | "title" | "try" | "trylabel" | "link";
-const PART_SEL: Record<PartId, string> = {
+type PartId = "card" | "gradient" | "grain" | "title" | "try" | "trylabel" | "link" | string;
+const PART_SEL: Record<string, string> = {
   card: ".poster-card",
   gradient: ".poster-fill",
   grain: ".poster-grain",
-  blob: "#pa-blob",
-  ring: "#pa-ring",
-  star: "#pa-star",
-  wave: "#pa-wave",
   title: "#hero-title",
   try: '[data-part="try"]',
   trylabel: '[data-part="trylabel"]',
   link: '[data-part="link"]',
+  ...Object.fromEntries(SHAPES.map((s) => [s.id, `#ps-${s.id} > .ps-in`])),
 };
-const SVG_PARTS: PartId[] = ["blob", "ring", "star", "wave"];
+const SHAPE_OF = new Map(SHAPES.map((s) => [s.id, s]));
 const INTERACTIVE: PartId[] = ["try", "link"];
 
 type Rect = { x: number; y: number; w: number; h: number };
@@ -84,7 +77,11 @@ type Plan =
   | { kind: "curve"; drags: [number, number][]; c: string };
 
 type UiSpot = "frameTool" | "rectTool" | "fill" | "pickerType" | "pickerStop" | "pickerClose" | "fxAdd" | "fxType" | "agents" | "file" | "composer" | "send" | "start" | "side";
-type Spot = { part: PartId | "frame"; fx: number; fy: number; dx?: number; dy?: number } | { art: readonly [number, number]; dx?: number; dy?: number } | { ui: UiSpot; dx?: number; dy?: number };
+type Spot =
+  | { part: PartId | "frame"; fx: number; fy: number; dx?: number; dy?: number }
+  /** On a shape: a point in its local units (≈ ±50) */
+  | { shape: string; lx: number; ly: number; dx?: number; dy?: number }
+  | { ui: UiSpot; dx?: number; dy?: number };
 interface Key {
   t: number;
   at: Spot;
@@ -96,11 +93,34 @@ interface Person {
   join: number;
   keys: Key[];
   press: [number, number][];
+  /** After the build: the shapes this one keeps playing with */
+  plays: string[];
+}
+/** A shape moved by someone: its home shifts by (dx, dy) local units over [t0, t1] */
+interface Nudge {
+  id: string;
+  t0: number;
+  t1: number;
+  dx: number;
+  dy: number;
+}
+
+/** Oğuz's comments: a pin by a shape (local units from its home) and a thread typed into a bubble, maybe answered. */
+interface Comment {
+  on: string;
+  lx: number;
+  ly: number;
+  t: number;
+  text: string;
+  typing: [number, number];
+  close: number;
+  reply?: { name: string; color: string; text: string; t: number };
 }
 
 const ease = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
 const clamp = (x: number, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
+const toward = (v: number, target: number, max: number) => (Math.abs(target - v) <= max ? target : v + Math.sign(target - v) * max);
 
 interface Geo {
   W: number;
@@ -111,8 +131,9 @@ interface Geo {
   x0: number;
   y0: number;
   parts: Partial<Record<PartId, Rect>>;
-  /** The art's box (its 600 user units fill it). */
-  art: Rect | null;
+  /** The card (natural px) and the text's boxes inside it (card px): the shapes' world and its obstacles */
+  card: Rect | null;
+  text: Rect[];
   ui: Partial<Record<UiSpot, [number, number]>>;
 }
 
@@ -126,12 +147,24 @@ const TEAM = [
   { name: "Ece", color: COLORS.ece, join: 7.6 },
 ];
 
+/** A shape's home on a card of w × h (card px) and its scale (px per local unit). */
+function homeOf(s: ShapeDef, w: number, h: number): { x: number; y: number; k: number } {
+  const [fx, fy] = w >= h ? s.L : s.P;
+  return { x: fx * w, y: fy * h, k: (s.size * Math.min(w, h)) / 788 };
+}
+/** Curves' anchors and handles (local units), as the pen drags them out. */
+const CURVE: Record<string, { p: [number, number][]; h: [number, number][] }> = {
+  wave: { p: [[-100, 0], [0, 0], [100, 0]], h: [[-60, -40], [40, -40], [140, 40]] },
+  squig: { p: [[-80, 0], [0, 0], [80, 0]], h: [[-60, -30], [20, -30], [100, 30]] },
+};
+
 /** Who makes what, when (seconds), on this screen. */
-function plan(g: Geo): { people: Person[]; parts: Partial<Record<PartId, Plan>>; draw: [number, number]; card: [number, number] } {
+function plan(g: Geo): { people: Person[]; parts: Partial<Record<PartId, Plan>>; nudges: Nudge[]; comments: Comment[]; draw: [number, number]; card: [number, number] } {
   const parts: Partial<Record<PartId, Plan>> = {};
   const people: Person[] = [];
+  const nudges: Nudge[] = [];
   const P = (name: string, color: string, join: number) => {
-    const p: Person = { name, color, join, keys: [], press: [] };
+    const p: Person = { name, color, join, keys: [], press: [], plays: [] };
     people.push(p);
     return p;
   };
@@ -139,7 +172,7 @@ function plan(g: Geo): { people: Person[]; parts: Partial<Record<PartId, Plan>>;
   const click = (p: Person, t: number) => p.press.push([t, t + 0.12]);
   const ui = g.panels;
 
-  // Burak: the frame, the card, its fill and grain (the Design panel), then the agent
+  // ── Burak: the frame, the card, its fill and grain (the Design panel), then the agent ──
   const b = P("Burak", COLORS.burak, 0);
   at(b, 0, { ui: "start" });
   if (g.toolbar) {
@@ -192,8 +225,70 @@ function plan(g: Geo): { people: Person[]; parts: Partial<Record<PartId, Plan>>;
   parts.gradient = { kind: "appear", t: PICKER.linear };
   parts.grain = { kind: "appear", t: FX.noise };
 
-  // Kamila: the headline
+  // ── The shapes' makers' moves ──
+  /** A shape dragged out from its box's top-left to bottom-right (rectangle, ellipse, star tools). */
+  const drag = (p: Person, id: string, t0: number) => {
+    const s = SHAPE_OF.get(id)!;
+    const [bx, by, bw, bh] = s.box;
+    at(p, t0 - 0.05, { shape: id, lx: bx, ly: by }, "crosshair");
+    at(p, t0 + 0.08, { shape: id, lx: bx, ly: by });
+    at(p, t0 + 0.6, { shape: id, lx: bx + bw, ly: by + bh });
+    p.press.push([t0 + 0.05, t0 + 0.65]);
+    parts[id] = { kind: "draw", t: t0 + 0.08, t1: t0 + 0.6, c: p.color };
+    at(p, t0 + 0.7, { shape: id, lx: bx + bw, ly: by + bh }, "arrow");
+    return t0 + 0.7;
+  };
+  /** A shape placed anchor by anchor with the pen, then closed on the first. */
+  const pen = (p: Person, id: string, t0: number, step = 0.34) => {
+    const s = SHAPE_OF.get(id)!;
+    const pts = [...(s.pts ?? []), (s.pts ?? [])[0]];
+    const clicks: number[] = [];
+    pts.forEach(([x, y], i) => {
+      const go = t0 + i * step;
+      at(p, go - 0.06, { shape: id, lx: x, ly: y }, "pen");
+      at(p, go + 0.05, { shape: id, lx: x, ly: y });
+      click(p, go);
+      clicks.push(go + 0.05);
+    });
+    parts[id] = { kind: "pen", clicks, c: p.color };
+    const end = t0 + pts.length * step;
+    at(p, end, { shape: id, lx: 0, ly: 60 }, "arrow");
+    return end;
+  };
+  /** A curve: three anchors, each dragged into its handle with the pen. */
+  const curve = (p: Person, id: string, t0: number) => {
+    const c = CURVE[id];
+    const drags: [number, number][] = [];
+    c.p.forEach(([x, y], i) => {
+      const go = t0 + i * 0.7;
+      at(p, go, { shape: id, lx: x, ly: y }, "pen");
+      at(p, go + 0.06, { shape: id, lx: x, ly: y });
+      at(p, go + 0.38, { shape: id, lx: c.h[i][0], ly: c.h[i][1] });
+      p.press.push([go + 0.05, go + 0.42]);
+      drags.push([go + 0.06, go + 0.38]);
+    });
+    parts[id] = { kind: "curve", drags, c: p.color };
+    const end = t0 + 2.2;
+    at(p, end, { shape: id, lx: 0, ly: 50 }, "arrow");
+    return end;
+  };
+  /** Someone picks a shape up and sets it down a little further (it moves with the cursor). */
+  const nudge = (p: Person, id: string, t0: number, dx: number, dy: number) => {
+    at(p, t0 - 0.05, { shape: id, lx: 0, ly: 0 }, "arrow");
+    at(p, t0 + 0.08, { shape: id, lx: 0, ly: 0 });
+    at(p, t0 + 0.6, { shape: id, lx: 0, ly: 0 });
+    p.press.push([t0 + 0.05, t0 + 0.65]);
+    nudges.push({ id, t0: t0 + 0.08, t1: t0 + 0.6, dx, dy });
+    return t0 + 0.7;
+  };
+  /** Someone passes a shape, looking (or, once they react, brushing it). */
+  const visit = (p: Person, id: string, t0: number, lx = 40, ly = 30) => {
+    at(p, t0, { shape: id, lx, ly });
+    at(p, t0 + 0.5, { shape: id, lx: lx * 0.4, ly: ly * 0.4 });
+  };
+
   const [kam, ogu, yas, ozg, gor, ece] = TEAM.map((m) => P(m.name, m.color, m.join));
+  // Kamila: the headline, a dot, a diamond
   at(kam, kam.join, { ui: "side", dx: -120, dy: 160 }, "text");
   at(kam, 5.4, { part: "title", fx: 0, fy: 0.1, dx: 2 });
   click(kam, 5.5);
@@ -201,31 +296,44 @@ function plan(g: Geo): { people: Person[]; parts: Partial<Record<PartId, Plan>>;
   at(kam, 5.8, { part: "title", fx: 0, fy: 0, dx: -34, dy: -26 });
   parts.title = { kind: "type", t: 5.8, ms: 55, c: kam.color };
   at(kam, 7.9, { part: "title", fx: 0, fy: 0, dx: -34, dy: -26 }, "arrow");
+  drag(kam, "dot", 8.5);
+  pen(kam, "dia", 9.7);
+  nudge(kam, "dot", 12.0, 30, -20);
+  visit(kam, "pent", 13.4);
+  visit(kam, "ring", 15.4);
+  kam.plays = ["dot", "pent", "dia"];
 
-  // Oğuz: the blob, anchor by anchor with the pen
-  at(ogu, ogu.join, { ui: "side", dx: 160, dy: -140 }, "pen");
-  const clicks: number[] = [];
-  [...BLOB, BLOB[0]].forEach((pt, i) => {
-    const go = 6.0 + i * 0.4;
-    at(ogu, go - 0.05, { art: pt });
-    at(ogu, go + 0.05, { art: pt });
-    click(ogu, go);
-    clicks.push(go + 0.05);
-  });
-  parts.blob = { kind: "pen", clicks, c: ogu.color };
-  at(ogu, 8.4, { art: [210, 120], dx: 0, dy: 0 }, "arrow");
+  // Oğuz: goes round what the others made and leaves comments (pins and a short thread, typed)
+  at(ogu, ogu.join, { ui: "side", dx: 160, dy: -140 }, "comment");
+  const comments: Comment[] = [];
+  const comment = (on: string, t0: number, text: string, lx: number, ly: number, reply?: { by: Person; text: string; t: number }) => {
+    at(ogu, t0 - 0.5, { shape: on, lx: lx + 30, ly: ly - 30 }, "comment");
+    at(ogu, t0 - 0.05, { shape: on, lx, ly });
+    click(ogu, t0);
+    at(ogu, t0 + 0.1, { shape: on, lx, ly });
+    at(ogu, t0 + 0.45, { shape: on, lx: lx - 20, ly: ly + 70 });
+    const typed = t0 + 0.35 + text.length * 0.045;
+    const close = (reply ? reply.t + reply.text.length * 0.07 : typed) + 1.4;
+    comments.push({ on, lx, ly, t: t0 + 0.05, text, typing: [t0 + 0.35, typed], close, reply: reply && { name: reply.by.name, color: reply.by.color, text: reply.text, t: reply.t } });
+    at(ogu, close, { shape: on, lx: lx - 20, ly: ly + 70 });
+  };
+  ogu.plays = ["star", "circ", "wave"];
 
-  // Yasin: the ring, with the ellipse tool
+  // Yasin: the ellipse, a rounded square, a pill
   at(yas, yas.join, { ui: "side", dx: 220, dy: 80 }, "crosshair");
-  at(yas, 6.6, { art: [335, 325] });
-  at(yas, 6.72, { art: [335, 325] });
-  at(yas, 7.35, { art: [545, 535] });
-  yas.press.push([6.7, 7.4]);
-  parts.ring = { kind: "draw", t: 6.72, t1: 7.35, c: yas.color };
-  at(yas, 7.5, { art: [545, 535] }, "arrow");
-  at(yas, 8.1, { art: [560, 470] });
+  drag(yas, "circ", 6.6);
+  drag(yas, "rsq", 8.1);
+  drag(yas, "pill", 9.2);
+  nudge(yas, "circ", 10.4, -30, 10);
+  // …and answers Oğuz's comment on his ellipse
+  at(yas, 13.2, { shape: "circ", lx: 120, ly: 40 });
+  at(yas, 14.4, { shape: "circ", lx: 120, ly: 40 });
+  visit(yas, "ring", 15.6);
+  visit(yas, "pent", 16.8, -40, 30);
+  yas.plays = ["circ", "rsq", "pill"];
 
-  // Özge: Try it — drawn, then labelled — and the link under it
+
+  // Özge: Try it — drawn, then labelled — the link, then a pill
   at(ozg, ozg.join, { ui: "side", dx: -60, dy: 220 }, "crosshair");
   at(ozg, 7.2, { part: "try", fx: 0, fy: 0 });
   at(ozg, 7.27, { part: "try", fx: 0, fy: 0 });
@@ -240,34 +348,54 @@ function plan(g: Geo): { people: Person[]; parts: Partial<Record<PartId, Plan>>;
   parts.trylabel = { kind: "type", t: 8.3, ms: 80, c: ozg.color };
   parts.link = { kind: "appear", t: 9.1 };
   at(ozg, 9.2, { part: "try", fx: 0.5, fy: 1, dx: 0, dy: 26 }, "arrow");
+  pen(ozg, "pent", 9.7);
+  visit(ozg, "dia", 13.1);
+  visit(ozg, "squig", 15.1);
+  ozg.plays = ["pent", "dia", "squig"];
 
-  // Görkem: the wave, three anchors dragged into curves with the pen
+  // Görkem: the wave, then a squiggle, dragged into curves with the pen
   at(gor, gor.join, { ui: "side", dx: 260, dy: 240 }, "pen");
-  const drags: [number, number][] = [];
-  WAVE.p.forEach((pt, i) => {
-    const go = 7.8 + i * 0.85;
-    at(gor, go, { art: pt });
-    at(gor, go + 0.06, { art: pt });
-    at(gor, go + 0.4, { art: WAVE.h[i] });
-    gor.press.push([go + 0.05, go + 0.45]);
-    drags.push([go + 0.06, go + 0.4]);
-  });
-  parts.wave = { kind: "curve", drags, c: gor.color };
-  at(gor, 10.4, { art: [600, 590] }, "arrow");
+  curve(gor, "wave", 7.8);
+  curve(gor, "squig", 10.4);
+  visit(gor, "tri", 13.6);
+  visit(gor, "dot", 15.6);
+  gor.plays = ["wave", "squig", "tri"];
 
-  // Ece: the star
+  // Ece: the star, then a ring
   at(ece, ece.join, { ui: "side", dx: -200, dy: -60 }, "crosshair");
-  at(ece, 8.4, { art: [93, 373] });
-  at(ece, 8.52, { art: [93, 373] });
-  at(ece, 9.1, { art: [257, 520] });
-  ece.press.push([8.5, 9.15]);
-  parts.star = { kind: "draw", t: 8.52, t1: 9.1, c: ece.color };
-  at(ece, 9.3, { art: [257, 520] }, "arrow");
-  at(ece, 9.9, { art: [60, 330] });
+  drag(ece, "star", 8.4);
+  drag(ece, "ring", 9.5);
+  pen(ece, "tri", 10.5);
+  visit(ece, "rsq", 12.9);
+  visit(ece, "circ", 14.9);
+  ece.plays = ["star", "ring", "tri"];
+
+  // Oğuz's round, once there's something to tease
+  comment("star", 9.7, "Bu yıldız mı, patates mi?", 40, -50);
+  comment("circ", 12.3, "Rengi kim seçti, a**na koyayım.", 45, -45, { by: yas, text: "Tamam abi 😅", t: 13.5 });
+  comment("wave", 15.0, "Maşallah kardeşim, bir s*kten de anlamıyorsun.", 60, -30);
 
   for (const p of people) p.keys.sort((x, y) => x.t - y.t);
-  return { people, parts, draw: [1.82, 2.8], card: [4.17, 4.95] };
+  return { people, parts, nudges, comments, draw: [1.82, 2.8], card: [4.17, 4.95] };
 }
+
+// ── The physics: a dozen discs (each shape's collider), a pointer that pushes, the text as walls ─────────────────
+
+interface Body {
+  id: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  a: number;
+  va: number;
+  r: number;
+}
+const STEP = 1 / 120;
+const RESTITUTION = 0.4;
+const DAMP = 2.4;
+const HOME_K = 2.2;
+const MAX_V = 900;
 
 // ── The scene ────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -292,10 +420,7 @@ interface UI {
 
 const ROW_OF: Record<string, { name: string; icon: Row["icon"] }> = {
   card: { name: "Poster", icon: "16.rectangle" },
-  blob: { name: "Blob", icon: "16.vector" },
-  ring: { name: "Ellipse", icon: "16.ellipse" },
-  star: { name: "Star", icon: "16.star" },
-  wave: { name: "Wave", icon: "16.vector" },
+  ...Object.fromEntries(SHAPES.map((s) => [s.id, { name: s.name, icon: s.icon }])),
   title: { name: "Design, together, on your desktop.", icon: "16.text" },
   try: { name: "Try it", icon: "16.frame" },
   link: { name: "Or download it…", icon: "16.text" },
@@ -310,6 +435,7 @@ export default function HeroScene() {
   const caption = useRef<HTMLDivElement>(null);
   const cursors = useRef<HTMLDivElement>(null);
   const pickerBox = useRef<HTMLDivElement>(null);
+  const surface = useRef<HTMLDivElement>(null);
   const [geo, setGeo] = useState<Geo | null>(null);
   const [ui, setUI] = useState<UI>({ tool: "move", people: 0, rows: "", sel: "none", w: 0, h: 0, caption: null, picker: false, gradient: false, stop: 0.5, fx: "none", tab: "file", ask: "", sent: false, steps: "", done: false });
 
@@ -323,15 +449,31 @@ export default function HeroScene() {
     const edit = document.querySelector<SVGGElement>("#pa-edit");
     const html = document.documentElement;
     if (!el || !hero || !sticky || !frame || !bg) return;
+    const outers = new Map(SHAPES.map((s) => [s.id, frame.querySelector<SVGGElement>(`#ps-${s.id}`)]));
+    const cardEl = frame.querySelector<HTMLElement>(".poster-card");
+    /** Places every shape at its home for this card's size (also what reduced motion shows). */
+    const placeHome = () => {
+      if (!cardEl) return;
+      const w = cardEl.offsetWidth;
+      const h = cardEl.offsetHeight;
+      for (const s of SHAPES) {
+        const o = outers.get(s.id);
+        const hm = homeOf(s, w, h);
+        o?.setAttribute("transform", `translate(${hm.x.toFixed(1)} ${hm.y.toFixed(1)}) scale(${hm.k.toFixed(3)})`);
+      }
+    };
     if (prefersReduced() || !html.classList.contains("hero-anim")) {
       html.classList.remove("hero-anim");
-      return;
+      placeHome();
+      window.addEventListener("resize", placeHome);
+      return () => window.removeEventListener("resize", placeHome);
     }
 
     // ── Measuring ──
     let k = { s: 1, x: 0, y: 0 };
     let g: Geo | null = null;
-    let story = plan({ W: 1, H: 1, panels: false, toolbar: false, s0: 1, x0: 0, y0: 0, parts: {}, art: null, ui: {} });
+    let story = plan({ W: 1, H: 1, panels: false, toolbar: false, s0: 1, x0: 0, y0: 0, parts: {}, card: null, text: [], ui: {} });
+    void story.comments;
     const els: Partial<Record<PartId, HTMLElement | SVGElement>> = {};
     const uiSpots: Partial<Record<UiSpot, [number, number]>> = {};
     const UI_SEL: Partial<Record<UiSpot, string>> = {
@@ -358,23 +500,21 @@ export default function HeroScene() {
       const fr = frame.getBoundingClientRect();
       const nat = (r: DOMRect): Rect => ({ x: (r.left - fr.left) / k.s, y: (r.top - fr.top) / k.s, w: r.width / k.s, h: r.height / k.s });
       const parts: Partial<Record<PartId, Rect>> = {};
-      for (const id of Object.keys(PART_SEL) as PartId[]) {
+      for (const id of Object.keys(PART_SEL)) {
         const e = frame.querySelector<HTMLElement | SVGElement>(PART_SEL[id]);
         if (!e) continue;
         els[id] = e;
-        if (!SVG_PARTS.includes(id)) parts[id] = nat(e.getBoundingClientRect());
+        if (!SHAPE_OF.has(id)) parts[id] = nat(e.getBoundingClientRect());
       }
-      const svg = frame.querySelector<SVGSVGElement>(".poster-art");
-      const art = svg ? nat(svg.getBoundingClientRect()) : null;
-      if (art) {
-        const u = art.w / 600;
-        for (const id of SVG_PARTS) {
-          const e = els[id] as SVGGraphicsElement | undefined;
+      const card = parts.card ?? null;
+      const text: Rect[] = [];
+      if (card)
+        for (const q of ["#hero-title", ".poster-cta"]) {
+          const e = frame.querySelector<HTMLElement>(q);
           if (!e) continue;
-          const bb = e.getBBox();
-          parts[id] = { x: art.x + bb.x * u, y: art.y + bb.y * u, w: bb.width * u, h: bb.height * u };
+          const r = nat(e.getBoundingClientRect());
+          text.push({ x: r.x - card.x - 6, y: r.y - card.y - 6, w: r.w + 12, h: r.h + 12 });
         }
-      }
       const sr = sticky.getBoundingClientRect();
       for (const [spot, q] of Object.entries(UI_SEL) as [UiSpot, string][]) {
         const e = el.querySelector<HTMLElement>(q);
@@ -382,8 +522,8 @@ export default function HeroScene() {
         if (r && r.width) uiSpots[spot] = [r.left - sr.left + Math.min(r.width / 2, 14) + 2, r.top - sr.top + r.height / 2 + 2];
       }
       if (uiSpots.composer) uiSpots.composer = [uiSpots.composer[0] - 6, uiSpots.composer[1]];
-      const next: Geo = { W, H, panels: panelsOn, toolbar: toolbarOn, s0, x0: Math.round(A.x + (A.w - W * s0) / 2), y0: Math.round(A.y + (A.h - H * s0) / 2), parts, art, ui: { ...uiSpots } };
-      const changed = !g || g.W !== W || g.H !== H || JSON.stringify([g.parts, g.ui]) !== JSON.stringify([parts, next.ui]);
+      const next: Geo = { W, H, panels: panelsOn, toolbar: toolbarOn, s0, x0: Math.round(A.x + (A.w - W * s0) / 2), y0: Math.round(A.y + (A.h - H * s0) / 2), parts, card, text, ui: { ...uiSpots } };
+      const changed = !g || g.W !== W || g.H !== H || JSON.stringify([g.parts, g.ui, g.text]) !== JSON.stringify([parts, next.ui, text]);
       g = next;
       if (changed) {
         story = plan(g);
@@ -392,7 +532,7 @@ export default function HeroScene() {
     };
 
     // ── Cursors (plain DOM, placed on each frame) ──
-    const curEls = new Map<string, { el: HTMLElement; art: HTMLElement; tool: CursorTool | null }>();
+    const curEls = new Map<string, { el: HTMLElement; art: HTMLElement; tool: CursorTool | null; x: number; y: number }>();
     const cursorOf = (p: Person) => {
       let c = curEls.get(p.name);
       if (!c) {
@@ -406,8 +546,43 @@ export default function HeroScene() {
         pill.textContent = p.name;
         e.append(art, pill);
         cursors.current?.append(e);
-        c = { el: e, art, tool: null };
+        c = { el: e, art, tool: null, x: 0, y: 0 };
         curEls.set(p.name, c);
+      }
+      return c;
+    };
+    const commentEls = new Map<number, { pin: HTMLElement; bubble: HTMLElement; text: HTMLElement; reply?: HTMLElement; replyText?: HTMLElement }>();
+    const commentOf = (i: number, cm: Comment) => {
+      let c = commentEls.get(i);
+      if (!c) {
+        const pin = document.createElement("div");
+        pin.className = styles.cpin;
+        pin.style.setProperty("--c", COLORS.oguz);
+        pin.textContent = "OĞ";
+        const bubble = document.createElement("div");
+        bubble.className = styles.bubble;
+        const msg = (name: string, color: string) => {
+          const row = document.createElement("div");
+          row.className = styles.msg;
+          const av = document.createElement("span");
+          av.className = styles.av;
+          av.style.background = color;
+          av.textContent = name.slice(0, 2).toLocaleUpperCase("tr");
+          const body = document.createElement("div");
+          const who = document.createElement("b");
+          who.textContent = name;
+          const text = document.createElement("p");
+          body.append(who, text);
+          row.append(av, body);
+          bubble.append(row);
+          return { row, text };
+        };
+        const first = msg("Oğuz", COLORS.oguz);
+        const second = cm.reply ? msg(cm.reply.name, cm.reply.color) : null;
+        cursors.current?.parentElement?.insertBefore(pin, cursors.current);
+        cursors.current?.parentElement?.insertBefore(bubble, cursors.current);
+        c = { pin, bubble, text: first.text, reply: second?.row, replyText: second?.text };
+        commentEls.set(i, c);
       }
       return c;
     };
@@ -423,8 +598,6 @@ export default function HeroScene() {
     // ── The parts (real elements), set from their state string only when it changes ──
     const states = new Map<PartId, string>();
     const typed = new Map<PartId, { span: HTMLElement; text: string }>();
-    let blobD = "";
-    const artPt = (p: readonly [number, number]) => `${p[0]} ${p[1]}`;
     const setPart = (id: PartId, state: string) => {
       const e = els[id];
       if (!e || states.get(id) === state) return;
@@ -437,52 +610,32 @@ export default function HeroScene() {
         typed.get(id)!.span.remove();
         typed.delete(id);
       }
-      e.dataset.hp = kind === "pen" || kind === "curve" ? "shown" : kind;
+      e.dataset.hp = kind === "pen" ? "off" : kind === "curve" ? "shown" : kind;
       if (INTERACTIVE.includes(id) && e instanceof HTMLElement) e.inert = kind !== "shown";
-      if (e instanceof SVGElement) e.removeAttribute("transform");
       const style = e.style;
       style.clipPath = "";
       style.transform = "";
       style.transformBox = "";
       style.transformOrigin = "";
-      if (id === "blob") {
-        if (!blobD) blobD = e.getAttribute("d") ?? "";
-        if (kind === "pen") {
-          const pts = BLOB.slice(0, Math.min(BLOB.length, n));
-          e.setAttribute("d", pts.length ? "M" + pts.map(artPt).join(" L") : "M0 0");
-          e.setAttribute("fill", "none");
-          e.setAttribute("stroke", color);
-          e.setAttribute("stroke-width", "4");
-        } else {
-          e.setAttribute("d", blobD);
-          e.setAttribute("fill", "#7B61FF");
-          e.removeAttribute("stroke");
+      if (SHAPE_OF.has(id)) {
+        // A shape's inner group: grown from its corner while dragged out, its stroke drawn on while a curve is pulled
+        const paths = e.querySelectorAll<SVGPathElement>("path");
+        if (kind === "draw") {
+          style.transformBox = "fill-box";
+          style.transformOrigin = "0 0";
+          style.transform = `scale(${Math.max(0.001, n)})`;
+          style.outline = "none";
         }
-        return;
-      }
-      if (id === "wave") {
-        if (kind === "curve") {
-          style.strokeDasharray = "1 1";
-          style.strokeDashoffset = String(1 - n);
-        } else {
-          style.strokeDasharray = "";
-          style.strokeDashoffset = "";
+        for (const path of paths) {
+          if (!path.hasAttribute("pathLength")) continue;
+          path.style.strokeDasharray = kind === "curve" ? "1 1" : "";
+          path.style.strokeDashoffset = kind === "curve" ? String(1 - n) : "";
         }
         return;
       }
       if (kind === "draw") {
         e.style.setProperty("--hp-c", color);
-        if (e instanceof SVGElement) {
-          style.transformBox = "fill-box";
-          style.transformOrigin = "0 0";
-          style.transform = `scale(${Math.max(0.001, n)})`;
-          e.setAttribute("stroke", color);
-          e.setAttribute("stroke-width", "3");
-          e.setAttribute("vector-effect", "non-scaling-stroke");
-        } else style.clipPath = `inset(0 ${(1 - n) * 100}% ${(1 - n) * 100}% 0 round 2px)`;
-      } else if (e instanceof SVGElement) {
-        e.removeAttribute("stroke");
-        e.removeAttribute("stroke-width");
+        style.clipPath = `inset(0 ${(1 - n) * 100}% ${(1 - n) * 100}% 0 round 2px)`;
       }
       if (kind === "type" && e instanceof HTMLElement) {
         let tp = typed.get(id);
@@ -507,6 +660,16 @@ export default function HeroScene() {
       }
     };
     const textLen = (id: PartId) => typed.get(id)?.text.length ?? (els[id]?.textContent ?? "").replace(/[ \t\n\r]+/g, " ").trim().length;
+    const curveQ = (p: { drags: [number, number][] }, t: number) => {
+      // How much of the curve is drawn: each anchor's drag pulls its share
+      const n = p.drags.length;
+      let q = 0;
+      p.drags.forEach(([a, b], i) => {
+        if (i === 0) return;
+        q += clamp((t - a) / (b - a)) / (n - 1);
+      });
+      return q;
+    };
     const partState = (id: PartId, t: number): string => {
       const p = story.parts[id];
       if (!p) return "shown";
@@ -526,37 +689,67 @@ export default function HeroScene() {
         case "pen": {
           const n = p.clicks.filter((c) => t >= c).length;
           if (n === 0) return "off";
-          return n > BLOB.length ? "shown" : `pen:${n}`;
+          return n >= p.clicks.length ? "shown" : `pen:${n}`;
         }
         case "curve": {
-          const [a, b] = [p.drags[1], p.drags[2]];
           if (t < p.drags[0][0]) return "off";
-          if (t >= b[1] + 0.1) return "shown";
-          const q = t < a[0] ? 0 : t < a[1] ? (t - a[0]) / (a[1] - a[0]) * 0.5 : t < b[0] ? 0.5 : 0.5 + ((t - b[0]) / (b[1] - b[0])) * 0.5;
-          return `curve:${ease(clamp(q)).toFixed(3)}`;
+          const last = p.drags[p.drags.length - 1];
+          if (t >= last[1] + 0.1) return "shown";
+          return `curve:${curveQ(p, t).toFixed(3)}`;
         }
       }
     };
-    /** The pen's marks: the anchors placed so far (and the handle being dragged). */
+
+    // ── Where the shapes are (card px): home (with the nudges so far), or their body once they're physical ──
+    const bodies = new Map<string, Body>();
+    let physical = false;
+    const homeAt = (s: ShapeDef, t: number) => {
+      const card = g?.card;
+      const hm = homeOf(s, card?.w ?? 1, card?.h ?? 1);
+      let x = hm.x;
+      let y = hm.y;
+      for (const nd of story.nudges)
+        if (nd.id === s.id && t > nd.t0) {
+          const q = ease(clamp((t - nd.t0) / (nd.t1 - nd.t0)));
+          x += nd.dx * hm.k * q;
+          y += nd.dy * hm.k * q;
+        }
+      return { x, y, k: hm.k };
+    };
+    const shapePos = (id: string, t: number) => {
+      const s = SHAPE_OF.get(id)!;
+      const hm = homeAt(s, t);
+      const b = physical ? bodies.get(id) : undefined;
+      return b ? { x: b.x, y: b.y, k: hm.k } : hm;
+    };
+
+    /** The pen's marks: anchors placed so far (and the handle being dragged), in card px. */
     let lastEdit = "";
     const drawEdit = (t: number) => {
       if (!edit) return;
       let svg = "";
-      const blob = story.parts.blob;
-      if (blob && blob.kind === "pen") {
-        const n = blob.clicks.filter((c) => t >= c).length;
-        if (n > 0 && n <= BLOB.length) svg += BLOB.slice(0, n).map((p) => `<rect x="${p[0] - 7}" y="${p[1] - 7}" width="14" height="14" />`).join("");
-      }
-      const wave = story.parts.wave;
-      if (wave && wave.kind === "curve") {
-        wave.drags.forEach(([a, b], i) => {
-          if (t < a || t > b + 0.3) return;
-          const q = ease(clamp((t - a) / (b - a)));
-          const p = WAVE.p[i];
-          const h = [lerp(p[0], WAVE.h[i][0], q), lerp(p[1], WAVE.h[i][1], q)];
-          const m = [2 * p[0] - h[0], 2 * p[1] - h[1]];
-          svg += `<line x1="${m[0]}" y1="${m[1]}" x2="${h[0]}" y2="${h[1]}" /><rect x="${p[0] - 7}" y="${p[1] - 7}" width="14" height="14" /><circle cx="${h[0]}" cy="${h[1]}" r="6" fill="#0d99ff" /><circle cx="${m[0]}" cy="${m[1]}" r="6" fill="#0d99ff" />`;
-        });
+      for (const s of SHAPES) {
+        const p = story.parts[s.id];
+        if (!p) continue;
+        const pos = shapePos(s.id, t);
+        const P = (lx: number, ly: number) => [pos.x + lx * pos.k, pos.y + ly * pos.k];
+        if (p.kind === "pen") {
+          const n = p.clicks.filter((c) => t >= c).length;
+          if (n > 0 && n < p.clicks.length) {
+            const pts = (s.pts ?? []).slice(0, n).map(([x, y]) => P(x, y));
+            svg += `<polyline points="${pts.map((q) => q.join(",")).join(" ")}" fill="none" stroke="${p.c}" stroke-width="2" />`;
+            svg += pts.map(([x, y]) => `<rect x="${x - 4}" y="${y - 4}" width="8" height="8" />`).join("");
+          }
+        } else if (p.kind === "curve") {
+          const c = CURVE[s.id];
+          p.drags.forEach(([a, b], i) => {
+            if (t < a || t > b + 0.3) return;
+            const q = ease(clamp((t - a) / (b - a)));
+            const [ax, ay] = P(...c.p[i]);
+            const [hx, hy] = P(lerp(c.p[i][0], c.h[i][0], q), lerp(c.p[i][1], c.h[i][1], q));
+            svg += `<line x1="${2 * ax - hx}" y1="${2 * ay - hy}" x2="${hx}" y2="${hy}" /><rect x="${ax - 4}" y="${ay - 4}" width="8" height="8" /><circle cx="${hx}" cy="${hy}" r="3.5" /><circle cx="${2 * ax - hx}" cy="${2 * ay - hy}" r="3.5" />`;
+          });
+        }
       }
       if (svg !== lastEdit) {
         lastEdit = svg;
@@ -565,6 +758,11 @@ export default function HeroScene() {
     };
 
     // ── Points ──
+    const toScreen = (cx: number, cy: number): [number, number] => {
+      const c = g?.card;
+      return c ? [k.x + (c.x + cx) * k.s, k.y + (c.y + cy) * k.s] : [k.x, k.y];
+    };
+    let tNow = 0;
     const point = (s: Spot): [number, number] => {
       if (!g) return [0, 0];
       if ("ui" in s) {
@@ -572,105 +770,202 @@ export default function HeroScene() {
           s.ui === "start" ? [g.W / 2 + 80, g.H - 150] : s.ui === "side" ? [g.x0 + g.W * g.s0 * 0.5, g.y0 + g.H * g.s0 * 0.5] : g.ui[s.ui] ?? [g.W / 2, g.H / 2];
         return [base[0] + (s.dx ?? 0), base[1] + (s.dy ?? 0)];
       }
-      if ("art" in s) {
-        if (!g.art) return [k.x, k.y];
-        const u = g.art.w / 600;
-        return [k.x + (g.art.x + s.art[0] * u) * k.s + (s.dx ?? 0), k.y + (g.art.y + s.art[1] * u) * k.s + (s.dy ?? 0)];
+      if ("shape" in s) {
+        // Cursors aim at a shape's home (where it settles), not at it as it's pushed: nobody chases a shape
+        const pos = homeAt(SHAPE_OF.get(s.shape)!, tNow);
+        const [x, y] = toScreen(pos.x + s.lx * pos.k, pos.y + s.ly * pos.k);
+        return [x + (s.dx ?? 0), y + (s.dy ?? 0)];
       }
       const r = s.part === "frame" ? { x: 0, y: 0, w: g.W, h: g.H } : g.parts[s.part];
       if (!r) return [k.x, k.y];
       return [k.x + (r.x + r.w * s.fx) * k.s + (s.dx ?? 0), k.y + (r.y + r.h * s.fy) * k.s + (s.dy ?? 0)];
     };
 
-    // ── The shapes, alive (after the agent's change): a slow drift, and a lean toward the nearest cursor ──
-    const mouse = { x: 0, y: 0, on: false };
+    // ── The physics ──
+    const mouse = { x: 0, y: 0, px: 0, py: 0, on: false, touch: false };
     const onMove = (ev: PointerEvent) => {
-      if (ev.pointerType === "touch") return;
+      if (ev.pointerType === "touch" && !ev.buttons) return;
       mouse.x = ev.clientX;
       mouse.y = ev.clientY;
+      if (!mouse.on) {
+        mouse.px = mouse.x;
+        mouse.py = mouse.y;
+      }
       mouse.on = true;
+      mouse.touch = ev.pointerType === "touch";
     };
     const onLeave = () => (mouse.on = false);
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerType === "touch") mouse.on = false;
+    };
     window.addEventListener("pointermove", onMove, { passive: true });
+    window.addEventListener("pointerdown", onMove, { passive: true });
+    window.addEventListener("pointerup", onUp, { passive: true });
     document.documentElement.addEventListener("pointerleave", onLeave);
-    const SHAPES = { blob: [278, 239], ring: [440, 430], star: [175, 455], wave: [305, 520] } as const;
-    const live = { a: 0, spin: 0, blob: { tx: 0, ty: 0, rot: 0 }, ring: { tx: 0, ty: 0, s: 0 }, star: { tx: 0, ty: 0, fast: 0 }, wave: { bend: 0, lean: 0 } };
-    let waveD = "";
-    const WAVE_D = (bend: number, lean: number) =>
-      `M40 540 C ${140 + lean * 0.3} ${450 + bend * 0.4}, ${230 + lean * 0.6} ${610 + bend}, ${320 + lean} ${530 + bend * 0.9} S ${500 + lean * 0.6} ${450 + bend * 0.6}, 570 540`;
-    const alive = (t: number, r: number, dt: number, crowd: [number, number][]) => {
-      const svg = frame.querySelector<SVGSVGElement>(".poster-art");
-      if (!svg) return;
-      const on = t >= AGENT.done || r > 0 ? 1 : 0;
-      const k1 = 1 - Math.exp(-dt * 5);
-      live.a += (on - live.a) * k1;
-      const rect = svg.getBoundingClientRect();
-      const u = rect.width / 600;
-      const pts = crowd.map(([x, y]) => [(x - rect.left) / u, (y - rect.top) / u] as [number, number]);
-      const now = performance.now() / 1000;
-      // The nearest pointer to a point (svg units): its offset and closeness 0…1
-      const near = (cx: number, cy: number): [number, number, number] => {
-        let best: [number, number, number] = [0, 0, 0];
-        for (const [x, y] of pts) {
-          const dx = x - cx;
-          const dy = y - cy;
-          const f = clamp(1 - Math.hypot(dx, dy) / 240);
-          if (f > best[2]) best = [dx, dy, f];
+    let acc = 0;
+    /** One fixed step: drift home, pointer pushes, discs collide, walls and text stop them. */
+    const step = (pointers: { x: number; y: number; vx: number; vy: number; r: number; f: number }[], w: number, h: number, t: number, clock: number) => {
+      const list = [...bodies.values()];
+      const u = Math.min(w, h) / 788;
+      const damp = Math.exp(-DAMP * STEP);
+      for (const [i, b] of list.entries()) {
+        const s = SHAPE_OF.get(b.id)!;
+        const hm = homeAt(s, t);
+        // A slow drift around home, and a weak spring back to it
+        const hx = hm.x + Math.sin(clock * 0.35 + i * 1.7) * 7 * u;
+        const hy = hm.y + Math.cos(clock * 0.3 + i * 2.3) * 6 * u;
+        b.vx += (hx - b.x) * HOME_K * STEP;
+        b.vy += (hy - b.y) * HOME_K * STEP;
+        b.va += (Math.sin(clock * 0.2 + i) * 0.15 - b.a) * 1.2 * STEP;
+        for (const p of pointers) {
+          const dx = b.x - p.x;
+          const dy = b.y - p.y;
+          const d = Math.hypot(dx, dy) || 0.001;
+          const R = b.r + p.r;
+          if (d >= R) continue;
+          const nx = dx / d;
+          const ny = dy / d;
+          const over = R - d;
+          b.x += nx * over * 0.5;
+          b.y += ny * over * 0.5;
+          // Flicked: the pointer's own motion, and a push out of it
+          const vn = (p.vx - b.vx) * nx + (p.vy - b.vy) * ny;
+          if (vn > 0) {
+            b.vx += nx * vn * p.f;
+            b.vy += ny * vn * p.f;
+          }
+          b.vx += nx * over * 14 * p.f;
+          b.vy += ny * over * 14 * p.f;
+          b.va += ((p.vx * ny - p.vy * nx) / Math.max(40, b.r * 4)) * 0.6 * p.f;
         }
-        return best;
-      };
-      const A = live.a;
-      const k2 = 1 - Math.exp(-dt * 4);
-      const go = (o: Record<string, number>, key: string, v: number) => (o[key] += (v - o[key]) * k2);
-      const set = (id: PartId, tf: string | null) => {
-        const e = els[id];
-        if (!e || states.get(id) !== "shown") return;
-        if (tf && A > 0.002) e.setAttribute("transform", tf);
-        else e.removeAttribute("transform");
-      };
-      let [dx, dy, f] = near(...SHAPES.blob);
-      go(live.blob, "tx", A * f * dx * 0.14);
-      go(live.blob, "ty", A * f * dy * 0.14);
-      go(live.blob, "rot", A * (f * Math.sign(dx || 1) * 9 + Math.sin(now * 0.5) * 3));
-      set("blob", `translate(${live.blob.tx.toFixed(2)} ${(live.blob.ty + A * Math.sin(now * 0.7) * 5).toFixed(2)}) rotate(${live.blob.rot.toFixed(2)} ${SHAPES.blob[0]} ${SHAPES.blob[1]})`);
-      [dx, dy, f] = near(...SHAPES.ring);
-      go(live.ring, "tx", -A * f * dx * 0.08);
-      go(live.ring, "ty", -A * f * dy * 0.08);
-      go(live.ring, "s", A * f * 0.12);
-      const rs = 1 + live.ring.s;
-      const [rx, ry] = SHAPES.ring;
-      set("ring", `translate(${(live.ring.tx + rx * (1 - rs)).toFixed(2)} ${(live.ring.ty + ry * (1 - rs) + A * Math.sin(now * 0.6 + 1) * 7).toFixed(2)}) scale(${rs.toFixed(4)})`);
-      [dx, dy, f] = near(...SHAPES.star);
-      go(live.star, "fast", A * f);
-      live.spin += dt * A * (8 + live.star.fast * 90);
-      go(live.star, "tx", A * f * dx * 0.06);
-      go(live.star, "ty", A * f * dy * 0.06);
-      set("star", `translate(${live.star.tx.toFixed(2)} ${(live.star.ty + A * Math.sin(now * 0.8 + 2) * 6).toFixed(2)}) rotate(${(live.spin % 360).toFixed(2)} ${SHAPES.star[0]} ${SHAPES.star[1]})`);
-      [dx, dy, f] = near(...SHAPES.wave);
-      go(live.wave, "bend", A * (f * clamp(dy, -90, 90) * 1.0 + Math.sin(now * 0.9) * 10));
-      go(live.wave, "lean", A * f * clamp(dx, -80, 80) * 0.3);
-      const wave = els.wave;
-      if (wave && states.get("wave") === "shown") {
-        const d = A > 0.002 ? WAVE_D(live.wave.bend, live.wave.lean) : "";
-        if (d !== waveD) {
-          waveD = d;
-          if (d) wave.setAttribute("d", d);
-          else wave.setAttribute("d", WAVE_D(0, 0));
+        b.vx *= damp;
+        b.vy *= damp;
+        b.va *= Math.exp(-3 * STEP);
+        const sp = Math.hypot(b.vx, b.vy);
+        if (sp > MAX_V * u) {
+          b.vx *= (MAX_V * u) / sp;
+          b.vy *= (MAX_V * u) / sp;
         }
+      }
+      // Discs against discs
+      for (let i = 0; i < list.length; i++)
+        for (let j = i + 1; j < list.length; j++) {
+          const a = list[i];
+          const c = list[j];
+          const dx = c.x - a.x;
+          const dy = c.y - a.y;
+          const d = Math.hypot(dx, dy) || 0.001;
+          const R = a.r + c.r;
+          if (d >= R) continue;
+          const nx = dx / d;
+          const ny = dy / d;
+          const over = (R - d) / 2;
+          a.x -= nx * over;
+          a.y -= ny * over;
+          c.x += nx * over;
+          c.y += ny * over;
+          const rel = (c.vx - a.vx) * nx + (c.vy - a.vy) * ny;
+          if (rel < 0) {
+            const j2 = (-(1 + RESTITUTION) * rel) / 2;
+            a.vx -= j2 * nx;
+            a.vy -= j2 * ny;
+            c.vx += j2 * nx;
+            c.vy += j2 * ny;
+          }
+        }
+      // The text (walls) and the poster's edges
+      for (const b of list) {
+        for (const T of g?.text ?? []) {
+          const cx = clamp(b.x, T.x, T.x + T.w);
+          const cy = clamp(b.y, T.y, T.y + T.h);
+          let dx = b.x - cx;
+          let dy = b.y - cy;
+          let d = Math.hypot(dx, dy);
+          if (d >= b.r) continue;
+          if (d < 0.001) {
+            // The centre got inside: out by the nearest side
+            const sides = [b.x - T.x, T.x + T.w - b.x, b.y - T.y, T.y + T.h - b.y];
+            const m = sides.indexOf(Math.min(...sides));
+            dx = m === 0 ? -1 : m === 1 ? 1 : 0;
+            dy = m === 2 ? -1 : m === 3 ? 1 : 0;
+            d = 0;
+          } else {
+            dx /= d;
+            dy /= d;
+          }
+          const push = b.r - d;
+          b.x += dx * push;
+          b.y += dy * push;
+          const vn = b.vx * dx + b.vy * dy;
+          if (vn < 0) {
+            b.vx -= (1 + RESTITUTION) * vn * dx;
+            b.vy -= (1 + RESTITUTION) * vn * dy;
+          }
+        }
+        if (b.x < b.r) (b.x = b.r), (b.vx = Math.abs(b.vx) * RESTITUTION);
+        if (b.x > w - b.r) (b.x = w - b.r), (b.vx = -Math.abs(b.vx) * RESTITUTION);
+        if (b.y < b.r) (b.y = b.r), (b.vy = Math.abs(b.vy) * RESTITUTION);
+        if (b.y > h - b.r) (b.y = h - b.r), (b.vy = -Math.abs(b.vy) * RESTITUTION);
+        b.x += b.vx * STEP;
+        b.y += b.vy * STEP;
+        b.a += b.va * STEP;
+      }
+    };
+    /** The shapes' outer groups: home (and nudges) before they're physical, their bodies after. */
+    const placeShapes = (t: number, r: number, dt: number, pointersScreen: { x: number; y: number; vx: number; vy: number; f: number }[]) => {
+      const card = g?.card;
+      if (!card || !cardEl) return;
+      const on = t >= AGENT.done || r > 0;
+      if (on && !physical) {
+        // They come alive where they are
+        for (const s of SHAPES) {
+          const hm = homeAt(s, t);
+          bodies.set(s.id, { id: s.id, x: hm.x, y: hm.y, vx: 0, vy: 0, a: 0, va: 0, r: s.r * hm.k });
+        }
+        physical = true;
+      } else if (!on && physical) {
+        physical = false;
+        bodies.clear();
+      }
+      if (physical) {
+        // Screen → card px (the card is drawn at the frame's scale)
+        const cr = cardEl.getBoundingClientRect();
+        const sc = cr.width / card.w || 1;
+        const u = Math.min(card.w, card.h) / 788;
+        const pointers = pointersScreen.map((p) => ({ x: (p.x - cr.left) / sc, y: (p.y - cr.top) / sc, vx: p.vx / sc, vy: p.vy / sc, r: 26 * u, f: p.f }));
+        acc = Math.min(acc + dt, 0.05);
+        const clock = performance.now() / 1000;
+        while (acc >= STEP) {
+          step(pointers, card.w, card.h, t, clock);
+          acc -= STEP;
+        }
+      }
+      for (const s of SHAPES) {
+        const o = outers.get(s.id);
+        if (!o) continue;
+        const b = physical ? bodies.get(s.id) : undefined;
+        const hm = homeAt(s, t);
+        const x = b ? b.x : hm.x;
+        const y = b ? b.y : hm.y;
+        const a = b ? (b.a * 180) / Math.PI : 0;
+        o.setAttribute("transform", `translate(${x.toFixed(1)} ${y.toFixed(1)}) rotate(${a.toFixed(2)}) scale(${hm.k.toFixed(3)})`);
       }
     };
 
-    // ── The clock: t = the scroll's share + what played by itself (spent first when scrolling back) ──
+    // ── The clock ──
     let played = 0;
     let lastP = -1;
+    let t = 0;
+    let r = 0;
     let last = performance.now();
     let visible = true;
-    const io = new IntersectionObserver(([e]) => (visible = e.isIntersecting), { threshold: 0.05 });
+    const io = new IntersectionObserver(([e]) => (visible = e.isIntersecting), { threshold: 0.02 });
     io.observe(sticky);
     let raf = 0;
     let lastUI = "";
     let open: boolean | null = null;
     let measuredAt = 0;
+    let first = true;
 
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
@@ -683,13 +978,23 @@ export default function HeroScene() {
       if (!g || !visible) return;
       const track = hero.offsetHeight - g.H;
       const p = track > 0 ? clamp((window.scrollY - hero.offsetTop) / track) : 0;
-      const rate = T_BUILD / BUILD_P;
-      if (lastP >= 0 && p < lastP) played = Math.max(0, played - (lastP - p) * rate);
+      // Scrolling back spends what played by itself first
+      const share = T_SCROLL / BUILD_P;
+      if (lastP >= 0 && p < lastP) played = Math.max(0, played - (lastP - p) * share * 2);
       lastP = p;
-      const scrolled = Math.min(p, BUILD_P) * rate;
-      if (visible && !document.hidden && p < BUILD_P && scrolled + played < T_BUILD) played += dt;
-      const t = clamp(scrolled + played, 0, T_BUILD);
-      const r = clamp((p - REVEAL_P0) / (REVEAL_P1 - REVEAL_P0));
+      const scrolled = Math.min(p, BUILD_P) * share;
+      if (!document.hidden && p < BUILD_P && scrolled + played < T_BUILD) played += dt;
+      const tTarget = p >= BUILD_P ? T_BUILD : clamp(scrolled + played, 0, T_BUILD);
+      const rTarget = clamp((p - REVEAL_P0) / (REVEAL_P1 - REVEAL_P0));
+      if (first) {
+        // A page opened partway down: start where the scroll says
+        t = tTarget;
+        r = t >= T_BUILD ? rTarget : 0;
+        first = false;
+      }
+      t = toward(t, tTarget, RATE * dt);
+      r = toward(r, t >= T_BUILD - 1e-3 ? rTarget : 0, R_RATE * dt);
+      tNow = t;
       const e = ease(r);
 
       // The frame: the page-top at the canvas's scale, opening to the page
@@ -710,18 +1015,8 @@ export default function HeroScene() {
       bg.style.transform = dp >= 1 ? "none" : `scale(${Math.max(0.001, dp)})`;
       bg.style.opacity = dp > 0 ? "1" : "0";
       bg.style.boxShadow = r < 1 ? `0 0 0 ${1 / k.s}px var(--site-piece-line)` : "";
-      for (const id of Object.keys(PART_SEL) as PartId[]) setPart(id, r > 0 ? "shown" : partState(id, t));
+      for (const id of Object.keys(PART_SEL)) setPart(id, r > 0 ? "shown" : partState(id, t));
       drawEdit(r > 0 ? 99 : t);
-
-      // The shapes, alive: the teammates' cursors (while the editor is up) and the visitor's own mouse
-      const sr = sticky.getBoundingClientRect();
-      const crowd: [number, number][] = mouse.on ? [[mouse.x, mouse.y]] : [];
-      if (r < 0.25)
-        for (const c of curEls.values()) {
-          const m = /translate3d\(([-\d.]+)px, ([-\d.]+)px/.exec(c.el.style.transform);
-          if (m && Number(c.el.style.opacity) > 0.5) crowd.push([sr.left + Number(m[1]), sr.top + Number(m[2])]);
-        }
-      alive(t, r, dt, crowd);
 
       // The editor around it
       const out = ease(clamp(r / 0.8));
@@ -746,32 +1041,61 @@ export default function HeroScene() {
       }
       if (caption.current) caption.current.style.opacity = String(fadeChrome);
 
-      // The toolbar becomes the dock (and back)
-      const m = clamp((r - 0.45) / 0.55);
+      // The toolbar becomes the dock (and back): one surface between them changes size and look (never the text);
+      // the toolbar's items leave from the edges in, the dock's arrive from the centre out
+      const smooth = (x: number) => x * x * (3 - 2 * x);
+      const m = smooth(clamp((r - 0.45) / 0.4));
       const tbEl = bar.current?.querySelector<HTMLElement>('[data-ds="EditorToolbar"]');
       const tbW = tbEl?.offsetWidth || 530;
       const dkW = dock?.offsetWidth || 480;
+      const morphing = g.toolbar && m > 0 && m < 1;
       if (bar.current) {
-        bar.current.style.opacity = String(1 - clamp(m * 1.6));
-        bar.current.style.transform = `translateX(-50%) scaleX(${lerp(1, dkW / tbW, ease(m))})`;
+        bar.current.toggleAttribute("data-morph", morphing);
+        bar.current.style.visibility = g.toolbar && m >= 1 ? "hidden" : "";
+        const items = tbEl ? [...tbEl.children] : [];
+        const mid = (items.length - 1) / 2;
+        items.forEach((it, i) => {
+          const edge = mid ? Math.abs(i - mid) / mid : 0;
+          const q = clamp((m - (1 - edge) * 0.22) / 0.26);
+          (it as HTMLElement).style.opacity = q > 0 ? String(1 - q) : "";
+          (it as HTMLElement).style.transform = q > 0 ? `translateY(${Math.round(q * 6)}px)` : "";
+        });
+      }
+      if (surface.current) {
+        const sw = Math.round(lerp(tbW, dkW, m) / 2) * 2;
+        surface.current.style.display = morphing ? "block" : "none";
+        surface.current.style.width = `${sw}px`;
+        surface.current.style.left = `${Math.round(g.W / 2 - sw / 2)}px`;
+        surface.current.style.setProperty("--m", m.toFixed(4));
       }
       if (dock) {
-        if (open) {
-          dock.style.opacity = "";
-          dock.style.transform = "";
-          dock.style.pointerEvents = "";
-          dock.inert = false;
+        dock.toggleAttribute("data-morph", morphing);
+        const items = [...dock.children].filter((x) => (x as HTMLElement).offsetWidth > 0) as HTMLElement[];
+        const mid = (items.length - 1) / 2;
+        if (open || !g.toolbar) {
+          const shown = open ? 1 : clamp(r * 2 - 1);
+          dock.style.opacity = open ? "" : String(shown);
+          dock.style.pointerEvents = open ? "" : shown > 0.5 ? "auto" : "none";
+          dock.inert = !open && shown < 0.5;
+          for (const it of items) (it.style.opacity = ""), (it.style.transform = "");
         } else {
-          const shown = g.toolbar ? clamp(m * 1.6 - 0.6) : clamp(r * 2 - 1);
-          dock.style.opacity = String(shown);
-          dock.style.transform = g.toolbar ? `translateX(-50%) scaleX(${lerp(tbW / dkW, 1, ease(m))})` : "";
-          dock.style.pointerEvents = shown > 0.5 ? "auto" : "none";
-          dock.inert = shown < 0.5;
+          dock.style.opacity = m > 0 ? "1" : "0";
+          dock.style.pointerEvents = m >= 1 ? "auto" : "none";
+          dock.inert = m < 1;
+          items.forEach((it, i) => {
+            const centre = mid ? Math.abs(i - mid) / mid : 0;
+            const q = clamp((m - 0.5 - centre * 0.22) / 0.28);
+            it.style.opacity = q < 1 ? String(q) : "";
+            it.style.transform = q < 1 ? `translateY(${Math.round((1 - q) * 6)}px)` : "";
+          });
         }
       }
 
-      // Cursors
-      for (const person of story.people) {
+      // Cursors: the timeline's, then — once the build is done — each keeps playing with its shapes
+      const sr = sticky.getBoundingClientRect();
+      const pointers: { x: number; y: number; vx: number; vy: number; f: number }[] = [];
+      const clock = now / 1000;
+      for (const [pi, person] of story.people.entries()) {
         const c = cursorOf(person);
         const keys = person.keys;
         let i = 0;
@@ -789,14 +1113,58 @@ export default function HeroScene() {
         }
         let tool: CursorTool = "arrow";
         for (const key of keys) if (key.t <= t && key.tool) tool = key.tool;
+        if (t >= T_BUILD && person.plays.length) {
+          // Playing: from shape to shape, brushing past each (it's their own clock, not the scroll's)
+          const ph = clock * 0.16 + pi * 0.37;
+          const n = person.plays.length;
+          const from = point({ shape: person.plays[Math.floor(ph) % n], lx: 70, ly: 40 });
+          const to = point({ shape: person.plays[(Math.floor(ph) + 1) % n], lx: -60, ly: 30 });
+          const q = ease(clamp((ph % 1) * 1.4));
+          const blend = clamp((t - T_BUILD) * 2 + 1);
+          pt = [lerp(pt[0], lerp(from[0], to[0], q), blend), lerp(pt[1], lerp(from[1], to[1], q), blend)];
+          tool = "arrow";
+        }
         setTool(c, tool, person.color);
-        c.el.style.opacity = String(clamp((t - person.join) / 0.25) * fadeChrome);
+        const alpha = clamp((t - person.join) / 0.25) * fadeChrome;
+        c.el.style.opacity = String(alpha);
         c.el.style.transform = `translate3d(${pt[0]}px, ${pt[1]}px, 0)`;
-        c.el.toggleAttribute("data-press", person.press.some(([p0, p1]) => t >= p0 && t <= p1));
+        c.el.toggleAttribute("data-press", t < T_BUILD && person.press.some(([p0, p1]) => t >= p0 && t <= p1));
+        const seen = c.x !== 0 || c.y !== 0;
+        if (seen && alpha > 0.5 && dt > 0) pointers.push({ x: sr.left + pt[0], y: sr.top + pt[1], vx: (pt[0] - c.x) / dt, vy: (pt[1] - c.y) / dt, f: 0.5 });
+        c.x = pt[0];
+        c.y = pt[1];
+      }
+      // Oğuz's comments: pins by the shapes, one thread open at a time
+      for (const [ci, cm] of story.comments.entries()) {
+        const el2 = commentOf(ci, cm);
+        const [px, py] = point({ shape: cm.on, lx: cm.lx, ly: cm.ly });
+        const shown = t >= cm.t && fadeChrome > 0;
+        el2.pin.style.opacity = shown ? String(fadeChrome) : "0";
+        el2.pin.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py - 22)}px, 0) scale(${shown ? 1 : 0.6})`;
+        const open2 = shown && t >= cm.typing[0] - 0.1 && t < cm.close;
+        el2.bubble.style.opacity = open2 ? String(fadeChrome) : "0";
+        const flip = px + 30 + (el2.bubble.offsetWidth || 230) > g.W - (g.panels ? 270 : 8);
+        const bw = el2.bubble.offsetWidth || 230;
+        const bx = clamp(flip ? px - bw - 6 : px + 30, 8, g.W - bw - 8);
+        el2.bubble.style.transform = `translate3d(${Math.round(bx)}px, ${Math.round(py - 30)}px, 0)`;
+        const n = Math.max(0, Math.floor((t - cm.typing[0]) / 0.045));
+        el2.text.textContent = cm.text.slice(0, Math.min(cm.text.length, n));
+        if (cm.reply && el2.reply) {
+          const rn = Math.max(0, Math.floor((t - cm.reply.t) / 0.07));
+          el2.reply.style.display = t >= cm.reply.t ? "" : "none";
+          el2.replyText!.textContent = [...cm.reply.text].slice(0, rn).join("");
+        }
       }
 
+      if (mouse.on && dt > 0) {
+        pointers.push({ x: mouse.x, y: mouse.y, vx: (mouse.x - mouse.px) / dt, vy: (mouse.y - mouse.py) / dt, f: mouse.touch ? 0.5 : 1 });
+        mouse.px = mouse.x;
+        mouse.py = mouse.y;
+      }
+      placeShapes(r > 0 ? T_BUILD : t, r, dt, pointers);
+
       // What the panels show (only when it changes)
-      const made = (Object.keys(ROW_OF) as PartId[]).filter((id) => story.parts[id] && partState(id, t) !== "off");
+      const made = Object.keys(ROW_OF).filter((id) => story.parts[id] && partState(id, t) !== "off");
       const at0 = (id: PartId) => {
         const pl = story.parts[id]!;
         return "t" in pl ? pl.t : pl.kind === "pen" ? pl.clicks[0] : pl.kind === "curve" ? pl.drags[0][0] : 0;
@@ -836,8 +1204,11 @@ export default function HeroScene() {
       io.disconnect();
       window.removeEventListener("resize", onResize);
       window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerdown", onMove);
+      window.removeEventListener("pointerup", onUp);
       document.documentElement.removeEventListener("pointerleave", onLeave);
       for (const c of curEls.values()) c.el.remove();
+      for (const c of commentEls.values()) (c.pin.remove(), c.bubble.remove());
       for (const tp of typed.values()) tp.span.remove();
     };
   }, []);
@@ -906,7 +1277,7 @@ export default function HeroScene() {
                     <div className={agents.agent}>
                       <span className={agents.agentName}>Claude Code</span>
                       <Steps steps={steps} />
-                      {ui.done && <AgentText>The star, the ellipse, the blob and the wave now drift on their own and lean, swell, spin and bend toward a cursor nearby.</AgentText>}
+                      {ui.done && <AgentText>The shapes are physical now: they drift, a cursor pushes them, and they bump into each other, the edges and the text before settling back.</AgentText>}
                     </div>
                   )}
                 </ChatPanel>
@@ -955,6 +1326,11 @@ export default function HeroScene() {
         </>
       )}
 
+      {/* The one surface the toolbar and the dock share while one becomes the other */}
+      <div ref={surface} className={styles.surface}>
+        <i />
+        <b />
+      </div>
       {g?.toolbar && (
         <div ref={bar} className={styles.bar}>
           <EditorToolbar floating tool={ui.tool} mode="design" onMode={noop} onTool={noop} />

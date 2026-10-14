@@ -243,6 +243,8 @@ p { margin: 0; text-wrap: pretty; }
 .dock a:not(.btn):hover { background: var(--site-faint); }
 .dock a:not(.btn)[aria-current="page"] { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 5px; }
 .dock .dock-download { height: 36px; margin-left: 4px; padding: 0 14px; font-size: 14px; }
+.dock[data-morph] { border-color: transparent; background: transparent; transition: none; }
+.dock[data-morph] > * { transition: none; }
 .dock[data-away] { opacity: 0; translate: 0 12px; pointer-events: none; }
 .theme-toggle {
   display: grid;
@@ -362,24 +364,25 @@ p { margin: 0; text-wrap: pretty; }
     linear-gradient(135deg, #f1e6ff 0%, #e2f1ff 100%);
 }
 .poster-grain { position: absolute; inset: 0; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); background-size: 180px; opacity: 0.22; mix-blend-mode: multiply; }
-.poster-art { position: absolute; top: 50%; right: 3%; height: 84%; aspect-ratio: 1; transform: translateY(-50%); overflow: visible; pointer-events: none; }
+.poster-art { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+/* Each shape: its own soft gradient and the same static grain over it */
+.ps-grain { opacity: 0.4; mix-blend-mode: multiply; }
 .poster-copy { position: absolute; bottom: clamp(32px, 7%, 72px); left: clamp(24px, 5%, 72px); display: grid; gap: 28px; max-width: min(50%, 680px); }
 .poster-title { font-size: clamp(44px, 5.4vw, 88px); font-weight: 400; line-height: 0.96; letter-spacing: -0.035em; }
 .poster-cta { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px; }
 .poster-link { font-family: var(--site-mono); font-size: 13px; letter-spacing: 0.3px; text-underline-offset: 4px; }
 @media (max-width: 760px) {
   .poster-card { inset: 12px 12px 80px; border-radius: 20px; }
-  .poster-art { top: 4%; right: 50%; height: auto; width: 82%; transform: translateX(50%); }
   .poster-copy { right: 24px; max-width: none; gap: 20px; }
 }
 /* Playing (html.hero-anim, set before the first paint): a tall track and a pinned stage on the canvas */
-html.hero-anim .hero-track { height: 320svh; }
+html.hero-anim .hero-track { height: 400svh; }
 html.hero-anim .hero-sticky { position: sticky; top: 0; overflow: hidden; background: var(--hero-canvas); }
 html.hero-anim .hero-frame { transform-origin: 0 0; }
 html.hero-anim .hero-frame-bg { position: absolute; inset: 0; display: block; background: var(--site-bg); transform-origin: 0 0; }
 html.hero-anim .hero-chrome { display: block; pointer-events: none; }
 html.hero-anim .hero-frame:not([data-ready]) > :not(.hero-frame-bg) { visibility: hidden; }
-@media (max-width: 639px) { html.hero-anim .hero-track { height: 240svh; } }
+@media (max-width: 639px) { html.hero-anim .hero-track { height: 300svh; } }
 /* While it plays, each part is made by someone (HeroScene sets data-hp): not there yet, typed (an overlay types over
    the text's own place, in a box of the typist's colour), or drawn (clipped open from its top-left corner) */
 html.hero-anim [data-hp] { transition: opacity 240ms var(--site-ease); }
@@ -396,8 +399,9 @@ html.hero-anim:not(.hero-open) .dock { opacity: 0; pointer-events: none; }
 .hero-rest { -webkit-text-fill-color: transparent; }
 @keyframes hero-blink { 50% { opacity: 0; } }
 /* The vector editor's marks on the art (anchors, handles) while a shape is drawn */
-.pa-edit rect { fill: #fff; stroke: #0d99ff; stroke-width: 2; }
-.pa-edit line { stroke: #0d99ff; stroke-width: 2; }
+.pa-edit rect { fill: #fff; stroke: #0d99ff; stroke-width: 1.5; }
+.pa-edit line { stroke: #0d99ff; stroke-width: 1.5; }
+.pa-edit circle { fill: #0d99ff; }
 
 /* Three (or two) small tiles in a row, each with its words under it */
 .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--site-col-gap); }
