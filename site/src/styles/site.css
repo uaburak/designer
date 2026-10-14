@@ -120,13 +120,6 @@ img { display: block; max-width: 100%; }
 
 /* ── Grid ─────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
-.wrap {
-  box-sizing: content-box;
-  max-width: var(--site-max);
-  margin: 0 auto;
-  padding: 0 var(--site-gutter);
-}
-.section { padding: var(--site-section) 0; }
 .grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -300,41 +293,139 @@ p { margin: 0; text-wrap: pretty; }
 .tile[data-tone="canvas"] { --tile: var(--tile-canvas); }
 [data-theme="dark"] .tile[data-tone="canvas"] { --tile: #1e1e1e; }
 
-.tile-hero { aspect-ratio: 1312 / 680; }
-.tile-wide { aspect-ratio: 1312 / 640; }
-.tile-main { aspect-ratio: 868 / 560; }
-.tile-half { aspect-ratio: 644 / 480; }
-.tile-square { aspect-ratio: 1 / 1; }
-@media (max-width: 760px) {
-  .tile-hero { aspect-ratio: 4 / 5; }
-  .tile-wide, .tile-main { aspect-ratio: 1 / 1; }
-  .tile-half, .tile-square { aspect-ratio: 1 / 1; }
-}
-
 .scene { position: absolute; inset: 0; border-radius: inherit; }
 
-/* ── Sections ─────────────────────────────────────────────────────────────────────────────────────────────────── */
-
-/* A heading, a short line under it, the visual */
-.head { display: grid; gap: 16px; max-width: 868px; margin-bottom: 48px; }
-.head .label { margin-bottom: 8px; }
-@media (max-width: 760px) { .head { margin-bottom: 32px; } }
-
-/* The other pages' first section */
-.hero { padding: 96px 0 var(--site-section); }
-@media (max-width: 760px) { .hero { padding-top: 56px; } }
-.hero-top { align-items: end; margin-bottom: 48px; }
-.hero-top:last-child { margin-bottom: 0; }
-.hero-top h1 { grid-column: 1 / span 7; }
-.hero-side { display: grid; grid-column: 8 / span 5; gap: 24px; padding-left: 40px; }
-.hero-side .lede { font-size: 18px; }
-@media (max-width: 1000px) {
-  .hero-top h1, .hero-side { grid-column: 1 / -1; padding-left: 0; }
-  .hero-top { row-gap: 24px; }
+/* ── Sections as poster cards (v6, docs/site.md §2.2) ────────────────────────────────────────────────────────────
+   Every section is a card of the hero poster's family: the same gutter from the viewport's edges, the same radius,
+   nearly full-bleed; a soft gradient in one of the tile tones with the poster's static grain over it; the heading
+   large, the lede and one action inside the card; the scene in the same card. No shadows, no outlines. */
+:root {
+  --sheet-gutter: 20px;
+  --sheet-gap: 20px;
+  --sheet-radius: 28px;
+  --sheet-pad: clamp(24px, 4.4vw, 64px);
+  --sheet-ink: #141414;
+  --sheet-muted: rgba(0, 0, 0, 0.58);
+  /* The poster's grain (the same SVG noise tile) */
+  --site-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 @media (max-width: 760px) {
-  .hero-top { margin-bottom: 32px; }
+  :root { --sheet-gutter: 12px; --sheet-gap: 12px; --sheet-radius: 20px; }
 }
+[data-theme="dark"] { --sheet-ink: #ffffff; --sheet-muted: rgba(255, 255, 255, 0.64); }
+
+/* The column of cards: the page's main */
+.sheets { display: grid; gap: var(--sheet-gap); padding: var(--sheet-gutter) var(--sheet-gutter) 0; }
+.home-hero + .sheets { padding-top: 0; }
+
+.sheet {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--sheet-radius);
+  background:
+    radial-gradient(60% 70% at 12% 18%, var(--g-a) 0%, transparent 70%),
+    radial-gradient(55% 60% at 88% 22%, var(--g-b) 0%, transparent 70%),
+    radial-gradient(70% 70% at 70% 100%, var(--g-c) 0%, transparent 70%),
+    linear-gradient(135deg, var(--g-0) 0%, var(--g-1) 100%);
+  color: var(--sheet-ink);
+  isolation: isolate;
+  --g-0: #f1e6ff; --g-1: #e2f1ff; --g-a: #ffd0e6; --g-b: #c9d4ff; --g-c: #ffe1b0;
+}
+.sheet::before {
+  position: absolute;
+  inset: 0;
+  background-image: var(--site-grain);
+  background-size: 180px;
+  opacity: 0.22;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  content: "";
+}
+.sheet > * { position: relative; }
+.sheet .muted, .sheet .label.muted { color: var(--sheet-muted); }
+/* The tones: the tile palette as soft fields (the poster's own is the default) */
+.sheet[data-tone="lavender"] { --g-0: #efe4ff; --g-1: #e4e6ff; --g-a: #ffd9f0; --g-b: #d6c6ff; --g-c: #dcecff; }
+.sheet[data-tone="mint"] { --g-0: #d9f4e5; --g-1: #e5f6f3; --g-a: #c2efd9; --g-b: #d6f0ff; --g-c: #f1f8c6; }
+.sheet[data-tone="coral"] { --g-0: #ffe2da; --g-1: #ffeee0; --g-a: #ffcdd8; --g-b: #ffd6bf; --g-c: #fff0c6; }
+.sheet[data-tone="sky"] { --g-0: #dbeeff; --g-1: #e6e8ff; --g-a: #c6e4ff; --g-b: #d8d9ff; --g-c: #d4f4ec; }
+.sheet[data-tone="sand"] { --g-0: #fff0da; --g-1: #ffe9e1; --g-a: #ffdfae; --g-b: #ffd8e2; --g-c: #fff5c8; }
+/* Text to read (changelog, install steps): plain, the canvas's grey, no grain */
+.sheet[data-tone="plain"] { background: var(--tile-canvas); }
+.sheet[data-tone="plain"]::before { display: none; }
+[data-theme="dark"] .sheet { --g-0: #2a2238; --g-1: #1d2533; --g-a: #4a2a44; --g-b: #2c2f5c; --g-c: #4a3a22; }
+[data-theme="dark"] .sheet::before { opacity: 0.32; mix-blend-mode: overlay; }
+[data-theme="dark"] .sheet[data-tone="lavender"] { --g-0: #2b2340; --g-1: #22253d; --g-a: #45284f; --g-b: #352a66; --g-c: #1f3150; }
+[data-theme="dark"] .sheet[data-tone="mint"] { --g-0: #18302a; --g-1: #1b2a30; --g-a: #1d4636; --g-b: #1c3447; --g-c: #343d1d; }
+[data-theme="dark"] .sheet[data-tone="coral"] { --g-0: #3a2420; --g-1: #33281f; --g-a: #4f2433; --g-b: #54301f; --g-c: #4a3d1c; }
+[data-theme="dark"] .sheet[data-tone="sky"] { --g-0: #1b2a3c; --g-1: #22223c; --g-a: #183c58; --g-b: #2c2a5e; --g-c: #183f3a; }
+[data-theme="dark"] .sheet[data-tone="sand"] { --g-0: #3a2e1e; --g-1: #36261f; --g-a: #55401a; --g-b: #4f2733; --g-c: #4a451c; }
+[data-theme="dark"] .sheet[data-tone="plain"] { background: #2c2c2c; }
+
+/* The scene's box inside a card: no colour of its own (the card's shows), the card clips it */
+.sheet .tile { border-radius: 0; background: transparent; }
+
+/* Type: the heading a step under the poster's h1; the page tops use the poster's own scale */
+.sheet-display { font-size: clamp(44px, 5.4vw, 88px); line-height: 0.96; letter-spacing: -0.035em; }
+.sheet-title { font-size: clamp(36px, 4.2vw, 64px); line-height: 1; letter-spacing: -0.03em; }
+.sheet-subtitle { font-size: clamp(24px, 2.2vw, 32px); line-height: 1.1; letter-spacing: -0.02em; }
+.sheet .lede { font-size: 18px; }
+.sheet .fine { color: var(--sheet-muted); font-size: 14px; line-height: 1.45; }
+/* The small action: a mono link, like the poster's */
+.sheet .link { font-family: var(--site-mono); font-size: 13px; letter-spacing: 0.3px; }
+
+/* A card's words: the eyebrow and heading on one side, the lede and the action on the other, bottom-aligned */
+.sheet-copy {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: 20px 56px;
+  align-items: end;
+  padding: var(--sheet-pad);
+}
+.sheet-head { display: grid; gap: 16px; align-content: end; }
+.sheet-side { display: grid; gap: 16px; align-content: end; justify-items: start; }
+@media (max-width: 1000px) {
+  .sheet-copy { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Stacked: the scene across the card, the words under it (or over it: data-copy="top") */
+.sheet-stack { display: grid; }
+.sheet-stack > .tile { aspect-ratio: var(--ar, 1312 / 640); }
+.sheet-stack > .sheet-copy { padding-top: 8px; }
+.sheet-stack[data-copy="top"] > .sheet-copy { order: -1; align-items: start; padding-top: var(--sheet-pad); padding-bottom: clamp(12px, 2vw, 32px); }
+@media (max-width: 760px) {
+  .sheet-stack > .tile { aspect-ratio: 1 / 1; }
+  .sheet-stack[data-copy="top"] > .sheet-copy { padding-bottom: 0; }
+}
+
+/* Side by side: the words in 5 columns, the scene in 7 (data-flip puts the scene first) */
+.sheet-split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: center; }
+.sheet-split > .sheet-copy { grid-template-columns: minmax(0, 1fr); align-self: stretch; align-content: end; }
+.sheet-split > .tile { aspect-ratio: var(--ar, 860 / 560); }
+.sheet-split[data-flip] { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+.sheet-split[data-flip] > .tile { order: -1; }
+@media (max-width: 1000px) {
+  .sheet-split, .sheet-split[data-flip] { grid-template-columns: minmax(0, 1fr); }
+  .sheet-split > .tile { order: -1; }
+  .sheet-split > .sheet-copy { padding-top: 8px; }
+}
+@media (max-width: 760px) { .sheet-split > .tile { aspect-ratio: 1 / 1; } }
+.sheet-split .sheet-title { font-size: clamp(32px, 3.2vw, 52px); }
+
+/* A row of small cards: the scene on top, the words inside under it */
+.sheet-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sheet-gap); }
+.sheet-row[data-count="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.sheet-small { display: grid; grid-template-rows: auto 1fr; }
+.sheet-small > .tile { aspect-ratio: 1 / 1; }
+.sheet-row[data-count="2"] .sheet-small > .tile { aspect-ratio: 4 / 3; }
+.sheet-small > .sheet-copy { grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; align-items: start; padding-top: 4px; }
+@media (max-width: 1000px) { .sheet-row { grid-template-columns: minmax(0, 1fr); } .sheet-row[data-count="2"] { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 761px) and (max-width: 1000px) { .sheet-small > .tile, .sheet-row[data-count="2"] .sheet-small > .tile { aspect-ratio: 16 / 9; } }
+
+/* The other pages' first card: the poster without its art */
+.sheet-top { display: grid; min-height: clamp(380px, 62svh, 640px); align-content: end; }
+.sheet-top .sheet-copy { align-items: end; }
+.sheet-top .lede { max-width: 26em; }
+@media (max-width: 760px) { .sheet-top { min-height: 420px; } }
 
 /* ── Home: the poster (§2.1) — inside the editor's frame while people and an agent make it; scrolling opens the
    frame into the page and back (scenes/hero/HeroScene.tsx). Without script or under reduced motion it is simply the
@@ -403,40 +494,19 @@ html.hero-anim:not(.hero-open) .dock { opacity: 0; pointer-events: none; }
 .pa-edit line { stroke: #0d99ff; stroke-width: 1.5; }
 .pa-edit circle { fill: #0d99ff; }
 
-/* Three (or two) small tiles in a row, each with its words under it */
-.cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--site-col-gap); }
-.cards[data-count="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.card-text { display: grid; gap: 4px; padding-top: 20px; }
-.card-text h3:not(.subtitle) { font-size: 18px; line-height: 1.35; letter-spacing: -0.2px; }
-@media (max-width: 1000px) {
-  .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 760px) {
-  .cards, .cards[data-count="2"] { grid-template-columns: minmax(0, 1fr); row-gap: 40px; }
-}
+/* Try it: the live canvas sits in the card like a window, with its own corners and the canvas's grey */
+.sheet .tile[data-tone="canvas"] { margin: 0 var(--sheet-pad); border-radius: 16px; background: var(--tile-canvas); }
+[data-theme="dark"] .sheet .tile[data-tone="canvas"] { background: #1e1e1e; }
+.try-note { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; padding: 16px var(--sheet-pad) var(--sheet-pad); }
+@media (max-width: 760px) { .sheet .tile[data-tone="canvas"] { margin: 0 12px; border-radius: 12px; } }
 
-/* A tile with its words beside it (8 + 4 columns) */
-.split { align-items: start; }
-.split .tile { grid-column: 1 / span 8; }
-.split .aside { display: grid; grid-column: 9 / span 4; gap: 12px; align-content: start; padding-top: 4px; }
-.split .aside .label { margin-bottom: 4px; }
-.split .aside .fine { margin-top: 8px; color: var(--site-muted); font-size: 14px; line-height: 1.45; }
-.split .aside .link { margin-top: 8px; }
-@media (max-width: 1000px) {
-  .split .tile, .split .aside { grid-column: 1 / -1; }
-  .split .aside { padding-top: 8px; }
-}
-
-.under { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 16px; margin-top: 24px; }
-.under .muted { max-width: 40em; }
-
-/* Try it */
-.try-note { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; margin-top: 16px; }
-
-/* The download band */
-.band { padding: calc(var(--site-section) + 40px) 0 calc(var(--site-section) + 40px); }
-.band-inner { display: grid; gap: 24px; justify-items: start; }
-.band .title { max-width: 14em; }
+/* The download band: a poster of its own, the heading big at its bottom-left and Download under it */
+.band { display: grid; min-height: clamp(420px, 70svh, 720px); align-content: end; }
+.band-inner { display: grid; gap: 24px; justify-items: start; padding: var(--sheet-pad); }
+.band .sheet-display { max-width: 11em; }
+.band .btn-secondary { border-color: rgba(0, 0, 0, 0.16); }
+[data-theme="dark"] .band .btn-secondary { border-color: rgba(255, 255, 255, 0.2); }
+.band .dl-meta { color: var(--sheet-muted); }
 
 /* ── Download blocks ──────────────────────────────────────────────────────────────────────────────────────────── */
 
@@ -446,32 +516,22 @@ html.hero-anim:not(.hero-open) .dock { opacity: 0; pointer-events: none; }
 .dl-meta a { color: var(--site-ink); }
 
 /* /download */
-.platforms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--site-col-gap); }
-.platform {
-  display: grid;
-  align-content: space-between;
-  gap: 64px;
-  min-height: 360px;
-  padding: 40px;
-  border-radius: var(--site-tile-radius);
-  background: var(--tile);
-  color: #000;
-}
-.platform[data-tone="lavender"] { --tile: var(--tile-lavender); }
-.platform[data-tone="sky"] { --tile: var(--tile-sky); }
-.platform .label { color: rgba(0, 0, 0, 0.6); }
+.platforms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sheet-gap); }
+.platform { display: grid; align-content: space-between; gap: 64px; min-height: 380px; padding: var(--sheet-pad); }
 .platform h2 { margin-top: 12px; }
-.platform p { color: rgba(0, 0, 0, 0.6); }
+.platform p:not(.label):not(.dl-meta) { margin-top: 12px; color: var(--sheet-muted); }
 .platform-foot { display: grid; gap: 12px; justify-items: start; }
-.platform .btn-primary { background: #000; color: #fff; }
-.platform .btn-secondary { border-color: rgba(0, 0, 0, 0.16); color: #000; }
-.platform .dl-meta { color: rgba(0, 0, 0, 0.6); }
+.platform .btn-secondary { border-color: rgba(0, 0, 0, 0.16); }
+[data-theme="dark"] .platform .btn-secondary { border-color: rgba(255, 255, 255, 0.2); }
+.platform .dl-meta { color: var(--sheet-muted); }
 .platform[data-mine] .label::after { content: " · This computer"; }
 @media (max-width: 760px) {
   .platforms { grid-template-columns: minmax(0, 1fr); }
-  .platform { min-height: 300px; padding: 24px; gap: 40px; }
+  .platform { min-height: 300px; gap: 40px; }
 }
-.steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 48px var(--site-col-gap); }
+/* A card of text to read: plain, padded like the others */
+.sheet-text { padding: var(--sheet-pad); }
+.steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 48px 56px; }
 .steps h2 { margin-bottom: 20px; }
 .steps ol { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; counter-reset: step; }
 .steps li {
@@ -483,11 +543,13 @@ html.hero-anim:not(.hero-open) .dock { opacity: 0; pointer-events: none; }
   counter-increment: step;
 }
 .steps li::before { color: var(--site-muted); font-family: var(--site-mono); font-size: 13px; letter-spacing: 0.5px; line-height: 23px; content: counter(step, decimal-leading-zero); }
+.sheet-text .after { max-width: 44em; margin-top: 48px; }
 @media (max-width: 760px) { .steps { grid-template-columns: minmax(0, 1fr); } }
 
-/* /changelog */
+/* /changelog: one plain card, the releases ruled inside it */
 .release { padding: 40px 0; border-top: 1px solid var(--site-faint); }
-.release:last-child { border-bottom: 1px solid var(--site-faint); }
+.release:first-child { padding-top: 0; border-top: 0; }
+.release:last-child { padding-bottom: 0; }
 .release-head { grid-column: 1 / span 4; display: grid; gap: 8px; align-content: start; }
 .release-head h2 a { text-decoration: none; }
 .release-head h2 a:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 5px; }
@@ -515,19 +577,22 @@ html.hero-anim:not(.hero-open) .dock { opacity: 0; pointer-events: none; }
 .notes p + p { margin-top: 12px; }
 .notes code { padding: 1px 5px; border-radius: 4px; background: var(--site-faint); font-family: var(--site-mono); font-size: 0.86em; }
 .notes a { text-underline-offset: 3px; }
-.state { padding: 40px 0; color: var(--site-muted); }
+.state { color: var(--site-muted); }
 
-/* 404 */
-.lost { display: grid; gap: 24px; justify-items: start; min-height: 56svh; align-content: center; }
+/* 404: the top card holds it all */
 .lost-links { display: flex; flex-wrap: wrap; gap: 8px; }
 
-/* ── Footer ───────────────────────────────────────────────────────────────────────────────────────────────────── */
+/* ── Footer: a black card on the same gutter ─────────────────────────────────────────────────────────────────── */
 
 .site-footer {
-  padding: 96px 0 40px;
+  margin: var(--sheet-gap) var(--sheet-gutter) var(--sheet-gutter);
+  padding: var(--sheet-pad);
+  padding-top: clamp(48px, 6vw, 88px);
+  border-radius: var(--sheet-radius);
   background: var(--site-footer);
   color: var(--site-footer-ink);
 }
+[data-theme="dark"] .site-footer { background: #000; }
 .footer-grid { row-gap: 48px; }
 .footer-brand { grid-column: 1 / span 4; display: grid; gap: 16px; align-content: start; }
 .footer-brand .brand { font-size: 22px; }
@@ -550,7 +615,6 @@ html.hero-anim:not(.hero-open) .dock { opacity: 0; pointer-events: none; }
   .footer-col, .footer-col:first-of-type { grid-column: span 4; }
 }
 @media (max-width: 760px) {
-  .site-footer { padding-top: 64px; }
   .footer-col, .footer-col:first-of-type { grid-column: span 6; }
   .footer-legal { margin-top: 64px; }
 }

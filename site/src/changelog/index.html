@@ -8,18 +8,22 @@
 </head>
 <body>
 <!--#include dock -->
-<main id="main">
-  <section class="hero" aria-labelledby="changelog-title">
-    <div class="wrap">
-      <div class="grid hero-top">
-        <h1 class="display" id="changelog-title" data-reveal>What’s new.</h1>
-        <div class="hero-side" data-reveal style="--reveal-delay: 120ms">
-          <p class="lede muted">Every release of Wecra, newest first. Installed copies update themselves.</p>
-        </div>
+<main id="main" class="sheets">
+  <section class="sheet sheet-top" data-tone="mint" aria-labelledby="changelog-title">
+    <div class="sheet-copy">
+      <div class="sheet-head" data-reveal>
+        <p class="label muted">Changelog</p>
+        <h1 class="sheet-display" id="changelog-title">What’s new.</h1>
       </div>
-      <div data-releases aria-busy="true">
-        <p class="state">Loading releases…</p>
+      <div class="sheet-side" data-reveal style="--reveal-delay: 120ms">
+        <p class="lede muted">Every release of Wecra, newest first. Installed copies update themselves.</p>
       </div>
+    </div>
+  </section>
+
+  <section class="sheet sheet-text" data-tone="plain" aria-label="Releases">
+    <div data-releases aria-busy="true">
+      <p class="state">Loading releases…</p>
     </div>
   </section>
 </main>

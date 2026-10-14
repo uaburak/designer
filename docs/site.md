@@ -58,6 +58,15 @@ There is no site header (owner, 2026-10-14): on every page the dock — fixed at
 
 Working together (v4, a new section on `/` and on `/features/`): teams and the shared workspace — a team with projects, sharing a file (invite, can edit / can view), people in the file (avatars, cursors, following), comments, and the organisation's controls (roles, SSO and 2FA, admin). Shown with the app's own Share dialog and Home's team sidebar.
 
+### 2.2 v6 layout: sections as poster cards (owner, 2026-10-14: "the rest of the site should be in the same layout as this hero")
+
+Every section on every page is a card of the hero poster's family (it decides over §2's centred 1312 px wrap, flat tiles and words-under-tiles):
+- **Frame.** `main.sheets` is a column of cards, nearly full-bleed: the poster's gutter from the viewport (20 px; 12 px on phones), its radius (28 px; 20 px), the same 20 px (12 px) between cards. No max width, no shadows, no outlines. The footer is a black card on the same gutter.
+- **Surface.** `.sheet` with `data-tone` (lavender, mint, coral, sky, sand; none = the poster's own fields): three soft radial fields over a linear gradient, and the poster's static grain over it (`--site-grain`, the same SVG noise tile). Dark theme: the same fields, darker, the grain as an overlay. `data-tone="plain"` (the canvas's grey, no grain) holds text to read: the changelog, the install steps.
+- **Words.** Inside the card like the poster's text block: a mono eyebrow, the heading a step under the poster's h1 (`.sheet-title`, 36–64 px; page tops and the download band use the poster's own scale, `.sheet-display`), and on the other side the lede, a fine line and one action (a mono link, or the black button).
+- **Arrangements.** `.sheet-stack`: the scene across the card (its box keeps the scene's aspect, 1312/640 or 1312/680; 1:1 on phones) with the words under it, or over it (`data-copy="top"`), alternating. `.sheet-split` (the AI page's 860×560 scenes): words in 5 columns, the scene in 7, sides alternating (`data-flip`); stacked under 1000 px. `.sheet-row` of `.sheet-small` cards: three (or two) in a row, the scene on top and the words inside under it; stacked under 1000 px. `.sheet-top`: the other pages' first card, the poster without its art (h1 bottom-left, lede beside it). The download band is a poster of its own: the big heading bottom-left and Download under it. The live canvas (Try it) sits in its card as an inset window with its own corners.
+- The scene's box is still `.tile` (transparent inside a card) so the kit's `stageBox` fits each stage into it; the cards, not the tiles, rise in on enter (`common.ts`).
+
 ## 3. `releases.json`
 
 ```json

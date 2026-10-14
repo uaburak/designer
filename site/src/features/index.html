@@ -8,99 +8,108 @@
 </head>
 <body>
 <!--#include dock -->
-<main id="main">
-  <section class="hero" aria-labelledby="features-title">
-    <div class="wrap">
-      <div class="grid hero-top">
-        <h1 class="display" id="features-title" data-reveal>Everything a design file needs.</h1>
-        <div class="hero-side" data-reveal style="--reveal-delay: 120ms">
-          <p class="lede muted">Wecra works the way Figma does: the same tools, the same panels, the same words. Each tile below is the app itself, drawn with its own components.</p>
-        </div>
+<main id="main" class="sheets">
+  <section class="sheet sheet-top" data-tone="lavender" aria-labelledby="features-title">
+    <div class="sheet-copy">
+      <div class="sheet-head" data-reveal>
+        <p class="label muted">Features</p>
+        <h1 class="sheet-display" id="features-title">Everything a design file needs.</h1>
+      </div>
+      <div class="sheet-side" data-reveal style="--reveal-delay: 120ms">
+        <p class="lede muted">Wecra works the way Figma does: the same tools, the same panels, the same words. Each card below is the app itself, drawn with its own components.</p>
       </div>
     </div>
   </section>
 
-  <section class="section" id="draw" aria-labelledby="draw-title">
-    <div class="wrap">
-      <div class="head" data-reveal>
+  <section class="sheet sheet-stack" data-tone="sky" id="draw" aria-labelledby="draw-title">
+    <div class="tile"><div class="scene" data-scene="draw"></div></div>
+    <div class="sheet-copy">
+      <div class="sheet-head" data-reveal>
         <p class="label muted">The pen and shapes</p>
-        <h2 class="title" id="draw-title">A pen that feels right.</h2>
+        <h2 class="sheet-title" id="draw-title">A pen that feels right.</h2>
+      </div>
+      <div class="sheet-side" data-reveal>
         <p class="lede muted">Click for corners, drag for curves, and the pen draws real vector paths with handles.</p>
       </div>
-      <div class="tile tile-wide" data-tone="lavender"><div class="scene" data-scene="draw"></div></div>
     </div>
   </section>
 
-  <section class="section" id="files" aria-labelledby="files-title">
-    <div class="wrap">
-      <div class="head" data-reveal>
+  <section class="sheet sheet-stack" data-tone="sand" data-copy="top" id="files" aria-labelledby="files-title">
+    <div class="tile"><div class="scene" data-scene="files"></div></div>
+    <div class="sheet-copy">
+      <div class="sheet-head" data-reveal>
         <p class="label muted">Home</p>
-        <h2 class="title" id="files-title">Your files, in order.</h2>
+        <h2 class="sheet-title" id="files-title">Your files, in order.</h2>
+      </div>
+      <div class="sheet-side" data-reveal>
         <p class="lede muted">Drafts, folders, Recents, Starred and Trash, like the file browser you know. Files live on your computer, and search finds them as you type.</p>
       </div>
-      <div class="tile tile-wide" data-tone="sand"><div class="scene" data-scene="files"></div></div>
     </div>
   </section>
 
-  <section class="section" id="workspace" aria-labelledby="workspace-title">
-    <div class="wrap">
-      <div class="head" data-reveal>
+  <section class="sheet sheet-stack" data-tone="mint" id="workspace" aria-labelledby="workspace-title">
+    <div class="tile" style="--ar: 1312 / 680"><div class="scene" data-scene="workspace"></div></div>
+    <div class="sheet-copy">
+      <div class="sheet-head" data-reveal>
         <p class="label muted">Teams and organizations</p>
-        <h2 class="title" id="workspace-title">A shared workspace, with the controls you need.</h2>
-        <p class="lede muted">Each team keeps its projects together, and everyone on it can open them. Give people a role on the team, admin, can edit or can view, or just on one folder or file. Share a file by email or by link, and work in it together, live.</p>
+        <h2 class="sheet-title" id="workspace-title">A shared workspace, with the controls you need.</h2>
       </div>
-      <div class="tile tile-wide" data-tone="mint"><div class="scene" data-scene="workspace"></div></div>
-      <div class="under">
-        <p class="muted">In an organization, members log in with SAML SSO from Okta, Microsoft Entra ID or another provider, SCIM keeps them in step, and guests can be required to use two-factor authentication. Admins manage people, teams, link sharing and guest access, and see every change in the activity log.</p>
+      <div class="sheet-side" data-reveal>
+        <p class="lede muted">Each team keeps its projects together, and everyone on it can open them. Give people a role on the team, admin, can edit or can view, or just on one folder or file. Share a file by email or by link, and work in it together, live.</p>
+        <p class="fine">In an organization, members log in with SAML SSO from Okta, Microsoft Entra ID or another provider, SCIM keeps them in step, and guests can be required to use two-factor authentication. Admins manage people, teams, link sharing and guest access, and see every change in the activity log.</p>
       </div>
     </div>
   </section>
 
-  <section class="section" aria-label="Components and variables">
-    <div class="wrap cards" data-count="2">
-      <article id="components">
-        <div class="tile tile-half" data-tone="coral"><div class="scene" data-scene="components"></div></div>
-        <div class="card-text" data-reveal>
+  <section class="sheet-row" data-count="2" aria-label="Components and variables">
+    <article class="sheet sheet-small" data-tone="coral" id="components">
+      <div class="tile"><div class="scene" data-scene="components"></div></div>
+      <div class="sheet-copy">
+        <div class="sheet-head" data-reveal>
           <p class="label muted">Components and variants</p>
-          <h3 class="subtitle">Build it once.</h3>
+          <h3 class="sheet-subtitle">Build it once.</h3>
           <p class="muted">Make a component, add variants for each state, and expose its label and icon as properties. Change the main component and every instance follows.</p>
         </div>
-      </article>
-      <article id="variables">
-        <div class="tile tile-half" data-tone="sky"><div class="scene" data-scene="variables"></div></div>
-        <div class="card-text" data-reveal style="--reveal-delay: 80ms">
+      </div>
+    </article>
+    <article class="sheet sheet-small" data-tone="sky" id="variables">
+      <div class="tile"><div class="scene" data-scene="variables"></div></div>
+      <div class="sheet-copy">
+        <div class="sheet-head" data-reveal style="--reveal-delay: 80ms">
           <p class="label muted">Variables and modes</p>
-          <h3 class="subtitle">One value, every mode.</h3>
+          <h3 class="sheet-subtitle">One value, every mode.</h3>
           <p class="muted">Keep colours, numbers, strings and booleans as variables, with a value for each mode. Switch a frame to Dark and everything bound to them updates.</p>
         </div>
-      </article>
-    </div>
+      </div>
+    </article>
   </section>
 
-  <section class="section" aria-label="Comments and libraries">
-    <div class="wrap cards" data-count="2">
-      <article id="comments">
-        <div class="tile tile-half" data-tone="mint"><div class="scene" data-scene="comments"></div></div>
-        <div class="card-text" data-reveal>
+  <section class="sheet-row" data-count="2" aria-label="Comments and libraries">
+    <article class="sheet sheet-small" data-tone="mint" id="comments">
+      <div class="tile"><div class="scene" data-scene="comments"></div></div>
+      <div class="sheet-copy">
+        <div class="sheet-head" data-reveal>
           <p class="label muted">Comments</p>
-          <h3 class="subtitle">Feedback, in place.</h3>
+          <h3 class="sheet-subtitle">Feedback, in place.</h3>
           <p class="muted">Pin a comment to the exact spot, reply in a thread, and resolve it when it’s done. Everyone who opens the file sees the same conversation.</p>
         </div>
-      </article>
-      <article id="libraries">
-        <div class="tile tile-half" data-tone="lavender"><div class="scene" data-scene="libraries"></div></div>
-        <div class="card-text" data-reveal style="--reveal-delay: 80ms">
+      </div>
+    </article>
+    <article class="sheet sheet-small" data-tone="lavender" id="libraries">
+      <div class="tile"><div class="scene" data-scene="libraries"></div></div>
+      <div class="sheet-copy">
+        <div class="sheet-head" data-reveal style="--reveal-delay: 80ms">
           <p class="label muted">Libraries</p>
-          <h3 class="subtitle">One system, every file.</h3>
+          <h3 class="sheet-subtitle">One system, every file.</h3>
           <p class="muted">Publish components, styles and variables from any file and use them everywhere. When the library changes, review the update and accept it.</p>
         </div>
-      </article>
-    </div>
+      </div>
+    </article>
   </section>
 
-  <section class="band" id="download" aria-labelledby="download-title">
-    <div class="wrap band-inner" data-reveal>
-      <h2 class="title" id="download-title">Start designing.</h2>
+  <section class="sheet band" id="download" aria-labelledby="download-title">
+    <div class="band-inner" data-reveal>
+      <h2 class="sheet-display" id="download-title">Start designing.</h2>
       <p class="lede muted">Your files live on your computer. Share one when you want to work on it together.</p>
       <!--#include download -->
     </div>

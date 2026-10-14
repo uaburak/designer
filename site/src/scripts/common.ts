@@ -105,12 +105,12 @@ export async function initDownloads(): Promise<void> {
 }
 
 /** Containers whose parts reveal one after another (heading, then lede, then the rest). */
-const GROUPS = ".head, .hero-side, .card-text, .aside, .band-inner";
+const GROUPS = ".sheet-head, .sheet-side, .band-inner";
 /** Stagger between parts entering together, ms. */
 const STAGGER = 70;
 
 /**
- * Text marked `data-reveal`, and the tiles, rise and fade in once as they come into view (site.css). Parts that enter
+ * Text marked `data-reveal`, and the cards, rise and fade in once as they come into view (site.css). Parts that enter
  * together stagger in document order (heading → lede → tile); `will-change` holds only while each one moves.
  * Without script, or under reduced motion, everything is simply there.
  */
@@ -128,7 +128,7 @@ export function initReveal(): void {
       }
     } else units.push(el);
   }
-  for (const tile of document.querySelectorAll<HTMLElement>(".tile, .platform")) {
+  for (const tile of document.querySelectorAll<HTMLElement>(".sheet")) {
     tile.setAttribute("data-reveal-item", "tile");
     units.push(tile);
   }

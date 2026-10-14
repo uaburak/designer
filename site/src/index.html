@@ -53,114 +53,127 @@
     </div>
   </div>
 </div>
-<main id="main">
-  <section class="section" aria-label="Highlights">
-    <div class="wrap cards">
-      <article>
-        <div class="tile tile-square" data-tone="coral"><div class="scene" data-scene="components"></div></div>
-        <div class="card-text" data-reveal>
-          <h3>Build it once</h3>
+<main id="main" class="sheets">
+  <section class="sheet-row" aria-label="Highlights">
+    <article class="sheet sheet-small" data-tone="coral">
+      <div class="tile"><div class="scene" data-scene="components"></div></div>
+      <div class="sheet-copy">
+        <div class="sheet-head" data-reveal>
+          <h3 class="sheet-subtitle">Build it once</h3>
           <p class="muted">Components with variants and properties. Change the main one and every instance follows.</p>
         </div>
-      </article>
-      <article>
-        <div class="tile tile-square" data-tone="sky"><div class="scene" data-scene="variables"></div></div>
-        <div class="card-text" data-reveal style="--reveal-delay: 80ms">
-          <h3>One value, every mode</h3>
+      </div>
+    </article>
+    <article class="sheet sheet-small" data-tone="sky">
+      <div class="tile"><div class="scene" data-scene="variables"></div></div>
+      <div class="sheet-copy">
+        <div class="sheet-head" data-reveal style="--reveal-delay: 80ms">
+          <h3 class="sheet-subtitle">One value, every mode</h3>
           <p class="muted">Colours, numbers and strings as variables, with a value for Light and for Dark.</p>
         </div>
-      </article>
-      <article>
-        <div class="tile tile-square" data-tone="mint"><div class="scene" data-scene="comments"></div></div>
-        <div class="card-text" data-reveal style="--reveal-delay: 160ms">
-          <h3>Feedback in place</h3>
+      </div>
+    </article>
+    <article class="sheet sheet-small" data-tone="mint">
+      <div class="tile"><div class="scene" data-scene="comments"></div></div>
+      <div class="sheet-copy">
+        <div class="sheet-head" data-reveal style="--reveal-delay: 160ms">
+          <h3 class="sheet-subtitle">Feedback in place</h3>
           <p class="muted">Pin a comment to the spot, reply in a thread, and resolve it when it’s done.</p>
         </div>
-      </article>
-    </div>
+      </div>
+    </article>
   </section>
 
-  <section class="section" id="together" aria-labelledby="together-title">
-    <div class="wrap">
-      <div class="head" data-reveal>
+  <section class="sheet sheet-stack" data-tone="lavender" data-copy="top" id="together" aria-labelledby="together-title">
+    <div class="tile" style="--ar: 1312 / 680"><div class="scene" data-scene="together"></div></div>
+    <div class="sheet-copy">
+      <div class="sheet-head" data-reveal>
         <p class="label muted">Working together</p>
-        <h2 class="title" id="together-title">One workspace for the whole team.</h2>
-        <p class="lede muted">Share a file with the people you work with: add their email, choose can edit or can view, and invite them. Open it together and see everyone in the file, their cursors and every change as it happens.</p>
+        <h2 class="sheet-title" id="together-title">One workspace for the whole team.</h2>
       </div>
-      <div class="tile tile-wide" data-tone="lavender"><div class="scene" data-scene="together"></div></div>
-      <div class="under">
-        <p class="muted">Teams keep their projects in one place, with a role for each person. Organizations add SAML SSO, two-factor authentication for guests and an admin view.</p>
+      <div class="sheet-side" data-reveal>
+        <p class="lede muted">Share a file with the people you work with: add their email, choose can edit or can view, and invite them. Open it together and see everyone in the file, their cursors and every change as it happens.</p>
+        <p class="fine">Teams keep their projects in one place, with a role for each person. Organizations add SAML SSO, two-factor authentication for guests and an admin view.</p>
         <a class="link" href="/features/#workspace">Teams and organizations</a>
       </div>
     </div>
   </section>
 
-  <section class="section" id="design" aria-labelledby="design-title">
-    <div class="wrap">
-      <div class="head" data-reveal>
+  <section class="sheet sheet-stack" data-tone="sand" id="design" aria-labelledby="design-title">
+    <div class="tile"><div class="scene" data-scene="design"></div></div>
+    <div class="sheet-copy">
+      <div class="sheet-head" data-reveal>
         <p class="label muted">Design</p>
-        <h2 class="title" id="design-title">Layouts that hold together.</h2>
-        <p class="lede muted">Stack, space and pad with auto layout, and the frame follows its content. Change the gap once and every card moves with it.</p>
+        <h2 class="sheet-title" id="design-title">Layouts that hold together.</h2>
       </div>
-      <div class="tile tile-wide" data-tone="sand"><div class="scene" data-scene="design"></div></div>
+      <div class="sheet-side" data-reveal>
+        <p class="lede muted">Stack, space and pad with auto layout, and the frame follows its content. Change the gap once and every card moves with it.</p>
+        <a class="link" href="/features/">Every feature</a>
+      </div>
     </div>
   </section>
 
-  <section class="section" id="prototype" aria-labelledby="prototype-title">
-    <div class="wrap">
-      <div class="head" data-reveal>
+  <section class="sheet sheet-stack" data-tone="sky" data-copy="top" id="prototype" aria-labelledby="prototype-title">
+    <div class="tile"><div class="scene" data-scene="prototype"></div></div>
+    <div class="sheet-copy">
+      <div class="sheet-head" data-reveal>
         <p class="label muted">Prototype</p>
-        <h2 class="title" id="prototype-title">Make it move.</h2>
+        <h2 class="sheet-title" id="prototype-title">Make it move.</h2>
+      </div>
+      <div class="sheet-side" data-reveal>
         <p class="lede muted">Connect frames with a drag, choose the trigger and the animation, and press Play. Smart animate matches layers by name and moves them for you.</p>
       </div>
-      <div class="tile tile-wide" data-tone="sky"><div class="scene" data-scene="prototype"></div></div>
     </div>
   </section>
 
-  <section class="section" id="dev-mode" aria-labelledby="dev-title">
-    <div class="wrap">
-      <div class="head" data-reveal>
+  <section class="sheet sheet-stack" data-tone="mint" id="dev-mode" aria-labelledby="dev-title">
+    <div class="tile"><div class="scene" data-scene="devmode"></div></div>
+    <div class="sheet-copy">
+      <div class="sheet-head" data-reveal>
         <p class="label muted">Dev Mode</p>
-        <h2 class="title" id="dev-title">From design to code.</h2>
+        <h2 class="sheet-title" id="dev-title">From design to code.</h2>
+      </div>
+      <div class="sheet-side" data-reveal>
         <p class="lede muted">Developers get their own view: the distances between layers, code for what they select, and a clear mark on what is ready for development.</p>
       </div>
-      <div class="tile tile-wide" data-tone="mint"><div class="scene" data-scene="devmode"></div></div>
     </div>
   </section>
 
-  <section class="section" id="ai" aria-labelledby="ai-title">
-    <div class="wrap">
-      <div class="head" data-reveal>
+  <section class="sheet sheet-stack" data-tone="coral" data-copy="top" id="ai" aria-labelledby="ai-title">
+    <div class="tile" style="--ar: 1312 / 680"><div class="scene" data-scene="studio"></div></div>
+    <div class="sheet-copy">
+      <div class="sheet-head" data-reveal>
         <p class="label muted">AI and Studio</p>
-        <h2 class="title" id="ai-title">Bring your own AI.</h2>
-        <p class="lede muted">Ask Studio for a post and a story, and several agents make them at once, frames and pictures, right on your canvas. Or chat with Claude Code, Codex or a local model and watch it build with real layers.</p>
+        <h2 class="sheet-title" id="ai-title">Bring your own AI.</h2>
       </div>
-      <div class="tile tile-wide" data-tone="coral"><div class="scene" data-scene="studio"></div></div>
-      <div class="under">
-        <p class="muted">Text goes to the agent you pick, pictures to the image route you pick. Wecra has no AI server of its own.</p>
+      <div class="sheet-side" data-reveal>
+        <p class="lede muted">Ask Studio for a post and a story, and several agents make them at once, frames and pictures, right on your canvas. Or chat with Claude Code, Codex or a local model and watch it build with real layers.</p>
+        <p class="fine">Text goes to the agent you pick, pictures to the image route you pick. Wecra has no AI server of its own.</p>
         <a class="link" href="/ai/">Everything AI can do in Wecra</a>
       </div>
     </div>
   </section>
 
-  <section class="section" id="try" aria-labelledby="try-title">
-    <div class="wrap">
-      <div class="head" data-reveal>
+  <section class="sheet sheet-stack" data-tone="sand" data-copy="top" id="try" aria-labelledby="try-title">
+    <div class="tile" data-tone="canvas"><div class="scene" data-scene="try" data-interactive aria-label="The Wecra canvas, live"></div></div>
+    <div class="sheet-copy">
+      <div class="sheet-head" data-reveal>
         <p class="label muted">Try it</p>
-        <h2 class="title" id="try-title">This is the real canvas.</h2>
+        <h2 class="sheet-title" id="try-title">This is the real canvas.</h2>
+      </div>
+      <div class="sheet-side" data-reveal>
         <p class="lede muted">Wecra’s own engine, running in this page. Select a layer, move it, resize it, or draw something new.</p>
       </div>
-      <div class="tile tile-wide" data-tone="canvas"><div class="scene" data-scene="try" data-interactive aria-label="The Wecra canvas, live"></div></div>
-      <div class="try-note label muted">
-        <span>The engine is C++, compiled to WebAssembly</span>
-        <span>Drawn on one WebGL2 canvas</span>
-      </div>
+    </div>
+    <div class="try-note label muted">
+      <span>The engine is C++, compiled to WebAssembly</span>
+      <span>Drawn on one WebGL2 canvas</span>
     </div>
   </section>
 
-  <section class="band" id="download" aria-labelledby="download-title">
-    <div class="wrap band-inner" data-reveal>
-      <h2 class="title" id="download-title">Start designing.</h2>
+  <section class="sheet band" id="download" aria-labelledby="download-title">
+    <div class="band-inner" data-reveal>
+      <h2 class="sheet-display" id="download-title">Start designing.</h2>
       <p class="lede muted">Your files live on your computer. Share one when you want to work on it together.</p>
       <!--#include download -->
     </div>

@@ -8,64 +8,64 @@
 </head>
 <body>
 <!--#include dock -->
-<main id="main">
-  <section class="hero" aria-labelledby="download-title">
-    <div class="wrap">
-      <div class="grid hero-top">
-        <h1 class="display" id="download-title" data-reveal>Get Wecra.</h1>
-        <div class="hero-side" data-reveal style="--reveal-delay: 120ms">
-          <p class="lede muted">The newest version for macOS and Windows. Once it’s installed, Wecra keeps itself up to date.</p>
-        </div>
+<main id="main" class="sheets">
+  <section class="sheet sheet-top" data-tone="sky" aria-labelledby="download-title">
+    <div class="sheet-copy">
+      <div class="sheet-head" data-reveal>
+        <p class="label muted">Download</p>
+        <h1 class="sheet-display" id="download-title">Get Wecra.</h1>
       </div>
-      <div class="platforms">
-        <article class="platform" data-tone="lavender" data-platform-card="mac">
-          <div>
-            <p class="label">macOS</p>
-            <h2 class="title">For Mac</h2>
-            <p>macOS 12 or later, Apple Silicon (M1 or newer).</p>
-          </div>
-          <div class="platform-foot">
-            <a class="btn btn-primary btn-lg" href="/download/mac" data-get="mac">Download for macOS</a>
-            <p class="dl-meta" data-offer="mac">&nbsp;</p>
-          </div>
-        </article>
-        <article class="platform" data-tone="sky" data-platform-card="windows">
-          <div>
-            <p class="label">Windows</p>
-            <h2 class="title">For Windows</h2>
-            <p>Windows 10 or later, 64-bit (x64).</p>
-          </div>
-          <div class="platform-foot">
-            <a class="btn btn-primary btn-lg" href="/download/windows" data-get="windows">Download for Windows</a>
-            <p class="dl-meta" data-offer="windows">&nbsp;</p>
-          </div>
-        </article>
+      <div class="sheet-side" data-reveal style="--reveal-delay: 120ms">
+        <p class="lede muted">The newest version for macOS and Windows. Once it’s installed, Wecra keeps itself up to date.</p>
       </div>
     </div>
   </section>
 
-  <section class="section" aria-label="Install">
-    <div class="wrap">
-      <div class="steps">
-        <div data-reveal>
-          <h2 class="subtitle">Install on a Mac</h2>
-          <ol>
-            <li>Open the downloaded .dmg file.</li>
-            <li>Drag Wecra into Applications.</li>
-            <li>Open Wecra from Applications or Launchpad.</li>
-          </ol>
-        </div>
-        <div data-reveal style="--reveal-delay: 80ms">
-          <h2 class="subtitle">Install on Windows</h2>
-          <ol>
-            <li>Run the downloaded Setup .exe file.</li>
-            <li>Follow the installer.</li>
-            <li>Open Wecra from the Start menu.</li>
-          </ol>
-        </div>
+  <section class="platforms" aria-label="Platforms">
+    <article class="sheet platform" data-tone="lavender" data-platform-card="mac">
+      <div>
+        <p class="label muted">macOS</p>
+        <h2 class="sheet-title">For Mac</h2>
+        <p>macOS 12 or later, Apple Silicon (M1 or newer).</p>
       </div>
-      <p class="under muted" data-reveal>Wecra downloads new versions by itself. Choose Restart to update when it offers, or the update installs the next time you quit. What changed in each release is in the <a href="/changelog/">changelog</a>.</p>
+      <div class="platform-foot">
+        <a class="btn btn-primary btn-lg" href="/download/mac" data-get="mac">Download for macOS</a>
+        <p class="dl-meta" data-offer="mac">&nbsp;</p>
+      </div>
+    </article>
+    <article class="sheet platform" data-tone="mint" data-platform-card="windows">
+      <div>
+        <p class="label muted">Windows</p>
+        <h2 class="sheet-title">For Windows</h2>
+        <p>Windows 10 or later, 64-bit (x64).</p>
+      </div>
+      <div class="platform-foot">
+        <a class="btn btn-primary btn-lg" href="/download/windows" data-get="windows">Download for Windows</a>
+        <p class="dl-meta" data-offer="windows">&nbsp;</p>
+      </div>
+    </article>
+  </section>
+
+  <section class="sheet sheet-text" data-tone="plain" aria-label="Install">
+    <div class="steps">
+      <div data-reveal>
+        <h2 class="sheet-subtitle">Install on a Mac</h2>
+        <ol>
+          <li>Open the downloaded .dmg file.</li>
+          <li>Drag Wecra into Applications.</li>
+          <li>Open Wecra from Applications or Launchpad.</li>
+        </ol>
+      </div>
+      <div data-reveal style="--reveal-delay: 80ms">
+        <h2 class="sheet-subtitle">Install on Windows</h2>
+        <ol>
+          <li>Run the downloaded Setup .exe file.</li>
+          <li>Follow the installer.</li>
+          <li>Open Wecra from the Start menu.</li>
+        </ol>
+      </div>
     </div>
+    <p class="after muted" data-reveal>Wecra downloads new versions by itself. Choose Restart to update when it offers, or the update installs the next time you quit. What changed in each release is in the <a href="/changelog/">changelog</a>.</p>
   </section>
 </main>
 <!--#include footer -->
