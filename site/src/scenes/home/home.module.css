@@ -61,9 +61,6 @@
   font: 400 12px/1.4 Inter, sans-serif;
   letter-spacing: 0;
 }
-/* The new fill cross-fades in over the old (opacity only) */
-.planFace[data-pro] { background: #9747ff; color: #fff; opacity: 0; transition: opacity var(--dur-4) var(--ease-standard); }
-.planFace[data-pro][data-on] { opacity: 1; }
 .planName { font-weight: 600; font-size: 13px; }
 .planPrice { margin-top: 18px; font: 700 30px/1 Inter, sans-serif; letter-spacing: -1px; }
 .planLine { opacity: 0.6; }
@@ -79,7 +76,6 @@
   font-weight: 600;
   text-align: center;
 }
-.planFace[data-pro] .planButton { background: #fff; color: #9747ff; }
 /* Figma's gap overlay while the gap is scrubbed: pink, hatched; as wide as the widest gap, opened by a clip */
 .gap {
   position: absolute;
@@ -134,9 +130,6 @@
 
 .device { box-sizing: border-box; padding: 10px; border-radius: 34px; background: #1e1e1e; }
 .deviceScreen { position: relative; width: 220px; height: 440px; overflow: hidden; border-radius: 24px; background: #fff; }
-/* A replay cross-fades back to the list: the screen dims, its parts return at once, it comes back */
-.deviceScreen > * { transition: opacity var(--dur-1) var(--ease-standard); }
-.deviceScreen[data-resetting] > * { opacity: 0 !important; transition: opacity var(--dur-1) var(--ease-standard) !important; }
 .previewShop, .previewProduct { position: absolute; inset: 0; }
 .previewShop { transition: opacity var(--dur-2) var(--ease-standard); }
 .previewShop[data-out] { opacity: 0; }
@@ -165,19 +158,17 @@
   white-space: nowrap;
 }
 .noodle { position: absolute; top: 0; left: 0; z-index: 8; overflow: visible; pointer-events: none; }
+/* The connection grows with the drag (its dash offset on the drag's own curve, set inline); its ends appear as the
+   drag starts and lands (no pop) */
 .noodle path { fill: none; stroke: #0d99ff; stroke-width: 2; stroke-dashoffset: 1; }
 .noodle[data-on] path { stroke-dashoffset: 0; }
-.noodle circle, .noodle .noodleHead { fill: #0d99ff; stroke: none; }
-.noodle circle { opacity: 0; transform: scale(0); transform-box: fill-box; transform-origin: center; transition: opacity var(--dur-1) var(--ease-out), transform var(--dur-spring-snap) var(--ease-spring-snap); }
-.noodle[data-on] circle { opacity: 1; transform: none; }
-.noodle .noodleHead { opacity: 0; transform: scale(0.2); transition: opacity var(--dur-1) var(--ease-out) 1000ms, transform var(--dur-spring-snap) var(--ease-spring-snap) 1000ms; }
-.noodle[data-on] .noodleHead { opacity: 1; transform: none; }
+.noodle circle, .noodle .noodleHead { fill: #0d99ff; stroke: none; opacity: 0; transition: opacity var(--dur-1) var(--ease-out); }
+.noodle[data-on] circle, .noodle[data-on] .noodleHead { opacity: 1; }
 
 /* ── Dev Mode: the order card, its measurements, Inspect's code ── */
 
 .devName { display: inline-flex; align-items: center; gap: 4px; color: rgba(0, 0, 0, 0.6); }
-.devStatus { margin-left: 6px; transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-4) var(--ease-spring); }
-.devStatus[data-out] { opacity: 0; transform: translateX(-6px); }
+.devStatus { margin-left: 6px; }
 .order {
   box-sizing: border-box;
   display: flex;
@@ -199,11 +190,10 @@
 .orderSteps span[data-done] i { border-color: #14ae5c; background: #14ae5c; }
 .orderButton { margin-top: auto; padding: 11px 0; border-radius: 10px; background: #f2f2f2; font-weight: 600; text-align: center; }
 
-/* A measurement draws out from its start, then its number rises in */
-.measure { position: absolute; z-index: 12; }
-.measure i { position: absolute; inset: 0; background: #f24822; transform-origin: 0 0; transition: transform var(--dur-2) var(--ease-out); }
-.measure[data-dir="h"][data-out] i { transform: scaleX(0); }
-.measure[data-dir="v"][data-out] i { transform: scaleY(0); }
+/* A measurement appears at once with the hover (a quick fade, nothing drawn out) */
+.measure { position: absolute; z-index: 12; transition: opacity var(--dur-1) var(--ease-out); }
+.measure[data-out] { opacity: 0; transition-duration: 120ms; }
+.measure i { position: absolute; inset: 0; background: #f24822; }
 .measure b {
   position: absolute;
   padding: 1px 4px;
@@ -214,24 +204,11 @@
   font-weight: 400;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  transition: opacity var(--dur-1) var(--ease-out) 160ms, translate var(--dur-2) var(--ease-out) 160ms;
 }
-.measure[data-out] b { opacity: 0; translate: 0 3px; transition-delay: 0ms; }
-.measure[data-dir="h"] b { bottom: 6px; left: 50%; transform: translateX(-50%); }
+.measure[data-dir="h"] b { top: 6px; left: 50%; transform: translateX(-50%); }
 .measure[data-dir="v"] b { top: 50%; left: 6px; transform: translateY(-50%); }
 .code { padding: 0 8px 8px 16px; }
-.code pre { min-height: 152px; }
-/* The cover over the lines not written yet (the block's own colour), opened down by a clip (a transform would grow
-   the block's scroll area) */
-.code pre::after {
-  position: absolute;
-  inset: 0;
-  background: var(--figma-color-bg-secondary);
-  content: "";
-  clip-path: inset(calc(8px + var(--lines, 0) * 16px) 0 0 0);
-  transition: clip-path var(--dur-1) var(--ease-standard);
-}
 
 @media (prefers-reduced-motion: reduce) {
-  .heroFrame, .heroFrame > *, .plan, .plansBg, .planFace, .gap, .previewShop, .previewProduct, .previewHero, .measure, .devStatus { transition: none; }
+  .heroFrame, .heroFrame > *, .plan, .plansBg, .gap, .previewShop, .previewProduct, .previewHero, .measure { transition: none; }
 }

@@ -1,7 +1,5 @@
 /* The feature collages: the designs on the canvas (fixed colours, they are the file's content) and the app pieces'
-   small additions (a variables table, a comment thread) in the app's tokens. */
-
-.fade { transition: opacity 500ms ease, transform 700ms var(--site-ease); }
+   small additions (a comment thread, Home's grid) in the app's tokens. */
 
 /* ── Components ── */
 
@@ -14,12 +12,12 @@
 }
 .btn {
   position: absolute;
-  left: 18px;
+  left: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  width: 156px;
+  width: 128px;
   height: 40px;
   overflow: hidden;
   border-radius: 8px;
@@ -40,54 +38,11 @@
   transition: opacity var(--dur-3) var(--ease-standard);
 }
 .btn[data-on]::before { opacity: 1; }
-/* The icon property: the label makes room by moving, the arrow slides in after it */
-.btnLabel { transition: transform var(--dur-4) var(--ease-spring); }
-.btnIcon {
-  position: absolute;
-  top: 50%;
-  left: calc(50% + 18px);
-  display: inline-flex;
-  opacity: 0;
-  transform: translate3d(-8px, -50%, 0) scale(0.8);
-  transition: opacity var(--dur-1) var(--ease-standard), transform var(--dur-4) var(--ease-spring);
-}
-.btn[data-icon] .btnLabel { transform: translate3d(-10px, 0, 0); }
-.btn[data-icon] .btnIcon { opacity: 1; transform: translate3d(0, -50%, 0); transition-delay: 80ms; }
-.btnIcon svg { flex: none; margin: -4px; }
-.switchRow { display: flex; align-items: center; height: var(--ds-size-control); }
+/* A Select's list drawn open over its field (the ds Menu, static) */
+.list > * { display: block; }
 
 /* ── Variables ── */
 
-.varTable { position: relative; padding: 4px 0 8px; }
-.varHead, .varRow {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr 76px 76px;
-  align-items: center;
-  height: 32px;
-  padding: 0 8px 0 12px;
-}
-.varHead { color: var(--figma-color-text-secondary); border-bottom: 1px solid var(--figma-color-border); }
-.varRow > span { display: flex; align-items: center; gap: 6px; }
-.varName { color: var(--figma-color-text); }
-.varName svg { color: var(--figma-color-icon-secondary); }
-.varHead > [data-col], .varRow > [data-col] {
-  height: 100%;
-  margin: 0 -2px;
-  padding: 0 6px;
-  font-variant-numeric: tabular-nums;
-}
-/* The mode's column: one highlight that slides between Light and Dark */
-.varCol {
-  position: absolute;
-  top: 4px;
-  bottom: 8px;
-  left: calc(100% - 8px - 152px - 2px);
-  width: 80px;
-  background: var(--figma-color-bg-selected);
-  transition: transform var(--dur-4) var(--ease-spring);
-}
-.varTable[data-mode="Dark"] .varCol { transform: translate3d(76px, 0, 0); }
 .varCard {
   position: absolute;
   inset: 0;
@@ -134,9 +89,10 @@
   background: #fff;
   color: #fff;
   transform-origin: 0 100%;
-  transition: opacity var(--dur-1) var(--ease-out), transform var(--dur-spring) var(--ease-spring);
+  transition: opacity var(--dur-1) var(--ease-out), transform var(--dur-2) var(--ease-out);
 }
-.pin[data-out] { opacity: 0; transform: scale(0.3) translate3d(0, -12px, 0); }
+/* The pin appears from its point, where it was clicked (no drop, no spring) */
+.pin[data-out] { opacity: 0; transform: scale(0.6); }
 /* The avatar and the resolved check cross-fade; the green comes in under the check */
 .pinFace {
   position: absolute;
@@ -144,12 +100,11 @@
   display: grid;
   border-radius: inherit;
   place-items: center;
-  transition: opacity var(--dur-2) var(--ease-standard), transform var(--dur-spring) var(--ease-spring);
+  transition: opacity var(--dur-2) var(--ease-standard);
 }
-.pinFace[data-check] { background: #14ae5c; opacity: 0; transform: scale(0.6); }
-.pin[data-resolved] .pinFace[data-check] { opacity: 1; transform: none; }
+.pinFace[data-check] { background: #14ae5c; opacity: 0; }
+.pin[data-resolved] .pinFace[data-check] { opacity: 1; }
 .pin[data-resolved] .pinFace:not([data-check]) { opacity: 0; }
-.stagePlaceholder { display: none; }
 
 .thread { font: var(--ds-font-body-medium); }
 .threadHead {
@@ -183,12 +138,11 @@
   background: var(--figma-color-bg-success);
   content: "";
   opacity: 0;
-  transform: scale(0.9);
-  transition: opacity var(--dur-1) var(--ease-standard), transform var(--dur-spring-snap) var(--ease-spring-snap);
+  transition: opacity var(--dur-1) var(--ease-standard);
 }
-.threadResolve[data-hover]:not([data-on])::before { background: var(--figma-color-bg-hover); opacity: 1; transform: none; }
+.threadResolve[data-hover]:not([data-on])::before { background: var(--figma-color-bg-hover); opacity: 1; }
 .threadResolve[data-on] { color: #fff; }
-.threadResolve[data-on]::before { opacity: 1; transform: none; }
+.threadResolve[data-on]::before { opacity: 1; }
 /* Two words in one place: the new one rises in as the old one leaves */
 .swap { display: inline-grid; }
 .swap > * { grid-area: 1 / 1; transition: opacity var(--dur-1) var(--ease-standard), transform var(--dur-2) var(--ease-out); }
@@ -248,33 +202,21 @@
 .toolbarSlot { position: relative; width: 100%; height: 100%; }
 .logoFrame { background: #fff; }
 .pen { position: absolute; top: 0; left: 0; z-index: 2; overflow: visible; pointer-events: none; }
-.penFill { fill: #14ae5c; opacity: 0; transition: opacity var(--dur-4) var(--ease-standard); }
-.penFill[data-on] { opacity: 1; }
-.penStroke {
-  fill: none;
-  stroke: #0d99ff;
-  stroke-width: 1.5;
-  stroke-dashoffset: 1;
-  transition: stroke-dashoffset var(--dur-3) var(--ease-out), stroke var(--dur-3) var(--ease-standard), stroke-width var(--dur-3) var(--ease-standard);
-}
-.penStroke[data-on] { stroke-dashoffset: 0; }
-.penStroke[data-filled] { stroke: #1e1e1e; stroke-width: 2; }
+/* Each segment appears when its point is placed (a quick fade, nothing drawn along); closed, the path is the
+   vector with its stroke, and the edit points go */
+.penStroke { fill: none; stroke: #0d99ff; stroke-width: 1.5; opacity: 0; transition: opacity 120ms var(--ease-out); }
+.penStroke[data-on] { opacity: 1; }
+.penShape { fill: none; stroke: #1e1e1e; stroke-width: 2; opacity: 0; transition: opacity var(--dur-2) var(--ease-standard); }
+.pen[data-closed] .penShape { opacity: 1; }
+.pen[data-closed] .penStroke,
+.pen[data-closed] .penAnchor { opacity: 0; transition-duration: var(--dur-2); }
 .penHandles { opacity: 0; transform: scale(0); }
 .penHandles[data-on] { opacity: 1; transform: none; }
 .penHandles line { stroke: #0d99ff; stroke-width: 1; }
 .penHandles circle { fill: #fff; stroke: #0d99ff; stroke-width: 1; }
-/* An anchor pops in where it is clicked */
-.penAnchor {
-  fill: #fff;
-  stroke: #0d99ff;
-  stroke-width: 1;
-  opacity: 0;
-  transform: scale(0.2);
-  transform-box: fill-box;
-  transform-origin: center;
-  transition: opacity var(--dur-1) var(--ease-out), transform var(--dur-spring-snap) var(--ease-spring-snap), fill var(--dur-1) var(--ease-standard);
-}
-.penAnchor[data-on] { opacity: 1; transform: none; }
+/* A point appears where it is clicked (no pop); the last one placed is filled */
+.penAnchor { fill: #fff; stroke: #0d99ff; stroke-width: 1.5; opacity: 0; transition: opacity 120ms var(--ease-out), fill var(--dur-1) var(--ease-standard); }
+.penAnchor[data-on] { opacity: 1; }
 .penAnchor[data-active] { fill: #0d99ff; }
 
 /* ── Home: the file browser ── */
@@ -294,7 +236,7 @@
 .homeHead > :last-child { width: 240px; margin-left: auto; }
 .homeSearch { position: relative; border-radius: var(--ds-radius-medium); outline: 1px solid transparent; outline-offset: 0; transition: outline-color var(--dur-1) var(--ease-standard); }
 .homeSearch[data-focus] { outline-color: var(--figma-color-border-selected); }
-.homeGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px 16px; padding: 24px; align-content: start; }
+.homeGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 16px; padding: 24px; align-content: start; }
 /* Filtered out: a quick fade and settle; back in: one after another (the grid's moves are FLIP, useFlip) */
 .homeCard { transition: opacity var(--dur-3) var(--ease-out) calc(var(--i) * 50ms), transform var(--dur-4) var(--ease-out) calc(var(--i) * 50ms); }
 .homeCard[data-out] { opacity: 0; transform: scale(0.97); transition: opacity var(--dur-1) var(--ease-in), transform var(--dur-1) var(--ease-in); }
@@ -314,12 +256,26 @@
 .libName { display: grid; }
 .libName small { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
 .libFoot { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 16px 12px; }
+.libCard {
+  display: grid;
+  box-sizing: border-box;
+  padding: 20px;
+  border-radius: 14px;
+  background: #fff;
+  align-content: start;
+  gap: 10px;
+  color: #1e1e1e;
+  font: 400 12px/1.3 Inter, sans-serif;
+  letter-spacing: 0;
+}
+.libCard strong { margin-bottom: 4px; font: 650 16px/1.2 Inter, sans-serif; letter-spacing: -0.3px; }
+.libField { height: 32px; padding: 0 10px; border: 1px solid #e6e6e6; border-radius: 8px; color: #8c8c8c; line-height: 30px; }
 .libChip {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 140px;
+  margin-top: 6px;
   height: 40px;
   overflow: hidden;
   border-radius: 8px;
@@ -329,7 +285,7 @@
   letter-spacing: 0;
   isolation: isolate;
 }
-/* The library's new colour sweeps in over the old (opacity and transform only) */
+/* The library's new colour cross-fades in over the old (opacity only) */
 .libChip::before {
   position: absolute;
   inset: 0;
@@ -337,16 +293,12 @@
   background: #0d99ff;
   content: "";
   opacity: 0;
-  transform: scale(0.6);
-  border-radius: 50%;
-  transition: opacity var(--dur-3) var(--ease-standard), transform var(--dur-5) var(--ease-out);
+  transition: opacity var(--dur-3) var(--ease-standard);
 }
-.libChip[data-new]::before { opacity: 1; transform: scale(1.6); }
-.libBanner { display: grid; overflow: hidden; border: 1px solid var(--site-piece-line); border-radius: var(--site-piece-radius); background: var(--figma-color-bg); }
-.libBanner > * { grid-area: 1 / 1; transition: opacity var(--dur-2) var(--ease-standard), transform var(--dur-4) var(--ease-out); }
-.libBanner > [data-out] { opacity: 0; transform: translate3d(0, 6px, 0); }
-.libBanner > * > * { border-radius: 0; }
+.libChip[data-new]::before { opacity: 1; }
+.libBanner { overflow: hidden; border: 1px solid var(--site-piece-line); border-radius: var(--site-piece-radius); background: var(--figma-color-bg); }
+.libBanner > * { border-radius: 0; }
 
 @media (prefers-reduced-motion: reduce) {
-  .btn, .btnIcon, .varCard, .varCard span, .pin, .msg, .reply, .threadResolve, .penFill, .penStroke, .homeCard, .libChip { transition: none; }
+  .btn, .btn::before, .varCard, .pin, .pinFace, .msg, .reply, .threadResolve, .threadResolve::before, .penStroke, .penShape, .penAnchor, .penHandles, .homeCard, .libChip::before { transition: none !important; }
 }

@@ -1,18 +1,23 @@
-// Comments: a pin dropped on a card, its thread (a question, a reply typed in and posted), then resolved. The pin lands
-// on a spring, the thread opens from it, the reply is typed at a person's pace with a blinking caret, and the posted
-// message takes the composer's place (stacked in one grid cell: the thread never changes size).
+// Comments, two people in one file (docs/site.md §2.1): Ada clicks the card and her comment is pinned there, its thread
+// opening beside the pin; Kerem types a reply at a person's pace and posts it (the message takes the composer's place,
+// stacked in one grid cell: the thread never changes size); Ada resolves the thread and the pin turns into a check.
+// Then both rest where they last were.
 import { useState } from "react";
 import { Button } from "@/ds/components/Button";
 import { Avatar } from "@/ds/components/Misc";
 import { Icon } from "@/ds/icons/Icon";
-import { around, Collage, CURSOR, Cursor, Piece, usePointer } from "../collage/kit";
+import { Collage, CURSOR, Cursor, Piece, usePointer } from "../collage/kit";
 import type { Run } from "../runtime/motion";
 import styles from "./features.module.css";
 
 const REPLY = "Done, it fits on one line now.";
-const PIN: [number, number] = [226, 40];
-const POST: [number, number] = [345, 232];
-const RESOLVE: [number, number] = [318, 133];
+/** Where Ada clicks (the title): the pin's point (its bottom-left corner) lands there, the thread opens under it. */
+const SPOT: [number, number] = [196, 106];
+const PIN = { x: SPOT[0], y: SPOT[1] - 36 };
+const THREAD = { x: 112, y: SPOT[1] + 22, w: 252 };
+/** The thread's Post and Resolve buttons (stage px, measured). */
+const POST: [number, number] = [THREAD.x + 206, THREAD.y + 113];
+const RESOLVE: [number, number] = [THREAD.x + 182, THREAD.y + 21];
 
 export default function CommentsCollage() {
   const [pin, setPin] = useState(false);
@@ -21,34 +26,33 @@ export default function CommentsCollage() {
   const [typing, setTyping] = useState(false);
   const [sent, setSent] = useState(false);
   const [resolved, setResolved] = useState(false);
-  const ada = usePointer([60, 380]);
-  const ken = usePointer([300, 430]);
+  const ada = usePointer([56, 330]);
+  const ken = usePointer([POST[0] - 40, 360]);
 
   const script = async (run: Run) => {
-    await run.wait(900);
-    await ada.click(run, [PIN[0] - 8, PIN[1] + 30]);
+    await run.wait(1000);
+    await ada.click(run, SPOT, { beat: 260 });
     setPin(true);
-    await run.wait(420);
     setThread(true);
-    await ada.to(run, [70, 300], { ms: 900 });
-    await run.wait(300);
+    await run.wait(500);
+    await ada.to(run, [64, 252], { ms: 800 });
+    await run.wait(400);
+    // Kerem joins and replies
     setTyping(true);
-    void ken.to(run, [POST[0] - 70, POST[1] + 40], { wait: false, ms: 1100 });
-    await run.wait(200);
+    await ken.to(run, [POST[0] - 40, POST[1] + 44], { ms: 900 });
     await run.type(REPLY, setTyped);
-    await run.wait(260);
-    await ken.click(run, POST);
+    await run.wait(300);
+    await ken.click(run, POST, { beat: 260 });
     setSent(true);
     setTyping(false);
-    await run.wait(1200);
-    await ada.click(run, RESOLVE);
+    await run.wait(1000);
+    await ada.click(run, RESOLVE, { beat: 260 });
     setResolved(true);
-    await Promise.all([ada.idle(run, around(RESOLVE, 14)), ken.idle(run, around([POST[0] - 40, POST[1] + 56], 12), { pause: 3000 })]);
   };
 
   return (
     <Collage size={[400, 400]} script={script}>
-      <Piece x={36} y={48} w={220} h={150} d={0} from="fade">
+      <Piece x={32} y={76} w={220} h={150} d={0} from="fade">
         <div className={styles.cmtCard}>
           <span className={styles.cmtTitle}>Spring collection, now in store</span>
           <span className={styles.cmtLine} style={{ width: 150 }} />
@@ -56,7 +60,7 @@ export default function CommentsCollage() {
           <span className={styles.cmtButton}>Shop now</span>
         </div>
       </Piece>
-      <div className={styles.pin} data-out={!pin || undefined} data-resolved={resolved || undefined} style={{ left: PIN[0], top: PIN[1] }}>
+      <div className={styles.pin} data-out={!pin || undefined} data-resolved={resolved || undefined} style={{ left: PIN.x, top: PIN.y }}>
         <span className={styles.pinFace}>
           <Avatar name="Ada Lin" size={24} />
         </span>
@@ -65,7 +69,7 @@ export default function CommentsCollage() {
         </span>
       </div>
 
-      <Piece surface x={132} y={112} w={252} show={thread} from="scale" origin="94px -40px" className={styles.thread}>
+      <Piece surface x={THREAD.x} y={THREAD.y} w={THREAD.w} show={thread} from="scale" origin="86px -20px" className={styles.thread}>
         <div className={styles.threadHead}>
           <span>Comment</span>
           <span className={styles.threadResolve} data-on={resolved || undefined} data-pressable="">

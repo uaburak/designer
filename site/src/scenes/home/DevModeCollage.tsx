@@ -1,19 +1,20 @@
-// Dev Mode: a card marked Ready to Dev (the app's StatusTag), selected in Dev Mode's green, the distances to its
-// parts measured in red, and its CSS written out line by line in Inspect (the ds CodeBlock); the bottom toolbar is in
-// Dev Mode.
+// Dev Mode (docs/site.md §2.1): a card marked Ready for dev (the app's StatusTag), selected in Dev Mode's green, and
+// its CSS in Inspect (the ds CodeBlock). The cursor hovers the card's parts, one after another: each hovered layer gets
+// its outline and its distances to the selection in red, right where the cursor is (the 24s are the card's padding,
+// as the code says). Then the scene rests.
 import { useState } from "react";
-import { EditorToolbar } from "@/ds/components/EditorToolbar";
 import { CodeBlock } from "@/ds/components/Misc";
 import { PanelSection } from "@/ds/components/PanelSection";
 import { Select } from "@/ds/components/Select";
 import { Icon } from "@/ds/icons/Icon";
 import { StatusTag } from "@/editor/devmode/StatusTag";
-import { Collage, CURSOR, Cursor, FrameName, Piece, Selection, usePointer } from "../collage/kit";
+import { Collage, CURSOR, Cursor, FrameName, Piece, Selection, usePointer, type Box } from "../collage/kit";
 import { noop, PanelColumn } from "../collage/ui";
 import type { Run } from "../runtime/motion";
 import styles from "./home.module.css";
 
-const CARD = { x: 432, y: 150, w: 320, h: 300 };
+const CARD = { x: 340, y: 170, w: 320, h: 300 };
+const PANEL = { x: 700, y: 120 };
 
 const CSS = [
   ".order-card {",
@@ -34,46 +35,47 @@ interface Measure {
   label: string;
 }
 
-const MEASURES: Measure[] = [
-  { x: CARD.x, y: CARD.y + 33, len: 24, dir: "h", label: "24" },
-  { x: CARD.x + 160, y: CARD.y, len: 24, dir: "v", label: "24" },
-  { x: CARD.x + 160, y: CARD.y + 42, len: 16, dir: "v", label: "16" },
+/** What the cursor hovers, in turn: the layer's box and its distances to the card (stage px). */
+const HOVERS: { box: Box; measures: Measure[]; at: [number, number] }[] = [
+  {
+    // "Order #2048": 24 from the card's left and top
+    box: { x: CARD.x + 24, y: CARD.y + 24, w: 84, h: 18 },
+    measures: [
+      { x: CARD.x, y: CARD.y + 33, len: 24, dir: "h", label: "24" },
+      { x: CARD.x + 66, y: CARD.y, len: 24, dir: "v", label: "24" },
+    ],
+    at: [CARD.x + 70, CARD.y + 36],
+  },
+  {
+    // "Track parcel": 24 from the card's left and bottom
+    box: { x: CARD.x + 24, y: CARD.y + CARD.h - 24 - 40, w: CARD.w - 48, h: 40 },
+    measures: [
+      { x: CARD.x, y: CARD.y + CARD.h - 44, len: 24, dir: "h", label: "24" },
+      { x: CARD.x + CARD.w / 2, y: CARD.y + CARD.h - 24, len: 24, dir: "v", label: "24" },
+    ],
+    at: [CARD.x + CARD.w / 2 + 40, CARD.y + CARD.h - 40],
+  },
 ];
 
 export default function DevModeCollage() {
-  const [ready, setReady] = useState(false);
-  const [measured, setMeasured] = useState(0);
-  const [lines, setLines] = useState(0);
-  const me = usePointer([860, 600]);
+  const [hover, setHover] = useState(-1);
+  const me = usePointer([CARD.x + CARD.w + 60, 560]);
 
   const script = async (run: Run) => {
-    await run.wait(900);
-    setReady(true);
-    await run.wait(500);
-    await me.to(run, [CARD.x + 60, CARD.y + 30]);
-    for (let i = 1; i <= MEASURES.length; i++) {
-      await run.wait(i === 1 ? 160 : 420);
-      setMeasured(i);
-      if (i === 2) void me.to(run, [CARD.x + 120, CARD.y + 70], { wait: false });
+    await run.wait(1200);
+    for (let i = 0; i < HOVERS.length; i++) {
+      await me.to(run, HOVERS[i].at, { ms: i ? 900 : undefined });
+      setHover(i);
+      await run.wait(1600);
     }
-    await run.wait(300);
-    for (let i = 1; i <= CSS.length; i++) {
-      setLines(i);
-      await run.wait(110 + (CSS[i - 1].length % 4) * 20);
-    }
-    await me.idle(run, [
-      [CARD.x + 160, CARD.y + 112],
-      [CARD.x + 60, CARD.y + 52],
-      [CARD.x + 220, CARD.y + 250],
-    ]);
   };
 
   return (
-    <Collage size={[1312, 640]} focus={[0.46, 0.5]} safe={560} script={script}>
+    <Collage size={[1312, 640]} focus={[0.488, 0.5]} safe={640} script={script}>
       <FrameName x={CARD.x} y={CARD.y - 8}>
         <span className={styles.devName}>
           <Icon name="16.frame" /> Order card
-          <span className={styles.devStatus} data-out={!ready || undefined}>
+          <span className={styles.devStatus}>
             <StatusTag workflow="ready-to-dev" variant="chip" />
           </span>
         </span>
@@ -92,34 +94,33 @@ export default function DevModeCollage() {
         <span className={styles.orderButton}>Track parcel</span>
       </Piece>
       <Selection box={CARD} tone="dev" size={`${CARD.w} × ${CARD.h}`} />
-      {MEASURES.map((m, i) => (
-        <span
-          key={i}
-          className={styles.measure}
-          data-dir={m.dir}
-          data-out={measured <= i || undefined}
-          style={{ left: m.x, top: m.y, width: m.dir === "h" ? m.len : 1, height: m.dir === "v" ? m.len : 1 }}
-        >
-          <i />
-          <b>{m.label}</b>
-        </span>
+      {HOVERS.map((h, i) => (
+        <Selection key={i} box={h.box} tone="dev" handles={false} show={hover === i} z={11} />
       ))}
+      {HOVERS.flatMap((h, i) =>
+        h.measures.map((m, j) => (
+          <span
+            key={`${i}-${j}`}
+            className={styles.measure}
+            data-dir={m.dir}
+            data-out={hover !== i || undefined}
+            style={{ left: m.x, top: m.y, width: m.dir === "h" ? m.len : 1, height: m.dir === "v" ? m.len : 1 }}
+          >
+            <i />
+            <b>{m.label}</b>
+          </span>
+        )),
+      )}
 
-      <Piece surface x={1008} y={56} w={240} d={160} from="right">
+      <Piece surface x={PANEL.x} y={PANEL.y} w={240} d={160} from="right">
         <PanelColumn>
           <PanelSection title="Order card" pad="none" />
           <PanelSection title="Code" actions={<Select label="Language" variant="ghost" width="hug" value="css" options={[{ value: "css", label: "CSS" }]} onChange={noop} />}>
-            {/* The CSS writes itself out: a cover in the block's colour slides down line by line (transform only) */}
-            <div className={styles.code} style={{ ["--lines" as string]: lines }}>
+            <div className={styles.code}>
               <CodeBlock code={CSS.join("\n")} />
             </div>
           </PanelSection>
         </PanelColumn>
-      </Piece>
-      <Piece x={400} y={556} w={384} h={60} d={240}>
-        <div className={styles.toolbarSlot}>
-          <EditorToolbar floating tool="move" mode="dev" onMode={noop} onTool={noop} />
-        </div>
       </Piece>
       <Cursor {...me.state} color={CURSOR.ink} d={300} z={30} />
     </Collage>

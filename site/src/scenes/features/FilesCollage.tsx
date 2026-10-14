@@ -1,6 +1,6 @@
-// Home: the file browser (the ds SidebarItem, SearchField and FileCard). A search is typed and the grid narrows to
-// what matches, a file is starred, then the search is cleared and every file comes back. Thumbnails are small
-// drawings of each file's first frame (thumbs.ts).
+// Home: the file browser (the ds SidebarItem, SearchField and FileCard). Two steps (docs/site.md §2.1): a search is
+// typed and the grid narrows to what matches, then one of the matches is starred where the cursor is. Then the scene
+// rests. Thumbnails are small drawings of each file's first frame (thumbs.ts).
 import { useRef, useState } from "react";
 import { FileCard, FileKindIcon } from "@/ds/components/FileCard";
 import { SearchField } from "@/ds/components/SearchField";
@@ -16,14 +16,14 @@ const FILES: { id: string; title: string; subtitle: string; thumb: string }[] = 
   { id: "b", title: "Bloom — App", subtitle: "Edited 1 hour ago", thumb: THUMBS.mobile },
   { id: "c", title: "Design system", subtitle: "Edited yesterday", thumb: THUMBS.system },
   { id: "d", title: "Bloom — Landing", subtitle: "Edited 3 days ago", thumb: THUMBS.landing },
-  { id: "e", title: "Icons", subtitle: "Edited last week", thumb: THUMBS.icons },
-  { id: "f", title: "Pitch deck", subtitle: "Edited last week", thumb: THUMBS.pitch },
 ];
 const QUERY = "bloom";
 
-const SEARCH: [number, number] = [1040, 92];
-/** The star on the first card once the grid has narrowed (stage px). */
-const STAR: [number, number] = [571, 153];
+/** Home, cut to two rows of files (stage px); on a phone the files and the search stay in view. */
+const PIECE = { x: 226, y: 40, w: 860, h: 560 };
+/** The search field, and the star on the first card once the grid has narrowed (stage px, measured). */
+const SEARCH: [number, number] = [PIECE.x + 640, PIECE.y + 28];
+const STAR: [number, number] = [PIECE.x + 516, PIECE.y + 98];
 
 export default function FilesCollage() {
   const [query, setQuery] = useState("");
@@ -32,16 +32,16 @@ export default function FilesCollage() {
   const [filter, setFilter] = useState("");
   const [gone, setGone] = useState(false);
   const [starred, setStarred] = useState<string[]>(["c"]);
-  const me = usePointer([1100, 600]);
+  const me = usePointer([PIECE.x + 700, 620]);
   const gridRef = useRef<HTMLDivElement>(null);
   const fieldRef = useRef<HTMLDivElement>(null);
   useFlip(gridRef, gone);
 
   const script = async (run: Run) => {
-    await run.wait(1000);
-    await me.click(run, SEARCH);
+    await run.wait(1100);
+    await me.click(run, SEARCH, { beat: 260 });
     setFocus(true);
-    await run.wait(380);
+    await run.wait(400);
     setTyping(true);
     await run.type(QUERY, setQuery, 3);
     setTyping(false);
@@ -50,34 +50,21 @@ export default function FilesCollage() {
     setFilter(QUERY);
     await run.wait(260);
     setGone(true);
-    await run.wait(700);
-    await me.click(run, STAR);
+    await run.wait(900);
+    await me.click(run, STAR, { beat: 300 });
     setStarred((s) => [...s, "b"]);
-    await run.wait(1700);
-    // Cleared: the files make room again, then fade back in, one after another
-    setQuery("");
-    setFocus(false);
-    setGone(false);
-    await run.wait(60);
-    setFilter("");
-    await me.to(run, [1000, 560], { ms: 1100 });
-    await me.idle(run, [
-      [960, 520],
-      [1040, 470],
-      [1000, 560],
-    ]);
   };
 
   const out = (f: (typeof FILES)[number]) => !f.title.toLowerCase().includes(filter);
 
   return (
-    <Collage size={[1312, 640]} focus={[0.42, 0.4]} safe={720} script={script}>
-      <Piece surface x={56} y={56} w={1200} h={560} d={0} from="up">
+    <Collage size={[1312, 640]} focus={[0.59, 0.5]} safe={640} script={script}>
+      <Piece surface x={PIECE.x} y={PIECE.y} w={PIECE.w} h={PIECE.h} d={0} from="up">
         <div className={styles.home}>
           <div className={styles.homeSide}>
             <SidebarItem icon="24.recent" label="Recents" selected />
             <SidebarItem icon={<FileKindIcon />} label="Drafts" />
-            <SidebarItem icon="24.star.outline" label="Starred" count={starred.length} />
+            <SidebarItem icon="24.star.outline" label="Starred" />
             <SidebarItem icon="24.trash.outline" label="Trash" />
             <SidebarDivider />
             <SidebarHeader title="Folders" />
