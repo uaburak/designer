@@ -15,6 +15,7 @@ import { ConnectorHub, type ConsentAnswer, type StoredConnector } from "./connec
 import { ReachHub, type ReachConsentRequest, type ReachRunner } from "./reach/hub";
 import { ReachStore } from "./reach/store";
 import { orgForcedOff } from "./reach/org";
+import { webRunner } from "./reach/web";
 import { grantProblem, isDeniedPath } from "./reach/paths";
 import { REACH_NOTE, REACH_SKILLS, isReachPolicy, isRepoName, type AccessLogEntry, type ReachCapability, type ReachPatch, type ReachView } from "../../shared/agents/reach";
 import { normalizeAllowedHost } from "../../shared/agents/reachNet";
@@ -315,7 +316,10 @@ const CAPABILITY_LABEL: Record<ReachCapability, string> = { web: "Web", github: 
 let reachStore: ReachStore | null = null;
 const reachStoreOf = () => (reachStore ??= new ReachStore(dir()));
 /** The capabilities' runners, each phase's (web.ts, github.ts, files.ts, apps.ts): a capability without one isn't listed */
-const reachRunners: Partial<Record<ReachCapability, ReachRunner>> = {};
+const reachRunners: Partial<Record<ReachCapability, ReachRunner>> = {
+  // A capture's layers are made in the turn's file, inside the turn (one undo step with the agent's other writes).
+  web: webRunner({ runInView: (ctx, call) => runToolInView(ctx.fileKey, { turnId: ctx.turnId, client: ctx.agent, name: call.name, args: call.args }) }),
+};
 let reach: ReachHub | null = null;
 
 function reachHub(): ReachHub {

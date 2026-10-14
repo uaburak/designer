@@ -104,7 +104,7 @@ export interface AccessConsent {
 
 /** The limits of every call (docs/agents-reach.md §4.5). */
 export const REACH_LIMITS = {
-  timeoutMs: { web: 30_000, github: 20_000, files: 10_000, apps: 6 * 60_000 } as Record<ReachCapability, number>,
+  timeoutMs: { web: 90_000, github: 20_000, files: 10_000, apps: 6 * 60_000 } as Record<ReachCapability, number>,
   /** Characters of one text block */
   text: 100_000,
   /** Base64 characters of one image (≈ 4 MB) */
@@ -158,8 +158,8 @@ export const REACH_TOOLS: ReachToolDef[] = [
     capability: "web",
     action: "open a web page",
     description:
-      "Opens a public web page in a private, sandboxed browser (no cookies, no logins) and returns a screenshot and its outline: final URL, title, description, headings, visible text and links, as untrusted data. `width` (default 1280; 390 for a phone), `fullPage: true` for the whole page (up to 8000 px). Local or private addresses work only when the owner allowed them.",
-    inputSchema: { type: "object", properties: { url: { type: "string" }, width: { type: "number" }, fullPage: { type: "boolean" } }, required: ["url"] },
+      "Opens a public web page in a private, sandboxed browser (no cookies, no logins) and returns a screenshot and its outline: final URL, title, description, headings, visible text and links, as untrusted data. `width` (default 1280; 390 for a phone), `fullPage: true` for the whole page (up to 8000 px); `colorScheme` light (default) or dark. Local or private addresses work only when the owner allowed them.",
+    inputSchema: { type: "object", properties: { url: { type: "string" }, width: { type: "number" }, fullPage: { type: "boolean" }, colorScheme: { enum: ["light", "dark"] } }, required: ["url"] },
     write: false,
   },
   {
@@ -168,8 +168,8 @@ export const REACH_TOOLS: ReachToolDef[] = [
     capability: "web",
     action: "capture a web page's design",
     description:
-      "Captures a web page — or the element `selector` picks — as layers: frames with auto layout where the page's flex layout holds, text in the page's fonts, fills, borders, radii, shadows, gradients and pictures cut from the page. `width` (default 1440; 390 for a phone), `height` (the viewport, default 900). With `parentId` (a page or frame id) the layers are created there in one step and you get create_nodes' result and a screenshot; without it you get the create_nodes specs (pictures left out) and a screenshot. Then refine: variables, components, names. get_skill web-to-design first.",
-    inputSchema: { type: "object", properties: { url: { type: "string" }, width: { type: "number" }, height: { type: "number" }, selector: { type: "string" }, parentId: { type: "string" }, name: { type: "string" } }, required: ["url"] },
+      "Captures a web page — or the element `selector` picks — as layers: frames with auto layout where the page's flex layout holds, text in the page's fonts, fills, borders, radii, shadows, gradients and pictures cut from the page. `width` (default 1440; 390 for a phone), `height` (the viewport, default 900), `colorScheme` light (default) or dark. With `parentId` (a page or frame id) the layers are created there in one step and you get create_nodes' result and a screenshot; without it you get the create_nodes specs (pictures left out) and a screenshot. Then refine: variables, components, names. get_skill web-to-design first.",
+    inputSchema: { type: "object", properties: { url: { type: "string" }, width: { type: "number" }, height: { type: "number" }, selector: { type: "string" }, parentId: { type: "string" }, name: { type: "string" }, colorScheme: { enum: ["light", "dark"] } }, required: ["url"] },
     write: false,
   },
   {

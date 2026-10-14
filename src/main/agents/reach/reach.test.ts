@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_REACH_SETTINGS, REACH_LIMITS, cleanReachSettings, forcedOffOf, reachTarget, wrapUntrusted, type AccessLogEntry, type ReachSettings } from "../../../shared/agents/reach";
 import { checkWebUrl, displayUrl, isPublicAddress, normalizeAllowedHost } from "../../../shared/agents/reachNet";
-import { ReachHub, boundResult, type ReachHubOptions } from "./hub";
+import { ReachHub, boundResult, type ReachConsentRequest, type ReachHubOptions } from "./hub";
 import { OFF_LIMITS, grantProblem, isDeniedPath, resolveGrantedPath } from "./paths";
 import { ReachStore } from "./store";
 import { McpServer } from "../mcpServer";
@@ -193,7 +193,7 @@ describe("the gate", () => {
     let settings = cleanReachSettings({ policies: { web: "ask", github: "allow", files: "off", apps: "ask" } });
     const log: AccessLogEntry[] = [];
     const ran: string[] = [];
-    const ask = vi.fn(async () => ({ allow: true }));
+    const ask = vi.fn(async (_req: ReachConsentRequest): Promise<{ allow: boolean; remember?: boolean }> => ({ allow: true }));
     const h = new ReachHub({
       settings: () => settings,
       setPolicy: (cap, p) => (settings = { ...settings, policies: { ...settings.policies, [cap]: p } }),
@@ -238,7 +238,7 @@ describe("the gate", () => {
     t.ask.mockResolvedValueOnce({ allow: true });
     expect((await t.h.call(caller, "open_web_page", { url: "https://e.com/" })).isError).toBeFalsy();
     expect(t.settings.policies.web).toBe("ask");
-    t.ask.mockResolvedValueOnce({ allow: true, remember: true } as never);
+    t.ask.mockResolvedValueOnce({ allow: true, remember: true });
     await t.h.call(caller, "open_web_page", { url: "https://e.com/" });
     expect(t.settings.policies.web).toBe("allow");
     await t.h.call(caller, "open_web_page", { url: "https://e.com/" });
@@ -284,7 +284,7 @@ describe("the MCP server and reach tools", () => {
     await server.start(0);
     try {
       const chat = server.grantChat({ fileKey: "f1", turnId: "t1", client: "Claude Code" });
-      const post = async (token: string, body: unknown) => (await fetch(server.url!, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(body) })).json();
+      const post = async (token: string, body: unknown): Promise<{ result: { tools: { name: string }[] }; error: { message: string } }> => (await fetch(server.url!, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(body) })).json() as Promise<{ result: { tools: { name: string }[] }; error: { message: string } }>;
       const names = async (token: string) => ((await post(token, { jsonrpc: "2.0", id: 1, method: "tools/list" })).result.tools as { name: string }[]).map((t) => t.name);
       expect(await names(chat)).toContain("open_web_page");
       expect(await names("outside")).not.toContain("open_web_page");

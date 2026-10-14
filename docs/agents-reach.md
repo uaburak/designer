@@ -57,7 +57,7 @@ Cards show in the chat the turn belongs to: a manager's workers (docs/studio.md)
    </untrusted-data>
    ```
    A closing tag inside the content is escaped, so the data can't end the wrapper. The system prompt says the same once (`REACH_NOTE`).
-5. **Limits on every call** (`REACH_LIMITS`): a time limit (web 30 s, GitHub 20 s, files 10 s, apps 15 s), text ≤ 100 000 characters (cut with a note), an image ≤ 4 MB, a web page ≤ 300 requests and ≤ 25 MB, a full-page capture ≤ 8 000 px tall, ≤ 150 reach calls per turn.
+5. **Limits on every call** (`REACH_LIMITS`): a time limit (web 90 s — a capture creates its layers inside it —, GitHub 20 s, files 10 s, apps 6 min with the window picker), text ≤ 100 000 characters (cut with a note), an image ≤ 4 MB, a web page ≤ 300 requests and ≤ 25 MB, a full-page capture ≤ 8 000 px tall, ≤ 150 reach calls per turn.
 6. **Secrets stay in main.** The GitHub token is sealed (`sealAsync` → `userData/agents/github.json`, mode 0600) and is only ever an `Authorization` header to `api.github.com`; it is never in a URL, a log line, an error, a tool result or a view. The web's pages run without the owner's cookies (§5.1).
 7. **Paths and hosts checked by rule, not by trust** (§5.2, §10.2) — unit-tested pure functions.
 
@@ -66,15 +66,15 @@ Cards show in the chat the turn belongs to: a manager's workers (docs/studio.md)
 ### 5.1 The browser
 
 Each call opens its own hidden window (`BrowserWindow`, `show: false`, offscreen rendering) and closes it when done:
-- its own **in-memory session** (`partition: "reach-web-<uuid>"`, no `persist:`) — no cookies, storage, cache or logins of the owner's, nothing kept after;
+- an **in-memory session** of its own (`partition: "reach-web"`, no `persist:`, no cache) — no cookies, storage or logins of the owner's; its storage is cleared after every call, and a request from anything but a live call's page (a service worker, a straggler) is refused;
 - `sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`, no preload, `webSecurity: true`, no spellcheck, `devTools: false`;
-- every permission request and check refused; downloads cancelled (`will-download`); `window.open` denied; dialogs (`alert`) closed;
+- every permission request and check refused; downloads cancelled (`will-download`); `window.open` denied; audio muted; the page in light mode unless `colorScheme: "dark"` (emulated for that page only);
 - navigation (`will-navigate`, `will-redirect`) and **every request** (`session.webRequest.onBeforeRequest`) checked by §5.2; a refused main-frame navigation ends the call with why;
 - the walker runs in an **isolated world** (`executeJavaScriptInIsolatedWorld`): the page can't reach it.
 
 ### 5.2 Which addresses (SSRF)
 
-`checkWebUrl(url, allowedHosts)` (reachNet.ts), then main resolves the host (`dns.lookup`, all addresses) and checks every address again:
+`checkWebUrl(url, allowedHosts)` (reachNet.ts), then main resolves the host with Chromium's resolver for that session (`session.resolveHost`, Node's `dns.lookup` as a fallback; no answer in 8 s is a refusal) and checks every address again:
 - schemes: `http:` and `https:` for pages; a page's own `data:` and `blob:` subresources are allowed; `file:`, `chrome:`, `devtools:`, `javascript:`, `about:` (but `about:blank`), `view-source:` and everything else refused;
 - refused hosts and addresses unless allowed: `localhost` and `*.localhost`, `*.local`, `*.internal`; IPv4 `0.0.0.0/8`, `10/8`, `100.64/10`, `127/8`, `169.254/16` (cloud metadata), `172.16/12`, `192.0.0/24`, `192.168/16`, `198.18/15`, `224/4` and above; IPv6 `::`, `::1`, `fc00::/7`, `fe80::/10`, `ff00::/8` and IPv4-mapped / -compatible forms of the IPv4 ranges; numeric host tricks (decimal, octal, hex IPv4) read as the address they are;
 - **Allowed local addresses** (§2) are matched exactly: `host` allows any port of that host, `host:port` only that port;
