@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <deque>
 #include <map>
 #include <unordered_set>
 #include <utility>
@@ -98,6 +99,7 @@ bool sameSize(Vec2 a, Vec2 b) { return std::fabs(a.x - b.x) < 1e-6 && std::fabs(
 // then each nested instance's own (docs/schema.md §5.3).
 struct Editor::OverrideStack {
   std::map<std::vector<Guid>, std::vector<const SymbolOverride*>> byPath;
+  std::deque<SymbolOverride> owned;  // entries carried to another main (carryNestedOverrides)
   // `rootKey`: the main's own key — Figma's files also address the instance's root by it ([key] = the root).
   void add(const std::vector<SymbolOverride>& list, const std::vector<Guid>& prefix, Guid rootKey) {
     for (const SymbolOverride& o : list) {
@@ -187,6 +189,49 @@ NodeProps Editor::instanceRoot(const NodeProps& own, const NodeProps& main, Guid
   // An instance of a variant is named after its set (Figma).
   if (Guid set = mainId != kNoGuid ? setOf(mainId) : kNoGuid; set != kNoGuid) r.name = doc_.get(set)->props.name;
   return r;
+}
+
+void Editor::carryNestedOverrides(Expansion& ex, const std::vector<Guid>& path, Guid main, const std::vector<Guid>& from) {
+  // Overrides under the nested instance whose layers aren't in `main` by key: made while it showed another main (its
+  // own, a variant a variable or the usage site chose before). They follow by layer name and hierarchy, as a variant
+  // switch of a top-level instance carries them (Figma, R4 §3) — whichever way the variant was chosen.
+  std::vector<std::pair<std::vector<Guid>, const SymbolOverride*>> stray;
+  for (auto it = ex.stack.byPath.lower_bound(path); it != ex.stack.byPath.end(); ++it) {
+    const std::vector<Guid>& k = it->first;
+    if (k.size() < path.size() || !std::equal(path.begin(), path.end(), k.begin())) break;
+    if (k.size() == path.size()) continue;
+    std::vector<Guid> sub(k.begin() + static_cast<long>(path.size()), k.end());
+    if (layerAtPath(main, sub) != kNoGuid) continue;
+    for (const SymbolOverride* o : it->second) stray.push_back({sub, o});
+  }
+  if (stray.empty()) return;
+  Guid set = setOf(main);
+  std::vector<Guid> candidates = from;
+  if (set != kNoGuid)
+    for (Guid v : doc_.children(set))
+      if (!v.isDerived() && doc_.get(v)->props.type == NodeType::SYMBOL) candidates.push_back(v);
+  std::vector<std::pair<std::vector<Guid>, const SymbolOverride*>> carried;
+  for (Guid c : candidates) {
+    const Node* cn = doc_.get(c);
+    if (c == main || !cn || cn->props.type != NodeType::SYMBOL) continue;
+    std::vector<SymbolOverride> list;
+    for (auto& [sub, o] : stray) {
+      if (!o || layerAtPath(c, sub) == kNoGuid) continue;
+      SymbolOverride r = *o;
+      r.path = sub;
+      list.push_back(std::move(r));
+      o = nullptr;
+    }
+    if (list.empty()) continue;
+    ex.sources.push_back(c);
+    for (SymbolOverride& r : remapOverrides(list, c, main, set != kNoGuid && setOf(c) == set)) {
+      std::vector<Guid> at = path;
+      at.insert(at.end(), r.path.begin(), r.path.end());
+      ex.stack.owned.push_back(std::move(r));
+      carried.push_back({std::move(at), &ex.stack.owned.back()});
+    }
+  }
+  for (auto& [at, o] : carried) ex.stack.byPath[at].push_back(o);
 }
 
 Guid Editor::instanceOfDerived(Guid id) const {
@@ -499,6 +544,11 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
             ex.sources.push_back(main);
           }
         }
+      }
+      if (mn) {
+        std::vector<Guid> from = {xn->props.comp().symbolData.symbolID};
+        if (const SymbolOverride* swap = ex.stack.highest(path, F_OVERRIDDEN_SYMBOL_ID)) from.push_back(swap->props.comp().overriddenSymbolID);
+        carryNestedOverrides(ex, path, main, from);
       }
       p = mn ? instanceRoot(xn->props, mn->props, main) : xn->props;
       // Its size is its own, as it sits in its main, swapped or not (Figma: a swapped icon keeps its 20 × 20 where its

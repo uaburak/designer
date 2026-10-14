@@ -191,6 +191,55 @@ describe("MCP tools: structure", () => {
     const r = json(await call("run_command", { engineCommand: "CREATE_COMPONENT", nodeIds: ["1:5"] }));
     expect(r.ran).toBe("CREATE_COMPONENT");
   });
+
+  it("write tools never fall back to the user's selection: an empty or missing id list is refused, nothing changes", async () => {
+    const { ed, engine, call } = await editor();
+    const made = json(await call("create_nodes", { nodes: [{ type: "FRAME", name: "Owner's frame", width: 200, height: 200 }, { type: "FRAME", name: "Other", width: 100, height: 100 }] }));
+    const [owned, other] = made.created.map((c: { id: string }) => c.id);
+    const page = engine.readNode(owned)!.parentIndex!.guid;
+    const collection = json(await call("create_variable_collection", { name: "Theme", modes: ["Light", "Dark"] })).collection;
+    const variable = json(await call("create_variable", { collectionId: collection.id, type: "FLOAT", name: "r", value: 4 })).variable.id;
+    const style = json(await call("create_paint_style", { name: "Brand", fills: ["#FF0000"] })).style.id;
+    // The owner's selection: the frame.
+    ed.engine.setSelection([owned]);
+    const snapshot = () => JSON.stringify(engine.readNode(owned));
+    const before = snapshot();
+    const refused: [string, Record<string, unknown>][] = [
+      ["reparent_nodes", { nodeIds: [], parentId: other }],
+      ["reparent_nodes", { parentId: other }],
+      ["delete_nodes", { nodeIds: [] }],
+      ["delete_nodes", {}],
+      ["duplicate_nodes", { nodeIds: [] }],
+      ["set_properties", { properties: { opacity: 0.5 } }],
+      ["set_properties", { nodeIds: [], properties: { opacity: 0.5 } }],
+      ["bind_variable", { nodeIds: [], field: "cornerRadius", variableId: variable }],
+      ["apply_variable", { field: "cornerRadius", variableId: variable }],
+      ["set_variable_mode", { collectionId: collection.id, mode: "Dark" }],
+      ["apply_style", { nodeIds: [], slot: "fill", styleId: style }],
+      ["add_interaction", { nodeIds: [], trigger: { type: "ON_CLICK" }, actions: [{ type: "BACK" }] }],
+      ["add_interaction", { trigger: { type: "ON_CLICK" }, actions: [{ type: "BACK" }] }],
+      ["remove_interaction", { all: true }],
+      ["run_command", { command: "edit.delete", nodeIds: [] }],
+      ["set_selection", { nodeIds: [] }],
+    ];
+    for (const [name, args] of refused) {
+      const r = await call(name, args);
+      expect(r.isError, `${name} ${JSON.stringify(args)}: ${text(r)}`).toBe(true);
+      expect(text(r), name).toContain("no nodes given");
+    }
+    // An editor command without nodeIds runs with nothing selected: Delete isn't available, the frame stays.
+    const del = await call("run_command", { command: "edit.delete" });
+    expect(del.isError).toBe(true);
+    expect(engine.readNode(owned)).toBeTruthy();
+    expect(engine.readNode(owned)!.parentIndex!.guid).toBe(page);
+    expect(snapshot()).toBe(before);
+    expect(ed.selection).toEqual([owned]);
+    // Reads still default to the selection.
+    expect(json(await call("get_selection", {})).selection[0].id).toBe(owned);
+    // Named, the same write goes through.
+    json(await call("reparent_nodes", { nodeIds: [owned], parentId: other }));
+    expect(engine.readNode(owned)!.parentIndex!.guid).toBe(other);
+  });
 });
 
 describe("MCP tools: variables and styles", () => {

@@ -5,8 +5,9 @@
  * get_variable_defs) plus get_selection; the write tools are ours, in the Plugin API's vocabulary (node types,
  * auto layout field names), so an agent that knows Figma knows them.
  *
- * Every tool takes an optional `nodeId` / `nodeIds` in Figma's "123:456" form ("123-456", the URL form, is read
- * too); none names a file — a session is bound to one file (the one its chat started from, or the one in front when
+ * Layers are named by `nodeId` / `nodeIds` in Figma's "123:456" form ("123-456", the URL form, is read too). Read
+ * tools default to the user's selection; write tools never do — they act only on the ids they are given, and an
+ * empty list is refused ("no nodes given"), so an agent's bug can't change what the owner has selected. None names a file — a session is bound to one file (the one its chat started from, or the one in front when
  * an outside client first called), and its writes go nowhere else.
  */
 
@@ -24,6 +25,11 @@ export interface ToolDef {
 }
 
 const nodeId = { type: "string", description: 'A layer id as "123:456" (the URL form "123-456" is read too). Default: the current selection.' };
+
+/** Writes name their layers: never the selection (mcpTools.ts writeTargets). */
+const WRITE_IDS = "Required: the layers' ids (nodeIds, or nodeId for one) — writes never fall back to the selection; an empty list is an error.";
+const writeIds = { type: "array", items: { type: "string" }, minItems: 1, description: WRITE_IDS };
+const writeId = { type: "string", description: 'One layer id ("123:456"), instead of nodeIds.' };
 
 /** What create_nodes and update_nodes take for one layer (all optional on update): layerProps.ts, generated in part from schema/document.kiwi. */
 const layerProps: Record<string, unknown> = layerPropsSchema();
@@ -136,22 +142,22 @@ export const TOOLS: ToolDef[] = [
   {
     name: "delete_nodes",
     title: "Delete layers",
-    description: "Deletes layers.",
-    inputSchema: { type: "object", properties: { nodeIds: { type: "array", items: { type: "string" } } }, required: ["nodeIds"] },
+    description: `Deletes layers. ${WRITE_IDS}`,
+    inputSchema: { type: "object", properties: { nodeIds: writeIds }, required: ["nodeIds"] },
     write: true,
   },
   {
     name: "duplicate_nodes",
     title: "Duplicate layers",
-    description: "Duplicates layers with everything inside them (instances stay instances). Optionally into `parentId` at `index` (default: on top) and/or at x, y. Returns the copies' ids and parents, in order.",
-    inputSchema: { type: "object", properties: { nodeIds: ids, parentId: { type: "string" }, index: { type: "number" }, x: { type: "number" }, y: { type: "number" } }, required: ["nodeIds"] },
+    description: "Duplicates layers with everything inside them (instances stay instances). Optionally into `parentId` at `index` (default: on top) and/or at x, y. Returns the copies' ids and parents, in order. " + WRITE_IDS,
+    inputSchema: { type: "object", properties: { nodeIds: writeIds, parentId: { type: "string" }, index: { type: "number" }, x: { type: "number" }, y: { type: "number" } }, required: ["nodeIds"] },
     write: true,
   },
   {
     name: "reparent_nodes",
     title: "Move layers",
-    description: "Moves layers into another parent at an index (0 = first in layout order / bottom).",
-    inputSchema: { type: "object", properties: { nodeIds: { type: "array", items: { type: "string" } }, parentId: { type: "string" }, index: { type: "number" } }, required: ["nodeIds", "parentId"] },
+    description: `Moves layers into another parent at an index (0 = first in layout order / bottom). ${WRITE_IDS}`,
+    inputSchema: { type: "object", properties: { nodeIds: writeIds, parentId: { type: "string" }, index: { type: "number" } }, required: ["nodeIds", "parentId"] },
     write: true,
   },
   {
@@ -165,23 +171,23 @@ export const TOOLS: ToolDef[] = [
     name: "set_properties",
     title: "Set document fields",
     description:
-      "Sets any document field on layers, by its schema/document.kiwi name and shape (stackSpacing, stackChildPrimaryGrow, fillPaints, strokePaints, effects, layoutGrids, textCase, gridRows, arcData, …) straight through the engine — for anything update_nodes doesn't name. Colours may be \"#RRGGBBAA\"; paints and effects take the same shapes as update_nodes (GLASS, NOISE, TEXTURE, progressive blurs, gradients, patterns). Prototype interactions: prototypeInteractions takes a list of Reactions (add_interaction's shape) and replaces the layer's; prefer add_interaction / update_interaction. describe_schema gives any field's shape. Read back: notApplied lists what the engine kept differently.",
-    inputSchema: { type: "object", properties: { nodeIds: ids, nodeId: { type: "string" }, properties: { type: "object", description: "{field: value} in the document's names" } }, required: ["properties"] },
+      "Sets any document field on layers, by its schema/document.kiwi name and shape (stackSpacing, stackChildPrimaryGrow, fillPaints, strokePaints, effects, layoutGrids, textCase, gridRows, arcData, …) straight through the engine — for anything update_nodes doesn't name. Colours may be \"#RRGGBBAA\"; paints and effects take the same shapes as update_nodes (GLASS, NOISE, TEXTURE, progressive blurs, gradients, patterns). Prototype interactions: prototypeInteractions takes a list of Reactions (add_interaction's shape) and replaces the layer's; prefer add_interaction / update_interaction. describe_schema gives any field's shape. Read back: notApplied lists what the engine kept differently. " + WRITE_IDS,
+    inputSchema: { type: "object", properties: { nodeIds: writeIds, nodeId: writeId, properties: { type: "object", description: "{field: value} in the document's names" } }, required: ["properties"] },
     write: true,
   },
   {
     name: "bind_variable",
     title: "Bind variable",
     description:
-      'Binds a variable to a property of layers (null variableId: detach). field: characters (a STRING variable — the text follows the mode, e.g. translations), visible (BOOLEAN), opacity, width, height, min/maxWidth/Height, itemSpacing, counterAxisSpacing, padding / paddingTop…, cornerRadius / topLeftRadius…, strokeWeight / strokeTopWeight…, fontFamily, fontStyle, fontSize, lineHeight, letterSpacing, paragraphSpacing, paragraphIndent, gridRowGap, gridColumnGap, "fills[i]" ("fill" = fills[0]), "fills[i].opacity", "fills[i].stops[j]", "strokes[i]", "effects[i].color|radius|spread|x|y", "layoutGrids[i].numSections|sectionSize|gutterSize|offset", "componentProperties.<name>".',
-    inputSchema: { type: "object", properties: { nodeIds: ids, nodeId: { type: "string" }, field: { type: "string" }, variableId: { type: ["string", "null"] } }, required: ["field", "variableId"] },
+      'Binds a variable to a property of layers (null variableId: detach). field: characters (a STRING variable — the text follows the mode, e.g. translations), visible (BOOLEAN), opacity, width, height, min/maxWidth/Height, itemSpacing, counterAxisSpacing, padding / paddingTop…, cornerRadius / topLeftRadius…, strokeWeight / strokeTopWeight…, fontFamily, fontStyle, fontSize, lineHeight, letterSpacing, paragraphSpacing, paragraphIndent, gridRowGap, gridColumnGap, "fills[i]" ("fill" = fills[0]), "fills[i].opacity", "fills[i].stops[j]", "strokes[i]", "effects[i].color|radius|spread|x|y", "layoutGrids[i].numSections|sectionSize|gutterSize|offset", "componentProperties.<name>". ' + WRITE_IDS,
+    inputSchema: { type: "object", properties: { nodeIds: writeIds, nodeId: writeId, field: { type: "string" }, variableId: { type: ["string", "null"] } }, required: ["field", "variableId"] },
     write: true,
   },
   {
     name: "apply_variable",
     title: "Apply variable",
-    description: "The same as bind_variable (kept for older prompts).",
-    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, nodeIds: ids, field: { type: "string" }, variableId: { type: "string" } }, required: ["field", "variableId"] },
+    description: `The same as bind_variable (kept for older prompts). ${WRITE_IDS}`,
+    inputSchema: { type: "object", properties: { nodeId: writeId, nodeIds: writeIds, field: { type: "string" }, variableId: { type: "string" } }, required: ["field", "variableId"] },
     write: true,
   },
   {
@@ -222,15 +228,15 @@ export const TOOLS: ToolDef[] = [
   {
     name: "set_variable_mode",
     title: "Set variable mode",
-    description: 'Sets the explicit mode of a collection on frames / layers or a page (mode: name or id; "auto" or null: back to inherited) — e.g. a duplicated frame switched to "EN".',
-    inputSchema: { type: "object", properties: { nodeIds: ids, nodeId: { type: "string" }, collectionId: { type: "string" }, mode: { type: ["string", "null"] } }, required: ["collectionId", "mode"] },
+    description: 'Sets the explicit mode of a collection on frames / layers or a page (mode: name or id; "auto" or null: back to inherited) — e.g. a duplicated frame switched to "EN". ' + WRITE_IDS,
+    inputSchema: { type: "object", properties: { nodeIds: writeIds, nodeId: writeId, collectionId: { type: "string" }, mode: { type: ["string", "null"] } }, required: ["collectionId", "mode"] },
     write: true,
   },
   {
     name: "apply_style",
     title: "Apply style",
-    description: 'Applies a style (id from get_variable_defs with all: true, or one you created) to layers: slot "fill", "stroke", "text", "effect" or "grid"; styleId null detaches.',
-    inputSchema: { type: "object", properties: { nodeIds: ids, slot: { enum: ["fill", "stroke", "text", "effect", "grid"] }, styleId: { type: ["string", "null"] } }, required: ["nodeIds", "slot", "styleId"] },
+    description: 'Applies a style (id from get_variable_defs with all: true, or one you created) to layers: slot "fill", "stroke", "text", "effect" or "grid"; styleId null detaches. ' + WRITE_IDS,
+    inputSchema: { type: "object", properties: { nodeIds: writeIds, slot: { enum: ["fill", "stroke", "text", "effect", "grid"] }, styleId: { type: ["string", "null"] } }, required: ["nodeIds", "slot", "styleId"] },
     write: true,
   },
   {
@@ -273,8 +279,8 @@ export const TOOLS: ToolDef[] = [
     name: "add_interaction",
     title: "Add interaction",
     description:
-      'Adds an interaction (a Reaction, Figma\'s Plugin API shape) to a layer: {nodeId, trigger, actions}. E.g. a splash: {nodeId: splash, trigger: {type: "AFTER_TIMEOUT", timeout: 2}, actions: [{type: "NAVIGATE", destinationId: home, transition: {type: "DISSOLVE", duration: 0.3, easing: "EASE_OUT"}}]}; a language toggle: {trigger: {type: "ON_CLICK"}, actions: [{type: "SET_VARIABLE_MODE", variableCollectionId: "Content", variableModeId: "EN"}]}; an overlay: {type: "OPEN_OVERLAY", destinationId, overlay: {position: "BOTTOM_CENTER", background: "#00000066", closeOnClickOutside: true}}. Validated (errors name the field and what it takes); one undo step. Returns the layer\'s interactions. describe_schema Reaction / Action / Trigger / Transition for the full shapes.',
-    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, nodeIds: ids, trigger: triggerSchema, actions: { type: "array", items: actionSchema }, action: actionSchema }, required: ["trigger"] },
+      'Adds an interaction (a Reaction, Figma\'s Plugin API shape) to a layer: {nodeId, trigger, actions}. E.g. a splash: {nodeId: splash, trigger: {type: "AFTER_TIMEOUT", timeout: 2}, actions: [{type: "NAVIGATE", destinationId: home, transition: {type: "DISSOLVE", duration: 0.3, easing: "EASE_OUT"}}]}; a language toggle: {trigger: {type: "ON_CLICK"}, actions: [{type: "SET_VARIABLE_MODE", variableCollectionId: "Content", variableModeId: "EN"}]}; an overlay: {type: "OPEN_OVERLAY", destinationId, overlay: {position: "BOTTOM_CENTER", background: "#00000066", closeOnClickOutside: true}}. Validated (errors name the field and what it takes); one undo step. Returns the layer\'s interactions. describe_schema Reaction / Action / Trigger / Transition for the full shapes. ' + WRITE_IDS,
+    inputSchema: { type: "object", properties: { nodeId: writeId, nodeIds: writeIds, trigger: triggerSchema, actions: { type: "array", items: actionSchema }, action: actionSchema }, required: ["trigger"] },
     write: true,
   },
   {
@@ -287,8 +293,8 @@ export const TOOLS: ToolDef[] = [
   {
     name: "remove_interaction",
     title: "Remove interaction",
-    description: "Removes interactions from a layer: by `index`, `interactionId`, or all: true.",
-    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, nodeIds: ids, index: { type: "number" }, interactionId: { type: "string" }, all: { type: "boolean" } } },
+    description: `Removes interactions from a layer: by \`index\`, \`interactionId\`, or all: true. ${WRITE_IDS}`,
+    inputSchema: { type: "object", properties: { nodeId: writeId, nodeIds: writeIds, index: { type: "number" }, interactionId: { type: "string" }, all: { type: "boolean" } } },
     write: true,
   },
   {
@@ -339,8 +345,8 @@ export const TOOLS: ToolDef[] = [
   {
     name: "run_command",
     title: "Run command",
-    description: 'Runs any of the app\'s commands (list_commands lists them): {command: "<editor id>", nodeIds?} as from the menus / shortcuts on those layers (default: the selection), or {engineCommand: "<NAME>", args: {...}, nodeIds?} — an engine command with its arguments; ids it created come back. Refusals say why.',
-    inputSchema: { type: "object", properties: { command: { type: "string" }, engineCommand: { type: "string" }, args: { type: "object" }, nodeIds: ids } },
+    description: 'Runs any of the app\'s commands (list_commands lists them): {command: "<editor id>", nodeIds} as from the menus / shortcuts with those layers selected, or {engineCommand: "<NAME>", args: {...}, nodeIds?} — an engine command with its arguments (layers as its refs, or nodeIds as its selection); ids it created come back. Never on the user\'s selection: without nodeIds nothing is selected, and an empty nodeIds is an error. Refusals say why.',
+    inputSchema: { type: "object", properties: { command: { type: "string" }, engineCommand: { type: "string" }, args: { type: "object" }, nodeIds: { ...writeIds, description: "The layers the command acts on (its selection). " + WRITE_IDS } } },
     write: true,
   },
   {
@@ -361,8 +367,8 @@ export const TOOLS: ToolDef[] = [
   {
     name: "set_selection",
     title: "Select layers",
-    description: "Selects layers and brings them into view (on their page).",
-    inputSchema: { type: "object", properties: { nodeIds: { type: "array", items: { type: "string" } } }, required: ["nodeIds"] },
+    description: "Selects layers and brings them into view (on their page). nodeIds required (an empty list is an error).",
+    inputSchema: { type: "object", properties: { nodeIds: writeIds }, required: ["nodeIds"] },
     write: false,
   },
   {

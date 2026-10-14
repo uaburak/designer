@@ -1189,6 +1189,11 @@ class Editor : private LayoutHost, public TextLayouts {
   bool isStructuralTarget(Guid parent) const;
   // Remaps an instance's overrides from one main to another (variant switch / swap; Figma's name rules).
   std::vector<SymbolOverride> remapOverrides(const std::vector<SymbolOverride>& overrides, Guid from, Guid to, bool variant) const;
+  // The real layer at `path` (keys) in `symbol`'s tree, following nested instances' mains (kNoGuid: none).
+  Guid layerAtPath(Guid symbol, const std::vector<Guid>& path) const;
+  // A nested instance showing `main` (a variant chosen by a variable, a variant or instance picked at the usage site):
+  // the overrides under `path` made on another of `from` or `main`'s variants follow it by layer name (remapOverrides).
+  void carryNestedOverrides(Expansion& ex, const std::vector<Guid>& path, Guid main, const std::vector<Guid>& from);
 
   // ---- Component commands (editor/ComponentCommands.cpp) ----
   Status componentCommand(CommandId id, const CommandArgs& args);
