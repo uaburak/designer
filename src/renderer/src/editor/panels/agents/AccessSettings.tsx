@@ -119,7 +119,7 @@ function CapabilityPage({ service, cap }: { service: AgentSetupHost; cap: ReachC
     <div className={styles.pageBody} data-access-page={cap}>
       <Block>
         <p className={styles.pageText}>{t(c.about)}</p>
-        <Field label={t("Agents")}>
+        <Field label={t("Permission")}>
           <Select label={t("{name} access", { name: t(c.label) })} variant="ghost" width="hug" disabled={forced} value={forced ? "off" : view.settings.policies[cap]} options={POLICIES.map((o) => ({ ...o, label: t(o.label) }))} onChange={(v) => patch({ policies: { [cap]: v as ReachPolicy } })} data-access-select={cap} />
         </Field>
         {forced && <p className={styles.attachProblem}>{t("Your organization turned this off for its members.")}</p>}

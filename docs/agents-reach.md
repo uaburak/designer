@@ -150,6 +150,17 @@ Each reach call — run, denied, refused or failed — is one line: `{at, capabi
 - Outside MCP clients reaching these tools; sharing grants across computers or with an organization.
 - Video or continuous screen sharing.
 
-## 12. Open questions for the owner
+## 12. As built (2026-10-15, branch `worktree-agent-afb8ff8965605a89a`)
+
+- **Gate** `src/main/agents/reach/hub.ts` (`ReachHub`), wired in `host.ts` (`reachHub()`, `runAnyTool`, `extraTools`, the turn's `REACH_NOTE` and built-in skills, `askAccess` → the chat's consent card with `access`); storage `reach/store.ts`; org switches `reach/org.ts` + `OrgSettings.agentAccess` (server `admin.ts` validates and logs `org_ai_setting_change`), Admin › Settings › AI's four switches. The MCP server now asks the host for extra tools for every chat session (`mcpServer.ts`), never for outside clients.
+- **Web** `reach/web.ts` + `reach/webSpec.ts`; the walker moved to `src/shared/agents/web/walker.js` (imported `?raw`), the converter to `src/shared/agents/web/convert.ts`; `tools/ui-kit/convert.mjs` re-exports it with Wecra's tokens and ds slots on top, `capture.mjs` reads the walker from its new place. One in-memory session (`reach-web`) shared by calls, its storage cleared after each; DNS through `session.resolveHost` (Node's lookup hung once in Electron's main in a test run; Chromium's resolver also shares the page's cache). The light colour scheme is emulated through the page's debugger (`Emulation.setEmulatedMedia`, ≤ 1 s before the load). The capture's root is `html` (the whole page width). Smoke-run in Electron against example.com and stripe.com (1 080 layers, 60 pictures, ~3 s a capture) and the refused addresses.
+- **GitHub** `reach/github.ts` (`GithubAccess`): token check `GET /user`, files read with `Accept: application/vnd.github.raw`, trees with `git/trees/<ref>?recursive=1`, code search with text matches. `GITHUB_APP_CLIENT_ID` in `host.ts` is empty (§13.1); `WECRA_GITHUB_CLIENT_ID` sets it for a test build.
+- **Local files** `reach/files.ts` and `reach/paths.ts` (async fs; walks skip `node_modules`, `.git`, build folders; denied names are left out of listings).
+- **Local apps** `reach/apps.ts`; the picker is the consent card with `access.windows` (`AccessCard` in `AgentsPanel.tsx`), answered with `agents:consent-answer {windowId}`.
+- **Chrome**: `AccessSettings.tsx` (the group, each capability's page, the log) and `AccessGithub.tsx` in `editor/panels/agents/` (Home's Settings › Agents shows them too); Turkish in `src/shared/i18n/tr/access.ts`.
+- **Tests**: `reach/reach.test.ts` (SSRF, paths, wrapper, store, gate, outside clients), `webSpec.test.ts`, `github.test.ts`, `files.test.ts`, `apps.test.ts`.
+- **Not done**: a real agent turn using the tools end to end (needs a signed-in CLI; the gate, the runners and the MCP listing are tested apart); `dialogs` (`alert`) of a captured page aren't suppressed (none showed in the runs); the page's request size counts `Content-Length` only (chunked answers count by the request limit).
+
+## 13. Open questions for the owner
 
 1. **GitHub App.** The device flow needs a GitHub App registered once (free): name "Wecra", Device flow on, permissions Contents: read and Metadata: read, no webhook. Its client id goes into `GITHUB_APP_CLIENT_ID`. Until then "Use a token" is the way (it works now).

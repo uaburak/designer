@@ -22,6 +22,7 @@ export const access: Record<string, string> = {
   "Turned off by your organization": "Kuruluşun tarafından kapatıldı",
   "{name} access": "{name} erişimi",
   Agents: "Ajanlar",
+  Permission: "İzin",
   "Your organization turned this off for its members.": "Kuruluşun bunu üyeleri için kapattı.",
   "Ask each time shows a card in the chat before each use; Always allow lets agents use it without asking. Every use is in the access log.":
     "Her seferinde sor, her kullanımdan önce sohbette bir kart gösterir; Her zaman izin ver, ajanların sormadan kullanmasına izin verir. Her kullanım erişim kaydında yer alır.",
