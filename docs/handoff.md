@@ -2,6 +2,19 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-14 — Wecra 1.3.0 released (Home, Turkish, paste from Figma, thumbnails)
+
+Everything is committed, pushed (`11a70946`, `9e800210`) and live: wecra.app deployed, D1 migrated (0024 file_exclusions, 0025 thumbnail_at), desktop 1.3.0 on get.wecra.app and mirrored on GitHub; the owner's installed app updated to 1.3.0 from the menu.
+
+- **Home**: Recents / Drafts gone; All projects = the shown org's every file (`GET /orgs/:id/files`, team-by-team fallback in useOrgData); teams only on All teams (folder cards); a team page lists projects directly (new / imported files go into the team's first folder, made "Projects" if none); org / team headers (32 px round icon, double-click rename, settings icon); filter, sort, grid / list on All projects, All teams, a team; star + team badge on FileCard.
+- **Access per project**: `file_exclusions` + `AccessRows.excluded`; Share › "People in <team>" Remove access / Give access back.
+- **i18n**: `src/shared/i18n` (+ `tr/*`), Settings › Account › Language; main, store and menu follow; AGENTS.md rule updated.
+- **Paste from Figma**: `src/shared/fig/figmaClipboard.ts`; images via Figma REST with the person's token (safeStorage in main, `src/main/figma.ts`, connect dialog, Settings › Account › Figma connection). Not yet tried with a real token / live Figma copy.
+- **Thumbnails**: capture renders the thumbnail frame 16:9; org cards via `/files/:key/thumbnail?v=<thumbnail_at>`; new files get a Thumbnail page/frame; thumbnail glyph on canvas and in Layers.
+- **Engine**: instances use their own variant's interactions (stale stored copies dropped, `proto::instanceInteractions`); Option-drag of a variant out of its set → instance; paste into a set → variant.
+- **Updates**: the generic feed get.wecra.app/updates is now real (R2 `wecra-releases`, `wecra-site` Worker, custom domain created 2026-10-14). Next releases: `npm run release -- <v> notes-<v>.md` (`notes-*.md` is in .git/info/exclude). GitHub mirroring is only needed while copies ≤ 1.1.2 exist (`MIRROR_GITHUB=0` later).
+- Known: `studioLibrary.dom.test.ts` BrandForm is flaky under full-suite load; `npm run check` lint trips on `site/dist`.
+
 ## Status 2026-10-13 — Round 15 (Studio) merged, not run for real
 
 `docs/studio.md`: the manager agent (Agent settings › Studio › Manager; default Claude Code Haiku 5.5), parallel worker tasks in one chat, the Brands tab and library, `make_posts`, review and fixes (Fix label, Blur). 15b `89b29e85`, 15c `48adbbc1`, 15a `8e31668c` are merged on main. The affected suites pass (297 tests), and typecheck and lint are clean. **Nothing is pushed: the owner tries it locally first.**
