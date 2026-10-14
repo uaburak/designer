@@ -21,11 +21,12 @@ export function arrowSvg(color: string): string {
   return `<svg width="${SIZE}" height="${SIZE}" viewBox="0 0 ${SIZE} ${SIZE}" aria-hidden="true"><path d="${ARROW_EDGE}" fill="#fff"/><path d="${ARROW}" fill="${color}"/></svg>`;
 }
 
-/** The page's pointer: the black arrow with its shadow as a CSS `cursor` value (hotspot at the tip; system arrow after). */
-export function arrowCursor(): string {
+/** The page's pointer: the arrow (black, or `color` over a tile) with its shadow as a CSS `cursor` value (hotspot at the
+ *  tip; the system arrow after). */
+export function arrowCursor(color = "#000"): string {
   const pad = 2;
   const box = SIZE + pad * 2;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${box}" height="${box}" viewBox="${-pad} ${-pad} ${box} ${box}"><defs><filter id="s" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.35"/></filter></defs><g filter="url(#s)"><path d="${ARROW_EDGE}" fill="#fff"/></g><path d="${ARROW}" fill="#000"/></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${box}" height="${box}" viewBox="${-pad} ${-pad} ${box} ${box}"><defs><filter id="s" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.35"/></filter></defs><g filter="url(#s)"><path d="${ARROW_EDGE}" fill="#fff"/></g><path d="${ARROW}" fill="${color}"/></svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${TIP[0] + pad} ${TIP[1] + pad}, auto`;
 }
 
