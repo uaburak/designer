@@ -31,10 +31,12 @@ export default function CommentsCollage() {
 
   const script = async (run: Run) => {
     await run.wait(1000);
+    ada.use("comment");
     await ada.click(run, SPOT, { beat: 260 });
     setPin(true);
     setThread(true);
     await run.wait(500);
+    ada.use("arrow");
     await ada.to(run, [64, 252], { ms: 800 });
     await run.wait(400);
     // Kerem joins and replies

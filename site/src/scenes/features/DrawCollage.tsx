@@ -41,6 +41,7 @@ export default function DrawCollage() {
 
   const script = async (run: Run) => {
     await run.wait(1100);
+    me.use("pen");
     await me.click(run, A, { beat: 260 });
     setStep(1);
     await run.wait(500);
@@ -55,6 +56,7 @@ export default function DrawCollage() {
     await run.wait(500);
     await me.click(run, A, { beat: 300 });
     setStep(4);
+    me.use("arrow");
     await me.to(run, [A[0] + 26, A[1] + 30], { ms: 600 });
   };
 

@@ -50,3 +50,38 @@ export const CURSOR = {
 
 /** The visitor's own cursor over a tile: a colour no scene cursor uses. */
 export const YOU = CURSOR.pink;
+
+/**
+ * The tool cursors a scene's pointer takes while it uses a tool, as the editor draws them (src/renderer/src/engine/
+ * cursors.ts: Figma's canvas cursors, black with a white edge, on a 24 × 24 grid): the crosshair for the frame and
+ * shape tools, the I-beam for text, the pen's nib, the comment bubble. `hot` is the hot spot on that grid (where the
+ * pointer's point is). The arrow is the default and is drawn in the person's colour; these stay black, as in the app.
+ */
+export type CursorTool = "arrow" | "crosshair" | "text" | "pen" | "comment";
+
+const haloed = (d: string, fill: string, width = 1.2, halo = 3.2) =>
+  `<path d="${d}" fill="none" stroke="#fff" stroke-width="${halo}" stroke-linejoin="round" stroke-linecap="round"/>` +
+  `<path d="${d}" fill="${fill}" stroke="#000" stroke-width="${width}" stroke-linejoin="round" stroke-linecap="round"/>`;
+const plus = (x: number, y: number, r = 3) =>
+  `<path d="M${x - r} ${y} H${x + r} M${x} ${y - r} V${y + r}" stroke="#fff" stroke-width="3.6" stroke-linecap="round"/>` +
+  `<path d="M${x - r} ${y} H${x + r} M${x} ${y - r} V${y + r}" stroke="#000" stroke-width="1.4" stroke-linecap="round"/>`;
+const NIB = `<path d="M2 2 L12 6 L15 14 L14 15 L6 12 Z M2 2 L8.5 8.5"/><circle cx="9" cy="9" r="1.4"/>`;
+const IBEAM = "M9 4.5 H15 M9 19.5 H15 M12 4.5 V19.5";
+
+export const TOOL_ART: Record<Exclude<CursorTool, "arrow">, { body: string; hot: readonly [number, number] }> = {
+  crosshair: {
+    body: `<path d="M12 4 V20 M4 12 H20" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M12 4 V20 M4 12 H20" stroke="#000" stroke-width="1"/>`,
+    hot: [12, 12],
+  },
+  text: {
+    body: `<path d="${IBEAM}" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round"/><path d="${IBEAM}" fill="none" stroke="#000" stroke-width="1.2" stroke-linecap="round"/>`,
+    hot: [12, 12],
+  },
+  pen: {
+    body:
+      `<g fill="none" stroke-linejoin="round" stroke-linecap="round"><g stroke="#fff" stroke-width="3">${NIB}</g>` +
+      `<path d="M2 2 L12 6 L15 14 L14 15 L6 12 Z" fill="#fff"/><g stroke="#000" stroke-width="1.2">${NIB}</g></g>`,
+    hot: [2, 2],
+  },
+  comment: { body: haloed(`M3.5 20.5 V11.5 A8 8 0 1 1 11.5 19.5 H3.5 Z`, "#fff", 1.3) + plus(11.5, 11.5, 2.6), hot: [3, 21] },
+};

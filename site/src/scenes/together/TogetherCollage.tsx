@@ -105,6 +105,7 @@ export default function TogetherCollage() {
     await peer.click(run, undefined, { beat: 200 });
     await run.wait(60);
     await peer.click(run, undefined, { beat: 0 });
+    peer.use("text");
     setEditing(true);
     await run.wait(500);
     setPeerTyping(true);
@@ -115,6 +116,7 @@ export default function TogetherCollage() {
     await run.wait(900);
     // Esc: the edit ends, her text stays selected
     setEdited(true);
+    peer.use("arrow");
     if (titleAt) await peer.to(run, [titleAt[0] + 70, titleAt[1] + 60], { ms: 800, ease: BEZIER.standard });
   };
 

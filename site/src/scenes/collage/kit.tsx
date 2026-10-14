@@ -7,7 +7,7 @@
 // glide along curved paths with the Web Animations API (usePointer + Cursor), a selection draws its outline in and
 // resizes by transforming its edges, and numbers count with the shared ticker (Dims, runtime/ticker.ts).
 import { forwardRef, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
-import { ARROW, ARROW_EDGE, CURSOR, SIZE } from "../runtime/cursorArt";
+import { ARROW, ARROW_EDGE, CURSOR, SIZE, TOOL_ART, type CursorTool } from "../runtime/cursorArt";
 import { BEZIER, css, cubicBezier, durationFor, SPRING, springEasing, type Bezier } from "../runtime/easing";
 import { useScene, type Run } from "../runtime/motion";
 import { arcPoints, bendFor, type Point } from "../runtime/path";
@@ -17,6 +17,7 @@ import { stageBox, type StageBox } from "./stage";
 import styles from "./kit.module.css";
 
 export { styles as kit, CURSOR };
+export type { CursorTool };
 
 export interface CollageProps {
   /** The stage's design size, px. */
@@ -130,6 +131,8 @@ export interface PointerState {
   ease?: Bezier;
   /** The way there, evenly spaced points (default: a gentle arc); a drag along a drawn curve follows it exactly. */
   path?: [number, number][];
+  /** The tool in hand: the cursor takes that tool's look, as the editor's does (default: the arrow). */
+  tool?: CursorTool;
 }
 
 export interface MoveOptions {
@@ -148,6 +151,8 @@ export interface Pointer {
   click(run: Run, p?: Point, options?: MoveOptions & { beat?: number }): Promise<void>;
   /** Presses, drags to `p` over `ms` (nearly straight, the same curve as what it drags), and releases. */
   drag(run: Run, p: Point, ms: number, options?: { ease?: Bezier; bend?: number; release?: boolean; path?: [number, number][]; /** Called as the move starts (what the drag changes starts with it). */ start?: () => void }): Promise<void>;
+  /** Takes up a tool (the cursor's look changes at once, where it is); "arrow" puts it down. */
+  use(tool: CursorTool): void;
   /** Calm idle motion: drifts slowly between `spots`, pausing at each, until the scene is gone. */
   idle(run: Run, spots: Point[], options?: { pause?: number }): Promise<void>;
 }
@@ -173,11 +178,14 @@ export function usePointer(start: Point): Pointer {
     const to: Pointer["to"] = async (run, p, o = {}) => {
       const cur = at.current;
       const ms = o.ms ?? durationFor(Math.hypot(p[0] - cur.x, p[1] - cur.y), 360, 1000);
-      set({ x: p[0], y: p[1], press: cur.press, ms, bend: o.bend, ease: o.ease });
+      set({ x: p[0], y: p[1], press: cur.press, tool: cur.tool, ms, bend: o.bend, ease: o.ease });
       if (o.wait !== false) await run.wait(ms);
     };
     api.current = {
       to,
+      use(tool) {
+        if ((at.current.tool ?? "arrow") !== tool) set({ ...at.current, tool });
+      },
       async click(run, p, o = {}) {
         if (p) await to(run, p, o);
         await run.wait(o.beat ?? 140);
@@ -191,7 +199,7 @@ export function usePointer(start: Point): Pointer {
           set({ ...at.current, press: true });
           await run.wait(120);
         }
-        set({ x: p[0], y: p[1], press: true, ms, bend: o.bend ?? 0.03, ease: o.ease ?? BEZIER.standard, path: o.path });
+        set({ x: p[0], y: p[1], press: true, tool: at.current.tool, ms, bend: o.bend ?? 0.03, ease: o.ease ?? BEZIER.standard, path: o.path });
         o.start?.();
         await run.wait(ms);
         if (o.release !== false) {
@@ -262,7 +270,7 @@ export interface CursorProps extends PointerState {
  * out, on the compositor. When it lands on something pressable that thing shows its hover; a press shrinks the arrow
  * and presses what's under it (no ring: what was pressed shows it).
  */
-export function Cursor({ x, y, press, ms, bend, ease, path, color = CURSOR.ink, name, show = true, d = 0, z = 20 }: CursorProps) {
+export function Cursor({ x, y, press, ms, bend, ease, path, tool = "arrow", color = CURSOR.ink, name, show = true, d = 0, z = 20 }: CursorProps) {
   const ref = useRef<HTMLDivElement>(null);
   const motion = useRef<{ a: Animation; pts: [number, number][]; fn: (t: number) => number; ms: number } | null>(null);
   const at = useRef<[number, number] | null>(null);
@@ -348,10 +356,22 @@ export function Cursor({ x, y, press, ms, bend, ease, path, color = CURSOR.ink, 
       style={{ transform: at3d([x, y]), zIndex: z, ["--d" as string]: `${d}ms`, ["--c" as string]: color }}
     >
       <span className={styles.cursorBody}>
-        <svg className={styles.arrow} width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
-          <path d={ARROW_EDGE} fill="#fff" />
-          <path d={ARROW} fill={color} />
-        </svg>
+        {tool === "arrow" ? (
+          <svg className={styles.arrow} width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
+            <path d={ARROW_EDGE} fill="#fff" />
+            <path d={ARROW} fill={color} />
+          </svg>
+        ) : (
+          <svg
+            className={styles.tool}
+            width={24}
+            height={24}
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            style={{ left: -TOOL_ART[tool].hot[0], top: -TOOL_ART[tool].hot[1], transformOrigin: `${TOOL_ART[tool].hot[0]}px ${TOOL_ART[tool].hot[1]}px` }}
+            dangerouslySetInnerHTML={{ __html: TOOL_ART[tool].body }}
+          />
+        )}
         {name && <span className={styles.cursorName}>{name}</span>}
       </span>
     </div>

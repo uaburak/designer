@@ -109,6 +109,14 @@
   transform-origin: 4px 3px;
   transition: scale var(--dur-spring-snap) var(--ease-spring-snap);
 }
+/* A tool's cursor (cursorArt TOOL_ART): placed by its hot spot inline; black with a white edge, as in the app */
+.tool {
+  position: absolute;
+  display: block;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+  transition: scale var(--dur-spring-snap) var(--ease-spring-snap);
+}
+.cursor[data-press] .tool { scale: 0.92; transition: scale 90ms var(--ease-out); }
 .cursor[data-press] .arrow {
   scale: 0.92;
   transition: scale 90ms var(--ease-out);
