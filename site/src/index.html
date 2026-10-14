@@ -4,26 +4,38 @@
 <!--#include head -->
 <title>Wecra: design, together, on your desktop</title>
 <meta name="description" content="Wecra is a design app for macOS and Windows: frames and auto layout, components and variables, prototypes, Dev Mode, libraries and AI." />
+<script>
+  /* The hero plays (scenes/hero/HeroScene.tsx) unless motion is unwelcome: its stage is set up before the first paint. */
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) document.documentElement.classList.add("hero-anim");
+</script>
 <script type="module" src="/scripts/pages/home.ts"></script>
 </head>
 <body>
-<!--#include header -->
-<main id="main">
-  <section class="hero" aria-labelledby="hero-title">
-    <div class="hero-scene">
-      <div class="scene" data-scene="hero" data-eager aria-label="A website designed together in the Wecra editor: a frame, multiplayer, auto layout, a component, a comment and Dev Mode"></div>
-    </div>
-    <div class="wrap">
-      <div class="grid hero-top">
-        <h1 class="display" id="hero-title" data-reveal>Design, together, on&nbsp;your desktop.</h1>
-        <div class="hero-side" data-reveal style="--reveal-delay: 120ms">
-          <p class="lede muted">A design app for macOS and Windows: auto layout, components, variables, prototypes and Dev Mode, with AI on the tools you choose.</p>
-          <!--#include download -->
-        </div>
+<!-- The hero (docs/site.md §2.1): the editor, and in its frame the page's own header and hero, built by people
+     working together; scrolling opens the frame into the page itself (scenes/hero/HeroScene.tsx). -->
+<div class="hero" data-hero>
+  <div class="hero-track">
+    <div class="hero-sticky" data-hero-sticky>
+      <div class="hero-frame" data-hero-frame>
+        <div class="hero-frame-bg" data-hero-bg></div>
+        <!--#include header -->
+        <section class="hero-body" aria-labelledby="hero-title">
+          <div class="wrap">
+            <div class="grid hero-top">
+              <h1 class="display" id="hero-title">Design, together, on&nbsp;your desktop.</h1>
+              <div class="hero-side">
+                <p class="lede muted">A design app for macOS and Windows: auto layout, components, variables, prototypes and Dev Mode, with AI on the tools you choose.</p>
+                <!--#include download -->
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
+      <div class="scene hero-chrome" data-scene="hero" data-eager aria-label="The Wecra editor: people build this page's header and hero together"></div>
     </div>
-  </section>
-
+  </div>
+</div>
+<main id="main">
   <section class="section" aria-label="Highlights">
     <div class="wrap cards">
       <article>
@@ -136,6 +148,14 @@
     </div>
   </section>
 </main>
+<nav class="dock" data-dock aria-label="On this page">
+  <a href="#design">Design</a>
+  <a href="#prototype">Prototype</a>
+  <a href="#dev-mode">Dev Mode</a>
+  <a href="#ai">AI</a>
+  <a href="#try">Try it</a>
+  <a class="btn btn-primary dock-download" href="/download/">Download</a>
+</nav>
 <!--#include footer -->
 </body>
 </html>

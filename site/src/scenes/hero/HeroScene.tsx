@@ -1,23 +1,16 @@
-// The home page's first screen (docs/site.md §2.1, the hero v4): the editor itself on the white page — the navigation
-// bar and Layers on the left, the Design panel on the right, the bottom toolbar, the canvas between — and one story
-// told in it, over and over while it's in view (the owner's choice for the hero only):
+// The home page's top (docs/site.md §2.1): the editor around a frame, and in the frame the page's own, real header and
+// hero (index.html: they live in `[data-hero-frame]`, laid out by site.css at the page's width — the frame is simply
+// that page-top at a smaller scale). People build it together, each part made under its maker's cursor; then
+// scrolling opens it: the panels slide away, the frame grows to the page (its transform goes to none, so the fixed
+// header is the viewport's again) and the editor's toolbar becomes the page's dock.
 //
-//   Frame        You pick the Frame tool and drag "Landing", a web page
-//   Multiplayer  four people join a beat apart and then work at once, each where their cursor is: Burak types the
-//                logo and the nav (and adds a link), Bilal drops the banner in and aligns it, Görkem types the
-//                headline and its line, Kamila draws the buttons — each part lands in Layers
-//   AI agents    You open Agents in the navigation bar (the left panel becomes the chat) and ask for the mobile
-//                version; the canvas zooms out and "Mobile" builds itself beside the page: skeletons first, each
-//                resolving into its part as the chat's step ticks done (the agent has no cursor)
-//   Prototype    You press Present: the mobile page opens in the viewer, a tap slides to the next screen, it closes
-//   Closing      everyone rests around the two frames, "Design, together."; then the camera flies into Landing until
-//                its white is the whole canvas, its content fades, the panels go back — and that white is the empty
-//                canvas the story starts on, so the loop has no cut
-//
-// Cursors take the look of the tool in hand (crosshair while drawing, I-beam while typing). Clicks rest on their
-// control first; a small mono caption names the beat. Under reduced motion the script runs straight to its end
-// state and stays there.
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+// The whole story is a function of two numbers, so it can be scrubbed:
+//   t  the build, in seconds: it plays by itself while the hero is in view, and scrolling the first part of the
+//      track pushes it ahead (t = max(played, scrolled)); scrolling back never rewinds it
+//   r  the reveal, 0…1: purely the scroll through the second part of the track
+// Cursors, typed text, drawn boxes, Layers, the panels and the dock are all derived from (t, r) on each frame.
+// Under reduced motion nothing of this runs: the page's top is simply there (no `hero-anim` class, no transform).
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, IconButton, ToggleIconButton } from "@/ds/components/Button";
 import { EditorToolbar, type ToolId } from "@/ds/components/EditorToolbar";
 import { Avatar } from "@/ds/components/Misc";
@@ -28,704 +21,695 @@ import { Tabs } from "@/ds/components/Tabs";
 import { Icon } from "@/ds/icons/Icon";
 import mp from "@/editor/multiplayer/Multiplayer.module.css";
 import panels from "@/editor/panels/Panels.module.css";
-import { agents, AgentText, ChatPanel, Steps, UserMessage, type Step } from "../ai/chat";
-import { Collage, CURSOR, Cursor, Dims, FrameName, Piece, Reveal, Selection, useFlip, usePointer, type Box, type Pointer } from "../collage/kit";
 import { FileHeader, FillSection, Layers, noop, Num, type Row } from "../collage/ui";
-import { BEZIER, css, ease } from "../runtime/easing";
-import type { Run } from "../runtime/motion";
-import { arcPoints, type Point } from "../runtime/path";
+import { ARROW, ARROW_EDGE, CURSOR, SIZE, TOOL_ART, type CursorTool } from "../runtime/cursorArt";
 import { prefersReduced } from "../runtime/reduced";
-import { Tween } from "../runtime/ticker";
-import { Sky } from "../home/art";
 import styles from "./hero.module.css";
 
-/** The stage: the editor's proportions. */
-const W = 1440;
-const H = 800;
-/** The left piece (the navigation bar, 57, and the panel, 240) and the canvas's centre between the panels. */
-const LEFT_W = 297;
-const CANVAS_CX = (24 + LEFT_W + W - 264) / 2;
+// ── The timeline ─────────────────────────────────────────────────────────────────────────────────────────────────
 
-/** "Landing" and "Mobile", in canvas coordinates (at 100% they are the stage's). */
-const L = { x: 448, y: 136, w: 600, h: 400 };
-const M = { x: L.x + L.w + 72, y: L.y, w: 200, h: 400 };
-/** The camera: zoomed out to show both frames, and flown into Landing at the end (its white covers the stage). */
-const ZOOM_OUT = { z: 0.74, tx: 94, ty: 112 };
-const ZOOM_IN_Z = 2.7;
-const ZOOM_IN = { z: ZOOM_IN_Z, tx: CANVAS_CX - (L.x + L.w / 2) * ZOOM_IN_Z, ty: 400 - (L.y + L.h / 2) * ZOOM_IN_Z };
-const ZOOM_MS = 1000;
-const FLY_MS = 1500;
-type Camera = "none" | "out" | "in";
+/** When the build is done, s. */
+const T_BUILD = 12.6;
+/** The track (scroll progress 0…1): the build can be pushed through [0, BUILD_P], the reveal runs [REVEAL_P0, REVEAL_P1]. */
+const BUILD_P = 0.42;
+const REVEAL_P0 = 0.48;
+const REVEAL_P1 = 0.92;
 
-/** Landing's parts (canvas px). */
-const LOGO = { x: L.x + 32, y: L.y + 22 };
-const NAV = { x: L.x + 400, y: L.y + 26 };
-const BANNER = { x: L.x + 328, y: L.y + 80, w: 240, h: 280 };
-/** Where Bilal drops the banner, before he aligns it. */
-const DROP_OFF: Point = [12, 8];
-const HEAD = { x: L.x + 32, y: L.y + 120, w: 280 };
-const SUB = { x: L.x + 32, y: L.y + 208 };
-const BTN1 = { x: L.x + 32, y: L.y + 256, w: 128, h: 40 };
-const BTN2 = { x: BTN1.x + BTN1.w + 12, y: BTN1.y, w: 112, h: 40 };
+type PartId = "logo" | "nav0" | "nav1" | "nav2" | "toggle" | "hdl" | "menu" | "head" | "lede" | "cta" | "cta2" | "meta";
+const INTERACTIVE: PartId[] = ["logo", "nav0", "nav1", "nav2", "toggle", "hdl", "menu", "cta", "cta2"];
 
-/** The controls the cursors press (stage px, measured on the rendered panels). */
-const FRAME_TOOL: Point = [566, 742];
-const AGENTS_TAB: Point = [53, 140];
-const COMPOSER: Point = [104, 712];
-const SEND: Point = [296, 749];
-const PRESENT: Point = [1333, 51];
-const VIEWER = { x: 345, y: 40, w: 807, h: 652 };
-const CLOSE: Point = [VIEWER.x + VIEWER.w - 22, VIEWER.y + 22];
-/** The phone in the viewer: the mobile page at 1.1×. */
-const PHONE = { s: 1.1, x: CANVAS_CX - 110, y: VIEWER.y + 40 + (VIEWER.h - 40 - 440) / 2 };
+type Rect = { x: number; y: number; w: number; h: number };
+type Plan =
+  | { kind: "appear"; t: number }
+  | { kind: "type"; t: number; ms: number; c: string }
+  | { kind: "draw"; t: number; t1: number; c: string };
 
-const DRAW = 900;
-const BUTTON_DRAW = 420;
-const DRAG_EASE = BEZIER.standard;
+/** A point a cursor goes to: on a part of the page (fractions of its box, plus screen px), or on the screen. */
+type Spot = { part: PartId | "frame"; fx: number; fy: number; dx?: number; dy?: number } | { screen: "frameTool" | "start" | "side"; dx?: number; dy?: number };
+interface Key {
+  t: number;
+  at: Spot;
+  tool?: CursorTool;
+}
+interface Person {
+  name: string;
+  color: string;
+  join: number;
+  keys: Key[];
+  /** Pressed between these times. */
+  press: [number, number][];
+}
 
-const TEXT = {
-  logo: "Orbit",
-  nav: "Maps    Pricing    Help",
-  head: "Weather that plans your week.",
-  sub: "Hour by hour, for every plan.",
+const ease = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const clamp = (x: number, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
+
+/** Geometry measured on the page: the stage, the canvas area, the frame's place in it, the parts' boxes. */
+interface Geo {
+  W: number;
+  H: number;
+  /** Side panels (wide screens) and the toolbar (not on phones). */
+  panels: boolean;
+  toolbar: boolean;
+  s0: number;
+  x0: number;
+  y0: number;
+  parts: Partial<Record<PartId, Rect>>;
+  frameTool: [number, number];
+}
+
+const PEOPLE_COLORS = { burak: CURSOR.ink, yasin: CURSOR.green, ozge: CURSOR.orange, bilal: CURSOR.purple, kamila: CURSOR.red, gorkem: CURSOR.blue };
+
+/** Who makes what, when (seconds), on this screen's geometry. */
+function plan(g: Geo): { people: Person[]; parts: Partial<Record<PartId, Plan>>; draw: [number, number] } {
+  const has = (p: PartId) => !!g.parts[p];
+  const parts: Partial<Record<PartId, Plan>> = {};
+  const people: Person[] = [];
+  const P = (name: string, color: string, join: number): Person => {
+    const p: Person = { name, color, join, keys: [], press: [] };
+    people.push(p);
+    return p;
+  };
+  const at = (p: Person, t: number, at: Spot, tool?: CursorTool) => p.keys.push({ t, at, tool });
+  const click = (p: Person, t: number) => p.press.push([t, t + 0.12]);
+
+  // Burak: the Frame tool, then the frame, quickly
+  const burak = P("Burak", PEOPLE_COLORS.burak, 0);
+  at(burak, 0, { screen: "start" });
+  let d0 = 1.2;
+  if (g.toolbar) {
+    at(burak, 0.4, { screen: "start" });
+    at(burak, 1.0, { screen: "frameTool" });
+    click(burak, 1.25);
+    at(burak, 1.35, { screen: "frameTool" }, "crosshair");
+    d0 = 2.1;
+  } else at(burak, 0.6, { screen: "start" }, "crosshair");
+  at(burak, d0 - 0.1, { part: "frame", fx: 0, fy: 0 });
+  at(burak, d0 + 0.1, { part: "frame", fx: 0, fy: 0 });
+  at(burak, d0 + 1.1, { part: "frame", fx: 1, fy: 1 }, "crosshair");
+  burak.press.push([d0 + 0.05, d0 + 1.15]);
+  at(burak, d0 + 1.2, { part: "frame", fx: 1, fy: 1 }, "arrow");
+  at(burak, d0 + 1.8, { part: "frame", fx: 1, fy: 1, dx: -60, dy: 26 });
+  const draw: [number, number] = [d0 + 0.1, d0 + 1.1];
+  const built = d0 + 1.2;
+
+  // Yasin: the logo, then the theme toggle
+  const yasin = P("Yasin", PEOPLE_COLORS.yasin, built + 0.1);
+  let t = yasin.join;
+  at(yasin, t, { screen: "side", dx: -40, dy: -120 });
+  at(yasin, t + 0.7, { part: "logo", fx: 0.3, fy: 0.5 });
+  click(yasin, t + 0.85);
+  parts.logo = { kind: "appear", t: t + 0.97 };
+  if (has("toggle")) {
+    at(yasin, t + 1.4, { part: "toggle", fx: 0.5, fy: 0.5 });
+    at(yasin, t + 1.5, { part: "toggle", fx: 0.5, fy: 0.5 });
+    click(yasin, t + 1.5);
+    parts.toggle = { kind: "appear", t: t + 1.62 };
+    t += 0.8;
+  }
+  at(yasin, t + 1.6, { part: "logo", fx: 1, fy: 0.5, dx: 70, dy: 18 });
+
+  // Özge: the nav, link by link (or the menu, on a phone)
+  const ozge = P("Özge", PEOPLE_COLORS.ozge, built + 0.6);
+  t = ozge.join;
+  at(ozge, t, { screen: "side", dx: 20, dy: -40 }, "text");
+  if (has("nav0")) {
+    (["nav0", "nav1", "nav2"] as const).forEach((id, i) => {
+      const go = t + 0.6 + i * 0.95;
+      at(ozge, go, { part: id, fx: 0.15, fy: 0.5 });
+      click(ozge, go + 0.08);
+      at(ozge, go + 0.12, { part: id, fx: 0.15, fy: 0.5 });
+      at(ozge, go + 0.3, { part: id, fx: 0.4, fy: 1, dx: 0, dy: 22 });
+      parts[id] = { kind: "type", t: go + 0.3, ms: id === "nav2" ? 55 : 65, c: ozge.color };
+    });
+    at(ozge, t + 3.5, { part: "nav2", fx: 1, fy: 1, dx: 20, dy: 30 }, "arrow");
+  } else if (has("menu")) {
+    at(ozge, t + 0.7, { part: "menu", fx: 0.5, fy: 0.5 }, "arrow");
+    click(ozge, t + 0.85);
+    parts.menu = { kind: "appear", t: t + 0.97 };
+    at(ozge, t + 1.6, { part: "menu", fx: 0, fy: 1, dx: -40, dy: 30 });
+  }
+
+  // Bilal: the header's Download, then the hero's (both drawn with the crosshair)
+  const bilal = P("Bilal", PEOPLE_COLORS.bilal, built + 1.1);
+  t = bilal.join;
+  at(bilal, t, { screen: "side", dx: 60, dy: 60 }, "crosshair");
+  const drawBox = (id: PartId, go: number) => {
+    at(bilal, go, { part: id, fx: 0, fy: 0 });
+    at(bilal, go + 0.12, { part: id, fx: 0, fy: 0 });
+    at(bilal, go + 0.62, { part: id, fx: 1, fy: 1 });
+    bilal.press.push([go + 0.1, go + 0.66]);
+    parts[id] = { kind: "draw", t: go + 0.12, t1: go + 0.62, c: bilal.color };
+    return go + 0.7;
+  };
+  let next = t + 0.8;
+  if (has("hdl")) next = drawBox("hdl", next) + 0.6;
+  next = drawBox("cta", next);
+  if (has("cta2")) parts.cta2 = { kind: "appear", t: next + 0.25 };
+  if (has("meta")) parts.meta = { kind: "appear", t: next + 0.45 };
+  at(bilal, next + 0.1, { part: "cta", fx: 1, fy: 1 }, "arrow");
+  at(bilal, next + 0.7, { part: "cta", fx: 1, fy: 1, dx: 26, dy: 40 });
+
+  // Kamila: the headline
+  const kamila = P("Kamila", PEOPLE_COLORS.kamila, built + 1.6);
+  t = kamila.join;
+  at(kamila, t, { screen: "side", dx: -60, dy: 140 }, "text");
+  at(kamila, t + 0.8, { part: "head", fx: 0, fy: 0.12, dx: 2 });
+  click(kamila, t + 0.9);
+  at(kamila, t + 0.95, { part: "head", fx: 0, fy: 0.12, dx: 2 });
+  at(kamila, t + 1.25, { part: "head", fx: 0, fy: 1, dx: -36, dy: 28 });
+  parts.head = { kind: "type", t: t + 1.25, ms: 62, c: kamila.color };
+  at(kamila, t + 1.25 + 2.3, { part: "head", fx: 0, fy: 1, dx: -36, dy: 28 }, "arrow");
+
+  // Görkem: the lede
+  const gorkem = P("Görkem", PEOPLE_COLORS.gorkem, built + 2.1);
+  t = gorkem.join;
+  at(gorkem, t, { screen: "side", dx: 120, dy: 40 }, "text");
+  at(gorkem, t + 0.8, { part: "lede", fx: 0, fy: 0.1, dx: 2 });
+  click(gorkem, t + 0.9);
+  at(gorkem, t + 0.95, { part: "lede", fx: 0, fy: 0.1, dx: 2 });
+  at(gorkem, t + 1.25, { part: "lede", fx: 0.5, fy: 1, dx: 0, dy: 26 });
+  parts.lede = { kind: "type", t: t + 1.25, ms: 30, c: gorkem.color };
+  at(gorkem, T_BUILD - 0.4, { part: "lede", fx: 0.5, fy: 1, dx: 0, dy: 26 }, "arrow");
+
+  for (const p of people) p.keys.sort((a, b) => a.t - b.t);
+  return { people, parts, draw };
+}
+
+// ── The scene ────────────────────────────────────────────────────────────────────────────────────────────────────
+
+interface UI {
+  tool: ToolId;
+  people: number;
+  rows: string;
+  selected: boolean;
+  w: number;
+  h: number;
+  caption: "frame" | "multiplayer" | "scroll" | null;
+}
+
+const PART_SEL: Record<PartId, string> = {
+  logo: ".site-header .brand",
+  nav0: ".site-header .nav a:nth-child(1)",
+  nav1: ".site-header .nav a:nth-child(2)",
+  nav2: ".site-header .nav a:nth-child(3)",
+  toggle: ".site-header .theme-toggle",
+  hdl: ".site-header .header-download",
+  menu: ".site-header .menu",
+  head: "#hero-title",
+  lede: ".hero-side .lede",
+  cta: "[data-download] .dl-buttons a:not([hidden])",
+  cta2: "[data-download] .dl-buttons a:not([hidden]) ~ a:not([hidden])",
+  meta: "[data-download] .dl-meta",
 };
-/** Burak types the nav up to here first, and adds the last link later. */
-const NAV_FIRST = "Maps    Pricing".length;
-type TextId = keyof typeof TEXT;
-const ASK = "Make the mobile version";
-
-type Beat = "frame" | "multiplayer" | "ai" | "prototype" | "closing";
-const CAPTIONS: [Beat, string][] = [
-  ["frame", "Frame"],
-  ["multiplayer", "Multiplayer"],
-  ["ai", "AI agents"],
-  ["prototype", "Prototype"],
-  ["closing", "Design, together."],
-];
-
-const PEOPLE = [
-  { name: "Burak", color: CURSOR.green },
-  { name: "Bilal", color: CURSOR.purple },
-  { name: "Görkem", color: CURSOR.blue },
-  { name: "Kamila", color: CURSOR.orange },
-] as const;
-
-/** Where each one starts (stage px). */
-const START = {
-  me: [700, 640] as Point,
-  burak: [372, 600] as Point,
-  bilal: [1112, 640] as Point,
-  gorkem: [380, 250] as Point,
-  kamila: [460, 660] as Point,
+const ROW_OF: Record<PartId, { name: string; icon: Row["icon"] }> = {
+  logo: { name: "Logo", icon: "16.image" },
+  nav0: { name: "Features", icon: "16.text" },
+  nav1: { name: "AI", icon: "16.text" },
+  nav2: { name: "Changelog", icon: "16.text" },
+  toggle: { name: "Theme", icon: "16.frame" },
+  hdl: { name: "Download", icon: "16.frame" },
+  menu: { name: "Menu", icon: "16.frame" },
+  head: { name: "Design, together, on your desktop.", icon: "16.text" },
+  lede: { name: "A design app for macOS and Windows…", icon: "16.text" },
+  cta: { name: "Download for macOS", icon: "16.frame" },
+  cta2: { name: "Download for Windows", icon: "16.frame" },
+  meta: { name: "Version", icon: "16.text" },
 };
-
-/** Bilal's banner, carried in from his desktop. */
-const DROP: Point = [BANNER.x + BANNER.w / 2 + DROP_OFF[0], BANNER.y + BANNER.h / 2 + DROP_OFF[1]];
-const CARRY_PATH = arcPoints(START.bilal, DROP, 0.06, 24);
-const CARRY_MS = 1000;
-const CARRY_AT: Point = [14, 34];
-
-const cam = (c: Camera) => (c === "out" ? ZOOM_OUT : c === "in" ? ZOOM_IN : { z: 1, tx: 0, ty: 0 });
-/** A canvas point on the stage, through the camera. */
-const at = (p: Point, c: Camera): Point => {
-  const k = cam(c);
-  return [k.tx + p[0] * k.z, k.ty + p[1] * k.z];
-};
-const boxAt = (b: Box, c: Camera): Box => {
-  const k = cam(c);
-  return { x: k.tx + b.x * k.z, y: k.ty + b.y * k.z, w: b.w * k.z, h: b.h * k.z };
-};
-
-/** The agent's steps, in order: what each makes appear (as skeletons) and resolve. */
-const AGENT_STEPS = ["get_metadata", "duplicate_nodes", "create_nodes", "set_auto_layout"] as const;
 
 export default function HeroScene() {
-  const [beat, setBeat] = useState<Beat | null>(null);
-  const [tool, setTool] = useState<ToolId>("move");
-  const [drawn, setDrawn] = useState(false);
-  const [selected, setSelected] = useState(false);
-  const [people, setPeople] = useState(0);
-  const [texts, setTexts] = useState<Partial<Record<TextId, string>>>({});
-  const [editing, setEditing] = useState<TextId[]>([]);
-  const [carry, setCarry] = useState<"off" | "held" | "moving">("off");
-  const [banner, setBanner] = useState(false);
-  const [aligned, setAligned] = useState(false);
-  const [navRow, setNavRow] = useState(false);
-  const [buttons, setButtons] = useState(0);
-  const [drawing, setDrawing] = useState(0);
-  const [labels, setLabels] = useState(0);
-  const [tab, setTab] = useState<"file" | "agents">("file");
-  const [ask, setAsk] = useState("");
-  const [sent, setSent] = useState(false);
-  const [steps, setSteps] = useState<Step[]>([]);
-  const [camera, setCamera] = useState<Camera>("none");
-  /** Mobile: 0 nothing, 1 the frame and its skeletons; then how many parts have resolved (2…5). */
-  const [mobile, setMobile] = useState(0);
-  const [agentDone, setAgentDone] = useState(false);
-  const [viewer, setViewer] = useState(false);
-  const [tapped, setTapped] = useState(false);
-  /** The closing: the frames' content fading under the camera; `snap` puts the camera back with no transition. */
-  const [fading, setFading] = useState(false);
-  const [snap, setSnap] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const left = useRef<HTMLDivElement>(null);
+  const right = useRef<HTMLDivElement>(null);
+  const bar = useRef<HTMLDivElement>(null);
+  const sel = useRef<HTMLDivElement>(null);
+  const caption = useRef<HTMLDivElement>(null);
+  const cursors = useRef<HTMLDivElement>(null);
+  const [geo, setGeo] = useState<Geo | null>(null);
+  const [ui, setUI] = useState<UI>({ tool: "move", people: 0, rows: "", selected: false, w: 0, h: 0, caption: null });
 
-  const me = usePointer(START.me);
-  const burak = usePointer(START.burak);
-  const bilal = usePointer(START.bilal);
-  const gorkem = usePointer(START.gorkem);
-  const kamila = usePointer(START.kamila);
-  /** Where each teammate rests on the canvas (canvas px), so the camera can carry them along. */
-  const rests = useRef(new Map<Pointer, Point>());
+  useEffect(() => {
+    const el = root.current;
+    const hero = document.querySelector<HTMLElement>("[data-hero]");
+    const sticky = document.querySelector<HTMLElement>("[data-hero-sticky]");
+    const frame = document.querySelector<HTMLElement>("[data-hero-frame]");
+    const bg = document.querySelector<HTMLElement>("[data-hero-bg]");
+    const dock = document.querySelector<HTMLElement>("[data-dock]");
+    const html = document.documentElement;
+    if (!el || !hero || !sticky || !frame || !bg) return;
 
-  const thumb = useRef<HTMLDivElement>(null);
-  const carried = useRef<Animation | null>(null);
-  useLayoutEffect(() => {
-    const el = thumb.current;
-    if (!el) return;
-    if (carry === "held") carried.current?.cancel();
-    if (carry !== "moving" || prefersReduced() || typeof el.animate !== "function") return;
-    carried.current = el.animate(
-      CARRY_PATH.map(([x, y]) => ({ transform: `translate3d(${x + CARRY_AT[0]}px, ${y + CARRY_AT[1]}px, 0)` })),
-      { duration: CARRY_MS, easing: css(DRAG_EASE), fill: "forwards" },
-    );
-  }, [carry]);
+    // The dock steps aside for the download band and the footer, always
+    let away = false;
+    const awayIO = new IntersectionObserver((entries) => {
+      for (const e of entries) (e.target as HTMLElement).dataset.near = e.isIntersecting ? "1" : "";
+      away = [...document.querySelectorAll<HTMLElement>("#download, .site-footer")].some((x) => x.dataset.near === "1");
+      if (!html.classList.contains("hero-anim")) dock?.toggleAttribute("data-away", away);
+    });
+    for (const x of document.querySelectorAll("#download, .site-footer")) awayIO.observe(x);
 
-  const pile = useRef<HTMLSpanElement>(null);
-  useFlip(pile, people);
-
-  /** Types text layer `id` on from what it holds up to `upto` characters (a box in the typist's colour meanwhile). */
-  const type = async (run: Run, id: TextId, seed: number, upto = TEXT[id].length, from = 0) => {
-    setEditing((e) => [...e, id]);
-    await run.wait(120);
-    await run.type(TEXT[id].slice(from, upto), (s) => setTexts((t) => ({ ...t, [id]: TEXT[id].slice(0, from) + s })), seed);
-    await run.wait(200);
-    setEditing((e) => e.filter((x) => x !== id));
-  };
-  const rest = async (run: Run, p: Pointer, spot: Point, ms = 450) => {
-    rests.current.set(p, spot);
-    await p.to(run, spot, { ms });
-  };
-
-  // ── The four teammates, each on its own clock ──
-  const burakWork = async (run: Run) => {
-    setPeople((n) => Math.max(n, 1));
-    await run.wait(300);
-    burak.use("text");
-    await burak.click(run, [LOGO.x + 1, LOGO.y + 2], { ms: 600, beat: 240 });
-    await burak.to(run, [LOGO.x + 30, LOGO.y + 56], { ms: 300 });
-    await type(run, "logo", 3);
-    await burak.click(run, [NAV.x + 1, NAV.y + 2], { ms: 520, beat: 200 });
-    await burak.to(run, [NAV.x - 20, NAV.y + 52], { ms: 300 });
-    await type(run, "nav", 5, NAV_FIRST);
-    setNavRow(true);
-    // A last link, added at the end of the nav
-    await burak.click(run, [NAV.x + 112, NAV.y + 8], { ms: 400, beat: 200 });
-    await burak.to(run, [NAV.x + 60, NAV.y + 52], { ms: 280 });
-    await type(run, "nav", 9, TEXT.nav.length, NAV_FIRST);
-    burak.use("arrow");
-    await rest(run, burak, [L.x + 170, L.y + 40]);
-  };
-  const bilalWork = async (run: Run) => {
-    await run.wait(1200);
-    setPeople((n) => Math.max(n, 2));
-    setCarry("held");
-    await run.wait(300);
-    await bilal.drag(run, DROP, CARRY_MS, { ease: DRAG_EASE, path: CARRY_PATH, start: () => setCarry("moving") });
-    setCarry("off");
-    setBanner(true);
-    await run.wait(700);
-    // Then he aligns it with the frame's padding: a short drag, the banner moving with it
-    await bilal.drag(run, [DROP[0] - DROP_OFF[0], DROP[1] - DROP_OFF[1]], 500, { ease: DRAG_EASE, bend: 0, start: () => setAligned(true) });
-    await run.wait(300);
-    await rest(run, bilal, [L.x + L.w - 40, L.y + L.h + 22], 700);
-  };
-  const gorkemWork = async (run: Run) => {
-    await run.wait(2400);
-    setPeople((n) => Math.max(n, 3));
-    await run.wait(300);
-    gorkem.use("text");
-    await gorkem.click(run, [HEAD.x + 1, HEAD.y + 3], { ms: 600, beat: 240 });
-    await gorkem.to(run, [HEAD.x - 60, HEAD.y + 120], { ms: 380 });
-    await type(run, "head", 7);
-    await gorkem.click(run, [SUB.x + 1, SUB.y + 2], { ms: 420, beat: 200 });
-    await gorkem.to(run, [SUB.x + 40, SUB.y + 150], { ms: 380 });
-    await type(run, "sub", 11);
-    gorkem.use("arrow");
-    rests.current.set(gorkem, [SUB.x + 40, SUB.y + 150]);
-  };
-  const kamilaWork = async (run: Run) => {
-    await run.wait(3600);
-    setPeople((n) => Math.max(n, 4));
-    await run.wait(250);
-    kamila.use("crosshair");
-    await kamila.to(run, [BTN1.x, BTN1.y], { ms: 620 });
-    await run.wait(120);
-    await kamila.drag(run, [BTN1.x + BTN1.w, BTN1.y + BTN1.h], BUTTON_DRAW, { ease: DRAG_EASE, bend: 0, start: () => (setButtons(1), setDrawing(1)) });
-    setLabels(1);
-    await run.wait(250);
-    await kamila.to(run, [BTN2.x, BTN2.y], { ms: 320 });
-    await run.wait(100);
-    await kamila.drag(run, [BTN2.x + BTN2.w, BTN2.y + BTN2.h], BUTTON_DRAW, { ease: DRAG_EASE, bend: 0, start: () => (setButtons(2), setDrawing(2)) });
-    setLabels(2);
-    await run.wait(200);
-    setDrawing(0);
-    kamila.use("arrow");
-    await rest(run, kamila, [BTN2.x + 30, BTN2.y + 84], 420);
-  };
-
-  const story = async (run: Run) => {
-    await run.wait(400);
-
-    // ── Frame: the tool, then a quick drag ──
-    setBeat("frame");
-    await run.wait(300);
-    await me.click(run, FRAME_TOOL, { beat: 260 });
-    setTool("frame");
-    me.use("crosshair");
-    await run.wait(250);
-    await me.to(run, [L.x, L.y], { ms: 650 });
-    await run.wait(150);
-    setSelected(true);
-    await me.drag(run, [L.x + L.w, L.y + L.h], DRAW, { ease: DRAG_EASE, bend: 0.02, start: () => setDrawn(true) });
-    setTool("move");
-    me.use("arrow");
-    await me.to(run, [L.x + L.w + 60, L.y + L.h + 70], { ms: 500 });
-    await run.wait(500);
-
-    // ── Multiplayer: they join a beat apart, then all work at once ──
-    setBeat("multiplayer");
-    await Promise.all([burakWork(run), bilalWork(run), gorkemWork(run), kamilaWork(run)]);
-    await run.wait(700);
-
-    // ── AI agents: Agents in the navigation bar, the ask; the page builds itself beside Landing ──
-    setBeat("ai");
-    await run.wait(300);
-    await me.click(run, AGENTS_TAB, { ms: 700, beat: 260 });
-    setTab("agents");
-    await run.wait(350);
-    await me.click(run, COMPOSER, { ms: 650, beat: 240 });
-    await run.type(ASK, setAsk, 5);
-    await run.wait(250);
-    await me.click(run, SEND, { ms: 400, beat: 220 });
-    setSent(true);
-    setAsk("");
-    const tick = (i: number) => setSteps(AGENT_STEPS.slice(0, i + 1).map((name, j) => ({ name, done: j < i })));
-    const done = (i: number) => setSteps(AGENT_STEPS.slice(0, i + 1).map((name) => ({ name, done: true })));
-    await run.wait(350);
-    tick(0);
-    // Room for the new frame: the canvas zooms out, everyone on it carried along
-    setCamera("out");
-    for (const [p, spot] of rests.current) void p.to(run, at(spot, "out"), { ms: ZOOM_MS, ease: BEZIER.standard, wait: false });
-    await run.wait(ZOOM_MS);
-    done(0);
-    await run.wait(200);
-    tick(1);
-    setMobile(1);
-    await run.wait(900);
-    done(1);
-    await run.wait(200);
-    tick(2);
-    for (let i = 2; i <= 4; i++) {
-      await run.wait(650);
-      setMobile(i);
+    if (prefersReduced() || !html.classList.contains("hero-anim")) {
+      html.classList.remove("hero-anim");
+      return () => awayIO.disconnect();
     }
-    await run.wait(300);
-    done(2);
-    await run.wait(200);
-    tick(3);
-    await run.wait(700);
-    setMobile(5);
-    await run.wait(250);
-    done(3);
-    setAgentDone(true);
-    await run.wait(900);
 
-    // ── Prototype: Present, a tap, the next screen, close ──
-    setBeat("prototype");
-    await run.wait(300);
-    await me.click(run, PRESENT, { ms: 800, beat: 260 });
-    setViewer(true);
-    await run.wait(550);
-    await me.click(run, [PHONE.x + 100 * PHONE.s, PHONE.y + 313 * PHONE.s], { ms: 700, beat: 300 });
-    setTapped(true);
-    await run.wait(1300);
-    await me.click(run, CLOSE, { ms: 750, beat: 260 });
-    setViewer(false);
-    await run.wait(400);
-
-    // ── Closing: everyone settles around the two frames ──
-    setBeat("closing");
-    setSelected(false);
-    const around: [Pointer, Point][] = [
-      [burak, [L.x + 120, L.y - 40]],
-      [bilal, [M.x + M.w + 36, M.y + 120]],
-      [gorkem, [L.x - 50, L.y + 220]],
-      [kamila, [M.x + 40, M.y + M.h + 40]],
-      [me, [L.x + L.w / 2, L.y + L.h + 56]],
-    ];
-    await Promise.all(around.map(([p, spot], i) => run.wait(i * 120).then(() => (p !== me && rests.current.set(p, spot), p.to(run, at(spot, "out"), { ms: 1100, ease: BEZIER.standard })))));
-  };
-
-  const script = async (run: Run) => {
-    for (;;) {
-      await story(run);
-      if (run.reduced) return;
-      await run.wait(1800);
-      // The camera flies into Landing: its white becomes the canvas; the teammates leave, the content fades, the
-      // panels go back — and the white left over is the empty canvas the story starts on
-      setCamera("in");
-      setFading(true);
-      setPeople(0);
-      void me.to(run, START.me, { ms: FLY_MS, ease: BEZIER.standard });
-      await run.wait(1100);
-      reset();
-      await run.wait(FLY_MS - 1100);
-      setSnap(true);
-      setCamera("none");
-      setDrawn(false);
-      setMobile(0);
-      setBeat(null);
-      await run.wait(60);
-      setSnap(false);
-      setFading(false);
-      for (const [p, s] of [
-        [burak, START.burak],
-        [bilal, START.bilal],
-        [gorkem, START.gorkem],
-        [kamila, START.kamila],
-      ] as [Pointer, Point][]) {
-        p.use("arrow");
-        void p.to(run, s, { ms: 1, wait: false });
+    // ── Measuring ──
+    let g: Geo | null = null;
+    let story = plan({ W: 1, H: 1, panels: false, toolbar: false, s0: 1, x0: 0, y0: 0, parts: {}, frameTool: [0, 0] });
+    const els: Partial<Record<PartId, HTMLElement>> = {};
+    const nat = (e: HTMLElement): Rect | null => {
+      if (!e.offsetWidth || e.getClientRects().length === 0) return null;
+      let x = 0;
+      let y = 0;
+      let n: HTMLElement | null = e;
+      while (n && n !== frame) {
+        x += n.offsetLeft;
+        y += n.offsetTop;
+        n = n.offsetParent as HTMLElement | null;
       }
-      me.use("arrow");
-      await run.wait(200);
-    }
-  };
+      return { x, y, w: e.offsetWidth, h: e.offsetHeight };
+    };
+    const measure = () => {
+      const W = sticky.clientWidth;
+      const H = sticky.clientHeight;
+      const panelsOn = W >= 1024;
+      const toolbarOn = W >= 640;
+      const A = panelsOn ? { x: 345, y: 96, w: W - 345 - 288, h: H - 96 - 112 } : { x: 16, y: 72, w: W - 32, h: H - 72 - (toolbarOn ? 112 : 56) };
+      const s0 = Math.min(A.w / W, A.h / H);
+      const parts: Partial<Record<PartId, Rect>> = {};
+      for (const id of Object.keys(PART_SEL) as PartId[]) {
+        const e = frame.querySelector<HTMLElement>(PART_SEL[id]);
+        if (!e) continue;
+        els[id] = e;
+        const r = nat(e);
+        if (r) parts[id] = r;
+      }
+      const tb = el.querySelector<HTMLElement>('[data-ds="EditorToolbar"] button[aria-label="Frame"]');
+      const sr = sticky.getBoundingClientRect();
+      const br = tb?.getBoundingClientRect();
+      const next: Geo = {
+        W,
+        H,
+        panels: panelsOn,
+        toolbar: toolbarOn,
+        s0,
+        x0: Math.round(A.x + (A.w - W * s0) / 2),
+        y0: Math.round(A.y + (A.h - H * s0) / 2),
+        parts,
+        frameTool: br && br.width ? [br.left - sr.left + br.width / 2 + 2, br.top - sr.top + br.height / 2 + 2] : [W / 2, H - 48],
+      };
+      const changed = !g || g.W !== W || g.H !== H || JSON.stringify(g.parts) !== JSON.stringify(parts) || g.frameTool.join() !== next.frameTool.join();
+      g = next;
+      if (changed) {
+        story = plan(g);
+        setGeo(g);
+      }
+    };
 
-  /** Everything but the camera and the frames themselves (they stay until the snap, under the white). */
-  const reset = () => {
-    setTool("move");
-    setSelected(false);
-    setTexts({});
-    setEditing([]);
-    setCarry("off");
-    setBanner(false);
-    setAligned(false);
-    setNavRow(false);
-    setButtons(0);
-    setDrawing(0);
-    setLabels(0);
-    setTab("file");
-    setAsk("");
-    setSent(false);
-    setSteps([]);
-    setAgentDone(false);
-    setViewer(false);
-    setTapped(false);
-    rests.current.clear();
-  };
+    // ── The cursors (plain DOM: placed on each frame) ──
+    const curEls = new Map<string, { el: HTMLElement; art: HTMLElement; tool: CursorTool | null }>();
+    const cursorOf = (p: Person) => {
+      let c = curEls.get(p.name);
+      if (!c) {
+        const e = document.createElement("div");
+        e.className = styles.cursor;
+        e.style.setProperty("--c", p.color);
+        const art = document.createElement("span");
+        art.className = styles.art;
+        const pill = document.createElement("span");
+        pill.className = styles.pill;
+        pill.textContent = p.name;
+        e.append(art, pill);
+        cursors.current?.append(e);
+        c = { el: e, art, tool: null };
+        curEls.set(p.name, c);
+      }
+      return c;
+    };
+    const setTool = (c: { art: HTMLElement; tool: CursorTool | null }, tool: CursorTool, color: string) => {
+      if (c.tool === tool) return;
+      c.tool = tool;
+      c.art.innerHTML =
+        tool === "arrow"
+          ? `<svg class="${styles.arrow}" width="${SIZE}" height="${SIZE}" viewBox="0 0 ${SIZE} ${SIZE}"><path d="${ARROW_EDGE}" fill="#fff"/><path d="${ARROW}" fill="${color}"/></svg>`
+          : `<svg class="${styles.toolArt}" width="24" height="24" viewBox="0 0 24 24" style="left:${-TOOL_ART[tool].hot[0]}px;top:${-TOOL_ART[tool].hot[1]}px">${TOOL_ART[tool].body}</svg>`;
+    };
 
-  // ── What the state draws ──
-  const k = cam(camera);
-  const world: CSSProperties = {
-    transform: camera === "none" ? "none" : `translate(${k.tx}px, ${k.ty}px) scale(${k.z})`,
-    transition: snap ? "none" : `transform ${camera === "in" ? FLY_MS : ZOOM_MS}ms ${css(BEZIER.standard)}`,
-  };
-  const moving = `transform ${camera === "in" ? FLY_MS : ZOOM_MS}ms ${css(BEZIER.standard)}`;
-  const landing = boxAt(drawn ? L : { ...L, w: 0, h: 0 }, camera);
-  const mobileBox = boxAt(M, camera);
-  const named = (b: Box, children: ReactNode, show: boolean, sel?: boolean) => (
-    <div className={styles.named} style={{ transform: `translate(${b.x}px, ${b.y}px)`, transition: snap ? "none" : moving }}>
-      <FrameName x={0} y={0} selected={sel} show={show}>
-        <span className={styles.frameName} data-selected={sel || undefined}>
-          {children}
-        </span>
-      </FrameName>
-    </div>
-  );
-  const box = (id: TextId, x: number, y: number, className: string, c: string, w?: number) => {
-    const on = editing.includes(id);
-    const n = texts[id]?.length ?? 0;
-    return (
-      <div className={`${styles.text} ${className}`} data-editing={on || undefined} style={{ left: x, top: y, width: w, ["--c" as string]: c }}>
-        {texts[id] ?? ""}
-        {on && <span className={styles.caret} data-typing={(n > 0 && n < TEXT[id].length) || undefined} />}
-      </div>
-    );
-  };
+    // ── The parts of the page (real elements) ──
+    const shownState = new Map<PartId, string>();
+    const typed = new Map<PartId, { span: HTMLElement; text: string }>();
+    const setPart = (id: PartId, state: string, t: number) => {
+      const e = els[id];
+      if (!e) return;
+      const prev = shownState.get(id);
+      if (prev === state && !state.startsWith("draw") && !state.startsWith("type")) return;
+      shownState.set(id, state);
+      const kind = state.split(":")[0];
+      if (kind !== "type" && typed.has(id)) {
+        typed.get(id)!.span.remove();
+        typed.delete(id);
+      }
+      e.dataset.hp = kind;
+      if (INTERACTIVE.includes(id)) e.inert = kind !== "shown";
+      if (kind === "type") {
+        let tp = typed.get(id);
+        if (!tp) {
+          const span = document.createElement("span");
+          span.className = "hero-typed";
+          span.setAttribute("aria-hidden", "true");
+          tp = { span, text: (e.textContent ?? "").replace(/[ \t\n\r]+/g, " ").trim() };
+          e.append(span);
+          typed.set(id, tp);
+        }
+        const n = Number(state.split(":")[1]);
+        const plain = tp.text.slice(0, n);
+        void plain;
+        if (tp.span.dataset.n !== String(n)) {
+          tp.span.dataset.n = String(n);
+          // The whole text is laid out (so it wraps as the finished text will); what isn't typed yet is invisible
+          tp.span.innerHTML = "";
+          tp.span.append(plain);
+          const caret = document.createElement("i");
+          caret.className = "hero-caret";
+          if (n < tp.text.length) caret.dataset.typing = "";
+          const rest = document.createElement("span");
+          rest.className = "hero-rest";
+          rest.textContent = tp.text.slice(n);
+          tp.span.append(caret, rest);
+        }
+        e.style.setProperty("--hp-c", (story.parts[id] as { c: string }).c);
+      } else if (kind === "draw") {
+        const p = Number(state.split(":")[1]);
+        e.style.clipPath = `inset(0 ${(1 - p) * 100}% ${(1 - p) * 100}% 0)`;
+        e.style.setProperty("--hp-c", (story.parts[id] as { c: string }).c);
+      } else {
+        e.style.clipPath = "";
+      }
+      void t;
+    };
+    const partState = (id: PartId, t: number): string => {
+      const p = story.parts[id];
+      if (!p) return "shown";
+      if (p.kind === "appear") return t >= p.t ? "shown" : "off";
+      if (p.kind === "draw") {
+        if (t < p.t) return "off";
+        if (t >= p.t1 + 0.12) return "shown";
+        return `draw:${ease(clamp((t - p.t) / (p.t1 - p.t))).toFixed(3)}`;
+      }
+      const e = els[id];
+      const len = typed.get(id)?.text.length ?? (e?.textContent ?? "").replace(/[ \t\n\r]+/g, " ").trim().length;
+      if (t < p.t - 0.05) return "off";
+      const n = Math.floor((t - p.t) / (p.ms / 1000));
+      if (n >= len + 4) return "shown";
+      return `type:${Math.min(len, Math.max(0, n))}`;
+    };
 
-  const has = (id: TextId) => (texts[id]?.length ?? 0) >= TEXT[id].length && !editing.includes(id);
+    // ── Points ──
+    const point = (s: Spot, k: { s: number; x: number; y: number }): [number, number] => {
+      if (!g) return [0, 0];
+      if ("screen" in s) {
+        const base: [number, number] = s.screen === "frameTool" ? g.frameTool : s.screen === "start" ? [g.W / 2 + 80, g.H - 150] : [g.x0 + g.W * g.s0 * 0.5, g.y0 + g.H * g.s0 * 0.5];
+        return [base[0] + (s.dx ?? 0), base[1] + (s.dy ?? 0)];
+      }
+      const r = s.part === "frame" ? { x: 0, y: 0, w: g.W, h: g.H } : g.parts[s.part];
+      if (!r) return [k.x, k.y];
+      return [k.x + (r.x + r.w * s.fx) * k.s + (s.dx ?? 0), k.y + (r.y + r.h * s.fy) * k.s + (s.dy ?? 0)];
+    };
+
+    // ── The clock ──
+    let played = 0;
+    let last = performance.now();
+    let visible = true;
+    const io = new IntersectionObserver(([e]) => (visible = e.isIntersecting), { threshold: 0.05 });
+    io.observe(sticky);
+    let raf = 0;
+    let lastUI = "";
+    let open: boolean | null = null;
+    let lastR = -1;
+    let lastT = -1;
+    let measuredAt = 0;
+
+    const tick = (now: number) => {
+      raf = requestAnimationFrame(tick);
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      if (!g || now - measuredAt > 700) {
+        measuredAt = now;
+        measure();
+      }
+      if (!g) return;
+      const track = hero.offsetHeight - g.H;
+      const p = track > 0 ? clamp((window.scrollY - hero.offsetTop) / track) : 0;
+      if (visible && !document.hidden) played = Math.min(T_BUILD, played + dt);
+      const scrolled = clamp(p / BUILD_P) * T_BUILD;
+      played = Math.max(played, scrolled);
+      const t = played;
+      const r = clamp((p - REVEAL_P0) / (REVEAL_P1 - REVEAL_P0));
+      if (r === lastR && Math.abs(t - lastT) < 1e-4 && t >= T_BUILD) return;
+      lastR = r;
+      lastT = t;
+      const e = ease(r);
+
+      // The frame: the page-top at the canvas's scale, opening to the page
+      const k = { s: lerp(g.s0, 1, e), x: lerp(g.x0, 0, e), y: lerp(g.y0, 0, e) };
+      const isOpen = r >= 1;
+      if (isOpen !== open) {
+        open = isOpen;
+        html.classList.toggle("hero-open", open);
+        sticky.toggleAttribute("data-you-tile", !open);
+      }
+      frame.style.transform = open ? "none" : `translate(${k.x}px, ${k.y}px) scale(${k.s})`;
+      frame.dataset.ready = "";
+      const [d0, d1] = story.draw;
+      const dp = ease(clamp((t - d0) / (d1 - d0)));
+      bg.style.transform = dp >= 1 ? "none" : `scale(${Math.max(0.001, dp)})`;
+      bg.style.opacity = dp > 0 ? "1" : "0";
+      bg.style.boxShadow = r < 1 ? `0 0 0 ${1 / k.s}px var(--site-piece-line)` : "";
+      const parts = Object.keys(PART_SEL) as PartId[];
+      for (const id of parts) setPart(id, r > 0 ? "shown" : partState(id, t), t);
+
+      // The editor around it
+      const out = ease(clamp(r / 0.8));
+      if (left.current) left.current.style.transform = `translateX(${-340 * out}px)`;
+      if (right.current) right.current.style.transform = `translateX(${280 * out}px)`;
+      const fadeChrome = 1 - clamp(r / 0.25);
+      if (sel.current) {
+        const show = t >= d0 && fadeChrome > 0;
+        sel.current.style.opacity = show ? String(fadeChrome) : "0";
+        const w = g.W * k.s * (t < d1 ? dp : 1);
+        const h = g.H * k.s * (t < d1 ? dp : 1);
+        sel.current.style.transform = `translate(${k.x}px, ${k.y}px)`;
+        sel.current.style.width = `${w}px`;
+        sel.current.style.height = `${h}px`;
+      }
+      if (caption.current) caption.current.style.opacity = String(fadeChrome);
+
+      // The toolbar becomes the dock
+      const m = clamp((r - 0.45) / 0.55);
+      const tbEl = bar.current?.querySelector<HTMLElement>('[data-ds="EditorToolbar"]');
+      const tbW = tbEl?.offsetWidth || 530;
+      const dkW = dock?.offsetWidth || 480;
+      if (bar.current) {
+        bar.current.style.opacity = String(1 - clamp(m * 1.6));
+        bar.current.style.transform = `translateX(-50%) scaleX(${lerp(1, dkW / tbW, ease(m))})`;
+      }
+      if (dock) {
+        const shown = g.toolbar ? clamp(m * 1.6 - 0.6) : 0;
+        dock.style.opacity = String(away ? 0 : shown);
+        dock.style.transform = `translateX(-50%) scaleX(${lerp(tbW / dkW, 1, ease(m))})`;
+        dock.style.pointerEvents = shown > 0.5 && !away ? "" : "none";
+        dock.inert = shown < 0.5 || away;
+      }
+
+      // Cursors
+      for (const person of story.people) {
+        const c = cursorOf(person);
+        const keys = person.keys;
+        let i = 0;
+        while (i < keys.length - 1 && keys[i + 1].t <= t) i++;
+        const a = keys[i];
+        const b = keys[i + 1];
+        let pt = point(a.at, k);
+        if (b && t > a.t) {
+          const q = ease(clamp((t - a.t) / (b.t - a.t)));
+          const pb = point(b.at, k);
+          // A gentle bow, as a wrist moves
+          const bow = Math.sin(q * Math.PI) * 0.08;
+          const dx = pb[0] - pt[0];
+          const dy = pb[1] - pt[1];
+          pt = [pt[0] + dx * q - dy * bow, pt[1] + dy * q + dx * bow];
+        }
+        let tool: CursorTool = "arrow";
+        for (const key of keys) if (key.t <= t && key.tool) tool = key.tool;
+        setTool(c, tool, person.color);
+        const joined = clamp((t - person.join) / 0.25);
+        const alpha = joined * fadeChrome;
+        c.el.style.opacity = String(alpha);
+        c.el.style.transform = `translate3d(${pt[0]}px, ${pt[1]}px, 0)`;
+        c.el.toggleAttribute("data-press", person.press.some(([p0, p1]) => t >= p0 && t <= p1));
+      }
+
+      // What the panels show (only when it changes)
+      const made = parts.filter((id) => story.parts[id] && partState(id, t) !== "off");
+      made.sort((x, y) => (story.parts[y]!.t ?? 0) - (story.parts[x]!.t ?? 0));
+      const caps: UI["caption"] = t < story.draw[1] + 0.2 ? "frame" : t < T_BUILD - 0.6 ? "multiplayer" : "scroll";
+      const next: UI = {
+        tool: g.toolbar && t >= 1.3 && t < story.draw[1] + 0.1 ? "frame" : "move",
+        people: story.people.filter((x) => x.name !== "Burak" && t >= x.join).length,
+        rows: made.join(","),
+        selected: t >= d0,
+        w: Math.round(g.W * (t < d1 ? dp : 1)),
+        h: Math.round(g.H * (t < d1 ? dp : 1)),
+        caption: t < 0.2 ? null : caps,
+      };
+      const key = JSON.stringify(next);
+      if (key !== lastUI) {
+        lastUI = key;
+        setUI(next);
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    const onResize = () => {
+      measuredAt = 0;
+      lastR = -1;
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      cancelAnimationFrame(raf);
+      io.disconnect();
+      awayIO.disconnect();
+      window.removeEventListener("resize", onResize);
+      for (const c of curEls.values()) c.el.remove();
+      for (const tp of typed.values()) tp.span.remove();
+    };
+  }, []);
+
+  const g = geo;
+  const rowIds = ui.rows ? (ui.rows.split(",") as PartId[]) : [];
   const rows: Row[] = [
-    { id: "landing", name: "Landing", icon: "16.frame", strong: true, expanded: has("logo"), selected, hidden: !drawn || fading },
-    { id: "plans", name: "See plans", icon: "16.frame", depth: 1, hidden: labels < 2 },
-    { id: "get", name: "Get the app", icon: "16.frame", depth: 1, hidden: labels < 1 },
-    { id: "sub", name: TEXT.sub, icon: "16.text", depth: 1, hidden: !has("sub") },
-    { id: "head", name: TEXT.head, icon: "16.text", depth: 1, hidden: !has("head") },
-    { id: "banner", name: "Banner", icon: "16.image", depth: 1, hidden: !banner },
-    { id: "nav", name: "Nav", icon: "16.text", depth: 1, hidden: !navRow },
-    { id: "logo", name: "Orbit", icon: "16.text", depth: 1, hidden: !has("logo") },
+    { id: "home", name: "Home", icon: "16.frame", strong: true, expanded: rowIds.length > 0, selected: ui.selected, hidden: !ui.selected },
+    ...(Object.keys(ROW_OF) as PartId[]).map((id) => ({ id, name: ROW_OF[id].name, icon: ROW_OF[id].icon, depth: 1, hidden: !rowIds.includes(id) })),
+  ];
+  // Newest first, as Layers lists them
+  rows.splice(1, rows.length - 1, ...[...rows.slice(1)].sort((a, b) => (rowIds.indexOf(a.id as PartId) + 1 || 99) - (rowIds.indexOf(b.id as PartId) + 1 || 99)));
+  const people = [
+    { name: "Yasin", color: PEOPLE_COLORS.yasin },
+    { name: "Özge", color: PEOPLE_COLORS.ozge },
+    { name: "Bilal", color: PEOPLE_COLORS.bilal },
+    { name: "Kamila", color: PEOPLE_COLORS.kamila },
+    { name: "Görkem", color: PEOPLE_COLORS.gorkem },
   ];
 
+  const label: Record<NonNullable<UI["caption"]>, string> = { frame: "Frame", multiplayer: "Multiplayer", scroll: "Scroll to open it" };
   return (
-    <Collage size={[W, H]} focus={[0.52, 0.42]} safe={720} script={script} className={styles.stage}>
-      {/* ── The canvas ── */}
-      <div className={styles.canvas} data-snap={snap || undefined}>
-        <div className={styles.world} style={world} data-fading={fading || undefined}>
-          {/* Landing */}
-          <div className={styles.frame} data-drawn={drawn || undefined} style={{ left: L.x, top: L.y, width: L.w, height: L.h, transition: `transform ${DRAW}ms ${css(DRAG_EASE)}` }} />
-          <div className={styles.content} data-fading={fading || undefined}>
-            <span className={styles.logoDot} data-on={has("logo") || undefined} style={{ left: LOGO.x - 2, top: LOGO.y + 3 }} />
-            {box("logo", LOGO.x + 20, LOGO.y, styles.logo, CURSOR.green)}
-            {box("nav", NAV.x, NAV.y, styles.nav, CURSOR.green)}
-            <div
-              className={styles.image}
-              style={{ left: BANNER.x, top: BANNER.y, width: BANNER.w, height: BANNER.h, transform: aligned ? "none" : `translate(${DROP_OFF[0]}px, ${DROP_OFF[1]}px)`, transition: `transform 500ms ${css(DRAG_EASE)}` }}
-            >
-              <Reveal on={banner}>
-                <Sky />
-              </Reveal>
-            </div>
-            {box("head", HEAD.x, HEAD.y, styles.headline, CURSOR.blue, HEAD.w)}
-            {box("sub", SUB.x, SUB.y, styles.sub, CURSOR.blue)}
-            {[BTN1, BTN2].map((b, i) => (
-              <div key={i} className={styles.button} data-drawn={buttons > i || undefined} data-dark={i === 0 || undefined} style={{ left: b.x, top: b.y, width: b.w, height: b.h, ["--c" as string]: CURSOR.orange }}>
-                <i data-drawing={drawing === i + 1 || undefined} style={{ transitionDuration: `${BUTTON_DRAW}ms` }} />
-                <span data-on={labels > i || undefined}>{i === 0 ? "Get the app" : "See plans"}</span>
-              </div>
-            ))}
+    <div ref={root} className={styles.root}>
+      {g && (
+        <div ref={caption} className={styles.captions} style={{ left: g.x0, top: Math.max(16, g.y0 - 52) }}>
+          {(Object.keys(label) as NonNullable<UI["caption"]>[]).map((id) => (
+            <span key={id} className={styles.caption} data-on={ui.caption === id || undefined}>
+              {label[id]}
+            </span>
+          ))}
+        </div>
+      )}
 
-            {/* Mobile, made by the agent: skeletons that resolve into its parts */}
-            <div className={styles.mobileFrame} data-on={mobile > 0 || undefined} style={{ left: M.x, top: M.y, width: M.w, height: M.h }}>
-              <MobilePage skeleton={mobile > 0} resolved={Math.max(0, mobile - 1)} />
+      {/* Your selection: the frame, its size */}
+      <div ref={sel} className={styles.selection}>
+        <span className={styles.frameName}>Home</span>
+        <b data-h="tl" />
+        <b data-h="tr" />
+        <b data-h="bl" />
+        <b data-h="br" />
+        <span className={styles.size}>
+          {ui.w} × {ui.h}
+        </span>
+      </div>
+
+      {g?.panels && (
+        <>
+          <div ref={left} className={`${styles.piece} ${styles.leftPiece}`} style={{ left: 24, top: 24, width: 297, height: g.H - 48 }}>
+            <Rail label="Navigation" labels={false}>
+              <RailItem compact icon="24.figma" label="Main menu" active={false} />
+              <RailSeparator />
+              <RailItem icon="24.page" label="File" active />
+              <RailItem icon="24.agents" label="Agents" active={false} />
+              <RailItem icon="24.assets" label="Assets" active={false} />
+              <RailItem icon="24.tools" label="Tools" active={false} />
+              <RailSeparator />
+              <RailItem icon="24.variables" label="Variables" active={false} />
+            </Rail>
+            <div className={styles.leftCol}>
+              <FileHeader name="Wecra — Website" />
+              <Layers rows={rows} />
             </div>
           </div>
-        </div>
-
-        {/* Frame names and your selection stay screen-sized: they follow the camera by position */}
-        {named(landing, "Landing", drawn && camera !== "in", selected)}
-        {named(mobileBox, "Mobile", mobile > 0 && camera !== "in")}
-        <Selection box={landing} ms={camera === "out" ? ZOOM_MS : DRAW} ease={DRAG_EASE} size={<Dims w={drawn ? L.w : 0} h={drawn ? L.h : 0} ms={DRAW} ease={ease.standard} />} show={selected && !viewer} />
-      </div>
-
-      {/* The caption: which feature this is */}
-      <div className={styles.captions} style={{ left: L.x, top: 64 }}>
-        {CAPTIONS.map(([id, label]) => (
-          <span key={id} className={styles.caption} data-on={beat === id || undefined}>
-            {label}
-          </span>
-        ))}
-      </div>
-
-      {/* ── The panels ── */}
-      <Piece surface x={24} y={24} w={LEFT_W} h={H - 48} d={60} from="left" z={4} className={styles.leftPiece}>
-        <Rail label="Navigation" labels={false}>
-          <RailItem compact icon="24.figma" label="Main menu" active={false} />
-          <RailSeparator />
-          <RailItem icon="24.page" label="File" active={tab === "file"} />
-          <RailItem icon="24.agents" label="Agents" active={tab === "agents"} />
-          <RailItem icon="24.assets" label="Assets" active={false} />
-          <RailItem icon="24.tools" label="Tools" active={false} />
-          <RailSeparator />
-          <RailItem icon="24.variables" label="Variables" active={false} />
-        </Rail>
-        <div className={styles.leftCol}>
-          {tab === "file" ? (
-            <>
-              <FileHeader name="Orbit — Website" />
-              <Layers rows={rows} />
-            </>
-          ) : (
-            <ChatPanel composer={ask || "Ask for changes, or describe what to make"} agent="Claude Code">
-              {sent && <UserMessage>{ASK}</UserMessage>}
-              {steps.length > 0 && (
-                <div className={agents.agent}>
-                  <span className={agents.agentName}>Claude Code</span>
-                  <Steps steps={steps} />
-                  {agentDone && <AgentText>Made “Mobile” beside Landing: the header, the banner, the headline and the two buttons, stacked in auto layout.</AgentText>}
-                </div>
-              )}
-            </ChatPanel>
-          )}
-        </div>
-      </Piece>
-
-      <Piece surface x={W - 264} y={24} w={240} h={H - 48} d={120} from="right" z={4}>
-        <div className={styles.rightCol}>
-          <div className={panels.rightHeader}>
-            <span ref={pile} className={`${mp.facepile} ${styles.pile}`}>
-              {PEOPLE.map((p, i) =>
-                people > i ? (
-                  <span key={p.name} className={`${mp.face} ${styles.face}`} data-flip="" style={{ ["--peer" as string]: p.color }}>
-                    <span className={mp.bar} />
+          <div ref={right} className={styles.piece} style={{ left: g.W - 264, top: 24, width: 240, height: g.H - 48 }}>
+            <div className={styles.rightCol}>
+              <div className={panels.rightHeader}>
+                <span className={`${mp.facepile} ${styles.pile}`}>
+                  {people.slice(0, ui.people).map((p) => (
+                    <span key={p.name} className={`${mp.face} ${styles.face}`} style={{ ["--peer" as string]: p.color }}>
+                      <span className={mp.bar} />
+                      <span className={mp.ring}>
+                        <Avatar name={p.name} size={24} />
+                      </span>
+                    </span>
+                  ))}
+                  <span className={`${mp.face} ${styles.me}`}>
                     <span className={mp.ring}>
-                      <Avatar name={p.name} size={24} />
+                      <Avatar name="Burak" size={24} />
                     </span>
                   </span>
-                ) : null,
-              )}
-              <span className={`${mp.face} ${styles.me}`} data-flip="">
-                <span className={mp.ring}>
-                  <Avatar name="You" size={24} />
                 </span>
-              </span>
-            </span>
-            <span className={panels.grow} />
-            <IconButton icon="24.play" label="Present" size="large" />
-            <Button variant="primary" size="large" className={panels.share}>
-              Share
-            </Button>
+                <span className={panels.grow} />
+                <Button variant="primary" size="large" className={panels.share}>
+                  Share
+                </Button>
+              </div>
+              <div className={panels.rightTabs}>
+                <Tabs label="Panels" value="design" tabs={[{ value: "design", label: "Design" }, { value: "prototype", label: "Prototype" }]} onChange={noop} />
+                <span className={panels.zoom}>
+                  <span>{Math.round(g.s0 * 100)}%</span>
+                  <Icon name="16.chevron.down" />
+                </span>
+              </div>
+              {ui.selected ? <FrameBody w={ui.w} h={ui.h} /> : <FillSection title="Page" label="Page colour" hex="F5F5F5" />}
+            </div>
           </div>
-          <div className={panels.rightTabs}>
-            <Tabs label="Panels" value="design" tabs={[{ value: "design", label: "Design" }, { value: "prototype", label: "Prototype" }]} onChange={noop} />
-            <span className={panels.zoom}>
-              <span>
-                <Tween value={camera === "out" ? Math.round(ZOOM_OUT.z * 100) : 100} ms={camera === "out" ? ZOOM_MS : 0} />%
-              </span>
-              <Icon name="16.chevron.down" />
-            </span>
-          </div>
-          {selected ? (
-            <>
-              <PanelSection title="Frame" pad="none" actions={<><IconButton icon="24.dev-brackets" label="Mark as ready for dev" tone="secondary" /><IconButton icon="24.component.small" label="Create component" tone="secondary" /></>} />
-              <PanelSection title="Position">
-                <PropertyGrid>
-                  <PropertyRow>
-                    <Num label="X-position" prefix="X" value={0} />
-                    <Num label="Y-position" prefix="Y" value={0} />
-                  </PropertyRow>
-                </PropertyGrid>
-              </PanelSection>
-              <PanelSection title="Layout" actions={<ToggleIconButton icon="24.autolayout-add-vertical" label="Use auto layout" tone="secondary" pressed={false} onPressedChange={noop} />}>
-                <PropertyGrid>
-                  <PropertyRow>
-                    <Num label="Width" prefix="W" value={drawn ? L.w : 0} ms={DRAW} ease={ease.standard} />
-                    <Num label="Height" prefix="H" value={drawn ? L.h : 0} ms={DRAW} ease={ease.standard} />
-                  </PropertyRow>
-                </PropertyGrid>
-              </PanelSection>
-              <PanelSection title="Appearance">
-                <PropertyGrid>
-                  <PropertyRow>
-                    <Num label="Opacity" prefix="24.opacity" value={100} unit="%" />
-                    <Num label="Corner radius" prefix="24.corners" value={0} />
-                  </PropertyRow>
-                </PropertyGrid>
-              </PanelSection>
-              <FillSection hex="FFFFFF" />
-            </>
-          ) : (
-            <FillSection title="Page" label="Page colour" hex="FFFFFF" />
-          )}
-        </div>
-      </Piece>
-
-      <Piece x={CANVAS_CX - 300} y={H - 24 - 76} w={600} h={76} d={180} z={4}>
-        <div className={styles.toolbarSlot}>
-          <EditorToolbar floating tool={tool} mode="design" onMode={noop} onTool={noop} />
-        </div>
-      </Piece>
-
-      {/* The prototype viewer, over the canvas (and over the others' cursors: it's your screen) */}
-      <Piece x={VIEWER.x} y={VIEWER.y} w={VIEWER.w} h={VIEWER.h} show={viewer} from="fade" z={32} className={styles.viewer}>
-        <div className={styles.viewerBar}>
-          <span>Mobile</span>
-          <span className={styles.viewerClose} data-pressable="">
-            <Icon name="24.close.small" />
-          </span>
-        </div>
-        <div className={styles.phone} style={{ left: PHONE.x - VIEWER.x, top: PHONE.y - VIEWER.y, width: M.w, height: M.h, transform: `scale(${PHONE.s})` }}>
-          <div className={styles.screen} data-out={tapped || undefined}>
-            <MobilePage resolved={4} />
-          </div>
-          <div className={styles.screen} data-next="" data-on={tapped || undefined}>
-            <NextScreen />
-          </div>
-        </div>
-      </Piece>
-
-      {/* Bilal's banner on its way in, under his cursor */}
-      <div
-        ref={thumb}
-        className={styles.thumb}
-        data-on={carry !== "off" || undefined}
-        style={{ transform: `translate3d(${(carry === "off" && banner ? DROP : START.bilal)[0] + CARRY_AT[0]}px, ${(carry === "off" && banner ? DROP : START.bilal)[1] + CARRY_AT[1]}px, 0)` }}
-      >
-        <Sky />
-      </div>
-
-      <Cursor {...kamila.state} color={CURSOR.orange} name="Kamila" show={people >= 4} z={30} />
-      <Cursor {...gorkem.state} color={CURSOR.blue} name="Görkem" show={people >= 3} z={30} />
-      <Cursor {...bilal.state} color={CURSOR.purple} name="Bilal" show={people >= 2} z={30} />
-      <Cursor {...burak.state} color={CURSOR.green} name="Burak" show={people >= 1} z={30} />
-      <Cursor {...me.state} color={CURSOR.ink} name="You" d={300} z={40} />
-    </Collage>
-  );
-}
-
-/** The mobile page: with `skeleton`, grey placeholders where the parts go; each of the first `resolved` parts
- *  cross-fades from its placeholder into itself. */
-function MobilePage({ skeleton, resolved }: { skeleton?: boolean; resolved: number }) {
-  const part = (i: number, className: string, children: ReactNode) => (
-    <div className={`${styles.mPart} ${className}`} data-on={resolved > i || undefined}>
-      {skeleton && <span className={styles.skel} data-gone={resolved > i || undefined} />}
-      <div className={styles.mReal}>{children}</div>
-    </div>
-  );
-  return (
-    <div className={styles.mPage}>
-      {part(
-        0,
-        styles.mHeader,
-        <>
-          <span className={styles.mLogo}>
-            <i /> Orbit
-          </span>
-          <span className={styles.mMenu}>
-            <i />
-            <i />
-            <i />
-          </span>
-        </>,
+        </>
       )}
-      {part(1, styles.mBanner, <Sky />)}
-      {part(
-        2,
-        styles.mText,
-        <>
-          <strong>{TEXT.head}</strong>
-          <span>{TEXT.sub}</span>
-        </>,
+
+      {g?.toolbar && (
+        <div ref={bar} className={styles.bar}>
+          <EditorToolbar floating tool={ui.tool} mode="design" onMode={noop} onTool={noop} />
+        </div>
       )}
-      {part(
-        3,
-        styles.mButtons,
-        <>
-          <span data-dark="">Get the app</span>
-          <span>See plans</span>
-        </>,
-      )}
+
+      <div ref={cursors} className={styles.cursors} />
     </div>
   );
 }
 
-/** Where the button leads in the prototype. */
-function NextScreen() {
+function FrameBody({ w, h }: { w: number; h: number }): ReactNode {
   return (
-    <div className={styles.mPage}>
-      <div className={`${styles.mPart} ${styles.mHeader}`} data-on="">
-        <div className={styles.mReal}>
-          <span className={styles.mLogo}>
-            <i /> Orbit
-          </span>
-        </div>
-      </div>
-      <div className={styles.nextBody}>
-        <div className={styles.nextIcon}>
-          <Sky />
-        </div>
-        <strong>Orbit for iPhone and Android</strong>
-        <span>Free, with a forecast for every plan.</span>
-        <span className={styles.nextButton}>Download</span>
-      </div>
-    </div>
+    <>
+      <PanelSection title="Frame" pad="none" actions={<><IconButton icon="24.dev-brackets" label="Mark as ready for dev" tone="secondary" /><IconButton icon="24.component.small" label="Create component" tone="secondary" /></>} />
+      <PanelSection title="Position">
+        <PropertyGrid>
+          <PropertyRow>
+            <Num label="X-position" prefix="X" value={0} />
+            <Num label="Y-position" prefix="Y" value={0} />
+          </PropertyRow>
+        </PropertyGrid>
+      </PanelSection>
+      <PanelSection title="Layout" actions={<ToggleIconButton icon="24.autolayout-add-vertical" label="Use auto layout" tone="secondary" pressed={false} onPressedChange={noop} />}>
+        <PropertyGrid>
+          <PropertyRow>
+            <Num label="Width" prefix="W" value={w} ms={0} />
+            <Num label="Height" prefix="H" value={h} ms={0} />
+          </PropertyRow>
+        </PropertyGrid>
+      </PanelSection>
+      <FillSection hex="FFFFFF" />
+    </>
   );
 }

@@ -331,15 +331,40 @@ p { margin: 0; text-wrap: pretty; }
 .head .label { margin-bottom: 8px; }
 @media (max-width: 760px) { .head { margin-bottom: 32px; } }
 
-/* Hero (§2.1, v4): the editor itself, full-bleed on the page (the page is its canvas), about one screen under the
-   header and no taller than the editor's proportions at this width; the headline and Download follow it */
-.hero { padding: 0 0 var(--site-section); }
-.hero-scene {
-  position: relative;
-  height: min(calc(100svh - var(--site-header)), 860px, calc(100vw * 800 / 1440));
-  min-height: 360px;
-  margin-bottom: 56px;
-}
+/* Hero (§2.1): the page's own header and hero, inside the editor's frame while people build them; scrolling opens
+   the frame into the page (scenes/hero/HeroScene.tsx). Without script or under reduced motion it is simply the top
+   of the page. On this page the header is fixed (it lives in the frame: a transformed frame holds it; with no
+   transform it is the viewport's, as a sticky header would be). */
+:root { --hero-canvas: #f5f5f5; }
+[data-theme="dark"] { --hero-canvas: #2c2c2c; }
+.hero .site-header { position: fixed; top: 0; right: 0; left: 0; }
+.hero-sticky { position: relative; min-height: 100svh; }
+.hero-body { padding: calc(var(--site-header) + clamp(64px, 18svh, 220px)) 0 var(--site-section); }
+.hero-frame-bg, .hero-chrome { display: none; }
+/* Playing (html.hero-anim, set before the first paint of the scene): a tall track, a pinned stage on the canvas */
+html.hero-anim .hero-track { height: 300svh; }
+html.hero-anim .hero-sticky { position: sticky; top: 0; height: 100svh; min-height: 0; overflow: hidden; background: var(--hero-canvas); }
+html.hero-anim .hero-frame { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform-origin: 0 0; }
+html.hero-anim .hero-frame-bg { position: absolute; inset: 0; display: block; background: var(--site-bg); transform-origin: 0 0; }
+html.hero-anim .hero-body { position: relative; }
+html.hero-anim .hero-chrome { display: block; pointer-events: none; }
+html.hero-anim .hero-frame:not([data-ready]) > :not(.hero-frame-bg) { visibility: hidden; }
+@media (max-width: 639px) { html.hero-anim .hero-track { height: 220svh; } }
+/* While it plays, the parts of the page are made one by one (HeroScene sets data-hp on each): not there yet, being
+   typed (an overlay types the text over its own, still-laid-out place, in a box of the typist's colour), or being
+   drawn (clipped open from its top-left corner) */
+html.hero-anim:not(.hero-open) .hero .site-header { background: transparent; }
+html.hero-anim [data-hp] { transition: opacity 240ms var(--site-ease); }
+html.hero-anim [data-hp="off"] { opacity: 0; }
+html.hero-anim [data-hp="type"] { position: relative; -webkit-text-fill-color: transparent; outline: 1px solid var(--hp-c); outline-offset: 2px; }
+html.hero-anim [data-hp="draw"] { -webkit-text-fill-color: transparent; outline: 1px solid var(--hp-c); outline-offset: -1px; transition: none; }
+.hero-typed { position: absolute; inset: 0; padding: inherit; -webkit-text-fill-color: currentColor; pointer-events: none; }
+.hero-caret { display: inline-block; width: 2px; height: 0.9em; margin-left: 0; vertical-align: -0.1em; background: currentColor; animation: hero-blink 1060ms steps(1, end) infinite; }
+.hero-caret[data-typing] { animation: none; }
+.hero-rest { -webkit-text-fill-color: transparent; }
+.hero-caret { margin-right: -2px; }
+html.hero-anim:not(.hero-open) .hero .skip:not(:focus) { visibility: hidden; }
+@keyframes hero-blink { 50% { opacity: 0; } }
 .hero-top { align-items: end; margin-bottom: 48px; }
 .hero-top:last-child { margin-bottom: 0; }
 .hero-top h1 { grid-column: 1 / span 7; }
@@ -350,10 +375,35 @@ p { margin: 0; text-wrap: pretty; }
   .hero-top { row-gap: 24px; }
 }
 @media (max-width: 760px) {
-  /* A phone: the stage crops to the canvas around the frame (HeroScene's `safe`), at the editor's height */
-  .hero-scene { height: auto; min-height: 0; aspect-ratio: 720 / 800; margin-bottom: 32px; }
   .hero-top { margin-bottom: 32px; }
 }
+
+/* The dock: what the editor's toolbar becomes when the hero opens into the page — the sections and Download, at the
+   toolbar's place, until the download band or the footer comes into view */
+.dock {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  box-sizing: border-box;
+  height: 48px;
+  padding: 0 6px 0 10px;
+  border: 1px solid var(--site-faint);
+  border-radius: 14px;
+  background: var(--site-bg);
+  font-size: 14px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  transition: opacity 240ms var(--site-ease), translate 320ms var(--site-ease);
+}
+.dock a:not(.btn) { padding: 6px 10px; border-radius: 8px; text-decoration: none; }
+.dock a:not(.btn):hover { background: var(--site-faint); }
+.dock .dock-download { height: 36px; margin-left: 6px; padding: 0 14px; font-size: 14px; }
+.dock[data-away] { opacity: 0; translate: 0 12px; pointer-events: none; }
+@media (max-width: 639px) { .dock { display: none; } }
 
 /* Three (or two) small tiles in a row, each with its words under it */
 .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--site-col-gap); }
