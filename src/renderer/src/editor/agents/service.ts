@@ -318,12 +318,14 @@ export class AgentsService implements AgentSetupHost {
     this.set({ mcp });
     const mine = this.fileKey();
     const clients = mcp.connections.filter((c) => !c.chat && c.fileKey && (!mine || c.fileKey === mine));
-    agentPresenceOf(this.ed).syncClients(clients.map((c) => ({ key: `session:${c.id}`, name: c.client })));
+    // One collaborator per client app: a client that opens a session per run (a script, a CLI) is still one agent
+    const byClient = new Map(clients.map((c) => [`client:${c.client}`, { key: `client:${c.client}`, name: c.client }]));
+    agentPresenceOf(this.ed).syncClients([...byClient.values()]);
   }
 
   /**
    * Who made a tool call, as a collaborator: a worker (its task), the manager or a chat (the chat), or an outside
-   * client (its MCP session).
+   * client (by its app's name: all its sessions are one collaborator).
    */
   actorOf(call: { turnId: string | null; client: string; session?: string }): AgentActor {
     const manager = managerName(this.managerSettings());
@@ -338,7 +340,7 @@ export class AgentsService implements AgentSetupHost {
     const target = call.turnId ? this.turnTarget.get(call.turnId) : undefined;
     if (target?.role === "manager") return { key: `manager:${target.chat}`, name: manager, kind: "manager" };
     if (target) return { key: `chat:${target.chat}`, name: target.providerLabel, kind: "chat" };
-    return { key: `session:${call.session ?? call.client}`, name: call.client, kind: "client" };
+    return { key: `client:${call.client}`, name: call.client, kind: "client" };
   }
 
   /**
