@@ -151,6 +151,11 @@ export function agentSetupApi(): AgentSetupApi {
       addFolder: () => invoke("agents:access-add-folder"),
       log: () => invoke("agents:access-log"),
       clearLog: () => invoke("agents:clear-access-log"),
+      githubToken: (token) => invoke("agents:github-token", { token: String(token ?? "") }),
+      githubDeviceStart: () => invoke("agents:github-device-start"),
+      githubDevicePoll: () => invoke("agents:github-device-poll"),
+      githubDisconnect: () => invoke("agents:github-disconnect"),
+      githubRepos: () => invoke("agents:github-repos"),
     },
   };
 }

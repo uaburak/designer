@@ -16,6 +16,8 @@ import { ReachHub, type ReachConsentRequest, type ReachRunner } from "./reach/hu
 import { ReachStore } from "./reach/store";
 import { orgForcedOff } from "./reach/org";
 import { webRunner } from "./reach/web";
+import { GithubAccess } from "./reach/github";
+import { mainFetch } from "../net";
 import { grantProblem, isDeniedPath } from "./reach/paths";
 import { REACH_NOTE, REACH_SKILLS, isReachPolicy, isRepoName, type AccessLogEntry, type ReachCapability, type ReachPatch, type ReachView } from "../../shared/agents/reach";
 import { normalizeAllowedHost } from "../../shared/agents/reachNet";
@@ -316,9 +318,17 @@ const CAPABILITY_LABEL: Record<ReachCapability, string> = { web: "Web", github: 
 let reachStore: ReachStore | null = null;
 const reachStoreOf = () => (reachStore ??= new ReachStore(dir()));
 /** The capabilities' runners, each phase's (web.ts, github.ts, files.ts, apps.ts): a capability without one isn't listed */
+/**
+ * The GitHub App whose device flow "Connect with GitHub" uses (docs/agents-reach.md §6.1, open question 1): empty until
+ * the owner registers it — "Use a token" works without it. WECRA_GITHUB_CLIENT_ID overrides it for a test build.
+ */
+const GITHUB_APP_CLIENT_ID = "";
+let githubAccess: GithubAccess | null = null;
+const github = () => (githubAccess ??= new GithubAccess({ path: file("github.json"), fetch: (url, init) => mainFetch(url, init), seal: (s) => sealAsync(s), unseal: (s) => unsealAsync(s), clientId: process.env.WECRA_GITHUB_CLIENT_ID ?? GITHUB_APP_CLIENT_ID }));
 const reachRunners: Partial<Record<ReachCapability, ReachRunner>> = {
   // A capture's layers are made in the turn's file, inside the turn (one undo step with the agent's other writes).
   web: webRunner({ runInView: (ctx, call) => runToolInView(ctx.fileKey, { turnId: ctx.turnId, client: ctx.agent, name: call.name, args: call.args }) }),
+  github: (tool, args, ctx) => github().runner()(tool, args, ctx),
 };
 let reach: ReachHub | null = null;
 
@@ -344,7 +354,16 @@ function askAccess(req: ReachConsentRequest): Promise<ConsentAnswer> {
 }
 
 /** Phase-specific parts of the Access page's view (GitHub's connection, the Screen Recording permission). */
-const reachExtras: { github?: () => Promise<ReachView["github"]>; screen?: () => ReachView["screenPermission"] } = {};
+const reachExtras: { github?: () => Promise<ReachView["github"]>; screen?: () => ReachView["screenPermission"] } = { github: () => github().status() };
+
+// GitHub's connection (Agent settings › Access › GitHub): the token stays here, sealed; views only see the account.
+/** Main's sentence in the person's language (GitHub's own errors pass through as they are). */
+const inTheirWords = <T>(job: Promise<T>): Promise<T> => job.catch((err: unknown) => Promise.reject(new Error(tr(err instanceof Error ? err.message : String(err)))));
+export const githubConnectToken = async (token: string) => (await inTheirWords(github().connectToken(token)), accessView());
+export const githubDeviceStart = () => inTheirWords(github().deviceStart());
+export const githubDevicePoll = () => github().devicePoll();
+export const githubDisconnect = async () => (await github().disconnect(), accessView());
+export const githubRepos = () => github().accountRepos();
 
 export async function accessView(): Promise<ReachView> {
   return {

@@ -274,6 +274,14 @@ export interface ReachApi {
   addFolder(): Promise<ReachView>;
   log(): Promise<AccessLogEntry[]>;
   clearLog(): Promise<void>;
+  /** GitHub (docs/agents-reach.md §6.1): a fine-grained token, checked and sealed by main */
+  githubToken(token: string): Promise<ReachView>;
+  /** The device flow: the code to enter on GitHub, then polls until connected */
+  githubDeviceStart(): Promise<{ userCode: string; verificationUri: string; expiresIn: number }>;
+  githubDevicePoll(): Promise<{ state: "pending" | "connected" | "expired" | "denied" }>;
+  githubDisconnect(): Promise<ReachView>;
+  /** The connected account's repositories */
+  githubRepos(): Promise<{ fullName: string; private: boolean; description: string }[]>;
   /** macOS: System Settings › Privacy & Security › Screen Recording (Local apps) */
   openScreenSettings?(): Promise<void>;
 }

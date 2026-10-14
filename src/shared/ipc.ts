@@ -458,6 +458,12 @@ export interface IpcInvoke extends SharedFontsChannels {
   "agents:access-add-folder": { args: []; result: ReachView };
   "agents:access-log": { args: []; result: AccessLogEntry[] };
   "agents:clear-access-log": { args: []; result: void };
+  /** GitHub (docs/agents-reach.md §6.1): the token goes to main once and is sealed there */
+  "agents:github-token": { args: [{ token: string }]; result: ReachView };
+  "agents:github-device-start": { args: []; result: { userCode: string; verificationUri: string; expiresIn: number } };
+  "agents:github-device-poll": { args: []; result: { state: "pending" | "connected" | "expired" | "denied" } };
+  "agents:github-disconnect": { args: []; result: ReachView };
+  "agents:github-repos": { args: []; result: { fullName: string; private: boolean; description: string }[] };
 }
 
 /** A development plugin imported from its manifest (docs/plugins.md §3.3) */
@@ -655,6 +661,11 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "agents:access-add-folder": ["home", "editor"],
   "agents:access-log": ["home", "editor"],
   "agents:clear-access-log": ["home", "editor"],
+  "agents:github-token": ["home", "editor"],
+  "agents:github-device-start": ["home", "editor"],
+  "agents:github-device-poll": ["home", "editor"],
+  "agents:github-disconnect": ["home", "editor"],
+  "agents:github-repos": ["home", "editor"],
 };
 
 export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {

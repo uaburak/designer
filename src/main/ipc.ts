@@ -279,6 +279,11 @@ export function registerIpc() {
   onInvoke("agents:access-add-folder", ({ sender }) => agents.addAccessFolder(sender));
   onInvoke("agents:access-log", () => agents.accessLog());
   onInvoke("agents:clear-access-log", () => agents.clearAccessLog());
+  onInvoke("agents:github-token", (_c, p) => agents.githubConnectToken(str(p?.token, 400) ?? ""));
+  onInvoke("agents:github-device-start", () => agents.githubDeviceStart());
+  onInvoke("agents:github-device-poll", () => agents.githubDevicePoll());
+  onInvoke("agents:github-disconnect", () => agents.githubDisconnect());
+  onInvoke("agents:github-repos", () => agents.githubRepos());
   onInvoke("devmode:link-title", (_c, p) => linkTitle(p?.url));
   // ── Haptics (a scrub's steps; throttled, macOS only) ──
   onSend("haptics:tick", () => void hapticTick());
