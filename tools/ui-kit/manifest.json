@@ -571,12 +571,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741868",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073741907",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073741910",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073741913",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:28",
+   "wecraOutline": "6291479:30"
   },
   "16.autolayout.horizontal.top": {
    "id": "6291457:1073757144",
@@ -593,12 +609,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741874",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073741916",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073741919",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073741922",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:32",
+   "wecraOutline": "6291479:34"
   },
   "16.boolean.union": {
    "id": "6291457:1073757147",
@@ -620,17 +652,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741881",
-      "stroke": true,
-      "fill": false
-     },
+      "id": "6291479:1073741925",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
      {
-      "id": "6291477:1073741882",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073741928",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073741931",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:7",
+   "wecraOutline": "6291479:10"
   },
   "16.check": {
    "id": "6291457:1073757150",
@@ -647,12 +690,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741888",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073741934",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073741937",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073741940",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:36",
+   "wecraOutline": "6291479:38"
   },
   "16.chevron.down": {
    "id": "6291457:1073757153",
@@ -669,12 +728,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741894",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073741943",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073741946",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073741949",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:40",
+   "wecraOutline": "6291479:42"
   },
   "16.chevron.right": {
    "id": "6291457:1073757156",
@@ -691,12 +766,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741900",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073741952",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073741955",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073741958",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:44",
+   "wecraOutline": "6291479:46"
   },
   "16.component": {
    "id": "6291457:1073757159",
@@ -713,12 +804,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741906",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073741961",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073741964",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073741967",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:48",
+   "wecraOutline": "6291479:50"
   },
   "16.design": {
    "id": "6291457:1073757162",
@@ -735,12 +842,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741912",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073741970",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073741973",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073741976",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:52",
+   "wecraOutline": "6291479:54"
   },
   "16.ellipse": {
    "id": "6291457:1073757165",
@@ -757,12 +880,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741918",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073741979",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073741982",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073741985",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:56",
+   "wecraOutline": "6291479:58"
   },
   "16.frame": {
    "id": "6291457:1073757168",
@@ -779,12 +918,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741924",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073741988",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073741991",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073741994",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:60",
+   "wecraOutline": "6291479:62"
   },
   "16.group": {
    "id": "6291457:1073757171",
@@ -801,12 +956,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741930",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073741997",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742000",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742003",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:64",
+   "wecraOutline": "6291479:66"
   },
   "16.hidden": {
    "id": "6291457:1073757174",
@@ -823,12 +994,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741936",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742006",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742009",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742012",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:68",
+   "wecraOutline": "6291479:70"
   },
   "16.image": {
    "id": "6291457:1073757177",
@@ -845,12 +1032,33 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741942",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742015",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742016",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742019",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742022",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:72",
+   "wecraOutline": "6291479:74"
   },
   "16.instance": {
    "id": "6291457:1073757180",
@@ -867,12 +1075,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741948",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742025",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742028",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742031",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:77",
+   "wecraOutline": "6291479:79"
   },
   "16.lock.locked": {
    "id": "6291457:1073757183",
@@ -889,12 +1113,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741954",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742034",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742037",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742040",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:81",
+   "wecraOutline": "6291479:83"
   },
   "16.lock.unlocked": {
    "id": "6291457:1073757186",
@@ -911,12 +1151,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741960",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742043",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742046",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742049",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:85",
+   "wecraOutline": "6291479:87"
   },
   "16.rectangle": {
    "id": "6291457:1073757189",
@@ -933,12 +1189,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741966",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742052",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742055",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742058",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:89",
+   "wecraOutline": "6291479:91"
   },
   "16.repeat": {
    "id": "6291457:1073757192",
@@ -955,12 +1227,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741972",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742061",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742064",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742067",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:93",
+   "wecraOutline": "6291479:95"
   },
   "16.section": {
    "id": "6291457:1073757195",
@@ -977,12 +1265,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741978",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742070",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742073",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742076",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:97",
+   "wecraOutline": "6291479:99"
   },
   "16.sparkle": {
    "id": "6291457:1073757198",
@@ -999,12 +1303,33 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741984",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742079",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742082",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742083",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742086",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:101",
+   "wecraOutline": "6291479:103"
   },
   "16.text": {
    "id": "6291457:1073757201",
@@ -1021,12 +1346,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741990",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742089",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742092",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742095",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:105",
+   "wecraOutline": "6291479:107"
   },
   "16.text-path": {
    "id": "6291457:1073757204",
@@ -1043,12 +1384,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073741996",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742098",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742101",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742104",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:109",
+   "wecraOutline": "6291479:111"
   },
   "16.vector": {
    "id": "6291457:1073757207",
@@ -1065,12 +1422,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742002",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742107",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742110",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742113",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:113",
+   "wecraOutline": "6291479:115"
   },
   "16.visible": {
    "id": "6291457:1073757210",
@@ -1087,12 +1460,33 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742008",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742116",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742117",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742120",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742123",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:117",
+   "wecraOutline": "6291479:119"
   },
   "24.actions": {
    "id": "6291457:1073757213",
@@ -1109,12 +1503,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742014",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742126",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742129",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742132",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:122",
+   "wecraOutline": "6291479:124"
   },
   "24.adjust.small": {
    "id": "6291457:1073757216",
@@ -1131,12 +1541,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742020",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742135",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742138",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742141",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:126",
+   "wecraOutline": "6291479:128"
   },
   "24.agents": {
    "id": "6291457:1073757219",
@@ -1153,12 +1579,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742026",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742144",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742147",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742150",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:130",
+   "wecraOutline": "6291479:132"
   },
   "24.al.spacing-horizontal": {
    "id": "6291457:1073757222",
@@ -1175,12 +1617,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742032",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742153",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742156",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742159",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:134",
+   "wecraOutline": "6291479:136"
   },
   "24.al.width-hug": {
    "id": "6291457:1073757225",
@@ -1197,12 +1655,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742038",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742162",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742165",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742168",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:138",
+   "wecraOutline": "6291479:140"
   },
   "24.al.width-min": {
    "id": "6291457:1073757228",
@@ -1219,12 +1693,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742044",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742171",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742174",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742177",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:142",
+   "wecraOutline": "6291479:144"
   },
   "24.arrow": {
    "id": "6291457:1073757231",
@@ -1241,12 +1731,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742050",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742180",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742183",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742186",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:146",
+   "wecraOutline": "6291479:148"
   },
   "24.arrow.left": {
    "id": "6291457:1073757234",
@@ -1263,12 +1769,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742056",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742189",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742192",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742195",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:150",
+   "wecraOutline": "6291479:152"
   },
   "24.arrow.right": {
    "id": "6291457:1073757237",
@@ -1285,12 +1807,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742062",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742198",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742201",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742204",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:154",
+   "wecraOutline": "6291479:156"
   },
   "24.assets": {
    "id": "6291457:1073757240",
@@ -1307,12 +1845,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742068",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742207",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742210",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742213",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:158",
+   "wecraOutline": "6291479:160"
   },
   "24.autolayout-add-vertical": {
    "id": "6291457:1073757243",
@@ -1329,12 +1883,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742074",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742216",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742219",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742222",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:162",
+   "wecraOutline": "6291479:164"
   },
   "24.autolayout-horizontal": {
    "id": "6291457:1073757246",
@@ -1351,12 +1921,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742080",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742225",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742228",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742231",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:166",
+   "wecraOutline": "6291479:168"
   },
   "24.autolayout-vertical": {
    "id": "6291457:1073757249",
@@ -1373,12 +1959,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742086",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742234",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742237",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742240",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:170",
+   "wecraOutline": "6291479:172"
   },
   "24.autolayout-wrap": {
    "id": "6291457:1073757252",
@@ -1395,12 +1997,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742092",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742243",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742246",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742249",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:174",
+   "wecraOutline": "6291479:176"
   },
   "24.blendmode.small": {
    "id": "6291457:1073757255",
@@ -1417,12 +2035,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742098",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742252",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742255",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742258",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:178",
+   "wecraOutline": "6291479:180"
   },
   "24.brush": {
    "id": "6291457:1073757258",
@@ -1439,12 +2073,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742104",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742261",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742264",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742267",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:182",
+   "wecraOutline": "6291479:184"
   },
   "24.check": {
    "id": "6291457:1073757302",
@@ -1461,12 +2111,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742110",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742270",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742273",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742276",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:186",
+   "wecraOutline": "6291479:188"
   },
   "24.close.small": {
    "id": "6291457:1073757305",
@@ -1483,12 +2149,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742116",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742279",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742282",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742285",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:190",
+   "wecraOutline": "6291479:192"
   },
   "24.collapse-layers.small": {
    "id": "6291457:1073757308",
@@ -1505,12 +2187,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742122",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742288",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742291",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742294",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:194",
+   "wecraOutline": "6291479:196"
   },
   "24.comment": {
    "id": "6291457:1073757311",
@@ -1527,12 +2225,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742128",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742297",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742300",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742303",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:198",
+   "wecraOutline": "6291479:200"
   },
   "24.component": {
    "id": "6291457:1073757314",
@@ -1549,12 +2263,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742134",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742306",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742309",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742312",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:202",
+   "wecraOutline": "6291479:204"
   },
   "24.component.small": {
    "id": "6291457:1073757317",
@@ -1571,12 +2301,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742140",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742315",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742318",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742321",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:206",
+   "wecraOutline": "6291479:208"
   },
   "24.constrain-proportions": {
    "id": "6291457:1073757320",
@@ -1593,12 +2339,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742146",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742324",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742327",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742330",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:210",
+   "wecraOutline": "6291479:212"
   },
   "24.constraints": {
    "id": "6291457:1073757323",
@@ -1615,12 +2377,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742152",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742333",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742336",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742339",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:214",
+   "wecraOutline": "6291479:216"
   },
   "24.copy.small": {
    "id": "6291457:1073757326",
@@ -1637,12 +2415,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742158",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742342",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742345",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742348",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:218",
+   "wecraOutline": "6291479:220"
   },
   "24.corners": {
    "id": "6291457:1073757329",
@@ -1659,12 +2453,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742164",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742351",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742354",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742357",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:222",
+   "wecraOutline": "6291479:224"
   },
   "24.corners.independent": {
    "id": "6291457:1073757332",
@@ -1680,13 +2490,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742171",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742360",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742363",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742366",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:28"
+   "set": "6291477:28",
+   "figmaOutline": "6291479:226",
+   "wecraOutline": "6291479:228"
   },
   "24.design": {
    "id": "6291457:1073757335",
@@ -1702,13 +2528,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742178",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742369",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742372",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742375",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:29"
+   "set": "6291477:29",
+   "figmaOutline": "6291479:230",
+   "wecraOutline": "6291479:232"
   },
   "24.dev-brackets": {
    "id": "6291457:1073757338",
@@ -1724,13 +2566,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742185",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742378",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742381",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742384",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:30"
+   "set": "6291477:30",
+   "figmaOutline": "6291479:234",
+   "wecraOutline": "6291479:236"
   },
   "24.draw": {
    "id": "6291457:1073757341",
@@ -1746,13 +2604,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742192",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742387",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742390",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742393",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:31"
+   "set": "6291477:31",
+   "figmaOutline": "6291479:238",
+   "wecraOutline": "6291479:240"
   },
   "24.ellipse": {
    "id": "6291457:1073757344",
@@ -1768,13 +2642,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742199",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742396",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742399",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742402",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:32"
+   "set": "6291477:32",
+   "figmaOutline": "6291479:242",
+   "wecraOutline": "6291479:244"
   },
   "24.erase": {
    "id": "6291457:1073757347",
@@ -1790,13 +2680,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742206",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742405",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742408",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742411",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:33"
+   "set": "6291477:33",
+   "figmaOutline": "6291479:246",
+   "wecraOutline": "6291479:248"
   },
   "24.expand": {
    "id": "6291457:1073757350",
@@ -1812,13 +2718,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742213",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742414",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742417",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742420",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:34"
+   "set": "6291477:34",
+   "figmaOutline": "6291479:250",
+   "wecraOutline": "6291479:252"
   },
   "24.external": {
    "id": "6291457:1073757353",
@@ -1834,13 +2756,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742220",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742423",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742426",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742429",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:35"
+   "set": "6291477:35",
+   "figmaOutline": "6291479:254",
+   "wecraOutline": "6291479:256"
   },
   "24.eye.small": {
    "id": "6291457:1073757356",
@@ -1856,13 +2794,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742227",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742432",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742435",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742438",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:36"
+   "set": "6291477:36",
+   "figmaOutline": "6291479:258",
+   "wecraOutline": "6291479:260"
   },
   "24.eyedropper.small": {
    "id": "6291457:1073757359",
@@ -1878,13 +2832,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742234",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742441",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742444",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742447",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:37"
+   "set": "6291477:37",
+   "figmaOutline": "6291479:262",
+   "wecraOutline": "6291479:264"
   },
   "24.figma": {
    "id": "6291457:1073757362",
@@ -1900,13 +2870,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742241",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742450",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742453",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742456",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:38"
+   "set": "6291477:38",
+   "figmaOutline": "6291479:266",
+   "wecraOutline": "6291479:268"
   },
   "24.file": {
    "id": "6291457:1073757365",
@@ -1922,13 +2908,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742248",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742459",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742462",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742465",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:39"
+   "set": "6291477:39",
+   "figmaOutline": "6291479:270",
+   "wecraOutline": "6291479:272"
   },
   "24.fill.image.small": {
    "id": "6291457:1073757368",
@@ -1944,13 +2946,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742255",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742468",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742471",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742474",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:40"
+   "set": "6291477:40",
+   "figmaOutline": "6291479:274",
+   "wecraOutline": "6291479:276"
   },
   "24.fill.pattern.small": {
    "id": "6291457:1073757371",
@@ -1966,13 +2984,34 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742262",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742477",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742478",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742481",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742484",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:41"
+   "set": "6291477:41",
+   "figmaOutline": "6291479:278",
+   "wecraOutline": "6291479:280"
   },
   "24.fill.solid.small": {
    "id": "6291457:1073757374",
@@ -1988,13 +3027,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742269",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742487",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742490",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742493",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:42"
+   "set": "6291477:42",
+   "figmaOutline": "6291479:283",
+   "wecraOutline": "6291479:285"
   },
   "24.filter": {
    "id": "6291457:1073757377",
@@ -2010,13 +3065,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742276",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742496",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742499",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742502",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:43"
+   "set": "6291477:43",
+   "figmaOutline": "6291479:287",
+   "wecraOutline": "6291479:289"
   },
   "24.flip.horizontal.small": {
    "id": "6291457:1073757380",
@@ -2032,13 +3103,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742283",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742505",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742508",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742511",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:44"
+   "set": "6291477:44",
+   "figmaOutline": "6291479:291",
+   "wecraOutline": "6291479:293"
   },
   "24.flip.vertical": {
    "id": "6291457:1073757383",
@@ -2054,13 +3141,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742290",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742514",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742517",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742520",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:45"
+   "set": "6291477:45",
+   "figmaOutline": "6291479:295",
+   "wecraOutline": "6291479:297"
   },
   "24.folder": {
    "id": "6291457:1073757386",
@@ -2076,13 +3179,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742297",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742523",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742526",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742529",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:46"
+   "set": "6291477:46",
+   "figmaOutline": "6291479:299",
+   "wecraOutline": "6291479:301"
   },
   "24.frame": {
    "id": "6291457:1073757389",
@@ -2098,13 +3217,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742304",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742532",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742535",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742538",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:47"
+   "set": "6291477:47",
+   "figmaOutline": "6291479:303",
+   "wecraOutline": "6291479:305"
   },
   "24.globe": {
    "id": "6291457:1073757392",
@@ -2120,13 +3255,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742311",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742541",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742544",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742547",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:48"
+   "set": "6291477:48",
+   "figmaOutline": "6291479:307",
+   "wecraOutline": "6291479:309"
   },
   "24.gradient.linear.small": {
    "id": "6291457:1073757395",
@@ -2148,19 +3299,44 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742319",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742550",
+      "name": "Stroke",
+      "stroke": true
      },
      {
-      "id": "6291477:1073742320",
-      "stroke": true,
-      "fill": true,
-      "toneOpacity": 0.333
+      "id": "6291479:1073742551",
+      "name": "Fill 2",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742554",
+      "name": "Stroke 2",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742555",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742558",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742559",
+      "name": "Stroke 2",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:49"
+   "set": "6291477:49",
+   "figmaOutline": "6291479:22",
+   "wecraOutline": "6291479:25"
   },
   "24.help": {
    "id": "6291457:1073757398",
@@ -2176,13 +3352,39 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742327",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742562",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742563",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742566",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742569",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742570",
+      "name": "Fill",
+      "stroke": false
      }
     ]
    },
-   "set": "6291477:50"
+   "set": "6291477:50",
+   "figmaOutline": "6291479:311",
+   "wecraOutline": "6291479:313"
   },
   "24.home": {
    "id": "6291457:1073757401",
@@ -2198,13 +3400,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742334",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742573",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742576",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742579",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:51"
+   "set": "6291477:51",
+   "figmaOutline": "6291479:316",
+   "wecraOutline": "6291479:318"
   },
   "24.image": {
    "id": "6291457:1073757404",
@@ -2220,13 +3438,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742341",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742582",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742585",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742588",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:52"
+   "set": "6291477:52",
+   "figmaOutline": "6291479:320",
+   "wecraOutline": "6291479:322"
   },
   "24.info": {
    "id": "6291457:1073757407",
@@ -2242,13 +3476,39 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742348",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742591",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742592",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742595",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742598",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742599",
+      "name": "Fill",
+      "stroke": false
      }
     ]
    },
-   "set": "6291477:53"
+   "set": "6291477:53",
+   "figmaOutline": "6291479:324",
+   "wecraOutline": "6291479:326"
   },
   "24.layer.blur.small": {
    "id": "6291457:1073757410",
@@ -2264,13 +3524,34 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742355",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742602",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742605",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742608",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742609",
+      "name": "Fill",
+      "stroke": false
      }
     ]
    },
-   "set": "6291477:54"
+   "set": "6291477:54",
+   "figmaOutline": "6291479:329",
+   "wecraOutline": "6291479:331"
   },
   "24.layout-align-bottom": {
    "id": "6291457:1073757413",
@@ -2292,19 +3573,44 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742363",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742612",
+      "name": "Stroke 2",
+      "stroke": true
      },
      {
-      "id": "6291477:1073742364",
-      "stroke": true,
-      "fill": true,
-      "toneOpacity": 0.333
+      "id": "6291479:1073742613",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742616",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742617",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742620",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742621",
+      "name": "Stroke 2",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:55"
+   "set": "6291477:55",
+   "figmaOutline": "6291479:333",
+   "wecraOutline": "6291479:336"
   },
   "24.layout-align-horizontal-center": {
    "id": "6291457:1073757416",
@@ -2326,19 +3632,44 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742372",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742624",
+      "name": "Stroke 2",
+      "stroke": true
      },
      {
-      "id": "6291477:1073742373",
-      "stroke": true,
-      "fill": true,
-      "toneOpacity": 0.333
+      "id": "6291479:1073742625",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742628",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742629",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742632",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742633",
+      "name": "Stroke 2",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:56"
+   "set": "6291477:56",
+   "figmaOutline": "6291479:339",
+   "wecraOutline": "6291479:342"
   },
   "24.layout-align-left": {
    "id": "6291457:1073757419",
@@ -2360,19 +3691,44 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742381",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742636",
+      "name": "Stroke 2",
+      "stroke": true
      },
      {
-      "id": "6291477:1073742382",
-      "stroke": true,
-      "fill": true,
-      "toneOpacity": 0.333
+      "id": "6291479:1073742637",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742640",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742641",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742644",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742645",
+      "name": "Stroke 2",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:57"
+   "set": "6291477:57",
+   "figmaOutline": "6291479:345",
+   "wecraOutline": "6291479:348"
   },
   "24.layout-align-right": {
    "id": "6291457:1073757462",
@@ -2394,19 +3750,44 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742390",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742648",
+      "name": "Stroke 2",
+      "stroke": true
      },
      {
-      "id": "6291477:1073742391",
-      "stroke": true,
-      "fill": true,
-      "toneOpacity": 0.333
+      "id": "6291479:1073742649",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742652",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742653",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742656",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742657",
+      "name": "Stroke 2",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:58"
+   "set": "6291477:58",
+   "figmaOutline": "6291479:351",
+   "wecraOutline": "6291479:354"
   },
   "24.layout-align-top": {
    "id": "6291457:1073757465",
@@ -2428,19 +3809,44 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742399",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742660",
+      "name": "Stroke 2",
+      "stroke": true
      },
      {
-      "id": "6291477:1073742400",
-      "stroke": true,
-      "fill": true,
-      "toneOpacity": 0.333
+      "id": "6291479:1073742661",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742664",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742665",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742668",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742669",
+      "name": "Stroke 2",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:59"
+   "set": "6291477:59",
+   "figmaOutline": "6291479:12",
+   "wecraOutline": "6291479:15"
   },
   "24.layout-align-vertical-center": {
    "id": "6291457:1073757468",
@@ -2462,19 +3868,44 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742408",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742672",
+      "name": "Stroke 2",
+      "stroke": true
      },
      {
-      "id": "6291477:1073742409",
-      "stroke": true,
-      "fill": true,
-      "toneOpacity": 0.333
+      "id": "6291479:1073742673",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742676",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742677",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742680",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742681",
+      "name": "Stroke 2",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:60"
+   "set": "6291477:60",
+   "figmaOutline": "6291479:357",
+   "wecraOutline": "6291479:360"
   },
   "24.layout.freeform": {
    "id": "6291457:1073757471",
@@ -2490,13 +3921,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742416",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742684",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742687",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742690",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:61"
+   "set": "6291477:61",
+   "figmaOutline": "6291479:363",
+   "wecraOutline": "6291479:365"
   },
   "24.layout.grid": {
    "id": "6291457:1073757474",
@@ -2512,13 +3959,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742423",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742693",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742696",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742699",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:62"
+   "set": "6291477:62",
+   "figmaOutline": "6291479:367",
+   "wecraOutline": "6291479:369"
   },
   "24.layout.horizontal": {
    "id": "6291457:1073757477",
@@ -2534,13 +3997,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742430",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742702",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742705",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742708",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:63"
+   "set": "6291477:63",
+   "figmaOutline": "6291479:371",
+   "wecraOutline": "6291479:373"
   },
   "24.layout.vertical": {
    "id": "6291457:1073757480",
@@ -2556,13 +4035,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742437",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742711",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742714",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742717",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:64"
+   "set": "6291477:64",
+   "figmaOutline": "6291479:375",
+   "wecraOutline": "6291479:377"
   },
   "24.library": {
    "id": "6291457:1073757483",
@@ -2578,13 +4073,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742444",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742720",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742723",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742726",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:65"
+   "set": "6291477:65",
+   "figmaOutline": "6291479:379",
+   "wecraOutline": "6291479:381"
   },
   "24.line": {
    "id": "6291457:1073757486",
@@ -2600,13 +4111,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742451",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742729",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742732",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742735",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:66"
+   "set": "6291477:66",
+   "figmaOutline": "6291479:383",
+   "wecraOutline": "6291479:385"
   },
   "24.mask": {
    "id": "6291457:1073757489",
@@ -2622,13 +4149,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742458",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742738",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742741",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742744",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:67"
+   "set": "6291477:67",
+   "figmaOutline": "6291479:387",
+   "wecraOutline": "6291479:389"
   },
   "24.minimize": {
    "id": "6291457:1073757492",
@@ -2644,13 +4187,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742465",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742747",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742750",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742753",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:68"
+   "set": "6291477:68",
+   "figmaOutline": "6291479:391",
+   "wecraOutline": "6291479:393"
   },
   "24.minus.small": {
    "id": "6291457:1073757495",
@@ -2666,13 +4225,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742472",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742756",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742759",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742762",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:69"
+   "set": "6291477:69",
+   "figmaOutline": "6291479:395",
+   "wecraOutline": "6291479:397"
   },
   "24.more": {
    "id": "6291457:1073757498",
@@ -2688,13 +4263,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742479",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742765",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742768",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742771",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:70"
+   "set": "6291477:70",
+   "figmaOutline": "6291479:399",
+   "wecraOutline": "6291479:401"
   },
   "24.motion": {
    "id": "6291457:1073757501",
@@ -2710,13 +4301,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742486",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742774",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742777",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742780",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:71"
+   "set": "6291477:71",
+   "figmaOutline": "6291479:403",
+   "wecraOutline": "6291479:405"
   },
   "24.move": {
    "id": "6291457:1073757504",
@@ -2732,13 +4339,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742493",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742783",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742786",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742789",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:72"
+   "set": "6291477:72",
+   "figmaOutline": "6291479:407",
+   "wecraOutline": "6291479:409"
   },
   "24.opacity": {
    "id": "6291457:1073757507",
@@ -2754,13 +4377,39 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742500",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742792",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742793",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742796",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742799",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742800",
+      "name": "Fill",
+      "stroke": false
      }
     ]
    },
-   "set": "6291477:73"
+   "set": "6291477:73",
+   "figmaOutline": "6291479:411",
+   "wecraOutline": "6291479:413"
   },
   "24.overflow.clip.small": {
    "id": "6291457:1073757510",
@@ -2782,19 +4431,44 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742508",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742803",
+      "name": "Stroke",
+      "stroke": true
      },
      {
-      "id": "6291477:1073742509",
-      "stroke": true,
-      "fill": true,
-      "toneOpacity": 0.333
+      "id": "6291479:1073742804",
+      "name": "Stroke 2",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742807",
+      "name": "Fill",
+      "stroke": false
+     },
+     {
+      "id": "6291479:1073742808",
+      "name": "Fill 2",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742811",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742812",
+      "name": "Stroke 2",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:74"
+   "set": "6291477:74",
+   "figmaOutline": "6291479:416",
+   "wecraOutline": "6291479:419"
   },
   "24.page": {
    "id": "6291457:1073757513",
@@ -2810,13 +4484,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742516",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742815",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742818",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742821",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:75"
+   "set": "6291477:75",
+   "figmaOutline": "6291479:422",
+   "wecraOutline": "6291479:424"
   },
   "24.pen": {
    "id": "6291457:1073757516",
@@ -2832,13 +4522,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742523",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742824",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742827",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742830",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:76"
+   "set": "6291477:76",
+   "figmaOutline": "6291479:426",
+   "wecraOutline": "6291479:428"
   },
   "24.pencil": {
    "id": "6291457:1073757519",
@@ -2854,13 +4560,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742530",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742833",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742836",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742839",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:77"
+   "set": "6291477:77",
+   "figmaOutline": "6291479:430",
+   "wecraOutline": "6291479:432"
   },
   "24.play": {
    "id": "6291457:1073757522",
@@ -2876,13 +4598,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742537",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742842",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742845",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742848",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:78"
+   "set": "6291477:78",
+   "figmaOutline": "6291479:434",
+   "wecraOutline": "6291479:436"
   },
   "24.plus": {
    "id": "6291457:1073757525",
@@ -2898,13 +4636,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742544",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742851",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742854",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742857",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:79"
+   "set": "6291477:79",
+   "figmaOutline": "6291479:438",
+   "wecraOutline": "6291479:440"
   },
   "24.plus.small": {
    "id": "6291457:1073757528",
@@ -2921,12 +4675,28 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742550",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742860",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742863",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742866",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
-   }
+   },
+   "figmaOutline": "6291479:442",
+   "wecraOutline": "6291479:444"
   },
   "24.polygon": {
    "id": "6291457:1073757531",
@@ -2942,13 +4712,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742557",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742869",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742872",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742875",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:80"
+   "set": "6291477:80",
+   "figmaOutline": "6291479:446",
+   "wecraOutline": "6291479:448"
   },
   "24.public.small": {
    "id": "6291457:1073757534",
@@ -2964,13 +4750,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742564",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742878",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742881",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742884",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:81"
+   "set": "6291477:81",
+   "figmaOutline": "6291479:450",
+   "wecraOutline": "6291479:452"
   },
   "24.recent": {
    "id": "6291457:1073757537",
@@ -2986,13 +4788,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742571",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742887",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742890",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742893",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:82"
+   "set": "6291477:82",
+   "figmaOutline": "6291479:454",
+   "wecraOutline": "6291479:456"
   },
   "24.rectangle": {
    "id": "6291457:1073757540",
@@ -3008,13 +4826,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742578",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742896",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742899",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742902",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:83"
+   "set": "6291477:83",
+   "figmaOutline": "6291479:458",
+   "wecraOutline": "6291479:460"
   },
   "24.resize-to-fit.small": {
    "id": "6291457:1073757543",
@@ -3030,13 +4864,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742585",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742905",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742908",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742911",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:84"
+   "set": "6291477:84",
+   "figmaOutline": "6291479:462",
+   "wecraOutline": "6291479:464"
   },
   "24.rotate": {
    "id": "6291457:1073757546",
@@ -3052,13 +4902,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742592",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742914",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742917",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742920",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:85"
+   "set": "6291477:85",
+   "figmaOutline": "6291479:466",
+   "wecraOutline": "6291479:468"
   },
   "24.rotation": {
    "id": "6291457:1073757549",
@@ -3074,13 +4940,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742599",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742923",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742926",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742929",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:86"
+   "set": "6291477:86",
+   "figmaOutline": "6291479:470",
+   "wecraOutline": "6291479:472"
   },
   "24.search": {
    "id": "6291457:1073757552",
@@ -3096,13 +4978,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742606",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742932",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742935",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742938",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:87"
+   "set": "6291477:87",
+   "figmaOutline": "6291479:474",
+   "wecraOutline": "6291479:476"
   },
   "24.search.small": {
    "id": "6291457:1073757555",
@@ -3118,13 +5016,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742613",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742941",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742944",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742947",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:88"
+   "set": "6291477:88",
+   "figmaOutline": "6291479:478",
+   "wecraOutline": "6291479:480"
   },
   "24.select-matching.small": {
    "id": "6291457:1073757558",
@@ -3140,13 +5054,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742620",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742950",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742953",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742956",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:89"
+   "set": "6291477:89",
+   "figmaOutline": "6291479:482",
+   "wecraOutline": "6291479:484"
   },
   "24.settings.small": {
    "id": "6291457:1073757561",
@@ -3162,13 +5092,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742627",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742959",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742962",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742965",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:90"
+   "set": "6291477:90",
+   "figmaOutline": "6291479:486",
+   "wecraOutline": "6291479:488"
   },
   "24.sidebar.closed": {
    "id": "6291457:1073757564",
@@ -3184,13 +5130,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742634",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742968",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742971",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742974",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:91"
+   "set": "6291477:91",
+   "figmaOutline": "6291479:490",
+   "wecraOutline": "6291479:492"
   },
   "24.sliders": {
    "id": "6291457:1073757567",
@@ -3206,13 +5168,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742641",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073742977",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742980",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742983",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:92"
+   "set": "6291477:92",
+   "figmaOutline": "6291479:494",
+   "wecraOutline": "6291479:496"
   },
   "24.spread.small": {
    "id": "6291457:1073757570",
@@ -3228,13 +5206,34 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742648",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742986",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073742987",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073742990",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073742993",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:93"
+   "set": "6291477:93",
+   "figmaOutline": "6291479:498",
+   "wecraOutline": "6291479:500"
   },
   "24.star": {
    "id": "6291457:1073757573",
@@ -3255,18 +5254,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742656",
-      "stroke": true,
-      "fill": false
-     },
+      "id": "6291479:1073742996",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
      {
-      "id": "6291477:1073742657",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073742999",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073743002",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:94"
+   "set": "6291477:94",
+   "figmaOutline": "6291479:2",
+   "wecraOutline": "6291479:5"
   },
   "24.star.outline": {
    "id": "6291457:1073757576",
@@ -3282,13 +5292,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742664",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073743005",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073743008",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073743011",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:95"
+   "set": "6291477:95",
+   "figmaOutline": "6291479:503",
+   "wecraOutline": "6291479:505"
   },
   "24.stroke-weight": {
    "id": "6291457:1073757579",
@@ -3304,13 +5330,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742671",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073743014",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073743017",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073743020",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:96"
+   "set": "6291477:96",
+   "figmaOutline": "6291479:507",
+   "wecraOutline": "6291479:509"
   },
   "24.strokes.individual": {
    "id": "6291457:1073757597",
@@ -3326,13 +5368,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742678",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073743023",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073743026",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073743029",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:97"
+   "set": "6291477:97",
+   "figmaOutline": "6291479:511",
+   "wecraOutline": "6291479:513"
   },
   "24.styles": {
    "id": "6291457:1073757600",
@@ -3348,13 +5406,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742685",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073743032",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073743035",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073743038",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:98"
+   "set": "6291477:98",
+   "figmaOutline": "6291479:515",
+   "wecraOutline": "6291479:517"
   },
   "24.text": {
    "id": "6291457:1073757603",
@@ -3370,13 +5444,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742692",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073743041",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073743044",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073743047",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:99"
+   "set": "6291477:99",
+   "figmaOutline": "6291479:18",
+   "wecraOutline": "6291479:20"
   },
   "24.text.align-center": {
    "id": "6291457:1073757606",
@@ -3392,13 +5482,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742699",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073743050",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073743053",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073743056",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:100"
+   "set": "6291477:100",
+   "figmaOutline": "6291479:519",
+   "wecraOutline": "6291479:521"
   },
   "24.text.align-left": {
    "id": "6291457:1073757609",
@@ -3414,13 +5520,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742706",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073743059",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073743062",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073743065",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:101"
+   "set": "6291477:101",
+   "figmaOutline": "6291479:523",
+   "wecraOutline": "6291479:525"
   },
   "24.text.align-right": {
    "id": "6291457:1073757612",
@@ -3436,13 +5558,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742713",
-      "stroke": true,
-      "fill": true
+      "id": "6291479:1073743068",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073743071",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073743074",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:102"
+   "set": "6291477:102",
+   "figmaOutline": "6291479:527",
+   "wecraOutline": "6291479:529"
   },
   "24.text.code": {
    "id": "6291457:1073757615",
@@ -3458,13 +5596,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742720",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073743077",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073743080",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073743083",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:103"
+   "set": "6291477:103",
+   "figmaOutline": "6291479:531",
+   "wecraOutline": "6291479:533"
   },
   "24.tools": {
    "id": "6291457:1073757618",
@@ -3480,13 +5634,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742727",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073743086",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073743089",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073743092",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:104"
+   "set": "6291477:104",
+   "figmaOutline": "6291479:535",
+   "wecraOutline": "6291479:537"
   },
   "24.trash.outline": {
    "id": "6291457:1073757621",
@@ -3502,13 +5672,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742734",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073743095",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073743098",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073743101",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:105"
+   "set": "6291477:105",
+   "figmaOutline": "6291479:539",
+   "wecraOutline": "6291479:541"
   },
   "24.variables": {
    "id": "6291457:1073757624",
@@ -3524,13 +5710,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742741",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073743104",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073743107",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073743110",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:106"
+   "set": "6291477:106",
+   "figmaOutline": "6291479:543",
+   "wecraOutline": "6291479:545"
   },
   "24.video": {
    "id": "6291457:1073757627",
@@ -3546,13 +5748,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742748",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073743113",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073743116",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073743119",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:107"
+   "set": "6291477:107",
+   "figmaOutline": "6291479:547",
+   "wecraOutline": "6291479:549"
   },
   "24.view.grid": {
    "id": "6291457:1073757630",
@@ -3568,13 +5786,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742755",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073743122",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073743125",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073743128",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:108"
+   "set": "6291477:108",
+   "figmaOutline": "6291479:551",
+   "wecraOutline": "6291479:553"
   },
   "24.view.list": {
    "id": "6291457:1073757633",
@@ -3590,13 +5824,39 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742762",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073743131",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073743132",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073743135",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073743138",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073743139",
+      "name": "Fill",
+      "stroke": false
      }
     ]
    },
-   "set": "6291477:109"
+   "set": "6291477:109",
+   "figmaOutline": "6291479:555",
+   "wecraOutline": "6291479:557"
   },
   "24.warning": {
    "id": "6291457:1073757636",
@@ -3612,13 +5872,39 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742769",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073743142",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073743143",
+      "name": "Fill",
+      "stroke": false
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073743146",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073743149",
+      "name": "Stroke",
+      "stroke": true
+     },
+     {
+      "id": "6291479:1073743150",
+      "name": "Fill",
+      "stroke": false
      }
     ]
    },
-   "set": "6291477:110"
+   "set": "6291477:110",
+   "figmaOutline": "6291479:560",
+   "wecraOutline": "6291479:562"
   },
   "24.window.layout": {
    "id": "6291457:1073757639",
@@ -3634,13 +5920,29 @@
     ],
     "wecra": [
      {
-      "id": "6291477:1073742776",
-      "stroke": true,
-      "fill": false
+      "id": "6291479:1073743153",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "figmaOutline": [
+     {
+      "id": "6291479:1073743156",
+      "name": "Stroke",
+      "stroke": true
+     }
+    ],
+    "wecraOutline": [
+     {
+      "id": "6291479:1073743159",
+      "name": "Stroke",
+      "stroke": true
      }
     ]
    },
-   "set": "6291477:111"
+   "set": "6291477:111",
+   "figmaOutline": "6291479:565",
+   "wecraOutline": "6291479:567"
   }
  },
  "components": {

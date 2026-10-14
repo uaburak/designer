@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // The chrome's icons as vectors, in two sets:
 //   Figma — each ds icon exactly as Icon.tsx draws it (src/renderer/src/ds/icons/registry.ts);
-//   Wecra — our own drawing of the same icon: a consistent 1.4 px weight (stroke icons drawn at 1.4, filled
-//           outlines given a 0.4 round-joined edge), round ends and joins everywhere, the glyph 8 % tighter
-//           around the icon's centre. Same meaning, not Figma's artwork.
+//   Wecra — drawn independently from each icon's meaning in tools/ui-kit/icons-wecra/ (our own primitives and
+//           coordinates; see icons-wecra/apply.mjs, which also adds the Style=Outline variants). This file only
+//           makes the Figma set; its earlier "wecra" style (a transform of the kit's paths) is gone.
 //
-//   node tools/ui-kit/icons.mjs generate        → tools/ui-kit/icons/{figma,wecra}/<name>.svg (every icon)
+//   node tools/ui-kit/icons.mjs generate        → tools/ui-kit/icons/figma/<name>.svg (every icon)
 //   node tools/ui-kit/icons.mjs apply [names…]  → in "Wecra UI": each icon component becomes a set "Icon / <name>"
 //        with Set=Figma | Set=Wecra, each variant one stroke vector and / or one fill vector (a second fill only for
 //        a two-tone icon), coloured directly and bound to icon/icon — no mask, no colour layer.
@@ -29,6 +29,7 @@ const TIGHTEN = 0.92;
 
 /** One icon as SVG: `style` "figma" (1:1) or "wecra"; `bounds` adds a transparent box rect (for pasting at 0,0). */
 export function iconSvg(name, style = "figma", { bounds = false } = {}) {
+  if (style !== "figma") throw new Error("the Wecra set is drawn in tools/ui-kit/icons-wecra");
   const [box, mode, ...paths] = ICONS[name];
   const w = style === "wecra";
   const els = [];
@@ -64,6 +65,7 @@ export function iconSvg(name, style = "figma", { bounds = false } = {}) {
 
 /** The light drawing: the stroke paths as one path, the fill paths as one per tone; `bounds` as iconSvg. */
 export function lightSvg(name, style = "figma", { bounds = false } = {}) {
+  if (style !== "figma") throw new Error("the Wecra set is drawn in tools/ui-kit/icons-wecra");
   const [box, mode, ...paths] = ICONS[name];
   const w = style === "wecra";
   let view = `0 0 ${box} ${box}`;
@@ -106,7 +108,7 @@ const LIGHT = new Set(["Stroke", "Fill", "Fill 2"]);
 
 const cmd = process.argv[2];
 if (cmd === "generate") {
-  for (const style of ["figma", "wecra"]) {
+  for (const style of ["figma"]) {
     const dir = join(HERE, "icons", style);
     mkdirSync(dir, { recursive: true });
     for (const name of Object.keys(ICONS)) writeFileSync(join(dir, `${name}.svg`), iconSvg(name, style));
@@ -204,7 +206,7 @@ async function apply(names) {
         await mcp.call("run_command", { engineCommand: "CREATE_COMPONENT", nodeIds: [ic.wecra] });
         save();
       }
-      const wv = await makeLight(ic.wecra, name, "wecra");
+      const wv = null; // Set=Wecra's drawing: icons-wecra/apply.mjs
       ic.vectors = { figma: fv ?? ic.vectors?.figma, wecra: wv ?? ic.vectors?.wecra };
       delete ic.color;
       delete ic.colorWecra;
