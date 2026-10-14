@@ -1,4 +1,4 @@
-// The site's theme (docs/site.md §2.1): light on the first visit, the header's toggle switches to dark and back, and
+// The site's theme (docs/site.md §2.1): light on the first visit, the dock's toggle switches to dark and back, and
 // the choice is kept in localStorage. It is `<html data-theme>`, which the app's tokens (ds/tokens.css) follow, so the
 // scenes' chrome switches with the page; scenes with an engine canvas listen for THEME_EVENT.
 
@@ -38,7 +38,7 @@ export function onSiteTheme(listener: (theme: SiteTheme) => void): () => void {
   return () => window.removeEventListener(THEME_EVENT, handler);
 }
 
-/** The header's button: its pressed state follows the theme. */
+/** The dock's button: its pressed state follows the theme. */
 export function initThemeToggle(): void {
   const button = document.querySelector<HTMLButtonElement>("[data-theme-toggle]");
   if (!button) return;

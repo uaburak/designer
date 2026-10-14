@@ -140,3 +140,9 @@
   letter-spacing: 0.005em;
   white-space: nowrap;
 }
+
+/* The colour picker, open beside the Design panel while Burak sets the card's fill (the app's own, drawn in place) */
+.picker { position: absolute; z-index: 5; }
+.more { display: grid; height: 24px; margin: 0 4px 0 -2px; padding: 0 5px; border-radius: 12px; background: var(--figma-color-bg-secondary); color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); place-items: center; }
+.gradSwatch { display: block; width: 100%; height: 100%; border-radius: 2px; background: linear-gradient(90deg, #ffd1e6, #c9d4ff 60%, #ffe1b0); }
+.fxType { display: block; flex: 1; }

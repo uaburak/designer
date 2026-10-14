@@ -1,4 +1,4 @@
-// What every page runs: the app's design system stylesheet (Inter, the tokens), the site's own, the header (with the
+// What every page runs: the app's design system stylesheet (Inter, the tokens), the site's own, the dock (with the
 // theme toggle), the text's reveal and the Download blocks. Pages with scenes mount them on top (scenes/runtime/mount.tsx).
 import "@/ds/global.css";
 import "../styles/site.css";
@@ -9,14 +9,24 @@ import { detectPlatform, formatDate, formatSize, loadReleases, offerFor, type Of
 
 const NAME: Record<Platform, string> = { mac: "macOS", windows: "Windows" };
 
-export function initHeader(): void {
-  // Close the phone menu after a choice or a click outside.
-  const menu = document.querySelector<HTMLDetailsElement>(".menu");
+/** The dock (every page's navigation): its phone menu closes after a choice or a click outside, and the dock steps
+ *  aside while the download band or the footer is in view. */
+export function initDock(): void {
+  const menu = document.querySelector<HTMLDetailsElement>(".dock-menu");
   if (menu) {
     document.addEventListener("click", (e) => {
       if (menu.open && !menu.contains(e.target as Node)) menu.open = false;
     });
   }
+  const dock = document.querySelector<HTMLElement>("[data-dock]");
+  const ends = [...document.querySelectorAll<HTMLElement>(".band, .site-footer")];
+  if (!dock || !ends.length || typeof IntersectionObserver !== "function") return;
+  const near = new Set<Element>();
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) e.isIntersecting ? near.add(e.target) : near.delete(e.target);
+    dock.toggleAttribute("data-away", near.size > 0);
+  });
+  for (const el of ends) io.observe(el);
 }
 
 export function offerLine(o: Offer): string {
@@ -160,7 +170,7 @@ export function initCursor(): void {
 export function initPage(): void {
   installMotionTokens();
   initCursor();
-  initHeader();
+  initDock();
   initReveal();
   initThemeToggle();
   void initDownloads();

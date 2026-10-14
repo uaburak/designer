@@ -43,7 +43,6 @@
   --site-gutter: 40px;
   --site-col-gap: 24px;
   --site-section: 80px;
-  --site-header: 72px;
   --site-tile-radius: 24px;
   --site-piece-radius: 12px;
   --site-piece-line: rgba(0, 0, 0, 0.08);
@@ -64,7 +63,6 @@
     --site-gutter: 16px;
     --site-col-gap: 16px;
     --site-section: 48px;
-    --site-header: 60px;
     --site-tile-radius: 16px;
   }
 }
@@ -88,7 +86,6 @@ input:not([type="checkbox"], [type="radio"], [type="button"]), textarea { cursor
 html {
   background: var(--site-bg);
   -webkit-text-size-adjust: 100%;
-  scroll-padding-top: var(--site-header);
 }
 body {
   min-height: 100svh;
@@ -212,44 +209,45 @@ p { margin: 0; text-wrap: pretty; }
 .btn[aria-disabled="true"] { opacity: 0.4; pointer-events: none; }
 .btn svg { flex: none; }
 
-/* ── Header ───────────────────────────────────────────────────────────────────────────────────────────────────── */
+/* The logo and name (the footer's) */
+.brand { display: inline-flex; align-items: center; gap: 10px; font-size: 18px; letter-spacing: -0.3px; text-decoration: none; }
+.brand img { width: 26px; height: 26px; }
 
-.site-header {
-  position: sticky;
-  top: 0;
+/* ── The dock: the site's navigation, at the bottom centre of every page (on / the editor's toolbar becomes it) ── */
+
+.dock {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
   z-index: 50;
-  height: var(--site-header);
-  background: var(--site-bg);
-}
-.header-inner {
   display: flex;
   align-items: center;
-  gap: 24px;
-  height: 100%;
+  gap: 2px;
+  box-sizing: border-box;
+  max-width: calc(100vw - 24px);
+  height: 48px;
+  padding: 0 6px 0 8px;
+  border: 1px solid var(--site-faint);
+  border-radius: 14px;
+  background: var(--site-bg);
+  font-size: 14px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  transition: opacity 240ms var(--site-ease), translate 320ms var(--site-ease);
 }
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 18px;
-  letter-spacing: -0.3px;
-  text-decoration: none;
-}
-.brand img { width: 26px; height: 26px; }
-.nav { display: flex; gap: 4px; margin-left: 16px; }
-.nav a {
-  padding: 8px;
-  font-size: 16px;
-  text-decoration: none;
-  transition: opacity 160ms ease;
-}
-.nav a:hover { opacity: 0.6; }
-.nav a[aria-current="page"] { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 6px; }
-.header-end { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.dock a:not(.btn) { border-radius: 8px; text-decoration: none; }
+.dock-brand { display: inline-flex; align-items: center; gap: 8px; padding: 6px 8px; font-size: 15px; letter-spacing: -0.2px; }
+.dock-brand img { width: 22px; height: 22px; }
+.dock-sep { width: 1px; height: 20px; margin: 0 4px; background: var(--site-faint); }
+.dock-link { padding: 6px 10px; }
+.dock a:not(.btn):hover { background: var(--site-faint); }
+.dock a:not(.btn)[aria-current="page"] { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 5px; }
+.dock .dock-download { height: 36px; margin-left: 4px; padding: 0 14px; font-size: 14px; }
+.dock[data-away] { opacity: 0; translate: 0 12px; pointer-events: none; }
 .theme-toggle {
   display: grid;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   border: 0;
   border-radius: 8px;
@@ -261,37 +259,26 @@ p { margin: 0; text-wrap: pretty; }
 .theme-toggle:hover { background: var(--site-faint); }
 .theme-toggle .i-sun, [data-theme="dark"] .theme-toggle .i-moon { display: none; }
 [data-theme="dark"] .theme-toggle .i-sun { display: block; }
-
-.menu { display: none; position: relative; }
-.menu summary {
+/* The menu: only on phones, opening above the dock */
+.dock-menu { display: none; position: relative; }
+.dock-menu summary { display: grid; width: 36px; height: 36px; border-radius: 8px; list-style: none; cursor: pointer; place-items: center; }
+.dock-menu summary::-webkit-details-marker { display: none; }
+.dock-menu-panel {
+  position: absolute;
+  bottom: calc(100% + 14px);
+  left: -60px;
   display: grid;
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  list-style: none;
-  cursor: pointer;
-  place-items: center;
-}
-.menu summary::-webkit-details-marker { display: none; }
-.menu-panel {
-  position: fixed;
-  top: var(--site-header);
-  right: 0;
-  left: 0;
-  display: grid;
-  padding: 8px var(--site-gutter) 24px;
+  min-width: 200px;
+  padding: 8px;
+  border: 1px solid var(--site-faint);
+  border-radius: 14px;
   background: var(--site-bg);
 }
-.menu-panel a {
-  padding: 12px 0;
-  font-size: 30px;
-  letter-spacing: -0.66px;
-  line-height: 1.2;
-  text-decoration: none;
-}
-@media (max-width: 760px) {
-  .nav, .header-download { display: none; }
-  .menu { display: block; }
+.dock-menu-panel a { padding: 10px 12px; font-size: 18px; }
+@media (max-width: 639px) {
+  .dock { bottom: 16px; }
+  .dock-link, .dock-sep { display: none; }
+  .dock-menu { display: block; }
 }
 
 /* ── Tiles ────────────────────────────────────────────────────────────────────────────────────────────────────── */
@@ -331,43 +318,9 @@ p { margin: 0; text-wrap: pretty; }
 .head .label { margin-bottom: 8px; }
 @media (max-width: 760px) { .head { margin-bottom: 32px; } }
 
-/* Hero (§2.1): the page's own header and hero, inside the editor's frame while people build them; scrolling opens
-   the frame into the page (scenes/hero/HeroScene.tsx). Without script or under reduced motion it is simply the top
-   of the page. On this page the header is fixed (it lives in the frame: a transformed frame holds it; with no
-   transform it is the viewport's, as a sticky header would be). */
-:root { --hero-canvas: #f5f5f5; }
-[data-theme="dark"] { --hero-canvas: #2c2c2c; }
-.hero .site-header { position: fixed; top: 0; right: 0; left: 0; }
-.hero-sticky { position: relative; min-height: 100svh; }
-.hero-body { padding: calc(var(--site-header) + clamp(64px, 18svh, 220px)) 0 var(--site-section); }
-.hero-frame-bg, .hero-chrome { display: none; }
-/* Playing (html.hero-anim, set before the first paint of the scene): a tall track, a pinned stage on the canvas */
-html.hero-anim .hero-track { height: 300svh; }
-html.hero-anim .hero-sticky { position: sticky; top: 0; height: 100svh; min-height: 0; overflow: hidden; background: var(--hero-canvas); }
-html.hero-anim .hero-frame { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform-origin: 0 0; }
-html.hero-anim .hero-frame-bg { position: absolute; inset: 0; display: block; background: var(--site-bg); transform-origin: 0 0; }
-html.hero-anim .hero-body { position: relative; }
-html.hero-anim .hero-chrome { display: block; pointer-events: none; }
-html.hero-anim .hero-frame:not([data-ready]) > :not(.hero-frame-bg) { visibility: hidden; }
-@media (max-width: 639px) { html.hero-anim .hero-track { height: 220svh; } }
-/* While it plays, the parts of the page are made one by one (HeroScene sets data-hp on each): not there yet, being
-   typed (an overlay types the text over its own, still-laid-out place, in a box of the typist's colour), or being
-   drawn (clipped open from its top-left corner) */
-html.hero-anim:not(.hero-open) .hero .site-header { background: transparent; }
-html.hero-anim [data-hp] { transition: opacity 240ms var(--site-ease); }
-html.hero-anim .hero-frame:not([data-live]) [data-hp] { transition: none; }
-html.hero-anim [data-hp="off"] { opacity: 0; }
-/* Until the scene drives it, the dock waits out of sight (the toolbar is where it will appear) */
-html.hero-anim:not(.hero-open) .dock { opacity: 0; pointer-events: none; }
-html.hero-anim [data-hp="type"] { position: relative; -webkit-text-fill-color: transparent; outline: 1px solid var(--hp-c); outline-offset: 2px; }
-html.hero-anim [data-hp="draw"] { -webkit-text-fill-color: transparent; outline: 1px solid var(--hp-c); outline-offset: -1px; transition: none; }
-.hero-typed { position: absolute; inset: 0; padding: inherit; -webkit-text-fill-color: currentColor; pointer-events: none; }
-.hero-caret { display: inline-block; width: 2px; height: 0.9em; margin-left: 0; vertical-align: -0.1em; background: currentColor; animation: hero-blink 1060ms steps(1, end) infinite; }
-.hero-caret[data-typing] { animation: none; }
-.hero-rest { -webkit-text-fill-color: transparent; }
-.hero-caret { margin-right: -2px; }
-html.hero-anim:not(.hero-open) .hero .skip:not(:focus) { visibility: hidden; }
-@keyframes hero-blink { 50% { opacity: 0; } }
+/* The other pages' first section */
+.hero { padding: 96px 0 var(--site-section); }
+@media (max-width: 760px) { .hero { padding-top: 56px; } }
 .hero-top { align-items: end; margin-bottom: 48px; }
 .hero-top:last-child { margin-bottom: 0; }
 .hero-top h1 { grid-column: 1 / span 7; }
@@ -381,32 +334,71 @@ html.hero-anim:not(.hero-open) .hero .skip:not(:focus) { visibility: hidden; }
   .hero-top { margin-bottom: 32px; }
 }
 
-/* The dock: what the editor's toolbar becomes when the hero opens into the page — the sections and Download, at the
-   toolbar's place, until the download band or the footer comes into view */
-.dock {
-  position: fixed;
-  bottom: 24px;
-  left: 50%;
-  z-index: 40;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  box-sizing: border-box;
-  height: 48px;
-  padding: 0 6px 0 10px;
-  border: 1px solid var(--site-faint);
-  border-radius: 14px;
-  background: var(--site-bg);
-  font-size: 14px;
-  white-space: nowrap;
-  transform: translateX(-50%);
-  transition: opacity 240ms var(--site-ease), translate 320ms var(--site-ease);
+/* ── Home: the poster (§2.1) — inside the editor's frame while people and an agent make it; scrolling opens the
+   frame into the page and back (scenes/hero/HeroScene.tsx). Without script or under reduced motion it is simply the
+   top of the page. ── */
+:root { --hero-canvas: #f5f5f5; }
+[data-theme="dark"] { --hero-canvas: #2c2c2c; }
+.hero-sticky { position: relative; height: 100svh; min-height: 560px; }
+.hero-frame { position: absolute; inset: 0; }
+.hero-frame-bg, .hero-chrome { display: none; }
+.poster { position: absolute; inset: 0; }
+.poster-card {
+  position: absolute;
+  inset: 20px 20px 92px;
+  overflow: hidden;
+  border-radius: 28px;
+  background: #e6e6e6;
+  color: #141414;
 }
-.dock a:not(.btn) { padding: 6px 10px; border-radius: 8px; text-decoration: none; }
-.dock a:not(.btn):hover { background: var(--site-faint); }
-.dock .dock-download { height: 36px; margin-left: 6px; padding: 0 14px; font-size: 14px; }
-.dock[data-away] { opacity: 0; translate: 0 12px; pointer-events: none; }
-@media (max-width: 639px) { .dock { display: none; } }
+/* The fill: soft colour fields, flat (content: the same in both themes), and a static grain over it */
+.poster-fill {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(60% 70% at 12% 18%, #ffd0e6 0%, transparent 70%),
+    radial-gradient(55% 60% at 88% 22%, #c9d4ff 0%, transparent 70%),
+    radial-gradient(70% 70% at 70% 100%, #ffe1b0 0%, transparent 70%),
+    linear-gradient(135deg, #f1e6ff 0%, #e2f1ff 100%);
+}
+.poster-grain { position: absolute; inset: 0; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); background-size: 180px; opacity: 0.22; mix-blend-mode: multiply; }
+.poster-art { position: absolute; top: 50%; right: 3%; height: 84%; aspect-ratio: 1; transform: translateY(-50%); overflow: visible; }
+.pa-skel { fill: rgba(255, 255, 255, 0.55); opacity: 0; }
+.poster-copy { position: absolute; bottom: clamp(32px, 7%, 72px); left: clamp(24px, 5%, 72px); display: grid; gap: 28px; max-width: min(50%, 680px); }
+.poster-title { font-size: clamp(44px, 5.4vw, 88px); font-weight: 400; line-height: 0.96; letter-spacing: -0.035em; }
+.poster-cta { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px; }
+.poster-link { font-family: var(--site-mono); font-size: 13px; letter-spacing: 0.3px; text-underline-offset: 4px; }
+@media (max-width: 760px) {
+  .poster-card { inset: 12px 12px 80px; border-radius: 20px; }
+  .poster-art { top: 4%; right: 50%; height: auto; width: 82%; transform: translateX(50%); }
+  .poster-copy { right: 24px; max-width: none; gap: 20px; }
+}
+/* Playing (html.hero-anim, set before the first paint): a tall track and a pinned stage on the canvas */
+html.hero-anim .hero-track { height: 320svh; }
+html.hero-anim .hero-sticky { position: sticky; top: 0; overflow: hidden; background: var(--hero-canvas); }
+html.hero-anim .hero-frame { transform-origin: 0 0; }
+html.hero-anim .hero-frame-bg { position: absolute; inset: 0; display: block; background: var(--site-bg); transform-origin: 0 0; }
+html.hero-anim .hero-chrome { display: block; pointer-events: none; }
+html.hero-anim .hero-frame:not([data-ready]) > :not(.hero-frame-bg) { visibility: hidden; }
+@media (max-width: 639px) { html.hero-anim .hero-track { height: 240svh; } }
+/* While it plays, each part is made by someone (HeroScene sets data-hp): not there yet, typed (an overlay types over
+   the text's own place, in a box of the typist's colour), or drawn (clipped open from its top-left corner) */
+html.hero-anim [data-hp] { transition: opacity 240ms var(--site-ease); }
+html.hero-anim .hero-frame:not([data-live]) [data-hp] { transition: none; }
+html.hero-anim [data-hp="off"] { opacity: 0; }
+html.hero-anim [data-hp="type"] { position: relative; -webkit-text-fill-color: transparent; outline: 1px solid var(--hp-c); outline-offset: 3px; }
+html.hero-anim [data-hp="draw"] { -webkit-text-fill-color: transparent; outline: 2px solid var(--hp-c); outline-offset: -2px; transition: none; }
+html.hero-anim .poster-art [data-hp="draw"] { outline: none; }
+/* Until the scene drives it, the dock waits out of sight (the toolbar is where it will appear) */
+html.hero-anim:not(.hero-open) .dock { opacity: 0; pointer-events: none; }
+.hero-typed { position: absolute; inset: 0; padding: inherit; -webkit-text-fill-color: currentColor; pointer-events: none; }
+.hero-caret { display: inline-block; width: 2px; height: 0.9em; margin: 0 -2px 0 0; vertical-align: -0.1em; background: currentColor; animation: hero-blink 1060ms steps(1, end) infinite; }
+.hero-caret[data-typing] { animation: none; }
+.hero-rest { -webkit-text-fill-color: transparent; }
+@keyframes hero-blink { 50% { opacity: 0; } }
+/* The vector editor's marks on the art (anchors, handles) while a shape is drawn */
+.pa-edit rect { fill: #fff; stroke: #0d99ff; stroke-width: 2; }
+.pa-edit line { stroke: #0d99ff; stroke-width: 2; }
 
 /* Three (or two) small tiles in a row, each with its words under it */
 .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--site-col-gap); }
