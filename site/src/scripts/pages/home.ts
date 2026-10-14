@@ -1,10 +1,10 @@
-// /: the hero's collage, three small tiles, Design, Prototype, Dev Mode, AI and Studio, then the live canvas.
+// /: the hero (the editor, one story in it), three small tiles, Design, Prototype, Dev Mode, AI and Studio, then the live canvas.
 import { initPage } from "../common";
 import { mountScenes } from "../../scenes/runtime/mount";
 
 initPage();
 mountScenes({
-  hero: () => import("../../scenes/home/HeroCollage"),
+  hero: () => import("../../scenes/hero/HeroScene"),
   components: () => import("../../scenes/features/ComponentsCollage"),
   variables: () => import("../../scenes/features/VariablesCollage"),
   comments: () => import("../../scenes/features/CommentsCollage"),

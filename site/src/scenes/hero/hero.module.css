@@ -1,0 +1,199 @@
+/* The hero (docs/site.md §2.1, v4): the editor on the page. The canvas is the page itself; the frame and what lands in
+   it are the file's content (fixed colours, the same in both themes); the panels and the toolbar are the app's, on its
+   tokens. Motion is transform and opacity, ease-out; under reduced motion everything is simply there. */
+
+.stage { color: var(--figma-color-text); }
+
+/* ── The caption: the feature being shown, in the site's mono label ── */
+
+.captions { position: absolute; z-index: 3; display: grid; }
+.caption {
+  grid-area: 1 / 1;
+  color: var(--site-muted);
+  font: 400 13px/1.4 var(--site-mono);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translate3d(0, 6px, 0);
+  transition: opacity var(--dur-2) var(--ease-in), transform var(--dur-2) var(--ease-in);
+}
+.caption[data-on] {
+  opacity: 1;
+  transform: none;
+  transition: opacity var(--dur-3) var(--ease-out) 160ms, transform var(--dur-4) var(--ease-out) 160ms;
+}
+/* On a phone the stage is shown at about half size: the caption is drawn larger so it reads at the same size */
+@media (max-width: 760px) {
+  .caption { font-size: 22px; letter-spacing: 0.8px; }
+}
+
+/* ── The canvas ── */
+
+.frameName { color: var(--figma-color-text-secondary); }
+.frameName[data-selected] { color: inherit; }
+
+/* The frame: grown from its top-left corner by the drag (a transform, the drag's own curve, set inline) */
+.frame {
+  position: absolute;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--site-piece-line);
+  transform: scale(0.001);
+  transform-origin: 0 0;
+}
+.frame[data-drawn] { transform: none; }
+
+.headline {
+  position: absolute;
+  z-index: 1;
+  min-height: 38px;
+  color: #1e1e1e;
+  font: 700 34px/38px Inter, sans-serif;
+  letter-spacing: -1px;
+}
+/* Kerem's text box while he types: his colour, as Figma draws another person's selection */
+.headline[data-editing] { outline: 1px solid var(--c); }
+.caret {
+  display: inline-block;
+  width: 2px;
+  height: 32px;
+  margin-left: 1px;
+  vertical-align: -5px;
+  background: #1e1e1e;
+  animation: blink 1060ms steps(1, end) infinite;
+}
+.caret[data-typing] { animation: none; }
+@keyframes blink { 50% { opacity: 0; } }
+
+.image { position: absolute; z-index: 1; overflow: hidden; border-radius: 16px; }
+
+/* Ada's picture on its way in, under her cursor (placed by transform; moved with the Web Animations API) */
+.thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 29;
+  width: 64px;
+  height: 80px;
+  overflow: hidden;
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-1) var(--ease-out);
+}
+.thumb[data-on] { opacity: 0.92; transition-duration: var(--dur-2); }
+
+/* Mia's buttons: the fill grows from the corner she drags from; the label comes in when it's done */
+.button {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  font: 600 14px/1 Inter, sans-serif;
+}
+.button > i {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  background: #f0f0f0;
+  transform: scale(0.001);
+  transform-origin: 0 0;
+  transition-property: transform;
+  transition-timing-function: var(--ease-standard);
+}
+.button[data-dark] > i { background: #1e1e1e; }
+.button[data-drawn] > i { transform: none; }
+.button > i[data-drawing] { outline: 1px solid var(--c); outline-offset: 0; }
+.button > span {
+  position: relative;
+  color: #1e1e1e;
+  opacity: 0;
+  transform: translate3d(0, 3px, 0);
+  transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-3) var(--ease-out);
+}
+.button[data-dark] > span { color: #fff; }
+.button > span[data-on] { opacity: 1; transform: none; }
+
+.compName { display: inline-flex; align-items: center; gap: 2px; }
+.compName svg { margin-left: -2px; }
+
+/* The marquee: grows with your drag (its fill and its line), gone on release */
+.marquee {
+  position: absolute;
+  z-index: 9;
+  border: 1px solid #0d99ff;
+  background: rgba(13, 153, 255, 0.08);
+  opacity: 0;
+  transform: scale(0.001);
+  transform-origin: 0 0;
+  transition-property: none;
+  transition-timing-function: var(--ease-standard);
+}
+/* It grows on the drag's time; on release it's gone at once */
+.marquee[data-on] { opacity: 1; transform: none; transition-property: transform; }
+
+/* Dev Mode's distance: a red line and its number */
+.measure { position: absolute; z-index: 12; width: 1px; }
+.measure i { position: absolute; inset: 0; background: #f24822; transform-origin: 0 0; transition: transform var(--dur-2) var(--ease-out); }
+.measure[data-out] i { transform: scaleY(0); }
+.measure b {
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  padding: 1px 4px;
+  border-radius: 2px;
+  background: #f24822;
+  color: #fff;
+  font: var(--ds-font-body-medium);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  transform: translateY(-50%);
+  transition: opacity var(--dur-2) var(--ease-out) 120ms;
+}
+.measure[data-out] b { opacity: 0; transition-delay: 0ms; }
+
+/* Ada's comment: the pin (her avatar in a teardrop), the thread beside it */
+.pin {
+  position: absolute;
+  z-index: 7;
+  display: grid;
+  box-sizing: border-box;
+  width: 30px;
+  height: 30px;
+  padding: 2px;
+  border-radius: 50% 50% 50% 0;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
+  place-items: center;
+  transform-origin: 0 100%;
+  transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-3) var(--ease-out);
+}
+.pin [data-ds="Avatar"] { background: var(--c); }
+.pin[data-out] { opacity: 0; transform: scale(0.6); }
+.thread { font: var(--ds-font-body-medium); }
+.msg { display: grid; grid-template-columns: 24px 1fr; gap: 8px; padding: 12px 16px; }
+.msg [data-ds="Avatar"] { background: var(--c); }
+.msg p { margin: 0; color: var(--figma-color-text); }
+.msgMeta { margin-bottom: 2px !important; color: var(--figma-color-text-secondary) !important; }
+.msgMeta strong { margin-right: 4px; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
+
+/* ── The panels ── */
+
+/* The facepile: each person's avatar in their colour; a newcomer comes in from a touch smaller */
+.pile { margin-right: 0; }
+.face [data-ds="Avatar"] { background: var(--peer); }
+.face { animation: faceIn var(--dur-3) var(--ease-out) backwards; }
+@keyframes faceIn {
+  from { opacity: 0; transform: scale(0.8); }
+}
+.me { margin-left: -7px; }
+.pile > .me:first-child { margin-left: 0; }
+
+.code { padding: 0 8px 0 0; }
+
+.toolbarSlot { position: relative; width: 100%; height: 100%; }
+
+@media (prefers-reduced-motion: reduce) {
+  .caption, .frame, .button > i, .button > span, .marquee, .measure i, .measure b, .pin, .thumb { transition: none !important; }
+  .face, .caret { animation: none !important; }
+}

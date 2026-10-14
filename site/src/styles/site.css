@@ -331,8 +331,15 @@ p { margin: 0; text-wrap: pretty; }
 .head .label { margin-bottom: 8px; }
 @media (max-width: 760px) { .head { margin-bottom: 32px; } }
 
-/* Hero */
-.hero { padding: 64px 0 var(--site-section); }
+/* Hero (§2.1, v4): the editor itself, full-bleed on the page (the page is its canvas), about one screen under the
+   header and no taller than the editor's proportions at this width; the headline and Download follow it */
+.hero { padding: 0 0 var(--site-section); }
+.hero-scene {
+  position: relative;
+  height: min(calc(100svh - var(--site-header)), 860px, calc(100vw * 800 / 1440));
+  min-height: 360px;
+  margin-bottom: 56px;
+}
 .hero-top { align-items: end; margin-bottom: 48px; }
 .hero-top:last-child { margin-bottom: 0; }
 .hero-top h1 { grid-column: 1 / span 7; }
@@ -343,7 +350,8 @@ p { margin: 0; text-wrap: pretty; }
   .hero-top { row-gap: 24px; }
 }
 @media (max-width: 760px) {
-  .hero { padding-top: 32px; }
+  /* A phone: the stage crops to the canvas around the frame (HeroScene's `safe`), at the editor's height */
+  .hero-scene { height: auto; min-height: 0; aspect-ratio: 720 / 800; margin-bottom: 32px; }
   .hero-top { margin-bottom: 32px; }
 }
 
