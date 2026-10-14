@@ -9,6 +9,9 @@ namespace eng {
 
 inline constexpr double kMinZoom = 0.02;
 inline constexpr double kMaxZoom = 256;
+// The canvas ends this far from the origin on each axis, as Figma's does (owner, checked in Figma 2026-10-15: a layer
+// may be placed further out, but the view stops at ±130,000): the view is kept inside it.
+inline constexpr double kCanvasBound = 130000;
 
 struct Camera {
   double x = 0, y = 0, zoom = 1;
@@ -27,6 +30,22 @@ struct Camera {
     return {at.x - p.x * next, at.y - p.y * next, next};
   }
   Camera panned(double dx, double dy) const { return {x + dx, y + dy, zoom}; }
+
+  // This view moved (never zoomed) so that what it shows of the world within `visible` (screen px) stays inside the
+  // canvas's ±kCanvasBound on each axis; a view wider than the whole canvas is centred on the origin.
+  Camera keptOnCanvas(const Rect& visible) const {
+    Camera c = *this;
+    if (!(visible.w > 0 && visible.h > 0 && zoom > 0)) return c;
+    auto axis = [&](double& off, double lo, double size) {
+      double w0 = (lo - off) / zoom, w1 = (lo + size - off) / zoom;
+      if (w1 - w0 >= 2 * kCanvasBound) off = lo + size / 2;
+      else if (w0 < -kCanvasBound) off = lo + kCanvasBound * zoom;
+      else if (w1 > kCanvasBound) off = lo + size - kCanvasBound * zoom;
+    };
+    axis(c.x, visible.x, visible.w);
+    axis(c.y, visible.y, visible.h);
+    return c;
+  }
 
   // The view fitting `rect` (world) in a viewport of width × height with 64px
   // of room around it; never above 100% when `upTo100`.

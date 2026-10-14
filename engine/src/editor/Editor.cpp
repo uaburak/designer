@@ -689,7 +689,9 @@ void Editor::changeSelection(std::vector<Guid> ids) {
   needsRender_ = true;
 }
 
-void Editor::changeCamera(const Camera& c) {
+void Editor::changeCamera(const Camera& requested) {
+  // Every move of the view goes through here: it stops at the canvas's edge (kCanvasBound)
+  const Camera c = requested.keptOnCanvas(viewport_.visible());
   if (c.x == camera_.x && c.y == camera_.y && c.zoom == camera_.zoom) return;
   camera_ = c;
   events_.camera = true;

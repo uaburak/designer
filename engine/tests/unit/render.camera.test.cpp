@@ -43,3 +43,23 @@ TEST_CASE("camera: fit like view.ts fitView") {
   CHECK(centre.x == doctest::Approx(400));
   CHECK(centre.y == doctest::Approx(300));
 }
+
+TEST_CASE("camera: the view stops at the canvas's edge (±130,000, as Figma's)") {
+  const Rect view{0, 0, 1000, 800};
+  // Panned past the right / bottom edge: held so the view's far side is on the edge
+  Camera far{-200000, -200000, 1};
+  Camera kept = far.keptOnCanvas(view);
+  CHECK(kept.toWorld({1000, 800}).x == doctest::Approx(kCanvasBound));
+  CHECK(kept.toWorld({1000, 800}).y == doctest::Approx(kCanvasBound));
+  // Past the left / top edge at 50%
+  Camera left{200000, 100000, 0.5};
+  CHECK(left.keptOnCanvas(view).toWorld({0, 0}).x == doctest::Approx(-kCanvasBound));
+  CHECK(left.keptOnCanvas(view).toWorld({0, 0}).y == doctest::Approx(-kCanvasBound));
+  // Inside: untouched; zoom never changes
+  Camera in{37, -12, 0.75};
+  CHECK(in.keptOnCanvas(view).x == in.x);
+  CHECK(in.keptOnCanvas(view).y == in.y);
+  CHECK(far.keptOnCanvas(view).zoom == 1);
+  // No viewport yet: untouched
+  CHECK(far.keptOnCanvas({}).x == far.x);
+}
