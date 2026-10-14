@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { ToolResult } from "../../shared/agents/tools";
 import { MANAGER_TOOLS, WAITING_TOOLS } from "../../shared/agents/tools";
-import { cleanManagerSettings, cleanManagerTools } from "../../shared/agents/manager";
+import { cleanManagerName, cleanManagerSettings, cleanManagerTools } from "../../shared/agents/manager";
 import { DEFAULT_MANAGER_SETTINGS } from "../../shared/studio/types";
 import { McpServer } from "./mcpServer";
 
@@ -91,6 +91,25 @@ describe("manager settings and tools from a view", () => {
     const next = cleanManagerSettings({ parallel: 9, image: { providerId: "gemini-images", model: "m", extra: 1 }, allowed: ["claude-code", 5, "claude-code"], general: { providerId: "" } }, base);
     expect(next).toEqual({ ...base, parallel: 4, image: { providerId: "gemini-images", model: "m" }, allowed: ["claude-code"], general: base.general });
     expect(cleanManagerSettings({ image: null, parallel: 0 }, next)).toMatchObject({ image: null, parallel: 1 });
+  });
+
+  it("the manager's name: kept clean, a missing or empty one (settings from before names) is the default", () => {
+    expect(DEFAULT_MANAGER_SETTINGS.name).toBe("Manager");
+    // Settings kept before the name existed: the default name.
+    const { name: _name, ...old } = DEFAULT_MANAGER_SETTINGS;
+    expect(cleanManagerSettings(old).name).toBe("Manager");
+    expect(cleanManagerSettings({ enabled: false }).name).toBe("Manager");
+    // A chosen name: one line, trimmed, at most 40 characters; kept over the stored one.
+    const named = cleanManagerSettings({ name: "  Ada \n Lovelace  " });
+    expect(named.name).toBe("Ada Lovelace");
+    expect(cleanManagerSettings({ parallel: 2 }, named).name).toBe("Ada Lovelace");
+    expect(cleanManagerSettings({ name: "" }, named).name).toBe("Ada Lovelace");
+    expect(cleanManagerSettings({ name: 42 }, named).name).toBe("Ada Lovelace");
+    expect(cleanManagerSettings({ name: "x".repeat(60) }).name).toHaveLength(40);
+    expect(cleanManagerName("a\u0007b")).toBe("ab");
+    expect(cleanManagerName("   ")).toBeNull();
+    // A base without a name (an older settings file read as the base) still gives the default.
+    expect(cleanManagerSettings({}, old as typeof DEFAULT_MANAGER_SETTINGS).name).toBe("Manager");
   });
 
   it("manager tools: MCP names, schemas as objects, no duplicates", () => {

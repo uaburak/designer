@@ -19,12 +19,12 @@ import { spawn } from "node:child_process";
 const TOKEN = "test-token-123";
 
 function fakeHost(active: { file: string | null }) {
-  const calls: { fileKey: string; name: string; turnId: string | null; client: string }[] = [];
+  const calls: { fileKey: string; name: string; turnId: string | null; client: string; session?: string }[] = [];
   const host = {
     activeFileKey: () => active.file,
     isOpen: (k: string) => k === "fileA" || k === "fileB",
-    runTool: async (fileKey: string, call: { turnId: string | null; client: string; name: string; args: Record<string, unknown> }): Promise<ToolResult> => {
-      calls.push({ fileKey, name: call.name, turnId: call.turnId, client: call.client });
+    runTool: async (fileKey: string, call: { turnId: string | null; client: string; session?: string; name: string; args: Record<string, unknown> }): Promise<ToolResult> => {
+      calls.push({ fileKey, name: call.name, turnId: call.turnId, client: call.client, session: call.session });
       return { content: [{ type: "text", text: `${call.name} on ${fileKey}` }], touched: ["1:2"] };
     },
     onConnections: vi.fn(),
@@ -87,6 +87,8 @@ describe("MCP server", () => {
     expect(calls.map((c) => c.fileKey)).toEqual(["fileA", "fileA"]);
     expect(calls[0].client).toBe("Cursor");
     expect(calls[0].turnId).toBeNull();
+    // The session that called: the view shows that client as a collaborator in the file (docs/ai.md §2.13).
+    expect(calls.map((c) => c.session)).toEqual([session, session]);
     const unknown = await post({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "rm_rf", arguments: {} } }, { "Mcp-Session-Id": session });
     expect(unknown.body.error.code).toBe(-32602);
     expect((await post({ jsonrpc: "2.0", id: 6, method: "nope" }, { "Mcp-Session-Id": session })).body.error.code).toBe(-32601);

@@ -10,7 +10,8 @@ import { Button, Checkbox, Icon, IconButton, Spinner, cx, tooltipProps } from "@
 import type { ProviderInfo } from "@shared/agents/types";
 import type { ImageRouteInfo } from "@shared/ai/types";
 import { useImageRoutes } from "./ManagerSettings";
-import type { ReviewReport, TaskState } from "@shared/studio/types";
+import type { ManagerSettings, ReviewReport, TaskState } from "@shared/studio/types";
+import { managerName } from "../../agents/managerName";
 import { elapsedLabel, segmentsOf } from "../../agents/activity";
 import { modelLabel } from "../../agents/setup";
 import { toolLabel, type AgentsService, type ChatTask } from "../../agents/service";
@@ -29,9 +30,9 @@ function shortModel(m: string, p?: ProviderInfo): string {
 }
 
 /** "Claude Code · Sonnet 5.5", "Gemini API · Nano Banana Pro" (an image route's names as main reports them). */
-export function routeText(task: Pick<ChatTask, "kind" | "route">, providers: readonly ProviderInfo[], images: readonly ImageRouteInfo[] = []): string {
+export function routeText(task: Pick<ChatTask, "kind" | "route">, providers: readonly ProviderInfo[], images: readonly ImageRouteInfo[] = [], manager?: Pick<ManagerSettings, "name">): string {
   const p = providers.find((x) => x.id === task.route.providerId);
-  if (task.kind === "review") return t("Manager");
+  if (task.kind === "review") return managerName(manager);
   if (task.kind === "image") {
     const r = images.find((x) => x.providerId === task.route.providerId);
     const model = task.route.model ? (r?.models.find((m) => m.id === task.route.model)?.label ?? task.route.model) : null;
@@ -72,7 +73,7 @@ export function TaskCard({ task, service }: { task: ChatTask; service: AgentsSer
           <span className={styles.taskText}>
             <span className={styles.taskTitle}>{task.title}</span>
             <span className={styles.taskMeta}>
-              {routeText(task, service.get().providers, images)} · <span data-task-state-label="">{t(STATE_LABEL[task.state])}</span>
+              {routeText(task, service.get().providers, images, service.managerSettings())} · <span data-task-state-label="">{t(STATE_LABEL[task.state])}</span>
               {time && ` ${time}`}
               {!!task.credits && ` · ${tp(task.credits, "{n} credit", "{n} credits")}`}
             </span>

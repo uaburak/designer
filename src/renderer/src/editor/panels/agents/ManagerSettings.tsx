@@ -4,10 +4,11 @@
  * chat talks to the picked agent directly, as before.
  */
 import { useEffect, useState } from "react";
-import { Checkbox, Select, Switch, type SelectEntry } from "@/ds";
+import { Checkbox, Select, Switch, TextInput, type SelectEntry } from "@/ds";
 import type { ImageRouteInfo } from "@shared/ai/types";
 import type { ProviderInfo } from "@shared/agents/types";
-import { IMAGE_TASKS_AT_ONCE, type AgentRoute } from "@shared/studio/types";
+import { DEFAULT_MANAGER_NAME, IMAGE_TASKS_AT_ONCE, MANAGER_NAME_MAX, type AgentRoute } from "@shared/studio/types";
+import { managerName } from "../../agents/managerName";
 import { modelLabel, type AgentSetupHost } from "../../agents/setup";
 import { imageRouteOptions, routeOfOption } from "../../agents/imageRoutes";
 import { Block, Field } from "./settingsParts";
@@ -88,6 +89,21 @@ export function ManagerPage({ service }: { service: AgentSetupHost }) {
         <p className={styles.pageText}>{t("The manager reads your message, finds the brand and products in the library, hands the work to other agents at the same time and reviews what lands on the canvas. Off, the chat talks to the agent you pick.")}</p>
       </Block>
       <Block title={t("Manager")}>
+        {/* What the manager is called: its answers in the chat, its avatar and cursor in the file, "Following <name>" */}
+        <Field label={t("Name")}>
+          <TextInput
+            label={t("Manager name")}
+            className={styles.fieldSelect}
+            value={managerName(m)}
+            placeholder={t("Manager")}
+            maxLength={MANAGER_NAME_MAX}
+            onCommit={(v) => {
+              const name = v.trim();
+              set({ name: !name || name === t("Manager") ? DEFAULT_MANAGER_NAME : name });
+            }}
+            data-manager-name=""
+          />
+        </Field>
         <RouteFields label={t("Agent")} route={m.manager} providers={providers} withEffort onChange={(manager) => set({ manager })} />
       </Block>
       <Block title={t("General work")}>

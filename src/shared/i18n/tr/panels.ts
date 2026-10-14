@@ -677,6 +677,7 @@ export const panels: Record<string, string> = {
   "Manage libraries…": "Kütüphaneleri yönet…",
   "Manage skills": "Yetenekleri yönet",
   "Manager": "Yönetici",
+  "Manager name": "Yönetici adı",
   "Manual": "Manuel",
   "Margin": "Kenar boşluğu",
   "Mask": "Maske",

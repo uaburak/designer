@@ -155,6 +155,9 @@ export interface AgentRoute {
 export interface ManagerSettings {
   /** Off: the chat talks to the picked agent directly, as before round 15 */
   enabled: boolean;
+  /** What the owner calls the manager: its chat answers, its avatar and cursor in the file, "Following <name>"; its
+   *  workers show as "<name> · 2"… (docs/ai.md §2.13) */
+  name: string;
   manager: AgentRoute;
   /** Who does general work (layout, text, layers) */
   general: AgentRoute;
@@ -168,8 +171,14 @@ export interface ManagerSettings {
 
 export const IMAGE_TASKS_AT_ONCE = 4;
 
+/** The manager's name until the owner gives it one (shown translated: managerName) */
+export const DEFAULT_MANAGER_NAME = "Manager";
+/** Longest manager name kept */
+export const MANAGER_NAME_MAX = 40;
+
 export const DEFAULT_MANAGER_SETTINGS: ManagerSettings = {
   enabled: true,
+  name: DEFAULT_MANAGER_NAME,
   manager: { providerId: "claude-code", model: "claude-haiku-5-5", effort: "low" },
   general: { providerId: "claude-code", model: "claude-sonnet-5-5" },
   image: null,

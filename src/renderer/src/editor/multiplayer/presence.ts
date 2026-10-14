@@ -16,6 +16,7 @@ import type { FileShareState, PresenceData } from "@shared/multiplayer/types";
 import type { RoomPolicy } from "@shared/org/identity";
 import type { EditorController } from "../controller";
 import { AudioCall, type AudioState } from "./audio";
+import { presenceSink } from "./presenceSink";
 
 /** What the engine offers for presence (docs/engine.md "Presence"); absent on an engine built before it */
 interface PresenceEngine {
@@ -174,7 +175,7 @@ export class Presence {
     cancelAnimationFrame(this.raf);
     if (this.sendTimer) clearTimeout(this.sendTimer);
     for (const off of this.offs.splice(0)) off();
-    if (!this.ed.engine.destroyed) this.engine.setPresence?.call(this.ed.engine, []);
+    presenceSink(this.ed).set("people", []);
   }
 
   subscribe = (l: () => void): (() => void) => {
@@ -368,7 +369,7 @@ export class Presence {
     const key = JSON.stringify(out);
     if (key === this.lastEngineKey) return;
     this.lastEngineKey = key;
-    setPresence.call(this.ed.engine, out);
+    presenceSink(this.ed).set("people", out);
   }
 }
 
