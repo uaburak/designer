@@ -260,7 +260,7 @@ export interface CursorProps extends PointerState {
 /**
  * A multiplayer cursor (the UI3 arrow in its colour, a name pill) gliding to x, y: along a gentle arc, eased in and
  * out, on the compositor. When it lands on something pressable that thing shows its hover; a press shrinks the arrow
- * and presses what's under it.
+ * and presses what's under it (no ring: what was pressed shows it).
  */
 export function Cursor({ x, y, press, ms, bend, ease, path, color = CURSOR.ink, name, show = true, d = 0, z = 20 }: CursorProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -348,7 +348,6 @@ export function Cursor({ x, y, press, ms, bend, ease, path, color = CURSOR.ink, 
       style={{ transform: at3d([x, y]), zIndex: z, ["--d" as string]: `${d}ms`, ["--c" as string]: color }}
     >
       <span className={styles.cursorBody}>
-        <i className={styles.ring} />
         <svg className={styles.arrow} width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
           <path d={ARROW_EDGE} fill="#fff" />
           <path d={ARROW} fill={color} />
@@ -369,9 +368,9 @@ export interface Box {
 }
 
 /**
- * The engine's selection: a 1px outline, four handles, the size under it. Its outline draws in around the box when it
- * appears (clockwise from the top left) and its handles pop; when the box changes, the edges move and stretch by
- * transform over `ms` on `ease` (so it can follow something resizing in step).
+ * The engine's selection: a 1px outline, four handles, the size under it. It appears at once (as Figma's does); when
+ * the box changes, the edges move and stretch by transform over `ms` on `ease` (so it can follow something resizing
+ * in step).
  */
 export function Selection({
   box,
@@ -379,7 +378,6 @@ export function Selection({
   tone = "brand",
   show = true,
   handles = true,
-  draw = true,
   ms = 520,
   ease = BEZIER.standard,
   z = 10,
@@ -389,26 +387,11 @@ export function Selection({
   tone?: "brand" | "component" | "dev";
   show?: boolean;
   handles?: boolean;
-  /** Draw the outline in when it appears (false: it fades in whole). */
-  draw?: boolean;
   /** How long a change of `box` takes, ms, and its curve. */
   ms?: number;
   ease?: Bezier;
   z?: number;
 }) {
-  // Known while rendering (not an effect later): the draw-in's delays must be in place when the outline starts to move
-  const was = useRef(show);
-  const shownAt = useRef(-Infinity);
-  if (show && !was.current) shownAt.current = performance.now();
-  was.current = show;
-  const entering = draw && show && performance.now() - shownAt.current < 900;
-  const [, rerender] = useState(0);
-  useEffect(() => {
-    if (!entering) return;
-    const t = setTimeout(() => rerender((n) => n + 1), 900);
-    return () => clearTimeout(t);
-  }, [entering]);
-
   const style: CSSProperties & Record<string, string | number> = {
     transform: `translate(${box.x}px, ${box.y}px)`,
     zIndex: z,
@@ -420,7 +403,7 @@ export function Selection({
     "--sel-ease": css(ease),
   };
   return (
-    <div className={styles.selection} data-tone={tone} data-out={show ? undefined : ""} data-draw={draw || undefined} data-entering={entering || undefined} style={style}>
+    <div className={styles.selection} data-tone={tone} data-out={show ? undefined : ""} style={style}>
       <i data-edge="t" />
       <i data-edge="r" />
       <i data-edge="b" />

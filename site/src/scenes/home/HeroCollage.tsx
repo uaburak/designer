@@ -110,7 +110,6 @@ export default function HeroCollage() {
       </div>
       <Selection
         box={drawn ? FRAME : { x: FRAME.x, y: FRAME.y, w: 0, h: 0 }}
-        draw={false}
         ms={DRAW}
         ease={DRAW_EASE}
         size={<Dims w={drawn ? FRAME.w : 0} h={drawn ? FRAME.h : 0} {...drawing} />}

@@ -42,6 +42,20 @@ v1 (SVG scenes) and v2 (full-screen app windows) are both rejected. v3 starts ov
 - **Footer:** columns of mono labels with links, like figma.com's footer structure, and the © line.
 - **Budgets** as before (≤ 150 KB of JS per page shell; the engine on demand; no third-party requests). Phones: tiles stack, collages scale, and there is no horizontal scroll at 360 px.
 
+### 2.1 v4 — the scenes cleaned up (owner, 2026-10-14: "sweet but busy: things don't fit their tiles, the flow doesn't follow, it clicks but you can't tell where, colours change through UI the app doesn't have, the outline drawing looks fake — minimal and clear")
+
+Rules every scene follows (they decide over §2 where they differ):
+- **Fits its tile.** Every piece, popover, label and cursor stays inside the stage with ≥ 24 px of margin; nothing sits at a negative position or past the stage's size. The stage fits its tile (`stage.ts`: contain on tiles ≥ 640 px, the old cover-and-crop only on phones). A square tile gets a composition made for a square, not a wide one cut down.
+- **One idea per scene, at most 3 steps.** Fewer pieces (one panel, not three), one cursor unless the scene is about people working together. The section's text names the idea; the scene shows exactly that.
+- **A click is legible.** The cursor goes to the control, rests (~250 ms), the control shows its hover, the press shrinks the arrow, and the result appears *at that control*: a Select opens its real list (the ds `Select` with `static`, or the Menu panel) over the field, the cursor moves onto the option, the option highlights, then the list closes with the new value. Nothing changes somewhere the cursor isn't.
+- **Only the app's own UI.** A colour changes through what the app does: the swatch is clicked and the ds `ColorPicker` (`static`) opens beside the panel, a swatch from "On this page" or a library colour is picked; or the change is left out. No invented controls, chips or overlays.
+- **Nothing drawn for show.** A selection appears at once (Figma's does; kit `Selection` has no draw-in). Shapes are drawn only when a cursor drags them (the frame tool, the pen, the prototype connection), and grow with the cursor. No ring on clicks, no bounce, no spring pops.
+- **Calm pace.** A beat (≥ 600 ms) between steps so each can be read; cursors move only to do something, and rest when the scene is done (no idle wandering, no endless replays). Under reduced motion the end state shows.
+
+The hero (v4): no tile. The first screen is the editor itself on the white page: Layers on the left, the Design panel on the right, the bottom toolbar, the canvas between, laid out as the editor is (the owner's reference screenshot, 2026-10-14). The story is the longest one on the site (~20–25 s) and walks through the big features with people working together: one person draws a frame fast with the frame tool; teammates join (their cursors and avatars arrive) and build it out — auto layout, text, an image, a component, a comment, a prototype connection, Dev Mode. A small mono caption names the feature being shown. The page's headline and Download follow the scene.
+
+Working together (v4, a new section on `/` and on `/features/`): teams and the shared workspace — a team with projects, sharing a file (invite, can edit / can view), people in the file (avatars, cursors, following), comments, and the organisation's controls (roles, SSO and 2FA, admin). Shown with the app's own Share dialog and Home's team sidebar.
+
 ## 3. `releases.json`
 
 ```json

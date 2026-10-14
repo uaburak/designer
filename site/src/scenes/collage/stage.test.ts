@@ -7,7 +7,14 @@ describe("stageBox", () => {
     expect(stageBox(1312, 640, 860, 560)).toEqual({ s: 1, x: 226, y: 40 });
   });
 
-  it("scales down to cover a smaller tile of the same shape", () => {
+  it("fits a desktop tile of another shape without cropping", () => {
+    const b = stageBox(1312, 600, 1312, 640);
+    expect(b.s).toBeCloseTo(600 / 640);
+    expect(b.y).toBe(0);
+    expect(stageBox(380, 380, 400, 400).s).toBeCloseTo(0.95);
+  });
+
+  it("scales down to fit a smaller tile of the same shape", () => {
     const b = stageBox(656, 320, 1312, 640);
     expect(b.s).toBe(0.5);
     expect([b.x, b.y]).toEqual([0, 0]);
