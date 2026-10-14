@@ -126,8 +126,6 @@ export function DevPanel() {
       mo.disconnect();
       picker.current?.stop();
     };
-    // startInspect only reads refs and setters
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!open) return null;
@@ -169,7 +167,7 @@ function setToken(theme: Theme, name: string, value: string) {
 function Tokens({ theme, overrides }: { theme: Theme; overrides: Record<string, string> }) {
   const [group, setGroup] = useState<Group>("brand");
   const [query, setQuery] = useState("");
-  const names = useMemo(tokenNames, []);
+  const names = useMemo(() => tokenNames(), []);
   const cs = getComputedStyle(document.documentElement);
   const g = GROUPS.find((x) => x.id === group)!;
   const q = query.trim().toLowerCase();
@@ -324,15 +322,16 @@ function Report({ items, focus, setFocus }: { items: ReportItem[]; focus: string
 function Item({ item, open, onToggle }: { item: ReportItem; open: boolean; onToggle: () => void }) {
   const unflash = useRef<(() => void) | null>(null);
   const note = useRef<HTMLTextAreaElement>(null);
-  const [matches, setMatches] = useState(0);
   useEffect(() => {
     if (open) note.current?.focus();
+  }, [open]);
+  const matches = (() => {
     try {
-      setMatches(document.querySelectorAll(item.selector).length);
+      return document.querySelectorAll(item.selector).length;
     } catch {
-      setMatches(0);
+      return 0;
     }
-  }, [open, item.selector]);
+  })();
   const hover = (on: boolean) => {
     unflash.current?.();
     unflash.current = on ? flash(item.selector) : null;
