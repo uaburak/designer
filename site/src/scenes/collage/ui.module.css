@@ -7,16 +7,31 @@
 .column > section:last-child { border-bottom: 0; }
 
 .layers { border-bottom: 0; }
-.rows { display: grid; padding: 4px 0 8px; }
-/* A row the script adds grows in: the rows under it slide down (grid rows: 0fr → 1fr) */
+/* The rows are placed by transform (Layers): adding one slides the others down without any layout */
+.rows { position: relative; margin: 4px 0 8px; }
 .row {
-  display: grid;
-  grid-template-rows: 1fr;
-  opacity: 1;
-  transition: grid-template-rows 500ms var(--site-ease), opacity 400ms ease 120ms;
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  transition:
+    transform var(--dur-3) var(--ease-standard),
+    opacity var(--dur-2) var(--ease-out) 120ms;
 }
-.row > * { min-height: 0; overflow: hidden; }
-.row[data-out] { grid-template-rows: 0fr; opacity: 0; }
+.row[data-out] {
+  opacity: 0;
+  transition:
+    transform var(--dur-3) var(--ease-standard),
+    opacity var(--dur-1) var(--ease-in);
+}
+.row[data-out] > .name { transform: translate3d(-6px, 0, 0); }
+.name { transition: transform var(--dur-4) var(--ease-out) 120ms; }
+/* A new name rises in over a soft wash (the row's own highlight, briefly) */
+.row .name { animation: nameIn var(--dur-3) var(--ease-out) backwards; }
+@keyframes nameIn {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to { opacity: 1; transform: none; }
+}
 @media (prefers-reduced-motion: reduce) {
-  .row { transition: none; }
+  .row, .name { transition: none; animation: none; }
 }

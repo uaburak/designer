@@ -1,5 +1,6 @@
 /* The collage kit: the stage on its tile, the pieces settling in, cursors, the engine's selection. Motion is transform
-   and opacity only, ease-out, staggered by --d; under reduced motion everything is simply there. */
+   and opacity only, on the motion tokens (runtime/easing.ts: --ease-*, --dur-*), staggered by --d; under reduced
+   motion everything is simply there. `will-change` only while the pieces are entering (until data-settled). */
 
 .root {
   position: absolute;
@@ -18,95 +19,213 @@
   left: 0;
   transform-origin: 0 0;
 }
+/* Off screen, nothing loops */
+.stage:not([data-visible]) *,
+.stage:not([data-visible]) *::before,
+.stage:not([data-visible]) *::after { animation-play-state: paused !important; }
+/* Numbers in fields don't jostle while they count */
+.stage input { font-variant-numeric: tabular-nums; }
 
 /* ── Pieces ── */
 
 .piece {
   position: absolute;
   opacity: 0;
-  transform: translate3d(0, 28px, 0);
+  transform: translate3d(0, 16px, 0);
   transition:
-    opacity 600ms var(--site-ease) var(--d, 0ms),
-    transform 900ms var(--site-ease) var(--d, 0ms);
+    opacity var(--dur-3) var(--ease-out) var(--d, 0ms),
+    transform var(--dur-5) var(--ease-out) var(--d, 0ms);
 }
-.piece[data-from="down"] { transform: translate3d(0, -28px, 0); }
-.piece[data-from="left"] { transform: translate3d(-40px, 0, 0); }
-.piece[data-from="right"] { transform: translate3d(40px, 0, 0); }
-.piece[data-from="scale"] { transform: scale(0.96); }
+.surface.piece { transform: translate3d(0, 16px, 0) scale(0.98); }
+.piece[data-from="down"] { transform: translate3d(0, -12px, 0); }
+.piece[data-from="left"] { transform: translate3d(-20px, 0, 0) scale(0.98); }
+.piece[data-from="right"] { transform: translate3d(20px, 0, 0) scale(0.98); }
+.piece[data-from="scale"] { transform: scale(0.96); transform-origin: 50% 0; }
 .piece[data-from="fade"] { transform: none; }
+.stage[data-play]:not([data-settled]) .piece { will-change: transform, opacity; }
 .stage[data-play] .piece:not([data-out]) {
   opacity: 1;
   transform: none;
 }
-/* Shown later by the script: the delay is only for the first entrance */
-.stage[data-play] .piece[data-out] { --d: 0ms; }
+/* A popover that pops: it lands on the spring */
+.stage[data-play] .piece[data-from="scale"]:not([data-out]) {
+  transition:
+    opacity var(--dur-1) var(--ease-out) var(--d, 0ms),
+    transform var(--dur-spring) var(--ease-spring) var(--d, 0ms);
+}
+/* Shown later, or leaving: no first-entrance delay; leaving is quicker and travels less */
+.stage[data-play] .piece[data-out] {
+  --d: 0ms;
+  transition:
+    opacity var(--dur-1) var(--ease-in),
+    transform var(--dur-1) var(--ease-in);
+}
+.stage[data-play] .piece[data-out][data-from="scale"] { transform: scale(0.97); }
+.stage[data-play] .piece[data-out][data-from="up"],
+.stage[data-play] .piece[data-out][data-from="down"] { transform: translate3d(0, 6px, 0); }
 
 .surface {
   overflow: hidden;
   border: 1px solid var(--site-piece-line);
   border-radius: var(--site-piece-radius);
   background: var(--figma-color-bg);
+  /* A crisp hairline at 1× and 2×: the surface sits on whole pixels of the stage */
+  background-clip: padding-box;
 }
 
-/* ── Cursors ── */
+/* ── Cursors (the UI3 arrow, its tip at the element's origin) ── */
 
 .cursor {
   position: absolute;
   top: 0;
   left: 0;
+  width: 0;
+  height: 0;
   pointer-events: none;
-  transition: transform 1100ms cubic-bezier(0.45, 0, 0.2, 1);
 }
-.cursor[data-instant] { transition: none; }
-.cursor > * {
-  transition: opacity 400ms ease var(--d, 0ms);
+.cursorBody {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  transform-origin: 0 0;
+  transition:
+    opacity var(--dur-2) var(--ease-out) var(--d, 0ms),
+    transform var(--dur-3) var(--ease-out) var(--d, 0ms);
 }
-.cursor svg { display: block; transition: transform 160ms ease; transform-origin: 2px 2px; }
-.cursor[data-press] svg { transform: scale(0.88); }
-.stage:not([data-play]) .cursor > *,
-.cursor[data-out] > * { opacity: 0; }
+.stage:not([data-play]) .cursorBody,
+.cursor[data-out] .cursorBody {
+  opacity: 0;
+  transform: scale(0.85);
+}
+.stage[data-play] .cursor[data-out] .cursorBody { --d: 0ms; }
+.arrow {
+  position: absolute;
+  top: -3px;
+  left: -5px;
+  display: block;
+  transform-origin: 5px 3px;
+  transition: scale var(--dur-spring-snap) var(--ease-spring-snap);
+}
+.cursor[data-press] .arrow {
+  scale: 0.92;
+  transition: scale 90ms var(--ease-out);
+}
+/* The press: a soft ring at the tip */
+.ring {
+  position: absolute;
+  top: -9px;
+  left: -9px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--c);
+  opacity: 0;
+  transform: scale(0.3);
+}
+.cursor[data-press] .ring { animation: ring 520ms var(--ease-out) both; }
+@keyframes ring {
+  0% { opacity: 0.32; transform: scale(0.3); }
+  100% { opacity: 0; transform: scale(1.1); }
+}
+/* Figma's multiplayer name: a pill in the cursor's colour, below and right of the tip */
 .cursorName {
   position: absolute;
-  top: 18px;
-  left: 14px;
-  padding: 2px 6px;
-  border-radius: 4px;
+  top: 15px;
+  left: 8px;
+  padding: 2px 7px;
+  border-radius: 999px;
   background: var(--c);
   color: #fff;
-  font: var(--ds-font-body-medium);
-  letter-spacing: var(--ds-tracking-body-medium);
+  font: 500 11px/16px var(--site-font, Inter, sans-serif);
+  letter-spacing: 0.005em;
   white-space: nowrap;
 }
 
-/* ── The engine's selection ── */
+/* ── The engine's selection: edges stretched by transform (1px lines, any size) ── */
 
 .selection {
   --sel: #0d99ff;
   position: absolute;
-  box-sizing: border-box;
-  border: 1px solid var(--sel);
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
   pointer-events: none;
-  transition: opacity 300ms ease;
+  transition:
+    transform var(--sel-ms) var(--sel-ease),
+    opacity var(--dur-1) var(--ease-standard);
 }
 .selection[data-tone="component"] { --sel: #9747ff; }
 .selection[data-tone="dev"] { --sel: #14ae5c; }
-.selection[data-out] { opacity: 0; }
+.selection[data-out],
 .stage:not([data-play]) .selection { opacity: 0; }
 .selection > i {
   position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  background: var(--sel);
+  transform-origin: 0 0;
+  transition: transform var(--sel-ms) var(--sel-ease);
+}
+.selection > [data-edge="t"] { transform: scaleX(var(--sx)); }
+.selection > [data-edge="r"] { transform: translateX(calc(var(--w) - 1px)) scaleY(var(--sy)); }
+.selection > [data-edge="b"] { transform: translate(var(--w), calc(var(--h) - 1px)) scaleX(calc(-1 * var(--sx))); }
+.selection > [data-edge="l"] { transform: translateY(var(--h)) scaleY(calc(-1 * var(--sy))); }
+/* Drawn in: clockwise from the top left, each edge from where the last one ended */
+.selection[data-draw][data-out] > [data-edge="t"] { transform: scaleX(0); }
+.selection[data-draw][data-out] > [data-edge="r"] { transform: translateX(calc(var(--w) - 1px)) scaleY(0); }
+.selection[data-draw][data-out] > [data-edge="b"] { transform: translate(var(--w), calc(var(--h) - 1px)) scaleX(-0); }
+.selection[data-draw][data-out] > [data-edge="l"] { transform: translateY(var(--h)) scaleY(-0); }
+/* Collapsing waits until the outline has faded */
+.selection[data-out] > i,
+.selection[data-out] > b { transition-duration: 0ms; transition-delay: var(--dur-1); }
+.selection[data-entering] > i { transition: transform var(--dur-2) var(--ease-standard); }
+.selection[data-entering] > [data-edge="r"] { transition-delay: 70ms; }
+.selection[data-entering] > [data-edge="b"] { transition-delay: 140ms; }
+.selection[data-entering] > [data-edge="l"] { transition-delay: 210ms; }
+/* A selection already there when the scene starts draws in the same way, as keyframes from nothing to its place (so
+   a resize soon after keeps its own timing) */
+.stage[data-play] .selection[data-draw] > i { animation: var(--dur-2) var(--ease-standard) 240ms backwards; }
+.stage[data-play] .selection[data-draw] > [data-edge="t"] { animation-name: edgeT; }
+.stage[data-play] .selection[data-draw] > [data-edge="r"] { animation-name: edgeR; animation-delay: 310ms; }
+.stage[data-play] .selection[data-draw] > [data-edge="b"] { animation-name: edgeB; animation-delay: 380ms; }
+.stage[data-play] .selection[data-draw] > [data-edge="l"] { animation-name: edgeL; animation-delay: 450ms; }
+.stage[data-play] .selection[data-draw] > b { animation: handleIn var(--dur-spring-snap) var(--ease-spring-snap) 520ms backwards; }
+@keyframes edgeT { from { transform: scaleX(0); } }
+@keyframes edgeR { from { transform: translateX(calc(var(--w) - 1px)) scaleY(0); } }
+@keyframes edgeB { from { transform: translate(var(--w), calc(var(--h) - 1px)) scaleX(-0); } }
+@keyframes edgeL { from { transform: translateY(var(--h)) scaleY(-0); } }
+@keyframes handleIn { from { scale: 0; } }
+.selection > b {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
   width: 7px;
   height: 7px;
   border: 1px solid var(--sel);
   background: #fff;
+  transition: transform var(--sel-ms) var(--sel-ease);
 }
-.selection > i:nth-child(1) { top: -4px; left: -4px; }
-.selection > i:nth-child(2) { top: -4px; right: -4px; }
-.selection > i:nth-child(3) { bottom: -4px; left: -4px; }
-.selection > i:nth-child(4) { right: -4px; bottom: -4px; }
+.selection > [data-h="tl"] { transform: translate(-3px, -3px); }
+.selection > [data-h="tr"] { transform: translate(calc(var(--w) - 4px), -3px); }
+.selection > [data-h="bl"] { transform: translate(-3px, calc(var(--h) - 4px)); }
+.selection > [data-h="br"] { transform: translate(calc(var(--w) - 4px), calc(var(--h) - 4px)); }
+.selection[data-draw][data-out] > [data-h="tl"] { transform: translate(-3px, -3px) scale(0); }
+.selection[data-draw][data-out] > [data-h="tr"] { transform: translate(calc(var(--w) - 4px), -3px) scale(0); }
+.selection[data-draw][data-out] > [data-h="bl"] { transform: translate(-3px, calc(var(--h) - 4px)) scale(0); }
+.selection[data-draw][data-out] > [data-h="br"] { transform: translate(calc(var(--w) - 4px), calc(var(--h) - 4px)) scale(0); }
+.selection[data-entering] > b { transition: transform var(--dur-spring-snap) var(--ease-spring-snap) 260ms; }
+.selection[data-entering] > [data-h="tr"] { transition-delay: 300ms; }
+.selection[data-entering] > [data-h="br"] { transition-delay: 340ms; }
+.selection[data-entering] > [data-h="bl"] { transition-delay: 380ms; }
 .size {
   position: absolute;
-  top: calc(100% + 6px);
-  left: 50%;
+  top: 0;
+  left: 0;
   padding: 1px 4px;
   border-radius: 2px;
   background: var(--sel);
@@ -115,8 +234,13 @@
   letter-spacing: var(--ds-tracking-body-medium);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  transform: translateX(-50%);
+  transform: translate(calc(var(--w) / 2), calc(var(--h) + 6px)) translateX(-50%);
+  transition:
+    transform var(--sel-ms) var(--sel-ease),
+    opacity var(--dur-2) var(--ease-out);
 }
+.selection[data-entering] .size { transition: transform var(--dur-3) var(--ease-out) 200ms, opacity var(--dur-2) var(--ease-out) 200ms; }
+.selection[data-out] .size { opacity: 0; transform: translate(calc(var(--w) / 2), calc(var(--h) + 2px)) translateX(-50%); }
 
 .frameName {
   position: absolute;
@@ -124,17 +248,59 @@
   font: var(--ds-font-body-medium);
   letter-spacing: var(--ds-tracking-body-medium);
   white-space: nowrap;
-  transition: opacity 400ms ease;
+  transition:
+    opacity var(--dur-2) var(--ease-standard),
+    transform var(--dur-3) var(--ease-out),
+    color var(--dur-1) var(--ease-standard);
 }
 .frameName[data-selected] { color: #0d99ff; }
 .frameName[data-tone="component"] { color: #9747ff; }
 .frameName[data-out],
-.stage:not([data-play]) .frameName { opacity: 0; }
+.stage:not([data-play]) .frameName { opacity: 0; transform: translate3d(0, 4px, 0); }
+
+/* ── A picture filling in: blurred first, then sharp ── */
+
+.reveal { position: absolute; inset: 0; overflow: hidden; }
+.revealSoft, .revealSharp { position: absolute; inset: 0; opacity: 0; }
+.revealSoft { filter: blur(10px); transform: scale(1.12); transition: opacity var(--dur-3) var(--ease-standard); }
+.revealSharp { transform: scale(1.04); transition: opacity var(--dur-5) var(--ease-standard) 260ms, transform 1200ms var(--ease-out) 260ms; }
+.reveal[data-on] .revealSoft { opacity: 1; }
+.reveal[data-on] .revealSharp { opacity: 1; transform: none; }
+
+/* ── The app's toggle, its knob moving by transform on the spring (the ds moves it by `left`) ── */
+
+.stage [data-ds="Switch"] { transition: background-color var(--dur-1) var(--ease-standard), border-color var(--dur-1) var(--ease-standard); }
+.stage [data-ds="Switch"] > span {
+  left: 2px;
+  transform: translate(0, -50%);
+  transition: transform var(--dur-spring) var(--ease-spring), border-color var(--dur-1) var(--ease-standard);
+}
+.stage [data-ds="Switch"][aria-checked="true"] > span { left: 2px; transform: translate(8px, -50%); }
+
+/* A caret drawn after typed text (FieldCaret): steady while typing, blinking at rest */
+.caret {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  width: 1px;
+  background: var(--figma-color-text);
+  pointer-events: none;
+  animation: blink 1060ms steps(1, end) infinite;
+}
+.caret[data-typing] { animation: none; }
+@keyframes blink { 50% { opacity: 0; } }
 
 @media (prefers-reduced-motion: reduce) {
+  .caret { animation: none !important; }
   .piece,
-  .cursor,
-  .cursor > *,
+  .cursorBody,
+  .arrow,
   .selection,
-  .frameName { transition: none !important; }
+  .selection > *,
+  .frameName,
+  .revealSoft,
+  .revealSharp,
+  .stage [data-ds="Switch"] > span { transition: none !important; }
+  .ring { animation: none !important; }
 }

@@ -10,11 +10,13 @@
   touch-action: pan-y;
 }
 .root[data-ready] { touch-action: none; }
-.still { position: absolute; max-width: none; pointer-events: none; }
-.toolbar { position: absolute; right: 0; bottom: 0; left: 0; height: 64px; pointer-events: none; }
+.still { position: absolute; z-index: 1; max-width: none; pointer-events: none; transition: opacity var(--dur-3) var(--ease-standard) 60ms; }
+.still[data-out] { opacity: 0; }
+.toolbar { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; height: 64px; pointer-events: none; }
 .toolbar > * { pointer-events: auto; }
 .engage {
   position: absolute;
+  z-index: 2;
   bottom: 80px;
   left: 50%;
   height: 40px;

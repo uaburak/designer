@@ -8,7 +8,7 @@ import type { ProviderInfo } from "@shared/agents/types";
 import type { ChatCard, TaskState } from "@shared/studio/types";
 import type { AgentsService, ChatTask } from "@/editor/agents/service";
 import { ManagerCard, TaskCard } from "@/editor/panels/agents/StudioCards";
-import { Collage, FrameName, Piece } from "../collage/kit";
+import { Collage, FrameName, Piece, Reveal } from "../collage/kit";
 import { Bottle } from "../home/art";
 import type { Run } from "../runtime/motion";
 import { agents, AgentText, ChatPanel, Steps, UserMessage, type Step } from "./chat";
@@ -105,7 +105,7 @@ export default function StudioCollage() {
   return (
     <Collage size={[1000, 600]} focus={[0.31, 0.5]} safe={560} script={script}>
       <Piece surface x={100} y={32} w={340} h={536} d={0} from="left" className={styles.chatPiece}>
-        <ChatPanel title="Agents · Manager">
+        <ChatPanel title="Agents · Manager" focus={chat.done}>
           {chat.asked && <UserMessage>Verda’s Root Tonic needs a post and a story</UserMessage>}
           {chat.steps.length > 0 && (
             <div className={agents.agent}>
@@ -141,9 +141,9 @@ export default function StudioCollage() {
 function PostFrame({ x, y, w, h, stage, story }: { x: number; y: number; w: number; h: number; stage: number; story?: boolean }) {
   return (
     <div className={styles.post} data-stage={stage} style={{ left: x, top: y, width: w, height: h }}>
-      <div className={styles.postPicture} data-on={stage >= 2 || undefined}>
+      <Reveal on={stage >= 2}>
         <Bottle ground={story ? "#DCE8D3" : "#E6EFE0"} />
-      </div>
+      </Reveal>
       <span className={styles.postHead}>Roots first.</span>
       <span className={styles.postSub}>Feed the soil, and the rest follows.</span>
       <span className={styles.postLogo}>verda</span>

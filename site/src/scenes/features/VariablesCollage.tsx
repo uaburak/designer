@@ -6,7 +6,8 @@ import { PropertyGrid, PropertyRow } from "@/ds/components/PropertyGrid";
 import { Select } from "@/ds/components/Select";
 import { Swatch } from "@/ds/components/Swatch";
 import { Icon } from "@/ds/icons/Icon";
-import { Collage, CURSOR, Cursor, Piece, Selection } from "../collage/kit";
+import { Collage, CURSOR, Cursor, Piece, Selection, usePointer } from "../collage/kit";
+import { BEZIER } from "../runtime/easing";
 import { noop, PanelColumn } from "../collage/ui";
 import type { Run } from "../runtime/motion";
 import styles from "./features.module.css";
@@ -20,22 +21,21 @@ const VARS: [string, string, string][] = [
   ["accent", "#0D99FF", "#7CC4FA"],
 ];
 
+const MODE: [number, number] = [150, 366];
+
 export default function VariablesCollage() {
   const [mode, setMode] = useState<Mode>("Light");
-  const [cursor, setCursor] = useState<[number, number, boolean?]>([380, 390]);
-  const dark = mode === "Dark";
-  const v = (i: number) => VARS[i][dark ? 2 : 1];
+  const me = usePointer([380, 390]);
 
   const script = async (run: Run) => {
-    await run.wait(1500);
-    setCursor([150, 366]);
-    await run.wait(1200);
-    setCursor([150, 366, true]);
-    await run.wait(160);
+    await run.wait(1400);
+    await me.click(run, MODE);
     setMode("Dark");
-    setCursor([150, 366]);
+    // Idle: the mode goes back and forth, slowly, from the same menu
     for (let i = 0; !run.reduced; i++) {
-      await run.wait(3600);
+      await me.to(run, [MODE[0] + 40, MODE[1] + 24], { ms: 1200, ease: BEZIER.standard });
+      await run.wait(2400);
+      await me.click(run, [MODE[0] + (i % 2 ? 6 : -4), MODE[1]], { ms: 900, ease: BEZIER.standard });
       setMode((m) => (m === "Dark" ? "Light" : "Dark"));
     }
   };
@@ -44,6 +44,7 @@ export default function VariablesCollage() {
     <Collage size={[400, 400]} script={script}>
       <Piece surface x={24} y={36} w={300} d={0}>
         <div className={styles.varTable} data-mode={mode}>
+          <span className={styles.varCol} />
           <div className={styles.varHead}>
             <span>Name</span>
             <span data-col="Light">Light</span>
@@ -68,17 +69,20 @@ export default function VariablesCollage() {
         </div>
       </Piece>
 
-      <Piece x={208} y={190} w={172} h={150} d={250}>
-        <div className={styles.varCard} style={{ background: v(0), color: v(1) }}>
-          <span className={styles.varDot} style={{ background: v(3) }} />
-          <strong>Weekly plan</strong>
-          <span style={{ color: v(2) }}>4 tasks left</span>
-          <span className={styles.varBar} style={{ background: v(3) }} />
-        </div>
+      <Piece x={208} y={190} w={172} h={150} d={120}>
+        {/* Both modes drawn; the new one cross-fades in (opacity only) */}
+        {([1, 2] as const).map((k) => (
+          <div key={k} className={styles.varCard} data-dark={k === 2 || undefined} data-on={(k === 2 && mode === "Dark") || undefined} style={{ background: VARS[0][k], color: VARS[1][k] }}>
+            <span className={styles.varDot} style={{ background: VARS[3][k] }} />
+            <strong>Weekly plan</strong>
+            <span style={{ color: VARS[2][k] }}>4 tasks left</span>
+            <span className={styles.varBar} style={{ background: VARS[3][k] }} />
+          </div>
+        ))}
       </Piece>
       <Selection box={{ x: 208, y: 190, w: 172, h: 150 }} />
 
-      <Piece surface x={-44} y={300} w={240} d={400} from="left">
+      <Piece surface x={-44} y={300} w={240} d={200} from="left">
         <PanelColumn>
           <PanelSection title="Appearance">
             <PropertyGrid>
@@ -89,7 +93,7 @@ export default function VariablesCollage() {
           </PanelSection>
         </PanelColumn>
       </Piece>
-      <Cursor x={cursor[0]} y={cursor[1]} press={cursor[2]} color={CURSOR.ink} d={500} />
+      <Cursor {...me.state} color={CURSOR.ink} d={300} />
     </Collage>
   );
 }

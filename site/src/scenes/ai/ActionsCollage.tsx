@@ -6,7 +6,8 @@ import { SearchField } from "@/ds/components/SearchField";
 import { Spinner } from "@/ds/components/Spinner";
 import { Icon } from "@/ds/icons/Icon";
 import { AI_ROWS } from "@/editor/ai/actionRows";
-import { Collage, CURSOR, Cursor, FrameName, Piece, Selection } from "../collage/kit";
+import { around, Collage, CURSOR, Cursor, FrameName, Piece, Selection, usePointer } from "../collage/kit";
+import { BEZIER } from "../runtime/easing";
 import { FileHeader, Layers, noop, type Row } from "../collage/ui";
 import type { Run } from "../runtime/motion";
 import styles from "./ai.module.css";
@@ -24,32 +25,35 @@ const NAMES: [string, string, Row["icon"], number][] = [
 
 const SECTIONS = ["Design tools", "Riffing and writing"] as const;
 
+const RENAME: [number, number] = [516, 175];
+
 export default function ActionsCollage() {
   const [open, setOpen] = useState(false);
   const [hover, setHover] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [renamed, setRenamed] = useState(0);
-  const [me, setMe] = useState<[number, number, boolean?]>([700, 520]);
+  const me = usePointer([700, 520]);
 
   const script = async (run: Run) => {
     await run.wait(900);
     setOpen(true);
-    await run.wait(700);
-    setMe([520, 186]);
+    await run.wait(500);
+    await me.to(run, [RENAME[0] + 30, RENAME[1] + 30], { ms: 800 });
+    setHover("ai.replace-content");
+    await run.wait(200);
+    await me.to(run, RENAME, { ms: 520, ease: BEZIER.standard });
     setHover("ai.rename-layers");
-    await run.wait(1000);
-    setMe([520, 186, true]);
-    await run.wait(160);
-    setMe([520, 186]);
+    await me.click(run, undefined, { beat: 260 });
     setRunning(true);
-    await run.wait(700);
+    await run.wait(600);
     setOpen(false);
     for (let i = 1; i <= NAMES.length; i++) {
-      await run.wait(220);
+      await run.wait(i === 1 ? 300 : 170 + (i % 3) * 30);
       setRenamed(i);
     }
     setRunning(false);
-    setMe([640, 470]);
+    await me.to(run, [640, 470], { ms: 900, ease: BEZIER.standard });
+    await me.idle(run, around([640, 470], 16));
   };
 
   const rows: Row[] = NAMES.map(([from, to, icon, depth], i) => ({ id: from, name: i < renamed ? to : from, icon, depth, expanded: depth < 2 && icon !== "16.ellipse" ? true : undefined, strong: depth === 0, selected: i === 0 }));
@@ -81,7 +85,7 @@ export default function ActionsCollage() {
       </div>
       <Selection box={{ x: 500, y: 72, w: 240, h: 420 }} />
 
-      <Piece surface x={372} y={88} w={320} show={open} from="scale" z={20} className={styles.actions}>
+      <Piece surface x={372} y={88} w={320} show={open} from="scale" origin="50% 0" z={20} className={styles.actions}>
         <div className={styles.actionsSearch}>
           <SearchField value="" onChange={noop} placeholder="Search actions" />
         </div>
@@ -91,7 +95,7 @@ export default function ActionsCollage() {
             {actions
               .filter((r) => r.section === section)
               .map((r) => (
-                <span key={r.id} className={styles.actionRow} data-hover={hover === r.id || undefined}>
+                <span key={r.id} className={styles.actionRow} data-hover={hover === r.id || undefined} data-pressable="">
                   <Icon name={r.icon} />
                   {r.label}
                   {r.id === "ai.rename-layers" && running && <Spinner size={16} />}
@@ -102,11 +106,21 @@ export default function ActionsCollage() {
       </Piece>
       <Piece x={72} y={490} w={240} show={running || renamed > 0} from="up">
         <span className={styles.status}>
-          {renamed < NAMES.length ? <Spinner size={16} /> : <Icon name="16.check" />}
-          {renamed < NAMES.length ? "Renaming layers…" : `Renamed ${NAMES.length} layers`}
+          <span className={styles.swap}>
+            <span data-out={renamed >= NAMES.length || undefined}>
+              <Spinner size={16} />
+            </span>
+            <span data-out={renamed < NAMES.length || undefined}>
+              <Icon name="16.check" />
+            </span>
+          </span>
+          <span className={styles.swap}>
+            <span data-out={renamed >= NAMES.length || undefined}>Renaming layers…</span>
+            <span data-out={renamed < NAMES.length || undefined}>Renamed {NAMES.length} layers</span>
+          </span>
         </span>
       </Piece>
-      <Cursor x={me[0]} y={me[1]} press={me[2]} color={CURSOR.ink} d={500} z={30} />
+      <Cursor {...me.state} color={CURSOR.ink} d={300} z={30} />
     </Collage>
   );
 }

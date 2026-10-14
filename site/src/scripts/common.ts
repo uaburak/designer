@@ -2,6 +2,8 @@
 // theme toggle), the text's reveal and the Download blocks. Pages with scenes mount them on top (scenes/runtime/mount.tsx).
 import "@/ds/global.css";
 import "../styles/site.css";
+import { cssCursor } from "@/engine/cursors";
+import { installMotionTokens } from "../scenes/runtime/easing";
 import { initThemeToggle } from "./theme";
 import { detectPlatform, formatDate, formatSize, loadReleases, offerFor, type Offer, type Platform } from "./releases";
 
@@ -92,27 +94,72 @@ export async function initDownloads(): Promise<void> {
   }
 }
 
-/** Text marked `data-reveal` fades up once as it comes into view (site.css; nothing moves under reduced motion). */
+/** Containers whose parts reveal one after another (heading, then lede, then the rest). */
+const GROUPS = ".head, .hero-side, .card-text, .aside, .band-inner";
+/** Stagger between parts entering together, ms. */
+const STAGGER = 70;
+
+/**
+ * Text marked `data-reveal`, and the tiles, rise and fade in once as they come into view (site.css). Parts that enter
+ * together stagger in document order (heading → lede → tile); `will-change` holds only while each one moves.
+ * Without script, or under reduced motion, everything is simply there.
+ */
 export function initReveal(): void {
-  const els = [...document.querySelectorAll<HTMLElement>("[data-reveal]")];
+  const units: HTMLElement[] = [];
+  for (const el of document.querySelectorAll<HTMLElement>("[data-reveal]")) {
+    if (el.matches(GROUPS) && el.children.length > 1) {
+      el.setAttribute("data-reveal", "group");
+      const base = parseFloat(el.style.getPropertyValue("--reveal-delay")) || 0;
+      for (const child of el.children) {
+        if (!(child instanceof HTMLElement)) continue;
+        child.setAttribute("data-reveal-item", "");
+        if (base) child.style.setProperty("--reveal-base", `${base}ms`);
+        units.push(child);
+      }
+    } else units.push(el);
+  }
+  for (const tile of document.querySelectorAll<HTMLElement>(".tile, .platform")) {
+    tile.setAttribute("data-reveal-item", "tile");
+    units.push(tile);
+  }
+  const show = (el: HTMLElement) => {
+    el.setAttribute("data-shown", "");
+    const done = (e: TransitionEvent) => {
+      if (e.target !== el || e.propertyName !== "transform") return;
+      el.setAttribute("data-done", "");
+      el.removeEventListener("transitionend", done);
+    };
+    el.addEventListener("transitionend", done);
+  };
   if (typeof IntersectionObserver !== "function") {
-    for (const el of els) el.setAttribute("data-shown", "");
+    for (const el of units) el.setAttribute("data-shown", "");
     return;
   }
   const io = new IntersectionObserver(
     (entries) => {
-      for (const e of entries) {
-        if (!e.isIntersecting) continue;
-        e.target.setAttribute("data-shown", "");
-        io.unobserve(e.target);
-      }
+      const entering = entries
+        .filter((e) => e.isIntersecting)
+        .map((e) => e.target as HTMLElement)
+        .sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+      entering.forEach((el, i) => {
+        el.style.setProperty("--reveal-delay", `calc(var(--reveal-base, 0ms) + ${Math.min(i, 5) * STAGGER}ms)`);
+        show(el);
+        io.unobserve(el);
+      });
     },
-    { rootMargin: "0px 0px -8% 0px" },
+    { rootMargin: "0px 0px -6% 0px" },
   );
-  for (const el of els) io.observe(el);
+  for (const el of units) io.observe(el);
+}
+
+/** The page's pointer is the app's own canvas arrow (Figma UI3's), in black with its white edge. */
+export function initCursor(): void {
+  document.documentElement.style.setProperty("--site-cursor", cssCursor("DEFAULT", 0));
 }
 
 export function initPage(): void {
+  installMotionTokens();
+  initCursor();
   initHeader();
   initReveal();
   initThemeToggle();

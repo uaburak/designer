@@ -1,36 +1,49 @@
-// Comments: a pin dropped on a card, its thread (a question, a reply typed in), then resolved.
+// Comments: a pin dropped on a card, its thread (a question, a reply typed in and posted), then resolved. The pin lands
+// on a spring, the thread opens from it, the reply is typed at a person's pace with a blinking caret, and the posted
+// message takes the composer's place (stacked in one grid cell: the thread never changes size).
 import { useState } from "react";
 import { Button } from "@/ds/components/Button";
 import { Avatar } from "@/ds/components/Misc";
 import { Icon } from "@/ds/icons/Icon";
-import { Collage, CURSOR, Cursor, Piece } from "../collage/kit";
+import { around, Collage, CURSOR, Cursor, Piece, usePointer } from "../collage/kit";
 import type { Run } from "../runtime/motion";
 import styles from "./features.module.css";
 
 const REPLY = "Done, it fits on one line now.";
+const PIN: [number, number] = [226, 40];
+const POST: [number, number] = [345, 232];
+const RESOLVE: [number, number] = [318, 133];
 
 export default function CommentsCollage() {
   const [pin, setPin] = useState(false);
   const [thread, setThread] = useState(false);
-  const [typed, setTyped] = useState(0);
+  const [typed, setTyped] = useState("");
+  const [typing, setTyping] = useState(false);
   const [sent, setSent] = useState(false);
   const [resolved, setResolved] = useState(false);
-  const [ada, setAda] = useState<[number, number]>([60, 380]);
+  const ada = usePointer([60, 380]);
+  const ken = usePointer([300, 430]);
 
   const script = async (run: Run) => {
     await run.wait(900);
-    setAda([214, 66]);
-    await run.wait(1200);
+    await ada.click(run, [PIN[0] - 8, PIN[1] + 30]);
     setPin(true);
-    await run.wait(500);
+    await run.wait(420);
     setThread(true);
-    setAda([330, 360]);
-    await run.wait(1000);
-    await run.tween(1400, (t) => setTyped(Math.round(REPLY.length * t)), (t) => t);
+    await ada.to(run, [70, 300], { ms: 900 });
     await run.wait(300);
+    setTyping(true);
+    void ken.to(run, [POST[0] - 70, POST[1] + 40], { wait: false, ms: 1100 });
+    await run.wait(200);
+    await run.type(REPLY, setTyped);
+    await run.wait(260);
+    await ken.click(run, POST);
     setSent(true);
-    await run.wait(1600);
+    setTyping(false);
+    await run.wait(1200);
+    await ada.click(run, RESOLVE);
     setResolved(true);
+    await Promise.all([ada.idle(run, around(RESOLVE, 14)), ken.idle(run, around([POST[0] - 40, POST[1] + 56], 12), { pause: 3000 })]);
   };
 
   return (
@@ -43,16 +56,24 @@ export default function CommentsCollage() {
           <span className={styles.cmtButton}>Shop now</span>
         </div>
       </Piece>
-      <div className={styles.pin} data-out={!pin || undefined} data-resolved={resolved || undefined} style={{ left: 226, top: 40 }}>
-        {resolved ? <Icon name="16.check" /> : <Avatar name="Ada Lin" size={24} />}
+      <div className={styles.pin} data-out={!pin || undefined} data-resolved={resolved || undefined} style={{ left: PIN[0], top: PIN[1] }}>
+        <span className={styles.pinFace}>
+          <Avatar name="Ada Lin" size={24} />
+        </span>
+        <span className={styles.pinFace} data-check="">
+          <Icon name="16.check" />
+        </span>
       </div>
 
-      <Piece surface x={132} y={112} w={252} show={thread} className={styles.thread}>
+      <Piece surface x={132} y={112} w={252} show={thread} from="scale" origin="94px -40px" className={styles.thread}>
         <div className={styles.threadHead}>
           <span>Comment</span>
-          <span className={styles.threadResolve} data-on={resolved || undefined}>
+          <span className={styles.threadResolve} data-on={resolved || undefined} data-pressable="">
             <Icon name="16.check" />
-            {resolved ? "Resolved" : "Resolve"}
+            <span className={styles.swap}>
+              <span data-out={resolved || undefined}>Resolve</span>
+              <span data-out={!resolved || undefined}>Resolved</span>
+            </span>
           </span>
         </div>
         <div className={styles.msg}>
@@ -64,26 +85,29 @@ export default function CommentsCollage() {
             <p>Can the title fit on one line?</p>
           </div>
         </div>
-        <div className={styles.msg} data-out={!sent || undefined}>
-          <Avatar name="Kerem Aydın" size={24} />
-          <div>
-            <p className={styles.msgMeta}>
-              <strong>Kerem Aydın</strong> Just now
-            </p>
-            <p>{REPLY}</p>
+        <div className={styles.stack}>
+          <div className={styles.msg} data-out={!sent || undefined}>
+            <Avatar name="Kerem Aydın" size={24} />
+            <div>
+              <p className={styles.msgMeta}>
+                <strong>Kerem Aydın</strong> Just now
+              </p>
+              <p>{REPLY}</p>
+            </div>
+          </div>
+          <div className={styles.reply} data-out={sent || undefined}>
+            <span className={styles.replyField} data-focus={typing || undefined}>
+              {typed || <span className={styles.placeholder}>Reply</span>}
+              {typing && <span className={styles.caret} data-typing={(typed.length > 0 && typed.length < REPLY.length) || undefined} />}
+            </span>
+            <Button variant="primary" disabled={typed.length < REPLY.length}>
+              Post
+            </Button>
           </div>
         </div>
-        <div className={styles.reply} data-out={sent || undefined}>
-          <span className={styles.replyField}>
-            {REPLY.slice(0, typed) || <span className={styles.placeholder}>Reply</span>}
-            {typed > 0 && typed < REPLY.length && <span className={styles.caret} />}
-          </span>
-          <Button variant="primary" disabled={typed < REPLY.length}>
-            Post
-          </Button>
-        </div>
       </Piece>
-      <Cursor x={ada[0]} y={ada[1]} color={CURSOR.purple} name="Ada" d={300} />
+      <Cursor {...ken.state} color={CURSOR.green} name="Kerem" d={600} show={typing || sent} />
+      <Cursor {...ada.state} color={CURSOR.purple} name="Ada" d={300} />
     </Collage>
   );
 }

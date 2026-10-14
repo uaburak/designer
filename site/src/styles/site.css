@@ -47,7 +47,17 @@
   --site-tile-radius: 24px;
   --site-piece-radius: 12px;
   --site-piece-line: rgba(0, 0, 0, 0.08);
-  --site-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  /* The motion tokens (--ease-*, --dur-*) are written onto :root by scenes/runtime/easing.ts (installMotionTokens);
+     these fallbacks hold until then. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --dur-1: 240ms;
+  --dur-2: 360ms;
+  --dur-3: 520ms;
+  --dur-4: 720ms;
+  --dur-5: 900ms;
+  --site-ease: var(--ease-out);
 }
 @media (max-width: 760px) {
   :root {
@@ -70,6 +80,11 @@
 }
 
 html, body { height: auto; overflow: visible; }
+/* Every pointer is Figma UI3's: the canvas's arrow (common.ts sets --site-cursor from the engine's cursors), the
+   system's hand on links and buttons, the I-beam in text fields. */
+html { cursor: var(--site-cursor, default); }
+a[href], button:not(:disabled), summary, label[for], .btn { cursor: pointer; }
+input:not([type="checkbox"], [type="radio"], [type="button"]), textarea { cursor: text; }
 html {
   background: var(--site-bg);
   -webkit-text-size-adjust: 100%;
@@ -486,13 +501,31 @@ p { margin: 0; text-wrap: pretty; }
 
 /* ── Reveal ───────────────────────────────────────────────────────────────────────────────────────────────────── */
 
-/* Text fades up a little as it comes into view (common.ts sets data-shown); without script it is simply there. */
-.js [data-reveal] {
+/* Text and tiles rise and fade in once as they come into view (common.ts sets data-shown, staggered by
+   --reveal-delay); without script it is simply there. A tile settles from a touch smaller. */
+.js [data-reveal]:not([data-reveal="group"]),
+.js [data-reveal-item] {
   opacity: 0;
   transform: translate3d(0, 16px, 0);
-  transition: opacity 700ms var(--site-ease) var(--reveal-delay, 0ms), transform 700ms var(--site-ease) var(--reveal-delay, 0ms);
+  transition:
+    opacity var(--dur-4) var(--ease-out) var(--reveal-delay, 0ms),
+    transform var(--dur-5) var(--ease-out) var(--reveal-delay, 0ms);
 }
-.js [data-reveal][data-shown] { opacity: 1; transform: none; }
+.js [data-reveal-item="tile"] {
+  transform: translate3d(0, 24px, 0) scale(0.985);
+  transition:
+    opacity var(--dur-4) var(--ease-out) var(--reveal-delay, 0ms),
+    transform 1100ms var(--ease-out) var(--reveal-delay, 0ms);
+}
+.js [data-reveal][data-shown]:not([data-reveal="group"]),
+.js [data-reveal-item][data-shown] { opacity: 1; transform: none; }
+.js [data-shown]:not([data-done]) { will-change: transform, opacity; }
 @media (prefers-reduced-motion: reduce) {
-  .js [data-reveal] { opacity: 1; transform: none; transition: none; }
+  .js [data-reveal]:not([data-reveal="group"]),
+  .js [data-reveal-item] { opacity: 1; transform: none; transition: none; }
+}
+
+/* Reduced motion: everything in the scenes shows its end state (inline transitions too) */
+@media (prefers-reduced-motion: reduce) {
+  .scene *, .scene *::before, .scene *::after { transition-duration: 0ms !important; transition-delay: 0ms !important; animation: none !important; }
 }

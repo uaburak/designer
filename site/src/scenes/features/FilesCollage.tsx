@@ -1,11 +1,11 @@
 // Home: the file browser (the ds SidebarItem, SearchField and FileCard). A search is typed and the grid narrows to
 // what matches, a file is starred, then the search is cleared and every file comes back. Thumbnails are small
 // drawings of each file's first frame (thumbs.ts).
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { FileCard, FileKindIcon } from "@/ds/components/FileCard";
 import { SearchField } from "@/ds/components/SearchField";
 import { FolderIcon, SidebarDivider, SidebarHeader, SidebarItem } from "@/ds/components/SidebarItem";
-import { Collage, CURSOR, Cursor, Piece } from "../collage/kit";
+import { Collage, CURSOR, Cursor, FieldCaret, Piece, useFlip, usePointer } from "../collage/kit";
 import { noop } from "../collage/ui";
 import type { Run } from "../runtime/motion";
 import { THUMBS } from "../collage/thumbs";
@@ -21,35 +21,54 @@ const FILES: { id: string; title: string; subtitle: string; thumb: string }[] = 
 ];
 const QUERY = "bloom";
 
+const SEARCH: [number, number] = [1040, 92];
+/** The star on the first card once the grid has narrowed (stage px). */
+const STAR: [number, number] = [571, 153];
+
 export default function FilesCollage() {
   const [query, setQuery] = useState("");
+  const [focus, setFocus] = useState(false);
+  const [typing, setTyping] = useState(false);
+  const [filter, setFilter] = useState("");
+  const [gone, setGone] = useState(false);
   const [starred, setStarred] = useState<string[]>(["c"]);
-  const [me, setMe] = useState<[number, number, boolean?]>([1100, 600]);
+  const me = usePointer([1100, 600]);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const fieldRef = useRef<HTMLDivElement>(null);
+  useFlip(gridRef, gone);
 
   const script = async (run: Run) => {
     await run.wait(1000);
-    setMe([1040, 92]);
-    await run.wait(1000);
-    setMe([1040, 92, true]);
-    await run.wait(140);
-    setMe([1040, 92]);
-    for (let i = 1; i <= QUERY.length; i++) {
-      await run.wait(170);
-      setQuery(QUERY.slice(0, i));
-    }
-    await run.wait(900);
-    setMe([798, 266]);
-    await run.wait(1000);
-    setMe([798, 266, true]);
-    await run.wait(140);
+    await me.click(run, SEARCH);
+    setFocus(true);
+    await run.wait(380);
+    setTyping(true);
+    await run.type(QUERY, setQuery, 3);
+    setTyping(false);
+    // The grid narrows after a short pause: the others fade, then the matches slide together
+    await run.wait(320);
+    setFilter(QUERY);
+    await run.wait(260);
+    setGone(true);
+    await run.wait(700);
+    await me.click(run, STAR);
     setStarred((s) => [...s, "b"]);
-    setMe([798, 266]);
-    await run.wait(1800);
+    await run.wait(1700);
+    // Cleared: the files make room again, then fade back in, one after another
     setQuery("");
-    setMe([1000, 560]);
+    setFocus(false);
+    setGone(false);
+    await run.wait(60);
+    setFilter("");
+    await me.to(run, [1000, 560], { ms: 1100 });
+    await me.idle(run, [
+      [960, 520],
+      [1040, 470],
+      [1000, 560],
+    ]);
   };
 
-  const shown = FILES.filter((f) => f.title.toLowerCase().includes(query));
+  const out = (f: (typeof FILES)[number]) => !f.title.toLowerCase().includes(filter);
 
   return (
     <Collage size={[1312, 640]} focus={[0.42, 0.4]} safe={720} script={script}>
@@ -69,11 +88,14 @@ export default function FilesCollage() {
           <div className={styles.homeMain}>
             <div className={styles.homeHead}>
               <span>Recents</span>
-              <SearchField value={query} onChange={noop} placeholder="Search files" size="large" />
+              <div ref={fieldRef} className={styles.homeSearch} data-focus={focus || undefined}>
+                <SearchField value={query} onChange={noop} placeholder="Search files" size="large" />
+                <FieldCaret host={fieldRef} text={query} show={focus} typing={typing} />
+              </div>
             </div>
-            <div className={styles.homeGrid}>
-              {shown.map((f) => (
-                <div key={f.id} className={styles.homeCard}>
+            <div ref={gridRef} className={styles.homeGrid}>
+              {FILES.map((f, i) => (
+                <div key={f.id} className={styles.homeCard} data-flip="" data-out={out(f) || undefined} data-gone={(gone && out(f)) || undefined} style={{ ["--i" as string]: i }}>
                   <FileCard id={f.id} title={f.title} subtitle={f.subtitle} thumbnail={f.thumb} starred={starred.includes(f.id)} onStar={noop} />
                 </div>
               ))}
@@ -81,7 +103,7 @@ export default function FilesCollage() {
           </div>
         </div>
       </Piece>
-      <Cursor x={me[0]} y={me[1]} press={me[2]} color={CURSOR.ink} d={400} z={30} />
+      <Cursor {...me.state} color={CURSOR.ink} d={300} z={30} />
     </Collage>
   );
 }

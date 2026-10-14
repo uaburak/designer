@@ -70,6 +70,13 @@ export default function TryScene() {
   const [groups, setGroups] = useState<Partial<Record<ToolGroupId, ToolId>>>({});
   const [mode, setMode] = useState<EditorMode>("design");
   const wantsEngine = !touch || engaged;
+  // The still hands over to the live canvas with a short cross-fade, not a cut
+  const [stillGone, setStillGone] = useState(false);
+  useEffect(() => {
+    if (!store) return;
+    const t = setTimeout(() => setStillGone(true), 600);
+    return () => clearTimeout(t);
+  }, [store]);
 
   useEffect(() => {
     const el = rootRef.current;
@@ -168,7 +175,7 @@ export default function TryScene() {
   };
 
   let still: CSSProperties | null = null;
-  if (size && !store) {
+  if (size && !stillGone) {
     const v = firstView(size.w, size.h);
     still = { left: size.w / 2 + (STILL.x - v.cx) * v.zoom, top: size.h / 2 + (STILL.y - v.cy) * v.zoom, width: STILL.w * v.zoom, height: STILL.h * v.zoom };
   }
@@ -176,7 +183,7 @@ export default function TryScene() {
 
   return (
     <div ref={rootRef} className={styles.root} data-ready={store ? "" : undefined}>
-      {still && <img className={styles.still} src={`/stills/hero-${theme}.webp`} alt="" style={still} draggable={false} onError={(e) => (e.currentTarget.style.display = "none")} />}
+      {still && <img className={styles.still} data-out={store ? "" : undefined} src={`/stills/hero-${theme}.webp`} alt="" style={still} draggable={false} onError={(e) => (e.currentTarget.style.display = "none")} />}
       {live && wantsEngine && !failed && <live.EngineCanvas document={document} options={options} fit={false} onReady={onReady} onError={onError} style={{ position: "absolute", inset: 0 }} />}
       {!wantsEngine && (
         <button type="button" className={styles.engage} onClick={() => setEngaged(true)}>

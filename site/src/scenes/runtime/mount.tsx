@@ -3,10 +3,11 @@
 // watch-only animations (inert, hidden from assistive tech: the section's own text says what they show) except the
 // one marked `data-interactive`. The app's
 // tooltips (ds TooltipManager) and toasts get one host for the page.
-import { StrictMode, type ComponentType } from "react";
+import { startTransition, StrictMode, type ComponentType } from "react";
 import { createRoot } from "react-dom/client";
 import { ToastHost } from "@/ds/components/Toast";
 import { TooltipManager } from "@/ds/overlay/TooltipManager";
+import { initVisitorCursor } from "./visitorCursor";
 
 export type SceneModule = { default: ComponentType };
 export type SceneRegistry = Record<string, () => Promise<SceneModule>>;
@@ -29,10 +30,15 @@ function host(): void {
 function render(el: HTMLElement, mod: SceneModule): void {
   host();
   const Scene = mod.default;
-  createRoot(el).render(
-    <StrictMode>
-      <Scene />
-    </StrictMode>,
+  const root = createRoot(el);
+  // A transition: the first render of a scene is time-sliced, so mounting one while the page scrolls doesn't stall
+  // the animations already playing
+  startTransition(() =>
+    root.render(
+      <StrictMode>
+        <Scene />
+      </StrictMode>,
+    ),
   );
   el.setAttribute("data-mounted", "");
 }
@@ -53,6 +59,10 @@ export function mountScenes(registry: SceneRegistry): void {
           { rootMargin: "120% 0px 120% 0px" },
         )
       : null;
+
+  // Over a watch-only tile the visitor's pointer becomes a multiplayer cursor, "You" (the live canvas keeps its own)
+  const tiles = [...document.querySelectorAll<HTMLElement>("[data-scene]:not([data-interactive])")].map((el) => el.closest<HTMLElement>(".tile") ?? el);
+  initVisitorCursor(tiles);
 
   for (const el of document.querySelectorAll<HTMLElement>("[data-scene]")) {
     const load = registry[el.dataset.scene ?? ""];

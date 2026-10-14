@@ -8,7 +8,7 @@ import { PanelSection } from "@/ds/components/PanelSection";
 import { Select } from "@/ds/components/Select";
 import { Icon } from "@/ds/icons/Icon";
 import { StatusTag } from "@/editor/devmode/StatusTag";
-import { Collage, CURSOR, Cursor, FrameName, Piece, Selection } from "../collage/kit";
+import { Collage, CURSOR, Cursor, FrameName, Piece, Selection, usePointer } from "../collage/kit";
 import { noop, PanelColumn } from "../collage/ui";
 import type { Run } from "../runtime/motion";
 import styles from "./home.module.css";
@@ -44,31 +44,28 @@ export default function DevModeCollage() {
   const [ready, setReady] = useState(false);
   const [measured, setMeasured] = useState(0);
   const [lines, setLines] = useState(0);
-  const [me, setMe] = useState<[number, number]>([860, 600]);
+  const me = usePointer([860, 600]);
 
   const script = async (run: Run) => {
     await run.wait(900);
     setReady(true);
-    await run.wait(700);
-    setMe([CARD.x + 60, CARD.y + 30]);
+    await run.wait(500);
+    await me.to(run, [CARD.x + 60, CARD.y + 30]);
     for (let i = 1; i <= MEASURES.length; i++) {
-      await run.wait(650);
+      await run.wait(i === 1 ? 160 : 420);
       setMeasured(i);
-      if (i === 2) setMe([CARD.x + 120, CARD.y + 70]);
+      if (i === 2) void me.to(run, [CARD.x + 120, CARD.y + 70], { wait: false });
     }
+    await run.wait(300);
     for (let i = 1; i <= CSS.length; i++) {
-      await run.wait(160);
       setLines(i);
+      await run.wait(110 + (CSS[i - 1].length % 4) * 20);
     }
-    const spots: [number, number][] = [
+    await me.idle(run, [
       [CARD.x + 160, CARD.y + 112],
       [CARD.x + 60, CARD.y + 52],
       [CARD.x + 220, CARD.y + 250],
-    ];
-    for (let i = 0; !run.reduced; i++) {
-      await run.wait(2400);
-      setMe(spots[i % spots.length]);
-    }
+    ]);
   };
 
   return (
@@ -103,26 +100,28 @@ export default function DevModeCollage() {
           data-out={measured <= i || undefined}
           style={{ left: m.x, top: m.y, width: m.dir === "h" ? m.len : 1, height: m.dir === "v" ? m.len : 1 }}
         >
+          <i />
           <b>{m.label}</b>
         </span>
       ))}
 
-      <Piece surface x={1008} y={56} w={240} d={250} from="right">
+      <Piece surface x={1008} y={56} w={240} d={160} from="right">
         <PanelColumn>
           <PanelSection title="Order card" pad="none" />
           <PanelSection title="Code" actions={<Select label="Language" variant="ghost" width="hug" value="css" options={[{ value: "css", label: "CSS" }]} onChange={noop} />}>
-            <div className={styles.code}>
-              <CodeBlock code={CSS.map((l, i) => (i < Math.max(1, lines) ? l : "")).join("\n")} />
+            {/* The CSS writes itself out: a cover in the block's colour slides down line by line (transform only) */}
+            <div className={styles.code} style={{ ["--lines" as string]: lines }}>
+              <CodeBlock code={CSS.join("\n")} />
             </div>
           </PanelSection>
         </PanelColumn>
       </Piece>
-      <Piece x={400} y={556} w={384} h={60} d={400}>
+      <Piece x={400} y={556} w={384} h={60} d={240}>
         <div className={styles.toolbarSlot}>
           <EditorToolbar floating tool="move" mode="dev" onMode={noop} onTool={noop} />
         </div>
       </Piece>
-      <Cursor x={me[0]} y={me[1]} color={CURSOR.ink} d={500} z={30} />
+      <Cursor {...me.state} color={CURSOR.ink} d={300} z={30} />
     </Collage>
   );
 }

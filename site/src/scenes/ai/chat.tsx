@@ -1,15 +1,57 @@
 // The Agents panel's chat, as the app draws it (editor/panels/agents/Agents.module.css): the tab's header, the
 // visitor's bubble, the agent's step groups and text, the composer. The newest line stays at the bottom.
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Icon } from "@/ds/icons/Icon";
 import { cx } from "@/ds/util/cx";
 import agents from "@/editor/panels/agents/Agents.module.css";
 import { toolLabel } from "@/editor/agents/service";
+import { BEZIER, css, SPRING, springEasing } from "../runtime/easing";
+import { prefersReduced } from "../runtime/reduced";
 import styles from "./ai.module.css";
 
 export { agents };
 
-export function ChatPanel({ title = "Agents", children, composer = "Ask for changes, or describe what to make", agent = "Claude Code" }: { title?: string; children: ReactNode; composer?: string; agent?: string }) {
+/**
+ * The chat's motion: what's added rises in (each new block, once), and the conversation, anchored at the bottom, slides
+ * up to make room instead of jumping (FLIP on the inner column: its layout moves once, a transform eases it there).
+ */
+function useChatMotion(inner: { current: HTMLDivElement | null }) {
+  useEffect(() => {
+    const el = inner.current;
+    if (!el || prefersReduced() || typeof el.animate !== "function") return;
+    const spring = springEasing(SPRING.gentle);
+    let top = el.offsetTop;
+    let slide: Animation | null = null;
+    const ro = new ResizeObserver(() => {
+      const now = el.offsetTop;
+      let dy = top - now;
+      top = now;
+      if (slide && slide.playState === "running") {
+        dy += parseFloat(getComputedStyle(el).translate.split(" ")[1] ?? "0") || 0;
+        slide.cancel();
+      }
+      if (Math.abs(dy) < 0.5) return;
+      slide = el.animate([{ translate: `0 ${dy}px` }, { translate: "0 0" }], { duration: spring.duration, easing: spring.easing });
+    });
+    ro.observe(el);
+    const mo = new MutationObserver((records) => {
+      for (const r of records)
+        for (const n of r.addedNodes) {
+          if (!(n instanceof HTMLElement) || n.closest("svg")) continue;
+          n.animate([{ opacity: 0, translate: "0 8px" }, { opacity: 1, translate: "0 0" }], { duration: 520, easing: css(BEZIER.out), delay: 60, fill: "backwards" });
+        }
+    });
+    mo.observe(el, { childList: true, subtree: true });
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
+  }, [inner]);
+}
+
+export function ChatPanel({ title = "Agents", children, composer = "Ask for changes, or describe what to make", agent = "Claude Code", focus }: { title?: string; children: ReactNode; composer?: string; agent?: string; /** The composer has focus (a caret blinks in it): the chat at rest, waiting for the next ask. */ focus?: boolean }) {
+  const inner = useRef<HTMLDivElement>(null);
+  useChatMotion(inner);
   return (
     <div className={styles.chatPanel}>
       <div className={styles.tabHeader}>
@@ -17,10 +59,15 @@ export function ChatPanel({ title = "Agents", children, composer = "Ask for chan
         <Icon name="24.more" />
       </div>
       <div className={styles.chatBody}>
-        <div className={styles.chatInner}>{children}</div>
+        <div ref={inner} className={styles.chatInner}>
+          {children}
+        </div>
       </div>
       <div className={agents.composer}>
-        <span className={styles.composerText}>{composer}</span>
+        <span className={styles.composerText}>
+          {focus && <span className={styles.composerCaret} />}
+          {composer}
+        </span>
         <span className={styles.composerFoot}>
           <span className={styles.composerAgent}>{agent}</span>
           <span className={styles.send}>

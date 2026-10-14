@@ -6,14 +6,17 @@
 
 /* ── Hero: Lumen's page ── */
 
+/* Drawn by a clip from its top-left corner (the drag's curve, set inline): no size ever animates */
 .heroFrame {
   position: absolute;
   overflow: hidden;
   background: #fff;
   color: #1e1e1e;
+  clip-path: inset(0 100% 100% 0);
 }
-.heroFrame > * { position: absolute; transition: opacity 600ms ease, transform 800ms var(--site-ease); }
-.heroFrame > [data-out] { opacity: 0; transform: translateY(10px); }
+.heroFrame[data-drawn] { clip-path: inset(0); }
+.heroFrame > * { position: absolute; transition: opacity var(--dur-3) var(--ease-out), transform var(--dur-4) var(--ease-out); }
+.heroFrame > [data-out] { opacity: 0; transform: translate3d(0, 10px, 0); transition-duration: 0ms; }
 .heroNav { top: 20px; right: 28px; left: 32px; display: flex; align-items: center; gap: 8px; font: 600 14px/20px Inter, sans-serif; }
 .heroLogo { width: 16px; height: 16px; border-radius: 50%; background: #0d99ff; }
 .heroLinks { margin-left: auto; color: #6b6b6b; font-weight: 500; font-size: 12px; }
@@ -32,30 +35,35 @@
 .heroButtons span:first-child { width: 104px; box-sizing: border-box; padding: 0; background: #1e1e1e; color: #fff; text-align: center; }
 .heroImage { top: 92px; left: 290px; width: 186px; height: 190px; overflow: hidden; border-radius: 14px; background: #f0f0f0; }
 .heroImageEmpty { position: absolute; inset: 0; display: grid; color: #b3b3b3; place-items: center; }
-.heroPicture { position: absolute; inset: 0; transition: opacity 900ms ease, transform 1200ms var(--site-ease); }
-.heroPicture[data-out] { opacity: 0; transform: scale(1.06); }
 
 /* ── Design: the plan cards in their auto layout frame ── */
 
-.plans { background: #fff; color: #1e1e1e; }
+.plans { color: #1e1e1e; }
+.plansBg { position: absolute; inset: 0; background: #fff; transform-origin: 0 0; }
 .plan {
   position: absolute;
   top: 16px;
   left: 0;
-  display: grid;
-  box-sizing: border-box;
   width: 156px;
   height: 220px;
-  padding: 18px;
+  overflow: hidden;
   border-radius: 12px;
+}
+.planFace {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  box-sizing: border-box;
+  padding: 18px;
   background: #f5f5f5;
   align-content: start;
   gap: 6px;
   font: 400 12px/1.4 Inter, sans-serif;
   letter-spacing: 0;
-  transition: background-color 500ms ease, color 500ms ease;
 }
-.plan[data-pro] { background: #9747ff; color: #fff; }
+/* The new fill cross-fades in over the old (opacity only) */
+.planFace[data-pro] { background: #9747ff; color: #fff; opacity: 0; transition: opacity var(--dur-4) var(--ease-standard); }
+.planFace[data-pro][data-on] { opacity: 1; }
 .planName { font-weight: 600; font-size: 13px; }
 .planPrice { margin-top: 18px; font: 700 30px/1 Inter, sans-serif; letter-spacing: -1px; }
 .planLine { opacity: 0.6; }
@@ -70,18 +78,17 @@
   color: #fff;
   font-weight: 600;
   text-align: center;
-  transition: background-color 500ms ease, color 500ms ease;
 }
-.plan[data-pro] .planButton { background: #fff; color: #9747ff; }
-/* Figma's gap overlay while the gap is scrubbed: pink, hatched */
+.planFace[data-pro] .planButton { background: #fff; color: #9747ff; }
+/* Figma's gap overlay while the gap is scrubbed: pink, hatched; as wide as the widest gap, opened by a clip */
 .gap {
   position: absolute;
   top: 16px;
   left: 0;
+  width: 32px;
   height: 220px;
   background: repeating-linear-gradient(-45deg, rgba(255, 36, 189, 0.35) 0 1px, transparent 1px 5px), rgba(255, 36, 189, 0.12);
   opacity: 0;
-  transition: opacity 250ms ease;
 }
 .gap[data-on] { opacity: 1; }
 
@@ -127,9 +134,13 @@
 
 .device { box-sizing: border-box; padding: 10px; border-radius: 34px; background: #1e1e1e; }
 .deviceScreen { position: relative; width: 220px; height: 440px; overflow: hidden; border-radius: 24px; background: #fff; }
-.previewShop, .previewProduct { position: absolute; inset: 0; transition: opacity 500ms ease; }
+/* A replay cross-fades back to the list: the screen dims, its parts return at once, it comes back */
+.deviceScreen > * { transition: opacity var(--dur-1) var(--ease-standard); }
+.deviceScreen[data-resetting] > * { opacity: 0 !important; transition: opacity var(--dur-1) var(--ease-standard) !important; }
+.previewShop, .previewProduct { position: absolute; inset: 0; }
+.previewShop { transition: opacity var(--dur-2) var(--ease-standard); }
 .previewShop[data-out] { opacity: 0; }
-.previewProduct { opacity: 0; transition: opacity 500ms ease 150ms, transform 600ms var(--site-ease) 150ms; transform: translateY(16px); }
+.previewProduct { opacity: 0; transform: translate3d(0, 16px, 0); transition: opacity var(--dur-2) var(--ease-out) 180ms, transform var(--dur-4) var(--ease-out) 180ms; }
 .previewProduct[data-on] { opacity: 1; transform: none; }
 .previewHero {
   position: absolute;
@@ -139,7 +150,7 @@
   height: 220px;
   overflow: hidden;
   transform-origin: 0 0;
-  transition: transform 650ms cubic-bezier(0.33, 0, 0.2, 1);
+  transition: transform var(--dur-4) var(--ease-out), opacity var(--dur-1) var(--ease-standard);
 }
 .playChip {
   display: inline-flex;
@@ -154,13 +165,18 @@
   white-space: nowrap;
 }
 .noodle { position: absolute; top: 0; left: 0; z-index: 8; overflow: visible; pointer-events: none; }
-.noodle path { fill: none; stroke: #0d99ff; stroke-width: 2; }
+.noodle path { fill: none; stroke: #0d99ff; stroke-width: 2; stroke-dashoffset: 1; }
+.noodle[data-on] path { stroke-dashoffset: 0; }
 .noodle circle, .noodle .noodleHead { fill: #0d99ff; stroke: none; }
+.noodle circle { opacity: 0; transform: scale(0); transform-box: fill-box; transform-origin: center; transition: opacity var(--dur-1) var(--ease-out), transform var(--dur-spring-snap) var(--ease-spring-snap); }
+.noodle[data-on] circle { opacity: 1; transform: none; }
+.noodle .noodleHead { opacity: 0; transform: scale(0.2); transition: opacity var(--dur-1) var(--ease-out) 1000ms, transform var(--dur-spring-snap) var(--ease-spring-snap) 1000ms; }
+.noodle[data-on] .noodleHead { opacity: 1; transform: none; }
 
 /* ── Dev Mode: the order card, its measurements, Inspect's code ── */
 
 .devName { display: inline-flex; align-items: center; gap: 4px; color: rgba(0, 0, 0, 0.6); }
-.devStatus { margin-left: 6px; transition: opacity 400ms ease, transform 500ms var(--site-ease); }
+.devStatus { margin-left: 6px; transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-4) var(--ease-spring); }
 .devStatus[data-out] { opacity: 0; transform: translateX(-6px); }
 .order {
   box-sizing: border-box;
@@ -183,13 +199,11 @@
 .orderSteps span[data-done] i { border-color: #14ae5c; background: #14ae5c; }
 .orderButton { margin-top: auto; padding: 11px 0; border-radius: 10px; background: #f2f2f2; font-weight: 600; text-align: center; }
 
-.measure {
-  position: absolute;
-  z-index: 12;
-  background: #f24822;
-  transition: opacity 300ms ease;
-}
-.measure[data-out] { opacity: 0; }
+/* A measurement draws out from its start, then its number rises in */
+.measure { position: absolute; z-index: 12; }
+.measure i { position: absolute; inset: 0; background: #f24822; transform-origin: 0 0; transition: transform var(--dur-2) var(--ease-out); }
+.measure[data-dir="h"][data-out] i { transform: scaleX(0); }
+.measure[data-dir="v"][data-out] i { transform: scaleY(0); }
 .measure b {
   position: absolute;
   padding: 1px 4px;
@@ -198,13 +212,26 @@
   color: #fff;
   font: var(--ds-font-body-medium);
   font-weight: 400;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  transition: opacity var(--dur-1) var(--ease-out) 160ms, translate var(--dur-2) var(--ease-out) 160ms;
 }
+.measure[data-out] b { opacity: 0; translate: 0 3px; transition-delay: 0ms; }
 .measure[data-dir="h"] b { bottom: 6px; left: 50%; transform: translateX(-50%); }
 .measure[data-dir="v"] b { top: 50%; left: 6px; transform: translateY(-50%); }
 .code { padding: 0 8px 8px 16px; }
 .code pre { min-height: 152px; }
+/* The cover over the lines not written yet (the block's own colour), opened down by a clip (a transform would grow
+   the block's scroll area) */
+.code pre::after {
+  position: absolute;
+  inset: 0;
+  background: var(--figma-color-bg-secondary);
+  content: "";
+  clip-path: inset(calc(8px + var(--lines, 0) * 16px) 0 0 0);
+  transition: clip-path var(--dur-1) var(--ease-standard);
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .heroFrame > *, .heroPicture, .plan, .planButton, .gap, .previewShop, .previewProduct, .previewHero, .measure, .devStatus { transition: none; }
+  .heroFrame, .heroFrame > *, .plan, .plansBg, .planFace, .gap, .previewShop, .previewProduct, .previewHero, .measure, .devStatus { transition: none; }
 }

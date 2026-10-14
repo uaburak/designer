@@ -6,7 +6,8 @@ import { Button, IconButton } from "@/ds/components/Button";
 import { PanelSection } from "@/ds/components/PanelSection";
 import { Swatch } from "@/ds/components/Swatch";
 import { Icon } from "@/ds/icons/Icon";
-import { Collage, CURSOR, Cursor, FrameName, Piece } from "../collage/kit";
+import { around, Collage, CURSOR, Cursor, FrameName, Piece, usePointer } from "../collage/kit";
+import { BEZIER } from "../runtime/easing";
 import { noop } from "../collage/ui";
 import type { Run } from "../runtime/motion";
 import styles from "./features.module.css";
@@ -14,41 +15,39 @@ import styles from "./features.module.css";
 const OLD = "#9747FF";
 const NEW = "#0D99FF";
 
+const REVIEW: [number, number] = [336, 60];
+const UPDATE: [number, number] = [338, 306];
+
 export default function LibrariesCollage() {
   const [review, setReview] = useState(false);
   const [updated, setUpdated] = useState(false);
-  const [me, setMe] = useState<[number, number, boolean?]>([300, 380]);
+  const me = usePointer([300, 380]);
 
   const script = async (run: Run) => {
-    await run.wait(1400);
-    setMe([336, 60]);
-    await run.wait(1000);
-    setMe([336, 60, true]);
-    await run.wait(140);
-    setMe([336, 60]);
+    await run.wait(1300);
+    await me.click(run, REVIEW);
     setReview(true);
-    await run.wait(900);
-    setMe([334, 330]);
-    await run.wait(1100);
-    setMe([334, 330, true]);
-    await run.wait(140);
-    setMe([334, 330]);
+    await run.wait(700);
+    await me.click(run, UPDATE);
     setUpdated(true);
-    await run.wait(400);
-    setMe([250, 380]);
+    await run.wait(500);
+    await me.to(run, [250, 380], { ms: 1000, ease: BEZIER.standard });
+    await me.idle(run, around([250, 380], 16));
   };
 
   return (
     <Collage size={[400, 400]} script={script}>
       <Piece x={24} y={36} w={352} d={0}>
+        {/* The notice and the confirmation share one place: one leaves as the other arrives */}
         <div className={styles.libBanner}>
-          {updated ? (
-            <Banner icon="24.check">Orbit Design System is up to date</Banner>
-          ) : (
+          <div data-out={updated || undefined}>
             <Banner tone="brand" action={{ label: "Review", onClick: noop }}>
               1 library update available
             </Banner>
-          )}
+          </div>
+          <div data-out={!updated || undefined}>
+            <Banner icon="24.check">Orbit Design System is up to date</Banner>
+          </div>
         </div>
       </Piece>
       <FrameName x={40} y={140}>
@@ -56,13 +55,13 @@ export default function LibrariesCollage() {
           <Icon name="16.instance" /> Sign up
         </span>
       </FrameName>
-      <Piece x={40} y={140} w={140} h={40} d={150}>
-        <span className={styles.libChip} style={{ background: updated ? NEW : OLD }}>
+      <Piece x={40} y={140} w={140} h={40} d={80}>
+        <span className={styles.libChip} data-new={updated || undefined}>
           Sign up
         </span>
       </Piece>
 
-      <Piece surface x={96} y={176} w={296} show={review} from="scale">
+      <Piece surface x={96} y={176} w={296} show={review} from="scale" origin="240px -100px">
         <PanelSection title="Library updates" actions={<IconButton icon="24.close.small" label="Close" tone="secondary" />}>
           <div className={styles.libRow}>
             <span className={styles.libThumb}>
@@ -84,7 +83,7 @@ export default function LibrariesCollage() {
           <Button variant="primary">{updated ? "Updated" : "Update all"}</Button>
         </div>
       </Piece>
-      <Cursor x={me[0]} y={me[1]} press={me[2]} color={CURSOR.ink} d={400} z={30} />
+      <Cursor {...me.state} color={CURSOR.ink} d={300} z={30} />
     </Collage>
   );
 }

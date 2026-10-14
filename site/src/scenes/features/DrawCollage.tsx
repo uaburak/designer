@@ -8,7 +8,8 @@ import { ColorInput } from "@/ds/components/ColorInput";
 import { NumericInput } from "@/ds/components/NumericInput";
 import { PanelSection } from "@/ds/components/PanelSection";
 import { PropertyGrid, PropertyRow } from "@/ds/components/PropertyGrid";
-import { Collage, CURSOR, Cursor, FrameName, Piece, Selection } from "../collage/kit";
+import { Collage, CURSOR, Cursor, FrameName, Piece, Selection, usePointer } from "../collage/kit";
+import { BEZIER, css } from "../runtime/easing";
 import { FileHeader, FillSection, Layers, noop, PanelColumn, type Row } from "../collage/ui";
 import type { Run } from "../runtime/motion";
 import styles from "./features.module.css";
@@ -30,40 +31,36 @@ const SHAPE = `M ${A} C ${A[0] + 10} ${A[1] - 120}, ${HB[0]}, ${B} C ${HB[1]}, $
 const BOX = { x: A[0], y: B[1], w: C[0] - A[0], h: A[1] + 33 - B[1] };
 const LOGO = { x: 456, y: 140, w: 408, h: 360 };
 
+/** The curve's handles, pulled out with a drag, ms (the handles grow on the drag's curve). */
+const PULL = 700;
+
 export default function DrawCollage() {
   const [step, setStep] = useState(0); // anchors placed; 4 = closed
-  const [handles, setHandles] = useState(0); // 0…1, the curve's handles pulled out
+  const [handles, setHandles] = useState(false); // the curve's handles pulled out
   const [filled, setFilled] = useState(false);
-  const [me, setMe] = useState<[number, number, boolean?]>([400, 560]);
+  const me = usePointer([400, 560]);
 
   const script = async (run: Run) => {
-    const click = async (p: P) => {
-      setMe([p[0], p[1]]);
-      await run.wait(900);
-      setMe([p[0], p[1], true]);
-      await run.wait(140);
-    };
     await run.wait(800);
-    await click(A);
+    await me.click(run, A);
     setStep(1);
-    setMe([A[0], A[1]]);
-    await click(B);
+    await me.to(run, B);
+    await run.wait(120);
     setStep(2);
-    await run.tween(700, (t) => {
-      setHandles(t);
-      setMe([B[0] + (HB[1][0] - B[0]) * t, B[1] + (HB[1][1] - B[1]) * t, true]);
-    });
-    setMe([HB[1][0], HB[1][1]]);
-    await click(C);
+    await me.drag(run, HB[1], PULL, { start: () => setHandles(true) });
+    await me.click(run, C, { beat: 100 });
     setStep(3);
-    setMe([C[0], C[1]]);
-    await click(A);
+    await me.click(run, A, { beat: 100 });
     setStep(4);
-    setMe([A[0] + 16, A[1] + 14]);
-    await run.wait(700);
-    setMe([1100, 418]);
-    await run.wait(1000);
+    await me.to(run, [A[0] + 16, A[1] + 14], { ms: 420 });
+    await run.wait(500);
+    await me.click(run, [1100, 418]);
     setFilled(true);
+    await me.idle(run, [
+      [1060, 430],
+      [C[0] + 60, C[1] - 40],
+      [1100, 418],
+    ]);
   };
 
   const closed = step >= 4;
@@ -81,26 +78,25 @@ export default function DrawCollage() {
       <svg className={styles.pen} width="1312" height="640" viewBox="0 0 1312 640" aria-hidden="true">
         <path className={styles.penFill} d={SHAPE} data-on={filled || undefined} />
         {SEGMENTS.map((d, i) => (
-          <path key={i} className={styles.penStroke} d={d} pathLength={1} strokeDasharray="1" strokeDashoffset={step > i + 1 || (i === 2 && closed) ? 0 : 1} data-filled={filled || undefined} />
+          <path key={i} className={styles.penStroke} d={d} pathLength={1} strokeDasharray="1 1" data-on={step > i + 1 || (i === 2 && closed) || undefined} data-filled={filled || undefined} />
         ))}
-        {step >= 2 && (
-          <g className={styles.penHandles} style={{ opacity: closed ? 0 : handles }}>
-            <line x1={HB[0][0]} y1={HB[0][1]} x2={HB[1][0]} y2={HB[1][1]} />
-            <circle cx={HB[0][0]} cy={HB[0][1]} r="3.5" />
-            <circle cx={HB[1][0]} cy={HB[1][1]} r="3.5" />
-          </g>
-        )}
-        {[A, B, C].map((p, i) =>
-          step > i ? <rect key={i} className={styles.penAnchor} data-active={(!closed && step === i + 1) || undefined} x={p[0] - 4} y={p[1] - 4} width="8" height="8" /> : null,
-        )}
+        {/* The handles grow out of B as they are dragged (transform on the drag's own curve) */}
+        <g className={styles.penHandles} data-on={(handles && !closed) || undefined} style={{ transformOrigin: `${B[0]}px ${B[1]}px`, transition: `transform ${PULL}ms ${css(BEZIER.standard)}, opacity var(--dur-2) var(--ease-standard)` }}>
+          <line x1={HB[0][0]} y1={HB[0][1]} x2={HB[1][0]} y2={HB[1][1]} />
+          <circle cx={HB[0][0]} cy={HB[0][1]} r="3.5" />
+          <circle cx={HB[1][0]} cy={HB[1][1]} r="3.5" />
+        </g>
+        {[A, B, C].map((p, i) => (
+          <rect key={i} className={styles.penAnchor} data-on={step > i || undefined} data-active={(!closed && step === i + 1) || undefined} x={p[0] - 4} y={p[1] - 4} width="8" height="8" />
+        ))}
       </svg>
       <Selection box={BOX} size={`${BOX.w} × ${BOX.h}`} show={closed} handles />
 
-      <Piece surface x={56} y={64} w={240} d={150} from="left">
+      <Piece surface x={56} y={64} w={240} d={80} from="left">
         <FileHeader name="Orbit — Brand" />
         <Layers rows={rows} />
       </Piece>
-      <Piece surface x={1016} y={64} w={240} d={300} from="right">
+      <Piece surface x={1016} y={64} w={240} d={160} from="right">
         <PanelColumn>
           <PanelSection title="Vector" pad="none" />
           <FillSection hex={filled ? "14AE5C" : "D9D9D9"} />
@@ -117,12 +113,12 @@ export default function DrawCollage() {
           </PanelSection>
         </PanelColumn>
       </Piece>
-      <Piece x={406} y={556} w={500} h={60} d={400}>
+      <Piece x={406} y={556} w={500} h={60} d={240}>
         <div className={styles.toolbarSlot}>
           <EditorToolbar floating tool="pen" mode="design" onMode={noop} onTool={noop} />
         </div>
       </Piece>
-      <Cursor x={me[0]} y={me[1]} press={me[2]} instant={step === 2 && handles > 0 && handles < 1} color={CURSOR.ink} d={300} z={30} />
+      <Cursor {...me.state} color={CURSOR.ink} d={300} z={30} />
     </Collage>
   );
 }
