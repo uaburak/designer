@@ -4,38 +4,6 @@
 /* The floating bottom toolbar, in a slot of its own */
 .toolbarSlot { position: relative; width: 100%; height: 100%; }
 
-/* ── Hero: Lumen's page ── */
-
-/* Drawn by a clip from its top-left corner (the drag's curve, set inline): no size ever animates */
-.heroFrame {
-  position: absolute;
-  overflow: hidden;
-  background: #fff;
-  color: #1e1e1e;
-  clip-path: inset(0 100% 100% 0);
-}
-.heroFrame[data-drawn] { clip-path: inset(0); }
-.heroFrame > * { position: absolute; transition: opacity var(--dur-3) var(--ease-out), transform var(--dur-4) var(--ease-out); }
-.heroFrame > [data-out] { opacity: 0; transform: translate3d(0, 10px, 0); transition-duration: 0ms; }
-.heroNav { top: 20px; right: 28px; left: 32px; display: flex; align-items: center; gap: 8px; font: 600 14px/20px Inter, sans-serif; }
-.heroLogo { width: 16px; height: 16px; border-radius: 50%; background: #0d99ff; }
-.heroLinks { margin-left: auto; color: #6b6b6b; font-weight: 500; font-size: 12px; }
-.heroHeadline { top: 92px; left: 32px; font: 700 30px/1.06 Inter, sans-serif; letter-spacing: -1px; }
-.heroHeadline::after {
-  display: block;
-  width: 220px;
-  margin-top: 14px;
-  color: #6b6b6b;
-  font: 400 13px/1.45 Inter, sans-serif;
-  letter-spacing: 0;
-  content: "Hour by hour, with a nudge before the rain and a plan for every day of it.";
-}
-.heroButtons { top: 236px; left: 32px; display: flex; gap: 8px; font: 600 13px/36px Inter, sans-serif; }
-.heroButtons span { height: 36px; padding: 0 16px; border-radius: 8px; background: #f1f1f1; }
-.heroButtons span:first-child { width: 104px; box-sizing: border-box; padding: 0; background: #1e1e1e; color: #fff; text-align: center; }
-.heroImage { top: 92px; left: 290px; width: 186px; height: 190px; overflow: hidden; border-radius: 14px; background: #f0f0f0; }
-.heroImageEmpty { position: absolute; inset: 0; display: grid; color: #b3b3b3; place-items: center; }
-
 /* ── Design: the plan cards in their auto layout frame ── */
 
 .plans { color: #1e1e1e; }
