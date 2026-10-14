@@ -10,7 +10,7 @@ import { parseColorValue } from "@shared/agents/docSchema";
 import { textResult, type ToolResult } from "@shared/agents/tools";
 import { devicePreset, guidOf, liveInteractions, newInteractionId, nextFlowName, type PrototypeInteraction, type PrototypeStartingPoint } from "../model/prototype";
 import type { ToolEnv } from "./mcpTools";
-import { ToolError } from "./toolError";
+import { explicitNodeIds, ToolError } from "./toolError";
 import { normId, type Spec } from "./nodeSpec";
 import { docInteractions, isDocShape, reactionsFromDoc, reactionToDoc, settingsFromDoc, settingsToDoc, SETTING_KEYS, type Errors, type OverlayWrite, type ProtoLookup, type ProtoNodeInfo } from "./prototypeSpec";
 
@@ -83,17 +83,10 @@ function result(env: ToolEnv, ids: Guid[], extra: Obj = {}): ToolResult {
   return r;
 }
 
-function nodeRefs(args: Spec): unknown[] {
-  if (Array.isArray(args.nodeIds) && args.nodeIds.length) return args.nodeIds;
-  if (args.nodeId !== undefined) return [args.nodeId];
-  return [];
-}
-
 export function addInteractionTool(env: ToolEnv, args: Spec): ToolResult {
   const look = protoLookup(env);
-  const refs = nodeRefs(args);
-  const sources = refs.length ? refs.map((r) => sourceInfo(env, look, r)) : env.ed.selection.map((id) => sourceInfo(env, look, id));
-  if (!sources.length) throw new ToolError("nodeId: the layer to add the interaction to (nothing is selected).");
+  // The layers it names only — never the user's selection (explicitNodeIds).
+  const sources = explicitNodeIds(args, "add_interaction").map((r) => sourceInfo(env, look, r));
   const errors: Errors = [];
   const overlays: OverlayWrite[] = [];
   const made = sources.map((s) => reactionToDoc({ trigger: args.trigger, ...(args.actions !== undefined ? { actions: args.actions } : { action: args.action }) }, look, s, "", errors, overlays));
@@ -134,9 +127,7 @@ export function updateInteractionTool(env: ToolEnv, args: Spec): ToolResult {
 
 export function removeInteractionTool(env: ToolEnv, args: Spec): ToolResult {
   const look = protoLookup(env);
-  const refs = nodeRefs(args);
-  if (!refs.length) throw new ToolError("nodeId: the layer whose interaction to remove.");
-  const sources = refs.map((r) => sourceInfo(env, look, r));
+  const sources = explicitNodeIds(args, "remove_interaction").map((r) => sourceInfo(env, look, r));
   if (args.all !== true && sources.length > 1) throw new ToolError("index / interactionId pick one interaction of one layer; for several layers pass all: true.");
   const plan = sources.map((s) => ({ s, keep: args.all === true ? [] : ((i) => liveOf(env, s.id).filter((_, k) => k !== i))(pickIndex(env, s.id, args)) }));
   env.write("Remove interaction", () => plan.forEach((p) => writeInteractions(env, p.s.id, p.keep)));

@@ -97,21 +97,30 @@ const MAX_NODES = 600;
 
 type Tree = { node: NodeChange; children: Tree[] };
 
-import { ToolError } from "./toolError";
+import { explicitNodeIds, ToolError } from "./toolError";
 export { ToolError };
 
-/** The refs a call is about: `nodeId` / `nodeIds`, else the selection. */
+function existing(env: ToolEnv, ids: Guid[]): Guid[] {
+  const missing = ids.filter((id) => !env.ed.engine.readNode(id, { fields: ["name"] }));
+  if (missing.length) throw new ToolError(`No layer ${missing.join(", ")} in this file. Use get_metadata to find ids.`);
+  return ids;
+}
+
+/** The refs a read is about: `nodeId` / `nodeIds`, else the selection (else the page, `fallbackToPage`). */
 function targets(env: ToolEnv, args: Spec, fallbackToPage = false): Guid[] {
   const ids = Array.isArray(args.nodeIds) ? (args.nodeIds as unknown[]).map(normId).filter(Boolean) : args.nodeId ? [normId(args.nodeId)] : [];
-  if (ids.length) {
-    const missing = ids.filter((id) => !env.ed.engine.readNode(id, { fields: ["name"] }));
-    if (missing.length) throw new ToolError(`No layer ${missing.join(", ")} in this file. Use get_metadata to find ids.`);
-    return ids;
-  }
+  if (ids.length) return existing(env, ids);
   const sel = env.ed.selection;
   if (sel.length) return [...sel];
   if (fallbackToPage) return [];
   throw new ToolError("Nothing is selected: pass a nodeId (get_metadata lists the page's layers).");
+}
+
+/** The refs a write is about: only the ids it names — never the user's selection (explicitNodeIds). */
+function writeTargets(env: ToolEnv, args: Spec, tool: string): Guid[] {
+  const ids = explicitNodeIds(args, tool).map(normId).filter(Boolean);
+  if (!ids.length) throw new ToolError(`${tool}: no nodes given — the ids aren't layer ids ("123:456").`);
+  return existing(env, ids);
 }
 
 const read = (env: ToolEnv, id: Guid, fields?: string[]) => env.ed.engine.readNode(id, { childIds: true, ...(fields ? { fields } : {}) });
@@ -683,7 +692,7 @@ function updateNodes(env: ToolEnv, args: Spec): ToolResult {
 
 /** set_properties: document fields straight to the engine (schema names and shapes), read back. */
 function setPropertiesTool(env: ToolEnv, args: Spec): ToolResult {
-  const refs = targets(env, { nodeIds: args.nodeIds, nodeId: args.nodeId });
+  const refs = writeTargets(env, args, "set_properties");
   const props = args.properties && typeof args.properties === "object" ? (args.properties as Record<string, unknown>) : null;
   if (!props) throw new ToolError("properties: an object of document fields (schema/document.kiwi names), e.g. {stackSpacing: 8, effects: [...]}");
   const nc = MODEL.def("NodeChange");
@@ -745,14 +754,14 @@ const toolOf = (field: string, v: unknown) => {
 };
 
 function deleteNodes(env: ToolEnv, args: Spec): ToolResult {
-  const refs = targets(env, { nodeIds: args.nodeIds });
+  const refs = writeTargets(env, { nodeIds: args.nodeIds }, "delete_nodes");
   env.write("Delete layers", () => env.ed.engine.command("DELETE"), refs);
   const left = refs.filter((id) => read(env, id, ["name"]));
   return textResult(left.length ? { deleted: refs.length - left.length, notDeleted: left, reason: "locked, a library copy, or inside an instance" } : { deleted: refs.length }, left.length === refs.length);
 }
 
 function duplicateNodes(env: ToolEnv, args: Spec): ToolResult {
-  const refs = targets(env, { nodeIds: args.nodeIds });
+  const refs = writeTargets(env, { nodeIds: args.nodeIds }, "duplicate_nodes");
   let copies: Guid[] = [];
   const problems: string[] = [];
   env.write("Duplicate", () => {
@@ -783,7 +792,7 @@ function duplicateNodes(env: ToolEnv, args: Spec): ToolResult {
 }
 
 function reparentNodes(env: ToolEnv, args: Spec): ToolResult {
-  const refs = targets(env, { nodeIds: args.nodeIds });
+  const refs = writeTargets(env, { nodeIds: args.nodeIds }, "reparent_nodes");
   const parent = must(env, normId(args.parentId));
   const index = typeof args.index === "number" ? args.index : (parent.childIds?.length ?? 0);
   const into = refs.filter((id) => id === parent.guid || isAncestor(env, id, parent.guid));
@@ -855,7 +864,7 @@ function bindTargets(field: string): string[] | null {
 const BIND_HELP = 'field: characters (STRING), visible (BOOLEAN), opacity, width, height, min/maxWidth/Height, itemSpacing, counterAxisSpacing, padding / paddingTop…, cornerRadius / topLeftRadius…, strokeWeight / strokeTopWeight…, fontFamily, fontStyle, fontSize, lineHeight, letterSpacing, paragraphSpacing, paragraphIndent, gridRowGap, gridColumnGap, "fills[i]" / "fills[i].opacity" / "fills[i].stops[j]" / "strokes[i]", "effects[i].color|radius|spread|x|y", "layoutGrids[i].numSections|sectionSize|gutterSize|offset", "componentProperties.<name>"';
 
 function bindVariableTool(env: ToolEnv, args: Spec): ToolResult {
-  const refs = targets(env, { nodeIds: args.nodeIds, nodeId: args.nodeId });
+  const refs = writeTargets(env, args, "bind_variable");
   const field = String(args.field ?? "");
   const tg = bindTargets(field);
   if (!tg) throw new ToolError(`Unknown field "${field}". ${BIND_HELP}.`);
@@ -1025,7 +1034,7 @@ function setVariableModeTool(env: ToolEnv, args: Spec): ToolResult {
   const c = collectionOf(env, args.collectionId);
   const mode = args.mode === null || args.mode === "auto" ? "" : modeOf(c, args.mode);
   const isPage = (id: Guid) => read(env, id, ["type"])?.type === "CANVAS";
-  const refs = targets(env, { nodeIds: args.nodeIds, nodeId: args.nodeId });
+  const refs = writeTargets(env, args, "set_variable_mode");
   env.write("Apply variable mode", () => {
     for (const id of refs) run(env, "SET_VARIABLE_MODE", isPage(id) ? { page: id, collection: c.id, mode } : { refs: [id], collection: c.id, mode });
   });
@@ -1066,7 +1075,7 @@ function createStyleTool(env: ToolEnv, tool: string, args: Spec): ToolResult {
 }
 
 function applyStyleTool(env: ToolEnv, args: Spec): ToolResult {
-  const refs = targets(env, { nodeIds: args.nodeIds });
+  const refs = writeTargets(env, { nodeIds: args.nodeIds }, "apply_style");
   const slot = String(args.slot ?? "") as "fill" | "stroke" | "text" | "effect" | "grid";
   if (!["fill", "stroke", "text", "effect", "grid"].includes(slot)) throw new ToolError("slot: fill, stroke, text, effect or grid");
   const style = args.styleId === null ? null : normId(args.styleId);
@@ -1083,12 +1092,12 @@ function listCommands(env: ToolEnv, args: Spec): ToolResult {
   const q = typeof args.query === "string" ? args.query.toLowerCase() : "";
   const editor = COMMANDS.filter((c) => !q || c.id.toLowerCase().includes(q) || c.label.toLowerCase().includes(q)).map((c) => ({ id: c.id, label: c.label, ...(c.keys?.length ? { shortcut: comboText(c.keys[0]) } : {}), enabled: isEnabled(env.ed, c) }));
   const engine = Object.keys(CommandId).filter((n) => !q || n.toLowerCase().includes(q) || (ENGINE_COMMAND_DOCS[n] ?? "").toLowerCase().includes(q)).map((n) => ({ name: n, args: ENGINE_COMMAND_DOCS[n] ?? "" }));
-  return textResult({ editorCommands: editor, engineCommands: engine, how: 'run_command {command: "<editor id>", nodeIds?} runs a menu / shortcut command on those layers (default: the selection); run_command {engineCommand: "<NAME>", args: {...}} runs an engine command with its arguments (refs: layer ids; created ids come back).' });
+  return textResult({ editorCommands: editor, engineCommands: engine, how: 'run_command {command: "<editor id>", nodeIds?} runs a menu / shortcut command on those layers (never the user\'s selection: without nodeIds nothing is selected); run_command {engineCommand: "<NAME>", args: {...}} runs an engine command with its arguments (refs: layer ids; created ids come back).' });
 }
 
 function runCommandTool(env: ToolEnv, args: Spec): ToolResult {
-  const nodeIds = Array.isArray(args.nodeIds) ? (args.nodeIds as unknown[]).map(normId) : [];
-  if (nodeIds.length) targets(env, { nodeIds });
+  // On the layers it names only: without nodeIds it runs with nothing selected (never on the user's selection).
+  const nodeIds = args.nodeIds !== undefined || args.nodeId !== undefined ? writeTargets(env, args, "run_command") : [];
   if (typeof args.command === "string") {
     const c = COMMAND_BY_ID.get(args.command);
     if (!c) throw new ToolError(`No editor command ${args.command} (list_commands lists them).`);
@@ -1098,8 +1107,8 @@ function runCommandTool(env: ToolEnv, args: Spec): ToolResult {
       ran = isEnabled(env.ed, c);
       if (ran) c.run(env.ed);
       after = [...env.ed.selection];
-    }, nodeIds.length ? nodeIds : [...env.ed.selection]);
-    if (!ran) return textResult(`"${c.label}" is not available for ${nodeIds.length ? nodeIds.join(", ") : "the current selection"} (disabled in the app's menus).`, true);
+    }, nodeIds);
+    if (!ran) return textResult(`"${c.label}" is not available ${nodeIds.length ? `for ${nodeIds.join(", ")}` : "with no layers given — pass nodeIds"} (disabled in the app's menus).`, true);
     return textResult({ ran: c.id, label: c.label, selection: after.filter((id) => read(env, id, ["name"])).map((id) => brief(env, read(env, id)!)) });
   }
   if (typeof args.engineCommand === "string") {
@@ -1111,7 +1120,7 @@ function runCommandTool(env: ToolEnv, args: Spec): ToolResult {
     env.write(name, () => {
       r = env.ed.engine.runCommand(name as never, Object.keys(a).length ? (a as never) : undefined);
       after = [...env.ed.engine.getSelection().refs];
-    }, nodeIds.length ? nodeIds : [...env.ed.selection]);
+    }, nodeIds);
     if (r.status !== 0) return textResult(`${name} was refused by the engine (status ${r.status}${r.status === -3 ? ": invalid arguments or nothing it applies to" : r.status === -6 ? ": read-only" : r.status === -8 ? ": not supported" : ""}). Arguments: ${ENGINE_COMMAND_DOCS[name] ?? "see list_commands"}.`, true);
     const out = textResult({ ran: name, created: r.created, selection: after.filter((id) => read(env, id, ["name"])).map((id) => brief(env, read(env, id)!)) });
     out.touched = [...r.created, ...nodeIds];
@@ -1131,7 +1140,7 @@ function setPageTool(env: ToolEnv, args: Spec): ToolResult {
 }
 
 function setSelectionTool(env: ToolEnv, args: Spec): ToolResult {
-  const refs = targets(env, { nodeIds: args.nodeIds });
+  const refs = writeTargets(env, { nodeIds: args.nodeIds }, "set_selection");
   const page = pageOf(env, refs[0]);
   const onPage = refs.filter((id) => pageOf(env, id) === page);
   if (env.requestSelection) {
