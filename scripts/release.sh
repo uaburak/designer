@@ -187,7 +187,13 @@ const files = { mac: { name: macName, size: Number(macSize) } };
 if (winName) files.windows = { name: winName, size: Number(winSize) };
 const notes = notesFile ? fs.readFileSync(notesFile, "utf8").trim() : "";
 const releases = [{ version, date, notes, files }, ...list.filter((r) => r && r.version !== version)];
+// Only the newest KEEP releases keep their files (the newest, and the one before it for a download already under way
+// or a step back); older entries stay for the changelog without files, and their versions are listed for deletion
+const KEEP = 2;
+const prune = [];
+releases.forEach((r, i) => { if (i >= KEEP && r.files) { prune.push(r.version); delete r.files; } });
 fs.writeFileSync(out, JSON.stringify({ releases }, null, 2) + "\n");
+fs.writeFileSync(out + ".prune", prune.join("\n"));
 ' "$1" "$NEXT" "$VERSION" "$(date +%Y-%m-%d)" "$NOTES" \
         "$(basename "$DMG")" "$(size_of "$DMG")" \
         "${SETUP:+$(basename "$SETUP")}" "${SETUP:+$(size_of "$SETUP")}"
@@ -222,6 +228,21 @@ else
 fi
 make_releases "$CURRENT_JSON" || die "couldn't make the new releases.json"
 put "releases.json" "$NEXT"
+
+# Older releases' files leave the bucket (releases.json no longer names them, so no download points at them)
+step "Removing older releases' files"
+while read -r OLD; do
+    [[ -n "$OLD" ]] || continue
+    for name in "Wecra-$OLD.dmg" "Wecra-$OLD.dmg.blockmap" "Wecra-$OLD-arm64-mac.zip" "Wecra-$OLD-arm64-mac.zip.blockmap" \
+        "Wecra-Setup-$OLD.exe" "Wecra-Setup-$OLD.exe.blockmap"; do
+        if [[ $DRY_RUN == 1 ]]; then
+            echo "  [dry run] npx --prefix site wrangler r2 object delete $BUCKET/updates/$name --remote"
+        else
+            # A file that was never uploaded (no Windows build that time) is fine
+            wrangler r2 object delete "$BUCKET/updates/$name" --remote >/dev/null 2>&1 && echo "  updates/$name"
+        fi
+    done
+done < "$NEXT.prune"
 if [[ $DRY_RUN == 1 ]]; then
     echo "  The new releases.json (on an empty list):"
     sed 's/^/    /' "$NEXT"
