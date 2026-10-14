@@ -44,6 +44,7 @@ const nodeSpec: Record<string, unknown> = {
     type: { enum: ["FRAME", "RECTANGLE", "ELLIPSE", "TEXT", "LINE", "GROUP", "POLYGON", "STAR", "SECTION"], description: "GROUP needs children. Components, instances, vectors, boolean groups: run_command (list_commands)." },
     ...layerProps,
     image: imageArg,
+    svg: { type: "string", description: "SVG markup: the layer is made from it as Figma's createNodeFromSvg does — a frame holding its vectors (paths, shapes; text and images left out), placed on top of parentId; the other properties then apply to that frame. Made after the other specs of the call." },
     children: { type: "array", items: { type: "object" }, description: "Nested node specs (same shape), created inside this one in order." },
   },
   required: ["type"],

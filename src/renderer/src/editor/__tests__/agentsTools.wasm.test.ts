@@ -50,6 +50,30 @@ const json = (r: ToolResult) => {
   return t.startsWith("{") || t.startsWith("[") ? JSON.parse(t) : t;
 };
 
+describe("MCP tools: SVG", () => {
+  it("makes an SVG's vectors in a parent on another page (createNodeFromSvg), leaving the page in front and the selection", async () => {
+    const { ed, engine, call } = await editor();
+    const front = engine.getSelection().pageId;
+    json(await call("run_command", { engineCommand: "CREATE_PAGE" }));
+    const pageId = engine.pages().at(-1)!.guid;
+    engine.setCurrentPage(front);
+    const host = json(await call("create_nodes", { parentId: pageId, nodes: [{ type: "FRAME", name: "Icon", width: 24, height: 24, fills: [] }] })).created[0].id;
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M7 12h10M12 7v10" fill="none" stroke="#000" stroke-width="1"/><path d="M4 4h4v4H4z" fill="#000"/></svg>';
+    const r = json(await call("create_nodes", { parentId: host, nodes: [{ type: "FRAME", svg, name: "Glyph", x: 0, y: 0 }] }));
+    expect(r.created, JSON.stringify(r)).toHaveLength(1);
+    const node = engine.readNode(r.created[0].id, { childIds: true })!;
+    expect(node.name).toBe("Glyph");
+    expect(node.parentIndex?.guid).toBe(host);
+    const kids = (node.childIds ?? []).map((c) => engine.readNode(c)!);
+    expect(kids.map((k) => k.type)).toEqual(["VECTOR", "VECTOR"]);
+    expect(kids[0].strokePaints?.length).toBe(1);
+    expect(kids[1].fillPaints?.length).toBe(1);
+    expect(engine.getSelection().pageId).toBe(front);
+    expect(engine.getSelection().refs).toEqual([]);
+    void ed;
+  });
+});
+
 describe("MCP tools: effects, paints, strictness", () => {
   it("writes GLASS with every parameter (and the Plugin API names), reads it back the same; keeps it on unrelated updates", async () => {
     const { engine, call } = await editor();

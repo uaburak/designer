@@ -22,6 +22,7 @@ import { base64Bytes, isImageArg, MAX_IMAGE_BYTES, sniffImage, type ImageArg } f
 import { mediaPaint } from "../model/paints";
 import type { ImportedImage } from "../images";
 import { landInBox, type Box } from "./imagePlaceholder";
+import { svgToMessage } from "../model/svgImport";
 import { codeConnectSnippets, type CodeConnectSource, type ViewSnippet } from "../../../../viewer/inspect/codeConnect";
 import { editorDevData } from "../devmode/round5";
 import { addInteractionTool, getPrototypeTool, prototypeContext, prototypeField, prototypeOf, removeFlowTool, removeInteractionTool, setFlowTool, setPrototypeSettingsTool, updateInteractionTool } from "./prototypeTools";
@@ -589,10 +590,35 @@ async function placeImageTool(env: ToolEnv, args: Spec): Promise<ToolResult> {
 
 // ---- Writes: layers -------------------------------------------------------------------------------------------------
 
+/**
+ * An SVG's layers in `parent` (Figma's figma.createNodeFromSvg: a frame holding its vectors, at 0, 0), on top: the
+ * editor's own SVG import (model/svgImport.ts, what a paste of SVG makes), its layers given fresh ids and applied in
+ * the write as any created layer (a paste can't run inside a write, and would land on the page in front).
+ */
+function createFromSvg(env: ToolEnv, svg: string, parent: Guid, session: number): Guid | null {
+  const { message } = svgToMessage(svg);
+  if (!message?.nodeChanges.length) return null;
+  const ids = new Map<Guid, Guid>();
+  for (const c of message.nodeChanges) if (c.guid) ids.set(c.guid, newNodeGuid(env.ed));
+  const top = message.nodeChanges[0];
+  const nodeChanges = message.nodeChanges.map((c) => ({
+    ...c,
+    guid: ids.get(c.guid!)!,
+    phase: "CREATED",
+    ...(c === top ? { transform: { ...IDENTITY }, parentIndex: { guid: parent, position: topKey(env, parent) } } : { parentIndex: { guid: ids.get(c.parentIndex!.guid) ?? parent, position: c.parentIndex!.position } }),
+  })) as NodeChange[];
+  const status = env.ed.engine.applyChanges({ ...message, sessionID: session, nodeChanges }, "user");
+  if (status !== 0) throw new ToolError(`The engine refused the SVG's layers (status ${status}).`);
+  return ids.get(top.guid!)!;
+}
+
 /** create_nodes (also First Draft's apply, editor/ai: inside its own write, `env.write` running `fn` as it is). */
 export function createNodes(env: ToolEnv, args: Spec): ToolResult {
-  const specs = Array.isArray(args.nodes) ? (args.nodes as Spec[]) : [];
-  if (!specs.length) throw new ToolError("nodes: give at least one spec");
+  const all = Array.isArray(args.nodes) ? (args.nodes as Spec[]) : [];
+  if (!all.length) throw new ToolError("nodes: give at least one spec");
+  // `svg` specs: the SVG's layers as Figma's createNodeFromSvg makes them (a frame of vectors), made after the rest
+  const specs = all.filter((s) => typeof s.svg !== "string");
+  const svgs = all.filter((s) => typeof s.svg === "string");
   const parentId = args.parentId ? normId(args.parentId) : currentPage(env);
   if (!parentId) throw new ToolError("No page to create on.");
   const parent = must(env, parentId);
@@ -633,8 +659,18 @@ export function createNodes(env: ToolEnv, args: Spec): ToolResult {
       key = keyAfter(key);
     });
     const message: Message = { type: "NODE_CHANGES", sessionID: session, nodeChanges: changes };
-    const status = env.ed.engine.applyChanges(message, "user");
+    const status = changes.length ? env.ed.engine.applyChanges(message, "user") : 0;
     if (status !== 0) throw new ToolError(`The engine refused the layers (status ${status}).`);
+    svgs.forEach((spec, i) => {
+      const made = createFromSvg(env, spec.svg as string, parent.guid, session);
+      if (!made) {
+        typeErrors.push({ property: `svg nodes[${i}].svg`, reason: "the SVG draws nothing (paths, shapes; text and images are left out)" });
+        return;
+      }
+      created.push(made);
+      const { svg: _svg, type: _type, children: _children, ...props } = spec;
+      later.push({ id: made, spec: props });
+    });
     // Parents before children (auto layout first), sizing after (FILL / HUG need the parent's layout).
     for (const l of later) results.push(applySpec(env, l.id, l.spec, { creating: true, skip: ["layoutSizingHorizontal", "layoutSizingVertical", "width", "height", "x", "y"] }));
     for (const l of [...later].reverse()) {
