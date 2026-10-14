@@ -23,33 +23,24 @@ The site and the update feed read the same files, so a release updates both with
   - It uploads the files to R2 with `npx wrangler r2 object put wecra-releases/updates/<file> --file … --remote` (yml files last, so the feed never points at a missing file) and rewrites `releases.json` (newest first, with the notes' Markdown).
   - **Transition:** while `MIRROR_GITHUB=1` (the default until the owner turns it off), it also prints the `gh release create` as today. Installed copies of 1.1.x still read GitHub, so the first R2 release must also be on GitHub; they update to it and from then on read R2. Only then may the repository go private (§4).
 
-## 2. Pages — v2 (owner, 2026-10-14: "the animation ideas are right but it feels amateur")
+## 2. Pages — v3 (owner, 2026-10-14: "start over, minimal, like figma.com, but with our animations")
 
-v1 (SVG scenes drawn after the app) is replaced. The owner's four rules:
-
-1. **Light by default**, with a theme toggle in the header (light ↔ dark). The choice is kept in `localStorage`, and the first visit is always light.
-2. **Every section is full screen** (100svh), and its scene fills it. (Owner, 2026-10-14, replacing the first wording.)
-   - **Only the home hero is interactive**: the live engine editor. Every other scene is a **watch-only animation**: no drag, click or typing, nothing that yields to the visitor; it plays (and loops) while it is in view, and starts over when it comes back. Its container is inert; the section's text says what it shows.
-   - **The hero grows with the scroll.** It starts as a framed window under the headline; as the visitor scrolls it scales up until it fills the viewport, then **stays pinned full screen** for about 170vh (a tall track with a sticky viewport) so the visitor can use it, and then scrolls away normally. It is driven by the scroll position (a rAF scroll handler writing transforms only: `site/src/scripts/heroScroll.ts`). The header steps aside while it is pinned.
-   - While pinned and full screen the visitor can select, move, resize and draw a frame. The wheel still scrolls the page, also over the canvas; ⌘ / Ctrl + wheel (and a pinch) zoom the canvas. Before it is full screen it takes no input. On a touch phone the canvas loads and takes touches only after "Tap to edit", so the page keeps scrolling.
-   - Scroll moves between sections; snapping is gentle (`scroll-snap-type: y proximity`, with a snap point where the hero is full screen), never hijacked.
-3. **AI is told in depth** on its own page, one full-screen section each:
-   - the AI actions (Rename layers, Rewrite / Shorten / Translate, Replace content, Add interactions, First Draft);
-   - the image tools (Make an image, Edit with prompt, Remove background, Boost resolution, Expand, Erase, Isolate, Vectorize — and which run locally on the visitor's machine);
-   - visual search;
-   - Agents and MCP (Claude Code, Codex, Antigravity, Cursor, or a local model such as Ollama / LM Studio, working on the canvas with real tool names; Skills; connectors with consent);
-   - Studio (the manager handing a request to several agents at once; brands and products; posts and stories from product photos; the review and fix loop);
-   - credits and privacy (your own providers and keys, local models, nothing sent to us).
-   Read `docs/ai.md` and `docs/studio.md` so every claim is true.
-4. **The app is drawn with the app's own code, 1:1.**
-   - The site's scenes are React, built from `src/renderer/src/ds`: its components (Button, PanelSection, PropertyGrid, LayerRow, NumericInput, SegmentedControl, Menu, Rail, the toolbar, the icons) and its tokens (`tokens.css` and `global.css` in the scene scope), imported through a Vite alias. Do not copy them.
-   - Where the app's real panels can render with fake data, use them.
-   - **The canvas is the real engine** wherever a scene shows a canvas worth touching, as `?engine`'s Playground does (`src/renderer/src/engine/EngineCanvas.tsx`, `loadEngine.ts`, `sampleDocument.ts`): the hero is a real, editable canvas. The engine (~1.7 MB gzipped) loads after the first paint, with the scene's still frame shown until it is ready. Where a live engine is too heavy (several on one page, phones), draw that part with the same components over a canvas snapshot, and say so in the code.
-   - The site's own text, headings and marketing layout stay the site's, with a quiet, premium feel: large type, plenty of space, restrained colour from the tokens. It must not read like a template.
-
-Pages: `/` (hero = the real editor, then full-screen sections: design, prototype, Dev Mode, libraries and multiplayer, AI teaser, download), `/features/`, `/ai/`, `/download/`, `/changelog/`, `404`. The shared header (logo, Features, AI, Changelog, theme toggle, Download) and footer stay.
-
-Budgets: the page shell ≤ 150 KB gzipped of JS (React and the ds included), and the engine loaded only on demand. No third-party requests. `prefers-reduced-motion`: the scenes stay on their first frame, no snapping, and the hero goes from framed to full screen without the in-between. Phones: the hero works with touch, and no horizontal scroll at 360 px.
+v1 (SVG scenes) and v2 (full-screen app windows) are both rejected. v3 starts over from **figma.com's art direction**, studied on 2026-10-14. We follow the direction but copy none of its assets, fonts or text:
+- **White page, black text, almost no chrome.** A thin header: logo, three links, a black "Download" button (radius 8, padding 12×22, 16–18 px). No gradients on text, no shadows anywhere, no borders around sections, no cards with outlines.
+- **Type does the work.**
+  - Body face: Inter at **weight 400** for headings too, with tight tracking. Sizes: hero 56–72 px / −1.25 px tracking, line-height 1.0; section headings 44 px / −0.66 px; sub-headings 30 px / −0.66 px; body 16–18 px.
+  - Small labels, eyebrows and captions are in a **monospace** face, 13–14 px, +0.5 px tracking (self-host JetBrains Mono or IBM Plex Mono, OFL; include the licence).
+- **Layout:** a 12-column grid with max width ~1312 px and 80 px vertical section padding. Sections are about one viewport tall but not forced. Headline left-aligned with a short line under it, then the visual. Generous whitespace.
+- **Visuals are colour fields with the product inside.**
+  - Each feature gets a large rounded tile (radius 16–24) filled with **one flat, soft colour** (lavender, lime, coral, sky, sand: pick 5–6 from the app's palette, flat and never a gradient).
+  - On it sits a **collage of real app UI** built with the app's own `ds` components (panels, layer rows, property fields, toolbar, comment bubbles, cursors, AI prompt card, Studio task cards), cropped, overlapping and slightly offset, **without window chrome** (no title bars or traffic lights).
+  - The collage **animates**: pieces slide in and settle, values change, cursors move, a frame gets drawn, an image fills in, tasks tick off. Slow, smooth and loop-free where possible (play once on enter, then idle micro-motion).
+- **Motion is tasteful:** transform and opacity only, 400–700 ms ease-out, staggered, in on scroll. Text fades up slightly. Nothing bounces, nothing is gimmicky. Under `prefers-reduced-motion`, everything shows its end state.
+- **Interactivity is minimal:** one place only, a "Try it" tile on `/` where the live engine canvas (`EngineCanvas` with `sampleDocument`, as v2 built it) can be touched. It loads on demand when the tile nears the viewport, with no pinning and no scroll hijack. Everything else is watch-only.
+- **Light only by default.** Keep the small theme toggle (dark is the app's dark tokens); tiles keep their colours in both themes.
+- **Pages:** `/` (hero headline + one big collage tile; a row of 3 small feature tiles; Design; Prototype; Dev Mode; AI and Studio; Try it; a download band; footer), `/features/`, `/ai/` (as in v2's list: actions, image tools, visual search, agents and MCP, Studio, credits and privacy, each one tile and a short text), `/download/`, `/changelog/`, `404`.
+- **Footer:** columns of mono labels with links, like figma.com's footer structure, and the © line.
+- **Budgets** as before (≤ 150 KB of JS per page shell; the engine on demand; no third-party requests). Phones: tiles stack, collages scale, and there is no horizontal scroll at 360 px.
 
 ## 3. `releases.json`
 
