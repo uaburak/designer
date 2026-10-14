@@ -967,6 +967,36 @@ export default function HeroScene() {
     let measuredAt = 0;
     let first = true;
 
+    // ── When the build finishes by itself: a beat, then the page scrolls on through the reveal (once per load) ──
+    let lastInput = -1e9;
+    let autoState: "idle" | "waiting" | "running" | "done" = "idle";
+    let autoAt = 0;
+    let autoRaf = 0;
+    const cancelAuto = () => {
+      lastInput = performance.now();
+      if (autoState === "running") {
+        cancelAnimationFrame(autoRaf);
+        autoState = "done";
+      } else if (autoState === "waiting") autoState = "done";
+    };
+    const INPUTS = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+    for (const ev of INPUTS) window.addEventListener(ev, cancelAuto, { passive: true });
+    const autoScroll = (to: number) => {
+      const from = window.scrollY;
+      const dur = 2500;
+      const start = performance.now();
+      autoState = "running";
+      const go = (now: number) => {
+        if (autoState !== "running") return;
+        const q = clamp((now - start) / dur);
+        const e2 = q < 0.5 ? 4 * q * q * q : 1 - Math.pow(-2 * q + 2, 3) / 2;
+        window.scrollTo(0, Math.round(from + (to - from) * e2));
+        if (q < 1) autoRaf = requestAnimationFrame(go);
+        else autoState = "done";
+      };
+      autoRaf = requestAnimationFrame(go);
+    };
+
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       const dt = Math.min(0.1, (now - last) / 1000);
@@ -995,6 +1025,14 @@ export default function HeroScene() {
       t = toward(t, tTarget, RATE * dt);
       r = toward(r, t >= T_BUILD - 1e-3 ? rTarget : 0, R_RATE * dt);
       tNow = t;
+      if (autoState === "idle" && t >= T_BUILD && p < REVEAL_P0 && !document.hidden && now - lastInput > 1200) {
+        autoState = "waiting";
+        autoAt = now + 1200;
+      }
+      if (autoState === "waiting") {
+        if (p >= REVEAL_P0 || document.hidden) autoState = "done";
+        else if (now >= autoAt) autoScroll(hero.offsetTop + track);
+      }
       const e = ease(r);
 
       // The frame: the page-top at the canvas's scale, opening to the page
@@ -1203,6 +1241,8 @@ export default function HeroScene() {
       cancelAnimationFrame(raf);
       io.disconnect();
       window.removeEventListener("resize", onResize);
+      for (const ev of INPUTS) window.removeEventListener(ev, cancelAuto);
+      cancelAnimationFrame(autoRaf);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerdown", onMove);
       window.removeEventListener("pointerup", onUp);
