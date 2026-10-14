@@ -200,3 +200,15 @@
   cursor: pointer;
 }
 .itemFoot button:hover { background: var(--figma-color-bg-hover); }
+
+/* The brand colour: one colour in, the brand family out */
+.brand {
+  display: grid;
+  grid-template-columns: auto 20px 96px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-bottom: 1px solid var(--figma-color-border);
+}
+.brand .name { font-weight: var(--ds-weight-strong, 550); }
+.brand .meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

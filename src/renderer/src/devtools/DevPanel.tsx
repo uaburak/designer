@@ -12,6 +12,7 @@
 // To remove: delete src/renderer/src/devtools/ and its two lines in main.tsx.
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { flash, lookOf, nameOf, PROPS, selectorFor, startPicking, viewName, type Picker } from "./inspect";
+import { brandTokens } from "./brand";
 import { css, getState, subscribe, update, type ReportItem, type Theme } from "./store";
 import styles from "./DevPanel.module.css";
 
@@ -175,6 +176,7 @@ function Tokens({ theme, overrides }: { theme: Theme; overrides: Record<string, 
   const changed = Object.keys(overrides).length;
   return (
     <>
+      <BrandColor />
       <div className={styles.subtabs}>
         {GROUPS.map((x) => (
           <button key={x.id} type="button" data-on={x.id === group || undefined} onClick={() => setGroup(x.id)}>
@@ -196,6 +198,27 @@ function Tokens({ theme, overrides }: { theme: Theme; overrides: Record<string, 
         </button>
       </div>
     </>
+  );
+}
+
+/** One brand colour in: the whole brand family (hover, pressed, tints, text, borders, selection) for both themes. */
+function BrandColor() {
+  const current = getComputedStyle(document.documentElement).getPropertyValue("--figma-color-bg-brand").trim();
+  const [hex, setHex] = useState(() => toHex(current) ?? "#0d99ff");
+  const apply = (v: string) => {
+    if (!/^#[0-9a-f]{6}$/i.test(v)) return;
+    setHex(v);
+    update((s) => ({ ...s, tokens: { light: { ...s.tokens.light, ...brandTokens(v, "light") }, dark: { ...s.tokens.dark, ...brandTokens(v, "dark") } } }));
+  };
+  return (
+    <div className={styles.brand}>
+      <span className={styles.name}>Brand colour</span>
+      <label className={styles.swatch} style={{ background: hex }}>
+        <input type="color" value={hex} onChange={(e) => apply(e.target.value)} />
+      </label>
+      <ValueField value={hex} onCommit={(v) => apply(v.startsWith("#") ? v : `#${v}`)} />
+      <span className={styles.meta}>sets every brand token, light + dark</span>
+    </div>
   );
 }
 
