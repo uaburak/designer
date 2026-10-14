@@ -21,11 +21,16 @@ const MANIFEST = join(HERE, "manifest.json");
 const args = process.argv.slice(2);
 const dry = args.includes("--dry");
 const manifest = JSON.parse(readFileSync(MANIFEST, "utf8"));
+const cmd = args[0];
 const atom = manifest.atoms?.Button;
-if (!atom?.set) throw new Error("build the Button atom first: node tools/ui-kit/atoms.mjs button");
+if (cmd === "buttons" && !atom?.set) throw new Error("build the Button atom first: node tools/ui-kit/atoms.mjs button");
 const mcp = dry ? null : await connect();
 if (mcp && (await mcp.call("get_selection")).file !== manifest.file) throw new Error(`bring "${manifest.file}" to the front`);
 
+if (cmd === "menus") {
+  await menus();
+  process.exit(0);
+}
 const OLD = new Set(["Button", "IconButton", "ToggleIconButton"]);
 const iconByName = (name) => manifest.icons[name.replace(/^Icon \/ /, "")];
 const variantId = (c) => atom.variants[`Variant=${c.Variant}, Size=${c.Size}, State=${c.State}, Icon only=${c["Icon only"]}`];
@@ -138,3 +143,79 @@ for (let i = 0; i < updates.length; i += 30) {
 }
 for (const s of Object.values(manifest.screens)) await guard(mcp, s.id, { exact: { width: 1440, height: 900 }, top: true });
 console.log(`buttons: ${n} swapped, ${updates.length} occurrences set; screens read back 1440 × 900`);
+
+/**
+ * The menus' rows (plain frames "item" in the screens' menus and in the Menu / Select mains) become instances of
+ * Menu item: each in its row's place (same parent, index, x, y, width), its content as properties — Label,
+ * Shortcut, Check column / Checked, Start content / Start icon, Submenu — and its State (Highlighted, Disabled).
+ */
+async function menus() {
+  const mi = manifest.atoms?.MenuItem;
+  if (!mi?.set) throw new Error("build the Menu item first: node tools/ui-kit/atoms.mjs menuitem");
+  const rows = [];
+  const isMenu = (p) => p && /menu/i.test(`${p.name} ${(p.fills ?? []).map((x) => x.color).join()}`);
+  for (const t of readdirSync(CTX).map((f) => ({ f, root: JSON.parse(readFileSync(join(CTX, f), "utf8")) }))) {
+    if (t.f === "set.Menu item.json") continue;
+    const page = t.f.startsWith("screen.") ? manifest.screens[t.f.slice(7, -5)].page : "Components";
+    const walk = (n, p) => {
+      if (n.name === "item" && n.type === "FRAME" && !n.id.startsWith("I") && isMenu(p)) {
+        const kids = n.children ?? [];
+        const texts = kids.filter((c) => c.type === "TEXT");
+        const shortFrame = kids.find((c) => c.name === "shortcut");
+        const shortText = shortFrame ? (shortFrame.children ?? []).filter((c) => c.type === "TEXT").map((c) => c.characters).join("") : texts[1]?.characters;
+        const label = texts[0];
+        if (!label) return;
+        const iconFrame = kids.find((c) => c.name === "icon");
+        const icon = iconFrame?.children?.find((c) => /^Icon \//.test(c.name))?.name;
+        const check = kids.find((c) => c.name === "check");
+        const chevron = kids.some((c, i) => c.type === "INSTANCE" && /chevron/.test(c.name) && i > kids.indexOf(label));
+        const fill = (label.fills ?? [])[0]?.color ?? "";
+        const before = kids.find((c) => c.name === "before");
+        const lx = label.x;
+        const props = {
+          Label: label.characters,
+          "Check column": Boolean(check) || (!iconFrame && lx >= 30 && lx <= 34) || (Boolean(iconFrame) && lx >= 58),
+          Checked: Boolean(check?.children?.length),
+          "Start content": Boolean(iconFrame),
+          Shortcut: Boolean(shortText),
+          Submenu: chevron,
+          State: /66$/.test(fill) ? "Disabled" : before && (before.fills ?? []).length ? "Highlighted" : "Default",
+        };
+        if (shortText) props["Shortcut text"] = shortText;
+        if (icon && manifest.icons[icon.replace(/^Icon \/ /, "")]) props["Start icon"] = manifest.icons[icon.replace(/^Icon \/ /, "")].id;
+        rows.push({ id: n.id, parent: p.id, index: (p.children ?? []).indexOf(n), x: n.x, y: n.y, width: n.width, auto: Boolean(p.layoutMode), props, page });
+      }
+      for (const c of n.children ?? []) walk(c, n);
+    };
+    walk(t.root, null);
+  }
+  console.log(`menus: ${rows.length} rows to become Menu item instances${dry ? " (dry)" : ""}`);
+  if (dry) return console.log(JSON.stringify(rows.slice(0, 4), null, 1));
+  // One instance of the Menu item in the hidden seeds frame, copied into place for every row
+  if (!mi.seed) {
+    const r = await mcp.call("run_command", { engineCommand: "INSERT_INSTANCE", args: { main: mi.variants["State=Default"], parent: manifest.seeds } });
+    mi.seed = r.selection?.[0]?.id ?? r.created?.[0]?.id;
+    if (!mi.seed) throw new Error(`no seed: ${JSON.stringify(r).slice(0, 200)}`);
+    writeFileSync(MANIFEST, JSON.stringify(manifest, null, 1));
+  }
+  const done = (manifest.menuRows ??= {});
+  let n = 0;
+  // Last index first within a parent, so the earlier rows' indices hold
+  rows.sort((a, b) => (a.parent === b.parent ? b.index - a.index : a.parent < b.parent ? -1 : 1));
+  for (const r of rows) {
+    if (done[r.id]) continue;
+    const c = await mcp.call("duplicate_nodes", { nodeIds: [mi.seed], parentId: r.parent, index: r.index }, { page: r.page });
+    const id = (c.copies ?? c.nodes)[0].nodeId ?? (c.copies ?? c.nodes)[0].id;
+    const res = await mcp.call("update_nodes", { updates: [{ nodeId: id, name: "Menu item", visible: true, componentProperties: r.props, layoutSizingHorizontal: "FIXED", width: r.width, ...(r.auto ? {} : { x: r.x, y: r.y }) }] }, { soft: true });
+    if (typeof res === "object" && res.summary && !/everything applied/.test(res.summary)) console.warn(`  ${r.id}: ${res.summary.slice(0, 200)}`);
+    await mcp.call("delete_nodes", { nodeIds: [r.id] });
+    done[r.id] = id;
+    if (++n % 20 === 0) {
+      writeFileSync(MANIFEST, JSON.stringify(manifest, null, 1));
+      console.log(`menu rows ${n}/${rows.length}`);
+    }
+  }
+  writeFileSync(MANIFEST, JSON.stringify(manifest, null, 1));
+  for (const s of Object.values(manifest.screens)) await guard(mcp, s.id, { exact: { width: 1440, height: 900 }, top: true });
+  console.log(`menus: ${n} rows are Menu item instances; screens read back 1440 × 900`);
+}

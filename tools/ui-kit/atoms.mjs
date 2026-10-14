@@ -251,5 +251,91 @@ async function layoutGrid(rec, all, props, rowKeys, colKeys, cw, ch) {
   console.log(`grid ${rows.length} × ${cols.length}, ${W} × ${H}`);
 }
 
+// ---- Menu item --------------------------------------------------------------------------------------------------------------
+// The app's MenuItem (ds/components/Menu.module.css): [check column 16 − 8] [glyph column 24 − 4] [Label] [Shortcut]
+// [submenu chevron], 8 apart, 16 in from the menu's edge; the highlight 8 in, as the app's ::before.
+async function buildMenuItem() {
+  const rec = (manifest.atoms.MenuItem ??= { variants: {} });
+  const STATES = ["Default", "Highlighted", "Disabled"];
+  const parent = await atomsFrame();
+  if (!rec.base) {
+    const r = await mcp.call("create_nodes", {
+      parentId: parent,
+      nodes: [{
+        type: "FRAME", name: "State=Default", layoutMode: "HORIZONTAL", counterAxisAlignItems: "CENTER", itemSpacing: 8, padding: [0, 16, 0, 16],
+        width: 200, height: 24, layoutSizingHorizontal: "FIXED", layoutSizingVertical: "FIXED", fills: [], clipsContent: false,
+        children: [
+          { type: "FRAME", name: "highlight", layoutPositioning: "ABSOLUTE", x: 8, y: 0, width: 184, height: 24, cornerRadius: 5, fills: ["#0C8CE9"], constraints: { horizontal: "STRETCH", vertical: "STRETCH" }, visible: false },
+          { type: "FRAME", name: "checkColumn", width: 8, height: 16, fills: [], clipsContent: false, layoutSizingHorizontal: "FIXED", layoutSizingVertical: "FIXED" },
+          { type: "FRAME", name: "startContent", width: 20, height: 24, fills: [], clipsContent: false, layoutSizingHorizontal: "FIXED", layoutSizingVertical: "FIXED" },
+          { type: "TEXT", name: "Label", characters: "Menu item", fontSize: 11, lineHeight: 16, fills: ["#FFFFFF"], layoutSizingHorizontal: "FILL", textAutoResize: "HEIGHT" },
+          { type: "TEXT", name: "Shortcut", characters: "⌘K", fontSize: 11, lineHeight: 16, fills: ["#FFFFFFB2"] },
+          { type: "FRAME", name: "submenu", width: 16, height: 16, fills: [], clipsContent: false, layoutSizingHorizontal: "FIXED", layoutSizingVertical: "FIXED" },
+        ],
+      }],
+    }, P);
+    const frame = r.created[0].id;
+    const [highlight, check, start, label, shortcut, sub] = (await kids(frame)).map((k) => k.id);
+    const ci = await iconIn(check, "16.check", 0, 0);
+    const si = await iconIn(start, "24.plus", 0, 0);
+    await iconIn(sub, "16.chevron.right", 0, 0);
+    await mcp.call("apply_style", { nodeIds: [label, shortcut], slot: "text", styleId: manifest.textStyles["body-medium"] });
+    await mcp.call("run_command", { engineCommand: "CREATE_COMPONENT", nodeIds: [frame] });
+    const comb = await mcp.call("run_command", { engineCommand: "COMBINE_AS_VARIANTS", nodeIds: [frame] });
+    rec.set = comb.selection[0].id;
+    rec.base = frame;
+    rec.variants["State=Default"] = frame;
+    await mcp.call("update_nodes", { updates: [{ nodeId: rec.set, name: "Menu item" }] });
+    if (!/State=/.test(String(await mcp.call("get_metadata", { nodeId: rec.set, depth: 1 })))) await mcp.call("run_command", { engineCommand: "ADD_COMPONENT_PROPERTY", args: { ref: rec.set, name: "State", type: "VARIANT", defaultValue: "Default" } });
+    const add = (name, type, defaultValue, extra = {}) => mcp.call("run_command", { engineCommand: "ADD_COMPONENT_PROPERTY", args: { ref: rec.set, name, type, defaultValue, ...extra } });
+    const bindProp = (refs, field, prop) => mcp.call("run_command", { engineCommand: "BIND_COMPONENT_PROPERTY", args: { refs, field, prop } });
+    await add("Check column", "BOOL", false);
+    await add("Checked", "BOOL", false);
+    await add("Start content", "BOOL", false);
+    await add("Start icon", "INSTANCE_SWAP", manifest.icons["24.plus"].id, { preferredValues: Object.values(manifest.icons).map((i) => i.set) });
+    await add("Label", "TEXT", "Menu item");
+    await add("Shortcut", "BOOL", false);
+    await add("Shortcut text", "TEXT", "⌘K");
+    await add("Submenu", "BOOL", false);
+    await bindProp([check], "VISIBLE", "Check column");
+    await bindProp([ci], "VISIBLE", "Checked");
+    await bindProp([start], "VISIBLE", "Start content");
+    await bindProp([si], "OVERRIDDEN_SYMBOL_ID", "Start icon");
+    await bindProp([label], "TEXT_DATA", "Label");
+    await bindProp([shortcut], "VISIBLE", "Shortcut");
+    await bindProp([shortcut], "TEXT_DATA", "Shortcut text");
+    await bindProp([sub], "VISIBLE", "Submenu");
+    rec.parts = { highlight, check, start, label, shortcut, sub };
+    save();
+  }
+  for (const st of STATES) {
+    if (rec.variants[`State=${st}`]) continue;
+    const r = await mcp.call("duplicate_nodes", { nodeIds: [rec.base], parentId: rec.set }, P);
+    const id = (r.copies ?? r.nodes)[0].nodeId ?? (r.copies ?? r.nodes)[0].id;
+    await mcp.call("run_command", { engineCommand: "SET_VARIANT_PROPERTIES", args: { ref: id, values: { State: st } } });
+    rec.variants[`State=${st}`] = id;
+    save();
+  }
+  // Colours (app/menu-*), the highlight, the grid
+  for (const [i, st] of STATES.entries()) {
+    const id = rec.variants[`State=${st}`];
+    const parts = await deep(id);
+    const part = (n) => parts.find((p) => p.name === n)?.id;
+    const vectors = parts.filter((p) => p.type === "vector").map((p) => p.id);
+    await mcp.call("update_nodes", { updates: [{ nodeId: id, width: 200, height: 24 }, { nodeId: part("highlight"), visible: st === "Highlighted", x: 8, y: 0, width: 184, height: 24 }, { nodeId: id, x: 20, y: 20 + i * 40 }] });
+    await bind([part("highlight")], "fills[0]", varOf("menu-highlight"));
+    await bind([part("Label")], "fills[0]", varOf(st === "Disabled" ? "menu-text-disabled" : "menu-text"));
+    await bind([part("Shortcut")], "fills[0]", varOf(st === "Disabled" ? "menu-text-disabled" : st === "Highlighted" ? "menu-text-on-highlight-secondary" : "menu-text-secondary"));
+    await bind(vectors, "fills[0]", varOf(st === "Disabled" ? "menu-text-disabled" : "menu-text"));
+    await bind(vectors, "strokes[0]", varOf(st === "Disabled" ? "menu-text-disabled" : "menu-text"));
+  }
+  await mcp.call("update_nodes", { updates: [{ nodeId: rec.set, width: 240, height: 40 + STATES.length * 40, fills: ["#1E1E1E"] }] });
+  await bind([rec.set], "fills[0]", varOf("menu-bg"));
+  await guard(mcp, rec.set, { max: 4000, what: "Menu item" });
+  save();
+  console.log("Menu item: 3 variants");
+}
+
 if (which === "button") await buildButton();
-else throw new Error("node tools/ui-kit/atoms.mjs button|badge");
+else if (which === "menuitem") await buildMenuItem();
+else throw new Error("node tools/ui-kit/atoms.mjs button|menuitem");
