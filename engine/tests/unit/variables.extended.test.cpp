@@ -261,6 +261,125 @@ TEST_CASE("variables r5: a variant property assigned a string variable switches 
   (void)m2;
 }
 
+namespace {
+
+// "Icon / x" (Set = Figma | Wecra): each variant draws its own vectors "Stroke" and "Fill" — their own keys unless
+// `shared` (Add variant keeps them) — black.
+const Guid ISET{4, 1}, VF{4, 2}, VW{4, 3}, FS{4, 4}, FF{4, 5}, WS{4, 6}, WF{4, 7}, SET_DEF{4, 9};
+
+void iconSet(std::vector<NodeChange>& nodes, bool shared = false) {
+  NodeChange set = make(ISET, NodeType::FRAME, kPage, "!", {0, 0, 200, 100}, "Icon / x");
+  set.props.comp().isStateGroup = true;
+  ComponentPropDef d;
+  d.id = SET_DEF;
+  d.name = "Set";
+  d.type = ComponentPropType::VARIANT;
+  d.initialValue.hasText = true;
+  d.initialValue.textValue.characters = "Figma";
+  set.props.comp().componentPropDefs = {d};
+  nodes.push_back(set);
+  for (auto [id, stroke, fill, value, pos] : {std::tuple{VF, FS, FF, "Figma", "!"}, std::tuple{VW, WS, WF, "Wecra", "\""}}) {
+    NodeChange v = make(id, NodeType::SYMBOL, ISET, pos, {id == VF ? 20.0 : 100.0, 20, 24, 24}, std::string("Set=") + value);
+    v.props.comp().variantPropSpecs = {{SET_DEF, value}};
+    nodes.push_back(v);
+    NodeChange s = make(stroke, NodeType::VECTOR, id, "!", {2, 2, 20, 20}, "Stroke");
+    s.props.fillPaints = {Paint::solid(Color::hex(0x000000))};
+    if (shared) s.props.overrideKey = FS;
+    nodes.push_back(s);
+    NodeChange f = make(fill, NodeType::VECTOR, id, "\"", {4, 4, 16, 16}, "Fill");
+    f.props.fillPaints = {Paint::solid(Color::hex(0x000000))};
+    if (shared) f.props.overrideKey = FF;
+    nodes.push_back(f);
+  }
+}
+
+void paintBlue(Editor& e, Guid layer) {
+  NodeChange c = NodeChange::changed(Guid{0, 0});
+  c.mask = F_FILLS;
+  c.props.fillPaints = {Paint::solid(Color::hex(0x0000FF))};
+  REQUIRE(e.setProps({layer}, c, 0) == OK);
+}
+
+}  // namespace
+
+TEST_CASE("variables r5: a variant switched by a variable keeps the instance's overrides, as a variant picked by hand does") {
+  // An instance in a frame overrides the Stroke fill to blue; its Set is bound to `icon-set` (Figma | Wecra by mode).
+  auto nodes = baseChanges();
+  iconSet(nodes);
+  nodes.push_back(make(FR, NodeType::FRAME, kPage, "\"", {0, 200, 300, 200}, "Frame"));
+  nodes.push_back(instanceOf(INST, VF, FR, "!", {10, 10, 24, 24}, "Icon / x"));
+  Editor e = load(nodes);
+  auto [colors, light, dark] = collection(e, "Colors", "Light", "Dark");
+  Guid ink = variable(e, colors, "COLOR", "ink", R"({"r":0.1,"g":0.1,"b":0.1,"a":1})");
+  for (Guid layer : {FS, FF, WS, WF}) bind(e, layer, "fillPaints[0].color", ink);
+  auto [icons, figma, wecra] = collection(e, "Icons", "Figma", "Wecra");
+  Guid iconSetVar = variable(e, icons, "STRING", "icon-set", "\"Figma\"");
+  setValue(e, iconSetVar, wecra, "\"Wecra\"");
+  bind(e, INST, "componentProperties.Set", iconSetVar);
+  REQUIRE(props(e, INST).comp().symbolData.symbolID == VF);
+  const Color blue = Color::hex(0x0000FF);
+  REQUIRE(e.document().has(derived::intern(INST, {FS})));
+  paintBlue(e, derived::intern(INST, {FS}));
+  // The frame switches to Wecra: the Wecra variant, its Stroke still blue (by layer name), its Fill the variable's.
+  setMode(e, FR, icons, wecra);
+  CHECK(props(e, INST).comp().symbolData.symbolID == VW);
+  REQUIRE(e.document().has(derived::intern(INST, {WS})));
+  CHECK(props(e, derived::intern(INST, {WS})).fillPaints[0].color == blue);
+  CHECK(props(e, derived::intern(INST, {WF})).fillPaints[0].color != blue);
+  setMode(e, FR, icons, figma);
+  CHECK(props(e, INST).comp().symbolData.symbolID == VF);
+  REQUIRE(e.document().has(derived::intern(INST, {FS})));
+  CHECK(props(e, derived::intern(INST, {FS})).fillPaints[0].color == blue);
+  (void)light;
+  (void)dark;
+}
+
+TEST_CASE("variables r5: a nested instance's variant switched by a variable or by hand keeps the usage site's overrides") {
+  // A main "Card" holding the icon; an instance of Card in a frame overrides the icon's Stroke fill to blue. The icon
+  // switches variant by a variable bound in Card, by one bound at the usage site, or by hand: the Stroke stays blue,
+  // matched by layer name when the variants' layers have their own keys, by key when they share them.
+  const Guid CARD{5, 1}, NESTED{5, 2}, CI{5, 3};
+  enum How { IN_MAIN, AT_USAGE, BY_HAND };
+  for (bool shared : {false, true})
+    for (How how : {IN_MAIN, AT_USAGE, BY_HAND}) {
+      CAPTURE(shared);
+      CAPTURE(static_cast<int>(how));
+      auto nodes = baseChanges();
+      iconSet(nodes, shared);
+      nodes.push_back(make(FR, NodeType::FRAME, kPage, "\"", {0, 200, 300, 200}, "Frame"));
+      nodes.push_back(make(CARD, NodeType::SYMBOL, kPage, "#", {400, 0, 100, 100}, "Card"));
+      nodes.push_back(instanceOf(NESTED, VF, CARD, "!", {10, 10, 24, 24}, "Icon / x"));
+      nodes.push_back(instanceOf(CI, CARD, FR, "!", {10, 10, 100, 100}, "Card"));
+      Editor e = load(nodes);
+      auto [icons, figma, wecra] = collection(e, "Icons", "Figma", "Wecra");
+      Guid iconSetVar = variable(e, icons, "STRING", "icon-set", "\"Figma\"");
+      setValue(e, iconSetVar, wecra, "\"Wecra\"");
+      Guid row = derived::intern(CI, {NESTED});
+      if (how == IN_MAIN) bind(e, NESTED, "componentProperties.Set", iconSetVar);
+      if (how == AT_USAGE) bind(e, row, "componentProperties.Set", iconSetVar);
+      const Color blue = Color::hex(0x0000FF);
+      REQUIRE(e.document().has(derived::intern(CI, {NESTED, FS})));
+      paintBlue(e, derived::intern(CI, {NESTED, FS}));
+      if (how == BY_HAND) {
+        e.setSelection({row});
+        REQUIRE(run(e, CommandId::SET_COMPONENT_PROPERTY, R"({"prop":"Set","value":"Wecra"})") == OK);
+      } else {
+        setMode(e, FR, icons, wecra);
+      }
+      CHECK(props(e, row).comp().symbolData.symbolID == VW);
+      Guid stroke = derived::intern(CI, {NESTED, shared ? FS : WS});
+      REQUIRE(e.document().has(stroke));
+      CHECK(props(e, stroke).fillPaints[0].color == blue);
+      CHECK(props(e, derived::intern(CI, {NESTED, shared ? FF : WF})).fillPaints[0].color != blue);
+      if (how != BY_HAND) {
+        // And back: still blue.
+        setMode(e, FR, icons, figma);
+        CHECK(props(e, row).comp().symbolData.symbolID == VF);
+        CHECK(props(e, derived::intern(CI, {NESTED, FS})).fillPaints[0].color == blue);
+      }
+    }
+}
+
 TEST_CASE("variables r5: a nested instance's variant bound in its main resolves in each instance's own modes") {
   auto nodes = logoDoc();
   // A main "Card" holding a nested Logo instance; an instance of Card in the frame.

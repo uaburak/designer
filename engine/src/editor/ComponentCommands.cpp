@@ -1200,6 +1200,8 @@ static Guid resolvePath(const Document& doc, Guid symbol, const std::vector<Guid
   return cur;
 }
 
+Guid Editor::layerAtPath(Guid symbol, const std::vector<Guid>& path) const { return resolvePath(doc_, symbol, path, nullptr, nullptr); }
+
 Status Editor::pushChangesToMain(Guid R) {
   ComponentInfo info;
   if (!componentInfo(R, info) || !info.canPush || R.isDerived()) return E_INVALID;
