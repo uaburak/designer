@@ -464,6 +464,8 @@ export interface IpcInvoke extends SharedFontsChannels {
   "agents:github-device-poll": { args: []; result: { state: "pending" | "connected" | "expired" | "denied" } };
   "agents:github-disconnect": { args: []; result: ReachView };
   "agents:github-repos": { args: []; result: { fullName: string; private: boolean; description: string }[] };
+  /** Local apps (docs/agents-reach.md §9): macOS System Settings › Privacy & Security › Screen Recording */
+  "agents:screen-settings": { args: []; result: void };
 }
 
 /** A development plugin imported from its manifest (docs/plugins.md §3.3) */
@@ -666,6 +668,7 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "agents:github-device-poll": ["home", "editor"],
   "agents:github-disconnect": ["home", "editor"],
   "agents:github-repos": ["home", "editor"],
+  "agents:screen-settings": ["home", "editor"],
 };
 
 export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {

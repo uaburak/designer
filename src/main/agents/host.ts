@@ -18,6 +18,7 @@ import { orgForcedOff } from "./reach/org";
 import { webRunner } from "./reach/web";
 import { GithubAccess } from "./reach/github";
 import { filesRunner } from "./reach/files";
+import { appsRunner, openScreenSettings as openScreenPrefs, screenPermission } from "./reach/apps";
 import { mainFetch } from "../net";
 import { grantProblem, isDeniedPath } from "./reach/paths";
 import { REACH_NOTE, REACH_SKILLS, isReachPolicy, isRepoName, type AccessLogEntry, type ReachCapability, type ReachPatch, type ReachView } from "../../shared/agents/reach";
@@ -331,6 +332,13 @@ const reachRunners: Partial<Record<ReachCapability, ReachRunner>> = {
   web: webRunner({ runInView: (ctx, call) => runToolInView(ctx.fileKey, { turnId: ctx.turnId, client: ctx.agent, name: call.name, args: call.args }) }),
   github: (tool, args, ctx) => github().runner()(tool, args, ctx),
   files: filesRunner(),
+  // Its card is the window picker: the owner's pick is the consent (docs/agents-reach.md §9).
+  apps: appsRunner({
+    pick: async (ctx, windows) => {
+      const a = await askConsent({ turnId: ctx.turnId, connectorId: "access:apps", connector: tr("Local apps"), tool: "capture_app_window", args: {}, access: { capability: "apps", action: "see a window on this computer", target: "a window you pick", windows } });
+      return a.allow ? (a.windowId ?? null) : null;
+    },
+  }),
 };
 let reach: ReachHub | null = null;
 
@@ -356,7 +364,8 @@ function askAccess(req: ReachConsentRequest): Promise<ConsentAnswer> {
 }
 
 /** Phase-specific parts of the Access page's view (GitHub's connection, the Screen Recording permission). */
-const reachExtras: { github?: () => Promise<ReachView["github"]>; screen?: () => ReachView["screenPermission"] } = { github: () => github().status() };
+const reachExtras: { github?: () => Promise<ReachView["github"]>; screen?: () => ReachView["screenPermission"] } = { github: () => github().status(), screen: screenPermission };
+export const openScreenSettings = () => openScreenPrefs();
 
 // GitHub's connection (Agent settings › Access › GitHub): the token stays here, sealed; views only see the account.
 /** Main's sentence in the person's language (GitHub's own errors pass through as they are). */

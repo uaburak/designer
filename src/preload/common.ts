@@ -156,6 +156,7 @@ export function agentSetupApi(): AgentSetupApi {
       githubDevicePoll: () => invoke("agents:github-device-poll"),
       githubDisconnect: () => invoke("agents:github-disconnect"),
       githubRepos: () => invoke("agents:github-repos"),
+      openScreenSettings: () => invoke("agents:screen-settings"),
     },
   };
 }

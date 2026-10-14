@@ -284,6 +284,7 @@ export function registerIpc() {
   onInvoke("agents:github-device-poll", () => agents.githubDevicePoll());
   onInvoke("agents:github-disconnect", () => agents.githubDisconnect());
   onInvoke("agents:github-repos", () => agents.githubRepos());
+  onInvoke("agents:screen-settings", () => agents.openScreenSettings());
   onInvoke("devmode:link-title", (_c, p) => linkTitle(p?.url));
   // ── Haptics (a scrub's steps; throttled, macOS only) ──
   onSend("haptics:tick", () => void hapticTick());
