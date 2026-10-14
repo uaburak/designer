@@ -45,20 +45,25 @@ function render(el: HTMLElement, mod: SceneModule): void {
 
 export function mountScenes(registry: SceneRegistry): void {
   const pending = new Map<Element, () => void>();
-  const io =
-    typeof IntersectionObserver === "function"
-      ? new IntersectionObserver(
-          (entries) => {
-            for (const e of entries) {
-              if (!e.isIntersecting) continue;
-              io?.unobserve(e.target);
-              pending.get(e.target)?.();
-              pending.delete(e.target);
-            }
-          },
-          { rootMargin: "120% 0px 120% 0px" },
-        )
-      : null;
+  const observer = (rootMargin: string) => {
+    if (typeof IntersectionObserver !== "function") return null;
+    const o: IntersectionObserver = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          o.unobserve(e.target);
+          pending.get(e.target)?.();
+          pending.delete(e.target);
+        }
+      },
+      { rootMargin },
+    );
+    return o;
+  };
+  const io = observer("120% 0px 120% 0px");
+  // The live engine (Try it) loads only when its own tile is close, so its Wasm and first frames don't land while the
+  // scene above it is animating
+  const near = observer("20% 0px 20% 0px");
 
   // Over a watch-only tile the visitor's pointer becomes a multiplayer cursor, "You" (the live canvas keeps its own)
   const tiles = [...document.querySelectorAll<HTMLElement>("[data-scene]:not([data-interactive])")].map((el) => el.closest<HTMLElement>(".tile") ?? el);
@@ -76,10 +81,11 @@ export function mountScenes(registry: SceneRegistry): void {
       void load()
         .then((mod) => render(el, mod))
         .catch((error: unknown) => console.warn(`[scene ${el.dataset.scene}]`, error));
-    if (el.hasAttribute("data-eager") || !io) go();
+    const watch = el.hasAttribute("data-interactive") ? near : io;
+    if (el.hasAttribute("data-eager") || !watch) go();
     else {
       pending.set(el, go);
-      io.observe(el);
+      watch.observe(el);
     }
   }
 }
