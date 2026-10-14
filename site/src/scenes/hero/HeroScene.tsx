@@ -3,7 +3,8 @@
 // `[data-hero-frame]`; the frame is that page-top at a smaller scale). Burak draws the frame and the card and sets its
 // fill (the app's ColorPicker, a gradient) and grain (Effects › Noise) in the Design panel; six teammates make the
 // rest under their own cursors at once (pen and shape tools, typing); then Burak asks the agent in the Agents panel,
-// and its cursors-in-the-gradient appear as skeletons resolving while its steps tick. Scrolling opens the frame into
+// and as its steps tick the shapes come alive — a slow idle drift, and they lean, swell, spin and bend toward the
+// cursors near them (the teammates' while they work, the visitor's own mouse from then on). Scrolling opens the frame into
 // the page (the panels slide away, its transform goes to none, the toolbar becomes the dock) — and back.
 //
 // Everything is a function of two numbers, so scroll scrubs it both ways:
@@ -41,10 +42,10 @@ const BUILD_P = 0.45;
 const REVEAL_P0 = 0.5;
 const REVEAL_P1 = 0.92;
 
-const ASK = "Draw our cursors in the gradient";
-const AGENT = { ask: 11.6, send: 13.45, steps: [13.7, 14.3, 16.0], resolve: [14.9, 15.4, 15.9], done: 16.1, back: 16.75 };
-const PICKER = { open: 5.85, linear: 6.65, drag: [7.2, 7.85] as const, close: 8.65 };
-const FX = { add: 9.35, noise: 10.05 };
+const ASK = "Make the shapes react to the cursor";
+const AGENT = { ask: 11.6, send: 13.45, steps: [13.7, 14.3, 15.1], done: 16.1, back: 16.75 };
+const PICKER = { open: 5.85, linear: 6.4, drag: [6.75, 7.2] as const, close: 7.7 };
+const FX = { add: 8.35, noise: 9.05 };
 const TAB_AGENTS = 10.85;
 
 /** The vector parts, in the art's 600 × 600 user space. */
@@ -57,7 +58,7 @@ const BLOB = [
 ] as const;
 const WAVE = { p: [[40, 540], [320, 530], [570, 540]] as const, h: [[140, 450], [410, 450], [640, 600]] as const };
 
-type PartId = "card" | "gradient" | "grain" | "blob" | "ring" | "star" | "wave" | "cursors" | "title" | "try" | "trylabel" | "link";
+type PartId = "card" | "gradient" | "grain" | "blob" | "ring" | "star" | "wave" | "title" | "try" | "trylabel" | "link";
 const PART_SEL: Record<PartId, string> = {
   card: ".poster-card",
   gradient: ".poster-fill",
@@ -66,13 +67,12 @@ const PART_SEL: Record<PartId, string> = {
   ring: "#pa-ring",
   star: "#pa-star",
   wave: "#pa-wave",
-  cursors: "#pa-cursors",
   title: "#hero-title",
   try: '[data-part="try"]',
   trylabel: '[data-part="trylabel"]',
   link: '[data-part="link"]',
 };
-const SVG_PARTS: PartId[] = ["blob", "ring", "star", "wave", "cursors"];
+const SVG_PARTS: PartId[] = ["blob", "ring", "star", "wave"];
 const INTERACTIVE: PartId[] = ["try", "link"];
 
 type Rect = { x: number; y: number; w: number; h: number };
@@ -81,8 +81,7 @@ type Plan =
   | { kind: "type"; t: number; ms: number; c: string }
   | { kind: "draw"; t: number; t1: number; c: string }
   | { kind: "pen"; clicks: number[]; c: string }
-  | { kind: "curve"; drags: [number, number][]; c: string }
-  | { kind: "agent"; t: number; resolve: number[] };
+  | { kind: "curve"; drags: [number, number][]; c: string };
 
 type UiSpot = "frameTool" | "rectTool" | "fill" | "pickerType" | "pickerStop" | "pickerClose" | "fxAdd" | "fxType" | "agents" | "file" | "composer" | "send" | "start" | "side";
 type Spot = { part: PartId | "frame"; fx: number; fy: number; dx?: number; dy?: number } | { art: readonly [number, number]; dx?: number; dy?: number } | { ui: UiSpot; dx?: number; dy?: number };
@@ -167,18 +166,18 @@ function plan(g: Geo): { people: Person[]; parts: Partial<Record<PartId, Plan>>;
   if (ui) {
     at(b, 5.6, { ui: "fill" });
     click(b, 5.75);
-    at(b, 6.4, { ui: "pickerType" });
-    click(b, 6.55);
-    at(b, 7.05, { ui: "pickerStop" });
-    at(b, 7.2, { ui: "pickerStop" });
-    at(b, 7.85, { ui: "pickerStop", dx: 46 });
-    b.press.push([7.2, 7.9]);
-    at(b, 8.4, { ui: "pickerClose" });
-    click(b, 8.55);
-    at(b, 9.1, { ui: "fxAdd" });
-    click(b, 9.25);
-    at(b, 9.8, { ui: "fxType" });
-    click(b, 9.95);
+    at(b, 6.15, { ui: "pickerType" });
+    click(b, 6.28);
+    at(b, 6.6, { ui: "pickerStop" });
+    at(b, 6.75, { ui: "pickerStop" });
+    at(b, 7.2, { ui: "pickerStop", dx: 40 });
+    b.press.push([6.72, 7.25]);
+    at(b, 7.45, { ui: "pickerClose" });
+    click(b, 7.56);
+    at(b, 8.05, { ui: "fxAdd" });
+    click(b, 8.22);
+    at(b, 8.75, { ui: "fxType" });
+    click(b, 8.92);
     at(b, 10.6, { ui: "agents" });
     click(b, 10.75);
     at(b, 11.3, { ui: "composer" });
@@ -192,7 +191,6 @@ function plan(g: Geo): { people: Person[]; parts: Partial<Record<PartId, Plan>>;
   parts.card = { kind: "draw", t: 4.17, t1: 4.95, c: COLORS.burak };
   parts.gradient = { kind: "appear", t: PICKER.linear };
   parts.grain = { kind: "appear", t: FX.noise };
-  parts.cursors = { kind: "agent", t: AGENT.steps[1], resolve: AGENT.resolve };
 
   // Kamila: the headline
   const [kam, ogu, yas, ozg, gor, ece] = TEAM.map((m) => P(m.name, m.color, m.join));
@@ -298,7 +296,6 @@ const ROW_OF: Record<string, { name: string; icon: Row["icon"] }> = {
   ring: { name: "Ellipse", icon: "16.ellipse" },
   star: { name: "Star", icon: "16.star" },
   wave: { name: "Wave", icon: "16.vector" },
-  cursors: { name: "Cursors", icon: "16.group" },
   title: { name: "Design, together, on your desktop.", icon: "16.text" },
   try: { name: "Try it", icon: "16.frame" },
   link: { name: "Or download it…", icon: "16.text" },
@@ -440,11 +437,14 @@ export default function HeroScene() {
         typed.get(id)!.span.remove();
         typed.delete(id);
       }
-      e.dataset.hp = kind === "pen" || kind === "curve" || kind === "agent" ? "shown" : kind;
+      e.dataset.hp = kind === "pen" || kind === "curve" ? "shown" : kind;
       if (INTERACTIVE.includes(id) && e instanceof HTMLElement) e.inert = kind !== "shown";
+      if (e instanceof SVGElement) e.removeAttribute("transform");
       const style = e.style;
       style.clipPath = "";
       style.transform = "";
+      style.transformBox = "";
+      style.transformOrigin = "";
       if (id === "blob") {
         if (!blobD) blobD = e.getAttribute("d") ?? "";
         if (kind === "pen") {
@@ -468,19 +468,6 @@ export default function HeroScene() {
           style.strokeDasharray = "";
           style.strokeDashoffset = "";
         }
-        return;
-      }
-      if (id === "cursors") {
-        const [, skel, res] = state.split(":");
-        for (const c of e.querySelectorAll<SVGGElement>(".pa-cursor")) {
-          const i = Number(c.dataset.i);
-          const real = c.querySelector<SVGGElement>(".pa-real");
-          const sk = c.querySelector<SVGElement>(".pa-skel");
-          if (real) real.style.opacity = kind === "agent" ? (i < Number(res) ? "1" : "0") : kind === "off" ? "0" : "1";
-          if (sk) sk.setAttribute("data-on", kind === "agent" && skel === "1" && i >= Number(res) ? "" : "x");
-          if (sk) sk.style.opacity = kind === "agent" && skel === "1" && i >= Number(res) ? "1" : "0";
-        }
-        e.dataset.hp = kind === "off" ? "off" : "shown";
         return;
       }
       if (kind === "draw") {
@@ -548,11 +535,6 @@ export default function HeroScene() {
           const q = t < a[0] ? 0 : t < a[1] ? (t - a[0]) / (a[1] - a[0]) * 0.5 : t < b[0] ? 0.5 : 0.5 + ((t - b[0]) / (b[1] - b[0])) * 0.5;
           return `curve:${ease(clamp(q)).toFixed(3)}`;
         }
-        case "agent": {
-          if (t < p.t) return "off";
-          const res = p.resolve.filter((x) => t >= x).length;
-          return res >= p.resolve.length ? "shown" : `agent:1:${res}`;
-        }
       }
     };
     /** The pen's marks: the anchors placed so far (and the handle being dragged). */
@@ -600,6 +582,84 @@ export default function HeroScene() {
       return [k.x + (r.x + r.w * s.fx) * k.s + (s.dx ?? 0), k.y + (r.y + r.h * s.fy) * k.s + (s.dy ?? 0)];
     };
 
+    // ── The shapes, alive (after the agent's change): a slow drift, and a lean toward the nearest cursor ──
+    const mouse = { x: 0, y: 0, on: false };
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerType === "touch") return;
+      mouse.x = ev.clientX;
+      mouse.y = ev.clientY;
+      mouse.on = true;
+    };
+    const onLeave = () => (mouse.on = false);
+    window.addEventListener("pointermove", onMove, { passive: true });
+    document.documentElement.addEventListener("pointerleave", onLeave);
+    const SHAPES = { blob: [278, 239], ring: [440, 430], star: [175, 455], wave: [305, 520] } as const;
+    const live = { a: 0, spin: 0, blob: { tx: 0, ty: 0, rot: 0 }, ring: { tx: 0, ty: 0, s: 0 }, star: { tx: 0, ty: 0, fast: 0 }, wave: { bend: 0, lean: 0 } };
+    let waveD = "";
+    const WAVE_D = (bend: number, lean: number) =>
+      `M40 540 C ${140 + lean * 0.3} ${450 + bend * 0.4}, ${230 + lean * 0.6} ${610 + bend}, ${320 + lean} ${530 + bend * 0.9} S ${500 + lean * 0.6} ${450 + bend * 0.6}, 570 540`;
+    const alive = (t: number, r: number, dt: number, crowd: [number, number][]) => {
+      const svg = frame.querySelector<SVGSVGElement>(".poster-art");
+      if (!svg) return;
+      const on = t >= AGENT.done || r > 0 ? 1 : 0;
+      const k1 = 1 - Math.exp(-dt * 5);
+      live.a += (on - live.a) * k1;
+      const rect = svg.getBoundingClientRect();
+      const u = rect.width / 600;
+      const pts = crowd.map(([x, y]) => [(x - rect.left) / u, (y - rect.top) / u] as [number, number]);
+      const now = performance.now() / 1000;
+      // The nearest pointer to a point (svg units): its offset and closeness 0…1
+      const near = (cx: number, cy: number): [number, number, number] => {
+        let best: [number, number, number] = [0, 0, 0];
+        for (const [x, y] of pts) {
+          const dx = x - cx;
+          const dy = y - cy;
+          const f = clamp(1 - Math.hypot(dx, dy) / 240);
+          if (f > best[2]) best = [dx, dy, f];
+        }
+        return best;
+      };
+      const A = live.a;
+      const k2 = 1 - Math.exp(-dt * 4);
+      const go = (o: Record<string, number>, key: string, v: number) => (o[key] += (v - o[key]) * k2);
+      const set = (id: PartId, tf: string | null) => {
+        const e = els[id];
+        if (!e || states.get(id) !== "shown") return;
+        if (tf && A > 0.002) e.setAttribute("transform", tf);
+        else e.removeAttribute("transform");
+      };
+      let [dx, dy, f] = near(...SHAPES.blob);
+      go(live.blob, "tx", A * f * dx * 0.14);
+      go(live.blob, "ty", A * f * dy * 0.14);
+      go(live.blob, "rot", A * (f * Math.sign(dx || 1) * 9 + Math.sin(now * 0.5) * 3));
+      set("blob", `translate(${live.blob.tx.toFixed(2)} ${(live.blob.ty + A * Math.sin(now * 0.7) * 5).toFixed(2)}) rotate(${live.blob.rot.toFixed(2)} ${SHAPES.blob[0]} ${SHAPES.blob[1]})`);
+      [dx, dy, f] = near(...SHAPES.ring);
+      go(live.ring, "tx", -A * f * dx * 0.08);
+      go(live.ring, "ty", -A * f * dy * 0.08);
+      go(live.ring, "s", A * f * 0.12);
+      const rs = 1 + live.ring.s;
+      const [rx, ry] = SHAPES.ring;
+      set("ring", `translate(${(live.ring.tx + rx * (1 - rs)).toFixed(2)} ${(live.ring.ty + ry * (1 - rs) + A * Math.sin(now * 0.6 + 1) * 7).toFixed(2)}) scale(${rs.toFixed(4)})`);
+      [dx, dy, f] = near(...SHAPES.star);
+      go(live.star, "fast", A * f);
+      live.spin += dt * A * (8 + live.star.fast * 90);
+      go(live.star, "tx", A * f * dx * 0.06);
+      go(live.star, "ty", A * f * dy * 0.06);
+      set("star", `translate(${live.star.tx.toFixed(2)} ${(live.star.ty + A * Math.sin(now * 0.8 + 2) * 6).toFixed(2)}) rotate(${(live.spin % 360).toFixed(2)} ${SHAPES.star[0]} ${SHAPES.star[1]})`);
+      [dx, dy, f] = near(...SHAPES.wave);
+      go(live.wave, "bend", A * (f * clamp(dy, -90, 90) * 1.0 + Math.sin(now * 0.9) * 10));
+      go(live.wave, "lean", A * f * clamp(dx, -80, 80) * 0.3);
+      const wave = els.wave;
+      if (wave && states.get("wave") === "shown") {
+        const d = A > 0.002 ? WAVE_D(live.wave.bend, live.wave.lean) : "";
+        if (d !== waveD) {
+          waveD = d;
+          if (d) wave.setAttribute("d", d);
+          else wave.setAttribute("d", WAVE_D(0, 0));
+        }
+      }
+    };
+
     // ── The clock: t = the scroll's share + what played by itself (spent first when scrolling back) ──
     let played = 0;
     let lastP = -1;
@@ -620,7 +680,7 @@ export default function HeroScene() {
         measuredAt = now;
         measure();
       }
-      if (!g) return;
+      if (!g || !visible) return;
       const track = hero.offsetHeight - g.H;
       const p = track > 0 ? clamp((window.scrollY - hero.offsetTop) / track) : 0;
       const rate = T_BUILD / BUILD_P;
@@ -652,6 +712,16 @@ export default function HeroScene() {
       bg.style.boxShadow = r < 1 ? `0 0 0 ${1 / k.s}px var(--site-piece-line)` : "";
       for (const id of Object.keys(PART_SEL) as PartId[]) setPart(id, r > 0 ? "shown" : partState(id, t));
       drawEdit(r > 0 ? 99 : t);
+
+      // The shapes, alive: the teammates' cursors (while the editor is up) and the visitor's own mouse
+      const sr = sticky.getBoundingClientRect();
+      const crowd: [number, number][] = mouse.on ? [[mouse.x, mouse.y]] : [];
+      if (r < 0.25)
+        for (const c of curEls.values()) {
+          const m = /translate3d\(([-\d.]+)px, ([-\d.]+)px/.exec(c.el.style.transform);
+          if (m && Number(c.el.style.opacity) > 0.5) crowd.push([sr.left + Number(m[1]), sr.top + Number(m[2])]);
+        }
+      alive(t, r, dt, crowd);
 
       // The editor around it
       const out = ease(clamp(r / 0.8));
@@ -765,6 +835,8 @@ export default function HeroScene() {
       cancelAnimationFrame(raf);
       io.disconnect();
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("pointermove", onMove);
+      document.documentElement.removeEventListener("pointerleave", onLeave);
       for (const c of curEls.values()) c.el.remove();
       for (const tp of typed.values()) tp.span.remove();
     };
@@ -834,7 +906,7 @@ export default function HeroScene() {
                     <div className={agents.agent}>
                       <span className={agents.agentName}>Claude Code</span>
                       <Steps steps={steps} />
-                      {ui.done && <AgentText>Drew three cursors with name pills in the gradient, as vectors in a “Cursors” group.</AgentText>}
+                      {ui.done && <AgentText>The star, the ellipse, the blob and the wave now drift on their own and lean, swell, spin and bend toward a cursor nearby.</AgentText>}
                     </div>
                   )}
                 </ChatPanel>
@@ -876,7 +948,7 @@ export default function HeroScene() {
             </div>
           </div>
           {ui.picker && (
-            <div ref={pickerBox} className={styles.picker} data-hero-ui="picker" style={{ left: g.W - 264 - 248, top: 180 }}>
+            <div ref={pickerBox} className={styles.picker} data-hero-ui="picker" style={{ left: g.W - 264, top: 24 + 82 }}>
               <ColorPicker static value={paint} anchor={null} onChange={noop} onClose={noop} stop={1} />
             </div>
           )}
@@ -894,7 +966,7 @@ export default function HeroScene() {
   );
 }
 
-const AGENT_STEP_NAMES = ["get_metadata", "create_nodes", "apply_style"];
+const AGENT_STEP_NAMES = ["get_selection", "get_design_context", "update_nodes"];
 
 /** The Design panel for Burak's selection: the frame, then the card (its fill and effects as he sets them). */
 function DesignBody({ ui }: { ui: UI }): ReactNode {
@@ -916,7 +988,7 @@ function DesignBody({ ui }: { ui: UI }): ReactNode {
           <PropertyGrid>
             <PropertyRow span={2} action={<IconButton icon="24.eye.small" label="Hide fill" tone="secondary" />}>
               {card && ui.gradient ? (
-                <ColorInput label="Fill" color="FFD1E6" opacity={100} valueLabel="Linear" onColor={noop} onOpacity={noop} />
+                <ColorInput label="Fill" color="linear-gradient(90deg, #ffd1e6, #c9d4ff 60%, #ffe1b0)" opacity={100} valueLabel="Linear" onColor={noop} onOpacity={noop} />
               ) : (
                 <ColorInput label="Fill" color={card ? "E6E6E6" : "FFFFFF"} opacity={100} onColor={noop} onOpacity={noop} />
               )}
