@@ -17,6 +17,7 @@ import { ReachStore } from "./reach/store";
 import { orgForcedOff } from "./reach/org";
 import { webRunner } from "./reach/web";
 import { GithubAccess } from "./reach/github";
+import { filesRunner } from "./reach/files";
 import { mainFetch } from "../net";
 import { grantProblem, isDeniedPath } from "./reach/paths";
 import { REACH_NOTE, REACH_SKILLS, isReachPolicy, isRepoName, type AccessLogEntry, type ReachCapability, type ReachPatch, type ReachView } from "../../shared/agents/reach";
@@ -329,6 +330,7 @@ const reachRunners: Partial<Record<ReachCapability, ReachRunner>> = {
   // A capture's layers are made in the turn's file, inside the turn (one undo step with the agent's other writes).
   web: webRunner({ runInView: (ctx, call) => runToolInView(ctx.fileKey, { turnId: ctx.turnId, client: ctx.agent, name: call.name, args: call.args }) }),
   github: (tool, args, ctx) => github().runner()(tool, args, ctx),
+  files: filesRunner(),
 };
 let reach: ReachHub | null = null;
 
