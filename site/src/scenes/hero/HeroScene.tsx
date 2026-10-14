@@ -902,10 +902,22 @@ export default function HeroScene() {
             b.vy -= (1 + RESTITUTION) * vn * dy;
           }
         }
-        if (b.x < b.r) (b.x = b.r), (b.vx = Math.abs(b.vx) * RESTITUTION);
-        if (b.x > w - b.r) (b.x = w - b.r), (b.vx = -Math.abs(b.vx) * RESTITUTION);
-        if (b.y < b.r) (b.y = b.r), (b.vy = Math.abs(b.vy) * RESTITUTION);
-        if (b.y > h - b.r) (b.y = h - b.r), (b.vy = -Math.abs(b.vy) * RESTITUTION);
+        if (b.x < b.r) {
+          b.x = b.r;
+          b.vx = Math.abs(b.vx) * RESTITUTION;
+        }
+        if (b.x > w - b.r) {
+          b.x = w - b.r;
+          b.vx = -Math.abs(b.vx) * RESTITUTION;
+        }
+        if (b.y < b.r) {
+          b.y = b.r;
+          b.vy = Math.abs(b.vy) * RESTITUTION;
+        }
+        if (b.y > h - b.r) {
+          b.y = h - b.r;
+          b.vy = -Math.abs(b.vy) * RESTITUTION;
+        }
         b.x += b.vx * STEP;
         b.y += b.vy * STEP;
         b.a += b.va * STEP;
@@ -1115,7 +1127,10 @@ export default function HeroScene() {
           dock.style.opacity = open ? "" : String(shown);
           dock.style.pointerEvents = open ? "" : shown > 0.5 ? "auto" : "none";
           dock.inert = !open && shown < 0.5;
-          for (const it of items) (it.style.opacity = ""), (it.style.transform = "");
+          for (const it of items) {
+            it.style.opacity = "";
+            it.style.transform = "";
+          }
         } else {
           dock.style.opacity = m > 0 ? "1" : "0";
           dock.style.pointerEvents = m >= 1 ? "auto" : "none";
@@ -1248,7 +1263,10 @@ export default function HeroScene() {
       window.removeEventListener("pointerup", onUp);
       document.documentElement.removeEventListener("pointerleave", onLeave);
       for (const c of curEls.values()) c.el.remove();
-      for (const c of commentEls.values()) (c.pin.remove(), c.bubble.remove());
+      for (const c of commentEls.values()) {
+        c.pin.remove();
+        c.bubble.remove();
+      }
       for (const tp of typed.values()) tp.span.remove();
     };
   }, []);

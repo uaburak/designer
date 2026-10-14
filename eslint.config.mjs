@@ -7,7 +7,7 @@ import { defineConfig, globalIgnores } from "eslint/config";
 export default defineConfig([
   // docs/research holds reference material (sample decoders), not app code; generated codecs and the engine's Emscripten glue aren't linted.
   // .claude/worktrees: other agents' checkouts (git-excluded), linted in their own trees.
-  globalIgnores(["out/**", "dist/**", "node_modules/**", "docs/**", "**/*.generated.ts", "src/renderer/src/engine/wasm/**", "engine/build/**", ".claude/**",
+  globalIgnores(["out/**", "dist/**", "site/dist/**", "tools/ui-kit/out/**", "node_modules/**", "docs/**", "**/*.generated.ts", "src/renderer/src/engine/wasm/**", "engine/build/**", ".claude/**",
     // The multiplayer server's own install and wrangler's build output (docs/multiplayer.md).
     "server/node_modules/**", "server/.wrangler/**", "server/src/*.gen.mjs",
     // Round 1e spikes: their own installs, bundles and wrangler output; tested by their own `npm test` (server/spikes/).

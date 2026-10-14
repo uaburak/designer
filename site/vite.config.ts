@@ -110,7 +110,7 @@ function usedIconNames(): Set<string> {
       if (entry === "node_modules" || entry === "__tests__" || entry === "svg") continue;
       if (statSync(path).isDirectory()) scan(path);
       else if (/\.tsx?$/.test(entry) && !entry.endsWith("registry.ts"))
-        for (const m of readFileSync(path, "utf8").matchAll(/["'`]((?:16|24|32)\.[a-z0-9.\-]+)["'`]/g)) names.add(m[1]);
+        for (const m of readFileSync(path, "utf8").matchAll(/["'`]((?:16|24|32)\.[a-z0-9.-]+)["'`]/g)) names.add(m[1]);
     }
   };
   for (const dir of [src, resolve(renderer, "ds"), resolve(renderer, "editor/panels/agents")]) if (existsSync(dir)) scan(dir);

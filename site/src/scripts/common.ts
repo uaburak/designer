@@ -23,7 +23,10 @@ export function initDock(): void {
   if (!dock || !ends.length || typeof IntersectionObserver !== "function") return;
   const near = new Set<Element>();
   const io = new IntersectionObserver((entries) => {
-    for (const e of entries) e.isIntersecting ? near.add(e.target) : near.delete(e.target);
+    for (const e of entries) {
+      if (e.isIntersecting) near.add(e.target);
+      else near.delete(e.target);
+    }
     dock.toggleAttribute("data-away", near.size > 0);
   });
   for (const el of ends) io.observe(el);
