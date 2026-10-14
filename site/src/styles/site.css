@@ -355,7 +355,10 @@ html.hero-anim .hero-frame:not([data-ready]) > :not(.hero-frame-bg) { visibility
    drawn (clipped open from its top-left corner) */
 html.hero-anim:not(.hero-open) .hero .site-header { background: transparent; }
 html.hero-anim [data-hp] { transition: opacity 240ms var(--site-ease); }
+html.hero-anim .hero-frame:not([data-live]) [data-hp] { transition: none; }
 html.hero-anim [data-hp="off"] { opacity: 0; }
+/* Until the scene drives it, the dock waits out of sight (the toolbar is where it will appear) */
+html.hero-anim:not(.hero-open) .dock { opacity: 0; pointer-events: none; }
 html.hero-anim [data-hp="type"] { position: relative; -webkit-text-fill-color: transparent; outline: 1px solid var(--hp-c); outline-offset: 2px; }
 html.hero-anim [data-hp="draw"] { -webkit-text-fill-color: transparent; outline: 1px solid var(--hp-c); outline-offset: -1px; transition: none; }
 .hero-typed { position: absolute; inset: 0; padding: inherit; -webkit-text-fill-color: currentColor; pointer-events: none; }

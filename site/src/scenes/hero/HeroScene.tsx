@@ -478,7 +478,11 @@ export default function HeroScene() {
         sticky.toggleAttribute("data-you-tile", !open);
       }
       frame.style.transform = open ? "none" : `translate(${k.x}px, ${k.y}px) scale(${k.s})`;
-      frame.dataset.ready = "";
+      if (!("ready" in frame.dataset)) {
+        frame.dataset.ready = "";
+        // The parts' fades start only once their first state is on screen (not from the page's own look)
+        requestAnimationFrame(() => requestAnimationFrame(() => (frame.dataset.live = "")));
+      }
       const [d0, d1] = story.draw;
       const dp = ease(clamp((t - d0) / (d1 - d0)));
       bg.style.transform = dp >= 1 ? "none" : `scale(${Math.max(0.001, dp)})`;
