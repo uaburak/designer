@@ -39,6 +39,8 @@ export interface ConnectorStorage {
 export interface ConsentAnswer {
   allow: boolean;
   remember?: boolean;
+  /** A Local apps card: the window the owner picked (docs/agents-reach.md §9) */
+  windowId?: string;
 }
 
 /** A tool as agents see it through our server. */

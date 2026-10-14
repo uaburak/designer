@@ -9,6 +9,7 @@
  */
 import type { AgentSettings, AuthState, ConnectResult, McpClientId, McpClientInfo, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnEvent, TurnRequest, UsageInfo } from "./agents/types";
 import type { AttachResult } from "./agents/attachments";
+import type { AccessLogEntry, ReachPatch, ReachView } from "./agents/reach";
 import type { AiImageRequest, AiModelId, AiModelInfo, AiModelState, AiRunEventMsg, AiRunRequest, AiSettings, Connector, ConnectorConsent, ConnectorToolPolicy, ImageRouteInfo } from "./ai/types";
 import type { AccountMethod, AccountResponse, AccountState, SignInMethod, SignInResult } from "./account";
 import type { CommandId, MenuStatePatch } from "./commands";
@@ -450,6 +451,21 @@ export interface IpcInvoke extends SharedFontsChannels {
   "agents:update-connector": { args: [{ id: string; enabled?: boolean; policies?: Record<string, ConnectorToolPolicy> }]; result: Connector[] };
   "agents:remove-connector": { args: [{ id: string }]; result: Connector[] };
   "agents:test-connector": { args: [{ id: string }]; result: Connector };
+  // ── Agents' reach (docs/agents-reach.md): Agent settings › Access ──
+  "agents:access": { args: []; result: ReachView };
+  "agents:set-access": { args: [ReachPatch]; result: ReachView };
+  /** Main's folder picker: the picked folder (its real path) becomes a grant of Local files */
+  "agents:access-add-folder": { args: []; result: ReachView };
+  "agents:access-log": { args: []; result: AccessLogEntry[] };
+  "agents:clear-access-log": { args: []; result: void };
+  /** GitHub (docs/agents-reach.md §6.1): the token goes to main once and is sealed there */
+  "agents:github-token": { args: [{ token: string }]; result: ReachView };
+  "agents:github-device-start": { args: []; result: { userCode: string; verificationUri: string; expiresIn: number } };
+  "agents:github-device-poll": { args: []; result: { state: "pending" | "connected" | "expired" | "denied" } };
+  "agents:github-disconnect": { args: []; result: ReachView };
+  "agents:github-repos": { args: []; result: { fullName: string; private: boolean; description: string }[] };
+  /** Local apps (docs/agents-reach.md §9): macOS System Settings › Privacy & Security › Screen Recording */
+  "agents:screen-settings": { args: []; result: void };
 }
 
 /** A development plugin imported from its manifest (docs/plugins.md §3.3) */
@@ -497,7 +513,7 @@ export interface IpcSend {
   /** A tool call's answer from the view that ran it */
   "agents:tool-result": ToolCallResult;
   /** The answer to a connector's consent card (`agents:consent`) */
-  "agents:consent-answer": { reqId: number; allow: boolean; remember?: boolean };
+  "agents:consent-answer": { reqId: number; allow: boolean; remember?: boolean; windowId?: string };
   /** A step of a scrub: the trackpad's haptic tick (macOS; main throttles it to one a frame — src/main/haptics.ts) */
   "haptics:tick": void;
 }
@@ -642,6 +658,17 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "agents:update-connector": ["home", "editor"],
   "agents:remove-connector": ["home", "editor"],
   "agents:test-connector": ["home", "editor"],
+  "agents:access": ["home", "editor"],
+  "agents:set-access": ["home", "editor"],
+  "agents:access-add-folder": ["home", "editor"],
+  "agents:access-log": ["home", "editor"],
+  "agents:clear-access-log": ["home", "editor"],
+  "agents:github-token": ["home", "editor"],
+  "agents:github-device-start": ["home", "editor"],
+  "agents:github-device-poll": ["home", "editor"],
+  "agents:github-disconnect": ["home", "editor"],
+  "agents:github-repos": ["home", "editor"],
+  "agents:screen-settings": ["home", "editor"],
 };
 
 export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {

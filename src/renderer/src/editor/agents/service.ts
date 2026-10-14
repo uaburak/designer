@@ -756,9 +756,9 @@ export class AgentsService implements AgentSetupHost {
   }
 
   /** A consent card's answer: Allow once, Always allow (`remember`), Deny. */
-  answerConsent(reqId: number, allow: boolean, remember = false) {
+  answerConsent(reqId: number, allow: boolean, remember = false, windowId?: string) {
     this.set({ consents: this.state.consents.filter((c) => c.reqId !== reqId) });
-    this.api?.answerConsent?.(reqId, allow, remember);
+    this.api?.answerConsent?.(reqId, allow, remember, windowId);
   }
 
   /** The connectors on for a chat (the "+" menu's Connectors ▸); a new chat's until its first message. */

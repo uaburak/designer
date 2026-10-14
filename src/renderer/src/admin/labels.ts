@@ -324,6 +324,7 @@ export function eventText(row: Pick<ActivityLog, "action">): string {
     case "org_ai_setting_change": {
       const setting = (details as { setting?: unknown }).setting;
       if (setting === "aiEnabled") return to ? t("Turned AI features on") : t("Turned AI features off");
+      if (setting === "agentAccess") return t("Changed agent access");
       if (setting === "aiCreditLimit") return to === null ? t("Removed the AI credit limit") : typeof to === "number" ? t("Set the AI credit limit to {credits} credits a month", { credits: to.toLocaleString(intlLocale()) }) : fallback;
       return fallback;
     }

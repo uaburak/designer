@@ -282,6 +282,21 @@
   .consent { display: flex; flex-direction: column; gap: var(--ds-space-2); margin: var(--ds-space-2) 0; padding: var(--ds-space-2) var(--ds-space-3); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-large); background: var(--figma-color-bg-secondary); }
   .consentTitle { margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
   .consentArgs { max-height: calc(var(--ds-size-row) * 5); margin: 0; overflow: auto; color: var(--figma-color-text-secondary); font: var(--ds-font-code); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .consentMeta { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
+
+  /* Agents' reach (docs/agents-reach.md): the window picker of Local apps, the access log */
+  .windowGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ds-space-2); max-height: calc(var(--ds-size-row) * 12); overflow: auto; }
+  .windowTile { display: flex; flex-direction: column; gap: var(--ds-space-1); padding: var(--ds-space-1); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); color: var(--figma-color-text); text-align: start; cursor: default; }
+  .windowTile:hover { border-color: var(--figma-color-border-selected); }
+  .windowTile:focus-visible { outline: 2px solid var(--figma-color-border-selected); outline-offset: -1px; }
+  .windowThumb { width: 100%; aspect-ratio: 16 / 10; object-fit: contain; border-radius: var(--ds-radius-small); background: var(--figma-color-bg-secondary); }
+  .windowName { overflow: hidden; font: var(--ds-font-body-small); text-overflow: ellipsis; white-space: nowrap; }
+  .logEntry { display: flex; flex-direction: column; gap: var(--ds-space-half); padding: var(--ds-space-1-5) 0; border-bottom: 1px solid var(--figma-color-border); }
+  .logEntry:last-child { border-bottom: 0; }
+  .logHead { display: flex; justify-content: space-between; gap: var(--ds-space-2); color: var(--figma-color-text); font: var(--ds-font-body-medium); }
+  .logOutcome { color: var(--figma-color-text-secondary); }
+  .logEntry[data-log-outcome="denied"] .logOutcome, .logEntry[data-log-outcome="refused"] .logOutcome, .logEntry[data-log-outcome="error"] .logOutcome { color: var(--figma-color-text-danger); }
+  .logMeta { overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); text-overflow: ellipsis; white-space: nowrap; }
 
   /* A finished reply's AI credits (hover: the turn's credits) */
   .credits { display: inline-flex; align-items: center; gap: var(--ds-space-half); margin-top: var(--ds-space-1); color: var(--figma-color-icon-tertiary); font: var(--ds-font-body-small); }

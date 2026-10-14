@@ -152,7 +152,7 @@ function agentsApi(): AgentsApi {
         .then((r) => send("agents:tool-result", { reqId: call.reqId, content: r.content, isError: r.isError, touched: r.touched }));
     }),
   onConsent: (cb) => on("agents:consent", cb),
-  answerConsent: (reqId, allow, remember) => send("agents:consent-answer", { reqId: Number(reqId), allow: allow === true, remember: remember === true }),
+  answerConsent: (reqId, allow, remember, windowId) => send("agents:consent-answer", { reqId: Number(reqId), allow: allow === true, remember: remember === true, ...(typeof windowId === "string" ? { windowId: windowId.slice(0, 200) } : {}) }),
   };
 }
 

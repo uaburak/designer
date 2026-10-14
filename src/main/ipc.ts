@@ -267,8 +267,24 @@ export function registerIpc() {
   onInvoke("agents:remove-connector", (_c, p) => agents.removeConnector(str(p?.id, 64) ?? ""));
   onInvoke("agents:test-connector", (_c, p) => agents.testConnector(str(p?.id, 64) ?? ""));
   onSend("agents:consent-answer", ({ sender }, p) => {
-    if (p && typeof p.reqId === "number") agents.answerConsent(sender, { reqId: p.reqId, allow: p.allow === true, remember: p.remember === true });
+    if (p && typeof p.reqId === "number") agents.answerConsent(sender, { reqId: p.reqId, allow: p.allow === true, remember: p.remember === true, windowId: str(p.windowId, 200) ?? undefined });
   });
+  // Agents' reach (docs/agents-reach.md §2): Agent settings › Access — main cleans every field again (host.ts setAccess).
+  onInvoke("agents:access", () => agents.accessView());
+  onInvoke("agents:set-access", (_c, p) => {
+    const list = (v: unknown, n: number) => (Array.isArray(v) ? v.slice(0, n).flatMap((x) => (str(x, 1000) ? [x as string] : [])) : undefined);
+    const policies = p?.policies && typeof p.policies === "object" ? Object.fromEntries(Object.entries(p.policies).slice(0, 8)) : undefined;
+    return agents.setAccess({ policies, allowedHosts: list(p?.allowedHosts, 50), repos: list(p?.repos, 200), folders: list(p?.folders, 50) });
+  });
+  onInvoke("agents:access-add-folder", ({ sender }) => agents.addAccessFolder(sender));
+  onInvoke("agents:access-log", () => agents.accessLog());
+  onInvoke("agents:clear-access-log", () => agents.clearAccessLog());
+  onInvoke("agents:github-token", (_c, p) => agents.githubConnectToken(str(p?.token, 400) ?? ""));
+  onInvoke("agents:github-device-start", () => agents.githubDeviceStart());
+  onInvoke("agents:github-device-poll", () => agents.githubDevicePoll());
+  onInvoke("agents:github-disconnect", () => agents.githubDisconnect());
+  onInvoke("agents:github-repos", () => agents.githubRepos());
+  onInvoke("agents:screen-settings", () => agents.openScreenSettings());
   onInvoke("devmode:link-title", (_c, p) => linkTitle(p?.url));
   // ── Haptics (a scrub's steps; throttled, macOS only) ──
   onSend("haptics:tick", () => void hapticTick());

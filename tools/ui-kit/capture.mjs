@@ -51,7 +51,7 @@ const exe = `${homedir()}/Library/Caches/ms-playwright/chromium-1208/chrome-mac-
 const browser = await chromium.launch({ headless: true, executablePath: exe });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: "light", deviceScaleFactor: 1 });
 page.on("pageerror", (e) => console.warn("page error:", e.message.slice(0, 160)));
-const walker = readFileSync(join(HERE, "walker.js"), "utf8");
+const walker = readFileSync(join(HERE, "../../src/shared/agents/web/walker.js"), "utf8");
 const images = new Map(); // key → file
 let imageSeq = 0;
 

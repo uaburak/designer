@@ -1,3 +1,5 @@
+import type { AccessConsent } from "../agents/reach";
+
 /** Figma AI in DesignerV2 (docs/ai.md). Shared by main (src/main/ai), the store (src/store/ai, src/store/search), the editor (editor/ai, imageTools, search) and the server (server/src/ai). */
 
 export type AiAction =
@@ -137,7 +139,18 @@ export interface Connector {
   state: "connected" | "error" | "unknown";
   error?: string;
 }
-export interface ConnectorConsent { reqId: number; turnId: string; connectorId: string; connector: string; tool: string; args: unknown }
+export interface ConnectorConsent {
+  reqId: number;
+  turnId: string;
+  connectorId: string;
+  connector: string;
+  tool: string;
+  args: unknown;
+  /** The chat the card shows in (a manager's tasks ask in their chat too); absent: the turn's own chat */
+  chatId?: string;
+  /** Agents' reach (docs/agents-reach.md §3): the capability's card — or, for Local apps, the window picker */
+  access?: AccessConsent;
+}
 
 export type AiModelId = "isnet" | "swin2sr-x4" | "lama" | "clip-vit-b32" | "minilm-l6";
 export interface AiModelInfo { id: AiModelId; label: string; use: string; license: string; repo: string; revision: string; files: { path: string; bytes: number; sha256: string }[]; bytes: number }

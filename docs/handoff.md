@@ -2,6 +2,10 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-15 — Round 16 (agents' reach) built on its branch, not merged
+
+`docs/agents-reach.md`: Agent settings › Access lets the Agents tab's chats open web pages (and capture them as layers), read picked GitHub repositories, read granted local folders and see a window the owner picks — all Off by default, through our MCP tools in main only, with consent cards, an access log and org switches. To verify after merging: turn Web on (Ask each time), ask an agent "capture example.com into this page", answer the card, check the layers and Access log; GitHub with a fine-grained read-only token; Local apps needs Screen Recording for Wecra (macOS asks once). Open: the GitHub App's client id for the device flow (§13).
+
 ## Status 2026-10-14 — Wecra 1.3.0 released (Home, Turkish, paste from Figma, thumbnails)
 
 Everything is committed, pushed (`11a70946`, `9e800210`) and live: wecra.app deployed, D1 migrated (0024 file_exclusions, 0025 thumbnail_at), desktop 1.3.0 on get.wecra.app and mirrored on GitHub; the owner's installed app updated to 1.3.0 from the menu.

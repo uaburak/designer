@@ -145,6 +145,19 @@ export function agentSetupApi(): AgentSetupApi {
     updateConnector: (p) => invoke("agents:update-connector", plain(p)),
     removeConnector: (id) => invoke("agents:remove-connector", { id: String(id) }),
     testConnector: (id) => invoke("agents:test-connector", { id: String(id) }),
+    reach: {
+      view: () => invoke("agents:access"),
+      set: (patch) => invoke("agents:set-access", plain(patch ?? {})),
+      addFolder: () => invoke("agents:access-add-folder"),
+      log: () => invoke("agents:access-log"),
+      clearLog: () => invoke("agents:clear-access-log"),
+      githubToken: (token) => invoke("agents:github-token", { token: String(token ?? "") }),
+      githubDeviceStart: () => invoke("agents:github-device-start"),
+      githubDevicePoll: () => invoke("agents:github-device-poll"),
+      githubDisconnect: () => invoke("agents:github-disconnect"),
+      githubRepos: () => invoke("agents:github-repos"),
+      openScreenSettings: () => invoke("agents:screen-settings"),
+    },
   };
 }
 

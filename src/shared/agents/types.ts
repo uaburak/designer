@@ -6,6 +6,7 @@
 import type { ToolContent } from "./tools";
 import type { AttachResult, TurnAttachment } from "./attachments";
 import type { Connector, ConnectorConsent, ConnectorToolPolicy } from "../ai/types";
+import type { AccessLogEntry, ReachPatch, ReachView } from "./reach";
 import type { ManagerSettings } from "../studio/types";
 
 /** How a provider is driven: a CLI run headless with our MCP server, or an OpenAI-compatible chat API we bridge. */
@@ -261,8 +262,31 @@ export interface AgentsApi {
   testConnector?(id: string): Promise<Connector>;
   /** A connector's tool wants to run (its policy is Ask): show the consent card, answer with answerConsent */
   onConsent?(cb: (c: ConnectorConsent) => void): () => void;
-  answerConsent?(reqId: number, allow: boolean, remember?: boolean): void;
+  /** `windowId`: the window the owner picked on a Local apps card (docs/agents-reach.md §9) */
+  answerConsent?(reqId: number, allow: boolean, remember?: boolean, windowId?: string): void;
+  /** Agent settings › Access (docs/agents-reach.md §2): the desktop app's; absent in a browser stand-in */
+  reach?: ReachApi;
+}
+
+/** Agent settings › Access through main (docs/agents-reach.md §2). */
+export interface ReachApi {
+  view(): Promise<ReachView>;
+  set(patch: ReachPatch): Promise<ReachView>;
+  /** Main's folder picker; the folder becomes a Local files grant */
+  addFolder(): Promise<ReachView>;
+  log(): Promise<AccessLogEntry[]>;
+  clearLog(): Promise<void>;
+  /** GitHub (docs/agents-reach.md §6.1): a fine-grained token, checked and sealed by main */
+  githubToken(token: string): Promise<ReachView>;
+  /** The device flow: the code to enter on GitHub, then polls until connected */
+  githubDeviceStart(): Promise<{ userCode: string; verificationUri: string; expiresIn: number }>;
+  githubDevicePoll(): Promise<{ state: "pending" | "connected" | "expired" | "denied" }>;
+  githubDisconnect(): Promise<ReachView>;
+  /** The connected account's repositories */
+  githubRepos(): Promise<{ fullName: string; private: boolean; description: string }[]>;
+  /** macOS: System Settings › Privacy & Security › Screen Recording (Local apps) */
+  openScreenSettings?(): Promise<void>;
 }
 
 /** The setup half of AgentsApi (no turns, no tools): what Settings › Agents uses — Home has it too. */
-export type AgentSetupApi = Pick<AgentsApi, "providers" | "settings" | "setSettings" | "addServer" | "removeServer" | "test" | "auth" | "signIn" | "signOut" | "install" | "mcp" | "onMcpState" | "clients" | "connect" | "disconnect" | "clientConfig" | "connectors" | "addConnector" | "updateConnector" | "removeConnector" | "testConnector">;
+export type AgentSetupApi = Pick<AgentsApi, "providers" | "settings" | "setSettings" | "addServer" | "removeServer" | "test" | "auth" | "signIn" | "signOut" | "install" | "mcp" | "onMcpState" | "clients" | "connect" | "disconnect" | "clientConfig" | "connectors" | "addConnector" | "updateConnector" | "removeConnector" | "testConnector" | "reach">;

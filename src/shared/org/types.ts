@@ -59,6 +59,8 @@ export interface OrgSettings {
   aiEnabled: boolean;
   /** Monthly AI credits per member; null = no limit set */
   aiCreditLimit: number | null;
+  /** Round 16 [ours] (docs/agents-reach.md §3): what members' agents may reach — a switch off forces it off for them */
+  agentAccess: { web: boolean; github: boolean; files: boolean; apps: boolean };
   // ---- Phase 7 round 14: Governance+ (docs/governance.md §2); stored always, enforced only with the add-on ----
   /** Guest membership › 2FA for Guests */
   twoFactorForGuests: boolean;
@@ -75,7 +77,7 @@ export const DEFAULT_ORG_SETTINGS: OrgSettings = {
   publicLinks: true, linkExpiryMaxHours: null, passwordRequired: false, cursorChat: true, audio: true,
   authMethod: "any", idleSessionTimeoutHours: null, domainCapture: false, externalContent: "allowed", passwordMode: "any", openSessions: true,
   pluginApproval: "all", pluginRequests: true, widgetApproval: "all", widgetRequests: true,
-  aiEnabled: true, aiCreditLimit: null,
+  aiEnabled: true, aiCreditLimit: null, agentAccess: { web: true, github: true, files: true, apps: true },
   twoFactorForGuests: false, guestExpiryDays: null, fileExporting: "all", discovery: false,
 };
 

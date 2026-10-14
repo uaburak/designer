@@ -11,6 +11,7 @@ import { modelLabel, type AgentSetupHost } from "../../agents/setup";
 import styles from "./Agents.module.css";
 import { Block, Field, Group, Row, errorText } from "./settingsParts";
 import { ConnectorsGroup, SkillsGroup, aiSettingsPage } from "./aiSettings";
+import { AccessGroup, accessSettingsPage } from "./AccessSettings";
 import { ManagerPage, managerStatus } from "./ManagerSettings";
 import { t, tp, useT } from "@/i18n";
 
@@ -128,6 +129,7 @@ function SettingsList({ service }: { service: AgentSetupHost }) {
         </Group>
         <SkillsGroup service={service} />
         <ConnectorsGroup service={service} />
+        <AccessGroup service={service} />
         <Group title={t("Connect other apps")}>
           <Row icon="24.link" label={t("MCP server")} status={!state.mcp.url ? t("Not running") : tp(n, "{n} connection", "{n} connections")} on={n > 0} onClick={() => service.openSetting("mcp")} data-settings-row="mcp" />
           {state.clients.map((c) => (
@@ -171,7 +173,7 @@ function SettingsPage({ service, item }: { service: AgentSetupHost; item: string
     body = <McpPage service={service} />;
   } else {
     // Skills and connectors (docs/ai.md §2.10–2.11): aiSettings.tsx
-    const page = aiSettingsPage(kind, id, service);
+    const page = aiSettingsPage(kind, id, service) ?? accessSettingsPage(kind, id, service);
     if (page) ({ title, body } = page);
   }
   return (
