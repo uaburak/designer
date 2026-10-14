@@ -184,12 +184,14 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
-    const route = path.startsWith("/updates/") || path.startsWith("/download/") || path.startsWith("/api/");
+    const route = path.startsWith("/updates/") || path === "/download" || path.startsWith("/download/") || path.startsWith("/api/");
     if (route && method !== "GET" && method !== "HEAD") {
       return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
     }
     if (path.startsWith("/updates/")) return serveUpdate(env.RELEASES, path.slice("/updates/".length), request);
     if (path === "/download/mac" || path === "/download/windows") return download(env.RELEASES, path === "/download/mac" ? "mac" : "windows", url);
+    // The Download page itself (dist/download/): the site's, not a file — the Worker runs first for /download/*
+    if (path === "/download" || path === "/download/") return env.ASSETS.fetch(request);
     if (path === "/api/releases") return releasesApi(env.RELEASES);
     if (route) return path.startsWith("/download/") ? html(404, "Page not found", "There’s no such download.") : notFound();
     return env.ASSETS.fetch(request);

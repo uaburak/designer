@@ -200,6 +200,12 @@ describe("/download/<platform>", () => {
     expect(win.headers.get("Location")).toBe("https://get.wecra.app/updates/Wecra-Setup-1.2.0.exe");
   });
 
+  it("a bare /download is the site's Download page, not a file", async () => {
+    const { call, assets } = setup();
+    for (const path of ["/download", "/download/"]) expect(await (await call(path)).text()).toBe("page");
+    expect(assets).toEqual(["/download", "/download/"]);
+  });
+
   it("shows a 404 page when there is no release yet", async () => {
     const { call } = setup();
     const res = await call("/download/mac");
