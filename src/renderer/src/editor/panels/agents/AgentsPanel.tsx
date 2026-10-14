@@ -20,6 +20,7 @@ import { MODEL_SEP, effortMenu, modelMenu, pickModel } from "../../agents/models
 import { formatTokens, relevantWindows, resetLabel, ringOf, usedLabel } from "../../agents/usage";
 import { elapsedLabel, segmentsOf, toolActiveLabel, type Segment, type ToolPart } from "../../agents/activity";
 import { REVEAL_MS } from "../../agents/imagePlaceholder";
+import { managerName } from "../../agents/managerName";
 import { TabHeader } from "../TabHeader";
 import { AgentSettings } from "./AgentSettings";
 import { ManagerCard, TaskCard } from "./StudioCards";
@@ -287,7 +288,8 @@ function AgentMessage({ m, service }: { m: ChatMessage; service: AgentsService }
   const segments = segmentsOf(m);
   return (
     <div className={styles.agent} data-message="assistant" data-state={m.state}>
-      {m.provider && <span className={styles.agentName}>{m.provider}</span>}
+      {/* The manager's answers carry its name as it is now (Agent settings › Manager › Name) */}
+      {(m.manager || m.provider) && <span className={styles.agentName}>{m.manager ? managerName(service.managerSettings()) : m.provider}</span>}
       {segments.map((s) => (s.kind === "text" ? <div key={s.key} className={styles.agentText} data-agent-text="">{renderText(s.text)}</div> : <StepGroup key={s.key} seg={s} since={m.startedAt} />))}
       {m.cards?.map((c) => <ManagerCard key={c.id} card={c} service={service} />)}
       {m.manager && <ManagerTasks messageId={m.id} service={service} />}
@@ -810,7 +812,7 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
         <span className={styles.barGap} />
         {service.managerProvider() ? (
           <button type="button" className={styles.noProvider} {...tooltipProps(t("Messages go to the manager (Agent settings › Manager)"))} onClick={() => { service.setView("settings"); service.openSetting("manager"); }} data-manager-chip="">
-            {t("Manager")}
+            {managerName(service.managerSettings())}
           </button>
         ) : provider ? (
           <ModelMenus service={service} provider={provider} />

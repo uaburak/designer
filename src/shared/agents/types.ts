@@ -163,6 +163,8 @@ export interface ToolCall {
   turnId: string | null;
   /** Who is calling ("Claude Code", "Cursor") — the undo step's and the version's label */
   client: string;
+  /** The MCP session that made the call (an outside client's presence in the file — docs/ai.md §2.13); absent for a server turn's call */
+  session?: string;
   name: string;
   args: Record<string, unknown>;
 }

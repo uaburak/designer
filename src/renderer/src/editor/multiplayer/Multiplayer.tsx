@@ -15,16 +15,19 @@
  * - a link's landing (node-id, Dev Mode, prototype) and a changed link password (entered again).
  */
 import { useEffect, useRef, useState } from "react";
-import { Avatar, Button, Icon, IconButton, MenuButton, Popover, showToast, tooltipProps } from "@/ds";
+import { Avatar, Button, Icon, IconButton, MenuButton, Popover, initials, showToast, tooltipProps } from "@/ds";
 import { t, useT } from "@/i18n";
 import { getStoreClient } from "@/store";
 import { useAccount } from "../../files/account";
 import { withLinkPassword } from "../../files/LinkPassword";
+import { useCurrentPage } from "@/engine/hooks";
 import { useEditor } from "../controller";
 import { editorBridge } from "../desktop";
 import { applyIntent, openIntent } from "./links";
 import { presenceOf, usePresence, type Peer } from "./presence";
 import { FileBlocked } from "./FileBlocked";
+import { useAgentPresence, type AgentPeer } from "./agentPresence";
+import { agentPresenceOf, startAgentPresence } from "./agentsOnCanvas";
 import styles from "./Multiplayer.module.css";
 
 /** Rendered once in the editor: presence runs while it is mounted. */
@@ -37,6 +40,8 @@ export function Multiplayer() {
     p.start();
     return () => p.stop();
   }, [ed]);
+  // The agents working on the file (any file, shared or not): their cursors, outlines and following.
+  useEffect(() => startAgentPresence(ed), [ed]);
 
   // "can view": read-only (Figma's view-only), as long as that is the role.
   const viewer = state.shared && state.role === "viewer";
@@ -68,6 +73,7 @@ export function Multiplayer() {
   return (
     <>
       {followed && <ObservationFrame peer={followed} />}
+      {!followed && <AgentObservationFrame />}
       {offer && !followed && <SpotlightOffer peer={offer} />}
       {asking && !followed && !offer && <AskSpotlight peer={asking} />}
       {state.audio.inCall && <AudioWidget />}
@@ -214,6 +220,26 @@ function ObservationFrame({ peer }: { peer: Peer }) {
       <div className={styles.bell}>
         <span className={styles.bellMessage}>{peer.presence?.spotlight ? t("{name} is spotlighting", { name: peer.name }) : t("Following {name}", { name: peer.name })}</span>
         <button type="button" className={styles.bellButton} onClick={() => presenceOf(ed)?.stopFollowing()}>
+          {t("Stop")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Following an agent (observation mode): the view framed in its colour, "Following <name>" with Stop. */
+function AgentObservationFrame() {
+  useT();
+  const ed = useEditor();
+  const p = agentPresenceOf(ed);
+  const state = useAgentPresence(p);
+  const agent = state.agents.find((a) => a.key === state.following);
+  if (!agent) return null;
+  return (
+    <div className={styles.frame} style={{ "--peer": agent.color } as React.CSSProperties} data-following-agent={agent.name}>
+      <div className={styles.bell}>
+        <span className={styles.bellMessage}>{t("Following {name}", { name: agent.name })}</span>
+        <button type="button" className={styles.bellButton} onClick={() => p.stopFollowing()}>
           {t("Stop")}
         </button>
       </div>
@@ -476,6 +502,74 @@ export function Facepile() {
             ))}
           </div>
         </Popover>
+      )}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Agents in the facepile (docs/ai.md §2.13)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Agents shown before "+N" takes over */
+const MAX_AGENTS_SHOWN = 4;
+
+/** An agent's avatar: its initials on its colour, with the agent badge. */
+export function AgentAvatar({ agent }: { agent: Pick<AgentPeer, "name"> }) {
+  return (
+    <span className={styles.agentAvatar} role="img" aria-label={agent.name}>
+      {initials(agent.name)}
+      <span className={styles.agentBadge}>
+        <Icon name="16.sparkle" size={10} />
+      </span>
+    </span>
+  );
+}
+
+/** "Claude Code · Agent", "… · on Page 2" when it works on another page than the owner's. */
+export function agentTooltip(agent: Pick<AgentPeer, "name" | "detail" | "page" | "pageName">, ownPage: string | null): string {
+  const who = agent.page && agent.page !== ownPage && agent.pageName ? t("{name} · Agent · on {page}", { name: agent.name, page: agent.pageName }) : t("{name} · Agent", { name: agent.name });
+  return agent.detail ? `${who} — ${agent.detail}` : who;
+}
+
+/** The agents working on this file, before the people (or the account avatar): click one to follow it. */
+export function AgentFaces() {
+  useT();
+  const ed = useEditor();
+  const p = agentPresenceOf(ed);
+  const state = useAgentPresence(p);
+  const page = useCurrentPage(ed.store);
+  if (!state.agents.length) return null;
+  const shown = state.agents.slice(0, MAX_AGENTS_SHOWN);
+  const more = state.agents.slice(MAX_AGENTS_SHOWN);
+  return (
+    <span className={styles.agents} data-agents={state.agents.length}>
+      {shown.map((agent) => {
+        const following = state.following === agent.key;
+        return (
+          <button
+            key={agent.key}
+            type="button"
+            className={styles.face}
+            data-following={following || undefined}
+            data-agent={agent.name}
+            data-elsewhere={(agent.page !== null && agent.page !== page) || undefined}
+            style={{ "--peer": agent.color } as React.CSSProperties}
+            aria-label={following ? t("Stop following {name}", { name: agent.name }) : t("Follow {name}", { name: agent.name })}
+            {...tooltipProps(agentTooltip(agent, page))}
+            onClick={() => (following ? p.stopFollowing() : p.follow(agent.key))}
+          >
+            <span className={styles.bar} />
+            <span className={styles.ring}>
+              <AgentAvatar agent={agent} />
+            </span>
+          </button>
+        );
+      })}
+      {more.length > 0 && (
+        <span className={styles.agentMore} {...tooltipProps(more.map((a) => a.name).join(", "))}>
+          +{more.length}
+        </span>
       )}
     </span>
   );

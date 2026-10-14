@@ -3,7 +3,7 @@
  * bounded, anything else dropped. Pure — main's host and its tests use it.
  */
 import type { AgentRoute, ManagerSettings } from "../studio/types";
-import { DEFAULT_MANAGER_SETTINGS } from "../studio/types";
+import { DEFAULT_MANAGER_NAME, DEFAULT_MANAGER_SETTINGS, MANAGER_NAME_MAX } from "../studio/types";
 import type { AiRoute } from "../ai/types";
 import type { ManagerToolDef } from "./types";
 
@@ -27,13 +27,28 @@ function imageRoute(v: unknown): AiRoute | null {
   return { providerId, ...(model ? { model } : {}) };
 }
 
-/** A view's ManagerSettings (or what settings.json kept), cleaned; missing fields take DEFAULT_MANAGER_SETTINGS'. */
+/** The manager's name: one line, spaces collapsed, at most MANAGER_NAME_MAX characters; empty or not a string: null. */
+export function cleanManagerName(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const name = Array.from(v.replace(/\s+/g, " "))
+    .filter((c) => c.charCodeAt(0) >= 32 && c.charCodeAt(0) !== 127)
+    .join("")
+    .trim();
+  return Array.from(name).slice(0, MANAGER_NAME_MAX).join("").trim() || null;
+}
+
+/**
+ * A view's ManagerSettings (or what settings.json kept), cleaned; missing fields take DEFAULT_MANAGER_SETTINGS' — a
+ * name kept before names existed is the default one.
+ */
 export function cleanManagerSettings(v: unknown, base: ManagerSettings = DEFAULT_MANAGER_SETTINGS): ManagerSettings {
-  if (!v || typeof v !== "object") return { ...base, manager: { ...base.manager }, general: { ...base.general }, allowed: [...base.allowed] };
+  const baseName = cleanManagerName(base.name) ?? DEFAULT_MANAGER_NAME;
+  if (!v || typeof v !== "object") return { ...base, name: baseName, manager: { ...base.manager }, general: { ...base.general }, allowed: [...base.allowed] };
   const m = v as Record<string, unknown>;
   const parallel = Math.round(Number(m.parallel));
   return {
     enabled: typeof m.enabled === "boolean" ? m.enabled : base.enabled,
+    name: cleanManagerName(m.name) ?? baseName,
     manager: m.manager === undefined ? { ...base.manager } : route(m.manager, base.manager),
     general: m.general === undefined ? { ...base.general } : route(m.general, base.general),
     image: m.image === undefined ? base.image : imageRoute(m.image),

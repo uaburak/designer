@@ -294,4 +294,7 @@ export const collab: Record<string, string> = {
   "{n} comments": "{n} yorum",
   "{n} reaction": "{n} tepki",
   "{n} reactions": "{n} tepki",
+  // Agents as collaborators (docs/ai.md §2.13)
+  "{name} · Agent": "{name} · Ajan",
+  "{name} · Agent · on {page}": "{name} · Ajan · {page} sayfasında",
 };

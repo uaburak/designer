@@ -58,7 +58,7 @@ export interface McpHost {
   /** Whether a file is open in an editor view */
   isOpen(fileKey: string): boolean;
   /** Runs a tool in the view that holds `fileKey` */
-  runTool(fileKey: string, call: { turnId: string | null; client: string; name: string; args: Record<string, unknown> }): Promise<ToolResult>;
+  runTool(fileKey: string, call: { turnId: string | null; client: string; session?: string; name: string; args: Record<string, unknown> }): Promise<ToolResult>;
   /** Tools besides ours for a session (a chat's connectors'); their calls go to `runTool` too */
   extraTools?(session: McpSession): Promise<ExtraTool[]>;
   /** The connections changed (the right panel's count) */
@@ -334,7 +334,7 @@ export class McpServer {
       /* never fails a call */
     }
     try {
-      return await this.host.runTool(fileKey, { turnId: session.chat?.turnId ?? null, client: session.client, name, args });
+      return await this.host.runTool(fileKey, { turnId: session.chat?.turnId ?? null, client: session.client, session: session.id, name, args });
     } catch (err) {
       return error(err instanceof Error ? err.message : String(err));
     }

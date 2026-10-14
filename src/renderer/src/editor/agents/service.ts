@@ -34,6 +34,9 @@ import { blurRegions, runStudioImage } from "../studio/images";
 import { TaskQueue, isEnded, type TaskResult } from "./tasks";
 import { isManagerTool, runManagerTool, type CardAnswer, type ManagerEnv, type StudioChatData, type TaskExtra, type ViewCard } from "./managerTools";
 import { paintImageHash } from "../model/paints";
+import { agentPresenceOf } from "../multiplayer/agentsOnCanvas";
+import { LEAVE_AFTER_MS, type AgentActor } from "../multiplayer/agentPresence";
+import { managerName, workerName } from "./managerName";
 
 /**
  * An image the agent makes: being made, made (about to be placed), on the canvas, or not placed (an error, Stop) — or
@@ -285,6 +288,7 @@ export class AgentsService implements AgentSetupHost {
         if (isManagerTool(call.name)) {
           const target = call.turnId ? this.turnTarget.get(call.turnId) : undefined;
           if (!call.turnId || target?.role !== "manager") return textResult(`${call.name} is the manager's tool: a task can't call it.`, true);
+          agentPresenceOf(this.ed).join(this.actorOf(call));
           return runManagerTool(this.managerEnv(call.turnId, target), call.name, call.args ?? {});
         }
         const env = this.toolEnv(call.turnId, call.client);
@@ -297,14 +301,44 @@ export class AgentsService implements AgentSetupHost {
           r.touched.forEach((id) => set.add(id));
           this.touched.set(call.turnId, set);
         }
+        // The agent as a collaborator: its cursor and outline at what it touched (ephemeral — docs/ai.md §2.13).
+        if (!this.ed.engine.destroyed) agentPresenceOf(this.ed).activity(this.actorOf(call), call.name, call.args, r);
         return r;
       }),
-      api.onMcpState((mcp) => this.set({ mcp })),
+      api.onMcpState((mcp) => this.mcpChanged(mcp)),
       api.onConsent?.((c) => this.set({ consents: [...this.state.consents.filter((x) => x.reqId !== c.reqId), c] })) ?? (() => {}),
       this.turns.onChange((t) => this.onTurnChange(t))
     );
-    void api.mcp().then((mcp) => this.set({ mcp }), () => {});
+    void api.mcp().then((mcp) => this.mcpChanged(mcp), () => {});
     void api.settings().then((settings) => this.set({ settings }), () => {});
+  }
+
+  /** Main's MCP connections: the outside clients bound to this file are its collaborators while connected. */
+  private mcpChanged(mcp: McpState) {
+    this.set({ mcp });
+    const mine = this.fileKey();
+    const clients = mcp.connections.filter((c) => !c.chat && c.fileKey && (!mine || c.fileKey === mine));
+    agentPresenceOf(this.ed).syncClients(clients.map((c) => ({ key: `session:${c.id}`, name: c.client })));
+  }
+
+  /**
+   * Who made a tool call, as a collaborator: a worker (its task), the manager or a chat (the chat), or an outside
+   * client (its MCP session).
+   */
+  actorOf(call: { turnId: string | null; client: string; session?: string }): AgentActor {
+    const manager = managerName(this.managerSettings());
+    const worker = call.turnId ? this.workers.get(call.turnId) : undefined;
+    if (worker) {
+      const chat = this.state.chats.find((c) => c.id === worker.chat);
+      const agents = (chat?.tasks ?? []).filter((x) => x.kind === "agent");
+      const index = agents.findIndex((x) => x.id === worker.taskId);
+      // The manager is "1": its workers are "<name> · 2", "· 3"… in the order the chat's tasks were made.
+      return { key: `task:${worker.taskId}`, name: workerName(manager, (index < 0 ? agents.length : index) + 2), kind: "worker", detail: agents[index]?.title };
+    }
+    const target = call.turnId ? this.turnTarget.get(call.turnId) : undefined;
+    if (target?.role === "manager") return { key: `manager:${target.chat}`, name: manager, kind: "manager" };
+    if (target) return { key: `chat:${target.chat}`, name: target.providerLabel, kind: "chat" };
+    return { key: `session:${call.session ?? call.client}`, name: call.client, kind: "client" };
   }
 
   /**
@@ -660,7 +694,7 @@ export class AgentsService implements AgentSetupHost {
     const chatId = chat.id;
     if (this.state.running[chatId]) return;
     const user: ChatMessage = { id: uid(), role: "user", text, context, ...(files.length ? { attachments: files } : {}), ...(invoked ? { skill: invoked.skill.name } : {}) };
-    const answer: ChatMessage = { id: uid(), role: "assistant", parts: [], state: "running", startedAt: Date.now(), provider: manager ? "Manager" : provider?.label, ...(manager ? { manager: true } : {}) };
+    const answer: ChatMessage = { id: uid(), role: "assistant", parts: [], state: "running", startedAt: Date.now(), provider: manager ? managerName(this.managerSettings()) : provider?.label, ...(manager ? { manager: true } : {}) };
     // A picture asked for: where it will land, in the chat and on the canvas, from now on (over the selected layer it fills).
     if (provider && !manager && asksForImage(text)) {
       const target = placeholderTarget({ ...this.placeholderEnv(), selection: (context ?? []).map((c) => c.id) });
@@ -702,6 +736,7 @@ export class AgentsService implements AgentSetupHost {
       this.turns.start(turnId, provider.label);
       this.noteTurnStart(turnId);
       this.turnTarget.set(turnId, { chat: chatId, message: answer.id, providerId: provider.id, providerLabel: provider.label, prompt: text || files.map((f) => f.name).join(", "), model, ...(manager ? { role: "manager" as const, sessionKey } : {}) });
+      agentPresenceOf(this.ed).join(this.actorOf({ turnId, client: provider.label }));
       if (manager) this.managerAborts.set(turnId, new AbortController());
       this.set({ running: { ...this.state.running, [chatId]: turnId } });
       this.updateMessage(chatId, answer.id, (m) => ({ ...m, turnId }));
@@ -800,6 +835,7 @@ export class AgentsService implements AgentSetupHost {
     const target = this.turnTarget.get(turnId);
     if (!target) return;
     const record = this.turns.finish(turnId);
+    agentPresenceOf(this.ed).leave(this.actorOf({ turnId, client: target.providerLabel }).key, LEAVE_AFTER_MS);
     // A manager's turn over: its cards stop waiting; stopped, its tasks stop too (docs/studio.md §2.3).
     if (target.role === "manager") this.endManager(turnId, !!event.stopped);
     this.applyRequestedSelection(turnId);
@@ -1047,6 +1083,7 @@ export class AgentsService implements AgentSetupHost {
           this.turns.start(id, p.label);
           this.workers.set(id, { chat: task.chatId, taskId: task.id, providerId: p.id, model, end });
           this.patchTask(task.chatId, task.id, (t) => ({ ...t, worker: { parts: [], state: "running", turnId: id, provider: p.label } }));
+          agentPresenceOf(this.ed).join(this.actorOf({ turnId: id, client: p.label }));
           if (signal.aborted) void api.stop(id);
         }, reject);
     });
@@ -1062,6 +1099,7 @@ export class AgentsService implements AgentSetupHost {
       return this.set({ usage: { ...this.state.usage, [w.providerId]: mergeUsage(this.state.usage[w.providerId], next) } });
     }
     if (event.type === "done") {
+      agentPresenceOf(this.ed).leave(`task:${w.taskId}`, LEAVE_AFTER_MS);
       this.workers.delete(turnId);
       this.turns.finish(turnId);
       this.turnStarts.delete(turnId);

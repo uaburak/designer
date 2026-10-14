@@ -18,7 +18,7 @@ import { designPanelTab } from "./design/tabOrder";
 import { rightPanelTabs } from "../draw/panels/drawPanel";
 import { present } from "../present";
 import { useAccount } from "../../files/account";
-import { ConnectionDot, Facepile, useFacepile } from "../multiplayer/Multiplayer";
+import { AgentFaces, ConnectionDot, Facepile, useFacepile } from "../multiplayer/Multiplayer";
 import { usePresence } from "../multiplayer/presence";
 import { t, useT } from "@/i18n";
 import styles from "./Panels.module.css";
@@ -110,6 +110,7 @@ export function RightHeader({ compact }: { compact?: boolean }) {
   ];
   return (
     <div className={compact ? undefined : styles.rightHeader} style={compact ? { display: "contents" } : undefined}>
+      <AgentFaces />
       {facepile ? (
         <Facepile />
       ) : (
