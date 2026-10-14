@@ -239,7 +239,7 @@ while read -r OLD; do
             echo "  [dry run] npx --prefix site wrangler r2 object delete $BUCKET/updates/$name --remote"
         else
             # A file that was never uploaded (no Windows build that time) is fine
-            wrangler r2 object delete "$BUCKET/updates/$name" --remote >/dev/null 2>&1 && echo "  updates/$name"
+            wrangler r2 object delete "$BUCKET/updates/$name" --remote < /dev/null >/dev/null 2>&1 && echo "  updates/$name"
         fi
     done
 done < "$NEXT.prune"
