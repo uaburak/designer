@@ -244,7 +244,8 @@
     "medium-large": "6291457:264",
     "asset-tile": "6291457:265",
     "large": "6291457:266",
-    "full": "6291457:267"
+    "full": "6291457:267",
+    "hairline": "6291479:1885"
    },
    "space": {
     "0": "6291457:268",
@@ -259,7 +260,8 @@
     "12": "6291457:277",
     "16": "6291457:278",
     "half": "6291457:279",
-    "1-5": "6291457:280"
+    "1-5": "6291457:280",
+    "px": "6291479:1884"
    },
    "size": {
     "control": "6291457:281",
@@ -341,6 +343,10 @@
     "styles-row": "6291457:357",
     "icon-16": "6291457:358",
     "icon-24": "6291457:359"
+   },
+   "border": {
+    "hairline": "6291479:1882",
+    "strong": "6291479:1883"
    }
   },
   "icons": {
@@ -13630,7 +13636,24 @@
     "endIcon": "6291479:711"
    }
   },
-  "frame": "6291479:1073743160"
+  "frame": "6291479:1073743160",
+  "Badge": {
+   "set": "6291457:7412",
+   "variants": {
+    "Tone=Default, Kind=Label": "6291457:1073758443",
+    "Tone=Brand, Kind=Label": "6291457:1073758445",
+    "Tone=Component, Kind=Label": "6291457:1073758447",
+    "Tone=Success, Kind=Label": "6291457:1073758449",
+    "Tone=Warning, Kind=Label": "6291457:1073758451",
+    "Tone=Danger, Kind=Label": "6291457:1073758453",
+    "Tone=Brand, Kind=Count": "6291457:1073758455",
+    "Tone=Default, Kind=Count": "6291479:1872",
+    "Tone=Component, Kind=Count": "6291479:1874",
+    "Tone=Success, Kind=Count": "6291479:1876",
+    "Tone=Warning, Kind=Count": "6291479:1878",
+    "Tone=Danger, Kind=Count": "6291479:1880"
+   }
+  }
  },
  "migrated": {
   "6291457:8608": "6291479:1493",

@@ -250,13 +250,15 @@ const FIX = {
         walk(kids[tree], (c) => {
           if (c.type !== "INSTANCE" || c.name !== "SidebarItem") return;
           const box = c.children?.[0];
-          if (box?.name === "box" && box.padding?.[3] === 4) pads.push({ nodeId: box.id, paddingLeft: 24 });
+          if (box?.name === "box" && (box.padding?.[3] ?? 0) <= 4) pads.push({ nodeId: box.id, paddingLeft: 24 });
         });
       });
     }
     console.log(`sidebar: Trash after the folder tree in ${moves.length} screens${dry ? " (dry)" : ""}`);
     if (!dry) for (const m of moves) await mcp.call("reparent_nodes", { nodeIds: [m.id], parentId: m.parent, index: m.index }, { page: m.page });
-    await update(pads, "sidebar: folders 20 px in");
+    // (the main's padding is a space variable: an instance overrides it with another variable, space/6 = 24)
+    console.log(`sidebar: folders 20 px in: ${pads.length}${dry ? " (dry)" : ""}`);
+    if (!dry && pads.length) await mcp.call("bind_variable", { nodeIds: pads.map((p) => p.nodeId), field: "paddingLeft", variableId: manifest.variables.sizes.space["6"] });
   },
   /**
    * Hugged labels cut short: a box the browser sized to its text (a fractional width) is a hair narrower for the
