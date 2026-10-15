@@ -142,19 +142,58 @@ fn progressT(dp: vec2f) -> f32 {
   let d = u.v[18].zw - s;
   return clamp(dot(uu - s, d) / max(dot(d, d), 1e-12), 0.0, 1.0);
 }
-fn hashU(x0: u32) -> u32 {
-  var x = x0;
-  x ^= x >> 16u;
-  x *= 0x7feb352du;
-  x ^= x >> 15u;
-  x *= 0x846ca68bu;
-  x ^= x >> 16u;
-  return x;
+// Figma's gradient noise (gl/Shaders.h fnFbm, figmaNoise).
+fn fnCellHash(cell: vec2f) -> f32 {
+  let d = glMod(dot(cell, vec2f(12.9898, 78.233)), 3.14159);
+  return fract(sin(d * 2.71828) * 438.5453 + 1.73205);
 }
-fn hashCell(cell: vec2f, seed: u32) -> u32 {
-  return hashU((u32(i32(cell.x)) * 0x8da6b343u) ^ hashU(u32(i32(cell.y)) ^ (seed * 0xcb1ab31fu)));
+fn fnSeedHash(x: f32) -> f32 { return fract(sin(x * 91.3458 + 12.345) * 43758.5453); }
+fn fnWave(cell: vec2f, k: vec2f, s: f32) -> f32 { return 2.0 * (fract(sin(dot(k, cell) * 0.0625) * (s + 312.0)) - 0.5); }
+fn fnGradient(cell: vec2f, x: f32) -> vec2f {
+  let h = fnCellHash(cell);
+  let g = vec2f(fnWave(cell, vec2f(12.42, 78.23) * fnSeedHash(x + 2.6457), x * h * 1.61803 + 18.345),
+                fnWave(cell, vec2f(-19.98, 31.21) * fnSeedHash(x + 3.6055), x * h * 0.61803 + 21.543));
+  return g / max(length(g), 1e-12);
 }
-fn unitOf(h: u32) -> f32 { return f32(h >> 8u) / 16777215.0; }
+fn fnGradientNoise(p: vec2f, x: f32) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let s = f * f * (3.0 - 2.0 * f);
+  let a = dot(f, fnGradient(i, x));
+  let b = dot(f - vec2f(1.0, 0.0), fnGradient(i + vec2f(1.0, 0.0), x));
+  let c = dot(f - vec2f(0.0, 1.0), fnGradient(i + vec2f(0.0, 1.0), x));
+  let d = dot(f - vec2f(1.0, 1.0), fnGradient(i + vec2f(1.0, 1.0), x));
+  return mix(mix(a, b, s.x), mix(c, d, s.x), s.y);
+}
+fn fnFbm(seed: f32, p0: vec2f) -> f32 {
+  var sum = 0.0;
+  var amplitude = 1.0;
+  var p = p0;
+  for (var octave = 0; octave < 3; octave++) {
+    let x = fract(sin(seed * 91.3458 + f32(octave) * 57.123 + 12.345) * 43758.5453);
+    sum += fnGradientNoise(p, x) / amplitude;
+    p *= 2.0;
+    amplitude *= 2.0;
+  }
+  return sum;
+}
+fn fnBand(v0: f32, density: f32, high: bool) -> f32 {
+  let lo = 10.0 * (select(0.25, 0.75, high) - density / 4.0);
+  let hi = lo + 10.0 * (density / 2.0);
+  let v = v0 * 10.0;
+  return step(lo, v) * (1.0 - step(hi, v));
+}
+fn figmaNoise(p: vec2f, seed: f32, density: f32, kind: i32, color: vec4f, second: vec4f) -> vec4f {
+  let v = vec3f(fnFbm(seed, p), fnFbm(seed + 1.0, p), fnFbm(seed + 2.0, p)) * 0.5 + 0.5;
+  if (kind == 0) {
+    let a = fnBand(fnFbm(seed + 3.0, p) * 0.5 + 0.5, density, false) * color.a;
+    return vec4f(clamp(2.0 * v - 0.5, vec3f(0.0), vec3f(1.0)) * a, a);
+  }
+  let l = 0.213 * v.r + 0.715 * v.g + 0.072 * v.b;
+  if (kind == 1) { return color * fnBand(l, density, false); }
+  if (fnBand(l, density, false) > 0.5) { return second; }
+  return color * fnBand(l, density, true);
+}
 )";
 
 // ---- Draw: shapes, paths and glyphs in one program (gl/Shaders.h kDrawVertex, kPaintFunctions, kDrawFragment*) ----
@@ -332,17 +371,12 @@ fn glassAt() -> vec4f {
   return vec4f(rgb + (mid.a - rgb) * clamp(spec, 0.0, 1.0), mid.a);
 }
 
-fn noiseCell(cell: vec2f, seed: u32, density: f32, kind: i32, color: vec4f, second: vec4f) -> vec4f {
-  let h = hashCell(cell, seed);
-  if (unitOf(hashU(h ^ 0x9e3779b9u)) >= density) { return vec4f(0.0); }
-  if (kind == 0) { return vec4f(unitOf(h), unitOf(hashU(h + 1u)), unitOf(hashU(h + 2u)), 1.0) * color.a; }
-  if (kind == 2) { return select(second, color, unitOf(hashU(h + 5u)) < 0.5); }
-  return color * unitOf(h);
-}
-
-fn dither(c: vec4f) -> vec4f {
-  let n = fract(52.9829189 * fract(dot(fragCoord, vec2f(0.06711056, 0.00583715))));
-  return select(c, c * (max(c.a + (n - 0.5) / 255.0, 0.0) / max(c.a, 1e-9)), c.a > 0.0);
+// Figma's dither (gl/Shaders.h figDither): ±1/255 on every channel; transparent untouched, opaque keeps its alpha.
+fn figDither(c: vec4f) -> vec4f {
+  if (c.a == 0.0) { return c; }
+  let n = fract(sin(dot(vec2f(12.9898, 78.233), fragCoord)) * 43758.5453);
+  let q = min(abs(c + (n - 0.5) * (2.0 / 255.0)), vec4f(1.0));
+  return select(vec4f(min(q.rgb, vec3f(q.a)), q.a), vec4f(q.rgb, c.a), c.a == 1.0);  // premultiplied kept valid
 }
 
 fn paintAt(local: vec2f, kind: i32) -> vec4f {
@@ -359,7 +393,15 @@ fn paintAt(local: vec2f, kind: i32) -> vec4f {
   if (kind == 8) { return glassAt() * v_color.a; }
   if (kind == 9) {
     let gn = vec2f(dot(v_paint0.xy, local) + v_paint0.z, dot(v_paint1.xy, local) + v_paint1.z);
-    return noiseCell(floor(gn), 0u, v_paint0.w, i32(v_paint1.w + 0.5), v_color, vec4f(0.0));
+    let code = i32(v_paint1.w + 0.5);
+    if (code < 4) { return figmaNoise(gn, 0.0, v_paint0.w, code, v_color, vec4f(0.0)); }
+    let nx = dpdx(gn) * 0.25;
+    let ny = dpdy(gn) * 0.25;
+    let k = code & 3;
+    return 0.25 * (figmaNoise(gn - nx - ny, 0.0, v_paint0.w, k, v_color, vec4f(0.0)) +
+                   figmaNoise(gn + nx - ny, 0.0, v_paint0.w, k, v_color, vec4f(0.0)) +
+                   figmaNoise(gn - nx + ny, 0.0, v_paint0.w, k, v_color, vec4f(0.0)) +
+                   figmaNoise(gn + nx + ny, 0.0, v_paint0.w, k, v_color, vec4f(0.0)));
   }
   if (kind == 6) {
     let uv = (fragCoord - u.v[4].xy) / u.v[4].zw;
@@ -383,9 +425,7 @@ fn paintAt(local: vec2f, kind: i32) -> vec4f {
     else if (kind == 2) { t = length(g - 0.5) * 2.0; }
     else if (kind == 3) { t = fract(atan2(g.y - 0.5, g.x - 0.5) / 6.28318530718 + 1.0); }
     else { t = (abs(g.x - 0.5) + abs(g.y - 0.5)) * 2.0; }
-    c = rampAt(t, v_paint1.w);
-    let n = fract(52.9829189 * fract(dot(fragCoord, vec2f(0.06711056, 0.00583715))));
-    c = vec4f(clamp(c.rgb + (n - 0.5) / 255.0 * c.a, vec3f(0.0), vec3f(c.a)), c.a);
+    return figDither(rampAt(t, v_paint1.w) * v_color.a);
   }
   return c * v_color.a;
 }
@@ -451,7 +491,7 @@ fn shapeMain() -> bool {
   if (kind == 2) {
     let a = boxShadow(vec2f(0.0), v_size, v_box, v_local, v_geom.x, px);
     if (a <= 0.0) { return false; }
-    o_color = dither(v_color * a);
+    o_color = figDither(v_color * a);
     return true;
   }
   let d = select(sdRoundedBox(p, halfSize, v_box), sdEllipse(p, halfSize), kind == 1);
@@ -595,18 +635,21 @@ fn at2(map: vec4f, d: vec2f) -> vec4f {
 }
 
 fn noiseAt(dp: vec2f) -> vec4f {
-  let cell = floor(effectSpace(dp) / max(u.v[18].xy, vec2f(1e-3)));
-  let h = hashCell(cell, u32(u.v[8].x));
-  if (unitOf(hashU(h ^ 0x9e3779b9u)) >= u.v[18].z) { return vec4f(0.0); }
-  let kind = i32(u.v[18].w + 0.5);
-  if (kind == 0) { return vec4f(unitOf(h), unitOf(hashU(h + 1u)), unitOf(hashU(h + 2u)), 1.0) * u.v[8].y; }
-  if (kind == 2) { return select(u.v[19], u.v[6], unitOf(hashU(h + 5u)) < 0.5); }
-  return u.v[6] * unitOf(h);
+  let P = u.v[18];
+  let frequency = 1.0 / max(P.xy, vec2f(1e-3));
+  let code = i32(P.w + 0.5);
+  if (code < 4) { return figmaNoise(effectSpace(dp) * frequency, u.v[8].x, P.z, code, u.v[6], u.v[19]); }
+  var sum = vec4f(0.0);
+  for (var k = 0; k < 4; k++) {
+    let o = vec2f(f32(k & 1), f32(k >> 1u)) * 0.5 - 0.25;
+    sum += figmaNoise(effectSpace(dp + o) * frequency, u.v[8].x, P.z, code & 3, u.v[6], u.v[19]);
+  }
+  return sum * 0.25;
 }
 fn textureShift(dp: vec2f) -> vec2f {
-  let cell = floor(effectSpace(dp) / max(u.v[18].xy, vec2f(1e-3)));
-  let h = hashCell(cell, u32(u.v[8].x));
-  return (vec2f(unitOf(h), unitOf(hashU(h + 7u))) * 2.0 - 1.0) * u.v[18].z;
+  let q = effectSpace(dp) / max(u.v[18].xy, vec2f(1e-3));
+  let d = vec2f(fnFbm(u.v[8].x, q), fnFbm(u.v[8].x + 1.0, q)) * u.v[18].z;
+  return vec2f(dot(u.v[19].xy, d), dot(u.v[19].zw, d));
 }
 
 fn lum(c: vec3f) -> f32 { return dot(c, vec3f(0.3, 0.59, 0.11)); }
@@ -632,14 +675,12 @@ fn softLight(b: f32, s: f32) -> f32 {
   return b + (2.0 * s - 1.0) * (d - b);
 }
 fn colorDodge(b: f32, s: f32) -> f32 {
-  if (b == 0.0) { return 0.0; }
-  if (s >= 1.0) { return 1.0; }
-  return min(1.0, b / (1.0 - s));
+  if (b < 0.003922) { return 0.0; }
+  return min(1.0, b / max(1.0 - s, 0.003922));
 }
 fn colorBurn(b: f32, s: f32) -> f32 {
-  if (b >= 1.0) { return 1.0; }
-  if (s <= 0.0) { return 0.0; }
-  return 1.0 - min(1.0, (1.0 - b) / s);
+  if (1.0 - b < 0.003922) { return 1.0; }
+  return 1.0 - min(1.0, (1.0 - b) / max(s, 0.003922));
 }
 
 fn blendColor(m: i32, b: vec3f, s: vec3f) -> vec3f {
@@ -695,8 +736,15 @@ fn roundClip(d: vec2f) -> f32 {
   } else if (mode == 6) {
     c = noiseAt(v_dev) * at0(u.v[3], v_dev).a;
   } else if (mode == 7) {
-    c = at0(u.v[3], v_dev + textureShift(v_dev));
-    if (u.v[18].w > 0.5) { c *= at0(u.v[3], v_dev).a; }
+    let d = textureShift(v_dev);
+    if (u.v[18].w < 0.5) {
+      c = at0(u.v[3], v_dev + d);
+    } else {
+      let src = at0(u.v[3], v_dev);
+      let k = pow(src.a, 0.2) * pow(at0(u.v[3], v_dev + d).a, 0.2);
+      let moved = at0(u.v[3], v_dev + d * k);
+      c = select(src, moved, src.a > 0.0 && moved.a > 0.0);
+    }
   } else if (mode == 3) {
     var a = at0(u.v[3], v_dev - u.v[8].xy).a;
     if (params.w > 0.5) { a *= 1.0 - at1(u.v[4], v_dev).a; }
@@ -760,6 +808,37 @@ inline constexpr const char* kBlur = R"(
     }
     let c = sum / total;
     let d = fract(52.9829189 * fract(dot(glFragCoord(pos), vec2f(0.06711056, 0.00583715))));
+    return select(c, c * (max(c.a + (d - 0.5) / 255.0, 0.0) / max(c.a, 1e-9)), c.a > 0.0);
+  }
+  if (mode == 3) {
+    // Clamped to a box in the node's space (gl/Shaders.h kBlurFragment).
+    let R = clamp(u.v[2].z, 1e-3, 64.0);
+    let B = u.v[6];
+    let fc = glFragCoord(pos);
+    let n = vec2f(dot(u.v[4].xyz, vec3f(fc, 1.0)), dot(u.v[5].xyz, vec3f(fc, 1.0)));
+    let nc = clamp(n, B.xy, B.zw);
+    let p = vec2f(dot(u.v[7].xyz, vec3f(nc, 1.0)), dot(u.v[8].xyz, vec3f(nc, 1.0)));
+    let step1 = vec2f(dot(u.v[4].xy, u.v[2].xy), dot(u.v[5].xy, u.v[2].xy));
+    var sum = textureSampleLevel(t0, s0, p / sz, 0.0) * R;
+    var total = R;
+    for (var i = 1; i < 64; i += 2) {
+      let k = f32(i);
+      let l = min(k + 1.0, R);
+      if (k > R) { break; }
+      for (var side = -1; side <= 1; side += 2) {
+        let s = f32(side);
+        let qk = nc + step1 * (s * k);
+        let ql = nc + step1 * (s * l);
+        let wk = select(0.0, R - k, all(qk == clamp(qk, B.xy, B.zw)));
+        let wl = select(0.0, R - l, all(ql == clamp(ql, B.xy, B.zw)));
+        let w = wk + wl;
+        if (w <= 0.0) { continue; }
+        sum += textureSampleLevel(t0, s0, (p + u.v[2].xy * (s * (k * wk + l * wl) / w)) / sz, 0.0) * w;
+        total += w;
+      }
+    }
+    let c = sum / total;
+    let d = fract(52.9829189 * fract(dot(fc, vec2f(0.06711056, 0.00583715))));
     return select(c, c * (max(c.a + (d - 0.5) / 255.0, 0.0) / max(c.a, 1e-9)), c.a > 0.0);
   }
   let r = min(i32(ceil(u.v[3].x)), 64);

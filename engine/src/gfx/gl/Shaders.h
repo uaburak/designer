@@ -109,14 +109,14 @@ vec4 glassAt() {
   return vec4(rgb + (mid.a - rgb) * clamp(spec, 0.0, 1.0), mid.a);
 }
 
-// Noise cells (a NOISE paint, PaintKind 9, or the Noise effect): Multi (0) random colours, Mono (1) the colour at a
-// random strength, Duo (2) the colour or `second`; `density` of the cells show.
-vec4 noiseCell(vec2 cell, uint seed, float density, int type, vec4 color, vec4 second) {
-  uint h = hashCell(cell, seed);
-  if (unitOf(hashU(h ^ 0x9e3779b9u)) >= density) return vec4(0.0);
-  if (type == 0) return vec4(unitOf(h), unitOf(hashU(h + 1u)), unitOf(hashU(h + 2u)), 1.0) * color.a;
-  if (type == 2) return unitOf(hashU(h + 5u)) < 0.5 ? color : second;
-  return color * unitOf(h);
+// Figma's dither (its gradients and analytic shadows, docs/research/rea/effects.md §2.21): ±1/255 on every channel,
+// alpha included, from a sine hash of the pixel; transparent pixels untouched, an opaque one keeps its alpha.
+vec4 figDither(vec4 c) {
+  if (c.a == 0.0) return c;
+  float n = fract(sin(dot(vec2(12.9898, 78.233), gl_FragCoord.xy)) * 43758.5453);
+  vec4 q = min(abs(c + (n - 0.5) * (2.0 / 255.0)), 1.0);
+  // Kept a valid premultiplied colour (no channel over its alpha): our blur and blend passes divide by alpha.
+  return c.a == 1.0 ? vec4(q.rgb, c.a) : vec4(min(q.rgb, vec3(q.a)), q.a);
 }
 
 vec4 paintAt(vec2 local, int kind) {
@@ -135,8 +135,16 @@ vec4 paintAt(vec2 local, int kind) {
   }
   if (kind == 8) return glassAt() * v_color.a;
   if (kind == 9) {
+    // A NOISE paint: Figma's noise (seed 0) over the node's space from its centre ÷ noiseSize (v_paint0 / 1 rows);
+    // v_paint1.w = the type, + 4 when supersampled (noiseSize ≤ 1: 2 × 2 samples a pixel).
     vec2 g = vec2(dot(v_paint0.xy, local) + v_paint0.z, dot(v_paint1.xy, local) + v_paint1.z);
-    return noiseCell(floor(g), 0u, v_paint0.w, int(v_paint1.w + 0.5), v_color, vec4(0.0));
+    int code = int(v_paint1.w + 0.5);
+    if (code < 4) return figmaNoise(g, 0.0, v_paint0.w, code, v_color, vec4(0.0));
+    vec2 gx = dFdx(g) * 0.25, gy = dFdy(g) * 0.25;
+    return 0.25 * (figmaNoise(g - gx - gy, 0.0, v_paint0.w, code & 3, v_color, vec4(0.0)) +
+                   figmaNoise(g + gx - gy, 0.0, v_paint0.w, code & 3, v_color, vec4(0.0)) +
+                   figmaNoise(g - gx + gy, 0.0, v_paint0.w, code & 3, v_color, vec4(0.0)) +
+                   figmaNoise(g + gx + gy, 0.0, v_paint0.w, code & 3, v_color, vec4(0.0)));
   }
   if (kind == 6) {
     vec2 uv = (gl_FragCoord.xy - u_v[4].xy) / u_v[4].zw;
@@ -160,10 +168,8 @@ vec4 paintAt(vec2 local, int kind) {
     else if (kind == 2) t = length(g - 0.5) * 2.0;
     else if (kind == 3) t = fract(atan(g.y - 0.5, g.x - 0.5) / 6.28318530718 + 1.0);
     else t = (abs(g.x - 0.5) + abs(g.y - 0.5)) * 2.0;
-    c = rampAt(t, v_paint1.w);
-    // Ordered dither against banding.
-    float n = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
-    c.rgb = clamp(c.rgb + (n - 0.5) / 255.0 * c.a, 0.0, c.a);
+    // Dithered against banding as Figma's gradients are (after the paint's opacity).
+    return figDither(rampAt(t, v_paint1.w) * v_color.a);
   }
   return c * v_color.a;
 }
@@ -275,17 +281,61 @@ float progressT(vec2 dp) {
   vec2 u = effectSpace(dp), s = u_v[18].xy, d = u_v[18].zw - s;
   return clamp(dot(u - s, d) / max(dot(d, d), 1e-12), 0.0, 1.0);
 }
-// Noise and texture: a hash per cell of the node's space (sizes in its px) and the effect's seed.
-uint hashU(uint x) {
-  x ^= x >> 16;
-  x *= 0x7feb352du;
-  x ^= x >> 15;
-  x *= 0x846ca68bu;
-  x ^= x >> 16;
-  return x;
+// Noise and texture: Figma's gradient noise (docs/research/rea/effects.md §2.17, §2.19) — a lattice of pseudo-random
+// unit gradients (sine hashes of the cell and the octave's seed), Perlin's smoothstep interpolation, three octaves
+// summed (frequency ×2, amplitude ÷2 each). `p` is node space relative to the node's centre, times the frequency
+// (1 / noiseSize); the result is signed, about −1…1.
+float fnCellHash(vec2 cell) {
+  float d = mod(dot(cell, vec2(12.9898, 78.233)), 3.14159);
+  return fract(sin(d * 2.71828) * 438.5453 + 1.73205);
 }
-uint hashCell(vec2 cell, uint seed) { return hashU((uint(int(cell.x)) * 0x8da6b343u) ^ hashU(uint(int(cell.y)) ^ (seed * 0xcb1ab31fu))); }
-float unitOf(uint h) { return float(h >> 8) / 16777215.0; }
+float fnSeedHash(float x) { return fract(sin(x * 91.3458 + 12.345) * 43758.5453); }
+float fnWave(vec2 cell, vec2 k, float s) { return 2.0 * (fract(sin(dot(k, cell) * 0.0625) * (s + 312.0)) - 0.5); }
+vec2 fnGradient(vec2 cell, float x) {
+  float h = fnCellHash(cell);
+  vec2 g = vec2(fnWave(cell, vec2(12.42, 78.23) * fnSeedHash(x + 2.6457), x * h * 1.61803 + 18.345),
+                fnWave(cell, vec2(-19.98, 31.21) * fnSeedHash(x + 3.6055), x * h * 0.61803 + 21.543));
+  return g / max(length(g), 1e-12);
+}
+float fnGradientNoise(vec2 p, float x) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 s = f * f * (3.0 - 2.0 * f);
+  float a = dot(f, fnGradient(i, x));
+  float b = dot(f - vec2(1.0, 0.0), fnGradient(i + vec2(1.0, 0.0), x));
+  float c = dot(f - vec2(0.0, 1.0), fnGradient(i + vec2(0.0, 1.0), x));
+  float d = dot(f - vec2(1.0, 1.0), fnGradient(i + vec2(1.0, 1.0), x));
+  return mix(mix(a, b, s.x), mix(c, d, s.x), s.y);
+}
+float fnFbm(float seed, vec2 p) {
+  float sum = 0.0, amplitude = 1.0;
+  for (int octave = 0; octave < 3; octave++) {
+    float x = fract(sin(seed * 91.3458 + float(octave) * 57.123 + 12.345) * 43758.5453);
+    sum += fnGradientNoise(p, x) / amplitude;
+    p *= 2.0;
+    amplitude *= 2.0;
+  }
+  return sum;
+}
+// A grain shows where v (0..1) falls in a band `density` / 2 wide around 0.25 (the high band: 0.75).
+float fnBand(float v, float density, bool high) {
+  float lo = 10.0 * ((high ? 0.75 : 0.25) - density / 4.0), hi = lo + 10.0 * (density / 2.0);
+  v *= 10.0;
+  return step(lo, v) * (1.0 - step(hi, v));
+}
+// Figma's noise at `p` (node space from the centre × the frequency): type 0 Multi (every channel its own noise; the
+// alpha color.a), 1 Mono (the colour where the noise's luminance is in the band), 2 Duo (`second` in the low band,
+// the colour in the high one). Colours premultiplied; the result premultiplied, before the source's alpha.
+vec4 figmaNoise(vec2 p, float seed, float density, int type, vec4 color, vec4 second) {
+  vec3 v = vec3(fnFbm(seed, p), fnFbm(seed + 1.0, p), fnFbm(seed + 2.0, p)) * 0.5 + 0.5;
+  if (type == 0) {
+    float a = fnBand(fnFbm(seed + 3.0, p) * 0.5 + 0.5, density, false) * color.a;
+    return vec4(clamp(2.0 * v - 0.5, 0.0, 1.0) * a, a);
+  }
+  float l = 0.213 * v.r + 0.715 * v.g + 0.072 * v.b;
+  if (type == 1) return color * fnBand(l, density, false);
+  if (fnBand(l, density, false) > 0.5) return second;
+  return color * fnBand(l, density, true);
+}
 )";
 
 // ---- Draw: shapes, paths and glyphs in one program ------------------------------
@@ -387,13 +437,6 @@ vec2 g_normal = vec2(0.0);
 )";
 
 inline constexpr const char* kDrawFragmentBody = R"(
-// Ordered dither of a premultiplied colour by ±½ of an 8-bit step of its alpha (its hue kept): soft shadows and blurs
-// don't band (Figma dithers its blurs and shadows).
-vec4 dither(vec4 c) {
-  float n = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
-  return c.a > 0.0 ? c * (max(c.a + (n - 0.5) / 255.0, 0.0) / c.a) : c;
-}
-
 float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
   float rr = p.x > 0.0 ? (p.y > 0.0 ? r.z : r.y) : (p.y > 0.0 ? r.w : r.x);
   rr = clamp(rr, 0.0, min(b.x, b.y));
@@ -452,7 +495,7 @@ void shapeMain() {
   if (kind == 2) {
     float a = boxShadow(vec2(0.0), v_size, v_box, v_local, v_geom.x, px);
     if (a <= 0.0) discard;
-    o_color = dither(v_color * a);
+    o_color = figDither(v_color * a);
     return;
   }
   float d = kind == 1 ? sdEllipse(p, halfSize) : sdRoundedBox(p, halfSize, v_box);
@@ -539,8 +582,8 @@ void main() {
 // device px (shadows). Modes: 0 source, 1 × the mask's alpha, 2 × the mask's luminance, 3 drop shadow (colour ×
 // the blurred alpha behind, knocked out by the node's alpha), 4 inner shadow (colour × the node's alpha × (1 −
 // the blurred alpha)), 5 progressive blur (one interval between two blurred copies), 6 noise (within the source's
-// alpha), 7 texture (the source read through a shift per grain). Modes 5–7 read slots 16–19 (kClipFunctions'
-// effectSpace, progressT; noiseAt, textureShift). Blend modes other than NORMAL read the backdrop and write the
+// alpha), 7 texture (the source read through Figma's noise displacement). Modes 5–7 read slots 16–19
+// (kClipFunctions' effectSpace, progressT, figmaNoise, fnFbm; noiseAt, textureShift). Blend modes other than NORMAL read the backdrop and write the
 // result (Blend::Replace).
 inline constexpr const char* kCompositeVertex = R"(#version 300 es
 uniform vec4 u_v[20];
@@ -577,22 +620,28 @@ vec4 at(sampler2D t, vec4 map, vec2 d) {
   return texture(t, vec2(q.x / sz.x, (map.z - q.y) / sz.y));
 }
 
-// Noise (slots 16–17: canvas device px → the node's px; 18 = (size x, y, density, type: 0 Multi, 1 Mono, 2 Duo);
-// 6 = the colour, 19 = the second colour (premultiplied); 8 = (seed, Multi's opacity)).
+// Noise (slots 16–17: canvas device px → the node's space from its centre; 18 = (noiseSize x, y, density, type: 0
+// Multi, 1 Mono, 2 Duo, + 4 supersampled — noiseSize ≤ 1: 2 × 2 samples a pixel); 6 = the colour (Multi: its alpha the
+// effect's opacity), 19 = the second colour (premultiplied); 8.x = the seed).
 vec4 noiseAt(vec2 dp) {
-  vec2 cell = floor(effectSpace(dp) / max(u_v[18].xy, vec2(1e-3)));
-  uint h = hashCell(cell, uint(u_v[8].x));
-  if (unitOf(hashU(h ^ 0x9e3779b9u)) >= u_v[18].z) return vec4(0.0);
-  int type = int(u_v[18].w + 0.5);
-  if (type == 0) return vec4(unitOf(h), unitOf(hashU(h + 1u)), unitOf(hashU(h + 2u)), 1.0) * u_v[8].y;
-  if (type == 2) return unitOf(hashU(h + 5u)) < 0.5 ? u_v[6] : u_v[19];
-  return u_v[6] * unitOf(h);
+  vec4 P = u_v[18];
+  vec2 frequency = 1.0 / max(P.xy, vec2(1e-3));
+  int code = int(P.w + 0.5);
+  if (code < 4) return figmaNoise(effectSpace(dp) * frequency, u_v[8].x, P.z, code, u_v[6], u_v[19]);
+  vec4 sum = vec4(0.0);
+  for (int k = 0; k < 4; k++) {
+    vec2 o = vec2(float(k & 1), float(k >> 1)) * 0.5 - 0.25;
+    sum += figmaNoise(effectSpace(dp + o) * frequency, u_v[8].x, P.z, code & 3, u_v[6], u_v[19]);
+  }
+  return sum * 0.25;
 }
-// Texture (slot 18 = (size x, y, radius in device px, clip to shape); 8.x = seed): a shift per cell, ± radius.
+// Texture (slot 18 = (noiseSize x, y, radius in node units, clip to shape); 19 = the node's space → canvas device px,
+// its linear part (a b c d: x' = a x + b y, y' = c x + d y); 8.x = the seed): Figma's displacement — two noises (seed,
+// seed + 1) times the radius, in the node's space — in canvas device px.
 vec2 textureShift(vec2 dp) {
-  vec2 cell = floor(effectSpace(dp) / max(u_v[18].xy, vec2(1e-3)));
-  uint h = hashCell(cell, uint(u_v[8].x));
-  return (vec2(unitOf(h), unitOf(hashU(h + 7u))) * 2.0 - 1.0) * u_v[18].z;
+  vec2 q = effectSpace(dp) / max(u_v[18].xy, vec2(1e-3));
+  vec2 d = vec2(fnFbm(u_v[8].x, q), fnFbm(u_v[8].x + 1.0, q)) * u_v[18].z;
+  return vec2(dot(u_v[19].xy, d), dot(u_v[19].zw, d));
 }
 
 float lum(vec3 c) { return dot(c, vec3(0.3, 0.59, 0.11)); }
@@ -613,8 +662,9 @@ float softLight(float b, float s) {
   float d = b <= 0.25 ? ((16.0 * b - 12.0) * b + 4.0) * b : sqrt(b);
   return b + (2.0 * s - 1.0) * (d - b);
 }
-float colorDodge(float b, float s) { return b == 0.0 ? 0.0 : (s >= 1.0 ? 1.0 : min(1.0, b / (1.0 - s))); }
-float colorBurn(float b, float s) { return b >= 1.0 ? 1.0 : (s <= 0.0 ? 0.0 : 1.0 - min(1.0, (1.0 - b) / s)); }
+// COLOR_DODGE / COLOR_BURN with Figma's epsilon of 1/255 (its blend-mode shader) in place of exact 0 / 1 tests.
+float colorDodge(float b, float s) { return b < 0.003922 ? 0.0 : min(1.0, b / max(1.0 - s, 0.003922)); }
+float colorBurn(float b, float s) { return 1.0 - b < 0.003922 ? 1.0 : 1.0 - min(1.0, (1.0 - b) / max(s, 0.003922)); }
 
 // The W3C blend modes (Figma's BlendMode values): B(backdrop, source), unpremultiplied.
 vec3 blendColor(int m, vec3 b, vec3 s) {
@@ -674,9 +724,17 @@ void main() {
     // Noise over the layer (its alpha).
     c = noiseAt(v_dev) * at(u_t0, u_v[3], v_dev).a;
   } else if (mode == 7) {
-    // Texture: the layer read through a per-cell shift (its edge roughened), within its shape when clipped.
-    c = at(u_t0, u_v[3], v_dev + textureShift(v_dev));
-    if (u_v[18].w > 0.5) c *= at(u_t0, u_v[3], v_dev).a;
+    // Texture: the layer read through Figma's displacement. Clipped to the shape: the displacement scaled by
+    // (source α · displaced α)^0.2, and the pixel kept where either is transparent (the silhouette stays).
+    vec2 d = textureShift(v_dev);
+    if (u_v[18].w < 0.5) {
+      c = at(u_t0, u_v[3], v_dev + d);
+    } else {
+      vec4 src = at(u_t0, u_v[3], v_dev);
+      float k = pow(src.a, 0.2) * pow(at(u_t0, u_v[3], v_dev + d).a, 0.2);
+      vec4 moved = at(u_t0, u_v[3], v_dev + d * k);
+      c = src.a > 0.0 && moved.a > 0.0 ? moved : src;
+    }
   } else if (mode == 3) {
     float a = at(u_t0, u_v[3], v_dev - u_v[8].xy).a;
     if (params.w > 0.5) a *= 1.0 - at(u_t1, u_v[4], v_dev).a;
@@ -712,9 +770,14 @@ void main() {
 
 // ---- Blur: separable tent, dilate, erode -----------------------------------------
 // A quad over the whole viewport; the source texture has the target's layout. Slots: 2 = (direction x, y in
-// texels, the blur's radius in texels, mode: 0 tent, 1 dilate, 2 erode), 3 = (radius in texels for dilate / erode).
+// texels, the blur's radius in texels, mode: 0 tent, 1 dilate, 2 erode, 3 tent clamped to a box), 3 = (radius in
+// texels for dilate / erode).
 // Figma's blur (docs/research/rea/effects.md §2.1): a tent of half-width R — tap weights R − |i| — one pass per
 // axis, two adjacent taps read by one bilinear fetch; at most 64 taps a side (the renderer halves the layer first).
+// Clamped (a background blur, §2.11; Figma's CLAMPED_BLUR_TILE_NODE_SPACE): slots 4–5 map the target's pixels
+// (gl_FragCoord) to the node's space, 6 = the box there (x0, y0, x1, y1), 7–8 map the node's space back. The centre
+// is clamped into the box and every tap outside it weighs 0 (the rest renormalised), so nothing outside the box
+// reaches the blur.
 inline constexpr const char* kBlurVertex = R"(#version 300 es
 void main() {
   int id = gl_VertexID;
@@ -746,6 +809,35 @@ void main() {
     }
     vec4 c = sum / total;
     // Dithered (±½ of an 8-bit step of its alpha) against banding in the falloff.
+    float d = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    o_color = c.a > 0.0 ? c * (max(c.a + (d - 0.5) / 255.0, 0.0) / c.a) : c;
+    return;
+  }
+  if (mode == 3) {
+    float R = clamp(u_v[2].z, 1e-3, 64.0);
+    vec4 B = u_v[6];
+    vec2 n = vec2(dot(u_v[4].xyz, vec3(gl_FragCoord.xy, 1.0)), dot(u_v[5].xyz, vec3(gl_FragCoord.xy, 1.0)));
+    vec2 nc = clamp(n, B.xy, B.zw);
+    vec2 p = vec2(dot(u_v[7].xyz, vec3(nc, 1.0)), dot(u_v[8].xyz, vec3(nc, 1.0)));  // the centre, in the target's px
+    vec2 step1 = vec2(dot(u_v[4].xy, u_v[2].xy), dot(u_v[5].xy, u_v[2].xy));      // one tap, in the node's space
+    vec4 sum = texture(u_t0, p / sz) * R;
+    float total = R;
+    // Taps i and i + 1 on each side, the ones inside the box read by one bilinear fetch between them (Figma's).
+    for (int i = 1; i < 64; i += 2) {
+      float k = float(i), l = min(k + 1.0, R);
+      if (k > R) break;
+      for (int side = -1; side <= 1; side += 2) {
+        float s = float(side);
+        vec2 qk = nc + step1 * (s * k), ql = nc + step1 * (s * l);
+        float wk = qk == clamp(qk, B.xy, B.zw) ? R - k : 0.0;
+        float wl = ql == clamp(ql, B.xy, B.zw) ? R - l : 0.0;
+        float w = wk + wl;
+        if (w <= 0.0) continue;
+        sum += texture(u_t0, (p + u_v[2].xy * (s * (k * wk + l * wl) / w)) / sz) * w;
+        total += w;
+      }
+    }
+    vec4 c = sum / total;
     float d = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     o_color = c.a > 0.0 ? c * (max(c.a + (d - 0.5) / 255.0, 0.0) / c.a) : c;
     return;

@@ -213,8 +213,18 @@ TEST_CASE("renderer: noise goes over the layer within its alpha, texture reads i
   CHECK(nm[0]->call.uniforms[18][2] == doctest::Approx(0.5));
   CHECK(nm[0]->call.uniforms[18][3] == static_cast<float>(NoiseType::MONOTONE));
   CHECK(nm[0]->call.uniforms[6][3] == doctest::Approx(0.25));
-  // Slots 16–17: canvas device px → node px.
-  CHECK(nm[0]->call.uniforms[16][0] * 60 + nm[0]->call.uniforms[16][2] == doctest::Approx(50));
+  // Slots 16–17: canvas device px → the node's space from its centre (Figma's anchor): the node's middle (60) is 0.
+  CHECK(nm[0]->call.uniforms[16][0] * 60 + nm[0]->call.uniforms[16][2] == doctest::Approx(0));
+  CHECK(nm[0]->call.uniforms[16][0] * 10 + nm[0]->call.uniforms[16][2] == doctest::Approx(-50));
+  // Noise size 1 or less: supersampled (the type + 4); Multi's alpha is the effect's opacity, not the colour's.
+  noise.extra = effectExtra({{"noiseType", "\"MULTITONE\""}, {"opacity", "0.15"}, {"noiseSize", "{\"x\":0.5,\"y\":0.5}"}});
+  n.props.effects = {noise};
+  d.apply(n);
+  render(r, d);
+  nm = composites(dev, 6);
+  REQUIRE(nm.size() == 1);
+  CHECK(nm[0]->call.uniforms[18][3] == static_cast<float>(static_cast<int>(NoiseType::MULTITONE) + 4));
+  CHECK(nm[0]->call.uniforms[6][3] == doctest::Approx(0.15));
 
   Effect texture;
   texture.type = EffectType::GRAIN;
@@ -225,8 +235,13 @@ TEST_CASE("renderer: noise goes over the layer within its alpha, texture reads i
   render(r, d);
   auto tm = composites(dev, 7);
   REQUIRE(tm.size() == 1);
-  CHECK(tm[0]->call.uniforms[18][2] == doctest::Approx(4));  // the radius in device px
+  CHECK(tm[0]->call.uniforms[18][2] == doctest::Approx(4));  // the radius, node units
   CHECK(tm[0]->call.uniforms[18][3] == 1.f);                 // clip to shape
+  // Slot 19: the node's space → canvas device px (linear part), here 1:1.
+  CHECK(tm[0]->call.uniforms[19][0] == doctest::Approx(1));
+  CHECK(tm[0]->call.uniforms[19][1] == doctest::Approx(0));
+  CHECK(tm[0]->call.uniforms[19][2] == doctest::Approx(0));
+  CHECK(tm[0]->call.uniforms[19][3] == doctest::Approx(1));
 }
 
 TEST_CASE("renderer: NOISE paints are noise cells; PATTERN paints tile their source through the fill's shape") {
@@ -512,7 +527,8 @@ TEST_CASE("renderer: Figma's tent blur reaches its radius (R = 20 → ~20 px), n
   render(r, d);
   CHECK(blurRadii(dev).empty());
 
-  // A background blur of 20: the backdrop copied 20 px (+ 2 for the ×2 level's bilinear reads) past the box.
+  // A background blur of 20: clamped to the node's box (round 17, effects.md §2.11), so only the box is copied (+ 2 px
+  // for the ×2 level's bilinear reads), not the radius past it.
   n.props.fillPaints[0].opacity = 0.3;
   n.props.effects[0].type = EffectType::BACKGROUND_BLUR;
   n.props.effects[0].radius = 20;
@@ -520,8 +536,8 @@ TEST_CASE("renderer: Figma's tent blur reaches its radius (R = 20 → ~20 px), n
   int before = static_cast<int>(dev.copyRects.size());
   render(r, d);
   REQUIRE(static_cast<int>(dev.copyRects.size()) > before);
-  CHECK(dev.copyRects.back().w == 144);
-  CHECK(dev.copyRects.back().h == 144);
+  CHECK(dev.copyRects.back().w == 104);
+  CHECK(dev.copyRects.back().h == 104);
 
   // The analytic drop shadow: its blur radius in the instance (the tent's half-width), the box offset.
   Effect drop;
@@ -543,4 +559,208 @@ TEST_CASE("renderer: Figma's tent blur reaches its radius (R = 20 → ~20 px), n
       }
   }
   CHECK(found);
+}
+
+namespace {
+
+// The index of the first recorded draw matching `pred`, or −1.
+template <typename Pred>
+int firstDraw(const gfx::NullDevice& dev, Pred pred) {
+  for (size_t k = 0; k < dev.draws.size(); k++)
+    if (pred(dev.draws[k])) return static_cast<int>(k);
+  return -1;
+}
+bool isTentPass(const gfx::NullDevice::Recorded& c) {
+  return c.pipeline.shader == gfx::ShaderId::Blur && (c.call.uniforms[2][3] == 0 || c.call.uniforms[2][3] == 3);
+}
+bool isComposite(const gfx::NullDevice::Recorded& c, int mode) {
+  return c.pipeline.shader == gfx::ShaderId::Composite && c.call.uniforms[7][2] == static_cast<float>(mode);
+}
+bool isClampedTent(const gfx::NullDevice::Recorded& c) { return c.pipeline.shader == gfx::ShaderId::Blur && c.call.uniforms[2][3] == 3; }
+
+Effect layerBlur(double radius) {
+  Effect e;
+  e.type = EffectType::FOREGROUND_BLUR;
+  e.radius = radius;
+  return e;
+}
+
+}  // namespace
+
+TEST_CASE("renderer: the effect list in order (Figma's) — layer blurs and textures compound, each wrapping the last") {
+  Document d;
+  base(d);
+  NodeChange n = card({1, 1}, {100, 100, 100, 100});
+  Effect texture;
+  texture.type = EffectType::GRAIN;
+  texture.radius = 4;
+  texture.extra = effectExtra({{"noiseSize", "{\"x\":4,\"y\":4}"}});
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  auto textureDraw = [](const gfx::NullDevice::Recorded& c) { return isComposite(c, 7); };
+  // Layer blur, then texture: the content is blurred, then read through the texture's displacement.
+  n.props.effects = {layerBlur(3), texture};
+  d.apply(n);
+  render(r, d);
+  int blur = firstDraw(dev, isTentPass), tex = firstDraw(dev, textureDraw);
+  REQUIRE(blur >= 0);
+  REQUIRE(tex >= 0);
+  CHECK(blur < tex);
+  // Texture, then layer blur: the textured layer is what is blurred.
+  n.props.effects = {texture, layerBlur(3)};
+  d.apply(n);
+  render(r, d);
+  blur = firstDraw(dev, isTentPass), tex = firstDraw(dev, textureDraw);
+  REQUIRE(blur >= 0);
+  REQUIRE(tex >= 0);
+  CHECK(tex < blur);
+  // Two layer blurs both apply (before round 17: the first only), the second over the first's result.
+  n.props.effects = {layerBlur(2), layerBlur(3)};
+  d.apply(n);
+  render(r, d);
+  CHECK(blurRadii(dev) == std::set<float>{2.f, 3.f});
+  // The render bounds grow by both (they compound).
+  CHECK(d.renderBounds({1, 1}) == Rect{95, 95, 110, 110});
+  // Two textures: two texture layers, the second reading the first's.
+  n.props.effects = {texture, texture};
+  d.apply(n);
+  render(r, d);
+  CHECK(composites(dev, 7).size() == 2);
+}
+
+TEST_CASE("renderer: noise goes over the content only, never the drop shadows; a layer blur blurs the shadows too") {
+  Document d;
+  base(d);
+  // An ellipse's shadows are drawn from its alpha (not the analytic rectangle), as composites of mode 3.
+  NodeChange n = make({1, 1}, NodeType::ELLIPSE, kPage, "!", {100, 100, 100, 100});
+  n.props.fillPaints = {Paint::solid(Color::hex(0x3366FF))};
+  n.props.opacity = 0.5;  // the node's opacity applies to the whole: one layer holding shadows, content and noise
+  Effect drop;
+  drop.type = EffectType::DROP_SHADOW;
+  drop.color = {0, 0, 0, 0.25f};
+  drop.offset = {0, 4};
+  drop.radius = 4;
+  Effect noise;
+  noise.type = EffectType::NOISE;
+  noise.color = {0, 0, 0, 0.25f};
+  noise.extra = effectExtra({{"noiseType", "\"MONOTONE\""}, {"noiseSize", "{\"x\":2,\"y\":2}"}});
+  n.props.effects = {drop, noise};
+  d.apply(n);
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  render(r, d);
+  auto noiseDraw = [](const gfx::NullDevice::Recorded& c) { return isComposite(c, 6); };
+  auto shadowDraw = [](const gfx::NullDevice::Recorded& c) { return isComposite(c, 3); };
+  int nz = firstDraw(dev, noiseDraw);
+  REQUIRE(nz >= 0);
+  gfx::TextureId read = dev.draws[static_cast<size_t>(nz)].call.textures[0];
+  // What the noise reads holds no drop shadow (nothing of mode 3 was drawn into it).
+  for (int k = 0; k < nz; k++) {
+    const auto& c = dev.draws[static_cast<size_t>(k)];
+    CHECK_FALSE((isComposite(c, 3) && c.target == read));
+  }
+  // The shadow and the noise land in the same layer (the node's, at its opacity), the shadow first (under).
+  int sh = firstDraw(dev, shadowDraw);
+  REQUIRE(sh >= 0);
+  CHECK(dev.draws[static_cast<size_t>(sh)].target == dev.draws[static_cast<size_t>(nz)].target);
+  CHECK(sh < nz);
+
+  // A layer blur after the shadow: the shadows merged under the content first, the whole blurred.
+  n.props.effects = {drop, layerBlur(3)};
+  d.apply(n);
+  render(r, d);
+  sh = firstDraw(dev, shadowDraw);
+  REQUIRE(sh >= 0);
+  gfx::TextureId merged = dev.draws[static_cast<size_t>(sh)].target;
+  CHECK(merged != 0);
+  bool blurred = false;
+  for (size_t k = static_cast<size_t>(sh) + 1; k < dev.draws.size(); k++)
+    blurred |= isTentPass(dev.draws[k]) && dev.draws[k].call.uniforms[2][2] == doctest::Approx(3) && dev.draws[k].call.textures[0] == merged;
+  CHECK(blurred);
+}
+
+TEST_CASE("renderer: a background blur is clamped to the node's box (stroke grown × miter limit), its copy only the box") {
+  Document d;
+  base(d);
+  NodeChange n = card({1, 1}, {100, 100, 100, 100});
+  n.props.fillPaints[0].opacity = 0.3;
+  Effect bg;
+  bg.type = EffectType::BACKGROUND_BLUR;
+  bg.radius = 20;
+  n.props.effects = {bg};
+  d.apply(n);
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  render(r, d);
+  // The tent runs clamped (mode 3) on the copy halved once (radius 10 texels): slot 6 = the box in the node's space.
+  int k = firstDraw(dev, isClampedTent);
+  REQUIRE(k >= 0);
+  const auto& u = dev.draws[static_cast<size_t>(k)].call.uniforms;
+  CHECK(u[2][2] == doctest::Approx(10));
+  CHECK(u[6][0] == doctest::Approx(0));
+  CHECK(u[6][1] == doctest::Approx(0));
+  CHECK(u[6][2] == doctest::Approx(100));
+  CHECK(u[6][3] == doctest::Approx(100));
+  // Slots 7–8: the node's space → the halved copy's px (y up from its bottom). The copy is 98…202 device px: the node's
+  // top-left (100, 100) is texel (1, 52 − 1).
+  CHECK(u[7][2] == doctest::Approx(1));
+  CHECK(u[8][2] == doctest::Approx(51));
+  // Slots 4–5 map back: texel (1, 51) → the node's (0, 0).
+  CHECK(u[4][0] * 1 + u[4][1] * 51 + u[4][2] == doctest::Approx(0).epsilon(1e-4));
+  CHECK(u[5][0] * 1 + u[5][1] * 51 + u[5][2] == doctest::Approx(0).epsilon(1e-4));
+  // No unclamped tent on the backdrop.
+  CHECK(blurRadii(dev).empty());
+
+  // An OUTSIDE stroke of 2 grows the box by 2 × the miter limit (4) on each side (Figma's U()).
+  n.props.strokeWeight = 2;
+  n.props.strokeAlign = StrokeAlign::OUTSIDE;
+  n.props.strokePaints = {Paint::solid(Color::hex(0x000000))};
+  d.apply(n);
+  int before = static_cast<int>(dev.copyRects.size());
+  render(r, d);
+  REQUIRE(static_cast<int>(dev.copyRects.size()) > before);
+  CHECK(dev.copyRects.back().w == 120);
+  k = firstDraw(dev, isClampedTent);
+  REQUIRE(k >= 0);
+  CHECK(dev.draws[static_cast<size_t>(k)].call.uniforms[6][0] == doctest::Approx(-8));
+  CHECK(dev.draws[static_cast<size_t>(k)].call.uniforms[6][2] == doctest::Approx(108));
+
+  // Progressive: not clamped (Figma's own gradient blur), its copy reaching the radius.
+  n.props.strokeWeight = 0;
+  n.props.effects[0].extra = effectExtra({{"blurOpType", "\"PROGRESSIVE\""}, {"startRadius", "0"}});
+  d.apply(n);
+  render(r, d);
+  CHECK(firstDraw(dev, isClampedTent) < 0);
+}
+
+TEST_CASE("renderer: one background blur or glass per node — the first in the list") {
+  Document d;
+  base(d);
+  NodeChange n = card({1, 1}, {100, 100, 100, 100});
+  n.props.fillPaints[0].opacity = 0.3;
+  Effect bg;
+  bg.type = EffectType::BACKGROUND_BLUR;
+  bg.radius = 8;
+  Effect glass;
+  glass.type = EffectType::GLASS;
+  glass.radius = 4;
+  n.props.effects = {glass, bg};
+  d.apply(n);
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  render(r, d);
+  CHECK(paintKinds(dev, PaintKind::Glass) == 1);
+  CHECK(paintKinds(dev, PaintKind::Backdrop) == 0);
+  n.props.effects = {bg, glass};
+  d.apply(n);
+  render(r, d);
+  CHECK(paintKinds(dev, PaintKind::Glass) == 0);
+  CHECK(paintKinds(dev, PaintKind::Backdrop) == 1);
+}
+
+TEST_CASE("extras: an image's contrast in Figma's ±0.3 (Wecra's older −1…1 read × 0.3)") {
+  CHECK(imageContrast(0.3f) == doctest::Approx(0.3));
+  CHECK(imageContrast(-0.12f) == doctest::Approx(-0.12));
+  CHECK(imageContrast(1.f) == doctest::Approx(0.3));
+  CHECK(imageContrast(-0.5f) == doctest::Approx(-0.15));
 }

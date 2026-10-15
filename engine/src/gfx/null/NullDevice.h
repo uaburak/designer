@@ -15,6 +15,7 @@ class NullDevice final : public Device {
     DrawCall call;
     PipelineDesc pipeline;
     std::vector<uint8_t> instances;  // the bytes of call.instances at draw time
+    TextureId target = 0;            // the colour texture of the pass it drew in (0: the canvas)
   };
 
   Caps caps() const override { return {}; }

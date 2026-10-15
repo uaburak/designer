@@ -639,6 +639,11 @@ class Renderer {
     int copyOf = -1;           // a copy of another layer (then blurred: shadows)
     double blurRadius = 0;     // the tent blur's radius in device px, applied after drawing
     double morph = 0;          // + dilate / − erode, device px, before the blur
+    // A background blur's: the tent clamped to `clampBox` (the node's space; `nodeFromDevice` maps canvas device px
+    // there) — the centre clamped into it, taps outside it weightless (docs/research/rea/effects.md §2.11).
+    bool clamped = false;
+    Rect clampBox;
+    Mat2x3 nodeFromDevice;
     bool executed = false;
     // Execution: where its pixels ended up.
     gfx::TargetId target = 0;
@@ -675,6 +680,10 @@ class Renderer {
     float fx[3][4] = {};                                   // progressive: slots 16–18 (the node's box, start / end)
     double start = 0, end = 0;                             // progressive: the radius at the start and at the end (device px)
     float glass[2][4] = {};                                // glass: slots 6 and 8
+    // A uniform background blur: clamped to the node's box (Layer::clamped).
+    bool clamped = false;
+    Rect clampBox;
+    Mat2x3 nodeFromDevice;
   };
 
   void ensurePipelines();
@@ -698,8 +707,12 @@ class Renderer {
   void drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double alpha, bool inner);
   // A background blur (uniform or progressive), or glass: the backdrop copied, blurred and painted into the shape.
   // How far past its box a background blur's (glass: `glass`) backdrop copy reaches, device px, at `scale` device px
-  // per node unit.
-  static double backdropReach(const Effect& e, bool glass, double scale);
+  // per node unit: a uniform background blur only its clamp box (blurClampBox), the others their radius (and the
+  // glass's refraction).
+  static double backdropReach(const NodeProps& p, const Effect& e, bool glass, double scale);
+  // The box a uniform background blur is clamped to (node space): the node's box grown by an outside (its weight) or
+  // centred (half) visible stroke × its miter limit, and a text's glyphs (Figma's `U`, effects.md §2.11).
+  static Rect blurClampBox(const NodeProps& p, const Rect& ink);
   // The layers of this frame's tree that read their backdrop: their visual bounds on the canvas (device px, this
   // frame's view) and how far their reading reaches past them — or, `world`, in world units at 100 %.
   struct BackdropArea {
