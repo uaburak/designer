@@ -102,7 +102,10 @@ const SCALE_FROM_API: Record<string, string> = { FILL: "FILL", FIT: "FIT", CROP:
 const FILTERS = ["exposure", "contrast", "saturation", "temperature", "tint", "highlights", "shadows"] as const;
 /** The document's field of a Plugin API image filter where the names differ: `saturation` is the schema's `vibrance`. */
 const FILTER_FIELD: Partial<Record<string, string>> = { saturation: "vibrance" };
-/** Figma's converter: the API's contrast (−1…1) is the stored one (±0.3) ÷ 0.3 (docs/research/rea/effects.md §2.24). */
+/**
+ * Figma's converter: the API's contrast (−1…1) is the stored one (±0.3) ÷ 0.3 (docs/research/rea/effects.md §2.24). A value
+ * past ±1 is clamped first: stored past ±0.3 it would read as Wecra's older −1…1 and be scaled twice.
+ */
 const CONTRAST_SCALE = 0.3;
 
 function hashHex(h: unknown): string | null {
@@ -170,7 +173,7 @@ export function paintFromApi(v: unknown, path: string): Paint {
     if (typeof o.rotation === "number") out.rotation = o.rotation;
     if (o.filters && typeof o.filters === "object") {
       const filter: Obj = {};
-      for (const [k, x] of Object.entries(o.filters as Obj)) filter[FILTER_FIELD[k] ?? k] = k === "contrast" && typeof x === "number" ? x * CONTRAST_SCALE : x;
+      for (const [k, x] of Object.entries(o.filters as Obj)) filter[FILTER_FIELD[k] ?? k] = k === "contrast" && typeof x === "number" ? Math.max(-1, Math.min(1, x)) * CONTRAST_SCALE : x;
       out.paintFilter = filter as Paint["paintFilter"];
     }
     return out;

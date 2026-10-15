@@ -97,6 +97,10 @@ describe("Plugin API image filters", () => {
     expect((paintToApi(p).filters as { contrast?: number }).contrast).toBeCloseTo(1);
     const half = paintFromApi({ type: "IMAGE", scaleMode: "FILL", imageHash: "ab", filters: { contrast: -0.5 } }, "fills[0]");
     expect(half.paintFilter?.contrast).toBeCloseTo(-0.15);
+    // Past ±1: clamped (stored ±0.3, never read as an older value and scaled again).
+    const over = paintFromApi({ type: "IMAGE", scaleMode: "FILL", imageHash: "ab", filters: { contrast: 2 } }, "fills[0]");
+    expect(over.paintFilter?.contrast).toBeCloseTo(0.3);
+    expect((paintToApi(over).filters as { contrast?: number }).contrast).toBeCloseTo(1);
     // A Wecra value from before round 17 (stored −1…1): read as Figma's.
     expect((paintToApi({ type: "IMAGE", paintFilter: { contrast: 0.6 } }).filters as { contrast?: number }).contrast).toBeCloseTo(0.6);
   });
