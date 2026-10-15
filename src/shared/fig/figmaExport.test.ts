@@ -150,3 +150,98 @@ describe("Save Local Copy as Figma writes a .fig (figmaExport.ts)", () => {
     for (const [k, n] of byKey(back)) expect(n.name).toBe(before.get(k).name);
   });
 });
+
+describe("the schema round's fields in an export (R17 batch C)", () => {
+  it("writes gradient interpolation and edit scopes as Figma's schema reads them", () => {
+    const base = ourSnapshot();
+    const rect = node(g(S + 3, 1), "ROUNDED_RECTANGLE", g(0, 1), "#", {
+      size: { x: 10, y: 10 },
+      editScopeInfo: { editScopeStacks: [{ stack: [{ type: "AI", label: "Agent" }] }] },
+      fillPaints: [{ type: "GRADIENT_LINEAR", interpolationColorSpace: "OKLCH", interpolationHueMethod: "INCREASING", stops: [] } as any],
+    });
+    const canvas = decodeCanvas(encodeFigmaCanvas({ ...base, nodeChanges: [...base.nodeChanges!, rect] } as Message, codecs), codecs);
+    const out = byKey(figma.decode("Message", canvas.message)).get(`${S + 3}:1`);
+    expect(out.fillPaints[0]).toMatchObject({ interpolationColorSpace: "OKLCH", interpolationHueMethod: "INCREASING" });
+    expect(out.editScopeInfo.editScopeStacks[0].stack[0]).toMatchObject({ type: "AI", label: "Agent" });
+  });
+});
+
+describe("components as Figma stores them (components.md task 8)", () => {
+  const SET = g(S + 2, 1), V1 = g(S + 2, 2), V2 = g(S + 2, 3), T1 = g(S + 2, 4), T2 = g(S + 2, 5), R1 = g(S + 2, 6);
+  const LOCAL = g(S + 2, 7), COPY = g(S + 2, 8), INST = g(S + 2, 9);
+  const LABEL = g(S + 2, 20), SHOW = g(S + 2, 21), SIZE = g(S + 2, 22);
+  const KEY = "a".repeat(40);
+  const ref = (field: string, resolved: string, def: any) => ({ variableField: field, variableData: { dataType: "PROP_REF", resolvedDataType: resolved, value: { propRefValue: { defId: def } } } });
+  function components(): Message {
+    const base = ourSnapshot();
+    const nodes = base.nodeChanges!.slice(0, 3);
+    nodes.push(
+      node(SET, "FRAME", g(0, 1), "#", {
+        name: "Button",
+        isStateGroup: true,
+        size: { x: 200, y: 100 },
+        key: "b".repeat(40),
+        componentPropDefs: [
+          { id: SIZE, name: "Size", type: "VARIANT", initialValue: { textValue: { characters: "S" } }, sortPosition: "!" },
+          { id: LABEL, name: "Label", type: "TEXT", initialValue: { textValue: { characters: "Go" } }, sortPosition: "\"" },
+          { id: SHOW, name: "Show icon", type: "BOOL", initialValue: { boolValue: true }, sortPosition: "#" },
+        ],
+      }),
+      node(V1, "SYMBOL", SET, "!", { name: "Size=S", size: { x: 100, y: 40 }, variantPropSpecs: [{ propDefId: SIZE, value: "S" }] }),
+      node(T1, "TEXT", V1, "!", { name: "Label", textData: { characters: "Go" }, parameterConsumptionMap: { entries: [ref("TEXT_DATA", "TEXT_DATA", LABEL)] } }),
+      node(R1, "RECTANGLE", V1, "\"", { name: "Icon", parameterConsumptionMap: { entries: [ref("VISIBLE", "BOOLEAN", SHOW)] } }),
+      node(V2, "SYMBOL", SET, "\"", { name: "Size=L", size: { x: 100, y: 40 }, variantPropSpecs: [{ propDefId: SIZE, value: "L" }] }),
+      node(T2, "TEXT", V2, "!", { name: "Label", textData: { characters: "Go" }, parameterConsumptionMap: { entries: [ref("TEXT_DATA", "TEXT_DATA", LABEL)] } }),
+      node(LOCAL, "SYMBOL", g(0, 1), "$", { name: "Published", size: { x: 10, y: 10 }, key: KEY }),
+      node(COPY, "SYMBOL", g(0, 2), "!", { name: "From a library", size: { x: 10, y: 10 }, key: "c".repeat(40), version: "v7", sourceLibraryKey: "LIBFILE", publishID: g(1, 2) }),
+      node(INST, "INSTANCE", g(0, 1), "%", { name: "Published", size: { x: 10, y: 10 }, symbolData: { symbolID: LOCAL, symbolOverrides: [{ guidPath: { guids: [] }, opacity: 0.5 }] } }),
+    );
+    return { ...base, derivedDataVersion: 0, blobs: [], nodeChanges: nodes } as Message;
+  }
+
+  it("writes componentKey / sharedSymbolVersion, implicit defs on variants, componentPropRefs and the root override path", () => {
+    const canvas = decodeCanvas(encodeFigmaCanvas(components(), codecs), codecs);
+    const nodes = byKey(figma.decode("Message", canvas.message));
+    const k = (x: any) => `${x.sessionID}:${x.localID}`;
+    expect(nodes.get(k(LOCAL))).toMatchObject({ componentKey: KEY });
+    expect(nodes.get(k(LOCAL)).key).toBeUndefined();
+    expect(nodes.get(k(COPY))).toMatchObject({ componentKey: "c".repeat(40), sharedSymbolVersion: "v7" });
+    expect(nodes.get(k(COPY)).version).toBeUndefined();
+    expect(nodes.get(k(SET)).key).toBe("b".repeat(40)); // sets keep key 319
+    // Each variant: one implicit def per explicit non-VARIANT def, its bindings on its own implicit ids.
+    for (const [v, t] of [
+      [V1, T1],
+      [V2, T2],
+    ]) {
+      const defs = nodes.get(k(v)).componentPropDefs;
+      expect(defs.map((d: any) => [d.name, d.type, k(d.parentPropDefId)])).toEqual([
+        ["Label", "TEXT", k(LABEL)],
+        ["Show icon", "BOOL", k(SHOW)],
+      ]);
+      const label = defs[0];
+      expect(label.initialValue.textValue.characters).toBe("Go");
+      const text = nodes.get(k(t));
+      expect(k(text.parameterConsumptionMap.entries[0].variableData.value.propRefValue.defId)).toBe(k(label.id));
+      expect(text.componentPropRefs).toEqual([{ nodeField: 42, defID: label.id, componentPropNodeField: "TEXT_DATA", isDeleted: undefined, zombieFallbackName: undefined }].map((r) => JSON.parse(JSON.stringify(r))));
+    }
+    const ids = [...nodes.get(k(V1)).componentPropDefs, ...nodes.get(k(V2)).componentPropDefs].map((d: any) => k(d.id));
+    expect(new Set(ids).size).toBe(4);
+    for (const id of ids) expect(nodes.has(id)).toBe(false);
+    expect(nodes.get(k(R1)).componentPropRefs[0]).toMatchObject({ nodeField: 6, componentPropNodeField: "VISIBLE" });
+    expect(nodes.get(k(INST)).symbolData.symbolOverrides[0].guidPath.guids).toEqual([LOCAL]);
+  });
+
+  it("reads back through our importer as the model it came from", () => {
+    const canvas = decodeCanvas(encodeFigmaCanvas(components(), codecs), codecs);
+    const { message: back } = decodeAnySchema(canvas.schema, canvas.message, { keepDerived: true });
+    const before = byKey(components());
+    const after = byKey(back);
+    for (const id of [SET, V1, V2, T1, T2, R1, LOCAL, COPY, INST].map((x) => `${x.sessionID}:${x.localID}`)) {
+      const a = after.get(id);
+      const b = before.get(id);
+      for (const f of ["key", "version", "componentPropDefs", "parameterConsumptionMap", "variantPropSpecs", "symbolData", "sourceLibraryKey"]) expect(a[f], `${id}.${f}`).toEqual(b[f]);
+      expect(a.componentKey).toBeUndefined();
+      expect(a.componentPropRefs).toBeUndefined();
+    }
+  });
+});

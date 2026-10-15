@@ -1419,6 +1419,24 @@ ENG_EXPORT int32_t engine_actor_undo(Handle h, uint32_t actor, uint32_t redo) {
   return e->editor.actorUndo(actor, redo != 0) ? OK : E_INVALID;
 }
 
+// The local user's undo history as Figma's Message.localUndoStack / localRedoStack (docs/research/rea/canvas.md §2.18):
+// a NODE_CHANGES Message, the last `maxSteps` steps of each stack within `maxBytes` (0: 100 steps / 16 MB).
+ENG_EXPORT int32_t engine_undo_export(Handle h, uint32_t maxSteps, uint32_t maxBytes) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  return setResult(e->editor.exportUndoHistory(maxSteps ? maxSteps : 100, maxBytes ? maxBytes : 16u << 20));
+}
+
+// Takes such a history back, replacing the local user's (the document must be the one it came from).
+ENG_EXPORT int32_t engine_undo_import(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  if (e->editor.viewerMode()) return E_READONLY;
+  return e->editor.importUndoHistory(bytes(ptr, len)) ? OK : E_DECODE;
+}
+
 // {"canUndo","canRedo","undoLabel","redoLabel","overwritten":["1:2",â¦],"idle"}
 ENG_EXPORT int32_t engine_actor_info(Handle h, uint32_t actor) {
   Call call;

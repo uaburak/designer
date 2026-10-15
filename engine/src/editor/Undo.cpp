@@ -242,6 +242,15 @@ void UndoStack::dropEmpty(bool redo) {
   while (!stack.empty() && stack.back().inverse.empty()) stack.pop_back();
 }
 
+bool UndoStack::restore(std::vector<UndoBatch>&& undo, std::vector<UndoBatch>&& redo) {
+  if (depth_ > 0) return false;
+  undo_ = std::move(undo);
+  redo_ = std::move(redo);
+  if (undo_.size() > kMaxBatches) undo_.erase(undo_.begin(), undo_.end() - kMaxBatches);
+  overwritten_.clear();
+  return true;
+}
+
 void UndoStack::clear() {
   undo_.clear();
   redo_.clear();

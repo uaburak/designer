@@ -272,7 +272,7 @@ bool SymbolData::operator==(const SymbolData& o) const {
 bool SymbolData::present() const { return symbolID != kNoGuid || !overrides.empty(); }
 
 bool SymbolOverride::operator==(const SymbolOverride& o) const {
-  return path == o.path && mask == o.mask && differingFields(props, o.props, mask) == 0;
+  return path == o.path && level == o.level && mask == o.mask && differingFields(props, o.props, mask) == 0;
 }
 
 bool TextStyle::operator==(const TextStyle& o) const {

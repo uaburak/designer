@@ -183,3 +183,55 @@ describe("convertFigMessage: Figma fields kept for round-trip (import polish)", 
       expect(Object.keys(report.droppedFields).some((f) => f.endsWith(`.${k}`))).toBe(false);
   });
 });
+
+describe("convertFigMessage: the schema round's fields (R17 batch C)", () => {
+  it("keeps gradient interpolation, override levels and edit scopes; drops the encoding index and Figma's undo", () => {
+    const scope = { editScopeStacks: [{ stack: [{ type: "PLUGIN", label: "Rename", editorType: "DESIGN" }] }] };
+    const f = {
+      type: "NODE_CHANGES",
+      sessionID: 0,
+      ackID: 0,
+      encodedOffsetsIndex: { nodeChangesFieldOffset: 4, nodeChangesFieldLength: 100, blobsFieldOffset: 0, nodeChangeOffsets: [{ guid: g(0, 0), offset: 4 }] },
+      localUndoStack: [{ type: "NODE_CHANGES", sessionID: 0, ackID: 0, nodeChanges: [] }],
+      nodeChanges: [
+        { guid: g(0, 0), phase: "CREATED", type: "DOCUMENT" },
+        node(g(0, 1), "CANVAS", g(0, 0), "!"),
+        node(g(1, 1), "SYMBOL", g(0, 1), "!", { size: { x: 100, y: 100 }, transform: T(0, 0) }),
+        node(g(1, 2), "RECTANGLE", g(1, 1), "!", {
+          size: { x: 100, y: 100 },
+          transform: T(0, 0),
+          editScopeInfo: scope,
+          fillPaints: [
+            {
+              type: "GRADIENT_LINEAR",
+              visible: true,
+              opacity: 1,
+              interpolationColorSpace: "OKLCH",
+              interpolationHueMethod: "LONGER",
+              stops: [
+                { color: { r: 1, g: 0, b: 0, a: 1 }, position: 0 },
+                { color: { r: 0, g: 0, b: 1, a: 1 }, position: 1 },
+              ],
+            },
+          ],
+        }),
+        node(g(2, 1), "INSTANCE", g(0, 1), "\"", {
+          size: { x: 100, y: 100 },
+          transform: T(0, 200),
+          symbolData: { symbolID: g(1, 1), symbolOverrides: [{ guidPath: { guids: [g(1, 2)] }, overrideLevel: 1, opacity: 0.5 }] },
+        }),
+      ],
+    };
+    const { message, report } = convertFigMessage(f, MODEL);
+    const back = codec.decodeMessage(codec.encodeMessage(message));
+    expect(back.encodedOffsetsIndex).toBeUndefined();
+    expect(back.localUndoStack).toBeUndefined();
+    expect(report.droppedFields["Message.encodedOffsetsIndex"]).toBe(1);
+    const rect = back.nodeChanges!.find((n) => n.type === "ROUNDED_RECTANGLE")!;
+    expect(rect.fillPaints![0].interpolationColorSpace).toBe("OKLCH");
+    expect(rect.fillPaints![0].interpolationHueMethod).toBe("LONGER");
+    expect(rect.editScopeInfo?.editScopeStacks?.[0].stack?.[0]).toEqual({ type: "PLUGIN", label: "Rename", editorType: "DESIGN" });
+    const inst = back.nodeChanges!.find((n) => n.type === "INSTANCE")!;
+    expect(inst.symbolData!.symbolOverrides![0].overrideLevel).toBe(1);
+  });
+});

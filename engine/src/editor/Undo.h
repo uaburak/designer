@@ -95,6 +95,12 @@ class UndoStack {
 
   size_t undoCount() const { return undo_.size(); }
   size_t redoCount() const { return redo_.size(); }
+  // The steps, oldest first (an export of the history, docs/research/rea/canvas.md §2.18).
+  const std::vector<UndoBatch>& undoBatches() const { return undo_; }
+  const std::vector<UndoBatch>& redoBatches() const { return redo_; }
+  // Replaces the history with `undo` / `redo` (oldest first; an import of an exported one). Not while a
+  // transaction is open.
+  bool restore(std::vector<UndoBatch>&& undo, std::vector<UndoBatch>&& redo);
 
  private:
   static std::vector<NodeChange> replay(Document& doc, UndoBatch& batch, UndoBatch& opposite, ChangeSet* changes, ReplayInfo* info);

@@ -1,6 +1,7 @@
 #include "editor/Editor.h"
 #include "editor/Refusals.h"
 
+#include "scene/CodecKiwi.h"
 #include "schema/SchemaTable.h"
 #include "text/TextEdit.h"
 
@@ -2092,6 +2093,45 @@ Status Editor::setTool(Tool t) {
   }
   updateCursor(lastScreen_);
   return OK;
+}
+
+// ---- Undo history export / import (Message.localUndoStack 22 / localRedoStack 23) ----
+
+std::string Editor::exportUndoHistory(size_t maxSteps, size_t maxBytes) const {
+  // The newest steps first until the caps, then oldest first as the stacks keep them.
+  auto take = [&](const std::vector<UndoBatch>& stack, size_t& budget) {
+    std::vector<std::vector<NodeChange>> out;
+    for (auto it = stack.rbegin(); it != stack.rend() && out.size() < maxSteps; ++it) {
+      std::vector<NodeChange> step(it->inverse.begin(), it->inverse.end());
+      size_t size = codec::writeMessage(sessionID_, step).size();
+      if (size > budget) break;
+      budget -= size;
+      out.push_back(std::move(step));
+    }
+    std::reverse(out.begin(), out.end());
+    return out;
+  };
+  size_t budget = maxBytes;
+  auto undo = take(undo_.undoBatches(), budget);
+  auto redo = take(undo_.redoBatches(), budget);
+  return codec::writeUndoHistory(sessionID_, undo, redo);
+}
+
+bool Editor::importUndoHistory(std::string_view bytes) {
+  std::vector<codec::KiwiMessage> undo, redo;
+  if (!codec::readUndoHistory(bytes, undo, redo)) return false;
+  auto batches = [](std::vector<codec::KiwiMessage>& list) {
+    std::vector<UndoBatch> out;
+    for (codec::KiwiMessage& m : list) {
+      UndoBatch b;
+      for (NodeChange& c : m.changes) b.inverse.push_back(std::move(c));
+      if (!b.inverse.empty()) out.push_back(std::move(b));
+    }
+    return out;
+  };
+  if (!undo_.restore(batches(undo), batches(redo))) return false;
+  events_.undo = true;
+  return true;
 }
 
 }  // namespace eng

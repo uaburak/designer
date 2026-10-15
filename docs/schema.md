@@ -43,7 +43,7 @@ What was verified on 2026-10-06 (scratch tests, not in the repo):
 ### 1.2 Editing rules
 
 - **Never renumber, retype or reuse a field number. Never change a struct** (kiwi structs are fixed-layout; adding a field breaks every reader).
-- Kiwi requires a message's field ids to be ≤ its field count. Figma numbers we do not keep are therefore declared as placeholders, `byte _rN = N [deprecated];`, in a "Reserved field numbers" block at the end of each message (953 in total, 807 of them in `NodeChange`). Deprecated fields are never written, are omitted from the TS types and the C++ accessors, and cost nothing at runtime.
+- Kiwi requires a message's field ids to be ≤ its field count. Figma numbers we do not keep are therefore declared as placeholders, `byte _rN = N [deprecated];`, in a "Reserved field numbers" block at the end of each message (931 in total, 781 of them in `NodeChange`, after round 17 batch C). Deprecated fields are never written, are omitted from the TS types and the C++ accessors, and cost nothing at runtime.
 - **Adopting a Figma field later**: replace its placeholder with Figma's exact declaration (same number, same type).
 - **Own fields** use numbers from **1000** in `NodeChange` and from **100** in every other Figma-derived message; own enum values start at 100. Numbers below are Figma's, kept or reserved. Messages Figma does not have (`LibrarySubscription`) number from 1.
 - `DOCUMENT_FORMAT_VERSION` is declared in the file header (`// DOCUMENT_FORMAT_VERSION = 1`). It is bumped only for a change that kiwi's additive evolution cannot express and that needs a migration (`data.md` §5.8). Adding fields or enum values never bumps it.
@@ -305,6 +305,7 @@ This is exactly the "generic merge" of `data.md` §5.5: the store can compact, d
 - Every node inside a SYMBOL subtree has an **effective override key** = `overrideKey` if set, else its own `guid`. Effective keys are unique within one SYMBOL subtree (not globally).
 - **Copying a whole component subtree keeps the effective keys**: duplicate component, paste, library copies, Move to this file (`engine.md` §2.5). Variants made by duplication therefore share keys, which is what lets overrides survive a variant switch. Copying nodes *into* an existing component keeps the key unless it already exists in that subtree; then the copy gets none (its own GUID becomes its key).
 - A **`guidPath`** is the list of effective keys from an instance down to a sublayer, crossing nested instances: `[A]` is the component's node A; `[A, B]` is node B inside the nested instance A. **An empty path (`guids` absent or `[]`) is the instance root itself.** (Figma writes the root as `[symbolID]`; import maps it to the empty path.) Frames between are **not** in the path: a text inside a frame of the component is `[text]`, as Figma writes it (the engine wrote tree paths `[frame, text]` until 2026-10-08; it normalizes them at load). `derivedSymbolData` entries use the same paths (Figma's list starts with the root as `[symbolID]`, and lists only the sublayers whose geometry differs from the main's).
+- **`overrideLevel` (321, Figma's)**: override entries are keyed by `(guidPath, overrideLevel)`, as Figma's debug view labels them (`[path] (level N)`). Level 0 is the usage site's own entry; Figma's files can carry deeper levels at the same path (the nesting level of the component that wrote it — an inference, research `components.md` §2.10). Entries of one path and different levels are never merged (engine codecs, `merge/diff.ts`); when several apply, level 0 wins, then the next level up. This engine writes level 0 only; an imported deeper entry stays as it came.
 - **Derived sublayer ids** (string form for TS keys, selection, `engine.md` §2.5): `"I" + instance GUID + (";" + key)*`, e.g. `I12:34;5:6;7:8`. A real node is `"12:34"`. Derived ids are never stored in a document.
 
 ### 5.2 The INSTANCE node
@@ -314,6 +315,7 @@ This is exactly the "generic merge" of `data.md` §5.5: the store can compact, d
 - `symbolOverrides[]` holds one sparse NodeChange per overridden node, keyed by `guidPath`, holding only the overridden fields. **The root's overrides are the entry with the empty path** (a resize writes `size` and the sizing mode there; a rename writes `name` there).
 - **The INSTANCE node's own fields are the materialized effective values of the root** (resolved copy, §3.5), written by the engine as system writes, plus its `@own` fields, which are only ever the instance's: position (`parentIndex`, `transform`), constraints, `locked`, its child-in-parent layout (`stackChild*`, `stackPositioning`, grid placement), `scrollBehavior`, `prototypeStartingPoint`, `symbolData`, `componentPropAssignments`.
 - **Sublayers are never stored.** The engine materializes them (Materializer, `engine.md` §3.3) and caches their layout and geometry in `derivedSymbolData` (`@derived`, one entry per path, root excluded).
+- **A nested swap** (a derived instance swapped to another main) writes `overriddenSymbolID` on the nested instance's entry and, as Figma does, rewrites the stored entries under it to the new main's layers (by key, then by names along the path, the variant rule on a switch inside one set). What does not carry over goes to the instance's `overrideStash` (248, Figma's `InstanceOverrideStash {overridePathOfSwappedInstance, componentKey, overrides}`; our `componentKey` is the main's asset key, else its guid `"s:l"`), one entry per (path, swapped-away main); a swap back to that main restores it over what carried, and spends it. Files written before keep working through the derive-time carry by name.
 - **Reset all changes** = `symbolOverrides` reduced to nothing and `componentPropAssignments` cleared; the engine then re-materializes the root fields. **Reset › property** removes that field from the entries that hold it.
 
 ### 5.3 Precedence
@@ -581,6 +583,7 @@ The byte layouts are owned by `docs/data.md` §5; the schema-side rules are:
 - **Journal frame** payload = one change Message, exactly as the engine emitted it. The frame header (not the Message) carries seq, session, batch, clock, kind and label.
 - **Save Local Copy** = a ZIP with stored entries `canvas.fig` (the snapshot bytes), `meta.json`, `thumbnail.png`, `images/<sha1 hex>` (`data.md` §11.2), Figma's `.fig` layout.
 - **Import** of Figma's `.fig`: decode with the file's own schema, then project by name exactly as tested (§1.1 point 5), plus these mappings: `componentPropRefs` → `PROP_REF` entries; `variableConsumptionMap` → used only when `parameterConsumptionMap` is absent; root override entries `[symbolID]` → empty path; variant-level `ComponentPropDef.parentPropDefId` → the set's def id in `PROP_REF`s and assignments; `sharedSymbolVersion` → `version` on copies; `symbolDescription`/`styleDescription` → `description`; `inherit*StyleID` (GUID) → `styleIdFor* {guid}`; `assetRef` references → the local copy's GUID; GUID sentinel `4294967295:4294967295` → absent; node types `GROUP` → FRAME + `resizeToFit`, `RECTANGLE` → ROUNDED_RECTANGLE; derived data dropped (recomputed); unknown node types dropped and counted.
+- **Export** to Figma's `.fig` (`src/shared/fig/figmaExport.ts`) maps the component encodings back, as Figma writes them (round 17 batch C): a SYMBOL's `key` → `componentKey`, a library copy SYMBOL's `version` → `sharedSymbolVersion` (sets, styles and variables keep `key` / `version`); on each variant one implicit `ComponentPropDef` per explicit non-VARIANT def of its set (a fresh id, `parentPropDefId` = the explicit def, its name, type, default, order), with the `PROP_REF`s in the variant's subtree re-pointed at them; `componentPropRefs` written beside every `PROP_REF` binding (`nodeField` 6 / 42 / 143 for VISIBLE / TEXT_DATA / OVERRIDDEN_SYMBOL_ID); the root override entry as `[symbolID]`. The import above undoes each one. Not yet: slot content frames moved under `0:2` (research `components.md` task 8), and Figma's own `sharedSymbolVersion` on local SYMBOLs (its samples carry one, e.g. `"1:66"`; the import drops it there).
 
 ### 11.2 Firestore and Storage
 
@@ -672,7 +675,7 @@ Phase 7 (docs/roadmap.md) builds Figma's other products. Each one starts by brin
 - **Enum values** (kiwi enums need no placeholders, but our enums omit Figma's dropped values):
   - `NodeType` 17–24, 26, 27, 29, 30, 32–34, 36–45, 47–64 (Figma's 59–64 are new since version 106: `CODE_EMBED`, `BINARY_FILE`, `SPEC_BLOCK`, `TOOL_INSTANCE`, `CUSTOM_EFFECT_INSTANCE`, `NATIVE_CODE_LAYER_INSTANCE`);
   - `MessageType` other than 1;
-  - all of `EditorType`.
+  - `EditorType` 8 (`FIGSPEC`; 0–7 came with `EditScope`, round 17 batch C).
 - **Whole messages and enums** we dropped.
 
 They come back with the field that uses them. The comment in `NodeType` lists the dropped values and must gain 59–64 when the first of them is added.
@@ -709,7 +712,7 @@ At most one agent per round edits the schema (docs/roadmap.md Phase 7).
 - the multiplayer tags `guidTag … resizeToFitTag` (53–118);
 - legacy duplicates (§13);
 - `internalEnumForTest = 251`, `internalDataForTest = 257`, `isSnakeGameBoard = 344`, `ojansSuperSecretNodeField = 345`, `sevMoonlitLilyData = 348`;
-- `editScopeInfo = 365`, `overrideLevel = 321`, `userFacingVersion = 399`, `migrationStatus = 329`;
+- `userFacingVersion = 399`, `migrationStatus = 329` (`editScopeInfo = 365` and `overrideLevel = 321` were adopted after all: §15.2);
 - `derivedImmutableFrameData = 254` / `derivedImmutableFrameDataVersion = 338`, `useAbsoluteBounds = 258`, `sortedMovingChildIndices = 406`, `disableJitDst = 567`, `partialPasteAnnotation = 581`.
 
 Each is either Figma's server and multiplayer bookkeeping or a test field; our rooms carry their own (docs/multiplayer.md §4).
@@ -722,6 +725,22 @@ Each is either Figma's server and multiplayer bookkeeping or a test field; our r
 - `variableTokenName = 350`, `backingVariableSetId = 377`, `backingVariableId = 378`, `isCollectionExtendable = 385`, `rootVariableKey = 386`, `inheritedVariableIds = 517`.
 
 The variables group needs a check against round 5's extended collections, which used `VARIABLE_OVERRIDE` and kept fields. Adopt any of these with the round that needs it, by the same rule.
+
+### 15.2 The schema round (round 17 batch C, 2026-10-15)
+
+Adopted with Figma's names, types and numbers (`docs/research/rea/README.md` "Batch C"):
+
+| Where | Field | Types brought | Use |
+|---|---|---|---|
+| `Message` | `localUndoStack = 22`, `localRedoStack = 23` (`Message[]`) | — | the editor's undo / redo batches as NODE_CHANGES Messages; per-device UI state kept by the store beside the file, never in a snapshot (canvas.md §2.18) |
+| `Message` | `encodedOffsetsIndex = 34` | `EncodedOffsetsIndex`, `GUIDAndEncodedOffset` | byte offsets into the Message's own encoding (partial decode, canvas.md §2.16). An index of one encoding: a `.fig` import drops it (re-encoding makes it stale) |
+| `Paint` | `interpolationColorSpace = 41`, `interpolationHueMethod = 42` | `InterpolationColorSpace`, `InterpolationHueMethod` | the space a gradient's stops are blended in (effects.md §2.22) |
+| `ComponentPropDef` | `parentPropDefId = 5` | — | a variant's implicit def → the set's explicit def; written only by `.fig` export (§5.5 keeps one def per set inside) |
+| `NodeChange` | `overrideLevel = 321` | — | override entries are keyed by `(guidPath, overrideLevel)`, level 0 first; we write 0 only (§5.1) |
+| `NodeChange` | `overrideStash = 248` | `InstanceOverrideStash` | a nested swap's overrides that did not carry over, restored on a swap back (§5.3) |
+| `NodeChange` | `componentPropRefs = 267` | `ComponentPropRef`, `ComponentPropNodeField` | `@later`: import turns it into PROP_REF entries, `.fig` export writes it beside them |
+| `NodeChange` | `componentKey = 216`, `sharedSymbolVersion = 126` | — | `@later`: a SYMBOL's key / library version as Figma stores them; import maps them to `key` / `version`, `.fig` export maps back (§8.2) |
+| `NodeChange` | `editScopeInfo = 365` | `EditScopeInfo`, `EditScopeSnapshot`, `EditScopeStack`, `EditScope`, `EditScopeType`, `EditorType` (0–7) | `@later`: kept through load and save; stamping changes with their scope is canvas.md §2.9 |
 
 ---
 

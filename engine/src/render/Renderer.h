@@ -815,7 +815,8 @@ class Renderer {
                 const CurveEntry* clip = nullptr, bool clipSubtract = false, bool clipEvenOdd = false, Pass pass = Pass::Path);
   // An instance's paint fields; false when there is nothing to draw (an invisible paint).
   bool setPaint(DrawInstance& q, DrawState& state, const Paint& paint, const Mat2x3& localToNode, Vec2 nodeSize, double alpha);
-  int rampRow(const std::vector<ColorStop>& stops);
+  int rampRow(const std::vector<ColorStop>& stops, InterpolationColorSpace space = InterpolationColorSpace::DEFAULT,
+              InterpolationHueMethod hue = InterpolationHueMethod::SHORTER);
   void compositeLayer(int src, int aux, int mode, float opacity, BlendMode bm, const Color& color, Vec2 offset, bool knockout,
                       gfx::IRect rect);
   // Draws one paint (`draw(alpha)`), through a layer when the paint has its own blend mode.

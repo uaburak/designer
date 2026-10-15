@@ -60,6 +60,7 @@ add_library(eng_core STATIC
   src/editor/ArrangeCommands.cpp
   src/editor/PathTools.cpp
   src/render/Renderer.cpp
+  src/render/GradientRamp.cpp
   src/render/RenderTree.cpp
   src/render/Overlay.cpp
   src/render/SpacingOverlay.cpp
@@ -213,6 +214,7 @@ else()
     tests/unit/r16.canvas_handles.test.cpp
     tests/unit/r16.canvas_nav.test.cpp
     tests/unit/r17.canvas_feedback.test.cpp
+    tests/unit/r17c.schema.test.cpp
     tests/unit/r17.prototype_connections.test.cpp
     tests/unit/r17.hover_outline.test.cpp
     tests/unit/r17.actors.test.cpp

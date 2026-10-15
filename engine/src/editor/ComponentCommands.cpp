@@ -1623,6 +1623,76 @@ bool Editor::soleTextPath(Guid symbol, std::vector<Guid>& path) const {
   return found == 1;
 }
 
+void Editor::transferNestedSwap(Guid ref, Guid from, Guid to) {
+  auto info = derivedInfo_.find(ref);
+  if (info == derivedInfo_.end()) return;
+  const DerivedInfo d = info->second;
+  const Node* rn = doc_.get(d.instance);
+  if (!rn || rn->props.type != NodeType::INSTANCE) return;
+  const std::vector<Guid>& at = d.path;
+  SymbolData sd = rn->props.comp().symbolData;
+  // The entries under the nested instance (its own entry, at `at`, stays: it is the instance's, whichever main).
+  std::vector<SymbolOverride> moving, kept;
+  for (const SymbolOverride& o : sd.overrides) {
+    if (o.path.size() > at.size() && std::equal(at.begin(), at.end(), o.path.begin())) {
+      SymbolOverride r = o;
+      r.path.erase(r.path.begin(), r.path.begin() + static_cast<long>(at.size()));
+      moving.push_back(std::move(r));
+    } else {
+      kept.push_back(o);
+    }
+  }
+  std::vector<OverrideStash> stash;
+  auto field = rn->props.extra.find("overrideStash");
+  if (field != rn->props.extra.end() && !codec::readOverrideStash(field->second, stash)) stash.clear();
+  auto keyOfMain = [&](Guid c) {
+    const Node* cn = doc_.get(c);
+    return cn && !cn->props.asset().key.empty() ? cn->props.asset().key : c.toString();
+  };
+  const std::string fromKey = keyOfMain(from), toKey = keyOfMain(to);
+  if (moving.empty() && std::none_of(stash.begin(), stash.end(), [&](const OverrideStash& s) { return s.path == at && s.componentKey == toKey; }))
+    return;
+  const bool variant = setOf(from) != kNoGuid && setOf(from) == setOf(to);
+  std::vector<SymbolOverride> carried = remapOverrides(moving, from, to, variant);
+  // What does not carry over: per entry, the fields no remap of it alone keeps.
+  std::vector<SymbolOverride> lost;
+  for (const SymbolOverride& o : moving) {
+    FieldMask got = 0;
+    for (const SymbolOverride& r : remapOverrides({o}, from, to, variant)) got |= r.mask;
+    if (FieldMask miss = o.mask & ~got) {
+      SymbolOverride l = o;
+      l.mask = miss;
+      lost.push_back(std::move(l));
+    }
+  }
+  std::erase_if(stash, [&](const OverrideStash& s) { return s.path == at && s.componentKey == fromKey; });
+  if (!lost.empty()) stash.push_back({at, fromKey, std::move(lost)});
+  // A swap back: the stashed overrides return, over what carried.
+  auto back = std::find_if(stash.begin(), stash.end(), [&](const OverrideStash& s) { return s.path == at && s.componentKey == toKey; });
+  if (back != stash.end()) {
+    for (const SymbolOverride& o : back->overrides) {
+      auto same = std::find_if(carried.begin(), carried.end(), [&](const SymbolOverride& q) { return q.path == o.path && q.level == o.level; });
+      if (same == carried.end()) {
+        carried.push_back(o);
+      } else {
+        copyFields(same->props, o.props, o.mask);
+        same->mask |= o.mask;
+      }
+    }
+    stash.erase(back);
+  }
+  for (SymbolOverride& r : carried) {
+    r.path.insert(r.path.begin(), at.begin(), at.end());
+    kept.push_back(std::move(r));
+  }
+  sd.overrides = std::move(kept);
+  NodeChange c = NodeChange::changed(d.instance);
+  c.mask = F_SYMBOL_DATA | F_EXTRA;
+  c.props.comp().symbolData = std::move(sd);
+  c.props.extra["overrideStash"] = codec::writeOverrideStash(stash);  // empty: the field goes
+  write(c);
+}
+
 Status Editor::swapInstance(const std::vector<Guid>& refs, Guid main) {
   const Node* mn = doc_.get(main);
   if (mn && mn->props.isComponentSet()) main = defaultVariantOf(doc_, main), mn = doc_.get(main);
@@ -1638,6 +1708,7 @@ Status Editor::swapInstance(const std::vector<Guid>& refs, Guid main) {
       continue;
     }
     if (ref.isDerived()) {
+      if (Guid old = symbolOf(n->props); old != kNoGuid && old != main) transferNestedSwap(ref, old, main);
       NodeChange c = NodeChange::changed(ref);
       c.mask = F_OVERRIDDEN_SYMBOL_ID;
       c.props.comp().overriddenSymbolID = main;

@@ -71,6 +71,18 @@ bool readMessage(std::string_view bytes, KiwiMessage& out, DerivedSink* derived 
 // A message list (import / update payloads): 0x00, varuint count, count × (varuint length, Message bytes).
 bool isMessageList(std::string_view bytes);
 bool readMessageList(std::string_view bytes, std::vector<KiwiMessage>& out);
+// An override entry read by either codec: its overrideLevel (321, kept in `extra` by the generic reader) taken into
+// `level`, and its root path [symbolID] made empty (docs/schema.md §5.1). Then `list` gets it, merged into an entry of
+// the same (path, level) (later fields win).
+void addOverrideEntry(std::vector<SymbolOverride>& list, SymbolOverride&& o, Guid symbolID);
+// NodeChange.overrideStash as kept in NodeProps::extra (the field's bytes, id-prefixed) ↔ its entries. Reading
+// empty bytes gives none; writing none gives empty bytes (the field removed).
+bool readOverrideStash(std::string_view field, std::vector<OverrideStash>& out);
+// An undo history as Figma carries it (Message.localUndoStack 22 / localRedoStack 23): a NODE_CHANGES Message whose two
+// lists hold one NODE_CHANGES Message per step (its inverse changes in the order they were recorded), oldest first.
+std::string writeUndoHistory(uint32_t sessionID, const std::vector<std::vector<NodeChange>>& undo, const std::vector<std::vector<NodeChange>>& redo);
+bool readUndoHistory(std::string_view bytes, std::vector<KiwiMessage>& undo, std::vector<KiwiMessage>& redo);
+std::string writeOverrideStash(const std::vector<OverrideStash>& stash);
 std::string writeMessageList(const std::vector<std::string>& messages);
 
 struct KiwiWriteOptions {

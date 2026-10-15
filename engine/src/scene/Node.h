@@ -1224,12 +1224,25 @@ struct NodeProps {
   friend FieldMask differingFields(const NodeProps& a, const NodeProps& b, FieldMask mask);
 };
 
-// One symbolOverrides entry: the overridden fields (`mask`) of the sublayer at `path` (empty = the root).
+// One symbolOverrides entry: the overridden fields (`mask`) of the sublayer at `path` (empty = the root). Entries are
+// keyed by (path, level): Figma's overrideLevel (321), the nesting level of the component that wrote the entry; level 0
+// (the usage site's own, all this engine writes) wins over the others at one path (docs/schema.md §5.1).
 struct SymbolOverride {
   std::vector<Guid> path;
   FieldMask mask = 0;
   NodeProps props;
+  int32_t level = 0;
   bool operator==(const SymbolOverride& o) const;
+};
+
+// schema InstanceOverrideStash (NodeChange.overrideStash 248, on an instance): the overrides of a nested instance at
+// `path` that did not carry over when it was swapped away from the component `componentKey` (its asset key, else its
+// guid "s:l"), their paths relative to the nested instance. A swap back restores them. Kept in the instance's `extra`
+// (codec::readOverrideStash / writeOverrideStash).
+struct OverrideStash {
+  std::vector<Guid> path;
+  std::string componentKey;
+  std::vector<SymbolOverride> overrides;
 };
 
 // Copies the fields in `mask` from `from` to `to`.

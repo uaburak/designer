@@ -96,9 +96,15 @@ function entriesField(field: string, entryType: string, key: (entry: any) => str
   };
 }
 
-/** Item keys of `symbolData`: its own fields as "@<field>", each override's fields as "<path>#<field>". */
+/**
+ * Item keys of `symbolData`: its own fields as "@<field>", each override's fields as "<entry>#<field>", where an entry
+ * is its path, and "~<overrideLevel>" after it when the level isn't 0 (entries are keyed by both, docs/schema.md §5.1).
+ */
 const SYMBOL_OWN = "@";
-const pathKeyOf = (entry: any): string => ((entry?.guidPath?.guids ?? []) as GUID[]).map(guidKey).join("/");
+const pathKeyOf = (entry: any): string => {
+  const p = ((entry?.guidPath?.guids ?? []) as GUID[]).map(guidKey).join("/");
+  return entry?.overrideLevel ? `${p}~${entry.overrideLevel}` : p;
+};
 
 function symbolDataField(model: SchemaModel = MODEL): KeyedField {
   const sd = model.def("SymbolData");
@@ -116,7 +122,7 @@ function symbolDataField(model: SchemaModel = MODEL): KeyedField {
         const p = pathKeyOf(e);
         if (!paths.has(p)) paths.set(p, e.guidPath ?? { guids: [] });
         for (const f of Object.keys(e)) {
-          if (NOT_DATA.has(f) || e[f] === undefined) continue;
+          if (NOT_DATA.has(f) || f === "overrideLevel" || e[f] === undefined) continue;
           m.set(`${p}#${f}`, e[f]);
         }
       }
@@ -141,7 +147,12 @@ function symbolDataField(model: SchemaModel = MODEL): KeyedField {
         const hash = k.indexOf("#");
         const p = k.slice(0, hash);
         let e = entries.get(p);
-        if (!e) entries.set(p, (e = { guidPath: paths.get(p) ?? { guids: p ? p.split("/").map(parseKey) : [] } }));
+        if (!e) {
+          const [path, level] = p.split("~");
+          e = { guidPath: paths.get(p) ?? { guids: path ? path.split("/").map(parseKey) : [] } };
+          if (level) e.overrideLevel = Number(level);
+          entries.set(p, e);
+        }
         e[k.slice(hash + 1)] = v;
       }
       if (entries.size) out.symbolOverrides = [...entries.values()];

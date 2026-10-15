@@ -275,6 +275,15 @@ describe("merge3 — §15.8 corpus", () => {
     const r3 = run(b2, m2, br3, "merge");
     expect(r3.conflicts).toHaveLength(1);
     expect(r3.conflicts[0]).toMatchObject({ kind: "keyed", field: "symbolData", itemKey: `${k(50)}#opacity`, main: 0.2, branch: 0.9 });
+    // One path at two override levels (Figma's overrideLevel): two entries, never merged into one.
+    const m4 = edit(b, upd(41, { symbolData: { symbolID: g(40), symbolOverrides: [ov(50, { opacity: 0.2 })] } }));
+    const br4 = edit(b, upd(41, { symbolData: { symbolID: g(40), symbolOverrides: [ov(50, { overrideLevel: 1, opacity: 0.9 })] } }));
+    const r4 = run(b, m4, br4, "merge");
+    expect(r4.conflicts).toEqual([]);
+    const entries = applied(r4, m4, br4).get(k(41))!.symbolData!.symbolOverrides!;
+    expect(entries).toHaveLength(2);
+    expect(entries.find((o) => !o.overrideLevel)!.opacity).toBe(0.2);
+    expect(entries.find((o) => o.overrideLevel === 1)!.opacity).toBe(0.9);
   });
 
   it("14. componentPropAssignments, componentPropDefs, parameterConsumptionMap, prototypeInteractions per key", () => {

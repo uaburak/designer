@@ -463,6 +463,13 @@ class Editor : private LayoutHost, public TextLayouts {
   bool canUndo() const { return undo_.canUndo(); }
   bool canRedo() const { return undo_.canRedo(); }
   const UndoStack& undoStack() const { return undo_; }
+  // The local user's undo history as Figma's Message.localUndoStack / localRedoStack (docs/research/rea/canvas.md
+  // §2.18): the last `maxSteps` steps of each, fewer when they pass `maxBytes`. Per device: the store keeps it beside
+  // the file, never in a snapshot. Labels and selections don't travel (a restored step selects nothing).
+  std::string exportUndoHistory(size_t maxSteps = 100, size_t maxBytes = 16u << 20) const;
+  // Takes such a history back (the document must be the one it was exported from). False on malformed bytes or while
+  // a transaction is open; the history is left as it was then.
+  bool importUndoHistory(std::string_view bytes);
 
   // ---- Actors (docs/engine.md §9.5): per-actor undo and view state ----
   // Actor 0 is the local user (⌘Z / ⇧⌘Z, the selection, the page, the view). Any other id is a writer working
@@ -1263,6 +1270,10 @@ class Editor : private LayoutHost, public TextLayouts {
   bool isStructuralTarget(Guid parent) const;
   // Remaps an instance's overrides from one main to another (variant switch / swap; Figma's name rules).
   std::vector<SymbolOverride> remapOverrides(const std::vector<SymbolOverride>& overrides, Guid from, Guid to, bool variant) const;
+  // A nested swap of the derived instance `ref` from `from` to `to` (Figma's override stash, docs/schema.md §5.3): the
+  // top-level instance's overrides under it are rewritten to `to`'s layers (remapOverrides), the ones that don't carry
+  // over are stashed in its overrideStash under (path, from's key), and a stash kept for (path, to's key) comes back.
+  void transferNestedSwap(Guid ref, Guid from, Guid to);
   // The path (keys) of the one TEXT layer in `symbol`'s tree, nested instances' mains included (false: none or several).
   bool soleTextPath(Guid symbol, std::vector<Guid>& path) const;
   // An instance's assignment of one of `main`'s SLOT properties (its slot content frame; Push changes keeps it).
