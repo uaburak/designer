@@ -50,7 +50,7 @@ void RenderTree::addTo(std::vector<RenderNode>& out, const Document& doc, Guid i
 
 bool samplesBackdrop(const NodeProps& p) {
   for (const Effect& e : p.effects) {
-    if (!e.visible) continue;
+    if (!visibleForRendering(e)) continue;
     if (e.type == EffectType::GLASS) return true;
     if (e.type == EffectType::BACKGROUND_BLUR && (e.radius > 0 || effectExtras(e).startRadius > 0)) return true;
   }

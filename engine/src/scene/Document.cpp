@@ -69,23 +69,6 @@ double textPathReach(const NodeProps& p) {
   return 1.5 * size;
 }
 
-// How far effects draw past the node's box (shadows, layer blur).
-double effectsOutset(const NodeProps& p) {
-  double out = 0;
-  for (const Effect& e : p.effects) {
-    if (!e.visible) continue;
-    if (e.type == EffectType::DROP_SHADOW)
-      out = std::max(out, std::max(std::fabs(e.offset.x), std::fabs(e.offset.y)) + e.radius + std::max(0.0, e.spread));
-    else if (e.type == EffectType::FOREGROUND_BLUR)
-      out = std::max(out, std::max(e.radius, effectExtras(e).startRadius));  // progressive: the larger end
-    else if (e.type == EffectType::GRAIN)
-      out = std::max(out, e.radius);  // texture: "how far past the layer's boundary the effect will spread"
-    else if (e.type == EffectType::CUSTOM)
-      out = std::max(out, shaderReach(shaderOf(e)));  // a shader effect's particles, glows, rays, outlines
-  }
-  return out;
-}
-
 }  // namespace
 
 // Past this many changes the log starts over (a cache that fell that far behind rebuilds).
@@ -296,10 +279,12 @@ Document::Derived& Document::derive(Guid id) const {
       page = pd.page;
     }
   }
-  // The render bounds: the box, grown by the outside part of visible strokes.
+  // The render bounds: the box, grown by the outside part of visible strokes, then by what its effects draw past it
+  // (a shadow's offset on its side only, blurs summed).
   Rect box = transformedBounds(d.world, p.size.x, p.size.y);
-  double grow = (outerStroke(p) + effectsOutset(p) + textPathReach(p)) * std::sqrt(std::fabs(d.world.determinant()));
-  d.bounds = {box.x - grow, box.y - grow, box.w + 2 * grow, box.h + 2 * grow};
+  double scale = std::sqrt(std::fabs(d.world.determinant()));
+  double grow = (outerStroke(p) + textPathReach(p)) * scale;
+  d.bounds = effectsBounds(p, {box.x - grow, box.y - grow, box.w + 2 * grow, box.h + 2 * grow}, scale);
   // The page's spatial index (pages and the document aren't in one).
   bool indexed = page != kNoGuid && p.type != NodeType::DOCUMENT && p.type != NodeType::CANVAS;
   if (d.proxy != SpatialIndex::kNull && (!indexed || page != d.page)) unindex(d);

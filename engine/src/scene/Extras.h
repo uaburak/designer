@@ -19,19 +19,24 @@ enum class NoiseType : uint8_t { MULTITONE = 0, MONOTONE = 1, DUOTONE = 2 };
 enum class PatternTileType : uint8_t { RECTANGULAR = 0, HORIZONTAL_HEXAGONAL = 1, VERTICAL_HEXAGONAL = 2 };
 enum class PatternAlignment : uint8_t { START = 0, CENTER = 1, END = 2 };
 
+// An absent field reads as Figma's Effect reads it (docs/research/rea/effects.md §2.27: noiseSize 0, opacity 0,
+// blurOpType NORMAL, seed 0; clipToShape is Figma's `type == CUSTOM`, and only texture reads it here); glass's as
+// Figma's new glass effect (§2.14).
 struct EffectExtras {
   BlurOpType blurOpType = BlurOpType::NORMAL;
   Vec2 startOffset{0.5, 0}, endOffset{0.5, 1};  // the node's box, 0..1 (Figma's default direction: top to bottom)
   double startRadius = 0;
-  Vec2 noiseSize{0.5, 0.5};                     // noise "Noise size", texture "Size" (px)
+  Vec2 noiseSize{0, 0};                         // noise "Noise size", texture "Size" (px)
   bool clipToShape = false;
   Color secondaryColor{1, 1, 1, 0.25f};
   double density = 1;
   NoiseType noiseType = NoiseType::MONOTONE;
-  double opacity = 1;                           // noise, Multi
+  double opacity = 0;                           // noise, Multi
   uint32_t seed = 0;
-  // Glass (the panel's names): Splay, light Angle (degrees), light Intensity, Depth, Dispersion, —, Refraction.
-  double refractionRadius = 0, specularAngle = -45, specularIntensity = 0.8, bevelSize = 20, chromaticAberration = 0.5,
+  // Glass (Figma's Plugin API names): Depth = refractionRadius (1–100), light Angle = specularAngle (degrees), light
+  // Intensity = specularIntensity, Dispersion = chromaticAberration, Splay = reflectionDistance (0–1), Refraction =
+  // refractionIntensity; bevelSize is always 1. "Frost" is the effect's radius.
+  double refractionRadius = 20, specularAngle = -45, specularIntensity = 0.8, bevelSize = 1, chromaticAberration = 0.5,
          reflectionDistance = 0, refractionIntensity = 0.8;
 };
 
@@ -53,8 +58,18 @@ struct ShaderSetup {
   float values[12][4] = {};
 };
 
-// The effect's newer fields (defaults where it has none).
+// The effect's newer fields (defaults where it has none). A glass written by Wecra before round 17 (Depth in
+// bevelSize, Splay 0–100 in refractionRadius; Figma always writes bevelSize 1) reads as Figma's fields.
 const EffectExtras& effectExtras(const Effect& e);
+// Whether the effect draws anything (Figma's Effect::isVisibleForRendering, docs/research/rea/effects.md §2.27):
+// shadows need a colour with alpha, an inner shadow also a blur, an offset or a positive spread; blurs a radius (or a
+// progressive start), texture a radius; noise, glass and shader effects only being on.
+bool visibleForRendering(const Effect& e);
+// What the node's effects draw past `box` (its rendered box, in the same units; `scale` = those units per node unit),
+// as Figma grows a node's bounds (docs/research/rea/effects.md §2.3): every visible layer blur and an unclipped texture
+// by their radius, summed (they compound); each drop shadow by its offset ± (radius + spread), then by the blurs;
+// shader effects by their reach. Inner shadows, background blurs, glass and noise draw inside it.
+Rect effectsBounds(const NodeProps& p, const Rect& box, double scale);
 // The paint's pattern / noise fields.
 const PaintExtras& paintExtras(const Paint& p);
 // A CUSTOM paint's / effect's shader.

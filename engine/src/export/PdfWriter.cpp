@@ -662,7 +662,7 @@ class Writer {
 
   bool hasEffects(const NodeProps& p) const {
     for (const Effect& e : p.effects)
-      if (e.visible && (e.isShadow() || ((e.type == EffectType::FOREGROUND_BLUR || e.type == EffectType::BACKGROUND_BLUR) && e.radius > 0)))
+      if (visibleForRendering(e) && (e.isShadow() || ((e.type == EffectType::FOREGROUND_BLUR || e.type == EffectType::BACKGROUND_BLUR) && e.radius > 0)))
         return true;
     return false;
   }
