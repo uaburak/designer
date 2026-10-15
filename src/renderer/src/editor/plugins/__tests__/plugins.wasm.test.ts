@@ -424,6 +424,36 @@ describe("plugins: the sandbox", () => {
     expect(JSON.parse(rootData(engine, "result")!)).toEqual({ svg: true, bytes: true, mixed: true, range: [12, 24], chars: "Hello, world", group: ["GROUP", 2], ungroup: 2, clone: true, component: "COMPONENT", instance: ["INSTANCE", true] });
   });
 
+  it("detachedInfo: null on instances and components; local by id; library by the asset's key", async () => {
+    const { ed, engine } = await editor();
+    engine.applyChanges({ type: "NODE_CHANGES", sessionID: 1, nodeChanges: [{ guid: "1:900", phase: "CREATED", type: "FRAME", name: "From a library", parentIndex: { guid: ed.store.page, position: "~" }, size: { x: 10, y: 10 }, detachedSymbolId: { assetRef: { key: "17783905cbcf00ce0eee033580ceaf656044bf91", version: "305:76" } } } as never] });
+    const { r } = await run(
+      ed,
+      inline(`
+        (async () => {
+          const out = {};
+          const comp = figma.createComponent();
+          const inst = comp.createInstance();
+          out.before = [comp.detachedInfo, inst.detachedInfo];
+          const frame = inst.detachInstance();
+          out.local = frame.detachedInfo;
+          out.same = frame.detachedInfo && frame.detachedInfo.componentId === comp.id;
+          out.library = (await figma.getNodeByIdAsync("1:900")).detachedInfo;
+          out.plain = figma.createFrame().detachedInfo;
+          figma.root.setPluginData("result", JSON.stringify(out));
+          figma.closePlugin();
+        })();
+      `)
+    );
+    await untilEnded(r);
+    const out = JSON.parse(rootData(engine, "result")!);
+    expect(out.before).toEqual([null, null]);
+    expect(out.local).toMatchObject({ type: "local" });
+    expect(out.same).toBe(true);
+    expect(out.library).toEqual({ type: "library", componentKey: "17783905cbcf00ce0eee033580ceaf656044bf91" });
+    expect(out.plain).toBeNull();
+  });
+
   it("exportAsync is refused for a viewer the file's export setting restricts (governance §2.7)", async () => {
     const { ed, engine } = await editor();
     setExportAllowed(ed, false);

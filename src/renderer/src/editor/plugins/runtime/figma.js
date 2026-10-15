@@ -150,6 +150,7 @@
   function frameMixin(p) {
     props(p, FRAME_PROPS);
     props(p, CORNERS.concat(RECT_CORNERS, STROKE_SIDES));
+    props(p, ["detachedInfo"], { readonly: true });
     method(p, "setGridStyleIdAsync", function (id) { return Promise.resolve(call("set", this.__nodeId, "gridStyleId", id)); });
     method(p, "setGridChildPosition", function (child, row, column) { call("node.gridPosition", this.__nodeId, child, row, column); });
   }

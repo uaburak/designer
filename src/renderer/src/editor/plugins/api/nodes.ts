@@ -189,6 +189,36 @@ export function childrenOf(ctx: ApiContext, n: NodeChange): NodeChange[] {
   return ids.length ? ctx.ed.engine.readNodes(ids).map(ctx.ed.withRealType) : [];
 }
 
+/** A GUID as the engine writes it ("s:l" or {sessionID, localID}) → "s:l"; null when absent. */
+function guidText(g: unknown): Guid | null {
+  if (typeof g === "string") return g || null;
+  const o = g as { sessionID?: number; localID?: number } | undefined;
+  return o && typeof o.sessionID === "number" && typeof o.localID === "number" ? `${o.sessionID}:${o.localID}` : null;
+}
+
+/**
+ * Figma's `detachedInfo`: null on an instance or a component (or a layer never detached); `{type: "library",
+ * componentKey}` when the detached main was a library's (an assetRef, or a library copy here with a key); else
+ * `{type: "local", componentId}`.
+ */
+function detachedInfo(ctx: ApiContext, n: NodeChange): Obj | null {
+  if (n.type === "INSTANCE" || n.type === "SYMBOL" || (n.type as string) === "COMPONENT" || (n as unknown as Obj).isStateGroup) return null;
+  const d = (n as unknown as Obj).detachedSymbolId as { guid?: unknown; assetRef?: { key?: string } } | undefined;
+  if (d?.assetRef?.key) return { type: "library", componentKey: d.assetRef.key };
+  const id = guidText(d?.guid);
+  if (!id) return null;
+  // A detach written before assetRefs: a library copy here still names its asset.
+  const main = readNode(ctx, id, false) as unknown as Obj | null;
+  let key = typeof main?.key === "string" ? main.key : "";
+  for (let p: Obj | null = main, i = 0; p && i < 64; i++) {
+    if (p.sourceLibraryKey) return key || p.key ? { type: "library", componentKey: key || (p.key as string) } : { type: "local", componentId: id };
+    if (!key && typeof p.key === "string") key = p.key;
+    const parent = guidText((p.parentIndex as { guid?: unknown } | undefined)?.guid);
+    p = parent ? (readNode(ctx, parent, false) as unknown as Obj | null) : null;
+  }
+  return { type: "local", componentId: id };
+}
+
 const PROPS: Record<string, Prop> = {
   name: { get: (_ctx, n) => n.name ?? "", set: (ctx, n, v) => writeFields(ctx, n.guid, { name: needString("name")(v) as string, ...(isText(n) ? { autoRename: false } : {}) } as NodeFields, "name") },
   parent: { get: parentRef },
@@ -371,6 +401,7 @@ const PROPS: Record<string, Prop> = {
     },
   },
   mainComponent: { get: (ctx, n) => (n.type === "INSTANCE" ? ref(mainOf(ctx.ed, n as never) as NodeChange | null) : null) },
+  detachedInfo: { get: (ctx, n) => detachedInfo(ctx, n) },
   overrides: { get: () => [] },
   exposedInstances: { get: () => [] },
   isExposedInstance: field("isExposedInstance", false),
