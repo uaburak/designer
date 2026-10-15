@@ -2167,9 +2167,9 @@ void Renderer::runLayer(int index) {
     if (c.aux >= 0) runLayer(c.aux);
   }
   Layer& L = layers_[static_cast<size_t>(index)];
-  if (L.rect.w <= 0 || L.rect.h <= 0) return;
+  if (L.rect.w <= 0 || L.rect.h <= 0) return doneReading(index);
   PoolTarget* t = acquire(L.rect.w, L.rect.h);
-  if (!t) return;
+  if (!t) return doneReading(index);
   L.target = t->target;
   L.texture = t->texture;
   L.scale = 1;
@@ -2203,6 +2203,17 @@ void Renderer::runLayer(int index) {
     runCmds(L, t->target, {0, 0, L.rect.w, L.rect.h}, transparent, false);
   }
   blurLayer(layers_[static_cast<size_t>(index)]);
+  doneReading(index);
+}
+
+void Renderer::doneReading(int index) {
+  eachRead(layers_[static_cast<size_t>(index)], [&](int k) {
+    Layer& src = layers_[static_cast<size_t>(k)];
+    if (k == 0 || --src.readers > 0 || !src.target) return;
+    release(src.target);
+    src.target = 0;
+    src.texture = 0;  // read by nothing more this frame
+  });
 }
 
 void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, const float clear[4], bool keep) {
@@ -2425,6 +2436,9 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
 }
 
 void Renderer::execute(int index, gfx::TargetId target, const float clear[4], bool keep) {
+  // Who reads each layer: a layer gives its target back to the pool as soon as the last of them has run.
+  for (Layer& L : layers_) L.readers = 0;
+  for (const Layer& L : layers_) eachRead(L, [&](int k) { layers_[static_cast<size_t>(k)].readers++; });
   Layer& root = layers_[static_cast<size_t>(index)];
   root.executed = true;
   for (size_t i = 0; i < root.cmds.size(); i++) {

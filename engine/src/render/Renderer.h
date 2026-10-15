@@ -645,6 +645,10 @@ class Renderer {
     Rect clampBox;
     Mat2x3 nodeFromDevice;
     bool executed = false;
+    // Execution: the layers still to read it (copies, composites, shader effects); at 0 its target goes back to the
+    // pool mid-frame, so the effect stage's intermediate layers (round 17 B's effect list) don't all hold a target to
+    // the frame's end (the pool's budget, render.batching "no pass samples the texture it draws into …").
+    int readers = 0;
     // Execution: where its pixels ended up.
     gfx::TargetId target = 0;
     gfx::TextureId texture = 0;
@@ -819,6 +823,19 @@ class Renderer {
   // Execution.
   void execute(int layer, gfx::TargetId target, const float clear[4], bool keep = false);
   void runLayer(int index);
+  // Calls f(layer) for each layer `L` reads (its copy's source, its composites' sources and masks, shader effects').
+  template <typename F>
+  void eachRead(const Layer& L, F&& f) const {
+    if (L.copyOf >= 0) f(L.copyOf);
+    for (const Cmd& c : L.cmds) {
+      if (c.kind == Cmd::Kind::Shader && c.layer >= 0) f(c.layer);
+      if (c.kind != Cmd::Kind::Composite) continue;
+      if (c.layer >= 0) f(c.layer);
+      if (c.aux >= 0) f(c.aux);
+    }
+  }
+  // Layer `index` has run: what it read is read once less, and a layer nothing reads any more gives its target back.
+  void doneReading(int index);
   void runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, const float clear[4], bool keep);
   // A recording of `region` (device px; clipToRegion: nothing drawn outside it), then its execution into `target`
   // (keep: what the target holds stays outside the region).
