@@ -4,6 +4,8 @@ Figma Motion (Beta) inside DesignerV2's Design editor: **Motion mode** with its 
 
 Motion is a **mode of a Design file**, not a file type (help: "switch the toolbar toggle to Motion"; "Any frame can switch to Motion mode"). `FileMeta.editorType` stays `"design"`.
 
+**Corrected 2026-10-15 from Figma's own code** (`docs/research/rea/motion.md`, a static reading of the current desktop build's modules; no live probe ran — its §5 lists the 14 probes still to run). Ten decisions of the 2026-10-12 text were contradicted by the code and are rewritten in place: the keyframe binding is an `EXPRESSION KEYFRAME [base, KEYFRAME_TRACK_PARAMETER_DATA]` whose first argument is the resting value (§4.2); the default timeline lives on the top-level frame itself (§4.3); stored units are Figma's (opacity ×100, rotation −radians, §4.5); XY and X / Y tracks are exclusive (§4.5); presets are code run against a `figma:motion` runtime and their output is materialised as tracks (§3, §4.6); the preset catalogue and its defaults are Figma's (§4.6, §10); IN_CUBIC on a keyframe means "no easing", Ease in is EASE_IN 15 and the default keyframe easing is CUSTOM_CUBIC (0.5, 0, 0.5, 1) (§4.7); springs are stored physical and played normalised by Figma's settle time T (§4.7); text stagger has Figma's seven fields (§4.10); the timeline settings and the easing menu are Figma's (§6.2, §6.3). The schema is the current build's, not the 106 dump (§4.1). The prototype side already follows the code (round 17 batch A): `engine/src/motion/Easing.{h,cpp}` holds the curves and springs, the plugin / agent prototype shapes swap the side for every directional transition, and mouse delays live in `interactionMaintained` / `interactionDuration`.
+
 Marks: **[unverified]** = our decision where Figma's own behaviour, wording, numbers or storage could not be seen. Motion's editing UI could not be captured live (`research/figma/live/motion/behaviour.md`: the built-in browser was not signed in; only the mode switch and the "Motion Beta" tag were seen). Figma's MCP (which can read and write motion) needs the owner's sign-in and was not available to this session. Every [unverified] item is listed for the capture in §12.
 
 ---
@@ -88,7 +90,7 @@ Sources (help.figma.com unless said; all opened 2026-10-12):
 | Feature | Status | Where |
 |---|---|---|
 | Mode switch with Motion | ◐ `EditorMode` has `"motion"`; the toolbar's Motion segment is **disabled** (`docs/editor.md` N12) | `ds/components/EditorToolbar.tsx` (`EDITOR_MODES`, icon `24.motion`), `editor/canvas/BottomToolbar.tsx` |
-| Easing maths | ✓ prototype transitions: Figma's named cubic beziers, back easings, springs (physical; presets Gentle / Quick / Bouncy / Slow), custom bezier / spring, HOLD | `engine/src/proto/Prototype.cpp` (`ease`, `springOf`, `springAt`, `springDuration`) |
+| Easing maths | ✓ Figma's named cubic beziers and back easings (its easing table's numbers), physical springs with an initial velocity (presets Gentle / Quick / Bouncy / Slow, the `{1, 100, 10}` fallback), Figma's closed-form settle time T and ζ clamp, the spring editor's 6 / (ζω₀) duration and its inverse; prototype transitions use it (2026-10-15) | `engine/src/motion/Easing.{h,cpp}` (`cubicBezier`, `springValue`, `springSettleTime`, `springEditorDuration`, `springWithEditorDuration`); `engine/src/proto/Prototype.cpp` (`ease`, `durationOf`) |
 | Interpolating props over time | ✓ Smart animate (matching layers, transforms, sizes, colours, opacity, text dissolve) in the player | `engine/src/proto/Player.*`, `render/PresentScene.h` (`PropsOverrides`) |
 | A renderer that draws a node with replaced props | ✓ `Renderer::propsAt` (scene item overrides) | `render/Renderer.h` |
 | Schema | ✗ KEYFRAME 56 / KEYFRAME_TRACK 57 / ANIMATION_PRESET_INSTANCE 58 and every motion field are placeholders; `EasingData`, `SpringParams`, `BezierHandles`, `VariableDataType.EASING 22 / TIMING 23` exist as `@later` | `schema/document.kiwi` |
@@ -105,7 +107,7 @@ Sources (help.figma.com unless said; all opened 2026-10-12):
 3. **The document holds base values; time is a derived layer.** The animated node's own fields keep their static (base) value. The evaluator turns (timeline, t) into values that a **motion layer** writes over the base values in memory — preview writes, never in a transaction, never journaled, never in `DOCUMENT_CHANGED`, never in exports of the document (§5).
 4. **Static renders draw the base values** (Design / Dev Mode canvas, thumbnails, PNG / JPG / SVG / PDF, the viewer, REST images). Figma's MCP asset export bakes t = 0 [differs; owner question §12.2]. Motion mode, the player, the animated exports and Dev Mode's timeline view draw the evaluated values.
 5. **A timeline belongs to a top-level frame or a main component** (the "timeline root"). Its layers (not the root itself) are animated. Instances play their main component's timeline, offset in their container's.
-6. **Presets are evaluated, not baked**: a preset's tracks are generated by the evaluator from its type and props (Figma's plugin: style-generated tracks "are not materialized"). Only manual keyframes are stored as nodes.
+6. **Presets are code, and their output is stored** (corrected 2026-10-15; Figma's code, `docs/research/rea/motion.md` §2.17): an animation preset is a code component (`CodeObjectType.ANIMATION_PRESET = 3`) written against a `figma:motion` module (`tween`, `animate`, `defineProperties`, `EasingType`), run in the plugin sandbox; what it returns is written as KEYFRAME_TRACK / KEYFRAME nodes that the field's KEYFRAME expression references through ANIMATION_PRESET parameters (§4.2), re-run when the props, the duration or the offset change. The evaluator only plays tracks, so C++ knows no preset. (The plugin docs' "not materialized" is about what `manualKeyframeTracks` returns, not about storage.)
 7. **The editor's clock is in TypeScript** (requestAnimationFrame, or the AudioContext's clock while audio plays); the engine evaluates at the time it is given. The player's clock is the engine's (its existing `tick(nowMs)`).
 8. **One undo step per user action** (§4.9 names).
 9. **Exports encode in the renderer process**: WebCodecs for MP4 / WebM, `gifenc` for GIF, our own writers for animated SVG, Lottie and dotLottie. Nothing new in main; the save dialog is the existing export path.
@@ -118,15 +120,17 @@ Sources (help.figma.com unless said; all opened 2026-10-12):
 
 ### 4.1 Schema (the main session's pre-round commit; the round's only schema edit)
 
-Copied from `figma-schema-106.kiwi` with Figma's numbers, by `docs/schema.md` §15's rule. Checked 2026-10-12: every `NodeChange` number below is a placeholder `_rN` in `schema/document.kiwi`; no `@ours` name collides (ours are 1000–1002); `Effect` 37–42 / 45–54 are placeholders; `ComponentPropValue` 5 is free.
+**Take the schema from the current build, not from the 106 dump** (corrected 2026-10-15, `docs/research/rea/motion.md` §2.6; the embedded schema text is in that round's scratchpad, `rea-work/motion/embedded-schema.txt`). The numbers of the `NodeChange` motion fields below are unchanged there; the current build adds: `TimelineData.durationUsVar = 8`; `StyleIdForAnimation.timelineOffsetVar = 7`; `TextElementDelayBehaviour.clipContent = 5`, `transformOriginMode = 6`, `transformOrigin = 7` and `enum TextElementTransformOriginMode {MATCH 0, CHARACTER 1, WORD 2, LINE 3, PARAGRAPH 4}`; `KeyframeValueType.ROTATION_3D = 12` (`KeyframeAnyValue.rotation3DValue = 12`); `NodeContentsKeyframeBindingLocation.audioParametrizedField = 5`, `enum AudioParametrizedField {MISSING 0, GAIN 1, TIMELINE_OFFSET 2}`; `AudioFill` 13–20 (bpm and beat fields, `volumeVar 19`, `timelineOffsetVar 20`); `AudioBeatAnalysis` and `NodeChange.audioBeatAnalyses = 613`; `Paint.videoFillPlayback = 47` (`VideoFillPlayback` 1–7); `ExportSettings.frameRate 13, loopCount 14, backgroundType 15, duration 16, svgAnimated 17`; `ImageType MP4 4, GIF 5, WEBM 6, LOTTIE 7, DOTLOTTIE 8`; `VariableDataType.UNIT_NUMBER = 36`; `ExpressionFunction` KEYFRAME 19, COMPOSE_COLOR 20, PAINT_TO_COLOR 21, RESOLVE_LENGTH 22, TRANSITION 23; `TransitionOverrideData.all = 1` deprecated. **Deprecated in the current build** (kept as plain fields for round trips, never written): `keyframeValueRef 586`, `timelinePositionType 510`, `isClip 545`. The `.fig` importer must keep KEYFRAME / KEYFRAME_TRACK nodes and their fields (today it drops unknown node types, `src/shared/fig/convert.ts`): a round-trip test is part of the pre-commit.
+
+Originally copied from `figma-schema-106.kiwi` with Figma's numbers, by `docs/schema.md` §15's rule. Checked 2026-10-12: every `NodeChange` number below is a placeholder `_rN` in `schema/document.kiwi`; no `@ours` name collides (ours are 1000–1002); `Effect` 37–42 / 45–54 are placeholders; `ComponentPropValue` 5 is free.
 
 **Node types** (removed from the "Dropped" comment): `KEYFRAME = 56; KEYFRAME_TRACK = 57; ANIMATION_PRESET_INSTANCE = 58;`
 
 **Enums, complete with Figma's values** (new): `InterpolationType {HOLD 0, BEZIER 1, SPRING 2}`, `KeyframeOperation {SET 0, SCALE 1, OFFSET 2}`, `TimelinePositionType {ABSOLUTE 0, RELATIVE 1}`, `TrackLoopMode {NONE 0, LOOP 1}`, `PlaybackStyle {ONCE 0, LOOP 1, BOOMERANG 2}`, `KeyframeValueType {FLOAT 0, INVALID 1, COLOR 2, TEXT_DATA 3, VECTOR 4, BOOL 5, CIRCLE 6, LINE 7, CIRCLE_POINT 8, COLOR_POINT 9, GRADIENT_PAINT 10, PAINT 11}`, `KeyframeTrackParameterType {INVALID 0, MANUAL 1, ANIMATION_PRESET 2}`, `InterpolationColorSpace {DEFAULT 0, OKLAB 1, OKLCH 2, HSL 3, SRGB_LINEAR 4}`, `InterpolationHueMethod {SHORTER 0, LONGER 1, INCREASING 2, DECREASING 3}`, `TextElementGrouping {CHARACTER 0, CHARACTER_NO_WHITESPACE 1, WORD 2, LINE 3, PARAGRAPH 4}`, `TextElementDelayOrder {LEFT_RIGHT 0, RIGHT_LEFT 1, CENTER_OUT 2, RANDOM 3}`, `SpringType {NORMALIZED 0, PHYSICAL 1}`, `VariableTimingDisplayUnit {MILLISECONDS 0, SECONDS 1}`, `AnimationTimelineAction {PLAY 0, PAUSE 1, TOGGLE_PLAY_PAUSE 2, SET_PLAYHEAD 3}`, `KeyframeBindingEffectParametrizedField` (0–21, round trip).
 
-**Enum values added to kept enums**: `VariableDataType KEYFRAME_TRACK_ID = 20, KEYFRAME_TRACK_PARAMETER_DATA = 21`; `VariableResolvedDataType KEYFRAME_TRACK_ID = 13, KEYFRAME_TRACK_PARAMETER_DATA = 14`; `VariableField` 43–76 complete (X_POSITION 43 … TEXT_ELEMENT_DELAY 76, Figma's names); `StyleType ANIMATION = 7`; `ConnectionType UPDATE_ANIMATION_TIMELINE_STATE = 10` (the comment keeps OBJECT_ANIMATION 9 dropped); `ComponentPropType EASING = 8`. `EASING 22 / TIMING 23` and `EASING 15 / TIMING 16` lose `@later`.
+**Enum values added to kept enums**: `VariableDataType KEYFRAME_TRACK_ID = 20, KEYFRAME_TRACK_PARAMETER_DATA = 21`; `VariableResolvedDataType KEYFRAME_TRACK_ID = 13, KEYFRAME_TRACK_PARAMETER_DATA = 14`; `VariableField` 43–76 complete (X_POSITION 43 … TEXT_ELEMENT_DELAY 76, Figma's names); `StyleType ANIMATION = 7`; `ConnectionType UPDATE_ANIMATION_TIMELINE_STATE = 10` (the comment keeps OBJECT_ANIMATION 9 dropped); `ExpressionFunction KEYFRAME = 19` (the binding of every keyframed field, §4.2); `ComponentPropType EASING = 8`. `EASING 22 / TIMING 23` and `EASING 15 / TIMING 16` lose `@later`.
 
-**Messages** (new, Figma's fields complete): `FrameRate {numerator 1, denominator 2}`, `TRSSTransform2D {translation 1, rotation 2, scale 3, shearX 4}`, `TransformOrigin {Number x 1, Number y 2}`, `OptionalVector {Vector value 1}`, `Circle`, `Line`, `CirclePoint`, `ColorPoint`, `GradientParameterValue`, `KeyframeAnyValue` (1–11), `KeyframeValueData {value 1, valueType 2}`, `KeyframeTrackId {guid 1, assetRef 2}`, `AnimationPresetId {guid 1, assetRef 2}`, `ManualKeyframeTrackParameter {keyframeTrackId 1, timelineDefId 2}`, `AnimationPresetKeyframeTrackParameter {animationPresetId 1, keyframeTrackId 2, timelineDefId 3}`, `KeyframeTrackAnyParameter {manual 1, animationPreset 2, animationStyleBindingId 3}`, `KeyframeTrackParameter {value 1, type 2}`, `KeyframeTrackParameterValue {parameters 1}`, `TimelineData {durationUs 1, defaultTimeline 2, parentTimelineDefId 3, playbackStyle 4, autoplay 5, keyframeSnappingFps 6, quantizePlayback 7}`, `TimelineDefinitionsMap(Entry)`, `TimelineAssignmentKey {assignedTimelineId 1, containingTimelineId 2}`, `TimelineBindingData {offsetUs 1, disabled 2, autoplay 3}`, `TimelineAssignmentsMap(Entry)`, `AnimationPresets {presets 1}`, `AnimationPresetData {animationPresetId 1, timelineDefId 2, sortPosition 3}`, `StyleAnimation {animationPresetId 1}`, `StyleIdForAnimation {id 1, timelineDefId 2, animationStyleId 3, timelineOffset 4, generatedAnimationPresets 5, sortPosition 6}`, `GeneratedAnimationPreset {animationPresetId 1}`, `TextElementDelayBehaviour {enabled 1, grouping 2, delayMs 3, order 4}`, `AudioFill` (1–12), `AudioTrack` (1–4), `NodeContentsKeyframeBindingLocation` (round trip only).
+**Messages** (new, Figma's fields complete): `FrameRate {numerator 1, denominator 2}`, `TRSSTransform2D {translation 1, rotation 2, scale 3, shearX 4}`, `TransformOrigin {Number x 1, Number y 2}`, `OptionalVector {Vector value 1}`, `Circle`, `Line`, `CirclePoint`, `ColorPoint`, `GradientParameterValue`, `KeyframeAnyValue` (1–11), `KeyframeValueData {value 1, valueType 2}`, `KeyframeTrackId {guid 1, assetRef 2}`, `AnimationPresetId {guid 1, assetRef 2}`, `ManualKeyframeTrackParameter {keyframeTrackId 1, timelineDefId 2}`, `AnimationPresetKeyframeTrackParameter {animationPresetId 1, keyframeTrackId 2, timelineDefId 3}`, `KeyframeTrackAnyParameter {manual 1, animationPreset 2, animationStyleBindingId 3}`, `KeyframeTrackParameter {value 1, type 2}`, `KeyframeTrackParameterValue {parameters 1}`, `TimelineData {durationUs 1, defaultTimeline 2, parentTimelineDefId 3, playbackStyle 4, autoplay 5, keyframeSnappingFps 6, quantizePlayback 7, durationUsVar 8}`, `TimelineDefinitionsMap(Entry)`, `TimelineAssignmentKey {assignedTimelineId 1, containingTimelineId 2}`, `TimelineBindingData {offsetUs 1, disabled 2, autoplay 3}`, `TimelineAssignmentsMap(Entry)`, `AnimationPresets {presets 1}`, `AnimationPresetData {animationPresetId 1, timelineDefId 2, sortPosition 3}`, `StyleAnimation {animationPresetId 1}`, `StyleIdForAnimation {id 1, timelineDefId 2, animationStyleId 3, timelineOffset 4, generatedAnimationPresets 5, sortPosition 6, timelineOffsetVar 7}`, `GeneratedAnimationPreset {animationPresetId 1}`, `TextElementDelayBehaviour {enabled 1, grouping 2, delayMs 3, order 4, clipContent 5, transformOriginMode 6, transformOrigin 7}`, `AudioFill` (1–12), `AudioTrack` (1–4), `NodeContentsKeyframeBindingLocation` (round trip only).
 
 **Fields added to kept messages**:
 - `SpringParams.springType = 4` (`SpringType`). `VariableAnyValue.keyframeTrackIdValue = 19`, `keyframeTrackParameterValue = 20` (replacing `_r19`, `_r20`). `ComponentPropValue.easingData = 5`.
@@ -138,46 +142,47 @@ Copied from `figma-schema-106.kiwi` with Figma's numbers, by `docs/schema.md` §
 | # | Field | On (ours) | Use |
 |---|---|---|---|
 | 505 | `InterpolationType interpolationType` | KEYFRAME | mirrors `easingData` (HOLD / BEZIER / SPRING) for round trips |
-| 506 | `int64 timelinePosition` | KEYFRAME | µs from the timeline's start [unit unverified] |
-| 507 | `KeyframeValueData keyframeValue` | KEYFRAME (value), KEYFRAME_TRACK (base value) | |
+| 506 | `int64 timelinePosition` | KEYFRAME | µs from the timeline's start, an integer (`Math.round(1e6 · s)`; seconds at the plugin API) |
+| 507 | `KeyframeValueData keyframeValue` | KEYFRAME | the keyframe's value in stored units (§4.5); the base value is the KEYFRAME expression's first argument, not on the track (§4.2) |
 | 508 | `BezierHandles bezierHandles` | KEYFRAME | mirrors `easingData`'s bezier |
-| 509 | `KeyframeOperation keyframeOperation` | KEYFRAME_TRACK | SET for manual tracks |
-| 510 | `TimelinePositionType timelinePositionType` | KEYFRAME_TRACK | ABSOLUTE (manual) |
+| 509 | `KeyframeOperation keyframeOperation` | KEYFRAME_TRACK | SET 0 replace, SCALE 1 multiply, OFFSET 2 add; SET for manual tracks |
+| 510 | `TimelinePositionType timelinePositionType` | — | deprecated in the current build: round trip only |
 | 511 | `GUID clipId` | — | round trip only |
-| 512 | `uint64 timelineDuration` | ANIMATION_PRESET_INSTANCE | the clip's length, µs |
-| 513 | `int64 timelineOffset` | ANIMATION_PRESET_INSTANCE | the clip's start, µs |
-| 514 | `PlaybackStyle playbackStyle` | — | round trip only (the timeline's is in `TimelineData`) |
+| 512 | `uint64 timelineDuration` | top-level frame (the default timeline), ANIMATION_PRESET_INSTANCE | the timeline's length, µs (`setTimelineDuration` writes `round(s · 1e6)` on the frame); a clip's length |
+| 513 | `int64 timelineOffset` | top-level frame, ANIMATION_PRESET_INSTANCE | µs |
+| 514 | `PlaybackStyle playbackStyle` | top-level frame | the default timeline's playback (ONCE / LOOP / BOOMERANG) |
 | 521 | `AnimationPresets animationPresets` | animated layer | its presets, in stacking order |
 | 523 | `TRSSTransform2D motionTransform` | animated layer | the motion transform's base; absent = identity |
 | 535 | `EasingData easingData` | KEYFRAME, ANIMATION_PRESET_INSTANCE | the easing into this keyframe / of the clip |
 | 542 | `OptionalVector pathTrim` | vector-like layers | x = start, y = end, 0–1; absent = 0 / 1 [mapping unverified] |
-| 543 | `bool timelineDisabled` | ANIMATION_PRESET_INSTANCE | the clip is off (eye) |
-| 544 | `bool useLegacySmartAnimate` | — | round trip only |
-| 545 | `bool isClip` | — | round trip only |
-| 552 | `TimelineDefinitionsMap timelineDefinitions` | timeline root | its timeline(s) |
+| 543 | `bool timelineDisabled` | top-level frame, ANIMATION_PRESET_INSTANCE | the timeline / clip is off (eye) |
+| 544 | `bool useLegacySmartAnimate` | — | round trip only (the player's snapshot Smart animate is the legacy path) |
+| 545 | `bool isClip` | — | deprecated in the current build: round trip only |
+| 552 | `TimelineDefinitionsMap timelineDefinitions` | main component, frame with nested timelines | nested and main-component timelines only; the default timeline is the frame's own fields (§4.3) |
 | 553 | `TimelineAssignmentsMap timelineAssignments` | INSTANCE | its main's timeline placed in the container's |
 | 566 | `VariableTimingDisplayUnit timingDisplayUnit` | VARIABLE (TIMING) | shown in ms or s |
 | 580 | `StyleAnimation[] styleAnimations` | style node (ANIMATION) | round trip (custom styles are "coming" at Figma) |
 | 582 | `StyleIdForAnimation[] styleIdsForAnimation` | animated layer | composite styles applied and the presets each generated |
 | 583 | `AnimationPresetId backingAnimationPresetId` | ANIMATION_PRESET_INSTANCE | the preset type (`assetRef.key`, §4.6) |
-| 586 | `VariableData keyframeValueRef` | KEYFRAME | the value bound to a variable |
+| 586 | `VariableData keyframeValueRef` | — | deprecated in the current build: round trip only (a keyframe's value binds through the KEYFRAME's own `parameterConsumptionMap`, §4.2) |
 | 587 | `TransformOrigin transformOrigin` | animated layer | the anchor point; absent = 50 % / 50 % |
 | 591 | `TrackLoopMode trackLoopMode` | KEYFRAME_TRACK | NONE (LOOP evaluated, no UI [unverified]) |
 | 597 | `bool linkMotionScaleAspectRatio` | animated layer | Scale's link toggle |
 | 598 | `BezierHandles motionPathBezierHandles` | KEYFRAME (position) | the motion path's handles |
 | 599 | `InterpolationColorSpace interpolationColorSpace` | KEYFRAME (colour) | |
 | 600 | `InterpolationHueMethod interpolationHueMethod` | KEYFRAME (colour, OKLCH / HSL) | |
-| 601 | `FrameRate timelineKeyframeSnappingFps` | — | round trip only (the timeline's is in `TimelineData`) |
-| 602 | `bool quantizeTimelinePlayback` | — | round trip only |
+| 601 | `FrameRate timelineKeyframeSnappingFps` | top-level frame | the default timeline's snapping grid (§6.2) |
+| 602 | `bool quantizeTimelinePlayback` | top-level frame | round trip |
 | 603 | `AudioFill[] audioFills` | timeline root | audio clips |
 | 605 | `AudioTrack[] audioTracks` | timeline root | audio rows |
-| 610 | `TextElementDelayBehaviour textElementDelayBehaviour` | TEXT | text stagger |
+| 610 | `TextElementDelayBehaviour textElementDelayBehaviour` | TEXT | text stagger (fields 1–7, §4.10) |
+| 613 | `AudioBeatAnalysis[] audioBeatAnalyses` | timeline root | round trip |
 
 **Still reserved**: `transform3d 570` / `scene3d 572` (3D, not released), `objectAnimations 426` (Slides), `transitionOverrides 526` (prototype transition overrides, a later Design round), `strokeOffset 554`, `strokeData 571`, `customEffects 569` (Draw's list).
 
-**Field metadata.** All new fields are ordinary overridable fields except: `timelineDefinitions`, `audioFills`, `audioTracks` are `@nooverride` (an instance never redefines its main's timeline); `timelineAssignments` is `@own` on an INSTANCE. A `parameterConsumptionMap` entry carrying `KEYFRAME_TRACK_PARAMETER_DATA` is refused in `symbolOverrides` (Figma: motion is edited at the main component only); the engine drops it with a warning on import.
+**Field metadata.** All new fields are ordinary overridable fields except: `timelineDefinitions`, `audioFills`, `audioTracks` are `@nooverride` (an instance never redefines its main's timeline); `timelineAssignments` is `@own` on an INSTANCE. A `parameterConsumptionMap` entry carrying a KEYFRAME expression is refused in `symbolOverrides` (Figma: motion is edited at the main component only); the engine drops it with a warning on import.
 
-**Default values** (`@default`): `motionTransform` absent = `{translation 0,0, rotation 0, scale 1,1, shearX 0}` (kiwi's zero scale must not be read as 0); `transformOrigin` absent = `{50 PERCENT, 50 PERCENT}`; `pathTrim` absent = no trim; `TimelineData.durationUs` 0 = 2 000 000 (Figma's default).
+**Default values** (`@default`): `motionTransform` absent = `{translation 0,0, rotation 0, scale 1,1, shearX 0}` (kiwi's zero scale must not be read as 0); `transformOrigin` absent = `{50 PERCENT, 50 PERCENT}`; `pathTrim` absent = no trim; a fresh timeline's length 2 000 000 µs (help: "New animations default to 2000 milliseconds"; the code that sets it was not seen, probe 5.1).
 
 After the edit: `npm run engine:gen` (C++ and TS codecs; no wasm build), `npm run check`.
 
@@ -186,12 +191,12 @@ After the edit: `npm run engine:gen` (C++ and TS codecs; no wasm build), `npm ru
 Figma's ids carry an `assetRef` (`KeyframeTrackId`, `AnimationPresetId`), so tracks and presets are addressable assets, not layers. Ours:
 
 - **KEYFRAME_TRACK** and **ANIMATION_PRESET_INSTANCE** nodes are children of the **Internal Only Canvas `0:2`** (with VARIABLE, BRUSH…), never under a page. A track's `name` is its field (e.g. `OPACITY`, `fills[0]`, `effects[1].RADIUS`); a preset instance's `name` is its type's name.
-- **KEYFRAME** nodes are children of their track, ordered by `parentIndex.position`; `timelinePosition` decides time order (the evaluator sorts; positions follow time on every write).
-- The **binding** is Figma's variable machinery: the animated layer's `parameterConsumptionMap` entry for the field (`variableField` = the field's `VariableField`) holds `VariableData {dataType KEYFRAME_TRACK_PARAMETER_DATA, resolvedDataType KEYFRAME_TRACK_PARAMETER_DATA, value.keyframeTrackParameterValue {parameters: [{type MANUAL, value.manual {keyframeTrackId {guid: track}, timelineDefId: the root's timeline}}]}}`.
-  - Paint fields bind through the paint's own `VariableData` slots: SOLID colour → `Paint.colorVar`, paint opacity → `Paint.opacityVar`, a shader property → `Paint.componentPropAssignments[k].varValue`.
+- A track's id string is `KeyframeTrackId:<guid>` (Figma's). **KEYFRAME** nodes are children of their track, sorted by `timelinePosition`; **positions are unique per track**: writes upsert keyframes by integer µs position, then delete every child whose position is not in the new list (Figma's `addOrUpdateKeyframe`); duplicate positions in a preset's output collapse to the last one.
+- The **binding** (corrected 2026-10-15, Figma's code `docs/research/rea/motion.md` §2.8) is an **expression**: the animated layer's `parameterConsumptionMap` entry for the field (key = the field's `VariableField`, e.g. `MOTION_TRANSLATION_X`, `OPACITY`) holds `VariableData {dataType EXPRESSION, resolvedDataType <the base value's: FLOAT / COLOR / VECTOR>, value.expressionValue {expressionFunction KEYFRAME (19), expressionArguments: [base, {dataType KEYFRAME_TRACK_PARAMETER_DATA, value.keyframeTrackParameterValue {parameters}}]}}`. **The resting (base) value is the expression's first argument.** Each parameter is `{type MANUAL, value.manual {keyframeTrackId, timelineDefId}}`, `{type ANIMATION_PRESET, value.animationPreset {animationPresetId, keyframeTrackId, timelineDefId}}`, or an `animationStyleBindingId`. Several stack on one field, folded in list order; writing a manual track keeps the preset parameters and appends MANUAL (`[...presetParams, manual]`). The engine already evaluates EXPRESSION bindings (variables round): KEYFRAME is one more `ExpressionFunction` that returns the folded track value at the motion layer's time, and argument 0 when Motion is off.
+  - Paint fields bind through the paint's own `VariableData` slots, with the same KEYFRAME expression: SOLID colour → `Paint.colorVar`, paint opacity → `Paint.opacityVar`, a shader property → `Paint.componentPropAssignments[k].varValue`. Effects, fill / stroke component props and audio gain are located with `NodeContentsKeyframeBindingLocation {topLevelField EFFECT_DATA | FILL_PAINT_DATA | STROKE_PAINT_DATA | AUDIO_FILLS, index, effectParametrizedFieldValue, audioParametrizedField}`.
   - Effect fields through `Effect.*Var` (OFFSET_X → `xVar`, OFFSET_Y → `yVar`, RADIUS → `radiusVar`, SPREAD → `spreadVar`, COLOR → `colorVar`, REFRACTION_RADIUS → `refractionRadiusVar`, SPECULAR_ANGLE → `specularAngleVar`, SPECULAR_INTENSITY → `specularIntensityVar`, CHROMATIC_ABERRATION → `chromaticAberrationVar`, SPLAY → `splayVar`, REFRACTION_INTENSITY → `refractionIntensityVar`, START_RADIUS → `startRadiusVar`, NOISE_SIZE_X / _Y → `noiseSizeXVar` / `noiseSizeYVar`, DENSITY → `densityVar`, EFFECT_OPACITY → `effectOpacityVar`, SECONDARY_COLOR → `secondaryColorVar`); a shader effect's property → `Effect.componentPropAssignments[k].varValue`.
-  - A KEYFRAME's easing bound to an EASING variable: the KEYFRAME's own `parameterConsumptionMap` entry `EASING_DATA (57)` → ALIAS. Its value bound to a variable: `keyframeValueRef`.
-- **One binding per field.** A field bound to a variable that gets a track: the variable moves into the track — the base value and the new keyframe take it as `keyframeValueRef` — and the field's binding becomes the track's (one undo step) [unverified]. Removing the track puts the alias back as the field's binding.
+  - A KEYFRAME's easing bound to an EASING variable: the KEYFRAME's own `parameterConsumptionMap` entry `EASING_DATA (57)` → ALIAS. Its value bound to a variable: the KEYFRAME's own entry `KEYFRAME_VALUE (68)` → ALIAS [inferred from the VariableField; `keyframeValueRef 586` is deprecated].
+- **A variable-bound field keeps its alias as the expression's base argument** (an ALIAS `VariableData` as argument 0): no alias moves, no undo special case. Removing the last track puts argument 0 back as the field's binding (or its literal as the field's value).
 - **The `MotionIndex`** (engine, derived, rebuilt with bindings): track → animated nodes, node → (field → track), root → its animated nodes, preset → node.
 - **Ownership operations** (every one in the same transaction as the operation itself):
   - deleting a layer removes the tracks, keyframes and preset instances only it binds;
@@ -199,14 +204,15 @@ Figma's ids carry an `assetRef` (`KeyframeTrackId`, `AnimationPresetId`), so tra
   - Detach instance deep-copies the main's tracks for the detached layers (otherwise main and copy would share them);
   - Flatten / boolean / Outline stroke drop the consumed layers' tracks;
   - library publish carries a component's tracks and presets as dependencies; a library copy in a consuming file brings them with `assetRef` set; Accept update replaces them (like variables, `docs/data.md` §8);
-  - `.fig` import keeps Figma's structure as is: whatever Figma's parents are, the evaluator reads only the bindings and the nodes' fields, so a track that Figma keeps elsewhere still plays.
+  - `.fig` import keeps Figma's structure as is: whatever Figma's parents are, the evaluator reads only the bindings and the nodes' fields, so a track that Figma keeps elsewhere still plays. (Where Figma's tracks live is still not visible in its code; the Internal Only Canvas is ours.)
 
 ### 4.3 Timelines
 
-- A **timeline root** is a top-level frame (a page's direct child FRAME / SYMBOL / INSTANCE, a section's direct child frame included) or any SYMBOL. The root holds `timelineDefinitions` with one entry, `defaultTimeline = true`, created by the first keyframe, preset or audio clip under it (`durationUs` 2 000 000, `playbackStyle LOOP` [Figma's default unverified; Loop is first in its cycle], `autoplay true`, `keyframeSnappingFps 60/1` [unverified], `quantizePlayback false`). The entry's id is a fresh GUID.
+- A **timeline root** is a top-level frame (a page's direct child FRAME / SYMBOL / INSTANCE, a section's direct child frame included) or any SYMBOL. **The default timeline is the frame itself** (corrected 2026-10-15, Figma's code `docs/research/rea/motion.md` §2.15): its length is the frame's own `timelineDuration 512` (µs; `node.timelines` returns `[{id: the containing top-level frame's id, duration: timelineDuration / 1e6}]`, and `setTimelineDuration(id, s)` requires id to be that frame and 0 < s ≤ MAX_SAFE_INTEGER µs), its playback the frame's `playbackStyle 514`, its snapping grid `timelineKeyframeSnappingFps 601`, its offset / off switch `timelineOffset 513` / `timelineDisabled 543`, and **its id is the frame's GUID** wherever a `timelineDefId` refers to it. A fresh timeline: 2 000 000 µs (help; probe 5.1), `playbackStyle LOOP` [unverified], snapping 60/1 (the frames-mode default, §6.2), `quantizeTimelinePlayback false`.
+- **`timelineDefinitions 552`** holds only nested and main-component timelines: GUID → `TimelineData {durationUs, defaultTimeline, parentTimelineDefId, playbackStyle ONCE | LOOP | BOOMERANG, autoplay, keyframeSnappingFps, quantizePlayback, durationUsVar}`.
 - The root itself is never animated (Figma's rule); its descendants are. Diamonds on the root are disabled.
 - The timeline's length is `durationUs`. Keyframes and clips past it are kept and drawn dimmed in the timeline [unverified]; playback stops at the duration.
-- **Animated instances**: an INSTANCE inside a root whose main is a timeline root plays the main's timeline. Its place in time is its `timelineAssignments` entry `{key {assignedTimelineId = the main's timeline id, containingTimelineId = the container root's timeline id}, value {offsetUs, disabled false, autoplay true}}`; absent = offset 0. It plays with the main's duration and playback style, within the container's time. Nested instances compose offsets. The instance's own sublayers are not editable in Motion (purple track; drag only).
+- **Animated instances**: an INSTANCE inside a root whose main is a timeline root plays the main's timeline (Figma calls it "clip-backed", `isClipBackedComponentInstance`, `clipId 511`). Its place in time is its `timelineAssignments` entry `{key {assignedTimelineId = the main's timeline id, containingTimelineId = the container root's timeline id}, value {offsetUs, disabled false, autoplay true}}`; absent = offset 0. It plays with the main's duration and playback style, within the container's time. Nested instances compose offsets. The instance's own sublayers are not editable in Motion (purple track; drag only).
 - **Playback styles**: ONCE → t clamps to [0, d]; LOOP → t mod d; BOOMERANG (UI "Ping-pong") → triangle wave of period 2d.
 
 ### 4.4 Track evaluation
@@ -214,23 +220,27 @@ Figma's ids carry an `assetRef` (`KeyframeTrackId`, `AnimationPresetId`), so tra
 For field f of node n at root time T (µs):
 
 1. **Local time**: τ = T − (sum of instance offsets on the way down), mapped by each enclosing instance's main's playback style.
-2. **Parameters**, in list order, starting from the base value b (the node's field, or `motionTransform`'s component for MOTION_* fields, or `transformOrigin`'s for MOTION_TRANSFORM_ORIGIN_*):
-   - MANUAL track → its value v(τ), combined by the track's `keyframeOperation`: SET → v; OFFSET → acc + v; SCALE → acc × v.
-   - then the node's presets (§4.6), in `animationPresets` order, each a generated track combined the same way.
-3. **A track's value v(τ)**: keyframes sorted by `timelinePosition` t₀ < t₁ < … (equal times: the later `parentIndex` wins).
+2. **Parameters**, in the KEYFRAME expression's list order, starting from the base value b = the expression's argument 0 resolved in n's variable modes (for MOTION_* fields the component of `motionTransform`, for MOTION_TRANSFORM_ORIGIN_* of `transformOrigin`):
+   - each parameter's track (MANUAL, or the materialised tracks of an ANIMATION_PRESET parameter) → its value v(τ), combined by the track's `keyframeOperation`: SET → v; OFFSET → acc + v; SCALE → acc × v.
+3. **A track's value v(τ)**: keyframes sorted by `timelinePosition` t₀ < t₁ < … (positions are unique per track, §4.2; binary search).
    - τ ≤ t₀ → value(k₀) (the first value holds back to 0); τ ≥ tₙ → value(kₙ).
    - tᵢ < τ < tᵢ₊₁ → p = (τ − tᵢ) / (tᵢ₊₁ − tᵢ), e = ease(kᵢ₊₁'s easing, p), value = interpolate(value(kᵢ), value(kᵢ₊₁), e, kᵢ₊₁'s colour space / hue method; for VECTOR position tracks the motion path, §4.8).
-   - A keyframe's value: `keyframeValueRef` resolved in n's variable modes if set, else `keyframeValue`.
+   - A keyframe's value: its KEYFRAME_VALUE (68) binding resolved in n's variable modes if set, else `keyframeValue`, converted from stored units (§4.5).
    - `trackLoopMode LOOP`: τ wraps on [t₀, tₙ] [unverified].
 4. **Mapping to the node**: the result is written to the field (§5). MOTION_* compose as §4.5.
 
 ### 4.5 Fields, value types and composition
 
-The single table (`src/shared/motion/types.ts` `KEYFRAME_FIELDS`, mirrored in C++ `motion/Fields.h`; a test checks they agree):
+The single table (`src/shared/motion/types.ts` `KEYFRAME_FIELDS`, mirrored in C++ `motion/Fields.h`; a test checks they agree). It also carries each field's **stored unit** (corrected 2026-10-15, Figma's unit module, `docs/research/rea/motion.md` §2.12) — `storedToNode` / `nodeToStored`, used by the evaluator, the panels and the plugin layer — and Figma's **write clamps**:
+- **OPACITY**, the normalised effect fields (SPECULAR_INTENSITY, CHROMATIC_ABERRATION, SPLAY, REFRACTION_INTENSITY) and audio volume are **stored × 100** (opacity 0.5 ↔ stored 50).
+- **ROTATION (MOTION_ROTATION) is stored as −radians** (the plugin's degrees, positive counter-clockwise: 90° ↔ −π/2). 3D rotations are stored in radians, not negated. SCALE-operation tracks are not converted.
+- Clamps on write: radii, stroke and border weights, paddings, WIDTH / HEIGHT, grid gaps and STACK_COUNTER_SPACING ≥ 0; OPACITY and PATH_TRIM_* in [0, 1] (plugin units); effect RADIUS ≥ 0, SPREAD ±30000, REFRACTION_RADIUS 1–100, SPECULAR_ANGLE −899…900, START_RADIUS and NOISE_SIZE 0–100, DENSITY and EFFECT_OPACITY 0–1; audio volume 0–2; colour channels 0–1; `timelinePosition` ≥ 0.
+- **Combined XY and separate X / Y tracks cannot coexist** on one node for position or scale (Figma: "keyframe tracks must be either combined or separated"); the write path refuses the mix, and `MOTION_COMBINE_TRACKS` / `MOTION_SPLIT_TRACKS` (§4.9) switch between them, merging keyframe times.
+- Plugin reads of translation, rotation and shear base values add the node's static TRSS component (`relativeTransform`'s), as Figma's do.
 
 | Public name | `VariableField` | Value type | Node field | Kind |
 |---|---|---|---|---|
-| OPACITY | 31 | FLOAT 0–1 | `opacity` | absolute |
+| OPACITY | 31 | FLOAT 0–1 (stored × 100) | `opacity` | absolute |
 | CORNER_RADIUS | 1 | FLOAT px | `cornerRadius` | absolute |
 | RECTANGLE_TOP_LEFT / TOP_RIGHT / BOTTOM_LEFT / BOTTOM_RIGHT_CORNER_RADIUS | 14 / 15 / 16 / 17 | FLOAT px | the corner's radius | absolute |
 | STROKE_WEIGHT | 4 | FLOAT px | `strokeWeight` | absolute |
@@ -241,14 +251,14 @@ The single table (`src/shared/motion/types.ts` `KEYFRAME_FIELDS`, mirrored in C+
 | WIDTH, HEIGHT | 12, 13 | FLOAT px > 0 | `size` | absolute, re-lays out; not for groups and vectors |
 | TRANSLATION_X, TRANSLATION_Y | 46, 47 | FLOAT px | motion translation | additive on `motionTransform` |
 | TRANSLATION_XY | 69 | VECTOR px | motion translation | additive; has a motion path |
-| ROTATION | 48 | FLOAT degrees, CCW + | motion rotation | additive, not normalised |
+| ROTATION | 48 | FLOAT degrees, CCW + (stored −radians) | motion rotation | additive, not normalised |
 | SCALE_X, SCALE_Y | 49, 50 | FLOAT × | motion scale | multiplicative |
 | SCALE_XY | 70 | VECTOR × (a FLOAT input is uniform) | motion scale | multiplicative |
 | PATH_TRIM_START, PATH_TRIM_END | 54, 55 | FLOAT 0–1 | `pathTrim.value.x / .y` | absolute |
 | fills[i] / strokes[i] colour | via `Paint.colorVar` | COLOR | the paint's colour (SOLID) | absolute |
 | fills[i] / strokes[i] opacity | via `Paint.opacityVar` | FLOAT 0–1 | the paint's opacity | absolute |
 | fills[i] / effects[i] shader property | via `componentPropAssignments[k].varValue` | the property's type (FLOAT, COLOR, VECTOR, CIRCLE, LINE, CIRCLE_POINT, COLOR_POINT) | the assignment's value | absolute |
-| effects[i].<field> | via `Effect.*Var` | FLOAT, or COLOR for COLOR / SECONDARY_COLOR (normalised fields 0–1) | the effect's field | absolute |
+| effects[i].<field> | via `Effect.*Var` | FLOAT, or COLOR for COLOR / SECONDARY_COLOR (normalised fields 0–1, stored × 100) | the effect's field | absolute |
 | *not public, evaluated if a file has them*: MOTION_SHEAR 51, MOTION_TRANSFORM_ORIGIN_X / _Y / _XY 74 / 75 / 73, ARC_DATA_STARTING_ANGLE / ENDING_ANGLE / INNER_RADIUS 65 / 66 / 67, STAR_INNER_SCALE 72, POLYGON_COUNT 64 (rounded), TEXT_ELEMENT_DELAY 76 | | FLOAT | | absolute (shear additive) |
 | *never evaluated* (round trip): X_POSITION 43, Y_POSITION 44, ROTATION 45, SCROLL_OFFSET_* 52–53, DISSOLVE_PROGRESS 56, MEDIA_CURRENT_TIME 58, TRANSFORM_3D_* 59–63, SCENE_3D_PERSPECTIVE 71 | | | | — |
 
@@ -256,54 +266,68 @@ The single table (`src/shared/motion/types.ts` `KEYFRAME_FIELDS`, mirrored in C+
 
 `M_motion = M · T(o) · T(tx, ty) · R(−r) · Shear(k) · S(sx, sy) · T(−o)`
 
-(R(−r): Figma's positive rotation is counter-clockwise on a y-down canvas, as `node.rotation`.) Translation is in the node's own coordinates (the plugin's rule). The motion transform is **visual only**: it never moves siblings in auto layout, never changes constraints, and only the node's subtree is transformed (CSS `transform` semantics). Its result is a separate derived matrix (`NodeTable.motionWorld`), so the layout transform is untouched.
+(R(−r): Figma's positive rotation is counter-clockwise on a y-down canvas, as `node.rotation`; the stored value is already −radians, §4.5.) Translation is in the node's own coordinates (the plugin's rule). The motion transform is **visual only**: it never moves siblings in auto layout, never changes constraints, and only the node's subtree is transformed (CSS `transform` semantics). Its result is a separate derived matrix (`NodeTable.motionWorld`), so the layout transform is untouched.
 
 **Fields that change layout** (WIDTH, HEIGHT, STACK_*, GRID gaps) mark the node `LAYOUT` and run layout in the motion layer's flush (§5), so children reflow as Figma's do.
 
 ### 4.6 Presets (ANIMATION_PRESET_INSTANCE 58)
 
-A preset instance on a layer: `backingAnimationPresetId.assetRef.key` = the type's key (ours: `"figma:motion/<key>"` [unverified keys]); `timelineOffset` / `timelineDuration` its clip in the root's timeline (µs); `easingData` its easing; `componentPropAssignments` its props, `defID` = the catalogue's fixed GUID for that prop (`PRESET_PROP_IDS`, §10), values in `ComponentPropValue` (`floatValue`, `boolValue`, `textValue` for enums, `easingData`), or bound to a variable in `varValue` (TIMING → Delay / Duration, EASING → Easing). The layer lists it in `animationPresets {animationPresetId {guid: the instance}, timelineDefId, sortPosition}` (stacking order).
+Rewritten 2026-10-15 from Figma's code (`docs/research/rea/motion.md` §2.17, §2.18); the 2026-10-12 table (Fade / Move, 500 ms, 100 px, invented composite styles) is withdrawn.
 
-**Generated tracks.** Within the clip [o + delay, o + delay + duration], with the clip's easing; "in" types go from the start state to the base, "out" types from the base to the end state:
+**What a preset is.** An animation style is a style of `StyleType.ANIMATION` whose content is **animation presets**: code components (`CodeObjectType.ANIMATION_PRESET = 3`) in TypeScript against a `figma:motion` module (`animate`, `tween`, `defineProperties`, `EasingType`). A preset returns `AnimationPreset {nodeId, keyframeTracks [{parameterField | topLevelField + index + effectParametrizedField, keyframeOperation, keyframes [{timelinePosition µs, easing, value}], enabled}], textElementDelayBehaviour?, effects?}`. `tween({mode, timelinePosition = 0, duration, from, to, easing, enabled = true})` gives exactly two keyframes at [pos, pos + duration], both carrying the easing; a negative duration throws. A preset may generate at most one LAYER_BLUR effect. Delay is not added to the positions: it is the binding's `timelineOffset`.
 
-| Type (UI) | Key | Props (UI, unit, default [defaults unverified unless said]) | Generated |
+**Ours, in Figma's shape:**
+- a small `figma:motion` runtime in TypeScript (`src/shared/motion/runtime.ts`: `tween`, `animate`, `defineProperties`, `EasingType`) that runs in the plugin sandbox (`editor/plugins/runtime/`);
+- the first-party presets as our own TypeScript modules against it (written from the behaviour below; Figma's sources are not copied);
+- applying a style runs the preset and materialises its tracks with `MOTION_SET_PRESET_TRACKS` in the same undo step (KEYFRAME_TRACK nodes referenced from the fields' KEYFRAME expressions through ANIMATION_PRESET parameters, §4.2), and re-runs it when its props, duration or offset change, collapsing duplicate positions as Figma does;
+- node fields: `styleIdsForAnimation 582` (`{id, timelineDefId, animationStyleId, timelineOffset µs, generatedAnimationPresets[], sortPosition, timelineOffsetVar}`), `animationPresets 521`, `styleAnimations 580`, `backingAnimationPresetId 583`, the ANIMATION_PRESET_INSTANCE 58 nodes. Props are `componentPropAssignments` on the instance, values in `ComponentPropValue` or bound in `varValue` (TIMING → Delay / Duration, EASING → Easing).
+
+Custom (user) animation styles later need only the style node and the sandbox; C++ needs no preset knowledge.
+
+**The first-party catalogue** (Figma's active presets and their defaults; the propDefs carry `{name, type NUMBER | TEXT | BOOL | EASING, label motion.preset_flyout.*, default, selectConfig.options, inputConfig {min, max, unit, icon}, numberResolvedAsTiming}`). Shared: Delay 0 s, Duration 0.5 s (min 0.01), Easing OUT_CUBIC.
+
+| Preset | Types | Props and defaults | Track |
 |---|---|---|---|
-| Fade | `fade` | Type **Fade in** / **Fade out**; Delay ms 0; Duration ms 500; Easing **Ease out** (Figma's Fade default OUT_CUBIC, verified) | OPACITY SCALE: 0 → 1 (in), 1 → 0 (out) |
-| Move | `move` | Type **Move in** / **Move out**; Direction **Left / Right / Top / Bottom**; Distance px 100; Delay; Duration; Easing | TRANSLATION_XY OFFSET from (±d, 0) / (0, ±d) to 0, or back |
-| Scale | `scale` | Type **Scale in** / **Scale out** (verified); **Amount** % (verified; 0 in the tutorial); Delay; Duration; Easing | SCALE_XY SCALE from amount to 1, or back |
-| Rotation | `rotate` | Type **Rotate in** / **Rotate out** (in verified); **Direction** **Clockwise** / **Counterclockwise** (Clockwise verified); **Amount** ° (verified); Delay; Duration; Easing | ROTATION OFFSET from ∓amount to 0, or back |
-| Path | `path` | Type **Draw in** / **Draw out** [unverified]; Delay; Duration; Easing. Only for an open vector path with a center stroke, one per layer (verified) | PATH_TRIM_END SET 0 → 1 (in) / PATH_TRIM_START 0 → 1 (out) |
-| Text | `text` | Animation (Fade / Move / Scale / Rotation, with their props); **Grouping** Character / Word / Line / Paragraph (verified list); **Direction** (Left to right / Right to left / Center out / Random — `TextElementDelayOrder`); **Text stagger settings**: stagger ms 50; Delay; Duration; Easing | the inner animation's track, evaluated per element with the stagger (§4.10) |
+| **New** | (starter) | — | — |
+| **Opacity** | fadeIn / fadeOut / custom | amount 0 %, start 0 %, end 100 % | OPACITY, mode **SCALE** (amount / 100 → 1 for fadeIn) |
+| **Position** | slide_in / slide_out / custom | direction left / right / top / bottom + the 4 diagonals (default left), distance **200 px**, axis xy, start 200 / 200, end 0 / 0 | TRANSLATION_XY, mode **OFFSET** |
+| **Scale** | scaleIn / scaleOut / custom | axis whCombined, amount **120 %** | SCALE_XY, mode **SCALE** |
+| **Rotation** | rotateIn / rotateOut / custom | clockwise, **180°** (a clockwise rotateIn goes −amount → 0), radians | ROTATION, mode **OFFSET** |
+| **Size** | resize_in / resize_out / custom | amount 50 px, start 50, end 100 | WIDTH / HEIGHT, mode **OFFSET** |
+| **Corner Radius** | roundIn / roundOut / custom | corner all, amount 10 px (roundOut `[amount, 0]`, otherwise `[0, amount]`; probe 5.11) | CORNER_RADIUS, mode **OFFSET** |
+| **Path** | draw / erase / travel / custom | segment 10 %; needs strokes | PATH_TRIM_*, mode **SET** |
+| **Text** | revealBy character / word / line | duration 1.5 s | typewriter |
+| **TextStagger** | in / out | §4.10 (gated `metronome_text_animations` at Figma) | per element |
 
-**Composite animation styles** ("Animations" button): applying one inserts several preset instances and a `styleIdsForAnimation` entry `{id, timelineDefId, animationStyleId {assetRef.key "figma:motion-style/<key>"}, timelineOffset, generatedAnimationPresets [the instances], sortPosition}`; the instances stay editable one by one (verified). Removing the style removes its generated instances. The catalogue (`ANIMATION_STYLES`, §10) is ours except **Text enter** and **Text exit** [every other name unverified]: Fade in, Fade out, Slide in (Fade + Move), Slide out, Pop in (Fade + Scale 80 % + Bouncy), Pop out, Spin in (Fade + Rotation 90°), Text enter (Text: Fade + Move 12 px, Word, stagger 40 ms), Text exit.
-
-Custom animation styles (StyleType ANIMATION nodes, `styleAnimations 580`) are "coming" at Figma: round trip only; the evaluator plays a `.fig`'s custom style through its `styleAnimations` presets if present.
+Fade, Move, Rotate, Resize, Path Draw and Path Travel are **deprecated** at Figma (read, never offered). **Composite styles**: none listed until probe 5.10 (`figma.motion.figmaAnimationStyles()`) shows Figma's own names, ids and props; the help's **Text enter** / **Text exit** are the only verified names.
 
 ### 4.7 Easing
 
-One implementation, `engine/src/motion/Easing.{h,cpp}`; the player's `proto::ease` calls it (no behaviour change for prototypes: the named curves' constants stay where they are today).
+One implementation, `engine/src/motion/Easing.{h,cpp}` — **built 2026-10-15** for prototypes (`proto::ease` / `durationOf` call it): `cubicBezier`, the preset tables, `springValue` (with an initial velocity), Figma's settle time `springSettleTime`, the spring editor's `springEditorDuration` and its inverse, the editor limits. Round 8 adds `forKeyframe(EasingData*)`, HOLD, bounce ↔ physical and the normalised segment mode. All numbers below are Figma's (its easing tables module, shared by prototypes and Motion; corrected 2026-10-15, `docs/research/rea/motion.md` §2.3, §2.5, §2.10, §2.11).
 
 | UI | `EasingType` | Curve |
 |---|---|---|
+| Hold | HOLD 14 | 0 until p = 1 (CSS `step-end`) |
 | Linear | LINEAR 3 | t |
-| Ease in | IN_CUBIC 0 (EASE_IN 15 read as the same) | cubic-bezier(0.42, 0, 1, 1) |
+| Ease in | **EASE_IN 15** (written; IN_CUBIC 0 is read as Ease in only in prototypes) | cubic-bezier(0.42, 0, 1, 1) |
 | Ease out | OUT_CUBIC 1 | (0, 0, 0.58, 1) |
 | Ease in and out | INOUT_CUBIC 2 | (0.42, 0, 0.58, 1) |
 | Ease in back | IN_BACK_CUBIC 4 | (0.3, −0.05, 0.7, −0.5) |
 | Ease out back | OUT_BACK_CUBIC 5 | (0.45, 1.45, 0.8, 1) |
 | Ease in and out back | INOUT_BACK_CUBIC 6 | (0.7, −0.4, 0.4, 1.4) |
-| Hold | HOLD 14 | 0 until p = 1 |
-| Custom bezier | CUSTOM_CUBIC 7 | `easingValue.bezierEasing` |
-| Gentle / Quick / Bouncy / Slow | GENTLE_SPRING 9 / SPRING_PRESET_ONE 11 / SPRING_PRESET_TWO 12 / SPRING_PRESET_THREE 13 | normalised spring, bounce 0.25 / 0.42 / 0.69 / 0 |
-| Custom spring | CUSTOM_SPRING 10 | `easingValue.springEasing` |
+| Custom bezier | CUSTOM_CUBIC 7 | `easingValue.bezierEasing`; prototypes' default (0, 0, 0.58, 1) |
+| Gentle / Quick / Bouncy / Slow | GENTLE_SPRING 9 / SPRING_PRESET_ONE 11 / SPRING_PRESET_TWO 12 / SPRING_PRESET_THREE 13 | physical `[mass, stiffness, damping, v0]` = [1, 100, 15, 0] / [1, 300, 20, 0] / [1, 600, 15, 0] / [1, 80, 20, 0] (legacy SPRING 8 reads as Gentle) |
+| Custom spring | CUSTOM_SPRING 10 | `easingValue.springEasing {mass, stiffness, damping}`; default [1, 100, 15, 0]; an invalid one falls back to [1, 100, 10, 0] |
 
-(The bezier constants are the player's; Figma's exact control points are [unverified]. The four spring bounces are the player's physical presets {m 1, k 100 / 300 / 600 / 80, c 15 / 20 / 15 / 20} converted with ζ = c / 2√(km), bounce = max(0, 1 − ζ).)
+**On keyframes, `easingType` 0 (IN_CUBIC, the kiwi default) means "no easing"** and resolves to **CUSTOM_CUBIC (0.5, 0, 0.5, 1)**; a missing easing too. New keyframes and plugin keyframe writes without an easing store CUSTOM_CUBIC `{0.5, 0, 0.5, 1}`; a real ease in is EASE_IN 15.
 
-**Springs in keyframes are normalised to the segment** (a keyframe's time is fixed, so the spring must settle there):
-- `SpringParams {springType NORMALIZED, damping = ζ = 1 − bounce, stiffness 0, mass 1}` [encoding unverified]; bounce ∈ [0, 1], clamped to 0.95.
-- e(p) = s(p · S(ζ)) with s the unit-ω₀ damped spring step from 0 to 1 (no initial velocity) and S(ζ) its settle time (|s − 1| < 0.001 for good, solved once per ζ, cached), and e(1) = 1 exactly.
-- `PHYSICAL` springs (imported, or a prototype's) run on real time from the segment start and are forced to 1 at the segment's end.
-- `figma.motion.physicalSpringToNormalized` = this conversion.
+**Springs.** ω₀ = √(k/m), ζ = c / (2√(km)), clamped to ≥ 0.03 (an undamped spring still settles); value(t) = 1 − x(t) by the under-, critically or over-damped closed form with v₀ = initialVelocity. **Settle time T = (−ln 0.001 + ln(1 + (ζω₀ + |v₀|) / ω_d)) / (ζω₀)**, ω_d = ω₀√(1 − ζ²), with ζ ≤ 0.9999 (GENTLE: T ≈ 1.022 s); a prototype spring transition lasts T (whether Figma's player uses T or 6 / (ζω₀) is probe 5.4). The spring editor's **Duration is 6 / (ζω₀) = 12m / c**; typing a duration d sets ω₀ = 6 / (d·ζ) rounded to 4 significant digits (mass and ζ kept); its graph handle sits at x = π / ω₀, y = 2 − 2·clamp(ζ, 0, 1)^0.87. Limits: ω₀ 0.1–1000, mass 0.01–100, stiffness 0.01–10000, damping 0.01–1000.
+
+**Springs in keyframes are stored physical** — `EasingData {easingType CUSTOM_SPRING, easingValue.springEasing {mass, stiffness, damping}}`, or the preset types — and **played normalised** (`SpringParams.springType` NORMALIZED 0 / PHYSICAL 1): over a segment, e(p) = spring(p · T(m, k, c)) and e(1) = 1, so the curve fills the interval.
+- The plugin and the UI show one **bounce** = clamp(1 − ζ, 0, 1). bounce → physical: ζ = clamp(1 − bounce, 1e−4, 1), ω₀ kept from the existing spring if valid else 10 rad/s, mass kept (clamped 0.01–100) else 1, k = ω₀²m, c = 2ζ√(km); a fresh bounce b becomes `{m 1, k 100, c 20(1 − b)}`.
+- `figma.motion.physicalSpringToNormalized({mass, stiffness, damping})` requires positive finite values and returns 1 − ζ.
+
+**Prototype write rules** (built 2026-10-15 in the agents' / plugin shapes): CUSTOM_CUBIC_BEZIER's x1 and x2 clamped to [0, 1], y1 / y2 free; CUSTOM_SPRING mass [0, 1000], stiffness [0, 10000], damping [0, 1000], initial velocity written 0; an `easingFunction*` with another easing type is an error; on read a bezier needs exactly 4 values, a spring at least 3. Sites behaviours have their own easing table (Penner's CSS cubics) and must never share this one (Sites is set aside).
 
 **`easingData` is the source of truth**; `interpolationType` / `bezierHandles` are written alongside (HOLD → HOLD, springs → SPRING, the rest → BEZIER with the curve's four numbers) and read only when `easingData` is absent (an older file).
 
@@ -326,7 +350,7 @@ One implementation, `engine/src/motion/Easing.{h,cpp}`; the player's `proto::eas
 
 **Write routing in Motion mode.** Every write that reaches the engine — `set_props` from the panels, a canvas gesture, a nudge — goes through `MotionLayer::route` when Motion is on:
 - the root itself, and fields not in `KEYFRAME_FIELDS`, are written as in Design (base values);
-- a keyframable field **with a track**: the keyframe at the playhead (± half a snapping frame) is updated, or one is created there with the new value and the current easing default (Ease out [unverified]);
+- a keyframable field **with a track**: the keyframe at the playhead (± half a snapping frame) is updated, or one is created there with the new value and Figma's default keyframe easing, CUSTOM_CUBIC (0.5, 0, 0.5, 1) (§4.7); keyframes are upserted by integer µs position (§4.2);
 - a keyframable field **without a track**, auto-keyframe **on**: a track is created with base = the current value, a keyframe at t = 0 with the current value (only when the playhead is past 0) and one at the playhead with the new value [unverified: Figma's first auto-key may make only one keyframe];
 - without a track, auto-keyframe **off**: the base value changes (the static design), as in Design.
 - **Gestures map to motion fields**: move → TRANSLATION_XY; the rotate handle → ROTATION; the resize handles → SCALE_XY (⇧ keeps the ratio; `linkMotionScaleAspectRatio`) [unverified: Figma may resize WIDTH / HEIGHT]; the panel's W / H → WIDTH / HEIGHT. Without a track and with auto-keyframe off they edit x / y / rotation / size as in Design.
@@ -356,16 +380,21 @@ One implementation, `engine/src/motion/Easing.{h,cpp}`; the player's `proto::eas
 | 347 | `MOTION_SPLIT_AUDIO` — clip at the playhead (⌥K) | "Split audio" |
 | 348 | `MOTION_REMOVE_AUDIO` — clips | "Delete audio" |
 | 349 | `MOTION_PASTE_KEYFRAMES` — keyframes copied from the timeline (§6.2), at the playhead, onto the selected layers' same fields | "Paste keyframes" |
+| 350 | `MOTION_COMBINE_TRACKS` — node, position or scale: X / Y tracks → one XY track (keyframe times merged; Figma's `switchVectorKeyframesToCombined`) | "Combine tracks" |
+| 351 | `MOTION_SPLIT_TRACKS` — node, position or scale: an XY track → X and Y (Figma's `switchVectorKeyframesToSplit`) | "Split tracks" |
+| 352 | `MOTION_SET_PRESET_TRACKS` — preset instance: the tracks its code returned, materialised (§4.6) | (inside the applying step) |
 
 Snapping: dragged keyframes and clips snap to frames of the timeline's `keyframeSnappingFps`; ⇧ while dragging snaps to the playhead and to other keyframes (verified).
 
 The **anchor point** tool: `TOOLS` gains `"ANCHOR_POINT"` (⌥R in Motion, toggles; Draw's ⌥R rotation origin stays in Draw / Design). The target is drawn at the anchor; dragging it writes `transformOrigin` and compensates TRANSLATION so the layer does not jump [unverified: Figma may let it jump]; snaps to the box's 9 points and centre.
 
-**Motion path editing** (Motion on, one layer with TRANSLATION_XY or X / Y tracks selected): the path is drawn (§6.4); dragging a square writes that keyframe's value; ⌘-drag from a square pulls its handles (symmetric; ⌥ breaks the symmetry [unverified]). Separate X and Y tracks show a path whose squares are the union of their times; dragging one writes both tracks at that time.
+**Motion path editing** (Motion on, one layer with TRANSLATION_XY or X / Y tracks selected): the path is drawn (§6.4); dragging a square writes that keyframe's value; ⌘-drag from a square pulls its handles (symmetric; ⌥ breaks the symmetry [unverified]). Separate X and Y tracks show a path whose squares are the union of their times; dragging one writes both tracks at that time (a node has either the XY track or the X / Y pair, never both, §4.5).
 
 ### 4.10 Text animation
 
-`textElementDelayBehaviour {enabled, grouping, delayMs, order}` on a TEXT node turns its OPACITY, MOTION_* and preset tracks into **per-element** animations: the text's laid-out glyphs are grouped (CHARACTER; CHARACTER_NO_WHITESPACE skips spaces in the count; WORD; LINE; PARAGRAPH), element i in `order` (LEFT_RIGHT, RIGHT_LEFT, CENTER_OUT by distance from the middle element, RANDOM by a hash of the node's GUID and i) evaluates the tracks at τ − i × delayMs; each element is drawn with its own motion transform about its own box's centre and its own opacity. The text node's own box is not transformed by those tracks. The renderer draws such a text glyph-run by glyph-run (`Glyph.rotation` already exists) with per-run transforms and alpha. TEXT_ELEMENT_DELAY (76) can animate delayMs.
+Corrected 2026-10-15 (Figma's TextStagger preset and CSS codegen, `docs/research/rea/motion.md` §2.19): `textElementDelayBehaviour 610 {enabled 1, grouping 2, delayMs 3 (≥ 0), order 4, clipContent 5, transformOriginMode 6 (MATCH / CHARACTER / WORD / LINE / PARAGRAPH), transformOrigin 7 (default {0, 0})}`, written by the **TextStagger** preset. Its props: animationDirection in | out; textDelayGrouping CHARACTER | CHARACTER_NO_WHITESPACE | WORD | LINE | PARAGRAPH (default CHARACTER); **presetStaggerOverlap 50 %** (0–100) instead of a fixed stagger in ms; textDelayOrder LEFT_RIGHT | RIGHT_LEFT | CENTER_OUT | RANDOM; clipContent false; elementTransformOriginMode MATCH; origin 50 % / 50 %; sub-animations position (on; direction top, distance 40), rotation (off; 180°), scale (off; 120 %), opacity (off; 0 %), **blur** (off; 20 px — the preset's one LAYER_BLUR). The derived timing (startUs, groupDurationUs, staggerStepMs) is computed in C++; step = f(overlap, duration, count) is open (probe 5.12). CSS export: `animation-delay: calc(start + var(--stagger-index) * step)`. Elements are transformed about their origin mode's box and clipped when `clipContent`.
+
+The behaviour on a TEXT node turns its OPACITY, MOTION_* and preset tracks into **per-element** animations: the text's laid-out glyphs are grouped (CHARACTER; CHARACTER_NO_WHITESPACE skips spaces in the count; WORD; LINE; PARAGRAPH), element i in `order` (LEFT_RIGHT, RIGHT_LEFT, CENTER_OUT by distance from the middle element, RANDOM by a hash of the node's GUID and i) evaluates the tracks at τ − i × delayMs; each element is drawn with its own motion transform about its own box's centre and its own opacity. The text node's own box is not transformed by those tracks. The renderer draws such a text glyph-run by glyph-run (`Glyph.rotation` already exists) with per-run transforms and alpha. TEXT_ELEMENT_DELAY (76) can animate delayMs.
 
 ### 4.11 Audio
 
@@ -377,7 +406,8 @@ The **anchor point** tool: `TOOLS` gains `"ANCHOR_POINT"` (⌥R in Motion, toggl
 - When a screen or an overlay is shown, each timeline root among it and its contents starts its clock at 0 when its transition ends (Smart animate's destination snapshot is taken with the evaluator at t = 0, so nothing jumps) [unverified]. Roots with `autoplay` false wait for an action.
 - `tick(nowMs)` advances every running clock; the evaluated values are written to the player's own engine by the motion layer (§5) before the scene is built, so Smart animate, scrolling, hit-testing and overlays see them. `animating()` is true while any timeline runs (LOOP / BOOMERANG run until the screen leaves).
 - Instances in a shown screen play their main's timeline with their offsets.
-- `ConnectionType UPDATE_ANIMATION_TIMELINE_STATE` actions (from `.fig` files): PLAY / PAUSE / TOGGLE_PLAY_PAUSE / SET_PLAYHEAD (`animationSkipToTime` seconds [unit unverified]) on `animationTimelineDefId`'s root. The Prototype panel shows such an action read-only as "Control animation" [Figma's UI has no such action yet, per the forum; wording ours].
+- `ConnectionType UPDATE_ANIMATION_TIMELINE_STATE` actions (from `.fig` files): PLAY / PAUSE / TOGGLE_PLAY_PAUSE / SET_PLAYHEAD (`animationSkipToTime` seconds) on `animationTimelineDefId`'s root. Figma's plugin reactions reader returns `null` for such an action; ours does the same.
+- Smart animate stays the player's snapshot interpolation (Figma's legacy path, `useLegacySmartAnimate`); Figma's viewer now generates keyframe track groups "just in time" (`computeSmartAnimateTrackGroups`, unmatched layers through `DISSOLVE_PROGRESS 56`, Scroll to on SCROLL_OFFSET_X / Y). Re-expressing it as generated tracks, then transition overrides (`transitionOverrides 526`), come after the evaluator (`docs/research/rea/motion.md` §2.23, §2.24). The Prototype panel shows such an action read-only as "Control animation" [Figma's UI has no such action yet, per the forum; wording ours].
 - Restart and navigation Back restart the screen's clocks.
 - `prefers-reduced-motion` is not applied (Figma's prototype setting `ignoreReducedMotion` is not adopted).
 
@@ -427,12 +457,12 @@ All metrics are [unverified] until a signed-in capture (§12.1); colours and siz
 
 At the bottom of the canvas, full width between the left and right panels; default height 240 px [unverified], drag the top edge (min 120, max 60 % of the window), **Collapse timeline** (a header button) leaves the header only. The canvas viewport insets follow its height (`canvas/viewInsets.ts`).
 
-**Header (left to right)**: **Play / Pause** (Space), **Toggle auto-keyframe** (red when on: a red bar across the top of the timeline and on the playhead; a record glyph), **Current time** (a number field: typed in the time unit, Enter jumps), " / ", **Duration** (a number field), **Time unit** (s / ms toggle; per-user preference `ui.motion.timeUnit`, default ms [unverified]), **Playback** (a button cycling Loop → Once → Ping-pong; icons `24.loop`, `24.play-once`, `24.ping-pong`), **Collapse layers**, then on the right the **zoom slider** and **Collapse timeline**.
+**Header (left to right)**: **Play / Pause** (Space), **Toggle auto-keyframe** (red when on: a red bar across the top of the timeline and on the playhead; a record glyph), **Current time** (a number field: typed in the time unit, Enter jumps), " / ", **Duration** (a number field), **Timeline settings** (a popover, corrected 2026-10-15 from Figma's timeline settings module, `docs/research/rea/motion.md` §2.16): units **ms** or **frames**; the snapping grid as a `FrameRate {numerator, denominator}` — in ms mode the presets 10/1, 20/1 and 100/1 fps (shown as 100 ms, 50 ms, 10 ms) and "Off", in frames mode 60 (default), 30, 30000/1001, 24, 24000/1001 and 12; a typed ms value becomes fps = 1000 / ms clamped 1–1000, a typed frame rate is rounded and clamped 1–120; loop control **Once / Loop / Ping pong** (BOOMERANG), Ping pong disabled when the timeline has audio; time display formats %, ms, s, timecode_ms, timecode_frames. **Playback** (a button cycling Loop → Once → Ping pong; icons `24.loop`, `24.play-once`, `24.ping-pong`), **Collapse layers**, then on the right the **zoom slider** and **Collapse timeline**.
 
 **Body**: a layer column (left, 240 px, resizable) and the track area (right) under a **time ruler** (labels every 100 / 250 / 500 / 1000 ms depending on zoom; frame ticks when zoomed in).
 - **Rows**: one **layer track** per animated layer of the root, in the Layers panel's order (top first), named and iconed as in Layers; expanded, its **property rows** (one per track: "Opacity", "Position", "Rotation", "Scale", "Width"…, "Fill 1", "Drop shadow · Blur"…; names [unverified]) and its **animation clips** (presets). Animated **instances** show as one purple track (`--figma-color-bg-component` family), collapsed, draggable only. **Audio** rows at the bottom (the waveform, the clip's name). A layer's eye toggles nothing in Motion except audio rows (mute).
 - **Layer bar**: on the layer track, from its first to its last keyframe / clip; drag to move all (`MOTION_RETIME_LAYER` Δ), drag its side handles to scale all about the other end.
-- **Keyframes**: diamonds (blue outline / blue filled when selected; Hold keyframes square-ish [unverified]); click selects, ⇧-click adds, marquee in the track area selects, selecting a layer row selects all its keyframes; double-click moves the playhead to it and selects the layer; drag moves (snapping §4.9); Delete deletes; ⌘C / ⌘V copy and paste keyframes at the playhead (ours; Figma's not documented); Delete on a selected property row deletes its track.
+- **Keyframes**: diamonds (blue outline / blue filled when selected; Hold keyframes square-ish [unverified]; Figma's timeline worker draws 16 × 16 diamonds, interpolation lines inset 8 px from each diamond, the origin at x = 18 px, Inter 9 / 11 px labels); click selects, ⇧-click adds, marquee in the track area selects, selecting a layer row selects all its keyframes; double-click moves the playhead to it and selects the layer; drag moves (snapping §4.9); Delete deletes; ⌘C / ⌘V copy and paste keyframes at the playhead (ours; Figma's not documented); Delete on a selected property row deletes its track.
 - **Segments**: the line between two keyframes of a row; hover highlights; click opens the **Easing menu** (§6.3) for the segment's end keyframe.
 - **Clips** (presets): a bar with the type's name; drag moves (offset), side handles change the duration; click selects (and selects it in the right panel's Animations section); Delete removes.
 - **Playhead**: a vertical line with a handle in the ruler; drag or click in the ruler scrubs; ← / → step one frame (at the snapping fps), ⇧← / ⇧→ ten frames, Home / End go to 0 / the duration [shortcuts unverified].
@@ -445,9 +475,10 @@ At the bottom of the canvas, full width between the left and right panels; defau
 ### 6.3 Easing menu and editor (`editor/motion/easing/`)
 
 A popover anchored to the clicked segment, clip or panel field:
-- **Easing** dropdown: Linear, Ease in, Ease out, Ease in and out, Ease in back, Ease out back, Ease in and out back, Hold │ Gentle, Quick, Bouncy, Slow │ Custom bezier, Custom spring (verified items; separators ours). Each item has a small curve preview.
-- **Custom bezier**: a 200 × 200 curve editor (handles draggable, y may go outside 0–1 to −0.5…1.5), the corner points reset (verified), a text field "x1, y1, x2, y2" (Figma: "enter a cubic-bezier value directly into the field").
-- **Custom spring**: the spring editor (a response curve, drag to change the bounce) and the **Bounce** field (0–1, verified).
+- **Easing** dropdown (corrected 2026-10-15, Figma's easing menu modules): **Hold first**, then the bezier presets and the springs, **no dividers**; when the current easing is a spring the list shows only the springs, otherwise Hold plus the non-spring ones. A **Bezier | Spring** segmented control switches to CUSTOM_CUBIC or CUSTOM_SPRING. When the type changes, custom values are kept only if the new type is the matching custom type; otherwise the preset's values load. Labels: Figma's `proto.easing_behavior.*` set (bezier_ease_in / _out / _in_and_out, linear, the back variants, bezier_custom, spring_gentle / _quick / _bouncy / _slow / _custom, hold). Each item has a small curve preview.
+- **One editor for prototypes and Motion**: `editor/motion/easing/EasingEditor` with a `context: "prototype" | "motion"` prop — Hold and Bounce only in Motion; mass / stiffness / damping and the spring's 6 / (ζω₀) Duration (§4.7) in prototypes. It replaces the Prototype panel's numeric fields (`panels/prototype/InteractionDetails.tsx`).
+- **Custom bezier**: a 200 × 200 curve editor (handles draggable, x clamped to [0, 1], y may go outside 0–1 to −0.5…1.5), the corner points reset (verified), a text field "x1, y1, x2, y2" (Figma: "enter a cubic-bezier value directly into the field").
+- **Custom spring**: the spring editor (a response curve; its handle at x = π / ω₀, y = 2 − 2·clamp(ζ, 0, 1)^0.87, §4.7) and the **Bounce** field (0–1, verified).
 - A preview dot running the curve on hover [ours].
 - The **variable** button binds an EASING variable (the variables picker filtered to Easing); "Create variable" saves the custom curve as one (verified: "can be saved as variables").
 - Shared by the timeline, the Animations section and the variables' Easing value editor. The component's props are fixed in §10 (`EasingEditorProps`), so 8c and 8d build against them.
@@ -465,7 +496,7 @@ A popover anchored to the clicked segment, clip or panel field:
 - **Diamonds**: every keyframable field in Transform (X, Y, Rotation, W, H, Scale), Appearance (Opacity, Corner radius and corners), Layout (gap, paddings), Fill (each SOLID paint's colour, opacity; shader properties), Stroke (weight, Path trim start / end), Effects (the effect fields) shows a diamond before its label: empty when the field has no track, an outline when it has one, filled when a keyframe sits at the playhead; clicking it toggles "Add keyframe" / removes the keyframe at the playhead (verified: "Add keyframe next to the property"). The fields show the evaluated value at the playhead; editing writes through routing (§4.9).
 - **Transform section** (Motion only): Position X / Y (from the anchor), Rotation, Scale X / Y % with the link toggle, **Edit anchor point** (⌥R).
 - **Stroke**: **Path trim start** / **Path trim end** (0–100 %, verified) for vector-like layers with a center stroke (shown in Design too, as static fields).
-- **Animations** section (verified name): a **+** menu of the types (Fade, Move, Scale, Rotation, Path, Text; Path disabled unless allowed, Text only for text layers), the **Animations** button opening the composite styles list (hover previews on the canvas, verified for Text enter / exit), and one row per preset instance of the selected layer (its type, eye, remove); clicking a row expands its settings (Type, its props, Delay, Duration, Easing with the easing menu; Delay and Duration bindable to TIMING variables, Easing to EASING).
+- **Animations** section (verified name): a **+** menu of the types (Figma's catalogue, §4.6: New, Opacity, Position, Scale, Rotation, Size, Corner Radius, Path, Text, Text stagger; Path needs strokes, the text ones only for text layers), the **Animations** button opening the composite styles list (hover previews on the canvas, verified for Text enter / exit), and one row per preset instance of the selected layer (its type, eye, remove); clicking a row expands its settings (Type, its props, Delay, Duration, Easing with the easing menu; Delay and Duration bindable to TIMING variables, Easing to EASING).
 - **Audio** section (verified name) for a selected audio clip: Volume slider, Mute.
 - **Text** layers: the Text animation's settings include **Text stagger settings** (Grouping, Direction, Stagger).
 - Hidden in Motion: the Prototype tab [unverified], component property editing (read-only).
@@ -557,7 +588,7 @@ In Dev Mode (editor and viewer) the Inspect panel has a **Motion** tab when the 
 
 ## 9. Plugin API, REST, agents, `.fig`
 
-- **Plugin API** (`editor/plugins/api/`, `plugins/runtime/figma.js`), Figma's shapes (§1): `node.manualKeyframeTracks` (get / set), `applyManualKeyframeTrack(field, track)`, `removeManualKeyframeTrack(field)`, `node.animationStyles` (get / set), `applyAnimationStyle(styleId, config?)` → id, `removeAnimationStyle(id)`, `node.timelines`, `setTimelineDuration(id, s)`, `node.animations` (manual tracks only, as Figma's), `figma.motion.playheadPosition`, `figmaAnimationStyles()`, `physicalSpringToNormalized()`. Errors as Figma's ("Do not animate top-level frames…" → throw on a root; WIDTH / HEIGHT on groups and vectors throw). Seconds at the API, µs inside.
+- **Plugin API** (`editor/plugins/api/`, `plugins/runtime/figma.js`), Figma's shapes (§1): `node.manualKeyframeTracks` (get / set), `applyManualKeyframeTrack(field, track)`, `removeManualKeyframeTrack(field)`, `node.animationStyles` (get / set), `applyAnimationStyle(styleId, config?)` → id, `removeAnimationStyle(id)`, `node.timelines`, `setTimelineDuration(id, s)`, `node.animations` (manual tracks only, as Figma's), `figma.motion.playheadPosition`, `figmaAnimationStyles()`, `physicalSpringToNormalized()`. Errors as Figma's ("Do not animate top-level frames…" → throw on a root; WIDTH / HEIGHT on groups and vectors throw; "keyframe tracks must be either combined or separated"). Seconds at the API, µs inside; the unit table of §4.5 (opacity × 100, rotation −radians) and the bounce conversion of §4.7 at the boundary. Field descriptors: `{type 'PROPERTY', name}` | `{type 'INDEXED_ITEM', collection 'fills' | 'strokes', index[, propertyId]}` | `{type 'INDEXED_ITEM', collection 'effects', index, field | propertyId}`; `ManualKeyframeBindingInput {id?, baseValue?, keyframes [{id?, timelinePosition ≥ 0, easing? MotionEasing | VariableAlias, value}]}`; keyframes read back sorted. Gated by `metronome` at Figma; Dev Mode exposes only the reads; `transitionOverrides` (gate `eclipse`) comes with §4.12's later work.
 - **REST** (`editor/rest/fileJson.ts`): motion fields pass through as Figma's names on the animated nodes; the internal canvas's motion nodes are not listed (as variables aren't).
 - **Agents** (`src/shared/agents/tools.ts`, the host): tools `set_keyframes` / `apply_animation` / `get_motion` over the same commands and `motionResolved` (Figma's agent "adds keyframes to the timeline").
 - **`.fig`** (`src/shared/fig/`): KEYFRAME / KEYFRAME_TRACK / ANIMATION_PRESET_INSTANCE and every adopted field survive import → export (by field name); a fidelity test with a synthetic file now, and the owner's Motion `.fig` when it arrives (§12.1).
@@ -581,8 +612,8 @@ export type GuidString = string;
 /** Microseconds (an integer). */
 export type Micros = number;
 
-export const DEFAULT_DURATION_US: Micros = 2_000_000; // help.figma.com 41405906446999
-export const DEFAULT_SNAPPING_FPS = 60; // [unverified]
+export const DEFAULT_DURATION_US: Micros = 2_000_000; // help.figma.com 41405906446999 (probe 5.1)
+export const DEFAULT_SNAPPING_FPS = 60; // Figma's frames-mode default (timeline settings, §6.2)
 
 // ---- Fields ----------------------------------------------------------------------------------------------------
 
@@ -617,6 +648,10 @@ export interface FieldInfo {
   /** The schema's VariableField number (docs/motion.md §4.5) */
   variableField: number;
   value: KeyframeValueTypeName;
+  /** Stored ↔ node units (Figma's): "x100" (OPACITY, normalised effect fields), "-rad" (ROTATION: node degrees CCW+ ↔ stored −radians); absent = as is */
+  stored?: "x100" | "-rad";
+  /** Figma's write clamp, in node units */
+  clamp?: [number, number];
   kind: "absolute" | "additive" | "multiplicative";
   /** Changes layout: the motion layer re-lays out the node */
   layout?: boolean;
@@ -626,7 +661,7 @@ export interface FieldInfo {
 
 /** The single table of keyframable node fields (C++ engine/src/motion/Fields.h mirrors it; a test compares). */
 export const KEYFRAME_FIELDS: Record<KeyframePropertyFieldName, FieldInfo> = {
-  OPACITY: { variableField: 31, value: "FLOAT", kind: "absolute", label: "Opacity" },
+  OPACITY: { variableField: 31, value: "FLOAT", kind: "absolute", stored: "x100", clamp: [0, 1], label: "Opacity" },
   CORNER_RADIUS: { variableField: 1, value: "FLOAT", kind: "absolute", label: "Corner radius" },
   RECTANGLE_TOP_LEFT_CORNER_RADIUS: { variableField: 14, value: "FLOAT", kind: "absolute", label: "Top left radius" },
   RECTANGLE_TOP_RIGHT_CORNER_RADIUS: { variableField: 15, value: "FLOAT", kind: "absolute", label: "Top right radius" },
@@ -650,12 +685,12 @@ export const KEYFRAME_FIELDS: Record<KeyframePropertyFieldName, FieldInfo> = {
   TRANSLATION_X: { variableField: 46, value: "FLOAT", kind: "additive", label: "Position X" },
   TRANSLATION_Y: { variableField: 47, value: "FLOAT", kind: "additive", label: "Position Y" },
   TRANSLATION_XY: { variableField: 69, value: "VECTOR", kind: "additive", label: "Position" },
-  ROTATION: { variableField: 48, value: "FLOAT", kind: "additive", label: "Rotation" },
+  ROTATION: { variableField: 48, value: "FLOAT", kind: "additive", stored: "-rad", label: "Rotation" },
   SCALE_X: { variableField: 49, value: "FLOAT", kind: "multiplicative", label: "Scale X" },
   SCALE_Y: { variableField: 50, value: "FLOAT", kind: "multiplicative", label: "Scale Y" },
   SCALE_XY: { variableField: 70, value: "VECTOR", kind: "multiplicative", label: "Scale" },
-  PATH_TRIM_START: { variableField: 54, value: "FLOAT", kind: "absolute", label: "Path trim start" },
-  PATH_TRIM_END: { variableField: 55, value: "FLOAT", kind: "absolute", label: "Path trim end" },
+  PATH_TRIM_START: { variableField: 54, value: "FLOAT", kind: "absolute", clamp: [0, 1], label: "Path trim start" },
+  PATH_TRIM_END: { variableField: 55, value: "FLOAT", kind: "absolute", clamp: [0, 1], label: "Path trim end" },
 };
 
 // ---- Values and easing -----------------------------------------------------------------------------------------
@@ -679,9 +714,9 @@ export type KeyframeValue =
   | { type: "CIRCLE_POINT"; value: { x: number; y: number; radius: number; angle: number } }
   | { type: "COLOR_POINT"; value: { x: number; y: number; color: RGBA } };
 
-/** Figma's public easing names (MotionEasing.type), in the Easing menu's order. */
+/** Figma's public easing names (MotionEasing.type), in the Easing menu's order (Hold first, §6.3). */
 export const MOTION_EASING_TYPES = [
-  "LINEAR", "EASE_IN", "EASE_OUT", "EASE_IN_AND_OUT", "EASE_IN_BACK", "EASE_OUT_BACK", "EASE_IN_AND_OUT_BACK", "HOLD",
+  "HOLD", "LINEAR", "EASE_IN", "EASE_OUT", "EASE_IN_AND_OUT", "EASE_IN_BACK", "EASE_OUT_BACK", "EASE_IN_AND_OUT_BACK",
   "GENTLE", "QUICK", "BOUNCY", "SLOW", "CUSTOM_CUBIC_BEZIER", "CUSTOM_SPRING",
 ] as const;
 export type MotionEasingType = (typeof MOTION_EASING_TYPES)[number];
@@ -716,7 +751,7 @@ export const EASING_LABELS: Record<MotionEasingType, string> = {
 /** Public name → the schema's EasingType. */
 export const EASING_SCHEMA_TYPE: Record<MotionEasingType, string> = {
   LINEAR: "LINEAR",
-  EASE_IN: "IN_CUBIC",
+  EASE_IN: "EASE_IN", // 15; IN_CUBIC (0) on a keyframe means "no easing" (§4.7)
   EASE_OUT: "OUT_CUBIC",
   EASE_IN_AND_OUT: "INOUT_CUBIC",
   EASE_IN_BACK: "IN_BACK_CUBIC",
@@ -731,7 +766,7 @@ export const EASING_SCHEMA_TYPE: Record<MotionEasingType, string> = {
   CUSTOM_SPRING: "CUSTOM_SPRING",
 };
 
-/** The named bezier curves (the prototype player's constants; Figma's exact points [unverified]). */
+/** The named bezier curves (Figma's easing table, engine/src/motion/Easing.h). */
 export const BEZIER_PRESETS: Partial<Record<MotionEasingType, [number, number, number, number]>> = {
   LINEAR: [0, 0, 1, 1],
   EASE_IN: [0.42, 0, 1, 1],
@@ -742,15 +777,32 @@ export const BEZIER_PRESETS: Partial<Record<MotionEasingType, [number, number, n
   EASE_IN_AND_OUT_BACK: [0.7, -0.4, 0.4, 1.4],
 };
 
-/** The spring presets' bounce (from the player's physical presets, docs/motion.md §4.7). */
-export const SPRING_PRESET_BOUNCE: Partial<Record<MotionEasingType, number>> = { GENTLE: 0.25, QUICK: 0.42, BOUNCY: 0.69, SLOW: 0 };
+/** The spring presets, stored physical (Figma's [mass, stiffness, damping]; the bounce shown is clamp(1 − ζ, 0, 1)). */
+export const SPRING_PRESETS: Partial<Record<MotionEasingType, { mass: number; stiffness: number; damping: number }>> = {
+  GENTLE: { mass: 1, stiffness: 100, damping: 15 },
+  QUICK: { mass: 1, stiffness: 300, damping: 20 },
+  BOUNCY: { mass: 1, stiffness: 600, damping: 15 },
+  SLOW: { mass: 1, stiffness: 80, damping: 20 },
+};
 
-export const DEFAULT_KEYFRAME_EASING: MotionEasing = { type: "EASE_OUT" }; // [unverified]
+/** A keyframe written without an easing (and an IN_CUBIC / missing one read): Figma's CUSTOM_CUBIC (0.5, 0, 0.5, 1). */
+export const DEFAULT_KEYFRAME_EASING: MotionEasing = { type: "CUSTOM_CUBIC_BEZIER", easingFunctionCubicBezier: { x1: 0.5, y1: 0, x2: 0.5, y2: 1 } };
 
-/** figma.motion.physicalSpringToNormalized: bounce = max(0, 1 − ζ), ζ = damping / (2·√(stiffness·mass)). */
+/** figma.motion.physicalSpringToNormalized: bounce = clamp(1 − ζ, 0, 1), ζ = damping / (2·√(stiffness·mass)); positive finite values only. */
 export function physicalSpringToNormalized(s: { mass: number; stiffness: number; damping: number }): number {
-  const zeta = s.damping / (2 * Math.sqrt(Math.max(1e-9, s.stiffness * s.mass)));
+  if (![s.mass, s.stiffness, s.damping].every((x) => Number.isFinite(x) && x > 0)) throw new Error("physicalSpringToNormalized: mass, stiffness and damping must be positive numbers");
+  const zeta = s.damping / (2 * Math.sqrt(s.stiffness * s.mass));
   return Math.min(1, Math.max(0, 1 - zeta));
+}
+
+/** A bounce as a physical spring (Figma's): ζ = clamp(1 − bounce, 1e−4, 1), ω₀ and mass kept from `prev` when valid (else 10 rad/s, 1). */
+export function normalizedToPhysicalSpring(bounce: number, prev?: { mass: number; stiffness: number; damping: number }): { mass: number; stiffness: number; damping: number } {
+  const zeta = Math.min(1, Math.max(1e-4, 1 - bounce));
+  const valid = !!prev && [prev.mass, prev.stiffness].every((x) => Number.isFinite(x) && x > 0);
+  const mass = valid ? Math.min(100, Math.max(0.01, prev!.mass)) : 1;
+  const w0 = valid ? Math.sqrt(prev!.stiffness / prev!.mass) : 10;
+  const stiffness = w0 * w0 * mass;
+  return { mass, stiffness, damping: 2 * zeta * Math.sqrt(stiffness * mass) };
 }
 
 // ---- Timeline ----------------------------------------------------------------------------------------------------
@@ -759,6 +811,13 @@ export function physicalSpringToNormalized(s: { mass: number; stiffness: number;
 export type PlaybackName = "LOOP" | "ONCE" | "PING_PONG";
 export const PLAYBACK_CYCLE: readonly PlaybackName[] = ["LOOP", "ONCE", "PING_PONG"];
 export const PLAYBACK_LABELS: Record<PlaybackName, string> = { LOOP: "Loop", ONCE: "Once", PING_PONG: "Ping-pong" };
+
+/** The timeline settings' units and snapping grids (Figma's, §6.2): FrameRate numerator / denominator. */
+export type TimelineUnit = "ms" | "frames";
+export const SNAPPING_GRIDS: Record<TimelineUnit, readonly [number, number][]> = {
+  ms: [[10, 1], [20, 1], [100, 1]],
+  frames: [[60, 1], [30, 1], [30000, 1001], [24, 1], [24000, 1001], [12, 1]],
+};
 
 /** engine.setMotion's argument (view state, never in the document). Omitted keys keep their value. */
 export interface MotionViewState {
@@ -856,73 +915,96 @@ export function fieldKey(f: KeyframeField): string {
 
 // ---- Presets and styles ------------------------------------------------------------------------------------------
 
-export type PresetKey = "fade" | "move" | "scale" | "rotate" | "path" | "text";
+/** Figma's active first-party presets (§4.6); Fade, Move, Rotate, Resize, Path Draw and Path Travel are deprecated there. */
+export type PresetKey = "new" | "opacity" | "position" | "scale" | "rotation" | "size" | "cornerRadius" | "path" | "text" | "textStagger";
 export type PresetPropValue = number | boolean | string | MotionEasing | { variable: GuidString };
 
+/** A preset's prop as Figma's propDefs carry it ({name, type NUMBER | TEXT | BOOL | EASING, default, selectConfig.options, inputConfig}). */
 export interface PresetPropDef {
   key: string;
   label: string;
-  kind: "enum" | "number" | "easing";
+  kind: "enum" | "number" | "bool" | "easing";
   /** enum: [value, label][] */
   options?: [string, string][];
-  unit?: "ms" | "%" | "°" | "px";
+  unit?: "s" | "%" | "°" | "px";
+  min?: number;
+  max?: number;
+  /** A NUMBER that resolves as timing (Delay, Duration: TIMING variables bind to it) */
+  timing?: boolean;
   default: PresetPropValue;
-  /** The prop's fixed ComponentPropAssignment.defID ("0:<n>" in the preset's own space) */
-  defId: string;
 }
 
 export interface PresetDef {
   key: PresetKey;
   /** The Animations + menu's label */
   name: string;
-  /** backingAnimationPresetId.assetRef.key [unverified] */
-  assetKey: string;
   props: PresetPropDef[];
 }
 
-const TIMING_PROPS = (duration: number): PresetPropDef[] => [
-  { key: "delay", label: "Delay", kind: "number", unit: "ms", default: 0, defId: "0:90" },
-  { key: "duration", label: "Duration", kind: "number", unit: "ms", default: duration, defId: "0:91" },
-  { key: "easing", label: "Easing", kind: "easing", default: { type: "EASE_OUT" }, defId: "0:92" },
+// Shared by every preset (Figma's): Delay 0 s, Duration 0.5 s (min 0.01), Easing OUT_CUBIC.
+const TIMING_PROPS = (duration = 0.5): PresetPropDef[] => [
+  { key: "delay", label: "Delay", kind: "number", unit: "s", min: 0, timing: true, default: 0 },
+  { key: "duration", label: "Duration", kind: "number", unit: "s", min: 0.01, timing: true, default: duration },
+  { key: "easing", label: "Easing", kind: "easing", default: { type: "EASE_OUT" } },
 ];
 
-/** The animation types (help.figma.com 41307886266135, 41837837143831, 42200302811927, 43825262591383; defaults [unverified] unless docs/motion.md §4.6 says verified). */
+/** The first-party presets and their defaults (Figma's propDefs, docs/research/rea/motion.md §2.18); the code is ours. */
 export const ANIMATION_PRESETS: readonly PresetDef[] = [
-  { key: "fade", name: "Fade", assetKey: "figma:motion/fade", props: [
-    { key: "type", label: "Type", kind: "enum", options: [["in", "Fade in"], ["out", "Fade out"]], default: "in", defId: "0:1" },
-    ...TIMING_PROPS(500),
+  { key: "new", name: "New", props: [...TIMING_PROPS()] },
+  { key: "opacity", name: "Opacity", props: [
+    { key: "type", label: "Type", kind: "enum", options: [["fadeIn", "Fade in"], ["fadeOut", "Fade out"], ["custom", "Custom"]], default: "fadeIn" },
+    { key: "amount", label: "Amount", kind: "number", unit: "%", default: 0 },
+    { key: "start", label: "Start", kind: "number", unit: "%", default: 0 },
+    { key: "end", label: "End", kind: "number", unit: "%", default: 100 },
+    ...TIMING_PROPS(),
   ] },
-  { key: "move", name: "Move", assetKey: "figma:motion/move", props: [
-    { key: "type", label: "Type", kind: "enum", options: [["in", "Move in"], ["out", "Move out"]], default: "in", defId: "0:1" },
-    { key: "direction", label: "Direction", kind: "enum", options: [["left", "Left"], ["right", "Right"], ["top", "Top"], ["bottom", "Bottom"]], default: "bottom", defId: "0:2" },
-    { key: "distance", label: "Distance", kind: "number", unit: "px", default: 100, defId: "0:3" },
-    ...TIMING_PROPS(500),
+  { key: "position", name: "Position", props: [
+    { key: "type", label: "Type", kind: "enum", options: [["slide_in", "Slide in"], ["slide_out", "Slide out"], ["custom", "Custom"]], default: "slide_in" },
+    { key: "direction", label: "Direction", kind: "enum", options: [["left", "Left"], ["right", "Right"], ["top", "Top"], ["bottom", "Bottom"], ["top_left", "Top left"], ["top_right", "Top right"], ["bottom_left", "Bottom left"], ["bottom_right", "Bottom right"]], default: "left" },
+    { key: "distance", label: "Distance", kind: "number", unit: "px", default: 200 },
+    ...TIMING_PROPS(),
   ] },
-  { key: "scale", name: "Scale", assetKey: "figma:motion/scale", props: [
-    { key: "type", label: "Type", kind: "enum", options: [["in", "Scale in"], ["out", "Scale out"]], default: "in", defId: "0:1" },
-    { key: "amount", label: "Amount", kind: "number", unit: "%", default: 0, defId: "0:3" },
-    ...TIMING_PROPS(500),
+  { key: "scale", name: "Scale", props: [
+    { key: "type", label: "Type", kind: "enum", options: [["scaleIn", "Scale in"], ["scaleOut", "Scale out"], ["custom", "Custom"]], default: "scaleIn" },
+    { key: "amount", label: "Amount", kind: "number", unit: "%", default: 120 },
+    ...TIMING_PROPS(),
   ] },
-  { key: "rotate", name: "Rotation", assetKey: "figma:motion/rotate", props: [
-    { key: "type", label: "Type", kind: "enum", options: [["in", "Rotate in"], ["out", "Rotate out"]], default: "in", defId: "0:1" },
-    { key: "direction", label: "Direction", kind: "enum", options: [["cw", "Clockwise"], ["ccw", "Counterclockwise"]], default: "cw", defId: "0:2" },
-    { key: "amount", label: "Amount", kind: "number", unit: "°", default: 90, defId: "0:3" },
-    ...TIMING_PROPS(500),
+  { key: "rotation", name: "Rotation", props: [
+    { key: "type", label: "Type", kind: "enum", options: [["rotateIn", "Rotate in"], ["rotateOut", "Rotate out"], ["custom", "Custom"]], default: "rotateIn" },
+    { key: "direction", label: "Direction", kind: "enum", options: [["clockwise", "Clockwise"], ["counterclockwise", "Counterclockwise"]], default: "clockwise" },
+    { key: "amount", label: "Amount", kind: "number", unit: "°", default: 180 },
+    ...TIMING_PROPS(),
   ] },
-  { key: "path", name: "Path", assetKey: "figma:motion/path", props: [
-    { key: "type", label: "Type", kind: "enum", options: [["in", "Draw in"], ["out", "Draw out"]], default: "in", defId: "0:1" },
-    ...TIMING_PROPS(1000),
+  { key: "size", name: "Size", props: [
+    { key: "type", label: "Type", kind: "enum", options: [["resize_in", "Resize in"], ["resize_out", "Resize out"], ["custom", "Custom"]], default: "resize_in" },
+    { key: "amount", label: "Amount", kind: "number", unit: "px", default: 50 },
+    ...TIMING_PROPS(),
   ] },
-  { key: "text", name: "Text", assetKey: "figma:motion/text", props: [
-    { key: "animation", label: "Animation", kind: "enum", options: [["fade", "Fade"], ["move", "Move"], ["scale", "Scale"], ["rotate", "Rotation"]], default: "fade", defId: "0:4" },
-    { key: "type", label: "Type", kind: "enum", options: [["in", "In"], ["out", "Out"]], default: "in", defId: "0:1" },
-    { key: "grouping", label: "Grouping", kind: "enum", options: [["CHARACTER", "Character"], ["WORD", "Word"], ["LINE", "Line"], ["PARAGRAPH", "Paragraph"]], default: "WORD", defId: "0:5" },
-    { key: "direction", label: "Direction", kind: "enum", options: [["LEFT_RIGHT", "Left to right"], ["RIGHT_LEFT", "Right to left"], ["CENTER_OUT", "Center out"], ["RANDOM", "Random"]], default: "LEFT_RIGHT", defId: "0:2" },
-    { key: "stagger", label: "Stagger", kind: "number", unit: "ms", default: 50, defId: "0:6" },
-    { key: "distance", label: "Distance", kind: "number", unit: "px", default: 12, defId: "0:3" },
-    ...TIMING_PROPS(500),
+  { key: "cornerRadius", name: "Corner Radius", props: [
+    { key: "type", label: "Type", kind: "enum", options: [["roundIn", "Round in"], ["roundOut", "Round out"], ["custom", "Custom"]], default: "roundIn" },
+    { key: "amount", label: "Amount", kind: "number", unit: "px", default: 10 },
+    ...TIMING_PROPS(),
+  ] },
+  { key: "path", name: "Path", props: [
+    { key: "type", label: "Type", kind: "enum", options: [["draw", "Draw"], ["erase", "Erase"], ["travel", "Travel"], ["custom", "Custom"]], default: "draw" },
+    { key: "segment", label: "Segment", kind: "number", unit: "%", default: 10 },
+    ...TIMING_PROPS(),
+  ] },
+  { key: "text", name: "Text", props: [
+    { key: "revealBy", label: "Reveal by", kind: "enum", options: [["character", "Character"], ["word", "Word"], ["line", "Line"]], default: "character" },
+    ...TIMING_PROPS(1.5),
+  ] },
+  { key: "textStagger", name: "Text stagger", props: [
+    { key: "animationDirection", label: "Direction", kind: "enum", options: [["in", "In"], ["out", "Out"]], default: "in" },
+    { key: "textDelayGrouping", label: "Grouping", kind: "enum", options: [["CHARACTER", "Character"], ["CHARACTER_NO_WHITESPACE", "Character (no spaces)"], ["WORD", "Word"], ["LINE", "Line"], ["PARAGRAPH", "Paragraph"]], default: "CHARACTER" },
+    { key: "presetStaggerOverlap", label: "Overlap", kind: "number", unit: "%", min: 0, max: 100, default: 50 },
+    { key: "textDelayOrder", label: "Order", kind: "enum", options: [["LEFT_RIGHT", "Left to right"], ["RIGHT_LEFT", "Right to left"], ["CENTER_OUT", "Center out"], ["RANDOM", "Random"]], default: "LEFT_RIGHT" },
+    { key: "clipContent", label: "Clip content", kind: "bool", default: false },
+    ...TIMING_PROPS(),
   ] },
 ];
+
+// The option and prop labels above are Figma's keys' meaning (motion.preset_flyout.*), their English wording [unverified].
 
 export interface AnimationStyleDef {
   key: string;
@@ -933,37 +1015,8 @@ export interface AnimationStyleDef {
   presets: { preset: PresetKey; offsetMs: number; props: Record<string, PresetPropValue> }[];
 }
 
-/** Composite animation styles. Only "Text enter" / "Text exit" are Figma's verified names; the rest are ours [unverified]. */
-export const ANIMATION_STYLES: readonly AnimationStyleDef[] = [
-  { key: "fade-in", name: "Fade in", presets: [{ preset: "fade", offsetMs: 0, props: { type: "in" } }] },
-  { key: "fade-out", name: "Fade out", presets: [{ preset: "fade", offsetMs: 0, props: { type: "out" } }] },
-  { key: "slide-in", name: "Slide in", presets: [
-    { preset: "fade", offsetMs: 0, props: { type: "in" } },
-    { preset: "move", offsetMs: 0, props: { type: "in", direction: "bottom", distance: 24 } },
-  ] },
-  { key: "slide-out", name: "Slide out", presets: [
-    { preset: "fade", offsetMs: 0, props: { type: "out" } },
-    { preset: "move", offsetMs: 0, props: { type: "out", direction: "bottom", distance: 24 } },
-  ] },
-  { key: "pop-in", name: "Pop in", presets: [
-    { preset: "fade", offsetMs: 0, props: { type: "in", duration: 250 } },
-    { preset: "scale", offsetMs: 0, props: { type: "in", amount: 80, easing: { type: "BOUNCY" } } },
-  ] },
-  { key: "pop-out", name: "Pop out", presets: [
-    { preset: "scale", offsetMs: 0, props: { type: "out", amount: 80 } },
-    { preset: "fade", offsetMs: 100, props: { type: "out", duration: 250 } },
-  ] },
-  { key: "spin-in", name: "Spin in", presets: [
-    { preset: "fade", offsetMs: 0, props: { type: "in" } },
-    { preset: "rotate", offsetMs: 0, props: { type: "in", amount: 90 } },
-  ] },
-  { key: "text-enter", name: "Text enter", textOnly: true, presets: [
-    { preset: "text", offsetMs: 0, props: { animation: "move", type: "in", grouping: "WORD", stagger: 40, distance: 12 } },
-  ] },
-  { key: "text-exit", name: "Text exit", textOnly: true, presets: [
-    { preset: "text", offsetMs: 0, props: { animation: "move", type: "out", grouping: "WORD", stagger: 40, distance: 12 } },
-  ] },
-];
+/** Composite animation styles: none until probe 5.10 (`figma.motion.figmaAnimationStyles()`) shows Figma's own; "Text enter" / "Text exit" are the help's names. */
+export const ANIMATION_STYLES: readonly AnimationStyleDef[] = [];
 
 // ---- Commands ----------------------------------------------------------------------------------------------------
 
@@ -1142,6 +1195,8 @@ export interface EasingEditorProps {
 - **Wasm** (8b: `src/renderer/src/engine/__tests__/motion.wasm.test.ts`): the bindings end to end (timeline model, field states, resolved model, a frame's pixels change over time).
 - **TS**: easing maths (`physicalSpringToNormalized`), the clock (loop / once / ping-pong), the timeline's hit maths and snapping, CSS / React / JSON code (snapshots), SVG and Lottie writers (schema-valid JSON; a Lottie validated against the 5.7 JSON schema subset), the GIF palette / delays, the MP4 / WebM muxers on a fake encoder, the dotLottie ZIP (CRC, readable by `DecompressionStream`), comments' timeMs round trip, the plugin API on the wasm engine (after 8b).
 - **Editor shots** (`EDITOR_ONLY=motion`): Motion mode with the timeline, a keyframe selected, the easing menu and both custom editors, the Animations section, the motion path, the anchor target, the Animated export tab, Dev Mode's Motion tab with each format.
+
+**Probes before the round** (`docs/research/rea/motion.md` §5, from the devtools console or the Figma MCP when its call limit allows): the default timeline length (5.1), keyframe default easing (5.2), EASE_IN round trip (5.3), spring bounces and which duration a prototype spring transition runs (5.4), bounce → physical (5.5), stored units (5.6), the XY / X-Y error (5.7), After delay with no timeout (5.8), the directional types and the panel's arrow for MOVE_OUT_TO_LEFT (5.9), Figma's animation styles (5.10), Corner radius roundIn (5.11), text stagger timing (5.12), transition overrides (5.13), the export plan-limit text (5.14).
 
 ## 12. Open questions for the owner
 
