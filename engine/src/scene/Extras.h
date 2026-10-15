@@ -65,9 +65,13 @@ const EffectExtras& effectExtras(const Effect& e);
 // shadows need a colour with alpha, an inner shadow also a blur, an offset or a positive spread; blurs a radius (or a
 // progressive start), texture a radius; noise, glass and shader effects only being on.
 bool visibleForRendering(const Effect& e);
+// A shadow's spread as Figma draws it: "only supported on rectangles, ellipses, frames, and components" (help
+// 360041488473) — a frame or component only when it clips its content and has a visible fill (≥ 1 % opacity); 0
+// elsewhere.
+double shadowSpread(const NodeProps& p, const Effect& e);
 // What the node's effects draw past `box` (its rendered box, in the same units; `scale` = those units per node unit),
 // as Figma grows a node's bounds (docs/research/rea/effects.md §2.3): every visible layer blur and an unclipped texture
-// by their radius, summed (they compound); each drop shadow by its offset ± (radius + spread), then by the blurs;
+// by their radius, summed (they compound); each drop shadow by its offset ± (radius + its drawn spread, shadowSpread), then by the blurs;
 // shader effects by their reach. Inner shadows, background blurs, glass and noise draw inside it.
 Rect effectsBounds(const NodeProps& p, const Rect& box, double scale);
 // The paint's pattern / noise fields.

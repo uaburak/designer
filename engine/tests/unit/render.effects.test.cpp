@@ -456,6 +456,23 @@ TEST_CASE("effects: the render bounds — a shadow's offset on its side only, la
   CHECK(b.y == doctest::Approx(-10));
   CHECK(b.right() == doctest::Approx(134));
   CHECK(b.bottom() == doctest::Approx(118));
+  // A spread the node doesn't take (a frame that doesn't clip) isn't drawn, so it doesn't shrink the reach either: a
+  // radius-10 shadow with spread −8 still reaches 10.
+  {
+    NodeChange f = make({1, 2}, NodeType::FRAME, kPage, "\"", {300, 10, 100, 100});
+    f.props.fillPaints = {Paint::solid(Color::hex(0x3366FF))};
+    f.props.frameMaskDisabled = true;
+    Effect s = drop;
+    s.offset = {};
+    s.radius = 10;
+    s.spread = -8;
+    f.props.effects = {s};
+    d.apply(f);
+    CHECK(d.renderBounds({1, 2}) == Rect{290, 0, 120, 120});
+    f.props.frameMaskDisabled = false;  // clipping, with a fill: the spread is drawn, the shadow reaches 2
+    d.apply(f);
+    CHECK(d.renderBounds({1, 2}) == Rect{298, 8, 104, 104});
+  }
   // An inner shadow, a background blur and a texture clipped to the shape don't grow it.
   Effect in, bg, grain;
   in.type = EffectType::INNER_SHADOW;

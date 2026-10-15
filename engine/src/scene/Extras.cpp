@@ -113,6 +113,17 @@ bool visibleForRendering(const Effect& e) {
   }
 }
 
+double shadowSpread(const NodeProps& p, const Effect& e) {
+  if (e.spread == 0) return 0;
+  if (p.isFrameLike()) {
+    bool fill = false;
+    for (const Paint& f : p.fillPaints)
+      fill |= f.visible && f.opacity * (f.type == PaintType::SOLID ? f.color.a : 1.f) >= 0.01f;
+    return p.clipsContent() && fill ? e.spread : 0;
+  }
+  return p.isRectLike() || p.type == NodeType::ELLIPSE ? e.spread : 0;
+}
+
 Rect effectsBounds(const NodeProps& p, const Rect& box, double scale) {
   auto grow = [](const Rect& r, double d) { return Rect{r.x - d, r.y - d, r.w + 2 * d, r.h + 2 * d}; };
   double blur = 0, shader = 0;
@@ -125,7 +136,7 @@ Rect effectsBounds(const NodeProps& p, const Rect& box, double scale) {
   Rect out = grow(box, (blur + shader) * scale);
   for (const Effect& e : p.effects) {
     if (e.type != EffectType::DROP_SHADOW || !visibleForRendering(e)) continue;
-    Rect s = grow(box, (std::max(0.0, e.radius + e.spread) + blur) * scale);
+    Rect s = grow(box, (std::max(0.0, e.radius + shadowSpread(p, e)) + blur) * scale);  // spread only where it's drawn
     s.x += e.offset.x * scale;
     s.y += e.offset.y * scale;
     out = out.united(s);

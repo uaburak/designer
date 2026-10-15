@@ -32,6 +32,17 @@ describe("Plugin API effects", () => {
     expect(shownAngle(400)).toBe(40);
   });
 
+  it("noise and texture written back keep their seed (the Plugin API has none); new ones get a random one", () => {
+    const node = { type: "ROUNDED_RECTANGLE", effects: [{ type: "NOISE", seed: 1234 }, { type: "GRAIN", radius: 4 }] } as unknown as NodeChange;
+    const api = (node.effects ?? []).map(effectToApi);
+    const back = effectsFromApi([...api, { type: "TEXTURE", radius: 2 }], node);
+    expect(back[0].seed).toBe(1234);
+    expect(back[1].seed).toBe(0);  // a texture without a seed reads as seed 0: still the same pattern
+    expect(typeof back[2].seed).toBe("number");
+    // A seed the plugin gives wins.
+    expect(effectsFromApi([{ ...api[0], seed: 7 }], node)[0].seed).toBe(7);
+  });
+
   it("one glass per node (Figma's message)", () => {
     expect(() => effectsFromApi([{ type: "GLASS" }, { type: "GLASS" }], rect)).toThrow(ONE_GLASS);
     expect(effectsFromApi([{ type: "GLASS" }, { type: "DROP_SHADOW", color: BLACK }], rect)).toHaveLength(2);

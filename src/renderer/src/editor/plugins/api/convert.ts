@@ -315,9 +315,21 @@ export function effectFromApi(v: unknown, path: string, node?: SpreadTarget, war
   throw new ApiError(`${path}.type: invalid enum value '${apiType}'`);
 }
 
-/** A node's whole effect list from the Plugin API: each effect converted; one glass at most (Figma's rule). */
-export function effectsFromApi(v: unknown, node?: SpreadTarget, warn: Warn = consoleWarn): Effect[] {
-  const out = (Array.isArray(v) ? v : []).map((e, i) => effectFromApi(e, `effects[${i}]`, node, warn));
+/**
+ * A node's whole effect list from the Plugin API: each effect converted; one glass at most (Figma's rule). The Plugin
+ * API's noise and texture carry no seed, so one written back over the node's effect of the same type at the same index
+ * (`node.effects = [...node.effects, shadow]`, or a map over them) keeps that effect's seed — its pattern doesn't
+ * change; a new one gets a random seed.
+ */
+export function effectsFromApi(v: unknown, node?: SpreadTarget & { effects?: readonly Effect[] }, warn: Warn = consoleWarn): Effect[] {
+  const given = Array.isArray(v) ? v : [];
+  const out = given.map((e, i) => {
+    const effect = effectFromApi(e, `effects[${i}]`, node, warn);
+    const prev = node?.effects?.[i];
+    const seeded = typeof (e as Obj | null)?.seed === "number";
+    if (!seeded && prev && prev.type === effect.type && (effect.type === "NOISE" || effect.type === "GRAIN")) effect.seed = typeof prev.seed === "number" ? prev.seed : 0;
+    return effect;
+  });
   if (tooManyGlass(out)) throw new ApiError(ONE_GLASS);
   return out;
 }

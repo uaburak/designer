@@ -737,19 +737,6 @@ bool analyticShadows(const NodeProps& p, bool hasChildren) {
   return true;
 }
 
-// A shadow's spread as Figma draws it: "only supported on rectangles, ellipses, frames, and components" (help
-// 360041488473) — a frame or component only when it clips its content and has a visible fill (≥ 1 % opacity).
-double shadowSpread(const NodeProps& p, const Effect& e) {
-  if (e.spread == 0) return 0;
-  if (p.isFrameLike()) {
-    bool fill = false;
-    for (const Paint& f : p.fillPaints)
-      fill |= f.visible && f.opacity * (f.type == PaintType::SOLID ? f.color.a : 1.f) >= 0.01f;
-    return p.clipsContent() && fill ? e.spread : 0;
-  }
-  return p.isRectLike() || p.type == NodeType::ELLIPSE ? e.spread : 0;
-}
-
 // Whether every paint the node draws itself is opaque (its alpha is then its shape's coverage).
 bool opaquePaints(const NodeProps& p) {
   auto opaque = [](const std::vector<Paint>& paints) {
