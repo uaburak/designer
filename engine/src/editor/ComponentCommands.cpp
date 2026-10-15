@@ -13,6 +13,7 @@
 #include "base/DerivedIds.h"
 #include "base/FractionalIndex.h"
 #include "editor/Editor.h"
+#include "editor/Refusals.h"
 #include "hit/HitTest.h"
 #include "scene/CodecJson.h"
 #include "scene/CodecKiwi.h"
@@ -64,6 +65,16 @@ bool parseVariantName(const std::string& name, std::vector<std::pair<std::string
     out.push_back({trim(p.substr(0, eq)), trim(p.substr(eq + 1))});
   }
   return !out.empty();
+}
+
+// Figma: a Variant property's name and values can't hold '=' or ',' (they separate a variant's name into pairs).
+bool hasVariantSeparator(const std::string& s) { return s.find_first_of("=,") != std::string::npos; }
+
+bool blank(const std::string& s) { return trim(s).empty(); }
+
+bool argFlag(const CommandArgs& a, const char* key) {
+  const json::Value* v = arg(a, key);
+  return v && (v->isBool() ? v->boolean : v->numberOr(0) != 0);
 }
 
 ComponentPropValue textValue(const std::string& s) {
@@ -234,7 +245,7 @@ Guid Editor::createInstance(Guid symbol, Guid parent, const std::string& positio
   NodeProps p = instanceRoot(own, mn->props, symbol);
   Guid id = newGuid();
   write(NodeChange::created(id, p));
-  return id;
+  return doc_.has(id) ? id : kNoGuid;  // (refused: a component can't contain an instance of itself)
 }
 
 void Editor::renameVariants(Guid set) {
@@ -565,6 +576,7 @@ bool Editor::computeComponentInfo(Guid id, ComponentInfo& out) const {
     out.properties = propertiesOf(kNoGuid, id);
     variantPropsOf(id);
     out.instanceCount = instanceCount(id);
+    out.variantConflict = out.kind == ComponentInfo::Kind::VARIANT && variantConflicts(id);
     return true;
   }
   if (p.isComponentSet()) {
@@ -573,6 +585,8 @@ bool Editor::computeComponentInfo(Guid id, ComponentInfo& out) const {
     if (def != kNoGuid) out.properties = propertiesOf(kNoGuid, def);
     out.instanceCount = instanceCount(id);
     out.mainSoftDeleted = p.comp().isSoftDeleted;
+    for (Guid v : doc_.children(id))
+      if (!v.isDerived() && variantConflicts(v)) out.conflictingVariants.push_back(v);
     return true;
   }
   for (Guid cur = doc_.parentOf(id); doc_.has(cur); cur = doc_.parentOf(cur)) {
@@ -678,12 +692,29 @@ Status Editor::componentCommand(CommandId id, const CommandArgs& args) {
     case CommandId::ADD_VARIANT: return addVariant();
     case CommandId::DETACH_INSTANCE: return detachInstance(refsArg(args, "ref"));
     case CommandId::RESET_OVERRIDES: {
-      std::vector<std::string> fields;
+      // {kind | kinds}: Figma's reset kinds; {field | fields}: the older form, override fields by key; neither: all.
+      ResetSpec spec;
+      std::vector<std::string> kinds, fields;
+      if (!argString(args, "kind").empty()) kinds.push_back(argString(args, "kind"));
+      if (const json::Value* list = arg(args, "kinds"); list && list->isArray())
+        for (auto& k : list->array)
+          if (k.isString()) kinds.push_back(k.string);
       if (!argString(args, "field").empty()) fields.push_back(argString(args, "field"));
       if (const json::Value* list = arg(args, "fields"); list && list->isArray())
         for (auto& f : list->array)
           if (f.isString()) fields.push_back(f.string);
-      return resetOverrides(refsArg(args, "ref"), fields);
+      for (const std::string& k : kinds)
+        if (!resetKind(k, spec)) return E_INVALID;
+      for (const std::string& f : fields) {
+        if (f == "componentPropAssignments") spec.assignments = true;
+        FieldMask b = codec::fieldOfKey(f);
+        if (b) spec.bits |= b;
+        else if (f != "componentPropAssignments") spec.extraKeys.push_back(f);
+      }
+      if (kinds.empty() && fields.empty()) spec.all = true;
+      // Plugins' removeOverrides / resetOverrides: every override, the property values kept (Figma, live-verified).
+      spec.keepAssignments = argFlag(args, "keepAssignments");
+      return resetOverrides(refsArg(args, "ref"), spec, spec.all ? "Reset all changes" : "Reset");
     }
     case CommandId::INSERT_INSTANCE: {
       bool ok = false;
@@ -1180,19 +1211,66 @@ Status Editor::detachInstance(const std::vector<Guid>& refs) {
 
 // ---- Reset, push ------------------------------------------------------------------------------
 
-Status Editor::resetOverrides(const std::vector<Guid>& refs, const std::vector<std::string>& fieldList) {
-  FieldMask bits = 0;
-  bool assignments = false;
-  std::vector<std::string> extraKeys;
-  for (const std::string& f : fieldList) {
-    if (f == "componentPropAssignments") assignments = true;
-    FieldMask b = codec::fieldOfKey(f);
-    if (b) bits |= b;
-    else extraKeys.push_back(f);
-  }
-  const bool all = fieldList.empty();
-  begin(TxnKind::USER, all ? "Reset all changes" : "Reset");
+namespace {
+
+// The extra keys Figma's named reset kinds own (the rest of an override's extras are LAYER's "others").
+const char* const kExportKeys[] = {"exportSettings"};
+const char* const kPrototypeKeys[] = {"prototypeInteractions"};
+const char* const kOverlayKeys[] = {"overlayPositionType", "overlayRelativePosition", "overlayBackgroundInteraction", "overlayBackgroundAppearance"};
+
+constexpr FieldMask kResetFill = F_FILLS | F_STYLE_ID_FILL;
+constexpr FieldMask kResetStroke = F_STROKES | F_STROKE_WEIGHT | F_STROKE_ALIGN | F_STROKE_CAP | F_STROKE_JOIN | F_MITER_LIMIT |
+                                   F_DASH_PATTERN | F_BORDER_WEIGHTS | F_STYLE_ID_STROKE;
+constexpr FieldMask kResetEffects = F_EFFECTS | F_STYLE_ID_EFFECT;
+constexpr FieldMask kResetTextStyle = (kTextLayoutFields & ~static_cast<FieldMask>(F_TEXT_DATA | F_TEXT_AUTO_RESIZE)) | F_STYLE_ID_TEXT;
+constexpr FieldMask kResetSize = F_SIZE | F_STACK_PRIMARY_SIZING | F_STACK_COUNTER_SIZING | F_MIN_SIZE | F_MAX_SIZE | F_TEXT_AUTO_RESIZE;
+// Every field a named kind resets; LAYER takes the others (property values aside: they are PROPERTY_ASSIGNMENTS').
+constexpr FieldMask kResetNamed = kResetFill | kResetStroke | kResetEffects | kResetTextStyle | kResetSize | F_VISIBLE | F_NAME |
+                                  F_TEXT_DATA | F_OVERRIDDEN_SYMBOL_ID | F_VARIABLE_MODES | F_COMPONENT_PROP_ASSIGNMENTS | F_EXTRA;
+
+bool namedExtraKey(const std::string& k) {
+  for (const char* x : kExportKeys)
+    if (k == x) return true;
+  for (const char* x : kPrototypeKeys)
+    if (k == x) return true;
+  for (const char* x : kOverlayKeys)
+    if (k == x) return true;
+  return false;
+}
+
+}  // namespace
+
+bool Editor::resetKind(const std::string& kind, ResetSpec& spec) {
+  auto keys = [&](auto& list) {
+    for (const char* k : list) spec.extraKeys.push_back(k);
+  };
+  if (kind == "OVERRIDES_FOR_LAYER_AND_SUBLAYERS" || kind == "ALL") spec.all = true;
+  else if (kind == "EXPORTS") keys(kExportKeys);
+  else if (kind == "EFFECTS") spec.bits |= kResetEffects;
+  else if (kind == "LAYER") spec.bits |= F_ALL & ~kResetNamed, spec.otherExtras = true;
+  else if (kind == "VISIBLE") spec.bits |= F_VISIBLE;
+  else if (kind == "NAME") spec.bits |= F_NAME;
+  else if (kind == "FILL") spec.bits |= kResetFill;
+  else if (kind == "STROKE") spec.bits |= kResetStroke;
+  else if (kind == "TEXT") spec.bits |= F_TEXT_DATA;
+  else if (kind == "TEXT_STYLE") spec.bits |= kResetTextStyle;
+  else if (kind == "SIZE") spec.bits |= kResetSize;
+  else if (kind == "OVERRIDDEN_SYMBOL") spec.bits |= F_OVERRIDDEN_SYMBOL_ID;
+  else if (kind == "PROTOTYPE_INTERACTIONS") keys(kPrototypeKeys);
+  else if (kind == "OVERLAY") keys(kOverlayKeys);
+  else if (kind == "SLOT_ASSIGNMENT") spec.slotAssignments = true;
+  else if (kind == "VARIABLE_MODES") spec.bits |= F_VARIABLE_MODES;
+  else if (kind == "PROPERTY_ASSIGNMENTS") spec.assignments = true;
+  else return false;
+  return true;
+}
+
+Status Editor::resetOverrides(const std::vector<Guid>& refs, const ResetSpec& spec, const std::string& label) {
+  const bool all = spec.all;
+  const bool clearAssignments = (all && !spec.keepAssignments) || spec.assignments;
+  begin(TxnKind::USER, label);
   bool any = false;
+  std::vector<Guid> contentGone;  // slot content frames whose assignments were reset
   for (Guid ref : refs) {
     Guid top = ref.isDerived() ? instanceOfDerived(ref) : ref;
     const Node* tn = doc_.get(top);
@@ -1202,6 +1280,17 @@ Status Editor::resetOverrides(const std::vector<Guid>& refs, const std::vector<s
       if (auto info = derivedInfo_.find(ref); info != derivedInfo_.end()) under = info->second.path;
     bool exact = ref.isDerived() && doc_.get(ref) && doc_.get(ref)->props.type != NodeType::INSTANCE;
     SymbolData sd = tn->props.comp().symbolData;
+    // A slot's assignment (its content frame) at one level: dropped with the frame.
+    auto dropSlots = [&](std::vector<ComponentPropAssignment>& list, Guid main) {
+      size_t before = list.size();
+      list.erase(std::remove_if(list.begin(), list.end(), [&](const ComponentPropAssignment& a) {
+                   if (!isSlotAssignment(main, a)) return false;
+                   if (a.value.guidValue != kNoGuid) contentGone.push_back(a.value.guidValue);
+                   return true;
+                 }),
+                 list.end());
+      return list.size() != before;
+    };
     for (SymbolOverride& o : sd.overrides) {
       bool match = exact ? o.path == under : o.path.size() >= under.size() && std::equal(under.begin(), under.end(), o.path.begin());
       if (!match) continue;
@@ -1209,22 +1298,50 @@ Status Editor::resetOverrides(const std::vector<Guid>& refs, const std::vector<s
         o.mask = 0;
         continue;
       }
-      o.mask &= ~bits;
-      for (const std::string& k : extraKeys) o.props.extra.erase(k);
+      o.mask &= ~spec.bits;
+      for (const std::string& k : spec.extraKeys) o.props.extra.erase(k);
+      if (spec.otherExtras)
+        for (auto it = o.props.extra.begin(); it != o.props.extra.end();) it = namedExtraKey(it->first) ? std::next(it) : o.props.extra.erase(it);
       if (o.props.extra.empty()) o.mask &= ~static_cast<FieldMask>(F_EXTRA);
+      if (spec.slotAssignments && (o.mask & F_COMPONENT_PROP_ASSIGNMENTS)) {
+        Guid nested = mainOf(derived::intern(top, o.path));
+        auto& list = o.props.comp().componentPropAssignments;
+        dropSlots(list, nested);
+        if (list.empty()) o.mask &= ~static_cast<FieldMask>(F_COMPONENT_PROP_ASSIGNMENTS);
+      }
     }
     sd.overrides.erase(std::remove_if(sd.overrides.begin(), sd.overrides.end(), [](const SymbolOverride& o) { return o.mask == 0; }),
                        sd.overrides.end());
     NodeChange c = NodeChange::changed(top);
     c.mask = F_SYMBOL_DATA;
     c.props.comp().symbolData = sd;
-    if (!ref.isDerived() && (all || assignments)) {
+    if (!ref.isDerived() && clearAssignments) {
       c.mask |= F_COMPONENT_PROP_ASSIGNMENTS;  // the instance's property values go back to the defaults too
+    } else if (!ref.isDerived() && spec.slotAssignments) {
+      std::vector<ComponentPropAssignment> list = tn->props.comp().componentPropAssignments;
+      if (dropSlots(list, symbolOf(tn->props))) {
+        c.mask |= F_COMPONENT_PROP_ASSIGNMENTS;
+        c.props.comp().componentPropAssignments = std::move(list);
+      }
     }
     write(c);
     any = true;
   }
+  // Slot content frames nothing assigns any more (Reset slot's way: the slot shows the main's content again).
+  for (Guid content : contentGone) {
+    const Node* cn = doc_.get(content);
+    if (!cn || content.isDerived() || !cn->props.comp().isSlotContent) continue;
+    std::vector<Guid> order;
+    auto collect = [&](auto&& self, Guid id) -> void {
+      for (Guid k : std::vector<Guid>(doc_.children(id)))
+        if (!k.isDerived()) self(self, k);
+      order.push_back(id);
+    };
+    collect(collect, content);
+    for (Guid id : order) write(NodeChange::removed(id));
+  }
   commit();
+  pruneSelection();
   return any ? OK : E_INVALID;
 }
 
@@ -1515,6 +1632,11 @@ Status Editor::swapInstance(const std::vector<Guid>& refs, Guid main) {
   for (Guid ref : refs) {
     const Node* n = doc_.get(ref);
     if (!n || n->props.type != NodeType::INSTANCE) continue;
+    // Not into a main it is inside of (Figma: "Cannot swap main component, change would create a cycle").
+    if (wouldContainItself(doc_.parentOf(ref), {main})) {
+      refuse(refusal::kSelfInstance);
+      continue;
+    }
     if (ref.isDerived()) {
       NodeChange c = NodeChange::changed(ref);
       c.mask = F_OVERRIDDEN_SYMBOL_ID;
@@ -1552,7 +1674,7 @@ Status Editor::setComponentProperty(Guid ref, const std::string& prop, const jso
   if (!def) return E_NOT_FOUND;
   const ComponentPropDef d = *def;
   if (d.type == ComponentPropType::VARIANT) {
-    if (!value.isString()) return E_INVALID;
+    if (!value.isString()) return refuse(refusal::kValueIncompatible);
     Guid set = setOf(symbol);
     // The variant with this value that keeps the most of the others (an exact match first).
     std::map<Guid, std::string> now;
@@ -1572,6 +1694,7 @@ Status Editor::setComponentProperty(Guid ref, const std::string& prop, const jso
     }
     if (best == kNoGuid) return E_NOT_FOUND;
     if (best == symbol) return OK;
+    if (wouldContainItself(doc_.parentOf(ref), {best})) return refuse(refusal::kSelfInstance);
     begin(TxnKind::USER, "Change variant");
     // A variant picked by hand detaches the variable that chose this property (Figma: an edit of a bound value
     // detaches it); the other bound properties stay.
@@ -1628,12 +1751,12 @@ Status Editor::setComponentProperty(Guid ref, const std::string& prop, const jso
   ComponentPropValue v;
   switch (d.type) {
     case ComponentPropType::BOOL:
-      if (!value.isBool()) return E_INVALID;
+      if (!value.isBool()) return refuse(refusal::kValueIncompatible);
       v.hasBool = true;
       v.boolValue = value.boolean;
       break;
     case ComponentPropType::TEXT:
-      if (!value.isString()) return E_INVALID;
+      if (!value.isString()) return refuse(refusal::kValueIncompatible);
       v = textValue(value.string);
       break;
     case ComponentPropType::INSTANCE_SWAP: {
@@ -1641,7 +1764,9 @@ Status Editor::setComponentProperty(Guid ref, const std::string& prop, const jso
       Guid g = value.isString() ? Guid::parse(value.string, &ok) : Guid{};
       const Node* gn = ok ? doc_.get(g) : nullptr;
       if (gn && gn->props.isComponentSet()) g = defaultVariantOf(doc_, g), gn = doc_.get(g);
-      if (!gn || gn->props.type != NodeType::SYMBOL) return E_INVALID;
+      if (!gn || gn->props.type != NodeType::SYMBOL) return refuse(refusal::kValueIncompatible);
+      // The value shows inside this instance's main: not a main that contains it.
+      if (wouldContainItself(ref, {g})) return refuse(refusal::kSelfInstance);
       v.guidValue = g;
       break;
     }
@@ -1660,6 +1785,17 @@ Status Editor::addComponentProperty(Guid ref, const CommandArgs& args) {
   if (owner == kNoGuid) return E_INVALID;
   ComponentPropType type = ComponentPropType::BOOL;
   if (!propTypeFromName(argString(args, "type"), type)) return E_INVALID;
+  // Figma's rules (round 17 B), before anything is written: a name (when one is given) that isn't empty — a Variant
+  // property's without '=' or ',' — a default of the property's kind, an instance swap's a component that doesn't
+  // contain this one, preferred values that are components; Variant properties only on sets for plugins.
+  if (const json::Value* name = arg(args, "name"); name && name->isString()) {
+    if (blank(name->string)) return refuse(refusal::kPropertyNameEmpty);
+    if (type == ComponentPropType::VARIANT && hasVariantSeparator(name->string)) return refuse(refusal::kVariantNameChars);
+  }
+  if (type == ComponentPropType::VARIANT && doc_.get(owner)->props.type == NodeType::SYMBOL && argFlag(args, "plugin"))
+    return refuse(refusal::kVariantNeedsSet);
+  if (Status st = checkDefaultValue(owner, type, arg(args, "defaultValue")); st != OK) return st;
+  if (Status st = checkPreferredValues(owner, type, args); st != OK) return st;
   begin(TxnKind::USER, "Create property");
   const Node* on = doc_.get(owner);
   if (type == ComponentPropType::VARIANT && on->props.type == NodeType::SYMBOL) {
@@ -1723,6 +1859,12 @@ Status Editor::addComponentProperty(Guid ref, const CommandArgs& args) {
       bool ok = false;
       Guid g = dv && dv->isString() ? Guid::parse(dv->string, &ok) : Guid{};
       if (ok) d.initialValue.guidValue = g;
+      // An instance swap bound to an instance, with no default given: the instance's main (Figma's default).
+      if (!ok && type == ComponentPropType::INSTANCE_SWAP && arg(args, "bind")) {
+        std::vector<Guid> layers = refsArg(args, "bind");
+        const Node* ln = layers.size() == 1 ? doc_.get(layers[0]) : nullptr;
+        if (ln && ln->props.type == NodeType::INSTANCE) d.initialValue.guidValue = symbolOf(ln->props);
+      }
       break;
     }
   }
@@ -1763,6 +1905,22 @@ Status Editor::editComponentProperty(Guid ref, const CommandArgs& args) {
   Guid owner = propOwner(ref);
   const ComponentPropDef* found = owner != kNoGuid ? findDef(owner, argString(args, "prop")) : nullptr;
   if (!found) return E_NOT_FOUND;
+  // Figma's rules (round 17 B): a name that isn't empty (a Variant property's without '=' or ','), a Variant or Slot
+  // property's default left alone (a set's default variant / the main's content decide it), a default of the
+  // property's kind, a renamed variant value that is a valid value.
+  const ComponentPropType type = found->type;
+  if (const json::Value* name = arg(args, "name"); name && name->isString()) {
+    if (blank(name->string)) return refuse(refusal::kPropertyNameEmpty);
+    if (type == ComponentPropType::VARIANT && hasVariantSeparator(name->string)) return refuse(refusal::kVariantNameChars);
+  }
+  if (const json::Value* dv = arg(args, "defaultValue")) {
+    if (type == ComponentPropType::VARIANT) return refuse(refusal::kVariantDefaultLocked);
+    if (type == ComponentPropType::SLOT) return refuse(refusal::kSlotDefaultLocked);
+    if (Status st = checkDefaultValue(owner, type, dv); st != OK) return st;
+  }
+  if (type == ComponentPropType::VARIANT && !argString(args, "oldValue").empty())
+    if (const std::string next = argString(args, "newValue"); blank(next) || hasVariantSeparator(next)) return refuse(refusal::kVariantValueInvalid);
+  if (Status st = checkPreferredValues(owner, type, args); st != OK) return st;
   Guid defId = found->id;
   std::vector<ComponentPropDef> defs = doc_.get(owner)->props.comp().componentPropDefs;
   auto it = std::find_if(defs.begin(), defs.end(), [&](const ComponentPropDef& d) { return d.id == defId; });
@@ -1902,6 +2060,13 @@ Status Editor::bindComponentProperty(const std::vector<Guid>& ids, const std::st
     if (!prop.empty() && (!def || bindingFieldOf(def->type) != f)) continue;
     if (f == VariableField::TEXT_DATA && n->props.type != NodeType::TEXT) continue;
     if (f == VariableField::OVERRIDDEN_SYMBOL_ID && n->props.type != NodeType::INSTANCE) continue;
+    // An instance swap's default shows here: not a main this layer is inside of (Figma: "Attaching component property
+    // reference … will create a cycle").
+    if (f == VariableField::OVERRIDDEN_SYMBOL_ID && def && def->initialValue.guidValue != kNoGuid &&
+        reachesAny({def->initialValue.guidValue}, enclosingMains(doc_.parentOf(id)))) {
+      refuse(refusal::kPropertyRefCycle);
+      continue;
+    }
     NodeChange c = NodeChange::changed(id);
     c.mask = F_PARAM_MAP;
     c.props.parameterConsumptionMap = n->props.parameterConsumptionMap;
@@ -1938,11 +2103,12 @@ Status Editor::insertInstance(Guid main, const CommandArgs& args) {
     parent = page_;
     auto path = hitPath(doc_, page_, at, pixel());
     for (auto it = path.rbegin(); it != path.rend(); ++it)
-      if (acceptsChildren(*it)) {
+      if (acceptsChildren(*it) && !wouldContainItself(*it, {main})) {  // (not into a main the instance would contain)
         parent = *it;
         break;
       }
   }
+  if (wouldContainItself(parent, {main})) return refuse(refusal::kSelfInstance);
   Vec2 size = mn->props.size;
   Mat2x3 world = Mat2x3::translate(std::round(at.x - size.x / 2), std::round(at.y - size.y / 2));
   begin(TxnKind::USER, "Insert instance");
@@ -1956,6 +2122,8 @@ Status Editor::setVariantProperties(Guid variant, const CommandArgs& args) {
   Guid set = setOf(variant);
   const json::Value* values = arg(args, "values");
   if (set == kNoGuid || !values || !values->isObject()) return E_INVALID;
+  for (auto& [prop, v] : values->object)
+    if (v.isString() && (blank(v.string) || hasVariantSeparator(v.string))) return refuse(refusal::kVariantValueInvalid);
   const NodeProps& sp = doc_.get(set)->props;
   NodeChange c = NodeChange::changed(variant);
   c.mask = F_VARIANT_PROP_SPECS;
@@ -2202,6 +2370,341 @@ Status Editor::resetSlot(Guid ref) {
   commit();
   pruneSelection();
   return OK;
+}
+
+// ---- Refusals, component cycles, override keys, variant names (round 17 B) ------------------------------------
+
+Status Editor::refuse(const char* key) {
+  lastRefusal_ = key;
+  if (std::find(events_.notices.begin(), events_.notices.end(), lastRefusal_) == events_.notices.end()) events_.notices.push_back(lastRefusal_);
+  return E_INVALID;
+}
+
+std::vector<Guid> Editor::propertyHosts(Guid owner) const {
+  std::vector<Guid> out;
+  const Node* on = doc_.get(owner);
+  if (!on) return out;
+  if (on->props.isComponentSet()) {
+    for (Guid v : doc_.children(owner))
+      if (!v.isDerived() && doc_.get(v)->props.type == NodeType::SYMBOL) out.push_back(v);
+    for (Guid g : enclosingMains(doc_.parentOf(owner))) out.push_back(g);
+  } else {
+    out = enclosingMains(owner);
+  }
+  return out;
+}
+
+Status Editor::checkDefaultValue(Guid owner, ComponentPropType type, const json::Value* dv) {
+  if (!dv) return OK;
+  switch (type) {
+    case ComponentPropType::BOOL:
+      if (!dv->isBool()) return refuse(refusal::kValueIncompatible);
+      break;
+    case ComponentPropType::TEXT:
+    case ComponentPropType::SLOT:
+      if (!dv->isString()) return refuse(refusal::kValueIncompatible);
+      break;
+    case ComponentPropType::VARIANT:
+      if (!dv->isString()) return refuse(refusal::kValueIncompatible);
+      if (blank(dv->string)) return refuse(refusal::kDefaultEmpty);
+      if (hasVariantSeparator(dv->string)) return refuse(refusal::kVariantValueInvalid);
+      break;
+    case ComponentPropType::INSTANCE_SWAP: {
+      if (!dv->isString()) return refuse(refusal::kValueIncompatible);
+      if (blank(dv->string)) return refuse(refusal::kDefaultEmpty);
+      bool ok = false;
+      Guid g = Guid::parse(dv->string, &ok);
+      const Node* gn = ok ? doc_.get(g) : nullptr;
+      if (!gn || !(gn->props.type == NodeType::SYMBOL || gn->props.isComponentSet())) return refuse(refusal::kSwapDefaultNotComponent);
+      if (reachesAny({g}, propertyHosts(owner))) return refuse(refusal::kSwapDefaultCycle);
+      break;
+    }
+    default: break;
+  }
+  return OK;
+}
+
+Status Editor::checkPreferredValues(Guid owner, ComponentPropType type, const CommandArgs& args) {
+  const json::Value* list = arg(args, "preferredValues");
+  if (!list || !list->isArray()) return OK;
+  std::vector<Guid> mains;
+  for (const json::Value& e : list->array) {
+    if (!e.isString()) return refuse(refusal::kPreferredInvalid);
+    bool ok = false;
+    Guid g = Guid::parse(e.string, &ok);
+    if (!ok) continue;  // an asset key (a library's main): resolved where it is shown
+    const Node* gn = doc_.get(g);
+    if (type != ComponentPropType::INSTANCE_SWAP || !gn || !(gn->props.type == NodeType::SYMBOL || gn->props.isComponentSet()))
+      return refuse(refusal::kPreferredInvalid);
+    mains.push_back(g);
+  }
+  if (reachesAny(mains, propertyHosts(owner))) return refuse(refusal::kSelfInstance);
+  return OK;
+}
+
+std::vector<Guid> Editor::enclosingMains(Guid node) const {
+  std::vector<Guid> out;
+  for (Guid cur = node; doc_.has(cur); cur = doc_.parentOf(cur)) {
+    const Node* n = doc_.get(cur);
+    if (n->props.type == NodeType::CANVAS || n->props.type == NodeType::DOCUMENT) break;
+    if (n->props.type == NodeType::SYMBOL) {
+      out.push_back(cur);
+    } else if (n->props.type == NodeType::INSTANCE) {
+      Guid m = mainOf(cur);
+      if (m != kNoGuid) out.push_back(m);
+    }
+  }
+  return out;
+}
+
+void Editor::mainsOfInstance(const NodeProps& p, std::vector<Guid>& out) const {
+  auto add = [&](Guid g) {
+    const Node* n = g != kNoGuid ? doc_.get(g) : nullptr;
+    if (!n) return;
+    if (n->props.type == NodeType::SYMBOL) {
+      out.push_back(g);
+    } else if (n->props.isComponentSet()) {
+      for (Guid v : doc_.children(g))
+        if (!v.isDerived() && doc_.get(v)->props.type == NodeType::SYMBOL) out.push_back(v);
+    }
+  };
+  const ComponentFacet& c = p.comp();
+  add(c.symbolData.symbolID);
+  for (const SymbolOverride& o : c.symbolData.overrides) {
+    const ComponentFacet& oc = std::as_const(o.props).comp();
+    if (o.mask & F_OVERRIDDEN_SYMBOL_ID) add(oc.overriddenSymbolID);
+    if (o.mask & F_COMPONENT_PROP_ASSIGNMENTS)
+      for (const ComponentPropAssignment& a : oc.componentPropAssignments) add(a.value.guidValue);
+  }
+  for (const ComponentPropAssignment& a : c.componentPropAssignments) add(a.value.guidValue);
+}
+
+void Editor::mainsShownIn(Guid root, std::vector<Guid>& out) const {
+  std::vector<Guid> stack{root};
+  while (!stack.empty()) {
+    Guid id = stack.back();
+    stack.pop_back();
+    const Node* n = id.isDerived() ? nullptr : doc_.get(id);
+    if (!n) continue;
+    if (n->props.type == NodeType::INSTANCE) mainsOfInstance(n->props, out);
+    for (Guid c : doc_.children(id))
+      if (!c.isDerived()) stack.push_back(c);
+  }
+}
+
+bool Editor::reachesAny(const std::vector<Guid>& mains, const std::vector<Guid>& targets) const {
+  if (mains.empty() || targets.empty()) return false;
+  GuidSet goal(targets.begin(), targets.end()), seen;
+  std::vector<Guid> todo;
+  // Sets stand for their variants.
+  for (Guid m : mains) {
+    const Node* n = doc_.get(m);
+    if (n && n->props.isComponentSet()) {
+      for (Guid v : doc_.children(m))
+        if (!v.isDerived()) todo.push_back(v);
+    } else {
+      todo.push_back(m);
+    }
+  }
+  while (!todo.empty()) {
+    Guid m = todo.back();
+    todo.pop_back();
+    if (goal.count(m)) return true;
+    if (!seen.insert(m).second) continue;
+    const Node* mn = doc_.get(m);
+    if (!mn || mn->props.type != NodeType::SYMBOL) continue;
+    Guid owner = propOwner(m);
+    std::vector<Guid> stack{m};
+    while (!stack.empty()) {
+      Guid id = stack.back();
+      stack.pop_back();
+      for (Guid c : doc_.children(id)) {
+        const Node* cn = c.isDerived() ? nullptr : doc_.get(c);
+        if (!cn) continue;
+        if (cn->props.type == NodeType::INSTANCE) {
+          mainsOfInstance(cn->props, todo);
+          // An instance bound to an instance-swap property shows the property's default where nothing assigns one.
+          for (const ParamBinding& b : cn->props.parameterConsumptionMap)
+            if (b.field == VariableField::OVERRIDDEN_SYMBOL_ID && b.propRef != kNoGuid && owner != kNoGuid)
+              if (const ComponentPropDef* d = findDef(owner, b.propRef.toString())) {
+                NodeProps probe;
+                probe.comp().symbolData.symbolID = d->initialValue.guidValue;
+                mainsOfInstance(probe, todo);
+              }
+        }
+        stack.push_back(c);
+      }
+    }
+  }
+  return false;
+}
+
+bool Editor::wouldContainItself(Guid parent, const std::vector<Guid>& mains) const {
+  if (mains.empty()) return false;
+  std::vector<Guid> enclosing = enclosingMains(parent);
+  return !enclosing.empty() && reachesAny(mains, enclosing);
+}
+
+std::vector<Guid> Editor::conflictingOverrideKeys() const {
+  // Figma's FGRepairMissingOverrideKeys reports "conflicting override keys detected!": two layers of one main sharing
+  // an effective key would share their overrides in every instance. The later one (in layer order) gives its
+  // overrideKey up — unless it has none (its key is its own GUID), then the earlier one does.
+  std::vector<Guid> out;
+  doc_.forEach([&](const Node& n) {
+    if (n.guid.isDerived() || n.props.type != NodeType::SYMBOL) return;
+    std::unordered_map<Guid, Guid, GuidHash> first;  // effective key → the layer holding it
+    auto visit = [&](auto&& self, Guid parent) -> void {
+      for (Guid c : doc_.children(parent)) {
+        const Node* cn = c.isDerived() ? nullptr : doc_.get(c);
+        if (!cn || cn->props.type == NodeType::SYMBOL) continue;  // a main inside a main keys its own tree
+        Guid key = cn->props.keyOf(c);
+        auto [it, fresh] = first.emplace(key, c);
+        if (!fresh) {
+          if (cn->props.overrideKey != kNoGuid) {
+            out.push_back(c);
+          } else {
+            out.push_back(it->second);
+            it->second = c;
+          }
+        }
+        if (cn->props.type != NodeType::INSTANCE) self(self, c);
+      }
+    };
+    visit(visit, n.guid);
+  });
+  std::sort(out.begin(), out.end());
+  out.erase(std::unique(out.begin(), out.end()), out.end());
+  return out;
+}
+
+namespace {
+
+// A variant name's pairs as Figma accepts them: each with a name and a value, neither holding '=' or ',', no name twice.
+bool validVariantPairs(const std::vector<std::pair<std::string, std::string>>& pairs) {
+  std::vector<std::string> names;
+  for (const auto& [k, v] : pairs) {
+    if (k.empty() || v.empty() || hasVariantSeparator(v) || std::find(names.begin(), names.end(), k) != names.end()) return false;
+    names.push_back(k);
+  }
+  return !pairs.empty();
+}
+
+}  // namespace
+
+bool Editor::variantConflicts(Guid v) const {
+  const Node* vn = doc_.get(v);
+  Guid set = setOf(v);
+  if (!vn || set == kNoGuid || vn->props.type != NodeType::SYMBOL) return false;
+  const std::vector<ComponentPropDef>& defs = doc_.get(set)->props.comp().componentPropDefs;
+  auto valueOf = [&](const NodeProps& p, Guid def) -> const std::string* {
+    for (const VariantPropSpec& s : p.comp().variantPropSpecs)
+      if (s.propDefId == def) return &s.value;
+    return nullptr;
+  };
+  // The name says its values: every pair a Variant property with that value, and nothing else.
+  std::vector<std::pair<std::string, std::string>> pairs;
+  if (!parseVariantName(vn->props.name, pairs) || !validVariantPairs(pairs)) return true;
+  size_t specs = 0;
+  for (const ComponentPropDef& d : defs)
+    if (d.type == ComponentPropType::VARIANT && valueOf(vn->props, d.id)) specs++;
+  if (specs != pairs.size()) return true;
+  for (const auto& [k, value] : pairs) {
+    const ComponentPropDef* def = nullptr;
+    for (const ComponentPropDef& d : defs)
+      if (d.type == ComponentPropType::VARIANT && d.name == k) def = &d;
+    const std::string* spec = def ? valueOf(vn->props, def->id) : nullptr;
+    if (!spec || *spec != value) return true;
+  }
+  // No other variant with the same values.
+  for (Guid o : doc_.children(set)) {
+    const Node* on = o == v || o.isDerived() ? nullptr : doc_.get(o);
+    if (!on || on->props.type != NodeType::SYMBOL) continue;
+    bool same = true;
+    for (const ComponentPropDef& d : defs) {
+      if (d.type != ComponentPropType::VARIANT) continue;
+      const std::string* a = valueOf(vn->props, d.id);
+      const std::string* b = valueOf(on->props, d.id);
+      same &= (a ? *a : std::string()) == (b ? *b : std::string());
+      if (!same) break;
+    }
+    if (same) return true;
+  }
+  return false;
+}
+
+void Editor::backfillVariantNames() {
+  if (renamedVariants_.empty()) return;
+  std::vector<Guid> variants;
+  variants.swap(renamedVariants_);
+  std::sort(variants.begin(), variants.end());
+  variants.erase(std::unique(variants.begin(), variants.end()), variants.end());
+  for (Guid v : variants) {
+    const Node* vn = doc_.get(v);
+    Guid set = vn ? setOf(v) : kNoGuid;
+    if (!vn || set == kNoGuid || vn->props.type != NodeType::SYMBOL) continue;
+    std::vector<std::pair<std::string, std::string>> pairs;
+    // An invalid name stays as typed: the variant shows as conflicting until it is fixed (variantConflicts).
+    if (!parseVariantName(vn->props.name, pairs) || !validVariantPairs(pairs)) continue;
+    std::vector<ComponentPropDef> defs = doc_.get(set)->props.comp().componentPropDefs;
+    bool newDefs = false;
+    std::vector<VariantPropSpec> specs;
+    for (const auto& [k, value] : pairs) {
+      Guid id = kNoGuid;
+      for (const ComponentPropDef& d : defs)
+        if (d.type == ComponentPropType::VARIANT && d.name == k) id = d.id;
+      if (id == kNoGuid) {
+        // A property name the set doesn't have yet: a Variant property (Figma's backfillVariantPropDefs), after the
+        // set's other variant properties.
+        std::vector<Guid> used;
+        doc_.forEach([&](const Node& n) {
+          for (auto& d : n.props.comp().componentPropDefs) used.push_back(d.id);
+        });
+        for (auto& d : defs) used.push_back(d.id);
+        uint32_t low = kDefIdTop;
+        for (Guid g : used)
+          if (g.sessionID == sessionID_ && g.localID >= kDefIdBase && g.localID <= low) low = g.localID - 1;
+        std::string last;
+        for (const ComponentPropDef& d : defs)
+          if (d.type == ComponentPropType::VARIANT && d.sortPosition > last) last = d.sortPosition;
+        ComponentPropDef d;
+        d.id = {sessionID_, low};
+        d.name = k;
+        d.type = ComponentPropType::VARIANT;
+        d.initialValue = textValue(value);
+        d.sortPosition = fractional::keyBetween(last, std::nullopt, fractional::Bias::Low);
+        defs.push_back(d);
+        id = d.id;
+        newDefs = true;
+      }
+      specs.push_back({id, value});
+    }
+    // The same values in another order are no change (renameVariants' own names come here too).
+    auto sorted = [](std::vector<VariantPropSpec> list) {
+      std::sort(list.begin(), list.end(), [](const VariantPropSpec& a, const VariantPropSpec& b) { return a.propDefId < b.propDefId; });
+      return list;
+    };
+    if (!(sorted(specs) == sorted(vn->props.comp().variantPropSpecs))) {
+      NodeChange c = NodeChange::changed(v);
+      c.mask = F_VARIANT_PROP_SPECS;
+      c.props.comp().variantPropSpecs = specs;
+      write(c);
+    }
+    NodeChange s = NodeChange::changed(set);
+    if (newDefs) {
+      s.mask |= F_COMPONENT_PROP_DEFS;
+      s.props.comp().componentPropDefs = defs;
+    }
+    // The set's value order lists the new values (after the ones it has).
+    std::vector<StateGroupOrder> orders = doc_.get(set)->props.comp().stateGroupPropertyValueOrders;
+    for (const auto& [k, value] : pairs) {
+      auto o = std::find_if(orders.begin(), orders.end(), [&](const StateGroupOrder& x) { return x.property == k; });
+      if (o == orders.end()) orders.push_back({k, {value}});
+      else if (std::find(o->values.begin(), o->values.end(), value) == o->values.end()) o->values.push_back(value);
+    }
+    s.mask |= F_STATE_GROUP_ORDERS;
+    s.props.comp().stateGroupPropertyValueOrders = std::move(orders);
+    write(s);
+  }
 }
 
 }  // namespace eng

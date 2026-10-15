@@ -1517,3 +1517,237 @@ TEST_CASE("components: Push changes leaves a slot's content with the instance (i
   CHECK(left[0].defID == SLOTDEF);
   CHECK(left[0].value.guidValue == CONTENT);
 }
+
+// ---- Round 17 B: Figma's rules — refusals, cycles, override keys, reset kinds, variant names -----------------------
+
+namespace {
+
+bool noticed(Editor& e, const std::string& key) {
+  auto ev = e.takeEvents();
+  return std::find(ev.notices.begin(), ev.notices.end(), key) != ev.notices.end();
+}
+
+// buttonDoc plus a main "Card" (1:20) holding an instance (1:21) of Button.
+const Guid CARD{1, 20}, CARD_BUTTON{1, 21};
+
+std::vector<NodeChange> cardDoc() {
+  auto nodes = buttonDoc();
+  NodeChange card = make(CARD, NodeType::SYMBOL, kPage, "#", {300, 0, 200, 100}, "Card");
+  card.props.fillPaints.clear();
+  nodes.push_back(card);
+  nodes.push_back(instanceOf(CARD_BUTTON, M, CARD, "!", {10, 10, 100, 40}));
+  return nodes;
+}
+
+}  // namespace
+
+TEST_CASE("components: property validation — names, Variant separators, default kinds, instance-swap defaults (Figma's messages)") {
+  Editor e = load(cardDoc());
+  e.setSelection({M});
+  // A name, when given, can't be empty.
+  CHECK(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"TEXT\",\"name\":\"  \"}")) == E_INVALID);
+  CHECK(e.lastRefusal() == "property_name_empty");
+  CHECK(noticed(e, "property_name_empty"));
+  CHECK(props(e, M).comp().componentPropDefs.empty());
+  // A default of the property's kind.
+  CHECK(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"BOOLEAN\",\"name\":\"On\",\"defaultValue\":\"yes\"}")) == E_INVALID);
+  CHECK(e.lastRefusal() == "property_value_incompatible");
+  // An instance swap's default is a component (not a layer), and not one that contains this main.
+  CHECK(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"INSTANCE_SWAP\",\"name\":\"Icon\",\"defaultValue\":\"1:2\"}")) == E_INVALID);
+  CHECK(e.lastRefusal() == "instance_swap_default_not_component");
+  CHECK(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"INSTANCE_SWAP\",\"name\":\"Icon\",\"defaultValue\":\"1:20\"}")) == E_INVALID);
+  CHECK(e.lastRefusal() == "instance_swap_default_cycle");
+  CHECK(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"INSTANCE_SWAP\",\"name\":\"Icon\",\"defaultValue\":\"1:1\"}")) == E_INVALID);
+  CHECK(props(e, M).comp().componentPropDefs.empty());
+  // Preferred values are components.
+  CHECK(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"TEXT\",\"name\":\"T\",\"preferredValues\":[\"1:20\"]}")) == E_INVALID);
+  CHECK(e.lastRefusal() == "invalid_preferred_value");
+  // TEXT names and values may hold '=' and ',' (live-verified); an empty TEXT default is fine.
+  REQUIRE(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"TEXT\",\"name\":\"a=b, c\",\"defaultValue\":\"\"}")) == OK);
+  // The plugin API: a Variant property needs a set ("Can only add variant property to a component set").
+  CHECK(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"VARIANT\",\"name\":\"Size\",\"plugin\":true}")) == E_INVALID);
+  CHECK(e.lastRefusal() == "variant_property_needs_set");
+  CHECK(e.document().parentOf(M) == kPage);
+  // The UI: the component becomes a set; a Variant name or value with '=' or ',' is refused.
+  CHECK(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"VARIANT\",\"name\":\"Si,ze\"}")) == E_INVALID);
+  CHECK(e.lastRefusal() == "property_name_has_equals_or_comma");
+  REQUIRE(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"VARIANT\"}")) == OK);
+  Guid set = e.document().parentOf(M);
+  REQUIRE(props(e, set).isComponentSet());
+  e.setSelection({set});
+  CHECK(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"VARIANT\",\"name\":\"State\",\"defaultValue\":\"On=1\"}")) == E_INVALID);
+  CHECK(e.lastRefusal() == "variant_value_invalid");
+  // Editing: no empty name, a Variant's default is Figma's to decide (the default variant), values stay valid.
+  std::string variantProp;
+  for (const ComponentPropDef& d : props(e, set).comp().componentPropDefs)
+    if (d.type == ComponentPropType::VARIANT) variantProp = d.name;
+  REQUIRE(!variantProp.empty());
+  CHECK(e.command(CommandId::EDIT_COMPONENT_PROPERTY, args("{\"prop\":\"" + variantProp + "\",\"name\":\"\"}")) == E_INVALID);
+  CHECK(e.lastRefusal() == "property_name_empty");
+  CHECK(e.command(CommandId::EDIT_COMPONENT_PROPERTY, args("{\"prop\":\"" + variantProp + "\",\"defaultValue\":\"Large\"}")) == E_INVALID);
+  CHECK(e.lastRefusal() == "variant_default_locked");
+  CHECK(e.command(CommandId::EDIT_COMPONENT_PROPERTY, args("{\"prop\":\"" + variantProp + "\",\"oldValue\":\"Default\",\"newValue\":\"A,B\"}")) == E_INVALID);
+  CHECK(e.lastRefusal() == "variant_value_invalid");
+  e.setSelection({M});
+  CHECK(e.command(CommandId::SET_VARIANT_PROPERTIES, args("{\"values\":{\"" + variantProp + "\":\"x=y\"}}")) == E_INVALID);
+  CHECK(e.lastRefusal() == "variant_value_invalid");
+  e.clearRefusal();
+  REQUIRE(e.command(CommandId::SET_VARIANT_PROPERTIES, args("{\"values\":{\"" + variantProp + "\":\"Big\"}}")) == OK);
+  CHECK(e.lastRefusal().empty());
+}
+
+TEST_CASE("components: a component can't contain an instance of itself — insert, swap, move, nested swap") {
+  Editor e = load(cardDoc());
+  e.takeEvents();
+  // Insert an instance of Card into Button (Button → Card → Button).
+  CHECK(e.command(CommandId::INSERT_INSTANCE, args("{\"main\":\"1:20\",\"parent\":\"1:1\"}")) == E_INVALID);
+  CHECK(e.lastRefusal() == "components_cant_contain_instances_of_themselves");
+  CHECK(noticed(e, "components_cant_contain_instances_of_themselves"));
+  CHECK(e.document().children(M).size() == 2);
+  // Dropped at a point inside Button: it goes to the page instead.
+  REQUIRE(e.command(CommandId::INSERT_INSTANCE, args("{\"main\":\"1:20\",\"x\":50,\"y\":20}")) == OK);
+  Guid placed = e.selection()[0];
+  CHECK(e.document().parentOf(placed) == kPage);
+  // Swap Card's own Button instance to Card.
+  e.setSelection({CARD_BUTTON});
+  CHECK(e.command(CommandId::SWAP_INSTANCE, args("{\"main\":\"1:20\"}")) == E_INVALID);
+  CHECK(props(e, CARD_BUTTON).comp().symbolData.symbolID == M);
+  // A plain write of the same swap (a plugin's) is dropped too.
+  e.setProps({CARD_BUTTON}, change(F_SYMBOL_DATA, [&](NodeProps& p) { p.comp().symbolData.symbolID = CARD; }), 0);
+  CHECK(props(e, CARD_BUTTON).comp().symbolData.symbolID == M);
+  // The page's Button instance may become a Card.
+  e.setSelection({I});
+  REQUIRE(e.command(CommandId::SWAP_INSTANCE, args("{\"main\":\"1:20\"}")) == OK);
+  // Moving that instance of Card into Button (the Layers panel's drag): refused with Figma's reparenting message.
+  CHECK(e.moveNodes({I}, M, 0) == 0);
+  CHECK(e.lastRefusal() == "reparent_component_cycle");
+  CHECK(e.document().parentOf(I) == kPage);
+  // A plain write (a canvas drag's, a plugin's) is dropped the same way.
+  e.setProps({I}, change(F_PARENT_INDEX, [&](NodeProps& p) { p.parentIndex = {M, "~"}; }), 0);
+  CHECK(e.document().parentOf(I) == kPage);
+  // A nested swap inside a Card instance to Card itself.
+  Guid nested = sub(placed, {CARD_BUTTON});
+  REQUIRE(e.document().has(nested));
+  e.setSelection({nested});
+  CHECK(e.command(CommandId::SWAP_INSTANCE, args("{\"main\":\"1:20\"}")) == E_INVALID);
+  CHECK(!hasOverride(e, placed, {CARD_BUTTON}, F_OVERRIDDEN_SYMBOL_ID));
+}
+
+TEST_CASE("components: a pasted main that would become an instance of the main it is pasted into goes beside it") {
+  Editor e = load(buttonDoc());
+  e.setSelection({M});
+  Clipboard clip;
+  REQUIRE(e.copySelection(clip, false));
+  e.setSelection({M});
+  REQUIRE(e.paste(clip, false) == 1);
+  Guid pasted = e.selection()[0];
+  CHECK(e.document().parentOf(pasted) != M);
+}
+
+TEST_CASE("components: conflicting override keys inside a main are repaired at load (the later layer gives its key up)") {
+  auto nodes = buttonDoc();
+  const Guid KEY{9, 9}, OTHER{1, 30}, SHARED{1, 31};
+  for (NodeChange& n : nodes)
+    if (n.guid == BG || n.guid == LABEL) n.props.overrideKey = KEY;
+  // Across two mains a shared key is no conflict (variants share keys on purpose).
+  nodes.push_back(make(OTHER, NodeType::SYMBOL, kPage, "$", {0, 300, 50, 50}, "Other"));
+  NodeChange shared = make(SHARED, NodeType::ROUNDED_RECTANGLE, OTHER, "!", {0, 0, 10, 10}, "Shared");
+  shared.props.overrideKey = KEY;
+  nodes.push_back(shared);
+  Editor e = load(nodes);
+  CHECK(props(e, BG).overrideKey == KEY);
+  CHECK(props(e, LABEL).overrideKey == kNoGuid);
+  CHECK(props(e, SHARED).overrideKey == KEY);
+}
+
+TEST_CASE("components: reset kinds — Figma's 15 plus variable modes; plugins' removeOverrides keeps property values") {
+  Editor e = load(buttonDoc());
+  e.setSelection({M});
+  REQUIRE(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"BOOLEAN\",\"name\":\"Shown\",\"bind\":[\"1:2\"]}")) == OK);
+  Guid bg = sub(I, {BG}), label = sub(I, {LABEL});
+  e.setProps({bg}, change(F_FILLS | F_OPACITY, [](NodeProps& p) {
+               p.fillPaints = {Paint::solid(Color::hex(0xFF0000))};
+               p.opacity = 0.5;
+             }), 0);
+  e.setProps({label}, change(F_NAME, [](NodeProps& p) { p.name = "Caption"; }), 0);
+  e.setSelection({I});
+  REQUIRE(e.command(CommandId::SET_COMPONENT_PROPERTY, args("{\"prop\":\"Shown\",\"value\":false}")) == OK);
+  REQUIRE(hasOverride(e, I, {BG}, F_FILLS));
+  // Fill: only the fill.
+  REQUIRE(e.command(CommandId::RESET_OVERRIDES, args("{\"kind\":\"FILL\"}")) == OK);
+  CHECK(!hasOverride(e, I, {BG}, F_FILLS));
+  CHECK(hasOverride(e, I, {BG}, F_OPACITY));
+  CHECK(hasOverride(e, I, {LABEL}, F_NAME));
+  // Layer: Figma's "others" — the opacity, not the name.
+  REQUIRE(e.command(CommandId::RESET_OVERRIDES, args("{\"kind\":\"LAYER\"}")) == OK);
+  CHECK(!hasOverride(e, I, {BG}, F_OPACITY));
+  CHECK(hasOverride(e, I, {LABEL}, F_NAME));
+  CHECK(e.command(CommandId::RESET_OVERRIDES, args("{\"kind\":\"NOPE\"}")) == E_INVALID);
+  // removeOverrides: every override, the property values kept (live-verified).
+  REQUIRE(e.command(CommandId::RESET_OVERRIDES, args("{\"kind\":\"ALL\",\"keepAssignments\":true}")) == OK);
+  CHECK(props(e, I).comp().symbolData.overrides.empty());
+  CHECK(props(e, I).comp().componentPropAssignments.size() == 1);
+  // Reset all changes (the UI's, unchanged) clears the values too.
+  REQUIRE(e.command(CommandId::RESET_OVERRIDES) == OK);
+  CHECK(props(e, I).comp().componentPropAssignments.empty());
+  Editor::ResetSpec modes;
+  CHECK(Editor::resetKind("VARIABLE_MODES", modes));
+  CHECK((modes.bits & F_VARIABLE_MODES) != 0);
+  Editor::ResetSpec layer;
+  REQUIRE(Editor::resetKind("LAYER", layer));
+  const FieldMask others = F_OPACITY | F_CORNER_RADII | F_STACK_SPACING | F_LAYOUT_GRIDS;
+  CHECK((layer.bits & others) == others);
+  CHECK((layer.bits & (F_FILLS | F_NAME | F_TEXT_DATA | F_SIZE | F_VISIBLE | F_VARIABLE_MODES)) == 0);
+}
+
+TEST_CASE("components: a variant renamed by hand — its values follow its name, a new property name becomes a Variant property") {
+  auto nodes = baseChanges();
+  const Guid SMALL{2, 1}, LARGE{2, 2};
+  nodes.push_back(make(SMALL, NodeType::SYMBOL, kPage, "!", {0, 0, 50, 50}, "Size=Small"));
+  nodes.push_back(make(LARGE, NodeType::SYMBOL, kPage, "\"", {100, 0, 50, 50}, "Size=Large"));
+  Editor e = load(nodes);
+  e.setSelection({SMALL, LARGE});
+  REQUIRE(e.command(CommandId::COMBINE_AS_VARIANTS) == OK);
+  Guid set = e.document().parentOf(SMALL);
+  REQUIRE(props(e, set).isComponentSet());
+  auto valueOf = [&](Guid v, const std::string& prop) {
+    for (const ComponentPropDef& d : props(e, set).comp().componentPropDefs)
+      if (d.name == prop)
+        for (const VariantPropSpec& s : props(e, v).comp().variantPropSpecs)
+          if (s.propDefId == d.id) return s.value;
+    return std::string("<none>");
+  };
+  auto rename = [&](Guid v, const std::string& name) { e.setProps({v}, change(F_NAME, [&](NodeProps& p) { p.name = name; }), 0); };
+  ComponentInfo info;
+  REQUIRE(e.componentInfo(set, info));
+  CHECK(info.conflictingVariants.empty());
+  rename(LARGE, "Size=Huge");
+  CHECK(valueOf(LARGE, "Size") == "Huge");
+  bool listed = false;
+  for (const StateGroupOrder& o : props(e, set).comp().stateGroupPropertyValueOrders)
+    if (o.property == "Size") listed = std::find(o.values.begin(), o.values.end(), "Huge") != o.values.end();
+  CHECK(listed);
+  REQUIRE(e.componentInfo(LARGE, info));
+  CHECK(!info.variantConflict);
+  // A new property name: a Variant property of the set.
+  rename(LARGE, "Size=Huge, Tone=Dark");
+  CHECK(valueOf(LARGE, "Tone") == "Dark");
+  size_t variantDefs = 0;
+  for (const ComponentPropDef& d : props(e, set).comp().componentPropDefs) variantDefs += d.type == ComponentPropType::VARIANT;
+  CHECK(variantDefs == 2);
+  // An invalid name is kept as typed; the variant shows as conflicting, and so does a repeat of another's values.
+  rename(SMALL, "Broken");
+  CHECK(props(e, SMALL).name == "Broken");
+  CHECK(valueOf(SMALL, "Size") == "Small");
+  REQUIRE(e.componentInfo(SMALL, info));
+  CHECK(info.variantConflict);
+  REQUIRE(e.componentInfo(set, info));
+  CHECK(info.conflictingVariants == std::vector<Guid>{SMALL});
+  rename(SMALL, "Size=Huge, Tone=Dark");
+  REQUIRE(e.componentInfo(set, info));
+  CHECK(info.conflictingVariants.size() == 2);
+  // Undo takes the rename and its values back in one step.
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  CHECK(props(e, SMALL).name == "Broken");
+  CHECK(valueOf(SMALL, "Size") == "Small");
+}

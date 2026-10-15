@@ -12,6 +12,7 @@
 
 #include "base/FractionalIndex.h"
 #include "editor/Editor.h"
+#include "editor/Refusals.h"
 
 namespace eng {
 
@@ -1150,6 +1151,28 @@ uint32_t Editor::moveNodes(const std::vector<Guid>& ids, Guid parent, uint32_t i
   }
   live = topLevelSelection(doc_, live);
   if (live.empty()) return 0;
+  // Not into a main one of them shows an instance of (round 17 B: Figma's "Reparenting would create a component
+  // cycle"); a move inside the same parent is no reparenting.
+  if (!pagesMove && !enclosingMains(parent).empty()) {
+    std::vector<Guid> mains;
+    bool set = false;
+    for (Guid id : live) {
+      if (doc_.parentOf(id) == parent) continue;
+      mainsShownIn(id, mains);
+      std::vector<Guid> stack{id};
+      while (!stack.empty()) {
+        Guid g = stack.back();
+        stack.pop_back();
+        set |= doc_.get(g)->props.isComponentSet();
+        for (Guid k : doc_.children(g))
+          if (!k.isDerived()) stack.push_back(k);
+      }
+    }
+    if (wouldContainItself(parent, mains)) {
+      refuse(set ? refusal::kReparentSetCycle : refusal::kReparentCycle);
+      return 0;
+    }
+  }
   std::stable_sort(live.begin(), live.end(), [&](Guid a, Guid b) { return doc_.paintsBefore(a, b); });
   GuidSet moving(live.begin(), live.end());
   begin(TxnKind::USER, pagesMove ? "Move page" : "Move layers");
@@ -1302,6 +1325,22 @@ uint32_t Editor::pasteWith(const Clipboard& clip, uint32_t flags) {
     sourceRoots.insert(roots[i]->guid);
   }
 
+  // Round 17 B: a component can't contain an instance of itself — not into a main the paste would show an instance of
+  // (its instances' mains, or a pasted main that becomes an instance of the one here with its key).
+  auto cyclesInto = [&](Guid parent) {
+    std::vector<Guid> enclosing = enclosingMains(parent);
+    if (enclosing.empty()) return false;
+    std::vector<Guid> mains;
+    for (auto& [id, c] : byId) {
+      if (c->props.type == NodeType::INSTANCE) mainsOfInstance(c->props, mains);
+      if (c->props.type != NodeType::SYMBOL && !c->props.isComponentSet()) continue;
+      for (Guid e : enclosing) {
+        const std::string& key = doc_.get(e)->props.asset().key;
+        if (e == id || (!key.empty() && key == c->props.asset().key)) return true;
+      }
+    }
+    return reachesAny(mains, enclosing);
+  };
   // Into the selected frame, beside the selected layer, or on the page.
   Guid target = page_;
   size_t index = doc_.children(page_).size();
@@ -1309,14 +1348,14 @@ uint32_t Editor::pasteWith(const Clipboard& clip, uint32_t flags) {
   std::vector<Guid> sel = topSelectionInPaintOrder();
   if (!sel.empty()) {
     Guid s = sel.back();
-    if (sel.size() == 1 && acceptsChildren(s) && !sourceRoots.count(s) && !isLibraryCopy(s)) {
+    if (sel.size() == 1 && acceptsChildren(s) && !sourceRoots.count(s) && !isLibraryCopy(s) && !cyclesInto(s)) {
       target = s;
       index = doc_.children(s).size();
       intoFrame = true;
     } else {
       target = doc_.parentOf(s);
-      // Beside a layer inside an instance: beside the instance itself.
-      while (isStructuralTarget(target) && doc_.has(target)) {
+      // Beside a layer inside an instance: beside the instance itself (and beside a main it would cycle into).
+      while ((isStructuralTarget(target) || cyclesInto(target)) && doc_.has(target) && doc_.get(target)->props.type != NodeType::CANVAS) {
         s = target.isDerived() ? instanceOfDerived(target) : target;
         target = doc_.parentOf(s);
       }

@@ -1,4 +1,5 @@
 #include "editor/Editor.h"
+#include "editor/Refusals.h"
 
 #include "schema/SchemaTable.h"
 #include "text/TextEdit.h"
@@ -96,6 +97,7 @@ void Editor::begin(TxnKind kind, const std::string& label) {
   groupsTouched_.clear();
   edited_.clear();
   userGeometry_.clear();
+  renamedVariants_.clear();
   replayWrites_.clear();
   replayPushed_ = false;
   if (kind == TxnKind::USER || kind == TxnKind::GESTURE) recording().begin(selection_, label);
@@ -292,6 +294,45 @@ void Editor::write(const NodeChange& change) {
       own().mask &= ~static_cast<FieldMask>(F_PARENT_INDEX | F_TRANSFORM);
       if (!c->mask) return;
     }
+    // A component can't contain an instance of itself (round 17 B, Figma's visual bell): an instance created (paste,
+    // insert, a plugin's), a layer moved, or an instance swapped where it would show a main it is inside of.
+    if (change.phase == Phase::CREATED && change.props.type == NodeType::INSTANCE) {
+      std::vector<Guid> mains;
+      mainsOfInstance(change.props, mains);
+      if (wouldContainItself(change.props.parentIndex.guid, mains)) {
+        refuse(refusal::kSelfInstance);
+        return;
+      }
+    }
+    if (c->phase == Phase::CHANGED && (c->mask & F_PARENT_INDEX) && existing && existing->props.parentIndex.guid != c->props.parentIndex.guid &&
+        !enclosingMains(c->props.parentIndex.guid).empty()) {
+      std::vector<Guid> mains;
+      mainsShownIn(change.guid, mains);
+      if (wouldContainItself(c->props.parentIndex.guid, mains)) {
+        bool set = existing->props.isComponentSet();
+        for (std::vector<Guid> stack{change.guid}; !set && !stack.empty();) {
+          Guid id = stack.back();
+          stack.pop_back();
+          for (Guid k : doc_.children(id))
+            if (!k.isDerived()) set |= doc_.get(k)->props.isComponentSet(), stack.push_back(k);
+        }
+        refuse(set ? refusal::kReparentSetCycle : refusal::kReparentCycle);
+        own().mask &= ~static_cast<FieldMask>(F_PARENT_INDEX | F_TRANSFORM);
+        if (!c->mask) return;
+      }
+    }
+    if (c->phase == Phase::CHANGED && (c->mask & F_SYMBOL_DATA) && existing && existing->props.type == NodeType::INSTANCE &&
+        c->props.comp().symbolData.symbolID != existing->props.comp().symbolData.symbolID) {
+      std::vector<Guid> mains;
+      NodeProps probe;
+      probe.comp().symbolData.symbolID = c->props.comp().symbolData.symbolID;
+      mainsOfInstance(probe, mains);
+      if (wouldContainItself(existing->props.parentIndex.guid, mains)) {
+        refuse(refusal::kSelfInstance);
+        own().mask &= ~static_cast<FieldMask>(F_SYMBOL_DATA | F_COMPONENT_PROP_ASSIGNMENTS);
+        if (!c->mask) return;
+      }
+    }
     // An instance takes overridable fields and its own; the rest comes from its main.
     if (c->phase == Phase::CHANGED && existing && existing->props.type == NodeType::INSTANCE) {
       constexpr FieldMask kInstanceWritable =
@@ -342,6 +383,8 @@ void Editor::write(const NodeChange& change) {
   }
   markLayout(*c, parentBefore);
   noteChange(*c, typeBefore);
+  // A component renamed by the user: a variant's name says its values (backfillVariantNames, at the step's end).
+  if (userEdit && c->phase == Phase::CHANGED && (c->mask & F_NAME) && typeBefore == NodeType::SYMBOL) renamedVariants_.push_back(c->guid);
   // An edit of an instance's own fields that are its root's is kept as its root override (docs/schema.md §5.2).
   if (rootOverride) recordRootOverride(c->guid, *c, &mapBefore);
 }
@@ -445,6 +488,7 @@ void Editor::commit(bool mergeWithLast) {
     return;
   }
   if (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE) {
+    backfillVariantNames();
     flushLayout();
     removeEmptyGroups();
     flushLayout();
@@ -497,6 +541,7 @@ void Editor::rollback() {
   groupsTouched_.clear();
   edited_.clear();
   userGeometry_.clear();
+  renamedVariants_.clear();
   if (!instanceDirty_.empty() || !bindingsDirty_.empty()) {
     // The instances the cancelled edit reached show their restored mains again.
     begin(TxnKind::SYSTEM, "Instances");
@@ -563,10 +608,18 @@ void Editor::relayoutAll() {
       if (!anyUsed) unusedDeleted.push_back(n.guid);
     }
   });
-  if (dirty.empty() && instanceDirty_.empty() && unusedDeleted.empty() && bindingsDirty_.empty()) return;
+  // Conflicting override keys (two layers of one main sharing a key) repaired, as Figma's load does (round 17 B).
+  std::vector<Guid> keyRepairs = conflictingOverrideKeys();
+  if (dirty.empty() && instanceDirty_.empty() && unusedDeleted.empty() && bindingsDirty_.empty() && keyRepairs.empty()) return;
   std::sort(dirty.begin(), dirty.end());
   std::sort(unusedDeleted.begin(), unusedDeleted.end());
   begin(TxnKind::SYSTEM, "Layout");
+  for (Guid g : keyRepairs) {
+    NodeChange c = NodeChange::changed(g);
+    c.mask = F_OVERRIDE_KEY;
+    c.props.overrideKey = kNoGuid;
+    write(c);
+  }
   for (Guid g : unusedDeleted) {
     std::vector<Guid> order;
     auto collect = [&](auto&& self, Guid id) -> void {
@@ -784,6 +837,7 @@ Editor::Events Editor::takeEvents() {
     events_.textEdit = events_.vectorEdit = events_.paintEdit = false;
     events_.prototypeSelected.clear();
     events_.gridTracks.clear();
+    events_.notices.clear();  // an actor hears its refusals from the call's result
   }
   Events e = std::move(events_);
   events_ = Events{};
@@ -1005,6 +1059,7 @@ void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDeri
     storedSymbols_ = std::move(derived->symbols);
   }
   txn_ = Txn{};
+  renamedVariants_.clear();
   doc_.clear();
   undo_.clear();
   actorUndo_.clear();

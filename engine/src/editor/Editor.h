@@ -156,6 +156,10 @@ struct ComponentInfo {
   bool canPush = false, canReset = false, canDetach = false, isExposed = false, mainDeleted = false;
   bool canExpose = false;  // a primary instance in a main that Figma lets expose its properties (canExposeInstance)
   uint32_t instanceCount = 0;
+  // Round 17 B, Figma's conflicting variants: a variant whose name isn't its values (an invalid name kept as typed) or
+  // repeats another variant's values; a set lists its own.
+  bool variantConflict = false;
+  std::vector<Guid> conflictingVariants;
 };
 
 // Figma's default name of a new component property: `base`, else "base N+1" past the highest "base N" in `taken`.
@@ -565,12 +569,15 @@ class Editor : private LayoutHost, public TextLayouts {
     // DRAW_TOOL_SAMPLED (round 7b, docs/draw.md §4.5): ⌘-click with the Pencil or the Brush — each a JSON object
     // (DrawToolSampled without its type).
     std::vector<std::string> drawSampled;
+    // NOTICE (round 17 B): a refusal in Figma's words — the message keys of what was refused (editor/Refusals.h); the
+    // editor shows each as a toast (Figma's visual bell). Once per key per take.
+    std::vector<std::string> notices;
     bool selection = false, camera = false, tool = false, cursor = false, hover = false, undo = false,
          structure = false, pages = false, currentPage = false, textEdit = false, vectorEdit = false, paintEdit = false,
          navigation = false;
     bool any() const {
       return !colorPicks.empty() || !inlineEdits.empty() || !annotationOpens.empty() || !measurementEdits.empty() || !statusClicks.empty() || measurementSelection ||
-             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !prototypeSelected.empty() || !gridTracks.empty() || !renames.empty() || haptics != 0 || !drawSampled.empty() || !nodes.empty() || !components.empty() || !collections.empty() ||
+             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !prototypeSelected.empty() || !gridTracks.empty() || !renames.empty() || haptics != 0 || !drawSampled.empty() || !notices.empty() || !nodes.empty() || !components.empty() || !collections.empty() ||
              !variables.empty() || !styles.empty() || selection || camera || tool || cursor || hover || undo || structure || pages ||
              currentPage || textEdit || vectorEdit || paintEdit || navigation;
     }
@@ -745,6 +752,22 @@ class Editor : private LayoutHost, public TextLayouts {
 
   // ---- Components and instances (editor/Instances.cpp, editor/ComponentCommands.cpp) ----
   bool componentInfo(Guid id, ComponentInfo& out) const;  // cached per document version
+  // Round 17 B: the last refusal's message key (editor/Refusals.h; engine_command's "error"), cleared per command.
+  const std::string& lastRefusal() const { return lastRefusal_; }
+  void clearRefusal() { lastRefusal_.clear(); }
+  // What RESET_OVERRIDES clears: override fields and extra keys (`otherExtras`: every extra key no other kind names),
+  // the instance's property values (`assignments`) or only its slots' (`slotAssignments`, their content goes too).
+  struct ResetSpec {
+    bool all = false;  // every override (and, unless keepAssignments, every property value)
+    bool keepAssignments = false;
+    FieldMask bits = 0;
+    std::vector<std::string> extraKeys;
+    bool otherExtras = false, assignments = false, slotAssignments = false;
+  };
+  // Figma's reset kinds (ResetOverridesKind 0–14, and reset-variable-modes / reset-prop-assignments as VARIABLE_MODES /
+  // PROPERTY_ASSIGNMENTS) into `spec`; false for an unknown kind. LAYER is every field no other kind names (Figma's
+  // "others": opacity, corners, auto layout, layout guides, …).
+  static bool resetKind(const std::string& kind, ResetSpec& spec);
   bool computeComponentInfo(Guid id, ComponentInfo& out) const;
   // GO_TO_MAIN_COMPONENT / RETURN_TO_INSTANCE: where the last navigation went and where it came from.
   Guid navigationMain() const { return navMain_; }
@@ -1230,7 +1253,37 @@ class Editor : private LayoutHost, public TextLayouts {
   Guid detachOne(Guid instance);
   // What a frame detached from `main` records (detachedSymbolId): a library main's asset ref, else its GUID.
   AssetId detachedIdOf(Guid main) const;
-  Status resetOverrides(const std::vector<Guid>& ids, const std::vector<std::string>& fields);
+  Status resetOverrides(const std::vector<Guid>& ids, const ResetSpec& spec, const std::string& label);
+  // ---- Refusals and component cycles (round 17 B, docs/schema.md §5.8) ----
+  // A refusal in Figma's words: `key` (editor/Refusals.h) becomes a NOTICE event and the command's "error"; E_INVALID.
+  Status refuse(const char* key);
+  // A property's default (`dv`, as the command gives it) checked against its type (Figma's messages; OK when absent),
+  // and the preferred values in `args`: components or sets, for an instance swap, that don't contain `owner`.
+  Status checkDefaultValue(Guid owner, ComponentPropType type, const json::Value* dv);
+  Status checkPreferredValues(Guid owner, ComponentPropType type, const CommandArgs& args);
+  // The mains a property of `owner` shows inside: its variants (or itself) and the mains around it.
+  std::vector<Guid> propertyHosts(Guid owner) const;
+  // The mains a layer under `node` is drawn inside: its component ancestors and, inside an instance, the mains of the
+  // instances on the way (Figma's containing symbols).
+  std::vector<Guid> enclosingMains(Guid node) const;
+  // The mains a real subtree shows: its instances' mains, their nested swaps and instance-swap values (sets: every
+  // variant).
+  void mainsShownIn(Guid root, std::vector<Guid>& out) const;
+  void mainsOfInstance(const NodeProps& instance, std::vector<Guid>& out) const;
+  // Whether one of `mains` is, or shows somewhere in its tree, an instance of one of `targets` (Figma's "would create
+  // a cycle").
+  bool reachesAny(const std::vector<Guid>& mains, const std::vector<Guid>& targets) const;
+  // Whether showing `mains` under `parent` would make a component contain an instance of itself.
+  bool wouldContainItself(Guid parent, const std::vector<Guid>& mains) const;
+  // Duplicate effective override keys inside one main's tree: the later ones' overrideKeys (Figma's "conflicting
+  // override keys", repaired at load).
+  std::vector<Guid> conflictingOverrideKeys() const;
+  // A variant renamed by hand (round 17 B, Figma's backfillVariantPropDefs): its name's pairs become its values, a new
+  // property name a Variant property of the set; an invalid name is kept (the variant shows as conflicting).
+  void backfillVariantNames();
+  // Whether a variant's name disagrees with its values, or repeats another variant's values (Figma's conflicting
+  // variants).
+  bool variantConflicts(Guid variant) const;
   Status insertInstance(Guid main, const CommandArgs& args);
   Status setVariantProperties(Guid variant, const CommandArgs& args);
   Status pushChangesToMain(Guid instance);
@@ -2175,6 +2228,9 @@ class Editor : private LayoutHost, public TextLayouts {
     ComponentInfo info;
   };
   mutable std::unordered_map<Guid, CachedInfo, GuidHash> infoCache_;
+  // Round 17 B: the last refusal's message key (engine_command's "error"), and variants renamed in the open step.
+  std::string lastRefusal_;
+  std::vector<Guid> renamedVariants_;
   // Pages whose instances are materialized and auto layout verified (derivePage); others wait for their first show.
   std::unordered_set<Guid, GuidHash> derivedPages_;
   // Derived data loaded from the snapshot (this engine's stamp), until used or made stale.
