@@ -3009,6 +3009,52 @@ std::string writeOverrideStash(const std::vector<OverrideStash>& stash) {
   return o.s;
 }
 
+std::string writeUndoHistory(uint32_t sessionID, const std::vector<std::vector<NodeChange>>& undo, const std::vector<std::vector<NodeChange>>& redo) {
+  Out o;
+  putUint(o, id::kMsgType, 1);  // NODE_CHANGES
+  putUint(o, id::kMsgSession, sessionID);
+  auto list = [&](uint32_t field, const std::vector<std::vector<NodeChange>>& steps) {
+    if (steps.empty()) return;
+    o.varuint(field);
+    o.varuint(static_cast<uint32_t>(steps.size()));
+    for (const auto& step : steps) o.raw(writeMessage(sessionID, step));
+  };
+  list(22, undo);  // localUndoStack
+  list(23, redo);  // localRedoStack
+  o.byte(0);
+  return std::move(o.s);
+}
+
+bool readUndoHistory(std::string_view bytes, std::vector<KiwiMessage>& undo, std::vector<KiwiMessage>& redo) {
+  undo.clear();
+  redo.clear();
+  const Def& message = defOf("Message");
+  kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size());
+  for (;;) {
+    uint32_t f = 0;
+    if (!bb.readVarUint(f)) return false;
+    if (!f) return true;
+    if (f != 22 && f != 23) {
+      if (!skipUnknown(bb, message, f)) return false;
+      continue;
+    }
+    // One element at a time: its bytes are a whole Message (the list's FieldDef read as a single value).
+    const FieldDef* fd = message.byId(f);
+    if (!fd) return false;
+    FieldDef one = *fd;
+    one.isArray = false;
+    uint32_t n = 0;
+    if (!bb.readVarUint(n)) return false;
+    for (uint32_t i = 0; i < n; i++) {
+      size_t start = bb.index();
+      if (!table().skipValue(bb, one)) return false;
+      KiwiMessage m;
+      if (!readMessage(bytes.substr(start, bb.index() - start), m)) return false;
+      (f == 22 ? undo : redo).push_back(std::move(m));
+    }
+  }
+}
+
 bool readMessageList(std::string_view bytes, std::vector<KiwiMessage>& out) {
   if (!isMessageList(bytes)) return false;
   kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size());

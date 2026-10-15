@@ -78,6 +78,10 @@ void addOverrideEntry(std::vector<SymbolOverride>& list, SymbolOverride&& o, Gui
 // NodeChange.overrideStash as kept in NodeProps::extra (the field's bytes, id-prefixed) ↔ its entries. Reading
 // empty bytes gives none; writing none gives empty bytes (the field removed).
 bool readOverrideStash(std::string_view field, std::vector<OverrideStash>& out);
+// An undo history as Figma carries it (Message.localUndoStack 22 / localRedoStack 23): a NODE_CHANGES Message whose two
+// lists hold one NODE_CHANGES Message per step (its inverse changes in the order they were recorded), oldest first.
+std::string writeUndoHistory(uint32_t sessionID, const std::vector<std::vector<NodeChange>>& undo, const std::vector<std::vector<NodeChange>>& redo);
+bool readUndoHistory(std::string_view bytes, std::vector<KiwiMessage>& undo, std::vector<KiwiMessage>& redo);
 std::string writeOverrideStash(const std::vector<OverrideStash>& stash);
 std::string writeMessageList(const std::vector<std::string>& messages);
 

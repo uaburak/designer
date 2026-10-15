@@ -1272,6 +1272,20 @@ export class Engine {
     return this.after(this.x.actorUndo(this.h, actor, redo)) === Status.OK;
   }
 
+  /**
+   * The local user's undo history as Figma's Message.localUndoStack / localRedoStack (kiwi bytes; per device, never in
+   * a snapshot — docs/research/rea/canvas.md §2.18): the last `maxSteps` steps of each stack within `maxBytes`.
+   */
+  exportUndoHistory(maxSteps = 100, maxBytes = 16 << 20): Uint8Array {
+    this.after(this.x.undoExport(this.h, maxSteps, maxBytes));
+    return this.x.result();
+  }
+
+  /** Takes an exported history back into this document (the one it came from); false on bad bytes. */
+  importUndoHistory(history: Uint8Array): boolean {
+    return this.after(this.x.undoImport(this.h, history)) === Status.OK;
+  }
+
   /** The actor's history: what it can undo / redo, and the layers whose changes by it someone else changed since. */
   actorInfo(actor: number): ActorInfo {
     this.x.actorInfo(this.h, actor);

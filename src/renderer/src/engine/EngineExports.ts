@@ -185,6 +185,8 @@ export class EngineExports {
   actorBegin = (h: number, args: Uint8Array): number => this.withBytes([args], (p) => this.fn("actor_begin")(h, p[0], p[1]));
   actorEnd = (h: number, cancel: boolean): number => this.fn("actor_end")(h, cancel ? 1 : 0);
   actorUndo = (h: number, actor: number, redo: boolean): number => this.fn("actor_undo")(h, actor, redo ? 1 : 0);
+  undoExport = (h: number, maxSteps: number, maxBytes: number): number => this.fn("undo_export")(h, maxSteps, maxBytes);
+  undoImport = (h: number, history: Uint8Array): number => this.withBytes([history], (p) => this.fn("undo_import")(h, p[0], p[1]));
   actorInfo = (h: number, actor: number): number => this.fn("actor_info")(h, actor);
   actorForget = (h: number, actor: number): void => void this.fn("actor_forget")(h, actor);
   idle = (h: number): boolean => this.fn("idle")(h) !== 0;
@@ -382,7 +384,7 @@ export const USED_EXPORTS = [
   "set_viewport", "set_viewport_insets", "set_camera", "get_camera", "screen_to_world", "center_on", "view_center", "set_presence", "set_local_chat", "set_theme", "pointer", "wheel", "key", "modifiers", "blur",
   "set_tool", "set_hover", "tick", "render", "next_frame_delay", "needs_frame", "gl_context_lost", "gl_context_restored", "gfx_switch",
   "get_selection", "set_selection", "read_nodes", "layer_tree", "layer_changes", "layer_outline", "hit_test",
-  "set_props", "txn_begin", "txn_begin_run", "set_style_range", "txn_commit", "txn_cancel", "actor_begin", "actor_end", "actor_undo", "actor_info", "actor_forget", "idle", "command", "command_state",
+  "set_props", "txn_begin", "txn_begin_run", "set_style_range", "txn_commit", "txn_cancel", "actor_begin", "actor_end", "actor_undo", "undo_export", "undo_import", "actor_info", "actor_forget", "idle", "command", "command_state",
   "move_nodes", "encode_selection", "paste", "render_thumbnail", "render_region", "render_node_thumbnail", "ref_id", "component_info",
   "export", "export_info", "export_image", "export_clear_images", "export_list",
   "variable_collections", "variables", "variable", "resolve_variable", "bound_variables", "resolved_value", "variable_modes",

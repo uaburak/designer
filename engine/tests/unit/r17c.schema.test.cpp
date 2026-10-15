@@ -4,6 +4,7 @@
 #include <cmath>
 #include <array>
 #include <functional>
+#include <tuple>
 
 #include "doctest.h"
 #include "Helpers.h"
@@ -321,4 +322,59 @@ TEST_CASE("r17c gradient interpolation: Paint 41 / 42 read from a paint's kept f
   CHECK(paintExtras(p).interpolationHueMethod == InterpolationHueMethod::LONGER);
   Paint plain;
   CHECK(paintExtras(plain).interpolationColorSpace == InterpolationColorSpace::DEFAULT);
+}
+
+// ---- Undo history: Message.localUndoStack 22 / localRedoStack 23 (canvas.md §2.18) ---------------------------------
+
+TEST_CASE("r17c undo history: exported and imported into a fresh editor of the same document, it undoes and redoes the same") {
+  const Guid R1{9, 1}, R2{9, 2};
+  auto nodes = baseChanges();
+  nodes.push_back(make(R1, NodeType::ROUNDED_RECTANGLE, kPage, "!", {0, 0, 10, 10}, "A"));
+  nodes.push_back(make(R2, NodeType::ROUNDED_RECTANGLE, kPage, "\"", {20, 0, 10, 10}, "B"));
+  Editor a = load(nodes);
+  auto edit = [](Editor& e, Guid id, double opacity, const std::string& name) {
+    NodeChange c = NodeChange::changed(Guid{0, 0});
+    c.mask = F_OPACITY | F_NAME;
+    c.props.opacity = opacity;
+    c.props.name = name;
+    REQUIRE(e.setProps({id}, c, 0) == OK);
+  };
+  edit(a, R1, 0.5, "A1");
+  edit(a, R2, 0.25, "B1");
+  edit(a, R1, 0.75, "A2");
+  REQUIRE(a.command(CommandId::UNDO) == OK);  // one step on the redo stack
+  std::string history = a.exportUndoHistory();
+  REQUIRE(!history.empty());
+
+  // The same document in a fresh editor (as a reopened file), then the history.
+  Editor b = load(a.encodeDocument());
+  CHECK_FALSE(b.canUndo());
+  REQUIRE(b.importUndoHistory(history));
+  CHECK(b.undoStack().undoCount() == 2);
+  CHECK(b.undoStack().redoCount() == 1);
+  auto state = [&](const Editor& e) {
+    const NodeProps& p1 = e.document().get(R1)->props;
+    const NodeProps& p2 = e.document().get(R2)->props;
+    return std::make_tuple(p1.opacity, p1.name, p2.opacity, p2.name);
+  };
+  CHECK(state(b) == state(a));
+  REQUIRE(a.command(CommandId::REDO) == OK);
+  REQUIRE(b.command(CommandId::REDO) == OK);
+  CHECK(state(b) == state(a));
+  CHECK(std::get<1>(state(b)) == "A2");
+  for (int i = 0; i < 3; i++) {
+    REQUIRE(a.command(CommandId::UNDO) == OK);
+    REQUIRE(b.command(CommandId::UNDO) == OK);
+    CHECK(state(b) == state(a));
+  }
+  CHECK(std::get<1>(state(b)) == "A");
+  CHECK(std::get<0>(state(b)) == doctest::Approx(1));
+
+  // Caps: the last step only; bad bytes leave the history as it was.
+  Editor c = load(a.encodeDocument());
+  REQUIRE(c.importUndoHistory(a.exportUndoHistory(1)));
+  CHECK(c.undoStack().undoCount() == 0);
+  CHECK(c.undoStack().redoCount() == 1);
+  CHECK_FALSE(c.importUndoHistory(std::string("\x16\x05", 2)));
+  CHECK(c.undoStack().redoCount() == 1);
 }
