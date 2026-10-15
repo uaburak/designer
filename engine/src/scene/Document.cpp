@@ -351,6 +351,7 @@ uint32_t Document::maxLocalID(uint32_t sessionID) const {
 // ---- Changes ------------------------------------------------------------------------
 
 uint64_t Document::approxBytes() const {
+  if (bytesVersion_ == version_ && bytesNodes_ == nodes_.size()) return bytes_;
   uint64_t total = 0;
   auto paints = [](const std::vector<Paint>& list) {
     uint64_t b = list.capacity() * sizeof(Paint);
@@ -367,6 +368,9 @@ uint64_t Document::approxBytes() const {
              p.comp().symbolData.overrides.capacity() * sizeof(SymbolOverride) + p.parameterConsumptionMap.capacity() * sizeof(ParamBinding);
     for (const auto& [k, v] : p.extra) total += k.capacity() + v.capacity() + 48;
   }
+  bytesVersion_ = version_;
+  bytesNodes_ = nodes_.size();
+  bytes_ = total;
   return total;
 }
 

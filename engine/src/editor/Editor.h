@@ -608,6 +608,7 @@ class Editor : private LayoutHost, public TextLayouts {
   // ---- Text (docs/engine.md §7.6) ----
   // The layout of a TEXT node as it is now (cached; nullptr for other nodes).
   const text::TextLayout* textLayout(Guid id) override;
+  size_t textCacheSize() const { return textCache_.size(); }  // layouts kept (tests: a lookup that hits adds none)
   // A font arrived or went missing: text is laid out again (and auto-resized
   // texts measured while it loaded take their size).
   void fontsChanged();
@@ -2218,6 +2219,7 @@ class Editor : private LayoutHost, public TextLayouts {
     uint32_t generation = 0;
   };
   std::unordered_map<Guid, CachedText, GuidHash> textCache_;
+  CachedText& cachedText(Guid id);
   // `layout`, made with `o` at font generation `generation`, as `id`'s cached layout (textLayout, measureText).
   void keepTextLayout(Guid id, CachedText& c, std::unique_ptr<text::TextLayout> layout, const text::LayoutOptions& o, uint32_t generation);
   struct MeasuredText {

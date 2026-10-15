@@ -100,8 +100,14 @@ uint64_t GeometryCache::inputKey(const Document& doc, Guid id, const NodeProps& 
     const text::TextLayout* L = p.type == NodeType::TEXT ? text_(id) : pathText_(id);
     h.pod(L);
     if (L) {
-      h.pod(L->glyphs.size());
-      for (auto& g : L->glyphs) h.pod(g.glyph), h.pod(g.x), h.pod(g.y), h.pod(g.size), h.pod(g.font), h.pod(g.rotation);
+      if (!L->glyphKey.known) {
+        Hasher g;
+        g.pod(L->glyphs.size());
+        for (auto& q : L->glyphs) g.pod(q.glyph), g.pod(q.x), g.pod(q.y), g.pod(q.size), g.pod(q.font), g.pod(q.rotation);
+        L->glyphKey.value = g.h;
+        L->glyphKey.known = true;
+      }
+      h.pod(L->glyphKey.value);
     }
   }
   if (p.isBoolean() || p.isGroupLike()) {
@@ -239,7 +245,8 @@ const NodeGeometry* GeometryCache::get(const Document& doc, Guid id, int depth) 
   }
   if (p.isGroupLike()) return nullptr;
   uint64_t key = inputKey(doc, id, p, depth);
-  Entry& e = entries_[id];
+  auto it = entries_.find(id);  // found without inserting; made only when missing
+  Entry& e = it != entries_.end() ? it->second : entries_.try_emplace(id).first->second;
   if (!e.valid || e.input != key || e.network != p.shape().vectorData.network) {
     build(doc, id, p, e.geometry, depth);
     e.input = key;

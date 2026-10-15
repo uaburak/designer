@@ -34,6 +34,13 @@ text::LineInfo paragraphLine(const TextData& t, const std::u16string& str, uint3
 
 // ---- Layouts ------------------------------------------------------------------------
 
+// A text's cache entry: found (every draw of every text asks: no insertion, no allocation), made only when missing.
+Editor::CachedText& Editor::cachedText(Guid id) {
+  auto it = textCache_.find(id);
+  if (it != textCache_.end()) return it->second;
+  return textCache_.try_emplace(id).first->second;
+}
+
 const text::TextLayout* Editor::textLayout(Guid id) {
   const Node* n = doc_.get(id);
   if (n && n->props.type == NodeType::TEXT_PATH) {
@@ -42,7 +49,7 @@ const text::TextLayout* Editor::textLayout(Guid id) {
     o.width = n->props.size.x;
     o.height = n->props.size.y;
     uint32_t generation = text::FontRegistry::get().generation();
-    CachedText& c = textCache_[id];
+    CachedText& c = cachedText(id);
     if (!(c.layout && c.width == o.width && c.height == o.height && c.generation == generation))
       keepTextLayout(id, c, text::layoutTextPath(n->props, doc_.geometryCache().network(n->props.shape().vectorData)), o, generation);
     // Its fonts not in: what the file stored (derivedTextData), as TEXT.
@@ -53,7 +60,7 @@ const text::TextLayout* Editor::textLayout(Guid id) {
   if (!n || n->props.type != NodeType::TEXT) return nullptr;
   text::LayoutOptions o = text::optionsFor(n->props);
   uint32_t generation = text::FontRegistry::get().generation();
-  CachedText& c = textCache_[id];
+  CachedText& c = cachedText(id);
   if (!(c.layout && c.width == o.width && c.height == o.height && c.generation == generation)) keepTextLayout(id, c, text::layoutText(n->props, o), o, generation);
   if ((c.layout->pendingFont || c.layout->missingFont) && !storedText_.empty())
     if (const text::TextLayout* stored = storedLayout(id, n->props, *c.layout)) return stored;
@@ -126,7 +133,7 @@ bool Editor::measureText(Guid id, double width, Vec2& size) {
   // Measured in the box it is drawn in (an Auto width text, a fixed width one at its width): the layout is the one
   // drawing will ask for — kept, so a page's texts are shaped once at load, not once to measure and again to draw.
   if (text::LayoutOptions own = text::optionsFor(n->props); own.width == width && own.height < 0) {
-    CachedText& c = textCache_[id];
+    CachedText& c = cachedText(id);
     if (!(c.layout && c.width == own.width && c.height == own.height && c.generation == generation)) keepTextLayout(id, c, std::move(L), own, generation);
   }
   if (!m.ok) return false;

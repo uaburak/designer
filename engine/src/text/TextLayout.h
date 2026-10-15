@@ -115,6 +115,18 @@ struct TextLayout {
   // A text on a path (TEXT_PATH, text/TextPathLayout.h): how the one line's straight coordinates (caretXs, lines,
   // selectionRects) map onto the path. Glyphs are already placed on it.
   std::shared_ptr<const TextPathMap> path;
+  // The glyphs' hash, for GeometryCache's key of the text's outlines: computed on first use (a layout is not changed
+  // once it is handed out; every draw of a text asked again, hashing each glyph byte by byte). A copy has its own.
+  struct GlyphKey {
+    mutable uint64_t value = 0;
+    mutable bool known = false;
+    GlyphKey() = default;
+    GlyphKey(const GlyphKey&) {}
+    GlyphKey& operator=(const GlyphKey&) {
+      known = false;
+      return *this;
+    }
+  } glyphKey;
 
   // Caret geometry: the x of the caret before UTF-16 unit `index` on `line`.
   double caretX(uint32_t index, size_t line) const;
