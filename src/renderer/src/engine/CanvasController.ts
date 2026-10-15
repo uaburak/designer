@@ -1,6 +1,7 @@
 /**
- * Wires a <canvas> to an Engine: pointer events (with capture), the wheel
- * (pinch arrives as ctrlKey + wheel), keys (the engine first, then the
+ * Wires a <canvas> to an Engine: pointer events (with capture; a two-finger
+ * touch pinch zooms and pans), the wheel (pinch arrives as ctrlKey + wheel;
+ * its source and Windows notches by Figma's rules, pointerInput.ts), keys (the engine first, then the
  * shortcut table), focus, the canvas's size in CSS and device pixels, cursors,
  * WebGL context loss and the move to a new canvas after a WebGPU failure.
  * Every event goes straight to the engine — no React state on the way, so
@@ -25,12 +26,15 @@ import {
   POINTER_HANDLED,
   PointerType,
   WHEEL_PINCH,
+  WHEEL_TRACKPAD,
 } from "./abi";
 import { cssCursor } from "./cursors";
 import type { Engine } from "./Engine";
+import { CLICK_MS, pinchDelta, TouchPinch, WheelNormalizer, withinClickBox } from "./pointerInput";
 import { DEFAULT_SHORTCUTS, runShortcut, type Shortcut } from "./shortcuts";
 
 export const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+const IS_WINDOWS = typeof navigator !== "undefined" && /Win/.test(navigator.platform);
 
 /** The modifier bits of an event (PRIMARY = ⌘ on a Mac, Ctrl elsewhere). */
 export function modifiersOf(e: { shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean }): number {
@@ -58,6 +62,8 @@ export class CanvasController {
   private readonly onTextKey?: (e: KeyboardEvent) => boolean;
   private readonly cleanups: (() => void)[] = [];
   private textarea: HTMLTextAreaElement | null = null;
+  private readonly wheelInput = new WheelNormalizer({ mac: IS_MAC, windows: IS_WINDOWS });
+  private readonly pinch = new TouchPinch();
 
   constructor(canvas: HTMLCanvasElement, engine: Engine, options: CanvasControllerOptions = {}) {
     this.canvas = canvas;
@@ -101,6 +107,9 @@ export class CanvasController {
       this.textarea = null;
     });
     this.observeSize();
+    // Moves during a gesture are taken once per frame, the latest winning (docs/engine.md §8.4); hover stays immediate.
+    this.engine.setCoalesceMoves(true);
+    this.cleanups.push(() => this.engine.setCoalesceMoves(false));
     return () => this.detach();
   }
 
@@ -161,14 +170,14 @@ export class CanvasController {
     return [e.clientX - r.left, e.clientY - r.top];
   }
 
-  // Pointer events carry no click count (detail is 0 in Chromium): counted here, as the OS does for clicks —
-  // presses within 500 ms and 4 px of the last one, same button.
+  // Pointer events carry no click count (detail is 0 in Chromium): counted here by Figma's rule — presses within 500 ms
+  // of the last one and less than 4 px from it on each axis (10 for touch), same button.
   private lastDown = { t: -1e9, x: 0, y: 0, button: -1, count: 0 };
 
   private clickCount(e: PointerEvent): number {
     const [x, y] = this.at(e);
     const l = this.lastDown;
-    const near = e.timeStamp - l.t < 500 && Math.hypot(x - l.x, y - l.y) <= 4 && e.button === l.button;
+    const near = e.timeStamp - l.t < CLICK_MS && withinClickBox(x - l.x, y - l.y, e.pointerType === "touch") && e.button === l.button;
     const count = Math.max(e.detail || 0, near ? l.count + 1 : 1);
     this.lastDown = { t: e.timeStamp, x, y, button: e.button, count };
     return count;
@@ -182,6 +191,16 @@ export class CanvasController {
 
   private readonly onPointerDown = (e: PointerEvent) => {
     if (!this.engine.textEdit) this.canvas.focus({ preventScroll: true });
+    if (e.pointerType === "touch") {
+      const [x, y] = this.at(e);
+      // A second touch: the two are a pinch from now on; the first one's gesture goes back to where it started.
+      if (this.pinch.down(e.pointerId, x, y)) this.send(PointerType.CANCEL, e);
+      if (this.pinch.active) {
+        this.canvas.setPointerCapture(e.pointerId);
+        e.preventDefault();
+        return;
+      }
+    }
     const r = this.send(PointerType.DOWN, e);
     if (r & POINTER_CAPTURE) this.canvas.setPointerCapture(e.pointerId);
     if (r & POINTER_HANDLED) e.preventDefault();
@@ -273,19 +292,49 @@ export class CanvasController {
     this.textarea = t;
     return t;
   }
-  private readonly onPointerMove = (e: PointerEvent) => void this.send(PointerType.MOVE, e);
+  private readonly onPointerMove = (e: PointerEvent) => {
+    if (e.pointerType === "touch" && this.pinchMove(e)) return;
+    this.send(PointerType.MOVE, e);
+  };
   private readonly onPointerUp = (e: PointerEvent) => {
+    if (e.pointerType === "touch" && this.pinchEnd(e)) return;
     if (this.send(PointerType.UP, e) & POINTER_HANDLED) e.preventDefault();
   };
-  private readonly onPointerCancel = (e: PointerEvent) => void this.send(PointerType.CANCEL, e);
+  private readonly onPointerCancel = (e: PointerEvent) => {
+    if (e.pointerType === "touch" && this.pinchEnd(e)) return;
+    this.send(PointerType.CANCEL, e);
+  };
+
+  /** A touch of a pinch moved: zoom about the touches' middle by their distance's ratio, pan by its move. */
+  private pinchMove(e: PointerEvent): boolean {
+    const [x, y] = this.at(e);
+    const step = this.pinch.move(e.pointerId, x, y);
+    if (!this.pinch.active) return false;
+    if (!step) return true;
+    if (step.panX || step.panY) {
+      const c = this.engine.getCamera();
+      this.engine.setCamera({ ...c, x: c.x + step.panX, y: c.y + step.panY });
+    }
+    if (step.ratio !== 1) this.engine.wheel(step.cx, step.cy, 0, pinchDelta(step.ratio), 0, modifiersOf(e), WHEEL_PINCH | WHEEL_TRACKPAD);
+    return true;
+  }
+
+  /** A touch of a pinch lifted: true when it was one (nothing goes to the engine). */
+  private pinchEnd(e: PointerEvent): boolean {
+    const was = this.pinch.active;
+    this.pinch.up(e.pointerId);
+    return was;
+  }
   private readonly onPointerEnter = (e: PointerEvent) => void this.send(PointerType.ENTER, e);
   private readonly onPointerLeave = (e: PointerEvent) => void this.send(PointerType.LEAVE, e);
 
   private readonly onWheel = (e: WheelEvent) => {
     e.preventDefault();
     const [x, y] = this.at(e);
+    // The source (trackpad or mouse), Shift's axis swap off the Mac and Windows notches: Figma's rules.
+    const w = this.wheelInput.normalize({ dx: e.deltaX, dy: e.deltaY, shift: e.shiftKey, ctrl: e.ctrlKey, t: e.timeStamp });
     // A trackpad pinch arrives as a wheel event with ctrlKey set.
-    this.engine.wheel(x, y, e.deltaX, e.deltaY, e.deltaMode, modifiersOf(e), e.ctrlKey ? WHEEL_PINCH : 0);
+    this.engine.wheel(x, y, w.dx, w.dy, e.deltaMode, modifiersOf(e), (e.ctrlKey ? WHEEL_PINCH : 0) | w.source);
   };
 
   private readonly onKeyDown = (e: KeyboardEvent) => {

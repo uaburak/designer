@@ -141,6 +141,11 @@ export class EngineExports {
     this.fn("key")(h, type, keyCode, codepoint, mods, repeat) >>> 0;
   modifiers = (h: number, mods: number): void => void this.fn("modifiers")(h, mods);
   blur = (h: number): void => void this.fn("blur")(h);
+  /** 1: pointer moves during a gesture are taken once per engine_tick, the latest winning (0: at once). */
+  setCoalesceMoves = (h: number, on: number): void => {
+    // Optional: an engine built before it (the committed wasm until the next engine:build) takes every move at once.
+    if (typeof this.module._engine_set_coalesce_moves === "function") this.fn("set_coalesce_moves")(h, on);
+  };
   setTool = (h: number, tool: number): number => this.fn("set_tool")(h, tool);
   setHover = (h: number, refs: Uint8Array): void => this.withBytes([refs], (p) => void this.fn("set_hover")(h, p[0], p[1]));
   setSpacingHighlight = (h: number, mask: number): void => void this.fn("set_spacing_highlight")(h, mask);

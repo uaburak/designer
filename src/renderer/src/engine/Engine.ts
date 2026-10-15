@@ -1033,6 +1033,14 @@ export class Engine {
     return this.after(this.x.wheel(this.h, x, y, dx, dy, deltaMode, mods, flags));
   }
 
+  /**
+   * Pointer moves during a gesture taken once per frame (engine_tick), the latest winning — Figma's coalesced drags
+   * (docs/engine.md §8.4). The canvas's controller turns it on; off, each move is handled as it comes (tests, tools).
+   */
+  setCoalesceMoves(on: boolean): void {
+    if (this.h) this.after(this.x.setCoalesceMoves(this.h, on ? 1 : 0));
+  }
+
   /** A key by KeyboardEvent.code; returns KEY_HANDLED when the engine used it. */
   key(type: "down" | "up", code: string, key: string, mods: number, repeat = false): number {
     const codepoint = key.length > 0 && [...key].length === 1 ? key.codePointAt(0)! : 0;
