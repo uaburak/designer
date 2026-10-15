@@ -1341,7 +1341,13 @@ TEST_CASE("variables: soft-deleted variables, collections and styles stay at loa
   e.setSessionID(1);
   e.setViewport(800, 600, 1, 800, 600);
   e.loadDocument(codec::readChanges(v), Guid{0, 1});
-  e.takeEvents();
+  Editor::Events loadEvents = e.takeEvents();
+  // The removal is a document change of its own (SYSTEM): the store must hear it, or it keeps the main its head
+  // holds and refuses every snapshot that lacks it (owner's Wecra UI, round 17 D).
+  bool removalSent = false;
+  for (const auto& d : loadEvents.documents)
+    for (const NodeChange& c : d.changes) removalSent |= c.guid == Guid{7, 1} && c.phase == Phase::REMOVED;
+  CHECK(removalSent);
   CHECK(e.document().has({5, 1}));
   CHECK(e.document().has({5, 5}));
   CHECK(e.document().has({6, 1}));
