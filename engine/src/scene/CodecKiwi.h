@@ -71,6 +71,10 @@ bool readMessage(std::string_view bytes, KiwiMessage& out, DerivedSink* derived 
 // A message list (import / update payloads): 0x00, varuint count, count × (varuint length, Message bytes).
 bool isMessageList(std::string_view bytes);
 bool readMessageList(std::string_view bytes, std::vector<KiwiMessage>& out);
+// An override entry read by either codec: its overrideLevel (321, kept in `extra` by the generic reader) taken into
+// `level`, and its root path [symbolID] made empty (docs/schema.md §5.1). Then `list` gets it, merged into an entry of
+// the same (path, level) (later fields win).
+void addOverrideEntry(std::vector<SymbolOverride>& list, SymbolOverride&& o, Guid symbolID);
 std::string writeMessageList(const std::vector<std::string>& messages);
 
 struct KiwiWriteOptions {

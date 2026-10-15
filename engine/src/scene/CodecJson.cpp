@@ -538,6 +538,7 @@ void writeComponentFields(json::Writer& w, const NodeProps& p, FieldMask mask, b
         w.key("guidPath").beginObject().key("guids").beginArray();
         for (Guid g : o.path) writeGuidObject(w, g);
         w.endArray().endObject();
+        if (o.level) w.key("overrideLevel").number(o.level);
         writeFields(w, o.props, o.mask & ~static_cast<FieldMask>(F_PARENT_INDEX | F_TYPE), false, blobs);
         w.endObject();
       }
@@ -1292,19 +1293,9 @@ void readComponentFields(const json::Value& v, NodeProps& p, FieldMask& m, const
               Guid key;
               if (readGuid(g, key)) o.path.push_back(key);
             }
-        // Figma writes the root's entry as [symbolID]: the empty path here (docs/schema.md §5.1).
-        if (o.path.size() == 1 && o.path[0] == d.symbolID) o.path.clear();
         readFields(e, o.props, o.mask, false, blobs);
         o.mask &= ~static_cast<FieldMask>(F_PARENT_INDEX | F_TYPE);
-        // Entries for the same path merge (later fields win).
-        auto same = std::find_if(d.overrides.begin(), d.overrides.end(), [&](const SymbolOverride& q) { return q.path == o.path; });
-        if (same != d.overrides.end()) {
-          copyFields(same->props, o.props, o.mask & ~static_cast<FieldMask>(F_EXTRA));
-          for (auto& [k, val] : o.props.extra) same->props.extra[k] = val;
-          same->mask |= o.mask;
-        } else {
-          d.overrides.push_back(std::move(o));
-        }
+        addOverrideEntry(d.overrides, std::move(o), d.symbolID);
       }
     }
     p.comp().symbolData = std::move(d);

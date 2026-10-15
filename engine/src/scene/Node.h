@@ -1224,11 +1224,14 @@ struct NodeProps {
   friend FieldMask differingFields(const NodeProps& a, const NodeProps& b, FieldMask mask);
 };
 
-// One symbolOverrides entry: the overridden fields (`mask`) of the sublayer at `path` (empty = the root).
+// One symbolOverrides entry: the overridden fields (`mask`) of the sublayer at `path` (empty = the root). Entries are
+// keyed by (path, level): Figma's overrideLevel (321), the nesting level of the component that wrote the entry; level 0
+// (the usage site's own, all this engine writes) wins over the others at one path (docs/schema.md §5.1).
 struct SymbolOverride {
   std::vector<Guid> path;
   FieldMask mask = 0;
   NodeProps props;
+  int32_t level = 0;
   bool operator==(const SymbolOverride& o) const;
 };
 

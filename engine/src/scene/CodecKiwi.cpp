@@ -1964,20 +1964,8 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
             return false;
           }
         }
-        // Figma writes the root's entry as [symbolID]: the empty path here (docs/schema.md §5.1); entries for the
-        // same path merge (later fields win).
         std::vector<SymbolOverride> merged;
-        for (SymbolOverride& o : d.overrides) {
-          if (o.path.size() == 1 && o.path[0] == d.symbolID) o.path.clear();
-          auto same = std::find_if(merged.begin(), merged.end(), [&](const SymbolOverride& q) { return q.path == o.path; });
-          if (same != merged.end()) {
-            copyFields(same->props, o.props, o.mask & ~static_cast<FieldMask>(F_EXTRA));
-            for (auto& [k, val] : o.props.extra) same->props.extra[k] = val;
-            same->mask |= o.mask;
-          } else {
-            merged.push_back(std::move(o));
-          }
-        }
+        for (SymbolOverride& o : d.overrides) addOverrideEntry(merged, std::move(o), d.symbolID);
         d.overrides = std::move(merged);
         p.comp().symbolData = std::move(d);
         m |= F_SYMBOL_DATA;
@@ -2568,6 +2556,7 @@ void putFields(Out& o, const NodeProps& p, FieldMask mask, bool update, BlobsOut
       o.varuint(static_cast<uint32_t>(p.comp().symbolData.overrides.size()));
       for (const SymbolOverride& ov : p.comp().symbolData.overrides) {
         putGuidPath(o, id::kGuidPath, ov.path);
+        if (ov.level) putInt(o, 321, ov.level);  // overrideLevel
         std::vector<uint32_t> none;
         putFields(o, ov.props, ov.mask & ~static_cast<FieldMask>(F_PARENT_INDEX | F_TYPE), false, blobs, none);
         o.byte(0);
@@ -2940,6 +2929,27 @@ bool readMessage(std::string_view bytes, KiwiMessage& out, DerivedSink* derived)
   blobs.finish();
   out.blobs = blobs.table();
   return true;
+}
+
+void addOverrideEntry(std::vector<SymbolOverride>& list, SymbolOverride&& o, Guid symbolID) {
+  if (auto it = o.props.extra.find("overrideLevel"); it != o.props.extra.end()) {
+    // The field's bytes: varuint id, then the int (zigzag varint).
+    kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(it->second.data()), it->second.size());
+    uint32_t fid = 0;
+    int32_t v = 0;
+    if (bb.readVarUint(fid) && bb.readVarInt(v)) o.level = v;
+    o.props.extra.erase(it);
+    if (o.props.extra.empty()) o.mask &= ~static_cast<FieldMask>(F_EXTRA);
+  }
+  if (o.path.size() == 1 && o.path[0] == symbolID) o.path.clear();
+  auto same = std::find_if(list.begin(), list.end(), [&](const SymbolOverride& q) { return q.path == o.path && q.level == o.level; });
+  if (same == list.end()) {
+    list.push_back(std::move(o));
+    return;
+  }
+  copyFields(same->props, o.props, o.mask & ~static_cast<FieldMask>(F_EXTRA));
+  for (auto& [k, val] : o.props.extra) same->props.extra[k] = val;
+  same->mask |= o.mask;
 }
 
 bool readMessageList(std::string_view bytes, std::vector<KiwiMessage>& out) {
