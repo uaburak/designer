@@ -10,6 +10,7 @@ import { NAMED_PROPS, RAW_FIELDS, RAW_GRID_FIELDS, RAW_TEXT_FIELDS, propForField
 import { DEFAULTS } from "@shared/schema/document.generated";
 import { defaultEffect, defaultGuide, withBlurType } from "../panels/design/Effects";
 import { DEFAULT_LINEAR_TRANSFORM } from "../model/paints";
+import { ONE_GLASS, figmaGlass } from "../model/glass";
 
 export type Spec = Record<string, unknown>;
 type Obj = Record<string, unknown>;
@@ -125,6 +126,13 @@ export function parseEffects(v: unknown, path: string, errors: Errors): Effect[]
     let effect = { ...defaultEffect(parsed.type as Effect["type"]), ...parsed } as Effect;
     if (effect.blurOpType === "PROGRESSIVE") effect = { ...withBlurType(effect, true), ...parsed } as Effect;
     if (effect.type === "CUSTOM" && !effect.customEffectId) return void errors.push(`${at}.customEffectId: a shader effect needs its shader`);
+    if (effect.type === "GLASS") {
+      // Figma's fields (a Depth given as bevelSize, as Wecra once wrote it, moves to refractionRadius) and ranges.
+      if (out.some((x) => x.type === "GLASS")) return void errors.push(`${at}: ${ONE_GLASS}`);
+      const g = figmaGlass(effect);
+      const within = (v: unknown, lo: number, hi: number) => (typeof v === "number" ? Math.min(hi, Math.max(lo, v)) : v);
+      effect = { ...g, refractionRadius: within(g.refractionRadius, 1, 100), reflectionDistance: within(g.reflectionDistance, 0, 1), bevelSize: 1 };
+    }
     out.push(effect);
   });
   return out;
@@ -136,13 +144,14 @@ const EFFECT_FIELDS: Record<string, string[]> = {
   blur: ["radius", "blurOpType", "startRadius", "startOffset", "endOffset"],
   NOISE: ["noiseType", "color", "secondaryColor", "density", "opacity", "noiseSize", "seed", "blendMode"],
   TEXTURE: ["noiseSize", "radius", "clipToShape", "seed"],
-  GLASS: ["radius", "specularAngle", "specularIntensity", "refractionIntensity", "bevelSize", "chromaticAberration", "refractionRadius", "reflectionDistance"],
+  // bevelSize is always 1 (Figma's): not shown.
+  GLASS: ["radius", "specularAngle", "specularIntensity", "refractionIntensity", "refractionRadius", "chromaticAberration", "reflectionDistance"],
   CUSTOM: ["customEffectId", "componentPropAssignments", "blendMode"],
 };
 
 export const describeEffects = (effects: readonly Effect[] | undefined): unknown[] =>
   (effects ?? []).map((e) => {
-    const t = toTool("Effect", false, e) as Obj;
+    const t = toTool("Effect", false, figmaGlass(e)) as Obj;
     const kind = t.type === "DROP_SHADOW" || t.type === "INNER_SHADOW" ? "shadow" : t.type === "LAYER_BLUR" || t.type === "BACKGROUND_BLUR" ? "blur" : String(t.type);
     const keep = EFFECT_FIELDS[kind];
     if (!keep) return t;

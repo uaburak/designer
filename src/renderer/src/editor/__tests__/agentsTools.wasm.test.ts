@@ -77,17 +77,17 @@ describe("MCP tools: SVG", () => {
 describe("MCP tools: effects, paints, strictness", () => {
   it("writes GLASS with every parameter (and the Plugin API names), reads it back the same; keeps it on unrelated updates", async () => {
     const { engine, call } = await editor();
-    const id = json(await call("create_nodes", { nodes: [{ type: "RECTANGLE", name: "G", effects: [{ type: "GLASS", lightAngle: 30, lightIntensity: 0.5, refraction: 0.6, depth: 40, dispersion: 0.2, splay: 10, frost: 8 }] }] })).created[0].id;
+    const id = json(await call("create_nodes", { nodes: [{ type: "RECTANGLE", name: "G", effects: [{ type: "GLASS", lightAngle: 30, lightIntensity: 0.5, refraction: 0.6, depth: 40, dispersion: 0.2, splay: 0.25, frost: 8 }] }] })).created[0].id;
     const e = engine.readNode(id)!.effects![0];
-    expect(e).toMatchObject({ type: "GLASS", specularAngle: 30, specularIntensity: 0.5, bevelSize: 40, refractionRadius: 10, radius: 8 });
+    expect(e).toMatchObject({ type: "GLASS", specularAngle: 30, specularIntensity: 0.5, refractionRadius: 40, bevelSize: 1, reflectionDistance: 0.25, radius: 8 });
     expect(e.refractionIntensity).toBeCloseTo(0.6, 5);
     expect(e.chromaticAberration).toBeCloseTo(0.2, 5);
     const ctx = json(await call("get_design_context", { nodeId: id }));
-    expect(ctx.nodes[0].effects[0]).toMatchObject({ type: "GLASS", specularAngle: 30, specularIntensity: 0.5, refractionIntensity: 0.6, bevelSize: 40, chromaticAberration: 0.2, refractionRadius: 10, radius: 8 });
+    expect(ctx.nodes[0].effects[0]).toMatchObject({ type: "GLASS", specularAngle: 30, specularIntensity: 0.5, refractionIntensity: 0.6, refractionRadius: 40, chromaticAberration: 0.2, reflectionDistance: 0.25, radius: 8 });
     // What was read is written back unchanged (one shape).
     const back = json(await call("update_nodes", { updates: [{ nodeId: id, effects: ctx.nodes[0].effects, name: "G2" }] }));
     expect(back.summary).toContain("everything applied");
-    expect(engine.readNode(id)!.effects![0]).toMatchObject({ type: "GLASS", bevelSize: 40 });
+    expect(engine.readNode(id)!.effects![0]).toMatchObject({ type: "GLASS", refractionRadius: 40, bevelSize: 1 });
     // Every type.
     const all = [
       { type: "DROP_SHADOW", color: "#00000040", offset: { x: 0, y: 2 }, radius: 6, spread: 1, showShadowBehindNode: true },
@@ -134,9 +134,9 @@ describe("MCP tools: effects, paints, strictness", () => {
   it("set_properties passes document fields straight through and reads them back", async () => {
     const { engine, call } = await editor();
     const id = json(await call("create_nodes", { nodes: [{ type: "FRAME", layoutMode: "VERTICAL" }] })).created[0].id;
-    const r = json(await call("set_properties", { nodeId: id, properties: { stackSpacing: 13, effects: [{ type: "GLASS", bevelSize: 30 }], cornerSmoothing: 0.6, nope: 1 } }));
+    const r = json(await call("set_properties", { nodeId: id, properties: { stackSpacing: 13, effects: [{ type: "GLASS", refractionRadius: 30 }], cornerSmoothing: 0.6, nope: 1 } }));
     expect(engine.readNode(id)!.stackSpacing).toBe(13);
-    expect(engine.readNode(id)!.effects![0]).toMatchObject({ type: "GLASS", bevelSize: 30, specularAngle: -45 });
+    expect(engine.readNode(id)!.effects![0]).toMatchObject({ type: "GLASS", refractionRadius: 30, bevelSize: 1, specularAngle: -45 });
     expect(r.nodes[0].rejected[0].property).toBe("nope");
   });
 });
@@ -269,7 +269,7 @@ describe("MCP tools: variables and styles", () => {
   it("creates paint, text, effect and grid styles and applies them", async () => {
     const { engine, call } = await editor();
     const s1 = json(await call("create_effect_style", { name: "Glass", effects: [{ type: "GLASS", depth: 50 }], applyTo: ["1:5"] }));
-    expect(engine.readNode("1:5")!.effects![0]).toMatchObject({ type: "GLASS", bevelSize: 50 });
+    expect(engine.readNode("1:5")!.effects![0]).toMatchObject({ type: "GLASS", refractionRadius: 50, bevelSize: 1 });
     const s2 = json(await call("create_paint_style", { name: "Brand", fills: "#0D99FF" }));
     json(await call("apply_style", { nodeIds: ["1:6"], slot: "fill", styleId: s2.style.id }));
     expect(engine.readNode("1:6")!.fillPaints![0].color).toMatchObject({ b: 1 });
