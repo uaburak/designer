@@ -22,10 +22,11 @@
  * decoded, for the page shown, a few paints per idle slice.
  */
 import { t } from "@/i18n";
-import { Status } from "@/engine/abi";
+import { IMAGE_DISPLAY_P3, IMAGE_STRAIGHT, Status } from "@/engine/abi";
 import type { Guid, Message, NodeChange, Paint } from "@/engine/codec";
 import type { Engine } from "@/engine/Engine";
 import { engineCall, engineMethod } from "./engineCompat";
+import { COLOR_PROFILE_DISPLAY_P3, decodeImage } from "./imageDecode";
 import { isImageLike, paintImageHash, paintLacksProgressive, paintThumbnailHash, thumbHashBytes, withProgressive, type ProgressiveImage } from "./model/paints";
 import { rgbaToThumbHash, THUMBHASH_MAX_INPUT, thumbHashToPremultipliedRGBA } from "./thumbHash";
 
@@ -308,6 +309,8 @@ interface ImageState {
   loading: Level;
   /** The bitmap at `level` (TIER or FULL), as handed to the engine (it keeps it; so may we). */
   bitmap: ImageBitmap | null;
+  /** How it was decoded (engine_image_add_bitmap's flags: IMAGE_STRAIGHT, IMAGE_DISPLAY_P3; 0 the browser's way). */
+  color: number;
   /** The format of the full image's bytes (for the tier's encoding). */
   mime: string | null;
   /** Re-uploads done for a repeated request of a served level (bounded: never a loop with the engine). */
@@ -355,7 +358,7 @@ export class ImageService {
   /** Bumped by every first request of a hash (a render that needed an image it didn't have). */
   requests = 0;
   /** Decoded bitmaps waiting for their upload (after the first paint, a few per frame). */
-  private readonly uploads: { hash: string; bitmap: ImageBitmap; level: Level; again: boolean }[] = [];
+  private readonly uploads: { hash: string; bitmap: ImageBitmap; color: number; level: Level; again: boolean }[] = [];
   private uploadFrame = 0;
   private released = false;
   private releaseResolve: () => void = () => {};
@@ -443,7 +446,7 @@ export class ImageService {
   private stateOf(hash: string): ImageState {
     let s = this.states.get(hash);
     if (!s) {
-      s = { level: NONE, loading: NONE, bitmap: null, mime: null, reuploads: 0 };
+      s = { level: NONE, loading: NONE, bitmap: null, color: 0, mime: null, reuploads: 0 };
       this.states.set(hash, s);
     }
     return s;
@@ -470,13 +473,13 @@ export class ImageService {
   }
 
   private drainUploads(budget: number): void {
-    const addBitmap = engineMethod<(hash: string, bitmap: ImageBitmap) => number>(this.engine, "addImage", "addImageBitmap", "imageAdd");
+    const addBitmap = engineMethod<(hash: string, bitmap: ImageBitmap, color?: number) => number>(this.engine, "addImage", "addImageBitmap", "imageAdd");
     const failed = engineMethod<(hash: string) => void>(this.engine, "imageFailed", "failImage");
     let spent = 0;
     while (this.uploads.length) {
       const cost = this.uploads[0].level === FULL ? 1 : TIER_COST;
       if (spent > 0 && spent + cost > budget) break;
-      const { hash, bitmap, level, again } = this.uploads.shift()!;
+      const { hash, bitmap, color, level, again } = this.uploads.shift()!;
       spent += cost;
       const state = this.stateOf(hash);
       if (this.engine.destroyed || (!again && level <= state.level)) {
@@ -489,20 +492,21 @@ export class ImageService {
         failed?.(hash);
         continue;
       }
-      const s = addBitmap(hash, bitmap);
+      const s = addBitmap(hash, bitmap, color);
       if (typeof s === "number" && s !== Status.OK) {
         failed?.(hash);
         continue;
       }
       state.level = level;
       state.bitmap = bitmap;
+      state.color = color;
       if (level === FULL) this.noteDecoded(hash);
     }
   }
 
   /** A decoded bitmap, uploaded after the first paint in its turn; resolves when it is in (or the engine is gone). */
-  private enqueueUpload(hash: string, bitmap: ImageBitmap, level: Level, again = false): Promise<void> {
-    const entry = { hash, bitmap, level, again };
+  private enqueueUpload(hash: string, bitmap: ImageBitmap, color: number, level: Level, again = false): Promise<void> {
+    const entry = { hash, bitmap, color, level, again };
     this.uploads.push(entry);
     this.scheduleUploads();
     return new Promise<void>((resolve) => {
@@ -669,7 +673,7 @@ export class ImageService {
       // Asked again for what it has: the engine lost it (a dropped source). Once, from the bitmap kept here.
       if (state.bitmap && state.reuploads < 1) {
         state.reuploads++;
-        await this.enqueueUpload(hash, state.bitmap, state.level, true);
+        await this.enqueueUpload(hash, state.bitmap, state.color, state.level, true);
       }
       return;
     }
@@ -689,17 +693,28 @@ export class ImageService {
       }
       const addBitmap = engineMethod<(hash: string, bitmap: ImageBitmap) => number>(engine, "addImage", "addImageBitmap", "imageAdd");
       if (addBitmap && typeof createImageBitmap !== "undefined") {
-        // Decoded off the main thread; the upload waits for the first paint and its turn (a few per frame).
+        // Decoded in the image worker as Figma does it (straight, no colour management, the profile tagged: the
+        // engine premultiplies and converts at upload); the upload waits for the first paint and its turn (a few
+        // per frame). What the worker can't decode (an SVG) is the browser's, premultiplied and converted.
+        const mime = sniffImageMime(bytes);
         let bitmap: ImageBitmap;
-        try {
-          bitmap = await createImageBitmap(new Blob([bytes as BlobPart]), { premultiplyAlpha: "premultiply", colorSpaceConversion: "default" });
-        } catch {
-          failed?.(hash);
-          return;
+        let color = 0;
+        const flags = engineMethod<() => number>(engine, "imageColorFlags")?.() ?? 0;
+        const decoded = flags & IMAGE_STRAIGHT ? await decodeImage(bytes, mime) : null;
+        if (decoded) {
+          bitmap = decoded.bitmap;
+          color = IMAGE_STRAIGHT | (decoded.colorProfile === COLOR_PROFILE_DISPLAY_P3 ? IMAGE_DISPLAY_P3 : 0);
+        } else {
+          try {
+            bitmap = await createImageBitmap(new Blob([bytes as BlobPart]), { premultiplyAlpha: "premultiply", colorSpaceConversion: "default" });
+          } catch {
+            failed?.(hash);
+            return;
+          }
         }
         if (engine.destroyed) return void bitmap.close();
-        if (level === FULL) state.mime = sniffImageMime(bytes);
-        await this.enqueueUpload(hash, bitmap, level);
+        if (level === FULL) state.mime = mime;
+        await this.enqueueUpload(hash, bitmap, color, level);
         return;
       }
       const addBytes = engineMethod<(hash: string, bytes: Uint8Array) => number | Promise<number>>(engine, "addImageBytes", "imageAddBytes");
@@ -814,6 +829,8 @@ export class ImageService {
     const state = this.states.get(hash);
     const store = this.store;
     if (!store || !state?.bitmap || state.level !== FULL || this.deriving.has(hash) || this.derived.has(hash)) return;
+    // A Display P3 bitmap holds P3 values with no profile: a tier or placeholder made from it would come back as sRGB.
+    if (state.color & IMAGE_DISPLAY_P3) return;
     const bitmap = state.bitmap;
     this.deriving.add(hash);
     const work = deriveProgressive(bitmap, { hash, width: bitmap.width, height: bitmap.height, mime: state.mime ?? "image/png" }, store)

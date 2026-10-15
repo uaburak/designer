@@ -288,8 +288,14 @@ export const POINTER_HANDLED = 1;
 export const POINTER_CAPTURE = 2;
 export const KeyType = { DOWN: 0, UP: 1 } as const;
 export const KEY_HANDLED = 1;
+/** engine_wheel flags: PINCH = ctrlKey from a trackpad (or a touch pinch); the source by Figma's rule (pointerInput.ts). */
 export const WHEEL_PINCH = 1;
+export const WHEEL_TRACKPAD = 2;
+export const WHEEL_MOUSE = 4;
 export const TICK_NEEDS_RENDER = 1;
+/** engine_image_add_bitmap flags (engine/src/gfx/ImageColor.h): decoded straight with no colour management, and its profile. */
+export const IMAGE_STRAIGHT = 1;
+export const IMAGE_DISPLAY_P3 = 2;
 
 /** engine_apply_changes flags. */
 export const APPLY_USER = 1;

@@ -65,7 +65,10 @@ addToLibrary({
   engine_wgpu_display_p3: () => (Module['engineColorSpace'] === 'display-p3' ? 1 : 0),
 
   engine_wgpu_upload_bitmap__deps: ['$WebGPU'],
-  engine_wgpu_upload_bitmap: (devicePtr, texturePtr, bitmapId) => {
+  // `straight`: the bitmap was decoded straight with no colour management (gfx/ImageColor.h): its bytes go in as
+  // they are (no premultiplying, no conversion: an sRGB destination for a bitmap that counts as sRGB), for the
+  // device's upload pass.
+  engine_wgpu_upload_bitmap: (devicePtr, texturePtr, bitmapId, straight) => {
     var bitmaps = Module['engineBitmaps'];
     var bitmap = bitmaps && bitmaps[bitmapId];
     var device = WebGPU.getJsObject(devicePtr);
@@ -73,7 +76,8 @@ addToLibrary({
     if (!bitmap || !device || !texture) return 0;
     try {
       device.queue.copyExternalImageToTexture({ source: bitmap }, {
-        texture, premultipliedAlpha: true, colorSpace: Module['engineColorSpace'] === 'display-p3' ? 'display-p3' : 'srgb',
+        texture, premultipliedAlpha: !straight,
+        colorSpace: !straight && Module['engineColorSpace'] === 'display-p3' ? 'display-p3' : 'srgb',
       }, [Math.min(bitmap.videoWidth || bitmap.width, texture.width), Math.min(bitmap.videoHeight || bitmap.height, texture.height)]);
     } catch (e) {
       console.warn(`[engine] WebGPU: image upload failed: ${e}`);

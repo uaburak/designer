@@ -15,25 +15,33 @@
 #include "gfx/gl/Shaders.h"
 
 // ImageBitmaps never cross into Wasm memory: TS keeps them in Module.engineBitmaps and the texture is filled
-// from JavaScript (texSubImage2D(ImageBitmap)); `texture` is the GL texture name.
-EM_JS(int, eng_upload_bitmap, (unsigned texture, unsigned bitmapId), {
+// from JavaScript (texSubImage2D(ImageBitmap)); `texture` is the GL texture name. `straight`: the bitmap was decoded
+// straight with no colour management (gfx/ImageColor.h) and goes in as it is — its bytes, no conversion into the
+// canvas's space (unpackColorSpace "srgb" for the call: the bitmap counts as sRGB).
+EM_JS(int, eng_upload_bitmap, (unsigned texture, unsigned bitmapId, int straight), {
   var bitmaps = Module["engineBitmaps"];
   var bitmap = bitmaps && bitmaps[bitmapId];
   if (!bitmap || !GLctx || !GL.textures[texture]) return 0;
   GLctx.bindTexture(GLctx.TEXTURE_2D, GL.textures[texture]);
   // A <video> (a presentation's playing video) is uploaded as it is, so premultiplied here; an ImageBitmap was
-  // decoded premultiplied (the pixel-store flags don't apply to it).
+  // decoded premultiplied or straight as it should be (the pixel-store flags don't apply to it).
   var video = typeof HTMLVideoElement !== "undefined" && bitmap instanceof HTMLVideoElement;
   if (video) GLctx.pixelStorei(GLctx.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+  var space = straight && "unpackColorSpace" in GLctx ? GLctx.unpackColorSpace : null;
+  if (space && space !== "srgb") GLctx.unpackColorSpace = "srgb";
+  var ok = 1;
   try {
     GLctx.texSubImage2D(GLctx.TEXTURE_2D, 0, 0, 0, GLctx.RGBA, GLctx.UNSIGNED_BYTE, bitmap);
   } catch (e) {
-    if (video) GLctx.pixelStorei(GLctx.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-    return 0;
+    ok = 0;
   }
+  if (space && space !== "srgb") GLctx.unpackColorSpace = space;
   if (video) GLctx.pixelStorei(GLctx.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-  return 1;
+  return ok;
 });
+
+// 1 when the canvas draws in Display P3 (Engine.ts sets drawingBufferColorSpace from the document's profile).
+EM_JS(int, eng_canvas_p3, (), { return GLctx && GLctx.drawingBufferColorSpace === "display-p3" ? 1 : 0; });
 
 namespace eng::gfx {
 
@@ -509,12 +517,62 @@ class WebGL2Device final : public Device {
     glBindTexture(GL_TEXTURE_2D, 0);
   }
 
-  bool uploadBitmap(TextureId id, uint32_t bitmapId) override {
+  bool uploadBitmap(TextureId id, uint32_t bitmapId, const BitmapColor& color) override {
     forget();  // binds behind the draws' back
     if (!id || id >= textures_.size() || !textures_[id].gl) return false;
     emscripten_webgl_make_context_current(context_);
-    bool ok = eng_upload_bitmap(textures_[id].gl, bitmapId) != 0;
+    if (!color.straight) {
+      bool ok = eng_upload_bitmap(textures_[id].gl, bitmapId, 0) != 0;
+      glBindTexture(GL_TEXTURE_2D, 0);
+      return ok;
+    }
+    // Straight: as it is into a scratch texture, then drawn into the image's premultiplied (and converted).
+    const Texture& dst = textures_[id];
+    if (!prepProgram_ && !prepTried_) {
+      prepTried_ = true;
+      prepProgram_ = link(kPrepVertexGlsl, kPrepFragmentGlsl);
+      if (prepProgram_) {
+        prepRows_ = glGetUniformLocation(prepProgram_, "u_rows");
+        glUseProgram(prepProgram_);
+        glUniform1i(glGetUniformLocation(prepProgram_, "u_src"), 0);
+      }
+    }
+    if (!prepProgram_) return false;
+    GLuint scratch = 0, fb = 0;
+    glGenTextures(1, &scratch);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, scratch);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, static_cast<GLsizei>(dst.width), static_cast<GLsizei>(dst.height));
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    bool ok = eng_upload_bitmap(scratch, bitmapId, 1) != 0;
+    if (ok) {
+      GLint viewport[4] = {0, 0, 0, 0};
+      glGetIntegerv(GL_VIEWPORT, viewport);
+      glGenFramebuffers(1, &fb);
+      glBindFramebuffer(GL_FRAMEBUFFER, fb);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, dst.gl, 0);
+      glViewport(0, 0, static_cast<GLsizei>(dst.width), static_cast<GLsizei>(dst.height));
+      glDisable(GL_BLEND);
+      glDisable(GL_SCISSOR_TEST);
+      glDisable(GL_STENCIL_TEST);
+      glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+      glUseProgram(prepProgram_);
+      float rows[4][4];
+      prepUniforms(color.profile, eng_canvas_p3() ? ColorProfile::DISPLAY_P3 : ColorProfile::SRGB, rows);
+      glUniform4fv(prepRows_, 4, &rows[0][0]);
+      glBindVertexArray(0);  // no attributes: the triangle comes from gl_VertexID
+      glBindTexture(GL_TEXTURE_2D, scratch);
+      glDrawArrays(GL_TRIANGLES, 0, 3);
+      // Back to the pass's framebuffer, viewport and vertex array; forget() has the draws send the rest again.
+      glBindFramebuffer(GL_FRAMEBUFFER, bound_);
+      glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+      glBindVertexArray(vao_);
+      glDeleteFramebuffers(1, &fb);
+    }
     glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(1, &scratch);
+    forget();
     return ok;
   }
 
@@ -593,6 +651,9 @@ class WebGL2Device final : public Device {
 
   EMSCRIPTEN_WEBGL_CONTEXT_HANDLE context_ = 0;
   Program programs_[4];
+  GLuint prepProgram_ = 0;  // a straight bitmap's upload pass (gfx/ImageColor.h), made with the first one
+  GLint prepRows_ = -1;
+  bool prepTried_ = false;
   bool customTried_ = false;
   State state_;
   std::vector<Texture> textures_{Texture{}};  // index = TextureId; 0 unused

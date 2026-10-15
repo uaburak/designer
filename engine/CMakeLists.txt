@@ -217,6 +217,7 @@ else()
     tests/unit/r17.hover_outline.test.cpp
     tests/unit/r17.actors.test.cpp
     tests/unit/r17.layout_undo.test.cpp
+    tests/unit/r17.image_color.test.cpp
     tests/unit/r18.presence.test.cpp
     tests/unit/r18.import_fidelity.test.cpp
     tests/unit/trace.test.cpp

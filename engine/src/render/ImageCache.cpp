@@ -198,12 +198,13 @@ const ImageRegistry::Source* ImageRegistry::find(const ImageHash& hash, double d
   return &s;
 }
 
-void ImageRegistry::addBitmap(const ImageHash& hash, uint32_t bitmapId, uint32_t width, uint32_t height) {
+void ImageRegistry::addBitmap(const ImageHash& hash, uint32_t bitmapId, uint32_t width, uint32_t height, uint32_t color) {
   // The larger copy is kept (a tier arriving after the full image changes nothing).
   if (auto it = sources_.find(hash); it != sources_.end() && !it->second.failed && std::max(it->second.width, it->second.height) > std::max(width, height))
     return;
   Source s;
   s.bitmapId = bitmapId;
+  s.color = color;
   s.width = width;
   s.height = height;
   sources_[hash] = s;
@@ -295,7 +296,7 @@ ImageCache::Texture ImageCache::texture(const ImageHash& hash, bool* failed, dou
     // A video's new frame, into the same texture.
     if (it->second.serial != src->serial) {
       bool ok = false;
-      if (src->bitmapId) ok = device_.uploadBitmap(it->second.texture.id, src->bitmapId);
+      if (src->bitmapId) ok = device_.uploadBitmap(it->second.texture.id, src->bitmapId, gfx::bitmapColorOf(src->color));
       else if (src->rgba && src->rgba->size() >= static_cast<size_t>(src->width) * src->height * 4) {
         device_.writeTexture(it->second.texture.id, {0, 0, static_cast<int>(src->width), static_cast<int>(src->height)}, {src->rgba->data(), src->rgba->size()});
         ok = true;
@@ -352,7 +353,7 @@ ImageCache::Texture ImageCache::texture(const ImageHash& hash, bool* failed, dou
   gfx::TextureId id = device_.createTexture(d);
   if (!id) return {};
   bool ok = false;
-  if (src->bitmapId) ok = device_.uploadBitmap(id, src->bitmapId);
+  if (src->bitmapId) ok = device_.uploadBitmap(id, src->bitmapId, gfx::bitmapColorOf(src->color));
   else if (src->rgba && src->rgba->size() >= static_cast<size_t>(src->width) * src->height * 4) {
     device_.writeTexture(id, {0, 0, static_cast<int>(src->width), static_cast<int>(src->height)}, {src->rgba->data(), src->rgba->size()});
     ok = true;

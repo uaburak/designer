@@ -834,13 +834,46 @@ void Editor::updateMeasure(uint32_t mods) {
 
 // ---- Pointer and wheel ------------------------------------------------------
 
+void Editor::setCoalesceMoves(bool on) {
+  if (!on) flushQueuedMove();
+  coalesceMoves_ = on;
+}
+
+void Editor::flushQueuedMove() {
+  if (!queuedMove_.on) return;
+  queuedMove_.on = false;
+  pointerMove(queuedMove_.s, queuedMove_.mods);
+}
+
+void Editor::replayDrag() {
+  if (!replayWanted_) return;
+  replayWanted_ = false;
+  // Gestures whose result depends on what is under the pointer: where a move drops and reorders, what a marquee
+  // covers, a resize's snapping.
+  bool replayable = gesture_ == Gesture::Move || gesture_ == Gesture::Reorder || gesture_ == Gesture::Marquee || gesture_ == Gesture::Resize;
+  if (!replayable) return;
+  dragReplays_++;
+  replaying_ = true;
+  pointerMove(lastScreen_, mods_);
+  replaying_ = false;
+}
+
 uint32_t Editor::pointer(PointerEvent type, double x, double y, int button, uint32_t /*buttons*/, uint32_t mods, int clickCount) {
+  // A coalesced move comes before anything else the pointer does; a cancel drops it with the gesture.
+  if (type == PointerEvent::CANCEL) queuedMove_.on = false;
+  else if (type != PointerEvent::MOVE) flushQueuedMove();
   mods_ = mods;
   if (type == PointerEvent::DOWN) clickCount_ = std::max(1, clickCount);
   Vec2 s{x, y};
   switch (type) {
-    case PointerEvent::DOWN: return pointerDown(s, button, mods);
-    case PointerEvent::MOVE: pointerMove(s, mods); return 0;
+    case PointerEvent::DOWN: replayWanted_ = false; return pointerDown(s, button, mods);
+    case PointerEvent::MOVE:
+      if (coalesceMoves_ && gesture_ != Gesture::None) {
+        queuedMove_ = {true, s, mods};  // the latest wins; tick() handles it
+        return 0;
+      }
+      pointerMove(s, mods);
+      return 0;
     case PointerEvent::UP: {
       bool had = gesture_ != Gesture::None;
       pointerUp(s, mods);
@@ -872,6 +905,7 @@ uint32_t Editor::pointer(PointerEvent type, double x, double y, int button, uint
 }
 
 uint32_t Editor::wheel(double x, double y, double dx, double dy, DeltaMode mode, uint32_t mods, uint32_t flags) {
+  flushQueuedMove();
   double unit = mode == DeltaMode::LINE ? 16 : mode == DeltaMode::PAGE ? std::max(1.0, viewport_.height) : 1;
   stopCameraAnimation();  // round 16
   // Pans move by whole device pixels, so the page's cached pixels can simply shift (docs/engine.md §6.9).
@@ -886,9 +920,8 @@ uint32_t Editor::wheel(double x, double y, double dx, double dy, DeltaMode mode,
     double sign = (viewOptions_ & VIEW_INVERT_ZOOM) ? 1 : -1;
     zooming_ = true;
     changeCamera(camera_.zoomedAround(camera_.zoom * std::exp(sign * dy * (mode == DeltaMode::PAGE ? unit : 1) * rate), {x, y}));
-  } else if ((mods & MOD_SHIFT) && dx == 0) {
-    pan(-dy * unit, 0);
   } else {
+    // ⇧ turns a wheel sideways off the Mac only (macOS does it itself): TS swaps the axes (pointerInput.ts).
     pan(-dx * unit, -dy * unit);
   }
   // The pointer now sits over another part of the page: carry on whatever it was doing there.
@@ -1276,6 +1309,7 @@ std::vector<double> Editor::hapticValues() const {
 void Editor::pointerMove(Vec2 s, uint32_t mods) {
   // Round 17: the drag's values before this move, once per drag (later moves compare with the last tick's).
   const Gesture was = gesture_;
+  const uint64_t layoutRunsBefore = layoutRuns_;
   if (!hapticArmed_) {
     hapticFrom_ = hapticValues();
     hapticArmed_ = !hapticFrom_.empty();
@@ -1288,6 +1322,8 @@ void Editor::pointerMove(Vec2 s, uint32_t mods) {
       hapticFrom_ = std::move(now);
     }
   }
+  // It reflowed the page under the drag: once more at the next tick (not for a replay: one per reflow).
+  if (!replaying_) replayWanted_ = gesture_ != Gesture::None && layoutRuns_ != layoutRunsBefore;
 }
 
 void Editor::movePointer(Vec2 s, uint32_t mods) {
@@ -2096,6 +2132,7 @@ bool Editor::placeFlow(Guid frame, const GuidSet& dragged) {
     t.m12 = pl.position.y - b.y;
     writeQuiet(pl.id, t);
   }
+  layoutRuns_++;  // a reflow of the flow (replayDrag)
   return true;
 }
 

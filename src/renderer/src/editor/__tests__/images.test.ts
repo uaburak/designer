@@ -5,7 +5,7 @@
 // more; imports compute both; older files' paints get them written back as a "system" change.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Message, NodeChange } from "@/engine/codec";
-import { Status } from "@/engine/abi";
+import { IMAGE_DISPLAY_P3, IMAGE_STRAIGHT, Status } from "@/engine/abi";
 import { deriveProgressive, ImageService, importImage, importSize, memoryImageStore, sha1Hex, shouldDownscale, sniffImageMime, tierMime, tierSize, type ImageStore } from "../images";
 import { hashBytes, hashHex, imagePaint, paintThumbHash, paintThumbnailHash } from "../model/paints";
 import { rgbaToThumbHash, thumbHashToApproximateAspectRatio } from "../thumbHash";
@@ -369,6 +369,50 @@ describe("ImageService", () => {
     expect(store.fetched).toEqual([full]);
     expect(engine.placeholders).toEqual([]);
     expect(engine.uploads).toEqual([{ hash: full, width: 2048, height: 1024 }]);
+  });
+
+  it("an engine that converts at upload gets the bitmap decoded straight and tagged (Figma's image worker); older engines and SVGs the browser's decode", async () => {
+    const g = globalThis as Record<string, unknown>;
+    const decode = g.createImageBitmap as (src: unknown, opts?: Record<string, unknown>) => Promise<unknown>;
+    const options: (Record<string, unknown> | undefined)[] = [];
+    g.createImageBitmap = (src: unknown, opts?: Record<string, unknown>) => {
+      if (src instanceof Blob) options.push(opts);
+      return decode(src, opts);
+    };
+    const run = async (flags: number | null, bytes: Uint8Array, mime: string) => {
+      options.length = 0;
+      const store = memoryImageStore();
+      const hash = await store.put(bytes, mime);
+      const engine = fakeEngine();
+      const colors: (number | undefined)[] = [];
+      const add = engine.addImage;
+      engine.addImage = ((h: string, bitmap: { width: number; height: number }, color?: number) => {
+        colors.push(color);
+        return add(h, bitmap);
+      }) as never;
+      if (flags !== null) (engine as unknown as { imageColorFlags: () => number }).imageColorFlags = () => flags;
+      const images = new ImageService(engine as never, store);
+      images.attach();
+      images.releaseUploads();
+      engine.request(hash);
+      await ticks(6);
+      browser.frame();
+      return { colors, options: [...options] };
+    };
+    // IMAGE_STRAIGHT | IMAGE_DISPLAY_P3 understood: straight, unmanaged, and the flag says so (no profile: sRGB).
+    const straight = await run(IMAGE_STRAIGHT | IMAGE_DISPLAY_P3, imageBytes(64, 32), "image/png");
+    expect(straight.colors).toEqual([IMAGE_STRAIGHT]);
+    expect(straight.options).toEqual([{ premultiplyAlpha: "none", colorSpaceConversion: "none" }]);
+    // An engine built before the flags: premultiplied and converted by the browser, flags 0.
+    const old = await run(null, imageBytes(64, 32), "image/png");
+    expect(old.colors).toEqual([0]);
+    expect(old.options).toEqual([{ premultiplyAlpha: "premultiply", colorSpaceConversion: "default" }]);
+    // An SVG never goes the straight way.
+    const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="32"/>');
+    const vector = await run(IMAGE_STRAIGHT | IMAGE_DISPLAY_P3, svg, "image/svg+xml");
+    expect(vector.colors.every((c) => c === 0)).toBe(true);
+    expect(vector.options.every((o) => o?.premultiplyAlpha === "premultiply")).toBe(true);
+    g.createImageBitmap = decode;
   });
 
   it("writes thumbHash and imageThumbnail back onto the page's paints that lack them, as one system change, once their images are decoded", async () => {

@@ -21,7 +21,7 @@ WGPUDevice engine_wgpu_import_device(const char* selector, int32_t* lostFlag);
 void engine_wgpu_forget_device(WGPUDevice device);
 int engine_wgpu_preferred_bgra();
 int engine_wgpu_display_p3();
-int engine_wgpu_upload_bitmap(WGPUDevice device, WGPUTexture texture, uint32_t bitmapId);
+int engine_wgpu_upload_bitmap(WGPUDevice device, WGPUTexture texture, uint32_t bitmapId, int straight);
 int engine_wgpu_read_pixels(WGPUDevice device, WGPUTexture texture, int x, int y, int w, int h, uint8_t* out);
 void engine_wgpu_check_async(WGPUDevice device, WGPUTexture texture, int x, int y, int r, int g, int b, int a);
 }
@@ -73,6 +73,8 @@ class WebGPUDevice final : public Device {
         if (p) wgpuRenderPipelineRelease(p);
     for (WGPURenderPipeline p : utilityPipelines_)
       if (p) wgpuRenderPipelineRelease(p);
+    if (prepPipeline_) wgpuRenderPipelineRelease(prepPipeline_);
+    if (prepModule_) wgpuShaderModuleRelease(prepModule_);
     for (WGPUSampler s : samplers_)
       if (s) wgpuSamplerRelease(s);
     if (dummy_.gpu) release(dummy_);
@@ -515,10 +517,50 @@ class WebGPUDevice final : public Device {
     wgpuTextureViewRelease(prev);
   }
 
-  bool uploadBitmap(TextureId id, uint32_t bitmapId) override {
+  bool uploadBitmap(TextureId id, uint32_t bitmapId, const BitmapColor& color) override {
     if (!id || id >= textures_.size() || !textures_[id].gpu) return false;
     flush();
-    return engine_wgpu_upload_bitmap(device_, textures_[id].gpu, bitmapId) != 0;
+    if (!color.straight) return engine_wgpu_upload_bitmap(device_, textures_[id].gpu, bitmapId, 0) != 0;
+    // Straight: as it is into a scratch texture (copyExternalImageToTexture keeps it straight, no conversion), then
+    // drawn into the image's level 0 premultiplied (and converted); the mip levels follow (generateMipmaps).
+    if (!prepPipeline()) return false;
+    const uint32_t w = textures_[id].width, h = textures_[id].height;
+    TextureDesc sd;
+    sd.format = TextureFormat::RGBA8;
+    sd.width = w;
+    sd.height = h;
+    TextureId scratch = createTexture(sd);
+    if (!scratch) return false;
+    bool ok = engine_wgpu_upload_bitmap(device_, textures_[scratch].gpu, bitmapId, 1) != 0;
+    if (ok) {
+      closePass();
+      ensureEncoder();
+      float u[kDeviceSlots][4] = {};
+      prepUniforms(color.profile, engine_wgpu_display_p3() ? ColorProfile::DISPLAY_P3 : ColorProfile::SRGB, u);
+      uint32_t offset = 0;
+      Chunk& chunk = uniformSlot(u, offset);
+      Texture& dst = textures_[id];
+      WGPUTextureView view = levelView(dst, 0);
+      WGPUBindGroup group = utilityGroup(textures_[scratch].view, samplers_[0]);
+      WGPURenderPassColorAttachment ca = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
+      ca.view = view;
+      ca.loadOp = WGPULoadOp_Clear;
+      ca.storeOp = WGPUStoreOp_Store;
+      WGPURenderPassDescriptor rp = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
+      rp.colorAttachmentCount = 1;
+      rp.colorAttachments = &ca;
+      WGPURenderPassEncoder enc = wgpuCommandEncoderBeginRenderPass(encoder_, &rp);
+      wgpuRenderPassEncoderSetPipeline(enc, prepPipeline_);
+      wgpuRenderPassEncoderSetBindGroup(enc, 0, chunk.group, 1, &offset);
+      wgpuRenderPassEncoderSetBindGroup(enc, 1, group, 0, nullptr);
+      wgpuRenderPassEncoderDraw(enc, 6, 1, 0, 0);
+      wgpuRenderPassEncoderEnd(enc);
+      wgpuRenderPassEncoderRelease(enc);
+      wgpuBindGroupRelease(group);
+      if (view != dst.view) wgpuTextureViewRelease(view);
+    }
+    release(textures_[scratch]);  // destroyed once what was recorded has been submitted (retire)
+    return ok;
   }
 
   void destroyTexture(TextureId id) override {
@@ -916,6 +958,29 @@ class WebGPUDevice final : public Device {
     st_.textures = group;
   }
 
+  WGPURenderPipeline prepPipeline() {
+    if (prepPipeline_ || prepTried_) return prepPipeline_;
+    prepTried_ = true;
+    prepModule_ = module(std::string(wgsl::kCommon) + kPrepWgsl, "image prep");
+    if (!prepModule_) return nullptr;
+    WGPUColorTargetState target = WGPU_COLOR_TARGET_STATE_INIT;
+    target.format = WGPUTextureFormat_RGBA8Unorm;
+    target.writeMask = WGPUColorWriteMask_All;
+    WGPUFragmentState fs = WGPU_FRAGMENT_STATE_INIT;
+    fs.module = prepModule_;
+    fs.entryPoint = sv("prep");
+    fs.targetCount = 1;
+    fs.targets = &target;
+    WGPURenderPipelineDescriptor d = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
+    d.layout = pipelineLayouts_[kLayoutUtility];
+    d.vertex.module = prepModule_;
+    d.vertex.entryPoint = sv("vs");
+    d.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+    d.fragment = &fs;
+    prepPipeline_ = wgpuDeviceCreateRenderPipeline(device_, &d);
+    return prepPipeline_;
+  }
+
   WGPUBindGroup utilityGroup(WGPUTextureView view, WGPUSampler sampler) {
     WGPUBindGroupEntry e[2] = {WGPU_BIND_GROUP_ENTRY_INIT, WGPU_BIND_GROUP_ENTRY_INIT};
     e[0].binding = 0;
@@ -1147,6 +1212,10 @@ class WebGPUDevice final : public Device {
   WGPUPipelineLayout pipelineLayouts_[kLayouts] = {};
   WGPUSampler samplers_[8] = {};
   WGPURenderPipeline utilityPipelines_[2] = {};
+  // A straight bitmap's upload pass (gfx/ImageColor.h), made with the first one.
+  WGPUShaderModule prepModule_ = nullptr;
+  WGPURenderPipeline prepPipeline_ = nullptr;
+  bool prepTried_ = false;
   Texture dummy_;
   uint64_t nextSerial_ = 1;
 

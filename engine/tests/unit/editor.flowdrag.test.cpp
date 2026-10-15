@@ -433,6 +433,35 @@ TEST_CASE("auto-layout drag: a selection with others between comes together at i
   CHECK(world(e, VK[2]).y == 190);
 }
 
+TEST_CASE("auto-layout drag: a move that reflows the flow is replayed once at the next frame; a newer move elides it") {
+  Editor e = flowScene();
+  e.tick(1000);
+  e.setSelection({VK[0]});
+  down(e, 60, 30);
+  steps(e, {60, 30}, {64, 65});
+  e.tick(1016);  // the moves so far laid nothing out (the dragged layer is lifted out of the flow)
+  CHECK(e.dragReplays() == 0);
+  move(e, 64, 75);  // the swap: the flow is laid out again
+  CHECK(flowOrder(e) == std::vector<Guid>{VK[1], VK[0], VK[2], VK[3]});
+  CHECK(e.needsFrame());
+  e.tick(1032);
+  CHECK(e.dragReplays() == 1);
+  CHECK(flowOrder(e) == std::vector<Guid>{VK[1], VK[0], VK[2], VK[3]});  // the same pointer: the same place
+  e.tick(1048);
+  CHECK(e.dragReplays() == 1);  // once per reflow
+  // Coalesced: a newer move in the next frame stands in for the replay.
+  e.setCoalesceMoves(true);
+  move(e, 64, 140);  // past k2's centre
+  e.tick(1064);
+  CHECK(flowOrder(e) == std::vector<Guid>{VK[1], VK[2], VK[0], VK[3]});
+  move(e, 64, 141);
+  e.tick(1080);
+  CHECK(e.dragReplays() == 1);
+  up(e, 64, 141);
+  e.tick(1096);
+  CHECK(e.dragReplays() == 1);
+}
+
 TEST_CASE("reorder rule: a block with others inside it — its next neighbour is the first after it") {
   reorder::Flow f;
   f.axis = 1;

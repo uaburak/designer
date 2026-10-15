@@ -828,7 +828,8 @@ ENG_EXPORT uint32_t engine_pointer(Handle h, uint32_t type, double x, double y, 
   return e->editor.pointer(static_cast<PointerEvent>(type), x, y, static_cast<int>(button), buttons, mods, static_cast<int>(clickCount));
 }
 
-// deltaMode as WheelEvent's; flags PINCH (1) = ctrlKey from a trackpad.
+// deltaMode as WheelEvent's; flags PINCH (1) = ctrlKey from a trackpad (or a touch pinch), TRACKPAD (2) / MOUSE (4) the
+// source by Figma's rule (TS classifies; passed through).
 ENG_EXPORT uint32_t engine_wheel(Handle h, double x, double y, double dx, double dy, uint32_t deltaMode, uint32_t mods, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
@@ -857,6 +858,13 @@ ENG_EXPORT void engine_modifiers(Handle h, uint32_t mods) {
 ENG_EXPORT void engine_blur(Handle h) {
   Call call;
   if (Engine* e = engineOf(h)) e->editor.blur();
+}
+
+// 1: pointer moves during a gesture are handled once per engine_tick, the latest winning (Figma's coalesced drags); 0
+// (the default): each at once.
+ENG_EXPORT void engine_set_coalesce_moves(Handle h, uint32_t on) {
+  Call call;
+  if (Engine* e = engineOf(h)) e->editor.setCoalesceMoves(on != 0);
 }
 
 ENG_EXPORT int32_t engine_set_tool(Handle h, uint32_t tool) {
@@ -1916,13 +1924,15 @@ void imagesChanged() {
 }  // namespace
 
 // The image `hash` (40 hex digits, UTF-8) is the JavaScript ImageBitmap Module.engineBitmaps[bitmapId]
-// (decoded premultiplied, width Ã height): the GL backend uploads it with texImage2D.
-ENG_EXPORT int32_t engine_image_add_bitmap(Ptr hashPtr, uint32_t bitmapId, uint32_t width, uint32_t height) {
+// (width × height). flags 0: decoded premultiplied and converted by the browser, uploaded as it is; STRAIGHT (1):
+// decoded straight with no colour management (editor/imageDecode.ts, as Figma's image worker), in sRGB or, with
+// DISPLAY_P3 (2), Display P3 — premultiplied and converted into the canvas's space at upload (gfx/ImageColor.h).
+ENG_EXPORT int32_t engine_image_add_bitmap(Ptr hashPtr, uint32_t bitmapId, uint32_t width, uint32_t height, uint32_t flags) {
   Call call;
   ImageHash h;
   if (!readHash(hashPtr, h)) return E_INVALID;
   if (!width || !height || !bitmapId) return E_INVALID;
-  ImageRegistry::get().addBitmap(h, bitmapId, width, height);
+  ImageRegistry::get().addBitmap(h, bitmapId, width, height, flags & (gfx::IMAGE_STRAIGHT | gfx::IMAGE_DISPLAY_P3));
   imagesChanged();
   return OK;
 }
@@ -1938,6 +1948,10 @@ ENG_EXPORT int32_t engine_image_add_rgba(Ptr hashPtr, uint32_t width, uint32_t h
   imagesChanged();
   return OK;
 }
+
+// The engine_image_add_bitmap flags this engine understands (IMAGE_STRAIGHT | IMAGE_DISPLAY_P3): TS decodes Figma's
+// way (editor/imageDecode.ts) only for an engine that premultiplies and converts at upload.
+ENG_EXPORT uint32_t engine_image_color_flags() { return gfx::IMAGE_STRAIGHT | gfx::IMAGE_DISPLAY_P3; }
 
 // Nobody has the image `hash`: its paints draw Figma's grey placeholder.
 ENG_EXPORT int32_t engine_image_failed(Ptr hashPtr) {

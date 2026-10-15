@@ -54,6 +54,7 @@ class ImageRegistry {
   };
   struct Source {
     uint32_t bitmapId = 0;  // a JavaScript ImageBitmap (Module.engineBitmaps)
+    uint32_t color = 0;     // the bitmap's gfx::IMAGE_* flags: straight alpha, its profile (gfx/ImageColor.h)
     Bytes rgba;             // or premultiplied RGBA8 pixels
     uint32_t width = 0, height = 0;
     bool failed = false;
@@ -67,7 +68,7 @@ class ImageRegistry {
   // The image's pixels, once they arrived; nullptr before (and a REQUEST_IMAGE is queued, once). `devicePx`: how large
   // it is drawn now: a source smaller than that (a tier, the original being larger) is asked for again, larger.
   const Source* find(const ImageHash& hash, double devicePx = 0, const ImageHints* hints = nullptr);
-  void addBitmap(const ImageHash& hash, uint32_t bitmapId, uint32_t width, uint32_t height);
+  void addBitmap(const ImageHash& hash, uint32_t bitmapId, uint32_t width, uint32_t height, uint32_t color = 0);
   void addRgba(const ImageHash& hash, uint32_t width, uint32_t height, Bytes premultiplied);
   // A live source's new frame (a video playing in a presentation): registered on first use, then `serial` bumped.
   // `rgba` (tests, Node) instead of a bitmap when given. No REQUEST_IMAGE is ever made for these hashes.

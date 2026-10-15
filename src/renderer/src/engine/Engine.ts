@@ -1035,6 +1035,14 @@ export class Engine {
     return this.after(this.x.wheel(this.h, x, y, dx, dy, deltaMode, mods, flags));
   }
 
+  /**
+   * Pointer moves during a gesture taken once per frame (engine_tick), the latest winning — Figma's coalesced drags
+   * (docs/engine.md §8.4). The canvas's controller turns it on; off, each move is handled as it comes (tests, tools).
+   */
+  setCoalesceMoves(on: boolean): void {
+    if (this.h) this.after(this.x.setCoalesceMoves(this.h, on ? 1 : 0));
+  }
+
   /** A key by KeyboardEvent.code; returns KEY_HANDLED when the engine used it. */
   key(type: "down" | "up", code: string, key: string, mods: number, repeat = false): number {
     const codepoint = key.length > 0 && [...key].length === 1 ? key.codePointAt(0)! : 0;
@@ -1814,13 +1822,22 @@ export class Engine {
     return this.addImage(hash, bitmap);
   }
 
-  /** A decoded image for `hash`; the engine keeps the bitmap (it uploads it again after a GPU eviction). */
-  addImage(hash: string, bitmap: ImageBitmap): number {
+  /**
+   * A decoded image for `hash`; the engine keeps the bitmap (it uploads it again after a GPU eviction). `color`: 0 for
+   * a bitmap the browser decoded premultiplied into the canvas's space; IMAGE_STRAIGHT (| IMAGE_DISPLAY_P3) for one
+   * decoded as Figma does it (editor/imageDecode.ts), premultiplied and converted by the engine at upload.
+   */
+  addImage(hash: string, bitmap: ImageBitmap, color = 0): number {
     const module = this.x.module;
     module.engineBitmaps ??= {};
     const id = nextBitmapId++;
     module.engineBitmaps[id] = bitmap;
-    return this.after(this.x.imageAddBitmap(hash.toLowerCase(), id, bitmap.width, bitmap.height));
+    return this.after(this.x.imageAddBitmap(hash.toLowerCase(), id, bitmap.width, bitmap.height, color));
+  }
+
+  /** The addImage `color` flags this engine understands (IMAGE_STRAIGHT | IMAGE_DISPLAY_P3; 0: decode the browser's way). */
+  imageColorFlags(): number {
+    return this.x.imageColorFlags();
   }
 
   /** Raw premultiplied RGBA8 pixels for `hash` (headless engines, tests). */
