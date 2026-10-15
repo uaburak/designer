@@ -641,6 +641,9 @@ export function withTrigger(i: PrototypeInteraction, t: InteractionType): Protot
   if (!takesDelay(t)) {
     delete event.interactionMaintained;
     delete event.interactionDuration;
+  } else if (takesDelay(i.event?.interactionType)) {
+    // Mouse trigger to mouse trigger: the delay kept, moved to Figma's placement when it sat in transitionTimeout.
+    Object.assign(event, withMouseDelay(event, mouseDelayOf(i.event)));
   }
   if (t !== "ON_KEY_DOWN") delete event.keyTrigger;
   if (t === "ON_MEDIA_HIT") event.mediaHitTime = i.event?.mediaHitTime ?? 0;

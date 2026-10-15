@@ -95,6 +95,10 @@ describe("prototype model", () => {
     expect(mouseDelayOf({ interactionType: "ON_CLICK", interactionMaintained: true, interactionDuration: 1 })).toBe(0);
     expect(withTrigger(delayed, "MOUSE_LEAVE").event).toMatchObject({ interactionMaintained: true, interactionDuration: 0.5 });
     expect(withTrigger(delayed, "ON_CLICK").event).toEqual({ interactionType: "ON_CLICK" });
+    // A legacy delay (Wecra's earlier transitionTimeout placement, or the legacy Mouse in) survives a switch between
+    // mouse triggers, moved to Figma's placement.
+    expect(withTrigger({ event: { interactionType: "MOUSE_IN", transitionTimeout: 0.25 } }, "MOUSE_ENTER").event).toEqual({ interactionType: "MOUSE_ENTER", interactionMaintained: true, interactionDuration: 0.25 });
+    expect(withTrigger({ event: { interactionType: "AFTER_TIMEOUT", transitionTimeout: 1.5 } }, "MOUSE_ENTER").event).toEqual({ interactionType: "MOUSE_ENTER" });
     expect(withTrigger({ ...enter, event: { interactionType: "ON_CLICK", transitionTimeout: 0 } }, "AFTER_TIMEOUT").event?.transitionTimeout).toBe(0.8);
   });
 
