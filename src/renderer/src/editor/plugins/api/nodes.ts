@@ -10,6 +10,7 @@ import { keyAfter, keyBetween } from "@shared/schema/fractionalIndex";
 import { fieldsOf, readProps, PROP_NAMES, sizingOf } from "../../agents/nodeSpec";
 import { cssOf } from "../../model/exports";
 import { mainOf } from "../../components";
+import { setTrackCount, tracksOf, type GridAxis, type GridItemNode, type GridNode } from "../../model/grid";
 import { ApiError, MIXED } from "./codec";
 import { mustNode, parentOf, readNode, ref, refOf, type ApiContext } from "./context";
 import {
@@ -100,6 +101,35 @@ const needString = (name: string) => (v: unknown) => {
   if (typeof v !== "string") throw new ApiError(`in set_${name}: Expected a string`);
   return v;
 };
+
+/** A grid frame's gap: 0 or more (Figma's gridRowGap / gridColumnGap setters). */
+const gridGap = (f: "gridRowGap" | "gridColumnGap"): Prop => ({
+  get: (_ctx, n) => (n as unknown as Obj)[f] ?? 0,
+  set: (ctx, n, v) => {
+    const g = needNumber(f)(v) as number;
+    if (g < 0) throw new ApiError(`in set_${f}: Expected a number greater than or equal to 0`);
+    writeFields(ctx, n.guid, { [f]: g } as NodeFields, f);
+  },
+});
+
+/**
+ * gridRowCount / gridColumnCount: the grid's tracks along the axis (Figma: an integer of at least 1, the row count
+ * refused while the rows are automatic). New tracks hug; items anchored past a removed track move to the last one.
+ */
+const gridCount = (axis: GridAxis, name: string): Prop => ({
+  get: (_ctx, n) => tracksOf(n as unknown as GridNode, axis).length,
+  set: (ctx, n, v) => {
+    if (n.stackMode !== "GRID") throw new ApiError(`in set_${name}: Can only set ${name} on a node with layoutMode GRID`);
+    if (typeof v !== "number" || !Number.isInteger(v) || v < 1) throw new ApiError(`in set_${name}: Expected an integer greater than or equal to 1`);
+    if (axis === "rows" && (n as unknown as GridNode).gridAutoTracks === "ROWS") throw new ApiError(`in set_${name}: Cannot set gridRowCount while the number of rows is automatic (gridAutoTracks ROWS)`);
+    const kids = (n.childIds ?? []) as Guid[];
+    const items = (kids.length ? ctx.ed.engine.readNodes(kids) : []).map((k) => ({ guid: k.guid, node: k as unknown as GridItemNode }));
+    const session = Number(String(n.guid).replace(/^I/, "").split(":")[0]) || 1;
+    const r = setTrackCount(n as unknown as GridNode, axis, v, session, items);
+    writeFields(ctx, n.guid, r.frame as NodeFields, name);
+    for (const it of r.items) writeFields(ctx, it.guid as Guid, it.fields as NodeFields, name);
+  },
+});
 
 const isText = (n: NodeChange) => n.type === "TEXT" || (n.type as string) === "TEXT_PATH";
 const transformOf = (n: NodeChange) => n.transform ?? IDENTITY;
@@ -248,7 +278,12 @@ const PROPS: Record<string, Prop> = {
   },
   counterAxisSpacing: {
     get: (_ctx, n) => (n.stackWrap === "WRAP" ? (n.stackCounterSpacing ?? n.stackSpacing ?? 0) : null),
-    set: (ctx, n, v) => writeFields(ctx, n.guid, v === null ? { stackCounterSpacing: n.stackSpacing ?? 0 } : { stackCounterSpacing: needNumber("counterAxisSpacing")(v) as number }, "counterAxisSpacing"),
+    set: (ctx, n, v) => {
+      // A positive number, or null (the gap between items).
+      const g = v === null ? (n.stackSpacing ?? 0) : (needNumber("counterAxisSpacing")(v) as number);
+      if (v !== null && g < 0) throw new ApiError("in set_counterAxisSpacing: Expected a number greater than or equal to 0, or null");
+      writeFields(ctx, n.guid, { stackCounterSpacing: g }, "counterAxisSpacing");
+    },
   },
   primaryAxisAlignItems: viaSpec("primaryAxisAlignItems", (v) => v ?? "MIN"),
   counterAxisAlignItems: viaSpec("counterAxisAlignItems", (v) => v ?? "MIN"),
@@ -421,10 +456,10 @@ const PROPS: Record<string, Prop> = {
   selectedTextRange: { get: () => null, set: () => {} },
   prototypeBackgrounds: { get: () => [] },
   prototypeStartNode: { get: () => null },
-  gridRowCount: field("gridRows", 0),
-  gridColumnCount: field("gridColumns", 0),
-  gridRowGap: field("gridRowGap", 0),
-  gridColumnGap: field("gridColumnGap", 0),
+  gridRowCount: gridCount("rows", "gridRowCount"),
+  gridColumnCount: gridCount("columns", "gridColumnCount"),
+  gridRowGap: gridGap("gridRowGap"),
+  gridColumnGap: gridGap("gridColumnGap"),
   // Draw (docs/draw.md §7, api/draw.ts)
   textPathStartData: { get: (_ctx, n) => textPathStartData(n), set: setTextPathStartData, only: ["TEXT_PATH"] },
   transformModifiers: { get: (_ctx, n) => transformModifiers(n), set: setTransformModifiers, only: ["TRANSFORM_GROUP"] },

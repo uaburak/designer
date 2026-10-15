@@ -342,6 +342,67 @@ describe("plugins: the sandbox", () => {
     expect(out.fills).toContain("between 0 and 1");
   });
 
+  it("auto layout and grid setters follow Figma's rules (SPACE_BETWEEN stored as SPACE_EVENLY, GRID's side effects, the refusals)", async () => {
+    const { ed, engine } = await editor();
+    const { r } = await run(
+      ed,
+      inline(`
+        const out = {};
+        const tryIt = (key, fn) => { try { fn(); out[key] = "ok"; } catch (e) { out[key] = e.message; } };
+        const row = figma.createFrame();
+        row.layoutMode = "HORIZONTAL";
+        row.primaryAxisAlignItems = "SPACE_BETWEEN";
+        out.align = row.primaryAxisAlignItems;
+        out.rowId = row.id;
+        const kid = figma.createRectangle();
+        row.appendChild(kid);
+        tryIt("grow2", () => { kid.layoutGrow = 2; });
+        kid.layoutGrow = 1;
+        out.grow = kid.layoutGrow;
+        const col = figma.createFrame();
+        col.layoutMode = "VERTICAL";
+        tryIt("baseline", () => { col.counterAxisAlignItems = "BASELINE"; });
+        tryIt("negativeGap", () => { row.counterAxisSpacing = -2; });
+        const plain = figma.createFrame();
+        const loose = figma.createRectangle();
+        plain.appendChild(loose);
+        tryIt("absolute", () => { loose.layoutPositioning = "ABSOLUTE"; });
+        tryIt("auto", () => { loose.layoutPositioning = "AUTO"; });
+        const grid = figma.createFrame();
+        grid.layoutMode = "GRID";
+        out.grid = [grid.primaryAxisSizingMode, grid.counterAxisSizingMode, grid.primaryAxisAlignItems, grid.counterAxisAlignItems, grid.gridRowCount, grid.gridColumnCount];
+        grid.gridRowCount = 3;
+        grid.gridColumnCount = 4;
+        out.counts = [grid.gridRowCount, grid.gridColumnCount];
+        tryIt("rows0", () => { grid.gridRowCount = 0; });
+        tryIt("rowsHalf", () => { grid.gridColumnCount = 1.5; });
+        tryIt("gridCenter", () => { grid.primaryAxisAlignItems = "CENTER"; });
+        tryIt("gridGap", () => { grid.gridRowGap = -1; });
+        grid.gridRowGap = 6;
+        out.gap = grid.gridRowGap;
+        figma.root.setPluginData("result", JSON.stringify(out));
+        figma.closePlugin();
+      `)
+    );
+    await untilEnded(r);
+    const out = JSON.parse(rootData(engine, "result")!);
+    expect(out.align).toBe("SPACE_BETWEEN");
+    expect(engine.readNode(out.rowId)!.stackPrimaryAlignItems).toBe("SPACE_EVENLY");
+    expect(out.grow).toBe(1);
+    expect(out.grow2).toContain("0 or 1");
+    expect(out.baseline).toContain("HORIZONTAL");
+    expect(out.negativeGap).toContain("greater than or equal to 0");
+    expect(out.absolute).toBe("in set_layoutPositioning: Can only set layoutPositioning = ABSOLUTE if the parent node has layoutMode !== NONE");
+    expect(out.auto).toBe("ok");
+    expect(out.grid).toEqual(["FIXED", "FIXED", "MIN", "MIN", 2, 2]);
+    expect(out.counts).toEqual([3, 4]);
+    expect(out.rows0).toContain("integer");
+    expect(out.rowsHalf).toContain("integer");
+    expect(out.gridCenter).toContain("MIN");
+    expect(out.gridGap).toContain("greater than or equal to 0");
+    expect(out.gap).toBe(6);
+  });
+
   it("new nodes are centred in the view, not at the page's 0,0 (Figma: like R and a click)", async () => {
     const { ed, engine } = await editor();
     engine.centerOn(1000, -500, 1);
