@@ -815,6 +815,8 @@ export interface InstallBrushInput {
   name: string;
   type: BrushType;
   artwork: BrushArtwork;
+  /** A scatter brush's own settings (its node's scatterStrokeSettings 449), over SCATTER_DEFAULTS; a built-in installed earlier without them gets them. */
+  settings?: Partial<ScatterSettings>;
 }
 
 /** Stroke settings' Stroke Type. Implicit in the document: BRUSH = strokeBrushGuid set, DYNAMIC = dynamicStrokeSettings set. */
@@ -905,7 +907,7 @@ export interface DrawCommandArgs {
   MOVE_TRANSFORM_MODIFIER: { ref: GuidString; from: number; to: number };
   APPLY_TRANSFORMS: { refs?: GuidString[] };
   SET_STROKE_KIND: { refs?: GuidString[]; kind: "BASIC" | "DYNAMIC"; dynamic?: Partial<DynamicSettings> };
-  SET_STROKE_BRUSH: { refs?: GuidString[]; brush: GuidString };
+  SET_STROKE_BRUSH: { refs?: GuidString[]; brush: GuidString; scatter?: Partial<ScatterSettings>; stretch?: Partial<StretchSettings> };
   SET_BRUSH_SETTINGS: { refs?: GuidString[]; scatter?: Partial<ScatterSettings>; stretch?: Partial<StretchSettings> };
   CREATE_BRUSH: { ref: GuidString; brushType: BrushType };
   CREATE_TEXT_PATH: { ref: GuidString; segment: number; position: number; replace: boolean };

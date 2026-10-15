@@ -27,8 +27,9 @@ constexpr double kOffsetCap = 100;
 bool Editor::pathToolEnabled(PathTool kind) const {
   if (kind == PathTool::NONE || busy() || viewer_) return false;
   if (pathTool_.kind != PathTool::NONE) return false;
-  if (vector_.node != kNoGuid && vector_.group.size() > 1) return false;  // not in multi-edit
-  return vectorTargets().size() == 1;
+  if (vector_.node != kNoGuid) return vector_.group.size() <= 1;  // the edited layer; not in multi-edit
+  // One vector-editable layer selected (Figma: a vector plus anything else isn't one node).
+  return selection_.size() == 1 && vectorTargets().size() == 1;
 }
 
 Status Editor::pathToolBegin(PathTool kind) {
@@ -48,7 +49,7 @@ Status Editor::pathToolBegin(PathTool kind) {
     pathTool_.pendingType = vector_.pendingType;
   }
   const Vec2 size = doc_.get(id)->props.size;
-  pathTool_.minOffset = -std::floor(std::min(size.x, size.y) / 2);
+  pathTool_.minOffset = 0.0 - std::floor(std::max(0.0, std::min(size.x, size.y)) / 2);  // (a line's: 0, not −0)
   pathTool_.maxOffset = std::max(kOffsetCap, std::ceil(std::max(size.x, size.y)));
   events_.pathTool = true;
   needsRender_ = true;

@@ -1841,12 +1841,17 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
     }
     return K_HANDLED;
   }
-  // Simplify vector / Offset path open (editor/PathTools.cpp): Enter applies, Esc cancels; other keys wait.
+  // Simplify vector / Offset path open (editor/PathTools.cpp): Enter applies, Esc and ⌘Z cancel; the zoom keys are the
+  // chrome's (its ZOOM_* commands run while the tool is open); other keys wait.
   if (pathTool_.kind != PathTool::NONE && !isModifierKey(code)) {
     mods_ = mods;
+    const bool zoomKey = code == KeyCode::Equal || code == KeyCode::Minus || code == KeyCode::NumpadAdd || code == KeyCode::NumpadSubtract ||
+                         (code == KeyCode::Digit0 && (primary || shift)) || ((code == KeyCode::Digit1 || code == KeyCode::Digit2) && shift && !primary);
+    if (zoomKey) return 0;
     if (type == KeyEvent::DOWN && !repeat) {
       if (code == KeyCode::Enter || code == KeyCode::NumpadEnter) pathToolApply();
       else if (code == KeyCode::Escape) pathToolCancel();
+      else if (code == KeyCode::KeyZ && primary && !shift) pathToolCancel();  // (the chrome never sees it: handled here)
     }
     return K_HANDLED;
   }

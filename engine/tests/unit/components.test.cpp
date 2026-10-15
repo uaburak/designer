@@ -518,6 +518,28 @@ TEST_CASE("r17b Flatten and Outline stroke refuse instance sublayers (Figma's ga
   CHECK((e.commandState(CommandId::OUTLINE_STROKE) & CMD_ENABLED) != 0);
 }
 
+TEST_CASE("r17b slot content: Flatten takes it (slot sublayers allowed), Outline stroke refuses it and its frame") {
+  auto nodes = buttonDoc();
+  const Guid CONTENT{1, 40}, R{1, 41};
+  NodeChange content = make(CONTENT, NodeType::FRAME, I, "!", {0, 0, 100, 40}, "Slot");
+  content.props.comp().isSlotContent = true;
+  content.props.strokePaints = {Paint::solid(Color::hex(0xFF0000))};
+  content.props.strokeWeight = 2;
+  nodes.push_back(content);
+  NodeChange r = make(R, NodeType::RECTANGLE, CONTENT, "!", {10, 10, 20, 20}, "Mine");
+  r.props.strokePaints = {Paint::solid(Color::hex(0xFF0000))};
+  r.props.strokeWeight = 2;
+  nodes.push_back(r);
+  Editor e = load(nodes);
+  REQUIRE(e.document().has(R));
+  e.setSelection({R});
+  CHECK((e.commandState(CommandId::FLATTEN) & CMD_ENABLED) != 0);
+  CHECK((e.commandState(CommandId::OUTLINE_STROKE) & CMD_ENABLED) == 0);
+  CHECK(e.command(CommandId::OUTLINE_STROKE) == E_INVALID);
+  e.setSelection({CONTENT});
+  CHECK((e.commandState(CommandId::OUTLINE_STROKE) & CMD_ENABLED) == 0);
+}
+
 TEST_CASE("round 12: Flatten on a main component — a vector takes its place; its instances keep it as a deleted main") {
   Editor e = load(buttonDoc());
   e.setSelection({M});

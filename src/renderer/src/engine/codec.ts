@@ -834,14 +834,6 @@ export type CursorKind =
   | "BRUSH" | "TEXT_PATH";
 
 /**
- * Engine → JS events (docs/engine.md §10.4), drained after every call.
- *
- * DOCUMENT_CHANGED: one committed transaction's Message. With `wire: "kiwi"` (docs/engine-build.md "Figma parity
- * round 3") `bytes` is the kiwi Message (what the store journals as it is) and `message` is the kiwi-shaped Message
- * (`@shared/schema` types: GUID objects, `blobs: [{bytes}]`) decoded lazily on first access — the type below is the
- * interim JSON shape, which `wire: "json"` (the default) still delivers.
- */
-/**
  * Simplify vector / Offset path as Figma's tools (engine_path_tool, PATH_TOOL; docs/research/rea/vector.md §8, §10):
  * the open tool and its values. Simplify's threshold runs −2…3 (tolerance 10^−threshold node px); Offset's range is
  * the engine's (minOffset…maxOffset).
@@ -864,6 +856,14 @@ export type PathToolInput =
   | { op: "cancel" }
   | { op: "state" };
 
+/**
+ * Engine → JS events (docs/engine.md §10.4), drained after every call.
+ *
+ * DOCUMENT_CHANGED: one committed transaction's Message. With `wire: "kiwi"` (docs/engine-build.md "Figma parity
+ * round 3") `bytes` is the kiwi Message (what the store journals as it is) and `message` is the kiwi-shaped Message
+ * (`@shared/schema` types: GUID objects, `blobs: [{bytes}]`) decoded lazily on first access — the type below is the
+ * interim JSON shape, which `wire: "json"` (the default) still delivers.
+ */
 export type EngineEvent =
   | { type: "DOCUMENT_CHANGED"; kind: "USER" | "UNDO" | "REDO" | "SYSTEM"; label: string; message: Message; bytes?: Uint8Array; /** The actor that made it (Engine.actorBegin); absent: the local user */ actor?: number }
   | { type: "NODES_CHANGED"; refs: Guid[]; fieldGroupMask: number[] }

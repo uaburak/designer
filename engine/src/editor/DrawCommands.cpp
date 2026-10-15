@@ -398,8 +398,23 @@ NodeProps brushProps(const std::string& name, bool scatter, Vec2 size, const geo
 Guid Editor::installBrush(const std::string& name, bool scatter, Vec2 size, const geom::Path& artwork, WindingRule rule,
                           const json::Value* settings) {
   if (name.empty() || artwork.empty() || !(size.x > 0) || !(size.y > 0)) return kNoGuid;
-  for (const BrushInfo& b : listBrushes())
-    if (b.name == name && b.scatter == scatter) return b.guid;
+  for (const BrushInfo& b : listBrushes()) {
+    if (b.name != name || b.scatter != scatter) continue;
+    // A built-in installed before its settings were known (round 7e) gets them now, as installing would write them.
+    json::Value own;
+    if (scatter && settings && settings->isObject() && !extraJson(doc_.get(b.guid)->props, "scatterStrokeSettings", own) && !(busy() && !txn_.open)) {
+      json::Value s = scatterBase();
+      scatterOver(s, settings);
+      NodeChange c = NodeChange::changed(b.guid);
+      c.mask = F_EXTRA;
+      c.props.extra["scatterStrokeSettings"] = encodeExtra("scatterStrokeSettings", s);
+      const bool alone = !txn_.open;
+      if (alone) begin(TxnKind::SYSTEM, "Install brush");
+      write(c);
+      if (alone) commit();
+    }
+    return b.guid;
+  }
   if (busy() && !txn_.open) return kNoGuid;
   // Inside an open step (a stroke, Stroke settings' Brush): part of it, so undoing it removes the brush too; otherwise a
   // system write — choosing a brush isn't an edit (docs/draw.md §4.5).

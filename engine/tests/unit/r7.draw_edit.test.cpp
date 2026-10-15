@@ -443,6 +443,18 @@ TEST_CASE("r17b scatter settings: a brush's own on install; apply writes {base, 
   Guid plain = installSquare(e, "Custom", true);  // no settings: Figma's base
   CHECK(extraOf(e, plain, "scatterStrokeSettings").get("gap")->numberOr(0) == doctest::Approx(0.9));
   CHECK(extraOf(e, installSquare(e, "Heist", false), "scatterStrokeSettings").isNull());  // stretch: none
+  {
+    // A built-in installed before its settings were known (no 449 on its node) gets them on the next install.
+    NodeChange c = NodeChange::changed(bubble);
+    c.mask = F_EXTRA;
+    c.props.extra["scatterStrokeSettings"] = "";
+    REQUIRE(e.applyChanges({c}, APPLY_USER) == OK);
+    REQUIRE(extraOf(e, bubble, "scatterStrokeSettings").isNull());
+    CHECK(e.installBrush("Bubblegum", true, {16, 16}, sq, WindingRule::NONZERO) == bubble);  // none given: left alone
+    CHECK(extraOf(e, bubble, "scatterStrokeSettings").isNull());
+    REQUIRE(e.installBrush("Bubblegum", true, {16, 16}, sq, WindingRule::NONZERO, &own) == bubble);
+    CHECK(extraOf(e, bubble, "scatterStrokeSettings").get("angularJitter")->numberOr(0) == 95);
+  }
 
   e.setSelection({V});
   // Apply: the brush's own over the base.

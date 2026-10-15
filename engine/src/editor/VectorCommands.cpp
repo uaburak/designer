@@ -62,7 +62,8 @@ bool Editor::flattenable(const NodeProps& p) const {
 bool Editor::instanceSublayer(Guid id, bool slotsAllowed) const {
   if (id.isDerived()) return true;
   if (slotsAllowed) return false;
-  for (Guid a = doc_.parentOf(id); a != kNoGuid; a = doc_.parentOf(a)) {
+  // The slot's content frame itself (a child of its instance) and everything in it.
+  for (Guid a = id; a != kNoGuid; a = doc_.parentOf(a)) {
     const Node* n = doc_.get(a);
     if (!n) break;
     if (a.isDerived() || n->props.comp().isSlotContent) return true;

@@ -286,6 +286,18 @@ TEST_CASE("r17b the Simplify vector tool: live preview from the layer as it was,
   REQUIRE(e.command(CommandId::UNDO) == OK);
   CHECK(e.pathTool() == Editor::PathTool::NONE);
   CHECK(networkOf(e, V).vertices.size() == 5);
+  // ⌘Z on the canvas: the engine takes the key (the chrome's shortcut never runs), so it cancels here; the zoom keys
+  // go on to the chrome; other keys wait.
+  REQUIRE(e.pathToolBegin(Editor::PathTool::SIMPLIFY) == OK);
+  REQUIRE(e.pathToolSet(toolArgs(R"({"threshold":-2})")) == OK);
+  CHECK(e.key(KeyEvent::DOWN, KeyCode::Equal, 0, MOD_PRIMARY, false) == 0);
+  CHECK(e.key(KeyEvent::DOWN, KeyCode::Digit1, 0, MOD_SHIFT, false) == 0);
+  CHECK(e.key(KeyEvent::DOWN, KeyCode::KeyR, 0, 0, false) == K_HANDLED);
+  CHECK(e.key(KeyEvent::DOWN, KeyCode::KeyV, 0, MOD_PRIMARY, false) == K_HANDLED);
+  CHECK(e.pathTool() == Editor::PathTool::SIMPLIFY);
+  CHECK(e.key(KeyEvent::DOWN, KeyCode::KeyZ, 0, MOD_PRIMARY, false) == K_HANDLED);
+  CHECK(e.pathTool() == Editor::PathTool::NONE);
+  CHECK(networkOf(e, V).vertices.size() == 5);
   // Selecting another layer (the Layers panel) cancels it.
   REQUIRE(e.pathToolBegin(Editor::PathTool::SIMPLIFY) == OK);
   REQUIRE(e.pathToolSet(toolArgs(R"({"threshold":-2})")) == OK);
