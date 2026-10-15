@@ -304,9 +304,12 @@ export class EngineExports {
   paintEditStop = (h: number, index: number): number => this.fn("paint_edit_stop")(h, index);
 
   // ---- Images (module-wide) ----
-  /** `hash`: 40 hex digits. The bitmap is Module.engineBitmaps[bitmapId]. */
-  imageAddBitmap = (hash: string, bitmapId: number, width: number, height: number): number =>
-    this.withBytes([new TextEncoder().encode(hash)], (p) => this.fn("image_add_bitmap")(p[0], bitmapId, width, height));
+  /** `hash`: 40 hex digits. The bitmap is Module.engineBitmaps[bitmapId]; `flags` IMAGE_STRAIGHT | IMAGE_DISPLAY_P3 (abi.ts). */
+  imageAddBitmap = (hash: string, bitmapId: number, width: number, height: number, flags = 0): number =>
+    this.withBytes([new TextEncoder().encode(hash)], (p) => this.fn("image_add_bitmap")(p[0], bitmapId, width, height, flags));
+  /** The image_add_bitmap flags the engine understands (0 for an engine built before them). */
+  imageColorFlags = (): number =>
+    typeof this.module._engine_image_color_flags === "function" ? this.fn("image_color_flags")() >>> 0 : 0;
   imageAddRgba = (hash: string, width: number, height: number, rgba: Uint8Array): number =>
     this.withBytes([new TextEncoder().encode(hash), rgba], (p) => this.fn("image_add_rgba")(p[0], width, height, p[2], p[3]));
   imageFailed = (hash: string): number => this.withBytes([new TextEncoder().encode(hash)], (p) => this.fn("image_failed")(p[0]));
