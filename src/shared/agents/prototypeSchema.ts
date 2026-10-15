@@ -6,8 +6,10 @@
  * Mapping (Plugin API → document):
  *   trigger.type  ON_CLICK → ON_CLICK, ON_DRAG → DRAG, ON_HOVER (While hovering) → ON_HOVER, ON_PRESS (While pressing)
  *                 → ON_PRESS, ON_KEY_DOWN {keyCodes, device} → ON_KEY_DOWN + keyTrigger, MOUSE_ENTER / MOUSE_LEAVE /
- *                 MOUSE_DOWN / MOUSE_UP {delay s} → the same (+ transitionTimeout), AFTER_TIMEOUT {timeout s} →
- *                 AFTER_TIMEOUT + transitionTimeout, ON_MEDIA_HIT {mediaHitTime} / ON_MEDIA_END → the same.
+ *                 MOUSE_DOWN / MOUSE_UP {delay s} → the same (+ interactionMaintained = delay ≠ 0,
+ *                 interactionDuration = delay), AFTER_TIMEOUT {timeout s} → AFTER_TIMEOUT + transitionTimeout (0 or
+ *                 missing reads 0.8), ON_MEDIA_HIT {mediaHitTime} / ON_MEDIA_END → the same. New reactions carry
+ *                 stateManagementVersion 1.
  *   action.type   NODE {destinationId, navigation} → connectionType INTERNAL_NODE + navigationType (CHANGE_TO →
  *                 SWAP_STATE) + transitionNodeID; BACK, CLOSE → BACK, CLOSE; URL {url, openInNewTab} → URL +
  *                 connectionURL; SET_VARIABLE {variableId, variableValue} → targetVariable + targetVariableData;
@@ -16,14 +18,16 @@
  *                 {destinationId, mediaAction, amountToSkip, newTimestamp} → mediaAction, mediaSkipByAmount,
  *                 mediaSkipToTime.
  *   transition    null / INSTANT → INSTANT_TRANSITION; DISSOLVE, SMART_ANIMATE, SCROLL_ANIMATE → the same; MOVE_IN /
- *                 PUSH / SLIDE_IN {direction} → MOVE_FROM_ / PUSH_FROM_ / SLIDE_FROM_<opposite side>, MOVE_OUT /
- *                 SLIDE_OUT → MOVE_OUT_TO_ / SLIDE_OUT_TO_<side> (direction: the way the layers move, the panel's
- *                 arrow); matchLayers → transitionShouldSmartAnimate; duration (seconds) → transitionDuration.
- *   easing.type   EASE_IN → IN_CUBIC, EASE_OUT → OUT_CUBIC, EASE_IN_AND_OUT → INOUT_CUBIC, LINEAR, EASE_IN_BACK →
+ *                 MOVE_OUT / PUSH / SLIDE_IN / SLIDE_OUT {direction} → MOVE_FROM_ / MOVE_OUT_TO_ / PUSH_FROM_ /
+ *                 SLIDE_FROM_ / SLIDE_OUT_TO_<the opposite side> for all five, as Figma's Plugin writer swaps LEFT ↔
+ *                 RIGHT and TOP ↔ BOTTOM (reads swap back); matchLayers → transitionShouldSmartAnimate; duration
+ *                 (seconds) → transitionDuration (0 or missing reads 0.3).
+ *   easing.type   EASE_IN → EASE_IN, EASE_OUT → OUT_CUBIC, EASE_IN_AND_OUT → INOUT_CUBIC, LINEAR, EASE_IN_BACK →
  *                 IN_BACK_CUBIC, EASE_OUT_BACK, EASE_IN_AND_OUT_BACK, CUSTOM_CUBIC_BEZIER {easingFunctionCubicBezier}
- *                 → CUSTOM_CUBIC [x1,y1,x2,y2], GENTLE → GENTLE_SPRING, QUICK → SPRING_PRESET_ONE, BOUNCY →
- *                 SPRING_PRESET_TWO, SLOW → SPRING_PRESET_THREE, CUSTOM_SPRING {easingFunctionSpring} →
- *                 CUSTOM_SPRING [mass, stiffness, damping, 0].
+ *                 → CUSTOM_CUBIC [x1,y1,x2,y2] (x1, x2 clamped to 0–1; default [0, 0, 0.58, 1]), GENTLE →
+ *                 GENTLE_SPRING, QUICK → SPRING_PRESET_ONE, BOUNCY → SPRING_PRESET_TWO, SLOW → SPRING_PRESET_THREE,
+ *                 CUSTOM_SPRING {easingFunctionSpring} → CUSTOM_SPRING [mass 0–1000, stiffness 0–10000, damping
+ *                 0–1000, 0]; easingFunctionCubicBezier / easingFunctionSpring with another type is an error.
  */
 
 type Obj = Record<string, unknown>;
@@ -63,7 +67,7 @@ export const easingSchema: Obj = {
 
 export const transitionSchema: Obj = {
   description:
-    'The animation (Plugin API Transition): null or "INSTANT" for none; {type: DISSOLVE | SMART_ANIMATE | SCROLL_ANIMATE, duration, easing} or {type: MOVE_IN | MOVE_OUT | PUSH | SLIDE_IN | SLIDE_OUT, direction: LEFT | RIGHT | TOP | BOTTOM (the way the layers move), matchLayers (smart animate matching layers), duration, easing}. duration in seconds (default 0.3; durationMs is read too).',
+    'The animation (Plugin API Transition): null or "INSTANT" for none; {type: DISSOLVE | SMART_ANIMATE | SCROLL_ANIMATE, duration, easing} or {type: MOVE_IN | MOVE_OUT | PUSH | SLIDE_IN | SLIDE_OUT, direction: LEFT | RIGHT | TOP | BOTTOM (the Plugin API direction; stored as the opposite side), matchLayers (smart animate matching layers), duration, easing}. duration in seconds (default 0.3; durationMs is read too).',
   anyOf: [
     { type: "null" },
     { enum: [...TRANSITION_TYPES] },

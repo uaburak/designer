@@ -6,7 +6,7 @@
 import type { Guid } from "@/engine/codec";
 import { colorToHex, fromTool, parseColorValue } from "@shared/agents/docSchema";
 import { ACTION_ALIASES, ACTION_TYPES, DIRECTIONS, EASING_TYPES, MEDIA_ACTIONS, NAVIGATIONS, OVERLAY_POSITIONS, TRANSITION_TYPES, TRIGGER_ALIASES, TRIGGER_TYPES } from "@shared/agents/prototypeSchema";
-import { animationOf, guidJson, guidOf, liveInteractions, transitionOf, type Animation, type Direction, type EasingType, type GuidJson, type InteractionType, type PrototypeAction, type PrototypeInteraction, type TransitionType, type VariableDataJson } from "../model/prototype";
+import { guidJson, guidOf, liveInteractions, mouseDelayOf, withMouseDelay, type EasingType, type GuidJson, type InteractionType, type PrototypeAction, type PrototypeInteraction, type TransitionType, type VariableDataJson } from "../model/prototype";
 
 type Obj = Record<string, unknown>;
 export type Errors = string[];
@@ -46,8 +46,10 @@ function strict(o: Obj, allowed: readonly string[], path: string, errors: Errors
 
 // ---- Easing / transition ----------------------------------------------------------------------------------------------
 
+// Plugin API easing → the document's. EASE_IN is written as EASE_IN (15), as Figma's Plugin writer does (IN_CUBIC, the
+// kiwi default 0, means "no easing" on Motion keyframes).
 const EASING_IN: Record<string, EasingType> = {
-  EASE_IN: "IN_CUBIC", EASE_OUT: "OUT_CUBIC", EASE_IN_AND_OUT: "INOUT_CUBIC", EASE_IN_OUT: "INOUT_CUBIC", LINEAR: "LINEAR",
+  EASE_IN: "EASE_IN", EASE_OUT: "OUT_CUBIC", EASE_IN_AND_OUT: "INOUT_CUBIC", EASE_IN_OUT: "INOUT_CUBIC", LINEAR: "LINEAR",
   EASE_IN_BACK: "IN_BACK_CUBIC", EASE_OUT_BACK: "OUT_BACK_CUBIC", EASE_IN_AND_OUT_BACK: "INOUT_BACK_CUBIC", CUSTOM_CUBIC_BEZIER: "CUSTOM_CUBIC", CUSTOM_BEZIER: "CUSTOM_CUBIC",
   GENTLE: "GENTLE_SPRING", QUICK: "SPRING_PRESET_ONE", BOUNCY: "SPRING_PRESET_TWO", SLOW: "SPRING_PRESET_THREE", CUSTOM_SPRING: "CUSTOM_SPRING",
 };
@@ -57,6 +59,14 @@ const EASING_OUT: Partial<Record<EasingType, string>> = {
   SPRING_PRESET_THREE: "SLOW", CUSTOM_SPRING: "CUSTOM_SPRING", HOLD: "LINEAR",
 };
 
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/**
+ * A Plugin API easing as the document's, with Figma's write rules: CUSTOM_CUBIC_BEZIER's x1 and x2 clamped to [0, 1]
+ * (y1, y2 free; default its ease out [0, 0, 0.58, 1]); CUSTOM_SPRING's mass to [0, 1000], stiffness to [0, 10000],
+ * damping to [0, 1000] and its initial velocity written 0; easingFunctionCubicBezier / easingFunctionSpring only with
+ * their own type.
+ */
 function easingToDoc(v: unknown, path: string, errors: Errors): Pick<PrototypeAction, "easingType" | "easingFunction"> {
   const o = isObj(v) ? v : { type: v };
   if (isObj(v)) strict(v, ["type", "easingFunctionCubicBezier", "easingFunctionSpring"], path, errors, "an easing");
@@ -66,17 +76,21 @@ function easingToDoc(v: unknown, path: string, errors: Errors): Pick<PrototypeAc
     errors.push(`${path}: ${JSON.stringify(o.type)} is not an easing (${EASING_TYPES.join(", ")})`);
     return {};
   }
+  if (o.easingFunctionCubicBezier !== undefined && easingType !== "CUSTOM_CUBIC")
+    return void errors.push(`${path}.easingFunctionCubicBezier: only with type CUSTOM_CUBIC_BEZIER (got ${JSON.stringify(o.type)})`), {};
+  if (o.easingFunctionSpring !== undefined && easingType !== "CUSTOM_SPRING")
+    return void errors.push(`${path}.easingFunctionSpring: only with type CUSTOM_SPRING (got ${JSON.stringify(o.type)})`), {};
   if (easingType === "CUSTOM_CUBIC") {
-    const b = isObj(o.easingFunctionCubicBezier) ? o.easingFunctionCubicBezier : { x1: 0.42, y1: 0, x2: 0.58, y2: 1 };
+    const b = isObj(o.easingFunctionCubicBezier) ? o.easingFunctionCubicBezier : { x1: 0, y1: 0, x2: 0.58, y2: 1 };
     const f = [b.x1, b.y1, b.x2, b.y2].map(Number);
     if (f.some((x) => !Number.isFinite(x))) return void errors.push(`${path}.easingFunctionCubicBezier: {x1, y1, x2, y2} numbers`), {};
-    return { easingType, easingFunction: f };
+    return { easingType, easingFunction: [clamp(f[0], 0, 1), f[1], clamp(f[2], 0, 1), f[3]] };
   }
   if (easingType === "CUSTOM_SPRING") {
     const s = isObj(o.easingFunctionSpring) ? o.easingFunctionSpring : { mass: 1, stiffness: 100, damping: 15 };
     const f = [s.mass ?? 1, s.stiffness ?? 100, s.damping ?? 15].map(Number);
     if (f.some((x) => !Number.isFinite(x))) return void errors.push(`${path}.easingFunctionSpring: {mass, stiffness, damping} numbers`), {};
-    return { easingType, easingFunction: [...f, 0] };
+    return { easingType, easingFunction: [clamp(f[0], 0, 1000), clamp(f[1], 0, 10000), clamp(f[2], 0, 1000), 0] };
   }
   return { easingType };
 }
@@ -89,7 +103,24 @@ function easingFromDoc(a: PrototypeAction): unknown {
   return { type };
 }
 
-const PLUGIN_DIR: Record<string, Direction> = { LEFT: "LEFT", RIGHT: "RIGHT", TOP: "UP", BOTTOM: "DOWN", UP: "UP", DOWN: "DOWN" };
+// The Plugin API direction ↔ the document's side. Figma's Plugin writer swaps LEFT ↔ RIGHT and TOP ↔ BOTTOM for every
+// directional type (docs/research/rea/motion.md §2.1): {MOVE_IN, LEFT} → MOVE_FROM_RIGHT, {MOVE_OUT, LEFT} →
+// MOVE_OUT_TO_RIGHT; its reader swaps back. (The Prototype panel keeps its own arrows, model/prototype.ts transitionOf.)
+const PLUGIN_DIR: Record<string, Side> = { LEFT: "LEFT", RIGHT: "RIGHT", TOP: "TOP", BOTTOM: "BOTTOM", UP: "TOP", DOWN: "BOTTOM" };
+const SWAP: Record<Side, Side> = { LEFT: "RIGHT", RIGHT: "LEFT", TOP: "BOTTOM", BOTTOM: "TOP" };
+const PLUGIN_PREFIX: Record<string, string> = { MOVE_IN: "MOVE_FROM_", MOVE_OUT: "MOVE_OUT_TO_", PUSH: "PUSH_FROM_", SLIDE_IN: "SLIDE_FROM_", SLIDE_OUT: "SLIDE_OUT_TO_" };
+type Side = "LEFT" | "RIGHT" | "TOP" | "BOTTOM";
+
+/** A directional transition's Plugin API type and direction from the document's TransitionType (null: not directional). */
+function pluginDirectional(t: TransitionType): { type: string; direction: Side } | null {
+  for (const [type, prefix] of Object.entries(PLUGIN_PREFIX))
+    if (t.startsWith(prefix)) {
+      const side = t.slice(prefix.length) as Side;
+      if (SWAP[side]) return { type, direction: SWAP[side] };
+    }
+  return null;
+}
+
 const DOC_TRANSITIONS: readonly string[] = [
   "INSTANT_TRANSITION", "DISSOLVE", "FADE", "SMART_ANIMATE", "MAGIC_MOVE", "SCROLL_ANIMATE",
   ...["MOVE_FROM_", "MOVE_OUT_TO_", "PUSH_FROM_", "SLIDE_FROM_", "SLIDE_OUT_TO_"].flatMap((p) => ["LEFT", "RIGHT", "TOP", "BOTTOM"].map((s) => p + s)),
@@ -107,14 +138,14 @@ function transitionToDoc(v: unknown, path: string, errors: Errors): TransitionFi
   if (t === "INSTANT" || t === "NONE" || t === "INSTANT_TRANSITION") transitionType = "INSTANT_TRANSITION";
   else if (DOC_TRANSITIONS.includes(t)) transitionType = t as TransitionType;
   else if ((TRANSITION_TYPES as readonly string[]).includes(t)) {
-    const directional = ["MOVE_IN", "MOVE_OUT", "PUSH", "SLIDE_IN", "SLIDE_OUT"].includes(t);
-    let dir: Direction = "LEFT";
-    if (directional) {
+    const prefix = PLUGIN_PREFIX[t];
+    let side: Side = "LEFT";
+    if (prefix) {
       const d = PLUGIN_DIR[up(o.direction ?? "LEFT")];
       if (!d) errors.push(`${path}.direction: ${JSON.stringify(o.direction)} is not one of ${DIRECTIONS.join(", ")}`);
-      else dir = d;
+      else side = d;
     } else if (o.direction !== undefined) errors.push(`${path}.direction: only MOVE_IN, MOVE_OUT, PUSH, SLIDE_IN and SLIDE_OUT take a direction`);
-    transitionType = transitionOf(t as Animation, dir);
+    transitionType = (prefix ? `${prefix}${SWAP[side]}` : t === "SMART_ANIMATE" ? "SMART_ANIMATE" : "DISSOLVE") as TransitionType;
   } else {
     errors.push(`${path}.type: ${JSON.stringify(o.type)} is not a transition (${TRANSITION_TYPES.join(", ")}, or null for instant)`);
     return base;
@@ -139,13 +170,14 @@ function transitionToDoc(v: unknown, path: string, errors: Errors): TransitionFi
 function transitionFromDoc(a: PrototypeAction): unknown {
   const t = a.transitionType ?? "INSTANT_TRANSITION";
   if (t === "INSTANT_TRANSITION") return null;
-  const { animation, direction } = animationOf(t);
-  const out: Obj = { type: t === "SCROLL_ANIMATE" ? "SCROLL_ANIMATE" : animation };
-  if (["MOVE_IN", "MOVE_OUT", "PUSH", "SLIDE_IN", "SLIDE_OUT"].includes(animation)) {
-    out.direction = direction === "UP" ? "TOP" : direction === "DOWN" ? "BOTTOM" : direction;
+  const dir = pluginDirectional(t);
+  const out: Obj = { type: dir ? dir.type : t === "SMART_ANIMATE" || t === "MAGIC_MOVE" ? "SMART_ANIMATE" : t === "SCROLL_ANIMATE" ? "SCROLL_ANIMATE" : "DISSOLVE" };
+  if (dir) {
+    out.direction = dir.direction;
     out.matchLayers = !!a.transitionShouldSmartAnimate;
   }
-  out.duration = round(a.transitionDuration ?? 0.3);
+  // Seconds; a missing or zero duration reads 0.3, as Figma's.
+  out.duration = round(a.transitionDuration || 0.3);
   out.easing = easingFromDoc(a);
   return out;
 }
@@ -204,8 +236,9 @@ function triggerToDoc(v: unknown, path: string, errors: Errors): NonNullable<Pro
     else event.transitionTimeout = s;
   }
   if (o.delay !== undefined && t !== "AFTER_TIMEOUT") {
+    // Figma's placement: interactionMaintained = (delay !== 0), interactionDuration = delay.
     if (typeof o.delay !== "number" || o.delay < 0 || o.delay > 10) errors.push(`${path}.delay: seconds 0–10`);
-    else if (o.delay > 0) event.transitionTimeout = o.delay;
+    else Object.assign(event, withMouseDelay(event, o.delay));
   }
   if (t === "ON_KEY_DOWN") {
     let codes: number[] = [];
@@ -230,9 +263,10 @@ function triggerFromDoc(e: PrototypeInteraction["event"]): unknown {
   const t = e?.interactionType ?? "ON_CLICK";
   if (t === "NONE") return null;
   if (t === "DRAG") return { type: "ON_DRAG" };
-  if (t === "AFTER_TIMEOUT") return { type: t, timeout: round(e?.transitionTimeout ?? 0.8) };
-  if (t === "MOUSE_IN" || t === "MOUSE_OUT") return { type: t === "MOUSE_IN" ? "MOUSE_ENTER" : "MOUSE_LEAVE", delay: round(e?.transitionTimeout ?? 0), deprecatedVersion: true };
-  if (t === "MOUSE_ENTER" || t === "MOUSE_LEAVE" || t === "MOUSE_DOWN" || t === "MOUSE_UP") return { type: t, delay: round(e?.transitionTimeout ?? 0) };
+  // A missing or zero timeout reads 0.8, as Figma's.
+  if (t === "AFTER_TIMEOUT") return { type: t, timeout: round(e?.transitionTimeout || 0.8) };
+  if (t === "MOUSE_IN" || t === "MOUSE_OUT") return { type: t === "MOUSE_IN" ? "MOUSE_ENTER" : "MOUSE_LEAVE", delay: round(mouseDelayOf(e)), deprecatedVersion: true };
+  if (t === "MOUSE_ENTER" || t === "MOUSE_LEAVE" || t === "MOUSE_DOWN" || t === "MOUSE_UP") return { type: t, delay: round(mouseDelayOf(e)) };
   if (t === "ON_KEY_DOWN") return { type: t, device: e?.keyTrigger?.triggerDevice ?? "KEYBOARD", keyCodes: e?.keyTrigger?.keyCodes ?? [] };
   if (t === "ON_MEDIA_HIT") return { type: t, mediaHitTime: e?.mediaHitTime ?? 0 };
   return { type: t };
@@ -522,12 +556,24 @@ export function reactionToDoc(v: unknown, look: ProtoLookup, source: ProtoNodeIn
   const list = v.actions !== undefined ? v.actions : v.action !== undefined ? [v.action] : null;
   if (list === null) errors.push(`${path}.actions: needed (a list of actions)`);
   const actions = list === null ? [] : actionsToDoc(ctx, list, `${path}.${v.actions !== undefined ? "actions" : "action"}`, errors);
-  return { id: id ?? look.newId(), event, actions };
+  // Figma writes stateManagementVersion 1 on the reactions it writes.
+  return { id: id ?? look.newId(), stateManagementVersion: 1, event, actions };
 }
 
 /** The document's interactions (live ones) as Reactions, with their index and id. */
 export function reactionsFromDoc(list: readonly PrototypeInteraction[] | undefined): Obj[] {
   return liveInteractions(list).map((i, index) => ({ index, id: guidOf(i.id as never), trigger: triggerFromDoc(i.event), actions: (i.actions ?? []).map(actionFromDoc) }));
+}
+
+/**
+ * The document's interactions as the Plugin API's `node.reactions`: Figma's Reaction {action, actions, trigger} — no
+ * index or id (`action` is the deprecated first action, kept as Figma's reader gives it).
+ */
+export function pluginReactionsFromDoc(list: readonly PrototypeInteraction[] | undefined): Obj[] {
+  return reactionsFromDoc(list).map((r) => {
+    const actions = r.actions as Obj[];
+    return { ...(actions.length ? { action: actions[0] } : {}), actions, trigger: r.trigger };
+  });
 }
 
 /** The document's shape given to set_properties: through the schema (GUID strings, enums by name), ids added. */

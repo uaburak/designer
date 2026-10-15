@@ -10,6 +10,9 @@ import { keyAfter, keyBetween } from "@shared/schema/fractionalIndex";
 import { fieldsOf, readProps, PROP_NAMES, sizingOf } from "../../agents/nodeSpec";
 import { cssOf } from "../../model/exports";
 import { mainOf } from "../../components";
+import { protoLookup } from "../../agents/prototypeTools";
+import { docInteractions, isDocShape, pluginReactionsFromDoc, reactionToDoc, type OverlayWrite } from "../../agents/prototypeSpec";
+import type { PrototypeInteraction } from "../../model/prototype";
 import { ApiError, MIXED } from "./codec";
 import { mustNode, parentOf, readNode, ref, refOf, type ApiContext } from "./context";
 import {
@@ -391,9 +394,11 @@ const PROPS: Record<string, Prop> = {
     get: (_ctx, n) => (((n as unknown as Obj).annotations as Obj[] | undefined) ?? []).map((a) => ({ label: a.label ?? "", ...(a.labelMarkdown ? { labelMarkdown: a.labelMarkdown } : {}), properties: a.properties ?? [], ...(a.categoryId ? { categoryId: a.categoryId } : {}) })),
     set: (ctx, n, v) => writeFields(ctx, n.guid, { annotations: (Array.isArray(v) ? v : []).map((a: Obj) => ({ label: String(a.label ?? a.labelMarkdown ?? ""), ...(a.categoryId ? { categoryId: a.categoryId } : {}), properties: a.properties ?? [] })) } as NodeFields, "annotations"),
   },
+  // Figma's Reaction shape both ways (agents/prototypeSpec.ts, the agents' converters): directions, easings, delays and
+  // their write rules as Figma's Plugin API has them.
   reactions: {
-    get: (_ctx, n) => ((n as unknown as Obj).prototypeInteractions as Obj[] | undefined)?.filter((i) => !i.isDeleted) ?? [],
-    set: (ctx, n, v) => writeFields(ctx, n.guid, { prototypeInteractions: v } as NodeFields, "reactions"),
+    get: (_ctx, n) => pluginReactionsFromDoc((n as unknown as Obj).prototypeInteractions as PrototypeInteraction[] | undefined),
+    set: (ctx, n, v) => setReactions(ctx, n, v),
   },
   // Not modelled: Figma's values for what we don't keep.
   stuckNodes: { get: () => [] },
@@ -431,6 +436,26 @@ const PROPS: Record<string, Prop> = {
   complexStrokeProperties: { get: complexStrokeProperties, set: setComplexStrokeProperties },
   variableWidthStrokeProperties: { get: variableWidthStrokeProperties, set: setVariableWidthStrokeProperties },
 };
+
+/** `setReactionsAsync`: Reactions (or the document's PrototypeInteraction[]) → the document's, Figma's tombstones kept. */
+function setReactions(ctx: ApiContext, n: NodeChange, v: unknown): void {
+  if (!Array.isArray(v)) throw new ApiError("in setReactionsAsync: Expected an array of reactions");
+  const look = protoLookup(ctx);
+  const errors: string[] = [];
+  const overlays: OverlayWrite[] = [];
+  let list: PrototypeInteraction[] = [];
+  if (isDocShape(v)) list = docInteractions(v, look, "reactions", errors) ?? [];
+  else {
+    const source = look.node(n.guid);
+    if (!source) throw new ApiError("in setReactionsAsync: the node is not in the document");
+    list = v.map((r, i) => reactionToDoc(r, look, source, `reactions[${i}]`, errors, overlays)).filter((r): r is PrototypeInteraction => !!r);
+  }
+  if (errors.length) throw new ApiError(`in setReactionsAsync: ${errors.join("; ")}`);
+  const kept = (((n as unknown as Obj).prototypeInteractions as PrototypeInteraction[] | undefined) ?? []).filter((i) => i.isDeleted);
+  const value = [...list, ...kept];
+  writeFields(ctx, n.guid, { prototypeInteractions: value.length ? value : null } as NodeFields, "reactions");
+  for (const o of overlays) writeFields(ctx, o.frame, o.fields as NodeFields, "reactions");
+}
 
 function boundVariables(ctx: ApiContext, n: NodeChange): Obj {
   const out: Obj = {};

@@ -19,9 +19,9 @@ type ProtoNode = NodeChange & { prototypeInteractions?: PrototypeInteraction[]; 
 
 const PROTO_FIELDS = ["name", "type", "parentIndex", "prototypeInteractions", "prototypeStartingPoint", "scrollDirection", "scrollBehavior", "overlayPositionType", "overlayBackgroundInteraction", "overlayBackgroundAppearance"];
 
-const readP = (env: ToolEnv, id: Guid, fields?: string[]) => env.ed.engine.readNode(id, fields ? { fields } : {}) as ProtoNode | null;
+const readP = (env: Pick<ToolEnv, "ed">, id: Guid, fields?: string[]) => env.ed.engine.readNode(id, fields ? { fields } : {}) as ProtoNode | null;
 
-function pageOfNode(env: ToolEnv, id: Guid): Guid | null {
+function pageOfNode(env: Pick<ToolEnv, "ed">, id: Guid): Guid | null {
   let n = readP(env, id, ["parentIndex", "type"]);
   for (let i = 0; n && i < 400; i++) {
     if (n.type === "CANVAS") return n.guid;
@@ -30,7 +30,8 @@ function pageOfNode(env: ToolEnv, id: Guid): Guid | null {
   return null;
 }
 
-export function protoLookup(env: ToolEnv): ProtoLookup {
+/** The lookups the converters need (the agents' tools, and the plugin API's reactions with its own context). */
+export function protoLookup(env: Pick<ToolEnv, "ed">): ProtoLookup {
   return {
     node(id) {
       const n = id ? readP(env, id, ["name", "type", "parentIndex", "isStateGroup"]) : null;
