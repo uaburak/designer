@@ -3,6 +3,7 @@
 #include "geometry/Brush.h"
 #include "geometry/DynamicStroke.h"
 #include "geometry/Repeat.h"
+#include "render/GradientRamp.h"
 
 #include <algorithm>
 #include <cmath>
@@ -251,11 +252,19 @@ void Renderer::emit(const DrawInstance& s, Pass pass, const DrawState& state0) {
   if (s.geom[2] == static_cast<float>(ShapeKind::Path)) stats_.paths++;
 }
 
-int Renderer::rampRow(const std::vector<ColorStop>& stops0) {
+int Renderer::rampRow(const std::vector<ColorStop>& stops0, InterpolationColorSpace space, InterpolationHueMethod hue) {
   Hash h;
   for (auto& s : stops0) h.add(s.position).add(s.color.r).add(s.color.g).add(s.color.b).add(s.color.a);
+  if (space != InterpolationColorSpace::DEFAULT) h.add(static_cast<double>(space) + 1).add(static_cast<double>(hue) + 1);
   auto it = rampRows_.find(h.h);
   if (it != rampRows_.end()) return it->second;
+  if (space != InterpolationColorSpace::DEFAULT) {
+    // Another space than the document's (Paint.interpolationColorSpace): baked as CSS Color 4 blends.
+    int row = static_cast<int>(rampData_.size() / (kRampWidth * 4));
+    bakeGradientRamp(stops0, space, hue, kRampWidth, rampData_);
+    rampRows_[h.h] = row;
+    return row;
+  }
   std::vector<ColorStop> stops = stops0;
   std::stable_sort(stops.begin(), stops.end(), [](const ColorStop& a, const ColorStop& b) { return a.position < b.position; });
   int row = static_cast<int>(rampData_.size() / (kRampWidth * 4));
@@ -309,7 +318,8 @@ bool Renderer::setPaint(DrawInstance& q, DrawState& state, const Paint& paint, c
     q.color[0] = q.color[1] = q.color[2] = q.color[3] = static_cast<float>(a);
     q.paint0[0] = static_cast<float>(P.m00), q.paint0[1] = static_cast<float>(P.m01), q.paint0[2] = static_cast<float>(P.m02);
     q.paint1[0] = static_cast<float>(P.m10), q.paint1[1] = static_cast<float>(P.m11), q.paint1[2] = static_cast<float>(P.m12);
-    q.paint1[3] = static_cast<float>(rampRow(paint.stops));
+    const PaintExtras& px = paintExtras(paint);
+    q.paint1[3] = static_cast<float>(rampRow(paint.stops, px.interpolationColorSpace, px.interpolationHueMethod));
     kind = paint.type == PaintType::GRADIENT_LINEAR    ? PaintKind::Linear
            : paint.type == PaintType::GRADIENT_RADIAL  ? PaintKind::Radial
            : paint.type == PaintType::GRADIENT_ANGULAR ? PaintKind::Angular

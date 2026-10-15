@@ -60,6 +60,7 @@ add_library(eng_core STATIC
   src/editor/ArrangeCommands.cpp
   src/editor/PathTools.cpp
   src/render/Renderer.cpp
+  src/render/GradientRamp.cpp
   src/render/RenderTree.cpp
   src/render/Overlay.cpp
   src/render/SpacingOverlay.cpp

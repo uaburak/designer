@@ -2,6 +2,7 @@
 // overrideLevel 321), the nested swap's override stash (248), gradients blended in their interpolation space (Paint 41
 // / 42), and the undo history exported and imported (Message 22 / 23).
 #include <cmath>
+#include <array>
 #include <functional>
 
 #include "doctest.h"
@@ -9,7 +10,10 @@
 #include "base/DerivedIds.h"
 #include "editor/Editor.h"
 #include "scene/CodecJson.h"
+#include "render/GradientRamp.h"
 #include "scene/CodecKiwi.h"
+#include "scene/Extras.h"
+#include "schema/SchemaTable.h"
 
 using namespace eng;
 using namespace eng::test;
@@ -227,4 +231,94 @@ TEST_CASE("r17c overrideStash: kept by the kiwi codec as Figma's InstanceOverrid
   REQUIRE(codec::readMessage(codec::writeMessage(0, {inst}), m));
   REQUIRE(m.changes.size() == 1);
   CHECK(m.changes[0].props.extra["overrideStash"] == field);
+}
+
+// ---- Gradient interpolation: Paint 41 / 42 (effects.md §2.22) ----------------------------------------------------
+
+namespace {
+
+ColorStop stop(double pos, uint32_t hex) {
+  ColorStop s;
+  s.position = pos;
+  s.color = Color::hex(hex);
+  return s;
+}
+
+// The middle texel of a white → black (or `a` → `b`) ramp, t = 127.5 / 255 between texels 127 and 128: their mean.
+std::array<double, 4> middle(uint32_t a, uint32_t b, InterpolationColorSpace space, InterpolationHueMethod hue = InterpolationHueMethod::SHORTER) {
+  std::vector<uint8_t> row;
+  bakeGradientRamp({stop(0, a), stop(1, b)}, space, hue, 256, row);
+  REQUIRE(row.size() == 256 * 4);
+  std::array<double, 4> m{};
+  for (int j = 0; j < 4; j++) m[j] = (row[127 * 4 + j] + row[128 * 4 + j]) / 2.0;
+  return m;
+}
+
+}  // namespace
+
+TEST_CASE("r17c gradient interpolation: the ramp blended in OKLab, OKLCH, HSL and linear sRGB as CSS Color 4 does") {
+  using S = InterpolationColorSpace;
+  using H = InterpolationHueMethod;
+  // White → black: the document's space gives 50 % grey; OKLab's middle is oklab(0.5 0 0) = #636363 (CSS
+  // color-mix(in oklab, white, black)); linear sRGB's is 0.5 linear = #bcbcbc.
+  CHECK(middle(0xFFFFFF, 0x000000, S::OKLAB)[0] == doctest::Approx(99).epsilon(0.02));
+  CHECK(middle(0xFFFFFF, 0x000000, S::OKLCH)[0] == doctest::Approx(99).epsilon(0.02));
+  CHECK(middle(0xFFFFFF, 0x000000, S::SRGB_LINEAR)[0] == doctest::Approx(188).epsilon(0.02));
+  // Red → blue in HSL: hue 0 → 240 the shorter way passes 300 (magenta), increasing passes 120 (green).
+  auto shorter = middle(0xFF0000, 0x0000FF, S::HSL, H::SHORTER);
+  CHECK(shorter[0] > 250);
+  CHECK(shorter[1] < 5);
+  CHECK(shorter[2] > 250);
+  auto increasing = middle(0xFF0000, 0x0000FF, S::HSL, H::INCREASING);
+  CHECK(increasing[0] < 5);
+  CHECK(increasing[1] > 250);
+  CHECK(increasing[2] < 5);
+  // A grey stop has no hue: it takes the other stop's (red → white in OKLCH keeps red's hue — the straight OKLab
+  // line, no detour round the hue circle).
+  auto toWhite = middle(0xFF0000, 0xFFFFFF, S::OKLCH), straight = middle(0xFF0000, 0xFFFFFF, S::OKLAB);
+  for (int j = 0; j < 4; j++) CHECK(toWhite[j] == doctest::Approx(straight[j]).epsilon(0.01));
+}
+
+TEST_CASE("r17c gradient interpolation: OKLCH's midpoint is CSS Color 4's (red / blue as the spec gives them)") {
+  // CSS Color 4: red = oklch(62.8 % 0.2577 29.23), blue = oklch(45.2 % 0.3132 264.05). Red → blue the shorter way:
+  // L and C halfway, hue 29.23 + 360 → 264.05, i.e. 326.64.
+  const double red[3] = {1, 0, 0}, blue[3] = {0, 0, 1};
+  double lr[3], lb[3];
+  srgbToOklab(red, lr);
+  srgbToOklab(blue, lb);
+  CHECK(lr[0] == doctest::Approx(0.628).epsilon(0.002));
+  CHECK(std::hypot(lr[1], lr[2]) == doctest::Approx(0.2577).epsilon(0.002));
+  CHECK(lb[0] == doctest::Approx(0.452).epsilon(0.002));
+  RampColor mid = interpolateColor(Color::hex(0xFF0000), Color::hex(0x0000FF), 0.5, InterpolationColorSpace::OKLCH, InterpolationHueMethod::SHORTER);
+  const double rgb[3] = {mid.r, mid.g, mid.b};
+  double lab[3];
+  srgbToOklab(rgb, lab);
+  CHECK(lab[0] == doctest::Approx((0.62796 + 0.45201) / 2).epsilon(0.002));
+  CHECK(std::hypot(lab[1], lab[2]) == doctest::Approx((0.25768 + 0.31321) / 2).epsilon(0.002));
+  double h = std::atan2(lab[2], lab[1]) * 180 / M_PI;
+  if (h < 0) h += 360;
+  CHECK(h == doctest::Approx(326.64).epsilon(0.002));
+  CHECK(mid.a == doctest::Approx(1));
+  // Alpha is premultiplied into L and C: half-transparent red → opaque blue weighs blue's lightness more.
+  Color clearRed = Color::hex(0xFF0000);
+  clearRed.a = 0;
+  RampColor fade = interpolateColor(clearRed, Color::hex(0x0000FF), 0.5, InterpolationColorSpace::OKLAB, InterpolationHueMethod::SHORTER);
+  CHECK(fade.a == doctest::Approx(0.5));
+  CHECK(fade.b == doctest::Approx(1).epsilon(0.01));
+  CHECK(fade.r == doctest::Approx(0).epsilon(0.01));
+}
+
+TEST_CASE("r17c gradient interpolation: Paint 41 / 42 read from a paint's kept fields") {
+  Paint p;
+  p.type = PaintType::GRADIENT_LINEAR;
+  schema::Out o;
+  o.varuint(41);
+  o.varuint(2);  // OKLCH
+  o.varuint(42);
+  o.varuint(1);  // LONGER
+  p.extra = o.s;
+  CHECK(paintExtras(p).interpolationColorSpace == InterpolationColorSpace::OKLCH);
+  CHECK(paintExtras(p).interpolationHueMethod == InterpolationHueMethod::LONGER);
+  Paint plain;
+  CHECK(paintExtras(plain).interpolationColorSpace == InterpolationColorSpace::DEFAULT);
 }

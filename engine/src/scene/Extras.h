@@ -18,6 +18,9 @@ enum class BlurOpType : uint8_t { NORMAL = 0, PROGRESSIVE = 1 };
 enum class NoiseType : uint8_t { MULTITONE = 0, MONOTONE = 1, DUOTONE = 2 };
 enum class PatternTileType : uint8_t { RECTANGULAR = 0, HORIZONTAL_HEXAGONAL = 1, VERTICAL_HEXAGONAL = 2 };
 enum class PatternAlignment : uint8_t { START = 0, CENTER = 1, END = 2 };
+// Paint.interpolationColorSpace / interpolationHueMethod (41 / 42): how a gradient's stops blend (render/GradientRamp).
+enum class InterpolationColorSpace : uint8_t { DEFAULT = 0, OKLAB = 1, OKLCH = 2, HSL = 3, SRGB_LINEAR = 4 };
+enum class InterpolationHueMethod : uint8_t { SHORTER = 0, LONGER = 1, INCREASING = 2, DECREASING = 3 };
 
 // An absent field reads as Figma's Effect reads it (docs/research/rea/effects.md §2.27: noiseSize 0, opacity 0,
 // blurOpType NORMAL, seed 0; clipToShape is Figma's `type == CUSTOM`, and only texture reads it here); glass's as
@@ -48,6 +51,8 @@ struct PaintExtras {
   NoiseType noiseType = NoiseType::MONOTONE;
   double density = 1;
   Vec2 noiseSize{0.5, 0.5};
+  InterpolationColorSpace interpolationColorSpace = InterpolationColorSpace::DEFAULT;
+  InterpolationHueMethod interpolationHueMethod = InterpolationHueMethod::SHORTER;
 };
 
 // A shader paint or effect (PaintType / EffectType CUSTOM): the preset its customEffectId names (assetRef.key) and its
