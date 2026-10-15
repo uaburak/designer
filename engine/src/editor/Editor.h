@@ -1068,6 +1068,11 @@ class Editor : private LayoutHost, public TextLayouts {
   void noteNode(Guid id, uint32_t groups);
   void noteChange(const NodeChange& c, NodeType typeBefore);
   void markLayout(const NodeChange& c, Guid parentBefore);
+  // Transactions whose changes are laid out (docs/engine.md §3.3): the user's and gestures, and — Figma's invariant
+  // enforcers, `-remote` included — undo, redo and remote changes, whose restored or received sizes aren't trusted.
+  static bool laysOut(TxnKind k) {
+    return k == TxnKind::USER || k == TxnKind::GESTURE || k == TxnKind::UNDO || k == TxnKind::REDO || k == TxnKind::REMOTE;
+  }
   void flushLayout();
   void removeEmptyGroups();
   // A file just loaded: the global bookkeeping (styles, collections, deleted mains nobody uses, bound values), as one
@@ -1090,6 +1095,8 @@ class Editor : private LayoutHost, public TextLayouts {
   double pixel() const { return 1.0 / camera_.zoom; }
   bool selected(Guid id) const;
   bool undoStep(bool redo);
+  // Is the node on a page already derived (or on the internal canvas)? Undo, redo and remote changes lay out only there.
+  bool onDerivedPage(Guid id) const;
   Camera snapped(Camera c) const;
   // The visible part of the canvas (Viewport::visible): a camera fitting r in it, its centre (screen), its world rect.
   Camera fitVisible(const Rect& r, bool upTo100) const;
@@ -1922,6 +1929,10 @@ class Editor : private LayoutHost, public TextLayouts {
   // Layout.
   std::unordered_set<Guid, GuidHash> layoutDirty_;
   std::unordered_set<Guid, GuidHash> groupsTouched_;
+  // An undo / redo's system writes after its replay (layout, groups, bindings), as inverses: they join the batch the
+  // replay put on the other stack (UndoStack::extendTop) when it commits.
+  std::vector<NodeChange> replayWrites_;
+  bool replayPushed_ = false;
   std::unordered_set<Guid, GuidHash> excluded_;  // dragged into an auto-layout flow: no space there yet
   std::unordered_set<Guid, GuidHash> pinned_;    // dragged inside its own flow: keeps its slot, not moved by layout
   // Round 15 (live Figma, docs/research/figma/live/behaviour/autolayout-drag.md; docs/engine.md §8.6): one layer

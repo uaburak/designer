@@ -1,5 +1,7 @@
 #include "editor/Undo.h"
 
+#include <unordered_set>
+
 namespace eng {
 
 void UndoStack::begin(const std::vector<Guid>& selection, const std::string& label) {
@@ -70,15 +72,82 @@ std::vector<NodeChange> UndoStack::rollback(Document& doc) {
   return applied;
 }
 
-std::vector<NodeChange> UndoStack::replay(Document& doc, const UndoBatch& batch, UndoBatch& opposite, ChangeSet* changes) {
+namespace {
+
+// Fields the Layers panel shows: a change to them is seen even on a hidden layer.
+constexpr FieldMask kPanelFields = F_NAME | F_VISIBLE | F_LOCKED | F_PARENT_INDEX;
+
+// Would applying `c` now change something the user sees (docs/engine.md §9.3)? A creation or a removal always does;
+// a change does when one of its values differs and the layer is shown on its page (it and its ancestors visible),
+// or when it touches a Layers-panel field.
+bool visibleEffect(const Document& doc, const NodeChange& c) {
+  if (c.phase != Phase::CHANGED) return true;
+  const Node* n = doc.get(c.guid);
+  if (!n) return false;
+  FieldMask diff = differingFields(n->props, c.props, c.mask);
+  if (!diff) return false;
+  if (diff & kPanelFields) return true;
+  return doc.visibleInTree(c.guid);
+}
+
+// Figma's dangling-reference filter: a CHANGED (REMOVED) inverse of a node that is gone and not re-created by the
+// batch is dropped, a creation under a parent that is gone is dropped, and a move back into a parent that is gone
+// keeps its other fields (the transform was in that parent's space: it goes too). Until nothing more drops (a
+// creation dropped can leave its children's creations dangling). Returns how many inverses it dropped or cut down.
+size_t filterDangling(const Document& doc, std::deque<NodeChange>& list) {
+  size_t count = 0;
+  for (bool again = true; again;) {
+    again = false;
+    std::unordered_set<Guid, GuidHash> created;
+    for (const NodeChange& c : list)
+      if (c.phase == Phase::CREATED) created.insert(c.guid);
+    auto lives = [&](Guid g) { return doc.has(g) || created.count(g) != 0; };
+    for (auto it = list.begin(); it != list.end();) {
+      NodeChange& c = *it;
+      bool drop = false;
+      if (c.phase == Phase::CREATED) {
+        drop = c.props.parentIndex.guid != kNoGuid && !lives(c.props.parentIndex.guid);
+      } else if (!lives(c.guid)) {
+        drop = true;
+      } else if (c.phase == Phase::CHANGED && (c.mask & F_PARENT_INDEX) && c.props.parentIndex.guid != kNoGuid &&
+                 !lives(c.props.parentIndex.guid)) {
+        c.mask &= ~static_cast<FieldMask>(F_PARENT_INDEX | F_TRANSFORM);
+        drop = !c.mask;
+        if (!drop) count++;
+      }
+      if (drop) {
+        if (c.phase == Phase::CREATED) again = true;
+        it = list.erase(it);
+        count++;
+        continue;
+      }
+      ++it;
+    }
+  }
+  return count;
+}
+
+}  // namespace
+
+std::vector<NodeChange> UndoStack::replay(Document& doc, UndoBatch& batch, UndoBatch& opposite, ChangeSet* changes, ReplayInfo* info) {
   std::vector<NodeChange> applied;
   opposite.label = batch.label;
   opposite.selectionBefore = batch.selectionAfter;
   opposite.selectionAfter = batch.selectionBefore;
+  size_t dangling = filterDangling(doc, batch.inverse);
+  if (info) info->dangling += dangling;
   for (auto it = batch.inverse.rbegin(); it != batch.inverse.rend(); ++it) {
     NodeChange back;
+    bool visible = info && !info->visible && visibleEffect(doc, *it);
+    Guid parentBefore = kNoGuid;
+    if (info)
+      if (const Node* n = doc.get(it->guid)) parentBefore = n->props.parentIndex.guid;
     if (changes) changes->touch(doc, *it);
     if (!doc.apply(*it, &back)) continue;
+    if (info) {
+      info->parentsBefore.push_back(parentBefore);
+      if (visible) info->visible = true;
+    }
     applied.push_back(*it);
     opposite.inverse.push_back(std::move(back));
   }
@@ -95,26 +164,39 @@ const std::string& UndoStack::redoLabel() const {
   return redo_.empty() ? none : redo_.back().label;
 }
 
-std::vector<NodeChange> UndoStack::undo(Document& doc, std::vector<Guid>& selection, ChangeSet* changes) {
+std::vector<NodeChange> UndoStack::undo(Document& doc, std::vector<Guid>& selection, ChangeSet* changes, ReplayInfo* info) {
   if (undo_.empty() || depth_ > 0) return {};
   UndoBatch batch = std::move(undo_.back());
   undo_.pop_back();
   UndoBatch opposite;
-  auto applied = replay(doc, batch, opposite, changes);
+  auto applied = replay(doc, batch, opposite, changes, info);
   selection = batch.selectionBefore;
-  redo_.push_back(std::move(opposite));
+  if (!opposite.inverse.empty()) {
+    redo_.push_back(std::move(opposite));
+    if (info) info->pushed = true;
+  }
   return applied;
 }
 
-std::vector<NodeChange> UndoStack::redo(Document& doc, std::vector<Guid>& selection, ChangeSet* changes) {
+std::vector<NodeChange> UndoStack::redo(Document& doc, std::vector<Guid>& selection, ChangeSet* changes, ReplayInfo* info) {
   if (redo_.empty() || depth_ > 0) return {};
   UndoBatch batch = std::move(redo_.back());
   redo_.pop_back();
   UndoBatch opposite;
-  auto applied = replay(doc, batch, opposite, changes);
+  auto applied = replay(doc, batch, opposite, changes, info);
   selection = batch.selectionBefore;
-  undo_.push_back(std::move(opposite));
+  if (!opposite.inverse.empty()) {
+    undo_.push_back(std::move(opposite));
+    if (info) info->pushed = true;
+  }
   return applied;
+}
+
+void UndoStack::extendTop(bool redoSide, std::vector<NodeChange>&& inverses) {
+  auto& stack = redoSide ? redo_ : undo_;
+  if (stack.empty() || inverses.empty()) return;
+  // Applied backwards: these (appended last) go first, so the batch's own values win where both hold a field.
+  for (NodeChange& c : inverses) stack.back().inverse.push_back(std::move(c));
 }
 
 size_t UndoStack::yield(const ChangeSet& by) {

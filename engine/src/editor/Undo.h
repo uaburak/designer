@@ -26,6 +26,20 @@ struct UndoBatch {
   std::vector<Guid> selectionAfter;
 };
 
+// What one undo / redo replay did, beyond the changes it applied (docs/engine.md §9.3).
+struct ReplayInfo {
+  // Per applied change (same order): the node's parent before it was applied (layout marks the parent it left).
+  std::vector<Guid> parentsBefore;
+  // Something the user can see changed: a value that differed on a layer shown on its page, a layer created or
+  // removed, or a Layers-panel field (name, visibility, lock, place in the tree) of any layer. A replay without it
+  // has "no visible effect" (Figma skips such batches within the same ⌘Z).
+  bool visible = false;
+  // Inverses the dangling-reference filter dropped or cut down (their node or the parent they'd put it under is gone).
+  size_t dangling = 0;
+  // The opposite batch went onto the other stack (a replay that applied nothing leaves nothing to redo).
+  bool pushed = false;
+};
+
 class UndoStack {
  public:
   // Opens a transaction (nested begin() calls join the outer one).
@@ -52,8 +66,14 @@ class UndoStack {
   // Undo/redo one step on `doc`. Returns the changes applied (forward, for
   // listeners) and sets `selection` to what it was at that point.
   // `changes` (if given) is told about each change before it is applied.
-  std::vector<NodeChange> undo(Document& doc, std::vector<Guid>& selection, ChangeSet* changes = nullptr);
-  std::vector<NodeChange> redo(Document& doc, std::vector<Guid>& selection, ChangeSet* changes = nullptr);
+  // Before applying, the dangling-reference filter drops the inverses whose node is gone (and the parent moves into
+  // a parent that is gone), so nothing is left parked outside the tree. `info` (if given) says what the replay did.
+  std::vector<NodeChange> undo(Document& doc, std::vector<Guid>& selection, ChangeSet* changes = nullptr, ReplayInfo* info = nullptr);
+  std::vector<NodeChange> redo(Document& doc, std::vector<Guid>& selection, ChangeSet* changes = nullptr, ReplayInfo* info = nullptr);
+  // The system writes an undo (redo) made after its replay — layout, groups, bindings — join the batch it just put on
+  // the redo (undo) stack, as their inverses: applied before the batch's own (oldest values win). `redoSide`: the
+  // redo stack's top (after an undo). Nothing happens when that stack is empty.
+  void extendTop(bool redoSide, std::vector<NodeChange>&& inverses);
   const std::string& undoLabel() const;
   const std::string& redoLabel() const;
   void clear();
@@ -76,7 +96,7 @@ class UndoStack {
   size_t redoCount() const { return redo_.size(); }
 
  private:
-  static std::vector<NodeChange> replay(Document& doc, const UndoBatch& batch, UndoBatch& opposite, ChangeSet* changes);
+  static std::vector<NodeChange> replay(Document& doc, UndoBatch& batch, UndoBatch& opposite, ChangeSet* changes, ReplayInfo* info);
 
   std::vector<UndoBatch> undo_, redo_;
   UndoBatch open_;
