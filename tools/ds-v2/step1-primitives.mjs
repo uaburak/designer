@@ -1,5 +1,5 @@
 // Design system v2, step 1 (docs/design-system-v2.md §a, §b, §f): the Primitives collection — the raw palette, each
-// distinct colour once (73), and the number scale every size variable aliases. One mode, hidden from publishing, no
+// distinct colour once (73, plus the Yellow theme's 8), and the number scale every size variable aliases. One mode, hidden from publishing, no
 // scopes (they are only aliased, never picked). Idempotent: an existing variable of the same name is updated, not
 // duplicated. Every write is checked; at the end everything is read back and compared with this table.
 import { connect } from "../ui-kit/mcp.mjs";
@@ -24,10 +24,14 @@ const COLORS = {
   "green/100": "#CFF7D3", "green/300": "#79D297", "green/500": "#14AE5C", "green/600": "#009951", "green/900": "#0A4C2D",
   "yellow/100": "#FFF1C2", "yellow/200": "#FFE8A3", "yellow/300": "#F7D15F", "yellow/500": "#FFCD29",
   "yellow/700": "#C58011", "yellow/800": "#B86200", "yellow/900": "#925711",
+  // The Yellow brand theme's steps the palette lacked (owner, 2026-10-15: a theme whose primary is yellow), and its
+  // dark-mode selection tints (the Blue theme's are slate)
+  "yellow/50": "#FFFAEB", "yellow/550": "#F5BF0F", "yellow/600": "#E5AC00", "yellow/a10": "#FFCD291A", "yellow/a40": "#FFCD2966",
+  "olive/700": "#5E5338", "olive/800": "#4D4430", "olive/900": "#3D3626",
   "orange/500": "#FFA629", "teal/500": "#0FA8A8", "pink/500": "#FF24BD",
 };
 // Every number a Sizes variable needs (space, radius, stroke, control / icon / surface sizes); full = 9999
-const NUMBERS = [0, 1, 2, 4, 5, 6, 8, 9, 12, 13, 16, 20, 24, 28, 32, 38, 40, 48, 56, 64, 240, 320, 480, 640, 9999];
+const NUMBERS = [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 16, 20, 24, 28, 32, 36, 38, 40, 44, 48, 56, 64, 240, 320, 480, 640, 9999];
 
 const mcp = await connect();
 const call = async (name, args) => {
@@ -59,7 +63,7 @@ const want = [
 ];
 for (const v of want) {
   const had = existing.get(v.name);
-  if (had) await call("set_variable_value", { variableId: had.id, value: v.value });
+  if (had) await call("set_variable_value", { variableId: had.id, values: { Value: v.value } });
   else await call("create_variable", { collectionId: col.id, name: v.name, type: v.type, value: v.value, scopes: [], hiddenFromPublishing: true });
 }
 

@@ -365,7 +365,16 @@ function getVariableDefs(env: ToolEnv, args: Spec): ToolResult {
       id: c.id,
       name: c.name,
       modes: c.modes.map((m) => ({ id: m.modeId, name: m.name })),
-      variables: c.variableIds.map((id) => e.variable(id)).filter((v): v is NonNullable<typeof v> => !!v).map((v) => ({ id: v.id, name: v.name, type: v.resolvedType, values: Object.fromEntries(c.modes.map((m) => [m.name, valueText(v.resolvedValuesByMode[m.modeId] ?? v.valuesByMode[m.modeId])])) })),
+      variables: c.variableIds.map((id) => e.variable(id)).filter((v): v is NonNullable<typeof v> => !!v).map((v) => {
+        // An alias is reported by its target's name as well as the value it resolves to (a design system's tiers are
+        // checked by what each token aliases, not only by the colour it lands on)
+        const aliases: Record<string, string> = {};
+        for (const m of c.modes) {
+          const raw = v.valuesByMode[m.modeId] as { type?: string; id?: string } | undefined;
+          if (raw && typeof raw === "object" && raw.type === "VARIABLE_ALIAS" && raw.id) aliases[m.name] = e.variable(raw.id)?.name ?? raw.id;
+        }
+        return { id: v.id, name: v.name, type: v.resolvedType, values: Object.fromEntries(c.modes.map((m) => [m.name, valueText(v.resolvedValuesByMode[m.modeId] ?? v.valuesByMode[m.modeId])])), ...(Object.keys(aliases).length ? { aliases } : {}) };
+      }),
     }));
     const styles = e.styles(undefined, { includeRemote: true }).map((s) => ({ id: s.id, name: s.name, type: s.styleType }));
     return textResult({ collections, styles });
