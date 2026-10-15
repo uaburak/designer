@@ -30,7 +30,7 @@ export const NOTCH_CLAMP = 120;
 export const NOTCH_CLAMP_ZOOM = 40;
 
 /** The engine's pinch zoom rate per pixel of wheel delta (Gestures.cpp Editor::wheel: zoom × e^(−dy · 0.01)). */
-export const PINCH_RATE = 0.01;
+export const PINCH_RATE = Math.LN2 / 50; // the engine's kWheelZoomRate: Figma's 4^(delta / 100)
 
 /** True when a press `dx`, `dy` from the last one (and soon enough) continues its click count: a box on each axis. */
 export function withinClickBox(dx: number, dy: number, touch = false): boolean {

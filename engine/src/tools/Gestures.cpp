@@ -910,13 +910,17 @@ uint32_t Editor::wheel(double x, double y, double dx, double dy, DeltaMode mode,
   stopCameraAnimation();  // round 16
   // Pans move by whole device pixels, so the page's cached pixels can simply shift (docs/engine.md §6.9).
   double sx = viewport_.scaleX() > 0 ? viewport_.scaleX() : 1, sy = viewport_.scaleY() > 0 ? viewport_.scaleY() : 1;
-  auto pan = [&](double px, double py) { changeCamera(camera_.panned(std::round(px * sx) / sx, std::round(py * sy) / sy)); };
+  // Figma pans by the wheel's deltas in device pixels (the owner's trackpad: 0 → ~5000 on the ruler where CSS pixels
+  // went 0 → ~2500–3000, 2026-10-15): the deltas count once per device pixel.
+  auto pan = [&](double px, double py) { changeCamera(camera_.panned(std::round(px * sx * sx) / sx, std::round(py * sy * sy) / sy)); };
   // Preferences › Use scroll wheel zoom (round 9): a plain wheel zooms and ⌘ / Ctrl + wheel pans; a pinch still zooms.
   bool zoomKey = (mods & (MOD_CTRL | MOD_META)) != 0;
   bool zoom = (flags & WHEEL_PINCH) || ((viewOptions_ & VIEW_SCROLL_WHEEL_ZOOM) ? !zoomKey && !(mods & MOD_SHIFT) : zoomKey);
   if (zoom) {
     // A pinch (ctrlKey from a trackpad) or ⌘/Ctrl + wheel zooms about the pointer (Invert zoom direction: the other way).
-    double rate = mode == DeltaMode::LINE ? 0.05 : 0.01;
+    // Figma's rate: 4^(delta / 100) (Fullscreen.pinchToZoomExponent() returns 4.0f in its wasm) — ln 4 / 100 a pixel
+    // of delta (e^(delta / 100) zoomed 2 % → 20 % where Figma went 2 % → 42 % on the same pinch, owner 2026-10-15).
+    double rate = (mode == DeltaMode::LINE ? 5 : 1) * kWheelZoomRate;
     double sign = (viewOptions_ & VIEW_INVERT_ZOOM) ? 1 : -1;
     zooming_ = true;
     changeCamera(camera_.zoomedAround(camera_.zoom * std::exp(sign * dy * (mode == DeltaMode::PAGE ? unit : 1) * rate), {x, y}));
@@ -926,16 +930,15 @@ uint32_t Editor::wheel(double x, double y, double dx, double dy, DeltaMode mode,
   }
   // The pointer now sits over another part of the page: carry on whatever it was doing there.
   lastScreen_ = {x, y};
-  // Figma: a zoom holds no hover — the layer under the pointer isn't hit-tested (nor its outline and the panels' hover
-  // redrawn) at every wheel step; the next pointer move hovers again (owner, 2026-10-15).
-  if (zoom && gesture_ == Gesture::None) {
+  // Figma: a wheel (zoom or pan) holds no hover — the layer under the pointer isn't hit-tested (nor its outline and the
+  // panels' hover redrawn) at every wheel step; the next pointer move hovers again (owner, 2026-10-15).
+  if (gesture_ == Gesture::None) {
     if (hover_ != kNoGuid) {
       hover_ = kNoGuid;
       events_.hover = true;
       needsRender_ = true;
     }
-  } else if (gesture_ == Gesture::None) updateHover(lastScreen_, mods);
-  else if (gesture_ != Gesture::Pan) pointerMove(lastScreen_, mods);
+  } else if (gesture_ != Gesture::Pan) pointerMove(lastScreen_, mods);
   return P_HANDLED;
 }
 

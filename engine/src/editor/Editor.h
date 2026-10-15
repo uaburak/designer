@@ -1183,6 +1183,8 @@ class Editor : private LayoutHost, public TextLayouts {
   bool scrollbarHover(Vec2 s);
   void scrollbarTick(double timeMs);
   void scrollbarOverlay(Overlay& o) const;
+  // A wheel pixel's zoom: Figma's 4^(delta / 100) (pinchToZoomExponent() = 4.0f), i.e. e^(delta · ln 4 / 100).
+  static constexpr double kWheelZoomRate = 0.013862943611198906;
   static constexpr double kScrollbarShowMs = 1000;  // shown this long after the view stops…
   static constexpr double kScrollbarFadeMs = 300;   // …then fading out
 

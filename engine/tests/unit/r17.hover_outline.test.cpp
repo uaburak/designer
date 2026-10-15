@@ -162,7 +162,7 @@ TEST_CASE("r17 hover outline: smoothed and inverted corners along their path, an
   CHECK(std::fabs(o[0].linear[1]) + std::fabs(o[0].linear[2]) > 0.5);  // not axis-aligned
 }
 
-TEST_CASE("r17 hover: a zoom (pinch or ⌘-wheel) holds no hover, as Figma; a pan keeps hovering; the next move hovers again") {
+TEST_CASE("r17 hover: a wheel (pinch, ⌘-wheel or pan) holds no hover, as Figma; the next move hovers again") {
   Scene s;
   s.move({100, 100});
   REQUIRE(s.e.hover() == F);
@@ -178,9 +178,10 @@ TEST_CASE("r17 hover: a zoom (pinch or ⌘-wheel) holds no hover, as Figma; a pa
   // The pointer moves: hovering again.
   s.e.pointer(PointerEvent::MOVE, 201, 201, 0, 0, 0);
   CHECK(s.e.hover() == F);
-  // A plain wheel pans and still hovers what comes under the pointer.
+  // A pan holds no hover either (Figma); the next move hovers again.
+  s.e.wheel(201, 201, 0, 20, DeltaMode::PIXEL, 0, 0);
+  CHECK(s.e.hover() == kNoGuid);
   s.e.setCamera({100, 100, 1});
-  s.e.wheel(700, 400, 0, 20, DeltaMode::PIXEL, 0, 0);
-  s.e.wheel(150, 150, 0, 1, DeltaMode::PIXEL, 0, 0);
+  s.e.pointer(PointerEvent::MOVE, 150, 150, 0, 0, 0);
   CHECK(s.e.hover() == F);
 }

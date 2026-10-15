@@ -331,21 +331,23 @@ TEST_CASE("editor: commands — delete, select all, order, lock, visibility") {
 
 TEST_CASE("editor: camera — wheel pans, pinch and ⌘ zoom around the pointer, zoom commands") {
   Editor e = makeEditor();
+  // Figma pans by the deltas in device pixels: k device px a CSS px (round 17 D).
+  const double k = e.viewport().scaleX() > 0 ? e.viewport().scaleX() : 1;
   e.wheel(100, 100, 30, 40, DeltaMode::PIXEL, 0, 0);
-  CHECK(e.camera().x == -30);
-  CHECK(e.camera().y == -40);
+  CHECK(e.camera().x == -30 * k);
+  CHECK(e.camera().y == -40 * k);
   e.wheel(100, 100, 0, 3, DeltaMode::LINE, 0, 0);
-  CHECK(e.camera().y == -88);
+  CHECK(e.camera().y == -88 * k);
   // ⇧ doesn't turn the wheel here: macOS does it itself, and TS swaps the axes off the Mac (pointerInput.ts).
   e.wheel(100, 100, 10, 0, DeltaMode::PIXEL, MOD_SHIFT, WHEEL_MOUSE);
-  CHECK(e.camera().x == -40);
+  CHECK(e.camera().x == -40 * k);
   e.wheel(100, 100, 0, 10, DeltaMode::PIXEL, MOD_SHIFT, WHEEL_TRACKPAD);
-  CHECK(e.camera().x == -40);
-  CHECK(e.camera().y == -98);
+  CHECK(e.camera().x == -40 * k);
+  CHECK(e.camera().y == -98 * k);
   e.wheel(100, 100, 0, -10, DeltaMode::PIXEL, 0, 0);
   Vec2 before = e.camera().toWorld({200, 150});
   e.wheel(200, 150, 0, -100, DeltaMode::PIXEL, 0, WHEEL_PINCH);
-  CHECK(e.camera().zoom == doctest::Approx(std::exp(1.0)));
+  CHECK(e.camera().zoom == doctest::Approx(4.0));  // Figma's 4^(delta / 100)
   Vec2 after = e.camera().toWorld({200, 150});
   CHECK(after.x == doctest::Approx(before.x));
   CHECK(after.y == doctest::Approx(before.y));
