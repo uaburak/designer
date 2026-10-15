@@ -69,7 +69,7 @@ void NullDevice::draw(const DrawCall& call) {
     hazards++;
     reportSampledAttachment("NullDevice", lastPass.target, passTexture_, slot);
   }
-  Recorded r{call, pipelines_.at(call.pipeline), {}};
+  Recorded r{call, pipelines_.at(call.pipeline), {}, passTexture_};
   if (call.instances.buffer) {
     const auto& b = buffers_.at(call.instances.buffer);
     r.instances.assign(b.begin() + call.instances.offset, b.begin() + call.instances.offset + call.instances.size);

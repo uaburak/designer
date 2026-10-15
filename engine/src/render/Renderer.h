@@ -639,7 +639,16 @@ class Renderer {
     int copyOf = -1;           // a copy of another layer (then blurred: shadows)
     double blurRadius = 0;     // the tent blur's radius in device px, applied after drawing
     double morph = 0;          // + dilate / − erode, device px, before the blur
+    // A background blur's: the tent clamped to `clampBox` (the node's space; `nodeFromDevice` maps canvas device px
+    // there) — the centre clamped into it, taps outside it weightless (docs/research/rea/effects.md §2.11).
+    bool clamped = false;
+    Rect clampBox;
+    Mat2x3 nodeFromDevice;
     bool executed = false;
+    // Execution: the layers still to read it (copies, composites, shader effects); at 0 its target goes back to the
+    // pool mid-frame, so the effect stage's intermediate layers (round 17 B's effect list) don't all hold a target to
+    // the frame's end (the pool's budget, render.batching "no pass samples the texture it draws into …").
+    int readers = 0;
     // Execution: where its pixels ended up.
     gfx::TargetId target = 0;
     gfx::TextureId texture = 0;
@@ -675,6 +684,10 @@ class Renderer {
     float fx[3][4] = {};                                   // progressive: slots 16–18 (the node's box, start / end)
     double start = 0, end = 0;                             // progressive: the radius at the start and at the end (device px)
     float glass[2][4] = {};                                // glass: slots 6 and 8
+    // A uniform background blur: clamped to the node's box (Layer::clamped).
+    bool clamped = false;
+    Rect clampBox;
+    Mat2x3 nodeFromDevice;
   };
 
   void ensurePipelines();
@@ -697,9 +710,14 @@ class Renderer {
   double repeatScale_ = 1;
   void drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double alpha, bool inner);
   // A background blur (uniform or progressive), or glass: the backdrop copied, blurred and painted into the shape.
-  // How far past its box a background blur's (glass: `glass`) backdrop copy reaches, device px, at `scale` device px
-  // per node unit.
-  static double backdropReach(const Effect& e, bool glass, double scale);
+  // How far past its box a background blur's (glass: `glass`) backdrop reading reaches, device px, at `scale` device px
+  // per node unit, as the content cache grows its parts (growForBackdrops): the radius (and the glass's refraction; a
+  // uniform background blur's clamp box's stroke growth too). A uniform background blur's copy itself is only its
+  // clamp box (blurClampBox).
+  static double backdropReach(const NodeProps& p, const Effect& e, bool glass, double scale);
+  // The box a uniform background blur is clamped to (node space): the node's box grown by an outside (its weight) or
+  // centred (half) visible stroke × its miter limit, and a text's glyphs (Figma's `U`, effects.md §2.11).
+  static Rect blurClampBox(const NodeProps& p, const Rect& ink);
   // The layers of this frame's tree that read their backdrop: their visual bounds on the canvas (device px, this
   // frame's view) and how far their reading reaches past them — or, `world`, in world units at 100 %.
   struct BackdropArea {
@@ -805,6 +823,19 @@ class Renderer {
   // Execution.
   void execute(int layer, gfx::TargetId target, const float clear[4], bool keep = false);
   void runLayer(int index);
+  // Calls f(layer) for each layer `L` reads (its copy's source, its composites' sources and masks, shader effects').
+  template <typename F>
+  void eachRead(const Layer& L, F&& f) const {
+    if (L.copyOf >= 0) f(L.copyOf);
+    for (const Cmd& c : L.cmds) {
+      if (c.kind == Cmd::Kind::Shader && c.layer >= 0) f(c.layer);
+      if (c.kind != Cmd::Kind::Composite) continue;
+      if (c.layer >= 0) f(c.layer);
+      if (c.aux >= 0) f(c.aux);
+    }
+  }
+  // Layer `index` has run: what it read is read once less, and a layer nothing reads any more gives its target back.
+  void doneReading(int index);
   void runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, const float clear[4], bool keep);
   // A recording of `region` (device px; clipToRegion: nothing drawn outside it), then its execution into `target`
   // (keep: what the target holds stays outside the region).

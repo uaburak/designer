@@ -61,6 +61,9 @@ struct ShaderSetup {
 // The effect's newer fields (defaults where it has none). A glass written by Wecra before round 17 (Depth in
 // bevelSize, Splay 0–100 in refractionRadius; Figma always writes bevelSize 1) reads as Figma's fields.
 const EffectExtras& effectExtras(const Effect& e);
+// An image paint's contrast as Figma stores it: ±0.3, the panel's ±100 (its shader's range,
+// docs/research/rea/effects.md §2.24). Wecra stored −1…1 before round 17: a value past ±0.3 is such, read × 0.3.
+float imageContrast(float stored);
 // Whether the effect draws anything (Figma's Effect::isVisibleForRendering, docs/research/rea/effects.md §2.27):
 // shadows need a colour with alpha, an inner shadow also a blur, an offset or a positive spread; blurs a radius (or a
 // progressive start), texture a radius; noise, glass and shader effects only being on.

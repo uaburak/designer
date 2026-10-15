@@ -313,7 +313,8 @@ TEST_CASE("renderer: Figma's effect rules — spread, one blur of each kind, str
   open.props.frameMaskDisabled = true;
   CHECK(dropSize(open) == doctest::Approx(100));
 
-  // Two layer blurs: the first is drawn (a tent of radius 4 at 100 %), not the larger.
+  // Two layer blurs: both are drawn, in order (round 17, Figma's builder: they compound) — a tent of radius 4 at 100 %,
+  // then 40 on the layer halved once (20 texels).
   {
     Document d;
     base(d);
@@ -327,10 +328,12 @@ TEST_CASE("renderer: Figma's effect rules — spread, one blur of each kind, str
     gfx::NullDevice dev;
     Renderer r(dev);
     record(r, dev, d);
-    float tent = 0;
+    std::vector<float> tents;
     for (auto& c : dev.draws)
-      if (c.pipeline.shader == gfx::ShaderId::Blur && c.call.uniforms[2][3] == 0) tent = std::max(tent, c.call.uniforms[2][2]);
-    CHECK(tent == doctest::Approx(4));
+      if (c.pipeline.shader == gfx::ShaderId::Blur && c.call.uniforms[2][3] == 0 && c.call.uniforms[2][0] == 1) tents.push_back(c.call.uniforms[2][2]);
+    REQUIRE(tents.size() == 2);
+    CHECK(tents[0] == doctest::Approx(4));
+    CHECK(tents[1] == doctest::Approx(20));
   }
 
   // An ellipse with an inner shadow (MULTIPLY) and a stroke: the inner shadow lands between the fill and the strokes.

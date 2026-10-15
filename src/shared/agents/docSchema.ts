@@ -48,7 +48,7 @@ const RULES: Record<string, DefRules> = {
       scaleMode: "IMAGE: FILL | FIT | CROP | TILE",
       rotation: "IMAGE: degrees (multiples of 90)",
       scale: "IMAGE (TILE) / PATTERN: scale",
-      paintFilter: "IMAGE: adjustments {exposure, contrast, vibrance (Saturation), temperature, tint, highlights, shadows} each −1–1",
+      paintFilter: "IMAGE: adjustments {exposure, contrast, vibrance (Saturation), temperature, tint, highlights, shadows} each −1–1, but contrast −0.3–0.3 (Figma stores the slider's ±100 so)",
       videoRef: "VIDEO: the video's hash",
       sourceNodeId: 'PATTERN: the layer tiled ("123:456")',
       patternTileType: "PATTERN: RECTANGULAR | HORIZONTAL_HEXAGONAL | VERTICAL_HEXAGONAL",

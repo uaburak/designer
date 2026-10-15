@@ -315,16 +315,18 @@ bool Renderer::setPaint(DrawInstance& q, DrawState& state, const Paint& paint, c
            : paint.type == PaintType::GRADIENT_ANGULAR ? PaintKind::Angular
                                                        : PaintKind::Diamond;
   } else if (paint.type == PaintType::NOISE) {
-    // Noise (Figma Draw): grains of noiseSize (node px) — Mono in the paint's colour at a random strength, Duo the
-    // colour or nothing, Multi random colours — `density` of the cells showing one.
+    // Noise (Figma Draw): Figma's noise (the NOISE effect's, docs/research/rea/effects.md §2.17; seed 0) over the
+    // node's space from its centre at 1 / noiseSize — Mono the paint's colour, Duo the colour in the high band,
+    // Multi every channel its own — where it falls in the `density` band; noiseSize ≤ 1 supersampled (type + 4).
     const PaintExtras& x = paintExtras(paint);
-    Mat2x3 P = Mat2x3{1 / std::max(x.noiseSize.x, 1e-3), 0, 0, 0, 1 / std::max(x.noiseSize.y, 1e-3), 0} * localToNode;
+    double fx = 1 / std::max(x.noiseSize.x, 1e-3), fy = 1 / std::max(x.noiseSize.y, 1e-3);
+    Mat2x3 P = Mat2x3{fx, 0, -nodeSize.x / 2 * fx, 0, fy, -nodeSize.y / 2 * fy} * localToNode;
     if (x.noiseType == NoiseType::MULTITONE) q.color[0] = q.color[1] = q.color[2] = q.color[3] = static_cast<float>(a);
     else premultiply(q.color, paint.color, a);
     q.paint0[0] = static_cast<float>(P.m00), q.paint0[1] = static_cast<float>(P.m01), q.paint0[2] = static_cast<float>(P.m02);
     q.paint1[0] = static_cast<float>(P.m10), q.paint1[1] = static_cast<float>(P.m11), q.paint1[2] = static_cast<float>(P.m12);
     q.paint0[3] = static_cast<float>(std::clamp(x.density, 0.0, 1.0));
-    q.paint1[3] = static_cast<float>(x.noiseType);
+    q.paint1[3] = static_cast<float>(static_cast<int>(x.noiseType) + (x.noiseSize.x <= 1 ? 4 : 0));
     kind = PaintKind::Noise;
   } else if (isImageLike(paint.type)) {
     bool failed = false, placeholder = false;
@@ -350,7 +352,8 @@ bool Renderer::setPaint(DrawInstance& q, DrawState& state, const Paint& paint, c
       q.paint0[3] = paint.imageScaleMode == ImageScaleMode::TILE ? 1.f : 0.f;
       state.image = t.id;
       const PaintFilter& f = paint.paintFilter;
-      float filters[8] = {f.exposure, f.contrast, f.vibrance, f.temperature, f.tint, f.highlights, f.shadows, 0};
+      // Figma's image colour-adjust uniforms (gfx/gl/Shaders.h adjust): contrast as stored (±0.3), the others ±1.
+      float filters[8] = {f.exposure, imageContrast(f.contrast), f.vibrance, f.temperature, f.tint, f.highlights, f.shadows, 0};
       std::memcpy(state.filters, filters, sizeof filters);
       kind = PaintKind::Image;
     }
@@ -802,11 +805,30 @@ void Renderer::drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double a
   }
 }
 
-double Renderer::backdropReach(const Effect& e, bool glass, double scale) {
+Rect Renderer::blurClampBox(const NodeProps& p, const Rect& ink) {
+  Rect box{0, 0, p.size.x, p.size.y};
+  if ((p.strokeAlign == StrokeAlign::OUTSIDE || p.strokeAlign == StrokeAlign::CENTER) && p.strokeWeight > 0 && anyVisible(p.strokePaints)) {
+    double grow = (p.strokeAlign == StrokeAlign::OUTSIDE ? p.strokeWeight : p.strokeWeight / 2) * p.miterLimit;
+    // Figma's size.withOnesForZeros(): a line's box is a unit thick before the stroke grows it.
+    box = {-grow, -grow, (p.size.x != 0 ? p.size.x : 1) + 2 * grow, (p.size.y != 0 ? p.size.y : 1) + 2 * grow};
+  }
+  if (!ink.empty()) box = box.united(ink);
+  return box;
+}
+
+double Renderer::backdropReach(const NodeProps& p, const Effect& e, bool glass, double scale) {
   const EffectExtras& x = effectExtras(e);
   double r1 = std::max(0.0, e.radius) * scale;
   double r0 = std::max(0.0, x.startRadius) * scale;
   bool progressive = !glass && x.blurOpType == BlurOpType::PROGRESSIVE && std::fabs(r0 - r1) > 0.01;
+  if (!glass && !progressive) {
+    // Clamped to its box (§2.11): its copy holds only the box grown by the stroke (drawBackgroundBlur). The parts the
+    // content cache draws again still grow by the radius, as before the clamp: grown less, a pan at 200 % left a
+    // glass at the canvas's edge 8 columns off a fresh draw (engine-shot r17) — a gap of the glass's own the wider
+    // growth covers, not yet found.
+    Rect b = blurClampBox(p, {});
+    return std::max({-b.x, -b.y, b.right() - p.size.x, b.bottom() - p.size.y, 0.0}) * scale + std::max(r1, 0.0) + 2;
+  }
   // The tent reaches exactly its radius; 2 px more for the ×2 level's bilinear fetches.
   double reach = (progressive ? std::max(r0, r1) : r1) + 2;
   if (glass) reach += std::max(0.0, x.refractionRadius) * scale * (1 + std::clamp(x.chromaticAberration, 0.0, 1.0));
@@ -829,17 +851,11 @@ std::vector<Renderer::BackdropArea> Renderer::backdropAreas(const Document& doc,
       const NodeProps& p = propsAt(i);
       double scale = std::sqrt(std::fabs((view * doc.worldTransform(rn.id)).determinant())) * std::sqrt(sx * sy);
       double reach = 0;
-      bool background = false, glass = false;
-      // As drawNode picks them: the first background blur, the first glass.
+      // As drawNode picks it: the first background blur or glass, whichever comes first (Figma's).
       for (const Effect& e : p.effects) {
-        if (!visibleForRendering(e)) continue;
-        if (e.type == EffectType::BACKGROUND_BLUR && !background && (e.radius > 0 || effectExtras(e).startRadius > 0)) {
-          background = true;
-          reach = std::max(reach, backdropReach(e, false, scale));
-        } else if (e.type == EffectType::GLASS && !glass) {
-          glass = true;
-          reach = std::max(reach, backdropReach(e, true, scale));
-        }
+        if (!visibleForRendering(e) || (e.type != EffectType::BACKGROUND_BLUR && e.type != EffectType::GLASS)) continue;
+        reach = backdropReach(p, e, e.type == EffectType::GLASS, scale);
+        break;
       }
       const Rect& w = rn.visual;
       Rect box{(w.x * view.m00 + view.m02) * sx, (w.y * view.m11 + view.m12) * sy, w.w * view.m00 * sx, w.h * view.m11 * sy};
@@ -923,7 +939,8 @@ void Renderer::drawBackgroundBlur(const Document& doc, Guid id, const NodeProps&
   bool progressive = !glass && x.blurOpType == BlurOpType::PROGRESSIVE && std::fabs(s0 - s1) > 0.01;
   if (!glass && !progressive && s1 <= 0.01) return;
   BackdropBlur b;
-  double reach = backdropReach(e, glass, scale);
+  double reach = backdropReach(p, e, glass, scale);
+  Rect own = transformedBounds(m, p.size.x, p.size.y);
   if (glass) {
     // Glass: the backdrop frosted by "Frost" (the radius), bent toward the edge within "Depth" (refractionRadius),
     // split by colour ("Dispersion"), lit along the edges facing the light ("Angle", "Intensity"), "Splay"
@@ -952,9 +969,18 @@ void Renderer::drawBackgroundBlur(const Document& doc, Guid id, const NodeProps&
     b.fx[2][0] = static_cast<float>(x.startOffset.x), b.fx[2][1] = static_cast<float>(x.startOffset.y);
     b.fx[2][2] = static_cast<float>(x.endOffset.x), b.fx[2][3] = static_cast<float>(x.endOffset.y);
   } else {
+    // Uniform: Figma's clamped blur (§2.11) — the backdrop past the node's box (grown by its stroke, a text's glyphs)
+    // never bleeds into it. Only that box is copied (and 2 px for the ×2 level's bilinear reads).
     b.radii[0] = s1;
+    Rect ink;
+    if (p.isTextLike() && texts_)
+      if (const text::TextLayout* L = texts_->textLayout(id)) ink = L->inkBounds;
+    b.clamped = true;
+    b.clampBox = blurClampBox(p, ink);
+    b.nodeFromDevice = m.inverse() * Mat2x3{1 / viewport_.scaleX(), 0, 0, 0, 1 / viewport_.scaleY(), 0};
+    own = transformedBounds(m * Mat2x3::translate(b.clampBox.x, b.clampBox.y), b.clampBox.w, b.clampBox.h);
+    reach = 2;
   }
-  Rect own = transformedBounds(m, p.size.x, p.size.y);
   gfx::IRect r = deviceRect(own, reach);
   r = intersect(r, layers_[static_cast<size_t>(current_)].rect);
   if (r.w <= 0 || r.h <= 0) return;
@@ -1504,12 +1530,14 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
   Mat2x3 m = parentCss * p.transform;
   if (outlines_) return drawOutlined(doc, i, p, m);
 
-  // Figma's limits (help 360041488473): up to eight drop and eight inner shadows, one layer blur and one background
-  // blur — the first of each kind is drawn; one texture, one glass; noises stack.
-  std::vector<const Effect*> drops, inners, backgrounds, noises, customs;
-  const Effect* layerBlurE = nullptr;
-  const Effect* textureE = nullptr;
-  const Effect* glassE = nullptr;
+  // Figma's effect stage (docs/research/rea/effects.md §2.10, its render-tree builder): the content (with its inner
+  // shadows) → the first visible background blur or glass, whichever comes first, under it → the drop shadows (apart
+  // while a noise or a texture clipped to the shape is to come) → shader effects → then every layer blur, texture and
+  // noise in the list's order, each wrapping what the ones before left: a layer blur and an unclipped texture take the
+  // pending drop shadows with them, a noise goes over the content only → the shadows still pending go under → the
+  // node's opacity and blend mode. Up to eight drop and eight inner shadows (help 360041488473).
+  std::vector<const Effect*> drops, inners, customs, ops;
+  const Effect* backdropE = nullptr;
   for (const Effect& e : p.effects) {
     if (!visibleForRendering(e)) continue;
     switch (e.type) {
@@ -1520,19 +1548,13 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
         if (inners.size() < 8) inners.push_back(&e);
         break;
       case EffectType::BACKGROUND_BLUR:
-        if (backgrounds.empty() && (e.radius > 0 || effectExtras(e).startRadius > 0)) backgrounds.push_back(&e);
+      case EffectType::GLASS:
+        if (!backdropE) backdropE = &e;
         break;
       case EffectType::FOREGROUND_BLUR:
-        if (!layerBlurE) layerBlurE = &e;
-        break;
-      case EffectType::NOISE:
-        if (noises.size() < 8) noises.push_back(&e);
-        break;
       case EffectType::GRAIN:
-        if (!textureE) textureE = &e;
-        break;
-      case EffectType::GLASS:
-        if (!glassE) glassE = &e;
+      case EffectType::NOISE:
+        if (ops.size() < 16) ops.push_back(&e);
         break;
       case EffectType::CUSTOM:
         // Shader effects (round 11) stack in order, each reading what the ones before it left.
@@ -1542,26 +1564,32 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
   }
   // A background blur shows through the layer's fill: none without a visible fill (Figma: "set the layer's fill
   // opacity to any value between .10 and 99.99%"; at 100 % the fill covers it).
-  if (!backgrounds.empty()) {
+  if (backdropE && backdropE->type == EffectType::BACKGROUND_BLUR) {
     bool fill = false;
     for (const Paint& f : p.fillPaints) fill |= f.visible && f.opacity * (f.type == PaintType::SOLID ? f.color.a : 1.f) >= 0.001f;
-    if (!fill && !p.isGroupLike()) backgrounds.clear();
+    if (!fill && !p.isGroupLike()) backdropE = nullptr;
   }
   double scale = levelScale(m);
-  // The layer blur: uniform (a tent of half-width "Blur"), or progressive from "Start" at its start offset to "End".
-  double blurR = layerBlurE ? std::max(0.0, layerBlurE->radius) * scale : 0;
-  double startR = blurR;
-  bool progressive = false;
-  if (layerBlurE) {
-    const EffectExtras& x = effectExtras(*layerBlurE);
-    if (x.blurOpType == BlurOpType::PROGRESSIVE) {
-      startR = std::max(0.0, x.startRadius) * scale;
-      progressive = std::fabs(startR - blurR) > 0.01;
+  // What the list's effects need: how far they draw past the content (device px; they compound, so their reaches add).
+  bool anyNoise = false, anyTexture = false, clippedTexture = false, anyProgressive = false, layerBlur = false;
+  double reach = 0;
+  for (const Effect* e : ops) {
+    const EffectExtras& x = effectExtras(*e);
+    if (e->type == EffectType::FOREGROUND_BLUR) {
+      layerBlur = true;
+      double r1 = std::max(0.0, e->radius) * scale;
+      double r0 = x.blurOpType == BlurOpType::PROGRESSIVE ? std::max(0.0, x.startRadius) * scale : r1;
+      anyProgressive |= std::fabs(r0 - r1) > 0.01;
+      reach += std::max(r0, r1);
+    } else if (e->type == EffectType::GRAIN) {
+      anyTexture = true;
+      if (x.clipToShape) clippedTexture = true;
+      else reach += std::max(0.0, e->radius) * scale;  // an unclipped texture moves the edge out by up to its radius
+    } else {
+      anyNoise = true;
     }
   }
-  // Effects drawn over the content or through it need the content apart from its shadows.
-  bool post = progressive || textureE || !noises.empty() || !customs.empty();
-  bool analytic = !post && analyticShadows(p, rn.hasChildren);
+  bool analytic = !(anyProgressive || anyTexture || anyNoise || !customs.empty()) && analyticShadows(p, rn.hasChildren);
   bool generic = !analytic && (!drops.empty() || !inners.empty());
   bool container = (p.isFrameLike() || p.isGroupLike()) && rn.hasChildren;
   size_t paints = 0;
@@ -1570,11 +1598,10 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     for (auto& s : p.strokePaints) paints += s.visible ? 1 : 0;
   bool blend = p.blendMode != BlendMode::PASS_THROUGH && p.blendMode != BlendMode::NORMAL;
   bool opacityLayer = p.opacity < 1 && (container || paints > 1 || p.isTextLike() || generic);
-  bool needsLayer = opacityLayer || blend || std::max(blurR, startR) > 0 || generic || post;
+  bool needsLayer = opacityLayer || blend || !ops.empty() || generic || !customs.empty();
   double a = alpha * p.opacity;
 
-  for (const Effect* e : backgrounds) drawBackgroundBlur(doc, id, p, m, a, *e);
-  if (glassE) drawBackgroundBlur(doc, id, p, m, a, *glassE, true);
+  if (backdropE) drawBackgroundBlur(doc, id, p, m, a, *backdropE, backdropE->type == EffectType::GLASS);
   if (!needsLayer) {
     drawContent(doc, i, p, m, a, analytic);
     return;
@@ -1582,36 +1609,67 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
   stats_.layers++;
   double customReach = 0;
   for (const Effect* e : customs) customReach += shaderReach(shaderOf(*e));
-  double reach = std::max(blurR, startR) + (textureE ? std::max(0.0, textureE->radius) * scale : 0) + customReach * scale;
+  reach += customReach * scale;
   gfx::IRect r = deviceRect(vb, reach + 2);
   if (r.w <= 0 || r.h <= 0) return;
   // Figma's order, top to bottom (help 360041488473): layer blur, stroke paints, inner shadow, fill paints, drop
-  // shadow. Inner shadows under visible strokes: the content without its strokes, the inner shadows, then the
-  // strokes, all in one layer that takes the node's opacity, blend mode and blur. Noise goes over it all, texture
-  // and a progressive blur work on the whole (a layer of their own).
+  // shadow. Inner shadows under visible strokes — the content without its strokes, the inner shadows, then the
+  // strokes — except when a layer blur is there too (Figma's builder keeps the strokes in the content then).
   bool strokes = false;
   if (p.strokeWeight > 0)
     for (const Paint& s : p.strokePaints) strokes |= s.visible && s.opacity > 0;
-  bool split = generic && !inners.empty() && strokes;
-  bool finish = a < 1 || blend || blurR > 0.01;
-  bool wrap = (split && finish) || progressive || textureE || (!noises.empty() && finish) || !customs.empty();
+  bool split = generic && !inners.empty() && strokes && !layerBlur;
   int saved = beginLayer(r);
   int C = current_;
   drawContent(doc, i, p, m, 1, analytic);
   endLayer(saved);
-  int outer = -1, savedOuter = 0;
-  if (wrap) {
-    savedOuter = beginLayer(r);
-    outer = current_;
-  } else {
-    layers_[static_cast<size_t>(C)].blurRadius = blurR;
-  }
-  // What the node draws, composited: at the node's opacity and blend mode, or as is inside the wrapping layer.
-  float opacity = wrap ? 1.f : static_cast<float>(a);
-  BlendMode nodeBlend = wrap ? BlendMode::NORMAL : p.blendMode;
 
-  auto composite = [&](int src, int aux, int mode, float op, BlendMode bm, const Color& color, Vec2 offset, bool knockout,
-                       gfx::IRect rect) { compositeLayer(src, aux, mode, op, bm, color, offset, knockout, rect); };
+  // What the node draws so far, bottom to top: composites of layers (each at its own blend mode), drawn into a layer of
+  // their own when an effect must wrap them (materialize) or straight into the parent when nothing does.
+  struct Piece {
+    int src = -1, aux = -1, mode = 0;
+    BlendMode bm = BlendMode::NORMAL;
+    Color color;
+    Vec2 offset;
+    bool knockout = false;
+    gfx::IRect rect;
+    bool fxOn = false;
+    float fx[4][4] = {};
+  };
+  auto plain = [&](int L) {
+    Piece pc;
+    pc.src = L;
+    pc.rect = r;
+    return pc;
+  };
+  auto isPlain = [](const Piece& pc) {
+    return pc.mode == 0 && pc.aux < 0 && !pc.fxOn && (pc.bm == BlendMode::NORMAL || pc.bm == BlendMode::PASS_THROUGH);
+  };
+  auto emitPiece = [&](const Piece& pc, float opacity, BlendMode bm) {
+    compositeLayer(pc.src, pc.aux, pc.mode, opacity, bm, pc.color, pc.offset, pc.knockout, pc.rect);
+    if (pc.fxOn) {
+      Cmd& c = layers_[static_cast<size_t>(current_)].cmds.back();
+      c.fxOn = true;
+      std::memcpy(c.fx, pc.fx, sizeof pc.fx);
+    }
+  };
+  auto materialize = [&](std::vector<Piece>& st) {
+    if (st.size() == 1 && isPlain(st[0])) return st[0].src;
+    int s = beginLayer(r);
+    int L = current_;
+    for (const Piece& pc : st) emitPiece(pc, 1.f, pc.bm);
+    endLayer(s);
+    stats_.layers++;
+    st = {plain(L)};
+    return L;
+  };
+  auto effectBlend = [](const Effect& e) { return e.blendMode == BlendMode::PASS_THROUGH ? BlendMode::NORMAL : e.blendMode; };
+  auto deviceOffset = [&](Vec2 o) { return Vec2{o.x * std::sqrt(std::fabs(m.determinant())) * viewport_.scaleX(), o.y * std::sqrt(std::fabs(m.determinant())) * viewport_.scaleY()}; };
+  // Slots 16–17 of the noise and texture: canvas device px → the node's space from its centre (Figma's anchor).
+  float centred[2][4];
+  effectRows(centred, m, viewport_.scaleX(), viewport_.scaleY(), {1, 1});
+  centred[0][2] -= static_cast<float>(p.size.x / 2);
+  centred[1][2] -= static_cast<float>(p.size.y / 2);
   auto shadowLayer = [&](const Effect& e, double morph) {
     double blur = std::max(0.0, e.radius) * scale;
     double spread = shadowSpread(p, e) * scale;
@@ -1627,11 +1685,61 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     stats_.layers++;
     return static_cast<int>(layers_.size() - 1);
   };
-  auto deviceOffset = [&](Vec2 o) { return Vec2{o.x * std::sqrt(std::fabs(m.determinant())) * viewport_.scaleX(), o.y * std::sqrt(std::fabs(m.determinant())) * viewport_.scaleY()}; };
-  auto effectBlend = [](const Effect& e) { return e.blendMode == BlendMode::PASS_THROUGH ? BlendMode::NORMAL : e.blendMode; };
-  if (generic) {
-    // "Show behind transparent areas" off (Figma's default): the shadow is hidden under the layer's shape — its
-    // geometry, not its alpha (a 50 % fill doesn't let half of the shadow through).
+  // A texture (GRAIN) over layer `src`: a layer of its own reading it through Figma's displacement.
+  auto textureOf = [&](int src, const Effect& e) {
+    const EffectExtras& x = effectExtras(e);
+    int s3 = beginLayer(r);
+    int T = current_;
+    compositeLayer(src, -1, 7, 1, BlendMode::NORMAL, Color{}, Vec2{static_cast<double>(x.seed % 65536u), 0}, false, r);
+    Cmd& c = layers_[static_cast<size_t>(current_)].cmds.back();
+    c.fxOn = true;
+    std::memcpy(c.fx, centred, sizeof centred);
+    c.fx[2][0] = static_cast<float>(std::max(x.noiseSize.x, 1e-3)), c.fx[2][1] = static_cast<float>(std::max(x.noiseSize.y, 1e-3));
+    c.fx[2][2] = static_cast<float>(std::max(0.0, e.radius)), c.fx[2][3] = x.clipToShape ? 1.f : 0.f;
+    // Slot 19: the node's space → canvas device px (linear part), to move by a displacement in the node's units.
+    Mat2x3 d = Mat2x3{viewport_.scaleX(), 0, 0, 0, viewport_.scaleY(), 0} * m;
+    c.fx[3][0] = static_cast<float>(d.m00), c.fx[3][1] = static_cast<float>(d.m01);
+    c.fx[3][2] = static_cast<float>(d.m10), c.fx[3][3] = static_cast<float>(d.m11);
+    endLayer(s3);
+    stats_.layers++;
+    return T;
+  };
+
+  // The content and its inner shadows.
+  std::vector<Piece> stack;
+  if (split) {
+    // The content without its strokes, then (below) the inner shadows, then the strokes.
+    int s1 = beginLayer(r);
+    int F = current_;
+    drawContent(doc, i, p, m, 1, analytic, false);
+    endLayer(s1);
+    int s2 = beginLayer(r);
+    int K = current_;
+    drawStrokes(doc, id, p, m, 1);
+    endLayer(s2);
+    stats_.layers += 2;
+    stack.push_back(plain(F));
+    for (const Effect* e : inners) {
+      Piece pc;
+      pc.src = shadowLayer(*e, shadowSpread(p, *e) != 0 ? -1 : 0);
+      pc.aux = C, pc.mode = 4, pc.bm = effectBlend(*e), pc.color = e->color, pc.offset = deviceOffset(e->offset), pc.rect = r;
+      stack.push_back(pc);
+    }
+    stack.push_back(plain(K));
+  } else {
+    stack.push_back(plain(C));
+    if (generic)
+      for (const Effect* e : inners) {
+        Piece pc;
+        pc.src = shadowLayer(*e, shadowSpread(p, *e) != 0 ? -1 : 0);
+        pc.aux = C, pc.mode = 4, pc.bm = effectBlend(*e), pc.color = e->color, pc.offset = deviceOffset(e->offset), pc.rect = r;
+        stack.push_back(pc);
+      }
+  }
+  // The drop shadows, the first at the bottom. "Show behind transparent areas" off (Figma's default): the shadow is
+  // hidden under the layer's shape — its geometry, not its alpha (a 50 % fill doesn't let half of it through).
+  std::vector<Piece> shadows;
+  if (generic && !drops.empty()) {
     int knock = C;
     bool anyHidden = false;
     for (const Effect* e : drops) anyHidden |= !e->showShadowBehindNode;
@@ -1644,82 +1752,101 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
       stats_.layers++;
     }
     for (const Effect* e : drops) {
-      int S = shadowLayer(*e, shadowSpread(p, *e));
+      Piece pc;
+      pc.src = shadowLayer(*e, shadowSpread(p, *e));
       Vec2 off = deviceOffset(e->offset);
-      gfx::IRect q = layers_[static_cast<size_t>(S)].rect;
+      gfx::IRect q = layers_[static_cast<size_t>(pc.src)].rect;
       q.x += static_cast<int>(std::floor(off.x));
       q.y += static_cast<int>(std::floor(off.y));
       q.w += 2;
       q.h += 2;
-      composite(S, knock, 3, opacity, effectBlend(*e), e->color, off, !e->showShadowBehindNode, q);
+      pc.aux = knock, pc.mode = 3, pc.bm = effectBlend(*e), pc.color = e->color, pc.offset = off, pc.knockout = !e->showShadowBehindNode, pc.rect = q;
+      shadows.push_back(pc);
     }
   }
-  int K = -1;
-  if (split) {
-    // The content without its strokes, then (below) the inner shadows, then the strokes.
-    int s1 = beginLayer(r);
-    int F = current_;
-    drawContent(doc, i, p, m, 1, analytic, false);
-    endLayer(s1);
-    int s2 = beginLayer(r);
-    K = current_;
-    drawStrokes(doc, id, p, m, 1);
-    endLayer(s2);
-    stats_.layers += 2;
-    composite(F, -1, 0, opacity, nodeBlend, Color{}, {}, false, r);
-  } else {
-    composite(C, -1, 0, opacity, nodeBlend, Color{}, {}, false, r);
+  auto mergeShadows = [&] {
+    stack.insert(stack.begin(), shadows.begin(), shadows.end());
+    shadows.clear();
+  };
+  // A texture clipped to the shape textures the drop shadows too, in their own pipeline (Figma's: after the shadow's
+  // blur, before it joins anything) — so also when a layer blur or an unclipped texture merges them later.
+  if (clippedTexture && !shadows.empty()) {
+    int S = materialize(shadows);
+    for (const Effect* e : ops)
+      if (e->type == EffectType::GRAIN && effectExtras(*e).clipToShape) S = textureOf(S, *e);
+    shadows = {plain(S)};
   }
-  if (generic) {
-    for (const Effect* e : inners) {
-      int S = shadowLayer(*e, shadowSpread(p, *e) != 0 ? -1 : 0);
-      composite(S, C, 4, opacity, effectBlend(*e), e->color, deviceOffset(e->offset), false, r);
-    }
-  }
-  if (K >= 0) composite(K, -1, 0, opacity, nodeBlend, Color{}, {}, false, r);
-  // Noise (Mono / Duo / Multi): grains over what the node draws, within its alpha, in the effect's blend mode.
-  if (!noises.empty()) {
-    float nodeRows[2][4];
-    effectRows(nodeRows, m, viewport_.scaleX(), viewport_.scaleY(), {1, 1});
-    for (const Effect* e : noises) {
-      const EffectExtras& x = effectExtras(*e);
-      Color second = x.noiseType == NoiseType::DUOTONE ? x.secondaryColor : Color{0, 0, 0, 0};
-      composite(C, -1, 6, opacity, effectBlend(*e), e->color, Vec2{static_cast<double>(x.seed % 65536u), std::clamp(x.opacity, 0.0, 1.0)}, false, r);
-      Cmd& c = layers_[static_cast<size_t>(current_)].cmds.back();
-      c.fxOn = true;
-      std::memcpy(c.fx, nodeRows, sizeof nodeRows);
-      c.fx[2][0] = static_cast<float>(std::max(x.noiseSize.x, 1e-3)), c.fx[2][1] = static_cast<float>(std::max(x.noiseSize.y, 1e-3));
-      c.fx[2][2] = static_cast<float>(std::clamp(x.density, 0.0, 1.0)), c.fx[2][3] = static_cast<float>(x.noiseType);
-      premultiply(c.fx[3], second, 1);
-    }
-  }
-  if (wrap) {
-    endLayer(savedOuter);
-    int top = outer;
-    if (textureE) {
-      // Texture: what the node draws, read through a random shift per grain (± the radius), within its shape when
-      // "Clip to shape" is on.
-      const EffectExtras& x = effectExtras(*textureE);
-      int s3 = beginLayer(r);
-      int T = current_;
-      compositeLayer(top, -1, 7, 1, BlendMode::NORMAL, Color{}, Vec2{static_cast<double>(x.seed % 65536u), 0}, false, r);
-      Cmd& c = layers_[static_cast<size_t>(current_)].cmds.back();
-      c.fxOn = true;
-      effectRows(c.fx, m, viewport_.scaleX(), viewport_.scaleY(), {1, 1});
-      c.fx[2][0] = static_cast<float>(std::max(x.noiseSize.x, 1e-3)), c.fx[2][1] = static_cast<float>(std::max(x.noiseSize.y, 1e-3));
-      c.fx[2][2] = static_cast<float>(std::max(0.0, textureE->radius) * scale), c.fx[2][3] = x.clipToShape ? 1.f : 0.f;
-      endLayer(s3);
-      stats_.layers++;
-      top = T;
-    }
-    // Shader effects: each a layer drawn from what is under it.
+  // Kept apart only while a noise or a clipped texture is to come; else under the content now (so a shader effect, a
+  // layer blur or a texture takes them too).
+  if (!(anyNoise || clippedTexture)) mergeShadows();
+  // Shader effects: each a layer drawn from what is under it.
+  if (!customs.empty()) {
+    int top = materialize(stack);
     for (const Effect* e : customs) top = shaderLayer(shaderOf(*e), top, r, m, p.size);
-    if (progressive) {
-      progressiveComposite(top, static_cast<float>(a), p.blendMode, r, startR, blurR, *layerBlurE, m, p.size);
+    stack = {plain(top)};
+  }
+  // The list's layer blurs, textures and noises, in order.
+  for (const Effect* e : ops) {
+    const EffectExtras& x = effectExtras(*e);
+    if (e->type == EffectType::FOREGROUND_BLUR) {
+      // A layer blur blurs the pending drop shadows too.
+      mergeShadows();
+      int X = materialize(stack);
+      double r1 = std::max(0.0, e->radius) * scale;
+      double r0 = x.blurOpType == BlurOpType::PROGRESSIVE ? std::max(0.0, x.startRadius) * scale : r1;
+      if (std::fabs(r0 - r1) > 0.01) {
+        // Progressive: from "Start" at its start offset to "End".
+        int s4 = beginLayer(r);
+        int P = current_;
+        progressiveComposite(X, 1.f, BlendMode::NORMAL, r, r0, r1, *e, m, p.size);
+        endLayer(s4);
+        stats_.layers++;
+        stack = {plain(P)};
+      } else if (X != C && layers_[static_cast<size_t>(X)].blurRadius == 0) {
+        layers_[static_cast<size_t>(X)].blurRadius = r1;  // a layer of this stage's own: blurred where it is
+      } else if (X == C && !generic && layers_[static_cast<size_t>(C)].blurRadius == 0) {
+        layers_[static_cast<size_t>(C)].blurRadius = r1;  // the content, read by nothing else
+      } else {
+        // Already blurred (a second blur), or read by the shadows: a blurred copy.
+        Layer B;
+        B.rect = r;
+        B.copyOf = X;
+        B.blurRadius = r1;
+        layers_.push_back(std::move(B));
+        stats_.layers++;
+        stack = {plain(static_cast<int>(layers_.size() - 1))};
+      }
+    } else if (e->type == EffectType::GRAIN) {
+      // An unclipped texture moves the pending drop shadows too; a clipped one has textured them apart (above).
+      if (!x.clipToShape) mergeShadows();
+      stack = {plain(textureOf(materialize(stack), *e))};
     } else {
-      layers_[static_cast<size_t>(top)].blurRadius = blurR;
-      compositeLayer(top, -1, 0, static_cast<float>(a), p.blendMode, Color{}, {}, false, r);
+      // Noise: over what the node draws so far, within its alpha, in the effect's blend mode — never over the drop
+      // shadows still pending.
+      int X = materialize(stack);
+      Piece pc;
+      pc.src = X, pc.mode = 6, pc.bm = effectBlend(*e), pc.rect = r;
+      // Multi's alpha is the effect's opacity (Figma's); Mono / Duo the colour's.
+      pc.color = x.noiseType == NoiseType::MULTITONE ? Color{0, 0, 0, static_cast<float>(std::clamp(x.opacity, 0.0, 1.0))} : e->color;
+      pc.offset = Vec2{static_cast<double>(x.seed % 65536u), 0};
+      pc.fxOn = true;
+      std::memcpy(pc.fx, centred, sizeof centred);
+      pc.fx[2][0] = static_cast<float>(std::max(x.noiseSize.x, 1e-3)), pc.fx[2][1] = static_cast<float>(std::max(x.noiseSize.y, 1e-3));
+      pc.fx[2][2] = static_cast<float>(std::clamp(x.density, 0.0, 1.0));
+      pc.fx[2][3] = static_cast<float>(static_cast<int>(x.noiseType) + (x.noiseSize.x <= 1 ? 4 : 0));  // ≤ 1: supersampled
+      premultiply(pc.fx[3], x.noiseType == NoiseType::DUOTONE ? x.secondaryColor : Color{0, 0, 0, 0}, 1);
+      stack.push_back(pc);
     }
+  }
+  // The drop shadows still apart go under.
+  mergeShadows();
+  // The node's opacity and blend mode, last: on the whole when there is more than one piece.
+  if (stack.size() > 1 && (a < 1 || blend)) materialize(stack);
+  if (stack.size() == 1) {
+    const Piece& pc = stack[0];
+    emitPiece(pc, static_cast<float>(a), isPlain(pc) ? p.blendMode : pc.bm);
+  } else {
+    for (const Piece& pc : stack) emitPiece(pc, static_cast<float>(a), pc.bm);
   }
 }
 
@@ -1940,6 +2067,8 @@ void Renderer::blurLayer(Layer& L) {
     pd.viewport = {0, 0, vw, vh};
     return device_.beginPass(pd);
   };
+  // A clamped tent (mode 3): slots 4–8 = the target's px → the node's space, the clamp box, and back.
+  float clampRows[5][4] = {};
   auto blurPass = [&](PoolTarget* src, PoolTarget* dst, int vw, int vh, float dx, float dy, float tent, int mode, float radius) {
     if (!pass(dst, vw, vh)) return;
     gfx::DrawCall call;
@@ -1948,6 +2077,7 @@ void Renderer::blurLayer(Layer& L) {
     call.instanceCount = 1;
     call.uniforms[2][0] = dx, call.uniforms[2][1] = dy, call.uniforms[2][2] = tent, call.uniforms[2][3] = static_cast<float>(mode);
     call.uniforms[3][0] = radius;
+    if (mode == 3) std::memcpy(call.uniforms[4], clampRows, sizeof clampRows);
     call.textures[0] = src->texture;
     device_.draw(call);
     stats_.drawCalls++;
@@ -1995,10 +2125,25 @@ void Renderer::blurLayer(Layer& L) {
     scale /= 2;
   }
   if (blur > 0) {
+    int mode = 0;
+    if (L.clamped) {
+      // The target's px (gl_FragCoord: x right, y up from the layer's bottom) → canvas device px → the node's space.
+      Mat2x3 texelToDevice{1 / scale, 0, static_cast<double>(L.rect.x), 0, -1 / scale, L.rect.y + ch / scale};
+      Mat2x3 toNode = L.nodeFromDevice * texelToDevice;
+      Mat2x3 back = toNode.inverse();
+      const Rect& B = L.clampBox;
+      float rows5[5][4] = {{static_cast<float>(toNode.m00), static_cast<float>(toNode.m01), static_cast<float>(toNode.m02), 0},
+                           {static_cast<float>(toNode.m10), static_cast<float>(toNode.m11), static_cast<float>(toNode.m12), 0},
+                           {static_cast<float>(B.x), static_cast<float>(B.y), static_cast<float>(B.right()), static_cast<float>(B.bottom())},
+                           {static_cast<float>(back.m00), static_cast<float>(back.m01), static_cast<float>(back.m02), 0},
+                           {static_cast<float>(back.m10), static_cast<float>(back.m11), static_cast<float>(back.m12), 0}};
+      std::memcpy(clampRows, rows5, sizeof rows5);
+      mode = 3;
+    }
     PoolTarget* tmp = acquire(cw, ch);
     if (tmp && tmp->w == cur->w && tmp->h == cur->h) {
-      blurPass(cur, tmp, cw, ch, 1, 0, static_cast<float>(blur * scale), 0, 0);
-      blurPass(tmp, cur, cw, ch, 0, 1, static_cast<float>(blur * scale), 0, 0);
+      blurPass(cur, tmp, cw, ch, 1, 0, static_cast<float>(blur * scale), mode, 0);
+      blurPass(tmp, cur, cw, ch, 0, 1, static_cast<float>(blur * scale), mode, 0);
     }
     if (tmp) release(tmp->target);
   }
@@ -2022,9 +2167,9 @@ void Renderer::runLayer(int index) {
     if (c.aux >= 0) runLayer(c.aux);
   }
   Layer& L = layers_[static_cast<size_t>(index)];
-  if (L.rect.w <= 0 || L.rect.h <= 0) return;
+  if (L.rect.w <= 0 || L.rect.h <= 0) return doneReading(index);
   PoolTarget* t = acquire(L.rect.w, L.rect.h);
-  if (!t) return;
+  if (!t) return doneReading(index);
   L.target = t->target;
   L.texture = t->texture;
   L.scale = 1;
@@ -2058,6 +2203,17 @@ void Renderer::runLayer(int index) {
     runCmds(L, t->target, {0, 0, L.rect.w, L.rect.h}, transparent, false);
   }
   blurLayer(layers_[static_cast<size_t>(index)]);
+  doneReading(index);
+}
+
+void Renderer::doneReading(int index) {
+  eachRead(layers_[static_cast<size_t>(index)], [&](int k) {
+    Layer& src = layers_[static_cast<size_t>(k)];
+    if (k == 0 || --src.readers > 0 || !src.target) return;
+    release(src.target);
+    src.target = 0;
+    src.texture = 0;  // read by nothing more this frame
+  });
 }
 
 void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, const float clear[4], bool keep) {
@@ -2254,6 +2410,9 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
         tmp.texture = device_.targetTexture(copies[k]);
         tmp.blurRadius = b.radii[k];
         tmp.contentH = r.h;
+        tmp.clamped = b.clamped;
+        tmp.clampBox = b.clampBox;
+        tmp.nodeFromDevice = b.nodeFromDevice;
         blurLayer(tmp);
         scratch_.push_back(tmp.target);
         b.textures[k] = tmp.texture;
@@ -2277,6 +2436,9 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
 }
 
 void Renderer::execute(int index, gfx::TargetId target, const float clear[4], bool keep) {
+  // Who reads each layer: a layer gives its target back to the pool as soon as the last of them has run.
+  for (Layer& L : layers_) L.readers = 0;
+  for (const Layer& L : layers_) eachRead(L, [&](int k) { layers_[static_cast<size_t>(k)].readers++; });
   Layer& root = layers_[static_cast<size_t>(index)];
   root.executed = true;
   for (size_t i = 0; i < root.cmds.size(); i++) {
