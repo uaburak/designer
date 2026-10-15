@@ -7,6 +7,8 @@
 //   SHOT_ONLY=r7 npm run engine:shot    only round 7's effects and paints (progressive blurs, noise, texture, glass), and
 //                                       Figma's blur reach (round 17: a tent of half-width R)
 //   SHOT_ONLY=r17 npm run engine:shot   only round 17's backdrop effects panned away and back (= a fresh draw)
+//   SHOT_ONLY=r17b npm run engine:shot  only round 17 B's effect order, clamped background blur, fBm noise / texture, image
+//                                       adjustments and dither
 //   SHOT_ONLY=r18 npm run engine:shot   only round 18's multiplayer presence (two cursors, a peer's selection)
 //   SHOT_ONLY=r8 npm run engine:shot    only round 8's canvas views (ruler guides, slices, pixel preview)
 //   SHOT_ONLY=r11 npm run engine:shot   only round 11's shader fills and effects (every preset, drawn)
@@ -461,15 +463,17 @@ async function r7Checks(files) {
   const [mid, lit] = await pixelsAt([await screenOf(scene.glass, 60, 80), await screenOf(scene.glass, 14, 14)]);
   check("glass: the backdrop frosted inside, lit along the edge facing the light", mid && lit && mid[0] > 40 && mid[2] > 40 && lit[0] + lit[1] + lit[2] > mid[0] + mid[1] + mid[2],
     `${mid} / ${lit}`);
-  // Noise: grains of different strengths over the white fill; nothing outside the shape.
+  // Noise (Mono: Figma's banded fBm, round 17 B): grains of the colour where the noise falls in the band, the fill elsewhere;
+  // nothing outside the shape.
   const grains = await pixelsAt(await Promise.all([...Array(12).keys()].map((k) => screenOf(scene.noise, 10 + k * 8.5, 100))));
-  const values = new Set(grains.map((g) => g[0] >> 3));
+  const grainCount = grains.filter((g) => g[0] < 128).length;
   const [outside] = await pixelsAt([await screenOf(scene.noise, -4, 100)]);
-  check("noise: grains of different strengths within the shape", values.size >= 4 && near(outside, [255, 255, 255, 255], 2), `${values.size} levels, outside ${outside}`);
-  // Texture: the black layer's edge spattered past its box (radius 10): along a line 4 px outside, some dark, some white.
-  const edge = await pixelsAt(await Promise.all([...Array(16).keys()].map((k) => screenOf(scene.texture, -4, 20 + k * 10))));
+  check("noise: grains within the shape", grainCount >= 2 && grainCount <= 10 && near(outside, [255, 255, 255, 255], 2), `${grainCount} of 12 dark, outside ${outside}`);
+  // Texture: the black layer's edge moved past its box by Figma's displacement (radius 10): along a line 2 px outside, some
+  // dark, some white.
+  const edge = await pixelsAt(await Promise.all([...Array(24).keys()].map((k) => screenOf(scene.texture, -2, 10 + k * 7.5))));
   const dark = edge.filter((p) => p[0] < 128).length;
-  check("texture: the edge spattered past the box", dark >= 2 && dark <= 14, `${dark} of 16 dark`);
+  check("texture: the edge moved past the box", dark >= 2 && dark <= 22, `${dark} of 24 dark`);
   // NOISE fill (Multi): colours vary.
   const multi = await pixelsAt(await Promise.all([...Array(8).keys()].map((k) => screenOf(scene.noisePaint, 10 + k * 13, 45))));
   const hues = new Set(multi.map((p) => `${p[0] >> 6}${p[1] >> 6}${p[2] >> 6}`));
@@ -518,6 +522,163 @@ async function blurReachChecks(files) {
   const shadow = await pixelsAt(await Promise.all([6, 18, 24].map((d) => screenOf("59:4", 100 + d, 50))));
   const [s6, s18, s24] = shadow.map((p) => p[0]);
   check("analytic shadow: the tent's CDF (≈ 192 at 6 px out, white from ~R)", s6 >= 178 && s6 <= 206 && s18 >= 250 && s24 >= 254, shadow.map((p) => p[0]).join(" / "));
+}
+
+// Round 17 Batch B (docs/research/rea/effects.md §2.10, §2.11, §2.17, §2.19, §2.21, §2.24): Figma's effect list in
+// order, the background blur clamped to the node's box, the fBm noise and texture, image adjustments, the dither.
+function r17bScene() {
+  const solid = (r, g, b, a = 1) => ({ type: "SOLID", color: { r, g, b, a: 1 }, opacity: a, visible: true });
+  const T = (x, y) => ({ transform: { m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y } });
+  const nodes = [];
+  let n = 0;
+  const add = (type, x, y, w, h, extra = {}, parent = "60:1") => {
+    const guid = `60:${++n + 1}`;
+    nodes.push({ guid, phase: "CREATED", type, name: guid, parentIndex: { guid: parent, position: `!${String(n).padStart(3, "0")}` },
+      size: { x: w, y: h }, ...T(x, y), fillPaints: [solid(1, 1, 1)], ...extra });
+    return guid;
+  };
+  nodes.push({ guid: "60:1", phase: "CREATED", type: "FRAME", name: "Round 17 B", parentIndex: { guid: "0:1", position: "~~~~~~~~~" },
+    size: { x: 1700, y: 560 }, ...T(0, 7400), fillPaints: [solid(1, 1, 1)] });
+  const noiseFx = (extra = {}) => ({ type: "NOISE", color: { r: 0, g: 0, b: 0, a: 1 }, visible: true, blendMode: "NORMAL", noiseType: "MONOTONE",
+    noiseSize: { x: 8, y: 8 }, density: 1, seed: 7, ...extra });
+  // A: a background blur next to a white rectangle outside its box (clamped: no light at its edge); a white bar
+  // under it (still blurred inside).
+  const darkA = add("FRAME", 0, 0, 400, 260, { fillPaints: [solid(0, 0, 0)] });
+  add("ROUNDED_RECTANGLE", 150, 50, 20, 100, {}, darkA);
+  add("ROUNDED_RECTANGLE", 304, 50, 60, 100, {}, darkA);
+  const clamped = add("ROUNDED_RECTANGLE", 100, 50, 200, 100, { fillPaints: [solid(0, 0, 0, 0.01)], effects: [{ type: "BACKGROUND_BLUR", radius: 20, visible: true }] }, darkA);
+  // B: two layer blurs of 10 compound (reach ~20; one alone stops at 10).
+  const darkB = add("FRAME", 420, 0, 400, 260, { fillPaints: [solid(0, 0, 0)] });
+  const twice = add("ROUNDED_RECTANGLE", 100, 50, 100, 100, { effects: [{ type: "FOREGROUND_BLUR", radius: 10, visible: true }, { type: "FOREGROUND_BLUR", radius: 10, visible: true }] }, darkB);
+  // C: noise over the content, not its (light grey) drop shadow; the same noise on a smaller node, anchored at its centre.
+  const noisy = add("ROUNDED_RECTANGLE", 860, 20, 100, 100, {
+    effects: [{ type: "DROP_SHADOW", color: { r: 0.8, g: 0.8, b: 0.8, a: 1 }, offset: { x: 0, y: 110 }, radius: 0, spread: 0, visible: true, blendMode: "NORMAL", showShadowBehindNode: false }, noiseFx()] });
+  const small = add("ROUNDED_RECTANGLE", 1000, 20, 60, 60, { effects: [noiseFx()] });
+  // D: a texture clipped to the shape keeps the silhouette (inside stays black, outside white).
+  const clippedTex = add("ROUNDED_RECTANGLE", 1120, 40, 120, 120, { fillPaints: [solid(0, 0, 0)],
+    effects: [{ type: "GRAIN", radius: 10, visible: true, noiseSize: { x: 3, y: 3 }, clipToShape: true, seed: 3 }] });
+  // E: image adjustments, each at a value (the image: grey | orange halves).
+  const adjustments = [{}, { exposure: 0.5 }, { contrast: 0.3 }, { vibrance: 0.6 }, { temperature: 0.5 }, { tint: 0.5 }, { highlights: 0.8 }, { shadows: 0.8 }, { exposure: -0.4, vibrance: -0.5 }];
+  const images = adjustments.map((f, k) => add("ROUNDED_RECTANGLE", 20 + k * 100, 300, 80, 40,
+    { fillPaints: [{ type: "IMAGE", image: { hash: "0b17b00000000000000000000000000000000017" }, imageScaleMode: "FILL", opacity: 1, visible: true, ...(Object.keys(f).length ? { paintFilter: f } : {}) }] }));
+  // F: a flat gradient (both stops 100 / 255): Figma's dither spreads it over 99…101.
+  const flat = { r: 100 / 255, g: 100 / 255, b: 100 / 255, a: 1 };
+  const gradient = add("ROUNDED_RECTANGLE", 20, 380, 300, 60, { fillPaints: [{ type: "GRADIENT_LINEAR", opacity: 1, visible: true,
+    transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 }, stops: [{ color: flat, position: 0 }, { color: flat, position: 1 }] }] });
+  return { message: { type: "NODE_CHANGES", sessionID: 0, nodeChanges: nodes }, clamped, twice, noisy, small, clippedTex, images, adjustments, gradient };
+}
+
+// Figma's image adjustments (gfx/gl/Shaders.h adjust) on one sRGB colour (0…1), as 0…255.
+function figmaAdjust(rgb, f0) {
+  const f = { exposure: 0, contrast: 0, vibrance: 0, temperature: 0, tint: 0, highlights: 0, shadows: 0, ...f0 };
+  const c01 = (v) => Math.min(1, Math.max(0, v));
+  const luma = (c) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  let c = rgb.map((v) => v ** 2.2);
+  const i = luma(c) - 0.5 ** 2.2;
+  const offset = ((0.75 * i) / Math.sqrt(1 + 4 * i * i)) * (i > 0 ? f.highlights : -f.shadows * 0.999);
+  const M = [[0.4124564, 0.3575761, 0.1804375], [0.2126729, 0.7151522, 0.072175], [0.0193339, 0.119192, 0.9503041]];
+  let xyz = M.map((row) => row[0] * c[0] + row[1] * c[1] + row[2] * c[2]);
+  xyz = [xyz[0] / 0.95047, xyz[1], xyz[2] / 1.08883].map(Math.cbrt);
+  let L = 116 * xyz[1] - 16;
+  const A = 500 * (xyz[0] - xyz[1]) + 30 * f.tint, B = 200 * (xyz[1] - xyz[2]) + 30 * f.temperature;
+  const smoother = (x0) => { const x = c01((x0 - 20) / 60); return x * x * x * (x * (x * 6 - 15) + 10); };
+  const l0 = f.contrast < 0 ? (L - 50) * 0.2 + 50 : L, l1 = f.contrast < 0 ? L : smoother(L) * 100;
+  L = l0 + (l1 - l0) * (f.contrast < 0 ? f.contrast + 1 : f.contrast);
+  const y = (L + 16) / 116;
+  xyz = [(A / 500 + y) ** 3 * 0.95047, y ** 3, (y - B / 200) ** 3 * 1.08883];
+  const Mi = [[3.2404542, -1.5371385, -0.4985314], [-0.969266, 1.8760108, 0.041556], [0.0556434, -0.2040259, 1.0572252]];
+  c = Mi.map((row) => c01(row[0] * xyz[0] + row[1] * xyz[1] + row[2] * xyz[2]));
+  const k = f.exposure + offset, l = 10 ** (2 * k) - 1;
+  let o = luma(c), nn = 1 / (1 - 0.75) - 1;
+  nn *= 1 + (o * o * Math.min(0, k)) / (0.2 - Math.min(0, k));
+  c = c.map((v) => v + (o - v) * 0.75);
+  if (k < 0) { c = c.map((v) => v * (1 + k / 16)); o *= 1 + k / 16; }
+  c = c.map((v) => (v * (l + 1)) / (v * l + 1));
+  o = (o * (l + 1)) / (o * l + 1);
+  c = c.map((v) => c01(v + (v - o) * nn));
+  const q = Math.min(1, Math.max(-1, f.vibrance));
+  o = luma(c);
+  if (q <= 0) c = c.map((v) => v - (o - v) * q);
+  else {
+    const lo = o / (o - Math.min(...c) + 1e-6), hi = (1 - o) / (Math.max(...c) - o + 1e-6);
+    const kk = Math.min(1 + (Math.min(lo, hi) - 1) * q, 2);
+    c = c.map((v) => v + (o - v) * (1 - kk));
+  }
+  return c.map((v) => Math.round(c01(v) ** (1 / 2.2) * 255));
+}
+
+async function r17bChecks(files) {
+  const scene = r17bScene();
+  await engine(async (message) => {
+    const e = window.__designerEngine;
+    // The adjustments' image: 16 × 8, its left half grey (128), its right half orange (200, 120, 60).
+    const canvas = new OffscreenCanvas(16, 8);
+    const g = canvas.getContext("2d");
+    g.fillStyle = "rgb(128, 128, 128)";
+    g.fillRect(0, 0, 8, 8);
+    g.fillStyle = "rgb(200, 120, 60)";
+    g.fillRect(8, 0, 8, 8);
+    const png = new Uint8Array(await (await canvas.convertToBlob({ type: "image/png" })).arrayBuffer());
+    e.setImageSource(async (hash) => (hash === "0b17b00000000000000000000000000000000017" ? png : null));
+    e.applyChanges(message, "user");
+    e.setSelection(["60:1"]);
+    e.command("ZOOM_TO_SELECTION");
+    e.setSelection([]);
+  }, scene.message);
+  await page.mouse.move(2, 2);
+  await page.waitForTimeout(200);
+  await engine(() => window.__designerEngine.imagesSettled());
+  // Every image drawn: a zoom step and back draws the sheet whole.
+  const cam = await engine(() => window.__designerEngine.getCamera());
+  await engine((c) => window.__designerEngine.setCamera({ x: c.x, y: c.y, zoom: c.zoom * 1.001 }), cam);
+  await settle();
+  await engine((c) => window.__designerEngine.setCamera(c), cam);
+  await settle();
+  files.push(await shot("39-r17b-effects"));
+
+  // A: 8 px inside the blurred box's right edge, 12 px from the white rectangle outside it: the clamp keeps it dark
+  // (unclamped, a tent of 20 reaching past the box read ~45); 10 px off the white bar under it, the blur still mixes.
+  const [edge, nearBar, onBar] = await pixelsAt([await screenOf(scene.clamped, 192, 50), await screenOf(scene.clamped, 80, 50), await screenOf(scene.clamped, 60, 50)]);
+  check("background blur: clamped to its box (no light from outside at its edge)", edge && edge[0] <= 8, `${edge}`);
+  check("background blur: still blurs inside its box", nearBar && onBar && nearBar[0] >= 15 && onBar[0] < 230 && onBar[0] > nearBar[0], `${nearBar} / ${onBar}`);
+
+  // B: 11 px outside: two tents of 10 compounded reach ~20 (~7 there; one alone stops at 10).
+  const [b11, b24] = await pixelsAt([await screenOf(scene.twice, 111, 50), await screenOf(scene.twice, 124, 50)]);
+  check("two layer blurs compound (both drawn, in order)", b11 && b24 && b11[0] >= 3 && b24[0] <= 2, `${b11[0]} at 11 px / ${b24[0]} at 24 px`);
+
+  // C: grains (black) within the rectangle; none over its light grey drop shadow (110 px below).
+  const inRect = await pixelsAt(await Promise.all([...Array(16).keys()].map((k) => screenOf(scene.noisy, 6 + k * 6, 50))));
+  const dark = inRect.filter((p) => p[0] < 128).length;
+  check("noise: Figma's banded grains within the shape", dark >= 2 && dark <= 14, `${dark} of 16 dark`);
+  const inShadow = await pixelsAt(await Promise.all([...Array(12).keys()].map((k) => screenOf(scene.noisy, 6 + k * 8, 160))));
+  check("noise: over the content only, not its drop shadow", inShadow.every((p) => Math.abs(p[0] - 204) <= 3), inShadow.map((p) => p[0]).join(" "));
+  // Anchored at the node's centre: the same seed and size read the same around both centres.
+  const offsets = [[0, 0], [3, 5], [-6, 2], [8, -7], [-2, -9], [11, 4], [-12, -3], [5, 12]];
+  const big = await pixelsAt(await Promise.all(offsets.map(([x, y]) => screenOf(scene.noisy, 50 + x, 50 + y))));
+  const little = await pixelsAt(await Promise.all(offsets.map(([x, y]) => screenOf(scene.small, 30 + x, 30 + y))));
+  const same = big.filter((p, k) => (p[0] < 128) === (little[k][0] < 128)).length;
+  check("noise: anchored at the node's centre", same >= offsets.length - 1, `${same} of ${offsets.length} alike`);
+
+  // D: clipped texture: 2 px inside the edges dark (a displaced read landing on the anti-aliased edge may grey one),
+  // 3 px outside white; the old per-cell shift left white holes inside.
+  const sides = (d) => [[60, d], [d, 60], [120 - d, 60], [60, 120 - d], [30, d], [d, 90], [120 - d, 30], [90, 120 - d]];
+  const inside = await pixelsAt(await Promise.all(sides(2).map(([x, y]) => screenOf(scene.clippedTex, x, y))));
+  const outside = await pixelsAt(await Promise.all(sides(-3).map(([x, y]) => screenOf(scene.clippedTex, x, y))));
+  check("texture clipped to the shape: the silhouette stays (black inside, white outside)", inside.every((p) => p[0] < 128) && outside.every((p) => p[0] > 215),
+    `${inside.map((p) => p[0]).join(" ")} | ${outside.map((p) => p[0]).join(" ")}`);
+
+  // E: each adjustment against Figma's pipeline (the same maths in JS), on both halves.
+  for (let k = 0; k < scene.images.length; k++) {
+    const [grey, orange] = await pixelsAt([await screenOf(scene.images[k], 20, 20), await screenOf(scene.images[k], 60, 20)]);
+    const want = [figmaAdjust([128 / 255, 128 / 255, 128 / 255], scene.adjustments[k]), figmaAdjust([200 / 255, 120 / 255, 60 / 255], scene.adjustments[k])];
+    const ok = near(grey, [...want[0], 255], 5) && near(orange, [...want[1], 255], 5);
+    check(`image adjustments: ${JSON.stringify(scene.adjustments[k])} as Figma's pipeline`, ok, `${grey} / ${orange} want ${want[0]} / ${want[1]}`);
+  }
+
+  // F: a flat gradient dithered ±1/255 on every channel: 99, 100 and 101 all appear, nothing further.
+  const flat = await pixelsAt(await Promise.all([...Array(48).keys()].map((k) => screenOf(scene.gradient, 4 + (k % 12) * 23.7, 6 + Math.floor(k / 12) * 13.3))));
+  const levels = new Set(flat.map((p) => p[1]));
+  check("gradients: Figma's dither (±1/255)", levels.size >= 3 && [...levels].every((v) => v >= 99 && v <= 101), [...levels].sort().join(" "));
 }
 
 // Round 11: Figma's shader fills and effects (src/shared/shaders/presets.json) on a sheet of their own (52:x) — every
@@ -1570,7 +1731,7 @@ try {
   await settle();
   const backend = await engine(() => window.__designerEngine.gfx);
   check(`the canvas draws with ${gfx === "webgpu" ? "WebGPU" : "WebGL2"}`, backend === (gfx === "webgpu" ? "webgpu" : "webgl2"), backend);
-  if (only === "e4" || only === "r7" || only === "r17" || only === "r18" || only === "r8" || only === "r11" || only === "r12" || only === "e6" || only === "vars" || only === "export" || only === "e8") {
+  if (only === "e4" || only === "r7" || only === "r17" || only === "r17b" || only === "r18" || only === "r8" || only === "r11" || only === "r12" || only === "e6" || only === "vars" || only === "export" || only === "e8") {
     const files = [];
     if (only === "e4") await e4Checks(files);
     else if (only === "r12") await r12Checks(files);
@@ -1579,6 +1740,7 @@ try {
       await blurReachChecks(files);
     }
     else if (only === "r17") await r17Checks(files);
+    else if (only === "r17b") await r17bChecks(files);
     else if (only === "r18") await r18Checks(files);
     else if (only === "r11") await r11Checks(files);
     else if (only === "r8") await r8Checks(files);
@@ -1762,6 +1924,7 @@ try {
   await r7Checks(files);
   await blurReachChecks(files);
   await r17Checks(files);
+  await r17bChecks(files);
   await r18Checks(files);
   await r11Checks(files);
   await r12Checks(files);
