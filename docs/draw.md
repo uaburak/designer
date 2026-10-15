@@ -72,7 +72,7 @@ Sources (help.figma.com unless said):
 - **Lasso** (Q) in the secondary toolbar: draw around points and paths, then move or delete them. Shift Delete deletes and heals.
 - **Shape builder**, **Paint** (⇧B), **Bend**, **Cut** (X), **Eraser** (⇧E; weight and shape in the right sidebar; right-click › **Split vector** splits).
 - **Variable width**: a pink handle on hover, Shift-click to select several, Delete removes, Control disables snapping.
-- **Simplify vector** (a slider; destructive) and **Offset vector**: in the Vector menu; a March 2026 forum bug says they sat at the menu's end.
+- **Simplify vector** (a slider; destructive) and **Offset vector**: in the Vector menu; a March 2026 forum bug says they sat at the menu's end. Both are Figma's tools (`SIMPLIFY_VECTOR`, `OFFSET_PATH`; `docs/research/rea/vector.md` §8, §10) with a secondary toolbar, built in round 17b: a live preview, ✓ / Enter applies as one undo step, Cancel / Esc / ⌘Z restores. Simplify: a slider −2…3 (step 0.01, starting at 3) between a "simpler" and a "more detailed" icon, tolerance 10^−threshold node px. Offset: a slider over the engine's range (−min(w, h) / 2 … max(100, the longer side) [the cap ours]), step 1, starting at 0, Join Square (miter) / Round; a variable-width stroke is offset through its outline. One vector-editable layer, not in multi-edit.
 - **Rotation origin** (⌥R).
 
 **Effects.** Noise, Texture, progressive Layer / Background blur.
@@ -93,7 +93,7 @@ Sources (help.figma.com unless said):
 | Shape builder (M) | ✓ round 12 | `tools/ShapeBuilder.cpp` |
 | Lasso (Q), Paint, Bend, Cut, Erase | ✓ rounds 8 / 15 | `editor/VectorEditing.cpp`, `canvas/BottomToolbar.tsx VECTOR_TOOL_GROUPS` |
 | Multi-edit (several vector layers in edit mode) | ◐ `startVectorEditMany` holds them all but only the edited one shows its points; a click switches | `Editor.h startVectorEditMany`, `docs/editor.md` round 12 |
-| Split / Simplify / Offset vector | ✓ | `editor/ArrangeCommands.cpp` (`VECTOR_SPLIT` 282, `VECTOR_SIMPLIFY` 283, `VECTOR_OFFSET` 284) |
+| Split / Simplify / Offset vector | ✓ | `editor/ArrangeCommands.cpp` (`VECTOR_SPLIT` 282, `VECTOR_SIMPLIFY` 283 {threshold} or {amount}, `VECTOR_OFFSET` 284); the tools (17b): `editor/PathTools.cpp` (`engine_path_tool`, PATH_TOOL), `canvas/PathToolbar.tsx` |
 | Rotation origin ⌥R | ✓ (view state, not stored) | `tools/CanvasTools.cpp`, `SHOW_ROTATION_ORIGIN` 236 |
 | Pattern fill | ✓ round 7 (`PaintType PATTERN = 8`, Select source, tile type, spacing, alignment) | engine.md §6.5, `editor.md` #10 |
 | Pattern **stroke** | ✓ 7a: was not drawn on the canvas (`setPaint` refused PATTERN); now drawn through the stroke (§4.10). SVG / PDF skip PATTERN paints | `render/Renderer.cpp drawStrokes` |
@@ -285,12 +285,13 @@ The outline is cached by (centre-line hash, settings, seed, weight, tolerance le
 ### 4.5 Brushes (BRUSH 46, `strokeBrushGuid` 446, settings 449 / 450, `brushType` 452)
 
 **Already drawn** (`Brush.{h,cpp}`). Added this round:
-- **INSTALL_BRUSH** (an ABI call, §4.6): `{name, type, artwork {width, height, d, windingRule}}`.
+- **INSTALL_BRUSH** (an ABI call, §4.6): `{name, type, artwork {width, height, d, windingRule}, settings?}`. A scatter brush's node carries its own `scatterStrokeSettings` (449): `settings` over Figma's base `{gap 0.9, wiggle 0, angularJitter 0, rotation 0, sizeJitter 0}` (`figma_app.min.js` module 258160). The built-ins pass Figma's measured values (`BUILTIN_SCATTER_SETTINGS`, `docs/research/rea/vector.md` §5, e.g. Bubblegum gap 0.25, angularJitter 95, rotation 45); a custom brush (CREATE_BRUSH) gets the base.
   - If a BRUSH node with that `name` and `brushType` is already on `0:2`, its GUID comes back.
   - Otherwise a BRUSH node is created on `0:2` (a VECTOR-like network from `d`, `size` = width × height) and its GUID comes back.
   - It is a system write inside the open step (the Brush tool's stroke, or SET_STROKE_BRUSH's), so undoing the stroke removes the brush too.
-- **SET_STROKE_BRUSH** (316) takes `{refs?, brush: guid}`. It writes `strokeBrushGuid`, the settings' defaults if absent and `strokeSeed`, removes `dynamicStrokeSettings` and the old brush's `scatterBrushTransforms`, and keeps `variableWidthPoints` and `dashPattern` (Figma, §4.3).
-  - Defaults: stretch `{orientation FORWARD}`; scatter `{gap 1, wiggle 0, angularJitter 0, rotation 0, sizeJitter 0}` [unverified].
+- **SET_STROKE_BRUSH** (316) takes `{refs?, brush: guid, scatter?, stretch?}`. It writes `strokeBrushGuid`, the brush's settings and `strokeSeed`, removes `dynamicStrokeSettings` and the old brush's `scatterBrushTransforms`, and keeps `variableWidthPoints` and `dashPattern` (Figma, §4.3).
+  - Settings, Figma's merge (`3187.min.js @3366400`): `{base, ...the BRUSH node's own, ...the user's values}` — replacing the previous brush's. Base: stretch `{orientation FORWARD}`; scatter `{gap 0.9, 0, 0, 0, 0}`. The Brush tool writes the same for a new stroke; SET_BRUSH_SETTINGS on a layer without settings starts from its brush's own.
+  - Scatter sliders (Draw) run to Figma's UI maxima: gap 0.25–3, wiggle 0–2, sizeJitter 0–3, angularJitter and rotation ±180; the fields take the plugin's ranges.
   - Undo "Change stroke".
 - **SET_STROKE_KIND** (315) takes `{refs?, kind: "BASIC" | "DYNAMIC", dynamic?}`. Both write `strokeBrushGuid = -1:-1`; BASIC resets a present `dynamicStrokeSettings` to the neutral `{1, 0, 0}` (§4.3).
 - **SET_BRUSH_SETTINGS** (317) takes `{refs?, scatter?: Partial, stretch?: {orientation}}`. A scrub coalesces.
@@ -465,7 +466,7 @@ Derived geometry only; nothing new is journaled. Native tests: `engine/tests/uni
 - Commands:
   - `transformModifiersOf` / `repeatOf` / `repeatContent` for ADD / SET / REMOVE / MOVE_TRANSFORM_MODIFIER;
   - APPLY_TRANSFORMS: duplicate children with `inst` prepended to their transforms, k ≥ 1;
-  - Flatten / Outline stroke: walk `repeatOf` instances, and `dynamicCenter` / `brushStroke` for the stroke outline (`exporter::strokeOf` / `strokeOutline` already do this).
+  - Flatten / Outline stroke: walk `repeatOf` instances, and `dynamicCenter` / `brushStroke` for the stroke outline (`exporter::strokeOf` / `strokeOutline` already do this). Round 17b: Outline stroke takes a Dynamic or Brush stroke's outline from `exporter::strokeOf` / `strokeArea` (the result a Basic VECTOR filled with the stroke paints, the stroke's Draw fields dropped); Flatten keeps the stroke a stroke on the flattened vector [ours: Figma's Flatten of a brush stroke unverified]. Both refuse instance sublayers as Figma does (Flatten allows slot content; `docs/research/rea/vector.md` §18).
 - Text path tools: `textPathProject` (TEXT_PATH_START gesture and the tool's click), `textPathContour`, `TextLayout::path->frameAt` (caret, selection quads), `hitsEdge` (hover target), `layoutTextPath`.
 - CREATE_TEXT_PATH from a shape needs the shape's network: `geom::networkFromPath(doc.geometry(id)->stroke.path, …)`. A rectangle's path starts at the top-left, going clockwise; an ellipse's at its rightmost point (`geom::ellipsePath`).
 - `RepeatResult::capped` for the layer's stroke-warning badge.
@@ -814,6 +815,8 @@ export interface InstallBrushInput {
   name: string;
   type: BrushType;
   artwork: BrushArtwork;
+  /** A scatter brush's own settings (its node's scatterStrokeSettings 449), over SCATTER_DEFAULTS; a built-in installed earlier without them gets them. */
+  settings?: Partial<ScatterSettings>;
 }
 
 /** Stroke settings' Stroke Type. Implicit in the document: BRUSH = strokeBrushGuid set, DYNAMIC = dynamicStrokeSettings set. */
@@ -849,7 +852,7 @@ export const SCATTER_RANGE = {
 export const DYNAMIC_DEFAULTS: DynamicSettings = { frequency: 0.75, wiggle: 0.3, smoothen: 0.5 }; // Figma's (live)
 export const DYNAMIC_NEUTRAL: DynamicSettings = { frequency: 1, wiggle: 0, smoothen: 0 }; // what Basic leaves; reads as Basic
 export const DYNAMIC_SLIDER_MAX = { frequency: 2, wiggle: 5, smoothen: 1 } as const; // Draw's sliders (Figma's)
-export const SCATTER_DEFAULTS: ScatterSettings = { gap: 1, wiggle: 0, angularJitter: 0, rotation: 0, sizeJitter: 0 };
+export const SCATTER_DEFAULTS: ScatterSettings = { gap: 0.9, wiggle: 0, angularJitter: 0, rotation: 0, sizeJitter: 0 };
 export const STRETCH_DEFAULTS: StretchSettings = { direction: "FORWARD" };
 
 /** The Pencil's and the Brush's settings (the secondary toolbar), sent with engine.setDrawToolSettings. */
@@ -904,7 +907,7 @@ export interface DrawCommandArgs {
   MOVE_TRANSFORM_MODIFIER: { ref: GuidString; from: number; to: number };
   APPLY_TRANSFORMS: { refs?: GuidString[] };
   SET_STROKE_KIND: { refs?: GuidString[]; kind: "BASIC" | "DYNAMIC"; dynamic?: Partial<DynamicSettings> };
-  SET_STROKE_BRUSH: { refs?: GuidString[]; brush: GuidString };
+  SET_STROKE_BRUSH: { refs?: GuidString[]; brush: GuidString; scatter?: Partial<ScatterSettings>; stretch?: Partial<StretchSettings> };
   SET_BRUSH_SETTINGS: { refs?: GuidString[]; scatter?: Partial<ScatterSettings>; stretch?: Partial<StretchSettings> };
   CREATE_BRUSH: { ref: GuidString; brushType: BrushType };
   CREATE_TEXT_PATH: { ref: GuidString; segment: number; position: number; replace: boolean };

@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "base/Json.h"
 #include "geometry/Path.h"
 #include "math/Math.h"
 #include "scene/Node.h"
@@ -18,7 +19,7 @@
 namespace eng::geom {
 
 struct ScatterSettings {
-  double gap = 1;            // stamp lengths between stamps' starts (≥ 0.25)
+  double gap = 0.9;          // stamp lengths between stamps' starts (≥ 0.25); Figma's base 0.9
   double wiggle = 0;         // random offset across the path, in stamp heights
   double angularJitter = 0;  // ± degrees
   double rotation = 0;       // degrees
@@ -44,6 +45,8 @@ struct NodeGeometry;
 // the brush's artwork laid along `g`'s stroke centre line at the node's stroke weight. False when the node has no
 // brush (or its brush isn't in the document): the plain stroke draws. `key` gets a hash of what it was made from.
 bool brushStroke(const Document& doc, const NodeProps& p, const NodeGeometry& g, double tolerance, geom::Path& out, uint64_t* key = nullptr);
+// A ScatterStrokeSettings JSON object's fields written over `s`.
+void scatterSettingsOver(geom::ScatterSettings& s, const json::Value& v);
 // The BRUSH node a node's stroke uses (kNoGuid: none — the field absent, or Figma's -1:-1 written by Dynamic / Basic).
 Guid strokeBrushOf(const NodeProps& p);
 

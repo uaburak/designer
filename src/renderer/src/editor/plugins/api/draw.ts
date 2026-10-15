@@ -11,7 +11,7 @@
  */
 import type { Guid, NodeChange, NodeFields } from "@/engine/codec";
 import { Status } from "@/engine/abi";
-import { brushDisplayName, DYNAMIC_RANGE, REPEAT_COUNT_RANGE, SCATTER_BRUSH_NAMES, SCATTER_DEFAULTS, SCATTER_RANGE, STRETCH_BRUSH_NAMES, type BrushType, type DrawCommandArgs, type GuidString } from "@shared/draw/types";
+import { brushDisplayName, builtinScatterSettings, DYNAMIC_RANGE, REPEAT_COUNT_RANGE, SCATTER_BRUSH_NAMES, SCATTER_RANGE, STRETCH_BRUSH_NAMES, type BrushType, type DrawCommandArgs, type GuidString } from "@shared/draw/types";
 import { brushNameOf, complexStrokeOf, docModifiersOf, modifierToApi, repeatModifiersOf, strokeBrushOf, textPathStartOf, type ApiRepeatModifier, type DocTransformModifier } from "@shared/draw/apiShapes";
 import { BUILTIN_BRUSHES } from "@shared/draw/brushes";
 import { runEngineCommand } from "../../engineCompat";
@@ -205,29 +205,22 @@ export function setComplexStrokeProperties(ctx: ApiContext, n: NodeChange, v: un
   const name = String(o.brushName ?? "");
   if (name === "CUSTOM") throw new ApiError("Setting a custom brush is not supported yet");
   if (!(type === "STRETCH" ? STRETCH_KEYS : SCATTER_KEYS).includes(name)) throw new ApiError(`${path}.brushName: invalid enum value '${name}' for a ${type.toLowerCase()} brush`);
-  let settings: DrawCommandArgs["SET_BRUSH_SETTINGS"];
+  let settings: Pick<DrawCommandArgs["SET_STROKE_BRUSH"], "scatter" | "stretch">;
   if (type === "STRETCH") {
     const direction = o.direction ?? "FORWARD";
     if (direction !== "FORWARD" && direction !== "BACKWARD") throw new ApiError(`${path}.direction: invalid enum value '${String(direction)}'`);
-    settings = { refs, stretch: { direction } };
+    settings = { stretch: { direction } };
   } else {
-    const s = { ...SCATTER_DEFAULTS, ...o };
-    settings = {
-      refs,
-      scatter: {
-        gap: rangeCheck(s, "gap", SCATTER_RANGE.gap, path, true),
-        wiggle: rangeCheck(s, "wiggle", SCATTER_RANGE.wiggle, path, true),
-        sizeJitter: rangeCheck(s, "sizeJitter", SCATTER_RANGE.sizeJitter, path),
-        angularJitter: rangeCheck(s, "angularJitter", SCATTER_RANGE.angularJitter, path),
-        rotation: rangeCheck(s, "rotation", SCATTER_RANGE.rotation, path),
-      },
-    };
+    // Only the values given: the engine writes {base, ...the brush's own, ...these} (Figma's merge, rea/vector.md §5).
+    const scatter: Partial<Record<keyof typeof SCATTER_RANGE, number>> = {};
+    for (const k of ["gap", "wiggle", "sizeJitter", "angularJitter", "rotation"] as const)
+      if (o[k] !== undefined) scatter[k] = rangeCheck(o, k, SCATTER_RANGE[k], path, k === "gap" || k === "wiggle");
+    settings = { scatter };
   }
   const brush = installedBrush(ctx, name, type);
   // Figma: "When setting a brush on a stroke, you must first ensure that the desired brushes are loaded with loadBrushesAsync".
   if (!brush) throw new ApiError(`The brush ${name} isn't loaded: call figma.loadBrushesAsync('${type}') first`);
-  runDraw(ctx, path, "SET_STROKE_BRUSH", { refs, brush });
-  runDraw(ctx, path, "SET_BRUSH_SETTINGS", settings);
+  runDraw(ctx, path, "SET_STROKE_BRUSH", { refs, brush, ...settings });
 }
 
 /** figma.loadBrushesAsync(type): every built-in of that type installed into the file (BRUSH nodes on 0:2, §6). */
@@ -235,7 +228,8 @@ export function loadBrushes(ctx: ApiContext, type: unknown): void {
   if (type !== "STRETCH" && type !== "SCATTER") throw new ApiError(`in loadBrushesAsync: invalid brush type '${String(type)}' (expected 'STRETCH' or 'SCATTER')`);
   ctx.write();
   for (const b of BUILTIN_BRUSHES.filter((x) => x.type === type)) {
-    const guid = engineDraw("loadBrushesAsync", () => ctx.ed.engine.installBrush({ name: b.name, type: b.type, artwork: b.artwork }));
+    const settings = builtinScatterSettings(b.key);
+    const guid = engineDraw("loadBrushesAsync", () => ctx.ed.engine.installBrush({ name: b.name, type: b.type, artwork: b.artwork, ...(settings ? { settings } : {}) }));
     if (!guid) throw new ApiError(`loadBrushesAsync: the brush ${b.key} couldn't be installed`);
   }
 }

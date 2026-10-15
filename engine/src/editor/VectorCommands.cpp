@@ -10,6 +10,9 @@
 #include "editor/Editor.h"
 #include "geometry/Boolean.h"
 #include "geometry/Stroker.h"
+#include "export/Scene.h"
+#include "geometry/Brush.h"
+#include "geometry/DynamicStroke.h"
 #include "geometry/VariableWidth.h"
 
 namespace eng {
@@ -54,6 +57,18 @@ static bool anyVisibleFill(const std::vector<Paint>& paints) {
 bool Editor::flattenable(const NodeProps& p) const {
   return p.isPathShape() || p.isRectLike() || p.type == NodeType::ELLIPSE || p.type == NodeType::TEXT || p.isGroupLike() || flatFrame(p) ||
          p.type == NodeType::INSTANCE;  // (flatFrame: a main component too)
+}
+
+bool Editor::instanceSublayer(Guid id, bool slotsAllowed) const {
+  if (id.isDerived()) return true;
+  if (slotsAllowed) return false;
+  // The slot's content frame itself (a child of its instance) and everything in it.
+  for (Guid a = id; a != kNoGuid; a = doc_.parentOf(a)) {
+    const Node* n = doc_.get(a);
+    if (!n) break;
+    if (a.isDerived() || n->props.comp().isSlotContent) return true;
+  }
+  return false;
 }
 
 void Editor::fillPathsOf(Guid id, const Mat2x3& toSpace, geom::Path& out, WindingRule& rule) const {
@@ -151,9 +166,10 @@ Status Editor::flattenSelection() {
   std::vector<Guid> top = topSelectionInPaintOrder();
   std::vector<Guid> targets;
   for (Guid t : top) {
+    // Figma: no instance sublayers (slot content allowed).
+    if (instanceSublayer(t, true)) return E_INVALID;
     const Node* n = doc_.get(t);
-    // (an instance inside another is detached with its outer one: not taken alone)
-    if (n && !n->props.locked && flattenable(n->props) && !(n->props.type == NodeType::INSTANCE && t.isDerived())) targets.push_back(t);
+    if (n && !n->props.locked && flattenable(n->props)) targets.push_back(t);
   }
   if (targets.empty()) return E_INVALID;
   if (vector_.node != kNoGuid) endVectorEdit();
@@ -248,6 +264,7 @@ Status Editor::flattenSelection() {
 Status Editor::outlineStroke() {
   std::vector<Guid> targets;
   for (Guid t : topSelectionInPaintOrder()) {
+    if (instanceSublayer(t, false)) return E_INVALID;  // Figma: every instance sublayer refused
     const Node* n = doc_.get(t);
     if (n && !n->props.locked && n->props.strokeWeight > 0 && anyVisible(n->props.strokePaints) && !n->props.isGroupLike()) targets.push_back(t);
   }
@@ -260,6 +277,9 @@ Status Editor::outlineStroke() {
     const NodeGeometry* g = doc_.geometry(t);
     if (!g || g->stroke.path.empty()) continue;
     bool closedArea = !g->fills.empty() && !g->hasOpenEnds;
+    // Figma Draw's strokes (docs/research/rea/vector.md §7): a brush's outline or a dynamic stroke's displaced one —
+    // what the canvas draws, as the exporters write it.
+    const bool drawn = strokeBrushOf(p) != kNoGuid || hasDynamicStroke(p);
     bool aligned = closedArea && p.strokeAlign != StrokeAlign::CENTER;
     geom::StrokeStyle style;
     style.width = p.strokeWeight * (aligned ? 2 : 1);
@@ -273,9 +293,12 @@ Status Editor::outlineStroke() {
     std::vector<geom::WidthPoint> profile = widthProfileAllowed(p) ? widthPointsOf(p) : std::vector<geom::WidthPoint>{};
     if (!profile.empty()) style.profile = &profile;
     const double tol = 0.02;
-    geom::Path outline = geom::strokePath(g->stroke.path, style, tol);
     geom::Path shape;
-    if (aligned) {
+    exporter::Stroke drawnStroke;
+    if (drawn) drawnStroke = exporter::strokeOf(doc_, t, p);
+    if (drawn && drawnStroke.outlineOnly) {
+      shape = exporter::strokeArea(drawnStroke, exporter::fillShape(doc_, t, p), tol);
+    } else if (geom::Path outline = geom::strokePath(g->stroke.path, style, tol); aligned) {
       geom::Path fill;
       for (auto& f : g->fills) fill.append(f.path);
       std::vector<geom::Operand> ops{{outline, WindingRule::NONZERO}, {fill, WindingRule::NONZERO}};
@@ -312,6 +335,12 @@ Status Editor::outlineStroke() {
       if (hasWidthPoints(p)) {
         c.mask |= F_EXTRA;
         c.props.extra["variableWidthPoints"] = "";  // the stroke it shaped is gone
+      }
+      if (drawn) {
+        // The brush or dynamic stroke is now the shape: its settings go with it (a Basic vector).
+        c.mask |= F_EXTRA;
+        for (const char* k : {"strokeBrushGuid", "dynamicStrokeSettings", "scatterStrokeSettings", "stretchStrokeSettings", "scatterBrushTransforms", "strokeSeed"})
+          if (p.extra.count(k)) c.props.extra[k] = "";
       }
       write(c);
     }

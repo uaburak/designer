@@ -900,6 +900,8 @@ uint32_t Editor::wheel(double x, double y, double dx, double dy, DeltaMode mode,
 
 uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   if (gesture_ != Gesture::None || page_ == kNoGuid) return 0;
+  // Simplify vector / Offset path open: the canvas takes no clicks (the hand — Space or the middle button — still pans).
+  if (pathTool_.kind != PathTool::NONE && !spaceHeld_ && button != 1) return P_HANDLED;
   hapticArmed_ = false;  // round 17: a new drag's values are read at its first move
   snapTickX_ = snapTickY_ = std::numeric_limits<double>::quiet_NaN();
   downScreen_ = lastScreen_ = s;

@@ -25,6 +25,14 @@ Status Editor::command(CommandId id, double dx, double dy) {
 
 Status Editor::command(CommandId id, const CommandArgs& args) {
   if (busy() && id != CommandId::ZOOM_IN && id != CommandId::ZOOM_OUT) return E_BUSY;
+  if (pathTool_.kind != PathTool::NONE && !(id >= CommandId::ZOOM_IN && id <= CommandId::ZOOM_TO_SELECTION)) {
+    // Simplify vector / Offset path open (editor/PathTools.cpp): undo cancels it; anything else waits for it.
+    if (id == CommandId::UNDO) {
+      pathToolCancel();
+      return OK;
+    }
+    return E_BUSY;
+  }
   if (text_.node != kNoGuid) {
     // Editing text: ⌘A selects its text, zooms keep the session, anything else ends it first.
     if (id == CommandId::SELECT_ALL) {
@@ -284,13 +292,18 @@ uint32_t Editor::commandState(CommandId id) const {
       return booleans || (!top.empty() && !derived) ? CMD_ENABLED : 0;
     }
     case CommandId::FLATTEN: {
+      // Figma (rea/vector.md §18): no instance sublayers in the selection (slot content allowed).
+      for (Guid t : selection_)
+        if (instanceSublayer(t, true)) return 0;
       for (Guid t : selection_) {
         const Node* n = doc_.get(t);
-        if (n && flattenable(n->props) && !(n->props.type == NodeType::INSTANCE && t.isDerived())) return CMD_ENABLED;
+        if (n && flattenable(n->props)) return CMD_ENABLED;
       }
       return 0;
     }
     case CommandId::OUTLINE_STROKE: {
+      for (Guid t : selection_)
+        if (instanceSublayer(t, false)) return 0;  // every instance sublayer refused, slot content too
       for (Guid t : selection_) {
         const Node* n = doc_.get(t);
         if (!n || !(n->props.strokeWeight > 0)) continue;

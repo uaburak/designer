@@ -54,25 +54,4 @@
     pointer-events: none;
   }
   .memoryLabel { color: var(--figma-color-text-secondary); }
-
-  .vectorOp {
-    position: fixed;
-    z-index: var(--ds-z-popover);
-    display: flex;
-    align-items: center;
-    gap: var(--ds-space-2);
-    height: var(--ds-size-toolbar);
-    padding: 0 var(--ds-space-2) 0 var(--ds-space-3);
-    border-radius: var(--ds-radius-large);
-    background: var(--figma-color-bg);
-    color: var(--figma-color-text);
-    box-shadow: var(--ds-elevation-400-menu-panel);
-    font: var(--ds-font-body-medium);
-    letter-spacing: var(--ds-tracking-body-medium);
-    transform: translateX(-50%);
-  }
-  .caption { color: var(--figma-color-text-secondary); white-space: nowrap; }
-  .slider { display: flex; align-items: center; gap: var(--ds-space-2); }
-  .slider input { width: 160px; accent-color: var(--figma-color-bg-brand); }
-  .amount { width: 72px; }
 }

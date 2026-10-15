@@ -421,6 +421,12 @@ void writeEvents(json::Writer& w, Engine& e) {
   for (const Vec2& p : ev.colorPicks) w.beginObject().key("type").string("COLOR_PICK").key("x").number(p.x).key("y").number(p.y).endObject();
   // Round 7b (Draw): ⌘-click with the Pencil or the Brush (docs/draw.md §4.5): DrawToolSampled.
   for (const std::string& s : ev.drawSampled) w.raw("{\"type\":\"DRAW_TOOL_SAMPLED\"," + s.substr(1));
+  // Simplify vector / Offset path (editor/PathTools.cpp): the tool's state after it opened, changed or closed.
+  if (ev.pathTool) {
+    json::Writer pw;
+    ed.writePathToolState(pw);
+    w.raw("{\"type\":\"PATH_TOOL\"," + pw.take().substr(1));
+  }
   for (auto& r : ev.inlineEdits) {
     w.beginObject().key("type").string("REQUEST_INLINE_EDIT").key("ref").string(r.node.toString()).key("field").string(r.field);
     w.key("value").number(r.value);
@@ -1825,6 +1831,39 @@ ENG_EXPORT int32_t engine_vector_edit_tool(Handle h, uint32_t tool) {
   if (!e) return E_HANDLE;
   if (tool > 8) return E_INVALID;
   return e->editor.setVectorTool(static_cast<Editor::VectorTool>(tool));
+}
+
+// Simplify vector / Offset path as Figma's tools (editor/PathTools.cpp; docs/research/rea/vector.md §8, §10):
+// {op: "begin", kind: "SIMPLIFY" | "OFFSET"} | {op: "set", threshold} | {op: "set", offset?, join?} | {op: "apply"} |
+// {op: "cancel"} | {op: "state"} → {active, kind, node, threshold, offset, join, minOffset, maxOffset}.
+ENG_EXPORT int32_t engine_path_tool(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Value v;
+  if (!parse(ptr, len, v) || !v.isObject()) return E_DECODE;
+  const json::Value* op = v.get("op");
+  if (!op || !op->isString()) return E_INVALID;
+  Status st = OK;
+  if (op->string == "begin") {
+    if (e->editor.viewerMode()) return E_READONLY;
+    const json::Value* k = v.get("kind");
+    std::string kind = k && k->isString() ? k->string : std::string();
+    if (kind != "SIMPLIFY" && kind != "OFFSET") return E_INVALID;
+    st = e->editor.pathToolBegin(kind == "SIMPLIFY" ? Editor::PathTool::SIMPLIFY : Editor::PathTool::OFFSET);
+  } else if (op->string == "set") {
+    st = e->editor.pathToolSet(v);
+  } else if (op->string == "apply") {
+    st = e->editor.pathToolApply();
+  } else if (op->string == "cancel") {
+    e->editor.pathToolCancel();
+  } else if (op->string != "state") {
+    return E_INVALID;
+  }
+  if (st != OK) return st;
+  json::Writer w;
+  e->editor.writePathToolState(w);
+  return setResult(w.take());
 }
 
 // {"start":"NONE","end":"ARROW_LINES"} for a node with an open path; E_NOT_FOUND otherwise.

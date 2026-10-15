@@ -13,6 +13,7 @@ import { CMD_ENABLED, Status } from "@/engine/abi";
 import type { Pixels } from "@/engine/codec";
 import {
   brushDisplayName,
+  builtinScatterSettings,
   DRAW_TOOL_DEFAULTS,
   DRAW_WEIGHT_RANGE,
   DYNAMIC_RANGE,
@@ -156,7 +157,8 @@ export function installedBrush(ed: EditorController, entry: Pick<BrushEntry, "gu
   const artwork = builtinArtwork(entry.builtin);
   if (!artwork) return null;
   const key = entry.builtin;
-  return drawCall(() => ed.engine.installBrush({ name: brushDisplayName(key), type: builtinType(key), artwork }), null);
+  const settings = builtinScatterSettings(key);
+  return drawCall(() => ed.engine.installBrush({ name: brushDisplayName(key), type: builtinType(key), artwork, ...(settings ? { settings } : {}) }), null);
 }
 
 /** The Brush styles menu's pick: the Brush draws with it from now on (a built-in installed into the file first). */
@@ -208,7 +210,8 @@ export function brushPreviewUrl(ed: EditorController, entry: Pick<BrushEntry, "g
   if (!cache) previews.set(ed.engine, (cache = new Map()));
   if (cache.has(key)) return cache.get(key)!;
   const artwork = !entry.guid && entry.builtin ? builtinArtwork(entry.builtin) : null;
-  const src = entry.guid ? { brush: entry.guid } : artwork ? { artwork, type: entry.type } : null;
+  const settings = entry.builtin ? builtinScatterSettings(entry.builtin) : undefined;
+  const src = entry.guid ? { brush: entry.guid } : artwork ? { artwork, type: entry.type, ...(settings ? { settings } : {}) } : null;
   const px = src ? drawCall(() => ed.engine.brushPreview(src, width * dpr, height * dpr, PREVIEW_WEIGHT * dpr), null) : null;
   const url = px ? pixelsToUrl(px) : null;
   // Nothing drawn yet (no engine support, no artwork) isn't cached: a later engine may draw it.

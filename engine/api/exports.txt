@@ -93,6 +93,7 @@ _engine_image_failed
 _engine_vector_edit
 _engine_vector_edit_end
 _engine_vector_edit_tool
+_engine_path_tool
 _engine_end_caps
 _engine_paint_edit
 _engine_paint_edit_end

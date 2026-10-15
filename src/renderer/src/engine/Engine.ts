@@ -106,6 +106,8 @@ import {
   type NodeChange,
   type NodeFieldsPatch,
   type PageInfo,
+  type PathToolInput,
+  type PathToolState,
   type Pixels,
   type ResolvedVariableValue,
   type StyleInfo,
@@ -123,7 +125,7 @@ import type { EngineExports } from "./EngineExports";
 import { FACET_DECODERS, FACET_IDS, FACET_SLOTS, type FacetName } from "./facets.generated";
 import type { ExportSettings } from "../../../shared/schema/document.generated";
 import type { TraceOptions, TraceResult } from "../../../shared/ai/types";
-import type { BrushArtwork, BrushType, DrawCommandArgs, DrawToolSettings, GuidString, InstallBrushInput } from "../../../shared/draw/types";
+import type { BrushArtwork, BrushType, DrawCommandArgs, DrawToolSettings, GuidString, InstallBrushInput, ScatterSettings } from "../../../shared/draw/types";
 import { fonts } from "./fonts";
 import { keyCodeOf } from "./keyCodes";
 import { prepareGfx, recordWebGPUFallback, type GfxBackend, type GfxPreference } from "./gfx";
@@ -1743,6 +1745,16 @@ export class Engine {
     return this.after(this.x.vectorEditTool(this.h, VECTOR_EDIT_TOOLS.indexOf(tool)));
   }
 
+  /**
+   * Simplify vector / Offset path as Figma's tools (ABI engine_path_tool): begin (one vector-editable layer), set
+   * (each change previews live, written again from the layer as it was), apply (one undo step), cancel (the layer as
+   * it was). The state after the call, or null when it was refused (E_INVALID: not enabled; E_BUSY).
+   */
+  pathTool(input: PathToolInput): PathToolState | null {
+    if (!this.h) return null;
+    return this.json<PathToolState | null>(this.x.pathTool(this.h, encodeText(JSON.stringify(input))), null);
+  }
+
   /** An open path's ends (Figma's Start point / End point), or null when the node has none. */
   endCaps(ref: Guid): { start: StrokeCap; end: StrokeCap } | null {
     const [s, l] = this.ids(ref);
@@ -1872,7 +1884,7 @@ export class Engine {
    * A stroke drawn with a brush along a fixed S-curve, width × height device px at `weight` (ABI engine_brush_preview):
    * straight RGBA, black with the coverage in alpha (the menus use it as a mask). Null when there is nothing to draw.
    */
-  brushPreview(src: { brush: GuidString } | { artwork: BrushArtwork; type: BrushType }, width: number, height: number, weight: number): Pixels | null {
+  brushPreview(src: { brush: GuidString } | { artwork: BrushArtwork; type: BrushType; settings?: Partial<ScatterSettings> }, width: number, height: number, weight: number): Pixels | null {
     if (!this.h) return null;
     const w = Math.max(1, Math.min(4096, Math.round(width)));
     const hgt = Math.max(1, Math.min(4096, Math.round(height)));

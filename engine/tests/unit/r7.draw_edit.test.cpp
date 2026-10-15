@@ -379,7 +379,7 @@ TEST_CASE("r7b brushes: install is idempotent by name and type; Brush stroke cle
   CHECK(extraOf(e, V, "dynamicStrokeSettings").isNull());
   json::Value sc = extraOf(e, V, "scatterStrokeSettings");
   REQUIRE(sc.isObject());
-  CHECK(sc.get("gap")->numberOr(0) == 1);  // the defaults
+  CHECK(sc.get("gap")->numberOr(0) == doctest::Approx(0.9));  // Figma's base (a custom brush's own settings)
   // Scatter settings, clamped to the ranges.
   REQUIRE(e.command(CommandId::SET_BRUSH_SETTINGS, args(R"({"scatter":{"gap":0.1,"rotation":45}})")) == OK);
   sc = extraOf(e, V, "scatterStrokeSettings");
@@ -418,6 +418,136 @@ TEST_CASE("r7b brushes: install is idempotent by name and type; Brush stroke cle
   CHECK(e.listBrushes().size() == 3);
   e.command(CommandId::UNDO);
   CHECK_FALSE(e.document().has(made));
+}
+
+TEST_CASE("r17b scatter settings: a brush's own on install; apply writes {base, ...brush, ...user}, replacing the last brush's") {
+  Editor e = makeEditor();
+  geom::Path sq;
+  sq.moveTo({0, 0});
+  sq.lineTo({16, 0});
+  sq.lineTo({16, 16});
+  sq.lineTo({0, 16});
+  sq.close();
+  // Bubblegum's measured settings (rea/vector.md §5); a key outside the table is ignored, a value clamped.
+  json::Value own;
+  REQUIRE(json::parse(R"({"gap":0.25,"angularJitter":95,"rotation":45,"bogus":3,"sizeJitter":9})", own));
+  Guid bubble = e.installBrush("Bubblegum", true, {16, 16}, sq, WindingRule::NONZERO, &own);
+  REQUIRE(bubble != kNoGuid);
+  json::Value node = extraOf(e, bubble, "scatterStrokeSettings");
+  REQUIRE(node.isObject());
+  CHECK(node.get("gap")->numberOr(0) == doctest::Approx(0.25));
+  CHECK(node.get("angularJitter")->numberOr(0) == 95);
+  CHECK(node.get("wiggle")->numberOr(-1) == 0);  // the base fills the rest
+  CHECK(node.get("sizeJitter")->numberOr(0) == 3);
+  CHECK(node.get("bogus") == nullptr);
+  Guid plain = installSquare(e, "Custom", true);  // no settings: Figma's base
+  CHECK(extraOf(e, plain, "scatterStrokeSettings").get("gap")->numberOr(0) == doctest::Approx(0.9));
+  CHECK(extraOf(e, installSquare(e, "Heist", false), "scatterStrokeSettings").isNull());  // stretch: none
+  {
+    // A built-in installed before its settings were known (no 449 on its node) gets them on the next install.
+    NodeChange c = NodeChange::changed(bubble);
+    c.mask = F_EXTRA;
+    c.props.extra["scatterStrokeSettings"] = "";
+    REQUIRE(e.applyChanges({c}, APPLY_USER) == OK);
+    REQUIRE(extraOf(e, bubble, "scatterStrokeSettings").isNull());
+    CHECK(e.installBrush("Bubblegum", true, {16, 16}, sq, WindingRule::NONZERO) == bubble);  // none given: left alone
+    CHECK(extraOf(e, bubble, "scatterStrokeSettings").isNull());
+    REQUIRE(e.installBrush("Bubblegum", true, {16, 16}, sq, WindingRule::NONZERO, &own) == bubble);
+    CHECK(extraOf(e, bubble, "scatterStrokeSettings").get("angularJitter")->numberOr(0) == 95);
+  }
+
+  e.setSelection({V});
+  // Apply: the brush's own over the base.
+  REQUIRE(e.command(CommandId::SET_STROKE_BRUSH, args("{\"brush\":\"" + bubble.toString() + "\"}")) == OK);
+  json::Value sc = extraOf(e, V, "scatterStrokeSettings");
+  CHECK(sc.get("gap")->numberOr(0) == doctest::Approx(0.25));
+  CHECK(sc.get("rotation")->numberOr(0) == 45);
+  // The user's value wins (Figma: OI with gap 0.5 → 0.5).
+  REQUIRE(e.command(CommandId::SET_STROKE_BRUSH, args("{\"brush\":\"" + bubble.toString() + "\",\"scatter\":{\"gap\":0.5}}")) == OK);
+  sc = extraOf(e, V, "scatterStrokeSettings");
+  CHECK(sc.get("gap")->numberOr(0) == doctest::Approx(0.5));
+  CHECK(sc.get("angularJitter")->numberOr(0) == 95);
+  // Another brush replaces the settings: no rotation carried over from Bubblegum.
+  REQUIRE(e.command(CommandId::SET_STROKE_BRUSH, args("{\"brush\":\"" + plain.toString() + "\"}")) == OK);
+  sc = extraOf(e, V, "scatterStrokeSettings");
+  CHECK(sc.get("gap")->numberOr(0) == doctest::Approx(0.9));
+  CHECK(sc.get("rotation")->numberOr(-1) == 0);
+  // SET_BRUSH_SETTINGS on a layer without settings starts from what it draws with: its brush's own.
+  REQUIRE(e.command(CommandId::SET_STROKE_BRUSH, args("{\"brush\":\"" + bubble.toString() + "\"}")) == OK);
+  {
+    NodeChange c = NodeChange::changed(V);
+    c.mask = F_EXTRA;
+    c.props.extra["scatterStrokeSettings"] = "";
+    REQUIRE(e.applyChanges({c}, APPLY_USER) == OK);
+  }
+  REQUIRE(extraOf(e, V, "scatterStrokeSettings").isNull());
+  REQUIRE(e.command(CommandId::SET_BRUSH_SETTINGS, args(R"({"scatter":{"wiggle":1}})")) == OK);
+  sc = extraOf(e, V, "scatterStrokeSettings");
+  CHECK(sc.get("gap")->numberOr(0) == doctest::Approx(0.25));
+  CHECK(sc.get("wiggle")->numberOr(0) == 1);
+
+  // The Brush tool: a new stroke takes the brush's own settings.
+  json::Value tool;
+  REQUIRE(json::parse("{\"brush\":{\"color\":\"#000000\",\"opacity\":1,\"weight\":4,\"brush\":\"" + bubble.toString() + "\"}}", tool));
+  REQUIRE(e.setDrawToolSettings(tool) == OK);
+  REQUIRE(e.setTool(Tool::BRUSH) == OK);
+  drag(e, {200, 600}, {500, 650});
+  REQUIRE(e.selection().size() == 1);
+  sc = extraOf(e, e.selection()[0], "scatterStrokeSettings");
+  CHECK(sc.get("gap")->numberOr(0) == doctest::Approx(0.25));
+  CHECK(sc.get("angularJitter")->numberOr(0) == 95);
+}
+
+TEST_CASE("r17b Outline stroke of Dynamic and Brush strokes: the drawn outline (exporter::strokeOf), a Basic vector") {
+  // Dynamic: the displaced centre line, stroked — its bounds wander off the straight line's.
+  {
+    Editor e = makeEditor();
+    e.setSelection({V});
+    REQUIRE(e.command(CommandId::SET_STROKE_KIND, args(R"({"kind":"DYNAMIC","dynamic":{"frequency":2,"wiggle":5,"smoothen":0}})")) == OK);
+    const NodeProps before = props(e, V);
+    exporter::Stroke s = exporter::strokeOf(e.document(), V, before);
+    REQUIRE(s.outlineOnly);
+    Rect expect = exporter::strokeArea(s, exporter::fillShape(e.document(), V, before), 0.02).bounds();
+    REQUIRE(e.command(CommandId::OUTLINE_STROKE) == OK);
+    REQUIRE(e.selection().size() == 1);
+    Guid o = e.selection()[0];
+    const NodeProps& p = props(e, o);
+    CHECK(p.type == NodeType::VECTOR);
+    CHECK(p.strokePaints.empty());
+    REQUIRE(p.fillPaints.size() == 1);
+    CHECK(p.fillPaints[0].color == Color::hex(0xFF0000));
+    CHECK(extraOf(e, o, "dynamicStrokeSettings").isNull());
+    CHECK(extraOf(e, o, "strokeSeed").isNull());
+    Rect wb = e.document().worldBounds(o);
+    CHECK(near(wb.h, expect.h, 0.5));
+    CHECK(wb.h > 3.5);  // a straight line at weight 3 would be 3 high
+    e.command(CommandId::UNDO);
+    CHECK(props(e, V).type == NodeType::VECTOR);
+    CHECK(hasDynamicStroke(props(e, V)));
+  }
+  // Brush: the artwork's outline along the line (a 16 × 16 square stamped at weight 3 → 3 high), not the plain stroke.
+  {
+    Editor e = makeEditor();
+    Guid sq = installSquare(e, "Square", true);
+    e.setSelection({V});
+    REQUIRE(e.command(CommandId::SET_STROKE_BRUSH, args("{\"brush\":\"" + sq.toString() + "\",\"scatter\":{\"gap\":3}}")) == OK);
+    geom::Path drawn;
+    REQUIRE(brushStroke(e.document(), props(e, V), *e.document().geometry(V), 0.05, drawn));
+    Rect expect = drawn.bounds();
+    REQUIRE(e.command(CommandId::OUTLINE_STROKE) == OK);
+    Guid o = e.selection()[0];
+    CHECK(props(e, o).type == NodeType::VECTOR);
+    CHECK(strokeBrushOf(props(e, o)) == kNoGuid);
+    CHECK(extraOf(e, o, "scatterStrokeSettings").isNull());
+    const NodeGeometry* g = e.document().geometry(o);
+    REQUIRE(g);
+    // Gap 3: separate stamps, several closed contours (a plain stroke's outline would be one).
+    int contours = 0;
+    for (const auto& f : g->fills) geom::forEachSegment(f.path, [](Vec2) {}, [](geom::Verb, Vec2, const Vec2*) {}, [&](bool) { contours++; });
+    CHECK(contours > 1);
+    Rect wb = e.document().worldBounds(o);
+    CHECK(near(wb.w, expect.w, 0.5));
+  }
 }
 
 TEST_CASE("r17a a brush keeps width points and dashes; Basic after a brush writes -1:-1") {

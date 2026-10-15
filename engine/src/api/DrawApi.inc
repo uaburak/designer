@@ -3,9 +3,10 @@
 // go through engine_command with their DrawCommandArgs (src/shared/draw/types.ts).
 //
 //   engine_install_brush(h, json): InstallBrushInput {name, type "STRETCH" | "SCATTER", artwork {width, height, d,
-//     windingRule}} → {"guid"}: the file's BRUSH node with that name and type, else a new one on the Internal Only Canvas.
+//     windingRule}, settings? (a scatter brush's own ScatterStrokeSettings)} → {"guid"}: the file's BRUSH node with that name and type, else a new one on the Internal Only Canvas.
 //   engine_list_brushes(h) → [{guid, name, type}]: the file's BRUSH nodes.
-//   engine_brush_preview(h, json, w, h, weight): {brush: guid} or {artwork, type} drawn along a fixed S-curve → pixels
+//   engine_brush_preview(h, json, w, h, weight): {brush: guid} or {artwork, type, settings?} drawn along a fixed S-curve
+//     (a scatter brush with its node's settings, or `settings`, over Figma's base) → pixels
 //     (u32 width, u32 height, straight RGBA: black, the coverage in alpha).
 //   engine_set_draw_tool_settings(h, json): DrawToolSettings — what the Pencil and the Brush make.
 
@@ -47,7 +48,7 @@ ENG_EXPORT int32_t engine_install_brush(Handle h, Ptr ptr, uint32_t len) {
   if (!name || !name->isString() || name->string.empty() || !brushTypeOf(v.get("type"), scatter) || !v.get("artwork") ||
       !artworkOf(*v.get("artwork"), art, box, rule))
     return E_INVALID;
-  Guid g = e->editor.installBrush(name->string, scatter, box, art, rule);
+  Guid g = e->editor.installBrush(name->string, scatter, box, art, rule, v.get("settings"));
   if (g == kNoGuid) return E_BUSY;
   json::Writer w;
   w.beginObject().key("guid").string(g.toString()).endObject();
@@ -75,16 +76,18 @@ ENG_EXPORT int32_t engine_brush_preview(Handle h, Ptr ptr, uint32_t len, uint32_
   geom::Path art;
   Vec2 box;
   bool scatter = false;
+  geom::ScatterSettings settings;
   if (const json::Value* b = v.get("brush")) {
     bool ok = false;
     Guid g = b->isString() ? Guid::parse(b->string, &ok) : kNoGuid;
-    if (!ok || !e->editor.brushArtwork(g, art, box, scatter)) return E_NOT_FOUND;
+    if (!ok || !e->editor.brushArtwork(g, art, box, scatter, &settings)) return E_NOT_FOUND;
   } else {
     WindingRule rule = WindingRule::NONZERO;
     if (!v.get("artwork") || !artworkOf(*v.get("artwork"), art, box, rule) || !brushTypeOf(v.get("type"), scatter)) return E_INVALID;
+    if (const json::Value* s = v.get("settings")) scatterSettingsOver(settings, *s);
   }
   std::string rgba;
-  if (!brushPreview(art, box, scatter, static_cast<int>(width), static_cast<int>(height), weight, rgba)) return E_INVALID;
+  if (!brushPreview(art, box, scatter, static_cast<int>(width), static_cast<int>(height), weight, rgba, &settings)) return E_INVALID;
   std::string out(8, '\0');
   for (int i = 0; i < 4; i++) {
     out[static_cast<size_t>(i)] = static_cast<char>((width >> (8 * i)) & 0xff);

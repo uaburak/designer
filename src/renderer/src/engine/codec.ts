@@ -839,6 +839,29 @@ export type CursorKind =
   | "BRUSH" | "TEXT_PATH";
 
 /**
+ * Simplify vector / Offset path as Figma's tools (engine_path_tool, PATH_TOOL; docs/research/rea/vector.md §8, §10):
+ * the open tool and its values. Simplify's threshold runs −2…3 (tolerance 10^−threshold node px); Offset's range is
+ * the engine's (minOffset…maxOffset).
+ */
+export interface PathToolState {
+  active: boolean;
+  kind: "SIMPLIFY" | "OFFSET" | null;
+  node: Guid | null;
+  threshold: number;
+  offset: number;
+  join: "MITER" | "ROUND";
+  minOffset: number;
+  maxOffset: number;
+}
+export type PathToolInput =
+  | { op: "begin"; kind: "SIMPLIFY" | "OFFSET" }
+  | { op: "set"; threshold: number }
+  | { op: "set"; offset?: number; join?: "MITER" | "ROUND" }
+  | { op: "apply" }
+  | { op: "cancel" }
+  | { op: "state" };
+
+/**
  * Engine → JS events (docs/engine.md §10.4), drained after every call.
  *
  * DOCUMENT_CHANGED: one committed transaction's Message. With `wire: "kiwi"` (docs/engine-build.md "Figma parity
@@ -946,6 +969,8 @@ export type EngineEvent =
   | { type: "COLOR_PICK"; x: number; y: number }
   /** Round 7 Draw (docs/draw.md §4.5): ⌘-click on a stroke with the Pencil or the Brush — its settings, for the secondary toolbar. */
   | ({ type: "DRAW_TOOL_SAMPLED" } & DrawToolSampled)
+  /** Simplify vector / Offset path opened, changed or closed (Enter / Esc on the canvas, ⌘Z) — the tool's state. */
+  | ({ type: "PATH_TOOL" } & PathToolState)
   /** Round 8: a selected auto-layout frame's padding or gap bar was clicked — its value edited in place over the rect (canvas CSS px). */
   | {
       type: "REQUEST_INLINE_EDIT";

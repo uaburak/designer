@@ -9,7 +9,8 @@ import type { MenuEntry, MenuItem } from "@/ds";
 import { Engine } from "@/engine/Engine";
 import { EngineStore } from "@/engine/EngineStore";
 import { loadEngine } from "@/engine/loadEngine";
-import type { Message } from "@/engine/codec";
+import type { Message, PathToolState } from "@/engine/codec";
+import { Status } from "@/engine/abi";
 import { EditorController } from "../controller";
 import { memoryDocumentSource } from "../documentSource";
 import { COMMAND_BY_ID, isEnabled, runEditorCommand } from "../commands";
@@ -115,6 +116,40 @@ describe("round 10: the stubs live has enabled (live menus/main-*.txt)", () => {
     expect(enabled(ed, "text.spell-check")).toBe(true);
     expect(wordsOf("Helo, wörld — it's 3 a.m.").map((w) => w.word)).toEqual(["Helo", "wörld", "it's", "a", "m"]);
     expect(misspelledRanges("Say Helo there", (w) => w.map((x) => x === "Helo"))).toEqual([[4, 8]]);
+  });
+
+  it("round 17b: Simplify vector / Offset vector open Figma's tools — PATH_TOOL, live preview, Apply one step, Cancel restores", async () => {
+    const { ed, engine } = await editor();
+    engine.setSelection(["7:60"]);
+    const seen: PathToolState[] = [];
+    engine.on("PATH_TOOL", (e) => seen.push(e));
+    const read = () => engine.readNode("7:60", { fields: ["type", "size", "transform"] });
+    const before = read();
+    runEditorCommand(ed, "vector.offset");
+    expect(seen.at(-1)).toMatchObject({ active: true, kind: "OFFSET", node: "7:60", offset: 0, join: "MITER" });
+    expect(seen.at(-1)!.minOffset).toBeLessThan(0);
+    expect(enabled(ed, "vector.offset")).toBe(false); // open already
+    expect(engine.pathTool({ op: "set", offset: 10 })).toMatchObject({ active: true, offset: 10 });
+    expect((read() as { type: string }).type).toBe("VECTOR");
+    expect(engine.pathTool({ op: "set", join: "ROUND" })).toMatchObject({ offset: 10, join: "ROUND" });
+    // While open the engine takes no other command; Cancel puts the layer back.
+    expect(engine.command("SELECT_ALL")).toBe(Status.E_BUSY);
+    engine.pathTool({ op: "cancel" });
+    expect(seen.at(-1)!.active).toBe(false);
+    expect(read()).toEqual(before);
+    // Simplify: threshold from 3, clamped to −2…3.
+    runEditorCommand(ed, "vector.simplify");
+    expect(seen.at(-1)).toMatchObject({ active: true, kind: "SIMPLIFY", threshold: 3 });
+    expect(engine.pathTool({ op: "set", threshold: -5 })?.threshold).toBe(-2);
+    expect(engine.pathTool({ op: "cancel" })?.active).toBe(false);
+    expect(read()).toEqual(before);
+    // Apply is one undo step.
+    runEditorCommand(ed, "vector.offset");
+    engine.pathTool({ op: "set", offset: 4 });
+    engine.pathTool({ op: "apply" });
+    expect((read() as { size: { x: number } }).size.x).toBeGreaterThan((before as { size: { x: number } }).size.x);
+    engine.command("UNDO");
+    expect((read() as { size: { x: number } }).size.x).toBeCloseTo((before as { size: { x: number } }).size.x, 3);
   });
 
   it("the intended exclusions stay disabled", async () => {

@@ -157,7 +157,7 @@ enum class CommandId : uint32_t {
   ROUND_TO_PIXEL = 280,                 // the selection's position and size on whole pixels
   VECTOR_JOIN = 281,                    // args {smooth?}: vector edit mode's selected points joined (⌘J / ⇧⌘J)
   VECTOR_SPLIT = 282,                   // edit mode: the path split at the selected points; else a layer's parts apart
-  VECTOR_SIMPLIFY = 283,                // args {amount: 0…1}: fewer points, the shape kept within a tolerance
+  VECTOR_SIMPLIFY = 283,                // args {threshold: −2…3} (tolerance 10^−threshold px) or {amount: 0…1}: fewer points
   VECTOR_OFFSET = 284,                  // args {amount, join: "MITER" | "ROUND"}: the outline grown (+) or shrunk (−)
   SET_DEFAULT_PROPERTIES = 285,         // the selected layer's look: what new layers of its type start with (this session)
   SET_SPELLING_MARKS = 286,             // args {ranges: [[from, to]…]}: the edited text's misspelled words (UTF-16), underlined

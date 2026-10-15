@@ -10,6 +10,7 @@
  * Cut, Erase │ More ▾ (Vector editing tools: Shape builder, Variable width) │ Close.
  * Draw mode (docs/draw.md §5.1, §5.2; round 7c): the toolbar's Draw tool set (Move ▾, Shape ▾, Pen, Pencil, Brush,
  * Type ▾, Comment ▾), and with the Pencil or the Brush the secondary toolbar of their settings (draw/DrawToolSettings).
+ * Simplify vector / Offset path (round 17b, Figma's tools): their own secondary toolbar while open (PathToolbar).
  */
 import { getLocale, t, useT } from "@/i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -27,6 +28,7 @@ import type { VectorTool } from "../vectorEdit";
 import { ImageToolbar } from "../imageTools/ImageToolbar";
 import { DrawToolSettings, isDrawTool } from "../draw/DrawToolSettings";
 import { attachDrawTools } from "../draw/drawTools";
+import { PathToolbar, usePathTool } from "./PathToolbar";
 
 /** The toolbar's tools → the engine's (null: a tool the engine has no id for). */
 export const ENGINE_TOOL: Record<ToolId, ToolName | null> = {
@@ -73,6 +75,8 @@ export function BottomToolbar() {
   useT();
   const ed = useEditor();
   const vectorEditing = useStoreSlice(ed.vector.state, (s) => s.active);
+  // Simplify vector / Offset path open: their toolbar takes the secondary toolbar's place (rea/vector.md §8, §10).
+  const pathTool = usePathTool(ed);
   const placing = useUI((s) => !!s.placingImages?.length);
   const engineTool = toolIdOf(useTool(ed.store));
   // While images wait to be placed, the Image tool is the one in use (Figma).
@@ -114,7 +118,7 @@ export function BottomToolbar() {
   };
   return (
     <>
-      {vectorEditing ? <VectorEditToolbar /> : draw && isDrawTool(ENGINE_TOOL[tool] ?? "") ? <DrawToolSettings tool={ENGINE_TOOL[tool] as "PENCIL" | "BRUSH"} /> : !dev && <ImageToolbar />}
+      {pathTool ? <PathToolbar state={pathTool} /> : vectorEditing ? <VectorEditToolbar /> : draw && isDrawTool(ENGINE_TOOL[tool] ?? "") ? <DrawToolSettings tool={ENGINE_TOOL[tool] as "PENCIL" | "BRUSH"} /> : !dev && <ImageToolbar />}
       <EditorToolbar
       floating
       tool={tool}

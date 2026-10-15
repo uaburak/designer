@@ -1,21 +1,19 @@
 /**
  * Round 10's pieces for the Figma menu's commands (docs/editor.md "Round 10 — Menus, commands, left side and toolbar"):
  * File › Move to folder… (a dialog of the workspace's places), Cursor chat (/ : a bubble at the pointer), View ›
- * Memory usage (a chip at the canvas's bottom left), Vector › Simplify vector (a slider, help.figma.com "Simplify a
- * vector path") and Offset vector (Amount, Join, ✓, "Offset a vector path"). Their looks are unverified (no live
- * capture); they use the DS's own parts.
+ * Memory usage (a chip at the canvas's bottom left). Their looks are unverified (no live capture); they use the DS's
+ * own parts. (Vector › Simplify vector / Offset vector are Figma's tools since round 17b: canvas/PathToolbar.)
  */
 import { t, useT } from "@/i18n";
 import { presenceOf } from "../multiplayer/presence";
 import { useEffect, useRef, useState } from "react";
-import { Button, Dialog, IconButton, NumericInput, RadioGroup, SegmentedControl, showToast } from "@/ds";
+import { Button, Dialog, RadioGroup, showToast } from "@/ds";
 import { useEditor } from "../controller";
 import { useUI } from "../hooks";
 import { lastPointer } from "../commands";
 import { fileOps } from "../objectCommands";
 import { attachSpellcheck } from "../spellcheck";
 import styles from "./CommandOverlays.module.css";
-import { viewRect } from "./viewInsets";
 
 export function CommandOverlays() {
   const ed = useEditor();
@@ -34,13 +32,11 @@ export function CommandOverlays() {
   const move = useUI((s) => !!s.moveFileDialog);
   const chat = useUI((s) => s.cursorChat ?? null);
   const memory = useUI((s) => !!s.memoryUsage);
-  const op = useUI((s) => s.vectorOp ?? null);
   return (
     <>
       {move && <MoveFileDialog />}
       {chat && <CursorChat at={chat} />}
       {memory && <MemoryUsage />}
-      {op && <VectorOperation op={op} />}
     </>
   );
 }
@@ -184,62 +180,6 @@ function MemoryUsage() {
     <div className={styles.memory} style={r ? { left: r.left + 12, top: r.bottom - 36 } : undefined} role="status" data-memory-usage="">
       <span className={styles.memoryLabel}>{t("Memory usage")}</span>
       <span>{Math.round(bytes / (1024 * 1024))} MB</span>
-    </div>
-  );
-}
-
-/** Simplify vector (a slider, 0–100) / Offset vector (Amount, Join): ✓ or Enter applies (one undo step), Esc closes. */
-function VectorOperation({ op }: { op: "simplify" | "offset" }) {
-  useT();
-  const ed = useEditor();
-  const [amount, setAmount] = useState(op === "simplify" ? 50 : 10);
-  const [join, setJoin] = useState<"MITER" | "ROUND">("MITER");
-  const close = () => {
-    ed.ui.set({ vectorOp: null });
-    ed.focusCanvas();
-  };
-  const apply = () => {
-    if (op === "simplify") ed.engine.command("VECTOR_SIMPLIFY", { amount: amount / 100 });
-    else ed.engine.command("VECTOR_OFFSET", { amount, join });
-    close();
-  };
-  const r = viewRect(ed.canvas);
-  return (
-    <div
-      className={styles.vectorOp}
-      role="dialog"
-      aria-label={op === "simplify" ? t("Simplify vector") : t("Offset vector")}
-      data-vector-op={op}
-      style={r ? { left: r.left + r.width / 2, top: r.bottom - 76 } : undefined}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === "Escape") close();
-        else if (e.key === "Enter") apply();
-      }}
-    >
-      {op === "simplify" ? (
-        <label className={styles.slider}>
-          <span className={styles.caption}>{t("Simplify")}</span>
-          <input type="range" min={0} max={100} value={amount} aria-label={t("Simplify")} autoFocus onChange={(e) => setAmount(Number(e.target.value))} />
-        </label>
-      ) : (
-        <>
-          <span className={styles.caption}>{t("Amount")}</span>
-          <NumericInput label={t("Amount")} value={amount} min={-1000} max={1000} onChange={(v) => setAmount(v)} className={styles.amount} />
-          <span className={styles.caption}>{t("Join:")}</span>
-          <SegmentedControl
-            label={t("Join")}
-            value={join}
-            options={[
-              { value: "MITER", icon: "24.join.miter", tooltip: t("Square") },
-              { value: "ROUND", icon: "24.join.round", tooltip: t("Round") },
-            ]}
-            onChange={(v) => setJoin(v as "MITER" | "ROUND")}
-          />
-        </>
-      )}
-      <IconButton icon="24.check" label={t("Apply")} onClick={apply} />
-      <IconButton icon="24.close.small" label={t("Close")} onClick={close} />
     </div>
   );
 }

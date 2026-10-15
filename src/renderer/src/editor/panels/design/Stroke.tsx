@@ -22,7 +22,7 @@ import { fieldValue, mixed, mixedNumber, sameData } from "../../model/mixed";
 import { exitToCanvas } from "./Sections";
 import { WIDTH_PROFILES, matchProfile, presetPoints as presetOf, profilePath, readWidthPoints, type WidthPoint } from "../../widthProfile";
 import { PANEL_MENU_GAP, fields, hasCorners, typeOf, useKeeps, type PanelNode } from "./shared";
-import { DYNAMIC_RANGE, DYNAMIC_SLIDER_MAX, SCATTER_RANGE, type BrushEntry, type StrokeKind } from "@shared/draw/types";
+import { DYNAMIC_RANGE, DYNAMIC_SLIDER_MAX, SCATTER_RANGE, SCATTER_SLIDER_RANGE, type BrushEntry, type StrokeKind } from "@shared/draw/types";
 import { MITER_LIMIT_RANGE, dashPatternError } from "@shared/strokeLimits";
 import { BrushMenu, BrushPreview } from "../../draw/BrushMenu";
 import { brushSections } from "../../draw/drawTools";
@@ -625,7 +625,7 @@ function BrushRows({ nodes }: { nodes: PanelNode[] }) {
             <FieldWithSlider
               key={f.id}
               field={<NumericInput className={drawMode ? undefined : styles.settingsWideField} scrubHandle="previous" label={t(f.label)} unit={f.unit} min={min} max={max} step={f.step} bigStep={f.step * 10} precision={2} value={value} onChange={write} onCancel={() => ed.cancelEdit()} data-scatter-field={f.id} />}
-              slider={drawMode ? { label: t(f.label), value, min, max, step: f.step, onChange: write, onCancel: () => ed.cancelEdit() } : null}
+              slider={drawMode ? { label: t(f.label), value, min: SCATTER_SLIDER_RANGE[f.id][0], max: SCATTER_SLIDER_RANGE[f.id][1], step: f.step, onChange: write, onCancel: () => ed.cancelEdit() } : null}
             />,
           ];
         })}

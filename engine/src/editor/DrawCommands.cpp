@@ -96,6 +96,33 @@ json::Value boolean(bool b) {
   return x;
 }
 
+// ---- Brush settings -------------------------------------------------------------------------------------------------------
+
+// Figma's scatter settings: the base every application starts from (figma_app.min.js module 258160 `F2`: gap 0.9, the
+// rest 0; docs/research/rea/vector.md §5) and the ranges the engine keeps them in (the plugin's; gap's and wiggle's
+// upper bounds ours).
+struct ScatterRange {
+  const char* key;
+  double base, lo, hi;
+};
+constexpr ScatterRange kScatterFields[] = {
+    {"gap", 0.9, 0.25, 20}, {"wiggle", 0, 0, 20}, {"angularJitter", 0, -180, 180}, {"rotation", 0, -180, 180}, {"sizeJitter", 0, 0, 3}};
+
+json::Value scatterBase() {
+  json::Value s;
+  s.kind = json::Value::Kind::Object;
+  for (const ScatterRange& r : kScatterFields) setMember(s, r.key, number(r.base));
+  return s;
+}
+
+// `over`'s known numeric fields written onto `s`, clamped.
+void scatterOver(json::Value& s, const json::Value* over) {
+  if (!over || !over->isObject()) return;
+  for (const ScatterRange& r : kScatterFields)
+    if (const json::Value* v = member(*over, r.key); v && v->isNumber() && std::isfinite(v->number))
+      setMember(s, r.key, number(std::clamp(v->number, r.lo, r.hi)));
+}
+
 // ---- Transform modifiers ----------------------------------------------------------------------------------------------
 
 // The chrome's RepeatModifierInput (src/shared/draw/types.ts) — `partial`: only what it carries — onto a document
@@ -295,7 +322,8 @@ bool parseSvgPath(std::string_view d, geom::Path& out) {
 
 // ---- Brush previews (the Brush styles menu, docs/draw.md §4.5) ---------------------------------------------------------
 
-bool brushPreview(const geom::Path& artwork, Vec2 box, bool scatter, int w, int h, double weight, std::string& rgba) {
+bool brushPreview(const geom::Path& artwork, Vec2 box, bool scatter, int w, int h, double weight, std::string& rgba,
+                  const geom::ScatterSettings* settings) {
   if (w <= 0 || h <= 0 || w > 4096 || h > 4096 || artwork.empty() || !(box.x > 0) || !(box.y > 0)) return false;
   weight = std::clamp(weight, 0.5, static_cast<double>(h));
   // A fixed S-curve across the box, kept a stroke's reach inside it.
@@ -304,7 +332,7 @@ bool brushPreview(const geom::Path& artwork, Vec2 box, bool scatter, int w, int 
   geom::Path center;
   center.moveTo({m, cy + a * 0.6});
   center.cubicTo({w * 0.35, cy - a * 2.2}, {w * 0.65, cy + a * 2.2}, {w - m, cy - a * 0.6});
-  geom::Path outline = scatter ? geom::scatterBrush(center, artwork, box, weight, geom::ScatterSettings{}, 1, 0.1)
+  geom::Path outline = scatter ? geom::scatterBrush(center, artwork, box, weight, settings ? *settings : geom::ScatterSettings{}, 1, 0.1)
                                : geom::stretchBrush(center, artwork, box, weight, false, 0.1);
   rasterize(outline, w, h, rgba);
   return true;
@@ -312,7 +340,7 @@ bool brushPreview(const geom::Path& artwork, Vec2 box, bool scatter, int w, int 
 
 // ---- Brushes ------------------------------------------------------------------------------------------------------------
 
-bool Editor::brushArtwork(Guid id, geom::Path& out, Vec2& box, bool& scatter) const {
+bool Editor::brushArtwork(Guid id, geom::Path& out, Vec2& box, bool& scatter, geom::ScatterSettings* settings) const {
   const Node* n = doc_.get(id);
   if (!n || n->props.type != NodeType::BRUSH) return false;
   const NodeGeometry* g = doc_.geometry(id);
@@ -322,6 +350,8 @@ bool Editor::brushArtwork(Guid id, geom::Path& out, Vec2& box, bool& scatter) co
   box = n->props.size;
   json::Value t;
   scatter = extraJson(n->props, "brushType", t) && t.isString() && t.string == "SCATTER";
+  json::Value own;
+  if (settings && extraJson(n->props, "scatterStrokeSettings", own)) scatterSettingsOver(*settings, own);
   return !out.empty();
 }
 
@@ -339,7 +369,8 @@ std::vector<Editor::BrushInfo> Editor::listBrushes() const {
 
 namespace {
 
-NodeProps brushProps(const std::string& name, bool scatter, Vec2 size, const geom::Path& artwork, WindingRule rule) {
+NodeProps brushProps(const std::string& name, bool scatter, Vec2 size, const geom::Path& artwork, WindingRule rule,
+                     const json::Value* settings) {
   NodeProps p = defaultProps(NodeType::BRUSH);
   p.type = NodeType::BRUSH;
   p.name = name;
@@ -353,15 +384,37 @@ NodeProps brushProps(const std::string& name, bool scatter, Vec2 size, const geo
   d.network = std::make_shared<std::vector<uint8_t>>(net.encode());
   p.shape().vectorData = d;
   p.extra["brushType"] = encodeExtra("brushType", std::string(scatter ? "\"SCATTER\"" : "\"STRETCH\""));
+  if (scatter) {
+    // The node's own settings (449): what applying the brush starts from, over Figma's base.
+    json::Value s = scatterBase();
+    scatterOver(s, settings);
+    p.extra["scatterStrokeSettings"] = encodeExtra("scatterStrokeSettings", s);
+  }
   return p;
 }
 
 }  // namespace
 
-Guid Editor::installBrush(const std::string& name, bool scatter, Vec2 size, const geom::Path& artwork, WindingRule rule) {
+Guid Editor::installBrush(const std::string& name, bool scatter, Vec2 size, const geom::Path& artwork, WindingRule rule,
+                          const json::Value* settings) {
   if (name.empty() || artwork.empty() || !(size.x > 0) || !(size.y > 0)) return kNoGuid;
-  for (const BrushInfo& b : listBrushes())
-    if (b.name == name && b.scatter == scatter) return b.guid;
+  for (const BrushInfo& b : listBrushes()) {
+    if (b.name != name || b.scatter != scatter) continue;
+    // A built-in installed before its settings were known (round 7e) gets them now, as installing would write them.
+    json::Value own;
+    if (scatter && settings && settings->isObject() && !extraJson(doc_.get(b.guid)->props, "scatterStrokeSettings", own) && !(busy() && !txn_.open)) {
+      json::Value s = scatterBase();
+      scatterOver(s, settings);
+      NodeChange c = NodeChange::changed(b.guid);
+      c.mask = F_EXTRA;
+      c.props.extra["scatterStrokeSettings"] = encodeExtra("scatterStrokeSettings", s);
+      const bool alone = !txn_.open;
+      if (alone) begin(TxnKind::SYSTEM, "Install brush");
+      write(c);
+      if (alone) commit();
+    }
+    return b.guid;
+  }
   if (busy() && !txn_.open) return kNoGuid;
   // Inside an open step (a stroke, Stroke settings' Brush): part of it, so undoing it removes the brush too; otherwise a
   // system write — choosing a brush isn't an edit (docs/draw.md §4.5).
@@ -370,7 +423,7 @@ Guid Editor::installBrush(const std::string& name, bool scatter, Vec2 size, cons
   Guid canvas = internalCanvas(true);
   Guid id = kNoGuid;
   if (canvas != kNoGuid) {
-    NodeProps p = brushProps(name, scatter, size, artwork, rule);
+    NodeProps p = brushProps(name, scatter, size, artwork, rule, settings);
     p.parentIndex = {canvas, doc_.positionAtEnd(canvas)};
     id = newGuid();
     write(NodeChange::created(id, p));
@@ -427,6 +480,24 @@ void Editor::remapStrokeBrush(NodeProps& p, const std::unordered_map<Guid, Guid,
   Guid b = strokeBrushOf(p);
   auto it = b != kNoGuid ? remap.find(b) : remap.end();
   if (it != remap.end() && it->second != b) p.extra["strokeBrushGuid"] = encodeExtra("strokeBrushGuid", guidJson(it->second));
+}
+
+std::string Editor::appliedBrushSettings(Guid brush, bool scatter, const json::Value* user) const {
+  const Node* bn = doc_.get(brush);
+  json::Value own;
+  bool has = bn && extraJson(bn->props, scatter ? "scatterStrokeSettings" : "stretchStrokeSettings", own) && own.isObject();
+  if (scatter) {
+    json::Value s = scatterBase();
+    if (has) scatterOver(s, &own);
+    scatterOver(s, user);
+    return encodeExtra("scatterStrokeSettings", s);
+  }
+  // Stretch: {orientation FORWARD}, the node's, then the user's Direction.
+  std::string o = "FORWARD";
+  if (has)
+    if (const json::Value* v = member(own, "orientation"); v && v->isString() && v->string == "REVERSE") o = "REVERSE";
+  if (const json::Value* d = user ? member(*user, "direction") : nullptr; d && d->isString()) o = d->string == "BACKWARD" ? "REVERSE" : "FORWARD";
+  return encodeExtra("stretchStrokeSettings", "{\"orientation\":\"" + o + "\"}");
 }
 
 // ---- Helpers ------------------------------------------------------------------------------------------------------------
@@ -766,11 +837,8 @@ Status Editor::drawCommand(CommandId id, const CommandArgs& args) {
         putExtra(c, "dynamicStrokeSettings", "");
         // Width points and dashes stay (Figma keeps them across kind changes, docs/research/rea/vector.md §4).
         putExtra(c, "scatterBrushTransforms", "");  // Figma's stored stamps were for the old brush
-        json::Value old;
-        if (scatter && !extraJson(p, "scatterStrokeSettings", old))
-          putExtra(c, "scatterStrokeSettings", encodeExtra("scatterStrokeSettings", "{\"gap\":1,\"wiggle\":0,\"angularJitter\":0,\"rotation\":0,\"sizeJitter\":0}"));
-        if (!scatter && !extraJson(p, "stretchStrokeSettings", old))
-          putExtra(c, "stretchStrokeSettings", encodeExtra("stretchStrokeSettings", "{\"orientation\":\"FORWARD\"}"));
+        // {base, ...the brush's own, ...the user's}: the previous brush's settings are replaced (rea/vector.md §5).
+        putExtra(c, scatter ? "scatterStrokeSettings" : "stretchStrokeSettings", appliedBrushSettings(brush, scatter, member(raw, scatter ? "scatter" : "stretch")));
         if (strokeSeedOf(p) == 0) putExtra(c, "strokeSeed", encodeExtra("strokeSeed", num(static_cast<double>(newStrokeSeed()))));
         write(c);
       }
@@ -790,17 +858,13 @@ Status Editor::drawCommand(CommandId id, const CommandArgs& args) {
         if (scatter && scatter->isObject()) {
           json::Value s;
           if (!extraJson(p, "scatterStrokeSettings", s) || !s.isObject()) {
-            s = json::Value{};
-            s.kind = json::Value::Kind::Object;
-            for (auto [k, v] : {std::pair<const char*, double>{"gap", 1}, {"wiggle", 0}, {"angularJitter", 0}, {"rotation", 0}, {"sizeJitter", 0}})
-              setMember(s, k, number(v));
+            // None yet: what the layer draws with — the base under its brush's own settings.
+            s = scatterBase();
+            json::Value own;
+            Guid b = strokeBrushOf(p);
+            if (const Node* bn = b != kNoGuid ? doc_.get(b) : nullptr; bn && extraJson(bn->props, "scatterStrokeSettings", own)) scatterOver(s, &own);
           }
-          struct Range {
-            const char* key;
-            double lo, hi;
-          };
-          for (Range r : {Range{"gap", 0.25, 20}, Range{"wiggle", 0, 20}, Range{"sizeJitter", 0, 3}, Range{"angularJitter", -180, 180}, Range{"rotation", -180, 180}})
-            if (const json::Value* v = member(*scatter, r.key); v && v->isNumber()) setMember(s, r.key, number(std::clamp(v->number, r.lo, r.hi)));
+          scatterOver(s, scatter);
           putExtra(c, "scatterStrokeSettings", encodeExtra("scatterStrokeSettings", s));
           putExtra(c, "scatterBrushTransforms", "");  // laid out again from the settings
         }
@@ -840,7 +904,7 @@ Status Editor::drawCommand(CommandId id, const CommandArgs& args) {
       art.transform(Mat2x3::translate(-b.x, -b.y));
       begin(TxnKind::USER, "Create brush");
       Guid canvas = internalCanvas(true);
-      NodeProps p = brushProps(n->props.name, scatter, {b.w, b.h}, art, geo->fills[0].windingRule);
+      NodeProps p = brushProps(n->props.name, scatter, {b.w, b.h}, art, geo->fills[0].windingRule, nullptr);  // the base
       p.parentIndex = {canvas, doc_.positionAtEnd(canvas)};
       Guid made = newGuid();
       write(NodeChange::created(made, p));

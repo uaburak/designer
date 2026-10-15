@@ -204,6 +204,173 @@ TEST_CASE("r10 Offset vector: a rectangle grown by 10 on each side, shrunk by 10
   CHECK(props(e, A).size.y == doctest::Approx(30).epsilon(0.01));
 }
 
+namespace {
+
+// Five points along a slightly zigzagging line 100 wide (0.2 off): simplified away at tolerance ≥ 0.2.
+geom::VectorNetwork zigzag() {
+  geom::VectorNetwork net;
+  for (int i = 0; i <= 4; i++) net.vertices.push_back({{i * 25.0, i % 2 ? 0.2 : 0.0}, 0});
+  for (uint32_t i = 0; i < 4; i++) net.segments.push_back(geom::VNSegment{i, i + 1, {}, {}, 0});
+  return net;
+}
+
+json::Value toolArgs(const char* text) {
+  json::Value v;
+  REQUIRE(json::parse(text, v));
+  return v;
+}
+
+std::string toolState(const Editor& e) {
+  json::Writer w;
+  e.writePathToolState(w);
+  return w.take();
+}
+
+}  // namespace
+
+TEST_CASE("r17b the Simplify vector tool: live preview from the layer as it was, threshold −2…3, Apply one step, Cancel restores") {
+  Editor e = makeEditor({vectorNode(V, "&", {100, 600, 100, 0.2}, zigzag())});
+  // Figma's rule: one vector-editable layer.
+  e.setSelection({V, A});
+  CHECK_FALSE(enabled(e, CommandId::VECTOR_SIMPLIFY));
+  CHECK(e.pathToolBegin(Editor::PathTool::SIMPLIFY) == E_INVALID);
+  e.setSelection({V});
+  REQUIRE(enabled(e, CommandId::VECTOR_SIMPLIFY));
+  REQUIRE(e.pathToolBegin(Editor::PathTool::SIMPLIFY) == OK);
+  CHECK(e.takeEvents().pathTool);
+  CHECK(toolState(e).find("\"kind\":\"SIMPLIFY\"") != std::string::npos);
+  CHECK(toolState(e).find("\"threshold\":3") != std::string::npos);  // the slider's start
+  CHECK_FALSE(enabled(e, CommandId::VECTOR_SIMPLIFY));                 // open already
+  // 3: tolerance 0.001 — nothing to merge.
+  REQUIRE(e.pathToolSet(toolArgs(R"({"threshold":3})")) == OK);
+  CHECK(networkOf(e, V).vertices.size() == 5);
+  // −2: tolerance 100 — one segment. Back to 1 (0.1 < 0.2): from the layer as it was, not compounded.
+  REQUIRE(e.pathToolSet(toolArgs(R"({"threshold":-2})")) == OK);
+  CHECK(networkOf(e, V).vertices.size() == 2);
+  REQUIRE(e.pathToolSet(toolArgs(R"({"threshold":1})")) == OK);
+  CHECK(networkOf(e, V).vertices.size() == 5);
+  REQUIRE(e.pathToolSet(toolArgs(R"({"threshold":-9})")) == OK);  // clamped to −2
+  CHECK(toolState(e).find("\"threshold\":-2") != std::string::npos);
+  CHECK(networkOf(e, V).vertices.size() == 2);
+  // While open: commands wait, the canvas takes no click, panel writes are refused.
+  CHECK(e.command(CommandId::SELECT_ALL) == E_BUSY);
+  e.pointer(PointerEvent::DOWN, 500, 500, 0, 1, 0, 1);
+  e.pointer(PointerEvent::UP, 500, 500, 0, 0, 0, 1);
+  CHECK(e.selection() == std::vector<Guid>{V});
+  CHECK(e.txnBegin("Scrub") == E_BUSY);
+  // Cancel: the layer as it was, no undo step.
+  e.pathToolCancel();
+  CHECK(e.pathTool() == Editor::PathTool::NONE);
+  CHECK(networkOf(e, V).vertices.size() == 5);
+  CHECK_FALSE(e.canUndo());
+  // Apply: one step, "Simplify vector"; undo brings the points back.
+  REQUIRE(e.pathToolBegin(Editor::PathTool::SIMPLIFY) == OK);
+  REQUIRE(e.pathToolSet(toolArgs(R"({"threshold":0})")) == OK);
+  REQUIRE(e.pathToolSet(toolArgs(R"({"threshold":-1})")) == OK);
+  e.takeEvents();
+  REQUIRE(e.pathToolApply() == OK);
+  CHECK(e.takeEvents().pathTool);
+  CHECK(e.undoStack().undoLabel() == "Simplify vector");
+  CHECK(networkOf(e, V).vertices.size() == 2);
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  CHECK(networkOf(e, V).vertices.size() == 5);
+  CHECK_FALSE(e.canUndo());
+  // Enter applies, Esc cancels; ⌘Z while open cancels.
+  REQUIRE(e.pathToolBegin(Editor::PathTool::SIMPLIFY) == OK);
+  REQUIRE(e.pathToolSet(toolArgs(R"({"threshold":-2})")) == OK);
+  e.key(KeyEvent::DOWN, KeyCode::Escape, 0, 0, false);
+  CHECK(e.pathTool() == Editor::PathTool::NONE);
+  CHECK(networkOf(e, V).vertices.size() == 5);
+  REQUIRE(e.pathToolBegin(Editor::PathTool::SIMPLIFY) == OK);
+  REQUIRE(e.pathToolSet(toolArgs(R"({"threshold":-2})")) == OK);
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  CHECK(e.pathTool() == Editor::PathTool::NONE);
+  CHECK(networkOf(e, V).vertices.size() == 5);
+  // ⌘Z on the canvas: the engine takes the key (the chrome's shortcut never runs), so it cancels here; the zoom keys
+  // go on to the chrome; other keys wait.
+  REQUIRE(e.pathToolBegin(Editor::PathTool::SIMPLIFY) == OK);
+  REQUIRE(e.pathToolSet(toolArgs(R"({"threshold":-2})")) == OK);
+  CHECK(e.key(KeyEvent::DOWN, KeyCode::Equal, 0, MOD_PRIMARY, false) == 0);
+  CHECK(e.key(KeyEvent::DOWN, KeyCode::Digit1, 0, MOD_SHIFT, false) == 0);
+  CHECK(e.key(KeyEvent::DOWN, KeyCode::KeyR, 0, 0, false) == K_HANDLED);
+  CHECK(e.key(KeyEvent::DOWN, KeyCode::KeyV, 0, MOD_PRIMARY, false) == K_HANDLED);
+  CHECK(e.pathTool() == Editor::PathTool::SIMPLIFY);
+  CHECK(e.key(KeyEvent::DOWN, KeyCode::KeyZ, 0, MOD_PRIMARY, false) == K_HANDLED);
+  CHECK(e.pathTool() == Editor::PathTool::NONE);
+  CHECK(networkOf(e, V).vertices.size() == 5);
+  // Selecting another layer (the Layers panel) cancels it.
+  REQUIRE(e.pathToolBegin(Editor::PathTool::SIMPLIFY) == OK);
+  REQUIRE(e.pathToolSet(toolArgs(R"({"threshold":-2})")) == OK);
+  REQUIRE(e.setSelection({A}) == OK);
+  CHECK(e.pathTool() == Editor::PathTool::NONE);
+  CHECK(networkOf(e, V).vertices.size() == 5);
+  e.setSelection({V});
+  REQUIRE(e.pathToolBegin(Editor::PathTool::SIMPLIFY) == OK);
+  REQUIRE(e.pathToolSet(toolArgs(R"({"threshold":-2})")) == OK);
+  e.key(KeyEvent::DOWN, KeyCode::Enter, 0, 0, false);
+  CHECK(e.pathTool() == Editor::PathTool::NONE);
+  CHECK(networkOf(e, V).vertices.size() == 2);
+  CHECK(e.canUndo());
+  // The command keeps working for agents: Figma's threshold.
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  REQUIRE(e.command(CommandId::VECTOR_SIMPLIFY, args(R"({"threshold":-2})")) == OK);
+  CHECK(networkOf(e, V).vertices.size() == 2);
+}
+
+TEST_CASE("r17b the Simplify vector tool in vector edit mode: the edited network previews; Cancel restores it") {
+  Editor e = makeEditor({vectorNode(V, "&", {100, 600, 100, 0.2}, zigzag())});
+  REQUIRE(e.startVectorEdit(V) == OK);
+  REQUIRE(e.pathToolBegin(Editor::PathTool::SIMPLIFY) == OK);
+  REQUIRE(e.pathToolSet(toolArgs(R"({"threshold":-2})")) == OK);
+  CHECK(e.vectorNetwork().vertices.size() == 2);
+  CHECK(networkOf(e, V).vertices.size() == 2);
+  e.pathToolCancel();
+  CHECK(e.vectorEditing());
+  CHECK(e.vectorNetwork().vertices.size() == 5);
+  CHECK(networkOf(e, V).vertices.size() == 5);
+  REQUIRE(e.pathToolBegin(Editor::PathTool::SIMPLIFY) == OK);
+  REQUIRE(e.pathToolSet(toolArgs(R"({"threshold":-2})")) == OK);
+  REQUIRE(e.pathToolApply() == OK);
+  CHECK(e.vectorEditing());
+  CHECK(e.vectorNetwork().vertices.size() == 2);
+}
+
+TEST_CASE("r17b the Offset path tool: the engine's range, Miter / Round, live from the layer as it was, one step") {
+  Editor e = makeEditor();
+  e.setSelection({A});  // 100 × 50
+  REQUIRE(enabled(e, CommandId::VECTOR_OFFSET));
+  REQUIRE(e.pathToolBegin(Editor::PathTool::OFFSET) == OK);
+  std::string st = toolState(e);
+  CHECK(st.find("\"minOffset\":-25") != std::string::npos);
+  CHECK(st.find("\"maxOffset\":100") != std::string::npos);
+  CHECK(st.find("\"offset\":0") != std::string::npos);
+  CHECK(st.find("\"join\":\"MITER\"") != std::string::npos);
+  REQUIRE(e.pathToolSet(toolArgs(R"({"offset":10})")) == OK);
+  CHECK(props(e, A).type == NodeType::VECTOR);
+  CHECK(props(e, A).size.x == doctest::Approx(120).epsilon(0.01));
+  REQUIRE(e.pathToolSet(toolArgs(R"({"offset":20})")) == OK);  // from the rectangle, not the last preview
+  CHECK(props(e, A).size.x == doctest::Approx(140).epsilon(0.01));
+  CHECK(props(e, A).size.y == doctest::Approx(90).epsilon(0.01));
+  REQUIRE(e.pathToolSet(toolArgs(R"({"offset":-100})")) == OK);  // clamped to −25
+  CHECK(toolState(e).find("\"offset\":-25") != std::string::npos);
+  REQUIRE(e.pathToolSet(toolArgs(R"({"offset":0})")) == OK);  // 0: the layer as it was
+  CHECK(props(e, A).type == NodeType::ROUNDED_RECTANGLE);
+  REQUIRE(e.pathToolSet(toolArgs(R"({"offset":10,"join":"ROUND"})")) == OK);
+  CHECK(toolState(e).find("\"join\":\"ROUND\"") != std::string::npos);
+  e.pathToolCancel();
+  CHECK(props(e, A).type == NodeType::ROUNDED_RECTANGLE);
+  CHECK(props(e, A).size.x == doctest::Approx(100));
+  CHECK_FALSE(e.canUndo());
+  REQUIRE(e.pathToolBegin(Editor::PathTool::OFFSET) == OK);
+  REQUIRE(e.pathToolSet(toolArgs(R"({"offset":10})")) == OK);
+  REQUIRE(e.pathToolApply() == OK);
+  CHECK(e.undoStack().undoLabel() == "Offset vector");
+  CHECK(props(e, A).size.x == doctest::Approx(120).epsilon(0.01));
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  CHECK(props(e, A).type == NodeType::ROUNDED_RECTANGLE);
+  CHECK_FALSE(e.canUndo());
+}
+
 TEST_CASE("r10 a right-click on a frame's title opens the frame's menu") {
   Editor e = makeEditor();
   auto titles = e.titles();

@@ -8,6 +8,8 @@
 // tools/ToolController.
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <functional>
 #include <limits>
 #include <map>
@@ -25,6 +27,7 @@
 #include "editor/Selection.h"
 #include "editor/Snapping.h"
 #include "editor/Undo.h"
+#include "geometry/Brush.h"
 #include "geometry/DynamicStroke.h"
 #include "geometry/PlanarFaces.h"
 #include "geometry/VariableWidth.h"
@@ -191,7 +194,9 @@ void adoptSlotContent(std::vector<NodeChange>& nodes);
 // Figma Draw (editor/DrawCommands.cpp): SVG path data (a BrushArtwork's `d`: M L H V Q C Z, absolute or relative) as a
 // path; a brush laid along a fixed S-curve as straight RGBA (black, coverage in alpha), w × h px at `weight`.
 bool parseSvgPath(std::string_view d, geom::Path& out);
-bool brushPreview(const geom::Path& artwork, Vec2 box, bool scatter, int w, int h, double weight, std::string& rgba);
+// A scatter brush is laid out with `settings` (its own; Figma's base when null).
+bool brushPreview(const geom::Path& artwork, Vec2 box, bool scatter, int w, int h, double weight, std::string& rgba,
+                  const geom::ScatterSettings* settings = nullptr);
 
 class Editor : private LayoutHost, public TextLayouts {
  public:
@@ -415,7 +420,10 @@ class Editor : private LayoutHost, public TextLayouts {
   // INSTALL_BRUSH: a BRUSH node on the Internal Only Canvas with this artwork (its own box, the stroke along +x); the
   // one already there with this name and type when there is one. Inside an open step it joins it; otherwise it is a
   // system write (journaled, no undo step: installing a brush to pick it isn't an edit). kNoGuid on bad input.
-  Guid installBrush(const std::string& name, bool scatter, Vec2 size, const geom::Path& artwork, WindingRule rule);
+  // A scatter brush's node carries its own scatterStrokeSettings (449): `settings` over Figma's base {gap 0.9, 0…}
+  // (the built-ins' measured values, rea/vector.md §5; a custom brush the base).
+  Guid installBrush(const std::string& name, bool scatter, Vec2 size, const geom::Path& artwork, WindingRule rule,
+                    const json::Value* settings = nullptr);
   struct BrushInfo {
     Guid guid = kNoGuid;
     std::string name;
@@ -424,7 +432,8 @@ class Editor : private LayoutHost, public TextLayouts {
   // The file's BRUSH nodes, in document order.
   std::vector<BrushInfo> listBrushes() const;
   // A BRUSH node's artwork (its fill paths, own space) and box; false when `id` isn't a usable brush.
-  bool brushArtwork(Guid id, geom::Path& out, Vec2& box, bool& scatter) const;
+  // `settings`: a scatter brush's own settings over Figma's base.
+  bool brushArtwork(Guid id, geom::Path& out, Vec2& box, bool& scatter, geom::ScatterSettings* settings = nullptr) const;
   // A selected TEXT_PATH's start handle (world), when one shows (selected alone, not being edited).
   bool textPathHandle(Guid& node, Vec2& world) const;
   // The layer whose edge the Text on path tool would write on at `world` (kNoGuid: none).
@@ -572,12 +581,13 @@ class Editor : private LayoutHost, public TextLayouts {
     // NOTICE (round 17 B): a refusal in Figma's words — the message keys of what was refused (editor/Refusals.h); the
     // editor shows each as a toast (Figma's visual bell). Once per key per take.
     std::vector<std::string> notices;
+    bool pathTool = false;  // PATH_TOOL: Simplify vector / Offset path opened, changed or closed
     bool selection = false, camera = false, tool = false, cursor = false, hover = false, undo = false,
          structure = false, pages = false, currentPage = false, textEdit = false, vectorEdit = false, paintEdit = false,
          navigation = false;
     bool any() const {
       return !colorPicks.empty() || !inlineEdits.empty() || !annotationOpens.empty() || !measurementEdits.empty() || !statusClicks.empty() || measurementSelection ||
-             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !prototypeSelected.empty() || !gridTracks.empty() || !renames.empty() || haptics != 0 || !drawSampled.empty() || !notices.empty() || !nodes.empty() || !components.empty() || !collections.empty() ||
+             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !prototypeSelected.empty() || !gridTracks.empty() || !renames.empty() || haptics != 0 || !drawSampled.empty() || !notices.empty() || pathTool || !nodes.empty() || !components.empty() || !collections.empty() ||
              !variables.empty() || !styles.empty() || selection || camera || tool || cursor || hover || undo || structure || pages ||
              currentPage || textEdit || vectorEdit || paintEdit || navigation;
     }
@@ -657,6 +667,23 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<geom::WidthPoint> vectorWidthPoints() const;
   int vectorWidthSelected() const { return vector_.widthSelected; }
   void endVectorEdit();
+  // Simplify vector and Offset path as Figma's tools (editor/PathTools.cpp; docs/research/rea/vector.md §8, §10;
+  // SimplifyVectorTsApi / OffsetPath): one vector-editable layer (not in multi-edit); every change previews live — the
+  // step stays open and is written again from the layer as it was — Apply commits it as one undo step, Cancel (Esc,
+  // undo) restores the layer. While one is open the canvas takes no clicks and commands wait (zoom aside); Enter
+  // applies and Esc cancels. Each change reports PATH_TOOL.
+  enum class PathTool : uint8_t { NONE, SIMPLIFY, OFFSET };
+  bool pathToolEnabled(PathTool kind) const;
+  Status pathToolBegin(PathTool kind);
+  // {threshold} (Simplify: −2…3, tolerance 10^−threshold node px) or {offset, join: "MITER" | "ROUND"} (Offset path:
+  // within [minOffset, maxOffset]).
+  Status pathToolSet(const json::Value& v);
+  Status pathToolApply();
+  void pathToolCancel();
+  PathTool pathTool() const { return pathTool_.kind; }
+  // {active, kind, node, threshold, offset, join, minOffset, maxOffset} (PATH_TOOL, engine_path_tool).
+  void writePathToolState(json::Writer& w) const;
+  static double simplifyTolerance(double threshold) { return std::pow(10.0, -std::clamp(threshold, -2.0, 3.0)); }
   bool vectorEditing() const { return vector_.node != kNoGuid; }
   Guid vectorNode() const { return vector_.node; }
   Status setVectorTool(VectorTool t);
@@ -1382,8 +1409,15 @@ class Editor : private LayoutHost, public TextLayouts {
   bool vectorJoinable() const;
   Status vectorJoin(bool smooth);
   Status vectorSplit();
-  Status vectorSimplify(double amount);
+  // Simplify vector within `tolerance` node px (each target in one step); Offset vector by `amount` (+ grows).
+  Status vectorSimplify(double tolerance);
   Status vectorOffset(double amount, StrokeJoin join);
+  // Their parts, shared with the tools (editor/PathTools.cpp): `net` with the points whose removal keeps the path
+  // within `tolerance` merged away (false: nothing to remove); the result written (in vector edit mode, its network);
+  // one layer offset (false: nothing to write).
+  bool simplifyNetwork(geom::VectorNetwork& net, double tolerance) const;
+  void writeSimplified(Guid id, const geom::VectorNetwork& net);
+  bool writeOffset(Guid id, double amount, StrokeJoin join);
   // A layer written as a VECTOR with `net` (node space): shapes become VECTORs (same GUID), as Flatten makes them.
   void writeAsVector(Guid id, const geom::VectorNetwork& net);
   // Edit › Set default properties (this session only, as live Figma): a new layer of a type takes the look last set
@@ -1423,6 +1457,10 @@ class Editor : private LayoutHost, public TextLayouts {
   void fillPathsOf(Guid id, const Mat2x3& toSpace, geom::Path& out, WindingRule& rule) const;
   // Can Flatten take it? Shapes, texts, groups and frames (not components; an instance is detached first).
   bool flattenable(const NodeProps& p) const;
+  // Figma's gates (docs/research/rea/vector.md §18): Flatten refuses a selection with an instance sublayer (a derived
+  // layer; slot content, the user's own layers, is allowed); Outline stroke refuses every layer inside an instance,
+  // slot content included.
+  bool instanceSublayer(Guid id, bool slotsAllowed) const;
 
   // ---- Hover, handles, gestures (tools/Gestures.cpp) ----
   // LineEnd: a line's start (hx 0) or end (hx 1) handle.
@@ -1662,7 +1700,25 @@ class Editor : private LayoutHost, public TextLayouts {
   uint32_t drawCommandState(CommandId id) const;
   std::vector<Guid> drawTargets(const CommandArgs& args) const;
   Status createTextPath(Guid src, double tValue, bool replace, Guid* made);
+  // Simplify vector / Offset path (editor/PathTools.cpp): the open tool, its layer and values, and — in vector edit
+  // mode — the edit's state to restore before each preview.
+  struct PathToolState {
+    PathTool kind = PathTool::NONE;
+    Guid node = kNoGuid;
+    bool editing = false;
+    geom::VectorNetwork net;
+    std::vector<uint32_t> selVerts, selSegs;
+    int penFrom = -1;
+    bool pendingType = false;
+    double threshold = 3, offset = 0, minOffset = 0, maxOffset = 0;
+    StrokeJoin join = StrokeJoin::MITER;
+  } pathTool_;
+  Status pathToolPreview();
   void drawStrokeProps(NodeProps& p, bool brush);  // a new Pencil / Brush stroke: the tool's colour, weight and style
+  // A brush applied to a stroke (SET_STROKE_BRUSH, the Brush tool): Figma's {base, ...the BRUSH node's own settings,
+  // ...`user`} (3187.min.js @3366400, docs/research/rea/vector.md §5), clamped; the scatter or stretch settings as the
+  // encoded NodeChange field, replacing what the layer had for its previous brush.
+  std::string appliedBrushSettings(Guid brush, bool scatter, const json::Value* user) const;
   uint64_t newStrokeSeed();
   uint64_t seedState_ = 0x9E3779B97F4A7C15ull;
   uint32_t drawPointerDown(Vec2 s, uint32_t mods);

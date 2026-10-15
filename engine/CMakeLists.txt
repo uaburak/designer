@@ -58,6 +58,7 @@ add_library(eng_core STATIC
   src/editor/SlotCommands.cpp
   src/editor/SelectionCommands.cpp
   src/editor/ArrangeCommands.cpp
+  src/editor/PathTools.cpp
   src/render/Renderer.cpp
   src/render/RenderTree.cpp
   src/render/Overlay.cpp

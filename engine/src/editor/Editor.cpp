@@ -1048,6 +1048,7 @@ Overlay Editor::overlay() const {
 
 void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDerived* derived) {
   cancelGesture();
+  pathToolCancel();
   storedText_.clear();
   storedSymbols_.clear();
   storedLayouts_.clear();
@@ -1306,6 +1307,7 @@ Status Editor::setCurrentPage(Guid page) {
   if (!n || n->props.type != NodeType::CANVAS || n->props.rare().internalOnly) return E_NOT_FOUND;
   if (page == page_) return OK;
   cancelGesture();
+  pathToolCancel();  // (Simplify vector / Offset path: the layer as it was)
   endTextEdit();
   derivePage(page);
   pageSelections_[page_] = selection_;
@@ -1471,6 +1473,8 @@ bool Editor::tick(double timeMs) {
 // ---- Selection and panel writes ---------------------------------------------
 
 Status Editor::setSelection(const std::vector<Guid>& ids) {
+  // Simplify vector / Offset path open: selecting anything else cancels it (the layer as it was).
+  if (pathTool_.kind != PathTool::NONE && !(ids.size() == 1 && ids[0] == pathTool_.node)) pathToolCancel();
   std::vector<Guid> live;
   for (Guid id : ids) {
     if (!doc_.has(id) || std::find(live.begin(), live.end(), id) != live.end()) continue;
@@ -1515,7 +1519,7 @@ void Editor::setHover(const std::vector<Guid>& ids) {
 }
 
 Status Editor::setProps(const std::vector<Guid>& ids, const NodeChange& props, uint32_t /*flags*/) {
-  if (busy()) return E_BUSY;
+  if (busy() || pathTool_.kind != PathTool::NONE) return E_BUSY;  // (a path tool's open step isn't joined)
   FieldMask mask = props.mask & ~static_cast<FieldMask>(F_TYPE);
   if (!mask) return E_INVALID;
   for (Guid id : ids) {
@@ -1566,13 +1570,13 @@ Status Editor::setProps(const std::vector<Guid>& ids, const NodeChange& props, u
 }
 
 Status Editor::txnBegin(const std::string& label) {
-  if (busy()) return E_BUSY;
+  if (busy() || pathTool_.kind != PathTool::NONE) return E_BUSY;
   begin(TxnKind::USER, label);
   return OK;
 }
 
 Status Editor::txnBeginRun(const std::string& label, bool join) {
-  if (busy()) return E_BUSY;
+  if (busy() || pathTool_.kind != PathTool::NONE) return E_BUSY;
   if (txn_.open) return E_BUSY;  // a panel scrub or an actor's step is open: the run waits
   begin(TxnKind::USER, label);
   txn_.run = true;
@@ -1707,7 +1711,7 @@ void Editor::followForeign(const std::vector<Guid>& touched) {
 
 Status Editor::actorBegin(uint32_t actor, const std::vector<Guid>& selection, Guid page, const std::string& label, bool merge, uint32_t undoTo) {
   if (actor == 0) return E_INVALID;
-  if (scope_.on || busy() || txn_.open) return E_BUSY;
+  if (scope_.on || busy() || txn_.open || pathTool_.kind != PathTool::NONE) return E_BUSY;
   // The actor's page: given, else its first selected layer's, else the user's.
   auto isPage = [&](Guid p) {
     const Node* n = doc_.get(p);
@@ -1889,6 +1893,20 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
       spaceHeld_ = false;
       if (gesture_ == Gesture::None) updateHover(lastScreen_, mods);
       else if (gesture_ == Gesture::Move) redrag(mods_);
+    }
+    return K_HANDLED;
+  }
+  // Simplify vector / Offset path open (editor/PathTools.cpp): Enter applies, Esc and ⌘Z cancel; the zoom keys are the
+  // chrome's (its ZOOM_* commands run while the tool is open); other keys wait.
+  if (pathTool_.kind != PathTool::NONE && !isModifierKey(code)) {
+    mods_ = mods;
+    const bool zoomKey = code == KeyCode::Equal || code == KeyCode::Minus || code == KeyCode::NumpadAdd || code == KeyCode::NumpadSubtract ||
+                         (code == KeyCode::Digit0 && (primary || shift)) || ((code == KeyCode::Digit1 || code == KeyCode::Digit2) && shift && !primary);
+    if (zoomKey) return 0;
+    if (type == KeyEvent::DOWN && !repeat) {
+      if (code == KeyCode::Enter || code == KeyCode::NumpadEnter) pathToolApply();
+      else if (code == KeyCode::Escape) pathToolCancel();
+      else if (code == KeyCode::KeyZ && primary && !shift) pathToolCancel();  // (the chrome never sees it: handled here)
     }
     return K_HANDLED;
   }

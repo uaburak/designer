@@ -75,8 +75,6 @@ export interface UIState extends PreferenceFlags {
   multiplayerCursors?: boolean;
   /** Round 10, Cursor chat (/): the bubble at the pointer (viewport px), its text; null while closed */
   cursorChat?: { x: number; y: number } | null;
-  /** Round 10, Vector › Simplify vector / Offset vector: their popover */
-  vectorOp?: "simplify" | "offset" | null;
   /** Round 10, File › Move to folder…: its dialog */
   moveFileDialog?: boolean;
   /** Round 10, File › Create branch…: its dialog */

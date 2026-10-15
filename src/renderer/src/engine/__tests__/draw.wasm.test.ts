@@ -9,7 +9,7 @@ import type { EngineEvent, Message, NodeChange } from "../codec";
 import { Engine } from "../Engine";
 import { loadEngine } from "../loadEngine";
 import { BUILTIN_BRUSHES } from "../../../../shared/draw/brushes";
-import { DRAW_TOOL_DEFAULTS, REPEAT_DEFAULTS, splitTValue } from "../../../../shared/draw/types";
+import { BUILTIN_SCATTER_SETTINGS, DRAW_TOOL_DEFAULTS, REPEAT_DEFAULTS, splitTValue } from "../../../../shared/draw/types";
 
 const wasm = fileURLToPath(new URL("../wasm/engine.wasm", import.meta.url));
 
@@ -125,11 +125,15 @@ describe("Draw (wasm, headless)", () => {
     expect(node(e, "1:3")!.dynamicStrokeSettings).toMatchObject({ frequency: 0.75, wiggle: 2, smoothen: 0.5 });
     expect(Number(node(e, "1:3")!.strokeSeed)).toBeGreaterThan(0);
     const bubble = BUILTIN_BRUSHES.find((b) => b.key === "BUBBLEGUM")!;
-    const guid = e.installBrush({ name: bubble.name, type: bubble.type, artwork: bubble.artwork })!;
+    // Installed with Figma's own settings (rea/vector.md §5): applying it writes them over the base gap 0.9.
+    const guid = e.installBrush({ name: bubble.name, type: bubble.type, artwork: bubble.artwork, settings: BUILTIN_SCATTER_SETTINGS.BUBBLEGUM })!;
+    expect(node(e, guid)!.scatterStrokeSettings).toMatchObject({ angularJitter: 95, rotation: 45 });
     expect(e.runDrawCommand("SET_STROKE_BRUSH", { brush: guid })).toBe(Status.OK);
     const n = node(e, "1:3")!;
     expect(n.dynamicStrokeSettings).toBeUndefined();
-    expect(n.scatterStrokeSettings).toMatchObject({ gap: 1 });
+    const sc = n.scatterStrokeSettings as { gap: number; angularJitter: number; rotation: number };
+    expect(sc.gap).toBeCloseTo(0.25, 5);
+    expect(sc).toMatchObject({ angularJitter: 95, rotation: 45 });
     expect(e.runDrawCommand("SET_BRUSH_SETTINGS", { scatter: { gap: 3 } })).toBe(Status.OK);
     expect(node(e, "1:3")!.scatterStrokeSettings).toMatchObject({ gap: 3 });
     // Create brush: the circle is closed; it stays, a third BRUSH node appears.
