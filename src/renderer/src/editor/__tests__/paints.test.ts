@@ -26,7 +26,7 @@ import { collectColors, regradient, showSelectionColors } from "../model/selecti
 import { hexToColor } from "../model/color";
 import { messageAt } from "../model/clipboard";
 import { EFFECT_TYPES, defaultEffect, defaultGuide, guideKind, guideLabel, hasEffectBlend, withBlurType, withEffectType } from "../panels/design/Effects";
-import { dashOf, miterAngle, miterLimitOf, parseDashes, strokeSideFields, strokeSideOf, strokeStyleOf } from "../panels/design/Stroke";
+import { dashOf, MITER_ANGLE_MIN, miterAngle, miterLimitOf, parseDashes, strokeSideFields, strokeSideOf, strokeStyleOf } from "../panels/design/Stroke";
 import type { PanelNode } from "../panels/design/shared";
 import { fitImageSize, imageLayerName, memoryImageStore, sha1Hex } from "../images";
 import { imageRectangles, PLACE_GAP } from "../placeImages";
@@ -273,6 +273,13 @@ describe("strokes", () => {
     expect(dashOf([6])).toEqual({ dashed: true, dash: 6, gap: 6 });
     expect(miterAngle(4)).toBeCloseTo(28.955, 2);
     expect(miterLimitOf(miterAngle(7))).toBeCloseTo(7, 6);
+    // Figma's limits: at most 8 dash entries, each positive; strokeMiterLimit 1–16 (the angle stops near 7.17°).
+    expect(parseDashes("1 2 3 4 5 6 7 8")).toHaveLength(8);
+    expect(parseDashes("1 2 3 4 5 6 7 8 9")).toBeNull();
+    expect(parseDashes("0, 4")).toBeNull();
+    expect(MITER_ANGLE_MIN).toBeCloseTo(7.166, 2);
+    expect(miterLimitOf(1)).toBe(16);
+    expect(miterLimitOf(180)).toBeCloseTo(1, 9);
   });
 });
 

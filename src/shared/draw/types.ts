@@ -57,8 +57,19 @@ export interface InstallBrushInput {
   artwork: BrushArtwork;
 }
 
-/** Stroke settings' Stroke Type. Implicit in the document: BRUSH = strokeBrushGuid set, DYNAMIC = dynamicStrokeSettings set. */
+/**
+ * Stroke settings' Stroke Type. Implicit in the document (docs/draw.md §4.3, Figma's rule): BRUSH = strokeBrushGuid
+ * set and not -1:-1; DYNAMIC = dynamicStrokeSettings present and not the neutral {1, 0, 0}; else BASIC.
+ */
 export type StrokeKind = "BASIC" | "DYNAMIC" | "BRUSH";
+
+/**
+ * Figma's "no brush" GUID -1:-1, written into strokeBrushGuid whenever a stroke becomes Dynamic or Basic — so every
+ * Dynamic stroke in a Figma file carries it (docs/research/rea/vector.md §1). Read as "4294967295:4294967295" (kiwi's
+ * uint) or "-1:-1".
+ */
+export const NO_BRUSH_GUID: GuidString = "4294967295:4294967295";
+export const isNoBrushGuid = (g: string | null | undefined): boolean => g === NO_BRUSH_GUID || g === "-1:-1";
 
 export interface DynamicSettings {
   frequency: number;
@@ -77,8 +88,13 @@ export interface StretchSettings {
   direction: "FORWARD" | "BACKWARD";
 }
 
-/** Ranges from the plugin API (upper bounds marked ours where Figma gives none). */
+/**
+ * Ranges from the plugin API (upper bounds marked ours where Figma gives none). Wiggle: the plugin takes any value ≥ 0
+ * and the document keeps it; the panel's field stops at 100, the engine's geometry cap (kDynWiggleCap).
+ */
 export const DYNAMIC_RANGE = { frequency: [0.01, 20], wiggle: [0, 100 /* ours */], smoothen: [0, 1] } as const;
+/** Draw's sliders under the Dynamic fields: Figma's maxima (1968.min.js module 326635, rea/vector.md §2); minima as DYNAMIC_RANGE. */
+export const DYNAMIC_SLIDER_MAX = { frequency: 2, wiggle: 5, smoothen: 1 } as const;
 export const SCATTER_RANGE = {
   gap: [0.25, 20 /* ours */],
   wiggle: [0, 20 /* ours */],
@@ -86,8 +102,17 @@ export const SCATTER_RANGE = {
   angularJitter: [-180, 180],
   rotation: [-180, 180],
 } as const;
-/** [unverified] defaults (ours until a Figma sample shows its own). */
-export const DYNAMIC_DEFAULTS: DynamicSettings = { frequency: 2, wiggle: 1, smoothen: 0.5 };
+/** A new Dynamic stroke: Figma's (live, read back 0.75 / 0.30000001192092896 / 0.5; rea/vector.md §2). */
+export const DYNAMIC_DEFAULTS: DynamicSettings = { frequency: 0.75, wiggle: 0.3, smoothen: 0.5 };
+/** Figma's neutral value: what Basic leaves in a present dynamicStrokeSettings; reads as Basic. */
+export const DYNAMIC_NEUTRAL: DynamicSettings = { frequency: 1, wiggle: 0, smoothen: 0 };
+/** Settings (absent fields as DYNAMIC_DEFAULTS, as the engine reads them) equal to the neutral value. */
+export function isNeutralDynamic(s: Partial<DynamicSettings> | Record<string, unknown> | null | undefined): boolean {
+  if (!s || typeof s !== "object") return false;
+  const v = { ...DYNAMIC_DEFAULTS, ...(s as Partial<DynamicSettings>) };
+  const near = (a: unknown, b: number) => typeof a === "number" && Math.abs(a - b) < 1e-6;
+  return near(v.frequency, DYNAMIC_NEUTRAL.frequency) && near(v.wiggle, DYNAMIC_NEUTRAL.wiggle) && near(v.smoothen, DYNAMIC_NEUTRAL.smoothen);
+}
 export const SCATTER_DEFAULTS: ScatterSettings = { gap: 1, wiggle: 0, angularJitter: 0, rotation: 0, sizeJitter: 0 };
 export const STRETCH_DEFAULTS: StretchSettings = { direction: "FORWARD" };
 
@@ -127,7 +152,8 @@ export interface RepeatModifierInput {
   order: "FORWARD" | "REVERSE";
   visible: boolean;
 }
-export const REPEAT_COUNT_RANGE = [1, 1000] as const;
+/** Count: an integer 2…40, Figma's plugin limits (live, rea/vector.md §6); files' counts are read leniently (1…1000). */
+export const REPEAT_COUNT_RANGE = [2, 40] as const;
 export const MAX_REPEAT_INSTANCES = 10_000;
 /** [unverified] defaults for "Linear repeat" / "Radial repeat". */
 export const REPEAT_DEFAULTS: Record<RepeatKind, RepeatModifierInput> = {

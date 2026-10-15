@@ -122,7 +122,7 @@ describe("Draw (wasm, headless)", () => {
     const { e, events } = await engine();
     e.setSelection(["1:3"]);
     expect(e.runDrawCommand("SET_STROKE_KIND", { kind: "DYNAMIC", dynamic: { wiggle: 2 } })).toBe(Status.OK);
-    expect(node(e, "1:3")!.dynamicStrokeSettings).toMatchObject({ frequency: 2, wiggle: 2, smoothen: 0.5 });
+    expect(node(e, "1:3")!.dynamicStrokeSettings).toMatchObject({ frequency: 0.75, wiggle: 2, smoothen: 0.5 });
     expect(Number(node(e, "1:3")!.strokeSeed)).toBeGreaterThan(0);
     const bubble = BUILTIN_BRUSHES.find((b) => b.key === "BUBBLEGUM")!;
     const guid = e.installBrush({ name: bubble.name, type: bubble.type, artwork: bubble.artwork })!;

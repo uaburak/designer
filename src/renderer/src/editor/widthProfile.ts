@@ -2,8 +2,8 @@
  * Width profiles (round 12; live popovers/stroke-advanced-settings.txt: Stroke settings › "Width profile", a 96 × 24
  * dropdown showing the profile as a 62 × 4 image, then "Flip width points"). The presets and what they do are the
  * plugin API's (developers.figma.com VariableWidthStrokeProperties: UNIFORM, WEDGE, TAPER, QUARTER_TAPER, EYE,
- * MIRRORED_TAPER); their points, the smooth curve between points and the names in the list are ours (unverified) —
- * the same as the engine's (engine/src/geometry/VariableWidth.cpp), which draws and applies them (SET_WIDTH_PROFILE,
+ * MIRRORED_TAPER); their points are Figma's (live, docs/research/rea/vector.md §3); the smooth curve between three or
+ * more points and the names in the list are ours (unverified) — the same as the engine's (engine/src/geometry/VariableWidth.cpp), which draws and applies them (SET_WIDTH_PROFILE,
  * FLIP_WIDTH_POINTS).
  */
 import type { WidthPoint, WidthProfile } from "@/engine/codec";
@@ -22,23 +22,29 @@ export const WIDTH_PROFILES: { value: WidthProfile; label: string }[] = [
 
 const sym = (position: number, width: number): WidthPoint => ({ position, ascent: width / 2, descent: width / 2 });
 
-/** A preset's points (UNIFORM: none). */
+/**
+ * A preset's points (UNIFORM: none) — Figma's (live, docs/research/rea/vector.md §3): ascent = descent, 0.5 = half
+ * the weight on each side, tapered ends 0.1875 (a 0.375 share of the weight).
+ */
 export function presetPoints(profile: WidthProfile): WidthPoint[] {
   switch (profile) {
     case "WEDGE":
       return [sym(0, 1), sym(1, 0)];
     case "TAPER":
-      return [sym(0, 1), sym(1, 0.25)];
+      return [sym(0, 1), sym(1, 0.375)];
     case "QUARTER_TAPER":
-      return [sym(0, 0.25), sym(0.25, 1), sym(1, 0.25)];
+      return [sym(0, 0.375), sym(0.25, 1), sym(1, 0.375)];
     case "EYE":
       return [sym(0, 0), sym(0.5, 1), sym(1, 0)];
     case "MIRRORED_TAPER":
-      return [sym(0, 0.25), sym(0.5, 1), sym(1, 0.25)];
+      return [sym(0, 0.375), sym(0.5, 1), sym(1, 0.375)];
     default:
       return [];
   }
 }
+
+/** The points mirrored along the path (Flip width points): position → 1 − position, sorted. */
+export const flippedPoints = (points: readonly WidthPoint[]): WidthPoint[] => points.map((p) => ({ ...p, position: 1 - p.position })).sort((a, b) => a.position - b.position);
 
 /** A node's stored points (`variableWidthPoints` as the JSON codec gives them), sorted, defaults filled in. */
 export function readWidthPoints(raw: unknown): WidthPoint[] {
@@ -50,14 +56,16 @@ export function readWidthPoints(raw: unknown): WidthPoint[] {
     .sort((a, b) => a.position - b.position);
 }
 
-/** The preset these points are, else "CUSTOM". */
+/** The preset these points are — reversed along the path (Flip) too, as Figma reads it — else "CUSTOM". */
 export function matchProfile(points: readonly WidthPoint[]): WidthProfile | "CUSTOM" {
   if (!points.length) return "UNIFORM";
   const near = (a: number, b: number) => Math.abs(a - b) < 1e-4;
+  const same = (preset: readonly WidthPoint[]) =>
+    preset.length === points.length && preset.every((p, i) => near(p.position, points[i].position) && near(p.ascent, points[i].ascent) && near(p.descent, points[i].descent));
   for (const { value } of WIDTH_PROFILES) {
+    if (value === "UNIFORM") continue;
     const preset = presetPoints(value);
-    if (preset.length === points.length && preset.every((p, i) => near(p.position, points[i].position) && near(p.ascent, points[i].ascent) && near(p.descent, points[i].descent)))
-      return value;
+    if (same(preset) || same(flippedPoints(preset))) return value;
   }
   return "CUSTOM";
 }
