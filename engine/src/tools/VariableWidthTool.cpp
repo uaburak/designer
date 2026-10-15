@@ -319,7 +319,11 @@ Status Editor::widthCommand(CommandId id, const CommandArgs& args) {
   std::vector<std::pair<Guid, std::vector<geom::WidthPoint>>> writes;
   for (Guid t : targets) {
     const Node* n = doc_.get(t);
-    if (!n || t.isDerived() || (!plugin && (n->props.locked || !widthProfileAllowed(n->props)))) continue;
+    if (!n) continue;
+    // The plugin writes an instance's sublayer as any other property (an override, as setProps did) and is told a
+    // library copy is read-only.
+    if (plugin && isLibraryCopy(t)) return E_READONLY;
+    if (!plugin && (t.isDerived() || n->props.locked || !widthProfileAllowed(n->props))) continue;
     geom::VectorNetwork net;
     bool convert = false;
     if (networkOf(t, net, convert) && branching(net)) continue;

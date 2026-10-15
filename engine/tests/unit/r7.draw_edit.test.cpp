@@ -8,6 +8,7 @@
 #include "base/Json.h"
 #include "doctest.h"
 #include "editor/Editor.h"
+#include "export/Scene.h"
 #include "geometry/Brush.h"
 #include "geometry/DynamicStroke.h"
 #include "geometry/Repeat.h"
@@ -268,6 +269,8 @@ TEST_CASE("r7b stroke kinds: Dynamic writes its settings and a seed, keeps width
   // Figma keeps width points and dashes across a kind change (rea/vector.md §4); they are not drawn on Dynamic.
   CHECK(extraOf(e, V, "variableWidthPoints").isArray());
   CHECK(props(e, V).stroke().dashPattern.size() == 2);
+  // Kept, not drawn: the exporters (and the renderer) stroke a dynamic centre line without the dashes.
+  CHECK(exporter::strokeOf(e.document(), V, props(e, V)).dashes.empty());
   // Figma's -1:-1: no brush.
   json::Value bg = extraOf(e, V, "strokeBrushGuid");
   REQUIRE(bg.isObject());
@@ -282,6 +285,7 @@ TEST_CASE("r7b stroke kinds: Dynamic writes its settings and a seed, keeps width
   CHECK(s.wiggle == 2);
   REQUIRE(e.command(CommandId::SET_STROKE_KIND, args(R"({"kind":"BASIC"})")) == OK);
   CHECK_FALSE(dynamicSettingsOf(props(e, V), s));
+  CHECK(exporter::strokeOf(e.document(), V, props(e, V)).dashes.size() == 2);  // Basic draws its dashes again
   // Basic keeps the field at Figma's neutral {1, 0, 0}, which reads as Basic.
   json::Value neutral = extraOf(e, V, "dynamicStrokeSettings");
   REQUIRE(neutral.isObject());

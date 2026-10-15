@@ -72,7 +72,7 @@ export const NAMED_PROPS: Record<string, LayerPropInfo> = {
   strokeAlign: { schema: en(["INSIDE", "OUTSIDE", "CENTER"]), fields: ["strokeAlign"] },
   strokeCap: { schema: en(enumValues("StrokeCap")), fields: ["strokeCap"] },
   strokeJoin: { schema: en(enumValues("StrokeJoin")), fields: ["strokeJoin"] },
-  strokeMiterLimit: { schema: num("Miter angle limit"), fields: ["miterLimit"] },
+  strokeMiterLimit: { schema: num("Miter limit, 1–16 (the ratio; Figma's Miter angle 180°…about 7.2°)"), fields: ["miterLimit"] },
   strokeTopWeight: { schema: num("Per side (frames, rectangles): makes the sides independent"), fields: ["borderTopWeight", "borderStrokeWeightsIndependent"] },
   strokeRightWeight: { schema: num(), fields: ["borderRightWeight", "borderStrokeWeightsIndependent"] },
   strokeBottomWeight: { schema: num(), fields: ["borderBottomWeight", "borderStrokeWeightsIndependent"] },
@@ -149,7 +149,7 @@ export const RAW_FIELDS: readonly string[] = [...RAW_TEXT_FIELDS, ...RAW_GRID_FI
 const RAW_DOC: Record<string, string> = {
   arcData: "Ellipses: {startingAngle, endingAngle, innerRadius} (radians; innerRadius 0–1)",
   booleanOperation: "Boolean groups: UNION | INTERSECT | SUBTRACT | XOR",
-  dashPattern: "Dashed strokes: [dash, gap, …]",
+  dashPattern: "Dashed strokes: [dash, gap, …] (at most 8 entries, each > 0)",
   exportSettings: "Export settings (as the Export section)",
   backgroundColor: "Pages: the canvas colour",
   textCase: "TEXT", textDecoration: "TEXT", paragraphSpacing: "TEXT", paragraphIndent: "TEXT", listSpacing: "TEXT", maxLines: "TEXT (with textTruncation ENDING)",

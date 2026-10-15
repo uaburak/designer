@@ -693,7 +693,9 @@ void Renderer::drawStrokePaints(const Document& doc, Guid id, const NodeProps& p
   style.join = p.strokeJoin;
   style.miterLimit = p.miterLimit;
   style.cap = p.strokeCap;
-  style.dashes = p.stroke().dashPattern;
+  // A dynamic stroke keeps a Basic stroke's dashes in the document (Figma, docs/draw.md §4.3) but doesn't draw them:
+  // Stroke settings shows dashes for Basic strokes only.
+  if (center != &dynamic) style.dashes = p.stroke().dashPattern;
   style.fitDashes = p.isRectLike() || p.isFrameLike();
   style.caps = g->stroke.caps.empty() ? nullptr : &g->stroke.caps;
   Hash h;

@@ -94,6 +94,7 @@ Stroke strokeOf(const Document& doc, Guid id, const NodeProps& p) {
       if (dynamicCenter(p, *g, 0.05, center)) {
         // A dynamic stroke: its wandering centre line, stroked as any other — written as its outline.
         s.center = std::move(center);
+        s.dashes.clear();  // kept in the document, not drawn on a dynamic stroke (as the renderer)
         s.caps = g->stroke.caps;
         bool closedArea = !g->fills.empty() && !g->hasOpenEnds;
         s.aligned = closedArea && p.strokeAlign != StrokeAlign::CENTER;

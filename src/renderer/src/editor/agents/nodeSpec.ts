@@ -8,6 +8,7 @@ import type { Color, Effect, Matrix, NodeChange, NodeFields, NodeType, Paint } f
 import { colorToHex, fromTool, parseColorValue, sameValue, toTool, nodeFieldType, type Errors } from "@shared/agents/docSchema";
 import { NAMED_PROPS, RAW_FIELDS, RAW_GRID_FIELDS, RAW_TEXT_FIELDS, propForField } from "@shared/agents/layerProps";
 import { DEFAULTS } from "@shared/schema/document.generated";
+import { MITER_LIMIT_RANGE } from "@shared/strokeLimits";
 import { defaultEffect, defaultGuide, withBlurType } from "../panels/design/Effects";
 import { DEFAULT_LINEAR_TRANSFORM } from "../model/paints";
 
@@ -500,7 +501,7 @@ const PROPS: Record<string, PropImpl> = {
   strokeAlign: enumProp("strokeAlign", "strokeAlign", { on: notPage, read: (n) => (n.strokePaints?.length ? (n.strokeAlign ?? "CENTER") : undefined) }),
   strokeCap: enumProp("strokeCap", "strokeCap", { on: notPage, read: (n) => n.strokeCap ?? "NONE", hidden: (v) => v === "NONE" }),
   strokeJoin: enumProp("strokeJoin", "strokeJoin", { on: notPage, read: (n) => n.strokeJoin ?? "MITER", hidden: (v) => v === "MITER" }),
-  strokeMiterLimit: { on: notPage, read: (n) => (n as unknown as Obj).miterLimit ?? 4, hidden: (v) => v === 4, write: (v) => ({ miterLimit: needNum(v, 0) }) as NodeFields },
+  strokeMiterLimit: { on: notPage, read: (n) => (n as unknown as Obj).miterLimit ?? 4, hidden: (v) => v === 4, write: (v) => ({ miterLimit: needNum(v, MITER_LIMIT_RANGE[0], MITER_LIMIT_RANGE[1]) }) as NodeFields },
   strokeTopWeight: strokeSide("borderTopWeight"),
   strokeRightWeight: strokeSide("borderRightWeight"),
   strokeBottomWeight: strokeSide("borderBottomWeight"),

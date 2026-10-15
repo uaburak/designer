@@ -284,5 +284,6 @@ export function setVariableWidthStrokeProperties(ctx: ApiContext, n: NodeChange,
   ctx.write();
   const status = runEngineCommand(ctx.ed.engine, "SET_WIDTH_PROFILE", args);
   if (status === Status.E_INVALID) throw new ApiError(`Cannot set ${path} on complex vector nodes`);
+  if (status === Status.E_READONLY) throw new ApiError(`in set_${path}: Cannot write to a read-only node (a library copy)`);
   if (status !== Status.OK) throw new ApiError(`in set_${path}: the engine refused the change (status ${status})`);
 }

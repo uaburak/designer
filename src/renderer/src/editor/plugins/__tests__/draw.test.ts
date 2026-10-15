@@ -65,6 +65,7 @@ function fakeCtx(nodes: Obj[], opts: { stubs?: boolean; onDraw?: (id: string, ar
       if (name !== "SET_WIDTH_PROFILE") return Status.E_UNSUPPORTED;
       const refs = args.refs as string[];
       if (refs.some((r) => doc.get(r)?.branching)) return Status.E_INVALID;
+      if (refs.some((r) => doc.get(r)?.libraryCopy)) return Status.E_READONLY;
       const points = args.profile === "CUSTOM" ? args.points : presetPoints(args.profile as WidthProfile);
       for (const r of refs) doc.get(r)!.variableWidthPoints = points;
       return Status.OK;
@@ -246,7 +247,7 @@ describe("Draw plugin API: complex strokes", () => {
   });
 
   it("variableWidthStrokeProperties: Figma's shape (width = ascent, points for presets too), any stroke kind, complex networks refused", () => {
-    const { ctx, commands } = fakeCtx([node("1:1"), node("1:2", { dynamicStrokeSettings: { frequency: 1, wiggle: 1, smoothen: 1 } }), node("1:3", { branching: true })]);
+    const { ctx, commands } = fakeCtx([node("1:1"), node("1:2", { dynamicStrokeSettings: { frequency: 1, wiggle: 1, smoothen: 1 } }), node("1:3", { branching: true }), node("1:4", { libraryCopy: true })]);
     const read = (id: string) => variableWidthStrokeProperties(ctx, ctx.ed.engine.readNode(id)!);
     const n = ctx.ed.engine.readNode("1:1")!;
     expect(read("1:1")).toEqual({ widthProfile: "UNIFORM", variableWidthPoints: [] });
@@ -272,6 +273,7 @@ describe("Draw plugin API: complex strokes", () => {
     setVariableWidthStrokeProperties(ctx, dyn, { widthProfile: "EYE" });
     expect(read("1:2").widthProfile).toBe("EYE");
     expect(() => setVariableWidthStrokeProperties(ctx, ctx.ed.engine.readNode("1:3")!, { widthProfile: "EYE" })).toThrow("Cannot set variableWidthStrokeProperties on complex vector nodes");
+    expect(() => setVariableWidthStrokeProperties(ctx, ctx.ed.engine.readNode("1:4")!, { widthProfile: "EYE" })).toThrow(/read-only node/);
     expect(() => setVariableWidthStrokeProperties(ctx, n, { widthProfile: "CUSTOM", variableWidthPoints: [] })).toThrow(/at least one point/);
     expect(() => setVariableWidthStrokeProperties(ctx, n, { widthProfile: "BLOB" })).toThrow(/invalid enum value 'BLOB'/);
   });
