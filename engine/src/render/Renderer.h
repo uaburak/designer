@@ -539,9 +539,9 @@ class Renderer {
   // the last zoom change the page is drawn sharp again.
   static constexpr double kZoomRasterBudgetMs = 6;
   // A node whose effects or group opacity would need an offscreen layer is drawn straight below this size (device px).
-  static constexpr double kTinyLayerPx = 48;
+  static constexpr double kTinyLayerPx = 24;
   // A frame or instance with a fill smaller than this (device px) is drawn as its fill alone (LOD).
-  static constexpr double kLodContainerPx = 12;
+  static constexpr double kLodContainerPx = 4;
   // A continuous zoom shows the scaled cache only past this full draw (drawn at the zoom's half resolution,
   // CanvasController.zoomResolution) — below it every zoom frame is drawn sharp, as Figma does.
   static constexpr double kZoomScaledCacheMs = 12;
@@ -562,7 +562,7 @@ class Renderer {
   // The most a tile is drawn past its edges for layers reading their backdrop across it (device px).
   static constexpr int kTileBackdropMargin = 256;
   // Colour + stencil of the atlases (4 of 64 tiles: 256 tiles, three Retina screens of a level).
-  static constexpr uint64_t kTileBudgetBytes = 768ull << 20;  // three warm levels around the view (round 17 D)
+  static constexpr uint64_t kTileBudgetBytes = 512ull << 20;  // three warm levels around the view (round 17 D)
   static constexpr double kTileInteractingMs = 6;
   static constexpr double kTileIdleMs = 12;
   size_t tileCount() const { return tiles_.map.size(); }

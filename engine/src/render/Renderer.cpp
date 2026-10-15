@@ -2846,13 +2846,6 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
   // Zooming in, the cache scaled covers the canvas; zooming out it doesn't: tiles fill in around it.
   bool stale = slowZoom && !warm && covers;
   bool tiled = slowZoom && (warm || !covers);
-  // A pan over a page slow to draw at this zoom: the warm tiles of its level, as they are (Figma pans on its tiles) —
-  // no strip of new content drawn mid-pan (one took 58 ms on the owner's Desktop page); sharp once the pan stops.
-  if (!tiled && !stale && same && c.zoom == camera.zoom && (camera.x != c.camX || camera.y != c.camY) &&
-      c.fullMs > kZoomRasterBudgetMs && tilesCover(camera, zoomLevel)) {
-    tiled = true;
-    c.zoomChangedAt = now;  // the settle below counts from the last pan step
-  }
   // Tiles follow the document: whatever changed is drawn again when shown; a new page, fonts, images: start over.
   bool tilesDropped = false;
   if (tiles_.page != page || tiles_.fonts != fonts || tiles_.images != images || tiles_.sx != sx || tiles_.sy != sy ||
@@ -3007,11 +3000,8 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
     // Every page (round 17 D): the view's own level, a zoom in's (one finer) and a zoom out's (one coarser, twice the
     // view around it) — a zoom of up to 2× either way then only composites them.
     std::vector<TileCoord> ahead = visibleTiles(camera, level, 0.25);
+    for (const TileCoord& t : visibleTiles(camera, level - 1, 0.5)) ahead.push_back(t);
     for (const TileCoord& t : visibleTiles(camera, level + 1, -0.25)) ahead.push_back(t);
-    // Four coarser levels, each over the view a zoom out to it shows ((2^k − 1) / 2 of the view on each side): a
-    // zoom out to the whole page and back only composites them (owner's scenario, 20 % → 2 % → 20 %).
-    for (int k = 1; k <= 4; k++)
-      for (const TileCoord& t : visibleTiles(camera, level - k, (std::ldexp(1.0, k) - 1) / 2)) ahead.push_back(t);
     size_t left = 0;
     if (regions.empty() && damage.rects.empty()) {
       left = rasterTiles(doc, ahead, kTileIdleMs, clear, clearColor);
