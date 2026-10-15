@@ -285,12 +285,13 @@ The outline is cached by (centre-line hash, settings, seed, weight, tolerance le
 ### 4.5 Brushes (BRUSH 46, `strokeBrushGuid` 446, settings 449 / 450, `brushType` 452)
 
 **Already drawn** (`Brush.{h,cpp}`). Added this round:
-- **INSTALL_BRUSH** (an ABI call, §4.6): `{name, type, artwork {width, height, d, windingRule}}`.
+- **INSTALL_BRUSH** (an ABI call, §4.6): `{name, type, artwork {width, height, d, windingRule}, settings?}`. A scatter brush's node carries its own `scatterStrokeSettings` (449): `settings` over Figma's base `{gap 0.9, wiggle 0, angularJitter 0, rotation 0, sizeJitter 0}` (`figma_app.min.js` module 258160). The built-ins pass Figma's measured values (`BUILTIN_SCATTER_SETTINGS`, `docs/research/rea/vector.md` §5, e.g. Bubblegum gap 0.25, angularJitter 95, rotation 45); a custom brush (CREATE_BRUSH) gets the base.
   - If a BRUSH node with that `name` and `brushType` is already on `0:2`, its GUID comes back.
   - Otherwise a BRUSH node is created on `0:2` (a VECTOR-like network from `d`, `size` = width × height) and its GUID comes back.
   - It is a system write inside the open step (the Brush tool's stroke, or SET_STROKE_BRUSH's), so undoing the stroke removes the brush too.
-- **SET_STROKE_BRUSH** (316) takes `{refs?, brush: guid}`. It writes `strokeBrushGuid`, the settings' defaults if absent and `strokeSeed`, removes `dynamicStrokeSettings` and the old brush's `scatterBrushTransforms`, and keeps `variableWidthPoints` and `dashPattern` (Figma, §4.3).
-  - Defaults: stretch `{orientation FORWARD}`; scatter `{gap 1, wiggle 0, angularJitter 0, rotation 0, sizeJitter 0}` [unverified].
+- **SET_STROKE_BRUSH** (316) takes `{refs?, brush: guid, scatter?, stretch?}`. It writes `strokeBrushGuid`, the brush's settings and `strokeSeed`, removes `dynamicStrokeSettings` and the old brush's `scatterBrushTransforms`, and keeps `variableWidthPoints` and `dashPattern` (Figma, §4.3).
+  - Settings, Figma's merge (`3187.min.js @3366400`): `{base, ...the BRUSH node's own, ...the user's values}` — replacing the previous brush's. Base: stretch `{orientation FORWARD}`; scatter `{gap 0.9, 0, 0, 0, 0}`. The Brush tool writes the same for a new stroke; SET_BRUSH_SETTINGS on a layer without settings starts from its brush's own.
+  - Scatter sliders (Draw) run to Figma's UI maxima: gap 0.25–3, wiggle 0–2, sizeJitter 0–3, angularJitter and rotation ±180; the fields take the plugin's ranges.
   - Undo "Change stroke".
 - **SET_STROKE_KIND** (315) takes `{refs?, kind: "BASIC" | "DYNAMIC", dynamic?}`. Both write `strokeBrushGuid = -1:-1`; BASIC resets a present `dynamicStrokeSettings` to the neutral `{1, 0, 0}` (§4.3).
 - **SET_BRUSH_SETTINGS** (317) takes `{refs?, scatter?: Partial, stretch?: {orientation}}`. A scrub coalesces.
@@ -849,7 +850,7 @@ export const SCATTER_RANGE = {
 export const DYNAMIC_DEFAULTS: DynamicSettings = { frequency: 0.75, wiggle: 0.3, smoothen: 0.5 }; // Figma's (live)
 export const DYNAMIC_NEUTRAL: DynamicSettings = { frequency: 1, wiggle: 0, smoothen: 0 }; // what Basic leaves; reads as Basic
 export const DYNAMIC_SLIDER_MAX = { frequency: 2, wiggle: 5, smoothen: 1 } as const; // Draw's sliders (Figma's)
-export const SCATTER_DEFAULTS: ScatterSettings = { gap: 1, wiggle: 0, angularJitter: 0, rotation: 0, sizeJitter: 0 };
+export const SCATTER_DEFAULTS: ScatterSettings = { gap: 0.9, wiggle: 0, angularJitter: 0, rotation: 0, sizeJitter: 0 };
 export const STRETCH_DEFAULTS: StretchSettings = { direction: "FORWARD" };
 
 /** The Pencil's and the Brush's settings (the secondary toolbar), sent with engine.setDrawToolSettings. */

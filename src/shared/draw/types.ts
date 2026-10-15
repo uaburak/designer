@@ -55,6 +55,8 @@ export interface InstallBrushInput {
   name: string;
   type: BrushType;
   artwork: BrushArtwork;
+  /** A scatter brush's own settings (its node's scatterStrokeSettings), over SCATTER_DEFAULTS; a custom brush: none. */
+  settings?: Partial<ScatterSettings>;
 }
 
 /**
@@ -113,7 +115,38 @@ export function isNeutralDynamic(s: Partial<DynamicSettings> | Record<string, un
   const near = (a: unknown, b: number) => typeof a === "number" && Math.abs(a - b) < 1e-6;
   return near(v.frequency, DYNAMIC_NEUTRAL.frequency) && near(v.wiggle, DYNAMIC_NEUTRAL.wiggle) && near(v.smoothen, DYNAMIC_NEUTRAL.smoothen);
 }
-export const SCATTER_DEFAULTS: ScatterSettings = { gap: 1, wiggle: 0, angularJitter: 0, rotation: 0, sizeJitter: 0 };
+/**
+ * Figma's base scatter settings (figma_app.min.js module 258160 `F2`, rea/vector.md §5): applying a scatter brush writes
+ * {...this, ...the BRUSH node's own scatterStrokeSettings, ...the user's values}; a custom brush's node gets this.
+ */
+export const SCATTER_DEFAULTS: ScatterSettings = { gap: 0.9, wiggle: 0, angularJitter: 0, rotation: 0, sizeJitter: 0 };
+/** The Scatter sliders' ranges (Figma's UI maxima, rea/vector.md §5); the fields take SCATTER_RANGE. */
+export const SCATTER_SLIDER_RANGE = {
+  gap: [0.25, 3],
+  wiggle: [0, 2],
+  sizeJitter: [0, 3],
+  angularJitter: [-180, 180],
+  rotation: [-180, 180],
+} as const;
+/**
+ * The built-in scatter brushes' own settings, the BRUSH node's scatterStrokeSettings (449) written on install: Figma's
+ * numbers, read back live from each built-in (rea/vector.md §5) — identifiers of behaviour, not artwork.
+ */
+export const BUILTIN_SCATTER_SETTINGS: Readonly<Record<ScatterBrushName, ScatterSettings>> = {
+  BUBBLEGUM: { gap: 0.25, wiggle: 0, angularJitter: 95, rotation: 45, sizeJitter: 0 },
+  WITCH_HOUSE: { gap: 0.39, wiggle: 0, angularJitter: 61, rotation: 179, sizeJitter: 0 },
+  SHOEGAZE: { gap: 0.37, wiggle: 0, angularJitter: 180, rotation: 0, sizeJitter: 0.11 },
+  HONKY_TONK: { gap: 0.28, wiggle: 0, angularJitter: 180, rotation: 0, sizeJitter: 0.25 },
+  SCREAMO: { gap: 0.45, wiggle: 0, angularJitter: 180, rotation: 179, sizeJitter: 0 },
+  DRONE: { gap: 0.51, wiggle: 0.06, angularJitter: 180, rotation: 0, sizeJitter: 0.65 },
+  DOO_WOP: { gap: 0.31, wiggle: 0, angularJitter: 180, rotation: 0, sizeJitter: 0 },
+  SPOKEN_WORD: { gap: 0.25, wiggle: 0, angularJitter: 30, rotation: 0, sizeJitter: 0 },
+  VAPORWAVE: { gap: 0.25, wiggle: 0, angularJitter: 180, rotation: 0, sizeJitter: 0.3 },
+  OI: { gap: 0.25, wiggle: 0, angularJitter: 95, rotation: 45, sizeJitter: 0 },
+};
+/** A built-in's own scatter settings (undefined for a stretch brush). */
+export const builtinScatterSettings = (key: BuiltinBrushName): ScatterSettings | undefined =>
+  (BUILTIN_SCATTER_SETTINGS as Partial<Record<BuiltinBrushName, ScatterSettings>>)[key];
 export const STRETCH_DEFAULTS: StretchSettings = { direction: "FORWARD" };
 
 /** The Pencil's and the Brush's settings (the secondary toolbar), sent with engine.setDrawToolSettings. */
@@ -169,7 +202,8 @@ export interface DrawCommandArgs {
   MOVE_TRANSFORM_MODIFIER: { ref: GuidString; from: number; to: number };
   APPLY_TRANSFORMS: { refs?: GuidString[] };
   SET_STROKE_KIND: { refs?: GuidString[]; kind: "BASIC" | "DYNAMIC"; dynamic?: Partial<DynamicSettings> };
-  SET_STROKE_BRUSH: { refs?: GuidString[]; brush: GuidString };
+  /** The brush's settings: {SCATTER_DEFAULTS, ...the BRUSH node's own, ...`scatter` / `stretch`} (the previous brush's replaced). */
+  SET_STROKE_BRUSH: { refs?: GuidString[]; brush: GuidString; scatter?: Partial<ScatterSettings>; stretch?: Partial<StretchSettings> };
   SET_BRUSH_SETTINGS: { refs?: GuidString[]; scatter?: Partial<ScatterSettings>; stretch?: Partial<StretchSettings> };
   CREATE_BRUSH: { ref: GuidString; brushType: BrushType };
   CREATE_TEXT_PATH: { ref: GuidString; segment: number; position: number; replace: boolean };

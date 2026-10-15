@@ -123,7 +123,7 @@ import type { EngineExports } from "./EngineExports";
 import { FACET_DECODERS, FACET_IDS, FACET_SLOTS, type FacetName } from "./facets.generated";
 import type { ExportSettings } from "../../../shared/schema/document.generated";
 import type { TraceOptions, TraceResult } from "../../../shared/ai/types";
-import type { BrushArtwork, BrushType, DrawCommandArgs, DrawToolSettings, GuidString, InstallBrushInput } from "../../../shared/draw/types";
+import type { BrushArtwork, BrushType, DrawCommandArgs, DrawToolSettings, GuidString, InstallBrushInput, ScatterSettings } from "../../../shared/draw/types";
 import { fonts } from "./fonts";
 import { keyCodeOf } from "./keyCodes";
 import { prepareGfx, recordWebGPUFallback, type GfxBackend, type GfxPreference } from "./gfx";
@@ -1853,7 +1853,7 @@ export class Engine {
    * A stroke drawn with a brush along a fixed S-curve, width × height device px at `weight` (ABI engine_brush_preview):
    * straight RGBA, black with the coverage in alpha (the menus use it as a mask). Null when there is nothing to draw.
    */
-  brushPreview(src: { brush: GuidString } | { artwork: BrushArtwork; type: BrushType }, width: number, height: number, weight: number): Pixels | null {
+  brushPreview(src: { brush: GuidString } | { artwork: BrushArtwork; type: BrushType; settings?: Partial<ScatterSettings> }, width: number, height: number, weight: number): Pixels | null {
     if (!this.h) return null;
     const w = Math.max(1, Math.min(4096, Math.round(width)));
     const hgt = Math.max(1, Math.min(4096, Math.round(height)));

@@ -32,7 +32,7 @@ function fakeCtx(nodes: Obj[], opts: { stubs?: boolean; onDraw?: (id: string, ar
   const doc = new Map(nodes.map((n) => [n.guid as string, { ...n }]));
   const calls: { id: string; args: Obj }[] = [];
   const props: { refs: string[]; fields: Obj }[] = [];
-  const installed: { guid: string; name: string; type: string }[] = [];
+  const installed: { guid: string; name: string; type: string; settings?: object }[] = [];
   const commands: { name: string; args: Obj }[] = [];
   const childIds = (id: string) => [...doc.values()].filter((n) => (n.parentIndex as { guid?: string } | undefined)?.guid === id).map((n) => n.guid as string);
   const notBuilt = (name: string) => () => {
@@ -73,9 +73,9 @@ function fakeCtx(nodes: Obj[], opts: { stubs?: boolean; onDraw?: (id: string, ar
     listBrushes: opts.stubs ? notBuilt("listBrushes") : () => installed,
     installBrush: opts.stubs
       ? notBuilt("installBrush")
-      : (b: { name: string; type: string }) => {
+      : (b: { name: string; type: string; settings?: object }) => {
           const guid = `0:${100 + installed.length}`;
-          installed.push({ guid, name: b.name, type: b.type });
+          installed.push({ guid, name: b.name, type: b.type, ...(b.settings ? { settings: b.settings } : {}) });
           return guid;
         },
   };
@@ -217,7 +217,7 @@ describe("Draw plugin API: complex strokes", () => {
     expect(() => setComplexStrokeProperties(ctx, n, { type: "WOBBLY" })).toThrow(/invalid enum value 'WOBBLY'/);
   });
 
-  it("writes a loaded built-in brush (SET_STROKE_BRUSH then SET_BRUSH_SETTINGS); CUSTOM and unloaded brushes throw", () => {
+  it("writes a loaded built-in brush (SET_STROKE_BRUSH with the values given); CUSTOM and unloaded brushes throw", () => {
     const { ctx, calls } = fakeCtx([node("1:1")]);
     const n = ctx.ed.engine.readNode("1:1")!;
     expect(() => setComplexStrokeProperties(ctx, n, { type: "BRUSH", brushType: "STRETCH", brushName: "HEIST", direction: "FORWARD" })).toThrow("The brush HEIST isn't loaded: call figma.loadBrushesAsync('STRETCH') first");
@@ -225,14 +225,16 @@ describe("Draw plugin API: complex strokes", () => {
     expect(() => setComplexStrokeProperties(ctx, n, { type: "BRUSH", brushType: "SCATTER", brushName: "HEIST" })).toThrow(/invalid enum value 'HEIST' for a scatter brush/);
     loadBrushes(ctx, "STRETCH");
     setComplexStrokeProperties(ctx, n, { type: "BRUSH", brushType: "STRETCH", brushName: "HEIST", direction: "BACKWARD" });
-    expect(calls).toEqual([
-      { id: "SET_STROKE_BRUSH", args: { refs: ["1:1"], brush: "0:100" } },
-      { id: "SET_BRUSH_SETTINGS", args: { refs: ["1:1"], stretch: { direction: "BACKWARD" } } },
-    ]);
+    expect(calls).toEqual([{ id: "SET_STROKE_BRUSH", args: { refs: ["1:1"], brush: "0:100", stretch: { direction: "BACKWARD" } } }]);
     loadBrushes(ctx, "SCATTER");
     calls.length = 0;
     setComplexStrokeProperties(ctx, n, { type: "BRUSH", brushType: "SCATTER", brushName: "OI", gap: 1, wiggle: 0, sizeJitter: 1, angularJitter: -30, rotation: 10 });
-    expect(calls[1]).toEqual({ id: "SET_BRUSH_SETTINGS", args: { refs: ["1:1"], scatter: { gap: 1, wiggle: 0, sizeJitter: 1, angularJitter: -30, rotation: 10 } } });
+    expect(calls[0]).toMatchObject({ id: "SET_STROKE_BRUSH", args: { refs: ["1:1"], scatter: { gap: 1, wiggle: 0, sizeJitter: 1, angularJitter: -30, rotation: 10 } } });
+    // Only the values given: the engine merges them over the brush's own settings (Figma's merge, rea/vector.md §5).
+    calls.length = 0;
+    setComplexStrokeProperties(ctx, n, { type: "BRUSH", brushType: "SCATTER", brushName: "OI", gap: 0.5 });
+    expect(calls[0]).toMatchObject({ id: "SET_STROKE_BRUSH", args: { refs: ["1:1"], scatter: { gap: 0.5 } } });
+    expect(Object.keys((calls[0].args as { scatter: object }).scatter)).toEqual(["gap"]);
     expect(() => setComplexStrokeProperties(ctx, n, { type: "BRUSH", brushType: "SCATTER", brushName: "OI", gap: 1, wiggle: 0, sizeJitter: 4, angularJitter: 0, rotation: 0 })).toThrow(/sizeJitter: must be between 0 and 3/);
   });
 
@@ -242,6 +244,10 @@ describe("Draw plugin API: complex strokes", () => {
     expect(installed.map((b) => b.name)).toEqual(BUILTIN_BRUSHES.filter((b) => b.type === "STRETCH").map((b) => b.name));
     loadBrushes(ctx, "SCATTER");
     expect(installed).toHaveLength(25);
+    // Scatter built-ins carry Figma's own settings onto their BRUSH node (rea/vector.md §5); stretch ones none.
+    expect(installed.find((b) => b.name === "Bubblegum")?.settings).toEqual({ gap: 0.25, wiggle: 0, angularJitter: 95, rotation: 45, sizeJitter: 0 });
+    expect(installed.find((b) => b.name === "Drone")?.settings).toEqual({ gap: 0.51, wiggle: 0.06, angularJitter: 180, rotation: 0, sizeJitter: 0.65 });
+    expect(installed.find((b) => b.name === "Heist")?.settings).toBeUndefined();
     expect(() => loadBrushes(ctx, "CUSTOM")).toThrow(/invalid brush type/);
     expect(() => loadBrushes(fakeCtx([], { stubs: true }).ctx, "STRETCH")).toThrow("loadBrushesAsync is not supported in Wecra yet");
   });
