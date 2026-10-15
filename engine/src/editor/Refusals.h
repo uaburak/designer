@@ -1,4 +1,4 @@
-// Refusals in Figma's words (round 17 B, docs/research/rea/components.md §2.19, docs/schema.md §5.8): what a
+// Refusals in Figma's words (round 17 B, docs/research/rea/components.md §2.19, docs/schema.md §5.10): what a
 // component command or a write refused, as a message key. Editor::refuse returns E_INVALID and reports the key twice:
 // as a NOTICE event (the editor's toast, Figma's visual bell) and as engine_command's {"error": key} (the plugin API
 // throws Figma's message). The English and Turkish texts live in src/renderer/src/editor/refusals.ts; the keys are

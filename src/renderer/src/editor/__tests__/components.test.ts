@@ -11,6 +11,7 @@ import {
   defaultVariant,
   derivedId,
   formatVariantName,
+  groupChanges,
   groupAssets,
   guidStr,
   guidVal,
@@ -24,6 +25,7 @@ import {
   propertyApiName,
   propertyBaseName,
   renameInVariantName,
+  resetKindFields,
   searchAssets,
   sortedDefs,
   unbindAll,
@@ -166,8 +168,18 @@ describe("overrides", () => {
     expect(overrideAt(sd, [])).toMatchObject({ fillPaints: [] });
     const inst: CNode = { guid: "2:2", type: "INSTANCE", symbolData: sd, componentPropAssignments: [{ defID: id(2) }] };
     expect(changedGroups(inst).map((g) => g.label)).toEqual(["Fill", "Text", "Text style", "Properties"]);
+    expect(changedGroups(inst).map((g) => g.kind)).toEqual(["FILL", "TEXT", "TEXT_STYLE", "PROPERTY_ASSIGNMENTS"]);
     expect(withoutOverrides(sd, ["fontSize", "textData"]).symbolOverrides).toHaveLength(1);
     expect(withoutOverrides(sd, null).symbolOverrides).toEqual([]);
+  });
+
+  it("Reset ▸ follows Figma's reset kinds and order; Layer takes every field no other kind names", () => {
+    const fields = new Set(["opacity", "cornerRadius", "stackSpacing", "layoutGrids", "name", "visible", "exportSettings", "prototypeInteractions", "variableModeBySetMap", "overriddenSymbolID", "fillPaints"]);
+    const groups = groupChanges(fields);
+    expect(groups.map((g) => g.kind)).toEqual(["EXPORTS", "LAYER", "VISIBLE", "NAME", "FILL", "PROTOTYPE_INTERACTIONS", "OVERRIDDEN_SYMBOL", "VARIABLE_MODES"]);
+    expect(groups.find((g) => g.kind === "LAYER")?.fields).toEqual(["opacity", "cornerRadius", "stackSpacing", "layoutGrids"]);
+    expect(resetKindFields("LAYER", fields)).toEqual(["opacity", "cornerRadius", "stackSpacing", "layoutGrids"]);
+    expect(resetKindFields("OVERLAY")).toContain("overlayPositionType");
   });
 
   it("derived ids (docs/schema.md §5.1)", () => {

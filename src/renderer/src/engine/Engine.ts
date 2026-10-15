@@ -1282,7 +1282,29 @@ export class Engine {
    * `{ page: "s:l" }` for DELETE_PAGE / DUPLICATE_PAGE (the current page when absent).
    */
   command(name: CommandName, args?: Readonly<Record<string, CommandArgValue>>): number {
-    return this.after(this.x.command(this.h, CommandId[name], args ? encodeArgs(args) : null));
+    const status = this.x.command(this.h, CommandId[name], args ? encodeArgs(args) : null);
+    this.refusal = status === Status.OK ? null : (this.commandResult().error ?? null);
+    return this.after(status);
+  }
+
+  /**
+   * Round 17 B: what the last command (`command` / `runCommand`) refused, as a message key in Figma's words
+   * (engine/src/editor/Refusals.h; the texts: src/renderer/src/editor/refusals.ts), or null. The editor also hears it
+   * as a NOTICE event.
+   */
+  lastRefusal(): string | null {
+    return this.refusal;
+  }
+
+  private refusal: string | null = null;
+
+  /** engine_command's result slot: what the command created and, when it was refused, why. */
+  private commandResult(): { created?: Guid[]; error?: string } {
+    try {
+      return JSON.parse(decodeText(this.x.result())) as { created?: Guid[]; error?: string };
+    } catch {
+      return {};
+    }
   }
 
   /** CMD_ENABLED | CMD_CHECKED, for menus. */
@@ -1447,13 +1469,9 @@ export class Engine {
   /** The same as `command`, plus what it created (collections and their first mode, modes, variables, styles). */
   runCommand(name: CommandName, args?: Readonly<Record<string, CommandArgValue>>): CommandResult {
     const status = this.x.command(this.h, CommandId[name], args ? encodeArgs(args) : null);
-    let created: Guid[] = [];
-    try {
-      created = (JSON.parse(decodeText(this.x.result())) as { created?: Guid[] }).created ?? [];
-    } catch {
-      created = [];
-    }
-    return this.after({ status, created });
+    const result = this.commandResult();
+    this.refusal = status === Status.OK ? null : (result.error ?? null);
+    return this.after(this.refusal ? { status, created: result.created ?? [], error: this.refusal } : { status, created: result.created ?? [] });
   }
 
   /** The result slot as JSON when `status` is OK, else `fallback`. */

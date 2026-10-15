@@ -1254,7 +1254,7 @@ class Editor : private LayoutHost, public TextLayouts {
   // What a frame detached from `main` records (detachedSymbolId): a library main's asset ref, else its GUID.
   AssetId detachedIdOf(Guid main) const;
   Status resetOverrides(const std::vector<Guid>& ids, const ResetSpec& spec, const std::string& label);
-  // ---- Refusals and component cycles (round 17 B, docs/schema.md §5.8) ----
+  // ---- Refusals and component cycles (round 17 B, docs/schema.md §5.10) ----
   // A refusal in Figma's words: `key` (editor/Refusals.h) becomes a NOTICE event and the command's "error"; E_INVALID.
   Status refuse(const char* key);
   // A property's default (`dv`, as the command gives it) checked against its type (Figma's messages; OK when absent),
