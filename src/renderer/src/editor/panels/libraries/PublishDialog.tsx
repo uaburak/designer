@@ -13,17 +13,20 @@ import type { LibraryAsset } from "../../../../../shared/store/types";
 import { useEditor } from "../../controller";
 import { useLibraries, useUI } from "../../hooks";
 import { draftPublish, publishLibrary, publishPlan, type PublishDraft, type PublishItem } from "../../libraries";
+import { componentPublishErrors, publishErrorLine } from "../../components";
+import type { PropertyPublishError } from "../../model/components";
 import { NodeThumb, RemoteThumb } from "./Thumbs";
 import styles from "./Libraries.module.css";
 import { intlLocale, t, tp, useT } from "@/i18n";
 
-type Row = { key: string; name: string; kind: LibraryAsset["kind"]; status: "created" | "modified" | "removed"; item?: PublishItem; removed?: LibraryAsset };
+type Row = { key: string; name: string; kind: LibraryAsset["kind"]; status: "created" | "modified" | "removed"; item?: PublishItem; removed?: LibraryAsset; errors: PropertyPublishError[] };
 
 /** "Used by Button", "Used by Button and Chip", "Used by Button and 2 others". */
 export const usedByText = (names: readonly string[]): string =>
   names.length <= 1 ? t("Used by {name}", { name: names[0] ?? "" }) : names.length === 2 ? t("Used by {a} and {b}", { a: names[0], b: names[1] }) : tp(names.length - 1, "Used by {name} and {n} other", "Used by {name} and {n} others", { name: names[0] });
 
 const STATUS_LABEL: Record<Row["status"], string> = { created: "New", modified: "Modified", removed: "Removed" };
+const isComponentKind = (k: LibraryAsset["kind"]) => k === "COMPONENT" || k === "COMPONENT_SET";
 const GROUPS: { title: string; kinds: LibraryAsset["kind"][] }[] = [
   { title: "Components", kinds: ["COMPONENT", "COMPONENT_SET"] },
   { title: "Styles", kinds: ["STYLE"] },
@@ -75,7 +78,9 @@ function Publish() {
       .then((d) => {
         if (!live) return;
         setDraft(d);
-        setSelected(new Set([...d.items.filter((i) => i.status === "created" || i.status === "modified").map((i) => i.key), ...d.removed.map((r) => r.key)]));
+        // A component with property errors (Figma's publish errors) isn't published: left out until it is fixed.
+        const publishable = (i: PublishItem) => !isComponentKind(i.asset.kind) || componentPublishErrors(ed, i.asset.guid).length === 0;
+        setSelected(new Set([...d.items.filter((i) => (i.status === "created" || i.status === "modified") && publishable(i)).map((i) => i.key), ...d.removed.map((r) => r.key)]));
         setMoveModes(new Map(d.moves.map((m) => [m.fromKey, "move" as const])));
       })
       .catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)));
@@ -87,13 +92,16 @@ function Publish() {
   const rows = useMemo<Row[]>(() => {
     if (!draft) return [];
     return [
-      ...draft.items.filter((i) => i.status === "created" || i.status === "modified").map((i) => ({ key: i.key, name: i.asset.name, kind: i.asset.kind, status: i.status as Row["status"], item: i })),
-      ...draft.removed.map((r) => ({ key: r.key, name: r.name, kind: r.kind, status: "removed" as const, removed: r })),
+      ...draft.items
+        .filter((i) => i.status === "created" || i.status === "modified")
+        .map((i) => ({ key: i.key, name: i.asset.name, kind: i.asset.kind, status: i.status as Row["status"], item: i, errors: isComponentKind(i.asset.kind) ? componentPublishErrors(ed, i.asset.guid) : [] })),
+      ...draft.removed.map((r) => ({ key: r.key, name: r.name, kind: r.kind, status: "removed" as const, removed: r, errors: [] })),
     ];
-  }, [draft]);
+  }, [draft, ed]);
   const plan = useMemo(() => (draft ? publishPlan(draft, selected) : null), [draft, selected]);
-  // A new or modified asset a published one uses goes with it: checked, and locked while that one is selected.
-  const locked = (r: Row) => r.status !== "removed" && !!plan?.usedBy.has(r.key);
+  // A new or modified asset a published one uses goes with it: checked, and locked while that one is selected. One
+  // with property errors can't be chosen (Figma's componentPropDefError).
+  const locked = (r: Row) => r.errors.length > 0 || (r.status !== "removed" && !!plan?.usedBy.has(r.key));
   const checked = (r: Row) => (r.status === "removed" ? selected.has(r.key) : !!plan?.chosen.has(r.key));
   const hiddenCount = draft?.hiddenCount ?? 0;
   const toggle = (keys: string[], on: boolean) =>
@@ -122,6 +130,7 @@ function Publish() {
   };
   const firstPublish = !state.own;
   const count = rows.filter(checked).length;
+  const choosable = rows.filter((r) => r.errors.length === 0);
   const movedOut = draft?.movedOut ?? [];
   const nothing = !!draft && rows.length === 0 && !draft.moves.length && !movedOut.length;
 
@@ -182,7 +191,7 @@ function Publish() {
         {draft && rows.length > 0 && (
           <div className={styles.changes} role="group" aria-label={t("Changes")}>
             <div className={styles.changesHeader}>
-              <Checkbox label={tp(rows.length, "{count} of {n} change selected", "{count} of {n} changes selected", { count })} checked={count === rows.length ? true : count === 0 ? false : MIXED} onChange={(on) => toggle(rows.map((r) => r.key), on)} />
+              <Checkbox label={tp(rows.length, "{count} of {n} change selected", "{count} of {n} changes selected", { count })} checked={count > 0 && count === choosable.length ? true : count === 0 ? false : MIXED} onChange={(on) => toggle(choosable.map((r) => r.key), on)} />
             </div>
             {GROUPS.map((g) => {
               const list = rows.filter((r) => g.kinds.includes(r.kind));
@@ -200,7 +209,14 @@ function Publish() {
                         {r.item ? <NodeThumb node={r.item.asset.guid} kind={r.kind} size={32} /> : <RemoteThumb asset={r.removed!} size={32} />}
                         <span className={styles.changeText}>
                           <span className={styles.changeName}>{r.name}</span>
-                          {users?.length ? <span className={styles.meta}>{usedByText(users)}</span> : null}
+                          {r.errors.length ? (
+                            <span className={styles.publishError} data-publish-error={r.errors[0].kind}>
+                              {publishErrorLine(r.errors[0])}
+                              {r.errors.length > 1 ? ` ${t("(+{n} more)", { n: r.errors.length - 1 })}` : ""}
+                            </span>
+                          ) : users?.length ? (
+                            <span className={styles.meta}>{usedByText(users)}</span>
+                          ) : null}
                         </span>
                         <span className={styles[`status_${r.status}`]}>{t(STATUS_LABEL[r.status])}</span>
                       </label>

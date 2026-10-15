@@ -67,13 +67,13 @@ enum class CommandId : uint32_t {
   COMBINE_AS_VARIANTS = 121,
   ADD_VARIANT = 122,
   DETACH_INSTANCE = 123,            // args {ref?}
-  RESET_OVERRIDES = 124,            // args {ref?, field? | fields?}
+  RESET_OVERRIDES = 124,            // args {ref?, kind? | kinds? (Figma's reset kinds) | field? | fields?, keepAssignments?}
   PUSH_CHANGES_TO_MAIN = 125,
   GO_TO_MAIN_COMPONENT = 126,
   RETURN_TO_INSTANCE = 127,
   SWAP_INSTANCE = 128,              // args {main, ref?}
   SET_COMPONENT_PROPERTY = 129,     // args {ref?, prop, value}
-  ADD_COMPONENT_PROPERTY = 130,     // args {ref?, name?, type, defaultValue?, bind?, preferredValues?}
+  ADD_COMPONENT_PROPERTY = 130,     // args {ref?, name?, type, defaultValue?, bind?, preferredValues?, plugin?}
   EDIT_COMPONENT_PROPERTY = 131,    // args {ref?, prop, name?, defaultValue?, preferredValues?, oldValue?, newValue?}
   DELETE_COMPONENT_PROPERTY = 132,  // args {ref?, prop}
   BIND_COMPONENT_PROPERTY = 133,    // args {refs?, field, prop}

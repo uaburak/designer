@@ -28,6 +28,7 @@ import { positionBetween } from "./model/variables";
 import {
   assignedValue,
   bindingsOf,
+  changedFields,
   changedGroups,
   defaultVariant,
   derivedId,
@@ -44,10 +45,12 @@ import {
   newPropertyName,
   nextDefId,
   propertyBaseName,
+  propertyPublishErrors,
   overrideAt,
   parseDerivedId,
   parseVariantName,
   renameInVariantName,
+  resetKindFields,
   sortedDefs,
   sameGuid,
   unbindAll,
@@ -59,6 +62,9 @@ import {
   withOverride,
   withoutOverrides,
   type BindableField,
+  type PropertyPublishError,
+  type ResetGroup,
+  type ResetKind,
   type CNode,
   type ComponentAsset,
   type ComponentPropDef,
@@ -107,9 +113,15 @@ export const COMPONENT_COMMAND = {
 
 const asFields = (f: Record<string, unknown>): NodeFields => f as NodeFields;
 
-/** Runs an E6 command when the build has it: true when it ran OK (false: absent or refused — the caller falls back). */
+/**
+ * Runs an E6 command when the build has it: true when it ran OK, or when the engine refused it in Figma's words (round
+ * 17 B: the toast says why — nothing falls back to a data rewrite that would do it anyway). False: absent, or refused
+ * without a reason (the caller falls back).
+ */
 function engineDid(ed: EditorController, name: string, args?: CommandArgs): boolean {
-  return hasCommand(name) && runEngineCommand(ed.engine, name, args) === Status.OK;
+  if (!hasCommand(name)) return false;
+  const status = runEngineCommand(ed.engine, name, args);
+  return status === Status.OK || (typeof ed.engine.lastRefusal === "function" && ed.engine.lastRefusal() !== null);
 }
 
 // ---- The engine's component read (E6) ---------------------------------------------------------------------------
@@ -147,6 +159,9 @@ export interface EngineComponentInfo {
   /** Figma's preconditions for exposing this (a primary instance inside a main); absent on older builds. */
   canExpose?: boolean;
   instanceCount: number;
+  /** Round 17 B, Figma's conflicting variants: this variant's name isn't its values or repeats another's; a set's own. */
+  variantConflict?: boolean;
+  conflictingVariants?: Guid[];
 }
 
 /**
@@ -157,6 +172,30 @@ export interface EngineComponentInfo {
  */
 export function engineInfo(ed: EditorController, ref: Guid): EngineComponentInfo | null | undefined {
   return ed.components.info(ref);
+}
+
+/** Figma's publish errors of a component or set (round 17 B; none when the engine doesn't read it). */
+export function componentPublishErrors(ed: EditorController, ref: Guid): PropertyPublishError[] {
+  const info = engineInfo(ed, ref);
+  return info ? propertyPublishErrors(info.properties) : [];
+}
+
+/** A publish error in words: the Publish dialog's line under the component. */
+export function publishErrorLine(e: PropertyPublishError): string {
+  if (e.kind === "UNUSED_DEF_ERROR") return t("Unused property: {name}", { name: e.property });
+  if (e.kind === "CONFLICTING_NAMES_WITH_VARIANT_ERROR") return t("Property has the name of a variant property: {name}", { name: e.property });
+  return t("Conflicting property names: {name}", { name: e.property });
+}
+
+/**
+ * Figma's conflicting variants (round 17 B): for a set, how many of its variants have a name that isn't their values
+ * or repeat another's values; for a variant, 1 when it does. 0 for anything else (or an engine without the read).
+ */
+export function variantConflictCount(ed: EditorController, ref: Guid): number {
+  const info = engineInfo(ed, ref);
+  if (!info) return 0;
+  if (info.kind === "COMPONENT_SET") return info.conflictingVariants?.length ?? 0;
+  return info.kind === "VARIANT" && info.variantConflict ? 1 : 0;
 }
 
 /** The engine's property value as the schema's ComponentPropValue. */
@@ -784,15 +823,17 @@ export function swapInstance(ed: EditorController, refs: readonly Guid[], compon
   });
 }
 
-/** Reset all changes (`fields` null) or Reset ▸ one group: the engine's RESET_OVERRIDES, else the data rewrite. */
-export function resetChanges(ed: EditorController, instance: CNode, fields: string[] | null): void {
-  if (hasCommand(COMPONENT_COMMAND.reset)) {
-    // The engine resets one field per command (Reset ▸ a group may be several).
-    if (!fields ? engineDid(ed, COMPONENT_COMMAND.reset, { ref: instance.guid }) : fields.every((field) => engineDid(ed, COMPONENT_COMMAND.reset, { ref: instance.guid, field }))) return;
-  }
+/**
+ * Reset all changes (`kind` null) or Reset ▸ one of Figma's kinds: the engine's RESET_OVERRIDES {kind} (one step),
+ * else the data rewrite of the kind's fields.
+ */
+export function resetChanges(ed: EditorController, instance: CNode, kind: ResetKind | null): void {
+  if (engineDid(ed, COMPONENT_COMMAND.reset, kind ? { ref: instance.guid, kind } : { ref: instance.guid })) return;
   if (parseDerivedId(instance.guid)) return;
   const main = mainOf(ed, instance);
-  ed.batch(fields ? `Reset ${changedGroups(instance).find((g) => g.fields.join() === fields.join())?.label ?? "changes"}` : "Reset all changes", () => {
+  const group = kind ? changedGroups(instance).find((g) => g.kind === kind) : undefined;
+  const fields = kind ? (group?.fields ?? resetKindFields(kind, changedFields(instance))) : null;
+  ed.batch(fields ? `Reset ${group?.label.toLowerCase() ?? "changes"}` : "Reset all changes", () => {
     const out: Record<string, unknown> = {};
     const root = overrideAt(instance.symbolData, []) ?? {};
     if (instance.symbolData) out.symbolData = withoutOverrides(instance.symbolData, fields);
@@ -804,7 +845,7 @@ export function resetChanges(ed: EditorController, instance: CNode, fields: stri
 }
 
 /** What "Reset ▸" lists for an instance: the engine's overrides (every sublayer's) when it reads them, else the data's. */
-export function instanceChanges(ed: EditorController, instance: CNode): { label: string; fields: string[] }[] {
+export function instanceChanges(ed: EditorController, instance: CNode): ResetGroup[] {
   const info = engineInfo(ed, instance.guid);
   if (info) {
     const fields = new Set<string>();

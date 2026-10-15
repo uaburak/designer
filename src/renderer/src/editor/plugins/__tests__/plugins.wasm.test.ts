@@ -552,6 +552,43 @@ describe("plugins: the sandbox", () => {
     expect(out.plain).toBeNull();
   });
 
+  it("component rules in Figma's words; removeOverrides (and resetOverrides) keep the property values", async () => {
+    const { ed, engine } = await editor();
+    const { r } = await run(
+      ed,
+      inline(`
+        (async () => {
+          const out = {};
+          const comp = figma.createComponent();
+          comp.resize(40, 20);
+          const errorOf = (f) => { try { f(); return null; } catch (e) { return String(e && e.message || e); } };
+          out.variant = errorOf(() => comp.addComponentProperty("Size", "VARIANT", "Small"));
+          out.empty = errorOf(() => comp.addComponentProperty("", "TEXT", "x"));
+          const shown = comp.addComponentProperty("Shown", "BOOLEAN", true);
+          const inst = comp.createInstance();
+          inst.setProperties({ [shown]: false });
+          inst.opacity = 0.5;
+          out.id = inst.id;
+          inst.removeOverrides();
+          out.value = inst.componentProperties[shown].value;
+          out.type = comp.type;
+          figma.root.setPluginData("result", JSON.stringify(out));
+          figma.closePlugin();
+        })();
+      `)
+    );
+    await untilEnded(r);
+    const out = JSON.parse(rootData(engine, "result")!);
+    expect(out.variant).toContain("Can only add variant property to a component set");
+    expect(out.empty).toContain("Component property definition name cannot be empty");
+    expect(out.type).toBe("COMPONENT");
+    expect(out.value).toBe(false);
+    // The engine's record: the overrides gone (the opacity), the property value kept.
+    const inst = engine.readNode(out.id) as { symbolData?: { symbolOverrides?: unknown[] }; componentPropAssignments?: unknown[] };
+    expect(inst.symbolData?.symbolOverrides ?? []).toEqual([]);
+    expect(inst.componentPropAssignments).toHaveLength(1);
+  });
+
   it("exportAsync is refused for a viewer the file's export setting restricts (governance §2.7)", async () => {
     const { ed, engine } = await editor();
     setExportAllowed(ed, false);

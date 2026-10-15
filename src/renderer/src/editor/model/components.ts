@@ -409,24 +409,94 @@ export function withOverride(sd: SymbolData, path: readonly GuidValue[], fields:
   return { ...sd, symbolOverrides: entries };
 }
 
-/** Figma's "Reset ▸" names for overridden fields (one item per group). */
-const RESET_GROUPS: [string, string[]][] = [
-  ["Fill", ["fillPaints", "styleIdForFill"]],
-  ["Stroke", ["strokePaints", "strokeWeight", "strokeAlign", "strokeCap", "strokeJoin", "dashPattern", "styleIdForStrokeFill", "borderTopWeight", "borderRightWeight", "borderBottomWeight", "borderLeftWeight", "borderStrokeWeightsIndependent"]],
-  ["Effects", ["effects", "styleIdForEffect"]],
-  ["Text", ["textData"]],
-  ["Text style", ["fontName", "fontSize", "lineHeight", "letterSpacing", "paragraphSpacing", "paragraphIndent", "textCase", "textDecoration", "textAlignHorizontal", "textAlignVertical", "styleIdForText"]],
-  ["Layer name", ["name"]],
-  ["Visibility", ["visible"]],
-  ["Opacity", ["opacity", "blendMode"]],
-  ["Size", ["size", "stackPrimarySizing", "stackCounterSizing", "minSize", "maxSize", "textAutoResize"]],
-  ["Corner radius", ["cornerRadius", "rectangleTopLeftCornerRadius", "rectangleTopRightCornerRadius", "rectangleBottomLeftCornerRadius", "rectangleBottomRightCornerRadius", "rectangleCornerRadiiIndependent"]],
-  ["Auto layout", ["stackSpacing", "stackHorizontalPadding", "stackVerticalPadding", "stackPaddingRight", "stackPaddingBottom", "stackPrimaryAlignItems", "stackCounterAlignItems", "stackChildPrimaryGrow", "stackChildAlignSelf", "stackPositioning"]],
-  ["Layout guide", ["layoutGrids"]],
-  ["Export", ["exportSettings"]],
-  ["Instance", ["overriddenSymbolID"]],
-  ["Properties", ["componentPropAssignments"]],
+/**
+ * Figma's reset kinds (ResetOverridesKind, reset-variable-modes, reset-prop-assignments; round 17 B): the engine's
+ * RESET_OVERRIDES {kind}. SLOT_ASSIGNMENT is Reset slot's (the slot's own row), not a "Reset ▸" item.
+ */
+export type ResetKind =
+  | "EXPORTS"
+  | "EFFECTS"
+  | "LAYER"
+  | "VISIBLE"
+  | "NAME"
+  | "FILL"
+  | "STROKE"
+  | "TEXT"
+  | "TEXT_STYLE"
+  | "SIZE"
+  | "PROTOTYPE_INTERACTIONS"
+  | "OVERLAY"
+  | "OVERRIDDEN_SYMBOL"
+  | "SLOT_ASSIGNMENT"
+  | "VARIABLE_MODES"
+  | "PROPERTY_ASSIGNMENTS";
+
+/**
+ * "Reset ▸" in Figma's order (its reset-* actions: exports, effects, layer, visibility, name, fill, stroke, text, text
+ * style, size, prototype interactions, overlay), then the instance swap, variable modes and property values. Layer is
+ * Figma's "others": every field no other kind names (opacity, corners, auto layout, layout guides, …).
+ */
+const RESET_KINDS: { kind: ResetKind; label: string; fields: string[] }[] = [
+  { kind: "EXPORTS", label: "Exports", fields: ["exportSettings"] },
+  { kind: "EFFECTS", label: "Effects", fields: ["effects", "styleIdForEffect"] },
+  { kind: "LAYER", label: "Layer", fields: [] },
+  { kind: "VISIBLE", label: "Visibility", fields: ["visible"] },
+  { kind: "NAME", label: "Name", fields: ["name"] },
+  { kind: "FILL", label: "Fill", fields: ["fillPaints", "styleIdForFill"] },
+  {
+    kind: "STROKE",
+    label: "Stroke",
+    fields: ["strokePaints", "strokeWeight", "strokeAlign", "strokeCap", "strokeJoin", "miterLimit", "dashPattern", "styleIdForStrokeFill", "borderTopWeight", "borderRightWeight", "borderBottomWeight", "borderLeftWeight", "borderStrokeWeightsIndependent"],
+  },
+  { kind: "TEXT", label: "Text", fields: ["textData"] },
+  {
+    kind: "TEXT_STYLE",
+    label: "Text style",
+    fields: ["fontName", "fontSize", "lineHeight", "letterSpacing", "paragraphSpacing", "paragraphIndent", "textCase", "textDecoration", "textAlignHorizontal", "textAlignVertical", "textTruncation", "maxLines", "styleIdForText"],
+  },
+  { kind: "SIZE", label: "Size", fields: ["size", "stackPrimarySizing", "stackCounterSizing", "minSize", "maxSize", "textAutoResize"] },
+  { kind: "PROTOTYPE_INTERACTIONS", label: "Prototype interactions", fields: ["prototypeInteractions"] },
+  { kind: "OVERLAY", label: "Overlay", fields: ["overlayPositionType", "overlayRelativePosition", "overlayBackgroundInteraction", "overlayBackgroundAppearance"] },
+  { kind: "OVERRIDDEN_SYMBOL", label: "Instance", fields: ["overriddenSymbolID"] },
+  { kind: "VARIABLE_MODES", label: "Variable modes", fields: ["variableModeBySetMap"] },
+  { kind: "PROPERTY_ASSIGNMENTS", label: "Properties", fields: ["componentPropAssignments"] },
 ];
+
+/**
+ * Figma's publish errors for a component or a set's properties (componentPropDefError; round 17 B): a property no
+ * layer uses (UNUSED_DEF_ERROR — Variant properties aside), two with one name (CONFLICTING_NAMES_ERROR), and a
+ * property named as a Variant property (CONFLICTING_NAMES_WITH_VARIANT_ERROR). Figma doesn't publish such a component.
+ */
+export type PropertyPublishError = { kind: "UNUSED_DEF_ERROR" | "CONFLICTING_NAMES_ERROR" | "CONFLICTING_NAMES_WITH_VARIANT_ERROR"; property: string };
+
+export function propertyPublishErrors(properties: readonly { name: string; type: ComponentPropType; boundLayers?: readonly unknown[] }[]): PropertyPublishError[] {
+  const out: PropertyPublishError[] = [];
+  const variants = new Set(properties.filter((p) => p.type === "VARIANT").map((p) => p.name));
+  // Variant properties and the others are named apart: a clash between the two is the "with variant" error.
+  const keyOf = (p: { name: string; type: ComponentPropType }) => `${p.type === "VARIANT" ? "variant" : "property"}:${p.name}`;
+  const seen = new Map<string, number>();
+  for (const p of properties) seen.set(keyOf(p), (seen.get(keyOf(p)) ?? 0) + 1);
+  const reported = new Set<string>();
+  for (const p of properties) {
+    const own = keyOf(p);
+    if ((seen.get(own) ?? 0) > 1 && !reported.has(own)) {
+      reported.add(own);
+      out.push({ kind: "CONFLICTING_NAMES_ERROR", property: p.name });
+    } else if (p.type !== "VARIANT" && variants.has(p.name) && !reported.has(own)) {
+      reported.add(own);
+      out.push({ kind: "CONFLICTING_NAMES_WITH_VARIANT_ERROR", property: p.name });
+    }
+    if (p.type !== "VARIANT" && p.boundLayers && p.boundLayers.length === 0) out.push({ kind: "UNUSED_DEF_ERROR", property: p.name });
+  }
+  return out;
+}
+
+/** One "Reset ▸" item: Figma's kind, its label, and the changed fields it covers. */
+export interface ResetGroup {
+  kind: ResetKind;
+  label: string;
+  fields: string[];
+}
 
 /** The fields an instance changed: its overrides' fields, and its own property values. */
 export function changedFields(instance: CNode): Set<string> {
@@ -437,22 +507,28 @@ export function changedFields(instance: CNode): Set<string> {
 }
 
 /** The groups of changes an instance has, in menu order. */
-export function changedGroups(instance: CNode): { label: string; fields: string[] }[] {
+export function changedGroups(instance: CNode): ResetGroup[] {
   return groupChanges(changedFields(instance));
 }
 
-/** Changed fields as Figma's "Reset ▸" items (one per group it has), in menu order. */
-export function groupChanges(fields: ReadonlySet<string>): { label: string; fields: string[] }[] {
-  const out: { label: string; fields: string[] }[] = [];
-  const known = new Set<string>();
-  for (const [label, group] of RESET_GROUPS) {
-    group.forEach((f) => known.add(f));
-    const hit = group.filter((f) => fields.has(f));
-    if (hit.length) out.push({ label, fields: hit });
+/** Changed fields as Figma's "Reset ▸" items (one per kind it has), in menu order; Layer takes the fields no kind names. */
+export function groupChanges(fields: ReadonlySet<string>): ResetGroup[] {
+  const known = new Set(RESET_KINDS.flatMap((k) => k.fields));
+  const out: ResetGroup[] = [];
+  for (const { kind, label, fields: group } of RESET_KINDS) {
+    const hit = kind === "LAYER" ? [...fields].filter((f) => !known.has(f)) : group.filter((f) => fields.has(f));
+    if (hit.length) out.push({ kind, label, fields: hit });
   }
-  const other = [...fields].filter((f) => !known.has(f));
-  if (other.length) out.push({ label: "Other changes", fields: other });
   return out;
+}
+
+/** The override fields a reset kind covers (Layer: `changed` fields no other kind names). */
+export function resetKindFields(kind: ResetKind, changed: ReadonlySet<string> = new Set()): string[] {
+  if (kind === "LAYER") {
+    const known = new Set(RESET_KINDS.flatMap((k) => k.fields));
+    return [...changed].filter((f) => !known.has(f));
+  }
+  return RESET_KINDS.find((k) => k.kind === kind)?.fields ?? [];
 }
 
 /** `symbolData` without `fields` in any entry (entries left empty go). */

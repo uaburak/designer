@@ -416,6 +416,35 @@ export const editor: Record<string, string> = {
   Export: "Dışa aktar",
   Instance: "Örnek",
   Properties: "Özellikler",
+  // Round 17 B: Figma's reset kinds (Reset ▸ …)
+  Exports: "Dışa aktarımlar",
+  "Prototype interactions": "Prototip etkileşimleri",
+  "Variable modes": "Değişken modları",
+
+  // Round 17 B: refusals in Figma's words (src/renderer/src/editor/refusals.ts)
+  "Components can't contain instances of themselves": "Bileşenler kendi örneklerini içeremez",
+  "Cannot move node. Reparenting would create a component cycle": "Katman taşınamıyor. Bu taşıma bir bileşen döngüsü oluşturur",
+  "Cannot move node. Reparenting would create a component set cycle": "Katman taşınamıyor. Bu taşıma bir bileşen kümesi döngüsü oluşturur",
+  "Component property definition name cannot be empty": "Bileşen özelliğinin adı boş olamaz",
+  "Component property name cannot have '=' or ','": "Bileşen özelliğinin adı '=' veya ',' içeremez",
+  "Variant property value cannot be empty or have '=' or ','": "Varyant özelliğinin değeri boş olamaz, '=' veya ',' içeremez",
+  "Component property default value cannot be empty": "Bileşen özelliğinin varsayılan değeri boş olamaz",
+  "Property value is incompatible with component property type": "Özellik değeri, bileşen özelliğinin türüyle uyumlu değil",
+  "Default value for instance swap must be a component": "Örnek değiştirme özelliğinin varsayılan değeri bir bileşen olmalı",
+  "Default value for instance swap would create a cycle": "Örnek değiştirme özelliğinin varsayılan değeri bir döngü oluşturur",
+  "Invalid preferred value for component property type": "Bileşen özelliğinin türü için geçersiz tercih edilen değer",
+  "Attaching this component property would create a cycle": "Bu bileşen özelliğini bağlamak bir döngü oluşturur",
+  "Cannot change defaultValue of a variant property": "Varyant özelliğinin varsayılan değeri değiştirilemez",
+  "Cannot change defaultValue of a slot component property": "Yuva özelliğinin varsayılan değeri değiştirilemez",
+  "Can only add variant property to a component set": "Varyant özelliği yalnızca bir bileşen kümesine eklenebilir",
+  // Round 17 B: conflicting variants (the Design panel) and publish errors (Publish library)
+  "{n} variant has conflicting properties": "{n} varyantın özellikleri çakışıyor",
+  "{n} variants have conflicting properties": "{n} varyantın özellikleri çakışıyor",
+  "This variant's name doesn't match its properties, or another variant has the same values": "Bu varyantın adı özellikleriyle eşleşmiyor ya da başka bir varyant aynı değerlere sahip",
+  "Unused property: {name}": "Kullanılmayan özellik: {name}",
+  "Property has the name of a variant property: {name}": "Özellik bir varyant özelliğiyle aynı adı taşıyor: {name}",
+  "Conflicting property names: {name}": "Çakışan özellik adları: {name}",
+  "(+{n} more)": "(+{n} tane daha)",
 
   // Exporting
   "Couldn't export {name}": "{name} dışa aktarılamadı",

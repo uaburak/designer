@@ -16,7 +16,8 @@ import { command, isEnabled, runEditorCommand } from "../commands";
 import { canvasMenu, mainMenu, runMenuItem } from "../menus";
 import { layerIcon } from "../panels/Layers";
 import { visibleRows } from "../model/layerTree";
-import { hasCommand } from "../engineCompat";
+import { hasCommand, runEngineCommand } from "../engineCompat";
+import { refusalMessage } from "../refusals";
 import {
   COMPONENT_COMMAND,
   addProperty,
@@ -30,6 +31,7 @@ import {
   readC,
   resetChanges,
   returnToInstance,
+  setOf,
   setPropertyValue,
   setVariant,
   swapInstance,
@@ -126,7 +128,7 @@ describe("components on the engine (wasm, headless)", () => {
     engine.setSelection(["2:2"]);
     const reset = items(mainMenu(ed)).find((i) => i.label === "Object")!.items!;
     expect(labels(reset)).toEqual(expect.arrayContaining(["Create component", "Detach instance", "Main component"]));
-    expect(runMenuItem(ed, "reset-changes:fillPaints")).toBe(true);
+    expect(runMenuItem(ed, "reset-changes:FILL")).toBe(true);
     expect(instanceChanges(ed, node(ed, "2:2")).map((g) => g.label)).not.toContain("Fill");
     resetChanges(ed, node(ed, "2:2"), null);
     expect(instanceChanges(ed, node(ed, "2:2"))).toEqual([]);
@@ -184,6 +186,23 @@ describe("components on the engine (wasm, headless)", () => {
     expect(source.changes.length).toBe(before + 1);
     engine.undo();
     expect(readC(ed, made!)).toBeNull();
+  });
+
+  it("a refusal in Figma's words is the answer: no data rewrite does it anyway (round 17 B)", async () => {
+    const { ed, engine } = await editor();
+    const set = setOf(ed, node(ed, "1:43"))!;
+    const def = (set.componentPropDefs ?? []).find((d) => d.type === "VARIANT")!;
+    const before = JSON.stringify(def.initialValue);
+    updateProperty(ed, set, def, { initialValue: { textValue: { characters: "Hover" } } });
+    expect(engine.lastRefusal()).toBe("variant_default_locked");
+    expect(refusalMessage("variant_default_locked")).toBe("Cannot change defaultValue of a variant property");
+    const after = (node(ed, set.guid).componentPropDefs ?? []).find((d) => d.name === def.name)!;
+    expect(JSON.stringify(after.initialValue)).toBe(before);
+    // An instance of the Chip set inserted into one of its own variants is refused; the next command starts clean.
+    expect(runEngineCommand(engine, "INSERT_INSTANCE", { main: "1:43", parent: "1:43" })).not.toBe(0);
+    expect(engine.lastRefusal()).toBe("components_cant_contain_instances_of_themselves");
+    expect(runEngineCommand(engine, "SELECT_NONE")).toBe(0);
+    expect(engine.lastRefusal()).toBeNull();
   });
 
   it("menus and commands: the canvas menu's component items; structural ones follow the engine", async () => {

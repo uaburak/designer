@@ -13,6 +13,7 @@ import type { EditorController } from "./controller";
 import type { UIState } from "./uiStore";
 import { fields } from "./panels/design/shared";
 import { pref } from "./preferences";
+import { attachRefusals } from "./refusals";
 
 /**
  * The engine's view options as the UI holds them (defaults: pixel grid, layout guides, snap to pixel grid, slices on;
@@ -205,6 +206,8 @@ export function attachCanvasTools(ed: EditorController, canvas: HTMLCanvasElemen
   ed.ui.set({ nudge });
   // Round 17: a canvas drag's step (padding, gap, radius, W / H, degree, a flow swap, a snap): the trackpad's tick.
   offs.push(ed.engine.on("HAPTIC", () => hapticTick()));
+  // Round 17 B: what the engine refused, in Figma's words (a toast: Figma's visual bell).
+  offs.push(attachRefusals(ed.engine));
   offs.push(
     ed.engine.on("COLOR_PICK", (e) => {
       const color = canvasColorAt(ed, e.x, e.y);

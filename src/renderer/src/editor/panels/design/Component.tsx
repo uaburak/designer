@@ -60,6 +60,7 @@ import {
   updateProperty,
   usedPropertyIds,
   valueFromLayer,
+  variantConflictCount,
   variantsOf,
   type InstanceInfo,
   type PropertyRowData,
@@ -183,7 +184,7 @@ export function instanceMoreMenu(ed: EditorController, instance: CNode): MenuEnt
 function resetName(ed: EditorController, instance: CNode): void {
   const group = instanceChanges(ed, instance).find((g) => g.fields.includes("name"));
   if (group) {
-    void runMenuItem(ed, `${RESET_PREFIX}${group.fields.join(",")}`);
+    void runMenuItem(ed, `${RESET_PREFIX}${group.kind}`);
     return;
   }
   const main = mainOf(ed, instance);
@@ -591,6 +592,8 @@ export function ComponentBlock({ sel }: { sel: ComponentSelection }) {
   const multi = useMultiEdit(set?.guid);
   const [config, toggleConfig, closeConfig] = usePopoverToggle<HTMLElement>();
   const kind = sel.kind === "instance" ? "component" : sel.kind;
+  // Figma's conflicting variants (round 17 B): a name that isn't its values (kept as typed) or values another has.
+  const conflicts = sel.kind === "set" || sel.kind === "variant" ? variantConflictCount(ed, node.guid) : 0;
   const add = command("object.add-variant");
   const matching = command("edit.select-matching");
   const action = (a: ComponentHeaderAction) => {
@@ -614,6 +617,12 @@ export function ComponentBlock({ sel }: { sel: ComponentSelection }) {
         <NameField node={sel.kind === "variant" ? (set ?? node) : node} />
         {COMPONENT_HEADER_ACTIONS[kind].map(action)}
       </div>
+      {conflicts > 0 && (
+        <div className={styles.conflictWarning} role="status" data-variant-conflict="">
+          <Icon name="16.warning" />
+          <span>{sel.kind === "set" ? tp(conflicts, "{n} variant has conflicting properties", "{n} variants have conflicting properties") : t("This variant's name doesn't match its properties, or another variant has the same values")}</span>
+        </div>
+      )}
       {sel.kind === "variant" ? <CurrentVariantSection variant={node} /> : <PropertiesSection owner={node} />}
       {config && <ComponentConfiguration owner={node} anchor={config} onClose={closeConfig} />}
     </div>

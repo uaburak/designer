@@ -434,6 +434,8 @@ void writeEvents(json::Writer& w, Engine& e) {
     w.key("x").number(r.rect.x).key("y").number(r.rect.y).key("width").number(r.rect.w).key("height").number(r.rect.h);
     w.endObject();
   }
+  // Round 17 B: refusals in Figma's words (a toast each).
+  for (const std::string& key : ev.notices) w.beginObject().key("type").string("NOTICE").key("key").string(key).endObject();
   // Last: by then the selection the right-click made has been reported.
   for (auto& m : ev.contextMenus) {
     w.beginObject().key("type").string("CONTEXT_MENU");
@@ -1441,6 +1443,7 @@ ENG_EXPORT int32_t engine_command(Handle h, uint32_t commandId, Ptr argsPtr, uin
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
+  setResult("{\"created\":[]}");  // an early refusal (bad args, viewer mode) leaves no earlier command's "error" behind
   CommandArgs a;
   json::Value args;
   if (argsLen && json::parse(bytes(argsPtr, argsLen), args)) {
@@ -1476,11 +1479,14 @@ ENG_EXPORT int32_t engine_command(Handle h, uint32_t commandId, Ptr argsPtr, uin
   }
   // Viewer mode: selecting and zooming only.
   if (e->editor.viewerMode() && !viewerCommand(commandId) && !(e->editor.devEdits() && devCommand(commandId))) return E_READONLY;
+  e->editor.clearRefusal();
   int32_t status = e->editor.command(static_cast<CommandId>(commandId), a);
-  // What the command created (variables, collections, modes, styles): {"created": [...]}.
+  // What the command created (variables, collections, modes, styles): {"created": [...]}; a refusal in Figma's words
+  // (round 17 B): {"error": key} (editor/Refusals.h, the TS message in src/renderer/src/editor/refusals.ts).
   json::Writer w;
   w.beginObject().key("created");
   writeIds(w, e->editor.lastCreated());
+  if (status != OK && !e->editor.lastRefusal().empty()) w.key("error").string(e->editor.lastRefusal());
   w.endObject();
   setResult(w.take());
   return status;
@@ -2206,6 +2212,8 @@ ENG_EXPORT int32_t engine_component_info(Handle h, Ptr refPtr, uint32_t refLen) 
   w.key("canPush").boolean(info.canPush).key("canReset").boolean(info.canReset).key("canDetach").boolean(info.canDetach);
   w.key("isExposed").boolean(info.isExposed).key("mainDeleted").boolean(info.mainDeleted).key("canExpose").boolean(info.canExpose);
   w.key("instanceCount").number(info.instanceCount);
+  w.key("variantConflict").boolean(info.variantConflict).key("conflictingVariants");
+  writeIds(w, info.conflictingVariants);
   w.endObject();
   return setResult(w.take());
 }

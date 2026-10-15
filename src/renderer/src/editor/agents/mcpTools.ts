@@ -16,6 +16,7 @@ import { MODEL } from "@shared/schema/model";
 import { CommandId } from "@/engine/abi";
 import { COMMAND_BY_ID, COMMANDS, comboText, isEnabled } from "../commands";
 import { ENGINE_COMMAND_DOCS } from "./engineCommands.generated";
+import { refusalEnglish } from "../refusals";
 import { base64, encodePng } from "./png";
 import { responsiveVariant } from "./responsive";
 import { base64Bytes, isImageArg, MAX_IMAGE_BYTES, sniffImage, type ImageArg } from "@shared/agents/images";
@@ -1160,12 +1161,14 @@ function runCommandTool(env: ToolEnv, args: Spec): ToolResult {
     const name = args.engineCommand.toUpperCase();
     if (!(name in CommandId)) throw new ToolError(`No engine command ${name} (list_commands lists them).`);
     const a = (args.args && typeof args.args === "object" ? args.args : {}) as Record<string, unknown>;
-    let r = { status: 0, created: [] as Guid[] };
+    let r: { status: number; created: Guid[]; error?: string } = { status: 0, created: [] };
     let after: Guid[] = [];
     env.write(name, () => {
       r = env.ed.engine.runCommand(name as never, Object.keys(a).length ? (a as never) : undefined);
       after = [...env.ed.engine.getSelection().refs];
     }, nodeIds);
+    // A refusal in Figma's words (round 17 B) says why; other statuses say what kind.
+    if (r.status !== 0 && r.error) return textResult(`${name} was refused by the engine: ${refusalEnglish(r.error)}.`, true);
     if (r.status !== 0) return textResult(`${name} was refused by the engine (status ${r.status}${r.status === -3 ? ": invalid arguments or nothing it applies to" : r.status === -6 ? ": read-only" : r.status === -8 ? ": not supported" : ""}). Arguments: ${ENGINE_COMMAND_DOCS[name] ?? "see list_commands"}.`, true);
     const out = textResult({ ran: name, created: r.created, selection: after.filter((id) => read(env, id, ["name"])).map((id) => brief(env, read(env, id)!)) });
     out.touched = [...r.created, ...nodeIds];

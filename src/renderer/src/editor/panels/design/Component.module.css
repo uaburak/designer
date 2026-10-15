@@ -332,6 +332,17 @@
   .limits:hover, .limits[aria-expanded="true"] { background: var(--figma-color-bg-hover); }
   .limits:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .limitsWarning { color: var(--figma-color-text-warning); }
+  /* Round 17 B: Figma's conflicting variants, under the set's or the variant's header */
+  .conflictWarning {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ds-space-1);
+    padding: var(--ds-space-1) var(--ds-space-2) 0;
+    color: var(--figma-color-text-warning);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .conflictWarning > svg { flex: none; color: var(--figma-color-icon-warning); }
   .limitsList { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
   .guideline { display: flex; align-items: center; gap: var(--ds-space-1); }
   .guidelineOk { color: var(--figma-color-icon-success); }

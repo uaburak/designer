@@ -11,7 +11,7 @@ import type { Guid } from "@/engine/codec";
 import type { EditorController } from "./controller";
 import { COMMAND_BY_ID, command, isEnabled, runEditorCommand, shortcutOf } from "./commands";
 import { instanceChanges, resetChanges, selectedInstance, selectionNodes } from "./components";
-import { isComponent, isComponentSet, isInstance } from "./model/components";
+import { isComponent, isComponentSet, isInstance, type ResetKind } from "./model/components";
 import { branchMenuIds } from "./branching/commands";
 import { canvasPluginsMenu, pluginsMenu, runPluginMenuItem } from "./plugins/menus";
 import { isBrushSource } from "./draw/drawTools";
@@ -81,7 +81,7 @@ export function resetSubmenu(ed: EditorController): MenuItem | null {
   if (!inst) return null;
   const groups = instanceChanges(ed, inst);
   const items: MenuEntry[] = [withoutCheck(commandItem(ed, "object.reset-all-changes"))];
-  if (groups.length) items.push("-", ...groups.map((g) => ({ id: `${RESET_PREFIX}${g.fields.join(",")}`, label: t("Reset {group}", { group: t(g.label).toLocaleLowerCase(intlLocale()) }) })));
+  if (groups.length) items.push("-", ...groups.map((g) => ({ id: `${RESET_PREFIX}${g.kind}`, label: t("Reset {group}", { group: t(g.label).toLocaleLowerCase(intlLocale()) }) })));
   return { id: "submenu:reset", label: t("Reset"), items, disabled: !groups.length };
 }
 
@@ -97,7 +97,7 @@ export function runMenuItem(ed: EditorController, id: string): boolean {
   if (id.startsWith(RESET_PREFIX)) {
     const inst = selectedInstance(ed);
     if (!inst) return false;
-    resetChanges(ed, inst, id.slice(RESET_PREFIX.length).split(","));
+    resetChanges(ed, inst, id.slice(RESET_PREFIX.length) as ResetKind);
     return true;
   }
   if (id.startsWith("select-layer:")) {

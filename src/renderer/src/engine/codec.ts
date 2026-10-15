@@ -564,6 +564,8 @@ export interface StyleInfo {
 export interface CommandResult {
   status: number;
   created: Guid[];
+  /** Round 17 B: a refusal's message key in Figma's words (engine/src/editor/Refusals.h). */
+  error?: string;
 }
 
 /** A GUID inside a structure (symbolData, property defs…), as decoded .fig files write it. */
@@ -655,6 +657,9 @@ export interface ComponentInfo {
   /** A primary instance inside a main that can expose its properties (Figma's preconditions; older builds: absent). */
   canExpose?: boolean;
   instanceCount: number;
+  /** Round 17 B, Figma's conflicting variants: this variant's name isn't its values or repeats another's; a set's own. */
+  variantConflict?: boolean;
+  conflictingVariants?: Guid[];
 }
 
 /**
@@ -932,6 +937,11 @@ export type EngineEvent =
    * ticked since the last events; the editor plays one).
    */
   | { type: "HAPTIC"; count: number }
+  /**
+   * Round 17 B: something was refused in Figma's words (a component containing an instance of itself, an empty
+   * property name, …) — `key` from engine/src/editor/Refusals.h; the editor shows it as a toast (refusals.ts).
+   */
+  | { type: "NOTICE"; key: string }
   /** Round 8: the eyedropper clicked at (x, y), canvas CSS px — the editor reads the colour there (Engine.renderRegionPixels). */
   | { type: "COLOR_PICK"; x: number; y: number }
   /** Round 7 Draw (docs/draw.md §4.5): ⌘-click on a stroke with the Pencil or the Brush — its settings, for the secondary toolbar. */

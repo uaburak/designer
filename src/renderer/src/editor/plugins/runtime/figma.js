@@ -269,7 +269,8 @@
       method(p, "swapComponent", function (c) { call("instance.swap", this.__nodeId, c); });
       method(p, "setProperties", function (values) { call("instance.setProperties", this.__nodeId, values); });
       method(p, "detachInstance", function () { return call("instance.detach", this.__nodeId); });
-      method(p, "resetOverrides", function () { call("instance.reset", this.__nodeId); });
+      method(p, "removeOverrides", function () { call("instance.reset", this.__nodeId); });
+      method(p, "resetOverrides", function () { call("instance.reset", this.__nodeId); });  // deprecated alias
     }
     if (type === "POLYGON" || type === "STAR") props(p, ["pointCount"]);
     if (type === "STAR") props(p, ["innerRadius"]);

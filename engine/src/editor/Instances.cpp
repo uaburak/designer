@@ -23,6 +23,7 @@
 
 #include "base/DerivedIds.h"
 #include "editor/Editor.h"
+#include "editor/Refusals.h"
 #include "scene/CodecKiwi.h"
 
 namespace eng {
@@ -1221,6 +1222,18 @@ void Editor::writeDerived(const NodeChange& change) {
   if (!resolving_ && edit.mask && n->props.hasBindings()) detachEdited(n->props, edit);
   FieldMask mask = differingFields(n->props, edit.props, edit.mask & kOverridable);
   if (mask & F_TEXT_DATA) mask &= ~static_cast<FieldMask>(F_NAME | F_AUTO_RENAME);  // a text in an instance keeps its layer name
+  // A nested swap to a main the instance is inside of (round 17 B): Figma's "components can't contain instances of
+  // themselves".
+  if ((mask & F_OVERRIDDEN_SYMBOL_ID) && std::as_const(edit.props).comp().overriddenSymbolID != kNoGuid) {
+    NodeProps probe;
+    probe.comp().symbolData.symbolID = std::as_const(edit.props).comp().overriddenSymbolID;
+    std::vector<Guid> mains;
+    mainsOfInstance(probe, mains);
+    if (wouldContainItself(doc_.parentOf(change.guid), mains)) {
+      refuse(refusal::kSelfInstance);
+      mask &= ~static_cast<FieldMask>(F_OVERRIDDEN_SYMBOL_ID);
+    }
+  }
   if (!mask) return;
   const DerivedInfo d = info->second;
   NodeChange shown = NodeChange::changed(change.guid);
