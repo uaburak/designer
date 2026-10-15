@@ -300,7 +300,7 @@ function syntheticMessage(target) {
           stackMode: "HORIZONTAL", stackSpacing: 12, stackHorizontalPadding: 12, stackVerticalPadding: 12, stackPaddingRight: 12, stackPaddingBottom: 12,
           stackCounterAlignItems: "CENTER", stackPrimarySizing: "FIXED", stackCounterSizing: "FIXED",
           effects: glassy && r % 5 === 2
-            ? [{ type: "GLASS", radius: 8, visible: true, specularAngle: -45, specularIntensity: 0.6, refractionIntensity: 0.7, bevelSize: 16, chromaticAberration: 0.4, refractionRadius: 20 }]
+            ? [{ type: "GLASS", radius: 8, visible: true, specularAngle: -45, specularIntensity: 0.6, refractionIntensity: 0.7, refractionRadius: 16, bevelSize: 1, chromaticAberration: 0.4, reflectionDistance: 0.2 }]
             : shadow ? [{ type: "DROP_SHADOW", color: { r: 0, g: 0, b: 0, a: 0.12 }, offset: { x: 0, y: 2 }, radius: 8, spread: 0, visible: true, blendMode: "NORMAL", showShadowBehindNode: false }] : [],
         },
         screen,
