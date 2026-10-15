@@ -2871,7 +2871,7 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
     // Images arrived that couldn't be traced to their layers: the levels near the zoom are drawn again, the coarser
     // ones keep the tier they show a few pixels wide (as above).
     int zl = std::clamp(static_cast<int>(std::ceil(std::log2(std::max(camera.zoom, 1e-6)) - 1e-9)), -12, 8);
-    invalidateTiles({Rect{-1e12, -1e12, 2e12, 2e12}}, zl - 2, true);
+    invalidateTiles({Rect{-1e12, -1e12, 2e12, 2e12}}, zl - 2);
     tiles_.images = images;
   }
   if (tiles_.page != page || tiles_.fonts != fonts || (tileScale && (tiles_.sx != sx || tiles_.sy != sy)) ||
@@ -2916,7 +2916,7 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
     }
     invalidateTiles(rest);
     int zl = std::clamp(static_cast<int>(std::ceil(std::log2(std::max(camera.zoom, 1e-6)) - 1e-9)), -12, 8);
-    invalidateTiles(imageDamage, zl - 2, true);
+    invalidateTiles(imageDamage, zl - 2);
   }
   tiles_.prefetchAt = 0;
   // The level a zoom's tiles are drawn at: the power of two at or above it (never blurrier than the zoom).
@@ -3104,9 +3104,7 @@ bool Renderer::rasterTile(const Document& doc, const TileCoord& t, const Color& 
   if (!tileKey(t, key)) return false;
   constexpr uint32_t kPerRow = kAtlasSize / kTileSize, kPerAtlas = kPerRow * kPerRow;
   uint32_t slot;
-  if (auto ex = tiles_.map.find(key); ex != tiles_.map.end()) {
-    slot = ex->second.slot;  // a stale tile drawn again in its own slot
-  } else if (!tiles_.free.empty()) {
+  if (!tiles_.free.empty()) {
     slot = tiles_.free.back();
     tiles_.free.pop_back();
   } else if (tileBytes() + static_cast<uint64_t>(kAtlasSize) * kAtlasSize * 8 <= kTileBudgetBytes) {
@@ -3207,7 +3205,7 @@ size_t Renderer::rasterTiles(const Document& doc, const std::vector<TileCoord>& 
     uint64_t key;
     if (!tileKey(t, key)) continue;
     auto it = tiles_.map.find(key);
-    if (it != tiles_.map.end() && !it->second.stale) {
+    if (it != tiles_.map.end()) {
       it->second.used = frame_;
       continue;
     }
@@ -3287,7 +3285,7 @@ void Renderer::composeTiles(const Camera& camera, int level, bool coarseOnly) {
   }
 }
 
-void Renderer::invalidateTiles(const std::vector<Rect>& world, int minLevel, bool keepStale) {
+void Renderer::invalidateTiles(const std::vector<Rect>& world, int minLevel) {
   if (world.empty()) return;
   const double sx = tiles_.sx > 0 ? tiles_.sx : 1, sy = tiles_.sy > 0 ? tiles_.sy : 1;
   for (auto it = tiles_.map.begin(); it != tiles_.map.end();) {
@@ -3303,10 +3301,7 @@ void Renderer::invalidateTiles(const std::vector<Rect>& world, int minLevel, boo
     Rect r{t.tx * perX - mx, t.ty * perY - my, perX + 2 * mx, perY + 2 * my};
     bool hit = false;
     for (const Rect& w : world) hit |= r.intersects(w);
-    if (hit && keepStale) {
-      it->second.stale = true;  // shown until drawn again (an image's sharper tier: the old one looks alike meanwhile)
-      ++it;
-    } else if (hit) {
+    if (hit) {
       tiles_.free.push_back(it->second.slot);
       it = tiles_.map.erase(it);
     } else {
