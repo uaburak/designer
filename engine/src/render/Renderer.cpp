@@ -1420,9 +1420,9 @@ void Renderer::drawContent(const Document& doc, uint32_t i, const NodeProps& p, 
     bool clips = p.clipsContent();
     bool grids = false;
     for (auto& g : p.rare().layoutGrids) grids |= g.visible && layoutGuides_;
-    if (rn.hasChildren || grids) {
+    if ((rn.hasChildren && lodLeaf_ != i) || grids) {
       if (clips) pushClip(doc, id, p, m);
-      drawChildren(doc, i + 1, rn.end, m, alpha);
+      if (lodLeaf_ != i) drawChildren(doc, i + 1, rn.end, m, alpha);
       if (grids) {
         // Layout guides over the frame's content (columns, rows, grid).
         for (const LayoutGrid& g : p.rare().layoutGrids) {
@@ -1529,6 +1529,18 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
   }
   Mat2x3 m = parentCss * p.transform;
   if (outlines_) return drawOutlined(doc, i, p, m);
+  // LOD: a frame or instance a few device pixels across with a fill of its own is drawn as that fill — its children
+  // are a handful of pixels on top of it (owner's B2C "Desktop" at fit: 20–27k nodes visited a frame, 21–28 ms).
+  // Not in exports, which draw at full size.
+  lodLeaf_ = UINT32_MAX;
+  if (cull_ && !exporting_ && p.isFrameLike() && tree_->nodes()[i].hasChildren &&
+      std::max(vb.w * viewport_.scaleX(), vb.h * viewport_.scaleY()) < kLodContainerPx) {
+    for (const Paint& f : p.fillPaints)
+      if (f.visible && f.opacity >= 0.5f && (f.type != PaintType::SOLID || f.color.a >= 0.5f)) {
+        lodLeaf_ = i;
+        break;
+      }
+  }
 
   // Figma's effect stage (docs/research/rea/effects.md §2.10, its render-tree builder): the content (with its inner
   // shadows) → the first visible background blur or glass, whichever comes first, under it → the drop shadows (apart
@@ -1601,6 +1613,16 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
   bool needsLayer = opacityLayer || blend || !ops.empty() || generic || !customs.empty();
   double a = alpha * p.opacity;
 
+  // A layer a few device pixels across isn't worth its offscreen pass (owner's B2C "Desktop" page at fit: 31–39
+  // layers, 600–900 draw calls, a 22–25 ms frame): its blur, shadows, group opacity and backdrop can't be told apart
+  // at that size — drawn straight, its opacity on each paint, no backdrop (not exports, which draw at full size).
+  if ((needsLayer || backdropE) && !exporting_) {
+    double dw = vb.w * viewport_.scaleX(), dh = vb.h * viewport_.scaleY();
+    if (std::max(dw, dh) < kTinyLayerPx) {
+      drawContent(doc, i, p, m, a, analytic);
+      return;
+    }
+  }
   if (backdropE) drawBackgroundBlur(doc, id, p, m, a, *backdropE, backdropE->type == EffectType::GLASS);
   if (!needsLayer) {
     drawContent(doc, i, p, m, a, analytic);

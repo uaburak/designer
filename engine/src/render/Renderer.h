@@ -538,6 +538,10 @@ class Renderer {
   // How long a full raster may take before a continuous zoom shows the cache scaled instead, and how long after
   // the last zoom change the page is drawn sharp again.
   static constexpr double kZoomRasterBudgetMs = 6;
+  // A node whose effects or group opacity would need an offscreen layer is drawn straight below this size (device px).
+  static constexpr double kTinyLayerPx = 24;
+  // A frame or instance with a fill smaller than this (device px) is drawn as its fill alone (LOD).
+  static constexpr double kLodContainerPx = 4;
   // A continuous zoom shows the scaled cache only past this full draw (drawn at the zoom's half resolution,
   // CanvasController.zoomResolution) — below it every zoom frame is drawn sharp, as Figma does.
   static constexpr double kZoomScaledCacheMs = 12;
@@ -909,6 +913,7 @@ class Renderer {
   // The content cache (renderCached).
   bool cacheEnabled_ = false;
   bool exporting_ = false;
+  uint32_t lodLeaf_ = UINT32_MAX;  // the node drawNode found too small to draw its children (LOD)
   struct ContentCache {
     gfx::TargetId target = 0, spare = 0;  // the pixels, and the other one (shifts ping-pong)
     int w = 0, h = 0;
