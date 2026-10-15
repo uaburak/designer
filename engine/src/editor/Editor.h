@@ -8,6 +8,8 @@
 // tools/ToolController.
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <functional>
 #include <limits>
 #include <map>
@@ -572,12 +574,13 @@ class Editor : private LayoutHost, public TextLayouts {
     // DRAW_TOOL_SAMPLED (round 7b, docs/draw.md §4.5): ⌘-click with the Pencil or the Brush — each a JSON object
     // (DrawToolSampled without its type).
     std::vector<std::string> drawSampled;
+    bool pathTool = false;  // PATH_TOOL: Simplify vector / Offset path opened, changed or closed
     bool selection = false, camera = false, tool = false, cursor = false, hover = false, undo = false,
          structure = false, pages = false, currentPage = false, textEdit = false, vectorEdit = false, paintEdit = false,
          navigation = false;
     bool any() const {
       return !colorPicks.empty() || !inlineEdits.empty() || !annotationOpens.empty() || !measurementEdits.empty() || !statusClicks.empty() || measurementSelection ||
-             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !prototypeSelected.empty() || !gridTracks.empty() || !renames.empty() || haptics != 0 || !drawSampled.empty() || !nodes.empty() || !components.empty() || !collections.empty() ||
+             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !prototypeSelected.empty() || !gridTracks.empty() || !renames.empty() || haptics != 0 || !drawSampled.empty() || pathTool || !nodes.empty() || !components.empty() || !collections.empty() ||
              !variables.empty() || !styles.empty() || selection || camera || tool || cursor || hover || undo || structure || pages ||
              currentPage || textEdit || vectorEdit || paintEdit || navigation;
     }
@@ -657,6 +660,23 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<geom::WidthPoint> vectorWidthPoints() const;
   int vectorWidthSelected() const { return vector_.widthSelected; }
   void endVectorEdit();
+  // Simplify vector and Offset path as Figma's tools (editor/PathTools.cpp; docs/research/rea/vector.md §8, §10;
+  // SimplifyVectorTsApi / OffsetPath): one vector-editable layer (not in multi-edit); every change previews live — the
+  // step stays open and is written again from the layer as it was — Apply commits it as one undo step, Cancel (Esc,
+  // undo) restores the layer. While one is open the canvas takes no clicks and commands wait (zoom aside); Enter
+  // applies and Esc cancels. Each change reports PATH_TOOL.
+  enum class PathTool : uint8_t { NONE, SIMPLIFY, OFFSET };
+  bool pathToolEnabled(PathTool kind) const;
+  Status pathToolBegin(PathTool kind);
+  // {threshold} (Simplify: −2…3, tolerance 10^−threshold node px) or {offset, join: "MITER" | "ROUND"} (Offset path:
+  // within [minOffset, maxOffset]).
+  Status pathToolSet(const json::Value& v);
+  Status pathToolApply();
+  void pathToolCancel();
+  PathTool pathTool() const { return pathTool_.kind; }
+  // {active, kind, node, threshold, offset, join, minOffset, maxOffset} (PATH_TOOL, engine_path_tool).
+  void writePathToolState(json::Writer& w) const;
+  static double simplifyTolerance(double threshold) { return std::pow(10.0, -std::clamp(threshold, -2.0, 3.0)); }
   bool vectorEditing() const { return vector_.node != kNoGuid; }
   Guid vectorNode() const { return vector_.node; }
   Status setVectorTool(VectorTool t);
@@ -1336,8 +1356,15 @@ class Editor : private LayoutHost, public TextLayouts {
   bool vectorJoinable() const;
   Status vectorJoin(bool smooth);
   Status vectorSplit();
-  Status vectorSimplify(double amount);
+  // Simplify vector within `tolerance` node px (each target in one step); Offset vector by `amount` (+ grows).
+  Status vectorSimplify(double tolerance);
   Status vectorOffset(double amount, StrokeJoin join);
+  // Their parts, shared with the tools (editor/PathTools.cpp): `net` with the points whose removal keeps the path
+  // within `tolerance` merged away (false: nothing to remove); the result written (in vector edit mode, its network);
+  // one layer offset (false: nothing to write).
+  bool simplifyNetwork(geom::VectorNetwork& net, double tolerance) const;
+  void writeSimplified(Guid id, const geom::VectorNetwork& net);
+  bool writeOffset(Guid id, double amount, StrokeJoin join);
   // A layer written as a VECTOR with `net` (node space): shapes become VECTORs (same GUID), as Flatten makes them.
   void writeAsVector(Guid id, const geom::VectorNetwork& net);
   // Edit › Set default properties (this session only, as live Figma): a new layer of a type takes the look last set
@@ -1620,6 +1647,20 @@ class Editor : private LayoutHost, public TextLayouts {
   uint32_t drawCommandState(CommandId id) const;
   std::vector<Guid> drawTargets(const CommandArgs& args) const;
   Status createTextPath(Guid src, double tValue, bool replace, Guid* made);
+  // Simplify vector / Offset path (editor/PathTools.cpp): the open tool, its layer and values, and — in vector edit
+  // mode — the edit's state to restore before each preview.
+  struct PathToolState {
+    PathTool kind = PathTool::NONE;
+    Guid node = kNoGuid;
+    bool editing = false;
+    geom::VectorNetwork net;
+    std::vector<uint32_t> selVerts, selSegs;
+    int penFrom = -1;
+    bool pendingType = false;
+    double threshold = 3, offset = 0, minOffset = 0, maxOffset = 0;
+    StrokeJoin join = StrokeJoin::MITER;
+  } pathTool_;
+  Status pathToolPreview();
   void drawStrokeProps(NodeProps& p, bool brush);  // a new Pencil / Brush stroke: the tool's colour, weight and style
   // A brush applied to a stroke (SET_STROKE_BRUSH, the Brush tool): Figma's {base, ...the BRUSH node's own settings,
   // ...`user`} (3187.min.js @3366400, docs/research/rea/vector.md §5), clamped; the scatter or stretch settings as the

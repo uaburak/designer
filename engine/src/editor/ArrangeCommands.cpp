@@ -444,12 +444,106 @@ Status Editor::vectorSplit() {
   return OK;
 }
 
-Status Editor::vectorSimplify(double amount) {
-  // help.figma.com "Simplify a vector path": fewer points, the shape kept; `amount` (0…1) how far a merged curve may
-  // stray from the path — up to 5 % of the layer's longer side (the slider's scale is unverified).
+bool Editor::simplifyNetwork(VectorNetwork& net, double tol) const {
+  if (net.segments.size() < 2) return false;
+  // Each segment's samples of the original path (from its start to its end).
+  std::vector<std::vector<Vec2>> samples(net.segments.size());
+  for (uint32_t s = 0; s < net.segments.size(); s++) {
+    Vec2 c[4];
+    controls(net, s, net.segments[s].start, c);
+    samples[s].push_back(c[0]);
+    sampleCubic(c, samples[s]);
+  }
+  std::vector<bool> alive(net.segments.size(), true);
+  std::set<uint32_t> dropVerts;
+  bool merged = true;
+  while (merged) {
+    merged = false;
+    for (uint32_t v = 0; v < net.vertices.size(); v++) {
+      if (dropVerts.count(v)) continue;
+      auto segs = incidentSegments(net, v, &alive);
+      if (segs.size() != 2 || segs[0] == segs[1]) continue;
+      const VNSegment sa = net.segments[segs[0]], sb = net.segments[segs[1]];
+      uint32_t u = sa.start == v ? sa.end : sa.start, w = sb.start == v ? sb.end : sb.start;
+      if (u == v || w == v || u == w) continue;
+      // The run u → v → w, and its samples in that order.
+      std::vector<Vec2> pts;
+      auto add = [&](uint32_t s, bool forwards) {
+        std::vector<Vec2> p = samples[s];
+        if (!forwards) std::reverse(p.begin(), p.end());
+        pts.insert(pts.end(), pts.empty() ? p.begin() : p.begin() + 1, p.end());
+      };
+      add(segs[0], sa.end == v);
+      add(segs[1], sb.start == v);
+      Vec2 ca[4], cb[4];
+      controls(net, segs[0], u, ca);
+      controls(net, segs[1], w, cb);
+      Vec2 fit[4];
+      double err = 0;
+      bool lines = sa.isLine() && sb.isLine();
+      if (lines) {
+        fit[0] = fit[1] = net.vertices[u].p;
+        fit[2] = fit[3] = net.vertices[w].p;
+        err = 0;
+        for (const Vec2& p : pts) {
+          Vec2 ab = fit[3] - fit[0];
+          double len = ab.length();
+          double d = len > 1e-12 ? std::fabs((p.x - fit[0].x) * ab.y - (p.y - fit[0].y) * ab.x) / len : (p - fit[0]).length();
+          err = std::max(err, d);
+        }
+      } else {
+        fitCubic(pts, leaving(ca), leaving(cb), fit, err);
+      }
+      if (err > tol) continue;
+      VNSegment seg{u, w, lines ? Vec2{} : fit[1] - fit[0], lines ? Vec2{} : fit[2] - fit[3], sa.styleID};
+      net.segments.push_back(seg);
+      alive.push_back(true);
+      samples.push_back(pts);
+      uint32_t added = static_cast<uint32_t>(net.segments.size() - 1);
+      alive[segs[0]] = alive[segs[1]] = false;
+      for (auto& r : net.regions)
+        for (auto& loop : r.loops)
+          for (size_t i = 0; i < loop.size(); i++)
+            if (loop[i] == segs[0] || loop[i] == segs[1]) {
+              size_t j = (i + 1) % loop.size();
+              if (loop[j] == segs[0] || loop[j] == segs[1]) {
+                loop[i] = added;
+                loop.erase(loop.begin() + static_cast<long>(j));
+              } else if (i == 0 && (loop.back() == segs[0] || loop.back() == segs[1])) {
+                loop[0] = added;
+                loop.pop_back();
+              }
+              break;
+            }
+      dropVerts.insert(v);
+      merged = true;
+    }
+  }
+  if (dropVerts.empty()) return false;
+  std::set<uint32_t> dropSegs;
+  for (uint32_t s = 0; s < alive.size(); s++)
+    if (!alive[s]) dropSegs.insert(s);
+  net = compacted(net, dropVerts, dropSegs);
+  return true;
+}
+
+void Editor::writeSimplified(Guid id, const VectorNetwork& net) {
+  if (vector_.node == id) {
+    vector_.selVerts.clear();
+    vector_.selSegs.clear();
+    vector_.penFrom = -1;
+    vector_.net = writeVector(id, net, doc_.get(id)->props.transform);
+    vector_.pendingType = false;
+  } else {
+    writeAsVector(id, net);
+  }
+}
+
+Status Editor::vectorSimplify(double tol) {
+  // help.figma.com "Simplify a vector path": fewer points, the shape kept within `tol` node px (Figma's tool:
+  // 10^−threshold, rea/vector.md §8; the tool itself is editor/PathTools.cpp).
   std::vector<Guid> ids = vectorTargets();
   if (ids.empty() || busy()) return E_INVALID;
-  amount = std::clamp(amount, 0.0, 1.0);
   bool editing = vector_.node != kNoGuid;
   struct Result {
     Guid id;
@@ -461,148 +555,68 @@ Status Editor::vectorSimplify(double amount) {
     bool convert = false;
     if (editing && id == vector_.node) net = vector_.net;
     else if (!networkOf(id, net, convert)) continue;
-    if (net.segments.size() < 2) continue;
-    Rect b = net.bounds();
-    double tol = amount * 0.05 * std::max({b.w, b.h, 1.0});
-    // Each segment's samples of the original path (from its start to its end).
-    std::vector<std::vector<Vec2>> samples(net.segments.size());
-    for (uint32_t s = 0; s < net.segments.size(); s++) {
-      Vec2 c[4];
-      controls(net, s, net.segments[s].start, c);
-      samples[s].push_back(c[0]);
-      sampleCubic(c, samples[s]);
-    }
-    std::vector<bool> alive(net.segments.size(), true);
-    std::set<uint32_t> dropVerts;
-    bool merged = true;
-    while (merged) {
-      merged = false;
-      for (uint32_t v = 0; v < net.vertices.size(); v++) {
-        if (dropVerts.count(v)) continue;
-        auto segs = incidentSegments(net, v, &alive);
-        if (segs.size() != 2 || segs[0] == segs[1]) continue;
-        const VNSegment sa = net.segments[segs[0]], sb = net.segments[segs[1]];
-        uint32_t u = sa.start == v ? sa.end : sa.start, w = sb.start == v ? sb.end : sb.start;
-        if (u == v || w == v || u == w) continue;
-        // The run u → v → w, and its samples in that order.
-        std::vector<Vec2> pts;
-        auto add = [&](uint32_t s, bool forwards) {
-          std::vector<Vec2> p = samples[s];
-          if (!forwards) std::reverse(p.begin(), p.end());
-          pts.insert(pts.end(), pts.empty() ? p.begin() : p.begin() + 1, p.end());
-        };
-        add(segs[0], sa.end == v);
-        add(segs[1], sb.start == v);
-        Vec2 ca[4], cb[4];
-        controls(net, segs[0], u, ca);
-        controls(net, segs[1], w, cb);
-        Vec2 fit[4];
-        double err = 0;
-        bool lines = sa.isLine() && sb.isLine();
-        if (lines) {
-          fit[0] = fit[1] = net.vertices[u].p;
-          fit[2] = fit[3] = net.vertices[w].p;
-          err = 0;
-          for (const Vec2& p : pts) {
-            Vec2 ab = fit[3] - fit[0];
-            double len = ab.length();
-            double d = len > 1e-12 ? std::fabs((p.x - fit[0].x) * ab.y - (p.y - fit[0].y) * ab.x) / len : (p - fit[0]).length();
-            err = std::max(err, d);
-          }
-        } else {
-          fitCubic(pts, leaving(ca), leaving(cb), fit, err);
-        }
-        if (err > tol) continue;
-        VNSegment seg{u, w, lines ? Vec2{} : fit[1] - fit[0], lines ? Vec2{} : fit[2] - fit[3], sa.styleID};
-        net.segments.push_back(seg);
-        alive.push_back(true);
-        samples.push_back(pts);
-        uint32_t added = static_cast<uint32_t>(net.segments.size() - 1);
-        alive[segs[0]] = alive[segs[1]] = false;
-        for (auto& r : net.regions)
-          for (auto& loop : r.loops)
-            for (size_t i = 0; i < loop.size(); i++)
-              if (loop[i] == segs[0] || loop[i] == segs[1]) {
-                size_t j = (i + 1) % loop.size();
-                if (loop[j] == segs[0] || loop[j] == segs[1]) {
-                  loop[i] = added;
-                  loop.erase(loop.begin() + static_cast<long>(j));
-                } else if (i == 0 && (loop.back() == segs[0] || loop.back() == segs[1])) {
-                  loop[0] = added;
-                  loop.pop_back();
-                }
-                break;
-              }
-        dropVerts.insert(v);
-        merged = true;
-      }
-    }
-    if (dropVerts.empty()) continue;
-    std::set<uint32_t> dropSegs;
-    for (uint32_t s = 0; s < alive.size(); s++)
-      if (!alive[s]) dropSegs.insert(s);
-    results.push_back({id, compacted(net, dropVerts, dropSegs)});
+    if (simplifyNetwork(net, tol)) results.push_back({id, std::move(net)});
   }
   if (results.empty()) return E_INVALID;
   begin(TxnKind::USER, "Simplify vector");
-  for (Result& r : results) {
-    if (editing && r.id == vector_.node) {
-      vector_.selVerts.clear();
-      vector_.selSegs.clear();
-      vector_.penFrom = -1;
-      vector_.net = writeVector(r.id, r.net, doc_.get(r.id)->props.transform);
-      vector_.pendingType = false;
-    } else {
-      writeAsVector(r.id, r.net);
-    }
-  }
+  for (Result& r : results) writeSimplified(r.id, r.net);
   commit();
   if (editing) vectorChanged();
   return OK;
 }
 
-Status Editor::vectorOffset(double amount, StrokeJoin join) {
+bool Editor::writeOffset(Guid id, double amount, StrokeJoin join) {
   // help.figma.com "Offset a vector path": the outline grown by `amount` (positive) or shrunk (negative), with square
-  // (miter) or round joins; an open path becomes its outline at that distance (unverified).
+  // (miter) or round joins; an open path becomes its outline at that distance (unverified), a variable-width stroke's
+  // following its width points (Figma's outlineStrokeForOffsetVWS, rea/vector.md §10).
+  const double tol = 0.02;
+  const NodeGeometry* g = doc_.geometry(id);
+  if (!g || amount == 0) return false;
+  const NodeProps p = doc_.get(id)->props;
+  geom::StrokeStyle style;
+  style.width = 2 * std::fabs(amount);
+  style.join = join;
+  style.miterLimit = 4;
+  style.cap = join == StrokeJoin::ROUND ? StrokeCap::ROUND : StrokeCap::SQUARE;
+  geom::Path fill;
+  for (auto& f : g->fills) fill.append(f.path);
+  geom::Path shape;
+  bool closed = !fill.empty() && !g->hasOpenEnds;
+  if (closed) {
+    geom::Path ring = geom::strokePath(fill, style, tol);
+    std::vector<geom::Operand> ops{{fill, g->fills.empty() ? WindingRule::NONZERO : g->fills[0].windingRule}, {ring, WindingRule::NONZERO}};
+    shape = geom::booleanOp(ops, amount > 0 ? BooleanOperation::UNION : BooleanOperation::SUBTRACT, tol);
+  } else if (!g->stroke.path.empty()) {
+    std::vector<geom::WidthPoint> profile = widthProfileAllowed(p) ? widthPointsOf(p) : std::vector<geom::WidthPoint>{};
+    if (!profile.empty()) style.profile = &profile;
+    shape = geom::simplify(geom::strokePath(g->stroke.path, style, tol), WindingRule::NONZERO, tol);
+  }
+  if (shape.empty()) return false;
+  VectorNetwork net = geom::networkFromPath(shape, WindingRule::NONZERO);
+  if (!closed) {
+    // The outline of an open path is filled with its stroke's paint.
+    NodeChange c = NodeChange::changed(id);
+    c.mask = F_FILLS | F_STROKES;
+    c.props.fillPaints = p.strokePaints;
+    c.props.strokePaints.clear();
+    if (hasWidthPoints(p)) {
+      c.mask |= F_EXTRA;
+      c.props.extra["variableWidthPoints"] = "";  // the stroke it shaped is gone
+    }
+    write(c);
+  }
+  writeAsVector(id, net);
+  return true;
+}
+
+Status Editor::vectorOffset(double amount, StrokeJoin join) {
   std::vector<Guid> ids = vectorTargets();
   if (ids.empty() || busy() || amount == 0) return E_INVALID;
   if (vector_.node != kNoGuid) endVectorEdit();
   begin(TxnKind::USER, "Offset vector");
-  const double tol = 0.02;
   std::vector<Guid> done;
-  for (Guid id : ids) {
-    const NodeGeometry* g = doc_.geometry(id);
-    if (!g) continue;
-    const NodeProps p = doc_.get(id)->props;
-    geom::StrokeStyle style;
-    style.width = 2 * std::fabs(amount);
-    style.join = join;
-    style.miterLimit = 4;
-    style.cap = join == StrokeJoin::ROUND ? StrokeCap::ROUND : StrokeCap::SQUARE;
-    geom::Path fill;
-    for (auto& f : g->fills) fill.append(f.path);
-    geom::Path shape;
-    bool closed = !fill.empty() && !g->hasOpenEnds;
-    if (closed) {
-      geom::Path ring = geom::strokePath(fill, style, tol);
-      std::vector<geom::Operand> ops{{fill, g->fills.empty() ? WindingRule::NONZERO : g->fills[0].windingRule}, {ring, WindingRule::NONZERO}};
-      shape = geom::booleanOp(ops, amount > 0 ? BooleanOperation::UNION : BooleanOperation::SUBTRACT, tol);
-    } else if (!g->stroke.path.empty()) {
-      shape = geom::simplify(geom::strokePath(g->stroke.path, style, tol), WindingRule::NONZERO, tol);
-    }
-    if (shape.empty()) continue;
-    VectorNetwork net = geom::networkFromPath(shape, WindingRule::NONZERO);
-    if (!closed) {
-      // The outline of an open path is filled with its stroke's paint.
-      NodeChange c = NodeChange::changed(id);
-      c.mask = F_FILLS | F_STROKES;
-      c.props.fillPaints = p.strokePaints;
-      c.props.strokePaints.clear();
-      write(c);
-    }
-    writeAsVector(id, net);
-    done.push_back(id);
-  }
+  for (Guid id : ids)
+    if (writeOffset(id, amount, join)) done.push_back(id);
   if (done.empty()) {
     commit();
     return E_INVALID;
@@ -686,7 +700,17 @@ Status Editor::arrangeCommand(CommandId id, const CommandArgs& args) {
       return vectorJoin(v && v->isBool() && v->boolean);
     }
     case CommandId::VECTOR_SPLIT: return vectorSplit();
-    case CommandId::VECTOR_SIMPLIFY: return vectorSimplify(number("amount", 0.5));
+    case CommandId::VECTOR_SIMPLIFY: {
+      // Figma's threshold (−2…3, tolerance 10^−threshold node px); else ours from round 10: `amount` 0…1, up to 5 %
+      // of the layer's longer side.
+      if (const json::Value* t = args.raw.isObject() ? args.raw.get("threshold") : nullptr; t && t->isNumber())
+        return vectorSimplify(simplifyTolerance(t->number));
+      double amount = std::clamp(number("amount", 0.5), 0.0, 1.0);
+      double side = 1;
+      for (Guid id : vectorTargets())
+        if (const Node* n = doc_.get(id)) side = std::max({side, n->props.size.x, n->props.size.y});
+      return vectorSimplify(amount * 0.05 * side);
+    }
     case CommandId::VECTOR_OFFSET: {
       StrokeJoin join = StrokeJoin::MITER;
       if (const json::Value* v = args.raw.isObject() ? args.raw.get("join") : nullptr; v && v->isString() && v->string == "ROUND") join = StrokeJoin::ROUND;
@@ -736,8 +760,9 @@ uint32_t Editor::arrangeCommandState(CommandId id) const {
       }
       return 0;
     }
-    case CommandId::VECTOR_SIMPLIFY:
-    case CommandId::VECTOR_OFFSET: return vectorTargets().empty() ? 0 : CMD_ENABLED;
+    // Figma's tools' rule (rea/vector.md §8, §10): one vector-editable layer, not in multi-edit (the menu opens the tool).
+    case CommandId::VECTOR_SIMPLIFY: return pathToolEnabled(PathTool::SIMPLIFY) ? CMD_ENABLED : 0;
+    case CommandId::VECTOR_OFFSET: return pathToolEnabled(PathTool::OFFSET) ? CMD_ENABLED : 0;
     case CommandId::SET_DEFAULT_PROPERTIES: return canSetDefaultProperties() ? CMD_ENABLED : 0;
     case CommandId::SET_SPELLING_MARKS: return text_.node != kNoGuid ? CMD_ENABLED : 0;
     default: return 0;
