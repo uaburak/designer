@@ -2202,7 +2202,7 @@ ENG_EXPORT int32_t engine_component_info(Handle h, Ptr refPtr, uint32_t refLen) 
     w.endObject();
   }
   w.key("canPush").boolean(info.canPush).key("canReset").boolean(info.canReset).key("canDetach").boolean(info.canDetach);
-  w.key("isExposed").boolean(info.isExposed).key("mainDeleted").boolean(info.mainDeleted);
+  w.key("isExposed").boolean(info.isExposed).key("mainDeleted").boolean(info.mainDeleted).key("canExpose").boolean(info.canExpose);
   w.key("instanceCount").number(info.instanceCount);
   w.endObject();
   return setResult(w.take());

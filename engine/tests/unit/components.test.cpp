@@ -1291,3 +1291,194 @@ TEST_CASE("components: a variant pasted, ⌘D'd and ⌥-dragged — in its set a
   CHECK(!e.document().has(out));
   CHECK(e.document().children(FR).empty());
 }
+
+// ---- R17 REA batch A (docs/research/rea/components.md tasks 1, 3, 5, 6, 11) ---------------------------------------
+
+TEST_CASE("components: Figma's single-text rule — a swap carries the one text to the one text") {
+  auto nodes = baseChanges();
+  const Guid A{7, 1}, AT{7, 2}, B{7, 3}, BT{7, 4}, B2{7, 5}, B2T{7, 6}, B2S{7, 7}, IA{7, 10};
+  nodes.push_back(make(A, NodeType::SYMBOL, kPage, "!", {0, 0, 100, 40}, "A"));
+  nodes.push_back(textNode(AT, A, "!", {0, 0, 100, 20}, "Label"));
+  nodes.push_back(make(B, NodeType::SYMBOL, kPage, "\"", {200, 0, 100, 40}, "B"));
+  nodes.push_back(textNode(BT, B, "!", {0, 0, 100, 20}, "Title"));
+  nodes.push_back(make(B2, NodeType::SYMBOL, kPage, "#", {400, 0, 100, 40}, "B2"));
+  nodes.push_back(textNode(B2T, B2, "!", {0, 0, 100, 20}, "Title"));
+  nodes.push_back(textNode(B2S, B2, "\"", {0, 20, 100, 20}, "Subtitle"));
+  nodes.push_back(instanceOf(IA, A, kPage, "$", {0, 100, 100, 40}));
+  Editor e = load(nodes);
+  REQUIRE(e.setProps({sub(IA, {AT})}, change(F_TEXT_DATA, [](NodeProps& p) { p.text().textData.characters = "Hello"; }), 0) == OK);
+  e.setSelection({IA});
+  // A (one text "Label") → B (one text "Title"): Title shows Hello (live: "Title:Hello").
+  REQUIRE(e.command(CommandId::SWAP_INSTANCE, args("{\"main\":\"7:3\"}")) == OK);
+  CHECK(props(e, sub(IA, {BT})).text().textData.characters == "Hello");
+  CHECK(hasOverride(e, IA, {BT}, F_TEXT_DATA));
+  // A → B2 (two texts): nothing moves.
+  e.command(CommandId::UNDO);
+  CHECK(props(e, IA).comp().symbolData.symbolID == A);
+  e.setSelection({IA});
+  REQUIRE(e.command(CommandId::SWAP_INSTANCE, args("{\"main\":\"7:5\"}")) == OK);
+  CHECK(props(e, sub(IA, {B2T})).text().textData.characters == "Title");
+  CHECK(props(e, sub(IA, {B2S})).text().textData.characters == "Subtitle");
+  CHECK(props(e, IA).comp().symbolData.overrides.empty());
+}
+
+TEST_CASE("components: the single-text rule on a variant switch, both ways") {
+  auto nodes = baseChanges();
+  const Guid A{8, 1}, B{8, 2}, AT{8, 3}, BT{8, 4};
+  nodes.push_back(make(A, NodeType::FRAME, kPage, "!", {0, 0, 100, 40}, "Button/Primary"));
+  nodes.push_back(make(B, NodeType::FRAME, kPage, "\"", {0, 60, 100, 40}, "Button/Secondary"));
+  nodes.push_back(textNode(AT, A, "!", {0, 0, 100, 20}, "Label"));
+  nodes.push_back(textNode(BT, B, "!", {0, 0, 100, 20}, "Caption"));
+  Editor e = load(nodes);
+  e.setSelection({A, B});
+  REQUIRE(e.command(CommandId::CREATE_COMPONENT, args("{\"mode\":\"SET\"}")) == OK);
+  const Guid inst{8, 50};
+  e.applyChanges({instanceOf(inst, A, kPage, "z", {300, 0, 100, 40})}, APPLY_USER);
+  REQUIRE(e.setProps({sub(inst, {AT})}, change(F_TEXT_DATA, [](NodeProps& p) { p.text().textData.characters = "Go"; }), 0) == OK);
+  e.setSelection({inst});
+  REQUIRE(e.command(CommandId::SET_COMPONENT_PROPERTY, args("{\"prop\":\"Property 2\",\"value\":\"Secondary\"}")) == OK);
+  CHECK(props(e, inst).comp().symbolData.symbolID == B);
+  CHECK(props(e, sub(inst, {BT})).text().textData.characters == "Go");
+  REQUIRE(e.command(CommandId::SET_COMPONENT_PROPERTY, args("{\"prop\":\"Property 2\",\"value\":\"Primary\"}")) == OK);
+  CHECK(props(e, sub(inst, {AT})).text().textData.characters == "Go");
+}
+
+TEST_CASE("components: Push changes — Figma's enable rule; property values become the defaults; instances inside mains push") {
+  auto nodes = propertyButtonDoc();
+  const Guid CARD{5, 1}, NB{5, 5};
+  NodeChange card = make(CARD, NodeType::SYMBOL, kPage, "#", {300, 0, 200, 100}, "Card");
+  card.props.fillPaints.clear();
+  nodes.push_back(card);
+  nodes.push_back(instanceOf(NB, M, CARD, "!", {10, 10, 100, 40}));
+  Editor e = load(nodes);
+  ComponentInfo info;
+  // A new name alone: nothing to push.
+  REQUIRE(e.setProps({I}, change(F_NAME, [](NodeProps& p) { p.name = "Renamed"; }), 0) == OK);
+  REQUIRE(e.componentInfo(I, info));
+  CHECK(!info.canPush);
+  // A layout-only change (a sublayer's size): still nothing.
+  REQUIRE(e.setProps({sub(I, {BG})}, change(F_SIZE, [](NodeProps& p) { p.size = {60, 30}; }), 0) == OK);
+  REQUIRE(e.componentInfo(I, info));
+  CHECK(!info.canPush);
+  e.setSelection({I});
+  CHECK(e.commandState(CommandId::PUSH_CHANGES_TO_MAIN) == 0);
+  // A property value alone enables it; pushing makes it the default.
+  REQUIRE(e.command(CommandId::SET_COMPONENT_PROPERTY, args("{\"prop\":\"Label\",\"value\":\"Buy\"}")) == OK);
+  REQUIRE(e.componentInfo(I, info));
+  CHECK(info.canPush);
+  REQUIRE(e.command(CommandId::PUSH_CHANGES_TO_MAIN) == OK);
+  const ComponentPropDef* txt = nullptr;
+  for (const ComponentPropDef& d : props(e, M).comp().componentPropDefs)
+    if (d.id == TXT) txt = &d;
+  REQUIRE(txt);
+  CHECK(txt->initialValue.textValue.characters == "Buy");
+  CHECK(props(e, I).comp().componentPropAssignments.empty());
+  CHECK(props(e, sub(I, {LABEL})).text().textData.characters == "Buy");
+  CHECK(props(e, sub(NB, {LABEL})).text().textData.characters == "Buy");
+  // An instance inside a main is a primary instance too.
+  REQUIRE(e.setProps({sub(NB, {BG})}, change(F_FILLS, [](NodeProps& p) { p.fillPaints = {Paint::solid(Color::hex(0x00FF00))}; }), 0) == OK);
+  REQUIRE(e.componentInfo(NB, info));
+  CHECK(info.canPush);
+  e.setSelection({NB});
+  REQUIRE(e.command(CommandId::PUSH_CHANGES_TO_MAIN) == OK);
+  CHECK(props(e, BG).fillPaints[0].color == Color::hex(0x00FF00));
+}
+
+TEST_CASE("components: exposing a nested instance — Figma's preconditions, every connected copy in one step") {
+  auto nodes = propertyButtonDoc();
+  const Guid CARD{5, 1}, NB{5, 5}, PLAIN{5, 6}, ICON{5, 20}, SLOT{5, 7}, INSLOT{5, 8};
+  NodeChange card = make(CARD, NodeType::FRAME, kPage, "#", {300, 0, 300, 200}, "Card");
+  card.props.fillPaints.clear();
+  nodes.push_back(card);
+  nodes.push_back(instanceOf(NB, M, CARD, "!", {10, 10, 100, 40}));
+  // A main without properties: nothing to expose.
+  nodes.push_back(make(ICON, NodeType::SYMBOL, kPage, "$", {700, 0, 16, 16}, "Icon"));
+  nodes.push_back(instanceOf(PLAIN, ICON, CARD, "\"", {150, 10, 16, 16}));
+  // An instance in a slot can't be exposed.
+  NodeChange slot = make(SLOT, NodeType::FRAME, CARD, "#", {10, 100, 200, 80}, "Slot");
+  slot.props.comp().isSlot = true;
+  nodes.push_back(slot);
+  nodes.push_back(instanceOf(INSLOT, M, SLOT, "!", {0, 0, 100, 40}));
+  Editor e = load(nodes);
+  e.setSelection({CARD});
+  REQUIRE(e.command(CommandId::CREATE_COMPONENT) == OK);
+  // A set: the new variant copies the card, its layers keep their keys.
+  e.setSelection({CARD});
+  REQUIRE(e.command(CommandId::ADD_VARIANT) == OK);
+  Guid set = e.document().parentOf(CARD);
+  REQUIRE(props(e, set).isComponentSet());
+  Guid copy = kNoGuid;
+  for (Guid v : e.document().children(set))
+    if (v != CARD)
+      for (Guid k : e.document().children(v))
+        if (props(e, k).type == NodeType::INSTANCE && props(e, k).keyOf(k) == NB) copy = k;
+  REQUIRE(copy != kNoGuid);
+  ComponentInfo info;
+  REQUIRE(e.componentInfo(NB, info));
+  CHECK(info.canExpose);
+  REQUIRE(e.componentInfo(PLAIN, info));
+  CHECK(!info.canExpose);
+  REQUIRE(e.componentInfo(INSLOT, info));
+  CHECK(!info.canExpose);
+  e.setSelection({PLAIN});
+  CHECK(e.commandState(CommandId::SET_EXPOSED_INSTANCE) == 0);
+  CHECK(e.command(CommandId::SET_EXPOSED_INSTANCE, args("{\"exposed\":true}")) == E_INVALID);
+  e.setSelection({INSLOT});
+  CHECK(e.command(CommandId::SET_EXPOSED_INSTANCE, args("{\"exposed\":true}")) == E_INVALID);
+  // The Button: exposed in both variants at once, and back in one undo.
+  e.setSelection({NB});
+  REQUIRE(e.commandState(CommandId::SET_EXPOSED_INSTANCE) == CMD_ENABLED);
+  REQUIRE(e.command(CommandId::SET_EXPOSED_INSTANCE, args("{\"exposed\":true}")) == OK);
+  CHECK(props(e, NB).comp().propsAreBubbled);
+  CHECK(props(e, copy).comp().propsAreBubbled);
+  e.command(CommandId::UNDO);
+  CHECK(!props(e, NB).comp().propsAreBubbled);
+  CHECK(!props(e, copy).comp().propsAreBubbled);
+  // Stopping from the other variant stops both.
+  e.command(CommandId::REDO);
+  CHECK(props(e, copy).comp().propsAreBubbled);
+  e.setSelection({copy});
+  REQUIRE(e.command(CommandId::SET_EXPOSED_INSTANCE, args("{\"exposed\":false}")) == OK);
+  CHECK(!props(e, NB).comp().propsAreBubbled);
+  CHECK(!props(e, copy).comp().propsAreBubbled);
+}
+
+TEST_CASE("components: default names of new properties — Figma's 'name' / 'name N+1', a base per type") {
+  CHECK(defaultPropertyName({}, "Slot") == "Slot");
+  CHECK(defaultPropertyName({"Slot"}, "Slot") == "Slot 2");
+  CHECK(defaultPropertyName({"Slot", "Slot 2"}, "Slot") == "Slot 3");
+  CHECK(defaultPropertyName({"Slot 3"}, "Slot") == "Slot 4");
+  CHECK(defaultPropertyName({"Slot 1"}, "Slot") == "Slot 2");
+  CHECK(defaultPropertyName({"Slots", "Slot x", "Text"}, "Slot") == "Slot");
+  Editor e = load(buttonDoc());
+  auto names = [&]() {
+    std::vector<std::string> out;
+    for (const ComponentPropDef& d : props(e, M).comp().componentPropDefs) out.push_back(d.name);
+    return out;
+  };
+  e.setSelection({M});
+  REQUIRE(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"TEXT\"}")) == OK);
+  REQUIRE(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"TEXT\"}")) == OK);
+  REQUIRE(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"INSTANCE_SWAP\"}")) == OK);
+  REQUIRE(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"BOOLEAN\"}")) == OK);
+  // A boolean bound to one layer takes its name.
+  REQUIRE(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"BOOLEAN\",\"bind\":[\"1:3\"]}")) == OK);
+  CHECK(names() == std::vector<std::string>{"Text", "Text 2", "Instance", "Boolean", "Label"});
+}
+
+TEST_CASE("components: detaching an instance of a library main records the asset (assetRef), not the copy's GUID") {
+  auto nodes = buttonDoc();
+  for (NodeChange& n : nodes)
+    if (n.guid == M) {
+      n.props.asset().sourceLibraryKey = "lib-1";
+      n.props.asset().key = "17783905cbcf00ce0eee033580ceaf656044bf91";
+      n.props.asset().version = "305:76";
+    }
+  Editor e = load(nodes);
+  e.setSelection({I});
+  REQUIRE(e.command(CommandId::DETACH_INSTANCE) == OK);
+  const AssetId& d = props(e, I).comp().detachedSymbolId;
+  CHECK(d.guid == kNoGuid);
+  CHECK(d.key == "17783905cbcf00ce0eee033580ceaf656044bf91");
+  CHECK(d.version == "305:76");
+}
