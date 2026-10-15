@@ -206,7 +206,7 @@ struct VOut {
     local = mix(a.a_box.xy - pad, a.a_box.zw + pad, corner);
   } else {
     let size = a.a_origin.zw;
-    let grow = select(select(a.a_geom.y, 0.0, kind == 3), 3.0 * a.a_geom.x, kind == 2);
+    let grow = select(select(a.a_geom.y, 0.0, kind == 3), a.a_geom.x, kind == 2);  // a drop shadow: its blur radius
     let pad = vec2f(grow) + vec2f(2.0 / sx, 2.0 / sy);
     local = mix(-pad, size + pad, corner);
   }
@@ -363,36 +363,36 @@ fn sdEllipse(p: vec2f, r0: vec2f) -> f32 {
   return select(-min(r.x, r.y), k0 * (k0 - 1.0) / k1, k1 > 0.0);
 }
 
-fn gaussian(x: f32, sigma: f32) -> f32 { return exp(-(x * x) / (2.0 * sigma * sigma)) / (2.50662827463 * sigma); }
-fn erf2(x0: vec2f) -> vec2f {
-  let s = sign(x0);
-  let a = abs(x0);
-  var x = 1.0 + (0.278393 + (0.230389 + 0.078108 * (a * a)) * a) * a;
-  x *= x;
-  return s - s / (x * x);
+fn tentCdf(h: f32) -> f32 {
+  if (h < -1.0) { return 0.0; }
+  if (h < 0.0) { return 0.5 * (h + 1.0) * (h + 1.0); }
+  if (h < 1.0) { return 1.0 - 0.5 * (1.0 - h) * (1.0 - h); }
+  return 1.0;
 }
-fn shadowX(x: f32, y: f32, sigma: f32, corner: f32, halfSize: vec2f) -> f32 {
+fn shadowX(x: f32, y: f32, R: f32, corner: f32, halfSize: vec2f) -> f32 {
   let delta = min(halfSize.y - corner - abs(y), 0.0);
   let curved = halfSize.x - corner + sqrt(max(0.0, corner * corner - delta * delta));
-  let integral = 0.5 + 0.5 * erf2((x + vec2f(-curved, curved)) * (0.70710678 / sigma));
-  return integral.y - integral.x;
+  return tentCdf((x + curved) / R) - tentCdf((x - curved) / R);
 }
-fn boxShadow(lo: vec2f, hi: vec2f, r: vec4f, p: vec2f, sigma: f32, px: f32) -> f32 {
+fn boxShadow(lo: vec2f, hi: vec2f, r: vec4f, p: vec2f, R: f32, px: f32) -> f32 {
   let c = (lo + hi) * 0.5;
   let h = max((hi - lo) * 0.5, vec2f(0.0));
   let q = p - c;
   var corner = select(select(r.x, r.w, q.y > 0.0), select(r.y, r.z, q.y > 0.0), q.x > 0.0);
   corner = clamp(corner, 0.0, min(h.x, h.y));
-  if (sigma < 0.05 * px) { return clamp(0.5 - sdRoundedBox(q, h, vec4f(corner)) / px, 0.0, 1.0); }
+  if (R < 0.1 * px) { return clamp(0.5 - sdRoundedBox(q, h, vec4f(corner)) / px, 0.0, 1.0); }
+  if (corner <= 0.0) {
+    return (tentCdf((q.x + h.x) / R) - tentCdf((q.x - h.x) / R)) * (tentCdf((q.y + h.y) / R) - tentCdf((q.y - h.y) / R));
+  }
   let low = q.y - h.y;
   let high = q.y + h.y;
-  let start = clamp(-3.0 * sigma, low, high);
-  let end = clamp(3.0 * sigma, low, high);
+  let start = clamp(-R, low, high);
+  let end = clamp(R, low, high);
   let stp = (end - start) / 4.0;
   var y = start + stp * 0.5;
   var value = 0.0;
   for (var i = 0; i < 4; i++) {
-    value += shadowX(q.x, q.y - y, sigma, corner, h) * gaussian(y, sigma) * stp;
+    value += shadowX(q.x, q.y - y, R, corner, h) * max(0.0, 1.0 - abs(y) / R) / R * stp;
     y += stp;
   }
   return value;
@@ -688,7 +688,7 @@ fn roundClip(d: vec2f) -> f32 {
 }
 )";
 
-// ---- Blur: separable Gaussian, dilate, erode (gl/Shaders.h kBlurVertex, kBlurFragment) ----
+// ---- Blur: separable tent, dilate, erode (gl/Shaders.h kBlurVertex, kBlurFragment) ----
 inline constexpr const char* kBlur = R"(
 @group(1) @binding(0) var t0: texture_2d<f32>;
 @group(1) @binding(1) var s0: sampler;
@@ -704,14 +704,17 @@ inline constexpr const char* kBlur = R"(
   let dir = u.v[2].xy / sz;
   let mode = i32(u.v[2].w + 0.5);
   if (mode == 0) {
-    let sigma = max(u.v[2].z, 1e-3);
-    let n = min(i32(ceil(3.0 * sigma)), 48);
-    var sum = vec4f(0.0);
-    var total = 0.0;
-    for (var i = -n; i <= n; i++) {
-      let w = exp(-f32(i * i) / (2.0 * sigma * sigma));
-      sum += textureSampleLevel(t0, s0, uv + dir * f32(i), 0.0) * w;
-      total += w;
+    let R = clamp(u.v[2].z, 1e-3, 64.0);
+    var sum = textureSampleLevel(t0, s0, uv, 0.0) * R;
+    var total = R;
+    for (var i = 1; i <= 64; i += 2) {
+      let w1 = max(R - f32(i), 0.0);
+      let w2 = max(R - f32(i + 1), 0.0);
+      let w = w1 + w2;
+      if (w <= 0.0) { break; }
+      let o = dir * (f32(i) + w2 / w);
+      sum += (textureSampleLevel(t0, s0, uv + o, 0.0) + textureSampleLevel(t0, s0, uv - o, 0.0)) * w;
+      total += 2.0 * w;
     }
     let c = sum / total;
     let d = fract(52.9829189 * fract(dot(glFragCoord(pos), vec2f(0.06711056, 0.00583715))));

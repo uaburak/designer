@@ -619,7 +619,7 @@ class Renderer {
     Vec2 offset;  // device px
     bool knockout = false;
     gfx::IRect rect;  // Composite: the quad; BackdropBlur: the region (device px, canvas space)
-    double sigma = 0;  // BackdropBlur: device px
+    double blurRadius = 0;  // BackdropBlur: device px
     // Blit (the content cache onto the canvas): the texture, where its top-left lands (device px), texels per
     // device px, its height in texels.
     // Composite modes 5–7 (progressive blur, noise, texture): uniform slots 16–19 (gfx/gl/Shaders.h).
@@ -637,7 +637,7 @@ class Renderer {
     gfx::IRect rect;           // device px, canvas space
     std::vector<Cmd> cmds;
     int copyOf = -1;           // a copy of another layer (then blurred: shadows)
-    double blur = 0;           // σ in device px, applied after drawing
+    double blurRadius = 0;     // the tent blur's radius in device px, applied after drawing
     double morph = 0;          // + dilate / − erode, device px, before the blur
     bool executed = false;
     // Execution: where its pixels ended up.
@@ -663,17 +663,17 @@ class Renderer {
     bool busy = false;
     uint64_t lastUsed = 0;
   };
-  // A background blur's (or glass's) copy of the backdrop, blurred: one level, or a progressive blur's levels (σ
-  // ascending; the shape is drawn once per interval between two, each pixel by the one its σ falls in).
+  // A background blur's (or glass's) copy of the backdrop, blurred: one level, or a progressive blur's levels (radii
+  // ascending; the shape is drawn once per interval between two, each pixel by the one its radius falls in).
   static constexpr int kMaxBlurLevels = 8;
   struct BackdropBlur {
     enum class Kind : uint8_t { Plain, Progressive, Glass } kind = Kind::Plain;
     int count = 1;
-    double sigmas[kMaxBlurLevels] = {};                    // device px
+    double radii[kMaxBlurLevels] = {};                     // blur radii, device px
     gfx::TextureId textures[kMaxBlurLevels] = {};          // set at execution
     float places[kMaxBlurLevels][4] = {};                  // x, y in window px, width, height in texels
     float fx[3][4] = {};                                   // progressive: slots 16–18 (the node's box, start / end)
-    double start = 0, end = 0;                             // progressive: σ at the start and at the end (device px)
+    double start = 0, end = 0;                             // progressive: the radius at the start and at the end (device px)
     float glass[2][4] = {};                                // glass: slots 6 and 8
   };
 
@@ -715,8 +715,8 @@ class Renderer {
   static void mergeRegions(std::vector<gfx::IRect>& regions, size_t most);
   void drawBackgroundBlur(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Effect& e,
                           bool glass = false);
-  // Layer `src` composited through a progressive blur (σ `s0` at the effect's start to `s1` at its end, device px):
-  // copies of it at levels between, each pixel from the two levels around its σ.
+  // Layer `src` composited through a progressive blur (radius `s0` at the effect's start to `s1` at its end, device px):
+  // copies of it at levels between, each pixel from the two levels around its radius.
   void progressiveComposite(int src, float opacity, BlendMode bm, gfx::IRect r, double s0, double s1, const Effect& e,
                             const Mat2x3& m, Vec2 size);
   // A PATTERN fill: its source layer tiled over the node's box, through the node's fill shape.
