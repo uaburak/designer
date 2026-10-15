@@ -336,9 +336,6 @@ TEST_CASE("content cache: a frame with nothing new composites; an edit draws its
   CHECK(s.cachedRegions == 1);  // the whole page, once
   size_t full = contentInstances(dev);
   CHECK(full >= 50);  // the 28 frames on screen and their rectangles
-  // At rest every page draws its zoom levels ahead in quiet frames (round 17 D); let them finish first.
-  for (int i = 0; i < 512 && r.wantsFrameAt() != 0; i++) r.render(d, kPage, Camera{}, kView, o, kDark);
-  contentInstances(dev);
   // Nothing changed (a hover, the caret): no content is drawn, the cache is composited.
   o.hover = {{1, 3}};
   s = r.render(d, kPage, Camera{}, kView, o, kDark);
@@ -531,8 +528,7 @@ TEST_CASE("tiles: zooming out on a slow page composites tiles instead of drawing
   // A continuous zoom out: nothing is drawn whole; the tiles (and the scaled cache where it lands) show, the
   // missing ones of the zoom's own level drawn within the interacting budget.
   o.zooming = true;
-  // (Round 17 D: the levels drawn ahead cover a zoom of 0.7 about the origin; past them a full draw is tried again.)
-  for (double z : {0.9, 0.8, 0.7}) {
+  for (double z : {0.9, 0.8, 0.7, 0.6}) {
     s = r.render(d, kPage, Camera{0, 0, z}, kView, o, kDark);
     CHECK(s.cachedRegions == 0);
     CHECK(s.stale == 1);
@@ -727,17 +723,10 @@ TEST_CASE("tiles: a tile under glass is drawn with what the glass reads past it,
   REQUIRE(dev.copyRects.size() > before);
   // Each tile it touches copies its whole backdrop (the glass and its reach on each side), as a fresh draw at that
   // zoom does; before, only the tile's slice of it, and past the tile the atlas's other tiles.
-  // (Round 17 D: the view's own level and the next zoom in's are drawn ahead too — each copy is one level's.)
-  std::vector<gfx::IRect> wants;
-  for (double z : {0.5, 1.0, 2.0}) {
-    gfx::IRect w;
-    if (freshCopy(d, Camera{0, 0, z}, w)) wants.push_back(w);
-  }
-  REQUIRE(!wants.empty());
+  gfx::IRect want;
+  REQUIRE(freshCopy(d, Camera{0, 0, 0.5}, want));
   for (size_t k = before; k < dev.copyRects.size(); k++) {
-    bool match = false;
-    for (const gfx::IRect& w : wants) match |= dev.copyRects[k].w == w.w && dev.copyRects[k].h == w.h;
-    // Never a slice of the glass's backdrop: at least the whole glass and its reach at the coarsest level.
-    CHECK((match || (dev.copyRects[k].w >= wants[0].w && dev.copyRects[k].h >= wants[0].h)));
+    CHECK(dev.copyRects[k].w == want.w);
+    CHECK(dev.copyRects[k].h == want.h);
   }
 }

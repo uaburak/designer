@@ -2833,19 +2833,11 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
     double ox = camera.x * sx - c.camX * sx * k, oy = camera.y * sy - c.camY * sy * k;
     covers = ox <= 0.5 && oy <= 0.5 && ox + W * k >= W - 0.5 && oy + H * k >= H - 0.5;
   }
-  bool zoomingNow = same && c.zoom != camera.zoom && overlay.zooming && now - c.zoomChangedAt < kZoomSettleMs;
-  int zoomLevel = std::clamp(static_cast<int>(std::ceil(std::log2(std::max(camera.zoom, 1e-6)) - 1e-9)), -12, 8);
-  // Figma's way: the levels drawn ahead at rest (below) are composited as they are while zooming — nothing is drawn
-  // again, every frame sharp (each tile is at or above the zoom) — on any page; then the page is drawn sharp once
-  // the zoom settles. Without them: the scaled cache on a page slow to draw, else a full draw each frame.
-  // (A zoom in past the warm level shows that level's tiles at most 2× up — soft, never blocky — while its own fill in.)
-  bool warm = zoomingNow && (tilesCover(camera, zoomLevel) || tilesCover(camera, zoomLevel - 1));
-  // A slow last draw holds the scaled cache for 10 frames at a time, then a full draw is tried again: deep in a zoom
-  // the view holds far less than at the zoom it started from, and draws sharp cheaply.
-  bool slowZoom = zoomingNow && (warm || (c.fullMs > kZoomScaledCacheMs && frame_ - c.fullFrame < 10));
+  bool slowZoom = same && c.zoom != camera.zoom && overlay.zooming && c.fullMs > kZoomScaledCacheMs &&
+                  now - c.zoomChangedAt < kZoomSettleMs;
   // Zooming in, the cache scaled covers the canvas; zooming out it doesn't: tiles fill in around it.
-  bool stale = slowZoom && !warm && covers;
-  bool tiled = slowZoom && (warm || !covers);
+  bool stale = slowZoom && covers;
+  bool tiled = slowZoom && !covers;
   // Tiles follow the document: whatever changed is drawn again when shown; a new page, fonts, images: start over.
   bool tilesDropped = false;
   if (tiles_.page != page || tiles_.fonts != fonts || tiles_.images != images || tiles_.sx != sx || tiles_.sy != sy ||
@@ -2885,8 +2877,7 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
   // The level a zoom's tiles are drawn at: the power of two at or above it (never blurrier than the zoom).
   int level = static_cast<int>(std::ceil(std::log2(std::max(camera.zoom, 1e-6)) - 1e-9));
   level = std::clamp(level, -12, 8);
-  // Warm tiles cover the canvas: nothing is drawn during the zoom (a tile raster is a GPU hitch); sharp when it settles.
-  if (tiled && !warm) rasterTiles(doc, visibleTiles(camera, level, 0), kTileInteractingMs, clear, clearColor);
+  if (tiled) rasterTiles(doc, visibleTiles(camera, level, 0), kTileInteractingMs, clear, clearColor);
   std::vector<gfx::IRect> regions;
   double shiftX = (camera.x - c.camX) * sx, shiftY = (camera.y - c.camY) * sy;
   if (stale || tiled) {
@@ -2953,7 +2944,6 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
     if (whole) {
       drewFull = true;
       c.fullMs = nowMs() - t0;
-      c.fullFrame = frame_;
     }
   }
   if (drewFull) {
@@ -2996,12 +2986,8 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
   if (stale || tiled) stats_.stale = 1;
   // At rest on a slow page: the next zoom out's tiles (one level coarser, twice the view around it), drawn ahead in
   // quiet frames within the idle budget; a frame is asked for while some are missing.
-  if (!slowZoom && !overlay.zooming && c.valid) {
-    // Every page (round 17 D): the view's own level, a zoom in's (one finer) and a zoom out's (one coarser, twice the
-    // view around it) — a zoom of up to 2× either way then only composites them.
-    std::vector<TileCoord> ahead = visibleTiles(camera, level, 0.25);
-    for (const TileCoord& t : visibleTiles(camera, level - 1, 0.5)) ahead.push_back(t);
-    for (const TileCoord& t : visibleTiles(camera, level + 1, -0.25)) ahead.push_back(t);
+  if (!slowZoom && !overlay.zooming && c.valid && c.fullMs > kZoomRasterBudgetMs) {
+    std::vector<TileCoord> ahead = visibleTiles(camera, level - 1, 1.0);
     size_t left = 0;
     if (regions.empty() && damage.rects.empty()) {
       left = rasterTiles(doc, ahead, kTileIdleMs, clear, clearColor);
@@ -3047,16 +3033,6 @@ std::vector<Renderer::TileCoord> Renderer::visibleTiles(const Camera& camera, in
     return da < db;
   });
   return out;
-}
-
-bool Renderer::tilesCover(const Camera& camera, int level) const {
-  std::vector<TileCoord> want = visibleTiles(camera, level, 0);
-  if (want.empty()) return false;
-  for (const TileCoord& t : want) {
-    uint64_t key;
-    if (!tileKey(t, key) || !tiles_.map.count(key)) return false;
-  }
-  return true;
 }
 
 bool Renderer::rasterTile(const Document& doc, const TileCoord& t, const Color& clear, const float clearColor[4]) {
