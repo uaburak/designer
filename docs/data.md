@@ -753,7 +753,7 @@ export interface AssetPayload { key: string; versionHash: string; message: Uint8
 Sources: drag and drop, paste, Place image (⇧⌘K via `file:pick-images`), and import.
 
 1. **Formats**: PNG, JPEG, GIF and WebP are accepted, up to 50 MB of input.
-2. **Size**: if either side exceeds **4096 px** (Figma's limit), decode with `createImageBitmap(blob, {resizeWidth, resizeHeight, resizeQuality: "high"})` to fit 4096, then re-encode with `OffscreenCanvas.convertToBlob` (PNG stays PNG; JPEG becomes JPEG at q 0.92; GIF becomes PNG of the first frame). Otherwise the **original bytes are kept untouched**. The old lossy WebP re-encode is gone.
+2. **Size**: Figma's rule (`importSize`, docs/research/rea/canvas.md §2.5) — if either side exceeds **4096 px** (Figma's limit, clamped to the GPU's texture limit) and the image's area is **at least half** the 4096² box (a 6000 × 1000 strip is kept whole; one kept that way is still fitted to the texture limit), decode with `createImageBitmap(blob, {resizeWidth, resizeHeight, resizeQuality: "high"})` to fit 4096, then re-encode with `OffscreenCanvas.convertToBlob` (PNG stays PNG; JPEG becomes JPEG at q 0.92; GIF becomes PNG of the first frame). Otherwise the **original bytes are kept untouched**. The old lossy WebP re-encode is gone.
 3. **Store**: `blobs.has` (sha1 computed with `crypto.subtle`), then `blobs.put` only if the blob is missing.
 4. **Paint**: the engine sets `image.hash` (20 bytes), `originalImageWidth` and `originalImageHeight`, and adds the sha1 to the batch's `blobRefsAdded`.
 
