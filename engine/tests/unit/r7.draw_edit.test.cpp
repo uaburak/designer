@@ -486,6 +486,58 @@ TEST_CASE("r17b scatter settings: a brush's own on install; apply writes {base, 
   CHECK(sc.get("angularJitter")->numberOr(0) == 95);
 }
 
+TEST_CASE("r17b Outline stroke of Dynamic and Brush strokes: the drawn outline (exporter::strokeOf), a Basic vector") {
+  // Dynamic: the displaced centre line, stroked — its bounds wander off the straight line's.
+  {
+    Editor e = makeEditor();
+    e.setSelection({V});
+    REQUIRE(e.command(CommandId::SET_STROKE_KIND, args(R"({"kind":"DYNAMIC","dynamic":{"frequency":2,"wiggle":5,"smoothen":0}})")) == OK);
+    const NodeProps before = props(e, V);
+    exporter::Stroke s = exporter::strokeOf(e.document(), V, before);
+    REQUIRE(s.outlineOnly);
+    Rect expect = exporter::strokeArea(s, exporter::fillShape(e.document(), V, before), 0.02).bounds();
+    REQUIRE(e.command(CommandId::OUTLINE_STROKE) == OK);
+    REQUIRE(e.selection().size() == 1);
+    Guid o = e.selection()[0];
+    const NodeProps& p = props(e, o);
+    CHECK(p.type == NodeType::VECTOR);
+    CHECK(p.strokePaints.empty());
+    REQUIRE(p.fillPaints.size() == 1);
+    CHECK(p.fillPaints[0].color == Color::hex(0xFF0000));
+    CHECK(extraOf(e, o, "dynamicStrokeSettings").isNull());
+    CHECK(extraOf(e, o, "strokeSeed").isNull());
+    Rect wb = e.document().worldBounds(o);
+    CHECK(near(wb.h, expect.h, 0.5));
+    CHECK(wb.h > 3.5);  // a straight line at weight 3 would be 3 high
+    e.command(CommandId::UNDO);
+    CHECK(props(e, V).type == NodeType::VECTOR);
+    CHECK(hasDynamicStroke(props(e, V)));
+  }
+  // Brush: the artwork's outline along the line (a 16 × 16 square stamped at weight 3 → 3 high), not the plain stroke.
+  {
+    Editor e = makeEditor();
+    Guid sq = installSquare(e, "Square", true);
+    e.setSelection({V});
+    REQUIRE(e.command(CommandId::SET_STROKE_BRUSH, args("{\"brush\":\"" + sq.toString() + "\",\"scatter\":{\"gap\":3}}")) == OK);
+    geom::Path drawn;
+    REQUIRE(brushStroke(e.document(), props(e, V), *e.document().geometry(V), 0.05, drawn));
+    Rect expect = drawn.bounds();
+    REQUIRE(e.command(CommandId::OUTLINE_STROKE) == OK);
+    Guid o = e.selection()[0];
+    CHECK(props(e, o).type == NodeType::VECTOR);
+    CHECK(strokeBrushOf(props(e, o)) == kNoGuid);
+    CHECK(extraOf(e, o, "scatterStrokeSettings").isNull());
+    const NodeGeometry* g = e.document().geometry(o);
+    REQUIRE(g);
+    // Gap 3: separate stamps, several closed contours (a plain stroke's outline would be one).
+    int contours = 0;
+    for (const auto& f : g->fills) geom::forEachSegment(f.path, [](Vec2) {}, [](geom::Verb, Vec2, const Vec2*) {}, [&](bool) { contours++; });
+    CHECK(contours > 1);
+    Rect wb = e.document().worldBounds(o);
+    CHECK(near(wb.w, expect.w, 0.5));
+  }
+}
+
 TEST_CASE("r17a a brush keeps width points and dashes; Basic after a brush writes -1:-1") {
   Editor e = makeEditor();
   Guid heist = installSquare(e, "Heist", false);

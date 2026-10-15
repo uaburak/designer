@@ -283,13 +283,18 @@ uint32_t Editor::commandState(CommandId id) const {
       return booleans || (!top.empty() && !derived) ? CMD_ENABLED : 0;
     }
     case CommandId::FLATTEN: {
+      // Figma (rea/vector.md §18): no instance sublayers in the selection (slot content allowed).
+      for (Guid t : selection_)
+        if (instanceSublayer(t, true)) return 0;
       for (Guid t : selection_) {
         const Node* n = doc_.get(t);
-        if (n && flattenable(n->props) && !(n->props.type == NodeType::INSTANCE && t.isDerived())) return CMD_ENABLED;
+        if (n && flattenable(n->props)) return CMD_ENABLED;
       }
       return 0;
     }
     case CommandId::OUTLINE_STROKE: {
+      for (Guid t : selection_)
+        if (instanceSublayer(t, false)) return 0;  // every instance sublayer refused, slot content too
       for (Guid t : selection_) {
         const Node* n = doc_.get(t);
         if (!n || !(n->props.strokeWeight > 0)) continue;

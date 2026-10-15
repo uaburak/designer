@@ -494,6 +494,30 @@ TEST_CASE("round 11: Flatten on an instance is enabled (live) — it is detached
   CHECK((e.commandState(CommandId::FLATTEN) & CMD_ENABLED) != 0);
 }
 
+TEST_CASE("r17b Flatten and Outline stroke refuse instance sublayers (Figma's gates, rea/vector.md §18)") {
+  Editor e = load(buttonDoc());
+  Guid bg = sub(I, {BG});
+  REQUIRE(e.document().has(bg));
+  {
+    // A stroke on the main's background, so its instance's copy has one to outline.
+    NodeChange c = NodeChange::changed(BG);
+    c.mask = F_STROKES | F_STROKE_WEIGHT;
+    c.props.strokePaints = {Paint::solid(Color::hex(0xFF0000))};
+    c.props.strokeWeight = 2;
+    REQUIRE(e.applyChanges({c}, APPLY_USER) == OK);
+  }
+  e.setSelection({bg});
+  CHECK((e.commandState(CommandId::FLATTEN) & CMD_ENABLED) == 0);
+  CHECK((e.commandState(CommandId::OUTLINE_STROKE) & CMD_ENABLED) == 0);
+  CHECK(e.command(CommandId::FLATTEN) == E_INVALID);
+  CHECK(e.command(CommandId::OUTLINE_STROKE) == E_INVALID);
+  CHECK(props(e, bg).type == NodeType::ROUNDED_RECTANGLE);
+  // The main's own layer is no instance sublayer: both are offered.
+  e.setSelection({BG});
+  CHECK((e.commandState(CommandId::FLATTEN) & CMD_ENABLED) != 0);
+  CHECK((e.commandState(CommandId::OUTLINE_STROKE) & CMD_ENABLED) != 0);
+}
+
 TEST_CASE("round 12: Flatten on a main component — a vector takes its place; its instances keep it as a deleted main") {
   Editor e = load(buttonDoc());
   e.setSelection({M});

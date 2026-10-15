@@ -1377,6 +1377,10 @@ class Editor : private LayoutHost, public TextLayouts {
   void fillPathsOf(Guid id, const Mat2x3& toSpace, geom::Path& out, WindingRule& rule) const;
   // Can Flatten take it? Shapes, texts, groups and frames (not components; an instance is detached first).
   bool flattenable(const NodeProps& p) const;
+  // Figma's gates (docs/research/rea/vector.md §18): Flatten refuses a selection with an instance sublayer (a derived
+  // layer; slot content, the user's own layers, is allowed); Outline stroke refuses every layer inside an instance,
+  // slot content included.
+  bool instanceSublayer(Guid id, bool slotsAllowed) const;
 
   // ---- Hover, handles, gestures (tools/Gestures.cpp) ----
   // LineEnd: a line's start (hx 0) or end (hx 1) handle.
