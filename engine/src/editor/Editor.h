@@ -66,7 +66,9 @@ enum class PointerEvent : uint8_t { DOWN = 0, MOVE = 1, UP = 2, CANCEL = 3, ENTE
 enum PointerResult : uint32_t { P_HANDLED = 1, P_CAPTURE = 2 };
 enum class KeyEvent : uint8_t { DOWN = 0, UP = 1 };
 enum KeyResult : uint32_t { K_HANDLED = 1 };
-enum WheelFlags : uint32_t { WHEEL_PINCH = 1 };
+// PINCH: ctrlKey from a trackpad, or a touch pinch. TRACKPAD / MOUSE: the source by Figma's rule (TS's pointerInput.ts:
+// whole-number deltas are a trackpad's); passed through, no behaviour of its own yet (docs/research/rea/canvas.md §2.13).
+enum WheelFlags : uint32_t { WHEEL_PINCH = 1, WHEEL_TRACKPAD = 2, WHEEL_MOUSE = 4 };
 enum class DeltaMode : uint8_t { PIXEL = 0, LINE = 1, PAGE = 2 };
 
 // APPLY_SYSTEM: journaled and emitted, not an undo step (library bookkeeping); APPLY_EXACT (with APPLY_USER: Restore
@@ -279,6 +281,14 @@ class Editor : private LayoutHost, public TextLayouts {
   uint32_t key(KeyEvent type, KeyCode code, uint32_t codepoint, uint32_t mods, bool repeat);
   void modifiers(uint32_t mods);
   void blur();
+  // Figma's coalesced drags (docs/engine.md §8.4): while a gesture runs, a MOVE only keeps its position and the next
+  // tick() handles the latest one; any other input handles it first. Hover moves stay immediate. Off by default (the
+  // canvas's controller turns it on).
+  void setCoalesceMoves(bool on);
+  bool coalesceMoves() const { return coalesceMoves_; }
+  bool moveQueued() const { return queuedMove_.on; }
+  // Drag replays so far (tests): a move run again at the same pointer because it reflowed the page under the drag.
+  uint32_t dragReplays() const { return dragReplays_; }
 
   // ---- View options (View › Pixel grid, Outlines) ----
   // Round 8: VIEW_RULERS (⇧R: ruler guides shown, dragged and snapped to), VIEW_SNAP_PIXELS (Preferences › Snap to pixel
@@ -350,7 +360,7 @@ class Editor : private LayoutHost, public TextLayouts {
   // Round 15: ms until a timed piece of chrome changes (the `</>` button's tooltip), −1: none.
   int32_t chromeDelay() const;
   // Round 15: siblings sliding; round 16: the camera gliding (animateCamera).
-  bool needsFrame() const { return needsRender_ || !slides_.empty() || camAnim_.on; }
+  bool needsFrame() const { return needsRender_ || !slides_.empty() || camAnim_.on || queuedMove_.on || replayWanted_; }
   // ---- Canvas navigation (editor/CanvasNav.cpp, round 16) ----
   // The camera glides to `to` over `ms` (ease in-out; the zoom geometric and the path a zoom about a point when it is
   // one); any pan, zoom or press stops it.
@@ -1487,6 +1497,12 @@ class Editor : private LayoutHost, public TextLayouts {
   // one HAPTIC tick for a pointer move that changed them.
   std::vector<double> hapticValues() const;
   void movePointer(Vec2 s, uint32_t mods);  // pointerMove's gesture step
+  // The coalesced move, handled now (before any other input, and at tick).
+  void flushQueuedMove();
+  // Figma's drag replay: a move that reflowed the page (layout ran: siblings moved, a parent grew) is run again once at
+  // the same pointer at the next tick, so what it hit-tests (the drop target, the insertion, the marquee) sees the new
+  // layout. A newer move in that frame takes its place (the replay is elided).
+  void replayDrag();
   void hapticTick() { events_.haptics++; }
   // Opens the Move gesture for the selection's movable layers; false (nothing opened) when there are none.
   bool startMove(uint32_t mods);
@@ -1918,6 +1934,16 @@ class Editor : private LayoutHost, public TextLayouts {
   uint32_t viewOptions_ = kViewOptionsDefault;
   bool zoomHeld_ = false;  // Z held: the zoom tool (a click zooms in, ⌥ out, a drag to the area)
   uint32_t mods_ = 0;
+  bool coalesceMoves_ = false;
+  struct QueuedMove {
+    bool on = false;
+    Vec2 s;
+    uint32_t mods = 0;
+  } queuedMove_;
+  uint64_t layoutRuns_ = 0;    // reflows: layout passes that laid something out (flushLayout), flows placed (placeFlow)
+  bool replayWanted_ = false;  // the last move reflowed the page: replayDrag at the next tick
+  bool replaying_ = false;
+  uint32_t dragReplays_ = 0;
   Events events_;
   std::unordered_map<Guid, size_t, GuidHash> nodeEventIndex_;
 

@@ -415,6 +415,7 @@ void Editor::flushLayout() {
           inLayout_ = true;
           Layout(*this).run(dirty);
           inLayout_ = false;
+          layoutRuns_++;
         }
       } else {
         layoutDirty_.clear();
@@ -1380,6 +1381,14 @@ void Editor::zoomToSelection(double animateMs) {
 
 bool Editor::tick(double timeMs) {
   timeMs_ = timeMs;
+  // The frame's one move of a gesture (the latest the pointer sent since the last frame); without one, the replay of a
+  // move that reflowed the page (a newer move stands in for it).
+  if (queuedMove_.on) {
+    replayWanted_ = false;
+    flushQueuedMove();
+  } else {
+    replayDrag();
+  }
   // Round 16: the camera gliding, the scrollbars showing / fading.
   cameraTick(timeMs);
   scrollbarTick(timeMs);
@@ -1810,6 +1819,7 @@ void Editor::forgetActor(uint32_t actor) {
 // ---- Keys -------------------------------------------------------------------
 
 uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32_t mods, bool repeat) {
+  flushQueuedMove();  // a coalesced move comes before the key
   bool shift = (mods & MOD_SHIFT) != 0;
   bool primary = (mods & MOD_PRIMARY) != 0;
   if (text_.node != kNoGuid && !isModifierKey(code)) {
@@ -1943,6 +1953,7 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
 }
 
 void Editor::modifiers(uint32_t mods) {
+  flushQueuedMove();
   if (mods == mods_ && gesture_ == Gesture::None) return;
   uint32_t before = mods_;
   mods_ = mods;
@@ -1956,6 +1967,7 @@ void Editor::modifiers(uint32_t mods) {
 }
 
 void Editor::blur() {
+  queuedMove_.on = false;  // the gesture is cancelled: its last move with it
   cancelGesture();
   spaceHeld_ = false;
   zoomHeld_ = false;

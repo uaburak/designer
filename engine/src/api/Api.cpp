@@ -820,7 +820,8 @@ ENG_EXPORT uint32_t engine_pointer(Handle h, uint32_t type, double x, double y, 
   return e->editor.pointer(static_cast<PointerEvent>(type), x, y, static_cast<int>(button), buttons, mods, static_cast<int>(clickCount));
 }
 
-// deltaMode as WheelEvent's; flags PINCH (1) = ctrlKey from a trackpad.
+// deltaMode as WheelEvent's; flags PINCH (1) = ctrlKey from a trackpad (or a touch pinch), TRACKPAD (2) / MOUSE (4) the
+// source by Figma's rule (TS classifies; passed through).
 ENG_EXPORT uint32_t engine_wheel(Handle h, double x, double y, double dx, double dy, uint32_t deltaMode, uint32_t mods, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
@@ -849,6 +850,13 @@ ENG_EXPORT void engine_modifiers(Handle h, uint32_t mods) {
 ENG_EXPORT void engine_blur(Handle h) {
   Call call;
   if (Engine* e = engineOf(h)) e->editor.blur();
+}
+
+// 1: pointer moves during a gesture are handled once per engine_tick, the latest winning (Figma's coalesced drags); 0
+// (the default): each at once.
+ENG_EXPORT void engine_set_coalesce_moves(Handle h, uint32_t on) {
+  Call call;
+  if (Engine* e = engineOf(h)) e->editor.setCoalesceMoves(on != 0);
 }
 
 ENG_EXPORT int32_t engine_set_tool(Handle h, uint32_t tool) {

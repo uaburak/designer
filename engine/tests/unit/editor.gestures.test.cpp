@@ -99,6 +99,66 @@ TEST_CASE("editor: pressing ⇧ during a drag re-runs it") {
   up(e, 60, 30, MOD_SHIFT);
 }
 
+TEST_CASE("editor: coalesced moves — the frame's latest move only; other input takes it first") {
+  // A twin without coalescing gets every move at once: the end states must agree.
+  Editor once = makeEditor();
+  Editor e = makeEditor();
+  e.setCoalesceMoves(true);
+  auto same = [&]() {
+    CHECK(props(e, R1).transform.m02 == doctest::Approx(props(once, R1).transform.m02));
+    CHECK(props(e, R1).transform.m12 == doctest::Approx(props(once, R1).transform.m12));
+  };
+  // Ten moves in one frame end where one move to the last place does.
+  down(once, 20, 20);
+  move(once, 80, 47);
+  down(e, 20, 20);
+  for (int i = 1; i <= 10; i++) move(e, 20 + 6 * i, 20 + 2.7 * i);
+  CHECK(e.moveQueued());
+  CHECK(e.needsFrame());
+  CHECK(props(e, R1).transform.m02 == 10);  // not yet: the frame takes it
+  e.tick(16);
+  CHECK(!e.moveQueued());
+  same();
+  CHECK(props(e, R1).transform.m02 > 50);
+  // A move then the release in the same frame: the move first, then the drop.
+  move(once, 160, 120);
+  up(once, 160, 120);
+  move(e, 160, 120);
+  up(e, 160, 120);
+  CHECK(!e.moveQueued());
+  same();
+  CHECK(props(e, R1).transform.m02 > 120);
+  // Hover moves are never held.
+  move(e, 400, 400);
+  CHECK(!e.moveQueued());
+  // A modifier during a drag comes after the move before it (⇧ then locks the axis of the move held).
+  Vec2 at = e.camera().toScreen({props(e, R1).transform.m02 + 25, props(e, R1).transform.m12 + 25});
+  for (Editor* x : {&once, &e}) {
+    down(*x, at.x, at.y);
+    move(*x, at.x + 60, at.y + 7);
+  }
+  CHECK(e.moveQueued());
+  once.modifiers(MOD_SHIFT);
+  e.modifiers(MOD_SHIFT);
+  CHECK(!e.moveQueued());
+  same();
+  // Blur cancels the drag with its held move.
+  double before = props(once, R1).transform.m02;
+  once.blur();
+  move(e, at.x + 200, at.y + 200, MOD_SHIFT);
+  e.blur();
+  CHECK(!e.moveQueued());
+  same();
+  CHECK(props(e, R1).transform.m02 != doctest::Approx(before));
+  // Off: every move at once.
+  e.setCoalesceMoves(false);
+  down(e, at.x, at.y);
+  move(e, at.x + 60, at.y);
+  CHECK(!e.moveQueued());
+  CHECK(props(e, R1).transform.m02 > props(once, R1).transform.m02 + 30);
+  up(e, at.x + 60, at.y);
+}
+
 TEST_CASE("editor: marquee") {
   Editor e = makeEditor();
   drag(e, {450, -50}, {140, 40});  // from empty canvas over R2's corner and into TOP
@@ -276,8 +336,13 @@ TEST_CASE("editor: camera — wheel pans, pinch and ⌘ zoom around the pointer,
   CHECK(e.camera().y == -40);
   e.wheel(100, 100, 0, 3, DeltaMode::LINE, 0, 0);
   CHECK(e.camera().y == -88);
-  e.wheel(100, 100, 0, 10, DeltaMode::PIXEL, MOD_SHIFT, 0);  // ⇧: sideways
+  // ⇧ doesn't turn the wheel here: macOS does it itself, and TS swaps the axes off the Mac (pointerInput.ts).
+  e.wheel(100, 100, 10, 0, DeltaMode::PIXEL, MOD_SHIFT, WHEEL_MOUSE);
   CHECK(e.camera().x == -40);
+  e.wheel(100, 100, 0, 10, DeltaMode::PIXEL, MOD_SHIFT, WHEEL_TRACKPAD);
+  CHECK(e.camera().x == -40);
+  CHECK(e.camera().y == -98);
+  e.wheel(100, 100, 0, -10, DeltaMode::PIXEL, 0, 0);
   Vec2 before = e.camera().toWorld({200, 150});
   e.wheel(200, 150, 0, -100, DeltaMode::PIXEL, 0, WHEEL_PINCH);
   CHECK(e.camera().zoom == doctest::Approx(std::exp(1.0)));
