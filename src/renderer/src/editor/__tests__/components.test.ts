@@ -22,6 +22,7 @@ import {
   parseDerivedId,
   parseVariantName,
   propertyApiName,
+  propertyBaseName,
   renameInVariantName,
   searchAssets,
   sortedDefs,
@@ -116,6 +117,12 @@ describe("properties", () => {
     expect(bool.initialValue).toEqual({ boolValue: true });
     expect(text.initialValue).toEqual({ textValue: { characters: "Text" } });
     expect(newPropertyName([{ ...bool, name: "Property 1" }])).toBe("Property 2");
+    // Figma's rule: the base, then "base N+1" past the highest N (Slot, Slot 2, Slot 3); a base per type.
+    expect(newPropertyName([], "Slot")).toBe("Slot");
+    expect(newPropertyName([{ ...bool, name: "Slot" }], "Slot")).toBe("Slot 2");
+    expect(newPropertyName([{ ...bool, name: "Slot 3" }, { ...bool, name: "Slots" }], "Slot")).toBe("Slot 4");
+    expect(newPropertyName([{ ...bool, name: "Text 2x" }], "Text")).toBe("Text");
+    expect([propertyBaseName("BOOL", "Icon"), propertyBaseName("BOOL"), propertyBaseName("TEXT", "Label"), propertyBaseName("INSTANCE_SWAP"), propertyBaseName("SLOT"), propertyBaseName("VARIANT")]).toEqual(["Icon", "Boolean", "Text", "Instance", "Slot", "Property"]);
     expect(propertyApiName(text)).toBe("Label#1:2");
     expect(propertyApiName(variant)).toBe("State");
     expect(sortedDefs([bool, variant, text]).map((d) => d.name)).toEqual(["State", "Show icon", "Label"]);

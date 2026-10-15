@@ -924,7 +924,6 @@ export const panels: Record<string, string> = {
   "Properties": "Özellikler",
   "Properties panel": "Özellikler paneli",
   "Property": "Özellik",
-  "Property 1": "Özellik 1",
   "Property name": "Özellik adı",
   "Property name for {name}": "{name} için özellik adı",
   "Proportional lowercase/oldstyle": "Orantılı küçük harf/eski stil",
