@@ -293,10 +293,30 @@ export function sortedDefs(defs: readonly ComponentPropDef[]): ComponentPropDef[
     .map((x) => x.d);
 }
 
-/** Figma's default name for a new property of a type ("Property 1", "Property 2"… unique among `defs`). */
+/**
+ * Figma's base name for a new property of a type (docs/research/rea/components.md §2.20): a boolean bound to one
+ * layer takes the layer's name; else Boolean, Text, Instance, Slot, and Property for a variant property. The engine's
+ * ADD_COMPONENT_PROPERTY uses the same bases.
+ */
+export function propertyBaseName(type: ComponentPropType, layerName?: string): string {
+  if (type === "BOOL" && layerName?.trim()) return layerName;
+  return type === "BOOL" ? "Boolean" : type === "TEXT" ? "Text" : type === "INSTANCE_SWAP" ? "Instance" : type === "SLOT" ? "Slot" : "Property";
+}
+
+/** Figma's default name for a new property: `base` when neither it nor any "base N" is taken, else "base " + (max N, 1) + 1 — Slot, Slot 2, Slot 3. */
 export function newPropertyName(defs: readonly ComponentPropDef[], base = "Property"): string {
-  const names = new Set(defs.map((d) => d.name));
-  for (let i = 1; ; i++) if (!names.has(`${base} ${i}`)) return `${base} ${i}`;
+  let any = false;
+  let top = 1;
+  const prefix = `${base} `;
+  for (const d of defs) {
+    const name = d.name ?? "";
+    if (name === base) any = true;
+    else if (name.startsWith(prefix) && /^\d{1,9}$/.test(name.slice(prefix.length))) {
+      any = true;
+      top = Math.max(top, Number(name.slice(prefix.length)));
+    }
+  }
+  return any ? `${prefix}${top + 1}` : base;
 }
 
 /** A new definition of `type` with Figma's defaults (Boolean true, Text "Text", the given component, Variant "Default"). */

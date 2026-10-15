@@ -154,8 +154,12 @@ struct ComponentInfo {
   bool hasVariantProperties = false;
   std::vector<std::pair<std::string, std::string>> variantProperties;
   bool canPush = false, canReset = false, canDetach = false, isExposed = false, mainDeleted = false;
+  bool canExpose = false;  // a primary instance in a main that Figma lets expose its properties (canExposeInstance)
   uint32_t instanceCount = 0;
 };
+
+// Figma's default name of a new component property: `base`, else "base N+1" past the highest "base N" in `taken`.
+std::string defaultPropertyName(const std::vector<std::string>& taken, const std::string& base);
 
 // What a copy puts on the clipboard (docs/schema.md §4.1): the copied nodes as
 // CREATED with their source GUIDs, parents first; for each source parent, its
@@ -1189,6 +1193,10 @@ class Editor : private LayoutHost, public TextLayouts {
   bool isStructuralTarget(Guid parent) const;
   // Remaps an instance's overrides from one main to another (variant switch / swap; Figma's name rules).
   std::vector<SymbolOverride> remapOverrides(const std::vector<SymbolOverride>& overrides, Guid from, Guid to, bool variant) const;
+  // The path (keys) of the one TEXT layer in `symbol`'s tree, nested instances' mains included (false: none or several).
+  bool soleTextPath(Guid symbol, std::vector<Guid>& path) const;
+  // An instance's assignment of one of `main`'s SLOT properties (its slot content frame; Push changes keeps it).
+  bool isSlotAssignment(Guid main, const ComponentPropAssignment& a) const;
   // The real layer at `path` (keys) in `symbol`'s tree, following nested instances' mains (kNoGuid: none).
   Guid layerAtPath(Guid symbol, const std::vector<Guid>& path) const;
   // A nested instance showing `main` (a variant chosen by a variable, a variant or instance picked at the usage site):
@@ -1213,6 +1221,8 @@ class Editor : private LayoutHost, public TextLayouts {
   Status addVariant();
   Status detachInstance(const std::vector<Guid>& ids);
   Guid detachOne(Guid instance);
+  // What a frame detached from `main` records (detachedSymbolId): a library main's asset ref, else its GUID.
+  AssetId detachedIdOf(Guid main) const;
   Status resetOverrides(const std::vector<Guid>& ids, const std::vector<std::string>& fields);
   Status insertInstance(Guid main, const CommandArgs& args);
   Status setVariantProperties(Guid variant, const CommandArgs& args);
@@ -1227,6 +1237,10 @@ class Editor : private LayoutHost, public TextLayouts {
   Status bindComponentProperty(const std::vector<Guid>& ids, const std::string& field, const std::string& prop);
   Status restoreComponent(Guid ref);
   Status setExposedInstance(Guid ref, bool exposed);
+  // Figma's preconditions for exposing a nested instance: a primary instance in a component or set, not in a slot,
+  // whose main has properties or exposed instances of its own. `connected`: the same instance (by key) in every variant.
+  bool canExposeInstance(Guid ref) const;
+  std::vector<Guid> connectedInstances(Guid ref) const;
   Status resetSlot(Guid ref);
   // A slot inside an instance (a derived slot frame): its content frame, made on the first edit — the whole slot
   // diverges from the main then (copies of its default content), as Figma.

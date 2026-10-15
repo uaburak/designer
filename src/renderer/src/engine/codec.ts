@@ -652,6 +652,8 @@ export interface ComponentInfo {
   canDetach: boolean;
   isExposed: boolean;
   mainDeleted: boolean;
+  /** A primary instance inside a main that can expose its properties (Figma's preconditions; older builds: absent). */
+  canExpose?: boolean;
   instanceCount: number;
 }
 

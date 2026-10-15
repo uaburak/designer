@@ -63,6 +63,11 @@ describe("library usage events (docs/data.md §17.3)", () => {
   it("Detach instance counts a detach of its component", () => {
     const r = new LibraryUsageRecorder(world(), () => {});
     expect(r.onBatch("edit", [{ guid: g(50), type: "FRAME", detachedSymbolId: { guid: g(100) } }], "Detach instance")).toEqual([{ library: LIB, asset: "button", type: "component", action: "detach", count: 1 }]);
+    // A library main is recorded by its asset (Figma's assetRef): the instance's main before, else the key.
+    r.onBatch("system", [inst(51, 101)]);
+    expect(r.onBatch("edit", [{ guid: g(51), type: "FRAME", detachedSymbolId: { assetRef: { key: "chip", version: "1" } } }], "Detach instance")).toEqual([{ library: LIB, asset: "chip", type: "component", action: "detach", count: 1 }]);
+    const keyed = new LibraryUsageRecorder({ ...world(), copyByKey: (key) => Object.values(COPIES).find((c) => c.key === key) ?? null }, () => {});
+    expect(keyed.onBatch("edit", [{ guid: g(52), type: "FRAME", detachedSymbolId: { assetRef: { key: "button" } } }], "Detach instance")).toEqual([{ library: LIB, asset: "button", type: "component", action: "detach", count: 1 }]);
   });
 
   it("styles: applied (once per node and style), not on an inserted instance; detached only with the look written", () => {

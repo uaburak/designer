@@ -38,6 +38,7 @@ import {
   bindPropertyVariable,
   boundProperty,
   canAddProperty,
+  canExpose,
   clearSlot,
   deleteProperty,
   instanceInfo,
@@ -77,7 +78,9 @@ import {
   isComponentSet,
   isInstance,
   moveValue,
+  newPropertyName,
   parseDerivedId,
+  propertyBaseName,
   slotGuidelines,
   slotMax,
   slotViolations,
@@ -160,9 +163,9 @@ function renamedInstance(ed: EditorController, instance: CNode): boolean {
 export function instanceMoreMenu(ed: EditorController, instance: CNode): MenuEntry[] {
   const renamed = renamedInstance(ed, instance);
   const reset = actionItem(ed, "object.reset-all-changes", "Reset instance");
-  // (A new name alone isn't pushed: live's renamed instance has no Push changes.)
-  const pushable = instanceChanges(ed, instance).some((g) => g.fields.some((f) => f !== "name"));
-  const push = pushable && isEnabled(ed, command("object.push-changes")) ? [actionItem(ed, "object.push-changes")] : [];
+  // The engine answers whether there is something to push (Figma's rule: property values, or a change other than
+  // the name and the layout — live's renamed instance has no Push changes).
+  const push = isEnabled(ed, command("object.push-changes")) ? [actionItem(ed, "object.push-changes")] : [];
   const groups: MenuEntry[][] = [
     statusTargets(ed).length ? [{ id: "ready-for-dev", label: t("Toggle ready for dev status"), icon: ACTION_ICON["ready-for-dev"] }] : [],
     [actionItem(ed, "object.create-component"), actionItem(ed, "object.detach-instance"), { ...reset, disabled: reset.disabled && !renamed }, ...(renamed ? [{ id: "reset-name", label: t("Reset name"), icon: ACTION_ICON["reset-name"] }] : []), ...push],
@@ -652,7 +655,7 @@ export function createPropertyMenu(ed: EditorController, owner: CNode, nested: r
     ...ADD_TYPES.map((type) => ({ id: type, label: t(PROPERTY_TYPE_LABEL[type]), icon: PROPERTY_ICON[type], disabled: !canAddProperty(ed, owner, type) })),
     "-",
     { header: t("Expose properties from") },
-    { id: "submenu:nested", label: t("Nested instances"), icon: "16.instance" as IconName, disabled: !nested.length, items: nested.map((n) => ({ id: `expose:${n.guid}`, label: n.name ?? "", checked: n.propsAreBubbled === true })) },
+    { id: "submenu:nested", label: t("Nested instances"), icon: "16.instance" as IconName, disabled: !nested.length, items: nested.map((n) => ({ id: `expose:${n.guid}`, label: n.name ?? "", checked: n.propsAreBubbled === true, disabled: !canExpose(ed, n) })) },
   ];
 }
 
@@ -1036,7 +1039,7 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
         <TextInput
           label={t("Name")}
           value={name}
-          placeholder={type === "VARIANT" ? t("Property") : t("Property 1")}
+          placeholder={def ? def.name : newPropertyName(owner.componentPropDefs ?? [], propertyBaseName(type, target.mode === "create" ? target.bind?.layer.name : undefined))}
           autoFocus
           onCommit={(v) => {
             setName(v);

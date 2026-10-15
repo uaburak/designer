@@ -92,6 +92,40 @@ VariableField bindingFieldOf(ComponentPropType t) {
   }
 }
 
+// Figma's base name of a new property of a type (a boolean bound to one layer takes that layer's name instead).
+std::string defaultPropertyBase(ComponentPropType t) {
+  switch (t) {
+    case ComponentPropType::BOOL: return "Boolean";
+    case ComponentPropType::TEXT: return "Text";
+    case ComponentPropType::INSTANCE_SWAP: return "Instance";
+    case ComponentPropType::SLOT: return "Slot";
+    default: return "Property";
+  }
+}
+
+}  // namespace
+
+// Figma's rule: `base` when neither it nor any "base N" is taken, else "base " + (max(N, 1) + 1) — Slot, Slot 2, Slot 3.
+std::string defaultPropertyName(const std::vector<std::string>& taken, const std::string& base) {
+  bool any = false;
+  long long top = 1;
+  const std::string prefix = base + " ";
+  for (const std::string& n : taken) {
+    if (n == base) {
+      any = true;
+      continue;
+    }
+    if (n.size() <= prefix.size() || n.compare(0, prefix.size(), prefix) != 0) continue;
+    std::string rest = n.substr(prefix.size());
+    if (rest.size() > 9 || !std::all_of(rest.begin(), rest.end(), [](char c) { return c >= '0' && c <= '9'; })) continue;
+    any = true;
+    top = std::max(top, std::stoll(rest));
+  }
+  return any ? prefix + std::to_string(top + 1) : base;
+}
+
+namespace {
+
 bool propTypeFromName(const std::string& s, ComponentPropType& t) {
   if (s == "BOOLEAN" || s == "BOOL") return t = ComponentPropType::BOOL, true;
   if (s == "TEXT") return t = ComponentPropType::TEXT, true;
@@ -512,12 +546,17 @@ bool Editor::computeComponentInfo(Guid id, ComponentInfo& out) const {
     variantPropsOf(main);
     overridesOf(id, {}, false);
     exposedOf(id);
-    bool insideMain = false;
-    for (Guid cur = doc_.parentOf(id); doc_.has(cur); cur = doc_.parentOf(cur)) insideMain |= doc_.get(cur)->props.type == NodeType::SYMBOL;
-    out.canPush = main != kNoGuid && !out.mainSoftDeleted && !out.mainRemote && !out.mainCopied && !insideMain &&
-                  !p.comp().symbolData.overrides.empty();
+    // Push changes to main component (Figma's rule): a primary instance — on the canvas or inside a main — of a main
+    // of this file, with property values or a change to a field other than its layout and its name.
+    constexpr FieldMask kLayoutOrName = F_NAME | F_SIZE | F_PROPORTIONS_CONSTRAINED | kStackContainerFields | kStackChildFields;
+    // (A slot's assignment is the instance's own content frame, not a value a main can take as its default.)
+    bool pushable = false;
+    for (const ComponentPropAssignment& a : p.comp().componentPropAssignments) pushable |= !isSlotAssignment(main, a);
+    for (const SymbolOverride& o : p.comp().symbolData.overrides) pushable |= (o.mask & ~kLayoutOrName) != 0;
+    out.canPush = main != kNoGuid && !out.mainSoftDeleted && !out.mainRemote && !out.mainCopied && pushable;
     out.canReset = !p.comp().symbolData.overrides.empty() || !p.comp().componentPropAssignments.empty();
     out.canDetach = true;
+    out.canExpose = canExposeInstance(id);
     return true;
   }
   if (p.type == NodeType::SYMBOL) {
@@ -605,7 +644,8 @@ uint32_t Editor::componentCommandState(CommandId id) const {
       return 0;
     case CommandId::SET_EXPOSED_INSTANCE:
       return selection_.size() == 1 && !selection_[0].isDerived() && doc_.get(selection_[0])->props.type == NodeType::INSTANCE &&
-                     propOwner(doc_.parentOf(selection_[0])) != kNoGuid
+                     propOwner(doc_.parentOf(selection_[0])) != kNoGuid &&
+                     (doc_.get(selection_[0])->props.comp().propsAreBubbled || canExposeInstance(selection_[0]))
                  ? CMD_ENABLED
                  : 0;
     case CommandId::RESET_SLOT: return !selection_.empty() ? CMD_ENABLED : 0;
@@ -1041,7 +1081,7 @@ Guid Editor::detachOne(Guid R) {
   fp.type = NodeType::FRAME;
   fp.comp().symbolData = SymbolData{};
   fp.comp().componentPropAssignments.clear();
-  fp.comp().detachedSymbolId = AssetId::of(main);
+  fp.comp().detachedSymbolId = detachedIdOf(main);
   removeDerived(R);
   write(NodeChange::created(R, fp));
   std::unordered_map<Guid, Guid, GuidHash> ids{{R, R}};
@@ -1078,6 +1118,20 @@ Guid Editor::detachOne(Guid R) {
     if (from != to) derivedInfo_.erase(from);
   detachMap_ = std::move(ids);
   return R;
+}
+
+AssetId Editor::detachedIdOf(Guid main) const {
+  // A library main is named by its asset (Figma's SymbolId.assetRef {key, version}): the copy's GUID means nothing
+  // outside this file and goes when the library is updated or removed. A main of this file: its GUID.
+  const Node* mn = doc_.get(main);
+  Guid copyRoot = mn ? libraryRootOf(main) : kNoGuid;
+  if (copyRoot == kNoGuid) return AssetId::of(main);
+  const NodeProps& rp = doc_.get(copyRoot)->props;
+  AssetId a;
+  a.key = mn->props.asset().key.empty() ? rp.asset().key : mn->props.asset().key;
+  a.version = mn->props.asset().version.empty() ? rp.asset().version : mn->props.asset().version;
+  if (a.key.empty()) return AssetId::of(main);
+  return a;
 }
 
 Status Editor::detachInstance(const std::vector<Guid>& refs) {
@@ -1208,6 +1262,7 @@ Status Editor::pushChangesToMain(Guid R) {
   const Node* rn = doc_.get(R);
   Guid main = symbolOf(rn->props);
   std::vector<SymbolOverride> overrides = rn->props.comp().symbolData.overrides;
+  const std::vector<ComponentPropAssignment> assigns = rn->props.comp().componentPropAssignments;
   begin(TxnKind::USER, "Push changes to main component");
   for (const SymbolOverride& o : overrides) {
     std::vector<Guid> rest;
@@ -1251,10 +1306,40 @@ Status Editor::pushChangesToMain(Guid R) {
     }
     if (c.mask) write(c);
   }
+  // The instance's own property values become the properties' defaults (Figma pushes them too).
+  Guid owner = setOf(main) != kNoGuid ? setOf(main) : main;
+  if (!assigns.empty() && doc_.has(owner)) {
+    std::vector<ComponentPropDef> defs = doc_.get(owner)->props.comp().componentPropDefs;
+    bool changed = false;
+    for (const ComponentPropAssignment& a : assigns)
+      for (ComponentPropDef& d : defs) {
+        if (d.id != a.defID || d.type == ComponentPropType::VARIANT || d.type == ComponentPropType::SLOT) continue;
+        ComponentPropValue v = a.value;
+        if (v.empty()) codec::assignmentVarProp(a.extra, v);  // Figma's files: the value in varValue only
+        if (a.boundValue.present()) {
+          d.boundValue = a.boundValue;
+        } else if (!v.empty()) {
+          d.initialValue = v;
+          d.boundValue = VariableData{};
+        } else {
+          continue;
+        }
+        changed = true;
+      }
+    if (changed) {
+      NodeChange c = NodeChange::changed(owner);
+      c.mask = F_COMPONENT_PROP_DEFS;
+      c.props.comp().componentPropDefs = defs;
+      write(c);
+    }
+  }
   NodeChange clear = NodeChange::changed(R);
-  clear.mask = F_SYMBOL_DATA;
+  clear.mask = F_SYMBOL_DATA | F_COMPONENT_PROP_ASSIGNMENTS;
   clear.props.comp().symbolData = doc_.get(R)->props.comp().symbolData;
   clear.props.comp().symbolData.overrides.clear();
+  // A slot's content stays the instance's: its assignment names the content frame under it (a main's default can't).
+  for (const ComponentPropAssignment& a : assigns)
+    if (isSlotAssignment(main, a)) clear.props.comp().componentPropAssignments.push_back(a);
   write(clear);
   commit();
   return OK;
@@ -1332,7 +1417,14 @@ std::vector<SymbolOverride> Editor::remapOverrides(const std::vector<SymbolOverr
     }
     return cur;
   };
+  // Figma's single-text rule (FGOverrideTransferrer): the old main's one text layer and the new one's, when each has
+  // exactly one (counted through nested instances).
+  std::vector<Guid> fromText, toText;
+  const bool singleText = fromNode && soleTextPath(from, fromText) && soleTextPath(to, toText);
+  const SymbolOverride* lostText = nullptr;  // the text override on the old text layer that found no layer by key or name
   for (const SymbolOverride& o : overrides) {
+    const bool onOldText = singleText && (o.mask & F_TEXT_DATA) && o.path == fromText;
+    if (onOldText) lostText = &o;
     SymbolOverride r = o;
     Guid src = kNoGuid, dst = kNoGuid;
     if (o.path.empty()) {
@@ -1359,9 +1451,59 @@ std::vector<SymbolOverride> Editor::remapOverrides(const std::vector<SymbolOverr
       FieldMask differing = differingFields(a, b, r.mask & ~keep);
       r.mask &= ~differing;
     }
+    if (onOldText && (r.mask & F_TEXT_DATA)) lostText = nullptr;  // carried by key or by name
     if (r.mask) out.push_back(std::move(r));
   }
+  if (lostText) {
+    // The text goes to the new main's one text layer, unless something already carried a text there.
+    SymbolOverride* at = nullptr;
+    for (SymbolOverride& r : out)
+      if (r.path == toText) at = &r;
+    if (!at) {
+      SymbolOverride r;
+      r.path = toText;
+      out.push_back(std::move(r));
+      at = &out.back();
+    }
+    if (!(at->mask & F_TEXT_DATA)) {
+      at->mask |= F_TEXT_DATA;
+      at->props.text().textData = lostText->props.text().textData;
+    }
+  }
   return out;
+}
+
+bool Editor::isSlotAssignment(Guid main, const ComponentPropAssignment& a) const {
+  if (const auto* defs = defsOf(main))
+    for (const ComponentPropDef& d : *defs)
+      if (d.id == a.defID) return d.type == ComponentPropType::SLOT;
+  return false;
+}
+
+bool Editor::soleTextPath(Guid symbol, std::vector<Guid>& path) const {
+  // The one TEXT layer in `symbol`'s tree as it shows in an instance (nested instances' mains included); false when
+  // there are none or more than one.
+  int found = 0;
+  std::vector<Guid> trail;
+  auto visit = [&](auto&& self, Guid node, int depth) -> void {
+    for (Guid c : doc_.children(node)) {
+      if (found > 1) return;
+      const Node* cn = c.isDerived() ? nullptr : doc_.get(c);
+      if (!cn) continue;
+      trail.push_back(cn->props.keyOf(c));
+      if (cn->props.type == NodeType::TEXT) {
+        if (++found == 1) path = trail;
+      } else if (cn->props.type == NodeType::INSTANCE) {
+        Guid main = symbolOf(cn->props);
+        if (main != kNoGuid && depth < 16) self(self, main, depth + 1);
+      } else {
+        self(self, c, depth);
+      }
+      trail.pop_back();
+    }
+  };
+  visit(visit, symbol, 0);
+  return found == 1;
 }
 
 Status Editor::swapInstance(const std::vector<Guid>& refs, Guid main) {
@@ -1557,16 +1699,17 @@ Status Editor::addComponentProperty(Guid ref, const CommandArgs& args) {
   d.id = {sessionID_, low};
   d.type = type;
   d.name = argString(args, "name");
-  if (d.name.empty())
-    for (int i = 1;; i++) {
-      std::string candidate = "Property " + std::to_string(i);
-      bool taken = false;
-      for (auto& e : defs) taken |= e.name == candidate;
-      if (!taken) {
-        d.name = candidate;
-        break;
-      }
+  if (d.name.empty()) {
+    // Figma's default: a base per type — a boolean's is the layer it is bound to — then "base N+1" (R17 REA §2.20).
+    std::string base = defaultPropertyBase(type);
+    if (type == ComponentPropType::BOOL && arg(args, "bind")) {
+      std::vector<Guid> layers = refsArg(args, "bind");
+      if (layers.size() == 1 && doc_.has(layers[0]) && !doc_.get(layers[0])->props.name.empty()) base = doc_.get(layers[0])->props.name;
     }
+    std::vector<std::string> names;
+    for (auto& e : defs) names.push_back(e.name);
+    d.name = defaultPropertyName(names, base);
+  }
   const json::Value* dv = arg(args, "defaultValue");
   switch (type) {
     case ComponentPropType::BOOL:
@@ -1927,14 +2070,70 @@ Status Editor::restoreComponent(Guid ref) {
   return OK;
 }
 
+bool Editor::canExposeInstance(Guid ref) const {
+  const Node* n = doc_.get(ref);
+  // A primary instance in a component or a set (Figma: "only primary instances inside components").
+  if (!n || ref.isDerived() || n->props.type != NodeType::INSTANCE || propOwner(doc_.parentOf(ref)) == kNoGuid) return false;
+  // Not inside a slot (Figma: instances in slots can't be exposed).
+  for (Guid cur = doc_.parentOf(ref); doc_.has(cur); cur = doc_.parentOf(cur)) {
+    const NodeProps& p = doc_.get(cur)->props;
+    if (p.comp().isSlot || p.comp().isSlotContent) return false;
+    if (p.type == NodeType::SYMBOL || p.isComponentSet()) break;
+  }
+  // Something to expose: its main has properties, or exposed nested instances of its own.
+  Guid main = symbolOf(n->props);
+  if (main == kNoGuid) return false;
+  if (const auto* defs = defsOf(main); defs && !defs->empty()) return true;
+  bool nested = false;
+  auto visit = [&](auto&& self, Guid node) -> void {
+    for (Guid c : doc_.children(node)) {
+      const Node* cn = c.isDerived() ? nullptr : doc_.get(c);
+      if (!cn || nested) continue;
+      if (cn->props.type == NodeType::INSTANCE) nested |= cn->props.comp().propsAreBubbled;
+      else self(self, c);
+    }
+  };
+  visit(visit, main);
+  return nested;
+}
+
+std::vector<Guid> Editor::connectedInstances(Guid ref) const {
+  // The same nested instance in every variant of the set (Figma's setPropsAreBubbledForAllConnectedInstances): the
+  // instance with its effective override key in each variant (a variant copied from another keeps its layers' keys).
+  std::vector<Guid> out{ref};
+  const Node* n = doc_.get(ref);
+  Guid owner = n ? propOwner(doc_.parentOf(ref)) : kNoGuid;
+  if (owner == kNoGuid || !doc_.get(owner)->props.isComponentSet()) return out;
+  Guid key = n->props.keyOf(ref);
+  auto visit = [&](auto&& self, Guid node) -> void {
+    for (Guid c : doc_.children(node)) {
+      const Node* cn = c.isDerived() ? nullptr : doc_.get(c);
+      if (!cn) continue;
+      if (cn->props.type == NodeType::INSTANCE) {
+        if (c != ref && cn->props.keyOf(c) == key) out.push_back(c);
+      } else {
+        self(self, c);
+      }
+    }
+  };
+  for (Guid v : doc_.children(owner))
+    if (!v.isDerived() && doc_.get(v)->props.type == NodeType::SYMBOL) visit(visit, v);
+  return out;
+}
+
 Status Editor::setExposedInstance(Guid ref, bool exposed) {
   const Node* n = doc_.get(ref);
   if (!n || ref.isDerived() || n->props.type != NodeType::INSTANCE || propOwner(doc_.parentOf(ref)) == kNoGuid) return E_INVALID;
+  // Exposing follows Figma's preconditions; stopping always works (an instance exposed before keeps its way out).
+  if (exposed && !canExposeInstance(ref)) return E_INVALID;
   begin(TxnKind::USER, exposed ? "Expose properties" : "Hide properties");
-  NodeChange c = NodeChange::changed(ref);
-  c.mask = F_PROPS_ARE_BUBBLED;
-  c.props.comp().propsAreBubbled = exposed;
-  write(c);
+  for (Guid g : connectedInstances(ref)) {
+    if (doc_.get(g)->props.comp().propsAreBubbled == exposed) continue;
+    NodeChange c = NodeChange::changed(g);
+    c.mask = F_PROPS_ARE_BUBBLED;
+    c.props.comp().propsAreBubbled = exposed;
+    write(c);
+  }
   commit();
   return OK;
 }

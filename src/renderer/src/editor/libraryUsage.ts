@@ -10,7 +10,8 @@
  *   created in the same batch (a pasted frame of three instances: three; an instance nested in a pasted instance: no).
  *   An instance created inside slot content counts (its parent instance existed before). A **swap**: an existing
  *   instance's main changes to a copy of another component (a variant switch inside one set is not a swap — ours).
- * - **Component detach**: an existing node gains `detachedSymbolId` pointing at a copy and stops being an INSTANCE.
+ * - **Component detach**: an existing node gains `detachedSymbolId` pointing at a copy (by GUID, or by the copy's asset
+ *   key — what a detach of a library main records) and stops being an INSTANCE.
  * - **Style insert**: a `styleIdFor*` newly set to an org style copy, once per (node, style), not on a node inside a
  *   counted component insert (only the component counts).
  * - **Style detach**: a `styleIdFor*` that pointed at an org style copy is cleared and the matching field written in
@@ -39,6 +40,8 @@ export interface UsageCopy {
 /** What the recorder needs of the document: the org copies by GUID ("s:l"), and a node's current fields. */
 export interface UsageWorld {
   copy(guid: string): UsageCopy | null;
+  /** A copy by its asset key (a detach of a library main records the asset, not the copy's GUID) */
+  copyByKey?(key: string, type: AnalyticsAssetType): UsageCopy | null;
   /** The copies changed (an import): `copy` reads them again */
   invalidate(): void;
   /** Reads nodes as they are now (engine or kiwi shape) */
@@ -236,7 +239,11 @@ export class LibraryUsageRecorder {
         }
       }
       if (!isNew && "detachedSymbolId" in c && c.type !== undefined && c.type !== "INSTANCE") {
-        const from = copyAs(refGuid(c.detachedSymbolId), "component");
+        // A library main is recorded by its asset (assetRef {key}); a main of the file by its GUID.
+        const assetKey = ((c.detachedSymbolId as Any | undefined)?.assetRef as Any | undefined)?.key;
+        const from =
+          copyAs(refGuid(c.detachedSymbolId), "component") ??
+          (typeof assetKey === "string" ? (copyAs(prev?.symbol, "component") ?? world.copyByKey?.(assetKey, "component") ?? null) : null);
         if (from) add(g, from, "detach");
       }
       if (insideInsert(g)) continue;
@@ -325,6 +332,11 @@ export function engineUsageWorld(ed: EditorController): UsageWorld {
       build();
       missRebuilt = true;
       return map!.get(guid) ?? null;
+    },
+    copyByKey(key, type) {
+      if (!map) build();
+      for (const c of map!.values()) if (c.key === key && c.type === type) return c;
+      return null;
     },
     invalidate() {
       map = null;

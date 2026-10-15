@@ -43,6 +43,7 @@ import {
   newPropertyDef,
   newPropertyName,
   nextDefId,
+  propertyBaseName,
   overrideAt,
   parseDerivedId,
   parseVariantName,
@@ -143,6 +144,8 @@ export interface EngineComponentInfo {
   canDetach: boolean;
   isExposed: boolean;
   mainDeleted: boolean;
+  /** Figma's preconditions for exposing this (a primary instance inside a main); absent on older builds. */
+  canExpose?: boolean;
   instanceCount: number;
 }
 
@@ -695,9 +698,7 @@ export interface SlotPropertyForm {
 
 /** A new slot property's name: "Slot", then "Slot 2", "Slot 3"… (Convert to slot names them the same way). */
 export function newSlotName(defs: readonly ComponentPropDef[]): string {
-  const names = new Set(defs.map((d) => d.name));
-  if (!names.has("Slot")) return "Slot";
-  for (let i = 2; ; i++) if (!names.has(`Slot ${i}`)) return `Slot ${i}`;
+  return newPropertyName(defs, propertyBaseName("SLOT"));
 }
 
 /**
@@ -837,7 +838,7 @@ export function canAddProperty(ed: EditorController, owner: CNode, type: Compone
  * variant the default value in its name; on a lone component the engine makes it a set first (Combine as variants).
  */
 export function addProperty(ed: EditorController, owner: CNode, type: ComponentPropType, options: { name?: string; value?: ComponentPropValue; bind?: { layer: CNode; field: BindableField } } = {}): ComponentPropDef | null {
-  const name = options.name?.trim() || newPropertyName(owner.componentPropDefs ?? []);
+  const name = options.name?.trim() || newPropertyName(owner.componentPropDefs ?? [], propertyBaseName(type, options.bind?.layer.name));
   if (hasCommand(COMPONENT_COMMAND.addProperty)) {
     const before = new Set((owner.componentPropDefs ?? []).map((d) => guidStr(d.id)));
     const args: CommandArgs = { ref: owner.guid, name, type };
@@ -958,12 +959,29 @@ export function boundProperty(layer: CNode, field: BindableField, defs: readonly
 
 /** Exposes (or hides) a nested instance's properties on the component's instances ("Exposed nested instances"). */
 export function setExposed(ed: EditorController, nested: CNode, exposed: boolean): void {
-  if (engineDid(ed, COMPONENT_COMMAND.expose, { ref: nested.guid, exposed })) return;
-  ed.setProps([nested.guid], asFields({ propsAreBubbled: exposed }), exposed ? "Expose properties" : "Hide properties");
+  // The engine checks Figma's preconditions and flips every connected copy (the same instance in each variant).
+  if (hasCommand(COMPONENT_COMMAND.expose)) {
+    runEngineCommand(ed.engine, COMPONENT_COMMAND.expose, { ref: nested.guid, exposed });
+    return;
+  }
+  let set: CNode | null = null;
+  for (let p = nested.parentIndex ? readC(ed, nested.parentIndex.guid) : null, i = 0; p && i < 256; p = p.parentIndex ? readC(ed, p.parentIndex.guid) : null, i++)
+    if (isComponentSet(p)) {
+      set = p;
+      break;
+    }
+  const key = guidStr(effectiveKey(nested));
+  const connected = set ? allNestedInstances(ed, set).filter((n) => guidStr(effectiveKey(n)) === key) : [nested];
+  ed.setProps(connected.length ? connected.map((n) => n.guid) : [nested.guid], asFields({ propsAreBubbled: exposed }), exposed ? "Expose properties" : "Hide properties");
 }
 
-/** The nested instances inside a component (or a set's variants) that can expose their properties. */
-export function nestedInstancesOf(ed: EditorController, owner: CNode): CNode[] {
+/** Can this nested instance expose its properties (Figma's preconditions, the engine's answer; older builds: yes)? */
+export function canExpose(ed: EditorController, nested: CNode): boolean {
+  return nested.propsAreBubbled === true || engineInfo(ed, nested.guid)?.canExpose !== false;
+}
+
+/** Every nested instance (not inside another) in a component or in each of a set's variants. */
+function allNestedInstances(ed: EditorController, owner: CNode): CNode[] {
   const roots = isComponentSet(owner) ? variantsOf(ed, owner) : [owner];
   const out: CNode[] = [];
   for (const r of roots) {
@@ -982,6 +1000,20 @@ export function nestedInstancesOf(ed: EditorController, owner: CNode): CNode[] {
     }
   }
   return out;
+}
+
+/**
+ * The nested instances inside a component (or a set's variants) that can expose their properties — once per
+ * connected group: the same instance in each variant (one key) is one row, as Figma lists it.
+ */
+export function nestedInstancesOf(ed: EditorController, owner: CNode): CNode[] {
+  const seen = new Set<string>();
+  return allNestedInstances(ed, owner).filter((n) => {
+    const key = guidStr(effectiveKey(n));
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export function setDescription(ed: EditorController, owner: CNode, description: string): void {
