@@ -926,7 +926,15 @@ uint32_t Editor::wheel(double x, double y, double dx, double dy, DeltaMode mode,
   }
   // The pointer now sits over another part of the page: carry on whatever it was doing there.
   lastScreen_ = {x, y};
-  if (gesture_ == Gesture::None) updateHover(lastScreen_, mods);
+  // Figma: a zoom holds no hover — the layer under the pointer isn't hit-tested (nor its outline and the panels' hover
+  // redrawn) at every wheel step; the next pointer move hovers again (owner, 2026-10-15).
+  if (zoom && gesture_ == Gesture::None) {
+    if (hover_ != kNoGuid) {
+      hover_ = kNoGuid;
+      events_.hover = true;
+      needsRender_ = true;
+    }
+  } else if (gesture_ == Gesture::None) updateHover(lastScreen_, mods);
   else if (gesture_ != Gesture::Pan) pointerMove(lastScreen_, mods);
   return P_HANDLED;
 }

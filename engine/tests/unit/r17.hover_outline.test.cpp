@@ -161,3 +161,26 @@ TEST_CASE("r17 hover outline: smoothed and inverted corners along their path, an
   for (int k = 0; k < 4; k++) CHECK(o[0].box[k] == doctest::Approx(30));
   CHECK(std::fabs(o[0].linear[1]) + std::fabs(o[0].linear[2]) > 0.5);  // not axis-aligned
 }
+
+TEST_CASE("r17 hover: a zoom (pinch or ⌘-wheel) holds no hover, as Figma; a pan keeps hovering; the next move hovers again") {
+  Scene s;
+  s.move({100, 100});
+  REQUIRE(s.e.hover() == F);
+  s.e.takeEvents();
+  s.e.wheel(200, 200, 0, -10, DeltaMode::PIXEL, 0, WHEEL_PINCH);
+  CHECK(s.e.hover() == kNoGuid);
+  CHECK(s.e.takeEvents().hover);
+  CHECK(outlines(s.draw(), s.style, 200 * s.e.camera().zoom, 200 * s.e.camera().zoom).empty());
+  // Further zoom steps over the frame don't hover it.
+  s.e.wheel(200, 200, 0, -10, DeltaMode::PIXEL, MOD_META, 0);
+  CHECK(s.e.hover() == kNoGuid);
+  CHECK_FALSE(s.e.takeEvents().hover);
+  // The pointer moves: hovering again.
+  s.e.pointer(PointerEvent::MOVE, 201, 201, 0, 0, 0);
+  CHECK(s.e.hover() == F);
+  // A plain wheel pans and still hovers what comes under the pointer.
+  s.e.setCamera({100, 100, 1});
+  s.e.wheel(700, 400, 0, 20, DeltaMode::PIXEL, 0, 0);
+  s.e.wheel(150, 150, 0, 1, DeltaMode::PIXEL, 0, 0);
+  CHECK(s.e.hover() == F);
+}
