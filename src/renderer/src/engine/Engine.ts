@@ -1283,7 +1283,8 @@ export class Engine {
    */
   command(name: CommandName, args?: Readonly<Record<string, CommandArgValue>>): number {
     const status = this.x.command(this.h, CommandId[name], args ? encodeArgs(args) : null);
-    this.refusal = status === Status.OK ? null : (this.commandResult().error ?? null);
+    // (A refusal is E_INVALID; any other status — viewer mode, unsupported — names no reason.)
+    this.refusal = status === Status.E_INVALID ? (this.commandResult().error ?? null) : null;
     return this.after(status);
   }
 
@@ -1470,7 +1471,7 @@ export class Engine {
   runCommand(name: CommandName, args?: Readonly<Record<string, CommandArgValue>>): CommandResult {
     const status = this.x.command(this.h, CommandId[name], args ? encodeArgs(args) : null);
     const result = this.commandResult();
-    this.refusal = status === Status.OK ? null : (result.error ?? null);
+    this.refusal = status === Status.E_INVALID ? (result.error ?? null) : null;
     return this.after(this.refusal ? { status, created: result.created ?? [], error: this.refusal } : { status, created: result.created ?? [] });
   }
 

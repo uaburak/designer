@@ -1751,3 +1751,25 @@ TEST_CASE("components: a variant renamed by hand — its values follow its name,
   CHECK(props(e, SMALL).name == "Broken");
   CHECK(valueOf(SMALL, "Size") == "Small");
 }
+
+TEST_CASE("components: a slot's preferred values are components too; Reset properties takes a nested instance's values") {
+  Editor e = load(cardDoc());
+  e.setSelection({M});
+  // Slot settings' preferred instances (components or sets) pass the preferred-value rule; a layer doesn't.
+  REQUIRE(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"SLOT\",\"name\":\"Content\",\"preferredValues\":[\"1:20\"]}")) == OK);
+  CHECK(e.command(CommandId::EDIT_COMPONENT_PROPERTY, args("{\"prop\":\"Content\",\"preferredValues\":[\"1:2\"]}")) == E_INVALID);
+  CHECK(e.lastRefusal() == "invalid_preferred_value");
+  REQUIRE(e.command(CommandId::EDIT_COMPONENT_PROPERTY, args("{\"prop\":\"Content\",\"preferredValues\":[\"1:20\",\"1:1\"]}")) == OK);
+  // A Card instance whose nested Button has a property value of its own: Reset ▸ Properties takes it back.
+  REQUIRE(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"BOOLEAN\",\"name\":\"Shown\",\"bind\":[\"1:2\"]}")) == OK);
+  REQUIRE(e.command(CommandId::INSERT_INSTANCE, args("{\"main\":\"1:20\",\"x\":400,\"y\":400}")) == OK);
+  Guid card = e.selection()[0];
+  Guid nested = sub(card, {CARD_BUTTON});
+  REQUIRE(e.document().has(nested));
+  e.setSelection({nested});
+  REQUIRE(e.command(CommandId::SET_COMPONENT_PROPERTY, args("{\"prop\":\"Shown\",\"value\":false}")) == OK);
+  REQUIRE(hasOverride(e, card, {CARD_BUTTON}, F_COMPONENT_PROP_ASSIGNMENTS));
+  e.setSelection({card});
+  REQUIRE(e.command(CommandId::RESET_OVERRIDES, args("{\"kind\":\"PROPERTY_ASSIGNMENTS\"}")) == OK);
+  CHECK(!hasOverride(e, card, {CARD_BUTTON}, F_COMPONENT_PROP_ASSIGNMENTS));
+}

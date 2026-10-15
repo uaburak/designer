@@ -1,8 +1,9 @@
 /**
  * Refusals in Figma's words (round 17 B, docs/research/rea/components.md §2.19): the engine refuses an edit with a
  * message key (engine/src/editor/Refusals.h) — as a NOTICE event, which the editor shows as a toast (Figma's visual
- * bell), and as a command's `error`, which the plugin API throws. English is Figma's text (its Wasm and plugin
- * messages); `t` gives the Turkish.
+ * bell), and as a command's `error`, which the plugin API throws. The toast's English is Figma's text where Figma shows
+ * one (its visual bells and plugin messages), and `t` gives the Turkish; the plugin API throws Figma's Wasm wording
+ * (FIGMA_API) where that differs.
  */
 import { showToast } from "@/ds";
 import { t } from "@/i18n";
@@ -26,11 +27,21 @@ const ENGLISH: Readonly<Record<string, string>> = {
   variant_property_needs_set: "Can only add variant property to a component set",
 };
 
-/** A refusal's text in English, as the plugin API throws it (an unknown key: itself). */
-export const refusalEnglish = (key: string): string => ENGLISH[key] ?? key;
+/**
+ * Where Figma's plugin API throws its Wasm's own wording (engine/src/editor/Refusals.h), unlike the UI's text above:
+ * a plugin catching the error reads what Figma would throw.
+ */
+const FIGMA_API: Readonly<Record<string, string>> = {
+  variant_value_invalid: "Invalid component variant prop value",
+  instance_swap_default_not_component: "Default value for instance swap must be a symbol",
+  instance_swap_default_cycle: "Default backing symbol ID for instance prop will create cycle",
+};
 
-/** A refusal's text in the UI's language. */
-export const refusalMessage = (key: string): string => t(refusalEnglish(key));
+/** A refusal's text in English, as the plugin API throws it — Figma's own (an unknown key: itself). */
+export const refusalEnglish = (key: string): string => FIGMA_API[key] ?? ENGLISH[key] ?? key;
+
+/** A refusal's text in the UI's language (the toast). */
+export const refusalMessage = (key: string): string => t(ENGLISH[key] ?? key);
 
 /** Keys shown in the last moments: a drag that keeps trying the same move shows its toast once. */
 const recent = new Map<string, number>();

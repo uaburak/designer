@@ -1443,6 +1443,7 @@ ENG_EXPORT int32_t engine_command(Handle h, uint32_t commandId, Ptr argsPtr, uin
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
+  setResult("{\"created\":[]}");  // an early refusal (bad args, viewer mode) leaves no earlier command's "error" behind
   CommandArgs a;
   json::Value args;
   if (argsLen && json::parse(bytes(argsPtr, argsLen), args)) {

@@ -1260,7 +1260,7 @@ bool Editor::resetKind(const std::string& kind, ResetSpec& spec) {
   else if (kind == "OVERLAY") keys(kOverlayKeys);
   else if (kind == "SLOT_ASSIGNMENT") spec.slotAssignments = true;
   else if (kind == "VARIABLE_MODES") spec.bits |= F_VARIABLE_MODES;
-  else if (kind == "PROPERTY_ASSIGNMENTS") spec.assignments = true;
+  else if (kind == "PROPERTY_ASSIGNMENTS") spec.assignments = true, spec.bits |= F_COMPONENT_PROP_ASSIGNMENTS;  // nested instances' too
   else return false;
   return true;
 }
@@ -2434,9 +2434,11 @@ Status Editor::checkPreferredValues(Guid owner, ComponentPropType type, const Co
     Guid g = Guid::parse(e.string, &ok);
     if (!ok) continue;  // an asset key (a library's main): resolved where it is shown
     const Node* gn = doc_.get(g);
-    if (type != ComponentPropType::INSTANCE_SWAP || !gn || !(gn->props.type == NodeType::SYMBOL || gn->props.isComponentSet()))
+    // An instance swap's and a slot's (Figma's slot settings: preferred instances) — components or sets.
+    if ((type != ComponentPropType::INSTANCE_SWAP && type != ComponentPropType::SLOT) || !gn ||
+        !(gn->props.type == NodeType::SYMBOL || gn->props.isComponentSet()))
       return refuse(refusal::kPreferredInvalid);
-    mains.push_back(g);
+    if (type == ComponentPropType::INSTANCE_SWAP) mains.push_back(g);
   }
   if (reachesAny(mains, propertyHosts(owner))) return refuse(refusal::kSelfInstance);
   return OK;
