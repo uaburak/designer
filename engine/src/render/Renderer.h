@@ -706,9 +706,10 @@ class Renderer {
   double repeatScale_ = 1;
   void drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double alpha, bool inner);
   // A background blur (uniform or progressive), or glass: the backdrop copied, blurred and painted into the shape.
-  // How far past its box a background blur's (glass: `glass`) backdrop copy reaches, device px, at `scale` device px
-  // per node unit: a uniform background blur only its clamp box (blurClampBox), the others their radius (and the
-  // glass's refraction).
+  // How far past its box a background blur's (glass: `glass`) backdrop reading reaches, device px, at `scale` device px
+  // per node unit, as the content cache grows its parts (growForBackdrops): the radius (and the glass's refraction; a
+  // uniform background blur's clamp box's stroke growth too). A uniform background blur's copy itself is only its
+  // clamp box (blurClampBox).
   static double backdropReach(const NodeProps& p, const Effect& e, bool glass, double scale);
   // The box a uniform background blur is clamped to (node space): the node's box grown by an outside (its weight) or
   // centred (half) visible stroke × its miter limit, and a text's glyphs (Figma's `U`, effects.md §2.11).

@@ -822,9 +822,12 @@ double Renderer::backdropReach(const NodeProps& p, const Effect& e, bool glass, 
   double r0 = std::max(0.0, x.startRadius) * scale;
   bool progressive = !glass && x.blurOpType == BlurOpType::PROGRESSIVE && std::fabs(r0 - r1) > 0.01;
   if (!glass && !progressive) {
-    // Clamped to its box (§2.11): it reads nothing past the box's stroke growth; 2 px for the ×2 level's bilinear reads.
+    // Clamped to its box (§2.11): its copy holds only the box grown by the stroke (drawBackgroundBlur). The parts the
+    // content cache draws again still grow by the radius, as before the clamp: grown less, a pan at 200 % left a
+    // glass at the canvas's edge 8 columns off a fresh draw (engine-shot r17) — a gap of the glass's own the wider
+    // growth covers, not yet found.
     Rect b = blurClampBox(p, {});
-    return std::max({-b.x, -b.y, b.right() - p.size.x, b.bottom() - p.size.y, 0.0}) * scale + 2;
+    return std::max({-b.x, -b.y, b.right() - p.size.x, b.bottom() - p.size.y, 0.0}) * scale + std::max(r1, 0.0) + 2;
   }
   // The tent reaches exactly its radius; 2 px more for the ×2 level's bilinear fetches.
   double reach = (progressive ? std::max(r0, r1) : r1) + 2;
