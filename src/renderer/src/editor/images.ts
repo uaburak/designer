@@ -42,8 +42,11 @@ export interface ImageStore {
   watch?(listener: (hashes: string[]) => void): () => void;
 }
 
-/** Figma's import cap: an image larger than this on either side is scaled down (aspect kept). */
+/** Figma's import cap: an image larger than this on either side is scaled down (aspect kept) — see shouldDownscale. */
 export const MAX_IMAGE_SIZE = 4096;
+
+/** The texture limit assumed while the engine hasn't said its own (WebGPU's guaranteed maxTextureDimension2D). */
+export const DEFAULT_MAX_TEXTURE_SIZE = 8192;
 
 /** Figma's high-resolution threshold: an image larger than this on either side gets a low-res tier of this size. */
 export const HIGH_RES_SIZE = 512;
@@ -77,6 +80,28 @@ export function memoryImageStore(): ImageStore & { readonly size: number } {
 export function fitImageSize(width: number, height: number, max = MAX_IMAGE_SIZE): { width: number; height: number } {
   const scale = Math.min(1, max / Math.max(width, height, 1));
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+}
+
+/**
+ * Figma's decode rule (`decodeAsync`, docs/research/rea/canvas.md §2.5): an image over the box on either side is
+ * scaled to fit it — unless its area is under half the box's (a panorama or a sprite strip: 6000 × 1000 under 4096
+ * keeps its pixels).
+ */
+export function shouldDownscale(width: number, height: number, maxWidth: number, maxHeight: number): boolean {
+  if (!(width > maxWidth || height > maxHeight)) return false;
+  return !(width * height < maxWidth * maxHeight * 0.5);
+}
+
+/**
+ * The size an imported image is stored at: the 4096 cap clamped to the GPU's texture limit (Figma's
+ * clampToMaxTexture), with the half-area exception; an image the exception keeps is still fitted to the texture
+ * limit, so it can always be drawn. `maxTextureSize` 0 or absent: DEFAULT_MAX_TEXTURE_SIZE.
+ */
+export function importSize(width: number, height: number, maxTextureSize = 0): { width: number; height: number } {
+  const texture = maxTextureSize > 0 ? maxTextureSize : DEFAULT_MAX_TEXTURE_SIZE;
+  const limit = Math.min(MAX_IMAGE_SIZE, texture);
+  const out = shouldDownscale(width, height, limit, limit) ? fitImageSize(width, height, limit) : { width, height };
+  return Math.max(out.width, out.height) > texture ? fitImageSize(out.width, out.height, texture) : out;
 }
 
 /**
@@ -176,11 +201,11 @@ export async function videoPoster(file: Blob): Promise<{ blob: Blob; width: numb
 }
 
 /** A video file into the store: its bytes (`video`), and its poster frame as an image (the rest of the result). */
-export async function importVideo(file: Blob & { name?: string }, store: ImageStore): Promise<ImportedImage> {
+export async function importVideo(file: Blob & { name?: string }, store: ImageStore, opts: { maxTextureSize?: number } = {}): Promise<ImportedImage> {
   if (file.size > MAX_VIDEO_BYTES) throw new Error(t("Videos can be up to 300 MB"));
   const bytes = new Uint8Array(await file.arrayBuffer());
   const poster = await videoPoster(file);
-  const image = await importImage(Object.assign(poster.blob, { name: file.name }), store);
+  const image = await importImage(Object.assign(poster.blob, { name: file.name }), store, opts);
   const video = await store.put(bytes, file.type || "video/mp4");
   return { ...image, width: poster.width, height: poster.height, name: imageLayerName(file.name), video, duration: poster.duration };
 }
@@ -238,14 +263,17 @@ export async function deriveProgressive(bitmap: ImageBitmap, image: { hash: stri
   return { thumbHash, thumbnail };
 }
 
-/** Decodes, caps at 4096 (re-encoding only then), hashes and stores one image, with its ThumbHash and low-res tier. */
-export async function importImage(file: Blob & { name?: string }, store: ImageStore): Promise<ImportedImage> {
+/**
+ * Decodes, scales down by Figma's rule (importSize: the 4096 cap, the half-area exception, the texture limit;
+ * re-encoding only then), hashes and stores one image, with its ThumbHash and low-res tier.
+ */
+export async function importImage(file: Blob & { name?: string }, store: ImageStore, opts: { maxTextureSize?: number } = {}): Promise<ImportedImage> {
   const mime = file.type || "image/png";
   let bytes: Uint8Array = new Uint8Array(await file.arrayBuffer());
   const bitmap = await createImageBitmap(file);
   let { width, height } = bitmap;
-  if (Math.max(width, height) > MAX_IMAGE_SIZE && typeof OffscreenCanvas !== "undefined") {
-    const fit = fitImageSize(width, height);
+  const fit = importSize(width, height, opts.maxTextureSize);
+  if ((fit.width !== width || fit.height !== height) && typeof OffscreenCanvas !== "undefined") {
     const canvas = new OffscreenCanvas(fit.width, fit.height);
     canvas.getContext("2d")?.drawImage(bitmap, 0, 0, fit.width, fit.height);
     const blob = await canvas.convertToBlob({ type: mime === "image/jpeg" || mime === "image/webp" ? mime : "image/png", quality: 0.92 });
@@ -577,11 +605,12 @@ export class ImageService {
     const store = this.store;
     if (!store) return [];
     const out: ImportedImage[] = [];
+    const opts = { maxTextureSize: this.maxTextureSize() };
     const work = (async () => {
       for (const f of files) {
         if (!isMediaFile(f)) continue;
         try {
-          const img = isVideoFile(f) ? await importVideo(f, store) : await importImage(f, store);
+          const img = isVideoFile(f) ? await importVideo(f, store, opts) : await importImage(f, store, opts);
           const bytes = await store.get(img.hash);
           if (bytes) this.remember(img.hash, bytes);
           if (img.thumbnail) this.tiers.set(img.hash, img.thumbnail.hash);
@@ -594,6 +623,17 @@ export class ImageService {
     this.track(work);
     await work;
     return out;
+  }
+
+  /** The GPU's texture limit as the engine reports it (`engine_stats().maxTextureSize`); 0 when it doesn't say. */
+  private maxTextureSize(): number {
+    try {
+      const stats = engineMethod<() => Record<string, unknown>>(this.engine, "stats")?.();
+      const v = Number(stats?.maxTextureSize);
+      return Number.isFinite(v) && v > 0 ? v : 0;
+    } catch {
+      return 0;
+    }
   }
 
   private track(p: Promise<unknown>): void {
