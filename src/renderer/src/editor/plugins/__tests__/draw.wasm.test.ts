@@ -86,11 +86,12 @@ describe("plugins: the Draw API on the engine (docs/draw.md §7)", () => {
        figma.closePlugin();`
     );
     expect(logs.filter((l) => l[0] === "error")).toEqual([]);
+    // Figma (live, rea/vector.md §3): width = ascent; a dynamic stroke takes and keeps the points.
     expect(result).toEqual({
       card: { type: "DYNAMIC", frequency: 4, wiggle: 2, smoothen: 0.25 },
       width: { widthProfile: "CUSTOM", variableWidthPoints: [{ position: 0, width: 2 }, { position: 1, width: 0.5 }] },
-      refused: expect.stringMatching(/dynamic strokes/),
-      dynWidth: null,
+      refused: "",
+      dynWidth: { widthProfile: "EYE", variableWidthPoints: [{ position: 0, width: 0 }, { position: 0.5, width: 0.5 }, { position: 1, width: 0 }] },
     });
     expect((engine.readNode("1:2") as unknown as { variableWidthPoints?: unknown[] }).variableWidthPoints).toHaveLength(2);
   });

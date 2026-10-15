@@ -11,10 +11,11 @@
  */
 import type { Guid, NodeChange, NodeFields } from "@/engine/codec";
 import { Status } from "@/engine/abi";
-import { brushDisplayName, DYNAMIC_RANGE, SCATTER_BRUSH_NAMES, SCATTER_DEFAULTS, SCATTER_RANGE, STRETCH_BRUSH_NAMES, type BrushType, type DrawCommandArgs, type GuidString } from "@shared/draw/types";
+import { brushDisplayName, DYNAMIC_RANGE, REPEAT_COUNT_RANGE, SCATTER_BRUSH_NAMES, SCATTER_DEFAULTS, SCATTER_RANGE, STRETCH_BRUSH_NAMES, type BrushType, type DrawCommandArgs, type GuidString } from "@shared/draw/types";
 import { brushNameOf, complexStrokeOf, docModifiersOf, modifierToApi, repeatModifiersOf, strokeBrushOf, textPathStartOf, type ApiRepeatModifier, type DocTransformModifier } from "@shared/draw/apiShapes";
 import { BUILTIN_BRUSHES } from "@shared/draw/brushes";
-import { matchProfile, presetPoints, readWidthPoints, WIDTH_PROFILES, type WidthProfile } from "../../widthProfile";
+import { runEngineCommand } from "../../engineCompat";
+import { matchProfile, readWidthPoints, WIDTH_PROFILES } from "../../widthProfile";
 import { ApiError } from "./codec";
 import { mustNode, readNode, refOf, type ApiContext } from "./context";
 import { writeFields } from "./nodes";
@@ -94,7 +95,12 @@ export function modifierFromApi(v: unknown, path: string): DocTransformModifier 
   if (o.type !== "REPEAT") throw new ApiError(`${path}.type: invalid enum value '${String(o.type)}' (only 'REPEAT' is supported)`);
   if (o.repeatType !== "LINEAR" && o.repeatType !== "RADIAL") throw new ApiError(`${path}.repeatType: invalid enum value '${String(o.repeatType)}'`);
   if (o.unitType !== "RELATIVE" && o.unitType !== "PIXELS") throw new ApiError(`${path}.unitType: invalid enum value '${String(o.unitType)}'`);
-  if (typeof o.count !== "number" || !Number.isFinite(o.count) || o.count < 1) throw new ApiError(`${path}.count: expected a number ≥ 1`);
+  // count: an integer 2…40 with Figma's (zod) messages, e.g. "Number must be less than or equal to 40 at [0].count" (live).
+  const at = `${path.slice(path.lastIndexOf("[")) || path}.count`;
+  if (typeof o.count !== "number" || !Number.isFinite(o.count)) throw new ApiError(`Expected number, received ${o.count === null ? "null" : typeof o.count} at ${at}`);
+  if (!Number.isInteger(o.count)) throw new ApiError(`Expected integer, received float at ${at}`);
+  if (o.count < REPEAT_COUNT_RANGE[0]) throw new ApiError(`Number must be greater than or equal to ${REPEAT_COUNT_RANGE[0]} at ${at}`);
+  if (o.count > REPEAT_COUNT_RANGE[1]) throw new ApiError(`Number must be less than or equal to ${REPEAT_COUNT_RANGE[1]} at ${at}`);
   if (typeof o.offset !== "number" || !Number.isFinite(o.offset)) throw new ApiError(`${path}.offset: expected a number`);
   const out: DocTransformModifier = { type: "REPEAT", visible: true, count: Math.round(o.count), repeatType: o.repeatType, unitType: o.unitType, offset: { x: o.offset, y: 0 }, order: "FORWARD" };
   if (o.repeatType === "LINEAR") {
@@ -130,7 +136,7 @@ export function transformGroup(ctx: ApiContext, nodes: unknown, parent: unknown,
     refs: ids,
     modifier: {
       repeatType: first?.repeatType === "RADIAL" ? "RADIAL" : "LINEAR",
-      count: first?.count ?? 1,
+      count: first?.count ?? REPEAT_COUNT_RANGE[0],
       offset: first?.offset?.x ?? 0,
       unitType: first?.unitType === "RELATIVE" ? "RELATIVE" : "PIXELS",
       axis: first?.axis === "Y" ? "Y" : "X",
@@ -188,8 +194,9 @@ export function setComplexStrokeProperties(ctx: ApiContext, n: NodeChange, v: un
   const refs = [n.guid];
   if (o.type === "BASIC") return runDraw(ctx, path, "SET_STROKE_KIND", { refs, kind: "BASIC" });
   if (o.type === "DYNAMIC") {
-    // The plugin's ranges: frequency 0.01–20, wiggle ≥ 0, smoothen 0–1 (Figma gives wiggle no upper bound; ours clamps).
-    const dynamic = { frequency: rangeCheck(o, "frequency", DYNAMIC_RANGE.frequency, path), wiggle: rangeCheck(o, "wiggle", DYNAMIC_RANGE.wiggle, path, true), smoothen: rangeCheck(o, "smoothen", DYNAMIC_RANGE.smoothen, path) };
+    // The plugin's ranges: frequency 0.01–20, wiggle ≥ 0 with no upper bound (kept as given; the engine caps it for
+    // geometry), smoothen 0–1.
+    const dynamic = { frequency: rangeCheck(o, "frequency", DYNAMIC_RANGE.frequency, path), wiggle: rangeCheck(o, "wiggle", [0, Infinity], path), smoothen: rangeCheck(o, "smoothen", DYNAMIC_RANGE.smoothen, path) };
     return runDraw(ctx, path, "SET_STROKE_KIND", { refs, kind: "DYNAMIC", dynamic });
   }
   if (o.type !== "BRUSH") throw new ApiError(`${path}.type: invalid enum value '${String(o.type)}'`);
@@ -235,38 +242,47 @@ export function loadBrushes(ctx: ApiContext, type: unknown): void {
 
 // ---- Variable width ----------------------------------------------------------------------------------------------------
 
-/** node.variableWidthStrokeProperties: null for dynamic and brush strokes (Figma: not with dynamic strokes), else the profile. */
-export function variableWidthStrokeProperties(ctx: ApiContext, n: NodeChange): Obj | null {
-  if (complexStrokeProperties(ctx, n).type !== "BASIC") return null;
+/**
+ * node.variableWidthStrokeProperties, Figma's shape (live, docs/research/rea/vector.md §3): `{widthProfile,
+ * variableWidthPoints: [{position, width}]}` for every stroke kind, the points given for presets too; `width` is the
+ * point's ascent (0.5 = half the weight on each side). A reversed preset (Flip) reads as that preset.
+ */
+export function variableWidthStrokeProperties(_ctx: ApiContext, n: NodeChange): Obj {
   const points = readWidthPoints(fieldsOfNode(n).variableWidthPoints);
-  const profile = matchProfile(points);
-  if (profile !== "CUSTOM") return { widthProfile: profile };
-  return { widthProfile: "CUSTOM", variableWidthPoints: points.map((p) => ({ position: p.position, width: p.ascent + p.descent })) };
+  return { widthProfile: matchProfile(points), variableWidthPoints: points.map((p) => ({ position: p.position, width: p.ascent })) };
 }
 
 const PRESETS = new Set<string>(WIDTH_PROFILES.map((p) => p.value));
 
-/** `variableWidthStrokeProperties = …`: a preset's points or the custom ones (each split evenly about the path). */
+/**
+ * `variableWidthStrokeProperties = …`: a preset's points or the custom ones (`ascent = descent = width`, segmentId 0;
+ * CUSTOM needs at least one point), written by the engine's SET_WIDTH_PROFILE in its plugin form. Figma refuses
+ * complex (branching) networks only — not dynamic, brush or dashed strokes, which keep the points (live).
+ */
 export function setVariableWidthStrokeProperties(ctx: ApiContext, n: NodeChange, v: unknown): void {
   const path = "variableWidthStrokeProperties";
-  if (complexStrokeProperties(ctx, n).type === "DYNAMIC") throw new ApiError(`in set_${path}: Variable width strokes are not supported in combination with dynamic strokes`);
-  let points: { position: number; ascent: number; descent: number }[];
-  if (v === null) points = [];
+  let args: { refs: string[]; profile: string; plugin: true; points?: { position: number; ascent: number; descent: number }[] };
+  if (v === null) args = { refs: [n.guid], profile: "UNIFORM", plugin: true };
   else {
     const o = (v ?? {}) as Obj;
     const profile = String(o.widthProfile ?? "");
     if (profile === "CUSTOM") {
       if (!Array.isArray(o.variableWidthPoints)) throw new ApiError(`${path}.variableWidthPoints: expected an array`);
-      points = (o.variableWidthPoints as Obj[]).map((p, i) => {
+      if (!o.variableWidthPoints.length) throw new ApiError(`${path}.variableWidthPoints: a CUSTOM profile needs at least one point`);
+      const points = (o.variableWidthPoints as Obj[]).map((p, i) => {
         const position = p?.position;
         const width = p?.width;
         if (typeof position !== "number" || position < 0 || position > 1) throw new ApiError(`${path}.variableWidthPoints[${i}].position: must be between 0 and 1`);
         if (typeof width !== "number" || width < 0) throw new ApiError(`${path}.variableWidthPoints[${i}].width: must be ≥ 0`);
-        return { position, ascent: width / 2, descent: width / 2 };
+        return { position, ascent: width, descent: width };
       });
       points.sort((a, b) => a.position - b.position);
-    } else if (PRESETS.has(profile)) points = presetPoints(profile as WidthProfile);
+      args = { refs: [n.guid], profile, plugin: true, points };
+    } else if (PRESETS.has(profile)) args = { refs: [n.guid], profile, plugin: true };
     else throw new ApiError(`${path}.widthProfile: invalid enum value '${profile}'`);
   }
-  writeFields(ctx, n.guid, { variableWidthPoints: points } as unknown as NodeFields, path);
+  ctx.write();
+  const status = runEngineCommand(ctx.ed.engine, "SET_WIDTH_PROFILE", args);
+  if (status === Status.E_INVALID) throw new ApiError(`Cannot set ${path} on complex vector nodes`);
+  if (status !== Status.OK) throw new ApiError(`in set_${path}: the engine refused the change (status ${status})`);
 }
