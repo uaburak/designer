@@ -622,7 +622,7 @@ void Renderer::drawStrokePaints(const Document& doc, Guid id, const NodeProps& p
   // A variable width (round 12) goes through the stroker.
   bool variable = !p.extra.empty() && hasWidthPoints(p) && widthProfileAllowed(p);
   // Figma Draw's dynamic and brush strokes are drawn from the geometry's centre line, whatever the shape.
-  bool drawn = !p.extra.empty() && (p.extra.count("dynamicStrokeSettings") || strokeBrushOf(p) != kNoGuid);
+  bool drawn = !p.extra.empty() && (strokeBrushOf(p) != kNoGuid || hasDynamicStroke(p));
   bool sdf = !p.isPathShape() && !p.invertedCorners() && !independent && !dashedFrame && !variable && !drawn &&
              (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
   if (sdf) {

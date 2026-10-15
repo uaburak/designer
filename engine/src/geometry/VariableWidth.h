@@ -59,7 +59,8 @@ uint64_t widthPointsKey(const NodeProps& p);
 // The NodeProps::extra value for `points` (empty: the field removed).
 std::string encodeWidthPoints(const std::vector<geom::WidthPoint>& points);
 // Figma: "can't be applied to vector networks with branching paths, or to layers using a dynamic or dashed stroke".
-// Dashes and a dynamic stroke (dynamicStrokeSettings) here; branching is the network's (VectorNetwork::degrees() > 2).
+// Dashes and a dynamic stroke (dynamicSettingsOf: not Figma's neutral {1, 0, 0}) here; branching is the network's
+// (VectorNetwork::degrees() > 2). The points stay in the document either way (a kind change keeps them).
 bool widthProfileAllowed(const NodeProps& p);
 
 }  // namespace eng

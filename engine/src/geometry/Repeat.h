@@ -23,7 +23,11 @@ class Document;
 
 namespace geom {
 
-inline constexpr uint32_t kMaxRepeatCount = 1000;        // REPEAT_COUNT_RANGE (src/shared/draw/types.ts)
+inline constexpr uint32_t kMaxRepeatCount = 1000;        // what a file's count is read up to (lenient) [ours]
+// What authoring writes: Figma's plugin takes an integer 2…40 (live, docs/research/rea/vector.md §6) —
+// REPEAT_COUNT_RANGE (src/shared/draw/types.ts).
+inline constexpr uint32_t kRepeatCountMin = 2;
+inline constexpr uint32_t kRepeatCountMax = 40;
 inline constexpr size_t kMaxRepeatInstances = 10000;     // MAX_REPEAT_INSTANCES
 
 // schema TransformModifier (enums by value: TransformModifierType, RepeatType, EffectAxis, UnitType, RepeatOrder).

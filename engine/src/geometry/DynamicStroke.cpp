@@ -154,27 +154,39 @@ bool dynamicSettingsOf(const NodeProps& p, geom::DynamicSettings& out) {
   auto it = p.extra.find("dynamicStrokeSettings");
   if (it == p.extra.end() || it->second.empty()) return false;
   if (strokeBrushOf(p) != kNoGuid) return false;  // a brush stroke draws its brush
-  static std::unordered_map<std::string, geom::DynamicSettings> cache;
+  // Parsed once per distinct value; `dynamic` false for the neutral value.
+  struct Entry {
+    geom::DynamicSettings s;
+    bool dynamic = true;
+  };
+  static std::unordered_map<std::string, Entry> cache;
   auto c = cache.find(it->second);
-  if (c != cache.end()) {
-    out = c->second;
-    return true;
+  if (c == cache.end()) {
+    geom::DynamicSettings s;
+    json::Value v;
+    if (json::parse(codec::extraValueToJson("NodeChange", it->second), v) && v.isObject()) {
+      if (const json::Value* x = v.get("frequency")) s.frequency = x->numberOr(s.frequency);
+      if (const json::Value* x = v.get("wiggle")) s.wiggle = x->numberOr(s.wiggle);
+      if (const json::Value* x = v.get("smoothen")) s.smoothen = x->numberOr(s.smoothen);
+    }
+    Entry e;
+    e.dynamic = !geom::isNeutralDynamic(s);
+    // The plugin API's ranges (src/shared/draw/types.ts DYNAMIC_RANGE); wiggle has no upper bound there.
+    s.frequency = std::clamp(s.frequency, 0.01, 20.0);
+    s.wiggle = std::clamp(s.wiggle, 0.0, geom::kDynWiggleCap);
+    s.smoothen = std::clamp(s.smoothen, 0.0, 1.0);
+    e.s = s;
+    if (cache.size() > 1024) cache.clear();
+    c = cache.emplace(it->second, e).first;
   }
-  geom::DynamicSettings s;
-  json::Value v;
-  if (json::parse(codec::extraValueToJson("NodeChange", it->second), v) && v.isObject()) {
-    if (const json::Value* x = v.get("frequency")) s.frequency = x->numberOr(s.frequency);
-    if (const json::Value* x = v.get("wiggle")) s.wiggle = x->numberOr(s.wiggle);
-    if (const json::Value* x = v.get("smoothen")) s.smoothen = x->numberOr(s.smoothen);
-  }
-  // The plugin API's ranges (src/shared/draw/types.ts DYNAMIC_RANGE).
-  s.frequency = std::clamp(s.frequency, 0.01, 20.0);
-  s.wiggle = std::clamp(s.wiggle, 0.0, 100.0);
-  s.smoothen = std::clamp(s.smoothen, 0.0, 1.0);
-  if (cache.size() > 1024) cache.clear();
-  cache[it->second] = s;
-  out = s;
+  if (!c->second.dynamic) return false;
+  out = c->second.s;
   return true;
+}
+
+bool hasDynamicStroke(const NodeProps& p) {
+  geom::DynamicSettings s;
+  return dynamicSettingsOf(p, s);
 }
 
 uint64_t strokeSeedOf(const NodeProps& p) {

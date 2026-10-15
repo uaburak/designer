@@ -142,8 +142,13 @@ Guid strokeBrushOf(const NodeProps& p) {
   json::Value v;
   if (!extraJson(p, "strokeBrushGuid", v)) return kNoGuid;
   Guid g = kNoGuid;
-  if (v.isObject() && v.get("sessionID") && v.get("localID"))
-    g = Guid{static_cast<uint32_t>(v.get("sessionID")->numberOr(0)), static_cast<uint32_t>(v.get("localID")->numberOr(0))};
+  // Figma writes -1:-1 (kNoGuid) whenever a stroke becomes Dynamic or Basic: no brush (rea/vector.md §1). A
+  // negative id (a signed reader's -1) is that sentinel too.
+  auto id = [](const json::Value* x) {
+    double d = x->numberOr(-1);
+    return d < 0 || d > 4294967295.0 ? 0xffffffffu : static_cast<uint32_t>(d);
+  };
+  if (v.isObject() && v.get("sessionID") && v.get("localID")) g = Guid{id(v.get("sessionID")), id(v.get("localID"))};
   else codec::readGuid(v, g);
   return g;
 }

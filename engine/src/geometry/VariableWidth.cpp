@@ -5,6 +5,7 @@
 #include <functional>
 
 #include "base/Json.h"
+#include "geometry/DynamicStroke.h"
 #include "scene/CodecKiwi.h"
 
 namespace eng::geom {
@@ -51,27 +52,34 @@ double monotone(const std::vector<double>& x, const std::vector<double>& y, doub
 
 }  // namespace
 
+// Figma's presets (docs/research/rea/vector.md §3, live): ascent = descent, 0.5 = half the weight on each side; the
+// tapered ends are 0.1875 (a 0.375 share of the weight).
 std::vector<WidthPoint> presetPoints(WidthProfile profile) {
   switch (profile) {
-    case WidthProfile::WEDGE: return {sym(0, 1), sym(1, 0)};                        // full width → a point
-    case WidthProfile::TAPER: return {sym(0, 1), sym(1, 0.25)};                     // full → a quarter
-    case WidthProfile::QUARTER_TAPER: return {sym(0, 0.25), sym(0.25, 1), sym(1, 0.25)};
-    case WidthProfile::EYE: return {sym(0, 0), sym(0.5, 1), sym(1, 0)};             // points at both ends
-    case WidthProfile::MIRRORED_TAPER: return {sym(0, 0.25), sym(0.5, 1), sym(1, 0.25)};
+    case WidthProfile::WEDGE: return {sym(0, 1), sym(1, 0)};  // full width → a point
+    case WidthProfile::TAPER: return {sym(0, 1), sym(1, 0.375)};
+    case WidthProfile::QUARTER_TAPER: return {sym(0, 0.375), sym(0.25, 1), sym(1, 0.375)};
+    case WidthProfile::EYE: return {sym(0, 0), sym(0.5, 1), sym(1, 0)};  // points at both ends
+    case WidthProfile::MIRRORED_TAPER: return {sym(0, 0.375), sym(0.5, 1), sym(1, 0.375)};
     default: return {};
   }
 }
 
 WidthProfile matchPreset(const std::vector<WidthPoint>& points) {
   if (points.empty()) return WidthProfile::UNIFORM;
+  auto same = [&](const std::vector<WidthPoint>& preset) {
+    if (preset.size() != points.size()) return false;
+    for (size_t k = 0; k < preset.size(); k++)
+      if (std::fabs(preset[k].position - points[k].position) >= 1e-4 || std::fabs(preset[k].ascent - points[k].ascent) >= 1e-4 ||
+          std::fabs(preset[k].descent - points[k].descent) >= 1e-4)
+        return false;
+    return true;
+  };
+  // A preset reversed along the path (Flip width points) is still that preset, as Figma reads it (live: CUSTOM
+  // [0:0, 1:.5] reads back as WEDGE).
   for (int i = 1; i < static_cast<int>(WidthProfile::CUSTOM); i++) {
     auto preset = presetPoints(static_cast<WidthProfile>(i));
-    if (preset.size() != points.size()) continue;
-    bool same = true;
-    for (size_t k = 0; k < preset.size() && same; k++)
-      same = std::fabs(preset[k].position - points[k].position) < 1e-4 && std::fabs(preset[k].ascent - points[k].ascent) < 1e-4 &&
-             std::fabs(preset[k].descent - points[k].descent) < 1e-4;
-    if (same) return static_cast<WidthProfile>(i);
+    if (same(preset) || same(flipped(preset))) return static_cast<WidthProfile>(i);
   }
   return WidthProfile::CUSTOM;
 }
@@ -175,8 +183,8 @@ std::string encodeWidthPoints(const std::vector<geom::WidthPoint>& points) {
 
 bool widthProfileAllowed(const NodeProps& p) {
   if (!p.stroke().dashPattern.empty()) return false;
-  auto it = p.extra.find("dynamicStrokeSettings");
-  return it == p.extra.end() || it->second.empty();
+  // Figma's neutral Dynamic {1, 0, 0} is a Basic stroke (rea/vector.md §1); a brush stroke is not refused (Figma).
+  return !hasDynamicStroke(p);
 }
 
 }  // namespace eng

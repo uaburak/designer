@@ -253,7 +253,7 @@ export const CommandId = {
   /** args { ranges: [from, to][] }: the edited text's misspelled words (UTF-16), underlined (Text › Spell check). */
   SET_SPELLING_MARKS: 286,
   // Round 12 (r12-vector-draw): Stroke settings' Width profile; 300-309.
-  /** args { refs?, profile: "UNIFORM" | "WEDGE" | "TAPER" | "QUARTER_TAPER" | "EYE" | "MIRRORED_TAPER" } */
+  /** args { refs?, profile: "UNIFORM" | "WEDGE" | "TAPER" | "QUARTER_TAPER" | "EYE" | "MIRRORED_TAPER" | "CUSTOM", points?: {position, ascent, descent}[] (CUSTOM), plugin?: true (the Plugin API: only branching networks refused) } */
   SET_WIDTH_PROFILE: 300,
   /** args { refs? }: the width points mirrored along the path */
   FLIP_WIDTH_POINTS: 301,

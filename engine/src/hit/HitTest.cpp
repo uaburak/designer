@@ -97,7 +97,7 @@ bool hitsNode(const Document& doc, Guid id, Vec2 local, double slop, bool topLev
   }
   // Figma Draw's brush and dynamic strokes (docs/draw.md §4.3, §4.5): within the outline they are drawn as.
   if (!p.extra.empty() && anyVisible(p.strokePaints) && p.strokeWeight > 0 &&
-      (strokeBrushOf(p) != kNoGuid || p.extra.count("dynamicStrokeSettings"))) {
+      (strokeBrushOf(p) != kNoGuid || hasDynamicStroke(p))) {
     if (const NodeGeometry* g = doc.geometry(id); g && !g->stroke.path.empty()) {
       double tol = std::max(slop / 8, 1e-4);
       geom::Path outline;
