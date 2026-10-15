@@ -6,6 +6,7 @@
 // Auto layout everywhere, centred. Every number is a variable (height, padding, gap, radius, stroke, icon size), every
 // colour a Color token, every icon's Set / Style bound to the Icon set / Icon style switches. Built on the base variant
 // (so the bindings copy), then each variant's look. Read back: every variant's bindings and properties.
+import { look } from "./button-look.mjs";
 import { session } from "./lib.mjs";
 
 const s = await session();
@@ -141,29 +142,6 @@ for (const c of combos) {
 }
 
 // ── Each variant's look ──
-function look({ Variant: v, State: st }) {
-  const off = st === "Disabled";
-  const press = st === "Pressed" || st === "Selected";
-  const hover = st === "Hover";
-  switch (v) {
-    case "Primary":
-      return off ? { bg: "bg/disabled", fg: "text/oncolor", icon: "icon/oncolor" } : { bg: hover || press ? "bg/brand-hover" : "bg/brand", fg: press ? "text/onbrand-secondary" : "text/onbrand", icon: "icon/onbrand" };
-    case "Destructive":
-      return off ? { bg: "bg/disabled", fg: "text/oncolor", icon: "icon/oncolor" } : { bg: hover || press ? "bg/danger-hover" : "bg/danger", fg: "text/oncolor", icon: "icon/oncolor" };
-    case "Secondary":
-      if (off) return { stroke: "border/default", fg: "text/disabled", icon: "icon/disabled" };
-      if (st === "Selected") return { bg: "bg/selected", stroke: "border/default", fg: "text/brand", icon: "icon/brand" };
-      return { bg: hover ? "bg/hover" : press ? "bg/transparent-pressed" : null, stroke: "border/default", fg: "text/default", icon: "icon/default" };
-    case "Destructive secondary":
-      if (off) return { stroke: "border/default", fg: "text/disabled", icon: "icon/disabled" };
-      return { bg: hover || press ? "bg/danger-tertiary" : null, stroke: press ? "border/danger-strong" : "border/danger", fg: "text/danger", icon: "icon/danger" };
-    case "Ghost":
-      if (off) return { fg: "text/disabled", icon: "icon/disabled" };
-      if (st === "Selected") return { bg: "bg/selected", fg: "text/brand", icon: "icon/brand" };
-      return { bg: hover ? "bg/hover" : press ? "bg/transparent-pressed" : null, fg: "text/default", icon: "icon/default" };
-  }
-  throw new Error(v);
-}
 const C = (name) => V("Color", name);
 const binds = new Map();
 const B = (field, variable, id) => {
