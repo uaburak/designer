@@ -25,19 +25,65 @@ vec4 rampAt(float t, float row) {
 
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 
-// Figma's image adjustments, each -1..1 (unverified against Figma's own curves).
+// Figma's image adjustments (docs/research/rea/effects.md §2.24; its image colour-adjust shader), slot 2 = (exposure,
+// contrast — stored ±0.3 —, saturation (vibrance), temperature), 3 = (tint, highlights, shadows): in linear light
+// (γ 2.2), shadows / highlights become an exposure offset around mid grey; temperature (b*), tint (a*) and contrast (L*,
+// a smootherstep of 50 ± 30, or a compression for a negative one) in CIELAB; exposure as a tone curve keeping the
+// luminance's saturation; saturation as a luminance mix, boosted no further than the gamut allows (≤ 2×).
+float adjShadowsHighlights(vec3 c, float shadows, float highlights) {
+  float i = luma(c) - pow(0.5, 2.2);
+  return 0.75 * i / sqrt(1.0 + 4.0 * i * i) * (i > 0.0 ? highlights : -shadows * 0.999);
+}
+vec3 adjExposure(vec3 c, float k) {
+  float l = pow(10.0, 2.0 * k) - 1.0;
+  float n = 1.0 / (1.0 - 0.75) - 1.0;
+  float o = luma(c);
+  n *= 1.0 + o * o * min(0.0, k) / (0.2 - min(0.0, k));
+  c += (o - c) * 0.75;
+  if (k < 0.0) {
+    c *= 1.0 + k / 16.0;
+    o *= 1.0 + k / 16.0;
+  }
+  c *= (l + 1.0) / (c * l + 1.0);
+  o *= (l + 1.0) / (o * l + 1.0);
+  c += (c - o) * n;
+  return clamp(c, 0.0, 1.0);
+}
+vec3 adjSaturation(vec3 c, float q) {
+  float o = luma(c);
+  if (q <= 0.0) return c - (o - c) * q;
+  float lo = o / (o - min(min(c.r, c.g), c.b) + 1e-6);
+  float hi = (1.0 - o) / (max(max(c.r, c.g), c.b) - o + 1e-6);
+  float k = min(mix(1.0, min(lo, hi), q), 2.0);
+  return c + (o - c) * (1.0 - k);
+}
+float smootherstep(float lo, float hi, float x) {
+  x = clamp((x - lo) / (hi - lo), 0.0, 1.0);
+  return x * x * x * (x * (x * 6.0 - 15.0) + 10.0);
+}
+vec3 adjLab(vec3 c, float temperature, float tint, float contrast) {
+  vec3 xyz = mat3(0.4124564, 0.2126729, 0.0193339, 0.3575761, 0.7151522, 0.1191920, 0.1804375, 0.0721750, 0.9503041) * c;
+  xyz = pow(xyz / vec3(0.95047, 1.0, 1.08883), vec3(1.0 / 3.0));
+  vec3 lab = vec3(116.0 * xyz.y - 16.0, 500.0 * (xyz.x - xyz.y), 200.0 * (xyz.y - xyz.z));
+  lab.y += 30.0 * tint;
+  lab.z += 30.0 * temperature;
+  float l0 = contrast < 0.0 ? (lab.x - 50.0) * 0.2 + 50.0 : lab.x;
+  float l1 = contrast < 0.0 ? lab.x : smootherstep(20.0, 80.0, lab.x) * 100.0;
+  lab.x = mix(l0, l1, contrast < 0.0 ? contrast + 1.0 : contrast);
+  float y = (lab.x + 16.0) / 116.0;
+  xyz = vec3(lab.y / 500.0 + y, y, y - lab.z / 200.0);
+  xyz = xyz * xyz * xyz * vec3(0.95047, 1.0, 1.08883);
+  c = mat3(3.2404542, -0.9692660, 0.0556434, -1.5371385, 1.8760108, -0.2040259, -0.4985314, 0.0415560, 1.0572252) * xyz;
+  return clamp(c, 0.0, 1.0);
+}
 vec3 adjust(vec3 c) {
   vec4 a = u_v[2], b = u_v[3];
-  c *= exp2(a.x * 2.0);                                   // exposure: ±2 stops
-  c = (c - 0.5) * (1.0 + a.y) + 0.5;                      // contrast
-  float l = luma(c);
-  c = mix(vec3(l), c, 1.0 + a.z);                         // saturation
-  c += vec3(a.w, 0.0, -a.w) * 0.1;                        // temperature: warm / cool
-  c += vec3(b.x * 0.05, -b.x * 0.1, b.x * 0.05);          // tint: magenta / green
-  float l2 = luma(c);
-  c += b.y * 0.25 * smoothstep(0.5, 1.0, l2);             // highlights
-  c += b.z * 0.25 * (1.0 - smoothstep(0.0, 0.5, l2));     // shadows
-  return clamp(c, 0.0, 1.0);
+  c = pow(c, vec3(2.2));
+  float offset = adjShadowsHighlights(c, b.z, b.y);
+  c = adjLab(c, a.w, b.x, a.y);
+  c = adjExposure(c, a.x + offset);
+  c = adjSaturation(c, clamp(a.z, -1.0, 1.0));
+  return pow(clamp(c, 0.0, 1.0), vec3(1.0 / 2.2));
 }
 
 // Glass (slots 6 = (depth in device px, refraction, dispersion, splay), 8 = (the direction toward the light in canvas

@@ -19,6 +19,8 @@ import {
   rotated90,
   thumbHashBytes,
   toPicker,
+  adjustmentValue,
+  figmaContrast,
   withAdjustment,
   withProgressive,
 } from "../model/paints";
@@ -102,6 +104,16 @@ describe("images", () => {
     expect(p.paintFilter).toEqual({ exposure: 0.5 });
     p = withAdjustment(p, "exposure", 0);
     expect(p.paintFilter).toBeUndefined();
+    // Contrast: Figma stores ±0.3 for the slider's ±100 (effects.md §2.24); Wecra's older −1…1 values read × 0.3.
+    p = withAdjustment(p, "contrast", 100);
+    expect(p.paintFilter?.contrast).toBeCloseTo(0.3);
+    expect(adjustmentValue(p, "contrast")).toBe(100);
+    expect(adjustmentValue(withAdjustment(p, "contrast", -50), "contrast")).toBe(-50);
+    expect(adjustmentValue({ type: "IMAGE", paintFilter: { contrast: 0.8 } }, "contrast")).toBe(80);
+    expect(adjustmentValue({ type: "IMAGE", paintFilter: { vibrance: -0.4 } }, "vibrance")).toBe(-40);
+    expect(figmaContrast(-1)).toBeCloseTo(-0.3);
+    expect(figmaContrast(0.15)).toBe(0.15);
+    p = withAdjustment(p, "contrast", 0);
     expect(rotated90(rotated90(rotated90(rotated90({ type: "IMAGE" })))).rotation).toBe(0);
     expect(rotated90({ type: "IMAGE", rotation: 270 }).rotation).toBe(0);
   });

@@ -350,7 +350,8 @@ bool Renderer::setPaint(DrawInstance& q, DrawState& state, const Paint& paint, c
       q.paint0[3] = paint.imageScaleMode == ImageScaleMode::TILE ? 1.f : 0.f;
       state.image = t.id;
       const PaintFilter& f = paint.paintFilter;
-      float filters[8] = {f.exposure, f.contrast, f.vibrance, f.temperature, f.tint, f.highlights, f.shadows, 0};
+      // Figma's image colour-adjust uniforms (gfx/gl/Shaders.h adjust): contrast as stored (±0.3), the others ±1.
+      float filters[8] = {f.exposure, imageContrast(f.contrast), f.vibrance, f.temperature, f.tint, f.highlights, f.shadows, 0};
       std::memcpy(state.filters, filters, sizeof filters);
       kind = PaintKind::Image;
     }

@@ -100,6 +100,11 @@ const EffectExtras& effectExtras(const Effect& e) {
   return cache.map.emplace(e.extra, x).first->second;
 }
 
+float imageContrast(float stored) {
+  if (std::fabs(stored) > 0.3f + 1e-6f) return std::clamp(stored, -1.f, 1.f) * 0.3f;  // Wecra's −1…1 before round 17
+  return stored;
+}
+
 bool visibleForRendering(const Effect& e) {
   if (!e.visible) return false;
   switch (e.type) {

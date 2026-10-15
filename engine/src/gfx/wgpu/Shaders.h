@@ -253,20 +253,62 @@ fn rampAt(t: f32, row: f32) -> vec4f {
 
 fn luma(c: vec3f) -> f32 { return dot(c, vec3f(0.2126, 0.7152, 0.0722)); }
 
+// Figma's image adjustments (gl/Shaders.h adjust).
+fn adjShadowsHighlights(c: vec3f, shadows: f32, highlights: f32) -> f32 {
+  let i = luma(c) - pow(0.5, 2.2);
+  return 0.75 * i / sqrt(1.0 + 4.0 * i * i) * select(-shadows * 0.999, highlights, i > 0.0);
+}
+fn adjExposure(c0: vec3f, k: f32) -> vec3f {
+  let l = pow(10.0, 2.0 * k) - 1.0;
+  var n = 1.0 / (1.0 - 0.75) - 1.0;
+  var o = luma(c0);
+  n *= 1.0 + o * o * min(0.0, k) / (0.2 - min(0.0, k));
+  var c = c0 + (o - c0) * 0.75;
+  if (k < 0.0) {
+    c *= 1.0 + k / 16.0;
+    o *= 1.0 + k / 16.0;
+  }
+  c *= (l + 1.0) / (c * l + 1.0);
+  o *= (l + 1.0) / (o * l + 1.0);
+  c += (c - o) * n;
+  return clamp(c, vec3f(0.0), vec3f(1.0));
+}
+fn adjSaturation(c: vec3f, q: f32) -> vec3f {
+  let o = luma(c);
+  if (q <= 0.0) { return c - (o - c) * q; }
+  let lo = o / (o - min(min(c.r, c.g), c.b) + 1e-6);
+  let hi = (1.0 - o) / (max(max(c.r, c.g), c.b) - o + 1e-6);
+  let k = min(mix(1.0, min(lo, hi), q), 2.0);
+  return c + (o - c) * (1.0 - k);
+}
+fn smootherstep(lo: f32, hi: f32, x0: f32) -> f32 {
+  let x = clamp((x0 - lo) / (hi - lo), 0.0, 1.0);
+  return x * x * x * (x * (x * 6.0 - 15.0) + 10.0);
+}
+fn adjLab(c: vec3f, temperature: f32, tint: f32, contrast: f32) -> vec3f {
+  var xyz = mat3x3f(0.4124564, 0.2126729, 0.0193339, 0.3575761, 0.7151522, 0.1191920, 0.1804375, 0.0721750, 0.9503041) * c;
+  xyz = pow(xyz / vec3f(0.95047, 1.0, 1.08883), vec3f(1.0 / 3.0));
+  var lab = vec3f(116.0 * xyz.y - 16.0, 500.0 * (xyz.x - xyz.y), 200.0 * (xyz.y - xyz.z));
+  lab.y += 30.0 * tint;
+  lab.z += 30.0 * temperature;
+  let l0 = select(lab.x, (lab.x - 50.0) * 0.2 + 50.0, contrast < 0.0);
+  let l1 = select(smootherstep(20.0, 80.0, lab.x) * 100.0, lab.x, contrast < 0.0);
+  lab.x = mix(l0, l1, select(contrast, contrast + 1.0, contrast < 0.0));
+  let y = (lab.x + 16.0) / 116.0;
+  xyz = vec3f(lab.y / 500.0 + y, y, y - lab.z / 200.0);
+  xyz = xyz * xyz * xyz * vec3f(0.95047, 1.0, 1.08883);
+  let rgb = mat3x3f(3.2404542, -0.9692660, 0.0556434, -1.5371385, 1.8760108, -0.2040259, -0.4985314, 0.0415560, 1.0572252) * xyz;
+  return clamp(rgb, vec3f(0.0), vec3f(1.0));
+}
 fn adjust(c0: vec3f) -> vec3f {
   let a = u.v[2];
   let b = u.v[3];
-  var c = c0;
-  c *= exp2(a.x * 2.0);
-  c = (c - 0.5) * (1.0 + a.y) + 0.5;
-  let l = luma(c);
-  c = mix(vec3f(l), c, 1.0 + a.z);
-  c += vec3f(a.w, 0.0, -a.w) * 0.1;
-  c += vec3f(b.x * 0.05, -b.x * 0.1, b.x * 0.05);
-  let l2 = luma(c);
-  c += b.y * 0.25 * smoothstep(0.5, 1.0, l2);
-  c += b.z * 0.25 * (1.0 - smoothstep(0.0, 0.5, l2));
-  return clamp(c, vec3f(0.0), vec3f(1.0));
+  var c = pow(c0, vec3f(2.2));
+  let offset = adjShadowsHighlights(c, b.z, b.y);
+  c = adjLab(c, a.w, b.x, a.y);
+  c = adjExposure(c, a.x + offset);
+  c = adjSaturation(c, clamp(a.z, -1.0, 1.0));
+  return pow(clamp(c, vec3f(0.0), vec3f(1.0)), vec3f(1.0 / 2.2));
 }
 
 fn glassAt() -> vec4f {

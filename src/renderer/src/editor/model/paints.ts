@@ -287,10 +287,29 @@ export const IMAGE_ADJUSTMENTS: { field: keyof PaintFilter & string; label: stri
   { field: "shadows", label: "Shadows" },
 ];
 
-/** The paint with one adjustment set (−100…100 in the UI, −1…1 stored; 0 removes it). */
+/**
+ * How far a stored adjustment goes at the slider's ±100: Figma stores contrast in ±0.3 (its shader's range,
+ * docs/research/rea/effects.md §2.24), the others in ±1.
+ */
+export const adjustmentRange = (field: string) => (field === "contrast" ? 0.3 : 1);
+
+/**
+ * A stored contrast as Figma's ±0.3. Wecra stored −1…1 before round 17: a value past ±0.3 is such, read × 0.3 (the
+ * engine's `imageContrast`).
+ */
+export const figmaContrast = (stored: number) => (Math.abs(stored) > 0.3 + 1e-6 ? Math.max(-1, Math.min(1, stored)) * 0.3 : stored);
+
+/** An adjustment as the panel shows it: −100…100. */
+export function adjustmentValue(p: FullPaint, field: string): number {
+  const stored = p.paintFilter?.[field] ?? 0;
+  const v = field === "contrast" ? figmaContrast(stored) : stored;
+  return Math.max(-100, Math.min(100, Math.round((v / adjustmentRange(field)) * 100)));
+}
+
+/** The paint with one adjustment set (−100…100 in the UI; ±1 stored, contrast ±0.3; 0 removes it). */
 export function withAdjustment(p: FullPaint, field: string, uiValue: number): FullPaint {
   const filter: PaintFilter = { ...(p.paintFilter ?? {}) };
-  const v = Math.max(-1, Math.min(1, uiValue / 100));
+  const v = Math.max(-1, Math.min(1, uiValue / 100)) * adjustmentRange(field);
   if (v === 0) delete filter[field];
   else filter[field] = v;
   const out: FullPaint = { ...p, paintFilter: filter };

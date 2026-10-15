@@ -21,7 +21,7 @@ import type { Color, Guid, Paint } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { mixedPaints } from "../../model/mixed";
-import { fromPicker, gradientRotated90, hashBytes, IMAGE_ADJUSTMENTS, isGradientType, isImageLike, paintImageHash, paintLabel, paintSwatch, paintVideoHash, rotated90, toPicker, withAdjustment, type FullPaint } from "../../model/paints";
+import { adjustmentValue, fromPicker, gradientRotated90, hashBytes, IMAGE_ADJUSTMENTS, isGradientType, isImageLike, paintImageHash, paintLabel, paintSwatch, paintVideoHash, rotated90, toPicker, withAdjustment, type FullPaint } from "../../model/paints";
 import { formatMediaTime } from "../../model/prototype";
 import { sniffVideoMime } from "@/present/presentationVideos";
 import { regradient, type PaintUse } from "../../model/selectionColors";
@@ -270,7 +270,7 @@ function ImageControls({ paint, onChange }: { paint: FullPaint; onChange: (next:
   return (
     <div className={styles.imageControls}>
       {IMAGE_ADJUSTMENTS.map(({ field, label }) => (
-        <AdjustmentSlider key={field} label={label} value={Math.round((paint.paintFilter?.[field] ?? 0) * 100)} onChange={(v, info) => onChange(withAdjustment(paint, field, v), info)} />
+        <AdjustmentSlider key={field} label={label} value={adjustmentValue(paint, field)} onChange={(v, info) => onChange(withAdjustment(paint, field, v), info)} />
       ))}
     </div>
   );
