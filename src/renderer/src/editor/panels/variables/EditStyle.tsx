@@ -183,7 +183,7 @@ function EffectValues({ style }: { style: Style }) {
           {t("Add effect")}
         </Button>
       </div>
-      {open && effects[open.index] && <EffectSettings effect={effects[open.index]} anchor={open.anchor} onClose={() => setOpen(null)} onCancel={() => ed.cancelEdit()} onChange={(next, info) => write(effects.map((x, j) => (j === open.index ? next : x)), info)} />}
+      {open && effects[open.index] && <EffectSettings effect={effects[open.index]} anchor={open.anchor} glassTaken={effects.some((x, j) => j !== open.index && x.type === "GLASS")} onClose={() => setOpen(null)} onCancel={() => ed.cancelEdit()} onChange={(next, info) => write(effects.map((x, j) => (j === open.index ? next : x)), info)} />}
     </>
   );
 }

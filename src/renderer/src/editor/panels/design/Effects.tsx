@@ -13,7 +13,9 @@
  * - Noise: Noise type Mono / Duo / Multi; Noise size X / Y, Density, then Color (Mono), two colours (Duo) or
  *   Opacity (Multi);
  * - Texture: Size X / Y, Radius, Clip to shape;
- * - Glass: Light (a dial, Angle, Intensity), Refraction, Depth, Dispersion, Frost, Splay.
+ * - Glass: Light (a dial, Angle 0–359°, Intensity), Refraction, Depth (refractionRadius 1–100), Dispersion, Frost,
+ *   Splay (reflectionDistance 0–1); bevelSize stays 1 (model/glass.ts). One glass per layer: the type menu's Glass
+ *   is off while another effect is one.
  * Stored as `effects` (schema Effect: FOREGROUND_BLUR = Layer blur, GRAIN = Texture; the newer fields — blurOpType,
  * startRadius, noiseType, … — as the engine keeps them, JSON members of the effect).
  *
@@ -40,6 +42,7 @@ import { SHADER_EFFECTS, SHADER_FILLS, presetOf, shaderEffect, type ShaderFields
 import { ShaderParams } from "./ShaderSettings";
 import { DrawSlider, SLIDER_RANGE, useDrawMode } from "../../draw/panels/DrawSliders";
 import { t, tx, useT } from "@/i18n";
+import { GLASS_DEFAULTS, figmaGlass, shownAngle } from "../../model/glass";
 
 // ---- Effects ---------------------------------------------------------------------------------------
 
@@ -61,20 +64,27 @@ export const hasEffectBlend = (e: Effect) => isShadow(e) || e.type === "NOISE";
 
 type V2 = { x: number; y: number };
 const BLACK_25: Color = { r: 0, g: 0, b: 0, a: 0.25 };
+/** A field the effect doesn't hold reads as Figma's Effect reads it: noise / texture size 0, Multi opacity 0. */
+const NO_SIZE: V2 = { x: 0, y: 0 };
+/** Figma's Multi noise opacity when Multi is picked. */
+const MULTI_OPACITY = 0.15;
+
+/** A new noise's or texture's random pattern: Figma's floor(10⁴ · random), so two of them don't look the same. */
+export const randomSeed = () => Math.floor(Math.random() * 10000);
 
 /**
  * Figma's new effect of a type: shadows 0 4 4 0 #000 25%; blurs radius 4 (Uniform); Noise Mono #000 25%, size 0.5,
- * density 100 %; Texture size 0.5, radius 4; Glass light −45° at 80 %, refraction 80, depth 20, dispersion 50,
- * frost 4, splay 0 (live popovers).
+ * density 100 %; Texture size 4, radius 4; both a random seed; Glass light −45° at 80 %, refraction 80, depth 20,
+ * dispersion 50, frost 4, splay 0 (live popovers; Figma's effect panel defaults, docs/research/rea/effects.md §2.14,
+ * §2.18).
  */
 export function defaultEffect(type: Effect["type"] = "DROP_SHADOW"): Effect {
   if (type === "DROP_SHADOW" || type === "INNER_SHADOW")
     return { type, color: { ...BLACK_25 }, offset: { x: 0, y: 4 }, radius: 4, spread: 0, visible: true, blendMode: "NORMAL", ...(type === "DROP_SHADOW" ? { showShadowBehindNode: false } : {}) };
   if (type === "NOISE")
-    return { type, color: { ...BLACK_25 }, visible: true, blendMode: "NORMAL", noiseType: "MONOTONE", noiseSize: { x: 0.5, y: 0.5 }, density: 1 };
-  if (type === "GRAIN") return { type, radius: 4, visible: true, noiseSize: { x: 0.5, y: 0.5 }, clipToShape: false };
-  if (type === "GLASS")
-    return { type, radius: 4, visible: true, specularAngle: -45, specularIntensity: 0.8, refractionIntensity: 0.8, bevelSize: 20, chromaticAberration: 0.5, refractionRadius: 0 };
+    return { type, color: { ...BLACK_25 }, visible: true, blendMode: "NORMAL", noiseType: "MONOTONE", noiseSize: { x: 0.5, y: 0.5 }, density: 1, seed: randomSeed() };
+  if (type === "GRAIN") return { type, radius: 4, visible: true, noiseSize: { x: 4, y: 4 }, clipToShape: false, seed: randomSeed() };
+  if (type === "GLASS") return { type, visible: true, ...GLASS_DEFAULTS };
   return { type, radius: 4, visible: true };
 }
 
@@ -205,6 +215,7 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
           effect={effects[open.index]}
           anchor={open.anchor}
           opaque={opaqueLayers(nodes)}
+          glassTaken={effects.some((x, j) => j !== open.index && x.type === "GLASS")}
           sliders={drawMode}
           onClose={() => setOpen(null)}
           onChange={(next, info) => writeEffects(ed, refs, effects.map((x, j) => (j === open.index ? next : x)), "Effect", info)}
@@ -254,9 +265,10 @@ const pct = (v: number | undefined, fallback: number) => Math.round((v ?? fallba
  * type's fields in Figma's label / field columns.
  */
 export function EffectSettings({
-  effect,
+  effect: given,
   anchor,
   opaque = true,
+  glassTaken = false,
   onChange,
   onCancel,
   onClose,
@@ -266,6 +278,8 @@ export function EffectSettings({
   effect: Effect;
   anchor: HTMLElement;
   opaque?: boolean;
+  /** Another effect of the layer is a glass: Figma allows one per layer (the type menu's Glass is off) */
+  glassTaken?: boolean;
   /** Draw (docs/draw.md §5.3): a slider under blur, spread, density, opacity and radius */
   sliders?: boolean;
   onChange: (next: Effect, info: ChangeInfo) => void;
@@ -274,10 +288,16 @@ export function EffectSettings({
   onShaders?: (anchor: HTMLElement) => void;
 }) {
   useT();
+  // A glass Wecra wrote before round 17 shows (and is written back) in Figma's fields.
+  const effect = figmaGlass(given);
   const title = t(effectLabel(effect));
   const pick: ChangeInfo = { final: true, source: "pick" };
   const color = (effect.color as Color | undefined) ?? BLACK_25;
-  const typeOptions = [...EFFECT_TYPES.map((o) => ({ value: o.value as string, label: t(o.label), icon: o.icon })), "-" as const, { value: "CUSTOM", label: t("Shader"), icon: "24.shader.small" as IconName }];
+  const typeOptions = [
+    ...EFFECT_TYPES.map((o) => ({ value: o.value as string, label: t(o.label), icon: o.icon, disabled: o.value === "GLASS" && glassTaken && effect.type !== "GLASS" })),
+    "-" as const,
+    { value: "CUSTOM", label: t("Shader"), icon: "24.shader.small" as IconName },
+  ];
   const header = (
     <Select
       label={t("Effect settings")}
@@ -405,18 +425,18 @@ export function EffectSettings({
               { value: "DUOTONE", label: t("Duo") },
               { value: "MULTITONE", label: t("Multi") },
             ]}
-            onChange={(v) => set({ noiseType: v, ...(v === "DUOTONE" && !effect.secondaryColor ? { secondaryColor: second } : {}), ...(v === "MULTITONE" && effect.opacity === undefined ? { opacity: 0.25 } : {}) }, pick)}
+            onChange={(v) => set({ noiseType: v, ...(v === "DUOTONE" && !effect.secondaryColor ? { secondaryColor: second } : {}), ...(v === "MULTITONE" && effect.opacity === undefined ? { opacity: MULTI_OPACITY } : {}) }, pick)}
           />
         </div>
-        {xy("Noise size", "noiseSize", "Noise size", { x: 0.5, y: 0.5 }, 0)}
+        {xy("Noise size", "noiseSize", "Noise size", NO_SIZE, 0)}
         <span className={styles.settingsLabel}>{t("Density")}</span>
         <NumericInput label={t("Density")} min={0} max={100} unit="%" value={pct(num("density", 1), 1)} onChange={(v, info) => set({ density: v / 100 }, info)} onCancel={onCancel} />
         {slide("Density", pct(num("density", 1), 1), SLIDER_RANGE.percent, (v, info) => set({ density: v / 100 }, info))}
         {kind === "MULTITONE" ? (
           <>
             <span className={styles.settingsLabel}>{t("Opacity")}</span>
-            <NumericInput label={t("Opacity")} min={0} max={100} unit="%" value={pct(num("opacity", 0.25), 0.25)} onChange={(v, info) => set({ opacity: v / 100 }, info)} onCancel={onCancel} />
-            {slide("Opacity", pct(num("opacity", 0.25), 0.25), SLIDER_RANGE.percent, (v, info) => set({ opacity: v / 100 }, info))}
+            <NumericInput label={t("Opacity")} min={0} max={100} unit="%" value={pct(num("opacity", 0), 0)} onChange={(v, info) => set({ opacity: v / 100 }, info)} onCancel={onCancel} />
+            {slide("Opacity", pct(num("opacity", 0), 0), SLIDER_RANGE.percent, (v, info) => set({ opacity: v / 100 }, info))}
           </>
         ) : (
           colorRow("Color", "color", color)
@@ -427,7 +447,7 @@ export function EffectSettings({
   } else if (effect.type === "GRAIN") {
     body = (
       <>
-        {xy("Size", "noiseSize", "Size", { x: 0.5, y: 0.5 }, 0)}
+        {xy("Size", "noiseSize", "Size", NO_SIZE, 0)}
         <span className={styles.settingsLabel}>{t("Radius")}</span>
         <NumericInput label={t("Radius")} min={0} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />
         {slide("Radius", effect.radius ?? 0, SLIDER_RANGE.blur, (v, info) => set({ radius: v }, info))}
@@ -437,15 +457,15 @@ export function EffectSettings({
       </>
     );
   } else if (effect.type === "GLASS") {
-    const slider = (label: string, value: number, max: number, write: (v: number, info: ChangeInfo) => void) => (
+    const slider = (label: string, value: number, max: number, write: (v: number, info: ChangeInfo) => void, min = 0) => (
       <>
         <span className={styles.settingsLabel}>{t(label)}</span>
         {/* Live (popovers/effect-settings-glass.txt): the track 80 × 24, the slider over it 96 × 44 (its 12 thumb 22 in
             from each end), the value 56 beside — its number 48 × 15 at 7 in */}
         <div className={styles.fxSlider}>
           <span className={styles.fxTrack} />
-          <input type="range" className={styles.fxRange} aria-label={t(label)} min={0} max={max} step={1} value={value} onChange={(e) => write(Number(e.currentTarget.value), { final: false, source: "scrub" })} onPointerUp={(e) => write(Number(e.currentTarget.value), pick)} />
-          <NumericInput className={styles.fxValue} label={t(label)} min={0} max={max} precision={0} value={value} onChange={write} onCancel={onCancel} />
+          <input type="range" className={styles.fxRange} aria-label={t(label)} min={min} max={max} step={1} value={value} onChange={(e) => write(Number(e.currentTarget.value), { final: false, source: "scrub" })} onPointerUp={(e) => write(Number(e.currentTarget.value), pick)} />
+          <NumericInput className={styles.fxValue} label={t(label)} min={min} max={max} precision={0} value={value} onChange={write} onCancel={onCancel} />
         </div>
       </>
     );
@@ -456,16 +476,16 @@ export function EffectSettings({
           <span className={styles.fxLegend}>{tx("glass", "Light")}</span>
           <LightDial angle={num("specularAngle", -45)} onChange={(a, info) => set({ specularAngle: a }, info)} />
           <div className={styles.fxLightFields}>
-            <NumericInput label={t("Angle")} unit="°" min={-180} max={180} precision={0} value={Math.round(num("specularAngle", -45))} onChange={(v, info) => set({ specularAngle: v }, info)} onCancel={onCancel} />
+            <NumericInput label={t("Angle")} unit="°" min={0} max={359} precision={0} value={shownAngle(num("specularAngle", -45))} onChange={(v, info) => set({ specularAngle: v }, info)} onCancel={onCancel} />
             <NumericInput label={t("Intensity")} unit="%" min={0} max={100} precision={0} value={pct(num("specularIntensity", 0.8), 0.8)} onChange={(v, info) => set({ specularIntensity: v / 100 }, info)} onCancel={onCancel} />
           </div>
         </div>
         <span className={cx(styles.fxWide, styles.fxGap)} />
         {slider("Refraction", Math.round(num("refractionIntensity", 0.8) * 100), 100, (v, info) => set({ refractionIntensity: v / 100 }, info))}
-        {slider("Depth", Math.round(num("bevelSize", 20)), 100, (v, info) => set({ bevelSize: v }, info))}
+        {slider("Depth", Math.round(num("refractionRadius", GLASS_DEFAULTS.refractionRadius)), 100, (v, info) => set({ refractionRadius: Math.max(1, v), bevelSize: 1 }, info), 1)}
         {slider("Dispersion", Math.round(num("chromaticAberration", 0.5) * 100), 100, (v, info) => set({ chromaticAberration: v / 100 }, info))}
         {slider("Frost", Math.round(effect.radius ?? 4), 100, (v, info) => set({ radius: v }, info))}
-        {slider("Splay", Math.round(num("refractionRadius", 0)), 100, (v, info) => set({ refractionRadius: v }, info))}
+        {slider("Splay", Math.round(num("reflectionDistance", 0) * 100), 100, (v, info) => set({ reflectionDistance: v / 100 }, info))}
       </>
     );
   }
@@ -515,11 +535,11 @@ function LightDial({ angle, onChange }: { angle: number; onChange: (a: number, i
     window.addEventListener("pointerup", up);
   };
   return (
-    <div ref={box} className={styles.fxDial} role="slider" aria-label={tx("glass", "Light")} aria-valuemin={-180} aria-valuemax={180} aria-valuenow={Math.round(angle)} tabIndex={0} onPointerDown={down}
+    <div ref={box} className={styles.fxDial} role="slider" aria-label={tx("glass", "Light")} aria-valuemin={0} aria-valuemax={359} aria-valuenow={shownAngle(angle)} tabIndex={0} onPointerDown={down}
       onKeyDown={(e) => {
         const step = e.shiftKey ? 15 : 1;
-        if (e.key === "ArrowLeft" || e.key === "ArrowDown") onChange(Math.max(-180, Math.round(angle) - step), { final: true, source: "step" });
-        else if (e.key === "ArrowRight" || e.key === "ArrowUp") onChange(Math.min(180, Math.round(angle) + step), { final: true, source: "step" });
+        if (e.key === "ArrowLeft" || e.key === "ArrowDown") onChange(shownAngle(angle - step), { final: true, source: "step" });
+        else if (e.key === "ArrowRight" || e.key === "ArrowUp") onChange(shownAngle(angle + step), { final: true, source: "step" });
       }}>
       <span className={styles.fxDialRing} />
       <span className={styles.fxDialDot} style={{ left: `calc(50% + ${dx} * var(--ds-space-4))`, top: `calc(50% + ${dy} * var(--ds-space-4))` }} />
