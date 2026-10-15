@@ -880,7 +880,7 @@ class Renderer {
   // Blits of the tiles covering the canvas at `level` (coarser cached levels standing in) into the canvas recording.
   // coarse: the coarser levels standing in (drawn under the scaled cache), else the level's own (over it).
   void composeTiles(const Camera& camera, int level, bool coarse);
-  void invalidateTiles(const std::vector<Rect>& world);
+  void invalidateTiles(const std::vector<Rect>& world, int minLevel = -64);
   void dropTiles();
   void blurLayer(Layer& L);
   PoolTarget* acquire(int w, int h);
@@ -928,6 +928,7 @@ class Renderer {
     Color clear;
     double fullMs = 0;                    // how long its last full raster took
     uint64_t fullFrame = 0;               // the frame that full raster was drawn in
+    double panAt = -1e9;                  // the last pan shown on the warm tiles (nowMs)
     double lastZoom = 0, zoomChangedAt = 0, settleAt = 0;
     // Images arriving on a slow page: when they last made it draw everything, and when the ones that came since are
     // drawn (kImageBatchMs later: a file opening with many images draws them a few at a time, not each alone).

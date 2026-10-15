@@ -2795,11 +2795,15 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
   // the whole page, nor every tile — when that is known. On a slow page that drew everything for images moments ago,
   // they wait kImageBatchMs and come in together (a file opening with many images: a few redraws, not one each).
   bool imagesWait = false, imagesNow = false;
+  std::vector<Rect> imageDamage;  // where arriving images are (a sharper tier matters only near the zoom's level)
   if (c.valid && c.page == page && c.images != arrived && !damage.all) {
-    if (c.fullMs > kZoomRasterBudgetMs && now - c.imagesAt < kImageBatchMs) {
+    // Mid-zoom or mid-pan, arrivals wait for the gesture to settle (Figma doesn't redraw for them mid-gesture): each
+    // one made the frame a full draw, off the warm tiles (owner's scenario: zooming out after high tiers came in).
+    bool gesture = (overlay.zooming && now - c.zoomChangedAt < kZoomSettleMs) || now - c.panAt < kZoomSettleMs;
+    if (gesture || (c.fullMs > kZoomRasterBudgetMs && now - c.imagesAt < kImageBatchMs)) {
       imagesWait = true;
       images = c.images;
-      c.imagesWaitAt = c.imagesAt + kImageBatchMs;
+      c.imagesWaitAt = gesture ? now + kZoomSettleMs : c.imagesAt + kImageBatchMs;
     } else {
       imagesNow = true;
       uint32_t since = c.images;
@@ -2811,7 +2815,10 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
         for (const ImageHash& h : changed)
           if (auto it = imageUsers_.find(h); it != imageUsers_.end())
             for (Guid g : it->second)
-              if (int i = tree_->indexOf(g); i >= 0 && seen.insert(i).second) damage.rects.push_back(tree_->nodes()[static_cast<size_t>(i)].visual);
+              if (int i = tree_->indexOf(g); i >= 0 && seen.insert(i).second) {
+                damage.rects.push_back(tree_->nodes()[static_cast<size_t>(i)].visual);
+                imageDamage.push_back(tree_->nodes()[static_cast<size_t>(i)].visual);
+              }
         c.images = arrived;
         if (tilesToo) tiles_.images = arrived;
       }
@@ -2839,23 +2846,35 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
   // again, every frame sharp (each tile is at or above the zoom) — on any page; then the page is drawn sharp once
   // the zoom settles. Without them: the scaled cache on a page slow to draw, else a full draw each frame.
   // (A zoom in past the warm level shows that level's tiles at most 2× up — soft, never blocky — while its own fill in.)
-  bool warm = zoomingNow && (tilesCover(camera, zoomLevel) || tilesCover(camera, zoomLevel - 1));
+  // A device scale of its own (a zoom's half resolution, CanvasController) neither uses nor drops the tiles: they are
+  // there again once the scale is back (dropping them there threw away every level drawn ahead).
+  bool tileScale = tiles_.map.empty() || (tiles_.sx == sx && tiles_.sy == sy);
+  bool warm = zoomingNow && tileScale && (tilesCover(camera, zoomLevel) || tilesCover(camera, zoomLevel - 1));
   // A slow last draw holds the scaled cache for 10 frames at a time, then a full draw is tried again: deep in a zoom
   // the view holds far less than at the zoom it started from, and draws sharp cheaply.
   bool slowZoom = zoomingNow && (warm || (c.fullMs > kZoomScaledCacheMs && frame_ - c.fullFrame < 10));
   // Zooming in, the cache scaled covers the canvas; zooming out it doesn't: tiles fill in around it.
   bool stale = slowZoom && !warm && covers;
   bool tiled = slowZoom && (warm || !covers);
+  if (!tileScale && tiled) tiled = false;  // no tiles at this scale: the scaled cache, or a full draw
   // A pan over a page slow to draw at this zoom: the warm tiles of its level, as they are (Figma pans on its tiles) —
   // no strip of new content drawn mid-pan (one took 58 ms on the owner's Desktop page); sharp once the pan stops.
   if (!tiled && !stale && same && c.zoom == camera.zoom && (camera.x != c.camX || camera.y != c.camY) &&
-      c.fullMs > kZoomRasterBudgetMs && tilesCover(camera, zoomLevel)) {
+      c.fullMs > kZoomRasterBudgetMs && tileScale && tilesCover(camera, zoomLevel)) {
     tiled = true;
     c.zoomChangedAt = now;  // the settle below counts from the last pan step
+    c.panAt = now;
   }
   // Tiles follow the document: whatever changed is drawn again when shown; a new page, fonts, images: start over.
   bool tilesDropped = false;
-  if (tiles_.page != page || tiles_.fonts != fonts || tiles_.images != images || tiles_.sx != sx || tiles_.sy != sy ||
+  if (tiles_.page == page && tiles_.images != images && !damage.all) {
+    // Images arrived that couldn't be traced to their layers: the levels near the zoom are drawn again, the coarser
+    // ones keep the tier they show a few pixels wide (as above).
+    int zl = std::clamp(static_cast<int>(std::ceil(std::log2(std::max(camera.zoom, 1e-6)) - 1e-9)), -12, 8);
+    invalidateTiles({Rect{-1e12, -1e12, 2e12, 2e12}}, zl - 2);
+    tiles_.images = images;
+  }
+  if (tiles_.page != page || tiles_.fonts != fonts || (tileScale && (tiles_.sx != sx || tiles_.sy != sy)) ||
       !(tiles_.clear == clear) || damage.all) {
     tilesDropped = true;
     dropTiles();
@@ -2886,7 +2905,18 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
         }
       }
     }
-    invalidateTiles(rects);
+    // An image arriving (a sharper tier, mostly, as the zoom comes close) redraws the tiles near the zoom's level only:
+    // levels 3+ coarser show it a few pixels wide, where the tier it was drawn with looks the same — and they are
+    // what a zoom out composites (redrawing them all made the owner's first zoom out of a frame stutter).
+    std::vector<Rect> rest;
+    for (const Rect& r : rects) {
+      bool img = false;
+      for (const Rect& i : imageDamage) img |= i.x == r.x && i.y == r.y && i.w == r.w && i.h == r.h;
+      if (!img) rest.push_back(r);
+    }
+    invalidateTiles(rest);
+    int zl = std::clamp(static_cast<int>(std::ceil(std::log2(std::max(camera.zoom, 1e-6)) - 1e-9)), -12, 8);
+    invalidateTiles(imageDamage, zl - 2);
   }
   tiles_.prefetchAt = 0;
   // The level a zoom's tiles are drawn at: the power of two at or above it (never blurrier than the zoom).
@@ -3003,7 +3033,7 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
   if (stale || tiled) stats_.stale = 1;
   // At rest on a slow page: the next zoom out's tiles (one level coarser, twice the view around it), drawn ahead in
   // quiet frames within the idle budget; a frame is asked for while some are missing.
-  if (!slowZoom && !overlay.zooming && c.valid) {
+  if (!slowZoom && !overlay.zooming && c.valid && tileScale) {
     // Every page (round 17 D): the view's own level, a zoom in's (one finer) and a zoom out's (one coarser, twice the
     // view around it) — a zoom of up to 2× either way then only composites them.
     std::vector<TileCoord> ahead = visibleTiles(camera, level, 0.25);
@@ -3255,10 +3285,15 @@ void Renderer::composeTiles(const Camera& camera, int level, bool coarseOnly) {
   }
 }
 
-void Renderer::invalidateTiles(const std::vector<Rect>& world) {
+void Renderer::invalidateTiles(const std::vector<Rect>& world, int minLevel) {
+  if (world.empty()) return;
   const double sx = tiles_.sx > 0 ? tiles_.sx : 1, sy = tiles_.sy > 0 ? tiles_.sy : 1;
   for (auto it = tiles_.map.begin(); it != tiles_.map.end();) {
     const TileCoord& t = it->second.coord;
+    if (t.level < minLevel) {
+      ++it;
+      continue;
+    }
     double Z = std::ldexp(1.0, t.level);
     double perX = kTileContent / (Z * sx), perY = kTileContent / (Z * sy);
     // Anti-aliasing and effects reach a little past a layer's bounds: a few device px of margin.
