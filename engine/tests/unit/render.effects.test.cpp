@@ -679,6 +679,50 @@ TEST_CASE("renderer: noise goes over the content only, never the drop shadows; a
   CHECK(blurred);
 }
 
+TEST_CASE("renderer: a texture clipped to the shape textures the drop shadows too, before a layer blur merges them") {
+  Document d;
+  base(d);
+  NodeChange n = make({1, 1}, NodeType::ELLIPSE, kPage, "!", {100, 100, 100, 100});
+  n.props.fillPaints = {Paint::solid(Color::hex(0x3366FF))};
+  Effect drop;
+  drop.type = EffectType::DROP_SHADOW;
+  drop.color = {0, 0, 0, 0.25f};
+  drop.offset = {0, 4};
+  drop.radius = 4;
+  Effect clipped;
+  clipped.type = EffectType::GRAIN;
+  clipped.radius = 4;
+  clipped.extra = effectExtra({{"clipToShape", "true"}, {"noiseSize", "{\"x\":4,\"y\":4}"}});
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  auto shadowsTextured = [&] {
+    // A texture pass reading a layer the drop shadow was drawn into.
+    for (const auto* t : composites(dev, 7))
+      for (const auto& c : dev.draws)
+        if (isComposite(c, 3) && c.target != 0 && c.target == t->call.textures[0]) return true;
+    return false;
+  };
+  // Alone: the content and the shadows each textured.
+  n.props.effects = {drop, clipped};
+  d.apply(n);
+  render(r, d);
+  CHECK(composites(dev, 7).size() == 2);
+  CHECK(shadowsTextured());
+  // Then a layer blur, which merges the shadows: they are still textured (in their own pipeline, Figma's).
+  n.props.effects = {drop, clipped, layerBlur(3)};
+  d.apply(n);
+  render(r, d);
+  CHECK(composites(dev, 7).size() == 2);
+  CHECK(shadowsTextured());
+  // Unclipped: the shadows merged first and moved with the content — one texture pass, reading them.
+  clipped.extra = effectExtra({{"noiseSize", "{\"x\":4,\"y\":4}"}});
+  n.props.effects = {drop, clipped};
+  d.apply(n);
+  render(r, d);
+  CHECK(composites(dev, 7).size() == 1);
+  CHECK(shadowsTextured());
+}
+
 TEST_CASE("renderer: a background blur is clamped to the node's box (stroke grown × miter limit), its copy only the box") {
   Document d;
   base(d);

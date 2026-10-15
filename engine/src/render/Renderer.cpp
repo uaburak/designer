@@ -1768,6 +1768,14 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     stack.insert(stack.begin(), shadows.begin(), shadows.end());
     shadows.clear();
   };
+  // A texture clipped to the shape textures the drop shadows too, in their own pipeline (Figma's: after the shadow's
+  // blur, before it joins anything) — so also when a layer blur or an unclipped texture merges them later.
+  if (clippedTexture && !shadows.empty()) {
+    int S = materialize(shadows);
+    for (const Effect* e : ops)
+      if (e->type == EffectType::GRAIN && effectExtras(*e).clipToShape) S = textureOf(S, *e);
+    shadows = {plain(S)};
+  }
   // Kept apart only while a noise or a clipped texture is to come; else under the content now (so a shader effect, a
   // layer blur or a texture takes them too).
   if (!(anyNoise || clippedTexture)) mergeShadows();
@@ -1809,7 +1817,7 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
         stack = {plain(static_cast<int>(layers_.size() - 1))};
       }
     } else if (e->type == EffectType::GRAIN) {
-      // An unclipped texture moves the pending drop shadows too; a clipped one textures them apart (below).
+      // An unclipped texture moves the pending drop shadows too; a clipped one has textured them apart (above).
       if (!x.clipToShape) mergeShadows();
       stack = {plain(textureOf(materialize(stack), *e))};
     } else {
@@ -1830,16 +1838,8 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
       stack.push_back(pc);
     }
   }
-  // The drop shadows still apart go under: a texture clipped to the shape textures them too (Figma's).
-  if (!shadows.empty()) {
-    if (clippedTexture) {
-      int S = materialize(shadows);
-      for (const Effect* e : ops)
-        if (e->type == EffectType::GRAIN && effectExtras(*e).clipToShape) S = textureOf(S, *e);
-      shadows = {plain(S)};
-    }
-    mergeShadows();
-  }
+  // The drop shadows still apart go under.
+  mergeShadows();
   // The node's opacity and blend mode, last: on the whole when there is more than one piece.
   if (stack.size() > 1 && (a < 1 || blend)) materialize(stack);
   if (stack.size() == 1) {
