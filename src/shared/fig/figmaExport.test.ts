@@ -151,6 +151,21 @@ describe("Save Local Copy as Figma writes a .fig (figmaExport.ts)", () => {
   });
 });
 
+describe("the schema round's fields in an export (R17 batch C)", () => {
+  it("writes gradient interpolation and edit scopes as Figma's schema reads them", () => {
+    const base = ourSnapshot();
+    const rect = node(g(S + 3, 1), "ROUNDED_RECTANGLE", g(0, 1), "#", {
+      size: { x: 10, y: 10 },
+      editScopeInfo: { editScopeStacks: [{ stack: [{ type: "AI", label: "Agent" }] }] },
+      fillPaints: [{ type: "GRADIENT_LINEAR", interpolationColorSpace: "OKLCH", interpolationHueMethod: "INCREASING", stops: [] } as any],
+    });
+    const canvas = decodeCanvas(encodeFigmaCanvas({ ...base, nodeChanges: [...base.nodeChanges!, rect] } as Message, codecs), codecs);
+    const out = byKey(figma.decode("Message", canvas.message)).get(`${S + 3}:1`);
+    expect(out.fillPaints[0]).toMatchObject({ interpolationColorSpace: "OKLCH", interpolationHueMethod: "INCREASING" });
+    expect(out.editScopeInfo.editScopeStacks[0].stack[0]).toMatchObject({ type: "AI", label: "Agent" });
+  });
+});
+
 describe("components as Figma stores them (components.md task 8)", () => {
   const SET = g(S + 2, 1), V1 = g(S + 2, 2), V2 = g(S + 2, 3), T1 = g(S + 2, 4), T2 = g(S + 2, 5), R1 = g(S + 2, 6);
   const LOCAL = g(S + 2, 7), COPY = g(S + 2, 8), INST = g(S + 2, 9);

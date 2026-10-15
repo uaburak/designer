@@ -378,3 +378,40 @@ TEST_CASE("r17c undo history: exported and imported into a fresh editor of the s
   CHECK_FALSE(c.importUndoHistory(std::string("\x16\x05", 2)));
   CHECK(c.undoStack().redoCount() == 1);
 }
+
+// ---- editScopeInfo 365: kept through load and save (canvas.md §2.9) -------------------------------------------------
+
+TEST_CASE("r17c editScopeInfo: a node's edit scopes survive load, an edit and the snapshot") {
+  // EditScopeInfo {editScopeStacks [{stack [{type PLUGIN, label "Rename"}]}]}, as NodeChange field 365's bytes.
+  schema::Out o;
+  o.varuint(365);
+  o.varuint(1);  // editScopeStacks
+  o.varuint(1);
+  o.varuint(1);  // EditScopeStack.stack
+  o.varuint(1);
+  o.varuint(1);  // EditScope.type
+  o.varuint(3);  // PLUGIN
+  o.varuint(2);  // EditScope.label
+  o.raw(std::string("Rename", 7));  // kiwi strings end with a zero byte
+  o.byte(0);     // EditScope
+  o.byte(0);     // EditScopeStack
+  o.byte(0);     // EditScopeInfo
+  const Guid R{9, 5};
+  auto nodes = baseChanges();
+  NodeChange r = make(R, NodeType::ROUNDED_RECTANGLE, kPage, "!", {0, 0, 10, 10}, "R");
+  r.props.extra["editScopeInfo"] = o.s;
+  nodes.push_back(r);
+  Editor e = load(nodes);
+  NodeChange c = NodeChange::changed(Guid{0, 0});
+  c.mask = F_OPACITY;
+  c.props.opacity = 0.5;
+  REQUIRE(e.setProps({R}, c, 0) == OK);
+  codec::KiwiMessage m;
+  REQUIRE(codec::readMessage(codec::writeMessage(0, e.encodeDocument()), m));
+  const NodeChange* back = nullptr;
+  for (const NodeChange& n : m.changes)
+    if (n.guid == R) back = &n;
+  REQUIRE(back);
+  CHECK(back->props.extra.at("editScopeInfo") == o.s);
+  CHECK(back->props.opacity == doctest::Approx(0.5));
+}
