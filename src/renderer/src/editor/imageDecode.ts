@@ -127,6 +127,14 @@ export function webpIccProfile(bytes: Uint8Array): Uint8Array | null {
   return null;
 }
 
+/** True for SVG markup (sniffImageMime has no SVG): `<svg` or `<?xml` after a BOM and whitespace. */
+export function isSvg(bytes: Uint8Array): boolean {
+  let i = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? 3 : 0;
+  while (i < bytes.length && (bytes[i] === 0x20 || bytes[i] === 0x09 || bytes[i] === 0x0a || bytes[i] === 0x0d)) i++;
+  const head = ascii(bytes, i, Math.min(5, bytes.length - i)).toLowerCase();
+  return head.startsWith("<svg") || head === "<?xml";
+}
+
 /** True when a GIF has a second image descriptor (an animation). */
 export function isMultiFrameGif(bytes: Uint8Array): boolean {
   if (bytes.length < 13 || ascii(bytes, 0, 3) !== "GIF") return false;
@@ -294,7 +302,7 @@ function decodeWorker(): Worker | null {
  * can't — an SVG, or bytes the browser refuses that way: the caller decodes them as before.
  */
 export async function decodeImage(bytes: Uint8Array, mime: string | null): Promise<DecodedImage | null> {
-  if (mime === "image/svg+xml" || typeof createImageBitmap === "undefined") return null;
+  if (mime === "image/svg+xml" || isSvg(bytes) || typeof createImageBitmap === "undefined") return null;
   const w = decodeWorker();
   if (w) {
     const id = nextId++;

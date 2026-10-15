@@ -5,6 +5,7 @@ import {
   COLOR_PROFILE_DISPLAY_P3,
   COLOR_PROFILE_SRGB,
   isMultiFrameGif,
+  isSvg,
   jpegIccProfile,
   prepareImage,
   stripPngColorChunks,
@@ -151,5 +152,12 @@ describe("image decode, Figma's way (docs/research/rea/canvas.md §2.6)", () => 
     expect(isMultiFrameGif(gif(1))).toBe(false);
     expect(isMultiFrameGif(gif(2))).toBe(true);
     expect(isMultiFrameGif(new Uint8Array([1, 2, 3]))).toBe(false);
+  });
+
+  it("SVG markup is recognised (it stays the browser's decode: sniffImageMime has no SVG)", () => {
+    expect(isSvg(new Uint8Array(text('<svg xmlns="http://www.w3.org/2000/svg"/>')))).toBe(true);
+    expect(isSvg(new Uint8Array([0xef, 0xbb, 0xbf, ...text('\n  <?xml version="1.0"?><svg/>')]))).toBe(true);
+    expect(isSvg(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]))).toBe(false);
+    expect(isSvg(new Uint8Array([]))).toBe(false);
   });
 });
