@@ -19,6 +19,17 @@ One scenario for both apps (`bench.mjs`, kept in the session scratchpad; it is a
 
 The rAF cadence shows the main thread never blocked a frame at 120 Hz; it does not by itself prove each frame redrew the full scene (the engine composites cached tiles while the camera moves, as Figma does).
 
-## Figma — not measured yet
+## Figma vs Wecra — same method (2026-10-15, after Batch B, `e1a98929`)
 
-Figma desktop ignores `--remote-debugging-port` (relaunched with it: the flag is on the process, no port opens), the in-app browser has no Figma session (signing in is the owner's), and the Claude in Chrome extension was not connected. To finish: connect the Chrome extension (signed in to Figma in Chrome), then the same recorder runs in the figma.com tab with real wheel input — or the owner turns on Figma's own performance HUD and reads the numbers by hand on the same page and moves.
+Figma in the owner's Chrome (signed in, "Open here instead" so the web editor ran, not the desktop app), Wecra from `out/`. One in-page script for both: the frame recorder above plus the wheel input dispatched as `WheelEvent`s on the largest canvas from inside the page (16 ms apart; zoom = `ctrlKey` wheel, the pinch form), so neither side pays a driver round trip. Page **Desktop**, Shift+1 first. Both at devicePixelRatio 2. The machine was loaded (load average 15–17: Illustrator, Creative Cloud, a WebKit GPU process) for both runs alike. Figma's file had two other people in it; only the view was moved.
+
+| | Figma (web, Chrome) | Wecra (Electron) |
+|---|---|---|
+| Canvas | 973 × 772 CSS px (panels beside it) | 1440 × 862 CSS px (panels over it) — 1.65× the pixels |
+| Pan, 2 runs | 115.4 / 116.6 fps · p95 9.3 / 9.1 ms · max 25 / 17 ms · **0** frames > 33 ms | 111.9 / 113.4 fps · p95 9.2 / 9.2 ms · max 58 / 58 ms · **5 / 3** frames > 33 ms |
+| Zoom (pinch), 2 runs | 119.7 / 119.7 fps · p95 9.1 / 8.9 ms · max 17.6 / 16.7 ms · 0 > 33 ms | 120 / 120 fps · p95 9.2 / 9.0 ms · max 9.3 ms · 0 > 33 ms |
+| Idle | 120 fps | 120 fps |
+| Open | not comparable (the first load went through the desktop-app hand-off and a loaded main thread; the editor was usable ~100 s after "Open here instead", most of it network) | 7.8 s openFile → first frame (6.8 s on the page clock), under the same load (5.1 s on the quieter night run) |
+| Memory | JS heap 388 MB (`performance.memory`; wasm and GPU not included) | 1.45–1.81 GB whole process tree; engine GPU 288 MB |
+
+Reading: zoom is level (Wecra's worst zoom frame is better than Figma's). Pan is close on average but Wecra has 3–5 long frames (~58 ms) per 180-step pan where Figma has none — Batch D's first target (likely tiles entering view; trace it with `engine-bench --only fastPan --profile`). Worth checking too: the engine reported 319,892 nodes on this open against 230,123 the night before on the same file — find out whether Batch B's load-time work (override-key repair, variant backfill) or a counting change explains it.
