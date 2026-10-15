@@ -1491,6 +1491,7 @@ const server = await createServer({
   root: editor ? path.join(repo, "src/renderer") : repo,
   resolve: {
     alias: [
+      { find: /^@shared\//, replacement: path.join(repo, "src/shared") + "/" },
       { find: /^@\//, replacement: path.join(repo, "src/renderer/src") + "/" },
       ...(wasmDir ? [{ find: /^\.\/wasm\/engine\.mjs$/, replacement: path.join(path.resolve(wasmDir), "engine.mjs") }] : []),
     ],
@@ -1499,7 +1500,7 @@ const server = await createServer({
   appType: editor ? "spa" : "custom",
   logLevel: "error",
   ssr: { noExternal: ["electron"] },
-  ...(editor ? {} : { optimizeDeps: { noDiscovery: true, include: [] } }),
+  ...(editor ? {} : { optimizeDeps: { noDiscovery: true, include: ["react"] } }),
   plugins: [
     {
       name: "engine-bench",
