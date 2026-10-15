@@ -138,6 +138,18 @@ bool extraJson(const NodeProps& p, const char* key, json::Value& out) {
 
 }  // namespace
 
+void scatterSettingsOver(geom::ScatterSettings& s, const json::Value& v) {
+  if (!v.isObject()) return;
+  auto num = [&](const char* k, double& x) {
+    if (const json::Value* n = v.get(k)) x = n->numberOr(x);
+  };
+  num("gap", s.gap);
+  num("wiggle", s.wiggle);
+  num("angularJitter", s.angularJitter);
+  num("rotation", s.rotation);
+  num("sizeJitter", s.sizeJitter);
+}
+
 Guid strokeBrushOf(const NodeProps& p) {
   json::Value v;
   if (!extraJson(p, "strokeBrushGuid", v)) return kNoGuid;
@@ -194,16 +206,7 @@ bool brushStroke(const Document& doc, const NodeProps& p, const NodeGeometry& g,
     return true;
   }
   geom::ScatterSettings s;
-  if (extraJson(p, "scatterStrokeSettings", scatter) || extraJson(bn->props, "scatterStrokeSettings", scatter)) {
-    auto num = [&](const char* k, double& v) {
-      if (const json::Value* x = scatter.get(k)) v = x->numberOr(v);
-    };
-    num("gap", s.gap);
-    num("wiggle", s.wiggle);
-    num("angularJitter", s.angularJitter);
-    num("rotation", s.rotation);
-    num("sizeJitter", s.sizeJitter);
-  }
+  if (extraJson(p, "scatterStrokeSettings", scatter) || extraJson(bn->props, "scatterStrokeSettings", scatter)) scatterSettingsOver(s, scatter);
   uint64_t sd = 0;
   if (extraJson(p, "strokeSeed", seed)) sd = static_cast<uint64_t>(seed.numberOr(0));
   out = geom::scatterBrush(g.stroke.path, art, box, p.strokeWeight, s, sd, tolerance);

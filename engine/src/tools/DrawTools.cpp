@@ -113,9 +113,8 @@ void Editor::drawStrokeProps(NodeProps& p, bool brush) {
                      t.string == "SCATTER";
       p.extra["strokeBrushGuid"] = encode("strokeBrushGuid", "{\"sessionID\":" + std::to_string(b.brush.sessionID) + ",\"localID\":" +
                                                                  std::to_string(b.brush.localID) + "}");
-      p.extra[scatter ? "scatterStrokeSettings" : "stretchStrokeSettings"] =
-          scatter ? encode("scatterStrokeSettings", "{\"gap\":1,\"wiggle\":0,\"angularJitter\":0,\"rotation\":0,\"sizeJitter\":0}")
-                  : encode("stretchStrokeSettings", "{\"orientation\":\"FORWARD\"}");
+      // Figma's {base, ...the brush's own settings} (docs/research/rea/vector.md §5).
+      p.extra[scatter ? "scatterStrokeSettings" : "stretchStrokeSettings"] = appliedBrushSettings(b.brush, scatter, nullptr);
       p.extra["strokeSeed"] = encode("strokeSeed", num(static_cast<double>(newStrokeSeed())));
     }
     return;

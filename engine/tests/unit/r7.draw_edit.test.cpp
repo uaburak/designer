@@ -379,7 +379,7 @@ TEST_CASE("r7b brushes: install is idempotent by name and type; Brush stroke cle
   CHECK(extraOf(e, V, "dynamicStrokeSettings").isNull());
   json::Value sc = extraOf(e, V, "scatterStrokeSettings");
   REQUIRE(sc.isObject());
-  CHECK(sc.get("gap")->numberOr(0) == 1);  // the defaults
+  CHECK(sc.get("gap")->numberOr(0) == doctest::Approx(0.9));  // Figma's base (a custom brush's own settings)
   // Scatter settings, clamped to the ranges.
   REQUIRE(e.command(CommandId::SET_BRUSH_SETTINGS, args(R"({"scatter":{"gap":0.1,"rotation":45}})")) == OK);
   sc = extraOf(e, V, "scatterStrokeSettings");
@@ -418,6 +418,72 @@ TEST_CASE("r7b brushes: install is idempotent by name and type; Brush stroke cle
   CHECK(e.listBrushes().size() == 3);
   e.command(CommandId::UNDO);
   CHECK_FALSE(e.document().has(made));
+}
+
+TEST_CASE("r17b scatter settings: a brush's own on install; apply writes {base, ...brush, ...user}, replacing the last brush's") {
+  Editor e = makeEditor();
+  geom::Path sq;
+  sq.moveTo({0, 0});
+  sq.lineTo({16, 0});
+  sq.lineTo({16, 16});
+  sq.lineTo({0, 16});
+  sq.close();
+  // Bubblegum's measured settings (rea/vector.md §5); a key outside the table is ignored, a value clamped.
+  json::Value own;
+  REQUIRE(json::parse(R"({"gap":0.25,"angularJitter":95,"rotation":45,"bogus":3,"sizeJitter":9})", own));
+  Guid bubble = e.installBrush("Bubblegum", true, {16, 16}, sq, WindingRule::NONZERO, &own);
+  REQUIRE(bubble != kNoGuid);
+  json::Value node = extraOf(e, bubble, "scatterStrokeSettings");
+  REQUIRE(node.isObject());
+  CHECK(node.get("gap")->numberOr(0) == doctest::Approx(0.25));
+  CHECK(node.get("angularJitter")->numberOr(0) == 95);
+  CHECK(node.get("wiggle")->numberOr(-1) == 0);  // the base fills the rest
+  CHECK(node.get("sizeJitter")->numberOr(0) == 3);
+  CHECK(node.get("bogus") == nullptr);
+  Guid plain = installSquare(e, "Custom", true);  // no settings: Figma's base
+  CHECK(extraOf(e, plain, "scatterStrokeSettings").get("gap")->numberOr(0) == doctest::Approx(0.9));
+  CHECK(extraOf(e, installSquare(e, "Heist", false), "scatterStrokeSettings").isNull());  // stretch: none
+
+  e.setSelection({V});
+  // Apply: the brush's own over the base.
+  REQUIRE(e.command(CommandId::SET_STROKE_BRUSH, args("{\"brush\":\"" + bubble.toString() + "\"}")) == OK);
+  json::Value sc = extraOf(e, V, "scatterStrokeSettings");
+  CHECK(sc.get("gap")->numberOr(0) == doctest::Approx(0.25));
+  CHECK(sc.get("rotation")->numberOr(0) == 45);
+  // The user's value wins (Figma: OI with gap 0.5 → 0.5).
+  REQUIRE(e.command(CommandId::SET_STROKE_BRUSH, args("{\"brush\":\"" + bubble.toString() + "\",\"scatter\":{\"gap\":0.5}}")) == OK);
+  sc = extraOf(e, V, "scatterStrokeSettings");
+  CHECK(sc.get("gap")->numberOr(0) == doctest::Approx(0.5));
+  CHECK(sc.get("angularJitter")->numberOr(0) == 95);
+  // Another brush replaces the settings: no rotation carried over from Bubblegum.
+  REQUIRE(e.command(CommandId::SET_STROKE_BRUSH, args("{\"brush\":\"" + plain.toString() + "\"}")) == OK);
+  sc = extraOf(e, V, "scatterStrokeSettings");
+  CHECK(sc.get("gap")->numberOr(0) == doctest::Approx(0.9));
+  CHECK(sc.get("rotation")->numberOr(-1) == 0);
+  // SET_BRUSH_SETTINGS on a layer without settings starts from what it draws with: its brush's own.
+  REQUIRE(e.command(CommandId::SET_STROKE_BRUSH, args("{\"brush\":\"" + bubble.toString() + "\"}")) == OK);
+  {
+    NodeChange c = NodeChange::changed(V);
+    c.mask = F_EXTRA;
+    c.props.extra["scatterStrokeSettings"] = "";
+    REQUIRE(e.applyChanges({c}, APPLY_USER) == OK);
+  }
+  REQUIRE(extraOf(e, V, "scatterStrokeSettings").isNull());
+  REQUIRE(e.command(CommandId::SET_BRUSH_SETTINGS, args(R"({"scatter":{"wiggle":1}})")) == OK);
+  sc = extraOf(e, V, "scatterStrokeSettings");
+  CHECK(sc.get("gap")->numberOr(0) == doctest::Approx(0.25));
+  CHECK(sc.get("wiggle")->numberOr(0) == 1);
+
+  // The Brush tool: a new stroke takes the brush's own settings.
+  json::Value tool;
+  REQUIRE(json::parse("{\"brush\":{\"color\":\"#000000\",\"opacity\":1,\"weight\":4,\"brush\":\"" + bubble.toString() + "\"}}", tool));
+  REQUIRE(e.setDrawToolSettings(tool) == OK);
+  REQUIRE(e.setTool(Tool::BRUSH) == OK);
+  drag(e, {200, 600}, {500, 650});
+  REQUIRE(e.selection().size() == 1);
+  sc = extraOf(e, e.selection()[0], "scatterStrokeSettings");
+  CHECK(sc.get("gap")->numberOr(0) == doctest::Approx(0.25));
+  CHECK(sc.get("angularJitter")->numberOr(0) == 95);
 }
 
 TEST_CASE("r17a a brush keeps width points and dashes; Basic after a brush writes -1:-1") {

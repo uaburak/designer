@@ -25,6 +25,7 @@
 #include "editor/Selection.h"
 #include "editor/Snapping.h"
 #include "editor/Undo.h"
+#include "geometry/Brush.h"
 #include "geometry/DynamicStroke.h"
 #include "geometry/PlanarFaces.h"
 #include "geometry/VariableWidth.h"
@@ -187,7 +188,9 @@ void adoptSlotContent(std::vector<NodeChange>& nodes);
 // Figma Draw (editor/DrawCommands.cpp): SVG path data (a BrushArtwork's `d`: M L H V Q C Z, absolute or relative) as a
 // path; a brush laid along a fixed S-curve as straight RGBA (black, coverage in alpha), w × h px at `weight`.
 bool parseSvgPath(std::string_view d, geom::Path& out);
-bool brushPreview(const geom::Path& artwork, Vec2 box, bool scatter, int w, int h, double weight, std::string& rgba);
+// A scatter brush is laid out with `settings` (its own; Figma's base when null).
+bool brushPreview(const geom::Path& artwork, Vec2 box, bool scatter, int w, int h, double weight, std::string& rgba,
+                  const geom::ScatterSettings* settings = nullptr);
 
 class Editor : private LayoutHost, public TextLayouts {
  public:
@@ -411,7 +414,10 @@ class Editor : private LayoutHost, public TextLayouts {
   // INSTALL_BRUSH: a BRUSH node on the Internal Only Canvas with this artwork (its own box, the stroke along +x); the
   // one already there with this name and type when there is one. Inside an open step it joins it; otherwise it is a
   // system write (journaled, no undo step: installing a brush to pick it isn't an edit). kNoGuid on bad input.
-  Guid installBrush(const std::string& name, bool scatter, Vec2 size, const geom::Path& artwork, WindingRule rule);
+  // A scatter brush's node carries its own scatterStrokeSettings (449): `settings` over Figma's base {gap 0.9, 0…}
+  // (the built-ins' measured values, rea/vector.md §5; a custom brush the base).
+  Guid installBrush(const std::string& name, bool scatter, Vec2 size, const geom::Path& artwork, WindingRule rule,
+                    const json::Value* settings = nullptr);
   struct BrushInfo {
     Guid guid = kNoGuid;
     std::string name;
@@ -420,7 +426,8 @@ class Editor : private LayoutHost, public TextLayouts {
   // The file's BRUSH nodes, in document order.
   std::vector<BrushInfo> listBrushes() const;
   // A BRUSH node's artwork (its fill paths, own space) and box; false when `id` isn't a usable brush.
-  bool brushArtwork(Guid id, geom::Path& out, Vec2& box, bool& scatter) const;
+  // `settings`: a scatter brush's own settings over Figma's base.
+  bool brushArtwork(Guid id, geom::Path& out, Vec2& box, bool& scatter, geom::ScatterSettings* settings = nullptr) const;
   // A selected TEXT_PATH's start handle (world), when one shows (selected alone, not being edited).
   bool textPathHandle(Guid& node, Vec2& world) const;
   // The layer whose edge the Text on path tool would write on at `world` (kNoGuid: none).
@@ -1610,6 +1617,10 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<Guid> drawTargets(const CommandArgs& args) const;
   Status createTextPath(Guid src, double tValue, bool replace, Guid* made);
   void drawStrokeProps(NodeProps& p, bool brush);  // a new Pencil / Brush stroke: the tool's colour, weight and style
+  // A brush applied to a stroke (SET_STROKE_BRUSH, the Brush tool): Figma's {base, ...the BRUSH node's own settings,
+  // ...`user`} (3187.min.js @3366400, docs/research/rea/vector.md §5), clamped; the scatter or stretch settings as the
+  // encoded NodeChange field, replacing what the layer had for its previous brush.
+  std::string appliedBrushSettings(Guid brush, bool scatter, const json::Value* user) const;
   uint64_t newStrokeSeed();
   uint64_t seedState_ = 0x9E3779B97F4A7C15ull;
   uint32_t drawPointerDown(Vec2 s, uint32_t mods);
