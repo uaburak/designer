@@ -12,7 +12,7 @@ import { renderEngineExport } from "../../exportCore";
 import { exportAllowed } from "../../exporting";
 import { ApiError, MIXED } from "./codec";
 import { mustNode, readNode, ref, refOf, type ApiContext } from "./context";
-import { apiType, ENGINE_TYPE, fontNameFromApi, IDENTITY, letterSpacingFromApi, letterSpacingToApi, lineHeightFromApi, lineHeightToApi, paintsFromApi, paintToApi, weightOf } from "./convert";
+import { apiType, effectToApi, ENGINE_TYPE, fontNameFromApi, IDENTITY, letterSpacingFromApi, letterSpacingToApi, lineHeightFromApi, lineHeightToApi, paintsFromApi, paintToApi, weightOf } from "./convert";
 import { positionAt, writeFields } from "./nodes";
 import { sha1 } from "./sha1";
 
@@ -464,7 +464,7 @@ export function styleGet(ctx: ApiContext, id: string, field: string): unknown {
     case "paints":
       return (s.fillPaints ?? []).map(paintToApi);
     case "effects":
-      return (s.effects ?? []).map((e) => e);
+      return (s.effects ?? []).map(effectToApi);
     case "fontName":
       return s.text ? { family: s.text.fontName.family, style: s.text.fontName.style } : null;
     case "fontSize":

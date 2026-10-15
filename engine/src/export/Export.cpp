@@ -20,8 +20,6 @@ Rect intersect(const Rect& a, const Rect& b) {
   return {l, t, std::max(0.0, r - l), std::max(0.0, bt - t)};
 }
 
-Rect grow(const Rect& r, double by) { return {r.x - by, r.y - by, r.w + 2 * by, r.h + 2 * by}; }
-
 double worldScale(const Mat2x3& m) { return std::sqrt(std::fabs(m.determinant())); }
 
 struct Bounder {
@@ -121,23 +119,9 @@ struct Bounder {
       if (cany && (cr.w > 0 || cr.h > 0)) add(cr);
     }
     if (!any) return false;
-    // Effects: drop shadows (offset, blur, spread) and the layer blur reach past the content.
-    double scale = worldScale(W);
-    Rect base = r;
-    double blur = 0;
-    for (const Effect& e : p.effects) {
-      if (!e.visible) continue;
-      if (e.type == EffectType::DROP_SHADOW) {
-        Rect s = grow(base, std::max(0.0, e.radius + e.spread) * scale);
-        s.x += e.offset.x * scale;
-        s.y += e.offset.y * scale;
-        r = r.united(s);
-      } else if (e.type == EffectType::FOREGROUND_BLUR) {
-        blur = std::max(blur, e.radius);
-      }
-    }
-    if (blur > 0) r = grow(r, blur * scale);
-    out = r;
+    // Effects: drop shadows (offset, blur, spread), the layer blurs (summed) and an unclipped texture reach past the
+    // content, as the canvas's bounds (scene/Extras.h effectsBounds).
+    out = effectsBounds(p, r, worldScale(W));
     return true;
   }
 };

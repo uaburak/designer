@@ -231,8 +231,14 @@ describe("effects and layout guides", () => {
   it("the type menu's order and Figma's new Noise, Texture and Glass (live popovers)", () => {
     expect(EFFECT_TYPES.map((t) => t.label)).toEqual(["Inner shadow", "Drop shadow", "Layer blur", "Background blur", "Noise", "Texture", "Glass"]);
     expect(defaultEffect("NOISE")).toMatchObject({ type: "NOISE", noiseType: "MONOTONE", noiseSize: { x: 0.5, y: 0.5 }, density: 1, color: { r: 0, g: 0, b: 0, a: 0.25 } });
-    expect(defaultEffect("GRAIN")).toMatchObject({ type: "GRAIN", noiseSize: { x: 0.5, y: 0.5 }, radius: 4, clipToShape: false });
-    expect(defaultEffect("GLASS")).toMatchObject({ type: "GLASS", specularAngle: -45, specularIntensity: 0.8, refractionIntensity: 0.8, bevelSize: 20, chromaticAberration: 0.5, radius: 4, refractionRadius: 0 });
+    expect(defaultEffect("GRAIN")).toMatchObject({ type: "GRAIN", noiseSize: { x: 4, y: 4 }, radius: 4, clipToShape: false });
+    // A random seed each (Figma's floor(10⁴ · random)): two new noises don't look the same.
+    for (const type of ["NOISE", "GRAIN"] as const) {
+      const seed = defaultEffect(type).seed as number;
+      expect(Number.isInteger(seed) && seed >= 0 && seed < 10000).toBe(true);
+    }
+    // Glass in Figma's fields: Depth = refractionRadius, Splay = reflectionDistance, bevelSize 1.
+    expect(defaultEffect("GLASS")).toEqual({ type: "GLASS", visible: true, specularAngle: -45, specularIntensity: 0.8, refractionIntensity: 0.8, refractionRadius: 20, bevelSize: 1, chromaticAberration: 0.5, reflectionDistance: 0, radius: 4 });
     // Blend mode on shadows and noise only.
     expect(EFFECT_TYPES.filter((t) => hasEffectBlend(defaultEffect(t.value))).map((t) => t.value)).toEqual(["INNER_SHADOW", "DROP_SHADOW", "NOISE"]);
   });

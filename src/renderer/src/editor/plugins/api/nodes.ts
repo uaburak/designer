@@ -15,7 +15,7 @@ import { ApiError, MIXED } from "./codec";
 import { mustNode, parentOf, readNode, ref, refOf, type ApiContext } from "./context";
 import {
   apiType,
-  effectFromApi,
+  effectsFromApi,
   effectToApi,
   fontNameFromApi,
   fromTransform,
@@ -223,7 +223,7 @@ const PROPS: Record<string, Prop> = {
     set: (ctx, n, v) => writeFields(ctx, n.guid, { strokeWeight: needNumber("strokeWeight")(v) as number, ...(n.borderStrokeWeightsIndependent ? { borderStrokeWeightsIndependent: false } : {}) }, "strokeWeight"),
   },
   strokeAlign: field("strokeAlign", "CENTER"),
-  effects: { get: (_ctx, n) => (n.effects ?? []).map(effectToApi), set: (ctx, n, v) => writeFields(ctx, n.guid, { effects: (Array.isArray(v) ? v : []).map((e, i) => effectFromApi(e, `effects[${i}]`)) }, "effects") },
+  effects: { get: (_ctx, n) => (n.effects ?? []).map(effectToApi), set: (ctx, n, v) => writeFields(ctx, n.guid, { effects: effectsFromApi(v, n) }, "effects") },
   layoutGrids: {
     get: (_ctx, n) => (((n as unknown as Obj).layoutGrids as Obj[] | undefined) ?? []).map(gridToApi),
     set: (ctx, n, v) => writeFields(ctx, n.guid, { layoutGrids: (Array.isArray(v) ? v : []).map((g, i) => gridFromApi(g, `layoutGrids[${i}]`)) } as NodeFields, "layoutGrids"),

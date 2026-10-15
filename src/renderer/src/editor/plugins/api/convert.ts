@@ -4,6 +4,7 @@
  */
 import type { Color, Effect, Matrix, NodeChange, NodeType, Paint } from "@/engine/codec";
 import { ApiError } from "./codec";
+import { GLASS_DEFAULTS, ONE_GLASS, figmaGlass, tooManyGlass } from "../../model/glass";
 
 type Obj = Record<string, unknown>;
 const num = (v: unknown, fallback = 0): number => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
@@ -98,6 +99,8 @@ export const multiply = (a: Matrix, b: Matrix): Matrix => ({
 const SCALE_TO_API: Record<string, string> = { FILL: "FILL", FIT: "FIT", STRETCH: "CROP", TILE: "TILE" };
 const SCALE_FROM_API: Record<string, string> = { FILL: "FILL", FIT: "FIT", CROP: "STRETCH", TILE: "TILE" };
 const FILTERS = ["exposure", "contrast", "saturation", "temperature", "tint", "highlights", "shadows"] as const;
+/** The document's field of a Plugin API image filter where the names differ: `saturation` is the schema's `vibrance`. */
+const FILTER_FIELD: Partial<Record<string, string>> = { saturation: "vibrance" };
 
 function hashHex(h: unknown): string | null {
   if (typeof h === "string") return h.toLowerCase();
@@ -121,7 +124,10 @@ export function paintToApi(p: Paint): Obj {
     if (p.rotation) out.rotation = p.rotation;
     const f = (p.paintFilter ?? {}) as Obj;
     const filters: Obj = {};
-    for (const k of FILTERS) if (typeof f[k] === "number" && f[k] !== 0) filters[k] = f[k];
+    for (const k of FILTERS) {
+      const x = f[FILTER_FIELD[k] ?? k];
+      if (typeof x === "number" && x !== 0) filters[k] = x;
+    }
     out.filters = filters;
     return out;
   }
@@ -159,7 +165,11 @@ export function paintFromApi(v: unknown, path: string): Paint {
     if (type === "VIDEO" && typeof o.videoHash === "string") (out as Obj).video = { hash: o.videoHash };
     if (typeof o.scalingFactor === "number") out.scale = o.scalingFactor;
     if (typeof o.rotation === "number") out.rotation = o.rotation;
-    if (o.filters && typeof o.filters === "object") out.paintFilter = { ...(o.filters as Obj) } as Paint["paintFilter"];
+    if (o.filters && typeof o.filters === "object") {
+      const filter: Obj = {};
+      for (const [k, x] of Object.entries(o.filters as Obj)) filter[FILTER_FIELD[k] ?? k] = x;
+      out.paintFilter = filter as Paint["paintFilter"];
+    }
     return out;
   }
   if (type === "NOISE") return { ...base, type: "NOISE", color: needColor(o.color ?? { r: 0, g: 0, b: 0, a: 0.25 }, `${path}.color`, true), noiseType: (o.noiseType as Paint["noiseType"]) ?? "MONOTONE", density: num(o.density, 1), noiseSize: (o.noiseSize as Paint["noiseSize"]) ?? { x: 0.5, y: 0.5 } };
@@ -174,8 +184,24 @@ export function paintsFromApi(v: unknown, name: string): Paint[] {
 
 // ---- Effects ----------------------------------------------------------------------------------------------------
 
-const EFFECT_TO_API: Record<string, string> = { FOREGROUND_BLUR: "LAYER_BLUR", GRAIN: "TEXTURE" };
-const EFFECT_FROM_API: Record<string, string> = { LAYER_BLUR: "FOREGROUND_BLUR", TEXTURE: "GRAIN" };
+// Figma's Plugin API effect converter (docs/research/rea/effects.md §2.14, §2.26): its names, its clamps (a value
+// out of range is clamped, a shadow's radius and spread with a warning), glass in Figma's fields.
+const EFFECT_TO_API: Record<string, string> = { FOREGROUND_BLUR: "LAYER_BLUR", GRAIN: "TEXTURE", CUSTOM: "SHADER" };
+const EFFECT_FROM_API: Record<string, string> = { LAYER_BLUR: "FOREGROUND_BLUR", TEXTURE: "GRAIN", SHADER: "CUSTOM" };
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+/** Where the converter's warnings go (the plugin's console). */
+export type Warn = (message: string) => void;
+const consoleWarn: Warn = (m) => console.warn(m);
+
+/** What a shadow's spread needs of its node (Figma: a rectangle, an ellipse, or a frame-like node that clips and has a visible fill). */
+export type SpreadTarget = Pick<NodeChange, "type" | "fillPaints" | "frameMaskDisabled">;
+export function spreadEligible(n: SpreadTarget | undefined): boolean {
+  if (!n) return true;
+  if (n.type === "RECTANGLE" || n.type === "ROUNDED_RECTANGLE" || n.type === "ELLIPSE") return true;
+  if (n.type !== "FRAME" && n.type !== "SYMBOL" && n.type !== "INSTANCE") return false;
+  const fill = (n.fillPaints ?? []).some((p) => p.visible !== false && (p.opacity ?? 1) > 0);
+  return fill && n.frameMaskDisabled !== true;
+}
 
 export function effectToApi(e: Effect): Obj {
   const type = EFFECT_TO_API[e.type ?? ""] ?? e.type ?? "DROP_SHADOW";
@@ -189,29 +215,123 @@ export function effectToApi(e: Effect): Obj {
     if (e.blurOpType === "PROGRESSIVE") return { ...base, blurType: "PROGRESSIVE", radius: e.radius ?? 0, startRadius: e.startRadius ?? 0, startOffset: e.startOffset ?? { x: 0.5, y: 0 }, endOffset: e.endOffset ?? { x: 0.5, y: 1 }, boundVariables: {} };
     return { ...base, blurType: "NORMAL", radius: e.radius ?? 0, boundVariables: {} };
   }
-  const size = (e.noiseSize as { x?: number } | undefined)?.x;
-  if (type === "NOISE") return { ...base, noiseType: e.noiseType ?? "MONOTONE", color: rgba(e.color), secondaryColor: rgba(e.secondaryColor as Color | undefined), density: e.density ?? 1, noiseSize: num(size, 0.5), blendMode: e.blendMode ?? "NORMAL" };
-  if (type === "TEXTURE") return { ...base, noiseSize: num(size, 0.5), radius: e.radius ?? 0, clipToShape: !!e.clipToShape };
-  if (type === "GLASS") return { ...base, lightIntensity: e.specularIntensity ?? 0, lightAngle: e.specularAngle ?? 0, refraction: e.refractionIntensity ?? 0, depth: e.bevelSize ?? 0, dispersion: e.chromaticAberration ?? 0, radius: e.radius ?? 0 };
+  // A field the effect doesn't hold reads as Figma's Effect reads it (noise size 0, Multi opacity 0).
+  const size = (e.noiseSize as { x?: number; y?: number } | undefined) ?? {};
+  const noiseSizeVector = { x: num(size.x), y: num(size.y) };
+  if (type === "NOISE") {
+    const out: Obj = { ...base, noiseType: e.noiseType ?? "MONOTONE", color: rgba(e.color), density: e.density ?? 1, noiseSize: noiseSizeVector.x, noiseSizeVector, blendMode: e.blendMode ?? "NORMAL" };
+    if (out.noiseType === "DUOTONE") out.secondaryColor = rgba(e.secondaryColor as Color | undefined);
+    if (out.noiseType === "MULTITONE") out.opacity = num(e.opacity);
+    return out;
+  }
+  if (type === "TEXTURE") return { ...base, noiseSize: noiseSizeVector.x, noiseSizeVector, radius: e.radius ?? 0, clipToShape: !!e.clipToShape };
+  if (type === "GLASS") {
+    const g = figmaGlass(e);
+    const d = GLASS_DEFAULTS;
+    return {
+      ...base,
+      lightIntensity: num(g.specularIntensity, d.specularIntensity),
+      lightAngle: num(g.specularAngle, d.specularAngle),
+      refraction: num(g.refractionIntensity, d.refractionIntensity),
+      depth: num(g.refractionRadius, d.refractionRadius),
+      dispersion: num(g.chromaticAberration, d.chromaticAberration),
+      radius: g.radius ?? d.radius,
+      splay: num(g.reflectionDistance, d.reflectionDistance),
+    };
+  }
+  if (type === "SHADER") return { ...base, blendMode: e.blendMode ?? "NORMAL" };
   return base;
 }
 
-export function effectFromApi(v: unknown, path: string): Effect {
+/** The Plugin API's noise size: `noiseSize` (a number, both axes) and / or `noiseSizeVector` {x, y}; when both, x must agree. */
+function noiseSizeFromApi(o: Obj, path: string, fallback: number): { x: number; y: number } {
+  const vec = o.noiseSizeVector as { x?: unknown; y?: unknown } | undefined;
+  const one = typeof o.noiseSize === "number" ? o.noiseSize : undefined;
+  if (vec && typeof vec === "object") {
+    const x = num(vec.x, one ?? fallback), y = num(vec.y, x);
+    if (one !== undefined && one !== x) throw new ApiError(`${path}.noiseSize: ${one} does not match noiseSizeVector.x ${x}`);
+    return { x: clamp(x, 0, 100), y: clamp(y, 0, 100) };
+  }
+  const s = clamp(one ?? fallback, 0, 100);
+  return { x: s, y: s };
+}
+
+/**
+ * A Plugin API effect as the document's. `node`: the node it is set on (a shadow's spread is forced to 0, with a
+ * warning, unless the node takes one).
+ */
+export function effectFromApi(v: unknown, path: string, node?: SpreadTarget, warn: Warn = consoleWarn): Effect {
   if (!v || typeof v !== "object") throw new ApiError(`${path}: expected an Effect object`);
   const o = v as Obj;
   const apiType = String(o.type ?? "");
   const type = (EFFECT_FROM_API[apiType] ?? apiType) as Effect["type"];
   const visible = o.visible !== false;
-  if (apiType === "DROP_SHADOW" || apiType === "INNER_SHADOW")
-    return { type, visible, color: needColor(o.color, `${path}.color`, true), offset: (o.offset as Effect["offset"]) ?? { x: 0, y: 0 }, radius: num(o.radius), spread: num(o.spread), blendMode: (o.blendMode as Effect["blendMode"]) ?? "NORMAL", showShadowBehindNode: !!o.showShadowBehindNode };
-  if (apiType === "LAYER_BLUR" || apiType === "BACKGROUND_BLUR") {
-    if (o.blurType === "PROGRESSIVE") return { type, visible, radius: num(o.radius), blurOpType: "PROGRESSIVE", startRadius: num(o.startRadius), startOffset: (o.startOffset as Effect["startOffset"]) ?? { x: 0.5, y: 0 }, endOffset: (o.endOffset as Effect["endOffset"]) ?? { x: 0.5, y: 1 } };
-    return { type, visible, radius: num(o.radius) };
+  if (apiType === "DROP_SHADOW" || apiType === "INNER_SHADOW") {
+    const given = num(o.radius);
+    const radius = clamp(given, 0, 250);
+    if (radius !== given) warn(`${path}.radius: ${given} is out of range; clamped to ${radius} (0–250)`);
+    let spread = clamp(num(o.spread), -30000, 30000);
+    if (spread !== 0 && !spreadEligible(node)) {
+      warn(`${path}.spread: spread is only supported on rectangles, ellipses and frames that clip their content and have a visible fill; set to 0`);
+      spread = 0;
+    }
+    return { type, visible, color: needColor(o.color, `${path}.color`, true), offset: (o.offset as Effect["offset"]) ?? { x: 0, y: 0 }, radius, spread, blendMode: (o.blendMode as Effect["blendMode"]) ?? "NORMAL", showShadowBehindNode: !!o.showShadowBehindNode };
   }
-  if (apiType === "NOISE") return { type, visible, noiseType: (o.noiseType as Effect["noiseType"]) ?? "MONOTONE", color: needColor(o.color ?? { r: 0, g: 0, b: 0, a: 0.25 }, `${path}.color`, true), secondaryColor: o.secondaryColor ? needColor(o.secondaryColor, `${path}.secondaryColor`, true) : undefined, density: num(o.density, 1), noiseSize: { x: num(o.noiseSize, 0.5), y: num(o.noiseSize, 0.5) }, blendMode: (o.blendMode as Effect["blendMode"]) ?? "NORMAL" };
-  if (apiType === "TEXTURE") return { type, visible, noiseSize: { x: num(o.noiseSize, 0.5), y: num(o.noiseSize, 0.5) }, radius: num(o.radius), clipToShape: !!o.clipToShape };
-  if (apiType === "GLASS") return { type, visible, specularIntensity: num(o.lightIntensity), specularAngle: num(o.lightAngle), refractionIntensity: num(o.refraction), bevelSize: num(o.depth), chromaticAberration: num(o.dispersion), radius: num(o.radius) };
+  if (apiType === "LAYER_BLUR" || apiType === "BACKGROUND_BLUR") {
+    if (o.blurType === "PROGRESSIVE") return { type, visible, radius: Math.max(0, num(o.radius)), blurOpType: "PROGRESSIVE", startRadius: clamp(num(o.startRadius), 0, 100), startOffset: (o.startOffset as Effect["startOffset"]) ?? { x: 0.5, y: 0 }, endOffset: (o.endOffset as Effect["endOffset"]) ?? { x: 0.5, y: 1 } };
+    return { type, visible, radius: Math.max(0, num(o.radius)) };
+  }
+  const seed = typeof o.seed === "number" && Number.isFinite(o.seed) ? Math.max(0, Math.floor(o.seed)) : Math.floor(Math.random() * 10000);
+  if (apiType === "NOISE") {
+    const noiseType = (o.noiseType as Effect["noiseType"]) ?? "MONOTONE";
+    const out: Effect = { type, visible, noiseType, color: needColor(o.color ?? { r: 0, g: 0, b: 0, a: 0.25 }, `${path}.color`, true), density: clamp(num(o.density, 1), 0, 1), noiseSize: noiseSizeFromApi(o, path, 0.5), blendMode: (o.blendMode as Effect["blendMode"]) ?? "NORMAL", seed };
+    if (o.secondaryColor) out.secondaryColor = needColor(o.secondaryColor, `${path}.secondaryColor`, true);
+    if (noiseType === "MULTITONE") out.opacity = clamp(num(o.opacity, 0.15), 0, 1);
+    return out;
+  }
+  if (apiType === "TEXTURE") return { type, visible, noiseSize: noiseSizeFromApi(o, path, 4), radius: clamp(num(o.radius), 0, 100), clipToShape: !!o.clipToShape, seed };
+  if (apiType === "GLASS") {
+    const d = GLASS_DEFAULTS;
+    return {
+      type,
+      visible,
+      specularIntensity: clamp(num(o.lightIntensity, d.specularIntensity), 0, 1),
+      specularAngle: clamp(num(o.lightAngle, d.specularAngle), -899, 900),
+      refractionIntensity: clamp(num(o.refraction, d.refractionIntensity), 0, 1),
+      refractionRadius: clamp(num(o.depth, d.refractionRadius), 1, 100),
+      bevelSize: 1,
+      chromaticAberration: clamp(num(o.dispersion, d.chromaticAberration), 0, 1),
+      reflectionDistance: clamp(num(o.splay, d.reflectionDistance), 0, 1),
+      radius: clamp(num(o.radius, d.radius), 0, 100),
+    };
+  }
+  if (apiType === "SHADER") {
+    // A shader effect: its preset and parameters as the document holds them (editor/model/shaders.ts).
+    const out: Effect = { type, visible, blendMode: (o.blendMode as Effect["blendMode"]) ?? "NORMAL" };
+    if (o.customEffectId !== undefined) out.customEffectId = o.customEffectId;
+    if (o.componentPropAssignments !== undefined) out.componentPropAssignments = o.componentPropAssignments;
+    return out;
+  }
   throw new ApiError(`${path}.type: invalid enum value '${apiType}'`);
+}
+
+/**
+ * A node's whole effect list from the Plugin API: each effect converted; one glass at most (Figma's rule). The Plugin
+ * API's noise and texture carry no seed, so one written back over the node's effect of the same type at the same index
+ * (`node.effects = [...node.effects, shadow]`, or a map over them) keeps that effect's seed — its pattern doesn't
+ * change; a new one gets a random seed.
+ */
+export function effectsFromApi(v: unknown, node?: SpreadTarget & { effects?: readonly Effect[] }, warn: Warn = consoleWarn): Effect[] {
+  const given = Array.isArray(v) ? v : [];
+  const out = given.map((e, i) => {
+    const effect = effectFromApi(e, `effects[${i}]`, node, warn);
+    const prev = node?.effects?.[i];
+    const seeded = typeof (e as Obj | null)?.seed === "number";
+    if (!seeded && prev && prev.type === effect.type && (effect.type === "NOISE" || effect.type === "GRAIN")) effect.seed = typeof prev.seed === "number" ? prev.seed : 0;
+    return effect;
+  });
+  if (tooManyGlass(out)) throw new ApiError(ONE_GLASS);
+  return out;
 }
 
 // ---- Layout guides (layoutGrids) ------------------------------------------------------------------------------------

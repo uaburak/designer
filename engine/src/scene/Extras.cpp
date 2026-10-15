@@ -69,6 +69,7 @@ const EffectExtras& effectExtras(const Effect& e) {
   if (cache.map.size() > 4096) cache.map.clear();
   EffectExtras x;
   json::Value v = membersOf("Effect", e.extra);
+  bool hasRefractionRadius = false, hasReflection = false;
   for (auto& [k, m] : v.object) {
     if (k == "blurOpType") x.blurOpType = named(m, {"NORMAL", "PROGRESSIVE"}, BlurOpType::NORMAL);
     else if (k == "startOffset") x.startOffset = vec(m, x.startOffset);
@@ -79,17 +80,68 @@ const EffectExtras& effectExtras(const Effect& e) {
     else if (k == "secondaryColor") x.secondaryColor = color(m, x.secondaryColor);
     else if (k == "density") x.density = m.numberOr(1);
     else if (k == "noiseType") x.noiseType = named(m, kNoiseTypes, NoiseType::MONOTONE);
-    else if (k == "opacity") x.opacity = m.numberOr(1);
+    else if (k == "opacity") x.opacity = m.numberOr(0);
     else if (k == "seed") x.seed = static_cast<uint32_t>(m.numberOr(0));
-    else if (k == "refractionRadius") x.refractionRadius = m.numberOr(x.refractionRadius);
+    else if (k == "refractionRadius") x.refractionRadius = m.numberOr(x.refractionRadius), hasRefractionRadius = true;
     else if (k == "specularAngle") x.specularAngle = m.numberOr(x.specularAngle);
     else if (k == "specularIntensity") x.specularIntensity = m.numberOr(x.specularIntensity);
     else if (k == "bevelSize") x.bevelSize = m.numberOr(x.bevelSize);
     else if (k == "chromaticAberration") x.chromaticAberration = m.numberOr(x.chromaticAberration);
-    else if (k == "reflectionDistance") x.reflectionDistance = m.numberOr(x.reflectionDistance);
+    else if (k == "reflectionDistance") x.reflectionDistance = m.numberOr(x.reflectionDistance), hasReflection = true;
     else if (k == "refractionIntensity") x.refractionIntensity = m.numberOr(x.refractionIntensity);
   }
+  // Wecra's glass before round 17: Depth in bevelSize, Splay (0–100) in refractionRadius. Figma writes bevelSize 1.
+  if (x.bevelSize > 1) {
+    double splay = hasRefractionRadius ? x.refractionRadius / 100 : 0;
+    x.refractionRadius = x.bevelSize;
+    if (!hasReflection) x.reflectionDistance = std::clamp(splay, 0.0, 1.0);
+    x.bevelSize = 1;
+  }
   return cache.map.emplace(e.extra, x).first->second;
+}
+
+bool visibleForRendering(const Effect& e) {
+  if (!e.visible) return false;
+  switch (e.type) {
+    case EffectType::DROP_SHADOW: return e.color.a > 0;
+    case EffectType::INNER_SHADOW:
+      return e.color.a > 0 && (e.radius > 0 || e.offset.x != 0 || e.offset.y != 0 || e.spread > 0);
+    case EffectType::FOREGROUND_BLUR:
+    case EffectType::BACKGROUND_BLUR: return e.radius > 0 || effectExtras(e).startRadius > 0;
+    case EffectType::GRAIN: return e.radius > 0;
+    default: return true;  // noise, glass, shader effects
+  }
+}
+
+double shadowSpread(const NodeProps& p, const Effect& e) {
+  if (e.spread == 0) return 0;
+  if (p.isFrameLike()) {
+    bool fill = false;
+    for (const Paint& f : p.fillPaints)
+      fill |= f.visible && f.opacity * (f.type == PaintType::SOLID ? f.color.a : 1.f) >= 0.01f;
+    return p.clipsContent() && fill ? e.spread : 0;
+  }
+  return p.isRectLike() || p.type == NodeType::ELLIPSE ? e.spread : 0;
+}
+
+Rect effectsBounds(const NodeProps& p, const Rect& box, double scale) {
+  auto grow = [](const Rect& r, double d) { return Rect{r.x - d, r.y - d, r.w + 2 * d, r.h + 2 * d}; };
+  double blur = 0, shader = 0;
+  for (const Effect& e : p.effects) {
+    if (!visibleForRendering(e)) continue;
+    if (e.type == EffectType::FOREGROUND_BLUR) blur += std::max(e.radius, effectExtras(e).startRadius);  // progressive: the larger end
+    else if (e.type == EffectType::GRAIN && !effectExtras(e).clipToShape) blur += e.radius;  // "how far past the layer's boundary"
+    else if (e.type == EffectType::CUSTOM) shader = std::max(shader, shaderReach(shaderOf(e)));
+  }
+  Rect out = grow(box, (blur + shader) * scale);
+  for (const Effect& e : p.effects) {
+    if (e.type != EffectType::DROP_SHADOW || !visibleForRendering(e)) continue;
+    Rect s = grow(box, (std::max(0.0, e.radius + shadowSpread(p, e)) + blur) * scale);  // spread only where it's drawn
+    s.x += e.offset.x * scale;
+    s.y += e.offset.y * scale;
+    out = out.united(s);
+  }
+  return out;
 }
 
 const PaintExtras& paintExtras(const Paint& p) {

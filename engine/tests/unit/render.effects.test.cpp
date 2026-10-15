@@ -46,7 +46,8 @@ std::vector<const gfx::NullDevice::Recorded*> composites(const gfx::NullDevice& 
   return out;
 }
 
-std::set<float> blurSigmas(const gfx::NullDevice& dev) {
+// The tent blur passes' radii (texels of the layer they blur).
+std::set<float> blurRadii(const gfx::NullDevice& dev) {
   std::set<float> out;
   for (auto& c : dev.draws)
     if (c.pipeline.shader == gfx::ShaderId::Blur && c.call.uniforms[2][3] == 0) out.insert(std::round(c.call.uniforms[2][2] * 100) / 100);
@@ -114,17 +115,16 @@ TEST_CASE("renderer: a progressive layer blur composites its layer between blurr
   Renderer r(dev);
   render(r, d);
   auto modes = composites(dev, 5);
-  // σ 8 halved to 0: levels 0, 1, 2, 4, 8 → four intervals.
+  // Radius 16 halved to 0: levels 0, 2, 4, 8, 16 → four intervals.
   REQUIRE(modes.size() == 4);
-  std::set<float> sigmas = blurSigmas(dev);
-  CHECK(sigmas.count(8.f));
-  CHECK(sigmas.count(4.f));
-  CHECK(sigmas.count(1.f));
-  // Slot 19: σ from 0 at the start to 8 at the end; the intervals tile [0, 8].
+  // The tent's radius in texels: 16 and 8 on the layer halved once (Figma's ×2 level above 4 texels), 4 and 2 as is.
+  std::set<float> radii = blurRadii(dev);
+  CHECK(radii == std::set<float>{8.f, 4.f, 2.f});
+  // Slot 19: the radius from 0 at the start to 16 at the end; the intervals tile [0, 16].
   float lo = 1e9f, hi = 0;
   for (auto* c : modes) {
     CHECK(c->call.uniforms[19][0] == doctest::Approx(0));
-    CHECK(c->call.uniforms[19][1] == doctest::Approx(8));
+    CHECK(c->call.uniforms[19][1] == doctest::Approx(16));
     lo = std::min(lo, c->call.uniforms[19][2]);
     hi = std::max(hi, c->call.uniforms[19][3]);
     // Figma's default direction: top to bottom of the node's box.
@@ -137,13 +137,13 @@ TEST_CASE("renderer: a progressive layer blur composites its layer between blurr
     CHECK(B[0] * 210 + B[1] * 110 + B[2] == doctest::Approx(1).epsilon(1e-4));
   }
   CHECK(lo == doctest::Approx(0));
-  CHECK(hi >= 8);
+  CHECK(hi >= 16);
   // Uniform: one composite of the blurred layer (mode 0), no intervals.
   n.props.effects[0].extra.clear();
   d.apply(n);
   render(r, d);
   CHECK(composites(dev, 5).empty());
-  CHECK(blurSigmas(dev).count(8.f));
+  CHECK(blurRadii(dev) == std::set<float>{8.f});
 }
 
 TEST_CASE("renderer: a progressive background blur draws the shape once per interval; glass refracts the backdrop") {
@@ -161,14 +161,15 @@ TEST_CASE("renderer: a progressive background blur draws the shape once per inte
   Renderer r(dev);
   int copies = dev.copies;
   render(r, d);
-  // σ 4 → levels 0, 1, 2, 4: the backdrop copied for each, the shape drawn over three intervals.
+  // Radius 8 → levels 0, 2, 4, 8: the backdrop copied for each, the shape drawn over three intervals.
   CHECK(dev.copies - copies >= 4);
   CHECK(paintKinds(dev, PaintKind::Progressive) == 3);
   bool levels = false;
   for (auto& c : dev.draws)
-    if (c.pipeline.shader == gfx::ShaderId::Shape && c.call.uniforms[19][1] == doctest::Approx(4)) levels = true;
+    if (c.pipeline.shader == gfx::ShaderId::Shape && c.call.uniforms[19][1] == doctest::Approx(8)) levels = true;
   CHECK(levels);
-  // Glass: the frost blurs the backdrop (σ = 4 / 2), the shape paints it refracted (kind 8, slots 6 and 8).
+  // Glass: the frost blurs the backdrop (a tent of radius 4), the shape paints it refracted (kind 8, slots 6 and 8):
+  // Depth 20 (refractionRadius, Figma's default), Splay 0 (reflectionDistance).
   Effect glass;
   glass.type = EffectType::GLASS;
   glass.radius = 4;
@@ -176,12 +177,13 @@ TEST_CASE("renderer: a progressive background blur draws the shape once per inte
   d.apply(n);
   render(r, d);
   CHECK(paintKinds(dev, PaintKind::Glass) == 1);
-  CHECK(blurSigmas(dev).count(2.f));
+  CHECK(blurRadii(dev).count(4.f));
   bool params = false;
   for (auto& c : dev.draws)
     if (c.pipeline.shader == gfx::ShaderId::Shape && c.call.uniforms[6][0] == doctest::Approx(20)) {
       params = true;
       CHECK(c.call.uniforms[6][1] == doctest::Approx(0.8));  // Refraction 80
+      CHECK(c.call.uniforms[6][3] == doctest::Approx(0));    // Splay 0
       CHECK(c.call.uniforms[8][2] == doctest::Approx(0.8));  // Intensity 80 %
       // Light angle −45°: the light up and to the left (canvas y down).
       CHECK(c.call.uniforms[8][0] < 0);
@@ -339,4 +341,206 @@ TEST_CASE("render tree: a change to a pattern's source, or inside it, on any pag
   d.apply(f);
   t.sync(d, kPage);
   CHECK_FALSE(damagedUser(t.takeDamage()));
+}
+
+// ---- Round 17 (docs/research/rea/effects.md): Figma's glass fields, visibility rules, blur reach and bounds ----------
+
+TEST_CASE("extras: glass in Figma's fields (Depth = refractionRadius, Splay = reflectionDistance); absent fields as Figma reads them") {
+  // A glass with no fields of its own: Figma's new glass.
+  Effect g;
+  g.type = EffectType::GLASS;
+  CHECK(effectExtras(g).refractionRadius == doctest::Approx(20));
+  CHECK(effectExtras(g).bevelSize == doctest::Approx(1));
+  CHECK(effectExtras(g).reflectionDistance == doctest::Approx(0));
+  CHECK(effectExtras(g).specularAngle == doctest::Approx(-45));
+  // Figma's own fields read as they are.
+  g.extra = effectExtra({{"refractionRadius", "40"}, {"bevelSize", "1"}, {"reflectionDistance", "0.5"}});
+  CHECK(effectExtras(g).refractionRadius == doctest::Approx(40));
+  CHECK(effectExtras(g).reflectionDistance == doctest::Approx(0.5));
+  // Wecra's glass before round 17: Depth 30 in bevelSize, Splay 50 (0–100) in refractionRadius.
+  g.extra = effectExtra({{"bevelSize", "30"}, {"refractionRadius", "50"}});
+  CHECK(effectExtras(g).refractionRadius == doctest::Approx(30));
+  CHECK(effectExtras(g).reflectionDistance == doctest::Approx(0.5));
+  CHECK(effectExtras(g).bevelSize == doctest::Approx(1));
+  // Noise / texture fields left out: Figma's Effect defaults (size 0, Multi opacity 0).
+  Effect n;
+  n.type = EffectType::NOISE;
+  n.extra = effectExtra({{"noiseType", "\"MULTITONE\""}});
+  CHECK(effectExtras(n).noiseSize.x == doctest::Approx(0));
+  CHECK(effectExtras(n).opacity == doctest::Approx(0));
+}
+
+TEST_CASE("effects: Figma's visibility rules (isVisibleForRendering) per type") {
+  Effect drop;
+  drop.type = EffectType::DROP_SHADOW;
+  drop.color = {0, 0, 0, 0.25f};
+  CHECK(visibleForRendering(drop));
+  drop.visible = false;
+  CHECK_FALSE(visibleForRendering(drop));
+  drop.visible = true;
+  drop.color.a = 0;
+  CHECK_FALSE(visibleForRendering(drop));  // a transparent shadow draws nothing
+
+  // An inner shadow also needs a blur, an offset or a positive spread.
+  Effect inner;
+  inner.type = EffectType::INNER_SHADOW;
+  inner.color = {0, 0, 0, 0.25f};
+  CHECK_FALSE(visibleForRendering(inner));
+  inner.spread = -2;
+  CHECK_FALSE(visibleForRendering(inner));
+  inner.spread = 2;
+  CHECK(visibleForRendering(inner));
+  inner.spread = 0;
+  inner.offset = {0, 1};
+  CHECK(visibleForRendering(inner));
+  inner.offset = {};
+  inner.radius = 1;
+  CHECK(visibleForRendering(inner));
+
+  // Blurs need a radius (a progressive one its start will do), texture a radius.
+  for (EffectType t : {EffectType::FOREGROUND_BLUR, EffectType::BACKGROUND_BLUR}) {
+    Effect b;
+    b.type = t;
+    CHECK_FALSE(visibleForRendering(b));
+    b.extra = effectExtra({{"blurOpType", "\"PROGRESSIVE\""}, {"startRadius", "4"}});
+    CHECK(visibleForRendering(b));
+  }
+  Effect grain;
+  grain.type = EffectType::GRAIN;
+  CHECK_FALSE(visibleForRendering(grain));
+  grain.radius = 1;
+  CHECK(visibleForRendering(grain));
+  // Noise and glass: on is enough.
+  for (EffectType t : {EffectType::NOISE, EffectType::GLASS}) {
+    Effect e;
+    e.type = t;
+    CHECK(visibleForRendering(e));
+    e.visible = false;
+    CHECK_FALSE(visibleForRendering(e));
+  }
+
+  // The renderer: an inner shadow that draws nothing takes no layer, nor does a transparent drop shadow.
+  Document d;
+  base(d);
+  NodeChange c = card({1, 1}, {10, 10, 100, 100});
+  c.props.strokePaints = {Paint::solid(Color::hex(0x000000))};
+  c.props.strokeWeight = 2;
+  inner.radius = 0;
+  drop.color.a = 0;
+  c.props.effects = {inner, drop};
+  d.apply(c);
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  CHECK(r.render(d, kPage, Camera{}, {800, 600, 1, 800, 600}, Overlay{}, kDark).layers == 0);
+}
+
+TEST_CASE("effects: the render bounds — a shadow's offset on its side only, layer blurs summed") {
+  Document d;
+  base(d);
+  NodeChange n = card({1, 1}, {10, 10, 100, 100});
+  Effect drop;
+  drop.type = EffectType::DROP_SHADOW;
+  drop.color = {0, 0, 0, 0.25f};
+  drop.offset = {10, -6};
+  drop.radius = 4;
+  drop.spread = 2;
+  Effect b1, b2;
+  b1.type = b2.type = EffectType::FOREGROUND_BLUR;
+  b1.radius = 3;
+  b2.radius = 5;
+  n.props.effects = {drop, b1, b2};
+  d.apply(n);
+  // The box grown by the blurs (3 + 5); the shadow: the box offset (10, −6), grown by 4 + 2 and the blurs.
+  Rect b = d.renderBounds({1, 1});
+  CHECK(b.x == doctest::Approx(2));
+  CHECK(b.y == doctest::Approx(-10));
+  CHECK(b.right() == doctest::Approx(134));
+  CHECK(b.bottom() == doctest::Approx(118));
+  // A spread the node doesn't take (a frame that doesn't clip) isn't drawn, so it doesn't shrink the reach either: a
+  // radius-10 shadow with spread −8 still reaches 10.
+  {
+    NodeChange f = make({1, 2}, NodeType::FRAME, kPage, "\"", {300, 10, 100, 100});
+    f.props.fillPaints = {Paint::solid(Color::hex(0x3366FF))};
+    f.props.frameMaskDisabled = true;
+    Effect s = drop;
+    s.offset = {};
+    s.radius = 10;
+    s.spread = -8;
+    f.props.effects = {s};
+    d.apply(f);
+    CHECK(d.renderBounds({1, 2}) == Rect{290, 0, 120, 120});
+    f.props.frameMaskDisabled = false;  // clipping, with a fill: the spread is drawn, the shadow reaches 2
+    d.apply(f);
+    CHECK(d.renderBounds({1, 2}) == Rect{298, 8, 104, 104});
+  }
+  // An inner shadow, a background blur and a texture clipped to the shape don't grow it.
+  Effect in, bg, grain;
+  in.type = EffectType::INNER_SHADOW;
+  in.radius = 30;
+  bg.type = EffectType::BACKGROUND_BLUR;
+  bg.radius = 30;
+  grain.type = EffectType::GRAIN;
+  grain.radius = 30;
+  grain.extra = effectExtra({{"clipToShape", "true"}});
+  n.props.effects = {in, bg, grain};
+  d.apply(n);
+  CHECK(d.renderBounds({1, 1}) == Rect{10, 10, 100, 100});
+  // Unclipped, the texture spreads past the layer by its radius.
+  n.props.effects[2].extra.clear();
+  d.apply(n);
+  CHECK(d.renderBounds({1, 1}).x == doctest::Approx(-20));
+}
+
+TEST_CASE("renderer: Figma's tent blur reaches its radius (R = 20 → ~20 px), not 3σ = 30") {
+  // A layer blur of 20 at 100 %: the bounds grow by 20, the tent runs on the layer halved once (10 texels).
+  Document d;
+  base(d);
+  NodeChange n = card({1, 1}, {100, 100, 100, 100});
+  Effect blur;
+  blur.type = EffectType::FOREGROUND_BLUR;
+  blur.radius = 20;
+  n.props.effects = {blur};
+  d.apply(n);
+  CHECK(d.renderBounds({1, 1}) == Rect{80, 80, 140, 140});
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  render(r, d);
+  CHECK(blurRadii(dev) == std::set<float>{10.f});
+  // A blur under one device px is skipped (Figma's).
+  n.props.effects[0].radius = 0.5;
+  d.apply(n);
+  render(r, d);
+  CHECK(blurRadii(dev).empty());
+
+  // A background blur of 20: the backdrop copied 20 px (+ 2 for the ×2 level's bilinear reads) past the box.
+  n.props.fillPaints[0].opacity = 0.3;
+  n.props.effects[0].type = EffectType::BACKGROUND_BLUR;
+  n.props.effects[0].radius = 20;
+  d.apply(n);
+  int before = static_cast<int>(dev.copyRects.size());
+  render(r, d);
+  REQUIRE(static_cast<int>(dev.copyRects.size()) > before);
+  CHECK(dev.copyRects.back().w == 144);
+  CHECK(dev.copyRects.back().h == 144);
+
+  // The analytic drop shadow: its blur radius in the instance (the tent's half-width), the box offset.
+  Effect drop;
+  drop.type = EffectType::DROP_SHADOW;
+  drop.color = {0, 0, 0, 0.25f};
+  drop.offset = {0, 4};
+  drop.radius = 20;
+  n.props.fillPaints[0].opacity = 1;
+  n.props.effects = {drop};
+  d.apply(n);
+  render(r, d);
+  bool found = false;
+  for (size_t i = 0; i < dev.draws.size(); i++) {
+    if (dev.draws[i].pipeline.shader != gfx::ShaderId::Shape) continue;
+    for (auto& q : dev.instancesOf<DrawInstance>(i))
+      if (q.geom[2] == static_cast<float>(ShapeKind::DropShadow)) {
+        found = true;
+        CHECK(q.geom[0] == doctest::Approx(20));
+      }
+  }
+  CHECK(found);
 }

@@ -4,7 +4,8 @@
 //
 //   npm run engine:shot -- [outDir]     (default: $TMPDIR/engine-shots)
 //   SHOT_ONLY=e4 npm run engine:shot    only the vector / paint / image / effect checks
-//   SHOT_ONLY=r7 npm run engine:shot    only round 7's effects and paints (progressive blurs, noise, texture, glass)
+//   SHOT_ONLY=r7 npm run engine:shot    only round 7's effects and paints (progressive blurs, noise, texture, glass), and
+//                                       Figma's blur reach (round 17: a tent of half-width R)
 //   SHOT_ONLY=r17 npm run engine:shot   only round 17's backdrop effects panned away and back (= a fresh draw)
 //   SHOT_ONLY=r18 npm run engine:shot   only round 18's multiplayer presence (two cursors, a peer's selection)
 //   SHOT_ONLY=r8 npm run engine:shot    only round 8's canvas views (ruler guides, slices, pixel preview)
@@ -425,7 +426,7 @@ function r7Scene() {
     effects: [{ type: "BACKGROUND_BLUR", radius: 40, visible: true, blurOpType: "PROGRESSIVE", startRadius: 0, startOffset: { x: 0.5, y: 0 }, endOffset: { x: 0.5, y: 1 } }] });
   stripes(420, 40, 160, 200);
   const glass = add("ROUNDED_RECTANGLE", "Glass", 440, 60, 120, 160, { fillPaints: [solid(1, 1, 1, 0.05)], cornerRadius: 40,
-    effects: [{ type: "GLASS", radius: 8, visible: true, specularAngle: -45, specularIntensity: 0.8, refractionIntensity: 0.8, bevelSize: 20, chromaticAberration: 0.5, refractionRadius: 0 }] });
+    effects: [{ type: "GLASS", radius: 8, visible: true, specularAngle: -45, specularIntensity: 0.8, refractionIntensity: 0.8, refractionRadius: 20, bevelSize: 1, chromaticAberration: 0.5, reflectionDistance: 0 }] });
   const noise = add("ROUNDED_RECTANGLE", "Noise", 620, 40, 120, 200, { fillPaints: [solid(1, 1, 1)],
     effects: [{ type: "NOISE", color: { r: 0, g: 0, b: 0, a: 1 }, visible: true, blendMode: "NORMAL", noiseType: "MONOTONE", noiseSize: { x: 4, y: 4 }, density: 1 }] });
   const texture = add("ROUNDED_RECTANGLE", "Texture", 780, 40, 120, 200, { fillPaints: [solid(0, 0, 0)],
@@ -476,6 +477,47 @@ async function r7Checks(files) {
   // PATTERN fill: the 20 px dot tiled 40 px apart (spacing 100 %): red at a tile's middle, white between.
   const [tile, gap] = await pixelsAt([await screenOf(scene.pattern, 50, 50), await screenOf(scene.pattern, 70, 70)]);
   check("PATTERN fill: the source tiled", tile && gap && tile[0] > 200 && tile[1] < 60 && gap[1] > 200, `${tile} / ${gap}`);
+}
+
+// Round 17 (docs/research/rea/effects.md §2.1, §2.4): Figma's blur is a tent of half-width R. Its live probe — a
+// 100 × 100 white rectangle on black, layer blur 20 — read 66 / 36 / 14 / 2 at 6 / 10 / 14 / 18 px outside the edge
+// and nothing from ~20 px (a tent predicts 62 / 32 / 11.5 / 1.3; the old Gaussian σ = 10 gave 70 / 40 / 21 / 9 and a
+// 30 px tail). The analytic drop shadow takes the same kernel: 0.5 (1 − d / R)² of its colour at d outside the edge.
+function blurReachScene() {
+  const solid = (r, g, b) => ({ type: "SOLID", color: { r, g, b, a: 1 }, opacity: 1, visible: true });
+  const T = (x, y) => ({ transform: { m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y } });
+  const node = (guid, parent, pos, type, x, y, w, h, extra) =>
+    ({ guid, phase: "CREATED", type, name: guid, parentIndex: { guid: parent, position: pos }, size: { x: w, y: h }, ...T(x, y), ...extra });
+  const nodes = [
+    node("59:1", "0:1", "~~~~~~~", "FRAME", 0, 7000, 600, 200, { fillPaints: [solid(0, 0, 0)] }),
+    node("59:2", "59:1", "!", "ROUNDED_RECTANGLE", 100, 50, 100, 100, { fillPaints: [solid(1, 1, 1)], effects: [{ type: "FOREGROUND_BLUR", radius: 20, visible: true }] }),
+    node("59:3", "59:1", "\"", "FRAME", 300, 0, 300, 200, { fillPaints: [solid(1, 1, 1)] }),
+    node("59:4", "59:3", "!", "ROUNDED_RECTANGLE", 100, 50, 100, 100, { fillPaints: [solid(1, 1, 1)],
+      effects: [{ type: "DROP_SHADOW", color: { r: 0, g: 0, b: 0, a: 1 }, offset: { x: 0, y: 0 }, radius: 20, spread: 0, visible: true, blendMode: "NORMAL", showShadowBehindNode: false }] }),
+  ];
+  return { type: "NODE_CHANGES", sessionID: 0, nodeChanges: nodes };
+}
+
+async function blurReachChecks(files) {
+  await engine((message) => {
+    const e = window.__designerEngine;
+    e.applyChanges(message, "user");
+    e.setSelection(["59:1"]);
+    e.command("ZOOM_TO_SELECTION");
+    e.setSelection([]);
+  }, blurReachScene());
+  await page.mouse.move(2, 2);
+  await settle();
+  files.push(await shot("38-r17-blur-reach"));
+  // Outside the blurred rectangle's right edge, at its middle row.
+  const blur = await pixelsAt(await Promise.all([6, 10, 14, 18, 22, 26].map((d) => screenOf("59:2", 100 + d, 50))));
+  const [b6, b10, b14, b18, b22, b26] = blur.map((p) => p[0]);
+  check("tent blur: Figma's falloff (R = 20: ~62 / 32 / 12 at 6 / 10 / 14 px out)", b6 >= 48 && b6 <= 82 && b10 >= 20 && b10 <= 48 && b14 >= 4 && b14 <= 24, blur.map((p) => p[0]).join(" / "));
+  check("tent blur: reaches ~R (≤ 5 at 18 px, nothing past 22 px — the Gaussian's tail reached 30)", b18 <= 5 && b22 <= 2 && b26 <= 1, `${b18} / ${b22} / ${b26}`);
+  // The analytic drop shadow (black at 100 %, radius 20) on white.
+  const shadow = await pixelsAt(await Promise.all([6, 18, 24].map((d) => screenOf("59:4", 100 + d, 50))));
+  const [s6, s18, s24] = shadow.map((p) => p[0]);
+  check("analytic shadow: the tent's CDF (≈ 192 at 6 px out, white from ~R)", s6 >= 178 && s6 <= 206 && s18 >= 250 && s24 >= 254, shadow.map((p) => p[0]).join(" / "));
 }
 
 // Round 11: Figma's shader fills and effects (src/shared/shaders/presets.json) on a sheet of their own (52:x) — every
@@ -1311,7 +1353,7 @@ function r17Scene() {
     }
     add("ROUNDED_RECTANGLE", "Box", x0 + 12, y0 + 10, 30, 30, { cornerRadius: 6, fillPaints: [solid(1, 1, 1)] }, parent);
   };
-  const glassFx = (radius, depth) => [{ type: "GLASS", radius, visible: true, specularAngle: -45, specularIntensity: 0.6, refractionIntensity: 0.7, bevelSize: depth, chromaticAberration: 0.4, refractionRadius: 20 }];
+  const glassFx = (radius, depth) => [{ type: "GLASS", radius, visible: true, specularAngle: -45, specularIntensity: 0.6, refractionIntensity: 0.7, refractionRadius: depth, bevelSize: 1, chromaticAberration: 0.4, reflectionDistance: 0.2 }];
   under(30, 30, 280, 70);
   const pill = add("ROUNDED_RECTANGLE", "Glass pill", 40, 40, 260, 54, { cornerRadius: 27, fillPaints: [solid(1, 1, 1, 0.06)], strokePaints: [solid(1, 1, 1, 0.3)], strokeWeight: 1, effects: glassFx(8, 16) });
   under(340, 30, 300, 70);
@@ -1532,7 +1574,10 @@ try {
     const files = [];
     if (only === "e4") await e4Checks(files);
     else if (only === "r12") await r12Checks(files);
-    else if (only === "r7") await r7Checks(files);
+    else if (only === "r7") {
+      await r7Checks(files);
+      await blurReachChecks(files);
+    }
     else if (only === "r17") await r17Checks(files);
     else if (only === "r18") await r18Checks(files);
     else if (only === "r11") await r11Checks(files);
@@ -1715,6 +1760,7 @@ try {
   // E4 / E5.
   await e4Checks(files);
   await r7Checks(files);
+  await blurReachChecks(files);
   await r17Checks(files);
   await r18Checks(files);
   await r11Checks(files);

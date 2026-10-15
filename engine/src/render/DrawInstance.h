@@ -5,7 +5,7 @@
 //   linear  local → draw space, columns (m00, m10), (m01, m11)
 //   origin  tx, ty, then — Shape: width, height; Path: first curve texel, clip path's first texel (−1: none)
 //   box     Shape: corner radii tl tr br bl; Path: the quad's bounds x0 y0 x1 y1 (local)
-//   geom    Shape: stroke inner extent, outer extent (or σ, spread for shadows), kind, flags;
+//   geom    Shape: stroke inner extent, outer extent (or the blur radius, spread for shadows), kind, flags;
 //           Path: unused, unused, kind (Path), flags
 //   color   premultiplied colour (SOLID; shadows), else (1, 1, 1, alpha) multiplying the paint
 //   paint0  paint matrix row 0 (local → paint space: gradient / image uv / noise cells) + aux (images: 1 = repeat;
@@ -39,7 +39,7 @@ static_assert(sizeof(DrawInstance) == 160, "DrawInstance is 10 vec4s");
 enum class ShapeKind : uint8_t {
   Rect = 0,         // SDF rectangle / rounded rectangle
   Ellipse = 1,      // SDF ellipse
-  DropShadow = 2,   // analytic blurred rounded rectangle (σ = geom[0]); the box is already offset and spread
+  DropShadow = 2,   // analytic blurred rounded rectangle (the tent blur's radius = geom[0]); the box is already offset and spread
   InnerShadow = 3,  // the box's coverage × (1 − the shadow of the box shrunk by spread, offset by paint0.xy)
   Path = 4,         // coverage from curves (Path shader)
 };

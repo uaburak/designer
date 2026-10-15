@@ -82,7 +82,7 @@ export const NAMED_PROPS: Record<string, LayerPropInfo> = {
       type: "array",
       items: structSchema("Effect", 1),
       description:
-        "The whole list (top first). Missing fields take the Design panel's defaults for the type. GLASS: radius (Frost, default 4), specularAngle (Light angle °, −45), specularIntensity (Light intensity 0–1, 0.8), refractionIntensity (Refraction 0–1, 0.8), bevelSize (Depth 0–100, 20), chromaticAberration (Dispersion 0–1, 0.5), refractionRadius (Splay 0–100, 0) — the Plugin API names lightAngle, lightIntensity, refraction, depth, dispersion, splay, frost are read too. LAYER_BLUR / BACKGROUND_BLUR: radius, blurOpType NORMAL | PROGRESSIVE (+ startRadius, startOffset, endOffset). NOISE: noiseType, color, secondaryColor (Duo), density, opacity (Multi), noiseSize, seed. TEXTURE: noiseSize, radius, clipToShape, seed.",
+        "The whole list (top first). Missing fields take the Design panel's defaults for the type. GLASS: radius (Frost, default 4), specularAngle (Light angle °, −45; shown 0–359), specularIntensity (Light intensity 0–1, 0.8), refractionIntensity (Refraction 0–1, 0.8), refractionRadius (Depth 1–100, 20), chromaticAberration (Dispersion 0–1, 0.5), reflectionDistance (Splay 0–1, 0); one GLASS per layer — the Plugin API names lightAngle, lightIntensity, refraction, depth, dispersion, splay, frost are read too. LAYER_BLUR / BACKGROUND_BLUR: radius, blurOpType NORMAL | PROGRESSIVE (+ startRadius, startOffset, endOffset). NOISE: noiseType, color, secondaryColor (Duo), density, opacity (Multi), noiseSize, seed (random when left out). TEXTURE: noiseSize (default 4), radius, clipToShape, seed (random when left out).",
     },
     fields: ["effects"],
   },

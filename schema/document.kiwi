@@ -473,12 +473,12 @@ message Effect {
   float opacity = 27;                    // noise, Multi: "Opacity"
   Vector endOffset = 28;                 // progressive blur: where it ends (the node's box, 0..1)
   uint seed = 29;                        // noise / texture: the random pattern
-  float refractionRadius = 30;           // glass "Splay"
-  float specularAngle = 31;              // glass light "Angle" (degrees)
+  float refractionRadius = 30;           // glass "Depth" (1..100; Plugin API `depth`)
+  float specularAngle = 31;              // glass light "Angle" (degrees, −899..900; shown (a + 360) % 360)
   float specularIntensity = 32;          // glass light "Intensity" (0..1)
-  float bevelSize = 33;                  // glass "Depth"
+  float bevelSize = 33;                  // glass: always 1 (Figma writes 1; not in the panel)
   float chromaticAberration = 34;        // glass "Dispersion" (0..1)
-  float reflectionDistance = 35;         // glass (not in the panel)
+  float reflectionDistance = 35;         // glass "Splay" (0..1; Plugin API `splay`)
   float refractionIntensity = 36;        // glass "Refraction" (0..1); "Frost" is `radius`
   CodeComponentId customEffectId = 43;   // CUSTOM: the shader (a preset "By Figma": assetRef.key, docs/schema.md §5.8)
   ComponentPropAssignment[] componentPropAssignments = 44;  // CUSTOM: the shader's parameters (defID → value / varValue)

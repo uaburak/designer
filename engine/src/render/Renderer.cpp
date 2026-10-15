@@ -103,12 +103,12 @@ void effectRows(float out[2][4], const Mat2x3& m, double sx, double sy, Vec2 uni
   out[1][0] = static_cast<float>(t.m10), out[1][1] = static_cast<float>(t.m11), out[1][2] = static_cast<float>(t.m12), out[1][3] = 0;
 }
 
-// A progressive blur's levels between σ `a` and σ `b` (device px), ascending: the larger halved down to the smaller,
-// at most Renderer's kMaxBlurLevels (8).
+// A progressive blur's levels between blur radii `a` and `b` (device px), ascending: the larger halved down to the
+// smaller, at most Renderer's kMaxBlurLevels (8).
 std::vector<double> blurLevels(double a, double b) {
   double lo = std::min(a, b), hi = std::max(a, b);
   std::vector<double> out{hi};
-  for (double s = hi / 2; s > std::max(lo, 0.5) * 1.25 && out.size() < 7; s /= 2) out.push_back(s);
+  for (double s = hi / 2; s > std::max(lo, 1.0) * 1.25 && out.size() < 7; s /= 2) out.push_back(s);
   out.push_back(lo);
   std::reverse(out.begin(), out.end());
   return out;
@@ -735,21 +735,8 @@ bool analyticShadows(const NodeProps& p, bool hasChildren) {
   if (!opaque) return false;
   if (p.isFrameLike() && !p.clipsContent() && hasChildren) return false;
   for (auto& e : p.effects)
-    if (e.visible && e.isShadow() && e.blendMode != BlendMode::NORMAL && e.blendMode != BlendMode::PASS_THROUGH) return false;
+    if (visibleForRendering(e) && e.isShadow() && e.blendMode != BlendMode::NORMAL && e.blendMode != BlendMode::PASS_THROUGH) return false;
   return true;
-}
-
-// A shadow's spread as Figma draws it: "only supported on rectangles, ellipses, frames, and components" (help
-// 360041488473) — a frame or component only when it clips its content and has a visible fill (≥ 1 % opacity).
-double shadowSpread(const NodeProps& p, const Effect& e) {
-  if (e.spread == 0) return 0;
-  if (p.isFrameLike()) {
-    bool fill = false;
-    for (const Paint& f : p.fillPaints)
-      fill |= f.visible && f.opacity * (f.type == PaintType::SOLID ? f.color.a : 1.f) >= 0.01f;
-    return p.clipsContent() && fill ? e.spread : 0;
-  }
-  return p.isRectLike() || p.type == NodeType::ELLIPSE ? e.spread : 0;
 }
 
 // Whether every paint the node draws itself is opaque (its alpha is then its shape's coverage).
@@ -789,8 +776,8 @@ Vec2 localOffset(const Mat2x3& m, Vec2 offset) {
 void Renderer::drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double alpha, bool inner) {
   CornerRadii radii = geom::clampRadii(p.size, p.cornerRadii);
   for (const Effect& e : p.effects) {
-    if (!e.visible || (inner ? e.type != EffectType::INNER_SHADOW : e.type != EffectType::DROP_SHADOW)) continue;
-    double sigma = std::max(0.0, e.radius / 2);
+    if (!visibleForRendering(e) || (inner ? e.type != EffectType::INNER_SHADOW : e.type != EffectType::DROP_SHADOW)) continue;
+    double blur = std::max(0.0, e.radius);  // the tent's half-width (Figma's blur radius)
     Vec2 off = localOffset(m, e.offset);
     if (!inner) {
       double s = shadowSpread(p, e);
@@ -799,13 +786,13 @@ void Renderer::drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double a
       CornerRadii r;
       for (size_t i = 0; i < 4; i++) r[i] = radii[i] > 0 ? std::max(0.0, radii[i] + s) : 0;
       DrawInstance q = makeShape(m * Mat2x3::translate(off.x - s, off.y - s), size, ShapeKind::DropShadow, r, e.color, alpha, Color{}, 0, 0, 0);
-      q.geom[0] = static_cast<float>(sigma);
+      q.geom[0] = static_cast<float>(blur);
       q.geom[1] = 0;
       q.geom[2] = static_cast<float>(ShapeKind::DropShadow);
       emit(q, Pass::Shape);
     } else {
       DrawInstance q = makeShape(m, p.size, ShapeKind::InnerShadow, radii, e.color, alpha, Color{}, 0, 0, 0);
-      q.geom[0] = static_cast<float>(sigma);
+      q.geom[0] = static_cast<float>(blur);
       q.geom[1] = static_cast<float>(shadowSpread(p, e));
       q.geom[2] = static_cast<float>(ShapeKind::InnerShadow);
       q.paint0[0] = static_cast<float>(off.x);
@@ -817,11 +804,12 @@ void Renderer::drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double a
 
 double Renderer::backdropReach(const Effect& e, bool glass, double scale) {
   const EffectExtras& x = effectExtras(e);
-  double s1 = std::max(0.0, e.radius / 2) * scale;
-  double s0 = std::max(0.0, x.startRadius / 2) * scale;
-  bool progressive = !glass && x.blurOpType == BlurOpType::PROGRESSIVE && std::fabs(s0 - s1) > 0.01;
-  double reach = 3 * (progressive ? std::max(s0, s1) : s1) + 2;
-  if (glass) reach += std::max(0.0, x.bevelSize) * scale * (1 + std::clamp(x.chromaticAberration, 0.0, 1.0));
+  double r1 = std::max(0.0, e.radius) * scale;
+  double r0 = std::max(0.0, x.startRadius) * scale;
+  bool progressive = !glass && x.blurOpType == BlurOpType::PROGRESSIVE && std::fabs(r0 - r1) > 0.01;
+  // The tent reaches exactly its radius; 2 px more for the ×2 level's bilinear fetches.
+  double reach = (progressive ? std::max(r0, r1) : r1) + 2;
+  if (glass) reach += std::max(0.0, x.refractionRadius) * scale * (1 + std::clamp(x.chromaticAberration, 0.0, 1.0));
   return reach;
 }
 
@@ -844,7 +832,7 @@ std::vector<Renderer::BackdropArea> Renderer::backdropAreas(const Document& doc,
       bool background = false, glass = false;
       // As drawNode picks them: the first background blur, the first glass.
       for (const Effect& e : p.effects) {
-        if (!e.visible) continue;
+        if (!visibleForRendering(e)) continue;
         if (e.type == EffectType::BACKGROUND_BLUR && !background && (e.radius > 0 || effectExtras(e).startRadius > 0)) {
           background = true;
           reach = std::max(reach, backdropReach(e, false, scale));
@@ -930,31 +918,32 @@ void Renderer::drawBackgroundBlur(const Document& doc, Guid id, const NodeProps&
                                   bool glass) {
   const EffectExtras& x = effectExtras(e);
   double scale = levelScale(m);
-  double s1 = std::max(0.0, e.radius / 2) * scale;
-  double s0 = std::max(0.0, x.startRadius / 2) * scale;
+  double s1 = std::max(0.0, e.radius) * scale;  // blur radii, device px
+  double s0 = std::max(0.0, x.startRadius) * scale;
   bool progressive = !glass && x.blurOpType == BlurOpType::PROGRESSIVE && std::fabs(s0 - s1) > 0.01;
   if (!glass && !progressive && s1 <= 0.01) return;
   BackdropBlur b;
   double reach = backdropReach(e, glass, scale);
   if (glass) {
-    // Glass: the backdrop frosted by "Frost" (the radius), bent toward the edge within "Depth", split by colour
-    // ("Dispersion"), lit along the edges facing the light ("Angle", "Intensity").
+    // Glass: the backdrop frosted by "Frost" (the radius), bent toward the edge within "Depth" (refractionRadius),
+    // split by colour ("Dispersion"), lit along the edges facing the light ("Angle", "Intensity"), "Splay"
+    // (reflectionDistance, 0–1) softening the light.
     b.kind = BackdropBlur::Kind::Glass;
-    double depth = std::max(0.0, x.bevelSize) * scale;
+    double depth = std::max(0.0, x.refractionRadius) * scale;
     double dispersion = std::clamp(x.chromaticAberration, 0.0, 1.0);
     double th = x.specularAngle * 3.14159265358979323846 / 180;
     float g0[4] = {static_cast<float>(depth), static_cast<float>(std::clamp(x.refractionIntensity, 0.0, 1.0)), static_cast<float>(dispersion),
-                   static_cast<float>(std::clamp(x.refractionRadius / 100, 0.0, 1.0))};
+                   static_cast<float>(std::clamp(x.reflectionDistance, 0.0, 1.0))};
     // The light's direction in canvas device px (y down): the angle counter-clockwise from +x, pointing at the light.
     float g1[4] = {static_cast<float>(-std::cos(th)), static_cast<float>(std::sin(th)), static_cast<float>(std::clamp(x.specularIntensity, 0.0, 1.0)), 0};
     std::memcpy(b.glass[0], g0, sizeof g0);
     std::memcpy(b.glass[1], g1, sizeof g1);
-    b.sigmas[0] = s1;
+    b.radii[0] = s1;
   } else if (progressive) {
     b.kind = BackdropBlur::Kind::Progressive;
     std::vector<double> lv = blurLevels(s0, s1);
     b.count = static_cast<int>(lv.size());
-    for (size_t k = 0; k < lv.size(); k++) b.sigmas[k] = lv[k];
+    for (size_t k = 0; k < lv.size(); k++) b.radii[k] = lv[k];
     b.start = s0;
     b.end = s1;
     float rows2[2][4];
@@ -963,7 +952,7 @@ void Renderer::drawBackgroundBlur(const Document& doc, Guid id, const NodeProps&
     b.fx[2][0] = static_cast<float>(x.startOffset.x), b.fx[2][1] = static_cast<float>(x.startOffset.y);
     b.fx[2][2] = static_cast<float>(x.endOffset.x), b.fx[2][3] = static_cast<float>(x.endOffset.y);
   } else {
-    b.sigmas[0] = s1;
+    b.radii[0] = s1;
   }
   Rect own = transformedBounds(m, p.size.x, p.size.y);
   gfx::IRect r = deviceRect(own, reach);
@@ -974,7 +963,7 @@ void Renderer::drawBackgroundBlur(const Document& doc, Guid id, const NodeProps&
   Cmd c;
   c.kind = Cmd::Kind::BackdropBlur;
   c.rect = r;
-  c.sigma = s1;
+  c.blurRadius = s1;
   c.layer = bi;
   layers_[static_cast<size_t>(current_)].cmds.push_back(c);
   // The node's shape, painted with the blurred backdrop: once per interval between a progressive blur's levels.
@@ -1026,7 +1015,7 @@ void Renderer::progressiveComposite(int src, float opacity, BlendMode bm, gfx::I
     Layer S;
     S.rect = r;
     S.copyOf = src;
-    S.blur = s;
+    S.blurRadius = s;
     layers_.push_back(std::move(S));
     stats_.layers++;
     ids.push_back(static_cast<int>(layers_.size() - 1));
@@ -1522,7 +1511,7 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
   const Effect* textureE = nullptr;
   const Effect* glassE = nullptr;
   for (const Effect& e : p.effects) {
-    if (!e.visible) continue;
+    if (!visibleForRendering(e)) continue;
     switch (e.type) {
       case EffectType::DROP_SHADOW:
         if (drops.size() < 8) drops.push_back(&e);
@@ -1559,15 +1548,15 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     if (!fill && !p.isGroupLike()) backgrounds.clear();
   }
   double scale = levelScale(m);
-  // The layer blur: uniform (σ = radius / 2), or progressive from "Start" at its start offset to the radius ("End").
-  double blurSigma = layerBlurE ? std::max(0.0, layerBlurE->radius) / 2 * scale : 0;
-  double startSigma = blurSigma;
+  // The layer blur: uniform (a tent of half-width "Blur"), or progressive from "Start" at its start offset to "End".
+  double blurR = layerBlurE ? std::max(0.0, layerBlurE->radius) * scale : 0;
+  double startR = blurR;
   bool progressive = false;
   if (layerBlurE) {
     const EffectExtras& x = effectExtras(*layerBlurE);
     if (x.blurOpType == BlurOpType::PROGRESSIVE) {
-      startSigma = std::max(0.0, x.startRadius) / 2 * scale;
-      progressive = std::fabs(startSigma - blurSigma) > 0.01;
+      startR = std::max(0.0, x.startRadius) * scale;
+      progressive = std::fabs(startR - blurR) > 0.01;
     }
   }
   // Effects drawn over the content or through it need the content apart from its shadows.
@@ -1581,7 +1570,7 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     for (auto& s : p.strokePaints) paints += s.visible ? 1 : 0;
   bool blend = p.blendMode != BlendMode::PASS_THROUGH && p.blendMode != BlendMode::NORMAL;
   bool opacityLayer = p.opacity < 1 && (container || paints > 1 || p.isTextLike() || generic);
-  bool needsLayer = opacityLayer || blend || std::max(blurSigma, startSigma) > 0 || generic || post;
+  bool needsLayer = opacityLayer || blend || std::max(blurR, startR) > 0 || generic || post;
   double a = alpha * p.opacity;
 
   for (const Effect* e : backgrounds) drawBackgroundBlur(doc, id, p, m, a, *e);
@@ -1593,7 +1582,7 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
   stats_.layers++;
   double customReach = 0;
   for (const Effect* e : customs) customReach += shaderReach(shaderOf(*e));
-  double reach = 3 * std::max(blurSigma, startSigma) + (textureE ? std::max(0.0, textureE->radius) * scale : 0) + customReach * scale;
+  double reach = std::max(blurR, startR) + (textureE ? std::max(0.0, textureE->radius) * scale : 0) + customReach * scale;
   gfx::IRect r = deviceRect(vb, reach + 2);
   if (r.w <= 0 || r.h <= 0) return;
   // Figma's order, top to bottom (help 360041488473): layer blur, stroke paints, inner shadow, fill paints, drop
@@ -1604,7 +1593,7 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
   if (p.strokeWeight > 0)
     for (const Paint& s : p.strokePaints) strokes |= s.visible && s.opacity > 0;
   bool split = generic && !inners.empty() && strokes;
-  bool finish = a < 1 || blend || blurSigma > 0.01;
+  bool finish = a < 1 || blend || blurR > 0.01;
   bool wrap = (split && finish) || progressive || textureE || (!noises.empty() && finish) || !customs.empty();
   int saved = beginLayer(r);
   int C = current_;
@@ -1615,7 +1604,7 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     savedOuter = beginLayer(r);
     outer = current_;
   } else {
-    layers_[static_cast<size_t>(C)].blur = blurSigma;
+    layers_[static_cast<size_t>(C)].blurRadius = blurR;
   }
   // What the node draws, composited: at the node's opacity and blend mode, or as is inside the wrapping layer.
   float opacity = wrap ? 1.f : static_cast<float>(a);
@@ -1624,15 +1613,15 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
   auto composite = [&](int src, int aux, int mode, float op, BlendMode bm, const Color& color, Vec2 offset, bool knockout,
                        gfx::IRect rect) { compositeLayer(src, aux, mode, op, bm, color, offset, knockout, rect); };
   auto shadowLayer = [&](const Effect& e, double morph) {
-    double sigma = std::max(0.0, e.radius / 2) * scale;
+    double blur = std::max(0.0, e.radius) * scale;
     double spread = shadowSpread(p, e) * scale;
-    double grow = 3 * sigma + std::max(0.0, morph > 0 ? spread : 0.0) + 2;
+    double grow = blur + std::max(0.0, morph > 0 ? spread : 0.0) + 2;
     gfx::IRect sr{r.x - static_cast<int>(std::ceil(grow)), r.y - static_cast<int>(std::ceil(grow)),
                   r.w + 2 * static_cast<int>(std::ceil(grow)), r.h + 2 * static_cast<int>(std::ceil(grow))};
     Layer S;
     S.rect = sr;
     S.copyOf = C;
-    S.blur = sigma;
+    S.blurRadius = blur;
     S.morph = morph != 0 ? (morph > 0 ? spread : -std::fabs(spread)) : 0;
     layers_.push_back(std::move(S));
     stats_.layers++;
@@ -1726,9 +1715,9 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     // Shader effects: each a layer drawn from what is under it.
     for (const Effect* e : customs) top = shaderLayer(shaderOf(*e), top, r, m, p.size);
     if (progressive) {
-      progressiveComposite(top, static_cast<float>(a), p.blendMode, r, startSigma, blurSigma, *layerBlurE, m, p.size);
+      progressiveComposite(top, static_cast<float>(a), p.blendMode, r, startR, blurR, *layerBlurE, m, p.size);
     } else {
-      layers_[static_cast<size_t>(top)].blur = blurSigma;
+      layers_[static_cast<size_t>(top)].blurRadius = blurR;
       compositeLayer(top, -1, 0, static_cast<float>(a), p.blendMode, Color{}, {}, false, r);
     }
   }
@@ -1935,7 +1924,9 @@ void place(float out[4], double ox, double oy, double contentH, double scale) {
 }  // namespace
 
 void Renderer::blurLayer(Layer& L) {
-  if (L.blur <= 0.01 && L.morph == 0) return;
+  // Figma skips a blur under one device px.
+  const double blur = L.blurRadius >= 1 ? L.blurRadius : 0;
+  if (blur <= 0 && L.morph == 0) return;
   // Work in the layer's own device frame: (0, 0) = its top left.
   int w = L.rect.w, h = L.rect.h;
   PoolTarget* cur = nullptr;
@@ -1949,13 +1940,13 @@ void Renderer::blurLayer(Layer& L) {
     pd.viewport = {0, 0, vw, vh};
     return device_.beginPass(pd);
   };
-  auto blurPass = [&](PoolTarget* src, PoolTarget* dst, int vw, int vh, float dx, float dy, float sigma, int mode, float radius) {
+  auto blurPass = [&](PoolTarget* src, PoolTarget* dst, int vw, int vh, float dx, float dy, float tent, int mode, float radius) {
     if (!pass(dst, vw, vh)) return;
     gfx::DrawCall call;
     call.textures[3] = white_;  // Composite: the curves (a clip path), else unused
     call.pipeline = pipelines_[static_cast<int>(Pass::Blur)];
     call.instanceCount = 1;
-    call.uniforms[2][0] = dx, call.uniforms[2][1] = dy, call.uniforms[2][2] = sigma, call.uniforms[2][3] = static_cast<float>(mode);
+    call.uniforms[2][0] = dx, call.uniforms[2][1] = dy, call.uniforms[2][2] = tent, call.uniforms[2][3] = static_cast<float>(mode);
     call.uniforms[3][0] = radius;
     call.textures[0] = src->texture;
     device_.draw(call);
@@ -1973,10 +1964,12 @@ void Renderer::blurLayer(Layer& L) {
     }
     if (tmp) release(tmp->target);
   }
-  double sigma = L.blur, scale = 1;
+  double scale = 1;
   int cw = w, ch = h;
-  // Large blurs: halve the image until σ ≤ 8 texels (at most 32×), then blur, then let the composite upsample.
-  while (sigma * scale > 8 && scale > 1.0 / 32) {
+  // Figma's renderBlur: a blur over 4 texels runs on the layer halved once (one bilinear fetch) with half the radius,
+  // then is scaled back up bilinearly by the composite; one past 64 texels is halved again until it isn't (Figma draws
+  // such a layer smaller first), at most 32×.
+  while ((blur * scale > 64 || (scale == 1 && blur > 4)) && scale > 1.0 / 32) {
     int nw = std::max(1, (cw + 1) / 2), nh = std::max(1, (ch + 1) / 2);
     PoolTarget* down = acquire(nw, nh);
     if (!down || !pass(down, nw, nh)) break;
@@ -2001,11 +1994,11 @@ void Renderer::blurLayer(Layer& L) {
     cw = nw, ch = nh;
     scale /= 2;
   }
-  if (sigma * scale > 0.01) {
+  if (blur > 0) {
     PoolTarget* tmp = acquire(cw, ch);
     if (tmp && tmp->w == cur->w && tmp->h == cur->h) {
-      blurPass(cur, tmp, cw, ch, 1, 0, static_cast<float>(sigma * scale), 0, 0);
-      blurPass(tmp, cur, cw, ch, 0, 1, static_cast<float>(sigma * scale), 0, 0);
+      blurPass(cur, tmp, cw, ch, 1, 0, static_cast<float>(blur * scale), 0, 0);
+      blurPass(tmp, cur, cw, ch, 0, 1, static_cast<float>(blur * scale), 0, 0);
     }
     if (tmp) release(tmp->target);
   }
@@ -2106,7 +2099,7 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
         int k = std::clamp(c.state.level, 0, b.count - 1);
         if (b.kind == BackdropBlur::Kind::Progressive) {
           // The interval between levels k (u_t3, slot 7) and k + 1 (u_t2, slot 4); slots 16–18 the node's box and the
-          // effect's start / end, 19 = (σ at the start, at the end, the interval's two σ).
+          // effect's start / end, 19 = (the radius at the start, at the end, the interval's two radii).
           int k1 = std::min(k + 1, b.count - 1);
           if (!b.textures[k] || !b.textures[k1]) continue;
           call.textures[3] = b.textures[k];
@@ -2116,8 +2109,8 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
             for (int i = 0; i < 4; i++) call.uniforms[16 + j][i] = b.fx[j][i];
           bool last = k1 == b.count - 1;
           call.uniforms[19][0] = static_cast<float>(b.start), call.uniforms[19][1] = static_cast<float>(b.end);
-          call.uniforms[19][2] = static_cast<float>(b.sigmas[k]);
-          call.uniforms[19][3] = static_cast<float>(last ? b.sigmas[k1] * 1.001 + 1e-3 : b.sigmas[k1]);
+          call.uniforms[19][2] = static_cast<float>(b.radii[k]);
+          call.uniforms[19][3] = static_cast<float>(last ? b.radii[k1] * 1.001 + 1e-3 : b.radii[k1]);
         } else {
           if (!b.textures[0]) continue;
           call.textures[2] = b.textures[0];
@@ -2259,7 +2252,7 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
         tmp.rect = r;
         tmp.target = copies[k];
         tmp.texture = device_.targetTexture(copies[k]);
-        tmp.blur = b.sigmas[k];
+        tmp.blurRadius = b.radii[k];
         tmp.contentH = r.h;
         blurLayer(tmp);
         scratch_.push_back(tmp.target);

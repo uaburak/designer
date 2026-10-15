@@ -642,7 +642,7 @@ class Writer {
     std::vector<const Effect*> drops, inners;
     double blur = 0;
     for (const Effect& e : p.effects) {
-      if (!e.visible) continue;
+      if (!visibleForRendering(e)) continue;
       if (e.type == EffectType::DROP_SHADOW) drops.push_back(&e), letters += "d";
       else if (e.type == EffectType::INNER_SHADOW) inners.push_back(&e), letters += "i";
       else if (e.type == EffectType::FOREGROUND_BLUR && e.radius > 0) blur = std::max(blur, e.radius);
@@ -715,7 +715,7 @@ class Writer {
   // Background blur: the backdrop blurred within the layer's shape (a CSS backdrop-filter, as Figma writes it).
   void backgroundBlur(const NodeProps& p, const Shape& sh, const Mat2x3& E, Els& out) {
     for (const Effect& e : p.effects) {
-      if (!e.visible || e.type != EffectType::BACKGROUND_BLUR || e.radius <= 0 || sh.empty()) continue;
+      if (!visibleForRendering(e) || e.type != EffectType::BACKGROUND_BLUR || e.radius <= 0 || sh.empty()) continue;
       geom::Path path = sh.path().transformed(E);
       Rect b = path.bounds();
       std::string id = "bgblur_" + std::to_string(bgBlurN_++) + suffix_ + "_clip_path";

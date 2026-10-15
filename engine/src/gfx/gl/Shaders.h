@@ -76,9 +76,9 @@ vec4 noiseCell(vec2 cell, uint seed, float density, int type, vec4 color, vec4 s
 vec4 paintAt(vec2 local, int kind) {
   if (kind == 0) return v_color;
   if (kind == 7) {
-    // A progressive background blur: σ along the effect (slot 19 = (σ at the start, at the end, this interval's
-    // lower and upper σ)), the backdrop between the interval's two levels (u_t3 at slot 7, u_t2 at slot 4); pixels
-    // whose σ falls in another interval are that one's.
+    // A progressive background blur: the blur radius along the effect (slot 19 = (the radius at the start, at the end, this interval's
+    // lower and upper radius)), the backdrop between the interval's two levels (u_t3 at slot 7, u_t2 at slot 4); pixels
+    // whose radius falls in another interval are that one's.
     vec4 P = u_v[19];
     float s = mix(P.x, P.y, progressT(g_dp));
     if (s < P.z || s >= P.w) return vec4(0.0);
@@ -294,7 +294,7 @@ void main() {
     local = mix(a_box.xy - pad, a_box.zw + pad, corner);
   } else {
     vec2 size = a_origin.zw;
-    float grow = kind == 2 ? 3.0 * a_geom.x : (kind == 3 ? 0.0 : a_geom.y);
+    float grow = kind == 2 ? a_geom.x : (kind == 3 ? 0.0 : a_geom.y);  // a drop shadow: its blur radius
     vec2 pad = vec2(grow) + vec2(2.0 / sx, 2.0 / sy);
     local = mix(-pad, size + pad, corner);
   }
@@ -362,33 +362,35 @@ float sdEllipse(vec2 p, vec2 r) {
   return k1 > 0.0 ? k0 * (k0 - 1.0) / k1 : -min(r.x, r.y);
 }
 
-// Evan Wallace's blurred rounded rectangle (closed-form along x, 4 samples along y).
-float gaussian(float x, float sigma) { return exp(-(x * x) / (2.0 * sigma * sigma)) / (2.50662827463 * sigma); }
-vec2 erf2(vec2 x) {
-  vec2 s = sign(x), a = abs(x);
-  x = 1.0 + (0.278393 + (0.230389 + 0.078108 * (a * a)) * a) * a;
-  x *= x;
-  return s - s / (x * x);
+// The blurred rounded rectangle with Figma's kernel (docs/research/rea/effects.md §2.4): the tent of half-width R,
+// closed-form along x (its CDF, g), 4 samples along y weighted by the tent (Evan Wallace's scheme otherwise).
+// The tent's CDF on [−1, 1] (h in units of R).
+float tentCdf(float h) {
+  if (h < -1.0) return 0.0;
+  if (h < 0.0) return 0.5 * (h + 1.0) * (h + 1.0);
+  if (h < 1.0) return 1.0 - 0.5 * (1.0 - h) * (1.0 - h);
+  return 1.0;
 }
-float shadowX(float x, float y, float sigma, float corner, vec2 halfSize) {
+float shadowX(float x, float y, float R, float corner, vec2 halfSize) {
   float delta = min(halfSize.y - corner - abs(y), 0.0);
   float curved = halfSize.x - corner + sqrt(max(0.0, corner * corner - delta * delta));
-  vec2 integral = 0.5 + 0.5 * erf2((x + vec2(-curved, curved)) * (0.70710678 / sigma));
-  return integral.y - integral.x;
+  return tentCdf((x + curved) / R) - tentCdf((x - curved) / R);
 }
-// The shadow of the box [lo, hi] with corner radii r (tl tr br bl) at p, blurred by sigma; px = a pixel.
-float boxShadow(vec2 lo, vec2 hi, vec4 r, vec2 p, float sigma, float px) {
+// The shadow of the box [lo, hi] with corner radii r (tl tr br bl) at p, blurred by radius R; px = a pixel.
+float boxShadow(vec2 lo, vec2 hi, vec4 r, vec2 p, float R, float px) {
   vec2 c = (lo + hi) * 0.5, h = max((hi - lo) * 0.5, vec2(0.0));
   vec2 q = p - c;
   float corner = q.x > 0.0 ? (q.y > 0.0 ? r.z : r.y) : (q.y > 0.0 ? r.w : r.x);
   corner = clamp(corner, 0.0, min(h.x, h.y));
-  if (sigma < 0.05 * px) return clamp(0.5 - sdRoundedBox(q, h, vec4(corner)) / px, 0.0, 1.0);
+  if (R < 0.1 * px) return clamp(0.5 - sdRoundedBox(q, h, vec4(corner)) / px, 0.0, 1.0);
+  // A square corner: the tent is separable, (g(x0) − g(x1))(g(y0) − g(y1)) exactly.
+  if (corner <= 0.0) return (tentCdf((q.x + h.x) / R) - tentCdf((q.x - h.x) / R)) * (tentCdf((q.y + h.y) / R) - tentCdf((q.y - h.y) / R));
   float low = q.y - h.y, high = q.y + h.y;
-  float start = clamp(-3.0 * sigma, low, high), end = clamp(3.0 * sigma, low, high);
+  float start = clamp(-R, low, high), end = clamp(R, low, high);
   float step = (end - start) / 4.0;
   float y = start + step * 0.5, value = 0.0;
   for (int i = 0; i < 4; i++) {
-    value += shadowX(q.x, q.y - y, sigma, corner, h) * gaussian(y, sigma) * step;
+    value += shadowX(q.x, q.y - y, R, corner, h) * max(0.0, 1.0 - abs(y) / R) / R * step;
     y += step;
   }
   return value;
@@ -615,8 +617,8 @@ void main() {
   cov *= roundClip(v_dev) * shapeClip(v_dev);
   if (cov <= 0.0) discard;
   if (mode == 5) {
-    // A progressive layer blur, one interval of it (slot 19 = (σ at the start, at the end, the interval's lower and
-    // upper σ)): the layer between its copies at the two (u_t0, u_t1); pixels whose σ is elsewhere are another's.
+    // A progressive layer blur, one interval of it (slot 19 = (the radius at the start, at the end, the interval's lower and
+    // upper radius)): the layer between its copies at the two (u_t0, u_t1); pixels whose radius is elsewhere are another's.
     vec4 P = u_v[19];
     float s = mix(P.x, P.y, progressT(v_dev));
     if (s < P.z || s >= P.w) discard;
@@ -662,9 +664,11 @@ void main() {
 }
 )";
 
-// ---- Blur: separable Gaussian, dilate, erode -----------------------------------
+// ---- Blur: separable tent, dilate, erode -----------------------------------------
 // A quad over the whole viewport; the source texture has the target's layout. Slots: 2 = (direction x, y in
-// texels, σ in texels, mode: 0 Gaussian, 1 dilate, 2 erode), 3 = (radius in texels for dilate / erode).
+// texels, the blur's radius in texels, mode: 0 tent, 1 dilate, 2 erode), 3 = (radius in texels for dilate / erode).
+// Figma's blur (docs/research/rea/effects.md §2.1): a tent of half-width R — tap weights R − |i| — one pass per
+// axis, two adjacent taps read by one bilinear fetch; at most 64 taps a side (the renderer halves the layer first).
 inline constexpr const char* kBlurVertex = R"(#version 300 es
 void main() {
   int id = gl_VertexID;
@@ -684,14 +688,15 @@ void main() {
   vec2 dir = u_v[2].xy / sz;
   int mode = int(u_v[2].w + 0.5);
   if (mode == 0) {
-    float sigma = max(u_v[2].z, 1e-3);
-    int n = min(int(ceil(3.0 * sigma)), 48);
-    vec4 sum = vec4(0.0);
-    float total = 0.0;
-    for (int i = -n; i <= n; i++) {
-      float w = exp(-float(i * i) / (2.0 * sigma * sigma));
-      sum += texture(u_t0, uv + dir * float(i)) * w;
-      total += w;
+    float R = clamp(u_v[2].z, 1e-3, 64.0);
+    vec4 sum = texture(u_t0, uv) * R;
+    float total = R;
+    for (int i = 1; i <= 64; i += 2) {
+      float w1 = max(R - float(i), 0.0), w2 = max(R - float(i + 1), 0.0), w = w1 + w2;
+      if (w <= 0.0) break;
+      vec2 o = dir * (float(i) + w2 / w);
+      sum += (texture(u_t0, uv + o) + texture(u_t0, uv - o)) * w;
+      total += 2.0 * w;
     }
     vec4 c = sum / total;
     // Dithered (±½ of an 8-bit step of its alpha) against banding in the falloff.
