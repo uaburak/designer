@@ -286,6 +286,13 @@ TEST_CASE("r17b the Simplify vector tool: live preview from the layer as it was,
   REQUIRE(e.command(CommandId::UNDO) == OK);
   CHECK(e.pathTool() == Editor::PathTool::NONE);
   CHECK(networkOf(e, V).vertices.size() == 5);
+  // Selecting another layer (the Layers panel) cancels it.
+  REQUIRE(e.pathToolBegin(Editor::PathTool::SIMPLIFY) == OK);
+  REQUIRE(e.pathToolSet(toolArgs(R"({"threshold":-2})")) == OK);
+  REQUIRE(e.setSelection({A}) == OK);
+  CHECK(e.pathTool() == Editor::PathTool::NONE);
+  CHECK(networkOf(e, V).vertices.size() == 5);
+  e.setSelection({V});
   REQUIRE(e.pathToolBegin(Editor::PathTool::SIMPLIFY) == OK);
   REQUIRE(e.pathToolSet(toolArgs(R"({"threshold":-2})")) == OK);
   e.key(KeyEvent::DOWN, KeyCode::Enter, 0, 0, false);

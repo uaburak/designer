@@ -994,6 +994,7 @@ Overlay Editor::overlay() const {
 
 void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDerived* derived) {
   cancelGesture();
+  pathToolCancel();
   storedText_.clear();
   storedSymbols_.clear();
   storedLayouts_.clear();
@@ -1251,6 +1252,7 @@ Status Editor::setCurrentPage(Guid page) {
   if (!n || n->props.type != NodeType::CANVAS || n->props.rare().internalOnly) return E_NOT_FOUND;
   if (page == page_) return OK;
   cancelGesture();
+  pathToolCancel();  // (Simplify vector / Offset path: the layer as it was)
   endTextEdit();
   derivePage(page);
   pageSelections_[page_] = selection_;
@@ -1416,6 +1418,8 @@ bool Editor::tick(double timeMs) {
 // ---- Selection and panel writes ---------------------------------------------
 
 Status Editor::setSelection(const std::vector<Guid>& ids) {
+  // Simplify vector / Offset path open: selecting anything else cancels it (the layer as it was).
+  if (pathTool_.kind != PathTool::NONE && !(ids.size() == 1 && ids[0] == pathTool_.node)) pathToolCancel();
   std::vector<Guid> live;
   for (Guid id : ids) {
     if (!doc_.has(id) || std::find(live.begin(), live.end(), id) != live.end()) continue;
