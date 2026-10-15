@@ -715,6 +715,9 @@ export const editor: Record<string, string> = {
   Folders: "Klasörler",
   "Say something": "Bir şey söyleyin",
   Simplify: "Sadeleştir",
+  // Simplify vector's toolbar (round 17b): its slider's ends
+  Simpler: "Daha sade",
+  "More detailed": "Daha ayrıntılı",
   Amount: "Miktar",
   Join: "Birleşim",
   "Join:": "Birleşim:",

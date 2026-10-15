@@ -12,6 +12,7 @@ import { rotateSelection, zoomTo } from "./actions";
 import { copyFromMenu, pasteFromMenu } from "./clipboardIO";
 import { engineCommandEnabled, runEngineCommand } from "./engineCompat";
 import { chooseAndPlaceImages } from "./canvas/ImagePlacer";
+import { openPathTool } from "./canvas/PathToolbar";
 import { canExport, copyAsCode, copyAsPng, copyAsSvg, copyAsText, exportAllowed, exportFramesToPdf, hasTextSelected } from "./exporting";
 import { present, togglePreview } from "./present";
 import { setDevStatus, statusOfTargets, statusTargets } from "./devStatus";
@@ -689,8 +690,9 @@ export const COMMANDS: EditorCommand[] = [
   engine("vector.delete-heal", "Delete and heal selection", "VECTOR_DELETE_AND_HEAL", [k("Backspace", { shift: true })]),
   engine("vector.split", "Split vector", "VECTOR_SPLIT"),
   // help.figma.com "Simplify a vector path" (a slider) / "Offset a vector path" (Amount, Join, ✓): their popover.
-  engine("vector.simplify", "Simplify vector", "VECTOR_SIMPLIFY", undefined, { run: (ed) => ed.ui.set({ vectorOp: "simplify" }) }),
-  engine("vector.offset", "Offset vector", "VECTOR_OFFSET", undefined, { run: (ed) => ed.ui.set({ vectorOp: "offset" }) }),
+  // Figma's tools (rea/vector.md §8, §10): the menu opens them; their toolbar applies or cancels (canvas/PathToolbar).
+  engine("vector.simplify", "Simplify vector", "VECTOR_SIMPLIFY", undefined, { run: (ed) => void openPathTool(ed, "SIMPLIFY") }),
+  engine("vector.offset", "Offset vector", "VECTOR_OFFSET", undefined, { run: (ed) => void openPathTool(ed, "OFFSET") }),
 
   // ---- Draw (round 7c, docs/draw.md §5.7; the engine's CommandIds 310–321) ----
   // Right-click › Create brush › Stretch brush / Scatter brush (help.figma.com 31440438150935): one vector-like layer.

@@ -292,6 +292,7 @@ export class EngineExports {
   vectorEdit = (h: number, sessionID: number, localID: number): number => this.fn("vector_edit")(h, sessionID, localID);
   vectorEditEnd = (h: number): void => void this.fn("vector_edit_end")(h);
   vectorEditTool = (h: number, tool: number): number => this.fn("vector_edit_tool")(h, tool);
+  pathTool = (h: number, input: Uint8Array): number => this.withBytes([input], (p) => this.fn("path_tool")(h, p[0], p[1]));
   endCaps = (h: number, sessionID: number, localID: number): number => this.fn("end_caps")(h, sessionID, localID);
   paintEdit = (h: number, sessionID: number, localID: number, paints: number, index: number): number =>
     this.fn("paint_edit")(h, sessionID, localID, paints, index);
@@ -385,7 +386,7 @@ export const USED_EXPORTS = [
   "text_edit", "text_edit_end", "text_input", "text_composition", "text_composition_end", "text_selection", "text_layout",
   "text_range_style", "text_paragraphs", "font_info",
   "image_add_bitmap", "image_add_rgba", "image_failed",
-  "vector_edit", "vector_edit_end", "vector_edit_tool", "end_caps", "paint_edit", "paint_edit_end", "paint_edit_stop",
+  "vector_edit", "vector_edit_end", "vector_edit_tool", "path_tool", "end_caps", "paint_edit", "paint_edit_end", "paint_edit_stop",
   "set_prototype_mode", "set_prototype_selection", "set_viewer_mode", "present_start", "present_stop", "present_pointer", "present_wheel", "present_key", "present_command",
   "present_set_options", "present_state", "present_media", "present_media_frame",
   "set_view_options", "set_nudge", "start_guide", "set_annotation_view", "set_edit_tracking", "set_focus", "select_measurement", "dev_info",

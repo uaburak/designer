@@ -106,6 +106,8 @@ import {
   type NodeChange,
   type NodeFieldsPatch,
   type PageInfo,
+  type PathToolInput,
+  type PathToolState,
   type Pixels,
   type ResolvedVariableValue,
   type StyleInfo,
@@ -1722,6 +1724,16 @@ export class Engine {
   /** The vector edit toolbar: MOVE, PEN, BEND (also ⌘ held), LASSO, PAINT_BUCKET, CUT, ERASE; More: SHAPE_BUILDER, VARIABLE_WIDTH (E_UNSUPPORTED where it doesn't apply). */
   setVectorEditTool(tool: VectorEditTool): number {
     return this.after(this.x.vectorEditTool(this.h, VECTOR_EDIT_TOOLS.indexOf(tool)));
+  }
+
+  /**
+   * Simplify vector / Offset path as Figma's tools (ABI engine_path_tool): begin (one vector-editable layer), set
+   * (each change previews live, written again from the layer as it was), apply (one undo step), cancel (the layer as
+   * it was). The state after the call, or null when it was refused (E_INVALID: not enabled; E_BUSY).
+   */
+  pathTool(input: PathToolInput): PathToolState | null {
+    if (!this.h) return null;
+    return this.json<PathToolState | null>(this.x.pathTool(this.h, encodeText(JSON.stringify(input))), null);
   }
 
   /** An open path's ends (Figma's Start point / End point), or null when the node has none. */

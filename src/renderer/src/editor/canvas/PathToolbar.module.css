@@ -1,0 +1,7 @@
+@layer app {
+  /* Simplify vector / Offset path's secondary toolbar (rea/vector.md §8, §10): where vector edit's sits. */
+  .group { display: flex; flex: none; align-items: center; gap: var(--ds-space-2); padding: 0 var(--ds-space-1); }
+  .icon { display: flex; flex: none; color: var(--figma-color-icon-secondary); }
+  .slider { flex: none; width: calc(var(--ds-size-field) * 2); }
+  .value { flex: none; width: calc(var(--ds-size-field) - var(--ds-space-4)); }
+}
