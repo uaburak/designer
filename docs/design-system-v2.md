@@ -285,3 +285,34 @@ until step 12 passes.
 
 Global check after every step: no component is a copy of another, no variable with the same meaning twice, no
 variant combination that the app does not use.
+
+## Progress (2026-10-15) — where this stopped
+
+Built in the owner's "Wecra Design System" file (Drafts, installed Wecra 1.3.2, over MCP), each step with a script in
+`tools/ds-v2/` that writes idempotently and reads back:
+
+| Step | Script | State |
+|---|---|---|
+| 1 Primitives (81 colours incl. the Yellow theme's steps, 28 numbers) | step1-primitives.mjs | done, 109/109 verified |
+| 2 Brand (Blue \| Yellow) + Color (Light \| Dark, 93 tokens, brand roles alias Brand) | step2-colors.mjs | done, 16/16 + 93/93 |
+| 3 Radius (Sharp \| Default \| Round), Size (Compact \| Default \| Comfortable), Space | step3-sizes.mjs | done, 6 + 23 + 13 |
+| 4 9 text styles, 9 elevation effect styles | step4-styles.mjs | done, read back |
+| 5 135 icon sets (Set Figma \| Wecra × Style Default \| Outline), Icon set / Icon style switches | step5-icons.mjs | done |
+| 5b vectors scale, sets as auto-layout grids, Icon size (16 \| 20 \| 24 \| 32), size/icon-control(-large), size/icon-row | step5b-icon-sizing.mjs | done |
+| 5c drawings centred in their boxes | step5c-icon-centering.mjs | done, 540/540 |
+| 5d every icon variant one filled vector "Icon" bound to icon/default | step5d-icon-flatten.mjs | done, 540/540 |
+| 6 Button (Variant × Size × State, 60 variants; Show start icon / Start icon / Label / Show end icon / End icon) | step6-button.mjs, 6b demo, 6c grid, 6d icon colour, button-look.mjs | built, 60/60; see open items |
+
+Owner's decisions on the way: collections are mode switches per page (Brand, Color, Radius, Size, Icon set, Icon
+style, Icon size); auto layout wherever it fits, centred (icons themselves are frames with scaling vectors); icons
+inside components size by their own Size tokens, never the page's Icon size; the Button's icon Set and Style stay bound
+to the Icon set / Icon style modes.
+
+Open items before step 7 (the owner is fixing the app bugs in another chat first; no release until he says):
+- App bug: swapping a nested instance to another component (e.g. the Button's Start icon) drops the usage site's
+  overrides (the Icon layer's colour) — Figma keeps them when layer names match. A stopped attempt is in the worktree
+  `.claude/worktrees/agent-a18fa7ef9f3ae5188` (uncommitted edits in engine/src/editor/Instances.cpp and a test).
+- App fix committed, not released: the Design panel's corner radius field reads / binds the four corners (shows the
+  radius pill).
+- Button: Primary's Focus state isn't distinguishable (needs an outer focus ring); Loading waits for the Spinner atom.
+- Next: step 7 Icon button, then the rest of §f's build order.
