@@ -308,6 +308,13 @@ const CORNER_FIELD = {
 } as const;
 
 /**
+ * The all-corners field binds and reads the four corners, as Figma does (the engine keeps a corner radius binding per
+ * corner: a CORNER_RADIUS binding lands on the four), so a radius bound anywhere — here, per corner or by a plugin /
+ * agent — shows as one pill when the four share a variable.
+ */
+const ALL_CORNERS = Object.values(CORNER_FIELD);
+
+/**
  * Inverted (concave) corners — our own addition, not Figma's (docs/schema.md §3.6): a corner whose bit is set in
  * `invertedCornerMask` shows its radius as a negative number, and a negative number typed (or stepped below 0) makes
  * the corner inverted. The all-corners field reads negative when every corner is inverted.
@@ -453,7 +460,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
           <VariableField nodes={nodes} fields={["OPACITY"]} prefix="24.opacity">
             <NumericInput label={t("Opacity")} prefix="24.opacity" unit="%" precision={0} min={0} max={100} value={fieldValue(opacity)} {...opacityHandlers} />
           </VariableField>
-          <VariableField nodes={nodes} fields={["CORNER_RADIUS"]} prefix="24.corners" disabled={independentNow}>
+          <VariableField nodes={nodes} fields={ALL_CORNERS} prefix="24.corners" disabled={independentNow}>
             <NumericInput label={t("Corner radius")} prefix="24.corners" min={signedOk ? undefined : 0} disabled={plainOnly} value={independentNow ? MIXED : fieldValue(radius)} {...radiusHandlers} />
           </VariableField>
         </PropertyRow>

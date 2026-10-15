@@ -78,7 +78,8 @@ export function VariableField({ nodes, fields, prefix, children, disabled, butto
   const setOpen = onOpenChange ?? setOwnOpen;
   const bound = sharedBinding(nodes, fields);
   const refs = nodes.map((n) => n.guid).filter((id) => !id.startsWith("I"));
-  const spec = BIND_TYPE[fields[0]];
+  // The four corners together are one "Corner radius"
+  const spec = fields.length === 4 && fields.every((f) => f.startsWith("RECTANGLE_") && f.endsWith("_CORNER_RADIUS")) ? BIND_TYPE.CORNER_RADIUS : BIND_TYPE[fields[0]];
   if (!refs.length || disabled) return <>{children}</>;
   const bind = (id: Guid | null) => bindVariable(ed, refs, fields, id);
   const picker = open && (
