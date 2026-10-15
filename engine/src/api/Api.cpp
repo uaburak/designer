@@ -1735,6 +1735,8 @@ ENG_EXPORT int32_t engine_stats(Handle h) {
   gfx::MemoryStats gm = e->device->memory();
   w.key("gpuBytes").number(static_cast<double>(gm.bytes)).key("gpuTextures").number(gm.textures).key("gpuTargets").number(gm.targets);
   w.key("gfx").string(e->device->backend());
+  // The device's texture limit: image imports clamp to it (src/renderer/src/editor/images.ts, Figma's clampToMaxTexture).
+  w.key("maxTextureSize").number(static_cast<double>(e->device->caps().maxTextureSize));
   w.key("gpuBuffers").number(gm.buffers).key("layerPoolBytes").number(static_cast<double>(e->renderer->poolTargetBytes()));
   w.key("curveTexels").number(e->renderer->curveCache().texelCount());
   w.key("derivedUsed").number(e->editor.derivedUsed()).key("derivedStale").number(e->editor.derivedStale());

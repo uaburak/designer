@@ -40,7 +40,8 @@ export interface CssSnippet {
   textStyle?: string;
 }
 
-const JUSTIFY: Record<string, string> = { MIN: "flex-start", CENTER: "center", MAX: "flex-end", SPACE_BETWEEN: "space-between", SPACE_EVENLY: "space-evenly", SPACE_AROUND: "space-around" };
+// Kiwi's alignments: SPACE_EVENLY is Figma's "Space between" (older files: SPACE_BETWEEN), SPACE_EVENLY_CSS is CSS's.
+const JUSTIFY: Record<string, string> = { MIN: "flex-start", CENTER: "center", MAX: "flex-end", SPACE_BETWEEN: "space-between", SPACE_EVENLY: "space-between", SPACE_AROUND: "space-around", SPACE_EVENLY_CSS: "space-evenly" };
 const ALIGN: Record<string, string> = { MIN: "flex-start", CENTER: "center", MAX: "flex-end", BASELINE: "baseline" };
 
 function paintCss(p: Paint, input: InspectInput, list: "fillPaints" | "strokePaints", i: number): string | null {
@@ -105,7 +106,7 @@ export function cssSnippet(input: InspectInput): CssSnippet {
     const justify = JUSTIFY[n.stackPrimaryAlignItems ?? "MIN"] ?? "flex-start";
     if (justify !== "flex-start") layout.push({ property: "justify-content", value: justify });
     layout.push({ property: "align-items", value: ALIGN[n.stackCounterAlignItems ?? "MIN"] ?? "flex-start" });
-    if (n.stackPrimaryAlignItems !== "SPACE_BETWEEN") layout.push({ property: "gap", value: v("STACK_SPACING", px(n.stackSpacing ?? 0)) });
+    if (justify !== "space-between") layout.push({ property: "gap", value: v("STACK_SPACING", px(n.stackSpacing ?? 0)) });
     if (n.stackWrap === "WRAP") {
       layout.push({ property: "flex-wrap", value: "wrap" });
       if (n.stackCounterSpacing !== undefined) layout.push({ property: "row-gap", value: v("STACK_COUNTER_SPACING", px(n.stackCounterSpacing)) });

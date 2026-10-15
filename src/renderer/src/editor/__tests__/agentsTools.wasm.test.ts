@@ -9,6 +9,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { Engine } from "@/engine/Engine";
 import { EngineStore } from "@/engine/EngineStore";
 import { loadEngine } from "@/engine/loadEngine";
+import { decodeMessage, encodeMessage } from "@/engine/codec";
 import { SAMPLE_DOCUMENT } from "@/engine/sampleDocument";
 import { NODE_FIELDS } from "@shared/schema/document.generated";
 import { MODEL } from "@shared/schema/model";
@@ -277,6 +278,75 @@ describe("MCP tools: variables and styles", () => {
     const s4 = json(await call("create_grid_style", { name: "12 col", layoutGrids: [{ pattern: "STRIPES", numSections: 12 }] }));
     const ids = engine.styles(undefined, {}).map((s) => s.id);
     expect(ids).toEqual(expect.arrayContaining([s1.style.id, s2.style.id, s3.style.id, s4.style.id]));
+  });
+});
+
+describe("MCP tools: auto layout and grid setters (Figma's Plugin API rules, docs/research/rea/canvas.md §2.1)", () => {
+  it("SPACE_BETWEEN is stored as kiwi SPACE_EVENLY (Figma's files) and reads back as SPACE_BETWEEN; SPACE_EVENLY / SPACE_AROUND as CSS", async () => {
+    const { engine, call } = await editor();
+    const id = json(await call("create_nodes", { nodes: [{ type: "FRAME", layoutMode: "HORIZONTAL", primaryAxisAlignItems: "SPACE_BETWEEN", children: [{ type: "RECTANGLE" }, { type: "RECTANGLE" }] }] })).created[0].id;
+    expect(engine.readNode(id)!.stackPrimaryAlignItems).toBe("SPACE_EVENLY");
+    const bytes = encodeMessage({ type: "NODE_CHANGES", sessionID: 1, nodeChanges: [engine.readNode(id)!] } as never);
+    expect(decodeMessage(bytes).nodeChanges![0].stackPrimaryAlignItems).toBe("SPACE_EVENLY");
+    expect(json(await call("get_design_context", { nodeId: id, depth: 0 })).nodes[0].primaryAxisAlignItems).toBe("SPACE_BETWEEN");
+    for (const [api, doc] of [["SPACE_EVENLY", "SPACE_EVENLY_CSS"], ["SPACE_AROUND", "SPACE_AROUND"], ["CENTER", "CENTER"]]) {
+      const r = json(await call("update_nodes", { updates: [{ nodeId: id, primaryAxisAlignItems: api }] }));
+      expect(r.summary, api).toContain("everything applied");
+      expect(engine.readNode(id)!.stackPrimaryAlignItems).toBe(doc);
+      expect(r.nodes[0].values.primaryAxisAlignItems).toBe(api);
+    }
+    // Older files' kiwi SPACE_BETWEEN reads as SPACE_BETWEEN too.
+    engine.setProps([id], { stackPrimaryAlignItems: "SPACE_BETWEEN" });
+    expect(json(await call("get_design_context", { nodeId: id, depth: 0 })).nodes[0].primaryAxisAlignItems).toBe("SPACE_BETWEEN");
+  });
+
+  it("refuses what Figma refuses: BASELINE off HORIZONTAL, layoutGrow other than 0 / 1, negative paddings and gaps, WRAP and stack-only fields without a layout, ABSOLUTE without a layout parent", async () => {
+    const { call } = await editor();
+    const made = json(await call("create_nodes", { nodes: [
+      { type: "FRAME", name: "V", layoutMode: "VERTICAL", children: [{ type: "RECTANGLE", name: "VR" }] },
+      { type: "FRAME", name: "Plain", children: [{ type: "RECTANGLE", name: "PR" }] },
+    ] }));
+    const [v, plain] = made.created.map((c: { id: string }) => c.id);
+    const ctx = json(await call("get_design_context", { nodeId: v, depth: 1 }));
+    const vr = ctx.nodes[0].children[0].id;
+    const pr = json(await call("get_design_context", { nodeId: plain, depth: 1 })).nodes[0].children[0].id;
+    const reasonOf = async (nodeId: string, prop: string, value: unknown) => {
+      const r = any(await call("update_nodes", { updates: [{ nodeId, [prop]: value }] }));
+      return (r.nodes[0].rejected ?? []).find((x: { property: string }) => x.property === prop)?.reason as string | undefined;
+    };
+    expect(await reasonOf(v, "counterAxisAlignItems", "BASELINE")).toContain("HORIZONTAL");
+    expect(await reasonOf(vr, "layoutGrow", 2)).toContain("0 or 1");
+    expect(await reasonOf(vr, "layoutGrow", 0.5)).toContain("0 or 1");
+    expect(await reasonOf(v, "paddingTop", -4)).toContain("0 or more");
+    expect(await reasonOf(v, "padding", [4, -2])).toContain("0 or more");
+    expect(await reasonOf(v, "counterAxisSpacing", -1)).toContain("0 or more");
+    expect(await reasonOf(plain, "layoutWrap", "WRAP")).toContain("HORIZONTAL or VERTICAL");
+    expect(await reasonOf(plain, "itemReverseZIndex", true)).toContain("layoutMode");
+    expect(await reasonOf(pr, "layoutPositioning", "ABSOLUTE")).toBe("Can only set layoutPositioning = ABSOLUTE if the parent node has layoutMode !== NONE");
+    // What Figma takes: a negative itemSpacing (overlap), layoutGrow 1, ABSOLUTE in a layout parent, WRAP on a vertical frame.
+    for (const [nodeId, prop, value] of [[v, "itemSpacing", -8], [vr, "layoutGrow", 1], [vr, "layoutPositioning", "ABSOLUTE"], [v, "layoutWrap", "WRAP"]] as const)
+      expect(json(await call("update_nodes", { updates: [{ nodeId, [prop]: value }] })).summary, prop).toContain("everything applied");
+  });
+
+  it("layoutMode GRID: both sizings FIXED, both alignments MIN, 2 × 2 tracks; only MIN alignments; HUG turns Fill tracks to Hug; negative gaps refused", async () => {
+    const { engine, call } = await editor();
+    const id = json(await call("create_nodes", { nodes: [{ type: "FRAME", name: "Row", layoutMode: "HORIZONTAL", primaryAxisAlignItems: "CENTER", counterAxisAlignItems: "MAX", layoutWrap: "WRAP" }] })).created[0].id;
+    expect(json(await call("update_nodes", { updates: [{ nodeId: id, layoutMode: "GRID" }] })).summary).toContain("everything applied");
+    const g = engine.readNode(id)! as unknown as Record<string, unknown>;
+    expect(g).toMatchObject({ stackMode: "GRID", stackPrimarySizing: "FIXED", stackCounterSizing: "FIXED", stackPrimaryAlignItems: "MIN", stackCounterAlignItems: "MIN", stackWrap: "NO_WRAP" });
+    expect((g.gridColumns as { entries: unknown[] }).entries).toHaveLength(2);
+    expect((g.gridRows as { entries: unknown[] }).entries).toHaveLength(2);
+    const r = any(await call("update_nodes", { updates: [{ nodeId: id, primaryAxisAlignItems: "CENTER", counterAxisAlignItems: "MIN", gridRowGap: -2 }] }));
+    expect(r.nodes[0].rejected.map((x: { property: string }) => x.property).sort()).toEqual(["gridRowGap", "primaryAxisAlignItems"]);
+    expect(r.nodes[0].applied).toContain("counterAxisAlignItems");
+    // Columns Fill (1fr), then Hug on the width: the columns hug.
+    const cols = g.gridColumnsSizing as { entries: { id: unknown; trackSize: Record<string, { type: string; value: number }> }[] };
+    const fill = { type: "FLEX", value: 1 };
+    engine.setProps([id], { gridColumnsSizing: { entries: cols.entries.map((e) => ({ id: e.id, trackSize: { minSizing: fill, maxSizing: fill } })) } } as never);
+    expect(json(await call("update_nodes", { updates: [{ nodeId: id, layoutSizingHorizontal: "HUG" }] })).summary).toContain("everything applied");
+    const after = engine.readNode(id)! as unknown as Record<string, unknown>;
+    expect(after.stackPrimarySizing).toBe("RESIZE_TO_FIT_WITH_IMPLICIT_SIZE");
+    expect((after.gridColumnsSizing as typeof cols).entries.map((e) => e.trackSize.maxSizing.type)).toEqual(["HUG", "HUG"]);
   });
 });
 

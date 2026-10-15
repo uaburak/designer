@@ -12,6 +12,7 @@ import { MITER_LIMIT_RANGE } from "@shared/strokeLimits";
 import { defaultEffect, defaultGuide, withBlurType } from "../panels/design/Effects";
 import { DEFAULT_LINEAR_TRANSFORM } from "../model/paints";
 import { ONE_GLASS, figmaGlass } from "../model/glass";
+import { setTrackCount, tracksOf, trackFields, type GridAxis, type GridNode } from "../model/grid";
 
 export type Spec = Record<string, unknown>;
 type Obj = Record<string, unknown>;
@@ -195,6 +196,33 @@ export type Sizing = "FIXED" | "HUG" | "FILL";
 
 const flowMode = (n: NodeChange | null) => (n?.stackMode && n.stackMode !== "NONE" && n.stackMode !== "GRID" ? n.stackMode : null);
 const hasAutoLayout = (n: NodeChange | null) => !!n?.stackMode && n.stackMode !== "NONE";
+/** Is `axis` the layer's own primary axis (its flow's direction; a grid's: horizontal)? Null: no auto layout. */
+const ownPrimary = (n: NodeChange, axis: Axis): boolean | null => {
+  if (!hasAutoLayout(n)) return null;
+  return n.stackMode === "GRID" ? axis === "H" : (n.stackMode === "HORIZONTAL") === (axis === "H");
+};
+const gridAxis = (axis: Axis): GridAxis => (axis === "H" ? "columns" : "rows");
+/** A layer's sessionID (its GUID's first half): new grid tracks are numbered in it, as the panel's are. */
+const sessionOfGuid = (guid: unknown) => Number(String(guid ?? "").replace(/^I/, "").split(":")[0]) || 1;
+
+/**
+ * The Plugin API's primaryAxisAlignItems → the document's, as Figma stores it (docs/research/rea/canvas.md §2.1):
+ * SPACE_BETWEEN is kiwi SPACE_EVENLY (Figma's files), SPACE_EVENLY is SPACE_EVENLY_CSS, SPACE_AROUND as it is.
+ */
+export const PRIMARY_ALIGN_TO_DOC: Record<string, NonNullable<NodeFields["stackPrimaryAlignItems"]>> = {
+  MIN: "MIN",
+  CENTER: "CENTER",
+  MAX: "MAX",
+  SPACE_BETWEEN: "SPACE_EVENLY",
+  SPACE_AROUND: "SPACE_AROUND",
+  SPACE_EVENLY: "SPACE_EVENLY_CSS",
+};
+/** The document's primary alignment as the Plugin API names it (kiwi SPACE_BETWEEN, which older files carry, too). */
+export function primaryAlignFromDoc(v: string | undefined): string {
+  if (v === "SPACE_EVENLY" || v === "SPACE_BETWEEN") return "SPACE_BETWEEN";
+  if (v === "SPACE_EVENLY_CSS") return "SPACE_EVENLY";
+  return v ?? "MIN";
+}
 
 /** A layer's sizing on an axis, as the Plugin API's layoutSizingHorizontal / Vertical reads it. */
 export function sizingOf(n: NodeChange, parent: NodeChange | null, axis: Axis): Sizing {
@@ -203,11 +231,8 @@ export function sizingOf(n: NodeChange, parent: NodeChange | null, axis: Axis): 
     const primary = (pMode === "HORIZONTAL") === (axis === "H");
     if (primary ? (n.stackChildPrimaryGrow ?? 0) > 0 : n.stackChildAlignSelf === "STRETCH") return "FILL";
   }
-  const own = flowMode(n);
-  if (own) {
-    const primary = (own === "HORIZONTAL") === (axis === "H");
-    return isHug(primary ? n.stackPrimarySizing : n.stackCounterSizing) ? "HUG" : "FIXED";
-  }
+  const primary = ownPrimary(n, axis);
+  if (primary !== null) return isHug(primary ? n.stackPrimarySizing : n.stackCounterSizing) ? "HUG" : "FIXED";
   if (n.type === "TEXT") {
     const r = n.textAutoResize ?? "NONE";
     if (r === "WIDTH_AND_HEIGHT") return "HUG";
@@ -220,16 +245,20 @@ export function sizingOf(n: NodeChange, parent: NodeChange | null, axis: Axis): 
 export function sizingFields(n: NodeChange, parent: NodeChange | null, axis: Axis, sizing: Sizing): NodeFields {
   const out: NodeFields = {};
   const pMode = flowMode(parent);
-  const ownMode = flowMode(n);
+  const own = ownPrimary(n, axis);
   if (pMode) {
     const primary = (pMode === "HORIZONTAL") === (axis === "H");
     if (primary) out.stackChildPrimaryGrow = sizing === "FILL" ? 1 : 0;
     else out.stackChildAlignSelf = sizing === "FILL" ? "STRETCH" : "AUTO";
   }
-  if (ownMode) {
-    const primary = (ownMode === "HORIZONTAL") === (axis === "H");
-    const key = primary ? "stackPrimarySizing" : "stackCounterSizing";
+  if (own !== null) {
+    const key = own ? "stackPrimarySizing" : "stackCounterSizing";
     out[key] = sizing === "HUG" ? HUG : "FIXED";
+    // A grid that hugs on an axis can't keep Fill (fr) tracks there: they become Hug (Figma's layoutSizing setter).
+    if (n.stackMode === "GRID" && sizing === "HUG") {
+      const tracks = tracksOf(n as unknown as GridNode, gridAxis(axis));
+      if (tracks.some((t) => t.sizing.type === "FLEX")) Object.assign(out, trackFields(gridAxis(axis), tracks.map((t) => (t.sizing.type === "FLEX" ? { ...t, sizing: { type: "HUG" as const, value: 1 } } : t))));
+    }
   }
   if (n.type === "TEXT") {
     const r = (n.textAutoResize ?? "NONE") as string;
@@ -380,13 +409,13 @@ function cornersOf(n: NodeChange): number | number[] {
 }
 
 const sizing = (axis: Axis): PropImpl => ({
-  on: (n, p) => (n.type === "CANVAS" ? "not for pages" : flowMode(p) || flowMode(n) || isText(n) ? null : "only in an auto layout frame, or for an auto layout frame or a text"),
+  on: (n, p) => (n.type === "CANVAS" ? "not for pages" : flowMode(p) || hasAutoLayout(n) || isText(n) ? null : "only in an auto layout frame, or for an auto layout frame or a text"),
   read: (n, p) => sizingOf(n, p, axis),
   hidden: (_v, n, p) => !(flowMode(p) || hasAutoLayout(n) || isText(n)),
   write: (v, ctx) => {
     const s = needEnum(v, ["FIXED", "HUG", "FILL"] as const);
     if (s === "FILL" && !flowMode(ctx.parent)) reject("FILL needs an auto layout parent");
-    if (s === "HUG" && !flowMode(ctx.node) && !isText(ctx.node)) reject("HUG needs an auto layout frame or a text");
+    if (s === "HUG" && !hasAutoLayout(ctx.node) && !isText(ctx.node)) reject("HUG needs an auto layout frame or a text");
     if (s !== "FIXED" && ctx.node.stackPositioning === "ABSOLUTE" && s === "FILL") reject("an absolute layer can't fill");
     return sizingFields(ctx.node, ctx.parent, axis, s);
   },
@@ -426,7 +455,11 @@ const paints = (field: "fillPaints" | "strokePaints", key: string): PropImpl => 
   },
 });
 
-const pad = (field: "stackVerticalPadding" | "stackPaddingRight" | "stackPaddingBottom" | "stackHorizontalPadding"): PropImpl => ({ on: framesOnly, read: (n) => (n as unknown as Obj)[field] ?? 0, write: (v) => ({ [field]: needNum(v) }) as NodeFields });
+const pad = (field: "stackVerticalPadding" | "stackPaddingRight" | "stackPaddingBottom" | "stackHorizontalPadding"): PropImpl => ({ on: framesOnly, read: (n) => (n as unknown as Obj)[field] ?? 0, write: (v) => ({ [field]: needNum(v, 0) }) as NodeFields });
+/** Auto layout container properties that need a layout mode (Figma: "a stack mode"). */
+const autoLayoutOnly = (n: NodeChange) => framesOnly(n) ?? (hasAutoLayout(n) ? null : "only for auto layout frames (set layoutMode first)");
+/** Why a grid refuses an alignment other than MIN (Figma's setters), or null. */
+const gridAlign = (n: NodeChange, v: string) => (n.stackMode === "GRID" && v !== "MIN" ? "a grid's alignment is MIN (align its children with gridChildHorizontalAlign / gridChildVerticalAlign)" : null);
 
 const PROPS: Record<string, PropImpl> = {
   name: { read: (n) => n.name ?? "", hidden: () => false, write: (v) => ({ name: typeof v === "string" ? v : reject("a string") }) },
@@ -443,6 +476,7 @@ const PROPS: Record<string, PropImpl> = {
     hidden: (v) => v === "NONE",
     write: (v, ctx) => {
       const mode = needEnum(v, ["NONE", "HORIZONTAL", "VERTICAL", "GRID"] as const);
+      if (mode === "GRID" && ctx.node.isSlot) reject("a slot can't be a grid");
       const out: NodeFields = { stackMode: mode };
       const was = ctx.node.stackMode && ctx.node.stackMode !== "NONE";
       // A new auto layout frame hugs along an axis unless its size there was given (the Plugin API's defaults); an
@@ -454,10 +488,20 @@ const PROPS: Record<string, PropImpl> = {
         if (ctx.spec.primaryAxisSizingMode === undefined) out.stackPrimarySizing = keep || given(primary) ? "FIXED" : HUG;
         if (ctx.spec.counterAxisSizingMode === undefined) out.stackCounterSizing = keep || given(counter) ? "FIXED" : HUG;
       }
-      if (mode === "NONE") out.stackWrap = "NO_WRAP";
+      // Leaving HORIZONTAL / VERTICAL turns wrap off (Figma).
+      if (mode === "NONE" || mode === "GRID") out.stackWrap = "NO_WRAP";
+      // Becoming a grid (Figma's layoutMode setter): both sizings Fixed, both alignments MIN, 2 × 2 tracks.
+      if (mode === "GRID" && ctx.node.stackMode !== "GRID") {
+        Object.assign(out, { stackPrimarySizing: "FIXED", stackCounterSizing: "FIXED", stackPrimaryAlignItems: "MIN", stackCounterAlignItems: "MIN" });
+        const session = sessionOfGuid(ctx.node.guid);
+        const cols = setTrackCount(ctx.node as unknown as GridNode, "columns", 2, session).frame;
+        const rows = setTrackCount({ ...ctx.node, ...cols } as unknown as GridNode, "rows", 2, session).frame;
+        Object.assign(out, cols, rows);
+      }
       return out;
     },
   },
+  // Any number, negative included (overlapping items).
   itemSpacing: { on: framesOnly, read: (n) => (hasAutoLayout(n) ? (n.stackSpacing ?? 0) : undefined), write: (v) => ({ stackSpacing: needNum(v) }) },
   padding: {
     on: framesOnly,
@@ -466,6 +510,7 @@ const PROPS: Record<string, PropImpl> = {
     write: (v) => {
       if (typeof v !== "number" && !(Array.isArray(v) && (v.length === 2 || v.length === 4) && v.every((x) => typeof x === "number"))) reject("a number, [vertical, horizontal] or [top, right, bottom, left]");
       const p = v as number | number[];
+      if ((typeof p === "number" ? [p] : p).some((x) => x < 0)) reject("0 or more");
       const [t, r, b, l] = typeof p === "number" ? [p, p, p, p] : p.length === 2 ? [p[0], p[1], p[0], p[1]] : p;
       return { stackVerticalPadding: t, stackPaddingRight: r, stackPaddingBottom: b, stackHorizontalPadding: l };
     },
@@ -474,10 +519,40 @@ const PROPS: Record<string, PropImpl> = {
   paddingRight: { ...pad("stackPaddingRight"), hidden: () => true },
   paddingBottom: { ...pad("stackPaddingBottom"), hidden: () => true },
   paddingLeft: { ...pad("stackHorizontalPadding"), hidden: () => true },
-  primaryAxisAlignItems: enumProp("primaryAxisAlignItems", "stackPrimaryAlignItems", { on: framesOnly, read: (n) => (hasAutoLayout(n) ? (n.stackPrimaryAlignItems ?? "MIN") : undefined), hidden: (v) => !v || v === "MIN" }),
-  counterAxisAlignItems: enumProp("counterAxisAlignItems", "stackCounterAlignItems", { on: framesOnly, read: (n) => (hasAutoLayout(n) ? (n.stackCounterAlignItems ?? "MIN") : undefined), hidden: (v) => !v || v === "MIN" }),
-  layoutWrap: enumProp("layoutWrap", "stackWrap", { on: framesOnly, read: (n) => (hasAutoLayout(n) ? (n.stackWrap ?? "NO_WRAP") : undefined), hidden: (v) => !v || v === "NO_WRAP" }),
-  counterAxisSpacing: { on: framesOnly, read: (n) => (n.stackWrap === "WRAP" ? (n.stackCounterSpacing ?? n.stackSpacing ?? 0) : undefined), write: (v) => ({ stackCounterSpacing: needNum(v) }) },
+  primaryAxisAlignItems: {
+    on: framesOnly,
+    read: (n) => (hasAutoLayout(n) ? primaryAlignFromDoc(n.stackPrimaryAlignItems) : undefined),
+    hidden: (v) => !v || v === "MIN",
+    write: (v, ctx) => {
+      const a = needEnum(v, enumOf("primaryAxisAlignItems"));
+      const why = gridAlign(ctx.node, a);
+      if (why) reject(why);
+      return { stackPrimaryAlignItems: PRIMARY_ALIGN_TO_DOC[a] };
+    },
+  },
+  counterAxisAlignItems: {
+    on: framesOnly,
+    read: (n) => (hasAutoLayout(n) ? (n.stackCounterAlignItems ?? "MIN") : undefined),
+    hidden: (v) => !v || v === "MIN",
+    write: (v, ctx) => {
+      const a = needEnum(v, enumOf("counterAxisAlignItems"));
+      if (a === "BASELINE" && ctx.node.stackMode !== "HORIZONTAL") reject("BASELINE is only for layoutMode HORIZONTAL");
+      const why = gridAlign(ctx.node, a);
+      if (why) reject(why);
+      return { stackCounterAlignItems: a as NodeFields["stackCounterAlignItems"] };
+    },
+  },
+  layoutWrap: {
+    on: framesOnly,
+    read: (n) => (hasAutoLayout(n) ? (n.stackWrap ?? "NO_WRAP") : undefined),
+    hidden: (v) => !v || v === "NO_WRAP",
+    write: (v, ctx) => {
+      const w = needEnum(v, enumOf("layoutWrap"));
+      if (w === "WRAP" && !flowMode(ctx.node)) reject("WRAP needs layoutMode HORIZONTAL or VERTICAL");
+      return { stackWrap: w as NodeFields["stackWrap"] };
+    },
+  },
+  counterAxisSpacing: { on: framesOnly, read: (n) => (n.stackWrap === "WRAP" ? (n.stackCounterSpacing ?? n.stackSpacing ?? 0) : undefined), write: (v) => ({ stackCounterSpacing: needNum(v, 0) }) },
   counterAxisAlignContent: enumProp("counterAxisAlignContent", "stackCounterAlignContent", { on: framesOnly, read: (n) => (n.stackWrap === "WRAP" ? ((n as unknown as Obj).stackCounterAlignContent ?? "AUTO") : undefined), hidden: (v) => !v || v === "AUTO" }),
   primaryAxisSizingMode: {
     on: framesOnly,
@@ -491,8 +566,8 @@ const PROPS: Record<string, PropImpl> = {
     hidden: () => true,
     write: (v) => ({ stackCounterSizing: needEnum(v, ["FIXED", "AUTO"] as const) === "AUTO" ? HUG : "FIXED" }),
   },
-  itemReverseZIndex: plain("stackReverseZIndex" as keyof NodeFields & string, needBool, { on: framesOnly }),
-  strokesIncludedInLayout: plain("bordersTakeSpace" as keyof NodeFields & string, needBool, { on: framesOnly }),
+  itemReverseZIndex: plain("stackReverseZIndex" as keyof NodeFields & string, needBool, { on: autoLayoutOnly }),
+  strokesIncludedInLayout: plain("bordersTakeSpace" as keyof NodeFields & string, needBool, { on: autoLayoutOnly }),
   clipsContent: { on: framesOnly, read: (n) => n.frameMaskDisabled !== true, hidden: () => false, write: (v) => ({ frameMaskDisabled: !needBool(v) }) },
   // Text.
   characters: { on: textOnly, read: (n) => n.textData?.characters ?? "", hidden: () => false, write: (v) => ({ textData: { characters: typeof v === "string" ? v : reject("a string") } }) },
@@ -604,14 +679,27 @@ const PROPS: Record<string, PropImpl> = {
   },
   // In an auto layout parent.
   layoutPositioning: {
-    on: inAutoLayout,
-    read: (n, p) => (flowMode(p) ? (n.stackPositioning ?? "AUTO") : undefined),
+    on: notPage,
+    read: (n, p) => (hasAutoLayout(p) ? (n.stackPositioning ?? "AUTO") : undefined),
     hidden: (v) => !v || v === "AUTO",
-    write: (v) => ({ stackPositioning: needEnum(v, ["AUTO", "ABSOLUTE"] as const) }),
+    write: (v, ctx) => {
+      const pos = needEnum(v, ["AUTO", "ABSOLUTE"] as const);
+      // Figma's message; AUTO outside auto layout is what the layer is already (nothing to write).
+      if (!hasAutoLayout(ctx.parent)) return pos === "ABSOLUTE" ? reject("Can only set layoutPositioning = ABSOLUTE if the parent node has layoutMode !== NONE") : {};
+      return { stackPositioning: pos };
+    },
   },
   layoutSizingHorizontal: sizing("H"),
   layoutSizingVertical: sizing("V"),
-  layoutGrow: { on: inAutoLayout, read: (n, p) => (flowMode(p) ? (n.stackChildPrimaryGrow ?? 0) : undefined), hidden: () => true, write: (v) => ({ stackChildPrimaryGrow: needNum(v, 0) }) },
+  layoutGrow: {
+    on: inAutoLayout,
+    read: (n, p) => (flowMode(p) ? (n.stackChildPrimaryGrow ?? 0) : undefined),
+    hidden: () => true,
+    write: (v) => {
+      const g = needNum(v);
+      return g === 0 || g === 1 ? { stackChildPrimaryGrow: g } : reject("0 or 1 (1: fill along the parent's direction)");
+    },
+  },
   layoutAlign: {
     on: inAutoLayout,
     read: (n, p) => (flowMode(p) ? (n.stackChildAlignSelf === "STRETCH" ? "STRETCH" : "INHERIT") : undefined),
@@ -625,6 +713,9 @@ const PROPS: Record<string, PropImpl> = {
   // Components: read from the engine's component info and written with its command (mcpTools).
   componentProperties: { on: (n) => (n.type === "INSTANCE" ? null : "only for instances (set a main's defaults in the app)"), read: () => undefined, write: () => ({}) },
 };
+
+/** Raw fields that take only 0 or more (Figma's grid gap setters). */
+const NON_NEGATIVE_RAW = new Set(["gridRowGap", "gridColumnGap"]);
 
 // Raw document fields (layerProps.ts): their schema shape through docSchema.
 for (const field of RAW_FIELDS) {
@@ -641,6 +732,7 @@ for (const field of RAW_FIELDS) {
       const errors: Errors = [];
       const out = fromTool(def.type!, def.isArray, v, field, errors);
       if (errors.length) reject(errors.join("; "));
+      if (NON_NEGATIVE_RAW.has(field) && typeof out === "number" && out < 0) reject("0 or more");
       return { [field]: out } as NodeFields;
     },
   };

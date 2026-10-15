@@ -168,4 +168,13 @@ describe("Copy as code", () => {
     expect(text).toContain("font-weight: 600;");
     expect(text).toContain("color: #000000;");
   });
+
+  it("auto layout's justify-content from kiwi's alignments: SPACE_EVENLY is Figma's Space between", () => {
+    const justify = (a: string) => cssOf({ name: "Row", type: "FRAME", stackMode: "HORIZONTAL", stackPrimaryAlignItems: a as never }).match(/justify-content: ([a-z-]+);/)?.[1];
+    expect(justify("SPACE_EVENLY")).toBe("space-between");
+    expect(justify("SPACE_BETWEEN")).toBe("space-between"); // older files
+    expect(justify("SPACE_EVENLY_CSS")).toBe("space-evenly");
+    expect(justify("SPACE_AROUND")).toBe("space-around");
+    expect(justify("CENTER")).toBe("center");
+  });
 });

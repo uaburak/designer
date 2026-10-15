@@ -407,7 +407,7 @@ function LayoutSection({ node, sizing, box, parentBox }: { node: NodeChange; siz
       {auto && (
         <div className={styles.grid2}>
           <Value label="Auto layout" value={node.stackMode === "HORIZONTAL" ? "Horizontal" : "Vertical"} copyText={node.stackMode === "HORIZONTAL" ? "row" : "column"} />
-          <Value label="Gap" value={node.stackPrimaryAlignItems === "SPACE_BETWEEN" ? "Auto" : `${num(node.stackSpacing ?? 0)}px`} copyText={`${num(node.stackSpacing ?? 0)}px`} />
+          <Value label="Gap" value={node.stackPrimaryAlignItems === "SPACE_BETWEEN" || node.stackPrimaryAlignItems === "SPACE_EVENLY" ? "Auto" : `${num(node.stackSpacing ?? 0)}px`} copyText={`${num(node.stackSpacing ?? 0)}px`} />
         </div>
       )}
     </PanelSection>

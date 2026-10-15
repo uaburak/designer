@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Message, NodeChange } from "@/engine/codec";
 import { Status } from "@/engine/abi";
-import { deriveProgressive, ImageService, importImage, memoryImageStore, sha1Hex, sniffImageMime, tierMime, tierSize, type ImageStore } from "../images";
+import { deriveProgressive, ImageService, importImage, importSize, memoryImageStore, sha1Hex, shouldDownscale, sniffImageMime, tierMime, tierSize, type ImageStore } from "../images";
 import { hashBytes, hashHex, imagePaint, paintThumbHash, paintThumbnailHash } from "../model/paints";
 import { rgbaToThumbHash, thumbHashToApproximateAspectRatio } from "../thumbHash";
 
@@ -468,6 +468,17 @@ describe("importImage", () => {
     expect(p.originalImageWidth).toBe(2048);
   });
 
+  it("Figma's downscale rule: a 6000 × 1000 strip keeps its pixels (half-area exception); 5000 × 5000 goes to 4096; the cap follows the texture limit", async () => {
+    const store = memoryImageStore();
+    const strip = await importImage(file(6000, 1000, "image/png", "strip.png"), store, { maxTextureSize: 16384 });
+    expect(strip).toMatchObject({ width: 6000, height: 1000 });
+    expect(await store.get(strip.hash)).toEqual(imageBytes(6000, 1000)); // not re-encoded
+    const big = await importImage(file(5000, 5000, "image/png", "big.png"), store, { maxTextureSize: 16384 });
+    expect(big).toMatchObject({ width: 4096, height: 4096 });
+    const small = await importImage(file(3000, 3000, "image/png", "small.png"), store, { maxTextureSize: 2048 });
+    expect(small).toMatchObject({ width: 2048, height: 2048 });
+  });
+
   it("an image of 512 px or less is its own thumbnail (as in Figma's files): no extra blob", async () => {
     const store = memoryImageStore();
     const img = await importImage(file(300, 200, "image/png", "icon.png"), store);
@@ -500,6 +511,21 @@ describe("importImage", () => {
 });
 
 describe("pure parts", () => {
+  it("shouldDownscale / importSize: over the box and at least half its area; clamped to the texture limit", () => {
+    expect(shouldDownscale(6000, 1000, 4096, 4096)).toBe(false); // 6 M px < half of 16.8 M
+    expect(shouldDownscale(5000, 5000, 4096, 4096)).toBe(true);
+    expect(shouldDownscale(4096, 4096, 4096, 4096)).toBe(false); // not over
+    expect(shouldDownscale(8192, 1100, 4096, 4096)).toBe(true); // 9 M px ≥ half
+    expect(importSize(6000, 1000, 16384)).toEqual({ width: 6000, height: 1000 });
+    expect(importSize(5000, 5000, 16384)).toEqual({ width: 4096, height: 4096 });
+    expect(importSize(8192, 4096, 16384)).toEqual({ width: 4096, height: 2048 });
+    expect(importSize(5000, 5000, 2048)).toEqual({ width: 2048, height: 2048 }); // the cap is min(4096, texture)
+    // Kept by the exception yet wider than the texture: fitted to it, so it can be drawn.
+    expect(importSize(20000, 100, 16384)).toEqual({ width: 16384, height: 82 });
+    expect(importSize(10000, 300)).toEqual({ width: 8192, height: 246 }); // the texture limit not known yet: 8192
+    expect(importSize(300, 200)).toEqual({ width: 300, height: 200 });
+  });
+
   it("tierSize: ≤ 512 on the longer side for high-res images only", () => {
     expect(tierSize(2048, 1024)).toEqual({ width: 512, height: 256 });
     expect(tierSize(600, 513)).toEqual({ width: 512, height: 438 });

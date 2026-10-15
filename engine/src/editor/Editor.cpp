@@ -96,6 +96,8 @@ void Editor::begin(TxnKind kind, const std::string& label) {
   groupsTouched_.clear();
   edited_.clear();
   userGeometry_.clear();
+  replayWrites_.clear();
+  replayPushed_ = false;
   if (kind == TxnKind::USER || kind == TxnKind::GESTURE) recording().begin(selection_, label);
 }
 
@@ -323,15 +325,18 @@ void Editor::write(const NodeChange& change) {
   NodeType typeBefore = existing ? existing->props.type : NodeType::NONE;
   Guid parentBefore = existing ? existing->props.parentIndex.guid : kNoGuid;
   bool record = txn_.open && (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE);
+  // An undo / redo's own writes (layout, groups, bindings after the replay) keep their inverses for its batch.
+  bool replayWrite = txn_.open && (txn_.kind == TxnKind::UNDO || txn_.kind == TxnKind::REDO);
   // An instance's bindings as they were (its root override records only what changed).
   std::vector<ParamBinding> mapBefore;
   bool rootOverride = userEdit && c->phase == Phase::CHANGED && typeBefore == NodeType::INSTANCE;
   if (rootOverride && (c->mask & F_PARAM_MAP)) mapBefore = existing->props.parameterConsumptionMap;
   if (txn_.open) txn_.changes.touch(doc_, *c);
-  if (record) {
+  if (record || replayWrite) {
     NodeChange inverse;
     if (!doc_.apply(*c, &inverse)) return;
-    recording().record(std::move(inverse));
+    if (record) recording().record(std::move(inverse));
+    else replayWrites_.push_back(std::move(inverse));
   } else if (!doc_.apply(*c)) {
     return;
   }
@@ -342,7 +347,7 @@ void Editor::write(const NodeChange& change) {
 }
 
 void Editor::markLayout(const NodeChange& c, Guid parentBefore) {
-  if (inLayout_ || !txn_.open || !(txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE)) return;
+  if (inLayout_ || !txn_.open || !laysOut(txn_.kind)) return;
   auto markParent = [&](Guid parent) {
     const Node* p = doc_.get(parent);
     if (!p) return;
@@ -397,12 +402,20 @@ void Editor::flushLayout() {
   for (int pass = 0; pass < 8; pass++) {
     flushBindings();  // styles and variables first: their values feed layout (docs/engine.md §3.3)
     if (!layoutDirty_.empty()) {
-      if (txn_.open && (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE)) {
-        std::vector<Guid> dirty(layoutDirty_.begin(), layoutDirty_.end());
+      if (txn_.open && laysOut(txn_.kind)) {
+        // Undo, redo and remote changes lay out only pages already derived: another page is laid out whole when it
+        // is first shown (derivePage), with its fonts.
+        bool user = txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE;
+        std::vector<Guid> dirty;
+        dirty.reserve(layoutDirty_.size());
+        for (Guid g : layoutDirty_)
+          if (user || onDerivedPage(g)) dirty.push_back(g);
         layoutDirty_.clear();
-        inLayout_ = true;
-        Layout(*this).run(dirty);
-        inLayout_ = false;
+        if (!dirty.empty()) {
+          inLayout_ = true;
+          Layout(*this).run(dirty);
+          inLayout_ = false;
+        }
       } else {
         layoutDirty_.clear();
       }
@@ -437,7 +450,12 @@ void Editor::commit(bool mergeWithLast) {
     flushLayout();
     if (editTracking_) stampEdited();  // editInfo on what was edited and its ancestors (Dev Mode's "Changed")
   } else {
-    flushLayout();  // instances re-derive after undo, redo, remote changes and loads
+    // Instances re-derive after undo, redo, remote changes and loads; undo, redo and remote changes are laid out
+    // again too (laysOut). An undo's layout writes join the batch it put on the redo stack (a redo's: the undo stack).
+    flushLayout();
+    if ((txn_.kind == TxnKind::UNDO || txn_.kind == TxnKind::REDO) && replayPushed_)
+      recording().extendTop(txn_.kind == TxnKind::UNDO, std::move(replayWrites_));
+    replayWrites_.clear();
   }
   txn_.depth = 0;
   txn_.open = false;
@@ -653,6 +671,14 @@ bool Editor::resizedInTxn(Guid frame, Vec2& oldSize) const {
   if (blueprintSourceSize(frame, oldSize)) return !intrinsicLayout_;
   if (frame.isDerived()) return false;
   const NodeChange* inv = recording().openInverse(frame);
+  if (!inv && txn_.open && (txn_.kind == TxnKind::UNDO || txn_.kind == TxnKind::REDO)) {
+    // Resized by layout after an undo / redo's replay: its first write's inverse holds the size the replay left (a
+    // size the replay itself restored came with its children's places: nothing to constrain).
+    const NodeChange* w = replayInverse(frame, F_SIZE);
+    if (!w) return false;
+    oldSize = w->props.size;
+    return true;
+  }
   if (!inv || !(inv->mask & F_SIZE)) return false;
   oldSize = inv->props.size;
   return true;
@@ -672,7 +698,17 @@ void Editor::base(Guid id, Mat2x3& transform, Vec2& size) const {
     if ((inv->mask & F_PARENT_INDEX) && inv->props.parentIndex.guid != n->props.parentIndex.guid) return;
     if (inv->mask & F_TRANSFORM) transform = inv->props.transform;
     if (inv->mask & F_SIZE) size = inv->props.size;
+  } else if (txn_.open && (txn_.kind == TxnKind::UNDO || txn_.kind == TxnKind::REDO)) {
+    // After an undo / redo's replay: where the replay left it, before layout moved it (constraints run every pass).
+    if (const NodeChange* w = replayInverse(id, F_TRANSFORM)) transform = w->props.transform;
+    if (const NodeChange* w = replayInverse(id, F_SIZE)) size = w->props.size;
   }
+}
+
+const NodeChange* Editor::replayInverse(Guid id, FieldMask field) const {
+  for (const NodeChange& w : replayWrites_)
+    if (w.guid == id && w.phase == Phase::CHANGED && (w.mask & field)) return &w;
+  return nullptr;
 }
 
 // ---- Bookkeeping ------------------------------------------------------------
@@ -1497,6 +1533,13 @@ Status Editor::txnCommit() {
 
 void Editor::txnCancel() { rollback(); }
 
+bool Editor::onDerivedPage(Guid id) const {
+  Guid page = doc_.pageOf(id);
+  const Node* pn = doc_.get(page);
+  if (!pn) return false;
+  return pn->props.rare().internalOnly || derivedPages_.count(page) != 0;
+}
+
 bool Editor::undoStep(bool redo) {
   if (busy() || txn_.open || scope_.on) return false;
   undo_.dropEmpty(redo);  // steps whose every change others overwrote since
@@ -1504,13 +1547,49 @@ bool Editor::undoStep(bool redo) {
   runMark_ = SIZE_MAX;  // a plugin run's next slice starts a new step
   begin(redo ? TxnKind::REDO : TxnKind::UNDO, redo ? undo_.redoLabel() : undo_.undoLabel());
   std::vector<Guid> sel = selection_;
-  auto applied = redo ? undo_.redo(doc_, sel, &txn_.changes) : undo_.undo(doc_, sel, &txn_.changes);
-  for (const NodeChange& c : applied) noteChange(c, NodeType::NONE);
+  // The pages the replayed changes were on, first first (Figma's undoBatchPageIds): the batch that did something
+  // visible decides (a skipped one's page shows nothing new).
+  std::vector<Guid> touchedPages, batchPages;
+  auto notePage = [&](Guid at) {
+    Guid page = doc_.pageOf(at);
+    const Node* pn = doc_.get(page);
+    if (!pn || pn->props.rare().internalOnly) return;
+    if (std::find(batchPages.begin(), batchPages.end(), page) == batchPages.end()) batchPages.push_back(page);
+  };
+  // One press always does something the user can see (Figma: "%d batch(es) would be skipped before applying one"):
+  // a batch with no visible effect — only hidden layers' values, values equal to the current ones, or nothing left
+  // after the dangling-reference filter — is applied, and the next one follows in the same press.
+  for (;;) {
+    std::string label = redo ? undo_.redoLabel() : undo_.undoLabel();
+    ReplayInfo info;
+    batchPages.clear();
+    auto applied = redo ? undo_.redo(doc_, sel, &txn_.changes, &info) : undo_.undo(doc_, sel, &txn_.changes, &info);
+    replayPushed_ = replayPushed_ || info.pushed;
+    for (size_t i = 0; i < applied.size(); i++) {
+      const NodeChange& c = applied[i];
+      noteChange(c, NodeType::NONE);
+      markLayout(c, info.parentsBefore[i]);  // restored sizes aren't trusted: layout runs again (§3.3)
+      const Node* n = doc_.get(c.guid);
+      bool pageItself = n && (n->props.type == NodeType::CANVAS || n->props.type == NodeType::DOCUMENT);
+      if (!pageItself) notePage(c.phase == Phase::REMOVED ? info.parentsBefore[i] : c.guid);
+    }
+    if (info.visible) {
+      txn_.label = label;  // the step is named by the batch that did something
+      touchedPages = batchPages;
+      break;
+    }
+    for (Guid page : batchPages)
+      if (std::find(touchedPages.begin(), touchedPages.end(), page) == touchedPages.end()) touchedPages.push_back(page);
+    undo_.dropEmpty(redo);
+    if (redo ? !undo_.canRedo() : !undo_.canUndo()) break;
+  }
   events_.pages = true;
   commit();
   events_.undo = true;
-  // The selection was on a page that may not be the current one.
+  // The selection was on a page that may not be the current one; with no selection, the page the changes were on.
   if (!sel.empty() && doc_.has(sel[0]) && doc_.pageOf(sel[0]) != page_) setCurrentPage(doc_.pageOf(sel[0]));
+  else if (sel.empty() && !touchedPages.empty() && std::find(touchedPages.begin(), touchedPages.end(), page_) == touchedPages.end() && doc_.has(touchedPages[0]))
+    setCurrentPage(touchedPages[0]);
   if (!doc_.has(page_)) {
     auto all = pages();
     if (!all.empty()) setCurrentPage(all[0]);
@@ -1687,8 +1766,13 @@ bool Editor::actorUndo(uint32_t actor, bool redo) {
   actor_ = undoTo_ = actor;
   begin(redo ? TxnKind::REDO : TxnKind::UNDO, redo ? stack.redoLabel() : stack.undoLabel());
   std::vector<Guid> sel;  // the actor's selection then: not the user's
-  auto applied = redo ? stack.redo(doc_, sel, &txn_.changes) : stack.undo(doc_, sel, &txn_.changes);
-  for (const NodeChange& c : applied) noteChange(c, NodeType::NONE);
+  ReplayInfo info;
+  auto applied = redo ? stack.redo(doc_, sel, &txn_.changes, &info) : stack.undo(doc_, sel, &txn_.changes, &info);
+  replayPushed_ = info.pushed;
+  for (size_t i = 0; i < applied.size(); i++) {
+    noteChange(applied[i], NodeType::NONE);
+    markLayout(applied[i], info.parentsBefore[i]);
+  }
   events_.pages = true;
   std::vector<Guid> touched = txn_.changes.touched();
   commit();

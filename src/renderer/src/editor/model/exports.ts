@@ -324,7 +324,8 @@ const FONT_WEIGHTS: [RegExp, number][] = [
 ];
 const weightOf = (style: string) => FONT_WEIGHTS.find(([re]) => re.test(style))?.[1] ?? 400;
 
-const JUSTIFY: Record<string, string> = { MIN: "flex-start", CENTER: "center", MAX: "flex-end", SPACE_BETWEEN: "space-between" };
+// Kiwi's alignments: SPACE_EVENLY is Figma's "Space between" (older files: SPACE_BETWEEN), SPACE_EVENLY_CSS is CSS's.
+const JUSTIFY: Record<string, string> = { MIN: "flex-start", CENTER: "center", MAX: "flex-end", SPACE_BETWEEN: "space-between", SPACE_EVENLY: "space-between", SPACE_AROUND: "space-around", SPACE_EVENLY_CSS: "space-evenly" };
 const ALIGN: Record<string, string> = { MIN: "flex-start", CENTER: "center", MAX: "flex-end", BASELINE: "baseline" };
 
 /** Figma's "Copy as code" CSS of one layer: a comment with its name, its box, then its look. */

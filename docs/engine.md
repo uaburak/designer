@@ -355,6 +355,8 @@ Run by `Txn::flush()` (inside a gesture), by `Txn::commit()`, and by `engine_tic
 
 Steps 1–5 run before a transaction commits, so their writes join its change message and undo batch. Steps 6–8 run lazily in `engine_tick`. Stages 2–5 depend on each other (an instance resized by layout changes its derived children's layout). One ordered pass per flush is enough: layout handles the instance sublayers in the same recursion, and materialization never depends on layout output.
 
+*As built (REA round, 2026-10-15): which transactions run stage 5.* `Editor::flushLayout` lays out USER and GESTURE transactions, and — Figma's invariant enforcers, `-remote` ones included (docs/research/rea/canvas.md §2.3) — UNDO, REDO and REMOTE ones (`Editor::laysOut`): restored or received sizes aren't trusted, so an auto-layout frame re-measures around a child another actor or peer changed in between. Their dirty roots are marked like a user edit's (`markLayout`; an undo passes each change's parent before it, `ReplayInfo::parentsBefore`), and only nodes on pages already derived are laid out (`onDerivedPage`; another page is laid out whole on its first show). Constraints run only for what layout itself resized: a frame's old size is the first inverse of layout's own writes in an UNDO / REDO (`Editor::replayInverse`; a size the replay restored came with its children's places), and a REMOTE change has none (the sender's constraints arrive with it). An UNDO / REDO's layout writes are emitted with it and join, as inverses, the batch it put on the other stack (§9.3); a REMOTE one's are neither emitted nor undoable (each peer derives the same). SYSTEM and LOAD transactions still only re-derive instances (page loading lays out in `derivePage`); empty groups are removed only after USER / GESTURE ones.
+
 ### 3.4 Load
 `engine_load` trusts the stored geometry. It does **not** re-run auto layout on load: Figma's files and ours already store laid-out geometry. It does:
 - materialize all instances (their sublayers were never stored);
@@ -658,7 +660,7 @@ Paints are evaluated in the shape's local unit square through `Paint.transform` 
 - The headless/Node path is `engine_image_add_rgba_take`.
 - **Mipmaps** (`generateMipmap`) and trilinear plus anisotropic filtering. *Round 7:* sampled one level finer than the footprint (the gradients halved: LOD bias −1) — Figma's zoomed-out images are about three times as sharp as plain trilinear (audit 2026-10-08 #8). *Round 8, measured* on structure.fig's 1024 × 512 banner drawn at 145 thumbnail px (minified 7×) and its 64 px icon at 24 px, against Figma's thumbnail (the same 2 × 2 sample density as fig-fidelity's ss 2, §6.8): mean luminance difference over the banner for gradient scales 1 (no bias) / 0.707 / **0.5** / 0.354 = 0.630 / 0.499 / **0.453** / 0.494; high-frequency energy (|pixel − 3×3 mean|) 2.44 / 2.62 / 2.74 / 2.80 vs Figma's 2.66. Bias −1 stays (the pixel minimum; −0.5 matches the energy as well). Nearest-neighbour at high zoom: unverified, not done.
 - **GPU budget**: 512 MB, LRU. An evicted image whose node becomes visible again emits `REQUEST_IMAGE` again.
-- Images larger than 4096 px are downscaled by TS at import (Figma's cap).
+- Images are downscaled by TS at import by Figma's rule (`editor/images.ts` `importSize`; docs/research/rea/canvas.md §2.5): over 4096 px on a side — the cap clamped to the device's texture limit, `engine_stats().maxTextureSize` — an image is fitted to it, **unless its area is under half the box's** (a 6000 × 1000 strip keeps its pixels). An image the exception keeps is still fitted to the texture limit (8192 while the engine hasn't said), so it can always be uploaded.
 
 ### 6.7 Effects, layers, blend modes, masks, clipping
 *As built (E5):* layers are offscreen targets from a pool sized to the layer's device bounds, rendered before their parent's pass (post-order), composited by one Composite shader (opacity, every blend mode via a backdrop copy, alpha / luminance masks, drop / inner shadows from a blurred copy); background blur splits the parent's pass (copy, blur, resume). Vector (OUTLINE) masks also go through layers (anti-aliased) rather than clip geometry. Clipping frames still use scissor / stencil.
@@ -1048,7 +1050,7 @@ t.rollback();                   // apply inverse, emit nothing
 - **System writes** (`t.systemSet`, from layout, groups, binding resolution and auto-resize) are recorded in the same transaction with inverses.
 - **On commit**:
   1. **Forward `Message`** (`type NODE_CHANGES`, `sessionID`, `nodeChanges`, `blobs`): one NodeChange per touched real node, carrying only its changed fields plus `clearedFields`. Creations come parents-first with every field; removals children-first, as `phase=REMOVED`. Derived nodes are never included. It is emitted as `DOCUMENT_CHANGED {bytes, kind, label}`.
-  2. **Undo batch**: `{label, inverse NodeChanges, selectionBefore, selectionAfter, pageId}`, for kinds User and Gesture.
+  2. **Undo batch**: `{label, inverse NodeChanges, selectionBefore, selectionAfter}`, for kinds User and Gesture (`UndoBatch`, `editor/Undo.h`). *As built:* no page id is stored — an undo's page follows its restored selection, or with none the first page its replayed changes were on (§9.3).
   3. Clear the dirty change set.
 - **Nesting**: a `begin` inside an open transaction joins it. Panel scrubbing uses `engine_txn_begin/commit` around many `engine_set_props` calls, so it is one undo step and one message.
 
@@ -1056,18 +1058,20 @@ t.rollback();                   // apply inverse, emit nothing
 | kind | undo batch | `DOCUMENT_CHANGED` | used by |
 |---|---|---|---|
 | User / Gesture | yes | yes | commands, panel writes, gestures, paste |
-| Undo / Redo | moves the batch to the other stack | yes | ⌘Z / ⇧⌘Z |
+| Undo / Redo | moves the batch to the other stack (with layout's writes, §9.3) | yes | ⌘Z / ⇧⌘Z |
 | System | no | yes (`kind=SYSTEM`) | load-time normalisation (§3.4), late-arriving fonts |
-| Remote | no | no | `engine_apply_changes(APPLY_REMOTE)` (future sync, external edits) |
+| Remote | no | no | `engine_apply_changes(APPLY_REMOTE)` (future sync, external edits, the prototype player); laid out again (§3.3) |
 | Load | no | no | `engine_load`, page loading (`Editor::derivePage`, §3.4 as built) |
 
 ### 9.3 Undo/redo (`editor/Undo`)
-- **Undo**:
-  1. Switch to the batch's page if it differs (emits `CURRENT_PAGE_CHANGED`).
-  2. Apply the inverse NodeChanges in a `TxnKind::Undo` transaction. That records its own inverse, which becomes the redo batch.
-  3. Run stages 1–5. They normally produce no further writes; if something drifted (fonts, for example), the writes join the same transaction.
-  4. Restore `selectionBefore`.
-- **Redo** is symmetric.
+- **Undo** (*as built, REA round 2026-10-15*, `Editor::undoStep`, `UndoStack::replay`):
+  1. **Dangling-reference filter** (Figma's): before a batch is applied, a CHANGED or REMOVED inverse of a node that is gone (and not re-created by the batch) is dropped, a creation under a parent that is gone is dropped, and a move back into a parent that is gone keeps its other fields (parent and transform go). Nothing is left parked outside the tree.
+  2. Apply the inverse NodeChanges in a `TxnKind::Undo` transaction. That records its own inverse, which becomes the redo batch (a replay that applied nothing leaves no redo batch).
+  3. **Skip what does nothing visible** (Figma: "%d batch(es) would be skipped before applying one"): when the batch changed nothing the user can see — every change was to a hidden layer (it or an ancestor hidden — but not inside a main component, whose instances may show it, nor on the internal canvas, whose styles, variables and library mains layers read) or left the values as they were, or nothing was left after the filter — the next batch is applied in the same press, until one does or the stack ends. A creation, a removal, or a change of a Layers-panel field (name, visibility, lock, place in the tree) always counts as visible. The step's event carries the label of the batch that did something.
+  4. Run stages 1–5, layout included (§3.3): restored sizes aren't trusted, so a hugging frame re-measures around a child someone else changed since. Layout's writes join the transaction's change message, and their inverses join the batch it put on the redo stack (`UndoStack::extendTop`: applied before the batch's own, so its values win where both hold a field). When nothing else changed, layout writes nothing and undo then redo give back exactly what was there.
+  5. Restore `selectionBefore`; the page follows it. With nothing selected, the page goes to the first page the replayed changes were on (the page itself, the internal canvas and pages that are gone aside) when the current one isn't among them (those of the batch that did something visible, not of the skipped ones) — Figma's `undoBatchPageIds`, computed from the changes rather than stored.
+- **Redo** is symmetric (the same filter, skipping and layout).
+- Not built yet: an ignore-undo scope (`openIgnoreUndoRedoScope`), Figma's tainted / untainted histories (their rule is stripped from the build), undo blocked while the lasso / recolor tools are active, and history kept across sessions (`localUndoStack` 22 / 23, docs/research/rea/canvas.md §2.18).
 - **A new User transaction clears the redo stack.** Undo writes are ordinary document changes that leave for storage. This follows Figma's principle that undo modifies history ("undo a lot, copy, redo back → document unchanged", R1 Undo).
 - **Budget**: 128 MB of inverse data or 1,000 batches; the oldest are dropped.
 - **Undo is blocked** during a gesture, during IME composition, and in VIEWER mode.
@@ -1238,7 +1242,7 @@ Status codes (`i32`): `OK=0, E_HANDLE=-1, E_DECODE=-2, E_INVALID=-3, E_OOM=-4, E
 | `result:EngineEvents engine_take_events(h)` | drains the queue |
 
 **Diagnostics**: `result:ApiStats engine_stats(h)` (frame ms, raster ms, nodes, derived nodes, GPU bytes, heap bytes) and `void engine_set_debug(h, u32 flags)` (show tiles, dirty rects, wireframe, overdraw).
-*As built:* `engine_stats` → `{nodes, shapes, drawCalls, glyphs, paths, layers, visited, culled, tiny, greeked, cachedRegions, stale, gpuBytes, gpuTextures, gpuTargets, gpuBuffers, layerPoolBytes, curveTexels, images, imageBytes, viewport}` for the last frame (`gpuBytes`: what the engine holds on the GPU, from `gfx::Device::memory()`).
+*As built:* `engine_stats` → `{nodes, shapes, drawCalls, glyphs, paths, layers, visited, culled, tiny, greeked, cachedRegions, stale, gpuBytes, gpuTextures, gpuTargets, gpuBuffers, layerPoolBytes, curveTexels, images, imageBytes, viewport, gfx, maxTextureSize}` for the last frame (`gpuBytes`: what the engine holds on the GPU, from `gfx::Device::memory()`; `maxTextureSize`: the device's texture limit, which image imports clamp to, §6.6).
 
 ### 10.4 Events (engine → JS), delivered through a queue
 The engine never calls JS back during its own work. It appends `EngineEvent`s to a per-handle queue and sets the events flag. **After every export call**, the generated wrapper checks `HEAPU32[eventsFlagPtr>>2]`. If it is set, the wrapper calls `engine_take_events`, decodes the events and dispatches them to subscribers synchronously, after the engine has returned. The TS-level "callbacks" (`onSelectionChanged`, `onDocumentChanged`, …) are these dispatches.
