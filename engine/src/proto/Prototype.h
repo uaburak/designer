@@ -92,7 +92,11 @@ struct Action {
 struct Interaction {
   Guid id = kNoGuid;
   Trigger trigger = Trigger::ON_CLICK;
-  double timeout = 0.8;  // AFTER_TIMEOUT, seconds (the event's transitionTimeout)
+  double timeout = 0.8;  // AFTER_TIMEOUT, seconds (the event's transitionTimeout; missing or 0 reads 0.8, as Figma's)
+  // Mouse enter / leave / down / up: how long the pointer must stay in (out, down, up) before the actions run, seconds
+  // (the event's interactionMaintained + interactionDuration, Figma's placement; 0 = at once).
+  double delay = 0;
+  int stateManagementVersion = 0;  // Figma writes 1 on new interactions
   json::Value timeoutVar;  // transitionTimeoutVar: the delay bound to a number variable (the player resolves it)
   std::vector<int> keyCodes;  // ON_KEY_DOWN
   double mediaHitTime = 0;    // ON_MEDIA_HIT: the video's time, seconds
@@ -162,9 +166,14 @@ std::string encodeField(const char* key, const json::Value& v);
 // animation Figma gives a new connection; ease out, 300 ms when one is chosen).
 Interaction newConnection(Guid id, Guid dest);
 
-// Easing: progress t ∈ [0, 1] → eased value (springs and back easings overshoot 1).
+// The triggers that take a delay (interactionMaintained / interactionDuration): mouse enter, leave, down, up and the
+// legacy mouse in / out.
+bool hasDelay(Trigger t);
+
+// Easing (motion/Easing.h: Figma's curves and springs): progress t ∈ [0, 1] → eased value (springs and back easings
+// overshoot 1).
 double ease(const Action& a, double t);
-// How long an action's animation runs (springs: until they settle), seconds.
+// How long an action's animation runs, seconds (springs: Figma's settle time T, motion::springSettleTime).
 double durationOf(const Action& a);
 
 // Every destination of an action and its conditional branches (navigate / overlay / swap / change to / scroll to).
