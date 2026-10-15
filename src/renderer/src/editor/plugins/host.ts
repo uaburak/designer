@@ -11,6 +11,7 @@ import { Status } from "@/engine/abi";
 import type { PluginManifest } from "@shared/plugins/types";
 import { allowedUrl, refusedMessage, uiCsp } from "@shared/plugins/network";
 import type { EditorController } from "../controller";
+import { refusalEnglish } from "../refusals";
 import { ApiError, decodeValue, encodeValue, MIXED } from "./api/codec";
 import { readNode, ref, refOf, type ApiContext } from "./api/context";
 import * as doc from "./api/document";
@@ -518,8 +519,9 @@ export class PluginRun {
       "component.instances": (id) => Promise.resolve(descendants(ctx(), "0:0", { types: ["INSTANCE"] }).filter((r) => (getProp(ctx(), (r as { $node: string }).$node, "mainComponent") as { $node?: string } | null)?.$node === s(id))),
       "component.addProperty": (id, name, type, value) => {
         ctx().write();
-        const r = this.env.ed.engine.runCommand("ADD_COMPONENT_PROPERTY", { ref: s(id), name: s(name), type: s(type), defaultValue: value as never });
-        if (r.status !== Status.OK) throw new ApiError(`addComponentProperty: refused (status ${r.status})`);
+        // `plugin`: a Variant property on a loose component throws (Figma's API); the UI makes the component a set.
+        const r = this.env.ed.engine.runCommand("ADD_COMPONENT_PROPERTY", { ref: s(id), name: s(name), type: s(type), defaultValue: value as never, plugin: true });
+        if (r.status !== Status.OK) throw new ApiError(r.error ? refusalEnglish(r.error) : `addComponentProperty: refused (status ${r.status})`);
         const info = this.env.ed.engine.componentInfo(s(id));
         const p = info?.properties.find((x) => x.name === s(name));
         return p ? (p.type === "VARIANT" ? p.name : `${p.name}#${p.id}`) : s(name);
@@ -532,7 +534,7 @@ export class PluginRun {
         if (v.name !== undefined) (args as Obj).name = s(v.name);
         if (v.defaultValue !== undefined) (args as Obj).defaultValue = v.defaultValue;
         const r = this.env.ed.engine.runCommand("EDIT_COMPONENT_PROPERTY", args);
-        if (r.status !== Status.OK) throw new ApiError(`editComponentProperty: refused (status ${r.status})`);
+        if (r.status !== Status.OK) throw new ApiError(r.error ? refusalEnglish(r.error) : `editComponentProperty: refused (status ${r.status})`);
         return name;
       },
       "component.deleteProperty": (id, name) => {
@@ -544,7 +546,7 @@ export class PluginRun {
       "instance.swap": (id, main) => {
         ctx().write();
         const r = this.env.ed.engine.runCommand("SWAP_INSTANCE", { ref: s(id), main: s(main) });
-        if (r.status !== Status.OK) throw new ApiError(`swapComponent: refused (status ${r.status})`);
+        if (r.status !== Status.OK) throw new ApiError(r.error ? refusalEnglish(r.error) : `swapComponent: refused (status ${r.status})`);
       },
       "instance.setProperties": (id, values) => {
         const info = this.env.ed.engine.componentInfo(s(id));
@@ -554,7 +556,7 @@ export class PluginRun {
           const def = info?.properties.find((p) => p.id === key[1] || p.name === key[0]);
           if (!def) throw new ApiError(`Could not find a component property with name: '${k}'`);
           const r = this.env.ed.engine.runCommand("SET_COMPONENT_PROPERTY", { ref: s(id), prop: def.id, value: v as never });
-          if (r.status !== Status.OK) throw new ApiError(`setProperties: ${k} = ${JSON.stringify(v)} was refused`);
+          if (r.status !== Status.OK) throw new ApiError(r.error ? refusalEnglish(r.error) : `setProperties: ${k} = ${JSON.stringify(v)} was refused`);
         }
       },
       "instance.detach": (id) => {
@@ -564,8 +566,10 @@ export class PluginRun {
         return node(readNode(ctx(), made, false) ? made : s(id));
       },
       "instance.reset": (id) => {
+        // removeOverrides() and its deprecated alias resetOverrides(): Figma's resetOverrides(ALL) — every override goes,
+        // the instance's property values stay (live-verified, docs/research/rea/components.md §2.13).
         ctx().write();
-        this.env.ed.engine.runCommand("RESET_OVERRIDES", { ref: s(id) });
+        this.env.ed.engine.runCommand("RESET_OVERRIDES", { ref: s(id), kind: "ALL", keepAssignments: true });
       },
       // Text
       "text.getRange": (id, field, a, b) => doc.getRange(ctx(), s(id), s(field), a, b),
