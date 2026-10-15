@@ -40,9 +40,12 @@ import {
   keyTriggerLabel,
   keyTriggerOf,
   liveInteractions,
+  mouseDelayOf,
+  takesDelay,
   takesDestination,
   transitionOf,
   triggerMenu,
+  withMouseDelay,
   withTrigger,
   type ActionKind,
   type Animation,
@@ -212,12 +215,25 @@ function TriggerRow({ interaction, video, onChange }: { interaction: PrototypeIn
         <Labelled label={t("Delay")}>
           <NumericInput
             label={t("Delay")}
-            value={Math.round((interaction.event?.transitionTimeout ?? 0.8) * 1000)}
+            value={Math.round((interaction.event?.transitionTimeout || 0.8) * 1000)}
             unit="ms"
             min={1}
             max={10000}
             precision={0}
             onChange={(v, info) => onChange({ ...interaction, event: { ...interaction.event, transitionTimeout: v / 1000 } }, "Edit delay", info)}
+          />
+        </Labelled>
+      )}
+      {takesDelay(type) && (
+        <Labelled label={t("Delay")}>
+          <NumericInput
+            label={t("Delay")}
+            value={Math.round(mouseDelayOf(interaction.event) * 1000)}
+            unit="ms"
+            min={0}
+            max={10000}
+            precision={0}
+            onChange={(v, info) => onChange({ ...interaction, event: withMouseDelay({ ...interaction.event }, v / 1000) }, "Edit delay", info)}
           />
         </Labelled>
       )}
@@ -499,6 +515,9 @@ function StateSection({ children }: { children: ReactNode }) {
   );
 }
 
+// The spring editor's upper limits (Figma's): mass 100, stiffness 10000, damping 1000; each at least 0.01.
+const SPRING_MAX = [100, 10000, 1000];
+
 function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; kind: ActionKind; onChange: (a: PrototypeAction, label?: string, info?: ChangeInfo) => void }) {
   useT();
   const { animation, direction } = animationOf(action.transitionType);
@@ -562,7 +581,7 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
               <NumericInput
                 label={t("Duration")}
                 className={styles.duration}
-                value={Math.round((action.transitionDuration ?? 0.3) * 1000)}
+                value={Math.round((action.transitionDuration || 0.3) * 1000)}
                 unit="ms"
                 min={1}
                 max={10000}
@@ -574,14 +593,14 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
           {easing === "CUSTOM_CUBIC" && (
             <div className={styles.quad}>
               {["X1", "Y1", "X2", "Y2"].map((p, i) => (
-                <NumericInput key={p} label={p} prefix={p} value={fn[i] ?? 0} step={0.01} precision={2} onChange={(v, info) => setFn(i, v, info)} />
+                <NumericInput key={p} label={p} prefix={p} value={fn[i] ?? 0} {...(i % 2 === 0 ? { min: 0, max: 1 } : {})} step={0.01} precision={2} onChange={(v, info) => setFn(i, v, info)} />
               ))}
             </div>
           )}
           {easing === "CUSTOM_SPRING" && (
             <div className={styles.quad}>
               {["Mass", "Stiffness", "Damping"].map((p, i) => (
-                <NumericInput key={p} label={t(p)} prefix={p[0]} value={fn[i] ?? [1, 100, 15][i]} min={i === 2 ? 0 : 0.01} step={i === 0 ? 0.1 : 1} precision={i === 0 ? 2 : 0} onChange={(v, info) => setFn(i, v, info)} />
+                <NumericInput key={p} label={t(p)} prefix={p[0]} value={fn[i] ?? [1, 100, 15][i]} min={0.01} max={SPRING_MAX[i]} step={i === 0 ? 0.1 : 1} precision={i === 0 ? 2 : 0} onChange={(v, info) => setFn(i, v, info)} />
               ))}
             </div>
           )}

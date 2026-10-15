@@ -76,8 +76,12 @@ export interface PrototypeInteraction {
   id?: GuidJson | string;
   event?: {
     interactionType?: InteractionType;
-    /** After delay, seconds */
+    /** After delay, seconds (missing or 0 reads 0.8, as Figma's) */
     transitionTimeout?: number;
+    /** Mouse enter / leave / down / up: the trigger waits `interactionDuration` (Figma's placement of their delay) */
+    interactionMaintained?: boolean;
+    /** Mouse triggers' delay, seconds (with interactionMaintained) */
+    interactionDuration?: number;
     keyTrigger?: { keyCodes?: number[]; triggerDevice?: string };
     /** ON_MEDIA_HIT: the video's time, seconds */
     mediaHitTime?: number;
@@ -85,6 +89,8 @@ export interface PrototypeInteraction {
   };
   actions?: PrototypeAction[];
   isDeleted?: boolean;
+  /** Figma writes 1 on every new interaction */
+  stateManagementVersion?: number;
   [other: string]: unknown;
 }
 
@@ -391,7 +397,7 @@ export const animates = (k: ActionKind): boolean => k === "NAVIGATE" || k === "C
 export function actionOfKind(k: ActionKind, prev: PrototypeAction = {}): PrototypeAction {
   const keep: PrototypeAction = {
     transitionType: prev.transitionType ?? "INSTANT_TRANSITION",
-    transitionDuration: prev.transitionDuration ?? 0.3,
+    transitionDuration: prev.transitionDuration || 0.3,
     easingType: prev.easingType ?? "OUT_CUBIC",
     ...(prev.easingFunction ? { easingFunction: prev.easingFunction } : {}),
   };
@@ -527,9 +533,9 @@ export function easingLabel(e: EasingType | undefined): string {
   return "Ease out";
 }
 
-/** Custom bezier / spring defaults when picked (Figma: the curve of the easing chosen before, a gentle spring). */
+/** Custom bezier / spring defaults when picked (Figma's: its ease out curve [0, 0, 0.58, 1], a gentle spring). */
 export function easingFunctionFor(e: EasingType): number[] | undefined {
-  if (e === "CUSTOM_CUBIC") return [0.42, 0, 0.58, 1];
+  if (e === "CUSTOM_CUBIC") return [0, 0, 0.58, 1];
   if (e === "CUSTOM_SPRING") return [1, 100, 15, 0];
   return undefined;
 }
@@ -584,6 +590,7 @@ export function liveInteractions(list: readonly PrototypeInteraction[] | undefin
 export function newInteraction(id: GuidJson, dest?: Guid): PrototypeInteraction {
   return {
     id,
+    stateManagementVersion: 1,
     event: { interactionType: "ON_CLICK" },
     actions: [
       {
@@ -598,11 +605,43 @@ export function newInteraction(id: GuidJson, dest?: Guid): PrototypeInteraction 
   };
 }
 
+/** The triggers with a delay of their own (Figma's interactionMaintained): mouse enter, leave, down and up. */
+export const takesDelay = (t: InteractionType | undefined): boolean =>
+  t === "MOUSE_ENTER" || t === "MOUSE_LEAVE" || t === "MOUSE_DOWN" || t === "MOUSE_UP" || t === "MOUSE_IN" || t === "MOUSE_OUT";
+
+/**
+ * A mouse trigger's delay in seconds, as Figma reads it: interactionDuration when interactionMaintained (0.3 without
+ * one), else 0; files Wecra wrote before kept it in transitionTimeout.
+ */
+export function mouseDelayOf(e: PrototypeInteraction["event"]): number {
+  if (!takesDelay(e?.interactionType)) return 0;
+  if (e?.interactionMaintained) return e.interactionDuration || 0.3;
+  return Math.max(0, e?.transitionTimeout ?? 0);
+}
+
+/** The event with a mouse delay (seconds; 0 = none) in Figma's placement. */
+export function withMouseDelay(e: NonNullable<PrototypeInteraction["event"]>, seconds: number): NonNullable<PrototypeInteraction["event"]> {
+  const out = { ...e };
+  delete out.transitionTimeout;
+  if (seconds > 0) {
+    out.interactionMaintained = true;
+    out.interactionDuration = seconds;
+  } else {
+    delete out.interactionMaintained;
+    delete out.interactionDuration;
+  }
+  return out;
+}
+
 /** An interaction with its trigger changed (the event's other fields kept where they still mean something). */
 export function withTrigger(i: PrototypeInteraction, t: InteractionType): PrototypeInteraction {
   const event: NonNullable<PrototypeInteraction["event"]> = { ...(i.event ?? {}), interactionType: t };
-  if (t === "AFTER_TIMEOUT") event.transitionTimeout = i.event?.transitionTimeout ?? 0.8;
+  if (t === "AFTER_TIMEOUT") event.transitionTimeout = i.event?.transitionTimeout || 0.8;
   else delete event.transitionTimeout;
+  if (!takesDelay(t)) {
+    delete event.interactionMaintained;
+    delete event.interactionDuration;
+  }
   if (t !== "ON_KEY_DOWN") delete event.keyTrigger;
   if (t === "ON_MEDIA_HIT") event.mediaHitTime = i.event?.mediaHitTime ?? 0;
   else delete event.mediaHitTime;
