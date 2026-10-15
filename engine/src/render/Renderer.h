@@ -880,7 +880,7 @@ class Renderer {
   // Blits of the tiles covering the canvas at `level` (coarser cached levels standing in) into the canvas recording.
   // coarse: the coarser levels standing in (drawn under the scaled cache), else the level's own (over it).
   void composeTiles(const Camera& camera, int level, bool coarse);
-  void invalidateTiles(const std::vector<Rect>& world, int minLevel = -64);
+  void invalidateTiles(const std::vector<Rect>& world, int minLevel = -64, bool keepStale = false);
   void dropTiles();
   void blurLayer(Layer& L);
   PoolTarget* acquire(int w, int h);
@@ -946,6 +946,7 @@ class Renderer {
     TileCoord coord;
     uint32_t slot = 0;  // atlas × 64 + index
     uint64_t used = 0;  // the frame it was last shown or drawn
+    bool stale = false; // an image under it arrived sharper: still shown, drawn again in quiet frames (round 17 D)
   };
   struct TileCache {
     std::vector<gfx::TargetId> atlases;
