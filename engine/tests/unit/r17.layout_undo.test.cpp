@@ -12,11 +12,12 @@ using namespace eng::test;
 
 namespace {
 
-const Guid H{1, 1}, A{1, 2}, B{1, 3}, F{1, 4}, X{1, 5}, P2{0, 5}, C{1, 6};
+const Guid H{1, 1}, A{1, 2}, B{1, 3}, F{1, 4}, X{1, 5}, P2{0, 5}, C{1, 6}, Z{1, 7}, S{1, 8}, K{1, 9};
 
 // H: a horizontal auto-layout frame hugging A (50 × 20) and B (50 × 20), gap 10; F: a plain frame holding X; C on
-// page 2.
-Editor makeEditor(bool hideX = false) {
+// page 2. `extras`: Z, an absolute 10 × 10 in H pinned to its right edge (constraint MAX); S, a main component
+// holding K, a hidden layer.
+Editor makeEditor(bool hideX = false, bool extras = false) {
   auto nodes = baseChanges();
   NodeChange h = make(H, NodeType::FRAME, kPage, "!", {0, 0, 110, 20}, "Row");
   h.props.stack().stackMode = StackMode::HORIZONTAL;
@@ -32,6 +33,16 @@ Editor makeEditor(bool hideX = false) {
   nodes.push_back(x);
   nodes.push_back(make(P2, NodeType::CANVAS, kDoc, "\"", {0, 0, 0, 0}, "Page 2"));
   nodes.push_back(make(C, NodeType::ROUNDED_RECTANGLE, P2, "!", {0, 0, 40, 40}, "C"));
+  if (extras) {
+    NodeChange z = make(Z, NodeType::ROUNDED_RECTANGLE, H, "#", {100, 0, 10, 10}, "Z");
+    z.props.stackPositioning = StackPositioning::ABSOLUTE;
+    z.props.horizontalConstraint = ConstraintType::MAX;
+    nodes.push_back(z);
+    nodes.push_back(make(S, NodeType::SYMBOL, kPage, "#", {0, 300, 100, 100}, "Main"));
+    NodeChange k = make(K, NodeType::ROUNDED_RECTANGLE, S, "!", {0, 0, 20, 20}, "Icon");
+    k.props.visible = false;
+    nodes.push_back(k);
+  }
   Editor e;
   e.setSessionID(1);
   e.setViewport(800, 600, 1, 800, 600);
@@ -223,4 +234,46 @@ TEST_CASE("undo: with nothing selected, the page goes to the one the changes wer
   setOpacity(e, A, 0.4);
   REQUIRE(e.command(CommandId::UNDO) == OK);
   CHECK(e.page() == kPage);
+}
+
+TEST_CASE("layout after undo: an absolute child's constraints follow the size layout gives its frame (once per step)") {
+  Editor e = makeEditor(false, true);
+  setSpacing(e, 20);  // the user's step: the row grows by 10 and Z, pinned right, follows
+  REQUIRE(width(e, H) == 120);
+  CHECK(x(e, Z) == 110);
+  asAgent(e, [&] { setWidth(e, A, 100); });
+  REQUIRE(width(e, H) == 170);
+  CHECK(x(e, Z) == 160);
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  CHECK(width(e, H) == 160);
+  CHECK(x(e, Z) == 150);  // the row's right edge, not left 10 past it
+  REQUIRE(e.command(CommandId::REDO) == OK);
+  CHECK(width(e, H) == 170);
+  CHECK(x(e, Z) == 160);
+}
+
+TEST_CASE("undo: a hidden layer inside a main component counts as visible (its instances may show it)") {
+  Editor e = makeEditor(false, true);
+  rename(e, A, "Renamed");  // step 1
+  setOpacity(e, K, 0.5);    // step 2: hidden in the main, but an instance may show it
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  CHECK(props(e, K).opacity == doctest::Approx(1));
+  CHECK(props(e, A).name == "Renamed");  // step 1 waits for its own press
+  CHECK(e.canUndo());
+}
+
+TEST_CASE("undo: with nothing selected, the page is the one the visible batch was on, not a skipped batch's") {
+  Editor e = makeEditor();
+  NodeChange hide = NodeChange::changed(C);
+  hide.mask = F_VISIBLE;
+  hide.props.visible = false;
+  REQUIRE(e.setProps({C}, hide, 0) == OK);  // C (page 2) hidden
+  setOpacity(e, A, 0.4);                     // page 1, visible
+  setOpacity(e, C, 0.5);                     // page 2, hidden: skipped
+  REQUIRE(e.setCurrentPage(P2) == OK);
+  REQUIRE(e.selection().empty());
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  CHECK(props(e, C).opacity == doctest::Approx(1));
+  CHECK(props(e, A).opacity == doctest::Approx(1));
+  CHECK(e.page() == kPage);  // where the change shows
 }

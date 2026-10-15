@@ -1933,6 +1933,9 @@ class Editor : private LayoutHost, public TextLayouts {
   // replay put on the other stack (UndoStack::extendTop) when it commits.
   std::vector<NodeChange> replayWrites_;
   bool replayPushed_ = false;
+  // The first of replayWrites_ for `id` holding `field`: its value as the replay left it (layout's base, as the open
+  // inverse is in the user's steps).
+  const NodeChange* replayInverse(Guid id, FieldMask field) const;
   std::unordered_set<Guid, GuidHash> excluded_;  // dragged into an auto-layout flow: no space there yet
   std::unordered_set<Guid, GuidHash> pinned_;    // dragged inside its own flow: keeps its slot, not moved by layout
   // Round 15 (live Figma, docs/research/figma/live/behaviour/autolayout-drag.md; docs/engine.md §8.6): one layer

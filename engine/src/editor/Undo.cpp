@@ -87,7 +87,20 @@ bool visibleEffect(const Document& doc, const NodeChange& c) {
   FieldMask diff = differingFields(n->props, c.props, c.mask);
   if (!diff) return false;
   if (diff & kPanelFields) return true;
-  return doc.visibleInTree(c.guid);
+  if (doc.visibleInTree(c.guid)) return true;
+  // A hidden layer can still show elsewhere: inside a main component (its instances may show the layer — a boolean
+  // property's usual shape), and on the internal canvas (styles, variables, library mains: read by layers on pages).
+  // A layer on no page is counted too: nothing proves it unseen.
+  Guid cur = c.guid;
+  for (int guard = 0; guard < 100000; guard++) {
+    const Node* a = doc.get(cur);
+    if (!a) return true;
+    if (a->props.type == NodeType::SYMBOL) return true;
+    if (a->props.type == NodeType::CANVAS) return a->props.rare().internalOnly;
+    if (a->props.type == NodeType::DOCUMENT) return true;
+    cur = a->props.parentIndex.guid;
+  }
+  return true;
 }
 
 // Figma's dangling-reference filter: a CHANGED (REMOVED) inverse of a node that is gone and not re-created by the

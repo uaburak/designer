@@ -31,7 +31,8 @@ struct ReplayInfo {
   // Per applied change (same order): the node's parent before it was applied (layout marks the parent it left).
   std::vector<Guid> parentsBefore;
   // Something the user can see changed: a value that differed on a layer shown on its page, a layer created or
-  // removed, or a Layers-panel field (name, visibility, lock, place in the tree) of any layer. A replay without it
+  // removed, or a Layers-panel field (name, visibility, lock, place in the tree) of any layer; a hidden layer inside a
+  // main component or on the internal canvas counts as shown (instances, styles and variables carry it). A replay without it
   // has "no visible effect" (Figma skips such batches within the same ⌘Z).
   bool visible = false;
   // Inverses the dangling-reference filter dropped or cut down (their node or the parent they'd put it under is gone).
