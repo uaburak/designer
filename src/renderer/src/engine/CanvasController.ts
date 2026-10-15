@@ -34,7 +34,7 @@ import { CLICK_MS, pinchDelta, TouchPinch, WheelNormalizer, withinClickBox } fro
 import { DEFAULT_SHORTCUTS, runShortcut, type Shortcut } from "./shortcuts";
 
 export const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
-const IS_WINDOWS = typeof navigator !== "undefined" && /Win/.test(navigator.platform);
+export const IS_WINDOWS = typeof navigator !== "undefined" && /Win/.test(navigator.platform);
 
 /** The modifier bits of an event (PRIMARY = ⌘ on a Mac, Ctrl elsewhere). */
 export function modifiersOf(e: { shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean }): number {

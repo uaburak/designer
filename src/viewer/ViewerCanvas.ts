@@ -6,10 +6,11 @@
  * ⇧0 / ⌘0 100 %, Esc selects the parent (or nothing).
  */
 import { MOD_PRIMARY, PointerType, WHEEL_PINCH } from "@/engine/abi";
-import { modifiersOf } from "@/engine/CanvasController";
+import { IS_MAC, IS_WINDOWS, modifiersOf } from "@/engine/CanvasController";
 import { cssCursor } from "@/engine/cursors";
 import type { Engine } from "@/engine/Engine";
 import type { Guid } from "@/engine/codec";
+import { WheelNormalizer } from "@/engine/pointerInput";
 
 const DRAG_SLOP = 3;
 
@@ -104,13 +105,17 @@ export function attachViewerCanvas(canvas: HTMLCanvasElement, engine: Engine, op
     return false;
   }
 
+  const wheelInput = new WheelNormalizer({ mac: IS_MAC, windows: IS_WINDOWS });
   on<WheelEvent>(
     canvas,
     "wheel",
     (e) => {
       e.preventDefault();
       const [x, y] = at(e);
-      engine.wheel(x, y, e.deltaX, e.deltaY, e.deltaMode, modifiersOf(e), e.ctrlKey ? WHEEL_PINCH : 0);
+      // The editor canvas's rules (pointerInput.ts): the source, ⇧'s axis swap off the Mac (the engine no longer
+      // turns a ⇧ wheel sideways) and Windows notches.
+      const w = wheelInput.normalize({ dx: e.deltaX, dy: e.deltaY, shift: e.shiftKey, ctrl: e.ctrlKey, t: e.timeStamp });
+      engine.wheel(x, y, w.dx, w.dy, e.deltaMode, modifiersOf(e), (e.ctrlKey ? WHEEL_PINCH : 0) | w.source);
     },
     { passive: false },
   );
