@@ -538,6 +538,9 @@ class Renderer {
   // How long a full raster may take before a continuous zoom shows the cache scaled instead, and how long after
   // the last zoom change the page is drawn sharp again.
   static constexpr double kZoomRasterBudgetMs = 6;
+  // A continuous zoom shows the scaled cache only past this full draw (drawn at the zoom's half resolution,
+  // CanvasController.zoomResolution) — below it every zoom frame is drawn sharp, as Figma does.
+  static constexpr double kZoomScaledCacheMs = 12;
   static constexpr double kZoomSettleMs = 120;
   // On such a slow page, images arriving within this long of the last whole redraw they caused wait for the next one.
   static constexpr double kImageBatchMs = 200;

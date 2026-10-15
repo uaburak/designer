@@ -464,7 +464,7 @@ TEST_CASE("content cache: a continuous zoom on a slow page shows the cache scale
   bool slow = true;
   // A clock where every full raster takes 20 ms (slower than the zoom budget).
   r.setClock([&] {
-    if (slow) now += 10;
+    if (slow) now += 20;  // a full raster past kZoomScaledCacheMs
     return now;
   });
   Overlay o;
@@ -502,7 +502,7 @@ TEST_CASE("tiles: zooming out on a slow page composites tiles instead of drawing
   Renderer r(dev);
   r.setContentCache(true);
   double now = 1000;
-  double rasterCost = 10;  // each raster (a full one or a tile) advances the clock this much
+  double rasterCost = 13;  // past kZoomScaledCacheMs; each raster (a full one or a tile) advances the clock this much
   bool slow = true;
   r.setClock([&] {
     if (slow) now += rasterCost;
@@ -518,7 +518,7 @@ TEST_CASE("tiles: zooming out on a slow page composites tiles instead of drawing
   CHECK(s.tilesRastered >= 1);
   CHECK(s.tilesRastered <= 2);  // 10 ms each, a 12 ms budget: one, and the one that crossed it
   CHECK(r.wantsFrameAt() > 0);
-  for (int i = 0; i < 64 && r.wantsFrameAt() > 0; i++) r.render(d, kPage, cam, kView, o, kDark);
+  for (int i = 0; i < 512 && r.wantsFrameAt() > 0; i++) r.render(d, kPage, cam, kView, o, kDark);
   CHECK(r.wantsFrameAt() == 0);
   size_t ahead = r.tileCount();
   CHECK(ahead > 0);
@@ -566,7 +566,7 @@ TEST_CASE("tiles: the budget holds while the zoom roams; least recently shown go
   Renderer r(dev);
   r.setContentCache(true);
   double now = 1000;
-  r.setClock([&] { return now += 10; });
+  r.setClock([&] { return now += 13; });
   Overlay o;
   o.frameTitles = false;
   r.render(d, kPage, Camera{}, kView, o, kDark);

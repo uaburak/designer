@@ -2811,7 +2811,7 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
     double ox = camera.x * sx - c.camX * sx * k, oy = camera.y * sy - c.camY * sy * k;
     covers = ox <= 0.5 && oy <= 0.5 && ox + W * k >= W - 0.5 && oy + H * k >= H - 0.5;
   }
-  bool slowZoom = same && c.zoom != camera.zoom && overlay.zooming && c.fullMs > kZoomRasterBudgetMs &&
+  bool slowZoom = same && c.zoom != camera.zoom && overlay.zooming && c.fullMs > kZoomScaledCacheMs &&
                   now - c.zoomChangedAt < kZoomSettleMs;
   // Zooming in, the cache scaled covers the canvas; zooming out it doesn't: tiles fill in around it.
   bool stale = slowZoom && covers;
