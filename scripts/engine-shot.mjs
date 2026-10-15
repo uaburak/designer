@@ -474,8 +474,8 @@ async function r7Checks(files) {
   const edge = await pixelsAt(await Promise.all([...Array(24).keys()].map((k) => screenOf(scene.texture, -2, 10 + k * 7.5))));
   const dark = edge.filter((p) => p[0] < 128).length;
   check("texture: the edge moved past the box", dark >= 2 && dark <= 22, `${dark} of 24 dark`);
-  // NOISE fill (Multi): colours vary.
-  const multi = await pixelsAt(await Promise.all([...Array(8).keys()].map((k) => screenOf(scene.noisePaint, 10 + k * 13, 45))));
+  // NOISE fill (Multi): colours vary (Figma's fBm keeps them near mid grey, where the band lets a grain show: 24 samples).
+  const multi = await pixelsAt(await Promise.all([...Array(24).keys()].map((k) => screenOf(scene.noisePaint, 10 + (k % 8) * 13, 20 + Math.floor(k / 8) * 25))));
   const hues = new Set(multi.map((p) => `${p[0] >> 6}${p[1] >> 6}${p[2] >> 6}`));
   check("NOISE fill: Multi draws grains of many colours", hues.size >= 4, `${hues.size} colours`);
   // PATTERN fill: the 20 px dot tiled 40 px apart (spacing 100 %): red at a tile's middle, white between.
