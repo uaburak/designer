@@ -26,6 +26,7 @@ import {
   type StretchSettings,
   type StrokeKind,
 } from "@shared/draw/types";
+import { strokeBrushOf as sharedStrokeBrushOf, strokeKindOfFields } from "@shared/draw/apiShapes";
 import type { EditorController } from "../../controller";
 import type { Mode } from "../../devmode/devMode";
 import { chooseBrush, drawToolsOf, runDraw } from "../drawTools";
@@ -82,15 +83,14 @@ export type StrokeKindFields = {
 
 const kindFields = (n: PanelNode) => n as unknown as StrokeKindFields;
 
-/** The kind is implicit (docs/draw.md §4.3): a brush GUID = Brush, Dynamic settings = Dynamic, else Basic. */
-export function strokeKindOf(n: PanelNode): StrokeKind {
-  const f = kindFields(n);
-  if (guidString(f.strokeBrushGuid)) return "BRUSH";
-  if (f.dynamicStrokeSettings) return "DYNAMIC";
-  return "BASIC";
-}
+/**
+ * The kind is implicit (docs/draw.md §4.3, Figma's rule — the shared `strokeKindOfFields`): a brush GUID other than
+ * Figma's -1:-1 = Brush, Dynamic settings other than the neutral {1, 0, 0} = Dynamic, else Basic.
+ */
+export const strokeKindOf = (n: PanelNode): StrokeKind => strokeKindOfFields(kindFields(n));
 
-export const strokeBrushOf = (n: PanelNode): GuidString | null => guidString(kindFields(n).strokeBrushGuid);
+/** The layer's BRUSH node (null for none, Figma's -1:-1 included). */
+export const strokeBrushOf = (n: PanelNode): GuidString | null => sharedStrokeBrushOf(kindFields(n));
 
 export const dynamicOf = (n: PanelNode): DynamicSettings => ({ ...DYNAMIC_DEFAULTS, ...(kindFields(n).dynamicStrokeSettings ?? {}) });
 export const scatterOf = (n: PanelNode): ScatterSettings => ({ ...SCATTER_DEFAULTS, ...(kindFields(n).scatterStrokeSettings ?? {}) });
@@ -196,7 +196,7 @@ export const repeatLabel = (k: RepeatKind): string => (k === "LINEAR" ? "Linear 
 /** "Additional transform modifier" › Linear / Radial repeat: wraps the selection in a transform group, or adds to one. */
 export const addRepeat = (ed: EditorController, refs: readonly GuidString[], kind: RepeatKind): number => runDraw(ed, "ADD_TRANSFORM_MODIFIER", { refs: [...refs], modifier: { ...REPEAT_DEFAULTS[kind] } });
 
-/** A modifier's fields (Count rounded and clamped, 1…1000); a scrub coalesces into one "Change repeat". */
+/** A modifier's fields (Count rounded and clamped to Figma's 2…40); a scrub coalesces into one "Change repeat". */
 export function setRepeat(ed: EditorController, ref: GuidString, index: number, patch: Partial<RepeatModifierInput>, info: ChangeInfo = { final: true, source: "pick" }): void {
   const modifier = patch.count === undefined ? patch : { ...patch, count: Math.round(clamp(patch.count, REPEAT_COUNT_RANGE)) };
   ed.edit("Change repeat", info, () => void runDraw(ed, "SET_TRANSFORM_MODIFIER", { ref, index, modifier }));

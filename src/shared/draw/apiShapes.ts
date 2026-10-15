@@ -7,6 +7,8 @@
 import {
   brushDisplayName,
   DYNAMIC_DEFAULTS,
+  isNeutralDynamic,
+  isNoBrushGuid,
   SCATTER_BRUSH_NAMES,
   SCATTER_DEFAULTS,
   splitTValue,
@@ -14,6 +16,7 @@ import {
   type BrushType,
   type DynamicSettings,
   type ScatterSettings,
+  type StrokeKind,
 } from "./types";
 
 type Obj = Record<string, unknown>;
@@ -91,16 +94,32 @@ export type ApiComplexStroke =
   | { type: "BRUSH"; brushType: "STRETCH"; brushName: string; direction: "FORWARD" | "BACKWARD" }
   | ({ type: "BRUSH"; brushType: "SCATTER"; brushName: string } & ScatterSettings);
 
-/** The stroke's GUID of its BRUSH node, when it has a brush stroke. */
-export const strokeBrushOf = (fields: object): string | null => guidText((fields as Obj).strokeBrushGuid);
+/** The stroke's GUID of its BRUSH node, when it has a brush stroke (Figma's -1:-1 is no brush). */
+export function strokeBrushOf(fields: object): string | null {
+  const g = guidText((fields as Obj).strokeBrushGuid);
+  return g && !isNoBrushGuid(g) ? g : null;
+}
 
 /**
- * node.complexStrokeProperties from the document's implicit kind (docs/draw.md §4.3: a brush GUID → BRUSH, Dynamic
- * settings → DYNAMIC, else BASIC). `brush` is the BRUSH node the stroke names (its `name` and `brushType`), if found.
+ * The implicit stroke kind, Figma's rule (docs/draw.md §4.3, rea/vector.md §1): a brush GUID other than -1:-1 →
+ * BRUSH; dynamicStrokeSettings present and not the neutral {1, 0, 0} → DYNAMIC; else BASIC.
+ */
+export function strokeKindOfFields(fields: object): StrokeKind {
+  const f = fields as Obj;
+  if (strokeBrushOf(f)) return "BRUSH";
+  const d = f.dynamicStrokeSettings;
+  if (d && typeof d === "object" && !isNeutralDynamic(d as Partial<DynamicSettings>)) return "DYNAMIC";
+  return "BASIC";
+}
+
+/**
+ * node.complexStrokeProperties from the document's implicit kind (`strokeKindOfFields`). `brush` is the BRUSH node
+ * the stroke names (its `name` and `brushType`), if found.
  */
 export function complexStrokeOf(fields: object, brush: { name?: string; brushType?: unknown } | null): ApiComplexStroke {
   const f = fields as Obj;
-  if (strokeBrushOf(f)) {
+  const kind = strokeKindOfFields(f);
+  if (kind === "BRUSH") {
     const type: BrushType = brush?.brushType === "SCATTER" || (!brush?.brushType && f.scatterStrokeSettings) ? "SCATTER" : "STRETCH";
     const brushName = brushNameOf(brush?.name, type);
     if (type === "STRETCH") {
@@ -109,6 +128,6 @@ export function complexStrokeOf(fields: object, brush: { name?: string; brushTyp
     }
     return { type: "BRUSH", brushType: "SCATTER", brushName, ...SCATTER_DEFAULTS, ...((f.scatterStrokeSettings as Partial<ScatterSettings> | undefined) ?? {}) };
   }
-  if (f.dynamicStrokeSettings) return { type: "DYNAMIC", ...DYNAMIC_DEFAULTS, ...(f.dynamicStrokeSettings as Partial<DynamicSettings>) };
+  if (kind === "DYNAMIC") return { type: "DYNAMIC", ...DYNAMIC_DEFAULTS, ...(f.dynamicStrokeSettings as Partial<DynamicSettings>) };
   return { type: "BASIC" };
 }

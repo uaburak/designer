@@ -104,7 +104,7 @@ void applyRepeatInput(json::Value& m, const json::Value& in, bool whole) {
   if (whole) {
     setMember(m, "type", string("REPEAT"));
     setMember(m, "visible", boolean(true));
-    setMember(m, "count", number(1));
+    setMember(m, "count", number(geom::kRepeatCountMin));
     setMember(m, "repeatType", string("LINEAR"));
     setMember(m, "axis", string("X"));
     setMember(m, "unitType", string("PIXELS"));
@@ -113,7 +113,7 @@ void applyRepeatInput(json::Value& m, const json::Value& in, bool whole) {
   if (const json::Value* v = member(in, "repeatType"); v && v->isString() && (v->string == "LINEAR" || v->string == "RADIAL"))
     setMember(m, "repeatType", *v);
   if (const json::Value* v = member(in, "count"); v && v->isNumber())
-    setMember(m, "count", number(std::clamp(std::round(v->number), 1.0, static_cast<double>(geom::kMaxRepeatCount))));
+    setMember(m, "count", number(std::clamp(std::round(v->number), static_cast<double>(geom::kRepeatCountMin), static_cast<double>(geom::kRepeatCountMax))));
   if (const json::Value* v = member(in, "unitType"); v && v->isString() && (v->string == "PIXELS" || v->string == "RELATIVE"))
     setMember(m, "unitType", *v);
   if (const json::Value* v = member(in, "axis"); v && v->isString() && (v->string == "X" || v->string == "Y" || v->string == "X_AND_Y"))
@@ -709,38 +709,40 @@ Status Editor::drawCommand(CommandId id, const CommandArgs& args) {
       std::vector<Guid> live = liveTargets([](const NodeProps& p) { return p.type != NodeType::CANVAS && p.type != NodeType::DOCUMENT; });
       if (live.empty()) return E_INVALID;
       bool dynamic = kind->string == "DYNAMIC";
+      auto settingsJson = [](const geom::DynamicSettings& s) {
+        return "{\"frequency\":" + num(s.frequency) + ",\"wiggle\":" + num(s.wiggle) + ",\"smoothen\":" + num(s.smoothen) + "}";
+      };
       begin(TxnKind::USER, "Change stroke");
       for (Guid g : live) {
         const NodeProps& p = doc_.get(g)->props;
         NodeChange c = NodeChange::changed(g);
-        putExtra(c, "strokeBrushGuid", "");
+        // Figma writes -1:-1 (no brush) whenever a stroke becomes Dynamic or Basic (docs/research/rea/vector.md §2).
+        putExtra(c, "strokeBrushGuid", encodeExtra("strokeBrushGuid", guidJson(kNoGuid)));
+        json::Value old;
+        bool present = extraJson(p, "dynamicStrokeSettings", old) && old.isObject();
         if (dynamic) {
+          // The layer's own settings unless they are the neutral value Basic left (then Figma's defaults).
           geom::DynamicSettings s;
-          json::Value old;
-          if (extraJson(p, "dynamicStrokeSettings", old)) {
-            s.frequency = numberOf(member(old, "frequency"), s.frequency);
-            s.wiggle = numberOf(member(old, "wiggle"), s.wiggle);
-            s.smoothen = numberOf(member(old, "smoothen"), s.smoothen);
+          if (present) {
+            geom::DynamicSettings was{numberOf(member(old, "frequency"), s.frequency), numberOf(member(old, "wiggle"), s.wiggle),
+                                      numberOf(member(old, "smoothen"), s.smoothen)};
+            if (!geom::isNeutralDynamic(was)) s = was;
           }
           if (const json::Value* in = member(raw, "dynamic")) {
             s.frequency = numberOf(member(*in, "frequency"), s.frequency);
             s.wiggle = numberOf(member(*in, "wiggle"), s.wiggle);
             s.smoothen = numberOf(member(*in, "smoothen"), s.smoothen);
           }
+          // The plugin's ranges: frequency 0.01–20, wiggle ≥ 0 (no upper bound; geometry caps it), smoothen 0–1.
           s.frequency = std::clamp(s.frequency, 0.01, 20.0);
-          s.wiggle = std::clamp(s.wiggle, 0.0, 100.0);
+          s.wiggle = std::isfinite(s.wiggle) ? std::max(0.0, s.wiggle) : 0.0;
           s.smoothen = std::clamp(s.smoothen, 0.0, 1.0);
-          putExtra(c, "dynamicStrokeSettings", encodeExtra("dynamicStrokeSettings", "{\"frequency\":" + num(s.frequency) + ",\"wiggle\":" +
-                                                                                       num(s.wiggle) + ",\"smoothen\":" + num(s.smoothen) + "}"));
-          // Figma: no variable width or dashes with a dynamic stroke.
-          putExtra(c, "variableWidthPoints", "");
-          if (!p.stroke().dashPattern.empty()) {
-            c.mask |= F_DASH_PATTERN;
-            c.props.stroke().dashPattern.clear();
-          }
+          putExtra(c, "dynamicStrokeSettings", encodeExtra("dynamicStrokeSettings", settingsJson(s)));
+          // Width points and dashes stay (Figma keeps them; they are not drawn on a dynamic stroke).
           if (strokeSeedOf(p) == 0) putExtra(c, "strokeSeed", encodeExtra("strokeSeed", num(static_cast<double>(newStrokeSeed()))));
-        } else {
-          putExtra(c, "dynamicStrokeSettings", "");
+        } else if (present) {
+          // Basic keeps the field at Figma's neutral value instead of removing it.
+          putExtra(c, "dynamicStrokeSettings", encodeExtra("dynamicStrokeSettings", settingsJson(geom::kDynamicNeutral)));
         }
         write(c);
       }
@@ -762,12 +764,8 @@ Status Editor::drawCommand(CommandId id, const CommandArgs& args) {
         NodeChange c = NodeChange::changed(g);
         putExtra(c, "strokeBrushGuid", encodeExtra("strokeBrushGuid", guidJson(brush)));
         putExtra(c, "dynamicStrokeSettings", "");
-        putExtra(c, "variableWidthPoints", "");
+        // Width points and dashes stay (Figma keeps them across kind changes, docs/research/rea/vector.md §4).
         putExtra(c, "scatterBrushTransforms", "");  // Figma's stored stamps were for the old brush
-        if (!p.stroke().dashPattern.empty()) {
-          c.mask |= F_DASH_PATTERN;
-          c.props.stroke().dashPattern.clear();
-        }
         json::Value old;
         if (scatter && !extraJson(p, "scatterStrokeSettings", old))
           putExtra(c, "scatterStrokeSettings", encodeExtra("scatterStrokeSettings", "{\"gap\":1,\"wiggle\":0,\"angularJitter\":0,\"rotation\":0,\"sizeJitter\":0}"));

@@ -8,10 +8,12 @@
 #include "base/Json.h"
 #include "doctest.h"
 #include "editor/Editor.h"
+#include "export/Scene.h"
 #include "geometry/Brush.h"
 #include "geometry/DynamicStroke.h"
 #include "geometry/Repeat.h"
 #include "geometry/Shapes.h"
+#include "geometry/VariableWidth.h"
 #include "geometry/VectorNetwork.h"
 #include "Helpers.h"
 #include "scene/CodecKiwi.h"
@@ -174,6 +176,26 @@ TEST_CASE("r7b repeats: Add repeat wraps the selection in a transform group; cha
   CHECK(e.command(CommandId::REMOVE_TRANSFORM_MODIFIER, args("{\"ref\":" + ref + ",\"index\":0}")) == E_INVALID);
 }
 
+TEST_CASE("r17a repeats: authoring writes Figma's count 2…40; a file's count is read leniently") {
+  Editor e = makeEditor();
+  e.setSelection({R1});
+  REQUIRE(e.command(CommandId::ADD_TRANSFORM_MODIFIER,
+                    args(R"({"modifier":{"repeatType":"LINEAR","count":1,"offset":10,"unitType":"PIXELS","axis":"X","order":"FORWARD","visible":true}})")) == OK);
+  Guid g = e.selection()[0];
+  CHECK(transformModifiersOf(props(e, g))[0].count == 2);
+  std::string ref = "\"" + g.toString() + "\"";
+  REQUIRE(e.command(CommandId::SET_TRANSFORM_MODIFIER, args("{\"ref\":" + ref + ",\"index\":0,\"modifier\":{\"count\":41}}")) == OK);
+  CHECK(transformModifiersOf(props(e, g))[0].count == 40);
+  REQUIRE(e.command(CommandId::SET_TRANSFORM_MODIFIER, args("{\"ref\":" + ref + ",\"index\":0,\"modifier\":{\"count\":0}}")) == OK);
+  CHECK(transformModifiersOf(props(e, g))[0].count == 2);
+  // A count past 40 from a file still evaluates (clamped to 1…1000 on read).
+  geom::TransformModifier m;
+  m.count = 60;
+  m.offset = {10, 0};
+  auto r = geom::evaluateRepeat({m}, Rect{0, 0, 20, 20}, geom::kMaxRepeatInstances);
+  CHECK(r.instances.size() == 60);
+}
+
 TEST_CASE("r7b Apply transforms: the group becomes a group of real layers, the source kept, copies at each instance") {
   Editor e = makeEditor();
   e.setSelection({R1});
@@ -222,7 +244,7 @@ TEST_CASE("r7b Apply transforms: the group becomes a group of real layers, the s
   CHECK(e.document().parentOf(R1) == inner);
 }
 
-TEST_CASE("r7b stroke kinds: Dynamic writes its settings and a seed, clears width points and dashes; Basic clears it") {
+TEST_CASE("r7b stroke kinds: Dynamic writes its settings and a seed, keeps width points and dashes; Basic writes neutral") {
   Editor e = makeEditor();
   {
     // Width points and a dash on V first.
@@ -241,10 +263,19 @@ TEST_CASE("r7b stroke kinds: Dynamic writes its settings and a seed, clears widt
   geom::DynamicSettings s;
   REQUIRE(dynamicSettingsOf(props(e, V), s));
   CHECK(s.wiggle == 2);
-  CHECK(s.frequency == doctest::Approx(2));  // the default
+  CHECK(s.frequency == doctest::Approx(0.75));  // Figma's default
+  CHECK(s.smoothen == doctest::Approx(0.5));
   CHECK(strokeSeedOf(props(e, V)) != 0);
-  CHECK(extraOf(e, V, "variableWidthPoints").isNull());
-  CHECK(props(e, V).stroke().dashPattern.empty());
+  // Figma keeps width points and dashes across a kind change (rea/vector.md §4); they are not drawn on Dynamic.
+  CHECK(extraOf(e, V, "variableWidthPoints").isArray());
+  CHECK(props(e, V).stroke().dashPattern.size() == 2);
+  // Kept, not drawn: the exporters (and the renderer) stroke a dynamic centre line without the dashes.
+  CHECK(exporter::strokeOf(e.document(), V, props(e, V)).dashes.empty());
+  // Figma's -1:-1: no brush.
+  json::Value bg = extraOf(e, V, "strokeBrushGuid");
+  REQUIRE(bg.isObject());
+  CHECK(bg.get("sessionID")->numberOr(0) == 4294967295.0);
+  CHECK(strokeBrushOf(props(e, V)) == kNoGuid);
   uint64_t seed = strokeSeedOf(props(e, V));
   // A later change keeps the seed (the look stays).
   REQUIRE(e.command(CommandId::SET_STROKE_KIND, args(R"({"refs":["1:3"],"kind":"DYNAMIC","dynamic":{"frequency":5}})")) == OK);
@@ -254,12 +285,76 @@ TEST_CASE("r7b stroke kinds: Dynamic writes its settings and a seed, clears widt
   CHECK(s.wiggle == 2);
   REQUIRE(e.command(CommandId::SET_STROKE_KIND, args(R"({"kind":"BASIC"})")) == OK);
   CHECK_FALSE(dynamicSettingsOf(props(e, V), s));
+  CHECK(exporter::strokeOf(e.document(), V, props(e, V)).dashes.size() == 2);  // Basic draws its dashes again
+  // Basic keeps the field at Figma's neutral {1, 0, 0}, which reads as Basic.
+  json::Value neutral = extraOf(e, V, "dynamicStrokeSettings");
+  REQUIRE(neutral.isObject());
+  CHECK(neutral.get("frequency")->numberOr(0) == 1);
+  CHECK(neutral.get("wiggle")->numberOr(-1) == 0);
+  CHECK(neutral.get("smoothen")->numberOr(-1) == 0);
+  CHECK(extraOf(e, V, "variableWidthPoints").isArray());
+  // Dynamic again starts from Figma's defaults, not from the neutral value.
+  REQUIRE(e.command(CommandId::SET_STROKE_KIND, args(R"({"kind":"DYNAMIC"})")) == OK);
+  REQUIRE(dynamicSettingsOf(props(e, V), s));
+  CHECK(s.frequency == doctest::Approx(0.75));
+  CHECK(s.wiggle == doctest::Approx(0.3));
+  CHECK(s.smoothen == doctest::Approx(0.5));
+  // Wiggle has no upper bound in the document (the plugin's); geometry caps it.
+  REQUIRE(e.command(CommandId::SET_STROKE_KIND, args(R"({"kind":"DYNAMIC","dynamic":{"wiggle":250}})")) == OK);
+  CHECK(extraOf(e, V, "dynamicStrokeSettings").get("wiggle")->numberOr(0) == 250);
+  REQUIRE(dynamicSettingsOf(props(e, V), s));
+  CHECK(s.wiggle == geom::kDynWiggleCap);
+  e.command(CommandId::UNDO);
+  e.command(CommandId::UNDO);
   e.command(CommandId::UNDO);
   e.command(CommandId::UNDO);
   e.command(CommandId::UNDO);
   CHECK_FALSE(dynamicSettingsOf(props(e, V), s));
+  CHECK(extraOf(e, V, "dynamicStrokeSettings").isNull());
   CHECK(props(e, V).stroke().dashPattern.size() == 2);
   CHECK(e.command(CommandId::SET_STROKE_KIND, args(R"({"kind":"FANCY"})")) == E_INVALID);
+}
+
+TEST_CASE("r17a stroke kind detection: Figma's -1:-1 is no brush; the neutral Dynamic {1, 0, 0} is Basic") {
+  NodeProps p;
+  p.strokeWeight = 2;
+  auto put = [&](const char* key, const char* json) {
+    json::Value v;
+    REQUIRE(json::parse(json, v));
+    p.extra[key] = codec::extraFromJson("NodeChange", key, v);
+  };
+  // A Dynamic stroke as Figma writes it: settings plus strokeBrushGuid -1:-1.
+  put("strokeBrushGuid", R"({"sessionID":4294967295,"localID":4294967295})");
+  put("dynamicStrokeSettings", R"({"frequency":0.75,"wiggle":0.30000001192092896,"smoothen":0.5})");
+  CHECK(strokeBrushOf(p) == kNoGuid);
+  geom::DynamicSettings s;
+  REQUIRE(dynamicSettingsOf(p, s));
+  CHECK(s.wiggle == doctest::Approx(0.3));
+  CHECK(hasDynamicStroke(p));
+  CHECK_FALSE(widthProfileAllowed(p));
+  // Basic as Figma leaves it: the neutral value — not dynamic, variable width allowed.
+  put("dynamicStrokeSettings", R"({"frequency":1,"wiggle":0,"smoothen":0})");
+  CHECK_FALSE(dynamicSettingsOf(p, s));
+  CHECK_FALSE(hasDynamicStroke(p));
+  CHECK(widthProfileAllowed(p));
+  // A real brush GUID still names a brush.
+  put("strokeBrushGuid", R"({"sessionID":1,"localID":40})");
+  CHECK(strokeBrushOf(p) == Guid{1, 40});
+}
+
+TEST_CASE("r17a a neutral Dynamic stroke draws, hits and bounds as Basic") {
+  Editor e = makeEditor();
+  NodeChange c = NodeChange::changed(V);
+  c.mask = F_EXTRA;
+  json::Value v;
+  REQUIRE(json::parse(R"({"frequency":1,"wiggle":0,"smoothen":0})", v));
+  c.props.extra["dynamicStrokeSettings"] = codec::extraFromJson("NodeChange", "dynamicStrokeSettings", v);
+  REQUIRE(e.applyChanges({c}, APPLY_USER) == OK);
+  geom::Path center;
+  CHECK_FALSE(dynamicCenter(props(e, V), *e.document().geometry(V), 0.25, center));
+  // The Width profile is available on it (it was refused while any dynamicStrokeSettings was present).
+  e.setSelection({V});
+  CHECK((e.commandState(CommandId::SET_WIDTH_PROFILE) & CMD_ENABLED) != 0);
 }
 
 TEST_CASE("r7b brushes: install is idempotent by name and type; Brush stroke clears Dynamic; settings; Create brush") {
@@ -323,6 +418,49 @@ TEST_CASE("r7b brushes: install is idempotent by name and type; Brush stroke cle
   CHECK(e.listBrushes().size() == 3);
   e.command(CommandId::UNDO);
   CHECK_FALSE(e.document().has(made));
+}
+
+TEST_CASE("r17a a brush keeps width points and dashes; Basic after a brush writes -1:-1") {
+  Editor e = makeEditor();
+  Guid heist = installSquare(e, "Heist", false);
+  {
+    NodeChange c = NodeChange::changed(V);
+    c.mask = F_EXTRA | F_DASH_PATTERN;
+    c.props.extra["variableWidthPoints"] = encodeWidthPoints(geom::presetPoints(geom::WidthProfile::WEDGE));
+    c.props.stroke().dashPattern = {4, 4};
+    REQUIRE(e.applyChanges({c}, APPLY_USER) == OK);
+  }
+  e.setSelection({V});
+  REQUIRE(e.command(CommandId::SET_STROKE_BRUSH, args("{\"brush\":\"" + heist.toString() + "\"}")) == OK);
+  CHECK(strokeBrushOf(props(e, V)) == heist);
+  CHECK(geom::matchPreset(widthPointsOf(props(e, V))) == geom::WidthProfile::WEDGE);
+  CHECK(props(e, V).stroke().dashPattern.size() == 2);
+  REQUIRE(e.command(CommandId::SET_STROKE_KIND, args(R"({"kind":"BASIC"})")) == OK);
+  CHECK(strokeBrushOf(props(e, V)) == kNoGuid);
+  CHECK(extraOf(e, V, "strokeBrushGuid").isObject());
+  CHECK(extraOf(e, V, "dynamicStrokeSettings").isNull());  // none was there: none written
+  CHECK(geom::matchPreset(widthPointsOf(props(e, V))) == geom::WidthProfile::WEDGE);
+}
+
+TEST_CASE("r17a SET_WIDTH_PROFILE for the Plugin API: custom points, any stroke kind, branching networks refused") {
+  Editor e = makeEditor();
+  REQUIRE(e.command(CommandId::SET_STROKE_KIND, args(R"({"refs":["1:3"],"kind":"DYNAMIC"})")) == OK);
+  // The panel's form refuses a dynamic stroke; the plugin's writes it (Figma keeps it, and doesn't draw it).
+  CHECK(e.command(CommandId::SET_WIDTH_PROFILE, args(R"({"refs":["1:3"],"profile":"WEDGE"})")) == E_INVALID);
+  REQUIRE(e.command(CommandId::SET_WIDTH_PROFILE,
+                    args(R"({"refs":["1:3"],"profile":"CUSTOM","plugin":true,"points":[{"position":1,"ascent":0.25,"descent":0.25},{"position":0,"ascent":0.5,"descent":0.5}]})")) == OK);
+  auto points = widthPointsOf(props(e, V));
+  REQUIRE(points.size() == 2);
+  CHECK(points[0].position == 0);
+  CHECK(points[1].ascent == doctest::Approx(0.25));
+  CHECK(e.command(CommandId::SET_WIDTH_PROFILE, args(R"({"refs":["1:3"],"profile":"CUSTOM","plugin":true,"points":[]})")) == E_INVALID);
+  // A branching network: refused.
+  geom::VectorNetwork star;
+  star.vertices = {{{0, 0}, 0}, {{50, 0}, 0}, {{0, 50}, 0}, {{-50, 0}, 0}};
+  star.segments = {geom::VNSegment{0, 1, {}, {}, 0}, geom::VNSegment{0, 2, {}, {}, 0}, geom::VNSegment{0, 3, {}, {}, 0}};
+  const Guid B{1, 9};
+  REQUIRE(e.applyChanges({vectorNode(B, "&", {500, 500, 100, 50}, star, 2)}, APPLY_USER) == OK);
+  CHECK(e.command(CommandId::SET_WIDTH_PROFILE, args(R"({"refs":["1:9"],"profile":"WEDGE","plugin":true})")) == E_INVALID);
 }
 
 TEST_CASE("r7b brush artwork: SVG path data, and the preview along the S-curve has ink") {

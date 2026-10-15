@@ -287,23 +287,48 @@ Status Editor::widthCommand(CommandId id, const CommandArgs& args) {
     targets = vector_.node != kNoGuid ? std::vector<Guid>{vector_.node} : selection_;
   }
   geom::WidthProfile profile = geom::WidthProfile::UNIFORM;
+  std::vector<geom::WidthPoint> custom;
+  // `plugin`: the Plugin API's variableWidthStrokeProperties setter — Figma refuses complex (branching) networks only,
+  // not dynamic, brush, dashed or locked layers (docs/research/rea/vector.md §3).
+  const json::Value* pluginArg = args.raw.isObject() ? args.raw.get("plugin") : nullptr;
+  const bool plugin = pluginArg && pluginArg->isBool() && pluginArg->boolean;
   if (id == CommandId::SET_WIDTH_PROFILE) {
     const json::Value* v = args.raw.isObject() ? args.raw.get("profile") : nullptr;
     if (!v || !v->isString()) return E_INVALID;
     bool known = false;
     for (int i = 0; i < static_cast<int>(geom::WidthProfile::CUSTOM); i++)
       if (v->string == geom::kWidthProfileNames[i]) profile = static_cast<geom::WidthProfile>(i), known = true;
+    if (!known && v->string == "CUSTOM") {
+      // `points`: [{position, ascent, descent}], at least one.
+      const json::Value* pts = args.raw.get("points");
+      if (!pts || !pts->isArray() || pts->array.empty()) return E_INVALID;
+      for (const json::Value& e : pts->array) {
+        if (!e.isObject()) return E_INVALID;
+        geom::WidthPoint w;
+        if (const json::Value* x = e.get("position")) w.position = x->numberOr(0);
+        if (const json::Value* x = e.get("ascent")) w.ascent = x->numberOr(0.5);
+        if (const json::Value* x = e.get("descent")) w.descent = x->numberOr(0.5);
+        custom.push_back(w);
+      }
+      custom = geom::normalized(std::move(custom));
+      profile = geom::WidthProfile::CUSTOM;
+      known = true;
+    }
     if (!known) return E_INVALID;
   }
   std::vector<std::pair<Guid, std::vector<geom::WidthPoint>>> writes;
   for (Guid t : targets) {
     const Node* n = doc_.get(t);
-    if (!n || t.isDerived() || n->props.locked || !widthProfileAllowed(n->props)) continue;
+    if (!n) continue;
+    // The plugin writes an instance's sublayer as any other property (an override, as setProps did) and is told a
+    // library copy is read-only.
+    if (plugin && isLibraryCopy(t)) return E_READONLY;
+    if (!plugin && (t.isDerived() || n->props.locked || !widthProfileAllowed(n->props))) continue;
     geom::VectorNetwork net;
     bool convert = false;
     if (networkOf(t, net, convert) && branching(net)) continue;
     if (id == CommandId::SET_WIDTH_PROFILE) {
-      writes.push_back({t, geom::presetPoints(profile)});
+      writes.push_back({t, profile == geom::WidthProfile::CUSTOM ? custom : geom::presetPoints(profile)});
     } else {
       auto points = widthPointsOf(n->props);
       if (!points.empty()) writes.push_back({t, geom::flipped(points)});

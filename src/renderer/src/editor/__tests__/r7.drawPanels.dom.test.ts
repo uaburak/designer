@@ -30,6 +30,7 @@ import {
   setStretch,
   setStrokeKind,
   stretchOf,
+  strokeBrushOf,
   strokeKindOf,
 } from "../draw/panels/drawPanel";
 import { RepeatSettings, TransformSection } from "../draw/panels/TransformSection";
@@ -151,6 +152,13 @@ describe("round 7d: stroke kinds (docs/draw.md §5.4)", () => {
     expect(strokeKindOf(node({ guid: "1:1" }))).toBe("BASIC");
     expect(strokeKindOf(node({ guid: "1:1", dynamicStrokeSettings: { frequency: 3 } }))).toBe("DYNAMIC");
     expect(strokeKindOf(node({ guid: "1:1", strokeBrushGuid: { sessionID: 0, localID: 7 }, dynamicStrokeSettings: {} }))).toBe("BRUSH");
+    // Figma's Dynamic carries strokeBrushGuid -1:-1 (no brush); Basic leaves the neutral {1, 0, 0} (rea/vector.md §1).
+    const sentinel = { sessionID: 4294967295, localID: 4294967295 };
+    expect(strokeKindOf(node({ guid: "1:1", strokeBrushGuid: sentinel, dynamicStrokeSettings: { frequency: 0.75, wiggle: 0.3, smoothen: 0.5 } }))).toBe("DYNAMIC");
+    expect(strokeKindOf(node({ guid: "1:1", strokeBrushGuid: sentinel, dynamicStrokeSettings: { frequency: 1, wiggle: 0, smoothen: 0 } }))).toBe("BASIC");
+    expect(strokeKindOf(node({ guid: "1:1", strokeBrushGuid: "-1:-1" }))).toBe("BASIC");
+    expect(strokeBrushOf(node({ guid: "1:1", strokeBrushGuid: sentinel }))).toBeNull();
+    expect(DYNAMIC_DEFAULTS).toEqual({ frequency: 0.75, wiggle: 0.3, smoothen: 0.5 });
     expect(guidString("0:7")).toBe("0:7");
     expect(dynamicOf(node({ guid: "1:1", dynamicStrokeSettings: { frequency: 3 } }))).toEqual({ ...DYNAMIC_DEFAULTS, frequency: 3 });
     expect(scatterOf(node({ guid: "1:1", scatterStrokeSettings: { gap: 2 } })).gap).toBe(2);
@@ -231,8 +239,8 @@ describe("round 7d: the Transform section and the Repeat popover (docs/draw.md �
     setRepeat(ed, "2:1", 0, { count: 0 }, { final: true, source: "scrub" });
     expect(commands).toEqual([
       { id: "ADD_TRANSFORM_MODIFIER", args: { refs: ["1:1", "1:2"], modifier: REPEAT_DEFAULTS.RADIAL } },
-      { id: "SET_TRANSFORM_MODIFIER", args: { ref: "2:1", index: 0, modifier: { count: 1000 } } },
-      { id: "SET_TRANSFORM_MODIFIER", args: { ref: "2:1", index: 0, modifier: { count: 1 } } },
+      { id: "SET_TRANSFORM_MODIFIER", args: { ref: "2:1", index: 0, modifier: { count: 40 } } }, // Figma: 2…40
+      { id: "SET_TRANSFORM_MODIFIER", args: { ref: "2:1", index: 0, modifier: { count: 2 } } },
     ]);
     expect(txns).toEqual({ begun: 1, committed: 1, cancelled: 0 });
   });

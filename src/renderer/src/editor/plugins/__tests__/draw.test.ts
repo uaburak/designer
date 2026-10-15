@@ -22,7 +22,8 @@ import {
   transformModifiers,
   variableWidthStrokeProperties,
 } from "../api/draw";
-import { getProp } from "../api/nodes";
+import { getProp, setProp } from "../api/nodes";
+import { presetPoints, type WidthProfile } from "../../widthProfile";
 
 type Obj = Record<string, unknown>;
 
@@ -32,6 +33,7 @@ function fakeCtx(nodes: Obj[], opts: { stubs?: boolean; onDraw?: (id: string, ar
   const calls: { id: string; args: Obj }[] = [];
   const props: { refs: string[]; fields: Obj }[] = [];
   const installed: { guid: string; name: string; type: string }[] = [];
+  const commands: { name: string; args: Obj }[] = [];
   const childIds = (id: string) => [...doc.values()].filter((n) => (n.parentIndex as { guid?: string } | undefined)?.guid === id).map((n) => n.guid as string);
   const notBuilt = (name: string) => () => {
     throw new Error(`engine: ${name} not built (round 7b)`);
@@ -57,6 +59,17 @@ function fakeCtx(nodes: Obj[], opts: { stubs?: boolean; onDraw?: (id: string, ar
           opts.onDraw?.(id, args, doc);
           return Status.OK;
         },
+    // SET_WIDTH_PROFILE as the engine does it: the points written; a node marked `branching` refused (E_INVALID).
+    command: (name: string, args: Obj) => {
+      commands.push({ name, args });
+      if (name !== "SET_WIDTH_PROFILE") return Status.E_UNSUPPORTED;
+      const refs = args.refs as string[];
+      if (refs.some((r) => doc.get(r)?.branching)) return Status.E_INVALID;
+      if (refs.some((r) => doc.get(r)?.libraryCopy)) return Status.E_READONLY;
+      const points = args.profile === "CUSTOM" ? args.points : presetPoints(args.profile as WidthProfile);
+      for (const r of refs) doc.get(r)!.variableWidthPoints = points;
+      return Status.OK;
+    },
     listBrushes: opts.stubs ? notBuilt("listBrushes") : () => installed,
     installBrush: opts.stubs
       ? notBuilt("installBrush")
@@ -72,7 +85,7 @@ function fakeCtx(nodes: Obj[], opts: { stubs?: boolean; onDraw?: (id: string, ar
     editorType: "figma",
     write: () => void writes++,
   } as unknown as ApiContext;
-  return { ctx, doc, calls, props, installed, writes: () => writes };
+  return { ctx, doc, calls, props, installed, commands, writes: () => writes };
 }
 
 const node = (guid: string, fields: Obj = {}): Obj => ({ guid, type: "VECTOR", name: guid, parentIndex: { guid: "0:1", position: "a" }, ...fields });
@@ -133,6 +146,14 @@ describe("Draw plugin API: transform groups", () => {
     expect(() => modifierFromApi({ ...linear, type: "SKEW" }, "m")).toThrow(/only 'REPEAT'/);
     expect(() => modifierFromApi({ ...linear, axis: "DIAGONAL" }, "m")).toThrow(/axis/);
     expect(() => modifierFromApi({ ...linear, count: 0 }, "m")).toThrow(/count/);
+  });
+
+  it("count is an integer 2…40 with Figma's messages (live: 0, 1 and 41 refused; 2 and 40 accepted)", () => {
+    for (const count of [2, 40]) expect(modifierFromApi({ ...linear, count }, "transformModifiers[0]").count).toBe(count);
+    expect(() => modifierFromApi({ ...linear, count: 41 }, "transformModifiers[0]")).toThrow("Number must be less than or equal to 40 at [0].count");
+    expect(() => modifierFromApi({ ...linear, count: 1 }, "transformModifiers[0]")).toThrow("Number must be greater than or equal to 2 at [0].count");
+    expect(() => modifierFromApi({ ...linear, count: 0 }, "modifiers[3]")).toThrow("Number must be greater than or equal to 2 at [3].count");
+    expect(() => modifierFromApi({ ...linear, count: 2.5 }, "transformModifiers[0]")).toThrow("Expected integer, received float at [0].count");
   });
 
   it("transformModifiers reads REPEATs only; setting replaces them and keeps the file's SYMMETRY / SKEW", () => {
@@ -225,23 +246,60 @@ describe("Draw plugin API: complex strokes", () => {
     expect(() => loadBrushes(fakeCtx([], { stubs: true }).ctx, "STRETCH")).toThrow("loadBrushesAsync is not supported in Wecra yet");
   });
 
-  it("variableWidthStrokeProperties: presets and custom points (width = ascent + descent), null for dynamic strokes", () => {
-    const { ctx, props } = fakeCtx([node("1:1"), node("1:2", { dynamicStrokeSettings: { frequency: 1, wiggle: 1, smoothen: 1 } })]);
+  it("variableWidthStrokeProperties: Figma's shape (width = ascent, points for presets too), any stroke kind, complex networks refused", () => {
+    const { ctx, commands } = fakeCtx([node("1:1"), node("1:2", { dynamicStrokeSettings: { frequency: 1, wiggle: 1, smoothen: 1 } }), node("1:3", { branching: true }), node("1:4", { libraryCopy: true })]);
+    const read = (id: string) => variableWidthStrokeProperties(ctx, ctx.ed.engine.readNode(id)!);
     const n = ctx.ed.engine.readNode("1:1")!;
-    expect(variableWidthStrokeProperties(ctx, n)).toEqual({ widthProfile: "UNIFORM" });
-    setVariableWidthStrokeProperties(ctx, n, { widthProfile: "EYE" });
-    expect(variableWidthStrokeProperties(ctx, ctx.ed.engine.readNode("1:1")!)).toEqual({ widthProfile: "EYE" });
-    setVariableWidthStrokeProperties(ctx, n, { widthProfile: "CUSTOM", variableWidthPoints: [{ position: 1, width: 0.5 }, { position: 0, width: 2 }] });
-    expect(props.at(-1)!.fields.variableWidthPoints).toEqual([
-      { position: 0, ascent: 1, descent: 1 },
-      { position: 1, ascent: 0.25, descent: 0.25 },
+    expect(read("1:1")).toEqual({ widthProfile: "UNIFORM", variableWidthPoints: [] });
+    // WEDGE at weight 20 is half-height 10 at x = 0 (live): width 0.5 is half the weight on each side.
+    setVariableWidthStrokeProperties(ctx, n, { widthProfile: "WEDGE" });
+    expect(commands.at(-1)).toEqual({ name: "SET_WIDTH_PROFILE", args: { refs: ["1:1"], profile: "WEDGE", plugin: true } });
+    expect(read("1:1")).toEqual({ widthProfile: "WEDGE", variableWidthPoints: [{ position: 0, width: 0.5 }, { position: 1, width: 0 }] });
+    setVariableWidthStrokeProperties(ctx, n, { widthProfile: "TAPER" });
+    expect(read("1:1")).toEqual({ widthProfile: "TAPER", variableWidthPoints: [{ position: 0, width: 0.5 }, { position: 1, width: 0.1875 }] });
+    // A reversed preset reads back as that preset (live: CUSTOM [0:0, 1:.5] → WEDGE with the reversed points).
+    setVariableWidthStrokeProperties(ctx, n, { widthProfile: "CUSTOM", variableWidthPoints: [{ position: 1, width: 0.5 }, { position: 0, width: 0 }] });
+    expect(commands.at(-1)!.args.points).toEqual([
+      { position: 0, ascent: 0, descent: 0 },
+      { position: 1, ascent: 0.5, descent: 0.5 },
     ]);
-    expect(variableWidthStrokeProperties(ctx, ctx.ed.engine.readNode("1:1")!)).toEqual({ widthProfile: "CUSTOM", variableWidthPoints: [{ position: 0, width: 2 }, { position: 1, width: 0.5 }] });
+    expect(read("1:1")).toEqual({ widthProfile: "WEDGE", variableWidthPoints: [{ position: 0, width: 0 }, { position: 1, width: 0.5 }] });
+    setVariableWidthStrokeProperties(ctx, n, { widthProfile: "CUSTOM", variableWidthPoints: [{ position: 0.5, width: 2 }] });
+    expect(read("1:1")).toEqual({ widthProfile: "CUSTOM", variableWidthPoints: [{ position: 0.5, width: 2 }] });
     setVariableWidthStrokeProperties(ctx, n, null);
-    expect(props.at(-1)!.fields.variableWidthPoints).toEqual([]);
+    expect(commands.at(-1)!.args.profile).toBe("UNIFORM");
+    // A dynamic stroke takes the points (Figma keeps them) and reads them back.
     const dyn = ctx.ed.engine.readNode("1:2")!;
-    expect(variableWidthStrokeProperties(ctx, dyn)).toBeNull();
-    expect(() => setVariableWidthStrokeProperties(ctx, dyn, { widthProfile: "EYE" })).toThrow(/dynamic strokes/);
+    setVariableWidthStrokeProperties(ctx, dyn, { widthProfile: "EYE" });
+    expect(read("1:2").widthProfile).toBe("EYE");
+    expect(() => setVariableWidthStrokeProperties(ctx, ctx.ed.engine.readNode("1:3")!, { widthProfile: "EYE" })).toThrow("Cannot set variableWidthStrokeProperties on complex vector nodes");
+    expect(() => setVariableWidthStrokeProperties(ctx, ctx.ed.engine.readNode("1:4")!, { widthProfile: "EYE" })).toThrow(/read-only node/);
+    expect(() => setVariableWidthStrokeProperties(ctx, n, { widthProfile: "CUSTOM", variableWidthPoints: [] })).toThrow(/at least one point/);
     expect(() => setVariableWidthStrokeProperties(ctx, n, { widthProfile: "BLOB" })).toThrow(/invalid enum value 'BLOB'/);
+  });
+
+  it("stroke settings limits: at most 8 positive dashes; strokeMiterLimit 1–16", () => {
+    const { ctx, props } = fakeCtx([node("1:1")]);
+    setProp(ctx, "1:1", "dashPattern", [4, 2, 1, 2]);
+    expect(props.at(-1)!.fields.dashPattern).toEqual([4, 2, 1, 2]);
+    expect(() => setProp(ctx, "1:1", "dashPattern", [1, 2, 3, 4, 5, 6, 7, 8, 9])).toThrow("A maximum of 8 dash patterns is supported");
+    expect(() => setProp(ctx, "1:1", "dashPattern", [4, -1])).toThrow(/positive/);
+    setProp(ctx, "1:1", "strokeMiterLimit", 16);
+    expect(props.at(-1)!.fields.miterLimit).toBe(16);
+    expect(() => setProp(ctx, "1:1", "strokeMiterLimit", 17)).toThrow("in set_strokeMiterLimit: Number must be less than or equal to 16");
+    expect(() => setProp(ctx, "1:1", "strokeMiterLimit", 0.5)).toThrow("in set_strokeMiterLimit: Number must be greater than or equal to 1");
+  });
+
+  it("reads Figma's Dynamic encoding: strokeBrushGuid -1:-1 is no brush; the neutral {1, 0, 0} is BASIC", () => {
+    const sentinel = { sessionID: 4294967295, localID: 4294967295 };
+    const { ctx } = fakeCtx([
+      node("1:1", { strokeBrushGuid: sentinel, dynamicStrokeSettings: { frequency: 0.75, wiggle: 0.30000001192092896, smoothen: 0.5 } }),
+      node("1:2", { strokeBrushGuid: sentinel, dynamicStrokeSettings: { frequency: 1, wiggle: 0, smoothen: 0 } }),
+      node("1:3", { strokeBrushGuid: "-1:-1" }),
+    ]);
+    const read = (id: string) => complexStrokeProperties(ctx, ctx.ed.engine.readNode(id)!);
+    expect(read("1:1")).toEqual({ type: "DYNAMIC", frequency: 0.75, wiggle: 0.30000001192092896, smoothen: 0.5 });
+    expect(read("1:2")).toEqual({ type: "BASIC" });
+    expect(read("1:3")).toEqual({ type: "BASIC" });
   });
 });

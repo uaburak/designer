@@ -57,7 +57,8 @@ describe("width profiles (round 12)", () => {
     expect(matchProfile(pointsOf(engine, "7:64"))).toBe("TAPER");
     expect(engine.command("FLIP_WIDTH_POINTS", { refs: ["7:64"] })).toBe(Status.OK);
     const flipped = pointsOf(engine, "7:64");
-    expect(flipped[0].ascent + flipped[0].descent).toBeCloseTo(0.25);
+    expect(flipped[0].ascent).toBeCloseTo(0.1875); // Figma's tapered end
+    expect(matchProfile(flipped)).toBe("TAPER"); // a reversed preset is still that preset (Figma)
     expect(flipped[1].ascent + flipped[1].descent).toBeCloseTo(1);
     engine.undo();
     expect(matchProfile(pointsOf(engine, "7:64"))).toBe("TAPER");

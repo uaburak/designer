@@ -14,7 +14,7 @@
  */
 import { useState, type ReactNode } from "react";
 import { VariableField } from "./Variables";
-import { MIXED, MenuButton, NumericInput, Popover, PropertyGrid, PropertyRow, SegmentedControl, Select, Icon, IconButton, TextInput, cx, type ChangeInfo, type IconName, type MenuEntry, type SelectOption } from "@/ds";
+import { MIXED, MenuButton, NumericInput, Popover, PropertyGrid, PropertyRow, SegmentedControl, Select, Icon, IconButton, TextInput, cx, tooltipProps, type ChangeInfo, type IconName, type MenuEntry, type SelectOption } from "@/ds";
 import type { NodeFields, StrokeAlign, StrokeCap } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { runEngineCommand } from "../../engineCompat";
@@ -22,7 +22,8 @@ import { fieldValue, mixed, mixedNumber, sameData } from "../../model/mixed";
 import { exitToCanvas } from "./Sections";
 import { WIDTH_PROFILES, matchProfile, presetPoints as presetOf, profilePath, readWidthPoints, type WidthPoint } from "../../widthProfile";
 import { PANEL_MENU_GAP, fields, hasCorners, typeOf, useKeeps, type PanelNode } from "./shared";
-import { DYNAMIC_RANGE, SCATTER_RANGE, type BrushEntry, type StrokeKind } from "@shared/draw/types";
+import { DYNAMIC_RANGE, DYNAMIC_SLIDER_MAX, SCATTER_RANGE, type BrushEntry, type StrokeKind } from "@shared/draw/types";
+import { MITER_LIMIT_RANGE, dashPatternError } from "@shared/strokeLimits";
 import { BrushMenu, BrushPreview } from "../../draw/BrushMenu";
 import { brushSections } from "../../draw/drawTools";
 import { DYNAMIC_FIELDS, SCATTER_FIELDS, dynamicOf, pickStrokeBrush, scatterOf, setDynamic, setScatter, setStretch, setStrokeKind, stretchOf, strokeBrushOf, strokeKindOf } from "../../draw/panels/drawPanel";
@@ -274,7 +275,10 @@ const CAPS: { value: string; label: string; open?: boolean }[] = [
 
 /** miterLimit ↔ Figma's "Miter angle" (the smallest angle that still gets a miter): angle = 2·asin(1 / limit). */
 export const miterAngle = (limit: number) => (2 * Math.asin(1 / Math.max(1, limit)) * 180) / Math.PI;
-export const miterLimitOf = (angleDeg: number) => 1 / Math.sin((Math.max(1, Math.min(180, angleDeg)) * Math.PI) / 360);
+/** The Miter angle field's range: Figma's strokeMiterLimit 1–16 → 180° down to about 7.17°. */
+export const MITER_ANGLE_MIN = miterAngle(MITER_LIMIT_RANGE[1]);
+export const miterLimitOf = (angleDeg: number) =>
+  Math.min(MITER_LIMIT_RANGE[1], Math.max(MITER_LIMIT_RANGE[0], 1 / Math.sin((Math.max(MITER_ANGLE_MIN, Math.min(180, angleDeg)) * Math.PI) / 360)));
 
 /** The dash pattern as Figma's two fields (the first dash and gap; a gap missing = the dash). */
 export function dashOf(pattern: readonly number[] | undefined): { dashed: boolean; dash: number; gap: number } {
@@ -300,10 +304,13 @@ export function strokeStyleOf(pattern: readonly number[] | undefined): "SOLID" |
   return pattern.length <= 2 ? "DASHED" : "CUSTOM";
 }
 
-/** "Dashes" typed for a Custom style: numbers apart by commas or spaces (dash, gap, dash, gap…); null when not. */
+/**
+ * "Dashes" typed for a Custom style: numbers apart by commas or spaces (dash, gap, dash, gap…); null when not — or
+ * past Figma's limits (at most 8 entries, each positive; src/shared/strokeLimits.ts).
+ */
 export function parseDashes(raw: string): number[] | null {
   const parts = raw.trim().split(/[\s,]+/).filter(Boolean).map(Number);
-  if (!parts.length || parts.some((n) => !Number.isFinite(n) || n < 0)) return null;
+  if (!parts.length || dashPatternError(parts)) return null;
   return parts.map((n) => Math.round(n * 100) / 100);
 }
 
@@ -330,14 +337,27 @@ function WidthProfileRow({ nodes }: { nodes: PanelNode[] }) {
   const profiles = lists.map((l) => matchProfile(l));
   const same = profiles.every((p, i) => p === profiles[0] && (p !== "CUSTOM" || JSON.stringify(lists[i]) === JSON.stringify(lists[0])));
   const value = same ? profiles[0] ?? "UNIFORM" : MIXED;
-  // Figma: no width profile on dynamic, brush or dashed strokes (docs/draw.md §5.4).
-  const allowed = ed.engine.commandState("SET_WIDTH_PROFILE") !== 0 && nodes.every((n) => strokeKindOf(n) === "BASIC" && !n.dashPattern?.length);
+  // Figma: no width profile on dynamic strokes, branching networks or dashed strokes, in that order for the reason it
+  // gives; a brush stroke is allowed (docs/research/rea/vector.md §3, 1968.min.js @61086).
+  const dynamic = nodes.some((n) => strokeKindOf(n) === "DYNAMIC");
+  const dashed = nodes.some((n) => !!n.dashPattern?.length);
+  const engineAllows = ed.engine.commandState("SET_WIDTH_PROFILE") !== 0;
+  const allowed = engineAllows && !dynamic && !dashed;
+  const reason = allowed
+    ? undefined
+    : dynamic
+      ? t("Not available for dynamic strokes")
+      : !engineAllows && !dashed
+        ? t("Not available for vector networks with branching paths")
+        : dashed
+          ? t("Not available for dashed strokes")
+          : undefined;
   const options: SelectOption[] = WIDTH_PROFILES.map((p) => ({ value: p.value, label: t(p.label), image: <ProfileImage points={presetOf(p.value)} /> }));
   if (value === "CUSTOM") options.push({ value: "CUSTOM", label: t("Custom"), image: <ProfileImage points={lists[0]} />, disabled: true });
   return (
     <>
       <span className={styles.settingsLabel}>{t("Width profile")}</span>
-      <span className={styles.widthProfile}>
+      <span className={styles.widthProfile} {...tooltipProps(reason)} data-width-profile-reason={reason ?? ""}>
         <Select
           label={t("Width profile")}
           variant="ghost"
@@ -488,7 +508,7 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
               boxLabel
               prefix="24.radius.top.left"
               unit="°"
-              min={1}
+              min={MITER_ANGLE_MIN}
               max={180}
               value={fieldValue(angle)}
               onChange={(v, info) => ed.edit("Miter angle", info, () => void ed.engine.setProps(refs, fields({ miterLimit: miterLimitOf(v) })))}
@@ -534,7 +554,7 @@ function DynamicRows({ nodes }: { nodes: PanelNode[] }) {
           <FieldWithSlider
             key={f.id}
             field={<NumericInput className={drawMode ? undefined : styles.settingsWideField} scrubHandle="previous" label={t(f.label)} min={min} max={max} step={f.step} bigStep={f.step * 10} precision={2} value={value} onChange={write} onCancel={() => ed.cancelEdit()} data-dynamic-field={f.id} />}
-            slider={drawMode ? { label: t(f.label), value, min, max: f.id === "wiggle" ? 10 : max, step: f.step, onChange: write, onCancel: () => ed.cancelEdit() } : null}
+            slider={drawMode ? { label: t(f.label), value, min, max: DYNAMIC_SLIDER_MAX[f.id], step: f.step, onChange: write, onCancel: () => ed.cancelEdit() } : null}
           />,
         ];
       })}

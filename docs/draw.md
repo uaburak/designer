@@ -182,7 +182,7 @@ It adds `transformModifiers`, applied in order. Name it "Repeat group N" ([unver
    - **RADIAL**: the pivot P = (B.centerX, B.bottom + r), with r = `offset.x` in px or `offset.x × B.h` for RELATIVE. M_k = rotate(k · 360° / count, about P), clockwise. The source stays on top and copies go clockwise around P.
    - `order`: FORWARD draws copy 0 (the source) lowest and the last copy on top; REVERSE draws the opposite.
 3. SYMMETRY and SKEW are kept but not evaluated: they pass the content through. Figma's UI and plugin API offer REPEAT only.
-4. Limits: `count` is clamped to 1…1000. A group draws at most 10,000 instances; past that it draws the first 10,000 and the layer gets the stroke-warning badge [ours].
+4. Limits: authoring writes `count` as an integer 2…40, Figma's plugin limits (live 2026-10-15: 0, 1 and 41 refused with "Number must be less than or equal to 40 at [0].count", 2 and 40 accepted; `docs/research/rea/vector.md` §6) — the panel's Count, the plugin's setters and the engine's ADD / SET_TRANSFORM_MODIFIER. A file's `count` is read leniently, clamped to 1…1000. A group draws at most 10,000 instances; past that it draws the first 10,000 and the layer gets the stroke-warning badge [ours].
 
 All of step 2's geometry is [unverified]: the gap is measured edge to edge (Figma's panel says "Gap"), the radial pivot sits below the content, rotation is clockwise and copy 0 is the source. Calibrate on a sample (§11).
 
@@ -207,12 +207,12 @@ All of step 2's geometry is [unverified]: the gap is measured edge to edge (Figm
 
 ### 4.3 Dynamic strokes (`dynamicStrokeSettings` 448, `strokeSeed` 482)
 
-**Stroke kind is implicit, as in Figma's schema:**
-- **Brush**: `strokeBrushGuid` is set.
-- **Dynamic**: `dynamicStrokeSettings` is present.
-- **Basic**: neither.
+**Stroke kind is implicit, as in Figma's schema** (Figma's rule, `docs/research/rea/vector.md` §1, `1968.min.js @74046`):
+- **Brush**: `strokeBrushGuid` is set **and is not `-1:-1`**. Figma writes `strokeBrushGuid = -1:-1` (our `kNoGuid`, read as `4294967295:4294967295`) whenever a stroke becomes Dynamic or Basic, so every Dynamic stroke in a Figma file carries it — that GUID is "no brush".
+- **Dynamic**: `dynamicStrokeSettings` is present **and differs from the neutral `{frequency 1, wiggle 0, smoothen 0}`**.
+- **Basic**: otherwise. One predicate everywhere: the engine's `strokeBrushOf` / `dynamicSettingsOf` / `hasDynamicStroke` (renderer, hit-testing, exporters, bounds, `widthProfileAllowed`) and TS `strokeKindOfFields` / `strokeBrushOf` (`src/shared/draw/apiShapes.ts`: Stroke settings, REST JSON, the plugin API).
 
-Setting one kind clears the other's fields (`clearedFields`). Dynamic also clears `variableWidthPoints` and `dashPattern`, because Figma does not allow variable width with dynamic or dashed strokes.
+Writes, as Figma's (`3187.min.js @3365736`): **Dynamic** writes its settings and `strokeBrushGuid = -1:-1` (a layer whose field holds the neutral value starts from the defaults 0.75 / 0.3 / 0.5); **Basic** writes `strokeBrushGuid = -1:-1` and, when `dynamicStrokeSettings` is present, resets it to the neutral value instead of removing it; **Brush** writes the brush's GUID and removes `dynamicStrokeSettings`. A kind change **keeps `variableWidthPoints` and `dashPattern`** (live: a TAPER stroke set to DYNAMIC kept its points; a `[4,4]` dash survived variable width) — the renderer ignores width points on a dynamic or dashed stroke (`widthProfileAllowed`) and the dashes on a dynamic stroke (the renderer and the exporters; Stroke settings shows dashes for Basic only) [ours: Figma's drawing of them unverified], and a brush stroke draws its brush.
 
 **Geometry** (`engine/src/geometry/DynamicStroke.{h,cpp}`, new). `Path dynamicCenterline(const Path& center, double weight, const DynamicStrokeSettings&, uint64_t seed, double tolerance)` displaces each contour of the stroke's centre line along its normal. The ordinary stroker then strokes the result, with the node's caps, joins and alignment.
 - Wavelength λ = `kDynWavelengthPx` / frequency, in node px. Knots sit every λ/2 of arc length. Each knot gets a value u ∈ [−1, 1] from a counter-based hash of (seed, contour, knot). Closed contours wrap the knots so the start meets the end.
@@ -223,6 +223,7 @@ Setting one kind clears the other's fields (`clearedFields`). Dynamic also clear
 - Smoothen also low-passes the input polyline. A moving average over a window of smoothen · λ/2 removes the hand jitter of Pencil strokes before displacement.
 - First constants [unverified, calibrate on a sample's `strokeGeometry`]: `kDynWavelengthPx` = 100 (frequency 1 → one wave per 100 px) and `kDynAmplitude` = 0.5. No taper at open ends.
 - `strokeSeed`: when a layer becomes Dynamic or Brush without a seed, the engine writes a random 64-bit seed in the same step. Duplicates keep their seed, so a copy looks the same.
+- Defaults and ranges (Figma's; live: a new Dynamic reads back `0.75 / 0.30000001192092896 / 0.5`, float32): a new Dynamic stroke is `{frequency 0.75, wiggle 0.3, smoothen 0.5}`; frequency 0.01–20, wiggle ≥ 0 with no upper bound (the document keeps any value; the geometry caps it at `kDynWiggleCap` = 100 [ours]), smoothen 0–1. Draw's sliders run to Figma's maxima: frequency 2, wiggle 5, smoothen 1 (`1968.min.js` module 326635); the number fields take the whole range.
 
 **Everywhere a stroke outline is used**, dynamic strokes take the same path as brushes already do (`Brush.h brushStroke`):
 - render bounds;
@@ -288,10 +289,10 @@ The outline is cached by (centre-line hash, settings, seed, weight, tolerance le
   - If a BRUSH node with that `name` and `brushType` is already on `0:2`, its GUID comes back.
   - Otherwise a BRUSH node is created on `0:2` (a VECTOR-like network from `d`, `size` = width × height) and its GUID comes back.
   - It is a system write inside the open step (the Brush tool's stroke, or SET_STROKE_BRUSH's), so undoing the stroke removes the brush too.
-- **SET_STROKE_BRUSH** (316) takes `{refs?, brush: guid}`. It writes `strokeBrushGuid`, the settings' defaults if absent and `strokeSeed`, and clears Dynamic, `variableWidthPoints` and `dashPattern`.
+- **SET_STROKE_BRUSH** (316) takes `{refs?, brush: guid}`. It writes `strokeBrushGuid`, the settings' defaults if absent and `strokeSeed`, removes `dynamicStrokeSettings` and the old brush's `scatterBrushTransforms`, and keeps `variableWidthPoints` and `dashPattern` (Figma, §4.3).
   - Defaults: stretch `{orientation FORWARD}`; scatter `{gap 1, wiggle 0, angularJitter 0, rotation 0, sizeJitter 0}` [unverified].
   - Undo "Change stroke".
-- **SET_STROKE_KIND** (315) takes `{refs?, kind: "BASIC" | "DYNAMIC", dynamic?}`.
+- **SET_STROKE_KIND** (315) takes `{refs?, kind: "BASIC" | "DYNAMIC", dynamic?}`. Both write `strokeBrushGuid = -1:-1`; BASIC resets a present `dynamicStrokeSettings` to the neutral `{1, 0, 0}` (§4.3).
 - **SET_BRUSH_SETTINGS** (317) takes `{refs?, scatter?: Partial, stretch?: {orientation}}`. A scrub coalesces.
 - **CREATE_BRUSH** (318) takes `{ref, brushType}`:
   - The layer must be one vector-like layer whose fill geometry is closed. Otherwise it fails with `E_INVALID`, and the chrome toasts "Only closed paths can be used as brushes" [wording ours].
@@ -394,7 +395,7 @@ Every exporter reads the evaluated scene (`export/Scene.cpp`):
   - Flatten.
 - **Brushes**:
   - INSTALL_BRUSH is idempotent by name and type;
-  - SET_STROKE_BRUSH clears Dynamic and width points;
+  - SET_STROKE_BRUSH clears Dynamic and keeps width points and dashes;
   - CREATE_BRUSH refuses an open path;
   - copy / paste carries and dedupes BRUSH nodes;
   - the Brush tool's stroke;
@@ -414,7 +415,7 @@ Derived geometry only; nothing new is journaled. Native tests: `engine/tests/uni
 - `defaultProps(TEXT_PATH)`: black fill, OUTSIDE stroke, `textAlignVertical BOTTOM`.
 
 **Transform groups** (`geometry/Repeat.{h,cpp}`):
-- `geom::evaluateRepeat(modifiers, contentBox, cap)` → `RepeatResult {instances, bounds, capped}`. It follows §4.2 exactly (LINEAR X / Y / X_AND_Y, RADIAL clockwise about `(B.cx, B.bottom + r)`, PIXELS / RELATIVE, FORWARD / REVERSE, SYMMETRY / SKEW passed through, count clamped to 1…1000, at most 10 000 instances).
+- `geom::evaluateRepeat(modifiers, contentBox, cap)` → `RepeatResult {instances, bounds, capped}`. It follows §4.2 exactly (LINEAR X / Y / X_AND_Y, RADIAL clockwise about `(B.cx, B.bottom + r)`, PIXELS / RELATIVE, FORWARD / REVERSE, SYMMETRY / SKEW passed through, a file's count read clamped to 1…1000 (authoring writes 2…40), at most 10 000 instances).
 - `transformModifiersOf(props)` decodes `transformModifiers` once per distinct bytes.
 - `repeatContent(doc, id, box)`: the union of the visible children's layout boxes.
 - `repeatOf(doc, id)`: the cached result, keyed by the content box and the modifier bytes.
@@ -537,7 +538,7 @@ They persist per session [ours].
 - **Brush**: the **Brush** picker (§5.6), then the settings for the brush's type:
   - stretch: **Direction** (Forward / Backward);
   - scatter: **Gap**, **Wiggle**, **Size jitter**, **Angular jitter**, **Rotation** (labels from the plugin field names [unverified]).
-- Width profile stays disabled for Dynamic, Brush and dashed strokes (Figma).
+- Width profile is disabled for Dynamic strokes, branching networks and dashed strokes, in Figma's order for the reason the disabled control's tooltip gives ("Not available for dynamic strokes" / "… for vector networks with branching paths" / "… for dashed strokes" — the wording is ours, Figma's i18n strings unread). Brush strokes are allowed (Figma, `1968.min.js @61086`).
 
 ### 5.5 Transform section (7d; `editor/draw/panels/TransformSection.tsx`)
 
@@ -651,17 +652,17 @@ Built against the Engine.ts stubs, as 7c: every Draw command goes through `runDr
   - A component in Draw shows `TypeHeader`, not its properties; an instance keeps `InstanceHeader` (its swap header — the properties come with it) [ours].
   - Design: unchanged, plus Transform when every selected layer is a transform group.
   - `rightPanelTabs(mode)`: Draw has no Prototype tab; `RightPanel` shows Design in Draw and gives the chosen tab back in Design.
-- **Sliders** (DS `Slider`, `docs/design-system.md` §4.38): a `SliderRow` under Opacity / Corner radius and under Stroke weight; in the stroke popover under Frequency / Wiggle / Smoothen and the Scatter fields; in the effect popover under blur radius, spread, the shadow colour's opacity, noise density / opacity and texture radius. Each writes through the field's own handlers (one undo step per drag). Ranges where a field has none are ours (`SLIDER_RANGE`: 0–100; spread −100…100; Dynamic's Wiggle slider 0–10).
+- **Sliders** (DS `Slider`, `docs/design-system.md` §4.38): a `SliderRow` under Opacity / Corner radius and under Stroke weight; in the stroke popover under Frequency / Wiggle / Smoothen and the Scatter fields; in the effect popover under blur radius, spread, the shadow colour's opacity, noise density / opacity and texture radius. Each writes through the field's own handlers (one undo step per drag). Ranges where a field has none are ours (`SLIDER_RANGE`: 0–100; spread −100…100). Dynamic's sliders run to Figma's maxima, frequency 2 / wiggle 5 / smoothen 1 (`DYNAMIC_SLIDER_MAX`, §4.3).
 - **Larger previews**: Fill and Stroke paint chits 20 px inside the 24 field in Draw (ours: §5.3's 24 doesn't fit inside a 24 field).
 - **Stroke** (`panels/design/Stroke.tsx`, in Advanced stroke settings):
   - Stroke Type reads the kind from the document (`strokeKindOf`: a brush GUID, Dynamic settings, or neither; Mixed across layers) and writes `SET_STROKE_KIND` BASIC / DYNAMIC (with `DYNAMIC_DEFAULTS`) or `SET_STROKE_BRUSH` with the last-used brush (`lastBrush`: the Brush tool's, installed first when it is a built-in; nothing is sent when it can't be installed).
   - Dynamic: Frequency, Wiggle, Smoothen, clamped to `DYNAMIC_RANGE`, a scrub one "Change stroke".
   - Brush: the **Brush** picker (7c's `BrushMenu` with `placement="left-of-panel"`, all sections — no `type` filter, so a stroke can go from a stretch to a scatter brush [ours]); a pick sets the layers' brush and becomes the last-used brush (`chooseBrush`). Then **Direction** (Forward / Backward → `SET_BRUSH_SETTINGS stretch`) or Gap, Wiggle, Size jitter, Angular jitter, Rotation (clamped to `SCATTER_RANGE`).
-  - Style, dashes and the dash cap show for Basic strokes only; Width profile is disabled for Dynamic, Brush and dashed strokes.
+  - Style, dashes and the dash cap show for Basic strokes only; Width profile is disabled for Dynamic strokes, branching networks and dashed strokes, with the reason as a tooltip; Brush strokes are allowed (§5.4).
 - **Transform** (`draw/panels/TransformSection.tsx`):
   - "+" (`MenuButton`, tooltip "Additional transform modifier"): Linear repeat / Radial repeat → `ADD_TRANSFORM_MODIFIER` with `REPEAT_DEFAULTS`.
   - Rows for one selected transform group: the REPEAT modifiers in document order (SYMMETRY / SKEW kept, not listed), each its 16 glyph and "Linear repeat" / "Radial repeat", the eye (`SET_TRANSFORM_MODIFIER {visible}`), "−" (`REMOVE_…`), a grip (`MOVE_…`, document indices).
-  - A row opens the **Repeat** popover: Count (1…1000, rounded), Gap with a px / % toggle (RELATIVE shown as a percent; switching keeps the number shown [ours]), Axis Horizontal / Vertical for Linear, Order Forward / Reverse. A scrub is one "Change repeat".
+  - A row opens the **Repeat** popover: Count (2…40, rounded — Figma's limits, §4.2), Gap with a px / % toggle (RELATIVE shown as a percent; switching keeps the number shown [ours]), Axis Horizontal / Vertical for Linear, Order Forward / Reverse. A scrub is one "Change repeat".
   - **Apply transforms to selection** (a secondary button) when transform groups are selected → `APPLY_TRANSFORMS`.
 - **Typography** for TEXT_PATH: no line height (letter spacing alone), Justify added to the horizontal alignments, **Flip** (`24.text-path-flip`, "Flip text orientation" → `FLIP_TEXT_PATH` with the refs) in Type settings' place — so Type settings' paragraph / list / truncation fields don't show.
 - **Layers** (`panels/Layers.tsx`, `draw/panels/layerThumbs.ts`, `LayerThumb.tsx`):
@@ -727,7 +728,8 @@ Built against the Engine.ts stubs, as 7c: every Draw command goes through `runDr
   - `TransformGroupNode` (`type 'TRANSFORM_GROUP'`, `transformModifiers`; LINEAR `axis HORIZONTAL` ↔ X, `VERTICAL` ↔ Y);
   - `figma.transformGroup`;
   - `node.complexStrokeProperties`: BASIC / DYNAMIC / BRUSH with `brushName` = the BRUSH node's built-in key, else `'CUSTOM'` (setting `CUSTOM` throws, as in Figma);
-  - `node.variableWidthStrokeProperties` (round 12's points);
+  - `node.variableWidthStrokeProperties`: Figma's shape (live) `{widthProfile, variableWidthPoints: [{position, width}]}` for every stroke kind, points given for presets too, `width` = the point's ascent (0.5 = half the weight each side), a reversed preset read as itself; the setter writes `ascent = descent = width` (CUSTOM needs a point) through SET_WIDTH_PROFILE's plugin form and refuses only complex networks ("Cannot set variableWidthStrokeProperties on complex vector nodes");
+  - `dashPattern` (at most 8 entries, each positive) and `strokeMiterLimit` (1–16) checked as Figma's (`src/shared/strokeLimits.ts`);
   - `figma.loadBrushesAsync`;
   - pattern strokes in `setStrokesAsync`.
 - **REST JSON** (`editor/rest/fileJson.ts`): node types `TEXT_PATH` and `TRANSFORM_GROUP` [Figma's REST names unverified; we use the plugin's], with their fields.
@@ -843,8 +845,10 @@ export const SCATTER_RANGE = {
   angularJitter: [-180, 180],
   rotation: [-180, 180],
 } as const;
-/** [unverified] defaults (ours until a Figma sample shows its own). */
-export const DYNAMIC_DEFAULTS: DynamicSettings = { frequency: 2, wiggle: 1, smoothen: 0.5 };
+/** Defaults: Dynamic's are Figma's (live, rea/vector.md §2); the others ours [unverified]. */
+export const DYNAMIC_DEFAULTS: DynamicSettings = { frequency: 0.75, wiggle: 0.3, smoothen: 0.5 }; // Figma's (live)
+export const DYNAMIC_NEUTRAL: DynamicSettings = { frequency: 1, wiggle: 0, smoothen: 0 }; // what Basic leaves; reads as Basic
+export const DYNAMIC_SLIDER_MAX = { frequency: 2, wiggle: 5, smoothen: 1 } as const; // Draw's sliders (Figma's)
 export const SCATTER_DEFAULTS: ScatterSettings = { gap: 1, wiggle: 0, angularJitter: 0, rotation: 0, sizeJitter: 0 };
 export const STRETCH_DEFAULTS: StretchSettings = { direction: "FORWARD" };
 
@@ -884,7 +888,7 @@ export interface RepeatModifierInput {
   order: "FORWARD" | "REVERSE";
   visible: boolean;
 }
-export const REPEAT_COUNT_RANGE = [1, 1000] as const;
+export const REPEAT_COUNT_RANGE = [2, 40] as const; // Figma's plugin limits (authoring; files read 1…1000)
 export const MAX_REPEAT_INSTANCES = 10_000;
 /** [unverified] defaults for "Linear repeat" / "Radial repeat". */
 export const REPEAT_DEFAULTS: Record<RepeatKind, RepeatModifierInput> = {
@@ -953,7 +957,7 @@ export function splitTValue(tValue: number): { segment: number; position: number
 
 ### As built (7b, 2026-10-12)
 
-- **Commands** (`engine/src/editor/DrawCommands.cpp`, dispatched from `Editor::command` 310–321): as §4.2–4.5 with §4.7's undo names. ADD_TRANSFORM_MODIFIER wraps the targets as Group does into a TRANSFORM "Repeat group N" (`resizeToFit`, no fill, no clip) or appends to one selected TRANSFORM; APPLY_TRANSFORMS writes a group (FRAME `resizeToFit`) with the source children (GUIDs kept) and `cloneSubtree` copies at each instance, nested groups first. SET_STROKE_KIND / SET_STROKE_BRUSH write the implicit kind's fields, clear the other kind, width points and dashes, and give a seed when absent (< 2^53). CREATE_BRUSH refuses any open fill contour (E_INVALID). CREATE_TEXT_PATH copies the shape's network at its size (`networkOf`), above it, or (`replace`) at its position with its name, the source removed; `created` gives the GUID.
+- **Commands** (`engine/src/editor/DrawCommands.cpp`, dispatched from `Editor::command` 310–321): as §4.2–4.5 with §4.7's undo names. ADD_TRANSFORM_MODIFIER wraps the targets as Group does into a TRANSFORM "Repeat group N" (`resizeToFit`, no fill, no clip) or appends to one selected TRANSFORM; APPLY_TRANSFORMS writes a group (FRAME `resizeToFit`) with the source children (GUIDs kept) and `cloneSubtree` copies at each instance, nested groups first. SET_STROKE_KIND / SET_STROKE_BRUSH write the implicit kind's fields as §4.3 says (Figma's `-1:-1` and neutral Dynamic), keep width points and dashes, and give a seed when absent (< 2^53). CREATE_BRUSH refuses any open fill contour (E_INVALID). CREATE_TEXT_PATH copies the shape's network at its size (`networkOf`), above it, or (`replace`) at its position with its name, the source removed; `created` gives the GUID.
 - **ABI** (`api/DrawApi.inc`): `engine_install_brush` (SVG `d` parsed by `parseSvgPath`; same name + type → that node; outside an open step a SYSTEM write), `engine_list_brushes`, `engine_brush_preview` (CPU rasterizer, nonzero, 4×4 samples: black with coverage in alpha), `engine_set_draw_tool_settings`.
 - **Tools** (`engine/src/tools/DrawTools.cpp`): Brush = Pencil gesture with the Brush's colour / weight / brush (+ default settings, seed), label "Brush"; Pencil Basic / Dynamic from the settings; Shift straight line; ⌘-click samples (event + the engine's own copy); Text on path tool and the Text tool over an edge within 6 CSS px (`textPathTargetAt`, topmost, culled by render bounds) create and edit; the start handle (6 CSS px) drags as gesture `TextPathStart` ("Move text start"); caret and selection drawn as overlay curves / regions along `TextLayout::path`; clicks map to the nearest glyph boundary.
 - **Clipboard**: copy appends the BRUSH nodes strokes use; paste maps each to this file's brush with the same name, type, size and network bytes, else copies it onto the Internal Only Canvas, and remaps `strokeBrushGuid`.

@@ -7,6 +7,7 @@
 import type { Guid, NodeChange, NodeFields } from "@/engine/codec";
 import { Status } from "@/engine/abi";
 import { keyAfter, keyBetween } from "@shared/schema/fractionalIndex";
+import { dashPatternError, MITER_LIMIT_RANGE } from "@shared/strokeLimits";
 import { fieldsOf, readProps, PROP_NAMES, sizingOf } from "../../agents/nodeSpec";
 import { cssOf } from "../../model/exports";
 import { mainOf } from "../../components";
@@ -263,7 +264,23 @@ const PROPS: Record<string, Prop> = {
   layoutSizingHorizontal: { get: (ctx, n) => sizingOf(n, parentOf(ctx, n), "H"), set: viaSpec("layoutSizingHorizontal").set },
   layoutSizingVertical: { get: (ctx, n) => sizingOf(n, parentOf(ctx, n), "V"), set: viaSpec("layoutSizingVertical").set },
   expanded: { get: () => false, set: () => {} },
-  dashPattern: field("dashPattern", []),
+  // Figma's limits (src/shared/strokeLimits.ts): at most 8 entries, each positive; strokeMiterLimit 1–16.
+  dashPattern: field("dashPattern", [], (v) => {
+    if (!Array.isArray(v)) throw new ApiError("in set_dashPattern: Expected an array of numbers");
+    const error = dashPatternError(v);
+    if (error) throw new ApiError(`in set_dashPattern: ${error}`);
+    return v;
+  }),
+  strokeMiterLimit: {
+    get: viaSpec("strokeMiterLimit").get,
+    set: (ctx, n, v) => {
+      const limit = needNumber("strokeMiterLimit")(v) as number;
+      const [lo, hi] = MITER_LIMIT_RANGE;
+      if (limit < lo) throw new ApiError(`in set_strokeMiterLimit: Number must be greater than or equal to ${lo}`);
+      if (limit > hi) throw new ApiError(`in set_strokeMiterLimit: Number must be less than or equal to ${hi}`);
+      viaSpec("strokeMiterLimit").set!(ctx, n, limit);
+    },
+  },
   exportSettings: field("exportSettings", []),
   description: { get: (_ctx, n) => (n as unknown as Obj).description ?? "", set: (ctx, n, v) => writeFields(ctx, n.guid, { description: needString("description")(v) } as NodeFields, "description") },
   descriptionMarkdown: { get: (_ctx, n) => (n as unknown as Obj).description ?? "", set: (ctx, n, v) => writeFields(ctx, n.guid, { description: needString("descriptionMarkdown")(v) } as NodeFields, "descriptionMarkdown") },

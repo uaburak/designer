@@ -137,7 +137,8 @@ TEST_CASE("r12 width profiles: the API's six presets, matched back; flipped alon
   geom::profileAt(wedge, 0.5, a, d);
   CHECK(a + d == doctest::Approx(0.5));
   geom::profileAt(geom::presetPoints(WidthProfile::TAPER), 1, a, d);
-  CHECK(a + d == doctest::Approx(0.25));
+  CHECK(a == doctest::Approx(0.1875));  // Figma's tapered end (rea/vector.md §3)
+  CHECK(a + d == doctest::Approx(0.375));
   auto eye = geom::presetPoints(WidthProfile::EYE);
   geom::profileAt(eye, 0.5, a, d);
   CHECK(a + d == doctest::Approx(1));
@@ -147,6 +148,30 @@ TEST_CASE("r12 width profiles: the API's six presets, matched back; flipped alon
   geom::profileAt(flipped, 0, a, d);
   CHECK(a + d == doctest::Approx(0));
   CHECK(geom::matchPreset(geom::flipped(geom::presetPoints(WidthProfile::EYE))) == WidthProfile::EYE);
+}
+
+TEST_CASE("r17a width profiles: Figma's numbers (ends 0.1875); a reversed preset is still that preset") {
+  using geom::WidthProfile;
+  using geom::WidthPoint;
+  // Figma's presets as ascent = descent (live, docs/research/rea/vector.md §3).
+  auto pts = [](std::initializer_list<std::pair<double, double>> l) {
+    std::vector<WidthPoint> out;
+    for (auto [pos, h] : l) out.push_back({pos, h, h});
+    return out;
+  };
+  CHECK(geom::presetPoints(WidthProfile::WEDGE) == pts({{0, .5}, {1, 0}}));
+  CHECK(geom::presetPoints(WidthProfile::TAPER) == pts({{0, .5}, {1, .1875}}));
+  CHECK(geom::presetPoints(WidthProfile::QUARTER_TAPER) == pts({{0, .1875}, {.25, .5}, {1, .1875}}));
+  CHECK(geom::presetPoints(WidthProfile::EYE) == pts({{0, 0}, {.5, .5}, {1, 0}}));
+  CHECK(geom::presetPoints(WidthProfile::MIRRORED_TAPER) == pts({{0, .1875}, {.5, .5}, {1, .1875}}));
+  // Flip of each preset reads back as itself (live: CUSTOM [0:0, 1:.5] → WEDGE).
+  for (int i = 1; i < static_cast<int>(WidthProfile::CUSTOM); i++) {
+    auto p = static_cast<WidthProfile>(i);
+    CHECK(geom::matchPreset(geom::flipped(geom::presetPoints(p))) == p);
+  }
+  CHECK(geom::matchPreset(pts({{0, 0}, {1, .5}})) == WidthProfile::WEDGE);
+  // Round 12's old quarter ends are now a custom profile.
+  CHECK(geom::matchPreset(pts({{0, .5}, {1, .125}})) == WidthProfile::CUSTOM);
 }
 
 TEST_CASE("r12 the variable-width stroker: a wedge is a triangle, the eye a lens; uniform without points") {

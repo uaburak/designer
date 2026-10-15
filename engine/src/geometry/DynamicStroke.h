@@ -14,6 +14,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 #include "geometry/Path.h"
@@ -28,11 +29,23 @@ namespace geom {
 inline constexpr double kDynWavelengthPx = 100;  // frequency 1 → one wave per 100 px [ours]
 inline constexpr double kDynAmplitude = 0.5;     // × wiggle × weight [ours]
 
+// A new Dynamic stroke's settings: Figma's (live 2026-10-15, docs/research/rea/vector.md §2: 0.75 / 0.3 / 0.5 read
+// back from the plugin), DYNAMIC_DEFAULTS in src/shared/draw/types.ts.
 struct DynamicSettings {
-  double frequency = 2;  // DYNAMIC_DEFAULTS (src/shared/draw/types.ts)
-  double wiggle = 1;
+  double frequency = 0.75;
+  double wiggle = 0.3;
   double smoothen = 0.5;
 };
+
+// Figma's neutral value {frequency 1, wiggle 0, smoothen 0}: what Basic leaves in a present dynamicStrokeSettings,
+// read as no dynamic stroke at all (rea/vector.md §1).
+inline constexpr DynamicSettings kDynamicNeutral{1, 0, 0};
+inline bool isNeutralDynamic(const DynamicSettings& s) {
+  auto near = [](double a, double b) { return std::abs(a - b) < 1e-6; };
+  return near(s.frequency, kDynamicNeutral.frequency) && near(s.wiggle, kDynamicNeutral.wiggle) && near(s.smoothen, kDynamicNeutral.smoothen);
+}
+// The engine's cap on wiggle for geometry (the document keeps any wiggle ≥ 0, as Figma's plugin does) [ours].
+inline constexpr double kDynWiggleCap = 100;
 
 // The displaced centre line (polylines: one per contour, closed ones closed). `tolerance`: how finely `center`'s
 // curves are flattened first (node units).
@@ -47,9 +60,12 @@ inline double dynamicReach(const DynamicSettings& s, double weight) { return kDy
 
 }  // namespace geom
 
-// The node's dynamic stroke settings (dynamicStrokeSettings; clamped to the plugin's ranges); false when it has none.
-// A brush stroke (strokeBrushGuid set) is not dynamic.
+// The node's dynamic stroke settings (dynamicStrokeSettings; clamped to the plugin's ranges, wiggle to kDynWiggleCap);
+// false when it has none, when they are Figma's neutral {1, 0, 0} (a Basic stroke), or when the stroke is a brush's
+// (strokeBrushGuid naming a node — Figma's -1:-1 is no brush).
 bool dynamicSettingsOf(const NodeProps& p, geom::DynamicSettings& out);
+// dynamicSettingsOf without the settings: the stroke is Dynamic (not Basic, not a brush).
+bool hasDynamicStroke(const NodeProps& p);
 // The node's strokeSeed (0 when absent).
 uint64_t strokeSeedOf(const NodeProps& p);
 

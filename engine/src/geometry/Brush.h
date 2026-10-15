@@ -44,7 +44,7 @@ struct NodeGeometry;
 // the brush's artwork laid along `g`'s stroke centre line at the node's stroke weight. False when the node has no
 // brush (or its brush isn't in the document): the plain stroke draws. `key` gets a hash of what it was made from.
 bool brushStroke(const Document& doc, const NodeProps& p, const NodeGeometry& g, double tolerance, geom::Path& out, uint64_t* key = nullptr);
-// The BRUSH node a node's stroke uses (kNoGuid: none).
+// The BRUSH node a node's stroke uses (kNoGuid: none — the field absent, or Figma's -1:-1 written by Dynamic / Basic).
 Guid strokeBrushOf(const NodeProps& p);
 
 }  // namespace eng

@@ -79,7 +79,7 @@ Stroke strokeOf(const Document& doc, Guid id, const NodeProps& p) {
   bool dashedFrame = p.isFrameLike() && !p.stroke().dashPattern.empty();
   if (!p.extra.empty() && widthProfileAllowed(p)) s.profile = widthPointsOf(p);
   // Figma Draw's brush and dynamic strokes are written as what the canvas draws (docs/draw.md §4.8).
-  bool drawn = !p.extra.empty() && (p.extra.count("dynamicStrokeSettings") || strokeBrushOf(p) != kNoGuid);
+  bool drawn = !p.extra.empty() && (strokeBrushOf(p) != kNoGuid || hasDynamicStroke(p));
   if (drawn) {
     if (const NodeGeometry* g = doc.geometry(id); g && !g->stroke.path.empty()) {
       geom::Path outline;
@@ -94,6 +94,7 @@ Stroke strokeOf(const Document& doc, Guid id, const NodeProps& p) {
       if (dynamicCenter(p, *g, 0.05, center)) {
         // A dynamic stroke: its wandering centre line, stroked as any other — written as its outline.
         s.center = std::move(center);
+        s.dashes.clear();  // kept in the document, not drawn on a dynamic stroke (as the renderer)
         s.caps = g->stroke.caps;
         bool closedArea = !g->fills.empty() && !g->hasOpenEnds;
         s.aligned = closedArea && p.strokeAlign != StrokeAlign::CENTER;
