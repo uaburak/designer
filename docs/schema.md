@@ -43,7 +43,7 @@ What was verified on 2026-10-06 (scratch tests, not in the repo):
 ### 1.2 Editing rules
 
 - **Never renumber, retype or reuse a field number. Never change a struct** (kiwi structs are fixed-layout; adding a field breaks every reader).
-- Kiwi requires a message's field ids to be ≤ its field count. Figma numbers we do not keep are therefore declared as placeholders, `byte _rN = N [deprecated];`, in a "Reserved field numbers" block at the end of each message (953 in total, 807 of them in `NodeChange`). Deprecated fields are never written, are omitted from the TS types and the C++ accessors, and cost nothing at runtime.
+- Kiwi requires a message's field ids to be ≤ its field count. Figma numbers we do not keep are therefore declared as placeholders, `byte _rN = N [deprecated];`, in a "Reserved field numbers" block at the end of each message (931 in total, 781 of them in `NodeChange`, after round 17 batch C). Deprecated fields are never written, are omitted from the TS types and the C++ accessors, and cost nothing at runtime.
 - **Adopting a Figma field later**: replace its placeholder with Figma's exact declaration (same number, same type).
 - **Own fields** use numbers from **1000** in `NodeChange` and from **100** in every other Figma-derived message; own enum values start at 100. Numbers below are Figma's, kept or reserved. Messages Figma does not have (`LibrarySubscription`) number from 1.
 - `DOCUMENT_FORMAT_VERSION` is declared in the file header (`// DOCUMENT_FORMAT_VERSION = 1`). It is bumped only for a change that kiwi's additive evolution cannot express and that needs a migration (`data.md` §5.8). Adding fields or enum values never bumps it.
@@ -672,7 +672,7 @@ Phase 7 (docs/roadmap.md) builds Figma's other products. Each one starts by brin
 - **Enum values** (kiwi enums need no placeholders, but our enums omit Figma's dropped values):
   - `NodeType` 17–24, 26, 27, 29, 30, 32–34, 36–45, 47–64 (Figma's 59–64 are new since version 106: `CODE_EMBED`, `BINARY_FILE`, `SPEC_BLOCK`, `TOOL_INSTANCE`, `CUSTOM_EFFECT_INSTANCE`, `NATIVE_CODE_LAYER_INSTANCE`);
   - `MessageType` other than 1;
-  - all of `EditorType`.
+  - `EditorType` 8 (`FIGSPEC`; 0–7 came with `EditScope`, round 17 batch C).
 - **Whole messages and enums** we dropped.
 
 They come back with the field that uses them. The comment in `NodeType` lists the dropped values and must gain 59–64 when the first of them is added.
@@ -709,7 +709,7 @@ At most one agent per round edits the schema (docs/roadmap.md Phase 7).
 - the multiplayer tags `guidTag … resizeToFitTag` (53–118);
 - legacy duplicates (§13);
 - `internalEnumForTest = 251`, `internalDataForTest = 257`, `isSnakeGameBoard = 344`, `ojansSuperSecretNodeField = 345`, `sevMoonlitLilyData = 348`;
-- `editScopeInfo = 365`, `overrideLevel = 321`, `userFacingVersion = 399`, `migrationStatus = 329`;
+- `userFacingVersion = 399`, `migrationStatus = 329` (`editScopeInfo = 365` and `overrideLevel = 321` were adopted after all: §15.2);
 - `derivedImmutableFrameData = 254` / `derivedImmutableFrameDataVersion = 338`, `useAbsoluteBounds = 258`, `sortedMovingChildIndices = 406`, `disableJitDst = 567`, `partialPasteAnnotation = 581`.
 
 Each is either Figma's server and multiplayer bookkeeping or a test field; our rooms carry their own (docs/multiplayer.md §4).
@@ -722,6 +722,22 @@ Each is either Figma's server and multiplayer bookkeeping or a test field; our r
 - `variableTokenName = 350`, `backingVariableSetId = 377`, `backingVariableId = 378`, `isCollectionExtendable = 385`, `rootVariableKey = 386`, `inheritedVariableIds = 517`.
 
 The variables group needs a check against round 5's extended collections, which used `VARIABLE_OVERRIDE` and kept fields. Adopt any of these with the round that needs it, by the same rule.
+
+### 15.2 The schema round (round 17 batch C, 2026-10-15)
+
+Adopted with Figma's names, types and numbers (`docs/research/rea/README.md` "Batch C"):
+
+| Where | Field | Types brought | Use |
+|---|---|---|---|
+| `Message` | `localUndoStack = 22`, `localRedoStack = 23` (`Message[]`) | — | the editor's undo / redo batches as NODE_CHANGES Messages; per-device UI state kept by the store beside the file, never in a snapshot (canvas.md §2.18) |
+| `Message` | `encodedOffsetsIndex = 34` | `EncodedOffsetsIndex`, `GUIDAndEncodedOffset` | byte offsets into the Message's own encoding (partial decode, canvas.md §2.16). An index of one encoding: a `.fig` import drops it (re-encoding makes it stale) |
+| `Paint` | `interpolationColorSpace = 41`, `interpolationHueMethod = 42` | `InterpolationColorSpace`, `InterpolationHueMethod` | the space a gradient's stops are blended in (effects.md §2.22) |
+| `ComponentPropDef` | `parentPropDefId = 5` | — | a variant's implicit def → the set's explicit def; written only by `.fig` export (§5.5 keeps one def per set inside) |
+| `NodeChange` | `overrideLevel = 321` | — | override entries are keyed by `(guidPath, overrideLevel)`, level 0 first; we write 0 only (§5.1) |
+| `NodeChange` | `overrideStash = 248` | `InstanceOverrideStash` | a nested swap's overrides that did not carry over, restored on a swap back (§5.3) |
+| `NodeChange` | `componentPropRefs = 267` | `ComponentPropRef`, `ComponentPropNodeField` | `@later`: import turns it into PROP_REF entries, `.fig` export writes it beside them |
+| `NodeChange` | `componentKey = 216`, `sharedSymbolVersion = 126` | — | `@later`: a SYMBOL's key / library version as Figma stores them; import maps them to `key` / `version`, `.fig` export maps back (§8.2) |
+| `NodeChange` | `editScopeInfo = 365` | `EditScopeInfo`, `EditScopeSnapshot`, `EditScopeStack`, `EditScope`, `EditScopeType`, `EditorType` (0–7) | `@later`: kept through load and save; stamping changes with their scope is canvas.md §2.9 |
 
 ---
 

@@ -120,11 +120,14 @@ message Message {
   ClipboardSelectionRegion[] clipboardSelectionRegions = 33;
   uint64 sentTimestamp = 38;       // optional: ms since Unix epoch when committed
   uint derivedDataVersion = 100;   // @ours engine version of the derived fields in this Message (0/absent = none)
-  // Reserved field numbers (86): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  Message[] localUndoStack = 22;   // the editor's undo batches (oldest first), each a NODE_CHANGES Message; per-device UI state, never in a snapshot
+  Message[] localRedoStack = 23;   // the redo batches, likewise
+  EncodedOffsetsIndex encodedOffsetsIndex = 34;  // where each node change starts in this Message's encoding (partial decode)
+  // Reserved field numbers (83): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r5 = 5 [deprecated]; byte _r7 = 7 [deprecated]; byte _r8 = 8 [deprecated]; byte _r9 = 9 [deprecated]; byte _r10 = 10 [deprecated]; byte _r11 = 11 [deprecated];
-  byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated]; byte _r22 = 22 [deprecated]; byte _r23 = 23 [deprecated];
+  byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated];
   byte _r24 = 24 [deprecated]; byte _r25 = 25 [deprecated]; byte _r26 = 26 [deprecated]; byte _r27 = 27 [deprecated]; byte _r28 = 28 [deprecated]; byte _r29 = 29 [deprecated];
-  byte _r30 = 30 [deprecated]; byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r34 = 34 [deprecated]; byte _r35 = 35 [deprecated]; byte _r36 = 36 [deprecated];
+  byte _r30 = 30 [deprecated]; byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r35 = 35 [deprecated]; byte _r36 = 36 [deprecated];
   byte _r37 = 37 [deprecated]; byte _r39 = 39 [deprecated]; byte _r40 = 40 [deprecated]; byte _r41 = 41 [deprecated]; byte _r42 = 42 [deprecated]; byte _r43 = 43 [deprecated];
   byte _r44 = 44 [deprecated]; byte _r45 = 45 [deprecated]; byte _r46 = 46 [deprecated]; byte _r47 = 47 [deprecated]; byte _r48 = 48 [deprecated]; byte _r49 = 49 [deprecated];
   byte _r50 = 50 [deprecated]; byte _r51 = 51 [deprecated]; byte _r52 = 52 [deprecated]; byte _r53 = 53 [deprecated]; byte _r54 = 54 [deprecated]; byte _r55 = 55 [deprecated];
@@ -136,6 +139,18 @@ message Message {
   byte _r86 = 86 [deprecated]; byte _r87 = 87 [deprecated]; byte _r88 = 88 [deprecated]; byte _r89 = 89 [deprecated]; byte _r90 = 90 [deprecated]; byte _r91 = 91 [deprecated];
   byte _r92 = 92 [deprecated]; byte _r93 = 93 [deprecated]; byte _r94 = 94 [deprecated]; byte _r95 = 95 [deprecated]; byte _r96 = 96 [deprecated]; byte _r97 = 97 [deprecated];
   byte _r98 = 98 [deprecated]; byte _r99 = 99 [deprecated];
+}
+
+message EncodedOffsetsIndex {   // Message.encodedOffsetsIndex: byte offsets into the Message's own encoding
+  uint nodeChangesFieldOffset = 1;
+  uint nodeChangesFieldLength = 2;
+  uint blobsFieldOffset = 3;
+  GUIDAndEncodedOffset[] nodeChangeOffsets = 4;
+}
+
+struct GUIDAndEncodedOffset {
+  GUID guid;
+  uint offset;
 }
 
 message ClipboardSelectionRegion {
@@ -383,10 +398,12 @@ message Paint {
   ComponentPropAssignment[] componentPropAssignments = 40;  // CUSTOM: the shader's parameters (defID → value / varValue)
   AuthoredColor authoredColor = 44;      // SOLID: the colour as picked in its own space (HSL, OKLCH…); `color` draws
   AuthoredColorStop[] authoredStops = 45;  // gradients: the stops as picked; `stops` draw
-  // Reserved field numbers (12): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  InterpolationColorSpace interpolationColorSpace = 41;  // gradients: the space the stops are blended in
+  InterpolationHueMethod interpolationHueMethod = 42;    // gradients in OKLCH / HSL: the way round the hue circle
+  // Reserved field numbers (10): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r13 = 13 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r22 = 22 [deprecated];
   byte _r24 = 24 [deprecated]; byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r33 = 33 [deprecated];
-  byte _r41 = 41 [deprecated]; byte _r42 = 42 [deprecated]; byte _r43 = 43 [deprecated];
+  byte _r43 = 43 [deprecated];
 }
 
 enum PatternTileType {
@@ -440,6 +457,21 @@ enum EffectType {
 enum BlurOpType {
   NORMAL = 0;
   PROGRESSIVE = 1;
+}
+
+enum InterpolationColorSpace {   // Paint.interpolationColorSpace
+  DEFAULT = 0;             // the document's profile (sRGB or Display P3)
+  OKLAB = 1;
+  OKLCH = 2;
+  HSL = 3;
+  SRGB_LINEAR = 4;
+}
+
+enum InterpolationHueMethod {    // Paint.interpolationHueMethod (OKLCH, HSL)
+  SHORTER = 0;
+  LONGER = 1;
+  INCREASING = 2;          // the UI's default
+  DECREASING = 3;
 }
 
 enum NoiseType {           // "Multi" / "Mono" / "Duo"
@@ -1552,8 +1584,31 @@ message ComponentPropDef {
   VariableData varValue = 9;             // default bound to a variable / VARIANT value type
   string description = 11;
   SlotPropConfig slotPropConfig = 12;
-  // Reserved field numbers (3): Figma fields not kept, or reserved for future Figma fields. Never reuse.
-  byte _r5 = 5 [deprecated]; byte _r7 = 7 [deprecated]; byte _r10 = 10 [deprecated];
+  GUID parentPropDefId = 5;              // a variant's implicit def: the set's explicit def (written by .fig export only)
+  // Reserved field numbers (2): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r7 = 7 [deprecated]; byte _r10 = 10 [deprecated];
+}
+
+message ComponentPropRef {       // Figma's older binding of a node field to a component property (NodeChange.componentPropRefs)
+  uint nodeField = 1;
+  GUID defID = 2;
+  string zombieFallbackName = 3;
+  ComponentPropNodeField componentPropNodeField = 4;
+  bool isDeleted = 5;
+}
+
+enum ComponentPropNodeField {
+  VISIBLE = 0;
+  TEXT_DATA = 1;
+  OVERRIDDEN_SYMBOL_ID = 2;
+  INHERIT_FILL_STYLE_ID = 3;
+  SLOT_CONTENT_ID = 4;
+}
+
+message InstanceOverrideStash {  // NodeChange.overrideStash: a swapped-away nested instance's overrides
+  GUIDPath overridePathOfSwappedInstance = 1;  // the nested instance's path from the instance
+  string componentKey = 2;                     // the component swapped away (its key; local: its guid as "s:l")
+  NodeChange[] overrides = 3;                  // its overrides that did not carry over, paths relative to it
 }
 
 message ComponentPropAssignment {  // an instance's value for a component property
@@ -1643,6 +1698,49 @@ enum SectionStatus {
   NONE = 0;
   BUILD = 1;               // "Ready for dev"
   COMPLETED = 2;           // "Completed"
+}
+
+message EditScopeInfo {         // NodeChange.editScopeInfo: who made a change
+  EditScopeStack[] editScopeStacks = 1;
+  EditScopeSnapshot[] snapshots = 2;
+}
+
+message EditScopeSnapshot {
+  EditScopeStack[] frames = 1;
+  uint[] nodeChangeFieldNumbers = 2;
+}
+
+message EditScopeStack {
+  EditScope[] stack = 1;
+}
+
+message EditScope {
+  EditScopeType type = 1;
+  string label = 2;
+  EditorType editorType = 3;
+}
+
+enum EditScopeType {
+  INVALID = 0;
+  TEST_SETUP = 1;
+  USER = 2;
+  PLUGIN = 3;
+  SYSTEM = 4;
+  REST_API = 5;
+  ONBOARDING = 6;
+  AUTOSAVE = 7;
+  AI = 8;
+}
+
+enum EditorType {
+  DESIGN = 0;
+  WHITEBOARD = 1;
+  SLIDES = 2;
+  DEV_HANDOFF = 3;
+  SITES = 4;
+  COOPER = 5;
+  ILLUSTRATION = 6;
+  FIGMAKE = 7;
 }
 
 message EditInfo {         // when a node (or something inside it) was last edited; Dev Mode's "Changed"
@@ -2060,6 +2158,12 @@ message NodeChange {
   bool isSlotContent = 495;                       // @nooverride FRAME holding an instance's slot content
   SymbolId detachedSymbolId = 342;                // @nooverride frame was detached from this component
   SymbolLink[] symbolLinks = 237;                 // @nooverride
+  int overrideLevel = 321;                        // a symbolOverrides / derivedSymbolData entry's nesting level (0: the instance's own; entries are keyed by guidPath + level)
+  InstanceOverrideStash[] overrideStash = 248;    // @nooverride INSTANCE: overrides of nested instances swapped away, restored on a swap back
+  ComponentPropRef[] componentPropRefs = 267;     // @nooverride @later Figma's older binding list; .fig export writes it beside the PROP_REF entries, import turns it into them
+  string componentKey = 216;                      // @nooverride @later SYMBOL's asset key as Figma stores it: .fig export only (we keep `key`)
+  string sharedSymbolVersion = 126;               // @nooverride @later library SYMBOL copy's version as Figma stores it: .fig export only (we keep `version`)
+  EditScopeInfo editScopeInfo = 365;              // @nooverride @later who made the change (user, plugin, REST API, AI …): edit scope stacks
 
   // --- library and publishing (assets: SYMBOL, state group, style, VARIABLE_SET, VARIABLE) ---
   bool isPublishable = 174;                       // @default(true) @nooverride false = "Hide when publishing"
@@ -2109,7 +2213,7 @@ message NodeChange {
   uint textBidiVersion = 279;
   int derivedSymbolDataLayoutVersion = 196;
   uint stackLayoutVersion = 574;
-  // Reserved field numbers (787): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  // Reserved field numbers (781): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated]; byte _r53 = 53 [deprecated]; byte _r54 = 54 [deprecated]; byte _r55 = 55 [deprecated];
   byte _r56 = 56 [deprecated]; byte _r57 = 57 [deprecated]; byte _r58 = 58 [deprecated]; byte _r59 = 59 [deprecated]; byte _r60 = 60 [deprecated]; byte _r61 = 61 [deprecated];
   byte _r62 = 62 [deprecated]; byte _r63 = 63 [deprecated]; byte _r64 = 64 [deprecated]; byte _r65 = 65 [deprecated]; byte _r66 = 66 [deprecated]; byte _r67 = 67 [deprecated];
@@ -2121,7 +2225,7 @@ message NodeChange {
   byte _r98 = 98 [deprecated]; byte _r99 = 99 [deprecated]; byte _r100 = 100 [deprecated]; byte _r101 = 101 [deprecated]; byte _r102 = 102 [deprecated]; byte _r103 = 103 [deprecated];
   byte _r104 = 104 [deprecated]; byte _r106 = 106 [deprecated]; byte _r108 = 108 [deprecated]; byte _r109 = 109 [deprecated]; byte _r110 = 110 [deprecated]; byte _r112 = 112 [deprecated];
   byte _r114 = 114 [deprecated]; byte _r116 = 116 [deprecated]; byte _r118 = 118 [deprecated]; byte _r119 = 119 [deprecated]; byte _r120 = 120 [deprecated]; byte _r121 = 121 [deprecated];
-  byte _r122 = 122 [deprecated]; byte _r124 = 124 [deprecated]; byte _r126 = 126 [deprecated]; byte _r139 = 139 [deprecated]; byte _r140 = 140 [deprecated]; byte _r144 = 144 [deprecated];
+  byte _r122 = 122 [deprecated]; byte _r124 = 124 [deprecated]; byte _r139 = 139 [deprecated]; byte _r140 = 140 [deprecated]; byte _r144 = 144 [deprecated];
   byte _r150 = 150 [deprecated]; byte _r152 = 152 [deprecated]; byte _r153 = 153 [deprecated]; byte _r154 = 154 [deprecated]; byte _r155 = 155 [deprecated]; byte _r156 = 156 [deprecated];
   byte _r157 = 157 [deprecated]; byte _r158 = 158 [deprecated]; byte _r161 = 161 [deprecated]; byte _r162 = 162 [deprecated]; byte _r164 = 164 [deprecated]; byte _r166 = 166 [deprecated];
   byte _r167 = 167 [deprecated]; byte _r168 = 168 [deprecated]; byte _r169 = 169 [deprecated]; byte _r170 = 170 [deprecated]; byte _r172 = 172 [deprecated]; byte _r173 = 173 [deprecated];
@@ -2129,22 +2233,22 @@ message NodeChange {
   byte _r181 = 181 [deprecated]; byte _r182 = 182 [deprecated]; byte _r183 = 183 [deprecated]; byte _r185 = 185 [deprecated]; byte _r187 = 187 [deprecated]; byte _r188 = 188 [deprecated];
   byte _r189 = 189 [deprecated]; byte _r190 = 190 [deprecated]; byte _r191 = 191 [deprecated]; byte _r192 = 192 [deprecated]; byte _r193 = 193 [deprecated]; byte _r194 = 194 [deprecated];
   byte _r197 = 197 [deprecated]; byte _r207 = 207 [deprecated];
-  byte _r208 = 208 [deprecated]; byte _r211 = 211 [deprecated]; byte _r212 = 212 [deprecated]; byte _r214 = 214 [deprecated]; byte _r216 = 216 [deprecated]; byte _r217 = 217 [deprecated];
+  byte _r208 = 208 [deprecated]; byte _r211 = 211 [deprecated]; byte _r212 = 212 [deprecated]; byte _r214 = 214 [deprecated]; byte _r217 = 217 [deprecated];
   byte _r220 = 220 [deprecated]; byte _r222 = 222 [deprecated]; byte _r224 = 224 [deprecated]; byte _r227 = 227 [deprecated]; byte _r228 = 228 [deprecated];
   byte _r239 = 239 [deprecated]; byte _r240 = 240 [deprecated]; byte _r241 = 241 [deprecated]; byte _r242 = 242 [deprecated]; byte _r243 = 243 [deprecated]; byte _r244 = 244 [deprecated];
-  byte _r245 = 245 [deprecated]; byte _r246 = 246 [deprecated]; byte _r247 = 247 [deprecated]; byte _r248 = 248 [deprecated]; byte _r250 = 250 [deprecated]; byte _r251 = 251 [deprecated];
+  byte _r245 = 245 [deprecated]; byte _r246 = 246 [deprecated]; byte _r247 = 247 [deprecated]; byte _r250 = 250 [deprecated]; byte _r251 = 251 [deprecated];
   byte _r252 = 252 [deprecated]; byte _r253 = 253 [deprecated]; byte _r254 = 254 [deprecated]; byte _r255 = 255 [deprecated]; byte _r257 = 257 [deprecated]; byte _r258 = 258 [deprecated];
-  byte _r259 = 259 [deprecated]; byte _r262 = 262 [deprecated]; byte _r263 = 263 [deprecated]; byte _r265 = 265 [deprecated]; byte _r267 = 267 [deprecated]; byte _r270 = 270 [deprecated];
+  byte _r259 = 259 [deprecated]; byte _r262 = 262 [deprecated]; byte _r263 = 263 [deprecated]; byte _r265 = 265 [deprecated]; byte _r270 = 270 [deprecated];
   byte _r272 = 272 [deprecated]; byte _r273 = 273 [deprecated]; byte _r274 = 274 [deprecated]; byte _r275 = 275 [deprecated]; byte _r276 = 276 [deprecated]; byte _r277 = 277 [deprecated];
   byte _r278 = 278 [deprecated]; byte _r281 = 281 [deprecated]; byte _r282 = 282 [deprecated]; byte _r284 = 284 [deprecated]; byte _r285 = 285 [deprecated];
   byte _r286 = 286 [deprecated]; byte _r287 = 287 [deprecated]; byte _r288 = 288 [deprecated]; byte _r289 = 289 [deprecated]; byte _r290 = 290 [deprecated]; byte _r291 = 291 [deprecated];
   byte _r292 = 292 [deprecated]; byte _r293 = 293 [deprecated]; byte _r301 = 301 [deprecated]; byte _r302 = 302 [deprecated]; byte _r303 = 303 [deprecated];
   byte _r304 = 304 [deprecated]; byte _r306 = 306 [deprecated]; byte _r307 = 307 [deprecated]; byte _r308 = 308 [deprecated]; byte _r309 = 309 [deprecated]; byte _r310 = 310 [deprecated];
-  byte _r311 = 311 [deprecated]; byte _r321 = 321 [deprecated]; byte _r327 = 327 [deprecated]; byte _r328 = 328 [deprecated]; byte _r329 = 329 [deprecated];
+  byte _r311 = 311 [deprecated]; byte _r327 = 327 [deprecated]; byte _r328 = 328 [deprecated]; byte _r329 = 329 [deprecated];
   byte _r338 = 338 [deprecated]; byte _r340 = 340 [deprecated]; byte _r341 = 341 [deprecated]; byte _r344 = 344 [deprecated]; byte _r345 = 345 [deprecated]; byte _r346 = 346 [deprecated];
   byte _r347 = 347 [deprecated]; byte _r348 = 348 [deprecated]; byte _r350 = 350 [deprecated]; byte _r352 = 352 [deprecated]; byte _r354 = 354 [deprecated]; byte _r356 = 356 [deprecated];
   byte _r357 = 357 [deprecated]; byte _r360 = 360 [deprecated]; byte _r361 = 361 [deprecated]; byte _r362 = 362 [deprecated]; byte _r363 = 363 [deprecated]; byte _r364 = 364 [deprecated];
-  byte _r365 = 365 [deprecated]; byte _r366 = 366 [deprecated]; byte _r367 = 367 [deprecated]; byte _r368 = 368 [deprecated]; byte _r370 = 370 [deprecated]; byte _r371 = 371 [deprecated];
+  byte _r366 = 366 [deprecated]; byte _r367 = 367 [deprecated]; byte _r368 = 368 [deprecated]; byte _r370 = 370 [deprecated]; byte _r371 = 371 [deprecated];
   byte _r372 = 372 [deprecated]; byte _r373 = 373 [deprecated]; byte _r377 = 377 [deprecated]; byte _r378 = 378 [deprecated]; byte _r379 = 379 [deprecated]; byte _r381 = 381 [deprecated];
   byte _r382 = 382 [deprecated]; byte _r383 = 383 [deprecated]; byte _r385 = 385 [deprecated]; byte _r386 = 386 [deprecated]; byte _r387 = 387 [deprecated]; byte _r388 = 388 [deprecated];
   byte _r389 = 389 [deprecated]; byte _r390 = 390 [deprecated]; byte _r391 = 391 [deprecated]; byte _r392 = 392 [deprecated]; byte _r393 = 393 [deprecated]; byte _r394 = 394 [deprecated];
