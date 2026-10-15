@@ -318,6 +318,12 @@ TEST_CASE("renderer: off-screen subtrees are culled whole, sub-pixel ones skippe
   s = r.render(e.document(), kPage, Camera{0, 0, 0.06}, kView, none, kDark);
   CHECK(s.greeked == 0);
   CHECK(s.glyphs > 10);
+  // While a zoom goes on (round 17 D): text under kGlyphZoomEmPx (6 device px) is its lines' ink bars, no glyphs.
+  Overlay zooming = none;
+  zooming.zooming = true;
+  s = r.render(e.document(), kPage, Camera{0, 0, 0.065}, kView, zooming, kDark);
+  CHECK(s.greeked == 1);
+  CHECK(s.glyphs == 0);
 }
 
 TEST_CASE("content cache: a frame with nothing new composites; an edit draws its damage only") {
@@ -465,15 +471,18 @@ TEST_CASE("content cache: a continuous zoom on a slow page shows the cache scale
   bool slow = true;
   // A clock where every full raster takes 20 ms (slower than the zoom budget).
   r.setClock([&] {
-    if (slow) now += 20;  // a full raster past kZoomScaledCacheMs
+    if (slow) now += 300;  // a full raster past kZoomScaledCacheMs
     return now;
   });
   Overlay o;
   o.frameTitles = false;
   r.render(d, kPage, Camera{}, kView, o, kDark);
-  slow = false;
   o.zooming = true;
-  RenderStats s = r.render(d, kPage, Camera{0, 0, 1.1}, kView, o, kDark);
+  // (Round 17 D: the zoom's first frame is drawn sharp, and how long it took decides the next ones.)
+  RenderStats s = r.render(d, kPage, Camera{0, 0, 1.05}, kView, o, kDark);
+  CHECK(s.cachedRegions == 1);
+  slow = false;
+  s = r.render(d, kPage, Camera{0, 0, 1.1}, kView, o, kDark);
   CHECK(s.stale == 1);
   CHECK(s.cachedRegions == 0);
   CHECK(r.wantsFrameAt() > now);
@@ -503,7 +512,7 @@ TEST_CASE("tiles: zooming out on a slow page composites tiles instead of drawing
   Renderer r(dev);
   r.setContentCache(true);
   double now = 1000;
-  double rasterCost = 13;  // past kZoomScaledCacheMs; each raster (a full one or a tile) advances the clock this much
+  double rasterCost = 251;  // past kZoomScaledCacheMs; each raster (a full one or a tile) advances the clock this much
   bool slow = true;
   r.setClock([&] {
     if (slow) now += rasterCost;
@@ -528,6 +537,7 @@ TEST_CASE("tiles: zooming out on a slow page composites tiles instead of drawing
   // A continuous zoom out: nothing is drawn whole; the tiles (and the scaled cache where it lands) show, the
   // missing ones of the zoom's own level drawn within the interacting budget.
   o.zooming = true;
+  r.render(d, kPage, Camera{0, 0, 0.95}, kView, o, kDark);  // the zoom's first frame, drawn whole: slow
   for (double z : {0.9, 0.8, 0.7, 0.6}) {
     s = r.render(d, kPage, Camera{0, 0, z}, kView, o, kDark);
     CHECK(s.cachedRegions == 0);
@@ -567,7 +577,7 @@ TEST_CASE("tiles: the budget holds while the zoom roams; least recently shown go
   Renderer r(dev);
   r.setContentCache(true);
   double now = 1000;
-  r.setClock([&] { return now += 13; });
+  r.setClock([&] { return now += 251; });
   Overlay o;
   o.frameTitles = false;
   r.render(d, kPage, Camera{}, kView, o, kDark);

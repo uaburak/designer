@@ -33,9 +33,6 @@ import type { Engine } from "./Engine";
 import { CLICK_MS, pinchDelta, TouchPinch, WheelNormalizer, withinClickBox } from "./pointerInput";
 import { DEFAULT_SHORTCUTS, runShortcut, type Shortcut } from "./shortcuts";
 
-/** After the last zoom step, the canvas goes back to full resolution (the engine's own settle is 120 ms). */
-const ZOOM_SETTLE_MS = 150;
-
 export const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 export const IS_WINDOWS = typeof navigator !== "undefined" && /Win/.test(navigator.platform);
 
@@ -64,13 +61,6 @@ export class CanvasController {
   private readonly shortcuts: readonly Shortcut[];
   private readonly onTextKey?: (e: KeyboardEvent) => boolean;
   private readonly cleanups: (() => void)[] = [];
-  /** The canvas's size as last given to the engine (CSS px and backing px), for the zoom's reduced resolution. */
-  private size = { cssW: 0, cssH: 0, pxW: 0, pxH: 0, dpr: 1 };
-  /** While a zoom goes on: the canvas drawn at half the device pixels (sharp, a quarter of the GPU work); restored
-   * ZOOM_SETTLE_MS after the last zoom step. Figma zooms heavy pages at 120 fps and sharp — this is how we keep up
-   * (owner's B2C, 40 frames: 119 fps, p95 9.3 ms, against a pixelated scaled cache or 88 fps drawn full). */
-  private reduced = false;
-  private reducedTimer: ReturnType<typeof setTimeout> | null = null;
   private textarea: HTMLTextAreaElement | null = null;
   private readonly wheelInput = new WheelNormalizer({ mac: IS_MAC, windows: IS_WINDOWS });
   private readonly pinch = new TouchPinch();
@@ -148,8 +138,6 @@ export class CanvasController {
       const key = `${cssW} ${cssH} ${dpr} ${pxW} ${pxH}`;
       if (key === last) return;
       last = key;
-      this.size = { cssW, cssH, pxW: Math.max(1, pxW), pxH: Math.max(1, pxH), dpr };
-      if (this.reduced) return; // the zoom's reduced viewport stays until it settles (it is restored at the new size)
       this.engine.setViewport(cssW, cssH, dpr, Math.max(1, pxW), Math.max(1, pxH));
       // (Not at attach: the first frame comes by itself, with nothing on screen to keep.)
       if (draw) this.engine.frameNow();
@@ -172,9 +160,6 @@ export class CanvasController {
       observer.observe(c);
     }
     this.cleanups.push(() => observer.disconnect());
-    this.cleanups.push(() => {
-      if (this.reducedTimer) clearTimeout(this.reducedTimer);
-    });
     const rect = c.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     apply(rect.width, rect.height, Math.round(rect.width * dpr), Math.round(rect.height * dpr), false);
@@ -349,28 +334,8 @@ export class CanvasController {
     // The source (trackpad or mouse), Shift's axis swap off the Mac and Windows notches: Figma's rules.
     const w = this.wheelInput.normalize({ dx: e.deltaX, dy: e.deltaY, shift: e.shiftKey, ctrl: e.ctrlKey, t: e.timeStamp });
     // A trackpad pinch arrives as a wheel event with ctrlKey set.
-    if (e.ctrlKey || e.metaKey) this.zoomResolution();
     this.engine.wheel(x, y, w.dx, w.dy, e.deltaMode, modifiersOf(e), (e.ctrlKey ? WHEEL_PINCH : 0) | w.source);
   };
-
-  /** A zoom step: the canvas drawn at half its device pixels until the zoom settles (Retina only). */
-  private zoomResolution(): void {
-    const s = this.size;
-    if (s.dpr < 1.5 || s.cssW <= 0) return;
-    if (!this.reduced) {
-      this.reduced = true;
-      this.engine.setViewport(s.cssW, s.cssH, s.dpr / 2, Math.max(1, Math.round(s.pxW / 2)), Math.max(1, Math.round(s.pxH / 2)));
-    }
-    if (this.reducedTimer) clearTimeout(this.reducedTimer);
-    this.reducedTimer = setTimeout(() => {
-      this.reducedTimer = null;
-      this.reduced = false;
-      if (this.engine.destroyed) return;
-      const n = this.size;
-      this.engine.setViewport(n.cssW, n.cssH, n.dpr, n.pxW, n.pxH);
-      this.engine.frameNow();
-    }, ZOOM_SETTLE_MS);
-  }
 
   private readonly onKeyDown = (e: KeyboardEvent) => {
     if (e.isComposing) return;

@@ -542,9 +542,9 @@ class Renderer {
   static constexpr double kTinyLayerPx = 24;
   // A frame or instance with a fill smaller than this (device px) is drawn as its fill alone (LOD).
   static constexpr double kLodContainerPx = 4;
-  // A continuous zoom shows the scaled cache only past this full draw (drawn at the zoom's half resolution,
-  // CanvasController.zoomResolution) — below it every zoom frame is drawn sharp, as Figma does.
-  static constexpr double kZoomScaledCacheMs = 12;
+  // A continuous zoom shows the scaled cache only past this full draw — below it every zoom frame is drawn sharp at
+  // full resolution, as Figma does; only a page whose zoom frame takes a quarter of a second is shown scaled.
+  static constexpr double kZoomScaledCacheMs = 250;
   static constexpr double kZoomSettleMs = 120;
   // On such a slow page, images arriving within this long of the last whole redraw they caused wait for the next one.
   static constexpr double kImageBatchMs = 200;
@@ -760,6 +760,7 @@ class Renderer {
   void drawText(const Document& doc, const NodeProps& p, Guid id, const Mat2x3& m, double alpha);
   // The smallest em (device px) drawn as glyphs; smaller text is a bar per line holding the line's ink.
   static constexpr double kGlyphMinEmPx = 1;
+  static constexpr double kGlyphZoomEmPx = 6;  // …while a zoom goes on
   // A glyph's outline area in em² (cached): the ink of greeked lines.
   double glyphArea(text::Font* font, uint32_t glyph);
   // Outline mode (View › Outlines, ⇧⌘O): a node as a thin outline (text: its glyphs in the outline colour), then its
@@ -913,6 +914,7 @@ class Renderer {
   // The content cache (renderCached).
   bool cacheEnabled_ = false;
   bool exporting_ = false;
+  bool lodZoom_ = false;  // this frame is part of a zoom: lighter LOD (text as ink bars under kGlyphZoomEmPx)
   uint32_t lodLeaf_ = UINT32_MAX;  // the node drawNode found too small to draw its children (LOD)
   struct ContentCache {
     gfx::TargetId target = 0, spare = 0;  // the pixels, and the other one (shifts ping-pong)
@@ -925,6 +927,7 @@ class Renderer {
     uint32_t fonts = 0, images = 0;       // the registries' generations it was drawn with
     Color clear;
     double fullMs = 0;                    // how long its last full raster took
+    double zoomFullMs = 0;                // …and its last one during a zoom (lighter LOD): what a zoom decides by
     double lastZoom = 0, zoomChangedAt = 0, settleAt = 0;
     // Images arriving on a slow page: when they last made it draw everything, and when the ones that came since are
     // drawn (kImageBatchMs later: a file opening with many images draws them a few at a time, not each alone).

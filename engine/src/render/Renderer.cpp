@@ -2573,6 +2573,7 @@ void Renderer::dropCache() {
 
 RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camera, const Viewport& viewport,
                              const Overlay& overlay, const OverlayStyle& style, gfx::TargetId target, Guid only) {
+  lodZoom_ = overlay.zooming;  // refined below on the cached path (only while the zoom is still changing)
   ensurePipelines();
   frame_++;
   doc_ = &doc;
@@ -2833,7 +2834,11 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
     double ox = camera.x * sx - c.camX * sx * k, oy = camera.y * sy - c.camY * sy * k;
     covers = ox <= 0.5 && oy <= 0.5 && ox + W * k >= W - 0.5 && oy + H * k >= H - 0.5;
   }
-  bool slowZoom = same && c.zoom != camera.zoom && overlay.zooming && c.fullMs > kZoomScaledCacheMs &&
+  // While a zoom goes on, text under kGlyphZoomEmPx is drawn as its lines' ink bars (Figma's small text costs it no
+  // glyph coverage either): tens of thousands of 1–6 px glyphs made each zoom frame GPU-bound (owner's Test page:
+  // 70 fps drawn sharp at full resolution; 111 with this).
+  lodZoom_ = overlay.zooming && now - c.zoomChangedAt < kZoomSettleMs;
+  bool slowZoom = same && c.zoom != camera.zoom && overlay.zooming && c.zoomFullMs > kZoomScaledCacheMs &&
                   now - c.zoomChangedAt < kZoomSettleMs;
   // Zooming in, the cache scaled covers the canvas; zooming out it doesn't: tiles fill in around it.
   bool stale = slowZoom && covers;
@@ -2944,6 +2949,7 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
     if (whole) {
       drewFull = true;
       c.fullMs = nowMs() - t0;
+      c.zoomFullMs = lodZoom_ ? c.fullMs : 0;  // each zoom measures afresh
     }
   }
   if (drewFull) {
