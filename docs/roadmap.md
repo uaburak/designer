@@ -506,6 +506,10 @@ No new Durable Object class and no new cron. The engine and the schema are untou
 
 The manager agent (default Claude Code Haiku 5.5) that hands one chat's work to several agents at once, the brand and product library, and social posts / stories with product pictures from Nano Banana (Gemini API, Gemini CLI or Antigravity), reviewed and fixed in a loop. Agents 15a manager, 15b library, 15c images run in parallel; merge order 15b, 15c, 15a (`docs/studio.md` §7).
 
+### Round 17 — REA parity (Figma's canvas from its own build) — **research written 2026-10-15** (`docs/research/rea/`)
+
+Components, vector / Draw, effects, motion and canvas core read out of Figma desktop's cached editor build with REA and probed live; each report ends in an ordered plan. Batches A (correctness, small) → B (Figma's rules) → C (one schema round) → D (performance, gated by `engine-bench` on the owner's B2C file; the threaded renderer needs the owner's go-ahead). Motion keyframes stay with round 8. Order and status: `docs/research/rea/README.md`.
+
 ## Legacy removed (2026-10-06)
 
 As the owner decided, the whole site admin was deleted in the Phase 2 integration round, with no import of the old projects: the DOM editor, the CV, site publishing and the preview tab, the old Home, `lib/` (the site's Firebase) and `demo/`, the sign-in, the site's components and the iframe shell for browsers, and the dependencies only they used (Tailwind, gsap, prismjs, dompurify, tailwind-merge). The site's Firebase data is left untouched (burakkoc.net keeps working with its own web admin). The Firebase SDK stayed for a planned Firebase adapter, replaced by Cloudflare (2026-10-10) and removed from the code 2026-10-11 (the npm dependency can go). A converter for the old projects (`data.md` §11.3) is not planned unless the owner asks.
