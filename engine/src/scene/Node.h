@@ -1235,6 +1235,16 @@ struct SymbolOverride {
   bool operator==(const SymbolOverride& o) const;
 };
 
+// schema InstanceOverrideStash (NodeChange.overrideStash 248, on an instance): the overrides of a nested instance at
+// `path` that did not carry over when it was swapped away from the component `componentKey` (its asset key, else its
+// guid "s:l"), their paths relative to the nested instance. A swap back restores them. Kept in the instance's `extra`
+// (codec::readOverrideStash / writeOverrideStash).
+struct OverrideStash {
+  std::vector<Guid> path;
+  std::string componentKey;
+  std::vector<SymbolOverride> overrides;
+};
+
 // Copies the fields in `mask` from `from` to `to`.
 void copyFields(NodeProps& to, const NodeProps& from, FieldMask mask);
 // The fields in `mask` where a and b differ.

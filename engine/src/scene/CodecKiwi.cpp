@@ -2952,6 +2952,63 @@ void addOverrideEntry(std::vector<SymbolOverride>& list, SymbolOverride&& o, Gui
   same->mask |= o.mask;
 }
 
+bool readOverrideStash(std::string_view field, std::vector<OverrideStash>& out) {
+  out.clear();
+  if (field.empty()) return true;
+  kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(field.data()), field.size());
+  uint32_t fid = 0, n = 0;
+  if (!bb.readVarUint(fid) || fid != 248 || !bb.readVarUint(n)) return false;
+  for (uint32_t i = 0; i < n; i++) {
+    OverrideStash st;
+    for (;;) {
+      uint32_t g = 0;
+      if (!bb.readVarUint(g)) return false;
+      if (!g) break;
+      if (g == 1) {
+        if (!getGuidPath(bb, st.path)) return false;
+      } else if (g == 2) {
+        if (!getString(bb, st.componentKey)) return false;
+      } else if (g == 3) {
+        uint32_t m = 0;
+        if (!bb.readVarUint(m)) return false;
+        for (uint32_t k = 0; k < m; k++) {
+          SymbolOverride o;
+          if (!readFieldsInto(bb, o.props, o.mask, false, nullptr, kNodeMode, nullptr, nullptr, &o.path, nullptr, nullptr, nullptr))
+            return false;
+          o.mask &= ~static_cast<FieldMask>(F_PARENT_INDEX | F_TYPE);
+          addOverrideEntry(st.overrides, std::move(o), kNoGuid);
+        }
+      } else if (!skipUnknown(bb, defOf("InstanceOverrideStash"), g)) {
+        return false;
+      }
+    }
+    out.push_back(std::move(st));
+  }
+  return true;
+}
+
+std::string writeOverrideStash(const std::vector<OverrideStash>& stash) {
+  if (stash.empty()) return {};
+  Out o;
+  o.varuint(248);
+  o.varuint(static_cast<uint32_t>(stash.size()));
+  for (const OverrideStash& st : stash) {
+    putGuidPath(o, 1, st.path);
+    putString(o, 2, st.componentKey);
+    o.varuint(3);
+    o.varuint(static_cast<uint32_t>(st.overrides.size()));
+    for (const SymbolOverride& ov : st.overrides) {
+      putGuidPath(o, id::kGuidPath, ov.path);
+      if (ov.level) putInt(o, 321, ov.level);
+      std::vector<uint32_t> none;
+      putFields(o, ov.props, ov.mask & ~static_cast<FieldMask>(F_PARENT_INDEX | F_TYPE), false, nullptr, none);
+      o.byte(0);
+    }
+    o.byte(0);
+  }
+  return o.s;
+}
+
 bool readMessageList(std::string_view bytes, std::vector<KiwiMessage>& out) {
   if (!isMessageList(bytes)) return false;
   kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size());

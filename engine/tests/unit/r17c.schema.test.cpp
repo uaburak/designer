@@ -106,3 +106,125 @@ TEST_CASE("r17c overrideLevel: an edit here writes the level-0 entry and leaves 
   CHECK(ov[1].props.opacity == doctest::Approx(0.75));
   CHECK(e.document().get(derived::intern(I, {BG}))->props.opacity == doctest::Approx(0.75));
 }
+
+// ---- overrideStash 248: nested swaps (components.md task 10) ------------------------------------------------------
+
+namespace {
+
+// X (5:1) with "Shape" (5:2) and "Only in X" (5:3); Y (6:1) with "Shape" (6:2); a card (7:1) holding an instance of X
+// (7:2); the card's instance (8:1) on the page.
+const Guid X{5, 1}, XR{5, 2}, XQ{5, 3}, Y{6, 1}, YR{6, 2}, CARD{7, 1}, N{7, 2}, CI{8, 1};
+
+Editor swapDoc() {
+  auto nodes = baseChanges();
+  nodes.push_back(make(X, NodeType::SYMBOL, kPage, "!", {0, 0, 100, 40}, "X"));
+  nodes.push_back(make(XR, NodeType::ROUNDED_RECTANGLE, X, "!", {0, 0, 50, 40}, "Shape"));
+  nodes.push_back(make(XQ, NodeType::ROUNDED_RECTANGLE, X, "\"", {50, 0, 50, 40}, "Only in X"));
+  nodes.push_back(make(Y, NodeType::SYMBOL, kPage, "\"", {200, 0, 100, 40}, "Y"));
+  nodes.push_back(make(YR, NodeType::ROUNDED_RECTANGLE, Y, "!", {0, 0, 100, 40}, "Shape"));
+  nodes.push_back(make(CARD, NodeType::SYMBOL, kPage, "#", {400, 0, 100, 40}, "Card"));
+  NodeChange n = make(N, NodeType::INSTANCE, CARD, "!", {0, 0, 100, 40}, "X");
+  n.props.comp().symbolData.symbolID = X;
+  nodes.push_back(n);
+  NodeChange ci = make(CI, NodeType::INSTANCE, kPage, "$", {0, 200, 100, 40}, "Card");
+  ci.props.comp().symbolData.symbolID = CARD;
+  nodes.push_back(ci);
+  return load(nodes);
+}
+
+void setOpacity(Editor& e, Guid ref, double v) {
+  NodeChange c = NodeChange::changed(Guid{0, 0});
+  c.mask = F_OPACITY;
+  c.props.opacity = v;
+  REQUIRE(e.setProps({ref}, c, 0) == OK);
+}
+
+Status swapTo(Editor& e, Guid ref, Guid main) {
+  e.setSelection({ref});
+  CommandArgs a;
+  json::parse("{\"main\":\"" + main.toString() + "\"}", a.raw);
+  return e.command(CommandId::SWAP_INSTANCE, a);
+}
+
+const SymbolOverride* entryAt(const Editor& e, const std::vector<Guid>& path) {
+  for (const SymbolOverride& o : overridesOf(e, CI))
+    if (o.path == path && o.level == 0) return &o;
+  return nullptr;
+}
+
+std::vector<OverrideStash> stashOf(const Editor& e) {
+  std::vector<OverrideStash> out;
+  const auto& extra = e.document().get(CI)->props.extra;
+  auto it = extra.find("overrideStash");
+  if (it != extra.end()) REQUIRE(codec::readOverrideStash(it->second, out));
+  return out;
+}
+
+}  // namespace
+
+TEST_CASE("r17c overrideStash: a nested swap rewrites the stored paths and stashes what doesn't carry; a swap back restores it") {
+  Editor e = swapDoc();
+  const Guid nested = derived::intern(CI, {N});
+  setOpacity(e, derived::intern(CI, {N, XR}), 0.3);
+  setOpacity(e, derived::intern(CI, {N, XQ}), 0.6);
+
+  REQUIRE(swapTo(e, nested, Y) == OK);
+  // "Shape" carried by name: stored under Y's layer now, not under X's.
+  REQUIRE(entryAt(e, {N, YR}));
+  CHECK(entryAt(e, {N, YR})->props.opacity == doctest::Approx(0.3));
+  CHECK(!entryAt(e, {N, XR}));
+  CHECK(!entryAt(e, {N, XQ}));
+  CHECK(e.document().get(derived::intern(CI, {N, YR}))->props.opacity == doctest::Approx(0.3));
+  // "Only in X" has nowhere to go: stashed under (the nested instance's path, X's key).
+  std::vector<OverrideStash> stash = stashOf(e);
+  REQUIRE(stash.size() == 1);
+  CHECK(stash[0].path == std::vector<Guid>{N});
+  CHECK(stash[0].componentKey == X.toString());
+  REQUIRE(stash[0].overrides.size() == 1);
+  CHECK(stash[0].overrides[0].path == std::vector<Guid>{XQ});
+  CHECK(stash[0].overrides[0].props.opacity == doctest::Approx(0.6));
+
+  // Back to X: both overrides where they were, the stash spent.
+  REQUIRE(swapTo(e, nested, X) == OK);
+  REQUIRE(entryAt(e, {N, XR}));
+  CHECK(entryAt(e, {N, XR})->props.opacity == doctest::Approx(0.3));
+  REQUIRE(entryAt(e, {N, XQ}));
+  CHECK(entryAt(e, {N, XQ})->props.opacity == doctest::Approx(0.6));
+  CHECK(!entryAt(e, {N, YR}));
+  CHECK(stashOf(e).empty());
+  CHECK(e.document().get(derived::intern(CI, {N, XQ}))->props.opacity == doctest::Approx(0.6));
+
+  // Each swap is one undo step.
+  e.command(CommandId::UNDO);
+  CHECK(stashOf(e).size() == 1);
+  CHECK(entryAt(e, {N, YR}));
+}
+
+TEST_CASE("r17c overrideStash: kept by the kiwi codec as Figma's InstanceOverrideStash") {
+  std::vector<OverrideStash> stash(1);
+  stash[0].path = {N};
+  stash[0].componentKey = "0123456789abcdef0123456789abcdef01234567";
+  stash[0].overrides.push_back(opacityAt({XQ}, 0.6, 0));
+  stash[0].overrides.push_back(opacityAt({XR}, 0.2, 2));
+  std::string field = codec::writeOverrideStash(stash);
+  std::vector<OverrideStash> back;
+  REQUIRE(codec::readOverrideStash(field, back));
+  REQUIRE(back.size() == 1);
+  CHECK(back[0].path == stash[0].path);
+  CHECK(back[0].componentKey == stash[0].componentKey);
+  REQUIRE(back[0].overrides.size() == 2);
+  CHECK(back[0].overrides[1].level == 2);
+  CHECK(back[0].overrides[1].props.opacity == doctest::Approx(0.2));
+  CHECK(codec::writeOverrideStash(back) == field);
+  CHECK(codec::writeOverrideStash({}).empty());
+
+  // On an instance, through a whole Message.
+  NodeChange inst = NodeChange::created(CI, {});
+  inst.props.type = NodeType::INSTANCE;
+  inst.mask |= F_TYPE | F_EXTRA;
+  inst.props.extra["overrideStash"] = field;
+  codec::KiwiMessage m;
+  REQUIRE(codec::readMessage(codec::writeMessage(0, {inst}), m));
+  REQUIRE(m.changes.size() == 1);
+  CHECK(m.changes[0].props.extra["overrideStash"] == field);
+}

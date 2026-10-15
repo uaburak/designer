@@ -75,6 +75,10 @@ bool readMessageList(std::string_view bytes, std::vector<KiwiMessage>& out);
 // `level`, and its root path [symbolID] made empty (docs/schema.md §5.1). Then `list` gets it, merged into an entry of
 // the same (path, level) (later fields win).
 void addOverrideEntry(std::vector<SymbolOverride>& list, SymbolOverride&& o, Guid symbolID);
+// NodeChange.overrideStash as kept in NodeProps::extra (the field's bytes, id-prefixed) ↔ its entries. Reading
+// empty bytes gives none; writing none gives empty bytes (the field removed).
+bool readOverrideStash(std::string_view field, std::vector<OverrideStash>& out);
+std::string writeOverrideStash(const std::vector<OverrideStash>& stash);
 std::string writeMessageList(const std::vector<std::string>& messages);
 
 struct KiwiWriteOptions {

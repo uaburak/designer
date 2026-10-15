@@ -1263,6 +1263,10 @@ class Editor : private LayoutHost, public TextLayouts {
   bool isStructuralTarget(Guid parent) const;
   // Remaps an instance's overrides from one main to another (variant switch / swap; Figma's name rules).
   std::vector<SymbolOverride> remapOverrides(const std::vector<SymbolOverride>& overrides, Guid from, Guid to, bool variant) const;
+  // A nested swap of the derived instance `ref` from `from` to `to` (Figma's override stash, docs/schema.md §5.3): the
+  // top-level instance's overrides under it are rewritten to `to`'s layers (remapOverrides), the ones that don't carry
+  // over are stashed in its overrideStash under (path, from's key), and a stash kept for (path, to's key) comes back.
+  void transferNestedSwap(Guid ref, Guid from, Guid to);
   // The path (keys) of the one TEXT layer in `symbol`'s tree, nested instances' mains included (false: none or several).
   bool soleTextPath(Guid symbol, std::vector<Guid>& path) const;
   // An instance's assignment of one of `main`'s SLOT properties (its slot content frame; Push changes keeps it).
