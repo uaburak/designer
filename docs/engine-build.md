@@ -225,7 +225,7 @@ Fidelity (`scripts/fig-fidelity.mjs --samples`, mean ΔE / > 10 / > 25): section
 
 Checks at the end (after merging main at `5e4f81a`): `npm run check` green (typecheck, lint, 788 vitest); `npm run engine:test` 387 / 387; `npm run engine:shot` 104 ok (WebGL2), `--gfx webgpu` 106 ok, no GPU validation errors; `editor-shot.mjs` full 242 ok, 0 failed. The committed release `engine.wasm` is this branch's (`c219ba4`; main brought no engine change).
 
-Open: item 9 (needs a live capture), tiny-text and newer-effect calibration against Figma pixels, Glass's Depth / Splay field mapping, arrowhead sizes other than the line arrow, pattern paints don't invalidate when only their source changes, shader effects (Figma's "Shader") not drawn.
+Open: item 9 (needs a live capture), tiny-text and newer-effect calibration against Figma pixels, Glass's Depth / Splay field mapping (settled in round 17: refractionRadius / reflectionDistance, docs/engine.md §6.7), arrowhead sizes other than the line arrow, pattern paints don't invalidate when only their source changes, shader effects (Figma's "Shader") not drawn.
 
 ## Round 7 — selection (2026-10-08, branch `r7-selection`)
 
