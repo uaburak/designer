@@ -2811,10 +2811,8 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
     double ox = camera.x * sx - c.camX * sx * k, oy = camera.y * sy - c.camY * sy * k;
     covers = ox <= 0.5 && oy <= 0.5 && ox + W * k >= W - 0.5 && oy + H * k >= H - 0.5;
   }
-  // Figma's way on every page, not only slow ones (owner, 2026-10-15: a page that draws fast on the CPU can still be
-  // GPU-bound — the owner's B2C "Test" page zoomed at 98 fps with 302 frames over 20 ms against Figma's 119 / 6): a
-  // continuous zoom always shows the cache scaled (zooming in) or the tiles (zooming out), sharp once it settles.
-  bool slowZoom = same && c.zoom != camera.zoom && overlay.zooming && now - c.zoomChangedAt < kZoomSettleMs;
+  bool slowZoom = same && c.zoom != camera.zoom && overlay.zooming && c.fullMs > kZoomRasterBudgetMs &&
+                  now - c.zoomChangedAt < kZoomSettleMs;
   // Zooming in, the cache scaled covers the canvas; zooming out it doesn't: tiles fill in around it.
   bool stale = slowZoom && covers;
   bool tiled = slowZoom && !covers;
@@ -2966,7 +2964,7 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
   if (stale || tiled) stats_.stale = 1;
   // At rest on a slow page: the next zoom out's tiles (one level coarser, twice the view around it), drawn ahead in
   // quiet frames within the idle budget; a frame is asked for while some are missing.
-  if (!slowZoom && !overlay.zooming && c.valid) {
+  if (!slowZoom && !overlay.zooming && c.valid && c.fullMs > kZoomRasterBudgetMs) {
     std::vector<TileCoord> ahead = visibleTiles(camera, level - 1, 1.0);
     size_t left = 0;
     if (regions.empty() && damage.rects.empty()) {

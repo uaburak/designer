@@ -335,9 +335,6 @@ TEST_CASE("content cache: a frame with nothing new composites; an edit draws its
   CHECK(s.cachedRegions == 1);  // the whole page, once
   size_t full = contentInstances(dev);
   CHECK(full >= 50);  // the 28 frames on screen and their rectangles
-  // At rest every page draws the next zoom-out's tiles ahead in quiet frames (round 17 D); let them finish first.
-  for (int i = 0; i < 64 && r.wantsFrameAt() != 0; i++) r.render(d, kPage, Camera{}, kView, o, kDark);
-  contentInstances(dev);
   // Nothing changed (a hover, the caret): no content is drawn, the cache is composited.
   o.hover = {{1, 3}};
   s = r.render(d, kPage, Camera{}, kView, o, kDark);
@@ -491,11 +488,7 @@ TEST_CASE("content cache: a continuous zoom on a slow page shows the cache scale
   CHECK(s.stale == 0);
   CHECK(s.cachedRegions == 1);
   CHECK(r.wantsFrameAt() == 0);
-  // A fast page zooms like a slow one (round 17 D, Figma's way): the cache scaled while zooming, sharp once settled.
-  s = r.render(d, kPage, Camera{0, 0, 1.3}, kView, o, kDark);
-  CHECK(s.stale == 1);
-  CHECK(s.cachedRegions == 0);
-  now += Renderer::kZoomSettleMs + 1;
+  // A fast page zooms sharp every frame.
   s = r.render(d, kPage, Camera{0, 0, 1.3}, kView, o, kDark);
   CHECK(s.stale == 0);
   CHECK(s.cachedRegions == 1);
