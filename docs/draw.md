@@ -72,7 +72,7 @@ Sources (help.figma.com unless said):
 - **Lasso** (Q) in the secondary toolbar: draw around points and paths, then move or delete them. Shift Delete deletes and heals.
 - **Shape builder**, **Paint** (⇧B), **Bend**, **Cut** (X), **Eraser** (⇧E; weight and shape in the right sidebar; right-click › **Split vector** splits).
 - **Variable width**: a pink handle on hover, Shift-click to select several, Delete removes, Control disables snapping.
-- **Simplify vector** (a slider; destructive) and **Offset vector**: in the Vector menu; a March 2026 forum bug says they sat at the menu's end.
+- **Simplify vector** (a slider; destructive) and **Offset vector**: in the Vector menu; a March 2026 forum bug says they sat at the menu's end. Both are Figma's tools (`SIMPLIFY_VECTOR`, `OFFSET_PATH`; `docs/research/rea/vector.md` §8, §10) with a secondary toolbar, built in round 17b: a live preview, ✓ / Enter applies as one undo step, Cancel / Esc / ⌘Z restores. Simplify: a slider −2…3 (step 0.01, starting at 3) between a "simpler" and a "more detailed" icon, tolerance 10^−threshold node px. Offset: a slider over the engine's range (−min(w, h) / 2 … max(100, the longer side) [the cap ours]), step 1, starting at 0, Join Square (miter) / Round; a variable-width stroke is offset through its outline. One vector-editable layer, not in multi-edit.
 - **Rotation origin** (⌥R).
 
 **Effects.** Noise, Texture, progressive Layer / Background blur.
@@ -93,7 +93,7 @@ Sources (help.figma.com unless said):
 | Shape builder (M) | ✓ round 12 | `tools/ShapeBuilder.cpp` |
 | Lasso (Q), Paint, Bend, Cut, Erase | ✓ rounds 8 / 15 | `editor/VectorEditing.cpp`, `canvas/BottomToolbar.tsx VECTOR_TOOL_GROUPS` |
 | Multi-edit (several vector layers in edit mode) | ◐ `startVectorEditMany` holds them all but only the edited one shows its points; a click switches | `Editor.h startVectorEditMany`, `docs/editor.md` round 12 |
-| Split / Simplify / Offset vector | ✓ | `editor/ArrangeCommands.cpp` (`VECTOR_SPLIT` 282, `VECTOR_SIMPLIFY` 283, `VECTOR_OFFSET` 284) |
+| Split / Simplify / Offset vector | ✓ | `editor/ArrangeCommands.cpp` (`VECTOR_SPLIT` 282, `VECTOR_SIMPLIFY` 283 {threshold} or {amount}, `VECTOR_OFFSET` 284); the tools (17b): `editor/PathTools.cpp` (`engine_path_tool`, PATH_TOOL), `canvas/PathToolbar.tsx` |
 | Rotation origin ⌥R | ✓ (view state, not stored) | `tools/CanvasTools.cpp`, `SHOW_ROTATION_ORIGIN` 236 |
 | Pattern fill | ✓ round 7 (`PaintType PATTERN = 8`, Select source, tile type, spacing, alignment) | engine.md §6.5, `editor.md` #10 |
 | Pattern **stroke** | ✓ 7a: was not drawn on the canvas (`setPaint` refused PATTERN); now drawn through the stroke (§4.10). SVG / PDF skip PATTERN paints | `render/Renderer.cpp drawStrokes` |
@@ -466,7 +466,7 @@ Derived geometry only; nothing new is journaled. Native tests: `engine/tests/uni
 - Commands:
   - `transformModifiersOf` / `repeatOf` / `repeatContent` for ADD / SET / REMOVE / MOVE_TRANSFORM_MODIFIER;
   - APPLY_TRANSFORMS: duplicate children with `inst` prepended to their transforms, k ≥ 1;
-  - Flatten / Outline stroke: walk `repeatOf` instances, and `dynamicCenter` / `brushStroke` for the stroke outline (`exporter::strokeOf` / `strokeOutline` already do this).
+  - Flatten / Outline stroke: walk `repeatOf` instances, and `dynamicCenter` / `brushStroke` for the stroke outline (`exporter::strokeOf` / `strokeOutline` already do this). Round 17b: Outline stroke takes a Dynamic or Brush stroke's outline from `exporter::strokeOf` / `strokeArea` (the result a Basic VECTOR filled with the stroke paints, the stroke's Draw fields dropped); Flatten keeps the stroke a stroke on the flattened vector [ours: Figma's Flatten of a brush stroke unverified]. Both refuse instance sublayers as Figma does (Flatten allows slot content; `docs/research/rea/vector.md` §18).
 - Text path tools: `textPathProject` (TEXT_PATH_START gesture and the tool's click), `textPathContour`, `TextLayout::path->frameAt` (caret, selection quads), `hitsEdge` (hover target), `layoutTextPath`.
 - CREATE_TEXT_PATH from a shape needs the shape's network: `geom::networkFromPath(doc.geometry(id)->stroke.path, …)`. A rectangle's path starts at the top-left, going clockwise; an ellipse's at its rightmost point (`geom::ellipsePath`).
 - `RepeatResult::capped` for the layer's stroke-warning badge.
