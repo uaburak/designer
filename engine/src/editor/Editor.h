@@ -1195,6 +1195,8 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<SymbolOverride> remapOverrides(const std::vector<SymbolOverride>& overrides, Guid from, Guid to, bool variant) const;
   // The path (keys) of the one TEXT layer in `symbol`'s tree, nested instances' mains included (false: none or several).
   bool soleTextPath(Guid symbol, std::vector<Guid>& path) const;
+  // An instance's assignment of one of `main`'s SLOT properties (its slot content frame; Push changes keeps it).
+  bool isSlotAssignment(Guid main, const ComponentPropAssignment& a) const;
   // The real layer at `path` (keys) in `symbol`'s tree, following nested instances' mains (kNoGuid: none).
   Guid layerAtPath(Guid symbol, const std::vector<Guid>& path) const;
   // A nested instance showing `main` (a variant chosen by a variable, a variant or instance picked at the usage site):

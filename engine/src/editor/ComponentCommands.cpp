@@ -549,7 +549,9 @@ bool Editor::computeComponentInfo(Guid id, ComponentInfo& out) const {
     // Push changes to main component (Figma's rule): a primary instance — on the canvas or inside a main — of a main
     // of this file, with property values or a change to a field other than its layout and its name.
     constexpr FieldMask kLayoutOrName = F_NAME | F_SIZE | F_PROPORTIONS_CONSTRAINED | kStackContainerFields | kStackChildFields;
-    bool pushable = !p.comp().componentPropAssignments.empty();
+    // (A slot's assignment is the instance's own content frame, not a value a main can take as its default.)
+    bool pushable = false;
+    for (const ComponentPropAssignment& a : p.comp().componentPropAssignments) pushable |= !isSlotAssignment(main, a);
     for (const SymbolOverride& o : p.comp().symbolData.overrides) pushable |= (o.mask & ~kLayoutOrName) != 0;
     out.canPush = main != kNoGuid && !out.mainSoftDeleted && !out.mainRemote && !out.mainCopied && pushable;
     out.canReset = !p.comp().symbolData.overrides.empty() || !p.comp().componentPropAssignments.empty();
@@ -1311,7 +1313,7 @@ Status Editor::pushChangesToMain(Guid R) {
     bool changed = false;
     for (const ComponentPropAssignment& a : assigns)
       for (ComponentPropDef& d : defs) {
-        if (d.id != a.defID || d.type == ComponentPropType::VARIANT) continue;
+        if (d.id != a.defID || d.type == ComponentPropType::VARIANT || d.type == ComponentPropType::SLOT) continue;
         ComponentPropValue v = a.value;
         if (v.empty()) codec::assignmentVarProp(a.extra, v);  // Figma's files: the value in varValue only
         if (a.boundValue.present()) {
@@ -1335,6 +1337,9 @@ Status Editor::pushChangesToMain(Guid R) {
   clear.mask = F_SYMBOL_DATA | F_COMPONENT_PROP_ASSIGNMENTS;
   clear.props.comp().symbolData = doc_.get(R)->props.comp().symbolData;
   clear.props.comp().symbolData.overrides.clear();
+  // A slot's content stays the instance's: its assignment names the content frame under it (a main's default can't).
+  for (const ComponentPropAssignment& a : assigns)
+    if (isSlotAssignment(main, a)) clear.props.comp().componentPropAssignments.push_back(a);
   write(clear);
   commit();
   return OK;
@@ -1466,6 +1471,13 @@ std::vector<SymbolOverride> Editor::remapOverrides(const std::vector<SymbolOverr
     }
   }
   return out;
+}
+
+bool Editor::isSlotAssignment(Guid main, const ComponentPropAssignment& a) const {
+  if (const auto* defs = defsOf(main))
+    for (const ComponentPropDef& d : *defs)
+      if (d.id == a.defID) return d.type == ComponentPropType::SLOT;
+  return false;
 }
 
 bool Editor::soleTextPath(Guid symbol, std::vector<Guid>& path) const {

@@ -1482,3 +1482,38 @@ TEST_CASE("components: detaching an instance of a library main records the asset
   CHECK(d.key == "17783905cbcf00ce0eee033580ceaf656044bf91");
   CHECK(d.version == "305:76");
 }
+
+TEST_CASE("components: Push changes leaves a slot's content with the instance (its assignment is no default)") {
+  auto nodes = propertyButtonDoc();
+  const Guid SLOTDEF{1, 0x7ffffffd}, CONTENT{1, 40};
+  ComponentPropDef s;
+  s.id = SLOTDEF;
+  s.name = "Slot";
+  s.type = ComponentPropType::SLOT;
+  nodes[3].props.comp().componentPropDefs.push_back(s);
+  NodeChange content = make(CONTENT, NodeType::FRAME, I, "!", {0, 0, 100, 40}, "Slot");
+  content.props.comp().isSlotContent = true;
+  nodes.push_back(content);
+  ComponentPropAssignment a;
+  a.defID = SLOTDEF;
+  a.value.guidValue = CONTENT;
+  for (NodeChange& n : nodes)
+    if (n.guid == I) n.props.comp().componentPropAssignments = {a};
+  Editor e = load(nodes);
+  ComponentInfo info;
+  // Slot content alone: nothing to push.
+  REQUIRE(e.componentInfo(I, info));
+  CHECK(!info.canPush);
+  // With a text value: the text becomes the default, the slot's assignment stays the instance's.
+  e.setSelection({I});
+  REQUIRE(e.command(CommandId::SET_COMPONENT_PROPERTY, args("{\"prop\":\"Label\",\"value\":\"Buy\"}")) == OK);
+  REQUIRE(e.componentInfo(I, info));
+  CHECK(info.canPush);
+  REQUIRE(e.command(CommandId::PUSH_CHANGES_TO_MAIN) == OK);
+  for (const ComponentPropDef& d : props(e, M).comp().componentPropDefs)
+    if (d.id == SLOTDEF) CHECK(d.initialValue.guidValue == kNoGuid);
+  const auto& left = props(e, I).comp().componentPropAssignments;
+  REQUIRE(left.size() == 1);
+  CHECK(left[0].defID == SLOTDEF);
+  CHECK(left[0].value.guidValue == CONTENT);
+}
