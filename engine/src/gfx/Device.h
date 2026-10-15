@@ -18,6 +18,8 @@
 #include <cstdio>
 #include <span>
 
+#include "gfx/ImageColor.h"
+
 namespace eng::gfx {
 
 using BufferId = uint32_t;    // 0 = none
@@ -187,9 +189,11 @@ class Device {
   virtual void generateMipmaps(TextureId texture) = 0;
   // An RGBA8 texture's filtering changed (bilinear or nearest) — the pixel preview's scaled-up page (round 8).
   virtual void setTextureFiltering(TextureId /*texture*/, bool /*linear*/) {}
-  // Uploads the JavaScript ImageBitmap `bitmapId` (Module.engineBitmaps) into an RGBA8 texture of its size.
-  // False when there is no such bitmap (or no JavaScript: the native tests).
-  virtual bool uploadBitmap(TextureId texture, uint32_t bitmapId) = 0;
+  // Uploads the JavaScript ImageBitmap `bitmapId` (Module.engineBitmaps) into an RGBA8 texture of its size,
+  // premultiplied and in the canvas's colour space: a straight bitmap (`color.straight`, gfx/ImageColor.h) is
+  // premultiplied, and converted from its profile, by a pass at upload. False when there is no such bitmap (or no
+  // JavaScript: the native tests).
+  virtual bool uploadBitmap(TextureId texture, uint32_t bitmapId, const BitmapColor& color) = 0;
   virtual void destroyTexture(TextureId texture) = 0;
 };
 

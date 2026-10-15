@@ -47,7 +47,7 @@ class NullDevice final : public Device {
   using Device::createTexture;
   void writeTexture(TextureId texture, IRect rect, std::span<const uint8_t> data) override;
   void generateMipmaps(TextureId) override {}
-  bool uploadBitmap(TextureId, uint32_t) override { return false; }
+  bool uploadBitmap(TextureId, uint32_t, const BitmapColor&) override { return false; }
   void destroyTexture(TextureId texture) override;
   struct Texture {
     TextureFormat format = TextureFormat::RGBA32F;
