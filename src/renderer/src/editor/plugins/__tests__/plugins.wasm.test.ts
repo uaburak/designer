@@ -403,6 +403,43 @@ describe("plugins: the sandbox", () => {
     expect(out.gap).toBe(6);
   });
 
+  it("reactions: Figma's Reaction shape both ways (side swapped for every direction, EASE_IN, mouse delays)", async () => {
+    const { ed, engine } = await editor();
+    const { r } = await run(
+      ed,
+      inline(`
+       (async () => { try {
+        const a = figma.createFrame(), b = figma.createFrame();
+        b.x = 400;
+        const button = figma.createRectangle();
+        a.appendChild(button);
+        await button.setReactionsAsync([
+          { trigger: { type: "ON_CLICK" }, actions: [{ type: "NODE", destinationId: b.id, navigation: "NAVIGATE", transition: { type: "MOVE_OUT", direction: "LEFT", matchLayers: false, duration: 0.4, easing: { type: "EASE_IN" } } }] },
+          { trigger: { type: "MOUSE_ENTER", delay: 0.5 }, actions: [{ type: "BACK" }] },
+        ]);
+        let bad = null;
+        try { await button.setReactionsAsync([{ trigger: { type: "ON_CLICK" }, actions: [{ type: "BACK", transition: { type: "DISSOLVE", easing: { type: "EASE_OUT", easingFunctionSpring: { mass: 1, stiffness: 1, damping: 1 } } } }] }]); } catch (e) { bad = e.message; }
+        figma.root.setPluginData("result", JSON.stringify({ id: button.id, reactions: button.reactions, bad }));
+       } catch (e) { figma.root.setPluginData("result", JSON.stringify({ error: String(e && e.message || e) })); }
+        figma.closePlugin(); })();
+      `),
+    );
+    await untilEnded(r);
+    const out = JSON.parse(rootData(engine, "result")!);
+    expect(out.error).toBeUndefined();
+    expect(out.reactions).toHaveLength(2);
+    expect(out.reactions[0]).toMatchObject({ trigger: { type: "ON_CLICK" }, actions: [{ type: "NODE", transition: { type: "MOVE_OUT", direction: "LEFT", duration: 0.4, easing: { type: "EASE_IN" } } }] });
+    expect(out.reactions[0].action).toEqual(out.reactions[0].actions[0]);
+    expect(out.reactions[0].id).toBeUndefined();
+    expect(out.reactions[1].trigger).toEqual({ type: "MOUSE_ENTER", delay: 0.5 });
+    expect(out.bad).toContain("easingFunctionSpring");
+    const doc = (engine.readNode(out.id) as { prototypeInteractions?: { stateManagementVersion?: number; event?: Record<string, unknown>; actions?: Record<string, unknown>[] }[] }).prototypeInteractions!;
+    expect(doc[0].actions![0]).toMatchObject({ transitionType: "MOVE_OUT_TO_RIGHT", easingType: "EASE_IN" });
+    expect(doc[0].stateManagementVersion).toBe(1);
+    expect(doc[1].event).toMatchObject({ interactionType: "MOUSE_ENTER", interactionMaintained: true });
+    expect(doc[1].event!.interactionDuration).toBeCloseTo(0.5);
+  });
+
   it("new nodes are centred in the view, not at the page's 0,0 (Figma: like R and a click)", async () => {
     const { ed, engine } = await editor();
     engine.centerOn(1000, -500, 1);

@@ -14,8 +14,11 @@ import {
   deviceLabel,
   deviceOf,
   presetIdentifierOf,
+  easingFunctionFor,
   easingLabel,
   guidJson,
+  mouseDelayOf,
+  withMouseDelay,
   guidOf,
   interactionSummary,
   isDirectional,
@@ -76,6 +79,27 @@ describe("prototype model", () => {
     expect(delay.event).toMatchObject({ interactionType: "AFTER_TIMEOUT", transitionTimeout: 0.8 });
     expect(interactionSummary(delay, names).trigger).toBe("Delay");
     expect(withTrigger(delay, "ON_HOVER").event?.transitionTimeout).toBeUndefined();
+  });
+
+  it("Figma's timing: new interactions carry stateManagementVersion 1, mouse delays in interactionMaintained, custom bezier [0, 0, 0.58, 1]", () => {
+    expect(newInteraction(guidJson("1:1")).stateManagementVersion).toBe(1);
+    expect(easingFunctionFor("CUSTOM_CUBIC")).toEqual([0, 0, 0.58, 1]);
+    expect(easingFunctionFor("CUSTOM_SPRING")).toEqual([1, 100, 15, 0]);
+    const enter = withTrigger(newInteraction(guidJson("1:1")), "MOUSE_ENTER");
+    const delayed = { ...enter, event: withMouseDelay(enter.event!, 0.5) };
+    expect(delayed.event).toEqual({ interactionType: "MOUSE_ENTER", interactionMaintained: true, interactionDuration: 0.5 });
+    expect(mouseDelayOf(delayed.event)).toBe(0.5);
+    expect(withMouseDelay(delayed.event, 0)).toEqual({ interactionType: "MOUSE_ENTER" });
+    expect(mouseDelayOf({ interactionType: "MOUSE_UP", interactionMaintained: true })).toBe(0.3);
+    expect(mouseDelayOf({ interactionType: "MOUSE_DOWN", transitionTimeout: 0.2 })).toBe(0.2);  // Wecra's earlier placement
+    expect(mouseDelayOf({ interactionType: "ON_CLICK", interactionMaintained: true, interactionDuration: 1 })).toBe(0);
+    expect(withTrigger(delayed, "MOUSE_LEAVE").event).toMatchObject({ interactionMaintained: true, interactionDuration: 0.5 });
+    expect(withTrigger(delayed, "ON_CLICK").event).toEqual({ interactionType: "ON_CLICK" });
+    // A legacy delay (Wecra's earlier transitionTimeout placement, or the legacy Mouse in) survives a switch between
+    // mouse triggers, moved to Figma's placement.
+    expect(withTrigger({ event: { interactionType: "MOUSE_IN", transitionTimeout: 0.25 } }, "MOUSE_ENTER").event).toEqual({ interactionType: "MOUSE_ENTER", interactionMaintained: true, interactionDuration: 0.25 });
+    expect(withTrigger({ event: { interactionType: "AFTER_TIMEOUT", transitionTimeout: 1.5 } }, "MOUSE_ENTER").event).toEqual({ interactionType: "MOUSE_ENTER" });
+    expect(withTrigger({ ...enter, event: { interactionType: "ON_CLICK", transitionTimeout: 0 } }, "AFTER_TIMEOUT").event?.transitionTimeout).toBe(0.8);
   });
 
   it("records and shows key triggers", () => {

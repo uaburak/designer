@@ -219,6 +219,16 @@ class Player {
     Mat2x3 toCss;  // node space → CSS px
     Vec2 size;
   };
+  // A mouse enter / leave / down / up interaction with a delay (interactionMaintained): it runs `delayMs` after its
+  // trigger unless the pointer undoes it first (leaves, comes back, is released, is pressed again).
+  struct Delayed {
+    Guid node = kNoGuid;
+    size_t interaction = 0;
+    Trigger trigger = Trigger::MOUSE_ENTER;
+    double at = -1;  // ms; < 0: armed at the next tick
+    double delayMs = 0;
+    Hit hotspot;
+  };
   // A hit chain: the deepest layer first, its ancestors up to the shown frame; `layer` −1 for the base screen,
   // else the overlay's index.
   struct Chain {
@@ -294,6 +304,8 @@ class Player {
   void finishAnim();
   void armTimers(Guid root);
   void dropTimers(Guid root);
+  // Drops the pending delayed interactions of trigger `t` (on `node`, or on any node when it is kNoGuid).
+  void cancelDelayed(Trigger t, Guid node = kNoGuid);
   void hover(const Chain& c);
   // The hyperlink under `css` in a text of the chain (Figma: "Links in text also work in prototypes").
   const text::LinkBox* linkAt(const Chain& c, Vec2 css) const;
@@ -352,6 +364,7 @@ class Player {
   std::vector<InstanceAnim> instanceAnims_;
   std::vector<ScrollAnim> scrollAnims_;
   std::vector<Timer> timers_;
+  std::vector<Delayed> delayed_;  // mouse triggers waiting out their delay
   std::vector<Held> held_;     // While hovering
   Held pressed_;               // While pressing
   Chain hoverChain_, downChain_;

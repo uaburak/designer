@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "motion/Easing.h"
 #include "scene/CodecKiwi.h"
 
 namespace eng::proto {
@@ -74,7 +75,9 @@ Action readAction(const json::Value& v) {
   a.navigation = enumOf(v.get("navigationType"), kNavigations, Navigation::NAVIGATE);
   a.dest = guidOf(v.get("transitionNodeID"));
   a.transition = enumOf(v.get("transitionType"), kTransitions, Transition::INSTANT);
-  a.duration = num(v.get("transitionDuration"), 0.3);
+  // Seconds; Figma reads a missing or zero duration as 0.3 (`transitionDuration || .3`).
+  a.duration = num(v.get("transitionDuration"), 0);
+  if (!(a.duration != 0)) a.duration = 0.3;
   if (const json::Value* d = v.get("transitionDurationVar"); d && d->isObject()) a.durationVar = *d;
   a.easing = enumOf(v.get("easingType"), kEasings, Easing::OUT_CUBIC);
   if (const json::Value* f = v.get("easingFunction"); f && f->isArray())
@@ -210,77 +213,23 @@ json::Value actionJson(const Action& a) {
   return v;
 }
 
-// cubic-bezier(x1, y1, x2, y2) at t (CSS's: x is time, solved for y).
-double bezier(double x1, double y1, double x2, double y2, double x) {
-  if (x <= 0) return 0;
-  if (x >= 1) return 1;
-  auto sample = [](double a1, double a2, double t) {
-    double u = 1 - t;
-    return 3 * u * u * t * a1 + 3 * u * t * t * a2 + t * t * t;
-  };
-  auto slope = [](double a1, double a2, double t) {
-    double u = 1 - t;
-    return 3 * u * u * a1 + 6 * u * t * (a2 - a1) + 3 * t * t * (1 - a2);
-  };
-  double t = x;
-  for (int i = 0; i < 8; i++) {
-    double err = sample(x1, x2, t) - x;
-    if (std::fabs(err) < 1e-7) break;
-    double d = slope(x1, x2, t);
-    if (std::fabs(d) < 1e-6) break;
-    t -= err / d;
-  }
-  if (t < 0 || t > 1 || std::fabs(sample(x1, x2, t) - x) > 1e-4) {
-    // Bisection when Newton wanders off.
-    double lo = 0, hi = 1;
-    t = x;
-    for (int i = 0; i < 40; i++) {
-      double s = sample(x1, x2, t);
-      if (std::fabs(s - x) < 1e-7) break;
-      if (s < x) lo = t;
-      else hi = t;
-      t = (lo + hi) / 2;
-    }
-  }
-  return sample(y1, y2, t);
-}
-
-struct Spring {
-  double mass = 1, stiffness = 100, damping = 15;
-};
-
-Spring springOf(const Action& a) {
+// A spring easing's physical spring (Figma's presets; CUSTOM_SPRING: easingFunction [mass, stiffness, damping, v0],
+// at least three finite values with a positive mass and stiffness, else Figma's fallback {1, 100, 10}).
+motion::Spring springOf(const Action& a) {
   switch (a.easing) {
-    case Easing::GENTLE_SPRING: return {1, 100, 15};
-    case Easing::SPRING_PRESET_ONE: return {1, 300, 20};    // Quick
-    case Easing::SPRING_PRESET_TWO: return {1, 600, 15};    // Bouncy
-    case Easing::SPRING_PRESET_THREE: return {1, 80, 20};   // Slow
-    case Easing::SPRING: return {1, 100, 15};
+    case Easing::SPRING:
+    case Easing::GENTLE_SPRING: return motion::kGentle;
+    case Easing::SPRING_PRESET_ONE: return motion::kQuick;
+    case Easing::SPRING_PRESET_TWO: return motion::kBouncy;
+    case Easing::SPRING_PRESET_THREE: return motion::kSlow;
     default: break;
   }
-  Spring s{1, 100, 10};
-  if (a.easingFunction.size() >= 3) {
-    s.mass = std::max(0.01, a.easingFunction[0]);
-    s.stiffness = std::max(0.01, a.easingFunction[1]);
-    s.damping = std::max(0.0, a.easingFunction[2]);
-  }
+  const std::vector<double>& f = a.easingFunction;
+  if (f.size() < 3 || !std::isfinite(f[0]) || !std::isfinite(f[1]) || !std::isfinite(f[2]) || f[0] <= 0 || f[1] <= 0 || f[2] < 0)
+    return motion::kInvalidSpring;
+  motion::Spring s{f[0], f[1], f[2], 0};
+  if (f.size() >= 4 && std::isfinite(f[3])) s.initialVelocity = f[3];
   return s;
-}
-
-// A damped spring from 0 to 1 at time `t` seconds (no initial velocity).
-double springAt(const Spring& s, double t) {
-  double w0 = std::sqrt(s.stiffness / s.mass);
-  double zeta = s.damping / (2 * std::sqrt(s.stiffness * s.mass));
-  if (zeta < 1) {
-    double wd = w0 * std::sqrt(1 - zeta * zeta);
-    return 1 - std::exp(-zeta * w0 * t) * (std::cos(wd * t) + (zeta * w0 / wd) * std::sin(wd * t));
-  }
-  if (zeta == 1) return 1 - std::exp(-w0 * t) * (1 + w0 * t);
-  double r = w0 * std::sqrt(zeta * zeta - 1);
-  double a = -zeta * w0 + r, b = -zeta * w0 - r;
-  // x(t) = 1 + c1 e^{a t} + c2 e^{b t}, x(0) = 0, x'(0) = 0.
-  double c2 = a / (b - a), c1 = -1 - c2;
-  return 1 + c1 * std::exp(a * t) + c2 * std::exp(b * t);
 }
 
 bool isSpring(Easing e) {
@@ -288,13 +237,7 @@ bool isSpring(Easing e) {
          e == Easing::SPRING_PRESET_TWO || e == Easing::SPRING_PRESET_THREE;
 }
 
-double springDuration(const Spring& s) {
-  // Settled: within 0.1 % of the end for good (sampled every 1/120 s, at most 10 s).
-  double last = 0;
-  for (double t = 0; t < 10; t += 1.0 / 120)
-    if (std::fabs(springAt(s, t) - 1) > 0.001) last = t;
-  return std::max(0.05, last + 1.0 / 120);
-}
+double bezier(const motion::Bezier& b, double t) { return motion::cubicBezier(b.x1, b.y1, b.x2, b.y2, t); }
 
 }  // namespace
 
@@ -336,9 +279,22 @@ std::vector<Interaction> interactions(const NodeProps& p) {
     if (!x.isObject() || flag(x.get("isDeleted"))) continue;
     Interaction i;
     i.id = guidOf(x.get("id"));
+    i.stateManagementVersion = static_cast<int>(num(x.get("stateManagementVersion"), 0));
     if (const json::Value* e = x.get("event"); e && e->isObject()) {
       i.trigger = enumOf(e->get("interactionType"), kTriggers, Trigger::ON_CLICK);
-      i.timeout = num(e->get("transitionTimeout"), 0.8);
+      // After delay: a missing or zero timeout reads as 0.8 s, as Figma's (`transitionTimeout || .8`).
+      i.timeout = num(e->get("transitionTimeout"), 0);
+      if (!(i.timeout != 0)) i.timeout = 0.8;
+      // Mouse enter / leave / down / up: the delay is Figma's interactionMaintained + interactionDuration (seconds; a
+      // maintained interaction without a duration waits 0.3 s). Files Wecra wrote before kept it in transitionTimeout.
+      if (hasDelay(i.trigger)) {
+        if (flag(e->get("interactionMaintained"))) {
+          double d = num(e->get("interactionDuration"), 0);
+          i.delay = d > 0 ? d : 0.3;
+        } else {
+          i.delay = std::max(0.0, num(e->get("transitionTimeout"), 0));
+        }
+      }
       if (const json::Value* d = e->get("transitionTimeoutVar"); d && d->isObject()) i.timeoutVar = *d;
       i.mediaHitTime = num(e->get("mediaHitTime"), 0);
       if (const json::Value* k = e->get("keyTrigger"); k && k->isObject())
@@ -449,6 +405,10 @@ json::Value toJson(const Interaction& i) {
   e.object.emplace_back("interactionType", stringValue(triggerName(i.trigger)));
   if (i.trigger == Trigger::AFTER_TIMEOUT) e.object.emplace_back("transitionTimeout", numberValue(i.timeout));
   if (i.trigger == Trigger::AFTER_TIMEOUT && !i.timeoutVar.isNull()) e.object.emplace_back("transitionTimeoutVar", i.timeoutVar);
+  if (hasDelay(i.trigger) && i.delay > 0) {
+    e.object.emplace_back("interactionMaintained", boolValue(true));
+    e.object.emplace_back("interactionDuration", numberValue(i.delay));
+  }
   if (i.trigger == Trigger::ON_MEDIA_HIT) e.object.emplace_back("mediaHitTime", numberValue(i.mediaHitTime));
   if (i.trigger == Trigger::ON_KEY_DOWN) {
     json::Value k = object();
@@ -464,6 +424,7 @@ json::Value toJson(const Interaction& i) {
   acts.kind = json::Value::Kind::Array;
   for (const Action& a : i.actions) acts.array.push_back(actionJson(a));
   v.object.emplace_back("actions", std::move(acts));
+  if (i.stateManagementVersion != 0) v.object.emplace_back("stateManagementVersion", numberValue(i.stateManagementVersion));
   return v;
 }
 
@@ -554,6 +515,7 @@ Interaction newConnection(Guid id, Guid dest) {
   Interaction i;
   i.id = id;
   i.trigger = Trigger::ON_CLICK;
+  i.stateManagementVersion = 1;  // what Figma writes on every new interaction
   Action a;
   a.connection = Connection::INTERNAL_NODE;
   a.navigation = Navigation::NAVIGATE;
@@ -567,28 +529,33 @@ Interaction newConnection(Guid id, Guid dest) {
 
 double ease(const Action& a, double t) {
   t = std::clamp(t, 0.0, 1.0);
-  if (isSpring(a.easing)) return springAt(springOf(a), t * durationOf(a));
+  if (isSpring(a.easing)) return t >= 1 ? 1 : motion::springValue(springOf(a), t * durationOf(a));
   switch (a.easing) {
     case Easing::LINEAR: return t;
     case Easing::IN_CUBIC:
-    case Easing::EASE_IN: return bezier(0.42, 0, 1, 1, t);
-    case Easing::OUT_CUBIC: return bezier(0, 0, 0.58, 1, t);
-    case Easing::INOUT_CUBIC: return bezier(0.42, 0, 0.58, 1, t);
-    case Easing::IN_BACK_CUBIC: return bezier(0.3, -0.05, 0.7, -0.5, t);
-    case Easing::OUT_BACK_CUBIC: return bezier(0.45, 1.45, 0.8, 1, t);
-    case Easing::INOUT_BACK_CUBIC: return bezier(0.7, -0.4, 0.4, 1.4, t);
+    case Easing::EASE_IN: return bezier(motion::kEaseIn, t);
+    case Easing::OUT_CUBIC: return bezier(motion::kEaseOut, t);
+    case Easing::INOUT_CUBIC: return bezier(motion::kEaseInOut, t);
+    case Easing::IN_BACK_CUBIC: return bezier(motion::kEaseInBack, t);
+    case Easing::OUT_BACK_CUBIC: return bezier(motion::kEaseOutBack, t);
+    case Easing::INOUT_BACK_CUBIC: return bezier(motion::kEaseInOutBack, t);
     case Easing::CUSTOM_CUBIC:
       if (a.easingFunction.size() >= 4)
-        return bezier(a.easingFunction[0], a.easingFunction[1], a.easingFunction[2], a.easingFunction[3], t);
-      return bezier(0, 0, 0.58, 1, t);
+        return motion::cubicBezier(a.easingFunction[0], a.easingFunction[1], a.easingFunction[2], a.easingFunction[3], t);
+      return bezier(motion::kEaseOut, t);
     case Easing::HOLD: return t >= 1 ? 1 : 0;
     default: return t;
   }
 }
 
 double durationOf(const Action& a) {
-  if (isSpring(a.easing)) return springDuration(springOf(a));
+  if (isSpring(a.easing)) return motion::springSettleTime(springOf(a));
   return std::max(0.0, a.duration);
+}
+
+bool hasDelay(Trigger t) {
+  return t == Trigger::MOUSE_ENTER || t == Trigger::MOUSE_LEAVE || t == Trigger::MOUSE_DOWN || t == Trigger::MOUSE_UP ||
+         t == Trigger::MOUSE_IN || t == Trigger::MOUSE_OUT;
 }
 
 void destinations(const Action& a, std::vector<std::pair<Navigation, Guid>>& out) {

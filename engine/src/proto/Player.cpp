@@ -274,6 +274,7 @@ bool Player::start(Guid page, Guid start) {
   instanceAnims_.clear();
   scrollAnims_.clear();
   timers_.clear();
+  delayed_.clear();
   held_.clear();
   pressed_ = Held{};
   hoverChain_ = Chain{};
@@ -296,6 +297,7 @@ void Player::stop() {
   base_ = kNoGuid;
   overlays_.clear();
   timers_.clear();
+  delayed_.clear();
   scene_ = PresentScene{};
   store_.clear();
   clearMedia();
@@ -740,12 +742,33 @@ Player::Chain Player::hitTest(Vec2 css) const {
 bool Player::fire(Guid node, Trigger t, const Hit* hotspot, Held* held) {
   if (!hasIx(node)) return false;
   bool any = false;
-  for (const Interaction& i : ix(node)) {
-    if (i.trigger != t) continue;
-    run(node, i.actions, hotspot, held);
+  auto list = ix(node);
+  for (size_t k = 0; k < list.size(); k++) {
+    const Interaction& i = list[k];
+    // The legacy Mouse in / Mouse out play as Mouse enter / Mouse leave (Figma reads them so).
+    bool match = i.trigger == t || (t == Trigger::MOUSE_ENTER && i.trigger == Trigger::MOUSE_IN) ||
+                 (t == Trigger::MOUSE_LEAVE && i.trigger == Trigger::MOUSE_OUT);
+    if (!match) continue;
     any = true;
+    if (hasDelay(i.trigger) && i.delay > 0) {
+      Delayed d;
+      d.node = node;
+      d.interaction = k;
+      d.trigger = t;
+      d.delayMs = i.delay * 1000;
+      if (hotspot) d.hotspot = *hotspot;
+      delayed_.push_back(d);
+      continue;
+    }
+    run(node, i.actions, hotspot, held);
   }
   return any;
+}
+
+void Player::cancelDelayed(Trigger t, Guid node) {
+  delayed_.erase(std::remove_if(delayed_.begin(), delayed_.end(),
+                                [&](const Delayed& d) { return d.trigger == t && (node == kNoGuid || d.node == node); }),
+                 delayed_.end());
 }
 
 void Player::hover(const Chain& c) {
@@ -755,6 +778,11 @@ void Player::hover(const Chain& c) {
     return false;
   };
   // Left: Mouse leave, and While hovering undone.
+  // A delayed Mouse enter waits for the pointer to stay; a delayed Mouse leave for it to stay away.
+  for (auto& h : hoverChain_.hits)
+    if (!contains(c, h.id)) cancelDelayed(Trigger::MOUSE_ENTER, h.id);
+  for (auto& h : c.hits)
+    if (!contains(hoverChain_, h.id)) cancelDelayed(Trigger::MOUSE_LEAVE, h.id);
   for (auto& h : hoverChain_.hits)
     if (!contains(c, h.id) && doc().has(h.id)) fire(h.id, Trigger::MOUSE_LEAVE, &h);
   for (size_t i = 0; i < held_.size();) {
@@ -865,6 +893,7 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
       dragFired_ = false;
       downCss_ = css;
       downChain_ = c;
+      cancelDelayed(Trigger::MOUSE_UP);  // pressed again before a delayed Mouse up ran
       for (auto& h : c.hits)
         if (fire(h.id, Trigger::MOUSE_DOWN, &h)) break;
       for (auto& h : c.hits) {
@@ -889,6 +918,7 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
       pressed_ = Held{};
       for (auto it = p.revert.rbegin(); it != p.revert.rend(); ++it) (*it)();
       Chain c = hitTest(css);
+      cancelDelayed(Trigger::MOUSE_DOWN);  // released before a delayed Mouse down ran
       for (auto& h : c.hits)
         if (fire(h.id, Trigger::MOUSE_UP, &h)) break;
       bool clicked = false;
@@ -1584,6 +1614,9 @@ void Player::dropTimers(Guid root) {
   timers_.erase(std::remove_if(timers_.begin(), timers_.end(),
                                [&](const Timer& t) { return t.node == root || doc().isAncestor(root, t.node) || !doc().has(t.node); }),
                 timers_.end());
+  delayed_.erase(std::remove_if(delayed_.begin(), delayed_.end(),
+                                [&](const Delayed& d) { return d.node == root || doc().isAncestor(root, d.node) || !doc().has(d.node); }),
+                 delayed_.end());
 }
 
 double Player::progress(const Anim& a) const {
@@ -1742,6 +1775,22 @@ bool Player::tick(double nowMs) {
     }
     draw = true;
   }
+  // Mouse triggers' delays.
+  std::vector<Delayed> ready;
+  for (auto& d : delayed_) {
+    if (d.at < 0) d.at = now_ + d.delayMs;
+    else if (now_ >= d.at) ready.push_back(d);
+  }
+  if (!ready.empty()) {
+    delayed_.erase(std::remove_if(delayed_.begin(), delayed_.end(), [&](const Delayed& d) { return d.at >= 0 && now_ >= d.at; }),
+                   delayed_.end());
+    for (auto& d : ready) {
+      if (!props(d.node) || !doc().has(d.node)) continue;
+      auto list = ix(d.node);
+      if (d.interaction < list.size()) run(d.node, list[d.interaction].actions, &d.hotspot, nullptr);
+    }
+    draw = true;
+  }
   return draw;
 }
 
@@ -1749,6 +1798,10 @@ int32_t Player::nextFrameDelay() const {
   if (dirty_ || animating()) return 0;
   double soonest = -1;
   for (auto& t : timers_) {
+    double d = t.at < 0 ? 0 : std::max(0.0, t.at - now_);
+    soonest = soonest < 0 ? d : std::min(soonest, d);
+  }
+  for (auto& t : delayed_) {
     double d = t.at < 0 ? 0 : std::max(0.0, t.at - now_);
     soonest = soonest < 0 ? d : std::min(soonest, d);
   }
