@@ -71,6 +71,8 @@ export class CanvasController {
    * (owner's B2C, 40 frames: 119 fps, p95 9.3 ms, against a pixelated scaled cache or 88 fps drawn full). */
   private reduced = false;
   private reducedTimer: ReturnType<typeof setTimeout> | null = null;
+  /** A zoom is going on: frame times are watched (zoomResolution). */
+  private zoomWatch = false;
   private textarea: HTMLTextAreaElement | null = null;
   private readonly wheelInput = new WheelNormalizer({ mac: IS_MAC, windows: IS_WINDOWS });
   private readonly pinch = new TouchPinch();
@@ -174,6 +176,7 @@ export class CanvasController {
     this.cleanups.push(() => observer.disconnect());
     this.cleanups.push(() => {
       if (this.reducedTimer) clearTimeout(this.reducedTimer);
+      this.zoomWatch = false;
     });
     const rect = c.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
@@ -353,19 +356,35 @@ export class CanvasController {
     this.engine.wheel(x, y, w.dx, w.dy, e.deltaMode, modifiersOf(e), (e.ctrlKey ? WHEEL_PINCH : 0) | w.source);
   };
 
-  /** A zoom step: the canvas drawn at half its device pixels until the zoom settles (Retina only). */
+  /**
+   * A zoom step. The zoom runs at full resolution — the engine composites the levels it drew ahead, sharp — and drops
+   * to half the device pixels (Retina) only when frames come slower than ~70 fps twice running (no warm tiles there:
+   * every frame drawn whole), until ZOOM_SETTLE_MS after the last step.
+   */
   private zoomResolution(): void {
     const s = this.size;
-    if (s.dpr < 1.5 || s.cssW <= 0) return;
-    if (!this.reduced) {
-      this.reduced = true;
-      this.engine.setViewport(s.cssW, s.cssH, s.dpr / 2, Math.max(1, Math.round(s.pxW / 2)), Math.max(1, Math.round(s.pxH / 2)));
-    }
     if (this.reducedTimer) clearTimeout(this.reducedTimer);
+    if (!this.zoomWatch && s.dpr >= 1.5 && s.cssW > 0) {
+      this.zoomWatch = true;
+      let last = performance.now(), slow = 0;
+      const tick = (t: number) => {
+        if (!this.zoomWatch || this.engine.destroyed) return;
+        slow = t - last > 14 ? slow + 1 : 0;
+        last = t;
+        if (slow >= 2 && !this.reduced) {
+          const n = this.size;
+          this.reduced = true;
+          this.engine.setViewport(n.cssW, n.cssH, n.dpr / 2, Math.max(1, Math.round(n.pxW / 2)), Math.max(1, Math.round(n.pxH / 2)));
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
     this.reducedTimer = setTimeout(() => {
       this.reducedTimer = null;
+      this.zoomWatch = false;
+      if (!this.reduced || this.engine.destroyed) return;
       this.reduced = false;
-      if (this.engine.destroyed) return;
       const n = this.size;
       this.engine.setViewport(n.cssW, n.cssH, n.dpr, n.pxW, n.pxH);
       this.engine.frameNow();

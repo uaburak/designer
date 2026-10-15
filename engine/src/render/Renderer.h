@@ -562,7 +562,7 @@ class Renderer {
   // The most a tile is drawn past its edges for layers reading their backdrop across it (device px).
   static constexpr int kTileBackdropMargin = 256;
   // Colour + stencil of the atlases (4 of 64 tiles: 256 tiles, three Retina screens of a level).
-  static constexpr uint64_t kTileBudgetBytes = 128ull << 20;
+  static constexpr uint64_t kTileBudgetBytes = 512ull << 20;  // three warm levels around the view (round 17 D)
   static constexpr double kTileInteractingMs = 6;
   static constexpr double kTileIdleMs = 12;
   size_t tileCount() const { return tiles_.map.size(); }
@@ -871,6 +871,8 @@ class Renderer {
   static bool tileKey(const TileCoord& t, uint64_t& key);
   // The tiles of `level` that the canvas shows through `camera`, nearest the centre first.
   std::vector<TileCoord> visibleTiles(const Camera& camera, int level, double grow) const;
+  /** Every tile of `level` the canvas shows at `camera` is drawn (a zoom can show them as they are). */
+  bool tilesCover(const Camera& camera, int level) const;
   // Draws one tile into its atlas slot (false: no room).
   bool rasterTile(const Document& doc, const TileCoord& t, const Color& clear, const float clearColor[4]);
   // Missing tiles of `want` drawn within `budgetMs` (one at least): how many remain.
@@ -925,6 +927,7 @@ class Renderer {
     uint32_t fonts = 0, images = 0;       // the registries' generations it was drawn with
     Color clear;
     double fullMs = 0;                    // how long its last full raster took
+    uint64_t fullFrame = 0;               // the frame that full raster was drawn in
     double lastZoom = 0, zoomChangedAt = 0, settleAt = 0;
     // Images arriving on a slow page: when they last made it draw everything, and when the ones that came since are
     // drawn (kImageBatchMs later: a file opening with many images draws them a few at a time, not each alone).
