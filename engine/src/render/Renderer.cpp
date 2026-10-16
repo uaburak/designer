@@ -2469,11 +2469,11 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
       stats_.drawCalls++;
     }
   };
-  // The background blurs' scheduler (see the declaration): captures still to take, what waits for them, and the
-  // backdrops (BackdropBlur::textures) the waiting shapes paint with.
-  std::vector<const Cmd*> grabs, waiting;
-  std::vector<gfx::IRect> grabRects, waitRects;
-  std::vector<int> grabbed;  // backdrops_ indices of `grabs`
+  // The background blurs' scheduler (see the declaration), in waves: a wave runs what lies clear of every capture it
+  // holds and of everything it holds back, gathers the captures whose backdrops are complete, holds back what lies
+  // over them — and a background blur over something held back, which can't be captured yet (its backdrop holds
+  // that), with whatever lies over it. The wave's captures are taken in one break of the pass; the next wave takes
+  // what was held back, in order. So blurs in blurred containers cost a capture per level of nesting, not per pair.
   auto boundsOf = [&](const Cmd& c) -> gfx::IRect {
     if (c.kind == Cmd::Kind::Draw) return c.bounds;
     gfx::IRect r = c.rect;
@@ -2485,41 +2485,45 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
       if (overlaps(b, r)) return true;
     return false;
   };
-  auto flush = [&]() -> bool {
-    if (grabs.empty()) return true;
-    bool ok = captureBackdrops(L, pd, grabs);
-    grabs.clear(), grabRects.clear(), grabbed.clear();
-    if (!ok) return false;
-    std::vector<const Cmd*> todo;
-    todo.swap(waiting);
-    waitRects.clear();
-    for (const Cmd* w : todo) run(*w);
-    return true;
-  };
-  for (const Cmd& c : L.cmds) {
-    if (c.kind == Cmd::Kind::BackdropBlur) {
-      gfx::IRect r = intersect(c.rect, L.rect);
-      if (r.w <= 0 || r.h <= 0) continue;
-      // Its backdrop holds everything before it: what waits over its region must be drawn first.
-      if (any(waitRects, r) && !flush()) return;
-      grabs.push_back(&c);
-      grabRects.push_back(r);
-      grabbed.push_back(c.layer);
-      continue;
-    }
-    if (!grabs.empty()) {
-      gfx::IRect b = boundsOf(c);
-      bool paintsGrab = c.kind == Cmd::Kind::Draw && c.state.backdrop >= 0 &&
-                        std::find(grabbed.begin(), grabbed.end(), c.state.backdrop) != grabbed.end();
-      if (paintsGrab || any(grabRects, b) || any(waitRects, b)) {
-        waiting.push_back(&c);
-        waitRects.push_back(b);
+  std::vector<const Cmd*> queue;
+  queue.reserve(L.cmds.size());
+  for (const Cmd& c : L.cmds) queue.push_back(&c);
+  std::vector<const Cmd*> grabs, held;
+  std::vector<gfx::IRect> grabRects, heldRects;
+  std::vector<int> grabbed, heldBlurs;  // backdrops_ indices
+  while (!queue.empty()) {
+    grabs.clear(), held.clear(), grabRects.clear(), heldRects.clear(), grabbed.clear(), heldBlurs.clear();
+    for (const Cmd* c : queue) {
+      if (c->kind == Cmd::Kind::BackdropBlur) {
+        gfx::IRect r = intersect(c->rect, L.rect);
+        if (r.w <= 0 || r.h <= 0) continue;
+        if (any(heldRects, r)) {
+          held.push_back(c);
+          heldRects.push_back(r);
+          heldBlurs.push_back(c->layer);
+        } else {
+          grabs.push_back(c);
+          grabRects.push_back(r);
+          grabbed.push_back(c->layer);
+        }
         continue;
       }
+      if (!grabs.empty() || !held.empty()) {
+        gfx::IRect b = boundsOf(*c);
+        bool paints = c->kind == Cmd::Kind::Draw && c->state.backdrop >= 0 &&
+                      (std::find(grabbed.begin(), grabbed.end(), c->state.backdrop) != grabbed.end() ||
+                       std::find(heldBlurs.begin(), heldBlurs.end(), c->state.backdrop) != heldBlurs.end());
+        if (paints || any(grabRects, b) || any(heldRects, b)) {
+          held.push_back(c);
+          heldRects.push_back(b);
+          continue;
+        }
+      }
+      run(*c);
     }
-    run(c);
+    if (!grabs.empty() && !captureBackdrops(L, pd, grabs)) return;
+    queue.swap(held);
   }
-  if (!flush()) return;
   device_.endPass();
 }
 

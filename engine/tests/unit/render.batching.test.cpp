@@ -456,3 +456,37 @@ TEST_CASE("renderer: a background blur over what lies over another waits for it 
   CHECK(title[0] >= dev.copyAt[0]);  // over A: after A's capture
   CHECK(title[0] < dev.copyAt[1]);   // under B: before B's
 }
+
+TEST_CASE("renderer: blurs in blurred containers take a capture per level of nesting, not per pair") {
+  // Six screens, each a blurred container holding a blurred dot (B2C's "Container" › "scroll-dot"): the dot's backdrop
+  // holds its container's blurred shape, so it waits for that capture — but the six dots wait together.
+  Document d;
+  base(d);
+  std::string key;
+  auto next = [&] { return key = fractional::keyBetween(key, std::nullopt, fractional::Bias::Low); };
+  Effect blur;
+  blur.type = EffectType::BACKGROUND_BLUR;
+  blur.radius = 8;
+  for (uint32_t i = 0; i < 6; i++) {
+    double x = i * 300.0;
+    d.apply(solidRect({1, 10 * i + 1}, next(), {x, 0, 280, 400}, 0x336699));
+    NodeChange box = solidRect({1, 10 * i + 2}, next(), {x + 20, 20, 240, 100}, 0xFFFFFF, 0.4);
+    box.props.effects = {blur};
+    d.apply(box);
+    NodeChange dot = solidRect({1, 10 * i + 3}, next(), {x + 40, 40, 60, 20}, 0xFFFFFF, 0.4);
+    dot.props.effects = {blur};
+    d.apply(dot);
+    d.apply(solidRect({1, 10 * i + 4}, next(), {x + 50, 45, 20, 10}, 0xFF0000));  // over the dot
+  }
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  r.render(d, kPage, Camera{}, {1800, 500, 1, 1800, 500}, Overlay{}, kDark);
+  REQUIRE(dev.hazards == 0);
+  CHECK(dev.copies == 12);
+  std::vector<size_t> points(dev.copyAt.begin(), dev.copyAt.end());
+  std::set<size_t> distinct(points.begin(), points.end());
+  CHECK(distinct.size() == 2);
+  // Every dot after the containers' capture, every red mark over a dot after the dots'.
+  size_t second = *distinct.rbegin();
+  for (size_t i : drawsOfColour(dev, 0xFF0000)) CHECK(i >= second);
+}
