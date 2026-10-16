@@ -258,8 +258,11 @@ void Renderer::emit(const DrawInstance& s, Pass pass, const DrawState& state0) {
   if (pass == Pass::ShapeStencilDec) ref = static_cast<uint8_t>(stencilDepth_ + 1);
   Layer& layer = layers_[static_cast<size_t>(current_)];
   std::vector<Cmd>& cmds = layer.cmds;
-  gfx::IRect bounds = instanceBounds(s);
-  if (scissorEnabled_) {
+  // Bounds only matter after a background blur in this layer (before it nothing waits for a capture): a page
+  // without one pays nothing for them.
+  gfx::IRect bounds{0, 0, -1, -1};
+  if (!layer.backdropRects.empty()) bounds = instanceBounds(s);
+  if (!layer.backdropRects.empty() && scissorEnabled_) {
     gfx::IRect clip{static_cast<int>(std::floor(clipRect_[0])), static_cast<int>(std::floor(clipRect_[1])), 0, 0};
     clip.w = static_cast<int>(std::ceil(clipRect_[2])) - clip.x;
     clip.h = static_cast<int>(std::ceil(clipRect_[3])) - clip.y;

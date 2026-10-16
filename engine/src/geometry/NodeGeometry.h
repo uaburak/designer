@@ -53,6 +53,11 @@ class GeometryCache {
     Bytes network;  // the blob the entry was built from (its identity is part of the input)
     NodeGeometry geometry;
     bool valid = false;
+    // The document and its version it was last checked against: unchanged since, a shape's inputs are too (every
+    // change bumps the version) — its key isn't hashed again each frame (round 18: ~1.4 ms a frame at 3 % on B2C).
+    // Text keeps hashing: its layout can change with the document as it was (a font arriving).
+    const Document* doc = nullptr;
+    uint64_t checkedAt = 0;
   };
   uint64_t inputKey(const Document& doc, Guid id, const NodeProps& p, int depth);
   void build(const Document& doc, Guid id, const NodeProps& p, NodeGeometry& out, int depth);

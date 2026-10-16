@@ -244,9 +244,15 @@ const NodeGeometry* GeometryCache::get(const Document& doc, Guid id, int depth) 
     default: break;
   }
   if (p.isGroupLike()) return nullptr;
-  uint64_t key = inputKey(doc, id, p, depth);
   auto it = entries_.find(id);  // found without inserting; made only when missing
+  bool textLike = p.type == NodeType::TEXT || p.type == NodeType::TEXT_PATH || p.isBoolean();  // a boolean hashes its texts too
+  if (it != entries_.end() && it->second.valid && !textLike && it->second.doc == &doc && it->second.checkedAt == doc.version() &&
+      it->second.network == p.shape().vectorData.network)
+    return &it->second.geometry;
+  uint64_t key = inputKey(doc, id, p, depth);
   Entry& e = it != entries_.end() ? it->second : entries_.try_emplace(id).first->second;
+  e.doc = &doc;
+  e.checkedAt = doc.version();
   if (!e.valid || e.input != key || e.network != p.shape().vectorData.network) {
     build(doc, id, p, e.geometry, depth);
     e.input = key;
