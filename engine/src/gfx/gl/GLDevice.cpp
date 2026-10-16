@@ -441,6 +441,45 @@ class WebGL2Device final : public Device {
     forget();
   }
 
+  void copyRegionsToTexture(TextureId texture, std::span<const CopyRegion> regions, bool clear) override {
+    if (!texture || texture >= textures_.size() || !textures_[texture].gl) return;
+    const int DW = static_cast<int>(textures_[texture].width), DH = static_cast<int>(textures_[texture].height);
+    if (clear) {
+      // Through the framebuffer of the target the texture belongs to (an atlas is a pool target), then back.
+      GLuint fb = 0;
+      for (const Target& t : targets_)
+        if (t.texture == texture) fb = t.framebuffer;
+      if (fb) {
+        glBindFramebuffer(GL_FRAMEBUFFER, fb);
+        glDisable(GL_SCISSOR_TEST);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glClearColor(0, 0, 0, 0);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glBindFramebuffer(GL_FRAMEBUFFER, bound_);
+      }
+    }
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, textures_[texture].gl);
+    auto copy = [&](int sx, int sy, int w, int h, int dx, int dy) {
+      if (dx < 0) sx -= dx, w += dx, dx = 0;
+      if (dy < 0) sy -= dy, h += dy, dy = 0;
+      w = std::min(w, DW - dx);
+      h = std::min(h, DH - dy);
+      if (w > 0 && h > 0) glCopyTexSubImage2D(GL_TEXTURE_2D, 0, dx, dy, sx, sy, w, h);
+    };
+    for (const CopyRegion& c : regions) {
+      int sx = c.src.x, sy = height_ - c.src.y - c.src.h, w = c.src.w, h = c.src.h;
+      if (w <= 0 || h <= 0) continue;
+      copy(sx, sy, w, h, c.x, c.y);
+      // The edges repeated past it: a column or row of texels a copy.
+      for (int i = 1; i <= c.grow[0]; i++) copy(sx, sy, 1, h, c.x - i, c.y);
+      for (int i = 1; i <= c.grow[2]; i++) copy(sx + w - 1, sy, 1, h, c.x + w - 1 + i, c.y);
+      for (int i = 1; i <= c.grow[1]; i++) copy(sx, sy, w, 1, c.x, c.y - i);
+      for (int i = 1; i <= c.grow[3]; i++) copy(sx, sy + h - 1, w, 1, c.x, c.y + h - 1 + i);
+    }
+    forget();
+  }
+
   TextureId createTexture(const TextureDesc& desc) override {
     forget();  // binds behind the draws' back
     if (!context_ || emscripten_is_webgl_context_lost(context_) || !desc.width || !desc.height) return 0;

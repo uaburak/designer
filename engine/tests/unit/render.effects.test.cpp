@@ -745,13 +745,13 @@ TEST_CASE("renderer: a background blur is clamped to the node's box (stroke grow
   CHECK(u[6][1] == doctest::Approx(0));
   CHECK(u[6][2] == doctest::Approx(100));
   CHECK(u[6][3] == doctest::Approx(100));
-  // Slots 7–8: the node's space → the halved copy's px (y up from its bottom). The copy is 98…202 device px: the node's
-  // top-left (100, 100) is texel (1, 52 − 1).
-  CHECK(u[7][2] == doctest::Approx(1));
-  CHECK(u[8][2] == doctest::Approx(51));
-  // Slots 4–5 map back: texel (1, 51) → the node's (0, 0).
-  CHECK(u[4][0] * 1 + u[4][1] * 51 + u[4][2] == doctest::Approx(0).epsilon(1e-4));
-  CHECK(u[5][0] * 1 + u[5][1] * 51 + u[5][2] == doctest::Approx(0).epsilon(1e-4));
+  // Slots 7–8: the node's space → the halved atlas's px (y up from its bottom). The copy is 98…202 device px, in its
+  // atlas slot 2 px in (round 18): the node's top-left (100, 100) is atlas texel (4, 104), halved (2, 52).
+  CHECK(u[7][2] == doctest::Approx(2));
+  CHECK(u[8][2] == doctest::Approx(52));
+  // Slots 4–5 map back: texel (2, 52) → the node's (0, 0).
+  CHECK(u[4][0] * 2 + u[4][1] * 52 + u[4][2] == doctest::Approx(0).epsilon(1e-4));
+  CHECK(u[5][0] * 2 + u[5][1] * 52 + u[5][2] == doctest::Approx(0).epsilon(1e-4));
   // No unclamped tent on the backdrop.
   CHECK(blurRadii(dev).empty());
 

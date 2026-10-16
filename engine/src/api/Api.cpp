@@ -1764,6 +1764,7 @@ ENG_EXPORT int32_t engine_stats(Handle h) {
   json::Writer w;
   w.beginObject().key("nodes").number(static_cast<double>(e->editor.document().size()));
   w.key("shapes").number(e->stats.shapes).key("drawCalls").number(e->stats.drawCalls);
+  w.key("passes").number(e->stats.passes).key("backdrops").number(e->stats.backdrops).key("captures").number(e->stats.captures);
   w.key("glyphs").number(e->stats.glyphs).key("paths").number(e->stats.paths).key("layers").number(e->stats.layers);
   w.key("visited").number(e->stats.nodes).key("culled").number(e->stats.culled).key("tiny").number(e->stats.tiny);
   w.key("greeked").number(e->stats.greeked).key("cachedRegions").number(e->stats.cachedRegions).key("stale").number(e->stats.stale);

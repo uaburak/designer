@@ -869,9 +869,15 @@ inline constexpr const char* kUtility = R"(
   return textureSampleLevel(src, srcSampler, (floor(pos.xy) * 2.0 + 1.0) / sz, 0.0);
 }
 
+// The source texel of texel d: (u0.x + d.x, u0.y − d.y) on the canvas (rows top first), (u0.x + d.x, u0.y + d.y) on a
+// target (u0.z = 1); clamped into slot 1's (x0, y0, x1, y1) when u0.w = 1 (the region's edge repeated past it).
 @fragment fn flipCopy(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   let d = vec2i(floor(pos.xy));
-  return textureLoad(src, vec2i(i32(u.v[0].x) + d.x, i32(u.v[0].y) - d.y), 0);
+  var s = vec2i(i32(u.v[0].x) + d.x, select(i32(u.v[0].y) - d.y, i32(u.v[0].y) + d.y, u.v[0].z > 0.5));
+  if (u.v[0].w > 0.5) {
+    s = clamp(s, vec2i(u.v[1].xy), vec2i(u.v[1].zw));
+  }
+  return textureLoad(src, s, 0);
 }
 )";
 

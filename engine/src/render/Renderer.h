@@ -488,6 +488,9 @@ struct RenderStats {
   uint32_t paths = 0;
   uint32_t layers = 0;  // offscreen layers
   uint32_t drawCalls = 0;
+  uint32_t passes = 0;     // render passes begun (each a store and a load of its target on a tile-based GPU)
+  uint32_t backdrops = 0;  // background blurs' (and glass's) backdrops captured
+  uint32_t captures = 0;   // the breaks of the pass they were captured in (round 18: taken together)
   uint32_t nodes = 0;    // render-tree nodes visited (drawn or culled at their subtree)
   uint32_t culled = 0;   // subtrees skipped: off screen
   uint32_t tiny = 0;     // subtrees skipped: under half a device pixel (LOD)
@@ -639,10 +642,18 @@ class Renderer {
     Vec2 blitOrigin;
     double blitScale = 1;
     int blitHeight = 0;
+    // Draw: the device px (canvas space) its instances can touch; w < 0: unknown (anywhere). The backdrop scheduler
+    // (runCmds) runs a draw before a background blur's capture when it lies clear of every capture still to take.
+    gfx::IRect bounds{0, 0, -1, -1};
+    // Draw: its instances overlap a background blur recorded before them in this layer (batches split where this
+    // changes, so what lies clear of the blurs isn't held back with what lies over them).
+    bool overBackdrop = false;
   };
   struct Layer {
     gfx::IRect rect;           // device px, canvas space
     std::vector<Cmd> cmds;
+    // Recording: the regions of the background blurs recorded into it (the last kRecentBackdrops), for Cmd::overBackdrop.
+    std::vector<gfx::IRect> backdropRects;
     int copyOf = -1;           // a copy of another layer (then blurred: shadows)
     double blurRadius = 0;     // the tent blur's radius in device px, applied after drawing
     double morph = 0;          // + dilate / − erode, device px, before the blur
@@ -691,6 +702,8 @@ class Renderer {
     float fx[3][4] = {};                                   // progressive: slots 16–18 (the node's box, start / end)
     double start = 0, end = 0;                             // progressive: the radius at the start and at the end (device px)
     float glass[2][4] = {};                                // glass: slots 6 and 8
+    // Where the layer it was recorded in cut its region (left, bottom, right, top): the atlas repeats the edge there.
+    bool cut[4] = {false, false, false, false};
     // A uniform background blur: clamped to the node's box (Layer::clamped).
     bool clamped = false;
     Rect clampBox;
@@ -845,7 +858,22 @@ class Renderer {
   }
   // Layer `index` has run: what it read is read once less, and a layer nothing reads any more gives its target back.
   void doneReading(int index);
+  // Layer L's commands into `target`. Background blurs (round 18): each needs the pixels under it before anything is
+  // drawn over it, and reading them closes the render pass — on a tile-based GPU a store and a load of the whole
+  // target (the canvas: 2880×1724 on a Retina editor), 0.5–1 ms each, and the owner's B2C pages show 30–60 of them.
+  // So the captures are taken together: a blur's capture waits, what lies over it (or over what waits) waits with it,
+  // and everything else is drawn at once; the next blur whose region nothing waiting touches joins the same capture.
+  // Only commands with disjoint pixels change order, so the frame is the same.
   void runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, const float clear[4], bool keep);
+  // The blurred backdrops of `grabs` (BackdropBlur commands of layer L, in order), taken in one break of the pass `pd`.
+  bool captureBackdrops(Layer& L, const gfx::PassDesc& pd, const std::vector<const Cmd*>& grabs);
+  bool openPass(const gfx::PassDesc& pd) {
+    stats_.passes++;
+    return device_.beginPass(pd);
+  }
+  // Where a draw instance can touch, device px in canvas space (its quad as the draw vertex shader spans it).
+  gfx::IRect instanceBounds(const DrawInstance& q) const;
+  static constexpr size_t kRecentBackdrops = 32;
   // A recording of `region` (device px; clipToRegion: nothing drawn outside it), then its execution into `target`
   // (keep: what the target holds stays outside the region).
   void beginRecording(gfx::IRect region, bool clipToRegion);
