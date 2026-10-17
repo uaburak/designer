@@ -26,6 +26,8 @@ export interface CommentAnchor {
   y: number;
   nodeId?: string | null;
   offset?: { x: number; y: number } | null;
+  /** Motion (docs/motion.md §6.8): the playhead's time when the comment was placed in Motion mode; the pin shows near it. Round 8g. */
+  timeMs?: number | null;
 }
 
 export interface CommentReaction {

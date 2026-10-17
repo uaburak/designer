@@ -1,4 +1,4 @@
-# Motion (contract, Phase 7 round 8; written 2026-10-12, docs only)
+# Motion (contract, Phase 7 round 8; written 2026-10-12; **the pre-round commit landed 2026-10-17** — §4.1's schema, `src/shared/motion/types.ts`, the `Engine.ts` / `abi.ts` / `codec.ts` stubs, the chrome stubs and the icons; 8a is next)
 
 Figma Motion (Beta) inside DesignerV2's Design editor: **Motion mode** with its **timeline**, **keyframes** (manual and auto-keyframe), **easing** (Figma's named curves, springs, custom bezier and spring, easing and timing variables), **animation presets** and composite **animation styles**, the **anchor point**, **motion paths**, **path trim**, **text animation**, **audio**, **animated components**, playback in **prototypes**, **export** (MP4, WebM, GIF, animated SVG, Lottie, dotLottie), the **Motion tab in Dev Mode** with code, and the plugin API. This file decides the engine model, the evaluator, the chrome, export, Dev Mode and the shared types. Ownership and merge order are in `docs/roadmap.md` "Round 8".
 
@@ -1165,7 +1165,8 @@ export interface EasingEditorProps {
   onChange(value: EasingRef, commit: boolean): void;
   /** Offer the variable binding (EASING variables) */
   allowVariable?: boolean;
-  anchor: DOMRect;
+  /** Where to anchor the popover (a DOMRect's box; the shared types stay DOM-free) */
+  anchor: { x: number; y: number; width: number; height: number };
   onClose(): void;
 }
 ```

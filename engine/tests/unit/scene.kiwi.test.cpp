@@ -521,7 +521,8 @@ TEST_CASE("kiwi codec: the engine's enums are numbered as the schema's") {
   const eng::schema::Def* nt = table.def("NodeType");
   REQUIRE(nt);
   for (NodeType t : {NodeType::DOCUMENT, NodeType::CANVAS, NodeType::FRAME, NodeType::TEXT, NodeType::SYMBOL, NodeType::INSTANCE,
-                     NodeType::SECTION, NodeType::VARIABLE, NodeType::VARIABLE_SET, NodeType::BOOLEAN_OPERATION})
+                     NodeType::SECTION, NodeType::VARIABLE, NodeType::VARIABLE_SET, NodeType::BOOLEAN_OPERATION,
+                     NodeType::KEYFRAME, NodeType::KEYFRAME_TRACK, NodeType::ANIMATION_PRESET_INSTANCE})
     CHECK(nt->byName(nodeTypeName(t))->value == static_cast<uint32_t>(t));
 }
 

@@ -56,7 +56,7 @@ describe("generated codec", () => {
 
 describe("field registry (from the schema's tags)", () => {
   it("lists NodeChange's live fields with their flags", () => {
-    expect(NODE_FIELDS.length).toBe(221);  // + textPathStart / transformModifiers / rotationOrigin / vectorOperationVersion (Draw, Phase 7 round 7), pluginData / pluginRelaunchData (plugins, Phase 7 round 5d), invertedCornerMask (ours, round 16), overriddenVariableId (extended collections, round 5), the brush fields and videoPlayback (text round), editInfo (round 6), targetAspectRatio / textTracking / 6 layout version stamps (import polish)
+    expect(NODE_FIELDS.length).toBe(256);  // + the 35 Motion fields (Phase 7 round 8 pre-commit, docs/motion.md §4.1), textPathStart / transformModifiers / rotationOrigin / vectorOperationVersion (Draw, Phase 7 round 7), pluginData / pluginRelaunchData (plugins, Phase 7 round 5d), invertedCornerMask (ours, round 16), overriddenVariableId (extended collections, round 5), the brush fields and videoPlayback (text round), editInfo (round 6), targetAspectRatio / textTracking / 6 layout version stamps (import polish)
     const cleared = NODE_FIELDS.find((f) => f.name === "clearedFields")!;
     expect(cleared.id).toBe(1000);
     expect(cleared.flags & FIELD_FLAGS.PATCH).toBeTruthy();
@@ -82,10 +82,10 @@ describe("field registry (from the schema's tags)", () => {
 
   it("knows the blob fields and the binary schema", () => {
     expect(BLOB_FIELDS.map((b) => `${b.message}.${b.field}`).sort()).toEqual(["Glyph.commandsBlob", "Image.dataBlob", "Path.commandsBlob", "VectorData.vectorNetworkBlob"]);
-    expect(SCHEMA_BINARY.length).toBe(33204);  // + TEXT_PATH / TRANSFORM, TextPathStart, TransformModifier and its enums, their fields and Glyph.rotation (Draw, Phase 7 round 7), PluginData / PluginRelaunchData and their fields (Phase 7 round 5d), + invertedCornerMask (round 16), + SlotContentId and slotContentIdValue (round 4), gridReflowEnabled (import fidelity), MAP / VariableMap / extended collections, BRUSH / VIDEO and the brush fields (round 5), the video triggers / actions and MediaAction, EditInfo and Annotation.labelV2 (round 6), PATTERN / NOISE paints and the newer effect fields (round 7), CUSTOM shader paints / effects, CodeComponentId and ComponentPropValue.floatValue (round 11), targetAspectRatio / textTracking / layout version stamps / AuthoredColor / prototype bindings (import polish)
+    expect(SCHEMA_BINARY.length).toBe(38738);  // + Motion: KEYFRAME / KEYFRAME_TRACK / ANIMATION_PRESET_INSTANCE, its enums and messages, the Effect *Var slots, ExportSettings 13-17 (Phase 7 round 8 pre-commit), TEXT_PATH / TRANSFORM, TextPathStart, TransformModifier and its enums, their fields and Glyph.rotation (Draw, Phase 7 round 7), PluginData / PluginRelaunchData and their fields (Phase 7 round 5d), + invertedCornerMask (round 16), + SlotContentId and slotContentIdValue (round 4), gridReflowEnabled (import fidelity), MAP / VariableMap / extended collections, BRUSH / VIDEO and the brush fields (round 5), the video triggers / actions and MediaAction, EditInfo and Annotation.labelV2 (round 6), PATTERN / NOISE paints and the newer effect fields (round 7), CUSTOM shader paints / effects, CodeComponentId and ComponentPropValue.floatValue (round 11), targetAspectRatio / textTracking / layout version stamps / AuthoredColor / prototype bindings (import polish)
     expect(SCHEMA_SHA1).toMatch(/^[0-9a-f]{40}$/);
     expect(DOCUMENT_FORMAT_VERSION).toBe(1);
-    expect(MODEL.def("NodeChange").fields.length).toBe(221);
+    expect(MODEL.def("NodeChange").fields.length).toBe(256);
     expect(MODEL.canContain("NodeChange", new Set(["Image"]))).toBe(true);
   });
 });

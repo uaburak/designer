@@ -418,6 +418,9 @@ const char* nodeTypeName(NodeType t) {
     case NodeType::BRUSH: return "BRUSH";
     case NodeType::TEXT_PATH: return "TEXT_PATH";
     case NodeType::TRANSFORM: return "TRANSFORM";
+    case NodeType::KEYFRAME: return "KEYFRAME";
+    case NodeType::KEYFRAME_TRACK: return "KEYFRAME_TRACK";
+    case NodeType::ANIMATION_PRESET_INSTANCE: return "ANIMATION_PRESET_INSTANCE";
     case NodeType::SYMBOL: return "SYMBOL";
     case NodeType::INSTANCE: return "INSTANCE";
     case NodeType::SECTION: return "SECTION";
@@ -432,7 +435,8 @@ NodeType nodeTypeFromName(std::string_view s) {
                                       NodeType::BOOLEAN_OPERATION, NodeType::VECTOR, NodeType::STAR, NodeType::LINE,
                                       NodeType::REGULAR_POLYGON, NodeType::SLICE, NodeType::VARIABLE, NodeType::VARIABLE_SET,
                                       NodeType::VARIABLE_OVERRIDE, NodeType::BRUSH, NodeType::TEXT_PATH,
-                                      NodeType::TRANSFORM};
+                                      NodeType::TRANSFORM, NodeType::KEYFRAME, NodeType::KEYFRAME_TRACK,
+                                      NodeType::ANIMATION_PRESET_INSTANCE};
   for (NodeType t : kAll)
     if (s == nodeTypeName(t)) return t;
   return NodeType::NONE;

@@ -129,6 +129,9 @@ NodeType nodeTypeOf(uint32_t v) {
     case 41: return NodeType::TEXT_PATH;
     case 46: return NodeType::BRUSH;
     case 48: return NodeType::TRANSFORM;
+    case 56: return NodeType::KEYFRAME;
+    case 57: return NodeType::KEYFRAME_TRACK;
+    case 58: return NodeType::ANIMATION_PRESET_INSTANCE;
     default: return NodeType::NONE;
   }
 }

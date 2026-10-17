@@ -52,6 +52,11 @@ enum class NodeType : uint8_t {
   TEXT_PATH = 41,  // Figma Draw: text laid along its own path (vectorData + TEXT's fields; textPathStart), docs/draw.md §4.4
   BRUSH = 46,  // Figma Draw: a brush's artwork (a vector on the internal canvas)
   TRANSFORM = 48,  // Figma Draw: a transform group — a group whose transformModifiers repeat its children (docs/draw.md §4.2)
+  // Figma Motion (docs/motion.md §4.2): a keyframe, a field's track of keyframes (on the internal canvas 0:2) and an
+  // applied animation preset. Round 8's pre-commit keeps them as nodes with their fields (NodeProps::extra); 8a evaluates them.
+  KEYFRAME = 56,
+  KEYFRAME_TRACK = 57,
+  ANIMATION_PRESET_INSTANCE = 58,
 };
 
 enum class StrokeAlign : uint8_t { CENTER = 0, INSIDE = 1, OUTSIDE = 2 };

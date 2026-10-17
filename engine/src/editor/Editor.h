@@ -51,11 +51,13 @@ enum class Tool : uint8_t {
   ANNOTATION, MEASUREMENT,
   EYEDROPPER,
   BRUSH, TEXT_PATH,
+  ANCHOR_POINT,
   Count
 };
 // ANNOTATION and MEASUREMENT: Dev Mode's tools (⇧T, ⇧M), editor/DevMode.cpp. Round 8 (tools/CanvasTools.cpp): SCALE (K)
 // selects and moves as MOVE, its handles scale the layers with their properties; SLICE (S) draws slices; COMMENT (C) is
 // inert until multiplayer; EYEDROPPER (I, ⌃C "Pick color"): a click emits COLOR_PICK and the tool goes back to Move.
+// ANCHOR_POINT (Phase 7 round 8, docs/motion.md §4.9; round 8b): Motion's anchor point target (⌥R); nothing handles it yet.
 // BRUSH and TEXT_PATH (Phase 7 round 7, docs/draw.md §4.4–4.5; round 7b, tools/DrawTools.cpp): the Brush draws as the
 // Pencil does with the Brush's brush (setDrawToolSettings); Text on path makes a TEXT_PATH from a shape's edge.
 const char* toolName(Tool t);

@@ -126,6 +126,7 @@ import { FACET_DECODERS, FACET_IDS, FACET_SLOTS, type FacetName } from "./facets
 import type { ExportSettings } from "../../../shared/schema/document.generated";
 import type { TraceOptions, TraceResult } from "../../../shared/ai/types";
 import type { BrushArtwork, BrushType, DrawCommandArgs, DrawToolSettings, GuidString, InstallBrushInput, ScatterSettings } from "../../../shared/draw/types";
+import type { FieldStates, Micros, MotionCommandArgs, MotionShapeLayer, MotionViewState, ResolvedMotion, TimelineModel } from "../../../shared/motion/types";
 import { fonts } from "./fonts";
 import { keyCodeOf } from "./keyCodes";
 import { prepareGfx, recordWebGPUFallback, type GfxBackend, type GfxPreference } from "./gfx";
@@ -1407,7 +1408,9 @@ export class Engine {
     }
     const bytes = this.x.result();
     if (format === "PNG" || format === "JPEG") return this.after({ status: "ok", format, pixels: decodePixels(bytes) });
-    return this.after({ status: "ok", format, bytes });
+    if (format === "SVG" || format === "PDF") return this.after({ status: "ok", format, bytes });
+    // The animated formats are Motion's export (docs/motion.md §7): frames rendered at times, encoded in the renderer.
+    return this.after({ status: "error", code: Status.E_UNSUPPORTED, message: `${format} is an animated format` });
   }
 
   /** What an export would make (its size per layer, the images an SVG / PDF needs handed in, whether it can draw now). */
@@ -1923,4 +1926,46 @@ export class Engine {
   runDrawCommand<K extends keyof DrawCommandArgs>(id: K, args: DrawCommandArgs[K]): number {
     return this.command(id, args as unknown as Readonly<Record<string, CommandArgValue>>);
   }
+
+  // ---- Motion (docs/motion.md §10 "Engine.ts stubs"; round 8b fills them against the engine's MotionApi) ------------
+
+  /** The Motion view state (on, root, time, auto-keyframe, motion path): never in the document (docs/motion.md §4.9). */
+  setMotion(_state: MotionViewState): number {
+    throw notBuilt("setMotion");
+  }
+
+  /** The timeline panel's model for a root (null: the root of the selection); null when there is none. */
+  motionTimeline(_root?: GuidString): TimelineModel | null {
+    throw notBuilt("motionTimeline");
+  }
+
+  /** The right panel's diamonds: per node and field key, none / track / keyframe at the playhead. */
+  motionFieldStates(_nodes: GuidString[]): FieldStates {
+    throw notBuilt("motionFieldStates");
+  }
+
+  /** The resolved model (Dev Mode code, SVG / Lottie export, the plugin's `animations`, agents) of a root or a layer. */
+  motionResolved(_node: GuidString): ResolvedMotion | null {
+    throw notBuilt("motionResolved");
+  }
+
+  /** One frame of a root at a time, as pixels at `scale` (the animated exports, docs/motion.md §7.2). */
+  motionRenderFrame(_root: GuidString, _timeUs: Micros, _scale: number): Pixels | null {
+    throw notBuilt("motionRenderFrame");
+  }
+
+  /** What the Lottie writer draws: each layer's outlines in its local space at base values (docs/motion.md §7.6). */
+  motionShapes(_root: GuidString): MotionShapeLayer[] {
+    throw notBuilt("motionShapes");
+  }
+
+  /** A Motion command (CommandId 330–352) with its typed args; one undo step with Figma's name (docs/motion.md §4.9). */
+  runMotionCommand<K extends keyof MotionCommandArgs>(id: K, args: MotionCommandArgs[K]): number {
+    return this.command(id, args as unknown as Readonly<Record<string, CommandArgValue>>);
+  }
+}
+
+/** A Motion binding whose engine side is round 8b's: the chrome reads the throw as "nothing yet" (as Draw's stubs were read). */
+function notBuilt(name: string): Error {
+  return new Error(`Engine.${name}: not built (round 8b)`);
 }
