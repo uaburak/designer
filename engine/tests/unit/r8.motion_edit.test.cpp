@@ -1,6 +1,7 @@
-// Figma Motion, round 8b increment 1 (docs/motion.md §4.2, §4.9, §10): the keyframe commands on KEYFRAME_TRACK nodes
-// bound through KEYFRAME expressions, their undo, the panel writes routed into keyframes while Motion is on, the tracks
-// removed with their last layer, and the JSON reads (the timeline model, the diamonds, the resolved model).
+// Figma Motion, round 8b increments 1–2 (docs/motion.md §4.2, §4.9, §10): the keyframe commands on KEYFRAME_TRACK nodes
+// bound through KEYFRAME expressions, their undo, the panel writes and canvas gestures routed into keyframes while
+// Motion is on, the anchor kept in place, the tracks removed with their last layer and copied with a duplicated, pasted
+// or detached one, and the JSON reads (the timeline model, the diamonds, the resolved model).
 #include <cmath>
 
 #include "Helpers.h"
@@ -53,6 +54,24 @@ size_t countType(const Document& d, NodeType t) {
   size_t n = 0;
   d.forEach([&](const Node& node) { n += node.props.type == t ? 1 : 0; });
   return n;
+}
+
+void drag(Editor& e, Vec2 from, Vec2 to) {
+  e.pointer(PointerEvent::DOWN, from.x, from.y, 0, 1, 0);
+  for (int i = 1; i <= 4; i++) {
+    double t = i / 4.0;
+    e.pointer(PointerEvent::MOVE, from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t, 0, 1, 0);
+  }
+  e.pointer(PointerEvent::UP, to.x, to.y, 0, 0, 0);
+}
+
+// The manual track bound to a node's field (kNoGuid when none).
+Guid trackOf(Editor& e, Guid node, VariableField f) {
+  const motion::AnimatedNode* an = e.motionIndex().node(node);
+  if (!an) return kNoGuid;
+  for (const motion::Binding& b : an->bindings)
+    if (b.slot.kind == motion::Slot::Kind::NODE && b.slot.field == f && !b.params.empty()) return b.params[0].track;
+  return kNoGuid;
 }
 
 }  // namespace
@@ -276,4 +295,228 @@ TEST_CASE("motion edit: a panel write becomes a keyframe when the field has a tr
   CHECK(doc.has(kRect));
   CHECK(countType(doc, NodeType::KEYFRAME_TRACK) == 1);
   CHECK(countType(doc, NodeType::KEYFRAME) == 2);
+}
+
+TEST_CASE("motion gestures: a drag keys the position at the playhead where the canvas shows the layer; the base stays") {
+  Editor e;
+  load(e);
+  const Document& doc = e.document();
+  const Node* r = doc.get(kRect);
+  e.setSelection({kRect});
+  // The owner's case: a Position track with its 0 ms keyframe, the playhead at 1.5 s.
+  e.setMotion(on(0));
+  REQUIRE(e.command(CommandId::MOTION_ADD_KEYFRAME, args(R"({"field":{"type":"PROPERTY","name":"TRANSLATION_XY"},"value":{"type":"VECTOR","value":{"x":0,"y":0}}})")) == OK);
+  e.setMotion(on(1500000));
+  drag(e, {70, 55}, {110, 65});
+  Guid track = trackOf(e, kRect, VariableField::MOTION_TRANSLATION_XY);
+  const motion::Track* t = e.motionIndex().track(track);
+  REQUIRE(t);
+  REQUIRE(t->keyframes.size() == 2);
+  CHECK(t->keyframes[0].timeUs == 0);
+  CHECK(t->keyframes[1].timeUs == 1500000);
+  CHECK(t->keyframes[1].value.v.x == doctest::Approx(40));
+  CHECK(t->keyframes[1].value.v.y == doctest::Approx(10));
+  // The canvas keeps the evaluated position; the base (x 20, y 30) is untouched.
+  CHECK(r->props.transform.m02 == doctest::Approx(60));
+  CHECK(r->props.transform.m12 == doctest::Approx(40));
+  REQUIRE(e.motionLayer().baseOf(kRect));
+  CHECK(e.motionLayer().baseOf(kRect)->transform.m02 == 20);
+  CHECK(e.motionLayer().baseOf(kRect)->transform.m12 == 30);
+  e.setMotion(on(0));
+  CHECK(r->props.transform.m02 == doctest::Approx(20));
+  // A nudge at the playhead moves the same keyframe (1 px right).
+  e.setMotion(on(1500000));
+  e.key(KeyEvent::DOWN, KeyCode::ArrowRight, 0, 0, false);
+  t = e.motionIndex().track(track);
+  REQUIRE(t->keyframes.size() == 2);
+  CHECK(t->keyframes[1].value.v.x == doctest::Approx(41));
+  CHECK(r->props.transform.m02 == doctest::Approx(61));
+  // One undo step per gesture: the nudge, then the drag's keyframe.
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  CHECK(r->props.transform.m02 == doctest::Approx(60));
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  CHECK(e.motionIndex().track(track)->keyframes.size() == 1);
+  CHECK(r->props.transform.m02 == doctest::Approx(20));
+  CHECK(countType(doc, NodeType::KEYFRAME_TRACK) == 1);
+}
+
+TEST_CASE("motion gestures: with auto-keyframe on, rotate keys ROTATION about the anchor and resize keys WIDTH / HEIGHT") {
+  Editor e;
+  load(e);
+  const Document& doc = e.document();
+  const Node* o = doc.get(kOther);
+  e.setSelection({kOther});
+  e.setMotion(on(1000000, true));
+  // The rotate handle past the bottom-right corner (250, 80), turned 90° clockwise about the centre (225, 55).
+  drag(e, {258, 88}, {192, 88});
+  CHECK(countType(doc, NodeType::KEYFRAME_TRACK) == 1);  // no position track: the anchor didn't move
+  Guid track = trackOf(e, kOther, VariableField::MOTION_ROTATION);
+  const motion::Track* t = e.motionIndex().track(track);
+  REQUIRE(t);
+  REQUIRE(t->keyframes.size() == 2);  // the first auto-keyframe keeps the old value at 0
+  CHECK(t->keyframes[0].value.f == doctest::Approx(0));
+  CHECK(t->keyframes[1].timeUs == 1000000);
+  CHECK(t->keyframes[1].value.f == doctest::Approx(std::acos(-1.0) / 2));  // stored −radians: the panel's −90°
+  CHECK(o->props.transform.m10 == doctest::Approx(1));
+  Vec2 centre = o->props.transform.apply({25, 25});
+  CHECK(centre.x == doctest::Approx(225));
+  CHECK(centre.y == doctest::Approx(55));
+  CHECK(e.motionLayer().baseOf(kOther)->transform.m00 == 1);  // the base isn't turned
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  CHECK(countType(doc, NodeType::KEYFRAME_TRACK) == 0);
+  CHECK(o->props.transform.m00 == doctest::Approx(1));
+  // The bottom-right corner of Rect (120, 80) dragged to (140, 100): WIDTH 120, HEIGHT 70 at the playhead.
+  e.setSelection({kRect});
+  e.setMotion(on(500000, true));
+  const Node* r = doc.get(kRect);
+  drag(e, {120, 80}, {140, 100});
+  CHECK(countType(doc, NodeType::KEYFRAME_TRACK) == 2);
+  CHECK(trackOf(e, kRect, VariableField::MOTION_TRANSLATION_XY) == kNoGuid);  // the top-left stayed
+  CHECK(r->props.size.x == doctest::Approx(120));
+  CHECK(r->props.size.y == doctest::Approx(70));
+  CHECK(r->props.transform.m02 == 20);
+  CHECK(e.motionLayer().baseOf(kRect)->size.x == 100);
+  e.setMotion(on(0, true));
+  CHECK(r->props.size.x == doctest::Approx(100));
+}
+
+TEST_CASE("motion gestures: without a track and auto-keyframe off, a drag of an animated layer moves its base") {
+  Editor e;
+  load(e);
+  const Document& doc = e.document();
+  const Node* r = doc.get(kRect);
+  e.setSelection({kRect});
+  e.setMotion(on(0));
+  // Animated (turned 90° by a track), but no position track: the move is Design's, from where the canvas shows it.
+  REQUIRE(e.command(CommandId::MOTION_ADD_KEYFRAME, args(R"({"field":{"type":"PROPERTY","name":"ROTATION"},"value":{"type":"FLOAT","value":90}})")) == OK);
+  Vec2 centre = r->props.transform.apply({50, 25});
+  CHECK(centre.x == doctest::Approx(70));
+  CHECK(centre.y == doctest::Approx(55));
+  drag(e, {70, 55}, {100, 55});
+  CHECK(countType(doc, NodeType::KEYFRAME_TRACK) == 1);
+  REQUIRE(e.motionLayer().baseOf(kRect));
+  CHECK(e.motionLayer().baseOf(kRect)->transform.m02 == doctest::Approx(50));  // the base x moved 30
+  CHECK(e.motionLayer().baseOf(kRect)->transform.m00 == doctest::Approx(1));   // and isn't turned
+  centre = r->props.transform.apply({50, 25});
+  CHECK(centre.x == doctest::Approx(100));
+  CHECK(centre.y == doctest::Approx(55));
+  CHECK(r->props.transform.m01 == doctest::Approx(1));  // still turned by the track
+}
+
+TEST_CASE("motion ownership: duplicate, paste and detach copy the tracks the copied layers animate on") {
+  Editor e;
+  load(e);
+  const Document& doc = e.document();
+  e.setSelection({kRect});
+  e.setMotion(on(0));
+  REQUIRE(e.command(CommandId::MOTION_ADD_KEYFRAME, args(R"({"field":{"type":"PROPERTY","name":"OPACITY"},"value":{"type":"FLOAT","value":1}})")) == OK);
+  e.setMotion(on(1000000));
+  REQUIRE(e.command(CommandId::MOTION_ADD_KEYFRAME, args(R"({"field":{"type":"PROPERTY","name":"OPACITY"},"value":{"type":"FLOAT","value":0}})")) == OK);
+  Guid original = trackOf(e, kRect, VariableField::OPACITY);
+  // Duplicate: a second track with its two keyframes, bound to the copy.
+  REQUIRE(e.command(CommandId::DUPLICATE) == OK);
+  REQUIRE(e.selection().size() == 1);
+  Guid copy = e.selection()[0];
+  CHECK(countType(doc, NodeType::KEYFRAME_TRACK) == 2);
+  CHECK(countType(doc, NodeType::KEYFRAME) == 4);
+  Guid copied = trackOf(e, copy, VariableField::OPACITY);
+  REQUIRE(copied != kNoGuid);
+  CHECK(copied != original);
+  CHECK(e.motionIndex().node(copy)->bindings[0].params[0].timelineDef == kRoot);
+  CHECK(doc.get(copy)->props.opacity == doctest::Approx(0));  // it plays: 0 at 1 s
+  // Its keyframes are its own: editing them leaves the original's.
+  Guid k = e.motionIndex().track(copied)->keyframes[1].id;
+  std::string edit = R"({"edits":[{"id":")" + k.toString() + R"(","value":{"type":"FLOAT","value":0.5}}]})";
+  REQUIRE(e.command(CommandId::MOTION_SET_KEYFRAMES, args(edit.c_str())) == OK);
+  CHECK(doc.get(copy)->props.opacity == doctest::Approx(0.5));
+  CHECK(doc.get(kRect)->props.opacity == doctest::Approx(0));
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  REQUIRE(e.command(CommandId::UNDO) == OK);  // the duplicate, its track with it
+  CHECK(countType(doc, NodeType::KEYFRAME_TRACK) == 1);
+  // Cut and paste: the track goes with the layer, and the paste brings it back from the clipboard.
+  e.setSelection({kRect});
+  Clipboard clip;
+  REQUIRE(e.copySelection(clip, true));
+  REQUIRE(e.command(CommandId::DELETE) == OK);
+  CHECK(countType(doc, NodeType::KEYFRAME_TRACK) == 0);
+  e.setSelection({kRoot});  // into the root frame again
+  REQUIRE(e.paste(clip, true) == 1);
+  Guid pasted = e.selection()[0];
+  Guid back = trackOf(e, pasted, VariableField::OPACITY);
+  REQUIRE(back != kNoGuid);
+  CHECK(back != original);
+  CHECK(countType(doc, NodeType::KEYFRAME) == 2);
+  CHECK(e.motionIndex().node(pasted)->bindings[0].params[0].timelineDef == kRoot);
+  CHECK(doc.get(pasted)->props.opacity == doctest::Approx(0));
+}
+
+TEST_CASE("motion ownership: a detached instance's layers get copies of the main's tracks") {
+  const Guid kMain{2, 1}, kMainRect{2, 2}, kInstance{2, 3};
+  std::vector<NodeChange> nodes = baseChanges();
+  nodes.push_back(make(kMain, NodeType::SYMBOL, kPage, "!", {0, 0, 100, 100}, "Main"));
+  nodes.push_back(make(kMainRect, NodeType::ROUNDED_RECTANGLE, kMain, "!", {10, 10, 50, 50}, "Dot"));
+  nodes.push_back(make(kRoot, NodeType::FRAME, kPage, "\"", {200, 0, 400, 300}, "Root"));
+  NodeChange inst = make(kInstance, NodeType::INSTANCE, kRoot, "!", {20, 20, 100, 100}, "Main");
+  inst.props.comp().symbolData.symbolID = kMain;
+  nodes.push_back(inst);
+  Editor e;
+  e.setSessionID(1);
+  e.setViewport(800, 600, 1, 800, 600);
+  e.loadDocument(nodes, kPage);
+  e.takeEvents();
+  // The main is a timeline root: its layer is animated there.
+  motion::State s = on(0);
+  s.root = kMain;
+  e.setMotion(s);
+  REQUIRE(e.command(CommandId::MOTION_ADD_KEYFRAME, args(R"({"nodes":["2:2"],"field":{"type":"PROPERTY","name":"OPACITY"},"value":{"type":"FLOAT","value":0.25}})")) == OK);
+  Guid mainTrack = trackOf(e, kMainRect, VariableField::OPACITY);
+  REQUIRE(mainTrack != kNoGuid);
+  e.setMotion(motion::State{});
+  e.setSelection({kInstance});
+  REQUIRE(e.command(CommandId::DETACH_INSTANCE) == OK);
+  REQUIRE(e.document().children(kInstance).size() == 1);
+  Guid detached = e.document().children(kInstance)[0];
+  Guid own = trackOf(e, detached, VariableField::OPACITY);
+  REQUIRE(own != kNoGuid);
+  CHECK(own != mainTrack);
+  CHECK(countType(e.document(), NodeType::KEYFRAME_TRACK) == 2);
+  CHECK(e.motionIndex().node(detached)->bindings[0].params[0].timelineDef == kRoot);
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  CHECK(countType(e.document(), NodeType::KEYFRAME_TRACK) == 1);
+}
+
+TEST_CASE("motion edit: Move anchor point keeps the layer in place at the playhead") {
+  Editor e;
+  load(e);
+  const Document& doc = e.document();
+  const Node* r = doc.get(kRect);
+  e.setSelection({kRect});
+  e.setMotion(on(0));
+  // Turned 90° about its centre: the anchor moved to the top-left would swing it.
+  REQUIRE(e.command(CommandId::MOTION_ADD_KEYFRAME, args(R"({"field":{"type":"PROPERTY","name":"ROTATION"},"value":{"type":"FLOAT","value":90}})")) == OK);
+  Mat2x3 before = r->props.transform;
+  REQUIRE(e.command(CommandId::MOTION_SET_ANCHOR, args(R"({"x":0,"y":0})")) == OK);
+  CHECK(r->props.transform.m02 == doctest::Approx(before.m02));
+  CHECK(r->props.transform.m12 == doctest::Approx(before.m12));
+  CHECK(r->props.transform.m01 == doctest::Approx(before.m01));
+  // No position track: the base motionTransform takes the compensation, (I − L)(o − o') with o − o' = (50, 25).
+  REQUIRE(e.motionLayer().baseOf(kRect));
+  motion::LayerBase b = motion::decodeLayerBase(*e.motionLayer().baseOf(kRect));
+  CHECK(b.originX.value == 0);
+  Mat2x3 L = Mat2x3::rotate(-std::acos(-1.0) / 2);
+  Vec2 keep = Vec2{50, 25} - L.applyLinear({50, 25});
+  CHECK(b.translation.x == doctest::Approx(keep.x));
+  CHECK(b.translation.y == doctest::Approx(keep.y));
+  // With a position track, its keyframes take it.
+  REQUIRE(e.command(CommandId::MOTION_ADD_KEYFRAME, args(R"({"field":{"type":"PROPERTY","name":"TRANSLATION_XY"},"value":{"type":"VECTOR","value":{"x":10,"y":0}}})")) == OK);
+  before = r->props.transform;
+  REQUIRE(e.command(CommandId::MOTION_SET_ANCHOR, args(R"({"x":100,"y":100})")) == OK);
+  CHECK(r->props.transform.m02 == doctest::Approx(before.m02));
+  CHECK(r->props.transform.m12 == doctest::Approx(before.m12));
+  Guid track = trackOf(e, kRect, VariableField::MOTION_TRANSLATION_XY);
+  CHECK(e.motionIndex().track(track)->keyframes[0].value.v.x != doctest::Approx(10));
+  // One undo step: the anchor and its compensation together.
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  CHECK(e.motionIndex().track(track)->keyframes[0].value.v.x == doctest::Approx(10));
+  CHECK(r->props.transform.m02 == doctest::Approx(before.m02));
 }

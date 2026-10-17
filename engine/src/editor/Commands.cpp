@@ -371,6 +371,21 @@ void Editor::nudge(double dx, double dy, bool repeat) {
   if (top.empty()) return;
   if (reorderInFlow(top, dx, dy)) return;
   bool merge = repeat && lastNudged_ == selection_ && undo_.canUndo() && undo_.undoLabel() == "Nudge";
+  if (motionGestureFor(top)) {
+    // Motion on (docs/motion.md §4.9): moved from where the canvas shows them, keyed at the playhead (MotionCommands.cpp).
+    std::vector<MotionDrag::Item> items;
+    for (Guid id : top) {
+      const Node* n = doc_.get(id);
+      if (!n || n->props.locked) continue;
+      Vec2 dp = doc_.worldTransform(doc_.parentOf(id)).inverse().applyLinear({dx, dy});
+      items.push_back({id, n->props.transform, n->props.size, Mat2x3::translate(dp.x, dp.y) * n->props.transform, n->props.size});
+    }
+    begin(TxnKind::USER, "Nudge");
+    for (const MotionDrag::Item& it : items) motionKeyPose(it.id, it.shown, it.shownSize, it.to, it.toSize, false);
+    commit(merge);
+    lastNudged_ = selection_;
+    return;
+  }
   begin(TxnKind::USER, "Nudge");
   for (Guid id : top) {
     const Node* n = doc_.get(id);
@@ -703,6 +718,7 @@ Guid Editor::cloneTree(Guid src, Guid parent, const std::string& position, const
   if (keepHere) keepKeys(src, p);
   else p.overrideKey = kNoGuid;
   p.comp().isSoftDeleted = false;
+  motionCopyTracks(p, parent, nullptr);  // Motion: the copy animates on tracks of its own (docs/motion.md §4.2)
   write(NodeChange::created(id, p));
   for (Guid c : kids) {
     if (c.isDerived()) continue;  // an instance's sublayers are derived again for the copy
@@ -1259,6 +1275,12 @@ bool Editor::copySelection(Clipboard& out, bool cut) const {
     for (const NodeChange& c : out.nodes) strokes.push_back(&c.props);
     brushClipboard(out.nodes, strokes);
   }
+  // Figma Motion (docs/motion.md §4.2): the tracks the copied layers animate on, with their keyframes.
+  {
+    std::vector<const NodeProps*> layers;
+    for (const NodeChange& c : out.nodes) layers.push_back(&c.props);
+    motionClipboard(out.nodes, layers);
+  }
   // Each local asset with a key carries its versionHash, computed here (as a payload's do): a paste in another file
   // makes its library copy at exactly that version — the published one when it is unchanged since its publish —
   // whatever the clipboard carries of what it uses.
@@ -1654,6 +1676,7 @@ uint32_t Editor::pasteWith(const Clipboard& clip, uint32_t flags) {
     } else {
       id = newGuid();
     }
+    motionCopyTracks(p, parent, &clip.nodes);  // Motion: tracks of its own, from the clipboard (docs/motion.md §4.2)
     write(NodeChange::created(id, p));
     if (keepIdentity) movedMains.push_back({src.guid, id});
     if (root) pasted.push_back(id);

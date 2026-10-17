@@ -554,6 +554,9 @@ void Editor::rollback() {
     commit();
   }
   pruneSelection();
+  // Motion (docs/motion.md §5): the transaction began with the base values back; the layer applies again.
+  motionDirty_ = true;
+  if (motion_.on) motionApply();
 }
 
 void Editor::relayoutAll() {
