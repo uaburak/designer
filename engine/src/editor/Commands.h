@@ -147,6 +147,10 @@ enum class CommandId : uint32_t {
   // Atlas wave 1 (Atlas 05 §9.2, Figma's upgradeToLatestVectorOperationVersion): the selected boolean groups made with
   // an older version of the boolean operations (vectorOperationVersion 0 / absent) brought to the latest ("Update").
   UPGRADE_VECTOR_OPERATION = 240,
+  // Atlas wave 2, layout (Atlas 09 §3.2, §4; editor/AutoLayoutCommands.cpp); 250-259.
+  SUGGEST_AUTO_LAYOUT = 250,            // ⌃⇧A: the selection stacked into nested auto-layout frames; created: the new frames
+  REMOVE_ALL_AUTO_LAYOUT = 251,         // Figma's destroy-all-auto-layout: the selection and every layer in it; created: those frames
+  SET_STACK_LAYOUT_VERSION = 252,       // args {version?: 0 Legacy | 1 Updated (default), deep?, page?}: stacks' layout version
   // Round 8 (branch r8-design-panel): the Grid panel (tools/GridGestures.cpp); 260-269.
   SELECT_GRID_TRACKS = 260,             // args {frame, axis: "COLUMNS" | "ROWS", tracks: number[]} — the selected grid's tracks ([] clears)
   // Round 10 (branch r10-menus-commands): the Figma menu's Object, Arrange and Vector commands live Figma has

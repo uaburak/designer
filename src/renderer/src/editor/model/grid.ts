@@ -110,13 +110,16 @@ export function newTrackId(n: GridNode, sessionID: number, taken: GuidValue[] = 
   return { sessionID, localID: max + 1 };
 }
 
+/** Figma's Number of columns / rows: 1 … 100 (Atlas 09 §6, the count fields' formatter). */
+export const MAX_GRID_TRACKS = 100;
+
 /**
  * The fields that make a grid have `count` tracks along `axis`: new ones (Figma: Hug in Figma Design, as the tracks a
  * new grid gets) added after the last; tracks taken away from the end. Items anchored past the new end move to the
  * last track (Figma keeps objects, moving them to the nearest cells).
  */
 export function setTrackCount(n: GridNode, axis: GridAxis, count: number, sessionID: number, items: readonly { guid: string; node: GridItemNode }[] = []): { frame: Record<string, unknown>; items: { guid: string; fields: Record<string, unknown> }[] } {
-  const want = Math.max(1, Math.min(1000, Math.round(count)));
+  const want = Math.max(1, Math.min(MAX_GRID_TRACKS, Math.round(count)));
   const tracks = tracksOf(n, axis);
   const out = tracks.slice(0, want);
   const added: GuidValue[] = [];
@@ -146,15 +149,15 @@ export const isAutoRows = (n: GridNode): boolean => n.gridAutoTracks === "ROWS";
 export const rowCountLabel = (n: GridNode): string => (isAutoRows(n) ? "Auto" : String(tracksOf(n, "rows").length));
 
 /**
- * What typing into Number of rows means: "Auto" / "A" → Auto rows; a number (math allowed: + - * /) → that many
- * rows, Auto off. Null: not understood.
+ * What typing into Number of rows means: "Auto" or any start of it ("a", "au"; Figma's `"auto".startsWith`, Atlas 09 §3.3)
+ * → Auto rows; a number (math allowed: + - * /) → that many rows (1 … 100), Auto off. Null: not understood.
  */
 export function parseRowCount(text: string): { auto: true } | { auto: false; count: number } | null {
   const t = text.trim().toLowerCase();
-  if (t === "a" || t === "auto") return { auto: true };
+  if (t && "auto".startsWith(t)) return { auto: true };
   const v = evaluate(t);
   if (!Number.isFinite(v)) return null;
-  return { auto: false, count: Math.max(1, Math.min(1000, Math.round(v))) };
+  return { auto: false, count: Math.max(1, Math.min(MAX_GRID_TRACKS, Math.round(v))) };
 }
 
 /** Labels of the tracks along `axis` as the canvas pills show them, joined when several differ ("Mixed"). */

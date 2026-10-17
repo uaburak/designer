@@ -15,6 +15,7 @@
 #include "geometry/Shapes.h"
 #include "geometry/Stroker.h"
 #include "geometry/VariableWidth.h"
+#include "layout/Layout.h"
 #include "render/shader_presets.h"
 #include "scene/Extras.h"
 
@@ -1527,13 +1528,11 @@ void Renderer::drawContent(const Document& doc, uint32_t i, const NodeProps& p, 
             continue;
           }
           double gutter = g.gutterSize, size = g.sectionSize;
-          int n = g.numSections;
+          int n = layoutGridCount(g, len);
           if (g.type == LayoutGridType::STRETCH) {
-            if (n <= 0) n = 1;
             double w = (len - 2 * g.offset - gutter * (n - 1)) / n;
             for (int i = 0; i < n; i++) band(g.offset + i * (w + gutter), w);
           } else {
-            if (n <= 0) n = std::max(1, static_cast<int>(std::floor((len - 2 * g.offset + gutter) / std::max(size + gutter, 1e-9))));
             double total = n * size + (n - 1) * gutter;
             double start = g.type == LayoutGridType::MIN ? g.offset : g.type == LayoutGridType::MAX ? len - g.offset - total : (len - total) / 2;
             for (int i = 0; i < n; i++) band(start + i * (size + gutter), size);

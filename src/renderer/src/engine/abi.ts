@@ -237,6 +237,13 @@ export const CommandId = {
   REMOVE_VERTICAL_GUIDES: 239,
   /** The selected boolean groups at an older vectorOperationVersion brought to the latest (the Design panel's Update). */
   UPGRADE_VECTOR_OPERATION: 240,
+  // Atlas wave 2, layout (engine/src/editor/AutoLayoutCommands.cpp); 250-259.
+  /** ⌃⇧A: the selection stacked into nested auto-layout frames (a frame: its layers, the frame the outer stack); created: the new frames. */
+  SUGGEST_AUTO_LAYOUT: 250,
+  /** Figma's destroy-all-auto-layout: auto layout off on the selection and every layer in it; created: those frames. */
+  REMOVE_ALL_AUTO_LAYOUT: 251,
+  /** args { version?: 0 (Legacy) | 1 (Updated, the default), deep?, page? }: the stacks' layout version (stackLayoutVersion). CMD_CHECKED: every selected stack Updated. */
+  SET_STACK_LAYOUT_VERSION: 252,
   // Round 8 (r8-design-panel): the Grid panel (engine/src/tools/GridGestures.cpp); 260-269.
   /** args { frame, axis: "COLUMNS" | "ROWS", tracks: number[] }: the selected grid's tracks, as a pill click ([] clears). */
   SELECT_GRID_TRACKS: 260,

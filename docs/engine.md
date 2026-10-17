@@ -407,7 +407,7 @@ Math is in `double`, stored as `float`. Positions are not rounded, as in Figma (
   - lines are broken greedily by measured child sizes plus gap
   - `stackCounterSpacing` between lines
   - `stackCounterAlignContent` AUTO | SPACE_BETWEEN
-- **Strokes in layout**: `bordersTakeSpace` adds the stroke weights (per side when independent) to the padding.
+- **Strokes in layout**: `bordersTakeSpace` adds the stroke (by the layout version's rules, below) to the padding.
 - **Absolute children** (`stackPositioning=ABSOLUTE`) are skipped by the flow and positioned by constraints (§4.4) against the frame.
 - **`stackReverseZIndex`** changes paint order only (render tree), never positions.
 - **Hidden children** (`visible=false`) take no space, as in Figma.
@@ -416,6 +416,16 @@ Math is in `double`, stored as `float`. Positions are not rounded, as in Figma (
   content); a Fill on the primary axis of a parent hugging it counts for its own size. A frame with nothing in its flow
   keeps its size. A slot showing its instance's content frame is that frame's size (its own Hug). Absolute children's
   own content is laid out; hidden children are left as stored. A group with a mask is the mask's size.
+- **Layout version** (`stackLayoutVersion` 574, an unmodelled field read by `Layout::stackLayoutVersion`; Atlas 09
+  §3.2, wave 2): 0 or absent is Figma's *Legacy* layout, 1 its *Updated* one ("apr26"). Updated: an auto-layout frame
+  is never smaller than its padding (plus an included inside stroke), its max size notwithstanding; "Inside stroke:
+  Included" counts an inside stroke only, and only the frame's own; Fill children share by content box (an
+  auto-layout Fill child keeps its padding, the rest is shared); an Auto (Between) gap never goes below 0 and a lone
+  child of one sits at the start. Legacy: centre strokes count by half and outside ones whole, children are measured
+  with their centre / outside strokes when the frame includes strokes, Fill shares the whole size, the Between gap may
+  go negative (overlap) and a lone child is centred. A change that gives a frame auto layout for the first time
+  (`set_props`, ⇧A, Suggest auto layout) stamps 1 (`stampNewStack`); `SET_STACK_LAYOUT_VERSION` changes it (the
+  Design panel's Layout row, "Update layout version for selection / page"). Instances take their main's.
 
 ### 4.3 Grid (`GridLayout.cpp`): `stackMode GRID`
 - Tracks are `gridColumns`/`gridRows` (GUIDPositionMap, each track has a GUID and a fractional position) sized by `gridColumnsSizing`/`gridRowsSizing`: fixed px, flex (fr), or hug. The algorithm is CSS-grid-like:

@@ -1,7 +1,7 @@
 /**
  * The Position section's Constraints row (Figma UI3): the widget — a box with
  * an inner square, a line from each edge and a cross in the middle; click a
- * line to pin that side, ⇧-click for both — and the horizontal / vertical
+ * line to pin that side, ⇧- or ⌘-click to toggle (both sides, Scale) — and the horizontal / vertical
  * dropdowns, writing `horizontalConstraint` / `verticalConstraint`.
  */
 import { MIXED, PropertyRow, Select, ToggleIconButton, isMixed, type Mixed } from "@/ds";
@@ -74,7 +74,7 @@ export function ConstraintsWidget({ horizontal, vertical, onClick }: { horizonta
       <rect className={styles.constraintBox} x="0" y="0" width="88" height="57" rx="5" />
       <rect className={styles.constraintInner} x="20.5" y="16.5" width="47" height="24" rx="2" />
       {lines.map((l) => (
-        <g key={l.label} role="button" aria-label={t(l.label)} aria-pressed={on(l.axis, l.side)} className={styles.constraintLine} data-on={on(l.axis, l.side) || undefined} onPointerDown={(e) => e.preventDefault()} onClick={(e) => onClick(l.axis, l.side, e.shiftKey)}>
+        <g key={l.label} role="button" aria-label={t(l.label)} aria-pressed={on(l.axis, l.side)} className={styles.constraintLine} data-on={on(l.axis, l.side) || undefined} onPointerDown={(e) => e.preventDefault()} onClick={(e) => onClick(l.axis, l.side, e.shiftKey || e.metaKey || e.ctrlKey)}>
           <rect x={l.hit[0]} y={l.hit[1]} width={l.hit[2]} height={l.hit[3]} fill="transparent" />
           <path d={l.d} />
         </g>

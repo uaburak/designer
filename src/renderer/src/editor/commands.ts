@@ -22,6 +22,7 @@ import { MOTION_UI_DEFAULT } from "./uiStore";
 import { round5, setRound5 } from "./devmode/round5";
 import { textSummary, toggledBold, toggledItalic } from "./model/text";
 import { fields, type ExtraFields } from "./panels/design/shared";
+import { removeAllAutoLayout, suggestAutoLayout } from "./panels/design/layoutActions";
 import type { Guid } from "@/engine/codec";
 import { COMPONENT_COMMAND, canPushChanges, goToMainComponent, instanceChanges, mainOf, pageOf, resetChanges, returnToInstance, selectedInstance } from "./components";
 import { collapsedLayers } from "./model/layerTree";
@@ -629,8 +630,14 @@ export const COMMANDS: EditorCommand[] = [
   { id: "object.swap-fill-stroke", label: "Swap fill and stroke", keys: [k("KeyX", { shift: true })], run: (ed) => swapFillAndStroke(ed), enabled: hasSelection },
   engine("object.add-auto-layout", "Add auto layout", "ADD_AUTO_LAYOUT", [k("KeyA", { shift: true })]),
   engine("object.remove-auto-layout", "Remove auto layout", "REMOVE_AUTO_LAYOUT", [k("KeyA", { shift: true, alt: true })]),
-  // Live's Keyboard shortcuts panel (Arrange): "Suggest auto layout ⌃⇧A" — Figma's suggestions aren't built.
-  later("object.suggest-auto-layout", "Suggest auto layout", [k("KeyA", { ctrl: true, shift: true })]),
+  // Atlas 09 §4 (wave 2): Suggest auto layout ⌃⇧A (live's Keyboard shortcuts panel, Arrange) and Figma's
+  // destroy-all-auto-layout beside it; the layout version's bulk actions (search-only in Figma's Actions).
+  engine("object.suggest-auto-layout", "Suggest auto layout", "SUGGEST_AUTO_LAYOUT", [k("KeyA", { ctrl: true, shift: true })], { run: suggestAutoLayout }),
+  engine("object.remove-all-auto-layout", "Remove all auto layout", "REMOVE_ALL_AUTO_LAYOUT", undefined, { run: removeAllAutoLayout }),
+  engine("object.update-layout-version", "Update layout version for selection", "SET_STACK_LAYOUT_VERSION", undefined, {
+    run: (ed) => void ed.engine.runCommand("SET_STACK_LAYOUT_VERSION", { deep: true }),
+  }),
+  { id: "object.update-layout-version-page", label: "Update layout version for page", run: (ed) => void ed.engine.runCommand("SET_STACK_LAYOUT_VERSION", { page: true }) },
   // Components (E6: the structural ones are the engine's; R4-components.md for the wording and keys)
   pending("object.create-component", "Create component", COMPONENT_COMMAND.create, [k("KeyK", { mod: true, alt: true })]),
   pending("object.create-multiple-components", "Create multiple components", COMPONENT_COMMAND.create, undefined, {

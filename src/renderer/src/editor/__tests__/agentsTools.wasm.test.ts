@@ -370,8 +370,8 @@ describe("MCP tools: one schema", () => {
     const panel = NODE_FIELDS.map((f) => f.name).filter((n) => new RegExp(`\\b${n}\\b`).test(src));
     // Not layer properties: identity and structure, versions, keys, styles' references (apply_style), component definitions (run_command),
     // plugins' relaunch buttons (written by plugins only, docs/plugins.md §8), a change's phase and an instance's property
-    // references (component property bindings, run_command).
-    const NOT_PROPS = new Set(["guid", "parentIndex", "type", "version", "key", "styleIdForFill", "styleIdForStrokeFill", "componentPropDefs", "count", "pluginRelaunchData", "phase", "componentPropRefs"]);
+    // references (component property bindings, run_command); the layout version (run_command SET_STACK_LAYOUT_VERSION).
+    const NOT_PROPS = new Set(["guid", "parentIndex", "type", "version", "key", "styleIdForFill", "styleIdForStrokeFill", "componentPropDefs", "count", "pluginRelaunchData", "phase", "componentPropRefs", "stackLayoutVersion"]);
     const covered = new Set<string>([...RAW_FIELDS, ...Object.values(NAMED_PROPS).flatMap((p) => p.fields)]);
     const missing = panel.filter((f) => !NOT_PROPS.has(f) && !covered.has(f));
     expect(missing).toEqual([]);
