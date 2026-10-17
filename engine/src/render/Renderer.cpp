@@ -702,7 +702,10 @@ void Renderer::drawStrokePaints(const Document& doc, Guid id, const NodeProps& p
   bool variable = !p.extra.empty() && hasWidthPoints(p) && widthProfileAllowed(p);
   // Figma Draw's dynamic and brush strokes are drawn from the geometry's centre line, whatever the shape.
   bool drawn = !p.extra.empty() && (strokeBrushOf(p) != kNoGuid || hasDynamicStroke(p));
-  bool sdf = !p.isPathShape() && !p.invertedCorners() && !independent && !dashedFrame && !variable && !drawn &&
+  // Path trim (docs/motion.md §4.13): a centre stroke cut by it is drawn from the geometry's trimmed centre line.
+  double trimStart = 0, trimEnd = 1;
+  bool trimmed = p.strokeAlign == StrokeAlign::CENTER && !p.extra.empty() && pathTrimOf(p, trimStart, trimEnd);
+  bool sdf = !p.isPathShape() && !p.invertedCorners() && !independent && !dashedFrame && !variable && !drawn && !trimmed &&
              (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
   if (sdf) {
     ShapeKind kind = p.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;

@@ -33,7 +33,12 @@ FieldMask maskOf(VariableField f) {
     case VariableField::ARC_DATA_INNER_RADIUS: return F_ARC_DATA;
     case VariableField::STAR_INNER_SCALE: return F_STAR_INNER_SCALE;
     case VariableField::POLYGON_COUNT: return F_COUNT;
-    default: return 0;  // PATH_TRIM_*, GRID gaps (extra fields): the next increment
+    // Kept in `extra` (Fields.cpp): path trim (the stroke trimmed by NodeGeometry, docs/motion.md §4.13), grid gaps.
+    case VariableField::PATH_TRIM_START:
+    case VariableField::PATH_TRIM_END:
+    case VariableField::GRID_ROW_GAP:
+    case VariableField::GRID_COLUMN_GAP: return F_EXTRA;
+    default: return 0;
   }
 }
 
@@ -59,6 +64,51 @@ Mat2x3 MotionLayer::motionTransform(const Mat2x3& layout, Vec2 size, const Layer
   return layout * Mat2x3::translate(o.x, o.y) * Mat2x3::translate(translation.x, translation.y) * R * Sh * S * Mat2x3::translate(-o.x, -o.y);
 }
 
+LayerBase MotionLayer::poseAt(const MotionIndex& index, const AnimatedNode& an, int64_t tau) {
+  LayerBase pose = an.base;
+  auto tracks = [&](Guid id) { return index.track(id); };
+  for (const Binding& b : an.bindings) {
+    if (b.slot.kind != Slot::Kind::NODE || !isMotionTransformField(b.slot.field)) continue;
+    KeyframeValue base;
+    switch (b.slot.field) {
+      case VariableField::MOTION_TRANSLATION_X: base = KeyframeValue::number(pose.translation.x); break;
+      case VariableField::MOTION_TRANSLATION_Y: base = KeyframeValue::number(pose.translation.y); break;
+      case VariableField::MOTION_TRANSLATION_XY: base = KeyframeValue::vector(pose.translation); break;
+      case VariableField::MOTION_ROTATION: base = KeyframeValue::number(pose.rotation); break;
+      case VariableField::MOTION_SCALE_X: base = KeyframeValue::number(pose.scale.x); break;
+      case VariableField::MOTION_SCALE_Y: base = KeyframeValue::number(pose.scale.y); break;
+      case VariableField::MOTION_SCALE_XY: base = KeyframeValue::vector(pose.scale); break;
+      case VariableField::MOTION_SHEAR: base = KeyframeValue::number(pose.shear); break;
+      case VariableField::MOTION_TRANSFORM_ORIGIN_X: base = KeyframeValue::number(pose.originX.value); break;
+      case VariableField::MOTION_TRANSFORM_ORIGIN_Y: base = KeyframeValue::number(pose.originY.value); break;
+      case VariableField::MOTION_TRANSFORM_ORIGIN_XY: base = KeyframeValue::vector({pose.originX.value, pose.originY.value}); break;
+      default: break;
+    }
+    if (b.base.kind == VariableData::Kind::FLOAT) base = KeyframeValue::number(b.base.floatValue);
+    KeyframeValue v;
+    if (!foldValue(base, b.params, tau, tracks, v)) continue;
+    Vec2 xy = v.kind == ValueKind::VECTOR ? v.v : Vec2{v.f, v.f};
+    switch (b.slot.field) {
+      case VariableField::MOTION_TRANSLATION_X: pose.translation.x = v.f; break;
+      case VariableField::MOTION_TRANSLATION_Y: pose.translation.y = v.f; break;
+      case VariableField::MOTION_TRANSLATION_XY: pose.translation = xy; break;
+      case VariableField::MOTION_ROTATION: pose.rotation = v.f; break;
+      case VariableField::MOTION_SCALE_X: pose.scale.x = v.f; break;
+      case VariableField::MOTION_SCALE_Y: pose.scale.y = v.f; break;
+      case VariableField::MOTION_SCALE_XY: pose.scale = xy; break;
+      case VariableField::MOTION_SHEAR: pose.shear = v.f; break;
+      case VariableField::MOTION_TRANSFORM_ORIGIN_X: pose.originX.value = v.f; break;
+      case VariableField::MOTION_TRANSFORM_ORIGIN_Y: pose.originY.value = v.f; break;
+      case VariableField::MOTION_TRANSFORM_ORIGIN_XY:
+        pose.originX.value = xy.x;
+        pose.originY.value = xy.y;
+        break;
+      default: break;
+    }
+  }
+  return pose;
+}
+
 MotionLayer::Entry& MotionLayer::remember(const Document& doc, Guid id) {
   auto it = entries_.find(id);
   if (it != entries_.end()) return it->second;
@@ -72,19 +122,82 @@ const NodeProps* MotionLayer::baseOf(Guid id) const {
   return it == entries_.end() ? nullptr : &it->second.base;
 }
 
-size_t MotionLayer::apply(Document& doc, const MotionIndex& index, Guid root, int64_t timeUs, const BaseResolver& resolve) {
+bool MotionLayer::instanceTime(const Document& doc, const MotionIndex& index, Guid instance, Guid main, Guid containing, int64_t tau,
+                               int64_t& out) {
+  const Node* n = doc.get(instance);
+  if (!n) return false;
+  Assignment a = decodeAssignment(n->props, main, containing);
+  if (a.disabled) return false;
+  Timeline tl = index.timeline(doc, main);
+  if (tl.disabled) return false;
+  out = localTime(tau - a.offsetUs, tl.durationUs, tl.playback);
+  return true;
+}
+
+size_t MotionLayer::apply(Document& doc, const MotionIndex& index, Guid root, int64_t timeUs, const Hooks& hooks) {
+  // The values are a function of (document, time), never of the last frame: start from the base values.
+  restore(doc);
   if (!doc.has(root)) return 0;
   Timeline tl = index.timeline(doc, root);
-  int64_t tau = localTime(timeUs - tl.offsetUs, tl.durationUs, tl.playback);
   auto tracks = [&](Guid id) { return index.track(id); };
+  auto mainOf = [&](Guid id) {
+    if (hooks.mainOf) return hooks.mainOf(id);
+    const Node* n = doc.get(id);
+    return n ? n->props.comp().symbolData.symbolID : kNoGuid;
+  };
+
+  // 1. What plays, and at which local time (docs/motion.md §4.3, §4.4): the root's layers in its time; an instance whose
+  // main plays, its sublayers in its main's — offset by its assignment in the timeline it sits in, under the main's
+  // playback style (nested instances compose).
+  struct Work {
+    Guid id;
+    const AnimatedNode* an;
+    int64_t tau;
+  };
+  std::vector<Work> work;
+  auto visit = [&](auto&& self, Guid parent, Guid containing, int64_t tau) -> void {
+    for (Guid c : doc.children(parent)) {
+      const Node* n = doc.get(c);
+      if (!n) continue;
+      Guid layer = c;
+      if (c.isDerived()) layer = hooks.sourceOf ? hooks.sourceOf(c) : kNoGuid;
+      if (const AnimatedNode* an = layer != kNoGuid ? index.node(layer) : nullptr) work.push_back({c, an, tau});
+      if (n->props.type != NodeType::INSTANCE) {
+        self(self, c, containing, tau);
+        continue;
+      }
+      // An instance: its sublayers are its main's layers; they play only when the main does.
+      Guid main = mainOf(c);
+      int64_t inner = 0;
+      if (main != kNoGuid && index.plays(main) && instanceTime(doc, index, c, main, containing, tau, inner)) self(self, c, main, inner);
+    }
+  };
+  int64_t tau = localTime(timeUs - tl.offsetUs, tl.durationUs, tl.playback);
+  Guid rootMain = doc.get(root)->props.type == NodeType::INSTANCE ? mainOf(root) : kNoGuid;
+  if (rootMain != kNoGuid && index.plays(rootMain)) {
+    // A top-level instance of an animated component is a root that plays its main.
+    int64_t inner = 0;
+    if (instanceTime(doc, index, root, rootMain, root, tau, inner)) visit(visit, root, rootMain, inner);
+  } else {
+    visit(visit, root, root, tau);
+  }
+
+  // 2. Each layer's fields over its base; the motion transform's components kept for step 4.
+  struct Pose {
+    Guid id;
+    LayerBase anchor;
+    Vec2 translation, scale;
+    double rotation, shear;
+  };
+  std::vector<Pose> poses;
+  std::vector<Guid> laidOut;  // layers whose layout inputs changed
   size_t written = 0;
-  for (Guid id : index.animatedUnder(doc, root)) {
-    const AnimatedNode* an = index.node(id);
-    if (!an || !doc.has(id)) continue;
-    Entry& entry = remember(doc, id);
-    // Start from the base every time: the values are a function of (document, time), never of the last frame.
+  for (const Work& w : work) {
+    const AnimatedNode* an = w.an;
+    Entry& entry = remember(doc, w.id);
     NodeProps p = entry.base;
     FieldMask mask = 0;
+    bool layout = false;
     // The motion transform's components, folded from their bases (motionTransform; the expression's own literal base
     // wins when it has one).
     bool motion = false;
@@ -100,8 +213,8 @@ size_t MotionLayer::apply(Document& doc, const MotionIndex& index, Guid root, in
       } else if (b.base.kind == VariableData::Kind::COLOR) {
         base = KeyframeValue::color(b.base.colorValue);
         haveBase = true;
-      } else if (b.base.present() && resolve) {
-        haveBase = resolve(id, b.base, base);
+      } else if (b.base.present() && hooks.resolve) {
+        haveBase = hooks.resolve(w.id, b.base, base);
       }
       if (b.slot.kind == Slot::Kind::NODE) {
         const FieldInfo* info = fieldInfo(b.slot.field);
@@ -124,7 +237,7 @@ size_t MotionLayer::apply(Document& doc, const MotionIndex& index, Guid root, in
             }
           }
           KeyframeValue v;
-          if (!foldValue(base, b.params, tau, tracks, v)) continue;
+          if (!foldValue(base, b.params, w.tau, tracks, v)) continue;
           motion = true;
           // A FLOAT on an XY track is uniform (SCALE_XY's FLOAT input, docs/motion.md §4.5).
           auto vec = [&](Vec2) { return v.kind == ValueKind::VECTOR ? v.v : Vec2{v.f, v.f}; };
@@ -153,10 +266,13 @@ size_t MotionLayer::apply(Document& doc, const MotionIndex& index, Guid root, in
           base = KeyframeValue::number(nodeToStored(*info, cur));
         }
         KeyframeValue v;
-        if (!foldValue(base, b.params, tau, tracks, v)) continue;
+        if (!foldValue(base, b.params, w.tau, tracks, v)) continue;
         FieldMask m = maskOf(b.slot.field);
         if (!m) continue;
-        if (writeNodeFloat(p, b.slot.field, storedToNode(*info, v.f))) mask |= m;
+        if (writeNodeFloat(p, b.slot.field, storedToNode(*info, v.f))) {
+          mask |= m;
+          layout |= info->layout;
+        }
       } else if (b.slot.kind == Slot::Kind::FILL_COLOR || b.slot.kind == Slot::Kind::STROKE_COLOR || b.slot.kind == Slot::Kind::FILL_OPACITY ||
                  b.slot.kind == Slot::Kind::STROKE_OPACITY) {
         bool fill = b.slot.kind == Slot::Kind::FILL_COLOR || b.slot.kind == Slot::Kind::FILL_OPACITY;
@@ -166,7 +282,7 @@ size_t MotionLayer::apply(Document& doc, const MotionIndex& index, Guid root, in
         bool color = b.slot.kind == Slot::Kind::FILL_COLOR || b.slot.kind == Slot::Kind::STROKE_COLOR;
         if (!haveBase) base = color ? KeyframeValue::color(pt.color) : KeyframeValue::number(pt.opacity);
         KeyframeValue v;
-        if (!foldValue(base, b.params, tau, tracks, v)) continue;
+        if (!foldValue(base, b.params, w.tau, tracks, v)) continue;
         if (color) {
           if (v.kind != ValueKind::COLOR) continue;
           pt.color = v.c;
@@ -187,7 +303,7 @@ size_t MotionLayer::apply(Document& doc, const MotionIndex& index, Guid root, in
           }
         }
         KeyframeValue v;
-        if (!foldValue(base, b.params, tau, tracks, v)) continue;
+        if (!foldValue(base, b.params, w.tau, tracks, v)) continue;
         switch (b.slot.effect) {
           case Slot::EffectField::RADIUS: e.radius = std::max(0.0, v.f); break;
           case Slot::EffectField::SPREAD: e.spread = std::clamp(v.f, -30000.0, 30000.0); break;
@@ -200,15 +316,39 @@ size_t MotionLayer::apply(Document& doc, const MotionIndex& index, Guid root, in
         mask |= F_EFFECTS;
       }
     }
-    if (motion) {
-      p.transform = motionTransform(entry.base.transform, entry.base.size, anchor, translation, rotation, scale, shear);
-      mask |= F_TRANSFORM;
-    }
+    if (motion) poses.push_back({w.id, anchor, translation, scale, rotation, shear});
+    if (layout) laidOut.push_back(w.id);
     entry.mask |= mask;
-    if (!entry.mask) continue;
-    NodeChange c = NodeChange::changed(id);
-    c.mask = entry.mask;
+    if (!mask) continue;
+    NodeChange c = NodeChange::changed(w.id);
+    c.mask = mask;
     c.props = std::move(p);
+    if (doc.apply(c)) written++;
+  }
+
+  // 3. Layout (docs/motion.md §4.5): a size, padding or gap at its value moves the siblings and children as in Figma —
+  // the layer and the auto-layout frame or group it sits in are laid out again, as previews.
+  if (!laidOut.empty() && hooks.relayout) {
+    std::vector<Guid> dirty;
+    for (Guid id : laidOut) {
+      dirty.push_back(id);
+      Guid parent = doc.parentOf(id);
+      const Node* pn = doc.get(parent);
+      if (pn && (pn->props.isAutoLayout() || pn->props.fitsChildren())) dirty.push_back(parent);
+    }
+    hooks.relayout(dirty);
+  }
+
+  // 4. The motion transforms, over where layout left each layer (visual only: nothing lays out after them).
+  for (const Pose& q : poses) {
+    const Node* n = doc.get(q.id);
+    if (!n) continue;
+    Entry& entry = remember(doc, q.id);
+    NodeChange c = NodeChange::changed(q.id);
+    c.mask = F_TRANSFORM;
+    c.props = n->props;
+    c.props.transform = motionTransform(n->props.transform, n->props.size, q.anchor, q.translation, q.rotation, q.scale, q.shear);
+    entry.mask |= F_TRANSFORM;
     if (doc.apply(c)) written++;
   }
   return written;
@@ -227,6 +367,10 @@ void MotionLayer::restore(Document& doc) {
     NodeChange c = NodeChange::changed(id);
     c.mask = e.mask;
     c.props = e.base;
+    if (e.mask & F_EXTRA)
+      // Unmodelled fields merge (Document::apply): a key the layer added (a pathTrim the base hasn't) goes as empty.
+      for (const auto& [key, value] : doc.get(id)->props.extra)
+        if (!e.base.extra.count(key)) c.props.extra[key] = std::string();
     doc.apply(c);
   }
   entries_.clear();

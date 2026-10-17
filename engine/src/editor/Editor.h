@@ -58,7 +58,9 @@ enum class Tool : uint8_t {
 // ANNOTATION and MEASUREMENT: Dev Mode's tools (⇧T, ⇧M), editor/DevMode.cpp. Round 8 (tools/CanvasTools.cpp): SCALE (K)
 // selects and moves as MOVE, its handles scale the layers with their properties; SLICE (S) draws slices; COMMENT (C) is
 // inert until multiplayer; EYEDROPPER (I, ⌃C "Pick color"): a click emits COLOR_PICK and the tool goes back to Move.
-// ANCHOR_POINT (Phase 7 round 8, docs/motion.md §4.9; round 8b): Motion's anchor point target (⌥R); nothing handles it yet.
+// ANCHOR_POINT (Phase 7 round 8, docs/motion.md §4.9; round 8a increment 2, editor/MotionCommands.cpp): Motion's anchor
+// point (⌥R there): a press on the selected layer's target drags it, MOTION_SET_ANCHOR when let go; a press elsewhere —
+// or any press while Motion is off, which shows no target — goes back to Move. Motion ending puts Move back.
 // BRUSH and TEXT_PATH (Phase 7 round 7, docs/draw.md §4.4–4.5; round 7b, tools/DrawTools.cpp): the Brush draws as the
 // Pencil does with the Brush's brush (setDrawToolSettings); Text on path makes a TEXT_PATH from a shape's edge.
 const char* toolName(Tool t);
@@ -1144,7 +1146,7 @@ class Editor : private LayoutHost, public TextLayouts {
 
   enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect, Vector, Pencil, Paint, Noodle, Grid,
                                  Measure, MeasureDrag, Radius, Gap, LayoutBar, ZoomArea, Reorder, RotationOrigin, Guide, Shape,
-                                 Scrollbar, TextPathStart };
+                                 Scrollbar, TextPathStart, MotionAnchor };
 
   struct Target {
     Guid id;
@@ -1808,6 +1810,10 @@ class Editor : private LayoutHost, public TextLayouts {
   motion::MotionLayer motionLayer_;
   bool motionDirty_ = true;
   void motionApply();
+  // Round 8a, increment 2: lays out what the motion layer's layout-changing fields touched, its writes previews; the
+  // motion path and the anchor point's target of the selected layer on the canvas.
+  void motionRelayout(const std::vector<Guid>& dirty);
+  void motionOverlay(Overlay& o) const;
   // Round 8b (editor/MotionCommands.cpp).
   Status motionCommand(CommandId id, const CommandArgs& args);
   uint32_t motionCommandState(CommandId id) const;
@@ -1823,7 +1829,7 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<Guid> motionTracksOwnedBy(const std::vector<Guid>& ids);
   bool motionSlotOfTrack(Guid track, Guid& owner, motion::Slot& slot);
   bool motionCurrentValue(Guid id, const motion::Slot& slot, int64_t timeUs, motion::KeyframeValue& out);
-  FieldMask motionRouteWrite(Guid id, const NodeChange& props);
+  FieldMask motionRouteWrite(Guid id, NodeChange& props);
   // Round 8b, increment 2: a move, resize or rotate of layers under the timeline's root while Motion is on is drawn as
   // the motion layer's preview writes (no transaction) and keyed in one step when it ends; a nudge is keyed at once.
   struct MotionDrag {
@@ -1849,6 +1855,17 @@ class Editor : private LayoutHost, public TextLayouts {
   motion::LayerBase motionPoseAt(Guid id, int64_t timeUs);
   void motionKeyAtPlayhead(Guid id, const motion::Slot& s, Guid root, const motion::KeyframeValue& value);
   void motionShiftTranslation(Guid id, Vec2 by);
+  // Round 8a, increment 2: the anchor point tool (⌥R in Motion, docs/motion.md §4.9) — its target dragged (a view state,
+  // snapped to the layer's box), MOTION_SET_ANCHOR when let go.
+  struct MotionAnchorDrag {
+    Guid id = kNoGuid;
+    Vec2 world;  // where the target is drawn
+  };
+  MotionAnchorDrag motionAnchor_;
+  bool motionAnchorTarget(Guid& id, Vec2& world) const;
+  bool motionAnchorPress(Vec2 screen);
+  void motionAnchorDrag(Vec2 world, uint32_t mods);
+  void motionAnchorDrop();
   // Ownership (docs/motion.md §4.2): a copied layer's tracks copied with it; the clipboard carries them.
   void motionCopyTracks(NodeProps& p, Guid parent, const std::vector<NodeChange>* clip);
   Guid motionCopyTrack(Guid track, const std::vector<NodeChange>* clip);

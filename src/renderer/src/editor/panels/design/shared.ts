@@ -39,6 +39,8 @@ export type ExtraFields = {
   // Round 12: a variable-width stroke's points (schema VariableWidthPoint; editor/widthProfile.ts), a dynamic stroke
   variableWidthPoints?: { position?: number; ascent?: number; descent?: number; segmentId?: number }[] | null;
   dynamicStrokeSettings?: Record<string, number> | null;
+  // Motion (docs/motion.md §4.13): the stroke's path trim, x = start, y = end (0–1; absent: the whole path)
+  pathTrim?: { value?: { x: number; y: number } } | null;
   // Kept by the engine as it came (not typed by the facade yet)
   layoutGrids?: LayoutGrid[];
   // Text (E3)

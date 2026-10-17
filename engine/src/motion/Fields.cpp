@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "base/Json.h"
+#include "geometry/NodeGeometry.h"
 #include "scene/CodecKiwi.h"
 
 namespace eng::motion {
@@ -156,15 +157,7 @@ bool writeNodeFloat(NodeProps& p, VariableField f, double v) {
     case VariableField::PATH_TRIM_END: {
       // pathTrim (OptionalVector {value {x start, y end}}; absent = 0 / 1), kept in `extra` (docs/motion.md §4.13).
       double start = 0, end = 1;
-      auto it = p.extra.find("pathTrim");
-      if (it != p.extra.end() && !it->second.empty()) {
-        json::Value cur;
-        if (json::parse(codec::extraValueToJson("NodeChange", it->second), cur))
-          if (const json::Value* val = cur.get("value")) {
-            if (const json::Value* x = val->get("x")) start = x->numberOr(0);
-            if (const json::Value* y = val->get("y")) end = y->numberOr(1);
-          }
-      }
+      pathTrimOf(p, start, end);
       if (f == VariableField::PATH_TRIM_START) start = v;
       else end = v;
       json::Value out;
@@ -218,6 +211,13 @@ bool readNodeFloat(const NodeProps& p, VariableField f, double& out) {
     case VariableField::ARC_DATA_INNER_RADIUS: out = p.shape().arcData.innerRadius; return true;
     case VariableField::STAR_INNER_SCALE: out = p.shape().starInnerScale; return true;
     case VariableField::POLYGON_COUNT: out = p.shape().count; return true;
+    case VariableField::PATH_TRIM_START:
+    case VariableField::PATH_TRIM_END: {
+      double start = 0, end = 1;  // absent: the whole path
+      pathTrimOf(p, start, end);
+      out = f == VariableField::PATH_TRIM_START ? start : end;
+      return true;
+    }
     default: return false;
   }
 }

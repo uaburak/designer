@@ -236,6 +236,24 @@ LayerBase decodeLayerBase(const NodeProps& p) {
   return b;
 }
 
+Assignment decodeAssignment(const NodeProps& instance, Guid assigned, Guid containing) {
+  Assignment a;
+  json::Value m = extraJson(instance, "timelineAssignments");
+  const json::Value* entries = m.isObject() ? m.get("entries") : nullptr;
+  if (!entries || !entries->isArray()) return a;
+  for (const json::Value& e : entries->array) {
+    const json::Value* key = e.get("key");
+    if (!key || guidOf(key->get("assignedTimelineId")) != assigned || guidOf(key->get("containingTimelineId")) != containing) continue;
+    a.found = true;
+    if (const json::Value* v = e.get("value"); v && v->isObject()) {
+      if (const json::Value* o = v->get("offsetUs")) a.offsetUs = static_cast<int64_t>(std::llround(o->numberOr(0)));
+      if (const json::Value* d = v->get("disabled")) a.disabled = d->isBool() && d->boolean;
+    }
+    break;
+  }
+  return a;
+}
+
 bool isTimelineRoot(const Document& doc, Guid id) {
   const Node* n = doc.get(id);
   if (!n) return false;
@@ -256,6 +274,7 @@ bool isTimelineRoot(const Document& doc, Guid id) {
 void MotionIndex::clear() {
   tracks_.clear();
   nodes_.clear();
+  playing_.clear();
 }
 
 void MotionIndex::rebuild(const Document& doc) {
@@ -338,6 +357,23 @@ void MotionIndex::rebuild(const Document& doc) {
     an.base = decodeLayerBase(p);
     nodes_[n.guid] = std::move(an);
   });
+  // 3. The roots that play: those with animated layers, then those holding an instance of one (a main nested in
+  // another main's timeline plays there too), until nothing more is reached.
+  std::vector<std::pair<Guid, Guid>> instances;  // (instance, its main)
+  doc.forEach([&](const Node& n) {
+    if (n.guid.isDerived()) return;
+    if (n.props.type == NodeType::INSTANCE) instances.push_back({n.guid, n.props.comp().symbolData.symbolID});
+  });
+  for (const auto& entry : nodes_)
+    if (Guid r = rootOf(doc, entry.first); r != kNoGuid && r != entry.first) playing_.insert(r);
+  for (bool grew = true; grew;) {
+    grew = false;
+    for (auto& [inst, main] : instances) {
+      if (!playing_.count(main)) continue;
+      Guid r = rootOf(doc, inst);
+      if (r != kNoGuid && playing_.insert(r).second) grew = true;
+    }
+  }
 }
 
 const Track* MotionIndex::track(Guid id) const {

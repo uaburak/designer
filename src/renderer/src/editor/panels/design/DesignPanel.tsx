@@ -32,6 +32,7 @@ import { designSections, isTypeNode } from "../../draw/panels/drawPanel";
 import { TransformSection } from "../../draw/panels/TransformSection";
 import { MotionSection } from "../../motion/panels/MotionSection";
 import { MotionFieldStates } from "../../motion/panels/MotionField";
+import { PathTrimSection } from "../../motion/panels/PathTrimSection";
 import draw from "../../draw/panels/DrawPanels.module.css";
 import { TypeHeader } from "./Header";
 import { RelaunchButtons } from "./RelaunchButtons";
@@ -163,6 +164,8 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
       {shown.has("typography") && <TypographySection nodes={texts} />}
       <PaintsSection title="Fill" field="fillPaints" nodes={paintNodes} onPick={onPick} className={drawMode ? draw.largePreviews : undefined} />
       <PaintsSection title="Stroke" field="strokePaints" nodes={paintNodes} onPick={onPick} className={drawMode ? draw.largePreviews : undefined} />
+      {/* Motion mode (docs/motion.md §4.13, §6.5): the strokes' Path trim start / end, keyframable (round 8a, increment 2). */}
+      {mode === "motion" && <PathTrimSection nodes={nodes} />}
       {/* A section has neither effects nor layout guides (Figma's live panel: Fill, Stroke, Export) */}
       {shown.has("effects") && <EffectsSection nodes={nodes} />}
       {shown.has("selectionColors") && <SelectionColorsSection nodes={nodes} onPick={onPick} />}
