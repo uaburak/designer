@@ -767,6 +767,11 @@ class Editor : private LayoutHost, public TextLayouts {
   uint32_t paintIndex() const { return paint_.index; }
   int paintStop() const { return paint_.stop; }
   Status setPaintStop(int stop);
+  // A progressive blur's edit mode (Figma's PROGRESSIVE_BLUR, atlas 08 §6.2), in the same session: `id`'s effect
+  // `index` (a layer or background blur, progressive) shows its Start and End handles; dragging one moves startOffset /
+  // endOffset. `paintStop()` is then the marked handle: 0 Start, 1 End, −1 none (the panel's hovered field).
+  Status startBlurEdit(Guid id, uint32_t index);
+  bool blurEditing() const { return paint_.node != kNoGuid && paint_.effect; }
 
   // ---- Prototype mode (editor/PrototypeEditing.cpp; the right panel's Prototype tab) ----
   // The canvas shows connections, the "+" connection handle on selected layers and flow labels; dragging a handle to a
@@ -1871,8 +1876,14 @@ class Editor : private LayoutHost, public TextLayouts {
     int handle = 0;  // 0 start / centre, 1 end, 2 width
     Paint start;     // the paint when the drag started
     bool dragged = false;
+    bool effect = false;  // a progressive blur (`index` into the effects), not a gradient paint
+    Effect effectStart;   // the effect when the drag started
   };
   const Paint* editedPaint() const;
+  const Effect* editedBlur() const;
+  // The session's paint or progressive blur is still there.
+  bool paintSessionLive() const { return paint_.effect ? editedBlur() != nullptr : editedPaint() != nullptr; }
+  void writeBlur(const Effect& e);
   // The handles in node unit space: [start or centre, end, width].
   void paintHandles(const Paint& p, Vec2 out[3]) const;
   uint32_t paintPointerDown(Vec2 s, uint32_t mods);

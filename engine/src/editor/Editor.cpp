@@ -1688,7 +1688,7 @@ bool Editor::undoStep(bool redo) {
   changeSelection(sel);
   pruneSelection();
   if (vector_.node != kNoGuid) reloadVector();
-  if (paint_.node != kNoGuid && !editedPaint()) endPaintEdit();
+  if (paint_.node != kNoGuid && !paintSessionLive()) endPaintEdit();
   return true;
 }
 
@@ -1736,7 +1736,7 @@ void Editor::followForeign(const std::vector<Guid>& touched) {
       events_.vectorEdit = true;
     }
   }
-  if (paint_.node != kNoGuid && hit(paint_.node) && (!doc_.has(paint_.node) || !editedPaint())) endPaintEdit();
+  if (paint_.node != kNoGuid && hit(paint_.node) && (!doc_.has(paint_.node) || !paintSessionLive())) endPaintEdit();
   pruneSelection();
   needsRender_ = true;
 }
@@ -1970,9 +1970,9 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
       return K_HANDLED;
     }
     if ((code == KeyCode::Backspace || code == KeyCode::Delete) && gesture_ == Gesture::None) {
-      // The selected stop goes (two stay at least).
+      // The selected stop goes (one stays at least, as the picker's GradientControl minStops).
       const Paint* p = editedPaint();
-      if (p && p->stops.size() > 2 && paint_.stop >= 0 && static_cast<size_t>(paint_.stop) < p->stops.size()) {
+      if (p && p->stops.size() > 1 && paint_.stop >= 0 && static_cast<size_t>(paint_.stop) < p->stops.size()) {
         Paint q = *p;
         q.stops.erase(q.stops.begin() + paint_.stop);
         begin(TxnKind::USER, "Delete color stop");

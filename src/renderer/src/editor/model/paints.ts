@@ -176,7 +176,14 @@ export function toPicker(p: FullPaint): PickerPaint {
       verticalAlignment: q.verticalAlignment ?? "START",
     };
   }
-  return { ...base, stops: (p.stops ?? []).map((s) => ({ color: { ...s.color }, position: s.position })) };
+  // A gradient: its stops, and its "Color interpolation" (Paint 41 / 42) when it has one.
+  const q = p as FullPaint & Pick<PickerPaint, "interpolationColorSpace" | "interpolationHueMethod">;
+  return {
+    ...base,
+    stops: (p.stops ?? []).map((s) => ({ color: { ...s.color }, position: s.position })),
+    ...(q.interpolationColorSpace && q.interpolationColorSpace !== "DEFAULT" ? { interpolationColorSpace: q.interpolationColorSpace } : {}),
+    ...(q.interpolationHueMethod ? { interpolationHueMethod: q.interpolationHueMethod } : {}),
+  };
 }
 
 /**
@@ -198,6 +205,8 @@ export function fromPicker(base: FullPaint, next: PickerPaint): FullPaint {
     delete out.scale;
   }
   if (next.blendMode) out.blendMode = next.blendMode;
+  // Leaving a gradient: its "Color interpolation" goes with its stops.
+  if (!isGradientType(next.type)) for (const k of ["interpolationColorSpace", "interpolationHueMethod"]) delete (out as Record<string, unknown>)[k];
   if (next.type === "SOLID") {
     out.color = next.color ? { ...next.color, a: 1 } : (base.color ?? { r: 0, g: 0, b: 0, a: 1 });
     delete out.stops;
@@ -223,6 +232,12 @@ export function fromPicker(base: FullPaint, next: PickerPaint): FullPaint {
     if (!media(base.type)) out.transform = IDENTITY_MATRIX;
   } else {
     out.stops = (next.stops ?? []).map((s) => ({ color: { ...s.color }, position: s.position }));
+    // "Color interpolation" as the picker left it (absent: the document's space; a hue method only for OKLCH / HSL).
+    const o = out as FullPaint & Pick<PickerPaint, "interpolationColorSpace" | "interpolationHueMethod">;
+    if (next.interpolationColorSpace && next.interpolationColorSpace !== "DEFAULT") o.interpolationColorSpace = next.interpolationColorSpace;
+    else delete o.interpolationColorSpace;
+    if (next.interpolationHueMethod) o.interpolationHueMethod = next.interpolationHueMethod;
+    else delete o.interpolationHueMethod;
     delete out.color;
     dropImage(out);
     if (!isGradientType(base.type)) out.transform = next.type === "GRADIENT_LINEAR" ? DEFAULT_LINEAR_TRANSFORM : IDENTITY_MATRIX;

@@ -64,7 +64,11 @@
   .loupeSwatch { border-radius: 20%; }
   .loupeIcon { flex: none; margin: 0 calc(-1 * var(--ds-space-1)); color: var(--figma-color-icon); }
   .loupeHex { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); white-space: nowrap; }
-  .loupeHint { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); white-space: nowrap; }
+  .loupeHint { min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); white-space: nowrap; text-overflow: ellipsis; }
+  /* A matching variable or style: its name and the ⇧ that applies it; ⇧ held, the row is chosen */
+  .loupeKey { flex: none; padding: 0 var(--ds-space-1); border-radius: var(--ds-radius-small); background: var(--figma-color-bg-secondary); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .loupeRow[data-chosen] .loupeHint { color: var(--figma-color-text); }
+  .loupeRow[data-chosen] .loupeKey { background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand); }
 
   .form { display: flex; flex-direction: column; gap: var(--ds-space-2); }
   .row { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: var(--ds-space-2); }

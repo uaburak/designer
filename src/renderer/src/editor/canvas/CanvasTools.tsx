@@ -4,12 +4,14 @@
  * and hex, "Click to sample"), and Preferences › Nudge amount….
  */
 import { t, useT } from "@/i18n";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Dialog, evaluate, Icon, Swatch, TextInput } from "@/ds";
 import { useTool } from "@/engine/hooks";
 import { useEditor } from "../controller";
-import { useUI } from "../hooks";
+import { useLocalAssets, useUI } from "../hooks";
 import { canvasPixelsAround, commitInlineValue, DEFAULT_NUDGE, setNudge } from "../canvasTools";
+import { colorFormat, formatColor, nextEyedropperFormat, useColorFormat } from "../colorFormat";
+import { matchColor, setEyedropperChoice } from "../eyedropper";
 import styles from "./CanvasTools.module.css";
 
 /** The padding or gap value typed over its pill (Enter or leaving keeps it, Esc puts it back). */
@@ -62,6 +64,36 @@ function Loupe() {
   const ed = useEditor();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [at, setAt] = useState<{ left: number; top: number; hex: string } | null>(null);
+  // Figma's card (atlas 07 §6): the colour in the colour format (Tab cycles it, CSS skipped); the second row names a
+  // colour variable or fill style of that colour (⇧ applies it bound) or says what a click does.
+  const [format, setFormat] = useColorFormat();
+  const [shift, setShift] = useState(false);
+  const assets = useLocalAssets();
+  const hex = at?.hex ?? null;
+  const rgb = useMemo(() => (hex ? { r: parseInt(hex.slice(0, 2), 16) / 255, g: parseInt(hex.slice(2, 4), 16) / 255, b: parseInt(hex.slice(4, 6), 16) / 255 } : null), [hex]);
+  // (Read once per colour under the pointer, not per pointer move.)
+  const match = useMemo(() => (rgb ? matchColor(assets, rgb) : null), [assets, rgb]);
+  const choice = shift ? match : null;
+  useEffect(() => {
+    setEyedropperChoice(ed, choice);
+    return () => setEyedropperChoice(ed, null);
+  }, [ed, choice]);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Shift") setShift(e.type === "keydown");
+      if (e.key === "Tab" && e.type === "keydown") {
+        e.preventDefault();
+        e.stopPropagation();
+        setFormat(nextEyedropperFormat(colorFormat()));
+      }
+    };
+    window.addEventListener("keydown", key, true);
+    window.addEventListener("keyup", key, true);
+    return () => {
+      window.removeEventListener("keydown", key, true);
+      window.removeEventListener("keyup", key, true);
+    };
+  }, [setFormat]);
   useEffect(() => {
     const target = ed.canvas;
     if (!target) return;
@@ -123,13 +155,20 @@ function Loupe() {
           <span className={styles.loupeLead}>
             <Swatch color={at ? `#${at.hex}` : "#000000"} size={16} className={styles.loupeSwatch} />
           </span>
-          <span className={styles.loupeHex}>#{at?.hex ?? "000000"}</span>
+          <span className={styles.loupeHex} data-format={format}>{rgb ? formatColor(rgb, format) : "#000000"}</span>
         </div>
-        <div className={styles.loupeRow}>
+        <div className={styles.loupeRow} data-chosen={choice ? "" : undefined}>
           <span className={styles.loupeLead}>
             <Icon name="24.interaction.click.small" className={styles.loupeIcon} />
           </span>
-          <span className={styles.loupeHint}>{t("Click to sample")}</span>
+          {match ? (
+            <>
+              <span className={styles.loupeHint}>{match.name}</span>
+              <span className={styles.loupeKey}>⇧</span>
+            </>
+          ) : (
+            <span className={styles.loupeHint}>{ed.selectedNodes().length ? t("Click to sample") : t("Click to copy")}</span>
+          )}
         </div>
       </div>
     </div>

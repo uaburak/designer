@@ -131,6 +131,12 @@
   .paintHidden { opacity: 0.4; }
   /* Selection colors: an empty eye-sized slot, then "Select matching layers" shown on hover / focus */
   .colorRowSlot { flex: none; width: var(--ds-size-control); }
+  /* Selection colors with four colours or more: the title row folds the list; folded, it shows three and "+N" */
+  .colorsCollapsible { position: relative; }
+  .colorsToggle { position: absolute; top: 0; left: 0; width: 100%; height: 40px; padding: 0; border: 0; background: transparent; cursor: default; }
+  .colorsToggle:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(-1 * var(--ds-focus-width)); }
+  .colorsPeek { display: flex; align-items: center; gap: var(--ds-space-1); padding-right: var(--ds-space-2); pointer-events: none; }
+  .colorsMore { color: var(--figma-color-text-secondary); font-variant-numeric: tabular-nums; }
   .colorRow .colorRowAction { visibility: hidden; }
   .colorRow:hover .colorRowAction, .colorRow:focus-within .colorRowAction { visibility: visible; }
   /* "Click + to replace mixed content": a 32 row, the text at 40% (Figma's live panel) */
@@ -405,6 +411,11 @@
   .effectLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; padding-left: var(--ds-space-1); white-space: nowrap; text-overflow: ellipsis; }
   /* Live (design/rectangle-with-effect.txt): the effect's name 11px / 400 at 41, 1 after its glyph */
   .effectName { padding-left: 1px; font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); }
+  /* Draw's large-preview rows: the effect's values after its name */
+  .effectSummary { flex: 0 1 auto; min-width: 0; overflow: hidden; padding: 0 var(--ds-space-2) 0 var(--ds-space-1); color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  /* Spread (its tooltip says why it is off) and a progressive blur's Start / End (they mark their canvas handle): the field's cell */
+  .fxSpread, .fxHandleField { display: flex; min-width: 0; }
+  .fxSpread > *, .fxHandleField > * { flex: 1 1 auto; min-width: 0; }
   /* The effect settings header's type (live: 11px / 400, 117 wide for "Drop shadow" — 8 after the chevron) */
   .fxType { font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); }
   .fxType > button { padding-right: var(--ds-space-2); }
@@ -437,6 +448,11 @@
   /* Image adjustments (live popovers/fill-picker-image.txt): from 349 every 32 — the name at 16, a slider 104 → 224 with
      its 16 thumb (0 in the middle, at 164, where a 4 dot marks it) */
   .imageControls { display: flex; flex-direction: column; gap: var(--ds-space-2); margin: var(--ds-space-3) var(--ds-space-4) var(--ds-space-3); }
+  /* The scale mode row's right end: a tile's Scaling factor, then Rotate 90º */
+  .imageActions { display: flex; align-items: center; gap: var(--ds-space-1); }
+  /* Mask: the type dropdown under its title */
+  .maskRow { padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left); }
+  .tileScale { width: 64px; }
   .adjustment { position: relative; display: grid; grid-template-columns: 88px 120px; align-items: center; height: var(--ds-size-control); }
   .adjustment::after { content: ""; position: absolute; left: 146px; top: 10px; width: 4px; height: 4px; border-radius: var(--ds-radius-full); background: var(--figma-color-icon); pointer-events: none; }
   .adjustmentLabel { color: var(--figma-color-text-secondary); }

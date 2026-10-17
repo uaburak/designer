@@ -914,6 +914,15 @@ export class Engine {
   /** After a load: the canvas takes the document's colour space (Figma draws a Display P3 file in P3). */
   private loaded(status: number): number {
     if (status !== Status.OK) return status;
+    this.refreshColorProfile();
+    return status;
+  }
+
+  /**
+   * The canvas takes the document's colour space again: after a load, and after the profile changed (File › Color
+   * profile's Convert / Assign, or their undo).
+   */
+  refreshColorProfile(): void {
     const doc = this.readNode("0:0") as { documentColorProfile?: string } | null;
     this.profile = doc?.documentColorProfile === "DISPLAY_P3" ? "DISPLAY_P3" : "SRGB";
     if (this.gfxBackend === "webgpu") {
@@ -923,7 +932,7 @@ export class Engine {
         this.x.module.engineColorSpace = space;
         this.schedule();
       }
-      return status;
+      return;
     }
     const gl = this.canvas?.getContext("webgl2") as (WebGL2RenderingContext & { drawingBufferColorSpace?: string; unpackColorSpace?: string }) | null | undefined;
     if (gl) {
@@ -935,7 +944,6 @@ export class Engine {
         this.schedule();
       }
     }
-    return status;
   }
 
   /** The task's name for load(). */
@@ -1808,6 +1816,17 @@ export class Engine {
   /** The panel selected a stop: the canvas shows it selected. */
   setPaintEditStop(index: number): number {
     return this.after(this.x.paintEditStop(this.h, index));
+  }
+
+  /** A progressive blur's Start and End handles on the canvas (the node's effect `index`); endPaintEdit ends it. */
+  startBlurEdit(ref: Guid, index: number): number {
+    const [s, l] = this.ids(ref);
+    return this.after(this.x.blurEdit(this.h, s, l, index));
+  }
+
+  /** The panel's hovered Start / End field: its handle is marked (NONE: neither). */
+  setBlurEditHandle(handle: "START" | "END" | "NONE"): number {
+    return this.after(this.x.blurEditHandle(this.h, handle === "START" ? 0 : handle === "END" ? 1 : -1));
   }
 
   // ---- Images (docs/engine.md §6.6) ------------------------------------------------------

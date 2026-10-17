@@ -99,6 +99,8 @@ export interface UIState extends PreferenceFlags {
   /** Preferences › Nudge amount… (round 8): the steps, and whether its dialog is open */
   nudge?: { small: number; big: number };
   nudgeDialog?: boolean;
+  /** File › Color profile…: its dialog (Convert / Assign, ColorProfileDialog.tsx) */
+  colorProfileDialog?: boolean;
   /** An auto-layout bar's value edited in place (round 8, REQUEST_INLINE_EDIT; viewport px) */
   inlineValueEdit?: {
     ref: Guid;

@@ -187,6 +187,7 @@ function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: b
 /** The "…" popover: the setting's details, by format. */
 export function ExportSettingsPopover({ setting, anchor, onChange, onClose }: { setting: ExportSettings; anchor: HTMLElement; onChange: (s: ExportSettings) => void; onClose: () => void }) {
   useT();
+  const ed = useEditor();
   const format = formatOf(setting);
   const raster = format === "PNG" || format === "JPEG";
   const quality = QUALITY_LEVELS.reduce((best, q) => (Math.abs(q.quality - qualityOf(setting)) < Math.abs(best.quality - qualityOf(setting)) ? q : best));
@@ -210,7 +211,8 @@ export function ExportSettingsPopover({ setting, anchor, onChange, onClose }: { 
               variant="ghost"
               value={setting.colorProfile ?? "DOCUMENT"}
               options={[
-                { value: "DOCUMENT", label: t("sRGB (same as file)") },
+                // "Document": the file's own profile, named (atlas 07 §16: not always sRGB)
+                { value: "DOCUMENT", label: ed.engine.colorProfile === "DISPLAY_P3" ? t("Display P3 (same as file)") : t("sRGB (same as file)") },
                 { value: "SRGB", label: "sRGB" },
                 { value: "DISPLAY_P3_V4", label: "Display P3" },
               ]}

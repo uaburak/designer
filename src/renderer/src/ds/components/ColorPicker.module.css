@@ -143,7 +143,11 @@
   .stopChip { width: 14px; height: 14px; border-radius: var(--ds-radius-small); box-shadow: inset 0 0 0 1px var(--ds-color-border-translucent); }
   .stop[aria-selected="true"] { background: var(--figma-color-bg-brand); }
   .stop:focus-visible { box-shadow: 0 0 0 2px var(--ds-focus-color); }
-  .stop[data-removing] { opacity: 0.3; }
+  /* The hovered track's ghost stop: where a click adds one, in the colour there */
+  .ghostStop { opacity: 0.5; pointer-events: none; }
+  /* "Color interpolation" under the stops: the label, the space (and the hue method) */
+  .interpolationRow { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); height: 32px; padding: 0 var(--ds-space-2) 0 var(--ds-space-4); border-top: 1px solid var(--figma-color-border); }
+  .interpolationLabel { flex: 1 1 auto; overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
 
   .stopsSection { display: flex; flex: none; flex-direction: column; margin-top: var(--ds-space-3); padding: 15px 0 var(--ds-space-3); border-top: 1px solid var(--figma-color-border); }
   .stopsHeader { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 var(--ds-space-2) 0 var(--ds-space-4); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }

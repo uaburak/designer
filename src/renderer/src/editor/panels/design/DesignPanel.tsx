@@ -21,6 +21,7 @@ import { colorToHex, hexToColor, sameColor, toPercent } from "../../model/color"
 import { AppearanceSection, PositionSection } from "./Sections";
 import { LayoutSection } from "./Layout";
 import { PaintPicker, PaintsSection, type PickerTarget } from "./Paints";
+import { MaskSection } from "./Mask";
 import { SelectionColorsSection } from "./SelectionColors";
 import { TypographySection } from "./Typography";
 import { EffectsSection, LayoutGuideSection } from "./Effects";
@@ -156,6 +157,8 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
       {shown.has("position") && <PositionSection nodes={nodes} />}
       {shown.has("layout") && <LayoutSection nodes={nodes} />}
       {shown.has("appearance") && <AppearanceSection nodes={nodes} />}
+      {/* Masks only: Alpha / Vector / Luminance (atlas 07 §12) */}
+      <MaskSection nodes={nodes} />
       {shown.has("transform") && <TransformSection nodes={nodes} />}
       {shown.has("typography") && <TypographySection nodes={texts} />}
       <PaintsSection title="Fill" field="fillPaints" nodes={paintNodes} onPick={onPick} className={drawMode ? draw.largePreviews : undefined} />

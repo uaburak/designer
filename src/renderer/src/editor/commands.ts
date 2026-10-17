@@ -825,7 +825,8 @@ export const COMMANDS: EditorCommand[] = [
   // Branching (Phase 7 round 2b, branching/commands.ts): Create branch…, See all branches, Update from main…, Review
   // and merge changes…, Archive.
   ...BRANCH_COMMANDS,
-  later("file.color-profile", "Color profile…"),
+  // The document's colour profile: sRGB / Display P3, converted or assigned (ColorProfileDialog.tsx, atlas 07 §14).
+  ui("file.color-profile", "Color profile…", undefined, (ed) => ed.ui.set({ colorProfileDialog: true, uiHidden: false })),
   // Plugins (docs/plugins.md §6; plugins/service.ts). Widgets aren't built (§11): listed as Figma lists them, disabled.
   ...PLUGIN_COMMANDS,
   later("widgets.manage", "Manage widgets…"),

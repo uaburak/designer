@@ -354,7 +354,7 @@ void writeEvents(json::Writer& w, Engine& e) {
     w.beginObject().key("type").string("PAINT_EDIT").key("active").boolean(ed.paintEditing()).key("ref");
     if (ed.paintEditing()) w.string(ed.paintNode().toString());
     else w.null();
-    w.key("paints").string(ed.paintStrokes() ? "STROKE" : "FILL").key("index").number(ed.paintIndex());
+    w.key("paints").string(ed.blurEditing() ? "EFFECT" : ed.paintStrokes() ? "STROKE" : "FILL").key("index").number(ed.paintIndex());
     w.key("stop").number(ed.paintStop()).endObject();
   }
   if (!ev.components.empty()) {
@@ -1932,6 +1932,21 @@ ENG_EXPORT int32_t engine_paint_edit_stop(Handle h, uint32_t index) {
   Call call;
   Engine* e = engineOf(h);
   return e ? e->editor.setPaintStop(static_cast<int>(index)) : E_HANDLE;
+}
+
+// A progressive blur's edit mode: effect `index` of the node (a progressive layer / background blur); ended by
+// engine_paint_edit_end. `handle` marks Start (0), End (1) or none (−1).
+ENG_EXPORT int32_t engine_blur_edit(Handle h, uint32_t sessionID, uint32_t localID, uint32_t index) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (e && e->editor.viewerMode()) return E_READONLY;
+  return e ? e->editor.startBlurEdit({sessionID, localID}, index) : E_HANDLE;
+}
+
+ENG_EXPORT int32_t engine_blur_edit_handle(Handle h, int32_t handle) {
+  Call call;
+  Engine* e = engineOf(h);
+  return e && e->editor.blurEditing() ? e->editor.setPaintStop(handle) : E_HANDLE;
 }
 
 // ---- Images (docs/engine.md Â§6.6) ----------------------------------------------------------

@@ -15,7 +15,7 @@ import { hexToColor, colorToHex, toPercent } from "../../model/color";
 import { fromPicker, paintLabel, paintSwatch, toPicker, type FullPaint } from "../../model/paints";
 import { STYLE_KIND_SINGULAR, type Style, type StyleKind, type StyleSlot } from "../../model/styles";
 import { createStyle, renameStyle, updateStyle } from "../../variables";
-import { EFFECT_TYPES, EffectSettings, GUIDE_ICON, GuideSettings, defaultEffect, defaultGuide, guideKind, guideLabel, withEffectType } from "../design/Effects";
+import { EFFECT_TYPES, EffectSettings, GUIDE_ICON, GuideSettings, defaultEffect, defaultGuide, fullTypes, guideKind, guideLabel, withEffectType } from "../design/Effects";
 import { closestStyle } from "@/engine/fonts";
 import { useFontFamilies } from "../../fontList";
 import { FontField } from "../design/FontPicker";
@@ -183,7 +183,7 @@ function EffectValues({ style }: { style: Style }) {
           {t("Add effect")}
         </Button>
       </div>
-      {open && effects[open.index] && <EffectSettings effect={effects[open.index]} anchor={open.anchor} glassTaken={effects.some((x, j) => j !== open.index && x.type === "GLASS")} onClose={() => setOpen(null)} onCancel={() => ed.cancelEdit()} onChange={(next, info) => write(effects.map((x, j) => (j === open.index ? next : x)), info)} />}
+      {open && effects[open.index] && <EffectSettings effect={effects[open.index]} anchor={open.anchor} full={fullTypes(effects, open.index)} onClose={() => setOpen(null)} onCancel={() => ed.cancelEdit()} onChange={(next, info) => write(effects.map((x, j) => (j === open.index ? next : x)), info)} />}
     </>
   );
 }

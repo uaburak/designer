@@ -14,7 +14,8 @@
  * transaction and commits on release.
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ColorInput, ColorPicker, Icon, IconButton, isMixed, MenuButton, MIXED, PanelSection, cx, type ChangeInfo, type ColorModel, type PickerPaint } from "@/ds";
+import { ColorInput, ColorPicker, Icon, IconButton, isMixed, MenuButton, MIXED, NumericInput, PanelSection, cx, type ChangeInfo, type PickerPaint } from "@/ds";
+import { useColorFormat } from "../../colorFormat";
 import { useTextSummary } from "./useTextSummary";
 import { openMakeImage } from "../../imageTools/ImageToolbar";
 import type { Color, Guid, Paint } from "@/engine/codec";
@@ -38,7 +39,7 @@ import { isFrameNode, type PanelNode } from "./shared";
 import { BoundPaintRow, paintScope } from "./Variables";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
 import { VariableList } from "../variables/VariablePicker";
-import { paintVariable } from "../../model/variables";
+import { paintVariable, resolveVariable } from "../../model/variables";
 import { applyStyle, bindPaint, createCollection, createVariable } from "../../variables";
 import { CreateStylePopover } from "../variables/EditStyle";
 import { t, useT } from "@/i18n";
@@ -64,6 +65,56 @@ export function newPaint(field: PaintField, nodes: readonly { type?: string; res
   if (existing > 0) return { type: "SOLID", color: hexToColor("#000000"), opacity: 0.2, visible: true };
   if (field === "strokePaints") return { type: "SOLID", color: hexToColor("#000000"), opacity: 1, visible: true };
   return { type: "SOLID", color: hexToColor(nodes.every((n) => isFrameNode(n as PanelNode)) ? "#ffffff" : "#d9d9d9"), opacity: 1, visible: true };
+}
+
+/** The picker's remembered swatch set (Figma's localStorage key). */
+const SWATCH_SET_KEY = "library-color-swatch-selected-swatch-set-id";
+
+/**
+ * The picker's swatch sets after "On this page" (atlas 07 §5.6): "Local assets" — the file's colour variables in their
+ * order, then its fill styles (each style's top visible solid paint) — when it has any; the set picked last is
+ * remembered. Unbuilt: a set per enabled library (their colours aren't in the file until used).
+ */
+function useSwatchSets(): { sets: { id: string; label: string; colors: string[] }[]; set: string; onSet: (id: string) => void } {
+  useT();
+  const assets = useLocalAssets();
+  const sets = useMemo(() => {
+    const css = (c: Color, opacity = 1) => {
+      const a = (c.a ?? 1) * opacity;
+      return a >= 1 ? colorToHex(c) : `rgba(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}, ${Math.round(a * 100) / 100})`;
+    };
+    const colors = new Set<string>();
+    for (const v of assets.variables) {
+      if (v.type !== "COLOR") continue;
+      const value = resolveVariable(v.id, assets.lookup);
+      if (value && typeof value === "object") colors.add(css(value));
+    }
+    for (const s of assets.styles) {
+      if (s.kind !== "FILL") continue;
+      const top = [...((s.node as { fillPaints?: Paint[] }).fillPaints ?? [])].reverse().find((p) => p.visible !== false && p.type === "SOLID" && p.color);
+      if (top?.color) colors.add(css(top.color, top.opacity ?? 1));
+    }
+    return colors.size ? [{ id: "local", label: t("Local assets"), colors: [...colors] }] : [];
+  }, [assets]);
+  const [set, setSet] = useState(() => {
+    try {
+      return localStorage.getItem(SWATCH_SET_KEY) ?? "page";
+    } catch {
+      return "page";
+    }
+  });
+  return {
+    sets,
+    set,
+    onSet: (id) => {
+      setSet(id);
+      try {
+        localStorage.setItem(SWATCH_SET_KEY, id);
+      } catch {
+        // no storage: this session only
+      }
+    },
+  };
 }
 
 /** Re-renders when image URLs arrive (swatches, the picker's preview). */
@@ -339,10 +390,11 @@ function useGradientHandles(ed: EditorController, refs: readonly Guid[], field: 
 export function PaintPicker({ target, nodes, pageColor, onClose }: { target: PickerTarget; nodes: PanelNode[]; pageColor: Color | null; onClose: () => void }) {
   useT();
   const ed = useEditor();
-  const [model, setModel] = useState<ColorModel>("hex");
+  const [model, setModel] = useColorFormat();
   useImageUrls(ed);
   // "On this page": read once when the picker opens.
   const documentColors = useMemo(() => pageColors(ed), [ed]);
+  const swatches = useSwatchSets();
   const refs = nodes.map((n) => n.guid);
   const field = target.kind === "paint" ? target.field : null;
   const index = target.kind === "paint" ? target.index : 0;
@@ -364,6 +416,9 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
         value={{ type: "SOLID", color: { ...color, a: 1 }, opacity: color.a ?? 1 }}
         paintTypes={["SOLID"]}
         documentColors={documentColors}
+        swatchSets={swatches.sets}
+        swatchSet={swatches.set}
+        onSwatchSetChange={swatches.onSet}
         anchor={target.anchor}
         colorModel={model}
         onColorModelChange={setModel}
@@ -384,6 +439,9 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
         value={toPicker(used)}
         paintTypes={gradient ? ["GRADIENT_LINEAR", "GRADIENT_RADIAL", "GRADIENT_ANGULAR", "GRADIENT_DIAMOND"] : ["SOLID"]}
         documentColors={documentColors}
+        swatchSets={swatches.sets}
+        swatchSet={swatches.set}
+        onSwatchSetChange={swatches.onSet}
         anchor={target.anchor}
         colorModel={model}
         onColorModelChange={setModel}
@@ -441,6 +499,9 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
         />
       }
       documentColors={documentColors}
+      swatchSets={swatches.sets}
+      swatchSet={swatches.set}
+      onSwatchSetChange={swatches.onSet}
       anchor={target.anchor}
       colorModel={model}
       onColorModelChange={setModel}
@@ -458,7 +519,29 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
               })
           : undefined
       }
-      imageAction={isImageLike(paint) ? <IconButton icon="24.rotate" label={t("Rotate 90º")} onClick={() => write(rotated90(paint), { final: true, source: "pick" }, "Rotate image")} /> : undefined}
+      // One pattern per paint list (atlas 07 §3.2): the Pattern tab is off while another paint is one.
+      disabledTypes={paints.some((p, j) => j !== index && p.type === "PATTERN") ? ["PATTERN"] : undefined}
+      imageAction={
+        isImageLike(paint) ? (
+          <span className={styles.imageActions}>
+            {/* Tile: the "Scaling factor" (Paint.scale, 0.01–100, atlas 07 §8.3) */}
+            {paint.imageScaleMode === "TILE" && (
+              <NumericInput
+                className={styles.tileScale}
+                label={t("Scaling factor")}
+                value={Math.round((paint.scale ?? 1) * 100)}
+                min={1}
+                max={10000}
+                precision={0}
+                unit="%"
+                onChange={(v, info) => write({ ...paint, scale: Math.min(100, Math.max(0.01, v / 100)) }, info, "Image scale")}
+                onCancel={() => ed.cancelEdit()}
+              />
+            )}
+            <IconButton icon="24.rotate" label={t("Rotate 90º")} onClick={() => write(rotated90(paint), { final: true, source: "pick" }, "Rotate image")} />
+          </span>
+        ) : undefined
+      }
       imageControls={
         // Live (popovers/fill-picker-image / -video): an image's adjustments; a video has none (its preview plays it).
         paint.type === "VIDEO" ? (
