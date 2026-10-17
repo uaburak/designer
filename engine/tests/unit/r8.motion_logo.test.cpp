@@ -207,3 +207,76 @@ TEST_CASE("motion logo: the Figma logo's five pieces keyframed over an 8 s loop,
   std::fclose(fp);
   MESSAGE("wrote " << path);
 }
+
+// ---- The C ABI (docs/motion.md §7.2): engine_motion_render_frame ---------------------------------------------------
+
+#include "scene/CodecKiwi.h"
+
+using Ptr = uintptr_t;
+using Handle = uintptr_t;
+extern "C" {
+Ptr engine_result_ptr();
+uint32_t engine_result_len();
+Handle engine_create(const char* selector, Ptr optsPtr, uint32_t optsLen);
+void engine_destroy(Handle h);
+int32_t engine_load(Handle h, Ptr ptr, uint32_t len);
+int32_t engine_command(Handle h, uint32_t commandId, Ptr argsPtr, uint32_t argsLen);
+int32_t engine_motion_render_frame(Handle h, Ptr ptr, uint32_t len);
+int32_t engine_motion_timeline(Handle h, Ptr refPtr, uint32_t refLen);
+}
+
+namespace {
+uint32_t u32At(const std::string& s, size_t at) {
+  return static_cast<uint32_t>(static_cast<uint8_t>(s[at])) | static_cast<uint32_t>(static_cast<uint8_t>(s[at + 1])) << 8 |
+         static_cast<uint32_t>(static_cast<uint8_t>(s[at + 2])) << 16 | static_cast<uint32_t>(static_cast<uint8_t>(s[at + 3])) << 24;
+}
+std::string abiResult() { return std::string(reinterpret_cast<const char*>(engine_result_ptr()), engine_result_len()); }
+int32_t renderFrame(Handle h, const std::string& json) { return engine_motion_render_frame(h, reinterpret_cast<Ptr>(json.data()), static_cast<uint32_t>(json.size())); }
+}  // namespace
+
+TEST_CASE("motion logo: engine_motion_render_frame draws the root's box at a time through the ABI and puts the view state back") {
+  const char* doc = R"({"type":"NODE_CHANGES","sessionID":0,"nodeChanges":[
+    {"guid":"0:0","phase":"CREATED","type":"DOCUMENT","name":"Document"},
+    {"guid":"0:1","phase":"CREATED","type":"CANVAS","name":"Page 1","parentIndex":{"guid":"0:0","position":"!"},"backgroundEnabled":true,"backgroundColor":{"r":0.9,"g":0.9,"b":0.9,"a":1}},
+    {"guid":"0:2","phase":"CREATED","type":"CANVAS","name":"Internal Only Canvas","parentIndex":{"guid":"0:0","position":"~"},"internalOnly":true,"visible":false},
+    {"guid":"1:1","phase":"CREATED","type":"FRAME","name":"Logo","parentIndex":{"guid":"0:1","position":"!"},
+     "size":{"x":400,"y":600},"fillPaints":[{"type":"SOLID","color":{"r":0.06,"g":0.06,"b":0.06,"a":1}}]},
+    {"guid":"1:2","phase":"CREATED","type":"ROUNDED_RECTANGLE","name":"Red","parentIndex":{"guid":"1:1","position":"!"},
+     "size":{"x":100,"y":100},"transform":{"m00":1,"m01":0,"m02":100,"m10":0,"m11":1,"m12":150},
+     "fillPaints":[{"type":"SOLID","color":{"r":0.95,"g":0.3,"b":0.12,"a":1}}]}
+  ]})";
+  std::string opts = R"({"sessionID":1})";
+  Handle h = engine_create(nullptr, reinterpret_cast<Ptr>(opts.data()), static_cast<uint32_t>(opts.size()));
+  REQUIRE(h != 0);
+  json::Value docJson;
+  REQUIRE(json::parse(doc, docJson));
+  const std::string kiwiDoc = codec::writeMessage(0, codec::readMessage(docJson));
+  REQUIRE(engine_load(h, reinterpret_cast<Ptr>(kiwiDoc.data()), static_cast<uint32_t>(kiwiDoc.size())) == 0);
+  // Two opacity keyframes through the command (330 = MOTION_ADD_KEYFRAME).
+  std::string k0 = R"({"nodes":["1:2"],"field":{"type":"PROPERTY","name":"OPACITY"},"timeUs":0,"value":{"type":"FLOAT","value":1}})";
+  std::string k1 = R"({"nodes":["1:2"],"field":{"type":"PROPERTY","name":"OPACITY"},"timeUs":1000000,"value":{"type":"FLOAT","value":0}})";
+  REQUIRE(engine_command(h, 330, reinterpret_cast<Ptr>(k0.data()), static_cast<uint32_t>(k0.size())) == 0);
+  REQUIRE(engine_command(h, 330, reinterpret_cast<Ptr>(k1.data()), static_cast<uint32_t>(k1.size())) == 0);
+  // A frame at 1x: the frame's own 400 × 600 box; at 2x twice that. (The recording device of the tests draws nothing.)
+  REQUIRE(renderFrame(h, R"({"root":"1:1","timeUs":500000,"scale":1})") == 0);
+  std::string r = abiResult();
+  CHECK(u32At(r, 0) == 400);
+  CHECK(u32At(r, 4) == 600);
+  CHECK(r.size() == 8 + 400 * 600 * 4);
+  REQUIRE(renderFrame(h, R"({"root":"1:1","timeUs":0,"scale":2,"allowPending":true})") == 0);
+  r = abiResult();
+  CHECK(u32At(r, 0) == 800);
+  CHECK(u32At(r, 4) == 1200);
+  // The view state is put back: Motion stays off, so the timeline read sees the root but the node's own opacity is the base.
+  std::string ref = "1:2";
+  REQUIRE(engine_motion_timeline(h, reinterpret_cast<Ptr>(ref.data()), static_cast<uint32_t>(ref.size())) == 0);
+  json::Value tl;
+  REQUIRE(json::parse(abiResult(), tl));
+  CHECK(tl.get("root")->string == "1:1");
+  CHECK(tl.get("layers")->array.size() == 1);
+  // Errors: no root, an unknown root, a bad payload.
+  CHECK(renderFrame(h, R"({"timeUs":0})") == E_INVALID);
+  CHECK(renderFrame(h, R"({"root":"9:9","timeUs":0})") == E_NOT_FOUND);
+  CHECK(renderFrame(h, "nope") == E_DECODE);
+  engine_destroy(h);
+}

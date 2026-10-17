@@ -1953,9 +1953,18 @@ export class Engine {
     return this.json<ResolvedMotion | null>(this.x.motionResolved(this.h, encodeText(node)), null);
   }
 
-  /** One frame of a root at a time, as pixels at `scale` (the animated exports, docs/motion.md §7.2). */
-  motionRenderFrame(_root: GuidString, _timeUs: Micros, _scale: number): Pixels | null {
-    throw notBuilt("motionRenderFrame");
+  /** The last `motionRenderFrame` answered "busy" (fonts or images the root draws are still loading): try again, or pass `allowPending`. */
+  motionRenderBusy = false;
+
+  /**
+   * One frame of a timeline root at a time: the root's own box at `scale` with the motion layer applied at `timeUs`,
+   * as straight RGBA pixels (the animated exports, docs/motion.md §7.2). null: busy (see `motionRenderBusy`) or an error.
+   */
+  motionRenderFrame(root: GuidString, timeUs: Micros, scale: number, options: { allowPending?: boolean } = {}): Pixels | null {
+    if (!this.h) return null;
+    const status = this.x.motionRenderFrame(this.h, encodeText(JSON.stringify({ root, timeUs, scale, allowPending: !!options.allowPending })));
+    this.motionRenderBusy = status === Status.E_BUSY;
+    return this.after(status === Status.OK ? decodePixels(this.x.result()) : null);
   }
 
   /** What the Lottie writer draws: each layer's outlines in its local space at base values (docs/motion.md §7.6). */

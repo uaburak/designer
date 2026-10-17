@@ -12,7 +12,7 @@
  * (schema ExportSettings) on the layer or page.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Button, Checkbox, Icon, IconButton, MenuButton, PanelSection, Popover, Select, TextInput, cx } from "@/ds";
+import { Button, Checkbox, Icon, IconButton, MenuButton, PanelSection, Popover, Select, Tabs, TextInput, cx } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { canExport, exportItems, renderExport, useExportAllowed, type ExportItem } from "../../exporting";
@@ -34,6 +34,7 @@ import {
   type ExportSettings,
 } from "../../model/exports";
 import { fields, useKeeps } from "./shared";
+import { ExportAnimatedTab } from "./ExportAnimated";
 import { Grip, moved, useReorder } from "./reorder";
 import styles from "./Design.module.css";
 import own from "./Export.module.css";
@@ -71,6 +72,8 @@ function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: b
   const [open, setOpen] = useState<{ index: number; anchor: HTMLElement } | null>(null);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(false);
+  // Static (today's) | Animated (docs/motion.md §7.1: the animated formats of a timeline root).
+  const [tab, setTab] = useState<"static" | "animated">("static");
   const exporting = canExport(ed);
   const add = () => writeSettings(ed, refs, isMixed ? [nextExportSetting([])] : [...list, nextExportSetting(list)], "Add export settings");
   const set = (i: number, next: ExportSettings, label = "Export settings") => writeSettings(ed, refs, list.map((x, j) => (j === i ? next : x)), label);
@@ -90,9 +93,11 @@ function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: b
     }
   };
   return (
-    <PanelSection title={t("Export")} empty={empty} actions={<IconButton icon="24.plus.small" label={t("Add export settings")} tone="secondary" disabled={!kept} onClick={add} />}>
-      {isMixed && <div className={styles.note}>{t("Click + to replace mixed export settings")}</div>}
-      {list.length > 0 && (
+    <PanelSection title={t("Export")} empty={empty && tab === "static"} actions={<IconButton icon="24.plus.small" label={t("Add export settings")} tone="secondary" disabled={!kept || tab !== "static"} onClick={add} />}>
+      <Tabs className={own.tabs} label={t("Export kind")} value={tab} tabs={[{ value: "static", label: t("Static") }, { value: "animated", label: t("Animated") }]} onChange={(v) => setTab(v as "static" | "animated")} />
+      {tab === "animated" && <ExportAnimatedTab targets={targets} page={page} />}
+      {tab === "static" && isMixed && <div className={styles.note}>{t("Click + to replace mixed export settings")}</div>}
+      {tab === "static" && list.length > 0 && (
         <div ref={reorderRef} className={styles.reorderList}>
       {list.map((s, i) => {
         const format = formatOf(s);
@@ -156,14 +161,14 @@ function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: b
           {dropLine !== null && <div className={styles.dropLine} style={{ top: dropLine }} />}
         </div>
       )}
-      {!empty && (
+      {tab === "static" && !empty && (
         <div className={own.actions}>
           <Button variant="secondary" fullWidth loading={busy} disabled={!exporting || !items.length} onClick={() => void run()} data-export-button="">
             {label}
           </Button>
         </div>
       )}
-      {!empty && !isMixed && (
+      {tab === "static" && !empty && !isMixed && (
         <>
           <button type="button" className={own.disclosure} aria-expanded={preview} onClick={() => setPreview(!preview)}>
             <Icon name={preview ? "16.chevron.down" : "16.chevron.right"} />

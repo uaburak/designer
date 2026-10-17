@@ -159,3 +159,4 @@ _engine_set_motion
 _engine_motion_timeline
 _engine_motion_field_states
 _engine_motion_resolved
+_engine_motion_render_frame
