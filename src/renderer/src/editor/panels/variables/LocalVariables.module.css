@@ -152,7 +152,12 @@
     font: var(--ds-font-body-medium);
     font-weight: 600;
   }
-  .headName { padding-left: var(--ds-space-4); }
+  /* Name: drag its right edge (50 … 500, double-click back to 200 — atlas 11 §8.1); over the first mode's header so
+     the edge's outer half takes the pointer */
+  .headName { z-index: 2; padding-left: var(--ds-space-4); }
+  /* A mode past the plan's limit: the column disabled (atlas 11 §3.1) */
+  .modeDisabled .modeLabel, .valueDisabled { color: var(--figma-color-text-disabled); }
+  .valueText { min-width: 0; padding: 0 var(--ds-space-1); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .modeHead { justify-content: space-between; user-select: none; }
   .modeHead[data-default] .modeLabel::after { content: ""; }
   .modeLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--figma-color-text); }

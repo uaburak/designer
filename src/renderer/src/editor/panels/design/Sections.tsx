@@ -266,10 +266,15 @@ export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
         )}
         <PropertyRow label={t("Position")} action={constraints && !section ? <ConstraintsToggle /> : undefined}>
           <MotionField field="TRANSLATION_XY" axis="TRANSLATION_X">
-            <NumericInput label={t("X-position")} prefix="X" prefixTone="primary" disabled={placeLocked} className={styles.plainDisabled} value={fieldValue(x)} {...axis("x")} />
+            {/* X / Y / Rotation take number variables shown in all properties (the TRANSFORM scope, atlas 11 §5.3) */}
+            <VariableField nodes={nodes} fields={["X_POSITION"]} prefix="X" disabled={placeLocked || motion}>
+              <NumericInput label={t("X-position")} prefix="X" prefixTone="primary" disabled={placeLocked} className={styles.plainDisabled} value={fieldValue(x)} {...axis("x")} />
+            </VariableField>
           </MotionField>
           <MotionField field="TRANSLATION_XY" axis="TRANSLATION_Y">
-            <NumericInput label={t("Y-position")} prefix="Y" prefixTone="primary" disabled={placeLocked} className={styles.plainDisabled} value={fieldValue(y)} {...axis("y")} />
+            <VariableField nodes={nodes} fields={["Y_POSITION"]} prefix="Y" disabled={placeLocked || motion}>
+              <NumericInput label={t("Y-position")} prefix="Y" prefixTone="primary" disabled={placeLocked} className={styles.plainDisabled} value={fieldValue(y)} {...axis("y")} />
+            </VariableField>
           </MotionField>
         </PropertyRow>
         {constraints && !section && constraintsOpen && <ConstraintsRow nodes={nodes} />}
@@ -277,7 +282,9 @@ export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
           <PropertyRow label={t("Rotation")}>
             <MotionField field="ROTATION">
               {/* ⇧ ↑ ↓ by 15° (Figma's rotation field: nudges 1 / 15, Atlas 04 §7.2) */}
-              <NumericInput label={t("Rotation")} prefix="24.rotation" unit="°" disabled={locked} className={styles.plainDisabled} value={fieldValue(rotation)} min={-360} max={360} bigStep={15} {...rotate} />
+              <VariableField nodes={nodes} fields={["ROTATION"]} prefix="24.rotation" disabled={locked || motion}>
+                <NumericInput label={t("Rotation")} prefix="24.rotation" unit="°" disabled={locked} className={styles.plainDisabled} value={fieldValue(rotation)} min={-360} max={360} bigStep={15} {...rotate} />
+              </VariableField>
             </MotionField>
             <div className={styles.buttonGroup}>
               <GroupButton id="object.rotate-90-right" icon="24.rotate" disabled={locked || editingText || undefined} />
@@ -513,7 +520,9 @@ function CountRow({ nodes, stars }: { nodes: PanelNode[]; stars: boolean }) {
   const ratio = perLayer(ed, "Ratio", refs, (n) => (n.starInnerScale ?? 0.382) * 100, (_, v) => fields({ starInnerScale: Math.max(0.1, Math.min(100, v)) / 100 }), (v) => Math.max(0.1, Math.min(100, v)));
   return (
     <PropertyRow labels={stars ? [t("Count"), t("Ratio")] : undefined} label={stars ? undefined : t("Count")}>
-      <NumericInput label={t("Count")} prefix="24.polygon" min={3} max={60} precision={0} value={fieldValue(mixedNumber(nodes.map((n) => n.count ?? (typeOf(n) === "STAR" ? 5 : 3))))} {...count} />
+      <VariableField nodes={nodes} fields={["POLYGON_COUNT"]} prefix="24.polygon">
+        <NumericInput label={t("Count")} prefix="24.polygon" min={3} max={60} precision={0} value={fieldValue(mixedNumber(nodes.map((n) => n.count ?? (typeOf(n) === "STAR" ? 5 : 3))))} {...count} />
+      </VariableField>
       {stars ? <NumericInput label={t("Ratio")} prefix="24.star.outline" unit="%" min={0.1} max={100} precision={1} value={fieldValue(mixedNumber(nodes.map((n) => Math.round((n.starInnerScale ?? 0.382) * 1000) / 10)))} {...ratio} /> : <span />}
     </PropertyRow>
   );

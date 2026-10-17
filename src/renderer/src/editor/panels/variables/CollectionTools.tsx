@@ -9,8 +9,9 @@ import { Button, Checkbox, IconButton, Popover, cx } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { useLocalAssets } from "../../hooks";
-import { SCOPE_OPTIONS, scopeChecked, toggleScope } from "../../model/variables";
+import { SCOPE_OPTIONS, toggleScope } from "../../model/variables";
 import { moveCollection, sortCollections, updateVariables } from "../../variables";
+import { ScopeChecklist } from "./EditVariable";
 import styles from "./Variables.module.css";
 import tableStyles from "./LocalVariables.module.css";
 import { t, tp, useT } from "@/i18n";
@@ -64,26 +65,14 @@ export function EditVariablesPopover({ ids, anchor, onClose }: { ids: readonly G
   const type = vars.every((v) => v.type === vars[0].type) ? vars[0].type : null;
   const options = type ? SCOPE_OPTIONS[type] : [];
   const scopes = vars[0].scopes;
-  const all = scopes === null || scopes.includes("ALL_SCOPES");
-  const setScope = (scope: string) => (on: boolean) => type && updateVariables(ed, ids, { scopes: toggleScope(type, scopes, scope, on) });
   const hidden = vars.every((v) => v.hidden);
   return (
     <Popover anchor={anchor} title={tp(vars.length, "Edit {n} variable", "Edit {n} variables")} width={280} placement="bottom-start" onClose={onClose} label={t("Edit variables")}>
       <div className={styles.form} data-edit-variables={vars.length}>
-        {options.length > 0 ? (
+        {type && options.length > 0 ? (
           <>
             <div className={styles.formSection}>{t("Scoping")}</div>
-            <Checkbox label={t("Show in all supported properties")} checked={all} onChange={setScope("ALL_SCOPES")} />
-            {options.map((o) => (
-              <div key={o.scope}>
-                <Checkbox label={t(o.label)} checked={scopeChecked(scopes, o.scope)} onChange={setScope(o.scope)} />
-                {o.children?.map((ch) => (
-                  <div key={ch.scope} className={styles.formIndent}>
-                    <Checkbox label={t(ch.label)} checked={scopeChecked(scopes, ch.scope)} onChange={setScope(ch.scope)} />
-                  </div>
-                ))}
-              </div>
-            ))}
+            <ScopeChecklist type={type} scopes={scopes} onChange={(scope, on) => updateVariables(ed, ids, { scopes: toggleScope(type, scopes, scope, on) })} />
           </>
         ) : (
           type === null && <span className={tableStyles.muted}>{t("Scoping is available for variables of one type")}</span>
