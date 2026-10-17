@@ -27,6 +27,7 @@ import { messageAt } from "../model/clipboard";
 import { hashBytes, hashHex } from "../model/paints";
 import { placeImages } from "../placeImages";
 import { defaultEffect, withBlurType } from "../panels/design/Effects";
+import { changeColorProfile, documentProfile } from "../colorProfile";
 import { isEnabled, command } from "../commands";
 import type { MenuEntry, MenuItem } from "@/ds";
 
@@ -323,6 +324,27 @@ describe("Design panel, Phase 2 (wasm, headless)", () => {
     expect(engine.readNode("2:11")!.effects).toEqual([defaultEffect()]);
     engine.undo();
     expect(engine.readNode("2:11")!.effects?.[0].type).toBe("INNER_SHADOW");
+  });
+
+  it("File › Color profile: Convert rewrites every colour (fills, strokes, stops, effects, guides, the page) as one undo step; Assign keeps them", async () => {
+    const { ed, engine } = await editor(PAINTS_DOCUMENT);
+    const blue = () => engine.readNode("2:12")!.fillPaints![0].color!;
+    const before = blue();
+    changeColorProfile(ed, "DISPLAY_P3", "convert");
+    expect(documentProfile(ed)).toBe("DISPLAY_P3");
+    expect(engine.colorProfile).toBe("DISPLAY_P3");
+    // #0D99FF in P3: its values move inside the wider gamut (the same colour), red and green down, blue up less
+    const p3 = blue();
+    expect(p3.r).toBeGreaterThan(before.r);
+    expect(p3.b).toBeLessThan(before.b);
+    expect(engine.readNode("2:50")!.layoutGrids![0].color).not.toEqual({ r: 1, g: 0, b: 0, a: 0.1 });
+    expect(engine.readNode("2:50")!.layoutGrids![0].color!.a).toBeCloseTo(0.1);
+    engine.undo();
+    expect(documentProfile(ed)).toBe("SRGB");
+    expect(blue()).toEqual(before);
+    changeColorProfile(ed, "DISPLAY_P3", "assign");
+    expect(documentProfile(ed)).toBe("DISPLAY_P3");
+    expect(blue()).toEqual(before);
   });
 
   it("a progressive blur's handles: the edit mode starts on a progressive blur only, and the panel marks Start / End", async () => {

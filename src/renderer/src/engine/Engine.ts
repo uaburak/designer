@@ -908,6 +908,15 @@ export class Engine {
   /** After a load: the canvas takes the document's colour space (Figma draws a Display P3 file in P3). */
   private loaded(status: number): number {
     if (status !== Status.OK) return status;
+    this.refreshColorProfile();
+    return status;
+  }
+
+  /**
+   * The canvas takes the document's colour space again: after a load, and after the profile changed (File › Color
+   * profile's Convert / Assign, or their undo).
+   */
+  refreshColorProfile(): void {
     const doc = this.readNode("0:0") as { documentColorProfile?: string } | null;
     this.profile = doc?.documentColorProfile === "DISPLAY_P3" ? "DISPLAY_P3" : "SRGB";
     if (this.gfxBackend === "webgpu") {
@@ -917,7 +926,7 @@ export class Engine {
         this.x.module.engineColorSpace = space;
         this.schedule();
       }
-      return status;
+      return;
     }
     const gl = this.canvas?.getContext("webgl2") as (WebGL2RenderingContext & { drawingBufferColorSpace?: string; unpackColorSpace?: string }) | null | undefined;
     if (gl) {
@@ -929,7 +938,6 @@ export class Engine {
         this.schedule();
       }
     }
-    return status;
   }
 
   /** The task's name for load(). */

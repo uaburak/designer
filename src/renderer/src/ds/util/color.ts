@@ -185,6 +185,12 @@ export function p3ToSrgb(r: number, g: number, b: number): { r: number; g: numbe
   return fromLinearRgb(1.2249401 * lr - 0.2249404 * lg, -0.0420569 * lr + 1.0420571 * lg, -0.0196376 * lr - 0.0786361 * lg + 1.0982735 * lb);
 }
 
+/** sRGB → Display P3 (the same curve; every sRGB colour is inside P3, so nothing clamps). */
+export function srgbToP3(r: number, g: number, b: number): { r: number; g: number; b: number } {
+  const [lr, lg, lb] = [toLinear(r), toLinear(g), toLinear(b)];
+  return fromLinearRgb(0.8224621 * lr + 0.177538 * lg, 0.0331941 * lr + 0.9668058 * lg, 0.0170827 * lr + 0.0723974 * lg + 0.9105199 * lb);
+}
+
 /** sRGB → OKLab [L 0..1, a, b] (Björn Ottosson's matrices, as CSS Color 4 and the engine's GradientRamp). */
 export function rgbToOklab({ r, g, b }: Pick<RGBA, "r" | "g" | "b">): [number, number, number] {
   const [lr, lg, lb] = [toLinear(r), toLinear(g), toLinear(b)];

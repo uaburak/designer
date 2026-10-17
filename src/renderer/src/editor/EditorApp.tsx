@@ -53,6 +53,8 @@ import { PluginLayer } from "./plugins/ui/PluginLayer";
 import { CommandOverlays } from "./canvas/CommandOverlays";
 import { AgentImagePlaceholders } from "./canvas/AgentImagePlaceholders";
 import { attachCanvasTools } from "./canvasTools";
+import { attachColorProfile } from "./colorProfile";
+import { ColorProfileDialog } from "./ColorProfileDialog";
 import { GridTrackEditor } from "./panels/design/Grid";
 import { ImagePlacer, attachImageDrop } from "./canvas/ImagePlacer";
 import { attachViewInsets, insetsOf } from "./canvas/viewInsets";
@@ -277,6 +279,7 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       cleanups.push(attachGridTracks(ed, canvas));
       cleanups.push(attachTitleRename(ed, canvas));
       cleanups.push(attachCanvasTools(ed, canvas));
+      cleanups.push(attachColorProfile(ed));
       cleanups.push(attachDesktop(ed));
       // Dev Mode: every edit stamps editInfo (a design marked ready shows "Changed"); the engine's Dev Mode events.
       engine.setEditTracking(true);
@@ -488,6 +491,7 @@ function Overlays() {
       <InlineValueEdit />
       <EyedropperLoupe />
       <NudgeDialog />
+      <ColorProfileDialog />
       <CommandOverlays />
       <StatusMenu />
       <CategoriesDialog />
