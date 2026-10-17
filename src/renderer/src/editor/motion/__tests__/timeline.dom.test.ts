@@ -47,10 +47,10 @@ function setup(over: Partial<TimelineProps> = {}) {
     onSeek: spy(), onTogglePlay: spy(), onToggleAutoKeyframe: spy(), onToggleCollapse: spy(), onSetTimeline: spy(), onSelectKeyframes: spy(),
     onMoveKeyframes: spy(), onDeleteKeyframes: spy(), onDeleteTrack: spy(), onSetEasing: spy(), onSelectLayer: spy(),
   } as unknown as Spies;
-  const props: TimelineProps = { model: MODEL, timeUs: 0, playing: false, autoKeyframe: false, collapsed: false, unit: "ms", selectedKeyframes: new Set(), selectedNodes: new Set(), ...(s as unknown as Partial<TimelineProps>), ...over };
+  const props = { model: MODEL, timeUs: 0, playing: false, autoKeyframe: false, collapsed: false, unit: "ms", selectedKeyframes: new Set(), selectedNodes: new Set(), ...(s as unknown as Partial<TimelineProps>), ...over } as TimelineProps;
   // The same component each time, so the view's own state (rows, drags) survives a props change.
   const view = mount(Timeline, props);
-  const rerender = (patch: Partial<TimelineProps>) => view.rerender(Timeline, { ...props, ...patch });
+  const rerender = (patch: Partial<TimelineProps>) => view.rerender(Timeline, { ...props, ...patch } as TimelineProps);
   // happy-dom has no layout: the track area reports its default 600 width, its box starts at 0.
   box($('[aria-label="Tracks"]', view.host), { left: 0, top: 0, width: 600, height: 200 });
   return { view, s, rerender, scale: fitScale(2_000_000, 600) };
