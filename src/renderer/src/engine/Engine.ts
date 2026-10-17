@@ -1930,23 +1930,27 @@ export class Engine {
   // ---- Motion (docs/motion.md §10 "Engine.ts stubs"; round 8b fills them against the engine's MotionApi) ------------
 
   /** The Motion view state (on, root, time, auto-keyframe, motion path): never in the document (docs/motion.md §4.9). */
-  setMotion(_state: MotionViewState): number {
-    throw notBuilt("setMotion");
+  setMotion(state: MotionViewState): number {
+    if (!this.h) return Status.E_HANDLE;
+    return this.after(this.x.setMotion(this.h, encodeText(JSON.stringify(state))));
   }
 
   /** The timeline panel's model for a root (null: the root of the selection); null when there is none. */
-  motionTimeline(_root?: GuidString): TimelineModel | null {
-    throw notBuilt("motionTimeline");
+  motionTimeline(root?: GuidString): TimelineModel | null {
+    if (!this.h) return null;
+    return this.json<TimelineModel | null>(this.x.motionTimeline(this.h, encodeText(root ?? "")), null);
   }
 
   /** The right panel's diamonds: per node and field key, none / track / keyframe at the playhead. */
-  motionFieldStates(_nodes: GuidString[]): FieldStates {
-    throw notBuilt("motionFieldStates");
+  motionFieldStates(nodes: GuidString[]): FieldStates {
+    if (!this.h) return {};
+    return this.json<FieldStates>(this.x.motionFieldStates(this.h, encodeText(JSON.stringify(nodes))), {});
   }
 
   /** The resolved model (Dev Mode code, SVG / Lottie export, the plugin's `animations`, agents) of a root or a layer. */
-  motionResolved(_node: GuidString): ResolvedMotion | null {
-    throw notBuilt("motionResolved");
+  motionResolved(node: GuidString): ResolvedMotion | null {
+    if (!this.h) return null;
+    return this.json<ResolvedMotion | null>(this.x.motionResolved(this.h, encodeText(node)), null);
   }
 
   /** One frame of a root at a time, as pixels at `scale` (the animated exports, docs/motion.md §7.2). */
@@ -1965,7 +1969,7 @@ export class Engine {
   }
 }
 
-/** A Motion binding whose engine side is round 8b's: the chrome reads the throw as "nothing yet" (as Draw's stubs were read). */
+/** A Motion binding whose engine side is not built yet (frames at a time and the Lottie shapes: the export increment); the chrome reads the throw as "nothing yet". */
 function notBuilt(name: string): Error {
-  return new Error(`Engine.${name}: not built (round 8b)`);
+  return new Error(`Engine.${name}: not built (round 8, export increment)`);
 }

@@ -108,6 +108,7 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
   if (id >= CommandId::CONVERT_TO_SECTION && id <= CommandId::SET_SPELLING_MARKS) return arrangeCommand(id, args);
   if (id >= CommandId::SET_WIDTH_PROFILE && id <= CommandId::FLIP_WIDTH_POINTS) return widthCommand(id, args);
   if (id >= CommandId::ADD_TRANSFORM_MODIFIER && id <= CommandId::SET_TEXT_PATH_START) return drawCommand(id, args);  // Draw (DrawCommands.cpp)
+  if (id >= CommandId::MOTION_ADD_KEYFRAME && id <= CommandId::MOTION_SET_PRESET_TRACKS) return motionCommand(id, args);  // Motion (MotionCommands.cpp)
   if (id == CommandId::SELECT_GRID_TRACKS) return selectGridTracksCommand(args);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) {
     Status st = variableCommand(id, args);
@@ -222,6 +223,7 @@ uint32_t Editor::commandState(CommandId id) const {
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) return variableCommandState(id);
   if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::REMOVE_GUIDE) return selectionCommandState(id);
   if (id >= CommandId::CONVERT_TO_SECTION && id <= CommandId::SET_SPELLING_MARKS) return arrangeCommandState(id);
+  if (id >= CommandId::MOTION_ADD_KEYFRAME && id <= CommandId::MOTION_SET_PRESET_TRACKS) return motionCommandState(id);
   if (id >= CommandId::SET_WIDTH_PROFILE && id <= CommandId::FLIP_WIDTH_POINTS) return widthCommandState(id);
   if (id >= CommandId::ADD_TRANSFORM_MODIFIER && id <= CommandId::SET_TEXT_PATH_START) return drawCommandState(id);
   if (id == CommandId::SELECT_GRID_TRACKS) return gridFrameSelected() != kNoGuid ? CMD_ENABLED : 0;
@@ -355,6 +357,8 @@ void Editor::deleteSelection() {
     if (softDeleteMain(id)) continue;
     collect(collect, id);
   }
+  // Motion (docs/motion.md §4.2): the tracks only these layers bind go with them.
+  for (Guid t : motionTracksOwnedBy(order)) motionRemoveTrack(t);
   for (Guid id : order) write(NodeChange::removed(id));
   changeSelection({});
   commit();

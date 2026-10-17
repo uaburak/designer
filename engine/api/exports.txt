@@ -156,3 +156,6 @@ _engine_list_brushes
 _engine_brush_preview
 _engine_set_draw_tool_settings
 _engine_set_motion
+_engine_motion_timeline
+_engine_motion_field_states
+_engine_motion_resolved

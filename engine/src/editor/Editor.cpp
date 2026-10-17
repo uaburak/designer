@@ -1558,6 +1558,9 @@ Status Editor::setProps(const std::vector<Guid>& ids, const NodeChange& props, u
     NodeChange c = NodeChange::changed(id);
     c.mask = differingFields(before, props.props, mask);  // equal values are no-ops
     copyFields(c.props, props.props, c.mask);
+    // Motion on (docs/motion.md §4.9): a keyframable field with a track (or any, with auto-keyframe) becomes a keyframe.
+    if (motion_.on && c.mask) c.mask &= ~motionRouteWrite(id, c);
+    if (!c.mask) continue;
     if (before.type == NodeType::TEXT && (c.mask & F_SIZE) && !(mask & F_TEXT_AUTO_RESIZE) &&
         before.text().textAutoResize != TextAutoResize::NONE) {
       // A size typed for an auto-resizing text: a width makes it auto height, a height a fixed box (Figma).

@@ -238,6 +238,16 @@ export class EngineExports {
   /** `settings`: DrawToolSettings (JSON). */
   setDrawToolSettings = (h: number, settings: Uint8Array): number => this.withBytes([settings], (p) => this.fn("set_draw_tool_settings")(h, p[0], p[1]));
 
+  // ---- Motion (docs/motion.md §4.9, §5, §10; rounds 8a–8b, engine/src/api/MotionApi.inc) ----
+  /** `state`: MotionViewState (JSON); omitted keys keep their value. */
+  setMotion = (h: number, state: Uint8Array): number => this.withBytes([state], (p) => this.fn("set_motion")(h, p[0], p[1]));
+  /** `ref`: "s:l" of the root or a layer in it (empty: the selection's root) → TimelineModel | null in the result slot. */
+  motionTimeline = (h: number, ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("motion_timeline")(h, p[0], p[1]));
+  /** `refs`: JSON array of "s:l" → FieldStates in the result slot. */
+  motionFieldStates = (h: number, refs: Uint8Array): number => this.withBytes([refs], (p) => this.fn("motion_field_states")(h, p[0], p[1]));
+  /** `ref`: "s:l" of a root or a layer → ResolvedMotion | null in the result slot. */
+  motionResolved = (h: number, ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("motion_resolved")(h, p[0], p[1]));
+
   // ---- Components ----
   /** A derived ref ("I…;…") → its localID in the derived session (0xFFFFFFFE); 0 for anything else. */
   refId = (ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("ref_id")(p[0], p[1]) >>> 0);
@@ -400,4 +410,5 @@ export const USED_EXPORTS = [
   "set_view_options", "set_nudge", "start_guide", "set_annotation_view", "set_edit_tracking", "set_focus", "select_measurement", "dev_info",
   "trace", "vectorize_begin", "vectorize_update", "vectorize_end",
   "install_brush", "list_brushes", "brush_preview", "set_draw_tool_settings",
+  "set_motion", "motion_timeline", "motion_field_states", "motion_resolved",
 ].map((name) => `engine_${name}`);

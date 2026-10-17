@@ -427,6 +427,11 @@ class Editor : private LayoutHost, public TextLayouts {
   const motion::MotionLayer& motionLayer() const { return motionLayer_; }
   // The base values put back for the scope (storage, exports, the clipboard), the layer applied again after it.
   motion::Suspend motionSuspended();
+  // Round 8b (editor/MotionCommands.cpp): the timeline model of a root (or of the selection's: kNoGuid), the right
+  // panel's diamonds for nodes, the resolved model of a root or a layer — as JSON (src/shared/motion/types.ts shapes).
+  void writeMotionTimeline(json::Writer& w, Guid root);
+  void writeMotionFieldStates(json::Writer& w, const std::vector<Guid>& ids);
+  void writeMotionResolved(json::Writer& w, Guid node);
 
   // ---- Figma Draw (docs/draw.md §4; round 7b: editor/DrawCommands.cpp, tools/DrawTools.cpp) ----
   // The Pencil's and the Brush's settings (the secondary toolbar's DrawToolSettings, src/shared/draw/types.ts).
@@ -1776,6 +1781,22 @@ class Editor : private LayoutHost, public TextLayouts {
   motion::MotionLayer motionLayer_;
   bool motionDirty_ = true;
   void motionApply();
+  // Round 8b (editor/MotionCommands.cpp).
+  Status motionCommand(CommandId id, const CommandArgs& args);
+  uint32_t motionCommandState(CommandId id) const;
+  const VariableData* motionSlotData(const NodeProps& p, const motion::Slot& s) const;
+  bool motionBaseValue(const NodeProps& p, const motion::Slot& s, motion::KeyframeValue& out) const;
+  void motionWriteSlot(Guid id, const motion::Slot& s, const VariableData& data);
+  Guid internalCanvas() const;
+  Guid motionTrackOf(const NodeProps& p, const motion::Slot& s) const;
+  Guid motionEnsureTrack(Guid id, const motion::Slot& s, Guid root);
+  Guid motionKeyframeAt(Guid track, int64_t timeUs) const;
+  Guid motionUpsertKeyframe(Guid track, int64_t timeUs, const motion::KeyframeValue& value, const json::Value* easing);
+  void motionRemoveTrack(Guid track);
+  std::vector<Guid> motionTracksOwnedBy(const std::vector<Guid>& ids);
+  bool motionSlotOfTrack(Guid track, Guid& owner, motion::Slot& slot);
+  bool motionCurrentValue(Guid id, const motion::Slot& slot, int64_t timeUs, motion::KeyframeValue& out);
+  FieldMask motionRouteWrite(Guid id, const NodeChange& props);
   Guid textPathDrag_ = kNoGuid;    // the TEXT_PATH whose start handle is dragged
   Guid textPathHover_ = kNoGuid;   // the edge the Text on path tool is over (highlighted)
   void switchVectorNode(Guid id);
