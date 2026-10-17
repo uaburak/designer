@@ -2,11 +2,11 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
-## Status 2026-10-18 — Atlas wave 1, "canvas and shapes" (chapters 04, 05), committed on its branch, not merged
+## Status 2026-10-18 — Atlas wave 1, "canvas and shapes" (chapters 04, 05), merged into main
 
 Branch `worktree-agent-aea54c482de8dd5ab` (from main `2d69e127`). Figma's discrete canvas rules, the feel of zoom / pan left as it was: zoom range 1/64 … 256, ⌘= / ⌘− (and the zoom tool's click) to the next / previous power of two, zoom to fit 25 px and zoom to selection 40 px a side with no 100 % cap (nothing selected: fit), the view's centre held within ±131,072, Figma's extra zoom keys (⇧9, +, ⇧-, ⌘ Num±; the digits alone with "Use number keys for opacity" off); implied frame-margin snapping for moves; a ruler's right-click menu (remove its horizontal / vertical guides, Hide rulers); View › Outlines ▸ Show hidden layers / Show object bounds; Draw's Arc row for ellipses; booleans stamped `vectorOperationVersion` 1 and the panel's Update for older ones; star ratio from 0.1 %; ⇧-arrow big steps on corner smoothing and rotation. Found: ruler units and print marks are Figma Buzz's, not Design's. The "As built (2026-10-17, wave 1)" notes at the end of `docs/research/atlas/04-canvas-selection.md` §11 and `05-shapes-vector.md` §14 list what was done and what stays open (⌥Space keyboard select, the paint bucket chip, the section paste fallback, arc pills, preset recognition — each needs a live probe). `engine:test` 768 / 768, wasm rebuilt. **To verify on the Mac:** ⌘= from 150 % lands on 200 %; ⇧1 on a small layer zooms past 100 %; ⇧2 with nothing selected fits; drag a layer in a frame towards the side opposite a sibling's margin — it snaps with two pink margins; right-click a ruler; ⇧⌘O then View › Outlines ▸ Show hidden layers.
 
-## Status 2026-10-17 (night) — Atlas wave 1 "chrome" (chapter 02, with 21's toggle toasts): on its branch, not merged
+## Status 2026-10-17 (night) — Atlas wave 1 "chrome" (chapter 02, with 21's toggle toasts): merged into main
 
 Branch `worktree-agent-aea9139fc139ea134` (from main `2d69e127`). It is not pushed and not merged.
 
