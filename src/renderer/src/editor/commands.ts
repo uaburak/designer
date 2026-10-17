@@ -17,6 +17,8 @@ import { canExport, copyAsCode, copyAsPng, copyAsSvg, copyAsText, exportAllowed,
 import { present, togglePreview } from "./present";
 import { setDevStatus, statusOfTargets, statusTargets } from "./devStatus";
 import { annotationsShown, modeOf, setMode, toggleAnnotations } from "./devmode/devMode";
+import { toggleAutoKeyframe, toggleMotionPlaying } from "./motion/motionState";
+import { MOTION_UI_DEFAULT } from "./uiStore";
 import { round5, setRound5 } from "./devmode/round5";
 import { textSummary, toggledBold, toggledItalic } from "./model/text";
 import { fields, type ExtraFields } from "./panels/design/shared";
@@ -503,6 +505,16 @@ export const COMMANDS: EditorCommand[] = [
     setMode(ed, "draw");
     ed.setTool("MOVE");
   }, (ed) => modeOf(ed) === "draw"),
+  // Motion (docs/motion.md §6.1, §6.9): the mode switch's Motion segment, View › Switch to Motion (no shortcut [unverified]).
+  ui("view.switch-to-motion", "Switch to Motion", undefined, (ed) => {
+    if (modeOf(ed) === "motion") return setMode(ed, "design");
+    setMode(ed, "motion");
+    ed.setTool("MOVE");
+  }, (ed) => modeOf(ed) === "motion"),
+  // Space plays and pauses while Motion is on (help: "Spacebar plays, again pauses"); elsewhere Space is the Hand tool's.
+  { id: "motion.play-pause", label: "Play/Pause", keys: [k("Space")], run: (ed) => toggleMotionPlaying(ed), enabled: (ed) => modeOf(ed) === "motion" },
+  { id: "motion.toggle-auto-keyframe", label: "Toggle auto-keyframe", run: (ed) => toggleAutoKeyframe(ed), enabled: (ed) => modeOf(ed) === "motion", checked: (ed) => !!ed.ui.get().motion?.autoKeyframe },
+  { id: "motion.collapse-timeline", label: "Collapse timeline", run: (ed) => ed.ui.set({ motion: { ...(ed.ui.get().motion ?? MOTION_UI_DEFAULT), collapsed: !(ed.ui.get().motion ?? MOTION_UI_DEFAULT).collapsed } }), enabled: (ed) => modeOf(ed) === "motion" },
   engine("view.zoom-in", "Zoom in", "ZOOM_IN", [k("Equal", { mod: true }), k("Equal", { mod: true, shift: true }), k("Equal"), k("NumpadAdd")]),
   engine("view.zoom-out", "Zoom out", "ZOOM_OUT", [k("Minus", { mod: true }), k("Minus"), k("NumpadSubtract")]),
   engine("view.zoom-100", "Zoom to 100%", "ZOOM_TO_100", [k("Digit0", { mod: true }), k("Digit0", { shift: true })]),

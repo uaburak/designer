@@ -6,7 +6,8 @@
 set(_tp ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
 add_library(eng_third_party STATIC
   ${_tp}/harfbuzz/src/harfbuzz.cc
-  ${_tp}/libunibreak/eastasianwidthdata.c
+  # eastasianwidthdata.c is #included by eastasianwidthdef.c (upstream builds it that way); compiled on its own too, its
+  # ub_is_op_east_asian is defined twice and GNU ld refuses the link (Linux). Apple's ld never pulled the second member.
   ${_tp}/libunibreak/eastasianwidthdef.c
   ${_tp}/libunibreak/emojidata.c
   ${_tp}/libunibreak/emojidef.c

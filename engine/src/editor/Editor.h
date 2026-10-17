@@ -33,6 +33,7 @@
 #include "geometry/VariableWidth.h"
 #include "geometry/VectorNetwork.h"
 #include "layout/Layout.h"
+#include "motion/MotionLayer.h"
 #include "proto/Prototype.h"
 #include "render/Camera.h"
 #include "render/Renderer.h"
@@ -51,11 +52,13 @@ enum class Tool : uint8_t {
   ANNOTATION, MEASUREMENT,
   EYEDROPPER,
   BRUSH, TEXT_PATH,
+  ANCHOR_POINT,
   Count
 };
 // ANNOTATION and MEASUREMENT: Dev Mode's tools (⇧T, ⇧M), editor/DevMode.cpp. Round 8 (tools/CanvasTools.cpp): SCALE (K)
 // selects and moves as MOVE, its handles scale the layers with their properties; SLICE (S) draws slices; COMMENT (C) is
 // inert until multiplayer; EYEDROPPER (I, ⌃C "Pick color"): a click emits COLOR_PICK and the tool goes back to Move.
+// ANCHOR_POINT (Phase 7 round 8, docs/motion.md §4.9; round 8b): Motion's anchor point target (⌥R); nothing handles it yet.
 // BRUSH and TEXT_PATH (Phase 7 round 7, docs/draw.md §4.4–4.5; round 7b, tools/DrawTools.cpp): the Brush draws as the
 // Pencil does with the Brush's brush (setDrawToolSettings); Text on path makes a TEXT_PATH from a shape's edge.
 const char* toolName(Tool t);
@@ -410,6 +413,26 @@ class Editor : private LayoutHost, public TextLayouts {
   Status command(CommandId id, const CommandArgs& args);
   uint32_t commandState(CommandId id) const;
 
+  // ---- Figma Motion (docs/motion.md §4.9, §5; round 8a: motion/MotionLayer.*) ----
+  // The view state: Motion on / off, the timeline root shown (kNoGuid: the selection's root), the playhead, auto-keyframe.
+  // Setting it applies the evaluated values as preview writes (the motion layer) or restores the base values; the
+  // document itself never changes. Omitted parts keep their value (setMotionJson, the ABI's engine_set_motion).
+  void setMotion(const motion::State& s);
+  Status setMotionJson(const json::Value& v);
+  const motion::State& motion() const { return motion_; }
+  // The root the layer plays now (the state's, or the selection's), kNoGuid when none.
+  Guid motionRoot() const;
+  // The decoded model (rebuilt after a commit; tests, the timeline reads of round 8b).
+  const motion::MotionIndex& motionIndex();
+  const motion::MotionLayer& motionLayer() const { return motionLayer_; }
+  // The base values put back for the scope (storage, exports, the clipboard), the layer applied again after it.
+  motion::Suspend motionSuspended();
+  // Round 8b (editor/MotionCommands.cpp): the timeline model of a root (or of the selection's: kNoGuid), the right
+  // panel's diamonds for nodes, the resolved model of a root or a layer — as JSON (src/shared/motion/types.ts shapes).
+  void writeMotionTimeline(json::Writer& w, Guid root);
+  void writeMotionFieldStates(json::Writer& w, const std::vector<Guid>& ids);
+  void writeMotionResolved(json::Writer& w, Guid node);
+
   // ---- Figma Draw (docs/draw.md §4; round 7b: editor/DrawCommands.cpp, tools/DrawTools.cpp) ----
   // The Pencil's and the Brush's settings (the secondary toolbar's DrawToolSettings, src/shared/draw/types.ts).
   struct DrawTools {
@@ -599,6 +622,7 @@ class Editor : private LayoutHost, public TextLayouts {
     // editor shows each as a toast (Figma's visual bell). Once per key per take.
     std::vector<std::string> notices;
     bool pathTool = false;  // PATH_TOOL: Simplify vector / Offset path opened, changed or closed
+    bool motion = false;    // MOTION_CHANGED (round 8a): the root's motion model or the view state changed
     bool selection = false, camera = false, tool = false, cursor = false, hover = false, undo = false,
          structure = false, pages = false, currentPage = false, textEdit = false, vectorEdit = false, paintEdit = false,
          navigation = false;
@@ -606,7 +630,7 @@ class Editor : private LayoutHost, public TextLayouts {
       return !colorPicks.empty() || !inlineEdits.empty() || !annotationOpens.empty() || !measurementEdits.empty() || !statusClicks.empty() || measurementSelection ||
              !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !prototypeSelected.empty() || !gridTracks.empty() || !renames.empty() || haptics != 0 || !drawSampled.empty() || !notices.empty() || pathTool || !nodes.empty() || !components.empty() || !collections.empty() ||
              !variables.empty() || !styles.empty() || selection || camera || tool || cursor || hover || undo || structure || pages ||
-             currentPage || textEdit || vectorEdit || paintEdit || navigation;
+             currentPage || textEdit || vectorEdit || paintEdit || navigation || motion;
     }
   };
   bool hasEvents() const { return events_.any(); }
@@ -1761,6 +1785,29 @@ class Editor : private LayoutHost, public TextLayouts {
   void brushPaste(const std::vector<NodeChange>& clip, std::unordered_map<Guid, Guid, GuidHash>& remap);
   void remapStrokeBrush(NodeProps& p, const std::unordered_map<Guid, Guid, GuidHash>& remap) const;
   DrawTools drawTools_;
+  // Motion (round 8a): the view state, the decoded model and the preview-write layer; `motionDirty_`: the index is
+  // rebuilt before its next use (a commit changed the document).
+  motion::State motion_;
+  motion::MotionIndex motionIndex_;
+  motion::MotionLayer motionLayer_;
+  bool motionDirty_ = true;
+  void motionApply();
+  // Round 8b (editor/MotionCommands.cpp).
+  Status motionCommand(CommandId id, const CommandArgs& args);
+  uint32_t motionCommandState(CommandId id) const;
+  const VariableData* motionSlotData(const NodeProps& p, const motion::Slot& s) const;
+  bool motionBaseValue(const NodeProps& p, const motion::Slot& s, motion::KeyframeValue& out) const;
+  void motionWriteSlot(Guid id, const motion::Slot& s, const VariableData& data);
+  Guid internalCanvas() const;
+  Guid motionTrackOf(const NodeProps& p, const motion::Slot& s) const;
+  Guid motionEnsureTrack(Guid id, const motion::Slot& s, Guid root);
+  Guid motionKeyframeAt(Guid track, int64_t timeUs) const;
+  Guid motionUpsertKeyframe(Guid track, int64_t timeUs, const motion::KeyframeValue& value, const json::Value* easing);
+  void motionRemoveTrack(Guid track);
+  std::vector<Guid> motionTracksOwnedBy(const std::vector<Guid>& ids);
+  bool motionSlotOfTrack(Guid track, Guid& owner, motion::Slot& slot);
+  bool motionCurrentValue(Guid id, const motion::Slot& slot, int64_t timeUs, motion::KeyframeValue& out);
+  FieldMask motionRouteWrite(Guid id, const NodeChange& props);
   Guid textPathDrag_ = kNoGuid;    // the TEXT_PATH whose start handle is dragged
   Guid textPathHover_ = kNoGuid;   // the edge the Text on path tool is over (highlighted)
   void switchVectorNode(Guid id);

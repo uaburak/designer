@@ -427,6 +427,14 @@ void writeEvents(json::Writer& w, Engine& e) {
     ed.writePathToolState(pw);
     w.raw("{\"type\":\"PATH_TOOL\"," + pw.take().substr(1));
   }
+  // Motion (docs/motion.md §5): the root's motion model or the view state changed; the timeline refetches.
+  if (ev.motion) {
+    w.beginObject().key("type").string("MOTION_CHANGED").key("root");
+    Guid root = ed.motionRoot();
+    if (root == kNoGuid) w.null();
+    else w.string(root.toString());
+    w.endObject();
+  }
   for (auto& r : ev.inlineEdits) {
     w.beginObject().key("type").string("REQUEST_INLINE_EDIT").key("ref").string(r.node.toString()).key("field").string(r.field);
     w.key("value").number(r.value);
@@ -608,6 +616,7 @@ ENG_EXPORT int32_t engine_encode_document(Handle h, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
+  auto motionGuard = e->editor.motionSuspended();  // storage reads base values (docs/motion.md §5)
   if (e->wire == WIRE_KIWI) {
     codec::KiwiWriteOptions opts;
     if (flags & ENCODE_DERIVED) {
@@ -1554,6 +1563,7 @@ ENG_EXPORT int32_t engine_encode_selection(Handle h, uint32_t flags) {
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
   Clipboard clip;
+  auto motionGuard = e->editor.motionSuspended();  // the clipboard carries base values (docs/motion.md §5)
   if (!e->editor.copySelection(clip, (flags & 1) != 0)) return E_NOT_FOUND;
   if (e->wire == WIRE_KIWI) {
     std::vector<codec::KiwiRegion> regions;
@@ -3266,3 +3276,4 @@ ENG_EXPORT int32_t engine_present_state(Handle h) {
 }
 #include "api/TraceApi.inc"
 #include "api/DrawApi.inc"
+#include "api/MotionApi.inc"

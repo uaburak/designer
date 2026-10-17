@@ -1,0 +1,33 @@
+@layer app {
+  /* The diamond before a field (docs/motion.md §6.5): 16 in a 24 cell; grey empty, blue outline with a track, blue filled at a keyframe */
+  .diamond {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: none;
+    color: var(--figma-color-icon-tertiary);
+    outline: none;
+    cursor: pointer;
+  }
+  .diamond svg { width: 16px; height: 16px; }
+  .diamond path { fill: none; stroke: currentColor; stroke-width: 1.25; }
+  .diamond:hover { background: var(--figma-color-bg-hover); color: var(--figma-color-icon-secondary); }
+  .diamond:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .diamond[data-state="track"] { color: var(--figma-color-icon-brand); }
+  .diamond[data-state="keyframe"] { color: var(--figma-color-icon-brand); }
+  .diamond[data-state="keyframe"] path { fill: currentColor; }
+  .diamond:disabled { color: var(--figma-color-icon-disabled); cursor: default; }
+
+  /* The Motion section's rows: the diamond, the field's name, its value at the playhead */
+  .row { display: flex; align-items: center; gap: var(--ds-space-1); height: var(--ds-size-control); padding: 0 var(--ds-size-panel-pad-right) 0 calc(var(--ds-size-panel-pad-left) - var(--ds-space-2)); }
+  .label { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--figma-color-text); white-space: nowrap; text-overflow: ellipsis; }
+  .row[data-state="none"] .label { color: var(--figma-color-text-secondary); }
+  .value { flex: none; color: var(--figma-color-text-secondary); font-variant-numeric: tabular-nums; }
+  .hint { padding: 0 var(--ds-size-panel-pad-right) var(--ds-space-1) var(--ds-size-panel-pad-left); color: var(--figma-color-text-secondary); }
+}

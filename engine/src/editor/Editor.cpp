@@ -87,6 +87,8 @@ void Editor::begin(TxnKind kind, const std::string& label) {
     txn_.depth++;
     return;
   }
+  // Motion (docs/motion.md §5): every transaction reads and writes base values; the layer applies again after the commit.
+  if (motionLayer_.active()) motionLayer_.restore(doc_);
   txn_.open = true;
   txn_.depth = 1;
   txn_.kind = kind;
@@ -505,6 +507,8 @@ void Editor::commit(bool mergeWithLast) {
   }
   txn_.depth = 0;
   txn_.open = false;
+  motionDirty_ = true;
+  if (motion_.on) motionApply();
   bool emits = txn_.kind != TxnKind::REMOTE && txn_.kind != TxnKind::LOAD;
   if (emits && !txn_.changes.empty()) {
     auto changes = txn_.changes.build(doc_);
@@ -769,6 +773,7 @@ const NodeChange* Editor::replayInverse(Guid id, FieldMask field) const {
 // ---- Bookkeeping ------------------------------------------------------------
 
 void Editor::changeSelection(std::vector<Guid> ids) {
+  bool motionFollows = motion_.on && motion_.root == kNoGuid;
   if (ids == selection_) return;
   selection_ = std::move(ids);
   // Layers selected: a selected ruler guide lets go; nothing selected: the ⌥R origin goes too.
@@ -777,6 +782,7 @@ void Editor::changeSelection(std::vector<Guid> ids) {
   // Gradient handles belong to a selected layer.
   if (paint_.node != kNoGuid && std::find(selection_.begin(), selection_.end(), paint_.node) == selection_.end()) endPaintEdit();
   events_.selection = true;
+  if (motionFollows) motionApply();  // a new selection may be in another root (docs/motion.md §4.9: root null = the selection's)
   needsRender_ = true;
 }
 
@@ -1050,6 +1056,9 @@ Overlay Editor::overlay() const {
 
 void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDerived* derived) {
   cancelGesture();
+  motionLayer_ = motion::MotionLayer();  // the old document's base values are gone with it
+  motion_ = motion::State();
+  motionDirty_ = true;
   pathToolCancel();
   storedText_.clear();
   storedSymbols_.clear();
@@ -1550,6 +1559,9 @@ Status Editor::setProps(const std::vector<Guid>& ids, const NodeChange& props, u
     NodeChange c = NodeChange::changed(id);
     c.mask = differingFields(before, props.props, mask);  // equal values are no-ops
     copyFields(c.props, props.props, c.mask);
+    // Motion on (docs/motion.md §4.9): a keyframable field with a track (or any, with auto-keyframe) becomes a keyframe.
+    if (motion_.on && c.mask) c.mask &= ~motionRouteWrite(id, c);
+    if (!c.mask) continue;
     if (before.type == NodeType::TEXT && (c.mask & F_SIZE) && !(mask & F_TEXT_AUTO_RESIZE) &&
         before.text().textAutoResize != TextAutoResize::NONE) {
       // A size typed for an auto-resizing text: a width makes it auto height, a height a fixed box (Figma).
@@ -2132,6 +2144,93 @@ bool Editor::importUndoHistory(std::string_view bytes) {
   if (!undo_.restore(batches(undo), batches(redo))) return false;
   events_.undo = true;
   return true;
+}
+
+}  // namespace eng
+
+namespace eng {
+
+// ---- Figma Motion (docs/motion.md §4.9, §5; round 8a) -----------------------------------------------------------------
+
+Guid Editor::motionRoot() const {
+  if (motion_.root != kNoGuid) return doc_.has(motion_.root) ? motion_.root : kNoGuid;
+  for (Guid id : selection_) {
+    Guid r = motionIndex_.rootOf(doc_, id);
+    if (r != kNoGuid) return r;
+  }
+  return kNoGuid;
+}
+
+const motion::MotionIndex& Editor::motionIndex() {
+  if (motionDirty_) {
+    // The index reads base values: never while the layer's writes are in the nodes.
+    bool was = motionLayer_.active();
+    if (was) motionLayer_.restore(doc_);
+    motionIndex_.rebuild(doc_);
+    motionDirty_ = false;
+    if (was && motion_.on) motionApply();
+  }
+  return motionIndex_;
+}
+
+void Editor::motionApply() {
+  if (txn_.open) return;  // applied when the transaction commits
+  if (motionDirty_) {
+    if (motionLayer_.active()) motionLayer_.restore(doc_);
+    motionIndex_.rebuild(doc_);
+    motionDirty_ = false;
+  }
+  Guid root = motionRoot();
+  if (!motion_.on || root == kNoGuid) {
+    if (motionLayer_.active()) motionLayer_.restore(doc_);
+    needsRender_ = true;
+    return;
+  }
+  // A root other than the one applied: its layers go back first.
+  motionLayer_.restore(doc_);
+  auto resolve = [&](Guid node, const VariableData& base, motion::KeyframeValue& out) {
+    Resolved r;
+    if (!resolveValue(base, node, r)) return false;
+    if (r.kind == Resolved::Kind::FLOAT) out = motion::KeyframeValue::number(r.f);
+    else if (r.kind == Resolved::Kind::COLOR) out = motion::KeyframeValue::color(r.c);
+    else return false;
+    return true;
+  };
+  motionLayer_.apply(doc_, motionIndex_, root, motion_.timeUs, resolve);
+  needsRender_ = true;
+}
+
+void Editor::setMotion(const motion::State& s) {
+  bool rootChanged = s.on != motion_.on || s.root != motion_.root;
+  motion_ = s;
+  if (rootChanged) events_.motion = true;
+  motionApply();
+}
+
+Status Editor::setMotionJson(const json::Value& v) {
+  if (!v.isObject()) return E_INVALID;
+  motion::State s = motion_;
+  if (const json::Value* on = v.get("on"); on && on->isBool()) s.on = on->boolean;
+  if (const json::Value* root = v.get("root")) {
+    if (root->isNull()) s.root = kNoGuid;
+    else if (root->isString()) {
+      bool ok = false;
+      Guid g = Guid::parse(root->string, &ok);
+      if (!ok) return E_INVALID;
+      s.root = g;
+    }
+  }
+  if (const json::Value* t = v.get("timeUs"); t && t->isNumber()) s.timeUs = static_cast<int64_t>(std::llround(std::max(0.0, t->number)));
+  if (const json::Value* a = v.get("autoKeyframe"); a && a->isBool()) s.autoKeyframe = a->boolean;
+  if (const json::Value* p = v.get("showMotionPath"); p && p->isBool()) s.showMotionPath = p->boolean;
+  setMotion(s);
+  return OK;
+}
+
+motion::Suspend Editor::motionSuspended() {
+  return motion::Suspend(motionLayer_, doc_, [this] {
+    if (motion_.on) motionApply();
+  });
 }
 
 }  // namespace eng

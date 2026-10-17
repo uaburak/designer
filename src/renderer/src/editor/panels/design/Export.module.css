@@ -81,3 +81,11 @@
   .exportSettings { grid-template-columns: 108px 100px; column-gap: 0; padding-top: var(--ds-space-3); padding-bottom: var(--ds-space-3); }
   .exportSettings > [data-export-check] { margin-left: calc(-1 * var(--ds-space-1)); }
 }
+
+@layer app {
+  /* The Animated tab (docs/motion.md §7.1): the Static | Animated tabs over the rows, two fields a row, the progress row */
+  .tabs { margin: 0 var(--ds-size-panel-pad-right) var(--ds-space-1) var(--ds-size-panel-pad-left); }
+  .animated { display: flex; flex-direction: column; gap: var(--ds-space-1); }
+  .animatedRow { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ds-space-2); align-items: center; padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left); }
+  .progress { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-2); min-height: var(--ds-size-control); color: var(--figma-color-text-secondary); }
+}

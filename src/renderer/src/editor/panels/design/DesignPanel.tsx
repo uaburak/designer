@@ -29,6 +29,7 @@ import { VectorEditPanel } from "./VectorPoints";
 import { usePaintTargets, useSelectedNodes, type PanelNode } from "./shared";
 import { designSections, isTypeNode } from "../../draw/panels/drawPanel";
 import { TransformSection } from "../../draw/panels/TransformSection";
+import { MotionSection } from "../../motion/panels/MotionSection";
 import draw from "../../draw/panels/DrawPanels.module.css";
 import { TypeHeader } from "./Header";
 import { RelaunchButtons } from "./RelaunchButtons";
@@ -147,6 +148,8 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
       {/* (Draw: a component's header without its properties; an instance keeps its swap header) */}
       {comp?.kind === "instance" ? <InstanceHeader instance={comp.node} /> : comp && !drawMode ? <ComponentBlock sel={comp} /> : <TypeHeader nodes={nodes} />}
       <RelaunchButtons refs={nodes.map((n) => n.guid)} />
+      {/* Motion mode (docs/motion.md §6.5): the keyframable fields with their diamonds, before Design's sections (round 8d, increment 1). */}
+      {mode === "motion" && <MotionSection nodes={nodes} />}
       {shown.has("position") && <PositionSection nodes={nodes} />}
       {shown.has("layout") && <LayoutSection nodes={nodes} />}
       {shown.has("appearance") && <AppearanceSection nodes={nodes} />}

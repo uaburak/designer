@@ -42,6 +42,16 @@ export interface FindState {
 /** The Figma menu › Preferences checks (preferences.ts: live Figma's defaults when unset; kept per machine) */
 export type PreferenceFlags = { [K in PreferenceKey]?: boolean };
 
+export interface MotionUIState {
+  timeUs: number;
+  playing: boolean;
+  autoKeyframe: boolean;
+  collapsed: boolean;
+  selectedKeyframes: string[];
+  unit: "ms" | "frames";
+}
+export const MOTION_UI_DEFAULT: MotionUIState = { timeUs: 0, playing: false, autoKeyframe: false, collapsed: false, selectedKeyframes: [], unit: "ms" };
+
 export interface UIState extends PreferenceFlags {
   fileName: string;
   railTab: RailTab;
@@ -158,7 +168,12 @@ export interface UIState extends PreferenceFlags {
   /** The track label editor on the canvas, over this rect (viewport px) */
   gridTrackEditor?: { x: number; y: number; width: number; height: number } | null;
   /** Dev Mode (⇧D, the toolbar's mode switch): the Inspect panel, read-only canvas, annotations as dots (devmode/) */
-  mode?: "design" | "dev" | "draw";
+  mode?: "design" | "dev" | "draw" | "motion";
+  /**
+   * Motion mode (docs/motion.md §6; editor/motion/): the playhead (µs), playing, Toggle auto-keyframe, the timeline
+   * collapsed to its header, the selected keyframes, the time unit. Unset: MOTION_UI_DEFAULT.
+   */
+  motion?: MotionUIState;
   /**
    * Draw's Pencil and Brush settings (the secondary toolbar, docs/draw.md §5.2; editor/draw/drawTools.ts): sent to the
    * engine with setDrawToolSettings; kept for the session. Unset: DRAW_TOOLS_DEFAULT.

@@ -126,6 +126,7 @@ import { FACET_DECODERS, FACET_IDS, FACET_SLOTS, type FacetName } from "./facets
 import type { ExportSettings } from "../../../shared/schema/document.generated";
 import type { TraceOptions, TraceResult } from "../../../shared/ai/types";
 import type { BrushArtwork, BrushType, DrawCommandArgs, DrawToolSettings, GuidString, InstallBrushInput, ScatterSettings } from "../../../shared/draw/types";
+import type { FieldStates, Micros, MotionCommandArgs, MotionShapeLayer, MotionViewState, ResolvedMotion, TimelineModel } from "../../../shared/motion/types";
 import { fonts } from "./fonts";
 import { keyCodeOf } from "./keyCodes";
 import { prepareGfx, recordWebGPUFallback, type GfxBackend, type GfxPreference } from "./gfx";
@@ -1421,7 +1422,9 @@ export class Engine {
     }
     const bytes = this.x.result();
     if (format === "PNG" || format === "JPEG") return this.after({ status: "ok", format, pixels: decodePixels(bytes) });
-    return this.after({ status: "ok", format, bytes });
+    if (format === "SVG" || format === "PDF") return this.after({ status: "ok", format, bytes });
+    // The animated formats are Motion's export (docs/motion.md §7): frames rendered at times, encoded in the renderer.
+    return this.after({ status: "error", code: Status.E_UNSUPPORTED, message: `${format} is an animated format` });
   }
 
   /** What an export would make (its size per layer, the images an SVG / PDF needs handed in, whether it can draw now). */
@@ -1937,4 +1940,59 @@ export class Engine {
   runDrawCommand<K extends keyof DrawCommandArgs>(id: K, args: DrawCommandArgs[K]): number {
     return this.command(id, args as unknown as Readonly<Record<string, CommandArgValue>>);
   }
+
+  // ---- Motion (docs/motion.md §10 "Engine.ts stubs"; round 8b fills them against the engine's MotionApi) ------------
+
+  /** The Motion view state (on, root, time, auto-keyframe, motion path): never in the document (docs/motion.md §4.9). */
+  setMotion(state: MotionViewState): number {
+    if (!this.h) return Status.E_HANDLE;
+    return this.after(this.x.setMotion(this.h, encodeText(JSON.stringify(state))));
+  }
+
+  /** The timeline panel's model for a root (null: the root of the selection); null when there is none. */
+  motionTimeline(root?: GuidString): TimelineModel | null {
+    if (!this.h) return null;
+    return this.json<TimelineModel | null>(this.x.motionTimeline(this.h, encodeText(root ?? "")), null);
+  }
+
+  /** The right panel's diamonds: per node and field key, none / track / keyframe at the playhead. */
+  motionFieldStates(nodes: GuidString[]): FieldStates {
+    if (!this.h) return {};
+    return this.json<FieldStates>(this.x.motionFieldStates(this.h, encodeText(JSON.stringify(nodes))), {});
+  }
+
+  /** The resolved model (Dev Mode code, SVG / Lottie export, the plugin's `animations`, agents) of a root or a layer. */
+  motionResolved(node: GuidString): ResolvedMotion | null {
+    if (!this.h) return null;
+    return this.json<ResolvedMotion | null>(this.x.motionResolved(this.h, encodeText(node)), null);
+  }
+
+  /** The last `motionRenderFrame` answered "busy" (fonts or images the root draws are still loading): try again, or pass `allowPending`. */
+  motionRenderBusy = false;
+
+  /**
+   * One frame of a timeline root at a time: the root's own box at `scale` with the motion layer applied at `timeUs`,
+   * as straight RGBA pixels (the animated exports, docs/motion.md §7.2). null: busy (see `motionRenderBusy`) or an error.
+   */
+  motionRenderFrame(root: GuidString, timeUs: Micros, scale: number, options: { allowPending?: boolean } = {}): Pixels | null {
+    if (!this.h) return null;
+    const status = this.x.motionRenderFrame(this.h, encodeText(JSON.stringify({ root, timeUs, scale, allowPending: !!options.allowPending })));
+    this.motionRenderBusy = status === Status.E_BUSY;
+    return this.after(status === Status.OK ? decodePixels(this.x.result()) : null);
+  }
+
+  /** What the Lottie writer draws: each layer's outlines in its local space at base values (docs/motion.md §7.6). */
+  motionShapes(_root: GuidString): MotionShapeLayer[] {
+    throw notBuilt("motionShapes");
+  }
+
+  /** A Motion command (CommandId 330–352) with its typed args; one undo step with Figma's name (docs/motion.md §4.9). */
+  runMotionCommand<K extends keyof MotionCommandArgs>(id: K, args: MotionCommandArgs[K]): number {
+    return this.command(id, args as unknown as Readonly<Record<string, CommandArgValue>>);
+  }
+}
+
+/** A Motion binding whose engine side is not built yet (frames at a time and the Lottie shapes: the export increment); the chrome reads the throw as "nothing yet". */
+function notBuilt(name: string): Error {
+  return new Error(`Engine.${name}: not built (round 8, export increment)`);
 }

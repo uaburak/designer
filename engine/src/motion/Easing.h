@@ -56,3 +56,21 @@ double springEditorDuration(const Spring& s);
 Spring springWithEditorDuration(const Spring& s, double seconds);
 
 }  // namespace eng::motion
+
+// ---- Round 8 (Motion keyframes, docs/motion.md §4.7) ------------------------------------------------------------------
+namespace eng::motion {
+
+// A curve's value at progress x (cubicBezier with the struct).
+inline double bezierAt(const Bezier& b, double x) { return cubicBezier(b.x1, b.y1, b.x2, b.y2, x); }
+// A spring played normalised over one keyframe segment: e(p) = spring(p · T) with e(1) = 1, so the curve fills the
+// interval whatever its physical settle time (SpringParams.springType NORMALIZED).
+double springNormalized(const Spring& s, double p);
+// The UI's one bounce = clamp(1 − ζ, 0, 1) (figma.motion.physicalSpringToNormalized).
+double bounceOf(const Spring& s);
+// A bounce as a physical spring: ζ = clamp(1 − bounce, 1e−4, 1); ω₀ kept from `prev` when valid else 10 rad/s, mass
+// kept (clamped 0.01–100) else 1; k = ω₀²m, c = 2ζ√(km). A fresh bounce b is {1, 100, 20(1 − b)}.
+Spring springFromBounce(double bounce, const Spring* prev = nullptr);
+// HOLD: 0 until p = 1 (CSS step-end).
+inline double hold(double p) { return p >= 1 ? 1 : 0; }
+
+}  // namespace eng::motion

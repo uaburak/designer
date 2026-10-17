@@ -345,6 +345,9 @@ export const size = {
   // The Keyboard shortcuts panel along the editor's bottom (the owner's screenshots of live Figma, 1512-wide window):
   // 240 high (its top line 1), a 38 tab row (its line under it 1), three 300 columns 48 apart centred, rows 37 apart, 26 caps; the Layout tab's keyboard
   // keys 26 × 25, 32 apart across, 33 down.
+  // Motion's timeline along the editor's bottom (docs/motion.md §6.2 [unverified]): 240 high, a 40 header (Collapse timeline leaves it).
+  "motion-timeline": 240,
+  "motion-timeline-header": 40,
   "shortcuts-panel": 240,
   "shortcuts-tabs": 38,
   "shortcuts-column": 300,
