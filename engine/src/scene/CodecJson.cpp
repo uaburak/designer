@@ -249,7 +249,10 @@ VariableData readVariableData(const json::Value& v) {
         if (auto* args = x.get("expressionArguments"); args && args->isArray())
           for (auto& a : args->array) {
             VariableData arg = readVariableData(a);
-            if (arg.kind == K::OTHER) return other();
+            // A KEYFRAME expression's second argument (KEYFRAME_TRACK_PARAMETER_DATA) is kept whole as its kiwi bytes —
+            // the motion model reads it (motion/Model.cpp decodeParams), as the kiwi reader keeps it; any other
+            // expression with an argument the engine doesn't model is kept whole itself.
+            if (arg.kind == K::OTHER && d.function != ExpressionFunction::KEYFRAME) return other();
             d.args.push_back(std::move(arg));
           }
       } else if (k == "fontStyleValue" && x.isObject()) {

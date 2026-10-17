@@ -561,6 +561,11 @@ bool Editor::resolveData(const VariableData& d, const ModeContext& ctx, Resolved
         return true;
       }
       if (d.function == ExpressionFunction::RESOLVE_VARIANT) return false;  // a variant (variantFor), not a value
+      if (d.function == ExpressionFunction::KEYFRAME) {
+        // Motion (docs/motion.md §4.2): the resting value is the first argument; the motion layer writes the evaluated one.
+        if (d.args.empty()) return false;
+        return resolveData(d.args[0], ctx, out, deps, depth + 1);
+      }
       if (d.function == ExpressionFunction::VAR_MODE_LOOKUP) {
         // A variable's value in a mode named explicitly (help.figma.com 15253268379799: "variableName:modeName"):
         // [ALIAS variable, STRING the mode's id "s:l"] — the argument encoding is ours (Figma's isn't published).

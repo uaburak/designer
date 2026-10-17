@@ -97,6 +97,10 @@ add_library(eng_core STATIC
   src/export/PdfWriter.cpp
   src/export/Deflate.cpp
   src/motion/Easing.cpp
+  src/motion/Fields.cpp
+  src/motion/Model.cpp
+  src/motion/Evaluate.cpp
+  src/motion/MotionLayer.cpp
   src/proto/Devices.cpp
   src/proto/Prototype.cpp
   src/proto/Player.cpp
@@ -172,6 +176,7 @@ else()
     tests/unit/variables.test.cpp
     tests/unit/r6.grid_slots.test.cpp
     tests/unit/variables.extended.test.cpp
+    tests/unit/r8.motion.test.cpp
     tests/unit/libraries.test.cpp
     tests/unit/text.layout.test.cpp
     tests/unit/text.edit.test.cpp

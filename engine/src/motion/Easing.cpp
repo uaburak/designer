@@ -87,3 +87,32 @@ Spring springWithEditorDuration(const Spring& s, double seconds) {
 }
 
 }  // namespace eng::motion
+
+namespace eng::motion {
+
+double springNormalized(const Spring& s, double p) {
+  if (p <= 0) return 0;
+  if (p >= 1) return 1;
+  return springValue(s, p * springSettleTime(s));
+}
+
+double bounceOf(const Spring& s) {
+  double zeta = s.damping / (2 * std::sqrt(s.stiffness * s.mass));
+  if (!std::isfinite(zeta)) return 0;
+  return std::clamp(1 - zeta, 0.0, 1.0);
+}
+
+Spring springFromBounce(double bounce, const Spring* prev) {
+  double zeta = std::clamp(1 - bounce, 1e-4, 1.0);
+  bool valid = prev && std::isfinite(prev->mass) && prev->mass > 0 && std::isfinite(prev->stiffness) && prev->stiffness > 0;
+  double mass = valid ? std::clamp(prev->mass, kMinMass, kMaxMass) : 1;
+  double w0 = valid ? std::sqrt(prev->stiffness / prev->mass) : 10;
+  Spring out;
+  out.mass = mass;
+  out.stiffness = w0 * w0 * mass;
+  out.damping = 2 * zeta * std::sqrt(out.stiffness * mass);
+  out.initialVelocity = 0;
+  return out;
+}
+
+}  // namespace eng::motion
