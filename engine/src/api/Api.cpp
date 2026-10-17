@@ -406,6 +406,8 @@ void writeEvents(json::Writer& w, Engine& e) {
     w.key("returnTo");
     if (ed.returnToInstance() == kNoGuid) w.null();
     else w.string(ed.returnToInstance().toString());
+    w.key("returnToAll");
+    writeIds(w, ed.returnToInstances());
     w.endObject();
   }
   for (auto& g : ev.gridTracks) {
@@ -2187,6 +2189,10 @@ void writePropValue(json::Writer& w, ComponentPropType type, const ComponentProp
       else w.null();
       return;
     case ComponentPropType::VARIANT: w.string(variant); return;
+    case ComponentPropType::NUMBER:
+      if (v.hasFloat) w.number(v.floatValue);
+      else w.null();
+      return;
     default:
       if (v.guidValue != kNoGuid) w.string(v.guidValue.toString());
       else w.null();
@@ -2268,6 +2274,9 @@ ENG_EXPORT int32_t engine_component_info(Handle h, Ptr refPtr, uint32_t refLen) 
     if (info.mainSet == kNoGuid) w.null();
     else w.string(info.mainSet.toString());
     w.key("softDeleted").boolean(info.mainSoftDeleted);
+    w.key("missingVariantSet");
+    if (info.missingVariantSet == kNoGuid) w.null();
+    else w.string(info.missingVariantSet.toString());
     w.key("remote");
     if (!info.mainRemote) {
       w.null();
@@ -2309,8 +2318,9 @@ ENG_EXPORT int32_t engine_component_info(Handle h, Ptr refPtr, uint32_t refLen) 
   w.key("canPush").boolean(info.canPush).key("canReset").boolean(info.canReset).key("canDetach").boolean(info.canDetach);
   w.key("isExposed").boolean(info.isExposed).key("mainDeleted").boolean(info.mainDeleted).key("canExpose").boolean(info.canExpose);
   w.key("instanceCount").number(info.instanceCount);
-  w.key("variantConflict").boolean(info.variantConflict).key("conflictingVariants");
-  writeIds(w, info.conflictingVariants);
+  static const char* const kVariantErrors[] = {"NONE", "TOO_MANY_STATES_ERROR", "MISSING_PROPERTIES_ERROR", "DUPLICATE_STATE_ERROR", "PARSE_ERROR"};
+  w.key("variantError").string(kVariantErrors[static_cast<int>(info.variantError)]).key("errorVariants");
+  writeIds(w, info.errorVariants);
   w.endObject();
   return setResult(w.take());
 }

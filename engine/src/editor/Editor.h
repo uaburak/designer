@@ -136,6 +136,11 @@ struct ComponentProperty {
   // The variable the value (an instance's variant) or the default (a main's boolean / text property) is bound to.
   Guid boundVariable = kNoGuid;
 };
+// Figma's StateGroupError, in its order (the worst is the highest): a set past 1000 variants, a variant with no value
+// for one of the set's Variant properties, two variants with the same values, a name that isn't "Property=Value, …".
+enum class VariantError : uint8_t { NONE = 0, TOO_MANY_STATES = 1, MISSING_PROPERTIES = 2, DUPLICATE_STATE = 3, PARSE = 4 };
+// Figma: "Components with more than 1000 variants may experience performance issues".
+constexpr size_t kMaxVariants = 1000;
 struct ComponentInfo {
   enum class Kind : uint8_t { NONE, COMPONENT, VARIANT, COMPONENT_SET, INSTANCE, NESTED_INSTANCE, INSTANCE_SUBLAYER, COMPONENT_SUBLAYER };
   Kind kind = Kind::NONE;
@@ -143,6 +148,7 @@ struct ComponentInfo {
   Guid main = kNoGuid, mainPage = kNoGuid, mainSet = kNoGuid;
   std::string mainName;
   bool mainSoftDeleted = false;
+  Guid missingVariantSet = kNoGuid;  // the main is a deleted variant of this set (Figma's missing variant panel)
   bool mainRemote = false, mainCopied = false;  // a library copy; copied in from another file
   std::string mainLibraryKey, mainKey, mainVersion;
   Guid instance = kNoGuid;
@@ -164,14 +170,18 @@ struct ComponentInfo {
   bool canPush = false, canReset = false, canDetach = false, isExposed = false, mainDeleted = false;
   bool canExpose = false;  // a primary instance in a main that Figma lets expose its properties (canExposeInstance)
   uint32_t instanceCount = 0;
-  // Round 17 B, Figma's conflicting variants: a variant whose name isn't its values (an invalid name kept as typed) or
-  // repeats another variant's values; a set lists its own.
-  bool variantConflict = false;
-  std::vector<Guid> conflictingVariants;
+  // Figma's variant errors (atlas 10 §4.2): a variant's own, or a set's worst — TOO_MANY_STATES past 1000 variants
+  // when none has one — with the variants that have it ("Select invalid / conflicting variants" selects them).
+  VariantError variantError = VariantError::NONE;
+  std::vector<Guid> errorVariants;
 };
 
 // Figma's default name of a new component property: `base`, else "base N+1" past the highest "base N" in `taken`.
 std::string defaultPropertyName(const std::vector<std::string>& taken, const std::string& base);
+// A NUMBER property's value (atlas 10 §5.2): a finite number, or text Figma accepts ("-1", "2.5", ".5"; not blank),
+// stored rounded to 2 decimals; false for anything else. Shown without trailing zeros or a trailing "." (NaN: "0").
+bool propNumber(const json::Value& v, float& out);
+std::string formatPropNumber(double v);
 
 // What a copy puts on the clipboard (docs/schema.md §4.1): the copied nodes as
 // CREATED with their source GUIDs, parents first; for each source parent, its
@@ -842,15 +852,20 @@ class Editor : private LayoutHost, public TextLayouts {
     FieldMask bits = 0;
     std::vector<std::string> extraKeys;
     bool otherExtras = false, assignments = false, slotAssignments = false;
+    // Figma's reset-prop-assignments for one property ("Reset {property}", resetComponentPropAssignmentForInstances):
+    // only these properties' values (ids or names of the instance's main), nothing else.
+    std::vector<std::string> props;
   };
   // Figma's reset kinds (ResetOverridesKind 0–14, and reset-variable-modes / reset-prop-assignments as VARIABLE_MODES /
   // PROPERTY_ASSIGNMENTS) into `spec`; false for an unknown kind. LAYER is every field no other kind names (Figma's
   // "others": opacity, corners, auto layout, layout guides, …).
   static bool resetKind(const std::string& kind, ResetSpec& spec);
   bool computeComponentInfo(Guid id, ComponentInfo& out) const;
-  // GO_TO_MAIN_COMPONENT / RETURN_TO_INSTANCE: where the last navigation went and where it came from.
+  // GO_TO_MAIN_COMPONENT / RETURN_TO_INSTANCE: where the last navigation went and where it came from (Figma keeps
+  // {mainComponentGUID, instanceGUIDs}: every instance selected when it went; the first is `returnToInstance`).
   Guid navigationMain() const { return navMain_; }
-  Guid returnToInstance() const { return returnTo_; }
+  Guid returnToInstance() const { return returnTo_.empty() ? kNoGuid : returnTo_[0]; }
+  const std::vector<Guid>& returnToInstances() const { return returnTo_; }
   // A derived node (an instance's sublayer).
   bool isDerived(Guid id) const { return id.isDerived(); }
   // The real instance a derived node belongs to (kNoGuid for real nodes).
@@ -1367,13 +1382,15 @@ class Editor : private LayoutHost, public TextLayouts {
   // A variant renamed by hand (round 17 B, Figma's backfillVariantPropDefs): its name's pairs become its values, a new
   // property name a Variant property of the set; an invalid name is kept (the variant shows as conflicting).
   void backfillVariantNames();
-  // Whether a variant's name disagrees with its values, or repeats another variant's values (Figma's conflicting
-  // variants).
-  bool variantConflicts(Guid variant) const;
+  // Figma's variant errors (StateGroupError): each variant of `set` with its own, read from its name; a variant's.
+  std::vector<std::pair<Guid, VariantError>> variantErrors(Guid set) const;
+  VariantError variantError(Guid variant) const;
   Status insertInstance(Guid main, const CommandArgs& args);
   Status setVariantProperties(Guid variant, const CommandArgs& args);
   Status pushChangesToMain(Guid instance);
-  Status goToMainComponent(Guid ref);
+  Status goToMainComponent(const std::vector<Guid>& refs);
+  // The instance behind a ref (an instance, or the instance a derived sublayer lies in).
+  Guid instanceBehind(Guid ref) const;
   Status returnToInstanceCmd();
   Status swapInstance(const std::vector<Guid>& ids, Guid main);
   Status setComponentProperty(Guid ref, const std::string& prop, const json::Value& value);
@@ -2359,7 +2376,8 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<PendingLayout>* deferredLayout_ = nullptr;  // flushInstances' batch: stage B waits for all of it
   std::unordered_set<Guid, GuidHash> layingOut_;          // instances in stage B (their writes don't dirty them)
   bool intrinsicLayout_ = false;  // stage A of an instance's layout: no constraints
-  Guid navMain_ = kNoGuid, returnTo_ = kNoGuid;
+  Guid navMain_ = kNoGuid;
+  std::vector<Guid> returnTo_;
   std::unordered_map<Guid, Guid, GuidHash> detachMap_;  // the last detach: derived id → the real node made for it
   bool pasteAsInstances_ = true;
 

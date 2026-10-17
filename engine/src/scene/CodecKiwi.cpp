@@ -1254,6 +1254,10 @@ bool readPropValue(kiwi::ByteBuffer& bb, ComponentPropValue& v, KiwiBlobs* blobs
         v.guidValue = g;
         break;
       }
+      case 4:
+        v.hasFloat = true;
+        if (!getFloat(bb, v.floatValue)) return false;
+        break;
       default:
         if (!keepUnknown(bb, defs().propValue, f, v.extra)) return false;
     }
@@ -1267,6 +1271,7 @@ void putPropValue(Out& o, const ComponentPropValue& v, BlobsOut* blobs) {
     putTextData(o, v.textValue, blobs);
   }
   if (v.guidValue != kNoGuid) putGuidField(o, 3, v.guidValue);
+  if (v.hasFloat) putFloat(o, 4, v.floatValue);
   o.raw(v.extra);
   o.byte(0);
 }
@@ -3222,6 +3227,11 @@ bool assignmentVarProp(std::string_view extra, ComponentPropValue& out) {
   if (d.kind == VariableData::Kind::BOOL) {
     out.hasBool = true;
     out.boolValue = d.boolValue;
+    return true;
+  }
+  if (d.kind == VariableData::Kind::FLOAT) {  // a NUMBER property's value
+    out.hasFloat = true;
+    out.floatValue = static_cast<float>(d.floatValue);
     return true;
   }
   if (d.valueExtra.empty()) return false;

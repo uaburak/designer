@@ -464,6 +464,13 @@ void Editor::applyBindings(const NodeProps& source, NodeProps& p, Guid symbol, c
         v.hasText = true;
         v.textValue = t;
       }
+      if (def->type == ComponentPropType::NUMBER && r.kind == Resolved::Kind::FLOAT) v.hasFloat = true, v.floatValue = static_cast<float>(r.f);
+    }
+    // A NUMBER drives a text layer as its text (Figma's display: 2 decimals at most, no trailing zeros).
+    if (def->type == ComponentPropType::NUMBER && v.hasFloat) {
+      v.hasText = true;
+      v.textValue = TextData{};
+      v.textValue.characters = formatPropNumber(v.floatValue);
     }
     switch (b.field) {
       case VariableField::VISIBLE:

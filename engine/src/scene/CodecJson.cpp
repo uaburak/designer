@@ -512,6 +512,7 @@ void writePropValue(json::Writer& out, const ComponentPropValue& v) {
     w.key("guidValue");
     writeGuidObject(w, v.guidValue);
   }
+  if (v.hasFloat) w.key("floatValue").number(v.floatValue);
   w.endObject();
   out.raw(withExtra(w, "ComponentPropValue", v.extra));
 }
@@ -1268,6 +1269,7 @@ ComponentPropValue readPropValue(const json::Value& v) {
     if (k == "boolValue" && x.isBool()) out.hasBool = true, out.boolValue = x.boolean;
     else if (k == "textValue" && x.isObject()) out.hasText = true, out.textValue = readTextData(x);
     else if (k == "guidValue") readGuid(x, out.guidValue);
+    else if (k == "floatValue" && x.isNumber()) out.hasFloat = true, out.floatValue = static_cast<float>(x.number);
     else appendExtra(out.extra, "ComponentPropValue", k, x);
   }
   return out;
