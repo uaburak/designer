@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 // The timeline (docs/motion.md §6.2) on a fixed model (the committed wasm predates Motion, so the view is tested on its
 // own): the rows, the diamonds' selection and drag, Delete, the segment's Easing menu, the header's controls; increment
-// 2's marquee, ⌘C / ⌘V and the top edge; round 8a increment 2's animated instance bar dragged in time.
+// 2's marquee, ⌘C / ⌘V and the top edge; round 8a increment 2's animated instance bar dragged in time; round 8h's
+// preset clips (selected, dragged, stretched by either handle, deleted).
 import { act } from "react";
 import { describe, expect, it } from "vitest";
 import type { TimelineModel } from "@shared/motion/types";
@@ -47,7 +48,7 @@ function setup(over: Partial<TimelineProps> = {}) {
   const s = {
     onSeek: spy(), onTogglePlay: spy(), onToggleAutoKeyframe: spy(), onToggleCollapse: spy(), onSetTimeline: spy(), onSelectKeyframes: spy(),
     onMoveKeyframes: spy(), onDeleteKeyframes: spy(), onDeleteTrack: spy(), onSetEasing: spy(), onSelectLayer: spy(),
-    onCopyKeyframes: spy(), onPasteKeyframes: spy(), onResize: spy(), onMoveInstance: spy(),
+    onCopyKeyframes: spy(), onPasteKeyframes: spy(), onResize: spy(), onMoveInstance: spy(), onSelectClip: spy(), onEditClip: spy(), onDeleteClip: spy(),
   } as unknown as Spies;
   const props = { model: MODEL, timeUs: 0, playing: false, autoKeyframe: false, collapsed: false, unit: "ms", selectedKeyframes: new Set(), selectedNodes: new Set(), ...(s as unknown as Partial<TimelineProps>), ...over } as TimelineProps;
   // The same component each time, so the view's own state (rows, drags) survives a props change.
@@ -292,5 +293,42 @@ describe("the Motion timeline", () => {
     expect(ro.s.onMoveInstance.calls).toHaveLength(0);
     windowPointer("pointerup", { clientX: 300 });
     ro.view.unmount();
+  });
+
+  it("a preset's clip is a row under its layer: click selects it, drag moves it, its handles stretch it, Delete removes it", () => {
+    const clip = { id: "c1", preset: "opacity" as const, name: "Opacity", startUs: 500_000, durationUs: 500_000, disabled: false, easing: { type: "EASE_OUT" as const }, props: {} };
+    const withClip: TimelineModel = { ...MODEL, layers: [{ ...MODEL.layers[0], clips: [clip] }, MODEL.layers[1]] };
+    const { view, s, scale, rerender } = setup({ model: withClip });
+    // Its row (the type's name) before the property rows; its bar over its span.
+    expect($$("[data-clip-row], [data-track-row]", view.host).map((e) => e.textContent)).toEqual(["Opacity", "Opacity", "Position"]);
+    const bar = $('[data-clip="c1"]', view.host);
+    expect(bar.style.left).toBe(`${ORIGIN_PX + 500_000 * scale.pxPerUs}px`);
+    expect(bar.style.width).toBe(`${500_000 * scale.pxPerUs}px`);
+    // A press selects it (and clears the keyframes'); a drag moves its start, snapped to frames, one final call.
+    pointer(bar, "pointerdown", { clientX: 200 });
+    expect(s.onSelectClip.calls.at(-1)).toEqual(["c1"]);
+    expect(s.onSelectKeyframes.calls.at(-1)).toEqual([[]]);
+    windowPointer("pointermove", { clientX: 230 });
+    const moved = Math.round(Math.round((500_000 + 30 / scale.pxPerUs) / frameUs(60)) * frameUs(60));
+    expect(s.onEditClip.calls.at(-1)).toEqual([clip, { startUs: moved }, false]);
+    windowPointer("pointerup", { clientX: 230 });
+    expect(s.onEditClip.calls.at(-1)).toEqual([clip, { startUs: moved }, true]);
+    // The right handle: its length; the left: its start and length, the end kept.
+    pointer($('[data-clip="c1"] [data-clip-handle="end"]', view.host), "pointerdown", { clientX: 300 });
+    windowPointer("pointermove", { clientX: 330 });
+    windowPointer("pointerup", { clientX: 330 });
+    const end = Math.round(Math.round((1_000_000 + 30 / scale.pxPerUs) / frameUs(60)) * frameUs(60));
+    expect(s.onEditClip.calls.at(-1)).toEqual([clip, { durationUs: end - 500_000 }, true]);
+    pointer($('[data-clip="c1"] [data-clip-handle="start"]', view.host), "pointerdown", { clientX: 300 });
+    windowPointer("pointermove", { clientX: 270 });
+    windowPointer("pointerup", { clientX: 270 });
+    const start = Math.round(Math.round((500_000 - 30 / scale.pxPerUs) / frameUs(60)) * frameUs(60));
+    expect(s.onEditClip.calls.at(-1)).toEqual([clip, { startUs: start, durationUs: 1_000_000 - start }, true]);
+    // Selected (the editor says so): Delete in the track area removes it.
+    rerender({ model: withClip, selectedClip: "c1" });
+    expect($('[data-clip="c1"]', view.host).hasAttribute("data-selected")).toBe(true);
+    key($('[aria-label="Tracks"]', view.host), "Delete");
+    expect(s.onDeleteClip.calls.at(-1)).toEqual(["c1"]);
+    view.unmount();
   });
 });

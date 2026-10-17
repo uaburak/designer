@@ -173,6 +173,44 @@ bool decodeTrack(const NodeProps& p, Guid id, Track& out) {
   return true;
 }
 
+bool decodePreset(const NodeProps& p, Guid id, Preset& out) {
+  if (p.type != NodeType::ANIMATION_PRESET_INSTANCE) return false;
+  out = Preset{};
+  out.id = id;
+  out.name = p.name;
+  json::Value backing = extraJson(p, "backingAnimationPresetId");
+  if (const json::Value* ref = backing.isObject() ? backing.get("assetRef") : nullptr)
+    if (const json::Value* key = ref->get("key"); key && key->isString()) out.key = key->string;
+  json::Value off = extraJson(p, "timelineOffset");
+  if (off.isNumber()) out.offsetUs = static_cast<int64_t>(std::llround(off.number));
+  json::Value d = extraJson(p, "timelineDuration");
+  if (d.isNumber() && d.number > 0) out.durationUs = static_cast<int64_t>(std::llround(d.number));
+  json::Value dis = extraJson(p, "timelineDisabled");
+  out.disabled = dis.isBool() && dis.boolean;
+  decodeEasing(extraJson(p, "easingData"), out.easing);
+  json::Value tb = extraJson(p, "textElementDelayBehaviour");
+  if (tb.isObject()) {
+    constexpr const char* kGroupings[] = {"CHARACTER", "CHARACTER_NO_WHITESPACE", "WORD", "LINE", "PARAGRAPH"};
+    constexpr const char* kOrders[] = {"LEFT_RIGHT", "RIGHT_LEFT", "CENTER_OUT", "RANDOM"};
+    const json::Value* en = tb.get("enabled");
+    out.stagger.enabled = en && en->isBool() && en->boolean;
+    out.stagger.grouping = enumOf(tb.get("grouping"), kGroupings, 5, Grouping::CHARACTER);
+    out.stagger.order = enumOf(tb.get("order"), kOrders, 4, StaggerOrder::LEFT_RIGHT);
+    if (const json::Value* d = tb.get("delayMs")) out.stagger.stepUs = static_cast<int64_t>(std::llround(std::max(0.0, d->numberOr(0)) * 1000));
+  }
+  return true;
+}
+
+std::vector<Guid> decodePresetList(const NodeProps& p) {
+  std::vector<Guid> out;
+  json::Value v = extraJson(p, "animationPresets");
+  const json::Value* list = v.isObject() ? v.get("presets") : nullptr;
+  if (!list || !list->isArray()) return out;
+  for (const json::Value& e : list->array)
+    if (Guid g = guidOf(e.get("animationPresetId")); g != kNoGuid) out.push_back(g);
+  return out;
+}
+
 bool decodeParams(const VariableData& arg, std::vector<Param>& out) {
   out.clear();
   // The argument is a VariableData the engine doesn't model (dataType KEYFRAME_TRACK_PARAMETER_DATA): kept whole in
@@ -274,6 +312,7 @@ bool isTimelineRoot(const Document& doc, Guid id) {
 void MotionIndex::clear() {
   tracks_.clear();
   nodes_.clear();
+  presets_.clear();
   playing_.clear();
 }
 
@@ -297,11 +336,24 @@ void MotionIndex::rebuild(const Document& doc) {
     }
     tracks_[n.guid] = std::move(t);
   });
+  // 1b. The presets' clips (round 8h): their parameters below play in each clip's own time.
+  doc.forEach([&](const Node& n) {
+    Preset pr;
+    if (!n.guid.isDerived() && decodePreset(n.props, n.guid, pr)) presets_[n.guid] = std::move(pr);
+  });
   // 2. Bindings: the KEYFRAME expressions on node fields, paints and effects.
   auto keyframeExpr = [&](const VariableData& d, Binding& b) {
     if (d.kind != VariableData::Kind::EXPRESSION || d.function != ExpressionFunction::KEYFRAME || d.args.empty()) return false;
     b.base = d.args[0];
     if (d.args.size() >= 2) decodeParams(d.args[1], b.params);
+    for (Param& q : b.params) {
+      if (q.kind != Param::Kind::ANIMATION_PRESET) continue;
+      auto it = presets_.find(q.preset);
+      if (it == presets_.end()) continue;
+      q.offsetUs = it->second.offsetUs;
+      q.disabled = it->second.disabled;
+      q.staggered = it->second.stagger.enabled;
+    }
     return true;
   };
   doc.forEach([&](const Node& n) {
@@ -352,7 +404,8 @@ void MotionIndex::rebuild(const Document& doc) {
         an.bindings.push_back(std::move(b));
       }
     }
-    if (an.bindings.empty()) return;
+    an.presets = decodePresetList(p);
+    if (an.bindings.empty() && an.presets.empty()) return;
     an.id = n.guid;
     an.base = decodeLayerBase(p);
     nodes_[n.guid] = std::move(an);
@@ -379,6 +432,11 @@ void MotionIndex::rebuild(const Document& doc) {
 const Track* MotionIndex::track(Guid id) const {
   auto it = tracks_.find(id);
   return it == tracks_.end() ? nullptr : &it->second;
+}
+
+const Preset* MotionIndex::preset(Guid id) const {
+  auto it = presets_.find(id);
+  return it == presets_.end() ? nullptr : &it->second;
 }
 
 const AnimatedNode* MotionIndex::node(Guid id) const {

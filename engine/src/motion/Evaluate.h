@@ -31,17 +31,19 @@ bool trackValue(const Track& t, int64_t tauUs, KeyframeValue& out);
 // Local time under a playback style over a duration (ONCE clamps, LOOP wraps, BOOMERANG triangles).
 int64_t localTime(int64_t timeUs, int64_t durationUs, Playback playback);
 
-// The fold of a binding over its resolved base: each parameter's track combined by its operation, in list order.
-// `tracks(id)` returns the track or nullptr. False when nothing applied (no track found).
+// The fold of a binding over its resolved base: each parameter's track combined by its operation, in list order — a
+// preset's in its clip's time (τ − the clip's offset; a disabled clip is skipped). `tracks(id)` returns the track or
+// nullptr. False when nothing applied (no track found).
 template <typename TrackLookup>
 bool foldValue(const KeyframeValue& base, const std::vector<Param>& params, int64_t tauUs, TrackLookup&& tracks, KeyframeValue& out) {
   out = base;
   bool any = false;
   for (const Param& p : params) {
+    if (p.disabled) continue;
     const Track* t = tracks(p.track);
     if (!t) continue;
     KeyframeValue v;
-    if (!trackValue(*t, tauUs, v)) continue;
+    if (!trackValue(*t, p.kind == Param::Kind::ANIMATION_PRESET ? tauUs - p.offsetUs : tauUs, v)) continue;
     any = true;
     switch (t->operation) {
       case Operation::SET: out = v; break;

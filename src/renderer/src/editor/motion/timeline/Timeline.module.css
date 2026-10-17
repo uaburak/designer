@@ -57,6 +57,7 @@
     align-items: center;
     gap: var(--ds-space-2);
     box-sizing: border-box;
+    width: 100%;
     height: var(--row);
     padding: 0 var(--ds-space-2) 0 calc(var(--ds-space-2) + var(--depth, 0) * var(--ds-space-4));
     border: 0;
@@ -90,6 +91,28 @@
   /* The layer bar: from the first to the last keyframe of the layer */
   .layerBar { position: absolute; top: calc(50% - 3px); height: 6px; border-radius: 3px; background: var(--figma-color-bg-brand-tertiary); opacity: 0.7; cursor: grab; }
   .instanceBar { position: absolute; top: calc(50% - 6px); height: 12px; border-radius: 3px; background: var(--figma-color-bg-component-tertiary); cursor: grab; }
+  /* A preset's clip (round 8h): its type's name in a bar over its span, a handle at each side; blue outline when selected [unverified] */
+  .clip {
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    display: flex;
+    align-items: center;
+    box-sizing: border-box;
+    min-width: 6px;
+    padding: 0 var(--ds-space-2);
+    overflow: hidden;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-brand-tertiary);
+    color: var(--figma-color-text);
+    cursor: grab;
+  }
+  .clip[data-selected] { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected-strong); }
+  .clip[data-disabled] { opacity: 0.4; }
+  .clipLabel { min-width: 0; overflow: hidden; font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); white-space: nowrap; text-overflow: ellipsis; pointer-events: none; }
+  .clipHandle { position: absolute; top: 0; bottom: 0; width: 6px; cursor: ew-resize; }
+  .clipHandle[data-clip-handle="start"] { left: 0; }
+  .clipHandle[data-clip-handle="end"] { right: 0; }
   /* The interpolation line between two keyframes, inset 8 from each diamond; a Hold segment dashed */
   .segment { position: absolute; top: calc(50% - 1px); height: 2px; background: var(--figma-color-icon-tertiary); cursor: pointer; }
   .segment:hover { background: var(--figma-color-bg-brand); }

@@ -2219,6 +2219,7 @@ void Editor::motionApply() {
     return it != derivedInfo_.end() ? it->second.source : kNoGuid;
   };
   hooks.relayout = [&](const std::vector<Guid>& dirty) { motionRelayout(dirty); };
+  hooks.textLayout = [&](Guid id) { return textLayout(id); };  // round 8h: text stagger's elements
   motionLayer_.apply(doc_, motionIndex_, root, motion_.timeUs, hooks);
   needsRender_ = true;
 }

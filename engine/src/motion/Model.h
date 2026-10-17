@@ -14,6 +14,7 @@
 #include "base/Json.h"
 #include "motion/Easing.h"
 #include "motion/Fields.h"
+#include "motion/TextStagger.h"
 #include "scene/Document.h"
 
 namespace eng::motion {
@@ -92,6 +93,11 @@ struct Param {
   Guid preset = kNoGuid;        // ANIMATION_PRESET: the ANIMATION_PRESET_INSTANCE
   Guid timelineDef = kNoGuid;   // the timeline (a root's GUID: its default timeline)
   Guid styleBinding = kNoGuid;  // STYLE: animationStyleBindingId
+  // ANIMATION_PRESET: its clip's place in time and off switch (filled by MotionIndex::rebuild from the instance): the
+  // preset's tracks are in the clip's own time, from 0 (docs/motion.md §4.6).
+  int64_t offsetUs = 0;
+  bool disabled = false;
+  bool staggered = false;  // its clip plays it per text element (TextStagger.h)
 };
 
 // Where a binding sits on the node (docs/motion.md §4.2): a node field, a paint's colour / opacity, an effect's field.
@@ -130,10 +136,26 @@ struct LayerBase {
   bool linkScale = false;
 };
 
+// An animation preset's clip (an ANIMATION_PRESET_INSTANCE, docs/motion.md §4.6; round 8h): the preset type
+// (`backingAnimationPresetId`'s assetRef key, e.g. "opacity"), its place in time (`timelineOffset`, µs — the Delay),
+// its length (`timelineDuration`), its easing and off switch. Its tracks are its KEYFRAME_TRACK children, in the
+// clip's own time; the engine knows no preset's code (the TypeScript runtime materialises them, round 8h).
+struct Preset {
+  Guid id = kNoGuid;
+  std::string key;
+  std::string name;
+  int64_t offsetUs = 0;
+  int64_t durationUs = 500000;  // Figma's presets: Duration 0.5 s
+  bool disabled = false;
+  EasingSpec easing;
+  Stagger stagger;  // its own textElementDelayBehaviour (a text preset's, TextStagger.h)
+};
+
 struct AnimatedNode {
   Guid id = kNoGuid;
   std::vector<Binding> bindings;
   LayerBase base;
+  std::vector<Guid> presets;  // animationPresets, in stacking order (a preset with no tracks yet animates nothing)
 };
 
 // An animated instance's place in its container's time (docs/motion.md §4.3): its `timelineAssignments` entry for
@@ -152,6 +174,7 @@ class MotionIndex {
 
   const Track* track(Guid id) const;
   const AnimatedNode* node(Guid id) const;
+  const Preset* preset(Guid id) const;
   bool animated(Guid id) const { return nodes_.count(id) != 0; }
   // The timeline root above `id` (a page's direct child, a section's direct child frame, or a SYMBOL), kNoGuid when
   // none; `id` itself when it is one.
@@ -169,12 +192,16 @@ class MotionIndex {
  private:
   std::unordered_map<Guid, Track, GuidHash> tracks_;
   std::unordered_map<Guid, AnimatedNode, GuidHash> nodes_;
+  std::unordered_map<Guid, Preset, GuidHash> presets_;
   std::unordered_set<Guid, GuidHash> playing_;
 };
 
 // Decoding helpers (also used by the tests and, in round 8b, by the commands).
 bool decodeKeyframe(const NodeProps& p, Guid id, Keyframe& out);
 bool decodeTrack(const NodeProps& p, Guid id, Track& out);  // without its keyframes
+bool decodePreset(const NodeProps& p, Guid id, Preset& out);
+// A layer's `animationPresets` (521): the instances in stacking order.
+std::vector<Guid> decodePresetList(const NodeProps& p);
 bool decodeEasing(const json::Value& easingData, EasingSpec& out);
 bool decodeKeyframeValue(const json::Value& keyframeValue, KeyframeValue& out);
 // A KEYFRAME expression's second argument (KEYFRAME_TRACK_PARAMETER_DATA): its parameters. False when `arg` isn't one.

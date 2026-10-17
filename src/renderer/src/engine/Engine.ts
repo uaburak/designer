@@ -2017,6 +2017,11 @@ export class Engine {
   runMotionCommand<K extends keyof MotionCommandArgs>(id: K, args: MotionCommandArgs[K]): number {
     return this.command(id, args as unknown as Readonly<Record<string, CommandArgValue>>);
   }
+
+  /** `runMotionCommand` with what it created (Add animation's clips, Add keyframe's keyframes; round 8h). */
+  runMotionCommandCreating<K extends keyof MotionCommandArgs>(id: K, args: MotionCommandArgs[K]): CommandResult {
+    return this.runCommand(id, args as unknown as Readonly<Record<string, CommandArgValue>>);
+  }
 }
 
 /** An export's settings as the engine reads them: the schema's ExportSettings, and `motionTimeUs` (ours) when asked. */

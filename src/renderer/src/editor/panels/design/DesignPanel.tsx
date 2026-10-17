@@ -30,6 +30,7 @@ import { VectorEditPanel } from "./VectorPoints";
 import { usePaintTargets, useSelectedNodes, type PanelNode } from "./shared";
 import { designSections, isTypeNode } from "../../draw/panels/drawPanel";
 import { TransformSection } from "../../draw/panels/TransformSection";
+import { AnimationsSection } from "../../motion/panels/AnimationsSection";
 import { MotionSection } from "../../motion/panels/MotionSection";
 import { MotionFieldStates } from "../../motion/panels/MotionField";
 import { PathTrimSection } from "../../motion/panels/PathTrimSection";
@@ -155,6 +156,8 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
       <VectorOperationNote nodes={nodes} />
       {/* Motion mode (docs/motion.md §6.5): the keyframable fields with their diamonds, before Design's sections (round 8d, increment 1). */}
       {mode === "motion" && <MotionSection nodes={nodes} />}
+      {/* Motion mode (docs/motion.md §4.6, §6.5): the selection's preset clips, + to add one, the composite styles (round 8h). */}
+      {mode === "motion" && <AnimationsSection nodes={nodes} />}
       {shown.has("position") && <PositionSection nodes={nodes} />}
       {shown.has("layout") && <LayoutSection nodes={nodes} />}
       {shown.has("appearance") && <AppearanceSection nodes={nodes} />}

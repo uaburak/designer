@@ -51,6 +51,8 @@ export interface MotionUIState {
   unit: "ms" | "frames";
   /** The timeline's height dragged by its top edge (px); unset: --ds-size-motion-timeline */
   height?: number;
+  /** The preset clip selected on the timeline or in the Animations section (round 8h): its settings open */
+  selectedClip?: string | null;
 }
 export const MOTION_UI_DEFAULT: MotionUIState = { timeUs: 0, playing: false, autoKeyframe: false, collapsed: false, selectedKeyframes: [], unit: "ms" };
 

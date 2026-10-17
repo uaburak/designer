@@ -24,6 +24,7 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
   const text::TextLayout* L = texts_->textLayout(id);
   if (!L) return;
   Rect ink = L->inkBounds;
+  if (const motion::TextElementPoses* st = texts_->textElements(id); st && !st->reach.empty()) ink = ink.united(st->reach);  // Motion's text stagger
   Rect onScreen = transformedBounds(m * Mat2x3::translate(ink.x, ink.y), ink.w, ink.h);
   Rect padded{onScreen.x - 2, onScreen.y - 2, onScreen.w + 4, onScreen.h + 4};
   if (!padded.intersects(screen_)) return;
@@ -63,6 +64,18 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
     }
     return;
   }
+  // Motion's text stagger (docs/motion.md §4.10; round 8h): a glyph of an element drawn with the element's transform
+  // (node space, before its own) and opacity; a glyph in no element, as laid out.
+  const motion::TextElementPoses* staggered = texts_->textElements(id);
+  auto glyphAt = [&](size_t k, Mat2x3& em, double& a) {
+    em = text::glyphMatrix(L->glyphs[k]);
+    a = alpha;
+    if (!staggered || k >= staggered->elementOf.size() || staggered->elementOf[k] < 0) return a > 0;
+    size_t e = static_cast<size_t>(staggered->elementOf[k]);
+    em = staggered->transform[e] * em;
+    a = alpha * staggered->alpha[e];
+    return a > 0;
+  };
   // Fill by fill (bottom first), each glyph in its run's fills.
   size_t layers = 0;
   for (const auto& s : L->styles) layers = std::max(layers, s.fills ? s.fills->size() : 0);
@@ -87,11 +100,14 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
         int saved = beginLayer(r);
         int M = current_;
         static const Paint kWhite = Paint::solid(Color{1, 1, 1, 1});
-        for (const text::LaidGlyph& g : L->glyphs) {
+        for (size_t k = 0; k < L->glyphs.size(); k++) {
+          const text::LaidGlyph& g = L->glyphs[k];
           if (!shaderAt(g, f)) continue;
           const CurveEntry* e = curves_.glyph(g.font, g.glyph);
           if (!e) continue;
-          Mat2x3 em = text::glyphMatrix(g);
+          Mat2x3 em;
+          double ga = alpha;
+          if (!glyphAt(k, em, ga)) continue;
           Mat2x3 gm = m * em;
           DrawInstance q{};
           q.linear[0] = static_cast<float>(gm.m00);
@@ -105,7 +121,7 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
           for (int i = 0; i < 4; i++) q.box[i] = e->bounds[i];
           q.geom[2] = static_cast<float>(ShapeKind::Path);
           DrawState state;
-          if (setPaint(q, state, kWhite, em, p.size, 1)) emit(q, Pass::Path, state);
+          if (setPaint(q, state, kWhite, em, p.size, alpha > 0 ? ga / alpha : 0)) emit(q, Pass::Path, state);
         }
         endLayer(saved);
         stats_.layers++;
@@ -113,15 +129,18 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
                        shader->blendMode == BlendMode::PASS_THROUGH ? BlendMode::NORMAL : shader->blendMode, Color{}, {}, false, r);
       }
     }
-    for (const text::LaidGlyph& g : L->glyphs) {
+    for (size_t k = 0; k < L->glyphs.size(); k++) {
+      const text::LaidGlyph& g = L->glyphs[k];
       const auto* fills = L->styles[g.style].fills;
       if (!fills || f >= fills->size()) continue;
       const Paint& paint = (*fills)[f];
       if (!paint.visible) continue;
       const CurveEntry* e = curves_.glyph(g.font, g.glyph);
       if (!e) continue;
-      // em → node space: scale by the font size, then to the glyph's origin.
-      Mat2x3 em = text::glyphMatrix(g);
+      // em → node space: scale by the font size, then to the glyph's origin (and its element's pose).
+      Mat2x3 em;
+      double ga = alpha;
+      if (!glyphAt(k, em, ga)) continue;
       DrawInstance q{};
       Mat2x3 gm = m * em;
       q.linear[0] = static_cast<float>(gm.m00);
@@ -135,7 +154,7 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
       for (int i = 0; i < 4; i++) q.box[i] = e->bounds[i];
       q.geom[2] = static_cast<float>(ShapeKind::Path);
       DrawState state;
-      if (!setPaint(q, state, paint, em, p.size, alpha)) continue;
+      if (!setPaint(q, state, paint, em, p.size, ga)) continue;
       emit(q, Pass::Path, state);
       stats_.glyphs++;
     }

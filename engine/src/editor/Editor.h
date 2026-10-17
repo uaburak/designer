@@ -656,6 +656,8 @@ class Editor : private LayoutHost, public TextLayouts {
   // ---- Text (docs/engine.md §7.6) ----
   // The layout of a TEXT node as it is now (cached; nullptr for other nodes).
   const text::TextLayout* textLayout(Guid id) override;
+  // Motion's text stagger (round 8h): the poses the motion layer applied to a text's elements.
+  const motion::TextElementPoses* textElements(Guid id) override { return motionLayer_.textElements(id); }
   size_t textCacheSize() const { return textCache_.size(); }  // layouts kept (tests: a lookup that hits adds none)
   // A font arrived or went missing: text is laid out again (and auto-resized
   // texts measured while it loaded take their size).
@@ -1900,6 +1902,18 @@ class Editor : private LayoutHost, public TextLayouts {
   void motionCopyTracks(NodeProps& p, Guid parent, const std::vector<NodeChange>* clip);
   Guid motionCopyTrack(Guid track, const std::vector<NodeChange>* clip);
   void motionClipboard(std::vector<NodeChange>& nodes, const std::vector<const NodeProps*>& copied) const;
+  Guid motionCopyPreset(Guid preset, const std::vector<NodeChange>* clip, std::unordered_map<Guid, Guid, GuidHash>& tracks);
+  // Round 8h (docs/motion.md §4.6): animation presets — ANIMATION_PRESET_INSTANCE clips on the internal canvas, listed
+  // in their layer's `animationPresets`, their materialised tracks their KEYFRAME_TRACK children bound through
+  // ANIMATION_PRESET parameters — and the composite styles that generated them (`styleIdsForAnimation`).
+  bool motionBindingOf(const NodeProps& p, const motion::Slot& s, VariableData& base, std::vector<motion::Param>& params) const;
+  Guid motionAddPreset(Guid node, Guid root, const json::Value& spec, int64_t startUs);
+  bool motionEditPreset(Guid preset, const json::Value& edit);
+  void motionSetPresetTracks(Guid preset, const json::Value& output);
+  void motionRemovePreset(Guid preset);
+  void motionScalePreset(Guid preset, double factor);
+  Guid motionPresetOwner(Guid preset) const;
+  void motionWritePresetList(Guid node, const std::vector<Guid>& presets);
   Guid textPathDrag_ = kNoGuid;    // the TEXT_PATH whose start handle is dragged
   Guid textPathHover_ = kNoGuid;   // the edge the Text on path tool is over (highlighted)
   void switchVectorNode(Guid id);
