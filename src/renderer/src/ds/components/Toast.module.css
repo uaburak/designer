@@ -27,6 +27,8 @@
   }
   .error { background: var(--figma-color-bg-danger); color: var(--figma-color-text-ondanger); }
   .lead { display: flex; flex: none; margin-left: calc(var(--ds-space-2) * -1); color: var(--figma-color-icon-success); }
+  /* A bell's own icon (Figma's visual bell icons, Return to instance's): in the toast's text colour */
+  .icon { color: var(--ds-color-menu-text); }
   .message { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   /* A repeated toast's count (Figma's `count`; its look is not captured: a 16 pill as Badge's count, G) */
   .count {

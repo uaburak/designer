@@ -10,8 +10,8 @@ import { CMD_ENABLED, Status } from "@/engine/abi";
 import type { Guid } from "@/engine/codec";
 import type { EditorController } from "./controller";
 import { COMMAND_BY_ID, command, isEnabled, runEditorCommand, shortcutOf } from "./commands";
-import { instanceChanges, resetChanges, selectedInstance, selectionNodes } from "./components";
-import { isComponent, isComponentSet, isInstance, type ResetKind } from "./model/components";
+import { changedProperties, instanceChanges, resetChanges, resetPropertyValue, selectedInstance, selectionNodes } from "./components";
+import { PROPERTY_ICON, RESET_MENU_KINDS, isComponent, isComponentSet, isInstance, type ResetKind } from "./model/components";
 import { branchMenuIds } from "./branching/commands";
 import { canvasPluginsMenu, pluginsMenu, runPluginMenuItem } from "./plugins/menus";
 import { isBrushSource } from "./draw/drawTools";
@@ -68,20 +68,24 @@ const VIEW_WIDTH = 201.4;
 
 const MORE_LAYOUT: SubSpec = { label: "More layout options", items: ["object.add-layout-horizontal", "object.add-layout-vertical", "object.add-layout-grid"] };
 
-/** Dynamic items' ids: "Reset ▸ <group>" carries the group's fields; "Move to page ▸ <page>" the page. */
+/** Dynamic items' ids: "Reset ▸ <kind>", "Reset ▸ <property>" (its id), "Move to page ▸ <page>" the page. */
 export const RESET_PREFIX = "reset-changes:";
+export const RESET_PROPERTY_PREFIX = "reset-property:";
 const MOVE_TO_PAGE = "move-to-page:";
 
 /**
- * "Reset ▸" for the selected instance (R4 §3): Reset all changes, then one item per changed property group (only
- * those it has). Null when nothing is an instance.
+ * "Reset ▸" for the selected instance (atlas 10 §6.2): Reset all changes, then Figma's "Reset specific changes" —
+ * its twelve kinds in its order, each only when the instance has it, then one "Reset {property}" per changed property
+ * value with the property type's glyph. Null when nothing is an instance.
  */
 export function resetSubmenu(ed: EditorController): MenuItem | null {
   const inst = selectedInstance(ed);
   if (!inst) return null;
   const groups = instanceChanges(ed, inst);
+  const kinds: MenuEntry[] = groups.filter((g) => RESET_MENU_KINDS.has(g.kind)).map((g) => ({ id: `${RESET_PREFIX}${g.kind}`, label: t("Reset {group}", { group: t(g.label).toLocaleLowerCase(intlLocale()) }) }));
+  const props: MenuEntry[] = changedProperties(ed, inst).map((p) => ({ id: `${RESET_PROPERTY_PREFIX}${p.id}`, label: t("Reset {property}", { property: p.name }), icon: PROPERTY_ICON[p.type] }));
   const items: MenuEntry[] = [withoutCheck(commandItem(ed, "object.reset-all-changes"))];
-  if (groups.length) items.push("-", ...groups.map((g) => ({ id: `${RESET_PREFIX}${g.kind}`, label: t("Reset {group}", { group: t(g.label).toLocaleLowerCase(intlLocale()) }) })));
+  if (kinds.length || props.length) items.push("-", ...kinds, ...props);
   return { id: "submenu:reset", label: t("Reset"), items, disabled: !groups.length };
 }
 
@@ -98,6 +102,12 @@ export function runMenuItem(ed: EditorController, id: string): boolean {
     const inst = selectedInstance(ed);
     if (!inst) return false;
     resetChanges(ed, inst, id.slice(RESET_PREFIX.length) as ResetKind);
+    return true;
+  }
+  if (id.startsWith(RESET_PROPERTY_PREFIX)) {
+    const inst = selectedInstance(ed);
+    if (!inst) return false;
+    resetPropertyValue(ed, inst, id.slice(RESET_PROPERTY_PREFIX.length));
     return true;
   }
   if (id.startsWith("select-layer:")) {

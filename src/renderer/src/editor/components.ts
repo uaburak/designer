@@ -17,7 +17,7 @@
  * Reads prefer `engine.componentInfo(ref)`.
  */
 import { t } from "@/i18n";
-import { showToast } from "@/ds";
+import { dismissToast, showToast } from "@/ds";
 import { Status } from "@/engine/abi";
 import type { Guid, Message, NodeChange, NodeFields } from "@/engine/codec";
 import type { EditorController } from "./controller";
@@ -61,6 +61,7 @@ import {
   withBinding,
   withOverride,
   withoutOverrides,
+  worstVariantError,
   type BindableField,
   type PropertyPublishError,
   type ResetGroup,
@@ -72,6 +73,7 @@ import {
   type ComponentPropValue,
   type GuidValue,
   type SymbolData,
+  type VariantError,
 } from "./model/components";
 import { viewCentre } from "./canvas/viewInsets";
 
@@ -131,8 +133,8 @@ export interface EngineComponentProperty {
   name: string;
   apiName?: string;
   type: ComponentPropType;
-  defaultValue: boolean | string | null;
-  value: boolean | string | null;
+  defaultValue: boolean | string | number | null;
+  value: boolean | string | number | null;
   overridden?: boolean;
   preferredValues?: Guid[];
   variantOptions?: string[];
@@ -144,7 +146,7 @@ export interface EngineComponentProperty {
 export interface EngineComponentInfo {
   ref: Guid;
   kind: "COMPONENT" | "VARIANT" | "COMPONENT_SET" | "INSTANCE" | "NESTED_INSTANCE" | "INSTANCE_SUBLAYER" | "COMPONENT_SUBLAYER" | "NONE";
-  main: { ref: Guid; name: string; page: Guid | null; set: Guid | null; softDeleted: boolean } | null;
+  main: { ref: Guid; name: string; page: Guid | null; set: Guid | null; softDeleted: boolean; missingVariantSet?: Guid | null } | null;
   instance: Guid | null;
   path: Guid[];
   overrides: { ref: Guid; fields: string[] }[];
@@ -159,9 +161,9 @@ export interface EngineComponentInfo {
   /** Figma's preconditions for exposing this (a primary instance inside a main); absent on older builds. */
   canExpose?: boolean;
   instanceCount: number;
-  /** Round 17 B, Figma's conflicting variants: this variant's name isn't its values or repeats another's; a set's own. */
-  variantConflict?: boolean;
-  conflictingVariants?: Guid[];
+  /** Figma's variant errors (atlas 10 §4.2): a variant's own, or a set's worst, with the variants that have it. */
+  variantError?: VariantError;
+  errorVariants?: Guid[];
 }
 
 /**
@@ -188,28 +190,41 @@ export function publishErrorLine(e: PropertyPublishError): string {
 }
 
 /**
- * Figma's conflicting variants (round 17 B): for a set, how many of its variants have a name that isn't their values
- * or repeat another's values; for a variant, 1 when it does. 0 for anything else (or an engine without the read).
+ * Figma's variant error panel (atlas 10 §4.2): for a set, its worst error and the variants that have it (what "Select
+ * invalid / conflicting variants" selects); for selected variants, the worst of theirs and how many are selected (the
+ * message's count). Null when there is none (or the engine doesn't read it).
  */
-export function variantConflictCount(ed: EditorController, ref: Guid): number {
-  const info = engineInfo(ed, ref);
-  if (!info) return 0;
-  if (info.kind === "COMPONENT_SET") return info.conflictingVariants?.length ?? 0;
-  return info.kind === "VARIANT" && info.variantConflict ? 1 : 0;
+export function variantErrorOf(ed: EditorController, sel: { kind: "set" | "variant"; ref: Guid }): { error: VariantError; variants: Guid[]; count: number } | null {
+  if (sel.kind === "set") {
+    const info = engineInfo(ed, sel.ref);
+    const error = info?.variantError ?? "NONE";
+    return error === "NONE" ? null : { error, variants: info?.errorVariants ?? [], count: info?.errorVariants?.length ?? 0 };
+  }
+  const variants = ed.selection.filter((id) => engineInfo(ed, id)?.kind === "VARIANT");
+  if (!variants.includes(sel.ref)) variants.unshift(sel.ref);
+  const error = worstVariantError(variants.map((id) => engineInfo(ed, id)?.variantError ?? "NONE"));
+  return error === "NONE" ? null : { error, variants, count: variants.length };
+}
+
+/** "Select invalid variants" / "Select conflicting variants": the selection cleared, then those variants selected. */
+export function selectVariants(ed: EditorController, variants: readonly Guid[]): void {
+  ed.engine.setSelection([...variants]);
 }
 
 /** The engine's property value as the schema's ComponentPropValue. */
-export function toPropValue(type: ComponentPropType, v: boolean | string | null | undefined): ComponentPropValue | undefined {
+export function toPropValue(type: ComponentPropType, v: boolean | string | number | null | undefined): ComponentPropValue | undefined {
   if (v === null || v === undefined) return undefined;
   if (type === "BOOL") return { boolValue: v === true || v === "true" };
+  if (type === "NUMBER") return { floatValue: Number(v) || 0 };
   if (type === "INSTANCE_SWAP" || type === "SLOT") return typeof v === "string" && v.includes(":") ? { guidValue: guidVal(v) } : undefined;
   return { textValue: { characters: String(v) } };
 }
 
-/** A ComponentPropValue as the engine's command argument (boolean, text, a GUID string). */
-export function fromPropValue(type: ComponentPropType, v: ComponentPropValue | undefined): boolean | string | undefined {
+/** A ComponentPropValue as the engine's command argument (boolean, text, a number, a GUID string). */
+export function fromPropValue(type: ComponentPropType, v: ComponentPropValue | undefined): boolean | string | number | undefined {
   if (!v) return undefined;
   if (type === "BOOL") return v.boolValue !== false;
+  if (type === "NUMBER") return v.floatValue ?? 0;
   if (type === "INSTANCE_SWAP" || type === "SLOT") return v.guidValue ? guidStr(v.guidValue) : undefined;
   return v.textValue?.characters ?? "";
 }
@@ -340,12 +355,13 @@ export class ComponentIndex {
         // or a resize (GEOMETRY / LAYOUT) changes nothing an instance's panel shows until it commits.
         if (e.fieldGroupMask.some((m) => (m & COMPONENT_GROUPS) !== 0)) this.infoCache.clear();
       }),
-      // E6: instances re-derived (a main's change reaching them); navigation clears the pill when the engine returns.
+      // E6: instances re-derived (a main's change reaching them); navigation forgets Return to instance when the engine returns.
       ed.engine.onAny((e) => {
         const type = (e as { type: string }).type;
         if (type === "COMPONENTS_CHANGED") bump();
         if (type === "INSTANCE_NAVIGATION" && !(e as { returnTo?: string | null }).returnTo) ed.ui.set({ returnToInstance: null });
-      })
+      }),
+      watchReturnToInstance(ed)
     );
   }
 
@@ -856,6 +872,30 @@ export function instanceChanges(ed: EditorController, instance: CNode): ResetGro
   return parseDerivedId(instance.guid) ? [] : changedGroups(instance);
 }
 
+/**
+ * The properties whose value the instance changed (Figma lists one "Reset {property}" each after the reset kinds; a
+ * Variant property is the variant itself, not a value): the engine's, else the instance's own assignments.
+ */
+export function changedProperties(ed: EditorController, instance: CNode): { id: Guid; name: string; type: ComponentPropType }[] {
+  const info = engineInfo(ed, instance.guid);
+  if (info) return info.properties.filter((p) => p.overridden && p.type !== "VARIANT").map((p) => ({ id: p.id, name: p.name, type: p.type }));
+  const main = mainOf(ed, instance);
+  const owner = main ? (setOf(ed, main) ?? main) : null;
+  const defs = owner?.componentPropDefs ?? [];
+  return (instance.componentPropAssignments ?? []).flatMap((a) => {
+    const d = defs.find((x) => sameGuid(x.id, a.defID));
+    return d && d.type !== "VARIANT" ? [{ id: guidStr(d.id), name: d.name, type: d.type }] : [];
+  });
+}
+
+/** Figma's per-assignment reset (reset-prop-assignments): one property's value back to its default, nothing else. */
+export function resetPropertyValue(ed: EditorController, instance: CNode, prop: Guid): void {
+  if (engineDid(ed, COMPONENT_COMMAND.reset, { ref: instance.guid, kind: "PROPERTY_ASSIGNMENTS", prop })) return;
+  if (parseDerivedId(instance.guid)) return;
+  const left = (instance.componentPropAssignments ?? []).filter((a) => guidStr(a.defID) !== prop);
+  ed.setProps([instance.guid], asFields({ componentPropAssignments: left }), "Reset property");
+}
+
 // ---- Definitions (the main component's Properties) ------------------------------------------------------------------
 
 const allDefIds = (ed: EditorController, owner: CNode): GuidValue[] => {
@@ -1064,11 +1104,12 @@ export function setDescription(ed: EditorController, owner: CNode, description: 
 // ---- Navigation -----------------------------------------------------------------------------------------------------
 
 /**
- * Go to main component (⌃⌥⌘K): its page, selected and in view; the pill offers "Return to instance". A deleted
- * main offers Restore component instead.
+ * Go to main component (⌃⌥⌘K): the main the selected instances share — its page, selected and in view; the bell
+ * offers "Return to instance" (`watchReturnToInstance`). A deleted main offers Restore component instead.
  */
-export function goToMainComponent(ed: EditorController, instanceRef: Guid = ed.selection[0]): boolean {
-  const instance = readC(ed, instanceRef);
+export function goToMainComponent(ed: EditorController, refs: readonly Guid[] = ed.selection): boolean {
+  const instanceRef = refs[0];
+  const instance = instanceRef ? readC(ed, instanceRef) : null;
   if (!instance || !isInstance(instance)) return false;
   const main = mainOf(ed, instance);
   if (!main) {
@@ -1092,8 +1133,9 @@ export function goToMainComponent(ed: EditorController, instanceRef: Guid = ed.s
     showToast({ message: t("The main component was deleted"), action: hasCommand(COMPONENT_COMMAND.restore) ? { label: t("Restore component"), onAction: () => void runEngineCommand(ed.engine, COMPONENT_COMMAND.restore, { ref: instanceRef }) } : undefined });
     return false;
   }
-  const from = { instance: instanceRef, page: ed.store.page, camera: ed.engine.getCamera() };
-  if (engineDid(ed, COMPONENT_COMMAND.goToMain, { ref: instanceRef })) {
+  // Figma remembers {mainComponentGUID, instanceGUIDs}: every instance selected now.
+  const from = { main: main.guid, instances: [...refs], page: ed.store.page, camera: ed.engine.getCamera() };
+  if (engineDid(ed, COMPONENT_COMMAND.goToMain, { ref: [...refs] })) {
     ed.ui.set({ returnToInstance: from });
     return true;
   }
@@ -1121,16 +1163,114 @@ export function goToComponent(ed: EditorController, id: Guid): boolean {
   return true;
 }
 
-/** "Return to instance": the instance's page, the camera there before, the instance selected. */
+/**
+ * What the instance panel offers for a deleted main (atlas 10 §6.5): a deleted variant of a set that is still there
+ * is Figma's missing variant ("Reset to default"); any other deleted main, "Restore component". Null otherwise.
+ */
+export function deletedMainState(ed: EditorController, instance: CNode): { kind: "missing-variant"; set: Guid } | { kind: "restore" } | null {
+  const main = engineInfo(ed, instance.guid)?.main;
+  if (!main?.softDeleted) return null;
+  if (main.missingVariantSet) return { kind: "missing-variant", set: main.missingVariantSet };
+  return hasCommand(COMPONENT_COMMAND.restore) ? { kind: "restore" } : null;
+}
+
+/** Figma's "Reset to default" (reset-variant) for a missing variant: the instance becomes its set's default variant. */
+export function resetToDefaultVariant(ed: EditorController, instance: CNode, set: Guid): void {
+  const setNode = readC(ed, set);
+  const target = setNode ? defaultVariant(variantsOf(ed, setNode)) : null;
+  if (target) swapInstance(ed, [instance.guid], target.guid, "Reset variant");
+}
+
+/** "Restore component" from the instance panel: the deleted main (or its set) back where it was. */
+export function restoreMainOf(ed: EditorController, instance: CNode): void {
+  void runEngineCommand(ed.engine, COMPONENT_COMMAND.restore, { ref: instance.guid });
+}
+
+/**
+ * "Return to instance" (Figma's selectInstances(instanceGUIDs, true)): the instances Go to main component came
+ * from, selected again (their page shown) and brought into view; the memory is forgotten.
+ */
 export function returnToInstance(ed: EditorController): void {
   const back = ed.ui.get().returnToInstance;
   ed.ui.set({ returnToInstance: null });
   if (!back) return;
   if (engineDid(ed, COMPONENT_COMMAND.returnToInstance)) return;
+  const instances = back.instances.map((id) => readC(ed, id) ?? readC(ed, parseDerivedId(id)?.instance ?? "")).filter((n): n is CNode => !!n);
+  if (!instances.length) return;
   if (back.page !== ed.store.page && ed.store.pages.some((p) => p.guid === back.page)) ed.engine.setCurrentPage(back.page);
   ed.engine.setCamera(back.camera);
-  const instance = readC(ed, back.instance) ?? readC(ed, parseDerivedId(back.instance)?.instance ?? "");
-  if (instance) ed.engine.setSelection([instance.guid]);
+  ed.engine.setSelection(instances.map((n) => n.guid));
+}
+
+/** How long Return to instance is remembered once the selection leaves the main (Figma: 120 000 ms). */
+export const RETURN_TO_INSTANCE_MEMORY_MS = 120_000;
+
+/** Whether the selection is the remembered main or one layer inside it (Figma: exactly one node selected). */
+export function inRememberedMain(ed: EditorController, main: Guid): boolean {
+  const sel = ed.selection;
+  if (sel.length !== 1) return false;
+  return sel[0] === main || ancestors(ed, sel[0]).some((a) => a.guid === main);
+}
+
+/**
+ * Return to instance as Figma's visual bell (atlas 10 §6.4): after Go to main component, while the selection is that
+ * main or a layer inside it, a bell with the instance icon and a "Return to instance" button stays up, and ⌃⌥⌘K or
+ * ⌃⌥⇧K returns too. When the selection leaves the main the bell goes and the memory is kept 2 min — coming back to
+ * the main within that shows the bell again; after it, or when the bell's × is clicked, the memory is forgotten.
+ * Returns the unsubscribe.
+ */
+export function watchReturnToInstance(ed: EditorController): () => void {
+  let bell: number | null = null;
+  let forget: ReturnType<typeof setTimeout> | undefined;
+  const target = typeof window !== "undefined" && typeof window.addEventListener === "function" ? window : null;
+  const onKey = (e: KeyboardEvent) => {
+    // Figma listens for both, whatever the platform: ⌃⌥⌘K (Go to main component's own keys) and ⌃⌥⇧K.
+    if (e.code !== "KeyK" || !e.ctrlKey || !e.altKey || !(e.metaKey || e.shiftKey)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    returnToInstance(ed);
+  };
+  const hide = () => {
+    if (bell === null) return;
+    dismissToast(bell);
+    bell = null;
+    target?.removeEventListener("keydown", onKey, true);
+  };
+  const update = () => {
+    const back = ed.ui.get().returnToInstance;
+    if (!back) {
+      clearTimeout(forget);
+      hide();
+      return;
+    }
+    const inMain = inRememberedMain(ed, back.main);
+    if (inMain && bell === null) {
+      clearTimeout(forget);
+      bell = showToast({
+        message: "",
+        icon: "24.instance.small",
+        duration: Infinity,
+        action: { label: t("Return to instance"), onAction: () => returnToInstance(ed) },
+        onDismiss: () => {
+          bell = null;
+          ed.ui.set({ returnToInstance: null });
+        },
+      });
+      target?.addEventListener("keydown", onKey, true);
+    } else if (!inMain && bell !== null) {
+      hide();
+      clearTimeout(forget);
+      forget = setTimeout(() => {
+        if (ed.ui.get().returnToInstance === back) ed.ui.set({ returnToInstance: null });
+      }, RETURN_TO_INSTANCE_MEMORY_MS);
+    }
+  };
+  const offs = [ed.store.subscribe("selection", update), ed.ui.subscribe(update)];
+  return () => {
+    offs.forEach((off) => off());
+    clearTimeout(forget);
+    hide();
+  };
 }
 
 // ---- Inserting instances (Assets) ---------------------------------------------------------------------------------

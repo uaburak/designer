@@ -1,7 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { cx } from "../util/cx";
 import { Portal } from "../overlay/Portal";
-import { Icon } from "../icons/Icon";
+import { Icon, type IconName } from "../icons/Icon";
 import { timing } from "../tokens";
 import { STRINGS } from "../strings";
 import { t, useT } from "@/i18n";
@@ -19,6 +19,10 @@ export type ToastOptions = {
   delay?: number;
   /** "exact": its time isn't halved while others wait (Figma's `timeoutType`; "suggested" by default) */
   timeoutType?: "suggested" | "exact";
+  /** Figma's bell icon before the message (Return to instance's: the instance glyph) */
+  icon?: IconName;
+  /** Called when the user dismisses it with × (Figma's `onDismiss`, which shows the ×); not when it times out or is taken down */
+  onDismiss?: () => void;
 };
 type ToastState = ToastOptions & { id: number; count: number };
 
@@ -70,6 +74,9 @@ export function showToast(options: ToastOptions): number {
   return id;
 }
 
+/** The toast showing now (null: none) — what ToastHost draws. */
+export const currentToast = (): Readonly<ToastOptions & { id: number }> | null => snapshot.toast;
+
 /** Dismiss a toast — waiting, delayed or showing (no id: the one showing). */
 export function dismissToast(id?: number): void {
   if (id !== undefined && delayed.has(id)) {
@@ -89,12 +96,13 @@ const subscribe = (l: () => void) => {
 };
 
 /** A toast's look (contract §4.22): 40px, radius 9, dark (red for errors), a repeat count, an action and ×. */
-export function Toast({ message, kind = "default", action, count, onClose, static: isStatic }: ToastOptions & { count?: number; onClose?: () => void; static?: boolean }) {
+export function Toast({ message, kind = "default", action, count, icon, onClose, static: isStatic }: ToastOptions & { count?: number; onClose?: () => void; static?: boolean }) {
   useT();
   return (
     <div role={kind === "error" ? "alert" : "status"} data-ds="Toast" data-theme="dark" data-theme-forced="" className={cx(styles.toast, kind === "error" && styles.error, isStatic && styles.static)}>
       {kind === "success" && <span className={styles.lead}><Icon name="24.check" /></span>}
-      <span className={styles.message}>{message}</span>
+      {icon && <span className={cx(styles.lead, styles.icon)}><Icon name={icon} size={24} /></span>}
+      {message && <span className={styles.message}>{message}</span>}
       {count !== undefined && count > 1 && <span className={styles.count} data-toast-count={count}>{count}</span>}
       {action && (
         <Button variant="ghost" onClick={action.onAction}>
@@ -116,7 +124,7 @@ function schedule(timer: { current: number | undefined }, toast: ToastState, que
 /**
  * Mounted once per document: draws the queue's first toast bottom-centre (68 from the bottom), dismissing it on time
  * — counted again when one more queues behind it or it repeats; paused while hovered. Its × shows when it has no time
- * (an error, or one that stays until dismissed), as Figma's.
+ * (an error, or one that stays until dismissed) or it has an `onDismiss`, as Figma's.
  */
 export function ToastHost() {
   const { toast, queued } = useSyncExternalStore(subscribe, () => snapshot, () => snapshot);
@@ -136,8 +144,16 @@ export function ToastHost() {
           message={toast.message}
           kind={toast.kind}
           count={toast.count}
+          icon={toast.icon}
           action={toast.action && { label: toast.action.label, onAction: () => { toast.action?.onAction(); dismissToast(toast.id); } }}
-          onClose={lasting ? () => dismissToast(toast.id) : undefined}
+          onClose={
+            lasting || toast.onDismiss
+              ? () => {
+                  dismissToast(toast.id);
+                  toast.onDismiss?.();
+                }
+              : undefined
+          }
         />
       </div>
     </Portal>

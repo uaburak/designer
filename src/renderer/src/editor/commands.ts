@@ -655,6 +655,19 @@ export const COMMANDS: EditorCommand[] = [
       return !!inst && instanceChanges(ed, inst).length > 0;
     },
   },
+  {
+    // Figma's reset-variable-modes: its own action, not an item of Reset ▸ (atlas 10 §6.2).
+    id: "object.reset-variable-modes",
+    label: "Reset variable modes",
+    run: (ed) => {
+      const inst = selectedInstance(ed);
+      if (inst) resetChanges(ed, inst, "VARIABLE_MODES");
+    },
+    enabled: (ed) => {
+      const inst = selectedInstance(ed);
+      return !!inst && instanceChanges(ed, inst).some((g) => g.kind === "VARIABLE_MODES");
+    },
+  },
   pending("object.restore-component", "Restore component", COMPONENT_COMMAND.restore),
   pending("object.reset-slot", "Reset slot", COMPONENT_COMMAND.resetSlot),
   // Slots (help "Create and use slots"): a nested frame of a main becomes a slot; anything else is wrapped first.
