@@ -564,7 +564,7 @@ async function componentsSection(page, theme) {
   await settle(page);
   const went = await page.evaluate(() => ({ page: window.__designerEditor.store.page, sel: window.__designerEditor.selection }));
   check("⌃⌥⌘K goes to the main on its page", went.page === "0:3" && went.sel.join() === "1:1", JSON.stringify(went));
-  check("the Return to instance pill shows", (await page.locator("[data-return-to-instance]").count()) === 1);
+  check("the Return to instance bell shows", (await page.getByRole("button", { name: "Return to instance" }).count()) === 1);
   await shot(page, `44-go-to-main-${theme}`);
 
   // The main component: Properties (+), its rows, the description.
@@ -586,7 +586,7 @@ async function componentsSection(page, theme) {
   const defs = (await node(page, "1:1")).componentPropDefs ?? [];
   check("Create property adds a Boolean property", defs.some((d) => d.name === "Disabled" && d.type === "BOOL"), defs.map((d) => d.name).join(", "));
 
-  await page.locator("[data-return-to-instance] button").first().click();
+  await page.getByRole("button", { name: "Return to instance" }).first().click();
   await settle(page);
   const back = await page.evaluate(() => ({ page: window.__designerEditor.store.page, sel: window.__designerEditor.selection }));
   check("Return to instance goes back", back.page === "0:1" && back.sel.join() === "2:2", JSON.stringify(back));

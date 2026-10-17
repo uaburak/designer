@@ -822,6 +822,63 @@ an existing `src/shared/i18n` entry. Otherwise only the key is shown.
 | Documentation link display names (GitHub / Figma / Zeplin / Jira / Asana) | missing | devmode inspect |
 | Visual bells (§10) | partial (cycle and self-instance messages exist) | — |
 
+### As built (2026-10-18, wave 2)
+
+Branch "components" (atlas integration wave 2). Built in the list's order:
+
+- **Return to instance** as Figma's visual bell (§6.4): the pill is gone; Go to main component remembers
+  `{main, instances}` (every selected instance sharing one main — the engine's `GO_TO_MAIN_COMPONENT {ref: Guid[]}`
+  and its enable rule now take several, layers inside instances counting as their instance; `RETURN_TO_INSTANCE`
+  selects them all and zooms to them). A toast with the instance icon and "Return to instance" stays up while exactly
+  one node is selected and it is the main or inside it; ⌃⌥⌘K or ⌃⌥⇧K returns while it is up (a capture listener, as
+  Figma's); leaving the main takes it down and keeps the memory 120 000 ms, coming back shows it again; its × forgets.
+  `editor/components.ts watchReturnToInstance`; the DS toast gained `icon` and `onDismiss` (a small hook in
+  `ds/components/Toast.tsx`, with `currentToast()` for tests).
+- **Reset kinds**: batch B's kinds were already Figma's order. "Reset ▸" now lists only Figma's twelve, then one
+  **"Reset {property}"** per changed property value with the type's glyph (engine `RESET_OVERRIDES {kind:
+  PROPERTY_ASSIGNMENTS, prop}` drops only that assignment, at the instance's own level). The nested swap and Variable
+  modes left the submenu; "Reset variable modes" is its own command (`object.reset-variable-modes`).
+- **Assets**: Figma's tile layouts and grid math (`model/components.ts tileLayoutOf / tileGrid`: WIDE when every item
+  is 3× wider than tall, NORMAL otherwise — SMALL off as in Figma's Assets grid; columns from the panel's width, so
+  three 115 tiles from 409 px); the list view's 40 × 40 thumbnails; Figma's search — **Fuse.js 3.6.1** (added as a
+  dev dependency; the version Figma's worker bundles) with its keys and weights (name 0.6, frame 0.1, page 0.1,
+  description 0.05), threshold 0.3, `tokenize`, best first — results listed in score order, not regrouped; the
+  **details flyout** (⌘Enter / Ctrl+Enter on a tile, and "View details" in the tile menu, now on library tiles too):
+  the name, "N variants", the description folded after six lines with Show more / Show less, Insert instance; inserts
+  join the file's recents; a drag of a component larger than the view zooms out to min(view / size) × 0.5 on
+  entering the canvas.
+- **Variant errors**: the engine reads every variant's values from its name (`Editor::variantErrors`) — PARSE,
+  DUPLICATE_STATE, MISSING_PROPERTIES, and TOO_MANY_STATES past 1000 variants when none has one; componentInfo gives
+  `variantError` and `errorVariants` (replacing batch B's `variantConflict` / `conflictingVariants`). The Design panel
+  shows Figma's set-level text with "Select invalid variants" / "Select conflicting variants", or the selected
+  variants' text counted by how many are selected; an invalid name shows the format in bold.
+- **NUMBER properties**: schema `ComponentPropType.NUMBER = 5` (Figma's number; `schemagen --check` 0 problems), the
+  value in `ComponentPropValue.floatValue` 4 (now modelled in C++ and in both codecs, and read from a `varValue`
+  FLOAT); Figma's value rule (sign, digits, optional decimals or ".5"; not blank; 2 decimals) and its display (no
+  trailing zeros, NaN → 0) in `propNumber` / `formatPropNumber` and their TS twins; it binds `TEXT_DATA`, so a bound
+  text layer shows the number; default 0, base name "Number"; its default takes a FLOAT variable. The panel has its row
+  (a number field), its summary and its settings; the plugin API's `addComponentProperty(…, "NUMBER", …)` works. As in
+  Figma's build, **Create property doesn't offer it** (§5.1).
+- **Swap picker**: Figma's sections in the library field — Preferred (when the property has preferred values),
+  Recently used, Created in this file — opening on Preferred, else the library when it has components, else Recently
+  used; the search runs in the section's scope with Figma's placeholders and one result per name. Recently used is
+  the file's recents (`editor/recentComponents.ts`, localStorage, 20 kept — Figma's count is unverified). The slot
+  picker's own Preferred / All filter went (the sections replace it).
+- **Also**: the instance panel's rows fold as Figma's — more than five show four and "Show N more" (the property
+  rows and the nested instances); a deleted main's instance shows only a full-width **Restore component**, and an
+  instance of a deleted variant of a set that is still there shows Figma's **missing variant** panel with **Reset to
+  default** (the set's default variant; componentInfo `main.missingVariantSet`).
+
+Checks: `engine:test` 775 / 775 (five new cases in `components.test.cpp`), wasm rebuilt; typecheck and eslint clean;
+vitest on `editor/`, `ds/`, `shared/i18n`.
+
+**English not attested** (written from the keys, to check in the live app): the variant error texts and links, "Show
+{n} more", "Missing variant" / "The selected variant is missing in the component", "Search preferred", the non-mac
+tile hint. **Not done:** the removed-component banner in the swap picker (its English is unattested); library sections
+in the swap picker (it lists this file's components only); the flyout's playground, update banner and author line;
+documentation link display names (Dev Mode's area); the Restore modal's moved-to-file text; Apply-property button
+rules; IMAGE properties (O10); the NUMBER property's place in the UI (open question 6).
+
 ## 13. Open questions
 
 1. **Combine as variants layout.** The set's padding, gap, stroke (dashed purple width and dash) and corner radius,

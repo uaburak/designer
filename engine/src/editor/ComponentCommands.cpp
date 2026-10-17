@@ -6,7 +6,10 @@
 // instances, slots; and componentInfo, what the panels read.
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <map>
 #include <unordered_set>
 
@@ -96,7 +99,8 @@ ParamBinding propBinding(VariableField field, Guid def) {
 VariableField bindingFieldOf(ComponentPropType t) {
   switch (t) {
     case ComponentPropType::BOOL: return VariableField::VISIBLE;
-    case ComponentPropType::TEXT: return VariableField::TEXT_DATA;
+    case ComponentPropType::TEXT:
+    case ComponentPropType::NUMBER: return VariableField::TEXT_DATA;  // a number drives a text layer (Figma)
     case ComponentPropType::INSTANCE_SWAP: return VariableField::OVERRIDDEN_SYMBOL_ID;
     case ComponentPropType::SLOT: return VariableField::SLOT_CONTENT_ID;
     default: return VariableField::MISSING;
@@ -108,6 +112,7 @@ std::string defaultPropertyBase(ComponentPropType t) {
   switch (t) {
     case ComponentPropType::BOOL: return "Boolean";
     case ComponentPropType::TEXT: return "Text";
+    case ComponentPropType::NUMBER: return "Number";
     case ComponentPropType::INSTANCE_SWAP: return "Instance";
     case ComponentPropType::SLOT: return "Slot";
     default: return "Property";
@@ -135,11 +140,46 @@ std::string defaultPropertyName(const std::vector<std::string>& taken, const std
   return any ? prefix + std::to_string(top + 1) : base;
 }
 
+bool propNumber(const json::Value& v, float& out) {
+  double x = 0;
+  if (v.isNumber()) {
+    x = v.number;
+  } else if (v.isString()) {
+    // Figma's pattern: an optional sign, digits with an optional decimal part, or a decimal starting with ".".
+    const std::string s = trim(v.string);
+    size_t i = s.empty() || (s[0] != '+' && s[0] != '-') ? 0 : 1;
+    size_t intDigits = 0, fracDigits = 0;
+    while (i < s.size() && std::isdigit(static_cast<unsigned char>(s[i]))) i++, intDigits++;
+    if (i < s.size() && s[i] == '.') {
+      i++;
+      while (i < s.size() && std::isdigit(static_cast<unsigned char>(s[i]))) i++, fracDigits++;
+    }
+    if (i != s.size() || (intDigits == 0 && fracDigits == 0)) return false;
+    x = std::strtod(s.c_str(), nullptr);
+  } else {
+    return false;
+  }
+  if (!std::isfinite(x)) return false;
+  out = static_cast<float>(std::round(x * 100) / 100);
+  return true;
+}
+
+std::string formatPropNumber(double v) {
+  if (!std::isfinite(v)) return "0";
+  char buf[64];
+  std::snprintf(buf, sizeof buf, "%.2f", std::round(v * 100) / 100);
+  std::string s = buf;
+  while (!s.empty() && s.back() == '0') s.pop_back();
+  if (!s.empty() && s.back() == '.') s.pop_back();
+  return s == "-0" ? "0" : s;
+}
+
 namespace {
 
 bool propTypeFromName(const std::string& s, ComponentPropType& t) {
   if (s == "BOOLEAN" || s == "BOOL") return t = ComponentPropType::BOOL, true;
   if (s == "TEXT") return t = ComponentPropType::TEXT, true;
+  if (s == "NUMBER") return t = ComponentPropType::NUMBER, true;
   if (s == "INSTANCE_SWAP") return t = ComponentPropType::INSTANCE_SWAP, true;
   if (s == "VARIANT") return t = ComponentPropType::VARIANT, true;
   if (s == "SLOT") return t = ComponentPropType::SLOT, true;
@@ -472,6 +512,12 @@ bool Editor::computeComponentInfo(Guid id, ComponentInfo& out) const {
     out.mainSet = setOf(main);
     out.mainSoftDeleted = mn->props.comp().isSoftDeleted || (out.mainSet != kNoGuid && doc_.get(out.mainSet)->props.comp().isSoftDeleted);
     out.mainDeleted = out.mainSoftDeleted;
+    // Figma's missing variant (DELETED_LOCAL_STATE): a deleted variant of a set that is still there.
+    if (mn->props.comp().isSoftDeleted && mn->props.type == NodeType::SYMBOL && !mn->props.comp().ancestorPathBeforeDeletion.empty()) {
+      Guid was = mn->props.comp().ancestorPathBeforeDeletion.back();
+      const Node* wn = doc_.get(was);
+      if (wn && wn->props.isComponentSet() && !wn->props.comp().isSoftDeleted) out.missingVariantSet = was;
+    }
     Guid copyRoot = libraryRootOf(main);
     if (copyRoot != kNoGuid) {
       const NodeProps& rp = doc_.get(copyRoot)->props;
@@ -576,7 +622,10 @@ bool Editor::computeComponentInfo(Guid id, ComponentInfo& out) const {
     out.properties = propertiesOf(kNoGuid, id);
     variantPropsOf(id);
     out.instanceCount = instanceCount(id);
-    out.variantConflict = out.kind == ComponentInfo::Kind::VARIANT && variantConflicts(id);
+    if (out.kind == ComponentInfo::Kind::VARIANT) {
+      out.variantError = variantError(id);
+      if (out.variantError != VariantError::NONE) out.errorVariants = {id};
+    }
     return true;
   }
   if (p.isComponentSet()) {
@@ -585,8 +634,12 @@ bool Editor::computeComponentInfo(Guid id, ComponentInfo& out) const {
     if (def != kNoGuid) out.properties = propertiesOf(kNoGuid, def);
     out.instanceCount = instanceCount(id);
     out.mainSoftDeleted = p.comp().isSoftDeleted;
-    for (Guid v : doc_.children(id))
-      if (!v.isDerived() && variantConflicts(v)) out.conflictingVariants.push_back(v);
+    // The worst error over the variants (Figma's max), and the variants that have it.
+    std::vector<std::pair<Guid, VariantError>> errors = variantErrors(id);
+    for (const auto& [v, err] : errors) out.variantError = std::max(out.variantError, err);
+    for (const auto& [v, err] : errors)
+      if (err != VariantError::NONE && err == out.variantError) out.errorVariants.push_back(v);
+    if (out.variantError == VariantError::NONE && errors.size() > kMaxVariants) out.variantError = VariantError::TOO_MANY_STATES;
     return true;
   }
   for (Guid cur = doc_.parentOf(id); doc_.has(cur); cur = doc_.parentOf(cur)) {
@@ -637,10 +690,17 @@ uint32_t Editor::componentCommandState(CommandId id) const {
       return selection_.size() == 1 && componentInfo(selection_[0], info) && info.canPush ? CMD_ENABLED : 0;
     }
     case CommandId::GO_TO_MAIN_COMPONENT: {
-      Guid main = selection_.size() == 1 ? mainOf(selection_[0]) : kNoGuid;
+      // Figma's hasNonSoftDeletedCommonSymbolBackingInstances: the selected instances (or layers in them) share one main.
+      Guid main = kNoGuid;
+      for (Guid s : selection_) {
+        Guid m = mainOf(instanceBehind(s));
+        if (m == kNoGuid || (main != kNoGuid && m != main)) return 0;
+        main = m;
+      }
       return main != kNoGuid && !isLibraryCopy(main) && !isCopiedMain(main) ? CMD_ENABLED : 0;
     }
-    case CommandId::RETURN_TO_INSTANCE: return doc_.has(returnTo_) ? CMD_ENABLED : 0;
+    case CommandId::RETURN_TO_INSTANCE:
+      return std::any_of(returnTo_.begin(), returnTo_.end(), [&](Guid g) { return doc_.has(g); }) ? CMD_ENABLED : 0;
     case CommandId::SWAP_INSTANCE:
     case CommandId::SET_COMPONENT_PROPERTY:
       return anyOf([](Guid, const NodeProps& p) { return p.type == NodeType::INSTANCE; }) ? CMD_ENABLED : 0;
@@ -705,6 +765,16 @@ Status Editor::componentCommand(CommandId id, const CommandArgs& args) {
           if (f.isString()) fields.push_back(f.string);
       for (const std::string& k : kinds)
         if (!resetKind(k, spec)) return E_INVALID;
+      // {kind: "PROPERTY_ASSIGNMENTS", prop | props}: one property's value (Figma's per-assignment "Reset {property}").
+      if (!argString(args, "prop").empty()) spec.props.push_back(argString(args, "prop"));
+      if (const json::Value* list = arg(args, "props"); list && list->isArray())
+        for (auto& p : list->array)
+          if (p.isString()) spec.props.push_back(p.string);
+      if (!spec.props.empty()) {
+        if (kinds.size() != 1 || kinds[0] != "PROPERTY_ASSIGNMENTS") return E_INVALID;
+        spec.assignments = false;
+        spec.bits &= ~static_cast<FieldMask>(F_COMPONENT_PROP_ASSIGNMENTS);
+      }
       for (const std::string& f : fields) {
         if (f == "componentPropAssignments") spec.assignments = true;
         FieldMask b = codec::fieldOfKey(f);
@@ -724,7 +794,7 @@ Status Editor::componentCommand(CommandId id, const CommandArgs& args) {
     }
     case CommandId::SET_VARIANT_PROPERTIES: return setVariantProperties(oneRef(), args);
     case CommandId::PUSH_CHANGES_TO_MAIN: return pushChangesToMain(oneRef());
-    case CommandId::GO_TO_MAIN_COMPONENT: return goToMainComponent(oneRef());
+    case CommandId::GO_TO_MAIN_COMPONENT: return goToMainComponent(refsArg(args, "ref"));
     case CommandId::RETURN_TO_INSTANCE: return returnToInstanceCmd();
     case CommandId::SWAP_INSTANCE: {
       bool ok = false;
@@ -1292,6 +1362,23 @@ Status Editor::resetOverrides(const std::vector<Guid>& refs, const ResetSpec& sp
                  list.end());
       return list.size() != before;
     };
+    // One property's value (spec.props): its assignment at one level is dropped (a slot's content with it).
+    auto dropProps = [&](std::vector<ComponentPropAssignment>& list, Guid main) {
+      Guid owner = setOf(main) != kNoGuid ? setOf(main) : main;
+      size_t before = list.size();
+      for (const std::string& prop : spec.props) {
+        const ComponentPropDef* def = owner != kNoGuid ? findDef(owner, prop) : nullptr;
+        if (!def) continue;
+        Guid id = def->id;
+        list.erase(std::remove_if(list.begin(), list.end(), [&](const ComponentPropAssignment& a) {
+                     if (a.defID != id) return false;
+                     if (isSlotAssignment(main, a) && a.value.guidValue != kNoGuid) contentGone.push_back(a.value.guidValue);
+                     return true;
+                   }),
+                   list.end());
+      }
+      return list.size() != before;
+    };
     for (SymbolOverride& o : sd.overrides) {
       bool match = exact ? o.path == under : o.path.size() >= under.size() && std::equal(under.begin(), under.end(), o.path.begin());
       if (!match) continue;
@@ -1304,10 +1391,11 @@ Status Editor::resetOverrides(const std::vector<Guid>& refs, const ResetSpec& sp
       if (spec.otherExtras)
         for (auto it = o.props.extra.begin(); it != o.props.extra.end();) it = namedExtraKey(it->first) ? std::next(it) : o.props.extra.erase(it);
       if (o.props.extra.empty()) o.mask &= ~static_cast<FieldMask>(F_EXTRA);
-      if (spec.slotAssignments && (o.mask & F_COMPONENT_PROP_ASSIGNMENTS)) {
+      if ((spec.slotAssignments || !spec.props.empty()) && (o.mask & F_COMPONENT_PROP_ASSIGNMENTS)) {
         Guid nested = mainOf(derived::intern(top, o.path));
         auto& list = o.props.comp().componentPropAssignments;
-        dropSlots(list, nested);
+        if (spec.slotAssignments) dropSlots(list, nested);
+        if (!spec.props.empty() && o.path == under) dropProps(list, nested);  // that nested instance's own values only
         if (list.empty()) o.mask &= ~static_cast<FieldMask>(F_COMPONENT_PROP_ASSIGNMENTS);
       }
     }
@@ -1318,9 +1406,11 @@ Status Editor::resetOverrides(const std::vector<Guid>& refs, const ResetSpec& sp
     c.props.comp().symbolData = sd;
     if (!ref.isDerived() && clearAssignments) {
       c.mask |= F_COMPONENT_PROP_ASSIGNMENTS;  // the instance's property values go back to the defaults too
-    } else if (!ref.isDerived() && spec.slotAssignments) {
+    } else if (!ref.isDerived() && (spec.slotAssignments || !spec.props.empty())) {
       std::vector<ComponentPropAssignment> list = tn->props.comp().componentPropAssignments;
-      if (dropSlots(list, symbolOf(tn->props))) {
+      bool dropped = spec.slotAssignments && dropSlots(list, symbolOf(tn->props));
+      if (!spec.props.empty()) dropped |= dropProps(list, symbolOf(tn->props));
+      if (dropped) {
         c.mask |= F_COMPONENT_PROP_ASSIGNMENTS;
         c.props.comp().componentPropAssignments = std::move(list);
       }
@@ -1465,11 +1555,22 @@ Status Editor::pushChangesToMain(Guid R) {
 
 // ---- Navigation -------------------------------------------------------------------------------
 
-Status Editor::goToMainComponent(Guid ref) {
-  Guid inst = ref;
+Guid Editor::instanceBehind(Guid ref) const {
   if (ref.isDerived() && doc_.get(ref) && doc_.get(ref)->props.type != NodeType::INSTANCE)
-    if (auto info = derivedInfo_.find(ref); info != derivedInfo_.end()) inst = info->second.level;
-  Guid main = mainOf(inst);
+    if (auto info = derivedInfo_.find(ref); info != derivedInfo_.end()) return info->second.level;
+  return ref;
+}
+
+// Figma's find-symbol: the selected instances (or layers inside them) share one main, which is selected and zoomed
+// to; it remembers every ref for Return to instance.
+Status Editor::goToMainComponent(const std::vector<Guid>& refs) {
+  Guid main = kNoGuid;
+  for (Guid ref : refs) {
+    Guid m = mainOf(instanceBehind(ref));
+    if (m == kNoGuid) return E_NOT_FOUND;
+    if (main != kNoGuid && m != main) return E_INVALID;  // not one main
+    main = m;
+  }
   if (main == kNoGuid) return E_NOT_FOUND;
   const Node* mn = doc_.get(main);
   Guid set = setOf(main);
@@ -1479,17 +1580,21 @@ Status Editor::goToMainComponent(Guid ref) {
   setSelection({main});
   zoomToSelection();
   navMain_ = main;
-  returnTo_ = ref;
+  returnTo_ = refs;
   events_.navigation = true;
   return OK;
 }
 
 Status Editor::returnToInstanceCmd() {
-  if (!doc_.has(returnTo_)) return E_NOT_FOUND;
-  Guid back = returnTo_;
-  setSelection({back});
+  std::vector<Guid> back;
+  for (Guid g : returnTo_)
+    if (doc_.has(g)) back.push_back(g);
+  if (back.empty()) return E_NOT_FOUND;
+  // Figma's selectInstances(instanceGUIDs, true): every instance selected again and brought into view.
+  setSelection(back);
   zoomToSelection();
-  navMain_ = returnTo_ = kNoGuid;
+  navMain_ = kNoGuid;
+  returnTo_.clear();
   events_.navigation = true;
   return OK;
 }
@@ -1831,6 +1936,10 @@ Status Editor::setComponentProperty(Guid ref, const std::string& prop, const jso
       if (!value.isString()) return refuse(refusal::kValueIncompatible);
       v = textValue(value.string);
       break;
+    case ComponentPropType::NUMBER:
+      if (!propNumber(value, v.floatValue)) return refuse(refusal::kValueIncompatible);
+      v.hasFloat = true;
+      break;
     case ComponentPropType::INSTANCE_SWAP: {
       bool ok = false;
       Guid g = value.isString() ? Guid::parse(value.string, &ok) : Guid{};
@@ -1926,6 +2035,11 @@ Status Editor::addComponentProperty(Guid ref, const CommandArgs& args) {
       break;
     case ComponentPropType::TEXT: d.initialValue = textValue(dv && dv->isString() ? dv->string : "Text"); break;
     case ComponentPropType::VARIANT: d.initialValue = textValue(dv && dv->isString() ? dv->string : "Default"); break;
+    case ComponentPropType::NUMBER:
+      // Figma's default: 0 (checkDefaultValue refused a value that isn't a number).
+      d.initialValue.hasFloat = true;
+      if (!dv || !propNumber(*dv, d.initialValue.floatValue)) d.initialValue.floatValue = 0;
+      break;
     case ComponentPropType::INSTANCE_SWAP:
     case ComponentPropType::SLOT: {
       bool ok = false;
@@ -2002,7 +2116,9 @@ Status Editor::editComponentProperty(Guid ref, const CommandArgs& args) {
   if (const json::Value* dv = arg(args, "defaultValue")) {
     if (it->type == ComponentPropType::BOOL && dv->isBool()) it->initialValue.hasBool = true, it->initialValue.boolValue = dv->boolean;
     else if ((it->type == ComponentPropType::TEXT || it->type == ComponentPropType::VARIANT) && dv->isString()) it->initialValue = textValue(dv->string);
-    else if (dv->isString()) {
+    else if (it->type == ComponentPropType::NUMBER) {
+      if (propNumber(*dv, it->initialValue.floatValue)) it->initialValue.hasFloat = true;
+    } else if (dv->isString()) {
       bool ok = false;
       Guid g = Guid::parse(dv->string, &ok);
       if (ok) it->initialValue.guidValue = g;
@@ -2481,6 +2597,11 @@ Status Editor::checkDefaultValue(Guid owner, ComponentPropType type, const json:
       if (blank(dv->string)) return refuse(refusal::kDefaultEmpty);
       if (hasVariantSeparator(dv->string)) return refuse(refusal::kVariantValueInvalid);
       break;
+    case ComponentPropType::NUMBER: {
+      float x = 0;
+      if (!propNumber(*dv, x)) return refuse(refusal::kValueIncompatible);
+      break;
+    }
     case ComponentPropType::INSTANCE_SWAP: {
       if (!dv->isString()) return refuse(refusal::kValueIncompatible);
       if (blank(dv->string)) return refuse(refusal::kDefaultEmpty);
@@ -2665,45 +2786,48 @@ bool validVariantPairs(const std::vector<std::pair<std::string, std::string>>& p
 
 }  // namespace
 
-bool Editor::variantConflicts(Guid v) const {
-  const Node* vn = doc_.get(v);
-  Guid set = setOf(v);
-  if (!vn || set == kNoGuid || vn->props.type != NodeType::SYMBOL) return false;
-  const std::vector<ComponentPropDef>& defs = doc_.get(set)->props.comp().componentPropDefs;
-  auto valueOf = [&](const NodeProps& p, Guid def) -> const std::string* {
-    for (const VariantPropSpec& s : p.comp().variantPropSpecs)
-      if (s.propDefId == def) return &s.value;
-    return nullptr;
-  };
-  // The name says its values: every pair a Variant property with that value, and nothing else.
-  std::vector<std::pair<std::string, std::string>> pairs;
-  if (!parseVariantName(vn->props.name, pairs) || !validVariantPairs(pairs)) return true;
-  size_t specs = 0;
-  for (const ComponentPropDef& d : defs)
-    if (d.type == ComponentPropType::VARIANT && valueOf(vn->props, d.id)) specs++;
-  if (specs != pairs.size()) return true;
-  for (const auto& [k, value] : pairs) {
-    const ComponentPropDef* def = nullptr;
-    for (const ComponentPropDef& d : defs)
-      if (d.type == ComponentPropType::VARIANT && d.name == k) def = &d;
-    const std::string* spec = def ? valueOf(vn->props, def->id) : nullptr;
-    if (!spec || *spec != value) return true;
-  }
-  // No other variant with the same values.
-  for (Guid o : doc_.children(set)) {
-    const Node* on = o == v || o.isDerived() ? nullptr : doc_.get(o);
-    if (!on || on->props.type != NodeType::SYMBOL) continue;
-    bool same = true;
-    for (const ComponentPropDef& d : defs) {
-      if (d.type != ComponentPropType::VARIANT) continue;
-      const std::string* a = valueOf(vn->props, d.id);
-      const std::string* b = valueOf(on->props, d.id);
-      same &= (a ? *a : std::string()) == (b ? *b : std::string());
-      if (!same) break;
+std::vector<std::pair<Guid, VariantError>> Editor::variantErrors(Guid set) const {
+  std::vector<std::pair<Guid, VariantError>> out;
+  const Node* sn = doc_.get(set);
+  if (!sn || !sn->props.isComponentSet()) return out;
+  std::vector<std::string> props;  // the set's Variant properties
+  for (const ComponentPropDef& d : sn->props.comp().componentPropDefs)
+    if (d.type == ComponentPropType::VARIANT) props.push_back(d.name);
+  // Figma reads a variant's values from its name ("Property=Value, …", in any order); one parse per variant, the
+  // repeats counted by their values in the set's property order.
+  std::vector<std::string> keys;
+  std::map<std::string, int> seen;
+  for (Guid v : doc_.children(set)) {
+    const Node* vn = v.isDerived() ? nullptr : doc_.get(v);
+    if (!vn || vn->props.type != NodeType::SYMBOL) continue;
+    std::vector<std::pair<std::string, std::string>> pairs;
+    VariantError err = VariantError::NONE;
+    std::string key;
+    if (!parseVariantName(vn->props.name, pairs) || !validVariantPairs(pairs)) {
+      err = VariantError::PARSE;
+    } else {
+      for (const std::string& p : props) {
+        auto it = std::find_if(pairs.begin(), pairs.end(), [&](const auto& kv) { return kv.first == p; });
+        if (it == pairs.end()) err = VariantError::MISSING_PROPERTIES;
+        key += (it == pairs.end() ? std::string() : it->second) + '\x1f';
+      }
+      seen[key]++;
     }
-    if (same) return true;
+    out.push_back({v, err});
+    keys.push_back(std::move(key));
   }
-  return false;
+  // Values another variant has too: the worse error wins over a missing property.
+  for (size_t i = 0; i < out.size(); i++)
+    if (out[i].second != VariantError::PARSE && seen[keys[i]] > 1) out[i].second = VariantError::DUPLICATE_STATE;
+  return out;
+}
+
+VariantError Editor::variantError(Guid v) const {
+  Guid set = setOf(v);
+  if (set == kNoGuid) return VariantError::NONE;
+  for (const auto& [g, err] : variantErrors(set))
+    if (g == v) return err;
+  return VariantError::NONE;
 }
 
 void Editor::backfillVariantNames() {

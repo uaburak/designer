@@ -114,7 +114,7 @@ enum class TextCase : uint8_t { ORIGINAL = 0, UPPER = 1, LOWER = 2, TITLE = 3, S
 enum class TextDecoration : uint8_t { NONE = 0, UNDERLINE = 1, STRIKETHROUGH = 2 };
 
 // Components (docs/schema.md §5.5).
-enum class ComponentPropType : uint8_t { BOOL = 0, TEXT = 1, INSTANCE_SWAP = 3, VARIANT = 4, SLOT = 7 };
+enum class ComponentPropType : uint8_t { BOOL = 0, TEXT = 1, INSTANCE_SWAP = 3, VARIANT = 4, NUMBER = 5, SLOT = 7 };
 // schema VariableField: which node field a parameterConsumptionMap entry binds.
 enum class VariableField : uint8_t {
   MISSING = 0, CORNER_RADIUS = 1, PARAGRAPH_SPACING = 2, PARAGRAPH_INDENT = 3, STROKE_WEIGHT = 4, STACK_SPACING = 5,
@@ -193,7 +193,7 @@ ENG_ENUM_NAMES(TextAutoResize, "NONE", "WIDTH_AND_HEIGHT", "HEIGHT")
 ENG_ENUM_NAMES(TextTruncation, "DISABLED", "ENDING")
 ENG_ENUM_NAMES(TextCase, "ORIGINAL", "UPPER", "LOWER", "TITLE", "SMALL_CAPS", "SMALL_CAPS_FORCED")
 ENG_ENUM_NAMES(TextDecoration, "NONE", "UNDERLINE", "STRIKETHROUGH")
-ENG_ENUM_NAMES(ComponentPropType, "BOOL", "TEXT", "", "INSTANCE_SWAP", "VARIANT", "", "", "SLOT")
+ENG_ENUM_NAMES(ComponentPropType, "BOOL", "TEXT", "", "INSTANCE_SWAP", "VARIANT", "NUMBER", "", "SLOT")
 ENG_ENUM_NAMES(VariableField, "MISSING", "CORNER_RADIUS", "PARAGRAPH_SPACING", "PARAGRAPH_INDENT", "STROKE_WEIGHT", "STACK_SPACING",
                "STACK_PADDING_LEFT", "STACK_PADDING_TOP", "STACK_PADDING_RIGHT", "STACK_PADDING_BOTTOM", "VISIBLE", "TEXT_DATA",
                "WIDTH", "HEIGHT", "RECTANGLE_TOP_LEFT_CORNER_RADIUS", "RECTANGLE_TOP_RIGHT_CORNER_RADIUS",
@@ -648,18 +648,21 @@ struct TextData {
 
 // ---- Components (docs/schema.md §5) ----
 
-// schema ComponentPropValue: a BOOL, TEXT (TextData), or GUID (INSTANCE_SWAP: a SYMBOL; SLOT: a content FRAME) value.
+// schema ComponentPropValue: a BOOL, TEXT (TextData), NUMBER (floatValue) or GUID (INSTANCE_SWAP: a SYMBOL; SLOT: a
+// content FRAME) value.
 struct ComponentPropValue {
   bool hasBool = false, boolValue = false;
   bool hasText = false;
   TextData textValue;
   Guid guidValue = kNoGuid;
+  bool hasFloat = false;
+  float floatValue = 0;
   std::string extra;  // other members, kiwi bytes
   bool operator==(const ComponentPropValue& o) const {
     return hasBool == o.hasBool && boolValue == o.boolValue && hasText == o.hasText && textValue == o.textValue &&
-           guidValue == o.guidValue && extra == o.extra;
+           guidValue == o.guidValue && hasFloat == o.hasFloat && floatValue == o.floatValue && extra == o.extra;
   }
-  bool empty() const { return !hasBool && !hasText && guidValue == kNoGuid && extra.empty(); }
+  bool empty() const { return !hasBool && !hasText && guidValue == kNoGuid && !hasFloat && extra.empty(); }
 };
 // schema InstanceSwapPreferredValue.
 struct PreferredValue {

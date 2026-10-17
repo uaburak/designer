@@ -1344,7 +1344,8 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
             const ComponentPropDef* def = owner != kNoGuid ? findDef(owner, t.member) : nullptr;
             if (!def) continue;
             if (var != kNoGuid && !((def->type == ComponentPropType::BOOL && type == VariableResolvedType::BOOLEAN) ||
-                                    (def->type == ComponentPropType::TEXT && type == VariableResolvedType::STRING)))
+                                    (def->type == ComponentPropType::TEXT && type == VariableResolvedType::STRING) ||
+                                    (def->type == ComponentPropType::NUMBER && type == VariableResolvedType::FLOAT)))
               continue;
             Guid defId = def->id;
             NodeChange d = NodeChange::changed(owner);
@@ -1362,6 +1363,8 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
                   e.initialValue.textValue = TextData{};
                   e.initialValue.textValue.characters = rv.s;
                 }
+                if (e.type == ComponentPropType::NUMBER && rv.kind == Resolved::Kind::FLOAT)
+                  e.initialValue.hasFloat = true, e.initialValue.floatValue = static_cast<float>(std::round(rv.f * 100) / 100);
               }
             }
             write(d);

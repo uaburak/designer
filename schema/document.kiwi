@@ -1921,16 +1921,17 @@ enum ComponentPropType {
   TEXT = 1;
   INSTANCE_SWAP = 3;
   VARIANT = 4;
+  NUMBER = 5;              // atlas 10 §5.2: a number (2 decimals) that drives a text layer (TEXT_DATA), FLOAT variables
   SLOT = 7;
   EASING = 8;              // Motion: an animation preset's Easing prop (ComponentPropValue.easingData)
-  // Dropped: COLOR=2, NUMBER=5, IMAGE=6, COLOR_ARRAY=9 .. (code/Sites parameters).
+  // Dropped: COLOR=2, IMAGE=6 (its value encoding is unverified), COLOR_ARRAY=9 .. (code/Sites parameters).
 }
 
 message ComponentPropValue {
   bool boolValue = 1;
   TextData textValue = 2;
   GUID guidValue = 3;      // INSTANCE_SWAP: a SYMBOL; SLOT: the slot content FRAME (isSlotContent)
-  float floatValue = 4;    // a shader's NUMBER parameter (its COLOR ones are the assignment's varValue)
+  float floatValue = 4;    // NUMBER; a shader's NUMBER parameter (its COLOR ones are the assignment's varValue)
   EasingData easingData = 5; // EASING: an animation preset's easing prop (Motion)
 }
 

@@ -58,7 +58,6 @@ import { ColorProfileDialog } from "./ColorProfileDialog";
 import { GridTrackEditor } from "./panels/design/Grid";
 import { ImagePlacer, attachImageDrop } from "./canvas/ImagePlacer";
 import { attachViewInsets, insetsOf } from "./canvas/viewInsets";
-import { ReturnToInstance } from "./canvas/ReturnToInstance";
 import { ShortcutsPanel } from "./shortcuts/ShortcutsPanel";
 import { MotionMode } from "./motion/MotionMode";
 import { attachUsageTracking } from "./shortcuts/usage";
@@ -438,7 +437,7 @@ function CanvasLayers() {
 }
 
 /**
- * Over the visible part of the canvas (between the panels): the rulers, "Return to instance", the minimized cards.
+ * Over the visible part of the canvas (between the panels): the rulers, the minimized cards.
  * (Not the bottom toolbar: it is centred on the window, `Overlays`.)
  */
 function CanvasOverlays() {
@@ -450,7 +449,6 @@ function CanvasOverlays() {
       <FocusBar />
       <ReadyForDev />
       <Rulers />
-      <ReturnToInstance />
       {minimized && <MinimizedPanels />}
     </>
   );

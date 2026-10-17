@@ -465,10 +465,32 @@ export const editor: Record<string, string> = {
   "Cannot change defaultValue of a variant property": "Varyant özelliğinin varsayılan değeri değiştirilemez",
   "Cannot change defaultValue of a slot component property": "Yuva özelliğinin varsayılan değeri değiştirilemez",
   "Can only add variant property to a component set": "Varyant özelliği yalnızca bir bileşen kümesine eklenebilir",
-  // Round 17 B: conflicting variants (the Design panel) and publish errors (Publish library)
-  "{n} variant has conflicting properties": "{n} varyantın özellikleri çakışıyor",
-  "{n} variants have conflicting properties": "{n} varyantın özellikleri çakışıyor",
-  "This variant's name doesn't match its properties, or another variant has the same values": "Bu varyantın adı özellikleriyle eşleşmiyor ya da başka bir varyant aynı değerlere sahip",
+  // Atlas wave 2: Figma's variant errors (the Design panel) — Round 17 B: publish errors (Publish library)
+  "Some layers have invalid names": "Bazı katmanların adları geçersiz",
+  "Property=Value, Property=Value": "Özellik=Değer, Özellik=Değer",
+  "Select invalid variants": "Geçersiz varyantları seç",
+  "Some variants have the same property values applied": "Bazı varyantlara aynı özellik değerleri uygulanmış",
+  "Select conflicting variants": "Çakışan varyantları seç",
+  "Some variants are missing properties": "Bazı varyantlarda özellikler eksik",
+  "Components with more than 1000 variants may experience performance issues": "1000'den fazla varyantı olan bileşenlerde performans sorunları yaşanabilir",
+  "This layer has an invalid name": "Bu katmanın adı geçersiz",
+  "These layers have invalid names": "Bu katmanların adları geçersiz",
+  "The properties and values of this variant are conflicting": "Bu varyantın özellikleri ve değerleri çakışıyor",
+  "The properties and values of these variants are conflicting": "Bu varyantların özellikleri ve değerleri çakışıyor",
+  "This variant is missing one or more properties": "Bu varyantta bir veya daha fazla özellik eksik",
+  "These variants are missing one or more properties": "Bu varyantlarda bir veya daha fazla özellik eksik",
+  // Atlas wave 2: an instance of a deleted variant (Figma's missing variant panel)
+  "Missing variant": "Eksik varyant",
+  "The selected variant is missing in the component": "Seçili varyant bileşende yok",
+  // Atlas wave 2: the Properties panel's row overflow
+  "Show {n} more": "{n} tane daha göster",
+  // Atlas wave 2: the swap picker's sections
+  "Recently used": "Son kullanılanlar",
+  "Search preferred": "Tercih edilenlerde ara",
+  "No recently used components": "Son kullanılan bileşen yok",
+  // Atlas wave 2: Reset ▸ one property's value; Reset variable modes (its own action)
+  "Reset {property}": "Sıfırla: {property}",
+  "Reset variable modes": "Değişken modlarını sıfırla",
   "Unused property: {name}": "Kullanılmayan özellik: {name}",
   "Property has the name of a variant property: {name}": "Özellik bir varyant özelliğiyle aynı adı taşıyor: {name}",
   "Conflicting property names: {name}": "Çakışan özellik adları: {name}",

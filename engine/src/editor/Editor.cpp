@@ -1110,7 +1110,8 @@ void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDeri
   overrideIndex_.clear();
   extensionSyncDirty_.clear();
   assetKeysDirty_ = true;
-  navMain_ = returnTo_ = kNoGuid;
+  navMain_ = kNoGuid;
+  returnTo_.clear();
   if (text_.node != kNoGuid) events_.textEdit = true;
   text_ = TextSession{};
   hasLibraryCopies_ = false;
